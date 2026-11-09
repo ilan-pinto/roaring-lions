@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   formations,
+  grades,
   maps,
   missions,
   paletteColor,
@@ -129,6 +130,29 @@ describe('formations is pinned to the directory it comes from', () => {
   });
 });
 
+describe('grades is pinned to the directory it comes from', () => {
+  // GH-943 L2: the same shape as the formations pin above. data/grades/*.json is read by nobody but this
+  // hand-kept array, so a file that ships without an import line is a grade `gradeOf` can never find:
+  // `&grade=<id>` would warn "unknown grade" for a file that is sitting right there.
+  const gradesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data/grades');
+
+  it('carries every grade file on disk, by id', () => {
+    const onDisk = readdirSync(gradesDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => JSON.parse(readFileSync(path.join(gradesDir, f), 'utf8')).id as string)
+      .sort();
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect(grades.map((g) => g.id).sort()).toEqual(onDisk);
+  });
+
+  it('registers each of them exactly once, in sorted order, and ships no day grade (day is the identity)', () => {
+    const ids = grades.map((g) => g.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual([...ids].sort());
+    expect(ids).toEqual(['dawn', 'dusk']);
+  });
+});
+
 describe('vfxEmitters is pinned to the directory it comes from', () => {
   // WHY THIS EXISTS, and it is the `SPRITE_MAP` failure in a second place.
   // `data/vfx/catastrophic_kill.json` shipped, validated against the schema,
@@ -160,6 +184,30 @@ describe('vfxEmitters is pinned to the directory it comes from', () => {
   it('registers each of them exactly once', () => {
     const ids = vfxEmitters.map((e) => (e as { id: string }).id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('carries vehicle_mud (GH-871 P4): the rain`s spray, by name, with the plan`s numbers', () => {
+    // The renderer swaps `vehicle_dust` for it BY NAME under rain; nothing
+    // dispatches by the `vehicle_move` trigger, so an unregistered file is inert.
+    const mud = vfxEmitters.find((e) => (e as { id: string }).id === 'vehicle_mud') as
+      | { trigger: string; layer: string; particles: Record<string, unknown>[] }
+      | undefined;
+    expect(mud).toBeDefined();
+    expect(mud?.trigger).toBe('vehicle_move');
+    expect(mud?.layer).toBe('below_units');
+    expect(mud?.particles).toHaveLength(1);
+    expect(mud?.particles[0]).toMatchObject({
+      count: [2, 3],
+      lifetime_ms: [225, 350],
+      emit_over_ms: 250,
+      speed_tiles_s: [0.2, 0.5],
+      cone_deg: 35,
+      drag: 0.9,
+      size_px: [3, 5],
+      size_over_life: [0.6, 0.8, 0.9],
+      color_over_life: ['mud.2', 'mud.2', 'mud.3'],
+      alpha_over_life: [0.5, 0.3, 0],
+    });
   });
 
   it('carries the blast emitter with the three blocks the blast reads', () => {

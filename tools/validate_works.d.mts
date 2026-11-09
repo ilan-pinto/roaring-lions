@@ -12,3 +12,6 @@ export declare function worksSymbolFailures(
   maps: { file: string; rows: string[] }[],
   terrainSymbols: Set<string>
 ): string[];
+export declare function productionTypeFailures(catalogue: unknown, kdfRoles: ReadonlySet<string>, file: string): string[];
+export declare function productionPlacementFailures(mission: unknown, catalogue: unknown, file: string): string[];
+export declare function productionWorksCount(mission: unknown, catalogue: unknown): number;

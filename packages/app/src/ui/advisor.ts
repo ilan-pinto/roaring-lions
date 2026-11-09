@@ -130,6 +130,9 @@ export function describeCommand(cmd: Command): string {
     case 'cancelConstruct': return t('net.advisor.cmd.cancelConstruct');
     case 'raiseWorks': return t('net.advisor.cmd.construct', { n, x: cmd.x, y: cmd.y });
     case 'cancelWorks': return t('net.advisor.cmd.cancelConstruct');
+    case 'setupReady': return t('net.advisor.cmd.setupReady');
+    case 'fortify': return t('net.advisor.cmd.fortify', { x: cmd.x, y: cmd.y });
+    case 'unfortify': return t('net.advisor.cmd.unfortify', { x: cmd.x, y: cmd.y });
   }
 }
 

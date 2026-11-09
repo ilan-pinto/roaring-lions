@@ -25,6 +25,13 @@
       "description": "Filled in this order, each behind the last.",
       "items": { "$ref": "#/$defs/element" }
     },
+    "exclude": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/placedClass" },
+      "description": "Classes the formation LEAVES OUT (GH-859, lead 1 Nov). A unit of one of these, ordered with the formation, takes the plain group order to the same click instead: it is not seated in the template, does not count toward `min_members`, joins no group, marches to no checkpoint and answers no call. tools/validate_formations.mjs refuses a class that is also named by an element (the element would be dead data)."
+    },
     "march": {
       "type": "object",
       "additionalProperties": false,
@@ -58,6 +65,7 @@
     }
   },
   "$defs": {
+    "placedClass": { "enum": ["armour", "light_vehicle", "recon", "infantry", "support_weapon", "medic", "aircraft"] },
     "class": { "enum": ["armour", "light_vehicle", "recon", "infantry", "support_weapon", "medic", "aircraft", "rest"] },
     "element": {
       "type": "object",

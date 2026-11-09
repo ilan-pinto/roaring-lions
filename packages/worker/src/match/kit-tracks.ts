@@ -30,4 +30,14 @@ export const KIT_TRACKS: Readonly<Record<string, Readonly<Record<string, number>
   heli_peten_gunship: { armour: 3, sensors: 3, firepower: 3 },
   heli_yanshuf: { armour: 3, sensors: 3, firepower: 3 },
   demo_tzav: { armour: 3, firepower: 3 },
+  // GH-1077: the nine bought-only units that shipped with no tracks (WP8).
+  mbt_lavi_camo: { armour: 3, sensors: 3, firepower: 3 },
+  spg_long_range: { armour: 3, sensors: 3 },
+  spg_cluster: { armour: 3, sensors: 3 },
+  at_nlos_team: { armour: 3, sensors: 3, firepower: 3 },
+  veh_ambulance: { armour: 3, sensors: 3 },
+  air_medevac_heli: { armour: 3, sensors: 3 },
+  inf_medic_squad: { armour: 3, sensors: 3 },
+  inf_grenadier: { armour: 3, sensors: 3, firepower: 3 },
+  ugv_recon_dog: { armour: 3, sensors: 3 },
 };

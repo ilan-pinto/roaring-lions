@@ -43,7 +43,7 @@ threatening hit + keep the fallback + Standoff stays report-only.**
 3. **Q3 (Standoff): do not gate it.** Keep it report-only. It fails at every
    option measured, by two orders of magnitude (a cell kills an APS Lavi in 0.0-0.5%
    of 200 engagements; it needs ~23%), because the cell sees 10 tiles, the Lavi
-   12 with thermal, and the Trophy takes 1.05 of the 1.32 missiles a cell gets off.
+   12 (`sight_tiles`; thermal is display-only), and the Trophy takes 1.05 of the 1.32 missiles a cell gets off.
    That is doctrine and data (spotting, APS saturation), not vehicle health (§6).
 4. **Q4 (cannot-penetrate fallback): keep it.** Removing it, or restricting it
    to targets with any real chance (P(pen) >= 0.005), fails §5.7 (airDefence (a)
@@ -334,7 +334,7 @@ tiles, a live shipped Lavi (Trophy), the cell withdrawn after its third launch:
 
 The cell needs P(kill) above ~23% to win the exchange (235 against 906 at a 90%
 death rate); it has 0.0-0.5% under every option measured, today included. The cause is not vehicle health: the cell's sight is 10
-tiles against the Lavi's 12 with thermal, its first launch multiplies its
+tiles against the Lavi's 12 (`sight_tiles`; thermal is display-only), its first launch multiplies its
 signature x5, and the Trophy takes 1.05 of its 1.32 missiles. Making one Kornet
 kill a Lavi would break the honest bar. **Recommendation: keep it report-only**,
 and open a doctrine/data issue (spotting for the cell, the Kornet's 14-tile range

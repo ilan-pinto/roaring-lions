@@ -13,6 +13,7 @@ import {
   creditsFor,
   creditInputFrom,
   type MissionJson,
+  type MissionEvent,
   type LedgerData,
   type TunnelRouteJson,
   type UnlockGate,
@@ -185,8 +186,13 @@ export interface RunRecord extends IntelRun {
   /** F4 Task 10 (R-F4-4): the most items side 0's production lines held at once over the run, the one
    *  in progress plus those waiting, summed across lines. Sampled every tick; report only. */
   maxQueue: number;
+  /** GH-277: numbers a plan recorded for this run through `runNotes` (the forward camp's completion second), carried to the
+   *  parent of a sweep with the rest of the record. Absent when the plan wrote none. */
+  notes?: Record<string, number>;
 }
 export const runLog: RunRecord[] = [];
+/** Written by a plan or its `onEvents` DURING a run; cleared when the next `run()` starts and copied into its record. */
+export const runNotes: Record<string, number> = {};
 
 /** What the run `run()` just logged earned in intel: the last entry of this process's own `runLog`. */
 export function lastIntelRun(): IntelRun {
@@ -202,6 +208,14 @@ let sweepQuiet = false;
 export function setSweep(seed: number | undefined, quiet: boolean): void {
   sweepSeed = seed;
   sweepQuiet = quiet;
+}
+
+/** Set only by a ladder or probe tool (`eq_ladder.ts`): sees every mission event `run()` steps past, in
+ *  order, with the runtime and sim at that tick. Read-only by contract; `run()` prints and records
+ *  exactly what it did before. */
+let missionEventTap: ((evs: readonly MissionEvent[], rt: MissionRuntime, sim: Sim) => void) | undefined;
+export function tapMissionEvents(fn: ((evs: readonly MissionEvent[], rt: MissionRuntime, sim: Sim) => void) | undefined): void {
+  missionEventTap = fn;
 }
 
 export function run(
@@ -270,6 +284,7 @@ export function run(
    *  actually DID (rounds fired, kills, contacts) and not merely that it was on the map. */
   onEvents?: (evs: readonly SimEvent[]) => void
 ): LedgerData {
+  for (const k of Object.keys(runNotes)) delete runNotes[k];
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
   // Matches the app. `spawn` never reuses a dead slot, so this is a budget for
@@ -342,6 +357,7 @@ export function run(
         string,
         | {
             faction: string;
+            role?: string;
             unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number };
             cost: { logistics: number; build_time_s?: number; population?: number };
           }
@@ -352,6 +368,8 @@ export function run(
         logistics: d.cost.logistics,
         buildTimeS: d.cost.build_time_s ?? 20,
         population: d.cost.population ?? 1,
+        // GH-277: a production work's `production.roles` reads it.
+        ...(d.role === undefined ? {} : { role: d.role }),
         // `bought` resolved here as in `main.ts`'s `kdfUnlockGate`: `requestBuild` reads THIS
         // gate through `buildBlockedReason`, so without it a purchase opened `resolveUpgrades`
         // and stayed closed to the build queue.
@@ -414,7 +432,9 @@ export function run(
     }
     const evs = sim.tick();
     onEvents?.(evs);
-    for (const me of rt.step(evs)) {
+    const mevs = rt.step(evs);
+    missionEventTap?.(mevs, rt, sim);
+    for (const me of mevs) {
       if (me.kind === 'missionEnd') produced = me.ledger;
       else if (me.kind === 'intelEarned') intelEventSum += me.amount;
     }
@@ -461,7 +481,7 @@ export function run(
     mission.resources === undefined
       ? undefined
       : { start: mission.resources.logistics_start ?? 0, earned: rt.logisticsEarned(0), zoneEarned: rt.zoneLogisticsEarned(0), held: rt.logistics };
-  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue });
+  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue, ...(Object.keys(runNotes).length > 0 ? { notes: { ...runNotes } } : {}) });
   if (rt.stars < expectStar) {
     console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;

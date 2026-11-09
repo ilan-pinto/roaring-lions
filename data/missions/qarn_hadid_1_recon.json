@@ -44,7 +44,8 @@
     { "unit": "jeep_shoded", "count": 1, "at": [22, 43] },
     { "unit": "inf_squad", "count": 2, "at": [24, 43], "from_ledger": true },
     { "unit": "at_team", "count": 1, "at": [26, 43], "from_ledger": true },
-    { "unit": "apc_eitan", "count": 1, "at": [25, 44] }
+    { "unit": "apc_eitan", "count": 1, "at": [25, 44] },
+    { "unit": "inf_medic_squad", "count": 1, "at": [23, 41] }
   ],
   "objectives": [
     { "id": "find_the_high_gate_post", "type": "locate", "primary": true, "target": "qh_watch_shoulder",

@@ -7,8 +7,9 @@ from the SHIPPED `mbt_lavi.glb`, at 0 credits.
 Writes `art/meshes/vehicles/mbt_lavi_camo.glb` in the Lavi's 6.32 m export
 frame and `art/src/vehicles/mbt_lavi_camo.blend` (the committed source). Then,
 in order: `pnpm rescale:meshes -- --id=mbt_lavi_camo` (x1.18),
-`pnpm running-gear:meshes -- --id=mbt_lavi_camo`, `pnpm wreck:meshes --
---id=mbt_lavi_camo`, `pnpm damage:meshes -- --id=mbt_lavi_camo`,
+`pnpm running-gear:meshes -- --id=mbt_lavi_camo`, `pnpm mark:meshes --
+--id=mbt_lavi_camo` (L3 GH-943; the shipped Lavi's own mark is dropped on import),
+`pnpm wreck:meshes -- --id=mbt_lavi_camo`, `pnpm damage:meshes -- --id=mbt_lavi_camo`,
 `pnpm encode:meshes`, `pnpm validate:meshes`. No kit: the unit declares no
 upgrade tracks, and the imported `kit_*` nodes (where the Lavi's APS lives)
 are stripped.
@@ -434,6 +435,7 @@ def export():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=SRC, import_scene_extras=True)
     vehicle_rescale.unscale_imported(log)
+    vehicle_rescale.drop_imported_mark(log)
     kit = [o for o in bpy.data.objects if o.name.startswith("kit_")]
     for o in kit:
         bpy.data.objects.remove(o, do_unlink=True)

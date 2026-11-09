@@ -17,18 +17,33 @@ import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flo
 import { assignFormation, type FormationUnit } from './formation';
 import {
   FM_ARRIVE_AMBUSH,
+  FM_CALL_CASUALTY,
+  FM_CALL_CONTACT,
+  FM_CALL_STAY,
+  FM_CALL_STRIKE,
   FM_CLASS_NONE,
+  FM_CONTACT,
+  FM_DRILL_HALT,
+  FM_DRILL_NONE,
+  FM_DRILL_PRESS,
   FM_DRILL_SPRING,
+  FM_FACE_TRAVEL,
   FM_FACING_NONE,
   FM_MARCH,
+  FM_PACE_NONE,
   FM_SHAPE_RING,
   FM_SPRUNG,
   FM_VERB_ATTACK,
   FM_VERB_EITHER,
   FM_VERB_MOVE,
+  aircraftCallOf,
   assignTemplate,
+  checkpointsOf,
   compileFormation,
+  eighthToward,
+  fmExcludes,
   formationClassOf,
+  routeWalk,
   type CompiledFormation,
   type FormationJson,
   type TemplateSlot,
@@ -178,6 +193,8 @@ import {
   AIR_LIFTING,
   AIR_LAND_TICKS,
   AIR_LIFT_TICKS,
+  AIR_GROUND_MIN_TICKS,
+  LZ_SEARCH_TILES,
   AIR_WANT_NONE,
   AIR_WANT_LOAD,
   AIR_WANT_UNLOAD,
@@ -205,6 +222,9 @@ import {
   MAX_FORMATION_TYPES,
   MAX_FORMATION_GROUPS_PER_SIDE,
   type SupportKind,
+  SPREAD_REACH_SQ,
+  SETUP_BELL_DELAY_TICKS,
+  SETUP_PLACEMENTS_PER_SIDE,
 } from './tuning';
 import { bestCoverTile, figuresStanding, rescuePriority, scaleDown, scarredShare } from './wounds';
 
@@ -340,6 +360,10 @@ export interface UnitTypeJson {
       base_pk?: number;
       magazine?: number;
       reload_s?: number;
+      /** GH-884: rounds held beyond the ready magazine. Absent = the unlimited stock (today's behaviour, byte for byte). */
+      reserve?: number;
+      /** GH-884: one round comes back per this many seconds of quiet. Absent = none comes back. */
+      rearm_s?: number;
       ineffective_vs?: string[];
     };
   };
@@ -411,6 +435,18 @@ export const DOMAIN_VEHICLE = 1;
  * ground can this unit be put down on" is unchanged.
  */
 export const DOMAIN_AIR = 2;
+
+/** GH-859 P1b: `fmDuty` of a formation member (Ruling 18). NONE: marching with its group. WAIT: at the
+ *  checkpoint it was told to wait at, leg still live. OUT: on a call (an aircraft sortie, a medic's
+ *  rescue). RETURN: flying or walking home from one. */
+export const FM_DUTY_NONE = 0;
+export const FM_DUTY_WAIT = 1;
+export const FM_DUTY_OUT = 2;
+export const FM_DUTY_RETURN = 3;
+/** GH-859 P1b: `fgPending` bits. DRILL is P1a's single value (a spring or a first contact: the drill runs);
+ *  CALL asks the group's aircraft and medics to answer. Both may be set. */
+export const FM_PEND_DRILL = 1;
+export const FM_PEND_CALL = 2;
 const DOMAIN_COUNT = 3;
 
 /**
@@ -688,6 +724,9 @@ export interface UnitType {
   /** GH-859 P1a: the combat-formation class, FM_CLASS_* (`formation-template.ts`), 255 = none.
    *  `formationClassOf(json, wheeled)`, read once here and never again. */
   fmClass: number;
+  /** GH-859 P1b: what an aircraft does when its group calls it, FM_CALL_STAY / STRIKE / SPOT
+   *  (`aircraftCallOf`, read once here). Every non-air type is FM_CALL_STAY: a ground unit has no call. */
+  fmCall: number;
   /**
    * Vehicle spacing (GH-421, V-R1): the hull as a capsule, Q16.16 tiles, all 0 when the type
    * declares no `mobility.footprint`. A unit separates if and only if `sepHalfWid > 0` and it is
@@ -794,6 +833,10 @@ export interface UnitType {
   apsPk: Fx;
   apsMagazine: number;
   apsReloadTicks: number;
+  /** GH-884: rounds held beyond the magazine, -1 when the type has no `reserve` (the unlimited stock). */
+  apsReserve: number;
+  /** GH-884: quiet ticks per returned round, 0 when the type never rearms. */
+  apsRearmTicks: number;
   apsIneffectiveMask: number;
   speed: Fx;
   stepPerTick: Fx;
@@ -1055,6 +1098,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     isAir,
     wheeled,
     fmClass: formationClassOf(json, wheeled),
+    fmCall: isAir ? aircraftCallOf(json) : FM_CALL_STAY,
     sepHalfLen,
     sepHalfWid,
     sepCentre,
@@ -1095,6 +1139,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     apsPk: fx.from(aps?.base_pk ?? 0),
     apsMagazine: aps?.magazine ?? 0,
     apsReloadTicks: fx.toInt(fx.mul(fx.from(aps?.reload_s ?? 0), fx.fromInt(TICKS_PER_SECOND))),
+    apsReserve: aps !== undefined && aps.reserve !== undefined ? aps.reserve : -1,
+    apsRearmTicks: fx.toInt(fx.mul(fx.from(aps?.rearm_s ?? 0), fx.fromInt(TICKS_PER_SECOND))),
     apsIneffectiveMask: apsMask,
     speed,
     stepPerTick: fx.mul(speed, DT),
@@ -1176,9 +1222,16 @@ export type Command =
    *  whole command. */
   | { kind: 'setStance'; ids: number[]; stance: 'hold' | 'ambush'; radius?: Fx }
   | { kind: 'setStance'; ids: number[]; stance: 'patrol'; waypoints: [Fx, Fx][] }
-  | { kind: 'garrison'; ids: number[]; structure: number }
-  /** Climb aboard a vehicle with seats. */
-  | { kind: 'load'; ids: number[]; carrier: number }
+  /** `spread` (GH-972): a player's group order. The `ids` are shared out across `structure` and the nearest
+   *  open buildings in reach (`planGarrisonSpread`), and a unit that finds its building full (while walking
+   *  or at the door) goes to the nearest one with room (`redirectSpread`). Absent = today's order: every
+   *  unit walks to `structure`, and the overflow waits at its door. Scripted garrisons never set it. */
+  | { kind: 'garrison'; ids: number[]; structure: number; spread?: boolean }
+  /** Climb aboard a vehicle with seats.
+   *  `carriers` (GH-972): the other carriers the player had selected. With two or more ground carriers in
+   *  all (this one included) the riders are shared out across them by free seats (`planLoadSpread`), each
+   *  walking to its own. Absent = today's order: everyone boards `carrier`. */
+  | { kind: 'load'; ids: number[]; carrier: number; carriers?: number[] }
   /** Put the passengers down beside the vehicle. */
   | { kind: 'unload'; ids: number[] }
   /** Bought with intel: reveal everything hostile around a point. */
@@ -1266,16 +1319,47 @@ export type Command =
   | { kind: 'raiseWorks'; side: number; works: string; x: number; y: number; ids: number[] }
   /** The player's request to take down one of his own field-works sites (`site` is the works
    *  row). Runtime-run (`requestCancelWorks`), which queues the sim's `cancelConstruct`. */
-  | { kind: 'cancelWorks'; side: number; site: number };
+  | { kind: 'cancelWorks'; side: number; site: number }
+  /** Capture the flag v2 (GH-976): this side presses Ready. Both sides ready brings the bell forward to
+   *  `SETUP_BELL_DELAY_TICKS` later (`Sim.beginSetup`). A repeat, a bad side, or one after the bell is a no-op. */
+  | { kind: 'setupReady'; side: number }
+  /** Capture the flag v2 (GH-976): during the set-up, place one piece of `side`'s kit (`kit` is the slot of
+   *  `Sim.setSetupKit`) on integer tile (x, y). The sim answers `fortified` or `fortifyRefused` (`Sim.fortifyReason`). */
+  | { kind: 'fortify'; side: number; kit: number; x: number; y: number }
+  /** Capture the flag v2 (GH-976): during the set-up, take down the kit piece `side` placed on tile (x, y) and refund its
+   *  allowance (not the placement). The sim answers `unfortified` or `unfortifyRefused`. */
+  | { kind: 'unfortify'; side: number; x: number; y: number };
+
+/** The commands the sim drops while a set-up is active (R0.5): each could damage, or take a unit off the board, before
+ *  the bell. `support` is also dropped at the net layer; it is listed because the sim holds the invariant. The first
+ *  statement of `applyCommands`' per-command loop tests it, before any side effect. */
+export const SETUP_REFUSED_KINDS: ReadonlySet<Command['kind']> = new Set<Command['kind']>([
+  'smoke', 'demolish', 'chargeTunnel', 'attack', 'enterTunnel', 'vent', 'reveal', 'callStrike', 'support', 'construct', 'cancelConstruct',
+]);
+
+/** The set-up phase a world is built with (`Sim.beginSetup`). */
+export interface SetupSpec {
+  /** The tick the bell rings unless both sides Ready earlier: seconds x 20. > 0. */
+  readonly untilTick: number;
+  /** Per tile: 0 / 1 the side that may stand there before the bell, -1 the band. Length width*height. */
+  readonly region: Int8Array;
+}
 
 /** Why a field-works footprint is refused (`Sim.placementReason`), the first failing rule. */
 export type PlacementRefusal = 'off_map' | 'blocked' | 'no_footing' | 'not_level' | 'overlap' | 'seals_passage';
+
+/** Why a set-up kit piece is refused (`Sim.fortifyReason`), the first failing rule: the set-up's own checks, then the
+ *  footprint rules a field-works site obeys. */
+export type FortifyRefusal = PlacementRefusal | 'not_setup' | 'no_kit' | 'placements_spent' | 'outside_region' | 'banned' | 'occupied' | 'no_structure_slot';
 
 /** The seven commands the sim sets aside for the MissionRuntime to price and run (N2, F4, and
  *  field works' `raiseWorks`/`cancelWorks`): `queueCommand` never hands them to `applyCommands`. */
 export type RuntimeCommand = Extract<Command, { kind: 'build' | 'support' | 'cancelBuild' | 'setRally' | 'clearRally' | 'raiseWorks' | 'cancelWorks' }>;
 /** `takeRuntimeCommands`' answer when nothing is set aside: shared, frozen, no allocation. */
 const NO_RUNTIME_COMMANDS: readonly RuntimeCommand[] = Object.freeze([]);
+// applyMove's march bookkeeping for a plain order: shared, empty, never pushed to (GH-859 P1b).
+const NO_LEG_SLOTS: readonly Map<number, [number, number]>[] = Object.freeze([]);
+const NO_CHECKPOINT_TILES: readonly number[] = Object.freeze([]);
 
 /** The same command aimed at fewer units. A generic copy rather than an
  *  in-place splice, because the queued object belongs to the sender. */
@@ -1297,6 +1381,12 @@ export type ComponentResult =
 /** Every roll the model makes is on an event, in full, for the debug overlay.
  *  All numeric payloads are raw Q16.16 — the render side converts. */
 export type SimEvent =
+  | { kind: 'setupReady'; tick: number; side: 0 | 1 }
+  | { kind: 'setupBell'; tick: number }
+  | { kind: 'fortified'; tick: number; side: 0 | 1; kit: number; structure: number; x: number; y: number }
+  | { kind: 'fortifyRefused'; tick: number; side: number; kit: number; x: number; y: number; reason: FortifyRefusal }
+  | { kind: 'unfortified'; tick: number; side: 0 | 1; kit: number; structure: number; x: number; y: number }
+  | { kind: 'unfortifyRefused'; tick: number; side: number; x: number; y: number; reason: 'not_setup' | 'no_piece' | 'occupied' }
   | { kind: 'spawn'; tick: number; entity: number; typeId: string; side: number }
   | {
       kind: 'contact';
@@ -1358,9 +1448,22 @@ export type SimEvent =
   /** GH-859 P1a: an ambush formation's ring was discovered (a member sprang, or was fired on) and the
    *  whole group springs: `entity` is the first member to be fired on or to spring, `group` its row.
    *  Pushed once per group, when the springing is set in motion (during the tick of the hit or the
-   *  spring); `stepFormationSpring` clears the rest of the ring's stances at the start of the NEXT tick,
+   *  spring); `stepFormationContact` clears the rest of the ring's stances at the start of the NEXT tick,
    *  before combat, so the ring fires from that next tick. */
   | { kind: 'formationSprung'; tick: number; side: number; group: number; entity: number }
+  /** GH-859 P1b: a marching `halt` or `press` group made contact: `entity` is the first member to be fired on or to
+   *  fire, `x`/`y` the contact point (the source of the fire that hit it, or the target it fired at) and `drill` the
+   *  formation's `FM_DRILL_*`. Pushed once per group, on the tick of the contact; `stepFormationContact` runs the drill at
+   *  the start of the NEXT tick (a `spring` group raises `formationSprung` instead). */
+  | { kind: 'formationContact'; tick: number; side: number; group: number; entity: number; x: Fx; y: Fx; drill: number }
+  /** GH-859 P1b: a marching group's checkpoint was released: every member waiting at it goes on. `leg` is the
+   *  checkpoint released (1-based, the highest released so far) and `legs` the group's checkpoint count. Pushed
+   *  by `stepFormationMarch`, on the tick after the last arrival or `dress_s` after the first one. */
+  | { kind: 'formationReleased'; tick: number; side: number; group: number; leg: number; legs: number }
+  /** GH-859 P1b: a group member answered a call, or came home from one: `entity` is the aircraft (`strike`: an
+   *  attack-move to the contact tile, `spot`: a move there) or the foot medic (`casualty`: a rescue of a man who
+   *  went down), and `return` is either one sent back to where it left the march. One per answerer. */
+  | { kind: 'formationCall'; tick: number; side: number; group: number; entity: number; call: 'strike' | 'spot' | 'casualty' | 'return' }
   | { kind: 'strike'; tick: number; by: number; x: Fx; y: Fx; profile: number }
   | { kind: 'smokeLaid'; tick: number; by: number; x: Fx; y: Fx }
   | { kind: 'revealed'; tick: number; side: number; count: number }
@@ -1415,7 +1518,7 @@ export type SimEvent =
    *  bleeds no more. */
   | { kind: 'woundStabilised'; tick: number; entity: number; medic: number }
   /** GH-707 Task 6: wounded `entity` was carried within `admit_radius` of aid structure
-   *  `structure` owned by the carrier's side `side` (the ADMITTING side, which Conduct reads)
+   *  `structure` working for the carrier's side `side` (owned by it, or a neutral camp that produces for it) (the ADMITTING side, which Conduct reads)
    *  and is under treatment there: `alive` 0, `removed` 1, no `destroyed`. */
   | { kind: 'woundAdmitted'; tick: number; entity: number; structure: number; side: number }
   /** GH-707 Task 6: admitted wounded `entity` walked back into squad `squad` (his own, or the
@@ -1425,6 +1528,10 @@ export type SimEvent =
   /** GH-707 Task 6: aid structure `structure` fell while admitted wounded `entity` was under
    *  treatment there: he is lost (woundState GONE). */
   | { kind: 'woundLost'; tick: number; entity: number; structure: number }
+  /** GH-1007: an air carrier's landing was refused because no footprint within LZ_SEARCH_TILES is
+   *  clear. Raised from command handling AND mid-tick, from the end of a LIFTING phase with a
+   *  queued unload (there the riders stay aboard, AIRBORNE, with no retry). Nothing else changed. The app words it; the sim shows no text. */
+  | { kind: 'landRefused'; tick: number; carrier: number; reason: 'no_clear_ground' }
   /** Field works (#277): a `construct` was accepted. `builder` is the lowest qualifying id the
    *  command named. `joined`: it named a live site's type and origin and joined that site rather
    *  than opening one (nothing new to pay for). */
@@ -1459,13 +1566,14 @@ export type SimEvent =
  *  without adding it here fails typecheck.
  */
 export const SIM_EVENT_KINDS = [
-  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung', 'formationSprung',
+  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung', 'formationSprung', 'formationContact', 'formationReleased', 'formationCall',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'chargeSet', 'chargeDetonated', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
   'fieldFixed', 'beam',
   'removed', 'woundedDown', 'manKilled', 'bledOut', 'woundEvacuated', 'woundStabilised',
   'woundAdmitted', 'woundRejoined', 'woundLost',
-  'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
+  'setupReady', 'setupBell', 'fortified', 'fortifyRefused', 'unfortified', 'unfortifyRefused',
+  'landRefused', 'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
 ] as const satisfies readonly SimEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union.
@@ -1529,6 +1637,19 @@ const MAX_STRUCTURES = 256;
 const MAX_WAYPOINTS = 8;
 /** `stance` values: 0 none, 1 ambush, 2 a `setStance{patrol}` beat (N3 Task 9). */
 const STANCE_PATROL = 2;
+/**
+ * The tiles a structure op flipped, per mask, for `recomputeFields`' incremental repair (GH-913 L2). Module
+ * scratch rather than `Sim` properties, like the flow-field queue: an op writes it and `recomputeFields` reads
+ * it inside one synchronous call, nothing carries it between ops, and a property would change what a snapshot
+ * has to describe. `flipDepth` > 1 means one op began inside another, so neither list can be trusted.
+ */
+let flipFoot = new Int32Array(0);
+let flipFootN = 0;
+let flipVeh = new Int32Array(0);
+let flipVehN = 0;
+let flipDepth = 0;
+let flipClash = false;
+
 /** Flow fields kept alive at once. Slots give every unit in an order its own
  *  goal tile (formation.ts), so a twelve-unit order can want twelve fields
  *  where it used to want one. Beyond this many, `fieldFor` reuses the
@@ -1823,6 +1944,17 @@ export class Sim {
   private readonly garrisonedIn: Int32Array;
   /** Structure this unit has been ordered into but has not reached yet. */
   private readonly garrisonGoal: Int32Array;
+  /** GH-972: 1 while this unit's `garrisonGoal` came from a `spread` order, which lets `stepGarrison` send
+   *  it on to the nearest building with room when its own is full. Written by both garrison branches of
+   *  `applyCommands` (so a stale 1 can never leak onto a scripted order) and read only with a goal set.
+   *  Hashed behind `spreadLive`, the `airLive` shape: no world without a spread order moves a pin. */
+  private readonly spreadGoal: Uint8Array;
+  private spreadLive = false;
+  /** GH-972 scratch: what the buildings owe, rebuilt by `garrisonLedger` before every read (never carried
+   *  between calls), grown only when the structure count outgrows them. Units walking to each building, and
+   *  which side holds it (-1 empty, a side, or 3 when mixed). */
+  private ledReserved = new Int32Array(0);
+  private ledHeld = new Int8Array(0);
   /** 1 when the unit actually changed position this tick. */
   private readonly displaced: Uint8Array;
   /** GH-421: the valve count of a separating hull -- +2 a tick standing blocked, +1 a tick steering
@@ -1858,15 +1990,62 @@ export class Sim {
   private readonly fgSide: Uint8Array;
   /** Index into `formationTypes`. */
   private readonly fgType: Uint8Array;
-  /** FM_MARCH 1 or FM_SPRUNG 4; 2 (ARRIVED) and 3 (CONTACT) are reserved for P1b. */
+  /** FM_MARCH 1, FM_CONTACT 3 or FM_SPRUNG 4; 2 (ARRIVED) stays reserved and unused ("arrived" is read per member). */
   private readonly fgState: Uint8Array;
   /** A member was fired on or sprang: the group acts at the next stepFormations. */
   private readonly fgPending: Uint8Array;
   /** Members still in the group. */
   private readonly fgMembers: Uint16Array;
+  // GH-859 P1b (the march, the drills and the calls): fourteen more columns, in this order, folded under
+  // the same `fmLive` latch after a second marker word. State only until Tasks 3-5 write them.
+  /** Checkpoints in the group's route (the last is the click). */
+  private readonly fgLegs: Uint8Array;
+  /** The highest checkpoint released to march on. */
+  private readonly fgRelease: Uint8Array;
+  /** Ticks since the first member arrived at the checkpoint being dressed (counts while fgAtCp > 0). */
+  private readonly fgDress: Uint16Array;
+  /** Ticks since the group last made contact; counts only while sorties are out. */
+  private readonly fgQuiet: Uint16Array;
+  /** Members waiting at the checkpoint (FM_DUTY_WAIT). */
+  private readonly fgAtCp: Uint16Array;
+  /** Members away on a call (FM_DUTY_OUT or FM_DUTY_RETURN). */
+  private readonly fgAway: Uint16Array;
+  /** 1 while the group's sorties are out. */
+  private readonly fgCalled: Uint8Array;
+  /** The group's pace cap, Fx per tick; 0 means no cap. */
+  private readonly fgPace: Int32Array;
+  /** The contact point the group's call names, Fx tiles. */
+  private readonly fgCallX: Int32Array;
+  private readonly fgCallY: Int32Array;
+  /** Per unit: the checkpoint it is heading to. */
+  private readonly fmLeg: Uint8Array;
+  /** Per unit: FM_DUTY_*. */
+  private readonly fmDuty: Uint8Array;
+  /** Per unit: where it goes home to after a call, Fx tiles. */
+  private readonly fmHomeX: Int32Array;
+  private readonly fmHomeY: Int32Array;
   /** True once a formation has been ordered (never by registering one). hash() folds the block
    *  above only while set. */
   private fmLive = false;
+  // GH-976 capture-the-flag v2 set-up. `setupLive` is latched by `beginSetup` and gates the hash block, so a world
+  // that never begins one keeps every pin. `setupUntil` is the bell tick (lowered by both sides' Ready), `readyMask` bit s
+  // is side s's Ready. All three are state; the region is config (a room rebuilds it) and is folded into the hash anyway
+  // (R0.21), so a mask skew between two clients desyncs on the first hash tick.
+  private setupLive = false;
+  private setupUntil = 0;
+  private readyMask = 0;
+  /** Per tile: 0 / 1 the side that may stand there before the bell, -1 the band. Zeros until `beginSetup`. */
+  private readonly setupRegion: Int8Array;
+  /** GH-976 WP3, the set-up kit. `kitLeft[side * 3 + slot]` is the allowance still to place (state; `unfortify` refunds it),
+   *  `kitPlaced[side]` the lifetime accepted `fortify` count (state; capped by `SETUP_PLACEMENTS_PER_SIDE`, never refunded),
+   *  `stKit[s]` the kit slot structure `s` was placed from, -1 for any other structure (state). The slot's structure type
+   *  (-1 until `setSetupKit`) and the ban rects (flat x, y, w, h) are config, built by `setSetupKit`; all of it is folded
+   *  into the hash behind `setupLive`. */
+  private readonly kitLeft: Int16Array;
+  private readonly kitPlaced: Int16Array;
+  private readonly stKit: Int8Array;
+  private readonly kitStructType: Int16Array;
+  private kitBans: number[] = [];
   /** Registered formations, compiled (`addFormationType`). Config: rebuilt with the match. */
   private readonly formationTypes: CompiledFormation[] = [];
   /** Diagnostics for tools (never hashed, off unless a tool turns it on): a ring of
@@ -2013,6 +2192,9 @@ export class Sim {
    *  route and rear caches read it, and poisoning it kept every hash equal for
    *  1,200 ticks while those caches diverged. */
   private readonly stProducesFor: Int8Array;
+  /** Authored exit tile override per structure (x, y), -1 = none. Static setup data like stProducesFor: NOT in hash(). */
+  private readonly stExitX: Int16Array;
+  private readonly stExitY: Int16Array;
   private readonly stOccupants: Uint8Array;
   /** E6 (GH-274, G1): ticks left on a placed charge against this structure, 0 when none.
    *  Hashed behind `placedLive`. */
@@ -2102,6 +2284,14 @@ export class Sim {
   private readonly apsReloadLeft: Int32Array;
   private readonly apsRecent: Int32Array;
   private readonly apsLastTick: Int32Array;
+  /** GH-884: rounds left in the reserve behind the magazine. Written only for a type with `hull.aps.reserve`;
+   *  hashed behind `apsStockLive`. */
+  private readonly apsReserveLeft: Int32Array;
+  /** GH-884: quiet ticks counted toward the next returned round. Hashed behind `apsStockLive`. */
+  private readonly apsRearmClock: Int32Array;
+  /** GH-884: true once a type carrying `hull.aps.reserve` is registered (the deferred fold, `airLive`'s shape).
+   *  It must never key on `hasAps`: the golden d_tank has APS and no reserve, and its pin stays flat. */
+  private apsStockLive = false;
   /** contact confidence and state per (side, target): index side*capacity+target */
   private readonly contact: Int32Array;
   private readonly contactState: Uint8Array;
@@ -2213,12 +2403,16 @@ export class Sim {
     readonly fieldFixTicks: Int32Array;
     readonly firepowerKilled: Uint8Array;
     readonly apsAmmo: Int32Array;
+    /** GH-884: reserve rounds behind the magazine (0 for a type with no `reserve`). */
+    readonly apsReserveLeft: Int32Array;
     readonly veterancy: Uint8Array;
     /** Current primary engagement target per unit, -1 when none. */
     readonly curTarget: Int32Array;
     readonly routed: Uint8Array;
     /** Structure the unit is fighting from, -1 when in the open. */
     readonly garrisonedIn: Int32Array;
+    /** Structure a unit has been ordered into but has not reached; -1 none. */
+    readonly garrisonGoal: Int32Array;
     /** Structure the unit is currently shooting at, -1 when none. */
     readonly curStructure: Int32Array;
     /** Structure the unit is currently demolishing, -1 when none. */
@@ -2363,6 +2557,11 @@ export class Sim {
     this.cover = new Uint8Array(tiles);
     this.elevation = new Uint8Array(tiles);
     this.openGrid = new Uint8Array(tiles);
+    this.setupRegion = new Int8Array(tiles);
+    this.kitLeft = new Int16Array(6);
+    this.kitPlaced = new Int16Array(2);
+    this.stKit = new Int8Array(MAX_STRUCTURES).fill(-1);
+    this.kitStructType = new Int16Array(3).fill(-1);
     this.smoke = new Uint8Array(tiles);
     this.trail = new Uint8Array(tiles);
     this.alive = new Uint8Array(n);
@@ -2419,6 +2618,7 @@ export class Sim {
     this.ambushRadiusSq = new Int32Array(n);
     this.garrisonedIn = new Int32Array(n).fill(-1);
     this.garrisonGoal = new Int32Array(n).fill(-1);
+    this.spreadGoal = new Uint8Array(n);
     this.displaced = new Uint8Array(n);
     this.sepWait = new Uint8Array(n);
     this.sepLast = new Uint8Array(n);
@@ -2431,6 +2631,20 @@ export class Sim {
     this.fgState = new Uint8Array(FORMATION_ROWS);
     this.fgPending = new Uint8Array(FORMATION_ROWS);
     this.fgMembers = new Uint16Array(FORMATION_ROWS);
+    this.fgLegs = new Uint8Array(FORMATION_ROWS);
+    this.fgRelease = new Uint8Array(FORMATION_ROWS);
+    this.fgDress = new Uint16Array(FORMATION_ROWS);
+    this.fgQuiet = new Uint16Array(FORMATION_ROWS);
+    this.fgAtCp = new Uint16Array(FORMATION_ROWS);
+    this.fgAway = new Uint16Array(FORMATION_ROWS);
+    this.fgCalled = new Uint8Array(FORMATION_ROWS);
+    this.fgPace = new Int32Array(FORMATION_ROWS);
+    this.fgCallX = new Int32Array(FORMATION_ROWS);
+    this.fgCallY = new Int32Array(FORMATION_ROWS);
+    this.fmLeg = new Uint8Array(n);
+    this.fmDuty = new Uint8Array(n);
+    this.fmHomeX = new Int32Array(n);
+    this.fmHomeY = new Int32Array(n);
     this.sepCols = (config.width + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES;
     this.sepHead = new Int32Array(this.sepCols * ((config.height + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES));
     this.sepNext = new Int32Array(n);
@@ -2471,6 +2685,8 @@ export class Sim {
     this.stMaxHp = new Int32Array(sc);
     this.stTypeIdx = new Uint16Array(sc);
     this.stProducesFor = new Int8Array(sc).fill(-1);
+    this.stExitX = new Int16Array(sc).fill(-1);
+    this.stExitY = new Int16Array(sc).fill(-1);
     this.stOccupants = new Uint8Array(sc);
     this.stChargeTicks = new Int32Array(sc);
     this.stChargeBy = new Int32Array(sc).fill(-1);
@@ -2508,6 +2724,8 @@ export class Sim {
     this.apsReloadLeft = new Int32Array(n);
     this.apsRecent = new Int32Array(n);
     this.apsLastTick = new Int32Array(n).fill(-100000);
+    this.apsReserveLeft = new Int32Array(n);
+    this.apsRearmClock = new Int32Array(n);
     this.contact = new Int32Array(2 * n);
     this.contactState = new Uint8Array(2 * n);
     this.seenThisTick = new Uint8Array(2 * n);
@@ -2557,10 +2775,12 @@ export class Sim {
       fieldFixTicks: this.fieldFixTicks,
       firepowerKilled: this.firepowerKilled,
       apsAmmo: this.apsAmmo,
+      apsReserveLeft: this.apsReserveLeft,
       veterancy: this.veterancy,
       curTarget: this.curTarget,
       routed: this.routed,
       garrisonedIn: this.garrisonedIn,
+      garrisonGoal: this.garrisonGoal,
       curStructure: this.curStructure,
       demoTarget: this.demoTarget,
       carriedBy: this.carriedBy,
@@ -2627,6 +2847,8 @@ export class Sim {
     const type = unitTypeFromJson(json);
     // GH-698, Q-A: the first air carrier type turns the air block's hash fold on.
     if (type.isAirCarrier) this.airLive = true;
+    // GH-884: the first type with an APS reserve turns the stock fold on. Never `hasAps`.
+    if (type.apsReserve >= 0) this.apsStockLive = true;
     // GH-707: the first wound-related type turns the wound block's hash fold on.
     if (type.wounds !== null || type.rescue !== null || type.canCarry !== null || type.isWounded) {
       this.woundLive = true;
@@ -2732,7 +2954,16 @@ export class Sim {
    *  field through any path but `fieldRef` or `fieldFor`, so a dropped field is
    *  unobservable: the same bytes a full recompute would have left, computed
    *  later or never. */
-  private recomputeFields(): void {
+  private recomputeFields(change: 'all' | 'closed' | 'opened' = 'all'): void {
+    // A structure op that flipped tiles has recorded WHICH (`beginFlips`/`noteFlip`) and says which way.
+    // Every other caller (a wall set by hand, a boulder, a height) says 'all'. Two ops open at once means
+    // the lists describe neither, so that case recomputes in full too.
+    let repairable = change !== 'all';
+    if (repairable) {
+      if (flipClash) repairable = false;
+      flipDepth--;
+      if (flipDepth === 0) flipClash = false;
+    }
     const n = this.fields.length;
     if (n === 0) return;
     if (this.fieldLive.length < n) this.fieldLive = new Uint8Array(n);
@@ -2751,6 +2982,15 @@ export class Sim {
         if (live[idx] === 1) {
           // An air field reads nothing terrain can change; it stays as it is.
           if (d === DOMAIN_AIR) continue;
+          if (repairable) {
+            // Exact incremental repair (GH-913 L2): the same bytes `compute` would leave, for a cost
+            // proportional to what the change touches. A field whose mask did not flip is already right.
+            const veh = d === DOMAIN_VEHICLE && this.hasBoulders;
+            const flips = veh ? flipVeh : flipFoot;
+            const flipN = veh ? flipVehN : flipFootN;
+            if (flipN > 0) this.fields[idx].repair(mask, elev, flips, flipN, change === 'opened');
+            continue;
+          }
           const gx = goal % this.width;
           this.fields[idx].compute(mask, elev, gx, (goal - gx) / this.width);
         } else {
@@ -2760,6 +3000,39 @@ export class Sim {
         }
       }
     }
+  }
+
+  private beginFlips(tiles: number): void {
+    flipDepth++;
+    if (flipDepth > 1) {
+      flipClash = true;
+      return;
+    }
+    if (flipFoot.length < tiles) {
+      flipFoot = new Int32Array(tiles);
+      flipVeh = new Int32Array(tiles);
+    }
+    flipFootN = 0;
+    flipVehN = 0;
+  }
+
+  /**
+   * A structure op threw between `beginFlips` and `recomputeFields`. `flipDepth` is module state shared by
+   * every Sim in the process, so it is unwound here (a leak would make every later op look nested and fall
+   * back to a full recompute for good). Some tiles may already have flipped, and a half-written flip list
+   * describes nothing, so the fields are recomputed in full, as for any change that names no tiles.
+   */
+  private abortFlips(): void {
+    flipDepth--;
+    if (flipDepth === 0) flipClash = false;
+    this.recomputeFields();
+  }
+
+  /** Record tile `t` if the write that just happened changed what either mask says about it. */
+  private noteFlip(t: number, footWas: number, vehWas: number): void {
+    if (flipDepth !== 1) return;
+    if ((footWas !== 0) !== (this.blocked[t] !== 0)) flipFoot[flipFootN++] = t;
+    if (this.hasBoulders && (vehWas !== 0) !== (this.blockedVehicleMask[t] !== 0)) flipVeh[flipVehN++] = t;
   }
 
   /** The mask a unit of this domain STANDS on: what goals, slots and spreads
@@ -2820,6 +3093,10 @@ export class Sim {
     const type = this.structureTypes[typeIdx];
     if (type === undefined) throw new Error(`no structure type ${typeIdx}`);
     if (tiles.length === 0) throw new Error('structure has no tiles');
+    // Validated before anything is written: a throw after the tiles are blocked would leave the cached flow
+    // fields describing a map that no longer exists (GH-913 L2 repairs them, so they must stay exact).
+    const owner = opts?.owner ?? type.owner;
+    if (owner !== -1 && owner !== 0 && owner !== 1) throw new Error(`structure owner ${owner}, expected -1, 0 or 1`);
     const id = this.structureCount_++;
     const w = this.width;
     let minX = w;
@@ -2828,52 +3105,61 @@ export class Sim {
     let maxY = 0;
     let sumX = 0;
     let sumY = 0;
-    for (const t of tiles) {
-      const tx = t % w;
-      const ty = (t - tx) / w;
-      this.structureOfTile[t] = id;
-      this.blocked[t] = 1;
-      this.syncVehicleTile(t);
-      if (tx < minX) minX = tx;
-      if (ty < minY) minY = ty;
-      if (tx > maxX) maxX = tx;
-      if (ty > maxY) maxY = ty;
-      sumX += tx;
-      sumY += ty;
-    }
-    this.stTiles[id] = [...tiles];
-    this.stAlive[id] = 1;
-    this.stTypeIdx[id] = typeIdx;
-    this.stProducesFor[id] = type.producesFor;
-    const owner = opts?.owner ?? type.owner;
-    if (owner !== -1 && owner !== 0 && owner !== 1) throw new Error(`structure owner ${owner}, expected -1, 0 or 1`);
-    const progress = opts?.progress ?? ONE;
-    this.stOwner[id] = owner;
-    this.stProgress[id] = progress;
-    if (owner !== -1 || progress !== ONE) this.fwLive = true;
-    if (type.aid !== null) {
-      this.aidPosts++;
-      this.woundLive = true;
-    }
-    this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
-    this.stHp[id] = this.stMaxHp[id];
-    this.stOccupants[id] = 0;
-    // Centroid of the footprint, tile centres.
-    this.stCx[id] = fx.add(fx.div(fx.fromInt(sumX), fx.fromInt(tiles.length)), HALF);
-    this.stCy[id] = fx.add(fx.div(fx.fromInt(sumY), fx.fromInt(tiles.length)), HALF);
-    this.stMinX[id] = minX;
-    this.stMinY[id] = minY;
-    this.stMaxX[id] = maxX;
-    this.stMaxY[id] = maxY;
-    const sensor = type.aura === null ? null : type.aura.sensor;
-    if (sensor !== null && sensor.tunnelRadiusSq > 0) {
-      let mask = 0;
-      for (let r = 0; r < this.tunnelCount_; r++) {
-        if (this.routeWithin(id, r, sensor.tunnelRadiusSq)) mask |= 1 << r;
+    this.beginFlips(tiles.length);
+    let flipped = false;
+    try {
+      for (const t of tiles) {
+        const tx = t % w;
+        const ty = (t - tx) / w;
+        this.structureOfTile[t] = id;
+        const footWas = this.blocked[t];
+        const vehWas = this.blockedVehicleMask[t];
+        this.blocked[t] = 1;
+        this.syncVehicleTile(t);
+        this.noteFlip(t, footWas, vehWas);
+        if (tx < minX) minX = tx;
+        if (ty < minY) minY = ty;
+        if (tx > maxX) maxX = tx;
+        if (ty > maxY) maxY = ty;
+        sumX += tx;
+        sumY += ty;
       }
-      this.stRouteMask[id] = mask;
+      this.stTiles[id] = [...tiles];
+      this.stAlive[id] = 1;
+      this.stTypeIdx[id] = typeIdx;
+      this.stProducesFor[id] = type.producesFor;
+      const progress = opts?.progress ?? ONE;
+      this.stOwner[id] = owner;
+      this.stProgress[id] = progress;
+      if (owner !== -1 || progress !== ONE) this.fwLive = true;
+      if (type.aid !== null) {
+        this.aidPosts++;
+        this.woundLive = true;
+      }
+      this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
+      this.stHp[id] = this.stMaxHp[id];
+      this.stOccupants[id] = 0;
+      // Centroid of the footprint, tile centres.
+      this.stCx[id] = fx.add(fx.div(fx.fromInt(sumX), fx.fromInt(tiles.length)), HALF);
+      this.stCy[id] = fx.add(fx.div(fx.fromInt(sumY), fx.fromInt(tiles.length)), HALF);
+      this.stMinX[id] = minX;
+      this.stMinY[id] = minY;
+      this.stMaxX[id] = maxX;
+      this.stMaxY[id] = maxY;
+      const sensor = type.aura === null ? null : type.aura.sensor;
+      if (sensor !== null && sensor.tunnelRadiusSq > 0) {
+        let mask = 0;
+        for (let r = 0; r < this.tunnelCount_; r++) {
+          if (this.routeWithin(id, r, sensor.tunnelRadiusSq)) mask |= 1 << r;
+        }
+        this.stRouteMask[id] = mask;
+      }
+      flipped = true;
+    } finally {
+      // A throw inside the window must not leave `flipDepth` raised for the rest of the process.
+      if (!flipped) this.abortFlips();
     }
-    this.recomputeFields();
+    this.recomputeFields('closed');
     return id;
   }
 
@@ -2912,16 +3198,27 @@ export class Sim {
     this.stHp[s] = 0;
     this.stChargeTicks[s] = 0; // a cancelled site takes any charge on it along (E6 G1)
     this.stChargeBy[s] = -1;
-    for (const t of this.stTiles[s]) {
-      this.blocked[t] = 0;
-      // A boulder under the same tile does not stop being a boulder.
-      this.syncVehicleTile(t);
-      this.structureOfTile[t] = -1;
+    this.beginFlips(this.stTiles[s].length);
+    let flipped = false;
+    try {
+      for (const t of this.stTiles[s]) {
+        const footWas = this.blocked[t];
+        const vehWas = this.blockedVehicleMask[t];
+        this.blocked[t] = 0;
+        // A boulder under the same tile does not stop being a boulder.
+        this.syncVehicleTile(t);
+        this.noteFlip(t, footWas, vehWas);
+        this.structureOfTile[t] = -1;
+      }
+      for (let i = 0; i < this.count; i++) {
+        if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
+      }
+      flipped = true;
+    } finally {
+      // A throw inside the window must not leave `flipDepth` raised for the rest of the process.
+      if (!flipped) this.abortFlips();
     }
-    for (let i = 0; i < this.count; i++) {
-      if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
-    }
-    this.recomputeFields();
+    this.recomputeFields('opened');
   }
 
   /**
@@ -2957,6 +3254,203 @@ export class Sim {
   /** Field works: true once `side` has seen owned structure `s` (the latch). */
   structureKnownTo(side: number, s: number): boolean {
     return this.stKnown[side * MAX_STRUCTURES + s] === 1;
+  }
+
+  // ---- GH-976: the set-up phase (clock, early bell, region clamp, weapons tight) ----
+
+  /**
+   * Begin a set-up phase, once, before tick 0 (GH-976). Until `untilTick` (or the early bell, both sides Ready plus
+   * `SETUP_BELL_DELAY_TICKS`) a unit of side 0 or 1 may stand only on tiles whose region cell is its side, and every
+   * weapon is held. Throws when `tickCount !== 0`, when called twice, on a region of the wrong length or a cell that is
+   * not -1, 0 or 1, and when `untilTick` is not a positive integer. The region is copied.
+   */
+  beginSetup(spec: SetupSpec): void {
+    if (this.tickCount !== 0) throw new Error('beginSetup is setup-only (before the first tick)');
+    if (this.setupLive) throw new Error('beginSetup called twice');
+    if (!Number.isInteger(spec.untilTick) || spec.untilTick <= 0) throw new Error(`beginSetup: untilTick ${String(spec.untilTick)} must be a positive integer`);
+    if (spec.region.length !== this.width * this.height) {
+      throw new Error(`beginSetup: region has ${spec.region.length} cells, the map has ${this.width * this.height}`);
+    }
+    for (let t = 0; t < spec.region.length; t++) {
+      const c = spec.region[t];
+      if (c !== -1 && c !== 0 && c !== 1) throw new Error(`beginSetup: region cell ${t} is ${c}, expected -1, 0 or 1`);
+    }
+    this.setupRegion.set(spec.region);
+    this.setupUntil = spec.untilTick;
+    this.readyMask = 0;
+    this.setupLive = true;
+  }
+
+  /** True from `beginSetup` until the bell tick: weapons are held and the region clamp stands. */
+  get setupActive(): boolean {
+    return this.setupLive && this.tickCount < this.setupUntil;
+  }
+
+  /** The tick the bell rings (it moves earlier when both sides are Ready); -1 in a world with no set-up. */
+  get setupBellTick(): number {
+    return this.setupLive ? this.setupUntil : -1;
+  }
+
+  /** Whether `side` has pressed Ready (false in a world with no set-up, and for a side above 1). */
+  setupReady(side: 0 | 1): boolean {
+    return this.setupLive && (side === 0 || side === 1) && (this.readyMask & (1 << side)) !== 0;
+  }
+
+  /** The region cell of tile (tx, ty): 0 / 1 a side's, -1 the band, -2 when this world has no set-up (or off the map). */
+  setupRegionAt(tx: number, ty: number): -2 | -1 | 0 | 1 {
+    if (!this.setupLive || tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return -2;
+    return this.setupRegion[ty * this.width + tx] as -1 | 0 | 1;
+  }
+
+  /** Pure read for the HUD chip: the set-up is on, the unit is walking, and its order's goal tile lies outside its
+   *  region, so the clamp is what is holding it. False for a unit above side 1 (never clamped). */
+  setupHeldAtLine(id: number): boolean {
+    if (!this.setupActive || id < 0 || id >= this.count || this.alive[id] === 0 || this.moving[id] === 0) return false;
+    const sd = this.side[id];
+    if (sd > 1) return false;
+    return !this.setupOwnTile(sd, this.goalX[id] >> 16, this.goalY[id] >> 16);
+  }
+
+  /** Whether tile (tx, ty) is on the map and in `side`'s region. A side above 1 is never clamped: always true. Read
+   *  only inside a set-up. */
+  private setupOwnTile(side: number, tx: number, ty: number): boolean {
+    if (side > 1) return true;
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return false;
+    return this.setupRegion[ty * this.width + tx] === side;
+  }
+
+  /** `setupReady`: set the side's bit, and with both set, ring no later than `SETUP_BELL_DELAY_TICKS` from now. */
+  private applySetupReady(side: number): void {
+    if (!this.setupActive || (side !== 0 && side !== 1)) return;
+    const bit = 1 << side;
+    if ((this.readyMask & bit) !== 0) return;
+    this.readyMask |= bit;
+    this.pendingEvents.push({ kind: 'setupReady', tick: this.tickCount, side });
+    if (this.readyMask === 3) {
+      const early = this.tickCount + SETUP_BELL_DELAY_TICKS;
+      this.setupUntil = this.setupUntil < early ? this.setupUntil : early;
+    }
+  }
+
+  /**
+   * Give the set-up its kit (GH-976 WP3), once, after `beginSetup` and before tick 0. `kit[i]` is slot i of
+   * `SETUP_KIT_PIECES` (up to three): the registered structure type it raises and how many a side may have standing.
+   * `bans` are `[x, y, w, h]` tile rects no piece may touch (the flags' ground). The same allowance goes to both sides.
+   * Throws when there is no set-up, after the first tick, on a second call, on an unknown structure type, an allowance
+   * outside 0..255, or a malformed rect.
+   */
+  setSetupKit(kit: readonly { readonly structType: number; readonly allowance: number }[], bans: readonly (readonly [number, number, number, number])[]): void {
+    if (!this.setupLive) throw new Error('setSetupKit needs beginSetup first');
+    if (this.tickCount !== 0) throw new Error('setSetupKit is setup-only (before the first tick)');
+    if (this.kitStructType[0] !== -1 || this.kitStructType[1] !== -1 || this.kitStructType[2] !== -1) throw new Error('setSetupKit called twice');
+    if (kit.length > 3) throw new Error(`setSetupKit: ${kit.length} pieces, at most 3`);
+    for (let i = 0; i < kit.length; i++) {
+      const k = kit[i];
+      if (!Number.isInteger(k.structType) || this.structureTypes[k.structType] === undefined) throw new Error(`setSetupKit: no structure type ${String(k.structType)}`);
+      if (!Number.isInteger(k.allowance) || k.allowance < 0 || k.allowance > 255) throw new Error(`setSetupKit: allowance ${String(k.allowance)} outside 0..255`);
+    }
+    const flat: number[] = [];
+    for (const r of bans) {
+      for (let i = 0; i < 4; i++) {
+        if (!Number.isInteger(r[i])) throw new Error('setSetupKit: a ban rect needs four integers');
+      }
+      if (r[2] < 0 || r[3] < 0) throw new Error('setSetupKit: a ban rect has a negative size');
+      flat.push(r[0], r[1], r[2], r[3]);
+    }
+    for (let i = 0; i < kit.length; i++) {
+      this.kitStructType[i] = kit[i].structType;
+      this.kitLeft[i] = kit[i].allowance;
+      this.kitLeft[3 + i] = kit[i].allowance;
+    }
+    this.kitBans = flat;
+  }
+
+  /** How many of kit slot `kit` side `side` may still place (0 for a bad side or slot, and in a world with no kit). */
+  setupKitLeft(side: 0 | 1, kit: number): number {
+    if ((side !== 0 && side !== 1) || !Number.isInteger(kit) || kit < 0 || kit >= 3) return 0;
+    return this.kitLeft[side * 3 + kit];
+  }
+
+  /** The kit slot structure `s` was placed from, or -1 for a structure the kit did not place (or no such structure). */
+  setupKitOf(s: number): number {
+    if (!Number.isInteger(s) || s < 0 || s >= MAX_STRUCTURES) return -1;
+    return this.stKit[s];
+  }
+
+  /** Pure (GH-976 WP3): why `side` may not place kit slot `kit` on integer tile (x, y) now, or null. The first failing rule:
+   *  `not_setup`, `no_kit`, `placements_spent`, `outside_region`, `banned`, `occupied`, then the footprint rules of
+   *  `placementReason` (`footprintRefusal`, 1 x 1), then `no_structure_slot`. A tile off the map has no region cell, so it
+   *  reads `outside_region`. `occupied` is a body standing on the tile (any side), or an own moving ground unit whose goal
+   *  or a queued waypoint is on it (GH-1079). */
+  fortifyReason(side: 0 | 1, kit: number, x: number, y: number): FortifyRefusal | null {
+    if (!this.setupActive) return 'not_setup';
+    if ((side !== 0 && side !== 1) || !Number.isInteger(kit) || kit < 0 || kit >= 3 || this.kitStructType[kit] < 0 || this.kitLeft[side * 3 + kit] === 0) return 'no_kit';
+    if (this.kitPlaced[side] >= SETUP_PLACEMENTS_PER_SIDE) return 'placements_spent';
+    if (!Number.isInteger(x) || !Number.isInteger(y) || this.setupRegionAt(x, y) !== side) return 'outside_region';
+    const bans = this.kitBans;
+    for (let i = 0; i < bans.length; i += 4) {
+      if (x >= bans[i] && x < bans[i] + bans[i + 2] && y >= bans[i + 1] && y < bans[i + 1] + bans[i + 3]) return 'banned';
+    }
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || this.tunnelIn[i] >= 0 || this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.isAirborne(i)) continue;
+      if (this.posX[i] >> 16 === x && this.posY[i] >> 16 === y) return 'occupied';
+      // GH-1079: a tile an OWN ground unit is walking to is taken too: its goal and every queued waypoint. A goal is
+      // snapped to open ground once, when the order is issued (`applyMove`), and nothing re-snaps it (`advanceLeg` copies
+      // a waypoint as stored), so a piece on one parks the unit flush against the piece's face with `moving` 1 for the
+      // rest of the match, its queue behind it. Own side only: on an enemy unit the refusal would tell the player where
+      // that side's orders point. An aircraft in the air was skipped above (it flies over a piece); one settling onto
+      // an LZ is not airborne, and its goal is where it will stand. The `moving` gate also skips a formation member away
+      // on a call (`fmDuty` OUT): `finishLeg` stops it with `moving` 0 and its queue kept, so its waypoints are not read
+      // here until it is sent home (`fmReturnHome` sets `moving` 1 again).
+      if (this.side[i] !== side || this.moving[i] === 0) continue;
+      if (this.goalX[i] >> 16 === x && this.goalY[i] >> 16 === y) return 'occupied';
+      const base = i * MAX_WAYPOINTS;
+      for (let k = 0; k < this.wpCount[i]; k++) {
+        if (this.wpX[base + k] >> 16 === x && this.wpY[base + k] >> 16 === y) return 'occupied';
+      }
+    }
+    const why = this.footprintRefusal(x, y, 1, 1);
+    if (why !== null) return why;
+    if (this.structureCount_ >= MAX_STRUCTURES) return 'no_structure_slot';
+    return null;
+  }
+
+  /** `fortify`: place the piece if `fortifyReason` allows, and say which in an event. */
+  private applyFortify(side: number, kit: number, x: number, y: number): void {
+    const reason = side === 0 || side === 1 ? this.fortifyReason(side, kit, x, y) : 'no_kit';
+    if (reason !== null) {
+      this.pendingEvents.push({ kind: 'fortifyRefused', tick: this.tickCount, side, kit, x, y, reason });
+      return;
+    }
+    const s = this.addStructure(this.kitStructType[kit], [y * this.width + x], { owner: side });
+    this.kitLeft[side * 3 + kit]--;
+    this.kitPlaced[side]++;
+    this.stKit[s] = kit;
+    this.pendingEvents.push({ kind: 'fortified', tick: this.tickCount, side: side as 0 | 1, kit, structure: s, x, y });
+  }
+
+  /** `unfortify`: take down the kit piece `side` placed on (x, y), if nobody is inside it, and refund its allowance. The
+   *  placement count is not refunded (structure ids are never reused, R0.10). */
+  private applyUnfortify(side: number, x: number, y: number): void {
+    const refuse = (reason: 'not_setup' | 'no_piece' | 'occupied'): void => {
+      this.pendingEvents.push({ kind: 'unfortifyRefused', tick: this.tickCount, side, x, y, reason });
+    };
+    if (!this.setupActive) return refuse('not_setup');
+    const onMap = Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < this.width && y < this.height;
+    const s = onMap ? this.structureOfTile[y * this.width + x] : -1;
+    if (s < 0 || this.stAlive[s] === 0 || this.stKit[s] < 0 || this.stOwner[s] !== side) return refuse('no_piece');
+    if (this.stOccupants[s] > 0) return refuse('occupied');
+    const kit = this.stKit[s];
+    this.removeStructure(s);
+    this.kitLeft[side * 3 + kit]++;
+    this.pendingEvents.push({ kind: 'unfortified', tick: this.tickCount, side: side as 0 | 1, kit, structure: s, x, y });
+  }
+
+  /** Whether unit `id` is an aircraft by TYPE (a helicopter or a drone), landed or not. `isAirborne` is the stricter, moment-
+   *  to-moment question. False for an id that is not a unit. Read-only. */
+  isAircraft(id: number): boolean {
+    if (!Number.isInteger(id) || id < 0 || id >= this.count) return false;
+    return this.unitTypes[this.typeIdx[id]].isAir;
   }
 
   /** GH-698: true once an air carrier type is registered, or (#706) an aircraft has
@@ -3023,26 +3517,35 @@ export class Sim {
     const type = this.structureTypes[structType];
     if (type === undefined || type.buildable === null) throw new Error(`structure type ${structType} is not buildable`);
     const b = type.buildable;
+    return this.footprintRefusal(tx, ty, b.fw, b.fh);
+  }
+
+  /**
+   * The footprint rules of `placementReason` for any footprint (GH-976: `fortify` asks it with 1 x 1, a kit piece having no
+   * `buildable` block). Pure, and the same rules in the same order as above: 'off_map', 'blocked', 'no_footing',
+   * 'not_level', 'overlap', 'seals_passage'.
+   */
+  private footprintRefusal(tx: number, ty: number, fw: number, fh: number): PlacementRefusal | null {
     const w = this.width;
-    if (tx < 0 || ty < 0 || tx + b.fw > w || ty + b.fh > this.height) return 'off_map';
-    for (let y = ty; y < ty + b.fh; y++) {
-      for (let x = tx; x < tx + b.fw; x++) if (this.blocked[y * w + x] !== 0) return 'blocked';
+    if (tx < 0 || ty < 0 || tx + fw > w || ty + fh > this.height) return 'off_map';
+    for (let y = ty; y < ty + fh; y++) {
+      for (let x = tx; x < tx + fw; x++) if (this.blocked[y * w + x] !== 0) return 'blocked';
     }
-    for (let y = ty; y < ty + b.fh; y++) {
-      for (let x = tx; x < tx + b.fw; x++) if (this.boulder[y * w + x] !== 0) return 'no_footing';
+    for (let y = ty; y < ty + fh; y++) {
+      for (let x = tx; x < tx + fw; x++) if (this.boulder[y * w + x] !== 0) return 'no_footing';
     }
     const level = this.elevation[ty * w + tx];
-    for (let y = ty; y < ty + b.fh; y++) {
-      for (let x = tx; x < tx + b.fw; x++) if (this.elevation[y * w + x] !== level) return 'not_level';
+    for (let y = ty; y < ty + fh; y++) {
+      for (let x = tx; x < tx + fw; x++) if (this.elevation[y * w + x] !== level) return 'not_level';
     }
-    for (let y = ty; y < ty + b.fh; y++) {
-      for (let x = tx; x < tx + b.fw; x++) {
+    for (let y = ty; y < ty + fh; y++) {
+      for (let x = tx; x < tx + fw; x++) {
         const s = this.structureOfTile[y * w + x];
         if (s >= 0 && this.stAlive[s] === 1) return 'overlap';
         if (this.pendingSiteAt(x, y) >= 0) return 'overlap';
       }
     }
-    if (this.footprintSeals(tx, ty, b.fw, b.fh)) return 'seals_passage';
+    if (this.footprintSeals(tx, ty, fw, fh)) return 'seals_passage';
     return null;
   }
 
@@ -3817,6 +4320,7 @@ export class Sim {
       this.woundedAlive[side]++;
     }
     this.apsAmmo[id] = type.apsMagazine;
+    if (type.apsReserve >= 0) this.apsReserveLeft[id] = type.apsReserve;
     // E1 (GH-709): the first aura-carrying unit turns the field-works fold on, so the aura
     // columns its heal writes are hashed (spec §2 E1). At SPAWN, not at type registration:
     // only a mission that fields one pays for it, and no shipped unit carries an aura.
@@ -4071,13 +4575,19 @@ export class Sim {
 
   /** Advance exactly one 20 Hz tick. Returns the events it produced. */
   tick(): SimEvent[] {
+    // GH-976: the bell rings on the tick whose count IS the set-up clock, before this tick's commands, so an order given
+    // on the bell tick is already unclamped (setupActive is false from here).
+    if (this.setupLive && this.tickCount === this.setupUntil) {
+      this.pendingEvents.push({ kind: 'setupBell', tick: this.tickCount });
+      this.resnapBlockedGoals();
+    }
     this.applyCommands();
     this.stepDigging();
     this.stepDetection();
     this.stepSurfacing();
     // GH-859 P1a: a ring found out on the tick before (by fire, or by a member's own spring) springs
     // BEFORE combat reads a stance, so every member fires this tick: one tick after the hit.
-    if (this.fmLive) this.stepFormationSpring();
+    if (this.fmLive) this.stepFormationContact();
     this.stepCombat();
     // GH-859 P1a: right after combat, before anything else this tick reads a facing.
     if (this.fmLive) this.stepFormationFacing();
@@ -4102,6 +4612,9 @@ export class Sim {
     // GH-707 Task 5: medics after the bleed (a man who bled out this tick is not walked to)
     // and before movement, so the leg a medic is given walks this same tick.
     this.stepMedics();
+    // GH-859 P1b: after combat and before movement, so a checkpoint released here sends its members on this very
+    // tick, and last tick's arrivals are the ones it counts (a one-tick delay, the same for every member).
+    if (this.fmLive) this.stepFormationMarch();
     this.stepMovement();
     this.stepTransport();
     // GH-707 Task 6: aid posts count their patients down, then admit what carriers brought
@@ -4405,6 +4918,52 @@ export class Sim {
     return [this.snapX, this.snapY];
   }
 
+  /**
+   * GH-1112: the bell-tick re-snap. During the set-up a unit ordered across the line is held at it with `moving` 1, and the
+   * other side may fortify on its goal tile (`fortify` raises a blocked structure). `applyMove` snapped that goal to open
+   * ground when the order was given, so nothing re-checks it: after the bell the unit parks against the piece for good, and a
+   * bot may not re-order a unit that still reads `moving` 1.
+   *
+   * One deterministic pass, on the bell tick only (before that tick's commands), in id order. For each walking ground unit
+   * whose goal tile, or whose queued waypoint tile, is blocked for ITS domain, the point moves to the centre of the nearest
+   * open tile of that domain: `applyMove`'s own rule (`snapOpenTile`, then `fromInt + HALF`), and the goal's flow field is
+   * asked for again, as an order does. Integer maths only, no random draw.
+   *
+   * It writes only where a point is blocked, so a world with no such goal keeps its hash byte for byte. A unit whose goal is
+   * a structure by design (garrison, board, demolish, charge: their goal is a footprint and their field is snapped separately)
+   * and an aircraft (it flies over everything) are left alone, as are passengers and units underground.
+   */
+  private resnapBlockedGoals(): void {
+    const w = this.width;
+    const h = this.height;
+    for (let id = 0; id < this.count; id++) {
+      if (this.alive[id] === 0 || this.moving[id] === 0 || this.carriedBy[id] >= 0 || this.tunnelIn[id] >= 0) continue;
+      // Garrison is the live skip; board, demolish and charge are belts (demolish and chargeTunnel are refused during set-up, a board goal is a carrier position, a charge goal is snapped when the order is given).
+      if (this.garrisonGoal[id] >= 0 || this.boardGoal[id] >= 0 || this.demolishOrder[id] >= 0 || this.chargeOrder[id] >= 0) continue;
+      const domain = this.domainOf(id);
+      if (domain === DOMAIN_AIR) continue;
+      const mask = this.maskFor(domain);
+      const gtx = fx.toInt(this.goalX[id]);
+      const gty = fx.toInt(this.goalY[id]);
+      if (gtx >= 0 && gty >= 0 && gtx < w && gty < h && mask[gty * w + gtx] !== 0) {
+        this.snapOpenTile(gtx, gty, mask);
+        this.goalX[id] = fx.add(fx.fromInt(this.snapX), HALF);
+        this.goalY[id] = fx.add(fx.fromInt(this.snapY), HALF);
+        this.fieldRef[id] = this.fieldFor(this.snapX, this.snapY, domain);
+      }
+      const n = this.wpCount[id];
+      for (let k = 0; k < n; k++) {
+        const wi = id * MAX_WAYPOINTS + k;
+        const wtx = fx.toInt(this.wpX[wi]);
+        const wty = fx.toInt(this.wpY[wi]);
+        if (wtx < 0 || wty < 0 || wtx >= w || wty >= h || mask[wty * w + wtx] === 0) continue;
+        this.snapOpenTile(wtx, wty, mask);
+        this.wpX[wi] = fx.add(fx.fromInt(this.snapX), HALF);
+        this.wpY[wi] = fx.add(fx.fromInt(this.snapY), HALF);
+      }
+    }
+  }
+
   /** nearestOpenTile's answer, from the last `snapOpenTile` call. Scratch,
    *  read straight after the call that wrote it, so a per-tick caller
    *  (stepFocus) allocates nothing. Never hashed. */
@@ -4460,8 +5019,15 @@ export class Sim {
     for (let j = 0; j < this.count; j++) {
       if (this.alive[j] === 0 || this.side[j] !== side || inOrder.has(j)) continue;
       if (this.garrisonedIn[j] >= 0 || this.carriedBy[j] >= 0 || this.tunnelIn[j] >= 0) continue;
-      const x = fx.toInt(this.moving[j] === 1 ? this.goalX[j] : this.posX[j]);
-      const y = fx.toInt(this.moving[j] === 1 ? this.goalY[j] : this.posY[j]);
+      let x = fx.toInt(this.moving[j] === 1 ? this.goalX[j] : this.posX[j]);
+      let y = fx.toInt(this.moving[j] === 1 ? this.goalY[j] : this.posY[j]);
+      // GH-859 P1b (Ruling 5, spec §4.4): a formation member on a march is bound for its LAST queued tile, so
+      // that is what it reserves. One array read per member; closes Deviation 1 for formation orders only.
+      if (this.fmLive && this.fmGroup[j] >= 0 && this.wpCount[j] > 0) {
+        const k = j * MAX_WAYPOINTS + this.wpCount[j] - 1;
+        x = fx.toInt(this.wpX[k]);
+        y = fx.toInt(this.wpY[k]);
+      }
       if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
       reserved[y * this.width + x] = 1;
     }
@@ -4574,10 +5140,22 @@ export class Sim {
     const members: FormationUnit[] = [];
     let sumX = 0;
     let sumY = 0;
-    // The same centroid over the members a template places (class not none), for the template branch.
+    // The same centroid over the members a template places (class not none), for the template branch. Summed in
+    // raw Fx and floored ONCE, after the divide (GH-859 P1c): flooring each member's tile first rounds both ends
+    // of a point-symmetric map toward low x and y, so the frame was not end-symmetric. (`sumX`/`sumY`, the plain
+    // order's floored centroid, are left as they are: that is the base game, and touching it moves every pin.)
     let tSumX = 0;
     let tSumY = 0;
     let tCount = 0;
+    // GH-859 P1b (M6): an id named twice is one placeable member. Allocated by a template order only.
+    const tSeen = tplIdx >= 0 ? new Set<number>() : null;
+    // GH-859: the classes this formation leaves out. A unit of one is no member of the template order: it is
+    // seated by the plain grid beside it, as a separate plain order to the same click would seat it (the lead's
+    // Q2-ALT, 1 Nov). `loose` and its centroid sums exist only for an order that names a formation with an `exclude`.
+    const leaves = tplIdx >= 0 && this.formationTypes[tplIdx].excludeMask !== 0 ? this.formationTypes[tplIdx] : null;
+    const loose: FormationUnit[] | null = leaves !== null ? [] : null;
+    let lSumX = 0;
+    let lSumY = 0;
     for (const id of exact ? [] : cmd.ids) {
       // A passenger is inside a vehicle and does not walk anywhere: the
       // carrier decides where it goes, and `unload` is how it gets out.
@@ -4595,7 +5173,8 @@ export class Sim {
       // brings a gunship down too.
       if (utype.isAir && this.airState[id] === AIR_LANDING) continue;
       const front = utype.isAir || utype.moveDomain === DOMAIN_VEHICLE;
-      members.push({ id, domain: utype.isAir ? DOMAIN_FOOT : utype.moveDomain, front });
+      const member: FormationUnit = { id, domain: utype.isAir ? DOMAIN_FOOT : utype.moveDomain, front };
+      members.push(member);
       // Where this unit will be coming FROM: its last queued point when
       // the order appends to a route, otherwise where it stands. Their
       // centroid is the only thing that fixes which way the ranks face,
@@ -4618,10 +5197,19 @@ export class Sim {
       sumX += ix;
       sumY += iy;
       // Side 2 (civilians, neutrals) is never placed; class none ignores the order.
-      if (tplIdx >= 0 && utype.fmClass !== FM_CLASS_NONE && this.side[id] <= 1) {
-        tSumX += ix;
-        tSumY += iy;
-        tCount++;
+      if (tSeen !== null && utype.fmClass !== FM_CLASS_NONE && this.side[id] <= 1 && !tSeen.has(id)) {
+        tSeen.add(id);
+        if (leaves !== null && loose !== null && fmExcludes(leaves, utype.fmClass)) {
+          // Left out: not counted toward `min_members`, not in the template's centroid; the plain grid's own
+          // floored-tile centroid, over these units alone (a separate plain order's), is what frames its rows.
+          loose.push(member);
+          lSumX += ix;
+          lSumY += iy;
+        } else {
+          tSumX += fromX;
+          tSumY += fromY;
+          tCount++;
+        }
       }
     }
     const slots = new Map<number, [number, number]>();
@@ -4629,15 +5217,91 @@ export class Sim {
     // through to the plain order below, and nothing here has been written yet.
     let placed: Map<number, TemplateSlot> | null = null;
     let ringRadius = 0;
+    // GH-859 P1b: the march. Slots of checkpoints 1..n-1 (the intermediate ones) in `legSlots`, checkpoint k's tile
+    // in `cpX/cpY`; `slots` and `placed` stay the FINAL checkpoint's, which is P1a's whole answer when n is 1.
+    // A plain order (tplIdx -1) allocates none of the three: they point at shared empty arrays, which nothing pushes to.
+    let legSlots: readonly Map<number, [number, number]>[] = NO_LEG_SLOTS;
+    let cpX: readonly number[] = NO_CHECKPOINT_TILES;
+    let cpY: readonly number[] = NO_CHECKPOINT_TILES;
+    let travelFace = FM_FACING_NONE;
     if (tplIdx >= 0 && tCount >= this.formationTypes[tplIdx].minMembers) {
       this.fmLive = true;
       const tpl = this.formationTypes[tplIdx];
       const units: TemplateUnit[] = [];
+      const uSeen = new Set<number>();
       for (const m of members) {
         const ut = this.unitTypes[this.typeIdx[m.id]];
-        if (ut.fmClass === FM_CLASS_NONE || this.side[m.id] > 1) continue;
+        if (ut.fmClass === FM_CLASS_NONE || fmExcludes(tpl, ut.fmClass) || this.side[m.id] > 1 || uSeen.has(m.id)) continue;
+        uSeen.add(m.id);
         units.push({ id: m.id, domain: m.domain, cls: ut.fmClass, vehicle: !ut.isAir && ut.moveDomain === DOMAIN_VEHICLE, air: ut.isAir });
       }
+      const cenX = fx.toInt((tSumX - (tSumX % tCount)) / tCount);
+      const cenY = fx.toInt((tSumY - (tSumY % tCount)) / tCount);
+      // Rulings 1 and 2: walk the lead domain's route field from the centroid to the click, and cut it into
+      // checkpoints. An appended order, a missing route or a short one is one checkpoint (P1a, whole).
+      let startX = cenX;
+      let startY = cenY;
+      const cuts: number[] = [];
+      if (cmd.append !== true) {
+        const vehicleLead = units.some((u) => u.vehicle);
+        const lead = vehicleLead ? DOMAIN_VEHICLE : DOMAIN_FOOT;
+        const [sx, sy] = this.nearestOpenTile(cenX, cenY, vehicleLead ? this.blockedVehicleMask : this.blocked);
+        const goalTx = vehicleLead ? vgx : fgx;
+        const goalTy = vehicleLead ? vgy : fgy;
+        // Read now and not kept: the next fieldFor may recycle the slot.
+        const route = routeWalk(this.fields[this.fieldFor(goalTx, goalTy, lead)].dirs, this.width, this.height, sx, sy, goalTx, goalTy);
+        if (route !== null && route.length > 0) {
+          startX = sx;
+          startY = sy;
+          for (const at of checkpointsOf(route.length, tpl.legTiles, MAX_WAYPOINTS + 1)) cuts.push(route[at]);
+        }
+      }
+      const nLegs = cuts.length > 0 ? cuts.length : 1;
+      const legSlotsW: Map<number, [number, number]>[] = [];
+      const cpXW: number[] = [];
+      const cpYW: number[] = [];
+      legSlots = legSlotsW;
+      cpX = cpXW;
+      cpY = cpYW;
+      const w = this.width;
+      let none: Uint8Array | null = null; // an intermediate checkpoint reserves nothing: one all-zero mask per order
+      let prevX = startX;
+      let prevY = startY;
+      for (let k = 0; k < nLegs - 1; k++) {
+        if (none === null) none = new Uint8Array(w * this.height);
+        const tile = cuts[k];
+        const tx2 = tile % w;
+        const ty2 = (tile - tx2) / w;
+        const [ofx, ofy] = this.nearestOpenTile(tx2, ty2);
+        const [ovx, ovy] = this.nearestOpenTile(tx2, ty2, this.blockedVehicleMask);
+        const mid = assignTemplate(
+          {
+            width: w,
+            height: this.height,
+            masks: [this.blocked, this.blockedVehicleMask],
+            origins: [
+              [ofx, ofy],
+              [ovx, ovy],
+            ],
+            clickX: ofx,
+            clickY: ofy,
+            fromX: prevX,
+            fromY: prevY,
+            units,
+            reserved: none,
+            cover: this.cover,
+          },
+          tpl,
+        );
+        const m = new Map<number, [number, number]>();
+        for (const sl of mid.slots) m.set(sl.id, [sl.x, sl.y]);
+        legSlotsW.push(m);
+        cpXW.push(tx2);
+        cpYW.push(ty2);
+        prevX = tx2;
+        prevY = ty2;
+      }
+      const reservedOut = this.reservedTilesFor(this.side[units[0].id], cmd.ids);
       const res = assignTemplate(
         {
           width: this.width,
@@ -4649,10 +5313,10 @@ export class Sim {
           ],
           clickX: fgx,
           clickY: fgy,
-          fromX: (tSumX - (tSumX % tCount)) / tCount,
-          fromY: (tSumY - (tSumY % tCount)) / tCount,
+          fromX: prevX,
+          fromY: prevY,
           units,
-          reserved: this.reservedTilesFor(this.side[units[0].id], cmd.ids),
+          reserved: reservedOut,
           cover: this.cover,
         },
         tpl,
@@ -4662,8 +5326,37 @@ export class Sim {
         slots.set(sl.id, [sl.x, sl.y]);
         placed.set(sl.id, sl);
       }
+      // The units the formation leaves out take the plain grid to the same click, after the template has its
+      // tiles (the order a separate plain order issued second would see): the tiles of everyone outside this order
+      // and every final slot just given are reserved. `reservedOut` is this order's own array, read by nothing after.
+      if (loose !== null && loose.length > 0) {
+        for (const sl of res.slots) reservedOut[sl.y * this.width + sl.x] = 1;
+        const ln = loose.length;
+        const seated = assignFormation({
+          width: this.width,
+          height: this.height,
+          masks: [this.blocked, this.blockedVehicleMask],
+          origins: [
+            [fgx, fgy],
+            [vgx, vgy],
+          ],
+          clickX: fgx,
+          clickY: fgy,
+          fromX: (lSumX - (lSumX % ln)) / ln,
+          fromY: (lSumY - (lSumY % ln)) / ln,
+          units: loose,
+          reserved: reservedOut,
+        });
+        for (const s of seated) slots.set(s.id, [s.x, s.y]);
+      }
+      legSlotsW.push(slots);
+      cpXW.push(fgx);
+      cpYW.push(fgy);
       ringRadius = res.ringRadius;
+      // Ruling 9: `travel` is the direction of the last leg, eight-way (the slot frame is axis-quantised).
+      if (tpl.face === FM_FACE_TRAVEL) travelFace = eighthToward(fgx - prevX, fgy - prevY);
     }
+    const marching = legSlots.length > 1;
     if (placed === null && members.length > 0) {
       const n = members.length;
       const assigned = assignFormation({
@@ -4713,6 +5406,10 @@ export class Sim {
         if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
       }
       const slot = exact ? undefined : slots.get(id);
+      // GH-859: a unit the formation leaves out has its plain slot and nothing of the march: it goes straight to it,
+      // joins no group and queues no checkpoint, whatever the rest of the order does.
+      const looseId = placed !== null && leaves !== null && fmExcludes(leaves, utype.fmClass);
+      const marches = marching && !looseId;
       // A passenger is not going anywhere on its own feet either way: on
       // the formation path it claimed no slot, and on the exact path it
       // is refused here.
@@ -4734,7 +5431,9 @@ export class Sim {
       let ufx: number;
       let ufy: number;
       let ufd: number;
-      if (slot === undefined) {
+      // On a march the goal is checkpoint 1's slot; a member with no slot there takes the checkpoint's tile.
+      const first = marches && slot !== undefined ? legSlots[0].get(id) ?? [cpX[0], cpY[0]] : slot;
+      if (slot === undefined || first === undefined) {
         if (snapped && utype.isAir) {
           ux = gx;
           uy = gy;
@@ -4762,11 +5461,11 @@ export class Sim {
         // unit's alone either way. Everyone the formation displaced takes
         // its slot's centre, because a displaced unit has no clicked point
         // of its own to keep.
-        const onClick = slot[0] === tx && slot[1] === ty;
-        ux = onClick ? gx : fx.add(fx.fromInt(slot[0]), HALF);
-        uy = onClick ? gy : fx.add(fx.fromInt(slot[1]), HALF);
-        ufx = slot[0];
-        ufy = slot[1];
+        const onClick = !marches && first[0] === tx && first[1] === ty;
+        ux = onClick ? gx : fx.add(fx.fromInt(first[0]), HALF);
+        uy = onClick ? gy : fx.add(fx.fromInt(first[1]), HALF);
+        ufx = first[0];
+        ufy = first[1];
         ufd = utype.pathDomain;
       }
       // Appending to a unit already under way queues the point instead of
@@ -4782,7 +5481,7 @@ export class Sim {
           this.wpCount[id] = n + 1;
           // Only a leg that was stored makes the unit a member: a full queue drops the waypoint, and
           // a member whose slot was never kept would spring-stance at its old final waypoint.
-          if (placed !== null) written.push(id);
+          if (placed !== null && !looseId) written.push(id);
         }
         // N3 Task 9: an appended leg is a new order too -- the patrol ends, and the
         // unit walks its current leg and then the appended route. (This fast-path
@@ -4825,9 +5524,23 @@ export class Sim {
       // Any order overrides a held stance -- a patrol included. A leg the patrol
       // issues itself (`stepPatrolStance`, `patrolLeg`) is the one move that keeps it.
       if (!patrolLeg) this.stance[id] = 0;
-      if (placed !== null) written.push(id);
+      if (marches) {
+        // Checkpoints 2..n queue behind the goal as ordinary waypoints; the last is the click (the exact
+        // point when the member's slot is the clicked tile, as a single-checkpoint order keeps it).
+        const base = id * MAX_WAYPOINTS;
+        for (let k = 1; k < legSlots.length; k++) {
+          const sl = legSlots[k].get(id) ?? [cpX[k], cpY[k]];
+          const onClick = k === legSlots.length - 1 && sl[0] === tx && sl[1] === ty;
+          this.wpX[base + k - 1] = onClick ? gx : fx.add(fx.fromInt(sl[0]), HALF);
+          this.wpY[base + k - 1] = onClick ? gy : fx.add(fx.fromInt(sl[1]), HALF);
+          this.wpAttack[base + k - 1] = attack;
+          this.wpSweep[base + k - 1] = sweep;
+        }
+        this.wpCount[id] = legSlots.length - 1;
+      }
+      if (placed !== null && !looseId) written.push(id);
     }
-    if (placed !== null && written.length > 0) this.fmJoin(tplIdx, written, placed, ringRadius);
+    if (placed !== null && written.length > 0) this.fmJoin(tplIdx, written, placed, ringRadius, legSlots.length, travelFace);
   }
 
   /** The formation id named by `cmd` as an index into `formationTypes`, or -1 when the order is today's
@@ -4848,7 +5561,14 @@ export class Sim {
   /** After a template order has written its goals: each written member takes its rest facing and
    *  arrival stance, and the group takes the lowest free row of the side (none free: a degraded order,
    *  with shape, facing and stance but no group, so no shared spring). Order-time only. */
-  private fmJoin(tplIdx: number, written: readonly number[], placed: ReadonlyMap<number, TemplateSlot>, ringRadius: number): void {
+  private fmJoin(
+    tplIdx: number,
+    written: readonly number[],
+    placed: ReadonlyMap<number, TemplateSlot>,
+    ringRadius: number,
+    legs: number,
+    travelFace: number,
+  ): void {
     const tpl = this.formationTypes[tplIdx];
     // The group takes the side of its first written id: an order is single-side by construction, as the
     // plain path assumes with `reservedTilesFor` (versus checks ownership; a mixed order is the caller's).
@@ -4865,7 +5585,8 @@ export class Sim {
     for (const id of written) {
       const sl = placed.get(id);
       const ut = this.unitTypes[this.typeIdx[id]];
-      this.restFacing[id] = sl === undefined ? FM_FACING_NONE : sl.face;
+      // `travel` is the last leg's eight-way direction (Ruling 9); an aircraft's slot has no facing at all.
+      this.restFacing[id] = sl === undefined ? FM_FACING_NONE : tpl.face === FM_FACE_TRAVEL && sl.face !== FM_FACING_NONE && travelFace !== FM_FACING_NONE ? travelFace : sl.face;
       // The stance belongs to the ring (an ambush) or to ground members (a hold); an aircraft takes none.
       let arrive = 0;
       if (!ut.isAir) {
@@ -4879,6 +5600,9 @@ export class Sim {
         this.fmGroup[id] = g;
         joined++;
       }
+      // Heading to checkpoint 1, on no duty (a P1b column; fmForget cleared them on the way out of any old group).
+      this.fmLeg[id] = 1;
+      this.fmDuty[id] = FM_DUTY_NONE;
     }
     if (g >= 0) {
       this.fgLive[g] = 1;
@@ -4887,7 +5611,41 @@ export class Sim {
       this.fgState[g] = FM_MARCH;
       this.fgPending[g] = 0;
       this.fgMembers[g] = joined;
+      this.fgLegs[g] = legs;
+      this.fgRelease[g] = 0;
+      this.fgDress[g] = 0;
+      this.fgAtCp[g] = 0;
+      this.fgPace[g] = tpl.pace === FM_PACE_NONE ? 0 : this.groupPace(g);
     }
+  }
+
+  /** The effective step of a living ground unit, `stepMovement`'s first two lines (GH-707 `speedMul`, #706 slowed
+   *  running gear) and nothing after them. Byte-identical to what `stepMovement` computed inline. */
+  private baseStep(i: number): Fx {
+    // GH-707 Task 4: a medic carrying a wounded drags or stretchers him (`speedMul`). The
+    // column is ONE for every unit without wound content, and fx.mul(x, ONE) === x exactly
+    // (bh 1, bl 0: (ah << 16) + al), so this is the identity there.
+    let step = fx.mul(this.unitTypes[this.typeIdx[i]].stepPerTick, this.speedMul[i]);
+    // #706: slowed running gear, an integer percent of the Q16.16 step, by the
+    // tree's integer-divide idiom (`fixed.ts:119`): no float is produced. The
+    // product stays far inside int32 (a step is under 0.2 tile, ~13000 raw).
+    if (this.mobilityDamaged[i] === 1) {
+      const p = step * MOB_DAMAGED_PCT;
+      step = (p - (p % 100)) / 100;
+    }
+    return step;
+  }
+
+  /** The group's pace (Ruling 8): the minimum `baseStep` over its living ground members that are not on a call,
+   *  0 when it has none. One O(count) scan, at order time and at each release. */
+  private groupPace(g: number): Fx {
+    let pace = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.alive[i] === 0 || this.fmDuty[i] >= FM_DUTY_OUT || this.unitTypes[this.typeIdx[i]].isAir) continue;
+      const step = this.baseStep(i);
+      if (pace === 0 || step < pace) pace = step;
+    }
+    return pace;
   }
 
   /** The one exit from a formation (GH-859 P1a): membership, rest facing and arrival stance go, and a
@@ -4896,7 +5654,20 @@ export class Sim {
     this.restFacing[id] = FM_FACING_NONE;
     this.fmArrive[id] = 0;
     const g = this.fmGroup[id];
+    const duty = this.fmDuty[id];
+    this.fmDuty[id] = FM_DUTY_NONE;
+    this.fmLeg[id] = 0;
+    this.fmHomeX[id] = 0;
+    this.fmHomeY[id] = 0;
     if (g < 0) return;
+    // A member leaving a dress is no longer waited for; one leaving a sortie or a rescue no longer away.
+    if (duty === FM_DUTY_WAIT) {
+      if (this.fgAtCp[g] > 0) this.fgAtCp[g]--;
+      // The dress clock counts while someone waits: with nobody left waiting it starts again from the next arrival.
+      if (this.fgAtCp[g] === 0) this.fgDress[g] = 0;
+    } else if (duty >= FM_DUTY_OUT) {
+      if (this.fgAway[g] > 0) this.fgAway[g]--;
+    }
     this.fmGroup[id] = -1;
     if (this.fgMembers[g] > 0) this.fgMembers[g]--;
     if (this.fgMembers[g] === 0) {
@@ -4905,6 +5676,16 @@ export class Sim {
       this.fgType[g] = 0;
       this.fgState[g] = 0;
       this.fgPending[g] = 0;
+      this.fgLegs[g] = 0;
+      this.fgRelease[g] = 0;
+      this.fgDress[g] = 0;
+      this.fgQuiet[g] = 0;
+      this.fgAtCp[g] = 0;
+      this.fgAway[g] = 0;
+      this.fgCalled[g] = 0;
+      this.fgPace[g] = 0;
+      this.fgCallX[g] = 0;
+      this.fgCallY[g] = 0;
     }
   }
 
@@ -4922,33 +5703,245 @@ export class Sim {
     }
   }
 
-  /** A member of a `spring` group sprang, or was fired on by the enemy: mark the group to spring
-   *  together. Only a group still marching is marked, once; the event names the first. The mark is
-   *  consumed at the start of the next tick (`stepFormationSpring`). If every member is ordered away
-   *  in between (or dies), the row is freed with the mark still unconsumed: the event was pushed, no
-   *  spring follows. Accepted: the event names a discovery, which did happen. */
-  private fmPend(id: number): void {
+  /** A group member made contact (GH-859 P1b, Ruling 10): it was fired on by the enemy (`applySuppression`'s hostile
+   *  branch, the source point), it sprang (`stepCombat`, its own position), or it fired (`fireAt`, `fireAtStructure`
+   *  and `stepBeam`, the target's position). `(x, y)` is the contact point. Every call restarts the group's quiet clock.
+   *  A group still marching with a drill is marked once, first writer wins (writers run in shooter-id order); the event
+   *  names the first member: `formationSprung` for a ring, `formationContact` for `halt` and `press`. A group already in
+   *  contact, or sprung, with no sortie out (`fgCalled` 0; 2 means it has nobody to call) asks for a call instead. The call bit is set only when the group has a
+   *  contact-call element and the point is within `call_radius_tiles` of the MEMBER that reported it (not of the
+   *  aircraft: Attack's stand 13 tiles back, behind a 12-tile radius). The mark is consumed at the start of the next
+   *  tick (`stepFormationContact`). If every member is ordered away in between (or dies), the row is freed with the
+   *  mark still unconsumed: the event was pushed, no drill follows. Accepted: the event names a contact, which did
+   *  happen. O(1) a call: the element scan is at most a handful and runs only on a first mark. */
+  private fmPend(id: number, x: Fx, y: Fx): void {
     const g = this.fmGroup[id];
-    if (g < 0 || this.fgState[g] !== FM_MARCH || this.fgPending[g] !== 0) return;
-    if (this.formationTypes[this.fgType[g]].drill !== FM_DRILL_SPRING) return;
-    this.fgPending[g] = 1;
-    this.pendingEvents.push({ kind: 'formationSprung', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id });
+    if (g < 0) return;
+    this.fgQuiet[g] = 0;
+    if (this.fgPending[g] !== 0) return;
+    const tpl = this.formationTypes[this.fgType[g]];
+    const state = this.fgState[g];
+    if (state === FM_MARCH) {
+      if (tpl.drill === FM_DRILL_NONE) return;
+      this.fgPending[g] = this.fmCallReaches(tpl, id, x, y) ? FM_PEND_DRILL | FM_PEND_CALL : FM_PEND_DRILL;
+      this.fgCallX[g] = x;
+      this.fgCallY[g] = y;
+      if (tpl.drill === FM_DRILL_SPRING) {
+        this.pendingEvents.push({ kind: 'formationSprung', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id });
+      } else {
+        this.pendingEvents.push({ kind: 'formationContact', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id, x, y, drill: tpl.drill });
+      }
+    } else if ((state === FM_CONTACT || state === FM_SPRUNG) && this.fgCalled[g] === 0 && this.fmCallReaches(tpl, id, x, y)) {
+      this.fgPending[g] = FM_PEND_CALL;
+      this.fgCallX[g] = x;
+      this.fgCallY[g] = y;
+    }
   }
 
-  /** Before `stepCombat` (behind `fmLive`): a marked group springs as one. A mark is set by a hit
-   *  (every `applySuppression` caller runs later in the tick) or by a member's own spring inside
-   *  `stepCombat`, so by the time this runs it is the tick after, and `stepCombat` then finds every
-   *  member's stance clear: the ring opens fire one tick after it was found. O(rows), and the
-   *  spring's one O(count) scan runs once in a group's life. */
-  private stepFormationSpring(): void {
+  /** Whether a contact at (x, y) reported by member `id` can raise a call: the formation has a `contact` call
+   *  element, and the point is no further than `call_radius_tiles` from `id` itself. */
+  private fmCallReaches(tpl: CompiledFormation, id: number, x: Fx, y: Fx): boolean {
+    const r = fx.fromInt(tpl.callRadius);
+    if (distSqFx(fx.sub(x, this.posX[id]), fx.sub(y, this.posY[id])) > fx.mul(r, r)) return false;
+    for (let e = 0; e < tpl.elements.length; e++) if (tpl.elements[e].onCall === FM_CALL_CONTACT) return true;
+    return false;
+  }
+
+  /** The dress ends (a ring found while marching, a press): the last checkpoint is released and every waiting member
+   *  goes on to its next leg, as a release does but for the event. One O(count) scan, once in a group's life. */
+  private fmEndDress(g: number): void {
+    if (this.fgLegs[g] > 0) this.fgRelease[g] = this.fgLegs[g] - 1;
+    this.fgDress[g] = 0;
+    this.fgAtCp[g] = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.fmDuty[i] !== FM_DUTY_WAIT) continue;
+      this.fmDuty[i] = FM_DUTY_NONE;
+      this.fmLeg[i]++;
+      if (this.wpCount[i] > 0) this.advanceLeg(i);
+    }
+  }
+
+  /** Before `stepCombat` (behind `fmLive`): a marked group runs its drill (Ruling 11). A mark is set by a hit (every
+   *  `applySuppression` caller runs later in the tick), by a member's own spring or by a member firing inside
+   *  `stepCombat`, so by the time this runs it is the tick after, and `stepCombat` then finds every stance clear:
+   *  the ring opens fire one tick after it was found.
+   *  - `spring`: the ring's stances clear, state `SPRUNG`, dressing ends.
+   *  - `halt`: every ground member stops and drops its queue (nobody waits any more), every vehicle turns its front
+   *    toward the contact point, state `CONTACT`. An aircraft the call will not answer (`stay`, or no call raised)
+   *    halts too. The march does not resume by itself.
+   *  - `press`: state `CONTACT`, dressing ends, pace and queues stay: attack-move does the fighting.
+   *  Then, when the mark carries the call bit, the call (Ruling 12, `fmCallAircraft`): a mark with the call bit alone is a
+   *  group already in contact whose sorties have come home. A member on its way home when a `halt` runs is stopped and
+   *  freed of its duty (Ruling 13).
+   *  O(rows); the drill's one O(count) scan runs once in a group's life, the call's once per call. */
+  private stepFormationContact(): void {
     for (let g = 0; g < FORMATION_ROWS; g++) {
       if (this.fgLive[g] === 0 || this.fgPending[g] === 0) continue;
+      const pend = this.fgPending[g];
       this.fgPending[g] = 0;
-      this.fgState[g] = FM_SPRUNG;
-      for (let i = 0; i < this.count; i++) {
-        if (this.fmGroup[i] === g && this.stance[i] === 1) this.stance[i] = 0;
+      const tpl = this.formationTypes[this.fgType[g]];
+      const drill = (pend & FM_PEND_DRILL) === 0 ? FM_DRILL_NONE : tpl.drill;
+      if (drill === FM_DRILL_SPRING) {
+        this.fgState[g] = FM_SPRUNG;
+        for (let i = 0; i < this.count; i++) {
+          if (this.fmGroup[i] === g && this.stance[i] === 1) this.stance[i] = 0;
+        }
+        this.fmEndDress(g);
+      } else if (drill === FM_DRILL_HALT) {
+        this.fgState[g] = FM_CONTACT;
+        const cx = this.fgCallX[g];
+        const cy = this.fgCallY[g];
+        for (let i = 0; i < this.count; i++) {
+          if (this.fmGroup[i] !== g) continue;
+          const ut = this.unitTypes[this.typeIdx[i]];
+          // Nobody waits in a group in contact, the aircraft that will answer the call included: clear the duty BEFORE
+          // the skip (`fgAtCp` is zeroed below). `fmLeg` stays: a cleared aircraft is still heading to the checkpoint it
+          // waited at, and its next arrival (`finishLeg`, which re-arrives each tick while held) advances it, because
+          // `fmMarchHold` holds only a MARCH row.
+          if (this.fmDuty[i] === FM_DUTY_WAIT) this.fmDuty[i] = FM_DUTY_NONE;
+          // A member on its way home from a call is halted where it stands and is no longer away: a halted group has
+          // no march for it to rejoin. One that is OUT keeps its job (a medic's rescue is its own, `stepMedics` walks
+          // it on) and loses its queue like every ground member.
+          if (this.fmDuty[i] === FM_DUTY_RETURN) {
+            this.fmDuty[i] = FM_DUTY_NONE;
+            if (this.fgAway[g] > 0) this.fgAway[g]--;
+          }
+          if ((pend & FM_PEND_CALL) !== 0 && this.fmAnswersCall(tpl, i)) {
+            // It answers the call, so it is not halted; but a halted group has no march to rejoin (Ruling 13): its queue goes
+            // with everyone's, and it flies to the call, comes home to `fmHome` and stops there.
+            this.wpCount[i] = 0;
+            continue;
+          }
+          this.haltUnit(i);
+          if (!ut.isAir && ut.moveDomain === DOMAIN_VEHICLE) {
+            const face = eighthToward(cx - this.posX[i], cy - this.posY[i]);
+            if (face !== FM_FACING_NONE) this.restFacing[i] = face;
+          }
+        }
+        this.fgAtCp[g] = 0;
+        this.fgDress[g] = 0;
+      } else if (drill === FM_DRILL_PRESS) {
+        this.fgState[g] = FM_CONTACT;
+        this.fmEndDress(g);
       }
+      // The call (Ruling 12), after the drill: a bit set on a first mark, or alone on a group already in contact.
+      if ((pend & FM_PEND_CALL) !== 0) this.fmCallAircraft(g, tpl);
     }
+  }
+
+  /** Whether group member `i` is an aircraft the formation's contact call sends out (Ruling 12): `strike` or `spot`
+   *  by its type, in an element that is on call for contact, and free to take an order (not coming down). The halt
+   *  drill leaves exactly these flying, because the call is about to give them somewhere to go. */
+  private fmAnswersCall(tpl: CompiledFormation, i: number): boolean {
+    return this.fmCanBeCalled(tpl, i) && this.airState[i] !== AIR_LANDING;
+  }
+
+  /** Whether member `i` is, by type and element, an aircraft the contact call can ever send (a `strike` or `spot` in an
+   *  element on call for contact), whatever it is doing now. Membership only shrinks, so a group with none never will have. */
+  private fmCanBeCalled(tpl: CompiledFormation, i: number): boolean {
+    const ut = this.unitTypes[this.typeIdx[i]];
+    if (!ut.isAir || ut.fmCall === FM_CALL_STAY) return false;
+    return tpl.elements[tpl.elementOfClass[ut.fmClass]].onCall === FM_CALL_CONTACT;
+  }
+
+  /** The contact call (Ruling 12): every answering aircraft of row `g` not already away flies to the call point's
+   *  tile centre, whatever its distance (it is the group's own), a `strike` as an attack-move and a `spot` as a move,
+   *  never sweeping. It remembers where it was going (`fmHome`) and keeps its queue: `finishLeg` stops an `OUT`
+   *  member at the point. `fgCalled` 1 says sorties are out, so a contact while they are asks for nothing twice; the quiet
+   *  return clears it. `fgCalled` 2 says the group has no member that could ever be called (no `strike` or `spot` aircraft
+   *  in an element on call for contact, alive or on any duty): the latch is permanent (membership only shrinks), so a
+   *  ground-only group in a long fight is scanned once and not on every exchange of fire (G-3). The quiet return reads
+   *  only the value 1. */
+  private fmCallAircraft(g: number, tpl: CompiledFormation): void {
+    let could = false;
+    const tx = fx.toInt(this.fgCallX[g]);
+    const ty = fx.toInt(this.fgCallY[g]);
+    const gx = fx.add(fx.fromInt(tx), HALF);
+    const gy = fx.add(fx.fromInt(ty), HALF);
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.alive[i] === 0) continue;
+      if (this.fmCanBeCalled(tpl, i)) could = true;
+      if (this.fmDuty[i] >= FM_DUTY_OUT || !this.fmAnswersCall(tpl, i)) continue;
+      const strike = this.unitTypes[this.typeIdx[i]].fmCall === FM_CALL_STRIKE;
+      if (this.fmDuty[i] === FM_DUTY_WAIT) this.fmUnwait(i, g);
+      this.fmHomeX[i] = this.moving[i] === 1 ? this.goalX[i] : this.posX[i];
+      this.fmHomeY[i] = this.moving[i] === 1 ? this.goalY[i] : this.posY[i];
+      this.goalX[i] = gx;
+      this.goalY[i] = gy;
+      this.fieldRef[i] = this.fieldFor(tx, ty, this.domainOf(i));
+      this.moving[i] = 1;
+      this.attackMove[i] = strike ? 1 : 0;
+      this.sweepOrder[i] = 0;
+      this.engaging[i] = 0;
+      this.fmDuty[i] = FM_DUTY_OUT;
+      this.fgAway[g]++;
+      this.fgCalled[g] = 1;
+      this.pendingEvents.push({ kind: 'formationCall', tick: this.tickCount, side: this.fgSide[g], group: g, entity: i, call: strike ? 'strike' : 'spot' });
+    }
+    if (!could) this.fgCalled[g] = 2;
+  }
+
+  /** Member `i` of row `g` stops waiting at a checkpoint to go on a call: it is no longer counted in `fgAtCp`, and
+   *  with nobody left waiting the dress clock starts again from the next arrival. */
+  private fmUnwait(i: number, g: number): void {
+    this.fmDuty[i] = FM_DUTY_NONE;
+    if (this.fgAtCp[g] > 0) this.fgAtCp[g]--;
+    if (this.fgAtCp[g] === 0) this.fgDress[g] = 0;
+  }
+
+  /** Member `i` goes home from a call (Ruling 13): its goal is `fmHome`, it is no attack-mover (a gunship flying home
+   *  as one would stop at every target and never arrive), and its queue is as it left it. `finishLeg` takes it back
+   *  into the march on arrival. */
+  private fmReturnHome(i: number): void {
+    const tx = fx.toInt(this.fmHomeX[i]);
+    const ty = fx.toInt(this.fmHomeY[i]);
+    this.goalX[i] = this.fmHomeX[i];
+    this.goalY[i] = this.fmHomeY[i];
+    this.fieldRef[i] = this.fieldFor(tx, ty, this.domainOf(i));
+    this.moving[i] = 1;
+    this.attackMove[i] = 0;
+    this.sweepOrder[i] = 0;
+    this.engaging[i] = 0;
+    this.fmDuty[i] = FM_DUTY_RETURN;
+    const g = this.fmGroup[i];
+    this.pendingEvents.push({ kind: 'formationCall', tick: this.tickCount, side: this.fgSide[g], group: g, entity: i, call: 'return' });
+  }
+
+  /** The casualty call (Ruling 14): man `w` went down in row `g` (his parent was a member, or was its last man, so
+   *  the row is read from before the parent died). The nearest free group medic answers, within `call_radius_tiles`
+   *  of him, by squared distance with ties to the lowest id (a strict `<` in id order): a living foot unit with a
+   *  `rescue` block in an element on call for casualties, doing nothing (`MED_IDLE`, no passenger) and not on a call,
+   *  routed, carried, garrisoned or below ground. The ambulance and the medevac have no `rescue` block and never
+   *  answer: they are where the medics bring him. It takes the rescue with its queue and its place in the march
+   *  kept (`beginRescue`, `fmHome`), `OUT`. */
+  private fmCasualty(g: number, w: number): void {
+    if (g < 0 || this.fgLive[g] === 0) return;
+    const tpl = this.formationTypes[this.fgType[g]];
+    const r = fx.fromInt(tpl.callRadius);
+    const reachSq = fx.mul(r, r);
+    let best = -1;
+    let bestD = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.alive[i] === 0 || this.fmDuty[i] >= FM_DUTY_OUT) continue;
+      const ut = this.unitTypes[this.typeIdx[i]];
+      if (ut.rescue === null || ut.isAir || ut.moveDomain !== DOMAIN_FOOT) continue;
+      if (tpl.elements[tpl.elementOfClass[ut.fmClass]].onCall !== FM_CALL_CASUALTY) continue;
+      if (this.medState[i] !== MED_IDLE || this.passengers[i] > 0 || this.garrisonedIn[i] >= 0 || this.woundState[i] !== WOUND_NONE) continue;
+      if (!this.rescueGate(i, w)) continue;
+      const d = distSqFx(fx.sub(this.posX[w], this.posX[i]), fx.sub(this.posY[w], this.posY[i]));
+      if (d > reachSq || (best >= 0 && d >= bestD)) continue;
+      best = i;
+      bestD = d;
+    }
+    if (best < 0) return;
+    const m = best;
+    if (this.fmDuty[m] === FM_DUTY_WAIT) this.fmUnwait(m, g);
+    this.fmHomeX[m] = this.moving[m] === 1 ? this.goalX[m] : this.posX[m];
+    this.fmHomeY[m] = this.moving[m] === 1 ? this.goalY[m] : this.posY[m];
+    this.beginRescue(m, w, true);
+    this.fmDuty[m] = FM_DUTY_OUT;
+    this.fgAway[g]++;
+    this.pendingEvents.push({ kind: 'formationCall', tick: this.tickCount, side: this.fgSide[g], group: g, entity: m, call: 'casualty' });
   }
 
   /** Right after `stepCombat` (behind `fmLive`): a unit standing at rest in a formation turns to the
@@ -4961,8 +5954,72 @@ export class Sim {
       if (this.alive[i] === 0 || this.moving[i] === 1) continue;
       if (this.curTarget[i] >= 0 || this.curStructure[i] >= 0 || this.mobilityKilled[i] === 1) continue;
       if (this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) continue;
+      // GH-859 P1b (Ruling 9): the rest facing waits for the final checkpoint (or for contact). A hull stopped at
+      // an intermediate one keeps the way it marched.
+      const g = this.fmGroup[i];
+      if (g >= 0 && this.fmLeg[i] < this.fgLegs[g] && this.fgState[g] !== FM_CONTACT) continue;
+      if (this.fmDuty[i] >= FM_DUTY_OUT) continue; // a member on a call faces what it is doing, not its slot
       if (this.facing[i] !== want) this.turnToward(i, want);
     }
+  }
+
+  /** Before `stepMovement` (behind `fmLive`): the dress (Ruling 7). A `MARCH` row with members waiting at its
+   *  next checkpoint counts a tick of dress, and releases the checkpoint when every member present is waiting
+   *  (or away on a call) or `dress_s` has passed since the first arrival: `fgRelease` goes up, every waiting
+   *  member goes on to its next leg, the pace is read again, one event. A row in contact or sprung counts the quiet
+   *  clock instead. O(rows) a tick; the one O(count) scan runs once per released checkpoint. */
+  private stepFormationMarch(): void {
+    for (let g = 0; g < FORMATION_ROWS; g++) {
+      if (this.fgLive[g] === 0) continue;
+      const state = this.fgState[g];
+      if (state !== FM_MARCH) {
+        // The quiet clock (Ruling 13): ticks since the last contact, counted for a group in contact or sprung; every
+        // `fmPend` call restarts it. A group that has called and stays quiet for `quiet_s` brings its aircraft home.
+        if (state === FM_CONTACT || state === FM_SPRUNG) {
+          if (this.fgQuiet[g] < 0xffff) this.fgQuiet[g]++;
+          if (this.fgCalled[g] === 1 && this.fgQuiet[g] >= this.formationTypes[this.fgType[g]].quietTicks) this.fmRecall(g);
+        }
+        continue;
+      }
+      if (this.fgAtCp[g] === 0) continue;
+      if (this.fgDress[g] < 0xffff) this.fgDress[g]++;
+      if (this.fgAtCp[g] + this.fgAway[g] < this.fgMembers[g] && this.fgDress[g] < this.formationTypes[this.fgType[g]].dressTicks) continue;
+      this.fgRelease[g]++;
+      this.fgDress[g] = 0;
+      this.fgAtCp[g] = 0;
+      for (let i = 0; i < this.count; i++) {
+        if (this.fmGroup[i] !== g || this.fmDuty[i] !== FM_DUTY_WAIT) continue;
+        this.fmDuty[i] = FM_DUTY_NONE;
+        this.fmLeg[i]++;
+        if (this.wpCount[i] > 0) this.advanceLeg(i);
+      }
+      if (this.formationTypes[this.fgType[g]].pace !== FM_PACE_NONE) this.fgPace[g] = this.groupPace(g);
+      this.pendingEvents.push({ kind: 'formationReleased', tick: this.tickCount, side: this.fgSide[g], group: g, leg: this.fgRelease[g], legs: this.fgLegs[g] });
+    }
+  }
+
+  /** The quiet return (Ruling 13): the row has been quiet for `quiet_s` since its call, so every aircraft still out on
+   *  it flies home, and the call is over (a contact after this calls again). A medic is not sent: it comes home by
+   *  itself when its rescue is done. One O(count) scan per call. */
+  private fmRecall(g: number): void {
+    this.fgCalled[g] = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.fmDuty[i] !== FM_DUTY_OUT || this.alive[i] === 0 || !this.unitTypes[this.typeIdx[i]].isAir) continue;
+      this.fmReturnHome(i);
+    }
+  }
+
+  /** GH-859 P1b: what formation member `id` is doing for its group, FM_DUTY_*: 0 marching (or in no group), 1 waiting
+   *  at a checkpoint, 2 away on a call, 3 coming home from one. */
+  formationDutyOf(id: number): number {
+    return id >= 0 && id < this.count ? this.fmDuty[id] : 0;
+  }
+
+  /** GH-859 P1b: whether `id` took a formation's shape, facing and stance in a template order but has no group row
+   *  (the table was full): a ground member of a degraded order, read from the rest facing the order wrote and `fmForget`
+   *  clears. An aircraft takes no rest facing, so it reads false. Read-only and unhashed. */
+  formationDegradedOf(id: number): boolean {
+    return id >= 0 && id < this.count && this.fmGroup[id] < 0 && this.restFacing[id] !== FM_FACING_NONE;
   }
 
   /** Formation group read APIs for the HUD. Scalar, allocation-free. */
@@ -4981,12 +6038,57 @@ export class Sim {
   formationMembersOfGroup(g: number): number {
     return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgMembers[g] : 0;
   }
+  /** GH-859 P1b: the checkpoint row `g` is now dressing (`fgRelease + 1`, at most `fgLegs`), 0 for a free row. */
+  formationLegOfGroup(g: number): number {
+    if (g < 0 || g >= FORMATION_ROWS || this.fgLive[g] === 0) return 0;
+    const leg = this.fgRelease[g] + 1;
+    return leg > this.fgLegs[g] ? this.fgLegs[g] : leg;
+  }
+  /** GH-859 P1b: the checkpoints in row `g`'s route (the last is the click), 0 for a free row. */
+  formationLegsOfGroup(g: number): number {
+    return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgLegs[g] : 0;
+  }
+  /** GH-859 P1b: row `g`'s pace cap in `Fx` tiles a tick, 0 for no cap (or a free row). */
+  formationPaceOfGroup(g: number): Fx {
+    return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgPace[g] : 0;
+  }
+  /** GH-859 P1b: the unit that sets row `g`'s pace, recomputed on demand: the lowest id among its living ground
+   *  members not on a call whose `baseStep` is least. -1 when the row is free, has no pace or no such member. */
+  formationPaceSetterOf(g: number): number {
+    if (g < 0 || g >= FORMATION_ROWS || this.fgLive[g] === 0 || this.fgPace[g] === 0) return -1;
+    let best = -1;
+    let bestStep = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.alive[i] === 0 || this.fmDuty[i] >= FM_DUTY_OUT || this.unitTypes[this.typeIdx[i]].isAir) continue;
+      const step = this.baseStep(i);
+      if (best < 0 || step < bestStep) {
+        best = i;
+        bestStep = step;
+      }
+    }
+    return best;
+  }
 
   private applyCommands(): void {
     if (this.runtimeQueue.length !== 0) this.runtimeQueue = []; // R-3: no runtime took them
     const q = this.commandQueue;
     for (let c = 0; c < q.length; c++) {
       let cmd = q[c];
+      // GH-976 (R0.5): the first statement. A command that could damage, or take a unit off the board, is dropped
+      // while a set-up is active, before any side effect (the containment filter below writes columns).
+      if (this.setupLive && this.setupActive && SETUP_REFUSED_KINDS.has(cmd.kind)) continue;
+      if (cmd.kind === 'setupReady') {
+        this.applySetupReady(cmd.side);
+        continue;
+      }
+      if (cmd.kind === 'fortify') {
+        this.applyFortify(cmd.side, cmd.kit, cmd.x, cmd.y);
+        continue;
+      }
+      if (cmd.kind === 'unfortify') {
+        this.applyUnfortify(cmd.side, cmd.x, cmd.y);
+        continue;
+      }
       // Containment is a rule, not a list of places that remembered it: every
       // surface command refuses a buried unit HERE, at the single point where
       // its ids expand, before any branch sees them. The earth decides where
@@ -5176,25 +6278,18 @@ export class Sim {
             gy = this.goalY[car];
           }
         }
+        // GH-972: a player's group order names every carrier it selected; the riders are shared out
+        // across the ground ones. Anything else (one carrier, an air carrier, no list) is today's order.
+        if (cmd.carriers !== undefined && !this.unitTypes[this.typeIdx[car]].isAirCarrier) {
+          const set = this.loadSpreadSet(car, cmd.carriers);
+          if (set.length >= 2) {
+            this.loadSpread(cmd.ids, car, set);
+            continue;
+          }
+        }
         for (const id of cmd.ids) {
-          if (this.alive[id] === 0 || this.routed[id] === 1 || id === car) continue;
-          // Only dismounted elements ride. This also covers vehicle stacking,
-          // since no carrier is a foot role.
-          if (!this.unitTypes[this.typeIdx[id]].canEmbark) continue;
-          if (this.carriedBy[id] >= 0) continue;
-          // GH-707 D3: a carrying medic boards nothing (canSeat refuses him too); refused here
-          // so he is not walked to a hull that will never take him.
-          if (this.unitTypes[this.typeIdx[id]].rescue !== null && this.passengers[id] > 0) continue;
-          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
-          this.boardGoal[id] = car;
-          this.wpCount[id] = 0;
-          this.goalX[id] = gx;
-          this.goalY[id] = gy;
-          this.fieldRef[id] = this.fieldFor(fx.toInt(gx), fx.toInt(gy), this.domainOf(id));
-          this.moving[id] = 1;
-          this.attackMove[id] = 0;
-          this.sweepOrder[id] = 0;
-          this.stance[id] = 0;
+          if (!this.canBoardOrder(id, car)) continue;
+          this.sendToCarrier(id, car, gx, gy);
         }
       } else if (cmd.kind === 'unload') {
         for (const id of cmd.ids) {
@@ -5248,27 +6343,40 @@ export class Sim {
         // Field works: nobody moves into a building that is still going up
         // (and `removeStructure` relies on it: an unfinished one is empty).
         if (this.stProgress[s] < ONE) continue;
+        // GH-976 (R0.4): in set-up, a building whose centroid tile or exit tile lies outside the issuing unit's
+        // region is not enterable: a man inside would come out, or fire from, past the line. Per unit, so a
+        // mixed selection keeps the ids that may go. `spread` is dropped to the plain order (the nearest-building
+        // share would pick buildings this test never saw).
+        if (this.setupActive) {
+          const [ex, ey] = this.exitTile(s);
+          const cxT = this.stCx[s] >> 16;
+          const cyT = this.stCy[s] >> 16;
+          const exT = ex >> 16;
+          const eyT = ey >> 16;
+          const own: number[] = [];
+          for (const id of cmd.ids) {
+            const sd = this.side[id];
+            if (this.setupOwnTile(sd, cxT, cyT) && this.setupOwnTile(sd, exT, eyT)) own.push(id);
+          }
+          for (const id of own) {
+            if (!this.canGarrisonOrder(id)) continue;
+            this.sendToGarrison(id, s, false);
+          }
+          continue;
+        }
         // Walk to the doorway; stepGarrison lets them in when they arrive
-        // and there is room. Overflow simply waits outside.
-        const [gx, gy] = [this.stCx[s], this.stCy[s]];
-        // Same fix as `demolish` above, for the same reason: the centroid is
-        // always blocked, so the field routes to the nearest open tile and
-        // goalX/goalY keep the true centroid for the final approach.
-        const gtx = fx.toInt(gx);
-        const gty = fx.toInt(gy);
+        // and there is room. Overflow simply waits outside (unless `spread`,
+        // GH-972, which shares the group out and sends the overflow on).
+        // `sendToGarrison` carries the `demolish` fix, for the same reason:
+        // the centroid is always blocked, so the field routes to the nearest
+        // open tile and goalX/goalY keep the true centroid for the final approach.
+        if (cmd.spread === true) {
+          this.garrisonSpread(cmd.ids, s);
+          continue;
+        }
         for (const id of cmd.ids) {
-          if (this.alive[id] === 0 || this.routed[id] === 1) continue;
-          if (!this.unitTypes[this.typeIdx[id]].canGarrison) continue;
-          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
-          this.garrisonGoal[id] = s;
-          this.goalX[id] = gx;
-          this.goalY[id] = gy;
-          this.fieldRef[id] = this.fieldToward(id, gtx, gty);
-          this.moving[id] = 1;
-          this.attackMove[id] = 0;
-          this.sweepOrder[id] = 0;
-          this.engaging[id] = 0;
-          this.stance[id] = 0;
+          if (!this.canGarrisonOrder(id)) continue;
+          this.sendToGarrison(id, s, false);
         }
       } else if (cmd.kind === 'chargeTunnel') {
         const r = cmd.tunnel;
@@ -5375,25 +6483,7 @@ export class Sim {
         for (const id of cmd.ids) {
           if (!this.rescueGate(id, cmd.target)) continue;
           if (this.fmLive) this.fmForget(id); // GH-859 P1a: an accepted order leaves its formation
-          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
-          this.focusTarget[id] = -1;
-          this.focusLost[id] = 0;
-          this.wpCount[id] = 0;
-          this.boardGoal[id] = -1;
-          this.garrisonGoal[id] = -1;
-          this.demolishOrder[id] = -1;
-          this.chargeOrder[id] = -1;
-          this.chargeTicks[id] = 0;
-          // stepMedics, later this tick, walks him there (it owns his movement from now on).
-          this.moving[id] = 0;
-          this.fieldRef[id] = -1;
-          this.attackMove[id] = 0;
-          this.sweepOrder[id] = 0;
-          this.engaging[id] = 0;
-          this.stance[id] = 0;
-          this.medState[id] = MED_TO_WOUNDED;
-          this.medTarget[id] = cmd.target;
-          this.medTimer[id] = 0;
+          this.beginRescue(id, cmd.target, false);
         }
       } else if (cmd.kind === 'enterTunnel') {
         this.applyEnterTunnel(cmd.ids, cmd.tunnel);
@@ -6769,6 +7859,10 @@ export class Sim {
     let bestHurts = false;
     // Ranked squared distance (see `rank` below), not always the raw one.
     let bestDistSq = 0x7fffffff;
+    // GH-976: 0 = not asked yet, 1 = a known hostile structure is in reach of
+    // this weapon, 2 = none. Asked lazily, once, and only if a firepower-killed
+    // hull turns up, so a scan with neither pays nothing.
+    let structInReach = 0;
     for (let t = 0; t < this.count; t++) {
       if (!this.engageable(shooter, w, t)) continue;
       const dSq = this.engageDSq;
@@ -6776,6 +7870,19 @@ export class Sim {
       // face the target shows this shooter (weaponHurts). Suppressive fire at
       // armour it cannot defeat is a fallback, not a preference.
       const hurts = this.weaponHurts(w, t, this.engageOX, this.engageOY);
+      // GH-976: a hull with its firepower killed is not worth a shot when a
+      // known hostile structure is in reach: it stays the target forever (its
+      // regen outpaces a mortar round), and structure targeting only runs when
+      // no unit is. A LIVE hull the weapon cannot hurt is deliberately kept as
+      // the last resort: suppressing an armed tank is not waste, and it still
+      // shoots back. The structure query overwrites engageDSq/OX/OY (eyePoint),
+      // but dSq and hurts are already in locals.
+      if (this.firepowerKilled[t] === 1 && !this.unitTypes[this.typeIdx[t]].isSoft && STRUCT_DAMAGE[w.cls] !== 0) {
+        if (structInReach === 0) {
+          structInReach = this.selectStructureTarget(shooter, w, true) >= 0 ? 1 : 2;
+        }
+        if (structInReach === 1) continue;
+      }
       // Nearest first — except that an anti-armour weapon counts a soft or
       // unarmed target as further off than it is, so a Spike spends its
       // missile on the tank and not the rifle squad beside it.
@@ -6805,7 +7912,7 @@ export class Sim {
    * inside — armies do not level a town for the sake of it, and ROE scores
    * the difference.
    */
-  private selectStructureTarget(shooter: number, w: WeaponStats): number {
+  private selectStructureTarget(shooter: number, w: WeaponStats, ownedOnly = false): number {
     const cap = this.capacity;
     const sSide = this.side[shooter];
     let best = -1;
@@ -6821,7 +7928,7 @@ export class Sim {
       const ownedHostile =
         (owner === 0 || owner === 1) && owner !== sSide && sSide <= 1 &&
         this.stKnown[sSide * MAX_STRUCTURES + s] !== 0;
-      if (!ownedHostile && this.stOccupants[s] === 0) continue;
+      if (!ownedHostile && (ownedOnly || this.stOccupants[s] === 0)) continue;
       // Protected sites are never engaged on a gunner's initiative.
       if (this.structureTypes[this.stTypeIdx[s]].roePenalty >= PROTECTED_ROE) continue;
       let hostileInside = ownedHostile;
@@ -7134,8 +8241,17 @@ export class Sim {
   private stepCombat(): void {
     this.aimTurned.fill(0);
     this.braceWant.fill(0);
+    const tight = this.setupActive;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.firepowerKilled[i] === 1) continue;
+      // GH-976 (R0.5): weapons tight during a set-up. The pinned branch's writes: nothing is engaged, so no beam, no
+      // structure fire, and an attack-mover does not halt to engage. Detection still runs.
+      if (tight) {
+        this.engaging[i] = 0;
+        this.curTarget[i] = -1;
+        this.curStructure[i] = -1;
+        continue;
+      }
       // The outbound half of containment — the inbound half is Task 7's
       // selectTarget/splash/suppression guards. The earth stops fire in both
       // directions: without this, a unit below ground with a live contact
@@ -7167,7 +8283,7 @@ export class Sim {
         }
         this.stance[i] = 0;
         this.pendingEvents.push({ kind: 'ambushSprung', tick: this.tickCount, entity: i });
-        if (this.fmLive) this.fmPend(i); // GH-859 P1a: the rest of its ring springs with it
+        if (this.fmLive) this.fmPend(i, this.posX[i], this.posY[i]); // GH-859 P1a: the rest of its ring springs with it
       }
       const type = this.unitTypes[this.typeIdx[i]];
       if (type.weapons.length === 0) continue;
@@ -7546,6 +8662,7 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
+    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: a member that opens fire reports contact at its target (selectTarget is hostile-only, so every shot is at an enemy)
     // A shot is definitely being taken. Meter the surfacing burst — only a
     // unit up from a route has one; an ordinary surface unit never carries
     // volley bookkeeping.
@@ -7640,6 +8757,7 @@ export class Sim {
     this.beamTgt[k] = target;
     this.beamAt[k] = now;
     this.lastFired[shooter] = now; // a beam is a firing signature like any shot
+    if (this.fmLive) this.fmPend(shooter, this.posX[target], this.posY[target]); // GH-859 P1b: a beam never reaches fireAt (its target is chosen by selectTarget: hostile-only)
     this.beamHeat[k]++;
     if (++this.beamDwell[k] >= b.dwellTicks) {
       this.beamDwell[k] = 0;
@@ -7705,6 +8823,7 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
+    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: and one that fires on a building (selectStructureTarget picks hostile structures only; selectBreachTarget can pick a neutral wall, but returns -1 for a side a person holds, which every formation order comes from in play, so a breach reports no contact there. A bot seat that a probe or a test orders a formation for is not person-held, so there a breach on a neutral wall does report contact)
 
     const speed = PROJ_SPEED[w.cls];
     let ticks = 1;
@@ -7899,7 +9018,10 @@ export class Sim {
         this.apsAmmo[target]--;
         this.apsRecent[target]++;
         this.apsLastTick[target] = this.tickCount;
-        if (this.apsAmmo[target] === 0) this.apsReloadLeft[target] = tType.apsReloadTicks;
+        if (this.apsAmmo[target] === 0) {
+          // GH-884: a stock type always runs the clock (a zero reload would never fire the refill below).
+          this.apsReloadLeft[target] = tType.apsReserve >= 0 ? fx.max(tType.apsReloadTicks, 1) : tType.apsReloadTicks;
+        }
         this.pendingEvents.push({
           kind: 'aps',
           tick: this.tickCount,
@@ -8321,11 +9443,13 @@ export class Sim {
     const type = this.unitTypes[this.typeIdx[target]];
     const standing = figuresStanding(this.hp[target], type.hp, type.figures);
     const floor = standing > 1 ? standing : 1;
-    while (this.figuresUp[target] > floor) this.fallMan(target, by, false);
+    // GH-859 P1b (Ruling 14): the squad's group, read before `destroy` forgets it, so its last man is called for too.
+    const group = this.fmLive ? this.fmGroup[target] : -1;
+    while (this.figuresUp[target] > floor) this.fallMan(target, by, false, group);
     if (this.hp[target] > 0) return;
     if (inPlace && this.downInPlace(target, by)) return;
     this.destroy(target, by);
-    if (!inPlace) this.fallMan(target, by, true);
+    if (!inPlace) this.fallMan(target, by, true, group);
   }
 
   /**
@@ -8337,7 +9461,7 @@ export class Sim {
    * `figuresUp` drops either way. `last`: the squad's final man, already `destroy`ed -- his
    * body (if any) has parent -1, and a failed roll emits nothing beyond that `destroyed`.
    */
-  private fallMan(squad: number, by: number, last: boolean): void {
+  private fallMan(squad: number, by: number, last: boolean, group: number): void {
     const type = this.unitTypes[this.typeIdx[squad]];
     const w = type.wounds;
     if (w === null) return;
@@ -8356,6 +9480,8 @@ export class Sim {
     this.bleedTicks[id] = w.bleedTicks;
     this.scars[id] = this.scars[squad];
     this.pendingEvents.push({ kind: 'woundedDown', tick: this.tickCount, entity: id, parent: last ? -1 : squad, by });
+    // GH-859 P1b (Ruling 14): the casualty call. `group` is the squad's row (-1 without a formation).
+    if (group >= 0) this.fmCasualty(group, id);
   }
 
   /** The fatal hit on an `in_place` type: on a won roll (and under the side's cap) the unit
@@ -8447,11 +9573,20 @@ export class Sim {
   }
 
   /** GH-707 Task 6: is structure `s` an aid post working for `side` -- standing, finished
-   *  (field works: a site under construction admits nobody), with an `aid` block, and owned
-   *  (`stOwner`) by `side`? A neutral (-1) structure is nobody's post. */
+   *  (field works: a site under construction admits nobody), with an `aid` block, and working
+   *  for `side` (`aidSideOf`: owned by it, or a neutral camp that produces for it)? A neutral
+   *  structure that produces for nobody is nobody's post. */
   private aidPostOf(s: number, side: number): boolean {
-    if (this.stAlive[s] === 0 || this.stProgress[s] !== ONE || this.stOwner[s] !== side) return false;
+    if (this.stAlive[s] === 0 || this.stProgress[s] !== ONE || this.aidSideOf(s) !== side) return false;
     return this.structureTypes[this.stTypeIdx[s]].aid !== null;
+  }
+
+  /** GH-707: the side aid structure `s` works for -- its owner (field works), else, for a NEUTRAL
+   *  structure, the side it produces for (a versus room's KDF camp, given an `aid` block by `standMapStructures`: not owned, so not a
+   *  target and no field-works fold, yet a drop-off for its own side's wounded). -1 when neither. */
+  private aidSideOf(s: number): number {
+    const owner = this.stOwner[s];
+    return owner !== -1 ? owner : this.stProducesFor[s];
   }
 
   /** GH-707 Task 6, dispatch: the friendly aid post whose `dispatch_radius` holds medic `m`
@@ -8590,18 +9725,18 @@ export class Sim {
    * nearest same-type squad of his side below full (measured from the post; ties to the lowest
    * id), and nobody else's: `rejoinSquad`. Otherwise -- an enemy's or a civilian's man (D5), a
    * squad's last man or a man downed in place (parent -1, ruling 5), or no squad to take him
-   * -- he leaves the fight alive: `woundEvacuated`, `carrier` -1, `side` the post's owner.
+   * -- he leaves the fight alive: `woundEvacuated`, `carrier` -1, `side` the post's side (`aidSideOf`).
    * GONE either way; he never comes back on the board as an entity.
    */
   private dischargePatient(i: number, s: number): void {
-    const owner = this.stOwner[s];
+    const postSide = this.aidSideOf(s);
     const side = this.side[i];
     this.woundState[i] = WOUND_GONE;
     this.admittedAt[i] = -1;
     this.woundTimer[i] = 0;
     let squad = -1;
     const p = this.woundParent[i];
-    if (side === owner && side !== 2 && p >= 0) {
+    if (side === postSide && side !== 2 && p >= 0) {
       const ti = this.typeIdx[p];
       if (this.canRejoin(p, side, ti)) squad = p;
       else {
@@ -8616,7 +9751,7 @@ export class Sim {
       }
     }
     if (squad < 0) {
-      this.pendingEvents.push({ kind: 'woundEvacuated', tick: this.tickCount, entity: i, carrier: -1, side: owner });
+      this.pendingEvents.push({ kind: 'woundEvacuated', tick: this.tickCount, entity: i, carrier: -1, side: postSide });
       return;
     }
     this.rejoinSquad(squad);
@@ -8744,7 +9879,12 @@ export class Sim {
           st = MED_CARRYING;
         } else {
           const w = this.pickWounded(m, r.radiusSq);
-          if (w < 0) continue;
+          if (w < 0) {
+            // A medic still out on a call with nothing to do (it was routed when the job ended) goes home. DEFENSIVE: a rout
+            // forgets the group first, so only a poked test reaches it today.
+            if (this.fmLive && this.fmDuty[m] === FM_DUTY_OUT) this.fmReturnHome(m);
+            continue;
+          }
           this.medTarget[m] = w;
           this.medTimer[m] = 0;
           st = MED_TO_WOUNDED;
@@ -8764,6 +9904,35 @@ export class Sim {
     this.medTimer[m] = 0;
     this.moving[m] = 0;
     this.fieldRef[m] = -1;
+    // GH-859 P1b (Ruling 14): a group medic that answered a call and has nothing left to carry goes home. DEFENSIVE: the
+    // `routed === 0` clause and the idle-pick fallback in `stepMedics` cannot be met today, because a rout calls `fmForget`
+    // first (the medic is no longer OUT by then); they keep a routed medic from walking home should that ever change.
+    if (this.fmLive && this.fmDuty[m] === FM_DUTY_OUT && this.routed[m] === 0 && this.passengers[m] === 0) this.fmReturnHome(m);
+  }
+
+  /** The writes of an accepted `rescue` (GH-707 Task 5), after the order's exit from any formation: medic `id` leaves a
+   *  building, drops every other job and is sent to `w` (stepMedics, later this tick, walks him there: it owns his
+   *  movement from now on). GH-859 P1b: a formation's casualty call takes the same rescue with `keepQueue`, which
+   *  leaves the waypoints he was marching on (the order itself still drops them). */
+  private beginRescue(id: number, w: number, keepQueue: boolean): void {
+    if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    this.focusTarget[id] = -1;
+    this.focusLost[id] = 0;
+    if (!keepQueue) this.wpCount[id] = 0;
+    this.boardGoal[id] = -1;
+    this.garrisonGoal[id] = -1;
+    this.demolishOrder[id] = -1;
+    this.chargeOrder[id] = -1;
+    this.chargeTicks[id] = 0;
+    this.moving[id] = 0;
+    this.fieldRef[id] = -1;
+    this.attackMove[id] = 0;
+    this.sweepOrder[id] = 0;
+    this.engaging[id] = 0;
+    this.stance[id] = 0;
+    this.medState[id] = MED_TO_WOUNDED;
+    this.medTarget[id] = w;
+    this.medTimer[id] = 0;
   }
 
   /** GH-707 Task 5: may `w` be treated or picked up now -- alive, DOWN or STABILISED, not
@@ -8863,7 +10032,7 @@ export class Sim {
     // In reach: he stops where he is and works.
     this.moving[m] = 0;
     this.fieldRef[m] = -1;
-    this.wpCount[m] = 0;
+    if (!this.fmOnCall(m)) this.wpCount[m] = 0;
     if (this.woundState[w] === WOUND_DOWN) {
       if (this.medState[m] !== MED_TREATING) {
         this.medState[m] = MED_TREATING;
@@ -9015,7 +10184,7 @@ export class Sim {
       }
     }
     if (this.moving[m] === 1 && this.fieldRef[m] >= 0 && this.goalX[m] >> 16 === gtx && this.goalY[m] >> 16 === gty) return;
-    this.wpCount[m] = 0;
+    if (!this.fmOnCall(m)) this.wpCount[m] = 0;
     this.goalX[m] = gx;
     this.goalY[m] = gy;
     this.fieldRef[m] = this.fieldFor(gtx, gty, domain);
@@ -9023,6 +10192,12 @@ export class Sim {
     this.attackMove[m] = 0;
     this.sweepOrder[m] = 0;
     this.engaging[m] = 0;
+  }
+
+  /** GH-859 P1b: whether `m` is a formation member away on a call. Its queue is the march it will rejoin, which the
+   *  medic's own walking (`medicGoTo`, `medicTend`) must not drop. Always false without a formation. */
+  private fmOnCall(m: number): boolean {
+    return this.fmLive && this.fmDuty[m] === FM_DUTY_OUT;
   }
 
   /** GH-707: one tick of DOWN wounded `i`'s crawl to cover (see stepWounded). */
@@ -9122,7 +10297,7 @@ export class Sim {
       this.suppFromSet[target] = 1;
       // GH-859 P1a: a ring that is fired on springs, found out. Hostile fire only: a friendly splash
       // is not the enemy.
-      if (this.fmLive) this.fmPend(target);
+      if (this.fmLive) this.fmPend(target, srcX, srcY);
     }
     let a = fx.mul(amount, type.suppResFactor);
     const vet = this.veterancy[target];
@@ -9274,7 +10449,25 @@ export class Sim {
    * gets — one spill rule, not a second one that drifts from it.
    */
   structureExit(s: number): [Fx, Fx] {
+    const ox = this.stExitX[s];
+    if (ox >= 0) return [fx.add(fx.fromInt(ox), HALF), fx.add(fx.fromInt(this.stExitY[s]), HALF)];
     return this.exitTile(s);
+  }
+
+  /**
+   * Override the tile `structureExit(s)` answers (GH-976: a versus camp mode authors a point-symmetric
+   * exit, because the row-major NW scan of `exitTile` is not). Setup-only, written once before the first
+   * tick, and left out of hash() like stProducesFor: it is static authored data, never changed by play.
+   * `exitTile` and garrison spill are unchanged. The tile must be open on the foot mask.
+   */
+  setStructureExit(s: number, tx: number, ty: number): void {
+    if (s < 0 || s >= this.structureCount_) throw new Error(`no structure ${s}`);
+    if (this.tickCount > 0) throw new Error('setStructureExit is setup-only (before the first tick)');
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height || this.blocked[ty * this.width + tx] !== 0) {
+      throw new Error(`setStructureExit: tile (${tx},${ty}) is not open ground`);
+    }
+    this.stExitX[s] = tx;
+    this.stExitY[s] = ty;
   }
 
   /** First open tile beside a structure — where a garrison spills out. */
@@ -9377,13 +10570,14 @@ export class Sim {
     });
   }
 
-  /** Put a passenger down beside its vehicle. */
-  private disembark(id: number, shaken: boolean): void {
+  /**
+   * Put a passenger down beside its vehicle. True when it came out. In a set-up (GH-976, R0.4) a rider of side 0 or 1
+   * is put down only on a tile of its own region: the `+HALF` spot, else the hull's own spot, else the unload is
+   * REFUSED (false, the rider stays aboard). A dead carrier never refuses: the rider is put at the wreck.
+   */
+  private disembark(id: number, shaken: boolean): boolean {
     const car = this.carriedBy[id];
-    if (car < 0) return;
-    this.carriedBy[id] = -1;
-    if (this.passengers[car] > 0) this.passengers[car]--;
-    if (this.woundLive) this.refreshSpeedMul(car);
+    if (car < 0) return true;
     // Step clear of the hull so they do not stack on it.
     let px = this.clampX(fx.add(this.posX[car], HALF));
     let py = this.clampY(fx.add(this.posY[car], HALF));
@@ -9399,6 +10593,18 @@ export class Sim {
       px = fx.add(fx.fromInt(this.snapX), HALF);
       py = fx.add(fx.fromInt(this.snapY), HALF);
     }
+    if (this.setupActive && !this.setupOwnTile(this.side[id], px >> 16, py >> 16)) {
+      // Not that spot: the hull's own (it stands in its region, the clamp holds it there), else stay aboard.
+      if (this.setupOwnTile(this.side[id], this.posX[car] >> 16, this.posY[car] >> 16) || this.alive[car] === 0) {
+        px = this.posX[car];
+        py = this.posY[car];
+      } else {
+        return false;
+      }
+    }
+    this.carriedBy[id] = -1;
+    if (this.passengers[car] > 0) this.passengers[car]--;
+    if (this.woundLive) this.refreshSpeedMul(car);
     this.posX[id] = px;
     this.posY[id] = py;
     this.moving[id] = 0;
@@ -9419,6 +10625,7 @@ export class Sim {
       carrier: car,
       loaded: false,
     });
+    return true;
   }
 
   /** Everyone out. */
@@ -9498,6 +10705,14 @@ export class Sim {
     if (car < 0 || car >= this.count || this.alive[car] === 0) return false;
     const slots = this.unitTypes[this.typeIdx[car]].transportSlots;
     if (slots === 0 || this.passengers[car] >= slots) return false;
+    return this.seatEligible(car, id, atSpawn);
+  }
+
+  /** `canSeat` without the count of free seats: may `id` ride in `car` if there were room? Also the
+   *  question a group `load` asks (GH-972), which does its own count of seats. */
+  private seatEligible(car: number, id: number, atSpawn: boolean): boolean {
+    if (car < 0 || car >= this.count || this.alive[car] === 0) return false;
+    if (this.unitTypes[this.typeIdx[car]].transportSlots === 0) return false;
     if (id === car || id < 0 || id >= this.count || this.alive[id] === 0) return false;
     // Only dismounted elements ride. This also covers vehicle stacking, since no
     // carrier is a foot role.
@@ -9581,7 +10796,7 @@ export class Sim {
     const ok = this.canSeat(toCar, id);
     this.carriedBy[id] = fromCar;
     if (!ok) return false;
-    this.disembark(id, false);
+    if (!this.disembark(id, false)) return false;
     this.seat(toCar, id);
     this.posX[id] = this.posX[toCar];
     this.posY[id] = this.posY[toCar];
@@ -9647,6 +10862,9 @@ export class Sim {
         const dx = fx.sub(this.posX[i], this.goalX[i]);
         const dy = fx.sub(this.posY[i], this.goalY[i]);
         if (dx > HALF || dx < -HALF || dy > HALF || dy < -HALF) continue; // stopped short: hovers
+        // GH-976 (R0.4): the snap below would carry the hull onto the LZ tile centre. In a set-up an LZ outside the
+        // carrier's region is never set down on: it holds its hover.
+        if (this.setupActive && !this.setupOwnTile(this.side[i], this.goalX[i] >> 16, this.goalY[i] >> 16)) continue;
         this.airState[i] = AIR_LANDING;
         this.airTimer[i] = AIR_LAND_TICKS;
         // Onto the LZ tile centre exactly (it is within HALF already), so the
@@ -9666,12 +10884,14 @@ export class Sim {
         st = AIR_LANDED; // and the LANDED rules, this same tick
       }
       if (st === AIR_LANDED) {
+        if (this.airTimer[i] > 0) this.airTimer[i]--; // R3: ground time after an unload
         if (this.airWant[i] === AIR_WANT_UNLOAD) {
           this.unloadAir(i);
+          this.airTimer[i] = AIR_GROUND_MIN_TICKS;
           this.airWant[i] = AIR_WANT_NONE; // it stays landed
         }
         if (this.moving[i] === 1) {
-          if (this.airWant[i] === AIR_WANT_LOAD || this.mobilityKilled[i] === 1) {
+          if (this.airWant[i] === AIR_WANT_LOAD || this.mobilityKilled[i] === 1 || this.airTimer[i] > 0) {
             // A mobility-killed hull stays down until the kill is repaired.
             // Landed to load: only an order (which clears the want) lifts it,
             // never an autonomous chase.
@@ -9742,21 +10962,90 @@ export class Sim {
   }
 
   /**
-   * R2: into `snapX`/`snapY`, the open tile nearest (x, y) on the VEHICLE mask --
-   * a rotor does not set down on a building, a ridge, a boulder field or a
-   * ditch, though a rifleman can stand on a boulder. False when the map has no
-   * such tile at all; snapX/snapY are then meaningless.
+   * R2 (GH-1007): into `snapX`/`snapY`, the centre of the nearest landing footprint to (x, y):
+   * a ring search by Chebyshev distance 0..LZ_SEARCH_TILES, then tile index (row-major). A tile
+   * passes when it and its 8 neighbours are in the map and open on the VEHICLE mask (a rotor does
+   * not set down on a building, a ridge, a boulder field or a ditch), and no OTHER living air
+   * carrier holds a footprint within Chebyshev 2 of it (`lzTaken`). False, with no state touched
+   * but `snapX`/`snapY`, when nothing within reach is clear. `self` is the asking carrier (-1: none).
+   * Per order, never per tick; no allocation. `lzTaken` scans the units per candidate tile; it is
+   * left unhoisted (orders are rare, and the scan order is the contract).
    */
-  private lzFor(x: Fx, y: Fx): boolean {
+  private lzFor(x: Fx, y: Fx, self: number): boolean {
     const w = this.width;
     const h = this.height;
     let tx = fx.toInt(x);
     let ty = fx.toInt(y);
     tx = tx < 0 ? 0 : tx >= w ? w - 1 : tx;
     ty = ty < 0 ? 0 : ty >= h ? h - 1 : ty;
+    for (let d = 0; d <= LZ_SEARCH_TILES; d++) {
+      for (let cy = ty - d; cy <= ty + d; cy++) {
+        const edge = cy === ty - d || cy === ty + d;
+        const step = edge || d === 0 ? 1 : 2 * d;
+        for (let cx = tx - d; cx <= tx + d; cx += step) {
+          if (!this.footprintClear(cx, cy, self)) continue;
+          this.snapX = cx;
+          this.snapY = cy;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** R2: the 3x3 around (cx, cy) is in the map and vehicle-open, and no other carrier holds it. */
+  private footprintClear(cx: number, cy: number, self: number): boolean {
+    const w = this.width;
+    if (cx < 1 || cy < 1 || cx >= w - 1 || cy >= this.height - 1) return false;
     const mask = this.maskFor(DOMAIN_VEHICLE);
-    this.snapOpenTile(tx, ty, mask);
-    return mask[this.snapY * w + this.snapX] === 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (mask[(cy + dy) * w + cx + dx] !== 0) return false;
+      }
+    }
+    return !this.lzTaken(cx, cy, self);
+  }
+
+  /** R2: another living air carrier (id order) holds a footprint within Chebyshev 2 of (cx, cy):
+   *  LANDING or LANDED there, or flying to land for a load or an unload. */
+  private lzTaken(cx: number, cy: number, self: number): boolean {
+    for (let j = 0; j < this.count; j++) {
+      if (j === self || this.alive[j] === 0 || !this.unitTypes[this.typeIdx[j]].isAirCarrier) continue;
+      const st = this.airState[j];
+      const want = this.airWant[j];
+      if (st !== AIR_LANDING && st !== AIR_LANDED && want !== AIR_WANT_LOAD && want !== AIR_WANT_UNLOAD) continue;
+      const gx = fx.toInt(this.goalX[j]) - cx;
+      const gy = fx.toInt(this.goalY[j]) - cy;
+      if (gx >= -2 && gx <= 2 && gy >= -2 && gy <= 2) return true;
+    }
+    return false;
+  }
+
+  /**
+   * R1 (GH-1007): a production-built air carrier is delivered on the ground. If a footprint
+   * within reach of its spawn tile is clear (R2, nearest first) it is LANDED there, want NONE, goal its own position; else
+   * it stays AIRBORNE as everything else spawns. The rally attack-move that follows then lifts it
+   * for AIR_LIFT_TICKS. Called by the production delivery only: mission placements, embarkAtSpawn,
+   * probes and tests spawn AIRBORNE. True when it settled. No rng, no allocation.
+   */
+  settleOnGround(id: number): boolean {
+    if (id < 0 || id >= this.count || this.alive[id] === 0) return false;
+    if (!this.unitTypes[this.typeIdx[id]].isAirCarrier || this.airState[id] !== AIR_AIRBORNE) return false;
+    // The camp's exit tile is the corner beside the building, so its own 3x3 always holds a
+    // building tile and can never pass: the pad is the nearest clear footprint to the spawn
+    // (ring 0 is the spawn tile itself), and the carrier is set down on its centre.
+    if (!this.lzFor(this.posX[id], this.posY[id], id)) return false;
+    this.posX[id] = fx.add(fx.fromInt(this.snapX), HALF);
+    this.posY[id] = fx.add(fx.fromInt(this.snapY), HALF);
+    this.airState[id] = AIR_LANDED;
+    this.airTimer[id] = 0;
+    this.airWant[id] = AIR_WANT_NONE;
+    this.goalX[id] = this.posX[id];
+    this.goalY[id] = this.posY[id];
+    this.moving[id] = 0;
+    this.wpCount[id] = 0;
+    this.fieldRef[id] = -1;
+    return true;
   }
 
   /**
@@ -9765,7 +11054,10 @@ export class Sim {
    * False, with no state touched, when there is no LZ.
    */
   private orderLand(car: number, want: number, x: Fx, y: Fx): boolean {
-    if (!this.lzFor(x, y)) return false;
+    if (!this.lzFor(x, y, car)) {
+      this.pendingEvents.push({ kind: 'landRefused', tick: this.tickCount, carrier: car, reason: 'no_clear_ground' });
+      return false;
+    }
     const lx = this.snapX;
     const ly = this.snapY;
     this.goalX[car] = fx.add(fx.fromInt(lx), HALF);
@@ -9870,10 +11162,12 @@ export class Sim {
           if (x < 0 || y < 0 || x >= w || y >= h) continue;
           const t = y * w + x;
           if (mask[t] !== 0) continue;
+          // GH-976 (R0.4): in a set-up the spread holds own-region tiles only.
+          if (this.setupActive && !this.setupOwnTile(this.side[i], x, y)) continue;
           this.spreadTiles[n++] = t;
         }
       }
-      this.disembark(i, false);
+      if (!this.disembark(i, false)) continue; // GH-976: refused at the line, the rider stays aboard
       if (n > 0) {
         const t = this.spreadTiles[k % n];
         const tx = t % w;
@@ -9893,6 +11187,8 @@ export class Sim {
    * into the target, not shooting at it.
    */
   private stepKamikaze(): void {
+    // GH-976 (R0.5): weapons tight. A munition does not dive before the bell.
+    if (this.setupActive) return;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
       // A munition steers itself off its side's contacts, with no order to
@@ -9996,7 +11292,316 @@ export class Sim {
     }
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // GH-972: group orders that spread. Everything below is reached only from a `garrison` command with
+  // `spread`, a `load` command with `carriers`, or a unit whose `spreadGoal` is set. Integer distance
+  // (`distSqFx`), ties by entity or structure id, scans in index order: no float, no RNG, nothing a second
+  // machine could resolve differently. See docs/agent-notes/sim-and-orders.md.
+  // ---------------------------------------------------------------------------------------------
+
+  /** The filters a `garrison` order applies to each id (alive, standing, able to garrison). */
+  private canGarrisonOrder(id: number): boolean {
+    if (id < 0 || id >= this.count) return false;
+    if (this.alive[id] === 0 || this.routed[id] === 1) return false;
+    return this.unitTypes[this.typeIdx[id]].canGarrison;
+  }
+
+  /** Send one unit to walk into structure `s`; the body `garrison` always had. */
+  private sendToGarrison(id: number, s: number, spread: boolean): void {
+    if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    const gx = this.stCx[s];
+    const gy = this.stCy[s];
+    this.garrisonGoal[id] = s;
+    this.spreadGoal[id] = spread ? 1 : 0;
+    this.goalX[id] = gx;
+    this.goalY[id] = gy;
+    this.fieldRef[id] = this.fieldToward(id, fx.toInt(gx), fx.toInt(gy));
+    this.moving[id] = 1;
+    this.attackMove[id] = 0;
+    this.sweepOrder[id] = 0;
+    this.engaging[id] = 0;
+    this.stance[id] = 0;
+  }
+
+  /**
+   * What the buildings already owe: per structure, the units walking to it that are not inside yet
+   * (`reserved`), and which side holds it (`held`: -1 empty, a side, or 3 when mixed). `skip` names ids
+   * whose goals the caller is about to rewrite, so they do not count against themselves.
+   */
+  private garrisonLedger(skip: Uint8Array | null): void {
+    const n = this.structureCount_;
+    if (this.ledReserved.length < n) {
+      this.ledReserved = new Int32Array(n);
+      this.ledHeld = new Int8Array(n);
+    }
+    this.ledReserved.fill(0, 0, n);
+    this.ledHeld.fill(-1, 0, n);
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      const inside = this.garrisonedIn[i];
+      if (inside >= 0) {
+        const h = this.ledHeld[inside];
+        this.ledHeld[inside] = h === -1 || h === this.side[i] ? this.side[i] : 3;
+        continue;
+      }
+      const g = this.garrisonGoal[i];
+      if (g >= 0 && (skip === null || skip[i] === 0)) this.ledReserved[g]++;
+    }
+  }
+
+  /**
+   * Seats `side` could still take in structure `c` right now: 0 for anything standing but not open to it
+   * (dead, unfinished, no slots, owned by the other side, held by anyone else's men, or a protected site
+   * that the player did not name themselves). Free slots minus the units already on their way.
+   */
+  private spreadRoom(c: number, side: number, named: boolean): number {
+    if (c < 0 || c >= this.structureCount_ || this.stAlive[c] === 0) return 0;
+    if (this.stProgress[c] < ONE) return 0;
+    const slots = this.structureTypes[this.stTypeIdx[c]].garrisonSlots;
+    if (slots === 0) return 0;
+    const owner = this.stOwner[c];
+    if ((owner === 0 || owner === 1) && owner !== side) return 0;
+    if (this.ledHeld[c] !== -1 && this.ledHeld[c] !== side) return 0;
+    if (!named && this.isProtected(c)) return 0;
+    const free = slots - this.stOccupants[c] - this.ledReserved[c];
+    return free > 0 ? free : 0;
+  }
+
+  /**
+   * A group `garrison` (GH-972). The eligible units are shared out across the named structure `s0` and the
+   * nearest open ones in reach, ROUND-ROBIN: each building in turn (the named one first, then by distance
+   * from it, ties by structure id) takes the unit nearest to it (ties by entity id), until the seats or the
+   * units run out. The buildings used are the fewest that hold the group, so a group that fits the named
+   * building all goes there, exactly as before. A unit with no seat anywhere in reach is left with today's
+   * order: walk to `s0` and wait at its door (and, flagged, move on if a seat opens nearby).
+   */
+  private garrisonSpread(ids: number[], s0: number): void {
+    const units: number[] = [];
+    const seen = new Uint8Array(this.count);
+    for (const id of ids) {
+      if (!this.canGarrisonOrder(id) || seen[id] === 1) continue;
+      seen[id] = 1;
+      units.push(id);
+    }
+    if (units.length === 0) return;
+    // Out of any building first, as the plain order does, so the seats counted below are real.
+    for (const id of units) if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    this.spreadLive = true;
+    const side = this.side[units[0]];
+    this.garrisonLedger(seen);
+    // The named building, then the rest of the buildings in reach, nearest first.
+    const order: number[] = [];
+    const room: number[] = [];
+    const named = this.spreadRoom(s0, side, true);
+    let total = named;
+    if (named > 0) {
+      order.push(s0);
+      room.push(named);
+    }
+    if (total < units.length) {
+      const near: number[] = [];
+      for (let c = 0; c < this.structureCount_; c++) {
+        if (c === s0 || this.spreadRoom(c, side, false) === 0) continue;
+        const d = distSqFx(fx.sub(this.stCx[c], this.stCx[s0]), fx.sub(this.stCy[c], this.stCy[s0]));
+        if (d > SPREAD_REACH_SQ) continue;
+        // Insertion sort on (distance, id); `c` ascends, so equal distances keep id order.
+        let k = near.length;
+        near.push(c);
+        while (k > 0) {
+          const o = near[k - 1];
+          const od = distSqFx(fx.sub(this.stCx[o], this.stCx[s0]), fx.sub(this.stCy[o], this.stCy[s0]));
+          if (od <= d) break;
+          near[k] = o;
+          k--;
+        }
+        near[k] = c;
+      }
+      for (const c of near) {
+        if (total >= units.length) break;
+        const r = this.spreadRoom(c, side, false);
+        order.push(c);
+        room.push(r);
+        total += r;
+      }
+    }
+    const where = new Int32Array(units.length).fill(-1);
+    let left = units.length;
+    let progressed = true;
+    while (left > 0 && progressed) {
+      progressed = false;
+      for (let k = 0; k < order.length && left > 0; k++) {
+        if (room[k] === 0) continue;
+        const c = order[k];
+        let best = -1;
+        let bestD = 0;
+        for (let u = 0; u < units.length; u++) {
+          if (where[u] !== -1) continue;
+          const id = units[u];
+          const d = distSqFx(fx.sub(this.posX[id], this.stCx[c]), fx.sub(this.posY[id], this.stCy[c]));
+          if (best === -1 || d < bestD || (d === bestD && id < units[best])) {
+            best = u;
+            bestD = d;
+          }
+        }
+        where[best] = c;
+        room[k]--;
+        left--;
+        progressed = true;
+      }
+    }
+    for (let u = 0; u < units.length; u++) {
+      this.sendToGarrison(units[u], where[u] === -1 ? s0 : where[u], true);
+    }
+  }
+
+  /**
+   * A flagged unit whose building is full looks for the open one nearest to it within reach of that building
+   * (ties by structure id), counting the units already walking to each, and walks there instead. False, and
+   * nothing written, when there is none: it then keeps today's behaviour (wait at the door, order kept).
+   */
+  private redirectSpread(i: number, s: number): boolean {
+    const side = this.side[i];
+    let best = -1;
+    let bestD = 0;
+    for (let c = 0; c < this.structureCount_; c++) {
+      if (c === s || this.spreadRoom(c, side, false) === 0) continue;
+      // In reach of the building it was bound for; nearest to where the unit is now.
+      if (distSqFx(fx.sub(this.stCx[c], this.stCx[s]), fx.sub(this.stCy[c], this.stCy[s])) > SPREAD_REACH_SQ) continue;
+      const d = distSqFx(fx.sub(this.posX[i], this.stCx[c]), fx.sub(this.posY[i], this.stCy[c]));
+      if (best === -1 || d < bestD) {
+        best = c;
+        bestD = d;
+      }
+    }
+    if (best === -1) return false;
+    if (this.ledReserved[s] > 0) this.ledReserved[s]--;
+    this.ledReserved[best]++;
+    this.sendToGarrison(i, best, true);
+    return true;
+  }
+
+  /** The filters a `load` order applies to each rider id. */
+  private canBoardOrder(id: number, car: number): boolean {
+    if (id < 0 || id >= this.count) return false;
+    if (this.alive[id] === 0 || this.routed[id] === 1 || id === car) return false;
+    // Only dismounted elements ride. This also covers vehicle stacking,
+    // since no carrier is a foot role.
+    if (!this.unitTypes[this.typeIdx[id]].canEmbark) return false;
+    if (this.carriedBy[id] >= 0) return false;
+    // GH-707 D3: a carrying medic boards nothing (canSeat refuses him too); refused here
+    // so he is not walked to a hull that will never take him.
+    if (this.unitTypes[this.typeIdx[id]].rescue !== null && this.passengers[id] > 0) return false;
+    return true;
+  }
+
+  /** Send one rider to walk to carrier `car` (whose position, or LZ, is `gx, gy`); the body `load` always had. */
+  private sendToCarrier(id: number, car: number, gx: Fx, gy: Fx): void {
+    if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    this.boardGoal[id] = car;
+    this.wpCount[id] = 0;
+    this.goalX[id] = gx;
+    this.goalY[id] = gy;
+    this.fieldRef[id] = this.fieldFor(fx.toInt(gx), fx.toInt(gy), this.domainOf(id));
+    this.moving[id] = 1;
+    this.attackMove[id] = 0;
+    this.sweepOrder[id] = 0;
+    this.stance[id] = 0;
+  }
+
+  /** The ground carriers a group `load` may share riders across: the named one first, then the others in
+   *  the order the player's list gave them, each once, alive, with seats, on the surface. */
+  private loadSpreadSet(car: number, others: number[]): number[] {
+    const set: number[] = [];
+    const take = (c: number): void => {
+      if (c < 0 || c >= this.count || this.alive[c] === 0 || set.includes(c)) return;
+      const t = this.unitTypes[this.typeIdx[c]];
+      if (t.transportSlots === 0 || t.isAirCarrier || this.tunnelIn[c] >= 0) return;
+      set.push(c);
+    };
+    take(car);
+    for (const c of others) take(c);
+    return set;
+  }
+
+  /**
+   * A group `load` (GH-972). Riders are shared out across `set` by free seats (seats minus passengers
+   * minus riders already walking there), ROUND-ROBIN: the carrier nearest to any rider goes first (ties by
+   * id), and each carrier in turn takes the rider nearest to it that it can seat (ties by id). Each rider
+   * then walks to its OWN carrier, so the squads gather around their own hull instead of one. A rider no
+   * carrier has a seat for keeps today's order: walk to the named carrier `car`.
+   */
+  private loadSpread(ids: number[], car: number, set: number[]): void {
+    const riders: number[] = [];
+    const seen = new Uint8Array(this.count);
+    for (const id of ids) {
+      if (!this.canBoardOrder(id, car) || seen[id] === 1) continue;
+      seen[id] = 1;
+      riders.push(id);
+    }
+    if (riders.length === 0) return;
+    const reserved = new Int32Array(this.count);
+    for (let i = 0; i < this.count; i++) {
+      const g = this.boardGoal[i];
+      if (g >= 0 && this.alive[i] === 1 && this.carriedBy[i] < 0 && seen[i] === 0) reserved[g]++;
+    }
+    const room = new Int32Array(set.length);
+    const near = new Int32Array(set.length);
+    for (let k = 0; k < set.length; k++) {
+      const c = set[k];
+      const free = this.unitTypes[this.typeIdx[c]].transportSlots - this.passengers[c] - reserved[c];
+      room[k] = free > 0 ? free : 0;
+      let best = 0x7fffffff;
+      for (const id of riders) {
+        const d = distSqFx(fx.sub(this.posX[c], this.posX[id]), fx.sub(this.posY[c], this.posY[id]));
+        if (d < best) best = d;
+      }
+      near[k] = best;
+    }
+    // Nearest carrier first; set order (named first) breaks ties, and `set` never repeats a carrier.
+    const rota: number[] = [];
+    for (let k = 0; k < set.length; k++) {
+      let j = rota.length;
+      rota.push(k);
+      while (j > 0 && (near[rota[j - 1]] > near[k] || (near[rota[j - 1]] === near[k] && set[rota[j - 1]] > set[k]))) {
+        rota[j] = rota[j - 1];
+        j--;
+      }
+      rota[j] = k;
+    }
+    const where = new Int32Array(riders.length).fill(-1);
+    let progressed = true;
+    while (progressed) {
+      progressed = false;
+      for (const k of rota) {
+        if (room[k] === 0) continue;
+        const c = set[k];
+        let best = -1;
+        let bestD = 0;
+        for (let u = 0; u < riders.length; u++) {
+          const id = riders[u];
+          if (where[u] !== -1 || !this.seatEligible(c, id, false)) continue;
+          const d = distSqFx(fx.sub(this.posX[c], this.posX[id]), fx.sub(this.posY[c], this.posY[id]));
+          if (best === -1 || d < bestD || (d === bestD && id < riders[best])) {
+            best = u;
+            bestD = d;
+          }
+        }
+        if (best === -1) continue;
+        where[best] = c;
+        room[k]--;
+        progressed = true;
+      }
+    }
+    for (let u = 0; u < riders.length; u++) {
+      const c = where[u] === -1 ? car : where[u];
+      this.sendToCarrier(riders[u], c, this.posX[c], this.posY[c]);
+    }
+  }
+
   private stepGarrison(): void {
+    // GH-972: what the buildings owe, built the first tick a flagged unit needs it and kept for the rest of
+    // the pass (a redirect updates it, so two units do not pick the same last seat).
+    let ledBuilt = false;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
       const s = this.garrisonGoal[i];
@@ -10008,6 +11613,17 @@ export class Sim {
       const type = this.structureTypes[this.stTypeIdx[s]];
       const atDoor = this.structDistSq(s, this.posX[i], this.posY[i]) <= GARRISON_ENTER_RANGE_SQ;
       if (this.stOccupants[s] >= type.garrisonSlots) {
+        // GH-972: a unit from a group order does not wait on a building that is full, walking or at the
+        // door: it goes to the nearest one with room in reach. Staggered by id (one look in eight ticks)
+        // so a crowd with nowhere to go costs a scan per unit per 0.4 s, not per tick; a unit with nowhere
+        // to go falls through to today's behaviour below.
+        if (this.spreadGoal[i] === 1 && ((this.tickCount + i) & 7) === 0) {
+          if (!ledBuilt) {
+            this.garrisonLedger(null);
+            ledBuilt = true;
+          }
+          if (this.redirectSpread(i, s)) continue;
+        }
         // Full: wait at the door, stopped, with the order kept (B3, ruling
         // 2026-10-14). A unit left `moving` pressed on the wall for good --
         // a halt-to-fire man never knelt, so never fired. Stopped, stepBrace
@@ -10029,6 +11645,7 @@ export class Sim {
    * stand is exactly where the defenders are shooting.
    */
   private stepDemolition(): void {
+    const tight = this.setupActive;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
       // The automatic branch below sets charges wherever a demolisher merely
@@ -10038,6 +11655,12 @@ export class Sim {
       if (this.tunnelIn[i] >= 0) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       if (!type.canDemolish) continue;
+      // GH-976 (R0.5): weapons tight. No charge is set before the bell, wherever the team halts.
+      if (tight) {
+        this.demoTicks[i] = 0;
+        this.demoTarget[i] = -1;
+        continue;
+      }
       // Arrival, for a unit under orders. A `demolish` order aims the unit at
       // the building's centre, which is inside its own footprint and so can
       // never be stood on: `moving` never clears on its own. The wall-slide
@@ -10428,30 +12051,41 @@ export class Sim {
     this.stChargeTicks[s] = 0;
     this.stChargeBy[s] = -1;
     const rubble = this.structureTypes[this.stTypeIdx[s]].rubbleCover;
-    for (const t of this.stTiles[s]) {
-      this.blocked[t] = 0;
-      // A collapsed building leaves rubble a vehicle can cross; a boulder
-      // under the same tile does not stop being a boulder.
-      this.syncVehicleTile(t);
-      this.cover[t] = rubble;
-    }
-    this.pendingEvents.push({ kind: 'structureDestroyed', tick: this.tickCount, structure: s, by });
-    for (let i = 0; i < this.count; i++) {
-      if (this.alive[i] === 0) continue;
-      if (this.garrisonedIn[i] === s) {
-        this.garrisonedIn[i] = -1;
-        this.destroy(i, by);
-        continue;
+    this.beginFlips(this.stTiles[s].length);
+    let flipped = false;
+    try {
+      for (const t of this.stTiles[s]) {
+        const footWas = this.blocked[t];
+        const vehWas = this.blockedVehicleMask[t];
+        this.blocked[t] = 0;
+        // A collapsed building leaves rubble a vehicle can cross; a boulder
+        // under the same tile does not stop being a boulder.
+        this.syncVehicleTile(t);
+        this.noteFlip(t, footWas, vehWas);
+        this.cover[t] = rubble;
       }
-      if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
-      // Everyone nearby eats the shock of a building coming down.
-      const d = distSqFx(fx.sub(this.posX[i], this.stCx[s]), fx.sub(this.posY[i], this.stCy[s]));
-      if (d <= COLLAPSE_SHOCK_SQ) {
-        this.applySuppression(i, COLLAPSE_SHOCK, false, by >= 0 ? this.side[by] : -1, this.stCx[s], this.stCy[s]);
+      this.pendingEvents.push({ kind: 'structureDestroyed', tick: this.tickCount, structure: s, by });
+      for (let i = 0; i < this.count; i++) {
+        if (this.alive[i] === 0) continue;
+        if (this.garrisonedIn[i] === s) {
+          this.garrisonedIn[i] = -1;
+          this.destroy(i, by);
+          continue;
+        }
+        if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
+        // Everyone nearby eats the shock of a building coming down.
+        const d = distSqFx(fx.sub(this.posX[i], this.stCx[s]), fx.sub(this.posY[i], this.stCy[s]));
+        if (d <= COLLAPSE_SHOCK_SQ) {
+          this.applySuppression(i, COLLAPSE_SHOCK, false, by >= 0 ? this.side[by] : -1, this.stCx[s], this.stCy[s]);
+        }
       }
+      this.stOccupants[s] = 0;
+      flipped = true;
+    } finally {
+      // A throw inside the window must not leave `flipDepth` raised for the rest of the process.
+      if (!flipped) this.abortFlips();
     }
-    this.stOccupants[s] = 0;
-    this.recomputeFields();
+    this.recomputeFields('opened');
   }
 
   private destroy(target: number, by: number): void {
@@ -10993,6 +12627,9 @@ export class Sim {
     const w = this.width;
     this.displaced.fill(0);
     if (this.sepLive) this.buildSepGrid();
+    // GH-976 (R0.4): while a set-up is active a unit of side 0 or 1 may not step onto a tile outside its region.
+    const tight = this.setupActive;
+    const region = this.setupRegion;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.moving[i] === 0 || this.mobilityKilled[i] === 1) continue;
       // The belt, not a duplicate. Every autonomous setter of `moving` is
@@ -11023,16 +12660,13 @@ export class Sim {
       const goalTileX = this.goalX[i] >> 16;
       const goalTileY = this.goalY[i] >> 16;
 
-      // GH-707 Task 4: a medic carrying a wounded drags or stretchers him (`speedMul`). The
-      // column is ONE for every unit without wound content, and fx.mul(x, ONE) === x exactly
-      // (bh 1, bl 0: (ah << 16) + al), so this is the identity there.
-      let step = fx.mul(type.stepPerTick, this.speedMul[i]);
-      // #706: slowed running gear, an integer percent of the Q16.16 step, by the
-      // tree's integer-divide idiom (`fixed.ts:119`): no float is produced. The
-      // product stays far inside int32 (a step is under 0.2 tile, ~13000 raw).
-      if (this.mobilityDamaged[i] === 1) {
-        const p = step * MOB_DAMAGED_PCT;
-        step = (p - (p % 100)) / 100;
+      let step = this.baseStep(i);
+      // GH-859 P1b (Ruling 8): a marching group walks at its slowest ground member's pace. Aircraft and a unit on
+      // a call (a sortie, a rescue) are exempt. One compare per moving member, and nothing at all outside a
+      // formation world.
+      if (this.fmLive) {
+        const g = this.fmGroup[i];
+        if (g >= 0 && this.fgPace[g] > 0 && !type.isAir && this.fmDuty[i] < FM_DUTY_OUT && step > this.fgPace[g]) step = this.fgPace[g];
       }
       if (this.routed[i] === 1) {
         step = step >> ROUT_SPEED_SHIFT; // fleeing at a crouch-run
@@ -11089,6 +12723,23 @@ export class Sim {
         if (clip[tileY * w + ntx] === 0) {
           ny = py;
         } else if (clip[nty * w + tileX] === 0) {
+          nx = px;
+        } else {
+          nx = px;
+          ny = py;
+        }
+      }
+      // GH-976 (R0.4): the same three-branch slide against the region. Outside the `!isAir` guard above, so an aircraft
+      // is held at the line too. A unit slides along the line and its order stands (`moving` stays 1); a unit above
+      // side 1 (a civilian, a neutral) is never clamped. A separate `if` on a per-tick local, so a world with no
+      // set-up runs the code above untouched.
+      const sd = this.side[i];
+      if (tight && sd <= 1 && region[(ny >> 16) * w + (nx >> 16)] !== sd) {
+        const rx = nx >> 16;
+        const ry = ny >> 16;
+        if (region[tileY * w + rx] === sd && (type.isAir || clip[tileY * w + rx] === 0)) {
+          ny = py;
+        } else if (region[ry * w + tileX] === sd && (type.isAir || clip[ry * w + tileX] === 0)) {
           nx = px;
         } else {
           nx = px;
@@ -11215,6 +12866,12 @@ export class Sim {
             }
           }
         }
+      }
+      // GH-976 (R0.4): separation steers sideways and tests only the terrain, so a final pass puts back any step that
+      // ended outside the unit's region. The unit holds where it stood.
+      if (tight && sd <= 1 && (nx !== px || ny !== py) && region[(ny >> 16) * w + (nx >> 16)] !== sd) {
+        nx = px;
+        ny = py;
       }
       const mvx = fx.sub(nx, px);
       const mvy = fx.sub(ny, py);
@@ -11386,33 +13043,79 @@ export class Sim {
 
   /** The unit has reached its goal: carry straight on to the next queued leg, or stop. */
   private finishLeg(i: number): void {
-    const queued = this.wpCount[i];
-    if (queued > 0) {
-      // Next leg: shift the queue down and carry straight on.
-      const base = i * MAX_WAYPOINTS;
-      this.goalX[i] = this.wpX[base];
-      this.goalY[i] = this.wpY[base];
-      this.attackMove[i] = this.wpAttack[base];
-      this.sweepOrder[i] = this.wpSweep[base];
-      for (let k = 0; k < queued - 1; k++) {
-        this.wpX[base + k] = this.wpX[base + k + 1];
-        this.wpY[base + k] = this.wpY[base + k + 1];
-        this.wpAttack[base + k] = this.wpAttack[base + k + 1];
-        this.wpSweep[base + k] = this.wpSweep[base + k + 1];
+    if (this.fmLive && this.fmGroup[i] >= 0) {
+      // GH-859 P1b (Ruling 12): a member away on a call stops where it was sent and never takes its queue.
+      const duty = this.fmDuty[i];
+      if (duty === FM_DUTY_OUT) {
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+        return;
       }
-      this.wpCount[i] = queued - 1;
-      this.fieldRef[i] = this.fieldFor(
-        fx.toInt(this.goalX[i]),
-        fx.toInt(this.goalY[i]),
-        this.domainOf(i)
-      );
-      this.engaging[i] = 0;
+      // (Ruling 13): home again. It is on the march once more, as an attack-mover if the formation's verb is one, and
+      // the ordinary logic below takes it on to the checkpoint it was heading to.
+      if (duty === FM_DUTY_RETURN) {
+        const g = this.fmGroup[i];
+        this.fmDuty[i] = FM_DUTY_NONE;
+        if (this.fgAway[g] > 0) this.fgAway[g]--;
+        this.attackMove[i] = this.formationTypes[this.fgType[g]].verb === FM_VERB_ATTACK ? 1 : 0;
+      }
+      // Ruling 6: a formation member at an intermediate checkpoint may be held for the dress.
+      if (this.fmMarchHold(i)) return;
+    }
+    if (this.wpCount[i] > 0) {
+      this.advanceLeg(i);
     } else {
       this.moving[i] = 0;
       this.fieldRef[i] = -1;
       // GH-859 P1a: the formation's arrival stance, once, on the final goal only.
       if (this.fmLive && this.fmArrive[i] !== 0) this.fmArrived(i);
     }
+  }
+
+  /** Next leg: shift the queue down and carry straight on. The caller has checked `wpCount[i] > 0`. */
+  private advanceLeg(i: number): void {
+    const queued = this.wpCount[i];
+    const base = i * MAX_WAYPOINTS;
+    this.goalX[i] = this.wpX[base];
+    this.goalY[i] = this.wpY[base];
+    this.attackMove[i] = this.wpAttack[base];
+    this.sweepOrder[i] = this.wpSweep[base];
+    for (let k = 0; k < queued - 1; k++) {
+      this.wpX[base + k] = this.wpX[base + k + 1];
+      this.wpY[base + k] = this.wpY[base + k + 1];
+      this.wpAttack[base + k] = this.wpAttack[base + k + 1];
+      this.wpSweep[base + k] = this.wpSweep[base + k + 1];
+    }
+    this.wpCount[i] = queued - 1;
+    this.fieldRef[i] = this.fieldFor(
+      fx.toInt(this.goalX[i]),
+      fx.toInt(this.goalY[i]),
+      this.domainOf(i)
+    );
+    this.engaging[i] = 0;
+  }
+
+  /** GH-859 P1b, Ruling 6: whether a formation member that has reached a goal waits for the group's dress
+   *  instead of going on. `fmLeg[i]` is the checkpoint it is heading to, and none gets past `fgRelease + 1`.
+   *  Arriving at that checkpoint with checkpoints still to come, it WAITS: duty WAIT, counted once in `fgAtCp`,
+   *  `moving` still 1 and the goal unchanged, so it re-arrives each tick and returns here at one compare (every
+   *  system that acts on an idle unit leaves it alone). At a released checkpoint it goes straight on, and
+   *  `fmLeg` moves with it. A final arrival (nothing queued) is not held. */
+  private fmMarchHold(i: number): boolean {
+    if (this.wpCount[i] === 0) return false;
+    const g = this.fmGroup[i];
+    const leg = this.fmLeg[i];
+    // Only a row still marching dresses: a group in contact or sprung has nobody to wait for (a member that arrives at
+    // a checkpoint after the drill ran passes straight through).
+    if (this.fgState[g] === FM_MARCH && leg > this.fgRelease[g] && leg < this.fgLegs[g]) {
+      if (this.fmDuty[i] !== FM_DUTY_WAIT) {
+        this.fmDuty[i] = FM_DUTY_WAIT;
+        this.fgAtCp[g]++;
+      }
+      return true;
+    }
+    this.fmLeg[i] = leg + 1;
+    return false;
   }
 
   // ------------------------------------------------------------------- upkeep
@@ -11687,6 +13390,14 @@ export class Sim {
           // #706: a workshop puts the running gear right too, slowed included.
           this.mobilityDamaged[i] = 0;
           this.fieldFixTicks[i] = 0;
+          // GH-884: the same moment the components are mended, the interceptor stock refills fully.
+          const rt = this.unitTypes[this.typeIdx[i]];
+          if (rt.apsReserve >= 0) {
+            this.apsAmmo[i] = rt.apsMagazine;
+            this.apsReserveLeft[i] = rt.apsReserve;
+            this.apsReloadLeft[i] = 0;
+            this.apsRearmClock[i] = 0;
+          }
         }
       } else if (this.auraRepairTicks[i] !== 0) {
         this.auraRepairTicks[i] = 0;
@@ -11702,9 +13413,46 @@ export class Sim {
       // APS magazine reload.
       if (this.apsAmmo[i] === 0 && this.apsReloadLeft[i] > 0) {
         if (--this.apsReloadLeft[i] === 0) {
-          this.apsAmmo[i] = this.unitTypes[this.typeIdx[i]].apsMagazine;
+          const at = this.unitTypes[this.typeIdx[i]];
+          if (at.apsReserve < 0) {
+            this.apsAmmo[i] = at.apsMagazine;
+          } else {
+            // GH-884: the reload draws from the reserve; an empty reserve leaves the magazine empty.
+            const take = fx.min(at.apsMagazine, this.apsReserveLeft[i]);
+            this.apsAmmo[i] = take;
+            this.apsReserveLeft[i] -= take;
+          }
         }
       }
+      if (this.apsStockLive) this.stepApsRearm(i);
+    }
+  }
+
+  /**
+   * GH-884: one round comes back per `rearm_s` of quiet. Quiet is the existing regen delay since the last
+   * threatening hit (`lastDamagedTick`) AND since the last APS engagement (`apsLastTick`: an intercepted
+   * round never writes `lastDamagedTick`). Either one zeroes the clock. The round goes to the reserve,
+   * else tops up a part-spent magazine; a unit sitting empty with nothing in flight starts a reload.
+   */
+  private stepApsRearm(i: number): void {
+    const t = this.unitTypes[this.typeIdx[i]];
+    if (t.apsReserve < 0 || t.apsRearmTicks <= 0) return;
+    const full = this.apsAmmo[i] + this.apsReserveLeft[i] >= t.apsMagazine + t.apsReserve;
+    const quiet =
+      this.tickCount - this.lastDamagedTick[i] >= REGEN_DELAY_TICKS &&
+      this.tickCount - this.apsLastTick[i] >= REGEN_DELAY_TICKS;
+    if (full || !quiet) {
+      this.apsRearmClock[i] = 0;
+      return;
+    }
+    if (++this.apsRearmClock[i] < t.apsRearmTicks) return;
+    this.apsRearmClock[i] = 0;
+    if (this.apsReserveLeft[i] < t.apsReserve) {
+      this.apsReserveLeft[i]++;
+      if (this.apsAmmo[i] === 0 && this.apsReloadLeft[i] === 0) this.apsReloadLeft[i] = fx.max(t.apsReloadTicks, 1);
+    } else if (this.apsAmmo[i] > 0) {
+      // The reserve is full, so the magazine is the part-spent one (an empty magazine reloads to full from it).
+      this.apsAmmo[i]++;
     }
   }
 
@@ -11814,6 +13562,12 @@ export class Sim {
     h = hashArray(h, this.prStructure);
     h = hashArray(h, this.garrisonedIn);
     h = hashArray(h, this.garrisonGoal);
+    // GH-972: the spread flag, folded only once a spread order has been given (the deferred fold: an
+    // all-zero array would still move every digest). The marker keeps "folded" distinct from the words after.
+    if (this.spreadLive) {
+      h = hashWord(h, 0x53500972); // 'SP' GH-972
+      h = hashArray(h, this.spreadGoal);
+    }
     h = hashArray(h, this.displaced);
     h = hashArray(h, this.demoTicks);
     h = hashArray(h, this.demoTarget);
@@ -11860,6 +13614,14 @@ export class Sim {
       h = hashWord(h, 0x43480274); // 'CH' GH-274
       h = hashArray(h, this.stChargeTicks);
       h = hashArray(h, this.stChargeBy);
+    }
+    // APS stock (GH-884): the deferred fold, `airLive`'s shape. Nothing (no marker, no length word) is folded
+    // until a type carrying `hull.aps.reserve` is registered, so no golden, versus, net, economy or runtime-
+    // digest pin moves before the Lavi's JSON does. Both columns leave their defaults only through such a type.
+    if (this.apsStockLive) {
+      h = hashWord(h, 0x41500884); // 'AP' GH-884
+      h = hashArray(h, this.apsReserveLeft);
+      h = hashArray(h, this.apsRearmClock);
     }
     // Mobility kills (#706): the deferred fold, field works' D1 shape. The two
     // columns are folded only once a mobility result (stuck or slowed) has been
@@ -11989,6 +13751,38 @@ export class Sim {
       h = hashArray(h, this.fgState);
       h = hashArray(h, this.fgPending);
       h = hashArray(h, this.fgMembers);
+      h = hashWord(h, 0x464d0002); // 'FM' GH-859 P1b
+      h = hashArray(h, this.fgLegs);
+      h = hashArray(h, this.fgRelease);
+      h = hashArray(h, this.fgDress);
+      h = hashArray(h, this.fgQuiet);
+      h = hashArray(h, this.fgAtCp);
+      h = hashArray(h, this.fgAway);
+      h = hashArray(h, this.fgCalled);
+      h = hashArray(h, this.fgPace);
+      h = hashArray(h, this.fgCallX);
+      h = hashArray(h, this.fgCallY);
+      h = hashArray(h, this.fmLeg);
+      h = hashArray(h, this.fmDuty);
+      h = hashArray(h, this.fmHomeX);
+      h = hashArray(h, this.fmHomeY);
+    }
+    // GH-976: the set-up block, deferred like the formation block. `setupLive` is latched by `beginSetup`, so a world that
+    // never begins one hashes as before. The region is config but is folded (R0.21): two clients that disagree on the
+    // mask differ at the first hash tick.
+    if (this.setupLive) {
+      h = hashWord(h, 0x53550976); // 'SU' GH-976
+      h = hashWord(h, this.setupUntil);
+      h = hashWord(h, this.readyMask);
+      h = hashArray(h, this.setupRegion);
+      // WP3: the kit. The second marker word keeps a world with a set-up and no kit apart from one whose kit is all zeros.
+      h = hashWord(h, 0x53550977);
+      h = hashArray(h, this.kitLeft);
+      h = hashArray(h, this.kitPlaced);
+      h = hashArray(h, this.stKit);
+      h = hashArray(h, this.kitStructType);
+      h = hashWord(h, this.kitBans.length);
+      for (let i = 0; i < this.kitBans.length; i++) h = hashWord(h, this.kitBans[i]);
     }
     return h >>> 0;
   }

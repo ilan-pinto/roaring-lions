@@ -10,6 +10,7 @@
 import { t } from '../i18n/t';
 import type { Faction } from '@lions/net';
 import type { MatchResult } from '../net/outcome';
+import type { PointsView } from '../net/points-view';
 import type { MatchScore } from '../net/scoreboard';
 import type { Disposer } from '../shell/router';
 import { mountEndPanel } from './end-panel';
@@ -29,6 +30,8 @@ export interface NetEndDeps {
    *  panel names the force this seat commanded and the one it fought. Absent
    *  or the mirror, nothing is added. */
   factions?: readonly [Faction, Faction];
+  /** The points race as it stood when the result was decided (GH-976 P2): a points room's panel names both totals. */
+  points?: Pick<PointsView, 'mine' | 'theirs' | 'target'>;
 }
 
 /** Won, lost or drawn, as `viewer` sees `o`. */
@@ -44,8 +47,14 @@ export function netEndReason(o: MatchResult, viewer: 0 | 1): string {
   const verdict = verdictOf(o, viewer);
   if (o.by === 'stalemate' || o.by === 'time') {
     const theirs = viewer === 0 ? 1 : 0;
+    // GH-976 P3: the time limit of a points room was decided on the points, so the panel says points, not forces.
+    if (o.by === 'time' && o.points !== undefined) return t(`versus.end.points.time.${verdict}`, { mine: amount(o.points[viewer]), theirs: amount(o.points[theirs]) });
     return t(`versus.end.forces.${verdict}`, { cause: o.by, mine: amount(o.forces[viewer]), theirs: amount(o.forces[theirs]) });
   }
+  // GH-976 P3: a draw in a win-mode room names the goal both sides finished together, not "both forces destroyed".
+  if (o.kind === 'draw' && o.by === 'mutual' && o.mode !== undefined) return t('versus.end.mutual.mode', { mode: o.mode });
+  // GH-976: a win mode names its goal, and each seat reads its own side of it.
+  if (o.by === 'objective') return t(verdict === 'lost' ? 'versus.end.objective.lost' : 'versus.end.objective.won', { mode: o.mode });
   // The loser reads its own side of the same reason: "Your force is destroyed".
   return t(verdict === 'lost' ? 'versus.end.reason.lost' : 'versus.end.reason', { by: o.by });
 }
@@ -67,6 +76,12 @@ export function showNetEnd(host: HTMLElement, o: MatchResult, viewer: 0 | 1, dep
     played.className = 'rl-net-end__played';
     played.textContent = t('versus.end.played', { f: factions[viewer], them: factions[viewer === 0 ? 1 : 0] });
     p.body.appendChild(played);
+  }
+  if (deps.points !== undefined) {
+    const points = document.createElement('p');
+    points.className = 'rl-net-end__points';
+    points.textContent = t('versus.end.points', { mine: amount(deps.points.mine), theirs: amount(deps.points.theirs), target: amount(deps.points.target) });
+    p.body.appendChild(points);
   }
   if (deps.score !== undefined) p.body.appendChild(scoreTable(deps.score.score, viewer, deps.score.names, { remaining: true }));
 

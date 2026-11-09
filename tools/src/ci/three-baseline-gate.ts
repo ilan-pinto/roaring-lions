@@ -23,7 +23,18 @@
 //   pnpm golden-baseline:bless -- --reason="mesh trees replace the canopy sprite"
 //
 // Flags: --port=5175 (or GOLDEN_BASELINE_PORT; a held port is refused, exit 2) --out-dir=path --keep-server --scenario=<id>[,<id>...]
-//        --baseline-dir=path --bless --reason="..."
+//        --baseline-dir=path --bless --reason="..." --gpu=legacy|webgl2|webgpu --match-node
+//
+// --match-node (GH-943 P1) is the parity job's LEGACY arm: the shipping renderer with the node backend's census applied to its scene (every
+// ShaderMaterial object and the occlusion outline hidden; AO stays on, the node chain has it since T7) so a parity ratio compares like with like. It is legacy-only, never
+// blesses, and reads NO baseline (it would otherwise be judged against the shipped legacy pictures): it writes `summary.json` per
+// scenario with every layer reading, for `ci/parity-run.ts`.
+//
+// --gpu (GH-943 P0) picks the ARM: `legacy` (the default; today's WebGLRenderer, every URL and key unchanged), `webgl2` (the node
+// backend on three's own WebGL2, key `...-wgl2`) or `webgpu` (the node backend on WebGPU, key `...-wgpu`). The backend is read from
+// the PAGE (`backendInfo()`), never trusted from the URL: a page that drew through another backend than the arm, or a run whose
+// captures mix backends, is REFUSED (exit 2). The node arms are REPORT-ONLY in P0 (no baselines exist for their keys; nothing is
+// blessed), and they freeze the frame loop with the app's own flag instead of a stubbed rAF.
 //
 // Exit codes (`baseline.ts` owns the constants):
 //   0  every gated scenario matched its baseline
@@ -109,7 +120,8 @@ import {
   threeUrl,
   captureScript,
   layerToggleScript,
-  REPAINT_SCRIPT,
+  repaintScriptFor,
+  type CaptureScriptOptions,
   SCENARIOS,
   type Scenario,
 } from '../golden-diff/capture-protocol';
@@ -143,6 +155,7 @@ import {
   type CaptureResult,
 } from '../golden-diff/browser';
 import { guardCapture } from '../golden-diff/capture-guard';
+import { backendRefusal, expectedKind, mixedBackendRefusal, parseGpuArm, type GpuArm, type PageBackend } from '../golden-diff/backend';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPort } from '../ui-review/port';
 
@@ -151,6 +164,9 @@ const REPO_ROOT = path.resolve(__dirname, '../../..');
 const DEFAULT_BASELINE_DIR = path.join(REPO_ROOT, 'tools', 'golden-baselines');
 const TAG = 'three-baseline';
 const PIXELMATCH_THRESHOLD = 0.1; // pixelmatch's own default, unchanged from diff.ts
+
+/** Set once by `main` from `--match-node`; empty (every script byte-identical to before) otherwise. */
+let scriptOpts: CaptureScriptOptions = {};
 
 // No `port` here: `main` takes it from `claimPort`, which reads `--port=` and
 // GOLDEN_BASELINE_PORT itself and refuses a held one.
@@ -161,6 +177,9 @@ interface Args {
   scenarioIds: string[] | null;
   bless: boolean;
   reason: string | null;
+  arm: GpuArm;
+  /** GH-943 P1: `--match-node`, the legacy arm drawn as the node chain draws it (capture-protocol.ts `matchNodeStatements`). */
+  matchNode: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -190,6 +209,9 @@ function parseArgs(argv: readonly string[]): Args {
     scenarioIds: scenarioArg ? scenarioArg.split(',').map((s) => s.trim()) : null,
     bless: flags.has('bless'),
     reason: flags.get('reason') ?? null,
+    matchNode: flags.has('match-node'),
+    // An unknown value is a usage error, handled in `main` (parseGpuArm returns null): never silently legacy.
+    arm: parseGpuArm(flags.get('gpu')) ?? ('bad' as GpuArm),
   };
 }
 
@@ -230,18 +252,20 @@ async function captureScenario(
   page: Page,
   port: number,
   outDir: string,
-  scenario: Scenario
+  scenario: Scenario,
+  arm: GpuArm
 ): Promise<{ png: string; result: CaptureResult }> {
   const dir = path.join(outDir, scenario.id);
   mkdirSync(dir, { recursive: true });
   const png = path.join(dir, 'current.png');
   const result = await capture(
     page,
-    threeUrl(port, scenario),
-    captureScript(scenario),
+    threeUrl(port, scenario, arm),
+    captureScript(scenario, arm, scriptOpts),
     png,
     `${TAG}/${scenario.id}`,
-    scenario.mission !== undefined
+    scenario.mission !== undefined,
+    arm
   );
   return { png, result };
 }
@@ -253,7 +277,25 @@ interface SelfCheckResult {
   checks: number;
   lines: string[];
   failures: string[];
+  /** Every number the checks measured, for `summary.json` and `ci/parity-run.ts`. Absent when the scenario declares no check. */
+  readings?: ScenarioReadings;
 }
+
+/** One toggle (or the repaint control) as the parity job reads it: the shown-minus-hidden delta, primary and secondary. */
+export interface Reading {
+  readonly meanAbsChannelDelta: number;
+  readonly changedPixels: number;
+  readonly diffPixels: number;
+}
+export interface ScenarioReadings {
+  readonly repaintControl: Reading;
+  readonly layers: readonly (Reading & { readonly layer: string })[];
+}
+const readingOf = (d: { meanAbsChannelDelta: number; changedPixels: number; diffPixels: number }): Reading => ({
+  meanAbsChannelDelta: d.meanAbsChannelDelta,
+  changedPixels: d.changedPixels,
+  diffPixels: d.diffPixels,
+});
 
 /**
  * The reference-free half of the verdict: the visible-toggle A/B, run against
@@ -287,7 +329,8 @@ async function runSelfChecks(
   spec: BaselineSpec,
   capturedPng: string,
   captured: CaptureResult,
-  outDir: string
+  outDir: string,
+  arm: GpuArm
 ): Promise<SelfCheckResult> {
   const checks = spec.layerChecks ?? [];
   if (checks.length === 0) return { ok: true, checks: 0, lines: [], failures: [] };
@@ -295,11 +338,12 @@ async function runSelfChecks(
   const dir = path.join(outDir, scenario.id);
   const lines: string[] = [];
   const failures: string[] = [];
+  const layerReadings: (Reading & { layer: string })[] = [];
 
   // The control. `REPAINT_SCRIPT` advances no tick and hands `frame()` zero
   // milliseconds, so this is the same picture drawn twice.
   const shownPng = path.join(dir, 'layer-shown.png');
-  await rephotograph(page, REPAINT_SCRIPT, shownPng, captured.rect);
+  await rephotograph(page, repaintScriptFor(arm), shownPng, captured.rect);
   const control = computeDiff(capturedPng, shownPng, {
     outDir: dir,
     diffFileName: 'diff-repaint-control.png',
@@ -330,8 +374,8 @@ async function runSelfChecks(
   for (const check of checks) {
     const region = check.region !== undefined ? check.region : spec.region;
     const hiddenPng = path.join(dir, `layer-${check.layer}-hidden.png`);
-    await rephotograph(page, layerToggleScript(check.layer, false), hiddenPng, captured.rect);
-    const shownAgain = await page.evaluate(layerToggleScript(check.layer, true));
+    await rephotograph(page, layerToggleScript(check.layer, false, arm, scriptOpts), hiddenPng, captured.rect);
+    const shownAgain = await page.evaluate(layerToggleScript(check.layer, true, arm, scriptOpts));
     const objects = (JSON.parse(shownAgain as string) as { objects: number }).objects;
     const summary = computeDiff(shownPng, hiddenPng, {
       outDir: dir,
@@ -340,6 +384,7 @@ async function runSelfChecks(
       region: region ?? undefined,
     });
     const verdict = evaluateLayerCheck(summary, check);
+    layerReadings.push({ layer: check.layer, ...readingOf(summary) });
     lines.push(
       `layer "${check.layer}": hiding it moved ${summary.diffPixels} px / ` +
         `${summary.meanAbsChannelDelta.toFixed(4)} (floor >=${check.minDiffPixels} px / ` +
@@ -359,11 +404,11 @@ async function runSelfChecks(
       const flatHidden = path.join(dir, `layer-${check.layer}-over-flat-hidden.png`);
       // Every `over` layer hidden together (ground-albedo AND macro: the flat
       // palette tone), and put back in reverse order.
-      for (const layer of over) await page.evaluate(layerToggleScript(layer, false));
-      await rephotograph(page, REPAINT_SCRIPT, flatShown, captured.rect);
-      await rephotograph(page, layerToggleScript(check.layer, false), flatHidden, captured.rect);
-      await page.evaluate(layerToggleScript(check.layer, true));
-      for (const layer of [...over].reverse()) await page.evaluate(layerToggleScript(layer, true));
+      for (const layer of over) await page.evaluate(layerToggleScript(layer, false, arm, scriptOpts));
+      await rephotograph(page, repaintScriptFor(arm), flatShown, captured.rect);
+      await rephotograph(page, layerToggleScript(check.layer, false, arm, scriptOpts), flatHidden, captured.rect);
+      await page.evaluate(layerToggleScript(check.layer, true, arm, scriptOpts));
+      for (const layer of [...over].reverse()) await page.evaluate(layerToggleScript(layer, true, arm, scriptOpts));
       const flat = computeDiff(flatShown, flatHidden, {
         outDir: dir,
         diffFileName: `diff-layer-${check.layer}-over-flat.png`,
@@ -387,7 +432,9 @@ async function runSelfChecks(
   // scatter no-op while the floor passes), so leaving it out would understate
   // exactly the check that is hardest to explain from the summary line.
   const toneChecks = checks.filter((c) => c.toneCheck).length;
-  return { ok: failures.length === 0, checks: checks.length + toneChecks + 1, lines, failures };
+  const readings: ScenarioReadings = { repaintControl: readingOf(control), layers: layerReadings };
+  writeFileSync(path.join(dir, 'summary.json'), JSON.stringify({ arm, scenario: scenario.id, readings }, null, 2));
+  return { ok: failures.length === 0, checks: checks.length + toneChecks + 1, lines, failures, readings };
 }
 
 async function main(): Promise<void> {
@@ -398,6 +445,32 @@ async function main(): Promise<void> {
         'It is written into manifest.json and printed on every future mismatch, so the next ' +
         'person to see a diff can read why the baseline is what it is. Refusing to bless ' +
         'anonymously.'
+    );
+    process.exitCode = EXIT_USAGE;
+    return;
+  }
+
+  if ((args.arm as string) === 'bad') {
+    console.error(`[${TAG}] --gpu must be legacy, webgl2 or webgpu`);
+    process.exitCode = EXIT_USAGE;
+    return;
+  }
+  const arm = args.arm;
+  if (args.matchNode) {
+    if (arm !== 'legacy' || args.bless) {
+      console.error(`[${TAG}] --match-node is a legacy-arm, never-blessing option (the node arms already draw the node chain)`);
+      process.exitCode = EXIT_USAGE;
+      return;
+    }
+    scriptOpts = { matchNodeRoot: REPO_ROOT };
+    // No baseline is read: the shipped legacy pictures are not this arm's reference. An empty directory under the out-dir makes the
+    // environment read as "no baseline", which is exactly the report-only mode every node arm runs in.
+    args.baselineDir = path.join(args.outDir, 'no-baseline-for-match-node');
+  }
+  if (args.bless && arm !== 'legacy') {
+    console.error(
+      `[${TAG}] refusing to bless the ${arm} arm: the node backends have NO baselines in P0 (GH-943). Their first blesses go through the ` +
+        'CI bless workflow and its review PR at P7, after the lead has looked at the pictures.'
     );
     process.exitCode = EXIT_USAGE;
     return;
@@ -425,14 +498,15 @@ async function main(): Promise<void> {
   const port = await claimPort(TAG, 'GOLDEN_BASELINE_PORT', 5175);
   mkdirSync(args.outDir, { recursive: true });
   const devServer = await ensureDevServer(port, REPO_ROOT, TAG);
-  const browser = await launchCaptureBrowser();
+  const browser = await launchCaptureBrowser(arm);
   try {
     const unmaskedRenderer = await readUnmaskedRenderer(browser);
-    const key = envKey(process.platform, process.arch, unmaskedRenderer);
+    const key = envKey(process.platform, process.arch, unmaskedRenderer, expectedKind(arm));
     const envDir = path.join(args.baselineDir, key);
     const manifestPath = path.join(envDir, 'manifest.json');
     console.log(
-      `[${TAG}] capture environment: ${key}\n` +
+      `[${TAG}] capture arm: ${arm} (expects backend ${expectedKind(arm)}; report-only: ${arm !== 'legacy'})\n` +
+        `[${TAG}] capture environment: ${key}\n` +
         `[${TAG}]   platform=${process.platform} arch=${process.arch} viewport=${CAPTURE_VIEWPORT.width}x${CAPTURE_VIEWPORT.height}\n` +
         `[${TAG}]   unmaskedRenderer="${unmaskedRenderer}"\n` +
         `[${TAG}]   baselines: ${envDir}`
@@ -519,12 +593,17 @@ async function main(): Promise<void> {
     const page = await browser.newPage({ viewport: { ...CAPTURE_VIEWPORT } });
     await page.addInitScript(musicOffInitScript());
     const outcomes: ScenarioOutcome[] = [];
+    const backendsSeen: { id: string; backend: PageBackend }[] = [];
 
     // Screens the scenario harness cannot frame, checked before the
     // scenarios so a broken one is reported even if a capture later throws.
     // Reference-free: it asks which PATH the screen took, never what it looks
     // like -- see `screens-check.ts` for the bug that bought this.
-    const screen = await checkCampaignBoard(page, `http://localhost:${port}/`);
+    // GH-943 P0: the board and the menu host take no `&gpu=` yet (P5 ports them), so they are checked on the legacy arm only.
+    const screen =
+      arm === 'legacy'
+        ? await checkCampaignBoard(page, `http://localhost:${port}/`)
+        : { id: 'campaign-board', ok: true, detail: `skipped on the ${arm} arm (P5 ports the secondary hosts)`, board: 'n/a', hasCanvas: false, messages: [] as string[] };
     console.log(
       `\n[${TAG}] screen "${screen.id}": ${screen.detail} ` +
         `(data-board=${String(screen.board)}, canvas=${screen.hasCanvas}) -> ${screen.ok ? 'PASS' : 'FAIL'}`
@@ -553,7 +632,10 @@ async function main(): Promise<void> {
     // Timed on its own (Task 0's run was never timed, so this IS the number
     // spec §3.6 wanted rather than an estimate).
     const menuHostStarted = Date.now();
-    const menuHost = await checkMenuSceneHost(browser, `http://localhost:${port}/`);
+    const menuHost =
+      arm === 'legacy'
+        ? await checkMenuSceneHost(browser, `http://localhost:${port}/`)
+        : { id: 'menu-scene-host', ok: true, detail: `skipped on the ${arm} arm (P5 ports the secondary hosts)`, messages: [] as string[] };
     const menuHostMs = Date.now() - menuHostStarted;
     console.log(
       `\n[${TAG}] screen "${menuHost.id}": ${menuHost.detail} -> ${menuHost.ok ? 'PASS' : 'FAIL'} ` +
@@ -581,7 +663,7 @@ async function main(): Promise<void> {
       // that would have made them usable and the PR that would have shown them
       // to a human. A scenario that cannot vote must not be able to do that.
       const attempt = await guardCapture(gated, `${TAG}/${scenario.id}`, () =>
-        captureScenario(page, port, args.outDir, scenario)
+        captureScenario(page, port, args.outDir, scenario, arm)
       );
       if (!attempt.ok) {
         outcomes.push({
@@ -594,6 +676,13 @@ async function main(): Promise<void> {
         continue;
       }
       const { png, result } = attempt.value;
+      // GH-943 P0: the backend is the PAGE's word (`backendInfo()`), checked on EVERY capture. A mismatch with the arm, or a run
+      // that mixes backends, is a usage-class refusal (exit 2) and stops the run: it is never a pixel finding.
+      const refusal = backendRefusal(arm, result.backend);
+      if (refusal !== null) throw new Error(`[${TAG}] REFUSED "${scenario.id}": ${refusal}`);
+      backendsSeen.push({ id: scenario.id, backend: result.backend as PageBackend });
+      const mixed = mixedBackendRefusal(backendsSeen);
+      if (mixed !== null) throw new Error(`[${TAG}] REFUSED: ${mixed}`);
       const record: BaselineScenarioRecord = {
         tick: result.tick,
         camera: result.camera,
@@ -608,7 +697,7 @@ async function main(): Promise<void> {
       // enshrine a frame with a dead layer in it as the picture every future
       // run is judged against, which is the one way this gate could make
       // things worse than having no gate at all.
-      const self = await runSelfChecks(page, scenario, spec, png, result, args.outDir);
+      const self = await runSelfChecks(page, scenario, spec, png, result, args.outDir, arm);
       for (const line of self.lines) console.log(`[${TAG}] scenario "${scenario.id}" ${line}`);
       for (const f of self.failures) console.error(`[${TAG}]   self-check FAILED: ${f}`);
       if (self.checks === 0) {
@@ -716,7 +805,7 @@ async function main(): Promise<void> {
         threshold: PIXELMATCH_THRESHOLD,
         region: spec.region ?? undefined,
       });
-      writeFileSync(path.join(args.outDir, scenario.id, 'summary.json'), JSON.stringify(summary, null, 2));
+      writeFileSync(path.join(args.outDir, scenario.id, 'summary.json'), JSON.stringify({ ...summary, readings: self.readings }, null, 2));
       console.log(formatSummary(summary));
       const verdict = evaluateBaseline(summary, spec);
       console.log(

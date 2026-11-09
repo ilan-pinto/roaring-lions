@@ -4,18 +4,23 @@
  * swapped, and a player's score is its own results wherever it sat --
  * `(wins + draws / 2) / (games - voids)`. Reported per seat and per faction
  * beside the whole, with the scoreboard (decision 25) in place of Conduct.
- * Tokens are reported when an external player printed them, never scored.
+ * Tokens, cache tokens and cost are reported when an external player printed them (`usageOf`), never scored.
  *
  * Pure: records in, numbers and markdown out. Nothing here plays a game.
  */
-import type { Faction, Matchup } from '@lions/net';
+import type { Faction, Matchup, WinMode } from '@lions/net';
 import type { MatchScore, SideScore } from '../../../packages/app/src/net/scoreboard';
+import type { Usage } from './external-player';
+import type { JudgeRecord } from './judge';
+import { CRITERIA, CRITERION_IDS, SEAT_KEYS, refereeMarkdown, scoresMarkdown, type RefereeStats } from './match-score';
 import type { PlayerReport } from './players';
 
 export interface GameRecord {
   seed: number;
   map: string;
   matchup: Matchup;
+  /** How the room was won beside annihilation (GH-976 P2): `annihilation` or the win mode. Absent on a record from before. */
+  mode?: 'annihilation' | WinMode;
   /** By SEAT. */
   players: [string, string];
   /** By seat. */
@@ -28,11 +33,26 @@ export interface GameRecord {
    *  fallback, not a room reason). */
   by: string;
   ticks: number;
+  /** GH-954 P1, the run's own terms, so two records can be told comparable or not. Absent on a record from before
+   *  (never guessed): read them through `runFieldsOf` (arena-record.ts). `build` is the room's `${version}+${commit}`. */
+  build: string;
+  /** Ticks a paced round. */
+  pace: number;
+  /** Wall time a paced round is held to, in ms. */
+  roundWallMs: number;
+  /** The tick the arena calls the game at. */
+  capTicks: number;
+  /** sha256 (hex) of the standing prompt and the tool list the players were offered (`currentPromptDigest`). */
+  promptDigest: string;
   /** By SEAT (`bySeat` in arena.ts re-indexes the by-side board through the config's sides; LD1 puts a
    *  Sarim host on side 1), from the reading seat's sim at the end (seat 0's in-process, else seat 1's, else the observer's). */
   score: MatchScore;
   /** By seat. */
   reports: [PlayerReport, PlayerReport];
+  /** The referee's end-of-match stats for both seats (GH-973), from the reading seat's sim; absent on a record from before. */
+  referee?: RefereeStats;
+  /** The judge's scores (GH-973); absent: not judged. Scores are for reading and never change `outcome` or a tally (D7). */
+  judge?: JudgeRecord;
 }
 
 export interface Tally {
@@ -176,15 +196,165 @@ export function gateVerdict(games: readonly GameRecord[], a: string, b: string, 
 
 /** p to four significant figures. */
 export const pval = (p: number): string => p.toPrecision(4);
+/** What several clients said they spent. A field is null when NO source said it (not zero: a client that did not
+ *  say is not a client that spent nothing). */
+export type UsageSum = Usage;
+
+const addNullable = (a: number | null, b: number | null): number | null => (a === null ? b : b === null ? a : a + b);
+
+/** The sum of the usages that exist; null when none does. */
+export function sumUsage(list: readonly (Usage | null | undefined)[]): UsageSum | null {
+  let out: UsageSum | null = null;
+  for (const u of list) {
+    if (u === null || u === undefined) continue;
+    out = out === null
+      ? { ...u }
+      : {
+        inputTokens: out.inputTokens + u.inputTokens,
+        outputTokens: out.outputTokens + u.outputTokens,
+        cacheCreationInputTokens: addNullable(out.cacheCreationInputTokens, u.cacheCreationInputTokens),
+        cacheReadInputTokens: addNullable(out.cacheReadInputTokens, u.cacheReadInputTokens),
+        costUsd: addNullable(out.costUsd, u.costUsd),
+      };
+  }
+  return out;
+}
+
+/** A run's spend (GH-954 W2): per player (by the name a tally keys on), the judge's, and all together. Reported, never scored (D7). */
+export interface UsageTotals {
+  byPlayer: { player: string; usage: UsageSum }[];
+  judge: UsageSum | null;
+  all: UsageSum | null;
+}
+
+export function usageTotals(games: readonly GameRecord[]): UsageTotals {
+  const by = new Map<string, Usage[]>();
+  for (const g of games) {
+    for (const s of [0, 1] as const) {
+      const u = g.reports[s].usage;
+      if (u !== undefined) by.set(g.players[s], [...(by.get(g.players[s]) ?? []), u]);
+    }
+  }
+  const judges = games.map((g) => (g.judge === undefined || g.judge.status === 'skipped' ? undefined : g.judge.usage));
+  const judge = sumUsage(judges);
+  const byPlayer = [...by.entries()].flatMap(([player, list]) => {
+    const usage = sumUsage(list);
+    return usage === null ? [] : [{ player, usage }];
+  });
+  return { byPlayer, judge, all: sumUsage([...byPlayer.map((b) => b.usage), judge]) };
+}
+
+const orDash = (v: number | null): string | number => (v === null ? '—' : v);
+const usd = (v: number | null): string => (v === null ? '—' : `$${v.toFixed(4)}`);
+
 const num = (v: number): string => (Number.isNaN(v) ? '—' : v.toFixed(3));
 const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 const line = (cells: readonly (string | number)[]): string => `| ${cells.map((c) => cell(String(c))).join(' | ')} |`;
 const board = (s: SideScore): string[] => [`${s.lost} (${s.lostValue})`, `${s.destroyed} (${s.destroyedValue})`, String(s.remaining)];
 
+/** What decided a game, in words a report reader wants (GH-976 P2): a win mode's goal by name, surviving force for a limit or a
+ *  stalemate, anything else as the raw `by`. */
+export function decidedBy(g: Pick<GameRecord, 'by' | 'mode'>): string {
+  if (g.by === 'objective') return g.mode === 'points' ? 'points race' : g.mode === 'camp' ? 'camp razed' : g.mode === 'flag' ? 'flag captured' : 'objective';
+  // GH-976 P3: the cap of a points race is decided on the points, not on the force left.
+  if ((g.by === 'cap' || g.by === 'time') && g.mode === 'points') return 'points at the cap';
+  if (g.by === 'cap' || g.by === 'time' || g.by === 'stalemate') return 'surviving force';
+  return g.by;
+}
+
+const modeOf = (g: Pick<GameRecord, 'mode'>): string => g.mode ?? 'annihilation';
+
 function winnerOf(g: GameRecord): string {
   if (g.outcome === 'seat0') return g.players[0];
   if (g.outcome === 'seat1') return g.players[1];
   return g.outcome;
+}
+
+/**
+ * The scores (GH-973): what the judge made of each game, or `not judged`. A
+ * table of every judged game, each player's mean per criterion, then the
+ * judge's reasons game by game, with the referee's numbers beside them. A game
+ * the judge could not score says why; nothing is filled in.
+ */
+export function scoreSections(games: readonly GameRecord[]): string[] {
+  const out: string[] = ['', '## Scores', ''];
+  if (!games.some((g) => g.judge !== undefined)) {
+    out.push('Not judged. Run with `--judge "cmd:<template>"` to have a third model score both players of each game 1-10 on five criteria.');
+    if (games.some((g) => g.referee !== undefined)) {
+      out.push('', '### Referee\'s stats', '');
+      out.push(...refereeTable(games));
+    }
+    return out;
+  }
+  out.push('A third model (the judge) scored both players of each game, 1-10 per criterion with a one-line reason each, from the referee\'s stats. Scores are for reading: they change no result and no tally (D7).');
+  out.push('');
+  out.push(line(['game', 'seed', 'seat', 'player', ...CRITERIA.map((c) => c.label), 'Overall']));
+  out.push(line(Array.from({ length: 5 + CRITERIA.length }, () => '---')));
+  const sums = new Map<string, { n: number; crit: number[]; overall: number }>();
+  games.forEach((g, i) => {
+    const j = g.judge;
+    if (j?.status === 'scored') {
+      for (const seat of [0, 1] as const) {
+        const p = j.scores[SEAT_KEYS[seat]];
+        out.push(line([i + 1, g.seed, seat, g.players[seat], ...CRITERION_IDS.map((id) => p.criteria[id].score), p.overall.score]));
+        const acc = sums.get(g.players[seat]) ?? { n: 0, crit: CRITERION_IDS.map(() => 0), overall: 0 };
+        acc.n++;
+        CRITERION_IDS.forEach((id, k) => { acc.crit[k] += p.criteria[id].score; });
+        acc.overall += p.overall.score;
+        sums.set(g.players[seat], acc);
+      }
+    } else {
+      out.push(line([i + 1, g.seed, '—', '—', ...(j === undefined ? ['not judged'] : [judgeNote(j)]), ...Array.from({ length: CRITERIA.length }, () => '')]));
+    }
+  });
+  if (sums.size > 0) {
+    out.push('', '### Mean scores by player', '');
+    out.push(line(['player', 'games scored', ...CRITERIA.map((c) => c.label), 'Overall']));
+    out.push(line(Array.from({ length: 3 + CRITERIA.length }, () => '---')));
+    for (const [player, a] of sums) out.push(line([player, a.n, ...a.crit.map((v) => (v / a.n).toFixed(1)), (a.overall / a.n).toFixed(1)]));
+  }
+  games.forEach((g, i) => {
+    out.push('', `### Game ${i + 1}: seed ${g.seed}, ${g.players[0]} (seat 0) vs ${g.players[1]} (seat 1)`, '');
+    if (g.referee !== undefined) out.push(...refereeMarkdown(g.referee, g.players), '');
+    const j = g.judge;
+    if (j === undefined) out.push('Not judged.');
+    else if (j.status === 'scored') out.push(...scoresMarkdown(j.scores, g.players));
+    else out.push(`Not scored: ${judgeNote(j)}.`, ...(j.status === 'invalid' ? j.problems.map((p) => `- ${p}`) : []));
+  });
+  return out;
+}
+
+function judgeNote(j: JudgeRecord): string {
+  switch (j.status) {
+    case 'scored': return 'scored';
+    case 'invalid': return `the judge's reply was not a valid score (${j.problems.length} problem(s))`;
+    case 'failed': return `the judge failed: ${j.reason}`;
+    case 'skipped': return `skipped: ${j.reason}`;
+  }
+}
+
+/** The referee's numbers for every game, one row per seat. */
+function refereeTable(games: readonly GameRecord[]): string[] {
+  const out: string[] = [line(['game', 'seed', 'seat', 'player', 'deaths', 'men killed', 'units lost (value)', 'destroyed (value)', 'wounded fell', 'rescued', 'died', 'idle %', 'orders', 'first order']), line(Array.from({ length: 14 }, () => '---'))];
+  games.forEach((g, i) => {
+    if (g.referee === undefined) return;
+    for (const s of g.referee.seats) {
+      out.push(line([i + 1, g.seed, s.seat, g.players[s.seat], s.deaths, s.menKilled, `${s.unitsLost} (${s.lostValue})`, `${s.destroyed} (${s.destroyedValue})`, s.woundedFell, s.woundedRescued, s.woundedDied, s.idlePct ?? '—', s.ordersSent, s.firstOrderTick ?? '—']));
+    }
+  });
+  // GH-976 P2: a points race adds its points by source, per seat.
+  if (games.some((g) => g.referee?.seats.some((s) => s.points !== undefined) === true)) {
+    out.push('', 'Points by source (a points race): held zones and enemy units destroyed.', '');
+    out.push(line(['game', 'seed', 'seat', 'player', 'points', 'from zones', 'from kills', 'by zone']), line(Array.from({ length: 8 }, () => '---')));
+    games.forEach((g, i) => {
+      for (const s of g.referee?.seats ?? []) {
+        if (s.points === undefined) continue;
+        const zones = Object.entries(s.points.byZone).map(([z, v]) => `${z} ${v}`).join(', ');
+        out.push(line([i + 1, g.seed, s.seat, g.players[s.seat], s.points.total, s.points.fromZones, s.points.fromKills, zones === '' ? '—' : zones]));
+      }
+    });
+  }
+  return out;
 }
 
 /** The report: each player's tally (whole, by seat, by faction), A against B
@@ -194,7 +364,7 @@ function winnerOf(g: GameRecord): string {
 export function markdownReport(games: readonly GameRecord[], pair: readonly [string, string] | undefined = games[0]?.players): string {
   const out: string[] = [];
   const first = games[0];
-  out.push(`# Arena: ${first === undefined ? 'no games' : `${first.map}, ${first.matchup}`}`);
+  out.push(`# Arena: ${first === undefined ? 'no games' : `${first.map}, ${first.matchup}${modeOf(first) === 'annihilation' ? '' : `, ${modeOf(first)}`}`}`);
   out.push('');
   out.push(`${games.length} game(s). Score = (wins + draws / 2) / (games - voids), decision D7; — is a cut with no non-void game.`);
   out.push('');
@@ -221,10 +391,10 @@ export function markdownReport(games: readonly GameRecord[], pair: readonly [str
   out.push('');
   out.push('Scoreboard columns are each seat\'s units lost and destroyed (with their value) and the force value it has left, read from seat 0\'s sim at the end.');
   out.push('');
-  out.push(line(['seed', 'map', 'matchup', 'seat 0', 'seat 1', 'winner', 'by', 'ticks', 'factions', 'seat 0 lost', 'seat 0 destroyed', 'seat 0 left', 'seat 1 lost', 'seat 1 destroyed', 'seat 1 left']));
-  out.push(line(Array.from({ length: 15 }, () => '---')));
+  out.push(line(['seed', 'map', 'matchup', 'mode', 'seat 0', 'seat 1', 'winner', 'by', 'decided by', 'ticks', 'factions', 'seat 0 lost', 'seat 0 destroyed', 'seat 0 left', 'seat 1 lost', 'seat 1 destroyed', 'seat 1 left']));
+  out.push(line(Array.from({ length: 17 }, () => '---')));
   for (const g of games) {
-    out.push(line([g.seed, g.map, g.matchup, g.players[0], g.players[1], winnerOf(g), g.by, g.ticks, `${g.factions[0]} / ${g.factions[1]}`, ...board(g.score[0]), ...board(g.score[1])]));
+    out.push(line([g.seed, g.map, g.matchup, modeOf(g), g.players[0], g.players[1], winnerOf(g), g.by, decidedBy(g), g.ticks, `${g.factions[0]} / ${g.factions[1]}`, ...board(g.score[0]), ...board(g.score[1])]));
   }
   const spoke = games.some((g) => g.reports.some((r) => r.tokens !== null));
   if (spoke) {
@@ -239,6 +409,32 @@ export function markdownReport(games: readonly GameRecord[], pair: readonly [str
       out.push(line([g.seed, g.players[0], g.reports[0].tokens ?? '—', g.players[1], g.reports[1].tokens ?? '—']));
     }
   }
+  if (games.some((g) => g.reports.some((r) => r.usage !== undefined))) {
+    out.push('');
+    out.push('## Usage');
+    out.push('');
+    out.push('Input, output and cache tokens and the client\'s own cost, as each external player printed them (— = it did not say); never scored (D7).');
+    out.push('');
+    out.push(line(['seed', 'seat', 'player', 'input', 'output', 'cache written', 'cache read', 'cost']));
+    out.push(line(Array.from({ length: 8 }, () => '---')));
+    for (const g of games) {
+      for (const s of [0, 1] as const) {
+        const u = g.reports[s].usage;
+        if (u !== undefined) out.push(line([g.seed, s, g.players[s], u.inputTokens, u.outputTokens, orDash(u.cacheCreationInputTokens), orDash(u.cacheReadInputTokens), usd(u.costUsd)]));
+      }
+    }
+    const totals = usageTotals(games);
+    out.push('');
+    out.push('Run totals:');
+    out.push('');
+    out.push(line(['', 'input', 'output', 'cache written', 'cache read', 'cost']));
+    out.push(line(Array.from({ length: 6 }, () => '---')));
+    const row = (who: string, u: UsageSum): string => line([who, u.inputTokens, u.outputTokens, orDash(u.cacheCreationInputTokens), orDash(u.cacheReadInputTokens), usd(u.costUsd)]);
+    for (const b of totals.byPlayer) out.push(row(b.player, b.usage));
+    if (totals.judge !== null) out.push(row('judge', totals.judge));
+    if (totals.all !== null) out.push(row('all', totals.all));
+  }
+  out.push(...scoreSections(games));
   const troubled = games.flatMap((g) => ([0, 1] as const).filter((s) => g.reports[s].timeouts > 0 || g.reports[s].errors.length > 0).map((s) => ({ g, s })));
   if (troubled.length > 0) {
     out.push('');

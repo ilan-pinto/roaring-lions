@@ -120,6 +120,36 @@ describe('afterAction (GH-417, H4/H5)', () => {
     expect(a.ladder.map((r) => r.met)).toEqual([true, true, false]);
   });
 
+  // GH-317: the Roar coins a win paid are rows beside the credits, one per payout, then the balance.
+  it('a win that paid coins lists each payout and the balance; a replay that paid none lists nothing', () => {
+    const a = afterAction(
+      wh5({
+        coins: {
+          awards: [
+            { source: 'welcome', coins: 100 },
+            { source: 'first_win', coins: 10, missionId: 'm' },
+            { source: 'star', coins: 10, missionId: 'm', stars: 2 },
+          ],
+          balance: 120,
+        },
+      })
+    );
+    const coin = a.changed.filter((c) => c.text.startsWith('Roar coins') || c.text.startsWith('You now hold'));
+    expect(coin.map((c) => [c.mark, c.text])).toEqual([
+      ['+100', 'Roar coins: your welcome issue'],
+      ['+10', 'Roar coins: the first win of this mission'],
+      ['+10', 'Roar coins: 2 new stars on this mission'],
+      ['', 'You now hold 120 Roar coins'],
+    ]);
+    expect(a.changed.findIndex((c) => c.mark === '+220')).toBeLessThan(a.changed.findIndex((c) => c.mark === '+100'));
+    expect(afterAction(wh5()).changed.some((c) => c.text.includes('Roar coin'))).toBe(false);
+  });
+
+  it('a refused save claims no coins either', () => {
+    const a = afterAction(wh5({ unsaved: true, coins: { awards: [{ source: 'welcome', coins: 100 }], balance: 100 } }));
+    expect(a.changed.some((c) => c.text.includes('Roar coin'))).toBe(false);
+  });
+
   it('a defeat: the reason, what went wrong, and nothing written', () => {
     const lost = wh5({
       result: 'defeat',
@@ -139,6 +169,41 @@ describe('afterAction (GH-417, H4/H5)', () => {
     // A defeat promotes nobody and unlocks nothing, whatever it was handed
     // (this fixture still carries Tzur's promotion and two unlocks).
     expect(a.changed.some((c) => c.text.includes('Tzur') || c.text.includes('bought'))).toBe(false);
+  });
+});
+
+// GH-912 G-T: "Carries into ..." names the mission that READS the tag, not the town's next one.
+describe('what a carrying objective says it carries into (GH-912 G-T)', () => {
+  const carrier = (carriesInto?: { name: string } | null) => [
+    { id: 'raze', text: 'Raze the depot', primary: true, carries: false, status: 'complete' as const },
+    {
+      id: 'cell',
+      text: 'Find the reed cell',
+      primary: false,
+      carries: true,
+      status: 'complete' as const,
+      ...(carriesInto !== undefined ? { carriesInto } : {}),
+    },
+  ];
+  const carried = (objectives: ReturnType<typeof carrier>) =>
+    afterAction(wh5({ objectives, next: { name: 'Khan Rafid I' } })).changed.filter((c) => c.text.includes('Find the reed cell'));
+
+  it('names the reader, not the town\u2019s next mission', () => {
+    const c = carried(carrier({ name: 'Ein Qasab III' }));
+    expect(c.map((x) => x.text)).toEqual(['Carries into Ein Qasab III: Find the reed cell']);
+  });
+
+  it('a tag nothing later reads says "forward", never a mission', () => {
+    expect(carried(carrier(null)).map((x) => x.text)).toEqual(['Carries forward: Find the reed cell']);
+  });
+
+  it('an objective with no tag keeps naming the town\u2019s next mission', () => {
+    expect(carried(carrier(undefined)).map((x) => x.text)).toEqual(['Carries into Khan Rafid I: Find the reed cell']);
+  });
+
+  it('the "done well" sub-line no longer claims the next mission', () => {
+    const well = afterAction(wh5({ objectives: carrier({ name: 'Ein Qasab III' }) })).well.find((w) => w.text === 'Find the reed cell');
+    expect(well?.sub).toBe('Carries into a later mission');
   });
 });
 

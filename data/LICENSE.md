@@ -9,6 +9,9 @@ change stops adding to that set; it cannot undo it. See `docs/ART_PIPELINE.md`
 §8 for the full reasoning — the project lead can reverse this decision, but
 not retroactively.
 
+Meshy-generated art is credited to Meshy (CC BY 4.0) in `art/ATTRIBUTION.md`;
+that credit does not change the rights stated here (GH-933).
+
 Code in this repository is source-available under the PolyForm Noncommercial
 License 1.0.0 — see the root `LICENSE` (MIT before 2026-09-18; copies obtained
 under MIT stay MIT).

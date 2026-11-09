@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
 import { CLOSEUP_H, CLOSEUP_W, assertCloseupCount, closeupPlan } from './perf/garage-closeups-plan';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -24,21 +25,19 @@ function jpegSize(buf: Buffer): [number, number] {
 }
 
 describe('garage close-ups', () => {
-  it('owes one per KDF type and track: 59 on the 25 Oct roster', () => {
-    // The plan's 49 counted seventeen types; heli_peten_gunship (3 tracks)
-    // and recon_zikit (2) have landed since, and heli_yanshuf (3, GH-698), and
-    // demo_tzav (2, GH-274; was 57 / 20 types).
-    // A literal, so a roster change that ships without its close-ups fails
-    // here by name.
-    expect(plan).toHaveLength(59);
-    expect(new Set(plan.map((j) => j.id)).size).toBe(21);
+  it('owes one per KDF vehicle or aircraft type and track: 47 since GH-1077', () => {
+    // 59 on the 25 Oct roster, less the 23 infantry-team close-ups (8 teams;
+    // WP-SC0, GH-746): they showed the 8 Oct orange claws. A literal, so a
+    // roster change that ships without its close-ups fails here by name.
+    expect(plan).toHaveLength(47);
+    expect(new Set(plan.map((j) => j.id)).size).toBe(18);
     expect(plan.filter((j) => j.id === 'dozer_d9').map((j) => j.track)).toEqual(['armour', 'sensors']);
   });
 
   it('refuses a run that wrote a different count', () => {
-    expect(() => assertCloseupCount(48, plan)).toThrow(/48 written, but data\/units\/kdf\/ declares 59/);
-    expect(() => assertCloseupCount(60, plan)).toThrow();
-    expect(() => assertCloseupCount(59, plan)).not.toThrow();
+    expect(() => assertCloseupCount(25, plan)).toThrow(/25 written, but data\/units\/kdf\/ declares 47 vehicle and aircraft/);
+    expect(() => assertCloseupCount(48, plan)).toThrow();
+    expect(() => assertCloseupCount(47, plan)).not.toThrow();
   });
 
   it('ships exactly the plan: in the manifest, on disk, 480x320', () => {
@@ -53,5 +52,34 @@ describe('garage close-ups', () => {
       expect([e.unit, e.track], j.key).toEqual([j.id, j.track]);
       expect(jpegSize(fs.readFileSync(path.join(DIR, e.file))), j.key).toEqual([CLOSEUP_W, CLOSEUP_H]);
     }
+  });
+
+  // WP-SC0 (GH-746): the store shows the plain frame for a team until its card
+  // is approved, so no infantry team may have a close-up, in the manifest or on
+  // disk, and nothing a vehicle or aircraft owns may have gone missing.
+  it('has no infantry-team close-up, and every vehicle or aircraft one is on disk', () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(DIR, 'manifest.json'), 'utf8')) as {
+      closeups: Record<string, { file: string; unit: string; track: string }>;
+    };
+    const teams = Object.keys(RIGGED_UNIT_MESHES);
+    expect(teams).toContain('inf_squad'); // the set is not vacuously empty
+    const entries = Object.entries(manifest.closeups);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [key, e] of entries) {
+      expect(teams, `${key}: an infantry team has a close-up entry`).not.toContain(e.unit);
+      expect(fs.existsSync(path.join(DIR, e.file)), `${key}: ${e.file} is not on disk`).toBe(true);
+    }
+    for (const f of fs.readdirSync(DIR).filter((n) => n.endsWith('.jpg'))) {
+      const unit = f.replace(/_(armour|sensors|firepower)\.jpg$/, '');
+      expect(teams, `${f}: an infantry team's close-up is on disk`).not.toContain(unit);
+    }
+    // Every KDF team that declares an upgrade track is covered by the above.
+    const kdf = path.join(REPO, 'data/units/kdf');
+    const teamsWithTracks = fs
+      .readdirSync(kdf)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => JSON.parse(fs.readFileSync(path.join(kdf, f), 'utf8')) as { id: string; upgrades?: object })
+      .filter((u) => u.id in RIGGED_UNIT_MESHES && Object.keys(u.upgrades ?? {}).length > 0);
+    expect(teamsWithTracks.length).toBe(12);
   });
 });

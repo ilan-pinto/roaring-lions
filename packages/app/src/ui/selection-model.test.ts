@@ -325,6 +325,15 @@ describe('chips — the one status line', () => {
     ]);
     expect(chips[0].status).toBe('APS 4/6');
   });
+
+  it('GH-884: a type with a reserve names it, summed across the sub-group; one without keeps the plain form', () => {
+    const chips = groupChips([
+      unit({ typeId: 'mbt_lavi', bucket: 'armour', aps: { ammo: 3, magazine: 3, reserve: 9 } }),
+      unit({ typeId: 'mbt_lavi', bucket: 'armour', aps: { ammo: 1, magazine: 3, reserve: 2 } }),
+    ]);
+    expect(chips[0].status).toBe('APS 4/6 +11');
+    expect(s({ count: 1, routed: 0, pinned: 0, aboard: 0, moving: 0, aps: { ammo: 0, magazine: 3, reserve: 0 } }).status).toBe('APS 0/3 +0');
+  });
 });
 
 describe('chips — the pinned mark (GH-262)', () => {

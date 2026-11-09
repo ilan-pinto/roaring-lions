@@ -1,6 +1,6 @@
 # Roaring Lions — Game Design Document
 
-**Version:** 1.2.3 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed; §11's surface list gains the end of the war (2026-10-09)
+**Version:** 1.2.4 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed; §11's surface list gains the end of the war (2026-10-09); §2 and §11 gain Ein Qasab, the winter interlude town, and §11's stale `debrief` clause is dropped (2026-10-31)
 **Companion docs:** `CLAUDE.md` (working conventions), `docs/ART_PIPELINE.md`, `CONTRIBUTING.md`
 
 ---
@@ -34,7 +34,7 @@ All geography, factions, and place names are **fictional**. Enemy forces are def
 | **Sur** | northern mountains | Sarim Brigades | rockets, ATGMs, best-trained, standoff |
 | **Naharin** | eastern river basin — irrigated green highland | Rif Cells | technicals, raids, smuggling, mobility |
 
-**Towns:** Beit Sahwan, Khan Rafid, Deir Amun (Marj) · Tel Marum, Qarn Hadid, Umm Zeitoun (Sur) · Wadi Halam (Naharin).
+**Towns:** Beit Sahwan, Khan Rafid, Deir Amun (Marj) · Tel Marum, Qarn Hadid, Umm Zeitoun (Sur) · Wadi Halam, Ein Qasab (Naharin).
 
 **Layout.** Kedem sits in the centre of the basin with all three fronts on its borders,
 and the geography sets the order of the war: **proximity, then standoff, then source.**
@@ -96,7 +96,7 @@ The split is the point. Logistics buys mass; Intel buys certainty. Most missions
 
 **Population cap.** A side may have a cap on how many units it fields: each unit type declares a population cost (most teams 1, APCs 2, the main battle tank 3, drones 0), the living units of the side count against the cap, and a queued build reserves its share the moment it is queued. The cap refuses builds only. It never removes anything: a starting force, a trigger spawn or a wave above the cap stands, and a unit costing 0 is never refused. **It is off in the campaign**, where the mission's authored force and its clock set the scale (`validate:data` refuses `resources.pop_cap` on every mission that declares a town, which is every campaign mission), and **on in skirmish and co-op, set through the doctrine** (lead, G3 Q4, 4 Oct). The cap is never equal across doctrines: the Sarim field at 1.6x the budget (G3 Q7), so an equal cap would undo it. The HUD shows used/cap only when a cap is on; that chrome lands with WP-S-F #184.
 
-**Production (F4, GH-183, GH-136; the lead's G3 Q3, 4 Oct).** Each camp is one serial line: a unit takes its `build_time_s` (12 s for a drone to 50 s for the gunship) and the next in the queue starts when it deploys, so build time is the pace. The price is paid when a unit is queued and refunded in full if the player cancels it. **A line pauses while an enemy ground unit stands within 6 tiles of the camp's exit** (aircraft do not count), so a camp under attack stops delivering. A built unit walks to the line's **rally point** if one is set (a no-sweep attack-move; a blocked tile is refused), and stays at the exit otherwise. A mission with no camp builds from the player's start; a destroyed camp loses its queue. The enemy buys the same way, from the same lines and purse rules, where a mission authors an `enemy.production` block (none do yet, and `validate:data` refuses one on a shipped mission while D7 stands: the shipped unitInfo answers KDF only, so side 1 cannot build until N3's loader or an enemy-roster lookup). **Officers are never built from a line**: they stay a deploy slot. GH-115 and GH-109's limits stand: no construction yard, no power, no sell, no mirrored tech trees (an enemy menu names enemy-roster units only), and no camp is built by the player in Stage 4. Numbers: `docs/campaign/economy/production-numbers.md`.
+**Production (F4, GH-183, GH-136; the lead's G3 Q3, 4 Oct).** Each camp is one serial line: a unit takes its `build_time_s` (12 s for a drone to 50 s for the gunship) and the next in the queue starts when it deploys, so build time is the pace. The price is paid when a unit is queued and refunded in full if the player cancels it. **A line pauses while an enemy ground unit stands within 6 tiles of the camp's exit** (aircraft do not count), so a camp under attack stops delivering. A built unit walks to the line's **rally point** if one is set (a no-sweep attack-move; a blocked tile is refused), and stays at the exit otherwise. A mission with no camp builds from the player's start; a destroyed camp loses its queue. The enemy buys the same way, from the same lines and purse rules, where a mission authors an `enemy.production` block (none do yet, and `validate:data` refuses one on a shipped mission while D7 stands: the shipped unitInfo answers KDF only, so side 1 cannot build until N3's loader or an enemy-roster lookup). **Officers are never built from a line**: they stay a deploy slot. GH-115 and GH-109's limits stand: no construction yard, no power, no sell, no mirrored tech trees (an enemy menu names enemy-roster units only), and the only camp a player builds is the **forward camp** (GH-277, the lead's ruling of 4 Nov 2026): a field work the engineers raise, which on completion opens a second line at the tail of the player's lines, builds the whole camp menu at the camp's speed, heals infantry and repairs vehicles nearby, is a target the enemy shoots once it has seen it, never earns income or becomes the supply rear, is never built by the enemy and is off in versus. Numbers: `docs/campaign/economy/production-numbers.md`.
 
 ### Economy anchors
 
@@ -403,6 +403,12 @@ grows beside him and provides the intelligence in every mission. The two of
 them are the voices of the HUD: every briefing is a two-hander, Idit's picture
 and Shai's plan, and mid-mission transmissions come from them, from the brigade net, or — rarely, and only through something he has just done — from the enemy.
 
+**Not every town opens a front or closes one.** Qarn Hadid falls between Tel Marum
+and Umm Zeitoun, and Ein Qasab falls in the winter between Wadi Halam's third and
+fourth missions, when the rain shuts the fords and the corridor's traffic goes onto
+the marsh causeways. In such a town the front's adversary is present only through
+what he leaves (a tube in a bowl, crates in a barn, a manifest), and he does not speak.
+
 **One villain per front.** Each campaign — the Marj, Sur, Naharin — introduces
 an arch-terrorist through an atrocity in its opening mission, keeps him present
 through what he does, and ends with him captured or killed. He is characterised
@@ -420,7 +426,7 @@ banner, `debrief` on the end screen, objective labels, and mid-mission `say`
 lines carried by triggers and objectives into the notice feed and onto the
 commander bar. The end of the war is said once: on the report of the victory that
 closes the last front, Idit and Shai exchange four lines, and the campaign
-board's resting line says every front is closed. **Approved and not yet built:** EVA announcements, voice audio
-for briefings and transmissions, a radio overlay with portraits for the `say`
-lines, and a `debrief` that can tell a victory from a defeat. See
+board's resting line says every front is closed. **Approved and not yet built:** voice audio
+for briefings, transmissions and announcements, and a radio overlay frame for the `say`
+lines. See
 `docs/campaign/README.md` for the surface contract.

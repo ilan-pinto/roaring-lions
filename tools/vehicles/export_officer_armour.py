@@ -5,10 +5,13 @@ from the SHIPPED `mbt_lavi.glb`, at 0 credits.
         --python tools/vehicles/export_officer_armour.py
 
 Writes `art/meshes/vehicles/officer_armour.glb` in the Lavi's 6.32 m export
-frame. Then, in order: `pnpm rescale:meshes -- --id=officer_armour` (x1.18,
-2026-10-15), `pnpm running-gear:meshes -- --id=officer_armour` (the Lavi's tracks, contract
-v7), `pnpm wreck:meshes -- --id=officer_armour`, `pnpm encode:meshes`,
-`pnpm validate:meshes`.
+frame, and its session to `art/src/vehicles/officer_armour.blend`. Then, in
+order: `pnpm rescale:meshes -- --id=officer_armour` (x1.18, 2026-10-15),
+`pnpm running-gear:meshes -- --id=officer_armour` (the Lavi's tracks, contract
+v7), `pnpm mark:meshes -- --id=officer_armour` (the team mark, L3 GH-943: the
+shipped Lavi's own mark is dropped on import, see `rescale.drop_imported_mark`),
+`pnpm wreck:meshes -- --id=officer_armour`, `pnpm damage:meshes`,
+`pnpm encode:meshes`, `pnpm validate:meshes`.
 
 SOURCE: `art/meshes/vehicles/mbt_lavi.glb` -- itself `tools/vehicles/
 export_meshy_tank.py`'s cut of a Meshy tank (AI-generated, disclosed per
@@ -69,6 +72,8 @@ REPO = os.path.dirname(TOOLS)
 SRC = os.path.join(REPO, "art", "meshes", "vehicles", "mbt_lavi.glb")
 OUT_DIR = os.path.join(REPO, "art", "meshes", "vehicles")
 OUT_PATH = os.path.join(OUT_DIR, "officer_armour.glb")
+#: The export session, committed (CLAUDE.md: never a GLB without its source).
+BLEND_PATH = os.path.join(REPO, "art", "src", "vehicles", "officer_armour.blend")
 
 #: World-space (z up, +X forward) placements, from the probe in the docstring.
 ROOF_Z = 2.12
@@ -222,6 +227,7 @@ def export():
     # land where they did. The output then takes
     # `pnpm rescale:meshes -- --id=officer_armour` before running-gear.
     vehicle_rescale.unscale_imported(log)
+    vehicle_rescale.drop_imported_mark(log)
     # The Lavi's upgrade kit (`kit_*`, contract v5): the command Lavi is a unit
     # of its own and must not inherit every kit part of every tier.
     kit = [o for o in bpy.data.objects if o.name.startswith("kit_")]
@@ -287,6 +293,10 @@ def export():
     kept, dropped = vehicle_textured.prepare_vehicle_textures()
     for name, before, after in kept:
         log(f"shipping {name!r} at {after[0]}x{after[1]} (was {before[0]}x{before[1]})")
+
+    os.makedirs(os.path.dirname(BLEND_PATH), exist_ok=True)
+    bpy.ops.wm.save_as_mainfile(filepath=BLEND_PATH, compress=True)
+    log(f"wrote {BLEND_PATH} ({os.path.getsize(BLEND_PATH)} bytes)")
 
     os.makedirs(OUT_DIR, exist_ok=True)
     bpy.ops.object.select_all(action="DESELECT")

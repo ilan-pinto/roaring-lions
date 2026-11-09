@@ -57,18 +57,21 @@ import { aimPenaltyPct, breakSeconds, combatBand, hpWord, recoverySeconds, repai
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import { weaponName } from './weapon-name';
+import type { FormationClosedReason } from '../net/versus-formations';
 import { patchChildren } from './dom-patch';
 import {
   FORMATION_IDS,
   classCounts,
   formationCardLines,
   formationLabel,
+  formationReason,
   formationRow,
   formationTag,
   type FormationCounts,
   type FormationId,
+  type FormationView,
 } from './formation-model';
-import { formationMemberView, formationOfUnit, formationUnitFacts } from './formation-sim';
+import { formationCheckpointOf, formationMemberView, formationOfUnit, formationUnitFacts } from './formation-sim';
 import { formationGlyphHtml, formationTipHtml } from './formation-view';
 import { heldHoverTarget, heldReadout, silentInBuilding, type HeldReadout } from './held-readout';
 import { auraChipKey, type WorksCardModel } from './works-model';
@@ -213,8 +216,8 @@ const MARK_SYMBOL: Readonly<Record<ChipMark, SymbolId>> = {
   slowed: 'immobilised',
 };
 /** A chip fact's optional formation field: absent for a unit in none, so a plain unit's facts are unchanged. */
-function formationFact(f: FormationId | undefined): { formation?: FormationId } {
-  return f === undefined ? {} : { formation: f };
+function formationFact(f: FormationId | undefined, cp: { k: number; m: number } | undefined): { formation?: FormationId; formationCp?: { k: number; m: number } } {
+  return f === undefined ? {} : { formation: f, ...(cp !== undefined ? { formationCp: cp } : {}) };
 }
 
 function markLabel(mark: ChipMark): string {
@@ -348,6 +351,9 @@ export interface HudDeps {
    *  objective slot names the force this seat commands instead of the Free
    *  Play line. Absent everywhere else, which keeps the strip as it was. */
   versusFaction?: 'kdf' | 'sarim';
+  /** The win mode a versus room plays (GH-976 P2): the strip's line says how THIS match is won ("win the points race")
+   *  rather than "destroy their force". Absent is annihilation, which keeps the line exactly as it was. */
+  versusMode?: 'camp' | 'points' | 'flag';
   /** An economy room's purse (N3 Task 6, KDF against Sarim): the VIEWER's side's logistics
    *  and what its held zones pay a minute, and Conduct only for the KDF seat (LD7). Read
    *  only with no mission. A room shows no intel figure (LD5). Absent, or null: no purse --
@@ -372,6 +378,8 @@ export interface HudDeps {
    *  every button inert and the versus reason. Absent: open (single-player, and every test that
    *  does not exercise the room). */
   formationsOpen?: () => boolean;
+  /** Why it is closed when `formationsOpen()` is false (`formationClosedReason`, GH-859): the room kind's own line. Absent: the versus line. */
+  formationClosedReason?: () => FormationClosedReason | undefined;
   /** The label an order button prints for the key that does the same thing.
    *  `row.key` (from `selection-model.ts`'s `ORDERS`) is an `input/keymap.ts`
    *  ACTION id for every bound order and the literal `'RMB'` for `attackMove`
@@ -533,6 +541,8 @@ export class Hud {
   private readonly formationBar: HTMLDivElement;
   private readonly formationTagEl: HTMLSpanElement;
   private readonly formationBtns = new Map<FormationId, HTMLButtonElement>();
+  /** The row as last painted, so a tooltip shown later words each inert reason with the row's own parameters. */
+  private formationViews = new Map<FormationId, FormationView>();
   /** The free, placeable units of the last painted selection by legend class: the tooltip's schematic. */
   private formationCounts: FormationCounts = classCounts([]);
   private readonly cluster: HTMLDivElement;
@@ -1602,6 +1612,13 @@ export class Hud {
     }
   }
 
+  /** Take back a line this caller posted (`note`, same text and tone, untiered): the promise it made is over (an armed
+   *  formation spent or put down). A no-op when it has already left the feed or never reached it. */
+  retireNote(html: string, tone: Tone = 'live'): void {
+    const id = this.feedModel.idOf(`${tone}||${html}`);
+    if (id >= 0) this.dropFeedRow(id);
+  }
+
   /** A feed line leaves: off the model (nothing merges into it any more), off
    *  the map of rows, and out of the DOM -- faded when its dwell ran out,
    *  removed at once when a newer line pushed it off the end. */
@@ -1856,7 +1873,7 @@ export class Hud {
       if (place && this.shown('objective')) {
         rows.push(
           versus !== undefined
-            ? `<span class="rl-strip__obj rl-dim" data-versus="${versus}">${escapeHtml(t('hud.strip.versus', { f: versus }))}</span>`
+            ? `<span class="rl-strip__obj rl-dim" data-versus="${versus}">${escapeHtml(t('hud.strip.versus', { f: versus, mode: this.deps.versusMode ?? 'annihilation' }))}</span>`
             : `<span class="rl-strip__obj rl-dim" data-free-play>${escapeHtml(t('hud.strip.freePlay'))}</span>`
         );
       }
@@ -2138,11 +2155,14 @@ export class Hud {
     // the line is not drawn at all -- an empty plate is still a plate.
     if (!this.deps.hint) {
       this.hint.textContent = t('hud.controlHint');
+      // The hint is ellipsised at narrow widths (GH-920); the title keeps the whole line.
+      this.hint.title = this.hint.textContent;
       return;
     }
     const hint = this.deps.hint();
     if (!hint) {
       this.hint.textContent = '';
+      this.hint.title = '';
       this.hint.style.display = 'none';
       return;
     }
@@ -2161,6 +2181,7 @@ export class Hud {
           ? { ...hint.params, ...keyCaps }
           : hint.params;
     this.hint.textContent = t(hint.key, params);
+    this.hint.title = this.hint.textContent;
   }
 
   // ------------------------------------------------------------------
@@ -2613,7 +2634,7 @@ export class Hud {
     const st = sim.state;
     const mine = sel.filter((i) => isOwnSide(st.side[i], this.viewer));
     const units = formationUnitFacts(sim, mine);
-    const rows = formationRow({ formationsOpen: this.deps.formationsOpen?.() ?? true, units }, this.deps.armedFormation?.() ?? null);
+    const rows = formationRow({ formationsOpen: this.deps.formationsOpen?.() ?? true, closedReason: this.deps.formationClosedReason?.(), units }, this.deps.armedFormation?.() ?? null);
     this.formationCounts = classCounts(units.filter((u) => u.free));
     if (rows.length === 0) {
       this.formationBar.style.display = 'none';
@@ -2621,6 +2642,7 @@ export class Hud {
     }
     this.formationBar.style.display = '';
     this.formationTagEl.textContent = formationTag();
+    this.formationViews = new Map(rows.map((r) => [r.id, r]));
     for (const row of rows) {
       const btn = this.formationBtns.get(row.id);
       if (!btn) continue;
@@ -2637,8 +2659,8 @@ export class Hud {
   /** A formation button's tooltip, read fresh at SHOW time: the schematic counts and the reason it is inert. */
   private formationTipFor(id: FormationId): string {
     const btn = this.formationBtns.get(id);
-    const reasonKey = btn?.dataset.inertReason;
-    const reason = btn?.dataset.inert === '1' && reasonKey !== undefined ? t(reasonKey) : null;
+    const view = this.formationViews.get(id);
+    const reason = btn?.dataset.inert === '1' && view !== undefined ? formationReason(view) : null;
     return formationTipHtml(id, this.formationCounts, reason);
   }
 
@@ -2680,9 +2702,9 @@ export class Hud {
         own: isOwnSide(st.side[i], this.viewer),
         onLoan: this.deps.isOnLoan?.(i) === true,
         // GH-859 P1a: only our own formation membership is ours to read.
-        ...(isOwnSide(st.side[i], this.viewer) ? formationFact(formationOfUnit(sim, i)) : {}),
+        ...(isOwnSide(st.side[i], this.viewer) ? formationFact(formationOfUnit(sim, i), formationCheckpointOf(sim, i)) : {}),
         ...(type.hasAps
-          ? { aps: { ammo: st.apsAmmo[i], magazine: type.apsMagazine } }
+          ? { aps: { ammo: st.apsAmmo[i], magazine: type.apsMagazine, ...(type.apsReserve >= 0 ? { reserve: st.apsReserveLeft[i] } : {}) } }
           : {}),
       };
     });
@@ -2951,7 +2973,14 @@ export class Hud {
         })
       : null;
     if (auraChip !== null) flags.push(`<span class="rl-good">${t(auraChip)}</span>`);
-    if (type.hasAps) flags.push(`<span class="rl-info">${t('selection.chip.aps', { ammo: st.apsAmmo[id], magazine: type.apsMagazine })}</span>`);
+    if (type.hasAps) {
+      // GH-884: a type with a reserve names it (card text only, never a world mark).
+      const apsText =
+        type.apsReserve >= 0
+          ? t('selection.chip.apsReserve', { ammo: st.apsAmmo[id], magazine: type.apsMagazine, reserve: st.apsReserveLeft[id] })
+          : t('selection.chip.aps', { ammo: st.apsAmmo[id], magazine: type.apsMagazine });
+      flags.push(`<span class="rl-info">${apsText}</span>`);
+    }
     const wp = sim.waypointCount(id);
     if (wp > 0) flags.push(t('hud.card.waypoints', { n: wp }));
     // The meter (D2): shown from the first band up, never on a steady unit.

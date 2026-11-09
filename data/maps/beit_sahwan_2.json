@@ -116,6 +116,10 @@
     "mortar_line": [
       44,
       24
+    ],
+    "wounded_evac": [
+      1,
+      23
     ]
   },
   "zones": {

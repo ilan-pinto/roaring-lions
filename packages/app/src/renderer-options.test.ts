@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { maps, paletteColor, paletteTeamColors, parseMap, type MapJson } from '@lions/data';
 import { QUALITY_PRESETS } from '@lions/render';
 import { dracoDecoderPath } from './mesh-catalogue';
-import { rendererOptionsFor } from './renderer-options';
-import { TERRAIN_THEMES } from './terrain-themes';
+import { rendererOptionsFor, windFor } from './renderer-options';
+import { TERRAIN_THEMES, TERRAIN_WIND } from './terrain-themes';
 
 const arid = parseMap(maps.beit_sahwan_outskirts);
 const green = parseMap(maps.wadi_halam_basin);
@@ -185,5 +185,30 @@ describe('rendererOptionsFor', () => {
     expect(o.shellColors).toEqual([paletteColor('vfx.fire'), paletteColor('vfx.ember')]);
     expect(o.groupColors).toHaveLength(9);
     expect(o.groupColors[8]).toBe(paletteColor('group.g9'));
+  });
+});
+
+describe('the wind (GH-984 N1)', () => {
+  it('pins the theme defaults as literals: arid 1.0, green 0.8, highland 1.3, wetland 1.0, all east with no skew', () => {
+    expect(TERRAIN_WIND).toEqual({
+      arid: { strength: 1.0, side: 'east', skewDeg: 0 },
+      green: { strength: 0.8, side: 'east', skewDeg: 0 },
+      highland: { strength: 1.3, side: 'east', skewDeg: 0 },
+      wetland: { strength: 1.0, side: 'east', skewDeg: 0 },
+    });
+  });
+
+  it('hands the renderer the theme`s wind when the map names none', () => {
+    expect(rendererOptionsFor(arid, HIGH, '/').wind).toEqual({ strength: 1, side: 'east', skewDeg: 0 });
+    expect(rendererOptionsFor(green, HIGH, '/').wind).toEqual({ strength: 0.8, side: 'east', skewDeg: 0 });
+    expect(rendererOptionsFor(parseMap(maps.tel_marum), HIGH, '/').wind?.strength).toBe(1.3);
+    expect(rendererOptionsFor(parseMap(WET_JSON), HIGH, '/').wind?.strength).toBe(1);
+  });
+
+  it('lets a map override field by field, and falls back to the theme for the rest', () => {
+    const own = (w: Record<string, unknown>) => windFor(parseMap({ ...maps.wadi_halam_basin, wind: w } as MapJson));
+    expect(own({ strength: 2 })).toEqual({ strength: 2, side: 'east', skewDeg: 0 });
+    expect(own({ side: 'west', skew_deg: 25 })).toEqual({ strength: 0.8, side: 'west', skewDeg: 25 });
+    expect(own({ strength: 0, side: 'west', skew_deg: -30 })).toEqual({ strength: 0, side: 'west', skewDeg: -30 });
   });
 });

@@ -152,6 +152,10 @@
     "north_road": [
       24,
       1
+    ],
+    "wounded_evac": [
+      23,
+      47
     ]
   },
   "zones": {

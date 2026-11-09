@@ -1,0 +1,389 @@
+// How Roar coins are earned (GH-317): the lead's table (4 Nov 2026) as tests.
+// Each `G-` tag is a gate in the design
+// (`docs/superpowers/specs/2026-11-04-roar-coin-wallet-design.md` §8); the commit
+// that added it names the one-line mutation that turns it red.
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { units } from '@lions/data';
+import type { LedgerData } from '@lions/sim';
+import worldJson from '../../../data/campaign/world.json';
+import { ACCOUNT_KEY, emptyAccount, payMission, type BrigadeAccount } from './brigade-account';
+import { parseWorld } from './campaign';
+import { LEDGER_KEY } from './main-keys';
+import { memoryLedgerStore, type CampaignLedger, type LedgerStore } from './ledger-store';
+import { saveSlot, writeActive, readActive, loadSlot } from './profile';
+import { EARN, MAX_STARS, roarBackfill, roarEarn, settleRoarAtBoot, settleVictory, worldMissionIds, type VictoryWin } from './roar-earn';
+import { ROAR_KEY, emptyRoar, spendable, type RoarWallet } from './roar-wallet';
+import { LADDER_MISSIONS, coinPrice } from './ui/stores-model';
+
+const world = parseWorld(worldJson);
+const ids = worldMissionIds(world);
+
+/** A ledger with `done` completed, the way a win leaves it. */
+const ledgerOf = (done: readonly string[], stars: Record<string, number> = {}): LedgerData => ({
+  'campaign.completed_missions': [...done],
+  'campaign.mission_results': Object.fromEntries(Object.entries(stars).map(([id, s]) => [id, { stars: s, roe: 100, ticks: 1, lost: 0 }])) as LedgerData['campaign.mission_results'],
+});
+const win = (i: number, stars: number, done: readonly string[] = ids.slice(0, i + 1)): VictoryWin => ({ missionId: ids[i], stars, ledger: ledgerOf(done) });
+const total = (w: RoarWallet): number => spendable(w);
+
+describe('the earn table', () => {
+  it('constants are the lead\'s numbers', () => {
+    expect(EARN).toEqual({ welcome: 100, firstWin: 10, star: 5, campaign: 100 });
+    expect(MAX_STARS).toBe(3);
+  });
+
+  it('the first campaign victory pays the welcome issue, the first win and its stars', () => {
+    const r = roarEarn(emptyRoar(), win(0, 2), world, 1);
+    expect(r.awards).toEqual([
+      { source: 'welcome', coins: 100 },
+      { source: 'first_win', coins: 10, missionId: ids[0] },
+      { source: 'star', coins: 10, missionId: ids[0], stars: 2 },
+    ]);
+    expect(r.total).toBe(120);
+    expect(r.wallet.coins).toEqual({ free: 120, paid: 0 });
+    expect(r.wallet.earn).toEqual({ welcomed: true, campaignDone: false, backfilled: false, missions: { [ids[0]]: { won: true, stars: 2 } } });
+    expect(r.wallet.receipts.map((x) => x.kind === 'earn' && x.source)).toEqual(['welcome', 'first_win', 'star']);
+  });
+
+  it('the welcome issue lands once, on whichever mission is won first', () => {
+    const first = roarEarn(emptyRoar(), win(3, 0, [ids[3]]), world, 1);
+    expect(first.awards.map((a) => a.source)).toEqual(['welcome', 'first_win']);
+    const second = roarEarn(first.wallet, win(4, 0, [ids[3], ids[4]]), world, 2);
+    expect(second.awards.map((a) => a.source)).toEqual(['first_win']);
+    expect(total(second.wallet)).toBe(120);
+  });
+
+  it('the tutorial, and any mission off the map, pays nothing', () => {
+    const w = emptyRoar();
+    const r = roarEarn(w, { missionId: 'beit_sahwan_0_tutorial', stars: 3, ledger: ledgerOf(['beit_sahwan_0_tutorial']) }, world, 1);
+    expect(r.wallet).toBe(w);
+    expect(r.awards).toEqual([]);
+    expect(ids).not.toContain('beit_sahwan_0_tutorial');
+  });
+
+  it('versus pays 0: a room is not a campaign mission', () => {
+    // A room's ids (its map, its match code) are never in world.json; the victory handler
+    // also hands no win to settleVictory when there is no mission id.
+    for (const id of ['tel_marum', 'ABCDEF', '']) {
+      const w = emptyRoar();
+      expect(roarEarn(w, { missionId: id, stars: 3, ledger: ledgerOf(ids) }, world, 1).wallet).toBe(w);
+    }
+  });
+
+  it('a victory with no stars still pays the welcome and the first win', () => {
+    expect(roarEarn(emptyRoar(), win(0, 0), world, 1).total).toBe(110);
+  });
+
+  it('stars are clamped to the grade a mission can reach', () => {
+    expect(roarEarn(emptyRoar(), win(0, 99), world, 1).awards.find((a) => a.source === 'star')?.stars).toBe(3);
+    expect(roarEarn(emptyRoar(), win(0, -4), world, 1).awards.some((a) => a.source === 'star')).toBe(false);
+    expect(roarEarn(emptyRoar(), win(0, Number.NaN), world, 1).total).toBe(110);
+  });
+});
+
+describe('G-E1: a replay pays only a star improvement', () => {
+  const once = roarEarn(emptyRoar(), win(0, 2), world, 1).wallet;
+
+  it('a replay at the same grade, or a lower one, pays 0 and changes nothing', () => {
+    for (const stars of [0, 1, 2]) {
+      const r = roarEarn(once, win(0, stars), world, 2);
+      expect(r.total, `stars ${stars}`).toBe(0);
+      expect(r.awards).toEqual([]);
+      expect(r.wallet).toBe(once);
+    }
+  });
+
+  it('a better grade pays 5 a star for the rise only, and the best moves up', () => {
+    const r = roarEarn(once, win(0, 3), world, 2);
+    expect(r.awards).toEqual([{ source: 'star', coins: 5, missionId: ids[0], stars: 1 }]);
+    expect(r.wallet.earn.missions[ids[0]]).toEqual({ won: true, stars: 3 });
+    // ...and after that, 3 stars again is a replay.
+    expect(roarEarn(r.wallet, win(0, 3), world, 3).total).toBe(0);
+  });
+
+  it('a worse grade first does not lower the best, so the climb back pays nothing', () => {
+    const down = roarEarn(once, win(0, 1), world, 2).wallet;
+    expect(down.earn.missions[ids[0]].stars).toBe(2);
+    expect(roarEarn(down, win(0, 2), world, 3).total).toBe(0);
+  });
+});
+
+describe('G-E2: one campaign\'s coins buy the dearest unit in the Stores', () => {
+  const pinned = (name: string): number => {
+    const text = readFileSync(resolve(__dirname, '../../../tools/src/backtest/playtest.ts'), 'utf8');
+    const m = new RegExp(`^(?:export )?const ${name} = (\\d+);`, 'm').exec(text);
+    if (m === null) throw new Error(`playtest.ts: no "const ${name} = <integer>;" line`);
+    return Number(m[1]);
+  };
+  const dearest = Math.max(...Object.values(units).map((u) => ('unlock' in u && typeof (u.unlock as { price?: number }).price === 'number' ? (u.unlock as { price: number }).price : 0)));
+
+  /** Walk the ladder: every mission in `world.json`, once, in order, with the stars the
+   *  playtest ladder reaches (68 over 29 missions: the first ten at 3, the rest at 2). */
+  function walk(): { wallet: RoarWallet; stars: number } {
+    const ladderStars = pinned('LADDER_STARS');
+    const per = ids.map((_, i) => (i < ladderStars - 2 * ids.length ? 3 : 2));
+    expect(per.reduce((a, b) => a + b, 0)).toBe(ladderStars);
+    let wallet = emptyRoar();
+    ids.forEach((_, i) => {
+      wallet = roarEarn(wallet, win(i, per[i]), world, i + 1).wallet;
+    });
+    return { wallet, stars: ladderStars };
+  }
+
+  it('the ladder is the shipped campaign: 29 missions, 68 stars', () => {
+    expect(ids).toHaveLength(LADDER_MISSIONS);
+    expect(pinned('LADDER_STARS')).toBe(68);
+  });
+
+  it('a lifetime pays 100 + 10 a mission + 5 a star + 100 = 830, and the campaign bonus lands on the last win', () => {
+    const { wallet, stars } = walk();
+    expect(total(wallet)).toBe(EARN.welcome + EARN.firstWin * ids.length + EARN.star * stars + EARN.campaign);
+    expect(total(wallet)).toBe(830);
+    expect(wallet.earn.campaignDone).toBe(true);
+    const last = wallet.receipts.filter((r) => r.kind === 'earn' && r.source === 'campaign');
+    expect(last).toHaveLength(1);
+  });
+
+  it('that is at least the coin price of the dearest unit (the gunship, 8,000 credits = 800 coins)', () => {
+    expect(dearest).toBeGreaterThan(5000); // a max over nothing passes forever
+    expect(coinPrice(dearest)).toBe(800);
+    expect(total(walk().wallet)).toBeGreaterThanOrEqual(coinPrice(dearest));
+  });
+
+  it('the campaign bonus needs the whole campaign, not the last mission alone', () => {
+    const lastOnly = roarEarn(emptyRoar(), { missionId: ids[ids.length - 1], stars: 3, ledger: ledgerOf([ids[ids.length - 1]]) }, world, 1);
+    expect(lastOnly.awards.some((a) => a.source === 'campaign')).toBe(false);
+  });
+
+  it('a second campaign (the ledger starts over) pays no second bonus', () => {
+    const { wallet } = walk();
+    const again = roarEarn(wallet, { missionId: ids[ids.length - 1], stars: 2, ledger: ledgerOf(ids) }, world, 99);
+    expect(again.total).toBe(0);
+    expect(again.wallet).toBe(wallet);
+  });
+});
+
+describe('G-E3: a save slot earns nothing, and a win pays by its own run', () => {
+  const allThree = (): { ledger: CampaignLedger; account: BrigadeAccount } => ({
+    ledger: { ...ledgerOf(ids, Object.fromEntries(ids.map((id) => [id, 3]))) } as CampaignLedger,
+    account: emptyAccount(),
+  });
+
+  it('importing and loading an all-3-star slot leaves the wallet untouched', () => {
+    const s = memoryLedgerStore();
+    s.writeRoar({ ...emptyRoar(), coins: { free: 7, paid: 0 } });
+    const before = s.raw(ROAR_KEY);
+    const { ledger, account } = allThree();
+    saveSlot(s, 'full', 'All stars', { ledger, account, tutorialDone: true }, 'test', 1);
+    const slot = loadSlot(s, 'full');
+    if (!slot) throw new Error('slot missing');
+    writeActive(s, slot);
+    expect(s.readLedger()['campaign.completed_missions']).toHaveLength(ids.length);
+    expect(s.raw(ROAR_KEY)).toBe(before);
+    // ...and on a store with no wallet at all, no wallet appears.
+    const fresh = memoryLedgerStore();
+    saveSlot(fresh, 'full', 'All stars', { ledger, account, tutorialDone: true }, 'test', 1);
+    writeActive(fresh, readActive(fresh));
+    expect(fresh.raw(ROAR_KEY)).toBeNull();
+  });
+
+  it('the first win after an import pays the run\'s stars, not the ledger\'s best', () => {
+    const s = memoryLedgerStore();
+    const { ledger: full, account } = allThree();
+    // Every mission but the last: a replay of the first cannot finish the campaign.
+    const ledger = { ...full, 'campaign.completed_missions': ids.slice(0, -1) } as CampaignLedger;
+    writeActive(s, { ledger, account, tutorialDone: true });
+    // The ledger now says 3 stars on every mission; this RUN earns 1.
+    const settle = settleVictory(s, { ledger: s.readLedger() as CampaignLedger, account: null, win: { missionId: ids[0], stars: 1, ledger: s.readLedger() }, world, at: 1 });
+    expect(settle.write).toBe('saved');
+    expect(settle.total).toBe(100 + 10 + 5);
+    expect(s.readRoar().earn.missions[ids[0]]).toEqual({ won: true, stars: 1 });
+  });
+});
+
+describe('G-E4: coins never move credits', () => {
+  // The real credit pay, so the account is one the door reads back (its balance bound).
+  const before = (): BrigadeAccount => payMission(emptyAccount(), 'earlier_mission', 200, 1).account;
+  const after = (): BrigadeAccount => payMission(before(), ids[0], 180, 2, 'campaign').account;
+
+  it('a win that pays 180 credits and 120 coins moves the balance and earned_total by the credits alone', () => {
+    const s = memoryLedgerStore();
+    s.writeAccount(before());
+    expect(s.readAccount().balance).toBe(200); // the fixture is one the door keeps
+    const settle = settleVictory(s, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: after(), win: win(0, 2), world, at: 1 });
+    expect(settle.total).toBe(120);
+    expect(s.readAccount().balance).toBe(380);
+    expect(s.readAccount().earned_total).toBe(380);
+    expect(s.raw(ACCOUNT_KEY)).toBe(JSON.stringify(after()));
+    expect(s.readRoar().coins.free).toBe(120);
+  });
+
+  it('a win that pays coins and no credits leaves the account bytes as they were', () => {
+    const s = memoryLedgerStore();
+    s.writeAccount(before());
+    const bytes = s.raw(ACCOUNT_KEY);
+    const settle = settleVictory(s, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 3), world, at: 1 });
+    expect(settle.total).toBe(125);
+    expect(s.raw(ACCOUNT_KEY)).toBe(bytes);
+  });
+});
+
+describe('settling a victory', () => {
+  const tutorial = { missionId: 'beit_sahwan_0_tutorial', stars: 3, ledger: ledgerOf([]) };
+
+  it('a mission that pays no coins writes no wallet', () => {
+    const s = memoryLedgerStore();
+    const settle = settleVictory(s, { ledger: ledgerOf([]) as CampaignLedger, account: null, win: tutorial, world, at: 1 });
+    expect(settle).toEqual({ write: 'saved', awards: [], total: 0, balance: 0 });
+    expect(s.raw(ROAR_KEY)).toBeNull();
+    expect(settleVictory(s, { ledger: ledgerOf([]) as CampaignLedger, account: null, win: null, world, at: 2 }).awards).toEqual([]);
+  });
+
+  it('a refused write earns nothing and reads the balance as it was', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const base = memoryLedgerStore();
+    base.writeRoar({ ...emptyRoar(), coins: { free: 40, paid: 0 } });
+    const before = base.raw(ROAR_KEY);
+    const refusing: LedgerStore = {
+      ...base,
+      writeRoar: () => {
+        throw new Error('QuotaExceededError');
+      },
+    };
+    const settle = settleVictory(refusing, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 3), world, at: 1 });
+    expect(settle).toEqual({ write: 'refused', awards: [], total: 0, balance: 40 });
+    expect(base.raw(ROAR_KEY)).toBe(before);
+    error.mockRestore();
+  });
+
+  it('a blocked store is its own answer and pays nothing', () => {
+    const settle = settleVictory(memoryLedgerStore.blocked(), { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 3), world, at: 1 });
+    expect(settle).toEqual({ write: 'unavailable', awards: [], total: 0, balance: 0 });
+  });
+
+  it('two wins in a row accumulate in the stored wallet, through the door', () => {
+    const s = memoryLedgerStore();
+    settleVictory(s, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 2), world, at: 1 });
+    const second = settleVictory(s, { ledger: ledgerOf([ids[0], ids[1]]) as CampaignLedger, account: null, win: win(1, 3), world, at: 2 });
+    expect(second.balance).toBe(120 + 10 + 15);
+    expect(s.readRoar().coins.free).toBe(145);
+  });
+});
+
+describe('GH-317: the back-payment for a wallet that already exists', () => {
+  const back = (w: RoarWallet, l: LedgerData): RoarWallet => roarBackfill(w, l, world, 7);
+  const old = ledgerOf([ids[0], ids[1], ids[2]], { [ids[0]]: 3, [ids[1]]: 2, [ids[2]]: 1 }) as CampaignLedger;
+  /** A post-4-Nov wallet: one win (ids[1], 1 star) and the welcome already paid. */
+  const post = (): RoarWallet => roarEarn(emptyRoar(), { missionId: ids[1], stars: 1, ledger: ledgerOf([ids[1]]) }, world, 1).wallet;
+  const keyed = (w: RoarWallet): ReturnType<typeof memoryLedgerStore> =>
+    memoryLedgerStore({ [LEDGER_KEY]: JSON.stringify(old), [ROAR_KEY]: JSON.stringify(w) }, back);
+
+  it('pays exactly the difference: unrecorded first wins and stars above the recorded best', () => {
+    const w = post();
+    expect(spendable(w)).toBe(115);
+    const r = back(w, old);
+    // ids[0]: 10 + 15; ids[1]: stars 1 -> 2 is +5, no first win; ids[2]: 10 + 5. No welcome.
+    expect(spendable(r) - spendable(w)).toBe(25 + 5 + 15);
+    expect(r.earn.backfilled).toBe(true);
+    expect(r.earn.missions[ids[1]]).toEqual({ won: true, stars: 2 });
+  });
+
+  it('settles once on load: a second load pays 0', () => {
+    const s = keyed(post());
+    expect(spendable(s.readRoar())).toBe(115 + 45);
+    expect(spendable(s.readRoar())).toBe(115 + 45);
+    expect(s.readRoar().receipts.filter((x) => x.kind === 'earn' && x.source === 'backfill')).toHaveLength(1);
+  });
+
+  it('G-E3: an import after the boot settle pays nothing; the boot settle used the original ledger', () => {
+    const s = keyed(post());
+    settleRoarAtBoot(s); // main.ts does this right after building the store
+    const full = ledgerOf(ids, Object.fromEntries(ids.map((id) => [id, 3]))) as CampaignLedger;
+    s.writeLedger(full); // a 3-star slot imported
+    expect(spendable(s.readRoar())).toBe(115 + 45); // the Garage opens: original ledger's back-pay only
+  });
+
+  it('main.ts settles at boot, right after building the store', () => {
+    const src = readFileSync(resolve(__dirname, 'main.ts'), 'utf8');
+    expect(src).toMatch(/const ledgerStore = browserLedgerStore\([^;]*;\s*(\/\/[^\n]*\n\s*)*settleRoarAtBoot\(ledgerStore\);/);
+  });
+
+  it('a wallet with the marker set pays 0', () => {
+    const w = { ...post(), earn: { ...post().earn, backfilled: true } };
+    const s = keyed(w);
+    expect(spendable(s.readRoar())).toBe(115);
+  });
+});
+
+describe('GH-317: the one-time back-payment for wins from before the wallet', () => {
+  const backfill = (w: RoarWallet, l: LedgerData): RoarWallet => roarBackfill(w, l, world, 7);
+  /** Three won missions at 3, 2 and 0 stars, and the tutorial won too. */
+  const fixture = (): CampaignLedger =>
+    ledgerOf(['beit_sahwan_0_tutorial', ids[0], ids[1], ids[2]], { [ids[0]]: 3, [ids[1]]: 2, [ids[2]]: 0 }) as CampaignLedger;
+  const storeWith = (ledger: CampaignLedger): ReturnType<typeof memoryLedgerStore> =>
+    memoryLedgerStore({ [LEDGER_KEY]: JSON.stringify(ledger) }, backfill);
+
+  it('pays welcome + 10 a won mission + 5 a star, the tutorial nothing, as free coins', () => {
+    const w = roarBackfill(emptyRoar(), fixture(), world, 7);
+    expect(w.coins).toEqual({ free: 100 + 3 * 10 + 5 * 5, paid: 0 });
+    expect(w.earn.welcomed).toBe(true);
+    expect(w.earn.campaignDone).toBe(false);
+    expect(w.earn.missions).toEqual({ [ids[0]]: { won: true, stars: 3 }, [ids[1]]: { won: true, stars: 2 }, [ids[2]]: { won: true, stars: 0 } });
+    expect(w.receipts).toHaveLength(1);
+    expect(w.receipts[0]).toMatchObject({ kind: 'earn', source: 'backfill' });
+  });
+
+  it('adds the campaign bonus when every mission on the map is won', () => {
+    const all = Object.fromEntries(ids.map((id) => [id, 1]));
+    const w = roarBackfill(emptyRoar(), ledgerOf(ids, all), world, 7);
+    expect(w.coins.free).toBe(100 + 10 * ids.length + 5 * ids.length + 100);
+    expect(w.earn.campaignDone).toBe(true);
+  });
+
+  it('pays nothing for a ledger with no campaign win', () => {
+    const w = emptyRoar();
+    for (const l of [ledgerOf(['beit_sahwan_0_tutorial']), {}]) {
+      const r = roarBackfill(w, l, world, 7);
+      expect(r.coins).toEqual({ free: 0, paid: 0 });
+      expect(r.earn).toEqual({ welcomed: false, campaignDone: false, backfilled: true, missions: {} });
+      expect(r.receipts).toEqual([]);
+    }
+  });
+
+  it('runs once: on the first read of a missing wallet, and never again', () => {
+    const s = storeWith(fixture());
+    expect(spendable(s.readRoar())).toBe(155);
+    expect(s.raw(ROAR_KEY)).not.toBeNull();
+    // The ledger grows after the wallet exists: no second payment.
+    s.writeLedger(ledgerOf(ids.slice(0, 6), Object.fromEntries(ids.map((id) => [id, 3]))) as CampaignLedger);
+    expect(spendable(s.readRoar())).toBe(155);
+    expect(s.readRoar().receipts).toHaveLength(1);
+  });
+
+  it('a slot load or import pays 0 once the wallet exists, even from an all-3-star slot', () => {
+    const s = storeWith(ledgerOf([]) as CampaignLedger);
+    expect(spendable(s.readRoar())).toBe(0);
+    expect(s.raw(ROAR_KEY)).not.toBeNull(); // the key now exists, so the backfill cannot run again
+    const full = ledgerOf(ids, Object.fromEntries(ids.map((id) => [id, 3]))) as CampaignLedger;
+    saveSlot(s, 'full', 'All stars', { ledger: full, account: emptyAccount(), tutorialDone: true }, 'test', 1);
+    const slot = loadSlot(s, 'full');
+    if (!slot) throw new Error('slot missing');
+    writeActive(s, slot);
+    expect(spendable(s.readRoar())).toBe(0);
+  });
+
+  it('a later replay of a backfilled mission pays only for a NEW star', () => {
+    const s = storeWith(fixture());
+    const before = s.readRoar();
+    const done = [ids[0], ids[1], ids[2]];
+    // ids[0] at 3 stars was paid: a replay at 1 star pays nothing.
+    const same = roarEarn(before, { missionId: ids[0], stars: 1, ledger: ledgerOf(done) }, world, 9);
+    expect(same.total).toBe(0);
+    // ids[1] was paid for 2 stars: a 3-star replay pays one star, no first win, no welcome.
+    const up = roarEarn(before, { missionId: ids[1], stars: 3, ledger: ledgerOf(done) }, world, 9);
+    expect(up.awards).toEqual([{ source: 'star', coins: 5, missionId: ids[1], stars: 1 }]);
+    expect(spendable(up.wallet)).toBe(155 + 5);
+  });
+});

@@ -4,6 +4,9 @@ import {
   ORDERS_SEED,
   RELIEF_SEED,
   RUN_SEED,
+  SETUP_SEED,
+  setupDrive,
+  setupSetup,
   ordersDrive,
   formationDrive,
   formationSetup,
@@ -69,6 +72,17 @@ const GOLDEN: readonly Golden[] = [
     poisonAt: [50, 300, 600],
     poisonsPool: false,
   },
+  {
+    // GH-976: the set-up replay (SETUP_WORLD_PIN's world). Ready at 20 and 40 arms the early bell at 140: the only replay in
+    // which `setupUntil` and `readyMask` move, with the region clamp and weapons tight holding units at every cut before it.
+    name: 'the set-up replay (800 ticks)',
+    // The pinned replay is 600; the fork loop wants more than ten cuts of 200 ticks, so the fight just goes on to 800.
+    ticks: 800,
+    build: () => setupSetup(SETUP_SEED),
+    drive: (w, t) => setupDrive(w.sim, t, (w as ReturnType<typeof setupSetup>).ids),
+    poisonAt: [30, 100, 139],
+    poisonsPool: false,
+  },
 ];
 
 function fork(g: Golden, T: number, extra: { poison?: boolean; afterRestore?: (b: World, a: World) => void; mutate?: (b: World, a: World) => void } = {}): ForkVerdict<World> {
@@ -93,6 +107,24 @@ describe('fork witness: restore at T, step 200 ticks, hash and encoding equal', 
       expect(forks).toBeGreaterThan(10);
     }, 60_000);
   }
+});
+
+describe('fork witness: the set-up replay, cut at every edge of the clock (GH-976)', () => {
+  // 21: after side 1's Ready (20), before side 0's. 41: after both (the bell is armed for 140). 139 and 140: the tick before the
+  // bell and the bell tick. 141: the first tick after it. Each restore must ring the bell on the same tick as the source.
+  const set = GOLDEN[3];
+  for (const T of [0, 19, 21, 41, 97, 139, 140, 141]) {
+    it(`T=${T}: restored, the hash agrees every 20 ticks and the encodings agree at the end`, () => {
+      expectClean(fork(set, T, { poison: true }), `set-up T=${T}`);
+    });
+  }
+
+  it('after the cut the restored world has the same bell tick and Ready bits as the source', () => {
+    const v = fork(set, 41, { poison: true });
+    expect(v.b.sim.setupBellTick).toBe(140);
+    expect(v.b.sim.setupReady(0)).toBe(true);
+    expect(v.b.sim.setupReady(1)).toBe(true);
+  });
 });
 
 describe('fork witness: scratch and unkeyed pool slots poisoned after the restore', () => {
@@ -398,7 +430,35 @@ describe('snapshot format pin', () => {
     // are encoded even when empty, and this world orders no formation. With those rows taken out of
     // snapshot-schema.ts the same run reads 2452666963 again, so the move is exactly the new rows and nothing
     // else (the GH-421 method). 3512584427 is read off a fresh run.
-    expect(h >>> 0).toBe(3512584427);
+    // Was 3512584427. GH-859 P1b (Task 2) appended fourteen `state` columns (ten per-row fg* and four per-unit
+    // fm*: fgLegs fgRelease fgDress fgQuiet fgAtCp fgAway fgCalled fgPace fgCallX fgCallY fmLeg fmDuty fmHomeX
+    // fmHomeY), encoded even when empty; this world orders no formation. With those fourteen rows cut from
+    // snapshot-schema.ts the same run reads 3512584427 again, so the move is exactly the new rows. 128788725 is
+    // read off a fresh run.
+    // Was 128788725. GH-972 (group orders that spread) appended one `state` column (spreadGoal) and the
+    // `spreadLive` scalar after `garrisonGoal`, encoded even when empty; this world gives no spread order. With
+    // those two rows cut from snapshot-schema.ts the same run reads 128788725 again, so the move is exactly the
+    // new rows. 3624532085 is read off a fresh run.
+    // Was 3624532085. GH-972 review: the group-order ledger became two reusable scratch buffers (ledReserved,
+    // ledHeld, `scratch` rows after spreadLive), and the format digest covers scratch rows too. With those two
+    // rows cut the same run reads 3624532085 again. 3423221345 is read off a fresh run.
+    // Was 3423221345. GH-976 camp exits appended two `state` columns (stExitX, stExitY, Int16Array x 256, the authored
+    // structure exit override, -1 = none; unhashed static setup data), encoded even when no exit is set. With those two
+    // rows cut from snapshot-schema.ts the same run reads 3423221345 again, so the move is exactly the new rows.
+    // 166735965 is read off a fresh run.
+    // Was 166735965. GH-884 (APS stock) appended three `state` rows (apsReserveLeft, apsRearmClock, Int32Array x capacity,
+    // and the `apsStockLive` scalar), encoded even when no type carries a reserve. With those three rows cut from
+    // snapshot-schema.ts the same run reads 166735965 again (watched), so the move is exactly the new rows. 355222469 is
+    // read off a fresh run. The golden hash did not move: nothing folds the columns until a type declares `reserve`.
+    // Was 355222469. GH-976 (capture the flag v2 set-up) appended three `state` rows (setupLive, setupUntil, readyMask,
+    // scalars) and one `config` row (setupRegion, Int8Array x cells; the format digest covers it), present even when no world begins a set-up. With those
+    // four rows cut from snapshot-schema.ts the same run reads 355222469 again (watched), so the move is exactly the new
+    // rows. 1873871182 is read off a fresh run. The golden hash did not move: nothing folds the block until `beginSetup`.
+    // Was 1873871182. GH-976 WP3 (the set-up kit) appended three `state` rows (kitLeft Int16Array x 6, kitPlaced Int16Array x 2,
+    // stKit Int8Array x 256) and two `config` rows (kitStructType Int16Array x 3, kitBans, an array), present even when no world
+    // sets a kit. With those five rows cut from snapshot-schema.ts the same run reads 1873871182 again (watched), so the move is
+    // exactly the new rows. 3026783768 is read off a fresh run. The golden hash did not move: nothing folds the kit until `beginSetup`.
+    expect(h >>> 0).toBe(3026783768);
   });
 });
 
@@ -407,10 +467,14 @@ describe('snapshot format pin', () => {
 // The 600-tick world that orders a Column, an Attack and an Ambush ring (golden-worlds.test-helper.ts,
 // FORMATION_WORLD_PIN's replay), cut at the four moments the formation columns do something: while the
 // ring is still walking, once every ring member has set its ambush stance and before the group has
-// sprung, at the state after tick 403 (the group found by fire and MARKED, `fgPending` 1, the one column
-// whose life crosses a tick boundary), and after it has sprung. Measured on the scouting run below: the
-// first ring member sets its stance at tick 196, the last at 344, and the group is marked at 404 (the
-// side-1 riflemen find the ring by fire); the stances clear at the start of the following tick.
+// sprung, at the state after tick 444 (the group found by fire and MARKED, `fgPending` 1, the one column
+// whose life crosses a tick boundary), and after it has sprung; and, since GH-859 P1b Task 3, in the middle
+// of the march (the Column walking at the mortar's pace), in the middle of a dress (a member waiting
+// with the dress clock running) and, since GH-859 P1b Task 4, in contact (the side-1 Column halted at 445,
+// the Attack pressing from 542: state 3 with the quiet clock running). Measured on the scouting run below: the first ring member sets its
+// stance at tick 196, the last at 344, and the group is marked at 445 (the side-1 riflemen find the ring
+// by fire; it was 404 before the Column grew a slow member and the march began); the stances clear at the
+// start of the following tick.
 // Every formation column is `state` (none is `scratch`), so nothing here is poisoned that was not
 // before; the proof is that each restored world agrees with the uninterrupted one at every hash tick
 // of the next 200 and re-encodes to the same bytes.
@@ -419,50 +483,119 @@ interface FormationWorld extends World {
   readonly ids: ReturnType<typeof formationSetup>['ids'];
 }
 const FORMATION: Golden = {
-  name: 'the formation world (600 ticks)',
-  ticks: 600,
+  name: 'the formation world (1000 ticks)',
+  ticks: 1000,
   build: () => formationSetup(FM_SEED),
   drive: (w, t) => formationDrive(w.sim, t, (w as FormationWorld).ids),
-  poisonAt: [150, 350, 420],
+  poisonAt: [150, 350, 460],
   poisonsPool: false,
 };
 
-describe('fork witness: the formation world, cut before the ring arrives, after it arrives, after it springs', () => {
-  it('scouting: the ring arms at tick 344 and is found at 404 (mark set), so 150, 350, 404 and 420 are the moments', () => {
+/** `UnitType.woundedTypeIdx` is a lazy cache the sim writes on a `unitTypes` config object at the first man to fall (GH-859 P1b Task 5
+ *  gives this world wound content): A has it filled where a man has fallen, a fresh B has -1, which `configDiff` reads as a
+ *  config row that differs. B asks the sim's own resolver for the types A has resolved (tools/src/net/snapshot-witness.ts,
+ *  `resolveLazyConfig`, does the same for the matrix); the continued hash proves the index is the same. */
+function resolveLazyConfig(b: World, a: World): void {
+  const ta = internals(a.sim).unitTypes as { woundedTypeIdx: number }[];
+  const tb = internals(b.sim).unitTypes as { woundedTypeIdx: number }[];
+  const resolve = (internals(b.sim) as unknown as { woundedTypeOf: (t: unknown) => number }).woundedTypeOf.bind(b.sim);
+  ta.forEach((t, i) => {
+    if (t.woundedTypeIdx >= 0 && tb[i].woundedTypeIdx < 0) resolve(tb[i]);
+  });
+}
+const forkFm = (T: number, extra: { poison?: boolean; mutate?: (b: World, a: World) => void } = {}): ForkVerdict<World> => fork(FORMATION, T, { afterRestore: resolveLazyConfig, ...extra });
+
+describe('fork witness: the formation world, mid-march, mid-dress, before the ring arrives, after it arrives, after it springs, in contact', () => {
+  it('scouting: the ring arms at tick 344 and is found at 445 (marks set); 100 is mid-pace, 110 mid-dress, 560 in contact', () => {
     const w = FORMATION.build() as FormationWorld;
+    const it = internals(w.sim);
+    const column = (w.ids.col as number[]).slice(0, 5);
     let firstArmed = -1;
     let allArmed = -1;
     let sprung = -1;
-    let pendingAtCut = -1;
+    let pendingAtCut: number[] = [];
+    let contactAtCut: number[] = [];
+    // GH-859 P1b Task 5: the calls. Ids: the Column's medic is col[6], the Attack's helicopter and drone are 20 and 21.
+    const medic = (w.ids.col as number[])[6];
+    const air = [20, 21];
+    let medicOut: number[] = [];
+    let medicHome: number[] = [];
+    let sortieAtCut: number[] = [];
+    let returnAtCut: number[] = [];
+    let paceAtCut: number[] = [];
+    let dressAtCut: number[] = [];
     for (let t = 0; t < FORMATION.ticks; t++) {
       FORMATION.drive(w, t);
       for (const e of w.sim.tick()) if (e.kind === 'formationSprung') sprung = w.sim.tickCount;
       if (firstArmed < 0 && w.ids.amb.some((i) => w.sim.ambushRadiusSqOf(i) > 0)) firstArmed = w.sim.tickCount;
       if (allArmed < 0 && w.ids.amb.every((i) => w.sim.ambushRadiusSqOf(i) > 0)) allArmed = w.sim.tickCount;
       // `fgPending` has a one-tick life across a tick boundary: set while the hit tick runs, consumed at
-      // the top of the next one. The state after the 404th tick holds it set.
-      if (w.sim.tickCount === 404) pendingAtCut = (internals(w.sim).fgPending as Uint8Array).reduce((a, b) => a + b, 0);
+      // the top of the next one. The state after the 445th tick holds it set.
+      if (w.sim.tickCount === 445) pendingAtCut = [(it.fgPending as Uint8Array)[2], (it.fgPending as Uint8Array)[16]];
+      // In contact: the Attack (row 1) pressing (first contact id 6 at 451), the side-1 Column (row 16) halted. The Attack's
+      // quiet clock counts ticks since its last exchange of fire; from 505 a member of the row fires every 4 ticks (the clock reads 1 at
+      // tickCount 505, 509, ... 553, 557), so at 560 it is 4. (The other two rows are still being hit and restart theirs.)
+      if (w.sim.tickCount === 560) {
+        const st = it.fgState as Uint8Array;
+        contactAtCut = [st[1], st[16], (it.fgQuiet as Uint16Array)[1], (it.fgCallX as Int32Array)[1]];
+      }
+      // Mid-rescue (250): the Column's medic is OUT, treating the man who went down at 180; mid-return (380): he is coming home.
+      if (w.sim.tickCount === 250) medicOut = [(it.fmDuty as Uint8Array)[medic], (it.fgAway as Uint16Array)[0], (it.fmHomeX as Int32Array)[medic], (it.fmHomeY as Int32Array)[medic]];
+      if (w.sim.tickCount === 380) medicHome = [(it.fmDuty as Uint8Array)[medic], (it.fgAway as Uint16Array)[0]];
+      // Mid-sortie (700): the Attack's helicopter and drone are OUT, the call latched, home recorded; mid-return (965): both
+      // are RETURN, the call over, still counted away, the quiet clock past its 200.
+      if (w.sim.tickCount === 700) sortieAtCut = [...air.map((i) => (it.fmDuty as Uint8Array)[i]), (it.fgAway as Uint16Array)[1], (it.fgCalled as Uint8Array)[1], (it.fmHomeX as Int32Array)[20]];
+      if (w.sim.tickCount === 965) returnAtCut = [...air.map((i) => (it.fmDuty as Uint8Array)[i]), (it.fgAway as Uint16Array)[1], (it.fgCalled as Uint8Array)[1], (it.fgQuiet as Uint16Array)[1]];
+      // Mid-pace: the Column walks capped (fgPace 2293), every member still on its way to checkpoint 1.
+      if (w.sim.tickCount === 100) paceAtCut = [(it.fgPace as Int32Array)[0], (it.fgLegs as Uint8Array)[0], ...column.map((i) => (it.moving as Uint8Array)[i])];
+      // Mid-dress: one member waiting (duty 1) with the dress clock running; the mortar still on its way.
+      if (w.sim.tickCount === 110) {
+        dressAtCut = [(it.fgAtCp as Uint16Array)[0], (it.fgDress as Uint16Array)[0], (w.ids.col as number[]).filter((i) => (it.fmDuty as Uint8Array)[i] === 1).length];
+      }
     }
-    expect([firstArmed, allArmed, sprung]).toEqual([196, 344, 404]);
-    expect(pendingAtCut, 'T = 404 cuts while a group is marked and not yet sprung').toBe(1);
+    expect([firstArmed, allArmed, sprung]).toEqual([196, 344, 445]);
+    // G-6 re-derivation (P1b Task 4): the ring's mark (row 2) was 1 and reads 3 (drill and call bit, 1 + 2); the side-1
+    // Column (row 16) that fired first on it is marked 3 too (a halt drill) and was not marked before.
+    expect(pendingAtCut, 'T = 445 cuts while two groups are marked and not yet consumed: the ring (row 2) and the side-1 Column (row 16), each drill + call').toEqual([3, 3]);
+    // The Attack (row 1) at the T = 560 cut: pressing and in contact since 451 (a ground member, entity 6, at (38.5, 16.5): the call
+    // point x 38.5 is 2523136 raw), its aircraft called at 452 and sent home at 945, so the mid-return cut is 965. The quiet clock
+    // reads 4 because the row's members fire every 4 ticks through this stretch and the last exchange before the cut was at
+    // tickCount 557 (it reads 1 there, then 2, 3, 4; probed tick by tick on the current world).
+    expect(contactAtCut, 'T = 560 cuts in contact: the Attack and the Column in state 3, the Attack\'s quiet clock at 4 (it fires every 4 ticks, last at 557), its call point x 38.5').toEqual([3, 3, 4, 2523136]);
+    expect(paceAtCut, 'T = 100 cuts mid-march: capped at 2293 raw, two checkpoints, all five moving').toEqual([2293, 2, 1, 1, 1, 1, 1]);
+    // G-6 re-derivation (P1b Task 5): the cut was 170 with [1, 27, 1]. The Column has a medic and an ambulance now, the ambulance
+    // (a fast vehicle) reaches checkpoint 1 first at tick 58, and the dress is released by the clock at 117; 170 is past it.
+    expect(dressAtCut, 'T = 110 cuts mid-dress: one waiting, dressing for 52 ticks').toEqual([1, 52, 1]);
+    expect(medicOut, 'T = 250 cuts mid-rescue: the medic OUT, one away, its home the checkpoint (8.5, 36.5) it was walking to').toEqual([2, 1, 557056, 2392064]);
+    expect(medicHome, 'T = 380 cuts the medic coming home: RETURN, still counted away').toEqual([3, 1]);
+    expect(sortieAtCut, 'T = 700 cuts mid-sortie: both OUT, two away, the call latched, the helicopter home at x 40.5').toEqual([2, 2, 2, 1, 2654208]);
+    expect(returnAtCut, 'T = 965 cuts mid-return: both RETURN, two away, the call over, the quiet clock at 219').toEqual([3, 3, 2, 0, 219]);
   });
 
   for (const [label, T] of [
+    ['early in the march, the pace cap live before the first arrival', 40],
+    ['mid-pace, the Column capped at the mortar\'s step', 100],
     ['mid-approach', 150],
+    ['mid-dress, a member waiting and the dress clock running', 110],
     ['after arrival, before the spring', 350],
-    ['found, mark set and not yet consumed (fgPending 1)', 404],
-    ['after the spring', 420],
+    ['found, marks set and not yet consumed (fgPending 3 and 3)', 445],
+    ['after the spring', 460],
+    ['in contact, the Attack pressing and the Column halted (state 3, the quiet clock running)', 560],
+    ['mid-rescue, the Column\'s medic OUT with his home recorded (duty 2)', 250],
+    ['the medic coming home (duty 3)', 380],
+    ['mid-sortie, the Attack\'s helicopter and drone OUT (duty 2, the call latched)', 700],
+    ['mid-return, both RETURN (duty 3, the call over)', 965],
   ] as const) {
     it(`${label} (T = ${T}): every hash tick of the next 200 agrees, and so do the bytes`, () => {
-      expectClean(fork(FORMATION, T), `${FORMATION.name} T=${T}`);
-      expectClean(fork(FORMATION, T, { poison: true }), `${FORMATION.name} poisoned T=${T}`);
+      expectClean(forkFm(T), `${FORMATION.name} T=${T}`);
+      expectClean(forkFm(T, { poison: true }), `${FORMATION.name} poisoned T=${T}`);
     }, 60_000);
   }
 
   it('every T = 0, 50, ... 400', () => {
     let forks = 0;
     for (let T = 0; T <= 400; T += 50) {
-      expectClean(fork(FORMATION, T), `${FORMATION.name} T=${T}`);
+      expectClean(forkFm(T), `${FORMATION.name} T=${T}`);
       forks++;
     }
     expect(forks).toBe(9);
@@ -470,7 +603,7 @@ describe('fork witness: the formation world, cut before the ring arrives, after 
 
   // Self-checks: the witness must go red when a formation column is lost across the restore.
   it('a member lost from its group after the restore turns the fork red (T = 350)', () => {
-    const v = fork(FORMATION, 350, {
+    const v = forkFm(350, {
       mutate: (b) => {
         const ring = (b as FormationWorld).ids.amb[0];
         (internals(b.sim).fmGroup as Int16Array)[ring] = -1;
@@ -480,8 +613,8 @@ describe('fork witness: the formation world, cut before the ring arrives, after 
     expect(v.hashDivergedAt, 'the formation block is in the hash').not.toBeNull();
   });
 
-  it('the one-tick mark lost after the restore turns the fork red (T = 404, fgPending 1)', () => {
-    const v = fork(FORMATION, 404, {
+  it('the one-tick mark lost after the restore turns the fork red (T = 445, fgPending set)', () => {
+    const v = forkFm(445, {
       mutate: (b) => {
         (internals(b.sim).fgPending as Uint8Array).fill(0);
       },
@@ -489,8 +622,57 @@ describe('fork witness: the formation world, cut before the ring arrives, after 
     expect(fails(v)).toBe(true);
   });
 
+  // GH-859 P1b Task 3: one self-check per column the new cuts assert (the cut must see the column, else it is re-picked).
+  for (const [label, T, column, set] of [
+    ['the pace cap, before the first arrival', 40, 'fgPace', 0],
+    ['a member\'s leg, before the first arrival', 40, 'fmLeg', 0],
+    ['the pace cap', 100, 'fgPace', 0],
+    ['the checkpoint count', 100, 'fgLegs', 0],
+    ['a member\'s leg', 100, 'fmLeg', 0],
+    ['the dress clock', 110, 'fgDress', 0],
+    ['the waiting count', 110, 'fgAtCp', 0],
+    ['a member\'s waiting duty', 110, 'fmDuty', 0],
+    // P1b Task 4: the contact columns, at the in-contact cut.
+    ['the quiet clock', 560, 'fgQuiet', 0],
+    ['the call point', 560, 'fgCallX', 0],
+    // GH-859 P1b final review M-2: the two columns that had no zeroing self-check.
+    ['the call point\'s row', 560, 'fgCallY', 0],
+    ['the release clock', 250, 'fgRelease', 0],
+    // P1b Task 5: the calls.
+    ['a member\'s duty on a rescue', 250, 'fmDuty', 0],
+    ['the medic\'s home', 250, 'fmHomeX', 0],
+    ['the count away on a rescue', 250, 'fgAway', 0],
+    ['a member\'s duty on a sortie', 700, 'fmDuty', 0],
+    ['the aircraft\'s home', 700, 'fmHomeY', 0],
+    ['the count away on a sortie', 700, 'fgAway', 0],
+    ['the call latch', 700, 'fgCalled', 0],
+    ['a member\'s duty coming home', 965, 'fmDuty', 0],
+  ] as const) {
+    it(`${label} lost after the restore turns the fork red (T = ${T}, ${column} zeroed)`, () => {
+      const v = forkFm(T, {
+        mutate: (b) => {
+          const col = internals(b.sim)[column] as Uint8Array | Uint16Array | Int32Array;
+          expect(col.some((x) => x !== 0), `${column} is non-zero at T = ${T}`).toBe(true);
+          col.fill(set);
+        },
+      });
+      expect(fails(v)).toBe(true);
+    });
+  }
+
+  it('the Attack not in contact in B turns the fork red (T = 560, state 3 reset to 1)', () => {
+    const v = forkFm(560, {
+      mutate: (b) => {
+        const st = internals(b.sim).fgState as Uint8Array;
+        expect(st[1], 'the Attack is in contact at the cut').toBe(3);
+        st[1] = 1;
+      },
+    });
+    expect(fails(v)).toBe(true);
+  });
+
   it('the group sprung early in B turns the fork red (T = 350)', () => {
-    const v = fork(FORMATION, 350, {
+    const v = forkFm(350, {
       mutate: (b) => {
         (internals(b.sim).fgState as Uint8Array)[2] = 4;
       },

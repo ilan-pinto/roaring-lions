@@ -473,13 +473,17 @@ def build_groin(f, side=None):
 # ================================================================= SENSORS
 
 MAG_Z = 0.905        # the mag pouches' centre height on the left hip
-LPVO_REAR = -0.49       # spec -0.55: moved 6 cm forward, the bowed head's NVG bridge strikes the scope's eyepiece at -0.55
+LPVO_REAR = -0.335     # the rear of the eyepiece. Spec -0.55 to -0.285. -0.42 left it IN the cheek (eye relief -0.015: the face's centre is 15 mm past the eyepiece; moveFire put the head 9-12 mm into it); -0.335 gives 0.069 m of relief in fire and moveFire (a real LPVO: 0.08-0.10) and clears the head
 LASER_FRONT = -0.115    # the laser box's front face (spec -0.146), ahead of the moved optic
+LPVO_AXIS_OVER_RAIL = 0.055   # the scope's axis over the receiver's top rail (0.040 put the bladed stance's face through the eyepiece: 16 mm)
+RADIO_POUCH_Y = 0.13     # across the back, Blender y: the left side. At -0.13 (the right) the bladed firing arm's elbow struck it in `move` (GH-826 step 2)
+RED_DOT_REAR = -0.42     # the sight's rear face (was -0.46: the bladed head's brow struck it on the reshaped carbine)
+WEAPON_LIGHT_REAR = -0.22   # the light's rear face, behind the muzzle: 10 mm or more ahead of the support hand on the reshaped handguard (GH-826 step 2; was -0.26)
 NVG_DZ = 0.03          # the NVG mount stands this far below the helmet top (kneelIn/kneelOut: lower, and the bow drives the bridge into the throat)
 FLIP = 70.0          # a flipped-up tube: degrees up from the helmet front's normal (the Rifle Squad's; `Team.flip_deg` carries it)
 EUD_T = 0.025          # the spec's thickness, with its standoff trimmed against the clips (build_eud)
-EUD_AT = (-0.045, 1.345)   # y, z on the chest
-HEADSET_AT = (0.106, 1.572, -0.03)   # inner |y| of the cup, its centre height, and its offset from the helmet centre
+EUD_AT = (0.07, 1.32)   # y, z on the chest: high on the LEFT chest (was -0.045, 1.345, on the centre line, where the firing hand's knuckles sank 6-12 mm into it for all of kneel and pinned: R2 review, GH-826 step 2)
+HEADSET_AT = (0.116, 1.572, -0.03)   # inner |y| of the cup, its centre height, and its offset from the helmet centre
 THROAT_T = 0.008
 YOKE_T = 0.010
 PLATE_OFF = 0.022      # the carrier's plate: the EUD sits flat ON it (spec 3.2)
@@ -632,7 +636,7 @@ def _front_hit(f, y, z):
 
 
 def build_radio_pouch(f, side=None):
-    loc, n = _back_hit(f, -0.13, 1.17)
+    loc, n = _back_hit(f, RADIO_POUCH_Y, 1.17)
     pc = Piece(f.world())
     fr = _frame(-n)               # local x = into the body ... keep outward = n
     fr = _frame(n)
@@ -897,12 +901,12 @@ def _rail_top(f, u0, u1):
 
 
 def build_red_dot(f, side=None):
-    top = _rail_top(f, -0.46, -0.36)
+    top = _rail_top(f, RED_DOT_REAR, RED_DOT_REAR + 0.10)
     ax = top + 0.039 - 0.012
     pc = Piece(f.wpn())
-    geo.lathe(pc, (-0.46, 0.0, ax), (1, 0, 0), (0, 0, 1), [(0.0, 0.015), (0.064, 0.015)], 8, "coyote",
+    geo.lathe(pc, (RED_DOT_REAR, 0.0, ax), (1, 0, 0), (0, 0, 1), [(0.0, 0.015), (0.064, 0.015)], 8, "coyote",
               cap0="glass", cap1="glass")
-    geo.rbox(pc, (-0.43, 0.0, top + 0.006 + 0.0), Matrix.Identity(3), (0.05, 0.026, 0.012 + (ax - 0.015 - top) * 1.0), 0.0, "coyote")
+    geo.rbox(pc, (RED_DOT_REAR + 0.03, 0.0, top + 0.006 + 0.0), Matrix.Identity(3), (0.05, 0.026, 0.012 + (ax - 0.015 - top) * 1.0), 0.0, "coyote")
     return pc
 
 
@@ -919,10 +923,10 @@ def build_foregrip(f, side=None):
 def build_lpvo(f, side=None):
     u0 = LPVO_REAR if kp.TEAM.lpvo_rear is None else kp.TEAM.lpvo_rear          # the rear of the eyepiece, metres behind the muzzle (spec: 0.55 to 0.285)
     top = _rail_top(f, u0 + 0.05, u0 + 0.25)
-    ax = top + 0.040 + 0.015
+    ax = top + LPVO_AXIS_OVER_RAIL
     pc = Piece(f.wpn())
     geo.lathe(pc, (u0, 0.0, ax), (1, 0, 0), (0, 0, 1),
-              [(0.0, 0.022), (0.06, 0.0150), (0.24, 0.0150), (0.265, 0.019)], 8, "coyote", cap0="glass", cap1="glass")
+              [(0.0, 0.019), (0.06, 0.0150), (0.24, 0.0150), (0.265, 0.019)], 8, "coyote", cap0="glass", cap1="glass")
     # the cantilever mount, and the two turrets (elevation on top, windage on the right)
     um = u0 + 0.12
     geo.rbox(pc, (um, 0.0, ax - 0.0075 - 0.5 * (ax - 0.015 - top)), Matrix.Identity(3), (0.07, 0.022, ax - 0.015 - top), 0.0, "coyote")
@@ -964,7 +968,7 @@ def build_weapon_light(f, side=None):
     top, bot, wlo, whi = f.station(0.19)
     pc = Piece(f.wpn())
     zc = (top + bot) / 2
-    geo.lathe(pc, (-0.26, wlo - 0.0125, zc), (1, 0, 0), (0, 0, 1), [(0.0, 0.0125), (0.14, 0.0125)], 8, "coyote",
+    geo.lathe(pc, (WEAPON_LIGHT_REAR, wlo - 0.0125, zc), (1, 0, 0), (0, 0, 1), [(0.0, 0.0125), (0.14, 0.0125)], 8, "coyote",
               cap0="coyote", cap1="glass")
     return pc
 

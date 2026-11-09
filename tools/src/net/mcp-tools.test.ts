@@ -51,7 +51,7 @@ async function drive<T>(loop: Loop, runners: { pump(n: number): number }[], p: P
 }
 
 /** Two seat clients, both started; both seats human unless `kinds` says otherwise. */
-async function twoSeats(kinds: { host?: 'human' | 'bot'; guest?: 'human' | 'bot' } = {}): Promise<{ loop: Loop; a: Joined; c: Joined; room: Awaited<ReturnType<typeof newRoom>> }> {
+async function twoSeats(kinds: { host?: 'human' | 'bot'; guest?: 'human' | 'bot'; map?: string; matchup?: 'kdf' | 'sarim' } = {}): Promise<{ loop: Loop; a: Joined; c: Joined; room: Awaited<ReturnType<typeof newRoom>> }> {
   const room = await newRoom(kinds);
   const a = join(room.loop, await room.ticket(0), 0);
   const c = join(room.loop, await room.ticket(1), 1);
@@ -87,10 +87,8 @@ describe('order in command scope (case 2)', () => {
     expect(body(refused).error).toBe('not your unit');
     const unknown = await call(ctx, 'order', { verb: 'callStrike', ids: [own] });
     expect(body(unknown).error).toBe('unknown verb');
-    expect(body(await call(ctx, 'order', { verb: 'setStance', ids: [own] })).error).toBe('unknown verb');
-    expect(body(await call(ctx, 'order', { verb: 'build', ids: [own] })).error).toBe('unknown verb');
-    expect(body(await call(ctx, 'order', { verb: 'support', ids: [own] })).error).toBe('unknown verb');
-    for (const verb of ['cancelBuild', 'setRally', 'clearRally', 'enterTunnel', 'vent']) {
+    // GH-954 (D-W8): the stance and production verbs are verbs now; what stays out is fire support and the tunnel two.
+    for (const verb of ['support', 'enterTunnel', 'vent', 'reveal', 'raiseWorks', 'cancelWorks', 'construct', 'cancelConstruct']) {
       expect(body(await call(ctx, 'order', { verb, ids: [own] })).error, verb).toBe('unknown verb');
     }
     const off = await call(ctx, 'order', { verb: 'move', ids: [own], x: 999, y: 3 });
@@ -107,16 +105,48 @@ describe('order in command scope (case 2)', () => {
     expect(sentBy(loop, a).filter((m) => m.t === 'cmd')).toHaveLength(1);
   });
 
-  it('rescue (GH-707) is a verb: it needs an integer target the seat can see, and an own unit is one', async () => {
+  it('rescue (GH-707) is a verb: it needs an integer target from casualties.mine, which a healthy unit, a contact and an enemy are not', async () => {
     const { a } = await twoSeats();
     const ctx = createContext(a.client, 'command');
     const w = a.client.world() as MatchWorld;
     const [own, other] = sideIds(w, 0);
     const enemy = sideIds(w, 1)[0];
-    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own] })).error).toBe('not a contact');
-    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: enemy })).error).toBe('not a contact');
-    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: 99999 })).error).toBe('not a contact');
-    const sent = await call(ctx, 'order', { verb: 'rescue', ids: [own], target: other });
+    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own] })).error).toBe('not a casualty');
+    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: enemy })).error).toBe('not a casualty');
+    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: 99999 })).error).toBe('not a casualty');
+    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: other })).error).toBe('not a casualty'); // a healthy unit of his own
+    // An ENEMY casualty in sight: a wounded body of side 1 two tiles from one of seat 0's units. He is listed under
+    // `casualties.theirs` (so he is no unit and no contact), and `rescue` on his id is refused like any other non-own id:
+    // the order is for your own side's wounded only.
+    const woundedIdx = w.sim.unitTypes.findIndex((t) => t.id === 'wounded_kdf');
+    expect(woundedIdx).toBeGreaterThanOrEqual(0);
+    const foe = w.sim.spawn(woundedIdx, 1, w.sim.state.posX[own] + (2 << 16), w.sim.state.posY[own]);
+    w.sim.tick();
+    (a.client as unknown as { live: { fog: { step(): void } } }).live.fog.step(); // the seat's fog sees the body, as the harness tick does
+    const theirs = body(await call(ctx, 'observe')) as { casualties: { theirs: { id: number }[] } };
+    expect(theirs.casualties.theirs.map((c) => c.id)).toContain(foe);
+    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: foe })).error).toBe('not a casualty');
+    // A real casualty: one of seat 0's infantry squads, hit until a man falls wounded and goes DOWN. He is listed under
+    // `casualties.mine` and not under `units`, and that is the id a medic is sent to.
+    const squad = sideIds(w, 0).find((i) => w.sim.unitTypes[w.sim.state.typeIdx[i]].id === 'inf_squad');
+    if (squad === undefined) throw new Error('no KDF rifle squad on seat 0');
+    // Flake fix: the squad's fall roll is a 0.6 chance on its own rng stream, and the squad (3 figures) is destroyed after at most
+    // three rolls, so ~6% of stream positions left no body at all (the stream position moves with how many ticks the harness ran).
+    // Pin the roll to a certainty: a chance of ONE draws nothing (`fallMan`), so the first man to fall always lives as a wounded body.
+    // Still red if wounds stop spawning: the roll is bypassed, not the spawn, the cap or the type lookup.
+    const squadWounds = w.sim.unitTypes[w.sim.state.typeIdx[squad]].wounds;
+    if (squadWounds === null) throw new Error('inf_squad carries no hull.wounds');
+    squadWounds.chance = fx.fromInt(1);
+    const before = w.sim.entityCount;
+    for (let k = 0; k < 40 && w.sim.entityCount === before; k++) {
+      (w.sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(squad, fx.fromInt(100), enemy);
+    }
+    expect(w.sim.entityCount, 'a man went down').toBeGreaterThan(before);
+    const seen = body(await call(ctx, 'observe')) as { casualties: { mine: { id: number }[] } };
+    expect(seen.casualties.mine.length).toBeGreaterThan(0);
+    const man = seen.casualties.mine[0].id;
+    expect(sideIds(w, 0)).toContain(man);
+    const sent = await call(ctx, 'order', { verb: 'rescue', ids: [own], target: man });
     expect(sent.ok).toBe(true);
     expect((body(sent) as { status: string }).status).toBe('queued');
   });
@@ -129,11 +159,14 @@ describe('order in command scope (case 2)', () => {
 const BOTS = { host: 'bot', guest: 'bot' } as const;
 // GH-859 P1a: the agent harness orders a combat formation through the same door a human's click will use.
 describe('order: the formation field (GH-859 P1a)', () => {
-  // Task 6V (the lead's ruling, 29 Oct): formations are OFF in versus rooms until P1b, and `twoSeats` is a versus room. The agent
+  // Task 6V (the lead's ruling, 29 Oct): formations are OFF in versus rooms until S4 passed. Since 7 Nov (GH-859) `VERSUS_FORMATIONS_CLOSED_MAPS` is empty,
+  // so the refusal is witnessed on the one room still closed: the tel_marum ECONOMY room (`formations_closed_in: ["economy"]` in data/versus/tel_marum.json;
+  // KDF v Sarim, no win mode, so `matchup: 'kdf'`). The open case (Wadi Tarfan large, opened 7 Nov) follows the refusals.
+  // `twoSeats` is a versus room. The agent
   // harness checks an order with the same `validateCommand` the receiver runs, so a formation order is refused before it is sent.
   // The open-gate plumbing (stamped, framed, the same group on both sims) is witnessed in `two-client.test.ts` ("GATE OPEN").
   it('a Column move in a versus room is refused as invalid and nothing is sent; the plain move goes through and forms no group', async () => {
-    const { loop, a, c } = await twoSeats(BOTS);
+    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'tel_marum', matchup: 'kdf' });
     const ctx = createContext(a.client, 'command');
     const wa = a.client.world() as MatchWorld;
     const wc = c.client.world() as MatchWorld;
@@ -143,7 +176,8 @@ describe('order: the formation field (GH-859 P1a)', () => {
     for (const w of [wa, wc]) expect(w.sim.formationTypeCount()).toBe(3);
     const r = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20, formation: 'column' });
     expect(r.ok).toBe(false);
-    expect(body(r)).toEqual({ error: 'invalid' });
+    // M8: the refusal names its cause (the formation gate), where P1a answered a bare `invalid`.
+    expect(body(r)).toEqual({ error: 'invalid', detail: 'formations-closed-in-versus' });
     await loop.flush();
     expect(sentBy(loop, a).filter((m) => m.t === 'cmd')).toEqual([]);
     // The same order without the field is an ordinary order: sent, framed for both seats, no group.
@@ -157,16 +191,50 @@ describe('order: the formation field (GH-859 P1a)', () => {
     expect(wa.sim.hash()).toBe(wc.sim.hash());
   });
   it('an attack formation on an attackMove is refused the same way, and the plain attackMove forms no group', async () => {
-    const { loop, a, c } = await twoSeats(BOTS);
+    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'tel_marum', matchup: 'kdf' });
     const ctx = createContext(a.client, 'command');
     const wa = a.client.world() as MatchWorld;
     const own = sideIds(wa, 0).slice(0, 3);
     const r = await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20, formation: 'attack' });
     expect(r.ok).toBe(false);
-    expect(body(r)).toEqual({ error: 'invalid' });
+    expect(body(r)).toEqual({ error: 'invalid', detail: 'formations-closed-in-versus' });
     expect((await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20 })).ok).toBe(true);
     await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
     expect(own.map((id) => wa.sim.formationGroupOf(id))).toEqual([-1, -1, -1]);
+  });
+  it('GH-859 (7 Nov): Wadi Tarfan (large), once closed, is open: the same Column move is accepted, sent with its formation, and forms a group', async () => {
+    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'wadi_tarfan_l' });
+    const ctx = createContext(a.client, 'command');
+    const wa = a.client.world() as MatchWorld;
+    const own = sideIds(wa, 0).slice(0, 4);
+    const r = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20, formation: 'column' });
+    expect(r.ok, r.text).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    const sent = sentBy(loop, a).filter((m) => m.t === 'cmd');
+    expect(sent).toHaveLength(1);
+    expect((sent[0] as { cmd: { formation?: string } }).cmd.formation).toBe('column');
+    expect(own.every((id) => wa.sim.formationGroupOf(id) >= 0)).toBe(true);
+  });
+   it('GH-859 (1 Nov): on a map S4 covered (the default room map) the same Column move is accepted, sent with its formation, and forms the same group on both machines', async () => {
+    const { loop, a, c } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const wa = a.client.world() as MatchWorld;
+    const wc = c.client.world() as MatchWorld;
+    const own = sideIds(wa, 0).slice(0, 4);
+    const r = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20, formation: 'column' });
+    expect(r.ok, r.text).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    const sent = sentBy(loop, a).filter((m) => m.t === 'cmd');
+    expect(sent).toHaveLength(1);
+    expect((sent[0] as { cmd: { formation?: string } }).cmd.formation).toBe('column');
+    for (const w of [wa, wc]) expect(own.every((id) => w.sim.formationGroupOf(id) >= 0)).toBe(true);
+    expect(wa.sim.hash()).toBe(wc.sim.hash());
+  });
+ it('the order tool says formations are refused in versus rooms while closed, and names the detail it answers with (M8)', () => {
+    const order = TOOLS.find((t) => t.name === 'order');
+    expect(order).toBeDefined();
+    expect(order!.description).toContain('formations-closed-in-versus');
+    expect(order!.description).toContain('closed in versus rooms');
   });
   it('an id nobody ships, a formation on the wrong verb or on another verb, is refused and nothing is sent', async () => {
     const { loop, a } = await twoSeats(BOTS);
@@ -344,7 +412,7 @@ describe('observe respects the seat\'s fog (case 4)', () => {
 });
 
 describe('an order record hides what the seat can no longer see', () => {
-  it('a unit that died since the order is no longer named (gone), and an attack target that left sight reads out of sight', async () => {
+  it('a unit that died since the order names its fate (died), and an attack target that left sight reads out of sight', async () => {
     const { loop, a, c } = await twoSeats();
     const ctx = createContext(a.client, 'command');
     await play(loop, 10, [a.client, c.client], () => a.client.tick() >= 5 && c.client.tick() >= 5);
@@ -391,8 +459,11 @@ describe('an order record hides what the seat can no longer see', () => {
     expect(w.sim.state.alive[enemy]).toBe(1);
     expect(view.contacts.map((u) => u.id)).not.toContain(enemy);
     const after = await record();
-    expect(after).toMatchObject({ ids: [mine], gone: 1, target: 'out of sight' });
-    expect(idsIn(after)).toEqual([mine]);   // no id-naming key carries the dead unit or the fogged target
+    // The dead unit is OURS, so its id and its fate are the seat's own (the 4 Nov bot report, item 2): `fates`, not a bare `gone`.
+    expect(after).toMatchObject({ ids: [mine], fates: [{ id: spare, fate: 'died' }], target: 'out of sight' });
+    expect(after).not.toHaveProperty('gone');
+    expect(idsIn(after)).toEqual([mine, spare, mine]);   // [mine] from `ids`, [spare] from `fates`, and [mine] again from the dropped attack's `fallback.ids`: all ours; no id-naming key carries the fogged target
+    expect(after).toMatchObject({ status: 'dropped', reason: 'target no longer in sight' });
     expect(a.client.transport.stats().desyncTick).toBeNull();
   });
 });
@@ -585,5 +656,28 @@ describe('a view before the start', () => {
     const r = await call(createContext(a.client, 'command'), 'observe');
     expect(r.ok).toBe(false);
     expect(body(r).error).toBe('match not started');
+  });
+});
+
+// GH-973 item 5: an `attack` the sim refuses for every shooter (the enemy left sight, or was never identified)
+// changes nothing, and is shown `dropped` with the reason, not `applied`.
+describe('an attack on a target the sim will not take (GH-973)', () => {
+  it('shows dropped with a reason in observe, while a plain move beside it is applied', async () => {
+    const { loop, a, c } = await twoSeats();
+    const ctx = createContext(a.client, 'command');
+    const w = a.client.world() as MatchWorld;
+    const own = sideIds(w, 0)[0];
+    const enemy = sideIds(w, 1)[0];   // at its own camp: nowhere near identified
+    // Straight to the desk: the `order` tool would refuse a target that is not a contact NOW, and the case is one that stopped
+    // being one between the model's order and the frame that carried it.
+    const atk = a.client.desk.submit({ kind: 'attack', ids: [own], target: enemy }, a.client.tick()) as { ref: number };
+    const mv = a.client.desk.submit({ kind: 'move', ids: [own], x: fx.from(12.5), y: fx.from(14.5) }, a.client.tick()) as { ref: number };
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 60 }));
+    const orders = body(await call(ctx, 'observe')).orders as { ref: number; status: string; reason?: string }[];
+    const got = (ref: number) => orders.find((o) => o.ref === ref);
+    expect(got(atk.ref)?.status).toBe('dropped');
+    expect(got(atk.ref)?.reason).toMatch(/not in sight/);
+    expect(got(mv.ref)?.status).toBe('applied');
+    expect(got(mv.ref)?.reason).toBeUndefined();
   });
 });

@@ -72,6 +72,10 @@ export interface MotionTeam {
   readonly speedTiles: number;
   /** A medic team's `carry` and `treat` (`motion/rescue.ts`), built after the kneel. */
   readonly rescue?: RescueSpec;
+  /** Degrees of the pinned huddle's fold this team does NOT take from `PINNED_FOLD_DEG` (`motion/pinned.ts`), per part. The
+   *  Rifle Squad's neck takes none (GH-826 step 2): with the 10 degrees the NVG tubes of the kit's tier 3 land in the support
+   *  hand (17.8 mm) and the mono tubes and the mount in the support forearm (5-6 mm); with none, no pair is over 4 mm. */
+  readonly pinnedFold?: Partial<Record<'spine' | 'neck' | 'head', number>>;
 }
 
 const rifles = (prefixes: string[], slots?: [number, number][]): FigureSpec[] =>
@@ -81,6 +85,7 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
   inf_squad: {
     figures: rifles(['f0', 'f1', 'f2'], [[-0.45, 1.05], [0.45, 0], [-0.45, -1.05]]),
     hold: true, kneel: true, formation: true, stride: true, ground: true, speedTiles: 0.9,
+    pinnedFold: { neck: 0 },
   },
   // GH-709 phase 3 (22 Oct): two grenadiers and a leader. The launcher is a
   // hand-held `rifle`-kind weapon to the hold (butt pocket, trigger and

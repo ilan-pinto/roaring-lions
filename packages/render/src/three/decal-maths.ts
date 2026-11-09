@@ -160,7 +160,7 @@ import { tileHash } from '../tile-hash';
 
 /** Every mark this pool draws. Order fixes `DECAL_KIND_INDEX` -- see that
  *  constant's own doc comment for why the order itself is load-bearing. */
-export type DecalKind = 'crater' | 'scorch' | 'oil' | 'rubble' | 'tread' | 'tyre';
+export type DecalKind = 'crater' | 'scorch' | 'oil' | 'rubble' | 'tread' | 'tyre' | 'churn';
 
 /**
  * `DecalKind` as a small integer, written into the `aDecal` vertex
@@ -180,13 +180,15 @@ export const DECAL_KIND_INDEX: Readonly<Record<DecalKind, number>> = {
   rubble: 3,
   tread: 4,
   tyre: 5,
+  // GH-984 N2: the earth a tracked hull churns on a pivot and a hard launch. Appended, so no index moved.
+  churn: 6,
 };
 
-/** `tread`/`tyre` are the only kinds that age out (R-15's 180 s fade);
+/** `tread`/`tyre` (R-15's 180 s fade) and `churn` (GH-984 N2, `CHURN_FADE_SEC`) are the kinds that age out;
  *  crater/scorch/oil/rubble are permanent for the mission, matching
  *  `scorch-decals.ts`'s own "No TTL" for the mark it already ships. */
 export function isFadingKind(k: DecalKind): boolean {
-  return k === 'tread' || k === 'tyre';
+  return k === 'tread' || k === 'tyre' || k === 'churn';
 }
 
 /** See this file's top comment, "One pool class, two instances (R-10)". */
@@ -654,6 +656,24 @@ export const TREAD_PERIOD_TILES = 0.06;
 export const TREAD_PATTERN_BASE = 0.65;
 export const TREAD_PATTERN_CLEAT = 0.35;
 
+/**
+ * Churn (GH-984 N2): a scuff of turned earth where a tracked hull pivots on the spot or a vehicle
+ * digs in on a hard launch. An ellipse with a wobbled rim (a third of the oil's), raked by radial
+ * spokes so it reads as torn ground and not as a stain; it takes `tread`'s colour (dust on a dry map,
+ * mud under rain). Fades LINEARLY over `CHURN_FADE_SEC` sim seconds, a shorter life than a track's.
+ */
+export const CHURN_ALPHA = 0.5;
+export const CHURN_FADE_SEC = 120;
+export const CHURN_WOBBLE = 0.12;
+export const CHURN_LOBES = 3;
+export const CHURN_EDGE_INNER = 0.45;
+/** Radial rakes per turn, the share of the body they leave (the rest is the scraped furrow), and the radius they fade in over. */
+export const CHURN_SPOKES = 9;
+export const CHURN_SPOKE_BASE = 0.6;
+export const CHURN_SPOKE_CORE = 0.18;
+/** The three sizes the showcase stamps (half extents, tiles): a pivot's scuff, a launch's, and a heavy dozer's dig-in. */
+export const CHURN_SHOWCASE_RADII: readonly [number, number, number] = [0.3, 0.45, 0.6];
+
 /** `tileHash`'s multipliers and shifts, owned by `../tile-hash.ts` and
  *  re-exported here for the shader -- see this file's top comment. */
 export { TILE_HASH_MIX, TILE_HASH_MX, TILE_HASH_MY, TILE_HASH_SHIFT_A, TILE_HASH_SHIFT_B } from '../tile-hash';
@@ -698,6 +718,86 @@ export function decalMultiplier(
 
 /** `decalMultiplier`'s divide-by-zero floor -- see its doc comment. */
 export const DECAL_GROUND_FLOOR = 1e-4;
+
+// ---------------------------------------------------------------------------
+// The wet decals (GH-871 P4 T5): mud prints, and water in a crater's bowl.
+// Rain only -- a shipped map's palette and program are today's.
+// ---------------------------------------------------------------------------
+
+/** The eight decal colours' palette keys on a map that does not rain. */
+export const DECAL_PALETTE_KEYS: Readonly<Record<keyof DecalPalette, string>> = {
+  craterBowl: 'shadow.0',
+  craterLip: 'limestone.1',
+  scorch: 'shadow.0',
+  oil: 'shadow.1',
+  rubbleA: 'limestone.5',
+  rubbleB: 'limestone.7',
+  tread: 'dust.5',
+  tyre: 'limestone.6',
+};
+
+/** Under rain a track is a print in mud: `tread` and `tyre` both resolve to
+ *  `mud.3`, and the other six keys are today's. */
+export const WET_DECAL_PALETTE_KEYS: Readonly<Record<keyof DecalPalette, string>> = {
+  ...DECAL_PALETTE_KEYS,
+  tread: 'mud.3',
+  tyre: 'mud.3',
+};
+
+/** Which key table a renderer built with `weather` resolves its palette from. */
+export function decalPaletteKeysFor(weather: 'clear' | 'rain' | undefined): Readonly<Record<keyof DecalPalette, string>> {
+  return weather === 'rain' ? WET_DECAL_PALETTE_KEYS : DECAL_PALETTE_KEYS;
+}
+
+/**
+ * The crater's height field in units of its own radius (the shader's
+ * `craterHeight`, transcribed): a parabolic bowl of depth `bowlDepth` inside
+ * the lip and a raised rim of `rimHeight` that peaks where the lip albedo does.
+ * `uRimShape` carries `(bowlDepth, rimHeight)` in the shader.
+ */
+export function craterHeight(s: number, t: number, seed: number, bowlDepth: number, rimHeight: number): number {
+  const rw = wobbledRadius(s, t, seed, CRATER_WOBBLE, CRATER_LOBES);
+  const x = rw / CRATER_LIP_IN1;
+  const bowl = -bowlDepth * Math.max(1 - x * x, 0);
+  const rimC = (CRATER_LIP_IN1 + CRATER_LIP_OUT0) / 2;
+  const rim = rimHeight * smoothstep(CRATER_BOWL_EDGE0 - 0.06, rimC, rw) * (1 - smoothstep(rimC, 1, rw));
+  return bowl + rim;
+}
+
+/** Water stands in a crater's bowl where the height is below this (radii). With
+ *  the shipped bowl depth 0.25 that is the inner ~72% of the lip's inner radius. */
+export const CRATER_WATER_LEVEL = -0.12;
+/** Half the width of the shoreline's ramp, in height units. */
+export const CRATER_WATER_EDGE = 0.02;
+/** The water's opacity where it fully covers (the multiply ratio mixes toward it). */
+export const CRATER_WATER_ALPHA = 0.9;
+
+/** The share of a crater fragment the water covers, from its height. */
+export function craterWaterCover(h: number): number {
+  return 1 - smoothstep(CRATER_WATER_LEVEL - CRATER_WATER_EDGE, CRATER_WATER_LEVEL + CRATER_WATER_EDGE, h);
+}
+
+/**
+ * A crater fragment's sample with the water laid over it (`DECAL_WET`): the
+ * dry sample's colour and opacity mixed toward the water surface by the cover.
+ * `ground` is the tone under the decal and `sky` is `uWetSky`; the surface is
+ * the ground's own, `(1 - reflect) * WATER_ALBEDO * ground + reflect * sky` per
+ * channel (`terrain/wet-shading.ts`'s `waterAlbedo`, which the oracle test
+ * compares against), at the SAME reflectance the puddles use.
+ */
+export function craterWaterSample(
+  dryAlpha: number,
+  dryColour: readonly [number, number, number],
+  cover: number,
+  ground: readonly [number, number, number],
+  reflect: number,
+  sky: readonly [number, number, number],
+  waterAlbedo: number
+): { alpha: number; colour: [number, number, number] } {
+  const w = (c: number): number => (1 - reflect) * waterAlbedo * ground[c] + reflect * sky[c];
+  const m = (c: number): number => dryColour[c] + cover * (w(c) - dryColour[c]);
+  return { alpha: dryAlpha + cover * (CRATER_WATER_ALPHA - dryAlpha), colour: [m(0), m(1), m(2)] };
+}
 
 /** One fragment's worth of `decalAlpha`: its opacity, and which palette
  *  entry (`DECAL_PALETTE_ORDER` index) it draws in. */
@@ -807,6 +907,17 @@ export function decalAlpha(
         alpha: TRACK_ALPHA * feather * side * fade * pattern,
         colour: kind === 'tread' ? COLOUR_TREAD : COLOUR_TYRE,
       };
+    }
+    case 'churn': {
+      const rw = wobbledRadius(s, t, seed, CHURN_WOBBLE, CHURN_LOBES);
+      const body = 1 - smoothstep(CHURN_EDGE_INNER, 1, rw);
+      const r = Math.hypot(s, t);
+      const theta = r > 0 ? Math.atan2(t, s) : 0;
+      const raked = fract((theta / (2 * Math.PI)) * CHURN_SPOKES + seed) >= 0.5 ? 1 : 0;
+      const spoke = CHURN_SPOKE_BASE + (1 - CHURN_SPOKE_BASE) * raked;
+      const core = smoothstep(0, CHURN_SPOKE_CORE, r);
+      const fade = clamp01(1 - Math.max(ageSec, 0) / CHURN_FADE_SEC);
+      return { alpha: CHURN_ALPHA * body * (1 + (spoke - 1) * core) * fade, colour: COLOUR_TREAD };
     }
   }
 }

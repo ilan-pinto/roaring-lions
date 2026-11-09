@@ -187,9 +187,7 @@ function queryString(query: URLSearchParams): string {
  * `renderer` persists per origin in `localStorage` instead, and a sandbox flag
  * belongs to one map's URL rather than to the session.
  */
-// `testcoins` (GH-317, a TEST tool) rides along too, so the TEST wallet is
-// still in reach after a trip to the campaign map or a mission and back.
-const STICKY_QUERY_KEYS = ['lang', 'pseudo', 'testcoins'] as const;
+const STICKY_QUERY_KEYS = ['lang', 'pseudo', 'accounts'] as const;
 
 interface Mounted {
   req: RouteRequest;
@@ -418,6 +416,9 @@ export class Router {
   }
 }
 
+/** Paths the Worker answers itself, not the SPA: a click on one must be a real page load (GH-1075 A1, /privacy). */
+export const WORKER_PAGE_PATHS: readonly string[] = ['/privacy'];
+
 /**
  * Same-origin anchors become navigations. A modifier click, a middle click,
  * `target`, `download` or a foreign origin is left to the browser — a player
@@ -434,6 +435,7 @@ export function interceptLinks(root: HTMLElement | Document, router: Router): Di
     if (a.target.length > 0 || a.hasAttribute('download')) return;
     const url = new URL(a.href, window.location.href);
     if (url.origin !== window.location.origin) return;
+    if (WORKER_PAGE_PATHS.includes(url.pathname)) return;
     ev.preventDefault();
     // `reload`: taking the click over must not change what it does. A browser
     // follows a link to the page it is on by loading that page again, and the

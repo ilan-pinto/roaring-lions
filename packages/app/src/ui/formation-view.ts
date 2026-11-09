@@ -19,7 +19,7 @@ import {
   type FormationCounts,
   type FormationId,
   type LegendClass,
-  type SchematicSlot,
+  type SchematicSlots,
 } from './formation-model';
 import { symbolSvg } from './symbol';
 
@@ -70,7 +70,7 @@ const CELL = 17;
  * kill-zone cross inside the dashed ring (ambush), and a travel arrow. Slots arrive as the sim's
  * `{forward, lateral}`; the picture puts forward up, so `y = -forward`.
  */
-export function schematicSvg(id: FormationId, slots: readonly SchematicSlot[]): string {
+export function schematicSvg(id: FormationId, slots: SchematicSlots): string {
   const radius = id === 'ambush' ? schematicRing(id, slots) : 0;
   const pts = slots.map((s) => ({ c: s.cls, x: s.lateral, y: -s.forward }));
   const xs = pts.map((p) => p.x);
@@ -103,7 +103,7 @@ export function schematicSvg(id: FormationId, slots: readonly SchematicSlot[]): 
 
 /** The legend: a mark, the class and its count per present class, then the click or kill-zone line. */
 function legendHtml(id: FormationId, counts: FormationCounts): string {
-  const rows = formationLegendRows(counts)
+  const rows = formationLegendRows(counts, id)
     .map((r) => `<li><svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true">${mark(r.cls, 7, 6)}</svg><span>${r.label}</span><b>${r.n}</b></li>`)
     .join('');
   const extra = formationLegendMark(id);

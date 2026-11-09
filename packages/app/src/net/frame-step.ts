@@ -9,11 +9,11 @@
  * Acks and hashes are keyed by the FRAME's tick (R32), never `sim.tickCount`:
  * the room numbers frames from 0 and knows nothing of how the sim counts.
  */
-import { applyFrame, economyRoom, matchDigest, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
+import { applyFrame, economyRoom, flagSetupRoom, matchDigest, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
 import { formations } from '@lions/data';
 import type { Command } from '@lions/sim';
 import { shippedContentDigest } from './content-digest';
-import { VERSUS_FORMATIONS_OPEN, formationsOpenIn } from './versus-formations';
+import { VERSUS_FORMATIONS_OPEN, formationsOpenIn, roomKindOf } from './versus-formations';
 
 /** The slice of `Sim` the body touches. */
 export interface FrameSim {
@@ -124,11 +124,13 @@ export function seatWorldFor(
     versus: config?.mode === 'versus',
     // N3 Task 4: a KDF-v-Sarim room runs a runtime, so both seats build there.
     economy: config !== null && economyRoom(config),
+    // GH-976 v2: the set-up commands pass only in a flag room the Worker minted `flagSetup` for.
+    setupRoom: config !== null && flagSetupRoom(config),
     // GH-859 P1a: a shipped formation whose factions include this seat's own (single-player: KDF) -- and none at all in a
     // versus room while the gate is closed (the lead's ruling, 29 Oct), so a forced or stale client's formation order drops
     // on both machines. The protocol still carries the field; P1b opens the gate.
     formationAllowed: (seat: Seat, id: string) =>
-      formationsOpenIn(config?.mode, versusFormationsOpen) && formationFielded(formations, config?.seats[seat].faction ?? 'kdf', id),
+      formationsOpenIn(config?.mode, versusFormationsOpen, config?.map, roomKindOf(config)) && formationFielded(formations, config?.seats[seat].faction ?? 'kdf', id),
     sideOfEntity: (id: number) => (Number.isInteger(id) && id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
   };
 }

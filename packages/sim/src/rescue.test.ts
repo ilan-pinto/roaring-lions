@@ -968,6 +968,63 @@ function shippedUnits(): UnitTypeJson[] {
   return out;
 }
 
+// ---------------------------------------------------------------------------------------------
+// The lead, 30 Oct 2026: in a versus room each KDF camp is the drop-off for its own side's wounded.
+// The camp is a NEUTRAL structure (owner -1: no field-works fold, not a target) that PRODUCES FOR a
+// side; an `aid` block makes it that side's post (`aidSideOf`). The app gives the camp the block in a
+// versus economy room only (`standMapStructures`).
+
+/** A neutral camp that produces for `side` (or for nobody, -1), carrying the aid block. */
+function camp(sim: Sim, side: 0 | 1 | -1, tiles: number[] = [5 * 20 + 16, 5 * 20 + 17, 6 * 20 + 16, 6 * 20 + 17]): number {
+  const s = sim.addStructure(sim.addStructureType({ ...AID_POST, id: 'rs_camp' }), tiles);
+  if (side !== -1) sim.setStructureProducesFor(s, side);
+  return s;
+}
+
+describe('a neutral camp is its own side\'s aid post (the lead, 30 Oct 2026)', () => {
+  it('a medic carries a STABILISED man to a camp that produces for his side: admitted, treated in 100 ticks, back in his squad', () => {
+    const wd = world();
+    const s = camp(wd.sim, 0);
+    expect((wd.sim as unknown as { stOwner: Int8Array }).stOwner[s]).toBe(-1); // neutral: no field-works fold, not a target
+    const medic = wd.put(DRAGGER, 0, 2.5, 5.5);
+    const squad = wd.put(SLOW_BLEEDER, 0, 6.5, 5.5);
+    const w = wd.sim.entityCount;
+    hit(wd.sim, squad, 100, wd.shooter);
+    const evs: SimEvent[] = [];
+    for (let k = 0; k < 1500 && of(evs, 'woundRejoined').length === 0; k++) evs.push(...wd.sim.tick());
+    const adm = of(evs, 'woundAdmitted');
+    expect(adm.map((e) => [e.entity, e.structure, e.side])).toEqual([[w, s, 0]]);
+    expect(of(evs, 'woundRejoined').map((e) => [e.tick - adm[0].tick, e.squad])).toEqual([[100, squad]]);
+    expect([wd.sim.state.medState[medic], passengers(wd.sim)[medic], wd.sim.state.figuresUp[squad]]).toEqual([0, 0, 4]);
+  });
+
+  it('a camp that produces for the OTHER side, or for nobody, is not his side\'s post: the medic holds him, nobody is admitted', () => {
+    for (const side of [1, -1] as const) {
+      const wd = world();
+      camp(wd.sim, side);
+      const medic = wd.put(DRAGGER, 0, 2.5, 5.5);
+      const squad = wd.put(SLOW_BLEEDER, 0, 6.5, 5.5);
+      hit(wd.sim, squad, 100, wd.shooter);
+      const evs: SimEvent[] = [];
+      for (let k = 0; k < 1500; k++) evs.push(...wd.sim.tick());
+      expect(of(evs, 'woundAdmitted'), `camp for ${side}`).toEqual([]);
+      expect([wd.sim.state.medState[medic], passengers(wd.sim)[medic]], `camp for ${side}`).toEqual([3, 1]); // MED_CARRYING, holding him
+    }
+  });
+
+  it('an enemy man carried to the camp is evacuated, not rejoined, with the camp\'s side named', () => {
+    const wd = world();
+    camp(wd.sim, 0);
+    const enemy = downOf(wd, 1, 9.5, 9.5);
+    const amb = wd.put(AMBULANCE, 0, 15.5, 5.5);
+    expect(wd.sim.embarkAtSpawn(amb, enemy)).toBe(true);
+    const evs: SimEvent[] = [];
+    for (let k = 0; k < 201; k++) evs.push(...wd.sim.tick());
+    expect(of(evs, 'woundRejoined')).toEqual([]);
+    expect(of(evs, 'woundEvacuated').map((e) => [e.entity, e.side])).toEqual([[enemy, 0]]);
+  });
+});
+
 describe('the public reads the app asks (GH-707 P2)', () => {
   it('canRescue is the rescue order\'s own gate, and writes nothing', () => {
     const wd = world();

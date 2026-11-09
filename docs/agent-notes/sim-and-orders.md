@@ -28,6 +28,36 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   and the garrisoned town; no passing band yet, L-4). Run
   `pnpm --filter @lions/tools exec tsx src/backtest/garrison-probes.ts`.
 
+- **A big selection spreads across houses and carriers (GH-972, lead 3 Nov).** The assignment lives in the SIM, opted
+  into by the player's command, not in the app: `garrison` gains `spread?: boolean`, `load` gains `carriers?: number[]`.
+  Absent, the order is today's bit for bit (scripted garrison stances, AI, every shipped mission). The app sets them
+  (`dispatch` in `input/intents.ts`): `spread` for two or more units, `carriers` when two or more carriers were selected.
+  Why not the app splitting per-unit commands: it only sees the click's state, so a house that fills WHILE squads walk
+  is lost, and it would duplicate occupancy/capacity rules the sim owns. Why it cannot desync in versus: the wire still
+  carries ONE command per click, ownership-checked as before (`carriers` too), and both machines re-derive the plan
+  from identical state. **`cleanCommand` (`packages/net/src/protocol.ts`) must carry the new fields or the room drops
+  them silently: the sender would run a spread order and the receiver a plain one.** `snapshot.ts`'s `COMMAND_FIELDS` too.
+  - **Garrison plan (`garrisonSpread`).** The named house first, then open houses within `SPREAD_REACH_SQ` (10 tiles,
+    centroid to centroid, nearest first, ties by structure id), only as many as the group needs. Round-robin: each house
+    in turn takes the unit nearest to it (ties by entity id), so 6 squads and two 4-seat houses are 3 and 3, not 4 and 2.
+    A group that fits the named house all goes there. Seats are `garrison_slots - occupants - units already walking there`.
+    Not a target: a dead or unfinished house, one owned by the other side, one held by any other side's men, a protected
+    site that the player did not name.
+  - **Mid-walk fill (`redirectSpread`, in `stepGarrison`).** A unit with `spreadGoal` set whose building is full (`occupants >=
+    slots`, walking or at the door) looks once in eight ticks (staggered by id) for the nearest open house in reach of that
+    building, counting the others bound for each, and turns to it. `spreadGoal` is written by BOTH garrison paths so a
+    scripted or plain order never inherits it. It is hashed and snapshotted behind the `spreadLive` latch (the `airLive`
+    shape), so no pin moved except the snapshot FORMAT pin (two new schema rows).
+  - **Load plan (`loadSpread`).** Only the ground carriers of the list (an air carrier or a single ground carrier is the
+    plain order). Seats are `transport_slots - passengers - riders already walking there`. Round-robin, nearest carrier to any
+    rider first, each taking the rider nearest it that `seatEligible` allows (the role/wounded rule of `canSeat` without the seat
+    count); each rider walks to its OWN carrier. **A carrier that fills mid-walk is NOT redirected**: the rider keeps closing
+    on it and waits beside it, today's behaviour (only the garrison has a runtime redirect).
+  - **A unit that fits nowhere in reach keeps today's order**: it walks to the named house (or carrier) and waits at the
+    door, stopped, order kept; flagged for garrison, it moves on if a seat opens within reach.
+  - Tests: `group-spread.test.ts` (sim), `net/group-spread-wire.test.ts` (JSON round trip + two machines), protocol/ownership
+    tests, `intents.test.ts` / `resolve.test.ts`.
+
 <!-- CLAUDE.md lines 339-367, section "Dev instruments" -->
 
 - **A right-click on an identified enemy is an `attack` order, not an attack-move**
@@ -98,8 +128,9 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
 <!-- CLAUDE.md lines 627-631, section "Dev instruments" -->
 
 - **Production is a serial line per camp, keyed by side (F4, GH-183; closes GH-136; G3 Q3).** A `camp` structure (and, for side 0 only, `player_start` when the mission has none) is one `ProductionLine` (`packages/sim/src/production.ts`): one item in progress for its `build_time_s`, the rest waiting (at most `MAX_LINE_QUEUE` 16, at most `MAX_PRODUCTION_LINES` 4 lines a side), the price paid at queue time and refunded in full on a cancel. The clock pauses while a living, surface, ground enemy stands within `CONTEST_RADIUS_SQ` of the exit (aircraft do not contest). A rally point is a per-line no-sweep `attackMove` (D5). A dead camp keeps its line's index and loses its queue. `requestBuild`/`canBuild`/`cancelBuild`/`setRally`/`clearRally` take `(…, line?, side = 0)` and travel as `Command`s (`build.line?`, `cancelBuild`, `setRally`, `clearRally`); `applyQueued` asks `isHumanHeld(c.side)` and passes the side (N3, GH-741; it skipped `side !== 0` before), and `validateCommand` admits `build`/`cancelBuild`/`setRally`/`clearRally` in an economy room (KDF v Sarim; each seat its own side, a forged side dropped) while fire support and field works stay dropped in every versus room (they act for side 0). A versus economy room boots a `MissionRuntime` from `data/versus/<map>.json` through `buildMatchWorld`, ticked only by `matchTick`; a runtime with no objectives never ends by itself. `built` carries `side` and the app filters to the viewer's side (`isOwnSide`; the announcer takes viewer 0, the tutorial `!== 0`). An enemy side buys through `enemy.production` (`spendDown`, D8, the same `requestBuild(unit, line, 1)`), but **no shipped mission gives side 1 a camp (D7), and `validate:data` refuses `enemy.production` on one while D7 stands** (the shipped `unitInfo` answers KDF only); `pnpm --filter @lions/tools enemy-production:probe` is the report-only witness. `economyHash` folds every line, so the four economy/digest pins moved once (`e0c39d39`); the sim pins did not. Numbers and the D-list: `docs/campaign/economy/production-numbers.md`.
-- **Which `pnpm versus:probe` invocation is the bar.** A plain `pnpm versus:probe` runs 48 seeds on all four `VERSUS_FAIR_MAPS` in all three pairings, so it prints cells nobody is offered (Beit and Milh faction cells; only the mirror is offered there) and 48-seed readings inside sampling noise (Tel Marum Sarim-friendly read KDF 68.8% at 48 seeds and 55.2% at 96, the same seeds extended). The bar is 96 seeds, on offered cells only: the mirror on the four fair maps (`--maps=beit_sahwan_outskirts,tel_marum,wadi_tarfan,milh_flats --seeds=96`), and KDF v Sarim on `FACTION_MATCHUP_MAPS` (Tel Marum, Wadi Tarfan) as placed force, `--economy --seeds=96` and `--tunnels --seeds=96` cell 3. An OUTSIDE on Beit or Milh KDF v Sarim, or on any cell at 48 seeds alone, is not a failure of the bar. The 26 Oct reading on main (GH-816's rebalance) matches at 96 seeds cell for cell.
-- **Wounds and rescue (GH-707) are ENGINE-ONLY until P3.** A squad with `hull.wounds` sheds a one-man `wounded` entity at each figure-share crossing; he bleeds, crawls to cover, and is treated, carried (`can_carry`) and admitted at an `aid` structure, then rejoins his squad weaker (`scars`). No shipped unit, structure, mission or map uses a wound field yet (P2 adds content, P3 switches on all infantry and re-pins). Every wound column -- and `removed`, which evacuation and admission now write -- folds into `hash()` only once a wound-related type is registered (`woundLive`, the `airLive`/`fwLive` deferred fold), so no pin moved; `WOUNDED_WORLD_PIN` in `determinism.test.ts` is the replay that sees the block. Rules: `sim.ts` `stepWounded`/`stepMedics`/`stepAidPosts` (and `applyDamage`'s share crossing), pure helpers in `wounds.ts`, numbers in `tuning.ts`. Conduct: `mission.ts` `stepRoe` pays +2 per enemy and +3 per civilian wounded the player admits or evacuates (once per man, +10 a mission, never past 100; `roeGain` event, folded into `digest()` only when non-zero), charges 3 for player fire killing a down enemy (not a bleed-out), and a downed civilian's 8 at his death, never the hit. A rescued man is not lost (`isLost`); a `remove` trigger's body still is. A map marker `wounded_evac` is side 0's evac point. Spec `docs/superpowers/specs/2026-10-22-wounded-rescue-design.md` (§0 rulings win), plan `docs/superpowers/plans/2026-10-22-wounded-rescue.md`.
+- **Which `pnpm versus:probe` invocation is the bar.** A plain `pnpm versus:probe` runs 48 seeds on all four `VERSUS_FAIR_MAPS` in all three pairings, so it prints cells nobody is offered (Beit and Milh faction cells; only the mirror is offered there) and 48-seed readings inside sampling noise (Tel Marum Sarim-friendly read KDF 68.8% at 48 seeds and 55.2% at 96, the same seeds extended). The bar is 96 seeds, on offered cells only: the mirror on the four fair maps (`--maps=beit_sahwan_outskirts,tel_marum,wadi_tarfan,milh_flats --seeds=96`), and KDF v Sarim on `FACTION_MATCHUP_MAPS` (Tel Marum, Wadi Tarfan) as placed force, `--economy --seeds=96` and `--tunnels --seeds=96` cell 3. An OUTSIDE on Beit or Milh KDF v Sarim, or on any cell at 48 seeds alone, is not a failure of the bar. The 26 Oct reading on main (GH-816's rebalance) matches at 96 seeds cell for cell. **3 Nov 2026:** the KDF seat's economy plan now includes a rescue plan (`--rescue-buy`, default `opening`: the medic team is bought first, in the first round, and walks to a station behind its line; `reserve`, `before`, `save`, `after`, `off` are the other readings, `after` and `off` byte-identical to main). The readings are in `docs/campaign/economy/production-numbers.md` section 6: `opening` puts Economy / Tel Marum / Sarim friendly at 67.7% (96) and 63.0% (192) against main's 60.4% and 59.9%, and main already reads that cell on the line at today's head.
+- **APS stock (GH-884, lead ruling 5 Nov 2026, option B).** `hull.aps.reserve` (integer, rounds beyond the ready magazine) and `rearm_s` are optional; a type without `reserve` keeps the unlimited 8 s reload byte for byte (`apsReserve` -1). A reload draws `min(magazine, reserve)` from the reserve, and a Lavi with both empty skips the intercept block with no rng draw. One round returns per `rearm_s` of quiet (`stepApsRearm`): REGEN_DELAY_TICKS since the last threatening hit (`lastDamagedTick`) AND since the last APS engagement (`apsLastTick`, because an intercepted round never writes `lastDamagedTick`); it goes to the reserve first, then tops up a part-spent magazine. An owned repair aura refills magazine and reserve on the tick `stepUpkeep` mends the components. `apsReserveLeft` and `apsRearmClock` fold into `hash()` behind `apsStockLive`, set when a type with `reserve` registers and NEVER keyed on `hasAps` (the golden d_tank has an APS; `aps-stock.test.ts` goes red if it is). So the golden flat/relief/orders, economy and runtime pins held until `mbt_lavi` took `reserve` 9 / `rearm_s` 30; every room that registers the KDF roster then folds the block (the versus and match-world pins moved, with the fold disabled the old values read back). The unit card and chip read "APS 3/3 +9" (`selection.chip.apsReserve`); the bot observation lists no APS. `APS_STOCK_WORLD_PIN` (determinism.test.ts) is the replay that sees the block. The versus readings after the Lavi edit are in the PR body for GH-884.
+- **Wounds and rescue (GH-707).** A squad with `hull.wounds` sheds a one-man `wounded` entity at each figure-share crossing; he bleeds, crawls to cover, and is treated, carried (`can_carry`) and admitted at an `aid` structure, then rejoins his squad weaker (`scars`). 21 shipped unit types carry `hull.wounds` (civilians; Sarim `atgm_cell`, `charge_squad`, `digger_crew`, `manpad_team`, `militia_cell`, `mortar_crew`, `recoilless_team`, `rpg_team`, `sarim_rifles`; KDF `at_nlos_team`, `at_team`, `breach_team`, `demo_squad`, `inf_grenadier`, `inf_medic_squad`, `inf_squad`, `mortar_team`, `recon_zikit`, `sniper_team`, `yahalom_squad`) and 27 shipped missions name them (every campaign town; no `data/versus` file does, but the KDF and Sarim doctrines field wound-carrying infantry). The medic call (`rescue` ability) is reachable in shipped play through `inf_medic_squad` (the Nemala medic team), loaned in every campaign mission's starting force but the tutorial (PR 905 / PR 908; before them it was placed once, in `beit_sahwan_breach`); `veh_ambulance` and `air_medevac_heli` are placed nowhere. Every wound column -- and `removed`, which evacuation and admission now write -- folds into `hash()` only once a wound-related type is registered (`woundLive`, the `airLive`/`fwLive` deferred fold), so no pin moved; `WOUNDED_WORLD_PIN` in `determinism.test.ts` is the replay that sees the block. Rules: `sim.ts` `stepWounded`/`stepMedics`/`stepAidPosts` (and `applyDamage`'s share crossing), pure helpers in `wounds.ts`, numbers in `tuning.ts`. Conduct: `mission.ts` `stepRoe` pays +2 per enemy and +3 per civilian wounded the player admits or evacuates (once per man, +10 a mission, never past 100; `roeGain` event, folded into `digest()` only when non-zero), charges 3 for player fire killing a down enemy (not a bleed-out), and a downed civilian's 8 at his death, never the hit. A rescued man is not lost (`isLost`); a `remove` trigger's body still is. A map marker `wounded_evac` is side 0's evac point. **Versus (the lead, 30 Oct and 3 Nov 2026):** the Nemala medic team was opened to the KDF versus menu on 30 Oct and held out again the same day (PR 907: the probe's ruled buy rule delivered 0.0 medics a game, and `--rescue-buy=opening` left 60/40 on Tel Marum Sarim friendly while returning almost no one). On 3 Nov the lead ruled it ON, in its own PR with a fairness check: `inf_medic_squad` is the last tile of `data/doctrines/kdf.json`, out of `VERSUS_HELD_UNITS`, at its own 295 / 18 s / population 1; `veh_ambulance` and `air_medevac_heli` stay held and on no menu; Sarim has no rescue unit. In a versus economy room the camp is the drop-off: `standMapStructures(sim, map, true)` gives the `camp` type its `versus_aid` block as `aid`, and `Sim.aidSideOf` lets a NEUTRAL aid structure work for the side it produces for (no owner, so no field-works fold and not a target). A mission's camp admits nobody. In a room `rescue` targets only the seat's own side's wounded (`validateCommand`), and a rescue unit keeps no side alive (`armedStanding`). The probe's rescue arm (`pnpm versus:probe -- --economy [--rescue-buy=opening|reserve|...]`) and its readings are in section 6 of the production-numbers note. The model's `order` verb `rescue` takes an id from `observe`'s `casualties.mine` (a wounded man is not a unit, so it used to be refused as "not a contact"), and `tools/src/net/arena-prompt.md` names it. A bot or model buys one with the `build` verb (GH-954, PR 986). Numbers: `docs/campaign/economy/production-numbers.md` section 6. Spec `docs/superpowers/specs/2026-10-22-wounded-rescue-design.md` (§0 rulings win), plan `docs/superpowers/plans/2026-10-22-wounded-rescue.md`.
 
 ---
 
@@ -112,13 +143,24 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
 
 ---
 
+## The plain group order seats by need (GH-929)
+
+`assignFormation` (`packages/sim/src/formation.ts`) is the plain group order's grid: vehicles and aircraft spaced in the front ranks, infantry one per tile behind. Its ranks used to stop at `SEARCH_RADIUS` 8, so a force that needed more rows lost its last units to `overflowPlace`, which parks them at the click. Sarim's 26-unit versus force (8 wheeled behind 18 foot) seated 14 of its 18 infantry and put the highest-id `atgm_cell`s and `manpad_team`s among the gun trucks (found by the GH-859 P1e shape report).
+
+- **The rule.** The grid runs at `SEARCH_RADIUS`. While it leaves a unit unseated, the radius doubles (8, 16, 32 ... `MAX_SEARCH_RADIUS` 256, the protocol's `MAX_CMD_IDS`), each attempt walking its own `radius + MAX_LATERAL` deep. It stops when everyone is seated, when the larger walk reached no more ground than the smaller (the ground is full), or at the cap. `overflowPlace` is the last resort for a pocket with fewer free tiles than units. An order the first pass seats is byte-identical to before.
+- **Not a bigger fixed radius.** A fixed 12 seats Sarim's 26 and fails again at about 50 units (the 60 and 256 cases go red under it). `formation-overflow.test.ts` seats 18, 30, 60 and 256 on open ground and in 2-wide and 1-wide streets.
+- **What moved.** No `test:determinism` pin (no pinned world has an overflowing order). The `versus-probe.test.ts` wadi_tarfan table pin moved (seedOf(17) to seedOf(1)). `pnpm balance` is byte-identical; `pnpm playtest` wins 30/30 everywhere and a few slowest-win times moved (khan_rafid_3 1.8 to 3.1 min).
+- **Reading the versus base.** Radius 12 WITHOUT escalation reads Sarim 58.3 / 62.5 on the placed wadi base (P1e's number, reproduced on this tree). The shipped fix reads 53.1 / 54.2 (set A), because the orders that need more than 12 ranks now take them instead of parking at the click. The base before the fix was 49.0 / 54.2.
+
+---
+
 ## Formations (GH-859 P1a)
 
 As built on `feat/formations-p1a` (plan `docs/superpowers/plans/2026-10-28-formations-p1a.md`, design
 `docs/superpowers/specs/2026-10-28-combat-formations-design.md`). Three shipped formations in
 `data/formations/` (`column`, `attack`, `ambush`), the Attack and Column ones templates of ranks and files, the
 Ambush one a ring. P1a places units and sets a rest facing and an arrival stance; it has no march, dress, pace or
-calls (P1b). The sources of every number below are the ledger `_coord/formations-p1a-progress.md`, the S4
+calls (those are P1b, in the "Formations P1b" section below). The sources of every number below are the ledger `_coord/formations-p1a-progress.md`, the S4
 diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
 
 - **The order.** `move` and `attackMove` carry an optional `formation` (a string of at most 32 characters,
@@ -128,8 +170,8 @@ diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
 - **The state.** One group table (`fg*` columns, `fmGroup`, `fmArrive`, `restFacing`), `MAX_FORMATION_GROUPS_PER_SIDE`
   16, `FORMATION_ROWS` 32 (side `s` owns rows `s * 16 ..`). Every column folds into `hash()` and the snapshot only
   once `fmLive` is set, by the first template order (the `airLive`/`woundLive` pattern). Registering a formation
-  does not set it. Pins: `FORMATION_WORLD_PIN` is a new replay (2129900778 at this writing, re-pinned once by the
-  spring-before-combat fix); the snapshot format pin moved 2452666963 -> 3512584427 with the new rows.
+  does not set it. Pins: `FORMATION_WORLD_PIN` is a new replay (2129900778 at P1a's writing, re-pinned once by the
+  spring-before-combat fix; P1b moved it five times, below); the snapshot format pin moved 2452666963 -> 3512584427 with the new rows.
 - **The exit funnel.** `fmForget(id)` is the ONE way out of a group: it clears `restFacing` and `fmArrive`, drops
   membership, and frees the row (every column to zero) when the last member leaves. Every caller is
   `if (this.fmLive) this.fmForget(..)`. Call sites, by symbol in `sim.ts`:
@@ -155,6 +197,21 @@ diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
   - fewer placeable members than the formation's `min_members` (placeable = alive, not routed, not carried, not
     landing, class not none, side 0 or 1). One unit, or a selection whose rest is aboard, is a plain order;
   - and inside a template order, an id with no slot (class none, side 2, a passenger) simply ignores it.
+- **Classes a formation leaves out** (`exclude`, lead 1 Nov, GH-859; the Attack leaves `aircraft` out, so they fly free).
+  A unit of an excluded class is NOT a member of the template order, and the order treats it as a separate plain order
+  to the same click would (the lead's Q2-ALT, written as one command): it is not counted toward `min_members`, is left out of
+  the template centroid and of the march route's lead domain, takes the plain grid (`assignFormation` over the excluded units
+  alone, their own centroid, the tiles of everyone outside the order plus the template's final slots reserved), joins no group
+  (`fmJoin` never sees it), queues no checkpoint, and has no rest facing or stance. `fmExcludes(tpl, cls)` is the one test, and
+  `sortMembers` applies it too, so `templateOffsets` and the HUD schematic seat nobody of the class. `compileFormation` and
+  `validate_formations.mjs` refuse a class named by both `exclude` and an element. An Attack with only aircraft and one tank is
+  therefore a plain order (one placeable member). The Attack no longer has a contact call: every witness built on its aircraft
+  sortie is a Column witness now. The HUD mirrors it (`formationLeavesOut`): the row does not count a left-out class toward `min_members`, and the legend lists none.
+  Deliberate divergences from "two commands" (sim-guard round 1, all deterministic; `formation-exclude.test.ts` pins the first):
+  fewer placeable members than `min_members` is ONE plain grid over everyone, excluded units included (the formation did not form);
+  an excluded unit's own tile is not reserved against the template (it is in the order, as every template member is); a
+  duplicate id is seated once; a side-2 unit of an excluded class is ignored (as the template ignores side 2); and the
+  formed group may reuse a row an excluded unit used to hold, so `fmGroup` can differ from the two-command run.
   The app mirrors the too-few case: it keeps the formation's own verb (Attack with one unit sends a plain
   `attackMove`) and plays the deny cue with a feed line.
 - **Why the faction check is versus-only.** The sim does not check factions: it knows sides, not factions, and
@@ -168,7 +225,7 @@ diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
   carried or below ground turns toward it. A target always wins, so does anything that holds the hull. Inward and
   outward are measured from the member's own track anchor.
 - **The spring.** An ambush ring springs as one (D8). `fmPend` (a member springs, or is fired on) marks the group
-  and pushes `formationSprung`; `stepFormationSpring` runs BEFORE `stepCombat` and clears the ring's stances, so
+  and pushes `formationSprung`; `stepFormationContact` runs BEFORE `stepCombat` and clears the ring's stances, so
   the ring opens fire one tick after it was found (an in-tick test pins that). If every member is ordered away
   between the mark and the spring, the row frees with the event already pushed and no spring follows (accepted).
   Aircraft never take a stance; medics in an Ambush order take none; only ring-element members do.
@@ -178,9 +235,34 @@ diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
   (formation, mix, N). `tools/src/formations_place.test.ts` is the gate (N = 2..24, every class mix, no tile
   twice, vehicle spacing outside the ring).
 
-### Versus: formations are OFF until P1b (lead's ruling, 29 Oct, GH-859)
+### Versus: formations OPENED 1 Nov on the maps S4 covered (GH-859)
 
-Formations ship in single player. In a versus room they are off until P1b. The mechanism is ONE predicate,
+**Current state.** S4 passed clean (0 TRIP of 27 cells, tunnels A+B pooled, 192 seeds paired with each cell's own baseline) with the Attack leaving
+aircraft out and `legs: false`, on Beit Sahwan, Tel Marum and Milh Flats, so `VERSUS_FORMATIONS_OPEN` is `true`. Wadi Tarfan was closed until its Sarim lean was
+settled and opened by GH-945 (re-seated at its own markers (10,10)/(37,37), every tunnel route at capacity 3; S4 0 TRIP of 21 cells on seeds the choice never saw;
+the formation amplifies a base lean about 2.5 to 5 times, so a map needs a LEVEL base, not one merely inside 60/40). **3 Nov (GH-913): the same S4 on the three
+large maps, seeds 30000-30383 that no choice had seen** (shipped Attack, A+B pooled where a RERUN or the tunnels cell asks): Rujm Sawda (mirror, 0 TRIP of 3) and
+Milh Flats (large) (mirror, 0 TRIP of 3) OPENED; Wadi Tarfan (large) (21 cells) tripped one, placed Attack-on-both-ends Sarim friendly (the KDF end 60.4% pooled
+against a 56.5% base, bar 60), and was closed through `VERSUS_FORMATIONS_CLOSED_MAPS` until the 6 Nov re-run (0 TRIP of 21) and the lead's ruling of 7 Nov (GH-859): the list is empty since, and only the tel_marum economy room is closed (data). The tests that witness the CLOSED path inject the gate
+(`seatWorldFor(cfg, sim, false)`, `roomOrderSink(..., false)`) or use the closed room (`mcp-tools.test.ts` runs its refusal on a tel_marum economy room once PR 1106 lands). The text below is the
+history of the closed gate; its mechanism is unchanged.
+
+**5 Nov (the lead's ruling, GH-859): open, except `tel_marum` economy rooms.** The gate was already open on every map but `wadi_tarfan_l`; what the ruling adds is one
+EXCLUSION, and it is data. `data/versus/<map>.json` takes an optional `formations_closed_in` (a unique list of `mirror`, `placed`, `economy`; schema
+`versus_rules.schema.json`, folded into the content digest like the rest of the file), and `formationsOpenIn(mode, open, map, kind)` reads it with the room's kind from
+`roomKindOf(config)` (`economy` is `economyRoom(config)`, `placed` a KDF-v-Sarim win-mode room, `mirror` a same-faction room). Only `tel_marum.json` declares one
+(`["economy"]`), pinned in `versus-formations.test.ts`. Every consumer passes the kind: the sender strip (`roomOrderSink`), the receiver gate (`seatWorldFor`) and the
+HUD (`main.ts`'s `formationsOpen`); `room-pause.test.ts` reads `main.ts` to pin that all four call sites do. Nothing in the sim moved (the sim registers the formations in every
+room as before): no sim pin, snapshot pin or witness row moved, `shippedContentDigest()` did (694647666 to -647773803), and the snapshot-rejoin premise still holds on its seed.
+**Fresh-seed S4 for the ruling** (`pnpm versus:probe --per-seed`, then `pnpm s4:gate`; seeds 29000-29191 as set A and 29192-29383 as set B, used by no earlier run; main `484e166`;
+the 16 cells of the 5 Nov re-run, base and the three arms): **1 TRIP of 48**, `wadi_tarfan` KDF-friendly tunnels cell 3, arm (b): 66.1% for the Sarim end against a 57.8% base at set A
+(S above 65 goes straight to the baseline clause, so set B is not asked; pooled A+B it reads 63.0% against a 60.4% base, +2.6). `tel_marum` KDF-friendly ECONOMY, the cell the 5 Nov
+re-run tripped on seeds 0-383 (64.6% against 51.3%), was a RERUN at set A (60.4%) and PASSES pooled here (58.9% against 56.0%, p 0.45): the exclusion is the lead's call and stays, and
+the cell goes on the watch list. The other tunnels cells at the bar: `wadi_tarfan` KDF-friendly (c) hostile 62.8 pooled, `tel_marum` KDF-friendly (b) 62.0 pooled with a 60.4 base.
+
+### (History) Versus: formations were OFF (lead's ruling, 29 Oct, GH-859; still off after P1b, S4 failed)
+
+Formations ship in single player. In a versus room they are off. The mechanism is ONE predicate,
 `packages/app/src/net/versus-formations.ts`: `VERSUS_FORMATIONS_OPEN = false` and `formationsOpenIn(mode, versusOpen)`
 (a versus room follows the constant; single-player and the sandbox room are open). Three consumers:
 - the SENDER strip, `roomOrderSink` (`room-pause.ts`, `mode` a required fourth argument so a missed caller fails
@@ -189,13 +271,13 @@ Formations ship in single player. In a versus room they are off until P1b. The m
 - the RECEIVER gate, `seatWorldFor(...).formationAllowed`, false in a versus room, so a forged or stale client's
   formation order drops on both machines (the protocol still carries the field);
 - the HUD row: drawn, every button inert, reason `hud.formation.inert.versus` ("Formations are not in versus rooms
-  yet"), which outranks `needsTwo` and `ambushNoGround`; R/T/Y arm nothing.
+  yet"), which outranks `needsMin` and `ambushNoGround`; R/T/Y arm nothing.
 
 The sim still registers the shipped formations in every room (`match-world.ts`) and the content digest still folds
 them (as an ARRAY in `formations` order, so the digest covers registration order). The no-formation versus probe is
 byte-identical to baseline (Beit mirror, `kdf/kdf`, 96 seeds: `47 49 0`, `96/0/0/0`, 2.9 min, east 51%).
 
-**To open versus (P1b):** set `VERSUS_FORMATIONS_OPEN = true` after P1b's S4 reads pass. These closed-gate tests
+**To open versus:** P1b's S4 failed ("Formations P1b" below), so this has not happened and what remains is the march (a frame mirrored between the ends, an engine change). Set `VERSUS_FORMATIONS_OPEN = true` only after an S4 read passes. These closed-gate tests
 go red, and each is re-aimed to the open path rather than deleted (the open-path twins already exist, driven by
 the injectable `versusOpen` argument): `versus-formations.test.ts` ("the gate ships closed", and the predicate
 table); `room-pause.test.ts` W1 (three cases: the strip bites, the caller's object is not mutated, a paused
@@ -299,7 +381,7 @@ P-tm-KS Sarim 76.0%); a data-only template tune (still fails 3 cells: P-wt-SK 62
   not; Column forms two files 2 tiles apart facing the march; with nothing armed Escape opens pause and R/T/Y arm
   nothing; 60.4 fps, worst frame 16.8 ms over 3 s.
 - **Not driven** (no relay, or not in the sandbox force): a versus room (the inert row is covered by jsdom only), the
-  garrisoned pair ("Needs two free units"), a medic or ambulance in the selection (the CCP mark has no witness),
+  garrisoned pair ("Needs 2 free units"), a medic or ambulance in the selection (the CCP mark has no witness),
   the enemy-side sprung alert (raises nothing; jsdom only), per-unit "everyone fires" on the spring (inferred from
   the alert and the kills), and the row at the other two resolutions (`ui:shots`, CI).
 - **Cursor badge caveat.** The glyph rides the sight's bottom-right quadrant inside the 32 px canvas, about 15 by 7
@@ -313,3 +395,604 @@ P-tm-KS Sarim 76.0%); a data-only template tune (still fails 3 cells: P-wt-SK 62
   instruction. Suspect `formation-arming.ts` or the `issueFormation` note: retire the line on spend or disarm.
 - **Unreproduced.** In run 1 one Column click after an ambush queued nothing; two clean re-runs worked every time
   (suspected partial box-select, not proved).
+
+## Formations P1b (GH-859)
+
+As built on `feat/formations-p1b` (plan `docs/superpowers/plans/2026-10-30-formations-p1b.md`, Rulings 1-18;
+design `docs/superpowers/specs/2026-10-28-combat-formations-design.md`). P1b adds the march, the dress, the pace,
+the contact drills and the calls to P1a's shapes. **Versus stays closed: S4 failed** (last subsection). The sources
+of every number are the ledger `_coord/formations-p1b-progress.md` and the reports under
+`_coord/formations-p1b/t8/` and `t9/`.
+
+### The march, the dress and the pace
+
+- **Checkpoints.** A formation order walks the route field once, at order time (`checkpointsOf`, pure, in
+  `formation-template.ts`): the lead domain is the vehicle domain when any template member is a ground vehicle, else
+  foot; the walk follows `dirs` from the members' centroid to the snapped click and gives up (no march: one
+  checkpoint, the click) unless it reaches the goal. With L route steps and `leg_tiles` T the spacing is
+  `max(T, ceil(L / 9))` (nine = `MAX_WAYPOINTS` plus the goal); the last checkpoint is always the click. A
+  shift-appended formation order gets no march (Q5), `march.legs: false` (the shipped Ambush) compiles to one
+  checkpoint, and pace still applies to both. Checkpoint k's slots come from `assignTemplate` with `from` =
+  checkpoint k-1; intermediate checkpoints reserve nothing, the final one uses `reservedTilesFor`, which now
+  reserves a formation member's LAST queued tile. `tCount` counts distinct ids, so `[a, a]` no longer meets
+  `min_members` 2 (template branch only). Shipped route facts: a six-unit Column (24,44) to (24,14) on an open map
+  is 30 steps, spacing 8, checkpoints y = 36, 28, 20, 14, four legs.
+- **The hold.** `fmLeg[i]` is the checkpoint member i is heading to. `finishLeg` calls `fmMarchHold` on an arrival
+  with checkpoints still queued. It holds only a row in `FM_MARCH` (a member that arrives after a drill ran passes
+  straight through), only at `fmLeg > fgRelease` and `fmLeg < fgLegs`: it sets `fmDuty = FM_DUTY_WAIT`, adds one to
+  `fgAtCp` and returns with `moving` still 1 and the goal unchanged, so the member re-arrives each tick at one
+  compare and every system that acts on `moving === 0` (`stepSweep`, `stepMedics`' idle pick, the rest facing) leaves
+  it alone. At a released checkpoint it goes straight on through `advanceLeg` (the `queued > 0` branch of
+  `finishLeg`, extracted unchanged).
+- **The release, in ticks.** `stepFormationMarch` runs BEFORE `stepMovement` (after `stepMedics`), which is what makes
+  a release "the next tick's" (Ruling 7): with every member present the release is the last arrival's tick + 1, and
+  on the clock it is the first arrival's tick + `dress_s` x 20 (60 ticks at the shipped 3 s). A release is
+  `fgAtCp + fgAway >= fgMembers` (waiting, or away on a call) or `fgDress >= dressTicks` (the clock counts only
+  while `fgAtCp > 0`). On release: `fgRelease++`, `fgDress = fgAtCp = 0`, one O(count) scan advances every WAIT
+  member and re-reads `fgPace`, one `formationReleased` event. The same function counts the quiet clock (below).
+- **The facing gate.** `stepFormationFacing` acts on a grouped member only when `fmLeg >= fgLegs` (the final
+  checkpoint) or its row is in `FM_CONTACT`; `>=`, not `===`, because a shift-appended order keeps `fmLeg` 1 of
+  `fgLegs` 1 while the member finishes its old goal, which advances `fmLeg` to 2. It skips a member on duty OUT or
+  RETURN. `travel` now means the march direction (`eighthToward(click - checkpoint n-1)`, eight-way).
+- **The pace.** `fgPace` is the minimum over living ground members not on a call of `baseStep(i)` (the expression
+  `stepMovement` always used, extracted byte-identical) with `mobilityDamaged`'s percent applied. In
+  `stepMovement`, after the mobility percent and before the rout and pin shifts, a grouped ground member not on
+  duty OUT/RETURN has `step = min(step, fgPace)`. `march.pace: none` gives 0 (no cap). Aircraft and a member on a
+  call are exempt. It is read at order time and at every release; the setter is not state
+  (`formationPaceSetterOf` recomputes it: argmin step, lowest id).
+
+### The drills and the calls
+
+- **Contact.** `fmPend(id, x, y)` is the one hook. It restarts the quiet clock (`fgQuiet = 0`) on every call. A
+  `FM_MARCH` row not yet pending takes `fgPending = FM_PEND_DRILL` and stores the point in `fgCallX/Y`; a CONTACT or
+  SPRUNG row with `fgCalled === 0` takes `FM_PEND_CALL`. `FM_PEND_*` are bits (1 drill, 2 call), so a spring with no
+  call writes what P1a wrote. The mark also pushes `formationContact` (`formationSprung` for a `spring` group). The
+  call bit is set only when the formation has a `contact` call element AND the point is within `call_radius_tiles`
+  of the member that REPORTED it (`fmCallReaches`, Ruling 10, the lead's Q3): measured from the aircraft, Attack's
+  aircraft 13 tiles back could never answer a 12-tile radius.
+- **The fire sites** (the ledger's grep of `kind: 'fire'` finds two pushes; five sites in all): `fireAt` (the
+  target's position), `fireAtStructure` (the aim point), `stepBeam` (after `lastFired`, the target's position:
+  the beam pushes `kind: 'beam'` and never goes through `fireAt`), `applySuppression`'s hostile branch (the
+  source origin) and `stepCombat`'s spring (the member's own position). Nothing else pushes a fire event.
+- **The drills** run in `stepFormationContact` (P1a's spring step, renamed, same place: before
+  `stepCombat`). `halt` and `press` set `FM_CONTACT` (3); `spring` is P1a's, state `FM_SPRUNG`. `spring` and `press`
+  end the dress through `fmEndDress` (`fgRelease = fgLegs - 1`, every WAIT member advanced, `fgAtCp`/`fgDress` zero).
+  - `spring`: P1a, plus the dress end. Ring stances clear, one tick before `stepCombat`.
+  - `halt`: `haltUnit` on every ground member and on every aircraft that will not be called (`stay`, or the call
+    bit is clear); an aircraft the call will sortie is skipped. It clears every member's WAIT duty first (a waiting
+    aircraft that was left WAITing was a defect), zeroes `fgAtCp`/`fgDress`, and sets a vehicle's `restFacing` to
+    `eighthToward(call point - own position)`. A RETURN member is halted and freed (duty NONE, `fgAway--`); an OUT
+    member keeps its duty but loses its queue like any ground member. An answering aircraft in a halt row has
+    `wpCount` zeroed, so it flies to the call, comes home to `fmHome` and stops.
+  - `press`: pace stays (for a formation that has one; the shipped Attack has none since P1c), the dress ends, the WAIT members go on. Neither press nor spring touches OUT/RETURN members.
+- **`fgCalled`** is a `Uint8Array`: 0 nobody out and a call may be raised, 1 at least one aircraft is out on the
+  row's call (the quiet clock runs and `fmRecall` is armed), 2 nobody could ever answer (no live member passes
+  `fmCanBeCalled`: air, not `stay`, an element on call for `contact`), so `fmPend`'s `fgCalled === 0` gate stops
+  the re-mark and the per-exchange scan. The value hashes and snapshots as is; `fmForget` zeroes a freed row.
+- **Aircraft call class** (Ruling 12, `aircraftCallOf(json)` once into `UnitType.fmCall`): a weapon that can target
+  `ground`, no `kamikaze`, no `swarm` block, no seats is `strike`; no ground weapon is `spot`; seats (`hull.transport_slots`),
+  `kamikaze` or `swarm` is `stay`. Census of the nine shipped air units: `heli_peten` and `heli_peten_gunship` and
+  `paramotor` strike, `recon_drone` spot, `heli_yanshuf`, `attack_drone`, `loiter_drone`, `drone_swarm` and
+  `air_medevac_heli` (the unlisted ninth, seats 4) stay. `fmCallAircraft` sends every strike/spot aircraft member
+  that is free (duty below OUT, not LANDING, in an element on call for `contact`), at any distance (it is the group's
+  own): `fmHome` = its goal if moving, else its position; goal = the call point's tile centre on the air field;
+  `attackMove` 1 for strike, 0 for spot, `sweepOrder` 0; `fmDuty = OUT`, `fgAway++`, `fgCalled = 1`, one
+  `formationCall` event. Its queue is left intact (`finishLeg` on an OUT member stops it and never advances the
+  queue) except in a halt row (above).
+- **The return.** `stepFormationMarch` counts `fgQuiet` up for a CONTACT or SPRUNG row. At `quiet_s` x 20 ticks with
+  `fgCalled === 1`, `fmRecall` sends every OUT aircraft home (`fmReturnHome`: goal = `fmHome`, `attackMove` 0, duty
+  RETURN, since a gunship flying home as an attack-mover would stop at every target) and sets `fgCalled = 0`.
+  `finishLeg` on a RETURN member sets duty NONE, `fgAway--` and `attackMove` = the formation's verb, then runs the
+  ordinary march logic. A medic is not recalled: he comes home through `medicIdle` (rescue done, not routed, nobody
+  carried) or from `stepMedics`' idle pick. Residual: a contact while the only aircraft are RETURN raises the bit on
+  each exchange and is answered only after landing (Ruling 12 skips a RETURN aircraft); the probes count those ticks.
+- **The medic call** (Ruling 14). In `fallMan`, when the wounded is spawned and `fmLive`, `woundCrossings` has
+  captured `fmGroup[target]` BEFORE `destroy` forgets it (so a squad's last man is called for too, though his own
+  group is -1). `fmCasualty` picks the nearest group member with a `rescue` block by `distSqFx`, ties by id: on foot,
+  free (`fmDuty < OUT`, `medState` IDLE, no passenger, not garrisoned, not downed or routed), within
+  `call_radius_tiles` of the wounded, in an element on call for `casualty`. He gets `beginRescue(m, w, keepQueue = true)`
+  (the `rescue` branch's writes after its `fmForget`, extracted; the `rescue` command is `beginRescue(id, w, false)`,
+  byte-identical, so `WOUNDED_WORLD_PIN` did not move), then `fmHome`, `fmDuty = OUT`, `fgAway++`. Keeping his queue
+  needs `medicGoTo`/`medicTend` not to zero `wpCount` while he is OUT (`fmOnCall`, behind `fmLive`). The ambulance
+  and the medevac never answer: they are the CCP. A medic out of reach does not answer.
+- **The counters and the exit funnel.** The row columns are `fgLegs`, `fgRelease`, `fgDress`, `fgQuiet`, `fgAtCp`,
+  `fgAway`, `fgCalled`, `fgPace`, `fgCallX`, `fgCallY`; the unit columns `fmLeg`, `fmDuty` (NONE 0, WAIT 1, OUT 2,
+  RETURN 3), `fmHomeX`, `fmHomeY`; all state, appended after `fgMembers` behind a second marker word `0x464d0002`.
+  `fmForget` is still the one way out and now also unwinds: WAIT -> `fgAtCp--` (and the dress clock when it falls
+  to zero), OUT/RETURN -> `fgAway--`, then clears `fmDuty`, `fmLeg`, `fmHome`; a freed row zeroes all fourteen. A
+  player order to a member on a sortie is the manual override: it takes him out of the group.
+- **Pins, in order** (each in its own commit, "Was <n>."): snapshot format 3512584427 -> 128788725 (the 14 rows);
+  `FORMATION_WORLD_PIN` 2129900778 -> 16150840 (the new marker word and 14 zero columns fold into any `fmLive`
+  world; the plan's "unchanged in T2" was wrong) -> 332225713 (march) -> 39544183 (contact) -> 3138870583 (calls) ->
+  762031029 (fgCalled 2). The golden flat 1258746094 / relief 1483138559 / orders 2559269335, the economy and
+  runtime-digest pins, `WOUNDED_WORLD_PIN` 3748305113, fire-support HASH, versus pins, `LADDER_CREDITS` (unchanged by this branch: 6279,
+  main's value, which the GH-707 loaned medic teams moved from 5973) and `ROSTER_MAX` 30 did not move.
+- **UI** (Task 10). The card reads the march and the call: "checkpoint n of m", the pace and its setter, "On call",
+  "Answering a call", the contact column or attack, "degraded" (`Sim.formationDegradedOf`); the chip reads "6 in
+  column - cp 2/4"; own-side alerts, one per event; the tooltip composes the halt, pace and call clauses from the
+  compiled file. `tools/validate_formations.mjs` requires `hud.formation.pace` and `hud.formation.call.<on_call>`.
+  The inert reason is `needsMin` ("Needs {n} free units"; the key `hud.formation.inert.needsMin`). Pace is shown to one
+  decimal, not for an aircraft, a member on a call or a halted Column.
+
+### Measured (head `2a80a3bbd`, Tasks 8 and 9; outputs `_coord/formations-p1b/t8/` and `t9/`)
+
+- **S1 byte identity.** `test:determinism` and the full suite green with only the two planned pins moved, `pnpm
+  playtest` byte-identical to the pre-flight baseline, `pnpm balance` identical but for the two Attack-formation
+  rows, and the NO-formation `versus:probe` on all 16 offered cells (set A, 192 seeds, 3072 games a side) against
+  `d203f0237`: 0 per-seed mismatches in winner, `by` and ticks, stdout identical.
+- **S2 (urban Attack).** Base tier 0/25/95/100 at 1:1/2:1/3:1/4:1 (plain 0/30/100/100, 24 of 240 seeds differ); max
+  tier 0/30/92/100 (plain 0/42/100/100, 34 of 240 differ). Both inside the band, the 2:1 row 70 and 62 points below
+  3:1. **M7a: the Attack arm no longer equals the plain arm seed for seed (P1a's 0 of 240), so the urban gate can now
+  fail through pace and dress** and must be read after any change to the march.
+- **S3 probes** (`pnpm formations:probe -- --probe=medic|air|ashwar|ambush`, 60 seeds, report-only):
+  - Medic: treatment delay median 1.1 s Attack and 1.3 s Column formed against 9.4 s and 6.8 s plain. Attack formed
+    loses 1.11 medic squads per engaged game (plain 0.98) and has no medic in reach 8.3% of the time (plain 1.6%);
+    bleed-outs 111 of 180 (plain 165 of 246). Column formed: 40 casualties, 0 bled out, 0 medics lost (plain 509,
+    416, 1.07).
+  - Air: a called gunship first fires 1.0 s after contact against 0.4 s in the hull rank; survival 100% in both,
+    MANPAD killed 100% in both; RETURN-only contact ticks 0.
+  - Ashwar (the Column against an unfired team; 60 seeds are 12 geometries x 5, the sim draws nothing there, so read
+    per cover): the Column gets the volley first 0% at cover 0, 0% at 1, 66.7% at 2, 100% at 3 (pooled 41.7%),
+    against 100% everywhere for a plain move; the Column loses no hull and kills the team 100%, the plain move at
+    cover 3 loses a hull and kills it 6.7%.
+  - Ambush: fire together within 1 s of the ring's first shot 75.0 / 100.0 / 89.2% (head / cross / through) against
+    16.7-25% in the per-unit and travel-facing arms; fratricide 0.0 / 0.1 / 0.0% (the D7 P2 trigger is not
+    flagged). With a gunship and drone in the group: 2 sorties a game, 54, 58 and 60 of 120 alive at the end,
+    RETURN-only contact ticks 5 / 13 / 0.
+  - Overlap (`vehicle-overlap:probe -- --formation=column`): transit pair-ticks 5488 -> 5310 and at-rest 10 -> 0,
+    but deep pair-ticks 2109 -> 3107 (+47%), worse in 3 of 6 scenarios on transit.
+  - Perf (`pnpm perf:formations`, three invocations of three runs): median tick delta 0.810 / 0.971 / 0.904 ms (bar
+    1 ms; 0.97 is close), worst checkpoint-activation excess 3.462 / 3.034 / 2.652 ms (bar 5), `flowFieldCount`
+    peak 294 formed against 300 plain.
+  - Playtest variants (`pnpm formations:playtest`, 30 seeds): Beit Sahwan IV and Tel Marum II win 30/30 in every
+    variant (Beit Sahwan IV Column 4.7 min against 2.7, ROE 94 against 100). **Qarn Hadid III with Attack is 0/30,
+    every loss `withdrawn`.** Diagnosis: the shipped plan is open loop; its t=75 west leg is cut off by the t=110
+    redirect at the paced speed, and `kill_the_relay` never completes. A scratch counterfactual with one extra west
+    attack-move at t=300 wins 30/30 at median 6.27 min (limit 14). It is not a case of pace making the deadline
+    unreachable, and nothing was retuned.
+
+### The S4 gate, and why versus stays closed
+
+- **The tool.** `pnpm s4:gate -- --end=<both|friendly|hostile> --base-a=.. --arm-a=.. [--base-b=.. --arm-b=..]`
+  reads per-seed files written by `pnpm versus:probe -- ... --per-seed=<file>` (schema `versus-per-seed/1`,
+  `tools/src/backtest/per-seed.ts`), with `--seed-from=<n>` (set A is `--seed-from=0 --seeds=192`, set B `--seed-from=192
+  --seeds=192`) and `--tunnel-cell=<off|noAnswer|answer|turtle>` (one tunnel cell, no twin). Each flag takes a comma
+  list of files merged by cell key; exit 0 all pass, 1 any TRIP, 3 a RERUN still unplayed, 2 the gate refused (a
+  pairing fault: seeds, cells, seat table or cap differ, an arm that is not Attack, set B overlapping set A).
+- **The verdict rule** (the lead's Q1, exact; integers only, a share is wins over ALL seeds, a draw is no one's):
+  - (b) both ends in Attack, per cell, S = the arm's leading-end share (the end with more wins, end 0 on a tie), B =
+    the same end's base share on the same seeds. S <= 55 PASS; 55 < S <= 65 at set A is RERUN (play set B, judge the
+    pooled seeds: pooled S <= 60 PASS, above it the baseline clause); S > 65 is the baseline clause.
+  - (c) one end only, S = the formed end's share. S <= 60 PASS; 60 < S <= 70 RERUN (pooled judged against 65); S > 70
+    the baseline clause against 65.
+  - The baseline clause: TRIP, unless B is itself above the bar (60 for (b), 65 for (c)) and the paired sign test
+    shows no shift toward that end (two-sided exact binomial p >= 0.05, or more flips away than toward): PASS
+    (baseline outside, not worse). Flips: toward = the end wins in the arm and not in the base, away = the reverse.
+    "p < 0.05" is decided in integers, never on the printed float.
+- **S4 failed at the shipped layout L0** (Task 8.4, set A 192 seeds, set B 192..383 for every RERUN; mirror, placed
+  and economy groups, all three arms on every cell): of 36 cell-arm verdicts, **13 TRIP and 23 PASS**.
+  - (b), 8 TRIP: mirror Beit (east 78.6%, base 49.5, flips 75/19), mirror wadi_tarfan (pooled 64.1, base 53.4,
+    115/74), placed tel_marum KDF-friendly (Sarim 66.1), placed wadi_tarfan KDF-friendly (KDF 88.0) and Sarim-friendly
+    (KDF 95.3, flips 98/3), economy tel_marum KDF-friendly (Sarim 70.8), economy wadi_tarfan KDF-friendly (KDF 81.8)
+    and Sarim-friendly (KDF 91.1).
+  - (c) friendly, 3 TRIP: mirror Beit 71.4, mirror wadi_tarfan 70.8, economy wadi_tarfan Sarim-friendly 70.3 (135 of
+    192, one game over the bar). (c) hostile, 2 TRIP: mirror Beit 90.6, mirror wadi_tarfan pooled 66.9.
+  - The tunnels group was not played at L0 (L0 already fails).
+- **The lever screen** (Task 9; L1 the light-vehicle rank 2 wide instead of 6, L2 the aircraft standoff 13 -> 7 and
+  13 -> 0, and the combined arms), run on the Beit mirror (b) at set A, the cheapest and most severe cell: **all
+  five arms TRIP** (S 78.6-80.2 against base 49.5, flips 75/19 to 79/20, p 0.0000). L1 is byte-identical to L0 on
+  Beit (the Beit KDF force holds one wheeled light vehicle, so the width is the same one tile); L2 re-deals 188 of 192
+  games and L2 at 7 equals L2 at 0. A clean arm needs no TRIP on any cell, so one TRIP kills an arm and the screen
+  stopped there. Task 9 steps 3 and 4 and Task 11 (the layout edit and the open gate) were not done;
+  `data/formations/attack.json` is unchanged.
+- **The mechanism** (a monkeypatched `Sim.tick` trace of `play()`, 96 seeds): with both ends formed the joint march
+  delays first contact from 5 s to 15 s and the dressed formation leaves one end nearer at the first shot. On
+  wadi_tarfan placed KDF-friendly KDF wins 45 -> 84 of 96: Namer kills of Kornet teams 1.70 -> 5.93 a game, Kornet
+  kills of Lavi 1.20 -> 0.22, first Kornet death 45.5 -> 29.7 s, and at the first shot the Sarim Kornet and rifle
+  teams are nearer the enemy than their own gun trucks (11.1 and 10.1 against 12.1 tiles). This is the reverse of
+  P1a (Namers dying sooner, Sarim winning), and one-end arms do not do it (KDF-formed alone 58.3). On the Beit mirror
+  the dressed march leaves the east end nearer (Lavi 11.4 against 15.0 tiles), the east Lavi loses 0.30 a game
+  against 0.69, so the formation shifts the Lavi duel by end. The levers only move slots; this is the march.
+- **Versus stays closed, because S4 failed** (the coordinator's Q6: P1b ships single-player with versus off). The
+  gate is unchanged: `VERSUS_FORMATIONS_OPEN` is false, the sender strip, the receiver gate and the inert HUD row are
+  as P1a left them.
+- **To open versus** needs a clean S4 read, and the only lever class left is the march itself: for example
+  mirroring the formation's frame between the two ends so neither is nearer at the first shot. That is an engine
+  change, so it is P2/P3 design work, not a data edit. When a march change passes S4 per cell at 192+ seeds,
+  the closed-gate tests re-aim as the "To open versus" paragraph above lists, and an unfielded shape then wants its own refusal text (`mcp-tools.ts` names
+  `formations-closed-in-versus` for any formation field that passes precheck without it).
+
+### Post-merge corrections (final whole-branch review, 30 Oct; head `522c89ab5` plus the review-fix commit)
+
+- **The Task 8/9 measurements predate the merge of origin/main.** Every number in "Measured" above was read before
+  main's loaned `inf_medic_squad` (one in every campaign mission but the tutorial, GH-707) joined the branch. S1 byte
+  identity, S2, S3 and the playtest variants are pre-merge readings. The playtest variants were RE-RUN on the merged
+  head (`pnpm formations:playtest`, report-only, 30 seeds, 90 s; output `_coord/formations-p1b/t13b/playtest.txt`):
+
+  | mission | variant | wins/defeats | win min median / slowest | ROE median / lowest | events contact/sprung/released/call |
+  |---|---|---|---|---|---|
+  | beit_sahwan_4_subterranean | none | 30/0 | 2.6 / 6.0 | 100 / 94 | 0/0/0/0 |
+  | beit_sahwan_4_subterranean | attack | 30/0 | 2.6 / 7.0 | 100 / 94 | 169/0/0/3 |
+  | beit_sahwan_4_subterranean | column | **27/3** (lost 3: objective `get_them_out`) | 4.7 / 6.3 | 94 / 94 | 171/0/0/0 |
+  | beit_sahwan_4_subterranean | ambush | 30/0 | 2.7 / 3.2 | 100 / 100 | 0/122/0/0 |
+  | tel_marum_2_foothold | none / attack / column / ambush | 30/0 each | 4.2 / 4.6, 4.2 / 4.6, 4.2 / 4.2, 4.2 / 4.2 | 98 / 98 each | attack 71/0/6/0, column 24/0/60/0, ambush 0/38/0/0 |
+  | qarn_hadid_3_clearance | none | 30/0 | 3.4 / 4.4 | 94 / 91 | 0/0/0/0 |
+  | qarn_hadid_3_clearance | attack | **0/30** (every loss `withdrawn`) | n/a | n/a | 196/0/110/0 |
+  | qarn_hadid_3_clearance | column / ambush | 30/0 each | 3.4 / 4.4 | 94 / 91 | none carried |
+
+  Against the pre-merge table (every variant of Beit and Tel Marum 30/30; Beit Column 4.7 min, ROE 94): Tel Marum II,
+  Beit Attack and Beit Ambush are unchanged, and Qarn Hadid III is unchanged (Attack 0/30 withdrawn, the open-loop
+  plan). **New: Beit Sahwan IV Column loses 3 of 30 seeds on `get_them_out`** (it won 30/30 before). The review-fix
+  commit is behaviour-neutral (no pin moved), the `none` variant is unchanged, so the loss comes from the merge,
+  most likely the loaned medic joining the Column's march; it was not investigated. Read it before the P1b PR: it is a report-only
+  variant, nothing was retuned, and the lead decides whether a Column that loses 10% of a campaign mission is a P1b
+  blocker or a P2 note.
+- **`s4:gate` was not re-run after the merge**, although `packages/sim` moved. S4 already failed at L0 and versus stays
+  closed, so there is no verdict to protect; the versus pins are unchanged on the merged tree (`test:determinism` and
+  the full suite are green).
+- **Formations are also open in the two-human sandbox room (mode `sandbox`), as in P1a** (`formationsOpenIn`). The
+  march, the dress and the calls run in lockstep there, so both clients simulate them; nothing in this branch tested
+  the sandbox room beyond the jsdom closed-gate tests.
+- **The levers were measured only on the Beit mirror (b).** L1's possible gain on wadi_tarfan (where the KDF force
+  holds more wheeled light vehicles) was never tested. It cannot change the verdict: one TRIP kills an arm and every
+  arm TRIPs on Beit.
+- **A waiting member keeps `moving` 1**, so `isEffectivelyMoving` treats it as moving for the detection signature, the
+  target-motion test and the shooter stance for up to `dress_s` (3 s) per checkpoint. That matches the sim's existing
+  short-halt pricing (a unit that has just stopped is still priced as moving for a short while).
+- **Follow-ups, none done:**
+  - M-3: a halted row's OUT member, medic or aircraft returns to the pre-halt checkpoint slot. `fmHome` should be
+    re-stamped to the member's position when the halt runs. Needs a re-pin and a re-read of the medic probe.
+  - M-5: leave a mobility-killed aircraft out of `could` in `fmCallAircraft`. A downed aircraft on RETURN forever keeps
+    `fgCalled` 0 and the row rescans on every fight tick.
+  - M-6: the per-seed files do not record `--rescue-buy`, `--start`, `--pop-cap` or `--rate-scale`, so the S4 pairing
+    guard cannot refuse a base and an arm played under mixed overrides.
+  - M-8: pressing the armed formation's own button after it went inert leaves it armed.
+  - The march-frame work for versus: mirror the formation frame between the ends. Scratch-arm the Beit mirror first.
+  - Deep vehicle overlap +47% (GH-421).
+  - Qarn Hadid III's open-loop playtest plan (the t=75 west leg is cut off by the t=110 redirect at the paced speed). Resolved by P1c: the Attack has no pace, `formations:playtest` Qarn Hadid III Attack is 30/30 (3.7 min).
+
+## Formations P1c (GH-859)
+
+Why S4 failed and what P1c changed. The source is the report-only diagnosis `_coord/formations-p1c/march-frame-diagnosis.md`
+(scripts, raw tables and S4 outputs beside it). Versus stays closed; this section is only the two changes P1c made to the formation
+model. The S4 re-run and the decision to open versus are written up separately.
+
+- **The template centroid is summed in Fx (a sim defect).** The template branch of `applyMove` summed `fx.toInt(fromX)`, the floor of
+  each member's tile, then floored the mean again. On a point-symmetric map both ends round toward low x and y, so the end that
+  marches toward the origin (east on wadi_tarfan) started a tile further forward, and every checkpoint after it was a tile nearer the
+  enemy. It now sums raw Fx (`tSumX += fromX`) and floors once: `cenX = fx.toInt((tSumX - (tSumX % tCount)) / tCount)`, the same
+  divide idiom on a JS-number sum (exact far below 2^53). The first Attack order is then rotation-equivariant: the witness is every
+  member's goal and waypoints equal to its rotated twin's, first Attack order on wadi_tarfan and milh_flats, both ends, three seeds
+  (15 of 15 differed before, 0 after). No determinism pin moved (the formation world is blind to it); the literals that read it in
+  `formation-calls.test.ts` and `formation-march.test.ts` were re-derived in the same change. Alone it turns the wadi mirror (b) from 64.1% TRIP to
+  50.5% PASS at 384 seeds, and is not enough on Beit. The P0 plain-order centroid is still floored (a base-game chirality; touching
+  it moves every pin, not P1c).
+- **The Attack has no march pace (lead ruling Q1, `data/formations/attack.json` `pace: none`).** Checkpoints (`legs`, `leg_tiles` 8)
+  and the 3 s dress stay. Column and Ambush keep `slowest_ground`. In S4's probe every unit is in the one Attack order, so KDF marched
+  at the D9's 0.6 t/s (mortar 0.65) and Sarim at the Grad battery's 0.5 t/s, and D4 held that pace through contact: first ground
+  contact moved from 5 to 19 s and from 7 to 17 tiles and opened as a mortar exchange. The pace was the dominant term: with the Attack
+  unpaced (and the centroid fixed) 10 of L0's 13 S4 trips passed (6 TRIP of 36 cell-arm verdicts; placed wadi 88.0 / 95.3% -> 54.2 /
+  51.6%). Any walking-pace cap does it, whoever sets it (0.5-0.7 t/s) and whether or not it holds through contact; capping KDF's armour
+  alone still gave KDF 73-79%. The Attack's members now walk at their own speeds between the 8-tile checkpoints, so contact and
+  arrival ticks move earlier, the card and the legend tooltip no longer carry a pace clause for an Attack (the clause is composed from
+  the compiled file), and a pressing Attack has nothing to hold.
+- **What moved, and what did not.** `FORMATION_WORLD_PIN` 762031029 -> 2297075074 (its own commit); that world's first Attack contact
+  is the second tank at 451 (was the helicopter at 510), the aircraft sortie at 452 (was 511) and are sent home at 945 (was 910), and
+  they are still flying home at tick 1000 (`awayAtEnd` `0,2,0,0 2`, was `0,0,0,0 0`). The fork witness's 560 cut, the HUD and legend
+  tests, `formation-calls.test.ts` (contact 117, calls 118, return 317) and the snapshot-rejoin sign premise (the digest folds in the
+  shipped formation files: the mirror seed went 2 -> 1) were re-derived. The golden canaries (flat, relief, orders), the economy,
+  runtime-digest and wounded pins and `LADDER_CREDITS` did not move. `pnpm balance` on this branch (HEAD `acc51a850`, `_coord/formations-p1c/gates/balance.txt`): only the two "Attack formation buys no ratio step"
+  rows move (base 3:1 93% / 2:1 28%, max tier 100% / 12%), and both pass. `pnpm formations:playtest` (30 seeds): Qarn Hadid III Attack 0/30 -> 30/30 (3.7 min);
+  **Beit Sahwan IV Column 27/30 -> 24/30** (6 lost on `get_them_out`, the centroid moved the Column's checkpoints; not investigated); Tel Marum II unchanged.
+- **S4 after P1c (192 seeds paired, set B for the RERUN cells, all four groups including tunnels cell 3; HEAD `acc51a850`).**
+  The no-formation mirror replay is byte-identical to T8's. **11 of 48 cell-arm verdicts TRIP** (L0: 13 of 36, tunnels unplayed), so
+  versus stays CLOSED (`VERSUS_FORMATIONS_OPEN` false). Tel Marum's six: (b) mirror 60.7% for end 0 (the south start), placed and economy Sarim-friendly
+  70.3 / 69.8%, tunnels Sarim-friendly 62.2%, and (c) hostile tunnels both seats (67.7 / 76.0%). Five are not Tel Marum: (c) mirror
+  Beit friendly 66.9 and hostile 75.5%, mirror wadi_tarfan hostile 70.8%, tunnels wadi_tarfan (b) Sarim-friendly 65.6% and (c) friendly
+  KDF-friendly 80.7% (base 47.9%, flips 75/12). All of placed and economy (c), and every (b) cell outside tel_marum and the tunnels
+  wadi seat, pass. Files: `_coord/formations-p1c/s4run/`.
+- **The (c) comparator (lead Q2, applied literally).** The probe's loose end of a one-end arm orders its aircraft with a separate
+  attack-move (`versus-probe.ts` `order()`; the per-seed file records `formation.looseAir: 'separate'` and the gate refuses an older
+  one-end file). It does not close the trips: at 96 seeds Beit friendly 78.1 -> 72.9, Beit hostile 64.6 -> 76.0, wadi identical
+  (the loose aircraft land in the same place either way). The reading the diagnosis measured is the other one: the FORMED end's
+  aircraft ordered plainly beside the formation (scratch, not committed). Under it the (c) mirror friendly and tunnels friendly cells
+  all pass and wadi hostile passes (49.5%), but Beit hostile (66.4% pooled) and the Tel Marum hostile cells (65.4 mirror, 67.7 / 71.4
+  tunnels) still TRIP. Whatever the comparator, versus does not open on this layout.
+- **What P1c leaves open.**
+  - tel_marum's end 0 (south start, north saddle) is map and seat content, re-seated after P1c (lead Q3, `mission-author`). It covers the
+    three Tel Marum cells that favour end 0: mirror (b), placed (b) Sarim-friendly and economy (b) Sarim-friendly.
+  - **The tunnels group is its own failure family** (5 of the 11 trips: (b) tel_marum Sarim-friendly 62.2 and wadi_tarfan Sarim-friendly 65.6,
+    (c) friendly wadi_tarfan KDF-friendly 80.7, (c) hostile tel_marum both seats 67.7 / 76.0). It was never played at L0. On tel_marum it favours
+    end 1, the opposite end from the seat asymmetry, so the Q3 re-seat is unlikely to clear it: diagnose it before re-seating.
+  - The (c) comparator (the lead's call, above). Note the pairing confound in every (c) delta and flip count: the base arm's loose ends keep
+    their aircraft inside one order, the (c) arm's loose end orders them apart.
+  - The P0 plain-order floored centroid (base-game chirality, moves every pin); the alternative comparator above was the diagnosis's `ZZ_AIR_PLAIN`
+    hunk (`_coord/formations-p1c/scripts/zz-air-plain-alt.patch`, on top of `acc51a850`).
+
+
+## Versus win modes (GH-976 P1)
+
+A versus room may play a WIN MODE beside annihilation: `MatchConfig.winMode` (`'camp'` | `'points'` | `'flag'`, absent is
+annihilation and every room that has ever been played). Phase 1 was the engine and the instrument; **phase 2 (below) opens
+`points` in the lobby, the bot harness and the scoring**. `camp` was offered nowhere (it failed the passive-seat bar on both
+maps); since GH-976 camp-mode it is offered on `milh_flats` alone (below) and reachable elsewhere from a test and `pnpm versus:probe -- --mode=camp`.
+
+- **Data.** `data/versus/modes/<map>.json` against `versus_mode.schema.json`, registered in `@lions/data`'s
+  `versusModes` (`index.test.ts`-style pin: `tools/src/validate_versus_modes.test.ts`). It carries the map's camps by END
+  (the `camp` mode; a mirror room has no rules file, so the file brings its own) and the points race's numbers. The
+  loader `versusModeMissionOf` turns a mode into one primary objective per SIDE, in side order, so a mode is symmetric by
+  construction. `validate:data` sweeps `data/versus/` for rules files with `modes/` skipped, and `modes/` on its own.
+- **The runtime is goals-only.** `buildMatchWorld` builds a `MissionRuntime` with `ctx.goalsOnly` in a mode room, a mirror
+  too (`economyRoom` is false for it, whoever the factions are). `step()` returns into `stepGoals` before anything else:
+  no income, production, ROE, trigger, wave, patrol or high ground, no production line, and **`checkEnd` never ends it**
+  (`outcome.ts` decides, as for an economy room). A completed objective pays no intel and earns no stripe there.
+- **`side` on an objective.** Optional, 0 or 1, absent is 0 (a pin: `win-modes.test.ts` compares `digest()` and `hash()`
+  every tick for an explicit `side: 0` and none). `capture` and `hold_for` count that side's units; `score` credits it;
+  `raze` only names who the razing wins for; any other type refuses it at construction. `contestedIn` is NOT told the
+  side: "a living unit of each side stands in the zone within the contest radius" is the same fact from either seat, so
+  the side-0 form answers a side-1 objective (a mutation of the side argument was green; it was deleted, not kept).
+- **`score`: the points race.** `{zones:[{zone, per_min}], per_value_destroyed, target}`, `goalsOnly` rooms only (it throws
+  elsewhere). The state is the objective's own `holdTicks`, in 1/1200ths of a point (a minute of ticks), so a zone's
+  `per_min` is that many units a tick, exactly, and a kill is `value x per_value_destroyed x 12` (`per_value_destroyed` is
+  points per 100 value). Integers all the way; `scoreOf(side)` floors. Its zones are registered as rate-0 income zones, so
+  the holder is the `zoneStates` rule income uses (alone in the zone holds it, both is contested and pays nobody).
+  At P1 **nothing was added to `MissionRuntime`'s own properties**; P2 adds one `ObjectiveState` field, `completeTick`
+  (below). A mode room snapshots and rejoins through the `ObjectiveState` rows (`validate_versus_modes.test.ts` restores a
+  real room mid-race and plays it on to the same hash).
+- **The camp.** `raze` on the camp's footprint (a zone the loader derives, `camp_yard_<end>`), the camp raised owned by the
+  side at that end (`owner`, which sets `fwLive` and makes it a target once seen; a plain camp is not one). There is **no
+  `seconds`**: a primary `raze` in a MISSION must declare one (an unwinnable-and-unlosable trap), but a room has the
+  match cap and annihilation, and `validate_versus_modes.mjs` refuses a `seconds` in a mode file.
+- **`outcome.ts`.** `won by: 'objective'` with `mode`; `goalsOf(world)` is undefined for every annihilation and economy
+  room, and the goal is asked FIRST (a side that razed the camp as its last unit fell has won). Both goals complete inside one
+  20-tick hash window: **the first to finish wins** (P2, `completeTickOf`), the same tick falls to the score and then to a mutual
+  draw. Annihilation, the stalemate and the cap still apply behind it.
+- **Measured at P1**, and the open question it leaves: `_coord/win-modes/report.md`.
+
+### Phase 2 (GH-976 P2): the lobby, the harness and the scoring
+
+- **`ObjectiveState.completeTick`** is the sim tick an objective became `complete` on (-1 before), written beside `status` in
+  `stepObjectives` and `completeObjective`. It is a **snapshot row** (runtime state rows 95 -> 96, the one pin that moved) and is
+  folded into `MissionRuntime.digest()` **only when `ctx.goalsOnly`**, so no mission and no annihilation room moves a byte
+  (`win-modes.test.ts` pokes the field and watches a mission digest not move; set the flag always-on and `test:determinism` goes red).
+  P1 compared frozen scores, so the larger overshoot could beat the side that reached the target FIRST.
+- **`versusModes` is in the content digest** (`content-digest.ts`): a mode file that differs between two clients is a desync on the
+  first hash tick, not later through a camp or a score.
+- **The lobby offers what was read fair.** `winModesOffered(map, matchup)` (`@lions/net`) lists the modes `WIN_MODE_FAIR_MAPS`
+  names for the map, **in the mirror only** (the probe read every mode KDF v KDF; a faction pairing plays its economy and is offered
+  none). The host's form has a "How to win" group, Annihilation by default, drawn only when something is offered; a pick the next
+  map does not offer is dropped. `POST /api/match` and the room's `/create` both ask `winModeRequest` and answer 400 (`unknown win
+  mode`, `win mode not offered on this map`, `win mode is for the mirror matchup`, `win mode is for versus rooms`); the room stores
+  `meta.winMode`, mints it into the config and names it in the lobby message to both seats (`lobby.winMode`).
+- **Nothing that treats a runtime as an economy may see a mode room's.** `main.ts` uses `economyRt` (null in a mode room) for the
+  dock, the strip's purse, rally and the arrivals voice; the harness uses `hasEconomy(world)` (`economy-view.ts`).
+- **The points HUD** (`ui/net-points.ts`, from `net/points-view.ts`) shows both sides' points, the target, what each side's zones pay a
+  minute and the ground count; the end panel says "Won on points" / "Lost on points" and both totals. **Scores and zone holders are
+  public by design** (read from the runtime, not from the seat's fog): a seat sees an enemy's bank and a zone go contested while the unit
+  that contests it is still hidden. `observe` carries the same board, `mode`, and `by` (status too); contacts stay fog-limited.
+- **Bot harness.** `pnpm bot --mode=points` and `pnpm arena --mode=points` swap lines 6-7 of `arena-prompt.md` for the mode's rule and
+  add what to defend (`win-rule.ts`: exact-text swap, throws if the prompt no longer holds the lines); the harness is started with
+  `--mode` and **refuses a room that plays another mode** than the prompt told the model. The arena asks the Worker for the mode
+  (so it refuses what the lobby would not offer, exit 2), trusts a game only if the room's config confirms it, and the cap is goal-aware
+  (`capOutcome`: a goal completed by the cap is `objective`, not `cap`).
+- **Scoring (GH-973).** The report's games table has `mode` and `decided by`; the referee's stats add `mode`, `target` and, per seat,
+  `points` by source (`fromZones`, `fromKills`, `byZone`), and a timeline of points. Zones are read from the holders and the file's rates,
+  kills are the exact residual of the runtime's own score, so the two always add to it.
+- **Not done in P2** (P3 below does the first and the third): the arena setup screen had no mode control (the CLI has); `camp` stays
+  unoffered; at the cap a mode room was decided on surviving value, not points (lead decision, P1 item 3).
+
+### Phase 3 (GH-976 P3): capture the flag (a raid), the arena's mode control, points decided at the cap
+
+- **`flag`: a raid, no carried flag.** `data/versus/modes/<map>.json` gains `flags` (a rectangle per END, `flag_friendly` and
+  `flag_hostile` once the loader adds them to the runtime's zones; the map's own zones are untouched) and `modes.flag.hold_s` (30).
+  `versusModeMissionOf` gives each side ONE primary `capture` (`raid_flag_<side>`) on the OTHER end's flag zone with `seconds: hold_s`.
+  **No sim code moved**: `capture` already held a zone alone and reset on contact (`holdTicks = 0` whenever the ground is not held),
+  `side` and the completion tick came with P1/P2. The rule, read from the engine: a unit of the raiding side inside the zone, **no
+  enemy unit inside it** within the 6-tile contest radius of one of them, for `hold_s` seconds in one go. Fire from OUTSIDE the zone
+  contests nothing, so a flag is held by the ground and a defender has to be on it. Two raids that finish on one tick are a draw
+  (exact mirror raids do, in the probe: 1-4% of games), and the draw now names its mode.
+- **Validator** (`tools/validate_versus_modes.mjs`): `flags` exactly when the `flag` mode is; every flag tile in the map and open
+  ground; neither anchor inside a flag (a seat spawned on its flag contests it from tick 0); the two flags and a flag and a camp
+  disjoint; no map zone already called `flag_<end>`. `tools/src/validate_versus_modes.test.ts` also pins the flags a half turn apart
+  and clear of every spawned unit.
+- **The probe** (`pnpm versus:probe -- --mode=flag`, `tools/src/backtest/versus-modes.ts`): the first two infantry units in placement
+  order (latched, never re-picked) `attackMove` onto the enemy end's flag; **the rest of the force is the base probe's blob**
+  (attack-move on the other side's living centroid). A `move` raid was tried and dropped: with no one stopping to fight, 95 of 96
+  mirror games finished on the same tick (a draw), which measures nothing. Passive seat: no orders at all. The self-check's cut end
+  also issues no raid (its lone survivor is the first squad, and a one-man race against a raid is no control).
+- **Fitting (seeds 0-191 only).** The flag zone is the one free number. A sweep of 5x5 open windows (24 seeds each, then 96, then 192
+  for the survivors) found the result **brittle in position**: on milh_flats the goal share was 70-79% for flags at y 11-13 on the west
+  edge and 29% one tile lower (y >= 14), because below that line the raiders cross the middle where the blobs meet; on wadi_tarfan
+  neighbouring windows swung the leader from 52% to 66%. Shipped: wadi_tarfan `[6,30,5,5]` / `[37,13,5,5]`, milh_flats `[4,11,5,5]` /
+  `[39,32,5,5]`. Read on 4000-4287 (288), see `WIN_MODE_FAIR_MAPS`'s comment in `@lions/net` for the numbers. The probe cannot say the
+  mode is good to play: it says the ground is fair for a raid and a passive seat cannot hold out.
+- **The cap of a points room** is decided on the points (`outcome.ts` `byPoints`): the higher score wins, a level score draws, compared
+  on the exact 1/1200ths. The result is `{ by: 'time', forces, points }` (`points` present exactly then, whole points by side), and the
+  end panel says "Time - won on points (355 vs 212)". A camp room, a flag room, a stalemate and every annihilation room read surviving
+  value exactly as before (`outcome.test.ts` pins the keys of the result). The probe's points games never reach the cap (mean 11-12
+  minutes against 25), so the 576 held-out games re-read identically. A forced read (`--target=5000 --passive=off`, 48 seeds from
+  4000, every game ending on the cap) decides on the points and reads wadi_tarfan west 21 / east 27, milh_flats west 28 / east 20, no draws.
+- **End wording.** A draw in a mode room carries `mode` (`{ kind: 'draw', by: 'mutual', mode }`): "Both flags were captured together" /
+  "Level on points: ..." / "Both camps fell together". `mode` absent (both sides wiped) is still "Both forces destroyed".
+- **The arena's setup screen** (`ui/arena-setup.ts`, DEV only) has a "How to win" control that lists `winModesOffered(map, matchup)`
+  and nothing else, hidden where nothing is offered, locked while a run goes; the cap follows the mode (the map's own) until typed in.
+  `arena-control.ts` accepts `mode` (`annihilation` adds no argv) and refuses, as `bad_mode`, whatever `refusalOf` would.
+- **The flag on screen and in `observe`.** `net/flag-view.ts` (import-free, one function for both) gives `{ holdSeconds, mine, theirs }`
+  with `state` open / raiding / contested / captured and the seconds held; the browser draws two zone outlines (`flagMarksOf`: yours
+  solid until they hold it, theirs dashed until you do) and the `NetFlags` panel in the points panel's corner. Both flags' state is
+  public by design, like the score of a race; no unit is named. The bot prompt (`win-rule.ts`) swaps in the raid rule and what to
+  defend, and its points fallback now says the cap goes to the higher score.
+
+### Phase 4 (GH-976 P4): the five other open maps, and KDF against Sarim
+
+- **What moved.** No sim source, no snapshot row, no pin: `data/versus/modes/<map>.json` for `tel_marum`, `beit_sahwan_outskirts`,
+  `rujm_sawda`, `wadi_tarfan_l` and `milh_flats_l`, the probe, and the Worker's allow-list. Both `points` and `flag` are now offered in the
+  mirror on all seven open maps (`WIN_MODE_FAIR_MAPS`); `camp` was still nowhere (see "GH-976 camp-mode" below).
+- **The probe reads a KDF-v-Sarim cell.** `pnpm versus:probe -- --mode=flag --maps=<id> --arr=kdf/sarim,sarim/kdf` (the factions by END,
+  friendly first; the default is the mirror). A faction mode room is the two PLACED forces with no production and no tunnels, because
+  `economyRoom` is false for any mode room, so the arm plays it with the orders it plays a mirror. The verdict line reads the leader twice:
+  over all seeds and over the DECISIVE games only (a same-tick double capture is a draw and no one's win), and a cell nobody won fails the
+  second instead of passing on zero over zero. `--flags=<x,y,w,h/x,y,w,h>` and `--hold=<s>` move the flag grounds in memory for fitting,
+  as `--zones`, `--kill` and `--target` do for the race; `--zones=name:rate@x.y.w.h` declares a ground.
+- **A ground the mode declares.** A `points` zone may carry `at` and `size` (both or neither): the loader adds it to the runtime's zones as it
+  does a flag's, and the map JSON is untouched (tel_marum and beit_sahwan_outskirts are campaign maps whose own zones sit unevenly between
+  the seats). The validator wants a name the map lacks, every tile inside the map, half of them open, and neither anchor inside.
+  `tools/src/validate_versus_modes.test.ts` also checks that **no scoring ground and no flag has a spawned unit on it at tick 0** (a seat that
+  stands in a zone holds it and is paid for standing still); it found `tel_marum`'s `approach`, `pass` and `valley_s` each under one unit, and
+  the file now declares grounds the forces do not reach.
+- **The method.** Zones, flag grounds, rates and targets fitted on seeds 0-191 (a coarse screen of 24-32 seeds, then 96, then the pooled 192),
+  one read on 4000-4287 (288 seeds), no lever pulled on those. Rule for a choice between candidates, fixed before the read: the one whose
+  smallest margin to a bar (60/40 over all games, 60/40 over the decisive games, 70% by the goal) is largest on the pooled 192.
+  Where a file was read on 4000-4287 and failed (tel_marum points at kill weight 9; wadi_tarfan_l flag at (48,56)) the failing read is in
+  the PR table, and the file shipped is the other candidate, read once.
+- **The flag is a race, and the surface is jagged.** With the probe's play (two squads attack-move on the flag, the rest of the force is the
+  blob) the outcome is decided by who reaches the other's flag first, so a flag position is either a 100/0 or a draw (the two raids finish on
+  one tick) unless the raiders and the blobs meet on the way. Fair positions are isolated: on tel_marum the leader went 53% to 97% moving a
+  flag one tile. They are fair for this probe's play. Read the table as "not shown unfair", not "balanced".
+- **KDF against Sarim: no cell is offered.** One cell of 12 passed on 4000-4287, the points race on `wadi_tarfan_l` in both seat orders, but only
+  at **10 points per 100 value and a target of 400**, and the PR 1020 review measured why: about 80% of its points came from kills (held ground
+  20%, against 87-91% on `milh_flats_l`, `tel_marum` and `wadi_tarfan`), a two-minute kill race, and at the real race (1 per 100, target 600)
+  the faction cells read Sarim 63.2% and 64.2% on 9000-9287. A cell tuned to pass is not a cell read fair, so it was removed and the
+  `wadi_tarfan_l` mirror file went back to 1 per 100 and 600 (read on a third range, 12000-12287: 135 / 153 / 0, 96.2% by the goal, passive
+  288 / 288). The flag never passes in a faction cell: the two raids are equal infantry on equal legs, and what decides them is the blob fight
+  near the flag, which is not level between a Kornet wall and an armoured column (KDF 100% on `wadi_tarfan_l` at the mirror-fair flag, Sarim
+  100% on `wadi_tarfan`, 89-100% on `tel_marum`; the one `wadi_tarfan_l` flag level for both orders on 0-95, (48,56), read Sarim 60.8% on
+  4000-4287 and its mirror is 90% east). `tools/src/validate_versus_modes.test.ts` pins the three grounds a Sarim `atgm_cell` stands on at tick 0
+  in a faction room (the `tel_marum` friendly flag, a `wadi_tarfan` bluff in each order). The raw reads: `docs/agent-notes/win-modes-p4-reads.txt`.
+- **The allow-list.** `WIN_MODE_FAIR_FACTION_CELLS` (`@lions/net`) is per mode, per map, the HOSTS that passed: `winModeAllowed(mode, map,
+  matchup)`, `winModesOffered(map, matchup)` and `winModeRequest` read it, so the route and the room still ask one question. A cell not in it
+  is a 400 `win mode not offered on this map for this matchup` (all 42 today); `config.test.ts` walks every cell, `routes.test.ts` and `match-room.test.ts` pin the cells that were read, and the tests that need an offered cell add one to the table for the length of the test.
+  The lobby says "Both forces start on the field; nothing is built or bought" instead of the economy line while a mode is picked on a
+  faction pairing.
+
+## Production works: the forward camp (GH-277 follow-on, 4 Nov 2026)
+
+Design: `_coord/producing-buildings/design.md`; the lead's rulings are the last three comments on GH-277 and win where they differ.
+`kdf_forward_camp` is a field work (owner 0, buildable) with a `production` block. Placeholders until G-NUM: 350 logistics, 40 s,
+300 hp a tile, 2x2, count 1. It sets neither optional field (`roles`, `build_time_mult`), so it builds the whole camp menu at the
+camp's speed; it carries the medic station's heal (radius 4, past the 70% cap) and the workshop's vehicle repair (radius 4, 30 s of
+component repair), the two existing aura blocks. Art: it draws `buildings/camp.glb` until the lead approves a new Meshy model.
+
+- **The line is the tail.** `stepWorks` on `structureComplete` of a type with `production` calls `appendLine`, which pushes onto the END of
+  `lines[0]`: no index a command carries ever shifts, and a destroyed work's line keeps its index and its slot (so does its count: not
+  returned). `lineAlive` is `alive && progress === ONE`, so a stake never has a live line. The first item can advance the tick after.
+- **State.** `appendedAnchors` (structure rows, in the order opened; snapshot `state`) and `authoredLines0` (where the tail begins;
+  `config`, set at the end of `buildLines`). The tail folds into `economyHash` AFTER everything else (`'FWL1'` marker, count, then each
+  anchor's structure type index) and only when `appendedAnchors.length > 0`; nothing else moves in a world that never completes such a
+  work, which is why ECONOMY_PIN, RUNTIME_DIGEST_PIN and the versus pins did not move. `FORWARD_LINE_PIN` (determinism.test.ts) is the
+  replay that sees it.
+- **The menu.** `production.roles` (a subset of unit roles) makes a per-line filter: `lineTakes` in `firstRefusal`, after the camp check and
+  BEFORE the population cap, so a tile pinned to a line that cannot build the unit reads `NOT_ON_LINE` (`'not_on_line'`, a code the dock
+  words) and not "population full". An unnamed build only ever goes to a line that takes the unit; `shortestLine(side, byRole, role)`.
+  `unitInfo` may carry a `role` (the app's does); a unit with none is not on a restricted line. `buildBlockedReasonOn(unit, line)` is the
+  named-line walk (a separate method: `buildBlockedReason`'s second parameter is the SIDE). `build_time_mult` (1.0..2.0) makes an item
+  `ceil(base x mult)` ticks on that line (`lineBuildTicks`; 1.0 returns `base` untouched).
+- **The cap.** `worksReason` returns `no_line_slot` (after `none_left`) when authored lines + lines opened + production works charged or
+  under construction would pass `MAX_PRODUCTION_LINES`; a join of a live site is never refused for it. `validate:data` counts the listed
+  production works toward the same bound (`validate_production.mjs`) and refuses a `production` type that is unbuildable, not owner 0,
+  carries `produces_for` (it would be the convoy rear), names a role no KDF unit has, or is placed by a mission's `structures[]`.
+- **What it is not.** Never the rear (`produces_for` stays camp-only, so `productionAnchor`, `syncRear`, demolition and the AI are
+  untouched), pays no income, is captured by nobody, is not on the enemy's line table (`lines[1]`, `enemyLast` do not grow: D7), and is
+  off in versus (`raiseWorks`/`cancelWorks` are dropped for every versus room in `packages/net/src/ownership.ts`, and `applyQueued` refuses them from any side but 0). Fog: an owned structure is a target once the enemy has seen it.
+- **Snapshot.** `restoreAppendedLines` makes the tail in the restore's apply step, before the line records merge in place; the plan decodes
+  against placeholders and `checkAppended` refuses an anchor that is not a complete production work, a repeat, or too many. The witness
+  world is `runtime-forward-world.test-helper.ts` (a TEST work with `roles` and `build_time_mult` set, so both paths run); it is the only
+  world in which a field work is raised, so the sim-structure and works rows left `SNAPSHOT_COVERAGE_EXEMPT`.
+- **UI.** The works tile and glyph; the dock row is "Forward {n}" (n counts forward lines only, camps keep "Camp {index+1}"), and a lone
+  forward line always has a row; a tile pinned to a line is judged against THAT line's menu (`tileState(..., onLine)`). Placing shows the
+  footprint pad and two dashed rings (aura 4, contest 6; `worksShapeOf().contest`); selecting the camp shows the same rings. No world mark.
+  The `&works` sandbox lists the camp like any `kdf_` work and now has a unit menu (the KDF units it loads models for) so a unit can be
+  built from the line. Check: `tools/src/perf/forward-camp-check.ts` (port 5195, music off, one Metal browser).
+- **Cost.** A busy forward line adds one contest scan a tick, the same as any second authored camp: about 0.004 ms/tick at 303 units; an
+  idle one about 0.00001 ms.
+
+### GH-976 camp-mode: why "destroy the camp" failed the passive-seat bar, and the one map it passes on
+
+- **Diagnosis (96 seeds, 0-95, both maps, the camps of P1).** Two causes, neither is the camp's hp. (1) *The passive bar*: the camp sat inside the
+  defender's reach, so the all-in attacker met a force standing in cover on the way to it. wadi_tarfan passive west lost 17 / 96 (attacker wiped 5,
+  or left with 2-4 units that never razed the camp and the game went to the cap and the surviving value: 12), milh_flats 10 and 8. Camp size was
+  screened (1x1 = 300 hp, 2x1, 1x2, 2x2): smaller camps made it WORSE (milh_flats passive wins 17 and 32 of 96 at 1x1). (2) *The goal share*: two
+  blobs that attack-move on each other's camp meet, and the wipe ends the game before a camp falls: 3% (wadi_tarfan) and 56% (milh_flats) decided by
+  the camp. `--wipe=off` takes the goal share to 100% (annihilation is the cause) and leaves the passive wins (8-44 of 288), so (1) is defender advantage
+  and not an annihilation artefact.
+- **The data lever.** The `camps` of a mode file (any open 2x2, within `MODE_CAMP_REACH` 10 of the seat's anchor (`tools/validate_versus_modes.mjs`; the ECONOMY camps keep `CAMP_REACH` 6), point-symmetric where the map is). Moving the
+  camps forward, toward the enemy, takes the passive seat out of its own cover: the attacker razes before it fights. Passive lost 48 of 48 in every
+  forward cell of wadi_tarfan and milh_flats. The goal share is the second lever, and only milh_flats moves it: (15,39) / (31,7) reads 96% by the goal.
+- **Shipped: `camp` on `milh_flats` only, camps (15,39) and (31,7).** Fitted on 0-191 (92 / 100, 52.1%, 96.4% by the goal, passive 192 / 192 from each
+  end), read once on 4000-4287: west 137 / east 151 / draw 0, 52.4% over all and decisive games, 96.5% by the goal, passive lost 288 / 288 from
+  each end. It is a RACE (mean 95 s), read as "not unfair for this probe's play" like the flag. (The raid took 32 s on the east camp and 82 s on
+  the west one, and a defender that stood on its camp held it 55 / 96 in the west and 8 / 96 in the east. That gap was the EXIT CORNER, not the
+  terrain: see "The exit corner" below. The numbers in this bullet are the pre-fix reading.)
+- **`camp` on `wadi_tarfan` and `wadi_tarfan_l` (GH-976, 5 Nov; the lead's ruling).** Forward camps with `wipe: after_camp`: wadi_tarfan (13,18) exit (12,17) and
+  (33,28) exit (35,30), reach 8; wadi_tarfan_l (26,30) exit (25,29) and (68,64) exit (70,66), reach 10; all point mirrors. The screen that found them
+  (stride-2 grid, reach 7-12, 6-seed passive screen then 24-seed all-arm, finals at 25000) read wadi_tarfan at (12,18) / (34,28); that pair puts a PLACED-force
+  unit on a camp tile ((12,18) and (35,29) at spawn) and `validate_versus_modes.test.ts` "no camp tile is a tile the placed force spawns on" refuses it, so it was
+  moved one tile east, which keeps the reach and the mirror. Fresh seeds 28000-28191 (192 per arm, mirror): wadi_tarfan west 101 / east 91 (52.6%), 100% by the goal,
+  passive lost 192 / 192 from each end (0 wipes), holds 8 / 17, active mean raze 61 s of 120; wadi_tarfan_l 100 / 92 (52.1%), 100% by the goal, passive lost 192 / 192 from
+  each end, holds 14 / 13, active mean raze 88 s of 240; no wiped-but-unrazed game in any arm. The **passive-arm failure of the old camps was placement, not structure**:
+  a passive seat loses every game once the camp stands forward of its anchor (relative to the enemy). milh_flats_l, rujm_sawda and tel_marum stay out: no placement
+  passed every gate (rujm_sawda fails G5 on one unrazed game or G4; tel_marum's east end wins 70% and its camps cannot be true mirrors on a map that is not
+  point-symmetric; milh_flats_l passed but 15% of its defend games end on the cap). The long defend games on milh_flats_l are why it is not listed.
+- **The exit corner (GH-976, 5 Nov).** `structureExit` answered `exitTile`, the first open tile of a ROW-MAJOR scan from the NW corner of the ring. That
+  is not point-symmetric: the west camp's exit was (14.5,38.5) on its back side, the east camp's (30.5,6.5) facing the attack, where the mirror of the
+  west exit is (33.5,9.5). The raiders aim at the enemy camp's exit and the defender stands on its own, so one end raided in 32 s and the other in 84 s
+  and a standing defender held 55 / 96 west against 8 / 96 east. Mirroring the exit alone moved the east end from 88 / 8 to 51 / 45. The fix is data
+  and a setup-only override: a camp in a mode file may carry `exit: [x, y]` (a tile index, an open ring tile of the footprint), milh_flats
+  west (14,38) and east (33,9); `Sim.setStructureExit` (setup-only, refused after tick 0 and on a blocked tile) is written by `modeRuntime`, and
+  `structureExit` returns it, else the scan. `exitTile` and garrison spill are unchanged, so no shipped mission moves. The override is two
+  `state` snapshot columns (`stExitX`, `stExitY`) and OUT of `hash()`, like `stProducesFor`. `validate:data` holds it: the exit is an open ring tile,
+  and on a point-symmetric map (0 differing tiles under (x,y) -> (W-1-x,H-1-y) in rows and elevation) the two exits, authored or derived by the scan,
+  are point mirrors (wadi_tarfan's mode file carries (6,6) / (41,41) for it; its camp mode is not offered). The same bias sits in the ECONOMY rooms
+  of milh_flats_l, rujm_sawda, wadi_tarfan and wadi_tarfan_l (the hostile exit and production delivery are on the NW corner); that is the economy
+  rules files' to fix, a separate change that moves their replays. Re-read after the fix: see the PR for the 9000-9191 numbers.
+- **The economy rules files carry the exit too (GH-976, 5 Nov).** `ends.<end>.camp.exit` in `data/versus/<map>.json` (`versus_rules.schema.json`),
+  an open ring tile, written by `economyRuntime` through `Sim.setStructureExit` after `runtime.start()`. milh_flats_l (13,74) / (82,21), rujm_sawda
+  (7,7) / (72,72), wadi_tarfan (6,6) / (41,41), wadi_tarfan_l (16,16) / (79,79): the friendly exit is what the scan answered, the hostile one its point
+  mirror (it was 3 tiles per axis nearer the centre). `validate_versus_rules.mjs` holds the same mirror rule as the modes validator (`scanExit` and
+  `pointSymmetric` live there now). The generators (`tools/maps/*/build.mjs` and the three `_redo` twins) emit the exits. Only wadi_tarfan and
+  wadi_tarfan_l are economy rooms in play (`FACTION_MATCHUP_MAPS`); milh_flats_l and rujm_sawda are mirror-only, so their exit changes no shipped room.
+  The 200-tick `VERSUS_ECONOMY_PINS` did NOT move: no unit is produced or delivered in 200 ticks of an idle room, and the override is out of `hash()`.
+- **Not offered, and why.** Screened over the camp ground the reach allows (24-48 seeds a cell, 0-47): wadi_tarfan best goal share 22%
+  (16,15), rujm_sawda 33%, wadi_tarfan_l 25%, milh_flats_l 25%, tel_marum 33%, beit_sahwan_outskirts 0% (and 75-83% for one end). The passive bar passes
+  at the forward cells, the goal share does not: the blobs meet. That is an engine rule (annihilation off in a camp room, or a wipe that does not end a
+  game while the other camp stands), not data. `--wipe=off` on the shipped milh_flats camps was not needed (96.5% already).
+
+- **Camp mode `wipe: after_camp` (GH-976, 5 Nov, the lead's rule A: "wipe, then raze").** `modes.camp.wipe` is `"ends"` (default) or `"after_camp"`
+  (`versus_mode.schema.json`; typed `string` in `VersusModeFileJson`, so JSON-module call sites typecheck). `MatchWorld.campWipe` carries it,
+  `goalsOf` hands it to `outcomeOf` (app only; no sim change, no hash change). With `after_camp` and exactly one side armed, `outcomeOf` returns
+  ongoing: the wiped side's camp stands until razed, and the razer's `goalOutcome` is the win. At a stalemate or the cap that lone armed side wins
+  (`armedWins`, `by` stays `stalemate` / `time`), because `byForces` counts unarmed value and could hand the cap to the wiped side. A mutual wipe is
+  still a draw; surrender and forfeit are room endings and untouched; `ends` is byte-identical. milh_flats, wadi_tarfan and wadi_tarfan_l ship `after_camp`.
+  Probe gates (`tools/src/backtest/versus-modes.ts`): G5 (after a wipe no capped game, mean wipe-to-goal at most 120 s on 48x48, 240 s above), G4 (the
+  `--defend` arm), the report-only G1b contested share, and `passiveLost` now reads `cleanWins` (goal or wipe only; it counted cap wins before).
+  `--camps=rules --camp-wipe=after_camp` screens a map with no camp block with its economy-rules camps, in memory. A survivor that cannot hurt a
+  camp (one mortar team left, seed 18175 of milh_flats, defend east) runs to the cap: G5's "never razed" count is what sees it.
+
+- **The set-up phase (GH-976, WP2 of capture-the-flag v2).** `Sim.beginSetup({ untilTick, region })` before tick 0, once; it latches `setupLive`
+  and every other piece hangs off it (`hash()` folds `'SU'`, `setupUntil`, `readyMask` and the region only behind it, so no other pin moved; the new pin is
+  `SETUP_WORLD_PIN`). `setupActive` is `tickCount < setupUntil`; `setupReady` (the command) sets a side's bit, and with both set `setupUntil =
+  min(setupUntil, tickCount + SETUP_BELL_DELAY_TICKS)`. The `setupBell` event is pushed by the tick whose count IS `setupUntil`, before `applyCommands`.
+  While active: (1) `SETUP_REFUSED_KINDS` (11 kinds) is the first statement of `applyCommands`' loop; (2) weapons tight: `stepCombat` takes the
+  pinned-branch writes for every unit, `stepKamikaze` returns, `stepDemolition` zeroes; detection still runs, so fire starts on the bell tick itself
+  if the forces already know each other; (3) the region clamp, a CLOSED boundary for sides 0 and 1 (never above): the wall-clip slide, the
+  post-separation revert, `disembark` (the `+HALF` spot, else the hull's own spot, else REFUSED and the rider stays aboard; a dead carrier never refuses),
+  `unloadAir`'s `spreadTiles`, and the `stepAirCarriers` landing snap; (4) `garrison` is refused per unit for a building whose centroid tile or `exitTile`
+  is outside its region (`spread` runs as the plain order). Facts worth knowing: the clamp holds an aircraft too, a clamped unit keeps `moving` 1 (so
+  `setupHeldAtLine` is the HUD read), and the landing-snap guard is reachable only by a carrier already outside its region (a goal tile is a tile centre,
+  so a carrier in an own tile is never within half a tile of a band LZ). `support` is a runtime kind: `queueCommand` never hands it to `applyCommands`, so its
+  `SETUP_REFUSED_KINDS` entry has no observable effect to read and its test row is held only by the key-set comparison. The region helper lives in
+  `@lions/data` (WP1); sim tests and `tools/src/setup-weapons-tight.test.ts` build theirs inline.
+
+- **The set-up kit, `ground_only` and the bell wait (GH-976, WP3).** `Sim.setSetupKit(kit, bans)` after `beginSetup`, before tick 0, once: `kit[i]` is slot i of
+  `@lions/data`'s `SETUP_KIT_PIECES` (hesco, sandbag_post, t_wall), `bans` are `[x, y, w, h]` rects (the flags' ground). `fortify {side, kit, x, y}` and `unfortify
+  {side, x, y}` are commands; `fortifyReason(side, kit, x, y)` is the pure refusal, in this order: `not_setup`, `no_kit` (bad slot or side, or allowance 0),
+  `placements_spent` (`SETUP_PLACEMENTS_PER_SIDE` 36 lifetime accepted, never refunded: structure ids are never reused, R0.10), `outside_region` (also off the map),
+  `banned`, `occupied` (a living, surface, non-airborne, un-garrisoned, un-carried body on the tile, ANY side), then `footprintRefusal(x, y, 1, 1)` (the rules of
+  `placementReason`, extracted: `placementReason` calls it with the buildable's footprint, so field works are byte-identical), then `no_structure_slot`. An accepted
+  piece is `addStructure(.., { owner: side })` (so `fwLive` and the owned-structure latch turn on, R0.12) with `stKit[s] = slot`; `unfortify` refuses a garrisoned post
+  (`occupied`, R0.11: `removeStructure` would throw) and refunds the allowance, not the placement. New state: `kitLeft` (side x 3 + slot), `kitPlaced`, `stKit`; new
+  config: `kitStructType`, `kitBans` (both hashed). All of it folds into `hash()` inside the `setupLive` block after the marker `0x53550977`. Aircraft: `Sim.isAircraft(id)`
+  is the TYPE flag (landed or not). `ObjectiveJson.ground_only` (TS type only, never in `mission.schema.json`) makes a `capture` skip aircraft and anyone an aircraft
+  carries (landed or hovering) in `livingIn`/`contestedIn`/`enemyNear`; a unit in a GROUND vehicle keeps today's rule. `stepGoals` returns before `stepObjectives` while
+  `setupActive`, so a flag's hold clock starts at the bell. 36 placements in one tick on wadi_tarfan_l with 30 live fields cost about 6.6 ms
+  (`tools/src/perf/setup-kit-timing.ts`, printed, not a gate).

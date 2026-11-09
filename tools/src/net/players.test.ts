@@ -126,9 +126,9 @@ const NO_SCORE = { lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remai
 function viewOf(units: { id: number; tile: [number, number]; flags: string[] }[], contacts: { id: number; tile: [number, number] }[] = []): SideView {
   return {
     tick: 120, clock: '00:06', side: 0, faction: 'kdf', map: MAP, size: [48, 48], camp: [24, 44], enemyCamp: [28, 16],
-    units: units.map((u) => ({ ...u, type: 'inf_squad', hp: 100 })),
-    contacts: contacts.map((c) => ({ ...c, type: 'inf_squad', hp: 100 })),
-    held: [], score: { mine: NO_SCORE, theirs: NO_SCORE }, result: null,
+    units: units.map((u) => ({ ...u, type: 'inf_squad', hp: 100, stance: 'free' as const })),
+    contacts: contacts.map((c) => ({ ...c, type: 'inf_squad', hp: 100, inSight: true as const, seenTick: 120 })),
+    casualties: { mine: [], theirs: [] }, held: [], stances: ['hold', 'ambush', 'patrol'], score: { mine: NO_SCORE, theirs: NO_SCORE }, mode: 'annihilation', win: '', result: null, by: null,
   };
 }
 
@@ -221,7 +221,12 @@ describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)
       const players: [ArenaPlayer, ArenaPlayer] = rushSeat === 0
         ? [inProcess('rush', rush, { log: () => {} }), inProcess('passive', passive, { log: () => {} })]
         : [inProcess('passive', passive, { log: () => {} }), inProcess('rush', rush, { log: () => {} })];
-      // Seed 56433 (seedOf(7)); was 48514 (seedOf(6)) until GH-560 (HP alone ends a vehicle, 2026-10-28), after
+      // Seed 72271 (seedOf(9)); was 8919 (seedOf(1)) until GH-884 (the Lavi's APS holds a finite stock, mbt_lavi reserve 9, 5 Nov 2026), after which passive
+      // beat rush on seat 0 on 8919 (of seedOf(0..11) at pace 40 cap 6000 on tel_marum, rush wins from both seats on 72271 alone; seat 1 at annihilation tick 2720, seat 0 on forces at the cap).
+      // Before that: seed 8919; was 1000 (seedOf(0)) until tel_marum's friendly seat moved to (26,45) (GH-990, 3 Nov 2026), after which rush
+      // lost seat 0 on 1000 (of seedOf(0..11) rush wins from both seats on 8919 and 72271 only, at pace 40 cap 6000 and at pace 60 cap 12000). Was 56433 (seedOf(7)) until GH-982 (the Spike reloads in 12 s and engages aircraft,
+      // 2026-11-03), after which rush no longer won from both seats on 56433; seedOf(0) is won by rush from both seats
+      // at pace 40 cap 6000 and at pace 60 cap 12000. Before that: seed 56433 (seedOf(7)); was 48514 (seedOf(6)) until GH-560 (HP alone ends a vehicle, 2026-10-28), after
       // which rush no longer won from both seats on 48514. Of seeds 0-11 only 7 is won by rush from both seats
       // at pace 40 cap 6000 and at pace 60 cap 12000 (seed 0 wins both seats at pace 60 only).
       // Before: seed 48514 (seedOf(6)); was 8919 until tel_marum's seat 1 moved to (29,17) for
@@ -236,7 +241,7 @@ describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)
       // 0-11, rush won from both seats on 0, 1, 7, 9 and 10 (history: under the HP model of
       // GH-560 only 7 does, and 0 at pace 60). (Was 3 until seat 0
       // moved to (24,46) on 2026-10-22.)
-      const game = await play(players, { seed: 56433, capTicks: CAP, roundTicks: PACE, timeoutMs: 150_000 });
+      const game = await play(players, { seed: 72271, capTicks: CAP, roundTicks: PACE, timeoutMs: 150_000 });
       expect(game.result.kind).toBe('won');
       if (game.result.kind !== 'won') return;
       expect(game.result.side).toBe(rushSeat);

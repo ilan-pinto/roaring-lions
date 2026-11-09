@@ -74,6 +74,15 @@ describe('the win rule counts production (N3 Task 5)', () => {
     expect(outcomeOf(sim(), 100, unitCost, p)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
   });
 
+  it('a queued or affordable medic team does not keep a side standing: it carries carbines and a rescue block (GH-707, 30 Oct 2026)', () => {
+    const m: [readonly string[], readonly string[]] = [doctrines.kdf.menu, sarim];
+    expect((units as Record<string, { weapons?: unknown[] }>).inf_medic_squad.weapons?.length).toBeGreaterThan(0); // armed on paper
+    expect(outcomeOf(sim(), 100, unitCost, productionFor(runtime([camp({ items: ['inf_medic_squad'] })], 0), m))).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+    expect(outcomeOf(sim(), 100, unitCost, productionFor(runtime([camp({ current: 'inf_medic_squad' })], 0), m))).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+    // A purse of 5000 against a menu of only the medic: nothing armed to buy.
+    expect(outcomeOf(sim(), 100, unitCost, productionFor(runtime([camp()], 5000), [doctrines.kdf.menu, ['inf_medic_squad']]))).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+  });
+
   it('camp destroyed: it loses, purse and queue notwithstanding', () => {
     const p = productionFor(runtime([camp({ alive: false, items: ['atgm_cell'] })], 99999), [doctrines.kdf.menu, sarim]);
     expect(outcomeOf(sim(), 100, unitCost, p)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });

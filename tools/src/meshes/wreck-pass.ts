@@ -625,7 +625,7 @@ function disposeIfOrphan(accessor: Accessor): void {
  * clips (an `extras` flag on the animation) and strip only those, and it costs
  * nothing to do when the first authored clip appears.
  */
-function stripWreck(doc: Document): void {
+export function stripWreck(doc: Document): void {
   for (const node of doc.getRoot().listNodes()) {
     if (node.getName() === DEATH_ROOT) disposeSubtree(node);
   }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
+import { hashWord } from './hash';
 import { MissionRuntime } from './mission';
 import { enqueue } from './production';
 import {
@@ -23,10 +24,14 @@ import {
   RELIEF_W,
   RIFLES,
   RUN_SEED,
+  SETUP_SEED,
+  SETUP_TICKS,
   WW_SEED,
   WW_SQUAD,
   economyAdvance,
   economyDrive,
+  setupDrive,
+  setupSetup,
   formationDrive,
   formationSetup,
   economySetup,
@@ -43,6 +48,8 @@ import {
   type HeldGroundSeen,
 } from './golden-worlds.test-helper';
 import { BRACE_DROPPING, BRACE_KNEELING, BRACE_RISING, Sim, type SimEvent, type UnitTypeJson } from './sim';
+import { internals } from './snapshot';
+import { FWD_TICKS, forwardDrive, forwardWorld } from './runtime-forward-world.test-helper';
 
 // The canary for invariants 2 and 3 (CLAUDE.md): replay 1000 ticks from a
 // fixed seed and assert the state hash is stable. Must pass before any
@@ -316,7 +323,7 @@ describe('determinism (1000-tick replay)', () => {
     expect(seen.has(BRACE_DROPPING)).toBe(true);
     expect(seen.has(BRACE_KNEELING)).toBe(true);
     expect(seen.has(BRACE_RISING)).toBe(true);
-    expect(kneelingShots).toBeGreaterThan(100);
+    expect(kneelingShots).toBeGreaterThan(500);
     expect(standingShots).toBe(0);
   });
 
@@ -1252,31 +1259,137 @@ describe('determinism of a wounded world (600-tick replay, GH-707)', () => {
 // ---------------------------------------------------------------------------------------------
 // FORMATION_WORLD_PIN (GH-859 P1a Task 4): a NEW pin, not a moved one. No other replay in this file
 // orders a formation, so the deferred `fmLive` block (the group table and the three per-unit
-// columns) is outside all of them; this is the replay that sees it. A 600-tick fight with the three
+// columns) is outside all of them; this is the replay that sees it. A 600-tick fight (1000 since P1b Task 5) with the three
 // SHIPPED data/formations files and test-local unit types: side 0 orders a Column (tick 0), an
 // Attack attack-move (40) and an Ambush ring about (40,24) (80), and re-orders one Column member
 // plainly mid-march (60); a side-1 Column walks into the ring (150). The test asserts each thing
 // happened, so a change that quietly stops one of them fails here and not only on the number.
 
-function formationWorld(seed: number): { hash: number; seen: Record<string, number>; groups: string; members: string; ringFacing: string; sprungBy: number } {
+interface FormationWorldFacts {
+  hash: number;
+  seen: Record<string, number>;
+  groups: string;
+  members: string;
+  ringFacing: string;
+  sprungBy: number;
+  /** Checkpoints of the Column, Attack, Ambush and side-1 Column rows, read at tick 151. */
+  legs: string;
+  /** Every `formationReleased`, as `tick:group:leg/legs`. */
+  released: string;
+  /** The tick the Column's first member waited at its first checkpoint (fgAtCp first above 0). */
+  columnFirstArrival: number;
+  /** The Column's pace, and the id that sets it, read at tick 61. */
+  columnPace: number;
+  columnSetter: number;
+  /** Every `formationContact`, as `tick:group:entity:drill` (GH-859 P1b Task 4). */
+  contacts: string;
+  /** The four rows' states after tick 600 (Column, Attack, Ambush, side-1 Column): the P1b Task 4 reading, unchanged. */
+  endStates: string;
+  /** The same four rows after the last tick (GH-859 P1b Task 5: the world runs 1000). */
+  finalStates: string;
+  /** Every `formationCall`, as `tick:group:entity:call` (GH-859 P1b Task 5). */
+  calls: string;
+  /** The ids that were ever on duty OUT (2) and ever RETURN (3), read each tick, ascending. */
+  outSeen: string;
+  returnSeen: string;
+  /** Every `woundedDown`, as `tick:parent`. */
+  casualties: string;
+  /** At the last tick: members still away (the Attack's row and the Column's), and every duty read back to NONE. */
+  awayAtEnd: string;
+  /** Every tick of the run where a row's fgAtCp or fgAway disagreed with a recount of its members' duties (must be empty). */
+  censusBad: string[];
+  /** How many (tick, row) pairs the census compared with a non-zero counter, so it cannot pass by comparing zeros alone. */
+  censusLive: number;
+}
+
+/**
+ * GH-859 P1b final review M-1: the exact census. For every group row, `fgAtCp` is the number of members on duty WAIT
+ * (1) and `fgAway` the number on OUT (2) or RETURN (3), recounted from the per-unit columns. Returns one message per
+ * row that disagrees, and the number of rows whose counters were non-zero.
+ */
+function formationCensus(sim: Sim, tick: number): { bad: string[]; live: number } {
+  const p = internals(sim);
+  const group = p.fmGroup as Int16Array;
+  const duty = p.fmDuty as Uint8Array;
+  const atCp = p.fgAtCp as Uint16Array;
+  const away = p.fgAway as Uint16Array;
+  const wait = new Uint16Array(atCp.length);
+  const gone = new Uint16Array(atCp.length);
+  for (let i = 0; i < sim.entityCount; i++) {
+    const g = group[i];
+    if (g < 0) continue;
+    if (duty[i] === 1) wait[g]++;
+    else if (duty[i] === 2 || duty[i] === 3) gone[g]++;
+  }
+  const bad: string[] = [];
+  let live = 0;
+  for (let g = 0; g < atCp.length; g++) {
+    if (atCp[g] !== wait[g]) bad.push(`${tick}:${g}:atCp ${atCp[g]} != ${wait[g]}`);
+    if (away[g] !== gone[g]) bad.push(`${tick}:${g}:away ${away[g]} != ${gone[g]}`);
+    if (atCp[g] > 0 || away[g] > 0) live++;
+  }
+  return { bad, live };
+}
+function formationWorld(seed: number): FormationWorldFacts {
   const { sim, ids } = formationSetup(seed);
+  const atCp = internals(sim).fgAtCp as Uint16Array;
   const seen: Record<string, number> = {};
+  const released: string[] = [];
+  const contacts: string[] = [];
   let groups = '';
   let members = '';
   let ringFacing = '';
   let sprungBy = -1;
-  for (let t = 0; t < 600; t++) {
+  let legs = '';
+  let columnFirstArrival = -1;
+  let columnPace = -1;
+  let columnSetter = -2;
+  const calls: string[] = [];
+  const casualties: string[] = [];
+  const out = new Set<number>();
+  const ret = new Set<number>();
+  let endStates = '';
+  const censusBad: string[] = [];
+  let censusLive = 0;
+  const rowStates = (): string => [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationStateOfGroup(sim.formationGroupOf(i))).join(',');
+  for (let t = 0; t < 1000; t++) {
     formationDrive(sim, t, ids);
     for (const e of sim.tick()) {
       if (e.kind === 'formationSprung' || e.kind === 'ambushSprung') seen[e.kind] = (seen[e.kind] ?? 0) + 1;
       if (e.kind === 'formationSprung') sprungBy = e.entity;
+      if (e.kind === 'formationReleased') released.push(`${e.tick}:${e.group}:${e.leg}/${e.legs}`);
+      if (e.kind === 'formationContact') contacts.push(`${e.tick}:${e.group}:${e.entity}:${e.drill}`);
+      if (e.kind === 'formationCall') calls.push(`${e.tick}:${e.group}:${e.entity}:${e.call}`);
+      if (e.kind === 'woundedDown') casualties.push(`${e.tick}:${e.parent}`);
+    }
+    const census = formationCensus(sim, t);
+    censusBad.push(...census.bad);
+    censusLive += census.live;
+    for (let i = 0; i < sim.entityCount; i++) {
+      const d = sim.formationDutyOf(i);
+      if (d === 2) out.add(i);
+      if (d === 3) ret.add(i);
+    }
+    if (t === 599) endStates = rowStates();
+    if (columnFirstArrival < 0 && atCp[0] > 0) columnFirstArrival = t;
+    if (t === 61) {
+      columnPace = sim.formationPaceOfGroup(0);
+      columnSetter = sim.formationPaceSetterOf(0);
     }
     if (t === 59) members += `${sim.formationMembersOfGroup(0)}`; // before the re-order
     if (t === 61) members += `>${sim.formationMembersOfGroup(0)}`; // after: one left by order
-    if (t === 151) groups = [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationGroupOf(i)).join(',');
+    if (t === 151) {
+      groups = [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationGroupOf(i)).join(',');
+      legs = [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationLegsOfGroup(sim.formationGroupOf(i))).join(',');
+    }
     if (t === 380) ringFacing = ids.amb.map((i) => sim.state.facing[i]).join(',');
   }
-  return { hash: sim.hash(), seen, groups, members, ringFacing, sprungBy };
+  const asc = (s: Set<number>): string => Array.from(s).sort((a, b) => a - b).join(',');
+  const awayAtEnd = [0, 1, 2, 3].map((g) => `${(internals(sim).fgAway as Uint16Array)[g]}`).join(',') + ' ' + Array.from({ length: sim.entityCount }, (_, i) => sim.formationDutyOf(i)).filter((d) => d !== 0).length;
+  return {
+    hash: sim.hash(), seen, groups, members, ringFacing, sprungBy, legs, released: released.join(' '), columnFirstArrival, columnPace, columnSetter, contacts: contacts.join(' '),
+    endStates, finalStates: rowStates(), calls: calls.join(' '), outSeen: asc(out), returnSeen: asc(ret), casualties: casualties.join(' '), awayAtEnd, censusBad, censusLive,
+  };
 }
 
 // FORMATION_WORLD_PIN: born 2026-10-28 (GH-859 P1a), read from the first run. It moves when a
@@ -1288,17 +1401,86 @@ function formationWorld(seed: number): { hash: number; seen: Record<string, numb
 // spring on. Scouting ticks re-read on the new code: first ring member set at 196, last at 344, group
 // found at 404 (snapshot-witness.test.ts reads the same three numbers, unchanged: the spring happens
 // at the top of the tick after, which is what moved). Was 3331466982.
-const FORMATION_WORLD_PIN = 2129900778;
+// Re-pinned 2026-10-30 (GH-859 P1b Task 2): this world is `fmLive`, so hash() now folds the P1b marker word
+// 0x464d0002 and fourteen columns after the P1a block. Every one of them holds its empty value at every tick of
+// the 600 (formation-state.test.ts asserts that), so the move is the marker and the zeros and nothing else:
+// with the P1b hash lines removed the same run reads 2129900778 again. Was 2129900778.
+// Re-pinned 2026-10-30 (GH-859 P1b Task 3, the march). The world marches now: checkpoints every eight steps of the
+// route (legs 2,3,1,2), dresses (four of the Column's five wait at checkpoint 1 from tick 142 and are released by the
+// clock at 202; the Attack and the side-1 Column are released on the tick after their last arrival), a pace cap
+// (the Column's slow mortar, id 19, sets 2293 raw a tick), the final reservation, the travel facing, the shipped
+// Ambush with `legs: false`, and a sweeping Attack (wpSweep). The world itself changed in two ways: the Column
+// gained the slow mortar (spawned last, so no P1a id moved) and the Attack order carries `sweep: true`. Every
+// P1a world fact was re-read on the new code: groups '0,1,2,16', ringFacing '16384,57344,32768,24576,8192,49152',
+// seen {formationSprung: 1} and sprungBy 10 are UNCHANGED; members '5>4' became '6>5' (the extra Column member);
+// the fork witness's scouting ticks [196, 344, 404] became [196, 344, 445] (the ring is found 41 ticks later).
+// Was 16150840.
+// Re-pinned 2026-10-30 (GH-859 P1b Task 4, contact and the drills). The world makes contact twice. The side-1 Column,
+// ordered at 150, opens fire on the ring from 444 (the first member to shoot, id 16, reports its target) and HALTS: every
+// member stopped with an empty queue, state 3, the vehicles' rest facing toward the fire; the ring is found by that
+// fire on the same tick and springs as before. The Attack, sweeping up the map, meets the side-1 riflemen near
+// (38.5, 16.5) at tick 541 (id 6) and PRESSES: state 3, dressing over, pace and queues kept. Both groups read state 3
+// at the end of the 600 ticks, and the three drill columns (fgQuiet fgCallX fgCallY) are written for the first time:
+// a group in contact counts the quiet clock and records the call point. The mark of the ring now also carries the
+// call bit (the ring has a contact-call aircraft element and the fire came from inside the call radius): 3, not 1,
+// at the cut after tick 444. Every earlier world fact is UNCHANGED: groups, members, legs, ringFacing, seen, sprungBy,
+// the Column's pace and first arrival, and all four releases. No post was added: the world already holds the
+// contacts the task asks for. Was 332225713.
+// Re-pinned 2026-10-30 (GH-859 P1b Task 5, the calls). The world gains the units that answer them and runs 1000 ticks
+// (the aircraft come home from tick 910). A strike helicopter and a spot drone join the Attack, a medic and an ambulance
+// join the Column (all spawned after the slow mortar, ids 20..23, so no earlier id moves), the Column's riflemen carry
+// wound content (a four-man squad with a certain fall and a test-local wounded body), and at tick 180 a stray round with
+// no shooter drops one man of the Column's second squad. Then: the medic (id 22) is called, goes OUT, treats and carries
+// the man to the ambulance and is back on its march by 425 (casualty call 180, return 346); the Attack's helicopter
+// reports the contact itself at 510 (the fire it opened on the side-1 riflemen near (40.5, 16.5), 31 ticks before the
+// tank did) and the helicopter and drone sortie at 511 (strike, spot); the side-1 riflemen die by 711; quiet for ten
+// seconds, both are sent home at 910 and are back on duty NONE by 966. Four columns are written for the first time
+// (fmHomeX fmHomeY fgAway fgCalled), duty OUT and RETURN occur, and FM_CASUALTY_TICK is a world fact. World facts re-read
+// on the new code: UNCHANGED groups '0,1,2,16', ringFacing, seen {formationSprung: 1}, sprungBy 10, legs '2,3,1,2', the
+// Column's pace 2293 set by id 19, the side-1 Column's contact (444:16:16:1) and release (351), and the four row states
+// after tick 600 ('1,3,4,3'). CHANGED: members '6>5' -> '8>7' (the medic and the ambulance), the Column's first arrival
+// 142 -> 57 (the ambulance is a fast vehicle that reaches checkpoint 1 first), the releases '202:0:1/2 237:1:1/3 351:16:1/2
+// 415:1:2/3' -> '117:0:1/2 169:1:1/3 277:1:2/3 351:16:1/2' (the Column is released by the clock at 117, the Attack, whose
+// aircraft are exempt from the pace and arrive first, sooner), and the Attack's contact '541:1:6:2' -> '510:1:20:2'.
+// The fork witness's scouting ticks [196, 344, 445] are UNCHANGED. Was 39544183.
+// Re-pinned 2026-10-30 (GH-859 P1b Task 5, fix round 1). A call that finds no member it could ever send now latches
+// fgCalled = 2 ("nobody to call") on its row, so a group in contact with no aircraft is scanned once and not on every
+// exchange of fire: the Column (a medic and an ambulance, no aircraft), the ring and the side-1 Column read 2 where they
+// read 0. Nothing else in the world moved: every world fact above (groups, members, ringFacing, seen, sprungBy, legs,
+// the releases, first arrival, pace, the contacts, the calls, the casualty, the duties seen, the row states after tick
+// 600 and after the last) was re-read on the new code and is UNCHANGED, and so are the fork witness's scouting ticks.
+// The halt change (an answering aircraft loses its queue) reaches no unit of this world: no halt row holds an aircraft.
+// Was 3138870583.
+// Re-pinned 2026-10-31 (GH-859 P1c). The Attack lost its march pace (data/formations/attack.json, pace none): its members walk at
+// their own speeds between 8-tile checkpoints, so the world's Attack ring reaches the post sooner, its first contact is the second tank
+// (id 6) at 451 and not the helicopter at 510, its aircraft sortie at 452 (was 511) and are sent home at 945 (was 910).
+// The groups, members, ringFacing, seen, sprungBy, legs, the Column's pace and first arrival, the releases, the casualty, the
+// duties seen and the row states are all re-read UNCHANGED; the golden canaries do not move.
+// Was 762031029.
+// Re-pinned 2026-11-01 (GH-859, the Attack leaves its aircraft out). The shipped attack.json now has `exclude: [aircraft]`, and the world
+// changed with it: the heli and drone are still ordered with the Attack as it WAS (`attackHoldingAir`, group row 1, so the contact
+// call, the sortie at 452 and the return at 945 are read exactly as before), and a fourth group is ordered with the SHIPPED
+// Attack at tick 90: two unarmed squads that form and a drone that is left out (ids 24..26, spawned last), which flies the plain order
+// in no group. The extra types and units, the fourth formation type (`attack_air`, index 3, which the old Attack group's fgType now
+// reads) and the fourth group row are the whole move: groups, members, ringFacing, legs, the Column's pace and first arrival, the
+// contacts, the calls, the casualty and the duties seen are re-read UNCHANGED; only 'released' gains the new group's release.
+// Was 2297075074.
+// Re-pinned 2026-11-01 (GH-859, lead: the Attack ships with `legs: false`). The Attack as it was (`attack_air`) keeps its checkpoints in this
+// world, so the contact, call and return facts hold; the fourth group, ordered with the SHIPPED Attack, now goes straight to its slots
+// (no checkpoint, no dress, no release at 278). Re-read UNCHANGED: groups, members, ringFacing, legs, the Column's pace and first
+// arrival, the contacts, the calls, the casualty, the duties seen. Was 2674420450.
+const FORMATION_WORLD_PIN = 1398138626;
 
-describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () => {
+describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extended in P1b)', () => {
   it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
     const a = formationWorld(FM_SEED);
     const b = formationWorld(FM_SEED);
     expect(b).toEqual(a);
     // rows 0, 1, 2 on side 0 (column, attack, ambush), row 16 the first on side 1
     expect(a.groups).toBe('0,1,2,16');
-    // the Column had five members; the plain move at tick 60 took one out
-    expect(a.members).toBe('5>4');
+    // the Column had six members (the slow mortar spawned last); the plain move at tick 60 took one out
+    // (P1b Task 5: the medic and the ambulance joined the Column; it was '6>5')
+    expect(a.members).toBe('8>7');
     // every ring member at its inward eighth-turn at tick 380 (the ring is set, the enemy not yet in): armour at
     // (40,21) south, armour at (38,26) north-east, mortar at (43,25) west, rifles at (42,22) south-west, (36,22) on the
     // cover tile south-east, and (40,27) north
@@ -1310,7 +1492,309 @@ describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () =>
     expect(a.sprungBy).toBe(10);
   });
 
+  it('every tick, each row\'s fgAtCp and fgAway equal a recount of its members\' duties (GH-859 P1b final review M-1)', () => {
+    const a = formationWorld(FM_SEED);
+    expect(a.censusBad).toEqual([]);
+    // The census saw counters above zero on many ticks (waits at checkpoints, sorties and a rescue), not zeros alone.
+    expect(a.censusLive).toBeGreaterThan(500);
+  });
+
+  it('marches: the checkpoints, the pace and the dresses are the ones the world is built to show (GH-859 P1b)', () => {
+    const a = formationWorld(FM_SEED);
+    // Column 14 steps (checkpoints at steps 8 and 14), Attack 18 steps to three, the ring `legs: false` (one), the
+    // side-1 Column 12 steps to two
+    expect(a.legs).toBe('2,3,1,2');
+    // The Column's slow mortar (id 19: five column, five attack, six ring, three foes, then it) sets the pace:
+    // 0.7 tiles a second is 2293 raw a tick, against the rifles' 2949.
+    expect(a.columnPace).toBe(2293);
+    expect(a.columnSetter).toBe(19);
+    // Four of the Column's five wait at checkpoint 1 from tick 142 and the mortar is three tiles behind: the dress
+    // is released by the clock, dress_s = 60 ticks after the first arrival (tick 202). The Attack and the side-1
+    // Column are whole at their checkpoints, and are released on the tick after the last arrival.
+    // Re-read on P1b Task 5's world (the Column gained an ambulance, a fast vehicle with the shortest way to checkpoint 1,
+    // and a medic): the first arrival is tick 57 (was 142) and the Column is released by the clock, 60 ticks later, at 117
+    // (was 202); the Attack (whose aircraft were exempt from the pace; since P1c it has no pace at all, and these two releases read the same) is whole at its checkpoints sooner (169 and 277; was
+    // 237 and 415); the side-1 Column's release is unchanged.
+    expect(a.columnFirstArrival).toBe(57);
+    // GH-859: the fourth group (the shipped Attack's two squads, ordered at tick 90) has no checkpoint, so it is released nowhere here;
+    // the other three are as they were.
+    expect(a.released).toBe('117:0:1/2 169:1:1/3 277:1:2/3 351:16:1/2');
+  });
+
+  it('makes contact twice: the side-1 Column halts and the Attack presses (GH-859 P1b Task 4)', () => {
+    const a = formationWorld(FM_SEED);
+    // tick:group:entity:drill. Row 16 (the side-1 Column, drill halt = 1) at 444 by its first rifleman, id 16 (five
+    // column, five attack, six ring, then the foe riflemen 16..18); row 1 (the Attack, drill press = 2) at 541 by id 6,
+    // the second tank, on the side-1 riflemen near (38.5, 16.5).
+    // Task 5: the Attack's strike helicopter (id 20, an aircraft that outruns the pace) opened fire first, at 510 and not 541.
+    // P1c: with no pace the Attack's ground members arrive sooner, and the second tank (id 6) fires first again, at 451.
+    expect(a.contacts).toBe('444:16:16:1 451:1:6:2');
+    // Column marching still (its last leg done, nothing hit it), Attack in contact, ring sprung, side-1 Column in contact
+    expect(a.endStates).toBe('1,3,4,3');
+  });
+
+  it('calls: the Column\'s medic answers a man going down, the Attack\'s aircraft sortie and come home (GH-859 P1b Task 5)', () => {
+    const a = formationWorld(FM_SEED);
+    // tick:group:entity:call. The Column (row 0): the medic, id 22, is called at 180 for the man who fell then and is
+    // back on its march by 346. The Attack (row 1): the strike helicopter (20) and the spot drone (21) sortie at 452, the
+    // tick after their contact at 451 (P1c: was 511 and 510), and are sent home at 945 (was 910), ten quiet seconds after the last fire.
+    expect(a.calls).toBe('180:0:22:casualty 346:0:22:return 452:1:20:strike 452:1:21:spot 945:1:20:return 945:1:21:return');
+    // one man fell: the Column's second squad (id 2)
+    expect(a.casualties).toBe('180:2');
+    // duty OUT and RETURN were each seen on exactly the three answerers and nobody else
+    expect(a.outSeen).toBe('20,21,22');
+    expect(a.returnSeen).toBe('20,21,22');
+    // after the 600th tick the four rows read as before; after the last the side-1 Column is gone (the riflemen died before the end)
+    // and the others are as they were: the Column marching, the Attack in contact, the ring sprung
+    expect(a.endStates).toBe('1,3,4,3');
+    expect(a.finalStates).toBe('1,3,4,0');
+    // everyone is home: no member away in any of the four rows, and no member on a duty at all
+    // P1c: the Attack's aircraft are sent home at 945 (was 910) and are still flying home when the 1000 ticks end: row 1 has the
+    // helicopter and the drone away (2), both on a duty (RETURN). Every other row is home. The sorties' arrival is pinned in
+    // formation-calls.test.ts ('on arrival the helicopter is back on duty NONE').
+    expect(a.awayAtEnd).toBe('0,2,0,0 2');
+  });
+
   it('the pinned hash', () => {
     expect(formationWorld(FM_SEED).hash).toBe(FORMATION_WORLD_PIN);
+  });
+
+  it('the shipped Attack leaves its aircraft out: the little group\'s two squads form, its drone flies the plain order in no group (GH-859)', () => {
+    const { sim, ids } = formationSetup(FM_SEED);
+    const p = internals(sim);
+    const fmGroup = p.fmGroup as Int8Array;
+    const moving = p.moving as Uint8Array;
+    const attackMove = p.attackMove as Uint8Array;
+    const wpCount = p.wpCount as Uint8Array;
+    for (let t = 0; t <= 91; t++) {
+      formationDrive(sim, t, ids);
+      sim.tick();
+    }
+    const [sqA, sqB, drone] = ids.lean;
+    // the two squads are members of one new group (the fourth row of side 0, after the Column, the Attack and the ring)
+    expect(fmGroup[sqA]).toBe(3);
+    expect(fmGroup[sqB]).toBe(3);
+    // the drone is in no group, queues no checkpoint, and is under the same attack-move order, straight to its plain slot
+    expect(fmGroup[drone]).toBe(-1);
+    expect(wpCount[drone]).toBe(0);
+    expect([moving[drone], attackMove[drone]]).toEqual([1, 1]);
+    expect(wpCount[sqA]).toBe(0); // the Attack ships without checkpoints (lead, 1 Nov): its members go straight to the slots
+    // and it holds no formation duty at the end of the run
+    expect(sim.formationDutyOf(drone)).toBe(0);
+  });
+
+  it('given 200 more ticks than the pin, the Attack\'s aircraft are home: no member away, no duty held (GH-859 P1c)', () => {
+    // The pin is hashed at tick 1000, where the Attack's helicopter and drone are still flying home (awayAtEnd '0,2,0,0 2'),
+    // so "everyone is home" is no longer a fact of the pinned run. This reads the same world 200 ticks on. The driver has no
+    // branch after tick 180, so running past the pin's end changes nothing but the clock.
+    const { sim, ids } = formationSetup(FM_SEED);
+    const away = internals(sim).fgAway as Uint16Array;
+    let awayAt1000 = '';
+    let dutyAt1000 = -1;
+    const dutyCount = (): number => Array.from({ length: sim.entityCount }, (_, i) => sim.formationDutyOf(i)).filter((d) => d !== 0).length;
+    for (let t = 0; t < 1200; t++) {
+      formationDrive(sim, t, ids);
+      sim.tick();
+      if (t === 999) {
+        awayAt1000 = [0, 1, 2, 3].map((g) => `${away[g]}`).join(',');
+        dutyAt1000 = dutyCount();
+      }
+    }
+    // control: at the pin's tick the two aircraft are still away, on RETURN, so the test below can fail
+    expect(awayAt1000).toBe('0,2,0,0');
+    expect(dutyAt1000).toBe(2);
+    // at 1200: every row has nobody away, and no entity holds a duty
+    expect([0, 1, 2, 3].map((g) => `${away[g]}`).join(',')).toBe('0,0,0,0');
+    expect(dutyCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// FORWARD_LINE_PIN (GH-277 forward camp): a NEW pin, not a moved one. No other replay in this file raises a
+// production work, so the appended-lines tail of `economyHash` (folded only once a work has opened a line) is outside
+// all of them; this is the replay that sees it. A 500-tick mission: an engineer raises a test production work (roles
+// ['infantry'], build_time_mult 1.5) beside the authored camp, which completes at 136 and opens the second line; a squad
+// is built on the camp's line at 3, then at 250 a squad (named, forward), a tank (named: refused, off that line's menu)
+// and a tank (unnamed, the camp's line); a rally, two more squads and a cancel on the forward line.
+// The test asserts each happened, so a change that quietly stops one of them fails here and not only on the number.
+
+function forwardLineWorld(): { pin: number; seen: Record<string, number>; lines: number } {
+  const { sim, rt } = forwardWorld();
+  const seen: Record<string, number> = {};
+  for (let i = 0; i < FWD_TICKS; i++) {
+    forwardDrive(rt, i);
+    for (const e of rt.step(sim.tick())) {
+      const key = e.kind === 'works' ? `works.${e.phase}` : e.kind;
+      seen[key] = (seen[key] ?? 0) + 1;
+    }
+  }
+  // The sim hash, folded with the runtime's economy hash (the tail block's) and its digest.
+  const pin = hashWord(hashWord(sim.hash(), rt.economyHash()), rt.digest()) >>> 0;
+  return { pin, seen, lines: rt.productionLines(0).length };
+}
+
+// FORWARD_LINE_PIN: born 2026-11-04 (GH-277 forward camp), read from the first run. It moves when the appended line's rules,
+// its hash tail or the multiplier's rounding change; say why in the commit that moves it.
+const FORWARD_LINE_PIN = 3630797665;
+
+describe('determinism of a forward camp (500-tick replay, GH-277)', () => {
+  it('two runs from the seed agree, and the run raises a work, opens its line, builds on both lines and refuses the off-menu tank', () => {
+    const a = forwardLineWorld();
+    const b = forwardLineWorld();
+    expect(b.pin).toBe(a.pin);
+    expect(b.seen).toEqual(a.seen);
+    expect(a.lines).toBe(2);
+    // started 1, complete 1; built: the camp's squad (tick 43), the forward squad (310), the camp's tank (330), the third squad (370)
+    expect(a.seen['works.started']).toBe(1);
+    expect(a.seen['works.complete']).toBe(1);
+    expect(a.seen.built).toBe(4);
+  });
+
+  it('the pinned hash', () => {
+    expect(forwardLineWorld().pin).toBe(FORWARD_LINE_PIN);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// APS_STOCK_WORLD_PIN (GH-884): a NEW pin, not a moved one. No other replay here registers a type with
+// `hull.aps.reserve`, so the deferred `apsStockLive` block (apsReserveLeft, apsRearmClock) is outside all
+// of them -- the golden d_tank has an APS and no reserve, which is exactly what the flag-keying test in
+// aps-stock.test.ts guards. This is the replay that sees the block: 14 ATGM teams against one armoured hull with
+// magazine 3, reserve 5 and a 10 s rearm, 1,600 ticks (80 s). The test asserts the stock was drawn on (the reserve
+// emptied by reloads) and that quiet gave a round back, so a change that quietly stops either fails here and not
+// only on the number.
+const APS_STOCK_AT: UnitTypeJson = {
+  id: 'ws_at',
+  hull: { hp: 380, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.7 },
+  sensors: { optics: 1.0, sight_tiles: 9, signature: 0.5 },
+  weapons: [
+    {
+      id: 'atgm', type: 'atgm', range_tiles: 9, effective_range_tiles: 7.2, accuracy: 0.78,
+      penetration: 900, damage: 400, suppression: 10, rof_per_min: 3,
+    },
+  ],
+};
+const APS_STOCK_HULL: UnitTypeJson = {
+  id: 'ws_hull',
+  hull: {
+    hp: 30000,
+    armor: { front: 5000, side: 5000, rear: 5000 },
+    aps: { base_pk: 0.75, magazine: 3, reload_s: 8, reserve: 5, rearm_s: 10, ineffective_vs: ['apfsds', 'kinetic'] },
+  },
+  mobility: { speed_tiles_s: 1.1 },
+  sensors: { optics: 1.0, sight_tiles: 12, signature: 1.0 },
+  weapons: [],
+};
+
+function apsStockWorld(seed: number): { hash: number; engagements: number; reserveLow: number; reserveEnd: number } {
+  const sim = new Sim({ seed, width: 32, height: 32, capacity: 32 });
+  const at = sim.addUnitType(APS_STOCK_AT);
+  const hull = sim.addUnitType(APS_STOCK_HULL);
+  for (let i = 0; i < 14; i++) sim.spawn(at, 0, fx.from(3.5), fx.from(9.5 + i));
+  const tank = sim.spawn(hull, 1, fx.from(9.5), fx.from(16.5));
+  let engagements = 0;
+  let reserveLow = 99;
+  for (let i = 0; i < 1600; i++) {
+    for (const e of sim.tick()) if (e.kind === 'aps' && e.target === tank) engagements++;
+    reserveLow = Math.min(reserveLow, sim.state.apsReserveLeft[tank]);
+  }
+  return { hash: sim.hash(), engagements, reserveLow, reserveEnd: sim.state.apsReserveLeft[tank] };
+}
+
+// APS_STOCK_WORLD_PIN: born 2026-11-05 (GH-884), read from the first run. It moves when an APS stock rule
+// (draw, rearm, quiet, aura refill) or the fold of its two columns changes; say why in the commit that moves it.
+const APS_STOCK_WORLD_PIN = 2293006654;
+
+describe('determinism of an APS stock world (1600-tick replay, GH-884)', () => {
+  it('two runs from the seed agree, and the run draws the reserve down and gets a round back on quiet', () => {
+    const a = apsStockWorld(884);
+    const b = apsStockWorld(884);
+    expect(b).toEqual(a);
+    expect(a.engagements).toBe(8); // 3 in the magazine + 5 in the reserve, and no ninth: read off the first run
+    expect(a.reserveLow).toBe(0); // the reloads emptied it
+    expect(a.reserveEnd).toBeGreaterThan(0); // and quiet gave rounds back
+  });
+
+  it('the pinned hash', () => {
+    expect(apsStockWorld(884).hash).toBe(APS_STOCK_WORLD_PIN);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// SETUP_WORLD_PIN (GH-976): a NEW pin, not a moved one. No other replay here calls `beginSetup`, so the deferred `setupLive`
+// block (setupUntil, readyMask, the region mask) is outside all of them. This is the replay that sees it: a 32x32 map, a
+// 200-tick set-up, side 0 ordering its squad across the line at tick 1 (the region clamp holds it), side 1 Ready at 20 and
+// side 0 at 40 (the early bell, at 140), then both sides attack-moving on each other's centroid until tick 600. The test
+// asserts the events seen (two setupReady, one setupBell at 140, a fire from the bell tick on, none before) and that the clamped squad
+// never stood outside region 0 before the bell, so a change that quietly stops any of it fails there and not only on the number.
+function setupWorld(seed: number): { hash: number; ready: string[]; bells: number[]; firstFire: number; fires: number; escaped: number; kit: string[]; garrisoned: number } {
+  const { sim, ids } = setupSetup(seed);
+  const ready: string[] = [];
+  const bells: number[] = [];
+  let firstFire = -1;
+  let fires = 0;
+  let escaped = 0;
+  const kit: string[] = [];
+  let garrisoned = -2;
+  for (let t = 0; t < SETUP_TICKS; t++) {
+    setupDrive(sim, t, ids);
+    for (const e of sim.tick()) {
+      if (e.kind === 'fortified') kit.push(`${e.tick}:+${e.side}:${e.kit}:${e.structure}`);
+      if (e.kind === 'fortifyRefused') kit.push(`${e.tick}:!${e.side}:${e.reason}`);
+      if (e.kind === 'unfortified') kit.push(`${e.tick}:-${e.side}:${e.kit}:${e.structure}`);
+      if (e.kind === 'setupReady') ready.push(`${e.tick}:${e.side}`);
+      if (e.kind === 'setupBell') bells.push(e.tick);
+      if (e.kind === 'fire') {
+        fires++;
+        if (firstFire < 0) firstFire = e.tick;
+      }
+    }
+    if (sim.setupActive) {
+      for (const id of ids.squad0) {
+        if (sim.setupRegionAt(sim.state.posX[id] >> 16, sim.state.posY[id] >> 16) !== 0) escaped++;
+      }
+    }
+    if (t === 139) garrisoned = sim.state.garrisonedIn[ids.squad0[0]];
+  }
+  return { hash: sim.hash(), ready, bells, firstFire, fires, escaped, kit, garrisoned };
+}
+
+// SETUP_WORLD_PIN: born 2026-11-06 (GH-976), read from the first run. It moves when a set-up rule (the clock, the early bell,
+// the region clamp, weapons tight) or the fold of its block changes; say why in the commit that moves it.
+//
+// Was 1156937055 (born, WP2). GH-976 WP3 moved it once, deliberately: the world gained the set-up kit. At tick 0 side 0 places six
+// hesco and a sandbag post (one more hesco across the line is refused outside_region) and side 1 two t-walls and two hesco, a
+// hesco goes back down at tick 2, and a rifleman is ordered into the post at tick 3 and is inside it at tick 139. That adds eleven
+// structures (blocked tiles, repaired flow fields, owned structures that fold the FW block), a garrison, the kit columns (kitLeft,
+// kitPlaced, stKit) and the second marker 0x53550977 to the folded block, and the post-bell fight now runs over a changed map.
+// 3355883270 is read off the first run with the kit in. Every other pin is unmoved.
+const SETUP_WORLD_PIN = 3355883270;
+
+describe('determinism of a set-up world (600-tick replay, GH-976)', () => {
+  it('two runs from the seed agree, and the run rings the early bell at 140 and fights only after it', () => {
+    const a = setupWorld(SETUP_SEED);
+    const b = setupWorld(SETUP_SEED);
+    expect(b).toEqual(a);
+    expect(a.ready).toEqual(['20:1', '40:0']);
+    expect(a.bells).toEqual([140]);
+    // The bell tick itself is no longer set-up (setupActive is false from it), and the two forces already know each other
+    // (detection runs through set-up), so the first round goes out ON tick 140 and on no tick before.
+    expect(a.firstFire).toBeGreaterThanOrEqual(140);
+    expect(a.fires).toBeGreaterThan(0);
+    expect(a.escaped).toBe(0);
+  });
+
+  it('the kit really is placed: side 0 six hesco (0-5) and a post (6) with one refusal, side 1 two t-walls and two hesco, one take-down, the post garrisoned before the bell', () => {
+    const a = setupWorld(SETUP_SEED);
+    expect(a.kit).toEqual([
+      '0:+0:0:0', '0:+0:0:1', '0:+0:0:2', '0:+0:0:3', '0:+0:0:4', '0:+0:0:5', '0:+0:1:6', '0:!0:outside_region',
+      '0:+1:2:7', '0:+1:2:8', '0:+1:0:9', '0:+1:0:10', '2:-0:0:3',
+    ]);
+    expect(a.garrisoned).toBe(6); // squad0[0] is inside the post (structure 6) at tick 139, one tick before the bell
+  });
+
+  it('the pinned hash', () => {
+    expect(setupWorld(SETUP_SEED).hash).toBe(SETUP_WORLD_PIN);
   });
 });

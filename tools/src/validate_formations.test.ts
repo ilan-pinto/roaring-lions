@@ -88,7 +88,7 @@ describe('i18n keys', () => {
     expect(out).toHaveLength(1);
     expect(out[0]).toContain('blurb key');
   });
-  it('refuses an arrival face with no hud line, and a drill with none, but not a halt', () => {
+  it('refuses an arrival face with no hud line, and a drill with none (a halt included, GH-859 P1b)', () => {
     const face = run(variant('attack', (d) => (d.arrival.face = 'outward')));
     expect(face).toHaveLength(1);
     expect(face[0]).toContain('hud.formation.face.outward');
@@ -96,8 +96,41 @@ describe('i18n keys', () => {
     const drill = run(variant('attack', (d) => (d.contact.drill = 'bound')));
     expect(drill).toHaveLength(1);
     expect(drill[0]).toContain('hud.formation.drill.bound');
-    // Column ships `halt`, which has no P1a line (Ruling 16), and must still pass.
+    // Column ships `halt` and en.json has its line (P1b Task 4), so the shipped file passes.
     expect(run(variant('column', () => undefined))).toEqual([]);
+  });
+  it('refuses a halt drill whose en.json line is missing (P1a exempted it; P1b Task 4 does not)', () => {
+    const { 'hud.formation.drill.halt': _gone, ...rest } = en;
+    void _gone;
+    expect(Object.keys(en)).toContain('hud.formation.drill.halt'); // the key exists, so the fixture really removes it
+    const out = run(variant('column', () => undefined), rest);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('contact.drill "halt" has no en.json key hud.formation.drill.halt');
+    // the other side of the fixture: drill "none" needs no line, so the same catalogue passes it
+    expect(run(variant('column', (d) => (d.contact.drill = 'none')), rest)).toEqual([]);
+  });
+  it('refuses a paced file whose en.json has no pace line, and an element on call with no call line (GH-859 P1b Task 10)', () => {
+    const { 'hud.formation.pace': _p, ...noPace } = en;
+    void _p;
+    expect(Object.keys(en)).toContain('hud.formation.pace');
+    const pace = run(variant('column', () => undefined), noPace);
+    expect(pace).toHaveLength(1);
+    expect(pace[0]).toContain('march.pace "slowest_ground" but en.json has no hud.formation.pace');
+    // A file that does not pace needs no line.
+    expect(run(variant('column', (d) => ((d.march as { pace: string }).pace = 'none')), noPace)).toEqual([]);
+    // Column has a casualty element and a contact element on call: each needs its line.
+    const { 'hud.formation.call.casualty': _c, ...noCasualty } = en;
+    void _c;
+    const call = run(variant('column', () => undefined), noCasualty);
+    expect(call).toHaveLength(1);
+    expect(call[0]).toContain('on_call "casualty" has no en.json key hud.formation.call.casualty');
+    const { 'hud.formation.call.contact': _k, ...noContact } = en;
+    void _k;
+    // (The Attack leaves its aircraft out and so has no contact call of its own: the Column and the Ambush have one.)
+    expect(run(variant('attack', () => undefined), noContact)).toEqual([]);
+    expect(run(variant('column', () => undefined), noContact)).toHaveLength(1);
+    // The tooltip's other side of the rule: a catalogue with every line passes (the shipped files above).
+    expect(run(shipped)).toEqual([]);
   });
   it('refuses a ring when en.json has no ring line', () => {
     const { 'hud.formation.shape.ring': _gone, ...rest } = en;
@@ -170,6 +203,38 @@ describe('shapes', () => {
     );
     expect(out).toHaveLength(1);
     expect(out[0]).toContain('2 ring elements');
+  });
+});
+
+describe('exclude (the classes a formation leaves out)', () => {
+  const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
+  const ajv = new (Ajv2020 as unknown as new (o: object) => { compile: (s: object) => (d: unknown) => boolean })({ allErrors: true, strict: false });
+  const schema = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data', 'schemas', 'formation.schema.json'), 'utf8')) as object);
+  /** The shipped Attack, deep-copied, with `mutate` applied. */
+  const attack = (mutate: (d: Doc) => void): Doc => variant('attack', mutate)[0].doc;
+
+  it('the shipped Attack leaves the aircraft out, validates, and names no aircraft element', () => {
+    const a = shipped.find((f) => f.doc.id === 'attack') as F;
+    expect(a.doc.exclude).toEqual(['aircraft']);
+    expect(schema(a.doc)).toBe(true);
+    expect(run([a])).toEqual([]);
+  });
+  it('the schema takes any placed class and refuses rest, a repeat, an empty list, an unknown name and a non-array', () => {
+    for (const c of ['armour', 'light_vehicle', 'recon', 'infantry', 'support_weapon', 'medic', 'aircraft']) {
+      expect(schema(attack((d) => ((d.exclude = [c]), (d.elements = d.elements.filter((e) => !(e.classes as string[]).includes(c)))))), c).toBe(true);
+    }
+    expect(schema(attack((d) => (d.exclude = ['rest'])))).toBe(false);
+    expect(schema(attack((d) => (d.exclude = ['aircraft', 'aircraft'])))).toBe(false);
+    expect(schema(attack((d) => (d.exclude = [])))).toBe(false);
+    expect(schema(attack((d) => (d.exclude = ['tank'])))).toBe(false);
+    expect(schema(attack((d) => (d.exclude = 'aircraft' as unknown as string[])))).toBe(false);
+  });
+  it('refuses a class that is both excluded and named by an element, naming the element', () => {
+    const out = run(variant('attack', (d) => (d.exclude = ['infantry'])));
+    expect(out).toEqual(['data/formations/attack.json: element 2 names "infantry", which the formation excludes']);
+  });
+  it('passes a file with no exclude at all (column, ambush)', () => {
+    expect(run(shipped.filter((f) => f.doc.id !== 'attack'))).toEqual([]);
   });
 });
 

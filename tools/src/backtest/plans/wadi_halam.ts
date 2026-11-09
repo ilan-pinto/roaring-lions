@@ -91,6 +91,9 @@ export const wadiHalam1Plan: Plan = (sim, rt, ids, at) => {
   const spike = ids('at_team');
   const jeep = ids('jeep_shoded');
   const apc = ids('apc_eitan');
+  // GH-707 (30 Oct): the loaned medic team stays where it stands. The periodic re-anchor below sweeps "everything of
+  // side 0 but the Spike and the APC" to the anchor, which walked it into the grove with the squads and lost seed 25.
+  const medic = ids('inf_medic_squad');
   const ANCHOR = M(10.5, 24);
   const BANK = M(12, 24);
   const STANDOFF = M(4, 24);
@@ -123,7 +126,7 @@ export const wadiHalam1Plan: Plan = (sim, rt, ids, at) => {
   for (let when = 130; when <= 320; when += 45) {
     at(when, () => {
       const cur: number[] = [];
-      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !spike.includes(i) && !apc.includes(i)) cur.push(i);
+      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !spike.includes(i) && !apc.includes(i) && !medic.includes(i)) cur.push(i);
       sim.queueCommand({ kind: 'attackMove', ids: cur, ...ANCHOR });
       sim.queueCommand({ kind: 'attackMove', ids: spike.filter((i) => sim.state.alive[i] === 1), ...STANDOFF });
     });
@@ -471,7 +474,7 @@ export const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
   // mission's roster) picks up what is left instead of three buildings
   // simply never coming down.
   // GH-382: the depot is on the embankment now (walls x28-41, y4-17; the yard is zone
-  // [29,5,12,12]) and its seven structures stand where the map puts them.
+  // [29,5,12,12]) and its seven map structures stand where the map puts them (the mission adds an eighth, the workshop).
   const targets: [number, number][] = [
     [30, 6],
     [34, 6],
@@ -480,6 +483,8 @@ export const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
     [35, 10],
     [38, 11],
     [36, 14],
+    // The militia weapons workshop the mission places inside the wire (GH-277 Task 15): a `raze` target like the rest.
+    [36, 12],
   ];
   // Checked against the live structure table so a target already down is
   // skipped. Scanned from opposite ends of the shared list so that, when

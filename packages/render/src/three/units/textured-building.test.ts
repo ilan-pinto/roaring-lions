@@ -37,7 +37,7 @@ const texture = () => new THREE.Texture();
 // against the CURRENT material shape).
 
 describe('the textured opt-out is a named list', () => {
-  it('covers exactly the six supplied Meshy buildings, the three GH-277 militia works, the four A3.2 ramp buildings, the two A3.2 remainder buildings and the GH-66 HESCO run', () => {
+  it('covers exactly the six supplied Meshy buildings, the three GH-277 militia works, the four A3.2 ramp buildings, the two A3.2 remainder buildings, and the GH-66 HESCO run (the GH-277 forward camp is NOT textured: zero materials)', () => {
     expect([...TEXTURED_BUILDING_TYPES].sort()).toEqual([
       'apartment',
       'camp',
@@ -47,6 +47,7 @@ describe('the textured opt-out is a named list', () => {
       'hall',
       'hesco',
       'house',
+      'house_lod1',
       'militia_field_clinic',
       'militia_observation_post',
       'militia_weapons_workshop',
@@ -77,7 +78,7 @@ describe('the textured opt-out is a named list', () => {
     );
     const block = /TEXTURED_BUILDING_EXEMPT\s*=\s*\{([^}]*)\}/.exec(py);
     expect(block, 'TEXTURED_BUILDING_EXEMPT not found in tools/validate_mesh_assets.py').not.toBeNull();
-    const ids = [...(block as RegExpExecArray)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
+    const ids = [...(block as RegExpExecArray)[1].matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]).sort();
     expect(ids).toEqual([...TEXTURED_BUILDING_TYPES].sort());
   });
 });

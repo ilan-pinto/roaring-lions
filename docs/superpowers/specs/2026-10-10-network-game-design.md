@@ -1715,6 +1715,13 @@ a ten-seed arena run between two models, is the lead's to run (run protocol
 
 - **N2** adds `set_stance`, `build` and `fire_support` to the harness's tools
   with its `Command` kinds; `toolsFor`'s pin goes red until they are listed.
+  - **Closed (GH-954, D-W8, 3 Nov):** N2 added neither, and the pin stayed green
+    because `ORDER_VERBS` filtered the kinds out by name. `setStance` and the four
+    production kinds (`build`, `cancelBuild`, `setRally`, `clearRally`) are verbs of
+    `order` now, and the pin is `order-verbs.test.ts`: it asks `validateCommand`
+    which kinds a versus room accepts and fails on any that is neither a verb nor
+    in `ORDER_WITHHELD`. `fire_support` stays out (LD5), as do `enterTunnel` and
+    `vent`. See `docs/net/N4-agent.md`, "What a model can order".
 - **WP-G-G0's doctrine commander**, when it lands, replaces `rush` as the
   arena's opponent and answers decision 18 as written.
 - **A remote arena** against the Worker and `/stats/arena` wait on D6.

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/grade.schema.json",
+  "title": "Colour grade",
+  "description": "A display-referred colour grade (look uplift L2, GH-943, docs/superpowers/specs/2026-11-01-look-uplift-design.md section 3). The renderer bakes it into a 32x32x32 3D LUT at boot and folds a lookup into OutputPass, after the tone map and the sRGB encode and before the vignette. App-read only: the sim never sees a grade. EVERY colour is a PALETTE KEY ('ramp.index', 'reserved.name'), never a raw hex: a key's HUE DIRECTION (its colour minus its own luma, scaled so the largest channel is 1) is what is applied, and the sibling `amount` says how hard. Order of operations: warmth, then lift/gamma/gain, then saturation, then split tone. The identity values (lift level 0 and amount 0, gamma value 1 and amount 0, gain value 1 and amount 0, saturation 1, warmth 0, split-tone amounts 0) build NO pass. Day is the identity grade and ships no file. `pnpm validate:data` checks every key resolves to a palette entry.",
+  "type": "object",
+  "required": ["id", "lift", "gamma", "gain", "saturation", "warmth", "split_tone"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$", "description": "Also the filename, and what `&grade=` and a mission's `map.grade` name." },
+    "lift": {
+      "type": "object",
+      "required": ["tint", "amount", "level"],
+      "additionalProperties": false,
+      "description": "Added in the shadows, fading to nothing at white: out = lift * (1 - c) + gain * c.",
+      "properties": {
+        "tint": { "$ref": "#/$defs/paletteKey" },
+        "amount": { "type": "number", "minimum": 0, "maximum": 0.2, "description": "How much of the tint's hue direction is added to the black point, in encoded 0..1 units." },
+        "level": { "type": "number", "minimum": -0.1, "maximum": 0.1, "description": "A neutral lift of the black point." }
+      }
+    },
+    "gamma": {
+      "type": "object",
+      "required": ["tint", "amount", "value"],
+      "additionalProperties": false,
+      "description": "The mid-tone curve: out = v ^ (1 / gamma). Above 1 brightens the mids.",
+      "properties": {
+        "tint": { "$ref": "#/$defs/paletteKey" },
+        "amount": { "type": "number", "minimum": 0, "maximum": 0.3, "description": "A per-channel gamma skew along the tint's hue direction." },
+        "value": { "type": "number", "minimum": 0.5, "maximum": 2 }
+      }
+    },
+    "gain": {
+      "type": "object",
+      "required": ["tint", "amount", "value"],
+      "additionalProperties": false,
+      "description": "A multiplier on the highlights.",
+      "properties": {
+        "tint": { "$ref": "#/$defs/paletteKey" },
+        "amount": { "type": "number", "minimum": 0, "maximum": 0.3, "description": "A per-channel gain skew along the tint's hue direction." },
+        "value": { "type": "number", "minimum": 0.5, "maximum": 1.5 }
+      }
+    },
+    "saturation": { "type": "number", "minimum": 0, "maximum": 2, "description": "1 is unchanged. Scales each colour's distance from its own Rec.709 luma." },
+    "warmth": { "type": "number", "minimum": -1, "maximum": 1, "description": "A white-balance shift: positive raises red and lowers blue." },
+    "split_tone": {
+      "type": "object",
+      "required": ["shadows", "highlights", "balance"],
+      "additionalProperties": false,
+      "properties": {
+        "shadows": { "$ref": "#/$defs/toneEnd" },
+        "highlights": { "$ref": "#/$defs/toneEnd" },
+        "balance": { "type": "number", "minimum": -1, "maximum": 1, "description": "Slides the crossover: negative gives the shadow tint more of the frame." }
+      }
+    }
+  },
+  "$defs": {
+    "paletteKey": {
+      "type": "string",
+      "pattern": "^[a-z_]+\\.[a-z0-9_]+$",
+      "description": "A palette key such as 'water.1' or 'dust.0'. Never a raw hex. Keep to the ramps: the reserved vfx and team bands are runtime-only."
+    },
+    "toneEnd": {
+      "type": "object",
+      "required": ["tint", "amount"],
+      "additionalProperties": false,
+      "properties": {
+        "tint": { "$ref": "#/$defs/paletteKey" },
+        "amount": { "type": "number", "minimum": 0, "maximum": 0.15, "description": "How much of the tint's hue direction is added, in encoded 0..1 units." }
+      }
+    }
+  }
+}

@@ -14,7 +14,7 @@
  * ending (`over`) is no result of its own -- the panel is already up.
  */
 import { doctrines, units } from '@lions/data';
-import { endingLoser, type MatchConfig, type Seat } from '@lions/net';
+import { endingLoser, matchCapTicks, matchCapTicksOf, type MatchConfig, type Seat, type WinMode } from '@lions/net';
 import { isHashTick } from './frame-step';
 
 /** Each side's surviving force value, by SIDE (index 0 is side 0). */
@@ -23,16 +23,23 @@ export type Forces = readonly [number, number];
 export type MatchOutcome =
   | { kind: 'ongoing' }
   | { kind: 'won'; side: 0 | 1; by: 'annihilation' | 'surrender' | 'left' | 'forfeit' }
+  /** GH-976: the winner completed its win mode's goal (the enemy camp razed, the points target reached). */
+  | { kind: 'won'; side: 0 | 1; by: 'objective'; mode: WinMode }
   /** Decided on surviving unit value (the lead's ruling, 2026-10-13): every
-   *  unit on both sides immobile (`stalemate`), or the 25-minute cap (`time`). */
-  | { kind: 'won'; side: 0 | 1; by: 'stalemate' | 'time'; forces: Forces }
-  | { kind: 'draw'; by: 'mutual' }
-  | { kind: 'draw'; by: 'stalemate' | 'time'; forces: Forces };
+   *  unit on both sides immobile (`stalemate`), or the 25-minute cap (`time`).
+   *  GH-976 P3: the cap of a POINTS room is decided on the points instead, the higher score winning; `points` (whole
+   *  points by SIDE, index 0 is side 0) is present exactly then, beside the `forces` the other rule would have read. */
+  | { kind: 'won'; side: 0 | 1; by: 'stalemate' | 'time'; forces: Forces; points?: Forces }
+  /** Both sides wiped (no `mode`), or, in a win-mode room (GH-976 P3), both sides completed the goal on one tick with
+   *  nothing to tell them apart: the draw names its `mode` so the panel can say which. */
+  | { kind: 'draw'; by: 'mutual'; mode?: WinMode }
+  | { kind: 'draw'; by: 'stalemate' | 'time'; forces: Forces; points?: Forces };
 
 /** A decided match: what the end panel shows. */
 export type MatchResult = Exclude<MatchOutcome, { kind: 'ongoing' }>;
 
-/** 25 minutes of 20 Hz ticks. */
+/** 25 minutes of 20 Hz ticks: the cap of every map but one with a longer `cap_minutes` (GH-913 L8). A
+ *  room asks `matchCapTicks(map)` (`@lions/net`), which is this for a map with no longer cap. */
 export const MATCH_CAP_TICKS = 25 * 60 * 20;
 
 /** The slice of `Sim` the rule reads. */
@@ -60,6 +67,9 @@ export interface OutcomeSim {
     readonly stepPerTick: number;
     /** An aircraft: its mobility kill is a forced landing, never field-fixed. */
     readonly isAir: boolean;
+    /** A medic's `rescue` block (null on the real sim for every other type): a rescue unit is a support unit,
+     *  never a combat unit, whatever its carbines (GH-707, the lead, 30 Oct 2026). */
+    readonly rescue?: unknown;
   }[];
 }
 
@@ -115,6 +125,26 @@ function byForces(sim: OutcomeSim, by: 'stalemate' | 'time', costOf: (typeId: st
   return { kind: 'won', side: forces[0] > forces[1] ? 0 : 1, by, forces };
 }
 
+/** The cap or a stalemate of a camp room that kept playing past a wipe (GH-976 `after_camp`): the side with an armed unit
+ *  wins whatever the surviving value says, because `byForces` counts unarmed value and could hand the win to the wiped side.
+ *  `by` stays the real ending (`stalemate`, `time`), so a tally sees a wipe that was never razed; `forces` rides along. */
+function armedWins(sim: OutcomeSim, side: 0 | 1, by: 'stalemate' | 'time', costOf: (typeId: string) => number): MatchResult {
+  return { kind: 'won', side, by, forces: forcesOf(sim, costOf) };
+}
+
+/** The cap of a POINTS room (GH-976 P3): nobody reached the target, so the higher score wins and a level score is a draw.
+ *  The design's intent is that the goal decides, and a side that sat on the ground it held for 25 minutes has played the
+ *  race; surviving value would let a side that never took a zone win it. Compared on the exact integer units (a score runs
+ *  in 1/1200ths of a point), shown in whole points. `forces` rides along as the other rule would have read it. */
+function byPoints(sim: OutcomeSim, goals: OutcomeGoals, costOf: (typeId: string) => number): MatchResult {
+  const forces = forcesOf(sim, costOf);
+  const points: Forces = [goals.scoreOf(0), goals.scoreOf(1)];
+  const a = goals.scoreUnitsOf(0);
+  const b = goals.scoreUnitsOf(1);
+  if (a === b) return { kind: 'draw', by: 'time', forces, points };
+  return { kind: 'won', side: a > b ? 0 : 1, by: 'time', forces, points };
+}
+
 /** The two playing sides. A third (civilians) neither keeps a side standing nor wins. */
 const SIDES: readonly (0 | 1)[] = [0, 1];
 
@@ -122,15 +152,76 @@ const SIDES: readonly (0 | 1)[] = [0, 1];
  *  weapon and has not had its firepower knocked out. A drone, a truck, a
  *  dozer or a hull whose guns are gone for good cannot win a fight, so it
  *  does not keep a side standing (spec §2.3: "no combat unit alive"; R-B20) --
- *  otherwise a beaten side holds the match to the 25-minute draw. */
-function armedStanding(sim: OutcomeSim, side: 0 | 1): boolean {
+ *  otherwise a beaten side holds the match to the 25-minute draw. Nor does a
+ *  rescue unit (the Nemala medic team carries carbines to defend itself): a
+ *  side with only medics left has lost (GH-707, 30 Oct 2026). */
+export function armedStanding(sim: OutcomeSim, side: 0 | 1): boolean {
   const { side: sides, alive, typeIdx, firepowerKilled } = sim.state;
   for (let i = 0; i < sim.entityCount; i++) {
     if (alive[i] === 0 || sides[i] !== side) continue;
     if (firepowerKilled?.[i] === 1) continue;
-    if ((sim.unitTypes[typeIdx[i]]?.weapons.length ?? 0) > 0) return true;
+    const type = sim.unitTypes[typeIdx[i]];
+    if ((type?.weapons.length ?? 0) > 0 && (type?.rescue ?? null) === null) return true;
   }
   return false;
+}
+
+/** What a win-mode room adds to the win rule (GH-976): which sides have completed their goal. Absent -- every
+ *  annihilation room -- the rule is the existing one, exactly. */
+export interface OutcomeGoals {
+  readonly mode: WinMode;
+  /** Whether `side` has completed a primary objective of its own. */
+  sideWon(side: 0 | 1): boolean;
+  /** `side`'s score in exact integer units, the tie-break when both complete on one tick; 0 with no score. */
+  scoreUnitsOf(side: 0 | 1): number;
+  /** `side`'s score in whole points (GH-976 P3), what a points room's panel shows; 0 with no score. */
+  scoreOf(side: 0 | 1): number;
+  /** GH-976: the camp mode's `wipe` rule. `after_camp`: a side with no armed unit does not lose while its camp stands
+   *  (the other side has not razed it); at the cap or a stalemate it loses. Absent or `ends`: a wipe ends the match. */
+  readonly campWipe?: 'ends' | 'after_camp';
+  /** The sim tick `side` completed its goal on, or -1 while it has not (GH-976 P2): the first to finish wins. */
+  completeTickOf(side: 0 | 1): number;
+}
+
+/** The slice of `MatchWorld` that `goalsOf` reads. */
+export interface GoalsWorld {
+  readonly runtime: {
+    sideWon(side: 0 | 1): boolean;
+    scoreUnitsOf(side: 0 | 1): number;
+    scoreOf(side: 0 | 1): number;
+    completeTickOf(side: 0 | 1): number;
+  } | null;
+  readonly winMode: WinMode | null;
+  readonly campWipe?: 'ends' | 'after_camp';
+}
+
+/** The goals of a win-mode room, or undefined for annihilation (and for any world with no mode). */
+export function goalsOf(w: GoalsWorld): OutcomeGoals | undefined {
+  const runtime = w.runtime;
+  if (runtime === null || w.winMode === null) return undefined;
+  return { mode: w.winMode, sideWon: (s) => runtime.sideWon(s), scoreUnitsOf: (s) => runtime.scoreUnitsOf(s), scoreOf: (s) => runtime.scoreOf(s), completeTickOf: (s) => runtime.completeTickOf(s), campWipe: w.campWipe ?? 'ends' };
+}
+
+/** The goal's verdict, or null while no side has completed one. `outcomeOf` asks only on a hash window (every 20
+ *  ticks), so two sides can both have finished by the time it asks. The FIRST to finish wins (GH-976 P2): each
+ *  objective stores the sim tick it completed on (`completeTickOf`, a snapshot row), so a side that reached the
+ *  target 1-19 ticks before the other wins even if the other overshot by more. Only the SAME tick falls to the
+ *  score, the larger winning, and level scores are a mutual end. Read from state both machines share (the
+ *  runtime's objectives, hashed through its digest). */
+function goalOutcome(goals: OutcomeGoals): MatchResult | null {
+  const a = goals.sideWon(0);
+  const b = goals.sideWon(1);
+  if (!a && !b) return null;
+  if (a && b) {
+    const ta = goals.completeTickOf(0);
+    const tb = goals.completeTickOf(1);
+    if (ta !== tb) return { kind: 'won', side: ta < tb ? 0 : 1, by: 'objective', mode: goals.mode };
+    const sa = goals.scoreUnitsOf(0);
+    const sb = goals.scoreUnitsOf(1);
+    if (sa === sb) return { kind: 'draw', by: 'mutual', mode: goals.mode };
+    return { kind: 'won', side: sa > sb ? 0 : 1, by: 'objective', mode: goals.mode };
+  }
+  return { kind: 'won', side: a ? 0 : 1, by: 'objective', mode: goals.mode };
 }
 
 /** What an economy room adds to the win rule (N3 Task 5): whether a side that
@@ -149,12 +240,14 @@ export interface ProductionWorld {
     popCapped(unitId: string, side: 0 | 1): boolean;
   } | null;
   readonly factions: readonly ['kdf' | 'sarim', 'kdf' | 'sarim'];
+  /** GH-976: a win-mode room's runtime is goals-only and has no production to ask about. */
+  readonly winMode?: WinMode | null;
 }
 
-/** A unit id the shipped data knows to carry a weapon (`armedStanding`'s own test). */
+/** A unit id the shipped data knows to carry a weapon and not to be a rescue unit (`armedStanding`'s own test). */
 function armedType(id: string): boolean {
-  const u = (units as Record<string, { weapons?: readonly unknown[] } | undefined>)[id];
-  return (u?.weapons?.length ?? 0) > 0;
+  const u = (units as Record<string, { weapons?: readonly unknown[]; rescue?: unknown } | undefined>)[id];
+  return (u?.weapons?.length ?? 0) > 0 && u?.rescue === undefined;
 }
 
 /** The production half of the rule, from state both machines share: the
@@ -164,7 +257,7 @@ function armedType(id: string): boolean {
  *  covers the cheapest ARMED unit on its menu). Undefined with no runtime. */
 export function productionOf(w: ProductionWorld): OutcomeProduction | undefined {
   const runtime = w.runtime;
-  if (runtime === null) return undefined;
+  if (runtime === null || (w.winMode ?? null) !== null) return undefined;
   return productionFor(runtime, [doctrines[w.factions[0]].menu, doctrines[w.factions[1]].menu]);
 }
 
@@ -189,14 +282,27 @@ export function productionFor(runtime: NonNullable<ProductionWorld['runtime']>, 
  *  cases by surviving unit value (`forcesOf`), the higher total winning and
  *  equal totals drawing: every living unit on both sides immobile (nothing
  *  can ever close the distance -- a stalemate, ended at once), and the
- *  25-minute cap, which until then was always a draw. There is no production
- *  in a sandbox, so the counts are the whole test. */
-export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string) => number = unitCost, production?: OutcomeProduction): MatchOutcome {
+ *  cap (25 minutes, or the map's `cap_minutes`; `capTicks`), which until then
+ *  was always a draw. There is no production
+ *  in a sandbox, so the counts are the whole test. In a POINTS room the cap is decided on the points instead (GH-976 P3:
+ *  the higher score wins, a level score draws); every other room, and a stalemate, still reads surviving value. */
+export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string) => number = unitCost, production?: OutcomeProduction, capTicks: number = MATCH_CAP_TICKS, goals?: OutcomeGoals): MatchOutcome {
+  // GH-976: a goal completed beats everything below it (a side that razed the camp as its last unit fell has won).
+  if (goals !== undefined) {
+    const g = goalOutcome(goals);
+    if (g !== null) return g;
+  }
   const standing = SIDES.filter((side) => armedStanding(sim, side) || production?.canField(side) === true);
   if (standing.length === 0) return { kind: 'draw', by: 'mutual' };
-  if (standing.length === 1) return { kind: 'won', side: standing[0], by: 'annihilation' };
-  if (allImmobile(sim, production)) return byForces(sim, 'stalemate', costOf);
-  if (tick >= MATCH_CAP_TICKS) return byForces(sim, 'time', costOf);
+  // GH-976 `wipe: after_camp`: a lone survivor has not won yet -- the wiped side's camp stands until it is razed
+  // (`goalOutcome` above is the win). The match runs on to the goal, a stalemate or the cap, where the armed side wins.
+  const razeOn = standing.length === 1 && goals !== undefined && goals.mode === 'camp' && goals.campWipe === 'after_camp';
+  if (standing.length === 1 && !razeOn) return { kind: 'won', side: standing[0], by: 'annihilation' };
+  if (allImmobile(sim, production)) return razeOn ? armedWins(sim, standing[0], 'stalemate', costOf) : byForces(sim, 'stalemate', costOf);
+  if (tick >= capTicks) {
+    if (razeOn) return armedWins(sim, standing[0], 'time', costOf);
+    return goals !== undefined && goals.mode === 'points' ? byPoints(sim, goals, costOf) : byForces(sim, 'time', costOf);
+  }
   return { kind: 'ongoing' };
 }
 
@@ -206,9 +312,10 @@ export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string
  *  hash sent on that tick covers the state the decision was read from. The
  *  cap is measured on the sim's own tick count. Null while it is ongoing,
  *  on any other tick, and without a room. */
-export function hashTickOutcome(frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction): MatchResult | null {
+export function hashTickOutcome(frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction, goals?: OutcomeGoals): MatchResult | null {
   if (!isHashTick(frameTick, config)) return null;
-  const o = outcomeOf(sim, sim.tickCount, unitCost, production);
+  // The cap is the ROOM's (GH-913 L8, GH-976 R0.8): 25 minutes, the longer one its map's rules file declares, or 30 in a flag set-up room.
+  const o = outcomeOf(sim, sim.tickCount, unitCost, production, (config === null ? matchCapTicks(undefined) : matchCapTicksOf(config)), goals);
   return o.kind === 'ongoing' ? null : o;
 }
 
@@ -220,10 +327,10 @@ export interface LocalDecision { readonly result: MatchResult; readonly tick: nu
  *  first decision stands. Both seats read it on the same frame tick, so both
  *  report the same `over` tick. */
 export function decideOnHashTick(
-  prev: LocalDecision | null, frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction,
+  prev: LocalDecision | null, frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction, goals?: OutcomeGoals,
 ): LocalDecision | null {
   if (prev !== null) return prev;
-  const result = hashTickOutcome(frameTick, config, sim, production);
+  const result = hashTickOutcome(frameTick, config, sim, production, goals);
   return result === null ? null : { result, tick: frameTick };
 }
 

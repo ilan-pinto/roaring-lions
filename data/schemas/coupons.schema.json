@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/coupons.schema.json",
   "title": "Brigade coupons",
-  "description": "Redeemable codes that grant brigade credits, Roar TEST coins, or both. Each entry holds the SHA-256 of the code (trimmed, case-sensitive), never the code. Client-side and trust-based until a server ledger exists (GH-205): a hash of a short code can be brute-forced offline. Several entries may share one hash (one code, several grants): each is redeemed once per account on its own id.",
+  "description": "Redeemable codes that grant brigade credits, Roar coins (into the free wallet), or both. Each entry holds the SHA-256 of the code (trimmed, case-sensitive), never the code. Client-side and trust-based until a server ledger exists (GH-205): a hash of a short code can be brute-forced offline. Several entries may share one hash (one code, several grants): each is redeemed once per account on its own id.",
   "type": "object",
   "additionalProperties": false,
   "required": ["coupons"],

@@ -155,9 +155,32 @@ describe('the backdrop block (GH-161)', () => {
     expect(() => parseMap(bad({ pieces: [{ id: 'bd_wall_far_a', at: [0, 8], rot: 0, ys: 2 }] }))).toThrow(/ys/);
   });
 
-  it('is on Wadi Halam IV and no other shipped map', () => {
+  it('is on Wadi Halam IV and the Ein Qasab town\u2019s two new maps (GH-912), and no other shipped map', () => {
     const withBlock = Object.entries(maps).filter(([, m]) => parseMap(m as MapJson).backdrop !== null).map(([id]) => id);
-    expect(withBlock).toEqual(['wadi_halam_4']);
+    expect(withBlock).toEqual(['ein_qasab_3', 'jebel_matar', 'wadi_halam_4']);
+  });
+});
+
+describe('the wind block (GH-984 N1)', () => {
+  const wind = (w: Record<string, unknown>): MapJson => ({ ...TINY, wind: w as never });
+
+  it('is null on a map without one, and carries what it names (and only that) on a map with one', () => {
+    expect(parseMap(TINY).wind).toBeNull();
+    expect(parseMap(wind({ strength: 1.5, side: 'west', skew_deg: -12 })).wind).toEqual({ strength: 1.5, side: 'west', skewDeg: -12 });
+    expect(parseMap(wind({ strength: 0 })).wind).toEqual({ strength: 0 });
+    expect(parseMap(wind({ skew_deg: 30 })).wind).toEqual({ skewDeg: 30 });
+  });
+
+  it('refuses a heading more than 30 degrees off the screen side, a wind beyond 2, and an unknown side', () => {
+    expect(() => parseMap(wind({ skew_deg: 30.5 }))).toThrow(/skew_deg/);
+    expect(() => parseMap(wind({ skew_deg: -31 }))).toThrow(/skew_deg/);
+    expect(() => parseMap(wind({ strength: 2.01 }))).toThrow(/strength/);
+    expect(() => parseMap(wind({ strength: -0.1 }))).toThrow(/strength/);
+    expect(() => parseMap(wind({ side: 'north' }))).toThrow(/side/);
+  });
+
+  it('is on no shipped map yet (every map takes its theme`s wind)', () => {
+    expect(Object.values(maps).filter((m) => parseMap(m as MapJson).wind !== null)).toEqual([]);
   });
 });
 

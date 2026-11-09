@@ -2,8 +2,10 @@
 // versus_rules.schema.json cannot see. Its own module for the reason every validate_*.mjs is one:
 // validate_data.mjs runs its whole sweep at import time and exits.
 //
-//   - `map` is one of the faction-matchup maps, `id` is the map, and each matchup map has exactly
-//     one file;
+//   - `map` is one of the faction-matchup maps, one of the MIRROR_RULES_MAPS (a map offered for the
+//     mirror only, whose rules file carries its camps, zones, routes and limits) or one of the
+//     RULES_ONLY_MAPS (authored, offered by no room yet), `id` is the map, and each of them has
+//     exactly one file;
 //   - every camp tile is inside the map, on open ground (a row character in OPEN_SYMBOLS: not a
 //     ridge `^`, not a boulder or ditch `b`/`d`, not any structure symbol), and within
 //     CAMP_REACH tiles (Chebyshev) of its end's anchor; the two camps do not overlap;
@@ -21,13 +23,29 @@
 // the menus to VERSUS_SARIM.
 
 /** @lions/net FACTION_MATCHUP_MAPS. */
-export const MATCHUP_MAPS = ['tel_marum', 'wadi_tarfan'];
+export const MATCHUP_MAPS = ['tel_marum', 'wadi_tarfan', 'wadi_tarfan_l'];
+
+/** Maps with a rules file that are NOT faction-matchup maps: offered for the MIRROR only (KDF v KDF,
+ *  Sarim v Sarim), the large network map of GH-913 (opened by work package L8, the lead's ruling of
+ *  1 Nov: its KDF-v-Sarim cells read KDF 66-74% and the tunnels cell about 96%). They are in @lions/net's
+ *  VERSUS_FAIR_MAPS and not in its FACTION_MATCHUP_MAPS; tools/src/validate_versus_rules.test.ts pins
+ *  that, and the `cap_minutes` twin table, for every entry. The large Milh Flats of GH-920 joined it at B7 (mirror
+ *  only like its original: B4 read only the mirror cells, KDF v KDF 50.0% pooled over 480 seeds). */
+export const MIRROR_RULES_MAPS = ['rujm_sawda', 'milh_flats_l'];
+
+/** Maps with a rules file that no room offers yet: in neither of @lions/net's VERSUS_FAIR_MAPS and
+ *  FACTION_MATCHUP_MAPS. The large Wadi Tarfan of GH-920 waited here until B7 opened it (it moved into MATCHUP_MAPS: B4 read
+ *  both faction cells inside 60/40 at its seats); the large Milh Flats (B3) did the same at its B7, into
+ *  MIRROR_RULES_MAPS (mirror only), so the list is EMPTY again and the next large map (Tel Marum L) has a place to wait.
+ *  Opening one means moving it into MIRROR_RULES_MAPS (or MATCHUP_MAPS) in the same commit; tools/src/validate_versus_rules.test.ts pins this list against both net lists, so it is red the
+ *  moment a map is offered without its rules file being reclassified. */
+export const RULES_ONLY_MAPS = [];
 
 /** packages/app/src/net/versus-seats.ts VERSUS_SEATS. */
 export const VERSUS_SEATS = {
   beit_sahwan_outskirts: { friendly: [4, 22], hostile: [40, 23] },
-  tel_marum: { friendly: [27, 45], hostile: [29, 17] },
-  wadi_tarfan: { friendly: [11, 11], hostile: [36, 36] },
+  tel_marum: { friendly: [26, 45], hostile: [29, 17] },
+  wadi_tarfan: { friendly: [10, 10], hostile: [37, 37] },
 };
 
 /** How far (Chebyshev, tiles, nearest camp tile) a camp may stand from its end's anchor. */
@@ -54,6 +72,32 @@ export function anchorsOf(map) {
   return f && h ? { friendly: f, hostile: h } : null;
 }
 
+/** The sim's exitTile as tile indices: the first open tile of the footprint box plus one, row-major. */
+export function scanExit(map, camp) {
+  const [ax, ay] = camp.at;
+  const [w, h] = camp.size;
+  for (let y = ay - 1; y <= ay + h; y++) {
+    for (let x = ax - 1; x <= ax + w; x++) {
+      if (x < 0 || y < 0 || x >= map.width || y >= map.height) continue;
+      if (x >= ax && x < ax + w && y >= ay && y < ay + h) continue;
+      if (OPEN_SYMBOLS.has(map.rows[y][x])) return [x, y];
+    }
+  }
+  return null;
+}
+
+/** 0 differing tiles under (x,y) -> (W-1-x,H-1-y), in rows and in elevation. */
+export function pointSymmetric(map) {
+  const H = map.rows.length;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < map.width; x++) {
+      if (map.rows[y][x] !== map.rows[H - 1 - y][map.width - 1 - x]) return false;
+      if (map.elevation && map.elevation[y][x] !== map.elevation[H - 1 - y][map.width - 1 - x]) return false;
+    }
+  }
+  return true;
+}
+
 /**
  * @param {{ file: string, doc: any }[]} rulesFiles every parsed data/versus file
  * @param {Map<string, any>} mapsById every parsed map JSON
@@ -65,8 +109,8 @@ export function versusRulesFailures(rulesFiles, mapsById) {
   for (const { file, doc } of rulesFiles) {
     if (!doc || typeof doc !== 'object') continue; // the schema check reports it
     if (doc.id !== doc.map) out.push(`${file}: id "${doc.id}" is not its map "${doc.map}" -- one file per map, named by it`);
-    if (!MATCHUP_MAPS.includes(doc.map)) {
-      out.push(`${file}: map "${doc.map}" is not a faction-matchup map (${MATCHUP_MAPS.join(', ')})`);
+    if (!MATCHUP_MAPS.includes(doc.map) && !MIRROR_RULES_MAPS.includes(doc.map) && !RULES_ONLY_MAPS.includes(doc.map)) {
+      out.push(`${file}: map "${doc.map}" is not a faction-matchup map (${MATCHUP_MAPS.join(', ')}), a mirror-rules map (${MIRROR_RULES_MAPS.join(', ')}) or a rules-only map (${RULES_ONLY_MAPS.join(', ')})`);
     }
     if (seen.has(doc.map)) out.push(`${file}: a second rules file for "${doc.map}" (after ${seen.get(doc.map)})`);
     else seen.set(doc.map, file);
@@ -106,6 +150,26 @@ export function versusRulesFailures(rulesFiles, mapsById) {
         );
       }
       camps.push({ end, tiles });
+      // GH-976: an authored exit (tile index) is an open ring tile of the footprint -- the set the sim's exitTile scans.
+      if (camp.exit !== undefined) {
+        const e = camp.exit;
+        const onRing = Array.isArray(e) && e.length === 2 && Number.isInteger(e[0]) && Number.isInteger(e[1])
+          && e[0] >= ax - 1 && e[0] <= ax + w && e[1] >= ay - 1 && e[1] <= ay + h
+          && !(e[0] >= ax && e[0] < ax + w && e[1] >= ay && e[1] < ay + h);
+        if (!onRing) out.push(`${file}: ${end} camp exit (${e}) is not a ring tile of its footprint`);
+        else if (e[0] < 0 || e[1] < 0 || e[0] >= map.width || e[1] >= map.height || !OPEN_SYMBOLS.has(map.rows[e[1]][e[0]])) {
+          out.push(`${file}: ${end} camp exit (${e}) is not open ground`);
+        }
+      }
+    }
+    // GH-976: on a point-symmetric map the two camps' exits (authored, else the sim's NW scan) are point mirrors.
+    if (camps.length === 2 && pointSymmetric(map)) {
+      const ex = (end) => doc.ends[end].camp.exit ?? scanExit(map, doc.ends[end].camp);
+      const a = ex('friendly');
+      const b = ex('hostile');
+      if (a && b && (a[0] + b[0] !== map.width - 1 || a[1] + b[1] !== map.height - 1)) {
+        out.push(`${file}: the camp exits (${a}) and (${b}) are not point mirrors on the point-symmetric map "${doc.map}": the end that faces the attack gets the shorter raid`);
+      }
     }
     if (camps.length === 2 && camps[0].tiles.some((t) => camps[1].tiles.includes(t))) {
       out.push(`${file}: the two camps overlap`);

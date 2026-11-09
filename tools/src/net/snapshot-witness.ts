@@ -2,7 +2,7 @@
 // `packages/sim/src/snapshot-witness.ts`, run over real worlds.
 //
 //   pnpm snapshot:witness                       the matrix and the coverage census
-//   pnpm snapshot:witness -- --self-check       ... and the three mutations that must turn it red (CI)
+//   pnpm snapshot:witness -- --self-check       ... and the mutations that must turn it red (CI)
 //   pnpm snapshot:witness -- --only=<substr>    the worlds whose id contains it (no census)
 //
 // WHAT IT RUNS. Every world below is played once by A, uninterrupted, to its end. At each cut
@@ -49,16 +49,18 @@
 // be listed in `SNAPSHOT_COVERAGE_EXEMPT` with a reason naming the world that would cover it; an
 // exemption whose row DID move fails too ("delete this exemption").
 //
-// THE SELF-CHECKS (`--self-check`). A witness that cannot fail proves nothing. Four mutations
+// THE SELF-CHECKS (`--self-check`). A witness that cannot fail proves nothing. Five mutations
 // of B right after the restore, each of which must turn its world red, each preceded by the
 // same series run clean: see `selfChecks`.
 
 import { fileURLToPath } from 'node:url';
-import { fx, type MissionRuntime, type Sim } from '@lions/sim';
+import { fx, Sim, type MissionRuntime } from '@lions/sim';
+import { WOUND_ADMITTED } from '../../../packages/sim/src/tuning';
 import { doctrines, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS, matchDigest, type Faction } from '@lions/net';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { runtimeRowsOf } from '../../../packages/sim/src/runtime-snapshot-schema';
+import { FWD_TICKS, forwardAdvance, forwardDrive, forwardWorld } from '../../../packages/sim/src/runtime-forward-world.test-helper';
 import { rowsOf } from '../../../packages/sim/src/snapshot-schema';
 import { internals } from '../../../packages/sim/src/snapshot';
 import { forkWitnessSeries, stateRowsMoved, type SeriesForkVerdict, type WitnessWorld } from '../../../packages/sim/src/snapshot-witness';
@@ -68,6 +70,7 @@ import {
   FM_SEED,
   RELIEF_SEED,
   ORDERS_SEED,
+  SETUP_SEED,
   RUN_SEED,
   WW_SEED,
   economyAdvance,
@@ -81,6 +84,8 @@ import {
   reliefSetup,
   runDrive,
   runSetup,
+  setupDrive,
+  setupSetup,
   woundedSetup,
 } from '../../../packages/sim/src/golden-worlds.test-helper';
 import {
@@ -90,8 +95,10 @@ import {
   forceMixOf,
   layoutOf,
   livingOf,
+  marchersOf,
   order,
   planRound,
+  rescueRound,
   roomConfig,
   type Arrangement,
   type TunnelCell,
@@ -178,7 +185,7 @@ export function mirrorWorld(map: MapId, seed: number): SnapWorld {
  * anchor, every round the production plan queues and then every living unit attack-moves. With
  * `tunnels`, the tunnel plan is laid over it exactly as that arm lays it.
  */
-export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels?: TunnelCell): SnapWorld {
+export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels?: TunnelCell, rescue = false): SnapWorld {
   const m = buildMatchWorld(roomConfig(map, arr, seed));
   const rt = m.runtime;
   if (rt === null) throw new Error(`snapshot witness: ${map} built no economy runtime`);
@@ -190,6 +197,8 @@ export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels
   const menus = [doctrines[m.factions[0]].menu, doctrines[m.factions[1]].menu] as const;
   const mixes = [forceMixOf(m.factions[0]), forceMixOf(m.factions[1])] as const;
   const plan = tunnels === undefined ? null : new TunnelPlan(m, tunnels);
+  // The squad that lost a man stays home (out of the attack-move): it must be alive to take him back.
+  const home = rescue ? standARescue(m) : -1;
   return {
     sim: m.sim,
     runtime: rt,
@@ -198,10 +207,12 @@ export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels
     driveAt: (t) => {
       if (t % ORDER_EVERY_TICKS === 0) {
         plan?.beforeProduction(rt);
-        for (const side of sideOfEnd) planRound(rt, m.sim, menus[side], mixes[side], side);
+        // The arm is named, not defaulted: these frozen worlds must not move when the probe's default arm does.
+        for (const side of sideOfEnd) planRound(rt, m.sim, menus[side], mixes[side], side, 'opening');
         plan?.round(t);
-        order(m.sim, (side) => livingOf(m.sim, side).filter((id) => plan === null || !plan.holds(id)), sideOfEnd);
+        order(m.sim, (side) => marchersOf(m.sim, side, (id) => id === home || (plan !== null && plan.holds(id))), sideOfEnd);
       }
+      if (rescue && t % DECIDE_EVERY_TICKS === 0) rescueRound(m.sim, 0);
       if (plan !== null && t % DECIDE_EVERY_TICKS === 0) plan.second(t);
       plan?.beforeTick();
     },
@@ -210,6 +221,51 @@ export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels
       plan?.after(ev.sim);
     },
   };
+}
+
+/**
+ * The rescue loop in a room (GH-707, 30 Oct 2026; the medic team is on the KDF versus menu from 3 Nov 2026), set up before tick 0 so that it completes inside the horizon: one
+ * medic team standing at the KDF camp's exit, and, a few tiles off on open ground, a rifle squad hit until a man lies
+ * DOWN. `rescueRound` (the probe's own, run every second by the drive) sends the medic; the engine treats him, lifts
+ * him, carries him to the camp -- the room's drop-off, the one place `stProducesFor` and the `versus_aid` block meet --
+ * and the camp admits and treats him and sends him back to his squad. The rows that move here and nowhere else in a
+ * versus room: `medState`, `medTarget`, `medTimer`, `woundState`'s ADMITTED, `admittedAt`, `woundTimer`, `scars`.
+ */
+function standARescue(m: MatchWorld): number {
+  const sim = m.sim;
+  // The Sarim force is cut before tick 0 (its camp and purse stand): this world is the stretcher's walk to the camp, and
+  // the Grad battery that shelled the home squad at tick 330 would end it before the rejoin.
+  for (const id of m.bySide[1]) sim.debugKill(id);
+  const [ax, ay] = m.anchors[m.endOfSide[0]];
+  const open = (r: number): [number, number] => {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = ax + dx;
+        const y = ay + dy;
+        if (x >= 1 && y >= 1 && x < sim.width - 1 && y < sim.height - 1 && sim.blocked[y * sim.width + x] === 0) return [x, y];
+      }
+    }
+    throw new Error('snapshot witness: no open tile near the KDF anchor');
+  };
+  const idx = (id: string): number => {
+    const i = sim.unitTypes.findIndex((t) => t.id === id);
+    if (i < 0) throw new Error(`snapshot witness: the room did not register ${id}`);
+    return i;
+  };
+  const [mx, my] = open(3);
+  sim.spawn(idx('inf_medic_squad'), 0, fx.from(mx) + fx.from(1) / 2, fx.from(my) + fx.from(1) / 2);
+  const [sx, sy] = open(6);
+  const squad = sim.spawn(idx('inf_squad'), 0, fx.from(sx) + fx.from(1) / 2, fx.from(sy) + fx.from(1) / 2);
+  const before = sim.entityCount;
+  const hit = (sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage.bind(sim);
+  // Small hits, so the squad keeps most of its hp: it has to live to take him back.
+  for (let k = 0; k < 40 && sim.entityCount === before; k++) hit(squad, fx.fromInt(30), m.bySide[1][0]);
+  if (sim.entityCount === before) throw new Error('snapshot witness: the rescue world dropped no man');
+  // The hits that found a man to shed may have left the squad on its last legs: top it up to the two men still standing,
+  // so it is alive to take the third back.
+  sim.state.hp[squad] = Math.floor((sim.unitTypes[sim.state.typeIdx[squad]].hp * sim.state.figuresUp[squad]) / 3);
+  return squad;
 }
 
 /**
@@ -271,6 +327,15 @@ export function goldenWounded(): SnapWorld {
   return simWorld(woundedSetup(WW_SEED), () => undefined);
 }
 /**
+ * The set-up world of SETUP_WORLD_PIN (GH-976, WP2): a 200-tick set-up on a 32x32 map, a squad ordered across the line at
+ * tick 1 (the region clamp holds it), the early bell brought forward by Ready at 20 and 40 (140), then a fight. It is the only
+ * world in which `setupUntil` and `readyMask` move, and the clamp, the bell and weapons tight are all in play at a cut.
+ */
+export function goldenSetup(): SnapWorld {
+  const { sim, ids } = setupSetup(SETUP_SEED);
+  return simWorld(sim, (t) => setupDrive(sim, t, ids));
+}
+/**
  * The formation world of FORMATION_WORLD_PIN (GH-859 P1a): a Column, an Attack and an Ambush ring ordered on the
  * shipped formation files, and a side-1 Column walking into the ring. A versus room carries no formation (the
  * lead's versus-off ruling, GH-859: `net/versus-formations.ts`), so this single-player world is the only one in
@@ -278,7 +343,70 @@ export function goldenWounded(): SnapWorld {
  */
 export function goldenFormations(): SnapWorld {
   const { sim, ids } = formationSetup(FM_SEED);
-  return simWorld(sim, (t) => formationDrive(sim, t, ids));
+  // GH-859 P1b Task 5: what the `exercised` probe reads is a history (every call is over by the end of the run), so the drive
+  // notes, at each tick, which of the three answerers is on duty OUT (2) or RETURN (3): the Attack's helicopter and drone
+  // (ids.atk[5], [6]) and the Column's medic (ids.col[6]). Keyed by the sim: the probe reads A's.
+  const watched: [string, number][] = [['helicopter', ids.atk[5]], ['drone', ids.atk[6]], ['medic', ids.col[6]]];
+  const seen = { out: new Set<string>(), ret: new Set<string>() };
+  FORMATION_DUTIES_SEEN.set(sim, seen);
+  return simWorld(sim, (t) => {
+    formationDrive(sim, t, ids);
+    for (const [name, id] of watched) {
+      const duty = sim.formationDutyOf(id);
+      if (duty === 2) seen.out.add(name);
+      if (duty === 3) seen.ret.add(name);
+    }
+  });
+}
+const FORMATION_DUTIES_SEEN = new WeakMap<Sim, { out: Set<string>; ret: Set<string> }>();
+/**
+ * The group-order world (GH-972): a squad ordered into a house with `spread`, two other squads ordered plainly into the
+ * same house that fill it while the group is still walking, so the group's flagged units turn to the next house (a third
+ * is out of their reach). The only world in which `spreadGoal` and `spreadLive` move: a versus room is driven by
+ * attack-moves, and no golden script gives a spread order. Cuts land before the order, mid-walk, as the house fills
+ * and after the redirect.
+ */
+export function spreadWorld(): SnapWorld {
+  const sim = new Sim({ seed: 972, width: 48, height: 32, capacity: 32 });
+  const house = sim.addStructureType({ id: 'spread_house', name: 'House', hp_per_tile: 260, garrison_slots: 2, rubble_cover: 2 });
+  const rifles = sim.addUnitType({
+    id: 'spread_rifles',
+    role: 'infantry',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1.6 },
+    sensors: { optics: 1, sight_tiles: 10, signature: 0.6 },
+    abilities: ['garrison'],
+    weapons: [],
+  });
+  const rect = (x: number, y: number): number => sim.addStructure(house, [y * 48 + x, y * 48 + x + 1, (y + 1) * 48 + x, (y + 1) * 48 + x + 1]);
+  const a = rect(24, 10);
+  rect(24, 14);
+  rect(24, 18);
+  const put = (x: number, y: number): number => sim.spawn(rifles, 0, fx.from(x), fx.from(y));
+  const group = [0, 1, 2, 3].map((k) => put(4.5, 10 + k));
+  const locals = [0, 1].map((k) => put(22.5, 11 + k));
+  return simWorld(sim, (t) => {
+    if (t === 5) sim.queueCommand({ kind: 'garrison', ids: group, structure: a, spread: true });
+    if (t === 6) sim.queueCommand({ kind: 'garrison', ids: locals, structure: a });
+  });
+}
+/**
+ * The forward-camp world (GH-277 follow-on): an engineer raises a production work beside the authored camp, it completes at
+ * tick 136 and opens a second production line at the tail of side 0's lines, and both lines take builds (one refused: a tank
+ * is off the forward line's menu), a rally and a cancel. The only world in which a field work is staked, completed and
+ * standing, and so the one in which `runtime.appendedAnchors`, the works rows and the structure columns of a raised work move
+ * (a versus room never uses field works). The inputs are the sim package's own (`runtime-forward-world.test-helper.ts`).
+ */
+export function forwardCampWorld(): SnapWorld {
+  const { sim, rt } = forwardWorld();
+  return {
+    sim,
+    runtime: rt,
+    carried: [],
+    anchors: anchorsOf(sim, rt),
+    driveAt: (t) => forwardDrive(rt, t),
+    advanceOnce: () => forwardAdvance({ sim, rt }),
+  };
 }
 export function goldenEconomy(): SnapWorld {
   const ew = economySetup(ECONOMY_SEED);
@@ -341,6 +469,18 @@ export function worldSpecs(): WorldSpec[] {
     build: () => economyWorld('tel_marum', ['kdf', 'sarim'], 1000, 'answer'),
   });
   out.push({
+    id: 'rescue tel_marum kdf/sarim 1000',
+    // Cuts every 50 ticks: the stretcher walk, the lift, the admission and the rejoin each last a few hundred ticks.
+    plan: goldenPlan(1500),
+    build: () => economyWorld('tel_marum', ['kdf', 'sarim'], 1000, undefined, true),
+    // The world exists for a man carried to the camp, admitted, treated and sent back: a squad with a scar.
+    exercised: (a) => {
+      let scarred = 0;
+      for (let i = 0; i < a.sim.entityCount; i++) if (a.sim.state.scars[i] > 0) scarred++;
+      return scarred > 0 ? null : 'the rescue world stopped rescuing: no squad took a man back by its end';
+    },
+  });
+  out.push({
     id: 'stress tel_marum 256 entities 1000',
     plan: longPlan(STRESS_END),
     build: () => stressWorld('tel_marum', 1000),
@@ -355,17 +495,76 @@ export function worldSpecs(): WorldSpec[] {
   out.push({ id: 'golden orders (900)', plan: goldenPlan(900), build: goldenOrders });
   out.push({ id: 'golden wounded (600)', plan: goldenPlan(600), build: goldenWounded });
   out.push({
-    id: 'golden formations (600)',
-    // Cuts before the ring arrives (150), while it arms (200, 300, 350), with the group found by fire and marked
-    // (404: `fgPending` set, the one column whose life crosses a tick boundary) and after it has sprung (420).
-    plan: { Ts: [0, 97, 150, 200, 300, 350, 404, 420], horizon: 180, tailFrom: 100, end: 600 },
+    id: 'golden setup (600)',
+    // Cuts around every edge of the set-up: before any Ready (0, 19), between side 1's Ready (20) and side 0's (40) at 21 and 39,
+    // right after the early bell is armed (41), mid-set-up (97), the tick before the bell (139), the bell tick itself (140), the
+    // first tick after it (141), and well into the fight (250). The horizon is 150, so the last cut ends inside the 600 ticks.
+    plan: { Ts: [0, 19, 21, 39, 41, 97, 139, 140, 141, 250], horizon: 150, tailFrom: 100, end: 600 },
+    build: goldenSetup,
+    exercised: (a) => {
+      const it = internals(a.sim) as unknown as { setupLive: boolean; setupUntil: number; readyMask: number };
+      if (!it.setupLive) return 'the set-up world stopped beginning a set-up: setupLive is false at its end';
+      if (it.readyMask !== 3) return `the set-up world stopped pressing Ready: readyMask ${it.readyMask} at its end (need 3)`;
+      if (it.setupUntil !== 140) return `the set-up world's early bell moved: setupUntil ${it.setupUntil} at its end (need 140)`;
+      return null;
+    },
+  });
+  out.push({
+    id: 'golden formations (1100)',
+    // Cuts early in the march (40: the pace cap live, nobody has reached a checkpoint), mid-march and mid-dress (110: a Column member waiting, the dress clock running, the pace capped), before the ring
+    // arrives (150), while the ring arms (200, 300, 350), mid-rescue (250: the Column's medic OUT) and coming home from it
+    // (380), with the group found by fire and marked (445: `fgPending` set, the one column whose life crosses a tick
+    // boundary), after it has sprung (450: the side-1 Column is in contact, state 3, its quiet clock restarting at every
+    // exchange), mid-sortie (700: the Attack's helicopter and drone OUT) and mid-return (930: both RETURN). The horizon is
+    // 150 so the last cut ends inside the 1100 ticks (GH-859 P1b Task 3 moved the spring from 404 to 445; Task 5 lengthened
+    // the world from 600 to 1000 ticks for the return at 910, and the run to 1100 for the last cut).
+    plan: { Ts: [0, 40, 110, 150, 200, 250, 300, 350, 380, 445, 450, 700, 930], horizon: 150, tailFrom: 100, end: 1100 },
     build: goldenFormations,
-    exercised: (a) =>
-      (internals(a.sim) as unknown as { fmLive: boolean }).fmLive
-        ? null
-        : 'the formation world stopped ordering formations: fmLive is still false at its end',
+    exercised: (a) => {
+      const it = internals(a.sim) as unknown as { fmLive: boolean; fgState: Uint8Array; fmHomeX: Int32Array };
+      if (!it.fmLive) return 'the formation world stopped ordering formations: fmLive is still false at its end';
+      if (!it.fgState.some((st) => st === 3)) return 'the formation world stopped making contact: no group ends in state 3 (contact)';
+      // The calls are over by the end of the run (everyone is home), so the drive's history says who went out and who came back:
+      // each of the three answerers must have been OUT (a sortie of each kind, a rescue) and RETURN (a way home).
+      const seen = FORMATION_DUTIES_SEEN.get(a.sim);
+      if (seen === undefined) return 'the formation world kept no duty history';
+      for (const name of ['helicopter', 'drone', 'medic']) {
+        if (!seen.out.has(name)) return `the formation world stopped calling: the ${name} was never out on a call`;
+        if (!seen.ret.has(name)) return `the formation world stopped bringing its answerers home: the ${name} was never on its way back`;
+      }
+      if (!it.fmHomeX.some((x) => x !== 0)) return 'the formation world stopped calling: every fmHome is empty';
+      return null;
+    },
+  });
+  out.push({
+    id: 'group spread (600)',
+    plan: goldenPlan(600),
+    build: spreadWorld,
+    exercised: (a) => {
+      const it = internals(a.sim) as unknown as { spreadLive: boolean; spreadGoal: Uint8Array };
+      if (!it.spreadLive) return 'the group-spread world stopped giving a spread order: spreadLive is still false at its end';
+      if (!it.spreadGoal.some((f) => f === 1)) return 'the group-spread world stopped flagging units: no spreadGoal is set at its end';
+      const held = Array.from(a.sim.state.garrisonedIn).filter((g, i) => i < a.sim.entityCount && g >= 0).length;
+      return held === 6 ? null : `the group-spread world stopped spreading: ${held} of 6 squads are inside a house at its end`;
+    },
   });
   out.push({ id: `golden economy (${ECONOMY_TICKS})`, plan: goldenPlan(ECONOMY_TICKS), build: goldenEconomy });
+  out.push({
+    id: `forward camp (${FWD_TICKS})`,
+    // Cuts every 25 ticks from 0 to 200 (a site staked at 2, the work under way, the line opening at 136, the first item queued at
+    // 250 is a cut away) and then every 25 to the end: each phase of the work's life is a snapshot.
+    plan: { Ts: [0, 1, 2, 3, 97, 135, 136, 137, 250, 251, 260, 300, 350], horizon: 150, tailFrom: 100, end: FWD_TICKS },
+    build: forwardCampWorld,
+    // The world exists for an appended line: the work stands, the line is the tail of side 0's lines, and both lines built.
+    exercised: (a) => {
+      const rt = a.runtime;
+      if (rt === null) return 'the forward-camp world lost its runtime';
+      const lines = rt.productionLines(0);
+      if (lines.length !== 2 || !lines[1].appended) return `the forward-camp world stopped opening its line: ${lines.length} lines, the second appended = ${String(lines[1]?.appended)}`;
+      if (rt.worksOffers()[0]?.left !== 0) return 'the forward-camp world stopped spending its work count';
+      return null;
+    },
+  });
   return out;
 }
 // ---- one world --------------------------------------------------------------------------------
@@ -586,24 +785,27 @@ const rows = (names: string, reason: string): { readonly name: string; readonly 
  */
 export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonly reason: string }[] = [
   ...rows(
-    'elevation structureCount_ stMaxHp stTypeIdx stCx stCy stMinX stMinY stMaxX stMaxY stTiles structureOfTile stRouteMask ' +
-      'stProducesFor tnLength tnOwner tnCapacity tnTravelTicks tnDigRate tnDigger tnVentX tnVentY tunnelCount_ ' +
+    'elevation stRouteMask ' +
+      'stProducesFor stExitX stExitY tnLength tnOwner tnCapacity tnTravelTicks tnDigRate tnDigger tnVentX tnVentY tunnelCount_ ' +
       'evacX evacY evacSide evacCount aidPosts woundLive veterancy',
     'never moves after build in any witness world (written only by applyTerrain, addStructure, addTunnel, addEvacPoint, addUnitType and spawn at veterancy 0). ' +
       'Their RESTORE is proved in every fork regardless, because B\'s state rows are poisoned before `restoreSim` and a restore that skipped one fails; ' +
-      'what is missing is a world in which the row holds a value other than its build value at a cut. Covered dynamically by a world that adds structures ' +
-      'or tunnels mid-match (a field-works mission), or one that promotes veterancy and lays a new evacuation point'
+      'what is missing is a world in which the row holds a value other than its build value at a cut. Covered dynamically by a world that adds tunnels ' +
+      'mid-match, or one that promotes veterancy and lays a new evacuation point. (The structure rows left this list on 4 Nov 2026: the forward-camp world raises a ' +
+      'work mid-match, so structureCount_, stTypeIdx, stMaxHp, the centroid and bounds, stTiles and structureOfTile move.)'
   ),
+  // `fwLive` and `unitAuraLive` are NOT here since 3 Nov 2026 (GH-707): the economy worlds' plan buys the Nemala medic team, an
+  // aura carrier, a few seconds in, and spawning one turns both flags on mid-match. The census saw them move and said to delete
+  // the exemption; every fork of those worlds restores them. The site, aura-rate and ownership columns below still never move.
   ...rows(
-    'siteAlive siteType siteX siteY siteSide siteStructure buildSite stProgress constructedAt fwLive stOwner stKnown sealGen ' +
-      'auraHealRate auraHealCap auraCompAt auraRepairTicks auraAccMult unitAuraLive',
-    'field works: construction sites, owned structures, their auras and the fog latch on an owned structure. No witness world builds, owns or auras a structure ' +
-      '(versus never uses field works). Covered by a field-works mission world'
+    'siteSide stKnown auraCompAt auraRepairTicks auraAccMult',
+    'field works: the site\'s side, the fog latch on an owned structure and the aura-repair columns. The forward-camp world (4 Nov 2026) stakes, builds and completes a work, ' +
+      'so the site, progress, owner and builder rows moved and left this list; its work is the player\'s and never seen by a side-1 unit, and its aura covers no wounded or ' +
+      'damaged unit. Covered by a field-works mission world with an enemy that sees an owned work and a damaged vehicle in a repair area'
   ),
   ...rows('placedLive stChargeTicks stChargeBy', 'placed charges (setPlacedCharge): no witness driver sets one. Covered by a world whose driver places a charge on a structure'),
   ...rows('beamTgt beamDwell beamHeat beamAt beamLock beamLive', 'beam weapons (stepBeam): no unit of any witness world carries one. Covered by a world that fields a beam unit'),
   ...rows('focusTarget focusLost', 'the attack order (right-click focus): no witness driver issues one, only attack-moves. Covered by a mirror world whose driver sends an `attack` order'),
-  ...rows('wpX wpY wpAttack wpSweep wpCount', 'queued (shift) waypoints: no witness driver appends an order. Covered by a world whose driver issues appended moves'),
   ...rows('boardGoal', 'embarking onto a transport: no witness driver issues board or air-carrier orders. Covered by a world that loads infantry into a carrier'),
   ...rows('patrolX patrolY patrolCount patrolIdx patrolLive patrolLegIds', 'patrol stances: no witness driver or placement sets one (the ambush stance, `stance` and `ambushRadiusSq`, moves in the golden formation world). Covered by a world whose units patrol'),
   ...rows('smoke smokeCooldown pendingStrikes', 'abilities reachable only from the player UI (smoke, fire-support strikes): no witness driver calls them. Covered by a world whose driver lays smoke and calls a strike'),
@@ -619,6 +821,22 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'vehicle separation (GH-421): set once, by addUnitType, when a registered type declares a footprint, so it holds its build value at every cut. ' +
       'Its RESTORE is proved by the poisoned fork like every state row. Covered by a world that registers its first footprinted type mid-match'
   ),
+  ...rows(
+    'setupLive',
+    'the set-up latch (GH-976): set once, by `beginSetup` before tick 0, so it holds its build value at every cut and in every world that has a set-up. ' +
+      'Its RESTORE is proved by the poisoned fork like every state row. (setupUntil and readyMask DO move, in the golden set-up world: Ready arms the early bell.) ' +
+      'Covered by a world that begins its set-up mid-build, which `beginSetup` forbids'
+  ),
+  ...rows(
+    'apsStockLive',
+    'APS stock (GH-884): set once, by addUnitType, when a registered type declares `aps.reserve`, so it holds its build value at every cut. ' +
+      'Its RESTORE is proved by the poisoned fork like every state row. Covered by a world that registers its first reserve-carrying type mid-match'
+  ),
+  // GH-859 P1b: the fourteen formation march/call rows. Each task that makes the formation world move them
+  // deletes its own line (the census fails an exemption whose row moved: "delete this exemption").
+  // (fgQuiet fgCallX fgCallY left this list in Task 4: a group in contact counts the quiet clock and records its call point.)
+  // (fmDuty left this list in Task 3: a member waiting at a checkpoint is duty WAIT, so the march moves it.)
+  // (fmHomeX fmHomeY fgAway fgCalled left it in Task 5: the Column's medic answers a man down, the Attack's aircraft sortie.)
   // ---- the runtime's top-level `state` rows (snapshot S2 Task 5), named `runtime.<row>` ----
   // The matrix's runtime worlds are versus ECONOMY rooms (no authored objectives, triggers, waves, groups, ROE zones,
   // civilians, field works or ledger) and the golden economy replay (a bare mission with an income zone and a convoy).
@@ -635,17 +853,18 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'civilian flight (the fled and evacuated latches): no witness world has a civilian. Covered by a mission world with civilians, as the sim package\'s sink world has (it witnesses the row there, not here)'
   ),
   ...rows(
-    'runtime.zoneDeductedAt runtime.roeScoreValue runtime.roeFailed runtime.roeGainTotal runtime.roeGainJudged runtime.aimedAtWounded runtime.promotedValue',
+    'runtime.zoneDeductedAt runtime.roeScoreValue runtime.roeFailed runtime.roeGainTotal runtime.aimedAtWounded runtime.promotedValue',
     'the ROE score, its zone cooldown, the shot-at-a-wounded-man set and the promotion tally: no witness world has an ROE zone, a protected target, a wound or a veterancy promotion. ' +
       'Covered by a campaign mission replay with a civic-hall zone (the ROE rows) and a promotion (promotedValue)'
   ),
   ...rows(
-    'runtime.worksList runtime.worksOfferList runtime.worksPending runtime.worksSites runtime.worksStructures',
-    'field works (the lazily built works list, the offers, pending charges, staked sites and raised structures): no witness world stakes a work (versus never uses field works). Covered by a field-works mission world'
+    'runtime.worksList runtime.worksPending',
+    'field works (the lazily built works list and the pending charges): the forward-camp world (4 Nov 2026) stakes a work, so the offers, the sites and the raised structures moved and left this list; ' +
+      'the list is built once (an unbuilt list is written as the built default) and a pending charge lives for the span of one tick, so no cut of any world holds one. Covered by a world whose frame queues a works request that the cut precedes'
   ),
   ...rows(
-    'runtime.enemyLast runtime.markedThisMission runtime.rescuedBack runtime.pendingIntelEvents runtime.riseHold runtime.risePaid',
-    'side 1\'s mission-purchase cursor (D7: no shipped mission gives side 1 a camp), the intel marks and the intel events a completed objective owes, wound rescue (GH-707, engine-only), and high-ground rises (no witness map has a rise). ' +
+    'runtime.enemyLast runtime.markedThisMission runtime.pendingIntelEvents runtime.riseHold runtime.risePaid',
+    'side 1\'s mission-purchase cursor (D7: no shipped mission gives side 1 a camp), the intel marks and the intel events a completed objective owes, and high-ground rises (no witness map has a rise). ' +
       'Covered by a campaign mission replay with a marking objective and a high-ground rise'
   ),
   ...rows(
@@ -783,6 +1002,26 @@ export function selfChecks(): SelfCheck[] {
         const queue = lines[0][0].queue;
         const held = queue.length;
         queue.length = 0;
+        if (held > 0) effective.add(b.sim.tickCount);
+      },
+    },
+    {
+      // The camp as a drop-off (the lead, 30 Oct 2026): the rescue world admits its man at tick 317 and sends him back at 517.
+      // A cut at 400 lands mid-treatment, so a restore that dropped the patient's clock would send him back early. The mutation
+      // writes the value such a restore would leave an admitted man with: one tick to go. It records a cut only where a man was
+      // admitted at that moment.
+      name: 'admitted patient\'s clock cut short (rescue world)',
+      spec: { id: 'rescue tel_marum kdf/sarim 1000', plan: goldenPlan(1500), build: () => economyWorld('tel_marum', ['kdf', 'sarim'], 1000, undefined, true) },
+      plan: { Ts: [400], horizon: 300, tailFrom: 100, end: 1000 },
+      mutation: (effective) => (b) => {
+        const st = b.sim.state;
+        let held = 0;
+        for (let i = 0; i < b.sim.entityCount; i++) {
+          if (st.woundState[i] === WOUND_ADMITTED && st.woundTimer[i] > 1) {
+            st.woundTimer[i] = 1;
+            held++;
+          }
+        }
         if (held > 0) effective.add(b.sim.tickCount);
       },
     },

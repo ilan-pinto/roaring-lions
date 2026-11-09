@@ -225,6 +225,9 @@ const SAMPLE: { readonly [K in Command['kind']]: Extract<Command, { kind: K }> }
   cancelConstruct: { kind: 'cancelConstruct', site: 2 },
   raiseWorks: { kind: 'raiseWorks', side: 0, works: 'sandbag_wall', x: 14, y: 15, ids: [] },
   cancelWorks: { kind: 'cancelWorks', side: 0, site: 3 },
+  setupReady: { kind: 'setupReady', side: 1 },
+  fortify: { kind: 'fortify', side: 0, kit: 1, x: 7, y: 8 },
+  unfortify: { kind: 'unfortify', side: 1, x: 9, y: 10 },
 };
 const SAMPLES: readonly Command[] = [
   ...Object.values(SAMPLE),
@@ -244,7 +247,7 @@ describe('snapshot: the command and runtime queues are state', () => {
 
   it('a command of every kind, queued between two ticks, round trips byte-equal into the right queue', () => {
     const { sim } = queued();
-    expect((props(sim).commandQueue as unknown[]).length, 'sim-run kinds').toBe(18 + 3);
+    expect((props(sim).commandQueue as unknown[]).length, 'sim-run kinds').toBe(21 + 3);
     expect((props(sim).runtimeQueue as unknown[]).length, 'runtime-run kinds').toBe(7 + 1);
     const S = encodeSim(sim);
     const fresh = runSetup(SEED).sim;
@@ -600,10 +603,11 @@ describe('snapshot: fuzz', () => {
     }
     expect(columnWords.length).toBeGreaterThan(100);
     expect(view0.getUint32(columnWords[columnWords.length - 1], true)).toBe(
-      // the walk lands exactly on the last state column: `fgMembers` since GH-859 P1a appended the
-      // formation rows (was `sepLast` since GH-421 appended its two, and `prWeaponIdx` before that:
-      // each a typed column whose length word the walk must land on)
-      (props(a.sim).fgMembers as Uint16Array).length
+      // the walk lands exactly on the last state column: `stKit` since GH-976 WP3 appended the kit rows (kitLeft, kitPlaced,
+      // stKit; it is 256 long where capacity is 128, so a walk that stops one column short reads 6 or 2 and fails here)
+      // (was `fmHomeY` since GH-859 P1b appended its fourteen, `fgMembers` since P1a appended the formation rows, `sepLast` since GH-421 appended its two, and
+      // `prWeaponIdx` before that: each a typed column whose length word the walk must land on)
+      (props(a.sim).stKit as Int8Array).length
     );
     // The tail: the last u32 that is the count of bytes after it, followed by '{'.
     let tailStart = -1;

@@ -16,6 +16,10 @@ const FOG_EVERY = 4;
 export class FogTracker {
   private fog: Uint8Array;
   private calls = 0;
+  /** How many times the fog has been recomputed: a reader that follows the fog (the last-seen memory) refreshes when this moves. */
+  generation = 0;
+  /** The sim tick of the last fog recompute (-1 before the first): the tick every listed contact was last confirmed in sight. */
+  refreshedTick = -1;
   private readonly sightByType: Float64Array;
 
   constructor(
@@ -50,6 +54,8 @@ export class FogTracker {
       viewerSide: this.viewerSide,
     };
     this.fog = computeFog(this.fog, input);
+    this.generation++;
+    this.refreshedTick = sim.tickCount;
   }
 
   /** In sight right now at a (fractional) tile position, the renderer's `isVisible`. */

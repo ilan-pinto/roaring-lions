@@ -113,7 +113,12 @@ export function liftWoundedTemplate(root: THREE.Object3D): THREE.Material[] {
       copy = std.clone();
       const baseKey = std.customProgramCacheKey();
       copy.customProgramCacheKey = () => `${baseKey}|${PROGRAM_KEY}`;
-      copy.onBeforeCompile = (shader) => {
+      // `Material.clone` does not copy `onBeforeCompile`, so the source's hook is chained, not lost: a
+      // KDF figure's wounded copy under rain still carries the rain rim (`rain-rim.ts`), and its
+      // program key already carries the rim's through `baseKey`.
+      const priorHook = std.onBeforeCompile;
+      copy.onBeforeCompile = (shader, renderer) => {
+        priorHook.call(std, shader, renderer);
         shader.uniforms.uWoundedFloor = floorUniform;
         shader.uniforms.uWoundedGateLo = gateLoUniform;
         shader.uniforms.uWoundedGateHi = gateHiUniform;

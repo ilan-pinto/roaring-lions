@@ -325,7 +325,8 @@ for vehicles.
   measured in: the Blender scripts divide an imported rescaled GLB back
   (`tools/vehicles/rescale.py`), and the TS recipes multiply by `rescaleOf`.
   Pipeline: export -> `pnpm rescale:meshes -- --id=<id>` (and `--kit=mbt_lavi`
-  for a kit export) -> running-gear -> kit -> wreck -> damage -> encode. The
+  for a kit export) -> running-gear -> mark (a vehicle with a team mark: the Lavi) -> kit -> wreck ->
+  damage -> encode. The
   pass marks `extras.rl_rescale` and refuses a marked file; the kit pass
   refuses a source whose mark differs from its vehicle's.
 - **A mesh VEHICLE wears its bought kit since plan 3 (GH-238, 2026-10-07), in
@@ -682,8 +683,8 @@ for vehicles.
   over 4 mm in every living clip including kneelIn and kneelOut
   (`tools/inf_kit_clash.py`, every keyframe plus a stride, an open shell closed
   by its own per-vertex thickness). `down` is informational (corpses keep base
-  gear). The NVG mount stands 3 cm below the helmet top and the LPVO sits 6 cm
-  forward of the spec because the bowed head's bridge struck the eyepiece.
+  gear). The NVG mount stands 3 cm below the helmet top and the LPVO sits at -0.335 (spec
+  -0.55 to -0.285): 0.069 m of eye relief in `fire` and `moveFire`, where -0.42 left the eyepiece in the cheek.
 - **The switch is ON (`INFANTRY_KIT_ENABLED = true`, 29 Oct 2026).** It was
   off from PR 891 (the first kit's boxes read as robots) until the redesign
   (PR 896) was approved. It is the kill switch: false makes every infantry team
@@ -751,3 +752,131 @@ for vehicles.
   kit seeded and the full kit bought live by Buy clicks; its pixel check reads
   only the model's region, because the kit mark and the Maxed stamp are DOM
   over it and change with the account whatever the model does.
+
+## Infantry hands (GH-826 step 2, 1 Nov 2026)
+
+Rifle Squad only so far (`inf_squad`); the Demolition and Breach teams take the same pass next.
+
+- **Pipeline, and the order is load-bearing:** export -> **`pnpm hands:meshes`** -> `motion:meshes` -> `gait:meshes` ->
+  `export_infantry_kit.py` -> `kit:meshes -- --teams` -> `encode:meshes`. The hands pass reads the importer's output (git
+  `13f667ff` for the Rifle Squad), writes `extras.rl_hands`, and the motion pass REFUSES a file without it for a team in
+  `HANDS_TEAMS` and a file already through either pass. Re-runs start from git: `--from=<rev>`.
+- **What the hands pass does** (`tools/src/meshes/hands-pass.ts`): elbow at 0.615 S, forearm rebuilt to 0.268 m (the sleeve
+  re-bound, the Meshy elbow ball cut), two rigid 397-triangle hands on `{p}_hand_{L|R}`, the firing hand's index finger on
+  `{p}_finger_L`, a 64-triangle fist on `{p}_fist_{L|R}` that replaces the hand by scale in `down`/`fall`/`wreck`, the glove a
+  texel of the file's own atlas (`limestone.7`), and the Meshy rifles swapped for the reshaped `kdf_carbine` part. The importer's
+  output has no corpse twin, so the fists are sibling bones, not a `death_root`.
+- **The hold learned the hands** (`motion/hold.ts`, `motion/hands.ts`, `motion/contact.ts`): the weapon is placed by formula
+  and the hands follow it onto the part's stations; two-bone IK (hinge form) reaches each wrist; the free variables are the
+  elbow's swing and the hand's turn off the station (a roll about its channel axis, a tilt of it <= 14 degrees), priced by the
+  wrist's anatomy, the palm contact and weapon depth tabulated from the two library parts, and a charge for leaving the last
+  frame's solution. Held clips are keyed at 30 Hz at least. The stance is not the formula holds': blade 38 aimed / 28 ready
+  and up to 30 more by search, support shoulder protracted 0.11, butt pocket 0.015, support hand yawed 35 degrees; a drop and
+  a rise give 16 degrees of blade back at the half way mark.
+- **Instruments** (independent of the pass): `measureGrip` in `mesh_gait.ts` (the review's `gripan.py` ported: the weapon frame by
+  PCA, stations carried from the part's frame by a Horn fit against the part's own bytes), `mesh_grip.test.ts` (3 figures x 8
+  clips, 60/120 Hz, between keys), `mesh_arm_pops.test.ts`, `mesh_hands.ts`/`mesh_hands.test.ts` (L, palm, T, forearm, hung
+  elbow), `check_glove_contrast` in `validate_mesh_assets.py` (+ `tools/test_glove_contrast.py`). The kit is left out of every hand
+  reading (`kit_*` nodes), the stature included.
+- **Open, named, each gated against going stale:** weapon inside the glove (spec 3 mm), read by `measureGrip` with every weapon
+  triangle sampled at 5 mm or finer (the first sampler took each triangle's first vertex and centroid and never reached the support
+  fingers: 2.0 mm read, 9.0 real, in `fire`): the FIRING hand meets it in the aimed clips (2.9 in fire, moveFire, kneel, pinned) and
+  not in idle, move and the transitions (8.4-8.6: the wrist is read with no twist in the hand, so the hand tilts 14 degrees off its
+  station at the low ready); the SUPPORT hand reads 9.0-9.6 in every clip, before the hands pass was fixed too. `mesh_grip.test.ts`
+  holds per-clip, per-hand literal ceilings. Arms inside the body are counted, not measured as depth, and the count cannot say
+  "deeper" (`launcher_arms.test.ts` holds it where it is). The kit census (`inf_kit_clash.py`) reads 0 pairs over 4 mm in idle,
+  move, fire, moveFire, kneel and pinned, devices against the hands included (it did not look for kit vertices inside a glove, and
+  the EUD sat 6-12 mm in the firing hand for all of kneel and pinned; it now sits on the left chest, `EUD_AT` y 0.07 z 1.32). The
+  transitions still hold the head-bowed NVG pairs (kneelIn: bino tubes x support upper arm 14.6-19.9 mm and the mount 4.2; kneelOut:
+  bino tubes x support forearm 7.6-15.1, x the sleeve and deltoid kit parts 8.6-11.3, the mount x forearm 4.9; each over 4 mm for
+  2-3 frames), and `down` the grenade pouches x foot 14.7. The trigger finger stays straight along the receiver, and the elbow and
+  shoulder discs keep their flat colour (GH-746).
+- **Arm pops are gated by RATE** (`mesh_arm_pops.test.ts`): no arm or hand bone of any figure turns faster than 2,400 degrees a second between
+  two keys (20 degrees in one 120 Hz step), in any clip, with no exemption, and a LOOPING clip (idle, move, fire, moveFire, kneel, pinned)
+  may turn at most 20 degrees in the world between its last key and its first: the hold re-runs a clip from where it ended until its seam is
+  under 5 degrees (`moveFire`'s f1 support arm was 38). Measured: kneelIn 2,149, kneelOut 2,315, move 1,009, moveFire 1,369
+  (the first version of the file named seven snaps of 71-133 degrees in one step). The solver changes the elbow swing and the hand's turn at
+  most 600 deg/s x pace, the pace widened 2, 4, 8, 16 times only where the paced answer would put the wrist past its limit; a drop starts from
+  the arms `idle` ended with and a rise from the arms the kneel ended with.
+- **The forearm** (`mesh_forearm.test.ts`) is a 5-ring 12-sided ellipse (0.104 x 0.080 at the elbow, 0.095 x 0.074 at mid, 0.086 x 0.068 at the
+  cuff, left and right alike) with the old forearm's own sleeve cloth stretched along it and mirrored round the turn (`SleevePatch` in
+  `hands-pass.ts`): texel std 13.8 / 16.2 of 255, mean dE76 2.4 / 1.2 to the review's sleeve.
+- **Encode:** raw animation keys that never change (1,010 of 2,376 channels) are cut to two keys at the end of the motion pass
+  (`collapseConstantTracks`), which more than pays for the hands: `inf_squad` pre-kit 1,799,936 -> 1,650,052 bytes encoded.
+
+## The infantry hand gates (GH-746, PR 935)
+
+Five gates read the shipped `art/meshes/*.glb` of every infantry team and count what the player sees, because every earlier hand
+check measured millimetres on the hands a file HAS (a missing, fused or mis-bound hand was not in the population):
+
+| gate | file | holds |
+|---|---|---|
+| G1 | `tools/src/mesh_hand_census.test.ts` | exactly two modelled hands per figure build (397 triangles, 7 pieces each) |
+| G2 | `tools/src/mesh_fragments.test.ts` | no claw-coloured geometry off a hand bone (own claw tone and legacy literals near the hand; the glove's own texel for modelled hands). **Blind on dark claws and on fused arms**: those builds are listed in `G2_BLIND`, not passed |
+| G3 | `tools/src/mesh_hand_holds.test.ts` | each hand closed on its declared object per clip (declared pose, palm contact at least 20% within 8 mm). Contact is weak and non-monotonic; `mesh_grip.test.ts`'s station gaps are the real guard for a team that has hands |
+| G4 | `packages/render/src/three/units/game-hands.shipped.test.ts` | each hand at least 3 unoccluded px at the game's zoom ceiling, in 6 of 8 facings, idle and fire, max kit |
+| G8 | `tools/src/mesh_armed.test.ts` | every figure has a `weapon` or `charge` part on its own bones (no size floor) |
+
+**The exemption table is the art backlog.** Every team or build that fails is a named exemption with a reason, and a second
+assertion that it STILL fails: the day its art lands the assertion goes red and the entry must be deleted (G8 and G2's blind
+list compare the exact set). Adding a name is a design call. When you fix a team, delete its rows and give it a `HOLDS` entry
+(G3), and expect its G1 / G4 rows to be the first to go. The shared readers live in `mesh_figures.ts` and `mesh_hand_gates.ts`,
+which register no tests: a test file that exports a helper re-registers its tests in every importer.
+
+`rebindVertices` makes the constructed failing input (a copy of a file with one bone's vertices moved to another); it throws
+if it moved nothing, so a mutation cannot silently be the shipped file.
+
+## L3: the team mark on the Lavi (GH-943)
+
+Spec `docs/superpowers/specs/2026-11-01-look-uplift-design.md` section 4; the lead's rulings of 2 Nov are on GH-943.
+
+- **What shipped, and what did not.** A first cut added a 2048 px normal map and ORM map to the Lavi, with the team mask in the ORM's inverted
+  alpha. The lead judged the sheets: the maps barely showed and cost +42.7 MiB GPU, +4.9 MiB download and about 0.3 s, so they were DROPPED; and the
+  mask, which followed the texture's UV islands, read as ragged blue blotches. The mark was rebuilt as a procedural box test.
+- **The mark.** `material.extras.rl_team_mark` holds a roof box and a flank band in the mesh-local frame (X forward, Y up), written by `pnpm
+  mark:meshes` from `tools/vehicles/lavi_mark.py`: about 2% of the covered surface, strength 0.85. The shader (`units/team-mask.ts`) tests the
+  fragment's OBJECT-space `position` and `normal` (varyings from the vertex stage), so the edges are straight lines in that frame, anti-aliased over
+  one pixel, and the mark turns with the turret: the turret meshes hang off `turret_pivot`, and the attributes never see its rotation. Pipeline: export
+  -> rescale -> running-gear -> mark -> kit -> wreck -> damage -> encode. The pass refuses a re-run, an unrescaled file, one with no running gear and
+  one already kitted or wrecked; it drops the export's flat normal and metal-roughness textures, so the GLB is back to its base colour alone (a `keepNormal` carrier keeps its normal map; see below).
+- **The two variants (GH-943, 2 Nov).** `mbt_lavi_camo` (the Ambush Tank) and `officer_armour` (the command Lavi) are cut from the shipped
+  `mbt_lavi.glb`, so each has its OWN boxes in `lavi_mark.py`'s `MARKS`, placed for what it adds. The command Lavi's raised cupola stands in the middle
+  of the Lavi's roof box and would hide a third of the panel, so its roof panel moves forward of the cupola (x -0.55..0.60, |z| <= 0.80); its band is the
+  Lavi's. The Ambush Tank's net carries 59 foliage tufts: with the Lavi's thresholds every tuft in the box turned blue (seen on the garage bay), so its
+  panel stays under the tuft tips (y 2.28..2.95) and wants `min_ny` 0.55. Three things are different from the Lavi: (1) the export scripts drop the
+  imported Lavi's mark (`rescale.drop_imported_mark`) or its boxes would ride in on the variant's material; (2) they have no kit, so their exclusion pins
+  are `NO_PIN` (UV -1,-1, outside the unit square; the runtime still wants three); (3) their `team_fraction` is the TRIANGLE share, not the texel share,
+  because a part UV-pinned to one bake texel has no texel area (the net's 9,626 triangles and the cupola's 92 were invisible to the texel count) and
+  `team_fraction_basis: 'triangle'` says so. The Lavi keeps its texel 2.11% (1.66% on the triangle basis). `officer_armour` has no roster entry (it is
+  a held unit), so the garage cannot mount it by id; `look-l3-captures.ts` names its GLB directly.
+- **The three KDF carriers (GH-943, 3 Nov): `ifv_namer`, `apc_eitan`, `apc_kipod`.** A Meshy hull (`hull_hull`) with tyres or tracks (`hull_rubber`) and the
+  remote weapon station (`turret_metal`, `turret_plate`) on `turret_pivot`; no turret body, so the mark rides the hull alone (`CARRIER_PARTS` and
+  `CARRIER_ROLES` in `lavi_mark.py`) and the roof panel is a hull-roof panel. Placement: the roof box sits on the clear deck (the Namer between its two
+  hatches and the station, the Eitan aft of the station, the Kipod FORWARD of its station because its rear deck is hatches), the band on a flank
+  stretch with no baked vision blocks (the Namer's first cut, x -1.6..-0.05, painted across its four baked windows; it now sits forward of them), and
+  no hull vertex rises above a panel, no kit vertex is in either box, and the station's plan is clear (`mark-pass.test.ts`). They declare the TEXEL
+  share like the Lavi (their hull is UV-mapped): 2.02% / 2.03% / 1.99%. A Meshy roof is a few HUGE triangles, so a centroid oracle reads 40% high; the
+  test SUBDIVIDES every hull triangle (12 x 12) and tests the sub-centroids, which agrees with the texel share to a quarter of a point.
+  **How the pass ran: `peel-host.ts`.** None of the three has a re-runnable export (the Namer's Meshy source is not in the tree; the Eitan and Kipod
+  went through `rws-swap.ts`), and the mark pass refuses a kitted or wrecked file, so `pnpm --filter @lions/tools exec tsx src/meshes/peel-host.ts --
+  --id=<id>` strips damage, wreck and kit (each pass's own idempotent strip) and the pipeline resumes at `mark:meshes`. Peeling then re-running kit, wreck
+  and damage with no mark writes the shipped bytes back (checked with `cmp` on all three before any box was placed), and after marking every live, kit
+  and `WRECK_` accessor is byte-identical to the shipped file: only the material changed.
+  **The carriers KEEP their normal map** (`MARK_RECIPES[id].keepNormal`, `MARK_KEEPS_NORMAL` in `validate_mesh_assets.py`, pinned against each other): it
+  is NOT flat (decoded: 30-37% of texels tilt past 0.05, mean tilt 0.20-0.25, p99 about 0.94; track links, wheel hubs, ribs) and GLTFLoader binds it, so
+  the pass leaves it byte-identical (`mark-pass.test.ts` pins each file's sha256 and fails if it is stripped). Only the metal-roughness map was flat
+  (roughness 0.80 with a std of 0.7, metal 0) and is dropped. A first cut of this batch dropped the normal maps too on the strength of that one
+  measurement of the metal-roughness map, which was wrong; the review caught it. The Lavi line's normal maps stay dropped (the lead's 2 Nov ruling).
+  **The `.blend` is a SNAPSHOT of the GLB, not its generator.** `art/src/vehicles/<id>_host.blend` (written by `save_carrier_blend.py`) is the shipped,
+  already-marked GLB imported with its `kit_*` and wreck nodes removed. Rebuilding the GLB is not "export from the .blend": it is `peel-host.ts` on the
+  shipped file, then `pnpm mark:meshes -- --id=<id>` -> `kit:meshes` -> `wreck:meshes` -> `damage:meshes` -> `encode:meshes`. The Meshy sources are listed in
+  `docs/ASSET_PROVENANCE.md`.
+- **Who carries it.** One VARIANT per (template material x colour slot: own, hostile, neutral), minted lazily, +0 draw calls, +0 textures, and only
+  on `rl_role: hull` meshes (the barrel, antennas and tracks are other roles). A kit part is merged INTO the host geometry at runtime and has no UVs
+  of its own (the kit pass pins each onto one of three bake texels), so the shader excludes a fragment whose UV is within `exclude_radius` of a pin.
+  A wreck takes none. `carryTeamMark` re-applies the hook on scar and running-gear clones (`Material.clone()` drops `onBeforeCompile`); a clone must
+  never carry the program key without the patch. The slot colours are shared linear uniforms, so `setTeamColors` (colour vision) is one write.
+- **Gates.** The `team-mask` debug layer (the shared strength to 0) and its layer check on the gated `vehicle` scenario; `check_team_marks` in
+  `validate:meshes`; `mark-pass.test.ts` (an independent triangle-centroid measurement of the boxes, 95% of the area on `turret_hull` (80% on the Ambush Tank, whose net drapes beside the ring), every kit UV
+  inside a pin); and the per-class texture budget (vehicle 80 MiB / 2560 px, building 64 / 2048, infantry 32 / 3072, a ratchet) with a
+  report-only roster census. `validate:meshes` requires a mark on `mbt_lavi`, `mbt_lavi_camo`, `officer_armour`, `ifv_namer`, `apc_eitan` and `apc_kipod` (`MARK_REQUIRED`, pinned to `MARK_RECIPES`). The rest of the fleet has none yet.

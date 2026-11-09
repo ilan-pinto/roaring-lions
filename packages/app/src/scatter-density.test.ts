@@ -62,6 +62,15 @@ function isGrassOrSand(input: TerrainInput, family: string): boolean {
   return family === (input.familyRemap?.grass ?? 'grass') || family === 'sand';
 }
 
+/** The grass and sand objects an open tile carries on a map of this size with NOTHING on it, unshed. A cluster that
+ *  reaches past the edge is dropped, so the rate climbs with the side: 0.947 at 48, 1.015 at 64, 1.050 at 80, 1.072 at 96,
+ *  1.081 at 112 (read on 2 Nov 2026, GH-920 B3). */
+function blankRate(width: number, height: number): number {
+  const n = width * height;
+  const blank = { width, height, decor: new Uint8Array(n), elevation: null, blocked: new Uint8Array(n), cover: new Uint8Array(n), boulder: new Uint8Array(n) } as unknown as TerrainInput;
+  return decorPlacements(blank, 1).filter((p) => isGrassOrSand(blank, p.family)).length / n;
+}
+
 function openTileCount(i: TerrainInput): number {
   let n = 0;
   for (let t = 0; t < i.width * i.height; t++) {
@@ -81,13 +90,16 @@ describe.each(MAP_IDS)('scatter density on %s', (id) => {
 
   // Measured, not derived: members that land on a road, a building or off the
   // map are dropped (R-3), so a map with more edges reads under the all-open
-  // fixture's 0.87. The band is N-1's "0.9" with that loss allowed for.
-  it('carries 0.65-1.0 grass and sand objects an open tile', () => {
+  // fixture's 0.87. The band is N-1's "0.9" with that loss allowed for. Its ceiling was a flat 1.0; a large
+  // map's own all-open fixture reads more than that (1.072 at 96x96: less of it is edge), and Wadi Tarfan
+  // (large) reads 1.0014, 93% of it, where Rujm Sawda reads 0.909 of 1.050 (GH-920 B3). So the ceiling is 1.0
+  // up to 48x48 and the same-size all-open rate above: the loss still has to show.
+  it('carries 0.65 to the all-open rate (1.0 at most up to 48x48) grass and sand objects an open tile', () => {
     const n = openTileCount(input);
     if (n < 500) return; // the tile_* fixtures that are nearly all one surface
     const perTile = open.length / n;
     expect(perTile).toBeGreaterThan(0.65);
-    expect(perTile).toBeLessThan(1.0);
+    expect(perTile).toBeLessThan(Math.max(1.0, blankRate(input.width, input.height)));
   });
   it('ships SCATTER_DENSITY of that (the lead\'s 0.75 shed)', () => {
     if (openTileCount(input) < 500) return;
@@ -99,6 +111,13 @@ describe.each(MAP_IDS)('scatter density on %s', (id) => {
     const graph = buildRoadGraph(input);
     for (const p of shipped) expect(roadDistanceAt(graph, p.x, p.z)).toBeGreaterThanOrEqual(SCATTER_ROAD_CLEAR);
     for (const p of open) expect(roadDistanceAt(graph, p.x, p.z)).toBeGreaterThanOrEqual(SCATTER_ROAD_CLEAR);
+  });
+});
+
+describe('the all-open rate a large map is held to (GH-920 B3)', () => {
+  it('climbs with the side, so a flat 1.0 ceiling would refuse every large map', () => {
+    const read = [48, 80, 96].map((s) => Math.round(blankRate(s, s) * 1000) / 1000);
+    expect(read).toEqual([0.947, 1.05, 1.072]);
   });
 });
 

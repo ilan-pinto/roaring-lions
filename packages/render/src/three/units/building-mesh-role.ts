@@ -193,6 +193,8 @@ const WALL_SURFACE: Record<string, WallSurface> = {
   kdf_intel_centre: 'flat',
   kdf_workshop: 'flat',
   kdf_aid_post: 'flat',
+  // GH-277 forward camp: tent, net and sandbags, no laid course.
+  kdf_forward_camp: 'flat',
   militia_field_clinic: 'flat',
   militia_firing_position: 'flat',
   militia_observation_post: 'flat',

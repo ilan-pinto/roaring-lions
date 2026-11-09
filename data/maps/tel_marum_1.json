@@ -68,6 +68,10 @@
   "drone_standoff": [
    36,
    5
+  ],
+  "wounded_evac": [
+    23,
+    46
   ]
  },
  "zones": {

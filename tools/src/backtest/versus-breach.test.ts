@@ -24,14 +24,15 @@ describe('the normal arm is the room', () => {
     // beit's helper pin re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561). Was 2485993817.
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 1732930723 (beit helper), 4047666552 (beit room), 792859212 (tel, both).
     // Re-pinned 28 Oct 2026 for beit's seat 0 at (4,22) (GH-560 Task 7B): the spawn moved and nothing else. Was 695551139 (helper) and 823410040 (room).
-    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(4158212441);
+    // Re-pinned for GH-884 (5 Nov 2026): mbt_lavi gained hull.aps.reserve, so a room that registers the KDF roster turns apsStockLive on and folds its marker word and two columns; with that fold disabled the old values read back (watched). Was 4158212441 (beit helper), 1075203618 (beit room), 682632360 (tel, both).
+    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(3497186305);
     // beit's room pin re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561). Was 3227696674.
-    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(1075203618);
+    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(701662394);
     // tel_marum re-pinned 2026-10-22 for its versus seat 0 at (24,46). Was 1260439781.
     // Re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774). Was 280818962.
     // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): the spawn moved. Was 52130380.
-    expect(pinWindow('tel_marum', 'helper').hash).toBe(4263437644);
-    expect(pinWindow('tel_marum', 'room').hash).toBe(4263437644);
+    expect(pinWindow('tel_marum', 'helper').hash).toBe(2541694446);
+    expect(pinWindow('tel_marum', 'room').hash).toBe(2541694446);
     for (const map of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const how of ['helper', 'room'] as const) expect(pinWindow(map, how).activity.ticks).toEqual([0, 0]);
     }
@@ -92,7 +93,7 @@ describe('the swap', () => {
         expect(read(mine.sim)).toEqual(read(shipped.sim));
       }
     }
-    expect(pairings).toBe(8); // 4 mirrors + 2 faction maps x 2 orders: the loop ran
+    expect(pairings).toBe(13); // 7 mirrors (rujm_sawda from GH-913 L8, wadi_tarfan_l and milh_flats_l from GH-920 B7) + 3 faction maps x 2 orders: the loop ran (was 12 before milh_flats_l, 9 before the large Wadi)
   });
   it('moves only the side labels: same tiles, same ids, camp A first', () => {
     const tiles = (arm: 'normal' | 'swapped') => {

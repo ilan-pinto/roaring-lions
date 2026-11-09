@@ -27,6 +27,8 @@ import deirAmunMap from '../../../data/maps/deir_amun.json';
 import deirAmun2Map from '../../../data/maps/deir_amun_2.json';
 import deirAmun3Map from '../../../data/maps/deir_amun_3.json';
 import einQasab from '../../../data/maps/ein_qasab.json';
+import einQasab3 from '../../../data/maps/ein_qasab_3.json';
+import jebelMatar from '../../../data/maps/jebel_matar.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import qarnHadid2Map from '../../../data/maps/qarn_hadid_2.json';
@@ -43,6 +45,11 @@ import telMarum3 from '../../../data/maps/tel_marum_3.json';
 // `sandboxAnchors`). No mission references either.
 import milhFlats from '../../../data/maps/milh_flats.json';
 import wadiTarfan from '../../../data/maps/wadi_tarfan.json';
+import wadiTarfanL from '../../../data/maps/wadi_tarfan_l.json';
+import milhFlatsL from '../../../data/maps/milh_flats_l.json';
+// The large 80x80 network map (GH-913 L4, 2026-11-01): point-symmetric, seats named as above.
+// Registered so free play can walk it; no room offers it until L5's fairness runs and the lead.
+import rujmSawda from '../../../data/maps/rujm_sawda.json';
 // The four tile-study sandboxes (2026-09-03). Not campaign ground and no
 // mission references any of them: each exists to put ONE of the ground
 // albedos in front of the player at gameplay zoom, reachable from the
@@ -75,13 +82,26 @@ import wadiHalam4 from '../../../data/maps/wadi_halam_4.json';
 import wadiHalam5 from '../../../data/maps/wadi_halam_5.json';
 import kdfDoctrine from '../../../data/doctrines/kdf.json';
 import sarimDoctrine from '../../../data/doctrines/sarim.json';
+import rujmSawdaVersus from '../../../data/versus/rujm_sawda.json';
 import telMarumVersus from '../../../data/versus/tel_marum.json';
 import wadiTarfanVersus from '../../../data/versus/wadi_tarfan.json';
+import wadiTarfanLVersus from '../../../data/versus/wadi_tarfan_l.json';
+import milhFlatsLVersus from '../../../data/versus/milh_flats_l.json';
+import beitSahwanOutskirtsModes from '../../../data/versus/modes/beit_sahwan_outskirts.json';
+import milhFlatsLModes from '../../../data/versus/modes/milh_flats_l.json';
+import milhFlatsModes from '../../../data/versus/modes/milh_flats.json';
+import rujmSawdaModes from '../../../data/versus/modes/rujm_sawda.json';
+import telMarumModes from '../../../data/versus/modes/tel_marum.json';
+import wadiTarfanLModes from '../../../data/versus/modes/wadi_tarfan_l.json';
+import wadiTarfanModes from '../../../data/versus/modes/wadi_tarfan.json';
 // GH-859 P1a: the combat formations, registered in sorted directory order.
 import formationAmbush from '../../../data/formations/ambush.json';
 import formationAttack from '../../../data/formations/attack.json';
 import formationColumn from '../../../data/formations/column.json';
-import type { DoctrineJson, VersusRulesJson } from './versus';
+// Look uplift L2 (GH-943): the colour grades, one file per shipped time of day. Day is the identity and has no file.
+import gradeDawn from '../../../data/grades/dawn.json';
+import gradeDusk from '../../../data/grades/dusk.json';
+import type { DoctrineJson, VersusModeFileJson, VersusRulesJson } from './versus';
 import structureCatalogue from '../../../data/structures.json';
 import couponsJson from '../../../data/coupons.json';
 import beitSahwanBreach from '../../../data/missions/beit_sahwan_breach.json';
@@ -100,6 +120,9 @@ import ummZeitoun1Recon from '../../../data/missions/umm_zeitoun_1_recon.json';
 import ummZeitoun2Buildup from '../../../data/missions/umm_zeitoun_2_buildup.json';
 import ummZeitoun3Clearance from '../../../data/missions/umm_zeitoun_3_clearance.json';
 import ummZeitoun4Clearance from '../../../data/missions/umm_zeitoun_4_clearance.json';
+import einQasab1Recon from '../../../data/missions/ein_qasab_1_recon.json';
+import einQasab2Foothold from '../../../data/missions/ein_qasab_2_foothold.json';
+import einQasab3Buildup from '../../../data/missions/ein_qasab_3_buildup.json';
 import wadiHalam1Fords from '../../../data/missions/wadi_halam_1_fords.json';
 import wadiHalam2Laager from '../../../data/missions/wadi_halam_2_laager.json';
 import wadiHalam3Counterraid from '../../../data/missions/wadi_halam_3_counterraid.json';
@@ -205,8 +228,12 @@ import collapseFlash from '../../../data/vfx/collapse_flash.json';
 import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
 import rotorWash from '../../../data/vfx/rotor_wash.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
+import vehicleMud from '../../../data/vfx/vehicle_mud.json';
+import vehicleClods from '../../../data/vfx/vehicle_clods.json';
 import vehicleExhaust from '../../../data/vfx/vehicle_exhaust.json';
 import vehicleDamagedSmoke from '../../../data/vfx/vehicle_damaged_smoke.json';
+import gunOutPuff from '../../../data/vfx/gun_out_puff.json';
+import gunOutFire from '../../../data/vfx/gun_out_fire.json';
 import armorRicochet from '../../../data/vfx/armor_ricochet.json';
 import armorPenetration from '../../../data/vfx/armor_penetration.json';
 import wreckSmoulder from '../../../data/vfx/wreck_smoulder.json';
@@ -245,7 +272,10 @@ export {
   STRUCTURE_SYMBOLS,
   TERRAIN_LEGEND,
   THEME_SYMBOLS,
+  WIND_SKEW_MAX_DEG,
+  WIND_STRENGTH_MAX,
   type MapJson,
+  type MapWind,
   type ParsedMap,
   type DecorKind,
   type TerrainCell,
@@ -274,8 +304,36 @@ export {
 
 export {
   versusMissionOf,
+  versusCapacityOf,
+  versusCapMinutesOf,
+  VERSUS_CAP_MINUTES_DEFAULT,
+  VERSUS_CAP_MINUTES_MIN,
+  VERSUS_CAP_MINUTES_MAX,
+  VERSUS_CAPACITY_DEFAULT,
+  VERSUS_CAPACITY_MIN,
+  VERSUS_CAPACITY_MAX,
   versusTunnelsOf,
   versusZonesOf,
+  versusModeMissionOf,
+  campYardZone,
+  flagZone,
+  WIN_MODES,
+  SETUP_KIT_PIECES,
+  SETUP_KIT,
+  SETUP_SECONDS,
+  FLAG_SETUP_CAP_MINUTES,
+  SETUP_BAND_TILES_48,
+  SETUP_BAND_TILES_LARGE,
+  setupRegionOf,
+  setupLineOf,
+  flagBlockOf,
+  type SetupKitPiece,
+  type FlagSetupJson,
+  type WinModeId,
+  type VersusModeFileJson,
+  type VersusModeMissionJson,
+  type VersusModeObjectiveJson,
+  type PointsZoneJson,
   type DoctrineJson,
   type VersusEndJson,
   type VersusMissionJson,
@@ -294,14 +352,35 @@ export const doctrines: Readonly<Record<'kdf' | 'sarim', DoctrineJson>> = {
 /** Versus rules files (N3 Task 1), keyed by map id: each faction-matchup map's camps and
  *  income zones. data/versus/*.json against versus_rules.schema.json. */
 export const versusRules: Readonly<Record<string, VersusRulesJson>> = {
+  milh_flats_l: milhFlatsLVersus as unknown as VersusRulesJson,
+  rujm_sawda: rujmSawdaVersus as unknown as VersusRulesJson,
   tel_marum: telMarumVersus as unknown as VersusRulesJson,
   wadi_tarfan: wadiTarfanVersus as unknown as VersusRulesJson,
+  wadi_tarfan_l: wadiTarfanLVersus as unknown as VersusRulesJson,
+};
+
+/** Versus WIN-MODE files (GH-976), keyed by map id: the camps and the points race a room that picks a mode
+ *  plays. data/versus/modes/*.json against versus_mode.schema.json. Hand-kept, so `index.test.ts` pins it to
+ *  the directory: an unregistered file would be a mode no room can reach. */
+export const versusModes: Readonly<Record<string, VersusModeFileJson>> = {
+  beit_sahwan_outskirts: beitSahwanOutskirtsModes as unknown as VersusModeFileJson,
+  milh_flats: milhFlatsModes as unknown as VersusModeFileJson,
+  milh_flats_l: milhFlatsLModes as unknown as VersusModeFileJson,
+  rujm_sawda: rujmSawdaModes as unknown as VersusModeFileJson,
+  tel_marum: telMarumModes as unknown as VersusModeFileJson,
+  wadi_tarfan: wadiTarfanModes as unknown as VersusModeFileJson,
+  wadi_tarfan_l: wadiTarfanLModes as unknown as VersusModeFileJson,
 };
 
 /** Combat formations (GH-859 P1a): data/formations/*.json against formation.schema.json, in
  *  sorted directory order. Hand-kept, so `index.test.ts` pins it to the directory: an
  *  unregistered file would be silently unorderable. The sim's `addFormationType` compiles each. */
 export const formations = [formationAmbush, formationAttack, formationColumn] as const;
+
+/** Colour grades (look uplift L2, GH-943): data/grades/*.json against grade.schema.json, in sorted
+ *  directory order. Hand-kept, so `index.test.ts` pins it to the directory: an unregistered file
+ *  would be silently inert. The renderer bakes the one the app picks (`gradeOf`) into a 32^3 LUT. */
+export const grades = [gradeDawn, gradeDusk] as const;
 
 /** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
 export const maps = {
@@ -316,11 +395,15 @@ export const maps = {
   deir_amun_2: deirAmun2Map,
   deir_amun_3: deirAmun3Map,
   ein_qasab: einQasab,
+  ein_qasab_3: einQasab3,
+  jebel_matar: jebelMatar,
   marj_perimeter: marjPerimeter,
   milh_flats: milhFlats,
+  milh_flats_l: milhFlatsL,
   qarn_hadid: qarnHadid,
   qarn_hadid_2: qarnHadid2Map,
   qarn_hadid_3: qarnHadid3Map,
+  rujm_sawda: rujmSawda,
   tel_marum: telMarum,
   tel_marum_1: telMarum1,
   tel_marum_2: telMarum2,
@@ -341,6 +424,7 @@ export const maps = {
   wadi_halam_4: wadiHalam4,
   wadi_halam_5: wadiHalam5,
   wadi_tarfan: wadiTarfan,
+  wadi_tarfan_l: wadiTarfanL,
 } as const;
 
 export type MapId = keyof typeof maps;
@@ -376,6 +460,9 @@ export const missions = {
   umm_zeitoun_2_buildup: ummZeitoun2Buildup,
   umm_zeitoun_3_clearance: ummZeitoun3Clearance,
   umm_zeitoun_4_clearance: ummZeitoun4Clearance,
+  ein_qasab_1_recon: einQasab1Recon,
+  ein_qasab_2_foothold: einQasab2Foothold,
+  ein_qasab_3_buildup: einQasab3Buildup,
   wadi_halam_1_fords: wadiHalam1Fords,
   wadi_halam_2_laager: wadiHalam2Laager,
   wadi_halam_3_counterraid: wadiHalam3Counterraid,
@@ -578,9 +665,19 @@ export const vfxEmitters = [
   collapseFlash,
   tunnelCollapse,
   vehicleDust,
+  // GH-871 P4: what a vehicle throws on a map that rains, in place of `vehicle_dust`;
+  // swapped BY NAME in the renderer (nothing dispatches by the `vehicle_move` trigger).
+  vehicleMud,
+  // GH-984 N2: the clods a tracked hull throws on a pivot and a launch, spawned BY NAME by the renderer
+  // from the tick that detected them (`vehicle_clods`); unregistered, it is silently inert.
+  vehicleClods,
   vehicleExhaust,
   // Pass C2/C4 (P3): a living vehicle with a mobility or firepower kill.
   vehicleDamagedSmoke,
+  // The lead's ruling of 4 Nov: a knocked-out main gun puffs once and burns small for 8-15 s; spawned BY NAME by the
+  // renderer (`units/gun-out-fx.ts`) on the sim clock; unregistered, both are silently inert.
+  gunOutPuff,
+  gunOutFire,
   rotorWash,
   // GH-85: the triggers the schema declared and nothing dispatched. A direct-
   // fire round glancing off (impact_armor) or punching through (penetration)

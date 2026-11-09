@@ -196,6 +196,16 @@
               "type": "number",
               "minimum": 0
             },
+            "reserve": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "GH-884: interceptors held beyond the ready magazine. A reload draws from it, and when it and the magazine are empty the APS stays silent. Absent = an unlimited stock (the reload always refills the magazine)."
+            },
+            "rearm_s": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "GH-884: with a reserve, one round comes back per this many seconds of quiet (after the 10 s regen delay with no threatening hit and no APS engagement). An owned repair aura refills the stock fully."
+            },
             "ineffective_vs": {
               "type": "array",
               "items": {
@@ -403,7 +413,8 @@
         },
         "thermal": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Display-only. No game effect today: the sim parses it and nothing reads it (pinned by packages/sim/src/thermal-unread.test.ts). It only feeds the balance cost-curve factor x1.15 in tools/validate_balance.py. Sight range is sight_tiles, not this flag."
         },
         "signature": {
           "type": "number",
@@ -584,7 +595,6 @@
           "repair",
           "resupply",
           "tunnel_travel",
-          "hidden_setup",
           "demolish",
           "kamikaze",
           "dig_tunnel",

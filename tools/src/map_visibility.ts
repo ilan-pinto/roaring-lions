@@ -401,7 +401,7 @@ interface Mission {
   starting_force?: readonly { tag?: string; at?: readonly number[]; marker?: string }[];
 }
 
-type Rect = [number, number, number, number];
+export type Rect = [number, number, number, number];
 
 /** An objective's target as rectangles on the map (a point is a 1x1 rect). */
 function targetRects(mission: Mission, map: ParsedMap, target: string): Rect[] {
@@ -420,7 +420,7 @@ function targetRects(mission: Mission, map: ParsedMap, target: string): Rect[] {
   return out;
 }
 
-function nearestOpen(map: ParsedMap, x: number, y: number): [number, number] | null {
+export function nearestOpen(map: ParsedMap, x: number, y: number): [number, number] | null {
   for (let r = 0; r < 8; r++)
     for (let dy = -r; dy <= r; dy++)
       for (let dx = -r; dx <= r; dx++) {
@@ -433,7 +433,7 @@ function nearestOpen(map: ParsedMap, x: number, y: number): [number, number] | n
 }
 
 /** The foot path a flow field gives from (sx, sy) to (gx, gy), tile indices, or [] if none. */
-function footPath(map: ParsedMap, s: [number, number], g: [number, number]): number[] {
+export function footPath(map: ParsedMap, s: [number, number], g: [number, number]): number[] {
   const f = new FlowField(map.width, map.height);
   f.compute(map.blocked, map.elevation, g[0], g[1]);
   const out: number[] = [];
@@ -449,7 +449,7 @@ function footPath(map: ParsedMap, s: [number, number], g: [number, number]): num
   return [];
 }
 
-const rectCentre = (r: Rect): [number, number] => [
+export const rectCentre = (r: Rect): [number, number] => [
   Math.floor(r[0] + (r[2] - 1) / 2),
   Math.floor(r[1] + (r[3] - 1) / 2),
 ];
@@ -547,6 +547,166 @@ export async function measureMap(
     hidden,
     fight,
   };
+}
+
+// --- the versus gate (GH-974) ---------------------------------------------------------------------------------------------
+//
+// The 6 Oct rule for a campaign map is a floor on the FIGHT tiles of its missions (above). A versus map has no mission, so
+// its fight is named by its own data: the seat-to-seat corridor (a three-wide foot path from seat to seat, as above) and
+// the scoring zones (the zones its rules file pays income for, which are the zones a goal will be set on). The caps, from
+// the design of 3 Nov (_coord/versus-maps-design/design.md 2), each measured on the shipped maps and approved by the lead:
+//
+//   whole map visible         >= 95%   (the 0.84 floor above is for the fight tiles of a town mission)
+//   seat corridor, every scoring zone visible >= 92%
+//   inside a town zone        >= 85%   (the campaign floor is 84%)
+//   building tiles            <= 3% of the map, <= 25% of a town zone (a wall or a fence is not a building: it is per-tile
+//                                      and low-profile, and hides nothing; its cost is the renderer's, capped elsewhere)
+//   floors                    <= 2, no apartment, no warehouse
+//   houses                    <= 40% of the building tiles
+//
+// A tile is HIDDEN by the same test as above (more than half a rifleman behind a building mesh, along the shipped camera),
+// so the instrument and the rule cannot drift apart.
+export const VERSUS_CAPS = {
+  wholeMap: 0.95,
+  corridorAndZones: 0.92,
+  town: 0.85,
+  maxBuiltShare: 0.03,
+  maxTownBuiltShare: 0.25,
+  maxFloors: 2,
+  maxHouseShare: 0.4,
+  forbiddenTypes: ['apartment', 'warehouse'],
+} as const;
+
+/** Structure types by id with their floors, from data/structures.json. */
+const structureFloors: Record<string, number> = Object.fromEntries(
+  Object.values((readJson('data/structures.json') as { types: Record<string, { id: string; floors?: number }> }).types).map((t) => [t.id, t.floors ?? 0])
+);
+
+export interface VersusVisibilitySpec {
+  /** Zones that are a town: their visible share is held to `town`, and their building share to `maxTownBuiltShare`. */
+  towns: readonly string[];
+  /** Zones whose visible share is held to `corridorAndZones` (the rules file's income zones, which a goal will be set on). */
+  scoring: readonly string[];
+  /** The caps, defaulting to VERSUS_CAPS: a test passes a tighter one to watch the gate go red. */
+  caps?: Partial<Record<keyof typeof VERSUS_CAPS, number | readonly string[]>>;
+}
+
+export interface VersusVisibility {
+  failures: string[];
+  facts: Record<string, string | number>;
+}
+
+const share = (hidden: number, n: number): number => (n === 0 ? 1 : 1 - hidden / n);
+
+/** Measure a versus map (its parsed `map`, the seat markers, the zones it names) against the caps. */
+export async function measureVersus(map: ParsedMap, spec: VersusVisibilitySpec, fit: BuildingFit = DEFAULT_BUILDING_FIT): Promise<VersusVisibility> {
+  const caps = { ...VERSUS_CAPS, ...(spec.caps ?? {}) } as Record<string, number | readonly string[]>;
+  const failures: string[] = [];
+  const facts: Record<string, string | number> = {};
+  const fail = (s: string) => failures.push(s);
+  const placed = await placeBuildings(map, fit);
+  const W = map.width;
+  const hiddenAt = new Uint8Array(W * map.height);
+  let passable = 0;
+  let hiddenPassable = 0;
+  for (let t = 0; t < W * map.height; t++) {
+    if (map.blocked[t] !== 0) continue;
+    passable++;
+    if (bodyHiddenShare(map, placed, t % W, Math.floor(t / W)) > HIDDEN_BODY_SHARE) {
+      hiddenAt[t] = 1;
+      hiddenPassable++;
+    }
+  }
+  const whole = share(hiddenPassable, passable);
+  facts.visible_whole_map = Number(whole.toFixed(4));
+  if (whole < (caps.wholeMap as number)) fail(`visibility: ${(whole * 100).toFixed(1)}% of the map is visible, under ${(caps.wholeMap as number) * 100}%`);
+
+  // the seat-to-seat corridor: the three-wide foot path from seat to seat
+  const seat0 = map.markers.versus_0;
+  const seat1 = map.markers.versus_1;
+  const s0 = nearestOpen(map, Math.floor(seat0[0]), Math.floor(seat0[1]));
+  const s1 = nearestOpen(map, Math.floor(seat1[0]), Math.floor(seat1[1]));
+  const corridor = new Set<number>();
+  if (s0 && s1) {
+    for (const t of footPath(map, s0, s1)) {
+      const x = t % W;
+      const y = Math.floor(t / W);
+      for (let dy = -ROUTE_HALF_WIDTH; dy <= ROUTE_HALF_WIDTH; dy++)
+        for (let dx = -ROUTE_HALF_WIDTH; dx <= ROUTE_HALF_WIDTH; dx++) {
+          const tx = x + dx;
+          const ty = y + dy;
+          if (tx >= 0 && ty >= 0 && tx < W && ty < map.height && map.blocked[ty * W + tx] === 0) corridor.add(ty * W + tx);
+        }
+    }
+  }
+  const sub = (tiles: Iterable<number>) => {
+    let n = 0;
+    let h = 0;
+    for (const t of tiles) {
+      n++;
+      if (hiddenAt[t]) h++;
+    }
+    return { n, h, visible: share(h, n) };
+  };
+  const c = sub(corridor);
+  facts.corridor_tiles = c.n;
+  facts.visible_corridor = Number(c.visible.toFixed(4));
+  if (c.n < 100) fail(`visibility: the seat corridor has only ${c.n} tiles, so it measures nothing`);
+  if (c.visible < (caps.corridorAndZones as number)) fail(`visibility: ${(c.visible * 100).toFixed(1)}% of the seat corridor is visible, under ${(caps.corridorAndZones as number) * 100}%`);
+
+  const rectTiles = (r: readonly number[]) => {
+    const out: number[] = [];
+    for (let y = r[1]; y < r[1] + r[3]; y++) for (let x = r[0]; x < r[0] + r[2]; x++) if (map.blocked[y * W + x] === 0) out.push(y * W + x);
+    return out;
+  };
+  const buildingTiles = (r: readonly number[] | null) => {
+    let n = 0;
+    for (const st of map.structures) {
+      if (perTileTypes.has(st.type)) continue;
+      for (const t of st.tiles) {
+        const x = t % W;
+        const y = Math.floor(t / W);
+        if (r === null || (x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3])) n++;
+      }
+    }
+    return n;
+  };
+  for (const [kind, names, cap] of [['town', spec.towns, caps.town as number], ['zone', spec.scoring, caps.corridorAndZones as number]] as const) {
+    for (const name of names) {
+      const r = map.zones[name];
+      if (!r) {
+        fail(`visibility: ${kind} zone ${name} is not on the map`);
+        continue;
+      }
+      const z = sub(rectTiles(r));
+      facts[`visible_${name}`] = Number(z.visible.toFixed(4));
+      if (z.n < 9) fail(`visibility: zone ${name} has only ${z.n} passable tiles, so it measures nothing`);
+      if (z.visible < cap) fail(`visibility: ${(z.visible * 100).toFixed(1)}% of the ${kind} ${name} is visible, under ${cap * 100}%`);
+      if (kind === 'town') {
+        const b = buildingTiles(r) / (r[2] * r[3]);
+        facts[`built_${name}`] = Number(b.toFixed(4));
+        if (b > (caps.maxTownBuiltShare as number)) fail(`visibility: buildings cover ${(b * 100).toFixed(1)}% of town zone ${name}, over ${(caps.maxTownBuiltShare as number) * 100}%`);
+      }
+    }
+  }
+  // buildings: tiles, floors, types, houses
+  const total = buildingTiles(null);
+  const builtShare = total / (W * map.height);
+  facts.building_tiles = total;
+  facts.building_share = Number(builtShare.toFixed(5));
+  if (builtShare > (caps.maxBuiltShare as number)) fail(`buildings: ${(builtShare * 100).toFixed(2)}% of the map is building, over ${(caps.maxBuiltShare as number) * 100}%`);
+  const types = new Set(map.structures.map((s) => s.type));
+  for (const type of types) {
+    if (perTileTypes.has(type)) continue;
+    const floors = structureFloors[type] ?? 0;
+    if (floors > (caps.maxFloors as number)) fail(`buildings: ${type} has ${floors} floors, over ${caps.maxFloors}`);
+    if ((caps.forbiddenTypes as readonly string[]).includes(type)) fail(`buildings: a ${type} stands on the map, and a versus map has none`);
+  }
+  const houseTiles = map.structures.filter((s) => s.type === 'house').reduce((a, s) => a + s.tiles.length, 0);
+  const houseShare = total === 0 ? 0 : houseTiles / total;
+  facts.house_share = Number(houseShare.toFixed(3));
+  if (houseShare > (caps.maxHouseShare as number)) fail(`buildings: houses are ${(houseShare * 100).toFixed(0)}% of the building tiles, over ${(caps.maxHouseShare as number) * 100}%`);
+  return { failures, facts };
 }
 
 /** Every map a campaign mission plays on, with the missions that play there. */

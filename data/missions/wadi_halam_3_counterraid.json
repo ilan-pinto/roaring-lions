@@ -87,13 +87,24 @@
         8,
         22
       ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        8,
+        20
+      ]
     }
   ],
   "resources": {
     "logistics_start": 400,
     "logistics_rate_per_min": 150
   },
-  "structures": [{ "type": "camp", "at": [3, 20], "size": [2, 2] }],
+  "structures": [
+    { "type": "camp", "at": [3, 20], "size": [2, 2] },
+    { "type": "militia_weapons_workshop", "at": [27, 40], "size": [2, 2] }
+  ],
   "objectives": [
     {
       "id": "kill_amir",

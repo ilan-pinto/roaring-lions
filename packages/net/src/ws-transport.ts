@@ -6,7 +6,7 @@
  * the browser passes `() => new WebSocket(url)`.
  */
 import type { Command } from '@lions/sim';
-import type { Faction, MatchConfig, Seat } from './config';
+import type { Faction, MatchConfig, Seat, WinMode } from './config';
 import type { AdvisorMsg, AdvisorScope } from './advisor';
 import type { Frame } from './frames';
 import { LockstepClock } from './lockstep';
@@ -41,8 +41,9 @@ export interface SocketLike {
 export interface WsTransportHooks {
   /** `factions`, by seat: the room's matchup (absent from an older room: the mirror).
    *  `kit`: the room's kit rule, named only for `brigade` (absent is matched). */
-  onLobby?(seats: SeatState[], you: Seat, map: string, factions?: [Faction, Faction], kit?: LobbyKit): void;
-  onStart(config: MatchConfig): void;
+  onLobby?(seats: SeatState[], you: Seat, map: string, factions?: [Faction, Faction], kit?: LobbyKit, winMode?: WinMode): void;
+  /** `fromLog`: the room answered the hello with its log (this seat joined a match already under way), not a live `start`. */
+  onStart(config: MatchConfig, fromLog?: boolean): void;
   onDesync?(tick: number, hashes: [number, number]): void;
   onEnded?(reason: string, seat?: Seat): void;
   /** A seat paused: how long the room will hold the pause, and each seat's pauses left. */
@@ -50,7 +51,8 @@ export interface WsTransportHooks {
   onChat?(seat: Seat, text: string): void;
   /** The room dropped a command this seat sent, because a pause was in force (an order in flight when it began). */
   onCmdRefused?(): void;
-  onError?(code: string): void;
+  /** `detail.build`: the room's own build, on a `build_mismatch` (GH-954). */
+  onError?(code: string, detail?: { build?: string }): void;
   /** What this seat's pair (its human or its advisor) said, relayed by the room (N4a). */
   onAdvisor?(from: 'human' | 'advisor', a: AdvisorMsg): void;
   /** The advisor scope each seat has seated, or null (N4a). */
@@ -138,8 +140,11 @@ export class WsTransport implements MatchTransport {
     /** `advisor`: an AI advisor's socket (N4a). It runs no sim of its own to
      *  report on, so it never acks, hashes, readies, reports `over` or says
      *  `bye`; the room would ignore all five, and a leaving advisor must not
-     *  read as a seat leaving. It still hellos, and it still listens. */
-    private readonly role: 'seat' | 'advisor' = 'seat',
+     *  read as a seat leaving. It still hellos, and it still listens.
+     *  `watch` (GH-954 W1): a spectator. It says `hello` and NOTHING else, ever: `send` drops every other
+     *  verb at the one place a message leaves, so no method below (a command, a pause, a surrender, a chat,
+     *  an advisor line, a `done`, a ready, a bye) can reach the room whatever calls it. */
+    private readonly role: 'seat' | 'advisor' | 'watch' = 'seat',
     /** `from`: this client's world already holds every frame below it (a restored
      *  snapshot, S4). The first `hello` carries it and the clock starts there. */
     opts: { from?: number } = {},
@@ -245,6 +250,7 @@ export class WsTransport implements MatchTransport {
     };
   }
   private send(msg: ClientMsg): void {
+    if (this.role === 'watch' && msg.t !== 'hello') return;
     try { this.sock?.send(JSON.stringify(msg)); } catch { /* closing; the reconnect carries on */ }
   }
   private onMessage(raw: string): void {
@@ -257,7 +263,7 @@ export class WsTransport implements MatchTransport {
   private begin(config: MatchConfig, fromLog: boolean): void {
     this.config = config;
     this.clock = new LockstepClock(config.bufferTicks, fromLog ? (this.startFrom ?? 0) : 0);
-    this.hooks.onStart(config);
+    this.hooks.onStart(config, fromLog);
   }
   /** Desync and closed are final: nothing the room says afterwards revives the transport. */
   private terminal(): boolean {
@@ -275,7 +281,7 @@ export class WsTransport implements MatchTransport {
           if (this.droppedAt !== null) this.setAdvisors([null, null]);
           this.relinked(); this.setStalled(null); this.st = { kind: 'waiting' };
         }
-        this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions, msg.kit);
+        this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions, msg.kit, msg.winMode);
         return;
       case 'start':
         this.begin(msg.config, false);
@@ -340,7 +346,7 @@ export class WsTransport implements MatchTransport {
         this.hooks.onEnded?.(msg.reason, msg.seat);
         return;
       case 'error':
-        this.hooks.onError?.(msg.code);
+        this.hooks.onError?.(msg.code, msg.build === undefined ? undefined : { build: msg.build });
         if (msg.code === 'bad_ticket' || msg.code === 'build_mismatch') { this.setStalled(null); this.st = { kind: 'closed', reason: msg.code }; }
         return;
     }

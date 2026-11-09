@@ -2,6 +2,7 @@ import { doctrines } from '@lions/data';
 import type { Faction } from '@lions/net';
 import type { Fx, MissionRuntime } from '@lions/sim';
 import type { ProductionRuntime } from '../ui/production';
+import { zoneRatePerMin } from './zone-rate';
 
 /**
  * What an economy room (N3 Task 6: KDF against Sarim, `economyRoom`) shows the
@@ -74,11 +75,9 @@ export interface RoomEconomyView {
 }
 
 export function roomEconomyView(rt: RoomEconomyRuntime, side: 0 | 1, faction: Faction): RoomEconomyView {
-  let rate = 0;
-  for (const z of rt.incomeZones) if (z.holder === side) rate += z.paysPerMin;
   return {
     logistics: rt.logisticsOf(side),
-    ratePerMin: rate,
+    ratePerMin: zoneRatePerMin(rt.incomeZones, side),
     ...(showsConduct(faction) ? { conduct: rt.roeScore } : {}),
   };
 }

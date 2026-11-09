@@ -1316,7 +1316,7 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
     // as `cursorAt` composes it. Open ground reads the formation's cursor.
     for (const formation of ['column', 'attack', 'ambush'] as const) {
       for (const ids of selections) {
-        const res = resolveFormationOrder(openGround, { ids, formation, x: 5, y: 5, append: false, formationsOpen: true });
+        const res = resolveFormationOrder(openGround, { ids, formation, x: 5, y: 5, append: false, formationsOpen: true, classOf: () => 3 });
         for (const hints of HINT_COMBOS) {
           const name = cursorFor(res, { ...hints, armedFormation: formation });
           keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));

@@ -34,6 +34,7 @@
  * 'node'` and independent of the runtime it is meant to catch bugs in.
  */
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /** Sim ticks are 20 Hz and the clip is real time; both numbers below come
  *  from the shipped data rather than from this file. */
@@ -51,6 +52,8 @@ type Gltf = {
   accessors?: { bufferView?: number; byteOffset?: number; componentType: number; count: number; type: string }[];
   bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
   materials?: unknown[];
+  /** The baked skin of a Meshy-cut team: one embedded image (`mesh_figures.ts` reads its texels). */
+  images?: { bufferView?: number; mimeType?: string }[];
   /** `pnpm gait:meshes` writes `rl_gait` onto the scene's own extras, and
    *  the renderer reads it from there (`parseGaitExtras`). Declared here so
    *  a node-side gate can read the SHIPPED declaration rather than a
@@ -140,7 +143,7 @@ function readAccessorUncached(glb: GlbFile, index: number): { data: Float64Array
   return { data: out, components: comps, count: acc.count };
 }
 
-type Mat4 = Float64Array;
+export type Mat4 = Float64Array;
 
 /** Column-major, glTF's own convention, so a `matrix` array can be used raw. */
 function multiply(a: Mat4, b: Mat4): Mat4 {
@@ -184,7 +187,7 @@ function slerp(a: number[], b: number[], t: number): number[] {
   return [a[0] * s0 + bb[0] * s1, a[1] * s0 + bb[1] * s1, a[2] * s0 + bb[2] * s1, a[3] * s0 + bb[3] * s1];
 }
 
-interface Track {
+export interface Track {
   readonly times: Float64Array;
   readonly values: Float64Array;
   readonly components: number;
@@ -192,7 +195,7 @@ interface Track {
 }
 
 /** Every animated node property of one clip, keyed `${node}:${path}`. */
-function readClip(glb: GlbFile, name: string): { tracks: Map<string, Track>; start: number; end: number } {
+export function readClip(glb: GlbFile, name: string): { tracks: Map<string, Track>; start: number; end: number } {
   const anim = glb.json.animations?.find((a) => a.name === name);
   if (!anim) throw new Error(`clip "${name}" not in file`);
   const tracks = new Map<string, Track>();
@@ -235,7 +238,7 @@ function sampleTrack(tr: Track, t: number): number[] {
 /** World matrix per node at clip time `t`, resolved through the whole
  *  hierarchy (a joint's parent may itself be animated -- reading a joint's
  *  own channel alone is the classic way to under-report a limb). */
-function nodeWorlds(glb: GlbFile, tracks: Map<string, Track>, t: number): Mat4[] {
+export function nodeWorlds(glb: GlbFile, tracks: Map<string, Track>, t: number): Mat4[] {
   const nodes = glb.json.nodes ?? [];
   const local: Mat4[] = nodes.map((n, i) => {
     if (n.matrix && !tracks.has(`${i}:translation`) && !tracks.has(`${i}:rotation`) && !tracks.has(`${i}:scale`)) {
@@ -263,7 +266,7 @@ function nodeWorlds(glb: GlbFile, tracks: Map<string, Track>, t: number): Mat4[]
   return nodes.map((_, i) => resolve(i));
 }
 
-type Accessor = ReturnType<typeof readAccessor>;
+export type Accessor = ReturnType<typeof readAccessor>;
 
 /**
  * World * inverse-bind per skin joint, in the skin's own joint order.
@@ -271,7 +274,7 @@ type Accessor = ReturnType<typeof readAccessor>;
  * travel measurement and `measureFacing`'s per-figure centroid) so this
  * step has exactly one implementation.
  */
-function computeSkinMats(skin: { joints: number[] }, worlds: Mat4[], ibm: Accessor | null): Mat4[] {
+export function computeSkinMats(skin: { joints: number[] }, worlds: Mat4[], ibm: Accessor | null): Mat4[] {
   return skin.joints.map((jointNode, skinIndex) => {
     const w = worlds[jointNode];
     if (!ibm) return w;
@@ -289,7 +292,7 @@ function computeSkinMats(skin: { joints: number[] }, worlds: Mat4[], ibm: Access
  * the exact failure mode this project has been bitten by before: behaviour
  * in two places, so neither copy can be broken alone.
  */
-function skinPoint(pos: Accessor, joints: Accessor, weights: Accessor, v: number, skinMats: Mat4[]): [number, number, number] {
+export function skinPoint(pos: Accessor, joints: Accessor, weights: Accessor, v: number, skinMats: Mat4[]): [number, number, number] {
   const px = pos.data[v * 3], py = pos.data[v * 3 + 1], pz = pos.data[v * 3 + 2];
   let ox = 0, oy = 0, oz = 0;
   for (let k = 0; k < 4; k++) {
@@ -2312,6 +2315,618 @@ export function measureHold(path: string, clip: string, prefix: string): HoldRea
     }
   }
   return { handGapM: handGap, eyeAboveBoreMin: eyeLo, eyeAboveBoreMax: eyeHi, instants };
+}
+
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The grip, per clip (GH-826 step 2). The review's `gripan.py`, ported, and independent of the motion pass: it reads the
+// posed vertices of the hand bones and the weapon cloud out of the bytes, and shares no arithmetic with `hold.ts`.
+//
+// Two readings of each hand, because the spec's limits were written in the review's terms and the fit in the hand's:
+//
+//   review   the hand's centroid (posed vertices of the hand bone) against the weapon as the REVIEW defines it: the
+//            firing hand against the pistol grip's centroid, the support hand against the nearest handguard vertex.
+//            Needs no hand bone, so it reads a Meshy claw too (`fallbackWristT`): the failing input on today's bytes.
+//   station  the hand's reference point (a literal, in the hand's own frame) against the station (a literal, in the
+//            carbine part's frame, carried onto the figure's weapon cloud by a Horn fit against the part's own bytes).
+//            Reads only a figure that carries the reshaped part and hand bones.
+// ---------------------------------------------------------------------------------------------------------------------
+
+type V3t = [number, number, number];
+const vsub = (a: V3t, b: V3t): V3t => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const vdot = (a: V3t, b: V3t): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const vlen = (a: V3t): number => Math.hypot(a[0], a[1], a[2]);
+const vcross = (a: V3t, b: V3t): V3t => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+
+/** The hand's channel axes in the hand's own frame (literals): the fist's finger-curl axis, the support palm's bore axis. */
+export const GRIP_CHANNEL_LOCAL: V3t = [1, 0, 0];
+export const SUPPORT_CHANNEL_LOCAL: V3t = [0.8192, 0.5736, 0];
+/** The hand's reference points in the hand's own frame (literals): the closed grip's palm axis point, the support palm's. */
+export const GRIP_REF_LOCAL: V3t = [-0.012, 0.078, -0.0315];
+export const SUPPORT_REF_LOCAL: V3t = [0, 0.07, -0.0492];
+/** The stations in the carbine part's frame (x forward along the bore, y across, z up; metres), literals. */
+export const GRIP_STATION_PART: V3t = [-0.1619, -0.0034, -0.0983];
+export const SUPPORT_STATION_PART: V3t = [0.115, -0.0034, 0.0014];
+/** The grip's axis in the part frame, top to bottom (the 20 degree rake). */
+export const GRIP_AXIS_PART: V3t = [-0.342, 0, -0.9397];
+/** A palm-side vertex: past the wrist plane (local y > 0) on the palm's side of its mid-plane (local z < 0). */
+export const CONTACT_RADIUS_M = 0.008;
+
+export interface GripOptions {
+  /** The bone side of the firing hand ('L' is the anatomical right). */
+  readonly shootSide?: 'L' | 'R';
+  /** Samples per second: 60, and 120 for the kneel transitions. */
+  readonly hz?: number;
+  /** A figure with no hand bones: the forearm's vertices past this many metres along the elbow-to-tip axis are the hand. */
+  readonly fallbackWristT?: { readonly L: number; readonly R: number };
+  /** The reshaped carbine part, to carry the stations onto the figure's weapon. */
+  readonly partPath?: string;
+  /** The file as already read (a fixture with its hierarchy edited): `path` then only names it in errors. */
+  readonly glb?: GlbFile;
+  /** Pitch the spine this many degrees about its own lateral axis at every instant, as the runtime's recoil does after the
+   *  mixer (`squad-motion.ts`, `recoilAt`): everything under the spine moves with it, and nothing else. */
+  readonly spinePitchDeg?: number;
+  /** Read the weapon inside the glove the way this instrument first did: each weapon triangle's first vertex and its centroid,
+   *  and nothing else. The handguard's triangles run 100 mm and more, so the support fingers were never sampled (R2 review, 1 Nov
+   *  2026: 2.0 mm read, 8.3 mm real). Off by default; kept so a test can show the old sampler missing what the new one finds. */
+  readonly sparseWeaponSamples?: boolean;
+  /** Called once per hand per instant with that instant's readings (a debugging aid, and the report's per-frame table). */
+  readonly trace?: (t: number, hand: 'fire' | 'support', r: { stationM: number; axisDeg: number; contact: number; wristOverDeg: number }) => void;
+}
+
+export interface GripHand {
+  /** Worst over the clip, the review's reading: centroid to the grip's centroid (firing) / nearest handguard vertex (support). */
+  readonly reviewGapM: number;
+  /** Worst over the clip: the hand's reference point to its station, metres. Null when the figure has no hand bones. */
+  readonly stationGapM: number | null;
+  /** Worst over the clip: the hand's channel axis against the grip axis (firing) or the bore (support), degrees. */
+  readonly axisDeg: number | null;
+  /** Lowest over the clip: the fraction, by area, of the palm-side surface within CONTACT_RADIUS_M of the weapon. */
+  readonly contact: number | null;
+  /** Lowest over the clip: the same, counted in vertices (the spec's own words). */
+  readonly contactVerts: number | null;
+  /** Worst over the clip: the deepest a weapon surface point sits inside the hand, metres. */
+  readonly depthM: number | null;
+  /** Where the hand's centroid sits along the weapon (0 butt, 1 muzzle): lowest and highest over the clip. */
+  readonly sMin: number;
+  readonly sMax: number;
+  /** Worst over the clip: how far the wrist bends past its anatomical limit, degrees. */
+  readonly wristOverDeg: number | null;
+}
+
+export interface GripReading {
+  readonly instants: number;
+  readonly fire: GripHand;
+  readonly support: GripHand;
+  /** The weapon's frame as the review reads it: where the pistol grip's centroid sits (s), and the handguard window. */
+  readonly frame: { readonly gripS: number; readonly lengthM: number; readonly handguardFrom: number };
+}
+
+function pointTriDist(p: V3t, a: V3t, b: V3t, c: V3t): number {
+  // Ericson, Real-Time Collision Detection, closest point on a triangle
+  const ab = vsub(b, a), ac = vsub(c, a), ap = vsub(p, a);
+  const d1 = vdot(ab, ap), d2 = vdot(ac, ap);
+  if (d1 <= 0 && d2 <= 0) return vlen(ap);
+  const bp = vsub(p, b);
+  const d3 = vdot(ab, bp), d4 = vdot(ac, bp);
+  if (d3 >= 0 && d4 <= d3) return vlen(bp);
+  const vc = d1 * d4 - d3 * d2;
+  if (vc <= 0 && d1 >= 0 && d3 <= 0) { const v = d1 / (d1 - d3); return vlen(vsub(p, [a[0] + ab[0] * v, a[1] + ab[1] * v, a[2] + ab[2] * v])); }
+  const cp = vsub(p, c);
+  const d5 = vdot(ab, cp), d6 = vdot(ac, cp);
+  if (d6 >= 0 && d5 <= d6) return vlen(cp);
+  const vb = d5 * d2 - d1 * d6;
+  if (vb <= 0 && d2 >= 0 && d6 <= 0) { const w = d2 / (d2 - d6); return vlen(vsub(p, [a[0] + ac[0] * w, a[1] + ac[1] * w, a[2] + ac[2] * w])); }
+  const va = d3 * d6 - d5 * d4;
+  if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) { const w = (d4 - d3) / ((d4 - d3) + (d5 - d6)); return vlen(vsub(p, [b[0] + (c[0] - b[0]) * w, b[1] + (c[1] - b[1]) * w, b[2] + (c[2] - b[2]) * w])); }
+  const den = 1 / (va + vb + vc);
+  const v = vb * den, w = vc * den;
+  return vlen(vsub(p, [a[0] + ab[0] * v + ac[0] * w, a[1] + ab[1] * v + ac[1] * w, a[2] + ab[2] * v + ac[2] * w]));
+}
+
+/** Möller-Trumbore, t > 0 only. */
+function rayHitsTri(o: V3t, d: V3t, a: V3t, b: V3t, c: V3t): boolean {
+  const e1 = vsub(b, a), e2 = vsub(c, a);
+  const h = vcross(d, e2);
+  const det = vdot(e1, h);
+  if (Math.abs(det) < 1e-14) return false;
+  const f = 1 / det;
+  const sv = vsub(o, a);
+  const u = f * vdot(sv, h);
+  if (u < 0 || u > 1) return false;
+  const q = vcross(sv, e1);
+  const v = f * vdot(d, q);
+  if (v < 0 || u + v > 1) return false;
+  return f * vdot(e2, q) > 1e-9;
+}
+/** Three directions no mesh edge here is aligned with. */
+const INSIDE_RAYS: V3t[] = [[0.5773, 0.5774, 0.5775], [-0.3714, 0.5571, 0.7428], [0.2673, -0.5345, 0.8018]];
+
+
+function percentile(xs: readonly number[], q: number): number {
+  const a = [...xs].sort((x, y) => x - y);
+  return a[Math.min(a.length - 1, Math.max(0, Math.floor(q * (a.length - 1))))];
+}
+
+function rigidInverse(m: Mat4): Mat4 {
+  const r = new Float64Array(16);
+  const sc = [Math.hypot(m[0], m[1], m[2]), Math.hypot(m[4], m[5], m[6]), Math.hypot(m[8], m[9], m[10])];
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) r[j * 4 + i] = m[i * 4 + j] / (sc[i] * sc[i]);
+  r[12] = -(r[0] * m[12] + r[4] * m[13] + r[8] * m[14]);
+  r[13] = -(r[1] * m[12] + r[5] * m[13] + r[9] * m[14]);
+  r[14] = -(r[2] * m[12] + r[6] * m[13] + r[10] * m[14]);
+  r[15] = 1;
+  return r;
+}
+const xfPoint = (m: Mat4, p: V3t): V3t => [
+  m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+  m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+  m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+];
+const xfDir = (m: Mat4, p: V3t): V3t => {
+  const o: V3t = [m[0] * p[0] + m[4] * p[1] + m[8] * p[2], m[1] * p[0] + m[5] * p[1] + m[9] * p[2], m[2] * p[0] + m[6] * p[1] + m[10] * p[2]];
+  const l = vlen(o) || 1;
+  return [o[0] / l, o[1] / l, o[2] / l];
+};
+
+/** Horn's closed-form rigid fit of corresponding points A -> B: rotation (row-major) and translation, and the rms residual. */
+function hornFit(A: readonly V3t[], B: readonly V3t[]): { R: number[][]; t: V3t; rms: number } {
+  const n = A.length;
+  const ca: V3t = [0, 0, 0], cb: V3t = [0, 0, 0];
+  for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) { ca[k] += A[i][k] / n; cb[k] += B[i][k] / n; }
+  const S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let i = 0; i < n; i++) for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) S[r][c] += (A[i][r] - ca[r]) * (B[i][c] - cb[c]);
+  const [Sxx, Sxy, Sxz] = S[0], [Syx, Syy, Syz] = S[1], [Szx, Szy, Szz] = S[2];
+  const N = [
+    [Sxx + Syy + Szz, Syz - Szy, Szx - Sxz, Sxy - Syx],
+    [Syz - Szy, Sxx - Syy - Szz, Sxy + Syx, Szx + Sxz],
+    [Szx - Sxz, Sxy + Syx, -Sxx + Syy - Szz, Syz + Szy],
+    [Sxy - Syx, Szx + Sxz, Syz + Szy, -Sxx - Syy + Szz],
+  ];
+  const shift = N.reduce((m, r) => m + r.reduce((a, v) => a + Math.abs(v), 0), 0);
+  let q = [1, 0.1, 0.2, 0.3];
+  for (let it = 0; it < 400; it++) {
+    const w = [0, 1, 2, 3].map((i) => N[i].reduce((a, v, j) => a + v * q[j], 0) + shift * q[i]);
+    const l = Math.hypot(w[0], w[1], w[2], w[3]);
+    q = w.map((v) => v / l);
+  }
+  const [w, x, y, z] = q;
+  const R = [
+    [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+    [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+    [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+  ];
+  const ap = (v: V3t): V3t => [0, 1, 2].map((r) => R[r][0] * v[0] + R[r][1] * v[1] + R[r][2] * v[2]) as V3t;
+  const t: V3t = [cb[0] - ap(ca)[0], cb[1] - ap(ca)[1], cb[2] - ap(ca)[2]];
+  let sse = 0;
+  for (let i = 0; i < n; i++) { const m = ap(A[i]); sse += (m[0] + t[0] - B[i][0]) ** 2 + (m[1] + t[1] - B[i][1]) ** 2 + (m[2] + t[2] - B[i][2]) ** 2; }
+  return { R, t, rms: Math.sqrt(sse / n) };
+}
+
+/** The weapon's frame by PCA, down from the aim pose and the butt the end nearer the face (the review's `weapon_frame`). */
+function readWeaponFrame(W: V3t[], downRest: V3t, headRest: V3t): {
+  axis: V3t; centre: V3t; L: number; grip: V3t | null; hgPts: V3t[]; hgFrom: number; s: (p: V3t) => number;
+} {
+  const n = W.length;
+  const centre: V3t = [0, 0, 0];
+  for (const p of W) for (let k = 0; k < 3; k++) centre[k] += p[k] / n;
+  let ax = principalAxis(W);
+  if (vdot(vsub(headRest, centre), ax) > 0) ax = [-ax[0], -ax[1], -ax[2]];
+  const dd0 = vdot(downRest, ax);
+  const dd: V3t = [downRest[0] - dd0 * ax[0], downRest[1] - dd0 * ax[1], downRest[2] - dd0 * ax[2]];
+  const dl = vlen(dd);
+  const up: V3t = [-dd[0] / dl, -dd[1] / dl, -dd[2] / dl];
+  const X = W.map((p) => vsub(p, centre));
+  const t = X.map((x) => vdot(x, ax));
+  const y = X.map((x) => vdot(x, up));
+  const t0 = Math.min(...t), L = Math.max(...t) - t0;
+  const sOf = t.map((v) => (v - t0) / L);
+  const nb = 50;
+  const low: number[] = new Array(nb).fill(NaN);
+  for (let i = 0; i < nb; i++) {
+    const ys: number[] = [];
+    for (let k = 0; k < n; k++) if (sOf[k] >= i / nb && sOf[k] < (i + 1) / nb) ys.push(y[k]);
+    if (ys.length > 5) low[i] = percentile(ys, 0.01);
+  }
+  const base = percentile(low.filter((v) => !Number.isNaN(v)), 0.5);
+  const prot = low.map((v) => !Number.isNaN(v) && base - v > 0.035 * Math.max(1, L / 0.8));
+  const runs: [number, number][] = [];
+  for (let i = 0; i < nb;) {
+    if (prot[i]) { let j = i; while (j + 1 < nb && prot[j + 1]) j++; runs.push([i, j]); i = j + 1; } else i++;
+  }
+  const kept = runs.filter((r) => (r[0] + r[1]) / 2 / nb > 0.12 && (r[0] + r[1]) / 2 / nb < 0.75);
+  let grip: V3t | null = null;
+  if (kept.length) {
+    const r = kept[0];
+    const pts = W.filter((_, k) => sOf[k] >= r[0] / nb && sOf[k] < (r[1] + 1) / nb && y[k] < base);
+    if (pts.length) {
+      grip = [0, 0, 0];
+      for (const p of pts) for (let k = 0; k < 3; k++) grip[k] += p[k] / pts.length;
+    }
+  }
+  const hgFrom = Math.max(kept.length ? (kept[kept.length - 1][1] + 1) / nb + 0.02 : 0.5, 0.45);
+  const hgPts = W.filter((_, k) => sOf[k] >= hgFrom && sOf[k] <= 0.88);
+  return { axis: ax, centre, L, grip, hgPts, hgFrom, s: (p) => (vdot(vsub(p, centre), ax) - t0) / L };
+}
+
+export function measureGrip(path: string, clip: string, prefix: string, opts: GripOptions = {}): GripReading {
+  const shootSide = opts.shootSide ?? 'L';
+  const hz = opts.hz ?? 60;
+  const glb = opts.glb ?? readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const names = nodes.map((n) => n.name ?? '');
+  const nodeOf = (nm: string): number => {
+    const i = names.indexOf(nm);
+    if (i < 0) throw new Error(`${path}: no node ${nm}`);
+    return i;
+  };
+  const wName = `${prefix}_weapon`;
+  const hasWeaponBone = names.includes(wName);
+  const wJointName = hasWeaponBone ? wName : `${prefix}_forearm_${shootSide}`;
+  const sides: Array<'L' | 'R'> = [shootSide, shootSide === 'L' ? 'R' : 'L'];
+  const bones = !!names.includes(`${prefix}_hand_${sides[0]}`);
+  const handNames = sides.map((sd) => (bones ? `${prefix}_hand_${sd}` : `${prefix}_forearm_${sd}`));
+  const fingerNames = sides.map((sd) => `${prefix}_finger_${sd}`);
+  type Pick = {
+    pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null; role: string;
+    index: Accessor; sets: Map<string, number[]>;
+  };
+  const picks: Pick[] = [];
+  nodes.forEach((n) => {
+    if (n.mesh === undefined || n.skin === undefined) return;
+    const mesh = meshes[n.mesh];
+    const role = ((n as { extras?: { rl_role?: string } }).extras?.rl_role ?? mesh.name ?? '') as string;
+    const skin = glb.json.skins![n.skin];
+    const prim = mesh.primitives[0];
+    const pick: Pick = {
+      pos: readAccessor(glb, prim.attributes.POSITION), joints: readAccessor(glb, prim.attributes.JOINTS_0),
+      weights: readAccessor(glb, prim.attributes.WEIGHTS_0), skin,
+      ibm: skin.inverseBindMatrices === undefined ? null : readAccessor(glb, skin.inverseBindMatrices),
+      role, index: readAccessor(glb, prim.indices!), sets: new Map(),
+    };
+    for (let i = 0; i < pick.pos.count; i++) {
+      let b = 0;
+      for (let k = 1; k < 4; k++) if (pick.weights.data[i * 4 + k] > pick.weights.data[i * 4 + b]) b = k;
+      const jn = names[skin.joints[pick.joints.data[i * 4 + b]]];
+      let key: string | null = null;
+      if (role === 'weapon') key = jn === wJointName ? 'weapon' : null;
+      else if (role === 'face') key = jn === `${prefix}_head` ? 'face' : null;
+      else if (role === 'metal') key = null;
+      else if (jn === handNames[0]) key = 'hand0';
+      else if (jn === handNames[1]) key = 'hand1';
+      else if (jn === fingerNames[0]) key = 'finger0';
+      else if (jn === fingerNames[1]) key = 'finger1';
+      if (!key) continue;
+      if (!pick.sets.has(key)) pick.sets.set(key, []);
+      pick.sets.get(key)!.push(i);
+    }
+    if (pick.sets.size) picks.push(pick);
+  });
+  const weaponPick = picks.find((p) => p.sets.has('weapon'));
+  if (!weaponPick) throw new Error(`${path}: ${prefix} has no ${wJointName} weapon vertices`);
+  const wSkinIdx = weaponPick.skin.joints.indexOf(nodeOf(wJointName));
+  const at = (p: Pick, i: number): V3t => [p.pos.data[i * 3], p.pos.data[i * 3 + 1], p.pos.data[i * 3 + 2]];
+  const triOf = (p: Pick, set: Set<number>): [number, number, number][] => {
+    const out: [number, number, number][] = [];
+    for (let f = 0; f + 2 < p.index.data.length; f += 3) {
+      const a = p.index.data[f], b = p.index.data[f + 1], c = p.index.data[f + 2];
+      if (set.has(a) && set.has(b) && set.has(c)) out.push([a, b, c]);
+    }
+    return out;
+  };
+  const wSet = new Set(weaponPick.sets.get('weapon')!);
+  const W = weaponPick.sets.get('weapon')!.map((i) => at(weaponPick, i));
+  const weaponTris = triOf(weaponPick, wSet).map((t) => t.map((i) => at(weaponPick, i)) as [V3t, V3t, V3t]);
+
+  // The aim reference: the weapon frame is read in the first instant of `fire` (down is world down; the butt is nearer the face).
+  const fireClip = readClip(glb, 'fire');
+  const w0 = nodeWorlds(glb, fireClip.tracks, fireClip.start);
+  const M0 = computeSkinMats(weaponPick.skin, w0, weaponPick.ibm)[wSkinIdx];
+  const M0inv = rigidInverse(M0);
+  const downRest = xfDir(M0inv, [0, -1, 0]);
+  const facePts: V3t[] = [];
+  for (const p of picks) {
+    const mats = computeSkinMats(p.skin, w0, p.ibm);
+    for (const i of p.sets.get('face') ?? []) facePts.push(skinPoint(p.pos, p.joints, p.weights, i, mats));
+  }
+  if (!facePts.length) throw new Error(`${path}: ${prefix} has no face vertices to orient the weapon by`);
+  const faceC: V3t = [0, 0, 0];
+  for (const q of facePts) for (let k = 0; k < 3; k++) faceC[k] += q[k] / facePts.length;
+  const fr = readWeaponFrame(W, downRest, xfPoint(M0inv, faceC));
+  if (!fr.grip) throw new Error(`${path}: ${prefix}: no pistol grip found under the weapon`);
+
+  // The stations, carried from the part's frame onto this figure's weapon (rest space) by a fit against the part's bytes.
+  let stationRest: [V3t, V3t] | null = null;
+  let gripAxisRest: V3t | null = null;
+  let boreRest: V3t | null = null;
+  if (bones) {
+    const partGlb = readGlb(opts.partPath ?? fileURLToPath(new URL('../../art/parts/kdf_carbine/kdf_carbine.glb', import.meta.url)));
+    const pp = readAccessor(partGlb, partGlb.json.meshes![0].primitives[0].attributes.POSITION);
+    if (pp.count !== W.length) throw new Error(`${path}: ${prefix}'s weapon has ${W.length} vertices, the carbine part ${pp.count}: not the reshaped carbine`);
+    const A: V3t[] = [];
+    for (let i = 0; i < pp.count; i++) A.push([pp.data[i * 3], pp.data[i * 3 + 1], pp.data[i * 3 + 2]]);
+    const fit = hornFit(A, W);
+    if (fit.rms > 1e-4) throw new Error(`${path}: ${prefix}'s weapon is not the carbine part moved rigidly (rms ${fit.rms.toFixed(5)} m)`);
+    const mapPoint = (v: V3t): V3t => [0, 1, 2].map((r) => fit.R[r][0] * v[0] + fit.R[r][1] * v[1] + fit.R[r][2] * v[2] + fit.t[r]) as V3t;
+    const mapDir = (v: V3t): V3t => [0, 1, 2].map((r) => fit.R[r][0] * v[0] + fit.R[r][1] * v[1] + fit.R[r][2] * v[2]) as V3t;
+    // part (Blender: x fwd, y across, z up) -> the part GLB's own axes (x fwd, y up, z = -y_blender)
+    const toG = (v: V3t): V3t => [v[0], v[2], -v[1]];
+    stationRest = [mapPoint(toG(GRIP_STATION_PART)), mapPoint(toG(SUPPORT_STATION_PART))];
+    gripAxisRest = mapDir(toG(GRIP_AXIS_PART));
+    boreRest = mapDir(toG([1, 0, 0]));
+  }
+
+  // The hand: bone-local coordinates of every vertex of its surface (the hand bone and, when it has one, its finger)
+  type Surf = { pick: Pick; v: number; local: V3t; palm: boolean; hand: boolean };
+  const handSurface = (idx: 0 | 1): Surf[] => {
+    const out: Surf[] = [];
+    const joint = nodeOf(handNames[idx]);
+    for (const p of picks) {
+      const sk = p.skin.joints.indexOf(joint);
+      if (sk < 0 || !p.ibm) continue;
+      const m = Float64Array.from({ length: 16 }, (_, k) => p.ibm!.data[sk * 16 + k]);
+      for (const key of [`hand${idx}`, `finger${idx}`]) {
+        for (const v of p.sets.get(key) ?? []) {
+          const loc = xfPoint(m, at(p, v));
+          out.push({ pick: p, v, local: loc, palm: loc[2] < 0 && loc[1] > 0, hand: key.startsWith('hand') });
+        }
+      }
+    }
+    if (!bones) {
+      // A Meshy claw: the hand is the forearm's vertices past the review's measured wrist along elbow -> farthest vertex.
+      const elbow = (() => {
+        const p = picks.find((q) => q.skin.joints.includes(joint))!;
+        const sk = p.skin.joints.indexOf(joint);
+        const m = Float64Array.from({ length: 16 }, (_, k) => p.ibm!.data[sk * 16 + k]);
+        const inv = rigidInverse(m);
+        return [inv[12], inv[13], inv[14]] as V3t;
+      })();
+      let far = elbow;
+      for (const q of out) if (vlen(vsub(at(q.pick, q.v), elbow)) > vlen(vsub(far, elbow))) far = at(q.pick, q.v);
+      const ax = vsub(far, elbow);
+      const al = vlen(ax);
+      const unit: V3t = [ax[0] / al, ax[1] / al, ax[2] / al];
+      const wristT = opts.fallbackWristT?.[sides[idx]];
+      if (wristT === undefined) throw new Error(`${path}: ${prefix} has no hand bones and no fallbackWristT to find its hand by`);
+      return out.filter((q) => vdot(vsub(at(q.pick, q.v), elbow), unit) >= wristT);
+    }
+    return out;
+  };
+  const surf = [handSurface(0), handSurface(1)];
+  for (const sf of surf) if (sf.length < 8) throw new Error(`${path}: ${prefix}'s hand has ${sf.length} vertices`);
+
+  // hand triangles per piece (connected, welded by position), each knowing the joint that moves it, for the inside test
+  type Piece = { pick: Pick; joint: number; tris: V3t[][] };
+  const piecesOf = (idx: 0 | 1): Piece[] => {
+    const parts: Piece[] = [];
+    if (!bones) return parts;
+    for (const [key, jn] of [[`hand${idx}`, handNames[idx]], [`finger${idx}`, fingerNames[idx]]] as const) {
+      if (!names.includes(jn)) continue;
+      for (const p of picks) {
+        const set = new Set(p.sets.get(key) ?? []);
+        if (!set.size) continue;
+        const weld = new Map<string, number>();
+        const par = new Map<number, number>();
+        const find = (x: number): number => { let r = x; while (par.get(r) !== r) r = par.get(r)!; return r; };
+        const keyOf = (i: number) => `${Math.round(p.pos.data[i * 3] * 1e5)},${Math.round(p.pos.data[i * 3 + 1] * 1e5)},${Math.round(p.pos.data[i * 3 + 2] * 1e5)}`;
+        const id = (i: number): number => { const k = keyOf(i); let w = weld.get(k); if (w === undefined) { w = i; weld.set(k, w); par.set(w, w); } return w; };
+        const tris = triOf(p, set);
+        for (const t of tris) { const x = id(t[0]), y = id(t[1]), z = id(t[2]); par.set(find(x), find(y)); par.set(find(y), find(z)); }
+        const groups = new Map<number, [number, number, number][]>();
+        for (const t of tris) { const r = find(id(t[0])); (groups.get(r) ?? groups.set(r, []).get(r)!).push(t); }
+        for (const g of groups.values()) parts.push({ pick: p, joint: nodeOf(jn), tris: g.map((t) => t.map((i) => at(p, i))) });
+      }
+    }
+    return parts;
+  };
+  const pieces = [piecesOf(0), piecesOf(1)];
+  // the palm-side triangles of the hand and its finger, for the contact area: the triangle's normal in the hand's own
+  // frame faces the palm (local z < -0.3) and the triangle lies past the wrist plane (local y > 0)
+  const palmTris = (idx: 0 | 1): { pick: Pick; a: number; b: number; c: number }[] => {
+    const out: { pick: Pick; a: number; b: number; c: number }[] = [];
+    if (!bones) return out;
+    const localOf = new Map<Pick, Map<number, V3t>>();
+    for (const q of surf[idx]) (localOf.get(q.pick) ?? localOf.set(q.pick, new Map()).get(q.pick)!).set(q.v, q.local);
+    for (const [p, loc] of localOf) {
+      for (const t of triOf(p, new Set(loc.keys()))) {
+        const A = loc.get(t[0])!, B = loc.get(t[1])!, C = loc.get(t[2])!;
+        const n = vcross(vsub(B, A), vsub(C, A));
+        const nl = vlen(n);
+        if (nl < 1e-12) continue;
+        if (n[2] / nl > -0.3) continue;
+        if ((A[1] + B[1] + C[1]) / 3 <= 0) continue;
+        out.push({ pick: p, a: t[0], b: t[1], c: t[2] });
+      }
+    }
+    return out;
+  };
+  const palm = [palmTris(0), palmTris(1)];
+
+  const { tracks, start, end } = readClip(glb, clip);
+  const rest = nodeWorlds(glb, new Map(), 0);
+  const fNode = sides.map((sd) => nodeOf(`${prefix}_forearm_${sd}`));
+  const hNode = handNames.map((nm) => nodeOf(nm));
+  const relRest = [0, 1].map((i) => relRotation(rest[fNode[i]], rest[hNode[i]]));
+
+  // The weapon's surface, sampled once (it is rigid in its own frame): every triangle on a barycentric grid at 5 mm or finer; or, for
+  // the old reading, each triangle's first vertex and centroid.
+  const weaponSamples: V3t[] = [];
+  for (const tri of weaponTris) {
+    if (opts.sparseWeaponSamples) {
+      weaponSamples.push(tri[0], [(tri[0][0] + tri[1][0] + tri[2][0]) / 3, (tri[0][1] + tri[1][1] + tri[2][1]) / 3, (tri[0][2] + tri[1][2] + tri[2][2]) / 3]);
+      continue;
+    }
+    const edge = Math.max(vlen(vsub(tri[1], tri[0])), vlen(vsub(tri[2], tri[1])), vlen(vsub(tri[0], tri[2])));
+    const n = Math.max(1, Math.ceil(edge / 0.005));
+    for (let i = 0; i <= n; i++) {
+      for (let j = 0; i + j <= n; j++) {
+        const a = i / n, b = j / n, c = 1 - a - b;
+        weaponSamples.push([tri[0][0] * c + tri[1][0] * a + tri[2][0] * b, tri[0][1] * c + tri[1][1] * a + tri[2][1] * b, tri[0][2] * c + tri[1][2] * a + tri[2][2] * b]);
+      }
+    }
+  }
+  const res = [0, 1].map(() => ({ review: 0, station: 0, axis: 0, contact: Infinity, contactV: Infinity, depth: 0, sMin: Infinity, sMax: -Infinity, wrist: 0 }));
+  const dt = 1 / hz;
+  let instants = 0;
+  let frameNo = 0;
+  for (let t = start; t <= end + 1e-9; t += dt, frameNo++) {
+    const worlds = nodeWorlds(glb, tracks, Math.min(t, end));
+    if (opts.spinePitchDeg) pitchSpine(glb, worlds, nodeOf(`${prefix}_spine`), opts.spinePitchDeg);
+    const matsOf = new Map<Pick, Mat4[]>();
+    for (const p of picks) matsOf.set(p, computeSkinMats(p.skin, worlds, p.ibm));
+    const Mw = matsOf.get(weaponPick)![wSkinIdx];
+    let lo = Infinity, hi = -Infinity;
+    for (const i of wSet) { const y = xfPoint(Mw, at(weaponPick, i))[1]; lo = Math.min(lo, y); hi = Math.max(hi, y); }
+    if (hi - lo < 1e-4) continue; // not drawn in this clip
+    instants++;
+    const Mi = rigidInverse(Mw);
+    for (const idx of [0, 1] as const) {
+      const r = res[idx];
+      const posed = surf[idx].map((h) => ({ h, r: xfPoint(Mi, skinPoint(h.pick.pos, h.pick.joints, h.pick.weights, h.v, matsOf.get(h.pick)!)) }));
+      const handPts = posed.filter((q) => q.h.hand).map((q) => q.r);
+      const hc: V3t = [0, 0, 0];
+      for (const q of handPts) for (let k = 0; k < 3; k++) hc[k] += q[k] / handPts.length;
+      let gap: number;
+      if (idx === 0) gap = vlen(vsub(hc, fr.grip));
+      else { gap = Infinity; for (const g of fr.hgPts) gap = Math.min(gap, vlen(vsub(hc, g))); }
+      r.review = Math.max(r.review, gap);
+      const sHere = fr.s(hc);
+      r.sMin = Math.min(r.sMin, sHere);
+      r.sMax = Math.max(r.sMax, sHere);
+      if (!bones) continue;
+      // the station: the hand's reference point (posed) against the station
+      const refL = idx === 0 ? GRIP_REF_LOCAL : SUPPORT_REF_LOCAL;
+      const refW = xfPoint(Mi, xfPoint(worlds[hNode[idx]], refL));
+      r.station = Math.max(r.station, vlen(vsub(refW, stationRest![idx])));
+      // the channel axis
+      const local = idx === 0 ? GRIP_CHANNEL_LOCAL : SUPPORT_CHANNEL_LOCAL;
+      const wa = xfDir(Mi, xfDir(worlds[hNode[idx]], local));
+      const target = idx === 0 ? gripAxisRest! : boreRest!;
+      r.axis = Math.max(r.axis, (Math.acos(Math.min(1, Math.abs(vdot(wa, target)))) * 180) / Math.PI);
+      // contact: by area, palm-side triangles whose centroid lies within the radius of the weapon's surface
+      let area = 0, near = 0;
+      for (const tr of palm[idx]) {
+        const ps = [tr.a, tr.b, tr.c].map((i) => xfPoint(Mi, skinPoint(tr.pick.pos, tr.pick.joints, tr.pick.weights, i, matsOf.get(tr.pick)!)));
+        const ar = vlen(vcross(vsub(ps[1], ps[0]), vsub(ps[2], ps[0]))) / 2;
+        const cen: V3t = [(ps[0][0] + ps[1][0] + ps[2][0]) / 3, (ps[0][1] + ps[1][1] + ps[2][1]) / 3, (ps[0][2] + ps[1][2] + ps[2][2]) / 3];
+        let hits = 0;
+        {
+          let d = Infinity;
+          for (const wt of weaponTris) { d = Math.min(d, pointTriDist(cen, wt[0], wt[1], wt[2])); if (d < CONTACT_RADIUS_M) break; }
+          if (d < CONTACT_RADIUS_M) hits++;
+        }
+        area += ar;
+        near += ar * hits;
+      }
+      if (area > 0) r.contact = Math.min(r.contact, near / area);
+      {
+        const pv = posed.filter((q) => q.h.hand && q.h.palm).map((q) => q.r);
+        let nv = 0;
+        for (const q of pv) {
+          let d = Infinity;
+          for (const wt of weaponTris) { d = Math.min(d, pointTriDist(q, wt[0], wt[1], wt[2])); if (d < CONTACT_RADIUS_M) break; }
+          if (d < CONTACT_RADIUS_M) nv++;
+        }
+        if (pv.length) r.contactV = Math.min(r.contactV, nv / pv.length);
+      }
+      // the weapon's surface inside the hand: every fourth instant
+      if (frameNo % 4 === 0) {
+        const posedPieces = pieces[idx].map((pc) => {
+          const m = matsOf.get(pc.pick)![pc.pick.skin.joints.indexOf(pc.joint)];
+          const tris = pc.tris.map((tri) => tri.map((q) => xfPoint(Mi, xfPoint(m, q))) as V3t[]);
+          let blo: V3t = [Infinity, Infinity, Infinity], bhi: V3t = [-Infinity, -Infinity, -Infinity];
+          for (const tri of tris) for (const v of tri) { blo = [Math.min(blo[0], v[0]), Math.min(blo[1], v[1]), Math.min(blo[2], v[2])]; bhi = [Math.max(bhi[0], v[0]), Math.max(bhi[1], v[1]), Math.max(bhi[2], v[2])]; }
+          return { tris, blo, bhi };
+        });
+        const samples = weaponSamples;
+        for (const q of samples) {
+          if (vlen(vsub(q, hc)) > 0.14) continue;
+          for (const pc of posedPieces) {
+            if (q[0] < pc.blo[0] || q[1] < pc.blo[1] || q[2] < pc.blo[2] || q[0] > pc.bhi[0] || q[1] > pc.bhi[1] || q[2] > pc.bhi[2]) continue;
+            // inside a closed piece: the majority of three rays cross its surface an odd number of times
+            let votes = 0;
+            for (const d of INSIDE_RAYS) {
+              let hits = 0;
+              for (const tri of pc.tris) if (rayHitsTri(q, d, tri[0], tri[1], tri[2])) hits++;
+              if (hits % 2 === 1) votes++;
+            }
+            if (votes < 2) continue;
+            let best = Infinity;
+            for (const tri of pc.tris) best = Math.min(best, pointTriDist(q, tri[0], tri[1], tri[2]));
+            r.depth = Math.max(r.depth, best);
+          }
+        }
+      }
+      // the wrist
+      const wo = wristOver(relRest[idx], relRotation(worlds[fNode[idx]], worlds[hNode[idx]]), sides[idx] === 'L');
+      r.wrist = Math.max(r.wrist, wo);
+      opts.trace?.(t, idx === 0 ? 'fire' : 'support', { stationM: vlen(vsub(refW, stationRest![idx])), axisDeg: (Math.acos(Math.min(1, Math.abs(vdot(wa, target)))) * 180) / Math.PI, contact: area > 0 ? near / area : NaN, wristOverDeg: wo });
+    }
+  }
+  const out = (i: 0 | 1): GripHand => ({
+    reviewGapM: res[i].review,
+    stationGapM: bones ? res[i].station : null,
+    axisDeg: bones ? res[i].axis : null,
+    contact: bones ? res[i].contact : null,
+    contactVerts: bones ? res[i].contactV : null,
+    depthM: bones ? res[i].depth : null,
+    sMin: res[i].sMin, sMax: res[i].sMax,
+    wristOverDeg: bones ? res[i].wrist : null,
+  });
+  return { instants, fire: out(0), support: out(1), frame: { gripS: fr.s(fr.grip), lengthM: fr.L, handguardFrom: fr.hgFrom } };
+}
+
+/** Rotate every node under `spine` (not the spine's own parent chain) about the spine's lateral axis through its origin. */
+function pitchSpine(glb: GlbFile, worlds: Mat4[], spine: number, deg: number): void {
+  const nodes = glb.json.nodes ?? [];
+  const m = worlds[spine];
+  const axis = xfDir(m, [0, 0, 1]);                       // the spine's own lateral axis
+  const pivot: V3t = [m[12], m[13], m[14]];
+  const a = (deg * Math.PI) / 180;
+  const c = Math.cos(a), sn = Math.sin(a), k = 1 - c;
+  // Rodrigues, as a matrix about `axis`
+  const R = [
+    [c + axis[0] * axis[0] * k, axis[0] * axis[1] * k - axis[2] * sn, axis[0] * axis[2] * k + axis[1] * sn],
+    [axis[1] * axis[0] * k + axis[2] * sn, c + axis[1] * axis[1] * k, axis[1] * axis[2] * k - axis[0] * sn],
+    [axis[2] * axis[0] * k - axis[1] * sn, axis[2] * axis[1] * k + axis[0] * sn, c + axis[2] * axis[2] * k],
+  ];
+  const under = new Set<number>();
+  const walk = (i: number): void => { under.add(i); for (const ch of nodes[i].children ?? []) walk(ch); };
+  walk(spine);
+  for (const i of under) {
+    const w = worlds[i];
+    const o = Float64Array.from(w);
+    // new world = T(pivot) R T(-pivot) * w : rotate the columns, then the translation about the pivot
+    for (let col = 0; col < 3; col++) {
+      const v: V3t = [w[col * 4], w[col * 4 + 1], w[col * 4 + 2]];
+      for (let r = 0; r < 3; r++) o[col * 4 + r] = R[r][0] * v[0] + R[r][1] * v[1] + R[r][2] * v[2];
+    }
+    const t: V3t = [w[12] - pivot[0], w[13] - pivot[1], w[14] - pivot[2]];
+    for (let r = 0; r < 3; r++) o[12 + r] = pivot[r] + R[r][0] * t[0] + R[r][1] * t[1] + R[r][2] * t[2];
+    worlds[i] = o;
+  }
+}
+
+function relRotation(f: Mat4, h: Mat4): number[] {
+  const nf = (m: Mat4, c: number): V3t => { const l = Math.hypot(m[c * 4], m[c * 4 + 1], m[c * 4 + 2]) || 1; return [m[c * 4] / l, m[c * 4 + 1] / l, m[c * 4 + 2] / l]; };
+  const F = [nf(f, 0), nf(f, 1), nf(f, 2)];
+  const H = [nf(h, 0), nf(h, 1), nf(h, 2)];
+  const out: number[] = [];
+  for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) out.push(vdot(F[i], H[j]));
+  return out;
+}
+
+/** How far the wrist bends past its anatomical limit: flexion 60, extension 55, radial 20, ulnar 35 degrees (literals). */
+function wristOver(restRel: number[], rel: number[], thumbMinusX: boolean): number {
+  const col = (m: number[], j: number): V3t => [m[j * 3], m[j * 3 + 1], m[j * 3 + 2]];
+  const y: V3t = [0, 0, 0];
+  const c1 = col(rel, 1);
+  for (let i = 0; i < 3; i++) y[i] = vdot(col(restRel, i), c1);
+  const flex = -Math.atan2(y[2], y[1]) * (180 / Math.PI);
+  const dev = Math.atan2(y[0], y[1]) * (180 / Math.PI);
+  const ulnar = thumbMinusX ? dev : -dev;
+  return Math.max(0, flex - 60, -flex - 55, ulnar - 35, -ulnar - 20);
 }
 
 /**

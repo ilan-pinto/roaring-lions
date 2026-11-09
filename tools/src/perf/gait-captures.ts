@@ -241,9 +241,10 @@ const PHASE_TOLERANCE = 0.02;
  */
 const FIRE_HOLD_MARGIN_MS = 60;
 
-/** Ticks to wait for a subject's first shot. The slowest weapon in the sheet
- *  is `at_team`'s Spike at 3 rounds a minute -- one shot per 20 s, or 400
- *  ticks -- so this is 1.5 of its reload with margin. */
+/** Ticks to wait for a subject's first shot. Sized for a 3-rounds-a-minute
+ *  weapon -- one shot per 20 s, or 400 ticks -- at 1.5 of its reload with
+ *  margin. `at_team`'s Spike, once the slowest in the sheet at that rate,
+ *  fires at 5 a minute since GH-982 (240 ticks), so this is generous. */
 const FIRE_WAIT_TICKS = 700;
 /**
  * Ticks per `__lions.step()` call while waiting for a shot, and the reason is

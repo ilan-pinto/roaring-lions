@@ -639,6 +639,91 @@ describe('triggers and waves', () => {
   });
 });
 
+// GH-912 (G5): `group_in_zone`, zone_entered's twin for a named group. Each case is a pair whose halves differ in one
+// fact, so a runtime that ignored that fact turns one half red: the group (not any unit) standing in the zone, the
+// member alive, and a not-yet-spawned group waiting rather than consuming the trigger.
+describe('group_in_zone', () => {
+  const ZONES = { zones: { gate: [10, 3, 3, 5] }, markers: { east: [24, 5], west: [2, 5] } };
+  const fired = (out: { mission: MissionEvent[] }, id: string): number =>
+    out.mission.filter((e) => e.kind === 'trigger' && e.id === id).length;
+  const watch = (group: string): MissionJson['triggers'] => [
+    { id: 'turn', on: { kind: 'group_in_zone', group, zone: 'gate' }, do: { kind: 'withdraw_to', group, to: 'east' } },
+  ];
+
+  it('fires the tick a member of the group stands in the zone, and the member is alive and in it then', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 10] }],
+        enemy: { waves: [{ at_seconds: 1, to: 'west', units: [{ unit: 'm_tech', count: 1, from: 'east', group: 'road' }] }] },
+        triggers: watch('road'),
+      }),
+      ZONES
+    );
+    let at = -1;
+    for (let t = 0; t < 40 * TICKS_PER_SECOND && at < 0; t++) if (fired(w.step(1), 'turn') > 0) at = t;
+    expect(at).toBeGreaterThan(TICKS_PER_SECOND);
+    const tech = 1;
+    expect(w.sim.state.alive[tech]).toBe(1);
+    const tx = w.sim.state.posX[tech] >> 16;
+    expect(tx >= 10 && tx < 13).toBe(true);
+    // ...and the order it fired is obeyed: the truck turns back east.
+    w.step(4 * TICKS_PER_SECOND);
+    expect(fx.toNumber(w.sim.state.posX[tech])).toBeGreaterThan(13);
+  });
+
+  it('a player unit in the zone is not the group, and a group not yet spawned waits instead of being consumed', () => {
+    const w = makeWorld(
+      baseMission({
+        // A player squad stands in the zone from tick 0; the group's only member arrives at 20 s.
+        starting_force: [{ unit: 'm_squad', count: 1, at: [11, 5] }],
+        enemy: { waves: [{ at_seconds: 20, to: 'west', units: [{ unit: 'm_tech', count: 1, from: 'east', group: 'road' }] }] },
+        triggers: watch('road'),
+      }),
+      ZONES
+    );
+    expect(fired(w.step(19 * TICKS_PER_SECOND), 'turn')).toBe(0);
+    expect(fired(w.step(30 * TICKS_PER_SECOND), 'turn')).toBe(1);
+  });
+
+  it('a dead member holds no ground: the same truck in the zone fires it alive and does not when killed at t=0', () => {
+    const mission = (): MissionJson =>
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 10] }],
+        enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [11.5, 5.5], group: 'road' }] },
+        triggers: watch('road'),
+      });
+    const alive = makeWorld(mission(), ZONES);
+    expect(fired(alive.step(2), 'turn')).toBe(1);
+    const dead = makeWorld(mission(), ZONES);
+    dead.sim.debugKill(1);
+    expect(fired(dead.step(5 * TICKS_PER_SECOND), 'turn')).toBe(0);
+  });
+
+  it('the zone is a rectangle, not a column: the group on the right x but the wrong row does not fire it, nor does a zone that does not exist', () => {
+    const at = (y: number, zone: string): MissionJson =>
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 10] }],
+        enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [11.5, y], group: 'road' }] },
+        triggers: [{ id: 'turn', on: { kind: 'group_in_zone', group: 'road', zone }, do: { kind: 'withdraw_to', group: 'road', to: 'east' } }],
+      });
+    expect(fired(makeWorld(at(5.5, 'gate'), ZONES).step(2), 'turn')).toBe(1);
+    expect(fired(makeWorld(at(9.5, 'gate'), ZONES).step(2), 'turn')).toBe(0);
+    expect(fired(makeWorld(at(5.5, 'no_such_zone'), ZONES).step(2), 'turn')).toBe(0);
+  });
+
+  it('a group no placement declares never fires', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 10] }],
+        enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [11.5, 5.5], group: 'road' }] },
+        triggers: watch('nobody'),
+      }),
+      ZONES
+    );
+    expect(fired(w.step(5 * TICKS_PER_SECOND), 'turn')).toBe(0);
+  });
+});
+
 describe('reinforce', () => {
   it('spawns on the player side when a zone is entered', () => {
     const w = makeWorld(
@@ -5471,7 +5556,7 @@ describe('population cap (GH-183 F3)', () => {
   function popWorld(
     partial: Partial<MissionJson>,
     cap: number | null | undefined,
-    opts: { house?: boolean; tunnel?: boolean; camp?: boolean; caps?: readonly [number | null, number | null] } = {}
+    opts: { house?: boolean; tunnel?: boolean; camp?: boolean; caps?: readonly [number | null, number | null]; exempt?: ReadonlySet<number> } = {}
   ): World & { house: number } {
     const sim = new Sim({ seed: 7, width: 28, height: 12, capacity: 64 });
     const ids = new Map<string, number>();
@@ -5507,6 +5592,7 @@ describe('population cap (GH-183 F3)', () => {
       unitInfo: (u) => CATALOGUE[u] ?? null,
       ...(tunnels.length > 0 ? { tunnels } : {}),
       ...(opts.caps !== undefined ? { popCaps: opts.caps } : cap !== undefined ? { popCaps: [cap, null] as const } : {}),
+      ...(opts.exempt !== undefined ? { popExempt: opts.exempt } : {}),
     });
     runtime.start();
     return {
@@ -5534,6 +5620,23 @@ describe('population cap (GH-183 F3)', () => {
     expect(w.runtime.buildBlockedReason('pop_heavy')).toBeNull();
     expect(w.runtime.requestBuild('pop_heavy')).toBe(true);
     expect(w.runtime.popCapped('pop_heavy')).toBe(false);
+  });
+
+  it('GH-1102: an exempt entity takes no population; the same type not exempt still counts; an empty set changes nothing', () => {
+    // Five pop_inf (ids 0-4, 1 each) under cap 6: ids 0 and 1 exempt leave 3 used, so a 2-pop build fits.
+    const w = popWorld({ starting_force: [squad(5)] }, 6, { exempt: new Set([0, 1]) });
+    expect(w.runtime.population(0)).toBe(3);
+    expect(w.runtime.populationView()).toEqual({ used: 3, cap: 6 });
+    expect(w.runtime.buildBlockedReason('pop_heavy')).toBeNull();
+    // An exempt unit's death frees nothing: it never counted. A counted one's death frees its 1.
+    w.sim.debugKill(0);
+    expect(w.runtime.population(0)).toBe(3);
+    w.sim.debugKill(2);
+    expect(w.runtime.population(0)).toBe(2);
+    // An empty set reads exactly as no set.
+    const empty = popWorld({ starting_force: [squad(5)] }, 6, { exempt: new Set() });
+    expect(empty.runtime.population(0)).toBe(5);
+    expect(empty.runtime.economyHash()).toBe(popWorld({ starting_force: [squad(5)] }, 6).runtime.economyHash());
   });
 
   it('cap 6 with 5 used: a 1-pop build succeeds, a 2-pop build is refused and costs nothing', () => {

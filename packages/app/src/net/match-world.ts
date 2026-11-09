@@ -1,5 +1,5 @@
-import { applyTerrain, doctrines, formations, maps, parseMap, roadMaskOf, units, versusMissionOf, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap } from '@lions/data';
-import { economyRoom, endOfSeat, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd } from '@lions/net';
+import { applyTerrain, doctrines, flagBlockOf, formations, maps, parseMap, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap, type SetupKitPiece } from '@lions/data';
+import { economyRoom, endOfSeat, flagSetupRoom, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd, type WinMode } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { MissionRuntime, Sim, type MissionContext, type MissionEvent, type MissionJson, type SimEvent, type TunnelRouteJson } from '@lions/sim';
 import { standMapStructures } from '../map-sim';
@@ -8,6 +8,8 @@ import { versusAnchors } from './versus-seats';
 import { upgradePrepass, type UpgradePrepass } from '../upgrade-prepass';
 import { factionsBySide, versusSpawns } from './versus-force';
 import { versusRoster } from './versus-roster';
+import { seatSpecials, spawnSpecials, STORE_SPECIAL_IDS } from './versus-specials';
+import { unitCost } from './outcome';
 
 /** One unit of the shipped roster, as the prepass takes and returns it. */
 export type RosterUnit = (typeof units)[keyof typeof units];
@@ -33,18 +35,39 @@ export interface MatchWorld {
    *  it (`endOfSeat`), so a Sarim host -- side 1 -- stands on `friendly`.
    *  `['friendly', 'hostile']` in every mirror and KDF-host room. */
   endOfSide: readonly [SpawnEnd, SpawnEnd];
-  /** Entity ids each side spawned with, by side. */
+  /** Entity ids each side spawned with, by side: its placed force, then (GH-1102) its Store specials. */
   bySide: [number[], number[]];
+  /** GH-1102: the Store specials each SIDE fields (`seatSpecials`), in `units` order, and so the
+   *  ids the mesh plan must add (`versusUnitTypes`). `[[], []]` in a matched room, and in any
+   *  brigade room where nobody brings one. A special with no legal tile anywhere is still listed
+   *  here and dropped, with a warning, by `spawnSpecials`; `bySide` holds what spawned. Every
+   *  spawned special is exempt from the population cap (`MissionContext.popExempt`). */
+  specialsBySide: readonly [readonly string[], readonly string[]];
   /** The skirmish economy's runtime (N3 Task 3): camps, purses, doctrine
    *  menus and income zones, from `data/versus/<map>.json` and
    *  `data/doctrines/*.json`. Null in a mirror room (`economyRoom`), which
    *  plays today's placed-force match and nothing else. It never ends by
    *  itself (no objectives, `checkEnd`); `outcome.ts` decides the match. */
   runtime: MissionRuntime | null;
+  /** GH-976: the win mode the room plays (`config.winMode`), or null for annihilation. In a mode room
+   *  `runtime` is a GOALS-ONLY one (objectives with a side, no economy), mirror included, and
+   *  `outcome.ts` reads it through `goalsOf`. */
+  winMode: WinMode | null;
+  /** GH-976: the camp mode's `wipe` rule (`modes.camp.wipe`), `'ends'` for every room that is not a camp room. Read by
+   *  `goalsOf`; static setup data, out of `hash()`. */
+  campWipe: 'ends' | 'after_camp';
   /** The structure types the economy runtime stands (its rules file's camps, through
    *  `versusMissionOf`), so the browser loads their meshes (N3 Task 6): a room has no
    *  mission whose `structures` the mesh plan could read. `[]` in a mirror room. */
   structureTypes: readonly string[];
+  /** GH-976 v2: the set-up a flag room plays when `flagSetupRoom(config)` -- the band, the line the HUD draws, and the kit's three
+   *  pieces in `SETUP_KIT_PIECES` order with the sim type each raises -- else null. Static setup data, out of `hash()`: the sim holds
+   *  the region and the kit itself (`beginSetup`, `setSetupKit`). A v1 flag room and every other room is null. */
+  setup: {
+    bandTiles: number;
+    line: { a: [number, number]; b: [number, number] };
+    kit: readonly { piece: SetupKitPiece; structType: number; allowance: number }[];
+  } | null;
 }
 
 /**
@@ -75,10 +98,13 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // parse's tunnel list -- never the shared parse -- so `map.tunnels[r]` IS the sim's route r for
   // every positional reader (`main.ts`'s ctx, the renderer). A mirror room appends none.
   const map: ParsedMap = economy ? { ...parsed, tunnels: [...parsed.tunnels, ...sarimRoutes(config.map, factions, endOfSide)] } : parsed;
-  // 256: see `bootBattlefield` -- `spawn` never reuses a dead unit's slot.
-  const sim = new Sim({ seed: config.seed, width: map.width, height: map.height, capacity: 256, humanHeld: seatRules(config).humanHeld });
+  // 256 unless the map's rules file says more (GH-913 L3): `spawn` never reuses a dead unit's slot, so
+  // capacity budgets everyone who ever enters the match. A snapshot restore builds from this config, so
+  // it lands in a world of the same capacity.
+  const capacity = roomCapacity(config.map);
+  const sim = new Sim({ seed: config.seed, width: map.width, height: map.height, capacity, humanHeld: seatRules(config).humanHeld });
   applyTerrain(map, sim);
-  standMapStructures(sim, map);
+  const structTypes = standMapStructures(sim, map, economy);
 
   // Positional: entry r IS the sim's route index, so assert it (see main.ts).
   const tunnelRoutes = map.tunnels.map(tunnelRouteOf);
@@ -95,16 +121,26 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // A matched room, or a brigade room whose seats claim the same kit,
   // therefore registers exactly the roster and nothing else. The roster is
   // `versusRoster()`: the shipped units minus `VERSUS_HELD_UNITS`.
+  //
+  // GH-1102: a Store special a seat brings that the roster holds out (`VERSUS_HELD_UNITS`:
+  // `mbt_lavi_camo`, `demo_tzav`, ...) is registered only in the room that fields it, and
+  // AFTER every roster type and side 1's copies, so no earlier type index moves. Its kit
+  // follows the same two-side rule, appended after side 0's version of each.
   const roster: readonly RosterUnit[] = versusRoster();
   const seats = seatsBySide(config);
+  const specialsBySide = [seatSpecials(seats[0]), seatSpecials(seats[1])] as const;
+  const appended = appendedSpecials(roster, specialsBySide);
+  const walked: readonly RosterUnit[] = appended.length === 0 ? roster : [...roster, ...appended];
   const kitBySide = [
-    upgradePrepass(roster, seatKitTiers(seats[0])),
-    upgradePrepass(roster, seatKitTiers(seats[1])),
+    upgradePrepass(walked, seatKitTiers(seats[0], walked)),
+    upgradePrepass(walked, seatKitTiers(seats[1], walked)),
   ] as const;
   const typeOf = new Map<string, number>();
-  for (const registered of kitBySide[0].registered) typeOf.set(registered.id, sim.addUnitType(registered));
+  for (let k = 0; k < roster.length; k++) typeOf.set(roster[k].id, sim.addUnitType(kitBySide[0].registered[k]));
   const typeOf1 = new Map(typeOf);
-  roster.forEach((u, k) => {
+  // Side 1's copy of the type at `walked[k]`, where its kit differs from side 0's.
+  const copyForSide1 = (k: number): void => {
+    const u = walked[k];
     // A Sarim side 1 fields no KDF type, so a copy for it would be registered and never spawned.
     if (factions[1] !== 'kdf' || u.faction !== 'kdf') return;
     // The ONE "same kit" predicate, shared with the renderer's `templateKey`
@@ -112,7 +148,14 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
     // a second template for an id whose two sim types are one.
     if (sameTrackTiers(kitBySide[0].unitKitTiers[u.id], kitBySide[1].unitKitTiers[u.id])) return;
     typeOf1.set(u.id, sim.addUnitType(kitBySide[1].registered[k]));
-  });
+  };
+  for (let k = 0; k < roster.length; k++) copyForSide1(k);
+  for (let k = roster.length; k < walked.length; k++) {
+    const t = sim.addUnitType(kitBySide[0].registered[k]);
+    typeOf.set(walked[k].id, t);
+    typeOf1.set(walked[k].id, t);
+  }
+  for (let k = roster.length; k < walked.length; k++) copyForSide1(k);
   const typeOfBySide = [typeOf, typeOf1] as const;
   // GH-859 P1a: the combat formations, in `formations`' own order -- a group row's type is an INDEX into
   // this table, so the ORDER is match content (`content-digest.ts` hashes the array in this order).
@@ -123,10 +166,70 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide);
   // The runtime comes AFTER both forces, so every entity id a mirror room
   // spawned, and so every mirror byte, is what it was; a mirror builds none.
-  const built = economy ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide, tunnelRoutes) : null;
+  // GH-976: a win-mode room (never an economy room, `economyRoom`) plays a goals-only runtime instead.
+  // GH-1102: the lead's 7 Nov ruling -- a Store special takes no population. The specials spawn
+  // after the runtime (below), so the runtime is handed the set now and the ids go in once they
+  // exist, before any tick. Only a room that fields one hands a set at all, so every other room's
+  // context, and every byte of it, is what it was.
+  const fieldsSpecials = specialsBySide[0].length > 0 || specialsBySide[1].length > 0;
+  const popExempt = new Set<number>();
+  const built = economy
+    ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide, tunnelRoutes, fieldsSpecials ? popExempt : undefined)
+    : config.winMode !== undefined ? modeRuntime(sim, config.map, config.winMode, map, typeOf, endOfSide, flagSetupRoom(config)) : null;
   const runtime = built?.runtime ?? null;
   const structureTypes = built?.structureTypes ?? [];
-  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, runtime, structureTypes };
+  // GH-1102: each side's Store specials, last of all, so every entity id a room without them
+  // spawned, and every structure the runtime stood, is what it was; and a camp the runtime
+  // stood is already blocked ground the placement steps round.
+  const specials = spawnSpecials(sim, typeOfBySide, anchors, endOfSide, specialsBySide);
+  for (const side of [0, 1] as const) {
+    bySide[side].push(...specials[side]);
+    for (const id of specials[side]) popExempt.add(id);
+  }
+  // GH-976 v2: the set-up, after the forces, the runtime and the specials and before any tick. A restored world is built through this same path, so
+  // the region and the kit's type indices (config, not state) are what the source had. A v1 flag room takes none of it.
+  const setup = flagSetupRoom(config) ? beginMatchSetup(sim, config.map, map, anchors, endOfSide, structTypes) : null;
+  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, specialsBySide, runtime, winMode: config.winMode ?? null, campWipe: config.winMode === 'camp' && versusModes[config.map]?.modes.camp?.wipe === 'after_camp' ? 'after_camp' : 'ends', structureTypes, setup };
+}
+
+/**
+ * The set-up of a flag room (GH-976 v2, `flagSetupRoom`): the region from the two seats' anchors (labels are SIDES, so cell 0 is
+ * the region of the end side 0 stands at), the clock, and the kit with the two flag grounds as bans. The kit's sim types come
+ * from the catalogue map `standMapStructures` returns, which registers EVERY structure type whether the map uses it or not (R0.24),
+ * so a map with no hesco symbol still resolves one. Throws when the map has no `flag_setup` block.
+ */
+function beginMatchSetup(
+  sim: Sim,
+  mapId: string,
+  map: ParsedMap,
+  anchors: SandboxAnchors,
+  endOfSide: readonly [SpawnEnd, SpawnEnd],
+  structTypes: ReadonlyMap<string, number>,
+): NonNullable<MatchWorld['setup']> {
+  const file = versusModes[mapId];
+  if (file === undefined) throw new Error(`buildMatchWorld: map "${mapId}" has no versus mode file`);
+  const block = flagBlockOf(file, true);
+  if (block.setup === null) throw new Error(`buildMatchWorld: map "${mapId}" has no flag_setup`);
+  const a = anchors[endOfSide[0]];
+  const b = anchors[endOfSide[1]];
+  sim.beginSetup({ untilTick: block.setup.seconds * 20, region: setupRegionOf(map.width, map.height, a, b, block.setup.band_tiles) });
+  const kit = SETUP_KIT_PIECES.map((piece) => {
+    const structType = structTypes.get(piece);
+    if (structType === undefined) throw new Error(`buildMatchWorld: structure type "${piece}" is not in the catalogue`);
+    return { piece, structType, allowance: block.setup?.kit[piece] ?? 0 };
+  });
+  const bans = (['friendly', 'hostile'] as const).map((end): [number, number, number, number] => {
+    const f = block.flags[end];
+    return [f.at[0], f.at[1], f.size[0], f.size[1]];
+  });
+  sim.setSetupKit(kit.map((k) => ({ structType: k.structType, allowance: k.allowance })), bans);
+  return { bandTiles: block.setup.band_tiles, line: setupLineOf(map.width, map.height, a, b), kit };
+}
+
+/** The entity capacity of the room on `mapId`: its rules file's `capacity`, else 256. Mirror rooms
+ *  on a map with rules read it too -- the budget is the map's, not the matchup's. */
+export function roomCapacity(mapId: string): number {
+  return versusCapacityOf(versusRules[mapId]);
 }
 
 /** A parsed route as the sim's `addTunnel` (and a mission context's `tunnels`) takes it. The one
@@ -190,6 +293,8 @@ export function versusUnitInfo(menus: readonly [readonly string[], readonly stri
       logistics: u.cost.logistics,
       buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
       population: 'population' in u.cost ? u.cost.population : 1,
+      // GH-277: read only by a production work whose `production.roles` limits its line (none is open in a room today).
+      role: u.role,
     };
   };
 }
@@ -209,6 +314,7 @@ function economyRuntime(
   factions: readonly [Faction, Faction],
   endOfSide: readonly [SpawnEnd, SpawnEnd],
   tunnels: readonly TunnelRouteJson[],
+  popExempt?: ReadonlySet<number>,
 ): { runtime: MissionRuntime; structureTypes: string[] } {
   const rules = versusRules[mapId];
   if (rules === undefined) throw new Error(`buildMatchWorld: map "${mapId}" has no versus rules file`);
@@ -231,13 +337,74 @@ function economyRuntime(
     roadMask: roadMaskOf(map),
     unitInfo: versusUnitInfo([doctrine[0].menu, doctrine[1].menu]),
     popCaps: [doctrine[0].pop_cap ?? null, doctrine[1].pop_cap ?? null],
+    // GH-1102: the Store specials, by entity id; absent in a room that fields none.
+    ...(popExempt === undefined ? {} : { popExempt }),
     economy: {
       logisticsStart: [doctrine[0].budget.logistics_start, doctrine[1].budget.logistics_start],
       logisticsRatePerMin: [0, 0],
     },
   };
   const runtime = new MissionRuntime(sim, mission as MissionJson, ctx);
+  // GH-1102: `popExempt` is still EMPTY here (the specials spawn after this runtime stands its camps), so neither
+  // `start()` nor the camp-exit setup below may read `population()`; today neither does.
   runtime.start();
+  // GH-976: an authored camp exit per END (the NW scan is not point-symmetric). Static setup data, out of hash().
+  for (const end of ['friendly', 'hostile'] as const) {
+    const camp = rules.ends[end].camp;
+    if (camp.exit === undefined) continue;
+    const st = sim.structureAt(camp.at[0], camp.at[1]);
+    if (st < 0) throw new Error(`versus rules "${mapId}": no structure stands at the ${end} camp`);
+    sim.setStructureExit(st, camp.exit[0], camp.exit[1]);
+  }
+  return { runtime, structureTypes: [...new Set(mission.structures.map((st) => st.type))] };
+}
+
+/**
+ * The runtime a win-mode room plays (GH-976): the map's mode file (`data/versus/modes/<map>.json`) turned into
+ * one primary objective per side, GOALS ONLY (`ctx.goalsOnly`): no camp menu, no purse, no income, no
+ * production, and `checkEnd` never ends it -- `outcome.ts` reads `sideWon` and decides. Side `s` stands at
+ * `endOfSide[s]`, so its camp (the `camp` mode) is that end's. Throws on a map with no such mode, which
+ * `validate:data` and the lobby (a later phase) keep out of a room.
+ */
+function modeRuntime(
+  sim: Sim,
+  mapId: string,
+  mode: WinMode,
+  map: ParsedMap,
+  typeOf: ReadonlyMap<string, number>,
+  endOfSide: readonly [SpawnEnd, SpawnEnd],
+  setup = false,
+): { runtime: MissionRuntime; structureTypes: string[] } {
+  const file = versusModes[mapId];
+  if (file === undefined || file.modes[mode] === undefined) throw new Error(`buildMatchWorld: map "${mapId}" has no "${mode}" win mode`);
+  const sideAt = (end: SpawnEnd): 0 | 1 => (endOfSide[0] === end ? 0 : 1);
+  const { mission, zones } = versusModeMissionOf(file, mode, { friendly: sideAt('friendly'), hostile: sideAt('hostile') }, { setup });
+  for (const name of Object.keys(zones)) {
+    if (Object.hasOwn(map.zones, name)) throw new Error(`versus mode "${mapId}": zone "${name}" is already a zone of the map`);
+  }
+  const ctx: MissionContext = {
+    typeIdOf: (id) => {
+      const t = typeOf.get(id);
+      if (t === undefined) throw new Error(`versus mode runtime references unknown unit ${id}`);
+      return t;
+    },
+    markers: map.markers,
+    zones: { ...map.zones, ...zones },
+    goalsOnly: true,
+    unitValueOf: unitCost,
+  };
+  const runtime = new MissionRuntime(sim, mission as unknown as MissionJson, ctx);
+  runtime.start();
+  // GH-976: an authored camp exit (the NW scan is not point-symmetric). Static setup data, out of hash().
+  if (mode === 'camp') {
+    for (const end of ['friendly', 'hostile'] as const) {
+      const camp = file.camps?.[end];
+      if (camp?.exit === undefined) continue;
+      const st = sim.structureAt(camp.at[0], camp.at[1]);
+      if (st < 0) throw new Error(`versus mode "${mapId}": no structure stands at the ${end} camp`);
+      sim.setStructureExit(st, camp.exit[0], camp.exit[1]);
+    }
+  }
   return { runtime, structureTypes: [...new Set(mission.structures.map((st) => st.type))] };
 }
 
@@ -251,6 +418,15 @@ export function endsBySide(config: Pick<MatchConfig, 'seats'>): readonly [SpawnE
   out[a.side] = endOfSeat(a.seat);
   out[b.side] = endOfSeat(b.seat);
   return out;
+}
+
+/** GH-1102: the Store specials either side fields that `roster` lacks (the held ones), in
+ *  `units` order: the types a room registers after the roster, and only when a seat brings one. */
+function appendedSpecials(roster: readonly RosterUnit[], specialsBySide: readonly [readonly string[], readonly string[]]): RosterUnit[] {
+  const inRoster = new Set(roster.map((u) => u.id));
+  const fielded = new Set([...specialsBySide[0], ...specialsBySide[1]]);
+  const all = units as Readonly<Record<string, RosterUnit>>;
+  return STORE_SPECIAL_IDS.filter((id) => fielded.has(id) && !inRoster.has(id)).map((id) => all[id]);
 }
 
 /** Each SIDE's seat (index 0 is side 0), read by `side` and never by seat
@@ -272,11 +448,11 @@ function seatsBySide(config: MatchConfig): [SeatConfig | undefined, SeatConfig |
  * `__proto__` key and no inherited name can be read as a tier. Zero tiers are
  * dropped, so two claims that field the same kit clean to the same object.
  */
-export function seatKitTiers(seat: SeatConfig | undefined): Record<string, Record<string, number>> {
+export function seatKitTiers(seat: SeatConfig | undefined, roster: readonly RosterUnit[] = versusRoster()): Record<string, Record<string, number>> {
   const out = Object.create(null) as Record<string, Record<string, number>>;
   if (seat === undefined || seat.kit !== 'brigade' || seat.faction !== 'kdf') return out;
   const claim: unknown = seat.tiers;
-  for (const u of versusRoster()) {
+  for (const u of roster) {
     const upgrades = (u as { upgrades?: Record<string, { tiers: readonly unknown[] }> }).upgrades;
     if (u.faction !== 'kdf' || upgrades === undefined) continue;
     const perType = ownValue(claim, u.id);

@@ -58,6 +58,17 @@ export default defineConfig({
   // GitHub Pages serves the app from /<repo>/, so asset URLs need that
   // prefix; local dev and the preview harness stay at the root.
   base: process.env.VITE_BASE ?? '/',
+  build: {
+    rolldownOptions: {
+      output: {
+        // GH-943 P1 (T7): three's SimplexNoise (a dependency-free leaf) is imported by the legacy AO noise (`ao-occluder.ts`, in the
+        // ThreeRenderer chunk) AND by the node AO's DenoiseNode addon (its own lazy chunk). Left alone the bundler hoists it into
+        // ThreeRenderer, so the DenoiseNode chunk -- and with it the node backend -- statically loads the chunk that carries the legacy
+        // composer, and the bundle census fails. A chunk of its own (about 3 kB) is imported by both and imports neither.
+        codeSplitting: { groups: [{ name: 'simplex-noise', test: /three[\\/]examples[\\/]jsm[\\/]math[\\/]SimplexNoise\.js$/ }] },
+      },
+    },
+  },
   // The preview harness assigns a port via PORT; default to 5173 otherwise.
   server: {
     port: Number(process.env.PORT) || 5173,

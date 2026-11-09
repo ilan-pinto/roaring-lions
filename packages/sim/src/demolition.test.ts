@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
+import { encodeSim, restoreSim } from './snapshot';
 import { Sim, type SimEvent, type UnitTypeJson } from './sim';
 import type { StructureTypeJson } from './structures';
 
@@ -162,6 +163,41 @@ describe('per-unit demolition time', () => {
     expect(sim.structureProducesFor(b)).toBe(0);
     sim.tick();
     expect(() => sim.setStructureProducesFor(a, 0)).toThrow(/setup-only/);
+  });
+
+  it('GH-976: structureExit is the authored override, else the NW scan; the override is setup-only and open-only, and out of hash()', () => {
+    const mk = (): { sim: Sim; s: number } => {
+      const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+      const camp = sim.addStructureType(CAMP);
+      return { sim, s: sim.addStructure(camp, [10 * 32 + 10, 10 * 32 + 11, 11 * 32 + 10, 11 * 32 + 11]) };
+    };
+    const { sim, s } = mk();
+    const scan = sim.structureExit(s);
+    expect(scan).toEqual([fx.from(9.5), fx.from(9.5)]); // the NW corner of the ring
+    const h = sim.hash();
+    sim.setStructureExit(s, 12, 12);
+    expect(sim.structureExit(s)).toEqual([fx.from(12.5), fx.from(12.5)]);
+    expect(sim.hash()).toBe(h); // static setup data, like stProducesFor
+    expect(mk().sim.structureExit(0)).toEqual(scan); // another sim, no override
+    const blocked = mk();
+    expect(() => blocked.sim.setStructureExit(blocked.s, 10, 10)).toThrow(/not open/); // inside the footprint
+    sim.tick();
+    expect(() => sim.setStructureExit(s, 9, 9)).toThrow(/setup-only/);
+  });
+
+  it('GH-976: the exit override survives a snapshot, restored into a fresh sim built without it', () => {
+    const mk = (): { sim: Sim; s: number } => {
+      const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+      const camp = sim.addStructureType(CAMP);
+      return { sim, s: sim.addStructure(camp, [10 * 32 + 10, 10 * 32 + 11, 11 * 32 + 10, 11 * 32 + 11]) };
+    };
+    const a = mk();
+    a.sim.setStructureExit(a.s, 12, 12);
+    const bytes = encodeSim(a.sim, { build: 'b', matchId: 'm', contentDigest: 1, frameTick: 0, matchDigest: 0 });
+    const b = mk();
+    expect(b.sim.structureExit(b.s)).toEqual([fx.from(9.5), fx.from(9.5)]); // the fresh twin answers the scan
+    restoreSim(b.sim, bytes);
+    expect(b.sim.structureExit(b.s)).toEqual([fx.from(12.5), fx.from(12.5)]);
   });
 
   // Levelling your own camp is an order, like cutting your own wire.

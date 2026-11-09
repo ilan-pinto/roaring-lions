@@ -27,9 +27,14 @@
     { "unit": "mbt_lavi", "count": 1, "at": [24, 44] },
     { "unit": "sniper_team", "count": 1, "at": [31, 45] },
     { "unit": "recon_drone", "count": 1, "at": [24, 43] },
-    { "unit": "inf_squad", "count": 1, "at": [23, 45], "upgrades_to": "breach_team" }
+    { "unit": "inf_squad", "count": 1, "at": [23, 45], "upgrades_to": "breach_team" },
+    { "unit": "inf_medic_squad", "count": 1, "at": [23, 44] }
   ],
   "resources": { "logistics_start": 400, "logistics_rate_per_min": 80 },
+  "structures": [
+    { "type": "militia_field_clinic", "at": [22, 15], "size": [2, 2] },
+    { "type": "militia_observation_post", "at": [32, 19], "size": [1, 1] }
+  ],
   "objectives": [
     { "id": "take_the_souk", "type": "capture", "primary": true, "target": "souk", "seconds": 20,
       "text": "Take the souk and hold it for 20 seconds",

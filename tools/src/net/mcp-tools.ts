@@ -5,7 +5,8 @@
  * Every tool answers JSON text. An acting tool answers what was accepted, or
  * why not: `queue_full`, `not your unit`, `not a contact`, `unknown verb`,
  * `off the map`, `invalid`, `not in this scope`, `match over`,
- * `not available against a human seat`. The pre-check
+ * `not available against a human seat`, and, for the four production verbs the
+ * economy runtime would set aside (GH-954), `refused` with the runtime's reason. The pre-check
  * runs ownership's own `validateCommand` on the harness's world, and it is
  * ADVISORY: the authoritative drop is `applyFrame`'s, on both machines, and
  * the order ledger reports it (`dropped`).
@@ -17,10 +18,14 @@
  */
 import { COMMAND_KINDS, cleanAdvisorMsg, cleanChat, cleanCommand, type TransportStatus } from '@lions/net';
 import { formations } from '@lions/data';
-import { fx, type Command } from '@lions/sim';
+import { AMBUSH_RADIUS_MAX, MAX_LINE_QUEUE, MAX_PATROL_WAYPOINTS, MAX_PRODUCTION_LINES, fx, type Command } from '@lions/sim';
 import type { AgentClient } from './agent-client';
+import { CRITERIA, CRITERION_IDS, MAX_REASON_CHARS, SCORE_MAX, SCORE_MIN, replyFormat, rubricText, statsGlossary, validateScores, writeScoreFile } from './match-score';
+import { productionRefusal } from './economy-view';
 import type { OrderRecord } from './order-desk';
-import type { SideView } from './view';
+import { orderExamplesForDescription } from './order-examples';
+import type { SeatMemory } from './seat-memory';
+import { STANCES, type SideView } from './view';
 
 export type Scope = 'advise' | 'assist' | 'command';
 export const SCOPES: readonly Scope[] = ['advise', 'assist', 'command'];
@@ -39,6 +44,12 @@ export interface ToolContext {
   doneRound: number;
   /** The id the next proposal takes. */
   nextProposal: number;
+  /** How long `wait` blocks in a lobby; default `LOBBY_WAIT_MAX_MS`. A spec shortens it. */
+  lobbyWaitMs?: number;
+  /** Whether a tool has yet looked at the started match (the first look has a short grace; see `firstSight`). */
+  seen?: boolean;
+  /** `pnpm bot` only (GH-973): where an accepted score is written (`--score-file`). Absent: `match_stats` and `submit_score` are not offered. */
+  scoreFile?: string;
 }
 
 export interface ToolDef {
@@ -50,23 +61,49 @@ export interface ToolDef {
   run(ctx: ToolContext, args: unknown): Promise<ToolResult>;
 }
 
-/** The verbs `order` builds: every command kind but the intel two, which a versus room drops (#559 F1). */
-// setStance, build, support, cancelBuild, setRally and clearRally are excluded from ORDER_VERBS; a model verb is an N3/N4 follow-up.
-export const ORDER_VERBS = COMMAND_KINDS.filter(
-  (k) => k !== 'reveal' && k !== 'callStrike' && k !== 'setStance' && k !== 'build' && k !== 'support' &&
-    k !== 'cancelBuild' && k !== 'setRally' && k !== 'clearRally' &&
-    // Field works (GH-277): the sim's construct/cancelConstruct never travel, and
-    // raiseWorks/cancelWorks are runtime-priced like build (dropped in versus).
-    k !== 'construct' && k !== 'cancelConstruct' && k !== 'raiseWorks' && k !== 'cancelWorks' &&
-    // Versus tunnels (GH-681): `observe` shows a seat neither its routes nor
-    // its buried units yet, so a model verb would be blind; an N4 follow-up.
-    k !== 'enterTunnel' && k !== 'vent',
-);
-type Verb = (typeof ORDER_VERBS)[number];
+/** The `detail` of an `order` refused for its `formation` alone (GH-859 P1b, M8). */
+export const FORMATIONS_CLOSED_IN_VERSUS = 'formations-closed-in-versus';
+
+/**
+ * Every command kind `order` does NOT build, and why. The other kinds are `ORDER_VERBS`, so the two lists
+ * partition `COMMAND_KINDS` and a kind cannot be in neither by accident (GH-954, D-W8: N2 added `setStance`, `build`
+ * and the rest and the old filter, which named the kinds it left out, never noticed). `order-verbs.test.ts` measures
+ * which kinds a versus room accepts and fails on one that is neither a verb nor listed here as withheld on purpose.
+ * `legal` says whether a versus room accepts the kind: the test checks that the claim is true.
+ */
+export const ORDER_WITHHELD = {
+  // The intel two are priced, cooled down and ranged by the mission runtime, which a room does not run (#559 F1).
+  reveal: { legal: false, why: 'intel is a mission runtime\'s; a versus room drops it (#559 F1)' },
+  callStrike: { legal: false, why: 'intel is a mission runtime\'s; a versus room drops it (#559 F1)' },
+  // Fire support stays OUT of every versus room (LD5), so a verb for it would only ever be refused.
+  support: { legal: false, why: 'fire support is dropped in every versus room (LD5)' },
+  // Field works (GH-277): the sim's own two never travel (`cleanCommand` refuses them); the client's two are runtime-priced like `build` and dropped in versus.
+  construct: { legal: false, why: 'the sim\'s own field-works order never travels (GH-277)' },
+  cancelConstruct: { legal: false, why: 'the sim\'s own field-works order never travels (GH-277)' },
+  raiseWorks: { legal: false, why: 'field works are priced by the mission runtime and dropped in versus (GH-277)' },
+  cancelWorks: { legal: false, why: 'field works are priced by the mission runtime and dropped in versus (GH-277)' },
+  // Versus tunnels (GH-681): `observe` shows a seat neither its routes nor its buried units yet, so a model verb would be blind.
+  enterTunnel: { legal: true, why: 'observe shows no tunnel routes yet, so a model could not name one (GH-681)' },
+  vent: { legal: true, why: 'observe shows no buried units yet, so a model could not name one (GH-681)' },
+  // Capture the flag v2 (GH-976): the sim's set-up command. The wire opens in WP4 and the verbs in WP8.
+  setupReady: { legal: false, why: 'set-up commands open in WP4' },
+  fortify: { legal: false, why: 'set-up commands open in WP4' },
+  unfortify: { legal: false, why: 'set-up commands open in WP4' },
+} as const satisfies Partial<Record<Command['kind'], { legal: boolean; why: string }>>;
+
+type Verb = Exclude<(typeof COMMAND_KINDS)[number], keyof typeof ORDER_WITHHELD>;
+/** The verbs `order` builds: every command kind but those in `ORDER_WITHHELD`. */
+export const ORDER_VERBS: readonly Verb[] = COMMAND_KINDS.filter((k): k is Verb => !(k in ORDER_WITHHELD));
+/** The four production kinds carry no unit ids: they are the seat's side's (GH-954). */
+const PRODUCTION_VERBS = ['build', 'cancelBuild', 'setRally', 'clearRally'] as const;
+type ProductionVerb = (typeof PRODUCTION_VERBS)[number];
+const isProductionVerb = (v: string): v is ProductionVerb => (PRODUCTION_VERBS as readonly string[]).includes(v);
 export const WAIT_MAX_TICKS = 200;
 /** How often `wait` looks again, and the longest it blocks in wall time. */
 export const WAIT_POLL_MS = 10;
 export const WAIT_MAX_MS = 60_000;
+/** `wait` in a lobby blocks this long for the match to start: the other player may take a while to press Ready. */
+export const LOBBY_WAIT_MAX_MS = 600_000;
 /** Polls with no frame run, in a room that has ended, before `wait` calls it over. */
 const WAIT_STILL_POLLS = 5;
 /** An assist advisor remembers this many proposals' fates (the newest). */
@@ -122,6 +159,60 @@ function terminal(s: TransportStatus): boolean {
   return s.kind === 'closed' || s.kind === 'desync';
 }
 
+/**
+ * The refusal for a tool that needs a started match. A room that has ENDED is
+ * `match over`, never "not started": a harness respawned after the end hears the
+ * room's log and its `ended` before it has built a world, and the model must not
+ * read that as a match still to begin (GH-973).
+ */
+function notStarted(ctx: ToolContext): ToolResult {
+  return terminal(ctx.client.transport.status()) ? refuse('match over', { detail: 'the room has ended' }) : refuse('match not started');
+}
+
+/** More frames behind than a live match ever is: this client joined a match already under way and is replaying its log. */
+export const CATCHUP_TICKS = 40;
+/** How long the first look at a match joined mid-way waits for the room's follow-up (an `ended` right behind the log). */
+export const FIRST_SIGHT_GRACE_MS = 250;
+
+/**
+ * Whether the world is mid-replay, not the match as it stands: an ended room still feeding its log into this client
+ * (a respawned harness), or a live one this harness joined under way and is far behind. A fresh match is never this.
+ */
+function replaying(ctx: ToolContext): boolean {
+  const behind = ctx.client.transport.behind();
+  return terminal(ctx.client.transport.status()) ? behind > 0 : behind > CATCHUP_TICKS;
+}
+
+/**
+ * The first look at a match this harness joined UNDER WAY (its log has frames): the room says `ended` right behind
+ * the log, and a tool that answered in between would take a finished match for a live one. A fresh match has no frames
+ * behind it and is not delayed.
+ */
+function graceDue(ctx: ToolContext): boolean {
+  if (ctx.seen === true || ctx.client.config() === null) return false;
+  ctx.seen = true;
+  // Joined under way: the log has just arrived, and an `ended` may be right behind it.
+  return ctx.client.joinedUnderway() && (ctx.client.transport.behind() > 0 || ctx.client.tick() > 0) && !terminal(ctx.client.transport.status());
+}
+async function firstSight(ctx: ToolContext): Promise<void> {
+  if (graceDue(ctx)) await sleep(FIRST_SIGHT_GRACE_MS);
+}
+
+/** Lets a replay finish before a read, bounded, so a model never reads a half-replayed world as the match. */
+async function settleReplay(ctx: ToolContext): Promise<void> {
+  await firstSight(ctx);
+  const deadline = Date.now() + WAIT_MAX_MS;
+  let last = ctx.client.tick();
+  let still = 0;
+  while (replaying(ctx) && Date.now() < deadline) {
+    await sleep(WAIT_POLL_MS);
+    const now = ctx.client.tick();
+    still = now === last ? still + 1 : 0;
+    last = now;
+    if (still >= WAIT_STILL_POLLS) return;
+  }
+}
+
 /** Whether an acting tool should answer `match over`. */
 function over(ctx: ToolContext): boolean {
   return ctx.client.result() !== null || terminal(ctx.client.transport.status());
@@ -143,52 +234,167 @@ function roundOf(ctx: ToolContext): { index: number; ticks: number; doneRound: n
   return { index: Math.floor(tick / pace.roundTicks), ticks: pace.roundTicks, doneRound: ctx.doneRound, finished, awaitingEndRound };
 }
 
-/** An order record as the model sees it: tiles, and only the ids the view lists now. */
-function describeOrder(r: OrderRecord, listed: Set<number>): Record<string, unknown> {
+/**
+ * An order record as the model sees it: tiles, and only the ids the view lists now. An own unit that is no longer
+ * listed says what became of it (the 4 Nov bot report, item 2): `fates` carries `{ id, fate: 'died', tick }` for a unit
+ * found dead, `fate: 'removed'` (taken off the board alive: carried away, admitted aboard), `fate: 'unknown'` (gone before
+ * the harness began to watch, no tick), or `fate: 'wounded'`
+ * for one lying down (`casualties.mine`). The record's own `status` is untouched: an order that was `applied` before
+ * its unit died is still `applied`, with its `settledTick`, and `fates` says what became of the unit since. `gone` counts only
+ * ids with no known fate.
+ */
+export const OUT_OF_SIGHT_REASON = 'target no longer in sight';
+export const TARGET_DESTROYED_REASON = 'target destroyed';
+
+/** What became of own unit `id`, as the order log and an `order` answer both say it: `{ id, fate, tick }` (no tick for `unknown` or `wounded`), or null if the seat has no record of it being lost. */
+function fateEntry(id: number, view: SideView, memory: SeatMemory | null): Record<string, unknown> | null {
+  const f = memory?.fateOf(id) ?? null;
+  if (f !== null) return f.tick >= 0 ? { id, fate: f.fate, tick: f.tick } : { id, fate: f.fate };
+  if (view.casualties.mine.some((m) => m.id === id)) return { id, fate: 'wounded' };
+  return null;
+}
+
+/** The hint a refusal and a dropped `attack` both carry: an `attackMove` to where the target was last seen, with the ids still alive. */
+function fallbackFor(ids: number[], seen: { tile: [number, number] }): { verb: 'attackMove'; ids: number[]; x: number; y: number } {
+  return { verb: 'attackMove', ids, x: seen.tile[0], y: seen.tile[1] };
+}
+
+/**
+ * Settle every `applied` attack whose target the seat no longer sees to `dropped` (the second 4 Nov bot fight, item 2).
+ * The room checked who the target is, not whether the seat still sees it, so the status never followed the record's
+ * own `target: "out of sight"`; it does now. Called by `observe` before the log is described.
+ */
+function settleLostTargets(ctx: ToolContext, view: SideView): void {
+  const memory = ctx.client.memory();
+  const desk = ctx.client.desk;
+  const tick = ctx.client.tick();
+  for (const r of desk.records(ORDER_RECORDS)) {
+    if (r.status !== 'applied' || r.cmd.kind !== 'attack') continue;
+    const target = r.cmd.target;
+    if (view.contacts.some((c) => c.id === target) || view.casualties.theirs.some((c) => c.id === target)) continue;
+    // Destroyed while the seat could see it is a success, told with the tick of the death; a death out of sight is
+    // never revealed: that stays a lost target.
+    const killedAt = memory?.killedInSight(target) ?? null;
+    if (killedAt !== null) desk.finishApplied(r, TARGET_DESTROYED_REASON, killedAt);
+    else desk.dropApplied(r, OUT_OF_SIGHT_REASON, tick);
+  }
+}
+
+/** The commands whose point is to go somewhere: a unit that holds is not obeying them yet. */
+const MOVE_KINDS: ReadonlySet<string> = new Set(['move', 'attackMove', 'attack']);
+
+export function describeOrder(r: OrderRecord, view: SideView, memory: SeatMemory | null): Record<string, unknown> {
+  const listed = new Set([...view.units.map((u) => u.id), ...view.contacts.map((u) => u.id)]);
   const c = r.cmd as Record<string, unknown>;
   const out: Record<string, unknown> = { ref: r.ref, status: r.status, verb: r.cmd.kind, queuedTick: r.queuedTick, settledTick: r.settledTick };
+  if (r.reason !== undefined) out.reason = r.reason;
   if (Array.isArray(c.ids)) {
-    const ids = (c.ids as number[]).filter((id) => listed.has(id));
+    const all = c.ids as number[];
+    const ids = all.filter((id) => listed.has(id));
     out.ids = ids;
-    if (ids.length < c.ids.length) out.gone = c.ids.length - ids.length;
+    const fates: Record<string, unknown>[] = [];
+    let gone = 0;
+    for (const id of all) {
+      if (listed.has(id)) continue;
+      const f = fateEntry(id, view, memory);
+      if (f !== null) fates.push(f);
+      else gone++;
+    }
+    if (fates.length > 0) out.fates = fates;
+    if (gone > 0) out.gone = gone;
   }
   if (isInt(c.x) && isInt(c.y)) out.tile = [c.x >> 16, c.y >> 16];
-  if (isInt(c.target)) out.target = listed.has(c.target) ? c.target : 'out of sight';
+  if (isInt(c.target) && r.reason === TARGET_DESTROYED_REASON) {
+    out.target = c.target;   // seen to die in sight: the id is one the seat knew, and nothing is left to look for
+  } else if (isInt(c.target)) {
+    out.target = listed.has(c.target) ? c.target : 'out of sight';
+    // What the seat saw of it: its own sighting, never a position it was not shown (`SeatMemory`).
+    const seen = listed.has(c.target) ? null : memory?.lastSeen(c.target) ?? null;
+    if (seen !== null) out.lastSeen = { tile: seen.tile, tick: seen.tick };
+    // A dropped attack carries the same hint the refusal does, for the units still alive.
+    if (seen !== null && r.reason === OUT_OF_SIGHT_REASON && Array.isArray(c.ids)) {
+      const alive = (c.ids as number[]).filter((id) => listed.has(id));
+      if (alive.length > 0) out.fallback = fallbackFor(alive, seen);
+    }
+  }
+  // GH-1098: an applied move that went to a unit that cannot advance says so (the order was accepted; the unit holds).
+  if (r.status === 'applied' && Array.isArray(c.ids) && MOVE_KINDS.has(r.cmd.kind)) {
+    const holding = view.units.filter((u) => u.held !== undefined && (c.ids as number[]).includes(u.id)).map((u) => ({ id: u.id, held: u.held }));
+    if (holding.length > 0) out.holding = holding;
+  }
   if (isInt(c.carrier) && listed.has(c.carrier)) out.carrier = c.carrier;
   if (isInt(c.structure)) out.structure = c.structure;
   if (isInt(c.tunnel)) out.tunnel = c.tunnel;
+  // GH-954: stance and production orders.
+  if (typeof c.stance === 'string') out.stance = c.stance;
+  if (Array.isArray(c.waypoints)) out.points = c.waypoints.length;
+  if (typeof c.unit === 'string') out.unit = c.unit;
+  if (isInt(c.line)) out.line = c.line;
+  if (isInt(c.index)) out.index = c.index;
   return out;
 }
 
+/**
+ * The clock, the same in `observe`, `status` and `wait` (the 4 Nov bot report, item 5). Three numbers, always together:
+ *  - `simTick`: how many ticks THIS harness's copy of the match has run: the world `observe` shows and every order's
+ *    tick refer to it. `tick` is the same number, kept for old readers.
+ *  - `relayTick`: the newest tick the room has sent this harness (`simTick + behind`).
+ *  - `behind`: frames the room has sent that have not run here yet; 0 when the harness has caught up. A few (2-3) is
+ *    ordinary transport lag, not a fault; a large one is a replay.
+ * Every call reads the clock at the moment it answers and the match goes on between calls, so a later call can read a
+ * larger `simTick`: compare the fields within one answer, and `ran` in a `wait` answer is the ticks that call watched.
+ */
+export function clockOfCtx(ctx: ToolContext): { simTick: number; relayTick: number; behind: number } {
+  const simTick = ctx.client.tick();
+  const behind = ctx.client.transport.behind();
+  return { simTick, relayTick: simTick + behind, behind };
+}
+
+/** The most own lost units `observe` lists (newest first); `score.mine.lost` counts them all. */
+export const LOST_LISTED = 20;
+
 const observe: ToolDef = {
   name: 'observe',
-  description: 'What your seat may know now: your units (id, type, tile, hp %, flags), enemy contacts in sight, held buildings, the score, the clock, and your recent orders (command) or proposals (assist). Tiles, never world units.',
+  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight (each with `inSight: true`, always, and `seenTick`: the sim tick the fog last confirmed it, at most 3 ticks old; its `tile` is where it stands NOW, so a contact that keeps one tile across observes is standing still; a unit that left sight is not a contact, and what you remember of it is `lastSeen` on an order), held buildings, the legal stances, the score (read from one tick: your `lost` is always the enemy\'s `destroyed`, and your `destroyed` its `lost`; a difference you see between two observes is the match having run on, and `lost`/`destroyed` count what died anywhere, in sight or not), the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), `win`: how THIS match is won, in words, from the room\'s own rules (read it first; it wins over anything you assumed), in a flag room `flags` (`mine` is the flag you defend, so its `raider` is the enemy; `theirs` the one you raid; each with its ground `at`, `state`, `held`, `holder`: whose count runs now, `you`, `enemy` or null, and `secondsLeft` until that raid wins: public to both seats), `lost`: your units no longer in play, newest first, at most ' + String(LOST_LISTED) + ' (id, type, `fate` died, removed, or unknown for one gone before you joined, with no `tick`; else its `tick`), and your recent orders, OLDEST FIRST (command; a unit that died since reads `fates: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was), or proposals (assist). An applied `attack` settles in the log: `done` with `reason: target destroyed` and `settledTick` the tick of the kill when the target died in your sight; `dropped` with `reason: target no longer in sight`, `lastSeen` and a `fallback` attackMove when it left your sight (`settledTick` is the observe that noticed it; `lastSeen.tick` is when sight was lost). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units. `moving` is the order flag, never progress: a unit that is not advancing reads `held` in its row, one of `routed` (fleeing), `immobilised` (mobility killed: an order is accepted and the hull never steps), `garrisoned`, `pinned` (suppressed: the sim slows it to a crawl until the fire lifts) or `checkpoint` (a formation member waiting at a waypoint for its group); no `held` means nothing holds it. An applied order in the log names the units it was given that are held right now as `holding: [{id, held}]`.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
+    await settleReplay(ctx);
     const view = started(ctx);
-    if (view === null) return refuse('match not started');
-    const listed = new Set([...view.units.map((u) => u.id), ...view.contacts.map((u) => u.id)]);
+    if (view === null) return notStarted(ctx);
     let orders: unknown[] = [];
-    if (ctx.scope === 'command') orders = ctx.client.desk.records(ORDER_RECORDS).map((r) => describeOrder(r, listed));
+    // Oldest first, the order the log happened in (the desk keeps newest first).
+    if (ctx.scope === 'command') settleLostTargets(ctx, view);
+    if (ctx.scope === 'command') orders = ctx.client.desk.records(ORDER_RECORDS).reverse().map((r) => describeOrder(r, view, ctx.client.memory()));
     else if (ctx.scope === 'assist') orders = [...ctx.proposals].slice(-ORDER_RECORDS).map(([proposal, status]) => ({ proposal, status }));
-    return ok({ ...view, orders });
+    const clock = clockOfCtx(ctx);
+    // GH-1139: the seat's own units that are gone, newest first, so a loss is in the board and not only in an order's fates.
+    const lost = (ctx.client.memory()?.lostUnits(LOST_LISTED) ?? []).map((l) => (l.tick >= 0 ? l : { id: l.id, type: l.type, fate: l.fate }));
+    return ok({ ...view, lost, ...clock, tick: clock.simTick, orders });
   },
 };
 
 const status: ToolDef = {
   name: 'status',
-  description: 'The tick, the clock, the room link, the result if any, the pace and, in a paced room, the round.',
+  description: 'The clock as `simTick` (ticks this harness has run: the world you see; `tick` is the same number), `relayTick` (the newest tick the room has sent) and `behind` (`relayTick - simTick`: frames sent and not yet run here; 2-3 is ordinary lag, a large number is a replay). All three are read when you call, and the match runs on between calls. Also the clock text, the room link, the result if any and `by` how it was reached (annihilation, objective, stalemate, time, ...), the `mode` the room is won by, the pace and, in a paced room, the round.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
+    await settleReplay(ctx);
     const config = ctx.client.config();
     const view = started(ctx);
+    const clock = clockOfCtx(ctx);
+    const link = ctx.client.transport.status();
     return ok({
-      tick: ctx.client.tick(),
+      ...clock,
+      tick: clock.simTick,
       clock: view?.clock ?? null,
-      transport: ctx.client.transport.status(),
+      // The link's own `behind` is the one number the clock reports (it is refreshed on events, this is read now).
+      transport: link.kind === 'live' ? { ...link, behind: clock.behind } : link,
       result: view?.result ?? null,
+      // GH-976 P2: how the result was reached (`objective` for a win mode's goal), and the mode the room plays.
+      by: view?.by ?? null,
+      mode: view?.mode ?? null,
       pace: config?.pace ?? null,
       round: roundOf(ctx),
       seat: ctx.client.seat,
@@ -202,14 +408,24 @@ const sleep = (ms: number): Promise<void> => new Promise((res) => { setTimeout(r
 
 const wait: ToolDef = {
   name: 'wait',
-  description: `Let the match run: resolves after \`ticks\` (1-${WAIT_MAX_TICKS}) more frames (20 a second), or at once on a result, the room ending, or (command, paced) when the room waits on your end_round. Never longer than ${WAIT_MAX_MS / 1000} s.`,
+  description: `Let the match run: resolves after \`ticks\` (1-${WAIT_MAX_TICKS}) more frames (20 a second), or at once on a result, the room ending, or (command, paced) when the room waits on your end_round. Never longer than ${WAIT_MAX_MS / 1000} s. Before the match has started it blocks (up to ${LOBBY_WAIT_MAX_MS / 60_000} minutes) until it does, because the other player may take a while to press Ready; then it answers \`match not started\`, and you call it again. It answers \`simTick\`, \`relayTick\` and \`behind\` as \`status\` does (\`tick\` is \`simTick\`), read as it returns, and \`ran\`, the ticks it watched.`,
   scopes: SCOPES,
   schema: { type: 'object', properties: { ticks: { type: 'integer', minimum: 1, maximum: WAIT_MAX_TICKS } }, required: ['ticks'], additionalProperties: false },
   async run(ctx, raw) {
     const a = argsOf(raw);
     if (!isInt(a.ticks) || a.ticks < 1 || a.ticks > WAIT_MAX_TICKS) return refuse('invalid', { detail: `ticks is an integer 1-${WAIT_MAX_TICKS}` });
-    if (ctx.client.config() === null) return refuse('match not started');
+    if (ctx.client.config() === null) {
+      // The lobby: block until the room starts the match (the other player presses Ready), the room closes, or the bound.
+      const lobbyDeadline = Date.now() + (ctx.lobbyWaitMs ?? LOBBY_WAIT_MAX_MS);
+      while (ctx.client.config() === null) {
+        if (terminal(ctx.client.transport.status())) return refuse('match over', { detail: 'the room closed before the match started' });
+        if (Date.now() >= lobbyDeadline) return refuse('match not started', { detail: 'still waiting for the other player to press Ready' });
+        await sleep(WAIT_POLL_MS);
+      }
+    }
     const client = ctx.client;
+    // Synchronous unless the grace is due: `from` is read at the call, not after a turn that frames can run in.
+    if (graceDue(ctx)) await sleep(FIRST_SIGHT_GRACE_MS);
     const from = client.tick();
     const deadline = Date.now() + WAIT_MAX_MS;
     let last = from;
@@ -220,10 +436,12 @@ const wait: ToolDef = {
       still = now === last ? still + 1 : 0;
       last = now;
       if (client.result() !== null) { reason = 'result'; break; }
-      if (now - from >= a.ticks) { reason = 'ticks'; break; }
       // A terminal room whose frames have stopped running (drained, or
-      // never to run: a void, a desync): nothing more will come.
+      // never to run: a void, a desync): nothing more will come. Asked BEFORE the tick count: a respawned harness
+      // that replays an ended room's log has run its ticks by the time it is drained, and 'ended' is the truth.
       if (terminal(client.transport.status()) && (client.transport.behind() === 0 || still >= WAIT_STILL_POLLS)) { reason = 'ended'; break; }
+      // ...and a replay (an ended room's log, or a match joined far behind) runs on: the model asks for the match, not for tick 1020 of it.
+      if (now - from >= a.ticks && !replaying(ctx)) { reason = 'ticks'; break; }
       // Paced: the room mints nothing more until this seat's `end_round`.
       if (roundOf(ctx)?.awaitingEndRound === true) { reason = 'round'; break; }
       if (Date.now() >= deadline) { reason = 'timeout'; break; }
@@ -231,7 +449,7 @@ const wait: ToolDef = {
     }
     const r = client.result();
     const view = started(ctx);
-    return ok({ reason, ran: client.tick() - from, tick: client.tick(), result: r === null ? null : view?.result ?? null });
+    return ok({ reason, ran: client.tick() - from, ...clockOfCtx(ctx), tick: client.tick(), result: r === null ? null : view?.result ?? null });
   },
 };
 
@@ -254,7 +472,7 @@ const say: ToolDef = {
   async run(ctx, raw) {
     const text = cleanChat(argsOf(raw).text);
     if (text === '') return refuse('invalid', { detail: 'text is empty' });
-    if (ctx.client.config() === null) return refuse('match not started');
+    if (ctx.client.config() === null) return notStarted(ctx);
     if (over(ctx)) return refuse('match over');
     if (ctx.scope === 'command') ctx.client.transport.chat(text);
     else ctx.client.transport.advisor({ kind: 'text', text });
@@ -271,7 +489,7 @@ const ping: ToolDef = {
     if (ctx.scope === 'command') return refuse('not in this scope');
     const a = argsOf(raw);
     const view = started(ctx);
-    if (view === null) return refuse('match not started');
+    if (view === null) return notStarted(ctx);
     if (over(ctx)) return refuse('match over');
     if (!isInt(a.x) || !isInt(a.y)) return refuse('invalid', { detail: 'x and y are integer tiles' });
     if (a.x < 0 || a.y < 0 || a.x >= view.size[0] || a.y >= view.size[1]) return refuse('off the map');
@@ -282,17 +500,117 @@ const ping: ToolDef = {
   },
 };
 
+type Refused = { error: string; detail?: string; extra?: Record<string, unknown> };
+
+/**
+ * `setStance` (GH-954): `hold` halts and stands, `ambush` halts and holds fire until a target closes to `radius`
+ * tiles (default 3), `patrol` walks 2-4 tiles in order and round again. `radius` is the ambush's alone and
+ * `waypoints` the patrol's, as `cleanCommand` has it. Whether the seat may send it is `validateCommand`'s.
+ */
+function stanceOrder(view: SideView, ids: number[], a: Record<string, unknown>): Command | Refused {
+  const stance = (STANCES as readonly unknown[]).find((s) => s === a.stance);
+  if (stance === undefined) return { error: 'invalid', detail: `setStance needs a stance: one of ${STANCES.join(', ')}` };
+  if (stance !== 'ambush' && a.radius !== undefined) return { error: 'invalid', detail: 'radius is for the ambush stance only' };
+  if (stance !== 'patrol' && a.waypoints !== undefined) return { error: 'invalid', detail: 'waypoints are for the patrol stance only' };
+  if (stance === 'hold') return { kind: 'setStance', ids, stance: 'hold' };
+  if (stance === 'ambush') {
+    if (a.radius === undefined) return { kind: 'setStance', ids, stance: 'ambush' };
+    const max = AMBUSH_RADIUS_MAX >> 16;
+    if (!isInt(a.radius) || a.radius < 1 || a.radius > max) return { error: 'invalid', detail: `radius is an integer 1-${max} (tiles)` };
+    return { kind: 'setStance', ids, stance: 'ambush', radius: fx.from(a.radius) };
+  }
+  const wps = a.waypoints;
+  if (!Array.isArray(wps) || wps.length < 2 || wps.length > MAX_PATROL_WAYPOINTS) {
+    return { error: 'invalid', detail: `a patrol needs waypoints: 2-${MAX_PATROL_WAYPOINTS} tiles, each [x, y]` };
+  }
+  const waypoints: [number, number][] = [];
+  for (const w of wps as unknown[]) {
+    if (!Array.isArray(w) || w.length !== 2 || !isInt(w[0]) || !isInt(w[1])) return { error: 'invalid', detail: 'each waypoint is a pair of integer tiles [x, y]' };
+    if (w[0] < 0 || w[1] < 0 || w[0] >= view.size[0] || w[1] >= view.size[1]) return { error: 'off the map' };
+    waypoints.push([tileFx(w[0]), tileFx(w[1])]);
+  }
+  return { kind: 'setStance', ids, stance: 'patrol', waypoints };
+}
+
+/**
+ * The four production verbs (GH-954): `build` a menu unit, `cancelBuild` a queued item, `setRally` and `clearRally`.
+ * They name a camp's line (`observe`'s `economy.lines`), never unit ids, and always the seat's OWN side: the side is
+ * read from the view, so a model cannot ask for the other one. Whether the room has production at all, and whether
+ * the seat may use it, is `validateCommand`'s; whether the runtime would take THIS order now is its own pre-check's.
+ */
+function buildProduction(view: SideView, verb: ProductionVerb, a: Record<string, unknown>): Command | Refused {
+  const side = view.side;
+  const lineArg = (): number | Refused =>
+    isInt(a.line) && a.line >= 0 && a.line < MAX_PRODUCTION_LINES
+      ? a.line
+      : { error: 'invalid', detail: `${verb} needs a line: an integer 0-${MAX_PRODUCTION_LINES - 1}, from economy.lines in observe` };
+  switch (verb) {
+    case 'build': {
+      if (typeof a.unit !== 'string' || a.unit === '') return { error: 'invalid', detail: 'build needs a unit: an id from economy.menu in observe' };
+      if (a.line === undefined) return { kind: verb, side, unit: a.unit };
+      const line = lineArg();
+      return typeof line === 'number' ? { kind: verb, side, unit: a.unit, line } : line;
+    }
+    case 'cancelBuild': {
+      const line = lineArg();
+      if (typeof line !== 'number') return line;
+      if (!isInt(a.index) || a.index < -1 || a.index >= MAX_LINE_QUEUE) {
+        return { error: 'invalid', detail: `cancelBuild needs an index: -1 for the item in production, or 0-${MAX_LINE_QUEUE - 1} for one waiting` };
+      }
+      return { kind: verb, side, line, index: a.index };
+    }
+    case 'setRally': {
+      const line = lineArg();
+      if (typeof line !== 'number') return line;
+      if (!isInt(a.x) || !isInt(a.y)) return { error: 'invalid', detail: 'setRally needs integer tiles x and y' };
+      if (a.x < 0 || a.y < 0 || a.x >= view.size[0] || a.y >= view.size[1]) return { error: 'off the map' };
+      return { kind: verb, side, line, x: tileFx(a.x), y: tileFx(a.y) };
+    }
+    case 'clearRally': {
+      const line = lineArg();
+      return typeof line === 'number' ? { kind: verb, side, line } : line;
+    }
+  }
+}
+
+/**
+ * Take the units that are no longer yours out of an order's `ids` (the second 4 Nov bot fight, item 1). An id that was
+ * one of your units and has since died, been removed or lain down wounded is not a mistake the model should pay for with
+ * the whole order: the order goes to the living ids and the answer names the rest as `lost: [{ id, fate, tick }]`, the
+ * order log's own shape. Refused only when NO listed id is alive (naming every id and its fate), or when an id was never
+ * yours (a foreign or invented id refuses as before: it says nothing about the enemy). The production verbs have no ids.
+ */
+function splitDeadIds(view: SideView, a: Record<string, unknown>, memory: SeatMemory | null): { args: Record<string, unknown>; lost: Record<string, unknown>[] } | Refused {
+  if (typeof a.verb !== 'string' || isProductionVerb(a.verb as Verb) || !Array.isArray(a.ids) || a.ids.length === 0 || !a.ids.every(isInt)) return { args: a, lost: [] };
+  const ids = [...new Set(a.ids as number[])];
+  const own = new Set(view.units.map((u) => u.id));
+  const living: number[] = [];
+  const lost: Record<string, unknown>[] = [];
+  for (const id of ids) {
+    if (own.has(id)) { living.push(id); continue; }
+    const f = fateEntry(id, view, memory);
+    if (f === null) return { error: 'not your unit', detail: 'every id must be one of your units in observe' };
+    lost.push(f);
+  }
+  if (living.length === 0) {
+    const named = lost.map((l) => `${l.id as number}: ${String(l.fate)}${typeof l.tick === 'number' ? ` at tick ${l.tick}` : ''}`).join('; ');
+    return { error: 'not your unit', detail: `none of the ids is alive now (${named}). Nothing was sent: take living ids from observe.`, extra: { lost } };
+  }
+  return { args: lost.length === 0 ? a : { ...a, ids: living }, lost };
+}
+
 /** The command an `order` call describes, or why it cannot be one. */
-function buildOrder(view: SideView, a: Record<string, unknown>): Command | { error: string; detail?: string } {
+function buildOrder(view: SideView, a: Record<string, unknown>, memory: SeatMemory | null): Command | Refused {
   if (typeof a.verb !== 'string' || !(ORDER_VERBS as readonly string[]).includes(a.verb)) {
     return { error: 'unknown verb', detail: `one of ${ORDER_VERBS.join(', ')}` };
   }
   const verb = a.verb as Verb;
+  if (isProductionVerb(verb)) return buildProduction(view, verb, a);
   if (!Array.isArray(a.ids) || a.ids.length === 0 || !a.ids.every(isInt)) return { error: 'invalid', detail: 'ids is a non-empty list of unit ids' };
   const ids = [...new Set(a.ids as number[])];
   const own = new Set(view.units.map((u) => u.id));
   if (!ids.every((id) => own.has(id))) return { error: 'not your unit', detail: 'every id must be one of your units in observe' };
-  const point = (): { x: number; y: number } | { error: string; detail?: string } => {
+  const point = (): { x: number; y: number } | Refused => {
     if (!isInt(a.x) || !isInt(a.y)) return { error: 'invalid', detail: `${verb} needs integer tiles x and y` };
     if (a.x < 0 || a.y < 0 || a.x >= view.size[0] || a.y >= view.size[1]) return { error: 'off the map' };
     return { x: tileFx(a.x), y: tileFx(a.y) };
@@ -341,6 +659,8 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
     case 'halt':
     case 'unload':
       return { kind: verb, ids };
+    case 'setStance':
+      return stanceOrder(view, ids, a);
     case 'garrison':
     case 'demolish': {
       const s = need('structure');
@@ -354,17 +674,33 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
       if (!isInt(a.carrier) || !own.has(a.carrier)) return { error: 'not your unit', detail: 'carrier must be one of your units' };
       return { kind: verb, ids, carrier: a.carrier };
     case 'rescue':
-      // GH-707: a medic is sent to a wounded man the seat can see: one of its own units or a
-      // contact in observe. Anything else answers alike, as `attack` does.
-      if (!isInt(a.target) || !(own.has(a.target) || view.contacts.some((c) => c.id === a.target))) {
-        return { error: 'not a contact', detail: 'target must be one of your units or a contact in observe' };
+      // GH-707: a medic is sent to a wounded man of the seat's OWN side, one of `casualties.mine` in observe (a
+      // wounded man is a casualty and not a unit, so `own` never holds him; a versus room refuses an enemy's anyway,
+      // `validateCommand`). Anything else answers alike, as `attack` does.
+      if (!isInt(a.target) || !view.casualties.mine.some((c) => c.id === a.target)) {
+        return { error: 'not a casualty', detail: 'target must be one of your wounded men in observe (casualties.mine)' };
       }
       return { kind: verb, ids, target: a.target };
-    case 'attack':
-      // Only a target the seat can see: every other id answers alike, so the
-      // answer says nothing about what stands in the fog.
-      if (!isInt(a.target) || !view.contacts.some((c) => c.id === a.target)) return { error: 'not a contact', detail: 'target must be a contact in observe' };
-      return { kind: verb, ids, target: a.target };
+    case 'attack': {
+      // Only a target the seat can see. A target the seat HAS seen and no longer can is told apart (the 4 Nov bot
+      // report, item 1): the model sees the id in its own last `observe`, so naming it leaks nothing, and the last-seen
+      // tile and tick are the seat's own sighting (`SeatMemory`). Every other id answers alike, so the answer says
+      // nothing about what stands in the fog.
+      if (isInt(a.target) && view.contacts.some((c) => c.id === a.target)) return { kind: verb, ids, target: a.target };
+      const seen = isInt(a.target) ? memory?.lastSeen(a.target) ?? null : null;
+      if (isInt(a.target) && seen !== null) {
+        const [x, y] = seen.tile;
+        // The fallback is a HINT, never an automatic conversion: an `attackMove` is a different order (it stops at the
+        // tile and fights what it meets, and the unit may walk into whatever now stands there), so the model is told
+        // the exact call and chooses. The same call works as written.
+        return {
+          error: OUT_OF_SIGHT_REASON,
+          detail: `target ${a.target} was last seen at ${x},${y} on tick ${seen.tick} and is not in sight now (it moved out of sight, or died). Nothing was sent. To go and look, send the fallback: an attackMove to that tile.`,
+          extra: { target: a.target, lastSeen: { tile: [x, y], tick: seen.tick }, fallback: fallbackFor(ids, seen) },
+        };
+      }
+      return { error: 'not a contact', detail: 'target must be a contact in observe' };
+    }
   }
 }
 
@@ -389,7 +725,7 @@ function sweepRefusal(ctx: ToolContext): ToolResult | null {
 
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape; sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack, rescue: a medic goes to treat and carry a wounded); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units, or your production. The arguments are ONE flat JSON object with the keys below (no nesting, no extra keys), for example ${orderExamplesForDescription()} (placeholder ids and tiles: take yours from observe; the standing prompt lists one for every verb). verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack), or one of your wounded men from casualties.mine (rescue: a medic goes to treat and carry him to your camp); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). An id in \`ids\` that was your unit and has since died, been removed or lain down wounded does not refuse the order: it goes to the living ids and the answer carries \`lost: [{id, fate, tick}]\` (the order log's shape); only an order with no living id is refused (\`not your unit\`, naming each id and its fate), and an id that was never yours is refused as before. An attack on a contact that has left your sight answers \`target no longer in sight\`, with its \`lastSeen\` tile and tick and a \`fallback\` attackMove you may send as written (nothing is converted for you). An attack you sent that settles later reads in \`observe\` as \`done\` (\`reason: target destroyed\`, \`settledTick\` the kill) when the target died in your sight, or \`dropped\` (\`reason: target no longer in sight\`, \`lastSeen\`, \`fallback\`) when it left your sight; a death you could not see is never told. command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',
@@ -402,32 +738,67 @@ const order: ToolDef = {
       structure: { type: 'integer' },
       carrier: { type: 'integer' },
       tunnel: { type: 'integer' },
+      stance: { type: 'string', enum: [...STANCES], description: 'setStance only' },
+      radius: { type: 'integer', minimum: 1, maximum: AMBUSH_RADIUS_MAX >> 16, description: 'setStance ambush only: tiles' },
+      waypoints: {
+        type: 'array', minItems: 2, maxItems: MAX_PATROL_WAYPOINTS,
+        items: { type: 'array', items: { type: 'integer' }, minItems: 2, maxItems: 2 },
+        description: 'setStance patrol only: 2-4 tiles, each [x, y]',
+      },
+      unit: { type: 'string', description: 'build only: a unit id from economy.menu in observe' },
+      line: { type: 'integer', minimum: 0, maximum: MAX_PRODUCTION_LINES - 1, description: 'a production line from economy.lines in observe (build: optional, default the shortest queue)' },
+      index: { type: 'integer', minimum: -1, maximum: MAX_LINE_QUEUE - 1, description: 'cancelBuild only: -1 the item in production, 0 upward those waiting' },
       formation: { type: 'string', description: 'move or attackMove only: a shipped formation id (column, ambush: move; attack: attackMove). The units take its slots about the tile', enum: formations.map((f) => f.id) },
       sweep: { type: 'boolean', description: 'attackMove only, and only bot against bot in command scope: on arrival, go on to hunt remembered enemies' },
       note: { type: 'string' },
     },
-    required: ['verb', 'ids'],
+    required: ['verb'],
     additionalProperties: false,
   },
   async run(ctx, raw) {
     if (ctx.scope === 'advise') return refuse('not in this scope');
     const view = started(ctx);
-    if (view === null) return refuse('match not started');
+    if (view === null) return notStarted(ctx);
     if (over(ctx)) return refuse('match over');
     const a = argsOf(raw);
     if (a.sweep !== undefined) {
       const no = sweepRefusal(ctx);
       if (no !== null) return no;
     }
-    const built = buildOrder(view, a);
-    if ('error' in built) return refuse(built.error, built.detail === undefined ? {} : { detail: built.detail });
+    // The 4 Nov second bot fight, item 1: ids that died since the last `observe` do not refuse the order.
+    const split = splitDeadIds(view, a, ctx.client.memory());
+    if ('error' in split) return refuse(split.error, { ...(split.detail === undefined ? {} : { detail: split.detail }), ...split.extra });
+    const lost = split.lost;
+    const built = buildOrder(view, split.args, ctx.client.memory());
+    if ('error' in built) return refuse(built.error, { ...(built.detail === undefined ? {} : { detail: built.detail }), ...built.extra });
     // The room's own rebuild, then ownership's verdict on this machine's world.
     const cmd = cleanCommand(built);
-    if (cmd === null || !ctx.client.precheck(cmd)) return refuse('invalid');
+    if (cmd === null) return refuse('invalid');
+    if (!ctx.client.precheck(cmd)) {
+      // GH-859 P1b (M8): the order is refused for its formation alone when the same order without one would have passed.
+      // Formations are closed in versus rooms (the lead's 29 Oct ruling: `net/versus-formations.ts`), so that is the name
+      // the refusal gives -- a bare `invalid` told an agent nothing it could act on. When the gate opens, this is where a
+      // second cause (a faction that does not field the shape) would be told apart.
+      if ('formation' in cmd && cmd.formation !== undefined && ctx.client.precheck({ ...cmd, formation: undefined } as Command)) {
+        return refuse('invalid', { detail: FORMATIONS_CLOSED_IN_VERSUS });
+      }
+      // GH-954: ownership drops production in a room that has none. `observe` shows `economy` exactly when it has.
+      if (isProductionVerb(cmd.kind) && view.economy === undefined) {
+        return refuse('invalid', { detail: `${cmd.kind} is for KDF-against-Sarim rooms, which have a production economy; this room has none (observe shows no economy)` });
+      }
+      return refuse('invalid');
+    }
+    // GH-954: ownership said yes; the runtime may still set the order aside unspent (purse, population, queue, camp,
+    // tile). Its own pre-checks say why, as the dock's click does, and the order is refused here with that reason.
+    if (isProductionVerb(cmd.kind)) {
+      const w = ctx.client.world();
+      const why = w === null ? null : productionRefusal(w, view.side, cmd);
+      if (why !== null) return refuse('refused', { detail: why });
+    }
     if (ctx.scope === 'command') {
       const r = ctx.client.desk.submit(cmd, ctx.client.tick());
       if ('error' in r) return refuse(r.error);
-      return ok({ ref: r.ref, status: r.status });
+      return ok({ ref: r.ref, status: r.status, ...(lost.length > 0 ? { lost } : {}) });
     }
     const id = ctx.nextProposal;
     const msg = cleanAdvisorMsg({ kind: 'proposal', id, cmd, note: typeof a.note === 'string' ? a.note : '' });
@@ -437,7 +808,7 @@ const order: ToolDef = {
     ctx.proposals.set(id, 'pending');
     // A Map iterates in insertion order: the first key is the oldest.
     for (const old of ctx.proposals.keys()) { if (ctx.proposals.size <= PROPOSALS_KEPT) break; ctx.proposals.delete(old); }
-    return ok({ proposal: id, status: 'pending' });
+    return ok({ proposal: id, status: 'pending', ...(lost.length > 0 ? { lost } : {}) });
   },
 };
 
@@ -448,7 +819,7 @@ const endRound: ToolDef = {
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
     if (ctx.scope !== 'command') return refuse('not in this scope');
-    if (ctx.client.config() === null) return refuse('match not started');
+    if (ctx.client.config() === null) return notStarted(ctx);
     if (over(ctx)) return refuse('match over');
     const round = roundOf(ctx);
     if (round === null) return refuse('not a paced room');
@@ -462,9 +833,78 @@ const endRound: ToolDef = {
   },
 };
 
-export const TOOLS: readonly ToolDef[] = [observe, status, wait, inbox, say, ping, order, endRound];
+/**
+ * A room that has ended hands the client its result only once the frames it still holds have run (`drained`, on the
+ * harness's own 10 ms pump). The scoring tools wait that out, bounded, so the stats name how the match ended; a
+ * room that ended with no result (a void, a desync) is read as it stands after the bound.
+ */
+export const RESULT_SETTLE_MS = 1500;
+async function settleResult(ctx: ToolContext): Promise<void> {
+  const deadline = Date.now() + RESULT_SETTLE_MS;
+  while (ctx.client.result() === null && terminal(ctx.client.transport.status()) && Date.now() < deadline) await sleep(WAIT_POLL_MS);
+}
 
-/** The tools a model in `scope` is given. */
-export function toolsFor(scope: Scope): ToolDef[] {
-  return TOOLS.filter((t) => t.scopes.includes(scope));
+/**
+ * The match scoring tools (GH-973), offered to a `pnpm bot` seat only (the harness is started with `--score-file`):
+ * the arena's players are scored by a separate judge, never by themselves. Both answer `match not over` until the
+ * match has a result, because the referee's numbers cover both sides and would otherwise see through the fog.
+ */
+const matchStats: ToolDef = {
+  name: 'match_stats',
+  description: 'After the match is over: the referee\'s end-of-match stats for BOTH seats (deaths, wounded fallen/rescued/died, value lost and destroyed, idle time, orders, a 30-second timeline). Not fog-limited, so it answers `match not over` until there is a result. Read it before `submit_score`.',
+  scopes: ['command'],
+  schema: { type: 'object', properties: {}, additionalProperties: false },
+  async run(ctx) {
+    if (ctx.scoreFile === undefined) return refuse('not in this scope');
+    await settleReplay(ctx);
+    if (ctx.client.config() === null) return notStarted(ctx);
+    if (!over(ctx)) return refuse('match not over', { detail: 'the referee\'s numbers cover both sides and are shown once there is a result' });
+    await settleResult(ctx);
+    const stats = ctx.client.refereeStats();
+    if (stats === null) return notStarted(ctx);
+    return ok({ stats, glossary: statsGlossary(), seat: ctx.client.seat });
+  },
+};
+
+const criterionSchema = { type: 'object', properties: { score: { type: 'integer', minimum: SCORE_MIN, maximum: SCORE_MAX }, reason: { type: 'string', minLength: 1, maxLength: MAX_REASON_CHARS, description: 'one line' } }, required: ['score', 'reason'], additionalProperties: false };
+const playerSchema = {
+  type: 'object',
+  properties: {
+    criteria: { type: 'object', properties: Object.fromEntries(CRITERION_IDS.map((id) => [id, criterionSchema])), required: [...CRITERION_IDS], additionalProperties: false },
+    overall: criterionSchema,
+  },
+  required: ['criteria', 'overall'],
+  additionalProperties: false,
+};
+
+const submitScore: ToolDef = {
+  name: 'submit_score',
+  description: `After the match is over and you have read \`match_stats\`: score BOTH players (seat0 and seat1, yourself included). ${CRITERIA.length} criteria (${CRITERION_IDS.join(', ')}) and an overall, each \`{score, reason}\`: a whole number ${SCORE_MIN}-${SCORE_MAX} and a ONE-line reason (at most ${MAX_REASON_CHARS} characters) that cites a number from the stats. A score that does not validate is refused with every problem listed: fix them and submit again; a later valid submission replaces an earlier one. The arguments are exactly this object, with the keys \`seat0\` and \`seat1\` at the top level (not wrapped in another key, no extra keys), \`score\` a number and \`reason\` a string: ${replyFormat()}`,
+  scopes: ['command'],
+  schema: { type: 'object', properties: { seat0: playerSchema, seat1: playerSchema }, required: ['seat0', 'seat1'], additionalProperties: false },
+  async run(ctx, raw) {
+    if (ctx.scoreFile === undefined) return refuse('not in this scope');
+    if (ctx.client.config() === null) return notStarted(ctx);
+    if (!over(ctx)) return refuse('match not over', { detail: 'score once the match has a result' });
+    const v = validateScores(raw);
+    if (!v.ok) return refuse('invalid', { problems: v.problems, rubric: rubricText(), format: replyFormat() });
+    await settleResult(ctx);
+    const stats = ctx.client.refereeStats();
+    if (stats === null) return notStarted(ctx);
+    try {
+      writeScoreFile(ctx.scoreFile, { version: 1, seat: ctx.client.seat, referee: stats, scores: v.scores, submittedTick: ctx.client.tick() });
+    } catch (e) {
+      return refuse('not saved', { detail: e instanceof Error ? e.message : String(e) });
+    }
+    return ok({ accepted: true, note: 'the scores are saved in the match report; do not repeat them in your final message' });
+  },
+};
+
+export const TOOLS: readonly ToolDef[] = [observe, status, wait, inbox, say, ping, order, endRound, matchStats, submitScore];
+/** The tools only a scoring seat (`ToolContext.scoreFile`) is given. */
+const SCORING_TOOLS: readonly string[] = [matchStats.name, submitScore.name];
+
+/** The tools a model in `scope` is given; the two scoring tools only with `scoring` (the harness's `--score-file`). */
+export function toolsFor(scope: Scope, o: { scoring?: boolean } = {}): ToolDef[] {
+  return TOOLS.filter((t) => t.scopes.includes(scope) && (o.scoring === true || !SCORING_TOOLS.includes(t.name)));
 }

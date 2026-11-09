@@ -43,7 +43,8 @@
     { "unit": "apc_eitan", "count": 2, "at": [22, 45] },
     { "unit": "ifv_namer", "count": 1, "at": [20, 45] },
     { "unit": "mortar_team", "count": 1, "at": [24, 46] },
-    { "unit": "recon_drone", "count": 1, "at": [22, 43] }
+    { "unit": "recon_drone", "count": 1, "at": [22, 43] },
+    { "unit": "inf_medic_squad", "count": 1, "at": [23, 43] }
   ],
   "resources": {
     "logistics_start": 400,

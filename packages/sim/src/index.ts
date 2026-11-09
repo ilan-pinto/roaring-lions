@@ -28,10 +28,13 @@ export {
   type WorksOffer,
   type WorksRefusal,
   worksRefund,
+  NOT_ON_LINE,
 } from './mission';
-export type { PlacementRefusal } from './sim';
+export type { FortifyRefusal, PlacementRefusal } from './sim';
 export { DOMAIN_AIR, DOMAIN_FOOT, DOMAIN_VEHICLE } from './sim';
-export { REGEN_FRAC } from './tuning';
+// GH-859 P1b: what a formation member is doing for its group (`Sim.formationDutyOf`), so the app reads names, not copies.
+export { FM_DUTY_NONE, FM_DUTY_WAIT, FM_DUTY_OUT, FM_DUTY_RETURN } from './sim';
+export { REGEN_FRAC, CONTEST_RADIUS_SQ } from './tuning';
 export {
   WOUND_NONE,
   WOUND_DOWN,
@@ -96,11 +99,13 @@ export {
   WEAPON_CLASS,
   unitTypeFromJson,
   SIM_EVENT_KINDS,
+  SETUP_REFUSED_KINDS,
   BRACE_NONE,
   BRACE_DROPPING,
   BRACE_KNEELING,
   BRACE_RISING,
   type SimConfig,
+  type SetupSpec,
   type Command,
   type RuntimeCommand,
   type SimEvent,
@@ -116,6 +121,8 @@ export {
 } from './sim';
 // Halt-to-fire clip timing for the renderer (spec 2026-10-05-infantry-halt-to-fire §5).
 export { KNEEL_DROP_TICKS, KNEEL_RISE_TICKS } from './tuning';
+// Capture the flag v2 (GH-976): the early bell's delay, for the HUD's "bell in 5 s" line.
+export { SETUP_BELL_DELAY_TICKS, SETUP_PLACEMENTS_PER_SIDE } from './tuning';
 export { AMBUSH_RADIUS_DEFAULT, AMBUSH_RADIUS_MAX, MAX_PATROL_WAYPOINTS } from './tuning';
 // #706: the crew field fix's length, for the HUD's repair countdown (`Sim.fieldFixRate` gives the rate).
 export { FIELD_FIX_TICKS } from './tuning';
@@ -137,11 +144,22 @@ export {
   FM_FACING_NONE,
   FM_ARRIVE_HOLD,
   FM_ARRIVE_AMBUSH,
+  FM_CALL_SPOT,
+  FM_CALL_STAY,
+  FM_CALL_STRIKE,
+  FM_CONTACT,
+  FM_DRILL_HALT,
+  FM_MARCH,
+  FM_SPRUNG,
+  aircraftCallOf,
   assignTemplate,
+  checkpointsOf,
   compileFormation,
   eighthToward,
+  fmExcludes,
   formationClassOf,
   ringTiles,
+  routeWalk,
   templateOffsets,
   type CompiledElement,
   type CompiledFormation,
@@ -152,6 +170,7 @@ export {
   type TemplateInput,
   type TemplateSlot,
   type TemplateUnit,
+  type UnitCallJson,
   type UnitClassJson,
 } from './formation-template';
 export { MAX_FORMATION_GROUPS_PER_SIDE, FORMATION_WALK_CAP } from './tuning';

@@ -104,7 +104,7 @@ Lavi's signature (1.0) is twice the cell's (0.5), so the cell sees first.
 | **cover 2** | **22.0%** | 6.2 s | 26.1 s |
 | **cover 3** | **13.5%** | 9.5 s | 22.8 s |
 
-- *"The cell is spotted first because it sees 10 and the Lavi 12 with thermal"*: no. At 8.5 tiles both
+- *"The cell is spotted first because it sees 10 and the Lavi 12"*: no. At 8.5 tiles both
   are inside both sights; `thermal` does nothing; the cell sees first.
 - *"The x5 first-launch multiplier is what ends the cell"*: no. With no launch signature at all the cell
   still dies 87% of the time; halving its base signature as well, 83%. What ends it is a 120 mm gun

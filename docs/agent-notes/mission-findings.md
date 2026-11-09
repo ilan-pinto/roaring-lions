@@ -291,3 +291,32 @@ The root cause underneath is a plan bug: with the `apc_kipod` gate open the `jee
 
 **Residual fragility, for the mission-author.** Under the HP model the mission is still fragile to a firepower kill on BOTH armoured guns: a firepower kill is permanent without a workshop, and then nothing in the depot force can answer a ZU-23 truck. The plan now keeps the Kipod in the fight, which is why 90 seeds win; a real player who loses both guns to RPGs early has no such answer. Not tuned here.
 
+
+## The loaned medic team in the campaign (GH-707, 30 Oct 2026)
+
+The lead's ruling: the Nemala Medic Team (`inf_medic_squad`) is free in the campaign, one loaned team in a mission's `starting_force`, as First Light fields it (PR 843). The coordinator's ruling excludes the tutorial `beit_sahwan_0_tutorial`. **That exclusion is recorded in `tools/src/medic_every_mission.test.ts`**, which also pins what every other mission must carry: one placement (not `from_ledger`, so it is a loan), clear ground, and a `wounded_evac` marker on its map (without one a medic that has treated a man holds still carrying him).
+
+The medic is NOT free of cost to a plan. Adding it shifts every later entity id by one, so every later per-entity RNG stream is re-rolled, and a plan tuned on perfect information can lose a seed it used to win. Measured with `pnpm playtest`, 26 missions: PR 905 fielded the team in 19 and left seven out (plan wins 29 of 30 with the medic: Wadi Halam I, Khan Rafid I and II, Tel Marum II; Khan Rafid II also lost at 424242; Umm Zeitoun I credit 240 -> 238, IV 259 -> 249; Tel Marum III through the chain). **All seven were then re-solved (GH-707, the last seven) and `LEFT_OUT` in the test is empty.** What each plan needed, so the next medic-sized change knows where to look:
+
+- Two plans swept "everything of side 0 but ..." to a point, which walks the loaned medic into the fight: Wadi Halam I's re-anchor (lost seed 25) and Umm Zeitoun IV's push for Adhal (the medic died at the crest, 259 -> 249). The medic is kept out of both. A plan that gathers `living(sim, hold)` or filters side 0 by hand should name `inf_medic_squad` in what it leaves behind.
+- Four plans lost to a re-rolled enemy stream at a timing that had been tuned on the old one: Khan Rafid I (drone's alley leg 22 s -> 28 s; a plateau of eight seconds), Tel Marum II (the Lavi's stand (36,19) -> (34,22), one tile from a Kornet cell and inside its minimum range), Khan Rafid II (a second carrier for the eastern family, and a jeep whose one move order is lost when it is routed at that moment is re-ordered), Umm Zeitoun I (the drone's missile-team look moved to a stand-off; an ISLAND, one of eighteen variants, not a plateau). Tel Marum III needed no plan change.
+- Measure a candidate on the 30 sweep seeds AND on seeds 100-129, which took no part in the choice: the seven plans read 28-30 of 30 there before and 28-30 after, none worse.
+
+A change to a mission shows up in a LATER mission's line through the ledger (Tel Marum III's ledger feeds Umm Zeitoun I, which feeds IV: the drop PR 905 saw at IV was Umm Zeitoun I's drone and IV's own medic, not Tel Marum III), so a regression is only attributable by taking missions out one at a time and re-running the whole `pnpm playtest` (about 5 minutes).
+
+## A scripted beat must fire on a live group (GH-912, 1 Nov 2026)
+
+Three Ein Qasab triggers played their label and `say` over nothing on every winning plan: the group their `do` acts on
+was already dead, or not yet spawned, the tick they fired. The shapes, so the next town does not repeat them:
+
+- **`casualties_pct` counts only the start-of-mission enemy, and the group it moves is usually in it.** EQ III's 40%
+  fired at 26-43 s with the `ferry` truck among the first four dead, 30/30 seeds of every rung. EQ I's 50% fired on 21/30
+  naive seeds, 15 of them before the wave group it moves had spawned.
+- **A `timer_s` cannot see a patrol walk into the column.** EQ II's gap rider patrolled into the column's road and died
+  at 12-15 s; the 90 s commit then ordered nobody. No later key could have helped: the fix was where the rider waits
+  (beyond the gap, in dead ground), not the key.
+- **Measure it.** `eq_ladder.ts` prints, per trigger, the fire tick, the living size of the group at that tick, the
+  rounds the group fired afterwards and when it died. A row with `group size at fire min 0` is a beat over nothing.
+- `group_in_zone { group, zone }` (G5) is the enemy-side twin of `zone_entered` and waits for a wave's group to exist.
+  EQ I uses it; the regression test is `plans.test.ts`'s "each re-keyed beat fires, and with its group alive".
+- A plan that wins at 156 s sees a 150 s wave for six seconds: a beat on that wave can only fire as it arrives.

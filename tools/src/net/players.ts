@@ -14,8 +14,9 @@
  */
 import type { Command } from '@lions/sim';
 import { fx } from '@lions/sim';
-import type { Seat } from '@lions/net';
+import type { Seat, WinMode } from '@lions/net';
 import { AgentClient, type AgentSnapshotOptions } from './agent-client';
+import type { Usage } from './external-player';
 import type { SideView } from './view';
 
 /** May be async: an external or slow policy is a promise; the in-process
@@ -93,15 +94,23 @@ export interface SeatStart {
    *  there on its own, so the reading seat's sim can be read AT the cap (`capOutcome`).
    *  Absent: it plays until the match ends or it is stopped. */
   capTicks?: number;
+  /** GH-976 P2: the win mode the arena asked the room for: a mode, `null` for annihilation, absent when the caller
+   *  says nothing (a room of unknown rule: no check, no prompt swap). The prompt names it and the harness checks the room. */
+  winMode?: WinMode | null;
   /** Where a player that runs a process appends that process's stdout and
    *  stderr (the arena's `<out>/<game>-<seat>.log`). An in-process player
    *  logs through its own `log` and ignores it. */
   logFile?: string;
+  /** GH-954 W3: the seat's client keeps the frames it runs, so the arena can record the game (`AgentClient.framesRan`). */
+  keepFrames?: boolean;
 }
 
 export interface PlayerReport {
   /** Tokens the player spent, when it says; null for a scripted player. */
   tokens: number | null;
+  /** GH-954 W2: the whole of what the client's last line said it spent (input, output, cache, cost), when it said
+   *  any. Absent for a scripted player. Reported, never scored (D7). */
+  usage?: Usage;
   /** Policy calls abandoned for not answering in time: `roundWallMs` in a
    *  paced room, `REALTIME_POLICY_MS` in a realtime one. A realtime turn that
    *  comes round while a call is still pending is skipped, not counted again. */
@@ -150,7 +159,7 @@ export function inProcess(name: string, policy: Policy, o: { log?: (line: string
 }
 
 function runInProcess(policy: Policy, s: SeatStart, log: (line: string) => void, snapshots?: AgentSnapshotOptions): RunningPlayer {
-  const client = new AgentClient({ server: s.server, code: s.code, ticket: s.ticket, build: s.build, role: 'seat', seat: s.seat, log, ...(snapshots === undefined ? {} : { snapshots }) });
+  const client = new AgentClient({ server: s.server, code: s.code, ticket: s.ticket, build: s.build, role: 'seat', seat: s.seat, log, ...(s.winMode === undefined ? {} : { expectWinMode: s.winMode }), ...(snapshots === undefined ? {} : { snapshots }), ...(s.keepFrames === true ? { keepFrames: true } : {}) });
   const report: PlayerReport = { tokens: null, timeouts: 0, errors: [] };
   const error = (line: string): void => { if (report.errors.length < MAX_ERRORS) report.errors.push(line); };
   let finished = false;

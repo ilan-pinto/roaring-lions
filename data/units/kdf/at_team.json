@@ -31,7 +31,6 @@
     "firing_signature_mult": 5.0
   },
   "abilities": [
-    "hidden_setup",
     "garrison"
   ],
   "weapons": [
@@ -44,10 +43,11 @@
       "penetration": 900,
       "damage": 400,
       "suppression": 10,
-      "rof_per_min": 3,
+      "rof_per_min": 5,
       "min_range_tiles": 1,
       "can_target": [
-        "ground"
+        "ground",
+        "air"
       ],
       "collateral_risk": 0.3
     }

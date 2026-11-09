@@ -59,6 +59,8 @@ export interface GarageColors {
   readonly sky: string;
   readonly bounce: string;
   readonly ground: string;
+  /** The owner's team colour for the vehicle team mask (L3, GH-943). */
+  readonly team?: string;
 }
 
 /** The half of the door's `GarageView` this file uses. */

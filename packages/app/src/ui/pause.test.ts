@@ -26,6 +26,7 @@ function deps() {
       locales: LOCALES,
       keymap: null,
       build: '0.68.0',
+      commit: '',
       onChange: () => () => {},
     },
     build: '0.68.0',
@@ -184,6 +185,7 @@ describe('pauseMenu', () => {
           },
         }),
         build: '0.68.0',
+        commit: '',
         onChange: () => () => {},
       },
     };

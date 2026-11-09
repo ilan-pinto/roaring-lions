@@ -177,6 +177,29 @@
               }
             }
           },
+          "production": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "GH-277 follow-on: a constructible production building. On completion it opens a second production line (F4) where the player placed it, tail-appended so no line index shifts. Distinct from produces_for: such a type is never the convoy rear and earns no income. Requires buildable and owner 0, and may not also carry produces_for (validate_works.mjs). An absent block opens no line.",
+            "properties": {
+              "roles": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": ["recon", "mbt", "ifv", "apc", "infantry", "at_team", "engineer", "eod", "artillery", "aa", "drone", "gunship", "technical", "sniper", "support", "wounded"]
+                },
+                "description": "Optional: the unit roles this line builds (absent = the whole menu, as the camp's). A subset only: a line never opens a unit the start lines cannot build."
+              },
+              "build_time_mult": {
+                "type": "number",
+                "minimum": 1.0,
+                "maximum": 2.0,
+                "default": 1.0,
+                "description": "Optional: scales the build time of every item on this line; the line takes ceil(base ticks x mult). Default 1.0."
+              }
+            }
+          },
           "aura": {
             "type": "object",
             "additionalProperties": false,
@@ -201,6 +224,17 @@
             "additionalProperties": false,
             "required": ["admit_radius", "treat_s", "dispatch_radius"],
             "description": "GH-707: an aid post. A carried wounded unloaded within admit_radius tiles is admitted and treated for treat_s seconds; idle friendly medics within dispatch_radius tiles are sent to wounded within that radius.",
+            "properties": {
+              "admit_radius": { "type": "number", "minimum": 0, "maximum": 64 },
+              "treat_s": { "type": "number", "exclusiveMinimum": 0, "maximum": 1600 },
+              "dispatch_radius": { "type": "number", "minimum": 0, "maximum": 64 }
+            }
+          },
+          "versus_aid": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["admit_radius", "treat_s", "dispatch_radius"],
+            "description": "GH-707 (the lead, 30 Oct 2026): the `aid` block this type takes in a VERSUS economy room only, where the KDF camp is its side's drop-off for a carried wounded man. A mission, the sandbox and every other world register the type without it, so a campaign camp admits nobody. Same shape as `aid`; read by the app's versus world builder (`standMapStructures`), never by the sim.",
             "properties": {
               "admit_radius": { "type": "number", "minimum": 0, "maximum": 64 },
               "treat_s": { "type": "number", "exclusiveMinimum": 0, "maximum": 1600 },

@@ -73,6 +73,10 @@
     "civ_collection": [
       29,
       33
+    ],
+    "wounded_evac": [
+      1,
+      22
     ]
   },
   "zones": {

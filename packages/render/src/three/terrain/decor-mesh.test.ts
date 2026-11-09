@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
-import { buildDecorMesh, disposeDecorMesh, stripToBatchAttributes, swayingFoliageMaterial } from './decor-mesh';
-import { swayVertexChunk } from './sway';
+import { addNatureAttribute, buildDecorMesh, disposeDecorMesh, stripToBatchAttributes, swayingFoliageMaterial } from './decor-mesh';
+import { windVertexChunk } from './wind';
+import { makeWindUniforms } from './wind-uniforms';
 import type { DecorGeometrySet } from './decor-mesh';
 import type { DecorPlacement } from './decor-place';
 import { rampForDecorRole } from './decor-role';
@@ -265,8 +266,11 @@ function placementsOfEveryRole(): DecorPlacement[] {
   }));
 }
 
+/** What a material with no custom key reports (three's default). */
+const PLAIN_KEY = new THREE.MeshStandardMaterial().customProgramCacheKey();
+
 describe('the foliage batch sways (Task 7)', () => {
-  const sway = { time: { value: 0 }, amp: { value: 1 } };
+  const sway = { time: { value: 0 }, amp: { value: 1 }, wind: makeWindUniforms() };
   it('splices the sway chunk after project_vertex and shares the two uniforms', () => {
     const shader = compiled(swayingFoliageMaterial(['#6E7446', '#5A5F39', '#474B2D'], sway));
     const at = shader.vertexShader.indexOf('#include <project_vertex>');
@@ -274,30 +278,108 @@ describe('the foliage batch sways (Task 7)', () => {
     // The brief wrote `indexOf('uSwayTime')`, but GLSL needs the uniform
     // DECLARED at global scope, which is before `main` and so before the
     // anchor. What must sit after the anchor is its use: the chunk itself.
-    expect(shader.vertexShader.indexOf(swayVertexChunk())).toBeGreaterThan(at);
+    expect(shader.vertexShader.indexOf(windVertexChunk())).toBeGreaterThan(at);
     expect(shader.vertexShader.lastIndexOf('uSwayTime')).toBeGreaterThan(at);
     expect(shader.vertexShader.indexOf('uniform float uSwayTime;')).toBeLessThan(shader.vertexShader.indexOf('void main'));
     expect(shader.uniforms.uSwayTime).toBe(sway.time);
     expect(shader.uniforms.uSwayAmp).toBe(sway.amp);
+    expect(shader.uniforms.uWindMode).toBe(sway.wind.mode);
+    expect(shader.uniforms.uWindStrength).toBe(sway.wind.strength);
+    expect(shader.uniforms.uWindDir).toBe(sway.wind.dir);
   });
   it('throws when three no longer has the chunk it splices after', () => {
     const m = swayingFoliageMaterial(['#6E7446'], sway);
     const shader = { uniforms: {}, vertexShader: 'void main(){}', fragmentShader: '' };
     expect(() => m.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer)).toThrow(/project_vertex/);
   });
-  it('is only the foliage role: trunks, rock and sand keep the plain ramp material', () => {
+  it('is the foliage and the trunk (GH-984 N1): rock and sand keep the plain ramp material', () => {
     const group = buildDecorMesh(placementsOfEveryRole(), geometrySetOfEveryRole(), sway);
     expect(group.children.map((c) => c.name).sort()).toEqual(['decor-foliage', 'decor-rock', 'decor-sand', 'decor-trunk']);
+    const keys: Record<string, string> = { 'decor-foliage': 'rl-foliage-sway', 'decor-trunk': 'rl-trunk-sway' };
     for (const child of group.children) {
       const mat = (child as THREE.BatchedMesh).material as THREE.Material;
-      expect(mat.customProgramCacheKey() === 'rl-foliage-sway').toBe(child.name === 'decor-foliage');
+      expect(mat.customProgramCacheKey()).toBe(keys[child.name] ?? PLAIN_KEY);
     }
+  });
+  it('the trunk batch carries the SAME chunk as the crown: the trunk-follows-crown falsifier', () => {
+    const group = buildDecorMesh(placementsOfEveryRole(), geometrySetOfEveryRole(), sway);
+    const trunk = (group.children.find((c) => c.name === 'decor-trunk') as THREE.BatchedMesh).material as THREE.Material;
+    const vs = compiled(trunk).vertexShader;
+    expect(vs).toContain(windVertexChunk(false, true));
+    expect(vs).toContain('rlWindLean(');
+    expect(vs).toContain('uWindMode');
+    // A trunk held still in reduced motion: its legacy amplitude is the literal 0.
+    expect(vs).toContain('uSwayAmp * 0.00000000 *');
+    expect(compiled((group.children.find((c) => c.name === 'decor-foliage') as THREE.BatchedMesh).material as THREE.Material).vertexShader)
+      .toContain('uSwayAmp * 0.03500000 *');
   });
   it('does not sway at all without the uniforms: no caller, no sway', () => {
     const group = buildDecorMesh(placementsOfEveryRole(), geometrySetOfEveryRole());
     for (const child of group.children) {
       expect(((child as THREE.BatchedMesh).material as THREE.Material).customProgramCacheKey()).not.toBe('rl-foliage-sway');
     }
+  });
+  it('a caller that never heard of the wind plays today`s sway: mode 0', () => {
+    const shader = compiled(swayingFoliageMaterial(['#6E7446'], { time: { value: 0 }, amp: { value: 1 } }));
+    expect((shader.uniforms.uWindMode as { value: number }).value).toBe(0);
+  });
+});
+
+describe('rlNature (GH-984 N1)', () => {
+  const tall = (y0: number, y1: number): THREE.BufferGeometry => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, y0, 0, 1, y1, 0, 0, y1, 1]), 3));
+    return g;
+  };
+  const nature = (g: THREE.BufferGeometry): number[] => Array.from((g.getAttribute('rlNature') as THREE.BufferAttribute).array);
+
+  it('normalises to the box of the whole KEY, so a bush`s foliage sits above its trunk`s bottom', () => {
+    const trunk = tall(0, 0.8);
+    const foliage = tall(0.4, 1.0);
+    addNatureAttribute('bush_0', [{ role: 'trunk', geometry: trunk }, { role: 'foliage', geometry: foliage }]);
+    // Heights over the union [0, 1.0]: the foliage's lowest vertex is at 0.4, not 0 (its own box would say 0).
+    expect(nature(foliage).filter((_, i) => i % 2 === 0)).toEqual([expect.closeTo(0.4, 6), expect.closeTo(1, 6), expect.closeTo(1, 6)]);
+    expect(nature(trunk).filter((_, i) => i % 2 === 0)).toEqual([0, expect.closeTo(0.8, 6), expect.closeTo(0.8, 6)]);
+    // The trunk's top and the foliage at the same height agree: no seam.
+    expect(nature(trunk)[2]).toBeCloseTo(0.8, 6);
+  });
+
+  it('writes the family class: grass 0, reed 1, shrub 2, tree 3', () => {
+    const cases: [string, number][] = [['grass_1', 0], ['wet_grass_0', 0], ['reed_2', 1], ['bush_0', 2], ['shrub_1', 2], ['tree_0', 3], ['cedar_2', 3], ['desert_tree_0', 3], ['oak_0', 3], ['willow_1', 3]];
+    for (const [key, cls] of cases) {
+      const g = tall(0, 1);
+      addNatureAttribute(key, [{ role: 'foliage', geometry: g }]);
+      expect(nature(g).filter((_, i) => i % 2 === 1)).toEqual([cls, cls, cls]);
+    }
+  });
+
+  it('leaves rock and sand parts alone, and a part that has it is not rewritten', () => {
+    const rock = tall(0, 1);
+    const foliage = tall(0, 1);
+    addNatureAttribute('tree_0', [{ role: 'rock', geometry: rock }, { role: 'foliage', geometry: foliage }]);
+    expect(rock.getAttribute('rlNature')).toBeUndefined();
+    const first = foliage.getAttribute('rlNature');
+    addNatureAttribute('tree_0', [{ role: 'foliage', geometry: foliage }]);
+    expect(foliage.getAttribute('rlNature')).toBe(first);
+  });
+
+  it('buildDecorMesh adds it to foliage and trunk parts only when the sway is on, +0 batches', () => {
+    const withSway = geometrySetOfEveryRole();
+    const g = buildDecorMesh(placementsOfEveryRole(), withSway, { time: { value: 0 }, amp: { value: 1 }, wind: makeWindUniforms() });
+    expect(g.children.length).toBe(4);
+    const bush = withSway.parts.get('bush_0') ?? [];
+    expect(bush.every((p) => p.geometry.getAttribute('rlNature') !== undefined)).toBe(true);
+    expect((withSway.parts.get('rock_0') ?? [])[0].geometry.getAttribute('rlNature')).toBeUndefined();
+    const without = geometrySetOfEveryRole();
+    buildDecorMesh(placementsOfEveryRole(), without);
+    expect((without.parts.get('bush_0') ?? [])[0].geometry.getAttribute('rlNature')).toBeUndefined();
+  });
+
+  it('survives stripToBatchAttributes (the whitelist names it)', () => {
+    const g = tall(0, 1);
+    addNatureAttribute('bush_0', [{ role: 'foliage', geometry: g }]);
+    stripToBatchAttributes(g);
+    expect(g.getAttribute('rlNature')).toBeDefined();
   });
 });
 
@@ -346,5 +428,69 @@ describe('buildDecorMesh decorColors (GH-322)', () => {
     expect(c.getHexString()).toBe(new THREE.Color('#6E6960').getHexString());
     // The foliage batch had no key and is untouched.
     expect(colorsTexture(byName(g, 'decor-foliage'))).toBeNull();
+  });
+});
+
+describe('the wet foliage batch (GH-871 P4 T5): the direct witness', () => {
+  // The theme-identity harness loads no decor GLBs, so its `scene` digest cannot
+  // see a wet-sway change made at the decor/batch call site. This builds the
+  // batch the way the renderer does (`buildDecorMesh`) with the rain option on
+  // and off and reads the compiled foliage program.
+  const sway = { time: { value: 0 }, amp: { value: 1 }, wind: makeWindUniforms() };
+  const foliageOf = (g: THREE.Group): THREE.Material =>
+    (g.children.find((c) => c.name === 'decor-foliage') as THREE.BatchedMesh).material as THREE.Material;
+  const build = (wet?: boolean): THREE.Group =>
+    buildDecorMesh(placementsOfEveryRole(), geometrySetOfEveryRole(), sway, undefined, wet);
+
+  it('a dry batch is today`s: the shipped cache key and the shipped chunk, byte for byte', () => {
+    for (const wet of [undefined, false]) {
+      const mat = foliageOf(build(wet));
+      expect(mat.customProgramCacheKey()).toBe('rl-foliage-sway');
+      const vs = compiled(mat).vertexShader;
+      // Today's program: the amplitude and the gust gain this file shipped with.
+      expect(vs).toContain('uSwayAmp * 0.03500000 *');
+      expect(vs).toContain('(1.40000000 - 1.0)');
+      expect(vs).not.toContain('0.07700000');
+      expect(vs).not.toContain('(3.00000000 - 1.0)');
+      expect(vs).not.toContain('float gain = 3.00000000;');
+      expect(vs).toContain('float gain = RL_WIND_GAIN[cls];');
+      // And it equals the material the unchanged signature builds.
+      expect(vs).toBe(compiled(swayingFoliageMaterial(['#808080'], sway)).vertexShader);
+    }
+  });
+
+  it('a wet batch differs in exactly the amplitude x2.2, the gust 3.0 and the cache key', () => {
+    const dry = foliageOf(build(false));
+    const wet = foliageOf(build(true));
+    expect(wet.customProgramCacheKey()).toBe('rl-foliage-sway-wet');
+    expect(wet.customProgramCacheKey()).not.toBe(dry.customProgramCacheKey());
+    const dryVs = compiled(dry).vertexShader;
+    const wetVs = compiled(wet).vertexShader;
+    expect(wetVs).toContain('uSwayAmp * 0.07700000 *');
+    expect(wetVs).toContain('(3.00000000 - 1.0)');
+    // The wind branch (GH-984 N1) bakes the same two numbers: its gain (3.0 for every class) and the x2.2.
+    expect(wetVs).toContain('float gain = 3.00000000;');
+    expect(wetVs).toContain('* 2.20000000 * strength');
+    expect(
+      wetVs
+        .replace('0.07700000', '0.03500000')
+        .replace('(3.00000000 - 1.0)', '(1.40000000 - 1.0)')
+        .replace('float gain = 3.00000000;', 'float gain = RL_WIND_GAIN[cls];')
+        .replace('* 2.20000000 * strength', '* 1.00000000 * strength')
+    ).toBe(dryVs);
+    // The fragment source and the sway uniforms (the `wind` layer's) are untouched.
+    expect(compiled(wet).fragmentShader).toBe(compiled(dry).fragmentShader);
+    expect(compiled(wet).uniforms.uSwayAmp).toBe(sway.amp);
+    expect(compiled(wet).uniforms.uSwayTime).toBe(sway.time);
+  });
+
+  it('a wet batch is the foliage and the trunk: rock and sand keep the plain ramp', () => {
+    const group = build(true);
+    const keys: Record<string, string> = { 'decor-foliage': 'rl-foliage-sway-wet', 'decor-trunk': 'rl-trunk-sway-wet' };
+    for (const child of group.children) {
+      const key = ((child as THREE.BatchedMesh).material as THREE.Material).customProgramCacheKey();
+      if (keys[child.name] !== undefined) expect(key).toBe(keys[child.name]);
+      else expect(key).toBe(PLAIN_KEY);
+    }
   });
 });

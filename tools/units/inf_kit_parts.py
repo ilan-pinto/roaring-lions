@@ -184,7 +184,8 @@ class Team:
 _BASE_ALL, _BASE_LEADER, _BASE_RIFLEMEN = ALL, LEADER, RIFLEMEN
 
 TEAMS = {
-    "inf_squad": Team("inf_squad", ALL, LEADER, ALL, (2048, 1024), dict(TEXELS)),
+    "inf_squad": Team("inf_squad", ALL, LEADER, ALL, (2048, 1024), dict(TEXELS),
+                      bank_clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned"), clear_pouches=True, dense_keys=True, flip_deg=120.0),
     # Demolition squad (GH-826, seven-teams spec 4.3). Two standing figures on the standard rig:
     # demo_a is unarmed (he works the charge), demo_b carries the carbines. The helmets carry a baked NVG
     # shroud and mount, so `nvg_mount` is not added twice. The weapon primitive has no UVs (palette), so

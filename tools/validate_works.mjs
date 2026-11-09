@@ -91,3 +91,58 @@ export function worksSymbolFailures(catalogue, maps, terrainSymbols) {
   }
   return out;
 }
+
+// ---- GH-277 follow-on: production works (a constructible forward camp) -----------------------------------------
+//
+// A type with a `production` block opens a second F4 production line where the player raised it. The rules keep it
+// what the lead ruled (4 Nov 2026): a field work (buildable, owner 0), never the convoy rear or an income source
+// (no `produces_for`), never a way to a unit the start lines cannot build (a `roles` subset only), never placed by a
+// mission (the player raises it) and never the enemy's (D7). The line cap is `validate_production.mjs`'s.
+
+/** P1: a `production` type is buildable with owner 0 and carries no `produces_for`; its `roles`, when given, are
+ *  non-empty, distinct, and each a role some KDF unit has (so the line never opens a unit the start lines cannot build).
+ *  `kdfRoles` is the set of roles of data/units/kdf. */
+export function productionTypeFailures(catalogue, kdfRoles, file) {
+  const out = [];
+  for (const [id, spec] of Object.entries(catalogue?.types ?? {})) {
+    const p = spec?.production;
+    if (p === undefined) continue;
+    if (spec.buildable === undefined) out.push(`${file}: "${id}" has a production block and is not buildable -- a mission cannot place a producing building, the player raises it`);
+    if (spec.owner !== 0) out.push(`${file}: "${id}" has a production block and owner ${spec.owner ?? -1} -- only the player's side raises one (the enemy never builds it, D7)`);
+    if (spec.produces_for !== undefined) {
+      out.push(`${file}: "${id}" has a production block and produces_for ${spec.produces_for} -- it would become the convoy rear and a camp; a production work is neither`);
+    }
+    const roles = p.roles;
+    if (roles === undefined) continue;
+    if (!Array.isArray(roles) || roles.length === 0) {
+      out.push(`${file}: "${id}" production.roles is empty -- omit it for the whole menu`);
+      continue;
+    }
+    if (new Set(roles).size !== roles.length) out.push(`${file}: "${id}" production.roles repeats a role`);
+    for (const r of roles) {
+      if (!kdfRoles.has(r)) out.push(`${file}: "${id}" production.roles names "${r}", a role no KDF unit has -- a line never opens a unit the start lines cannot build`);
+    }
+  }
+  return out;
+}
+
+/** P2: a mission never places a production type in `structures[]` (it would stand inert: lines are opened by
+ *  completing a field work), whatever its side. */
+export function productionPlacementFailures(mission, catalogue, file) {
+  const out = [];
+  for (const st of mission?.structures ?? []) {
+    if (catalogue?.types?.[st?.type]?.production !== undefined) {
+      out.push(`${file}: structures[] places "${st.type}", a production work -- the player raises it (field_works); a placement opens no line`);
+    }
+  }
+  return out;
+}
+
+/** How many of a mission's `field_works` are production works (each can open a line). Used by validate_production.mjs. */
+export function productionWorksCount(mission, catalogue) {
+  let n = 0;
+  for (const [id, count] of Object.entries(mission?.field_works ?? {})) {
+    if (catalogue?.types?.[id]?.production !== undefined) n += Number.isInteger(count) ? count : 0;
+  }
+  return n;
+}

@@ -8,3 +8,8 @@ allowBuilds:
 # Drop this once wrangler/miniflare ships a patched pin.
 overrides:
   "undici@>=7.18.0 <7.30.1": "7.30.1"
+# GH-943: three r187's one-line WebGPU fix (sample a depth texture through a DEPTH-ONLY view), backported onto 0.186.1. Without it the
+# node backend on WebGPU binds the scene pass's depth24plus-stencil8 depth with aspect "all", the bind group is invalid and G draws
+# black. Pinned by packages/render/src/three/backend/depth-aspect.node.test.ts. Drop it with the upgrade to three >= 0.187.
+patchedDependencies:
+  three@0.186.1: patches/three@0.186.1.patch

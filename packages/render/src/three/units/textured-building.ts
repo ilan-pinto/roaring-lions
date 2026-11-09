@@ -39,4 +39,7 @@ export const TEXTURED_BUILDING_TYPES: ReadonlySet<string> = new Set([
   // GH-66 field works (2026-10-15): the HESCO bastion run, through
   // `export_meshy_ramp.py` like the two above.
   'hesco',
+  // GH-974: the house's LOD1 twin (a FILE id, not a structure type: `loadBuildingMesh` asks `${id}_lod1`). It ships
+  // its own 512 px bake of `house.glb`.
+  'house_lod1',
 ]);

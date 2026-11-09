@@ -21,6 +21,41 @@ const EVERY = 1200;
  * too), which re-rolled every sign again: seed 1 went positive, and seed 2 reads negative (3 and 7 read
  * positive; 4, 5, 6, 8 and 9 pass the premise as well). If the premise test goes red after a unit or
  * formation edit, re-pick the seed here; never the sim.
+ * GH-707 (30 Oct): the medic team in 18 missions' starting forces (mission and map JSON are content too) re-rolled
+ * the sign again: seed 2 went positive. Was seed 2; seed 1 reads negative (5 does too; 3, 4, 6, 7, 8 and 9 read positive).
+ * GH-707 (30 Oct, the last seven): the medic team in seven more missions re-rolled it once more: seed 1 went positive. Was seed 1; seed 2
+ * reads negative (3 and 8 do too; 1, 4, 5, 6, 7 and 9 read positive).
+ * GH-859 P1c (31 Oct): `data/formations/attack.json` lost its march pace (formation files are content), which re-rolled the sign
+ * once more: seed 2 went positive (+1239059308). Was seed 2; seed 1 reads negative (-2052621870; 3, 4, 6 and 8 do too; 2, 5, 7 and 9
+ * read positive). The economy room reads +1954628094 on the same data.
+ * GH-913 L4 (1 Nov): `data/maps/rujm_sawda.json` and its rules file are content too. On the data with PR 915 (jebel_matar,
+ * ein_qasab_3) merged, seeds 1 and 7 read negative (2, 3, 4, 5, 6, 8 and 9 read positive), so seed 1 stands.
+ * GH-913 L3 (1 Nov): `capacity: 512` in `data/versus/rujm_sawda.json` is content too. Seeds 1 and 2 no longer pass the premise; seeds 3 and 4
+ * do (5 to 9 not tried), so seed 3 stands. Was seed 1.
+ * GH-913 look pass (1 Nov): the redrawn `data/maps/rujm_sawda.json` is content again. Seed 3 went positive. Seeds 1, 6, 7 and 9 read
+ * negative (2, 3, 4, 5 and 8 read positive), so seed 1 stands. Was seed 3.
+ * GH-913 L8 (1 Nov): `cap_minutes: 35` in `data/versus/rujm_sawda.json` is content too. Seed 1 went positive; seeds 3 and 5 read negative
+ * (2, 4, 6, 7, 8 and 9 read positive), so seed 3 stands. Was seed 1.
+ * GH-859 (1 Nov, the lead's Attack rulings): `data/formations/attack.json` (aircraft excluded, then `legs: false`) is content too. Seed 3 went
+ * positive; seeds 1, 2, 4, 5 and 6 read positive as well and seed 7 reads negative, so seed 7 stands. Was seed 3.
+ * GH-920 B3 (2 Nov): `data/maps/wadi_tarfan_l.json` and its rules file are content too. Seed 7 went positive; seeds 1, 2, 5 and 6 read
+ * negative (3, 4, 8 and 9 read positive), so seed 1 stands. Was seed 7.
+ * GH-920 B3 (2 Nov): `data/maps/milh_flats_l.json` and its rules file are content too. Seed 1 stays negative (-891211569; 2, 4, 5, 6, 7, 8 and 9
+ * read negative as well, 3 reads positive; the economy room reads +1182050052), read by a scratch copy of this file's own `play` and `digestOf`.
+ * GH-707 (3 Nov): `inf_medic_squad` on the KDF menu in `data/doctrines/kdf.json` is content too (the review showed seed 1 still passes with the
+ * medic off, on main plus the Spike): seed 1 went positive; seeds 2, 7 and 8 read negative (3, 4, 5, 6 and 9 read positive), so seed 2 stands. Was seed 1.
+ * GH-976 (4 Nov): the win-mode files `data/versus/modes/<map>.json` (`versusModes`) are content too, so adding tel_marum's and four more re-rolled
+ * the sign. The sim hash (3655609792 for seed 2) and the runtime digest are byte-identical to main's: only `shippedContentDigest()` moved
+ * (846746415 -> 1070441926). Seed 2 went positive (+1598120593; the economy room too, +1337731563); seeds 1, 3 and 9 read negative
+ * (1: -1613319460), so seed 1 stands. Was seed 2.
+ * GH-976 camp-mode (5 Nov): `data/versus/modes/milh_flats.json` moved its camps (content again). Seed 1 went positive; seeds 6, 8 and 9 read
+ * negative (1, 2, 3, 4, 5 and 7 read positive or fail the premise), so seed 6 stands. Was seed 1. Sim hash and runtime digest are untouched.
+ * GH-976 (5 Nov, camp exits): `exit` on the camps of `data/versus/modes/milh_flats.json` and `wadi_tarfan.json` is content too. Seed 6 went positive;
+ * seeds 3, 5 and 7 pass the premise (1, 2, 4, 8 and 9 fail it), so seed 3 stands. Was seed 6.
+ * GH-883 (5 Nov): deleting `hidden_setup` from five unit JSONs and the schema is content too. Seed 3 went positive; seeds 1, 4, 5, 7 and 9 pass
+ * the premise (2, 6 and 8 fail it), so seed 1 stands. Was seed 3. Sim hash and runtime digest are untouched; only `shippedContentDigest()` moved.
+ * GH-976 (5 Nov, camp wipe): `modes.camp.wipe: "after_camp"` in `data/versus/modes/milh_flats.json` is content too, and moves `shippedContentDigest()`.
+ * Seed 1 went positive; seeds 2, 5, 6, 7 and 9 pass the premise (3, 4 and 8 fail it), so seed 2 stands. Was seed 1.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;
@@ -437,5 +472,138 @@ describe('settleRejoin', () => {
     expect(s.rejoin).toBeNull();
     expect(s.world?.sim.tickCount).toBe(0);
     expect(restartFromZero).not.toHaveBeenCalled();
+  });
+});
+
+
+// ---------------------------------------------------------------------------------------------------
+// GH-976 v2 WP4: a rejoin in a flag room that plays the set-up rules
+// ---------------------------------------------------------------------------------------------------
+describe('restoreForRejoin: a capture-the-flag set-up room (GH-976 v2, R0.21, Review Focus 4)', () => {
+  const MAP = 'wadi_tarfan';
+  /** A KDF mirror flag room with `flagSetup` (what the Worker mints for a listed map). */
+  function setupConfig(): MatchConfig {
+    const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
+    const c = validateConfig({
+      matchId: CODE, code: CODE, seed: 3, map: MAP, mode: 'versus', seats: [seat(0), seat(1)],
+      pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b-1', dataDigest: 0, snapshotEveryTicks: EVERY, winMode: 'flag', flagSetup: true,
+    });
+    if (c === null) throw new Error('bad fixture');
+    return c;
+  }
+  /** `play`, with the sim events each tick returned collected: the `setupBell` ticks. */
+  function playEvents(config: MatchConfig, w: MatchWorld, frames: readonly Frame[]): { digests: Map<number, number>; bells: number[] } {
+    const feed = new Feed(frames);
+    const bells: number[] = [];
+    const rt = w.runtime;
+    runFrames({
+      transport: feed, sim: w.sim, seatWorld: seatWorldFor(config, w.sim), config,
+      runTick: () => { for (const e of matchTick(w).sim) if (e.kind === 'setupBell') bells.push(e.tick); },
+      ...(rt === null ? {} : { runtimeDigest: () => rt.digest() }),
+    }, frames.length);
+    return { digests: feed.digests, bells };
+  }
+  /** Frames 0..1199 carrying `at[tick]` as the stamped commands of that frame. */
+  const framesWith = (at: Record<number, Stamped[]>): Frame[] => Array.from({ length: EVERY }, (_, t) => ({ tick: t, cmds: at[t] === undefined ? [] : canonicalOrder(at[t]) }));
+  const cmd = (seat: 0 | 1, seq: number, c: Command): Stamped => ({ seat, seq, cmd: c });
+  /** Up to `n` tiles side `side` may place a hesco on, at least 6 tiles clear of every living unit, spread over the candidates. */
+  function tilesFor(w: MatchWorld, side: 0 | 1, n: number): [number, number][] {
+    const near = (x: number, y: number): boolean => [...w.bySide[0], ...w.bySide[1]].some((id) => Math.max(Math.abs((w.sim.state.posX[id] >> 16) - x), Math.abs((w.sim.state.posY[id] >> 16) - y)) < 6);
+    const all: [number, number][] = [];
+    for (let y = 0; y < w.sim.height; y++) for (let x = 0; x < w.sim.width; x++) if (w.sim.fortifyReason(side, 0, x, y) === null && !near(x, y)) all.push([x, y]);
+    expect(all.length, 'candidate tiles').toBeGreaterThanOrEqual(n);
+    const stride = Math.floor(all.length / n);
+    return Array.from({ length: n }, (_, i) => all[i * stride]);
+  }
+
+  it('rejoin mid-set-up: five pieces fortified, side 0 Ready by 900, a squad pressed on the line; 200 frames keep every hash and the runtime digest', { timeout: 60_000 }, () => {
+    const config = setupConfig();
+    const probe = buildMatchWorld(config);
+    const mine = tilesFor(probe, 0, 5);
+    const theirs = tilesFor(probe, 1, 3);
+    const squad = probe.bySide[0].slice(0, 6);
+    const at: Record<number, Stamped[]> = {
+      10: [
+        ...mine.map(([x, y], i) => cmd(0, i, { kind: 'fortify', side: 0, kit: 0, x, y })),
+        ...theirs.map(([x, y], i) => cmd(1, i, { kind: 'fortify', side: 1, kit: i === 0 ? 1 : 0, x, y })),
+      ],
+      // Across the line: the goal is inside the enemy region, so the clamp holds the squad where the regions meet.
+      50: [cmd(0, 9, { kind: 'attackMove', ids: squad, x: fx.from(40), y: fx.from(40) })],
+      900: [cmd(0, 10, { kind: 'setupReady', side: 0 })],
+    };
+    const source = buildMatchWorld(config);
+    const before = source.sim.structureCount;
+    const played = playEvents(config, source, framesWith(at));
+    expect(played.bells).toEqual([]);
+    expect(source.sim.structureCount - before, 'the fortify commands landed').toBe(8);
+    expect([0, 1, 2].map((k) => source.sim.setupKitLeft(0, k))).toEqual([12 - 5, 4, 2]);
+    expect(source.sim.setupReady(0)).toBe(true);
+    expect(source.sim.setupReady(1)).toBe(false);
+    expect(source.sim.setupActive).toBe(true);
+    // The clamp is pressed: a squad member walks with its goal in the enemy region, so the line is what holds it.
+    expect(squad.some((id) => source.sim.setupHeldAtLine(id)), 'a unit held at the line').toBe(true);
+    for (const id of squad) expect(source.sim.setupRegionAt(source.sim.state.posX[id] >> 16, source.sim.state.posY[id] >> 16), `unit ${id}`).toBe(0);
+
+    const digest = digestOf(source);
+    const raw = encodeSim(source.sim, metaAt(config, EVERY - 1, digest), source.runtime ?? undefined);
+    const verified: Verified = { raw, frameTick: EVERY - 1, matchDigest: digest >>> 0 };
+    const got = restoreForRejoin(config, verified);
+    expect(got.ok).toBe(true);
+    if (!got.ok) return;
+    expect(got.world.sim.setupActive).toBe(true);
+    expect(got.world.sim.setupBellTick).toBe(3600);
+    expect(got.world.sim.setupReady(0)).toBe(true);
+    expect([0, 1, 2].map((k) => got.world.sim.setupKitLeft(0, k))).toEqual([7, 4, 2]);
+    const more = emptyFrames(EVERY, EVERY + 200);
+    const a = playEvents(config, source, more);
+    const b = playEvents(config, got.world, more);
+    expect(a.digests.size).toBe(10);
+    expect([...b.digests]).toEqual([...a.digests]);
+    // The clamp kept holding the restored squad exactly as the source's.
+    for (const id of squad) expect(got.world.sim.state.posX[id], `unit ${id}`).toBe(source.sim.state.posX[id]);
+    expect(source.sim.setupActive).toBe(true);
+  });
+
+  /** Plays 1,200 frames with both sides Ready at `readyAt`, encodes at 1,199, and restores onto a fresh world. */
+  function bellRoom(readyAt: number): { source: MatchWorld; restored: MatchWorld; config: MatchConfig; sourceBells: number[] } {
+    const config = setupConfig();
+    const source = buildMatchWorld(config);
+    const played = playEvents(config, source, framesWith({ [readyAt]: [cmd(0, 0, { kind: 'setupReady', side: 0 }), cmd(1, 0, { kind: 'setupReady', side: 1 })] }));
+    const digest = digestOf(source);
+    const raw = encodeSim(source.sim, metaAt(config, EVERY - 1, digest), source.runtime ?? undefined);
+    const got = restoreForRejoin(config, { raw, frameTick: EVERY - 1, matchDigest: digest >>> 0 });
+    if (!got.ok) throw new Error(`restore refused: ${got.reason}`);
+    return { source, restored: got.world, config, sourceBells: played.bells };
+  }
+
+  it('rejoin at the bell, edge 1: both Ready at 1,099 ring the bell at 1,199, before the cut; the restored world has rung, pushes no second setupBell, and keeps every hash', { timeout: 60_000 }, () => {
+    const { source, restored, config, sourceBells } = bellRoom(1099);
+    expect(sourceBells).toEqual([1199]);
+    expect(source.sim.setupBellTick).toBe(1199);
+    expect(source.sim.setupActive).toBe(false);
+    expect(restored.sim.setupActive).toBe(false);
+    expect(restored.sim.setupBellTick).toBe(1199);
+    const more = emptyFrames(EVERY, EVERY + 200);
+    const a = playEvents(config, source, more);
+    const b = playEvents(config, restored, more);
+    expect(b.bells).toEqual([]);
+    expect(a.bells).toEqual([]);
+    expect(a.digests.size).toBe(10);
+    expect([...b.digests]).toEqual([...a.digests]);
+  });
+
+  it('rejoin at the bell, edge 2: both Ready at 1,100 ring the bell at 1,200; the restored world rings it on its first tick, and keeps every hash', { timeout: 60_000 }, () => {
+    const { source, restored, config, sourceBells } = bellRoom(1100);
+    expect(sourceBells).toEqual([]);
+    expect(source.sim.setupBellTick).toBe(1200);
+    expect(restored.sim.setupBellTick).toBe(1200);
+    const more = emptyFrames(EVERY, EVERY + 200);
+    const a = playEvents(config, source, more);
+    const b = playEvents(config, restored, more);
+    expect(a.bells).toEqual([1200]);
+    expect(b.bells).toEqual([1200]);
+    expect(restored.sim.setupActive).toBe(false);
+    expect(a.digests.size).toBe(10);
+    expect([...b.digests]).toEqual([...a.digests]);
   });
 });

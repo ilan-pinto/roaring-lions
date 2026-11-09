@@ -229,6 +229,30 @@ export interface ObjectiveJson {
   say?: SayJson;
   /** Same, on the tick this objective fails. */
   say_on_fail?: SayJson;
+  /** GH-976: the side this objective belongs to, 0 or 1 (a plain number in the JSON type, like
+   *  `structures[].side`: the schema enum is the authority and the constructor narrows it). Absent is
+   *  side 0, the player, as every mission has always read it. `capture` and `hold_for` count THIS side's
+   *  units and contest against the other's; `score` credits it; `raze` names who the razing wins for
+   *  (the structures fall to anyone's guns). Any other type refuses it at construction. */
+  side?: number;
+  /** GH-976 WP3: a `capture` that only ground units hold or contest. A unit that is an aircraft by type
+   *  (`Sim.isAircraft`, landed or not), and a unit carried by one, neither holds the zone nor contests it. The TS type only:
+   *  `mission.schema.json` does not know it, so no authored mission can set it; a versus room's built mission can. Absent
+   *  is today's rule, byte for byte. */
+  ground_only?: boolean;
+  /** GH-976: a `score` objective's block (a versus win mode, `goalsOnly` rooms only). */
+  score?: ScoreJson;
+}
+
+/** A points race (GH-976): the objective completes when its side's score reaches `target`. */
+export interface ScoreJson {
+  /** Zones this side's units hold, each paying `per_min` points a minute while the side holds it
+   *  alone (the `zoneState` rule income uses). Names in the map's zones. */
+  zones: readonly { zone: string; per_min: number }[];
+  /** Points per 100 of unit value destroyed (the enemy units that die, priced by `ctx.unitValueOf`). 0 is none. */
+  per_value_destroyed: number;
+  /** Points that win it. */
+  target: number;
 }
 
 export interface MissionJson {
@@ -348,7 +372,9 @@ export interface MissionJson {
      *  the sim never reads it; `describeMissionEvent` (packages/app) looks it
      *  up off the same `MissionJson` by the trigger's id. */
     label?: string;
-    on: { kind: string; value?: number; zone?: string };
+    /** on.kind: 'first_contact' | 'casualties_pct' | 'timer_s' | 'zone_entered' | 'group_in_zone'. `zone` names a map
+     *  zone for the last two; `group` the placement group, of any side, `group_in_zone` watches (GH-912). */
+    on: { kind: string; value?: number; zone?: string; group?: string };
     /** do.kind: 'commit' | 'withdraw_to' | 'spawn' | 'reinforce' | 'dismount' |
      *  'remove' — string-typed so parsed JSON assigns structurally; the schema
      *  constrains the vocabulary. spawn spawns on side 1 (enemy); reinforce on
@@ -394,11 +420,20 @@ export interface MissionContext {
     /** What one unit takes of its side's population cap: `cost.population`,
      *  absent in the unit JSON = 1. A queued build reserves this (D2). */
     population: number;
+    /** The unit's `role` (GH-277 follow-on). Read ONLY by a production building whose `production.roles`
+     *  limits its line to a subset of roles; absent, such a line does not build the unit. */
+    role?: string;
   } | null;
   /** Doctrine or co-op caps, by side; when given it OVERRIDES `resources.pop_cap`
    *  (null = uncapped on that side). Absent: side 0 reads the mission's own field,
    *  side 1 is uncapped. */
   popCaps?: readonly [number | null, number | null];
+  /** GH-1102: entity ids that take NO population, whatever their type (a versus brigade room's
+   *  Store specials: the lead's 7 Nov ruling exempts them from the cap). Keyed by entity, never by
+   *  type, so the same type built on a line still counts. Static setup data the app derives from
+   *  its config, so both peers hold the same set; ids are never reused (`spawn`). Absent or empty
+   *  = every unit counts, byte for byte as before. */
+  popExempt?: ReadonlySet<number>;
   /** Indices into the RESOLVED `starting_force` (the array this runtime is given, after
    *  `resolveUpgrades`) of the placements that are on loan: `loanedPlacements`' answer
    *  (unlock.ts, D5). The runtime never sees a gate, so the app and the harness compute it
@@ -420,6 +455,14 @@ export interface MissionContext {
     logisticsStart: readonly [number, number];
     logisticsRatePerMin: readonly [number, number];
   };
+  /** GH-976: a versus WIN-MODE room. The runtime runs goals only: the objectives (with their `side`) and the
+   *  zone states a `score` reads, and nothing else -- no production, no income, no ROE, no triggers, no
+   *  waves, and `checkEnd` never ends it (`outcome.ts` decides the match). Absent is every mission and every
+   *  economy room, byte for byte. A construction constant, not hashed. */
+  goalsOnly?: boolean;
+  /** GH-976: the value of a unit type id, whole numbers, for a `score`'s `per_value_destroyed`. Required by
+   *  a `score` objective. A construction constant, not hashed. */
+  unitValueOf?: (unitId: string) => number;
 }
 
 /**
@@ -632,7 +675,14 @@ export type MissionEventKindsAreExhaustive = AssertNoMissingMissionKind<MissingM
 export type DefeatCause = 'force_destroyed' | 'roe_collapse' | 'withdrawn' | { objective: string };
 
 /** Why a field work is refused (`MissionRuntime.constructReason`), in the order it is checked. */
-export type WorksRefusal = 'not_listed' | 'none_left' | 'locked' | 'unaffordable' | 'needs_engineers' | PlacementRefusal;
+export type WorksRefusal = 'not_listed' | 'none_left' | 'no_line_slot' | 'locked' | 'unaffordable' | 'needs_engineers' | PlacementRefusal;
+
+/** The reason `buildBlockedReason` returns when the unit is not on the menu of the line asked about
+ *  (a production building with `production.roles`). A CODE, not a sentence: the dock words it. */
+export const NOT_ON_LINE = 'not_on_line';
+
+/** Folded into `economyHash` ahead of the appended-lines block (GH-277 follow-on): 'FWL1'. */
+const APPENDED_LINES_MARK = 0x46574c31;
 
 /** One row of the dock's "Field works" group (`MissionRuntime.worksOffers`). */
 export interface WorksOffer {
@@ -668,8 +718,15 @@ interface WorksCharge {
 
 const SUPPORTED = new Set([
   'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all',
-  'evacuate_before', 'raze', 'collapse',
+  'evacuate_before', 'raze', 'collapse', 'score',
 ]);
+
+/** The types that may name a `side` (GH-976): the ones whose evaluation reads it. */
+const SIDED = new Set(['capture', 'hold_for', 'raze', 'score']);
+/** A score is held in 1/1200ths of a point (a minute of ticks), so `per_min` is units a tick, exactly. */
+const SCORE_UNITS = 60 * TICKS_PER_SECOND;
+/** Score units a unit of destroyed value is worth per point-per-100: `SCORE_UNITS / 100`. */
+const SCORE_PER_VALUE = (SCORE_UNITS / 100) | 0;
 
 /** A works type's authored `buildable.unlock` (the unit schema's snake_case gate), as the
  *  `UnlockGate` `unlockReason` reads. Anything that is not an object is no gate. */
@@ -746,9 +803,14 @@ const SUPPORT_PROFILE: Readonly<Record<'smoke_screen' | 'mortar_barrage', number
 interface ObjectiveState {
   def: ObjectiveJson;
   status: ObjectiveStatus;
+  /** Ticks held, for a timed hold; for a `score` (GH-976) the points banked, in 1/1200ths of a point. */
   holdTicks: number;
   /** Why a timed hold is not counting down, if it is not. */
   paused: 'contested' | 'unheld' | null;
+  /** GH-976 P2: the sim tick this objective became `complete` on, or -1 while it has not. `outcome.ts` reads it to
+   *  decide which side finished a goal FIRST when both finish inside one 20-tick hash window. A snapshot row;
+   *  folded into `digest()` only in a goals-only room, so no mission and no annihilation room moves a byte. */
+  completeTick: number;
 }
 
 interface PatrolState {
@@ -952,6 +1014,13 @@ export class MissionRuntime {
   private readonly worksSites = new Map<number, WorksCharge>();
   /** Structure index -> its works type and site, from the stake; `done` once complete. */
   private readonly worksStructures = new Map<number, { typeId: string; site: number; done: boolean }>();
+  /** GH-277 follow-on: the structure index of each line `appendLine` added to side 0 when a production
+   *  work completed, in the order added. Those lines are the TAIL of `lines[0]`, so no index a command
+   *  carries ever shifts. State: the snapshot carries it and `economyHash` folds it, only when non-empty. */
+  private readonly appendedAnchors: number[] = [];
+  /** How many side-0 lines `start()` built (`buildLines`): where the appended tail begins. Config: set once,
+   *  never written after. The snapshot restore reads it, not `appendedAnchors.length`, to find the tail. */
+  private authoredLines0 = 0;
   /** The production lines, one per camp per side, in structure index order (D6, LD6 ask 6).
    *  A dead camp's line keeps its index for the mission: indices commands carry never shift.
    *  Built in `start()`; side 0 with no camp gets one `player_start` line (D2). */
@@ -1044,7 +1113,28 @@ export class MissionRuntime {
           `mission ${mission.id}: objective type "${def.type}" is not supported by the runtime yet`
         );
       }
-      this.objectives.push({ def, status: 'active', holdTicks: 0, paused: null });
+      if (def.side !== undefined) {
+        if (!SIDED.has(def.type)) {
+          throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no side`);
+        }
+        if (def.side !== 0 && def.side !== 1) {
+          throw new Error(`mission ${mission.id}: objective "${def.id}" has side ${def.side}, expected 0 or 1`);
+        }
+      }
+      if (def.type === 'score') {
+        // A score has nowhere to be read but a goals-only room: elsewhere the income pass would pay purses for
+        // its zones and `checkEnd` would end the mission on it. Refuse it rather than half-run it.
+        if (ctx.goalsOnly !== true) throw new Error(`mission ${mission.id}: score "${def.id}" needs a goalsOnly context`);
+        const sc = def.score;
+        if (sc === undefined || def.side === undefined || ctx.unitValueOf === undefined) {
+          throw new Error(`mission ${mission.id}: score "${def.id}" needs a side, a score block and ctx.unitValueOf`);
+        }
+        const whole = (n: number): boolean => Number.isInteger(n) && n >= 0;
+        if (!whole(sc.per_value_destroyed) || !Number.isInteger(sc.target) || sc.target < 1 || sc.zones.some((z) => !whole(z.per_min))) {
+          throw new Error(`mission ${mission.id}: score "${def.id}" wants whole numbers: per_min and per_value_destroyed at least 0, target at least 1`);
+        }
+      }
+      this.objectives.push({ def, status: 'active', holdTicks: 0, paused: null, completeTick: -1 });
     }
     this.firedTriggers = new Array(mission.triggers?.length ?? 0).fill(false);
     this.spawnedWaves = new Array(mission.enemy?.waves?.length ?? 0).fill(false);
@@ -1082,6 +1172,18 @@ export class MissionRuntime {
         throw new Error(`mission ${mission.id}: unknown income zone "${z.zone}"`);
       }
       this.incomeZoneList.push(new ZoneIncomeState(z.zone, [r[0], r[1], r[2], r[3]], z.rate_per_min));
+    }
+    // GH-976: a score's zones are read through the same zone states income uses, so they join the list
+    // (a zone already there is shared). Rate 0: they pay no purse, which `goalsOnly` never accrues anyway.
+    for (const def of mission.objectives) {
+      for (const z of def.score?.zones ?? []) {
+        if (this.incomeZoneList.some((e) => e.zone === z.zone)) continue;
+        const r = ctx.zones[z.zone];
+        if (r === undefined || r.length !== 4) {
+          throw new Error(`mission ${mission.id}: score "${def.id}" names unknown zone "${z.zone}"`);
+        }
+        this.incomeZoneList.push(new ZoneIncomeState(z.zone, [r[0], r[1], r[2], r[3]], 0));
+      }
     }
     const zoneCount = this.incomeZoneList.length;
     if (zoneCount > MAX_INCOME_ZONES) {
@@ -1293,6 +1395,15 @@ export class MissionRuntime {
     // F4 Task 9 fix (review): the side-1 buyer's round-robin index per line. Only with a menu, so
     // every mission without `enemy.production` (and every pinned fixture) adds nothing.
     if (this.enemyMenu.length > 0) for (let k = 0; k < this.enemyLast.length; k++) h = hashWord(h, this.enemyLast[k]);
+    // GH-277 follow-on: the lines a completed production work opened. Appended after EVERY earlier word and
+    // folded only when there is one, so a world that never completed such a work hashes as it always did.
+    // Marker, count, then each appended line's structure type index (the line's anchor, queue and rally are
+    // already folded by `foldLines`).
+    if (this.appendedAnchors.length > 0) {
+      h = hashWord(h, APPENDED_LINES_MARK);
+      h = hashWord(h, this.appendedAnchors.length);
+      for (let k = 0; k < this.appendedAnchors.length; k++) h = hashWord(h, this.sim.structures.typeIdx[this.appendedAnchors[k]]);
+    }
     return h >>> 0;
   }
 
@@ -1301,7 +1412,7 @@ export class MissionRuntime {
    *  points, the side-1 buyer's index, the
    *  settled identifications, high ground, population and caps, F2's zones and
    *  corridors -- then, in this order: each objective in authored order (status
-   *  code, holdTicks, paused code); each trigger's fired latch; each wave's
+   *  code, holdTicks -- a `score`'s points in 1/1200ths, GH-976 -- paused code); each trigger's fired latch; each wave's
    *  spawned latch; the ROE score (floored) and its failed latch; the civilian
    *  latches (fled, evacuated: size then ids ascending). Integer-only, composed
    *  with the sim's own `hashWord`. Read-only.
@@ -1342,6 +1453,9 @@ export class MissionRuntime {
       h = hashWord(h, o.status === 'active' ? 0 : o.status === 'complete' ? 1 : 2);
       h = hashWord(h, o.holdTicks | 0);
       h = hashWord(h, o.paused === null ? 0 : o.paused === 'unheld' ? 1 : 2);
+      // GH-976 P2: the completion tick decides a points race, so it is folded -- in a mode room ONLY, which keeps
+      // every mission and every annihilation room's digest, and so its hash, byte-identical.
+      if (this.ctx.goalsOnly === true) h = hashWord(h, o.completeTick | 0);
     }
     for (let i = 0; i < this.firedTriggers.length; i++) h = hashWord(h, this.firedTriggers[i] ? 1 : 0);
     for (let i = 0; i < this.spawnedWaves.length; i++) h = hashWord(h, this.spawnedWaves[i] ? 1 : 0);
@@ -1379,9 +1493,51 @@ export class MissionRuntime {
     return -1;
   }
 
-  /** True while a line's camp stands (a `player_start` line, anchor -1, never falls). */
+  /** True while a line's camp stands (a `player_start` line, anchor -1, never falls). A line is also
+   *  never alive over a structure still under construction (progress below ONE): `appendLine` opens a
+   *  line only on completion, and this holds the same rule at the read. */
   private lineAlive(line: ProductionLine): boolean {
-    return line.anchor < 0 || this.sim.structures.alive[line.anchor] === 1;
+    return line.anchor < 0 || (this.sim.structures.alive[line.anchor] === 1 && this.sim.structures.progress[line.anchor] === ONE);
+  }
+
+  /** GH-277 follow-on: does `line` build a unit of `role`? Only a production work's line can say no
+   *  (its type's `production.roles`); a camp's and `player_start`'s lines build the whole menu. */
+  private lineTakes(line: ProductionLine, role: string | undefined): boolean {
+    if (line.anchor < 0) return true;
+    const roles = this.sim.structureTypes[this.sim.structures.typeIdx[line.anchor]].production?.roles ?? null;
+    return roles === null || (role !== undefined && roles.includes(role));
+  }
+
+  /** The build ticks of an item of `base` ticks on `line`: unchanged unless the line's work scales its
+   *  build time (`production.build_time_mult`), then `ceil(base x mult)`, whole ticks. */
+  private lineBuildTicks(line: ProductionLine, base: number): number {
+    if (line.anchor < 0) return base;
+    const mult = this.sim.structureTypes[this.sim.structures.typeIdx[line.anchor]].production?.buildMult ?? ONE;
+    return mult === ONE ? base : (base * mult + (ONE - 1)) >> 16;
+  }
+
+  /** GH-277 follow-on: open a production line at the tail of side 0's lines, anchored to the completed
+   *  structure `s`. Idempotent per structure. Returns whether a line was added. Throws at the cap: `worksReason` counts the
+   *  slot of every work in flight (`no_line_slot`), so a completing work always has one, and silence here would hide a wiring fault. */
+  private appendLine(s: number): boolean {
+    if (this.appendedAnchors.includes(s)) return false;
+    if (this.lines[0].length >= MAX_PRODUCTION_LINES) {
+      throw new Error(`mission ${this.mission.id}: a production work completed with side 0 already at ${MAX_PRODUCTION_LINES} lines`);
+    }
+    this.lines[0].push({ side: 0, anchor: s, queue: [], current: null, ticksLeft: 0, rally: null });
+    this.appendedAnchors.push(s);
+    return true;
+  }
+
+  /** Snapshot restore (`runtime-snapshot.ts`): make side 0's tail lines exactly those of `anchors`, empty.
+   *  Called by the restore's apply step, before the line records are merged in place. */
+  restoreAppendedLines(anchors: readonly number[]): void {
+    this.lines[0].length = this.authoredLines0;
+    this.appendedAnchors.length = 0;
+    for (const a of anchors) {
+      this.lines[0].push({ side: 0, anchor: a, queue: [], current: null, ticksLeft: 0, rally: null });
+      this.appendedAnchors.push(a);
+    }
   }
 
   /** D1: a side `1 - line.side` ground unit on the surface within the contest radius of the exit. */
@@ -1408,12 +1564,14 @@ export class MissionRuntime {
     return l !== undefined && this.lineAlive(l) ? l : null;
   }
 
-  /** The living line of `side` holding the fewest items (current counts), ties to the lowest index (D6). */
-  private shortestLine(side: 0 | 1): ProductionLine | null {
+  /** The living line of `side` holding the fewest items (current counts), ties to the lowest index (D6).
+   *  With `byRole`, only lines that build a unit of `role` (GH-277 follow-on); without, every living line. */
+  private shortestLine(side: 0 | 1, byRole = false, role?: string): ProductionLine | null {
     let best: ProductionLine | null = null;
     let bestN = 0;
     for (const l of this.lines[side]) {
       if (!this.lineAlive(l)) continue;
+      if (byRole && !this.lineTakes(l, role)) continue;
       const n = l.queue.length + (l.current === null ? 0 : 1);
       if (best === null || n < bestN) {
         best = l;
@@ -1452,6 +1610,15 @@ export class MissionRuntime {
       }
       return 'no field camp — production needs one standing';
     }
+    // GH-277 follow-on: the menu of a production work's line. After the camp (a side with no line at all is
+    // refused above) and BEFORE the cap, so a tile pinned to a line that cannot build the unit reads "not on
+    // this line" and not "population full". Named: that line; unnamed: some living line must take it.
+    if (line !== undefined) {
+      const named = this.livingLine(side, line);
+      if (named !== null && !this.lineTakes(named, info.role)) return NOT_ON_LINE;
+    } else if (this.shortestLine(side, true, info.role) === null) {
+      return NOT_ON_LINE;
+    }
     // So the gate and the camp speak first. A unit that takes no population (a drone) is never
     // refused here, even by a side already over its cap (D3).
     const cap = this.popCap(side);
@@ -1474,7 +1641,7 @@ export class MissionRuntime {
       let any = false;
       let room = false;
       for (const l of this.lines[side]) {
-        if (!this.lineAlive(l)) continue;
+        if (!this.lineAlive(l) || !this.lineTakes(l, info.role)) continue;
         any = true;
         if (l.queue.length < MAX_LINE_QUEUE) room = true;
       }
@@ -1485,6 +1652,13 @@ export class MissionRuntime {
 
   buildBlockedReason(unitId: string, side: 0 | 1 = 0): string | null {
     return this.firstRefusal(unitId, side);
+  }
+
+  /** GH-277 follow-on: the same walk with a line NAMED, for a dock tile pinned to that line. A unit the line
+   *  does not build reads `NOT_ON_LINE`. A separate method, not a third parameter of `buildBlockedReason`:
+   *  that one's second parameter is the side, and a line index passed there would read as one. */
+  buildBlockedReasonOn(unitId: string, line: number, side: 0 | 1 = 0): string | null {
+    return this.firstRefusal(unitId, side, line);
   }
 
   /**
@@ -1520,13 +1694,17 @@ export class MissionRuntime {
    * civilian is side 2 and counts for nobody), plus the items on that side's living lines,
    * in progress or waiting (D2, one reservation pool per side). An item leaves its line in
    * the same `step` that spawns its unit, so it is counted once on every tick: as a
-   * reservation, then as a body. One pass over the ids; no allocation.
+   * reservation, then as a body. One pass over the ids; no allocation. An id in
+   * `ctx.popExempt` (GH-1102) takes nothing.
    */
   population(side: 0 | 1): number {
     let used = 0;
     const st = this.sim.state;
+    const exempt = this.ctx.popExempt;
     for (let i = 0; i < this.sim.entityCount; i++) {
-      if (st.alive[i] === 1 && st.side[i] === side) used += this.sim.unitTypes[st.typeIdx[i]].population;
+      if (st.alive[i] !== 1 || st.side[i] !== side) continue;
+      if (exempt !== undefined && exempt.has(i)) continue;
+      used += this.sim.unitTypes[st.typeIdx[i]].population;
     }
     const lines = this.lines[side];
     for (let li = 0; li < lines.length; li++) {
@@ -1696,14 +1874,14 @@ export class MissionRuntime {
     if (!this.canBuild(unitId, line, side)) return false;
     const info = this.ctx.unitInfo?.(unitId, side);
     if (!info) return false; // canBuild refused this already; narrows the type without an assertion
-    const target = line === undefined ? this.shortestLine(side) : this.livingLine(side, line);
+    const target = line === undefined ? this.shortestLine(side, true, info.role) : this.livingLine(side, line);
     if (target === null) return false; // likewise: canBuild saw a living line
     const item: LineItem = {
       unit: unitId,
       logistics: info.logistics,
       intel: info.intel ?? 0,
       population: info.population,
-      buildTicks: info.buildTimeS * TICKS_PER_SECOND,
+      buildTicks: this.lineBuildTicks(target, info.buildTimeS * TICKS_PER_SECOND),
     };
     if (!enqueue(target, item)) return false; // the queue bound was checked by firstRefusal
     this.spend(side, item);
@@ -1882,6 +2060,7 @@ export class MissionRuntime {
     const join = placed && this.liveSiteAt(entry.structType, tx, ty) >= 0;
     if (!join) {
       if (entry.offer.left < 1) return 'none_left';
+      if (this.sim.structureTypes[entry.structType].production !== null && this.lineSlotsLeft() < 1) return 'no_line_slot';
       const b = this.sim.structureTypes[entry.structType].buildable;
       const gate = b === null ? undefined : worksUnlock(b.unlock);
       const locked = unlockReason(gate, this.ctx.ledger);
@@ -1891,6 +2070,20 @@ export class MissionRuntime {
     if (this.chooseBuilders(entry, tx, ty, passed).length === 0) return 'needs_engineers';
     if (placed && !join) return this.sim.placementReason(entry.structType, tx, ty, 0);
     return null;
+  }
+
+  /** GH-277 follow-on: production lines side 0 could still open: the cap, minus the lines it has (a destroyed
+   *  work's line keeps its index, so it still counts) and minus the production works charged or under
+   *  construction, each of which will take one on completion. */
+  private lineSlotsLeft(): number {
+    let taken = this.lines[0].length;
+    for (let i = 0; i < this.worksPending.length; i++) {
+      if (this.sim.structureTypes[this.worksPending[i].structType].production !== null) taken++;
+    }
+    for (const c of this.worksSites.values()) {
+      if (this.sim.structureTypes[c.structType].production !== null) taken++;
+    }
+    return MAX_PRODUCTION_LINES - taken;
   }
 
   /**
@@ -2024,6 +2217,9 @@ export class MissionRuntime {
         this.worksSites.delete(e.site);
         const known = this.worksStructures.get(e.structure);
         if (known !== undefined) known.done = true;
+        // GH-277 follow-on: a production work opens its line the tick it completes, at the tail of side 0's
+        // lines; the first item can advance from the next tick.
+        if (this.sim.structureTypes[c.structType].production !== null) this.appendLine(e.structure);
         out.push({ kind: 'works', tick, phase: 'complete', typeId: c.typeId, site: e.site, builder: -1, refund: 0 });
       } else if (e.kind === 'constructCancelled') {
         const c = this.worksSites.get(e.site);
@@ -2065,6 +2261,7 @@ export class MissionRuntime {
     this.creditContribution(o.def);
     this.payObjective(o.def, this.sim.tickCount, this.pendingIntelEvents);
     o.status = 'complete';
+    o.completeTick = this.sim.tickCount;
     this.externallyCompleted.push(id);
     return true;
   }
@@ -2229,6 +2426,8 @@ export class MissionRuntime {
     alive: boolean;
     items: string[];
     ticksLeft: number;
+    /** GH-277 follow-on: this line was opened by a completed production work (a forward camp), not authored. */
+    appended: boolean;
   }[] {
     return this.lines[side].map((l) => {
       const alive = this.lineAlive(l);
@@ -2252,6 +2451,7 @@ export class MissionRuntime {
         alive,
         items: alive ? l.queue.map((q) => q.unit) : [],
         ticksLeft: cur === null ? 0 : l.ticksLeft,
+        appended: side === 0 && l.anchor >= 0 && this.appendedAnchors.includes(l.anchor),
       };
     });
   }
@@ -2371,8 +2571,11 @@ export class MissionRuntime {
     // Mission-placed buildings go up BEFORE any force spawns, so a placement
     // can never land inside one.
     this.raiseMissionStructures();
-    this.buildLines();
-    this.buildEnemyMenu();
+    // GH-976: a goals-only room has no production at all: no line to queue on, no menu to buy from.
+    if (this.ctx.goalsOnly !== true) {
+      this.buildLines();
+      this.buildEnemyMenu();
+    }
     // High ground (D4): read once, from the map with the mission's own buildings
     // standing. A flat map has no rise and the per-tick pass never runs. The
     // table is built ONCE, here: a structure that collapses later is deliberately
@@ -2518,6 +2721,11 @@ export class MissionRuntime {
     if (this.ended) return [];
     const out: MissionEvent[] = [];
     const tick = this.sim.tickCount;
+    // GH-976: a win-mode room runs the goals and nothing else (see `stepGoals`).
+    if (this.ctx.goalsOnly === true) {
+      this.stepGoals(simEvents, tick, out);
+      return out;
+    }
 
     // Digest sim events: contacts feed locate + first_contact; kills feed
     // veterancy progression.
@@ -2622,6 +2830,104 @@ export class MissionRuntime {
     return out;
   }
 
+  // ------------------------------------------------------------- win modes (GH-976)
+
+  /**
+   * One tick of a goals-only room (`ctx.goalsOnly`, a versus WIN MODE): the objectives and nothing else.
+   * No income, production, ROE, triggers, waves, patrols or high ground, and no `checkEnd`: `outcome.ts`
+   * reads `sideWon` and decides the match, as it does for an economy room. What runs is
+   *   1. the zone states, in the one pass income uses (`zoneStates`), with their `zoneHolder` events on
+   *      change -- the holder rule a `score` is built on, and no recheck of corridors (a score zone has no
+   *      line to cut);
+   *   2. the value of every unit that died, credited to the OTHER side's `score` (integer: value x
+   *      per_value_destroyed x SCORE_PER_VALUE);
+   *   3. the held-zone points, `per_min` score units a tick to the holder, never to a contested zone;
+   *   4. `stepObjectives`, which completes a `raze`, `capture`, `hold_for` or `score`.
+   * Every word it writes is an `ObjectiveState` field the snapshot schema and `digest()` already carry; the one added
+   * for modes is `completeTick` (the tick an objective completed on), a snapshot row folded into `digest()` here only.
+   */
+  private stepGoals(simEvents: SimEvent[], tick: number, out: MissionEvent[]): void {
+    const zones = this.incomeZoneList;
+    if (zones.length > 0) {
+      zoneStates(this.holdView, this.sim.width, this.sim.height, this.zoneTiles, this.zoneRects, this.zoneStateOut);
+      for (let k = 0; k < zones.length; k++) {
+        const z = zones[k];
+        const s = asZoneState(this.zoneStateOut[k]);
+        if (s === z.state) continue;
+        z.state = s;
+        const holder: Holder = s === ZONE_CONTESTED ? -1 : s;
+        z.holder = holder;
+        out.push({ kind: 'zoneHolder', tick, zone: z.zone, holder, contested: s === ZONE_CONTESTED });
+      }
+    }
+    for (let i = 0; i < this.objectives.length; i++) {
+      const o = this.objectives[i];
+      const sc = o.def.score;
+      if (sc === undefined || o.status !== 'active') continue;
+      const side = o.def.side === 1 ? 1 : 0;
+      for (let j = 0; j < sc.zones.length; j++) {
+        for (let k = 0; k < zones.length; k++) {
+          if (zones[k].zone === sc.zones[j].zone) {
+            if (zones[k].holder === side) o.holdTicks += sc.zones[j].per_min;
+            break;
+          }
+        }
+      }
+      if (sc.per_value_destroyed === 0) continue;
+      for (let e = 0; e < simEvents.length; e++) {
+        const ev = simEvents[e];
+        if (ev.kind !== 'destroyed') continue;
+        // The OTHER side's loss is this side's gain; a civilian (side 2) or a stray is nobody's.
+        const victim = this.sim.state.side[ev.entity];
+        if ((victim !== 0 && victim !== 1) || victim === side) continue;
+        const unitValueOf = this.ctx.unitValueOf;
+        if (unitValueOf === undefined) continue;
+        const value = unitValueOf(this.sim.unitTypes[this.sim.state.typeIdx[ev.entity]].id);
+        o.holdTicks += value * sc.per_value_destroyed * SCORE_PER_VALUE;
+      }
+    }
+    // GH-976 R0.7: the flag objectives wait for the bell. Nothing in a flag room scores before it (steps 1-3 write no points
+    // there), so this one early return is the whole rule; the hold clock starts at the bell, not at tick 0.
+    if (this.sim.setupActive) return;
+    this.stepObjectives(tick, out);
+  }
+
+  /** Whether `side` has completed a PRIMARY objective of its own (GH-976): the room's win test. */
+  sideWon(side: 0 | 1): boolean {
+    for (let i = 0; i < this.objectives.length; i++) {
+      const o = this.objectives[i];
+      if (o.def.primary && (o.def.side ?? 0) === side && o.status === 'complete') return true;
+    }
+    return false;
+  }
+
+  /** The tick at which `side` completed its first primary objective, or -1 while it has completed none (GH-976 P2).
+   *  The first side to finish wins a mode room, so two sides that finish inside one hash window are told apart here. */
+  completeTickOf(side: 0 | 1): number {
+    let best = -1;
+    for (let i = 0; i < this.objectives.length; i++) {
+      const o = this.objectives[i];
+      if (!o.def.primary || (o.def.side ?? 0) !== side || o.status !== 'complete') continue;
+      if (best < 0 || o.completeTick < best) best = o.completeTick;
+    }
+    return best;
+  }
+
+  /** `side`'s points in a points race, whole (the integer part of the 1/1200ths), or 0 with no `score`. */
+  scoreOf(side: 0 | 1): number {
+    return (this.scoreUnitsOf(side) / SCORE_UNITS) | 0;
+  }
+
+  /** `side`'s points in 1/1200ths, summed over its `score` objectives: the exact integer the race runs on. */
+  scoreUnitsOf(side: 0 | 1): number {
+    let n = 0;
+    for (let i = 0; i < this.objectives.length; i++) {
+      const o = this.objectives[i];
+      if (o.def.score !== undefined && (o.def.side ?? 0) === side) n += o.holdTicks;
+    }
+    return n;
+  }
+
   // ------------------------------------------------------------- held ground
 
   /**
@@ -2661,6 +2967,9 @@ export class MissionRuntime {
           this.refund(line.side, done);
           continue;
         }
+        // GH-1007 R1: an air carrier built at a camp stands on the pad (LANDED) when the footprint
+        // is clear, and the rally below lifts it; otherwise it spawns airborne as before.
+        this.sim.settleOnGround(ids[0]);
         // D5: a rally point is a no-sweep attack-move, queued on the deploy tick. `sweep` is left
         // off on purpose: an arrived attack-mover holds (sweepOrder 0, #537).
         if (line.rally !== null && ids.length > 0) {
@@ -3150,6 +3459,7 @@ export class MissionRuntime {
     if (this.lines[0].length === 0 && this.mission.map.player_start !== undefined) {
       this.lines[0].push({ side: 0, anchor: -1, queue: [], current: null, ticksLeft: 0, rally: null });
     }
+    this.authoredLines0 = this.lines[0].length;
   }
 
   /**
@@ -3634,13 +3944,14 @@ export class MissionRuntime {
    * Is the ground being fought over? True when a living enemy stands inside
    * the zone AND close enough to one of your units there to dispute it.
    */
-  private contestedIn(zone: readonly number[]): boolean {
+  private contestedIn(zone: readonly number[], groundOnly = false): boolean {
     const st = this.sim.state;
     for (let f = 0; f < this.sim.entityCount; f++) {
       if (st.alive[f] === 0 || st.side[f] !== 0 || !tileInZone(st, f, zone)) continue;
       if (st.tunnelIn[f] >= 0) continue;
       if (this.sim.isDown(f)) continue; // GH-707: a man down holds nothing to contest
-      if (this.enemyNear(f, zone)) return true;
+      if (groundOnly && this.skipsGround(f)) continue;
+      if (this.enemyNear(f, zone, groundOnly)) return true;
     }
     return false;
   }
@@ -3655,7 +3966,7 @@ export class MissionRuntime {
    * point sits inside the zone holds a capture hostage from underground, with
    * nothing on the map for the player to shoot.
    */
-  private enemyNear(f: number, zone?: readonly number[]): boolean {
+  private enemyNear(f: number, zone?: readonly number[], groundOnly = false): boolean {
     const st = this.sim.state;
     for (let e = 0; e < this.sim.entityCount; e++) {
       if (st.alive[e] === 0 || st.side[e] !== 1) continue;
@@ -3663,6 +3974,7 @@ export class MissionRuntime {
       if (st.tunnelIn[e] >= 0) continue;
       // GH-707 (the lead, 22 Oct): a wounded enemy contests no ground.
       if (this.sim.isDown(e)) continue;
+      if (groundOnly && this.skipsGround(e)) continue;
       const dx = (fx.sub(st.posX[e], st.posX[f]) >> 8) | 0;
       const dy = (fx.sub(st.posY[e], st.posY[f]) >> 8) | 0;
       if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
@@ -3749,7 +4061,16 @@ export class MissionRuntime {
     }
   }
 
-  private livingIn(zone: readonly number[], side: number): number {
+  /** GH-976 WP3 (`ground_only`): an aircraft by type, or a unit an aircraft carries (landed or hovering), stands on no ground.
+   *  A unit carried by a GROUND vehicle is not skipped: it keeps today's rule. */
+  private skipsGround(id: number): boolean {
+    const st = this.sim.state;
+    if (this.sim.isAircraft(id)) return true;
+    const car = st.carriedBy[id];
+    return car >= 0 && this.sim.isAircraft(car);
+  }
+
+  private livingIn(zone: readonly number[], side: number, groundOnly = false): number {
     let n = 0;
     const st = this.sim.state;
     for (let i = 0; i < this.sim.entityCount; i++) {
@@ -3759,11 +4080,27 @@ export class MissionRuntime {
       if (st.tunnelIn[i] >= 0) continue;
       // GH-707 (the lead, 22 Oct): nor does a man down.
       if (this.sim.isDown(i)) continue;
+      if (groundOnly && this.skipsGround(i)) continue;
       const tx = st.posX[i] >> 16;
       const ty = st.posY[i] >> 16;
       if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) n++;
     }
     return n;
+  }
+
+  /** Whether a living member of `group` stands in `zone`, by `livingIn`'s rule: alive, on the surface, not down. */
+  private groupIn(group: string | undefined, zone: readonly number[]): boolean {
+    const ids = group === undefined ? undefined : this.groups.get(group);
+    if (ids === undefined) return false;
+    const st = this.sim.state;
+    for (let k = 0; k < ids.length; k++) {
+      const i = ids[k];
+      if (st.alive[i] === 0 || st.tunnelIn[i] >= 0 || this.sim.isDown(i)) continue;
+      const tx = st.posX[i] >> 16;
+      const ty = st.posY[i] >> 16;
+      if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) return true;
+    }
+    return false;
   }
 
   /** Living player entities standing in `zone` (same rule as livingIn: buried units hold no ground). */
@@ -3858,6 +4195,13 @@ export class MissionRuntime {
       } else if (t.on.kind === 'zone_entered') {
         const z = this.zone(t.on.zone);
         fire = z !== undefined && this.livingIn(z, 0) > 0;
+      } else if (t.on.kind === 'group_in_zone') {
+        // GH-912 (G5): zone_entered's twin for a named group -- any side -- rather than the
+        // player's side: true once one member of `group` stands in `zone` by the same rule
+        // `livingIn` holds ground by. A group no placement has spawned yet (a wave's) is not
+        // there yet, so the trigger waits for it rather than being consumed on an empty group.
+        const z = this.zone(t.on.zone);
+        fire = z !== undefined && this.groupIn(t.on.group, z);
       }
       if (!fire) continue;
       this.firedTriggers[i] = true;
@@ -4067,19 +4411,30 @@ export class MissionRuntime {
         complete = tick >= (d.seconds ?? 60) * TICKS_PER_SECOND;
       } else if (d.type === 'capture') {
         const z = this.zone(d.target);
-        const present = z !== undefined && this.livingIn(z, 0) > 0;
-        const held = present && z !== undefined && !this.contestedIn(z);
+        // GH-976: `contestedIn` is NOT told the side. Whether a living unit of one side and a living unit of
+        // the other both stand in the zone, within the contest radius, is the same fact from either seat
+        // (the filters on each -- alive, on the surface, not down -- are the same), so the side-0 form answers
+        // for a side-1 objective too. (Passing the side was written and deleted: a mutation of it was green,
+        // because it cannot change an answer.)
+        const side = d.side === 1 ? 1 : 0;
+        const groundOnly = d.ground_only === true;
+        const present = z !== undefined && this.livingIn(z, side, groundOnly) > 0;
+        const held = present && z !== undefined && !this.contestedIn(z, groundOnly);
         o.paused = held ? null : present ? 'contested' : 'unheld';
         if (held) o.holdTicks++;
         else o.holdTicks = 0; // taking ground has to be done in one go
         complete = o.holdTicks >= (d.seconds ?? 10) * TICKS_PER_SECOND;
       } else if (d.type === 'hold_for') {
         const z = this.zone(d.target);
-        const present = z !== undefined && this.livingIn(z, 0) > 0;
+        const side = d.side === 1 ? 1 : 0;
+        const present = z !== undefined && this.livingIn(z, side) > 0;
         const held = present && z !== undefined && !this.contestedIn(z);
         o.paused = held ? null : present ? 'contested' : 'unheld';
         if (held) o.holdTicks++;
         complete = o.holdTicks >= (d.seconds ?? 60) * TICKS_PER_SECOND;
+      } else if (d.type === 'score') {
+        // GH-976: `stepGoals` has already added this tick's points to `holdTicks`.
+        complete = o.holdTicks >= (d.score?.target ?? 0) * SCORE_UNITS;
       } else if (d.type === 'evacuate_before') {
         const z = this.zone(d.target);
         // Say so on the way out. `collect` clears `alive`, which is the ONLY
@@ -4100,9 +4455,13 @@ export class MissionRuntime {
         failed = !complete && tick >= (d.seconds ?? 300) * TICKS_PER_SECOND;
       }
       if (complete) {
-        this.creditContribution(o.def);
-        this.payObjective(d, tick, out);
+        // A goals-only room has no stripes to earn and no intel to pay (GH-976).
+        if (this.ctx.goalsOnly !== true) {
+          this.creditContribution(o.def);
+          this.payObjective(d, tick, out);
+        }
         o.status = 'complete';
+        o.completeTick = tick;
         out.push({ kind: 'objective', tick, id: d.id, status: 'complete' });
         if (d.say) out.push({ kind: 'say', tick, speaker: d.say.speaker, text: d.say.text });
       } else if (failed) {

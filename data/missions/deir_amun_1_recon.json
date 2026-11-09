@@ -24,7 +24,8 @@
     { "unit": "yahalom_squad", "count": 1, "at": [24, 45] },
     { "unit": "inf_squad", "count": 2, "at": [22, 45], "from_ledger": true },
     { "unit": "at_team", "count": 1, "at": [27, 45], "from_ledger": true },
-    { "unit": "apc_eitan", "count": 1, "at": [28, 45] }
+    { "unit": "apc_eitan", "count": 1, "at": [28, 45] },
+    { "unit": "inf_medic_squad", "count": 1, "at": [23, 43] }
   ],
   "objectives": [
     { "id": "find_the_crew", "type": "locate", "primary": true, "target": "da_diggers",

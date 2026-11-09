@@ -126,21 +126,21 @@ describe('the wounded ring (arc mode)', () => {
     for (const style of [undefined, TEAM_RING]) {
       const b = new SelectionRingBatch({ capacity: 2, resolveShadow: () => SHADOW, style });
       expect(b.mesh.geometry.getAttribute('aArc')).toBeUndefined();
-      expect(b.mesh.material.vertexShader).not.toContain('aArc');
-      expect(b.mesh.material.fragmentShader).not.toContain('vArc');
-      expect(b.mesh.material.uniforms.uTimeSec).toBeUndefined();
+      expect(b.material.vertexShader).not.toContain('aArc');
+      expect(b.material.fragmentShader).not.toContain('vArc');
+      expect(b.material.uniforms.uTimeSec).toBeUndefined();
     }
   });
   it('caps the arc\'s extra thickness in screen pixels, so it stays a band at any zoom', () => {
     const b = arcBatch();
     expect(WOUND_RING.arcExtraMaxPx).toBeGreaterThan(0);
-    expect(b.mesh.material.fragmentShader).toMatch(/float extra = min\(w \* \(1\.800000 - 1\.0\), 2\.000000 \/ uPxPerTile\);/);
+    expect(b.material.fragmentShader).toMatch(/float extra = min\(w \* \(1\.800000 - 1\.0\), 2\.000000 \/ uPxPerTile\);/);
   });
   it('setClock writes the pulse uniforms, and is a no-op on a ring with no arc', () => {
     const b = arcBatch();
     b.setClock(3.5, false);
-    expect(b.mesh.material.uniforms.uTimeSec.value).toBe(3.5);
-    expect(b.mesh.material.uniforms.uPulseOn.value).toBe(0);
+    expect(b.material.uniforms.uTimeSec.value).toBe(3.5);
+    expect(b.material.uniforms.uPulseOn.value).toBe(0);
     const plain = new SelectionRingBatch({ capacity: 2, resolveShadow: () => SHADOW });
     expect(() => plain.setClock(1, true)).not.toThrow();
   });

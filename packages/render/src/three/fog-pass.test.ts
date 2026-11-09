@@ -307,4 +307,25 @@ describe('the beam\'s heat shimmer (E6 chunk C)', () => {
     pass.setShimmer([shimmerSite(0, 0, 1, 1, 900)], 1600, 900, 1);
     expect(pass.uniforms.uShimmerAmp.value).toBe(0);
   });
+
+  describe('the hazeLow option (GH-871 P4 T2)', () => {
+    const tex = new THREE.Texture();
+    it('absent, the source is the shipped one: the option object changes nothing either', () => {
+      const bare = new FogOfWarPass(tex, 8, 8);
+      expect(bare.hazeLow).toBe(0.06);
+      expect(bare.material.fragmentShader).toBe(new FogOfWarPass(tex, 8, 8, {}).material.fragmentShader);
+      expect(bare.material.fragmentShader).toBe(new FogOfWarPass(tex, 8, 8, { hazeLow: 0.06 }).material.fragmentShader);
+      expect(bare.material.fragmentShader).toContain('+ 0.0600 * clamp(rlBelow');
+    });
+    it('present, the literal is interpolated where HAZE_LOW is, and nowhere else differs', () => {
+      const wet = new FogOfWarPass(tex, 8, 8, { hazeLow: 0.1 });
+      const bare = new FogOfWarPass(tex, 8, 8);
+      expect(wet.hazeLow).toBe(0.1);
+      expect(wet.material.fragmentShader).toContain('+ 0.1000 * clamp(rlBelow');
+      expect(wet.material.fragmentShader).not.toContain('0.0600');
+      expect(wet.material.fragmentShader.replace('0.1000 * clamp(rlBelow', '0.0600 * clamp(rlBelow')).toBe(
+        bare.material.fragmentShader
+      );
+    });
+  });
 });

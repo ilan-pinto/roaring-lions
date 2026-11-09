@@ -345,8 +345,15 @@ export const RUNTIME_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'worksStructures', cls: 'state', kind: map(SCALAR, record('WorksStructure')) },
 
   // --- production ---
-  // [side 0's lines, side 1's lines]. The lines and their `side` / `anchor` are built by
-  // `buildLines` in `start()` and never added to; queue, current, ticksLeft and rally are state.
+  // GH-277 follow-on: the structure index of each line a completed production work (a forward camp) opened on
+  // side 0, in the order opened. Created beside `lines`, and read by the restore BEFORE it, because those lines
+  // are the TAIL of `lines[0]` and the target's setup built none of them.
+  { name: 'appendedAnchors', cls: 'state', kind: IDS },
+  // config: `buildLines` sets it once at the end of `start()` (side 0's authored lines: where the tail begins).
+  { name: 'authoredLines0', cls: 'config', kind: SCALAR },
+  // [side 0's lines, side 1's lines]. The lines built by `buildLines` in `start()` and their `side` / `anchor`
+  // are fixed by the target's setup; queue, current, ticksLeft and rally are state. Side 0 may also carry
+  // `appendedAnchors.length` more lines at its tail (`appendLine`), whose `anchor` the restore takes from that row.
   { name: 'lines', cls: 'state', kind: array(array(record('ProductionLine')), { fixed: 2 }) },
   // config: side 1's menu, priced once by `buildEnemyMenu` in `start()` (3065) and read-only after.
   { name: 'enemyMenu', cls: 'config', kind: array(record('LineItem')) },
@@ -405,6 +412,9 @@ export const OBJECTIVE_STATE_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'status', cls: 'state', kind: str(OBJECTIVE_STATUSES) },
   { name: 'holdTicks', cls: 'state', kind: SCALAR },
   { name: 'paused', cls: 'state', kind: str(PAUSES, true) },
+  // GH-976 P2: the tick the objective completed on (-1 before), written beside `status` in `stepObjectives` and
+  // `completeObjective`. A win-mode room's first-to-finish rule reads it.
+  { name: 'completeTick', cls: 'state', kind: SCALAR },
 ];
 
 /** `PatrolState`: a patrolling placement's beat. Created by `spawnPlacement`, spliced by a trigger. */
@@ -547,7 +557,8 @@ export const WORKS_STRUCTURE_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
 
 /** `ProductionLine` (production.ts): one camp's serial line. */
 export const PRODUCTION_LINE_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
-  // config, the two: `buildLines` creates every line in `start()` (3119, 3129) with these, readonly.
+  // config, the two: `buildLines` creates every line in `start()` (3119, 3129) with these, readonly. An appended
+  // line (`appendLine`) gets its `anchor` from `appendedAnchors`, which the restore plants first.
   { name: 'side', cls: 'config', kind: SCALAR },
   { name: 'anchor', cls: 'config', kind: SCALAR },
   { name: 'queue', cls: 'state', kind: array(record('LineItem')) },

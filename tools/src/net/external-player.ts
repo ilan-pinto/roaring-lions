@@ -16,10 +16,18 @@
  *   the cwd), so a relative path in a template means what it says there;
  * - the child's stdout and stderr appended to the arena's `<game>-<seat>.log`;
  * - `tokens` from the child's LAST stdout line, when it is JSON with
- *   `usage.input_tokens` and `usage.output_tokens` (their sum), else null.
- *   Reported, never scored (decision D7);
+ *   `usage.input_tokens` and `usage.output_tokens` (their sum), else null; and
+ *   `usage` (GH-954 W2, `usageOf`) beside it: the two cache counts and
+ *   `total_cost_usd`, where that line has them. Reported, never scored
+ *   (decision D7);
  * - the directory removed when the child is gone, in a `finally`, so a throw
  *   anywhere in the game removes it too.
+ *
+ * GH-954 W2: the one thing the arena may add to a child's environment is `ExternalOptions.env`, and only the setup
+ * screen's run ever sets it (a private API token the user typed, in memory for that run, as e.g.
+ * `ANTHROPIC_API_KEY`). It reaches the child as an environment variable and nowhere else: never an argument, a
+ * file or a URL, and every byte the child prints on its way to its log file passes `createRedactor`, so a child
+ * that echoes its environment writes `[redacted]`. A run without it spawns with `process.env` itself, as before.
  *
  * The ticket is only ever in the 0600 file: never in an argument (every
  * process on the machine can read argv), the environment, a URL or a log.
@@ -53,6 +61,8 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ArenaPlayer, PlayerReport, RunningPlayer, SeatStart } from './players';
+import { createRedactor, describeCommand } from './redact';
+import { applyWinRule } from './win-rule';
 
 export type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
 
@@ -81,7 +91,7 @@ const isSpace = (c: string): boolean => c === ' ' || c === '\t' || c === '\n' ||
  * and globs are literal characters of literal arguments. A leading `cmd:` is
  * dropped. Placeholders are checked here and filled by `renderTemplate`.
  */
-export function parseTemplate(template: string): ParsedTemplate {
+export function parseTemplate(template: string, allowed: readonly string[] = PLACEHOLDERS): ParsedTemplate {
   const s = template.startsWith('cmd:') ? template.slice(4) : template;
   const tokens: { text: string; redirect: boolean }[] = [];
   let i = 0;
@@ -122,8 +132,8 @@ export function parseTemplate(template: string): ParsedTemplate {
   if (argv.length === 0) throw new Error('the template is empty');
   for (const text of [...argv, ...(stdinFrom === null ? [] : [stdinFrom])]) {
     for (const m of text.matchAll(/\{([A-Za-z_]+)\}/g)) {
-      if (!(PLACEHOLDERS as readonly string[]).includes(m[1])) {
-        throw new Error(`the template names {${m[1]}}, which is not a placeholder: ${PLACEHOLDERS.map((p) => `{${p}}`).join(', ')}`);
+      if (!allowed.includes(m[1])) {
+        throw new Error(`the template names {${m[1]}}, which is not a placeholder: ${allowed.map((p) => `{${p}}`).join(', ')}`);
       }
     }
   }
@@ -131,40 +141,77 @@ export function parseTemplate(template: string): ParsedTemplate {
 }
 
 /** `parseTemplate`, then each placeholder filled in INSIDE its argument: a value never splits into two. */
-export function renderTemplate(template: string, values: Record<Placeholder, string>): ParsedTemplate {
-  const p = parseTemplate(template);
-  const fill = (t: string): string => t.replace(/\{([A-Za-z_]+)\}/g, (_, name: string) => values[name as Placeholder]);
+export function renderTemplate(template: string, values: Readonly<Record<string, string>>, allowed: readonly string[] = PLACEHOLDERS): ParsedTemplate {
+  const p = parseTemplate(template, allowed);
+  const fill = (t: string): string => t.replace(/\{([A-Za-z_]+)\}/g, (_, name: string) => values[name]);
   return { argv: p.argv.map(fill), stdinFrom: p.stdinFrom === null ? null : fill(p.stdinFrom) };
+}
+
+/** A client's spend, from its last stdout line (GH-954 W2). Reported, never scored (D7). */
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  /** `usage.cache_creation_input_tokens`; null when the line does not say. */
+  cacheCreationInputTokens: number | null;
+  /** `usage.cache_read_input_tokens`; null when the line does not say. */
+  cacheReadInputTokens: number | null;
+  /** The client's own `total_cost_usd`; null when the line does not say. */
+  costUsd: number | null;
+}
+
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
+/** A client's spend, from its last stdout line: `usage.input_tokens` and `usage.output_tokens` (both required),
+ *  with `usage.cache_creation_input_tokens`, `usage.cache_read_input_tokens` and `total_cost_usd` where present
+ *  (a malformed optional one is null, never a guess), else null. */
+export function usageOf(lastLine: string): Usage | null {
+  let v: unknown;
+  try { v = JSON.parse(lastLine); } catch { return null; }
+  if (typeof v !== 'object' || v === null) return null;
+  const root = v as { usage?: unknown; total_cost_usd?: unknown };
+  const usage = root.usage as Record<string, unknown> | undefined;
+  if (typeof usage !== 'object' || usage === null) return null;
+  const { input_tokens: i, output_tokens: o } = usage;
+  if (typeof i !== 'number' || typeof o !== 'number' || !Number.isFinite(i) || !Number.isFinite(o)) return null;
+  return {
+    inputTokens: i,
+    outputTokens: o,
+    cacheCreationInputTokens: finite(usage.cache_creation_input_tokens) ? usage.cache_creation_input_tokens : null,
+    cacheReadInputTokens: finite(usage.cache_read_input_tokens) ? usage.cache_read_input_tokens : null,
+    costUsd: finite(root.total_cost_usd) ? root.total_cost_usd : null,
+  };
 }
 
 /** A client's spend, from its last stdout line: `usage.input_tokens + usage.output_tokens`, or null. */
 export function tokensOf(lastLine: string): number | null {
-  let v: unknown;
-  try { v = JSON.parse(lastLine); } catch { return null; }
-  const usage = (typeof v === 'object' && v !== null ? (v as { usage?: unknown }).usage : undefined) as { input_tokens?: unknown; output_tokens?: unknown } | undefined;
-  if (typeof usage !== 'object' || usage === null) return null;
-  const { input_tokens: i, output_tokens: o } = usage;
-  if (typeof i !== 'number' || typeof o !== 'number' || !Number.isFinite(i) || !Number.isFinite(o)) return null;
-  return i + o;
+  const u = usageOf(lastLine);
+  return u === null ? null : u.inputTokens + u.outputTokens;
 }
 
 /** The MCP config the child is handed: one server, `lions`, the harness on this seat's ticket FILE. */
-export function mcpConfig(s: Pick<SeatStart, 'server' | 'origin' | 'code' | 'build'>, ticketFile: string): { mcpServers: { lions: { command: string; args: string[] } } } {
+export function mcpConfig(s: Pick<SeatStart, 'server' | 'origin' | 'code' | 'build' | 'winMode'>, ticketFile: string): { mcpServers: { lions: { command: string; args: string[] } } } {
   return {
     mcpServers: {
       lions: {
         command: HARNESS_TSX,
-        args: [HARNESS_AGENT, '--server', s.server, '--code', s.code, '--scope', 'command', '--ticket-file', ticketFile, '--build', s.build, '--origin', s.origin],
+        // GH-976 P2: a mode room's harness checks the room plays the mode the prompt told the model (`--mode`).
+        args: [HARNESS_AGENT, '--server', s.server, '--code', s.code, '--scope', 'command', '--ticket-file', ticketFile, '--build', s.build, '--origin', s.origin, ...(s.winMode === undefined ? [] : ['--mode', s.winMode ?? 'annihilation'])],
       },
     },
   };
 }
 
+/** The standing prompt as it is on disk, the placeholders still in it (GH-954: what `promptDigest` hashes). */
+export function readStandingPrompt(): string {
+  return readFileSync(PROMPT_SOURCE, 'utf8');
+}
+
 /** The standing prompt for a seat. It names the SEAT only: since LD1 (N3) a
  *  seat's side follows its faction -- a Sarim host is side 1 -- and the prompt
  *  is written before the room's config exists; `observe` reports the side. */
-export function standingPrompt(s: Pick<SeatStart, 'seat' | 'code'>): string {
-  return readFileSync(PROMPT_SOURCE, 'utf8')
+export function standingPrompt(s: Pick<SeatStart, 'seat' | 'code' | 'winMode'>): string {
+  // GH-976 P2: a room that plays a win mode swaps the annihilation rule for the mode's (`win-rule.ts`).
+  return applyWinRule(readStandingPrompt(), s.winMode ?? null)
     .replaceAll('{seat}', String(s.seat))
     .replaceAll('{code}', s.code);
 }
@@ -176,6 +223,9 @@ export interface ExternalOptions {
   graceMs?: number;
   /** After SIGTERM, how long before SIGKILL; default 3 s. */
   killMs?: number;
+  /** GH-954 W2: variables added to the child's environment (the setup screen's private API token, for ONE run).
+   *  Empty or absent: the child gets `process.env` itself. The values are redacted from the child's log. */
+  env?: Readonly<Record<string, string>>;
 }
 
 let warnedTmpRoot = false;
@@ -202,14 +252,32 @@ const DRAIN_MS = 2000;
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** A seat that is still live: its temp directory, and its child once spawned. */
-interface LiveSeat { dir: string; child: ChildProcess | null; exited: boolean; exit: Promise<unknown> | null }
+export interface LiveSeat { dir: string; child: ChildProcess | null; exited: boolean; exit: Promise<unknown> | null }
 const liveSeats = new Set<LiveSeat>();
+/** Puts a child the arena started (the judge, GH-973) in the signal registry; the returned function takes it out. */
+export function trackLiveSeat(seat: LiveSeat): () => void {
+  liveSeats.add(seat);
+  return () => { liveSeats.delete(seat); };
+}
 /** Set, for good, by the first `abortExternalPlayers`: no seat starts after it. */
 let stopLatch = false;
+
+/** GH-954 W2: lifts the latch after a STOP the setup screen asked for (the process lives on and the next run
+ *  must be able to start). Never called by a signal's cleanup: a signal ends the process. */
+export function rearmExternalPlayers(): void {
+  stopLatch = false;
+}
 
 /** Whether a signal's cleanup has begun: no new seat, and no new game, may start. */
 export function externalPlayersStopped(): boolean {
   return stopLatch;
+}
+
+/** How long a signal's cleanup waits for a deaf child before SIGKILL: 2 s, or `LIONS_ARENA_KILL_MS` (a spec that must hold
+ * the cleanup open until its second signal sets it high, so the escape hatch is not a race against the wall clock). */
+function abortKillMs(): number {
+  const n = Number(process.env.LIONS_ARENA_KILL_MS);
+  return Number.isFinite(n) && n > 0 ? n : 2000;
 }
 
 /**
@@ -218,7 +286,7 @@ export function externalPlayersStopped(): boolean {
  * ticket removed. Idempotent: a second call, or the seat's own `finally`
  * afterwards, finds nothing left to do. Never throws.
  */
-export async function abortExternalPlayers(killMs = 2000): Promise<void> {
+export async function abortExternalPlayers(killMs = abortKillMs()): Promise<void> {
   stopLatch = true;
   const seats = [...liveSeats];
   liveSeats.clear();
@@ -257,14 +325,15 @@ export function externalPlayer(name: string, template: string, o: ExternalOption
   const spawn = o.spawn ?? ((command, args, options) => nodeSpawn(command, args, options));
   const graceMs = o.graceMs ?? 10_000;
   const killMs = o.killMs ?? 3000;
-  return { name, start: (s) => runExternal(template, s, spawn, graceMs, killMs) };
+  return { name, start: (s) => runExternal(template, s, spawn, graceMs, killMs, o.env ?? {}) };
 }
 
-function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: number, killMs: number): Promise<RunningPlayer> {
+function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: number, killMs: number, extraEnv: Readonly<Record<string, string>>): Promise<RunningPlayer> {
   return new Promise<RunningPlayer>((resolveStart, rejectStart) => {
     let resolveDone: (r: PlayerReport) => void = () => {};
     const done = new Promise<PlayerReport>((res) => { resolveDone = res; });
 
+    const secrets = Object.values(extraEnv);
     const life = async (): Promise<PlayerReport> => {
       // The latch, then the directory, then (no await between) the registry and the spawn.
       if (stopLatch) throw new Error('the arena is stopping: no new external seat');
@@ -289,6 +358,9 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
           log.on('error', (e) => { process.stderr.write(`arena: the log ${file} could not be written: ${messageOf(e)}\n`); });
         }
 
+        // What this spawn is, for the log: the argv and the NAMES of injected variables, never their values.
+        if (secrets.length > 0) log?.write(`# ${describeCommand(t.argv, extraEnv, secrets)}\n`);
+
         // A relative `< path` means what it says where the child starts (INIT_CWD, else the cwd).
         const childCwd = process.env.INIT_CWD ?? process.cwd();
         const stdin = t.stdinFrom === null ? null : openSync(resolve(childCwd, t.stdinFrom), 'r');
@@ -296,8 +368,9 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
         try {
           child = spawn(t.argv[0], t.argv.slice(1), {
             shell: false,
-            // The parent's environment, as it is: the arena adds nothing to it.
-            env: process.env,
+            // The parent's environment, as it is: the arena adds nothing to it, unless the setup screen's run
+            // handed it a private token (`extraEnv`), which goes here and nowhere else.
+            env: secrets.length === 0 ? process.env : { ...process.env, ...extraEnv },
             cwd: childCwd,
             stdio: [stdin ?? 'ignore', 'pipe', 'pipe'],
           });
@@ -306,12 +379,16 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
           if (stdin !== null) closeSync(stdin);
         }
         let tail = '';
+        // Per stream: a secret can be split across two reads, so each keeps its own held-back tail.
+        const outRedact = createRedactor(secrets);
+        const errRedact = createRedactor(secrets);
+        const errDecoder = new TextDecoder();
         child.stdout?.setEncoding('utf8');
         child.stdout?.on('data', (chunk: string) => {
-          log?.write(chunk);
+          log?.write(secrets.length === 0 ? chunk : outRedact.push(chunk));
           tail = (tail + chunk).slice(-TAIL_CHARS);
         });
-        child.stderr?.on('data', (chunk: Buffer) => { log?.write(chunk); });
+        child.stderr?.on('data', (chunk: Buffer) => { log?.write(secrets.length === 0 ? chunk : errRedact.push(errDecoder.decode(chunk, { stream: true }))); });
         let exited = false;
         let stoppedByUs = false;
         const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((res) => {
@@ -352,8 +429,11 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
         const errors: string[] = [];
         if (!stoppedByUs && signal !== null) errors.push(`killed by ${signal}`);
         else if (!stoppedByUs && code !== 0) errors.push(`exited with code ${String(code)}`);
+        // What the streams still held back (the last few characters), redacted, before the log closes.
+        if (secrets.length > 0) log?.write(outRedact.flush() + errRedact.flush());
         const lines = tail.trimEnd().split('\n');
-        return { tokens: tokensOf(lines[lines.length - 1] ?? ''), timeouts: 0, errors };
+        const usage = usageOf(lines[lines.length - 1] ?? '');
+        return { tokens: usage === null ? null : usage.inputTokens + usage.outputTokens, ...(usage === null ? {} : { usage }), timeouts: 0, errors };
       } finally {
         if (log !== null) {
           const l = log;

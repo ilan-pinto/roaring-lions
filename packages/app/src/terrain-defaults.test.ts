@@ -42,6 +42,12 @@ const FIXTURE = join(__dirname, 'terrain-defaults.fixture.json');
 const UPDATE = process.env.UPDATE_TERRAIN_DEFAULTS === '1';
 const HIGH = { colorVision: 'default', quality: 'high' } as const;
 
+/** The placements are doubles in the sim-free composer but the renderer takes them as Float32 instances, so the
+ *  digest quantises to what is drawn. Printing all 17 digits pinned the last bit of `Math.cos`/`Math.sin`, which
+ *  differs by 1 ulp between the machine that records the fixture (macOS, Node 25) and CI (Linux, Node 22):
+ *  wadi_tarfan_l's cluster member 6545 read x=3.1476028949550487 here and ...483 there (GH-920 B3). */
+const float32 = (_key: string, v: unknown): unknown => (typeof v === 'number' ? Math.fround(v) : v);
+
 function digest(id: MapId): string {
   const parsed = parseMap(maps[id]);
   const sim = new Sim({ seed: 20260727, width: parsed.width, height: parsed.height, capacity: 256 });
@@ -63,14 +69,14 @@ function digest(id: MapId): string {
     h.update(Buffer.from(mesh.colors.buffer, mesh.colors.byteOffset, mesh.colors.byteLength));
     h.update(Buffer.from(mesh.indices.buffer, mesh.indices.byteOffset, mesh.indices.byteLength));
   }
-  h.update(JSON.stringify(c.decorPlacements));
-  h.update(JSON.stringify(c.propPlacements));
+  h.update(JSON.stringify(c.decorPlacements, float32));
+  h.update(JSON.stringify(c.propPlacements, float32));
   return h.digest('hex');
 }
 
 /** Every shipped map whose theme is not `wetland` (GH-871 P2 T7). A wetland map is MEANT to move through
  *  P3-P5 (art, rain, final layouts), so it cannot hold a byte pin; its checks are the marsh and greybox
- *  tests. The 35 recorded keys are exactly the maps the wetland work must never move. */
+ *  tests. The 38 recorded keys are exactly the maps the wetland work must never move. */
 const wetland = (Object.keys(maps) as MapId[]).filter((id) => parseMap(maps[id]).terrain === 'wetland').sort();
 const shipped = (Object.keys(maps) as MapId[]).filter((id) => parseMap(maps[id]).terrain !== 'wetland').sort();
 
@@ -87,10 +93,10 @@ describe('every shipped map composes byte-for-byte to its recorded terrain (GH-3
 
   it('covers every shipped map that is not wetland, and only those', () => {
     expect(Object.keys(recorded).sort()).toEqual(shipped);
-    // Not vacuous: the filter excludes the wetland greybox and keeps the 35 recorded keys.
+    // Not vacuous: the filter excludes the wetland greybox and keeps the 38 recorded keys (Was 37: Milh Flats (large), GH-920 B3; 36 before Wadi Tarfan (large)).
     expect(wetland).toContain('ein_qasab');
     expect(shipped).not.toContain('ein_qasab');
-    expect(shipped).toHaveLength(35);
+    expect(shipped).toHaveLength(38);
   });
 
   for (const id of shipped) {

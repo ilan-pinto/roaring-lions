@@ -27,12 +27,19 @@ import { terrainTonesFor } from '../terrain-themes';
 
 /** Shipped maps the Free Play picker does not list (GH-871 P2, the lead's
  *  ruling): Ein Qasab is a greybox terrain study until P3's real art lands, so
- *  it is held out of `/free-play`. DELETE the entry when P3 ships. This hides
- *  the CARD only: `/free-play/ein_qasab` and `?sandbox=ein_qasab` still boot it
- *  for dev work, and the map stays in `@lions/data` and the Worker's
+ *  it is held out of `/free-play`, and so are the two maps of its town's other
+ *  missions (GH-912, MDD 0.1 point 9). DELETE the entries when P3 ships. Rujm Sawda
+ *  (GH-913) was held out until the lead looked at it; L8 opened it (a card in Free Play, and a
+ *  mirror-only map in the versus lobby). Wadi Tarfan (large)
+ *  (GH-920 B3) was held out until its fairness (B4) and its render and memory budget (B5) were read;
+ *  B7 opened it (a card in Free Play, and a map in the versus lobby for the mirror and both faction cells). Milh Flats (large)
+ *  (GH-920 B3) was held out the same way and B7 opened it (a card in Free Play, and a mirror-only map in the versus lobby). This hides the CARD only:
+ *  `/free-play/ein_qasab` and `?sandbox=ein_qasab` (and the same two for each of
+ *  the others, with `?net=new` for a sandbox room) still boot it for dev work,
+ *  and the maps stay in `@lions/data` and the Worker's
  *  `SHIPPED_MAP_IDS`. `sandbox-menu.test.ts` pins this set to exactly this
  *  list and fails if an entry names no shipped map. */
-export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab']);
+export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
@@ -79,6 +86,9 @@ export interface MenuOptions {
   /** The server's switch (`GET /api/feedback`, asked once a boot): when it
    *  resolves false after this menu mounted, the button comes down. */
   feedbackAvailable?: Promise<boolean>;
+  /** The account chip (GH-1075 A1): drawn only when `enabled`. `name` resolves to the signed-in display name, or
+   *  null for a guest; until it does the chip reads as a guest's. */
+  account?: { enabled: boolean; name?: Promise<string | null> };
 }
 
 export interface CampaignOptions {
@@ -226,6 +236,19 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     aside.appendChild(feedbackBtn);
     void opts.feedbackAvailable?.then((ok) => {
       if (!ok) feedbackBtn.remove();
+    });
+  }
+  if (opts.account?.enabled) {
+    const chip = document.createElement('a');
+    chip.className = 'rl-btn rl-menu__item';
+    chip.dataset.kind = 'aside';
+    chip.dataset.act = 'profile';
+    chip.href = routes.profile();
+    chip.textContent = t('menu.profile.guest');
+    aside.appendChild(chip);
+    addAside(t('menu.aside.privacy'), routes.privacy());
+    void opts.account.name?.then((name) => {
+      if (name !== null) chip.textContent = name;
     });
   }
   // Last, deliberately: people, libraries, fonts and the licence split are

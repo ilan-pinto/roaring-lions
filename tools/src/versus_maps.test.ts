@@ -1,5 +1,6 @@
-// The two dedicated 1v1 versus maps (2026-10-14): Wadi Tarfan (the three
-// fords) and Milh Flats (Bir Milh). A versus map is fair by CONSTRUCTION
+// The dedicated versus maps: Wadi Tarfan (the three fords) and Milh Flats
+// (Bir Milh), the two 48x48 1v1 maps of 2026-10-14, and Rujm Sawda, the 80x80
+// network map of GH-913 (L4, 2026-11-01; not yet offered by any room). A versus map is fair by CONSTRUCTION
 // before it is fair by measurement: every tile, height, marker, zone and
 // building turns into its twin under a half-turn about the map centre
 // (x, y) -> (W-1-x, H-1-y), the two seats are each other's twin, and a
@@ -16,6 +17,26 @@
 // a `^` on a formation tile at (11,12) (symmetry, and all three pairings'
 // spawn checks). `sandboxAnchors`' by-name read disabled turns the seat
 // checks in packages/app/src/sandbox-anchors.test.ts red.
+//
+// Falsified again for rujm_sawda (GH-913 L4), the same four, each on the shipped
+// data/maps/rujm_sawda.json, seen red, then restored by rerunning
+// tools/maps/rujm_sawda/build.mjs (the file is generated, so the undo is the generator, not git):
+// one row character flipped, (30,2) '.' -> '1' (symmetry); one elevation digit
+// lowered, (30,2) '3' -> '2' (symmetry); `versus_1` moved from (67,67) to (68,67)
+// (seat mirror, marker pairs, the KDF mirror's spawn); a `^` on a formation tile
+// at (14,17), seat 0's own (2, 5) offset, with its twin left alone (symmetry, and all three pairings' spawns).
+// tools/src/rujm_sawda.test.ts runs the same four, and more, against the verifier.
+//
+// Falsified again for wadi_tarfan_l (GH-920 B3), the same four on the shipped data/maps/wadi_tarfan_l.json, each seen red and
+// then restored (the file's own text written back; build.mjs --check then confirmed it): a row character flipped, (2,2) '.' -> '1'
+// (symmetry); an elevation digit lowered at (2,2) (symmetry); versus_1 moved from (75,75) to (76,75) (3 red: seat mirror, marker
+// pairs, the KDF mirror's spawn); a `^` on a formation tile at (22,25), seat 0's own (2, 5) offset, its twin left alone (4 red:
+// symmetry and the spawns). tools/src/large_map_verify.test.ts runs these and the census distortions against the verifier.
+//
+// Falsified again for milh_flats_l (GH-920 B3), the same four on the shipped data/maps/milh_flats_l.json, each seen red and then
+// restored (build.mjs rewritten, --check exit 0): a row character flipped, (40,5) '.' -> '1' (symmetry); an elevation digit changed, (40,5)
+// '2' -> '1' (symmetry); versus_1 moved from (75,20) to (76,20) (3 red: seat mirror, marker pairs, the KDF mirror's spawn); a `^` on a
+// formation tile at (22,80), seat 0's own (2, 5) offset, its twin left alone (4 red: symmetry and the three pairings' spawns).
 import { describe, expect, it } from 'vitest';
 import { applyTerrain, maps, parseMap, units, type MapJson } from '@lions/data';
 import type { Faction } from '@lions/net';
@@ -25,13 +46,20 @@ import { standMapStructures } from '../../packages/app/src/map-sim';
 import { sandboxAnchors } from '../../packages/app/src/sandbox-anchors';
 import { versusForceOf, versusSpawns } from '../../packages/app/src/net/versus-force';
 
-const VERSUS_MAPS = ['wadi_tarfan', 'milh_flats'] as const;
+const VERSUS_MAPS = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'] as const;
+
+/** Each map's side, in tiles. */
+const SIDE: Record<(typeof VERSUS_MAPS)[number], number> = { wadi_tarfan: 48, milh_flats: 48, rujm_sawda: 80, wadi_tarfan_l: 96, milh_flats_l: 96 };
+
+/** The maps that name a pair by prefix (`bluff_near_0` / `bluff_near_1`). Rujm Sawda's twins have
+ *  their own names (`well_n_0` faces `well_s_1`), so its pairs are found by the mirrored tile or rect. */
+const PAIRED_BY_PREFIX: readonly string[] = ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l', 'milh_flats_l'];
 
 /** Markers with no twin, by name, and why. Milh Flats' `centre` sits on
  *  (23,23), one of the four tiles round the true centre (23.5,23.5): as a
  *  single goal it favours seat 1 by 0.6 tiles, so anything that scores held
  *  ground scores the `bir_milh` zone, which IS its own twin. */
-const UNPAIRED: Record<string, readonly string[]> = { wadi_tarfan: [], milh_flats: ['centre'] };
+const UNPAIRED: Record<string, readonly string[]> = { wadi_tarfan: [], milh_flats: ['centre'], rujm_sawda: ['centre'], wadi_tarfan_l: [], milh_flats_l: ['centre'] };
 
 type Pt = readonly [number, number];
 const PAIRINGS: readonly (readonly [Faction, Faction])[] = [['kdf', 'kdf'], ['kdf', 'sarim'], ['sarim', 'kdf']];
@@ -55,8 +83,8 @@ describe.each(VERSUS_MAPS)('versus map %s', (id) => {
   const markers = json.markers as Record<string, readonly number[]>;
   const zones = (json.zones ?? {}) as Record<string, readonly number[]>;
 
-  it('is a square 48x48 map with relief', () => {
-    expect([W, H]).toEqual([48, 48]);
+  it('is a square map of its size with relief', () => {
+    expect([W, H]).toEqual([SIDE[id], SIDE[id]]);
     expect(json.elevation?.length).toBe(H);
   });
 
@@ -92,11 +120,18 @@ describe.each(VERSUS_MAPS)('versus map %s', (id) => {
       .sort();
     expect(lonely).toEqual([...UNPAIRED[id]]);
     const pairs = Object.keys(markers).filter((n) => n.endsWith('_0'));
-    expect(pairs.length).toBeGreaterThan(3);
+    expect(pairs.length).toBeGreaterThan(PAIRED_BY_PREFIX.includes(id) ? 3 : 2);
+    expect(Object.keys(markers).length).toBeGreaterThan(6);
     for (const n of pairs) {
-      const twin = markers[`${n.slice(0, -2)}_1`];
-      expect(twin, `${n} has no _1`).toBeDefined();
-      expect(mirror(markers[n]), n).toEqual([...twin]);
+      // The marker standing on a `_0` marker's mirrored tile is a `_1` marker...
+      const at = Object.entries(markers).find(([, p]) => mirror(markers[n]).join() === p.join());
+      expect(at?.[0]?.endsWith('_1'), `${n}'s twin tile holds ${at?.[0]}`).toBe(true);
+      // ...and on the two older maps it is also the same name with the suffix swapped.
+      if (PAIRED_BY_PREFIX.includes(id)) {
+        const twin = markers[`${n.slice(0, -2)}_1`];
+        expect(twin, `${n} has no _1`).toBeDefined();
+        expect(mirror(markers[n]), n).toEqual([...twin]);
+      }
     }
   });
 
@@ -104,8 +139,13 @@ describe.each(VERSUS_MAPS)('versus map %s', (id) => {
     const key = (r: readonly number[]) => r.join(',');
     const have = new Set(Object.values(zones).map(key));
     for (const [n, [x, y, w, h]] of Object.entries(zones)) {
-      expect(have.has(key([W - x - w, H - y - h, w, h])), n).toBe(true);
-      if (n.endsWith('_0')) expect(zones[`${n.slice(0, -2)}_1`], n).toEqual([W - x - w, H - y - h, w, h]);
+      const twin = [W - x - w, H - y - h, w, h];
+      expect(have.has(key(twin)), n).toBe(true);
+      if (n.endsWith('_0')) {
+        const named = Object.entries(zones).find(([, r]) => key(r) === key(twin))?.[0];
+        expect(named?.endsWith('_1'), `${n}'s twin rect is ${named}`).toBe(true);
+        if (PAIRED_BY_PREFIX.includes(id)) expect(zones[`${n.slice(0, -2)}_1`], n).toEqual(twin);
+      }
     }
   });
 

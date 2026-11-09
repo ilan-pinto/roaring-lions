@@ -792,6 +792,8 @@ describe('BASELINES layerChecks', () => {
     // did not change, so lit ground did not change.
     const MEASURED: Record<string, Record<string, { px: number; mean: number }>> = {
       quiet: {
+        // L1 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=environment, 3 fresh-page runs, bit-identical.
+        environment: { px: 69, mean: 0.8959 },
         scatter: { px: 2105, mean: 0.4032 },
         // Ground plan 2, Task 11, 2026-09-28: re-measured once, 3 runs,
         // bit-identical -- more than double the 10505/0.7573 this floor was
@@ -823,6 +825,8 @@ describe('BASELINES layerChecks', () => {
         haze: { px: 2959, mean: 0.7545 },
       },
       'open-ground': {
+        // L1: as above. 4 px is under SUB_THRESHOLD_PX; the magnitude floor carries it.
+        environment: { px: 4, mean: 0.0814 },
         scatter: { px: 3615, mean: 1.6088 },
         // Ground plan 2, Task 11, 2026-09-28: re-measured once, 3 runs,
         // bit-identical -- up 12.6%/10.9% from the 1025/0.646 this floor was
@@ -833,6 +837,8 @@ describe('BASELINES layerChecks', () => {
         macro: { px: 0, mean: 0.8773 },
       },
       relief: {
+        // L1: as above.
+        environment: { px: 12848, mean: 1.2654 },
         // Ground plan 2, Task 9, 2026-09-28: 4 px is sub-threshold -- the far
         // ramp is smooth -- so the pixel floor is 0 and the magnitude carries it.
         haze: { px: 4, mean: 0.3875 },
@@ -879,15 +885,27 @@ describe('BASELINES layerChecks', () => {
         // Crater rims (Defilade Task 5), 2026-10-23: relief-read-signal.ts
         // --layers=crater-rims, 3 fresh-page runs, bit-identical.
         'crater-rims': { px: 10133, mean: 0.615 },
+        environment: { px: 17317, mean: 2.3523 },
       },
       // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the
       // weakest reading rather than the flattering one.
       vehicle: {
+        // GH-943 P2 (T5), 8 Nov 2026: ci.yml `visual` runs 42456785749 and 42473526531 (SwiftShader), bit-identical.
+        'selection-ring': { px: 4104, mean: 0.1775 },
         units: { px: 29622, mean: 2.96 },
+        // L1 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=environment, 3 fresh-page runs, bit-identical.
+        environment: { px: 1074, mean: 0.4642 },
         // GH-705 Task 6, 2026-10-23: relief-read-signal.ts --layers=unit-surface,
         // 3 fresh-page runs, bit-identical.
         'unit-surface': { px: 43, mean: 0.0202 },
+        // L3 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=team-mask, 3 fresh-page runs, bit-identical.
+        'team-mask': { px: 283, mean: 0.0132 },
+        // GH-984 N2, 2026-11-03: `nature:capture --phase=signal`, 3 fresh loads, bit-identical, ANGLE Metal (CI re-measures at the bless).
+        // 25 px is sub-threshold: the pixel floor is 0 and the magnitude carries it.
+        disturb: { px: 25, mean: 0.0015 },
+        // GH-984 N3, 2026-11-04: `nature:capture --phase=signal --layer=wash`, 3 fresh loads, bit-identical, ANGLE Metal (CI re-measures at the bless).
+        wash: { px: 15, mean: 0.0008 },
       },
       // Plan 3 Task 8 (GH-238 K8), 2026-10-07: `kit:capture -- --toggle`, the
       // gate's own capture code, 3 fresh loads per layer, bit-identical
@@ -897,6 +915,20 @@ describe('BASELINES layerChecks', () => {
         units: { px: 37565, mean: 3.7734 },
         kit: { px: 6460, mean: 0.4278 },
         'unit-surface': { px: 40, mean: 0.0258 },
+        environment: { px: 1542, mean: 0.4733 },
+      },
+      // L2 (GH-943), 2 Nov 2026: relief-read-signal.ts --scenario=graded --layers=grade,units,environment, 3 fresh-page runs, bit-identical.
+      graded: {
+        grade: { px: 186, mean: 5.0668 },
+        units: { px: 50100, mean: 1.8734 },
+        environment: { px: 192, mean: 0.3496 },
+      },
+      // L1 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=environment,fog,haze,units on `fogged`, 3 fresh-page runs, bit-identical.
+      fogged: {
+        environment: { px: 253, mean: 0.3295 },
+        fog: { px: 350407, mean: 29.3152 },
+        haze: { px: 285, mean: 0.9784 },
+        units: { px: 9036, mean: 0.6724 },
       },
     };
     /** Below this many pixels a count is not a measurement you can take a
@@ -910,8 +942,23 @@ describe('BASELINES layerChecks', () => {
      *  is still asserted non-zero below, and total erasure still fails them
      *  (the last assertion in this loop). */
     const SUB_THRESHOLD_PX = 100;
+    /** `scenario/layer` checks whose first CI reading has not been taken (T5's `vehicle/selection-ring`). */
+    const PENDING_FLOOR: ReadonlySet<string> = new Set();
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
+        // GH-943 P1 (T5): a `zero` check has no floor to derive from a signal; it has its own test below.
+        if (check.kind === 'zero') continue;
+        // GH-943 P2 (T5): a check whose floor has not been read yet is declared with an infinite floor, which cannot pass: it makes
+        // the `visual` job red on purpose and prints the reading to take. This list is exactly those, and an entry with a FINITE floor is
+        // refused here: a measured floor goes in MEASURED below, with its three readings, and leaves this list.
+        const key = `${id}/${check.layer}`;
+        if (PENDING_FLOOR.has(key)) {
+          expect([check.minMeanAbsChannelDelta, check.minDiffPixels], `${key} is pending a measurement, so its floors must be Infinity`).toEqual([
+            Number.POSITIVE_INFINITY,
+            Number.POSITIVE_INFINITY,
+          ]);
+          continue;
+        }
         const m = MEASURED[id]?.[check.layer];
         expect(m, `no measurement recorded for ${id}/${check.layer}`).toBeDefined();
         if (!m) continue;
@@ -931,6 +978,65 @@ describe('BASELINES layerChecks', () => {
         expect(evaluateLayerCheck(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), check).ok).toBe(false);
       }
     }
+  });
+});
+
+describe('the `fogged` scenario (look uplift L1, GH-943)', () => {
+  it('sees a double-counted environment: doubling every envMapIntensity moves it past BOTH ceilings', () => {
+    // Measured 2 Nov 2026, `tools/src/perf/env-doublecount.ts`: the gate's own capture, 3 fresh loads, bit-identical.
+    // A literal, not a recomputation: the oracle must not import what it checks.
+    const doubled = { px: 87, mean: 0.3183 };
+    const spec = BASELINES.fogged;
+    expect(spec).toBeDefined();
+    expect(doubled.px).toBeGreaterThan(spec.maxDiffPixels);
+    expect(doubled.mean).toBeGreaterThan(spec.maxMeanAbsChannelDelta);
+  });
+
+  it('sees the haze fed the UNSCALED lights (review N2): under pixelmatch\'s threshold everywhere, so the magnitude ceiling carries it', () => {
+    // Measured 2 Nov 2026, `env-doublecount.ts --mode=haze`: 3 fresh loads, bit-identical. Literal, not recomputed.
+    const hazeMismatch = summary({ diffPixels: 0, meanAbsChannelDelta: 0.0681 });
+    const spec = BASELINES.fogged;
+    expect(hazeMismatch.diffPixels).toBeLessThanOrEqual(spec.maxDiffPixels);
+    expect(hazeMismatch.meanAbsChannelDelta).toBeGreaterThan(spec.maxMeanAbsChannelDelta);
+    // The gate's own verdict fails it, on the magnitude alone; and the doubled intensity (87 px / 0.3183) fails it too.
+    expect(evaluateBaseline(hazeMismatch, spec).ok).toBe(false);
+    expect(evaluateBaseline(summary({ diffPixels: 87, meanAbsChannelDelta: 0.3183 }), spec).ok).toBe(false);
+    // And a frame that did not move passes: the verdict is not "always red".
+    expect(evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), spec).ok).toBe(true);
+  });
+
+  it('holds the shroud, the haze and the vehicles it is named for, and the environment on them', () => {
+    const layers = (BASELINES.fogged.layerChecks ?? []).filter((c) => c.kind !== 'zero').map((c) => c.layer).sort();
+    expect(layers).toEqual(['environment', 'fog', 'haze', 'units']);
+  });
+
+  it('every gated scenario that holds a unit, building or prop votes the environment', () => {
+    for (const id of ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'relief', 'aftermath']) {
+      expect((BASELINES[id].layerChecks ?? []).some((c) => c.layer === 'environment'), id).toBe(true);
+    }
+  });
+});
+
+describe('the `graded` scenario (look uplift L2, GH-943)', () => {
+  it('carries the grade layer check, and the vehicles and environment the frame is named for', () => {
+    const layers = (BASELINES.graded.layerChecks ?? []).filter((c) => c.kind !== 'zero').map((c) => c.layer).sort();
+    expect(layers).toEqual(['environment', 'grade', 'units']);
+  });
+
+  it('is gated, and under the dusk preset with the grade on by default (no flag names it)', () => {
+    expect(BASELINES.graded.gated).not.toBe(false);
+    const sc = SCENARIOS.find((s) => s.id === 'graded');
+    expect(sc?.sandboxFlags).toEqual(['tod=dusk']);
+    expect(sc?.targetTick).toBe(140); // ABSOLUTE
+  });
+
+  it('its grade check fails a frame the grade did not move (a disabled grade), and passes the measured signal', () => {
+    const check = (BASELINES.graded.layerChecks ?? []).find((c) => c.layer === 'grade');
+    expect(check).toBeDefined();
+    if (!check) return;
+    // Literals, measured 2 Nov 2026 (3 of 3 bit-identical): the signal with the grade on, and the 0 a disabled grade reads.
+    expect(evaluateLayerCheck(summary({ diffPixels: 186, meanAbsChannelDelta: 5.0668 }), check).ok).toBe(true);
+    expect(evaluateLayerCheck(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), check).ok).toBe(false);
   });
 });
 
@@ -1152,5 +1258,27 @@ describe('capture keeps the alert feed out of shot (repaint drift since #488)', 
     );
     expect(hud).toMatch(/this\.feed\.className = 'rl-feed';/);
     expect(HIDE_ALERT_FEED_STATEMENTS).toContain(".rl-feed { display: none !important; }");
+  });
+});
+
+describe('the `bloom` zero check (GH-943 P1 T5)', () => {
+  const declared = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'];
+  it('is declared, once and as a ZERO check, on every gated quiet scenario, and on no other', () => {
+    for (const id of Object.keys(BASELINES)) {
+      const hits = (BASELINES[id].layerChecks ?? []).filter((c) => c.layer === 'bloom');
+      if (declared.includes(id)) {
+        expect(hits.length, id).toBe(1);
+        expect(hits[0].kind, id).toBe('zero');
+      } else {
+        // aftermath fires muzzle-flash lights past 1.0 on purpose; combat and dusk are not gated.
+        expect(hits.length, id).toBe(0);
+      }
+    }
+  });
+  it('fails a frame the bloom moved by one pixel, and passes an unmoved one', () => {
+    const check = (BASELINES.quiet.layerChecks ?? []).find((c) => c.layer === 'bloom');
+    if (!check) throw new Error('quiet has no bloom check');
+    expect(evaluateLayerCheck(summary({}), check).ok).toBe(true);
+    expect(evaluateLayerCheck(summary({ changedPixels: 1 }), check).ok).toBe(false);
   });
 });

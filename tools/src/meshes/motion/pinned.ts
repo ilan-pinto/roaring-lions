@@ -32,6 +32,7 @@ import { qaxis, qrot, deg, type V3 } from './math';
 import { rotateWorld } from './hold';
 import { KNEEL_FPS, KNEEL_GROUND_CLEAR, kneelBody, kneelerOf, liftArm, lowestY, writeClip, type Pt } from './kneel';
 import { clipRange, restVertices, Rig, tracksOf, type Pose } from './rig';
+import { MOTION_TEAMS } from './teams';
 
 export const PINNED_VERSION = 1;
 /** The fold, degrees, about each figure's own lateral axis. The approved
@@ -135,6 +136,8 @@ export function applyPinned(doc: Document, id: string): string[] {
     }
   }
 
+  // The team's own fold where it declares one (`MotionTeam.pinnedFold`): the Rifle Squad's neck stays with its spine.
+  const foldOf = { ...PINNED_FOLD_DEG, ...(MOTION_TEAMS[id]?.pinnedFold ?? {}) };
   const n = Math.max(2, Math.round((t1 - t0) * KNEEL_FPS));
   const times = Array.from({ length: n + 1 }, (_, i) => (i / n) * (t1 - t0));
   /** One figure into the huddle, folded by `amount` of the full fold. */
@@ -148,7 +151,7 @@ export function applyPinned(doc: Document, id: string): string[] {
     const lateral: V3 = qrot(rig.worldOf(rig.node(`${f}_root`), p).r, [0, 0, 1]);
     for (const part of ['spine', 'neck', 'head'] as const) {
       if (!rig.has(`${f}_${part}`)) continue;
-      rotateWorld(rig, p, rig.node(`${f}_${part}`), qaxis(lateral, deg(PINNED_FOLD_DEG[part]) * amount));
+      rotateWorld(rig, p, rig.node(`${f}_${part}`), qaxis(lateral, deg(foldOf[part]) * amount));
     }
     for (const arm of armsOf(f)) {
       try {

@@ -1,0 +1,110 @@
+{
+  "id": "wadi_tarfan_l",
+  "map": "wadi_tarfan_l",
+  "capacity": 512,
+  "cap_minutes": 35,
+  "ends": {
+    "friendly": {
+      "camp": {
+        "at": [17, 17],
+        "size": [2, 2],
+        "exit": [16, 16]
+      }
+    },
+    "hostile": {
+      "camp": {
+        "at": [77, 77],
+        "size": [2, 2],
+        "exit": [79, 79]
+      }
+    }
+  },
+  "tunnels": {
+    "friendly": [
+      {
+        "id": "wtl_f_north",
+        "points": [
+          [25, 23],
+          [32, 28],
+          [45, 43]
+        ],
+        "capacity": 3
+      },
+      {
+        "id": "wtl_f_west",
+        "points": [
+          [23, 25],
+          [26, 31],
+          [42, 45]
+        ],
+        "capacity": 3
+      }
+    ],
+    "hostile": [
+      {
+        "id": "wtl_h_north",
+        "points": [
+          [70, 72],
+          [63, 67],
+          [50, 52]
+        ],
+        "capacity": 3
+      },
+      {
+        "id": "wtl_h_west",
+        "points": [
+          [72, 70],
+          [69, 64],
+          [53, 50]
+        ],
+        "capacity": 3
+      }
+    ]
+  },
+  "income_zones": [
+    {
+      "zone": "centre_ford",
+      "rate_per_min": 60
+    },
+    {
+      "zone": "ne_ford",
+      "rate_per_min": 40
+    },
+    {
+      "zone": "sw_ford",
+      "rate_per_min": 40
+    },
+    {
+      "zone": "bluff_near_0",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "bluff_near_1",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "bluff_far_0",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "bluff_far_1",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "farm_near_0",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "farm_near_1",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "farm_far_0",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "farm_far_1",
+      "rate_per_min": 20
+    }
+  ]
+}

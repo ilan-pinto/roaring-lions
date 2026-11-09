@@ -12,7 +12,10 @@ import { memoizeBatchCulling } from './batch-cull';
 import { liftTone, rampMaterial } from '../world-materials';
 import { rampForDecorRole, type DecorMeshRole } from './decor-role';
 import type { DecorPlacement } from './decor-place';
-import { swayVertexChunk } from './sway';
+import { WIND_UNIFORM_DECLS, windClassOfKey, windLeanGlsl, windVertexChunk } from './wind';
+import { legacyWindUniforms, type WindUniformSet } from './wind-uniforms';
+import { DISTURB_UNIFORM_DECLS, disturbMathGlsl, disturbVertexChunk } from './disturb';
+import { inertDisturbUniforms, type DisturbUniformSet } from './disturb-uniforms';
 
 /**
  * The two uniforms every swaying foliage material shares BY REFERENCE:
@@ -24,22 +27,40 @@ import { swayVertexChunk } from './sway';
 export interface SwayUniforms {
   readonly time: { value: number };
   readonly amp: { value: number };
+  /** The wind's mode, strength and heading (`wind-uniforms.ts`), shared the same way. Absent
+   *  plays today's sway (mode 0): a caller that never heard of the wind is unchanged. */
+  readonly wind?: WindUniformSet;
+  /** The vehicles' disturbers (`disturb-uniforms.ts`), shared the same way. Absent bends nothing. */
+  readonly disturb?: DisturbUniformSet;
 }
 
 const SWAY_ANCHOR = '#include <project_vertex>';
 
+/** The foliage program's cache keys: the shipped one, and the wet variant's
+ *  own (GH-871 P4 T5), so the two compile apart and a dry map's key is untouched.
+ *  The trunk batch swaying with the same chunk (GH-984 N1) is the one added program. */
+export const FOLIAGE_SWAY_KEY = 'rl-foliage-sway';
+export const FOLIAGE_SWAY_WET_KEY = 'rl-foliage-sway-wet';
+export const TRUNK_SWAY_KEY = 'rl-trunk-sway';
+export const TRUNK_SWAY_WET_KEY = 'rl-trunk-sway-wet';
+
 /**
- * `rampMaterial(ramp)`, plus the crown sway spliced after
- * `#include <project_vertex>` (`sway.ts`'s `swayVertexChunk` says why there).
- * Throws at compile when three's vertex shader no longer carries that chunk:
- * a splice that silently matched nothing would ship trees that stand still
- * and a `wind` check that fails for no visible reason.
+ * `rampMaterial(ramp)`, plus the wind spliced after `#include <project_vertex>`
+ * (`wind.ts`'s `windVertexChunk` says why there). `trunk` is the trunk batch's
+ * variant: the same chunk, whose reduced-motion branch holds still, as a trunk
+ * always has. Throws at compile when three's vertex shader no longer carries
+ * that chunk: a splice that silently matched nothing would ship trees that
+ * stand still and a `wind` check that fails for no visible reason.
  */
 export function swayingFoliageMaterial(
   ramp: readonly string[],
-  sway: SwayUniforms
+  sway: SwayUniforms,
+  wet = false,
+  trunk = false
 ): THREE.MeshStandardMaterial {
   const material = rampMaterial(ramp);
+  const wind = sway.wind ?? legacyWindUniforms();
+  const disturb = sway.disturb ?? inertDisturbUniforms();
   material.onBeforeCompile = (shader) => {
     if (!shader.vertexShader.includes(SWAY_ANCHOR)) {
       throw new Error(
@@ -48,11 +69,24 @@ export function swayingFoliageMaterial(
     }
     shader.uniforms.uSwayTime = sway.time;
     shader.uniforms.uSwayAmp = sway.amp;
+    shader.uniforms.uWindMode = wind.mode;
+    shader.uniforms.uWindStrength = wind.strength;
+    shader.uniforms.uWindDir = wind.dir;
+    shader.uniforms.uDisturbA = disturb.a;
+    shader.uniforms.uDisturbB = disturb.b;
+    shader.uniforms.uDisturbBox = disturb.box;
+    shader.uniforms.uDisturbN = disturb.n;
+    shader.uniforms.uDisturbAmp = disturb.amp;
+    shader.uniforms.uDisturbSpring = disturb.spring;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uSwayTime;\nuniform float uSwayAmp;')
-      .replace(SWAY_ANCHOR, `${SWAY_ANCHOR}\n${swayVertexChunk()}`);
+      .replace(
+        '#include <common>',
+        `#include <common>\n${WIND_UNIFORM_DECLS}\n${windLeanGlsl(wet)}\n${DISTURB_UNIFORM_DECLS}\n${disturbMathGlsl()}`
+      )
+      .replace(SWAY_ANCHOR, `${SWAY_ANCHOR}\n${windVertexChunk(wet, trunk)}\n${disturbVertexChunk()}`);
   };
-  material.customProgramCacheKey = () => 'rl-foliage-sway';
+  material.customProgramCacheKey = () =>
+    trunk ? (wet ? TRUNK_SWAY_WET_KEY : TRUNK_SWAY_KEY) : wet ? FOLIAGE_SWAY_WET_KEY : FOLIAGE_SWAY_KEY;
   return material;
 }
 
@@ -65,7 +99,8 @@ export interface DecorGeometrySet {
 }
 
 /**
- * The only two vertex attributes a decor batch may carry.
+ * The only vertex attributes a decor batch may carry: `position` and `normal`, plus the wind's
+ * `rlNature` (below) on a swaying batch.
  *
  * `BatchedMesh` takes its attribute set from the FIRST geometry added and then
  * requires every later one to match (`_validateGeometry`: "Added geometry
@@ -83,7 +118,8 @@ export interface DecorGeometrySet {
  * reads -- the flat tone is the material's own `color`, and the normal is what
  * the sun shades it by -- so nothing that survives this strip is ever missed.
  */
-const BATCH_ATTRIBUTES: ReadonlySet<string> = new Set(['position', 'normal']);
+export const NATURE_ATTRIBUTE = 'rlNature';
+const BATCH_ATTRIBUTES: ReadonlySet<string> = new Set(['position', 'normal', NATURE_ATTRIBUTE]);
 
 /**
  * Strips every attribute a decor batch cannot use, IN PLACE, returning the
@@ -101,11 +137,53 @@ export function stripToBatchAttributes(geometry: THREE.BufferGeometry): THREE.Bu
   return geometry;
 }
 
+/**
+ * Writes `rlNature` (height, class) onto every foliage and trunk part of one `<family>_<variant>`
+ * key, IN PLACE and once (a part that has it is left alone, so a rebuild repeats nothing).
+ *
+ * `.x` is the vertex's height normalised to the box of ALL the key's foliage and trunk parts: a
+ * bush's foliage starts half way up its trunk, and normalising each part by itself would hand the
+ * two halves of one bush different bend curves and tear the crown off its stem. `.y` is the wind
+ * class of the key's family (`windClassOfKey`). 8 B per vertex; no draw call, no program.
+ */
+export function addNatureAttribute(
+  key: string,
+  parts: readonly { role: DecorMeshRole; geometry: THREE.BufferGeometry }[]
+): void {
+  const swaying = parts.filter((p) => p.role === 'foliage' || p.role === 'trunk');
+  if (swaying.length === 0) return;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const { geometry } of swaying) {
+    const pos = geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i);
+      if (y < lo) lo = y;
+      if (y > hi) hi = y;
+    }
+  }
+  const span = hi - lo;
+  const cls = windClassOfKey(key);
+  for (const { geometry } of swaying) {
+    if (geometry.getAttribute(NATURE_ATTRIBUTE) !== undefined) continue;
+    const pos = geometry.getAttribute('position');
+    const out = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      out[2 * i] = span > 0 ? (pos.getY(i) - lo) / span : 0;
+      out[2 * i + 1] = cls;
+    }
+    geometry.setAttribute(NATURE_ATTRIBUTE, new THREE.BufferAttribute(out, 2));
+  }
+}
+
 const TAU = Math.PI * 2;
 
 /**
- * `sway`, when given, makes the `foliage` batch sway (`swayingFoliageMaterial`);
- * every other role keeps the plain ramp material. Each batch is named
+ * `sway`, when given, makes the `foliage` and `trunk` batches sway
+ * (`swayingFoliageMaterial`; GH-984 N1 put the trunks on the same chunk);
+ * `wet` (rain only, GH-871 P4 T5) gives them the wet sway variant -- its
+ * own programs and cache keys, the reeds riding in the same batch. Every other
+ * role keeps the plain ramp material. Each batch is named
  * `decor-<role>`.
  *
  * `decorColors` (`TerrainTones.decorColors`, GH-322) tints a family inside
@@ -121,7 +199,8 @@ export function buildDecorMesh(
   placements: readonly DecorPlacement[],
   set: DecorGeometrySet,
   sway?: SwayUniforms,
-  decorColors?: Readonly<Record<string, string>>
+  decorColors?: Readonly<Record<string, string>>,
+  wet = false
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'decor';
@@ -148,6 +227,7 @@ export function buildDecorMesh(
     live.push(p);
   }
   if (live.length === 0) return group;
+  if (sway !== undefined) for (const [key, parts] of used) addNatureAttribute(key, parts);
 
   const byRole = new Map<
     string,
@@ -199,7 +279,9 @@ export function buildDecorMesh(
       maxInstances,
       acc.verts,
       acc.idx,
-      role === 'foliage' && sway !== undefined ? swayingFoliageMaterial(ramp, sway) : rampMaterial(ramp)
+      (role === 'foliage' || role === 'trunk') && sway !== undefined
+        ? swayingFoliageMaterial(ramp, sway, wet, role === 'trunk')
+        : rampMaterial(ramp)
     );
     mesh.name = `decor-${role}`;
     const tinted = tintsForRole(decorColors, role, acc.parts);

@@ -59,6 +59,11 @@ export class FeedModel {
     return { kind: 'new', line };
   }
 
+  /** The live line carrying `key`, or -1: for a caller that takes its own line back (`Hud.retireNote`). */
+  idOf(key: string): number {
+    return this.byKey.get(key)?.id ?? -1;
+  }
+
   /** The line left the feed -- its dwell ran out, or newer lines pushed it
    *  off the end -- so nothing can merge into it any more. A no-op for an id
    *  already gone, or one a newer line with the same key has replaced. */

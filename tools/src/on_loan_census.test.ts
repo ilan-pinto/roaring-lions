@@ -23,11 +23,12 @@ const gateOf = (id: string): UnlockGate | undefined => {
 describe('wadi_halam_5_depot on an empty ledger', () => {
   const stage = missionStage('wadi_halam_5_depot');
 
-  it('lends the D9 and the demolition squad, and nothing else', () => {
+  it('lends the D9, the demolition squad and the Nemala medic team, and nothing else', () => {
     const resolved = resolveUpgrades(stage.mission, {}, gateOf).starting_force ?? [];
     const loaned = loanedPlacements(stage.mission, {}, gateOf);
-    expect(loaned).toEqual([4, 5]);
-    expect(loaned.map((i) => resolved[i].unit)).toEqual(['dozer_d9', 'demo_squad']);
+    // The medic team (GH-707, the lead's 30 Oct ruling) is the third loan: gated, not from_ledger.
+    expect(loaned).toEqual([4, 5, 7]);
+    expect(loaned.map((i) => resolved[i].unit)).toEqual(['dozer_d9', 'demo_squad', 'inf_medic_squad']);
     // Not lent: the brigade's own ifv_namer, and the jeep, which stays a jeep_shoded (apc_kipod is closed on an empty ledger).
     expect(resolved.map((p) => p.unit)).toContain('ifv_namer');
     expect(resolved[6].unit).toBe('jeep_shoded');

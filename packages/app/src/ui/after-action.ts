@@ -11,6 +11,7 @@
 import type { Stars } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { MissionLog } from '../mission-log';
+import type { EarnAward } from '../roar-earn';
 import type { InvoiceLine } from './conduct-invoice';
 import type { GroundPin } from './ground-view';
 
@@ -27,6 +28,10 @@ export interface AfterActionObjective {
   text: string;
   primary: boolean;
   carries: boolean;
+  /** Who reads what this objective carries (GH-912 G-T): `undefined` for an objective with
+   *  no recon tag (a count, an HVT kill), which keeps naming the town's `next`; `null` when
+   *  it has a tag nothing later reads; else the mission that does. */
+  carriesInto?: { name: string } | null;
   status: 'active' | 'complete' | 'failed';
 }
 
@@ -62,6 +67,9 @@ export interface AfterActionInputs {
   /** Hostile units still alive at the end (victory only). */
   withdrew?: number;
   credits?: { paid: number; balance: number };
+  /** GH-317: what this win paid in Roar coins (`roar-earn.ts`), one row each, and the
+   *  balance after. Absent when it paid none (a replay, the tutorial, a refused write). */
+  coins?: { awards: readonly EarnAward[]; balance: number };
   /** KS-12: the victory write was refused (`writeVictory` answered
    *  `'refused'`), so nothing from this win was kept. */
   unsaved?: boolean;
@@ -78,6 +86,23 @@ export interface AfterActionInputs {
   marked?: number;
   /** A unit type's display name. */
   typeName(type: string): string;
+}
+
+/** One Roar-coin payout as the report words it. A function, never a table resolved at
+ *  module load (the catalogue is not ready then). */
+export function coinAwardText(a: EarnAward): string {
+  switch (a.source) {
+    case 'welcome':
+      return t('debrief.coins.welcome');
+    case 'first_win':
+      return t('debrief.coins.firstWin');
+    case 'star':
+      return t('debrief.coins.star', { stars: a.stars ?? 0 });
+    case 'campaign':
+      return t('debrief.coins.campaign');
+    case 'backfill':
+      return t('debrief.coins.backfill');
+  }
 }
 
 export type ItemTone = 'good' | 'bad' | 'commend' | 'plain';
@@ -243,6 +268,12 @@ export function afterAction(i: AfterActionInputs): AfterAction {
           : { mark: '+0', tone: 'plain', text: t('aar.changed.creditsNone', { n: i.credits.balance }) }
       );
     }
+    if (i.coins) {
+      for (const a of i.coins.awards) {
+        changed.push({ mark: `+${a.coins}`, tone: 'commend', text: coinAwardText(a) });
+      }
+      changed.push({ mark: '', tone: 'plain', text: t('debrief.coins.total', { n: i.coins.balance }), sub: t('debrief.coins.totalSub') });
+    }
     for (const p of i.promotions) {
       changed.push({
         mark: '',
@@ -259,10 +290,11 @@ export function afterAction(i: AfterActionInputs): AfterAction {
       changed.push({ mark: t('aar.mark.garage'), tone: 'commend', text: t('aar.changed.buyable', { list: i.unlocks.map((u) => u.name).join(', ') }), sub });
     }
     for (const o of i.objectives.filter((x) => !x.primary && x.carries && x.status === 'complete')) {
+      const reader = o.carriesInto === undefined ? i.next : o.carriesInto;
       changed.push({
         mark: t('aar.mark.carries'),
         tone: 'commend',
-        text: i.next ? t('aar.changed.carriesInto', { text: o.text, next: i.next.name }) : t('aar.changed.carries', { text: o.text }),
+        text: reader ? t('aar.changed.carriesInto', { text: o.text, next: reader.name }) : t('aar.changed.carries', { text: o.text }),
       });
     }
   }

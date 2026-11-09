@@ -188,6 +188,10 @@
     "da_east_edge": [
       46,
       19
+    ],
+    "wounded_evac": [
+      21,
+      44
     ]
   },
   "zones": {

@@ -48,4 +48,11 @@ describe('tickets', () => {
     expect(JSON.parse(atob(raw.split('.')[0].replace(/-/g, '+').replace(/_/g, '/')))).not.toHaveProperty('role');
     expect((await verifyTicket(SECRET, raw, NOW))?.role).toBe('seat');
   });
+  it('a watch ticket round-trips as a watcher and drops a stray scope (GH-954 W1)', async () => {
+    const w = { ...T, seat: 0 as const, player: 'watch', role: 'watch' as const };
+    expect(await verifyTicket(SECRET, await signTicket(SECRET, w), NOW)).toEqual(w);
+    const withScope = await verifyTicket(SECRET, await signTicket(SECRET, { ...w, scope: 'assist' }), NOW);
+    expect(withScope).toEqual(w);
+    expect(await verifyTicket(SECRET, await signTicket(SECRET, { ...w, exp: NOW - 1 }), NOW)).toBeNull();
+  });
 });

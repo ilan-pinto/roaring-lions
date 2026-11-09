@@ -139,6 +139,30 @@ See `data/vfx/catastrophic_kill.json` for the canonical ramp: `white_hot → fir
 
 ---
 
+## 5a. Lighting and look — the runtime frame
+
+The sections above describe how an asset is authored. What the player sees is decided at runtime by the three.js renderer, and from a top-down RTS camera that frame, not the engine, is what separates this game from a commercial one.
+
+**As it ships** (`packages/render/src/three/`, record in `docs/agent-notes/renderer.md`): every world material is a `MeshStandardMaterial`; a side sun (`SUN_DIRECTION`) with a camera-fitted 4096² shadow map plus one hemisphere bounce (`lighting.ts`); dawn, day and dusk presets (`time-of-day.ts`); the post chain `RenderPass → FogOfWarPass → GTAO → bloom → OutputPass (ACES, exposure 1.0) → vignette → SMAA` (`post-chain.ts`); ground decals on the sim clock; per-role roughness and metal on units (`units/unit-surface.ts`). Quality presets `high`/`medium`/`low` drop AO, bloom and shadow resolution (`quality.ts`).
+
+**Shipped since, then still missing in the order it will be built** (spec: `docs/superpowers/specs/2026-11-01-look-uplift-design.md`):
+
+1. **L1, environment lighting. SHIPPED 2 Nov 2026 (GH-943), on by default.** A sky environment built from the time-of-day palette keys (sky key overhead, sun key at the horizon, `dust.4` below, no sun disc) is run through PMREM and handed to material CLASSES (`three/environment-classes.ts`): unit metal 0.6, unit dielectric 0.3, buildings 0.2, glass 0.6, props and scenery 0.3. The ground, decals, smoke, FX, the backdrop and ground litter (`decor-sand`) get no `envMap` at all (an exact zero), because in three 0.186.1 a global `scene.environment` would give every material one intensity. The hemisphere is per preset and census-solved to hold quiet-frame brightness (0.70 dawn, 0.82 day, 0.65 dusk; shipped 0.75 / 0.9 / 0.7), and the unit metal cap is 0.7 (was 0.45). The lead judged the mock on 2 Nov and shipped the middle column of it; the approved starting hemisphere (0.5 / 0.6 / 0.47) would have darkened the frame 3-10%. `&envlight=0` draws the pre-L1 frame for an A/B. The `environment` debug layer has gated checks on `quiet`, `open-ground`, `vehicle`, `kitted`, `relief`, `aftermath` and the new `fogged` scenario. Known gaps: the garage view, campaign board and menu-only materials, tunnel props, garrison banners and proxy boxes are untagged and get no environment; support aircraft take the unit dielectric class throughout. Record: `docs/agent-notes/renderer.md`, "Look uplift L1".
+2. **L2, colour grading.** A grade per map and per time of day, stored as data in `data/grades/` (registered in the data index) and baked to a 3D LUT at boot. Day is the identity grade and builds no pass; dawn and dusk are graded.
+3. **L3, normal and ORM maps and a team-colour mask on unit textures.** Unit GLBs are no longer "zero materials": `TEXTURED_BUILDING_EXEMPT`, `TEXTURED_VEHICLE_EXEMPT` and `TEXTURED_INFANTRY_EXEMPT` (`tools/validate_mesh_assets.py`) already waive it for every vehicle and infantry team, with base-colour bakes. L3 adds normal and occlusion-roughness-metal maps, a team mask and a texture budget per class, needs a lead ruling on scope and budget, and pilots on `inf_squad` (f1, GH-746) and one vehicle. The approved Meshy recipe has no `--pbr`, so normals are baked in Blender. (CLAUDE.md's "zero materials" bullet is stale and is amended with the first pilot.)
+4. **L4, vertex animation textures.** Infantry clips baked to textures and drawn instanced, to lift the draw-call ceiling. With the GH-746 figure (skinned, textured, about 10k triangles) the bake target is a decimated battle-zoom LOD, with the skinned figure kept for close-ups; the outline, shadow-depth and GTAO passes need the same displacement. The ~1,150-figure ceiling was measured on a stand-in GLB, so `three-units.ts` is repointed at the shipped figure first. A new pipeline pass after `gait:meshes` and before `encode:meshes`.
+5. **L5, a WebGPU spike.** A measured decision sheet, not a migration.
+
+**Rules that hold for every look change:**
+
+- The palette is the source of every authored colour, including an environment and a grade. Never a raw hex.
+- Numbers are approved on a mock sheet before any render or Meshy call. (L1 did: the lead judged `_coord/look-l1/mock/sheet.png` and shipped its middle column.)
+- A new effect gets a debug layer and a visible-toggle floor in the visual gate, and its falsification (the layer hidden, the check watched red) goes in the commit message.
+- The golden baseline moves once per phase and is blessed from CI numbers, never from a branch.
+- Presentation only. Nothing in this section may read back into the sim.
+
+---
+
 ## 6. Terrain — the 60% nobody budgets for
 
 Most projects polish units and ship ugly ground, then wonder why it looks amateur. Ground is the majority of every screenshot.
@@ -225,12 +249,37 @@ submitted preview/refine/image/remesh task — `pnpm meshy -- spent` sums it, so
 "how much have we spent" never depends on anyone's memory or the Meshy
 dashboard.
 
-**Disclosure is still required.** A model built via this CLI is AI-generated
+**The `plan` field (GH-933, from 1 Nov 2026).** Every new ledger row records the
+Meshy plan tier the spend ran under, as `"plan": "<tier>"` (lower-case, Meshy's
+tier name). The CLI reads it from `MESHY_PLAN` (env, else the key file's
+non-secret `MESHY_PLAN` line) and writes `"unknown"` when none is named; the
+image commands also take `--plan <tier>` (below). Rows written before 1 Nov 2026
+have no `plan` key and are never rewritten: read a missing field as "not
+recorded". The Meshy credit that applies to these assets is in
+[art/ATTRIBUTION.md](../art/ATTRIBUTION.md).
+
+**Disclosure is still required, and so is the credit.** Meshy output is credited
+in [art/ATTRIBUTION.md](../art/ATTRIBUTION.md); add a new Meshy-origin asset to
+its groups. A model built via this CLI is AI-generated
 art exactly like the ten Meshy assets already shipped, and CONTRIBUTING.md's
 AI policy — disclosure in the PR description, the same four CI gates as
 anything else — applies unchanged. Each generate command prints a line
 formatted to paste straight into `docs/ASSET_PROVENANCE.md`'s Meshy table;
 fill in "Draws as" once the model has a role.
+
+**Image generation: `t2i` and `i2i` (store cards, GH-746).** `pnpm meshy -- t2i "<prompt>"`
+(text-to-image, no reference) and `pnpm meshy -- i2i --prompt "<text>" <ref>...` (image-to-image,
+1-5 reference images, or `--from-task <id>`, never both: Meshy drops the references when it is given a
+task id). `image` is taken (it is image-to-3D), hence the short names. Models are `nano-banana`,
+`nano-banana-2` (the default), `nano-banana-2-lite`, `nano-banana-pro` (Pro plan and up), and the GPT
+Image models; `3:2` exists on the GPT models only. Prices are per request and quoted 1 Nov 2026 in
+`pricing.ts` (`IMAGE_PRICING`): `pnpm meshy -- estimate t2i|i2i --model <m> --count <n>`. Three
+differences from the 3D commands: the image endpoints have no `negative_prompt` field, so
+`--negative` is appended to the prompt as "Avoid: ..."; the paid plan tier the spend ran under is
+recorded in the ledger line (`--plan <tier>` or `MESHY_PLAN`; `--plan free` and a spend with no plan
+are refused, because free-plan output is Meshy-owned); and every local reference's sha256 and the
+prompt's sha256 are recorded, with the provenance row printed for `ASSET_PROVENANCE.md`.
+`--yes` is required off a terminal, as everywhere here, and `MESHY_DRY_RUN=1` needs no key.
 
 ### Gemini video API (cinematics)
 

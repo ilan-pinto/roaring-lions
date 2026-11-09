@@ -1,3 +1,5 @@
+import { SPECIALS_MAX } from './specials';
+
 /** The whole input to both simulations (spec §2.1). `mode: 'sandbox'` is
  *  N0's two-humans-on-side-0 room; `'versus'` arrives with N1. */
 export type Seat = 0 | 1;
@@ -13,10 +15,156 @@ export interface SeatConfig {
    *  room. Structural checks only (`isTiers`); the room cannot check a claim
    *  against an account. */
   tiers: Record<string, Record<string, number>>;
+  /** GH-1102: the Store specials this seat brings into a brigade room (`specials.ts`), as the
+   *  room minted them: its cleaned claim minus `VERSUS_REFUSED_SPECIALS`, for a human KDF seat
+   *  in a `brigade` room only. `[]` everywhere else, as it was in every room before. At most
+   *  `SPECIALS_MAX` strings; the world cleans it again against the data (`seatSpecials`). */
   unlocks: string[];
   player: string;
   callsign: string;
   kind: 'human' | 'bot';
+}
+
+/** How a versus room is WON beside annihilation (GH-976): `camp` razes the enemy camp, `points` is a points race, `flag` is
+ *  capture the flag, v1 a RAID (GH-976 P3): hold the enemy flag zone alone for the mode file's `hold_s`; no carried flag.
+ *  A twin of @lions/data's `WIN_MODES` (the Worker imports net and not data), held to it by
+ *  `tools/src/validate_versus_modes.test.ts`. Absent on a config is annihilation, the default, and every room
+ *  that has ever been played. */
+export const WIN_MODES = ['camp', 'points', 'flag'] as const;
+export type WinMode = (typeof WIN_MODES)[number];
+
+/** The maps each win mode has been READ fair on (GH-976 P1; `pnpm versus:probe -- --mode=...`, 288 held-out seeds, 4000-4287,
+ *  both ends active and each end passive in turn): the lobby of a later phase offers a mode on these maps and no others
+ *  (`winModeAllowed`). Nothing consults it in phase 1 -- no room offers a mode yet -- and `validateConfig` does not (the probe
+ *  and the tests play modes anywhere a mode file stands).
+ *
+ *  - `points` reads fair on both: wadi_tarfan east 56.3% (within the 60/40 bar), 93.8% of games decided by the goal, the passive
+ *    end lost 288 of 288 from each end; milh_flats west 57.3%, 98.3% by the goal, the passive end lost 288 of 288 from each end.
+ *  - `camp` (GH-976 P1) read fair (53.5% and 58.0%) and FAILED the other two bars on both maps at the camps' first positions, so it was
+ *    listed on none: 4.9% (wadi_tarfan) and 58.3% (milh_flats) of games were decided by the camp, against 70% required, because two
+ *    blobs that attack-move on the other's camp meet and one wipes the other first; and a passive end won 29 and 8 of 288 games
+ *    (wadi_tarfan), 47 and 38 (milh_flats), where it must lose them all. GH-976 camp-mode: the camp stands INSIDE the defender's
+ *    reach, so a passive force beat an all-in attacker on the way to it. The camp is data (`camps` in the mode file, any open
+ *    2x2 within `CAMP_REACH` of the seat's anchor), so it was moved forward, toward the enemy. **`milh_flats` only**, at (15,39) and
+ *    (31,7) (it was (4,40) and (42,6)); fitted on seeds 0-191 (192 games a cell: 92 / 100, 96.4% by the goal, the passive end
+ *    lost 384 of 384), read once on 4000-4287: west 137 / east 151 / draw 0 (52.4%), 96.5% by the goal, the passive end lost 288
+ *    of 288 from each end. Not unfair for this probe's play, which is a race: the raid runs 32 s (east camp) to 82 s (west camp)
+ *    and a defender that stands ON its camp (not the probe's passive seat) holds it 55 times of 96 in the west and 8 in the
+ *    east. wadi_tarfan, rujm_sawda, wadi_tarfan_l, milh_flats_l, tel_marum and beit_sahwan_outskirts were screened over the camp
+ *    ground the reach allows and none gets past 33% decided by the goal (best 22%, wadi_tarfan): their blobs meet, and the wipe
+ *    ends the game before a camp falls. That needs an engine rule (annihilation off, or a goal-aware wipe), not data.
+ *  - **GH-976, 5 Nov: `camp` on `wadi_tarfan` and `wadi_tarfan_l` too**, with forward camps and `modes.camp.wipe: after_camp` (a wiped side keeps
+ *    playing while its camp stands; the screen over the ground the reach allows is above, and it now reads differently once the camp may stand 8-10
+ *    tiles out; `MODE_CAMP_REACH` is 10 in `tools/validate_versus_modes.mjs`, the economy camps keep `CAMP_REACH` 6): wadi_tarfan (13,18) / (33,28) (the screened (12,18) / (34,28) put a spawned unit on a camp tile), wadi_tarfan_l (26,30) / (68,64),
+ *    exits point-mirrored. The fresh-seed read (28000-28191, 192 per arm) is in the PR that added them; milh_flats_l, rujm_sawda and tel_marum stay out
+ *    (no placement passed every gate there: GH-976).
+ *  - `flag` (GH-976 P3; the raid probe: two infantry squads go for the flag, the rest of the force plays the base probe) reads
+ *    fair on both, flag zones fitted on seeds 0-191 and read on 4000-4287 (288 each): wadi_tarfan east 164 / west 114 / draw 10,
+ *    leader 56.9%, 96.5% decided by the goal, the passive end lost 288 of 288 from each end; milh_flats east 150 / west 134 /
+ *    draw 4, leader 52.1%, 78.5% by the goal, the passive end lost 288 of 288 from each end. A same-tick double capture is a draw
+ *    (the two raids are exact mirrors), not a goal win, in that share.
+ *  - GH-976 P4 added the five other open maps, each fitted on seeds 0-191 and read once on 4000-4287 (288 each). The leader's
+ *    share is over ALL the games, then over the DECISIVE games alone (a draw is nobody's), both inside 60/40 on every row below,
+ *    and the passive end lost 288 of 288 from each end on every row:
+ *
+ *    | map | mode | west / east / draw | leader (all / decisive) | decided by the goal |
+ *    |---|---|---|---|---|
+ *    | tel_marum | points | 155 / 133 / 0 | 53.8% / 53.8% | 79.2% |
+ *    | tel_marum | flag | 158 / 130 / 0 | 54.9% / 54.9% | 99.7% |
+ *    | beit_sahwan_outskirts | points | 140 / 148 / 0 | 51.4% / 51.4% | 73.6% |
+ *    | beit_sahwan_outskirts | flag | 148 / 140 / 0 | 51.4% / 51.4% | 100.0% |
+ *    | rujm_sawda | points | 158 / 130 / 0 | 54.9% / 54.9% | 93.8% |
+ *    | rujm_sawda | flag | 127 / 115 / 46 | 44.1% / 52.5% | 80.6% |
+ *    | wadi_tarfan_l | points | 135 / 153 / 0 (12000-12287, see below) | 53.1% / 53.1% | 96.2% |
+ *    | wadi_tarfan_l | flag | 122 / 129 / 37 | 44.8% / 51.4% | 87.2% |
+ *    | milh_flats_l | points | 139 / 149 / 0 | 51.7% / 51.7% | 99.7% |
+ *    | milh_flats_l | flag | 144 / 144 / 0 | 50.0% / 50.0% | 97.9% |
+ *
+ *    The fits are brittle in position and in the rates (a one-tile move of a flag, or one point of the kill weight on tel_marum,
+ *    swings a cell by 5-30 points), so read each as "this ground, at these numbers, is not unfair for this probe's play".
+ *    A second look on a range nobody had fitted or read (9000-9287, the PR 1020 review; same files except wadi_tarfan_l points,
+ *    which was then at another weight, see below) passed every mirror row it re-read: tel_marum points 158 / 130 / 0, 54.9%,
+ *    84.4% by the goal; wadi_tarfan_l flag 126 / 125 / 37, 43.8% / 50.2% decisive, 87.2%; beit_sahwan_outskirts points
+ *    133 / 155 / 0, 53.8%, 74.3%. wadi_tarfan_l points (1 point per 100, target 600) was read on a third range, 12000-12287:
+ *    135 / 153 / 0, 53.1% over all and decisive games, 96.2% by the goal, the passive end lost 288 of 288 from each end.
+ *    KDF against Sarim is `WIN_MODE_FAIR_FACTION_CELLS`'s question. */
+export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
+  camp: ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'],
+  points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
+  // GH-1139 (the lead, 8 Nov): flag is OUT of every lobby until CTF v2 lands at WP9. The v1 raid that the seven reads above
+  // passed is won by an opening attack-move in 32-62 s on every map (0:55 in the lead's bot match). WP9 relists the maps that
+  // pass the v2 bars here and in `FLAG_SETUP_MAPS` together. The engine, the mode files and the probe stay; tools and tests
+  // build flag worlds directly (`validateConfig` does not read this table), and a test that needs a flag ROOM stands a map
+  // here for its own duration (read at call time, like `FLAG_SETUP_MAPS`).
+  flag: [],
+};
+
+/** The KDF-v-Sarim cells each win mode has been read fair on (GH-976 P4): per mode, per map, the HOSTS (the matchup is the
+ *  host's faction, `kdf` or `sarim`, so the two entries are the two seat orders) whose cell passed every bar. The mirror's
+ *  table is `WIN_MODE_FAIR_MAPS`; a faction cell is its own read, because a faction pairing in a mode room plays the two
+ *  PLACED forces with no economy (`economyRoom` is false for it), and a mode that is fair between two KDF forces says
+ *  nothing about KDF against Sarim.
+ *
+ *  A cell is in this table only if it passed the bars of the mirror's table on its own held-out seeds (4000-4287): the leader
+ *  inside 60/40 over all the games and over the decisive games alone, the passive seat lost every game from either end,
+ *  and at least 70% of the games decided by the goal.
+ *
+ *  - Nothing is listed (GH-976 P4 review). The one cell that passed, `points` on wadi_tarfan_l at 10 points per 100 value and a
+ *    target of 400 (4000-4287: 130 / 158 and 125 / 163, 54.9% and 56.6%), was a kill race, not a points race: about 80% of its
+ *    points came from kills (held ground 20%, against 87-91% on the other maps), and at the real race (1 per 100, target 600) the
+ *    faction cells read Sarim 63.2% and 64.2% on 9000-9287. It was removed, and the mirror file went back to 1 per 100.
+ *  - Read on 4000-4287 and NOT fair, so not listed (leader / decided by the goal, host KDF then host Sarim): `flag` on
+ *    wadi_tarfan 100% and 100% / 100.0% (Sarim wins every raid), on tel_marum 88.9% and 100% / 99.7% and 100.0% (Sarim), on
+ *    wadi_tarfan_l 100% and 100% / 100.0% (the KDF wins every raid); `points` on wadi_tarfan 88.9% and 93.8% / 15.3% and 17.7%
+ *    (Sarim; the two forces annihilate each other first), on tel_marum 72.9% and 94.8% / 24.3% and 4.9% (Sarim). The full table,
+ *    with the fitting reads and the levers screened, is in the PR that added this list.
+ *
+ *  Absent maps and absent hosts are not offered, and the Worker answers 400 for them (`winModeRequest`). */
+export const WIN_MODE_FAIR_FACTION_CELLS: Readonly<Record<WinMode, Readonly<Record<string, readonly ('kdf' | 'sarim')[]>>>> = {
+  camp: {},
+  points: {},
+  flag: {},
+};
+
+/** Whether `map` is one `mode` has been read fair on in `matchup` (the lobby's question): the mirror reads
+ *  `WIN_MODE_FAIR_MAPS`, a faction pairing `WIN_MODE_FAIR_FACTION_CELLS` by the host's faction. */
+export function winModeAllowed(mode: WinMode, map: string, matchup: Matchup = 'mirror'): boolean {
+  if (matchup === 'mirror') return WIN_MODE_FAIR_MAPS[mode].includes(map);
+  const cells = WIN_MODE_FAIR_FACTION_CELLS[mode];
+  return Object.hasOwn(cells, map) && cells[map].includes(matchup);
+}
+
+/** Whether any lobby offers `mode` at all: on some map in the mirror, or in some faction cell. False for flag until CTF v2 is
+ *  relisted (GH-1139), so a tool that is TOLD a mode (`pnpm bot --mode`) can refuse one no room can play. */
+export function winModeOpen(mode: WinMode): boolean {
+  return WIN_MODE_FAIR_MAPS[mode].length > 0 || Object.values(WIN_MODE_FAIR_FACTION_CELLS[mode]).some((hosts) => hosts.length > 0);
+}
+
+/** A win mode from anything a client sent: unknown reads as none (annihilation). */
+export function winModeField(v: unknown): WinMode | undefined {
+  return WIN_MODES.find((m) => m === v);
+}
+
+/** The modes a lobby offers for `map` in a `matchup`, in `WIN_MODES` order: those read fair on that map in that pairing
+ *  (GH-976 P2, P4): the mirror's table, or the faction cell of the host's side. Annihilation, the default, is not
+ *  listed: every room can play it. */
+export function winModesOffered(map: string, matchup: Matchup = 'mirror'): readonly WinMode[] {
+  return WIN_MODES.filter((m) => winModeAllowed(m, map, matchup));
+}
+
+/** What a create request asked for, judged: `mode` is the win mode to play (undefined: annihilation), or `refused`
+ *  names why the room must not be made. The Worker's route and its room both ask this one question, so they cannot
+ *  disagree. Absent, null and the string `annihilation` are annihilation; anything else must be a mode that
+ *  `winModesOffered` lists for this map and matchup (GH-976 P4: a KDF-v-Sarim room asks the faction table of its host's
+ *  side). A sandbox room takes no mode. */
+export type WinModeRequest = { mode: WinMode | undefined; refused?: undefined } | { mode?: undefined; refused: string };
+export function winModeRequest(v: unknown, room: { mode: 'sandbox' | 'versus'; map: string; matchup: Matchup }): WinModeRequest {
+  if (v === undefined || v === null || v === 'annihilation') return { mode: undefined };
+  const mode = winModeField(v);
+  if (mode === undefined) return { refused: 'unknown win mode' };
+  if (room.mode !== 'versus') return { refused: 'win mode is for versus rooms' };
+  if (!winModeAllowed(mode, room.map, room.matchup)) return { refused: room.matchup === 'mirror' ? 'win mode not offered on this map' : 'win mode not offered on this map for this matchup' };
+  return { mode };
 }
 
 export type Pace = { kind: 'realtime' } | { kind: 'paced'; roundTicks: number; roundWallMs: number };
@@ -41,6 +189,14 @@ export interface MatchConfig {
    *  0 is off. The room mints it (snapshot spec §4.2); a config persisted
    *  before the field existed reads as off. */
   snapshotEveryTicks?: number;
+  /** GH-976: the win mode a versus room plays, when it plays one. Absent is annihilation and changes nothing
+   *  about the room. A mode room runs a goals-only runtime, mirror included, with production off
+   *  (`economyRoom` is false for it); the match ends on the goal, annihilation or the cap (`outcome.ts`). */
+  winMode?: WinMode;
+  /** GH-976 v2: a flag room that plays the SET-UP rules (the staged `flag_setup` block, a 3:00 set-up, a 30-minute cap). Minted by the
+   *  Worker alone, from `FLAG_SETUP_MAPS` and the room's `winMode` -- never from a client value. Strictly `true` or absent
+   *  (`validateConfig`); absent is today's flag raid, byte for byte. */
+  flagSetup?: true;
 }
 
 /** The cadence the room mints, in frame ticks: one a minute at 20 Hz (D2). */
@@ -96,8 +252,9 @@ export function sidesOfMatchup(m: Matchup): [0 | 1, 0 | 1] {
  *  whose two seats field different factions. Such a room builds a
  *  `MissionRuntime` (camps, purses, doctrine menus, income zones); a mirror
  *  room -- KDF against KDF -- keeps today's placed-force match and builds none. */
-export function economyRoom(config: Pick<MatchConfig, 'mode' | 'seats'>): boolean {
-  return config.mode === 'versus' && config.seats[0].faction !== config.seats[1].faction;
+export function economyRoom(config: Pick<MatchConfig, 'mode' | 'seats' | 'winMode'>): boolean {
+  // GH-976: a win-mode room plays goals, not an economy, whoever the two factions are.
+  return config.mode === 'versus' && config.seats[0].faction !== config.seats[1].faction && config.winMode === undefined;
 }
 
 /** Where a seat's force spawns: the host (seat 0) on the map's `friendly`
@@ -129,7 +286,21 @@ export function endOfSeat(seat: Seat): SpawnEnd {
  *  `beit_sahwan_outskirts`' room seats are no longer the heuristic's: after
  *  PR #721 the mirror read west 38 / east 10 there, and its measured seats
  *  live in `VERSUS_SEATS` (packages/app/src/net/versus-seats.ts). */
-export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats'];
+export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+
+// The large 80x80 map (GH-913 L8) joins as a MIRROR-ONLY map, the lead's ruling of 1 Nov: its mirror was
+// accepted at the shipped seat (12,12) on the 576-seed reading (west 52.3%), while its KDF-vs-Sarim cells
+// read KDF 66-74% and the tunnels cell about 96%, so it is in `FACTION_MATCHUP_MAPS` never. Opened after
+// the ground and decor chunking (PR 932) and a frame re-check on high. Formations are open on it since its own S4 run of 3 Nov (GH-913): mirror cell, 0 TRIP of 3.
+//
+// The large 96x96 Wadi Tarfan (GH-920 B7) joins for the mirror AND both faction cells (it is in
+// `FACTION_MATCHUP_MAPS` too): B4 read every offered cell at its shipped seats (20,20)/(75,75) inside 60/40 on held-out
+// seeds (set C, 4000-4287, 288 seeds a cell; the lead's ruling of 2 Nov: fair at its seats, the one-tile seat
+// neighbourhood is a report, not a gate). Formations are open on it since 7 Nov (GH-859): its S4 run of 3 Nov tripped one cell of 21, the 6 Nov re-run none of 21.
+//
+// The large 96x96 Milh Flats (GH-920 B7) joins as a MIRROR-ONLY map, like its 48x48 original, and is in
+// `FACTION_MATCHUP_MAPS` never: B4 read only the mirror cells at its seats (20,75)/(75,20), KDF v KDF 50.0% pooled over
+// 480 seeds (49.7% on the held-out 4000-4287), Sarim v Sarim 55.4% (report only). Formations are open on it since its own S4 run of 3 Nov (GH-913): mirror cell, 0 TRIP of 3.
 
 /** Whether a versus room may be hosted on `map`. */
 export function versusMapAllowed(map: string): boolean {
@@ -140,13 +311,74 @@ export function versusMapAllowed(map: string): boolean {
  *  2026-10-14): Tel Marum -- the map the versus probe balanced the Sarim
  *  force on -- and Wadi Tarfan, which was opened on a 48-seed reading inside
  *  sampling noise; at 96 seeds it read outside (GH-769), and it now stands on
- *  measured seats (11,11)/(36,36) in `VERSUS_SEATS` with tunnel route
- *  capacities 1 / 2 (its friendly pair, north / west) and 1 / 3 (its hostile pair, south / east; GH-421 Stages 1 and 2, re-priced by GH-560), reading within 60/40 at 96 seeds on placed force, economy and
+ *  measured seats (10,10)/(37,37) in `VERSUS_SEATS` with every tunnel route at
+ *  capacity 3 (GH-945; before it, seats (11,11)/(36,36) and capacities 1 / 2 and 1 / 3, GH-421 and GH-560), reading within 60/40 at 384 seeds (placed Sarim-friendly about 56 pooled over 768, unchanged by GH-945) on placed force, economy and
  *  tunnel cell 3 in both spawn orders. Milh Flats is NOT here: Sarim on the west seat lost 33 of 48
  *  (KDF 68.8%), so it is a mirror-only map. The mirror plays on the fair maps
  *  (`VERSUS_FAIR_MAPS`); a non-mirror pairing is narrower still. The lobby
  *  offers no other pairing and the room refuses one (`matchupAllowed`). */
-export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum', 'wadi_tarfan'];
+export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum', 'wadi_tarfan', 'wadi_tarfan_l'];
+
+/** The match cap, in minutes, of a room on a map whose rules file says more than the default (GH-913 L8).
+ *  A TWIN of `cap_minutes` in data/versus/<map>.json, kept here because the Worker imports @lions/net and
+ *  not @lions/data (it would pull every map into the bundle for one number).
+ *  `tools/src/validate_versus_rules.test.ts` holds this table to every rules file, both ways. */
+export const MAP_CAP_MINUTES: Readonly<Record<string, number>> = { rujm_sawda: 35, wadi_tarfan_l: 35, milh_flats_l: 35 };
+
+/** GH-976 v2: the maps a FLAG room plays the set-up rules on. Empty until WP9's per-map relist, so no room mints `flagSetup` yet.
+ *  Read at CALL time (`flagSetupFor`), so a test may stand a map in it. */
+export const FLAG_SETUP_MAPS: readonly string[] = [];
+
+/** The flag match cap, in minutes, of a set-up room on every map, set-up included. A TWIN of `FLAG_SETUP_CAP_MINUTES` in
+ *  @lions/data (the Worker imports net and not data), held to it by `tools/src/validate_versus_modes.test.ts`. */
+export const FLAG_SETUP_CAP_MINUTES = 30;
+
+/** What the Worker mints into a room's config: `true` for a FLAG room on a map in `FLAG_SETUP_MAPS`, else undefined. The one place the
+ *  rule lives; the lobby asks it too, to read the hold a room will play. */
+export function flagSetupFor(map: string, winMode: WinMode | null | undefined): true | undefined {
+  return winMode === 'flag' && FLAG_SETUP_MAPS.includes(map) ? true : undefined;
+}
+
+/** Whether a config plays the flag set-up rules: a FLAG room carrying `flagSetup: true`. */
+export function flagSetupRoom(c: Pick<MatchConfig, 'winMode' | 'flagSetup'>): boolean {
+  return c.winMode === 'flag' && c.flagSetup === true;
+}
+
+/** The match cap every map has unless `MAP_CAP_MINUTES` says more: 25 minutes. */
+export const MATCH_CAP_MINUTES_DEFAULT = 25;
+
+/** The cap of a room on `map`, in minutes. */
+export function matchCapMinutes(map: string | null | undefined): number {
+  if (map === null || map === undefined) return MATCH_CAP_MINUTES_DEFAULT;
+  return Object.hasOwn(MAP_CAP_MINUTES, map) ? MAP_CAP_MINUTES[map] : MATCH_CAP_MINUTES_DEFAULT;
+}
+
+/** The cap of a room on `map`, in 20 Hz ticks (`outcomeOf` decides a standing match here). */
+export function matchCapTicks(map: string | null | undefined): number {
+  return matchCapMinutes(map) * 60 * 20;
+}
+
+/** The slice of a config the cap is read from. */
+export type CapConfig = Pick<MatchConfig, 'map' | 'winMode' | 'flagSetup'>;
+
+/** The cap of a ROOM, in minutes: `FLAG_SETUP_CAP_MINUTES` in a set-up room, else the map's (GH-976 R0.8). Every site that holds a config reads this. */
+export function matchCapMinutesOf(c: CapConfig): number {
+  return flagSetupRoom(c) ? FLAG_SETUP_CAP_MINUTES : matchCapMinutes(c.map);
+}
+
+/** The cap of a ROOM, in 20 Hz ticks: 30 minutes in a set-up room, else `matchCapTicks(map)`. */
+export function matchCapTicksOf(c: CapConfig): number {
+  return matchCapMinutesOf(c) * 60 * 20;
+}
+
+/** The most command JSON characters one room stores, both seats together (GH-913 L8). The Worker's
+ *  `MAX_LOG_CMD_CHARS` was written for the 25-minute cap; a longer match gets proportionally more, so a
+ *  heavy pair (120 orders a minute a seat, 30 ids each: 87% of the old cap at 35 minutes) cannot void it.
+ *  Whole characters: `base` x cap / 25, so 2,800,000 at 35 minutes. */
+export function maxLogCmdChars(room: string | null | undefined | CapConfig, base: number): number {
+  const minutes = typeof room === 'object' && room !== null ? matchCapMinutesOf(room) : matchCapMinutes(room);
+  return Math.floor((base * minutes) / MATCH_CAP_MINUTES_DEFAULT);
+}
 
 /** Whether `m` may be played on `map`, among the maps a room is offered on at
  *  all: the mirror anywhere, a KDF-vs-Sarim pairing on `FACTION_MATCHUP_MAPS`.
@@ -193,7 +425,7 @@ function isSeatConfig(v: unknown, seat: Seat): v is SeatConfig {
   const s = v as Record<string, unknown>;
   return s.seat === seat && (s.side === 0 || s.side === 1) && (s.faction === 'kdf' || s.faction === 'sarim') &&
     (s.kit === 'matched' || s.kit === 'brigade') && isTiers(s.tiers) &&
-    Array.isArray(s.unlocks) && s.unlocks.every(isStr) &&
+    Array.isArray(s.unlocks) && s.unlocks.length <= SPECIALS_MAX && s.unlocks.every(isStr) &&
     isStr(s.player) && isStr(s.callsign) && (s.kind === 'human' || s.kind === 'bot');
 }
 
@@ -212,6 +444,9 @@ export function validateConfig(v: unknown): MatchConfig | null {
   if (!Array.isArray(c.seats) || c.seats.length !== 2 || !isSeatConfig(c.seats[0], 0) || !isSeatConfig(c.seats[1], 1)) return null;
   if (!isPace(c.pace) || !isInt(c.hashEveryTicks) || c.hashEveryTicks < 1 || !isInt(c.bufferTicks) || c.bufferTicks < 0) return null;
   if (!isStr(c.build) || !isInt(c.dataDigest)) return null;
+  if (c.winMode !== undefined && (c.mode !== 'versus' || winModeField(c.winMode) === undefined)) return null;
+  // GH-976 R0.25: strictly `true`, and only in a flag room. `1`, `'true'` and `false` are refused, not coerced.
+  if (c.flagSetup !== undefined && (c.flagSetup !== true || c.winMode !== 'flag')) return null;
   if (c.snapshotEveryTicks !== undefined) {
     const e = c.snapshotEveryTicks;
     if (!isInt(e) || e < 0 || e > SNAPSHOT_EVERY_TICKS_MAX || (e !== 0 && e % c.hashEveryTicks !== 0)) return null;

@@ -18,13 +18,18 @@
 // class is what picks the design (spec §3): a fix that only ever brakes movers cannot touch
 // SS, and a fix that only settles parked hulls cannot touch MM or MS.
 //
+// `--formation=column` (GH-859 P1b, spec 8.9) plays every scenario that holds a plain `move` order a second time with
+// that order carrying the F1 Column formation (an `exact` order and an attack-move are left as they are), and prints
+// the two readings side by side: does a column on its checkpoints and its pace stand inside itself less than the same
+// hulls on one flow field? Without the flag the output is what it always was.
+//
 // Nothing here asserts a level: `vehicle-overlap-probe.test.ts` checks the INSTRUMENT
 // (literal geometry, a counted pair, an uncounted pair) and never the defect, so CI stays
 // green before and after the fix. The numbers are printed, not gated.
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { Sim, fx, TICKS_PER_SECOND, type Command, type UnitTypeJson } from '@lions/sim';
-import { units, maps, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
+import { units, maps, structures as structureCatalogue, parseMap, applyTerrain, formations } from '@lions/data';
 import { unitFootprintTable } from '../perf/unit-footprints';
 
 /** A pair counts once its boxes interpenetrate by more than this, in tiles (6 cm). */
@@ -139,7 +144,7 @@ export interface Scenario {
 }
 
 /** A sim on a shipped map, terrain and buildings as the app raises them, every unit type registered. */
-export function worldOn(mapId: string, seed: number, capacity = 256): { sim: Sim; typeOf: Map<string, number>; nameOf: Map<number, string> } {
+export function worldOn(mapId: string, seed: number, capacity = 256, withFormations = false): { sim: Sim; typeOf: Map<string, number>; nameOf: Map<number, string> } {
   const map = parseMap(maps[mapId as keyof typeof maps]);
   const sim = new Sim({ seed, width: map.width, height: map.height, capacity });
   applyTerrain(map, sim);
@@ -155,6 +160,8 @@ export function worldOn(mapId: string, seed: number, capacity = 256): { sim: Sim
   const typeOf = new Map<string, number>();
   for (const [id, u] of Object.entries(units)) typeOf.set(id, sim.addUnitType(u as unknown as UnitTypeJson));
   const nameOf = new Map([...typeOf].map(([id, t]) => [t, id] as [number, string]));
+  // A room registers its formations after its unit types (config: it moves no hash and changes no unordered world).
+  if (withFormations) for (const f of formations) sim.addFormationType(f);
   return { sim, typeOf, nameOf };
 }
 
@@ -218,9 +225,21 @@ export function measure(
   return r;
 }
 
-/** Spawn a scenario's placements, issue its orders, and measure it. */
-export function runScenario(sc: Scenario, hulls: Map<string, Hull>): Reading {
-  const { sim, typeOf, nameOf } = worldOn(sc.map, sc.seed ?? 424242);
+/** The commands with every plain `move` (not `exact`) carrying `formation`; any other command as it was. */
+export function withFormation(cmds: readonly Command[], formation: string): Command[] {
+  return cmds.map((c) => (c.kind === 'move' && c.exact !== true ? { ...c, formation } : c));
+}
+
+/** Whether a scenario holds an order `withFormation` would change: only those are played in the `--formation` arm. */
+export function formable(sc: Scenario): boolean {
+  const cmds = sc.orders(sc.place.map((_, k) => k));
+  return withFormation(cmds, 'column').some((c, k) => c !== cmds[k]);
+}
+
+/** A scenario's world with its placements spawned and its orders queued (not yet ticked). `formation` names the
+ *  formation the plain moves carry. */
+export function setupScenario(sc: Scenario, formation?: string): { sim: Sim; nameOf: Map<number, string>; ids: number[] } {
+  const { sim, typeOf, nameOf } = worldOn(sc.map, sc.seed ?? 424242, 256, formation !== undefined);
   const ids: number[] = [];
   for (const p of sc.place) {
     const t = typeOf.get(p.unit);
@@ -228,7 +247,14 @@ export function runScenario(sc: Scenario, hulls: Map<string, Hull>): Reading {
     const facing = Math.round((((p.facingDeg ?? 0) % 360) + 360) % 360 / 360 * 65536) & 0xffff;
     ids.push(sim.spawn(t, p.side, fx.from(p.x), fx.from(p.y), facing));
   }
-  for (const c of sc.orders(ids)) sim.queueCommand(c);
+  const cmds = sc.orders(ids);
+  for (const c of formation === undefined ? cmds : withFormation(cmds, formation)) sim.queueCommand(c);
+  return { sim, nameOf, ids };
+}
+
+/** Spawn a scenario's placements, issue its orders, and measure it. `formation` names the formation the plain moves carry. */
+export function runScenario(sc: Scenario, hulls: Map<string, Hull>, formation?: string): Reading {
+  const { sim, nameOf } = setupScenario(sc, formation);
   return measure(sc.name, sim, nameOf, hulls, sc.seconds * TICKS_PER_SECOND);
 }
 
@@ -376,15 +402,33 @@ export function formatReading(r: Reading): string {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const hulls = measuredHulls();
+  const arm = process.argv.slice(2).find((a) => a.startsWith('--formation='));
+  const formation = arm === undefined ? undefined : arm.slice('--formation='.length);
+  if (formation !== undefined && !formations.some((f) => f.id === formation)) throw new Error(`--formation must name a shipped formation (${formations.map((f) => f.id).join(', ')})`);
   console.log(`vehicle overlap probe (GH-421), report only; contact > ${CONTACT_EPS} tile, deep > ${DEEP} tile`);
   console.log(`hulls (half-extents, tiles): ${[...hulls].map(([id, h]) => `${id} ${h.along.toFixed(2)}x${h.across.toFixed(2)}`).join(', ')}`);
   let transit = 0;
   let rest = 0;
+  let formedTransit = 0;
+  let formedRest = 0;
+  let plainOfFormable = 0;
+  let plainRestOfFormable = 0;
   for (const sc of scenarios()) {
     const r = runScenario(sc, hulls);
     transit += r.mm + r.ms + r.ss;
     rest += r.atRest;
     console.log(formatReading(r));
+    if (formation !== undefined && formable(sc)) {
+      const f = runScenario(sc, hulls, formation);
+      plainOfFormable += r.mm + r.ms + r.ss;
+      plainRestOfFormable += r.atRest;
+      formedTransit += f.mm + f.ms + f.ss;
+      formedRest += f.atRest;
+      console.log(formatReading({ ...f, name: `  ${formation}: ${f.name}` }));
+    }
   }
   console.log(`total: ${transit} overlapping pair-ticks in transit, ${rest} pairs overlapping at rest`);
+  if (formation !== undefined) {
+    console.log(`formable scenarios, no formation vs ${formation}: transit pair-ticks ${plainOfFormable} -> ${formedTransit}, pairs at rest ${plainRestOfFormable} -> ${formedRest}`);
+  }
 }

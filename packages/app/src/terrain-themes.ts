@@ -376,3 +376,22 @@ export const TERRAIN_WEATHER: Record<TerrainTheme, 'clear' | 'rain'> = {
   highland: 'clear',
   wetland: 'rain',
 };
+
+/**
+ * The wind a theme blows when its map does not say (GH-984 N1): `strength` multiplies every lean
+ * (grass, reeds, shrubs, crowns, trunks, banners; `terrain/wind.ts`), `side` is the screen side it
+ * blows toward and `skewDeg` turns that heading (at most 30 either way). Total over the themes, like
+ * `TERRAIN_WEATHER` beside it. Every theme blows toward the screen's east with no skew, which is the
+ * axis the crowns and the rain have always leaned along, so a map with no `wind` block of its own
+ * changes by strength alone. Wetland is 1.0 because the rain's own wet variant (x2.2, gust 3.0) already
+ * stacks on top of it. Presentation only: the sim never reads this.
+ */
+export const TERRAIN_WIND: Record<
+  TerrainTheme,
+  { readonly strength: number; readonly side: 'east' | 'west'; readonly skewDeg: number }
+> = {
+  arid: { strength: 1.0, side: 'east', skewDeg: 0 },
+  green: { strength: 0.8, side: 'east', skewDeg: 0 },
+  highland: { strength: 1.3, side: 'east', skewDeg: 0 },
+  wetland: { strength: 1.0, side: 'east', skewDeg: 0 },
+};

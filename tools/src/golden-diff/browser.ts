@@ -11,8 +11,13 @@
 // a PNG plus the camera/tick state the capture was taken at.
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { PNG } from 'pngjs';
 import { chromium, type Browser, type Page } from 'playwright';
-import { BOOT_FREEZE_INIT_SCRIPT, BOOT_SETTLE_SCRIPT, FREEZE_FRAME_LOOP_SCRIPT, bootFreezeRefusal } from './capture-protocol';
+import { BOOT_SETTLE_SCRIPT, FREEZE_FRAME_LOOP_SCRIPT, NODE_REPAINT_SCRIPT, bootFreezeRefusal, bootFreezeScriptFor } from './capture-protocol';
+import { chromiumArgsFor, type GpuArm, type PageBackend } from './backend';
+import { settledFrameRefusal } from './settled-frame';
+import { captureRefusalMessage, frameContentRefusal, frameContentStats, retriedValidationRefusal, validationErrorRefusal } from './frame-content';
 import { dismissDeployGate } from './capture-guard';
 
 // Re-exported for every existing importer: the logic moved to `capture-guard.ts`
@@ -34,6 +39,8 @@ export interface CaptureResult {
   camera: { x: number; y: number; zoom: number };
   rect: { x: number; y: number; w: number; h: number };
   dpr: number;
+  /** GH-943 P0: `backendInfo()` as the page reported it. Every capture carries it; the gate refuses a mismatch with its arm. */
+  backend?: PageBackend;
 }
 
 export async function isServerUp(port: number): Promise<boolean> {
@@ -179,7 +186,8 @@ export async function capture(
   script: string,
   outFile: string,
   label: string,
-  needsDeploy = false
+  needsDeploy = false,
+  arm: GpuArm = 'legacy'
 ): Promise<CaptureResult> {
   const pageErrors: string[] = [];
   const onPageError = (err: Error): void => void pageErrors.push(`pageerror: ${err.message}`);
@@ -192,15 +200,31 @@ export async function capture(
   // registering it per capture would only stack copies (each of which stands
   // down, but there is no reason to send them). See `BOOT_FREEZE_INIT_SCRIPT`.
   if (!bootFrozenPages.has(page)) {
-    await page.addInitScript(BOOT_FREEZE_INIT_SCRIPT);
+    // GH-943 P0: the node arms freeze through the app's own flag, never a patched global rAF (legacy: unchanged).
+    await page.addInitScript(bootFreezeScriptFor(arm));
     bootFrozenPages.add(page);
   }
   try {
-    return await captureAttempts(page, url, script, outFile, label, needsDeploy, pageErrors);
+    const result = await captureAttempts(page, url, script, outFile, label, needsDeploy, pageErrors, arm);
+    // GH-943 P1: a node capture must be a PICTURE, and one the GPU accepted. Outside the retry loop on purpose: a black frame or a
+    // validation error is the code's answer, and a second attempt would give it again (`frame-content.ts` has the history).
+    if (arm !== 'legacy') {
+      const refusal = nodeCaptureRefusal(outFile, pageErrors);
+      if (refusal !== null) throw new Error(captureRefusalMessage(label, arm, refusal));
+    }
+    return result;
   } finally {
     page.off('pageerror', onPageError);
     page.off('console', onConsole);
   }
+}
+
+/** Why a node-arm capture is refused after it settled: GPU validation errors in the page, or a black or near-constant frame. */
+export function nodeCaptureRefusal(pngFile: string, pageErrors: readonly string[]): string | null {
+  const gpu = validationErrorRefusal(pageErrors);
+  if (gpu !== null) return gpu;
+  const png = PNG.sync.read(readFileSync(pngFile));
+  return frameContentRefusal(frameContentStats(png.data, png.width, png.height));
 }
 
 /** Pages `capture()` has already given `BOOT_FREEZE_INIT_SCRIPT`. */
@@ -215,7 +239,8 @@ async function captureAttempts(
   outFile: string,
   label: string,
   needsDeploy: boolean,
-  pageErrors: string[]
+  pageErrors: string[],
+  arm: GpuArm
 ): Promise<CaptureResult> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < CAPTURE_ATTEMPTS; attempt++) {
@@ -260,16 +285,29 @@ async function captureAttempts(
       if (refusal !== null) throw new Error(refusal);
       const raw = await page.evaluate(script);
       const result = JSON.parse(raw as string) as CaptureResult;
-      await page.screenshot({
-        path: outFile,
-        clip: { x: result.rect.x, y: result.rect.y, width: result.rect.w, height: result.rect.h },
-      });
+      const clip = { x: result.rect.x, y: result.rect.y, width: result.rect.w, height: result.rect.h };
+      if (arm !== 'legacy') {
+        // GH-943 P0, the settled-frame check (design section 4): after compile, render and `onSubmittedWorkDone` (the capture
+        // script's tail), two ZERO-TIME repaints must read byte-identical before anything is photographed. A frame that is
+        // still settling is refused here, by name, instead of drifting later as "noise".
+        await page.evaluate(NODE_REPAINT_SCRIPT);
+        const first = await page.screenshot({ clip });
+        await page.evaluate(NODE_REPAINT_SCRIPT);
+        const second = await page.screenshot({ clip, path: outFile });
+        const unsettled = settledFrameRefusal(first, second);
+        if (unsettled !== null) throw new Error(unsettled);
+        return result;
+      }
+      await page.screenshot({ path: outFile, clip });
       return result;
     } catch (err) {
       lastErr = err;
       console.warn(`[${label}] capture attempt ${attempt + 1} failed: ${(err as Error).message}`);
       for (const line of pageErrors.slice(0, 10)) console.warn(`[${label}]   page said: ${line}`);
       if (pageErrors.length === 0) console.warn(`[${label}]   the page reported no errors of its own.`);
+      // GH-943: a GPU validation error from an attempt that failed and is retried must still reach the CI vote (the next attempt clears `pageErrors`).
+      const lost = retriedValidationRefusal(label, arm, pageErrors);
+      if (lost !== null) console.warn(lost);
     }
   }
   throw new Error(
@@ -366,6 +404,8 @@ export async function waitForHostCrossfade(page: Page, timeoutMs = 5_000): Promi
  *  meanAbsChannelDelta between the two backends on `quiet` alone -- 100x that
  *  scenario's run-to-run noise. Speed wants the GPU; reproducibility wants the
  *  CPU. This gate wants reproducibility. */
-export async function launchCaptureBrowser(): Promise<Browser> {
-  return chromium.launch({ headless: true });
+export async function launchCaptureBrowser(arm: GpuArm = 'legacy'): Promise<Browser> {
+  // GH-943 P0: `chromiumArgsFor('legacy')` is [], so the legacy launch is exactly `{ headless: true }`.
+  const args = chromiumArgsFor(arm);
+  return chromium.launch(args.length === 0 ? { headless: true } : { headless: true, args });
 }

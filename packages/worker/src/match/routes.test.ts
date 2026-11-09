@@ -10,7 +10,7 @@ const ORIGIN = 'https://roaring-lions.pint12.workers.dev';
  *  `/join` reserves the seat at once, as the real room does (R5). */
 interface SnapSeen { room: string; url: string; method: string; authorization: string | null; tick: string | null; body: Uint8Array }
 function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string, unknown>[]; joinBodies: Record<string, unknown>[]; wsSeen: Request[]; limited: string[]; calls: string[]; snapSeen: SnapSeen[]; snapKeys: string[] } {
-  const rooms = new Map<string, { seats: number }>();
+  const rooms = new Map<string, { seats: number; kinds: [string, string] }>();
   /** Every path any room stub was asked for, in order. */
   const calls: string[] = [];
   const created: string[] = [];
@@ -26,9 +26,10 @@ function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string
       const path = new URL(req.url).pathname;
       calls.push(path);
       const room = rooms.get(name);
-      if (path === '/create') { createBodies.push(await req.json() as Record<string, unknown>); rooms.set(name, { seats: 1 }); created.push(name); return Response.json({ ok: true }); }
+      if (path === '/create') { const cb = await req.json() as Record<string, unknown>; createBodies.push(cb); rooms.set(name, { seats: 1, kinds: [typeof cb.kind === 'string' ? cb.kind : 'human', 'human'] }); created.push(name); return Response.json({ ok: true }); }
+      if (path === '/kinds') return room ? Response.json({ kinds: room.kinds }) : new Response('', { status: 404 });
       if (path === '/state') return room ? Response.json({ status: 'lobby', seats: room.seats }) : new Response('', { status: 404 });
-      if (path === '/join') { joinBodies.push(await req.json() as Record<string, unknown>); if (!room) return new Response('', { status: 404 }); if (room.seats >= 2) return new Response('', { status: 409 }); room.seats++; return Response.json({ seat: 1 }); }
+      if (path === '/join') { const jb = await req.json() as Record<string, unknown>; joinBodies.push(jb); if (!room) return new Response('', { status: 404 }); if (jb.build === 'other-build') return Response.json({ error: 'build_mismatch', build: 'b1' }, { status: 412 }); if (room.seats >= 2) return new Response('', { status: 409 }); room.seats++; room.kinds[1] = typeof jb.kind === 'string' ? jb.kind : 'human'; return Response.json({ seat: 1 }); }
       if (path === '/ws') { wsSeen.push(req); return new Response('upgraded', { status: room ? 200 : 404 }); }
       if (path === '/snapshot') {
         snapSeen.push({ room: name, url: req.url, method: req.method, authorization: req.headers.get('authorization'), tick: req.headers.get('x-snapshot-tick'), body: new Uint8Array(await req.arrayBuffer()) });
@@ -72,7 +73,7 @@ describe('/api/match', () => {
     expect(createBodies[0]).toMatchObject({ player: 'id-1', callsign: 'Ari', mode: 'versus' });
     const join = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-2', callsign: 'Bo' }), env, NOW);
     expect(await verifyTicket('secret', ((await join.json()) as { ticket: string }).ticket, NOW)).toMatchObject({ seat: 1, player: 'id-2' });
-    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Bo', kind: 'human', tiers: {} });
+    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Bo', kind: 'human', tiers: {}, specials: [] });
     // Anything but 'versus' is a sandbox; an absent callsign is 'Lion'.
     await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-3', build: 'b1', mode: 'conquest' }), env, NOW);
     expect(createBodies[1]).toMatchObject({ mode: 'sandbox', callsign: 'Lion' });
@@ -101,6 +102,61 @@ describe('/api/match', () => {
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', map: 'milh_flats', matchup: 'mirror' }), env, NOW)).status).toBe(201);
     // A sandbox room ignores the matchup altogether.
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', map: 'beit_sahwan_outskirts', matchup: 'sarim' }), env, NOW)).status).toBe(201);
+  });
+  it('GH-976 P2, P4: a win mode reaches the room only when it was read fair on the map in that pairing; anything else is a 400 before a room is made', async () => {
+    const { env, createBodies } = fakeRooms();
+    const body = (over: Record<string, unknown>) => ({ player: 'id-1', build: 'b1', mode: 'versus', map: 'wadi_tarfan', ...over });
+    // The oracle is a literal (GH-976 P4): the seven open maps, each read fair for the points race in the mirror (the flag raid too, until GH-1139 pulled it).
+    const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+    for (const map of SEVEN) {
+      expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'points' })), env, NOW)).status, map).toBe(201);
+    }
+    expect(createBodies.map((b) => b.winMode)).toEqual(SEVEN.map(() => 'points'));
+    // GH-1139: the flag raid is out of every lobby until CTF v2 lands (WP9): a 400 on every map, and no room is made.
+    for (const map of SEVEN) {
+      const res = await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'flag' })), env, NOW);
+      expect(res.status, map).toBe(400);
+      expect(await res.text(), map).toBe('win mode not offered on this map');
+    }
+    expect(createBodies.length).toBe(SEVEN.length);
+    createBodies.splice(0, createBodies.length);
+    // GH-976 P4 review: no KDF-v-Sarim cell passed, so every faction pairing is a 400 below, whoever hosts.
+    // Annihilation by any of its spellings is no mode: the room is told nothing, as every room before.
+    for (const winMode of [undefined, null, 'annihilation']) {
+      expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ winMode })), env, NOW)).status).toBe(201);
+    }
+    expect(createBodies.every((b) => !('winMode' in b))).toBe(true);
+    const made = createBodies.length;
+    const refuse = async (over: Record<string, unknown>, text: string): Promise<void> => {
+      const res = await handleMatch(post(`${ORIGIN}/api/match`, body(over)), env, NOW);
+      expect(res.status, JSON.stringify(over)).toBe(400);
+      expect(await res.text()).toBe(text);
+    };
+    await refuse({ winMode: 'rally' }, 'unknown win mode');            // not a mode at all
+    await refuse({ winMode: 7 }, 'unknown win mode');
+    await refuse({ winMode: 'camp', map: 'rujm_sawda' }, 'win mode not offered on this map');   // screened and not fair (GH-976); camp is offered on wadi_tarfan, milh_flats, wadi_tarfan_l only
+    await refuse({ winMode: 'camp', map: 'tel_marum' }, 'win mode not offered on this map');
+    await refuse({ winMode: 'points', map: 'qarn_hadid' }, 'map not offered for versus');   // not an open map at all: refused before the mode is asked
+    await refuse({ winMode: 'points', mode: 'sandbox' }, 'win mode is for versus rooms');
+    // GH-976 P4: every KDF-v-Sarim cell the probe read and found unfair is a 400 in both seat orders, before a room is made.
+    const unfair = 'win mode not offered on this map for this matchup';
+    for (const matchup of ['kdf', 'sarim']) {
+      await refuse({ winMode: 'points', matchup }, unfair);                                  // wadi_tarfan: the forces annihilate each other first
+      await refuse({ winMode: 'flag', matchup }, unfair);                                    // wadi_tarfan: Sarim wins every raid
+      await refuse({ winMode: 'points', map: 'tel_marum', matchup }, unfair);                // fair on the lead, 26-29% decided by the goal
+      await refuse({ winMode: 'flag', map: 'tel_marum', matchup }, unfair);
+      await refuse({ winMode: 'flag', map: 'wadi_tarfan_l', matchup }, unfair);              // the KDF wins every raid
+      await refuse({ winMode: 'camp', map: 'wadi_tarfan_l', matchup }, unfair);
+      await refuse({ winMode: 'points', map: 'wadi_tarfan_l', matchup }, unfair);            // the one cell that passed at weight 10 was a kill race and is gone
+    }
+    // And a mirror-only map refuses the pairing itself before the mode is asked (the lead, 2026-10-14).
+    for (const map of ['beit_sahwan_outskirts', 'milh_flats', 'milh_flats_l', 'rujm_sawda']) {
+      for (const matchup of ['kdf', 'sarim']) {
+        const res = await handleMatch(post(`${ORIGIN}/api/match`, body({ map, matchup, winMode: 'points' })), env, NOW);
+        expect(res.status, `${map} ${matchup}`).toBe(400);
+      }
+    }
+    expect(createBodies).toHaveLength(made);   // not one of them reached a room
   });
   it('a versus room is offered only on the maps measured fair: any other map is a 400 before a room is made; a sandbox room is not limited (#561, the lead, 2026-10-14)', async () => {
     const { env, createBodies, created } = fakeRooms();
@@ -135,10 +191,10 @@ describe('/api/match', () => {
     expect(createBodies[0]).toMatchObject({ callsign: 'A ri BO ' + 'x'.repeat(16) });
     expect((createBodies[0] as { callsign: string }).callsign).toHaveLength(24);
     await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-2', callsign: '\u202E\u0007\u200B' }), env, NOW);
-    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Lion', kind: 'human', tiers: {} });
+    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Lion', kind: 'human', tiers: {}, specials: [] });
     const again = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-4', callsign: 'Bo\tX\u2028Y' }), env, NOW);
     expect(again.status).toBeLessThan(500);
-    expect(joinBodies[1]).toEqual({ player: 'id-4', callsign: 'Bo X Y', kind: 'human', tiers: {} });
+    expect(joinBodies[1]).toEqual({ player: 'id-4', callsign: 'Bo X Y', kind: 'human', tiers: {}, specials: [] });
   });
   it('a missing or empty player answers 400 on create and join, before any room is touched', async () => {
     const { env, createBodies, joinBodies } = fakeRooms();
@@ -164,6 +220,20 @@ describe('/api/match', () => {
     expect(await verifyTicket('secret', joined.ticket, NOW)).toMatchObject({ matchId: code, seat: 1, player: 'p-guest' });
     expect((await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p-third', callsign: 'Third' }), env, NOW)).status).toBe(409);
     expect((await handleMatch(post(`${ORIGIN}/api/match/ZZZZZZ/join`, { player: 'p-lost', callsign: 'Lost' }), env, NOW)).status).toBe(404);
+  });
+  it('passes a joiner\'s build to the room, and relays its 412 (the room\'s own build) without a ticket (GH-954)', async () => {
+    const { env, joinBodies } = fakeRooms();
+    const { code } = await (await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-host', callsign: 'Host', build: 'b1' }), env, NOW)).json() as { code: string };
+    const bad = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p-bot', callsign: 'Bot', kind: 'bot', build: 'other-build' }), env, NOW);
+    expect(bad.status).toBe(412);
+    expect(await bad.json()).toEqual({ error: 'build_mismatch', build: 'b1' });
+    expect(joinBodies.at(-1)).toMatchObject({ build: 'other-build' });
+    const ok = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p-bot', callsign: 'Bot', kind: 'bot', build: 'b1' }), env, NOW);
+    expect(ok.status).toBe(200);
+    expect(joinBodies.at(-1)).toMatchObject({ build: 'b1' });
+    const browser = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p-x', callsign: 'X' }), env, NOW);
+    expect(browser.status).toBe(409);   // the seat is taken now; the point is the body it sent
+    expect(joinBodies.at(-1)).not.toHaveProperty('build');   // a browser names none: the room is not asked to compare
   });
   it('refuses a foreign or missing Origin, and fails closed with no TICKET_SECRET', async () => {
     const { env } = fakeRooms();
@@ -265,6 +335,17 @@ describe('/api/match', () => {
       await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', kit: 'brigade', tiers: { mbt_lavi: { armour: 1 } } }), env, NOW);
       expect(createBodies.map((b) => b.kit)).toEqual(['matched', 'matched']);
       expect(createBodies[0].tiers).toEqual({});
+    });
+    it("GH-1102: create and join carry each seat's Store specials, cleaned against the shipped table; a forged id never reaches the room", async () => {
+      const { env, createBodies, joinBodies } = fakeRooms();
+      const res = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', mode: 'versus', map: 'tel_marum', kit: 'brigade', specials: ['mbt_lavi_camo', 'mbt_lavi_camo_mk9', '__proto__', 'mbt_lavi', 3] }), env, NOW);
+      const { code } = (await res.json()) as { code: string };
+      expect(createBodies[0].specials).toEqual(['mbt_lavi_camo']);
+      await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p2', specials: ['forged_super_tank', 'demo_tzav'] }), env, NOW);
+      expect(joinBodies[0].specials).toEqual(['demo_tzav']);
+      // Not an array: the empty claim.
+      await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', mode: 'versus', map: 'tel_marum', kit: 'brigade', specials: { 0: 'demo_tzav' } }), env, NOW);
+      expect(createBodies[1].specials).toEqual([]);
     });
   });
 
@@ -514,5 +595,77 @@ describe('/api/match', () => {
       expect((await handleMatch(snapReq(`${ORIGIN}/api/match/abc/snapshot`, 'GET', `Bearer ${await seatTicket('abc')}`), env, NOW)).status).toBe(400);
       expect(calls).toEqual([]);
     });
+  });
+});
+
+/** GH-954 W1: the spectator's ticket exists only where the local relay put ARENA_WATCH, and only for bot matches. */
+describe('POST /api/match/:code/watch (GH-954 W1)', () => {
+  const botRoom = async (env: Env, joinKind = 'bot'): Promise<{ code: string; seat0: string; seat1: string }> => {
+    const created = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-a', callsign: 'A', build: 'b1', mode: 'versus', map: 'tel_marum', kind: 'bot' }), env, NOW);
+    const { code, ticket: seat0 } = (await created.json()) as { code: string; ticket: string };
+    const joined = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p-b', callsign: 'B', kind: joinKind }), env, NOW);
+    const { ticket: seat1 } = (await joined.json()) as { ticket: string };
+    return { code, seat0, seat1 };
+  };
+  const watchEnv = (): ReturnType<typeof fakeRooms> => {
+    const f = fakeRooms();
+    f.env.ARENA_WATCH = '1';
+    return f;
+  };
+
+  it('mints a watch ticket from a seat ticket of a bot match: seat 0, player watch, the seat ticket\'s expiry, role watch', async () => {
+    const { env } = watchEnv();
+    const { code, seat1 } = await botRoom(env);
+    const res = await handleMatch(post(`${ORIGIN}/api/match/${code}/watch`, { ticket: seat1 }), env, NOW);
+    expect(res.status).toBe(200);
+    const { ticket } = (await res.json()) as { ticket: string };
+    expect(await verifyTicket('secret', ticket, NOW)).toEqual({ matchId: code, seat: 0, player: 'watch', exp: NOW + 6 * 3600 * 1000, role: 'watch' });
+  });
+
+  it('is 404 without ARENA_WATCH, whatever is sent, and never reaches a room', async () => {
+    const { env, calls } = fakeRooms();
+    const { code, seat0 } = await botRoom(env);
+    const before = calls.length;
+    expect(env.ARENA_WATCH).toBeUndefined();
+    for (const flag of [undefined, '', '0', 'true', 'yes']) {
+      env.ARENA_WATCH = flag;
+      const res = await handleMatch(post(`${ORIGIN}/api/match/${code}/watch`, { ticket: seat0 }), env, NOW);
+      expect(res.status, String(flag)).toBe(404);
+    }
+    expect((await handleMatch(new Request(`${ORIGIN}/api/match/${code}/watch`, { method: 'GET', headers: { origin: ORIGIN } }), env, NOW)).status).toBe(404);
+    expect(calls.length).toBe(before);
+  });
+
+  it('is 403 when either seat is a human: a lobby with one seat, a human host, a human guest', async () => {
+    const { env } = watchEnv();
+    const humanGuest = await botRoom(env, 'human');
+    expect((await handleMatch(post(`${ORIGIN}/api/match/${humanGuest.code}/watch`, { ticket: humanGuest.seat0 }), env, NOW)).status).toBe(403);
+    const created = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-a', callsign: 'A', build: 'b1', mode: 'versus', map: 'tel_marum', kind: 'bot' }), env, NOW);
+    const lone = (await created.json()) as { code: string; ticket: string };
+    expect((await handleMatch(post(`${ORIGIN}/api/match/${lone.code}/watch`, { ticket: lone.ticket }), env, NOW)).status).toBe(403);
+    const humanHost = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-a', callsign: 'A', build: 'b1', mode: 'versus', map: 'tel_marum' }), env, NOW);
+    const h = (await humanHost.json()) as { code: string; ticket: string };
+    await handleMatch(post(`${ORIGIN}/api/match/${h.code}/join`, { player: 'p-b', callsign: 'B', kind: 'bot' }), env, NOW);
+    expect((await handleMatch(post(`${ORIGIN}/api/match/${h.code}/watch`, { ticket: h.ticket }), env, NOW)).status).toBe(403);
+  });
+
+  it('wants a seat ticket for this code: a watch or advisor ticket, another code\'s, an expired one and junk are 403', async () => {
+    const { env } = watchEnv();
+    const { code, seat0 } = await botRoom(env);
+    const other = await botRoom(env);
+    const mint = (o: object) => signTicket('secret', { matchId: code, seat: 0, player: 'x', exp: NOW + 60_000, ...o });
+    const bad = [await mint({ role: 'watch' }), await mint({ role: 'advisor', scope: 'assist' }), await mint({ exp: NOW - 1 }), other.seat0, 'not.a.ticket', ''];
+    for (const t of bad) expect((await handleMatch(post(`${ORIGIN}/api/match/${code}/watch`, { ticket: t }), env, NOW)).status).toBe(403);
+    expect((await handleMatch(post(`${ORIGIN}/api/match/${code}/watch`, {}), env, NOW)).status).toBe(403);
+    expect((await handleMatch(post(`${ORIGIN}/api/match/${code}/watch`, { ticket: seat0 }), env, NOW)).status).toBe(200);
+  });
+
+  it('keeps the Origin rule and the method rule, and a code with no room is 404', async () => {
+    const { env } = watchEnv();
+    const { code, seat0 } = await botRoom(env);
+    expect((await handleMatch(post(`${ORIGIN}/api/match/${code}/watch`, { ticket: seat0 }, 'https://evil.example'), env, NOW)).status).toBe(403);
+    expect((await handleMatch(new Request(`${ORIGIN}/api/match/${code}/watch`, { method: 'GET', headers: { origin: ORIGIN } }), env, NOW)).status).toBe(405);
+    const gone = await signTicket('secret', { matchId: 'ZZZZZZ', seat: 0, player: 'x', exp: NOW + 60_000 });
+    expect((await handleMatch(post(`${ORIGIN}/api/match/ZZZZZZ/watch`, { ticket: gone }), env, NOW)).status).toBe(404);
   });
 });

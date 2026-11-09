@@ -12,37 +12,12 @@
  * disagree with what was actually played and there is no second save file to migrate.
  */
 import { unlockReason, type LedgerData, type MissionJson, type MissionResult, type UnlockGate } from '@lions/sim';
-import { gateSentence } from './gate-sentence';
+import { gateRequirement, gateSentence } from './gate-sentence';
+import { parseWorld, townProgress, type ParsedWorld, type WorldRegion, type WorldTown } from '@lions/economy';
 
-export interface WorldTown {
-  id: string;
-  name: string;
-  /** Position in the campaign art's viewBox space, not in tiles. */
-  at: readonly [number, number];
-  missions: readonly string[];
-}
-
-export interface WorldRegion {
-  id: string;
-  name: string;
-  faction: string;
-  doctrine: string;
-  blurb?: string;
-  unlock?: UnlockGate;
-  towns: readonly WorldTown[];
-}
-
-export interface ParsedWorld {
-  id: string;
-  name: string;
-  /** Path under assets/, e.g. "campaign/sahar_basin.svg". */
-  art: string;
-  regions: readonly WorldRegion[];
-  /** The story constant (spec 2026-09-10 §4.4): how many people the enemy took on the
-   *  first morning. Absent means the world declares no account of the taken at all --
-   *  distinct from zero, which would mean nobody was. */
-  taken?: number;
-}
+// The world's types and parser live in the economy package (GH-1075 A0); every name stays importable from here.
+export { parseWorld, townProgress };
+export type { ParsedWorld, WorldRegion, WorldTown };
 
 /** `empty` is "unlocked, but nothing authored" -- distinct from `live`, which
  *  promises something to click. Without it an empty region printed the badge
@@ -85,66 +60,6 @@ export interface RegionProgress {
   lockedBecause: string | null;
 }
 
-interface TownJson {
-  id: string;
-  name: string;
-  at: number[];
-  missions: string[];
-}
-
-interface RegionJson {
-  id: string;
-  name: string;
-  faction: string;
-  doctrine: string;
-  blurb?: string;
-  unlock?: { after_mission?: string; roe_rating_min?: number };
-  towns: TownJson[];
-}
-
-interface WorldJson {
-  id: string;
-  name: string;
-  art: string;
-  taken?: number;
-  regions: RegionJson[];
-}
-
-/** Read world.json into the runtime shape, mapping the authoring spelling of `unlock`
- *  (`after_mission`, `roe_rating_min`) onto the runtime's (`afterMission`, `roeMin`) --
- *  the same mapping main.ts already does for units. */
-export function parseWorld(json: unknown): ParsedWorld {
-  const w = json as WorldJson;
-  if (!w || !Array.isArray(w.regions)) throw new Error('world: expected an object with a regions array');
-  const world: ParsedWorld = {
-    id: w.id,
-    name: w.name,
-    art: w.art,
-    regions: w.regions.map((r) => {
-      const unlock: UnlockGate = {};
-      if (r.unlock?.after_mission !== undefined) unlock.afterMission = r.unlock.after_mission;
-      if (r.unlock?.roe_rating_min !== undefined) unlock.roeMin = r.unlock.roe_rating_min;
-      const region: WorldRegion = {
-        id: r.id,
-        name: r.name,
-        faction: r.faction,
-        doctrine: r.doctrine,
-        towns: r.towns.map((t) => ({
-          id: t.id,
-          name: t.name,
-          at: [t.at[0] ?? 0, t.at[1] ?? 0] as const,
-          missions: [...t.missions],
-        })),
-      };
-      if (r.blurb !== undefined) region.blurb = r.blurb;
-      if (Object.keys(unlock).length > 0) region.unlock = unlock;
-      return region;
-    }),
-  };
-  if (typeof w.taken === 'number') world.taken = w.taken;
-  return world;
-}
-
 /**
  * The region that owns a town id, or undefined when `townId` is undefined or
  * names nothing in `world.json` -- the first step of resolving a mission's
@@ -163,11 +78,6 @@ const completed = (ledger: LedgerData | undefined): ReadonlySet<string> => {
   const done = ledger?.['campaign.completed_missions'];
   return new Set(Array.isArray(done) ? done : []);
 };
-
-export function townProgress(town: WorldTown, ledger: LedgerData | undefined): { done: number; total: number } {
-  const done = completed(ledger);
-  return { done: town.missions.filter((m) => done.has(m)).length, total: town.missions.length };
-}
 
 export function regionProgress(
   region: WorldRegion,
@@ -201,10 +111,24 @@ export function regionProgress(
 }
 
 /** The mission a town would start now: the first in authored order that is not done.
- *  Null when the town is finished, or has nothing authored yet. */
+ *  Null when the town is finished, has nothing authored yet, or its own gate (G1) is
+ *  closed. This is the ONE place a town gate is read: `missionOpen`, `nextMissionAfter`,
+ *  `continueTarget`, `nextOperation` and both boards' walks all go through it. */
 export function nextMissionOf(town: WorldTown, ledger: LedgerData | undefined): string | null {
+  if (gateRequirement(town.unlock, ledger) !== null) return null;
   const done = completed(ledger);
   return town.missions.find((m) => !done.has(m)) ?? null;
+}
+
+/** Why a town's own gate (G1, GH-912) is closed, as a player-facing sentence, or null when
+ *  it is open or has none. Always through `gateSentence`, never `unlockReason`, which would
+ *  print the raw mission id. */
+export function townLockedBecause(
+  town: WorldTown,
+  ledger: LedgerData | undefined,
+  missionName: (id: string) => string | undefined = () => undefined
+): string | null {
+  return gateSentence(town.unlock, ledger, missionName);
 }
 
 /**
@@ -593,6 +517,41 @@ export function promotionAfter(
   const out: { rank: string; stars: number; line?: { speaker: string; text: string } } = { rank: next.rank, stars: next.stars };
   if (next.promotionLine) out.line = next.promotionLine;
   return out;
+}
+
+/**
+ * The mission that READS a recon tag: the first mission after `fromId` in the campaign's
+ * flattened order that both requires `intel.marked_positions` and places a unit carrying
+ * `tag` (GH-912 G-T). The after-action report names it in "Carries into ...", where the
+ * town's next mission is often not the reader (Beit Sahwan I's ATGM pair is read by III,
+ * not II). Undefined when nothing later reads the tag.
+ *
+ * Presentation only: nothing in the sim reads this. The placement walk is the same
+ * recursive one `tools/validate_data.mjs` does: any object with a string `unit` is a
+ * placement, wherever in the mission it sits (garrison, waves, trigger spawns, passengers).
+ */
+export function carryReaderOf(
+  world: ParsedWorld,
+  missions: Readonly<Record<string, MissionJson | undefined>>,
+  fromId: string,
+  tag: string
+): string | undefined {
+  const order = world.regions.flatMap((r) => r.towns.flatMap((tw) => tw.missions));
+  const from = order.indexOf(fromId);
+  if (from < 0) return undefined;
+  const placesTag = (node: unknown): boolean => {
+    if (Array.isArray(node)) return node.some(placesTag);
+    if (node === null || typeof node !== 'object') return false;
+    const o = node as Record<string, unknown>;
+    if (typeof o.unit === 'string' && o.tag === tag) return true;
+    return Object.values(o).some(placesTag);
+  };
+  for (const id of order.slice(from + 1)) {
+    const m = missions[id];
+    if (m === undefined || !m.ledger.requires.includes('intel.marked_positions')) continue;
+    if (placesTag(m)) return id;
+  }
+  return undefined;
 }
 
 export type VillainState = 'at_large' | 'captured' | 'killed';

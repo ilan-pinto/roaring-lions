@@ -36,20 +36,21 @@
  */
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD } from './bloom-spec';
 
-/** How much of the blurred bright buffer is added back (ruling D1). 0.7
- *  started washing the Lavi hull in the kill frame. */
-export const BLOOM_STRENGTH = 0.5;
-/** `UnrealBloomPass.radius`: how far the mip blend leans to the wide mips
- *  (ruling D1). */
-export const BLOOM_RADIUS = 0.35;
-/** Scene-referred LINEAR luminance a pixel must pass to bloom (ruling D1).
- *  The census's quiet-frame ceiling (0.9) sits under it on purpose. */
-export const BLOOM_THRESHOLD = 1.0;
-/** The bloom's internal resolution, per axis, as a fraction of the drawing
- *  buffer. Not a tuning knob: it is the `'quarter'` in
- *  `RenderQuality.bloom`. */
-export const BLOOM_RESOLUTION_SCALE = 0.25;
+// GH-943 P1 (T5): the ruled numbers and the census maths moved to the addon-free `bloom-spec.ts` (the node twin reads them too).
+// Every name is re-exported, so each importer of this file is unchanged.
+export {
+  BLOOM_RADIUS,
+  BLOOM_RESOLUTION_SCALE,
+  BLOOM_SMOOTH_WIDTH,
+  BLOOM_STRENGTH,
+  BLOOM_THRESHOLD,
+  halfToFloat,
+  linearLuminance,
+  luminanceCensus,
+  type LuminanceCensus,
+} from './bloom-spec';
 
 /**
  * `UnrealBloomPass` whose internal targets stay at a quarter of whatever size
@@ -97,56 +98,4 @@ export function bloomPassFor(
   pixelRatio: number
 ): QuarterBloomPass | null {
   return quality.bloom === 'quarter' ? createBloomPass(cssWidth, cssHeight, pixelRatio) : null;
-}
-
-/** IEEE 754 binary16 to a JS number. What `readRenderTargetPixels` returns
- *  for a HalfFloat target is these bits in a `Uint16Array`. */
-export function halfToFloat(bits: number): number {
-  const sign = bits & 0x8000 ? -1 : 1;
-  const e = (bits >> 10) & 0x1f;
-  const f = bits & 0x3ff;
-  if (e === 0) return sign * 2 ** -14 * (f / 1024);
-  if (e === 31) return f === 0 ? sign * Infinity : NaN;
-  return sign * 2 ** (e - 15) * (1 + f / 1024);
-}
-
-/** Rec. 709 luminance of LINEAR RGB -- the coefficients three's
- *  `luminance()` uses for the linear-sRGB working space, which is what
- *  `LuminosityHighPassShader` (the bloom's own high-pass) thresholds. */
-export function linearLuminance(r: number, g: number, b: number): number {
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-export interface LuminanceCensus {
-  /** Pixels sampled (every `stride`-th of the buffer). */
-  samples: number;
-  p50: number;
-  p99: number;
-  max: number;
-  /** Fraction of samples whose luminance is above `BLOOM_THRESHOLD`. */
-  fracOverThreshold: number;
-}
-
-/**
- * The census of one HalfFloat RGBA readback: every `stride`-th pixel's linear
- * luminance, its p50/p99/max and the fraction above the bloom threshold.
- * Non-finite samples count as `Infinity` (a NaN in the frame is a bug the
- * census should shout about, not average away).
- */
-export function luminanceCensus(rgbaHalf: Uint16Array, stride: number): LuminanceCensus {
-  const pixels = Math.floor(rgbaHalf.length / 4);
-  const step = Math.max(1, Math.floor(stride));
-  const values: number[] = [];
-  let over = 0;
-  for (let i = 0; i < pixels; i += step) {
-    const at = i * 4;
-    let l = linearLuminance(halfToFloat(rgbaHalf[at]), halfToFloat(rgbaHalf[at + 1]), halfToFloat(rgbaHalf[at + 2]));
-    if (!Number.isFinite(l)) l = Infinity;
-    values.push(l);
-    if (l > BLOOM_THRESHOLD) over++;
-  }
-  if (values.length === 0) return { samples: 0, p50: 0, p99: 0, max: 0, fracOverThreshold: 0 };
-  values.sort((a, b) => a - b);
-  const q = (p: number): number => values[Math.min(values.length - 1, Math.floor(p * values.length))];
-  return { samples: values.length, p50: q(0.5), p99: q(0.99), max: values[values.length - 1], fracOverThreshold: over / values.length };
 }

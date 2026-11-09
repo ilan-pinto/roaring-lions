@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { FORFEIT_MS, OVER_CLOSE_MS, PAUSE_MS, type MatchConfig } from '@lions/net';
-import { createRoom, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, MAX_LOG_CMD_CHARS, type RoomState, type Effect } from './room-core';
+import { FORFEIT_MS, OVER_CLOSE_MS, PAUSE_MS, type ClientMsg, type MatchConfig } from '@lions/net';
+import { createRoom, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, MAX_LOG_CMD_CHARS, logCmdCharsOf, type RoomState, type Effect } from './room-core';
 
 const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -104,6 +104,49 @@ describe('room-core', () => {
     expect(sends(fx).map((s) => s.msg)).toContainEqual({ t: 'ended', reason: 'void' });
     expect(st).toMatchObject({ status: 'ended', endedReason: 'void' });
     expect(frames(clockTick(st, 100))).toEqual([]);
+  });
+
+  describe('GH-913 L8: the command-log cap scales with the map\'s match cap', () => {
+    const RUJM: MatchConfig = { ...CONFIG, map: 'rujm_sawda', mode: 'versus' };
+    const runningOn = (config: MatchConfig): RoomState => {
+      const st = createRoom('ABCDEF', 'm1', 0, config.map);
+      seatJoin(st, 0, 'p0', 'Host', 0);
+      seatJoin(st, 1, 'p1', 'Guest', 0);
+      seatMessage(st, 0, { t: 'ready' }, 0, () => config);
+      seatMessage(st, 1, { t: 'ready' }, 0, () => config);
+      return st;
+    };
+    const halt: ClientMsg = { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1, 2, 3, 4, 5, 6] } };
+
+    it('is 2,000,000 on a 25-minute map and 2,800,000 on Rujm Sawda', () => {
+      expect(logCmdCharsOf(running())).toBe(2_000_000);
+      expect(logCmdCharsOf(runningOn(RUJM))).toBe(2_800_000);
+      expect(logCmdCharsOf(createRoom('ABCDEF', 'm1', 0, 'rujm_sawda'))).toBe(2_800_000); // before the config: the room's own map
+    });
+
+    it('a Rujm Sawda room past the 25-minute figure is not void; a 25-minute room there is', () => {
+      const long = runningOn(RUJM);
+      long.cmdChars = MAX_LOG_CMD_CHARS + 5_000;
+      seatMessage(long, 0, halt, 10, () => RUJM);
+      expect(frames(clockTick(long, 50)).length).toBe(1);
+      expect(long.status).toBe('running');
+
+      const short = runningOn({ ...RUJM, map: 'wadi_tarfan' });
+      short.cmdChars = MAX_LOG_CMD_CHARS + 5_000;
+      seatMessage(short, 0, halt, 10, () => RUJM);
+      expect(frames(clockTick(short, 50))).toEqual([]);
+      expect(short).toMatchObject({ status: 'ended', endedReason: 'void' });
+    });
+
+    it('a Rujm Sawda room is void at its own, larger figure', () => {
+      const st = runningOn(RUJM);
+      st.cmdChars = 2_800_000 - 10;
+      seatMessage(st, 0, halt, 10, () => RUJM);
+      const fx = clockTick(st, 50);
+      expect(frames(fx)).toEqual([]);
+      expect(sends(fx).map((s) => s.msg)).toContainEqual({ t: 'ended', reason: 'void' });
+      expect(st).toMatchObject({ status: 'ended', endedReason: 'void' });
+    });
   });
 
   it('stalls when a seat falls 40 ticks behind its acks, and resumes on the ack', () => {

@@ -1,0 +1,76 @@
+GH-976 P4: the held-out reads behind PR 1020 (probe output merged over shards; 'west'/'east' are the ENDs; a faction row names the faction at each end).
+Ranges: 4000-4287 for every row unless it says otherwise. Fitting reads (seeds 0-191) were scratch and are summarised in the PR body.
+Rows for wadi_tarfan_l points at 10 per 100 / target 400 (hf2-*) belong to the removed faction cell; the shipped file is 1 per 100 / 600 (hf4, range 12000-12287).
+
+### hf-tel-flag
+tel_marum flag active       : seeds 288  west 158 / east 130 / draw 0  by goal 287 (99.7%), wipe 1, mutual 0, stalemate 0, cap 0  mean 36 s  | leader 54.9% of all, 54.9% of 288 decisive
+tel_marum flag passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 35 s  | leader 100.0% of all, 100.0% of 288 decisive
+tel_marum flag passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 37 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hf3-tel-points
+tel_marum points active       : seeds 288  west 155 / east 133 / draw 0  by goal 228 (79.2%), wipe 60, mutual 0, stalemate 0, cap 0  mean 413 s  | leader 53.8% of all, 53.8% of 288 decisive
+tel_marum points passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 390 s  | leader 100.0% of all, 100.0% of 288 decisive
+tel_marum points passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 484 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hf-beit-flag
+beit_sahwan_outskirts flag active       : seeds 288  west 148 / east 140 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 39 s  | leader 51.4% of all, 51.4% of 288 decisive
+beit_sahwan_outskirts flag passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 39 s  | leader 100.0% of all, 100.0% of 288 decisive
+beit_sahwan_outskirts flag passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 39 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hf-beit-points
+beit_sahwan_outskirts points active       : seeds 288  west 140 / east 148 / draw 0  by goal 212 (73.6%), wipe 76, mutual 0, stalemate 0, cap 0  mean 381 s  | leader 51.4% of all, 51.4% of 288 decisive
+beit_sahwan_outskirts points passive west : seeds 288  west 0 / east 288 / draw 0  by goal 287 (99.7%), wipe 1, mutual 0, stalemate 0, cap 0  mean 350 s  | leader 100.0% of all, 100.0% of 288 decisive
+beit_sahwan_outskirts points passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 270 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hf-rujm-flag
+rujm_sawda flag active       : seeds 288  west 127 / east 115 / draw 46  by goal 232 (80.6%), wipe 10, mutual 46, stalemate 0, cap 0  mean 74 s  | leader 44.1% of all, 52.5% of 242 decisive
+rujm_sawda flag passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 68 s  | leader 100.0% of all, 100.0% of 288 decisive
+rujm_sawda flag passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 68 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hf-rujm-points
+rujm_sawda points active       : seeds 288  west 158 / east 130 / draw 0  by goal 270 (93.8%), wipe 18, mutual 0, stalemate 0, cap 0  mean 228 s  | leader 54.9% of all, 54.9% of 288 decisive
+rujm_sawda points passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 154 s  | leader 100.0% of all, 100.0% of 288 decisive
+rujm_sawda points passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 159 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hfa-wtl-flag-mirror
+wadi_tarfan_l flag active       : seeds 288  west 122 / east 129 / draw 37  by goal 251 (87.2%), wipe 0, mutual 37, stalemate 0, cap 0  mean 52 s  | leader 44.8% of all, 51.4% of 251 decisive
+wadi_tarfan_l flag passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 52 s  | leader 100.0% of all, 100.0% of 288 decisive
+wadi_tarfan_l flag passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 52 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hf2-wtl-points-mirror
+wadi_tarfan_l points active       : seeds 288  west 130 / east 158 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 115 s  | leader 54.9% of all, 54.9% of 288 decisive
+wadi_tarfan_l points passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 239 s  | leader 100.0% of all, 100.0% of 288 decisive
+wadi_tarfan_l points passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 243 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hf-mfl-flag
+milh_flats_l flag active       : seeds 288  west 144 / east 144 / draw 0  by goal 282 (97.9%), wipe 6, mutual 0, stalemate 0, cap 0  mean 80 s  | leader 50.0% of all, 50.0% of 288 decisive
+milh_flats_l flag passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 76 s  | leader 100.0% of all, 100.0% of 288 decisive
+milh_flats_l flag passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 76 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hf-mfl-points
+milh_flats_l points active       : seeds 288  west 139 / east 149 / draw 0  by goal 287 (99.7%), wipe 1, mutual 0, stalemate 0, cap 0  mean 596 s  | leader 51.7% of all, 51.7% of 288 decisive
+milh_flats_l points passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 369 s  | leader 100.0% of all, 100.0% of 288 decisive
+milh_flats_l points passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 368 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hf2-wtl-points-kdf_sarim
+wadi_tarfan_l points kdf/sarim active       : seeds 288  west 130 / east 158 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 120 s  | leader 54.9% of all, 54.9% of 288 decisive
+wadi_tarfan_l points kdf/sarim passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 239 s  | leader 100.0% of all, 100.0% of 288 decisive
+wadi_tarfan_l points kdf/sarim passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 243 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hf2-wtl-points-sarim_kdf
+wadi_tarfan_l points sarim/kdf active       : seeds 288  west 125 / east 163 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 117 s  | leader 56.6% of all, 56.6% of 288 decisive
+wadi_tarfan_l points sarim/kdf passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 239 s  | leader 100.0% of all, 100.0% of 288 decisive
+wadi_tarfan_l points sarim/kdf passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 239 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hfx-wadi_tarfan-flag-kdf_sarim
+wadi_tarfan flag kdf/sarim active       : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 59 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hfx-wadi_tarfan-flag-sarim_kdf
+wadi_tarfan flag sarim/kdf active       : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 59 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hfx-wadi_tarfan-points-kdf_sarim
+wadi_tarfan points kdf/sarim active       : seeds 288  west 32 / east 256 / draw 0  by goal 44 (15.3%), wipe 243, mutual 0, stalemate 0, cap 1  mean 244 s  | leader 88.9% of all, 88.9% of 288 decisive
+### hfx-wadi_tarfan-points-sarim_kdf
+wadi_tarfan points sarim/kdf active       : seeds 288  west 270 / east 18 / draw 0  by goal 51 (17.7%), wipe 237, mutual 0, stalemate 0, cap 0  mean 246 s  | leader 93.8% of all, 93.8% of 288 decisive
+### hfx-tel_marum-flag-kdf_sarim
+tel_marum flag kdf/sarim active       : seeds 288  west 32 / east 256 / draw 0  by goal 287 (99.7%), wipe 1, mutual 0, stalemate 0, cap 0  mean 38 s  | leader 88.9% of all, 88.9% of 288 decisive
+### hfx-tel_marum-flag-sarim_kdf
+tel_marum flag sarim/kdf active       : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 32 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hfx3-tel-points-kdf_sarim
+tel_marum points kdf/sarim active       : seeds 288  west 78 / east 210 / draw 0  by goal 70 (24.3%), wipe 218, mutual 0, stalemate 0, cap 0  mean 246 s  | leader 72.9% of all, 72.9% of 288 decisive
+### hfx3-tel-points-sarim_kdf
+tel_marum points sarim/kdf active       : seeds 288  west 273 / east 15 / draw 0  by goal 14 (4.9%), wipe 274, mutual 0, stalemate 0, cap 0  mean 136 s  | leader 94.8% of all, 94.8% of 288 decisive
+### hfx2-wtl-flag-kdf_sarim
+wadi_tarfan_l flag kdf/sarim active       : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 52 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hfx2-wtl-flag-sarim_kdf
+wadi_tarfan_l flag sarim/kdf active       : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 52 s  | leader 100.0% of all, 100.0% of 288 decisive
+### hf4-wtl-points-mirror (12000-12287, the shipped wadi_tarfan_l points file)
+wadi_tarfan_l points active       : seeds 288  west 135 / east 153 / draw 0  by goal 277 (96.2%), wipe 11, mutual 0, stalemate 0, cap 0  mean 473 s  | leader 53.1% of all, 53.1% of 288 decisive
+wadi_tarfan_l points passive west : seeds 288  west 0 / east 288 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 339 s  | leader 100.0% of all, 100.0% of 288 decisive
+wadi_tarfan_l points passive east : seeds 288  west 288 / east 0 / draw 0  by goal 288 (100.0%), wipe 0, mutual 0, stalemate 0, cap 0  mean 343 s  | leader 100.0% of all, 100.0% of 288 decisive

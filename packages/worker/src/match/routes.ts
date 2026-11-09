@@ -1,4 +1,8 @@
-/** `/api/match*` (spec §3.2.1): create, join, the advisor ticket, the snapshot and the socket upgrade. Origin
+/** `/api/match*` (spec §3.2.1): create, join, the advisor ticket, the snapshot, the local-only watch ticket and the
+ *  socket upgrade. GH-954 W1: a seat's `kind` ('bot' or 'human') is ASSERTED BY THE CLIENT at create and join, so in
+ *  production nothing proves a room is a bot match: `/watch`'s "both seats are bots" check is a local sanity check,
+ *  and the real guards are its 404 (no `ARENA_WATCH`, set only by the local relay) and the HMAC ticket. Never weaken
+ *  the 404 on the strength of the bots check. Origin
  *  is REQUIRED (the `/api/feedback` rule, `../origin.ts`), on the upgrade too.
  *  ROOM_LIMIT counts create, join and the advisor ticket only: a client reconnecting once a
  *  second would trip a six-a-minute limit on the upgrade (R20). The upgrade
@@ -9,16 +13,16 @@ import { originAllowed } from '../origin';
 import { readCapped } from '../read-capped';
 import { signTicket, verifyTicket } from './ticket';
 import { mintCode, isCode } from './code';
-import { ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, matchupAllowed, matchupField, versusMapAllowed, type AdvisorScope } from '@lions/net';
-import { callsignField, kitField, mapField, paceField, seatKindField, seatTiersField, textField } from './room-fields';
+import { ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, matchupAllowed, matchupField, versusMapAllowed, winModeRequest, type AdvisorScope } from '@lions/net';
+import { callsignField, kitField, mapField, paceField, seatKindField, seatSpecialsField, seatTiersField, textField } from './room-fields';
 
 /** A size bound on the request bodies of create, join and the advisor ticket (hardening). */
-// largest legitimate body measured 1737 bytes (full brigade claim, 25 Oct: + demo_tzav, GH-274; was 1698 after heli_yanshuf, GH-698); cap ≈ 2×
+// largest legitimate body measured 2358 bytes (full brigade claim plus every Store special, with the nine's tracks, GH-1077; was 1944 before them, GH-1102; was 1737 after demo_tzav, GH-274, and 1698 after heli_yanshuf, GH-698); cap ≈ 1.5× (the cap is unchanged)
 export const MATCH_BODY_MAX_BYTES = 3584;
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
 
-interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; ticket?: unknown; scope?: unknown }
+interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; specials?: unknown; winMode?: unknown; ticket?: unknown; scope?: unknown }
 
 /** The JSON body, `{}` when it is unreadable, or null when it is over `MATCH_BODY_MAX_BYTES`
  *  (the caller answers 413). An oversize body is refused before it is read or parsed: a
@@ -69,7 +73,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
   const secret = env.TICKET_SECRET;
   const rooms = env.ROOMS;
   if (!secret || !rooms) return new Response('matches are not configured', { status: 503 });
-  const m = new URL(req.url).pathname.match(/^\/api\/match(?:\/([^/]+)\/(join|ws|advisor|snapshot))?$/);
+  const m = new URL(req.url).pathname.match(/^\/api\/match(?:\/([^/]+)\/(join|ws|advisor|snapshot|watch))?$/);
   if (!m) return new Response('not found', { status: 404 });
   const [, rawCode, action] = m;
   // Codes are minted upper case; a lower-case one typed into a URL is the same room.
@@ -94,6 +98,9 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     // KDF vs Sarim plays only on FACTION_MATCHUP_MAPS (the lead, 2026-10-14); a sandbox room ignores the matchup.
     const matchup = matchupField(body.matchup);
     if (mode === 'versus' && !matchupAllowed(matchup, map)) return new Response('matchup not offered on this map', { status: 400 });
+    // GH-976 P2: a win mode other than annihilation, only one read fair on this map, in the mirror (the room asks again).
+    const winMode = winModeRequest(body.winMode, { mode, map, matchup });
+    if (winMode.refused !== undefined) return new Response(winMode.refused, { status: 400 });
     const callsign = callsignField(body.callsign);
     // N4a: the host's seat kind and the pace, cleaned and clamped (D5) here and again by the room.
     const kind = seatKindField(body.kind);
@@ -102,10 +109,12 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     // claim, cleaned against the shipped tracks here and again by the room (decision 22).
     const kit = mode === 'versus' ? kitField(body.kit) : 'matched';
     const tiers = seatTiersField(body.tiers);
+    // GH-1102: the host's Store specials, cleaned against the shipped table here and again by the room.
+    const specials = seatSpecialsField(body.specials);
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const c = mintCode();
       const res = await rooms.get(rooms.idFromName(c)).fetch(new Request('https://room/create', {
-        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers }),
+        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers, specials, ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) }),
       }));
       if (res.status === 409) continue;   // that code is taken
       if (!res.ok) return new Response('room', { status: 502 });
@@ -118,6 +127,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
   if (!isCode(code)) return new Response('bad code', { status: 400 });
   if (action === 'advisor') return advisorTicket(req, env, secret, code, now);
   if (action === 'snapshot') return snapshot(req, env, secret, rooms, code, now);
+  if (action === 'watch') return watchTicket(req, env, secret, rooms, code, now);
   const stub = rooms.get(rooms.idFromName(code));
   if (action === 'join') {
     if (req.method !== 'POST') return new Response('method', { status: 405 });
@@ -126,7 +136,9 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     if (body === null) return tooLarge();
     const player = playerOf(body);
     if (player === '') return new Response('player required', { status: 400 });
-    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind: seatKindField(body.kind), tiers: seatTiersField(body.tiers) }) }));
+    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind: seatKindField(body.kind), tiers: seatTiersField(body.tiers), specials: seatSpecialsField(body.specials), ...(textField(body.build, '') === '' ? {} : { build: textField(body.build, '') }) }) }));
+    // 412: the joiner named a build the room does not run; the room's answer names its own (see /join in match-room).
+    if (res.status === 412) return new Response(await res.text(), { status: 412, headers: { 'content-type': 'application/json' } });
     if (res.status !== 200) return new Response('', { status: res.status });
     const { seat } = (await res.json()) as { seat: 0 | 1 };
     const ticket = await signTicket(secret, { matchId: code, seat, player, exp: now + TICKET_MS });
@@ -157,6 +169,32 @@ async function advisorTicket(req: Request, env: Env, secret: string, code: strin
   const seat = typeof body.ticket === 'string' ? await verifyTicket(secret, body.ticket, now) : null;
   if (seat === null || seat.role !== 'seat' || seat.matchId !== code) return new Response('bad ticket', { status: 403 });
   const ticket = await signTicket(secret, { matchId: code, seat: seat.seat, player: 'advisor', exp: seat.exp, role: 'advisor', scope });
+  return Response.json({ ticket });
+}
+
+/**
+ * `POST /api/match/:code/watch` (GH-954 W1, decisions D-W1 and D-W2): a seat trades its own seat ticket for a
+ * SPECTATOR ticket, `{role:'watch', seat:0, player:'watch'}`, expiring when the seat ticket does. The route does
+ * not exist unless `env.ARENA_WATCH === '1'`, which only the local relay sets: in production, and anywhere the
+ * flag is absent, it answers 404 before it reads anything, so the Worker cannot be watched. A room is
+ * watchable only when BOTH seats are bots (`kind: 'bot'` at create and join): a human's match is never offered
+ * to a spectator, and a room whose second seat has not joined yet reads as human. The room is asked, and
+ * nothing is written. Only a seat ticket for this code is accepted, so a watch (or advisor) ticket mints nothing.
+ */
+async function watchTicket(req: Request, env: Env, secret: string, rooms: NonNullable<Env['ROOMS']>, code: string, now: number): Promise<Response> {
+  if (env.ARENA_WATCH !== '1') return new Response('not found', { status: 404 });
+  if (req.method !== 'POST') return new Response('method', { status: 405 });
+  if (await limited(req, env.ROOM_LIMIT)) return new Response('slow down', { status: 429 });
+  const body = await readBody(req);
+  if (body === null) return tooLarge();
+  const seat = typeof body.ticket === 'string' ? await verifyTicket(secret, body.ticket, now) : null;
+  if (seat === null || seat.role !== 'seat' || seat.matchId !== code) return new Response('bad ticket', { status: 403 });
+  const res = await rooms.get(rooms.idFromName(code)).fetch(new Request('https://room/kinds'));
+  if (res.status === 404) return new Response('no such room', { status: 404 });
+  if (!res.ok) return new Response('room', { status: 502 });
+  const { kinds } = (await res.json()) as { kinds?: unknown };
+  if (!Array.isArray(kinds) || kinds.length !== 2 || !kinds.every((k) => k === 'bot')) return new Response('not a bot match', { status: 403 });
+  const ticket = await signTicket(secret, { matchId: code, seat: 0, player: 'watch', exp: seat.exp, role: 'watch' });
   return Response.json({ ticket });
 }
 

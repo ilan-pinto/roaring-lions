@@ -1,0 +1,103 @@
+{
+  "ffmpeg": "ffmpeg version 7.1.1",
+  "files": {
+    "rustle_a_bush": {
+      "m4a_sha256": "8e9be7fb2789bfd2467fc228ec2207a217fe2db62f65b598eed4bb84a1bf4b74",
+      "ogg_sha256": "495b8d016b109620cea41bdb8d2bac04970f4875862f839ab8e115b3a1a928f5",
+      "pcm_sha256": "b734cf80bad05864c37b8f96825c91d3e0ee2389666c4c7a880d75d48f5c881f",
+      "samples": 44100
+    },
+    "rustle_b_reed": {
+      "m4a_sha256": "c293fa33eb4cb3e23d098a8ce72cbfc70343dea69c167665a31ee5968547202e",
+      "ogg_sha256": "ffd3b987ac3118681d7607bbbade8632445995e57efa81a1d662393b0d86486e",
+      "pcm_sha256": "2fd9ada076b7e2aace5f6219c0c0d452d96618548792536fca78d7a27f42bab2",
+      "samples": 44100
+    },
+    "rustle_c_dry_brush": {
+      "m4a_sha256": "37b68af66ae1fec88cb0d2ed986be2b52270f95ebcd9127e1028b0d38947c816",
+      "ogg_sha256": "2344f64ff4007c04d885a01719dfc351398f3bf957116465487b2baefabc6fe4",
+      "pcm_sha256": "94ab15a21a977de22cd62586432bb375b67c093e9c6250266be18d3a744d74e0",
+      "samples": 44100
+    },
+    "stones_crunch_a_tyre": {
+      "m4a_sha256": "9e5148c9bcaba80348fdbb2ec72fb70946f06362c38fb2b8132b6dc4d858b80b",
+      "ogg_sha256": "b998b0018a91e656a6b6762f2d89a225a0faa35ca50dada5ef0c6b93572b0c8d",
+      "pcm_sha256": "21bee82cbde2070f0098012f1a5f7e7c8c89f742550b30fff0094f1c009290c1",
+      "samples": 52920
+    },
+    "stones_crunch_b_heavy": {
+      "m4a_sha256": "1094977b7f9ede4bc48ef177572c7da6a966dec3345e5ec3b951943c8ba0403b",
+      "ogg_sha256": "93d7df72d649a5c672ac4a7d2e87f91917775db75d7031d6aa6b69399c1bbec2",
+      "pcm_sha256": "167efef87440f6348357ff6828568bd314e60ae6ed3f74f59752de38d754ca66",
+      "samples": 57330
+    },
+    "stones_trickle_a_scatter": {
+      "m4a_sha256": "a06765be9b5476f28d6651019f44df9af3a6b5fb17aea6b9bd58b141d12bb847",
+      "ogg_sha256": "f4de1a42cb09cb2f9d397ce290fc51e5d617aa98937c7a6b375fba783f8e27b1",
+      "pcm_sha256": "c16eddc8643f1bd14b2ca1208bda7e429aced813753c1c284980bab4862150e6",
+      "samples": 70560
+    },
+    "stones_trickle_b_slide": {
+      "m4a_sha256": "43ade26435855fffe643b8e132486b9a7caeddc7fd666bc2d616e327be5b4867",
+      "ogg_sha256": "0cbbb96332dee089378641f0d257af132184e250912b78dd8031f5bb21301d74",
+      "pcm_sha256": "5df0e9cc1a26acd905e1faa8f1a5714b02ad8d8ec6de6892c482e23115460cc7",
+      "samples": 88200
+    },
+    "water_a_lap": {
+      "m4a_sha256": "24ae9f0b7eb78100d303a872dbfc17d71feda6671a811c6f5ece5363bff64c89",
+      "ogg_sha256": "e383c7550b7f99c63b9b1dac0cbe6417bd870cdc16685d20b346e15d6fa2715a",
+      "pcm_sha256": "3c8df80b3312039d3768b2d07912ddf92cf7e6e47060477d1cb48c5d1cc742ac",
+      "samples": 441344
+    },
+    "water_b_flow": {
+      "m4a_sha256": "bd54c831546c71ce09583652ee3d9dc244ae079c0128f840146f2f8a3764a32c",
+      "ogg_sha256": "903c4909aa9dcb185546cadae211d738727a46e676d00b5cde0e09cb1d43ecb9",
+      "pcm_sha256": "1af0ba4bcabdc31537ff895c848f236c5012db40576a35f572bda18d8837d7cc",
+      "samples": 441344
+    },
+    "water_c_marsh_seep": {
+      "m4a_sha256": "7c7ec427ba52afafb8400c6f21e5e6418111c03b3ad01ac78358844e7e262dac",
+      "ogg_sha256": "38a4a31c421de0a75e76074422d42a1ce584229325a5da6235502ec7c001fa05",
+      "pcm_sha256": "8b79b1028cacce6efd1833df6b8a67705030c513848caa518ddbd995d7f46f44",
+      "samples": 441344
+    },
+    "wind_a_flat_bed": {
+      "m4a_sha256": "e72b925061ff3ab4b5a103ab1cc660ba0ea56d3c718176e8efda66dbec332a6f",
+      "ogg_sha256": "25ed66ef02e92e0a7ad4c1ba1d63bf71d1c4238169502ffb6b64dc9ce6ce9905",
+      "pcm_sha256": "2bb51832c9e932d772105022f3121f81ae203d7809623a7ba031264454ef2463",
+      "samples": 661504
+    },
+    "wind_b_airy_foliage": {
+      "m4a_sha256": "eb0cccd8124966bab70d207aef264babffa17d9c048725067e7fc8eac442f8cb",
+      "ogg_sha256": "d2f983054e4651e57811b18c3c0446b680cddf97ef1abebf8c59d90f77f6eae4",
+      "pcm_sha256": "94fb405c127830c4452154be6c39feb1c783b6dbc990ed5d4f0baee93fb02336",
+      "samples": 661504
+    },
+    "wind_c_low_exposed": {
+      "m4a_sha256": "170de00e3bfab7a61c0c5fd5e31f1fea254307ce7360defd46b4d5e3411971f2",
+      "ogg_sha256": "f747479b4708972a514439efeac534797dc5684b2e4edb095877aaf587f15bf3",
+      "pcm_sha256": "86c1256e79a43d8d7ef4cd592d69da91a033990cd6a9298cc008ae56392b3fa7",
+      "samples": 661504
+    },
+    "wind_demo_a_flat_bed_gust_follow": {
+      "m4a_sha256": "1755162d5adebcd2643d60e58bbbe259e2e864ec9af52893865bd544e60b3668",
+      "ogg_sha256": "bf1eb744d016ea6064e8849ff46c2efb4650c23a7d02d089b3bf54529a331dae",
+      "pcm_sha256": "99d3273afc74a6c812904f3ccc56422116e3a7949a96e91af19ac0106d12a4cb",
+      "samples": 1455300
+    },
+    "wind_demo_b_airy_foliage_gust_follow": {
+      "m4a_sha256": "8fa85c1e1a80bf3bd10b106bf950ac1aa4edc1f30f3cfa9fa8d576de91a02070",
+      "ogg_sha256": "8c12f006b0039c804e0d5e5ce179f629ddb91af2fa3f9734c9070be31ba1f9d1",
+      "pcm_sha256": "529489e3d316674779c32292167978bc818ff3bd39f43cd5bb13c4faed771716",
+      "samples": 1455300
+    },
+    "wind_demo_c_low_exposed_gust_follow": {
+      "m4a_sha256": "2a4412a1b8775e033d7f01a8a770be419e2efb32d7f0219b78c131ad5b453481",
+      "ogg_sha256": "b27fe19202b4523b1d218be7f1d8e82e72d31b3c788bac1eee3eb4b9e424b701",
+      "pcm_sha256": "16d2be01d27720458675879b38dd26aca36394c78f4066afa2ce399768ed2f78",
+      "samples": 1455300
+    }
+  },
+  "numpy": "1.26.4",
+  "scipy": "1.14.1"
+}

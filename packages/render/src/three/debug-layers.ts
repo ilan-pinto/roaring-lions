@@ -170,6 +170,14 @@
  * frame with an HDR effect in it (`blast:capture`), never a gated golden
  * scenario.
  *
+ * `ao`, ADDED FOR GH-943 P1 T7 (`./post-chain.ts` `WorldGTAOPass`, `./post-chain.node.ts`
+ * `createNodeAoStage`): the ambient-occlusion pass, on BOTH paths. Legacy: the
+ * pass's own `enabled`, `bloom`'s shape. Node: the backend's `AoControl`, which
+ * zeroes the blend uniform and skips the pre-pass. Neither is re-asserted per
+ * frame (`applyZoomFade` re-enables a pass only if it held it off), so it
+ * holds across the repaint. Absent on `low` and `medium` (`quality.ao` false
+ * builds no pass), where it toggles 0 objects.
+ *
  * `overlays`, ADDED FOR TASK 10'S KEY-ART PLATE (not the visual gate -- the
  * Phase 0 capture tool that added it was its only caller, and retired with
  * the key-art plate it drew (scene-host plan Task 7); no capture tool calls
@@ -289,6 +297,32 @@
  *                 entry: no gated scenario lays smoke. `blast:capture`'s
  *                 `smoke_eitan` subject votes it.
  *
+ * ONE FOR LOOK UPLIFT L1 (GH-943), behind the `&envlight` flag:
+ * - `environment` the sky environment (`environment.ts`) on every material that
+ *                 carries it: hiding strips `envMap` from the registered
+ *                 materials (units, buildings, props) so the frame is lit by
+ *                 the hemisphere and the sun alone; showing hands it back. A
+ *                 material-field write nothing per-frame re-asserts, so it
+ *                 holds across the gate's repaint. Returns how many live
+ *                 materials it wrote: 0 while the flag is off (there is no
+ *                 environment), the honest reading for a check to fail on.
+ *                 NO `layerChecks` entry yet, deliberately: with the flag off
+ *                 on main the layer writes nothing, so a gated check would
+ *                 read 0 px. It is witnessed by `tools/src/perf/look-l1-captures.ts`
+ *                 and its entry lands with the ship PR, beside its scenario.
+ *
+ * ONE FOR LOOK UPLIFT L2 (GH-943), on by default for dawn and dusk (`&grade=0` is the A/B switch):
+ * - `grade`       the colour grade (`output-grade.ts`), toggled by its own `enabled`:
+ *                 `vignette`'s shape exactly, a uniform inside `OutputPass`'s shader
+ *                 that no per-frame path re-asserts, so it holds across the gate's
+ *                 repaint. Hidden is the ungraded output, bit for bit. Returns 1 when
+ *                 it changed something and 0 with no grade compiled in (day, no
+ *                 `&grade`, an identity), the honest reading for a check to fail on.
+ *                 Witnessed by the `graded` scenario's `grade` layer check
+ *                 (`BASELINES.graded`, dusk preset, the dusk grade on by default): hidden
+ *                 reads 0 px / 0.0000 against a measured 186 px / 5.0668. Day and every
+ *                 other gated scenario draw no grade, so none of them carries the check.
+ *
  * ONE MORE FOR GH-471, the `missiles` rule again:
  * - `tunnel-xray` the x-ray of an identified tunnel (`../tunnel-xray.ts`):
  *                 bore and shafts, surface collars, the figures inside and
@@ -371,6 +405,32 @@
  * Neither gets a `layerChecks` entry: no gated scenario contains a beam, so a check there would read 0 px
  * on a healthy tree. `pnpm e6:capture` (chunk D) is where they vote.
  *
+ * THREE FOR THE WET GROUND (GH-871 P4 T4, R-10), each a stash on the
+ * `GroundMaterial`'s wet uniforms or a flag; all three report 0 on a map that
+ * does not rain (the dry ground has no such uniform):
+ *
+ * - `wet`         the puddle AND marsh water amplitude (`uWetAmp`) to 0 and
+ *                 back, the `macro` stash: a second hide reports 0 and never
+ *                 overwrites the stash with the 0 it just wrote. The wet TONES
+ *                 stay, by design (the palette is already the theme's), so
+ *                 what leaves is the water surface, its rim and its ripples.
+ * - `marsh`       the marsh water weight alone (`uMarshAmp`, control C's R
+ *                 channel) to 0 and back; puddles stay.
+ * - `ripples`     the ripple amplitude (`uRippleAmp`) to 0 and back. A FLAG
+ *                 (`ThreeRenderer.ripplesDebugHidden`) the per-frame write
+ *                 consults, the `units` rule: the frame re-derives the
+ *                 amplitude every frame (the preset and reduced motion may
+ *                 zero it), so a bare uniform write would hold only until the
+ *                 gate's repaint. No `layerChecks` entry: no gated scenario
+ *                 rains (`wet` is P5's).
+ * - `rain`        the falling rain's one instanced mesh (`units/rain-batch.ts`,
+ *                 GH-871 P4 T8). A FLAG (`ThreeRenderer.rainDebugHidden`) the
+ *                 per-frame visibility write (`writeRainVisibility`) consults,
+ *                 the `units` rule again: `frame()` re-derives `visible` every
+ *                 frame, so a bare write would hold only until the gate's
+ *                 repaint. Hides the streaks and their splashes, not the wet
+ *                 ground. 0 on a map that does not rain.
+ *
  * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
  * follow-up 2): the large dark diagonal a first attempt at the plate read as
  * a shadow was the fog-of-war boundary -- `FogOfWarPass` (`../fog-pass.ts`)
@@ -410,6 +470,7 @@ export const DEBUG_LAYERS = [
   'units',
   'vignette',
   'bloom',
+  'ao',
   'skirt',
   'backdrop',
   'overlays',
@@ -459,6 +520,34 @@ export const DEBUG_LAYERS = [
   // floor on a wounded figure. Hidden is today's faint team ring and no floor. A flag the overlay
   // pass reads, plus a material write.
   'wounded-read',
+  // GH-871 P4 T4: the wet ground. `wet` and `marsh` are stashes on the ground
+  // material's wet uniforms; `ripples` is a flag the per-frame write consults.
+  // All three are 0 on a map that does not rain. P5's `wet` scenario votes them.
+  'wet',
+  'marsh',
+  'ripples',
+  // GH-871 P4 T8: the falling rain's mesh (`units/rain-batch.ts`), behind a flag the per-frame
+  // visibility write consults. 0 on a map that does not rain. P5's `wet` scenario votes it.
+  'rain',
+  // Look uplift L1 (GH-943): the sky environment on units, buildings and props. See the doc entry.
+  'environment',
+  // Look uplift L2 (GH-943): the colour grade folded into OutputPass. See the doc entry.
+  'grade',
+  // Look uplift L3 (GH-943): the team mark on a vehicle's hull and turret. Writes the one strength every hooked
+  // material shares to 0 and back (`units/team-mask.ts`): a uniform write nothing per-frame re-asserts. Witnessed
+  // by the gated `vehicle` scenario's layer check.
+  'team-mask',
+  // GH-984 N2: the vehicles' disturbance of the grass and bushes (`terrain/disturb.ts`). `uDisturbAmp` to 0 and back,
+  // the `wind` shape: the frame writes the slot count and the arrays, never the amplitude, and skips its own work
+  // while the amplitude is 0, so a repaint cannot undo it. Witnessed by the gated `vehicle` scenario's layer check.
+  'disturb',
+  // GH-984 N3: the helicopters' rotor wash on the vegetation (the flatten and the thrash; `terrain/disturb.ts`). A flag the frame's
+  // disturber build reads every frame (a helicopter takes no slot while hidden), so a repaint cannot undo it, and the vehicles'
+  // `disturb` bend stays. The dust ring is not this layer's. Witnessed by the gated `vehicle` scenario's layer check.
+  'wash',
+  // GH-943 P2 (T5): the ground rings only (selection, team, wound), on both paths. The GROUP is hidden, never a mesh: `endFrame` rewrites each
+  // mesh's `visible` every frame. Witnessed by the gated `vehicle` scenario's layer check (its own team rings).
+  'selection-ring',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

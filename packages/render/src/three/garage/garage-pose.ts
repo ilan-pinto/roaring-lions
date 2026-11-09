@@ -9,7 +9,9 @@
  *    for the kit and Meshy-cut teams, the Meshy importers for the skinned
  *    riflemen), so the mesh gates can check it. No shipped GLB carries one
  *    yet; see "The bake is a follow-up" below.
- * 2. **`idle` at frame 0**, which every shipped team and vehicle has. It is
+ * 2. **`idle` at frame 0** (or the clip `showroomClip` names -- `move` for
+ *    the sniper, whose idle is the prone hide, GH-921), which every shipped
+ *    team and vehicle has. It is
  *    applied even where the rest geometry is already the posture, because
  *    only the clip's scale keys hide the prone death rig and the crew walker
  *    (`rig.py`'s `_key_death_visibility`): the bind pose alone draws the
@@ -39,6 +41,7 @@
  * the day it lands, and the pose below is its stand-in until then.
  */
 import * as THREE from 'three';
+import { clearSpacing } from './garage-frame';
 
 /** The clip name the exporters will bake (Q3). */
 export const SHOWCASE_CLIP = 'showcase';
@@ -46,6 +49,58 @@ export const SHOWCASE_CLIP = 'showcase';
 /** The skinned rifleman's arm pitch about the shoulder line, degrees -- the
  *  approved mock's low ready. Negative pitches the hands DOWN and forward. */
 export const READY_DROP_DEG = -90;
+
+/**
+ * The clip whose FRAME 0 a team stands in on the store's turntable, where it
+ * is not `idle` (GH-921). Keyed by unit type id; absent means `idle`.
+ *
+ * `idle` is the FIELD posture, and for `sniper_team` it is the prone hide:
+ * `rig._sniper_rest` keeps the living prone build on `snp_*_death_root` for
+ * `idle`/`fire`, and the standing build on `snp_*_root` for `move` alone. In
+ * the field that is right (firing shows the hide); on a showroom turntable the
+ * lead wants the team standing. `move` frame 0 is the standing build with
+ * the rifle carried, which `rig.py` already authors and gates, so this is a
+ * CHOICE of existing clip and no new art. It reaches only the garage: the
+ * field reads the clip table in `units/`, never this one.
+ *
+ * Only the prone team is listed. The kneeling crews (mortar, ATGM, recoilless,
+ * NLOS, digger, the MANPAD spotter, the fires officer's observer) also
+ * kneel at `idle`, but there the kneel IS the deployed weapon -- `move` packs
+ * the tube away (`prop` is hidden) -- so each is a separate decision, and
+ * `garage-pose.test.ts` names them as the exemptions to the standing pin.
+ */
+export const SHOWROOM_CLIP: Readonly<Record<string, 'move'>> = {
+  sniper_team: 'move',
+};
+
+/** The clip the store poses `typeId` from; `idle` unless `SHOWROOM_CLIP` says otherwise. */
+export function showroomClip(typeId: string): 'idle' | 'move' {
+  return SHOWROOM_CLIP[typeId] ?? 'idle';
+}
+
+/**
+ * The clip the store poses a team from: `showroomClip(typeId)`'s, or `idle`.
+ * The garage view calls this and nothing else to choose it, so a test that
+ * stages a team through the view pins the wiring.
+ *
+ * A showroom clip a GLB does not carry is LOUD, not a quiet `idle`: for the
+ * sniper that fallback is the prone hide, the very bug GH-921 fixed. It names
+ * the file (the backend's convention) and still poses, so the card is never
+ * empty.
+ */
+export function pickShowroomClip(
+  clips: ReadonlyMap<string, THREE.AnimationClip>,
+  typeId: string,
+  meshUrl: string
+): THREE.AnimationClip | null {
+  const want = showroomClip(typeId);
+  const chosen = clips.get(want);
+  if (chosen) return chosen;
+  if (want !== 'idle') {
+    console.error(`garage: ${meshUrl} (${typeId}) has no '${want}' clip for the store pose; falling back to 'idle'`);
+  }
+  return clips.get('idle') ?? null;
+}
 
 /** Which of the three paths above posed this unit, for the report line. */
 export type PoseSource = 'showcase' | 'idle0' | 'idle0+ready' | 'bind';
@@ -82,16 +137,90 @@ export function bonesOf(root: THREE.Object3D): THREE.Bone[] {
  * to scale 0 by `idle` frame 0 and is not a figure.
  *
  * The NAME is only a tie-breaker, and not a filter, because one shipped rig
- * inverts it: `sniper_team` lies prone, so its living figures are the bones
- * named `snp_*_death_root` (scale 1 at idle) while `snp_*_root` is the one
- * scaled to nothing. So a shown bone named for death or walking is dropped
+ * inverts it: `sniper_team` lies prone at `idle`, so its living figures there
+ * are the bones named `snp_*_death_root` (scale 1) while `snp_*_root` is the
+ * one scaled to nothing. (The store poses it from `move` now, GH-921, where
+ * `snp_*_root` is the shown one; the rule holds for either clip.) So a shown bone named for death or walking is dropped
  * only when some OTHER shown bone is not -- which also covers a rig posed
  * from its bind pose, where every root is shown.
  */
 export function livingFigureRoots(bones: readonly THREE.Bone[]): THREE.Bone[] {
-  const shown = bones.filter((b) => !(b.parent as THREE.Bone | null)?.isBone && Math.abs(b.scale.x) > 1e-4);
+  const shown = shownRoots(bones).filter((b) => !GEAR_BONE.test(b.name));
   const named = shown.filter((b) => !/death|walk/i.test(b.name));
   return named.length > 0 ? named : shown;
+}
+
+/**
+ * The shared gear bones of a crew-served team: the tube, the launcher, the
+ * tripod, the satchel, the dig tool. Every shipped team that carries one names
+ * it `prop` (or `ground` for the digger), as a top-level bone of its own, not
+ * under any crewman -- so to a rule that takes "every shown top-level bone"
+ * it is a FIGURE, and the garage once stood the 60 mm mortar in the line as
+ * its own soldier, turning on its own spot a metre from the crew that fires
+ * it (GH-746). A name test is the only handle the rigs give.
+ */
+export const GEAR_BONE = /^(prop|ground)$/;
+
+/** Top-level bones still SHOWN after the pose (scale not collapsed). */
+function shownRoots(bones: readonly THREE.Bone[]): THREE.Bone[] {
+  return bones.filter((b) => !(b.parent as THREE.Bone | null)?.isBone && Math.abs(b.scale.x) > 1e-4);
+}
+
+/** The shown gear bones (`GEAR_BONE`): none for a team that carries none, and
+ *  none while a clip hides the weapon (`move` packs the tube away). */
+export function gearRoots(bones: readonly THREE.Bone[]): THREE.Bone[] {
+  return shownRoots(bones).filter((b) => GEAR_BONE.test(b.name));
+}
+
+/**
+ * How a team stands on the stage. `line`: the figures are re-spaced on one
+ * line, each turning on its own spot (the lead's ruling for riflemen).
+ * `group`: the team carries gear, so it stays in the FIELD layout -- the crew
+ * where the exporter put them around the weapon -- and the whole rig turns as
+ * one piece about the footprint's centre. Re-spacing the crew would walk them
+ * away from a weapon that does not move.
+ */
+export type TeamLayout = 'line' | 'group';
+
+export interface TeamStaging {
+  /** The soldiers, in line order. Never a gear bone. */
+  readonly crew: THREE.Bone[];
+  readonly gear: THREE.Bone[];
+  readonly layout: TeamLayout;
+  /** The line spacing used (0 for a `group`, or a single figure). */
+  readonly spacing: number;
+}
+
+/**
+ * Stand a posed team on the stage: the one entry the garage view and the
+ * tests that guard the store both call. `spacing` is the line spacing from an
+ * earlier build of the same team (0: measure it here); it is ignored for a
+ * team with gear, which is not re-spaced at all.
+ */
+export function stageTeam(rig: THREE.Object3D, spacing: number): TeamStaging {
+  const bones = bonesOf(rig);
+  const crew = lineOrder(livingFigureRoots(bones));
+  const gear = gearRoots(bones);
+  if (gear.length > 0) return { crew, gear, layout: 'group', spacing: 0 };
+  let used = spacing;
+  if (crew.length > 1) {
+    if (used === 0) {
+      // Each figure's points as offsets from its own turn axis. A figure's
+      // reach does not depend on where it stands, so one sample at the posed
+      // default serves every pair.
+      const { points, owner } = visiblePoints(rig, crew, 1500);
+      const centres = crew.map((b) => b.getWorldPosition(new THREE.Vector3()));
+      const local = crew.map(() => [] as { x: number; z: number }[]);
+      points.forEach((p, i) => {
+        const f = owner[i];
+        if (f >= 0) local[f].push({ x: p.x - centres[f].x, z: p.z - centres[f].z });
+      });
+      // `clearSpacing` sweeps the whole turn, so where it starts is moot.
+      for (let i = 1; i < crew.length; i++) used = Math.max(used, clearSpacing(local[i - 1], local[i]));
+    }
+    respaceLine(crew, used);
+  }
+  return { crew, gear, layout: 'line', spacing: used };
 }
 
 const ARM = /(Shoulder|Arm|ForeArm|Hand)$/;
@@ -188,6 +317,8 @@ export function applyReadyPose(
  */
 export function poseRigged(
   root: THREE.Object3D,
+  // `idle` is whichever clip the store poses from (`showroomClip`): `idle`
+  // for nearly every team, `move` for the sniper. Named for the common case.
   clips: { readonly showcase: THREE.AnimationClip | null; readonly idle: THREE.AnimationClip | null }
 ): { source: PoseSource; mixer: THREE.AnimationMixer } {
   const bones = bonesOf(root);

@@ -1,0 +1,35 @@
+{
+  "id": "milh_flats",
+  "map": "milh_flats",
+  "camps": {
+    "friendly": { "at": [13, 37], "size": [3, 3], "exit": [12, 36] },
+    "hostile": { "at": [32, 8], "size": [3, 3], "exit": [35, 11] }
+  },
+  "flags": {
+    "friendly": { "at": [4, 11], "size": [5, 5] },
+    "hostile": { "at": [39, 32], "size": [5, 5] }
+  },
+  "flag_setup": {
+    "flags": {
+      "friendly": { "at": [3, 30], "size": [5, 5] },
+      "hostile": { "at": [40, 13], "size": [5, 5] }
+    },
+    "hold_s": 45,
+    "setup": { "seconds": 180, "band_tiles": 8, "kit": { "hesco": 12, "sandbag_post": 4, "t_wall": 2 } }
+  },
+  "modes": {
+    "camp": { "wipe": "after_camp" },
+    "flag": { "hold_s": 30 },
+    "points": {
+      "zones": [
+        { "zone": "bir_milh", "per_min": 50 },
+        { "zone": "tell_nw", "per_min": 20 },
+        { "zone": "tell_se", "per_min": 20 },
+        { "zone": "knoll_0", "per_min": 10 },
+        { "zone": "knoll_1", "per_min": 10 }
+      ],
+      "per_value_destroyed": 1,
+      "target": 600
+    }
+  }
+}

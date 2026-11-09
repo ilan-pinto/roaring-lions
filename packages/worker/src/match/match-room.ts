@@ -72,7 +72,7 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { advisorMayRelay, factionsOfMatchup, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, sha256Hex, snapshotEvery, type AdvisorScope, type ClientMsg, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
+import { advisorMayRelay, factionsOfMatchup, flagSetupFor, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, winModeField, winModeRequest, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, sha256Hex, snapshotEvery, specialRefusal, type AdvisorScope, type ClientMsg, type Faction, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg, type WinMode } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { readCapped } from '../read-capped';
@@ -81,7 +81,7 @@ import { PendingBook, ReservationBook, admitTick, decide } from './snapshot-inta
 import { SNAP_MISMATCH_PER_ROOM, writeSnapMismatch } from './snap-mismatch-log';
 import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
-import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, seatKindField, seatTiersField, textField, type Kit, type SeatKind, type SeatTiers } from './room-fields';
+import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, seatKindField, seatSpecialsField, seatTiersField, textField, type Kit, type SeatKind, type SeatSpecials, type SeatTiers } from './room-fields';
 import { compactLog, writeDesync } from './desync-log';
 
 export const TICK_MS = 50;
@@ -146,6 +146,12 @@ interface RoomMeta {
    *  (`seatTiersField`). Recorded whatever the kit rule; `mintConfig` reads it only for a KDF
    *  seat in a `brigade` room. */
   claims: [SeatTiers, SeatTiers];
+  /** GH-1102: the Store specials each seat claims to own, from `/create` and `/join`, cleaned
+   *  against the shipped table (`seatSpecialsField`). Recorded whatever the kit rule, like
+   *  `claims`; `seatSpecials` reads it only for a human KDF seat in a `brigade` versus room. */
+  owned: [SeatSpecials, SeatSpecials];
+  /** The win mode `/create` asked for (GH-976 P2); absent is annihilation. Versus rooms only. */
+  winMode?: WinMode;
 }
 /** 16 random hex characters: 64 bits from `crypto.getRandomValues`. */
 function mintToken(): string {
@@ -175,6 +181,10 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
     // so what a revived room mints is never more than `seatTiersField` lets through.
     kit: m.mode === 'versus' ? kitField(m.kit) : 'matched',
     claims: Array.isArray(m.claims) && m.claims.length === 2 ? [seatTiersField(m.claims[0]), seatTiersField(m.claims[1])] : [seatTiersField(null), seatTiersField(null)],
+    // A room from before GH-1102 owns no specials; a stored claim is cleaned again, as the tiers are.
+    owned: Array.isArray(m.owned) && m.owned.length === 2 ? [seatSpecialsField(m.owned[0]), seatSpecialsField(m.owned[1])] : [[], []],
+    // A room from before win modes is annihilation; a stored mode is read through the same field as a client's.
+    ...(m.mode === 'versus' && winModeField(m.winMode) !== undefined ? { winMode: winModeField(m.winMode) } : {}),
   };
 }
 /** A socket's seat; `at`, while it has none, is when it was accepted, for the
@@ -183,8 +193,11 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
  *  counted as a live socket and sent what the room sends everyone, and it is
  *  never one of `socketsFor(seat)`, so it holds no seat, gets no seat-targeted
  *  message, and its close marks nobody gone. Who it is lives here and nowhere
- *  else, so the advisor survives an eviction with no row written. */
-interface SocketAttachment { seat: Seat | null; at?: number; role?: 'advisor'; scope?: AdvisorScope }
+ *  else, so the advisor survives an eviction with no row written.
+ *  `role: 'watch'` (GH-954 W1) is a SPECTATOR: seatless (`seat: null`), no scope, counted as a live
+ *  socket, sent the broadcast stream and nothing else, and heard from never (`webSocketMessage` drops every
+ *  message after its hello). It is none of `socketsFor`, `advisorsFor` or `advisorsPresent`. */
+interface SocketAttachment { seat: Seat | null; at?: number; role?: 'advisor' | 'watch'; scope?: AdvisorScope }
 /**
  * #559 M-1: what one room lets sockets do.
  * - `HELLO_TIMEOUT_MS`: a socket with no seat after 10 s is closed, and so is
@@ -200,6 +213,8 @@ interface SocketAttachment { seat: Seat | null; at?: number; role?: 'advisor'; s
  */
 export const HELLO_TIMEOUT_MS = 10_000;
 export const MAX_ROOM_SOCKETS = 8;
+/** GH-954 W1: spectator sockets one room serves (inside `MAX_ROOM_SOCKETS`); a third `watch` hello is refused. */
+export const MAX_WATCHERS = 2;
 export const SOCKET_BUDGET = { burst: 160, perSecond: 80 } as const;
 /** N4a: the least gap between two advisor messages one advisor socket may have relayed;
  *  a quicker one is dropped. Memory only, like the socket budget it sits beside. */
@@ -216,7 +231,11 @@ function attachmentOf(ws: WebSocket): SocketAttachment | null {
 /** The seat this socket SPEAKS FOR: null for a seatless socket and for an advisor. */
 function seatOf(ws: WebSocket): Seat | null {
   const a = attachmentOf(ws);
-  return a === null || a.role === 'advisor' ? null : a.seat;
+  return a === null || a.role === 'advisor' || a.role === 'watch' ? null : a.seat;
+}
+/** Whether this socket is a spectator (GH-954 W1). */
+function isWatcher(ws: WebSocket): boolean {
+  return attachmentOf(ws)?.role === 'watch';
 }
 /** The seat this socket advises, and how, or null when it is not an advisor. */
 function advisorOf(ws: WebSocket): { seat: Seat; scope: AdvisorScope } | null {
@@ -469,7 +488,15 @@ export class MatchRoom {
       const s = st.seats[seat];
       const faction = mode === 'versus' ? st.factions[seat] : 'kdf';
       const tiers: SeatTiers = kit === 'brigade' && faction === 'kdf' ? this.meta?.claims[seat] ?? {} : {};
-      return { seat, side: mode === 'versus' ? sides[seat] : 0, faction, kit, tiers, unlocks: [], player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
+      // GH-1102: the seat's Store specials, less the ones a versus room cannot field. A refused one is
+      // logged here, at the one mint, and both seats were shown it in the lobby (`lobbyFor`).
+      const unlocks: string[] = [];
+      for (const id of this.seatSpecials(seat, faction)) {
+        const why = specialRefusal(id);
+        if (why === null) unlocks.push(id);
+        else console.log('MatchRoom: brigade special refused', st.code, seat, id, why);
+      }
+      return { seat, side: mode === 'versus' ? sides[seat] : 0, faction, kit, tiers, unlocks, player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
     };
     // `dataDigest: 0` stays in the wire format, but no client folds it (L4):
     // each folds the digest of its own content.
@@ -477,6 +504,11 @@ export class MatchRoom {
       matchId: st.matchId, code: st.code, seed: this.meta?.seed ?? SIM_SEED_N0, map: this.meta?.map ?? DEFAULT_MAP, mode,
       seats: [seatConfig(0), seatConfig(1)],
       pace, hashEveryTicks: 20, bufferTicks: 2, build: this.meta?.build ?? '', dataDigest: 0, snapshotEveryTicks: this.snapshotEveryTicks,
+      // GH-976 P2: the win mode the host asked for, in a versus room only (`validateConfig` refuses it anywhere else).
+      ...(mode === 'versus' && this.meta?.winMode !== undefined ? { winMode: this.meta.winMode } : {}),
+      // GH-976 v2: minted from the room's own map and win mode against `FLAG_SETUP_MAPS` -- never from a client value (`/create` reads no
+      // `flagSetup`, and `validateConfig` refuses one without a flag room). Empty list, no key: every room plays as before.
+      ...(mode === 'versus' && flagSetupFor(this.meta?.map ?? DEFAULT_MAP, this.meta?.winMode) !== undefined ? { flagSetup: true } : {}),
     });
     if (config === null) throw new Error('MatchRoom minted a config its own validator refuses');
     return config;
@@ -485,14 +517,33 @@ export class MatchRoom {
   private socketsFor(seat: Seat): WebSocket[] {
     return this.ctx.getWebSockets().filter((ws) => seatOf(ws) === seat);
   }
+  /** The spectator sockets (GH-954 W1): `MAX_WATCHERS` at most. */
+  private watchers(): WebSocket[] {
+    return this.ctx.getWebSockets().filter(isWatcher);
+  }
   /** `seat`'s advisor sockets: one at most while the room is healthy (a retired one is disowned). */
   private advisorsFor(seat: Seat): WebSocket[] {
     return this.ctx.getWebSockets().filter((ws) => advisorOf(ws)?.seat === seat);
   }
+  /** GH-1102: the Store specials `seat` brings, refused ones included: its cleaned claim in a
+   *  `brigade` versus room for a HUMAN seat playing KDF (Sarim has no store, and a bot owns
+   *  nothing, whatever its join body says); `[]` everywhere else. The one rule the mint and
+   *  the lobby both read, so the lobby shows exactly what the config will carry. */
+  private seatSpecials(seat: Seat, faction: Faction): SeatSpecials {
+    const m = this.meta;
+    if (m === null || m.mode !== 'versus' || m.kit !== 'brigade') return [];
+    if (faction !== 'kdf' || m.kinds[seat] !== 'human') return [];
+    return m.owned[seat];
+  }
   /** A `lobby` as `seat` is told it: its own seat, and the room's kit rule when
-   *  it is `brigade` (the lobby shows it to both seats; absent is matched). */
+   *  it is `brigade` (the lobby shows it to both seats; absent is matched). In a
+   *  brigade room each seat also carries the specials it brings (GH-1102), so
+   *  both line-ups are on screen before Ready. */
   private lobbyFor(msg: Extract<ServerMsg, { t: 'lobby' }>, seat: Seat): ServerMsg {
-    return { ...msg, you: seat, ...(this.meta?.kit === 'brigade' && this.meta.mode === 'versus' ? { kit: 'brigade' as const } : {}) };
+    const brigade = this.meta?.kit === 'brigade' && this.meta.mode === 'versus';
+    // The lobby names each seat's faction (`lobbyMsg`); a room that names none is the KDF mirror.
+    const seats = brigade ? msg.seats.map((s) => ({ ...s, specials: [...this.seatSpecials(s.seat, msg.factions?.[s.seat] ?? 'kdf')] })) : msg.seats;
+    return { ...msg, seats, you: seat, ...(brigade ? { kit: 'brigade' as const } : {}), ...(this.meta?.mode === 'versus' && this.meta.winMode !== undefined ? { winMode: this.meta.winMode } : {}) };
   }
   /** `'all'` reaches every seated socket, advisors included, each `lobby` naming
    *  the socket's own seat; a seat-targeted message reaches that seat's own
@@ -503,6 +554,12 @@ export class MatchRoom {
       const text = JSON.stringify(msg.t === 'lobby' ? this.lobbyFor(msg, seat) : msg);
       const targets = to === 'all' ? [...this.socketsFor(seat), ...this.advisorsFor(seat)] : this.socketsFor(seat);
       for (const ws of targets) { try { ws.send(text); } catch { /* closing */ } }
+    }
+    // A spectator hears the broadcast stream (frames, stalls, pauses, the end) and none of the seats' own
+    // business: no lobby (it has no seat), no advisor badge and no advisor text. Never a seat-targeted message.
+    if (to === 'all' && msg.t !== 'lobby' && msg.t !== 'advisors' && msg.t !== 'advisor') {
+      const text = JSON.stringify(msg);
+      for (const ws of this.watchers()) { try { ws.send(text); } catch { /* closing */ } }
     }
   }
   /** Which scope each seat's advisor has, read from the sockets' attachments:
@@ -752,10 +809,14 @@ export class MatchRoom {
       // KDF vs Sarim plays only on FACTION_MATCHUP_MAPS (the lead's ruling): refused here as the route refuses it.
       const matchup = mode === 'versus' ? matchupField(body.matchup) : 'mirror';
       if (!matchupAllowed(matchup, map)) return new Response('matchup not offered on this map', { status: 400 });
+      // GH-976 P2: the route refuses an unknown or unfair win mode before it asks the room; the room asks again.
+      const winMode = winModeRequest(body.winMode, { mode, map, matchup });
+      if (winMode.refused !== undefined) return new Response(winMode.refused, { status: 400 });
       const factions = factionsOfMatchup(matchup);
       this.st = createRoom(body.code, body.matchId, Date.now(), map, factions);
       this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens(), kinds: [seatKindField(body.kind), 'human'], pace: paceField(body.pace),
-        kit: mode === 'versus' ? kitField(body.kit) : 'matched', claims: [seatTiersField(body.tiers), seatTiersField(null)] };
+        kit: mode === 'versus' ? kitField(body.kit) : 'matched', claims: [seatTiersField(body.tiers), seatTiersField(null)], owned: [seatSpecialsField(body.specials), []],
+        ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) };
       // The table, the keys and the TTL alarm exist from here, and only from here (#559 H-1).
       this.ctx.storage.sql.exec(CREATE_SQL);
       this.openSnapshotStore();
@@ -783,6 +844,8 @@ export class MatchRoom {
       if (req.method === 'GET') return this.snapshotServe(req);
       return new Response('method', { status: 405 });
     }
+    // GH-954 W1: the Worker's watch route asks whether both seats are bots. Read-only.
+    if (pathname === '/kinds') return Response.json({ kinds: (this.meta ?? legacyMeta({}, st)).kinds });
     if (pathname === '/state') return Response.json({ status: st.status, seats: st.seats.filter((s) => s !== null).length });
     if (pathname === '/join' && req.method === 'POST') {
       // The body is read BEFORE the check-and-set below: an await between them lets a
@@ -792,7 +855,12 @@ export class MatchRoom {
       if (st.status === 'ended') return new Response('ended', { status: 410 });
       const meta = this.meta ?? legacyMeta({}, st);
       if (st.seats[1] !== null || meta.seat1Reserved) return new Response('full', { status: 409 });
-      this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true, kinds: [meta.kinds[0], seatKindField(body.kind)], claims: [meta.claims[0], seatTiersField(body.tiers)] };
+      // A joiner that names its build (`pnpm bot` does; the browser does not) is refused BEFORE it takes the seat when
+      // the room runs another one, and is told which: its retry on the right build would otherwise find the seat taken.
+      if (typeof body.build === 'string' && body.build !== '' && meta.build !== '' && body.build !== meta.build) {
+        return Response.json({ error: 'build_mismatch', build: meta.build }, { status: 412 });
+      }
+      this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true, kinds: [meta.kinds[0], seatKindField(body.kind)], claims: [meta.claims[0], seatTiersField(body.tiers)], owned: [meta.owned[0], seatSpecialsField(body.specials)] };
       await this.ctx.storage.put('meta', this.meta);
       return Response.json({ seat: 1 });
     }
@@ -908,7 +976,7 @@ export class MatchRoom {
   acceptSocket(ws: HibernatingSocket): void {
     const now = Date.now();
     this.closeStaleSockets(now);
-    const live = this.ctx.getWebSockets().filter((s) => { const a = attachmentOf(s); return a !== null && (a.seat !== null || a.at !== undefined); }).length;
+    const live = this.ctx.getWebSockets().filter((s) => { const a = attachmentOf(s); return a !== null && (a.seat !== null || a.at !== undefined || a.role === 'watch'); }).length;
     this.ctx.acceptWebSocket(ws);
     if (live >= MAX_ROOM_SOCKETS) {
       ws.serializeAttachment({ seat: null } satisfies SocketAttachment);
@@ -958,6 +1026,10 @@ export class MatchRoom {
         if (advising !== null) this.send('all', this.advisorsPresent());
         return;
       }
+      // A spectator (GH-954 W1) is heard once, at its hello, and never again: whatever it sends afterwards is
+      // dropped here, after its budget was spent (a flood still closes it), before anything can act on it.
+      // Not `advisor`, `cmd`, `pause`, `ready`, `over`, `bye`, a malformed line: nothing, and no reply.
+      if (isWatcher(ws)) return;
       const seat = seatOf(ws);
       const advisor = advisorOf(ws);
       if (msg === null) {
@@ -1016,8 +1088,10 @@ export class MatchRoom {
     if (!ticket || ticket.matchId !== st.matchId) { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
     // /create refuses an empty build, so `''` here means meta was never written: fail closed.
     const build = this.meta?.build ?? '';
-    if (build === '' || msg.build !== build) { reply(ws, { t: 'error', code: 'build_mismatch' }); shut(ws, 4002, 'build'); return; }
+    // The ticket verified above, so only a seat of THIS match learns the room's build, which the client bundle already carries.
+    if (build === '' || msg.build !== build) { reply(ws, build === '' ? { t: 'error', code: 'build_mismatch' } : { t: 'error', code: 'build_mismatch', build }); shut(ws, 4002, 'build'); return; }
     if (ticket.role === 'advisor' && ticket.scope !== undefined) { this.advisorHello(ws, st, ticket.seat, ticket.scope, msg.from); return; }
+    if (ticket.role === 'watch') { this.watchHello(ws, st, msg.from); return; }
     if (ticket.role !== 'seat') { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
     (ws as HibernatingSocket).serializeAttachment({ seat: ticket.seat } satisfies SocketAttachment);
     await this.apply(seatJoin(st, ticket.seat, ticket.player, this.meta?.callsigns[ticket.seat] ?? '', Date.now(), () => this.readLogFrom(msg.from), msg.from), ws);
@@ -1039,6 +1113,24 @@ export class MatchRoom {
       if (st.pause !== null) reply(ws, pausedMsg(st, Date.now(), st.pause));
     }
     this.send('all', this.advisorsPresent());
+  }
+
+  /** A spectator's hello (GH-954 W1, D-W1): a socket with no seat, no advisor slot and no badge. It is told the
+   *  log and a pause in force, as an advisor is, and then only the broadcast. It retires nobody and is never
+   *  retired; at most `MAX_WATCHERS` (a third is told `full` and closed). No `seatJoin`, no state change, no row.
+   *  Its going is only a socket going. A route that mints the ticket exists only on the local relay
+   *  (`env.ARENA_WATCH`), but the room does not rely on that: it admits a `watch` ticket only into a room whose
+   *  seats are both bots. NOTE: a seat's `kind` is asserted by the client at create and join, so in production this
+   *  check proves nothing; the real guards are the route's 404 (no `ARENA_WATCH`) and the HMAC ticket. */
+  private watchHello(ws: WebSocket, st: RoomState, from?: number): void {
+    const bots = (this.meta?.kinds ?? ['human', 'human']).every((k) => k === 'bot');
+    if (!bots) { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'not a bot match'); return; }
+    if (this.watchers().filter((w) => w !== ws).length >= MAX_WATCHERS) { reply(ws, { t: 'error', code: 'full' }); shut(ws, POLICY_CLOSE, 'too many watchers'); return; }
+    (ws as HibernatingSocket).serializeAttachment({ seat: null, role: 'watch' } satisfies SocketAttachment);
+    if (st.status !== 'lobby' && st.config !== null) {
+      for (const part of logParts(st.config, this.readLogFrom(from), LOG_PART_CHARS, from)) reply(ws, part);
+      if (st.pause !== null) reply(ws, pausedMsg(st, Date.now(), st.pause));
+    }
   }
 
   /** Whether a hello to an ENDED room may have the log: the ending names a
@@ -1066,6 +1158,8 @@ export class MatchRoom {
       shut(ws, 1000, 'closed');
       const seat = seatOf(ws);
       const advisor = advisorOf(ws);
+      // A spectator going is only a socket going: nothing to tell, nothing to write.
+      if (isWatcher(ws)) { disown(ws); return; }
       disown(ws);
       const st = await this.begin();
       if (!st) return;

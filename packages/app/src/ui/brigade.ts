@@ -42,6 +42,7 @@ import { gateSentence, gateShort } from '../gate-sentence';
 import { expandedTrack, trackEl, type TrackDeps } from './garage-board';
 import { PANEL_PATHS, statPanel, type StatPanel } from './garage-stats';
 import { t } from '../i18n/t';
+import { creditAsk } from '../upgrade-pay';
 import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
 import {
@@ -68,7 +69,7 @@ import { routes } from '../shell/links';
 import { footBack, footLink, screenFoot } from './foot';
 import type { Disposer } from '../shell/router';
 import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
-import { showStores, type CoinAsk, type StoresShelf, type StoresTestWallet } from './stores';
+import { showStores, type CoinAsk, type StoresShelf, type StoresWallet } from './stores';
 import type { CoinHalf } from './stores-model';
 
 export interface BrigadeUnit {
@@ -110,6 +111,10 @@ export interface GarageState {
   readonly units: BrigadeUnit[];
   readonly credits?: number;
   readonly owned?: Record<string, Record<string, number>>;
+  /** The account's own `upgrades` (paid in credits), from the same read as `owned`. A credit
+   *  Buy fills the earned path, so its ask is `creditAsk(prices, earned, owned)`. Absent reads
+   *  as `owned` (no coin tier ahead of the account), the one-tier Buy. */
+  readonly earned?: Record<string, Record<string, number>>;
   /** Whether the purchase this answers is the one the store made -- the
    *  caller's own `ok`, never inferred from the account (final review M1).
    *  The account alone cannot say it: with two tabs open, tab B buys armour
@@ -194,6 +199,9 @@ export interface BrigadeOptions {
    *  Absent tiers read as 0. Absent entirely (no account) draws every rung unbought --
    *  still informative as a read-only view of what a track offers. */
   owned?: Record<string, Record<string, number>>;
+  /** The account's own `upgrades`, apart from `owned` (the single-player view, which coins can
+   *  run ahead of). See `GarageState.earned`. */
+  earned?: Record<string, Record<string, number>>;
   /** Called when the player clicks a rung's Buy control. The caller buys,
    *  saves and answers, exactly as `onBuy` does; this screen only asks. Rendered only
    *  alongside `credits` -- both present or neither, the same rule the unit-unlock Buy
@@ -207,8 +215,8 @@ export interface BrigadeOptions {
    *  Absent reads `motion.ts`'s `prefersReducedMotion()` -- the setting, then
    *  the OS. A seam for tests, which have neither. */
   reducedMotion?: () => boolean;
-  /** The Stores tab (GH-317), a PREVIEW: visible to everyone, sells nothing
-   *  (`ui/stores.ts`). Absent: the garage draws no view tabs at all, exactly
+  /** The Stores tab (GH-317): visible to everyone, sells for the free Roar-coin
+   *  wallet (`ui/stores.ts`). Absent: the garage draws no view tabs at all, exactly
    *  as before -- a test or a caller that never asked for the Stores does not
    *  get one. */
   stores?: GarageStoresOptions;
@@ -222,15 +230,14 @@ export interface GarageStoresOptions {
   paid?: Readonly<Record<string, number>>;
   /** Open on the Stores tab rather than the brigade. */
   open?: boolean;
-  /** The coin half of the account and, with `?testcoins`, the TEST wallet --
-   *  read afresh on every draw of the Stores, so a purchase is seen at once. */
-  read?: () => { coin: CoinHalf; test?: StoresTestWallet };
-  /** A Buy pressed with TEST coins. The caller buys and saves, then answers
+  /** The coin half of the account and the wallet (absent with no durable
+   *  storage) -- read afresh on every draw of the Stores, so a purchase is seen
+   *  at once. */
+  read?: () => { coin: CoinHalf; wallet?: StoresWallet };
+  /** A Buy pressed with coins. The caller buys and saves, then answers
    *  with the garage's account as it now stands (a coin-bought unit opens, a
    *  coin tier lands); the Stores redraws in place either way. */
   onBuy?: (ask: CoinAsk) => GarageState | void;
-  /** The TEST Grant button. The caller adds coins and saves. */
-  onGrant?: () => void;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -393,7 +400,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   /** The account this screen is drawing. Opens as the options hand it in and
    *  is replaced whole by each answer a purchase or a reset gets back
    *  (`answer()` below); nothing here edits it. */
-  let state: GarageState = { units: opts.units, credits: opts.credits, owned: opts.owned };
+  let state: GarageState = { units: opts.units, credits: opts.credits, owned: opts.owned, earned: opts.earned };
   const wrap = el('div', 'rl-menu rl-menu--garage');
 
   // --- header: the mark, the title, the campaign line, and the wallet -------
@@ -615,6 +622,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   let storesDispose: Disposer | null = null;
   let storesShelf: StoresShelf = 'early';
   let storesOwned = false;
+  let storesAdds: string | undefined;
   /** A coin purchase's answer: the garage redraws around the account as the
    *  store now holds it -- quietly, since it is not on screen -- and the
    *  Stores is drawn again with focus back on the control that asked. */
@@ -647,10 +655,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     if (v !== 'stores' || so === undefined) return;
     const live = so.read?.();
     const onBuy = so.onBuy;
-    const onGrant = so.onGrant;
     storesDispose = showStores(storesHost, {
       coin: live?.coin,
-      test: live?.test,
+      wallet: live?.wallet,
       shelf: storesShelf,
       onShelf: (s) => {
         storesShelf = s;
@@ -658,6 +665,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       showOwned: storesOwned,
       onShowOwned: (on) => {
         storesOwned = on;
+      },
+      adds: storesAdds,
+      onAdds: (id) => {
+        storesAdds = id ?? undefined;
       },
       focusKey,
       onBuy:
@@ -667,13 +678,15 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
               const key = ask.kind === 'unit' ? `unit:${ask.unitId}` : `tier:${ask.unitId}.${ask.track}.${ask.tier + 1}`;
               storesAnswered(onBuy(ask), key);
             },
-      onGrant:
-        onGrant === undefined
+      // The Garage's own purchase, at the unit's credit price (GH-317).
+      onBuyCredits:
+        opts.onBuy === undefined ? undefined : (unitId, price) => storesAnswered(opts.onBuy?.(unitId, price), `unit:${unitId}`),
+      // The tier row's credit Buy (D5) is the Garage's own: `onBuyUpgrade` runs `buyTierWithCredits`, which
+      // recomputes the ask from a fresh read (one path; the button's price is checked there, never trusted).
+      onBuyTierCredits:
+        opts.onBuyUpgrade === undefined
           ? undefined
-          : () => {
-              onGrant();
-              storesAnswered(undefined, 'grant');
-            },
+          : (unitId, track, to, price) => storesAnswered(opts.onBuyUpgrade?.(unitId, track, to, price), `credits:${unitId}.${track}`),
       units: state.units,
       ledger: opts.ledger,
       credits: state.credits,
@@ -1357,6 +1370,13 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
           state.credits !== undefined && opts.onBuyUpgrade
             ? {
                 credits: state.credits,
+                // R3 with R0.1: the Buy's tier and price are the run `creditAsk` states, off the
+                // account's earned tier and the single-player tier, never the rung's own price.
+                ask: creditAsk(
+                  track.tiers.map((x) => x.price),
+                  Math.min(state.earned === undefined ? owned : (state.earned[u.id]?.[trackName] ?? 0), track.tiers.length),
+                  owned
+                ),
                 onBuy: (tier, price, asked) => {
                   answer(opts.onBuyUpgrade?.(u.id, trackName, tier, price), asked, {
                     kind: 'upgrade',
@@ -1373,6 +1393,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             unitId: u.id,
             unitName: u.name,
             owned,
+            earned: Math.min(state.earned === undefined ? owned : (state.earned[u.id]?.[trackName] ?? 0), owned),
             buy,
             locked: row.locked,
             closeup: opts.closeup?.(u.id, trackName) ?? null,

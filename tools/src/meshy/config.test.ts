@@ -98,6 +98,16 @@ describe('loadMeshyConfig', () => {
     writeFileSync(keyFile, 'MESHY_API_KEY=fake-test-key-not-real\n');
     const config = loadMeshyConfig({}, keyFile);
     const keys = Object.keys(config);
-    expect(keys).toEqual(['apiKey', 'apiKeySource', 'usdPerCredit', 'usdPerCreditSource', 'keyFile']);
+    expect(keys).toEqual(['apiKey', 'apiKeySource', 'usdPerCredit', 'usdPerCreditSource', 'keyFile', 'plan']);
+  });
+
+  it('reads MESHY_PLAN (env first, then the key file), lower-cased, and is undefined when neither names one (SC2, G-C5)', () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'meshy-config-test-'));
+    const keyFile = path.join(dir, 'meshy.env');
+    writeFileSync(keyFile, 'MESHY_API_KEY=fake-test-key-not-real\nMESHY_PLAN=Studio\n');
+    expect(loadMeshyConfig({}, keyFile).plan).toBe('studio');
+    expect(loadMeshyConfig({ MESHY_PLAN: 'PRO' }, keyFile).plan).toBe('pro');
+    writeFileSync(keyFile, 'MESHY_API_KEY=fake-test-key-not-real\n');
+    expect(loadMeshyConfig({}, keyFile).plan).toBeUndefined();
   });
 });

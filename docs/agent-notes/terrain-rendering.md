@@ -449,3 +449,207 @@ tiles are code-built (`tools/terrain/build_reeds.py`, `build_wet_grass.py`, `bui
   `YARD_MIX` / `ROADSIDE_MIX`. `propKindsFor` fetches the bale and culvert only for a map whose theme names them.
 - The R1 approval rig (`render_wetland_r1.py`, `wetland_r1_rig.py`, calibrated against three.js's light formulas) and its census,
   ground-composite and sheet tools live beside the builders.
+
+## The wetland theme (GH-871 P4)
+
+P4 made the wetland WET: a wet ground program, a control texture for the water, ripples, wet sway, mud prints and crater water,
+plus the rain's light and the falling rain (the last two are in `renderer.md`). Spec: `docs/superpowers/specs/2026-10-28-rain-terrain-design.md`,
+section 14 is "P4 as built"; plan: `docs/superpowers/plans/2026-10-30-wetland-p4.md`. No shipped map rains, so the 35 terrain digests, the
+three shipped `theme-identity` entries, the determinism hashes and the visual baselines did not move. Each bullet below is a rule a change
+will get wrong.
+
+- **One switch: `RendererOptions.weather === 'rain'`.** Control C, the `THEME_WET` ground, `rainLight`, the wet fog, the wet sway, the
+  wet decal palette and crater water, the wet unit surfaces, `vehicle_mud` and the rain batch all key on it, and on nothing else. The
+  theme id never reaches the renderer: `TERRAIN_WEATHER` (app) turns `wetland` into `rain`, and a renderer built with
+  `weather: 'clear'` gets the dry path whatever the theme (the shipped three pin it). Never key a wet term on the theme, on "the map has a `~`" or on a map id.
+- **Control C is a third control texture, RGBA8 at `CONTROL_TEXELS_PER_TILE` 8, and exists only when `TerrainInput.wet` is true AND a
+  `TerrainSurface` was given** (`terrain/control-map.ts`, `terrain/wet-masks.ts`). **R is the marsh water weight AND the flood margin around it
+  (GH-940)**: `max(marshWaterAt, poolTexel)` at the texel CENTRE. Inside a `~` tile it is `marshWaterAt`, as is. The reed placer rejects a
+  centre where that function reads `>= 0.5`, so the POINT contract holds (see the reed-agreement rule below: it is not strict on the texels).
+  Outside one it is the pool term: **the marsh spills onto the low ground around it** in irregular blobs (`poolTerm`: `uniformNoise` at 0.7
+  cycles a tile, stream 15601/15733, pass share `POOL_FILL_NEAR` 0.85 at the marsh's edge falling linearly to 0 at `POOL_REACH_TILES` 2), only
+  on `open` or `scrub` tiles that pass `neverWater`, and only where the ground is at or under the WATER TABLE (`WetField.waterLevel`: the mean
+  integer level of the marsh's own tiles, else the lowest non-terrace level, else 0; ground `POOL_LEVEL_SLACK` 0.6 level over it is still low,
+  ramping off over 0.5). It rides in R so a pool takes the marsh's reflectance, ripples, rim and `marsh` debug layer with NO shader term; on a
+  map with no marsh it is zero. **G is the road puddles ONLY**, two terms, the larger wins: the RUT puddle is a band of unsigned road distance
+  `PUDDLE_RUT_HALF_BAND` (0.14 tile; 0.12 until GH-940) either side of `RUT_OFFSET`, where a per-texel rut noise passes (`PUDDLE_RUT_FILL` 0.62; 0.56
+  until GH-940, stream 14011/14153, mapped through its own empirical CDF so a share is a share), and the FORD (GH-940) is a road in LOW ground
+  flooded across its whole width where a coarse noise passes (`FORD_FILL` 0.3, 0.45 cycles a tile, stream 15811/15907). **B and A are spare, written 0.** The lead removed the
+  open-ground puddle term and the low-ground boost at S-L1 (30 Oct) and **GH-940 kept that**: `G == 0` on every texel off a road, and the flood
+  margin is the marsh's own edge, not a puddle on the grass. Both masks are SOFT, with the 0.5 crossing at the rule's edge; a share is the fraction of
+  texels with `>= 0.5`. Measured on `ein_qasab`: marsh 0.3119 inside the marsh tiles (band 0.25-0.35, unchanged), road puddles and fords 0.3697
+  (band 0.33-0.42; it was 0.2948 in 0.25-0.35, and a first cut at rut fill 0.7 and ford fill 0.5 read 0.4443 and flooded a whole road in a
+  capture), 6,018 pooled texels outside the marsh (94 tile-equivalents, +30% of the marsh's 311 tiles). The bake is about 200 ms on `ein_qasab`
+  (the pool adds a 7x7 tile search to texels on tiles within 3 of a marsh tile only), wet only. One predicate, `neverWater`, zeroes G (and the pool): a pad, a `^` top, a crown, a terrace top, a slope over 10 degrees.
+- **Control C's splice has its own margin and reads the surface.** `WET_SPLICE_MARGIN_TEXELS` is 16 (two tiles at 8 texels, the Catmull-Rom
+  stencil `incremental.ts` derives `SPLICE_RADIUS_TILES` 2 from), a second constant beside `CONTROL_SPLICE_MARGIN_TEXELS` 4 on purpose:
+  A and B read no surface, and raising theirs would loosen a margin `terrain-splice.test.ts` pins tight. `changedControlTiles` marks
+  `CHANGED_SURFACE` where the smoothing field or the terrace flag differs (a collapse can re-flow the fill under a neighbour). **The surface
+  (`build.state.surface`) must reach all five functions together**: `buildControlMap`, `snapshotControlInputs`, `changedControlTiles`,
+  `updateControlMapRegion` and `controlInputsMatch` (`rebuildTerrain` does). A missed one silently stales the puddles, so
+  **`updateControlMapRegion` THROWS when `map.c !== null` and no surface is given**; the other three degrade to a full build. A road-tile or
+  ridge change still forces a full bake. Only the 16-texel margin's falsification needs a map with a hump beside a road
+  (`ein_qasab`'s sweep cannot go red on it; the constructed road-beside-hump fixture falsifies 8 and 0, not 12).
+- **`THEME_WET` is a compile-time define, and its strip property is the 9.1 pin.** `new GroundMaterial()` compiles today's source byte for
+  byte; `new GroundMaterial({ wet: true })` sets the define, adds the wet uniforms and the cache key `rl-ground-wet`, and splices four
+  blocks (`wetBlock`): HEADER (after `<common>`: uniforms, `rlRipHash`, `rlRipple`), COLOR (after `<color_fragment>`), ROUGHNESS (after
+  `<roughnessmap_fragment>`) and NORMAL (after the relief normal). `theme-identity.test.ts` proves, on output, that the wetland program
+  with every `\n#ifdef THEME_WET ... \n#endif` block, the define, the `-wet` cache-key suffix and the wet uniforms removed IS arid's
+  program. **Every wet line lives inside its `#ifdef`**; the strip is a lazy match to the FIRST `#endif`, so a block may hold no nested
+  conditional, and (it is a JS template literal) no backticks and no dollar signs. Every term has a TS mirror in `terrain/wet-shading.ts`
+  and the GLSL is built FROM its constants; `mesh.test.ts` pins that the compiled string carries each. Some terms have no mirror (the
+  reflectance weighting, the rim's `(1 - cover)`, the composite order, the 2x2 gradient solve) and are covered by string-contains tests
+  only: a swap of two of them would pass.
+- **The surface term.** On ground TOPS (`rlTop`) `m = max(R * uMarshAmp, G) * uWetAmp`; coverage is a smoothstep over `WATER_COVER_LO..HI`
+  (0.4..0.6). The water albedo is the tone under it x `WATER_ALBEDO` (0.55), mixed toward `uWetSky` by the reflectance, the
+  reflectance weighted by which mask is the stronger. A 0.06-tile rim of `mud.3` (`uWetRim`) edges every water mask on the LAND side; the
+  distance to the 0.5 crossing is read off the mask's own gradient (`dFdx/dFdy`), so it hugs about one texel and may spawn a sliver at a
+  terrace wall. Roughness is written into three's own `roughnessFactor`: open 0.62, road mud 0.45, basalt top 0.55, water 0.08; the wet
+  program writes 0.62 on walls and non-top fragments where dry keeps 1.0 (wet only, by design).
+- **The reflectances are authored, not Fresnel, and they are on the DRAWN scale.** `PUDDLE_REFLECT` 0.35 (road puddles, and the crater
+  water, which shares the uniform) and `MARSH_REFLECT` 0.25 (`weather.ts`), picked by the lead from the 0.20/0.25/0.35 A/B at S-L1. They
+  seed `uPuddleReflect` / `uMarshReflect`; `ThreeRenderer.debugSetWetTuning` (a concrete-class method, never on `Renderer`) is the A/B's
+  only door. **`uWetSky` is `overcast.0` linear x `hazeRadiance`, mixed into the ALBEDO, and the light then scales the albedo by about the same
+  factor again**: the sky is lit twice by design, so the effective sky share is about `reflect x 0.74` and the drawn water reads about 26%
+  dimmer than the T3 readability proxy models. The lead chose 0.35/0.25 by eye on that scale. Dropping the extra `hazeRadiance` factor (an
+  honest-model refactor) would brighten every pool, change the approved look, and needs a recapture. Do not "fix" it in passing.
+- **Ripples** (`wet-shading.ts`, mirrored in the header block): on water fragments only (`m >= 0.5`), on the SIM clock
+  (`uRippleTimeSec = presentationSimMs / 1000`, never `performance.now()` or accumulated `dtMs`: a repaint at zero elapsed time moves no
+  ring and a pause freezes them mid-ring). The plane is cut into 0.5-tile cells, 2 rings a cell from `tileHash` on fresh streams
+  (x 14621/14731, z 14843/14957, phase 15061/15173, ring stride 331), 0.12-tile rings, 0.9 s life, each centre kept clear of the cell edge
+  so no ring crosses a cell, the summed normal tilt CAPPED at 8 degrees and the reflectance swung +-15%. Off on `low`
+  (`quality.rain.ripples`), off under reduced motion, off with the `ripples` layer hidden: `writeRippleAmp` ANDs all three each frame.
+- **Wet sway** (`terrain/sway.ts`, `terrain/decor-mesh.ts`): a compile-time variant of the foliage chunk, amplitude x `RAIN_SWAY_AMP` 1.5
+  and gust `RAIN_SWAY_GUST` 1.8, on the same sim clock, under its own cache key `rl-foliage-sway-wet`. `buildDecorMesh(..., wet)` hands
+  only the foliage role the variant; a shipped renderer's chunk is untouched. The `scene` digest cannot see it (the harness builds no
+  decor GLBs), so `decor-mesh.test.ts` compares the compiled programs directly and `ThreeRenderer.wet-units.test.ts` asserts the flag
+  reaches the call site. Reduced motion neither adds nor removes sway: the shipped sway rule stands.
+- **Decals** (`decal-maths.ts`, `decal-pool.ts`): under rain `tread` and `tyre` resolve to `mud.3` (`WET_DECAL_PALETTE_KEYS`; the other six
+  keys are today's), and the decal program gains a `DECAL_WET` define with five spliced blocks (`decalWetFragmentShader`, each behind
+  `#ifdef DECAL_WET`, `spliceAfter` throws when an anchor is not unique). **Crater water** stands where the crater height is below
+  `CRATER_WATER_LEVEL` (-0.12 radii, ramp `CRATER_WATER_EDGE` 0.02, opacity `CRATER_WATER_ALPHA` 0.9, about the inner 72% of the lip's
+  inner radius): the ground tone x 0.55 mixed toward the sky by the puddle reflectance, the rim relief off (`gst *= 1 - rlCraterWater`).
+  It shares the GROUND's own `uWetSky` / `uPuddleReflect` uniform objects by reference, so `debugSetWetTuning` and `applyWetUniforms`
+  move it with the puddles, and it follows `PUDDLE_REFLECT` (0.35). It ignores the `wet` debug layer and draws over already-wet pixels.
+- **Debug layers.** `wet` (`uWetAmp` to 0: the wet TONES stay, by design, so the layer shows what leaves is the water surface), `marsh`
+  (`uMarshAmp`, the C.R weight), `ripples` and `rain` (both FLAGS the per-frame writes consult, the `unitsDebugHidden` standard). All four
+  report 0 on a map that does not rain.
+
+**Rules a change will get wrong**
+- **`groundMat` is built in the constructor, not as a field initialiser.** A field initialiser runs before the options are seen, and the
+  wet program is `new GroundMaterial({ wet: true })` only under rain. Moving it back silently gives a wet map the dry ground.
+- **The reed agreement is the point contract, not strict.** `marshWaterAt` at a reed's POINT is `< 0.5` at every reed, but the control-C
+  texel under it reads water for a few: 56 of 897 reeds (6.2%) with P3's three clumps a tile, bound 8% (72), and each such reed needs a
+  dry neighbour texel (at most 2 reeds have a 3x3 patch around a dry pinhole). The test falsifies at the texel corner. A strict
+  version needs a placer change, which moves P2's reed set and P3's.
+- **The wetland map stays out of the 35 terrain digests**, and the `wetland` `theme-identity` entry moves deliberately with a `Was` in the
+  commit (`program` 770e1d73 -> 0ce466f4 at T4; `scene` eight times; `light` once; the Was values are in the spec's section 14). A shipped entry moving is a bug, not a bless.
+- **Do not re-add an open-ground or low-ground puddle without the lead.** The share tests assert `G == 0` off a road. The flood margin (GH-940) is R and hugs the marsh; to let it reach plain grass anywhere, the lead has to say so (`poolTerm` would drop its marsh-distance reach).
+- **Wet GLSL changes need a GPU compile.** There is no GLSL validator in the test run; the first real compile was S-L1's capture. After
+  touching a wet block, read it for ES 3.00 by hand and take one `ground:capture` view (the house browser rules apply).
+- **A new control-C reader must use the texel CENTRE** (`(i + 0.5) / N`), as `marshTexel` and `puddleTexel` do.
+
+## Chunks: the ground and the ditch of a large map (GH-913 follow-up, GH-920)
+
+Written 2026-11-01 for Rujm Sawda (80x80), the first map above 48x48. Gates: `packages/app/src/terrain-chunks.test.ts` and
+`terrain-chunk-budget.test.ts`, `packages/render/src/three/terrain/chunk-layer.test.ts` and `ditch-chunks.test.ts`,
+`packages/render/src/three/ThreeRenderer.chunks.test.ts`.
+
+**What was actually expensive.** The L7 report read Rujm's +0.7 to +1.2 ms at the seat view as "the ground is one unculled whole-map
+mesh and the decor batches cull per instance". The draw census (`render/src/three/chunk-census.ts`: three's REAL render lists on a fake
+GL, over the real map, GLBs, camera and shadow fit) reproduces the browser's triangle count (Rujm 22.9M vs Wadi 19.7M a frame; `perf:fx`
+read 23.2M vs 20.9M) and splits it: the ground is 0.39M and the scatter 0.10M, the four decor batches 0.1-0.4M (they DO cull per
+instance: 764 of 4,387 instances drawn at the centre, zoom 1), and the **ditch is 22.0M**, 96%. The ditch family is one `InstancedMesh`
+of every segment on the map; three culls an `InstancedMesh` as ONE object by the sphere around all its instances; and `ditch_0.glb` is
+~38k triangles a segment. So every segment draws in the shadow, AO and main passes whatever the camera sees. That is what `-decor` removed
+in the L7 layer table (-5.1 ms on Rujm, -4.0 on Wadi). Rujm costs more than Wadi because it has 192 ditch segments to Wadi's 166
+(+3M triangles), not because it is bigger. **Wadi Tarfan and every other 48x48 map with a ditch still pay this.**
+
+**What is chunked: the ground, the scatter and the ditch. The decor BatchedMeshes are NOT, on purpose** (built, measured, taken out).
+
+**Which maps.** `chunkGridFor(width, height, layer)` (`terrain/chunks.ts`) answers null for width x height <= 48 x 48, and then every
+layer is the ONE mesh it always was, built by the same code path and added straight to the scene (no group: `theme-identity`'s scene
+census pins it). By area, not by a map flag, so GH-920's bigger maps are chunked without anyone asking. Checked on the real GPU, not
+argued: `ground:capture` at 8 views of Wadi Tarfan against the L7 captures of origin/main, 0 pixels differing in every one; the old and
+new `buildTexturedDecorMesh` compared byte for byte with the grid null; the full test run, `theme-identity` included, unchanged.
+
+**A chunk is a range of tiles, not new geometry.** `buildGround`/`buildScatter` are tile loops (`tiled-mesh.ts`), so tile `t` owns
+vertices `[vertexStart[t], vertexStart[t+1])`. `sliceChunk` copies a chunk's tile ranges out of the whole-map build float for float and
+shifts the indices down to the chunk. Nothing is recomputed per chunk, and the ground's normals are analytic (the Catmull-Rom
+derivative at the vertex, a function of position alone), so a vertex on a chunk edge has one position and one normal whichever side
+emits it. `terrain-chunks.test.ts` compares every tile of every chunk with the whole build byte for byte on six maps (Rujm at two edges,
+and four 48x48 relief maps forced into 16/20-tile grids so cliffs and partial chunks are covered), and the surface vertices both sides of
+every chunk edge share (924 on Rujm at 32, 1,848 at 16) must have the same height and normal. Terraces keep their cliffs: those are
+real height steps in the whole build, so the seam check skips a vertex whose tile or neighbour is a terrace. Seven mutations of
+`chunks.ts` and `ground.ts` go red there; the seam check is falsified separately, by a normal perturbed in the BUILD at a chunk line
+(the partition check stays green, as it must, and the seam check goes red).
+
+**The collapse splice maps onto chunks without touching the splice.** `spliceTiledMesh` still builds the whole-map `TiledMeshData`,
+byte identical to a full build. `composeTerrainFrom` now also returns `dirtyTiles`, the splice's own mask (changed tiles dilated by
+`SPLICE_RADIUS_TILES` 2), and `ChunkedMeshLayer.update(tiled, dirty)` re-slices only the chunks holding a dirty tile; every other chunk
+keeps its mesh, geometry and GPU buffers. Exact, because a chunk is a function of its tiles' bytes and a copied tile is byte-identical
+to the last build's. A collapse on Rujm touches 1 of 9 chunks, where it used to re-upload the map. A full build, or a mask for another
+map size, rebuilds everything. Decor placements still splice per tile (`DECOR_SPLICE_RADIUS_TILES` 3); the decor and ditch BATCHES are
+still rebuilt whole on every terrain rebuild, as before.
+
+**Edges (`CHUNK_EDGE_TILES`: ground 32, ditch 8), measured in the browser** (Rujm Sawda, ANGLE/Metal M3 Pro, 1440x900 at DPR 2, high,
+readPixels-synced wall ms, A/B interleaved over 6 rounds in one page by moving the constants and rebuilding; loadavg ~8; the whole map
+as one mesh is the zero):
+
+    ditch edge, ground whole        centre z1   seat z1   mesa z1   centre z2.5     triangles at the seat
+    whole (80)                        21.4       21.5      20.3       20.6            23.6M
+    8                                 -2.1       -4.0      -3.1       -2.3             1.5M
+    12                                -2.0       -3.7      -2.8       -2.1             2.8M
+    16                                -0.8       -2.0      -3.3       -2.6            14.4M   (a chunk straddles a run)
+    24                                -2.0       -3.2      -3.3       -2.6             8.9M
+    ground edge, ditch 8
+    whole (80)                        19.3       17.5      17.2       18.3
+    32                                -0.2       +0.1      -0.5       -0.2
+    16                                +0.2       +0.6      -0.3       -0.5
+
+The ditch is the whole win and wants the finest cut: each draw is ~38k triangles a segment. The ground is a wash at 80x80 (inside the
+0.3-0.7 ms round-to-round spread); it is kept at 32 because its cost grows with area and a draw per chunk does not, and for GH-920.
+
+**Chunking the decor was built, measured and removed.** The brief's premise was that the decor batches walk every instance on the map and
+chunks would cut that. Measured in the same page (one `BatchedMesh` per role per chunk, the exact per-instance cull and sort kept,
+memoised; `pan-cull` is the sum of the batches' `onBeforeRender` over a 40-frame pan, the camera moving every frame):
+
+    decor edge   wall delta vs whole decor: centre z1 / seat z1 / mesa z1 / centre z2.5     pan-cull ms z1 centre / seat / mesa      batches   draws z1 centre
+    whole        0 / 0 / 0 / 0                                                               0.7 / 0.7 / 0.6                          4         196
+    32           -0.2 / +0.2 / +1.8 / +0.5                                                   0.7 / 0.6 / 0.4                          36        236
+    16           +0.6 / +0.6 / +1.1 / +0.5                                                   0.8 / 0.8 / 0.4                          92        301
+    8            +0.6 / +0.7 / +1.1 / +0.5                                                   1.2 / 1.1 / 0.6                          303       450
+
+No gain anywhere, and 0.2 to 1.8 ms lost. A draw is dear on this stack (about 0.1 ms of wall each, going by the mesa view's +19 draws for
++1.8 ms) and a visible chunk still walks every instance in it, while at zoom 1 more than half the map's chunks are visible. The
+pan cull never reaches the 0.3 ms target by chunking: it stays at Rujm's 0.6-0.7 (Wadi 0.3), the cost of walking the ~4,400 instances
+the view and the sun need, ~50 ns each. **Switching the per-instance cull and sort off ("the chunk is the cull") was tried first and is
+4.3 ms worse at the centre** (25.2 vs 20.9): `multiDrawElementsWEBGL` is a draw per ENTRY on ANGLE/Metal, a visible chunk then submits
+every instance it holds (3,600 entries a pass against 760), and the entries cost far more than the walk they avoid. The cull is not only
+CPU: it is what keeps the multi-draw list short. So the decor batches are unchanged, and `ThreeRenderer.chunks.test.ts` pins that.
+Where it could change: the walk grows with map AREA and a chunk's cost does not, so a map several times Rujm's size may pay; measure
+there (`perf:cullpan`, then this experiment), do not extrapolate from here. A cheaper cull would be a three change (a cached world
+sphere per instance), not a chunk.
+
+**Memory cost.** Before, `toGeometry` wrapped the whole-map arrays without copying them (only the linearised colours were new). A chunk
+is a copy of its tiles' range, so a chunked map holds the ground and scatter mesh twice in the JS heap: the whole-map `TiledMeshData`
+the splice needs as `prev` (required, and kept before this change too) plus the per-chunk attribute and index arrays. Measured on Rujm
+(`perf:memory`, 1400x900 @1x): JS heap + buffers 126.6 -> 136.0 MiB (+9.4, ceiling 153); GPU bytes unchanged (932.4 MiB). It scales with
+AREA: expect about +25 MiB at 128x128 (GH-920). Sub-array views cannot avoid it (a multi-row chunk is not contiguous), and dropping the
+CPU arrays after upload would lose three's context-loss re-upload. A cheap partial win, not done: slice straight into the linear colour
+array to skip the transient sRGB copy.
+
+**Left whole on purpose.** The decor batches (above), the prop batch (<= 150 instances, 3 draws), the residual and per-structure boxes,
+the skirt and backdrop.
+
+**Rules a change will get wrong**
+- **Never chunk a 48x48 map without the golden baseline.** `CHUNKED_ABOVE_TILES` is what keeps 38 maps' pixels still. Splitting the one
+  ditch `InstancedMesh` re-sorts coplanar ditch pieces; it needs CI to say 0 px before it ships. The census says it would take Wadi from
+  19.4M to ~9M triangles a frame, and the same experiment says what that is worth in ms.
+- **A chunk's bytes are the whole build's bytes.** Do not compute anything per chunk (a normal pass, a colour, a tone): a seam opens the
+  moment two chunks disagree about a shared vertex. The splice, the control map and the decal ground all read the whole-map build.
+- **Count draws before adding a chunked layer.** On this stack each draw is ~0.1 ms of wall. A layer chunks only if it saves more in
+  triangles than the chunks it adds cost in draws: the ditch does (38k a segment), the decor (~100 an instance) does not.
+- **The census is a count, not a clock.** `terrain-chunk-budget.test.ts` says what three SUBMITS; `perf:fx --breakdown` and
+  `perf:cullpan` say what it costs. A fix that moves the first and not the second is not a fix (the cull-off decor above moved the walk
+  to zero and the frame 4.3 ms the wrong way).

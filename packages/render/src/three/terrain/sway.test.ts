@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   SWAY_AMPLITUDE, SWAY_DIR_X, SWAY_DIR_Z, SWAY_GUST_EVERY_S, SWAY_GUST_GAIN, SWAY_GUST_WIDTH_S,
-  SWAY_PERIOD_S, SWAY_PHASE_X, SWAY_PHASE_Z, SWAY_TOP,
-  gustFactor, swayOffset, swayVertexChunk, swayWeight,
+  SWAY_PERIOD_S, SWAY_TOP,
+  RAIN_SWAY_AMP, RAIN_SWAY_GUST,
+  gustFactor, swayOffset, swayWeight,
 } from './sway';
+import * as wind from './wind';
 
 describe('sway maths (N-16, N-17)', () => {
   it('weighs by (h / top)^2, clamped', () => {
@@ -45,25 +47,41 @@ describe('sway maths (N-16, N-17)', () => {
   it('travels: two trees a tile apart are out of phase', () => {
     expect(swayOffset(SWAY_TOP, 3, 0, 0).dx).not.toBeCloseTo(swayOffset(SWAY_TOP, 3, 1, 0).dx, 3);
   });
-  it('the GLSL carries the tested constants, not a transcription of them', () => {
-    const src = swayVertexChunk();
-    // A bare `toContain(k.toFixed(4))` is a substring search: SWAY_TOP's
-    // "1.0000" is also a substring of an unrelated "21.00000000" or
-    // "1.00001234" literal, so it can pass without the constant actually
-    // being the one embedded. `glsl()` (sway.ts) always emits `toFixed(8)`,
-    // so pin that exact literal, delimited on both sides so it cannot match
-    // as a fragment of a longer number. SWAY_DIR_X/SWAY_DIR_Z (the sway
-    // axis) were not pinned at all before -- add them here too.
-    for (const k of [
-      SWAY_AMPLITUDE, SWAY_PERIOD_S, SWAY_GUST_GAIN, SWAY_GUST_EVERY_S, SWAY_GUST_WIDTH_S,
-      SWAY_TOP, SWAY_PHASE_X, SWAY_PHASE_Z, SWAY_DIR_X, SWAY_DIR_Z,
-    ]) {
-      const literal = k.toFixed(8).replace(/\./g, '\\.');
-      const pattern = new RegExp(`(?<![0-9.])${literal}(?![0-9])`);
-      expect(src).toMatch(pattern);
+  it('re-exports wind.ts`s constants (GH-984 N1 moved them; the GLSL pin lives in wind.test.ts)', () => {
+    for (const k of ['SWAY_AMPLITUDE', 'SWAY_PERIOD_S', 'SWAY_GUST_GAIN', 'SWAY_GUST_EVERY_S', 'SWAY_GUST_WIDTH_S', 'SWAY_TOP', 'SWAY_PHASE_X', 'SWAY_PHASE_Z', 'SWAY_DIR_X', 'SWAY_DIR_Z', 'RAIN_SWAY_AMP', 'RAIN_SWAY_GUST'] as const) {
+      expect((wind as Record<string, unknown>)[k]).toBeTypeOf('number');
     }
-    expect(src).toContain('uSwayTime');
-    expect(src).toContain('uSwayAmp');
-    expect(src).toContain('USE_BATCHING');
+    expect(SWAY_AMPLITUDE).toBe(wind.SWAY_AMPLITUDE);
+    expect(SWAY_DIR_X).toBe(wind.SWAY_DIR_X);
+  });
+});
+
+describe('the wet sway (GH-871 P4 T5, R-3)', () => {
+  // Oracles are literals: GH-940's 2.2 and 3.0 (the plan's 1.5 and 1.8 until the lead asked for more wind), and the shipped 0.035 and 1.4.
+  it('is amplitude x2.2 and gust 3.0, and the shipped numbers are untouched', () => {
+    expect(RAIN_SWAY_AMP).toBe(2.2);
+    expect(RAIN_SWAY_GUST).toBe(3);
+    expect(SWAY_AMPLITUDE).toBe(0.035);
+    expect(SWAY_GUST_GAIN).toBe(1.4);
+  });
+
+  it('gusts to 3.0 at the peak when wet, and to 1.4 when dry', () => {
+    expect(gustFactor(1.25, true)).toBeCloseTo(3, 12);
+    expect(gustFactor(1.25)).toBeCloseTo(1.4, 12);
+    expect(gustFactor(5, true)).toBe(1);
+  });
+
+  it('never exceeds 0.035 x 2.2 x 3.0 = 0.231 at a crown top, and reaches 95% of it', () => {
+    let worst = 0;
+    for (let t = 0; t < 22; t += 0.005) {
+      const o = swayOffset(1, t, 0, 0, true);
+      worst = Math.max(worst, Math.hypot(o.dx, o.dz));
+    }
+    expect(worst).toBeLessThanOrEqual(0.231 + 1e-12);
+    expect(worst).toBeGreaterThan(0.95 * 0.231);
+  });
+
+  it('a dry offset is exactly what it was (the wet flag defaults off)', () => {
+    expect(swayOffset(1, 3, 4, 9)).toEqual(swayOffset(1, 3, 4, 9, false));
   });
 });

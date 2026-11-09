@@ -6,14 +6,16 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { FACTION_MATCHUP_MAPS, sidesOfFactions, validateConfig, type MatchConfig } from '@lions/net';
-import { maps, parseMap } from '@lions/data';
+import { FACTION_MATCHUP_MAPS, MAP_CAP_MINUTES, VERSUS_FAIR_MAPS, matchCapMinutes, sidesOfFactions, validateConfig, type MatchConfig } from '@lions/net';
+import { maps, parseMap, versusCapMinutesOf, versusRules } from '@lions/data';
 import {
   CAMP_REACH,
   MAX_CAPACITY,
   MAX_TUNNELS,
   VENT_MIN_DIST,
   MATCHUP_MAPS,
+  MIRROR_RULES_MAPS,
+  RULES_ONLY_MAPS,
   VERSUS_SEATS as MJS_SEATS,
   anchorsOf,
   versusRulesFailures,
@@ -26,10 +28,11 @@ const ROOT = join(__dirname, '..', '..');
 interface Rules {
   id: string;
   map: string;
-  ends: Record<'friendly' | 'hostile', { camp: { at: number[]; size: number[] } }>;
+  ends: Record<'friendly' | 'hostile', { camp: { at: number[]; size: number[]; exit?: number[] } }>;
   tunnels?: Record<'friendly' | 'hostile', { id: string; points: number[][]; capacity: number }[]>;
   zones?: Record<string, number[]>;
   income_zones: { zone: string; rate_per_min: number }[];
+  cap_minutes?: number;
 }
 
 const shipped: { file: string; doc: Rules }[] = readdirSync(join(ROOT, 'data', 'versus'))
@@ -44,7 +47,13 @@ const failures = (r: { file: string; doc: Rules }[]): string[] =>
 
 describe('the shipped versus rules', () => {
   it('pass the schema and every rule', () => {
-    expect(shipped.map((s) => s.file)).toEqual(['data/versus/tel_marum.json', 'data/versus/wadi_tarfan.json']);
+    expect(shipped.map((s) => s.file)).toEqual([
+      'data/versus/milh_flats_l.json',
+      'data/versus/rujm_sawda.json',
+      'data/versus/tel_marum.json',
+      'data/versus/wadi_tarfan.json',
+      'data/versus/wadi_tarfan_l.json',
+    ]);
     expect(versusRulesFailures(shipped, mapsById)).toEqual([]);
     const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
     const ajv = new (Ajv2020 as unknown as new (o: object) => {
@@ -52,6 +61,30 @@ describe('the shipped versus rules', () => {
     })({ allErrors: true, strict: false });
     const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_rules.schema.json'), 'utf8')) as object);
     for (const s of shipped) expect(validate(s.doc), JSON.stringify(validate.errors)).toBe(true);
+  });
+  it('GH-913 L3: the schema takes a capacity of 256..1024 and refuses the rest; only rujm_sawda, wadi_tarfan_l and milh_flats_l declare one (512)', () => {
+    const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
+    const ajv = new (Ajv2020 as unknown as new (o: object) => {
+      compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown };
+    })({ allErrors: true, strict: false });
+    const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_rules.schema.json'), 'utf8')) as object);
+    const doc = (capacity: unknown): unknown => ({ ...rulesFor('wadi_tarfan')[0].doc, capacity });
+    for (const ok of [256, 512, 1024]) expect(validate(doc(ok)), String(ok)).toBe(true);
+    for (const bad of [255, 1025, 0, 300.5, '512', null]) expect(validate(doc(bad)), String(bad)).toBe(false);
+    const declared = Object.fromEntries(shipped.map((s) => [s.doc.map, (s.doc as { capacity?: number }).capacity]));
+    expect(declared).toEqual({ milh_flats_l: 512, rujm_sawda: 512, tel_marum: undefined, wadi_tarfan: undefined, wadi_tarfan_l: 512 }); // Was no wadi_tarfan_l or milh_flats_l (GH-920 B3)
+  });
+  it('GH-859 (5 Nov): the schema takes `formations_closed_in` as a unique list of mirror, placed, economy and refuses the rest; only tel_marum declares it (economy)', () => {
+    const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
+    const ajv = new (Ajv2020 as unknown as new (o: object) => {
+      compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown };
+    })({ allErrors: true, strict: false });
+    const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_rules.schema.json'), 'utf8')) as object);
+    const doc = (formations_closed_in: unknown): unknown => ({ ...rulesFor('wadi_tarfan')[0].doc, formations_closed_in });
+    for (const ok of [[], ['economy'], ['mirror', 'placed'], ['mirror', 'placed', 'economy']]) expect(validate(doc(ok)), JSON.stringify(ok)).toBe(true);
+    for (const bad of [['bogus'], ['economy', 'economy'], 'economy', true, [1], null]) expect(validate(doc(bad)), JSON.stringify(bad)).toBe(false);
+    const declared = Object.fromEntries(shipped.map((s) => [s.doc.map, (s.doc as { formations_closed_in?: string[] }).formations_closed_in]));
+    expect(declared).toEqual({ milh_flats_l: undefined, rujm_sawda: undefined, tel_marum: ['economy'], wadi_tarfan: undefined, wadi_tarfan_l: undefined });
   });
   it('the validator\'s anchors are versusAnchors\' answer for both matchup maps', () => {
     expect(CAMP_REACH).toBe(6);
@@ -63,13 +96,66 @@ describe('the shipped versus rules', () => {
   it('MATCHUP_MAPS is FACTION_MATCHUP_MAPS', () => {
     expect([...MATCHUP_MAPS]).toEqual([...FACTION_MATCHUP_MAPS]);
   });
+  it('MIRROR_RULES_MAPS are rules files for maps offered for the mirror only: fair, never a faction-matchup map', () => {
+    // GH-913 L8: rujm_sawda is opened for KDF v KDF and Sarim v Sarim. This is red the moment a map is
+    // moved into FACTION_MATCHUP_MAPS without its rules file being reclassified, or dropped from the fair list.
+    expect(MIRROR_RULES_MAPS).toEqual(['rujm_sawda', 'milh_flats_l']); // Was ['rujm_sawda']: Milh Flats (large) joined it at GH-920 B7
+    for (const id of MIRROR_RULES_MAPS) {
+      expect(FACTION_MATCHUP_MAPS, id).not.toContain(id);
+      expect(VERSUS_FAIR_MAPS, id).toContain(id);
+      expect(shipped.some((s) => s.doc.map === id), id).toBe(true);
+    }
+  });
+  it('RULES_ONLY_MAPS are rules files for maps no room offers: in neither list of @lions/net, and never in MIRROR_RULES_MAPS', () => {
+    // GH-920 B7 opened wadi_tarfan_l (it moved into MATCHUP_MAPS, both faction cells inside 60/40 at its seats) and then
+    // milh_flats_l (into MIRROR_RULES_MAPS, mirror only), so the list is EMPTY and the loop below is vacuous until the next
+    // large map waits here. The next test guards that vacuity: it pins the other direction, that every rules file is
+    // classified, so a map offered without being reclassified is still red.
+    // Opening a map means moving it into MIRROR_RULES_MAPS (or MATCHUP_MAPS) in the same commit.
+    expect(RULES_ONLY_MAPS).toEqual([]);
+    for (const id of RULES_ONLY_MAPS) {
+      expect(FACTION_MATCHUP_MAPS, id).not.toContain(id);
+      expect(VERSUS_FAIR_MAPS, id).not.toContain(id);
+      expect(MIRROR_RULES_MAPS, id).not.toContain(id);
+      expect(shipped.some((s) => s.doc.map === id), id).toBe(true);
+    }
+    // every rules file is classified exactly once
+    for (const { doc } of shipped) {
+      const where = [MATCHUP_MAPS, MIRROR_RULES_MAPS, RULES_ONLY_MAPS].filter((l) => l.includes(doc.map));
+      expect(where, doc.map).toHaveLength(1);
+    }
+  });
+  it('GH-913 L8: the schema takes a cap_minutes of 25..60 and refuses the rest; only rujm_sawda, wadi_tarfan_l and milh_flats_l declare one (35)', () => {
+    const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
+    const ajv = new (Ajv2020 as unknown as new (o: object) => {
+      compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown };
+    })({ allErrors: true, strict: false });
+    const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_rules.schema.json'), 'utf8')) as object);
+    const doc = (cap_minutes: unknown): unknown => ({ ...rulesFor('wadi_tarfan')[0].doc, cap_minutes });
+    for (const ok of [25, 35, 60]) expect(validate(doc(ok)), String(ok)).toBe(true);
+    for (const bad of [24, 0, -1, 61, 35.5, '35', null]) expect(validate(doc(bad)), String(bad)).toBe(false);
+    const declared = Object.fromEntries(shipped.map((s) => [s.doc.map, s.doc.cap_minutes]));
+    expect(declared).toEqual({ milh_flats_l: 35, rujm_sawda: 35, tel_marum: undefined, wadi_tarfan: undefined, wadi_tarfan_l: 35 }); // Was no wadi_tarfan_l or milh_flats_l (GH-920 B3)
+  });
+  it('GH-913 L8: @lions/net\'s MAP_CAP_MINUTES twin is every rules file\'s cap_minutes, both ways', () => {
+    // The Worker imports @lions/net and not @lions/data, so it reads the twin. A rules file that says 35 while
+    // the twin says 25 would let the client and the Worker disagree on the match length and the log cap.
+    for (const { doc } of shipped) {
+      expect(matchCapMinutes(doc.map), doc.map).toBe(doc.cap_minutes ?? 25);
+      expect(versusCapMinutesOf(versusRules[doc.map]), doc.map).toBe(matchCapMinutes(doc.map));
+    }
+    // ...and the twin names nothing a rules file does not.
+    for (const id of Object.keys(MAP_CAP_MINUTES)) expect(shipped.some((s) => s.doc.map === id), id).toBe(true);
+    // A map with no rules file (the mirror-only maps with none) is the default.
+    for (const id of ['beit_sahwan_outskirts', 'milh_flats']) expect(matchCapMinutes(id), id).toBe(25);
+  });
   it('wadi_tarfan\'s two camps are point-symmetric about the map centre', () => {
     const w = shipped.find((s) => s.doc.map === 'wadi_tarfan')!.doc;
     const [fx, fy] = w.ends.friendly.camp.at;
     expect(w.ends.hostile.camp.at).toEqual([46 - fx, 46 - fy]);
   });
   it('no camp tile is a tile the placed force spawns on, in either spawn order', () => {
-    for (const { doc } of shipped) {
+    for (const { doc } of shipped.filter((s) => FACTION_MATCHUP_MAPS.includes(s.doc.map))) {
       const parsed = parseMap((maps as unknown as Record<string, never>)[doc.map]);
       for (const factions of [['kdf', 'sarim'], ['sarim', 'kdf']] as const) {
         const sides = sidesOfFactions(factions); // the room's own rule (LD1)
@@ -80,20 +166,47 @@ describe('the shipped versus rules', () => {
         for (const ids of w.bySide) for (const i of ids) occupied.add(`${Math.floor(w.sim.state.posX[i] / 65536)},${Math.floor(w.sim.state.posY[i] / 65536)}`);
         for (const end of ['friendly', 'hostile'] as const) {
           const [ax, ay] = doc.ends[end].camp.at;
-          for (const t of [`${ax},${ay}`, `${ax + 1},${ay}`, `${ax},${ay + 1}`, `${ax + 1},${ay + 1}`]) {
+          const [cw, ch] = doc.ends[end].camp.size as [number, number]; // the camp's own size (2x2 on every map today)
+          for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
+            const t = `${ax + dx},${ay + dy}`;
             expect(occupied.has(t), `${doc.map} ${end} camp tile ${t} under a unit (${factions.join('/')})`).toBe(false);
           }
         }
       }
-      expect(parsed.width).toBe(48);
+      // GH-920 B7: the large Wadi Tarfan is a faction-matchup map at 96 (literals, not read off the map)
+      expect(parsed.width).toBe(doc.map === 'wadi_tarfan_l' ? 96 : 48);
     }
   });
 });
 
 describe('versusRulesFailures, one mutation at a time', () => {
-  it('passes both shipped files', () => {
+  it('passes the shipped files', () => {
     expect(failures(rulesFor('wadi_tarfan'))).toEqual([]);
     expect(failures(rulesFor('tel_marum'))).toEqual([]);
+    expect(failures(rulesFor('wadi_tarfan_l'))).toEqual([]); // GH-920 B7: a faction-matchup map now, held to the same rules
+  });
+  it('GH-976: a camp exit is an open ring tile; on a point-symmetric map the two exits are point mirrors', () => {
+    // Every shipped point-symmetric map authors both exits; each (friendly + hostile) sums to (W-1, H-1).
+    const SUMS = { milh_flats_l: [95, 95], rujm_sawda: [79, 79], wadi_tarfan: [47, 47], wadi_tarfan_l: [95, 95] } as const;
+    for (const [map, sum] of Object.entries(SUMS)) {
+      const doc = shipped.find((x) => x.doc.map === map)!.doc;
+      const f = doc.ends.friendly.camp.exit!;
+      const h = doc.ends.hostile.camp.exit!;
+      expect([f[0] + h[0], f[1] + h[1]], map).toEqual([...sum]);
+      expect(failures(rulesFor(map)), map).toEqual([]);
+      const nudged = rulesFor(map); // one tile off the mirror, still a ring tile of the camp
+      nudged[0].doc.ends.hostile.camp.exit = [h[0] - 1, h[1]];
+      expect(failures(nudged).some((m) => /not point mirrors/.test(m)), `${map} nudged`).toBe(true);
+      const derived = rulesFor(map); // no exit at all: the NW scan gives (f) and (h - 3), which are not mirrors
+      delete derived[0].doc.ends.hostile.camp.exit;
+      expect(failures(derived).some((m) => /not point mirrors/.test(m)), `${map} derived`).toBe(true);
+    }
+    const inside = rulesFor('wadi_tarfan');
+    inside[0].doc.ends.friendly.camp.exit = [7, 7];
+    expect(failures(inside).some((m) => /not a ring tile/.test(m))).toBe(true);
+    const far = rulesFor('wadi_tarfan');
+    far[0].doc.ends.friendly.camp.exit = [4, 4];
+    expect(failures(far).some((m) => /not a ring tile/.test(m))).toBe(true);
   });
   it('refuses a camp tile off the map', () => {
     const r = rulesFor('wadi_tarfan');
@@ -111,10 +224,11 @@ describe('versusRulesFailures, one mutation at a time', () => {
   });
   it('refuses a camp more than 6 tiles (Chebyshev) from its anchor', () => {
     const r = rulesFor('wadi_tarfan');
-    r[0].doc.ends.friendly.camp.at = [11, 18]; // anchor (11,11): the nearest tile is 7 away
+    // Anchor (10,10) since GH-945 (it was (11,11), with the camp at [11, 18] and [11, 17]).
+    r[0].doc.ends.friendly.camp.at = [10, 17]; // anchor (10,10): the nearest tile is 7 away
     const out = failures(r).filter((f) => f.includes('Chebyshev'));
     expect(out).toHaveLength(1);
-    r[0].doc.ends.friendly.camp.at = [11, 17]; // 6 away: allowed
+    r[0].doc.ends.friendly.camp.at = [10, 16]; // 6 away: allowed
     expect(failures(r).filter((f) => f.includes('Chebyshev'))).toEqual([]);
   });
   it('refuses an income zone in neither the map nor the file, and accepts a file zone', () => {
@@ -134,8 +248,10 @@ describe('versusRulesFailures, one mutation at a time', () => {
     r[0].doc.map = 'milh_flats';
     r[0].doc.id = 'milh_flats';
     expect(failures(r).join('\n')).toContain('is not a faction-matchup map');
+    // Was one line (wadi_tarfan): wadi_tarfan_l is a faction-matchup map too from GH-920 B7, so a lone tel_marum file misses both.
     expect(versusRulesFailures(rulesFor('tel_marum'), mapsById)).toEqual([
       'data/versus: no rules file for the faction-matchup map "wadi_tarfan"',
+      'data/versus: no rules file for the faction-matchup map "wadi_tarfan_l"',
     ]);
   });
   it('refuses a rate outside 1..120, a duplicate zone, and overlapping camps', () => {

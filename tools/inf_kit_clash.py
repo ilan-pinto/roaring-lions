@@ -142,9 +142,46 @@ def main():
             dg = bpy.context.evaluated_depsgraph_get()
             body = {nm: world_mesh(o, dg) for nm, o in base.items()}
             kit = {ob.name: world_mesh(ob, dg) for ob, _, _, _ in rows}
+            # kit x the hands, the other way round (R2 review, 1 Nov 2026): a hand is a set of closed glove pieces, and the
+            # kit part's own vertices and face centres are what sit INSIDE it. Counting only body vertices inside the part
+            # (below) cannot see a knuckle sunk into a thin panel's corner: the EUD sat 6.1 mm into the firing hand for the
+            # whole of `kneel` and `pinned` and this census read nothing.
+            hands = {}
+            for nm, (bco, btris) in body.items():
+                bone = names[nm]
+                for pf_ in figs:
+                    held = {f"{pf_}_hand_L", f"{pf_}_hand_R", f"{pf_}_finger_L"}
+                    hp = [t for t in btris if all(bone[i] in held for i in t)]
+                    if hp:
+                        hands[(nm, pf_)] = (BVHTree.FromPolygons([Vector(c) for c in bco], hp),
+                                            (bco[sorted({i for t in hp for i in t})].min(0) - TOL,
+                                             bco[sorted({i for t in hp for i in t})].max(0) + TOL))
             for ob, part, pf, _ in rows:
                 co, tris = kit[ob.name]
                 bvh = BVHTree.FromPolygons([Vector(c) for c in co], tris)
+                # Armour and the pelvis wraps (belt, pouches) are shells conformed to the torso: where a hand is itself pressed into the
+                # torso, their vertices are inside the glove too, and that is the arm-in-body count's question (`launcher_arms.test.ts`),
+                # not the kit's. The devices (sensors, optics, lights, grips) are the parts a hand can sink into by their own fault.
+                if part.track != "armour" and part.bone != "pelvis" and kit_bone[ob.name] not in (f"{pf}_hand_L", f"{pf}_hand_R"):
+                    cen = np.array([co[list(t)].mean(0) for t in tris])
+                    pts_k = np.vstack([co, cen])
+                    for (nm, pf_), (hb, hbox) in hands.items():
+                        if pf_ != pf:
+                            continue
+                        near = pts_k[((pts_k >= hbox[0]) & (pts_k <= hbox[1])).all(1)]
+                        if len(near) == 0:
+                            continue
+                        d = inside_depth(hb, near, hbox)
+                        # a glove piece is closed except at the cuff's mouth, where ray parity votes wrongly for a point on the
+                        # forearm's axis: a point is inside only if it also lies BEHIND the surface nearest it
+                        for k_ in np.nonzero(d > 0)[0]:
+                            loc_, nor_, _i, _d = hb.find_nearest(Vector(near[k_]))
+                            if (Vector(near[k_]) - loc_).dot(nor_) >= 0:
+                                d[k_] = 0.0
+                        if d.max() > TOL:
+                            key = (ob.name, f"hand:{pf}")
+                            if d.max() > worst.get(key, (0, 0))[0]:
+                                worst[key] = (float(d.max()), fr)
                 bbox = (co.min(0) - TOL, co.max(0) + TOL)
                 own = kit_bone[ob.name]
                 # kit x body

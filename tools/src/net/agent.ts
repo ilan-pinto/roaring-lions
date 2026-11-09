@@ -13,12 +13,25 @@
  * ticket is never accepted on the command line (every process on the
  * machine can read argv), never put in a URL, and never logged.
  *
+ * `--log-file <path>` also appends each log line, stamped, to that file (0600
+ * on creation): an MCP client started this process and may show none of its
+ * stderr, so `pnpm bot` points it at its own log to read why a room was refused.
+ *
  * stdout is the MCP protocol channel: every log line goes to stderr.
+ * Safe to restart: an MCP client may start this process, close it and start it
+ * again (Claude CLI probes a server first). It says `bye` -- which the room reads
+ * as a surrender, or a leave in the lobby -- only once the match has started and
+ * a tool has been called; closed before that it just drops the socket, and the
+ * next start with the same ticket takes the same seat back. Once the match is
+ * over it stays up, answering with the final result, until its MCP client goes
+ * (stdin closes): a server that exits is started again, and the respawn would
+ * replay the match from the room's log as if it were new.
+ *
  * Exit codes: 0 on a result or the room ending, 2 when the room refuses the
  * ticket or the build, 3 on a desync (after printing its tick), 1 otherwise.
  */
 import { randomUUID } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { appendFileSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -28,8 +41,11 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { AgentClient, matchSocketTarget } from './agent-client';
 import { buildId } from './build-id';
+import { leaveStatsIfAbsent } from './match-score';
 import { createContext, SCOPES, toolsFor, type Scope } from './mcp-tools';
 import { nodeSocket } from './node-socket';
+import { MODE_FLAG_VALUES, modeFlag } from './win-rule';
+import type { WinMode } from '@lions/net';
 
 export interface AgentArgs {
   server: string;
@@ -41,10 +57,16 @@ export interface AgentArgs {
   build: string | null;
   /** null: the server's own origin (decision D9). */
   origin: string | null;
+  /** Also append every log line here (see the header); absent: stderr only. */
+  logFile?: string;
+  /** `pnpm bot` (GH-973): the file the referee's stats and the bot's accepted scores are written to. Command scope only; it also turns on the `match_stats` and `submit_score` tools. */
+  scoreFile?: string;
+  /** GH-976 P2 (`--mode`): the win mode the prompt told the model (`null`: annihilation); the room is refused if it plays another. Absent: no check. */
+  mode?: WinMode | null;
 }
 
-const USAGE = 'usage: pnpm agent -- --server <url> --code <code> --scope advise|assist|command (--ticket-file <path|-> | --join) [--callsign <name>] [--build <id>] [--origin <url>]';
-const VALUED = new Set(['server', 'code', 'scope', 'ticket-file', 'callsign', 'build', 'origin']);
+const USAGE = 'usage: pnpm agent -- --server <url> --code <code> --scope advise|assist|command (--ticket-file <path|-> | --join) [--callsign <name>] [--build <id>] [--origin <url>] [--log-file <path>] [--score-file <path>] [--mode annihilation|points|camp]';
+const VALUED = new Set(['server', 'code', 'scope', 'ticket-file', 'callsign', 'build', 'origin', 'log-file', 'score-file', 'mode']);
 const FLAGS = new Set(['join']);
 
 const httpUrl = (v: string): boolean => {
@@ -92,6 +114,9 @@ export function parseArgs(argv: readonly string[]): AgentArgs | { error: string 
   if (join && scope !== 'command') return { error: '--join is for --scope command: it seats a bot. An advisor joins with the ticket its seat minted (--ticket-file)' };
   const origin = got.get('origin') ?? null;
   if (origin !== null && !httpUrl(origin)) return { error: '--origin is an http(s) URL' };
+  const mode = got.has('mode') ? modeFlag(got.get('mode') as string) : undefined;
+  if (got.has('mode') && mode === undefined) return { error: `--mode is ${MODE_FLAG_VALUES}\n${USAGE}` };
+  if (got.has('score-file') && scope !== 'command') return { error: '--score-file is for --scope command: only a seat that plays is asked to score the match' };
   return {
     server,
     code,
@@ -100,6 +125,9 @@ export function parseArgs(argv: readonly string[]): AgentArgs | { error: string 
     callsign: got.get('callsign') ?? 'Agent',
     build: got.get('build') ?? null,
     origin,
+    ...(got.has('log-file') ? { logFile: got.get('log-file') } : {}),
+    ...(got.has('score-file') ? { scoreFile: got.get('score-file') } : {}),
+    ...(mode === undefined ? {} : { mode }),
   };
 }
 
@@ -145,7 +173,14 @@ export function exitCodeFor(end: AgentEnd): number {
   }
 }
 
-const log = (line: string): void => { process.stderr.write(`${line}\n`); };
+/** Set from `--log-file` once the command line is read. */
+let logFile: string | null = null;
+const log = (line: string): void => {
+  process.stderr.write(`${line}\n`);
+  if (logFile === null) return;
+  // A log that cannot be written loses the log, never the match.
+  try { appendFileSync(logFile, `${new Date().toISOString()} har ${line}\n`, { mode: 0o600 }); } catch { /* stderr has it */ }
+};
 
 /** The first line of `stream`, leaving every byte after it in the stream for the next reader. */
 function readFirstLine(stream: Readable): Promise<string> {
@@ -179,20 +214,48 @@ export function readTicketFile(file: string, home: string = homedir()): string {
   return readFileSync(file.startsWith('~/') ? join(home, file.slice(2)) : file, 'utf8');
 }
 
+/** The room said no to a join: `status` is its HTTP status. */
+export class JoinRefused extends Error {
+  /** `roomBuild`: on a 412, the build the room runs (the join named another). */
+  constructor(readonly status: number, readonly roomBuild: string | null = null) {
+    super(`the room refused the join: HTTP ${status}`);
+    this.name = 'JoinRefused';
+  }
+}
+
+/**
+ * Takes the room's second seat as a bot: POST `/api/match/<code>/join` with a
+ * fresh player id and `kind: 'bot'`. Throws `JoinRefused` on any refusal. The
+ * ticket is returned to the caller and goes nowhere else. `pnpm bot` calls this
+ * too, before it starts a model, so a bad code costs no tokens. With `build`
+ * the room compares it BEFORE it reserves the seat and, on a mismatch, answers
+ * 412 naming the build it runs (`JoinRefused.roomBuild`): a retry on the right
+ * checkout still finds the seat free.
+ */
+export async function joinRoom(server: string, code: string, callsign: string, origin: string, fetchFn: typeof fetch = fetch, build?: string): Promise<{ seat: 0 | 1; ticket: string }> {
+  const base = new URL(server).origin;
+  const res = await fetchFn(`${base}/api/match/${encodeURIComponent(code)}/join`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin },
+    body: JSON.stringify({ player: randomUUID(), callsign, kind: 'bot', ...(build === undefined ? {} : { build }) }),
+  });
+  if (res.status === 412) {
+    let theirs: string | null = null;
+    try {
+      const b = (await res.json()) as { build?: unknown };
+      if (typeof b.build === 'string' && /^[\x20-\x7e]{1,80}$/.test(b.build)) theirs = b.build;
+    } catch { /* an answer with no build */ }
+    throw new JoinRefused(412, theirs);
+  }
+  if (!res.ok) throw new JoinRefused(res.status);
+  const body = (await res.json()) as { seat?: unknown; ticket?: unknown };
+  if ((body.seat !== 0 && body.seat !== 1) || typeof body.ticket !== 'string') throw new Error('the join answered no seat and ticket');
+  return { seat: body.seat, ticket: body.ticket };
+}
+
 /** The seat to play and its ticket: the room's answer to a bot join, or the ticket file's. */
 async function seatAndTicket(a: AgentArgs, origin: string): Promise<{ seat: 0 | 1; ticket: string }> {
-  if ('join' in a.ticket) {
-    const base = new URL(a.server).origin;
-    const res = await fetch(`${base}/api/match/${encodeURIComponent(a.code)}/join`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin },
-      body: JSON.stringify({ player: randomUUID(), callsign: a.callsign, kind: 'bot' }),
-    });
-    if (!res.ok) throw new Error(`the room refused the join: HTTP ${res.status}`);
-    const body = (await res.json()) as { seat?: unknown; ticket?: unknown };
-    if ((body.seat !== 0 && body.seat !== 1) || typeof body.ticket !== 'string') throw new Error('the join answered no seat and ticket');
-    return { seat: body.seat, ticket: body.ticket };
-  }
+  if ('join' in a.ticket) return joinRoom(a.server, a.code, a.callsign, origin, fetch, a.build ?? buildId());
   const raw = a.ticket.file === '-' ? await readFirstLine(process.stdin) : readTicketFile(a.ticket.file);
   const ticket = raw.trim();
   const claims = ticketClaims(ticket);
@@ -219,6 +282,7 @@ export function endOf(client: AgentClient, ranNone: boolean): AgentEnd | null {
 async function main(argv: readonly string[]): Promise<number> {
   const a = parseArgs(argv);
   if ('error' in a) { log(a.error); return 1; }
+  logFile = a.logFile ?? null;
   const origin = a.origin ?? new URL(a.server).origin;
   const build = a.build ?? buildId();
   let seat: 0 | 1;
@@ -234,13 +298,34 @@ async function main(argv: readonly string[]): Promise<number> {
     server: a.server, code: a.code, ticket, build, seat, log,
     role: a.scope === 'command' ? 'seat' : 'advisor',
     open: () => nodeSocket(target.url, origin),
+    ...(a.mode === undefined ? {} : { expectWinMode: a.mode }),
   });
   client.ready.then(
     (c) => { log(`agent: ${a.scope} on seat ${seat} of ${c.code} (${c.map}, ${c.pace.kind})`); },
     () => { /* AgentClient has said why on stderr */ },
   );
   const ctx = createContext(client, a.scope);
-  const tools = toolsFor(a.scope);
+  if (a.scoreFile !== undefined) ctx.scoreFile = a.scoreFile;
+  const tools = toolsFor(a.scope, { scoring: a.scoreFile !== undefined });
+  /** The referee's numbers for `pnpm bot`'s report, left at the result, unless a score is already there (a respawned harness replays the end). */
+  const leaveStats = (): void => {
+    const file = a.scoreFile;
+    if (file === undefined) return;
+    const referee = client.refereeStats();
+    if (referee === null) return;
+    try { leaveStatsIfAbsent(file, seat, referee); } catch (e) { log(`agent: the score file could not be written: ${e instanceof Error ? e.message : String(e)}`); }
+  };
+
+  // Claude CLI starts a stdio server to probe it, closes it, and starts it again, so this process must
+  // be safe to start, kill and restart: it says `bye` (a surrender, or a leave in the lobby) only once
+  // the match has started AND the model has called a tool. Before that it just lets go of the socket.
+  let toolCalled = false;
+  let started = false;
+  client.ready.then(() => { started = true; }, () => { /* AgentClient has said why on stderr */ });
+  const leave = (): void => {
+    if (toolCalled && started) client.close();
+    else client.release();
+  };
 
   const mcp = new McpServer({ name: 'roaring-lions-agent', version: build });
   // Plain JSON Schema tools: the tool table is the single source, so the
@@ -250,6 +335,7 @@ async function main(argv: readonly string[]): Promise<number> {
     tools: tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.schema as { type: 'object' } })),
   }));
   mcp.server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    toolCalled = true;
     const tool = tools.find((t) => t.name === req.params.name);
     const r = tool === undefined
       ? { ok: false, text: JSON.stringify({ error: 'not in this scope' }) }
@@ -265,16 +351,34 @@ async function main(argv: readonly string[]): Promise<number> {
       clearInterval(timer);
       if (end.kind === 'desync') log(`desync at tick ${end.tick}`);
       else if (end.kind === 'result') log(`agent: ${client.view().result ?? 'decided'}`);
-      else if (end.kind === 'refused') log(`agent: the room refused this client (${end.code})`);
+      else if (end.kind === 'refused') {
+        log(`agent: the room refused this client (${end.code})`);
+        // The room names its own build in a refusal: the line `pnpm bot` reads to tell the player which commit to run.
+        const theirs = client.roomBuild();
+        if (end.code === 'build_mismatch' && theirs !== null) log(`agent: the room runs build ${theirs}`);
+      }
       else log(`agent: ${end.kind}`);
-      client.close();
+      leave();
       // Let the last messages (an `over`, a `bye`) leave the socket.
       setTimeout(() => { resolveExit(exitCodeFor(end)); }, 250);
     };
+    // The match is over: say so ONCE and stay up. An MCP client (Claude CLI) that finds its server gone
+    // starts it again, and a respawn into an ended room replays the whole match as if it were new; a
+    // server that stays answers with the final result until the client itself goes (GH-973).
+    let held = false;
     const timer = setInterval(() => {
       const ran = client.pump(20);
       const end = endOf(client, ran === 0);
-      if (end !== null) finish(end);
+      if (end === null) return;
+      if (end.kind === 'result' || end.kind === 'ended') {
+        if (held) return;
+        held = true;
+        log(end.kind === 'result' ? `agent: ${client.view().result ?? 'decided'}` : `agent: ${end.kind}`);
+        if (end.kind === 'result') leaveStats();
+        leave();   // over: the socket detaches, no bye
+        return;
+      }
+      finish(end);
     }, 10);
     const transport = new StdioServerTransport();
     transport.onclose = () => { log('agent: the MCP client went away'); finish({ kind: 'ended' }); };

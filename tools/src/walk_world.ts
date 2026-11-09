@@ -116,7 +116,8 @@ export function makeWorld(
     zones: map.zones as never,
     roadMask: roadMaskOf(map),
     tunnels,
-    unitInfo: (u: string) => (units[u] ?? null) as never,
+    // `role` is named, not left to the raw JSON spread: a production work's `production.roles` reads it (GH-277).
+    unitInfo: (u: string) => (units[u] === undefined ? null : ({ ...(units[u] as object), role: (units[u] as { role?: string }).role } as never)),
     ...(opts.ledger !== undefined ? { ledger: opts.ledger } : {}),
   });
   runtime.start();
