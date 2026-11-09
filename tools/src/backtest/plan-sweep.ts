@@ -25,6 +25,7 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { outcomeName, runLog, type RunRecord } from './playtest-run';
+import { isPinnedOnly } from './pinned-only';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { missions, minWinSeconds, world } from '@lions/data';
 import { worldMissionIds } from '../../../packages/economy/src';
@@ -195,7 +196,7 @@ export async function drainPlanSweeps(
   if (pending > 0) await new Promise<void>((resolve) => (onIdle = resolve));
   const bySeed = new Map<number, RunRecord[]>([[seeds[0], runLog.slice()]]);
   for (const [seed, r] of replies) bySeed.set(seed, r.runs);
-  const labels = runLog.filter((r) => r.expect === 'victory' && !r.label.endsWith('(max tier)')).map((r) => r.label);
+  const labels = runLog.filter((r) => r.expect === 'victory' && !isPinnedOnly(r.label)).map((r) => r.label);
   let held = 0;
   for (const label of labels) {
     const missed: string[] = [];
