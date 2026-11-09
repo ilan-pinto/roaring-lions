@@ -58,6 +58,8 @@ export const TWINS = Object.freeze({
   // GH-943 P2 (T6). wind.ts also feeds the rain and the banners: a rain-only change to it must touch the twin too (intended).
   [`${THREE}terrain/decor-mesh.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
   [`${THREE}terrain/wind.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
+  // GH-943 P2 (T7): the disturbers (N2 vehicles, N3 rotor wash) are the same twin's second term; disturb.ts feeds the legacy chunk too.
+  [`${THREE}terrain/disturb.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
   // GH-943 P2 (T5)
   [`${THREE}units/selection-ring.ts`]: `${THREE}units/selection-ring.node.ts`,
   // GH-943 P3 (T5)
