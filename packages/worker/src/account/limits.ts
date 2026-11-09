@@ -17,7 +17,7 @@ export async function perMinute(req: Request, limiter: RateLimiter | undefined):
 export async function newAccountBudget(db: D1Like, env: Env, req: Request, now: number): Promise<boolean> {
   const secret = ipSecret(env);
   if (secret !== null) {
-    const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
+    const ip = ipBudgetAddress(req.headers.get('cf-connecting-ip') ?? 'unknown');
     if (!(await bump(db, 'acct-new-ip', await ipKey(secret, ip, now), now, NEW_PER_IP))) return false;
   }
   return bump(db, 'acct-new-all', '', now, NEW_ALL);
