@@ -300,17 +300,23 @@ async function runE6Beam(page: Page): Promise<void> {
   const L = window.__lions, R = L.renderer;
   const raf = () => new Promise((r) => window.requestAnimationFrame(() => r()));
   const node = R.nodeBackend !== null && R.nodeBackend !== undefined;
+  // E6's own order (its waitForMeshes): the types are spawned FIRST and the sim ticked (a spawned type's mesh is queued by the app's sweep,
+  // which a frame alone never runs), the field cleared, then the sequence spawned again onto loaded templates.
+  const first = api.spawn('aa_remetz', 0, 3, 6);
+  api.spawn('drone_swarm', 1, 45, 7);
+  const deadline = performance.now() + 120000;
+  for (;;) {
+    if (node) await raf();
+    L.step(20);
+    if (api.meshReady(first) && api.swarmReady()) break;
+    if (performance.now() > deadline) throw new Error('e6: the carrier and swarm meshes never loaded');
+    await new Promise((r) => setTimeout(r, 400));
+  }
   api.clear();
   const carrier = api.spawn('aa_remetz', 0, 4, 3);
   api.spawn('drone_swarm', 1, ${4 + BEAM_GAP_TILES}, 3);
-  const deadline = performance.now() + 60000;
-  while (!api.meshReady(carrier) || !api.swarmReady()) {
-    if (performance.now() > deadline) throw new Error('e6: the carrier mesh never arrived');
-    if (node) await raf();
-    R.snapshot();
-    R.frame(1, 100);
-    await new Promise((r) => setTimeout(r, 200));
-  }
+  for (let n = 0; n < 40 && !api.meshReady(carrier); n++) api.tick(1);
+  if (!api.meshReady(carrier)) throw new Error('e6: the carrier clone never attached');
   let dwell = 0;
   for (let n = 0; n < 200 && dwell < 22; n++) {
     api.tick(1);

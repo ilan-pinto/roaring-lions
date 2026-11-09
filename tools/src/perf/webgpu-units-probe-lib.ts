@@ -273,26 +273,32 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
   fx: [
     // Each is a scripted moment from `blast-captures.ts` / `e6-captures.ts`, replayed by import. Subjects on one moment share a page.
     { id: 'mortar-impact', ...fxMoment('mortar_team', 'particles'), band: 'loose', frameSteps: { n: 6, dtMs: 50 } },
-    // The shell's white smoke (`shell_impact`'s `mesh_plume`) stands for seconds: read it a second after the landing.
-    { id: 'mortar-impact/smoke-plume', ...fxMoment('mortar_team', 'smoke-plume'), band: 'loose', frameSteps: { n: 20, dtMs: 50 } },
     { id: 'mortar-impact/flipbook', ...fxMoment('mortar_team', 'flipbook'), band: 'loose', frameSteps: { n: 6, dtMs: 50 } },
     { id: 'vehicle-death', ...fxMoment('mbt_lavi', 'flipbook'), band: 'loose', frameSteps: { n: 16, dtMs: 50 } },
-    // The vehicle kill draws the explosion BURST mesh (`catastrophic_kill`'s `mesh_burst`, 450 ms): read it 100 ms in.
-    { id: 'vehicle-death/muzzle-burst', ...fxMoment('mbt_lavi', 'muzzle-burst'), band: 'loose', frameSteps: { n: 2, dtMs: 50 } },
     // A main-gun shot: the modelled muzzle flash (`fire_apfsds`'s `mesh_flash`, 130 ms), read at the 50 ms rung of its blast subject.
     { id: 'lavi-fire/muzzle-burst', ...fxMoment('lavi_fire', 'muzzle-burst'), band: 'loose', frameSteps: { n: 1, dtMs: 50 } },
     { id: 'smoke-screen', ...fxMoment('smoke_eitan', 'smoke-screen'), band: 'loose', frameSteps: { n: 20, dtMs: 50 } },
     { id: 'collapse', ...fxMoment('collapse_house', 'collapse-shroud'), band: 'loose', frameSteps: { n: 10, dtMs: 50 } },
+    // The collapse's dust column (`structure_collapse`'s `mesh_plume`) rises over seconds: read it at 1.2 s.
+    { id: 'collapse/smoke-plume', ...fxMoment('collapse_house', 'smoke-plume'), band: 'loose', frameSteps: { n: 24, dtMs: 50 } },
     {
       id: 'tracers',
-      ...fxMoment('blast_in_firefight', 'tracers', '@firefight'),
-      // Tick on until a round is in the air (a tracer lives 150 ms of FRAME time, and ageless until a frame is pumped).
+      map: BSO,
+      flags: [],
+      tick: 5,
+      camera: { tile: FORCE, zoom: 2.5 },
+      // An HMG technical (hostile) and two militia against two of our rifle squads, three tiles apart in the force's own sight: small-arms
+      // and HMG classes are the ones that draw a tracer (a shell replaces it). Tick on until a round is in the air.
       setup: [
-        '@firefight:blast_in_firefight',
+        "const f = [0, 1].map((i) => __probe.spawn('inf_squad', 0, 7 + i * 0.6, 20 + i * 0.8));",
+        "const h = [__probe.spawn('technical', 1, 11, 20.5), __probe.spawn('militia_cell', 1, 10.5, 21.5)];",
+        'for (let i = 0; i < 4; i++) __lions.renderer.snapshot();',
         'let guard = 0;',
         'while (__lions.renderer.tracers.length === 0 && guard++ < 400) { const ev = __lions.sim.tick(); __lions.renderer.snapshot(); __lions.renderer.onEvents(ev); }',
-        "if (__lions.renderer.tracers.length === 0) throw new Error('probe: the firefight fired no tracer in 400 ticks');",
+        "if (__lions.renderer.tracers.length === 0) throw new Error('probe: the exchange fired no tracer in 400 ticks');",
+        '__probe.goto(8.5, 20.8, 2.5);',
       ],
+      layer: 'tracers',
       band: 'loose',
       frameSteps: { n: 1, dtMs: 16 },
     },
