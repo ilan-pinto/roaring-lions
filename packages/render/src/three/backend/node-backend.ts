@@ -25,6 +25,7 @@ import { captureNodeView, photographNodeGround, type NodeCaptureDeps, type Readb
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
 import type { RingStyle } from '../units/selection-ring';
 import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
+import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -104,6 +105,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   /** GH-943 P2 (T1): the material twins, null until each task lands (T3 ground, T5 ring, T6 foliage), each built from
    *  `opts.materialMaths`. A null factory leaves the legacy material in place, and this backend's census hides or names it. */
   const materials: MaterialKit = { ground: null, foliage: null, ring: null };
+  // T3: the node ground (the dry blend, the macro and the road).
+  materials.ground = (legacy) => createNodeGroundMaterial({ W, TSL, maths: opts.materialMaths.ground }, legacy);
   // T6: the swaying foliage and trunk batches (the wind; the disturbers follow in T7).
   materials.foliage = createFoliageTwinFactory({ W, TSL, maths: opts.materialMaths.foliage });
   // GH-943 P2 (T5): the selection, team and wound rings. The legacy material keeps the uniform record the batch writes and carries its style.
