@@ -357,6 +357,10 @@ export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
   // GH-943 P3 (T5): the occlusion outline and the smoke outline (`units/silhouette.node.ts`).
   'occluded',
   'smoke-own',
+  // GH-943 P3 (T8): the overlay batch with the zone band, the supply route, the tunnel trail.
+  'damaged-zone',
+  'route',
+  'trail',
 ]);
 
 // ---------------------------------------------------------------------------------------------------------------------------------
