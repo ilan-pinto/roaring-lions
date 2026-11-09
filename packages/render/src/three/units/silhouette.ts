@@ -212,6 +212,7 @@ import { SILHOUETTE_RENDER_ORDER } from './render-order';
 import { paletteHex } from '../palette-hex';
 import { colorSlot } from '../../relation';
 import { legacyOf } from '../twin-identity';
+import type { Ops } from '../fog-ops';
 
 /**
  * How thick the outline is, in SCREEN pixels, at every zoom.
@@ -418,6 +419,51 @@ export const SILHOUETTE_DEPTH_BIAS_GLSL = /* glsl */ `
 export const SILHOUETTE_OUTLINE_EXPAND_GLSL = /* glsl */ `
         transformed += aExpand * uOutlineWidth;
 `;
+
+/** GH-943 P3 (T5): a 3x3 linear map, column-major (`[c0r0, c0r1, c0r2, c1r0, ...]`): the linear part of a skinning matrix. */
+export type OutlineMat3<T> = readonly [T, T, T, T, T, T, T, T, T];
+
+/**
+ * GH-943 P3 (T5): the four bone influences of one skinned outline vertex, as the skinning chunk reads them: `skinWeight`, the linear
+ * parts of `boneMatrices[skinIndex[i]]`, and of the mesh's `bindMatrix` and `bindMatrixInverse`.
+ */
+export interface OutlineSkin<T> {
+  readonly weights: readonly [T, T, T, T];
+  readonly bones: readonly [OutlineMat3<T>, OutlineMat3<T>, OutlineMat3<T>, OutlineMat3<T>];
+  readonly bind: OutlineMat3<T>;
+  readonly bindInverse: OutlineMat3<T>;
+}
+
+function mat3MulVecOps<T>(o: Ops<T>, m: OutlineMat3<T>, v: readonly [T, T, T]): [T, T, T] {
+  const row = (r: 0 | 1 | 2): T => o.add(o.add(o.mul(m[r], v[0]), o.mul(m[3 + r] as T, v[1])), o.mul(m[6 + r] as T, v[2]));
+  return [row(0), row(1), row(2)];
+}
+
+/**
+ * GH-943 P3 (T5): the outline's expansion OFFSET, `aExpand * uOutlineWidth`, carried to where the vertex is drawn. Written once against
+ * `Ops<T>`: the node twin runs it on nodes (`silhouette.node.ts`), the tests on numbers. The GLSL above is unchanged.
+ *
+ * The legacy program adds the offset BEFORE skinning (`SILHOUETTE_OUTLINE_EXPAND_GLSL`, right after `begin_vertex`), so the bone
+ * that owns the vertex carries it. The node material skins FIRST (three r186 applies skinning before `positionNode`), so the twin
+ * adds this to the already-skinned position. Skinning is linear in the homogeneous position, so
+ *
+ *   skin(p + e) = skin(p) + bindInverse · (Σ wᵢ · Bᵢ) · bind · e          (e a direction: w = 0, no translation)
+ *
+ * which is what this returns for a skinned vertex (`skin` given), and plain `e` for a rigid one (`skin` null). Only the linear parts
+ * of the matrices take part: a direction carries no translation.
+ */
+export function outlineExpandOps<T>(o: Ops<T>, expand: readonly [T, T, T], width: T, skin: OutlineSkin<T> | null): [T, T, T] {
+  const e: [T, T, T] = [o.mul(expand[0], width), o.mul(expand[1], width), o.mul(expand[2], width)];
+  if (skin === null) return e;
+  const b = mat3MulVecOps(o, skin.bind, e);
+  let s: [T, T, T] = [o.lit(0), o.lit(0), o.lit(0)];
+  for (let i = 0; i < 4; i++) {
+    const w = skin.weights[i] as T;
+    const bb = mat3MulVecOps(o, skin.bones[i] as OutlineMat3<T>, b);
+    s = [o.add(s[0], o.mul(w, bb[0])), o.add(s[1], o.mul(w, bb[1])), o.add(s[2], o.mul(w, bb[2]))];
+  }
+  return mat3MulVecOps(o, skin.bindInverse, s);
+}
 
 /** The flags that ARE the mechanism -- see this file's top comment. The
  *  mesh silhouette material below is built from them verbatim (bar `side`),

@@ -70,6 +70,7 @@ import { footBack, footLink, screenFoot } from './foot';
 import type { Disposer } from '../shell/router';
 import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
 import { showStores, type CoinAsk, type StoresShelf, type StoresWallet } from './stores';
+import { blockText, creditBlock, netText, type SpendGate } from './spend-gate';
 import type { CoinHalf } from './stores-model';
 
 export interface BrigadeUnit {
@@ -185,12 +186,12 @@ export interface BrigadeOptions {
   /** Called after the second click on the reset control. The caller resets the account
    *  and answers with the account as it now stands, which the screen redraws around in
    *  place; this screen only asks twice. Answering nothing leaves the control disabled. */
-  onReset?: () => GarageState | void;
+  onReset?: () => GarageState | void | Promise<GarageState | void>;
   /** Called when the player submits a coupon code. The caller redeems against the
    *  account, saves, and answers with the account as it now stands plus the outcome;
    *  this screen only asks and reads the outcome out in an aria-live line. Rendered
    *  only alongside `credits`, like the reset. */
-  onRedeem?: (code: string) => { state: GarageState; result: 'ok' | 'unknown' | 'used' | 'failed'; credits?: number; coins?: number } | void;
+  onRedeem?: (code: string) => RedeemAnswer | void | Promise<RedeemAnswer | void>;
   /** Called when the player clicks a locked, priced unit's Buy control. The caller buys,
    *  saves and answers with the account as the store now holds it -- a refusal answers
    *  too, off the true state. This screen only asks; it never mutates the account itself. */
@@ -220,6 +221,19 @@ export interface BrigadeOptions {
    *  as before -- a test or a caller that never asked for the Stores does not
    *  get one. */
   stores?: GarageStoresOptions;
+  /** Signed in (GH-1142): as `stores.pendingTracks`, for the Garage's own credit Buys (the track rungs and the unit unlock). */
+  pendingTracks?: () => ReadonlySet<string>;
+  /** Signed in (GH-1075 A2, §0.18, §0.39): the connection, the outbox and the campaign freeze, read whenever a control draws.
+   *  Absent for a guest, whose controls are the synchronous ones they always were. */
+  gate?: SpendGate;
+}
+
+/** What a coupon submit answers. Signed in it is a promise: the server decides, and the form reads `stores.pending` until it lands. */
+export interface RedeemAnswer {
+  state: GarageState;
+  result: 'ok' | 'unknown' | 'used' | 'failed';
+  credits?: number;
+  coins?: number;
 }
 
 /** What the Stores tab needs beyond what the garage already holds. */
@@ -237,7 +251,10 @@ export interface GarageStoresOptions {
   /** A Buy pressed with coins. The caller buys and saves, then answers
    *  with the garage's account as it now stands (a coin-bought unit opens, a
    *  coin tier lands); the Stores redraws in place either way. */
-  onBuy?: (ask: CoinAsk) => GarageState | void;
+  onBuy?: (ask: CoinAsk) => GarageState | void | Promise<GarageState | void>;
+  /** Signed in (GH-1142): keys `unitId.track` and `unit:<id>` of coin Buys in flight (`store.pendingSpends`). A credit Buy of
+   *  one of them is drawn disabled, with the reason `stores.pendingCoin`. Absent for a guest. */
+  pendingTracks?: () => ReadonlySet<string>;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -402,6 +419,19 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
    *  (`answer()` below); nothing here edits it. */
   let state: GarageState = { units: opts.units, credits: opts.credits, owned: opts.owned, earned: opts.earned };
   const wrap = el('div', 'rl-menu rl-menu--garage');
+  // Signed in (GH-1075 A2): a coin Buy, a coupon and the reset are server calls that may answer later. `busy` is the Stores
+  // key of the coin Buy in flight; `serverBusy` a coupon or reset. Both read false for a guest, whose handlers answer at once.
+  let busy: string | null = null;
+  let serverBusy = false;
+  let gone = false;
+  const pendingSet = (): ReadonlySet<string> | undefined => (opts.pendingTracks ?? opts.stores?.pendingTracks ?? opts.gate?.pendingTracks)?.();
+  const frozen = (): boolean => opts.gate?.campaignFrozen() ?? false;
+  /** Why a server control is off right now, or null: an op in flight, then the outbox and the connection. */
+  const serverWhy = (): string | null => {
+    if (serverBusy || busy !== null || frozen()) return t('stores.pending');
+    return opts.gate !== undefined ? netText(opts.gate.net()) : null;
+  };
+  const isPromise = <T,>(x: unknown): x is Promise<T> => typeof x === 'object' && x !== null && typeof (x as { then?: unknown }).then === 'function';
 
   // --- header: the mark, the title, the campaign line, and the wallet -------
   const head = el('header', 'rl-garage__head');
@@ -479,6 +509,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     wallet.append(walletN, walletWord);
     head.appendChild(wallet);
   }
+  let redeemControls: { input: HTMLInputElement; go: HTMLButtonElement } | null = null;
   // Redeem a code (coupons): a small form beside the wallet. Its answer line is
   // polite-live, so the outcome is announced; the field is cleared on success only.
   if (state.credits !== undefined && opts.onRedeem) {
@@ -502,11 +533,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       said.textContent = '';
       delete said.dataset.result;
     });
-    form.addEventListener('submit', (ev) => {
-      ev.preventDefault();
-      if (input.value.trim() === '') return;
-      const out = opts.onRedeem?.(input.value);
-      if (out === undefined) return;
+    const showRedeem = (out: RedeemAnswer): void => {
       said.dataset.result = out.result;
       said.textContent = '';
       said.textContent =
@@ -519,7 +546,41 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
               : t('garage.redeem.unknown');
       if (out.result === 'ok') input.value = '';
       answer(out.state, null);
+    };
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      if (input.value.trim() === '' || serverWhy() !== null) return;
+      const out = opts.onRedeem?.(input.value);
+      if (out === undefined) return;
+      if (!isPromise<RedeemAnswer | void>(out)) {
+        showRedeem(out);
+        return;
+      }
+      // The server decides: the field reads `stores.pending` until it answers, and the campaign-writing controls are frozen.
+      serverBusy = true;
+      said.textContent = t('stores.pending');
+      delete said.dataset.result;
+      refreshControls();
+      void out.then(
+        (r) => {
+          serverBusy = false;
+          if (gone) return;
+          if (r === undefined) {
+            said.textContent = '';
+            refreshControls();
+          } else showRedeem(r);
+        },
+        (err: unknown) => {
+          console.error('the coupon was not redeemed:', err);
+          serverBusy = false;
+          if (gone) return;
+          said.dataset.result = 'failed';
+          said.textContent = t('garage.redeem.failed');
+          refreshControls();
+        }
+      );
     });
+    redeemControls = { input, go };
     head.appendChild(form);
   }
   wrap.appendChild(head);
@@ -626,17 +687,50 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   /** A coin purchase's answer: the garage redraws around the account as the
    *  store now holds it -- quietly, since it is not on screen -- and the
    *  Stores is drawn again with focus back on the control that asked. */
-  function storesAnswered(next: GarageState | void, focusKey: string): void {
-    if (next !== undefined) {
-      state = next;
-      rows = classify();
-      selectedId = retainSelection(selectedId, rows.map((r) => r.u.id));
-      renderWallet();
-      renderCards();
-      syncTabs();
-      renderBay();
+  function storesAnswered(next: GarageState | void | Promise<GarageState | void>, focusKey: string, pendingKey: string = focusKey): void {
+    if (isPromise<GarageState | void>(next)) {
+      // A server-backed Buy (§0.18): the Stores redraws at once with the Buy reading `stores.pending` and every other coin
+      // Buy held, the board's credit Buys of this track held too (GH-1142), and the real answer redraws it again. The
+      // answer may land after the player went to the brigade tab: it then updates the screen but does not pull them back.
+      busy = pendingKey;
+      refreshControls(pendingKey);
+      void next.then(
+        (r) => {
+          busy = null;
+          if (gone) return;
+          adopt(r);
+          if (view === 'stores') setView('stores', focusKey);
+        },
+        (err: unknown) => {
+          console.error('the Roar-coin purchase failed:', err);
+          busy = null;
+          if (!gone) refreshControls(pendingKey);
+        }
+      );
+      return;
     }
+    adopt(next);
     setView('stores', focusKey);
+  }
+  /** Redraw the garage around the account as the store now holds it (quietly, as the Stores is what is on screen). */
+  function adopt(next: GarageState | void): void {
+    if (next === undefined) return;
+    state = next;
+    rows = classify();
+    selectedId = retainSelection(selectedId, rows.map((r) => r.u.id));
+    renderWallet();
+    renderCards();
+    syncTabs();
+    renderBay();
+    syncServerControls();
+  }
+  /** Redraw what the server state changes (a Buy, coupon or reset in flight, the outbox draining, the connection): the board,
+   *  the Stores and the redeem and reset controls. Reads the gate afresh; keeps the screen, the tab and the unit. */
+  function refreshControls(focusKey?: string): void {
+    if (gone) return;
+    renderBay();
+    if (view === 'stores') setView('stores', focusKey);
+    syncServerControls();
   }
   function setView(v: View, focusKey?: string): void {
     view = v;
@@ -671,12 +765,19 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         storesAdds = id ?? undefined;
       },
       focusKey,
+      pending: busy,
+      ...(opts.gate !== undefined || opts.pendingTracks !== undefined || so.pendingTracks !== undefined
+        ? { pendingTracks: (): ReadonlySet<string> => pendingSet() ?? new Set<string>(), frozen }
+        : {}),
+      ...(opts.gate !== undefined ? { net: () => opts.gate?.net() ?? 'ok' } : {}),
       onBuy:
         onBuy === undefined
           ? undefined
           : (ask) => {
               const key = ask.kind === 'unit' ? `unit:${ask.unitId}` : `tier:${ask.unitId}.${ask.track}.${ask.tier + 1}`;
-              storesAnswered(onBuy(ask), key);
+              // The control that asked is the one reading `stores.pending`; focus lands on the NEXT tier's once it answers.
+              const own = ask.kind === 'unit' ? key : `tier:${ask.unitId}.${ask.track}.${ask.tier}`;
+              storesAnswered(onBuy(ask), key, own);
             },
       // The Garage's own purchase, at the unit's credit price (GH-317).
       onBuyCredits:
@@ -1342,8 +1443,15 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         buy.dataset.focusKey = 'unit-buy';
         // Short balance: the control stays visible so the price is legible, and disabled so
         // a click cannot reach `buyUnlock`'s refusal path from here.
-        buy.disabled = credits < price;
+        // Signed in (GH-1142, §0.39): held while a coin Buy of this unit, a coupon or a reset is in flight.
+        const block = creditBlock(u.id, null, pendingSet(), frozen());
+        buy.disabled = credits < price || block !== null;
+        if (block !== null) {
+          buy.title = blockText(block);
+          buy.dataset.block = block;
+        }
         buy.addEventListener('click', () => {
+          if (buy.disabled) return;
           buy.disabled = true; // one purchase per render; the answer redraws
           answer(opts.onBuy?.(u.id, price), 'unit-buy', { kind: 'unit', unitId: u.id });
         });
@@ -1371,6 +1479,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
           state.credits !== undefined && opts.onBuyUpgrade
             ? {
                 credits: state.credits,
+                block: creditBlock(u.id, trackName, pendingSet(), frozen()),
                 // R3 with R0.1: the Buy's tier and price are the run `creditAsk` states, off the
                 // account's earned tier and the single-player tier, never the rung's own price.
                 ask: creditAsk(
@@ -1443,7 +1552,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   function resetUi(): void {
     if (reset === null) return;
     armed = false;
-    reset.disabled = false;
+    reset.disabled = serverWhy() !== null;
     reset.textContent = t('garage.reset.button');
     delete reset.dataset.confirm;
     if (keep !== null) keep.hidden = true;
@@ -1480,11 +1589,51 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       // "cannot be undone" must not be able to fire twice on one ask.
       control.disabled = true;
       escape.hidden = true;
-      answer(opts.onReset?.(), 'reset');
+      const out = opts.onReset?.();
+      if (!isPromise<GarageState | void>(out)) {
+        answer(out, 'reset');
+        return;
+      }
+      // Signed in, the reset is the server's (reset-free): frozen until it answers, then the account as it now stands.
+      serverBusy = true;
+      refreshControls();
+      void out.then(
+        (r) => {
+          serverBusy = false;
+          if (gone) return;
+          if (r === undefined) refreshControls();
+          else answer(r, 'reset');
+        },
+        (err: unknown) => {
+          console.error('the reset failed:', err);
+          serverBusy = false;
+          if (gone) return;
+          resetUi();
+          refreshControls();
+        }
+      );
     });
     foot.end.append(escape, control);
   }
   wrap.appendChild(foot.el);
+
+  /** The redeem form and the reset, off while a server op is in flight or the outbox / connection is not ready. */
+  function syncServerControls(): void {
+    const why = serverWhy();
+    if (redeemControls !== null) {
+      redeemControls.input.disabled = why !== null;
+      redeemControls.go.disabled = why !== null;
+      if (why === null) redeemControls.go.removeAttribute('title');
+      else redeemControls.go.title = why;
+    }
+    if (reset !== null && !armed) {
+      reset.disabled = why !== null;
+      if (why === null) reset.removeAttribute('title');
+      else reset.title = why;
+    }
+  }
+  syncServerControls();
+  const unsubscribe = opts.gate?.subscribe?.(() => refreshControls());
 
   /** The caller's answer to a purchase or a reset: the account as the store
    *  holds it now (R-3). Redraws around it -- same screen node, same tab,
@@ -1691,6 +1840,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   // Leaving mid-purchase stops the count's frame and every flash's timeout
   // BEFORE the node goes, so nothing this screen started writes to it after.
   return () => {
+    gone = true;
+    unsubscribe?.();
     window.removeEventListener('keydown', onShiftDown);
     window.removeEventListener('keyup', onShiftUp);
     window.removeEventListener('blur', onBlur);

@@ -132,7 +132,7 @@ describe('classifyCensus', () => {
     // GH-943 P3 (T1): the keys as `censusKey` now names them (hook segments; the P3 batch names).
     const v = classifyCensus([
       { kind: 'shader-material', key: 'ShaderMaterial', objects: 4 },
-      { kind: 'shader-material', key: 'rl-decal', objects: 2 },
+      { kind: 'partial', key: 'rl-decal: wet terms', objects: 1 },
       { kind: 'shader-material', key: 'rl-fx-particle-hot', objects: 2 },
       { kind: 'shader-material', key: 'rl-zone-band', objects: 1 },
       { kind: 'shader-material', key: 'rl-beam', objects: 1 },
@@ -152,8 +152,10 @@ describe('classifyCensus', () => {
       { kind: 'on-before-compile', key: 'rl-team-mark-2|rl-garrison-x', objects: 1 },
       { kind: 'on-before-compile', key: 'BakedMaterial', objects: 1 },
       { kind: 'on-before-compile', key: 'backdrop-kit-lod1', objects: 1 },
+      // GH-943 P3 (T7): the decal pools have a twin; a legacy decal material on node is a port that came back.
+      { kind: 'shader-material', key: 'rl-decal', objects: 2 },
     ]);
-    expect(w.unexpected).toHaveLength(6);
+    expect(w.unexpected).toHaveLength(7);
   });
   it('every rule carries a reason that names a phase or a ruling', () => {
     for (const r of CENSUS_RULES) expect(r.reason).toMatch(/P\d|ruled|by design/);

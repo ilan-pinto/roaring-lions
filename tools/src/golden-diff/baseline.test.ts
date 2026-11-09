@@ -893,6 +893,8 @@ describe('BASELINES layerChecks', () => {
       vehicle: {
         // GH-943 P2 (T5), 8 Nov 2026: ci.yml `visual` runs 42456785749 and 42473526531 (SwiftShader), bit-identical.
         'selection-ring': { px: 4104, mean: 0.1775 },
+        // GH-943 P3 (T5) Step A, 9 Nov 2026: ci.yml run 42584225531 attempts 1-3 (SwiftShader), bit-identical.
+        outline: { px: 306, mean: 0.0142 },
         units: { px: 29622, mean: 2.96 },
         // L1 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=environment, 3 fresh-page runs, bit-identical.
         environment: { px: 1074, mean: 0.4642 },
@@ -916,12 +918,16 @@ describe('BASELINES layerChecks', () => {
         kit: { px: 6460, mean: 0.4278 },
         'unit-surface': { px: 40, mean: 0.0258 },
         environment: { px: 1542, mean: 0.4733 },
+        // GH-943 P3 (T5) Step A, 9 Nov 2026: ci.yml run 42584225531 attempts 1-3 (SwiftShader), bit-identical.
+        outline: { px: 306, mean: 0.0142 },
       },
       // L2 (GH-943), 2 Nov 2026: relief-read-signal.ts --scenario=graded --layers=grade,units,environment, 3 fresh-page runs, bit-identical.
       graded: {
         grade: { px: 186, mean: 5.0668 },
         units: { px: 50100, mean: 1.8734 },
         environment: { px: 192, mean: 0.3496 },
+        // GH-943 P3 (T5) Step A, 9 Nov 2026: ci.yml run 42584225531 attempts 1-3 (SwiftShader), bit-identical.
+        outline: { px: 306, mean: 0.0124 },
       },
       // L1 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=environment,fog,haze,units on `fogged`, 3 fresh-page runs, bit-identical.
       fogged: {
@@ -942,23 +948,10 @@ describe('BASELINES layerChecks', () => {
      *  is still asserted non-zero below, and total erasure still fails them
      *  (the last assertion in this loop). */
     const SUB_THRESHOLD_PX = 100;
-    /** `scenario/layer` checks whose first CI reading has not been taken (T5's `vehicle/selection-ring`). */
-    const PENDING_FLOOR: ReadonlySet<string> = new Set();
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
         // GH-943 P1 (T5): a `zero` check has no floor to derive from a signal; it has its own test below.
         if (check.kind === 'zero') continue;
-        // GH-943 P2 (T5): a check whose floor has not been read yet is declared with an infinite floor, which cannot pass: it makes
-        // the `visual` job red on purpose and prints the reading to take. This list is exactly those, and an entry with a FINITE floor is
-        // refused here: a measured floor goes in MEASURED below, with its three readings, and leaves this list.
-        const key = `${id}/${check.layer}`;
-        if (PENDING_FLOOR.has(key)) {
-          expect([check.minMeanAbsChannelDelta, check.minDiffPixels], `${key} is pending a measurement, so its floors must be Infinity`).toEqual([
-            Number.POSITIVE_INFINITY,
-            Number.POSITIVE_INFINITY,
-          ]);
-          continue;
-        }
         const m = MEASURED[id]?.[check.layer];
         expect(m, `no measurement recorded for ${id}/${check.layer}`).toBeDefined();
         if (!m) continue;
@@ -1007,6 +1000,7 @@ describe('the `fogged` scenario (look uplift L1, GH-943)', () => {
 
   it('holds the shroud, the haze and the vehicles it is named for, and the environment on them', () => {
     const layers = (BASELINES.fogged.layerChecks ?? []).filter((c) => c.kind !== 'zero').map((c) => c.layer).sort();
+    // GH-943 P3 (T5) Step A: `outline` left this scenario (144 px < 200 on all three CI readings).
     expect(layers).toEqual(['environment', 'fog', 'haze', 'units']);
   });
 
@@ -1020,7 +1014,8 @@ describe('the `fogged` scenario (look uplift L1, GH-943)', () => {
 describe('the `graded` scenario (look uplift L2, GH-943)', () => {
   it('carries the grade layer check, and the vehicles and environment the frame is named for', () => {
     const layers = (BASELINES.graded.layerChecks ?? []).filter((c) => c.kind !== 'zero').map((c) => c.layer).sort();
-    expect(layers).toEqual(['environment', 'grade', 'units']);
+    // GH-943 P3 (T5) Step A: `outline` while its readings are pending (it stays only if this frame shows an outline).
+    expect(layers).toEqual(['environment', 'grade', 'outline', 'units']);
   });
 
   it('is gated, and under the dusk preset with the grade on by default (no flag names it)', () => {

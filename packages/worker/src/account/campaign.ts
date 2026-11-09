@@ -109,8 +109,8 @@ export async function conflictSlot(
   body: CampaignBody,
   now: number,
   label: 'conflict' | 'claim',
-): Promise<{ statements: D1Stmt[]; answer: ConflictAnswer }> {
-  if ((await slotCounts(db, memberId)).system >= SYSTEM_SLOTS) return { statements: [], answer: { held: true } };
+): Promise<{ insert: D1Stmt[]; guard: D1Stmt[]; answer: ConflictAnswer }> {
+  if ((await slotCounts(db, memberId)).system >= SYSTEM_SLOTS) return { insert: [], guard: [], answer: { held: true } };
   const id = crypto.randomUUID();
   const canon = JSON.parse(canonicalCampaign(body)) as CampaignBody;
   const slot: SaveSlot = {
@@ -126,15 +126,15 @@ export async function conflictSlot(
   const text = JSON.stringify(slot);
   const bytes = utf8.encode(text).length;
   // The slot wraps the campaign in a few more bytes than its canonical text: at the very cap it will not fit.
-  if (bytes > CAMPAIGN_MAX_BYTES) return { statements: [], answer: { held: true } };
+  if (bytes > CAMPAIGN_MAX_BYTES) return { insert: [], guard: [], answer: { held: true } };
   const meta: SlotMetaView = { id, name: label, savedAt: now, build: slot.build, origin: label, bytes };
   return {
-    statements: [
+    insert: [
       db
         .prepare('INSERT INTO save_slot (member_id, slot_id, name, saved_at, build, origin, body, bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)')
         .bind(memberId, id, label, now, slot.build, label, text, bytes),
-      capGuard(db, memberId, "SELECT COUNT(*) FROM save_slot WHERE member_id = ?1 AND origin <> 'player'", SYSTEM_SLOTS),
     ],
+    guard: [capGuard(db, memberId, "SELECT COUNT(*) FROM save_slot WHERE member_id = ?1 AND origin <> 'player'", SYSTEM_SLOTS)],
     answer: { slot: meta },
   };
 }
@@ -195,7 +195,7 @@ export async function putCampaign(ctx: AccountCtx): Promise<Response> {
     }
     const c = await conflictSlot(db, memberId, sent, ctx.now, 'conflict');
     return {
-      statements: c.statements,
+      statements: [...c.insert, ...c.guard],
       status: 409,
       response: { error: 'stale', campaign: camp === null ? null : await campaignViewOf(camp), conflict: c.answer },
     };

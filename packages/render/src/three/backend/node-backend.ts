@@ -26,7 +26,9 @@ import { createNodeOverlayMaterial } from '../units/overlays.node';
 import { createNodeZoneBandMaterial } from '../units/zone-band.node';
 import { createNodeSupplyRouteMaterial, type SupplyRouteUniformRecord } from '../supply-route.node';
 import { createNodeTrailMaterial, type TrailUniformRecord } from '../trail-mesh.node';
+import { createNodeDecalMaterial } from '../decal-pool.node';
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
+import { createNodeOutlineMaterial } from '../units/silhouette.node';
 import type { RingStyle } from '../units/selection-ring';
 import { censusUnadopted, censusUnported, unportedWarnings, type UnportedHook } from './unported';
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
@@ -168,6 +170,13 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     markTwin(twin, legacy);
     return twin;
   };
+  // GH-943 P3 (T5): the occlusion outline, the smoke outline and the hit flash's outline (every `rl-silhouette-outline` material). The
+  // legacy material keeps its two uniform records (written once a frame by `setSilhouetteOutlineZoom`) and its colour object.
+  materials.outline = (legacy) => {
+    const twin = createNodeOutlineMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.outline }, legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
   // GH-943 P3 (T8): the overlay batch, the zone band, the supply route and the tunnel trail. Each legacy material keeps its record.
   const batchDeps = { W, TSL: TSL as never };
   materials.overlay = (legacy) => {
@@ -187,6 +196,12 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   };
   materials.trail = (legacy) => {
     const twin = createNodeTrailMaterial(batchDeps, legacy.uniforms as unknown as TrailUniformRecord);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T7): the decal pools and the crater rim. The legacy material keeps its record, and carries its scene's light objects.
+  materials.decal = (legacy) => {
+    const twin = createNodeDecalMaterial({ W, TSL, maths: opts.materialMaths.decal }, legacy);
     markTwin(twin, legacy);
     return twin;
   };

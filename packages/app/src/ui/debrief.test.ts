@@ -8,7 +8,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyMissionLocale, missions } from '@lions/data';
 import type { MissionJson } from '@lions/sim';
-import { showDebrief, type DebriefOptions } from './debrief';
+import en from '../i18n/en.json';
+import { setCatalogue, t } from '../i18n/t';
+import { provisionalLine } from '../account/spend-flow';
+import { showDebrief, type CoinLineState, type DebriefOptions } from './debrief';
 import type { AfterAction } from './after-action';
 import { outcomeMomentOptions } from './outcome-moment';
 
@@ -163,5 +166,97 @@ describe('the after-action report (GH-417)', () => {
       const tagged = mount(opts({ aftermath: 'The corridor is <b>cut</b>.' }));
       expect(tagged.querySelector('.rl-aar__aftermath b')).toBeNull();
     });
+  });
+});
+
+// GH-1075 A2 (§0.9, Review Focus 4): a signed-in win's coin line is provisional and the server's figure replaces it in place.
+describe('the signed-in coin line', () => {
+  const feed = (initial: CoinLineState) => {
+    const subs = new Set<(s: CoinLineState) => void>();
+    return {
+      coins: { initial, subscribe: (cb: (s: CoinLineState) => void) => (subs.add(cb), () => void subs.delete(cb)) },
+      push: (s: CoinLineState) => subs.forEach((cb) => cb(s)),
+      live: () => subs.size,
+    };
+  };
+
+  it('provisional_award_corrects_in_place', () => {
+    setCatalogue('en', en);
+    const f = feed({ coins: 120, balance: 620, phase: 'provisional' });
+    const host = mount(opts({ coins: f.coins }));
+    const line = host.querySelector<HTMLElement>('.rl-aar__coins') as HTMLElement;
+    const n = line.querySelector<HTMLElement>('.rl-aar__coins-n') as HTMLElement;
+    const total = line.querySelector<HTMLElement>('.rl-aar__coins-total') as HTMLElement;
+    expect(n.textContent).toBe(t('debrief.coins.earned', { n: 120 }));
+    expect(line.querySelector('.rl-aar__coins-status')?.textContent).toBe(t('debrief.coins.provisional'));
+    expect(total.textContent).toBe(t('debrief.coins.total', { n: 620 }));
+    // The server pays the floor: 0. The same nodes now read 0, saved, and the balance is the server's.
+    f.push({ coins: 0, balance: 500, phase: 'saved' });
+    expect(host.querySelector('.rl-aar__coins')).toBe(line);
+    expect(line.querySelector('.rl-aar__coins-n')).toBe(n);
+    expect(n.textContent).toBe(t('debrief.coins.earned', { n: 0 }));
+    expect(n.dataset.value).toBe('0');
+    expect(line.dataset.phase).toBe('saved');
+    expect(line.querySelector('.rl-aar__coins-status')?.textContent).toBe('Saved to your account');
+    expect(total.textContent).toBe(t('debrief.coins.total', { n: 500 }));
+    // A negative figure is never drawn.
+    f.push({ coins: -3, balance: -9, phase: 'willSync' });
+    expect(n.dataset.value).toBe('0');
+    expect(total.dataset.value).toBe('0');
+    expect(line.querySelector('.rl-aar__coins-status')?.textContent).toBe('Saved on this device, will sync');
+  });
+
+  it('no_nonce_no_provisional', () => {
+    // With no mission/start nonce the server pays no coins, so the app builds no provisional line at all...
+    expect(provisionalLine(null, 120, 620)).toBeNull();
+    expect(provisionalLine('nonce', 120, 620)).toEqual({ coins: 120, balance: 620, phase: 'provisional' });
+    // ...and a report handed none draws none.
+    expect(mount(opts()).querySelector('.rl-aar__coins')).toBeNull();
+  });
+
+  it('stops listening when the report is disposed', () => {
+    const f = feed({ coins: 1, balance: 1, phase: 'provisional' });
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const dispose = showDebrief(host, opts({ coins: f.coins }));
+    expect(f.live()).toBe(1);
+    dispose();
+    expect(f.live()).toBe(0);
+  });
+});
+
+describe('the guest save prompt (A2-13)', () => {
+  const spy = () => {
+    const c = { shown: 0, save: 0, never: 0 };
+    return { c, accountPrompt: { onShown: () => void c.shown++, onSave: () => void c.save++, onNever: () => void c.never++ } };
+  };
+  it('is drawn with a save button and two links, and counts as shown once', () => {
+    setCatalogue('en', en);
+    const { c, accountPrompt } = spy();
+    const host = mount(opts({ accountPrompt }));
+    const line = host.querySelector<HTMLElement>('.rl-aar__prompt') as HTMLElement;
+    expect(line.textContent).toContain('No email');
+    expect(line.querySelector('button[data-action="save"]')?.textContent).toBe('Save your progress');
+    expect(line.querySelector('[data-action="notNow"]')?.textContent).toBe('Not now');
+    expect(line.querySelector('[data-action="never"]')?.textContent).toBe('Do not ask again');
+    expect(c.shown).toBe(1);
+    line.querySelector<HTMLButtonElement>('button[data-action="save"]')!.click();
+    expect(c.save).toBe(1);
+  });
+  it('Not now and Never take the line away; Never says so', () => {
+    setCatalogue('en', en);
+    const a = spy();
+    const h1 = mount(opts({ accountPrompt: a.accountPrompt }));
+    h1.querySelector<HTMLElement>('[data-action="notNow"]')!.click();
+    expect(h1.querySelector('.rl-aar__prompt')).toBeNull();
+    expect(a.c.never).toBe(0);
+    const b = spy();
+    const h2 = mount(opts({ accountPrompt: b.accountPrompt }));
+    h2.querySelector<HTMLElement>('[data-action="never"]')!.click();
+    expect(h2.querySelector('.rl-aar__prompt')).toBeNull();
+    expect(b.c.never).toBe(1);
+  });
+  it('is absent without the option', () => {
+    expect(mount(opts()).querySelector('.rl-aar__prompt')).toBeNull();
   });
 });

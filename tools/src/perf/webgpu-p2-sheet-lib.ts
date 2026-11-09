@@ -69,6 +69,8 @@ export interface CensusRule {
  */
 export const CENSUS_RULES: readonly CensusRule[] = [
   { kind: /^partial$/, key: /^rl-ground: wet terms/, reason: 'wet ground terms (THEME_WET): a wet map draws dry on node, P4 (ruled 7 Nov)' },
+  // GH-943 P3 (T7): the decal half of the wet ground (DECAL_WET, the crater water), drawn dry on node by the decal twin.
+  { kind: /^partial$/, key: /^rl-decal: wet terms$/, reason: 'wet decal terms (DECAL_WET, the crater water): a wet map draws the decals dry on node, P4' },
   { kind: /^on-before-compile$/, key: /garrison-banner/, reason: 'garrison banner wind (`rl-garrison-banner`, a separate hook): P3 (units)' },
   // Added after the Metal run's census was READ and every entry traced to its object (a scene probe listed name, parent and uniforms):
   { kind: /^shader-material$/, key: /^ShaderMaterial$/, reason: 'unnamed ShaderMaterial batches: ground decal pools, HP/overlay batches, tracers, shells, smoke, flipbook and tunnel overlays (decals, VFX): P3/P4' },
@@ -77,8 +79,9 @@ export const CENSUS_RULES: readonly CensusRule[] = [
   // GH-943 P3 (T1): the census keys a named P3 batch by its material name (`material-names.ts`), no longer as `ShaderMaterial`.
   {
     kind: /^shader-material$/,
-    key: /^rl-(decal|overlay|trail|xray-(tube|collar|figure|beam)|fx-particle(-hot)?|fx-tracer|fx-mesh|smoke-screen|smoke-plume|collapse-shroud|swarm-rotors)$/,
-    reason: 'the named P3 batches: decals, the overlay batch, the trail, the tunnel x-ray and the VFX: P3 (T7-T12)',
+    // T7 took `decal` off: the decal pools have a twin, so a `rl-decal` ShaderMaterial on node is a ported material that came back.
+    key: /^rl-(overlay|trail|xray-(tube|collar|figure|beam)|fx-particle(-hot)?|fx-tracer|fx-mesh|smoke-screen|smoke-plume|collapse-shroud|swarm-rotors)$/,
+    reason: 'the named P3 batches: the overlay batch, the trail, the tunnel x-ray and the VFX: P3 (T8-T12)',
   },
   // GH-943 P3 (T1): a hooked unit material keys by its hook segments (`censusKey`), no longer by its GLB material name.
   {

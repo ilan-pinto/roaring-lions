@@ -50,7 +50,7 @@ export interface GradeApplyOptionsLike {
 export interface OutputGradeLike {
   /** True when a (non-identity) lookup is installed. */
   readonly active: boolean;
-  /** The debug layer's switch: off is the lookup and the dither skipped. */
+  /** The debug layer's switch: off is the lookup skipped; the dither stays (T8). */
   enabled: boolean;
   apply(grade: import('./grade-maths').ResolvedGrade | null, options?: GradeApplyOptionsLike): boolean;
   dispose(): void;

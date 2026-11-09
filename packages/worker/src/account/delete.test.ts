@@ -42,7 +42,8 @@ describe('POST delete', () => {
     expect(await n(h.db, "SELECT 1 FROM match_record WHERE code = 'SOLO'")).toBe(0);
     expect(await n(h.db, "SELECT 1 FROM match_seat WHERE code = 'SOLO' AND kind = 'member'")).toBe(0);
     expect(await n(h.db, "SELECT 1 FROM rate_day WHERE key = 'm1'")).toBe(0);
-    expect(await n(h.db, "SELECT 1 FROM rate_day WHERE key = 'n1'")).toBe(1);
+    expect(await n(h.db, "SELECT 1 FROM rate_day WHERE scope = 'acct-claim' AND key = 'm1'")).toBe(0);
+    expect(await n(h.db, "SELECT 1 FROM rate_day WHERE key = 'n1'")).toBe(2);
     expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'n1'")).toBe(1);
     expect(await n(h.db, "SELECT 1 FROM profile WHERE member_id = 'n1'")).toBe(1);
     const keys = (await h.kv.list({ prefix: '' })).keys.map((k) => k.name);
