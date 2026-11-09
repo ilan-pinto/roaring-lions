@@ -380,6 +380,11 @@ export class MuzzleFlashManager {
     };
   }
 
+  /** The pooled zone meshes, empty until the GLB has loaded. The `muzzle-burst` / `smoke-plume` debug layers hide exactly these. */
+  get zoneMeshes(): readonly THREE.Object3D[] {
+    return this.meshes === null ? [] : Object.values(this.meshes);
+  }
+
   /** True once `load()` has resolved -- `ThreeRenderer.onFire` reads this to
    *  decide whether a `mesh_flash`-marked particle layer is superseded yet
    *  (while the GLB is still loading, or if it failed, the authored particle
