@@ -28,6 +28,14 @@ export const PORTED_FILES = [
   'packages/render/src/three/terrain/decor-mesh.node.ts',
   // GH-943 P2 (T5): the selection, team and wound rings. Its legacy twin (units/selection-ring.ts) keeps its GLSL until P8.
   'packages/render/src/three/units/selection-ring.node.ts',
+  // GH-943 P3 (T3): the vehicle terms of the node unit twin (team mark, running gear, soot). Their legacy twins keep their splices
+  // until P7. The composer (`units/unit-material.node.ts`) twins no single legacy file, so it has no TWINS row and is not listed.
+  'packages/render/src/three/units/team-mask.node.ts',
+  'packages/render/src/three/units/running-gear.node.ts',
+  'packages/render/src/three/world-materials.node.ts',
+  // GH-943 P3 (T4): the rain rim and the wounded floor terms of the same twin.
+  'packages/render/src/three/units/rain-rim.node.ts',
+  'packages/render/src/three/units/wounded-read.node.ts',
   // GH-943 P3 (T5): the occlusion and smoke outline. Its legacy twin (units/silhouette.ts) keeps its GLSL until P8.
   'packages/render/src/three/units/silhouette.node.ts',
   // GH-943 P3 (T8): the overlay batch, zone band, supply route and tunnel trail. Their legacy twins keep their GLSL until P8.
@@ -64,6 +72,15 @@ export const TWINS = Object.freeze({
   [`${THREE}terrain/disturb.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
   // GH-943 P2 (T5)
   [`${THREE}units/selection-ring.ts`]: `${THREE}units/selection-ring.node.ts`,
+  // GH-943 P3 (T3)
+  [`${THREE}units/team-mask.ts`]: `${THREE}units/team-mask.node.ts`,
+  // running-gear.ts carries the wheel and tread maths the twin runs (`rgVertexOps`, `rgBarOps`); running-gear-material.ts the splice.
+  [`${THREE}units/running-gear.ts`]: `${THREE}units/running-gear.node.ts`,
+  [`${THREE}units/running-gear-material.ts`]: `${THREE}units/running-gear.node.ts`,
+  [`${THREE}world-materials.ts`]: `${THREE}world-materials.node.ts`,
+  // GH-943 P3 (T4)
+  [`${THREE}units/rain-rim.ts`]: `${THREE}units/rain-rim.node.ts`,
+  [`${THREE}units/wounded-read.ts`]: `${THREE}units/wounded-read.node.ts`,
   // GH-943 P3 (T5)
   [`${THREE}units/silhouette.ts`]: `${THREE}units/silhouette.node.ts`,
   // GH-943 P3 (T8). supply-route-maths.ts holds the dash the route twin shares (a change to it must touch the twin too, intended).
