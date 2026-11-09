@@ -241,6 +241,13 @@ describe('settling a victory', () => {
     expect(settleVictory(s, { ledger: ledgerOf([]) as CampaignLedger, account: null, win: null, world, at: 2, start: null }).awards).toEqual([]);
   });
 
+  it('a store that saves the win but moves no coin (a server store with no start nonce) reports no award', () => {
+    const inner = memoryLedgerStore();
+    const s: LedgerStore = { ...inner, recordVictory: () => 'saved' };
+    const settle = settleVictory(s, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 2), world, at: 1, start: null });
+    expect(settle).toEqual({ write: 'saved', awards: [], total: 0, balance: 0 });
+  });
+
   it('a refused write earns nothing and reads the balance as it was', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const base = memoryLedgerStore();
