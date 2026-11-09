@@ -7,7 +7,7 @@ kneelOut), and per figure and clip counts the limb MESH EDGES (upper arm more th
 fingers) that cross a TRIANGLE of that figure's carrier: the arm's surface piercing the vest's surface. It asks nothing of the
 shell's hollow, so deleting wall (a cut) cannot make it read zero by construction, which the earlier "limb through the wall"
 column could (its predicate, "a ray from the point hits the shell in all four directions", was the cut's own). Reports the
-worst frame's edge count per clip. The method is the v7b review's probe (`wall.py`, part B), kept here so the reading can be repeated.
+worst frame's edge count per clip, and per segment (upperarm, forearm, hand: each its own worst frame). The method is the v7b review's probe (`wall.py`, part B), kept here so the reading can be repeated.
 """
 import json
 import sys
@@ -65,7 +65,8 @@ for clip in CLIPS:
     lo, hi = act.frame_range
     frames = list(np.arange(lo, hi + 1e-6, 0.25 if hi - lo < 6 else 1.0))
     for f in FIGS:
-        res[f"{clip}|{f}"] = {"edges": 0, "frames_with_a_piercing_edge": 0, "frames": len(frames), "worst_frame": None}
+        res[f"{clip}|{f}"] = {"edges": 0, "frames_with_a_piercing_edge": 0, "frames": len(frames), "worst_frame": None,
+                              "segments": {"upperarm": 0, "forearm": 0, "hand": 0}}
     for fr in frames:
         bpy.context.scene.frame_set(int(np.floor(fr)), subframe=float(fr - np.floor(fr)))
         cu, cku = posed(uni), posed(ku)
@@ -81,6 +82,7 @@ for clip in CLIPS:
                 if d.startswith("upperarm") and np.linalg.norm(cu[i] - sh[d[-1]]) < SHOULDER_SKIP_M:
                     ok[i] = False
             n = 0
+            seg_n = {"upperarm": 0, "forearm": 0, "hand": 0}
             for e0, e1 in edges[ok[edges[:, 0]] & ok[edges[:, 1]]]:
                 p0, p1 = cu[e0], cu[e1]
                 if (np.minimum(p0, p1) > hi_b).any() or (np.maximum(p0, p1) < lo_b).any():
@@ -89,8 +91,12 @@ for clip in CLIPS:
                 L = float(np.linalg.norm(dv))
                 if L > 1e-7 and bvh.ray_cast(Vector(p0), Vector(dv / L), L)[0] is not None:
                     n += 1
+                    seg = dom[e0][len(f) + 1:].split("_")[0]
+                    seg_n["hand" if seg == "finger" else seg] += 1
             if n:
                 r["frames_with_a_piercing_edge"] += 1
+            for k_, v_ in seg_n.items():
+                r["segments"][k_] = max(r["segments"][k_], v_)       # each segment's own worst frame
             if n > r["edges"]:
                 r["edges"], r["worst_frame"] = n, float(fr)
     for f in FIGS:

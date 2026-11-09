@@ -32,8 +32,6 @@ BELT_THICK = 0.012                           # the belt's padded thickness (the 
 BELT_CLEAR = 0.003
 BELT_NATIVE = (0.285, 0.356, 0.0544)
 BELT_Z = 0.9125
-CUT_LIMBS = False    # NOT CALLED (controller ruling, 10 Nov): the approved carrier ships whole. `cut_out_limbs` stays in inf_kit_mesh.py: it removed 29-31% of the part,
-                     # 210-389 front-plate triangles, read as torn in close-up and did not change the arm's depth in the volume. B2 is the lead's question.
 GAP = 0.001                                  # a placed rigid piece stands this far off the surface it sits on
 LENS_DEG = 25.0                              # a face whose normal is within this of the bore, at the extreme end, is glass
 UP = (0.0, 0.0, 1.0)
@@ -140,24 +138,6 @@ def carrier_fit(f):
     V, st = km.ring_fit(wr, V, T, BODY_CLEAR)
     bvh = geo.bvh_from(V, T)
     c["carrier_hull"] = (V, T, bvh)          # the uncut shell: what the parts hung on it stand on (a hole is not a surface)
-    if CUT_LIMBS:
-        # The Meshy figure's aimed clips carry the support arm across its own chest (`launcher_arms`: ~750 arm vertices inside the
-        # torso in fire), so any shell fitted to the trunk has that arm inside it: a fit cannot cure that, only an opening can. The
-        # opening is where a limb vertex (forearm, hand, fingers, and the upper arm more than 12 cm from its shoulder) lies in the
-        # shell's hollow in some key of a living clip (the pose bank's own samples).
-        pts, who = f.bank.blockers(f.prefix, "spine", (f.O[0] - 0.7, f.O[1] - 0.7, CARRIER_BOT - 0.05), (f.O[0] + 0.7, f.O[1] + 0.7, CARRIER_TOP + 0.05))
-        keep = np.zeros(len(who), bool)
-        for i, w_ in enumerate(who):
-            w_ = str(w_)
-            kind = w_.split("_")[0]
-            if kind in ("forearm", "hand", "finger"):
-                keep[i] = True
-            elif kind == "upperarm":
-                sh = f.sh[w_[-1]]
-                keep[i] = float(np.linalg.norm(pts[i] - np.array([sh.x, sh.y, sh.z]))) > 0.12
-        T, n_in, n_cut = km.cut_out_limbs(V, T, bvh, pts[keep] if len(who) else pts)
-        bvh = geo.bvh_from(V, T)
-        st["limb_points_in_hollow"], st["triangles_cut"] = n_in, n_cut
     _stats(f, name="carrier", body_depth_mm=round(1000 * (rf + rb), 1), body_width_mm=round(1000 * (rl + rr), 1),
            scale=[round(sx, 3), round(sy, 3), round(sz, 3)], origin=[round(float(x), 4) for x in origin], **st)
     c["carrier"] = (V, T, bvh)
@@ -255,95 +235,120 @@ def overlap_pairs(V, T, bvhs):
     return sum(len(b.overlap(o)) for o in bvhs)
 
 
-def v7_throat(f, side=None):
-    """Hangs from the fitted carrier's collar: top edge at the collar's front top, inner face on the carrier's front, facing
-    FORWARD (the carrier's own front normal is yawed by the Meshy sculpt: f1's was 6.6 degrees, and the plate followed it). Moved
-    out the smallest 1 mm steps until no triangle of it crosses the carrier."""
+def throat_fit(f):
+    """(vertices, triangles) of the placed throat. Hangs from the fitted carrier's collar, facing FORWARD (the carrier front's own
+    normal is yawed by the Meshy sculpt: f1's was 6.6 degrees), its inner face 2.5 mm off the carrier's front AT THE COLLAR (the
+    wave-3 plate stood a median 36-50 mm off it); moved out in 1 mm steps only until no triangle of it crosses the carrier.
+    `assert_hangs` is a regression guard here: the frame is the constant FORWARD, so the tilt moves only if the part or this code does."""
+    c = _cache(f)
+    if "throat" in c:
+        return c["throat"]
     cv, _ct, cb = carrier_hull(f)
     cx, cy = _centre_xy(f)
     sel = (np.abs(cv[:, 1] - cy) < 0.04) & (cv[:, 0] > cx)
     ztop = float(cv[sel, 2].max())
     V0, T = km.source("throat_protector")
-    plate_h = float(-V0[:, 2].min())
-    c, _n = _front_frame(f, [cb], cy, ztop - plate_h / 2)
-    if c is None:
-        raise ValueError(f"{f.prefix}: the throat found no carrier front at mid-plate")
+    hit, _n = _front_frame(f, [cb], cy, ztop - 0.02)
+    if hit is None:
+        raise ValueError(f"{f.prefix}: the throat found no carrier front at the collar")
     n = FORWARD
-    c = np.array([c[0], c[1], ztop - 0.004])          # the plate hangs from the collar along -z
+    origin = np.array([hit[0] + THROAT_GAP, hit[1], ztop - 0.004])      # the plate hangs from the collar along -z
     V0 = _unbend(V0, 0.0298 / 0.0983 ** 2)
-    base = km.place(V0, c - n * 0.0005, n, UP)
-    shift = 0.0
-    while overlap_pairs(base + n * shift, T, [cb]) and shift < 0.08:
-        shift += 0.001
+    # The carrier's front stands ahead of its collar below it, so a plumb plate touching at the collar crosses it lower down. The plate
+    # leans out at the bottom, up to 19 degrees (inside assert_hangs' 20), and the lean with the SMALLEST outward shift wins (ties: the
+    # smaller lean). Lean 0 is searched too.
+    best = None
+    for deg in range(0, 20):
+        t = math.radians(deg)
+        x = n * math.cos(t) + np.array(UP) * math.sin(t)
+        base = km.place(V0, origin - x * 0.0005, x, UP)
+        shift = 0.0
+        while overlap_pairs(base + n * shift, T, [cb]) and shift < 0.08:
+            shift += 0.001
+        if overlap_pairs(base + n * shift, T, [cb]) == 0 and (best is None or shift < best[0] - 1e-9):
+            best = (shift, deg, base)
+    if best is None:
+        raise ValueError(f"{f.prefix}: the throat clears the carrier at no lean under 20 degrees and 80 mm")
+    shift, lean, base = best
     V = base + n * shift
     pairs = overlap_pairs(V, T, [cb])
     if pairs:
         raise ValueError(f"{f.prefix}: the throat still crosses the carrier in {pairs} triangle pairs at {1000 * shift:.0f} mm")
     tilt, h = assert_hangs("throat", f, V, 0.09)
-    _stats(f, name="throat", collar_z=round(ztop, 4), shift_mm=round(1000 * shift, 2), thin_axis_deg=round(tilt, 1),
-           z_span_mm=round(1000 * h, 1), carrier_pairs=pairs)
+    inner = V0[:, 0] < 0.004
+    g = km.outer_gap([cb], V, n)
+    gi = g[inner & ~np.isnan(g)]
+    _stats(f, name="throat", collar_z=round(ztop, 4), lean_deg=lean, shift_mm=round(1000 * shift, 2), thin_axis_deg=round(tilt, 1), z_span_mm=round(1000 * h, 1),
+           carrier_pairs=pairs, collar_gap_mm=round(1000 * float(g[inner & ~np.isnan(g) & (V[:, 2] > ztop - 0.03)].min()), 1) if (inner & ~np.isnan(g) & (V[:, 2] > ztop - 0.03)).any() else None,
+           gap_median_mm=round(1000 * float(np.median(gi)), 1), gap_max_mm=round(1000 * float(gi.max()), 1))
+    c["throat"] = (V, T)
+    return c["throat"]
+
+
+def v7_throat(f, side=None):
+    V, T = throat_fit(f)
     pc = Piece(f.world())
     add_mesh(pc, V, T, "coyote")
     return pc
+
+
+GROIN_BELT_GAP = 0.0025    # the apron's inner face stands this far off the belt's front
+GROIN_TOP_GAP_LIMIT = 0.005   # contact: its top edge within this of the belt front at rest
+
+
+def assert_groin_contact(name, f, V, T, bb, cb):
+    """Export-time refusal on the PLACED apron: its top edge within GROIN_TOP_GAP_LIMIT of the belt's front, and no triangle of it
+    (both faces) crossing the belt or the carrier. The wave-3 groin, hung from the hem at up to 19 degrees, stood 35-76 mm off the
+    belt and touched neither: a board floating ahead of the thigh. Returns (top-edge gap m, belt pairs, carrier pairs)."""
+    top = V[V[:, 2] > V[:, 2].max() - 0.003]
+    gap = min(float(bb.find_nearest(Vector(p))[3]) for p in top)
+    pb, pc_ = overlap_pairs(V, T, [bb]), overlap_pairs(V, T, [cb])
+    if gap > GROIN_TOP_GAP_LIMIT or pb or pc_:
+        raise ValueError(f"{f.prefix}: {name} top edge {1000 * gap:.1f} mm off the belt front (limit {1000 * GROIN_TOP_GAP_LIMIT:.0f}), "
+                         f"{pb} triangle pairs with the belt, {pc_} with the carrier")
+    return gap, pb, pc_
+
+
+def groin_fit(f, V0=None):
+    """The apron hangs from the BELT's front band: vertical, its top edge at the belt's top, its inner face 2.5 mm ahead of the belt's
+    most forward point under it (the buckle). Hung from the carrier hem it could only float, 12 cm above the belt and 42-74 mm behind
+    the belt's front (v7c review M1). No lean, no search."""
+    c = _cache(f)
+    if "groin" in c and V0 is None:
+        return c["groin"]
+    BV, _bt, bb = belt_fit(f)
+    cb = carrier_hull(f)[2]
+    src, T = km.source("groin_apron")
+    src = _unbend(src, 0.0366 / 0.1236 ** 2) if V0 is None else V0
+    top = float(BV[:, 2].max())
+    ib = int(np.argmax(BV[:, 0]))                       # the buckle: the belt's most forward vertex
+    yb = float(BV[ib, 1])
+    near = (np.abs(BV[:, 1] - yb) < 0.125) & (BV[:, 2] > top - float(-src[:, 2].min()))
+    x_front = float(BV[near, 0].max())
+    origin = np.array([x_front + GROIN_BELT_GAP, yb, top - GROIN_DROP])
+    V = km.place(src, origin, FORWARD, UP)
+    gap, pb, pc_ = assert_groin_contact("groin", f, V, T, bb, cb)
+    tilt, h = assert_hangs("groin", f, V, GROIN_MIN_HEIGHT)
+    inner = src[:, 0] < 0.004
+    g = km.outer_gap([bb], V, FORWARD)
+    band = inner & ~np.isnan(g) & (V[:, 2] > 0.86) & (V[:, 2] < 0.96)
+    _stats(f, name="groin", top_edge_gap_mm=round(1000 * gap, 2), inner_face_gap_to_belt_mm=round(1000 * float(np.median(g[band])), 1) if band.any() else None,
+           belt_pairs=pb, carrier_pairs=pc_, thin_axis_deg=round(tilt, 1), z_span_mm=round(1000 * h, 1))
+    if V0 is None:
+        c["groin"] = (V, T)
+    return V, T
+
+
+GROIN_MIN_HEIGHT = 0.15
+GROIN_DROP = 0.004     # the apron's top edge starts this far below the belt's top (the buckle's own top is lower than the band's)
+THROAT_GAP = 0.0025
 
 
 def v7_groin(f, side=None):
-    """Hangs from the fitted carrier's hem in FRONT of the belt's front band. Both faces of the whole plate are tested against the
-    belt and the carrier (triangle pairs, not the back face's rays): the smallest stand-off, then the smallest lean, that leaves
-    zero crossing pairs. A lean of 20 degrees or more being needed is a refusal, not a cap the loop stops under."""
-    cv, _ct, cb = carrier_hull(f)
-    _bv, _bt, bb = belt_fit(f)
-    cx, cy = _centre_xy(f)
-    sel = (np.abs(cv[:, 1] - cy) < 0.06) & (cv[:, 0] > cx)
-    zhem = float(cv[sel, 2].min())
-    c, _n = _front_frame(f, [cb], cy, zhem + 0.03)
-    if c is None:
-        raise ValueError(f"{f.prefix}: the groin found no carrier front at its hem")
-    n = FORWARD
-    c = np.array([c[0], c[1], zhem + 0.004])
-    V0, T = km.source("groin_apron")
-    V0 = _unbend(V0, 0.0366 / 0.1236 ** 2)
-    inner = V0[:, 0] < 0.004
-
-    def clear(W):
-        """No triangle of the plate crosses the belt or the carrier, and its inner face is outboard of the belt's front band
-        wherever the two share a height (a plate tucked BEHIND the band crosses nothing and is still wrong)."""
-        if overlap_pairs(W, T, [cb, bb]):
-            return False
-        g = km.outer_gap([bb], W, n)
-        band = inner & (W[:, 2] > 0.86) & (W[:, 2] < 0.96) & ~np.isnan(g)
-        return not band.any() or float(g[band].min()) >= -0.0005
-
-    best = None
-    for deg in range(0, 30):      # a lean at or past the limit can be FOUND here, and is then refused below
-        t = math.radians(deg)
-        x = n * math.cos(t) + np.array(UP) * math.sin(t)
-        base = km.place(V0, c - x * 0.0005, x, UP)
-        shift = 0.0
-        while not clear(base + n * shift) and shift < 0.15:
-            shift += 0.001
-        if clear(base + n * shift) and (best is None or (deg < PLATE_MAX_TILT_DEG > best[1]) or (deg < PLATE_MAX_TILT_DEG and best[1] < PLATE_MAX_TILT_DEG and shift < best[0] - 1e-9)):
-            best = (shift, deg, x, base)
-    if best is None:
-        raise ValueError(f"{f.prefix}: the groin clears the belt at no lean under 30 degrees and 150 mm (limit {PLATE_MAX_TILT_DEG})")
-    shift, deg, x, base = best
-    if deg >= PLATE_MAX_TILT_DEG:
-        raise ValueError(f"{f.prefix}: the groin needs a lean of {deg} degrees to clear the belt (limit {PLATE_MAX_TILT_DEG})")
-    V = base + n * shift
-    pairs = overlap_pairs(V, T, [cb, bb])
-    tilt, h = assert_hangs("groin", f, V, 0.15)
-    front_belt = float(bv_front(f))
-    _stats(f, name="groin", hem_z=round(zhem, 4), pitch_deg=deg, shift_mm=round(1000 * shift, 2), belt_pairs=overlap_pairs(V, T, [bb]),
-           carrier_pairs=overlap_pairs(V, T, [cb]), thin_axis_deg=round(tilt, 1), front_x_mm_ahead_of_belt=round(1000 * (float(V[:, 0].max()) - front_belt), 1),
-           front_x_mm_ahead_of_hem_face=round(1000 * (float(V[:, 0].max()) - float(c[0])), 1))
+    V, T = groin_fit(f)
     pc = Piece(f.world())
     add_mesh(pc, V, T, "coyote")
     return pc
-
-
-def bv_front(f):
-    """The fitted belt's most forward x (its front band)."""
-    return belt_fit(f)[0][:, 0].max()
 
 
 # ------------------------------------------------------------ belt pouches
@@ -414,16 +419,31 @@ def v7_radio_pack(f, side=None):
 
 
 def v7_eud(f, side=None):
+    """The phone case on the carrier's front, at the chest position first, then DOWN the plate in 1 cm steps and then ASIDE until no
+    triangle of it crosses the throat (the case straddled the plate: 150-160 pairs, v7c should-fix a)."""
     ey, ez = ik.EUD_AT
     cb = carrier_hull(f)[2]
-    c, n = km.surf_frame([cb], np.array([f.O[0], f.O[1] + ey, ez]), (-1, 0, 0), 0.04, 0.05)
-    if c is None:
-        raise ValueError(f"{f.prefix}: the EUD found no carrier front at y {ey} z {ez}")
+    tv, tt = throat_fit(f)
+    tb = geo.bvh_from(tv, tt)
     V0, T = km.source("phone_case")
-    V = km.place(V0, c - n * 0.0005, n, UP)
-    shift, _g = km.clear_shift([cb, f.zone_torso], V, n, gap=GAP, mask=V0[:, 0] < 0.004)
-    V = V + n * shift
-    _stats(f, name="phone_case", shift_mm=round(1000 * shift, 2))
+    best = None
+    for dy in (0.0, 0.03, 0.06, 0.09, 0.12):
+        for dz in [-0.01 * k for k in range(0, 16)]:
+            c, n = km.surf_frame([cb], np.array([f.O[0], f.O[1] + ey + dy, ez + dz]), (-1, 0, 0), 0.04, 0.05)
+            if c is None:
+                continue
+            V = km.place(V0, c - n * 0.0005, n, UP)
+            shift, _g = km.clear_shift([cb, f.zone_torso], V, n, gap=GAP, mask=V0[:, 0] < 0.004)
+            V = V + n * shift
+            if overlap_pairs(V, T, [tb]) == 0:
+                best = (V, shift, dy, dz)
+                break
+        if best:
+            break
+    if best is None:
+        raise ValueError(f"{f.prefix}: the EUD found no place on the plate clear of the throat")
+    V, shift, dy, dz = best
+    _stats(f, name="phone_case", shift_mm=round(1000 * shift, 2), moved_down_mm=round(-1000 * dz), moved_aside_mm=round(1000 * dy), throat_pairs=overlap_pairs(V, T, [tb]))
     pc = Piece(f.world())
     add_mesh(pc, V, T, "olive_dark")
     return pc
