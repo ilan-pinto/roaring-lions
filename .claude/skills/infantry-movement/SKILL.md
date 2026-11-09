@@ -1,6 +1,15 @@
 ---
 name: infantry-movement
-description: How real infantry move and manoeuvre: walk, patrol, run, sprint and rush speeds under combat load, gait and posture cues, rifle carry and firing positions (standing, kneeling, prone), crawls, react to contact; fire-team and squad formations (wedge, file, line, column) with real spacing and roles; traveling, traveling overwatch, bounding overwatch, fire and movement, danger areas, urban movement, use of cover and smoke, mounting and dismounting APCs, infantry with tanks. Mapped to Roaring Lions' tile scale, 20 Hz sim, rigged figures and clips, and the lead's infantry realism bar. Use this whenever you touch or judge infantry: gait, clips (idle, move, fire, moveFire, kneel, pinned), figure slots, squad formations, suppression and pinned behaviour, the rig or hands, dismount from Namer or M113, the AI moving squads, or a lead request like "soldiers don't move like real soldiers".
+description: >-
+  Use this skill for ANY question or change about how soldiers or squads move, stand, fire or
+  manoeuvre in Roaring Lions: gait, walk/run/sprint clips, foot sliding, kneel, prone, crawl, pinned
+  or suppressed behaviour, the rush, figure spacing inside a squad, wedge/file/line formations,
+  bounding overwatch, break contact or other drills, urban movement, smoke for movement, and
+  mounting or dismounting APCs (Namer, M113 ramp). Trigger on clips like
+  idle/move/fire/moveFire/kneel/pinned, the rig and gait passes, figure slots, and requests like
+  "soldiers don't move like real soldiers" or "how far apart should the team be". It gives sourced
+  soldier and small-unit movement converted to tiles, the lead's infantry realism bar, and a ranked
+  list of the game's infantry gaps.
 ---
 
 # Infantry movement and manoeuvre for Roaring Lions

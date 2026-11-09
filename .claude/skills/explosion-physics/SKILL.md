@@ -1,6 +1,15 @@
 ---
 name: explosion-physics
-description: Physics of explosions (blast scaling, fireball, shock wave, fragments and ejecta, craters, dust, building damage and collapse) translated into Roaring Lions' tile scale and presentation-only VFX rules. Use this whenever you design, tune, review or judge any explosion, impact, blast, shell or bomb effect, crater, scorch, dust or debris, camera shake or blast light, or how a building reacts to being hit or collapses. That includes data/vfx emitters, blast-spec.ts, shells.ts, hdr-gains, a weapon's splash_tiles, GH-1197, and lead requests like "make the blast bigger". Use it even when nobody says "physics": any question about how big, how bright, how long or how far an explosion effect should be belongs here.
+description: >-
+  Use this skill for ANY question or change about how an explosion, impact or destruction looks in
+  Roaring Lions: blast or fireball size, crater, scorch, dust, smoke column, debris or chunks, shock
+  ring, blast light, camera shake, hit-stop, or a building being hit, holed or collapsing (including
+  D9 or charge demolition). Trigger on files like data/vfx/*.json, shell_impact, blast-spec.ts,
+  blast-shake.ts, shells.ts, hdr-gains for blasts, and on requests such as "the blast looks too
+  small", "make the howitzer bigger", "how should the collapse look", "is this shake right", or any
+  weapon's splash vs its visual. It gives sourced blast physics (cube-root scaling, fireball,
+  overpressure, ejecta, craters, dust, building response) converted to tiles, plus the game's
+  presentation-only rules. Not for gameplay damage tuning alone.
 ---
 
 # Explosion physics for Roaring Lions

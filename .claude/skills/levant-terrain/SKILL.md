@@ -1,6 +1,15 @@
 ---
 name: levant-terrain
-description: Expert knowledge of the terrains of the Levant and its neighbours: Israel, Gaza, the West Bank, Jordan, Lebanon, Syria, Sinai and the Nile edges, and southern Turkey. Covers climate and rain gradients, landforms (wadis, terraces, tells, makhteshim, escarpments, basalt fields, dunes, sabkha), rock and soil colours with palette matches, native and planted vegetation by region and season, water, vernacular buildings and rooftops, light and dust haze, and how each terrain shapes movement and sight. Mapped to Roaring Lions' maps, themes, palette, scatter, map symbols and backdrop. Use this whenever you create, retheme, colour, texture, populate or judge a map, ground, terrain shader, vegetation or scatter, rocks, buildings, backdrop, haze or time of day, in three.js/WebGL or WebGPU, or write Meshy prompts for environment art, even when the request just says "make this map look more real" or names a place like Golan, Negev, Gaza, Galilee, Wadi Rum or Beqaa.
+description: >-
+  Use this skill for ANY question or change about how the land of a map looks in Roaring Lions or
+  what a real place in Israel, Gaza, the West Bank, Jordan, Lebanon, Syria, Sinai/Egypt or southern
+  Turkey looks like: ground and rock colour, soil, grass and its season, trees and shrubs, scatter
+  and groves, terraces and stone walls, wadis, basalt, dunes, buildings and roofs, haze, dust days
+  and sun light. Trigger when creating or retheming a map or theme, editing terrain palette ramps,
+  choosing vegetation, writing Meshy prompts for trees, rocks or buildings, building WebGL/WebGPU
+  terrain shaders, or on places like Golan, Galilee, Negev, Gaza coast, Hula, Wadi Rum, Beqaa,
+  Hauran. It gives sourced region profiles, colours matched to palette keys, the common mistakes,
+  and each game map's real-region match and accuracy gaps.
 ---
 
 # Levant terrain for Roaring Lions

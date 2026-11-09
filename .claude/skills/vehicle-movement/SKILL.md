@@ -1,6 +1,15 @@
 ---
 name: vehicle-movement
-description: How real combat vehicles move (acceleration and braking, hull pitch and settle, slope and soft-ground speed, tracked pivot vs wheeled turning circles, reversing, turret traverse and stabilisation, suspension bounce) and how armour moves tactically (traveling, traveling overwatch, bounding overwatch, column/wedge/line/echelon, hull-down, shoot-and-scoot, tanks with infantry carriers), mapped to Roaring Lions' tile scale, its 20 Hz fixed-point sim and its presentation-only motion. Use this whenever you touch or judge vehicle motion: stepMovement, mobility fields in data/units, formations for vehicles, the AI or bot moving armour, running gear, the weight/conform/settle model, vehicle dust and track marks, turret slew, or a lead request like "the tank moves unrealistically" or "make vehicles turn like real ones". Also use it for Merkava, Namer, Eitan, M113, D9, Hummer or technical behaviour.
+description: >-
+  Use this skill for ANY question or change about how a vehicle moves or should move in Roaring
+  Lions: tanks, APCs, 8x8s, Hummers, technicals, the D9 (Merkava, Namer, Eitan, M113, Lavi). Trigger
+  on turning, pivoting, reversing or backing out, acceleration and braking (accel_tiles_s2), speed
+  on slopes or soft ground, turret traverse or slew, hull pitch and settle, track and wheel motion,
+  vehicle dust and marks, stepMovement, vehicle mobility fields, and vehicle formations, overwatch,
+  hull-down or shoot-and-scoot for the AI or the player. Also on complaints like "the tank spins
+  around", "the 8x8 turns like a tank", "the turret snaps". It gives sourced vehicle dynamics and
+  armour doctrine converted to tiles and ticks, a calibration table, and a ranked list of the game's
+  movement gaps.
 ---
 
 # Combat vehicle movement for Roaring Lions
