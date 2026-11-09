@@ -5,37 +5,7 @@
  */
 import { buyUpgradeRun, type BrigadeAccount } from './brigade-account';
 import { creditAsk } from './upgrade-pay';
-import { coinTiers, type RoarWallet } from './roar-wallet';
-import type { CoinHalf } from './ui/stores-model';
-
-/**
- * The coin half the Stores and the Garage read, as `main.ts` builds it (the one construction path).
- * `earnedTiers` carries an EXPLICIT 0 for every track of every unit the account has not bought:
- * `tierItem` reads `earnedTiers[u][track] ?? owned`, so an absent entry would fall back to `owned`
- * and a coin-held tier would read as earned, pricing a single tier where the run is several.
- */
-export function buildCoinHalf(
-  units: readonly { readonly id: string; readonly upgrades?: Readonly<Record<string, unknown>> }[],
-  account: Pick<BrigadeAccount, 'unlocks' | 'upgrades'>,
-  roar: RoarWallet
-): CoinHalf {
-  const earnedTiers: Record<string, Record<string, number>> = {};
-  for (const u of units) {
-    const row: Record<string, number> = {};
-    for (const track of Object.keys(u.upgrades ?? {})) row[track] = account.upgrades[u.id]?.[track] ?? 0;
-    earnedTiers[u.id] = row;
-  }
-  // A unit or track the account holds that `units` does not list keeps its stored value.
-  for (const [id, tracks] of Object.entries(account.upgrades)) {
-    earnedTiers[id] = { ...earnedTiers[id], ...tracks };
-  }
-  return {
-    earnedUnits: new Set(account.unlocks),
-    coinUnits: new Set(Object.keys(roar.entitlements.units)),
-    earnedTiers,
-    coinTiers: coinTiers(roar),
-  };
-}
+export { buildCoinHalf } from '@lions/economy';
 
 export interface CreditBuyRead {
   readonly account: BrigadeAccount;

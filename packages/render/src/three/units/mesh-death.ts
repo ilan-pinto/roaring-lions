@@ -768,7 +768,8 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
   reassertHiddenFigures(d.entity.squad);
   if (d.t < MESH_DEATH_SECONDS) return 'fading';
 
-  endMeshDeathFade(d.swaps, env.adopt);
+  // No adoption queue here: the entity is removed and disposed in this same call, so its restored meshes are never drawn again.
+  endMeshDeathFade(d.swaps);
   d.swaps = [];
   env.scene.remove(d.entity.root);
   disposeMeshUnitEntity(d.entity);

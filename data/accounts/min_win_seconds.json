@@ -1,0 +1,33 @@
+{
+  "min_win_seconds": {
+    "beit_sahwan_breach": 74,
+    "beit_sahwan_1_recon": 7,
+    "beit_sahwan_2_foothold": 75,
+    "beit_sahwan_3_clearance": 11,
+    "beit_sahwan_4_subterranean": 37,
+    "khan_rafid_1_recon": 8,
+    "khan_rafid_2_foothold": 63,
+    "khan_rafid_3_clearance": 16,
+    "deir_amun_1_recon": 13,
+    "deir_amun_2_foothold": 86,
+    "deir_amun_3_subterranean": 23,
+    "tel_marum_1_recon": 11,
+    "tel_marum_2_foothold": 63,
+    "tel_marum_3_clearance": 35,
+    "qarn_hadid_1_recon": 16,
+    "qarn_hadid_2_foothold": 53,
+    "qarn_hadid_3_clearance": 49,
+    "umm_zeitoun_1_recon": 28,
+    "umm_zeitoun_2_buildup": 62,
+    "umm_zeitoun_3_clearance": 15,
+    "umm_zeitoun_4_clearance": 54,
+    "ein_qasab_1_recon": 19,
+    "ein_qasab_2_foothold": 97,
+    "ein_qasab_3_buildup": 81,
+    "wadi_halam_1_fords": 66,
+    "wadi_halam_2_laager": 100,
+    "wadi_halam_3_counterraid": 82,
+    "wadi_halam_4_village": 48,
+    "wadi_halam_5_depot": 74
+  }
+}

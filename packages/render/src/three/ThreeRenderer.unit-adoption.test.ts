@@ -42,6 +42,9 @@ import { parseRunningGear } from './units/running-gear';
 import { runningGearBinding } from './units/running-gear-binding';
 import type { DyingVehicle } from './units/mesh-vehicle-death';
 import type { DyingMeshUnit } from './units/mesh-death';
+import { MESH_DEATH_SECONDS } from './units/mesh-death';
+import type { BackdropSpec, LoadedBackdropKit } from './terrain/backdrop';
+import { readKitFixture } from './terrain/backdrop-kit-fixture';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -179,7 +182,7 @@ const TONES: TerrainTones = {
   haze: '#E0B87A',
 };
 
-function makeOpts(gpu: RendererOptions['gpu']): RendererOptions {
+function makeOpts(gpu: RendererOptions['gpu'], backdrop?: BackdropSpec): RendererOptions {
   return {
     background: '#14150F',
     teamColors: ['#C8B494', '#6E7449', '#8E9491'],
@@ -197,6 +200,7 @@ function makeOpts(gpu: RendererOptions['gpu']): RendererOptions {
     // Rain: the KDF figure carries the rim, then the wounded floor (`stock|rl-unit-rain-rim|rl-wounded-floor`).
     weather: 'rain',
     ...(gpu !== undefined ? { gpu } : {}),
+    ...(backdrop !== undefined ? { backdrop } : {}),
   };
 }
 
@@ -224,6 +228,12 @@ interface Private {
   vehicleDying: DyingVehicle[];
   meshDying: DyingMeshUnit[];
   runningGear: { moved: Uint8Array };
+  evacuated: Set<number>;
+  meshDeparting: { entity: MeshUnitEntity }[];
+  backdrop: { group: THREE.Group } | null;
+  backdropKit: LoadedBackdropKit | null;
+  backdropLevels: unknown;
+  backdropDirty: boolean;
 }
 
 interface StubKit extends MaterialKit {
@@ -282,14 +292,14 @@ function hullOf(e: VehicleMeshEntity): THREE.Mesh {
 }
 
 /** A sim with two Lavis and a wounded KDF figure, a renderer, the meshes loaded, and the first frame drawn. */
-async function boot(gpu: RendererOptions['gpu']) {
+async function boot(gpu: RendererOptions['gpu'], backdrop?: BackdropSpec) {
   const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
   const lavi = sim.addUnitType(LAVI);
   const wounded = sim.addUnitType(WOUNDED);
   const a = sim.spawn(lavi, 0, fx.from(6.5), fx.from(6.5));
   const b = sim.spawn(lavi, 0, fx.from(12.5), fx.from(6.5));
   const squad = sim.spawn(wounded, 0, fx.from(9.5), fx.from(14.5));
-  const r = new ThreeRenderer(sim, makeOpts(gpu));
+  const r = new ThreeRenderer(sim, makeOpts(gpu, backdrop));
   const priv = r as unknown as Private;
   await r.init(HOST);
   await r.loadVehicleMesh('mbt_lavi', 'mbt_lavi.glb');
@@ -543,6 +553,188 @@ describe('ruling P3-R4: visible is mirrored before the scene is traversed, both 
     legacy.visible = true;
     r.frame(1, 16);
     expect(twin.visible).toBe(true);
+    r.dispose();
+  });
+});
+
+/** True when `o` is `root` or hangs under it. */
+function under(o: THREE.Object3D, root: THREE.Object3D): boolean {
+  for (let p: THREE.Object3D | null = o; p !== null; p = p.parent) if (p === root) return true;
+  return false;
+}
+
+/**
+ * Each swap site queues EXACTLY what it swapped (a bind or release its meshes, a scar the live tops, a fade the root), so no site is
+ * covered by another's queue in the same frame. The spy records every `queueNodeAdoption` call (it calls through). Falsify each line on
+ * its own: the release's, the death scar re-apply's, `beginVehicleDeath`'s `adopt`, the living scar's, the bind's, `endMeshDeathFade`'s
+ * `adopt?.(s.mesh)` (and `stepVehicleDeath`'s wreck-only `env.adopt`), `beginMeshEvac`'s `adopt`, `beginFadePhase`'s `env.adopt`.
+ */
+describe('each swap site queues what it swapped, on its own', () => {
+  it('the bind queues its meshes; a living scar on an unbound hull queues its live tops', async () => {
+    seam.kit = stubKit();
+    const { r, priv, a, b, toBand } = await boot('webgl2');
+    r.frame(1, 16);
+    const queued = vi.spyOn(r, 'queueNodeAdoption');
+    const entityA = priv.vehicleMeshEntities.get(a) as VehicleMeshEntity;
+    priv.runningGear.moved[a] = 1;
+    r.frame(1, 16);
+    const binding = runningGearBinding(entityA);
+    if (!binding) throw new Error('no binding');
+    expect(queued.mock.calls.map((c) => c[0]).filter((o) => under(o, entityA.root))).toEqual(binding.swaps.map((sw) => sw.mesh));
+    queued.mockClear();
+    const entityB = priv.vehicleMeshEntities.get(b) as VehicleMeshEntity;
+    toBand(b, 3);
+    r.frame(1, 16);
+    expect(queued.mock.calls.map((c) => c[0]).filter((o) => under(o, entityB.root))).toEqual([...entityB.liveTop]);
+    // ...and the scar draws its twin on that frame.
+    expect(isTwin(hullOf(entityB).material as THREE.Material)).toBe(true);
+    r.dispose();
+  });
+
+  it('a bound, scarred hull\'s death queues the release\'s meshes, then the scar\'s live tops, then the fade\'s root', async () => {
+    seam.kit = stubKit();
+    const { sim, r, priv, a, toBand } = await boot('webgl2');
+    r.frame(1, 16);
+    const entity = priv.vehicleMeshEntities.get(a) as VehicleMeshEntity;
+    priv.runningGear.moved[a] = 1;
+    r.frame(1, 16);
+    toBand(a, 3);
+    r.frame(1, 16);
+    const binding = runningGearBinding(entity);
+    if (!binding) throw new Error('no binding');
+    const releaseMeshes = binding.swaps.map((sw) => sw.mesh);
+    const queued = vi.spyOn(r, 'queueNodeAdoption');
+    sim.debugKill(a);
+    r.frame(1, 16);
+    expect(priv.vehicleDying).toHaveLength(1);
+    expect(queued.mock.calls.map((c) => c[0]).filter((o) => under(o, entity.root))).toEqual([...releaseMeshes, ...entity.liveTop, entity.root]);
+    r.dispose();
+  });
+
+  it('a vehicle fade that ends in a wreck queues its restored meshes: the hull draws its twin again and the census is clean', async () => {
+    seam.kit = stubKit();
+    const { sim, r, priv, a } = await boot('webgl2');
+    r.frame(1, 16);
+    const entity = priv.vehicleMeshEntities.get(a) as VehicleMeshEntity;
+    const hull = hullOf(entity);
+    sim.debugKill(a);
+    r.frame(1, 16);
+    const dying = priv.vehicleDying[0] as DyingVehicle;
+    const swapped = dying.swaps.map((sw) => sw.mesh);
+    const hullSwap = dying.swaps.find((sw) => sw.mesh === hull);
+    if (!hullSwap) throw new Error('no hull swap');
+    // Mid-fade the hull draws the fade clone's twin.
+    expect(legacyOf(hull.material as THREE.Material, hull)).toBe(hullSwap.fade);
+    const queued = vi.spyOn(r, 'queueNodeAdoption');
+    let frames = 0;
+    while ((dying as unknown as { settling: boolean }).settling !== true && frames < 40) {
+      r.frame(1, 50);
+      frames++;
+    }
+    expect(0.016 + frames * 0.05).toBeGreaterThanOrEqual(MESH_DEATH_SECONDS);
+    expect((dying as unknown as { settling: boolean }).settling).toBe(true);
+    // The fade's end queued every mesh it restored...
+    const calls = queued.mock.calls.map((c) => c[0]);
+    for (const m of swapped) expect(calls).toContain(m);
+    // ...so the restored hull draws its twin again, and nothing hooked is left un-adopted.
+    expect(isTwin(hull.material as THREE.Material)).toBe(true);
+    expect(legacyOf(hull.material as THREE.Material, hull)).toBe(hullSwap.original);
+    expect(unitHooks(priv)).toEqual([]);
+    r.dispose();
+  });
+
+  it('a squad: the fade begin queues the root; the fade end that REMOVES the entity queues nothing of it', async () => {
+    seam.kit = stubKit();
+    const { sim, r, priv, squad } = await boot('webgl2');
+    r.frame(1, 16);
+    const entity = priv.meshUnitEntities.get(squad) as MeshUnitEntity;
+    const queued = vi.spyOn(r, 'queueNodeAdoption');
+    sim.debugKill(squad);
+    let fadeFrameCalls: THREE.Object3D[] | null = null;
+    for (let i = 0; i < 60 && fadeFrameCalls === null; i++) {
+      queued.mockClear();
+      r.frame(1, 50);
+      if (priv.meshDying[0]?.phase === 'fading') fadeFrameCalls = queued.mock.calls.map((c) => c[0]);
+    }
+    if (fadeFrameCalls === null) throw new Error('the squad never reached its fade');
+    expect(fadeFrameCalls.filter((o) => under(o, entity.root))).toEqual([entity.root]);
+    // Run the fade out: the frame that removes the entity queues nothing that hangs under it (it is disposed in that call).
+    let removedFrameCalls: THREE.Object3D[] | null = null;
+    for (let i = 0; i < 40 && removedFrameCalls === null; i++) {
+      queued.mockClear();
+      r.frame(1, 50);
+      if (priv.meshDying.length === 0) removedFrameCalls = queued.mock.calls.map((c) => c[0]);
+    }
+    if (removedFrameCalls === null) throw new Error('the squad fade never ended');
+    expect(entity.root.parent).toBeNull();
+    expect(removedFrameCalls.filter((o) => under(o, entity.root))).toEqual([]);
+    expect(priv.pendingAdoption.size).toBe(0);
+    r.dispose();
+  });
+
+  it('an evacuation fade queues the root', async () => {
+    seam.kit = stubKit();
+    const { sim, r, priv, squad } = await boot('webgl2');
+    r.frame(1, 16);
+    const entity = priv.meshUnitEntities.get(squad) as MeshUnitEntity;
+    priv.evacuated.add(squad);
+    const queued = vi.spyOn(r, 'queueNodeAdoption');
+    sim.debugKill(squad);
+    r.frame(1, 16);
+    expect(priv.meshDeparting.map((d) => d.entity)).toContain(entity);
+    expect(queued.mock.calls.map((c) => c[0]).filter((o) => under(o, entity.root))).toEqual([entity.root]);
+    r.dispose();
+  });
+});
+
+const BACKDROP_SPEC: BackdropSpec = {
+  valley: 'ns',
+  crest: 48,
+  seed: 7,
+  kit: 'wadi_halam_kit',
+  pieces: [
+    { id: 'bd_wall_far_a', at: [0, 8], rot: 0 },
+    { id: 'bd_terrace_a', at: [-0.52, 8], rot: 0 },
+    { id: 'bd_slope_near_a', at: [16, 8], rot: 180 },
+  ],
+};
+
+/** `ThreeRenderer.backdrop.test.ts`'s kit: the real fixture's pieces and olive. */
+function backdropKit(): LoadedBackdropKit {
+  const source = readKitFixture();
+  const olive = new THREE.BufferGeometry();
+  const o = source.pieces.get('bd_olive');
+  if (o === undefined) throw new Error('fixture has no olive');
+  olive.setAttribute('position', new THREE.BufferAttribute(o.positions, 3));
+  olive.setAttribute('normal', new THREE.BufferAttribute(o.normals, 3));
+  olive.setAttribute('uv', new THREE.BufferAttribute(o.uvs, 2));
+  olive.setIndex(new THREE.BufferAttribute(Uint32Array.from(o.index), 1));
+  return { source, map: new THREE.Texture(), olive };
+}
+
+/** The backdrop build queues its group: every one of its meshes draws the `backdrop` twin on the build frame. Falsify: delete the
+ *  `queueNodeAdoption(this.backdrop.group)` line. */
+describe('the backdrop build adopts', () => {
+  it('every backdrop mesh draws its twin on the frame the valley is built', async () => {
+    seam.kit = stubKit();
+    const { r, priv } = await boot('webgl2', BACKDROP_SPEC);
+    r.frame(1, 16);
+    priv.backdropKit = backdropKit();
+    priv.backdropLevels = undefined;
+    priv.backdropDirty = true;
+    r.frame(1, 16);
+    const group = priv.backdrop?.group;
+    if (!group) throw new Error('no backdrop built');
+    const drawn: THREE.Material[] = [];
+    group.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (m && !Array.isArray(m)) drawn.push(m);
+    });
+    expect(drawn.length).toBeGreaterThanOrEqual(4);
+    for (const m of drawn) {
+      expect(isTwin(m)).toBe(true);
+      expect(m.name).toBe('stub-twin-backdrop');
+    }
     r.dispose();
   });
 });
