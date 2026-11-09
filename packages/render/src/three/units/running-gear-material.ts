@@ -111,6 +111,18 @@ const FRAGMENT_TREAD = /* glsl */ `#include <map_fragment>
  *  textured vehicle type, since the per-type facts are uniforms. */
 export const RG_PROGRAM_KEY = 'rl-running-gear-1';
 
+/** Each clone's uniform objects, the very ones its splice binds and `writeRunningGearUniforms` writes. */
+const uniformsByClone = new WeakMap<THREE.Material, RunningGearUniforms>();
+
+/**
+ * GH-943 P3 (T3): the uniform objects a running-gear clone draws (undefined for any other material). On a node boot every
+ * vehicle's clone of one material shares ONE twin (`running-gear.node.ts`), which reads these per drawn object, from that
+ * object's own legacy clone: the same objects this file's splice binds.
+ */
+export function runningGearUniformsOf(m: THREE.Material): RunningGearUniforms | undefined {
+  return uniformsByClone.get(m);
+}
+
 /**
  * A clone of `base` that draws `spec`'s running gear, and the uniform objects
  * the caller writes every frame. `base` itself is untouched.
@@ -140,6 +152,7 @@ export function runningGearMaterial(
     shader.fragmentShader = replaceOnce(shader.fragmentShader, '#include <map_fragment>', FRAGMENT_TREAD);
   };
   material.userData = { ...material.userData, rlRunningGear: true };
+  uniformsByClone.set(material, uniforms);
   // L3: the clone dropped the team hook its base carried. Re-apply it AFTER this clone's own hook (which
   // it composes with); the program key already names it, since `baseKey` was read from the base.
   carryTeamMark(material, base);

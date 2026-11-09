@@ -34,6 +34,7 @@ import { censusUnadopted, censusUnported, unportedWarnings, type UnportedHook } 
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
 import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
+import { createNodeUnitMaterial } from '../units/unit-material.node';
 import { markTwin } from '../twin-identity';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -164,6 +165,13 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   // GH-943 P3 (T10): the valley backdrop's distance fade, an output term over the stock lit material (all five materials, one factory).
   materials.backdrop = (legacy) => {
     const twin = createNodeBackdropMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.backdrop }, legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T3): every hooked unit material (team mark, running gear, soot; the rim and the floor are named partial terms until T4).
+  // Adoption shares one twin per (base, segments, pipeline state) and copies the pipeline state onto it.
+  materials.unit = (legacy) => {
+    const twin = createNodeUnitMaterial({ W, TSL, maths: opts.materialMaths.unit }, legacy);
     markTwin(twin, legacy);
     return twin;
   };
