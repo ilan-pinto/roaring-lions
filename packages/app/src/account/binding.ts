@@ -44,3 +44,10 @@ export function clearBinding(store: StorageLike | null): void {
     /* as above */
   }
 }
+
+/** Sign-out and account deletion forget the device id and the claim mark, so the next claim mints a new id (GH-1075 A2, §0.16). */
+export function clearDeviceId(store: StorageLike | null): void {
+  const b = readBinding(store);
+  if (b === null) return;
+  writeBinding(store, { version: 1, publicId: b.publicId });
+}

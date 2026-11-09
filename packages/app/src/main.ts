@@ -342,6 +342,8 @@ import {
   type RouteRequest,
 } from './shell/router';
 import { routes } from './shell/links';
+import { importWithRetry } from './shell/chunk';
+import { chunkFailedCard } from './shell/chunk-card';
 import { forgetRetiredKeys } from './retired-keys';
 // The menu's scene host (scene-host plan, Task 6): the lit diorama behind the
 // column. `ui/scene-host.ts` is the only thing that reaches its three.js door,
@@ -949,12 +951,18 @@ async function main(): Promise<void> {
   const accountsOn = accountsEnabled(q);
   let accountClientP: Promise<AccountClient> | null = null;
   const accountClient = (): Promise<AccountClient> =>
-    (accountClientP ??= import('./account/client').then(({ createAccountClient }) =>
-      createAccountClient({
-        enabled: true,
-        fetch: window.fetch.bind(window),
-        newOpId: () => crypto.randomUUID(),
-      })
+    (accountClientP ??= importWithRetry(() => import('./account/client')).then(
+      ({ createAccountClient }) =>
+        createAccountClient({
+          enabled: true,
+          fetch: window.fetch.bind(window),
+          newOpId: () => crypto.randomUUID(),
+        }),
+      (err: unknown) => {
+        // A failed load must not be cached: the next visit to the screen gets a fresh try.
+        accountClientP = null;
+        throw err;
+      }
     ));
   const lang = resolveLang(q.get('lang'), settings.language);
   const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
@@ -1173,7 +1181,7 @@ async function main(): Promise<void> {
     // The screen's own module (the garage, the Stores, the "What it adds" panel) is fetched beside the portraits:
     // it is off the entry chunk (MAIN_CHUNK_MAX_BYTES, `pnpm --filter @lions/tools webgpu:bundle`).
     const [{ showBrigade }] = await Promise.all([
-      import('./ui/brigade'),
+      importWithRetry(() => import('./ui/brigade')),
       ...kdfUnits.map(async ({ id }) => {
         const picture = await loadBrigadePortrait(id);
         if (picture === null) return;
@@ -1401,7 +1409,7 @@ async function main(): Promise<void> {
           name: 'arena-setup',
           pattern: '/arena',
           mount: async (host) => {
-            const [{ showArenaSetup }, { keyFromHash }] = await Promise.all([import('./ui/arena-setup'), import('./net/watch-connect')]);
+            const [{ showArenaSetup }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-setup')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaSetup(host, {
               key: keyFromHash(arenaHash),
               fetch: window.fetch.bind(window),
@@ -1417,7 +1425,7 @@ async function main(): Promise<void> {
           name: 'arena-results',
           pattern: '/arena/results',
           mount: async (host) => {
-            const [{ showArenaResults }, { keyFromHash }] = await Promise.all([import('./ui/arena-results'), import('./net/watch-connect')]);
+            const [{ showArenaResults }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-results')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaResults(host, {
               key: keyFromHash(arenaHash),
               fetch: window.fetch.bind(window),
@@ -1432,7 +1440,7 @@ async function main(): Promise<void> {
           // A battlefield owns its focus: its keys reach the game.
           focus: false,
           mount: async (host, req) => {
-            const [{ showArenaReplay }, { keyFromHash }] = await Promise.all([import('./ui/arena-replay'), import('./net/watch-connect')]);
+            const [{ showArenaReplay }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-replay')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaReplay(host, {
               key: keyFromHash(arenaHash),
               game: req.query.get('game'),
@@ -1458,7 +1466,7 @@ async function main(): Promise<void> {
           // A battlefield owns its focus: its keys reach the game.
           focus: false,
           mount: async (host) => {
-            const [{ showArenaWatch }, { keyFromHash }] = await Promise.all([import('./ui/arena-watch'), import('./net/watch-connect')]);
+            const [{ showArenaWatch }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-watch')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaWatch(host, {
               key: keyFromHash(arenaHash),
               fetch: window.fetch.bind(window),
@@ -1553,7 +1561,7 @@ async function main(): Promise<void> {
             return () => {};
           }
           // The screen's module and the client load together; a navigation that lands meanwhile wins (`shell/router.ts`).
-          return Promise.all([import('./ui/profile'), accountClient()]).then(([{ showProfile }, client]) =>
+          return Promise.all([importWithRetry(() => import('./ui/profile')), accountClient()]).then(([{ showProfile }, client]) =>
             showProfile(host, {
               client,
               store: safeStorage(),
@@ -1594,6 +1602,8 @@ async function main(): Promise<void> {
       bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), t('boot.notFound.next'), routes.menu());
       return () => host.replaceChildren();
     },
+    // A route chunk that failed twice (`shell/chunk.ts`): the card, with a reload, in the route's place -- never a blank stage.
+    chunkFailed: chunkFailedCard(routes.menu()),
   });
   // Same-origin anchors become navigations, for the whole life of the
   // document -- there is no point at which this page stops wanting them, so
