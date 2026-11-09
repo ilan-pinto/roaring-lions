@@ -66,7 +66,7 @@ describe('buyUpgradeRun refusals', () => {
   it('from and to must be integers', () => {
     const rich = payMission(emptyAccount(), 'm', 100000, 1).account;
     for (const [from, to] of [[1, 2.5], [1, Number.POSITIVE_INFINITY], [1, Number.NaN], [1.5, 2], [Number.NaN, 2]] as const) {
-      const r = buyUpgradeRun(rich, 'u', 'armour', from, to, 100);
+      const r = buyUpgradeRun(rich, 'u', 'armour', from, to, PRICES);
       expect(r.ok).toBe(false);
       expect(r.account).toBe(rich);
     }
