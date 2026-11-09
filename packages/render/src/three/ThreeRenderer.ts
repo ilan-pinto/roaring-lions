@@ -3843,6 +3843,15 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * GH-943 P3 (T1): the scar swap's queue: the live subtrees `applyVehicleDamageBand` walks (never the death root). Each swap site
+   * queues exactly what it swapped (a bind or release its meshes, a scar the live tops, a fade the root), so no site's queue is
+   * covered by another's in the same frame and each is gated on its own (`ThreeRenderer.unit-adoption.test.ts`).
+   */
+  private queueLiveTops(entity: VehicleMeshEntity): void {
+    for (const top of entity.liveTop) this.queueNodeAdoption(top);
+  }
+
+  /**
    * GH-943 P3 (T1): run once at the top of every node render, before `nodeBackend.render`: adopts the queued subtrees, then mirrors
    * each live twin's `visible` from its legacy material (ruling P3-R4: traversal skips a hidden material, so this cannot wait for
    * the twin's own per-render update).
@@ -10666,8 +10675,8 @@ export class ThreeRenderer implements Renderer {
           let binding = runningGearBinding(entity);
           if (!binding && this.runningGear.moved[i] === 1) {
             binding = bindRunningGear(entity, gear) ?? undefined;
-            // GH-943 P3 (T1): the clone the bind just swapped in is adopted on node.
-            if (binding) this.queueNodeAdoption(entity.root);
+            // GH-943 P3 (T1): the meshes the bind just swapped onto their clone are adopted on node.
+            if (binding) for (const s of binding.swaps) this.queueNodeAdoption(s.mesh);
           }
           if (binding) writeRunningGearUniforms(binding, this.runningGear, i, this.runningGearDebugHidden);
         }
@@ -10682,7 +10691,7 @@ export class ThreeRenderer implements Renderer {
         if (band !== vehicleDrawnBand(entity)) {
           applyVehicleDamageBand(entity, band, this.vehicleScarsFor(entity.templateKey));
           // GH-943 P3 (T1): the scar (or the clean template) the band just swapped in is adopted on node.
-          this.queueNodeAdoption(entity.root);
+          this.queueLiveTops(entity);
         }
       }
       // The lead's ruling of 4 Nov: a knocked-out main gun droops on the model (`units/gun-out.ts`). Read from the
@@ -10883,16 +10892,16 @@ export class ThreeRenderer implements Renderer {
         detachMeshSilhouette(entity.root);
         // A wreck's wheels do not turn, and the fade below clones every
         // material under the root: the original bake goes back first.
-        const wasBound = runningGearBinding(entity) !== undefined;
+        const released = runningGearBinding(entity);
         releaseRunningGear(entity);
-        // GH-943 P3 (T1): the restored (legacy) materials are adopted on node.
-        if (wasBound) this.queueNodeAdoption(entity.root);
+        // GH-943 P3 (T1): the meshes the release handed their (legacy) materials back to are adopted on node.
+        if (released) for (const s of released.swaps) this.queueNodeAdoption(s.mesh);
         // ...which hands back the materials the hull had when it was BOUND,
         // possibly clean: re-draw its last living band so the fade starts
         // from the scar the player was looking at (GH-31).
         if (vehicleScarMixForBand(vehicleDrawnBand(entity)) > 0) {
           applyVehicleDamageBand(entity, vehicleDrawnBand(entity), this.vehicleScarsFor(entity.templateKey));
-          this.queueNodeAdoption(entity.root);
+          this.queueLiveTops(entity);
         }
         // The wreck's pose, BEFORE `beginVehicleDeath` latches `baseWorldY`
         // off it -- see `poseVehicleWreck`.

@@ -244,10 +244,12 @@ export function stepVehicleDeath(
 
   if (d.t < MESH_DEATH_SECONDS) return 'fading';
 
-  endMeshDeathFade(d.swaps, env.adopt);
-
   const deathRoot = d.entity.deathRoot;
-  if (!mixer || !deathRoot || !d.entity.actions.has('wreck')) {
+  const becomesWreck = mixer !== null && mixer !== undefined && deathRoot !== null && deathRoot !== undefined && d.entity.actions.has('wreck');
+  // GH-943 P3 (T1): only a wreck keeps its live nodes in the scene, so only a wreck's restored materials are queued for adoption.
+  endMeshDeathFade(d.swaps, becomesWreck ? env.adopt : undefined);
+
+  if (!becomesWreck) {
     env.scene.remove(d.entity.root);
     disposeVehicleMeshEntity(d.entity);
     return 'removed';
