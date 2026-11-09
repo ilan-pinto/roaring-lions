@@ -197,7 +197,7 @@ describe('T2b (P3-R13): a census hide holds against a per-frame writer', () => {
     const xray = new THREE.Mesh(geo, new THREE.ShaderMaterial({ name: 'rl-xray-tube' }));
     root.add(xray);
     const hides: CensusHides = new Set();
-    censusUnported(root, {}, hides);
+    censusUnported(root, { hides });
     expect(xray.visible).toBe(false);
     xray.visible = true; // the per-frame writer (tunnel x-ray, flipbook)
     expect(reassertCensusHides(hides, root)).toBe(1);
@@ -206,14 +206,14 @@ describe('T2b (P3-R13): a census hide holds against a per-frame writer', () => {
   it('G2: an object adopted since (its material is now a twin) and one the census never hid are not hidden', () => {
     const root = new THREE.Group();
     const ported = new THREE.Mesh(geo, new THREE.ShaderMaterial({ name: 'rl-ported' }));
-    const adopted = new THREE.Mesh(geo, new THREE.ShaderMaterial({ name: 'rl-fx-particle' }));
+    const adopted: THREE.Mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({ name: 'rl-fx-particle' }));
     const bystander = new THREE.Mesh(geo, new THREE.ShaderMaterial({ name: 'rl-ported' }));
     root.add(ported, adopted, bystander);
     const hides: CensusHides = new Set();
     // The census on a scene where 'rl-ported' is a ported key hides neither of those; only the unported one is hidden.
-    censusUnported(root, { portedKeys: new Set(['rl-ported']) }, hides);
+    censusUnported(root, { portedKeys: new Set(['rl-ported']), hides });
     expect([ported.visible, adopted.visible, bystander.visible]).toEqual([true, false, true]);
-    adopted.material = new THREE.MeshBasicMaterial(); // its twin is adopted: drawn
+    (adopted as THREE.Mesh).material = new THREE.MeshBasicMaterial(); // its twin is adopted: drawn
     adopted.visible = true;
     expect(reassertCensusHides(hides, root, { portedKeys: new Set(['rl-ported']) })).toBe(0);
     expect([ported.visible, adopted.visible, bystander.visible]).toEqual([true, true, true]);
@@ -224,7 +224,7 @@ describe('T2b (P3-R13): a census hide holds against a per-frame writer', () => {
     const m = new THREE.Mesh(geo, new THREE.ShaderMaterial({ name: 'rl-xray-tube' }));
     root.add(m);
     const hides: CensusHides = new Set();
-    censusUnported(root, {}, hides);
+    censusUnported(root, { hides });
     root.remove(m);
     reassertCensusHides(hides, root);
     expect(hides.size).toBe(0);
@@ -234,6 +234,6 @@ describe('T2b (P3-R13): a census hide holds against a per-frame writer', () => {
     const render = src.slice(src.indexOf('    render(scene, camera) {'));
     expect(render.indexOf('reassertCensusHides(censusHides, scene)')).toBeGreaterThan(-1);
     expect(render.indexOf('reassertCensusHides(censusHides, scene)')).toBeLessThan(render.indexOf('runCensus(scene)'));
-    expect(src).toMatch(/censusUnported\(scene, \{\}, censusHides\)/);
+    expect(src).toMatch(/censusUnported\(scene, \{ hides: censusHides \}\)/);
   });
 });

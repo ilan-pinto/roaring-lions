@@ -168,7 +168,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   // GH-943 P3 (T2b, P3-R13): what the census hid, re-hidden before every render (a per-frame writer re-shows it between censuses).
   const censusHides: CensusHides = new Set();
   const runCensus = (scene: THREE.Scene): void => {
-    const found = censusUnported(scene, {}, censusHides);
+    const found = censusUnported(scene, { hides: censusHides });
     if (slotOf !== undefined) found.push(...censusUnadopted(scene, adoptable));
     for (const h of found) hooks.set(`${h.kind}|${h.key}`, h);
     for (const line of unportedWarnings(found, seen)) warn(line);

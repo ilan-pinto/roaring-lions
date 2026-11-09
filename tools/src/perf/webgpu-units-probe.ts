@@ -389,6 +389,8 @@ async function probeMoment(browser: Browser, port: number, arm: ProbeArm, group:
     // zero-time repaints differ by them and the delta would contain the noise. Hidden on every arm, for every unit subject.
     if (KIND === 'units') for (const q of QUIET) if (q !== first.layer) await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(q)}, false)`);
 
+    for (const q of first.alsoHide ?? []) await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(q)}, false)`);
+
     const node = arm !== 'L';
     const listShaders = async (): Promise<string[]> => (await page.evaluate(`(${String(visibleShaderObjects)})(window.__lions.renderer.scene)`)) as string[];
     const diag: ShaderDiagnosis = { moment: first.id, arm, beforeCensus: [], afterCensus: [], afterRepaint: [] };
@@ -442,26 +444,32 @@ async function probeMoment(browser: Browser, port: number, arm: ProbeArm, group:
         const objects = (await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(s.layer)}, false)`)) as number;
         await page.evaluate(repaintScript(arm));
         const hid = await grab();
-        await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(s.layer)}, true)`);
+        const shownCount = (await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(s.layer)}, true)`)) as number;
+        // A layer that clears its own list on a hide (smoke-outline) returns 0 from the hide; the show's count is the list it put back.
+        const objectsHid = Math.max(objects, shownCount);
         if (node || phase === 'Lm') {
-          // A layer's plain show re-shows what the census hid (the overlay batches, say): counted, then the census is run again so the
-          // restore check reads only what the toggle itself leaves behind. The backend would hide them again within 60 frames.
+          // A layer's plain show can re-show what the census hid (the overlay batches, say): counted here, and the node render's own
+          // re-assert (P3-R13) must have hidden them again by the repaint below, which is checked after it (a node bug otherwise).
           const before = rd.visibleShaders[arm as 'F' | 'G']?.length ?? 0;
           if (node) {
             const after = (await listShaders()).length;
-            if (after > before) notes.push(`${tag}/${s.id}: showing \`${s.layer}\` re-showed ${after - before} census-hidden ShaderMaterial object(s) (the layer's plain visible write undoes the census)`);
-            await page.evaluate('window.__lions.renderer.nodeBackend.prepare(window.__lions.renderer.scene, window.__lions.renderer.viewCamera)');
+            if (after > before) notes.push(`${tag}/${s.id}: showing \`${s.layer}\` re-showed ${after - before} census-hidden ShaderMaterial object(s) until the next node render`);
           } else await page.evaluate(`(async () => {\n${matchNodeStatements(ROOT)}\nreturn 'ok';\n})()`);
         }
         await page.evaluate(repaintScript(arm));
         const back = await grab();
+        if (node) {
+          // After the render the re-assert ran in: nothing a toggle re-showed may still be drawing.
+          const final = await listShaders();
+          if (final.length > (rd.visibleShaders[arm as 'F' | 'G']?.length ?? 0)) rd.visibleShaders[arm as 'F' | 'G'] = final;
+        }
         const d = abDelta(base, hid, unstable, region);
         rd.deltas[phase] = { meanAbsChannelDelta: d.meanAbs, changedPixels: d.changed };
-        rd.objects[phase] = objects;
+        rd.objects[phase] = objectsHid;
         if (abDelta(base, back, unstable, region).changed !== 0) rd.notRestored.push(phase);
         writeFrame(base, path.join(OUT, `${fileSafe(s.id)}-${phase}-shown.png`));
         writeFrame(hid, path.join(OUT, `${fileSafe(s.id)}-${phase}-hidden.png`));
-        console.log(`[units-probe] ${s.id} ${phase}: ${s.layer} objects ${objects}, delta ${d.meanAbs.toFixed(4)} (${d.changed} px of ${d.pixels}); control ${rd.controlPx[arm] ?? '-'} px${rd.notRestored.includes(phase) ? '; NOT RESTORED' : ''}${rd.visibleShaders[arm as 'F' | 'G'] ? `; ${rd.visibleShaders[arm as 'F' | 'G']?.length} visible ShaderMaterial` : ''}`);
+        console.log(`[units-probe] ${s.id} ${phase}: ${s.layer} objects ${objectsHid}, delta ${d.meanAbs.toFixed(4)} (${d.changed} px of ${d.pixels}); control ${rd.controlPx[arm] ?? '-'} px${rd.notRestored.includes(phase) ? '; NOT RESTORED' : ''}${rd.visibleShaders[arm as 'F' | 'G'] ? `; ${rd.visibleShaders[arm as 'F' | 'G']?.length} visible ShaderMaterial` : ''}`);
       }
     }
     const bad = errors.filter((l) => /GPUValidationError|Destroyed texture|uploaded again/i.test(l));

@@ -45,6 +45,8 @@ export interface ProbeSubject {
   readonly setup: string[];
   /** fx: after `setup`, advance the FRAME clock `n` frames of `dtMs` each (no sim tick), so a moment is read at a fixed age. */
   readonly frameSteps?: { n: number; dtMs: number };
+  /** Layers held hidden on every arm for this subject (a cover that stands over the measured layer: the collapse shroud over the plume). */
+  readonly alsoHide?: string[];
   /** The debug layer whose shown-minus-hidden delta is the reading. */
   readonly layer: string;
   readonly band: BandName;
@@ -190,19 +192,29 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
       tick: 20,
       camera: { tile: [37.5, 31], zoom: 2.5 },
       setup: [
-        // Two squads put beside the south-east house, ordered in. `teleport` is the dev hook; the garrison walk itself is the sim's.
+        // Two squads spawned beside the south-east house and ordered in; the garrison walk itself is the sim's.
         "const hs = __lions.sim.structureAt(37, 31);",
         "if (hs < 0) throw new Error('probe: no structure at 37,31');",
-        "const sq = __lions.units().filter((x) => x.type === 'inf_squad').slice(0, 2);",
-        '__probe.clearFoot(sq.map((u) => u.id));',
-        'sq.forEach((u, i) => __lions.sim.teleport(u.id, Math.round((37.5 + i) * 65536), Math.round(33.2 * 65536)));',
-        "__lions.sim.queueCommand({ kind: 'garrison', ids: sq.map((u) => u.id), structure: hs });",
-        '__lions.step(120);',
+        // Fresh squads, not the boot ones teleported: a boot squad carries its order and its gait, and two zero-time repaints of it differ
+        // (the local run: 1675 px of control at the figures). A spawn is still, like every other settled unit subject.
+        '__probe.clearFoot([]);',
+        "const sq = [0, 1].map((i) => __probe.spawn('inf_squad', 0, 37.5 + i, 33.2));",
+        'await __probe.meshes(sq, false);',
+        "__lions.sim.queueCommand({ kind: 'garrison', ids: sq, structure: hs });",
+        // Until they are INSIDE (a squad still walking is a moving figure: the frame never settles), never a fixed tick count.
+        'let k = 0;',
+        'for (; k < 800 && !sq.every((id) => __lions.sim.state.garrisonedIn[id] === hs); k += 5) __lions.step(5);',
+        "if (k >= 800) throw new Error('probe: the squads never entered structure ' + hs + ' in 800 ticks');",
+        // Then 2 s more: a figure that moved in the LAST tick is interpolated by the wall clock, so two zero-time repaints differ.
+        '__lions.step(40);',
         '__probe.goto(37.5, 31, 2.5);',
         'await __probe.settle(4, 50);',
       ],
       layer: 'garrison-banner',
       band: 'loose',
+      // The banner on the west wall. The garrisoned figures' occlusion outlines (x 426+) never settle between two zero-time repaints on
+      // this build (1569-1675 px of control in four local runs), so the reading is the banner's own rectangle, on every arm.
+      crop: [300, 100, 120, 200],
     },
     {
       id: 'damaged-zone',
@@ -216,16 +228,22 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
         "const f = __lions.units(0), h = __lions.units(1);",
         "const mx = (f.reduce((a, u) => a + u.x, 0) / f.length + h.reduce((a, u) => a + u.x, 0) / h.length) / 2;",
         "const my = (f.reduce((a, u) => a + u.y, 0) / f.length + h.reduce((a, u) => a + u.y, 0) / h.length) / 2;",
-        "const ap = __lions.units().filter((x) => x.type === 'inf_squad')[0];",
-        '__probe.clearFoot([ap.id]);',
-        '__lions.sim.teleport(ap.id, Math.round(mx * 65536), Math.round(my * 65536));',
+        // A fresh squad on the midpoint (a boot squad teleported keeps its order and gait: 5317 px of control locally).
+        '__probe.clearFoot([]);',
+        "const ap = { id: __probe.spawn('inf_squad', 0, mx, my) };",
+        'await __probe.meshes([ap.id], false);',
         '__probe.damage([ap.id], 0.12);',
-        '__lions.step(2);',
+        // The midpoint is read; now the hostiles go (a squad that fires is a moving figure and the frame never settles).
+        '__probe.peace();',
+        '__lions.step(40);',
         '__probe.goto(mx, my, 1.4);',
         'await __probe.settle(4, 50);',
       ],
       layer: 'overlays',
       band: 'tight',
+      // The ROE zone's ribbon and the rings west of the squad: the squad's own figures (x 403+) animate between two zero-time repaints
+      // (4600-5400 px of control in four local runs), so the reading is the left of the frame, on every arm.
+      crop: [0, 0, 400, 640],
     },
     {
       id: 'route',
@@ -283,23 +301,29 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
     { id: 'lavi-fire/muzzle-burst', ...fxMoment('lavi_fire', 'muzzle-burst'), band: 'loose', frameSteps: { n: 1, dtMs: 50 } },
     { id: 'smoke-screen', ...fxMoment('smoke_eitan', 'smoke-screen'), band: 'loose', frameSteps: { n: 20, dtMs: 50 } },
     { id: 'collapse', ...fxMoment('collapse_house', 'collapse-shroud'), band: 'loose', frameSteps: { n: 10, dtMs: 50 } },
-    // The collapse's dust column (`structure_collapse`'s `mesh_plume`) rises over seconds: read it at 1.2 s.
-    { id: 'collapse/smoke-plume', ...fxMoment('collapse_house', 'smoke-plume'), band: 'loose', frameSteps: { n: 24, dtMs: 50 } },
+    // The collapse's dust column (`structure_collapse`'s `mesh_plume`) rises over seconds and stands UNDER the 2.4 s tan shroud (the first
+    // CI round read 0 at 1.2 s): read it at 2.0 s with the shroud held hidden on every arm.
+    { id: 'collapse/smoke-plume', ...fxMoment('collapse_house', 'smoke-plume'), band: 'loose', frameSteps: { n: 40, dtMs: 50 }, alsoHide: ['collapse-shroud'] },
     {
       id: 'tracers',
       map: BSO,
       flags: [],
       tick: 5,
       camera: { tile: FORCE, zoom: 2.5 },
-      // An HMG technical (hostile) and two militia against two of our rifle squads, three tiles apart in the force's own sight: small-arms
-      // and HMG classes are the ones that draw a tracer (a shell replaces it). Tick on until a round is in the air.
+      // The flat full-span tracer is drawn for the weapon classes with no travelling round (`shellKindFor` returns null): `interceptor` and
+      // `demolition`. Rifles and machine guns are streaks (`rifle`/`mg` shells) and no longer touch `tracers`, which the first CI round's
+      // 417 fire events and 0 tracers showed. A KDF demolition squad (`charges`, 1.5 tiles) beside two hostile militia: its charge shot
+      // is the `demolition`-class `fire` event. Tick on until a tracer is in the air.
       setup: [
-        "const f = [0, 1].map((i) => __probe.spawn('inf_squad', 0, 7 + i * 0.6, 20 + i * 0.8));",
-        "const h = [__probe.spawn('technical', 1, 11, 20.5), __probe.spawn('militia_cell', 1, 10.5, 21.5)];",
+        // The sandbox's own forces are taken off the field first: a whole task force firing at its enemy fills the frame with muzzle lights
+        // that two zero-time repaints never settle (the first local run: 225553 px of control).
+        '{ const S = __lions.sim; for (let e = 0; e < S.entityCount; e++) if (S.state.alive[e] === 1) S.removeFromPlay(e); }',
+        "const f = [0, 1].map((i) => __probe.spawn('demo_squad', 0, 7 + i * 0.6, 20 + i * 0.8));",
+        "const h = [__probe.spawn('militia_cell', 1, 8.4, 20.4), __probe.spawn('militia_cell', 1, 8.2, 21.4)];",
         'for (let i = 0; i < 4; i++) __lions.renderer.snapshot();',
-        'let guard = 0;',
-        'while (__lions.renderer.tracers.length === 0 && guard++ < 400) { const ev = __lions.sim.tick(); __lions.renderer.snapshot(); __lions.renderer.onEvents(ev); }',
-        "if (__lions.renderer.tracers.length === 0) throw new Error('probe: the exchange fired no tracer in 400 ticks');",
+        'let guard = 0; const kinds = {};',
+        'while (__lions.renderer.tracers.length === 0 && guard++ < 400) { const ev = __lions.sim.tick(); for (const x of ev) kinds[x.kind] = (kinds[x.kind] || 0) + 1; __lions.renderer.snapshot(); __lions.renderer.onEvents(ev); }',
+        "if (__lions.renderer.tracers.length === 0) throw new Error('probe: the exchange fired no tracer in 400 ticks; events ' + JSON.stringify(kinds) + '; units ' + JSON.stringify(__lions.units().filter((u) => [...f, ...h].includes(u.id)).map((u) => [u.type, u.side, u.x.toFixed(1), u.y.toFixed(1), u.alive])));",
         '__probe.goto(8.5, 20.8, 2.5);',
       ],
       layer: 'tracers',

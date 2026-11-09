@@ -54,6 +54,8 @@ export const UNPORTED_TERMS_KEY = 'rlUnportedTerms';
 export interface CensusOptions {
   /** Legacy keys to leave visible and unreported (the L-matched arm only; see `PORTED_MATERIAL_KEYS`). Absent: none. */
   readonly portedKeys?: ReadonlySet<string>;
+  /** GH-943 P3 (T2b, P3-R13): collects every object this census hides, for `reassertCensusHides`. The node backend's. */
+  readonly hides?: CensusHides;
 }
 
 const STOCK_ON_BEFORE_COMPILE = THREE.Material.prototype.onBeforeCompile;
@@ -143,8 +145,9 @@ export function reassertCensusHides(hides: CensusHides, root: THREE.Object3D, op
  * GH-943 P2 (T1): a node twin that draws only part of its legacy material lists the rest in `userData.rlUnportedTerms`, and each
  * term is reported as a `partial` hook. `opts.portedKeys` (OFF by default; see `PORTED_MATERIAL_KEYS`) exempts listed legacy keys.
  */
-export function censusUnported(root: THREE.Object3D, opts: CensusOptions = {}, hides?: CensusHides): UnportedHook[] {
+export function censusUnported(root: THREE.Object3D, opts: CensusOptions = {}): UnportedHook[] {
   const ported = opts.portedKeys;
+  const hides = opts.hides;
   const found = new Map<string, UnportedHook>();
   const note = (kind: UnportedKind, key: string): void => {
     const id = `${kind}|${key}`;
