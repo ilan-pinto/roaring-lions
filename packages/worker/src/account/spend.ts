@@ -105,8 +105,15 @@ export async function spend(ctx: AccountCtx): Promise<Response> {
       opId: raw.op_id as string,
       at: ctx.now,
     };
+    // The price came from the campaign read above: if another device wrote the campaign since, this guard trips
+    // `campaign_state`'s bytes CHECK and `budgetedOp` re-reads and re-prices. With no row read it matches nothing.
+    // `bytes = bytes` on a match leaves the revision alone, so other writers are not disturbed.
+    const campaignGuard =
+      camp === null
+        ? db.prepare('UPDATE campaign_state SET bytes = 262145 WHERE member_id = ?1').bind(memberId)
+        : db.prepare('UPDATE campaign_state SET bytes = CASE WHEN revision = ?2 THEN bytes ELSE 262145 END WHERE member_id = ?1').bind(memberId, camp.revision);
     return {
-      statements: walletWrite(db, wallet, { roar: after, earnLifetime: wallet.earnLifetime }, [entry]),
+      statements: [...walletWrite(db, wallet, { roar: after, earnLifetime: wallet.earnLifetime }, [entry]), campaignGuard],
       status: 200,
       response: { wallet: viewOf(wallet, after, true) },
     };

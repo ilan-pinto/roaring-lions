@@ -111,6 +111,22 @@ describe('POST spend', () => {
     expect(await sumOf(s)).toBe(940);
   });
 
+  it('a spend racing another device\'s campaign write re-reads and re-prices against it (campaign guard)', async () => {
+    // Another device's PUT lands between the spend's reads and its batch, and the new brigade already owns dozer_d9.
+    const owned = JSON.stringify({ ...emptyAccount(), unlocks: ['dozer_d9'] });
+    const s = setup({
+      beforeFirstBatch: async (db) => {
+        await db.prepare('UPDATE campaign_state SET brigade = ?1, revision = revision + 1').bind(owned).run();
+      },
+    });
+    const { cookie } = await seedWalletMember(s.h.db, 'm1', T0, { free: 1000 });
+    await seedCampaign(s);
+    const r = await buy(s, cookie, 1, 'dozer_d9');
+    expect([r.status, ((await r.json()) as { reason: string }).reason]).toEqual([409, 'closed']);
+    expect(await freeOf(s)).toBe(1000);
+    expect((await journal(s)).filter((j) => j.kind === 'unit')).toHaveLength(0);
+  });
+
   it('a retried spend answers the first answer and charges once', async () => {
     const s = setup();
     const { cookie } = await seedWalletMember(s.h.db, 'm1', T0, { free: 1000 });
