@@ -24,6 +24,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/capture-view.node.ts',
   // GH-943 P2 (T3): the node ground (the dry blend, the macro and the road). Its legacy twin (terrain/mesh.ts) keeps its splice until P8.
   'packages/render/src/three/terrain/mesh.node.ts',
+  // GH-943 P2 (T6): the swaying foliage and trunk (the wind). Its legacy twin (terrain/decor-mesh.ts) keeps its splice until P7.
+  'packages/render/src/three/terrain/decor-mesh.node.ts',
   // GH-943 P2 (T5): the selection, team and wound rings. Its legacy twin (units/selection-ring.ts) keeps its GLSL until P8.
   'packages/render/src/three/units/selection-ring.node.ts',
 ];
@@ -44,6 +46,9 @@ export const TWINS = Object.freeze({
   [`${THREE}environment.ts`]: `${THREE}environment.node.ts`,
   [`${THREE}capture-view.ts`]: `${THREE}capture-view.node.ts`,
   [`${THREE}terrain/mesh.ts`]: `${THREE}terrain/mesh.node.ts`,
+  // GH-943 P2 (T6). wind.ts also feeds the rain and the banners: a rain-only change to it must touch the twin too (intended).
+  [`${THREE}terrain/decor-mesh.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
+  [`${THREE}terrain/wind.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
   // GH-943 P2 (T5)
   [`${THREE}units/selection-ring.ts`]: `${THREE}units/selection-ring.node.ts`,
 });

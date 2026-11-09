@@ -253,7 +253,7 @@ describe('no wall clock in the wind modules', () => {
     readFileSync(join(root, file), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
-  for (const file of ['terrain/wind.ts', 'terrain/wind-uniforms.ts', 'terrain/sway.ts', 'terrain/decor-mesh.ts', 'units/garrison-banner.ts', 'terrain/disturb.ts', 'terrain/disturb-uniforms.ts', 'units/ground-churn.ts', 'units/rotor-wash.ts']) {
+  for (const file of ['terrain/wind.ts', 'terrain/wind-uniforms.ts', 'terrain/sway.ts', 'terrain/decor-mesh.ts', 'terrain/decor-mesh.node.ts', 'units/garrison-banner.ts', 'terrain/disturb.ts', 'terrain/disturb-uniforms.ts', 'units/ground-churn.ts', 'units/rotor-wash.ts']) {
     it(`${file} reads none of dtMs, performance.now, Date.now, Math.random`, () => {
       const src = code(file);
       for (const banned of ['dtMs', 'performance.now', 'Date.now', 'Math.random', 'requestAnimationFrame']) {

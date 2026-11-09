@@ -236,12 +236,11 @@ credit Buy), 1120 (the panel), 1122 (Stores tier-row credit Buy). PR 1123 (the n
   path below the tier they buy. It returns `null` when the single-player tier is already the top, whoever paid for it.
   There is no "Count online" run (R0.1, ruled by the lead). `owned` is `max(earned, coins)`; no caller reads the wallet
   to price a credit Buy. `buyUpgradeRun` writes only `balance` and `upgrades`, so `ACCOUNT_VERSION` stays 2.
-  **`buyUpgradeRun` trusts the caller's price**: the recompute in `credit-buy.ts` (`creditAsk` against the live
-  account, refusing a stale `to`/`price`) is the only guard. Any new caller must recompute the same way.
+  **`buyUpgradeRun` prices itself** (GH-1146): it takes the track's tier price table, never a total, and charges
+  the sum for `from..to`. `credit-buy.ts` still recomputes `creditAsk` to refuse a STALE `to`/`price` from the button.
 - **A2 requirement (stale cache).** `creditAsk` reads the coin tier through the cache. A coin spend still in the
   outbox can leave the cache one tier low, and a credit run would re-buy a tier coins already own (R4). When A2
   makes coin spends server-authoritative, DISABLE the credit Buy on a track with a pending coin spend for that
   track. Tracked in GH-1142. `buyUpgradeRun` itself is GH-1146.
-- **Known gaps left open** (each has an issue): the Garage bay line "400 credits of kit" still counts coin-held
-  tiers (GH-1143); `pnpm playtest` only exercises the medic's track, not the other eight (GH-1144); possible
+- **Known gaps left open** (each has an issue): `pnpm playtest` only exercises the medic's track, not the other eight (GH-1144); possible
   existing overflows at 1280 on the Garage cards and at 1920 on pseudo card text (GH-1145).

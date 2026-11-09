@@ -42,7 +42,8 @@
  * Nothing here reads or writes sim state. The map's `wind` block is app data
  * like the backdrop and `time_of_day`; the sim never sees it.
  */
-import { TILE_HASH_MIX, TILE_HASH_MX, TILE_HASH_MY, TILE_HASH_SHIFT_A, TILE_HASH_SHIFT_B, tileHash } from '../../tile-hash';
+import { TILE_HASH_MIX, TILE_HASH_MX, TILE_HASH_MY, TILE_HASH_SHIFT_A, TILE_HASH_SHIFT_B, tileHashOps } from '../../tile-hash';
+import { NUMBER_INT_OPS, NUMBER_OPS, type IntOps, type Ops } from '../fog-ops';
 
 // --- sway.ts's constants, absorbed (sway.ts re-exports every one) --------------------------
 
@@ -176,24 +177,161 @@ export function windHeading(side: 'east' | 'west', skewDeg: number, strength: nu
   };
 }
 
-/** `gustHash` as the shader reads it: the top 24 bits of `tileHash(i, SALT)`. */
-export function gustHash(i: number): number {
-  return Math.floor(tileHash(i, WIND_GUST_SALT) * 16777216) / 16777216;
+// --- the field, written once against `Ops<T>` (GH-943 P2 T6) ------------------------------
+//
+// Every function below is the ONE body of its maths: `NUMBER_OPS` / `NUMBER_INT_OPS` run it on doubles (the exports `gustHash`,
+// `windNoise`, `windGust` and `windLean` are exactly that), and the node foliage twin (`decor-mesh.node.ts`) runs the same body on
+// TSL nodes, handed over as values through `material-maths.ts`. The legacy GLSL strings further down keep their own text, and
+// `wind.test.ts` still transpiles and runs them against these exports. The gust hash is integer maths: `tileHashOps` (`tile-hash.ts`)
+// on `IntOps`, so both ops sets share one T (a number, or a node of either type).
+
+/** `rlWindHash`: the top 24 bits of `tileHash(i, WIND_GUST_SALT)` as a float in [0, 1). `i` is an integer-valued float. */
+export function windHashOps<T>(o: Ops<T>, io: IntOps<T>, i: T): T {
+  return io.toFloat01(tileHashOps(io, i, o.lit(WIND_GUST_SALT)));
 }
 
-function smoothstep(lo: number, hi: number, x: number): number {
-  const t = Math.min(1, Math.max(0, (x - lo) / (hi - lo)));
-  return t * t * (3 - 2 * t);
+/** `rlWindNoise`: 1-D value noise in [0, 1], smooth between hashed integers. */
+export function windNoiseOps<T>(o: Ops<T>, io: IntOps<T>, u: T): T {
+  const i0 = o.floor(u);
+  const f = o.sub(u, i0);
+  const a = windHashOps(o, io, i0);
+  const b = windHashOps(o, io, o.add(i0, o.lit(1)));
+  const s = o.mul(o.mul(f, f), o.sub(o.lit(3), o.mul(o.lit(2), f)));
+  return o.mix(a, b, s);
+}
+
+/** `rlWindGust`: the gust in [0, 1] at ground point `(ox, oz)`, sim time `t`, along `(dx, dz)`. */
+export function windGustOps<T>(o: Ops<T>, io: IntOps<T>, t: T, ox: T, oz: T, dx: T, dz: T): T {
+  const s = o.sub(t, o.div(o.add(o.mul(ox, dx), o.mul(oz, dz)), o.lit(WIND_GUST_SPEED_TPS)));
+  return o.smoothstep(o.lit(WIND_GUST_LO), o.lit(WIND_GUST_HI), windNoiseOps(o, io, o.div(s, o.lit(WIND_GUST_CELL_S))));
+}
+
+/** A class table read at a class id `cls` (an integer-valued float, `rlNature.y`): the GLSL's `RL_WIND_*[int(cls + 0.5)]` as selects. */
+function classTable<T>(o: Ops<T>, cls: T, pick: (c: WindClass) => number): T {
+  const v = WIND_CLASSES.map((c) => o.lit(pick(c)));
+  return o.selectLt(cls, o.lit(0.5), v[0], o.selectLt(cls, o.lit(1.5), v[1], o.selectLt(cls, o.lit(2.5), v[2], v[3])));
+}
+
+/**
+ * `rlWindLean`: the lean of one vertex along the heading, in world units at `uSwayAmp = 1` (`windLean` is this times the heading).
+ * `wet` is the compile-time variant, a JS choice, as `windLeanGlsl(wet)` bakes it.
+ */
+export function windLeanOps<T>(
+  o: Ops<T>,
+  io: IntOps<T>,
+  cls: T,
+  hN: T,
+  worldH: T,
+  t: T,
+  ox: T,
+  oz: T,
+  dx: T,
+  dz: T,
+  strength: T,
+  wet: boolean
+): T {
+  const basis = o.selectLt(classTable(o, cls, (c) => (c.worldBasis ? 1 : 0)), o.lit(0.5), hN, o.div(worldH, o.lit(SWAY_TOP)));
+  const weight = o.pow(o.clamp01(basis), classTable(o, cls, (c) => c.stiffness));
+  const g = windGustOps(o, io, t, ox, oz, dx, dz);
+  const gain = wet ? o.lit(RAIN_SWAY_GUST) : classTable(o, cls, (c) => c.gustGain);
+  const flutter = o.sin(
+    o.add(
+      o.add(o.div(o.mul(o.lit(2 * Math.PI), t), classTable(o, cls, (c) => c.periodS)), o.mul(o.lit(SWAY_PHASE_X), ox)),
+      o.mul(o.lit(SWAY_PHASE_Z), oz)
+    )
+  );
+  const scale = o.mul(o.mul(o.mul(classTable(o, cls, (c) => c.amp), o.lit(wet ? RAIN_SWAY_AMP : 1)), strength), weight);
+  return o.mul(
+    scale,
+    o.add(o.mul(flutter, o.add(o.lit(1), o.mul(o.sub(gain, o.lit(1)), g))), o.mul(o.lit(WIND_GUST_LEAN), g))
+  );
+}
+
+/** The two compile-time constants of the reduced-motion branch, as `windVertexChunk(wet, trunk)` prints them. A trunk never moved
+ *  in reduced motion, so its amplitude is 0. */
+export function legacySwayConstants(wet: boolean, trunk: boolean): { readonly amp: number; readonly gust: number } {
+  return {
+    amp: trunk ? 0 : wet ? SWAY_AMPLITUDE * RAIN_SWAY_AMP : SWAY_AMPLITUDE,
+    gust: wet ? RAIN_SWAY_GUST : SWAY_GUST_GAIN,
+  };
+}
+
+/**
+ * The reduced-motion branch (`uWindMode` 0): today's sway along the FIXED axis, at `uSwayAmp = 1`. The weight is the world height
+ * over `SWAY_TOP`, squared; the periodic 11 s gust is a `sin^2` bump; GLSL `mod` is `x - floor(x / y) * y` (R1). `sway.ts`'s
+ * `swayOffset` is its independent number oracle.
+ */
+export function legacySwayOps<T>(o: Ops<T>, worldH: T, t: T, ox: T, oz: T, wet: boolean, trunk: boolean): T {
+  const k = legacySwayConstants(wet, trunk);
+  const r = o.clamp01(o.div(worldH, o.lit(SWAY_TOP)));
+  const every = o.lit(SWAY_GUST_EVERY_S);
+  const ph = o.sub(t, o.mul(o.floor(o.div(t, every)), every));
+  const b = o.sin(o.div(o.mul(o.lit(Math.PI), ph), o.lit(SWAY_GUST_WIDTH_S)));
+  const bump = o.selectLt(ph, o.lit(SWAY_GUST_WIDTH_S), o.mul(b, b), o.lit(0));
+  const gust = o.add(o.lit(1), o.mul(o.lit(k.gust - 1), bump));
+  const wave = o.sin(
+    o.add(
+      o.add(o.div(o.mul(o.lit(2 * Math.PI), t), o.lit(SWAY_PERIOD_S)), o.mul(o.lit(SWAY_PHASE_X), ox)),
+      o.mul(o.lit(SWAY_PHASE_Z), oz)
+    )
+  );
+  return o.mul(o.mul(o.mul(o.mul(o.lit(k.amp), r), r), gust), wave);
+}
+
+/** What one swaying vertex reads: its nature attribute, its height over its instance origin, the clock and the wind uniforms. */
+export interface FoliageLeanInputs<T> {
+  /** `rlNature.y`, the class id. */
+  readonly cls: T;
+  /** `rlNature.x`, the height in its family's box. */
+  readonly hN: T;
+  /** World height over the instance origin. */
+  readonly worldH: T;
+  /** `uSwayTime`, SIM seconds. */
+  readonly t: T;
+  /** The instance origin, world x and z. */
+  readonly ox: T;
+  readonly oz: T;
+  /** `uWindDir`. */
+  readonly dirX: T;
+  readonly dirZ: T;
+  readonly strength: T;
+  /** `uWindMode`: 1 the wind, 0 reduced motion. */
+  readonly mode: T;
+  /** `uSwayAmp` (the `wind` debug layer). */
+  readonly amp: T;
+}
+
+/**
+ * The whole foliage lean of `windVertexChunk`, world x and z: mode 1 the wind along `uWindDir`, mode 0 the legacy sway along the
+ * fixed axis, both scaled by `uSwayAmp`. `wet` and `trunk` are the compile-time variants (JS choices, never uniforms). Both
+ * branches are evaluated and one is selected: the GLSL's `if (uWindMode > 0.5)` as a select (`mode < 0.5` picks legacy; mode is 0 or 1).
+ */
+export function foliageLeanOps<T>(
+  o: Ops<T>,
+  io: IntOps<T>,
+  x: FoliageLeanInputs<T>,
+  wet: boolean,
+  trunk: boolean
+): { readonly dx: T; readonly dz: T } {
+  const half = o.lit(0.5);
+  const wind = windLeanOps(o, io, x.cls, x.hN, x.worldH, x.t, x.ox, x.oz, x.dirX, x.dirZ, x.strength, wet);
+  const legacy = legacySwayOps(o, x.worldH, x.t, x.ox, x.oz, wet, trunk);
+  const s = o.mul(x.amp, o.selectLt(x.mode, half, legacy, wind));
+  const dirX = o.selectLt(x.mode, half, o.lit(SWAY_DIR_X), x.dirX);
+  const dirZ = o.selectLt(x.mode, half, o.lit(SWAY_DIR_Z), x.dirZ);
+  return { dx: o.mul(dirX, s), dz: o.mul(dirZ, s) };
+}
+
+// --- the field on numbers (the exports every other module and test reads) -----------------
+
+/** `gustHash` as the shader reads it: the top 24 bits of `tileHash(i, SALT)`. */
+export function gustHash(i: number): number {
+  return windHashOps(NUMBER_OPS, NUMBER_INT_OPS, i);
 }
 
 /** 1-D value noise in [0, 1], smooth between hashed integers. */
 export function windNoise(u: number): number {
-  const i0 = Math.floor(u);
-  const f = u - i0;
-  const a = gustHash(i0);
-  const b = gustHash(i0 + 1);
-  const s = f * f * (3 - 2 * f);
-  return a + (b - a) * s;
+  return windNoiseOps(NUMBER_OPS, NUMBER_INT_OPS, u);
 }
 
 /**
@@ -201,8 +339,7 @@ export function windNoise(u: number): number {
  * arrives at a point `dot(p, dir) / WIND_GUST_SPEED_TPS` seconds after it passes the origin.
  */
 export function windGust(tSec: number, x: number, z: number, dirX: number, dirZ: number): number {
-  const s = tSec - (x * dirX + z * dirZ) / WIND_GUST_SPEED_TPS;
-  return smoothstep(WIND_GUST_LO, WIND_GUST_HI, windNoise(s / WIND_GUST_CELL_S));
+  return windGustOps(NUMBER_OPS, NUMBER_INT_OPS, tSec, x, z, dirX, dirZ);
 }
 
 /**
@@ -219,14 +356,7 @@ export function windLean(
   wind: WindSettings = DEFAULT_WIND,
   wet = false
 ): { dx: number; dz: number } {
-  const c = WIND_CLASSES[cls];
-  const basis = c.worldBasis ? worldH / SWAY_TOP : hN;
-  const weight = Math.pow(Math.min(1, Math.max(0, basis)), c.stiffness);
-  const g = windGust(tSec, originX, originZ, wind.dirX, wind.dirZ);
-  const gain = wet ? RAIN_SWAY_GUST : c.gustGain;
-  const flutter = Math.sin((2 * Math.PI * tSec) / c.periodS + SWAY_PHASE_X * originX + SWAY_PHASE_Z * originZ);
-  const s =
-    c.amp * (wet ? RAIN_SWAY_AMP : 1) * wind.strength * weight * (flutter * (1 + (gain - 1) * g) + WIND_GUST_LEAN * g);
+  const s = windLeanOps(NUMBER_OPS, NUMBER_INT_OPS, cls, hN, worldH, tSec, originX, originZ, wind.dirX, wind.dirZ, wind.strength, wet);
   return { dx: wind.dirX * s, dz: wind.dirZ * s };
 }
 

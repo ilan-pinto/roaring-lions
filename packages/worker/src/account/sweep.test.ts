@@ -52,6 +52,21 @@ describe('sweepAccounts', () => {
     expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'a'")).toBe(1);
   });
 
+  it('the expiry instant itself is expired, as resolveSession reads it: swept at ==, kept a millisecond short (A1 follow-up 4)', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'a', dayOf(NOW));
+    const run = (sql: string, ...v: unknown[]) => h.db.prepare(sql).bind(...v).run();
+    await run("INSERT INTO session VALUES ('idle-at', 'a', 1, ?1, ?2, 0, 0)", NOW, NOW + DAY);
+    await run("INSERT INTO session VALUES ('abs-at', 'a', 1, ?2, ?1, 0, 0)", NOW, NOW + DAY);
+    await run("INSERT INTO session VALUES ('short', 'a', 1, ?1, ?1, 0, 0)", NOW + 1);
+    await run("INSERT INTO auth_challenge VALUES ('c-at', 'steam-login', NULL, NULL, ?1)", NOW);
+    await run("INSERT INTO auth_challenge VALUES ('c-short', 'steam-login', NULL, NULL, ?1)", NOW + 1);
+    await sweepAccounts(h.db, NOW, h.kv);
+    const left = async (sql: string): Promise<string[]> => (await h.db.prepare(sql).all<{ x: string }>()).results.map((r) => r.x).sort();
+    expect(await left('SELECT token_hash AS x FROM session')).toEqual(['short']);
+    expect(await left('SELECT challenge_hash AS x FROM auth_challenge')).toEqual(['c-short']);
+  });
+
   it('keeps a pending code a day short of its TTL, drops one a day past', async () => {
     const h = accountHarness({ now: NOW });
     await member(h, 'a', dayOf(NOW));

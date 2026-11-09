@@ -61,6 +61,6 @@ export function buyTierWithCredits(
     return { account: read.account, ok: false, item: `${unitId}.${track}.${to}` };
   }
   // R0.5: the item names the tier the run ends on; `price` is the run's total.
-  const { account, ok } = buyUpgradeRun(read.account, unitId, track, ask.from, ask.to, ask.price);
+  const { account, ok } = buyUpgradeRun(read.account, unitId, track, ask.from, ask.to, prices);
   return { account, ok, item: `${unitId}.${track}.${to}` };
 }
