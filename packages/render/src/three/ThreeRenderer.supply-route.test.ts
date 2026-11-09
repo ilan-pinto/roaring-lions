@@ -211,4 +211,24 @@ describe('the world supply route (S-F F2 C3)', () => {
     expect(priv.supplyRoute.group.visible).toBe(true);
     renderer.dispose();
   });
+
+  it('GH-943 P3 (T8): a NEW route mesh is queued for node adoption on the frame it appears, and only then', () => {
+    const { renderer, priv } = setUp();
+    const queue = vi.spyOn(renderer, 'queueNodeAdoption');
+    renderer.supplyRoutes = [ROUTE];
+    priv.updateOverlays(1);
+    expect(queue.mock.calls.filter(([root]) => root === priv.supplyRoute.group)).toHaveLength(1);
+    // Nothing rebuilt: nothing queued again.
+    priv.updateOverlays(1);
+    expect(queue.mock.calls.filter(([root]) => root === priv.supplyRoute.group)).toHaveLength(1);
+    // A new set replaces the mesh, and the new one is queued.
+    renderer.supplyRoutes = [{ tiles: [W * 10 + 1, W * 10 + 2, W * 10 + 3], cutSpan: null }];
+    priv.updateOverlays(1);
+    expect(queue.mock.calls.filter(([root]) => root === priv.supplyRoute.group)).toHaveLength(2);
+    // Cleared: no mesh, nothing to adopt.
+    renderer.supplyRoutes = null;
+    priv.updateOverlays(1);
+    expect(queue.mock.calls.filter(([root]) => root === priv.supplyRoute.group)).toHaveLength(2);
+    renderer.dispose();
+  });
 });

@@ -6,7 +6,9 @@ import { perMinute } from './limits';
 import { deleteIdentity } from './identity';
 import { deleteAccount, gone } from './delete';
 import { exportAccount } from './export';
+import { getState } from './campaign';
 import { me, patchProfile } from './profile';
+import { getSlot } from './slots';
 import { steamReturn, steamStart } from './steam';
 import { clearedSessionCookie, requireSession, sessionJson } from './session';
 
@@ -40,6 +42,8 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
     },
   },
   { method: 'GET', pattern: 'me', handler: me },
+  { method: 'GET', pattern: 'state', handler: getState },
+  { method: 'GET', pattern: 'slots/:id', handler: getSlot },
   { method: 'PATCH', pattern: 'profile', handler: patchProfile },
   { method: 'DELETE', pattern: 'identity/:id', handler: deleteIdentity },
   { method: 'GET', pattern: 'export', handler: exportAccount },

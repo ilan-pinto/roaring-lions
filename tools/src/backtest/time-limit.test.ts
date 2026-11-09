@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { limitHeadroom } from './time-limit';
+import { fastestWins, limitHeadroom } from './time-limit';
 import { sweepOutcome } from './playtest-run';
 
 const at = (id: string, label: string, seconds: number) => ({ id, label, seconds });
@@ -28,5 +28,14 @@ describe('sweepOutcome (GH-540)', () => {
     expect(sweepOutcome('defeat', 'withdrawn')).toBe('withdrawn');
     expect(sweepOutcome('defeat', 'objective:evac')).toBe('defeat');
     expect(sweepOutcome('ongoing', undefined)).toBe('ongoing');
+  });
+});
+
+describe('fastestWins (GH-1075 A2)', () => {
+  it('fastestWins keeps the minimum', () => {
+    const r = fastestWins([at('a', 'a', 300), at('a', 'a (gate open)', 200), at('a', 'a', 400), at('b', 'b', 90)]);
+    expect(r.get('a')).toEqual(at('a', 'a (gate open)', 200));
+    expect(r.get('b')?.seconds).toBe(90);
+    expect(r.size).toBe(2);
   });
 });

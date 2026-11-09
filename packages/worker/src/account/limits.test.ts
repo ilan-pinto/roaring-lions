@@ -53,6 +53,8 @@ describe('account limits', () => {
     const h = accountHarness();
     for (let i = 0; i < 20_000; i++) expect(await opBudget(h.db, `m${i}`, NOW)).toBe(true);
     expect(await opBudget(h.db, 'm-next', NOW)).toBe(false);
+    // Read first: the refused member's own row was not bumped.
+    expect(await h.db.prepare("SELECT n FROM rate_day WHERE scope = 'acct-ops' AND key = 'm-next'").first()).toBeNull();
   });
 
   it('a missing cf-connecting-ip counts under one shared "unknown" key', async () => {
@@ -142,5 +144,14 @@ describe('startBudget refusals and ipv6 (M1 gaps)', () => {
     expect(ipBudgetAddress('2001:db8:1:2::1')).not.toBe(ipBudgetAddress('2001:db8:1:3::1'));
     expect(ipBudgetAddress('::1')).toBe('0000:0000:0000:0000::/64');
     expect(ipBudgetAddress('2001:db8::')).toBe('2001:0db8:0000:0000::/64');
+  });
+});
+
+describe('opBudget reads the overall count first', () => {
+  it("over the overall cap a member's row is not bumped", async () => {
+    const h = accountHarness();
+    await h.db.prepare("INSERT INTO rate_day VALUES ('acct-all', '', ?1, 20000)").bind(Math.floor(NOW / 86_400_000)).run();
+    expect(await opBudget(h.db, 'm1', NOW)).toBe(false);
+    expect(await h.db.prepare("SELECT n FROM rate_day WHERE scope = 'acct-ops'").first()).toBeNull();
   });
 });

@@ -14317,7 +14317,8 @@ export class ThreeRenderer implements Renderer {
       this.overlayColor(SUPPLY_ROUTE_OPEN_COLOR_KEY),
       this.overlayColor(SUPPLY_ROUTE_CUT_COLOR_KEY)
     );
-    this.supplyRoute.sync(width, (x, y) => groundWorldY(elevation, width, height, x, y));
+    // GH-943 P3 (T8): the route's mesh is made here, after init, so a node boot adopts its material on the frame it appears.
+    if (this.supplyRoute.sync(width, (x, y) => groundWorldY(elevation, width, height, x, y))) this.queueNodeAdoption(this.supplyRoute.group);
 
     this.overlayBatch.endFrame();
     this.zoneBand.endFrame();
