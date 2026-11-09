@@ -69,7 +69,7 @@ export const validSlotName = (v: unknown): v is string => {
 };
 
 /**
- * `PUT slots/:id`. The stored body is the client's slot with the route's `id`, `name`, `savedAt` and `build`; the
+ * `PUT slots/:id`. The stored body is the client's slot with the route's `id` and `name` (its own `savedAt` and `build` stay, R18); the
  * digest answered is `digestOf(canonicalSlot(...))` of exactly that, so a client holding a conflict upload clears it
  * when its own canonical digest matches (§0.43). The row's `saved_at` is the server's write time, never the client's,
  * and always moves on a replace (§0.44), so `savedAt` + `bytes` is a change token. The batch ends with the cap guard
@@ -92,36 +92,41 @@ export async function putSlot(ctx: AccountCtx): Promise<Response> {
   const id = ctx.params.id ?? '';
   let slot: SaveSlot;
   try {
-    slot = { ...parseSlot(JSON.stringify(raw.body)), id, name: raw.name, savedAt: raw.savedAt, build: raw.build };
+    slot = { ...parseSlot(JSON.stringify(raw.body)), id, name: raw.name };
   } catch {
     return sessionJson(400, { error: 'invalid' }, setCookie);
   }
+  // R18: the body's own `savedAt` and `build` are stored (the digest covers them), so a top-level pair that differs is a lie.
+  if (raw.savedAt !== slot.savedAt || raw.build !== slot.build) return sessionJson(400, { error: 'invalid' }, setCookie);
   const text = JSON.stringify(slot);
   const bytes = utf8.encode(text).length;
   if (bytes > CAMPAIGN_MAX_BYTES) return sessionJson(413, { error: 'too_large' }, setCookie);
   const digest = await digestOf(canonicalSlot(slot));
   const memberId = session.memberId;
   const name = raw.name;
-  const build = raw.build;
+  const build = slot.build;
 
   const out = await budgetedOp(ctx, { memberId, opId: raw.op_id, kind: 'slot.put' }, async () => {
     const was = await db
-      .prepare('SELECT saved_at FROM save_slot WHERE member_id = ?1 AND slot_id = ?2')
+      .prepare('SELECT saved_at, origin FROM save_slot WHERE member_id = ?1 AND slot_id = ?2')
       .bind(memberId, id)
-      .first<{ saved_at: number }>();
+      .first<{ saved_at: number; origin: string }>();
+    // R18: a replace never changes a slot's origin (a claim or conflict id is not a player slot, nor the reverse).
+    if (was !== null && was.origin !== origin) throw new OpReject(400, { error: 'invalid' });
     if (was === null) {
       const counts = await slotCounts(db, memberId);
       if (origin === 'player' ? counts.player >= PLAYER_SLOTS : counts.system >= SYSTEM_SLOTS) {
         return { statements: [], status: 409, response: { error: 'cap' } };
       }
     }
-    // The server's write time, and strictly newer than the row it replaces.
+    // The server's write time, and strictly newer than the row it replaces: the SQL is the authority (two replaces
+    // that read the same row cannot pick the same value); this copy is what the answer reports.
     const savedAt = was === null ? ctx.now : Math.max(ctx.now, was.saved_at + 1);
     const statements: D1Stmt[] = [
       db
         .prepare(
           `INSERT INTO save_slot (member_id, slot_id, name, saved_at, build, origin, body, bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-           ON CONFLICT (member_id, slot_id) DO UPDATE SET name = ?3, saved_at = ?4, build = ?5, origin = ?6, body = ?7, bytes = ?8`,
+           ON CONFLICT (member_id, slot_id) DO UPDATE SET name = ?3, saved_at = MAX(?4, save_slot.saved_at + 1), build = ?5, origin = ?6, body = ?7, bytes = ?8`,
         )
         .bind(memberId, id, name, savedAt, build, origin, text, bytes),
       origin === 'player'

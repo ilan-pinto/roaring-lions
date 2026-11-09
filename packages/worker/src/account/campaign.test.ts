@@ -4,9 +4,7 @@ import { budgetedOp } from './budget';
 import { isCasFailure } from './coin';
 import { campaignViewOf, campaignWrite, conflictSlot, digestOf, readCampaign, stateOf } from './campaign';
 import { OpReject } from './op';
-import type { D1Like } from '../d1';
-import { handleAccount } from './routes';
-import { accountHarness, ctxFor, failingD1, racingD1, seedWalletMember } from './test-kit';
+import { accountHarness, ctxFor, failingD1, racingD1, seedWalletMember, swappableHarness } from './test-kit';
 
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY;
@@ -158,12 +156,7 @@ describe('GET state and GET slots/:id', () => {
 
 describe('PUT campaign (A2-10, A2-18)', () => {
   const OPS = (n: number): string => `${String(n).padStart(8, '0')}-5555-4555-8555-555555555555`;
-  /** A harness whose handler can be pointed at a wrapped database (failing or racing) after construction. */
-  const swappable = () => {
-    let over: D1Like | null = null;
-    const h = accountHarness({ now: T0, handler: (req, env, now) => handleAccount(req, over === null ? env : { ...env, ACCOUNTS: over }, now) });
-    return { h, use: (d: D1Like | null) => { over = d; } };
-  };
+  const swappable = () => swappableHarness(T0);
   const putC = (h: H, cookie: string, n: number, base: number, body: CampaignBody) =>
     h.call('PUT', '/api/account/campaign', { cookie, body: { op_id: OPS(n), base, ...body } });
   const slotRows = async (h: H) =>

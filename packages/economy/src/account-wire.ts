@@ -15,6 +15,8 @@ export interface CampaignView extends CampaignBody { revision: number; digest: s
 // `savedAt` + `bytes` is the change token (§0.44); `digest` is present only in PUT slots/:id and claim answers.
 export interface SlotMetaView { id: string; name: string; savedAt: number; build: string; origin: 'player' | 'claim' | 'conflict'; bytes: number; digest?: string }
 export interface ServerState { campaign: CampaignView | null; wallet: WalletView; slots: SlotMetaView[] }
+/** `PUT campaign`'s 409: `campaign` is null when the server holds no campaign row (R19). */
+export interface CampaignStaleAnswer { error: 'stale'; campaign: CampaignView | null; conflict: ConflictAnswer }
 export type ConflictAnswer = { slot: SlotMetaView } | { held: true };
 export type InventoryItem =
   | { deviceId: string; status: 'stored'; serverId: string; digest: string }

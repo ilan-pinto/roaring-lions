@@ -1,9 +1,7 @@
 import { canonicalSlot, emptyAccount, SAVE_VERSION, type SaveSlot } from '@lions/economy';
 import { describe, expect, it } from 'vitest';
-import type { D1Like } from '../d1';
 import { digestOf } from './campaign';
-import { handleAccount } from './routes';
-import { accountHarness, racingD1, seedWalletMember } from './test-kit';
+import { accountHarness, racingD1, seedWalletMember, swappableHarness } from './test-kit';
 
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY;
@@ -23,11 +21,7 @@ const slotOf = (id: string, savedAt = 5): SaveSlot => ({
 });
 const putBody = (id: string, extra: Record<string, unknown> = {}) => ({ op_id: nextOp(), name: 'My slot', savedAt: 5, build: 'b1', body: slotOf(id), ...extra });
 
-const swappable = (clock: { t: number }) => {
-  let over: D1Like | null = null;
-  const h = accountHarness({ now: T0, handler: (req, env, now) => handleAccount(req, over === null ? env : { ...env, ACCOUNTS: over }, clock.t || now) });
-  return { h, use: (d: D1Like | null) => { over = d; } };
-};
+const swappable = (clock: { t: number }) => swappableHarness(T0, clock);
 const countRows = async (h: ReturnType<typeof accountHarness>) =>
   (await h.db.prepare('SELECT COUNT(*) AS n FROM save_slot').first<{ n: number }>())?.n ?? 0;
 const seedPlayer = async (h: ReturnType<typeof accountHarness>, n: number) => {
@@ -124,5 +118,112 @@ describe('PUT / DELETE slots/:id', () => {
     const del = await h.call('DELETE', '/api/account/slots/mine', { cookie, body: { op_id: nextOp() } });
     expect([del.status, await del.json()]).toEqual([200, { ok: true }]);
     expect(await countRows(h)).toBe(1);
+  });
+});
+
+describe('PUT slots/:id fix round 1 (R18)', () => {
+  const colOf = async (h: ReturnType<typeof accountHarness>, id: string) =>
+    h.db.prepare('SELECT saved_at, origin, body FROM save_slot WHERE slot_id = ?1').bind(id).first<{ saved_at: number; origin: string; body: string }>();
+  const seedSystem = async (h: ReturnType<typeof accountHarness>, n: number) => {
+    for (let i = 0; i < n; i++) {
+      await h.db.prepare("INSERT INTO save_slot (member_id, slot_id, name, saved_at, build, origin, body, bytes) VALUES ('m1', ?1, 'x', 1, 'b', ?2, '{}', 2)").bind(`s${i}`, i % 2 === 0 ? 'conflict' : 'claim').run();
+    }
+  };
+
+  it('stores the body\'s own savedAt and build; the answer digest is the digest of the body alone', async () => {
+    const h = accountHarness({ now: T0 });
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0);
+    const inner = { ...slotOf('s1', 77), build: 'bX' };
+    const res = await h.call('PUT', '/api/account/slots/s1', { cookie, body: putBody('s1', { savedAt: 77, build: 'bX', body: inner }) });
+    expect(res.status).toBe(200);
+    const { slot } = (await res.json()) as { slot: { digest: string; build: string } };
+    expect(slot.digest).toBe(await digestOf(canonicalSlot(inner)));
+    expect(slot.build).toBe('bX');
+    const stored = JSON.parse((await colOf(h, 's1'))?.body ?? '{}') as SaveSlot;
+    expect([stored.savedAt, stored.build]).toEqual([77, 'bX']);
+  });
+
+  it('a top-level savedAt or build that differs from the body\'s is 400 invalid, and nothing is written', async () => {
+    const h = accountHarness({ now: T0 });
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0);
+    for (const extra of [{ savedAt: 6 }, { build: 'other' }]) {
+      const res = await h.call('PUT', '/api/account/slots/s1', { cookie, body: putBody('s1', extra) });
+      expect([res.status, await res.json()]).toEqual([400, { error: 'invalid' }]);
+    }
+    expect(await countRows(h)).toBe(0);
+  });
+
+  it('system slots: a new conflict past 4 is cap, replacing one at 4 is fine', async () => {
+    const h = accountHarness({ now: T0 });
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0);
+    await seedSystem(h, 4);
+    const attempt = putBody('c5', { origin: 'conflict' });
+    const fifth = await h.call('PUT', '/api/account/slots/c5', { cookie, body: attempt });
+    expect([fifth.status, await fifth.json()]).toEqual([409, { error: 'cap' }]);
+    expect(await countRows(h)).toBe(4);
+    // The pre-check logs its refusal under the op id, so a retry replays it even after room opens; the guard alone would not.
+    await h.db.prepare("DELETE FROM save_slot WHERE slot_id = 's1'").run();
+    expect((await h.call('PUT', '/api/account/slots/c5', { cookie, body: attempt })).status).toBe(409);
+    expect(await countRows(h)).toBe(3);
+    await h.db.prepare("INSERT INTO save_slot (member_id, slot_id, name, saved_at, build, origin, body, bytes) VALUES ('m1', 's1', 'x', 1, 'b', 'claim', '{}', 2)").run();
+    const replace = await h.call('PUT', '/api/account/slots/s0', { cookie, body: putBody('s0', { origin: 'conflict' }) });
+    expect(replace.status).toBe(200);
+    expect(await countRows(h)).toBe(4);
+  });
+
+  it('the system slot cap holds under a race', async () => {
+    const clock = { t: T0 };
+    const { h, use } = swappable(clock);
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0);
+    await seedSystem(h, 3);
+    const raced = racingD1(h.db, 2, { arrivals: true });
+    use(raced);
+    const [a, b] = await Promise.all([
+      h.call('PUT', '/api/account/slots/ra', { cookie, body: putBody('ra', { origin: 'conflict' }) }),
+      h.call('PUT', '/api/account/slots/rb', { cookie, body: putBody('rb', { origin: 'conflict' }) }),
+    ]);
+    expect(raced.opened()).toBe(true);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    expect(await countRows(h)).toBe(4);
+  });
+
+  it('a replace may not change the slot\'s origin, either way', async () => {
+    const h = accountHarness({ now: T0 });
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0);
+    await seedSystem(h, 2); // s0 conflict, s1 claim
+    await seedPlayer(h, 1); // p0 player
+    for (const [id, origin] of [['s0', 'player'], ['s1', 'player'], ['p0', 'conflict']] as const) {
+      const res = await h.call('PUT', `/api/account/slots/${id}`, { cookie, body: putBody(id, { origin }) });
+      expect([id, res.status, await res.json()]).toEqual([id, 400, { error: 'invalid' }]);
+    }
+    expect([(await colOf(h, 's0'))?.origin, (await colOf(h, 's1'))?.origin, (await colOf(h, 'p0'))?.origin]).toEqual(['conflict', 'claim', 'player']);
+    expect((await colOf(h, 'p0'))?.saved_at).toBe(1);
+  });
+
+  it('saved_at strictly grows on a frozen clock, in the column and not just the answer', async () => {
+    const h = accountHarness({ now: T0 });
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0);
+    const seen: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      await h.call('PUT', '/api/account/slots/s1', { cookie, body: putBody('s1') });
+      seen.push((await colOf(h, 's1'))?.saved_at ?? 0);
+    }
+    expect(seen).toEqual([T0, T0 + 1, T0 + 2]);
+  });
+
+  it('two replaces that both read the same row still end on a strictly newer token each (SQL, not the read)', async () => {
+    const clock = { t: T0 };
+    const { h, use } = swappable(clock);
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0);
+    await h.call('PUT', '/api/account/slots/s1', { cookie, body: putBody('s1') });
+    const raced = racingD1(h.db, 2, { arrivals: true });
+    use(raced);
+    const [a, b] = await Promise.all([
+      h.call('PUT', '/api/account/slots/s1', { cookie, body: putBody('s1') }),
+      h.call('PUT', '/api/account/slots/s1', { cookie, body: putBody('s1') }),
+    ]);
+    expect(raced.opened()).toBe(true);
+    expect([a.status, b.status]).toEqual([200, 200]);
+    expect((await colOf(h, 's1'))?.saved_at).toBe(T0 + 2);
   });
 });

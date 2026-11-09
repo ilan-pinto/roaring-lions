@@ -257,3 +257,14 @@ export function ctxFor(env: Env, now: number): AccountCtx {
     params: {},
   };
 }
+
+/** A harness whose handler can be pointed at a wrapped database (failing or racing) after construction. With a
+ *  `clock`, a non-zero `clock.t` replaces the harness's `now` (a test moves time by writing it). Tests only. */
+export function swappableHarness(now: number, clock?: { t: number }) {
+  let over: D1Like | null = null;
+  const h = accountHarness({
+    now,
+    handler: (req, env, at) => handleAccount(req, over === null ? env : { ...env, ACCOUNTS: over }, (clock?.t ?? 0) || at, undefined),
+  });
+  return { h, use: (d: D1Like | null) => { over = d; } };
+}
