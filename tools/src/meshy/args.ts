@@ -20,8 +20,12 @@ import {
   asTaskKind,
   asTextureResolution,
   asTopology,
+  assertModelPairing,
   assertPolycountInRange,
   assertPromptLength,
+  assertTopologyForModel,
+  assertUltraForModel,
+  defaultAiModel,
   defaultPolycount,
   parseTargetFormats,
   PROMPT_MAX_CHARS,
@@ -210,12 +214,21 @@ export interface GenerateCommonOptions {
   readonly json: boolean;
 }
 
-function parseGenerateCommon(options: ReadonlyMap<string, string>): GenerateCommonOptions {
+/** `--model-type` and `--ai-model`, defaulted together (`defaultAiModel`) and refused when they do not pair. */
+function parseModelPair(options: ReadonlyMap<string, string>): { modelType: ModelType; aiModel: AiModel } {
   const modelType = options.has('model-type') ? asModelType(options.get('model-type') as string) : 'standard';
-  const aiModel = options.has('ai-model') ? asAiModel(options.get('ai-model') as string) : 'meshy-6';
+  const aiModel = options.has('ai-model') ? asAiModel(options.get('ai-model') as string) : defaultAiModel(modelType);
+  assertModelPairing(modelType, aiModel);
+  return { modelType, aiModel };
+}
+
+function parseGenerateCommon(options: ReadonlyMap<string, string>): GenerateCommonOptions {
+  const { modelType, aiModel } = parseModelPair(options);
   const polycount = parseIntFlag(options, 'polycount') ?? defaultPolycount(modelType);
-  assertPolycountInRange(polycount, modelType);
+  assertPolycountInRange(polycount, modelType, aiModel);
   const topology = options.has('topology') ? asTopology(options.get('topology') as string) : 'triangle';
+  assertTopologyForModel(modelType, topology);
+  assertUltraForModel(options.get('ultra') === 'true', aiModel);
   const pose = options.has('pose') ? asPoseFlag(options.get('pose') as string) : 'none';
   const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
   const formats = options.has('formats') ? parseTargetFormats(options.get('formats') as string) : (['glb'] as const);
@@ -279,8 +292,13 @@ export function parseImageArgs(argv: readonly string[], ctx: { readonly isTTY: b
     throw new Error(`image: unexpected extra argument(s): ${positionals.slice(1).join(' ')}`);
   }
   const common = parseGenerateCommon(options);
+  const noTexture = options.get('no-texture') === 'true';
+  // meshy-6-lite image-to-3d textures at 2K only (pricing page, 2026-11-09: 4K and 8K "Not supported")
+  if (common.aiModel === 'meshy-6-lite' && !noTexture && common.textureResolution !== '2k') {
+    throw new Error(`--tex ${common.textureResolution} is not supported by meshy-6-lite image-to-3d -- it textures at 2k only`);
+  }
   assertYesOrInteractive(common.yes, ctx.isTTY);
-  return { ...common, pathOrUrl: positionals[0], noTexture: options.get('no-texture') === 'true' };
+  return { ...common, pathOrUrl: positionals[0], noTexture };
 }
 
 // ---------------------------------------------------------------------------
@@ -307,8 +325,8 @@ export function parseEstimateTextArgs(argv: readonly string[]): EstimateTextOpti
     valued: ESTIMATE_TEXT_VALUED_FLAGS,
   });
   if (positionals.length > 0) throw new Error(`estimate text: unexpected argument(s): ${positionals.join(' ')}`);
-  const modelType = options.has('model-type') ? asModelType(options.get('model-type') as string) : 'standard';
-  const aiModel = options.has('ai-model') ? asAiModel(options.get('ai-model') as string) : 'meshy-6';
+  const { modelType, aiModel } = parseModelPair(options);
+  assertUltraForModel(options.get('ultra') === 'true', aiModel);
   const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
   return {
     modelType,
@@ -338,8 +356,8 @@ export function parseEstimateImageArgs(argv: readonly string[]): EstimateImageOp
     valued: ESTIMATE_IMAGE_VALUED_FLAGS,
   });
   if (positionals.length > 0) throw new Error(`estimate image: unexpected argument(s): ${positionals.join(' ')}`);
-  const modelType = options.has('model-type') ? asModelType(options.get('model-type') as string) : 'standard';
-  const aiModel = options.has('ai-model') ? asAiModel(options.get('ai-model') as string) : 'meshy-6';
+  const { modelType, aiModel } = parseModelPair(options);
+  assertUltraForModel(options.get('ultra') === 'true', aiModel);
   const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
   return {
     modelType,
