@@ -2,11 +2,23 @@
 // a Sarim gun truck razed its own side's weapons workshop in 6 s (Wadi Halam V: a `raze` target the player got for free) and an ATGM cell its
 // own field clinic (Beit Sahwan III, destroyed at tick 2014). The rule is pinned in packages/sim/src/breach.test.ts; this holds the shipped data
 // to it. The probe that prints the table is tools/src/backtest/structure-fire-probe.ts.
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { missions } from '@lions/data';
 import { missionWorld } from './mission-harness';
 
 const TICKS = 3000;
+
+describe('the structure-fire probe', () => {
+  it("classes a neutral structure 'protected' by the sim's own PROTECTED_ROE, not a literal of its own", () => {
+    const src = readFileSync(path.resolve(__dirname, 'backtest/structure-fire-probe.ts'), 'utf8');
+    expect(src).toContain("import { PROTECTED_ROE as SIM_PROTECTED_ROE } from '@lions/sim';");
+    expect(src).toContain("String(SIM_PROTECTED_ROE)");
+    // The probe's default was 5 while the sim's PROTECTED_ROE is 20: a neutral house at ROE 6 to 19 was reported as protected.
+    expect(src).not.toMatch(/arg\('protected-roe', '\d+'\)/);
+  });
+});
 
 describe('structure fire in the shipped missions (passive, seed 1)', () => {
   it(`no unit fires on a structure its own side owns, in any of the ${Object.keys(missions).length} missions, over ${TICKS} ticks`, () => {

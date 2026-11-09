@@ -356,7 +356,7 @@ line, `stOwner[s] === side[i]`, the same rule the auto-demolisher scan already c
 structure-fire-probe.ts` prints, over every mission and seed, each shot at a structure by who owns it: 6 own rows before, 0 after.
 
 Cost: Wadi Halam V pays 200, not 220 (the plan now levels the eighth building itself, in the same five minutes), and the plan's target list swaps its last
-two entries so the gate-open run keeps winning seed 22. The ladder pin is 6987.
+two entries so the gate-open run keeps winning seed 22. The ladder pin is 6977 (6987 for this change alone; GH-1170's -10 is already in).
 
 **Not changed, and worth the lead's look**: the same scan lets any side-1 unit that is NOT human-held cut a NEUTRAL wall near it with no order and no goal
 (`moving 0`), so an enemy squad parked beside a compound wall starts shooting it in the first seconds of a passive run, and by tick 6000 the wall is destroyed in 14 of the 15 seed-1 rows, in about a dozen missions (45

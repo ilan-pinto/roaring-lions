@@ -9,13 +9,14 @@
 //
 //   pnpm --filter @lions/tools exec tsx src/backtest/structure-fire-probe.ts [--seeds=1,2,3] [--ticks=6000] [--missions=a,b]
 import { missions } from '@lions/data';
+import { PROTECTED_ROE as SIM_PROTECTED_ROE } from '@lions/sim';
 import { missionWorld } from '../mission-harness';
 
 const arg = (name: string, d: string): string => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? d;
 const SEEDS = arg('seeds', '1,2,3').split(',').map(Number);
 const TICKS = Number(arg('ticks', '6000'));
 const ONLY = arg('missions', '').split(',').filter((s) => s.length > 0);
-const PROTECTED_ROE = Number(arg('protected-roe', '5'));
+const PROTECTED_ROE = Number(arg('protected-roe', String(SIM_PROTECTED_ROE)));
 
 interface Hit { mission: string; seed: number; tick: number; cls: string; shooter: string; shooterSide: number; type: string; owner: number; occupants: number; garrisonSlots: number; roe: number; world: string; count: number; struct: number; hp0: number; endHp: number; endAlive: number; sim?: unknown }
 const hits = new Map<string, Hit>();
