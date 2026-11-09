@@ -9,10 +9,15 @@ import { exportAccount } from './export';
 import { getState } from './campaign';
 import { me, patchProfile } from './profile';
 import { getSlot } from './slots';
+import { missionStart, victory } from './victory';
 import { steamReturn, steamStart } from './steam';
 import { clearedSessionCookie, requireSession, sessionJson } from './session';
 
-export interface AccountDeps { fetch(url: string, init: RequestInit): Promise<Response> }
+export interface AccountDeps {
+  fetch(url: string, init: RequestInit): Promise<Response>;
+  /** The victory's win floors (R4); default `minWinSeconds` from @lions/data. A test sets one. */
+  minWinSeconds?: Readonly<Record<string, number>>;
+}
 
 export interface AccountCtx {
   req: Request;
@@ -49,6 +54,8 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
   { method: 'GET', pattern: 'export', handler: exportAccount },
   { method: 'POST', pattern: 'delete', handler: deleteAccount },
   { method: 'POST', pattern: 'gone', handler: gone },
+  { method: 'POST', pattern: 'mission/start', handler: missionStart },
+  { method: 'POST', pattern: 'victory', handler: victory },
   { method: 'POST', pattern: 'steam/start', handler: steamStart },
   { method: 'GET', pattern: 'steam/return', handler: steamReturn },
   {

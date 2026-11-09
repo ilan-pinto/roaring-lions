@@ -1,3 +1,5 @@
+import { parseWorld, worldMissionIds } from '@lions/economy';
+import { world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import { budgetedOp } from './budget';
 import { OpReject } from './op';
@@ -9,6 +11,7 @@ import { accountHarness, ctxFor, memberTablesInMigration, seedWalletMember } fro
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY + 3_600_000;
 const op = (n: number): string => `${String(n).padStart(8, '0')}-2222-4222-8222-222222222222`;
+const M1 = worldMissionIds(parseWorld(world))[0] ?? '';
 type H = ReturnType<typeof accountHarness>;
 
 async function memberRows(h: H): Promise<Record<string, number>> {
@@ -82,6 +85,8 @@ interface BudgetRow { key: string; call: (h: H, cookie: string) => Promise<Respo
 const BUDGETED: BudgetRow[] = [
   { key: 'PATCH profile', call: (h, cookie) => h.call('PATCH', '/api/account/profile', { cookie, body: { op_id: op(50), displayName: 'Alpha' } }) },
   { key: 'DELETE identity/:id', call: (h, cookie) => h.call('DELETE', '/api/account/identity/ip', { cookie, body: { op_id: op(51) } }) },
+  { key: 'POST mission/start', call: (h, cookie) => h.call('POST', '/api/account/mission/start', { cookie, body: { op_id: op(52), missionId: M1 } }) },
+  { key: 'POST victory', call: (h, cookie) => h.call('POST', '/api/account/victory', { cookie, body: { op_id: op(53), missionId: M1, stars: 1, start: null, base: 0, campaign: null } }) },
 ];
 // Not budgeted, by name. `DELETE identity/:id` is NOT here: it is budgeted (plan §0.48), so it is in the table above.
 const EXEMPT = new Set(['POST delete', 'POST gone', 'POST logout', 'POST logout-all', 'POST steam/start']);
