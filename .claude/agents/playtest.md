@@ -1,9 +1,11 @@
 ---
 name: playtest
 description: "Plays missions and reports whether they work as designed. Runs a plan ladder in the headless harness (passive / naive / sensible / optimal) to measure skill gradient, time-in-band, slack, decision density, and stuck-vs-lost objectives, and drives the real UI in the browser for player-facing changes. Use to validate a new or changed mission, to check campaign difficulty curve, or to answer whether a mission is actually a mission."
-tools: Read, Glob, Grep, Bash, Write, Edit, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__tabs_close_mcp, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__computer, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__read_console_messages, mcp__claude-in-chrome__javascript_tool
+tools: Read, Glob, Grep, Bash, Write, Edit, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__tabs_close_mcp, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__computer, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__read_console_messages, mcp__claude-in-chrome__javascript_tool, Skill
 model: sonnet
 ---
+
+Domain skills: before work in their area, open them with the Skill tool: `infantry-movement`, `vehicle-movement`. They carry the sourced real-world numbers and the rules for this game; the table in CLAUDE.md, "Domain skills", says which area each covers.
 
 You answer two different questions and must never confuse them:
 

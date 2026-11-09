@@ -41,6 +41,7 @@ import * as THREE from 'three';
 import { hexToLinear } from '../terrain/shared';
 import type { VehicleMeshEntity } from './mesh-vehicle';
 import { legacyOf } from '../twin-identity';
+import type { Ops } from '../fog-ops';
 
 /** The lead's ruling (2 Nov, GH-943): strength 0.85. */
 export const TEAM_MASK_STRENGTH = 0.85;
@@ -124,6 +125,79 @@ export const TEAM_MASK_FRAGMENT = /* glsl */ `#include <color_fragment>
   diffuseColor.rgb = mix( diffuseColor.rgb, rlPanel, rlTeamMask );
 }
 #endif`;
+
+/** The chunk's luminance weights (Rec. 709 of a LINEAR colour). */
+export const TEAM_LUMA_WEIGHTS = [0.2126, 0.7152, 0.0722] as const;
+/** How much of the bake's grime a panel keeps (`mix(1, luma / uTeamLuma, 0.3)`). */
+export const TEAM_PANEL_GRIME = 0.3;
+/** Half the soft band the normal tests ease over (`smoothstep(min - 0.04, min + 0.04, n)`). */
+export const TEAM_NORMAL_SOFT = 0.04;
+/** The coverage's smallest edge width (`max(fwidth(v) * uMarkEdge, 1e-5)`). */
+export const MARK_MIN_WIDTH = 1e-5;
+
+/** Three or four components, as `Ops<T>` sees a vector. */
+type V2<T> = readonly [T, T];
+type V3<T> = readonly [T, T, T];
+type V4<T> = readonly [T, T, T, T];
+
+/**
+ * GH-943 P3 (T3): what the fragment chunk reads, as `Ops<T>` inputs. `rate` is each tested coordinate's screen-space rate times
+ * `uMarkEdge` (`fwidth(p.x)`, `fwidth(abs(p.z))`, `fwidth(p.y)`): a derivative is graph-only, so the caller computes it.
+ */
+export interface TeamMarkInput<T> {
+  /** `vMarkPos`, `vMarkNrm`: the OBJECT-space position and the (unnormalised) object-space normal. */
+  readonly p: V3<T>;
+  readonly n: V3<T>;
+  /** The map uv the kit exclusion tests (`vMapUv`). */
+  readonly uv: V2<T>;
+  readonly rate: V3<T>;
+  /** `uMarkA` (roof x0, x1, z_half, min_ny), `uMarkB` (roof y0, y1; band min_nz; kit radius), `uMarkC` (band x0, x1, y0, y1). */
+  readonly a: V4<T>;
+  readonly b: V4<T>;
+  readonly c: V4<T>;
+  /** `uMarkKit[0..2]`. */
+  readonly kit: readonly V2<T>[];
+  readonly strength: T;
+  readonly luma: T;
+  readonly team: V3<T>;
+  /** The diffuse colour before the mark (after the map and the tread). */
+  readonly diffuse: V3<T>;
+}
+
+/**
+ * GH-943 P3 (T3): `TEAM_MASK_FRAGMENT`, written once against `Ops<T>`: the roof and band box coverage, the kit exclusion, the
+ * strength, and the painted panel mixed into the diffuse colour. `NUMBER_OPS` runs it in the tests; the node twin
+ * (`team-mask.node.ts`) runs it on TSL nodes. Returns the mask and the colour after it.
+ */
+export function teamMarkOps<T>(o: Ops<T>, i: TeamMarkInput<T>): { mask: T; rgb: [T, T, T] } {
+  const one = o.lit(1);
+  const half = o.lit(0.5);
+  const cov = (v: T, lo: T, hi: T, rate: T): T => {
+    const w = o.max(rate, o.lit(MARK_MIN_WIDTH));
+    return o.mul(o.clamp01(o.add(o.div(o.sub(v, lo), w), half)), o.clamp01(o.add(o.div(o.sub(hi, v), w), half)));
+  };
+  const soft = (edge: T, x: T): T => o.smoothstep(o.sub(edge, o.lit(TEAM_NORMAL_SOFT)), o.add(edge, o.lit(TEAM_NORMAL_SOFT)), x);
+  const [px, py, pz] = i.p;
+  const len = o.sqrt(o.add(o.add(o.mul(i.n[0], i.n[0]), o.mul(i.n[1], i.n[1])), o.mul(i.n[2], i.n[2])));
+  const ny = o.div(i.n[1], len);
+  const nz = o.div(i.n[2], len);
+  const [rx, rz, ry] = i.rate;
+  const roof = o.mul(
+    o.mul(o.mul(cov(px, i.a[0], i.a[1], rx), cov(o.abs(pz), o.lit(-1), i.a[2], rz)), cov(py, i.b[0], i.b[1], ry)),
+    soft(i.a[3], ny)
+  );
+  const band = o.mul(o.mul(cov(px, i.c[0], i.c[1], rx), cov(py, i.c[2], i.c[3], ry)), soft(i.b[2], o.abs(nz)));
+  let kit = one;
+  for (const k of i.kit) kit = o.mul(kit, o.step(i.b[3], o.length2(o.sub(i.uv[0], k[0]), o.sub(i.uv[1], k[1]))));
+  const mask = o.mul(o.mul(i.strength, o.max(roof, band)), kit);
+  const bakeY = o.add(
+    o.add(o.mul(i.diffuse[0], o.lit(TEAM_LUMA_WEIGHTS[0])), o.mul(i.diffuse[1], o.lit(TEAM_LUMA_WEIGHTS[1]))),
+    o.mul(i.diffuse[2], o.lit(TEAM_LUMA_WEIGHTS[2]))
+  );
+  const grime = o.mix(one, o.div(bakeY, i.luma), o.lit(TEAM_PANEL_GRIME));
+  const rgb = [0, 1, 2].map((c) => o.mix(i.diffuse[c] as T, o.min(o.mul(i.team[c] as T, grime), one), mask)) as [T, T, T];
+  return { mask, rgb };
+}
 
 function replaceOnce(src: string, find: string, by: string, what: string): string {
   if (!src.includes(find)) throw new Error(`team-mask: the ${what} shader has no "${find}" to patch (three changed its chunks?)`);
