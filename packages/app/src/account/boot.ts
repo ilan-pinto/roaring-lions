@@ -9,7 +9,7 @@
 import type { StorageLike } from '../brigade-account';
 import type { SelectedStore } from './select-store';
 import { isAccountStore } from './account-store';
-import { readBinding } from './binding';
+import { clearDeviceId, readBinding } from './binding';
 import { writeCache } from './cache';
 import type { AccountClient, VictoryAnswer } from './client';
 import { spendFlow, type SpendFlow } from './spend-flow';
@@ -40,6 +40,8 @@ export interface BootedAccount {
   sync: SyncHandle | null;
   flow: SpendFlow | null;
   unreachable: boolean;
+  /** `bootAccountLazy` only: the client the loop uses (null when none was loaded). */
+  client?: AccountClient | null;
 }
 
 export async function bootAccount(o: BootAccountOptions): Promise<BootedAccount> {
@@ -54,6 +56,13 @@ export async function bootAccount(o: BootAccountOptions): Promise<BootedAccount>
     });
     const got = await Promise.race([o.client.state().catch(() => null), timeout]);
     (timer as (() => void) | null)?.();
+    // §0.46: a 401 with a claimed binding and no cache is a signed-out device with nothing of its own to show: the claim's marks
+    // go as sign-out clears them and the guest store takes over. (With a cache a 401 is the loop's read-only signed-out state.)
+    if (got !== null && !got.ok && got.status === 401) {
+      clearDeviceId(o.storage);
+      selected = o.reselect();
+      return none(false);
+    }
     if (got === null || !got.ok || binding === null) return none(true);
     const { campaign, wallet, slots } = got.body;
     writeCache(o.storage, { version: 1, publicId: binding.publicId, confirmed: { campaign, wallet, slots }, bodies: {} });
@@ -81,4 +90,29 @@ export async function bootAccount(o: BootAccountOptions): Promise<BootedAccount>
   flow.attach(sync);
   void sync.refresh().catch(() => undefined); // the sync loop's header: boot refreshes, then the loop keeps it
   return { selected, sync, flow, unreachable: false };
+}
+
+export interface BootAccountLazyOptions extends Omit<BootAccountOptions, 'client'> {
+  loadClient: () => Promise<AccountClient>;
+}
+
+/**
+ * `bootAccount` behind a client that is loaded on demand. A client module that will not load is unreachable only for a device
+ * with no cache (`needsState`: there is nothing to run from); with a cache the device runs offline from it, and the outbox
+ * keeps the ops for a later boot (no sync loop was started, so the campaign entries stay open).
+ */
+export async function bootAccountLazy(o: BootAccountLazyOptions): Promise<BootedAccount> {
+  let client: AccountClient;
+  try {
+    client = await o.loadClient();
+  } catch (err) {
+    console.error('account boot', err);
+    return { selected: o.selected, sync: null, flow: null, unreachable: o.selected.signedIn && o.selected.needsState, client: null };
+  }
+  try {
+    return { ...(await bootAccount({ ...o, client })), client };
+  } catch (err) {
+    console.error('account boot', err);
+    return { selected: o.selected, sync: null, flow: null, unreachable: o.selected.signedIn && o.selected.needsState, client };
+  }
 }

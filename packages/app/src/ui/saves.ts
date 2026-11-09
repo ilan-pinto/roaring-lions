@@ -349,7 +349,8 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   form.append(nameInput, saveBtn);
   const syncFrozen = (): void => {
     saveBtn.disabled = frozenNow();
-    saveBtn.title = frozenNow() ? t('stores.pending') : '';
+    if (frozenNow()) saveBtn.title = t('stores.pending');
+    else saveBtn.removeAttribute('title');
   };
   syncFrozen();
   form.addEventListener('submit', (e) => {

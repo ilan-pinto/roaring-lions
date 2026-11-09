@@ -4848,6 +4848,28 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-aar__rung--met { color: var(--good); }
 .rl-aar__rung--missed { color: var(--ink-dim); }
 .rl-aar__rung-stars { flex: none; letter-spacing: 1px; }
+/* GH-1075 A2: the signed-in coin line, "3 Roar coins earned / Saved to your account / You now hold 620": three parts that wrap
+   and never run together. */
+.rl-aar__coins {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
+  margin: 0;
+  font: var(--t-m) / 1.4 var(--font-body);
+  color: var(--ink);
+}
+.rl-aar__coins-n { font-weight: 600; }
+.rl-aar__coins-status { font-size: var(--t-s); color: var(--ink-mute); }
+.rl-aar__coins[data-phase='saved'] .rl-aar__coins-status { color: var(--good); }
+.rl-aar__coins-total { flex-basis: 100%; color: var(--ink-dim); }
+/* The briefing's and the menu's one-line notes that the account could not be reached. */
+.rl-loading__offline-coins,
+.rl-menu__unreachable {
+  margin: var(--s3) 0 0;
+  font: var(--t-m) / 1.4 var(--font-body);
+  text-align: center;
+}
 .rl-aar__rung--met .rl-aar__rung-stars { color: var(--commend); }
 .rl-aar__word {
   display: grid;

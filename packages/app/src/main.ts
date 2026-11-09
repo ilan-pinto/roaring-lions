@@ -374,10 +374,11 @@ import {
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
 import { selectLedgerStore, type SelectedStore } from './account/select-store';
-import { bootAccount } from './account/boot';
+import { bootAccountLazy } from './account/boot';
 import type { SyncHandle } from './account/sync';
 import { isAccountStore } from './account/account-store';
-import { provisionalLine, type SpendFlow } from './account/spend-flow';
+import type { SpendFlow } from './account/spend-flow';
+import { opIdsOf, requestMissionStart, victoryCoinLine } from './account/mission-flow';
 import { newCampaign, type CampaignLedger, type LedgerStore, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
@@ -989,33 +990,27 @@ async function main(): Promise<void> {
   // and the spend flow start around the account store. Behind `?accounts` only: a guest never reaches this network call.
   let accountUnreachable = false;
   if (selectedStore.signedIn && accountsOn) {
-    try {
-      const client = await accountClient();
-      const booted = await bootAccount({
-        selected: selectedStore,
-        reselect: selectStore,
-        client,
-        storage: safeStorage(),
-        now: () => Date.now(),
-        schedule: (ms, fn) => {
-          const id = window.setTimeout(fn, ms);
-          return () => window.clearTimeout(id);
-        },
-        locks: typeof navigator !== 'undefined' ? navigator.locks : undefined,
-        // A different member signed in on this device: the offer (keep or remove the work) is the profile screen's (Task 2.11).
-        onForeignMember: () => console.warn('account: another member is signed in on this device'),
-      });
-      selectedStore = booted.selected;
-      ledgerStore = selectedStore.store;
-      syncHandle = booted.sync;
-      spendFlowRef = booted.flow;
-      accountUnreachable = booted.unreachable;
-      if (booted.sync !== null) accountSession = { client };
-      settleRoarAtBoot(ledgerStore);
-    } catch (err) {
-      console.error('account boot', err);
-      accountUnreachable = true;
-    }
+    const booted = await bootAccountLazy({
+      selected: selectedStore,
+      reselect: selectStore,
+      loadClient: accountClient,
+      storage: safeStorage(),
+      now: () => Date.now(),
+      schedule: (ms, fn) => {
+        const id = window.setTimeout(fn, ms);
+        return () => window.clearTimeout(id);
+      },
+      locks: typeof navigator !== 'undefined' ? navigator.locks : undefined,
+      // A different member signed in on this device: the offer (keep or remove the work) is the profile screen's (Task 2.11).
+      onForeignMember: () => console.warn('account: another member is signed in on this device'),
+    });
+    selectedStore = booted.selected;
+    ledgerStore = selectedStore.store;
+    syncHandle = booted.sync;
+    spendFlowRef = booted.flow;
+    accountUnreachable = booted.unreachable;
+    if (booted.sync !== null && booted.client !== undefined && booted.client !== null) accountSession = { client: booted.client };
+    settleRoarAtBoot(ledgerStore);
   }
 
   // Level load time step 5. Fire-and-forget and deliberately NOT awaited: the
@@ -2806,10 +2801,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // GH-1075 A2 (§0.10, Task 2.12): a campaign mission asks the server for its start nonce while the briefing is read, and keeps
   // the answer for this mission's lifetime; the victory sends it back (`VictoryRecord.start`). Not awaited: a slow or lost
   // answer only means no coins are promised (the victory pays the floor or nothing), and the briefing says so.
-  let missionStart: string | null = null;
-  let startFailed = false;
   const noteOfflineCoins = (): void => {
-    if (!startFailed || stage.querySelector('.rl-loading__offline-coins') !== null) return;
+    if (stage.querySelector('.rl-loading__offline-coins') !== null) return;
     const box = stage.querySelector('.rl-loading__box');
     if (box === null) return;
     const note = document.createElement('p');
@@ -2818,16 +2811,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     note.textContent = t('account.offline.coins');
     box.appendChild(note);
   };
-  if (paysCredits && mission !== undefined && accountSession !== null && spendFlowRef !== null) {
-    const failed = (): void => {
-      startFailed = true;
-      noteOfflineCoins();
-    };
-    void accountSession.client.missionStart(mission.id).then((r) => {
-      if (r.ok) missionStart = r.body.start;
-      else failed();
-    }, failed);
-  }
+  const startHandle = requestMissionStart({
+    campaign: paysCredits && mission !== undefined && spendFlowRef !== null,
+    missionId: mission?.id,
+    client: accountSession?.client ?? null,
+    onFailed: noteOfflineCoins,
+  });
   const loading = showLoading(
     stage,
     mission?.name ?? mission?.id ?? 'M0 sandbox',
@@ -2865,7 +2854,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     field
   );
   onDispose(() => loading.dispose());
-  noteOfflineCoins(); // an answer that failed before the briefing was up
+  if (startHandle.failed) noteOfflineCoins(); // an answer that failed before the briefing was up
   // The one teardown that cannot wait for this function to return.
   //
   // `loading.done()` parks on the player's click for as long as they care to
@@ -6136,6 +6125,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // GH-317: and the Roar-coin wallet is the same write's third key. A campaign
             // mission (the same contract test the credit pay uses: the tutorial pays no
             // coins either) earns by THIS run's stars, never by the ledger's best.
+            const opsBefore = isAccountStore(ledgerStore) ? opIdsOf(ledgerStore.sync.ops()) : new Set<string>();
             coinsSettle = settleVictory(ledgerStore, {
               ledger: updatedLedger,
               account: payout ? payout.account : null,
@@ -6145,16 +6135,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   : null,
               world: parseWorld(world),
               at: Date.now(),
-              start: missionStart,
+              start: startHandle.start,
             });
             // Signed in (Review Focus 4): the award above is the local table's, PROVISIONAL. The report's coin line opens on it and is
             // corrected in place when the server's figure arrives; with no nonce there is nothing to promise, so no line.
-            if (spendFlowRef !== null && isAccountStore(ledgerStore) && coinsSettle.write === 'saved' && missionId && mission.ledger.produces.length > 0) {
-              const queued = ledgerStore.sync.ops().filter((op) => op.kind === 'victory');
-              const opId = queued[queued.length - 1]?.opId;
-              const initial = provisionalLine(missionStart, coinsSettle.total, coinsSettle.balance);
-              if (opId !== undefined && initial !== null) coinLineFeed = spendFlowRef.coinLine(opId, initial);
-            }
+            coinLineFeed = victoryCoinLine({
+              flow: spendFlowRef,
+              eligible: isAccountStore(ledgerStore) && coinsSettle.write === 'saved' && !!missionId && mission.ledger.produces.length > 0,
+              before: opsBefore,
+              ops: isAccountStore(ledgerStore) ? ledgerStore.sync.ops() : [],
+              start: startHandle.start,
+              total: coinsSettle.total,
+              balance: coinsSettle.balance,
+            });
             const victoryWrite = coinsSettle.write;
             const ledgerSaved = victoryWrite === 'saved';
             victoryUnsaved = victoryWrite === 'refused';

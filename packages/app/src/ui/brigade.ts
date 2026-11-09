@@ -1623,11 +1623,13 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     if (redeemControls !== null) {
       redeemControls.input.disabled = why !== null;
       redeemControls.go.disabled = why !== null;
-      redeemControls.go.title = why ?? '';
+      if (why === null) redeemControls.go.removeAttribute('title');
+      else redeemControls.go.title = why;
     }
     if (reset !== null && !armed) {
       reset.disabled = why !== null;
-      reset.title = why ?? '';
+      if (why === null) reset.removeAttribute('title');
+      else reset.title = why;
     }
   }
   syncServerControls();

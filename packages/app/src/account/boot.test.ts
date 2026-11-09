@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { bootAccount, FIRST_STATE_MS } from './boot';
-import { writeBinding } from './binding';
+import { bootAccount, bootAccountLazy, FIRST_STATE_MS } from './boot';
+import { readBinding, writeBinding } from './binding';
 import { readCache } from './cache';
 import { memStorage, opIds, world, cacheOf } from './fixtures';
 import { writeCache } from './cache';
@@ -62,14 +62,52 @@ describe('bootAccount (§0.11, Task 2.12)', () => {
     expect(readCache(s)).toBeNull();
   });
 
-  it('a signed-out answer (401) with no cache is unreachable too', async () => {
+  it('a 401 with a claimed binding and no cache falls back to the guest store, the claim marks cleared (§0.46)', async () => {
     const s = claimedNoCache();
     const server = new FakeServer();
     server.signedIn = false;
     const sched = makeScheduler();
     const booted = await bootAccount({ selected: select(s, 'accounts'), reselect: () => select(s, 'accounts'), client: clientFor(server), storage: s, now: sched.now, schedule: sched.schedule });
-    expect(booted.unreachable).toBe(true);
-    expect(booted.sync).toBeNull();
+    expect(booted).toMatchObject({ unreachable: false, sync: null, flow: null });
+    expect(booted.selected).toMatchObject({ signedIn: false, needsState: false });
+    expect(readBinding(s)).toEqual({ version: 1, publicId: 'pub1' }); // claimedAt and deviceId gone, as sign-out leaves it
+    expect(readCache(s)).toBeNull();
+  });
+
+  it('a 401 with a cache is the loop\'s read-only signed-out state: nothing uploaded, the cache kept', async () => {
+    const s = claimedNoCache();
+    writeCache(s, cacheOf());
+    const server = new FakeServer();
+    server.signedIn = false;
+    const sched = makeScheduler();
+    const booted = await bootAccount({ selected: select(s, 'accounts'), reselect: () => select(s, 'accounts'), client: clientFor(server, { me: () => ({ kind: 'signedOut' }) }), storage: s, now: sched.now, schedule: sched.schedule });
+    expect(booted.selected.signedIn).toBe(true);
+    expect(booted.sync).not.toBeNull();
+    if (!isAccountStore(booted.selected.store)) throw new Error('premise');
+    booted.selected.store.writeLedger({ 'campaign.slots_issued': 1 });
+    await booted.sync?.flush();
+    expect(booted.sync?.status()).toBe('signedOut');
+    expect(booted.selected.store.sync.ops()).toHaveLength(1); // kept queued, not sent
+    expect(readCache(s)?.publicId).toBe('pub1');
+    expect(readBinding(s)?.claimedAt).toBe(5);
+    expect(server.campaign?.revision).toBe(3); // the 401'd send changed nothing on the server
+    booted.sync?.stop();
+  });
+
+  it('a client module that will not load: a device with no cache is unreachable', async () => {
+    const s = claimedNoCache();
+    const sched = makeScheduler();
+    const booted = await bootAccountLazy({ selected: select(s, 'accounts'), reselect: () => select(s, 'accounts'), loadClient: () => Promise.reject(new Error('chunk')), storage: s, now: sched.now, schedule: sched.schedule });
+    expect(booted).toMatchObject({ unreachable: true, sync: null, flow: null });
+  });
+
+  it('a client module that will not load on a device WITH its cache runs offline from it: not unreachable', async () => {
+    const s = claimedNoCache();
+    writeCache(s, cacheOf());
+    const sched = makeScheduler();
+    const booted = await bootAccountLazy({ selected: select(s, 'accounts'), reselect: () => select(s, 'accounts'), loadClient: () => Promise.reject(new Error('chunk')), storage: s, now: sched.now, schedule: sched.schedule });
+    expect(booted).toMatchObject({ unreachable: false, sync: null, flow: null });
+    expect(isAccountStore(booted.selected.store)).toBe(true);
   });
 
   it('a device with its cache starts the loop without awaiting state first', async () => {
