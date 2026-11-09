@@ -11,7 +11,16 @@ reader, the sampler and the rule all have to work for it to go red:
   1. the sleeve's own texel      -> dE against the sleeve about 0
   2. today's orange claw colour  -> C* about 38 (the texel nearest Lab 42.1, 18.2, 33.0)
   3. Breach's black              -> L* about 12, and dE to the carbine under 15
+
+The relaxed sleeve floor (the lead, 9 Nov 2026: GLOVE_SLEEVE_FLOOR_BAKED, the Rifle Squad's baked Meshy glove only) is
+held three more ways, each watched red:
+
+  4. a glove texel 11-14 dE from the sleeve (every other rule kept) passes as inf_squad, and the SAME bytes under another
+     team's name go red at 15: the relaxation is the one team's, not the gate's;
+  5. the sleeve's own texel still goes red as inf_squad (case 1): the relaxed floor is a floor;
+  6. the same bytes with `rl_hands.source` rewritten off "meshy" go red: the entry dies with the baked figure.
 """
+import json
 import io
 import os
 import shutil
@@ -86,6 +95,79 @@ def write_patched(js, bin_, uv_xy, dst_dir):
     return dst_dir
 
 
+def sleeve_texel(js, bin_, atlas):
+    """(x, y) of the solid block nearest the mean colour the gate reads as the sleeve (no atlas literal: the baked figure's
+    atlas is not the old one)."""
+    r = v.glove_contrast_reading(SHIPPED, js, bin_, atlas)
+    return nearest_texel(atlas, sleeve_lab(js, bin_, atlas, r))
+
+
+def sleeve_lab(js, bin_, atlas, reading):
+    """The first hand's sleeve Lab, read as the gate reads it: the forearm skin within GLOVE_SLEEVE_REACH_M of the
+    wrist."""
+    nodes = js["nodes"]
+    node = next(n for n in nodes if n.get("name") == "uniform")
+    skin = js["skins"][node["skin"]]
+    joints = [nodes[j]["name"] for j in skin["joints"]]
+    ibm = v._glb_accessor(js, bin_, skin["inverseBindMatrices"]).reshape(-1, 16)
+    prim = js["meshes"][node["mesh"]]["primitives"][0]
+    pos = v._glb_accessor(js, bin_, prim["attributes"]["POSITION"]).astype(float)
+    uv = v._glb_accessor(js, bin_, prim["attributes"]["TEXCOORD_0"]).astype(float)
+    jj = v._glb_accessor(js, bin_, prim["attributes"]["JOINTS_0"]).astype(int)
+    ww = v._glb_accessor(js, bin_, prim["attributes"]["WEIGHTS_0"]).astype(float)
+    names = np.array([joints[k] for k in jj[np.arange(len(jj)), ww.argmax(1)]])
+    key = sorted(reading)[0]
+    fig, side = key[:-2], key[-1]
+
+    def head(j):
+        m = ibm[joints.index(j)].reshape(4, 4).T
+        return -(m[:3, :3].T @ m[:3, 3])
+    wrist, elbow = head(f"{fig}_hand_{side}"), head(f"{fig}_forearm_{side}")
+    axis = (wrist - elbow) / np.linalg.norm(wrist - elbow)
+    t = (pos - wrist) @ axis
+    m = (names == f"{fig}_forearm_{side}") & (t > -v.GLOVE_SLEEVE_REACH_M) & (t <= 0.0)
+    ah, aw = atlas.shape[:2]
+    px = np.clip((uv[m, 0] * aw).astype(int), 0, aw - 1)
+    py = np.clip((uv[m, 1] * ah).astype(int), 0, ah - 1)
+    return v._lab_of_rgb(atlas[py, px].astype(float).mean(0))
+
+
+def near_sleeve_texel(js, bin_, atlas, lo, hi):
+    """Solid blocks (x, y) whose Lab is `lo`..`hi` dE from the first hand's sleeve, inside the L* band and under the C*
+    ceiling; the caller keeps the first that every other rule (vest, weapon) also passes: the input only the sleeve floor
+    can judge."""
+    reading = v.glove_contrast_reading(SHIPPED, js, bin_, atlas)
+    sl = sleeve_lab(js, bin_, atlas, reading)
+    out = []
+    for y in range(2, atlas.shape[0] - 2, 5):
+        for x in range(2, atlas.shape[1] - 2, 5):
+            block = atlas[y - 2:y + 3, x - 2:x + 3].reshape(-1, 3).astype(float)
+            if block.std(0).max() > 4:
+                continue
+            lab = v._lab_of_rgb(block.mean(0))
+            if not (lo <= v._delta_e76(lab, sl) <= hi):
+                continue
+            if not (v.GLOVE_L_BAND[0] + 1 <= lab[0] <= v.GLOVE_L_BAND[1] - 1) or (lab[1] ** 2 + lab[2] ** 2) ** 0.5 > v.GLOVE_MAX_CHROMA - 1:
+                continue
+            out.append((x, y))
+    return out
+
+
+def with_source(path, source):
+    """Rewrite `rl_hands.source` in the JSON chunk of the GLB at `path`, in place."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    jlen = struct.unpack("<I", data[12:16])[0]
+    js = json.loads(data[20:20 + jlen])
+    js["scenes"][0]["extras"]["rl_hands"]["source"] = source
+    j = json.dumps(js, separators=(",", ":")).encode()
+    j += b" " * ((4 - len(j) % 4) % 4)
+    rest = data[20 + jlen:]
+    out = struct.pack("<4sII", b"glTF", 2, 12 + 8 + len(j) + len(rest)) + struct.pack("<I4s", len(j), b"JSON") + j + rest
+    with open(path, "wb") as fh:
+        fh.write(out)
+
+
 def main():
     bad = []
     js, bin_ = v._read_glb_chunks(SHIPPED)
@@ -98,7 +180,7 @@ def main():
     if not any(line.startswith("inf_squad.glb") for line in lines):
         bad.append("the gate did not read inf_squad.glb at all (a gate that reads nothing passes everything)")
 
-    sleeve = (339 + 2, 370 + 2)                                  # the sleeve's solid block (hands-pass.ts HANDS_TEAMS.sleeve.L)
+    sleeve = sleeve_texel(js, bin_, atlas)                       # the solid block nearest what the gate reads as the sleeve
     orange = nearest_texel(atlas, (42.1, 18.2, 33.0))            # the review's measured claw
     black = nearest_texel(atlas, (12.0, 0.0, 0.0))
     cases = [
@@ -117,12 +199,38 @@ def main():
                 bad.append(f"{label}: red, but not for {expect!r}: {f[:2]}")
         finally:
             shutil.rmtree(d, ignore_errors=True)
+    # 4. between the relaxed floor and 15: green as inf_squad, red as anyone else; 6. red once the file is not Meshy's
+    floor = v.GLOVE_SLEEVE_FLOOR_BAKED["inf_squad"]
+    found = False
+    for xy in near_sleeve_texel(js, bin_, atlas, floor + 1.0, v.GLOVE_MIN_DE - 1.0):
+        d = tempfile.mkdtemp(prefix="glove_")
+        try:
+            write_patched(js, bin_, xy, d)
+            f, _ = v.check_glove_contrast(d)
+            if f:
+                continue           # some other rule (vest / weapon) reads this texel: try the next
+            found = True
+            shutil.move(os.path.join(d, "inf_squad.glb"), os.path.join(d, "not_inf_squad.glb"))
+            f, _ = v.check_glove_contrast(d)
+            if not any("against the sleeve, under 15" in line for line in f):
+                bad.append(f"a glove {floor + 1:g}-{v.GLOVE_MIN_DE - 1:g} dE from the sleeve did not go red under another team's name: {f[:2]}")
+            shutil.move(os.path.join(d, "not_inf_squad.glb"), os.path.join(d, "inf_squad.glb"))
+            with_source(os.path.join(d, "inf_squad.glb"), "hands-pass")
+            f, _ = v.check_glove_contrast(d)
+            if not any("delete the entry" in line for line in f):
+                bad.append(f"rl_hands.source off 'meshy' did not refuse the relaxed floor: {f[:2]}")
+            break
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+    if not found:
+        bad.append("no atlas texel sits between the relaxed sleeve floor and 15 with every other rule kept: case 4 never ran")
     if bad:
         print("FAIL")
         for b in bad:
             print("  " + b)
         sys.exit(1)
-    print("ok: inf_squad passes; the sleeve texel, the orange claw and Breach's black each go red")
+    print("ok: inf_squad passes; the sleeve texel, the orange claw and Breach's black each go red; the relaxed sleeve "
+          "floor is inf_squad's alone and dies with its Meshy source")
 
 
 if __name__ == "__main__":

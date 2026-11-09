@@ -2152,6 +2152,14 @@ GLOVE_L_BAND = (30.0, 48.0)
 GLOVE_MAX_CHROMA = 30.0
 #: The sleeve is the forearm vertices within this many metres proximal of the wrist.
 GLOVE_SLEEVE_REACH_M = 0.06
+#: The glove-to-SLEEVE floor for a BAKED figure, by team: one entry per team, and only for a file whose `rl_hands.source`
+#: is "meshy" (a figure the hands pass did not paint), else the entry is itself a failure. The lead, 9 Nov 2026 (GH-746):
+#: keep the Rifle Squad's dark-brown glove and relax this floor for this figure only. Why it cannot reach 15: Meshy's bake
+#: bled the glove's orange onto the cuff, and the sleeve sample is the cuff (forearm skin within 6 cm of the wrist); the
+#: importer retints that cuff to the sleeve's olive (`import_meshy_skinned_team.py`, RETINT "cuff"), but a darker glove
+#: would leave GLOVE_L_BAND, whose floor (L* 30) is what keeps a glove from reading as a black hole. Measured 9 Nov:
+#: 11.7-15.0 over the six hands. The vest, weapon, L* and C* rules are unchanged, and so is 15 for every other team.
+GLOVE_SLEEVE_FLOOR_BAKED = {"inf_squad": 10.0}
 
 
 def _lab_of_rgb(rgb):
@@ -2269,16 +2277,18 @@ def glove_contrast_reading(path, js=None, bin_=None, atlas=None):
     return reading
 
 
-def glove_contrast_failures(reading, name):
+def glove_contrast_failures(reading, name, sleeve_floor=GLOVE_MIN_DE):
     """The gate's rule, on a reading (see `glove_contrast_reading`): every hand differs from each of the sleeve, the
-    vest and the weapon by at least GLOVE_MIN_DE, sits inside the L* band and under the chroma ceiling."""
+    vest and the weapon by at least GLOVE_MIN_DE (the sleeve by `sleeve_floor`: GLOVE_SLEEVE_FLOOR_BAKED's, for its one
+    baked figure), sits inside the L* band and under the chroma ceiling."""
     failures = []
     for key, r in sorted(reading.items()):
         for what in ("sleeve", "vest", "weapon"):
+            floor = sleeve_floor if what == "sleeve" else GLOVE_MIN_DE
             if what not in r["de"]:
                 failures.append(f"{name} {key}: no {what} sample to read the glove against")
-            elif r["de"][what] < GLOVE_MIN_DE:
-                failures.append(f"{name} {key}: glove dE76 {r['de'][what]:.1f} against the {what}, under {GLOVE_MIN_DE:.0f}")
+            elif r["de"][what] < floor:
+                failures.append(f"{name} {key}: glove dE76 {r['de'][what]:.1f} against the {what}, under {floor:g}")
         if not (GLOVE_L_BAND[0] <= r["L"] <= GLOVE_L_BAND[1]):
             failures.append(f"{name} {key}: glove L* {r['L']:.1f} outside {GLOVE_L_BAND[0]:.0f} to {GLOVE_L_BAND[1]:.0f}")
         if r["C"] > GLOVE_MAX_CHROMA:
@@ -2298,11 +2308,21 @@ def check_glove_contrast(teams_root):
         if not reading:
             failures.append(f"{name}: carries rl_hands but no hand-bone vertex could be read")
             continue
-        failures.extend(glove_contrast_failures(reading, name))
+        team = os.path.splitext(os.path.basename(path))[0]
+        floor = GLOVE_MIN_DE
+        if team in GLOVE_SLEEVE_FLOOR_BAKED:
+            js, _bin = _read_glb_chunks(path)
+            source = (((js.get("scenes") or [{}])[0].get("extras") or {}).get("rl_hands") or {}).get("source")
+            if source != "meshy":
+                failures.append(f"{name}: GLOVE_SLEEVE_FLOOR_BAKED relaxes the sleeve floor for a baked Meshy figure, and this "
+                                f"file's rl_hands.source is {source!r}: delete the entry")
+            else:
+                floor = GLOVE_SLEEVE_FLOOR_BAKED[team]
+        failures.extend(glove_contrast_failures(reading, name, floor))
         worst = min(min(r["de"].values()) for r in reading.values() if r["de"])
         lines.append(f"{os.path.basename(path)}: {len(reading)} hand(s), glove L* {min(r['L'] for r in reading.values()):.1f}"
                      f"-{max(r['L'] for r in reading.values()):.1f}, C* {max(r['C'] for r in reading.values()):.1f}, "
-                     f"worst dE76 {worst:.1f} (floor {GLOVE_MIN_DE:.0f})")
+                     f"worst dE76 {worst:.1f} (floor {GLOVE_MIN_DE:.0f}" + (f", sleeve {floor:g}: baked, the lead's 9 Nov ruling)" if floor != GLOVE_MIN_DE else ")"))
     return failures, lines
 
 
