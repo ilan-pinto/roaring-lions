@@ -153,7 +153,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
       if (!disposed) say(t('profile.error'), true);
       return;
     }
-    if (!disposed) deps.reload();
+    deps.reload(); // the keys are cleared: reload even when the player has left the profile, or the in-memory account store keeps writing (NB4)
   };
 
   const identityRow = (me: SignedInMe, id: IdentityView, reload: () => void): HTMLElement => {

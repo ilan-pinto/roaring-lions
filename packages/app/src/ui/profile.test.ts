@@ -462,4 +462,15 @@ describe('C1: sign-out and deletion go through the sync module over the account 
     expect(r.storage.getItem(outboxKey('T2'))).toBeNull();
     expect(readBinding(r.storage)).toBeNull();
   });
+
+  it('NB4: a sign-out that completes after the player left the profile still reloads', async () => {
+    const release: { go: () => void } = { go: () => {} };
+    const gate = new Promise<void>((r) => (release.go = r));
+    const { stage, dispose, reloads } = mount(stub({ me: async () => signedIn() }), { signOut: async () => gate });
+    await vi.waitFor(() => expect(btn(stage, t('profile.signOut'))).toBeTruthy());
+    btn(stage, t('profile.signOut')).click();
+    dispose();
+    release.go();
+    await vi.waitFor(() => expect(reloads).toHaveLength(1));
+  });
 });
