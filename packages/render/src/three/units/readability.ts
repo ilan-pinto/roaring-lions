@@ -137,7 +137,9 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // yahalom_squad 0.54 -> 0.57, re-measured once the figures stood in the wedge
   // (three men at +-1.05 m) and the echelon instead of a line; mortar_team
   // 0.55 -> 0.56, its No.3 now holding his carbine forward at low ready.
-  inf_squad: 0.67, mortar_team: 0.56, sniper_team: 0.62, sarim_rifles: 0.7,
+  // The Meshy pilot (GH-746, 9 Nov): inf_squad 0.67 -> 0.64, from a fresh `tools/src/perf/unit-footprints.ts` run on
+  // the skinned figure (footprint 0.553 tile, x1.15 = 0.636).
+  inf_squad: 0.64, mortar_team: 0.56, sniper_team: 0.62, sarim_rifles: 0.7,
   // `at_team` 0.5 since the Meshy Spike landed (A3.1 stage 2, 2026-10-05): a 1.2 m
   // canister reaching further forward of the kneeling gunner than the 1.16 m kit tube;
   // 0.51 since spike-walk (6 Oct), the gunner standing with it carried across his chest.
