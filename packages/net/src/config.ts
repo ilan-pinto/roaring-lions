@@ -1,3 +1,5 @@
+import { SPECIALS_MAX } from './specials';
+
 /** The whole input to both simulations (spec §2.1). `mode: 'sandbox'` is
  *  N0's two-humans-on-side-0 room; `'versus'` arrives with N1. */
 export type Seat = 0 | 1;
@@ -13,6 +15,10 @@ export interface SeatConfig {
    *  room. Structural checks only (`isTiers`); the room cannot check a claim
    *  against an account. */
   tiers: Record<string, Record<string, number>>;
+  /** GH-1102: the Store specials this seat brings into a brigade room (`specials.ts`), as the
+   *  room minted them: its cleaned claim minus `VERSUS_REFUSED_SPECIALS`, for a human KDF seat
+   *  in a `brigade` room only. `[]` everywhere else, as it was in every room before. At most
+   *  `SPECIALS_MAX` strings; the world cleans it again against the data (`seatSpecials`). */
   unlocks: string[];
   player: string;
   callsign: string;
@@ -85,7 +91,12 @@ export type WinMode = (typeof WIN_MODES)[number];
 export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
   camp: ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'],
   points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
-  flag: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
+  // GH-1139 (the lead, 8 Nov): flag is OUT of every lobby until CTF v2 lands at WP9. The v1 raid that the seven reads above
+  // passed is won by an opening attack-move in 32-62 s on every map (0:55 in the lead's bot match). WP9 relists the maps that
+  // pass the v2 bars here and in `FLAG_SETUP_MAPS` together. The engine, the mode files and the probe stay; tools and tests
+  // build flag worlds directly (`validateConfig` does not read this table), and a test that needs a flag ROOM stands a map
+  // here for its own duration (read at call time, like `FLAG_SETUP_MAPS`).
+  flag: [],
 };
 
 /** The KDF-v-Sarim cells each win mode has been read fair on (GH-976 P4): per mode, per map, the HOSTS (the matchup is the
@@ -121,6 +132,12 @@ export function winModeAllowed(mode: WinMode, map: string, matchup: Matchup = 'm
   if (matchup === 'mirror') return WIN_MODE_FAIR_MAPS[mode].includes(map);
   const cells = WIN_MODE_FAIR_FACTION_CELLS[mode];
   return Object.hasOwn(cells, map) && cells[map].includes(matchup);
+}
+
+/** Whether any lobby offers `mode` at all: on some map in the mirror, or in some faction cell. False for flag until CTF v2 is
+ *  relisted (GH-1139), so a tool that is TOLD a mode (`pnpm bot --mode`) can refuse one no room can play. */
+export function winModeOpen(mode: WinMode): boolean {
+  return WIN_MODE_FAIR_MAPS[mode].length > 0 || Object.values(WIN_MODE_FAIR_FACTION_CELLS[mode]).some((hosts) => hosts.length > 0);
 }
 
 /** A win mode from anything a client sent: unknown reads as none (annihilation). */
@@ -176,6 +193,10 @@ export interface MatchConfig {
    *  about the room. A mode room runs a goals-only runtime, mirror included, with production off
    *  (`economyRoom` is false for it); the match ends on the goal, annihilation or the cap (`outcome.ts`). */
   winMode?: WinMode;
+  /** GH-976 v2: a flag room that plays the SET-UP rules (the staged `flag_setup` block, a 3:00 set-up, a 30-minute cap). Minted by the
+   *  Worker alone, from `FLAG_SETUP_MAPS` and the room's `winMode` -- never from a client value. Strictly `true` or absent
+   *  (`validateConfig`); absent is today's flag raid, byte for byte. */
+  flagSetup?: true;
 }
 
 /** The cadence the room mints, in frame ticks: one a minute at 20 Hz (D2). */
@@ -275,7 +296,7 @@ export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'te
 // The large 96x96 Wadi Tarfan (GH-920 B7) joins for the mirror AND both faction cells (it is in
 // `FACTION_MATCHUP_MAPS` too): B4 read every offered cell at its shipped seats (20,20)/(75,75) inside 60/40 on held-out
 // seeds (set C, 4000-4287, 288 seeds a cell; the lead's ruling of 2 Nov: fair at its seats, the one-tile seat
-// neighbourhood is a report, not a gate). Formations stay closed on it (`VERSUS_FORMATIONS_CLOSED_MAPS`): its S4 run of 3 Nov tripped one cell of 21.
+// neighbourhood is a report, not a gate). Formations are open on it since 7 Nov (GH-859): its S4 run of 3 Nov tripped one cell of 21, the 6 Nov re-run none of 21.
 //
 // The large 96x96 Milh Flats (GH-920 B7) joins as a MIRROR-ONLY map, like its 48x48 original, and is in
 // `FACTION_MATCHUP_MAPS` never: B4 read only the mirror cells at its seats (20,75)/(75,20), KDF v KDF 50.0% pooled over
@@ -304,6 +325,25 @@ export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum', 'wadi_tarfa
  *  `tools/src/validate_versus_rules.test.ts` holds this table to every rules file, both ways. */
 export const MAP_CAP_MINUTES: Readonly<Record<string, number>> = { rujm_sawda: 35, wadi_tarfan_l: 35, milh_flats_l: 35 };
 
+/** GH-976 v2: the maps a FLAG room plays the set-up rules on. Empty until WP9's per-map relist, so no room mints `flagSetup` yet.
+ *  Read at CALL time (`flagSetupFor`), so a test may stand a map in it. */
+export const FLAG_SETUP_MAPS: readonly string[] = [];
+
+/** The flag match cap, in minutes, of a set-up room on every map, set-up included. A TWIN of `FLAG_SETUP_CAP_MINUTES` in
+ *  @lions/data (the Worker imports net and not data), held to it by `tools/src/validate_versus_modes.test.ts`. */
+export const FLAG_SETUP_CAP_MINUTES = 30;
+
+/** What the Worker mints into a room's config: `true` for a FLAG room on a map in `FLAG_SETUP_MAPS`, else undefined. The one place the
+ *  rule lives; the lobby asks it too, to read the hold a room will play. */
+export function flagSetupFor(map: string, winMode: WinMode | null | undefined): true | undefined {
+  return winMode === 'flag' && FLAG_SETUP_MAPS.includes(map) ? true : undefined;
+}
+
+/** Whether a config plays the flag set-up rules: a FLAG room carrying `flagSetup: true`. */
+export function flagSetupRoom(c: Pick<MatchConfig, 'winMode' | 'flagSetup'>): boolean {
+  return c.winMode === 'flag' && c.flagSetup === true;
+}
+
 /** The match cap every map has unless `MAP_CAP_MINUTES` says more: 25 minutes. */
 export const MATCH_CAP_MINUTES_DEFAULT = 25;
 
@@ -318,12 +358,26 @@ export function matchCapTicks(map: string | null | undefined): number {
   return matchCapMinutes(map) * 60 * 20;
 }
 
+/** The slice of a config the cap is read from. */
+export type CapConfig = Pick<MatchConfig, 'map' | 'winMode' | 'flagSetup'>;
+
+/** The cap of a ROOM, in minutes: `FLAG_SETUP_CAP_MINUTES` in a set-up room, else the map's (GH-976 R0.8). Every site that holds a config reads this. */
+export function matchCapMinutesOf(c: CapConfig): number {
+  return flagSetupRoom(c) ? FLAG_SETUP_CAP_MINUTES : matchCapMinutes(c.map);
+}
+
+/** The cap of a ROOM, in 20 Hz ticks: 30 minutes in a set-up room, else `matchCapTicks(map)`. */
+export function matchCapTicksOf(c: CapConfig): number {
+  return matchCapMinutesOf(c) * 60 * 20;
+}
+
 /** The most command JSON characters one room stores, both seats together (GH-913 L8). The Worker's
  *  `MAX_LOG_CMD_CHARS` was written for the 25-minute cap; a longer match gets proportionally more, so a
  *  heavy pair (120 orders a minute a seat, 30 ids each: 87% of the old cap at 35 minutes) cannot void it.
  *  Whole characters: `base` x cap / 25, so 2,800,000 at 35 minutes. */
-export function maxLogCmdChars(map: string | null | undefined, base: number): number {
-  return Math.floor((base * matchCapMinutes(map)) / MATCH_CAP_MINUTES_DEFAULT);
+export function maxLogCmdChars(room: string | null | undefined | CapConfig, base: number): number {
+  const minutes = typeof room === 'object' && room !== null ? matchCapMinutesOf(room) : matchCapMinutes(room);
+  return Math.floor((base * minutes) / MATCH_CAP_MINUTES_DEFAULT);
 }
 
 /** Whether `m` may be played on `map`, among the maps a room is offered on at
@@ -371,7 +425,7 @@ function isSeatConfig(v: unknown, seat: Seat): v is SeatConfig {
   const s = v as Record<string, unknown>;
   return s.seat === seat && (s.side === 0 || s.side === 1) && (s.faction === 'kdf' || s.faction === 'sarim') &&
     (s.kit === 'matched' || s.kit === 'brigade') && isTiers(s.tiers) &&
-    Array.isArray(s.unlocks) && s.unlocks.every(isStr) &&
+    Array.isArray(s.unlocks) && s.unlocks.length <= SPECIALS_MAX && s.unlocks.every(isStr) &&
     isStr(s.player) && isStr(s.callsign) && (s.kind === 'human' || s.kind === 'bot');
 }
 
@@ -391,6 +445,8 @@ export function validateConfig(v: unknown): MatchConfig | null {
   if (!isPace(c.pace) || !isInt(c.hashEveryTicks) || c.hashEveryTicks < 1 || !isInt(c.bufferTicks) || c.bufferTicks < 0) return null;
   if (!isStr(c.build) || !isInt(c.dataDigest)) return null;
   if (c.winMode !== undefined && (c.mode !== 'versus' || winModeField(c.winMode) === undefined)) return null;
+  // GH-976 R0.25: strictly `true`, and only in a flag room. `1`, `'true'` and `false` are refused, not coerced.
+  if (c.flagSetup !== undefined && (c.flagSetup !== true || c.winMode !== 'flag')) return null;
   if (c.snapshotEveryTicks !== undefined) {
     const e = c.snapshotEveryTicks;
     if (!isInt(e) || e < 0 || e > SNAPSHOT_EVERY_TICKS_MAX || (e !== 0 && e % c.hashEveryTicks !== 0)) return null;

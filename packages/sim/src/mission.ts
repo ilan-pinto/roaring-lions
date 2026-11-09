@@ -235,6 +235,11 @@ export interface ObjectiveJson {
    *  units and contest against the other's; `score` credits it; `raze` names who the razing wins for
    *  (the structures fall to anyone's guns). Any other type refuses it at construction. */
   side?: number;
+  /** GH-976 WP3: a `capture` that only ground units hold or contest. A unit that is an aircraft by type
+   *  (`Sim.isAircraft`, landed or not), and a unit carried by one, neither holds the zone nor contests it. The TS type only:
+   *  `mission.schema.json` does not know it, so no authored mission can set it; a versus room's built mission can. Absent
+   *  is today's rule, byte for byte. */
+  ground_only?: boolean;
   /** GH-976: a `score` objective's block (a versus win mode, `goalsOnly` rooms only). */
   score?: ScoreJson;
 }
@@ -423,6 +428,12 @@ export interface MissionContext {
    *  (null = uncapped on that side). Absent: side 0 reads the mission's own field,
    *  side 1 is uncapped. */
   popCaps?: readonly [number | null, number | null];
+  /** GH-1102: entity ids that take NO population, whatever their type (a versus brigade room's
+   *  Store specials: the lead's 7 Nov ruling exempts them from the cap). Keyed by entity, never by
+   *  type, so the same type built on a line still counts. Static setup data the app derives from
+   *  its config, so both peers hold the same set; ids are never reused (`spawn`). Absent or empty
+   *  = every unit counts, byte for byte as before. */
+  popExempt?: ReadonlySet<number>;
   /** Indices into the RESOLVED `starting_force` (the array this runtime is given, after
    *  `resolveUpgrades`) of the placements that are on loan: `loanedPlacements`' answer
    *  (unlock.ts, D5). The runtime never sees a gate, so the app and the harness compute it
@@ -1683,13 +1694,17 @@ export class MissionRuntime {
    * civilian is side 2 and counts for nobody), plus the items on that side's living lines,
    * in progress or waiting (D2, one reservation pool per side). An item leaves its line in
    * the same `step` that spawns its unit, so it is counted once on every tick: as a
-   * reservation, then as a body. One pass over the ids; no allocation.
+   * reservation, then as a body. One pass over the ids; no allocation. An id in
+   * `ctx.popExempt` (GH-1102) takes nothing.
    */
   population(side: 0 | 1): number {
     let used = 0;
     const st = this.sim.state;
+    const exempt = this.ctx.popExempt;
     for (let i = 0; i < this.sim.entityCount; i++) {
-      if (st.alive[i] === 1 && st.side[i] === side) used += this.sim.unitTypes[st.typeIdx[i]].population;
+      if (st.alive[i] !== 1 || st.side[i] !== side) continue;
+      if (exempt !== undefined && exempt.has(i)) continue;
+      used += this.sim.unitTypes[st.typeIdx[i]].population;
     }
     const lines = this.lines[side];
     for (let li = 0; li < lines.length; li++) {
@@ -2715,9 +2730,9 @@ export class MissionRuntime {
     // Digest sim events: contacts feed locate + first_contact; kills feed
     // veterancy progression.
     for (const e of simEvents) {
-      if (e.kind === 'fire') this.firstContact = true;
+      if (e.kind === 'fire' && this.isEnemyFire(e)) this.firstContact = true;
       if (e.kind === 'contact' && e.level === 'identified') {
-        this.firstContact = true;
+        if (this.isEnemyContact(e)) this.firstContact = true;
         // GH-707 (the lead, 22 Oct): a wounded man is the same man already spotted, so seeing
         // him pays no intel and counts toward no `locate`.
         if (e.side === 0 && this.sim.state.side[e.target] === 1 && !this.sim.isDown(e.target)) {
@@ -2871,6 +2886,9 @@ export class MissionRuntime {
         o.holdTicks += value * sc.per_value_destroyed * SCORE_PER_VALUE;
       }
     }
+    // GH-976 R0.7: the flag objectives wait for the bell. Nothing in a flag room scores before it (steps 1-3 write no points
+    // there), so this one early return is the whole rule; the hold clock starts at the bell, not at tick 0.
+    if (this.sim.setupActive) return;
     this.stepObjectives(tick, out);
   }
 
@@ -3926,13 +3944,14 @@ export class MissionRuntime {
    * Is the ground being fought over? True when a living enemy stands inside
    * the zone AND close enough to one of your units there to dispute it.
    */
-  private contestedIn(zone: readonly number[]): boolean {
+  private contestedIn(zone: readonly number[], groundOnly = false): boolean {
     const st = this.sim.state;
     for (let f = 0; f < this.sim.entityCount; f++) {
       if (st.alive[f] === 0 || st.side[f] !== 0 || !tileInZone(st, f, zone)) continue;
       if (st.tunnelIn[f] >= 0) continue;
       if (this.sim.isDown(f)) continue; // GH-707: a man down holds nothing to contest
-      if (this.enemyNear(f, zone)) return true;
+      if (groundOnly && this.skipsGround(f)) continue;
+      if (this.enemyNear(f, zone, groundOnly)) return true;
     }
     return false;
   }
@@ -3947,7 +3966,7 @@ export class MissionRuntime {
    * point sits inside the zone holds a capture hostage from underground, with
    * nothing on the map for the player to shoot.
    */
-  private enemyNear(f: number, zone?: readonly number[]): boolean {
+  private enemyNear(f: number, zone?: readonly number[], groundOnly = false): boolean {
     const st = this.sim.state;
     for (let e = 0; e < this.sim.entityCount; e++) {
       if (st.alive[e] === 0 || st.side[e] !== 1) continue;
@@ -3955,6 +3974,7 @@ export class MissionRuntime {
       if (st.tunnelIn[e] >= 0) continue;
       // GH-707 (the lead, 22 Oct): a wounded enemy contests no ground.
       if (this.sim.isDown(e)) continue;
+      if (groundOnly && this.skipsGround(e)) continue;
       const dx = (fx.sub(st.posX[e], st.posX[f]) >> 8) | 0;
       const dy = (fx.sub(st.posY[e], st.posY[f]) >> 8) | 0;
       if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
@@ -4041,7 +4061,16 @@ export class MissionRuntime {
     }
   }
 
-  private livingIn(zone: readonly number[], side: number): number {
+  /** GH-976 WP3 (`ground_only`): an aircraft by type, or a unit an aircraft carries (landed or hovering), stands on no ground.
+   *  A unit carried by a GROUND vehicle is not skipped: it keeps today's rule. */
+  private skipsGround(id: number): boolean {
+    const st = this.sim.state;
+    if (this.sim.isAircraft(id)) return true;
+    const car = st.carriedBy[id];
+    return car >= 0 && this.sim.isAircraft(car);
+  }
+
+  private livingIn(zone: readonly number[], side: number, groundOnly = false): number {
     let n = 0;
     const st = this.sim.state;
     for (let i = 0; i < this.sim.entityCount; i++) {
@@ -4051,6 +4080,7 @@ export class MissionRuntime {
       if (st.tunnelIn[i] >= 0) continue;
       // GH-707 (the lead, 22 Oct): nor does a man down.
       if (this.sim.isDown(i)) continue;
+      if (groundOnly && this.skipsGround(i)) continue;
       const tx = st.posX[i] >> 16;
       const ty = st.posY[i] >> 16;
       if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) n++;
@@ -4136,6 +4166,33 @@ export class MissionRuntime {
       }
     }
     out.push({ kind: 'intelEarned', tick, amount: INTEL_PER_OBJECTIVE, cause: 'objective', ref: d.id, at: { x, y } });
+  }
+
+  /**
+   * `first_contact` means the two fighting sides, 0 and 1, meeting: one of them firing on the other, or one of them identifying the
+   * other. It used to be ANY `fire` and ANY identified `contact`, so a militiaman who spotted a civilian (side 2) at tick 7, or a
+   * gun truck that cut a neutral wall (or its own side's workshop) on its way somewhere at tick 1, "made first contact" before the
+   * player had met anyone, and the trigger's reply (a spawn, a commit) went off at the start of the mission. Side 2, a neutral
+   * structure and a side's own structure never count. A reveal or a pre-marked spawn (observer -1) still does, as before: it is the
+   * player's side identifying an enemy.
+   */
+  private isEnemyFire(e: Extract<SimEvent, { kind: 'fire' }>): boolean {
+    const st = this.sim.state;
+    const shooterSide = st.side[e.shooter];
+    if (shooterSide > 1) return false;
+    if (e.target >= 0) {
+      const targetSide = st.side[e.target];
+      return targetSide <= 1 && targetSide !== shooterSide;
+    }
+    const s = e.structure ?? -1;
+    if (s < 0) return false;
+    const owner = this.sim.structures.owner[s];
+    return (owner === 0 || owner === 1) && owner !== shooterSide;
+  }
+
+  private isEnemyContact(e: Extract<SimEvent, { kind: 'contact' }>): boolean {
+    const targetSide = this.sim.state.side[e.target];
+    return e.side <= 1 && targetSide <= 1 && targetSide !== e.side;
   }
 
   private stepTriggers(tick: number, out: MissionEvent[]): void {
@@ -4387,8 +4444,9 @@ export class MissionRuntime {
         // for a side-1 objective too. (Passing the side was written and deleted: a mutation of it was green,
         // because it cannot change an answer.)
         const side = d.side === 1 ? 1 : 0;
-        const present = z !== undefined && this.livingIn(z, side) > 0;
-        const held = present && z !== undefined && !this.contestedIn(z);
+        const groundOnly = d.ground_only === true;
+        const present = z !== undefined && this.livingIn(z, side, groundOnly) > 0;
+        const held = present && z !== undefined && !this.contestedIn(z, groundOnly);
         o.paused = held ? null : present ? 'contested' : 'unheld';
         if (held) o.holdTicks++;
         else o.holdTicks = 0; // taking ground has to be done in one go

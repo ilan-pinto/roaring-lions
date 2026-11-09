@@ -5,11 +5,13 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODES as NET_WIN_MODES, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, economyRoom, validateConfig, winModeAllowed, winModeField, type MatchConfig } from '@lions/net';
-import { SETUP_BAND_TILES_48, SETUP_BAND_TILES_LARGE, SETUP_KIT, SETUP_SECONDS, STRUCTURE_SYMBOLS, TERRAIN_LEGEND, campYardZone, flagZone, maps, parseMap, setupRegionOf, versusModeMissionOf, versusModes, versusRules, WIN_MODES, type MapJson, type VersusModeFileJson } from '@lions/data';
+import { FACTION_MATCHUP_MAPS, FLAG_SETUP_CAP_MINUTES as NET_FLAG_SETUP_CAP_MINUTES, FLAG_SETUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODES as NET_WIN_MODES, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, economyRoom, validateConfig, winModeAllowed, winModeField, type MatchConfig } from '@lions/net';
+import { FLAG_SETUP_CAP_MINUTES, SETUP_BAND_TILES_48, SETUP_BAND_TILES_LARGE, SETUP_KIT, SETUP_SECONDS, STRUCTURE_SYMBOLS, TERRAIN_LEGEND, campYardZone, flagZone, maps, parseMap, setupRegionOf, versusModeMissionOf, versusModes, versusRules, WIN_MODES, type MapJson, type VersusModeFileJson } from '@lions/data';
 import { FOOT_OPEN, MODE_CAMP_REACH, OFFERED_MAPS, SETUP_BAND_TILES_48 as MJS_BAND_48, SETUP_BAND_TILES_LARGE as MJS_BAND_LARGE, SETUP_KIT as MJS_KIT, SETUP_SECONDS as MJS_SECONDS, WIN_MODES as MJS_WIN_MODES, setupRegion, versusModeFailures } from '../validate_versus_modes.mjs';
-import { CAMP_REACH } from '../validate_versus_rules.mjs';
-import { buildMatchWorld } from '../../packages/app/src/net/match-world';
+import { CAMP_REACH, scanExit } from '../validate_versus_rules.mjs';
+import { LZ_SEARCH_TILES } from '../../packages/sim/src/tuning';
+import { SETUP_PLACEMENTS_PER_SIDE, fx } from '@lions/sim';
+import { buildMatchWorld, type MatchWorld } from '../../packages/app/src/net/match-world';
 
 const ROOT = join(__dirname, '..', '..');
 const DIR = join(ROOT, 'data', 'versus', 'modes');
@@ -76,7 +78,9 @@ describe('the shipped win-mode files', () => {
     // The literals (GH-976 P4): each of the seven open maps carries both modes, each read fair in the mirror, in a fixed order.
     const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
     expect(WIN_MODE_FAIR_MAPS.points).toEqual(SEVEN); // wadi_tarfan 56.3%, milh_flats 57.3% (P1); the other five 51-55% on 4000-4287: see config.ts
-    expect(WIN_MODE_FAIR_MAPS.flag).toEqual(SEVEN);   // wadi_tarfan 56.9%, milh_flats 52.1% (P3); the other five 44-55% (45-55% of the decisive games)
+    // The v1 raid read fair on all seven (P3, P4) and is still in every mode file below, but the lead pulled it from the lobby
+    // (GH-1139: an opening attack-move wins it in 32-62 s); WP9 relists the maps that pass CTF v2.
+    expect(WIN_MODE_FAIR_MAPS.flag).toEqual([]);
     expect(WIN_MODE_FAIR_MAPS.camp).toEqual(['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l']); // forward camps; milh_flats (15,39)/(31,7): 52.4%, 96.5% by the goal; wadi_tarfan (13,18)/(33,28) and wadi_tarfan_l (26,30)/(68,64) with wipe after_camp (GH-976, 5 Nov); the others stay out: see config.ts
     expect([...VERSUS_FAIR_MAPS].sort()).toEqual([...SEVEN].sort());
     for (const map of SEVEN) for (const mode of ['points', 'flag'] as const) expect(versusModes[map].modes[mode], `${map} ${mode}`).toBeDefined();
@@ -178,13 +182,14 @@ describe('the shipped win-mode files', () => {
     for (const map of ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l']) {
       const c = doc(map);
       const n = sizeOf(map);
-      // tile (x, y) maps to (n - 1 - x, n - 1 - y), so a 2x2 at (x, y) maps to (n - 2 - x, n - 2 - y); the exits are point mirrors of each other.
-      expect(c.hostile.at, map).toEqual([n - 2 - c.friendly.at[0], n - 2 - c.friendly.at[1]]);
+      // tile (x, y) maps to (n - 1 - x, n - 1 - y), so a w x h camp at (x, y) maps to (n - w - x, n - h - y) and has the same size; the exits are point mirrors of each other.
+      expect(c.hostile.size, map).toEqual(c.friendly.size);
+      expect(c.hostile.at, map).toEqual([n - c.friendly.size[0] - c.friendly.at[0], n - c.friendly.size[1] - c.friendly.at[1]]);
       expect(c.hostile.exit, map).toEqual([n - 1 - c.friendly.exit![0], n - 1 - c.friendly.exit![1]]);
     }
     // The ground each camp mode was READ fair on (GH-976 camp-mode; wadi_tarfan and wadi_tarfan_l on 28000-28191, 5 Nov). A one-tile move is a
     // different cell: the surface is a race, re-read it.
-    expect(doc('milh_flats')).toEqual({ friendly: { at: [15, 39], size: [2, 2], exit: [14, 38] }, hostile: { at: [31, 7], size: [2, 2], exit: [33, 9] } });
+    expect(doc('milh_flats')).toEqual({ friendly: { at: [13, 37], size: [3, 3], exit: [12, 36] }, hostile: { at: [32, 8], size: [3, 3], exit: [35, 11] } }); // V5 (GH-976 camp rush): 3x3 camps, two tiles back. Was (15,39) / (31,7), 2x2.
     expect(doc('wadi_tarfan')).toEqual({ friendly: { at: [13, 18], size: [2, 2], exit: [12, 17] }, hostile: { at: [33, 28], size: [2, 2], exit: [35, 30] } });
     expect(doc('wadi_tarfan_l')).toEqual({ friendly: { at: [26, 30], size: [2, 2], exit: [25, 29] }, hostile: { at: [68, 64], size: [2, 2], exit: [70, 66] } });
     // wadi_tarfan's mode camps are no longer its rules file's economy camps (7,7) / (39,39): the economy keeps its yards at the seat (CAMP_REACH 6).
@@ -211,20 +216,53 @@ describe('the shipped win-mode files', () => {
     }
   });
 
-  it('no camp tile is a tile the placed force spawns on', () => {
-    // Only the two files that carry the `camp` mode have camps (the mode is read fair nowhere: GH-976 P1).
+  // GH-976 (the lead's ruling, 8 Nov): the placement rule "no camp tile is a tile the placed force spawns on" EXEMPTS AIRCRAFT. A flying unit never blocks a camp
+  // (V5 on milh_flats, 3x3 camps, puts a recon drone over each footprint). "Aircraft" is read from the sim's own `isAir`, which is the unit JSON's
+  // `mobility.domain === 'air'`, never from a unit id, so a ground unit on a camp tile is refused whatever its name.
+  const campRoom = (map: string): MatchWorld => {
+    const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'camp' } as never) as MatchConfig;
+    return buildMatchWorld(c);
+  };
+  /** The units standing on a camp's footprint, as `{ id, air, at }`; with `aircraftExempt` (the rule) a flying unit is not counted. */
+  const unitsOnCamp = (w: MatchWorld, camp: { at: readonly number[]; size: readonly number[] }, aircraftExempt: boolean): { id: string; air: boolean; at: string }[] => {
+    const out: { id: string; air: boolean; at: string }[] = [];
+    const st = w.sim.state;
+    for (let i = 0; i < w.sim.entityCount; i++) {
+      if (st.alive[i] !== 1) continue;
+      const type = w.sim.unitTypes[st.typeIdx[i]];
+      if (aircraftExempt && type.isAir) continue;
+      const x = Math.floor(st.posX[i] / 65536);
+      const y = Math.floor(st.posY[i] / 65536);
+      if (x >= camp.at[0] && x < camp.at[0] + camp.size[0] && y >= camp.at[1] && y < camp.at[1] + camp.size[1]) out.push({ id: type.id, air: type.isAir, at: `${x},${y}` });
+    }
+    return out;
+  };
+
+  it('no camp tile is a tile the placed force spawns on (aircraft exempt)', () => {
+    // Only the files that carry the `camp` mode have camps (the mode is read fair nowhere: GH-976 P1).
     for (const { doc } of shipped.filter((x) => x.doc.camps !== undefined)) {
-      const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map: doc.map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'camp' } as never) as MatchConfig;
-      const w = buildMatchWorld(c);
-      const occupied = new Set<string>();
-      for (const ids of w.bySide) for (const i of ids) occupied.add(`${Math.floor(w.sim.state.posX[i] / 65536)},${Math.floor(w.sim.state.posY[i] / 65536)}`);
+      const w = campRoom(doc.map);
       for (const end of ['friendly', 'hostile'] as const) {
-        const camp = doc.camps![end];
-        for (let dy = 0; dy < camp.size[1]; dy++) for (let dx = 0; dx < camp.size[0]; dx++) {
-          expect(occupied.has(`${camp.at[0] + dx},${camp.at[1] + dy}`), `${doc.map} ${end} camp tile under a unit`).toBe(false);
-        }
+        expect(unitsOnCamp(w, doc.camps![end], true), `${doc.map} ${end} camp tile under a ground unit`).toEqual([]);
       }
     }
+  });
+
+  it('an aircraft on a camp tile is exempt, and a ground unit on a camp tile is still refused', () => {
+    const w = campRoom('milh_flats');
+    const camp = { at: [20, 20], size: [2, 2] } as const; // open ground well clear of both seats and both shipped camps
+    expect(unitsOnCamp(w, camp, false), 'nothing stands there before the test puts it').toEqual([]);
+    const typeIdx = (air: boolean): number => w.sim.unitTypes.findIndex((u) => u.isAir === air && u.id !== '');
+    const spawnOn = (idx: number): void => { w.sim.spawn(idx, 0, fx.from(camp.at[0] + 0.5), fx.from(camp.at[1] + 0.5)); };
+    // an aircraft, whichever the roster has: not counted by the rule, counted without the exemption
+    spawnOn(typeIdx(true));
+    expect(unitsOnCamp(w, camp, true), 'the rule lets an aircraft stand on a camp tile').toEqual([]);
+    expect(unitsOnCamp(w, camp, false).map((u) => u.air), 'without the exemption it would be refused').toEqual([true]);
+    // a ground unit: refused, named, whatever its id is
+    spawnOn(typeIdx(false));
+    const refused = unitsOnCamp(w, camp, true);
+    expect(refused.length, 'a ground unit on a camp tile is refused').toBe(1);
+    expect(refused[0].air).toBe(false);
   });
 });
 
@@ -560,10 +598,10 @@ describe('a win-mode room (buildMatchWorld)', () => {
     const w = buildMatchWorld(config('milh_flats', 'camp'));
     const camps = shipped.find((s) => s.doc.map === 'milh_flats')!.doc.camps!;
     const answer = (end: 'friendly' | 'hostile'): number[] => w.sim.structureExit(w.sim.structureAt(camps[end].at[0], camps[end].at[1])).map((v) => v / 65536);
-    expect(answer('friendly')).toEqual([14.5, 38.5]);
-    expect(answer('hostile')).toEqual([33.5, 9.5]);
+    expect(answer('friendly')).toEqual([12.5, 36.5]);
+    expect(answer('hostile')).toEqual([35.5, 11.5]);
     // and the NW scan would have said otherwise for the east camp, so the check can fail
-    expect(w.sim.structureExit(w.sim.structureAt(31, 7)).map((v) => v / 65536)).not.toEqual([30.5, 6.5]);
+    expect(w.sim.structureExit(w.sim.structureAt(32, 8)).map((v) => v / 65536)).not.toEqual([31.5, 7.5]);
   });
 
   it('a camp room stands two OWNED camps, the owner being the side at that end, and a points room stands none', () => {
@@ -822,5 +860,110 @@ describe('GH-976 v2: flag_setup', () => {
     }
     for (const sym of Object.keys(TERRAIN_LEGEND)) expect(FOOT_OPEN.has(sym), `terrain ${sym}`).toBe(TERRAIN_LEGEND[sym].blocked === 0);
     for (const sym of Object.keys(STRUCTURE_SYMBOLS)) expect(FOOT_OPEN.has(sym), `structure ${sym}`).toBe(false);
+  });
+});
+
+
+// ---------------------------------------------------------------------------------------------------
+// GH-976 v2 WP4: the runtime wiring over the five staged maps
+// ---------------------------------------------------------------------------------------------------
+describe('GH-976 v2 WP4: a flagSetup world over the five staged maps', () => {
+  const FIVE = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+  /** A KDF mirror flag room with `flagSetup` (what the Worker mints for a listed map); seat 0 is side 0 at the friendly end. */
+  const setupRoom = (map: string): MatchConfig => {
+    const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
+    const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map, mode: 'versus', seats: [seat(0), seat(1)], pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'flag', flagSetup: true });
+    if (c === null) throw new Error('bad config');
+    return c;
+  };
+  /** The maps in `list` whose mode file has no staged `flag_setup`: the check `FLAG_SETUP_MAPS` is held to. */
+  const unstaged = (list: readonly string[]): string[] => list.filter((m) => (versusModes[m] as VersusModeFileJson | undefined)?.flag_setup === undefined);
+
+  it('the cap twin: data\'s FLAG_SETUP_CAP_MINUTES is net\'s, and is 30', () => {
+    expect(NET_FLAG_SETUP_CAP_MINUTES).toBe(FLAG_SETUP_CAP_MINUTES);
+    expect(FLAG_SETUP_CAP_MINUTES).toBe(30);
+  });
+  it('every map in FLAG_SETUP_MAPS has a flag_setup block (and the check sees a map that has none)', () => {
+    expect(unstaged(FLAG_SETUP_MAPS)).toEqual([]);
+    // The loop above is empty while the list is: prove the check itself can fail, on the five and on a map without a block.
+    expect(unstaged(FIVE)).toEqual([]);
+    expect(unstaged(['wadi_tarfan', 'tel_marum', 'nowhere'])).toEqual(['tel_marum', 'nowhere']);
+  });
+  it.each(FIVE)('S1 %s: built with flagSetup, every unit of each side stands inside its own side\'s region', (map) => {
+    const w = buildMatchWorld(setupRoom(map));
+    expect(w.bySide[0].length).toBeGreaterThan(0);
+    expect(w.bySide[1].length).toBeGreaterThan(0);
+    for (const side of [0, 1] as const) {
+      for (const id of w.bySide[side]) {
+        const tx = w.sim.state.posX[id] >> 16;
+        const ty = w.sim.state.posY[id] >> 16;
+        expect(w.sim.setupRegionAt(tx, ty), `${map} side ${side} unit ${id} at (${tx},${ty})`).toBe(side);
+      }
+    }
+  });
+  it.each(FIVE)('the structure budget %s: map structures + 2 x SETUP_PLACEMENTS_PER_SIDE fit the 256 the table holds (ids are never reused, R0.10)', (map) => {
+    const w = buildMatchWorld(setupRoom(map));
+    // 256 is the sim's MAX_STRUCTURES (sim.ts, not exported): `addStructure` throws past it.
+    expect(w.sim.structureCount + 2 * SETUP_PLACEMENTS_PER_SIDE, map).toBeLessThanOrEqual(256);
+  });
+  it('SETUP_PLACEMENTS_PER_SIDE is 36, twice the kit (R0.10)', () => {
+    expect(SETUP_PLACEMENTS_PER_SIDE).toBe(2 * (SETUP_KIT.hesco + SETUP_KIT.sandbag_post + SETUP_KIT.t_wall));
+    expect(SETUP_PLACEMENTS_PER_SIDE).toBe(36);
+  });
+  /**
+   * The camp-exit LZ (WP2 sim-guard review). A unit built during the set-up is put at its camp's `structureExit` by `spawnPlacement`
+   * (production delivers `count: 1`, so the placement spread `SPREAD` -- 1.25 tiles, `(k % 3) * SPREAD` -- is 0 for the one body),
+   * and an air carrier is then settled by `settleOnGround` -> `lzFor`, a ring search to `LZ_SEARCH_TILES` Chebyshev from that tile.
+   * None of it is clamped to the region, so the whole square of radius `LZ_SEARCH_TILES` round the exit tile must be the camp owner's
+   * region. Camps are read from both places a camp is authored: the mode file's `camps` and the economy rules file's `ends[].camp`.
+   */
+  const campExits = (map: string): { source: string; end: 'friendly' | 'hostile'; exit: [number, number] }[] => {
+    const parsed = maps[map as keyof typeof maps] as unknown as { width: number; height: number; rows: string[] };
+    const out: { source: string; end: 'friendly' | 'hostile'; exit: [number, number] }[] = [];
+    const modeCamps = (versusModes[map] as unknown as { camps?: Record<'friendly' | 'hostile', { at: [number, number]; size: [number, number]; exit?: [number, number] }> }).camps;
+    const ruleCamps = (versusRules[map] as unknown as { ends: Record<'friendly' | 'hostile', { camp: { at: [number, number]; size: [number, number]; exit?: [number, number] } }> } | undefined)?.ends;
+    for (const end of ['friendly', 'hostile'] as const) {
+      for (const [source, camp] of [['mode camps', modeCamps?.[end]], ['rules camp', ruleCamps?.[end].camp]] as const) {
+        if (camp === undefined) continue;
+        const exit = camp.exit ?? (scanExit(parsed, camp) as [number, number] | null);
+        if (exit === null) throw new Error(`${map} ${source} ${end}: no exit`);
+        out.push({ source, end, exit });
+      }
+    }
+    return out;
+  };
+  /** Foreign tiles within `reach` (Chebyshev, clipped to the map) of `exit`: the camp owner's region must hold them all. */
+  const foreignWithin = (w: ReturnType<typeof buildMatchWorld>, owner: 0 | 1, exit: readonly [number, number], reach: number): { tile: [number, number]; dist: number }[] => {
+    const out: { tile: [number, number]; dist: number }[] = [];
+    for (let y = Math.max(0, exit[1] - reach); y <= Math.min(w.sim.height - 1, exit[1] + reach); y++) {
+      for (let x = Math.max(0, exit[0] - reach); x <= Math.min(w.sim.width - 1, exit[0] + reach); x++) {
+        if (w.sim.setupRegionAt(x, y) !== owner) out.push({ tile: [x, y], dist: Math.max(Math.abs(x - exit[0]), Math.abs(y - exit[1])) });
+      }
+    }
+    return out;
+  };
+  /** The failures of the camp-exit LZ rule over `exits`, each naming the map, the camp, the tile and its distance. */
+  const lzFailures = (map: string, w: ReturnType<typeof buildMatchWorld>, exits: ReturnType<typeof campExits>): string[] => {
+    const out: string[] = [];
+    for (const c of exits) {
+      const owner: 0 | 1 = w.endOfSide[0] === c.end ? 0 : 1;
+      for (const f of foreignWithin(w, owner, c.exit, LZ_SEARCH_TILES)) out.push(`${map} ${c.source} ${c.end} exit (${c.exit}): tile (${f.tile}) is not side ${owner}'s, ${f.dist} from the exit`);
+    }
+    return out;
+  };
+  it.each(FIVE)('camp-exit LZ %s: every tile within LZ_SEARCH_TILES of each camp exit is the camp owner\'s region', (map) => {
+    const w = buildMatchWorld(setupRoom(map));
+    const exits = campExits(map);
+    expect(exits.length, `${map}: a camp to test`).toBeGreaterThan(0);
+    expect(lzFailures(map, w, exits)).toEqual([]);
+  });
+  it('camp-exit LZ: the rule goes red for a camp exit moved (in memory) to within 6 tiles of the band, and names the tile and distance', () => {
+    const w = buildMatchWorld(setupRoom('wadi_tarfan'));
+    const moved = campExits('wadi_tarfan').map((c) => (c.end === 'friendly' ? { ...c, exit: [20, 20] as [number, number] } : c));
+    const failures = lzFailures('wadi_tarfan', w, moved);
+    expect(failures.length).toBeGreaterThan(0);
+    expect(failures[0]).toMatch(/wadi_tarfan .* friendly exit \(20,20\): tile \(\d+,\d+\) is not side 0's, [1-6] from the exit/);
+    // Only the moved end fails: the hostile exits, still where they were shipped, read clean.
+    expect(failures.every((f) => f.includes('friendly'))).toBe(true);
   });
 });

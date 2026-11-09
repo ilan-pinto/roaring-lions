@@ -181,7 +181,10 @@ import {
 } from './time-of-day';
 import { disposeAndReleaseContext, noteSharedTextures } from './context-release';
 import { backendLogLine, planBackend, probeWebGpu, wantsNodeBackend, type BackendInfo, type GpuNavigatorLike } from '../gpu';
-import type { RenderBackend } from './backend/backend';
+import type { MaterialKit, RenderBackend } from './backend/backend';
+import { adoptMaterials, createTwinCache, legacyTwinSlot, mirrorTwinVisibility } from './node-material-adoption';
+import { isTwin } from './twin-identity';
+import { MATERIAL_MATHS } from './material-maths';
 import type { UnportedHook } from './backend/unported';
 import { setImageReleaseEnabled } from './units/gltf-loader';
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
@@ -244,6 +247,7 @@ import { decalShowcase, showcaseAnchor, showcaseSites } from './decal-showcase';
 import {
   DecalPool,
   createDecalMaterial,
+  setDecalLights,
   decalPaletteKeysFor,
   CRATER_RIM_GAIN,
   craterRadiusTiles,
@@ -311,7 +315,7 @@ import {
   type GroundAlbedoId,
   type GroundSlot,
 } from './terrain/mesh';
-import { isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
+import { isDebugLayer, FX_FLAG_LAYERS, unknownDebugLayerMessage, type FxFlagLayer } from './debug-layers';
 import { buildTerrainSurface, isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import {
   buildControlMap,
@@ -1241,6 +1245,20 @@ export class ThreeRenderer implements Renderer {
   private glRenderer: THREE.WebGLRenderer | null = null;
   /** GH-943 P0: the node `RenderBackend` once `init` has built it, else null (legacy, or before init). */
   private nodeBackend: RenderBackend | null = null;
+  /**
+   * GH-943 P2 (T1): the node backend's material twin factories (`RenderBackend.materials`), taken when `initNodeBackend` builds it;
+   * null on a legacy boot. Held apart from the backend so a spec can hand a renderer a stub kit (production never sets it otherwise).
+   */
+  private nodeMaterialKit: MaterialKit | null = null;
+  /** GH-943 P2 (T1): legacy material -> its node twin, one twin per legacy object (`adoptNodeMaterials`). */
+  private readonly nodeTwins = createTwinCache();
+  /**
+   * GH-943 P3 (T1): subtrees whose materials were swapped since the last node render (`queueNodeAdoption`), adopted at the top of
+   * the next one (`flushNodeAdoption`). Empty on a legacy boot: the queue's node-only guard.
+   */
+  private readonly pendingAdoption = new Set<THREE.Object3D>();
+  /** `queueNodeAdoption` as a value, for the unit modules' swap sites (death fades, evacuation). */
+  private readonly adoptQueue = (root: THREE.Object3D): void => this.queueNodeAdoption(root);
   /** What `backendInfo()` reports. `legacy-gl` until a node init says otherwise. */
   private backendInfoValue: BackendInfo;
   /** True when `opts.gpu` asked for the node backend; fixed at construction (it decides whether a WebGLRenderer exists). */
@@ -1527,6 +1545,11 @@ export class ThreeRenderer implements Renderer {
    *  visibility write (`writeRainVisibility`) consults it, so a toggle holds
    *  across a repaint. */
   private rainDebugHidden = false;
+  /** GH-943 P3 (T2): the FX debug layers held hidden (`trail`, `wreck-soot`, `particles`, `tracers`, `muzzle-burst`, `smoke-plume`,
+   *  `collapse-shroud`). `writeFxLayerVisibility` consults it every frame (the `unitsDebugHidden` shape), so a hide holds across a repaint.
+   *  `fxLayerSaved` holds each hidden object's own prior `visible`, so a show puts back exactly that. */
+  private readonly fxLayerHidden = new Set<FxFlagLayer>();
+  private readonly fxLayerSaved = new Map<FxFlagLayer, Map<THREE.Object3D, boolean>>();
   /** The `ripples` debug layer's flag (`unitsDebugHidden`'s shape): the
    *  per-frame write of `uRippleAmp` consults it, so a toggle holds across a
    *  repaint. */
@@ -2701,6 +2724,9 @@ export class ThreeRenderer implements Renderer {
   /** Set by the `overlays` layer; a material created AFTER the layer was
    *  hidden must start hidden too. */
   private smokeOutlinesHidden = false;
+  /** GH-943 P3 (T5): set by the `outline` layer (the team and smoke silhouettes only). Composed with `smokeOutlinesHidden` by
+   *  `writeSilhouetteVisibility`, the one writer of those materials' `visible`. */
+  private outlineDebugHidden = false;
   private readonly particleInstancerBelow = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_BELOW, true, false);
   private readonly particleInstancerAbove = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_ABOVE, false, false);
   /**
@@ -3122,6 +3148,7 @@ export class ThreeRenderer implements Renderer {
     this.disturbField = new DisturbField(n);
     this.disturbU.a.value = this.disturbField.a;
     this.disturbU.b.value = this.disturbField.b;
+    this.disturbU.slots = natureQualityOf(this.opts.quality).slots;
     this.disturbKindOfType = new Uint8Array(sim.unitTypes.length);
     this.disturbRadiusOfType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) {
@@ -3454,6 +3481,9 @@ export class ThreeRenderer implements Renderer {
     this.sceneLights.sun.shadow.intensity =
       rain === null ? shadowIntensityOf(opts.lightOverride) : (opts.lightOverride?.shadow ?? rain.shadowIntensity);
     this.sceneLights.addTo(this.scene);
+    // GH-943 P3 (T7): the decal material's node twin relights the crater rim from these light OBJECTS (the legacy material reads
+    // them through three's light uniforms). The scene holds no ambient light. Presentation only; legacy never reads the record.
+    setDecalLights(this.decalMaterial, { sun: this.sceneLights.sun, hemisphere: this.sceneLights.hemisphere, ambient: [] });
     this.applyWetUniforms();
     this.shadowFitMode = (opts.quality ?? QUALITY_PRESETS.high).shadowFit ?? 'map';
     // GH-705 smoke uplift P2: the flipbook's low tier (no sparks, thinned column).
@@ -3607,6 +3637,12 @@ export class ThreeRenderer implements Renderer {
       this.environment?.attach(this.nodeBackend.pmrem);
       this.mountAndObserve(host);
       this.seedFromSim();
+      // GH-943 P2 (T1): every legacy material with a twin is swapped BEFORE the first census (inside `prepare`), which would
+      // otherwise hide an un-adopted ring or name an un-adopted ground as unported. The ground and decor are built lazily, by the
+      // first frame's `rebuildTerrain`, whose own adoption runs before that frame's census; this one takes what exists now.
+      this.adoptNodeMaterials(this.scene);
+      // GH-943 P3 (T1): and what was queued before the backend existed (templates are not in the scene).
+      this.flushNodeAdoption();
       await this.nodeBackend.prepare(this.scene, this.viewCamera);
       return;
     }
@@ -3755,6 +3791,9 @@ export class ThreeRenderer implements Renderer {
         bloomMaths: BLOOM_MATHS,
         aoMaths: AO_MATHS,
         readbackMaths: READBACK_MATHS,
+        materialMaths: MATERIAL_MATHS,
+        // GH-943 P3 (T1): the census backstop's table (`unadopted`). A twin has no slot.
+        twinSlotOf: (m) => (isTwin(m) ? null : legacyTwinSlot(m)),
       });
       if (this.disposed) {
         if ('backend' in made) made.backend.dispose();
@@ -3762,6 +3801,7 @@ export class ThreeRenderer implements Renderer {
       }
       if ('backend' in made) {
         this.nodeBackend = made.backend;
+        this.nodeMaterialKit = made.backend.materials;
         this.backendInfoValue = { kind: made.backend.kind, adapter: made.backend.adapter, requested, ...(reason !== '' ? { reason } : {}) };
         console.info(backendLogLine(this.backendInfoValue));
         return;
@@ -3769,6 +3809,7 @@ export class ThreeRenderer implements Renderer {
       reason = made.reason;
     }
     // Nothing node drew: the legacy path, said so.
+    this.pendingAdoption.clear();
     this.glRenderer = this.makeGlRenderer();
     this.backendInfoValue = { kind: 'legacy-gl', adapter: 'webgl2', requested, reason };
     console.warn(backendLogLine(this.backendInfoValue));
@@ -3777,6 +3818,56 @@ export class ThreeRenderer implements Renderer {
   /** `Renderer.backendInfo` (`api.ts`). Read by the harness, the log, feedback and settings. */
   backendInfo(): BackendInfo {
     return this.backendInfoValue;
+  }
+
+  /**
+   * GH-943 P2 (T1): swaps every legacy material under `root` that has a node twin (`MaterialKit`) for that twin, through the
+   * identity cache, so one legacy object gets one twin; the legacy object keeps owning its uniforms and debug setters. Runs at
+   * every site that makes a ground, chunk or decor mesh (`rebuildTerrain`, which covers the full build, the collapse splice of
+   * `terrain/incremental.ts` and the chunk re-slice) and once in `init`'s node branch before `prepare`'s first census. A legacy
+   * boot never reaches the kit: that is THIS guard, which `ThreeRenderer.material-seam.test.ts` pins by handing a legacy renderer
+   * a stub kit. Returns how many objects it swapped.
+   */
+  private adoptNodeMaterials(root: THREE.Object3D | null): number {
+    if (this.nodeBackend === null) return 0;
+    const kit = this.nodeMaterialKit;
+    if (kit === null || root === null) return 0;
+    return adoptMaterials(root, kit, this.nodeTwins);
+  }
+
+  /**
+   * GH-943 P3 (T1): every unit swap site calls this with the subtree whose materials it just changed (a template set, a spawn and
+   * its team variant, a running-gear bind or release, a scar band, a death or evacuation fade, the backdrop build). The subtree is
+   * adopted once, at the top of the next node render (`flushNodeAdoption`), so the twin draws on the frame of the swap, never the
+   * stock material for up to 60 frames until the census. A no-op on a legacy boot: nothing node was asked for, or the node path
+   * fell back (`glRenderer` built). The 60-frame census's `unadopted` kind is the backstop for a site that forgets.
+   */
+  queueNodeAdoption(root: THREE.Object3D): void {
+    if (!this.nodeWanted || this.glRenderer !== null) return;
+    this.pendingAdoption.add(root);
+  }
+
+  /**
+   * GH-943 P3 (T1): the scar swap's queue: the live subtrees `applyVehicleDamageBand` walks (never the death root). Each swap site
+   * queues exactly what it swapped (a bind or release its meshes, a scar the live tops, a fade the root), so no site's queue is
+   * covered by another's in the same frame and each is gated on its own (`ThreeRenderer.unit-adoption.test.ts`).
+   */
+  private queueLiveTops(entity: VehicleMeshEntity): void {
+    for (const top of entity.liveTop) this.queueNodeAdoption(top);
+  }
+
+  /**
+   * GH-943 P3 (T1): run once at the top of every node render, before `nodeBackend.render`: adopts the queued subtrees, then mirrors
+   * each live twin's `visible` from its legacy material (ruling P3-R4: traversal skips a hidden material, so this cannot wait for
+   * the twin's own per-render update).
+   */
+  private flushNodeAdoption(): void {
+    if (this.nodeBackend === null) return;
+    if (this.pendingAdoption.size > 0) {
+      for (const root of this.pendingAdoption) this.adoptNodeMaterials(root);
+      this.pendingAdoption.clear();
+    }
+    mirrorTwinVisibility(this.nodeTwins);
   }
 
   /** `Renderer.unportedHooks` (`api.ts`): the node backend's census, empty on the legacy path. */
@@ -3854,6 +3945,7 @@ export class ThreeRenderer implements Renderer {
       width: this.sim.width,
       height: this.sim.height,
       isExplored: (x, y) => this.isExplored(x, y),
+      adopt: this.adoptQueue,
     };
   }
 
@@ -4543,6 +4635,7 @@ export class ThreeRenderer implements Renderer {
     this.writeRippleUniforms(alpha);
     this.updateRain(alpha);
     this.updateSilhouetteOutlineWidth();
+    this.writeFxLayerVisibility();
     // `threeCamera()` reconfigures the ONE camera the composer's RenderPass
     // already holds, so this call has to happen whether or not the composer
     // draws -- its return value is used only by the composer-less path.
@@ -4575,6 +4668,7 @@ export class ThreeRenderer implements Renderer {
     // does them itself, on the composer's path `OutputPass` does.
     if (this.nodeBackend) {
       this.applyZoomFade();
+      this.flushNodeAdoption();
       this.nodeBackend.render(this.scene, camera);
     } else if (this.post) {
       this.applyZoomFade();
@@ -4660,6 +4754,9 @@ export class ThreeRenderer implements Renderer {
         this.disturbU.amp.value = next;
         return changed;
       }
+      case 'selection-ring':
+        // The GROUP, not the meshes: each batch's `endFrame` rewrites its own mesh's `visible` every frame (an empty one costs no draw).
+        return setObjectsVisible(visible, this.selectionRingGroup);
       case 'wash': {
         // The helicopters' slots, taken away and given back: `updateDisturbers` reads the flag every frame, so a repaint cannot undo it.
         const changed = this.washLayerOn === visible ? 0 : 1;
@@ -4871,14 +4968,7 @@ export class ThreeRenderer implements Renderer {
         // re-asserts it the way fog visibility re-asserts a mesh unit's
         // `root.visible` every frame.
         // The selection ring's GROUP, not its mesh: see `selectionRing`.
-        const batchCount = setObjectsVisible(
-          visible,
-          this.overlayBatch.mesh,
-          this.numeralBatch.mesh,
-          this.chevronBatch.mesh,
-          this.selectionRingGroup,
-          this.zoneBandGroup
-        );
+        const batchCount = setObjectsVisible(visible, ...this.overlayLayerObjects());
         // The occlusion silhouette (band 6, `units/silhouette.ts`) is a
         // SEPARATE subsystem folded into this same name -- see
         // `debug-layers.ts`'s own comment for why a key-art tool asking to
@@ -4890,12 +4980,17 @@ export class ThreeRenderer implements Renderer {
         // rasterise anything using this material" with no per-entity
         // traversal required. The billboard path is not covered (see the
         // same comment).
-        for (const m of this.silhouetteMeshMaterials) m.visible = visible;
-        // The smoke outline's two materials are part of "the overlays" too.
-        for (const m of [this.smokeOutlineVehicleMaterial, this.smokeOutlineInfantryMaterial]) if (m) m.visible = visible;
+        // The smoke outline's two materials are part of "the overlays" too. GH-943 P3 (T5): written through
+        // `writeSilhouetteVisibility`, which also honours the `outline` layer.
         this.smokeOutlinesHidden = !visible;
+        this.writeSilhouetteVisibility();
         return batchCount + this.silhouetteMeshMaterials.length;
       }
+      case 'outline':
+        // GH-943 P3 (T5): the team and smoke silhouettes alone. `Material.visible`, which nothing per-frame re-asserts, shown only while
+        // `overlays` is shown too. Returns how many materials it wrote.
+        this.outlineDebugHidden = !visible;
+        return this.writeSilhouetteVisibility();
       case 'fog':
         // C2 (shell-upgrade Phase 0 final fix wave): this used to be
         // `Pass.enabled`, exactly `vignette`'s shape -- but skipping the
@@ -5078,6 +5173,18 @@ export class ThreeRenderer implements Renderer {
         amp.value = next;
         return changed;
       }
+      case 'trail':
+      case 'wreck-soot':
+      case 'particles':
+      case 'tracers':
+      case 'muzzle-burst':
+      case 'smoke-plume':
+      case 'collapse-shroud': {
+        // GH-943 P3 (T2). A FLAG `writeFxLayerVisibility` reads every frame; the write below is only so a caller that never repaints sees it.
+        if (visible) this.fxLayerHidden.delete(name);
+        else this.fxLayerHidden.add(name);
+        return this.writeFxLayerVisibility(name);
+      }
       case 'swarm-wrecks': {
         this.swarmWrecksDebugHidden = !visible;
         let n = 0;
@@ -5095,6 +5202,73 @@ export class ThreeRenderer implements Renderer {
         // that draws nothing. Throwing makes it a capture failure instead.
         throw new Error(unknownDebugLayerMessage(name));
     }
+  }
+
+  /** What an FX debug layer hides (GH-943 P3 T2). Resolved on every call: the managers' meshes exist only once their GLB has loaded, and a
+   *  vehicle's `WRECK_` twins only once it is spawned. */
+  private fxLayerObjects(name: FxFlagLayer): THREE.Object3D[] {
+    switch (name) {
+      case 'trail':
+        return [this.trailMesh.mesh];
+      case 'particles':
+        return [
+          this.particleInstancerBelow.mesh,
+          this.particleInstancerAbove.mesh,
+          this.particleInstancerBelowAdditive.mesh,
+          this.particleInstancerAboveAdditive.mesh,
+        ];
+      case 'tracers':
+        return [this.tracerBatch.mesh];
+      case 'muzzle-burst':
+        return [...this.muzzleFlashes.zoneMeshes, ...this.explosionBursts.zoneMeshes, ...this.collapseFlashBursts.zoneMeshes];
+      case 'smoke-plume':
+        return [...this.smokePlumes.zoneMeshes];
+      case 'collapse-shroud':
+        return [this.collapseShrouds.mesh];
+      case 'wreck-soot': {
+        const out: THREE.Object3D[] = [];
+        const take = (o: THREE.Object3D): void => {
+          if ((o.userData as { rl_wreck?: unknown }).rl_wreck === true) out.push(o);
+        };
+        // The live entity's own twins, and the wrecks left standing after a death (`meshWrecks`: a vehicle's wreck is handed to a root
+        // of its own once the death clip ends, which is the wreck a player sees).
+        for (const entity of this.vehicleMeshEntities.values()) entity.root.traverse(take);
+        for (const w of this.meshWrecks) w.root.traverse(take);
+        return out;
+      }
+    }
+  }
+
+  /**
+   * Writes the FX debug layers' visibility (GH-943 P3 T2): `name`, or every one when absent. Called by `setDebugLayerVisible` and, for
+   * every layer, once per `frame()` just before the draw, so the managers' own per-frame writes cannot undo a hide. A layer that has never
+   * been hidden costs a set lookup. Returns the number of objects it wrote.
+   */
+  private writeFxLayerVisibility(only?: FxFlagLayer): number {
+    let n = 0;
+    for (const name of only === undefined ? FX_FLAG_LAYERS : [only]) {
+      const hidden = this.fxLayerHidden.has(name);
+      const saved = this.fxLayerSaved.get(name);
+      if (!hidden && saved === undefined) continue;
+      if (hidden) {
+        // First touch records the object's own `visible` (a living vehicle's `WRECK_` twin is hidden for its own reasons); a show puts
+        // back exactly that and nothing else.
+        const keep = saved ?? new Map<THREE.Object3D, boolean>();
+        for (const o of this.fxLayerObjects(name)) {
+          if (!keep.has(o)) keep.set(o, o.visible);
+          o.visible = false;
+          n++;
+        }
+        this.fxLayerSaved.set(name, keep);
+      } else if (saved !== undefined) {
+        for (const [o, was] of saved) {
+          o.visible = was;
+          n++;
+        }
+        this.fxLayerSaved.delete(name);
+      }
+    }
+    return n;
   }
 
   /** Drives every pooled blast/muzzle light to zero intensity -- the
@@ -5479,6 +5653,11 @@ export class ThreeRenderer implements Renderer {
     return camera;
   }
 
+  /** The scene objects the `overlays` debug layer switches: ONE list, read by that layer and by `hideForGroundPhoto`'s restore. */
+  private overlayLayerObjects(): THREE.Object3D[] {
+    return [this.overlayBatch.mesh, this.numeralBatch.mesh, this.chevronBatch.mesh, this.selectionRingGroup, this.zoneBandGroup];
+  }
+
   /**
    * Hides what a ground photograph must not show (units, overlays, the rain) and takes the map-wide shadow box, and returns the
    * function that puts every one back to what it WAS. Shared by `photographGround` (legacy, synchronous) and
@@ -5494,10 +5673,18 @@ export class ThreeRenderer implements Renderer {
    */
   private hideForGroundPhoto(): () => void {
     const unitsWereVisible = !this.unitsDebugHidden;
-    const overlaysWereVisible = this.overlayBatch.mesh.visible;
+    // The overlays layer's own state is its flag (`smokeOutlinesHidden`, which only that layer writes), and each of its scene
+    // objects goes back to ITS OWN `visible`, never to one sample of the layer. A node boot's census hides the unported overlay
+    // batches (ShaderMaterials) and leaves the ring and zone-band groups shown, so reading `overlayBatch.mesh.visible` as the
+    // layer's state put every ring back HIDDEN after the first minimap photograph, for the rest of the mission (GH-943 P2 T5:
+    // the node `selection-ring` A/B read 0 px). Restoring the layer to `true` instead would un-hide what the census hid.
+    const overlaysWereVisible = !this.smokeOutlinesHidden;
+    const overlayObjects = this.overlayLayerObjects();
+    const overlayObjectsWere = overlayObjects.map((o) => o.visible);
     const rainWasVisible = this.rain?.mesh.visible ?? false;
     const restore = (): void => {
       this.setDebugLayerVisible('overlays', overlaysWereVisible);
+      overlayObjects.forEach((o, k) => (o.visible = overlayObjectsWere[k] ?? o.visible));
       this.setDebugLayerVisible('units', unitsWereVisible);
       if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
     };
@@ -8033,6 +8220,9 @@ export class ThreeRenderer implements Renderer {
     }
     this.meshUnitTemplates.set(unitTypeId, templates);
     if (side1Templates) this.meshUnitTemplates.set(side1Key, side1Templates);
+    // GH-943 P3 (T1): the templates' final materials (after the cap and the wounded copies) are adopted on node, so every clone
+    // draws the twin from its first frame.
+    for (const t of [...templates, ...(side1Templates ?? [])]) this.queueNodeAdoption(t.root);
     if ([...templates, ...(side1Templates ?? [])].some((t) => hasColdTextures(t.root))) this.coldUnitTypes.add(unitTypeId);
     else this.coldUnitTypes.delete(unitTypeId);
   }
@@ -8222,6 +8412,8 @@ export class ThreeRenderer implements Renderer {
     }
     this.adoptEnvironment(template.materials, 'unitDielectric');
     if (this.opts.maxTextureSize !== undefined) await capTextureSize(template.root, this.opts.maxTextureSize);
+    // GH-943 P3 (T1): after the cap, which writes the template's own (legacy) materials.
+    this.queueNodeAdoption(template.root);
     return template;
   }
 
@@ -9923,6 +10115,8 @@ export class ThreeRenderer implements Renderer {
         // rather than a second visibility test, is what keeps a silhouette
         // from ever revealing a fogged unit.
         attachMeshSilhouette(entity.root, this.silhouetteMaterialFor(st.side[i]));
+        // GH-943 P3 (T1): a clone draws its template's twins already; whatever the spawn swapped (the outline) is adopted on node.
+        this.queueNodeAdoption(entity.root);
         this.meshBodyYawSet[i] = 0;
         this.unitDepth[i] = 0;
         this.meshUnitEntities.set(i, entity);
@@ -10095,7 +10289,7 @@ export class ThreeRenderer implements Renderer {
       // GH-85: the third fork -- a charge carrier whose own warhead went off
       // (`this.detonated`, latched in `onEvents`) leaves no body, exactly as
       // a removed unit leaves none: the blast is the whole of its end.
-      if (this.evacuated.has(id)) this.meshDeparting.push(beginMeshEvac(entity));
+      if (this.evacuated.has(id)) this.meshDeparting.push(beginMeshEvac(entity, this.adoptQueue));
       else if (id < n && (st.removed[id] === 1 || this.detonated.has(id) || this.buriedDeaths.has(id))) {
         this.scene.remove(entity.root);
         disposeMeshUnitEntity(entity);
@@ -10322,6 +10516,8 @@ export class ThreeRenderer implements Renderer {
         // ITS side's colour (own, hostile or neutral for this viewer): +0 draw calls. BEFORE the silhouette
         // attach, which stamps the body material the hull actually draws with.
         this.vehicleTeamFor(key).applyTo(entity, colorSlot(st.side[i], this.viewer));
+        // GH-943 P3 (T1): the team variant `applyTo` just minted or reused (`vehicleTeamFor`'s `onMint`) is adopted on node.
+        this.queueNodeAdoption(entity.root);
         resetRunningGear(this.runningGear, i);
         // Same attach-once contract as `updateMeshUnits` above -- and here
         // the turret comes along for free, because a vehicle's turret
@@ -10481,8 +10677,12 @@ export class ThreeRenderer implements Renderer {
           rg.cruiseTilesS = input.cruiseTilesS;
           rg.dtSeconds = dtSeconds;
           stepRunningGear(this.runningGear, rg);
-          const binding =
-            runningGearBinding(entity) ?? (this.runningGear.moved[i] === 1 ? bindRunningGear(entity, gear) : null);
+          let binding = runningGearBinding(entity);
+          if (!binding && this.runningGear.moved[i] === 1) {
+            binding = bindRunningGear(entity, gear) ?? undefined;
+            // GH-943 P3 (T1): the meshes the bind just swapped onto their clone are adopted on node.
+            if (binding) for (const s of binding.swaps) this.queueNodeAdoption(s.mesh);
+          }
           if (binding) writeRunningGearUniforms(binding, this.runningGear, i, this.runningGearDebugHidden);
         }
       }
@@ -10493,7 +10693,11 @@ export class ThreeRenderer implements Renderer {
       // its own clone rather than on a template material the bind replaced.
       if (vehicleTakesDamageStates(type.isAir, template.hasRotorPivot)) {
         const band = vehicleDamageBand(st.hp[i], type.hp);
-        if (band !== vehicleDrawnBand(entity)) applyVehicleDamageBand(entity, band, this.vehicleScarsFor(entity.templateKey));
+        if (band !== vehicleDrawnBand(entity)) {
+          applyVehicleDamageBand(entity, band, this.vehicleScarsFor(entity.templateKey));
+          // GH-943 P3 (T1): the scar (or the clean template) the band just swapped in is adopted on node.
+          this.queueLiveTops(entity);
+        }
       }
       // The lead's ruling of 4 Nov: a knocked-out main gun droops on the model (`units/gun-out.ts`). Read from the
       // sim's own component state every frame and acted on only when it moves, like the band above; never written.
@@ -10693,12 +10897,16 @@ export class ThreeRenderer implements Renderer {
         detachMeshSilhouette(entity.root);
         // A wreck's wheels do not turn, and the fade below clones every
         // material under the root: the original bake goes back first.
+        const released = runningGearBinding(entity);
         releaseRunningGear(entity);
+        // GH-943 P3 (T1): the meshes the release handed their (legacy) materials back to are adopted on node.
+        if (released) for (const s of released.swaps) this.queueNodeAdoption(s.mesh);
         // ...which hands back the materials the hull had when it was BOUND,
         // possibly clean: re-draw its last living band so the fade starts
         // from the scar the player was looking at (GH-31).
         if (vehicleScarMixForBand(vehicleDrawnBand(entity)) > 0) {
           applyVehicleDamageBand(entity, vehicleDrawnBand(entity), this.vehicleScarsFor(entity.templateKey));
+          this.queueLiveTops(entity);
         }
         // The wreck's pose, BEFORE `beginVehicleDeath` latches `baseWorldY`
         // off it -- see `poseVehicleWreck`.
@@ -10707,7 +10915,7 @@ export class ThreeRenderer implements Renderer {
         // falls through to the same immediate removal a clipless vehicle
         // takes. Never a throw: this runs inside `frame()`, where an
         // exception stops the whole screen rather than reporting anything.
-        const dying = beginVehicleDeath(entity, id, deadTemplate);
+        const dying = beginVehicleDeath(entity, id, deadTemplate, this.adoptQueue);
         if (dying) this.vehicleDying.push(dying);
         else {
           this.scene.remove(entity.root);
@@ -11015,6 +11223,8 @@ export class ThreeRenderer implements Renderer {
       width: this.sim.width,
       height: this.sim.height,
       isExplored: (x, y) => this.isExplored(x, y),
+      // GH-943 P3 (T1): the fade's restore is adopted on node (a wreck keeps its live nodes in the scene).
+      adopt: this.adoptQueue,
     };
     for (let k = this.vehicleDying.length - 1; k >= 0; k--) {
       const result = stepVehicleDeath(this.vehicleDying[k], dtSeconds, env);
@@ -11649,6 +11859,8 @@ export class ThreeRenderer implements Renderer {
       width: this.sim.width,
       height: this.sim.height,
       isExplored: (x, y) => this.isExplored(x, y),
+      // GH-943 P3 (T1): the fade's clones and restores are adopted on node.
+      adopt: this.adoptQueue,
     };
     for (let k = this.meshDying.length - 1; k >= 0; k--) {
       const result = stepMeshDeath(this.meshDying[k], dtSeconds, env);
@@ -12891,6 +13103,19 @@ export class ThreeRenderer implements Renderer {
     this.proxyBoxes?.setTeamColors(teamColors);
   }
 
+  /** GH-943 P3 (T5): the one writer of the team and smoke silhouette materials' `visible`: shown only while both the `overlays` and the
+   *  `outline` layers are. Returns how many materials it wrote. */
+  private writeSilhouetteVisibility(): number {
+    const visible = !this.smokeOutlinesHidden && !this.outlineDebugHidden;
+    let n = 0;
+    for (const m of [...this.silhouetteMeshMaterials, this.smokeOutlineVehicleMaterial, this.smokeOutlineInfantryMaterial]) {
+      if (m === null) continue;
+      m.visible = visible;
+      n++;
+    }
+    return n;
+  }
+
   /** `flash`: the occlusion outline's own material with NO depth test, so
    *  the outline shows whether the target stands in the open or behind a
    *  wall. The first cut used an ordinary depth test, and a target behind a
@@ -12920,7 +13145,7 @@ export class ThreeRenderer implements Renderer {
       const mk = (): THREE.MeshBasicMaterial => {
         const m = createMeshSilhouetteMaterial(this.silhouetteMaterialFor(this.viewer).color.getStyle());
         m.depthTest = false;
-        m.visible = !this.smokeOutlinesHidden;
+        m.visible = !this.smokeOutlinesHidden && !this.outlineDebugHidden;
         return m;
       };
       this.smokeOutlineVehicleMaterial = mk();
@@ -12951,6 +13176,8 @@ export class ThreeRenderer implements Renderer {
       if (!this.fireLinkFlashed.has(id)) {
         const was = this.silhouetteMaterialFor(st.side[id]);
         for (const m of list) m.material = was;
+        // GH-943 P3 (T5): the plain team silhouette is a LEGACY material; on node its twin draws from this frame (a no-op on legacy).
+        for (const m of list) this.queueNodeAdoption(m);
       }
       this.smokeOutlined.delete(id);
     }
@@ -12965,6 +13192,8 @@ export class ThreeRenderer implements Renderer {
         mesh.material = mat;
         list.push(mesh);
       });
+      // GH-943 P3 (T5): the smoke outline is a LEGACY material; on node its twin draws from this frame (a no-op on legacy).
+      this.queueNodeAdoption(root);
       this.smokeOutlined.set(id, list);
     }
   }
@@ -12982,6 +13211,8 @@ export class ThreeRenderer implements Renderer {
     for (const [id, list] of this.fireLinkFlashed) {
       if (active.has(id)) continue;
       for (const { mesh, was } of list) mesh.material = was;
+      // GH-943 P3 (T5): `was` is the plain team silhouette (LEGACY) for a unit that was in smoke; on node its twin draws from this frame.
+      for (const { mesh } of list) this.queueNodeAdoption(mesh);
       this.fireLinkFlashed.delete(id);
     }
     for (const id of active) {
@@ -13002,6 +13233,8 @@ export class ThreeRenderer implements Renderer {
         list.push({ mesh, was: smoked ? plain : mesh.material });
         mesh.material = mat;
       });
+      // GH-943 P3 (T5): the flash outline is a LEGACY material; on node its twin draws from this frame (a no-op on legacy).
+      this.queueNodeAdoption(root);
       this.fireLinkFlashed.set(id, list);
     }
   }
@@ -14131,7 +14364,8 @@ export class ThreeRenderer implements Renderer {
       this.overlayColor(SUPPLY_ROUTE_OPEN_COLOR_KEY),
       this.overlayColor(SUPPLY_ROUTE_CUT_COLOR_KEY)
     );
-    this.supplyRoute.sync(width, (x, y) => groundWorldY(elevation, width, height, x, y));
+    // GH-943 P3 (T8): the route's mesh is made here, after init, so a node boot adopts its material on the frame it appears.
+    if (this.supplyRoute.sync(width, (x, y) => groundWorldY(elevation, width, height, x, y))) this.queueNodeAdoption(this.supplyRoute.group);
 
     this.overlayBatch.endFrame();
     this.zoneBand.endFrame();
@@ -14192,6 +14426,8 @@ export class ThreeRenderer implements Renderer {
     this.backdropStats = { ...this.backdrop.stats, kitReadMs: this.backdropKitReadMs };
     this.backdrop.group.visible = this.backdropShown;
     this.scene.add(this.backdrop.group);
+    // GH-943 P3 (T1): the backdrop's five fade materials are adopted on node.
+    this.queueNodeAdoption(this.backdrop.group);
     this.skirtMesh.visible = !this.backdropShown;
     this.applyBackdropFog();
   }
@@ -14452,6 +14688,9 @@ export class ThreeRenderer implements Renderer {
     this.scatterLayer.update(build.state.scatter, build.dirtyTiles);
     this.terrainMesh = this.groundLayer.root;
     this.scatterMesh = this.scatterLayer.root;
+    // GH-943 P2 (T1): every ground mesh this update made carries the LEGACY `groundMat` (a full build, a collapse splice, a chunk
+    // re-slice alike: `ChunkedMeshLayer.place`), so the node twin is adopted here, on every rebuild. A no-op on legacy.
+    this.adoptNodeMaterials(this.terrainMesh);
 
     this.residualMesh = freezeStatic(new THREE.Mesh(toGeometry(composed.residual), this.terrainMat));
     this.residualMesh.receiveShadow = true;
@@ -14482,6 +14721,9 @@ export class ThreeRenderer implements Renderer {
       this.opts.weather === 'rain'
     );
     this.scene.add(freezeStatic(this.decorGroup));
+    // GH-943 P2 (T1): the decor is rebuilt wholesale on every rebuild, with new sway materials: adopted here, before the
+    // environment below, so the class table adopts the material that draws. A no-op on legacy.
+    this.adoptNodeMaterials(this.decorGroup);
 
     // The textured half of the same placement list. `buildDecorMesh` above
     // and this partition it by family rather than competing for it -- a

@@ -320,3 +320,46 @@ was already dead, or not yet spawned, the tick they fired. The shapes, so the ne
 - `group_in_zone { group, zone }` (G5) is the enemy-side twin of `zone_entered` and waits for a wave's group to exist.
   EQ I uses it; the regression test is `plans.test.ts`'s "each re-keyed beat fires, and with its group alive".
 - A plan that wins at 156 s sees a 150 s wave for six seconds: a beat on that wave can only fire as it arrives.
+
+## `first_contact` is the two combat sides meeting (8 Nov 2026)
+
+`first_contact` used to be true on ANY `fire` event and ANY identified `contact` event, from anyone to anything. Under a passive plan that
+made the trigger fire at tick 1 to 12 in four shipped missions, before the player had met anyone:
+
+- **An enemy identifying a civilian** (side 2): Beit Sahwan I (tick 7), Wadi Halam IV (12), and Beit Sahwan Breach (400, not early but still
+  not a meeting).
+- **An enemy breaching a wall**: `selectBreachTarget` makes a unit with a goal that is pressed against a wall shoot it, with no notion of who
+  owns the wall. At tick 1 to 2 a gun truck cut a NEUTRAL wall (Wadi Halam V) and a militiaman a neutral structure (Khan Rafid III). One Wadi Halam V gun
+  truck also shot its own side's weapons workshop. That breach rule is untouched here; it is why the event existed, and the workshop shot looks
+  like its own defect (not filed).
+
+The rule now (`MissionRuntime.isEnemyFire` / `isEnemyContact`): side 0 and side 1 only, never the same side, never a neutral unit, and a
+structure counts only if the other side owns it. A reveal or a pre-marked spawn (observer -1) still counts: it is the player's side identifying
+an enemy. `packages/sim/src/first-contact.test.ts` is the rule; `tools/src/first_contact_start.test.ts` holds the shipped data to it;
+`tools/src/backtest/first-contact-probe.ts` prints, per trigger and seed, the tick it fires under the passive plan with the old and the new
+reading side by side and the world at that tick.
+
+**Khan Rafid III is deliberately left as it plays.** Its rocket team (`a_rocket_team_moves_into_the_east_lane`) spawned at tick 2 only because
+of the old rule, and the mission was tuned and playtested with it there. With a real first contact the scripted plan wins in 3.4 min with 1
+star (ROE 66, 9 out) instead of 1.5 min with 2 (ROE 90, 10 out), which also takes the star ladder from 68 to 67 and closes the `scout_shachaf`
+gate (29 stars where 30 are pinned). So the trigger is an explicit `timer_s` of 0.1 s (tick 2, the same tick) and the mission is unchanged.
+To get the on-contact ambush the label says, put `first_contact` back and retune the plan: that is a balance decision, not made here.
+The passive plan reaches contact late in the other four (Beit Sahwan I 2021, Breach 608, Khan Rafid III 5352 ticks; Wadi Halam IV and V never).
+
+## A side never cuts a structure it owns (8 Nov 2026)
+
+`selectBreachTarget` (a unit stopped against a wall, or standing beside one, cuts it) skipped garrisonable buildings and protected sites but never asked
+who OWNS the wall. Two shipped missions had a side-1 unit standing within `BREACH_TILES` of its own side's authored militia work, and shot it down in a
+passive run: Wadi Halam V's `militia_weapons_workshop` (a gun truck, destroyed at tick 127 of every seed: it is the eighth `raze` target, so the player
+had been getting it free) and Beit Sahwan III's `militia_field_clinic` (an ATGM cell, first shot at tick 405, destroyed at tick 2014). The guard is one
+line, `stOwner[s] === side[i]`, the same rule the auto-demolisher scan already carries ("razing your own works is an order"). `tools/src/backtest/
+structure-fire-probe.ts` prints, over every mission and seed, each shot at a structure by who owns it: 6 own rows before, 0 after.
+
+Cost: Wadi Halam V pays 200, not 220 (the plan now levels the eighth building itself, in the same five minutes), and the plan's target list swaps its last
+two entries so the gate-open run keeps winning seed 22. The ladder pin is 6977 (6987 for this change alone; GH-1170's -10 is already in).
+
+**Not changed, and worth the lead's look**: the same scan lets any side-1 unit that is NOT human-held cut a NEUTRAL wall near it with no order and no goal
+(`moving 0`), so an enemy squad parked beside a compound wall starts shooting it in the first seconds of a passive run, and by tick 6000 the wall is destroyed in 14 of the 15 seed-1 rows, in about a dozen missions (45
+(mission, seed, shooter, structure) rows over seeds 1-3, up to 4,000 shots: Ein Qasab I-III, Khan Rafid I and III, Umm Zeitoun II-IV, Deir Amun II,
+Beit Sahwan III and IV, Wadi Halam V). The function's own comment says a defender holding his compound never fires on his own fence; the code only
+gates that on `moving`. It is long-standing and every plan was tuned with it, so it is a design call, not a bug fix made here.

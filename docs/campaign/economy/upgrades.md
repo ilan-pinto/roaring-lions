@@ -47,6 +47,23 @@ the envelope asks for two to three tracks of two to three tiers, not for every
 whitelisted field to be spent, and a unit's PRIMARY weapon (index 0) is the one
 that decides its role.
 
+**The price rule (GH-1077, 2026-11-08).** A tier's price, in credits, is
+
+```
+price(tier) = round5(cost.logistics x m[track][tier])
+m.armour    = 0.40 / 0.60 / 0.85
+m.sensors   = 0.33 / 0.50 / 0.70
+m.firepower = 0.50 / 0.75 / 1.05
+round5(x)   = 5 x (x / 5 rounded to the nearest integer, halves to even)
+```
+
+It reproduces all 46 shipped tracks on the sixteen earned-gate and starting units of this
+document exactly (spec `2026-11-07-store-garage-benefits-design.md` §2.2). The shipped tracks it
+does not fit carry their own prices: `attack_drone` (§7.4), `heli_yanshuf`, and E5's three
+(`recon_zikit`, `demo_tzav`, `heli_peten_gunship`, the Gunship at about 1.25x). The nine GH-1077
+tracks (§3, last block) follow it with no premium for a bought unit, and a fit may move a DELTA,
+never a price: a price moves only by the lead's ruling.
+
 ## 2. Baseline §5.7 numbers
 
 `pnpm balance` at base (unmodified roster), the contract every max-tier change
@@ -1624,6 +1641,815 @@ Power score (this document's own re-derivation of `validate_balance.py`'s curve)
 }
 ```
 
+### GH-1077: the nine bought-only units (Store/Garage WP1, 2026-11-08)
+
+**Scope.** Spec `2026-11-07-store-garage-benefits-design.md` §2.2 and plan
+`2026-11-07-store-garage.md` Task WP1, under the lead's ruling D1 (7 Nov): tracks for the nine
+bought-only KDF units that shipped with none, with no premium for bought units. Base:
+`origin/main` `336c5bc42`. These tracks are **shipped** (WP8, branch `data/bought-unit-tracks`): the
+staged file `docs/campaign/special_units/gh1077/tracks.json` and its test `gh1077_staged.test.ts`
+were deleted in the commit that copied the blocks, verbatim, into `data/units/kdf/`, and
+`tools/src/bought_unit_tracks.test.ts` (T12) guards them. E5's three
+(`recon_zikit`, `demo_tzav`, `heli_peten_gunship`), `attack_drone` (§7.4) and `heli_yanshuf` keep
+their own prices.
+
+**Method.** The §2.2 drafts were applied to the nine unit JSONs in the WP1 worktree as a local,
+uncommitted patch, measured, and the patch was undone by writing each file's saved original bytes
+back (never `git checkout`); `git status --porcelain -uall data/units` was empty afterwards. Every
+measurement is the COMBINED pass: the nine at max tier together with every shipped track at max
+tier. The su:probes pass has no max-tier switch, so for it the nine's max-tier stats were baked into
+their base JSON (the plain Lavi and every other unit at base), and a base su:probes run on
+`origin/main` data is the comparison.
+
+**The fit moved nothing.** The drafts are the fitted numbers: every measurement stayed inside its
+band, so no delta was shrunk (§4's method shrinks only the delta that broke a named target, and
+none broke), and no price moved. The sibling exceptions were taken as drafted, each for a reason
+§4 already measured:
+- `mbt_lavi_camo` copies `mbt_lavi`'s three tracks' deltas verbatim (shared hull and gun; the
+  Lavi's armour track is the one §4.2 shrank for the ATGM Pk target). Its PRICES follow the rule on
+  its own logistics, 960, not the Lavi's 906.
+- The three foot teams take the rifle squad's foot faces, +1 / 2 / 2. The two rifle-armed teams
+  (`inf_medic_squad`'s carbines, `inf_grenadier`'s rifles) take its sight, +1 / 2 / 2 (§4.3, sight
+  past a short weapon's range). `at_nlos_team`'s missile reaches 24 tiles, past any sight it can
+  buy, so it keeps the generic +1 / 2 / 3.
+- `at_nlos_team` firepower is `at_team`'s §4.1 pattern on penetration 1000: +80 / 160 / 250, and
+  accuracy +0.03 / 0.06 / 0.07.
+- `air_medevac_heli` armour is front +0 on every tier (the Gunship ruling, 29 Sep); hp, side and
+  rear take the generic 7 / 15 / 25%. Its front stays 32 mm.
+- `ugv_recon_dog` armour is hp only, like `recon_drone`.
+- No firepower track on the two howitzers (Q11 already wins 30 of 30; bomblets ignore
+  penetration), on `inf_medic_squad`, or on the three unarmed units.
+- No soft unit turns hard: the foot faces top out at +2 (front 12 mm), and the hard census stays
+  16 (`vehicle_health_bounds.test.ts` passes on the patched roster).
+
+**Price rule.** §1's formula, unchanged by the fit. The table below is the shipped blocks', and
+`bought_unit_tracks.test.ts` recomputes every price from literal multipliers.
+
+| unit | logistics | tracks: tier prices (credits) | credits to max | coins to max |
+|---|---|---|---|---|
+| `mbt_lavi_camo` | 960 | armour 385 / 575 / 815; sensors 315 / 480 / 670; firepower 480 / 720 / 1010 | 5,450 | 570 |
+| `spg_long_range` | 400 | armour 160 / 240 / 340; sensors 130 / 200 / 280 | 1,350 | 145 |
+| `spg_cluster` | 400 | armour 160 / 240 / 340; sensors 130 / 200 / 280 | 1,350 | 145 |
+| `at_nlos_team` | 265 | armour 105 / 160 / 225; sensors 85 / 130 / 185; firepower 130 / 200 / 280 | 1,500 | 170 |
+| `veh_ambulance` | 540 | armour 215 / 325 / 460; sensors 180 / 270 / 380 | 1,830 | 200 |
+| `air_medevac_heli` | 330 | armour 130 / 200 / 280; sensors 110 / 165 / 230 | 1,115 | 125 |
+| `inf_medic_squad` | 295 | armour 120 / 175 / 250; sensors 95 / 150 / 205 | 995 | 110 |
+| `inf_grenadier` | 320 | armour 130 / 190 / 270; sensors 105 / 160 / 225; firepower 160 / 240 / 335 | 1,815 | 205 |
+| `ugv_recon_dog` | 190 | armour 75 / 115 / 160; sensors 65 / 95 / 135 | 645 | 80 |
+| **all nine** | | | **16,050** | **1,750** |
+
+Coins are per tier, `coinPrice(price)` = `ceil(price / 50) x 5`, summed (the Te'o Howitzer:
+20 + 25 + 35 + 15 + 20 + 30 = 145; `coinPrice(1350)` would read 135, which is spec T9's trap).
+
+**The four measurements, verbatim.**
+
+1. `python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02`, and
+   the `--also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709` form CI runs.
+   Both print the same (the two staging directories hold no unit JSON any more):
+
+   ```
+   max-tier pass: every 'upgrades'-bearing unit patched, K=0.02
+   fitted curve: cost = 300.825 * power^0.483  (n=47)
+   balance gate passed: 47 units within +/-18%
+   ```
+
+   On `origin/main` data the same command fits `301.353 * power^0.482`. The widest unit is
+   `heli_yanshuf` +15.3% (was +14.9%, a refit side effect: it is not one of the nine); the widest of
+   the nine is `at_nlos_team` +14.3%. The nine's own rows are in each entry below.
+2. `pnpm balance`: `backtest (base): all targets met`, `backtest (max tier): all targets met`, and
+   both tables are line-for-line identical to `origin/main`'s (`diff` empty, the timing line aside).
+   No §5.7 target spawns any of the nine. At max tier: ATGM Pk 0.77, APS 0.73, standoff +137
+   exchange / 68.5% down, urban 1:1=0% 2:1=42% 3:1=100% 4:1=100%, smoke 2:1+smoke 93%, Attack
+   formation 0/240 seeds read differently, Lanchester 12.0 / 16.0, air 1aa=100% 3aa=0%,
+   airDefence 3.83 / 98% / 0.52x / 1.50x. No target moved.
+3. `pnpm playtest` (exit 0): `max tier: 29 of 29 plain victories hold`. No victory lost, no star
+   dropped. Against `origin/main`, only two max-tier replays read differently, and neither in
+   outcome or stars: `wadi_halam_2_laager` 6.6 → 6.7 min, credits 200 → 190;
+   `beit_sahwan_4_subterranean` 2.7 → 2.8 min, roster out 20 → 21, credits 210 → 220. Every
+   non-max-tier line is identical except the catalogue report: `credits: catalogue 122205 credits
+   (shipped KDF JSON), 17.44 campaigns at base tier, 17.23 at max tier` becomes `138255 ... 19.73
+   campaigns at base tier, 19.49 at max tier`. `LADDER_CREDITS` (`campaign 1 pays 7007`) does not
+   move. Of the nine, only `inf_medic_squad` appears in any mission (loaned in 29); the other eight
+   are named by no mission, so the playtest cannot see their tracks at all.
+4. `pnpm --filter @lions/tools su:probes` with the nine baked at max tier: `su probes: all claims
+   met` (exit 0), the same as at base. Q11 still prints TRIGGERED (the gun wins 30/30 at 28 tiles),
+   as it does at base; that is the existing lead call, not a flip. Per-unit rows are in each entry.
+   Each arm took seconds (1.5 s in all), so no cloud session was needed.
+
+**Falsifications (each run, watched red, then undone).**
+- **T15** (the cost-curve check sees an absurd tier): `spg_long_range` armour tier 3 `hull.hp`
+  +5000. Both `--max-tier` forms exit 1: `BALANCE GATE FAILED -- 1 unit(s) off the cost curve:
+  spg_long_range (spg_long_range.json): UNDERPRICED cost=427 expected=700 deviation=-39.0% (limit
+  +/-18%)`.
+- **T16** (does the playtest see the medic's armour track): `inf_medic_squad` armour tier 3
+  `hull.hp` set to −300 (a 60 hp medic at max tier; local only, and below the schema's minimum 0, so
+  it is a sim-side probe, not shippable data). **Nothing went red**: exit 0, `max tier: 29 of 29
+  plain victories hold`, no star dropped. The replay does field the weakened medic (three max-tier
+  replays read differently: `beit_sahwan_breach` credits 210 → 200, `wadi_halam_5_depot` roster out
+  19 → 18 and credits 210 → 190, `wadi_halam_2_laager` 6.7 → 6.6 min; campaign 2 at max tier 7092 →
+  7062), but its gate is outcome class and the star floor, and a medic at 60 hp moves neither.
+  **The playtest cannot see the medic's armour track** as a gate. It is a report, not a guard.
+- **T14** (no soft unit turns hard): `inf_medic_squad` armour tier 3 front +20 (tier 3 front +22,
+  front 32 mm). `vehicle_health_bounds.test.ts` goes red: `censuses every unit twice, and exactly
+  the hard types` `expected 17 to be 16`. On the unmutated patch it passes, 5 of 5.
+- **`gh1077_staged.test.ts`**: one staged price moved by 5 (`spg_long_range` armour tier 1 160 →
+  165) turns three tests red (`expected [ 165, 240, 340 ] to deeply equal [ 160, 240, 340 ]`,
+  `expected 1355 to be 1350`, `expected 16055 to be 16050`). The test's OWN armour multiplier
+  0.40 → 0.41 turns seven red (six units' armour rows, such as `expected [ 160, 240, 340 ] to
+  deeply equal [ 165, 240, 340 ]`, and the rule's own pin `906 x 0.41`; `inf_medic_squad` and
+  `inf_grenadier` round to the same prices at both, which is why the rule also pins literals).
+  The medevac's tier 2 front set to 3 and the medic's tier 3 front +20 in the staged file turn the
+  shape and soft-stays-soft checks red (`expected 3 to be +0`, `expected 22 to be less than or equal
+  to 2`, `expected false to be true`). With the nine's tracks written into `data/units`, the
+  "still staged" pin goes red for all nine (`expected { armour: … } to be undefined`).
+
+### Nachlieli Medevac (`air_medevac_heli`)
+
+Role `apc`, logistics 330, bought-only (unlock 6,500 credits). Tracks: armour, sensors. Total credits to max every track: **1,115** (125 coins).
+
+**Measured at max tier:** cost curve (`--max-tier --upgrade-cost-factor 0.02`, both CI forms) power 0.9 → 1.1, deviation +14.4% at base → **+11.4%** at max (band ±18%). `pnpm balance`: no §5.7 target spawns this type; both tables read identically to `origin/main`. The playtest fields this unit in no mission (no mission names it), so the max-tier replay cannot see its tracks. Deferred in su:probes (Phase 5, needs E1 unit aura): no probe reads it.
+
+```json
+{
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 130,
+          "patch": {
+            "hull.hp": 56,
+            "hull.armor.front": 0,
+            "hull.armor.side": 1,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 200,
+          "patch": {
+            "hull.hp": 120,
+            "hull.armor.front": 0,
+            "hull.armor.side": 3,
+            "hull.armor.rear": 2
+          }
+        },
+        {
+          "price": 280,
+          "patch": {
+            "hull.hp": 200,
+            "hull.armor.front": 0,
+            "hull.armor.side": 5,
+            "hull.armor.rear": 4
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 110,
+          "patch": {
+            "sensors.optics": 0.09,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 165,
+          "patch": {
+            "sensors.optics": 0.17,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 230,
+          "patch": {
+            "sensors.optics": 0.28,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### Zaron Missile Team (`at_nlos_team`)
+
+Role `at_team`, logistics 265, bought-only (unlock 5,500 credits). Tracks: armour, sensors, firepower. Total credits to max every track: **1,500** (170 coins).
+
+**Measured at max tier:** cost curve (`--max-tier --upgrade-cost-factor 0.02`, both CI forms) power 0.6 → 0.7, deviation +11.9% at base → **+14.3%** at max (band ±18%). `pnpm balance`: no §5.7 target spawns this type; both tables read identically to `origin/main`. The playtest fields this unit in no mission (no mission names it), so the max-tier replay cannot see its tracks. SU probe 4a (NLOS reach): 20/20 kills on both targets, 19.1 s and 1.45 rounds (base 19/20, 21.4 s, 1.65). 4b (Conduct): 20/20, 1.30 rounds, 0.00 Conduct lost, 0/20 seeds charged (base 1.60 rounds, the same 0.00). The `no indirect` control stays 0/20. Every claim met.
+
+```json
+{
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 105,
+          "patch": {
+            "hull.hp": 27,
+            "hull.armor.front": 1,
+            "hull.armor.side": 1,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 160,
+          "patch": {
+            "hull.hp": 57,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        },
+        {
+          "price": 225,
+          "patch": {
+            "hull.hp": 95,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 85,
+          "patch": {
+            "sensors.optics": 0.1,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 130,
+          "patch": {
+            "sensors.optics": 0.18,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 185,
+          "patch": {
+            "sensors.optics": 0.3,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    },
+    "firepower": {
+      "tiers": [
+        {
+          "price": 130,
+          "patch": {
+            "weapons[0].accuracy": 0.03,
+            "weapons[0].penetration": 80
+          }
+        },
+        {
+          "price": 200,
+          "patch": {
+            "weapons[0].accuracy": 0.06,
+            "weapons[0].penetration": 160
+          }
+        },
+        {
+          "price": 280,
+          "patch": {
+            "weapons[0].accuracy": 0.07,
+            "weapons[0].penetration": 250
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### Chomet Grenadier Squad (`inf_grenadier`)
+
+Role `infantry`, logistics 320, bought-only (unlock 4,000 credits). Tracks: armour, sensors, firepower. Total credits to max every track: **1,815** (205 coins).
+
+**Measured at max tier:** cost curve (`--max-tier --upgrade-cost-factor 0.02`, both CI forms) power 1.4 → 1.5, deviation -8.5% at base → **-2.3%** at max (band ±18%). `pnpm balance`: no §5.7 target spawns this type; both tables read identically to `origin/main`. The playtest fields this unit in no mission (no mission names it), so the max-tier replay cannot see its tracks. SU probe 9 (cover): advantage over `inf_squad` open 0.676, cover 2 0.735 (base 0.644 / 0.682). The claim is a floor on the advantage, and the advantage only grows.
+
+```json
+{
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 130,
+          "patch": {
+            "hull.hp": 28,
+            "hull.armor.front": 1,
+            "hull.armor.side": 1,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 190,
+          "patch": {
+            "hull.hp": 60,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        },
+        {
+          "price": 270,
+          "patch": {
+            "hull.hp": 100,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 105,
+          "patch": {
+            "sensors.optics": 0.08,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 160,
+          "patch": {
+            "sensors.optics": 0.15,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 225,
+          "patch": {
+            "sensors.optics": 0.25,
+            "sensors.sight_tiles": 2
+          }
+        }
+      ]
+    },
+    "firepower": {
+      "tiers": [
+        {
+          "price": 160,
+          "patch": {
+            "weapons[0].accuracy": 0.03,
+            "weapons[0].penetration": 2
+          }
+        },
+        {
+          "price": 240,
+          "patch": {
+            "weapons[0].accuracy": 0.06,
+            "weapons[0].penetration": 5
+          }
+        },
+        {
+          "price": 335,
+          "patch": {
+            "weapons[0].accuracy": 0.1,
+            "weapons[0].penetration": 8
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### Nemala Medic Team (`inf_medic_squad`)
+
+Role `support`, logistics 295, bought-only (unlock 4,250 credits). Tracks: armour, sensors. Total credits to max every track: **995** (110 coins).
+
+**Measured at max tier:** cost curve (`--max-tier --upgrade-cost-factor 0.02`, both CI forms) power 0.8 → 0.9, deviation +7.1% at base → **+8.8%** at max (band ±18%). `pnpm balance`: no §5.7 target spawns this type; both tables read identically to `origin/main`. The playtest's max-tier replay fields the medic: it is loaned in 29 missions, and `beit_sahwan_breach (max tier)` reports `fielded inf_medic_squad=true`. 29 of 29 plain victories hold, no star drops. T16 (above) shows the replay fields the medic but cannot gate on its armour track: a 60 hp medic at max tier still holds 29 of 29. Deferred in su:probes (Phase 5, needs E1 unit aura): no probe reads it.
+
+```json
+{
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 120,
+          "patch": {
+            "hull.hp": 25,
+            "hull.armor.front": 1,
+            "hull.armor.side": 1,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 175,
+          "patch": {
+            "hull.hp": 54,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        },
+        {
+          "price": 250,
+          "patch": {
+            "hull.hp": 90,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 95,
+          "patch": {
+            "sensors.optics": 0.08,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 150,
+          "patch": {
+            "sensors.optics": 0.15,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 205,
+          "patch": {
+            "sensors.optics": 0.25,
+            "sensors.sight_tiles": 2
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### Lavi Ambush Tank (`mbt_lavi_camo`)
+
+Role `mbt`, logistics 960, bought-only (unlock 6,000 credits). Tracks: armour, sensors, firepower. Total credits to max every track: **5,450** (570 coins).
+
+**Measured at max tier:** cost curve (`--max-tier --upgrade-cost-factor 0.02`, both CI forms) power 9.0 → 11.3, deviation +10.4% at base → **+10.2%** at max (band ±18%). `pnpm balance`: no §5.7 target spawns this type; both tables read identically to `origin/main`. The playtest fields this unit in no mission (no mission names it), so the max-tier replay cannot see its tracks. SU probe 1 (found late): still met. Only the `firing` rows move, and earlier: identified at 4/6/8 tiles in 27/61/108 ticks by `sarim_rifles` (base 31/70/124), 28/62/109 by `atgm_cell` (33/72/132), 32/70 by `rpg_team` (37/84). The plain Lavi in the same probe is at BASE (17/38/69 by `sarim_rifles`), so the camo stays the later one in every claim cell. The `ambush` and `moving` rows do not move.
+
+```json
+{
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 385,
+          "patch": {
+            "hull.hp": 210,
+            "hull.armor.front": 14,
+            "hull.armor.side": 6,
+            "hull.armor.rear": 3
+          }
+        },
+        {
+          "price": 575,
+          "patch": {
+            "hull.hp": 450,
+            "hull.armor.front": 25,
+            "hull.armor.side": 11,
+            "hull.armor.rear": 5
+          }
+        },
+        {
+          "price": 815,
+          "patch": {
+            "hull.hp": 750,
+            "hull.armor.front": 35,
+            "hull.armor.side": 15,
+            "hull.armor.rear": 8
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 315,
+          "patch": {
+            "sensors.optics": 0.1,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 480,
+          "patch": {
+            "sensors.optics": 0.18,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 670,
+          "patch": {
+            "sensors.optics": 0.3,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    },
+    "firepower": {
+      "tiers": [
+        {
+          "price": 480,
+          "patch": {
+            "weapons[0].accuracy": 0.03,
+            "weapons[0].penetration": 104
+          }
+        },
+        {
+          "price": 720,
+          "patch": {
+            "weapons[0].accuracy": 0.06,
+            "weapons[0].penetration": 208
+          }
+        },
+        {
+          "price": 1010,
+          "patch": {
+            "weapons[0].accuracy": 0.1,
+            "weapons[0].penetration": 325
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### Te'o Cluster Howitzer (`spg_cluster`)
+
+Role `artillery`, logistics 400, bought-only (unlock 7,500 credits). Tracks: armour, sensors. Total credits to max every track: **1,350** (145 coins).
+
+**Measured at max tier:** cost curve (`--max-tier --upgrade-cost-factor 0.02`, both CI forms) power 1.5 → 1.9, deviation +8.4% at base → **+3.8%** at max (band ±18%). `pnpm balance`: no §5.7 target spawns this type; both tables read identically to `origin/main`. The playtest fields this unit in no mission (no mission names it), so the max-tier replay cannot see its tracks. SU probe 11 (cluster): every row identical to base (no firepower track, and the 18-tile scenes are identified each tick, so sensors cannot move them).
+
+```json
+{
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 160,
+          "patch": {
+            "hull.hp": 98,
+            "hull.armor.front": 4,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 240,
+          "patch": {
+            "hull.hp": 210,
+            "hull.armor.front": 9,
+            "hull.armor.side": 4,
+            "hull.armor.rear": 3
+          }
+        },
+        {
+          "price": 340,
+          "patch": {
+            "hull.hp": 350,
+            "hull.armor.front": 15,
+            "hull.armor.side": 8,
+            "hull.armor.rear": 5
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 130,
+          "patch": {
+            "sensors.optics": 0.07,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 200,
+          "patch": {
+            "sensors.optics": 0.14,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 280,
+          "patch": {
+            "sensors.optics": 0.23,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### Te'o Howitzer (`spg_long_range`)
+
+Role `artillery`, logistics 400, bought-only (unlock 6,500 credits). Tracks: armour, sensors. Total credits to max every track: **1,350** (145 coins).
+
+**Measured at max tier:** cost curve (`--max-tier --upgrade-cost-factor 0.02`, both CI forms) power 1.5 → 1.8, deviation +10.8% at base → **+5.6%** at max (band ±18%). `pnpm balance`: no §5.7 target spawns this type; both tables read identically to `origin/main`. The playtest fields this unit in no mission (no mission names it), so the max-tier replay cannot see its tracks. SU probe 2 (reach duel): 30 of 30 at 20 to 28 tiles, unchanged from base (armour and sensors cannot move a duel the gun already wins outright; Q11 already TRIGGERED at base, a lead call that WP1 does not touch).
+
+```json
+{
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 160,
+          "patch": {
+            "hull.hp": 98,
+            "hull.armor.front": 4,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 240,
+          "patch": {
+            "hull.hp": 210,
+            "hull.armor.front": 9,
+            "hull.armor.side": 4,
+            "hull.armor.rear": 3
+          }
+        },
+        {
+          "price": 340,
+          "patch": {
+            "hull.hp": 350,
+            "hull.armor.front": 15,
+            "hull.armor.side": 8,
+            "hull.armor.rear": 5
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 130,
+          "patch": {
+            "sensors.optics": 0.07,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 200,
+          "patch": {
+            "sensors.optics": 0.14,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 280,
+          "patch": {
+            "sensors.optics": 0.23,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### Chadaf Recon Robot (`ugv_recon_dog`)
+
+Role `drone`, logistics 190, bought-only (unlock 4,000 credits). Tracks: armour, sensors. Total credits to max every track: **645** (80 coins).
+
+**Measured at max tier:** cost curve (`--max-tier --upgrade-cost-factor 0.02`, both CI forms) power 0.4 → 0.5, deviation -3.1% at base → **-4.8%** at max (band ±18%). `pnpm balance`: no §5.7 target spawns this type; both tables read identically to `origin/main`. The playtest fields this unit in no mission (no mission names it), so the max-tier replay cannot see its tracks. SU probe 10 (tunnel identification): 171 ticks (base 217). `recon_drone` 92 and `yahalom_squad` 425 are unchanged, so the order the probe reports holds.
+
+```json
+{
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 75,
+          "patch": {
+            "hull.hp": 11
+          }
+        },
+        {
+          "price": 115,
+          "patch": {
+            "hull.hp": 24
+          }
+        },
+        {
+          "price": 160,
+          "patch": {
+            "hull.hp": 40
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 65,
+          "patch": {
+            "sensors.optics": 0.13,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 95,
+          "patch": {
+            "sensors.optics": 0.24,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 135,
+          "patch": {
+            "sensors.optics": 0.4,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### Pered Armoured Ambulance (`veh_ambulance`)
+
+Role `apc`, logistics 540, bought-only (unlock 5,000 credits). Tracks: armour, sensors. Total credits to max every track: **1,830** (200 coins).
+
+**Measured at max tier:** cost curve (`--max-tier --upgrade-cost-factor 0.02`, both CI forms) power 2.6 → 3.5, deviation +13.6% at base → **+3.9%** at max (band ±18%). `pnpm balance`: no §5.7 target spawns this type; both tables read identically to `origin/main`. The playtest fields this unit in no mission (no mission names it), so the max-tier replay cannot see its tracks. Deferred in su:probes (Phase 5, needs E1 unit aura): no probe reads it.
+
+```json
+{
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 215,
+          "patch": {
+            "hull.hp": 119,
+            "hull.armor.front": 17,
+            "hull.armor.side": 11,
+            "hull.armor.rear": 6
+          }
+        },
+        {
+          "price": 325,
+          "patch": {
+            "hull.hp": 255,
+            "hull.armor.front": 36,
+            "hull.armor.side": 22,
+            "hull.armor.rear": 14
+          }
+        },
+        {
+          "price": 460,
+          "patch": {
+            "hull.hp": 425,
+            "hull.armor.front": 60,
+            "hull.armor.side": 38,
+            "hull.armor.rear": 22
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 180,
+          "patch": {
+            "sensors.optics": 0.08,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 270,
+          "patch": {
+            "sensors.optics": 0.15,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 380,
+          "patch": {
+            "sensors.optics": 0.25,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
 ## 4. Finding the four deltas that broke a target, and shrinking them
 
 The generic percentage curve in §3 was applied to all seventeen types and run
@@ -1988,4 +2814,28 @@ campaign") — the long tail is intended, not a pricing miss.
 | sniper_team | 3 (armour, sensors, firepower) | 3 | 1475 |
 | yahalom_squad | 3 (armour, sensors, firepower) | 3 | 1475 |
 | **all 17** | | | **34965** (was 36260 before `attack_drone`'s re-price, §7.4) |
+
+**GH-1077 (2026-11-08), shipped (WP8)** (§3, last block): the nine bought-only units with
+no tracks get 16,050 credits of tiers between them, 1,750 coins.
+
+| type | tracks | tiers | total price |
+|---|---|---|---|
+| mbt_lavi_camo | 3 (armour, sensors, firepower) | 3 | 5450 |
+| spg_long_range | 2 (armour, sensors) | 3 | 1350 |
+| spg_cluster | 2 (armour, sensors) | 3 | 1350 |
+| at_nlos_team | 3 (armour, sensors, firepower) | 3 | 1500 |
+| veh_ambulance | 2 (armour, sensors) | 3 | 1830 |
+| air_medevac_heli | 2 (armour, sensors) | 3 | 1115 |
+| inf_medic_squad | 2 (armour, sensors) | 3 | 995 |
+| inf_grenadier | 3 (armour, sensors, firepower) | 3 | 1815 |
+| ugv_recon_dog | 2 (armour, sensors) | 3 | 645 |
+| **the nine** | | | **16050** |
+
+**The catalogue after GH-1077.** Re-summed from the shipped `data/units/kdf/*.json` on
+`origin/main` `336c5bc42`: every shipped track's tiers come to 43,505 credits (the seventeen above,
+plus E5's three, `heli_yanshuf` and the re-priced `attack_drone`), and every bought-only and gated
+unlock to 78,700, a credit catalogue of **122,205**. With the nine's tracks it becomes 59,555 of
+tiers and **138,255** in all: from 17.44 to 19.73 campaigns at `CAMPAIGN_CREDITS` 7,007, which is
+the playtest's own report line (`credits: catalogue 138255 credits (shipped KDF JSON), 19.73
+campaigns at base tier`).
 

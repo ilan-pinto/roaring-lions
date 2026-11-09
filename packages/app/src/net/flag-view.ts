@@ -15,10 +15,11 @@ export interface FlagRuntime {
   readonly objectiveList: readonly { readonly id: string; readonly status: string; readonly paused?: 'contested' | 'unheld'; readonly ticksLeft?: number }[];
 }
 
-/** The slice of the mode file the board reads. */
+/** The slice of the rules the board reads: a flag block as `flagBlockOf(file, setup)` returns it (GH-976 R0.22), so a set-up room
+ *  and a v1 room are read alike. */
 export interface FlagRules {
   readonly flags: { readonly friendly: { readonly at: readonly number[]; readonly size: readonly number[] }; readonly hostile: { readonly at: readonly number[]; readonly size: readonly number[] } };
-  readonly modes: { readonly flag?: { readonly hold_s: number } };
+  readonly holdS: number;
 }
 
 /** How the raid on one flag stands. `open`: nobody of the raiding side is on it. `raiding`: the raiders hold it alone and
@@ -62,7 +63,7 @@ function raidOf(rt: FlagRuntime, side: 0 | 1, holdS: number, at: readonly number
 
 /** `viewer`'s board, given the END its side stands at (`endOfViewer`; the other side is at the other end). */
 export function flagViewOf(rt: FlagRuntime, rules: FlagRules, viewer: 0 | 1, endOfViewer: 'friendly' | 'hostile'): FlagView {
-  const holdS = rules.modes.flag?.hold_s ?? 0;
+  const holdS = rules.holdS;
   const theirEnd = endOfViewer === 'friendly' ? 'hostile' : 'friendly';
   const enemy: 0 | 1 = viewer === 0 ? 1 : 0;
   return {

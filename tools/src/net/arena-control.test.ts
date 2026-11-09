@@ -65,7 +65,7 @@ describe('parseStartBody (pure)', () => {
     expect(plain.ok && plain.run.mode).toBe('annihilation');
     expect(ok({ ...base, mode: null }).ok).toBe(true);
     // an offered mode goes to the arena's own --mode, after the matchup, and the summary names it
-    for (const mode of ['points', 'flag']) {
+    for (const mode of ['points']) {
       const r = ok({ ...base, mode });
       expect(r.ok, mode).toBe(true);
       if (!r.ok) continue;
@@ -73,7 +73,7 @@ describe('parseStartBody (pure)', () => {
       expect(r.run.mode).toBe(mode);
     }
     // GH-976 P4: the five other open maps offer both modes in the mirror: each goes to the arena's own --mode with its matchup in front of it.
-    for (const [map, matchup, mode] of [['tel_marum', 'mirror', 'flag'], ['rujm_sawda', 'mirror', 'points'], ] as const) {
+    for (const [map, matchup, mode] of [['tel_marum', 'mirror', 'points'], ['rujm_sawda', 'mirror', 'points'], ] as const) {
       const r = ok({ ...base, map, matchup, mode });
       expect(r.ok, `${map} ${matchup} ${mode}`).toBe(true);
       if (!r.ok) continue;
@@ -81,7 +81,7 @@ describe('parseStartBody (pure)', () => {
     }
     // camp is read fair nowhere, a faction pairing nobody read fair is offered none (the flag on Wadi Tarfan (large), anything on
     // Wadi Tarfan or Tel Marum), a mirror-only map refuses the pairing itself, and a stranger is not a mode
-    for (const [over, why] of [[{ mode: 'camp', map: 'tel_marum' }, 'camp unoffered on tel_marum'], [{ mode: 'flag', map: 'wadi_tarfan_l', matchup: 'kdf' }, 'flag kdf v sarim'], [{ mode: 'points', map: 'wadi_tarfan_l', matchup: 'sarim' }, 'wadi_tarfan_l sarim host'], [{ mode: 'points', matchup: 'sarim' }, 'wadi_tarfan sarim host'], [{ mode: 'points', map: 'tel_marum', matchup: 'kdf' }, 'tel_marum kdf host'], [{ mode: 'rally' }, 'unknown'], [{ mode: 5 }, 'number'], [{ mode: '' }, 'empty']] as const) {
+    for (const [over, why] of [[{ mode: 'camp', map: 'tel_marum' }, 'camp unoffered on tel_marum'], [{ mode: 'flag', map: 'wadi_tarfan_l', matchup: 'kdf' }, 'flag kdf v sarim'], [{ mode: 'points', map: 'wadi_tarfan_l', matchup: 'sarim' }, 'wadi_tarfan_l sarim host'], [{ mode: 'points', matchup: 'sarim' }, 'wadi_tarfan sarim host'], [{ mode: 'points', map: 'tel_marum', matchup: 'kdf' }, 'tel_marum kdf host'], [{ mode: 'flag' }, 'flag out of the lobby (GH-1139)'], [{ mode: 'flag', map: 'tel_marum' }, 'flag out on tel_marum (GH-1139)'], [{ mode: 'rally' }, 'unknown'], [{ mode: 5 }, 'number'], [{ mode: '' }, 'empty']] as const) {
       expect(ok({ ...base, ...over }), why).toEqual({ ok: false, error: 'bad_mode' });
     }
   });

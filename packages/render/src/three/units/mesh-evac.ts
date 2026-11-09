@@ -62,6 +62,7 @@ import {
   beginMeshDeathFade,
   endMeshDeathFade,
   setMeshDeathOpacity,
+  type AdoptQueue,
   type MeshFadeSwap,
 } from './mesh-death';
 import { advanceMeshClipFades } from './mesh-clip';
@@ -125,8 +126,9 @@ export interface DepartingMeshUnit {
  * when a soldier arrived. Both are upright, which is the whole requirement;
  * neither is `down`.
  */
-export function beginMeshEvac(entity: MeshUnitEntity): DepartingMeshUnit {
-  return { entity, t: 0, swaps: beginMeshDeathFade(entity.root) };
+export function beginMeshEvac(entity: MeshUnitEntity, adopt?: AdoptQueue): DepartingMeshUnit {
+  // GH-943 P3 (T1): `adopt` is the node adoption queue (`ThreeRenderer.queueNodeAdoption`); the fade clone is adopted at once.
+  return { entity, t: 0, swaps: beginMeshDeathFade(entity.root, adopt) };
 }
 
 /**

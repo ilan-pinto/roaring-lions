@@ -94,6 +94,7 @@ import {
   formations,
   grades,
   versusModes,
+  flagBlockOf,
 } from '@lions/data';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
@@ -104,7 +105,8 @@ import { createShownTimer, incomeHeld, loadHintsSeen, markHintSeen, owedRule, ty
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { mountBelowGround, type BelowGroundStrip } from './ui/below-ground';
 import { trackCloseup } from './ui/garage-closeup';
-import { Minimap, minimapSizeFor, flipRows } from './ui/minimap';
+import { Minimap, minimapSizeFor, flipRows, type PayZone } from './ui/minimap';
+import { pointsExplainer } from './ui/points-explainer';
 import { alertsForTick, initAlertState, missionEventTier, nextJump, type Alert, type AlertState, type JumpTarget } from './ui/alerts';
 import { roomAlertsForTick, roomArrivals } from './ui/sandbox-feed';
 import { PinnedSince } from './ui/pinned-since';
@@ -118,10 +120,11 @@ import { refugeJump, sayFlight } from './ui/refuge-ping';
 import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
 import { isPinned } from './ui/pinned';
 import { showMenu, showCampaign, showSandbox } from './ui/menu';
-import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
+// The garage and its Stores load with the /brigade screen, never with the entry chunk (MAIN_CHUNK_MAX_BYTES).
+import type { BrigadeUnit, GarageState } from './ui/brigade';
 import { accountView } from './account-view';
 import { kdfUnlockGate } from './kdf-gate';
-import { coinTiers, spendable } from './roar-wallet';
+import { spendable } from './roar-wallet';
 import { roarBackfill, settleRoarAtBoot, settleVictory, type VictorySettle } from './roar-earn';
 import { buyWithCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
@@ -171,7 +174,9 @@ import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
-import { buyUnlock, buyUpgrade } from './brigade-account';
+import { buyUnlock } from './brigade-account';
+import { buyTierWithCredits } from './credit-buy';
+import { coinHalfFor, storeInputFor } from '@lions/economy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
@@ -286,12 +291,15 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { PAUSES_PER_SEAT, WsTransport, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
+import { PAUSES_PER_SEAT, WsTransport, flagSetupRoom, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
+import { accountsEnabled } from './account/enabled';
+// The account client and the profile screen load only behind `?accounts` (GH-1075 A1), never with the entry chunk.
+import type { AccountClient } from './account/client';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
 import { logRejoin, netReport } from './net/net-report';
@@ -300,6 +308,7 @@ import { seatShouldProduceSnapshots } from './net/snapshot-gate';
 import { settleRejoin } from './net/snapshot-rejoin';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
+import { ownedStoreSpecials } from './net/versus-specials';
 import { buildMatchWorld, matchTick, tunnelRouteOf } from './net/match-world';
 import { SPECTATOR_SHOWN, spectatorSink, type SpectateEnd, type SpectateHooks } from './net/spectator';
 import { roomDockMenu, roomDockRuntime, roomEconomyView } from './net/room-economy';
@@ -310,7 +319,7 @@ import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
-import { NetPoints } from './ui/net-points';
+import { NetPoints, payZoneOf } from './ui/net-points';
 import { NetFlags } from './ui/net-flags';
 import { flagMarksOf, flagViewOf, type FlagView } from './net/flag-view';
 import { pointsViewOf, type PointsView } from './net/points-view';
@@ -333,6 +342,8 @@ import {
   type RouteRequest,
 } from './shell/router';
 import { routes } from './shell/links';
+import { importWithRetry } from './shell/chunk';
+import { chunkFailedCard } from './shell/chunk-card';
 import { forgetRetiredKeys } from './retired-keys';
 // The menu's scene host (scene-host plan, Task 6): the lit diorama behind the
 // column. `ui/scene-host.ts` is the only thing that reaches its three.js door,
@@ -364,7 +375,8 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { browserLedgerStore, newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
+import { selectLedgerStore } from './account/select-store';
+import { newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { showVersus, showVersusRoom, versusMaps, type VersusDeps } from './ui/versus';
@@ -423,7 +435,9 @@ function safeStorage(): Storage | null {
  *  slots (`ledger-store.ts`). One per page, because it is a handle on the
  *  browser's own store rather than a snapshot of anything -- every read below
  *  still goes to storage at the moment it is made. */
-const ledgerStore = browserLedgerStore((w, l) => roarBackfill(w, l, parseWorld(world), Date.now()));
+// Task 2.12 reads `selectedStore.needsState` and awaits `GET state` before the first screen; until then a claimed device with no cache gets a blocked store.
+const selectedStore = selectLedgerStore(new URLSearchParams(window.location.search), safeStorage(), (w, l) => roarBackfill(w, l, parseWorld(world), Date.now()), { world: parseWorld(world) });
+const ledgerStore = selectedStore.store;
 // Settle the one-time Store back-pay before any slot or import can swap the ledger (G-E3).
 settleRoarAtBoot(ledgerStore);
 
@@ -932,6 +946,24 @@ async function main(): Promise<void> {
   // so `unknownParams` does not report either as a typo, and neither is in
   // `router.start`'s own `drop` list below, so a reload keeps carrying them.
   const q = new URLSearchParams(window.location.search);
+  // GH-1075 A1: the one account client of this page. Disabled (no `?accounts`, or `?fresh`) it is never even loaded, so it
+  // never calls `fetch`; enabled, its module is fetched on first use and the one client is shared by every caller.
+  const accountsOn = accountsEnabled(q);
+  let accountClientP: Promise<AccountClient> | null = null;
+  const accountClient = (): Promise<AccountClient> =>
+    (accountClientP ??= importWithRetry(() => import('./account/client')).then(
+      ({ createAccountClient }) =>
+        createAccountClient({
+          enabled: true,
+          fetch: window.fetch.bind(window),
+          newOpId: () => crypto.randomUUID(),
+        }),
+      (err: unknown) => {
+        // A failed load must not be cached: the next visit to the screen gets a fresh try.
+        accountClientP = null;
+        throw err;
+      }
+    ));
   const lang = resolveLang(q.get('lang'), settings.language);
   const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
   const cat = await loadLocale(activeLocale, BASE);
@@ -1012,6 +1044,15 @@ async function main(): Promise<void> {
       // GH-464: the menu's feedback modal -- the pause form without a picture
       // or a replay. `closeOpenDialog()` takes it down with the screen.
       feedbackAvailable: menuFeedback.shown ? menuFeedback.open() : undefined,
+      account: {
+        enabled: accountsOn,
+        // A client module that will not load reads as signed out, as an unreachable server does (`me()` answers `off`).
+        name: accountsOn
+          ? accountClient()
+              .then((c) => c.me())
+              .then((m) => (m.kind === 'signedIn' ? m.displayName : null), () => null)
+          : undefined,
+      },
       feedback: menuFeedback.shown && !feedbackClosed()
         ? () => {
             feedbackDialog(host, {
@@ -1137,33 +1178,27 @@ async function main(): Promise<void> {
     // Loaded once: the set of ids never changes, whatever is bought.
     const portraits: Record<string, string> = {};
     const portraitIcons = new Set<string>();
-    await Promise.all(
-      kdfUnits.map(async ({ id }) => {
+    // The screen's own module (the garage, the Stores, the "What it adds" panel) is fetched beside the portraits:
+    // it is off the entry chunk (MAIN_CHUNK_MAX_BYTES, `pnpm --filter @lions/tools webgpu:bundle`).
+    const [{ showBrigade }] = await Promise.all([
+      importWithRetry(() => import('./ui/brigade')),
+      ...kdfUnits.map(async ({ id }) => {
         const picture = await loadBrigadePortrait(id);
         if (picture === null) return;
         portraits[id] = picture.url;
         if (picture.isIcon) portraitIcons.add(id);
-      })
-    );
+      }),
+    ]);
     /** The answer to every purchase and to the reset: the account as the
      *  store holds it NOW, read through `accountState()` (which reads
      *  `ledgerStore.readAccount()`), never a copy this mount kept. A refusal
      *  answers the same way -- the store is the truth either way. */
     const now = (): GarageState => {
       const a = accountState();
-      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers };
+      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades };
     };
     /** Which part of the single-player account came from coins. */
-    const coinHalf = (): CoinHalf => {
-      const account = ledgerStore.readAccount();
-      const roar = ledgerStore.readRoar();
-      return {
-        earnedUnits: new Set(account.unlocks),
-        coinUnits: new Set(Object.keys(roar.entitlements.units)),
-        earnedTiers: account.upgrades,
-        coinTiers: coinTiers(roar),
-      };
-    };
+    const coinHalf = (): CoinHalf => coinHalfFor({ brigade: ledgerStore.readAccount(), roar: ledgerStore.readRoar() });
     return showBrigade(host, {
       units: kdfUnits,
       ledger: ledgerStore.readLedger(),
@@ -1223,16 +1258,10 @@ async function main(): Promise<void> {
         },
         onBuy: ledgerStore.available
             ? (ask) => {
-                const a = accountState();
+                const roar = ledgerStore.readRoar();
                 const { account, ok } = buyWithCoins(
-                  {
-                    units: garageUnits(a.boughtUnits),
-                    ledger: ledgerStore.readLedger(),
-                    credits: a.balance,
-                    owned: a.ownedTiers,
-                    coin: coinHalf(),
-                  },
-                  ledgerStore.readRoar(),
+                  storeInputFor({ ledger: ledgerStore.readLedger(), brigade: ledgerStore.readAccount(), roar }),
+                  roar,
                   ask,
                   Date.now()
                 );
@@ -1281,9 +1310,24 @@ async function main(): Promise<void> {
           }
         : undefined,
       owned: ownedTiers,
+      earned: ledgerStore.readAccount().upgrades,
       onBuyUpgrade: ledgerStore.available
         ? (unitId, track, tier, price) => {
-            const { account, ok } = buyUpgrade(ledgerStore.readAccount(), unitId, track, tier, price);
+            // A credit Buy pays the run `creditAsk` states, recomputed from a FRESH read of the
+            // account and the single-player view (Review Focus 2): the button's price is checked,
+            // never trusted.
+            const prices = garageUnits(accountState().boughtUnits)
+              .find((g) => g.id === unitId)
+              ?.upgrades?.[track]?.tiers.map((x) => x.price);
+            if (prices === undefined) return { ...now(), landed: false };
+            const { account, ok } = buyTierWithCredits(
+              { account: ledgerStore.readAccount(), owned: accountState().ownedTiers },
+              prices,
+              unitId,
+              track,
+              tier,
+              price
+            );
             // Same reasoning as `onBuy` above: the control disabled itself
             // against a stale read, so answer with the true state instead of
             // returning silently. `landed` as above (M1).
@@ -1315,6 +1359,8 @@ async function main(): Promise<void> {
         // nowhere else (per-seat kit): this is the one read of the account on
         // a room path. The world is built from the room's config, never from it.
         tiers: () => accountState().ownedTiers,
+        // GH-1102: the Store specials the account owns, by the same path and the same rule.
+        specials: () => ownedStoreSpecials(accountState().boughtUnits),
         ...(signal ? { signal } : {}),
       }),
     maps: versusMaps(),
@@ -1363,7 +1409,7 @@ async function main(): Promise<void> {
           name: 'arena-setup',
           pattern: '/arena',
           mount: async (host) => {
-            const [{ showArenaSetup }, { keyFromHash }] = await Promise.all([import('./ui/arena-setup'), import('./net/watch-connect')]);
+            const [{ showArenaSetup }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-setup')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaSetup(host, {
               key: keyFromHash(arenaHash),
               fetch: window.fetch.bind(window),
@@ -1379,7 +1425,7 @@ async function main(): Promise<void> {
           name: 'arena-results',
           pattern: '/arena/results',
           mount: async (host) => {
-            const [{ showArenaResults }, { keyFromHash }] = await Promise.all([import('./ui/arena-results'), import('./net/watch-connect')]);
+            const [{ showArenaResults }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-results')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaResults(host, {
               key: keyFromHash(arenaHash),
               fetch: window.fetch.bind(window),
@@ -1394,7 +1440,7 @@ async function main(): Promise<void> {
           // A battlefield owns its focus: its keys reach the game.
           focus: false,
           mount: async (host, req) => {
-            const [{ showArenaReplay }, { keyFromHash }] = await Promise.all([import('./ui/arena-replay'), import('./net/watch-connect')]);
+            const [{ showArenaReplay }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-replay')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaReplay(host, {
               key: keyFromHash(arenaHash),
               game: req.query.get('game'),
@@ -1420,7 +1466,7 @@ async function main(): Promise<void> {
           // A battlefield owns its focus: its keys reach the game.
           focus: false,
           mount: async (host) => {
-            const [{ showArenaWatch }, { keyFromHash }] = await Promise.all([import('./ui/arena-watch'), import('./net/watch-connect')]);
+            const [{ showArenaWatch }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-watch')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaWatch(host, {
               key: keyFromHash(arenaHash),
               fetch: window.fetch.bind(window),
@@ -1506,6 +1552,27 @@ async function main(): Promise<void> {
       },
       { name: 'saves', pattern: '/saves', mount: (host) => mountSaves(host) },
       {
+        name: 'profile',
+        pattern: '/profile',
+        mount: (host, req) => {
+          if (!accountsOn) {
+            // No `?accounts`: this screen does not exist. Leave softly once the router has finished mounting.
+            queueMicrotask(() => void router.navigate(routes.menu(), { replace: true }));
+            return () => {};
+          }
+          // The screen's module and the client load together; a navigation that lands meanwhile wins (`shell/router.ts`).
+          return Promise.all([importWithRetry(() => import('./ui/profile')), accountClient()]).then(([{ showProfile }, client]) =>
+            showProfile(host, {
+              client,
+              store: safeStorage(),
+              query: req.query,
+              telemetryPlayer: () => telemetry().ids()?.player ?? null,
+              navigate: (href) => window.location.assign(href),
+            })
+          );
+        },
+      },
+      {
         name: 'credits',
         pattern: '/credits',
         mount: (host) =>
@@ -1535,6 +1602,8 @@ async function main(): Promise<void> {
       bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), t('boot.notFound.next'), routes.menu());
       return () => host.replaceChildren();
     },
+    // A route chunk that failed twice (`shell/chunk.ts`): the card, with a reload, in the route's place -- never a blank stage.
+    chunkFailed: chunkFailedCard(routes.menu()),
   });
   // Same-origin anchors become navigations, for the whole life of the
   // document -- there is no point at which this page stops wanting them, so
@@ -2320,7 +2389,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? withWoundedTypes(missionUnitTypes(resolvedMission ?? mission, new Set(Object.keys(units))), woundsOf)
     : versusRoom
       // A versus room fields its two factions' forces and nothing else.
-      ? withWoundedTypes(versusUnitTypes(versusFactions), woundsOf)
+      ? withWoundedTypes(versusUnitTypes(versusFactions, versusWorld?.specialsBySide), woundsOf)
       : withWoundedTypes(sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks }), woundsOf);
   // Only the roster's languages decode (N16). The roster is the one the mesh
   // plan already trusts; a unit it misses still plays -- as `missing` -- and
@@ -4008,6 +4077,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // more to compare than the work being avoided.
   let lastShot: ImageData | null = null;
   let lastFlipped: ImageData | null = null;
+  /** GH-1103: the ground a points race pays for, set once the room's points view exists (below the minimap). */
+  let payZonesNow: () => readonly PayZone[] = () => [];
   const minimap = new Minimap(document.body, {
     sim,
     viewer: me,
@@ -4020,6 +4091,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     objectives: () => runtime?.objectiveList ?? [],
     // S-F F2 Z-B: held income ground, from the HUD beat's one view.
     income: () => income,
+    payZones: () => payZonesNow(),
     // GH-279: the refuge, only while an evacuation is still being scored.
     refuge: () => (runtime ? activeRefuge(runtime.objectiveList, evacTargets, refugeAt) : null),
     // The map's own lit ground, photographed by the renderer (Task 15).
@@ -5980,6 +6052,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   : null,
               world: parseWorld(world),
               at: Date.now(),
+              start: null, // Task 2.12 passes the mission/start answer here
             });
             const victoryWrite = coinsSettle.write;
             const ledgerSaved = victoryWrite === 'saved';
@@ -6612,15 +6685,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const pointsRules = netConfig?.winMode === 'points' ? versusModes[netConfig.map]?.modes.points : undefined;
   const pointsViewNow = (): PointsView | null =>
     pointsRules !== undefined && versusWorld?.runtime != null && !spectating ? pointsViewOf(versusWorld.runtime, pointsRules, me) : null;
-  const netPoints = pointsViewNow() !== null ? new NetPoints(document.body, scoreNames) : null;
+  const netPoints = pointsViewNow() !== null ? new NetPoints(document.body, scoreNames, pointsRules !== undefined ? pointsExplainer(pointsRules) : '') : null;
+  payZonesNow = () => pointsViewNow()?.zones.map(payZoneOf) ?? [];
   if (netPoints !== null) onDispose(() => netPoints.dispose());
   /** The flag raid (GH-976 P3): how long each flag has been held, from the goals-only runtime's objectives, and the two
    *  flags outlined on the field. Both flags' state is public by design (`net/flag-view.ts`); no unit is shown. A flag room
    *  only, never a spectator. */
-  const flagRules = netConfig?.winMode === 'flag' ? versusModes[netConfig.map] : undefined;
+  // GH-976 R0.22: the flag block through the one reader, for the rules this room plays.
+  const flagFile = netConfig?.winMode === 'flag' ? versusModes[netConfig.map] : undefined;
+  const flagRules = flagFile !== undefined && netConfig !== null ? flagBlockOf(flagFile, flagSetupRoom(netConfig)) : undefined;
   const flagViewNow = (): FlagView | null =>
-    flagRules?.flags !== undefined && versusWorld?.runtime != null && !spectating
-      ? flagViewOf(versusWorld.runtime, { flags: flagRules.flags, modes: flagRules.modes }, me, versusWorld.endOfSide[me])
+    flagRules !== undefined && versusWorld?.runtime != null && !spectating
+      ? flagViewOf(versusWorld.runtime, flagRules, me, versusWorld.endOfSide[me])
       : null;
   const netFlags = flagViewNow() !== null ? new NetFlags(document.body) : null;
   if (netFlags !== null) onDispose(() => netFlags.dispose());

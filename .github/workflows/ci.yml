@@ -15,6 +15,15 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels that PR's older, unfinished runs: a
+# superseded commit's 40-minute suite only queues ahead of the commit that
+# matters (the queue reached 46 runs with 2 running on 8 Nov). Pushes to main
+# keep a group of their own per run, so no main run (or its release bump) is
+# ever cancelled.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   gates:
     runs-on: ubuntu-latest
@@ -345,20 +354,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # GH-943 WebGPU-primary migration, P0: the node backends' capture arms, REPORT-ONLY.
+  # GH-943 WebGPU-primary migration, P0: the node backends' capture arms. They gate on FRAME CONTENT and nothing else (the lead, 7 Nov).
+  #
+  # What may turn this job red is a picture that is not one: a GPU validation error the page logged, or a black or near-constant frame
+  # (the refusals `capture()` has made since PR 1085; `golden-diff/frame-content.ts`), or an arm that wrote no capture at all. The LAST step,
+  # "Frame-content vote", reads the gate's logs for exactly those (`ci/content-vote.ts`). Everything else below stays report-only (each of
+  # those steps ends in `exit 0`): no baseline, no layer floor, no bit-identity result and no parity band can fail the PR. The job's
+  # `continue-on-error` is gone, so the vote, and an install or browser-setup failure, are red; the parity job below still runs after it
+  # (`if: !cancelled()`) and stays report-only.
   #
   # `-wgl2` is three's WebGPURenderer on its own WebGL2 backend, `-wgpu` is the same renderer on WebGPU (Dawn on SwiftShader/Vulkan;
   # the fallback adapter is allowed on CI only). Neither has a committed baseline (their keys are `...-wgl2` and `...-wgpu`, and
   # nothing is blessed before P7), so each arm runs the gate in its no-baseline mode: it captures every scenario, runs the
-  # reference-free layer checks and the settled-frame check, and REFUSES (exit 2) a page that drew through the wrong backend.
-  # `continue-on-error` at JOB level keeps a red arm off the PR; the numbers it prints are the P0 findings. The `visual` job above
-  # is untouched and stays the only voting gate.
+  # reference-free layer checks and the settled-frame check, and REFUSES (exit 2) a page that drew through the wrong backend. The
+  # numbers it prints are the P0 findings. The `visual` job above is untouched and stays the only baseline-voting gate.
   #
   # Each arm is also timed (the wall-clock line in the step summary), because design section 4 turns this from per-PR to
   # nightly-only if the wgpu arm needs more than 3x the legacy arm's time.
   visual-backends:
     runs-on: ubuntu-latest
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -387,8 +401,8 @@ jobs:
         run: |
           set +e
           start=$(date +%s)
-          pnpm golden-baseline -- --gpu=${{ matrix.arm }} --port=5185 --out-dir=visual-backend-output-${{ matrix.arm }}
-          code=$?
+          pnpm golden-baseline -- --gpu=${{ matrix.arm }} --port=5185 --out-dir=visual-backend-output-${{ matrix.arm }} 2>&1 | tee gate-arm.log
+          code=${PIPESTATUS[0]}
           secs=$(( $(date +%s) - start ))
           echo "gate arm ${{ matrix.arm }}: exit $code in ${secs}s"
           {
@@ -439,11 +453,28 @@ jobs:
             visual-backend-output-${{ matrix.arm }}
             backend-gates-output
             backend-gates.log
+            gate-arm.log
             ramp-card.log
           if-no-files-found: ignore
           retention-days: 3
+      # GH-943 (the lead, 7 Nov): the one vote this job casts. Last on purpose: the captures upload first, so a red run has its pictures.
+      # `gate-arm.log` is the golden-baseline gate's whole output (every scenario, report-only ones included: their refusals are printed as
+      # "CAPTURE FAILED"); `backend-gates.log` is the bit-identical run's. Exit 1 on a content refusal or an arm with no capture.
+      - name: Frame-content vote (the only gating step)
+        run: |
+          pnpm --filter @lions/tools exec tsx src/ci/content-vote.ts --captures=visual-backend-output-${{ matrix.arm }} --log=gate-arm.log --log=backend-gates.log 2>&1 | tee content-vote.log
+          code=${PIPESTATUS[0]}
+          {
+            echo "- **frame-content vote: exit \`$code\`** (0 pass; 1 a GPU validation error, a black or near-constant frame, or no capture; 2 a log is missing)"
+            echo ""
+            echo '```'
+            head -40 content-vote.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $code
 
-  # GH-943 WebGPU-primary, P1: the PARITY report, REPORT-ONLY (`continue-on-error` at job level, like `visual-backends`).
+  # GH-943 WebGPU-primary, P1: the PARITY report, REPORT-ONLY (`continue-on-error` at job level). Unlike `visual-backends`, which gates on frame
+  # content alone, no parity band votes.
   #
   # Runs the shipping renderer once more with `--match-node` (the node backend's census applied to the legacy scene, AO on as on the node arms since T7: "legacy
   # as the node chain draws it") and sets its layer-toggle readings beside each node arm's, from the `summary.json` files

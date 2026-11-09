@@ -316,6 +316,24 @@ describe('Router', () => {
     off();
   });
 
+  it('interceptLinks leaves a Worker-served page (/privacy) to the browser', async () => {
+    const { router, log } = makeRouter({ start: '/' });
+    await router.start();
+    const off = interceptLinks(document, router);
+    const a = document.createElement('a');
+    a.href = '/privacy';
+    document.body.appendChild(a);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    a.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    await router.idle();
+    expect(log.some((l) => l.includes('404'))).toBe(false);
+    await new Promise((r) => setTimeout(r, 0));
+    err.mockRestore();
+    off();
+  });
+
   // GH-285: the end screen's "try again" is `<a href="/mission/<the id we are
   // on>">`. Before the router that was a real anchor, and a browser follows a
   // link to the page it is already on by loading it again. interceptLinks took
@@ -413,6 +431,14 @@ describe('Router transition', () => {
     // property of the very first navigation off the landing URL.
     await router.navigate('/mission/x');
     expect(new URLSearchParams(window.location.search).get('pseudo')).toBe('1');
+    router.dispose();
+  });
+
+  it('?accounts is sticky across an in-app navigation (GH-1075 A1)', async () => {
+    const { router } = makeRouter({ start: '/?accounts' });
+    await router.start();
+    await router.navigate('/campaign');
+    expect(new URLSearchParams(window.location.search).has('accounts')).toBe(true);
     router.dispose();
   });
 

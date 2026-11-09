@@ -3,7 +3,7 @@
 // on the victory that finishes the war, and never otherwise.
 import { describe, expect, it } from 'vitest';
 import worldJson from '../../../data/campaign/world.json';
-import { parseWorld } from './campaign';
+import { parseWorld, regionProgress } from './campaign';
 import { boardRestingLine, campaignComplete, closingExchange } from './campaign-close';
 import { t } from './i18n/t';
 
@@ -49,5 +49,35 @@ describe('boardRestingLine', () => {
     expect(boardRestingLine(world, allButLast)).toBe(t('world3d.hint'));
     expect(boardRestingLine(world, everything)).toBe(t('world.complete'));
     expect(t('world.complete')).not.toBe('world.complete');
+  });
+});
+
+describe('the economy campaignComplete agrees with regionProgress on the shipped world', () => {
+  const reference = (l: Parameters<typeof campaignComplete>[1]): boolean => {
+    const counted = world.regions.filter((r) => regionProgress(r, l).total > 0);
+    return counted.length > 0 && counted.every((r) => regionProgress(r, l).status === 'complete');
+  };
+  const gateMission = 'deir_amun_3_subterranean'; // the after_mission gate of the `sur` region
+  const ledgers = {
+    zero: done([]),
+    one: done(all.slice(0, 1)),
+    fifteen: done(all.slice(0, 15)),
+    everything,
+    'all but the gate': done(all.filter((m) => m !== gateMission)),
+  };
+  for (const [name, l] of Object.entries(ledgers)) {
+    it(`${name}`, () => {
+      expect(campaignComplete(world, l)).toBe(reference(l));
+    });
+  }
+  it('the gate mission is a real mission, and its absence blocks completion', () => {
+    expect(all).toContain(gateMission);
+    expect(campaignComplete(world, ledgers['all but the gate'])).toBe(false);
+    expect(campaignComplete(world, everything)).toBe(true);
+  });
+  it('a shipped region gated on a mission nobody can clear blocks completion even with every mission done', () => {
+    const gated = { ...world, regions: world.regions.map((r, i) => (i === 0 ? { ...r, unlock: { afterMission: 'never' } } : r)) };
+    expect(campaignComplete(gated, everything)).toBe(false);
+    expect(regionProgress(gated.regions[0], everything).status).toBe('locked');
   });
 });

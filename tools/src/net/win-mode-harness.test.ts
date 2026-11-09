@@ -7,7 +7,8 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { versusModes } from '@lions/data';
+import { flagBlockOf, versusModes } from '@lions/data';
+import { WIN_MODE_FAIR_MAPS } from '@lions/net';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
 import { pointsViewOf } from '../../../packages/app/src/net/points-view';
 import { flagViewOf } from '../../../packages/app/src/net/flag-view';
@@ -23,7 +24,7 @@ import { mcpConfig, standingPrompt } from './external-player';
 import { FogTracker } from './fog-tracker';
 import { createContext, TOOLS, type ToolContext } from './mcp-tools';
 import { ROOM_BUILD, ROOM_CODE, ROOM_NOW, newRoom, play, type Loop } from './test-room';
-import { sideView } from './view';
+import { flagBoardOf, sideView } from './view';
 import { ANNIHILATION_RULE, applyWinRule, modeFlag } from './win-rule';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -108,8 +109,10 @@ describe('observe in a flag room (GH-976 P3)', () => {
       const fog = new FogTracker(w.sim, 0);
       const v = sideView(w, 0, fog, null);
       expect(v.mode).toBe('flag');
-      const f = versusModes[map].flags!;
-      expect(v.flags).toEqual(flagViewOf(w.runtime!, { flags: f, modes: versusModes[map].modes }, 0, w.endOfSide[0]));
+      const f = flagBlockOf(versusModes[map], false).flags;
+      // The browser's board, line for line, plus the three facts `flagBoardOf` derives from it (GH-1139).
+      expect(v.flags).toMatchObject(flagViewOf(w.runtime!, flagBlockOf(versusModes[map], false), 0, w.endOfSide[0]));
+      expect(v.flags).toEqual(flagBoardOf(flagViewOf(w.runtime!, flagBlockOf(versusModes[map], false), 0, w.endOfSide[0])));
       expect(v.flags!.holdSeconds).toBe(30);
       // Side 0 stands at the friendly end of a mirror room: it defends the friendly flag and raids the hostile one.
       expect(v.flags!.mine.at).toEqual([f.friendly.at[0], f.friendly.at[1], f.friendly.size[0], f.friendly.size[1]]);
@@ -118,6 +121,16 @@ describe('observe in a flag room (GH-976 P3)', () => {
       expect(v).not.toHaveProperty('points');
       expect(v).not.toHaveProperty('economy');
     }
+  });
+
+  it('GH-976 v2 R0.22: in a set-up room the harness reads the STAGED block: the flag_setup grounds and the 45 s hold', () => {
+    const w = buildMatchWorld({ ...modeConfig('wadi_tarfan', 'flag', 4000), flagSetup: true });
+    const v = sideView(w, 0, new FogTracker(w.sim, 0), null);
+    const staged = flagBlockOf(versusModes.wadi_tarfan, true);
+    expect(staged.flags.friendly.at).not.toEqual(flagBlockOf(versusModes.wadi_tarfan, false).flags.friendly.at);
+    expect(v.flags!.holdSeconds).toBe(45);
+    expect(v.flags!.mine.at).toEqual([staged.flags.friendly.at[0], staged.flags.friendly.at[1], staged.flags.friendly.size[0], staged.flags.friendly.size[1]]);
+    expect(v.flags!.theirs.at).toEqual([staged.flags.hostile.at[0], staged.flags.hostile.at[1], staged.flags.hostile.size[0], staged.flags.hostile.size[1]]);
   });
 
   it('a seat at the other end reads the same board from its own side: mine and theirs swap', () => {
@@ -158,7 +171,8 @@ describe('observe in a flag room (GH-976 P3)', () => {
     const v = sideView(w, 0, new FogTracker(w.sim, 0), null);
     expect(JSON.stringify(v.flags)).not.toMatch(/"(id|type|hp|tile|units|contacts)"/);
     expect(Object.keys(v.flags!).sort()).toEqual(['holdSeconds', 'mine', 'theirs']);
-    for (const line of [v.flags!.mine, v.flags!.theirs]) expect(Object.keys(line).sort()).toEqual(['at', 'held', 'state']);
+    // GH-1139: `raider`, `holder` and `secondsLeft` are derived from the line itself: still no unit, no tile.
+    for (const line of [v.flags!.mine, v.flags!.theirs]) expect(Object.keys(line).sort()).toEqual(['at', 'held', 'holder', 'raider', 'secondsLeft', 'state']);
     const annihilation = sideView(buildMatchWorld({ ...modeConfig('wadi_tarfan', 'flag', 4000), winMode: undefined }), 0, new FogTracker(w.sim, 0), null);
     expect(annihilation).not.toHaveProperty('flags');
   });
@@ -219,7 +233,10 @@ describe('pnpm bot --mode', () => {
     expect(parseBotArgs([...base, '--mode=annihilation'])).toMatchObject({ winMode: null });
     const bad = parseBotArgs([...base, '--mode=rally']);
     expect('error' in bad && bad.error).toMatch(/--mode is annihilation\|camp\|points\|flag/);
-    expect(parseBotArgs([...base, '--mode=flag'])).toMatchObject({ winMode: 'flag' });
+    // GH-1139: no lobby offers flag until CTF v2 lands (WP9), so the bot is not told to expect one.
+    const flag = parseBotArgs([...base, '--mode=flag']);
+    expect('error' in flag && flag.error).toMatch(/flag is offered in no room until capture the flag v2 \(GH-1139\)/);
+    expect(parseBotArgs([...base, '--mode=camp'])).toMatchObject({ winMode: 'camp' });
   });
   it('the prompt and the harness\'s arguments follow it; without it neither mentions a mode', () => {
     const withMode = botPrompt({ room: 'ABCDEF', seat: 1, winMode: 'points' });
@@ -343,9 +360,8 @@ describe('pnpm arena --mode', () => {
     expect(refusalOf('wadi_tarfan', 'mirror', 'camp')).toBeNull();   // GH-976, 5 Nov: forward camps with wipe after_camp
     expect(refusalOf('wadi_tarfan_l', 'mirror', 'camp')).toBeNull();
     expect(refusalOf('rujm_sawda', 'mirror', 'camp')).toMatch(/not offered on this map/);
-    expect(refusalOf('wadi_tarfan', 'mirror', 'flag')).toBeNull();
-    expect(refusalOf('milh_flats', 'mirror', 'flag')).toBeNull();
-    expect(refusalOf('tel_marum', 'mirror', 'flag')).toBeNull();
+    // GH-1139: flag is out of every lobby until CTF v2 lands (WP9), so the arena refuses it as the Worker would.
+    for (const map of ['wadi_tarfan', 'milh_flats', 'tel_marum', 'wadi_tarfan_l']) expect(refusalOf(map, 'mirror', 'flag'), map).toMatch(/not offered on this map/);
     expect(refusalOf('tel_marum', 'mirror', 'camp')).toMatch(/not offered on this map/);
     // GH-976 P4 review: no KDF-against-Sarim cell passed, so every faction pairing is refused for every mode.
     expect(refusalOf('wadi_tarfan_l', 'kdf', 'points')).toMatch(/not offered on this map for this matchup/);
@@ -451,6 +467,11 @@ describe('a KDF-against-Sarim mode room, and the arena that refuses to start one
 // One real flag raid, end to end: the Worker's route and room, two in-process players (a stub that sends two infantry squads at
 // the enemy flag and leaves the rest where they stand, and a passive control), the referee's tally and the report.
 describe('a flag raid played through the arena (GH-976 P3)', () => {
+  // GH-1139: flag is out of the lobby until WP9; this test of the arena's flag path stands its one map back in for its run.
+  const flagList = WIN_MODE_FAIR_MAPS.flag as string[];
+  const SHIPPED = [...flagList];
+  beforeEach(() => { flagList.push('wadi_tarfan'); });
+  afterEach(() => { flagList.splice(0, flagList.length, ...SHIPPED); });
   const tileCentre = (t: number): number => (t + 0.5) * 65536;
   /** The stub reads `observe` only: its first two infantry squads, ordered once on the middle of the flag `observe` names as `theirs`. */
   let sent = false;

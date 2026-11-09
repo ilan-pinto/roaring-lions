@@ -14,15 +14,15 @@ import { readCapped } from '../read-capped';
 import { signTicket, verifyTicket } from './ticket';
 import { mintCode, isCode } from './code';
 import { ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, matchupAllowed, matchupField, versusMapAllowed, winModeRequest, type AdvisorScope } from '@lions/net';
-import { callsignField, kitField, mapField, paceField, seatKindField, seatTiersField, textField } from './room-fields';
+import { callsignField, kitField, mapField, paceField, seatKindField, seatSpecialsField, seatTiersField, textField } from './room-fields';
 
 /** A size bound on the request bodies of create, join and the advisor ticket (hardening). */
-// largest legitimate body measured 1737 bytes (full brigade claim, 25 Oct: + demo_tzav, GH-274; was 1698 after heli_yanshuf, GH-698); cap ≈ 2×
+// largest legitimate body measured 2358 bytes (full brigade claim plus every Store special, with the nine's tracks, GH-1077; was 1944 before them, GH-1102; was 1737 after demo_tzav, GH-274, and 1698 after heli_yanshuf, GH-698); cap ≈ 1.5× (the cap is unchanged)
 export const MATCH_BODY_MAX_BYTES = 3584;
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
 
-interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; winMode?: unknown; ticket?: unknown; scope?: unknown }
+interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; specials?: unknown; winMode?: unknown; ticket?: unknown; scope?: unknown }
 
 /** The JSON body, `{}` when it is unreadable, or null when it is over `MATCH_BODY_MAX_BYTES`
  *  (the caller answers 413). An oversize body is refused before it is read or parsed: a
@@ -109,10 +109,12 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     // claim, cleaned against the shipped tracks here and again by the room (decision 22).
     const kit = mode === 'versus' ? kitField(body.kit) : 'matched';
     const tiers = seatTiersField(body.tiers);
+    // GH-1102: the host's Store specials, cleaned against the shipped table here and again by the room.
+    const specials = seatSpecialsField(body.specials);
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const c = mintCode();
       const res = await rooms.get(rooms.idFromName(c)).fetch(new Request('https://room/create', {
-        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers, ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) }),
+        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers, specials, ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) }),
       }));
       if (res.status === 409) continue;   // that code is taken
       if (!res.ok) return new Response('room', { status: 502 });
@@ -134,7 +136,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     if (body === null) return tooLarge();
     const player = playerOf(body);
     if (player === '') return new Response('player required', { status: 400 });
-    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind: seatKindField(body.kind), tiers: seatTiersField(body.tiers), ...(textField(body.build, '') === '' ? {} : { build: textField(body.build, '') }) }) }));
+    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind: seatKindField(body.kind), tiers: seatTiersField(body.tiers), specials: seatSpecialsField(body.specials), ...(textField(body.build, '') === '' ? {} : { build: textField(body.build, '') }) }) }));
     // 412: the joiner named a build the room does not run; the room's answer names its own (see /join in match-room).
     if (res.status === 412) return new Response(await res.text(), { status: 412, headers: { 'content-type': 'application/json' } });
     if (res.status !== 200) return new Response('', { status: res.status });

@@ -212,6 +212,19 @@ describe('order: the formation field (GH-859 P1a)', () => {
     await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
     expect(own.map((id) => wa.sim.formationGroupOf(id))).toEqual([-1, -1, -1]);
   });
+  it('GH-859 (7 Nov): Wadi Tarfan (large), once closed, is open: the same Column move is accepted, sent with its formation, and forms a group', async () => {
+    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'wadi_tarfan_l' });
+    const ctx = createContext(a.client, 'command');
+    const wa = a.client.world() as MatchWorld;
+    const own = sideIds(wa, 0).slice(0, 4);
+    const r = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20, formation: 'column' });
+    expect(r.ok, r.text).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    const sent = sentBy(loop, a).filter((m) => m.t === 'cmd');
+    expect(sent).toHaveLength(1);
+    expect((sent[0] as { cmd: { formation?: string } }).cmd.formation).toBe('column');
+    expect(own.every((id) => wa.sim.formationGroupOf(id) >= 0)).toBe(true);
+  });
    it('GH-859 (1 Nov): on a map S4 covered (the default room map) the same Column move is accepted, sent with its formation, and forms the same group on both machines', async () => {
     const { loop, a, c } = await twoSeats(BOTS);
     const ctx = createContext(a.client, 'command');

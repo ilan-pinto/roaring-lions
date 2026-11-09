@@ -24,6 +24,99 @@ import type { OutputMaths } from '../post-chain.node';
 import type { BloomControl } from '../bloom-spec';
 import type { NodePmremHost } from '../environment';
 import type { RawPixels } from '../capture-view.node';
+import type { GroundMaterial } from '../terrain/mesh';
+import type { GroundMaths } from '../terrain/mesh.node';
+import type { FoliageMaths } from '../terrain/decor-mesh.node';
+import type { RingMaths } from '../units/selection-ring.node';
+import type { OutlineMaths } from '../units/silhouette.node';
+import type { ZoneBandMaths } from '../units/zone-band.node';
+import type { SupplyRouteMaths } from '../supply-route.node';
+import type { DecalMaths } from '../decal-pool.node';
+
+/**
+ * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
+ * that keeps owning the uniform record and the debug setters, so no toggle code changes) and returns its node twin, which reads
+ * that record. `ThreeRenderer.adoptNodeMaterials` swaps `mesh.material` legacy -> twin through an identity cache, so one legacy
+ * object gets one twin. A `null` factory is a material with no twin yet: the census still hides or names the legacy one.
+ * T3 lands `ground` (`GroundMaterial`, every ground chunk), T5 `ring` (the selection, team and wound ring batches' material), T6
+ * `foliage` (the swaying foliage and trunk batches). A legacy boot never reaches the kit.
+ */
+export type MaterialTwinFactory<L extends THREE.Material> = (legacy: L) => THREE.Material;
+/**
+ * GH-943 P3 (T1): a slot per P3 material family, each `null` until its task lands (the brief's owners in brackets). A `ShaderMaterial`
+ * slot is recognised by the legacy material's `name` (`../material-names.ts`, `P3_MATERIAL_NAMES`); `unit` by its hook segments
+ * (all in `UNIT_HOOK_SEGMENTS`), and memoised SHARED by base, segments and pipeline state; `outline`, `banner` and `backdrop` by their
+ * one-segment program keys. Every factory marks its twin (`../twin-identity.ts`, `markTwin`); adoption copies `RENDER_STATE_KEYS`
+ * onto every P3 twin.
+ */
+export interface MaterialKit {
+  ground: MaterialTwinFactory<GroundMaterial> | null;
+  foliage: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
+  ring: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** Team mark, running gear, rain rim, wounded floor, soot (T3, T4). */
+  unit: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
+  /** The occlusion outline, `rl-silhouette-outline` (T5). */
+  outline: MaterialTwinFactory<THREE.MeshBasicMaterial> | null;
+  /** The garrison banner, `rl-garrison-banner` (T6). */
+  banner: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
+  /** The valley backdrop's fade, `rl-backdrop-fade` (T10). */
+  backdrop: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
+  /** Decals and crater rims, `rl-decal` (T7). */
+  decal: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** The overlay batch, zone band, supply route and tunnel trail (T8). */
+  overlay: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  zoneBand: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  supplyRoute: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  trail: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** The tunnel x-ray tube, collar, figure and beam (T9). */
+  xray: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** Particles, tracers, flat-colour FX meshes, the plume/shroud rim fade, the beam and the rotor blur (T11). */
+  particle: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  tracer: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  vfxMesh: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  rimFade: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  beam: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  rotor: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** The flipbook smoke and fire, and the smoke screen (T12). */
+  flipbook: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  smokeScreen: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+}
+/**
+ * GH-943 P2 (T1): the values bundle the material twins receive (`../material-maths.ts`'s `MATERIAL_MATHS`, the `OutputMaths`
+ * pattern): shared maths written against `Ops<T>`, handed over as VALUES, because a value import of a module the legacy materials
+ * also import would make the node chunk statically load the ThreeRenderer chunk. Every slot is `null` until its task fills it
+ * (T3 `ground`, T5 `ring`, T6 `foliage`), each with the type its twin declares. `marker` is the bundle census's handle on the
+ * module (`tools/src/perf/bundle-census.ts`, `MATERIAL_MATHS_MARKER`).
+ */
+export interface MaterialMaths {
+  readonly marker: 'rl-material-maths';
+  /** T3: the ground blend (`terrain/mesh.node.ts`). */
+  readonly ground: GroundMaths;
+  readonly foliage: FoliageMaths;
+  readonly ring: RingMaths;
+  /** GH-943 P3 (T1): one slot per `MaterialKit` P3 slot, each `null` until its task gives it the type its twin declares. */
+  readonly unit: null;
+  /** T5: the occlusion and smoke outline (`units/silhouette.node.ts`). */
+  readonly outline: OutlineMaths;
+  readonly banner: null;
+  readonly backdrop: null;
+  /** T7: the decal kinds, the road under them, the albedo ratio and the crater rim. */
+  readonly decal: DecalMaths;
+  readonly overlay: null;
+  /** T8: the overlay batch and the trail are passthroughs (no shared maths); the zone band's hatch and the route's dash are values. */
+  readonly zoneBand: ZoneBandMaths;
+  readonly supplyRoute: SupplyRouteMaths;
+  readonly trail: null;
+  readonly xray: null;
+  readonly particle: null;
+  readonly tracer: null;
+  readonly vfxMesh: null;
+  readonly rimFade: null;
+  readonly beam: null;
+  readonly rotor: null;
+  readonly flipbook: null;
+  readonly smokeScreen: null;
+}
 
 /**
  * GH-943 P1 (T2): what a post-chain stage factory is handed, and what it gives back. A stage reads `input` (the previous
@@ -81,6 +174,8 @@ export interface RenderBackend {
   setSize(cssWidth: number, cssHeight: number): void;
   /** The stage factories the chain is built from. Read when `configure` (or the first `render`) builds the chain. */
   readonly kit: PostKit;
+  /** GH-943 P2 (T1): the material twin factories (`MaterialKit`), read by `ThreeRenderer.adoptNodeMaterials`. */
+  readonly materials: MaterialKit;
   /**
    * GH-943 P1 (T4): hands the backend the fog uniform table (`FogUniforms.uniforms`, the same record the legacy pass exposes) and
    * the compile-time `hazeLow` and the shared haze/shimmer maths (injected, see `FogMaths`); the fog stage reads them. Call BEFORE `configure`, which builds the chain from the kit.

@@ -1198,6 +1198,27 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'absolute targetTick, which the lead has not asked for. NOT watched going red in the browser (the sheets launch had no second pass for it): at the renderer level, ' +
           'removing the `f.air = this.washLayerOn` write turns `ThreeRenderer.wash-clock.test.ts` red.',
       },
+      {
+        layer: 'selection-ring',
+        minDiffPixels: 1368,
+        minMeanAbsChannelDelta: 0.0591,
+        rationale:
+          'GH-943 P2 T5: hiding the ground rings (the team ring of every own unit; `selectionRingGroup`, never a mesh, because `endFrame` rewrites ' +
+          'each mesh\'s `visible` every frame) on the vehicle frame moves 4104 px / 0.1775, bit-identical on the two `visual` runs read so far ' +
+          '(ci.yml runs 42456785749 and 42473526531, linux-x64-swiftshader, the two heads differing only in node-path code), repaint control 0 px / 0.0000. ' +
+          'Floors are a third of the smallest reading, rounded down (1368, 0.0591). Falsified by forcing the ring\'s core AND halo alpha to 0 in the ' +
+          'legacy shader (the halo is drawn outside the core, so zeroing the core alone leaves pixels): the commit pair carries the CI line.',
+      },
+      {
+        layer: 'outline',
+        minDiffPixels: 102,
+        minMeanAbsChannelDelta: 0.0047,
+        rationale:
+          'GH-943 P3 T5 Step A (branch 1 held): hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the vehicle frame ' +
+          'moves 306 px / 0.0142 on all three fresh-process `visual` readings, bit-identical (ci.yml run 42584225531, attempts 1-3, linux-x64-swiftshader, ' +
+          '1400x900, targetTick 140). Floors are a third of the smallest, rounded down (102, 0.0047). `fogged` read 144 px / 0.0068 (< 200 px) and carries no check. ' +
+          'WATCHED GOING RED: forcing the legacy `uOutlineWidth` uniform to 0 (a pushed run, ci.yml 42611764482, commit a11abd304, since reverted) reads 0 px / 0.0000 here, under both floors: FAIL.',
+      },
     ],
     rationale:
       'whole frame, mesh vehicles plus continuous dust/exhaust FX. 40 px / 0.004 since GH-803 ' +
@@ -1298,6 +1319,16 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'A small signal by nature: a unit is ~25 px at this zoom and the pass moves its specular, not ' +
           'its colour. 43/40 px is under SUB_THRESHOLD_PX (100), so the pixel floor is 0 and the magnitude ' +
           'floor carries it (a third of the smallest, rounded down). WATCHED GOING RED: `setUnitSurfacePass` made a no-op (returns before writing) reads 0 px / 0.0000 on this frame, under both floors.',
+      },
+      {
+        layer: 'outline',
+        minDiffPixels: 102,
+        minMeanAbsChannelDelta: 0.0047,
+        rationale:
+          'GH-943 P3 T5 Step A (branch 1 held): hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the kitted frame ' +
+          'moves 306 px / 0.0142 on all three fresh-process `visual` readings, bit-identical (ci.yml run 42584225531, attempts 1-3, linux-x64-swiftshader, ' +
+          '1400x900, targetTick 140). Floors are a third of the smallest, rounded down (102, 0.0047). `fogged` read 144 px / 0.0068 (< 200 px) and carries no check. ' +
+          'WATCHED GOING RED: forcing the legacy `uOutlineWidth` uniform to 0 (a pushed run, ci.yml 42611764482, commit a11abd304, since reverted) reads 0 px / 0.0000 here, under both floors: FAIL.',
       },
     ],
     rationale:
@@ -1415,6 +1446,16 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
         rationale:
           L2_GRADE +
           'The sky environment still reaches the vehicles under the grade (L1 + L2 together): 192 px / 0.3496.',
+      },
+      {
+        layer: 'outline',
+        minDiffPixels: 102,
+        minMeanAbsChannelDelta: 0.0041,
+        rationale:
+          'GH-943 P3 T5 Step A (branch 1 held): hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the graded frame ' +
+          'moves 306 px / 0.0124 on all three fresh-process `visual` readings, bit-identical (ci.yml run 42584225531, attempts 1-3, linux-x64-swiftshader, ' +
+          '1400x900, targetTick 140). Floors are a third of the smallest, rounded down (102, 0.0041). `fogged` read 144 px / 0.0068 (< 200 px) and carries no check. ' +
+          'WATCHED GOING RED: forcing the legacy `uOutlineWidth` uniform to 0 (a pushed run, ci.yml 42611764482, commit a11abd304, since reverted) reads 0 px / 0.0000 here, under both floors: FAIL.',
       },
     ],
     rationale:

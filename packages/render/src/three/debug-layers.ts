@@ -545,7 +545,40 @@ export const DEBUG_LAYERS = [
   // disturber build reads every frame (a helicopter takes no slot while hidden), so a repaint cannot undo it, and the vehicles'
   // `disturb` bend stays. The dust ring is not this layer's. Witnessed by the gated `vehicle` scenario's layer check.
   'wash',
+  // GH-943 P3 (T5): the occlusion outline (the three team silhouette materials) and the smoke outline (its two materials), on both
+  // paths: their `Material.visible`, which nothing per-frame re-asserts, composed with the `overlays` layer's own hide (each shows only
+  // while BOTH layers do; `ThreeRenderer.writeSilhouetteVisibility`). The hit flash's outline is not in it. Witnessed by the T5
+  // `outline` layer check (Step A) and the units probe's `occluded` and `smoke-own` subjects.
+  'outline',
+  // GH-943 P2 (T5): the ground rings only (selection, team, wound), on both paths. The GROUP is hidden, never a mesh: `endFrame` rewrites each
+  // mesh's `visible` every frame. Witnessed by the gated `vehicle` scenario's layer check (its own team rings).
+  'selection-ring',
+  // GH-943 P3 (T2): the layers no gated scenario shows, so the units/fx probe (`tools/src/perf/webgpu-units-probe.ts`) can read them.
+  // Every one is a FLAG that `ThreeRenderer.writeFxLayerVisibility` consults on EVERY frame (the `unitsDebugHidden` pattern), because
+  // the managers behind them rewrite their own meshes each frame. A bare `visible = false` would hold only until the next repaint.
+  // `trail`          the tunnel trail's instanced mesh (`trail-mesh.ts`).
+  // `wreck-soot`     the `WRECK_` twins of the vehicle meshes (`rl_wreck`), the charred textured wreck.
+  // `particles`      the four authored-particle instancers (below/above, plain/additive).
+  // `tracers`        the tracer batch (`units/fx.ts`'s `TracerBatch`), not the shells.
+  // `muzzle-burst`   the modelled muzzle-flash zones and the explosion-burst zones (the collapse flash included).
+  // `smoke-plume`    the modelled smoke-plume zones.
+  // `collapse-shroud` the building-collapse dust shroud.
+  'trail',
+  'wreck-soot',
+  'particles',
+  'tracers',
+  'muzzle-burst',
+  'smoke-plume',
+  'collapse-shroud',
 ] as const;
+
+/** The layers `ThreeRenderer.writeFxLayerVisibility` holds hidden every frame. */
+export const FX_FLAG_LAYERS = ['trail', 'wreck-soot', 'particles', 'tracers', 'muzzle-burst', 'smoke-plume', 'collapse-shroud'] as const;
+export type FxFlagLayer = (typeof FX_FLAG_LAYERS)[number];
+
+export function isFxFlagLayer(name: string): name is FxFlagLayer {
+  return (FX_FLAG_LAYERS as readonly string[]).includes(name);
+}
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];
 

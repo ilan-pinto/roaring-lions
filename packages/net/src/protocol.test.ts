@@ -150,6 +150,13 @@ describe('parseServerMsg', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'lobby', config: CFG, seats, you: 0, map: 'm' }))).toEqual({ t: 'lobby', config: CFG, seats, you: 0, map: 'm' });
     expect(parseServerMsg(JSON.stringify({ t: 'lobby', config: {}, seats, you: 0, map: 'm' }))).toBeNull();
   });
+  it("GH-1102: a lobby seat may name the Store specials it brings; anything but a short list of strings is refused", () => {
+    const seat = { seat: 0, callsign: 'Host', connected: true, ready: false };
+    const lobby = (specials: unknown) => JSON.stringify({ t: 'lobby', config: null, seats: [{ ...seat, specials }], you: 0, map: 'm' });
+    expect(parseServerMsg(lobby(['mbt_lavi_camo']))).toEqual({ t: 'lobby', config: null, seats: [{ ...seat, specials: ['mbt_lavi_camo'] }], you: 0, map: 'm' });
+    expect(parseServerMsg(lobby([]))).not.toBeNull();
+    for (const bad of ['mbt_lavi_camo', [7], { 0: 'x' }, Array.from({ length: 33 }, () => 'x')]) expect(parseServerMsg(lobby(bad)), JSON.stringify(bad)).toBeNull();
+  });
   it('accepts only the declared error codes', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'full' }))).toEqual({ t: 'error', code: 'full' });
     // GH-954: a build_mismatch may name the room's build; anything that is not a short printable string is dropped.
@@ -497,5 +504,27 @@ describe('hello.from and the log from echo (snapshot S3, D6)', () => {
     for (const from of [-1, 1.5, '5', null, 2 ** 31]) {
       expect(parseServerMsg(JSON.stringify({ t: 'log', config: CFG, frames: [], from }))).toBeNull();
     }
+  });
+});
+
+describe('cleanCommand: the set-up commands (GH-976 v2, R0.9)', () => {
+  it('rebuilds setupReady, fortify and unfortify from their declared fields, and drops a stray one', () => {
+    expect(cleanCommand({ kind: 'setupReady', side: 1 })).toEqual({ kind: 'setupReady', side: 1 });
+    expect(cleanCommand({ kind: 'fortify', side: 0, kit: 2, x: 10, y: 11 })).toEqual({ kind: 'fortify', side: 0, kit: 2, x: 10, y: 11 });
+    expect(cleanCommand({ kind: 'unfortify', side: 0, x: 10, y: 11 })).toEqual({ kind: 'unfortify', side: 0, x: 10, y: 11 });
+    const pad = 'x'.repeat(4000);
+    expect(cleanCommand({ kind: 'setupReady', side: 0, pad })).toEqual({ kind: 'setupReady', side: 0 });
+    expect(cleanCommand({ kind: 'fortify', side: 0, kit: 0, x: 1, y: 2, pad, ids: [1] })).toEqual({ kind: 'fortify', side: 0, kit: 0, x: 1, y: 2 });
+    expect(cleanCommand({ kind: 'unfortify', side: 0, x: 1, y: 2, pad })).toEqual({ kind: 'unfortify', side: 0, x: 1, y: 2 });
+    expect(Object.keys(cleanCommand({ kind: 'fortify', side: 0, kit: 0, x: 1, y: 2, pad }) as object)).toEqual(['kind', 'side', 'kit', 'x', 'y']);
+  });
+  it('refuses a missing or non-integer field', () => {
+    const bad: unknown[] = [
+      { kind: 'setupReady' }, { kind: 'setupReady', side: '0' }, { kind: 'setupReady', side: 0.5 },
+      { kind: 'fortify', side: 0, kit: 0, x: 1 }, { kind: 'fortify', side: 0, x: 1, y: 2 }, { kind: 'fortify', side: 0, kit: 0.5, x: 1, y: 2 },
+      { kind: 'fortify', side: 0, kit: 0, x: '1', y: 2 }, { kind: 'fortify', kit: 0, x: 1, y: 2 },
+      { kind: 'unfortify', side: 0, x: 1 }, { kind: 'unfortify', x: 1, y: 2 }, { kind: 'unfortify', side: 0, x: 1.5, y: 2 },
+    ];
+    for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
   });
 });

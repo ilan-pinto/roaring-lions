@@ -122,7 +122,7 @@ export const MAX_LOG_CMD_CHARS = 2_000_000;
 
 /** The command JSON characters this room may store: `MAX_LOG_CMD_CHARS` scaled by its map's match cap. */
 export function logCmdCharsOf(st: Pick<RoomState, 'map' | 'config'>): number {
-  return maxLogCmdChars(st.config?.map ?? st.map, MAX_LOG_CMD_CHARS);
+  return maxLogCmdChars(st.config ?? st.map, MAX_LOG_CMD_CHARS);
 }
 /** Hash ticks only one seat has reported, kept at most this many (forged ticks cannot grow the table). */
 const MAX_OPEN_HASHES = 16;

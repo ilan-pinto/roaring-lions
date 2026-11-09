@@ -13,9 +13,10 @@
  * Every string the screen shows goes through `t()`. Map and player names are data (the catalogue's and the presets
  * file's own words). The disposer removes the poll, aborts what is in flight and empties the host.
  */
-import { matchCapTicks, matchupAllowed, MATCHUPS, winModesOffered, type Matchup } from '@lions/net';
-import { versusModes } from '@lions/data';
+import { flagSetupFor, flagSetupRoom, matchCapTicksOf, matchupAllowed, MATCHUPS, winModeField, winModesOffered, type Matchup } from '@lions/net';
+import { flagBlockOf, versusModes } from '@lions/data';
 import { t } from '../i18n/t';
+import { pointsExplainer } from './points-explainer';
 import { fetchPlayers, fetchStatus, SetupRefused, startRun, stopRun, type PlayerRow, type StartRequest, type StatusView, type UsageView } from '../net/arena-setup-api';
 import type { Disposer } from '../shell/router';
 
@@ -168,7 +169,12 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
   const seeds = number(1, 200, SETUP_DEFAULTS.seeds);
   const pace = number(20, 1200, SETUP_DEFAULTS.pace);
   const wall = number(1000, 600_000, SETUP_DEFAULTS.roundWallMs, 1000);
-  const cap = number(1, matchCapTicks(mapSel.value), SETUP_DEFAULTS.capTicks);
+  /** The cap of the room this form would open (GH-976 R0.8): the map's, or 30 minutes in a flag room that plays the set-up rules. */
+  const capOf = (): number => {
+    const winMode = winModeField(modeSel.value);
+    return matchCapTicksOf({ map: mapSel.value, winMode, flagSetup: flagSetupFor(mapSel.value, winMode) });
+  };
+  const cap = number(1, capOf(), SETUP_DEFAULTS.capTicks);
   /** The cap follows the mode until the person types in it: a win mode's game runs longer than the 12,000-tick default. */
   let capEdited = false;
   cap.addEventListener('input', () => { capEdited = true; });
@@ -186,8 +192,8 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
     matchupSel.replaceChildren();
     for (const m of MATCHUPS) if (matchupAllowed(m, mapSel.value)) matchupSel.appendChild(option(m, t(MATCHUP_KEY[m])));
     if ([...matchupSel.options].some((o) => o.value === keep)) matchupSel.value = keep;
-    cap.max = String(matchCapTicks(mapSel.value));
-    if (Number(cap.value) > matchCapTicks(mapSel.value)) cap.value = String(matchCapTicks(mapSel.value));
+    cap.max = String(capOf());
+    if (Number(cap.value) > capOf()) cap.value = String(capOf());
   };
   const modeHint = el('span', 'rl-arena-setup__hint');
   const fillModes = (): void => {
@@ -198,8 +204,14 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
     // Nothing offered here: the control is not drawn (the lobby's rule), the run is annihilation.
     modeField.hidden = offered.length === 0;
     const file = versusModes[mapSel.value];
-    modeHint.textContent = t(`versus.win.${modeSel.value}.hint`, { target: file?.modes.points?.target ?? 0, hold: file?.modes.flag?.hold_s ?? 0 });
-    if (!capEdited) cap.value = String(modeSel.value === 'annihilation' ? Math.min(SETUP_DEFAULTS.capTicks, matchCapTicks(mapSel.value)) : matchCapTicks(mapSel.value));
+    // GH-976 R0.22: the hold comes through the one reader, for the rules a room on this map would play.
+    const hold = file !== undefined && file.modes.flag !== undefined ? flagBlockOf(file, flagSetupRoom({ winMode: 'flag', flagSetup: flagSetupFor(mapSel.value, 'flag') })).holdS : 0;
+    const pointsRules = modeSel.value === 'points' ? file?.modes.points : undefined;
+    modeHint.textContent = pointsRules !== undefined ? pointsExplainer(pointsRules) : t(`versus.win.${modeSel.value}.hint`, { target: file?.modes.points?.target ?? 0, hold });
+    cap.max = String(capOf());
+    if (!capEdited) cap.value = String(modeSel.value === 'annihilation' ? Math.min(SETUP_DEFAULTS.capTicks, capOf()) : capOf());
+    // A typed cap is left alone, but never above the new maximum (GH-1079): a mode change can lower it, as a map change can.
+    else if (Number(cap.value) > capOf()) cap.value = String(capOf());
   };
   mapSel.addEventListener('change', () => { fillMatchups(); fillModes(); });
   matchupSel.addEventListener('change', fillModes);

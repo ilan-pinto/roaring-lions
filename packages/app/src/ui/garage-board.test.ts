@@ -26,6 +26,29 @@ describe('trackSummary (§4 "spent 360 · 1315 to max")', () => {
   it('prices what is spent and what is left', () => {
     expect(trackSummary(track('mbt_lavi', 'armour'), 1)).toEqual({ owned: 1, length: 3, spent: 360, toMax: 1315, next: 2 });
   });
+  it('spent counts only EARNED tiers: coins held tiers 1-2, earned 0 -> spent 0, toMax unchanged', () => {
+    expect(trackSummary(track('mbt_lavi', 'armour'), 2, 0)).toEqual({ owned: 2, length: 3, spent: 0, toMax: 770, next: 3 }); // literal: tier 3 of mbt_lavi armour
+    expect(trackSummary(track('mbt_lavi', 'armour'), 2, 1).spent).toBe(360);
+    expect(trackSummary(track('mbt_lavi', 'armour'), 1, 5).spent).toBe(360); // earned never exceeds owned
+  });
+  // GH-1143 follow-up: `toMax` is what the credit Buy's run (`creditAsk`) leaves to pay, so the board and the Buy agree.
+  // Lavi armour: tier prices 360, 545, 770 (1675 in all).
+  it('toMax follows the credit ask: coins hold tiers 1-2, credits none -> the run is tiers 1-3, 1675, not tier 3 alone', () => {
+    const ask = { from: 1, to: 3, price: 1675, again: 2 };
+    expect(trackSummary(track('mbt_lavi', 'armour'), 2, 0, ask)).toEqual({ owned: 2, length: 3, spent: 0, toMax: 1675, next: 3 });
+  });
+  it('toMax follows the credit ask: credits paid tier 1, coins hold tier 2 -> tiers 2-3, 1315', () => {
+    const ask = { from: 2, to: 3, price: 1315, again: 1 };
+    expect(trackSummary(track('mbt_lavi', 'armour'), 2, 1, ask).toMax).toBe(1315);
+  });
+  it('toMax counts the tiers ABOVE the run too: owned 1, earned 1 -> the run is tier 2 alone (545), the rest 770 more', () => {
+    const ask = { from: 2, to: 2, price: 545, again: 0 };
+    expect(trackSummary(track('mbt_lavi', 'armour'), 1, 1, ask).toMax).toBe(1315);
+  });
+  it('a null or absent ask leaves toMax as it was (the tiers above the single-player tier)', () => {
+    expect(trackSummary(track('mbt_lavi', 'armour'), 2, 0, null).toMax).toBe(770);
+    expect(trackSummary(track('mbt_lavi', 'armour'), 2, 0, undefined).toMax).toBe(770);
+  });
   it('has no next tier once maxed, and clamps an owned tier past the track', () => {
     expect(trackSummary(track('mbt_lavi', 'armour'), 9)).toEqual({ owned: 3, length: 3, spent: 1675, toMax: 0, next: null });
   });
@@ -93,6 +116,16 @@ describe('trackEl', () => {
       expect(r.querySelector('.rl-garage__benefit')).toBeNull();
       expect(r.getAttribute('title')?.length ?? 0).toBeGreaterThan(0);
     }
+  });
+
+  // GH-1143 follow-up: the head's "to max" and the Buy button state the same run. Coins hold tiers 1-2, credits none: the
+  // button for tier 3 asks tiers 1-3 (1675) and the head must say 1675 to max, where it used to say 770.
+  it('states the same credits to max as the Buy button asks (a coin-held run)', () => {
+    const ask = { from: 1, to: 3, price: 1675, again: 2 };
+    const el = trackEl('armour', track('mbt_lavi', 'armour'), deps({ owned: 2, earned: 0, buy: { credits: 5000, ask, onBuy: () => {} } }));
+    expect(el.querySelector('.rl-garage__track-spend')?.textContent).toBe('0 spent · 1675 to max');
+    const buy = el.querySelector('.rl-garage__buy-tier')?.textContent ?? '';
+    expect(buy).toContain('1675');
   });
 
   it('keeps a short-balance Buy legible and disabled', () => {

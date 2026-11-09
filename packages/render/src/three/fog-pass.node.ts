@@ -21,7 +21,7 @@
  *
  * Presentation only. Nothing here is read by the sim.
  */
-import type { Ops } from './fog-ops';
+import type { IntOps, Ops } from './fog-ops';
 import type { fogDim } from './fog-ops';
 import type { PostStageContext, PostStage, PostStageFactory } from './backend/backend';
 import type { FOG_OFFMAP_FADE_TILES, FogUniformTable } from './fog-spec';
@@ -42,6 +42,8 @@ export interface N {
   lessThan(b: N | number): N;
   greaterThan(b: N | number): N;
   negate(): N;
+  bitXor(b: N): N;
+  shiftRight(b: N): N;
   toVar(): N;
   assign(v: N): void;
   addAssign(v: N): void;
@@ -59,12 +61,25 @@ export interface N {
   readonly xyz: N;
 }
 export interface Tsl {
-  float(n: number): N;
+  float(n: number | N): N;
   vec2(...a: Array<N | number>): N;
   vec3(...a: Array<N | number>): N;
   vec4(...a: Array<N | number>): N;
+  uint(a: N | number): N;
+  int(a: N | number): N;
   sin(a: N): N;
+  cos(a: N): N;
   fract(a: N): N;
+  floor(a: N): N;
+  abs(a: N): N;
+  sqrt(a: N): N;
+  exp(a: N): N;
+  sign(a: N): N;
+  min(a: N, b: N): N;
+  pow(a: N, b: N): N;
+  step(edge: N, x: N): N;
+  /** Two arguments: `atan2(y, x)` (three r186 folded `atan2` into `atan`). */
+  atan(y: N, x: N): N;
   smoothstep(e0: N, e1: N, x: N): N;
   clamp(a: N, lo: number, hi: number): N;
   length(a: N): N;
@@ -97,6 +112,33 @@ export function tslOps(TSL: Tsl): Ops<N> {
     fract: (a) => TSL.fract(a),
     clamp: (a, lo, hi) => TSL.clamp(a, lo, hi),
     smoothstep: (e0, e1, x) => TSL.smoothstep(e0, e1, x),
+    min: (a, b) => TSL.min(a, b),
+    max: (a, b) => TSL.max(a, b),
+    abs: (a) => TSL.abs(a),
+    floor: (a) => TSL.floor(a),
+    step: (edge, x) => TSL.step(edge, x),
+    pow: (a, b) => TSL.pow(a, b),
+    cos: (a) => TSL.cos(a),
+    atan2: (y, x) => TSL.atan(y, x),
+    sqrt: (a) => TSL.sqrt(a),
+    exp: (a) => TSL.exp(a),
+    sign: (a) => TSL.sign(a),
+  };
+}
+
+/**
+ * GH-943 P2 (T1): `IntOps<N>` on `uint` nodes, so a product wraps mod 2^32 and `>>` is the LOGICAL shift the hash needs (a shift on
+ * an `int` would drag the sign bit down). Exported for the material twins (T6's gust lattice) and the maths test.
+ */
+export function tslIntOps(TSL: Tsl): IntOps<N> {
+  return {
+    lit: (n) => TSL.uint(n >>> 0),
+    fromFloat: (a) => TSL.uint(TSL.int(a)),
+    add: (a, b) => a.add(b),
+    imul: (a, b) => a.mul(b),
+    xor: (a, b) => a.bitXor(b),
+    shr: (a, bits) => a.shiftRight(TSL.uint(bits)),
+    toFloat01: (a) => TSL.float(a.shiftRight(TSL.uint(8))).div(16777216),
   };
 }
 

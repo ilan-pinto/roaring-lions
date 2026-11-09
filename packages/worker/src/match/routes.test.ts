@@ -73,7 +73,7 @@ describe('/api/match', () => {
     expect(createBodies[0]).toMatchObject({ player: 'id-1', callsign: 'Ari', mode: 'versus' });
     const join = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-2', callsign: 'Bo' }), env, NOW);
     expect(await verifyTicket('secret', ((await join.json()) as { ticket: string }).ticket, NOW)).toMatchObject({ seat: 1, player: 'id-2' });
-    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Bo', kind: 'human', tiers: {} });
+    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Bo', kind: 'human', tiers: {}, specials: [] });
     // Anything but 'versus' is a sandbox; an absent callsign is 'Lion'.
     await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-3', build: 'b1', mode: 'conquest' }), env, NOW);
     expect(createBodies[1]).toMatchObject({ mode: 'sandbox', callsign: 'Lion' });
@@ -106,17 +106,19 @@ describe('/api/match', () => {
   it('GH-976 P2, P4: a win mode reaches the room only when it was read fair on the map in that pairing; anything else is a 400 before a room is made', async () => {
     const { env, createBodies } = fakeRooms();
     const body = (over: Record<string, unknown>) => ({ player: 'id-1', build: 'b1', mode: 'versus', map: 'wadi_tarfan', ...over });
-    // The oracle is a literal (GH-976 P4): the seven open maps, each read fair for the points race and for the flag raid in the mirror.
+    // The oracle is a literal (GH-976 P4): the seven open maps, each read fair for the points race in the mirror (the flag raid too, until GH-1139 pulled it).
     const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
     for (const map of SEVEN) {
       expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'points' })), env, NOW)).status, map).toBe(201);
     }
     expect(createBodies.map((b) => b.winMode)).toEqual(SEVEN.map(() => 'points'));
-    // GH-976 P3: the flag raid reaches the room the same way.
+    // GH-1139: the flag raid is out of every lobby until CTF v2 lands (WP9): a 400 on every map, and no room is made.
     for (const map of SEVEN) {
-      expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'flag' })), env, NOW)).status, map).toBe(201);
+      const res = await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'flag' })), env, NOW);
+      expect(res.status, map).toBe(400);
+      expect(await res.text(), map).toBe('win mode not offered on this map');
     }
-    expect(createBodies.slice(SEVEN.length).map((b) => b.winMode)).toEqual(SEVEN.map(() => 'flag'));
+    expect(createBodies.length).toBe(SEVEN.length);
     createBodies.splice(0, createBodies.length);
     // GH-976 P4 review: no KDF-v-Sarim cell passed, so every faction pairing is a 400 below, whoever hosts.
     // Annihilation by any of its spellings is no mode: the room is told nothing, as every room before.
@@ -189,10 +191,10 @@ describe('/api/match', () => {
     expect(createBodies[0]).toMatchObject({ callsign: 'A ri BO ' + 'x'.repeat(16) });
     expect((createBodies[0] as { callsign: string }).callsign).toHaveLength(24);
     await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-2', callsign: '\u202E\u0007\u200B' }), env, NOW);
-    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Lion', kind: 'human', tiers: {} });
+    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Lion', kind: 'human', tiers: {}, specials: [] });
     const again = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-4', callsign: 'Bo\tX\u2028Y' }), env, NOW);
     expect(again.status).toBeLessThan(500);
-    expect(joinBodies[1]).toEqual({ player: 'id-4', callsign: 'Bo X Y', kind: 'human', tiers: {} });
+    expect(joinBodies[1]).toEqual({ player: 'id-4', callsign: 'Bo X Y', kind: 'human', tiers: {}, specials: [] });
   });
   it('a missing or empty player answers 400 on create and join, before any room is touched', async () => {
     const { env, createBodies, joinBodies } = fakeRooms();
@@ -333,6 +335,17 @@ describe('/api/match', () => {
       await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', kit: 'brigade', tiers: { mbt_lavi: { armour: 1 } } }), env, NOW);
       expect(createBodies.map((b) => b.kit)).toEqual(['matched', 'matched']);
       expect(createBodies[0].tiers).toEqual({});
+    });
+    it("GH-1102: create and join carry each seat's Store specials, cleaned against the shipped table; a forged id never reaches the room", async () => {
+      const { env, createBodies, joinBodies } = fakeRooms();
+      const res = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', mode: 'versus', map: 'tel_marum', kit: 'brigade', specials: ['mbt_lavi_camo', 'mbt_lavi_camo_mk9', '__proto__', 'mbt_lavi', 3] }), env, NOW);
+      const { code } = (await res.json()) as { code: string };
+      expect(createBodies[0].specials).toEqual(['mbt_lavi_camo']);
+      await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p2', specials: ['forged_super_tank', 'demo_tzav'] }), env, NOW);
+      expect(joinBodies[0].specials).toEqual(['demo_tzav']);
+      // Not an array: the empty claim.
+      await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', mode: 'versus', map: 'tel_marum', kit: 'brigade', specials: { 0: 'demo_tzav' } }), env, NOW);
+      expect(createBodies[1].specials).toEqual([]);
     });
   });
 
