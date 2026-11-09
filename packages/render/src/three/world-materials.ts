@@ -17,6 +17,7 @@
  */
 import * as THREE from 'three';
 import { paletteHex } from './palette-hex';
+import type { Ops } from './fog-ops';
 
 export const WORLD_ROUGHNESS = 0.85;
 
@@ -169,6 +170,17 @@ export const SOOT_MAP_FRAGMENT = /* glsl */ `#ifdef USE_MAP
   diffuseColor.rgb = min( diffuseColor.rgb * dot( sampledDiffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), vec3( 1.0 ) );
   diffuseColor.a *= sampledDiffuseColor.a;
 #endif`;
+
+/**
+ * GH-943 P3 (T3): `SOOT_MAP_FRAGMENT`, written once against `Ops<T>`: the colour times the texel's LUMINANCE, clamped at 1, and
+ * the texel's alpha (the chunk's `diffuseColor.a *= texel.a`). `NUMBER_OPS` runs it in the tests; the node twin
+ * (`world-materials.node.ts`) on TSL nodes.
+ */
+export function sootOps<T>(o: Ops<T>, color: readonly [T, T, T], texel: readonly [T, T, T, T]): [T, T, T, T] {
+  const y = o.add(o.add(o.mul(texel[0], o.lit(0.2126)), o.mul(texel[1], o.lit(0.7152))), o.mul(texel[2], o.lit(0.0722)));
+  const one = o.lit(1);
+  return [o.min(o.mul(color[0], y), one), o.min(o.mul(color[1], y), one), o.min(o.mul(color[2], y), one), texel[3]];
+}
 
 /** One program for every wreck: the per-vehicle number rides in `color`. */
 export const SOOT_PROGRAM_KEY = 'rl-soot';

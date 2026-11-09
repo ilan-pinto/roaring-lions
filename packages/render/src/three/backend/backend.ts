@@ -34,6 +34,7 @@ import type { FlipbookMaths } from '../units/flipbook-fx.node';
 import type { SmokeScreenMaths } from '../smoke-mesh.node';
 import type { BeamMaths } from '../units/beam-batch.node';
 import type { RotorMaths } from '../units/swarm-batch.node';
+import type { UnitMaths } from '../units/unit-material.node';
 import type { OutlineMaths } from '../units/silhouette.node';
 import type { ZoneBandMaths } from '../units/zone-band.node';
 import type { SupplyRouteMaths } from '../supply-route.node';
@@ -100,8 +101,9 @@ export interface MaterialMaths {
   readonly ground: GroundMaths;
   readonly foliage: FoliageMaths;
   readonly ring: RingMaths;
+  /** GH-943 P3 (T3): the unit twin's terms (team mark, running gear, soot; T4 the rim and the floor). */
+  readonly unit: UnitMaths;
   /** GH-943 P3 (T1): one slot per `MaterialKit` P3 slot, each `null` until its task gives it the type its twin declares. */
-  readonly unit: null;
   /** T5: the occlusion and smoke outline (`units/silhouette.node.ts`). */
   readonly outline: OutlineMaths;
   readonly banner: null;

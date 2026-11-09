@@ -365,6 +365,12 @@ export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
   'atgm', // missiles: tracer body, halo and core particles
   'beam-swarm', // the beam
   'beam-swarm/swarm', // the rotor blur
+  // GH-943 P3 (T3): the running gear and the wreck soot on the node unit twin.
+  'moving-lavi',
+  'wreck-lavi',
+  // GH-943 P3 (T4): the rain exposure and contrast on the KDF figure, and the wounded floor. Probe rows: batched round (P3-R11).
+  'rain-kdf',
+  'wounded-squad',
   // GH-943 P3 (T5): the occlusion outline and the smoke outline (`units/silhouette.node.ts`).
   'occluded',
   'smoke-own',

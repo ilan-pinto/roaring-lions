@@ -69,6 +69,15 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   { scenario: 'aftermath', layer: 'decals', band: 'loose', r0: { wgl2: 1.0084, wgpu: 1.0023 }, nodeFloor: { wgl2: 1.189, wgpu: 1.1818 }, note: 'P3 T7: both decal pools, the kinds over the road-mixed ground tone' },
   { scenario: 'aftermath', layer: 'crater-rims', band: 'ao', r0: { wgl2: 1.0092, wgpu: 1.0036 }, nodeFloor: { wgl2: 0.2089, wgpu: 0.2078 }, note: 'P3 T7: the rim relit by the sun, sky and node shadow; uRimGain by reference' },
   { scenario: 'vehicle', layer: 'selection-ring', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: the team rings, analytic coverage, no textures' },
+  // GH-943 P3 (T3): the node unit twin (`units/unit-material.node.ts`): the team mark, the running gear and the soot on the hooked unit
+  // materials, the per-entity fields per object. `loose`: textured. r0 and the node floors from this PR's `visual-parity` runs.
+  ...['vehicle', 'kitted', 'fogged', 'graded'].map(
+    (scenario): ParityRow => ({ scenario, layer: 'units', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: every unit, the hooked ones through the unit twin' })
+  ),
+  { scenario: 'vehicle', layer: 'team-mask', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: the Lavi team mark (rl-team-mark-2), slot colour by reference' },
+  { scenario: 'vehicle', layer: 'unit-surface', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: per-role roughness/metalness, per object on the twin' },
+  { scenario: 'kitted', layer: 'unit-surface', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3' },
+  { scenario: 'kitted', layer: 'kit', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: the grafted kit parts (excluded from the mark by their UVs)' },
   // GH-943 P3 (T5) Step A: the occlusion and smoke outline (`units/silhouette.node.ts`), flat colour, untextured: `tight`. One row per
   // scenario whose `outline` check holds (Step A branch 1: `fogged` read 144 px < 200 and left).
   ...['vehicle', 'kitted', 'graded'].map(

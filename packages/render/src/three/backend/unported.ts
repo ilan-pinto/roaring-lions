@@ -49,12 +49,16 @@ export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   'rl-selection-ring',
   // GH-943 P3 (T11): the simple FX families (`units/fx.node.ts`, `rim-fade.node.ts`, `beam-batch.node.ts`, `swarm-batch.node.ts`).
   'rl-fx-particle', 'rl-fx-particle-hot', 'rl-fx-tracer', 'rl-fx-mesh', 'rl-smoke-plume', 'rl-collapse-shroud', 'rl-beam', 'rl-swarm-rotors',
+  // GH-943 P3 (T3): the vehicle hooks of the unit twin (`units/unit-material.node.ts`), read per segment.
+  'rl-team-mark-2', 'rl-running-gear-1', 'rl-soot',
+  // GH-943 P3 (T4): the rain rim and the wounded floor.
+  'rl-unit-rain-rim', 'rl-wounded-floor',
+  // GH-943 P3 (T5): the occlusion outline, the smoke outline and the hit flash's outline (`units/silhouette.node.ts`).
+  'rl-silhouette-outline',
   // GH-943 P3 (T8): the overlay batch, the zone band, the supply route and the tunnel trail.
   'rl-overlay', 'rl-zone-band', 'rl-supply-route', 'rl-trail',
   // GH-943 P3 (T12): the flipbook's smoke and fire passes, and the smoke screen (`units/flipbook-fx.node.ts`, `smoke-mesh.node.ts`).
   'rl-flipbook-smoke', 'rl-flipbook-fire', 'rl-smoke-screen',
-  // GH-943 P3 (T5): the occlusion outline, the smoke outline and the hit flash's outline (`units/silhouette.node.ts`).
-  'rl-silhouette-outline',
   // GH-943 P3 (T7): the decal pools and the crater rim (dry and wet share the name; node draws a wet owner dry, `rl-decal: wet terms`).
   'rl-decal',
 ]);
