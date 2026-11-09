@@ -179,6 +179,28 @@ describe('DEBUG_LAYERS', () => {
     r.dispose();
   });
 
+  it('outline (GH-943 P3 T5): the team silhouettes alone, and shown only while overlays is shown too', () => {
+    const r = makeRenderer();
+    const i = internals(r);
+    const others = [i.overlayBatch.mesh, i.numeralBatch.mesh, i.chevronBatch.mesh, i.selectionRingGroup];
+    expect(r.setDebugLayerVisible('outline', false)).toBe(3);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(false);
+    // Not the other overlays.
+    for (const o of others) expect(o.visible).toBe(true);
+    expect(r.setDebugLayerVisible('outline', true)).toBe(3);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(true);
+    // Composition: overlays hidden keeps them hidden whatever outline says, and outline hidden survives overlays coming back.
+    r.setDebugLayerVisible('overlays', false);
+    r.setDebugLayerVisible('outline', true);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(false);
+    r.setDebugLayerVisible('outline', false);
+    r.setDebugLayerVisible('overlays', true);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(false);
+    r.setDebugLayerVisible('outline', true);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(true);
+    r.dispose();
+  });
+
   it('flips the skirt beyond the map, and back', () => {
     // Built in the CONSTRUCTOR rather than in `rebuildTerrain` (it is a
     // function of the map's dimensions alone), so unlike every other layer
@@ -830,6 +852,43 @@ describe('the FX layers (GH-943 P3 T2): trail, wreck-soot, particles, tracers, m
     expect(live.visible, 'the live twin stays').toBe(true);
     expect(objects['wreck-soot'][0]?.visible).toBe(false);
     expect(r.setDebugLayerVisible('tracers', true)).toBe(0);
+    r.dispose();
+  });
+
+  it('a show restores exactly what a hide took: a living vehicle\'s hidden WRECK_ twin stays hidden', () => {
+    const { r } = populated();
+    const p = priv(r);
+    const livingTwin = new THREE.Mesh();
+    livingTwin.userData.rl_wreck = true;
+    livingTwin.visible = false; // hidden for its own reasons (the vehicle is alive)
+    const root = new THREE.Group();
+    root.add(livingTwin);
+    p.vehicleMeshEntities.set(8, { root });
+    r.setDebugLayerVisible('wreck-soot', false);
+    r.frame(1, 16);
+    r.setDebugLayerVisible('wreck-soot', true);
+    r.frame(1, 16);
+    expect(livingTwin.visible, 'the twin was hidden before the hide and must be after the show').toBe(false);
+    for (const e of p.vehicleMeshEntities.values()) {
+      e.root.traverse((o) => {
+        if (o !== livingTwin && (o.userData as { rl_wreck?: unknown }).rl_wreck === true) expect(o.visible, 'a visible wreck comes back').toBe(true);
+      });
+    }
+    r.dispose();
+  });
+
+  it('wreck-soot also reaches the wrecks left standing after a death (meshWrecks), the ones a player sees', () => {
+    const r = makeRenderer();
+    const wreck = new THREE.Mesh();
+    wreck.userData.rl_wreck = true;
+    const root = new THREE.Group();
+    root.add(wreck);
+    (r as unknown as { meshWrecks: { root: THREE.Object3D }[] }).meshWrecks.push({ root });
+    expect(r.setDebugLayerVisible('wreck-soot', false)).toBe(1);
+    r.frame(1, 16);
+    expect(wreck.visible).toBe(false);
+    r.setDebugLayerVisible('wreck-soot', true);
+    expect(wreck.visible).toBe(true);
     r.dispose();
   });
 });
