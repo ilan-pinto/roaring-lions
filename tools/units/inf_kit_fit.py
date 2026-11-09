@@ -19,6 +19,10 @@ HELMET_Z0 = 1.56      # above this, head-bound uniform verts are the helmet
 SKIN_RIGID_W = 0.999
 SKIN_MOVED_M = 0.001
 SKIN_COLLAR_M = 0.04
+#: A skinned figure's weapon frame (from `rl_hands.weapons`) is refused unless the gun's own vertices span the part's butt
+#: and muzzle along its bore to within this.
+WEAPON_FRAME_TOL_M = 0.06
+SKIN_HELMET_ABOVE_FACE_M = 0.005
 
 _CACHE = {}
 
@@ -154,7 +158,16 @@ class Fit:
             self.pts["torso_all"] = self.pts["torso"]       # the whole spine zone: the collar and yoke sit above the vest
             self.pts["torso"] = np.concatenate([vs, (a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
             self.zone_torso = geo.bvh_from(co, t)
-        self.zone_helmet = zone(wz("head", 0.5) & (z >= HELMET_Z0), "helmet")
+        # A rigid figure's face is its own primitive, so its head-bound `uniform` above HELMET_Z0 is the helmet. A skinned
+        # Meshy head is one shell: beard, ears and brow are `uniform` too, so its helmet starts where its own `face` (skin)
+        # primitive ends (f1: skin up to z 1.64, the helmet's olive from there). Read per figure.
+        self.hel_z0 = HELMET_Z0
+        if self.skinned and "face" in meshes:
+            fco, fdom = _co(meshes["face"]), _dominant(meshes["face"])
+            fz = fco[fdom == f"{pf}_head", 2]
+            if len(fz):
+                self.hel_z0 = float(np.percentile(fz, 98)) + SKIN_HELMET_ABOVE_FACE_M
+        self.zone_helmet = zone(wz("head", 0.5) & (z >= self.hel_z0), "helmet")
         self.zone_arm = {s: zone(wz(f"upperarm_{s}", 0.95), f"arm{s}") for s in "LR"}
         self.zone_arm_any = {s: zone(wz(f"upperarm_{s}", 0.5)) for s in "LR"}
         trunk = (wz("pelvis", 1.0) | wz("spine", 1.0)) if self.skinned else ((w("pelvis") + w("spine")) >= 0.9)
@@ -170,7 +183,7 @@ class Fit:
         self.arm_any_idx = np.nonzero(arms & mine)[0]
 
         # --- helmet
-        hm = wz("head", 0.5) & (z >= HELMET_Z0) & mine
+        hm = wz("head", 0.5) & (z >= self.hel_z0) & mine
         hel = co[hm] - self.O
         # a baked mount stands 5 cm proud of the shell at the front and would drag the helmet's centre (and every wrap's axis)
         # forward: measure the shell without the front-most cluster
@@ -209,11 +222,20 @@ class Fit:
             R = Quaternion((qw, qx, qy, qz)).to_matrix()
             u = gl(R @ Vector((1.0, 0.0, 0.0))).normalized()
             v = gl(R @ Vector((0.0, 1.0, 0.0))).normalized()
-            c = gl(wp["origin"])
+            # `origin` is in the frame the hold stamped it in: the figure's root at `root.t` (the importer's slot). The
+            # motion pass then sets the squad's wedge, moving each root (f0 (0, 0, 0.78) -> (-0.45, 0, 1.05)) by a pure
+            # translation (the root's rotation is the same in both), so the bind-pose bore is origin - root.t + the bind
+            # root. Read as plain world coordinates it sat 0.2-0.8 m off the gun and every device floated (9 Nov).
+            rt = wp.get("root", {}).get("t", (0.0, 0.0, 0.0))
+            c = gl(wp["origin"]) - gl(rt) + Vector(bones[f"{pf}_root"].head_local)
             half = -float(self.rl_hands["part"]["butt_x"])
             muz = np.array(c + u * half)
             wvec = v.cross(u).normalized()
             proj = (wv_ - np.array(c)) @ np.array(u)
+            # the frame must BE the gun's: its rigid vertices span butt to muzzle along u, centred on the bore
+            if abs(float(proj.max()) - half) > WEAPON_FRAME_TOL_M or abs(float(proj.min()) + half) > WEAPON_FRAME_TOL_M:
+                raise ValueError(f"{pf}: rl_hands weapon frame is not the gun's: its vertices span {proj.min():.3f}..{proj.max():.3f} "
+                                 f"along the bore, the part {-half:.3f}..{half:.3f} (tolerance {WEAPON_FRAME_TOL_M} m)")
         else:
             c = wv_.mean(0)
             u = np.linalg.svd(wv_ - c, full_matrices=False)[2][0]

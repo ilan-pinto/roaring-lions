@@ -178,7 +178,14 @@ TEAMS = {
         "olive_dark": (998, 1567),     # olive.3  #333821  dE 1.06
         "glass": (1468, 1412),         # shadow.0 #23241F  dE 0.36
     },
-                      bank_clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned"), clear_pouches=True, dense_keys=True, flip_deg=120.0),
+                      bank_clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned"), clear_pouches=True, dense_keys=True, flip_deg=120.0,
+                      # what the Meshy bake already shows (9 Nov, the step-9 re-fit): a helmet with an NVG shroud and mount
+                      # (the tubes ride it; `nvg_mount` is not added twice; the cover is open at the face) and a black plate
+                      # carrier the wraps fit to, as the Demolition squad's do. No deltoid or sleeve armour: a skinned upper
+                      # arm is welded to the ribs, so its surface by dominant bone is shoulder AND chest wall, and the arm
+                      # wraps came out as flat slabs standing off the shoulder (9 Nov render) -- the lead's ruling for the
+                      # Demolition squad (30 Oct), applied here by the controller, for the lead to confirm
+                      drop=("nvg_mount", "deltoid", "sleeve"), baked_mount=True, helmet_front_trim=60.0, torso_vest_lum=0.15, torso_ring_cap=True),
     # Demolition squad (GH-826, seven-teams spec 4.3). Two standing figures on the standard rig:
     # demo_a is unarmed (he works the charge), demo_b carries the carbines. The helmets carry a baked NVG
     # shroud and mount, so `nvg_mount` is not added twice. The weapon primitive has no UVs (palette), so
