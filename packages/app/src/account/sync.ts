@@ -11,11 +11,11 @@
  *  - a 409 `stale` never re-bases what is queued behind it (§0.25, 705): the device's campaign is first kept (a
  *    `held` entry in `lions.account.local`, written BEFORE the server's campaign is adopted, or the conflict slot the
  *    server made), the queued campaign ops are dropped, and the newest snapshot replaces that body;
- *  - 429, 5xx, `busy` and network failures back off (2 s doubling to 60 s) and keep the order; an op that fails 5
- *    times with a 5xx or `busy` is filed as `refused` and dropped, so one bad op cannot wedge the queue (§0.35);
+ *  - transient failures back off (2 s doubling to 60 s) and keep the order; an op that gets 5 permanent-looking
+ *    answers (R16 below) is filed as `refused` and dropped, so one bad op cannot wedge the queue (§0.35);
  *  - one flusher at a time across tabs, under `lions.account.flush`; this tab's heartbeat is written before any
  *    orphaned outbox is looked for (§0.38);
- *  - R12, the SEND BASE: a queued campaign snapshot is only safe on the revision it was built on, so `cache.sendBase`
+ *  - R12, the SEND BASE: a queued campaign snapshot is only safe on the revision it was built on, so this tab's send base (kept in its own outbox value, never the shared cache)
  *    moves ONLY through this queue's own acks. `GET state` (a replay's refresh, a conflict, boot) refreshes `confirmed`
  *    and the view but never raises it while campaign-carrying ops are queued: those ops go out on their old base,
  *    answer 409, and resolve as conflicts. With no campaign op queued the base simply follows `confirmed`. An orphan's
@@ -23,8 +23,9 @@
  *    coins-only;
  *  - R13: an orphaned outbox is adopted only by a tab of the member who wrote it (the stored value carries the
  *    `publicId`); sign-out and a deleted account file and clear every outbox and heartbeat key of that member;
- *  - R14: the 5-strike wedge counts only a 500, a 409 `busy` and a 200 whose body is malformed. 502/503/504 and every
- *    other status back off like a network failure and never file. A filed op keeps the WHOLE op as its held text.
+ *  - R14/R16: the 5-strike wedge counts every answer that is not a network failure, 401, 429, 502/503/504 or a handled
+ *    409 (stale, conflict, cap, claim_cap): 500, 403, `busy`, an unknown 409, other 4xx, and a malformed 200. A 404 on
+ *    `slot.delete` is success. Network failures, 429 and 502/503/504 back off and never file. A filed op keeps the WHOLE op as its held text.
  *
  * A rejected `signOut` (the unsent work could not be kept on this device) leaves this loop STOPPED: nothing is
  * cleared, the work is still queued, and the caller must start a new loop to try again.
@@ -51,6 +52,10 @@ export const SIGN_OUT_LIMIT_MS = 5000;
 export const FLUSH_LOCK = 'lions.account.flush';
 /** The server's cap on `claim` and `conflict` slots together (the Worker's `SYSTEM_SLOTS`). */
 const SYSTEM_SLOTS = 4;
+/** Answers that say "try later", not "this op is bad" (R16): a network failure (status 0), 429, 502, 503, 504. Everything else unhandled counts toward the wedge. */
+const TRANSIENT: ReadonlySet<number> = new Set([0, 429, 502, 503, 504]);
+/** The id of the held entry (and conflict slot) a snapshot behind `opId` becomes: stable, so a retry replaces rather than duplicates. */
+const heldId = (opId: string): string => `h-${opId}`;
 
 export type SyncMode = 'active' | 'signedOut' | 'foreign' | 'deleted' | 'stopped';
 
@@ -153,25 +158,22 @@ export function startSync(o: SyncOptions): SyncHandle {
   // ---- the send base (R12) ---------------------------------------------------------------------------------------
   const hasCampaignOps = (): boolean => api.ops().some(carriesCampaign);
   const setSendBase = (n: number | undefined): void => {
-    if (cache.sendBase === n) return;
-    if (n === undefined) delete cache.sendBase;
-    else cache.sendBase = n;
-    persist();
+    api.setBase(n);
   };
   /** With no campaign op queued the base follows `confirmed`. */
   const settleBase = (): void => {
-    if (cache.sendBase !== undefined && !hasCampaignOps()) setSendBase(undefined);
+    if (api.base() !== undefined && !hasCampaignOps()) setSendBase(undefined);
   };
   /** Before `confirmed` moves by anything but this queue's own ack: a queued campaign op was built on the revision it holds now. */
   const pinBase = (): void => {
-    if (cache.sendBase === undefined && hasCampaignOps()) cache.sendBase = currentRevision();
+    if (api.base() === undefined && hasCampaignOps()) api.setBase(currentRevision());
   };
   /** This queue's own ack of a campaign-carrying op: the next one is sent on the revision the server just answered. */
   const ackBase = (answer: unknown): void => {
     if (isRecord(answer) && typeof answer.revision === 'number') setSendBase(hasCampaignOps() ? answer.revision : undefined);
     else settleBase();
   };
-  const sendBase = (): number => cache.sendBase ?? currentRevision();
+  const sendBase = (): number => api.base() ?? currentRevision();
   const removeOp = (opId: string): void => {
     api.setOps(api.ops().filter((x) => x.opId !== opId));
     settleBase();
@@ -343,7 +345,7 @@ export function startSync(o: SyncOptions): SyncHandle {
     };
     let put: SlotPutOp | null = null;
     if ('held' in conflict) {
-      const id = newId();
+      const id = heldId(op.opId);
       const when = o.now();
       let kept: string | null = null;
       for (let lap = 0; ; lap++) {
@@ -487,10 +489,10 @@ export function startSync(o: SyncOptions): SyncHandle {
         removeOp(op.opId);
         return 'next';
       }
-      return failOp(op, err === 'busy'); // busy counts toward the wedge; an answer this build does not know backs off
+      return failOp(op, true); // busy and an unknown 409 count toward the wedge (R16)
     }
-    if (r.status === 404 && op.kind === 'slot.delete') return onOk(op, { ok: true });
-    return failOp(op, r.status === 500); // 502/503/504, 429 and network failures back off and never file (R14)
+    if (r.status === 404 && op.kind === 'slot.delete') return onOk(op, { ok: true }); // already gone: success (R16)
+    return failOp(op, !TRANSIENT.has(r.status)); // only a network failure, 429 and 502/503/504 back off without counting (R16)
   }
 
   async function sendOne(op: OutboxOp): Promise<Next> {
@@ -521,9 +523,9 @@ export function startSync(o: SyncOptions): SyncHandle {
    * An orphan's campaign snapshot was built on a revision this tab never saw, so it is handled like a 409's (R12): a
    * conflict slot when one is free, else the held list (uploaded later by `releaseHeld`). Null when storage refused.
    */
-  async function keepAdopted(latest: CampaignBody): Promise<OutboxOp | 'held' | null> {
+  async function keepAdopted(latest: CampaignBody, opId: string): Promise<OutboxOp | 'held' | null> {
     const queued = api.ops().filter((x): x is SlotPutOp => x.kind === 'slot.put' && x.origin === 'conflict').length;
-    const id = newId();
+    const id = heldId(opId);
     const when = o.now();
     if (SYSTEM_SLOTS - cache.confirmed.slots.filter((s) => s.origin !== 'player').length - queued > 0) {
       return { kind: 'slot.put', opId: newId(), slotId: id, slot: slotFromCampaign(latest, id, 'conflict', when), origin: 'conflict' };
@@ -538,14 +540,19 @@ export function startSync(o: SyncOptions): SyncHandle {
       if (outboxOwner(storage, tab) !== cache.publicId) continue; // another member's, or from before owners were stored (R13)
       const adopted = readOutbox(storage, tab);
       let newest: CampaignBody | null = null;
+      let newestOp = '';
       const plain: OutboxOp[] = [];
       for (const x of adopted) {
-        newest = campaignOf(x) ?? newest;
+        const c = campaignOf(x);
+        if (c !== null) {
+          newest = c;
+          newestOp = x.opId;
+        }
         if (x.kind !== 'campaign') plain.push(x.kind === 'victory' && x.campaign !== null ? { ...x, campaign: null } : x);
       }
       const extra: OutboxOp[] = [];
       if (newest !== null) {
-        const kept = await keepAdopted(newest);
+        const kept = await keepAdopted(newest, newestOp);
         if (stopped) return;
         if (kept === null) continue; // not kept: the orphan stays where it is
         if (kept !== 'held') extra.push(kept);

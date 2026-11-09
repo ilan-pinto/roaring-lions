@@ -10,7 +10,7 @@ import type { BrigadeAccount, CampaignBody, ParsedWorld, RoarWallet, SaveSlot, S
 import { startCampaign as clearCampaignPay, type StorageLike } from '../brigade-account';
 import type { CampaignLedger, CampaignSnapshot, LedgerStore, VictoryRecord, VictoryWrite } from '../ledger-store';
 import type { AccountCache } from './cache';
-import { coalesce, readOutbox, writeOutbox, type OutboxOp } from './outbox';
+import { coalesce, readBase, readOutbox, writeOutbox, type OutboxOp } from './outbox';
 import { viewOf, walletOf } from './replay';
 
 /** Thrown by every coin write while signed in: a path left on `writeRoar` goes red here, not silently local. */
@@ -42,6 +42,9 @@ export interface StoreSyncApi {
   ops(): readonly OutboxOp[];
   /** Replace the whole queue (an ack, a drop, an adoption). Writes this tab's key and drops the view memo; no `onChange`. False when storage refused (the memory copy is then the truth). */
   setOps(next: readonly OutboxOp[]): boolean;
+  /** The campaign revision the queued campaign ops are sent on (R12); undefined when none is pinned. Persisted in this tab's own outbox value. */
+  base(): number | undefined;
+  setBase(n: number | undefined): void;
   /** The op was handed to the network: a later append may no longer coalesce into it. */
   markSent(opId: string): void;
   markPending(key: string): void;
@@ -63,6 +66,8 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
   const pendingSpends = new Set<string>();
   const sent = new Set<string>();
   let ops: OutboxOp[] = readOutbox(o.storage, tabId);
+  // The send base (R12) lives with THIS tab's queue, never in the shared cache: another tab cannot move it.
+  let base: number | undefined = readBase(o.storage, tabId);
   // The view is memoised on the identity of the confirmed state AND the ops. The sync loop (Task 2.10) refreshes by
   // REPLACING `cache.confirmed` with a new object (never mutating it in place); no explicit refresh call is needed.
   let cached: ServerState | null = null;
@@ -77,7 +82,7 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
   };
   const push = (op: OutboxOp): void => {
     ops = coalesce(ops, op, sent);
-    writeOutbox(o.storage, tabId, ops, o.cache.publicId); // a refused write keeps the memory copy
+    writeOutbox(o.storage, tabId, ops, o.cache.publicId, base); // a refused write keeps the memory copy
     cached = null;
     o.onChange();
   };
@@ -114,7 +119,13 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
     setOps: (next) => {
       ops = [...next];
       cached = null;
-      return writeOutbox(o.storage, tabId, ops, o.cache.publicId);
+      return writeOutbox(o.storage, tabId, ops, o.cache.publicId, base);
+    },
+    base: () => base,
+    setBase: (n) => {
+      if (base === n) return;
+      base = n;
+      writeOutbox(o.storage, tabId, ops, o.cache.publicId, base);
     },
     markSent: (opId) => void sent.add(opId),
     markPending: (key) => void pendingSpends.add(key),

@@ -46,33 +46,41 @@ function validOp(v: unknown): v is OutboxOp {
 interface Stored {
   publicId: string | null;
   ops: OutboxOp[];
+  /** The campaign revision the queued campaign ops are sent on (R12): kept WITH the queue, so only this tab's own writes move it. */
+  base: number | undefined;
 }
 
 function readStored(storage: StorageLike | null, tabId: string): Stored {
   try {
     const text = storage?.getItem(outboxKey(tabId));
-    if (typeof text !== 'string') return { publicId: null, ops: [] };
+    if (typeof text !== 'string') return { publicId: null, ops: [], base: undefined };
     const j: unknown = JSON.parse(text);
-    if (Array.isArray(j)) return { publicId: null, ops: j.filter(validOp) };
-    if (isRecord(j) && Array.isArray(j.ops)) return { publicId: typeof j.publicId === 'string' && j.publicId !== '' ? j.publicId : null, ops: j.ops.filter(validOp) };
-    return { publicId: null, ops: [] };
+    if (Array.isArray(j)) return { publicId: null, ops: j.filter(validOp), base: undefined };
+    if (isRecord(j) && Array.isArray(j.ops)) {
+      const base = typeof j.base === 'number' && Number.isInteger(j.base) && j.base >= 0 ? j.base : undefined;
+      return { publicId: typeof j.publicId === 'string' && j.publicId !== '' ? j.publicId : null, ops: j.ops.filter(validOp), base };
+    }
+    return { publicId: null, ops: [], base: undefined };
   } catch {
-    return { publicId: null, ops: [] };
+    return { publicId: null, ops: [], base: undefined };
   }
 }
 
 /** This tab's queued ops, oldest first. Anything unreadable reads as empty; a malformed op is dropped. */
 export const readOutbox = (storage: StorageLike | null, tabId: string): OutboxOp[] => readStored(storage, tabId).ops;
 
+/** This tab's persisted send base (R12), undefined when none is pinned. Only this tab writes it. */
+export const readBase = (storage: StorageLike | null, tabId: string): number | undefined => readStored(storage, tabId).base;
+
 /** The member a stored outbox belongs to; null for the old bare-array shape or an unreadable value. */
 export const outboxOwner = (storage: StorageLike | null, tabId: string): string | null => readStored(storage, tabId).publicId;
 
-/** Write this tab's outbox, stamped with its member. False when storage refused (the caller keeps its memory copy). */
-export function writeOutbox(storage: StorageLike | null, tabId: string, ops: readonly OutboxOp[], publicId: string): boolean {
+/** Write this tab's outbox, stamped with its member and carrying its send base. False when storage refused (the caller keeps its memory copy). */
+export function writeOutbox(storage: StorageLike | null, tabId: string, ops: readonly OutboxOp[], publicId: string, base?: number): boolean {
   try {
     if (!storage) return false;
     if (ops.length === 0) storage.removeItem(outboxKey(tabId));
-    else storage.setItem(outboxKey(tabId), JSON.stringify({ publicId, ops }));
+    else storage.setItem(outboxKey(tabId), JSON.stringify(base === undefined ? { publicId, ops } : { publicId, ops, base }));
     return true;
   } catch {
     return false;
