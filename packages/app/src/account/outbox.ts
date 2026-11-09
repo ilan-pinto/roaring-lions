@@ -39,27 +39,72 @@ function validOp(v: unknown): v is OutboxOp {
   }
 }
 
-/** This tab's queued ops, oldest first. Anything unreadable reads as empty; a malformed op is dropped. */
-export function readOutbox(storage: StorageLike | null, tabId: string): OutboxOp[] {
+/**
+ * A tab's stored outbox (R13): `{ publicId, ops }`, so a sibling can tell whose work it is before adopting it. The
+ * old bare array (written before owners existed) still reads, as UNOWNED: it is never adopted.
+ */
+interface Stored {
+  publicId: string | null;
+  ops: OutboxOp[];
+}
+
+function readStored(storage: StorageLike | null, tabId: string): Stored {
   try {
     const text = storage?.getItem(outboxKey(tabId));
-    if (typeof text !== 'string') return [];
+    if (typeof text !== 'string') return { publicId: null, ops: [] };
     const j: unknown = JSON.parse(text);
-    return Array.isArray(j) ? j.filter(validOp) : [];
+    if (Array.isArray(j)) return { publicId: null, ops: j.filter(validOp) };
+    if (isRecord(j) && Array.isArray(j.ops)) return { publicId: typeof j.publicId === 'string' && j.publicId !== '' ? j.publicId : null, ops: j.ops.filter(validOp) };
+    return { publicId: null, ops: [] };
+  } catch {
+    return { publicId: null, ops: [] };
+  }
+}
+
+/** This tab's queued ops, oldest first. Anything unreadable reads as empty; a malformed op is dropped. */
+export const readOutbox = (storage: StorageLike | null, tabId: string): OutboxOp[] => readStored(storage, tabId).ops;
+
+/** The member a stored outbox belongs to; null for the old bare-array shape or an unreadable value. */
+export const outboxOwner = (storage: StorageLike | null, tabId: string): string | null => readStored(storage, tabId).publicId;
+
+/** Write this tab's outbox, stamped with its member. False when storage refused (the caller keeps its memory copy). */
+export function writeOutbox(storage: StorageLike | null, tabId: string, ops: readonly OutboxOp[], publicId: string): boolean {
+  try {
+    if (!storage) return false;
+    if (ops.length === 0) storage.removeItem(outboxKey(tabId));
+    else storage.setItem(outboxKey(tabId), JSON.stringify({ publicId, ops }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Every tab id with an outbox key of any content (owned by `publicId` when given). */
+export function outboxTabs(storage: StorageLike | null, publicId?: string): string[] {
+  try {
+    const s = storage as (StorageLike & { length?: unknown; key?: unknown }) | null;
+    if (!s || typeof s.length !== 'number' || typeof s.key !== 'function') return [];
+    const out: string[] = [];
+    for (let i = 0; i < s.length; i++) {
+      const k = (s.key as (n: number) => string | null)(i);
+      if (k === null || !k.startsWith(OUTBOX_PREFIX)) continue;
+      const tabId = k.slice(OUTBOX_PREFIX.length);
+      if (publicId === undefined || outboxOwner(storage, tabId) === publicId) out.push(tabId);
+    }
+    return out;
   } catch {
     return [];
   }
 }
 
-/** Write this tab's outbox. False when storage refused (the caller keeps its memory copy). */
-export function writeOutbox(storage: StorageLike | null, tabId: string, ops: readonly OutboxOp[]): boolean {
-  try {
-    if (!storage) return false;
-    if (ops.length === 0) storage.removeItem(outboxKey(tabId));
-    else storage.setItem(outboxKey(tabId), JSON.stringify(ops));
-    return true;
-  } catch {
-    return false;
+/** Remove a tab's outbox and heartbeat keys. Guarded. */
+export function clearTab(storage: StorageLike | null, tabId: string): void {
+  for (const k of [outboxKey(tabId), heartbeatKey(tabId)]) {
+    try {
+      storage?.removeItem(k);
+    } catch {
+      /* a refusing storage: nothing more to do */
+    }
   }
 }
 
@@ -88,25 +133,19 @@ export function coalesce(ops: readonly OutboxOp[], op: OutboxOp, sent: ReadonlyS
 }
 
 /** Append to THIS tab's key only (§0.38), coalescing. Returns the new queue even when the write was refused. */
-export function appendOp(storage: StorageLike | null, tabId: string, op: OutboxOp, sent: ReadonlySet<string> = new Set()): OutboxOp[] {
+export function appendOp(storage: StorageLike | null, tabId: string, op: OutboxOp, publicId: string, sent: ReadonlySet<string> = new Set()): OutboxOp[] {
   const next = coalesce(readOutbox(storage, tabId), op, sent);
-  writeOutbox(storage, tabId, next);
+  writeOutbox(storage, tabId, next, publicId);
   return next;
 }
 
 /** Tab ids with a non-empty outbox whose heartbeat is over 60 s old (or missing). The caller skips its own tab. */
 export function orphanedOutboxes(storage: StorageLike | null, now: number): string[] {
   try {
-    const s = storage as (StorageLike & { length?: unknown; key?: unknown }) | null;
-    if (!s || typeof s.length !== 'number' || typeof s.key !== 'function') return [];
-    const keys: string[] = [];
-    for (let i = 0; i < s.length; i++) {
-      const k = (s.key as (n: number) => string | null)(i);
-      if (k !== null && k.startsWith(OUTBOX_PREFIX)) keys.push(k);
-    }
+    const s = storage;
+    if (!s) return [];
     const out: string[] = [];
-    for (const k of keys) {
-      const tabId = k.slice(OUTBOX_PREFIX.length);
+    for (const tabId of outboxTabs(storage)) {
       if (readOutbox(storage, tabId).length === 0) continue;
       const beat = Number(s.getItem(heartbeatKey(tabId)));
       if (!Number.isFinite(beat) || s.getItem(heartbeatKey(tabId)) === null || now - beat > ORPHAN_AFTER_MS) out.push(tabId);

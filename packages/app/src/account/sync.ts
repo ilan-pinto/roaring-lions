@@ -14,7 +14,20 @@
  *  - 429, 5xx, `busy` and network failures back off (2 s doubling to 60 s) and keep the order; an op that fails 5
  *    times with a 5xx or `busy` is filed as `refused` and dropped, so one bad op cannot wedge the queue (§0.35);
  *  - one flusher at a time across tabs, under `lions.account.flush`; this tab's heartbeat is written before any
- *    orphaned outbox is looked for (§0.38).
+ *    orphaned outbox is looked for (§0.38);
+ *  - R12, the SEND BASE: a queued campaign snapshot is only safe on the revision it was built on, so `cache.sendBase`
+ *    moves ONLY through this queue's own acks. `GET state` (a replay's refresh, a conflict, boot) refreshes `confirmed`
+ *    and the view but never raises it while campaign-carrying ops are queued: those ops go out on their old base,
+ *    answer 409, and resolve as conflicts. With no campaign op queued the base simply follows `confirmed`. An orphan's
+ *    campaign snapshot is adopted like a 409's: kept as a conflict slot (or held), never PUT; an adopted victory goes
+ *    coins-only;
+ *  - R13: an orphaned outbox is adopted only by a tab of the member who wrote it (the stored value carries the
+ *    `publicId`); sign-out and a deleted account file and clear every outbox and heartbeat key of that member;
+ *  - R14: the 5-strike wedge counts only a 500, a 409 `busy` and a 200 whose body is malformed. 502/503/504 and every
+ *    other status back off like a network failure and never file. A filed op keeps the WHOLE op as its held text.
+ *
+ * A rejected `signOut` (the unsent work could not be kept on this device) leaves this loop STOPPED: nothing is
+ * cleared, the work is still queued, and the caller must start a new loop to try again.
  */
 import { canonicalCampaign, canonicalSlot, SAVE_VERSION } from '@lions/economy';
 import type { CampaignBody, CampaignView, CoinAskWire, ConflictAnswer, SaveSlot, ServerState, SlotMetaView, WalletView } from '@lions/economy';
@@ -24,7 +37,7 @@ import { clearBinding, clearDeviceId, readBinding, writeBinding } from './bindin
 import { ACCOUNT_CACHE_KEY, writeCache } from './cache';
 import type { AccountClient, CallResult, CampaignOp, CouponAnswer, ResetFreeAnswer, SlotPutOp, VictoryAnswer, VictoryOp } from './client';
 import { addHeld, readHeld, removeHeld, type HeldItem } from './local-held';
-import { heartbeatKey, orphanedOutboxes, readOutbox, writeOutbox, type OutboxOp } from './outbox';
+import { clearTab, heartbeatKey, orphanedOutboxes, outboxOwner, outboxTabs, readOutbox, type OutboxOp } from './outbox';
 import { resolveSignedIn, sha256Hex } from './signed-in';
 
 /** Campaign and slot ops wait this long to coalesce; a victory goes at once. */
@@ -96,19 +109,20 @@ export function slotFromCampaign(body: CampaignBody, id: string, name: string, s
 
 const campaignOf = (op: OutboxOp): CampaignBody | null => (op.kind === 'campaign' || op.kind === 'victory' ? op.campaign : null);
 
-/** What an op that cannot be sent leaves behind, verbatim. A delete has no content to keep. */
+/** What an op that cannot be sent leaves behind: the WHOLE op, verbatim (R14). A delete has no content to keep. */
 export function heldFromOp(op: OutboxOp, publicId: string, at: number): HeldItem | null {
   switch (op.kind) {
     case 'campaign':
-      return { id: op.opId, kind: 'campaign', reason: 'refused', text: JSON.stringify(op.campaign), at, publicId };
     case 'victory':
-      return { id: op.opId, kind: 'campaign', reason: 'refused', text: op.campaign === null ? JSON.stringify({ missionId: op.missionId, stars: op.stars }) : JSON.stringify(op.campaign), at, publicId };
+      return { id: op.opId, kind: 'campaign', reason: 'refused', text: JSON.stringify(op), at, publicId };
     case 'slot.put':
-      return { id: op.opId, kind: 'slot', reason: 'refused', text: JSON.stringify(op.slot), at, publicId };
+      return { id: op.opId, kind: 'slot', reason: 'refused', text: JSON.stringify(op), at, publicId };
     case 'slot.delete':
       return null;
   }
 }
+
+const carriesCampaign = (op: OutboxOp): boolean => op.kind === 'campaign' || (op.kind === 'victory' && op.campaign !== null);
 
 export function startSync(o: SyncOptions): SyncHandle {
   const { store, client, storage } = o;
@@ -130,12 +144,38 @@ export function startSync(o: SyncOptions): SyncHandle {
   const changed = (): void => o.onChange?.();
   /** REPLACE `confirmed` (the view memo keys on its identity), then store it. */
   const commit = (patch: Partial<ServerState>): void => {
+    if (patch.campaign !== undefined) pinBase();
     cache.confirmed = { ...cache.confirmed, ...patch };
     persist();
     changed();
   };
   const currentRevision = (): number => cache.confirmed.campaign?.revision ?? 0;
-  const removeOp = (opId: string): void => void api.setOps(api.ops().filter((x) => x.opId !== opId));
+  // ---- the send base (R12) ---------------------------------------------------------------------------------------
+  const hasCampaignOps = (): boolean => api.ops().some(carriesCampaign);
+  const setSendBase = (n: number | undefined): void => {
+    if (cache.sendBase === n) return;
+    if (n === undefined) delete cache.sendBase;
+    else cache.sendBase = n;
+    persist();
+  };
+  /** With no campaign op queued the base follows `confirmed`. */
+  const settleBase = (): void => {
+    if (cache.sendBase !== undefined && !hasCampaignOps()) setSendBase(undefined);
+  };
+  /** Before `confirmed` moves by anything but this queue's own ack: a queued campaign op was built on the revision it holds now. */
+  const pinBase = (): void => {
+    if (cache.sendBase === undefined && hasCampaignOps()) cache.sendBase = currentRevision();
+  };
+  /** This queue's own ack of a campaign-carrying op: the next one is sent on the revision the server just answered. */
+  const ackBase = (answer: unknown): void => {
+    if (isRecord(answer) && typeof answer.revision === 'number') setSendBase(hasCampaignOps() ? answer.revision : undefined);
+    else settleBase();
+  };
+  const sendBase = (): number => cache.sendBase ?? currentRevision();
+  const removeOp = (opId: string): void => {
+    api.setOps(api.ops().filter((x) => x.opId !== opId));
+    settleBase();
+  };
   /** The campaign an answer carries, when it may replace `confirmed`'s: full, and not older. `refresh` is set when it may not. */
   const campaignPatch = (c: unknown): { campaign?: CampaignView; refresh: boolean } => {
     if (c === null || c === undefined) return { refresh: false };
@@ -162,15 +202,22 @@ export function startSync(o: SyncOptions): SyncHandle {
     if (!stopped) cancelBeat = o.schedule(HEARTBEAT_MS, beat);
   };
   beat();
+  settleBase(); // a base left over from a queue that is gone
 
   // ---- 401 -------------------------------------------------------------------------------------------------------
+  /** The account is gone: file this member's queued work (own and siblings'), then clear every key of theirs. */
   const wipe = (): void => {
+    const mine = cache.publicId;
+    const siblings = outboxTabs(storage, mine).filter((t) => t !== api.tabId);
+    const queued = [...api.ops(), ...siblings.flatMap((t) => readOutbox(storage, t))];
+    for (const x of queued) file(x); // best effort: the account is deleted either way
     try {
       storage?.removeItem(ACCOUNT_CACHE_KEY);
     } catch {
       /* as above */
     }
     api.setOps([]);
+    for (const t of [...siblings, api.tabId]) clearTab(storage, t);
   };
   /** Ask who is signed in. True when it is this cache's member, so the loop may send. */
   async function recheck(): Promise<boolean> {
@@ -251,6 +298,7 @@ export function startSync(o: SyncOptions): SyncHandle {
     const prev = cache.confirmed;
     // Never move backwards: a state older than the cache's campaign is a slow answer, not the server's present.
     if (next.campaign !== null && prev.campaign !== null && next.campaign.revision < prev.campaign.revision) return;
+    pinBase(); // a refresh never raises the base of what is queued (R12)
     cache.confirmed = { campaign: next.campaign, wallet: next.wallet, slots: next.slots };
     persist();
     changed();
@@ -276,51 +324,85 @@ export function startSync(o: SyncOptions): SyncHandle {
   // ---- one op ----------------------------------------------------------------------------------------------------
   type Next = 'next' | 'wait' | 'halt';
 
-  /** The 409 stale, or a victory's `conflict`: keep the device's campaign FIRST, then take the server's. */
+  /**
+   * The 409 stale, or a victory's `conflict`: keep the device's campaign FIRST, then take the server's. The queue is
+   * read again after every await and the drop set is derived from it by op id (I2): an op appended in the meantime is
+   * itself behind the 409, so it is dropped and its snapshot replaces the held entry.
+   */
   async function resolveConflict(op: OutboxOp, mine: CampaignBody | null, conflict: ConflictAnswer, server: unknown, wallet?: unknown): Promise<Next> {
-    const cur = api.ops();
-    const at = cur.findIndex((x) => x.opId === op.opId);
-    const ahead = at >= 0 ? cur.slice(0, at) : [];
-    const behind = at >= 0 ? cur.slice(at + 1) : [];
+    const scan = (): { ahead: OutboxOp[]; behind: OutboxOp[] } => {
+      const cur = api.ops();
+      const at = cur.findIndex((x) => x.opId === op.opId);
+      return at >= 0 ? { ahead: cur.slice(0, at), behind: cur.slice(at + 1) } : { ahead: [...cur], behind: [] };
+    };
     // The newest snapshot the device holds: the last queued campaign (or victory's campaign), else the op's own.
-    let newest: CampaignBody | null = null;
-    for (const q of behind) newest = campaignOf(q) ?? newest;
-    const latest = newest ?? mine;
+    const newestBehind = (): CampaignBody | null => {
+      let newest: CampaignBody | null = null;
+      for (const q of scan().behind) newest = campaignOf(q) ?? newest;
+      return newest;
+    };
     let put: SlotPutOp | null = null;
     if ('held' in conflict) {
-      if (latest !== null) {
-        const id = newId();
-        const when = o.now();
-        const item: HeldItem = { id, kind: 'campaign', reason: 'held', text: JSON.stringify(latest), at: when, publicId: cache.publicId, digest: await digestOfCampaign(latest, id, when) };
+      const id = newId();
+      const when = o.now();
+      let kept: string | null = null;
+      for (let lap = 0; ; lap++) {
+        const latest = newestBehind() ?? mine;
+        if (latest === null) break;
+        const text = JSON.stringify(latest);
+        if (text === kept) break; // what is held is the newest, and nothing has awaited since the look
+        if (lap >= 8) return 'wait'; // writes keep landing: nothing is dropped, the next try starts clean
+        const digest = await digestOfCampaign(latest, id, when);
         if (stopped) return 'halt';
-        if (!addHeld(storage, item)) return 'wait'; // not kept: nothing is adopted, nothing is dropped
+        if (!addHeld(storage, { id, kind: 'campaign', reason: 'held', text, at: when, publicId: cache.publicId, digest })) return 'wait'; // not kept: nothing is adopted, nothing is dropped
+        kept = text;
       }
-    } else if (newest !== null) {
-      put = { kind: 'slot.put', opId: newId(), slotId: conflict.slot.id, slot: slotFromCampaign(newest, conflict.slot.id, conflict.slot.name, o.now()), origin: 'conflict' };
+    } else {
+      const newest = newestBehind();
+      if (newest !== null) put = { kind: 'slot.put', opId: newId(), slotId: conflict.slot.id, slot: slotFromCampaign(newest, conflict.slot.id, conflict.slot.name, o.now()), origin: 'conflict' };
     }
     if (stopped) return 'halt';
-    // Only now is the server's campaign adopted.
+    // Only now is the queue cut and the server's campaign adopted. Nothing below awaits before the cut.
     const cp = campaignPatch(server);
     const wp = walletPatch(wallet);
     const patch: Partial<ServerState> = {};
     if (cp.campaign !== undefined) patch.campaign = cp.campaign;
     if (wp.wallet !== undefined) patch.wallet = wp.wallet;
     if ('slot' in conflict) patch.slots = withMeta(cache.confirmed.slots, conflict.slot);
-    commit(patch);
+    const { ahead, behind } = scan();
     const kept = behind.filter((q) => q.kind !== 'campaign').map((q): OutboxOp => (q.kind === 'victory' && q.campaign !== null ? { ...q, campaign: null } : q));
     api.setOps([...(put === null ? [] : [put]), ...ahead, ...kept]);
+    settleBase();
+    commit(patch);
     failures.delete(op.opId);
     if (cp.refresh || wp.refresh) await doRefresh();
     return 'next';
   }
 
+  /** A 200 whose body this build cannot read (R14): it counts toward the wedge like a 500. */
+  const malformed = (op: OutboxOp, body: unknown): boolean => {
+    switch (op.kind) {
+      case 'campaign':
+        return !isRecord(body) || !isRecord(body.campaign);
+      case 'victory':
+        return !isRecord(body) || !isWallet(body.wallet);
+      case 'slot.put':
+        return !isRecord(body) || !isRecord(body.slot);
+      case 'slot.delete':
+        return false;
+    }
+  };
+
   async function onOk(op: OutboxOp, body: unknown): Promise<Next> {
+    if (malformed(op, body)) return failOp(op, true);
     backoff = BACKOFF_START_MS;
     failures.delete(op.opId);
     switch (op.kind) {
       case 'campaign': {
-        const cp = campaignPatch(isRecord(body) ? body.campaign : null);
+        const answer = (body as { campaign: unknown }).campaign;
+        const cp = campaignPatch(answer);
         removeOp(op.opId);
+        ackBase(answer);
         if (cp.campaign !== undefined) commit({ campaign: cp.campaign });
         else changed();
         if (cp.refresh || cp.campaign === undefined) await doRefresh();
@@ -336,6 +418,7 @@ export function startSync(o: SyncOptions): SyncHandle {
         const wp = walletPatch(b.wallet);
         const cp = campaignPatch(b.campaign);
         removeOp(op.opId);
+        if (op.campaign !== null) ackBase(b.campaign); // a coins-only win's answer is the server's present, not this queue's ack
         const patch: Partial<ServerState> = {};
         if (wp.wallet !== undefined) patch.wallet = wp.wallet;
         if (cp.campaign !== undefined) patch.campaign = cp.campaign;
@@ -344,19 +427,17 @@ export function startSync(o: SyncOptions): SyncHandle {
         return 'next';
       }
       case 'slot.put': {
-        const meta = isRecord(body) && isRecord(body.slot) ? (body.slot as unknown as SlotMetaView) : null;
+        const meta = (body as { slot: unknown }).slot as unknown as SlotMetaView;
         removeOp(op.opId);
-        if (meta !== null) {
-          const { digest, ...plain } = meta;
-          cache.bodies = { ...cache.bodies, [op.slotId]: op.slot };
-          commit({ slots: [...cache.confirmed.slots.filter((s) => s.id !== op.slotId), plain] });
-          const held = heldItem(op.slotId);
-          if (op.origin === 'conflict' && held !== undefined) {
-            // The held campaign leaves the list only when the server's digest is the one it was stored with.
-            const own = await digestOfCampaign(JSON.parse(held.text) as CampaignBody, held.id, held.at);
-            if (own !== undefined && digest === own && removeHeld(storage, held.id, own)) return 'next';
-            addHeld(storage, { ...held, reason: 'refused' });
-          }
+        const { digest, ...plain } = meta;
+        cache.bodies = { ...cache.bodies, [op.slotId]: op.slot };
+        commit({ slots: [...cache.confirmed.slots.filter((s) => s.id !== op.slotId), plain] });
+        const held = heldItem(op.slotId);
+        if (op.origin === 'conflict' && held !== undefined) {
+          // The held campaign leaves the list only when the server's digest is the one it was stored with.
+          const own = await digestOfCampaign(JSON.parse(held.text) as CampaignBody, held.id, held.at);
+          if (own !== undefined && digest === own && removeHeld(storage, held.id, own)) return 'next';
+          addHeld(storage, { ...held, reason: 'refused' });
         }
         return 'next';
       }
@@ -385,8 +466,8 @@ export function startSync(o: SyncOptions): SyncHandle {
   async function onFail(op: OutboxOp, r: Extract<CallResult<unknown>, { ok: false }>): Promise<Next> {
     const err = errorOf(r.body);
     if (r.status === 401) {
-      await recheck();
-      return 'halt';
+      // The same member still signed in (a cookie that lagged): back off, never retry at once.
+      return (await recheck()) ? 'wait' : 'halt';
     }
     if (r.status === 400 || r.status === 413) {
       const held = op.kind === 'slot.put' && op.origin === 'conflict' ? heldItem(op.slotId) : undefined;
@@ -406,16 +487,16 @@ export function startSync(o: SyncOptions): SyncHandle {
         removeOp(op.opId);
         return 'next';
       }
-      return failOp(op, true); // busy, or an answer this build does not know
+      return failOp(op, err === 'busy'); // busy counts toward the wedge; an answer this build does not know backs off
     }
     if (r.status === 404 && op.kind === 'slot.delete') return onOk(op, { ok: true });
-    if (r.status === 0 || r.status === 429) return failOp(op, false);
-    return failOp(op, true);
+    return failOp(op, r.status === 500); // 502/503/504, 429 and network failures back off and never file (R14)
   }
 
   async function sendOne(op: OutboxOp): Promise<Next> {
     api.markSent(op.opId);
-    const base = currentRevision(); // at SEND time
+    settleBase();
+    const base = sendBase(); // at SEND time, from this queue's own acks (R12)
     let r: CallResult<unknown>;
     switch (op.kind) {
       case 'campaign':
@@ -436,18 +517,42 @@ export function startSync(o: SyncOptions): SyncHandle {
   }
 
   // ---- orphans ---------------------------------------------------------------------------------------------------
-  function adoptOrphans(): void {
+  /**
+   * An orphan's campaign snapshot was built on a revision this tab never saw, so it is handled like a 409's (R12): a
+   * conflict slot when one is free, else the held list (uploaded later by `releaseHeld`). Null when storage refused.
+   */
+  async function keepAdopted(latest: CampaignBody): Promise<OutboxOp | 'held' | null> {
+    const queued = api.ops().filter((x): x is SlotPutOp => x.kind === 'slot.put' && x.origin === 'conflict').length;
+    const id = newId();
+    const when = o.now();
+    if (SYSTEM_SLOTS - cache.confirmed.slots.filter((s) => s.origin !== 'player').length - queued > 0) {
+      return { kind: 'slot.put', opId: newId(), slotId: id, slot: slotFromCampaign(latest, id, 'conflict', when), origin: 'conflict' };
+    }
+    const digest = await digestOfCampaign(latest, id, when);
+    return addHeld(storage, { id, kind: 'campaign', reason: 'held', text: JSON.stringify(latest), at: when, publicId: cache.publicId, digest }) ? 'held' : null;
+  }
+
+  async function adoptOrphans(): Promise<void> {
     for (const tab of orphanedOutboxes(storage, o.now())) {
       if (tab === api.tabId) continue;
+      if (outboxOwner(storage, tab) !== cache.publicId) continue; // another member's, or from before owners were stored (R13)
       const adopted = readOutbox(storage, tab);
-      // Append to this tab's key first, then remove the orphan's: a crash between the two duplicates ops, which are idempotent by id.
-      if (adopted.length > 0 && !api.setOps([...api.ops(), ...adopted])) continue;
-      writeOutbox(storage, tab, []);
-      try {
-        storage?.removeItem(heartbeatKey(tab));
-      } catch {
-        /* as above */
+      let newest: CampaignBody | null = null;
+      const plain: OutboxOp[] = [];
+      for (const x of adopted) {
+        newest = campaignOf(x) ?? newest;
+        if (x.kind !== 'campaign') plain.push(x.kind === 'victory' && x.campaign !== null ? { ...x, campaign: null } : x);
       }
+      const extra: OutboxOp[] = [];
+      if (newest !== null) {
+        const kept = await keepAdopted(newest);
+        if (stopped) return;
+        if (kept === null) continue; // not kept: the orphan stays where it is
+        if (kept !== 'held') extra.push(kept);
+      }
+      // Append to this tab's key first, then remove the orphan's: a crash between the two duplicates ops, which are idempotent by id.
+      if (plain.length + extra.length > 0 && !api.setOps([...api.ops(), ...plain, ...extra])) continue;
+      clearTab(storage, tab);
     }
   }
 
@@ -473,7 +578,7 @@ export function startSync(o: SyncOptions): SyncHandle {
     }
     cancelRetry?.();
     cancelRetry = null;
-    adoptOrphans();
+    await adoptOrphans();
     while (!stopped && mode === 'active') {
       const op = api.ops()[0]; // read again before every send
       if (op === undefined) break;
@@ -608,7 +713,9 @@ export async function signOut(o: SignOutOptions): Promise<void> {
   (cancel as (() => void) | null)?.();
   o.sync.stop();
   const cache = o.store.sync.cache;
-  for (const op of o.store.sync.ops()) {
+  // This member's other tabs' queues are filed too (R13): their keys are cleared with ours, and nothing is lost silently.
+  const siblings = outboxTabs(o.storage, cache.publicId).filter((t) => t !== o.store.sync.tabId);
+  for (const op of [...o.store.sync.ops(), ...siblings.flatMap((t) => readOutbox(o.storage, t))]) {
     const item = heldFromOp(op, cache.publicId, o.now());
     if (item !== null && !addHeld(o.storage, item)) throw new Error('sign-out: the unsent work could not be kept on this device');
   }
@@ -619,5 +726,6 @@ export async function signOut(o: SignOutOptions): Promise<void> {
     /* as above */
   }
   o.store.sync.setOps([]);
+  for (const t of [...siblings, o.store.sync.tabId]) clearTab(o.storage, t);
   clearDeviceId(o.storage);
 }

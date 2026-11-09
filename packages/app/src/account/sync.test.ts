@@ -26,11 +26,11 @@ interface Rig {
   sync: SyncHandle;
   foreign: ReturnType<typeof vi.fn>;
 }
-function rig(o: Partial<{ server: FakeServer; tabId: string; storage: ReturnType<typeof memStorage>; locks: LockManager; sched: Sched; me: () => MeResult; online: () => boolean; cacheFrom: ServerState }> = {}): Rig {
+function rig(o: Partial<{ server: FakeServer; tabId: string; storage: ReturnType<typeof memStorage>; locks: LockManager; sched: Sched; me: () => MeResult; online: () => boolean; cacheFrom: ServerState; cache: ReturnType<typeof cacheOf> }> = {}): Rig {
   const server = o.server ?? new FakeServer();
   const storage = o.storage ?? memStorage();
   const sched = o.sched ?? makeScheduler();
-  const cache = cacheOf(o.cacheFrom ?? server.snapshot());
+  const cache = o.cache ?? cacheOf(o.cacheFrom ?? server.snapshot());
   const foreign = vi.fn();
   // eslint-disable-next-line prefer-const -- the store's onChange closes over the sync that is built after it
   let sync: SyncHandle | undefined;
@@ -327,7 +327,7 @@ describe('A2-31 two_tabs_lose_nothing', () => {
     const storage = memStorage();
     const sched = makeScheduler();
     const t0 = sched.now();
-    writeOutbox(storage, 'DEAD', [camp('B', 2)]);
+    writeOutbox(storage, 'DEAD', [camp('B', 2)], 'pub1');
     storage.setItem(heartbeatKey('DEAD'), String(t0));
     const t1 = rig({ server, storage, sched, tabId: 'T1' });
     sched.setNow(t0 + 30_000);
@@ -337,18 +337,213 @@ describe('A2-31 two_tabs_lose_nothing', () => {
     sched.setNow(t0 + 61_000);
     await t1.sync.flush();
     expect(storage.getItem(heartbeatKey('T1'))).toBe(String(t0 + 61_000)); // written before the orphan scan
-    expect(server.count('PUT campaign').map((c) => c.opId)).toEqual(['B']);
-    expect(markOf(server.campaign)).toBe(2);
+    // R12: an adopted campaign was built on a revision this tab never saw, so it is never PUT: it goes to a conflict slot.
+    expect(server.count('PUT campaign')).toHaveLength(0);
+    const slotPut = server.count('PUT slot');
+    expect(slotPut).toHaveLength(1);
+    expect(server.slots.get(slotPut[0]?.id as string)?.meta.origin).toBe('conflict');
+    expect(markOf(server.slots.get(slotPut[0]?.id as string)?.body)).toBe(2);
     expect(readOutbox(storage, 'DEAD')).toEqual([]);
+    expect(storage.getItem(outboxKey('DEAD'))).toBeNull();
   });
 
-  it('a live sibling with no heartbeat yet is not adopted: this tab writes its own heartbeat first', async () => {
+  it('a live sibling (queued ops, fresh heartbeat) is not adopted, and an adopted tab whose heartbeat is stale is', async () => {
     const server = new FakeServer();
     const storage = memStorage();
     const sched = makeScheduler();
     const t1 = rig({ server, storage, sched, tabId: 'T1' });
-    expect(storage.getItem(heartbeatKey('T1'))).toBe(String(sched.now()));
-    expect(t1.server).toBe(server);
+    const t2 = rig({ server, storage, sched, tabId: 'T2' });
+    t2.store.writeLedger(led(2)); // T2's op is queued (its own debounce timer is never advanced)
+    expect(storage.getItem(heartbeatKey('T2'))).toBe(String(sched.now()));
+    sched.setNow(sched.now() + 30_000);
+    await t1.sync.flush();
+    expect(readOutbox(storage, 'T2')).toHaveLength(1);
+    expect(t2.store.outboxSize()).toBe(1);
+    expect(server.calls.filter((c) => c.name !== 'GET state')).toHaveLength(0);
+    // 61 s of silence from T2: now it is adoptable
+    sched.setNow(sched.now() + 31_000);
+    await t1.sync.flush();
+    expect(readOutbox(storage, 'T2')).toEqual([]);
+    expect(server.count('PUT slot')).toHaveLength(1);
+  });
+
+  it('this tab is never its own orphan: a heartbeat that cannot be written leaves its own queue sent once, not doubled', async () => {
+    const server = new FakeServer();
+    const storage = memStorage();
+    const set = storage.setItem;
+    storage.setItem = (k, v) => {
+      if (k === heartbeatKey('T1')) throw new Error('quota');
+      set(k, v);
+    };
+    const t1 = rig({ server, storage, tabId: 'T1' });
+    t1.store.writeLedger(led(1));
+    expect(storage.getItem(heartbeatKey('T1'))).toBeNull(); // so the orphan scan lists this very tab
+    await t1.sync.flush();
+    expect(server.count('PUT campaign')).toHaveLength(1);
+    expect(server.count('PUT slot')).toHaveLength(0);
+    expect(readHeld(storage)).toEqual([]);
+    expect(markOf(server.campaign)).toBe(1);
+  });
+});
+
+describe('R12 the send base (C1)', () => {
+  it('a replayed answer plus a second device: the next queued op is sent on the revision this queue last got, so it answers 409 and is kept as a conflict', async () => {
+    const r = rig();
+    r.server.loseResponse.add('A'); // A is applied (rev 4) but the answer is lost
+    r.store.sync.setOps([camp('A', 1), camp('B', 2)]);
+    await r.sync.flush();
+    r.server.campaign = { ...(r.server.campaign as NonNullable<typeof r.server.campaign>), revision: 5, digest: 'd5', ledger: led(7) }; // another device
+    await r.sched.advance(2000);
+    await r.sync.idle();
+    expect(r.server.count('PUT campaign').map((c) => [c.opId, c.base])).toEqual([['A', 3], ['A', 3], ['B', 4]]);
+    expect(markOf(r.server.campaign)).toBe(7); // the other device's write was not overwritten
+    expect([...r.server.slots.values()].filter((x) => x.meta.origin === 'conflict').map((x) => markOf(x.body))).toEqual([2]); // the 409 made B a conflict slot
+    expect(r.store.outboxSize()).toBe(0);
+  });
+
+  it('an adopted orphan campaign is never PUT: it becomes a conflict slot, and an adopted victory is sent coins-only', async () => {
+    const server = new FakeServer();
+    const storage = memStorage();
+    const win: OutboxOp = { kind: 'victory', opId: 'V', missionId: 'm', stars: 1, start: null, campaign: body(8) };
+    writeOutbox(storage, 'DEAD', [camp('B', 4), win], 'pub1');
+    const r = rig({ server, storage, tabId: 'T1' });
+    r.store.writeLedger(led(1)); // X, this tab's own
+    await r.sync.flush();
+    expect(r.server.count('PUT campaign').map((c) => c.base)).toEqual([3]); // X only; B (adopted) is never PUT
+    expect(r.server.count('POST victory').map((c) => c.campaign)).toEqual([null]);
+    expect(markOf(r.server.campaign)).toBe(1);
+    const marks = [...r.server.slots.values()].filter((s) => s.meta.origin === 'conflict').map((s) => markOf(s.body));
+    expect(marks).toEqual([8]); // the newest adopted campaign
+  });
+
+  it('an adopted campaign with every system slot full goes to the held list', async () => {
+    const server = new FakeServer();
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const storage = memStorage();
+    writeOutbox(storage, 'DEAD', [camp('B', 4)], 'pub1');
+    const r = rig({ server, storage, tabId: 'T1' });
+    await r.sync.flush();
+    expect(r.server.count('PUT campaign')).toHaveLength(0);
+    const held = readHeld(storage);
+    expect(held.map((h) => [h.reason, markOf(JSON.parse(h.text) as CampaignBody)])).toEqual([['held', 4]]);
+  });
+
+  it('boot with a persisted outbox: the refresh moves confirmed but the queued op is still sent on the revision it was built on', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 4, digest: 'd4', ledger: led(9) }; // another device wrote
+    const storage = memStorage();
+    writeOutbox(storage, 'T1', [camp('A', 1)], 'pub1');
+    const r = rig({ server, storage, cacheFrom: confirmedState() }); // the device last saw revision 3
+    await r.sync.refresh();
+    expect(r.cache.confirmed.campaign?.revision).toBe(4);
+    await r.sync.flush();
+    expect(r.server.calls.map((c) => [c.name, c.base])).toEqual([['GET state', undefined], ['PUT campaign', 3]]);
+    expect(markOf(r.server.campaign)).toBe(9);
+    expect(markOf(r.server.slots.values().next().value?.body)).toBe(1);
+  });
+
+  it('the send base survives a reload (it is in the cache)', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 4, digest: 'd4', ledger: led(9) };
+    const storage = memStorage();
+    writeOutbox(storage, 'T1', [camp('A', 1)], 'pub1');
+    const first = rig({ server, storage, cacheFrom: confirmedState() });
+    await first.sync.refresh();
+    first.sync.stop();
+    const reloaded = readCache(storage) as NonNullable<ReturnType<typeof readCache>>;
+    expect(reloaded.confirmed.campaign?.revision).toBe(4);
+    const r = rig({ server, storage, cache: reloaded });
+    await r.sync.flush();
+    expect(r.server.count('PUT campaign').map((c) => c.base)).toEqual([3]);
+    expect(markOf(r.server.campaign)).toBe(9);
+  });
+
+  it('with no campaign op queued the send base follows confirmed: a refresh to a newer revision is not a conflict', async () => {
+    const r = rig();
+    r.server.campaign = { ...(r.server.campaign as NonNullable<typeof r.server.campaign>), revision: 6, digest: 'd6' };
+    await r.sync.refresh();
+    r.store.writeLedger(led(3));
+    await r.sync.flush();
+    expect(r.server.count('PUT campaign').map((c) => c.base)).toEqual([6]);
+    expect(r.server.slots.size).toBe(0);
+    expect(markOf(r.server.campaign)).toBe(3);
+  });
+});
+
+describe('I2 a write that lands while the held branch awaits', () => {
+  it('an op appended while the held write is in progress is not lost: it replaces the held entry', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const storage = memStorage();
+    const r = rig({ server, storage, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    const set = storage.setItem;
+    let fired = false;
+    storage.setItem = (k, v) => {
+      if (k === HELD_KEY && !fired) {
+        fired = true;
+        r.store.writeLedger(led(42));
+      }
+      set(k, v);
+    };
+    await r.sync.flush();
+    expect(fired).toBe(true);
+    const held = readHeld(storage);
+    expect(held).toHaveLength(1);
+    expect(markOf(JSON.parse(held[0]?.text ?? '{}') as CampaignBody)).toBe(42);
+    expect(r.store.outboxSize()).toBe(0); // the late op is itself behind the 409: dropped, never sent
+    expect(r.server.count('PUT campaign')).toHaveLength(1);
+    expect(markOf(r.server.campaign)).toBe(9);
+  });
+});
+
+describe('R13 an outbox belongs to a member (I3)', () => {
+  it('an orphan owned by another member, or by nobody (the old bare-array shape), is never adopted', async () => {
+    const server = new FakeServer();
+    const storage = memStorage();
+    writeOutbox(storage, 'OTHER', [camp('B', 2)], 'someone-else');
+    storage.setItem(outboxKey('OLD'), JSON.stringify([camp('C', 3)]));
+    const r = rig({ server, storage, tabId: 'T1' });
+    await r.sync.flush();
+    expect(server.calls.filter((c) => c.name !== 'GET state')).toHaveLength(0);
+    expect(readOutbox(storage, 'OTHER')).toHaveLength(1);
+    expect(readOutbox(storage, 'OLD').map((o) => o.opId)).toEqual(['C']); // the old shape still reads
+    expect(r.store.outboxSize()).toBe(0);
+  });
+
+  it('sign-out files a sibling tab\'s queue for this member, then clears its keys; another member\'s keys stay', async () => {
+    const server = new FakeServer();
+    const storage = memStorage();
+    writeOutbox(storage, 'SIB', [camp('S', 5)], 'pub1');
+    storage.setItem(heartbeatKey('SIB'), String(1_000_000));
+    writeOutbox(storage, 'OTHER', [camp('B', 2)], 'someone-else');
+    storage.setItem(heartbeatKey('OTHER'), String(1_000_000));
+    const r = rig({ server, storage, tabId: 'T1' });
+    server.failWith.set('A', 0);
+    r.store.sync.setOps([camp('A', 1)]);
+    await signOut({ sync: r.sync, store: r.store, client: clientFor(server), storage, schedule: r.sched.schedule, now: r.sched.now });
+    expect(readHeld(storage).map((h) => [h.id, h.reason]).sort()).toEqual([['A', 'refused'], ['S', 'refused']]);
+    expect([...storage.map.keys()].filter((k) => k.includes('SIB') || k.includes('T1'))).toEqual([]);
+    expect(storage.getItem(outboxKey('OTHER'))).not.toBeNull();
+    expect(storage.getItem(heartbeatKey('OTHER'))).not.toBeNull();
+  });
+
+  it('the deleted wipe files this member\'s queues (own and siblings\') and clears their keys', async () => {
+    const server = new FakeServer();
+    server.signedIn = false;
+    const storage = memStorage();
+    writeOutbox(storage, 'SIB', [camp('S', 5)], 'pub1');
+    storage.setItem(heartbeatKey('SIB'), String(1_000_000));
+    const r = rig({ server, storage, tabId: 'T1', me: () => ({ kind: 'signedOut' }) });
+    writeBinding(storage, { version: 1, publicId: 'pub1' });
+    r.store.writeLedger(led(4));
+    const c = clientFor(server, { me: () => ({ kind: 'signedOut' }), gone: 'deleted' });
+    const sync = startSync({ store: r.store, client: c, storage, now: r.sched.now, schedule: r.sched.schedule });
+    await sync.flush();
+    expect(sync.status()).toBe('deleted');
+    expect(readHeld(storage).map((h) => h.reason)).toEqual(['refused', 'refused']);
+    expect([...storage.map.keys()].filter((k) => k.includes('SIB') || k.includes('T1'))).toEqual([]);
   });
 });
 
@@ -382,6 +577,68 @@ describe('failures', () => {
     expect(r.sched.delays.filter((d) => d !== 10_000)).toEqual([2000, 4000, 8000, 16000, 32000, 60000, 60000, 60000, 60000, 60000]);
     expect(readHeld(r.storage)).toEqual([]);
     expect(r.store.outboxSize()).toBe(1);
+  });
+
+  it('R14: 502, 503 and 504 back off like a network failure and never file', async () => {
+    for (const status of [502, 503, 504]) {
+      const r = rig();
+      r.server.failWith.set('X', status);
+      r.store.sync.setOps([camp('X', 1)]);
+      await r.sync.flush();
+      for (let i = 0; i < 8; i++) {
+        await r.sched.advance(60_000);
+        await r.sync.idle();
+      }
+      expect(r.server.count('PUT campaign').length).toBeGreaterThanOrEqual(8);
+      expect(readHeld(r.storage)).toEqual([]);
+      expect(r.store.outboxSize()).toBe(1);
+    }
+  });
+
+  it('R14: a 200 whose body is malformed counts toward the wedge, and the filed victory keeps the WHOLE op', async () => {
+    const r = rig();
+    const win: OutboxOp = { kind: 'victory', opId: 'V', missionId: 'm', stars: 2, start: 'n', campaign: body(5) };
+    r.store.sync.setOps([win, camp('Z', 2)]);
+    const real = clientFor(r.server);
+    let victories = 0;
+    const client = { ...real, victory: () => (victories++, Promise.resolve({ ok: true as const, status: 200 as const, body: {} as never })) };
+    const sync = startSync({ store: r.store, client, storage: r.storage, now: r.sched.now, schedule: r.sched.schedule });
+    await sync.flush();
+    for (let i = 0; i < 5; i++) {
+      await r.sched.advance(60_000);
+      await sync.idle();
+    }
+    expect(victories).toBe(5);
+    const held = readHeld(r.storage);
+    expect(held.map((h) => [h.id, h.reason])).toEqual([['V', 'refused']]);
+    expect(JSON.parse(held[0]?.text ?? 'null')).toEqual(win);
+    expect(r.server.count('PUT campaign').map((c) => c.opId)).toEqual(['Z']); // the next op was sent
+  });
+
+  it('R14: a 409 busy five times files; the filed campaign op keeps the whole op too', async () => {
+    const r = rig();
+    r.server.failWith.set('X', 409);
+    r.store.sync.setOps([camp('X', 1)]);
+    await r.sync.flush();
+    for (let i = 0; i < 5; i++) {
+      await r.sched.advance(60_000);
+      await r.sync.idle();
+    }
+    const held = readHeld(r.storage);
+    expect(held.map((h) => h.id)).toEqual(['X']);
+    expect(JSON.parse(held[0]?.text ?? 'null')).toEqual(camp('X', 1));
+  });
+
+  it('a 401 where me says the same member is still signed in backs off instead of retrying at once', async () => {
+    const server = new FakeServer();
+    server.signedIn = false;
+    const r = rig({ server }); // clientFor's default me: signed in as pub1
+    r.store.recordVictory({ ledger: {}, account: null, roar: null, win: { missionId: 'm', stars: 1 } as never, start: 'n' });
+    await r.sync.idle();
+    for (let i = 0; i < 5; i++) await tick();
+    expect(r.server.count('POST victory')).toHaveLength(1);
+    expect(r.sched.delays.filter((d) => d !== 10_000)).toEqual([2000]);
+    expect(r.sync.status()).toBe('active');
   });
 
   it('a 400 drops the op and files it as refused', async () => {

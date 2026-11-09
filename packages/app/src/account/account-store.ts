@@ -77,7 +77,7 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
   };
   const push = (op: OutboxOp): void => {
     ops = coalesce(ops, op, sent);
-    writeOutbox(o.storage, tabId, ops); // a refused write keeps the memory copy
+    writeOutbox(o.storage, tabId, ops, o.cache.publicId); // a refused write keeps the memory copy
     cached = null;
     o.onChange();
   };
@@ -114,7 +114,7 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
     setOps: (next) => {
       ops = [...next];
       cached = null;
-      return writeOutbox(o.storage, tabId, ops);
+      return writeOutbox(o.storage, tabId, ops, o.cache.publicId);
     },
     markSent: (opId) => void sent.add(opId),
     markPending: (key) => void pendingSpends.add(key),

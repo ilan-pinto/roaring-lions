@@ -11,7 +11,7 @@ export interface HeldItem {
   id: string;
   kind: 'campaign' | 'slot';
   reason: 'cap' | 'size' | 'invalid' | 'held' | 'refused';
-  /** The held content, verbatim: a campaign body's JSON, a slot's JSON, or (a victory with no campaign) the win's facts. */
+  /** The held content, verbatim: for `held` a campaign body's JSON; for `refused`/`cap` the WHOLE op's JSON, so nothing about it is lost. */
   text: string;
   at: number;
   publicId: string;
