@@ -108,6 +108,8 @@ const WEAPON_IN_HAND_CEILING_M: Readonly<Record<(typeof CLIPS)[number], readonly
  * each reads the same in every clip). Each must still fail, or the entry is deleted (the demotion); every other reading
  * of the fused figure keeps every limit. Read 9 Nov 2026 on the round-3 bytes.
  */
+/** f1's and f2's support fists at rest (idle, move): a ratchet at round 5's 12.1-12.3 mm, never raised (see FUSED_GRIP_OPEN). */
+const SUPPORT_REST_RATCHET_M = 0.0135;
 const FUSED_GRIP_OPEN: Readonly<Record<string, string>> = FUSED ? {
   // An INSTRUMENT limit: readWeaponFrame's pistol-grip finder takes the first protrusion under the cloud between s 0.12
   // and 0.75, and Meshy's gun carries the vest pocket that went with the stock (18-23 cm under the butt), so its "grip"
@@ -130,10 +132,11 @@ const FUSED_GRIP_OPEN: Readonly<Record<string, string>> = FUSED ? {
   // REST_CARRY_SUPPORT_ROLL_DEG, the elbow under the handguard), and the handguard is not round: in the aimed clips its
   // surface sits 11.3 / 14.9 / 16.7 mm inside the smaller (x0.8) fist (ceiling 10.5; round 5, 9 Nov). Round 5 also
   // WELDED and closed the support fist's rim (B2), so the inside test now sees f1's and f2's handguard 12.1-12.3 mm
-  // inside it in idle and move too (round 4, its rim open, read 0.2-3.2): Meshy's solid fused fist, as on the grip.
+  // inside it in idle and move too (round 4, its rim open, read 0.2-3.2): Meshy's solid fused fist, as on the grip. At rest
+  // that is held by SUPPORT_REST_RATCHET_M (13.5 mm), not exempted.
   'f0 depth support': 'the handguard 11.3 mm inside the support fist when aimed (ceiling 10.5): the roll round a square handguard',
-  'f1 depth support': 'the handguard 12.3-14.9 mm inside the support fist (ceiling 10.5): the roll when aimed; the closed solid fist at rest',
-  'f2 depth support': 'the handguard 12.1-16.7 mm inside the support fist (ceiling 10.5): the roll when aimed; the closed solid fist at rest',
+  'f1 depth support': 'the handguard 14.9 mm inside the support fist when aimed (ceiling 10.5): the roll round a square handguard; at rest a 13.5 mm ratchet',
+  'f2 depth support': 'the handguard 16.7 mm inside the support fist when aimed (ceiling 10.5): the roll round a square handguard; at rest a 13.5 mm ratchet',
 } : {};
 
 const readings = new Map<string, ReturnType<typeof measureGrip>>();
@@ -179,10 +182,12 @@ describe('the Rifle Squad holds the carbine in every clip', () => {
         within(fig, 'review fire', r.fire.reviewGapM, REVIEW_FIRE_MAX_M, 'review reading, firing');
         expect(r.support.reviewGapM, 'review reading, support').toBeLessThanOrEqual(REVIEW_SUPPORT_MAX_M);
         within(fig, 'depth fire', r.fire.depthM!, WEAPON_IN_HAND_CEILING_M[clip][0], 'weapon inside the firing glove');
-        // the support fist: f0 is gated in idle and move; f1 and f2 are open readings in every clip since round 5 closed
-        // the welded fist (FUSED_GRIP_OPEN), and f0's in the aimed clips, where the fist rolls round the handguard
-        if ((clip === 'idle' || clip === 'move') && fig === 'f0') expect(r.support.depthM!, 'weapon inside the support glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M[clip][1]);
-        else within(fig, 'depth support', r.support.depthM!, WEAPON_IN_HAND_CEILING_M[clip][1], 'weapon inside the support glove');
+        // the support fist in idle and move: f0 under the ceiling; f1 and f2 under a RATCHET at today's reading (round 5
+        // closed the welded fist, and the inside test now sees the handguard 12.1-12.3 mm into Meshy's solid fist); in
+        // the aimed clips the open reading (FUSED_GRIP_OPEN), where the fist rolls round the handguard
+        if (clip === 'idle' || clip === 'move') {
+          expect(r.support.depthM!, 'weapon inside the support glove').toBeLessThanOrEqual(fig === 'f0' ? WEAPON_IN_HAND_CEILING_M[clip][1] : SUPPORT_REST_RATCHET_M);
+        } else within(fig, 'depth support', r.support.depthM!, WEAPON_IN_HAND_CEILING_M[clip][1], 'weapon inside the support glove');
       }, 120_000);
     }
   }
@@ -284,6 +289,13 @@ describe('the weapon-in-glove ceiling can fail (constructed failing input 5)', (
     const r = measureGrip(file, 'idle', 'f0', { hz: 60 });
     expect(r.support.depthM!, 'support fist').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.idle[1]);
     expect(read('f0', 'idle').support.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.idle[1]);
+  }, 60_000);
+
+  it('the f1/f2 rest ratchet can fail: f1\'s weapon bone pushed 15 mm into the fists in idle reads past 13.5 mm', () => {
+    if (!FUSED) return;
+    const file = patched('idle', 'f1_weapon', 'translation', (v) => [v[0], v[1] - 0.015, v[2]]);
+    expect(measureGrip(file, 'idle', 'f1', { hz: 60 }).support.depthM!).toBeGreaterThan(SUPPORT_REST_RATCHET_M);
+    expect(read('f1', 'idle').support.depthM!).toBeLessThanOrEqual(SUPPORT_REST_RATCHET_M);
   }, 60_000);
 
   it('the old sampler (each weapon triangle\'s first vertex and centroid) reads the SAME bytes at 2 mm in the support hand where the dense one reads 9 (constructed failing input 6)', () => {

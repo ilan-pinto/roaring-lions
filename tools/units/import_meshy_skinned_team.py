@@ -1088,8 +1088,17 @@ def _clean_fist_slivers(part, prefix):
     near = lambda v: min((v.co - c).length for c in centres) <= SLIVER_NEAR_FIST_M  # noqa: E731
     before = len(_fist_slivers(bm, centres))
     # WELD first (round 5, the review of 9 Nov): the remesh is split at every UV seam, so a seam reads as two open edges.
-    # UVs live on the loops in Blender, so the weld keeps them; every coincident vertex of the uniform mesh is merged.
-    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-5)
+    # UVs live on the loops in Blender, so the weld keeps them. Only coincident vertices whose SKIN WEIGHTS match are
+    # merged (B4, the round-5 review): a blind weld re-bound 11-13 firing-hand vertices to the support forearm, and a
+    # 75-86 mm spike stood off every support fist in the aimed clips. Twins with different weights stay apart (and count
+    # as rim, which they are: they part when the pose moves the two bones).
+    dl = bm.verts.layers.deform.active
+    wkey = lambda v: tuple(sorted((g, round(w, 4)) for g, w in v[dl].items() if w > 1e-4)) if dl else ()  # noqa: E731
+    pairs = bmesh.ops.find_doubles(bm, verts=list(bm.verts), dist=1e-5)["targetmap"]
+    same = {v: t for v, t in pairs.items() if wkey(v) == wkey(t)}
+    log(f"{prefix}: weld -- {len(same)} of {len(pairs)} coincident vertices merged ({len(pairs) - len(same)} kept apart: "
+        f"their skin weights differ)")
+    bmesh.ops.weld_verts(bm, targetmap=same)
     rim = [e for e in bm.edges if e.is_boundary and near(e.verts[0]) and near(e.verts[1])]
     if rim:
         filled = bmesh.ops.holes_fill(bm, edges=rim, sides=0)["faces"]

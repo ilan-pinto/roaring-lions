@@ -21,6 +21,11 @@
  *        reports it: 20-29 such edges per fist). Round 4's bytes (d31bdc16d) read 4-13 exposed (red), 25-39 in all.
  *        Open: f2's firing fist in the living clips (RIM_OPEN), off its sculpted station by the shared hold.
  *
+ *  B4 -- no vertex torn off a fist (round-5 review): no edge within 10 cm of a fist stretched past 2.5x and 3 cm, at any
+ *        sampled instant of any living clip. Round 5's first build welded coincident vertices across bones and stood a
+ *        75-86 mm spike off every support fist when aimed: f157c35e8 reads 160 stretched rows (up to 18 edges, 93 mm);
+ *        d31bdc16d reads 0.
+ *
  * Constructed failing inputs, each run: a triangle at f1's firing fist made a 6 cm needle (N1 red); f1's firing upper arm
  * swung 50 deg in moveFire (N3 red); three triangles of each fist deleted, outside the gun, each alone opening 3 exposed
  * edges (B2 red).
@@ -28,7 +33,7 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readGlb, type GlbFile } from './mesh_gait';
-import { armpitStretch, fistRoles, fistSlivers, openRim, readUniform, withoutTriangle, withVertexAt } from './mesh_skin_census';
+import { armpitStretch, fistRoles, fistSlivers, fistStretch, openRim, readUniform, withoutTriangle, withVertexAt, withVertexBoundTo } from './mesh_skin_census';
 
 const SQUAD = fileURLToPath(new URL('../../art/meshes/inf_squad.glb', import.meta.url));
 const FIGURES = ['f0', 'f1', 'f2'] as const;
@@ -49,7 +54,6 @@ const RIM_OPEN: Readonly<Record<string, string>> = {
 /** clip + rig side of a fist -> the reason; the reading must still fail somewhere in that clip, on some figure. */
 const SLIVER_OPEN: Readonly<Record<string, string>> = {
   'move R': 'the support fist shows 1-2 slivers of 45-85 mm in the run\'s arm swing (9 Nov, round 4); none at rest or in any other clip',
-  'kneelOut L': 'f0\'s firing fist shows 1 sliver of 43-44 mm late in kneelOut (round 5: the rim kept, not deleted); none at rest',
 };
 /** rig side -> reason; the support-side armpit's web, still over the bar in fire and moveFire. */
 const STRETCH_OPEN: Readonly<Record<string, string>> = {
@@ -174,4 +178,30 @@ describe('B2: no torn rim at a fist (welded; rest and every living clip; by role
       expect(torn, `${side}: ${before} exposed before, ${torn} after`).toBeGreaterThan(MAX_EXPOSED);
     }
   }, 600_000);
+});
+
+describe('B4: no vertex torn off a fist (every living clip)', () => {
+  for (const fig of FIGURES) {
+    it(`${fig}: no edge within 10 cm of a fist stretched past 2.5x and 3 cm`, () => {
+      const bad: string[] = [];
+      for (const clip of CLIPS) {
+        if (clip === null) continue;
+        for (const fr of FRACS) for (const r of fistStretch(glb, fig, clip, fr)) {
+          if (r.edges > 0) bad.push(`${clip} @${fr} ${r.hand}: ${r.edges} edges, longest ${(r.longestM * 1000).toFixed(0)} mm`);
+        }
+      }
+      expect(bad).toEqual([]);
+    }, 600_000);
+  }
+  it('fails on a re-bound vertex: one of f1\'s support-fist vertices bound to the firing forearm (constructed input)', () => {
+    const u = readUniform(glb);
+    const v = u.dom.findIndex((d) => d === 'f1_hand_R');
+    const nodes = glb.json.nodes ?? [];
+    const joint = u.skin.joints.findIndex((n) => nodes[n]?.name === 'f1_forearm_L');
+    expect(v >= 0 && joint >= 0).toBe(true);
+    const bad = withVertexBoundTo(glb, v, joint);
+    const hit = ['fire', 'moveFire', 'kneel'].some((clip) => fistStretch(bad, 'f1', clip, 0.5).some((r) => r.edges > 0));
+    expect(hit).toBe(true);
+    expect(['fire', 'moveFire', 'kneel'].some((clip) => fistStretch(glb, 'f1', clip, 0.5).some((r) => r.edges > 0))).toBe(false);
+  }, 120_000);
 });

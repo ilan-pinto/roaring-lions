@@ -225,6 +225,44 @@ export function openRim(path: string | GlbFile, figure: string, clip: string | n
   return out;
 }
 
+export const FIST_STRETCH_NEAR_M = 0.1;
+
+export interface FistStretchReading { readonly hand: string; readonly edges: number; readonly longestM: number }
+
+/**
+ * B4 (the round-5 review): edges of the `uniform` mesh with a vertex within FIST_STRETCH_NEAR_M of a fist (at rest) that
+ * `clip` stretches past STRETCH_RATIO x their rest length and over STRETCH_MIN_M -- a vertex re-bound to the wrong bone
+ * (round 5's blind weld: a 75-86 mm spike off every support fist when aimed).
+ */
+export function fistStretch(path: string | GlbFile, figure: string, clip: string, frac = 0.5): FistStretchReading[] {
+  const glb = typeof path === 'string' ? readGlb(path) : path;
+  const u = readUniform(glb);
+  const rest = positions(glb, u, null, 0);
+  const p = positions(glb, u, clip, frac);
+  const out: FistStretchReading[] = [];
+  for (const side of ['L', 'R'] as const) {
+    const bone = `${figure}_hand_${side}`;
+    const own = u.dom.flatMap((d, v) => (d === bone ? [v] : []));
+    if (own.length === 0) continue;
+    const c: V3 = [0, 0, 0];
+    for (const v of own) for (let k = 0; k < 3; k++) c[k] += rest[v][k] / own.length;
+    const seen = new Set<string>();
+    let edges = 0, longest = 0;
+    for (const t of u.tris) {
+      for (const [a, b] of [[t[0], t[1]], [t[1], t[2]], [t[2], t[0]]] as const) {
+        if (Math.min(len(sub(rest[a], c)), len(sub(rest[b], c))) > FIST_STRETCH_NEAR_M) continue;
+        const key = a < b ? `${a}-${b}` : `${b}-${a}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const lr = len(sub(rest[a], rest[b])), lp = len(sub(p[a], p[b]));
+        if (lp > STRETCH_MIN_M && lp > STRETCH_RATIO * Math.max(lr, 1e-4)) { edges++; longest = Math.max(longest, lp); }
+      }
+    }
+    out.push({ hand: bone, edges, longestM: longest });
+  }
+  return out;
+}
+
 /** A copy of `glb` with `uniform` triangle `tri` removed (made degenerate in the index buffer). */
 export function withoutTriangle(glb: GlbFile, tri: number): GlbFile {
   const json = JSON.parse(JSON.stringify(glb.json)) as GlbFile['json'];
@@ -256,5 +294,32 @@ export function withVertexAt(glb: GlbFile, v: number, to: V3): GlbFile {
   const off = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0) + v * stride;
   const dv = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
   for (let k = 0; k < 3; k++) dv.setFloat32(off + 4 * k, to[k], true);
+  return { json, bin };
+}
+
+/**
+ * A copy of `glb` whose `uniform` vertex `v` is bound rigidly (weight 1) to skin joint `joint` (an index into the skin's
+ * joints): a vertex re-bound to the wrong bone, the constructed input for `fistStretch`.
+ */
+export function withVertexBoundTo(glb: GlbFile, v: number, joint: number): GlbFile {
+  const json = JSON.parse(JSON.stringify(glb.json)) as GlbFile['json'];
+  const bin = new Uint8Array(glb.bin);
+  const dv = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
+  const node = (json.nodes ?? []).find((n) => n.name === 'uniform')!;
+  const attrs = json.meshes![node.mesh!].primitives[0].attributes;
+  const write = (accIdx: number, vals: number[]): void => {
+    const acc = json.accessors![accIdx];
+    const bv = json.bufferViews![acc.bufferView!];
+    const size = { 5121: 1, 5123: 2, 5125: 4, 5126: 4 }[acc.componentType as 5121 | 5123 | 5125 | 5126];
+    const off = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0) + v * (bv.byteStride ?? size * 4);
+    vals.forEach((x, k) => {
+      if (acc.componentType === 5126) dv.setFloat32(off + k * 4, x, true);
+      else if (size === 1) dv.setUint8(off + k, x);
+      else if (size === 2) dv.setUint16(off + k * 2, x, true);
+      else dv.setUint32(off + k * 4, x, true);
+    });
+  };
+  write(attrs.JOINTS_0, [joint, 0, 0, 0]);
+  write(attrs.WEIGHTS_0, [1, 0, 0, 0]);
   return { json, bin };
 }
