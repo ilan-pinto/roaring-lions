@@ -151,4 +151,13 @@ describe('accountLedgerStore', () => {
     expect(store.view().wallet.free).toBe(77);
     expect(store.view().campaign?.brigade.unlocks).toEqual(['purchase_b']);
   });
+
+  it('M1 downloading(): a listed slot with no body is reported; one with a body, or a queued put, is not (§0.19)', () => {
+    const meta = { id: 's9', name: 'Nine', savedAt: 5, build: 'b', origin: 'player' as const, bytes: 10 };
+    const { store } = make({ confirmed: confirmedState({ slots: [meta] }) });
+    expect(store.downloading()).toEqual([{ id: 's9', name: 'Nine', savedAt: 5 }]);
+    expect(store.readSlotsRaw()).toBeNull(); // still not loadable
+    const b = make({ confirmed: confirmedState({ slots: [meta] }), bodies: { s9: slotOf('s9', 'Nine', 5) } });
+    expect(b.store.downloading()).toEqual([]);
+  });
 });

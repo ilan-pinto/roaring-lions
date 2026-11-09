@@ -33,11 +33,15 @@ export const PORTED_FILES = [
   'packages/render/src/three/units/team-mask.node.ts',
   'packages/render/src/three/units/running-gear.node.ts',
   'packages/render/src/three/world-materials.node.ts',
+  // GH-943 P3 (T5): the occlusion and smoke outline. Its legacy twin (units/silhouette.ts) keeps its GLSL until P8.
+  'packages/render/src/three/units/silhouette.node.ts',
   // GH-943 P3 (T8): the overlay batch, zone band, supply route and tunnel trail. Their legacy twins keep their GLSL until P8.
   'packages/render/src/three/units/overlays.node.ts',
   'packages/render/src/three/units/zone-band.node.ts',
   'packages/render/src/three/supply-route.node.ts',
   'packages/render/src/three/trail-mesh.node.ts',
+  // GH-943 P3 (T7): the decal pools and the crater rim. Its legacy twin (decal-pool.ts) keeps its GLSL until P8.
+  'packages/render/src/three/decal-pool.node.ts',
 ];
 
 /**
@@ -71,12 +75,17 @@ export const TWINS = Object.freeze({
   [`${THREE}units/running-gear.ts`]: `${THREE}units/running-gear.node.ts`,
   [`${THREE}units/running-gear-material.ts`]: `${THREE}units/running-gear.node.ts`,
   [`${THREE}world-materials.ts`]: `${THREE}world-materials.node.ts`,
+  // GH-943 P3 (T5)
+  [`${THREE}units/silhouette.ts`]: `${THREE}units/silhouette.node.ts`,
   // GH-943 P3 (T8). supply-route-maths.ts holds the dash the route twin shares (a change to it must touch the twin too, intended).
   [`${THREE}units/overlays.ts`]: `${THREE}units/overlays.node.ts`,
   [`${THREE}units/zone-band.ts`]: `${THREE}units/zone-band.node.ts`,
   [`${THREE}supply-route.ts`]: `${THREE}supply-route.node.ts`,
   [`${THREE}supply-route-maths.ts`]: `${THREE}supply-route.node.ts`,
   [`${THREE}trail-mesh.ts`]: `${THREE}trail-mesh.node.ts`,
+  // GH-943 P3 (T7). decal-maths.ts holds the kinds and the rim the decal twin shares (a change to it must touch the twin too, intended).
+  [`${THREE}decal-pool.ts`]: `${THREE}decal-pool.node.ts`,
+  [`${THREE}decal-maths.ts`]: `${THREE}decal-pool.node.ts`,
 });
 
 /** The identifiers that mean "this file still carries GLSL" (also scanned for as text by the test). */

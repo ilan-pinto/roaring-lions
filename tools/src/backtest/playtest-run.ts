@@ -191,6 +191,8 @@ export interface RunRecord extends IntelRun {
   notes?: Record<string, number>;
 }
 export const runLog: RunRecord[] = [];
+/** GH-1144: the JSON of every unit type the LAST `run()` registered with the sim, after the tier pre-pass, so a replay can check the tier it asked for is the one it got. */
+export const registeredUnits = new Map<string, UnitTypeJson>();
 /** Written by a plan or its `onEvents` DURING a run; cleared when the next `run()` starts and copied into its record. */
 export const runNotes: Record<string, number> = {};
 
@@ -258,8 +260,10 @@ export function run(
   /** Brigade economy Task 5: when 'max', every KDF unit type registers through
    *  `applyUpgrades(u, maxTiers(u))` instead of its raw JSON -- the same pre-pass
    *  `main.ts` runs for an owned tier (`ownedTiers[u.id] ?? {}`), maxed rather than
-   *  bought. Enemy (non-kdf) types are never patched, matching `main.ts` exactly. */
-  tiers?: 'max',
+   *  bought. Enemy (non-kdf) types are never patched, matching `main.ts` exactly.
+   *  GH-1144: `{ unit, tracks }` patches ONLY that unit, and only those tracks, to their top tier
+   *  (a bought unit one track at a time; every other type registers raw). */
+  tiers?: 'max' | { unit: string; tracks: readonly string[] },
   /** Written by the max-tier replay pass at the end of `playtest.ts` so it can read back
    *  what THIS run actually measured, without widening `run`'s return type -- every
    *  existing call site still gets back exactly the produced `LedgerData` it always
@@ -285,6 +289,7 @@ export function run(
   onEvents?: (evs: readonly SimEvent[]) => void
 ): LedgerData {
   for (const k of Object.keys(runNotes)) delete runNotes[k];
+  registeredUnits.clear();
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
   // Matches the app. `spawn` never reuses a dead slot, so this is a budget for
@@ -320,7 +325,13 @@ export function run(
   for (const u of [...Object.values(units), ...extraUnits] as (typeof units)[keyof typeof units][]) {
     // Mirrors main.ts's own pre-pass exactly (see the `tiers` doc comment above) --
     // enemy units never go through applyUpgrades, only a KDF unit can carry a tier.
-    const registered = tiers === 'max' && u.faction === 'kdf' ? applyUpgrades(u, maxTiers(u)) : u;
+    const registered =
+      tiers === 'max' && u.faction === 'kdf'
+        ? applyUpgrades(u, maxTiers(u))
+        : tiers !== undefined && tiers !== 'max' && u.id === tiers.unit
+          ? applyUpgrades(u, Object.fromEntries(Object.entries(maxTiers(u)).filter(([track]) => tiers.tracks.includes(track))))
+          : u;
+    registeredUnits.set(u.id, registered as unknown as UnitTypeJson);
     typeOf.set(u.id, sim.addUnitType(registered));
   }
   // `upgrades_to` resolved once, before the runtime is built, exactly as main.ts

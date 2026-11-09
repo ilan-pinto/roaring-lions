@@ -169,10 +169,8 @@ export async function victory(ctx: AccountCtx): Promise<Response> {
       } else {
         const c = await conflictSlot(db, memberId, sent, ctx.now, 'conflict');
         conflict = c.answer;
-        if (c.statements.length > 0) {
-          statements.push(...c.statements.slice(0, -1));
-          guard = c.statements.slice(-1);
-        }
+        statements.push(...c.insert);
+        guard = c.guard;
       }
     }
     if (plausible) {

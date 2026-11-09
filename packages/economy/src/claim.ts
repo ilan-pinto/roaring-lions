@@ -8,12 +8,20 @@ import { worldMissionIds, type ParsedWorld } from './world';
 
 const clamp = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(MAX_STARS, Math.floor(n))) : 0);
 
+type Mission = { won: boolean; stars: number };
+
+/** Folds `m` into `missions[id]` as an OWN property: an id like `constructor` or `__proto__` reads and writes no inherited slot. */
+function mergeMission(missions: Record<string, Mission>, id: string, m: Mission): void {
+  const p = Object.hasOwn(missions, id) ? missions[id] : undefined;
+  const value = p ? { won: p.won || m.won, stars: Math.max(p.stars, m.stars) } : { ...m };
+  Object.defineProperty(missions, id, { value, enumerable: true, configurable: true, writable: true });
+}
+
 /** Per mission the max of `won` and `stars`; `welcomed` and `campaignDone` ORed; `backfilled` from `a`. */
 export function maxRecord(a: EarnRecord, b: EarnRecord): EarnRecord {
   const missions: Record<string, { won: boolean; stars: number }> = { ...a.missions };
   for (const [id, m] of Object.entries(b.missions)) {
-    const p = missions[id];
-    missions[id] = p ? { won: p.won || m.won, stars: Math.max(p.stars, m.stars) } : { ...m };
+    mergeMission(missions, id, m);
   }
   return { welcomed: a.welcomed || b.welcomed, campaignDone: a.campaignDone || b.campaignDone, backfilled: a.backfilled, missions };
 }
@@ -22,8 +30,7 @@ export function maxRecord(a: EarnRecord, b: EarnRecord): EarnRecord {
 export function raiseBy(record: EarnRecord, raised: EarnEvidence & { welcomed: boolean }): EarnRecord {
   const missions: Record<string, { won: boolean; stars: number }> = { ...record.missions };
   for (const [id, m] of Object.entries(raised.missions)) {
-    const p = missions[id];
-    missions[id] = p ? { won: p.won || m.won, stars: Math.max(p.stars, m.stars) } : { ...m };
+    mergeMission(missions, id, m);
   }
   return {
     welcomed: record.welcomed || raised.welcomed,

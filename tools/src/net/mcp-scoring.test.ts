@@ -52,8 +52,8 @@ const good = () => loose(validScores(7, 5));
 describe('which seats are given the scoring tools', () => {
   it('only a scoring seat (the harness started with --score-file); the arena\'s players are judged by a third model', () => {
     const names = (scoring: boolean): string[] => toolsFor('command', { scoring }).map((t) => t.name).sort();
-    expect(names(false)).toEqual(['end_round', 'inbox', 'observe', 'order', 'say', 'status', 'wait']);
-    expect(names(true)).toEqual(['end_round', 'inbox', 'match_stats', 'observe', 'order', 'say', 'status', 'submit_score', 'wait']);
+    expect(names(false)).toEqual(['end_round', 'inbox', 'observe', 'order', 'say', 'status', 'terrain', 'wait']);
+    expect(names(true)).toEqual(['end_round', 'inbox', 'match_stats', 'observe', 'order', 'say', 'status', 'submit_score', 'terrain', 'wait']);
     expect(toolsFor('command').map((t) => t.name)).not.toContain('submit_score');
     expect(toolsFor('assist', { scoring: true }).map((t) => t.name)).not.toContain('match_stats');
     expect(toolsFor('advise', { scoring: true }).map((t) => t.name)).not.toContain('submit_score');

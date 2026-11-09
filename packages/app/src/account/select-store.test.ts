@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { writeBinding } from './binding';
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from 'vitest';
+import { CLAIMING_KEY, ensureDeviceId, writeBinding } from './binding';
 import { writeCache } from './cache';
 import { selectLedgerStore } from './select-store';
 import { cacheOf, memStorage, world } from './fixtures';
@@ -68,5 +69,35 @@ describe('selectLedgerStore', () => {
     for (const k of [LEDGER_KEY, ACCOUNT_KEY, TUTORIAL_DONE_KEY, SAVES_KEY, ROAR_KEY, 'lions.settings']) s.setItem(k, '1');
     removeGuestProgress(s);
     expect([...s.map.keys()]).toEqual(['lions.settings']);
+  });
+});
+
+// A retry marker left by `runClaim` must not lock guest saves where no claim panel can appear (CodeRabbit, Major).
+describe('selectLedgerStore, a retry marker on a device whose accounts are off', () => {
+  const own = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  afterEach(() => {
+    if (own) Object.defineProperty(window, 'localStorage', own);
+    else delete (window as { localStorage?: unknown }).localStorage;
+  });
+  const withMarker = () => {
+    const s = memStorage();
+    writeBinding(s, { version: 1, publicId: 'pub1' });
+    const deviceId = ensureDeviceId(s);
+    s.setItem(CLAIMING_KEY, JSON.stringify({ deviceId, digests: { campaign: null, slots: {} }, at: 1 }));
+    Object.defineProperty(window, 'localStorage', { value: s, configurable: true });
+    return s;
+  };
+
+  it.each(['', 'accounts&fresh'])('guest writes work with "%s" (no claim panel can clear the marker)', (qs) => {
+    const s = withMarker();
+    const sel = selectLedgerStore(q(qs), s, backfill, { world });
+    expect(s.getItem(CLAIMING_KEY)).not.toBeNull(); // the marker survived boot: it matches the binding
+    expect(() => sel.store.writeLedger({ x: 1 } as never)).not.toThrow();
+  });
+
+  it('with ?accounts the guest store still refuses while the marker exists', () => {
+    const s = withMarker();
+    const sel = selectLedgerStore(q('accounts'), s, backfill, { world });
+    expect(() => sel.store.writeLedger({ x: 1 } as never)).toThrow();
   });
 });

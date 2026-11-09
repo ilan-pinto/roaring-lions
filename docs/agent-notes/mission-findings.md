@@ -339,9 +339,38 @@ an enemy. `packages/sim/src/first-contact.test.ts` is the rule; `tools/src/first
 `tools/src/backtest/first-contact-probe.ts` prints, per trigger and seed, the tick it fires under the passive plan with the old and the new
 reading side by side and the world at that tick.
 
-**Khan Rafid III is deliberately left as it plays.** Its rocket team (`a_rocket_team_moves_into_the_east_lane`) spawned at tick 2 only because
-of the old rule, and the mission was tuned and playtested with it there. With a real first contact the scripted plan wins in 3.4 min with 1
-star (ROE 66, 9 out) instead of 1.5 min with 2 (ROE 90, 10 out), which also takes the star ladder from 68 to 67 and closes the `scout_shachaf`
-gate (29 stars where 30 are pinned). So the trigger is an explicit `timer_s` of 0.1 s (tick 2, the same tick) and the mission is unchanged.
-To get the on-contact ambush the label says, put `first_contact` back and retune the plan: that is a balance decision, not made here.
+**Khan Rafid III has a real first contact again (GH-1173, 9 Nov).** GH-1170 left its rocket team (`a_rocket_team_moves_into_the_east_lane`) on an
+explicit 0.1 s timer because, on a real first contact, the scripted plan read 1 star on the pinned seed 424242 (ROE 66, 3.4 min, 9 out) instead of
+2 (ROE 90, 1.5 min, 10 out), which took the star ladder from 68 to 67 and closed the `scout_shachaf` gate. The trigger is `first_contact` again; it
+fires at tick 176 on the pinned seed (the plan's drone at (24, 30) identifies the souk's militia cell at (30, 23)). Finding: the 1-star read was one
+seed. On seeds 1..200 the unchanged plan wins 200 of 200 at 2 stars (ROE min 75, mean 89.8), with or without the timer. On 424242 the east-orchard
+Eitan stopped at (33, 18) beside the placed lane team at (34, 15), was killed at 82 s, the sixth family came in at 207 s and the longer fight cost a
+field clinic (-12) and four danger-close hits (-3 each). The fix is one tile: the placed east-lane rocket team (`kr_lane_east`) moves from (34, 15)
+to (35, 14). 424242 then reads 2 stars, ROE 78, 2.5 min, 238 credits (was 90, 1.5 min, 260); seeds 1..200 read 200 of 200 at 2 stars, ROE min 75,
+mean 89.7. Many one-tile moves land 424242 on ROE 78 and others on 66: it is a branch point of the run, not a tuned margin, so ROE 78 is 8 over the
+70 bar and `LADDER_CREDITS` and `CAMPAIGN_CREDITS` moved 6997 -> 6975 (-22). `pnpm perf:memory` then failed on khan_rafid_3_clearance (decoded ImageBitmaps 168 MiB against 161, main 120). It is not a unit type (the roster is
+identical: `missionUnitTypes` walks strings and `first_contact` is not a unit id; no GPU owner changed). In a passive walk the timer-spawned rocket team
+razed three lane walls (ticks 13, 912, 1513), so the wall-collapse textures were drawn and released; with `first_contact` the first wall falls at tick
+2401 (the store militia's attrition on wall 7), one tick after the walk's last frame at 2400, so three 2048 px textures (16 MiB each) stay decoded and
+un-uploaded. The fix is data: the placed lane team (`kr_lane_east`) drops its ambush stance and shoots the lane walls from tick 9, as the spawned team did
+(walk: 120 MiB; seeds 1..200 still 200 of 200 at 2 stars, 424242 unchanged at ROE 78). The instrument is fragile to a collapse in its last tick: a final
+frame after the last slice would remove it (the lead's call, not made). The star ladder stays 68, so the `scout_shachaf` gate keeps its 30 stars. Full `pnpm playtest` (idle machine, 4 min): exit 0, credit ladder 6975, star ladder 68, Khan Rafid III 30 of 30 wins, slowest 2.5 min.
 The passive plan reaches contact late in the other four (Beit Sahwan I 2021, Breach 608, Khan Rafid III 5352 ticks; Wadi Halam IV and V never).
+
+## A side never cuts a structure it owns (8 Nov 2026)
+
+`selectBreachTarget` (a unit stopped against a wall, or standing beside one, cuts it) skipped garrisonable buildings and protected sites but never asked
+who OWNS the wall. Two shipped missions had a side-1 unit standing within `BREACH_TILES` of its own side's authored militia work, and shot it down in a
+passive run: Wadi Halam V's `militia_weapons_workshop` (a gun truck, destroyed at tick 127 of every seed: it is the eighth `raze` target, so the player
+had been getting it free) and Beit Sahwan III's `militia_field_clinic` (an ATGM cell, first shot at tick 405, destroyed at tick 2014). The guard is one
+line, `stOwner[s] === side[i]`, the same rule the auto-demolisher scan already carries ("razing your own works is an order"). `tools/src/backtest/
+structure-fire-probe.ts` prints, over every mission and seed, each shot at a structure by who owns it: 6 own rows before, 0 after.
+
+Cost: Wadi Halam V pays 200, not 220 (the plan now levels the eighth building itself, in the same five minutes), and the plan's target list swaps its last
+two entries so the gate-open run keeps winning seed 22. The ladder pin is 6977 (6987 for this change alone; GH-1170's -10 is already in).
+
+**Not changed, and worth the lead's look**: the same scan lets any side-1 unit that is NOT human-held cut a NEUTRAL wall near it with no order and no goal
+(`moving 0`), so an enemy squad parked beside a compound wall starts shooting it in the first seconds of a passive run, and by tick 6000 the wall is destroyed in 14 of the 15 seed-1 rows, in about a dozen missions (45
+(mission, seed, shooter, structure) rows over seeds 1-3, up to 4,000 shots: Ein Qasab I-III, Khan Rafid I and III, Umm Zeitoun II-IV, Deir Amun II,
+Beit Sahwan III and IV, Wadi Halam V). The function's own comment says a defender holding his compound never fires on his own fence; the code only
+gates that on `moving`. It is long-standing and every plan was tuned with it, so it is a design call, not a bug fix made here.

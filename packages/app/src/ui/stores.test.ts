@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { units } from '@lions/data';
+import { units, type UpgradableUnit } from '@lions/data';
 import { specialRefusal } from '@lions/net';
+import { coinHalfFor, emptyAccount, emptyRoar } from '@lions/economy';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
 import { setCatalogue } from '../i18n/t';
@@ -695,5 +696,41 @@ describe('D5: "Buy with credits" on a Stores tier row (WP7, T20)', () => {
     expect(tierCreditBuyEnabled(ask, 740, true, false)).toBe(false);
     expect(tierCreditBuyEnabled(null, 740, true, true)).toBe(false);
     expect(tierCreditBuyEnabled(ask, undefined, true, true)).toBe(false);
+  });
+});
+
+// GH-1075 A2: a guest's Buy is the synchronous handler it always was; only a signed-in handler answers a promise.
+describe('a guest Buy still answers synchronously', () => {
+  it('the redraw follows the click with no promise in between, and nothing reads as pending', () => {
+    setCatalogue('en', en);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const asked: unknown[] = [];
+    const state = { units: roster(), credits: 0, owned: {} as Record<string, Record<string, number>> };
+    const dispose = showBrigade(host, {
+      units: roster(),
+      ledger: {},
+      missionName: () => undefined,
+      baseOf: (id) => ((units as Record<string, unknown>)[id] as UpgradableUnit | undefined) ?? { id },
+      possibleStars: 3,
+      credits: 0,
+      reducedMotion: () => true,
+      stores: {
+        coinSrc,
+        open: true,
+        read: () => ({ coin: coinHalfFor({ brigade: emptyAccount(), roar: emptyRoar() }), wallet: { coins: 99999, receipts: [] } }),
+        onBuy: (ask) => {
+          asked.push(ask);
+          return state; // a GarageState, not a promise
+        },
+      },
+    });
+    const buy = [...host.querySelectorAll<HTMLButtonElement>('[data-buy^="unit:"]')].find((b) => !b.disabled);
+    expect(buy, 'premise: a coin Buy is live').toBeDefined();
+    buy?.click();
+    expect(asked).toHaveLength(1);
+    expect(host.textContent).not.toContain(en['stores.pending']);
+    expect([...host.querySelectorAll('button[data-buy]')].some((b) => b.textContent?.includes(en['stores.pending']))).toBe(false);
+    dispose();
   });
 });
