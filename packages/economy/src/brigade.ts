@@ -227,24 +227,31 @@ export function buyUnlock(
   };
 }
 
-/** Buying a RUN of upgrade tiers on the earned path (store/garage spec §2.3, R3):
- *  `from` ... `to` for one `price` (the caller's sum of the tiers' prices, from
- *  `creditAsk`). Refuses -- returning the same account by identity -- unless `from` is
- *  exactly `earned + 1`, `to >= from`, `price` is a positive integer and the balance
- *  covers it. Sets `earned = to`. Spending writes no grant: `grants` is the earned
- *  history, and `earned_total` never moves on a purchase (G3). */
+/** Buying a RUN of upgrade tiers on the earned path (store/garage spec §2.3, R3, GH-1146):
+ *  `from` ... `to`, priced HERE. `prices` is the track's tier price table (tier `t` costs
+ *  `prices[t - 1]`, the same table `creditAsk` sums), and the run costs the sum of
+ *  `prices[from - 1 .. to - 1]`. There is no caller-supplied total to trust or forge.
+ *  Refuses -- returning the same account by identity -- unless `from` is exactly
+ *  `earned + 1`, `to >= from`, `to` is inside the table, every priced tier is a positive
+ *  integer and the balance covers the sum. Sets `earned = to`. Spending writes no grant:
+ *  `grants` is the earned history, and `earned_total` never moves on a purchase (G3). */
 export function buyUpgradeRun(
   account: BrigadeAccount,
   unitId: string,
   track: string,
   from: number,
   to: number,
-  price: number
+  prices: readonly number[]
 ): { account: BrigadeAccount; ok: boolean } {
   const currentTier = account.upgrades[unitId]?.[track] ?? 0;
   if (!Number.isInteger(from) || !Number.isInteger(to)) return { account, ok: false };
-  if (from !== currentTier + 1 || to < from) return { account, ok: false };
-  if (!isNonNegInt(price) || price < 1) return { account, ok: false };
+  if (from !== currentTier + 1 || to < from || to > prices.length) return { account, ok: false };
+  let price = 0;
+  for (let t = from; t <= to; t++) {
+    const p = prices[t - 1];
+    if (!isNonNegInt(p) || p < 1) return { account, ok: false };
+    price += p;
+  }
   if (account.balance < price) return { account, ok: false };
   return {
     account: {
@@ -260,18 +267,18 @@ export function buyUpgradeRun(
 }
 
 /** Buying an upgrade tier (spec §4.3): buys exactly the NEXT tier of a track, no refunds.
- *  The `from === to` case of `buyUpgradeRun`, which is the one writer: it refuses --
- *  returning the same account by identity -- when `tier` is not exactly
- *  `(account.upgrades[unitId]?.[track] ?? 0) + 1`, when the price is not a positive
- *  integer, or when the balance is short. */
+ *  The `from === to` case of `buyUpgradeRun`, which is the one writer, priced from the
+ *  same `prices` table: it refuses -- returning the same account by identity -- when
+ *  `tier` is not exactly `(account.upgrades[unitId]?.[track] ?? 0) + 1`, when the tier has
+ *  no valid price in the table, or when the balance is short. */
 export function buyUpgrade(
   account: BrigadeAccount,
   unitId: string,
   track: string,
   tier: number,
-  price: number
+  prices: readonly number[]
 ): { account: BrigadeAccount; ok: boolean } {
-  return buyUpgradeRun(account, unitId, track, tier, tier, price);
+  return buyUpgradeRun(account, unitId, track, tier, tier, prices);
 }
 
 /** "New campaign" (GH-330): the per-campaign record starts empty, so every mission

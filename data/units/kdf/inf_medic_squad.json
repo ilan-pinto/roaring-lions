@@ -76,5 +76,63 @@
         "stationary": true
       }
     ]
+  },
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 120,
+          "patch": {
+            "hull.hp": 25,
+            "hull.armor.front": 1,
+            "hull.armor.side": 1,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 175,
+          "patch": {
+            "hull.hp": 54,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        },
+        {
+          "price": 250,
+          "patch": {
+            "hull.hp": 90,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 95,
+          "patch": {
+            "sensors.optics": 0.08,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 150,
+          "patch": {
+            "sensors.optics": 0.15,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 205,
+          "patch": {
+            "sensors.optics": 0.25,
+            "sensors.sight_tiles": 2
+          }
+        }
+      ]
+    }
   }
 }

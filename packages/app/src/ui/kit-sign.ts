@@ -172,7 +172,8 @@ export interface KitSummary {
   readonly pips: readonly TrackPip[];
   /** Hit points the kit adds: applied minus base. 0 when either is unreadable. */
   readonly hpKit: number;
-  /** Credits spent on this type's owned tiers, and the price of all of them. */
+  /** Credits PAID for this type's tiers (only the earned ones, GH-1143: a coin-held tier cost coins),
+   *  and the price of all of them. */
   readonly spent: number;
   readonly total: number;
 }
@@ -195,12 +196,16 @@ function hpKitOf(unit: UpgradableUnit, owned: Readonly<Record<string, number>>):
   }
 }
 
-export function kitSummary(unit: UpgradableUnit, owned: Readonly<Record<string, number>>): KitSummary {
+export function kitSummary(
+  unit: UpgradableUnit,
+  owned: Readonly<Record<string, number>>,
+  earned: Readonly<Record<string, number>> = owned
+): KitSummary {
   const tracks = unit.upgrades ?? {};
   let spent = 0;
   let total = 0;
   for (const [name, track] of Object.entries(tracks)) {
-    const n = clampTier(owned[name], track.tiers.length);
+    const n = Math.min(clampTier(owned[name], track.tiers.length), clampTier(earned[name], track.tiers.length));
     track.tiers.forEach((tier, i) => {
       total += tier.price;
       if (i < n) spent += tier.price;

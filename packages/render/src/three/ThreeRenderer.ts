@@ -313,7 +313,7 @@ import {
   type GroundAlbedoId,
   type GroundSlot,
 } from './terrain/mesh';
-import { isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
+import { isDebugLayer, FX_FLAG_LAYERS, unknownDebugLayerMessage, type FxFlagLayer } from './debug-layers';
 import { buildTerrainSurface, isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import {
   buildControlMap,
@@ -1536,6 +1536,11 @@ export class ThreeRenderer implements Renderer {
    *  visibility write (`writeRainVisibility`) consults it, so a toggle holds
    *  across a repaint. */
   private rainDebugHidden = false;
+  /** GH-943 P3 (T2): the FX debug layers held hidden (`trail`, `wreck-soot`, `particles`, `tracers`, `muzzle-burst`, `smoke-plume`,
+   *  `collapse-shroud`). `writeFxLayerVisibility` consults it every frame (the `unitsDebugHidden` shape), so a hide holds across a repaint.
+   *  `fxLayerWritten` is the set it has written `visible = false` on, so a show puts back only what the flag took away. */
+  private readonly fxLayerHidden = new Set<FxFlagLayer>();
+  private readonly fxLayerWritten = new Set<FxFlagLayer>();
   /** The `ripples` debug layer's flag (`unitsDebugHidden`'s shape): the
    *  per-frame write of `uRippleAmp` consults it, so a toggle holds across a
    *  repaint. */
@@ -4573,6 +4578,7 @@ export class ThreeRenderer implements Renderer {
     this.writeRippleUniforms(alpha);
     this.updateRain(alpha);
     this.updateSilhouetteOutlineWidth();
+    this.writeFxLayerVisibility();
     // `threeCamera()` reconfigures the ONE camera the composer's RenderPass
     // already holds, so this call has to happen whether or not the composer
     // draws -- its return value is used only by the composer-less path.
@@ -4690,6 +4696,9 @@ export class ThreeRenderer implements Renderer {
         this.disturbU.amp.value = next;
         return changed;
       }
+      case 'selection-ring':
+        // The GROUP, not the meshes: each batch's `endFrame` rewrites its own mesh's `visible` every frame (an empty one costs no draw).
+        return setObjectsVisible(visible, this.selectionRingGroup);
       case 'wash': {
         // The helicopters' slots, taken away and given back: `updateDisturbers` reads the flag every frame, so a repaint cannot undo it.
         const changed = this.washLayerOn === visible ? 0 : 1;
@@ -4901,14 +4910,7 @@ export class ThreeRenderer implements Renderer {
         // re-asserts it the way fog visibility re-asserts a mesh unit's
         // `root.visible` every frame.
         // The selection ring's GROUP, not its mesh: see `selectionRing`.
-        const batchCount = setObjectsVisible(
-          visible,
-          this.overlayBatch.mesh,
-          this.numeralBatch.mesh,
-          this.chevronBatch.mesh,
-          this.selectionRingGroup,
-          this.zoneBandGroup
-        );
+        const batchCount = setObjectsVisible(visible, ...this.overlayLayerObjects());
         // The occlusion silhouette (band 6, `units/silhouette.ts`) is a
         // SEPARATE subsystem folded into this same name -- see
         // `debug-layers.ts`'s own comment for why a key-art tool asking to
@@ -5108,6 +5110,18 @@ export class ThreeRenderer implements Renderer {
         amp.value = next;
         return changed;
       }
+      case 'trail':
+      case 'wreck-soot':
+      case 'particles':
+      case 'tracers':
+      case 'muzzle-burst':
+      case 'smoke-plume':
+      case 'collapse-shroud': {
+        // GH-943 P3 (T2). A FLAG `writeFxLayerVisibility` reads every frame; the write below is only so a caller that never repaints sees it.
+        if (visible) this.fxLayerHidden.delete(name);
+        else this.fxLayerHidden.add(name);
+        return this.writeFxLayerVisibility(name);
+      }
       case 'swarm-wrecks': {
         this.swarmWrecksDebugHidden = !visible;
         let n = 0;
@@ -5125,6 +5139,59 @@ export class ThreeRenderer implements Renderer {
         // that draws nothing. Throwing makes it a capture failure instead.
         throw new Error(unknownDebugLayerMessage(name));
     }
+  }
+
+  /** What an FX debug layer hides (GH-943 P3 T2). Resolved on every call: the managers' meshes exist only once their GLB has loaded, and a
+   *  vehicle's `WRECK_` twins only once it is spawned. */
+  private fxLayerObjects(name: FxFlagLayer): THREE.Object3D[] {
+    switch (name) {
+      case 'trail':
+        return [this.trailMesh.mesh];
+      case 'particles':
+        return [
+          this.particleInstancerBelow.mesh,
+          this.particleInstancerAbove.mesh,
+          this.particleInstancerBelowAdditive.mesh,
+          this.particleInstancerAboveAdditive.mesh,
+        ];
+      case 'tracers':
+        return [this.tracerBatch.mesh];
+      case 'muzzle-burst':
+        return [...this.muzzleFlashes.zoneMeshes, ...this.explosionBursts.zoneMeshes, ...this.collapseFlashBursts.zoneMeshes];
+      case 'smoke-plume':
+        return [...this.smokePlumes.zoneMeshes];
+      case 'collapse-shroud':
+        return [this.collapseShrouds.mesh];
+      case 'wreck-soot': {
+        const out: THREE.Object3D[] = [];
+        for (const entity of this.vehicleMeshEntities.values()) {
+          entity.root.traverse((o) => {
+            if ((o.userData as { rl_wreck?: unknown }).rl_wreck === true) out.push(o);
+          });
+        }
+        return out;
+      }
+    }
+  }
+
+  /**
+   * Writes the FX debug layers' visibility (GH-943 P3 T2): `name`, or every one when absent. Called by `setDebugLayerVisible` and, for
+   * every layer, once per `frame()` just before the draw, so the managers' own per-frame writes cannot undo a hide. A layer that has never
+   * been hidden costs a set lookup. Returns the number of objects it wrote.
+   */
+  private writeFxLayerVisibility(only?: FxFlagLayer): number {
+    let n = 0;
+    for (const name of only === undefined ? FX_FLAG_LAYERS : [only]) {
+      const hidden = this.fxLayerHidden.has(name);
+      if (!hidden && !this.fxLayerWritten.has(name)) continue;
+      for (const o of this.fxLayerObjects(name)) {
+        o.visible = !hidden;
+        n++;
+      }
+      if (hidden) this.fxLayerWritten.add(name);
+      else this.fxLayerWritten.delete(name);
+    }
+    return n;
   }
 
   /** Drives every pooled blast/muzzle light to zero intensity -- the
@@ -5509,6 +5576,11 @@ export class ThreeRenderer implements Renderer {
     return camera;
   }
 
+  /** The scene objects the `overlays` debug layer switches: ONE list, read by that layer and by `hideForGroundPhoto`'s restore. */
+  private overlayLayerObjects(): THREE.Object3D[] {
+    return [this.overlayBatch.mesh, this.numeralBatch.mesh, this.chevronBatch.mesh, this.selectionRingGroup, this.zoneBandGroup];
+  }
+
   /**
    * Hides what a ground photograph must not show (units, overlays, the rain) and takes the map-wide shadow box, and returns the
    * function that puts every one back to what it WAS. Shared by `photographGround` (legacy, synchronous) and
@@ -5524,10 +5596,18 @@ export class ThreeRenderer implements Renderer {
    */
   private hideForGroundPhoto(): () => void {
     const unitsWereVisible = !this.unitsDebugHidden;
-    const overlaysWereVisible = this.overlayBatch.mesh.visible;
+    // The overlays layer's own state is its flag (`smokeOutlinesHidden`, which only that layer writes), and each of its scene
+    // objects goes back to ITS OWN `visible`, never to one sample of the layer. A node boot's census hides the unported overlay
+    // batches (ShaderMaterials) and leaves the ring and zone-band groups shown, so reading `overlayBatch.mesh.visible` as the
+    // layer's state put every ring back HIDDEN after the first minimap photograph, for the rest of the mission (GH-943 P2 T5:
+    // the node `selection-ring` A/B read 0 px). Restoring the layer to `true` instead would un-hide what the census hid.
+    const overlaysWereVisible = !this.smokeOutlinesHidden;
+    const overlayObjects = this.overlayLayerObjects();
+    const overlayObjectsWere = overlayObjects.map((o) => o.visible);
     const rainWasVisible = this.rain?.mesh.visible ?? false;
     const restore = (): void => {
       this.setDebugLayerVisible('overlays', overlaysWereVisible);
+      overlayObjects.forEach((o, k) => (o.visible = overlayObjectsWere[k] ?? o.visible));
       this.setDebugLayerVisible('units', unitsWereVisible);
       if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
     };

@@ -1198,6 +1198,17 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'absolute targetTick, which the lead has not asked for. NOT watched going red in the browser (the sheets launch had no second pass for it): at the renderer level, ' +
           'removing the `f.air = this.washLayerOn` write turns `ThreeRenderer.wash-clock.test.ts` red.',
       },
+      {
+        layer: 'selection-ring',
+        minDiffPixels: 1368,
+        minMeanAbsChannelDelta: 0.0591,
+        rationale:
+          'GH-943 P2 T5: hiding the ground rings (the team ring of every own unit; `selectionRingGroup`, never a mesh, because `endFrame` rewrites ' +
+          'each mesh\'s `visible` every frame) on the vehicle frame moves 4104 px / 0.1775, bit-identical on the two `visual` runs read so far ' +
+          '(ci.yml runs 42456785749 and 42473526531, linux-x64-swiftshader, the two heads differing only in node-path code), repaint control 0 px / 0.0000. ' +
+          'Floors are a third of the smallest reading, rounded down (1368, 0.0591). Falsified by forcing the ring\'s core AND halo alpha to 0 in the ' +
+          'legacy shader (the halo is drawn outside the core, so zeroing the core alone leaves pixels): the commit pair carries the CI line.',
+      },
     ],
     rationale:
       'whole frame, mesh vehicles plus continuous dust/exhaust FX. 40 px / 0.004 since GH-803 ' +

@@ -1331,16 +1331,19 @@ describe('showBrigade — the bay carries the kit (§3.1, F4, F5)', () => {
     const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 1, sensors: 1 } } });
     expect(text(host, '.rl-garage__kit-total')).toBe('350 credits of kit');
   });
-  // GH-1143: "credits of kit" counts what credits paid for. Armour tier 2 here is held by coins (owned 2, earned 1), and
-  // sensors tier 1 is a coin tier too (earned 0): only armour tier 1 (200) was paid in credits.
-  it('counts only the tiers credits paid for: coin-held tiers are not "credits of kit"', () => {
-    const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 2, sensors: 1 } }, earned: { inf_squad: { armour: 1 } } });
-    expect(text(host, '.rl-garage__kit-total')).toBe('200 credits of kit');
-  });
-  it('says nothing when every tier the unit holds is a coin tier', () => {
-    const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 1 } }, earned: { inf_squad: {} } });
-    expect(host.querySelector('.rl-garage__kit-total')).toBeNull();
-    expect(host.querySelector('.rl-garage__plate')?.getAttribute('data-kit')).toBe('1'); // the plate still shows the kit it holds
+  it('GH-1143: the credits line prices only what credits paid, not a coin-held tier', () => {
+    const owned = { inf_squad: { armour: 1, sensors: 1 } };
+    const all = mount({ units, ledger: {}, possibleStars: 78, owned });
+    expect(text(all, '.rl-garage__kit-total')).toBe('350 credits of kit');
+    // Armour tier 1 is held by coins: only the sensors tier was paid for.
+    const mixed = mount({ units, ledger: {}, possibleStars: 78, owned, earned: { inf_squad: { armour: 0, sensors: 1 } } });
+    expect(text(mixed, '.rl-garage__kit-total')).toBe('150 credits of kit');
+    // A unit the account never bought for has NO entry in `earned`: still no credits line.
+    const absent = mount({ units, ledger: {}, possibleStars: 78, owned, earned: { other_unit: { armour: 1 } } });
+    expect(absent.querySelector('.rl-garage__kit-total')).toBeNull();
+    // Nothing paid in credits at all: no line.
+    const none = mount({ units, ledger: {}, possibleStars: 78, owned, earned: { inf_squad: { armour: 0, sensors: 0 } } });
+    expect(none.querySelector('.rl-garage__kit-total')).toBeNull();
   });
   // R-5: against a base-JSON maximum, the roster's strongest unit fills its
   // bar with base and has no room left to draw what it bought.

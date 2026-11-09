@@ -48,10 +48,19 @@ describe('twin-check (the same-PR rule)', () => {
   it('the shipped TWINS table is a legacy -> .node.ts map over existing legacy files', () => {
     const rows = twinRows(TWINS);
     expect(rows.length).toBeGreaterThan(0);
+    const own = (legacy: string): string => legacy.replace(/\.ts$/, '.node.ts');
+    let shared = 0;
     for (const r of rows) {
       expect(existsSync(path.resolve(__dirname, '../../..', r.legacy)), r.legacy).toBe(true);
-      expect(r.twin).toBe(r.legacy.replace(/\.ts$/, '.node.ts'));
+      // GH-943 P2: a legacy file whose maths a twin of ANOTHER file carries (T6 `wind.ts`, T7 `disturb.ts`, T4 `relief-read.ts`) points
+      // at that twin, which must be the name-paired twin of some other row: no row may point at a twin nobody owns.
+      if (r.twin !== own(r.legacy)) {
+        expect(rows.some((o) => o.legacy !== r.legacy && o.twin === r.twin && own(o.legacy) === o.twin), `${r.legacy} -> ${r.twin}`).toBe(true);
+        shared++;
+      }
       expect(twinVerdict([r.legacy], [r], () => true).violations).toHaveLength(1);
     }
+    // Anti-vacuity: the name-paired rule still binds the rest.
+    expect(rows.length - shared).toBeGreaterThan(shared);
   });
 });

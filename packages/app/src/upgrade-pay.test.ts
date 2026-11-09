@@ -27,51 +27,66 @@ describe('T17 creditAsk (R3 with R0.1)', () => {
 
 describe('buyUpgradeRun refusals', () => {
   const funded = payMission(emptyAccount(), 'm', 2000, 1).account;
-  const at1 = buyUpgradeRun(funded, 'u', 'armour', 1, 1, 160).account;
+  const at1 = buyUpgradeRun(funded, 'u', 'armour', 1, 1, PRICES).account;
   it('from must be earned + 1', () => {
     for (const from of [0, 1, 3]) {
-      const r = buyUpgradeRun(at1, 'u', 'armour', from, 3, 740);
+      const r = buyUpgradeRun(at1, 'u', 'armour', from, 3, PRICES);
       expect(r.ok).toBe(false);
       expect(r.account).toBe(at1);
     }
-    expect(buyUpgradeRun(at1, 'u', 'armour', 2, 3, 580).ok).toBe(true);
+    expect(buyUpgradeRun(at1, 'u', 'armour', 2, 3, PRICES).ok).toBe(true);
   });
   it('to must not be below from', () => {
-    const r = buyUpgradeRun(funded, 'u', 'armour', 1, 0, 160);
+    const r = buyUpgradeRun(funded, 'u', 'armour', 1, 0, PRICES);
     expect(r.ok).toBe(false);
     expect(r.account).toBe(funded);
   });
-  it('price must be a positive integer', () => {
-    for (const price of [0, -5, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      const r = buyUpgradeRun(funded, 'u', 'armour', 1, 3, price);
+  it('every priced tier must be a positive integer', () => {
+    for (const bad of [0, -5, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const r = buyUpgradeRun(funded, 'u', 'armour', 1, 3, [160, bad, 340]);
       expect(r.ok).toBe(false);
       expect(r.account).toBe(funded);
     }
   });
+  it('GH-1146: the run is priced from the table, so a short table or a tier past it is refused', () => {
+    for (const table of [[], [160], [160, 240]]) {
+      const r = buyUpgradeRun(funded, 'u', 'armour', 1, 3, table);
+      expect(r.ok).toBe(false);
+      expect(r.account).toBe(funded);
+    }
+  });
+  it('GH-1146: what leaves the balance is the table sum for from..to, nothing a caller names', () => {
+    const r = buyUpgradeRun(at1, 'u', 'armour', 2, 3, PRICES); // tiers 2 and 3 only: 240 + 340
+    expect(r.ok).toBe(true);
+    expect(at1.balance - r.account.balance).toBe(580);
+    // A different table prices the same run differently: the table is the only price input.
+    const cheap = buyUpgradeRun(at1, 'u', 'armour', 2, 3, [160, 1, 1]);
+    expect(at1.balance - cheap.account.balance).toBe(2);
+  });
   it('from and to must be integers', () => {
     const rich = payMission(emptyAccount(), 'm', 100000, 1).account;
     for (const [from, to] of [[1, 2.5], [1, Number.POSITIVE_INFINITY], [1, Number.NaN], [1.5, 2], [Number.NaN, 2]] as const) {
-      const r = buyUpgradeRun(rich, 'u', 'armour', from, to, 100);
+      const r = buyUpgradeRun(rich, 'u', 'armour', from, to, PRICES);
       expect(r.ok).toBe(false);
       expect(r.account).toBe(rich);
     }
   });
   it('the balance must cover the price', () => {
     const poor = payMission(emptyAccount(), 'm', 739, 1).account;
-    const r = buyUpgradeRun(poor, 'u', 'armour', 1, 3, 740);
+    const r = buyUpgradeRun(poor, 'u', 'armour', 1, 3, PRICES);
     expect(r.ok).toBe(false);
     expect(r.account).toBe(poor);
-    expect(buyUpgradeRun(payMission(emptyAccount(), 'm', 740, 1).account, 'u', 'armour', 1, 3, 740).ok).toBe(true);
+    expect(buyUpgradeRun(payMission(emptyAccount(), 'm', 740, 1).account, 'u', 'armour', 1, 3, PRICES).ok).toBe(true);
   });
   it('buyUpgrade is the from === to case and keeps its answer', () => {
-    expect(buyUpgrade(funded, 'u', 'armour', 1, 160)).toEqual(buyUpgradeRun(funded, 'u', 'armour', 1, 1, 160));
+    expect(buyUpgrade(funded, 'u', 'armour', 1, PRICES)).toEqual(buyUpgradeRun(funded, 'u', 'armour', 1, 1, PRICES));
   });
 });
 
 describe('T22 G3: a run writes no grant and moves no earned total', () => {
   it('the balance falls by exactly the price', () => {
     const funded = payMission(emptyAccount(), 'm', 1000, 1).account;
-    const r = buyUpgradeRun(funded, 'u', 'armour', 1, 3, 740);
+    const r = buyUpgradeRun(funded, 'u', 'armour', 1, 3, PRICES);
     expect(r.ok).toBe(true);
     expect(r.account.balance).toBe(260);
     expect(r.account.earned_total).toBe(1000);
@@ -140,7 +155,7 @@ describe('T18 G2: credits and coins on one track, against an independent shadow'
             if (ask === null) throw new Error('unreachable');
             const expected = sumLiteral(shadowEarned + 1, owned + 1);
             expect(ask).toEqual({ from: shadowEarned + 1, to: owned + 1, price: expected, again: owned - shadowEarned });
-            const res = buyUpgradeRun(a, 'u', 'armour', ask.from, ask.to, ask.price);
+            const res = buyUpgradeRun(a, 'u', 'armour', ask.from, ask.to, PRICES);
             const affordable = START - shadowSpent >= expected;
             expect(res.ok).toBe(affordable);
             if (affordable) {
@@ -163,9 +178,8 @@ describe('T18 G2: credits and coins on one track, against an independent shadow'
           }
         } else {
           // A run whose `from` skips a tier (stale) is refused whatever the balance.
-          // A forged PRICE with valid from/to is accepted by buyUpgradeRun by design: the
-          // caller (the WP5 handler) is the guard, not this function.
-          const res = buyUpgradeRun(a, 'u', 'armour', shadowEarned + 2, shadowEarned + 2, 1);
+          // GH-1146: the run prices itself from the table, so there is no price to forge.
+          const res = buyUpgradeRun(a, 'u', 'armour', shadowEarned + 2, shadowEarned + 2, PRICES);
           expect(res.ok).toBe(false);
           expect(res.account).toBe(a);
         }

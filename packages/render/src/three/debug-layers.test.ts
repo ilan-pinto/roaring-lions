@@ -149,6 +149,19 @@ describe('DEBUG_LAYERS', () => {
     r.dispose();
   });
 
+  it('hides the ground rings by their GROUP alone (selection, team, wound), and the other overlays stay', () => {
+    // GH-943 P2 (T5). The meshes' `visible` is rewritten by every `endFrame`, so the toggle that holds is the group's.
+    const r = makeRenderer();
+    const i = internals(r);
+    expect(r.setDebugLayerVisible('selection-ring', false)).toBe(1);
+    expect(i.selectionRingGroup.visible).toBe(false);
+    expect(i.overlayBatch.mesh.visible).toBe(true);
+    expect(i.zoneBandGroup.visible).toBe(true);
+    expect(r.setDebugLayerVisible('selection-ring', true)).toBe(1);
+    expect(i.selectionRingGroup.visible).toBe(true);
+    r.dispose();
+  });
+
   it('also hides the occlusion silhouette -- a different subsystem folded into the same name', () => {
     // Found while framing the key-art plate near a civic structure: a
     // hostile unit standing behind it showed as a thin red occlusion
@@ -689,6 +702,134 @@ describe('the rain layer (GH-871 P4 T8, R-10)', () => {
     expect(r.setDebugLayerVisible('rain', false)).toBe(0);
     expect(r.setDebugLayerVisible('rain', true)).toBe(0);
     expect(rainMesh(r)).toBeUndefined();
+    r.dispose();
+  });
+});
+
+describe('the FX layers (GH-943 P3 T2): trail, wreck-soot, particles, tracers, muzzle-burst, smoke-plume, collapse-shroud', () => {
+  const FX = ['trail', 'wreck-soot', 'particles', 'tracers', 'muzzle-burst', 'smoke-plume', 'collapse-shroud'] as const;
+  type Priv = {
+    trailMesh: { mesh: THREE.Object3D };
+    particleInstancerBelow: { mesh: THREE.Object3D };
+    particleInstancerAbove: { mesh: THREE.Object3D };
+    particleInstancerBelowAdditive: { mesh: THREE.Object3D };
+    particleInstancerAboveAdditive: { mesh: THREE.Object3D };
+    tracerBatch: { mesh: THREE.Object3D };
+    collapseShrouds: { mesh: THREE.Object3D };
+    muzzleFlashes: { meshes: unknown };
+    explosionBursts: { meshes: unknown };
+    collapseFlashBursts: { meshes: unknown };
+    smokePlumes: { meshes: unknown };
+    vehicleMeshEntities: Map<number, { root: THREE.Object3D }>;
+  };
+  const priv = (r: ThreeRenderer): Priv => r as unknown as Priv;
+  // `step` writes `count` and `instanceMatrix.needsUpdate` on each zone, so a zone is a real (empty) InstancedMesh.
+  const zone = (): THREE.InstancedMesh => new THREE.InstancedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial(), 1);
+  const zones = (): { core: THREE.InstancedMesh; mid: THREE.InstancedMesh; outer: THREE.InstancedMesh } => ({ core: zone(), mid: zone(), outer: zone() });
+  const plumeZones = (): { base: THREE.InstancedMesh; mid: THREE.InstancedMesh; top: THREE.InstancedMesh } => ({ base: zone(), mid: zone(), top: zone() });
+
+  /** The per-frame scans that read the sim's state for each mesh entity: the fake entity has no unit behind it. */
+  const stubEntityScans = (r: ThreeRenderer): void => {
+    (r as unknown as { stepSmokeOutlines: () => void }).stepSmokeOutlines = () => {};
+  };
+
+  /** A renderer holding one live object for every layer: the manager pairs are given the meshes their GLB load would, and a vehicle
+   *  entity carries one `WRECK_` twin. Returns what each layer must hide. */
+  function populated(): { r: ThreeRenderer; objects: Record<(typeof FX)[number], THREE.Object3D[]> } {
+    const r = makeRenderer();
+    const p = priv(r);
+    const muzzle = zones();
+    const burst = zones();
+    const collapseFlash = zones();
+    const plume = plumeZones();
+    p.muzzleFlashes.meshes = muzzle;
+    p.explosionBursts.meshes = burst;
+    p.collapseFlashBursts.meshes = collapseFlash;
+    p.smokePlumes.meshes = plume;
+    const root = new THREE.Group();
+    const live = new THREE.Mesh();
+    const wreck = new THREE.Mesh();
+    wreck.userData.rl_wreck = true;
+    root.add(live, wreck);
+    p.vehicleMeshEntities.set(7, { root });
+    stubEntityScans(r);
+    return {
+      r,
+      objects: {
+        trail: [p.trailMesh.mesh],
+        'wreck-soot': [wreck],
+        particles: [p.particleInstancerBelow.mesh, p.particleInstancerAbove.mesh, p.particleInstancerBelowAdditive.mesh, p.particleInstancerAboveAdditive.mesh],
+        tracers: [p.tracerBatch.mesh],
+        'muzzle-burst': [...Object.values(muzzle), ...Object.values(burst), ...Object.values(collapseFlash)],
+        'smoke-plume': Object.values(plume),
+        'collapse-shroud': [p.collapseShrouds.mesh],
+      },
+    };
+  }
+
+  it('names every layer, and the unknown-name message still lists them', () => {
+    for (const name of FX) expect(isDebugLayer(name), name).toBe(true);
+    expect(unknownDebugLayerMessage('x')).toContain('collapse-shroud');
+  });
+
+  it('hides exactly its own objects and shows them again, reporting how many it wrote', () => {
+    const { r, objects } = populated();
+    for (const name of FX) {
+      expect(r.setDebugLayerVisible(name, false), name).toBe(objects[name].length);
+      for (const o of objects[name]) expect(o.visible, `${name} hidden`).toBe(false);
+      for (const other of FX) if (other !== name) for (const o of objects[other]) expect(o.visible, `${name} must not hide ${other}`).toBe(true);
+      expect(r.setDebugLayerVisible(name, true), name).toBe(objects[name].length);
+      for (const o of objects[name]) expect(o.visible, `${name} shown`).toBe(true);
+    }
+    r.dispose();
+  });
+
+  it('G4: every layer HOLDS across frames, even when something re-shows its objects between them', () => {
+    const { r, objects } = populated();
+    for (const name of FX) {
+      r.setDebugLayerVisible(name, false);
+      r.frame(1, 16);
+      for (const o of objects[name]) expect(o.visible, `${name} after frame 1`).toBe(false);
+      // What a per-frame writer (a manager's own `step`, a batch's `endFrame`) does: put `visible` back.
+      for (const o of objects[name]) o.visible = true;
+      r.frame(1, 16);
+      for (const o of objects[name]) expect(o.visible, `${name} after frame 2: the flag, not a one-off write, holds it`).toBe(false);
+      r.setDebugLayerVisible(name, true);
+      r.frame(1, 16);
+      for (const o of objects[name]) expect(o.visible, `${name} shown again`).toBe(true);
+    }
+    r.dispose();
+  });
+
+  it('a hide taken before the objects exist applies to them when they arrive (a GLB that loads, a vehicle that spawns, later)', () => {
+    const r = makeRenderer();
+    const p = priv(r);
+    r.setDebugLayerVisible('muzzle-burst', false);
+    r.setDebugLayerVisible('smoke-plume', false);
+    r.setDebugLayerVisible('wreck-soot', false);
+    const muzzle = zones();
+    const plume = plumeZones();
+    p.muzzleFlashes.meshes = muzzle;
+    p.smokePlumes.meshes = plume;
+    const wreck = new THREE.Mesh();
+    wreck.userData.rl_wreck = true;
+    const root = new THREE.Group();
+    root.add(wreck);
+    p.vehicleMeshEntities.set(1, { root });
+    stubEntityScans(r);
+    r.frame(1, 16);
+    for (const o of [...Object.values(muzzle), ...Object.values(plume), wreck]) expect(o.visible).toBe(false);
+    r.dispose();
+  });
+
+  it('wreck-soot touches only the rl_wreck meshes, and a layer never hidden writes nothing', () => {
+    const { r, objects } = populated();
+    const live = priv(r).vehicleMeshEntities.get(7)?.root.children[0] as THREE.Object3D;
+    r.setDebugLayerVisible('wreck-soot', false);
+    r.frame(1, 16);
+    expect(live.visible, 'the live twin stays').toBe(true);
+    expect(objects['wreck-soot'][0]?.visible).toBe(false);
+    expect(r.setDebugLayerVisible('tracers', true)).toBe(0);
     r.dispose();
   });
 });

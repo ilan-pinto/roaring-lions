@@ -1234,18 +1234,15 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
 
     // One reading of "how kitted is this unit" drives both the plate's mark
     // and the credits line below it -- never two arithmetics for one idea.
-    const kit = kitSummary(upgradable, tiers);
-    // GH-1143: the bay's line says "credits of kit", so it counts what credits paid for: the account's EARNED tiers, not the
-    // single-player tier (`max(earned, coins)`) the plate and the pips read. A caller with no earned record cannot tell the
-    // two apart, and reads as before.
-    const creditKit = state.earned === undefined ? kit : kitSummary(upgradable, ownedTiers(u, state.earned));
+    // `spent` counts credits PAID, so it reads the earned tiers (GH-1143); absent `earned` reads owned.
+    const kit = kitSummary(upgradable, tiers, state.earned === undefined ? tiers : (state.earned[u.id] ?? {}));
 
     // M3 (lead ruling L2): a locked unit that still OWNS tiers -- one a gate
     // re-locked after it was kitted -- keeps them, dormant; the sim's
     // pre-pass applies them regardless. The board draws them owned and
     // read-only, and this says why nothing on it can be bought. Absent for a
     // locked unit that owns nothing, which has nothing kept to explain.
-    if (row.locked && kit.spent > 0) {
+    if (row.locked && kitSummary(upgradable, tiers).spent > 0) {
       board.appendChild(el('div', 'rl-garage__kept', t('garage.locked.kitKept')));
     }
 
@@ -1322,8 +1319,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // What this type's kit cost, directly under the numbers it bought.
     // Absent when nothing has been spent -- the same "nothing to say" rule
     // the kit mark above follows.
-    if (creditKit.spent > 0) {
-      bay.appendChild(el('div', 'rl-garage__kit-total', t('garage.kit.total', { n: creditKit.spent })));
+    if (kit.spent > 0) {
+      bay.appendChild(el('div', 'rl-garage__kit-total', t('garage.kit.total', { n: kit.spent })));
     }
 
     // The blurb is the unit's own JSON — data, in the unit's file, beside its
