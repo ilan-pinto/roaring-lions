@@ -1,6 +1,7 @@
 import { emptyAccount, parseWorld, sha256Hex, worldMissionIds } from '@lions/economy';
 import { coupons, world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
+import type { D1Like, D1Stmt } from '../d1';
 import { handleAccount } from './routes';
 import { accountHarness, racingD1, seedClaimCoupons, seedWalletMember } from './test-kit';
 
@@ -14,13 +15,20 @@ const TABLE = coupons.map((c) => ({ ...c, sha256: sha256Hex(CODE) }));
 const COIN_ID = 'lead_roar_coins_100k';
 const CREDIT_ID = 'lead_special_units_10k';
 
-function setup(opts: { race?: number } = {}) {
+function setup(opts: { race?: number; beforeFirstBatch?: (db: D1Like) => Promise<void> } = {}) {
   let racing: ReturnType<typeof racingD1> | undefined;
   const h = accountHarness({
     now: T0,
     handler: (req, env) => {
-      if (opts.race !== undefined) racing ??= racingD1(env.ACCOUNTS, opts.race, { match: /FROM wallet/ });
-      return handleAccount(req, racing === undefined ? env : { ...env, ACCOUNTS: racing }, T0, {
+      if (opts.race !== undefined) racing ??= racingD1(env.ACCOUNTS, opts.race, { arrivals: true });
+      let db: D1Like = racing ?? env.ACCOUNTS;
+      const hook = opts.beforeFirstBatch;
+      if (hook !== undefined) {
+        const inner = db;
+        let fired = false;
+        db = { ...inner, prepare: (q: string) => inner.prepare(q), batch: async (ss: D1Stmt[]) => { if (!fired) { fired = true; await hook(inner); } return inner.batch(ss); } };
+      }
+      return handleAccount(req, { ...env, ACCOUNTS: db }, T0, {
         fetch: async () => new Response('no', { status: 500 }),
         coupons: TABLE,
       });
@@ -63,7 +71,7 @@ describe('POST spend', () => {
   });
 
   it('no_double_spend (A2-24)', async () => {
-    const s = setup({ race: 4 });
+    const s = setup({ race: 2 });
     // demo_squad (360 credits) and sniper_team (380) both cost 40 coins; the member holds exactly 40.
     const { cookie } = await seedWalletMember(s.h.db, 'm1', T0, { free: 40 });
     const [a, b] = await Promise.all([buy(s, cookie, 1, 'demo_squad'), buy(s, cookie, 2, 'sniper_team')]);
@@ -236,5 +244,22 @@ describe('POST reset-free', () => {
     expect((await one<{ n: number }>(s, 'SELECT COUNT(*) AS n FROM coupon_use')).n).toBe(1);
     expect(await freeOf(s)).toBe(0);
     expect(await sumOf(s)).toBe(0);
+  });
+
+  it('a reset racing a campaign first creation re-reads and resets the brigade too (both-or-neither)', async () => {
+    const racer = JSON.stringify({ ...emptyAccount(), balance: 300 });
+    // Another device's first PUT lands between the reset's read (no campaign row) and its batch.
+    const s = setup({
+      beforeFirstBatch: async (db) => {
+        await db.prepare("INSERT INTO campaign_state (member_id, ledger, brigade, bytes, updated_at) VALUES ('m1', '{}', ?1, 10, ?2)").bind(racer, T0).run();
+      },
+    });
+    const { cookie } = await seedWalletMember(s.h.db, 'm1', T0, { free: 50 });
+    const r = await reset(s, cookie, 1);
+    const body = (await r.json()) as { campaign: { brigade: { balance: number } } | null };
+    expect([r.status, body.campaign?.brigade.balance]).toEqual([200, 0]);
+    expect(await brigadeOf(s)).toEqual(emptyAccount());
+    expect(await freeOf(s)).toBe(0);
+    expect((await journal(s)).filter((j) => j.kind === 'reset')).toHaveLength(1);
   });
 });

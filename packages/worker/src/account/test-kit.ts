@@ -86,10 +86,13 @@ export function steamStub(opts: { valid?: boolean; down?: boolean; status?: numb
 
 /** A D1 whose `batch()` that carries an `account_op` insert waits until `n` reads matching `match` (default
  *  `/FROM account_op/`) have run, so `n` requests all read before any of them writes. `opened()` says the gate opened:
- *  a race test asserts it, so a build that stops reading does not make the race pass vacuously. Tests only. */
-export function racingD1<T extends D1Like>(db: T, n: number, opts: { match?: RegExp } = {}): T & { opened(): boolean } {
+ *  a race test asserts it, so a build that stops reading does not make the race pass vacuously. With `arrivals`, the
+ *  gate opens instead when `n` such batches are WAITING at it: every request has built from its own read and none has
+ *  written, however many reads each build takes. Tests only. */
+export function racingD1<T extends D1Like>(db: T, n: number, opts: { match?: RegExp; arrivals?: boolean } = {}): T & { opened(): boolean } {
   const match = opts.match ?? /FROM account_op/;
   let reads = 0;
+  let waiting = 0;
   let open = false;
   let release: () => void = () => undefined;
   const gate = new Promise<void>((r) => { release = r; });
@@ -98,7 +101,7 @@ export function racingD1<T extends D1Like>(db: T, n: number, opts: { match?: Reg
     const seen = () => {
       if (match.test(sql)) {
         reads++;
-        if (reads >= n) {
+        if (opts.arrivals !== true && reads >= n) {
           open = true;
           release();
         }
@@ -125,7 +128,14 @@ export function racingD1<T extends D1Like>(db: T, n: number, opts: { match?: Reg
     ...db,
     prepare: (sql: string) => wrap(db.prepare(sql), sql),
     batch: async (ss: D1Stmt[]) => {
-      if (ss.some((s) => /INSERT INTO account_op/.test(sqlOf.get(s) ?? ''))) await gate;
+      if (ss.some((s) => /INSERT INTO account_op/.test(sqlOf.get(s) ?? ''))) {
+        waiting++;
+        if (opts.arrivals === true && waiting >= n) {
+          open = true;
+          release();
+        }
+        await gate;
+      }
       return db.batch(ss);
     },
     opened: () => open,

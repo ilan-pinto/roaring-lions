@@ -9,6 +9,7 @@ import {
   buyWithCoins,
   canonicalCampaign,
   coinCost,
+  couponGrant,
   emptyAccount,
   grantCouponCoins,
   redeemCoupon,
@@ -155,7 +156,7 @@ export async function coupon(ctx: AccountCtx): Promise<Response> {
     let coins = 0;
     for (const id of red.ids) {
       const entry = table.find((c) => c.id === id);
-      const grant = entry !== undefined && typeof entry.coins === 'number' && Number.isInteger(entry.coins) && entry.coins > 0 ? entry.coins : 0;
+      const grant = entry === undefined ? 0 : couponGrant(entry);
       coins += Math.max(0, grant - (await claimedFor(db, memberId, id)));
     }
     const statements: D1Stmt[] = [];
@@ -200,6 +201,11 @@ export async function resetFreeRoute(ctx: AccountCtx): Promise<Response> {
       const body: CampaignBody = { ...camp.body, brigade: emptyAccount() };
       statements.push(...(await campaignWrite(db, memberId, camp.revision, body, ctx.now)));
       campaign = await viewAt(body, camp.revision + 1);
+    } else {
+      // No campaign row was read. If another device's first PUT lands before this batch, the brigade would go un-reset
+      // while the wallet is: this guard trips `campaign_state`'s bytes CHECK when a row exists now, so `budgetedOp`
+      // sees a moved revision and re-reads (both-or-neither). With no row it matches nothing.
+      statements.push(db.prepare('UPDATE campaign_state SET bytes = 262145 WHERE member_id = ?1').bind(memberId));
     }
     // The journal keeps its receipts, so the answer matches what `GET state` reads back next.
     return { statements, status: 200, response: { wallet: viewOf(wallet, { ...after, receipts }, true), campaign } };
