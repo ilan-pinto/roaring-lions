@@ -29,6 +29,9 @@ import { ThreeRenderer } from './ThreeRenderer';
 import type { BackdropSpec, LoadedBackdropKit } from './terrain/backdrop';
 import { BACKDROP_OFFMAP_SEEN } from './terrain/backdrop';
 import { KIT_GLB, readKitFixture, repoPath } from './terrain/backdrop-kit-fixture';
+import { hookSegments } from './material-names';
+import { legacyTwinSlot } from './node-material-adoption';
+import { censusKey } from './backend/unported';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -208,6 +211,28 @@ describe('with a kit loaded', () => {
     expect(p.skirtMesh.visible).toBe(false);
     expect(p.fogPass?.uniforms.uOffMapSeen.value).toBe(BACKDROP_OFFMAP_SEEN);
     expect(r.backdropStats?.pieces).toBe(3);
+    r.dispose();
+  });
+
+  // GH-943 P3 (T1): every backdrop material compiles under the one constant key `rl-backdrop-fade`, which the census and the node
+  // twin table read (the `backdrop` slot); before T1 the census fell back to the five MESH names (no expectation pinned those).
+  // Falsify: delete `mat.customProgramCacheKey = () => BACKDROP_HOOK_KEY` in `terrain/backdrop.ts`.
+  it('every backdrop material keys as rl-backdrop-fade, the backdrop slot, for the census and the node twin table', () => {
+    const { r, p } = withKit();
+    const group = (p.backdrop as { group: THREE.Group }).group;
+    const keys: string[] = [];
+    const materials = new Set<THREE.Material>();
+    group.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (!m || Array.isArray(m)) return;
+      materials.add(m);
+      expect(m.onBeforeCompile).not.toBe(THREE.Material.prototype.onBeforeCompile);
+      expect(hookSegments(m)).toEqual(['rl-backdrop-fade']);
+      expect(legacyTwinSlot(m)).toBe('backdrop');
+      keys.push(censusKey(m, o));
+    });
+    expect(materials.size).toBeGreaterThanOrEqual(3);
+    expect(new Set(keys)).toEqual(new Set(['rl-backdrop-fade']));
     r.dispose();
   });
 

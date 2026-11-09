@@ -236,6 +236,8 @@ export const ROTOR_STREAK_ALPHA = 0.25;
 export function createRotorBlurMaterial(): THREE.ShaderMaterial {
   const tone = new THREE.Color(paletteHex('shadow.0'));
   return new THREE.ShaderMaterial({
+    // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+    name: 'rl-swarm-rotors',
     uniforms: { uColor: { value: tone } },
     vertexShader: /* glsl */ `
       attribute vec2 aDisc;

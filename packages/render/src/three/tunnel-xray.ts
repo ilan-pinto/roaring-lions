@@ -142,6 +142,8 @@ export class TunnelXray {
         for (int i = 0; i < N; i++) { if (i == r) { st = uStrength[i]; o = uOrigin[i]; f = uFront[i]; fl = uFlash[i]; } }
       }`;
     this.tubeMat = new THREE.ShaderMaterial({
+      // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+      name: 'rl-xray-tube',
       ...SILHOUETTE_MATERIAL_FLAGS,
       side: THREE.BackSide,
       uniforms: shared,
@@ -179,6 +181,8 @@ export class TunnelXray {
         }`,
     });
     this.collarMat = new THREE.ShaderMaterial({
+      // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+      name: 'rl-xray-collar',
       transparent: true,
       depthTest: true,
       depthWrite: false,
@@ -203,6 +207,8 @@ export class TunnelXray {
         }`,
     });
     this.figureMat = new THREE.ShaderMaterial({
+      // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+      name: 'rl-xray-figure',
       ...SILHOUETTE_MATERIAL_FLAGS,
       side: THREE.FrontSide,
       uniforms: { uFig: { value: lin(colors.figure) }, uToCam: shared.uToCam },
@@ -232,6 +238,8 @@ export class TunnelXray {
     const beamGeo = new THREE.CylinderGeometry(0.035, 0.11, 1, 8, 1, true);
     beamGeo.translate(0, 0.5, 0);
     this.beamMat = new THREE.ShaderMaterial({
+      // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+      name: 'rl-xray-beam',
       transparent: true,
       depthTest: false,
       depthWrite: false,

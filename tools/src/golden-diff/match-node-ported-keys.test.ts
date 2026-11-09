@@ -4,6 +4,11 @@
  * named whatever list it is on, so an adoption bug stays loud. A source test, because the matched call runs in a browser page.
  *
  * Falsify: pass `{ portedKeys: PORTED_MATERIAL_KEYS }` from `node-backend.ts`'s `runCensus`; the first spec goes red naming it.
+ *
+ * GH-943 P3 (T1), G7, extended to the segment-wise key: `censusKey` (the per-segment key the exemption reads) is called by the
+ * census module alone, so no second caller can derive a key the exemption would match differently; and the node backend's backstop
+ * (`censusUnadopted`) is the node backend's alone and never exempts. Falsify: the same `portedKeys` line in `node-backend.ts`
+ * turns the last spec red too; a `censusKey(` call in any other production file turns the fourth red.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -81,5 +86,32 @@ describe('the ported-key option has exactly one caller', () => {
     expect(script).toContain('_u.censusUnported(_r.scene, { portedKeys: _u.PORTED_MATERIAL_KEYS })');
     expect(script).toContain('return JSON.stringify(_found);');
     expect(script).not.toContain('_r.frame(');
+  });
+});
+
+/** Every production `name(` CALL site (comments stripped; the declaration excluded), by file. */
+function callers(name: string): string[] {
+  const out = new Set<string>();
+  const re = new RegExp(`(function\\s+)?\\b${name}\\s*\\(`, 'g');
+  for (const file of [...sources(path.join(REPO, 'packages')), ...sources(path.join(REPO, 'tools'))]) {
+    const src = readFileSync(file, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    for (const m of src.matchAll(re)) if (m[1] === undefined) out.add(path.relative(REPO, file));
+  }
+  return [...out].sort();
+}
+
+describe('GH-943 P3 (T1), G7: the segment-wise key has one owner, and the node census never exempts', () => {
+  it('censusKey is called only inside the census module', () => {
+    expect(callers('censusKey')).toEqual(['packages/render/src/three/backend/unported.ts']);
+  });
+
+  it('the unadopted backstop is the node backend\'s alone, and the node backend source names no ported key', () => {
+    expect(callers('censusUnadopted')).toEqual(['packages/render/src/three/backend/node-backend.ts']);
+    const nb = readFileSync(path.join(REPO, 'packages/render/src/three/backend/node-backend.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(nb).not.toMatch(/portedKeys|PORTED_MATERIAL_KEYS/);
   });
 });

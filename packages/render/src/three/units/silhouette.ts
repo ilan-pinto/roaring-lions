@@ -211,6 +211,7 @@ import { MESH_UNITS_PER_TILE } from './mesh-anim';
 import { SILHOUETTE_RENDER_ORDER } from './render-order';
 import { paletteHex } from '../palette-hex';
 import { colorSlot } from '../../relation';
+import { legacyOf } from '../twin-identity';
 
 /**
  * How thick the outline is, in SCREEN pixels, at every zoom.
@@ -969,6 +970,10 @@ export function attachMeshSilhouette(
       // silhouette reads -- see `markSilhouetteOccludee`. Done here, at the
       // one place that pairs the two, rather than in the material factories.
       markSilhouetteOccludee(mesh.material);
+      // GH-943 P3 (T1): on a node boot `mesh.material` is a twin; the LEGACY material owns the state every clone and every new
+      // twin copies, so it carries the stamp too. Identical on a legacy boot (`legacyOf` is the material itself).
+      const legacy = Array.isArray(mesh.material) ? mesh.material : legacyOf(mesh.material, mesh);
+      if (legacy !== mesh.material) markSilhouetteOccludee(legacy);
       (mesh.userData as SilhouetteUserData).rl_has_silhouette = true;
     }
   }

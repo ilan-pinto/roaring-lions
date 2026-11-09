@@ -767,6 +767,8 @@ export function createDecalMaterial(
     uRoadOn: { value: 1 },
   };
   return new THREE.ShaderMaterial({
+    // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+    name: 'rl-decal',
     // Defilade Task 5: the crater rim reads the sun, the sky and
     // the sun's shadow map (three's own light uniforms, cloned so nothing is
     // shared with another material; the road uniforms below stay shared).
