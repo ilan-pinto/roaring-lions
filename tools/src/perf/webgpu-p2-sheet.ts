@@ -42,6 +42,7 @@ import {
   captureScript,
   hideHudExceptCanvas,
   layerToggleScript,
+  matchNodeCensusScript,
   threeUrl,
   type Scenario,
 } from '../golden-diff/capture-protocol';
@@ -106,7 +107,6 @@ mkdirSync(OUT, { recursive: true });
 type Arm = 'L' | 'G' | 'F' | 'LS';
 const ARM_OF: Record<Arm, GpuArm> = { L: 'legacy', G: 'webgpu', F: 'webgl2', LS: 'legacy' };
 const ARM_NAME: Record<Arm, string> = { L: 'L matched', G: 'G', F: 'F', LS: 'L shipped' };
-const UNPORTED = `/@fs${ROOT}/packages/render/src/three/backend/unported.ts`;
 const CROPS = (JSON.parse(readFileSync(MANIFEST, 'utf8')) as { crops: Record<CropId, Crop> }).crops;
 const SHEET_SCENARIO: Scenario = { id: 'p2-sheet', description: "the lead's P2 sheet: wadi_halam_4, booted camera", sandboxMap: MAP, ticks: 0, cameraMarker: 'unused' };
 
@@ -186,13 +186,9 @@ ${ARM_OF[arm] === 'legacy' ? '' : '  await new Promise(function (r) { window.req
 ${ARM_OF[arm] === 'legacy' ? '' : '  await R.whenGpuIdle();\n'}  return JSON.stringify({ zoom: R.camera.zoom, x: R.camera.x, y: R.camera.y, tick: window.__lions.sim.tickCount });
 })()`;
 
-/** The matched census on the LEGACY scene, with the ported keys exempt (what `matchNodeStatements` runs); returns the list it left. */
-const MATCH_CENSUS_SCRIPT = `(async () => {
-  const R = window.__lions.renderer;
-  const u = await import(${JSON.stringify(UNPORTED)});
-  const found = u.censusUnported(R.scene, { portedKeys: u.PORTED_MATERIAL_KEYS });
-  return JSON.stringify(found);
-})()`;
+/** The matched census on the LEGACY scene, with the ported keys exempt (capture-protocol's, the statement `matchNodeStatements`
+ *  runs); returns the list it left. Never written here: the ported-key option has one caller (`match-node-ported-keys.test.ts`). */
+const MATCH_CENSUS_SCRIPT = matchNodeCensusScript(ROOT);
 
 const NODE_CENSUS_SCRIPT = `(async () => { return JSON.stringify(window.__lions.renderer.unportedHooks()); })()`;
 

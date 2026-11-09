@@ -159,6 +159,12 @@ describe('p2SheetHtml', () => {
   it('says so for a frame the run did not capture', () => {
     expect(p2SheetHtml('t', [{ title: 's', rows: [[null, { caption: 'c', file: '/a/b.png' }]] }])).toMatch(/not captured in this run[\s\S]*b\.png/);
   });
+  it('escapes a double quote in a filename, so it cannot close the src attribute', () => {
+    const html = p2SheetHtml('t', [{ title: 's', rows: [[{ caption: 'a "q" <b>', file: '/d/x" onerror="alert(1).png' }]] }]);
+    expect(html).toContain('<img src="x&quot; onerror=&quot;alert(1).png">');
+    expect(html).not.toContain('onerror="');
+    expect(html).toContain('a &quot;q&quot; &lt;b&gt;');
+  });
 });
 
 describe('rebaseFiles (--report-only after the output directory moved)', () => {

@@ -198,7 +198,8 @@ export interface P2Section {
 }
 
 const base = (f: string): string => f.slice(f.lastIndexOf('/') + 1);
-const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+/** Escapes text AND attribute values: a `"` in a filename would otherwise close `src="..."`. */
+const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** A null cell is a frame the run did not capture; it is SAID, never left blank. */
 export function p2SheetHtml(title: string, sections: readonly P2Section[]): string {
