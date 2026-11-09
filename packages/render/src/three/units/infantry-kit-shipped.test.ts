@@ -7,7 +7,7 @@
  *  - the kit survives `GLTFLoader` (a packed node, a custom `_rl_kit`
  *    attribute, the team's own skin) and merges: `mergeGeometries` refuses any
  *    attribute mismatch, and `gpuType` was one nothing but this file found;
- *  - TIER 0 IS THE SHIPPED FIGURE: 33,085 triangles in 4 meshes, the host
+ *  - TIER 0 IS THE SHIPPED FIGURE: 32,955 triangles in 4 meshes, the host
  *    geometry untouched, exactly what main drew before the kit;
  *  - the kit adds NO mesh (+0 draw calls) at any tier;
  *  - the triangle counts of every state, as LITERALS measured from the file on
@@ -26,20 +26,20 @@ import { KIT_BASE_COUNT_KEY } from './vehicle-kit';
 const GLB = readFileSync(new URL('../../../../../art/meshes/inf_squad.glb', import.meta.url));
 
 /** The shipped figure before the kit: boot, face, uniform, weapon. */
-const BASE = { boot: 3792, face: 519, uniform: 24948, weapon: 3826 };
+const BASE = { boot: 3792, face: 519, uniform: 24818, weapon: 3826 };
 
 /** [label, tiers, triangles per role mesh] */
 const STATES: [string, Record<string, number>, Partial<typeof BASE>][] = [
-  ['armour 1', { armour: 1 }, { uniform: 25758 }],
-  ['armour 2', { armour: 2 }, { uniform: 25902 }],
-  ['armour 3', { armour: 3 }, { uniform: 25978 }],
+  ['armour 1', { armour: 1 }, { uniform: 25628 }],
+  ['armour 2', { armour: 2 }, { uniform: 25772 }],
+  ['armour 3', { armour: 3 }, { uniform: 25848 }],
   ['sensors 1', { sensors: 1 }, { weapon: 4066 }],
-  ['sensors 2', { sensors: 2 }, { uniform: 25144, weapon: 4226 }],
-  ['sensors 3', { sensors: 3 }, { uniform: 25176, weapon: 4424 }],
-  ['firepower 1', { firepower: 1 }, { uniform: 25308, weapon: 4036 }],
-  ['firepower 2', { firepower: 2 }, { uniform: 25308, weapon: 4372 }],
-  ['firepower 3', { firepower: 3 }, { uniform: 25428, weapon: 4504 }],
-  ['full kit', { armour: 3, sensors: 3, firepower: 3 }, { uniform: 26686, weapon: 5102 }],
+  ['sensors 2', { sensors: 2 }, { uniform: 25014, weapon: 4226 }],
+  ['sensors 3', { sensors: 3 }, { uniform: 25046, weapon: 4424 }],
+  ['firepower 1', { firepower: 1 }, { uniform: 25178, weapon: 4036 }],
+  ['firepower 2', { firepower: 2 }, { uniform: 25178, weapon: 4372 }],
+  ['firepower 3', { firepower: 3 }, { uniform: 25298, weapon: 4504 }],
+  ['full kit', { armour: 3, sensors: 3, firepower: 3 }, { uniform: 26556, weapon: 5102 }],
 ];
 
 /**
@@ -64,7 +64,7 @@ async function build(tiers?: Record<string, number>, kitEnabled?: boolean) {
 const tris = (m: THREE.Mesh): number => (m.geometry.index?.count ?? 0) / 3;
 
 describe('inf_squad through the real loader', () => {
-  it('tier 0 is the shipped figure: 33,085 triangles, four meshes, host geometry untouched', async () => {
+  it('tier 0 is the shipped figure: 32,955 triangles, four meshes, host geometry untouched', async () => {
     const none: (Record<string, number> | undefined)[] = [undefined, {}, { armour: 0, sensors: 0, firepower: 0 }];
     for (const tiers of none) {
       const { t, meshes } = await build(tiers);
@@ -93,7 +93,7 @@ describe('inf_squad through the real loader', () => {
   it('full kit draws 3,014 kit triangles: 978 + 1,054 + 982 per figure, superseded parts dropped', async () => {
     const { meshes } = await build({ armour: 3, sensors: 3, firepower: 3 });
     const all = Object.values(meshes).reduce((n, m) => n + tris(m), 0);
-    expect(all - 33085).toBe(978 + 1054 + 982);
+    expect(all - 32955).toBe(978 + 1054 + 982);
   });
 
   it('the kit rides the team\'s bones: kit vertices are skinned at weight 1 to bones of the shared skeleton', async () => {
@@ -154,7 +154,7 @@ describe('the shipped switch (INFANTRY_KIT_ENABLED, GH-826)', () => {
     const maxed = (await build(FULL)).meshes;
     expect(Object.keys(maxed).sort()).toEqual(Object.keys(tier0).sort());
     // Literals, not a recomputation of the part table: the full-kit state.
-    const FULL_KIT = { ...BASE, uniform: 26686, weapon: 5102 };
+    const FULL_KIT = { ...BASE, uniform: 26556, weapon: 5102 };
     for (const name of Object.keys(tier0)) {
       expect(tris(tier0[name]), `${name} tier 0`).toBe(BASE[name as keyof typeof BASE]);
       expect(tris(maxed[name]), `${name} max`).toBe(FULL_KIT[name as keyof typeof FULL_KIT]);

@@ -14,13 +14,21 @@
  *  - the support-side armpit (rig R, `upperarm_R`): 100-110 edges at 0.37-0.38 m in fire and moveFire, unchanged since
  *    round 1 and not visible at the garage or game framings (the reviews of 9 Nov).
  *
+ *  B2 -- no torn rim at a fist (round 5): the `uniform` mesh welded by position, at most 4 EXPOSED open edges within
+ *        6 cm of each fist, the fists checked by ROLE (`rl_hands.stations`: grip = firing, here rig `hand_L`; support,
+ *        rig `hand_R`), at rest and through every living clip. An open edge inside the figure's gun or within 4 mm of its
+ *        surface is sealed by the gun and counted apart (the importer parts the fused fist from the gun there, and
+ *        reports it: 20-29 such edges per fist). Round 4's bytes (d31bdc16d) read 4-13 exposed (red), 25-39 in all.
+ *        Open: f2's firing fist in the living clips (RIM_OPEN), off its sculpted station by the shared hold.
+ *
  * Constructed failing inputs, each run: a triangle at f1's firing fist made a 6 cm needle (N1 red); f1's firing upper arm
- * swung 50 deg in moveFire (N3 red).
+ * swung 50 deg in moveFire (N3 red); three triangles of each fist deleted, outside the gun, each alone opening 3 exposed
+ * edges (B2 red).
  */
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readGlb, type GlbFile } from './mesh_gait';
-import { armpitStretch, fistSlivers, readUniform, withVertexAt } from './mesh_skin_census';
+import { armpitStretch, fistRoles, fistSlivers, openRim, readUniform, withoutTriangle, withVertexAt } from './mesh_skin_census';
 
 const SQUAD = fileURLToPath(new URL('../../art/meshes/inf_squad.glb', import.meta.url));
 const FIGURES = ['f0', 'f1', 'f2'] as const;
@@ -30,10 +38,18 @@ const MAX_SLIVERS = 3;
 const MAX_SLIVER_M = 0.04;
 const MAX_STRETCH_EDGES = 30;
 const MAX_STRETCH_M = 0.15;
+const MAX_EXPOSED = 4;
+/** figure + role -> reason; must still fail in some living clip (else delete the entry). Rest is never exempt. */
+const RIM_OPEN: Readonly<Record<string, string>> = {
+  'f2 firing': 'f2 is a 0.966 x 1.08 scaling of the one measured body, and the hold puts his firing fist on the shared station '
+    + '23.4 mm off where it was sculpted on his gun (mesh_grip.test.ts, "f2 station fire"): in the living clips its parted rim '
+    + 'stands 8-20 mm off the grip, 9-13 exposed edges (rest: 3)',
+};
 
 /** clip + rig side of a fist -> the reason; the reading must still fail somewhere in that clip, on some figure. */
 const SLIVER_OPEN: Readonly<Record<string, string>> = {
   'move R': 'the support fist shows 1-2 slivers of 45-85 mm in the run\'s arm swing (9 Nov, round 4); none at rest or in any other clip',
+  'kneelOut L': 'f0\'s firing fist shows 1 sliver of 43-44 mm late in kneelOut (round 5: the rim kept, not deleted); none at rest',
 };
 /** rig side -> reason; the support-side armpit's web, still over the bar in fire and moveFire. */
 const STRETCH_OPEN: Readonly<Record<string, string>> = {
@@ -108,4 +124,54 @@ describe('N3: no comb in the armpit (fire, moveFire)', () => {
     const r = armpitStretch({ json, bin }, 'f1', 'L', 'moveFire');
     expect(r.edges > MAX_STRETCH_EDGES || r.longestM > MAX_STRETCH_M).toBe(true);
   }, 120_000);
+});
+
+describe('B2: no torn rim at a fist (welded; rest and every living clip; by role)', () => {
+  it('the fists are named by role from rl_hands: grip = rig hand_L, support = rig hand_R', () => {
+    expect(fistRoles(glb)).toEqual({ firing: 'L', support: 'R' });
+  });
+  for (const fig of FIGURES) {
+    it(`${fig}: at most ${MAX_EXPOSED} exposed open edges within 6 cm of the firing AND the support fist`, () => {
+      const bad: string[] = [];
+      const roles = new Set<string>();
+      for (const clip of CLIPS) for (const fr of clip === null ? [0] : [0, 0.5]) {
+        for (const r of openRim(glb, fig, clip, fr)) {
+          roles.add(r.role);
+          if (r.exposed <= MAX_EXPOSED) continue;
+          if (clip !== null && `${fig} ${r.role}` in RIM_OPEN) continue;
+          bad.push(`${clip ?? 'rest'} @${fr} ${r.role} (${r.hand}): ${r.exposed} exposed of ${r.open}`);
+        }
+      }
+      expect([...roles].sort(), 'both fists read').toEqual(['firing', 'support']);
+      expect(bad).toEqual([]);
+    }, 600_000);
+  }
+  it.each(Object.keys(RIM_OPEN))('open reading "%s" still fails in a living clip (else delete it)', (key) => {
+    const [fig, role] = key.split(' ');
+    const fails = CLIPS.some((clip) => clip !== null
+      && openRim(glb, fig, clip, 0.5).some((r) => r.role === role && r.exposed > MAX_EXPOSED));
+    expect(fails, `${key}: inside the bar now, delete its RIM_OPEN entry`).toBe(true);
+  }, 600_000);
+  it('fails on a torn rim: three triangles of each fist, outside the gun, deleted (constructed input)', () => {
+    const u = readUniform(glb);
+    for (const side of ['L', 'R'] as const) {
+      const at = (g: GlbFile): number => openRim(g, 'f1', null).find((r) => r.hand === `f1_hand_${side}`)!.exposed;
+      const before = at(glb);
+      expect(before).toBeLessThanOrEqual(MAX_EXPOSED);
+      // up to three triangles of the hand, sharing no POSITION, each of which alone opens 3 EXPOSED edges (not on the gun)
+      const key = (v: number): string => [0, 1, 2].map((k) => Math.round(u.pos.data[v * 3 + k] * 1e5)).join(',');
+      const picked: number[] = [];
+      const used = new Set<string>();
+      for (let i = 0; i < u.tris.length && picked.length < 3; i++) {
+        const t = u.tris[i];
+        if (!t.every((v) => u.dom[v] === `f1_hand_${side}`) || t.some((v) => used.has(key(v)))) continue;
+        if (at(withoutTriangle(glb, i)) !== before + 3) continue;
+        picked.push(i);
+        t.forEach((v) => used.add(key(v)));
+      }
+      expect(picked.length, `${side}: three exposed triangles found`).toBe(3);
+      const torn = at(withoutTriangle(withoutTriangle(withoutTriangle(glb, picked[0]), picked[1]), picked[2]));
+      expect(torn, `${side}: ${before} exposed before, ${torn} after`).toBeGreaterThan(MAX_EXPOSED);
+    }
+  }, 600_000);
 });

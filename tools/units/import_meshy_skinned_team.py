@@ -812,6 +812,17 @@ def _cut_seams(ob, prefix, J, roles, co, uv_src, cls):
     g = J["gun"]
     new_verts, new_faces, new_class = [], [], []   # class: 0 gun cap, 1 hand cap (side), 3 body cap
     new_w, new_uv = [], []
+    # B3 (round 5): a collar quad's loops took its two rim vertices' own uvs -- a ZERO-AREA strip in the atlas along the
+    # island's edge, so its texels were the bake's padding (23% of the support glove read the gun's black, L* 0-12). Each
+    # collar quad now takes one uv, the centroid of the kept face across its rim edge: that face's own colour.
+    loop_start = np.empty(len(me.polygons), np.int64); me.polygons.foreach_get("loop_start", loop_start)
+    kept_edge_uv = {}
+    for pi in np.nonzero(~seam)[0]:
+        f = polys[pi]
+        cuv = uvd[loop_start[pi]:loop_start[pi] + 3].mean(0)
+        for a_, b_ in ((f[0], f[1]), (f[1], f[2]), (f[2], f[0])):
+            kept_edge_uv.setdefault((min(a_, b_), max(a_, b_)), cuv)
+    new_face_uv = []
     def inward(c, side_tag):
         if side_tag == "body":
             d = np.array([spine_xy[0] - c[0], spine_xy[1] - c[1], 0.0])
@@ -842,8 +853,12 @@ def _cut_seams(ob, prefix, J, roles, co, uv_src, cls):
             new_w.append(W[v]); new_uv.append(vuv[v])
         for a, b in edges:
             if a in cset and b in cset:
+                fuv = kept_edge_uv.get((min(a, b), max(a, b)))
+                if fuv is None:
+                    fuv = (vuv[a] + vuv[b]) / 2
                 new_faces.append((a, b, twin[b]))
                 new_faces.append((a, twin[b], twin[a]))
+                new_face_uv.extend([fuv, fuv])
     edgesS, compsS = chains(S)
     for comp in compsS:
         # a component is a gun chain, a fist chain or a forearm chain by its majority
@@ -896,6 +911,8 @@ def _cut_seams(ob, prefix, J, roles, co, uv_src, cls):
             vi = loop.vert.index
             if src_pi is not None and (src_pi, vi) in loop_uv:
                 loop[uv_layer].uv = tuple(loop_uv[(src_pi, vi)])
+            elif src_pi is None:
+                loop[uv_layer].uv = tuple(new_face_uv[fi - len(keep_faces)])
             else:
                 loop[uv_layer].uv = tuple(vuv[vi] if vi < nV else new_uv[vi - nV])
     bm.to_mesh(me); bm.free()
@@ -1028,6 +1045,8 @@ SLIVER_LONG_M, SLIVER_THIN_M = 0.025, 0.0025   # a sliver: longest edge over 25 
 SLIVER_NEAR_FIST_M = 0.12     # ...with a vertex this close to a fist's centre
 SLIVER_COLLAPSE_M = 0.008     # a sliver's shortest edge under this is collapsed (a needle)
 SLIVER_MAX_PER_FIST, SLIVER_MAX_LONG_M = 3, 0.040   # what is allowed to remain (the review of 9 Nov, N1): build refused
+RIM_NEAR_FIST_M, RIM_MAX_OPEN = 0.06, 4   # B2 (round 5): welded EXPOSED open edges within this of a fist, at most this many
+RIM_SEALED_M = 0.004          # ...an open edge inside the gun or this close to its surface is the parting line the gun closes
 
 
 def _fist_slivers(bm, centres):
@@ -1049,22 +1068,28 @@ def _fist_slivers(bm, centres):
 def _clean_fist_slivers(part, prefix):
     """N1 (the review of 9 Nov): the fused grip, parted from the gun, left an OPEN rim of long thin triangles at each fist
     that tore into needles in close-up. Near each fist: the open rims are capped (holes filled, then beautified), then each
-    remaining sliver goes -- an open-rim sliver is deleted, a needle has its short edge collapsed, any other has its long
-    edge flipped. The build is refused if a fist keeps more than SLIVER_MAX_PER_FIST slivers or one over SLIVER_MAX_LONG_M."""
+    remaining sliver goes -- a needle has its short edge collapsed, an interior one has its long edge flipped, and one on
+    the rim has its apex welded onto its long edge; no face is ever deleted (round 5). The build is refused if a fist keeps more than SLIVER_MAX_PER_FIST slivers or one over SLIVER_MAX_LONG_M."""
     me = part.data
     names, W = _weights(part)
     co = np.empty(len(me.vertices) * 3); me.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
-    centres = []
-    for s_ in ("L", "R"):
-        if f"{prefix}_hand_{s_}" in names:
-            dom_ = W[:, names.index(f"{prefix}_hand_{s_}")] >= 0.5
+    # the fists by ROLE (round 5): the firing fist holds the grip (anatomical R, so rig hand_L on this rig), the support
+    # fist the handguard (anatomical L, rig hand_R) -- the order every reading below is logged and gated in
+    centres, roles_ = [], []
+    for role_, anat in (("firing", "R"), ("support", "L")):
+        bone_ = f"{prefix}_hand_{RIG_SIDE[anat]}"
+        if bone_ in names:
+            dom_ = W[:, names.index(bone_)] >= 0.5
             if dom_.any():
-                centres.append(Vector(co[dom_].mean(0)))
+                centres.append(Vector(co[dom_].mean(0))); roles_.append(f"{role_} (rig {bone_[-6:]})")
     if not centres:
         return
     bm = bmesh.new(); bm.from_mesh(me)
     near = lambda v: min((v.co - c).length for c in centres) <= SLIVER_NEAR_FIST_M  # noqa: E731
     before = len(_fist_slivers(bm, centres))
+    # WELD first (round 5, the review of 9 Nov): the remesh is split at every UV seam, so a seam reads as two open edges.
+    # UVs live on the loops in Blender, so the weld keeps them; every coincident vertex of the uniform mesh is merged.
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-5)
     rim = [e for e in bm.edges if e.is_boundary and near(e.verts[0]) and near(e.verts[1])]
     if rim:
         filled = bmesh.ops.holes_fill(bm, edges=rim, sides=0)["faces"]
@@ -1080,21 +1105,135 @@ def _clean_fist_slivers(part, prefix):
             if not f.is_valid:
                 continue
             edges = sorted(f.edges, key=lambda e: e.calc_length())
-            if any(e.is_boundary for e in f.edges):
-                bmesh.ops.delete(bm, geom=[f], context="FACES_ONLY")
-            elif edges[0].calc_length() < SLIVER_COLLAPSE_M:
+            # a rim face is never deleted (round 4 deleted them and widened the hole the lead saw): it is collapsed or left
+            if edges[0].calc_length() < SLIVER_COLLAPSE_M:
                 bmesh.ops.collapse(bm, edges=[edges[0]], uvs=True)
             elif edges[-1].is_manifold:
                 bmesh.ops.rotate_edges(bm, edges=[edges[-1]], use_ccw=False)
+            else:
+                # a needle ON the rim, both short sides too long to collapse: its apex is under SLIVER_THIN_M off the
+                # long edge, so the long edge is split under the apex and the apex welded there (moved by under 2.5 mm).
+                # The face goes, and the rim runs through the apex instead: no hole opens.
+                e = edges[-1]
+                apex = next(v for v in f.verts if v not in e.verts)
+                a_, b_ = e.verts
+                ab = b_.co - a_.co
+                t = max(0.05, min(0.95, (apex.co - a_.co).dot(ab) / ab.length_squared))
+                _e2, mid = bmesh.utils.edge_split(e, a_, t)
+                bmesh.ops.pointmerge(bm, verts=[apex, mid], merge_co=mid.co.copy())
+                bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=list(bm.edges))
         bm.faces.ensure_lookup_table()
     left = _fist_slivers(bm, centres)
     per = [sum(1 for f in left if min((v.co - c).length for v in f.verts) <= SLIVER_NEAR_FIST_M) for c in centres]
+    # an open edge that lies on the gun (inside it, or within RIM_SEALED_M of its surface) is the parting line the gun
+    # closes; the rest are EXPOSED, what the lead saw torn
+    from mathutils.bvhtree import BVHTree
+    wob = bpy.data.objects.get(f"{prefix}_weapon")
+    wbvh = BVHTree.FromPolygons([v.co.copy() for v in wob.data.vertices], [tuple(p_.vertices) for p_ in wob.data.polygons]) if wob else None
+
+    def sealed(e):
+        if wbvh is None:
+            return False
+        m_ = (e.verts[0].co + e.verts[1].co) / 2
+        loc, nor, _i, d = wbvh.find_nearest(m_)
+        return loc is not None and (d <= RIM_SEALED_M or (m_ - loc).dot(nor) < 0)
+    open_ = [sum(1 for e in bm.edges if e.is_boundary and max((v.co - c).length for v in e.verts) <= RIM_NEAR_FIST_M and not sealed(e))
+             for c in centres]
+    if os.environ.get("RIM_DEBUG"):
+        from mathutils.bvhtree import BVHTree
+        wob = bpy.data.objects.get(f"{prefix}_weapon")
+        if wob is not None:
+            wbvh = BVHTree.FromPolygons([v.co.copy() for v in wob.data.vertices], [tuple(p_.vertices) for p_ in wob.data.polygons])
+            for ci, c in enumerate(centres):
+                es = [e for e in bm.edges if e.is_boundary and max((v.co - c).length for v in e.verts) <= RIM_NEAR_FIST_M]
+                inside = near_g = 0
+                for e in es:
+                    m_ = (e.verts[0].co + e.verts[1].co) / 2
+                    loc, nor, _i, d = wbvh.find_nearest(m_)
+                    if loc is not None and (m_ - loc).dot(nor) < 0:
+                        inside += 1
+                    if loc is not None and d < 0.004:
+                        near_g += 1
+                log(f"  fist {ci}: {len(es)} open edges near it, {inside} inside the gun, {near_g} within 4 mm of its surface")
+        bnd = [e for e in bm.edges if e.is_boundary and min(max((v.co - c).length for v in e.verts) for c in centres) <= RIM_NEAR_FIST_M]
+        seen = set()
+        for e0 in bnd:
+            if e0 in seen:
+                continue
+            comp, stack = [], [e0]
+            while stack:
+                e = stack.pop()
+                if e in seen:
+                    continue
+                seen.add(e); comp.append(e)
+                for v in e.verts:
+                    for e2 in v.link_edges:
+                        if e2.is_boundary and e2 not in seen:
+                            stack.append(e2)
+            deg = {}
+            for e in comp:
+                for v in e.verts:
+                    deg[v] = deg.get(v, 0) + 1
+            far = max(min((v.co - c).length for c in centres) for v in deg)
+            log(f"  rim component: {len(comp)} edges, closed {all(d == 2 for d in deg.values())}, farthest vertex {far * 100:.1f} cm, "
+                f"length {sum(e.calc_length() for e in comp) * 100:.1f} cm")
+    total_ = [sum(1 for e in bm.edges if e.is_boundary and max((v.co - c).length for v in e.verts) <= RIM_NEAR_FIST_M)
+              for c in centres]
+    log(f"{prefix}: open edges within {RIM_NEAR_FIST_M * 100:.0f} cm of each fist after the weld and the fill, EXPOSED of all: "
+        + ", ".join(f"{r_} {x_} of {t_}" for r_, x_, t_ in zip(roles_, open_, total_)))
+    for r_, x_ in zip(roles_, open_):
+        if x_ > RIM_MAX_OPEN:
+            raise SystemExit(f"{prefix}: the {r_} fist keeps {x_} exposed open edges within {RIM_NEAR_FIST_M} m "
+                             f"(allowed {RIM_MAX_OPEN})")
     longest = max((max(e.calc_length() for e in f.edges) for f in left), default=0.0)
+    _repair_bridged_uvs(bm, centres, prefix)
     bm.to_mesh(me); bm.free(); me.update()
     log(f"{prefix}: fist slivers {before} -> {len(left)} (per fist {per}, longest {longest * 1000:.0f} mm), {len(rim)} rim edges capped")
     if max(per) > SLIVER_MAX_PER_FIST or longest > SLIVER_MAX_LONG_M:
         raise SystemExit(f"{prefix}: a fist keeps {max(per)} slivers, the longest {longest * 1000:.0f} mm "
                          f"(allowed {SLIVER_MAX_PER_FIST}, {SLIVER_MAX_LONG_M * 1000:.0f} mm)")
+
+
+UV_BRIDGE_RATIO = 4.0         # a face whose uv edge runs this many times the mesh's median uv-per-metre spans two islands
+
+
+def _repair_bridged_uvs(bm, centres, prefix):
+    """B3 (round 5): the weld before the rim fill joins the remesh's UV-seam twins, so a flipped edge, a collapsed needle
+    or a filled hole near a fist can make a triangle whose three loops sit in DIFFERENT uv islands: its uv triangle spans
+    the atlas, and its texels are whatever lies between (23% of the support glove read the gun's black, L* 0-12). Each
+    such face (any uv edge over UV_BRIDGE_RATIO x the mesh's median uv length per metre) takes, on all three loops, the
+    uv centroid of a neighbour that is not bridged: that neighbour's own colour."""
+    uvl = bm.loops.layers.uv.active
+    if uvl is None:
+        return
+    ratios = []
+    for f in bm.faces:
+        for lp in f.loops:
+            l3 = (lp.vert.co - lp.link_loop_next.vert.co).length
+            if l3 > 1e-5:
+                ratios.append((lp[uvl].uv - lp.link_loop_next[uvl].uv).length / l3)
+    med = float(np.median(ratios)) if ratios else 0.0
+    near = lambda f: min(min((v.co - c).length for c in centres) for v in f.verts) <= SLIVER_NEAR_FIST_M * 1.5  # noqa: E731
+
+    def bridged(f):
+        for lp in f.loops:
+            l3 = max((lp.vert.co - lp.link_loop_next.vert.co).length, 1e-4)
+            if (lp[uvl].uv - lp.link_loop_next[uvl].uv).length / l3 > UV_BRIDGE_RATIO * med:
+                return True
+        return False
+    bad = [f for f in bm.faces if near(f) and bridged(f)]
+    badset = set(bad)
+    fixed = 0
+    for f in bad:
+        nb = [g for e in f.edges for g in e.link_faces if g is not f and g not in badset]
+        if not nb:
+            continue
+        g = max(nb, key=lambda g_: g_.calc_area())
+        c = sum((lp[uvl].uv for lp in g.loops), Vector((0.0, 0.0))) / len(g.loops)
+        for lp in f.loops:
+            lp[uvl].uv = c
+        fixed += 1
+    log(f"{prefix}: {len(bad)} faces near the fists bridged two uv islands, {fixed} given a neighbour's uv")
 
 
 def _islands_follow_body(part, prefix):
@@ -1259,10 +1398,11 @@ def _lab_to_rgb(lab):
     return np.where(lin <= 0.0031308, 12.92 * lin, 1.055 * np.power(lin, 1 / 2.4) - 0.055)
 
 
-def _face_mask(me, uv, vmask, W_, H_):
-    """Texels under the faces whose vertices are (by majority) in `vmask`, on a W_ x H_ atlas (Blender rows, v up)."""
+def _face_mask(me, uv, vmask, W_, H_, min_verts=2):
+    """Texels under the faces with at least `min_verts` vertices (a majority by default) in `vmask`, on a W_ x H_ atlas
+    (Blender rows, v up)."""
     polys = np.empty(len(me.polygons) * 3, np.int64); me.polygons.foreach_get("vertices", polys); polys = polys.reshape(-1, 3)
-    faces = polys[vmask[polys].sum(1) >= 2]
+    faces = polys[vmask[polys].sum(1) >= min_verts]
     mask = np.zeros((H_, W_), bool)
     for f in faces:
         t = uv[f] * np.array([W_, H_])
@@ -1282,6 +1422,122 @@ def _face_mask(me, uv, vmask, W_, H_):
     return mask
 
 
+def _face_fields(me, uv, fields, W_, H_):
+    """Every face of `me` rasterised on a W_ x H_ atlas (Blender rows, v up), each per-vertex array in `fields`
+    interpolated across it by barycentric weight (B3, the review of 9 Nov): returns (covered (H_, W_) bool, [field (H_, W_)
+    float32 per input]). A texel inside two faces takes the LARGER value of each field."""
+    polys = np.empty(len(me.polygons) * 3, np.int64); me.polygons.foreach_get("vertices", polys); polys = polys.reshape(-1, 3)
+    return _raster(uv[polys], [fv[polys] for fv in fields], W_, H_)
+
+
+def _raster(face_uv, face_vals, W_, H_):
+    """`_face_fields` on explicit per-face corners: face_uv (F, 3, 2) in [0, 1], each of face_vals (F, 3). Overlaps take
+    the larger value: Meshy's atlas maps some fist faces and the gun faces they were sculpted on to the same texels."""
+    covered = np.zeros((H_, W_), bool)
+    out = [np.full((H_, W_), -np.inf, np.float32) for _ in face_vals]
+    for fi in range(len(face_uv)):
+        t = face_uv[fi] * np.array([W_, H_])
+        x0, y0 = np.floor(t.min(0)).astype(int); x1, y1 = np.ceil(t.max(0)).astype(int)
+        x0, y0 = max(x0 - 1, 0), max(y0 - 1, 0); x1, y1 = min(x1 + 1, W_ - 1), min(y1 + 1, H_ - 1)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        xs, ys = np.meshgrid(np.arange(x0, x1 + 1) + 0.5, np.arange(y0, y1 + 1) + 0.5)
+        (ax, ay), (bx, by), (cx, cy) = t
+        d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if abs(d) < 1e-9:
+            continue
+        l1 = ((by - cy) * (xs - cx) + (cx - bx) * (ys - cy)) / d
+        l2 = ((cy - ay) * (xs - cx) + (ax - cx) * (ys - cy)) / d
+        l3 = 1 - l1 - l2
+        ins = (l1 >= -0.02) & (l2 >= -0.02) & (l3 >= -0.02)
+        if not ins.any():
+            continue
+        win = covered[y0:y1 + 1, x0:x1 + 1]
+        win |= ins
+        for k, fv in enumerate(face_vals):
+            val = l1 * fv[fi][0] + l2 * fv[fi][1] + l3 * fv[fi][2]
+            o = out[k][y0:y1 + 1, x0:x1 + 1]
+            o[ins] = np.maximum(o[ins], val[ins])
+    return covered, out
+
+
+def _final_glove_texels(ob, Jw, W_, H_):
+    """B3 (round 5): the glove's texels by the hand weight across the FINISHED `uniform` faces of every figure (per-loop
+    uv): the fist cleaning collapses needles and flips edges, and a face it changed covers atlas texels no source face
+    did -- 14% of the support glove's faces read the gun's black there. `Jw` maps a figure prefix to its two wrists and
+    elbows at its slot. Same rule as `_glove_texels`: hand weight >= 0.5, no more than GLOVE_CUT_M proximal of the wrist."""
+    me = ob.data
+    names = [g.name for g in ob.vertex_groups]
+    nV = len(me.vertices)
+    co = np.empty(nV * 3); me.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
+    hw = np.zeros(nV); tw = np.full(nV, -1.0)
+    for v in me.vertices:
+        pref = None
+        for g in v.groups:
+            nm = names[g.group]
+            if pref is None and g.weight > 0:
+                pref = nm.split("_")[0]
+            if "_hand_" in nm:
+                hw[v.index] = max(hw[v.index], g.weight)
+        if pref in Jw and hw[v.index] > 0:
+            best = None
+            for wr, el in Jw[pref]:
+                ax_ = (wr - el) / np.linalg.norm(wr - el)
+                d_ = np.linalg.norm(co[v.index] - wr)
+                if best is None or d_ < best[0]:
+                    best = (d_, float((co[v.index] - wr) @ ax_))
+            tw[v.index] = best[1]
+    lv = np.empty(len(me.loops), np.int64); me.loops.foreach_get("vertex_index", lv)
+    luv = np.empty(len(me.loops) * 2); me.uv_layers.active.data.foreach_get("uv", luv); luv = luv.reshape(-1, 2)
+    ls = np.empty(len(me.polygons), np.int64); me.polygons.foreach_get("loop_start", ls)
+    lt = np.empty(len(me.polygons), np.int64); me.polygons.foreach_get("loop_total", lt)
+    tri = ls[lt == 3]
+    li = tri[:, None] + np.arange(3)[None, :]
+    vi = lv[li]
+    # a face whose uv runs far past the mesh's uv-per-metre spans two islands (`_repair_bridged_uvs`): its raster would
+    # paint whatever lies between, so it is left out
+    e3 = np.linalg.norm(co[vi] - co[np.roll(vi, -1, 1)], axis=2)
+    eu = np.linalg.norm(luv[li] - luv[np.roll(li, -1, 1)], axis=2)
+    ok3 = e3 > 1e-4
+    med = float(np.median(eu[ok3] / e3[ok3]))
+    bridged = ((eu / np.maximum(e3, 1e-4)) > UV_BRIDGE_RATIO * med).any(1)
+    keep = (hw[vi] > 0).any(1) & ~bridged
+    fu = luv[li[keep]]
+    span = (fu.max(1) - fu.min(1)).max(1)
+    log(f"final glove raster: {int(keep.sum())} hand faces ({int(((hw[vi] > 0).any(1) & bridged).sum())} bridging two uv "
+        f"islands left out), uv span max {span.max():.4f}")
+    covered, (h, t_) = _raster(fu, [hw[vi[keep]], tw[vi[keep]]], W_, H_)
+    return covered & (h >= 0.5) & (t_ >= -GLOVE_CUT_M)
+
+
+def _face_mask_any(me, uv, vmask, W_, H_):
+    """Texels under every face with at least one vertex in `vmask` (`_face_mask` takes a majority)."""
+    return _face_mask(me, uv, vmask, W_, H_, min_verts=1)
+
+
+def _glove_texels(me, uv, hand_w, t_wrist, W_, H_):
+    """B3 (the review of 9 Nov): the glove's TEXELS, by the hand weight interpolated across each face -- glove where it
+    is at least 0.5 and the texel lies no more than GLOVE_CUT_M proximal of its wrist -- so a triangle spanning the cuff is
+    split at the weight's iso-line instead of painted whole by its majority (round 4's wedges up the support sleeve).
+    Returns (glove (H_, W_) bool, covered (H_, W_) bool, padding owned by the glove). The bake's padding (texels no face
+    covers) goes to the nearer side, a tie to the sleeve: a 1-texel ring per step, RETINT_PAD_PX steps."""
+    covered, (h, tw) = _face_fields(me, uv, [hand_w.astype(np.float32), t_wrist.astype(np.float32)], W_, H_)
+    G = covered & (h >= 0.5) & (tw >= -GLOVE_CUT_M)
+    N = covered & ~G
+    U = ~covered
+    pad = np.zeros_like(G)
+    for _ in range(RETINT_PAD_PX):
+        g_new = _dilate(G | pad, 1) & U
+        n_new = _dilate(N, 1) & U
+        pad |= g_new & ~n_new
+        N |= n_new
+        U &= ~(g_new | n_new)
+    return G | pad, covered
+
+
+GLOVE_CUT_M = 0.01            # B3: no glove texel more than this proximal of the wrist (the gate's line is 2 cm)
+
+
 #: The lead's colours (1 Nov): each class's texels are moved so their MEAN lands on the target, keeping `keep` of their
 #: own variation (shading, seams, dirt). CIE L*a*b*. The glove's target is dE 21 from the olive, 35 from the vest, 28
 #: from the carbine; L* 33 and C* 21 inside the glove gate's bands.
@@ -1295,7 +1551,9 @@ RETINT = {
     # round 4 (9 Nov): the lead asked for DARK BROWN; (34, 14, 6) rendered dusky rose, 11.4 dE from the face. Brown, dark
     # and low in chroma, the one region 15+ dE from the olive sleeve (36, -6, 14), the skin (40, 16, 20) and the coyote
     # vest (43, 7, 31) inside the L* 30-48 band
-    "glove": dict(target=(34.0, 12.0, 3.0), keep=0.25, orange_only=False),
+    # round 5, the lead's ruling (9 Nov, GH-746, B1): DARK BROWN sRGB (70, 48, 32), Lab (22.0, 7.8, 14.2), hue 61 deg; the
+    # glove gate's L* floor for this one baked figure is 20 and its hue band 40-75 (round 4's (34, 12, 3) read hue 5: pink)
+    "glove": dict(target=None, rgb=(70, 48, 32), keep=0.25, orange_only=False),
     "boot": dict(target=(50.0, 12.0, 26.0), keep=0.7, orange_only=True),       # tan leather, from Meshy's orange
     # the CUFFS (the lead's ruling, round 3): the sleeve within CUFF_RETINT_M of a wrist, where Meshy bled the glove's
     # orange, goes to the sleeve's olive, every texel -- so the dark-brown glove reads against an olive sleeve
@@ -1314,7 +1572,7 @@ VEST_ISLAND_SHARE = 0.5       # a UV island is the carrier's when at least this 
 VEST_FLOOR_L = 25.0           # after the retint no carrier texel may stay darker than this (the coyote's mean is ~43)
 CUFF_RETINT_M = 0.10
 ORANGE_C_MIN, ORANGE_HUE = 18.0, (15.0, 75.0)
-GLOVE_L_CLAMP = (28.0, 46.0)
+GLOVE_L_CLAMP = (21.0, 30.0)   # about the dark brown's L* 22 (the gate's floor for this figure is 20)
 
 
 RETINT_PAD_PX = 4             # the bake's island padding is re-tinted with its island: a vertex's texel sits on it
@@ -1522,6 +1780,9 @@ def build_team(team_id, out_path=None):
                 own_ = W[:, gi_[f"{p}_hand_{RIG_SIDE[k]}"]] >= 0.5
                 hand_masks_f1[k][: len(own_)] |= own_
             gun_mask_f1 = roles["gun"].copy()
+            # B3: the hand weight itself, per vertex, for the glove's texels (`_glove_texels`)
+            hand_w_f1 = np.maximum(W[:, gi_[f"{p}_hand_L"]], W[:, gi_[f"{p}_hand_R"]])
+            glove_blob_f1 = roles["glove"]["R"] | roles["glove"]["L"]
         ps = _split_roles(shell, p, cls0_fig, roles, co)
         gun_tris = max(gun_tris, next(len(o.data.polygons) for o in ps if o["rl_role"] == "weapon"))
         parts += ps
@@ -1566,16 +1827,35 @@ def build_team(team_id, out_path=None):
         vest = ((cls0["L"][:n0] <= VEST_L_MAX) & (cls0["C"][:n0] < VEST_C_MAX) & (co0[:, 2] > J0["belt"] - 0.06)
                 & (co0[:, 2] < SHOULDER_Z + 0.06) & (np.abs(co0[:, 1] - sxy0[1]) < TORSO_HALF_W)
                 & ~glove & ~skin & ~gun_mask_f1[:n0] & ~cls0["boot"][:n0])
-        glove_tex = _face_mask(src_for_uv.data, uv, glove, image.size[0], image.size[1])
+        # B3: the glove by TEXEL (the hand weight across each face, cut 1 cm proximal of the wrist); the glove blob ahead
+        # of the wrist (Meshy's glove colour) counts as hand
+        hw = np.maximum(hand_w_f1[:n0], glove_blob_f1[:n0].astype(float))
+        tws = []
+        for side_ in ("R", "L"):
+            ax_ = J0["wrist"][side_] - J0["elbow"][side_]; ax_ = ax_ / np.linalg.norm(ax_)
+            tws.append(((co0 - J0["wrist"][side_]) @ ax_, np.linalg.norm(co0 - J0["wrist"][side_], axis=1)))
+        t_wrist = np.where(tws[0][1] <= tws[1][1], tws[0][0], tws[1][0])
+        glove_tex, covered_ = _glove_texels(src_for_uv.data, uv, hw, t_wrist, image.size[0], image.size[1])
+        Jw = {s_["prefix"]: [(Js[s_["prefix"]]["wrist"][sd] + np.array([s_["x"], s_["y"], 0.0]),
+                              Js[s_["prefix"]]["elbow"][sd] + np.array([s_["x"], s_["y"], 0.0])) for sd in ("R", "L")]
+              for s_ in figures}
+        fin_ = _final_glove_texels(merged["uniform"], Jw, image.size[0], image.size[1])
+        log(f"glove: {int((fin_ & ~glove_tex).sum())} more texels from the finished fist faces")
+        glove_tex |= fin_
+        # the cuff by texel: every texel of a face with a cuff vertex that is not the glove's, and its own padding
+        cuff_raster = _face_mask_any(src_for_uv.data, uv, cuff, image.size[0], image.size[1])
+        cuff_tex = (cuff_raster | (_dilate(cuff_raster, RETINT_PAD_PX) & ~covered_)) & ~glove_tex
+        log(f"glove: {int(glove_tex.sum())} texels by interpolated hand weight (cut {GLOVE_CUT_M * 100:.0f} cm proximal), "
+            f"cuff {int(cuff_tex.sum())} texels")
         _retint(image, src_for_uv, uv, {
             "boot": cls0["boot"][:n0] & ~glove & ~skin,
             "uniform": cls0["khaki"][:n0] & ~glove & ~skin & (co0[:, 2] > BOOT_Z_MAX),
             # the carrier's islands, less the glove's own faces (a fist sculpted against the vest can share its island)
             "vest": _carrier_texels(src_for_uv.data, uv, vest & ~glove, image.size[0], image.size[1]) & ~glove_tex,
-            "cuff": cuff,
+            "cuff": cuff_tex,
             "sleeve_bleed": sleeve,
             # last, so nothing paints over the glove
-            "glove": glove,
+            "glove": glove_tex,
         })
     bpy.data.objects.remove(src_for_uv, do_unlink=True)
     rig.export_glb(arm_obj, path, materials=True, jpeg_quality=JPEG_QUALITY)

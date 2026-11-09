@@ -92,7 +92,11 @@ function withoutOwnTorso(tris: SceneTriangles, p: string, keep: Uint8Array, tors
   const idx: number[] = [];
   for (let i = 0; i < tris.count; i++) {
     const b = tris.bone[i];
-    const own = b.startsWith(`${p}_`) && !HELD.has(tris.role[i]);
+    // a KIT part on the torso is worn, never held, whichever role mesh carries it (round 5, 9 Nov: the EUD, a phone flat
+    // on the plate, rides the `weapon` role mesh for its glass; read as held, it hid the firing fist in idle once the
+    // round-5 base seated it on the chest -- round 4's f0 EUD had hit a stray face 32 cm in front of the chest)
+    const wornKit = tris.kit[i] === 1 && TORSO_BONES.has(b.slice(p.length + 1));
+    const own = b.startsWith(`${p}_`) && (!HELD.has(tris.role[i]) || wornKit);
     const looked = own && (!torsoOnly || TORSO_BONES.has(b.slice(p.length + 1)));
     if (keep[i] || !looked) idx.push(i);
   }

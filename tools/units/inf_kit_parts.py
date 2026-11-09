@@ -173,7 +173,7 @@ TEAMS = {
     # texels found by `_coord/inf-meshy-pilot/tools/find_texels.py` (solid 5 x 5 blocks nearest each key; dE 0.4-4.5)
     "inf_squad": Team("inf_squad", ALL, LEADER, ALL, (2048, 2048), {
         # re-found 9 Nov (round 3) by `tools/inf_kit_texels.py inf_squad` after the vest and sleeve retints
-        "coyote": (63, 1213),          # dust.5   #806032  dE 0.04 (re-found round 4, after the island-masked vest retint)
+        "coyote": (1369, 279),          # dust.5   #806032  dE 0.06 (re-found round 5, after the per-texel glove)
         "coyote_shade": (799, 590),    # dust.6   #6B4F29  dE 3.33 (inside the 6.0 cap)
         "olive": (1680, 987),          # olive.2  #4E5433  dE 0.49
         "olive_dark": (1740, 125),     # olive.3  #333821  dE 0.75

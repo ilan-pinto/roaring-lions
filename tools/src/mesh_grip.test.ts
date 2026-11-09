@@ -115,20 +115,25 @@ const FUSED_GRIP_OPEN: Readonly<Record<string, string>> = FUSED ? {
   'f0 review fire': 'firing review gap 0.192 m: the grip finder reads the stock pocket, not the pistol grip',
   'f1 review fire': 'firing review gap 0.165 m: the grip finder reads the stock pocket, not the pistol grip',
   'f2 review fire': 'firing review gap 0.205 m: the grip finder reads the stock pocket, not the pistol grip',
-  // A DEFECT: the sculpted grip faces kept on the hand bones (the importer parts the fused fingers from the gun) leave the
-  // gun's surface 16.7 / 20.7 / 19.8 mm inside the firing fist (ceilings 4-9.5); the support fist reads 0.9-9.3, inside.
-  'f0 depth fire': 'the gun 16.7 mm inside the firing fist (ceiling 4-9.5): the parted fused grip',
-  'f1 depth fire': 'the gun 20.7 mm inside the firing fist (ceiling 4-9.5): the parted fused grip',
-  'f2 depth fire': 'the gun 19.8 mm inside the firing fist (ceiling 4-9.5): the parted fused grip',
+  // A DEFECT: Meshy's fused fist is SOLID round the grip, so the grip runs through the fist's closed volume: the gun's
+  // surface 15.1 / 15.6 / 20.1 mm inside the firing fist (round 5, 9 Nov; round 4 read 21.4 / 20.9 / 19.9; ceilings 4-9.5).
+  // A grip channel was tried in round 5 and not shipped: an exact boolean against the parted (open) gun gutted the fist
+  // (327 -> 144 faces), against a voxel-closed gun tripled it (2,367 triangles, 37 slivers), and against the grip's convex
+  // hull cut the fingers in the trigger guard (327 -> 184 faces). It wants a fist sculpted round a hollow grip (the lead).
+  'f0 depth fire': 'the gun 15.1 mm inside the firing fist (ceiling 4-9.5): Meshy\'s solid fused fist round the grip',
+  'f1 depth fire': 'the gun 15.6 mm inside the firing fist (ceiling 4-9.5): Meshy\'s solid fused fist round the grip',
+  'f2 depth fire': 'the gun 20.1 mm inside the firing fist (ceiling 4-9.5): Meshy\'s solid fused fist round the grip',
   // A DEFECT: rl_hands carries ONE station table, measured on one body; f2 is a 0.966 x 1.08 scaling of it, so the hold
   // puts his fists on the shared stations, 23.4 mm (firing) off where they were sculpted on his own gun (f1 5.0, f0 0.0).
   'f2 station fire': 'firing fist 23.4 mm off its sculpted station (limit 20): one station table for three scaled bodies',
   // A DEFECT (9 Nov): the support fist rolls 40 deg round the handguard as the weapon comes up (hold.ts
   // REST_CARRY_SUPPORT_ROLL_DEG, the elbow under the handguard), and the handguard is not round: in the aimed clips its
-  // surface sits 14.4 / 14.9 / 16.5 mm inside the smaller (x0.8) fist (ceiling 10.5); idle and move read 0.2-3.2.
-  'f0 depth support': 'the handguard 14.4-16.5 mm inside the support fist when aimed (ceiling 10.5): the roll round a square handguard',
-  'f1 depth support': 'the handguard 14.9-15.2 mm inside the support fist when aimed (ceiling 10.5): the roll round a square handguard',
-  'f2 depth support': 'the handguard 16.5 mm inside the support fist when aimed (ceiling 10.5): the roll round a square handguard',
+  // surface sits 11.3 / 14.9 / 16.7 mm inside the smaller (x0.8) fist (ceiling 10.5; round 5, 9 Nov). Round 5 also
+  // WELDED and closed the support fist's rim (B2), so the inside test now sees f1's and f2's handguard 12.1-12.3 mm
+  // inside it in idle and move too (round 4, its rim open, read 0.2-3.2): Meshy's solid fused fist, as on the grip.
+  'f0 depth support': 'the handguard 11.3 mm inside the support fist when aimed (ceiling 10.5): the roll round a square handguard',
+  'f1 depth support': 'the handguard 12.3-14.9 mm inside the support fist (ceiling 10.5): the roll when aimed; the closed solid fist at rest',
+  'f2 depth support': 'the handguard 12.1-16.7 mm inside the support fist (ceiling 10.5): the roll when aimed; the closed solid fist at rest',
 } : {};
 
 const readings = new Map<string, ReturnType<typeof measureGrip>>();
@@ -174,8 +179,9 @@ describe('the Rifle Squad holds the carbine in every clip', () => {
         within(fig, 'review fire', r.fire.reviewGapM, REVIEW_FIRE_MAX_M, 'review reading, firing');
         expect(r.support.reviewGapM, 'review reading, support').toBeLessThanOrEqual(REVIEW_SUPPORT_MAX_M);
         within(fig, 'depth fire', r.fire.depthM!, WEAPON_IN_HAND_CEILING_M[clip][0], 'weapon inside the firing glove');
-        // the support fist rolls only as the weapon comes up: its open reading is the aimed clips'; idle and move are gated
-        if (clip === 'idle' || clip === 'move') expect(r.support.depthM!, 'weapon inside the support glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M[clip][1]);
+        // the support fist: f0 is gated in idle and move; f1 and f2 are open readings in every clip since round 5 closed
+        // the welded fist (FUSED_GRIP_OPEN), and f0's in the aimed clips, where the fist rolls round the handguard
+        if ((clip === 'idle' || clip === 'move') && fig === 'f0') expect(r.support.depthM!, 'weapon inside the support glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M[clip][1]);
         else within(fig, 'depth support', r.support.depthM!, WEAPON_IN_HAND_CEILING_M[clip][1], 'weapon inside the support glove');
       }, 120_000);
     }
@@ -273,10 +279,11 @@ describe('the weapon-in-glove ceiling can fail (constructed failing input 5)', (
     // (in the aimed clips both fists' depths are open readings, FUSED_GRIP_OPEN; idle, where the support fist is at its
     // sculpted place, is gated, so the push is made there)
     // (10 mm read 9.7 against the 10.5 ceiling on the real-size fist: the push is 15 mm)
-    const file = patched('idle', 'f1_weapon', 'translation', (v) => [v[0], v[1] - 0.015, v[2]]);
-    const r = measureGrip(file, 'idle', 'f1', { hz: 60 });
+    // (f0: f1's and f2's support fists are open readings at rest since round 5, FUSED_GRIP_OPEN)
+    const file = patched('idle', 'f0_weapon', 'translation', (v) => [v[0], v[1] - 0.015, v[2]]);
+    const r = measureGrip(file, 'idle', 'f0', { hz: 60 });
     expect(r.support.depthM!, 'support fist').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.idle[1]);
-    expect(read('f1', 'idle').support.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.idle[1]);
+    expect(read('f0', 'idle').support.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.idle[1]);
   }, 60_000);
 
   it('the old sampler (each weapon triangle\'s first vertex and centroid) reads the SAME bytes at 2 mm in the support hand where the dense one reads 9 (constructed failing input 6)', () => {

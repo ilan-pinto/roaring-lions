@@ -25,7 +25,7 @@ import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readGlb } from './mesh_gait';
-import { deltaE, infantryTeams, rebindVertices, strayClawPieces, strayClawReport } from './mesh_figures';
+import { infantryTeams, rebindVertices, strayClawPieces, strayClawReport } from './mesh_figures';
 import { handsSource } from './mesh_hand_gates';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
@@ -90,15 +90,15 @@ describe('R7 (the coordinator, 9 Nov): the legacy claw tones read CLAW builds on
     expect(v.length).toBeGreaterThan(0);
     expect(v.every((p) => p.how === 'tone')).toBe(true);
   });
-  it('(b) the Meshy Rifle Squad: every piece the legacy tones would flag is its coyote carrier, on the trunk, not a hand', () => {
+  it('(b) the Meshy Rifle Squad: the legacy tones, forced, flag no piece (round 4: only its coyote carrier, on the trunk)', () => {
     const squad = readGlb(`${MESHES}inf_squad.glb`);
     const forced = strayClawReport(squad, { legacyTones: 'always' }).pieces.filter((p) => p.how === 'tone');
-    for (const p of forced) {
-      expect(p.bones.every((b) => /_(spine|pelvis)$/.test(b)), JSON.stringify(p)).toBe(true);
-      // the carrier coyote #806032 is Lab (43, 7, 31): a piece within 8 dE of it is the vest the lead had retinted
-      expect(deltaE(p.lab!, [43, 7, 31]), JSON.stringify(p)).toBeLessThan(8);
-    }
-    // ...and the scoped reading reads none of them
+    // Round 5 (9 Nov): with the per-texel glove the legacy tones, FORCED onto the squad, flag no piece at all, so the
+    // scoping is no longer what keeps it green. Asserted as an equality, not looped over (the review's S4: a loop over an
+    // empty set passes vacuously). On round 4's bytes (d31bdc16d) the forced set was every spine/pelvis piece within 8 dE
+    // of the carrier coyote (43, 7, 31): the retinted vest, not a claw.
+    expect(forced.map((p) => `${p.bones.join('+')} ${p.lab!.map((x) => x.toFixed(0)).join(',')}`)).toEqual([]);
+    // ...and the scoped reading reads none either
     expect(strayClawReport(squad).pieces.filter((p) => p.how === 'tone')).toEqual([]);
   });
 });

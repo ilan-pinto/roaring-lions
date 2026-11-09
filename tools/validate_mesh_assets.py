@@ -176,6 +176,7 @@ from collections import Counter
 import glob
 import itertools
 import json
+import math
 import os
 import re
 import shutil
@@ -2152,14 +2153,24 @@ GLOVE_L_BAND = (30.0, 48.0)
 GLOVE_MAX_CHROMA = 30.0
 #: The sleeve is the forearm vertices within this many metres proximal of the wrist.
 GLOVE_SLEEVE_REACH_M = 0.06
-#: The glove-to-SLEEVE floor for a BAKED figure, by team: one entry per team, and only for a file whose `rl_hands.source`
-#: is "meshy" (a figure the hands pass did not paint), else the entry is itself a failure. The lead, 9 Nov 2026 (GH-746):
-#: keep the Rifle Squad's dark-brown glove and relax this floor for this figure only. Why it cannot reach 15: Meshy's bake
-#: bled the glove's orange onto the cuff, and the sleeve sample is the cuff (forearm skin within 6 cm of the wrist); the
-#: importer retints that cuff to the sleeve's olive (`import_meshy_skinned_team.py`, RETINT "cuff"), but a darker glove
-#: would leave GLOVE_L_BAND, whose floor (L* 30) is what keeps a glove from reading as a black hole. Measured 9 Nov:
-#: 11.7-15.0 over the six hands. The vest, weapon, L* and C* rules are unchanged, and so is 15 for every other team.
-GLOVE_SLEEVE_FLOOR_BAKED = {"inf_squad": 10.0}
+#: (Round 4's relaxed glove-to-sleeve floor for the Rifle Squad, GLOVE_SLEEVE_FLOOR_BAKED 10, is retired in round 5: read
+#: inside the faces, the dark-brown glove sits 16+ dE from its sleeve on every hand, so the 15 floor holds for every team.)
+#: The glove's L* floor and hue band for a BAKED figure, by team (the lead, 9 Nov 2026, GH-746, B1): the Rifle Squad's
+#: glove is DARK BROWN, sRGB (70, 48, 32), Lab about (22, 8, 14). Its L* floor is 20 (every other team keeps 30), and its
+#: hue (atan2(b*, a*), degrees) must sit in 40-75: round 4's (34, 12, 3) read hue 5 and rendered mauve-pink, and a black
+#: glove is held by the floor. Like the sleeve floor, only for a file whose `rl_hands.source` is "meshy".
+GLOVE_BAKED_TONE = {"inf_squad": {"L_floor": 20.0, "hue": (40.0, 75.0)}}
+#: B3 (the review of 9 Nov): no glove-coloured sample where the hand weight, interpolated across the face, is under
+#: GLOVE_SPILL_HW and which lies more than GLOVE_SPILL_M proximal of the wrist (up the sleeve). Round 4 painted whole cuff triangles by their hand vertices and ran glove-coloured wedges 8-10 cm up the
+#: support sleeve; the gate, sampling vertex UVs only, could not see a triangle's inside. Read inside every face with any
+#: weight on the hand (FACE_SAMPLE_BARY); a sample is glove-coloured within GLOVE_LIKE_DE of the glove's mean AND nearer
+#: it than the sleeve's by GLOVE_LIKE_MARGIN. Measured on round 4's bytes (d31bdc16d): 3-4 such samples per hand, the
+#: pink wedges (Lab ~39, 14, 7); a bake midtone (31, 4, 12) sits 10.7 / 10.8 from glove and sleeve and is neither.
+GLOVE_SPILL_HW = 0.35
+GLOVE_SPILL_M = 0.02
+GLOVE_LIKE_DE = 12.0
+GLOVE_LIKE_MARGIN = 3.0
+GLOVE_SPILL_MAX = 0
 
 
 def _lab_of_rgb(rgb):
@@ -2178,6 +2189,35 @@ def _lab_of_rgb(rgb):
 
 def _delta_e76(a, b):
     return sum((u - v) ** 2 for u, v in zip(a, b)) ** 0.5
+
+
+def _lab_of_rgb_arr(rgb):
+    """`_lab_of_rgb` over an (n, 3) array of sRGB 0-255."""
+    import numpy as np
+    c = np.asarray(rgb, float) / 255.0
+    lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    x = (lin @ np.array([0.4124, 0.3576, 0.1805])) / 0.95047
+    y = lin @ np.array([0.2126, 0.7152, 0.0722])
+    z = (lin @ np.array([0.0193, 0.1192, 0.9505])) / 1.08883
+    f = lambda t: np.where(t > 0.008856, np.cbrt(t), 7.787 * t + 16.0 / 116.0)  # noqa: E731
+    fx, fy, fz = f(x), f(y), f(z)
+    return np.stack([116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)], 1)
+
+
+#: The barycentric points every face is sampled at (B3, the review of 9 Nov): the centroid, three toward the corners and
+#: three toward the edges' middles, all strictly inside the face. A vertex's own UV lands on the bake's padding as often
+#: as inside the face, and a triangle that spans the cuff is never read at its corners alone.
+FACE_SAMPLE_BARY = ((1 / 3, 1 / 3, 1 / 3), (0.7, 0.15, 0.15), (0.15, 0.7, 0.15), (0.15, 0.15, 0.7),
+                    (0.45, 0.45, 0.1), (0.1, 0.45, 0.45), (0.45, 0.1, 0.45))
+
+
+def _face_samples(faces, uv, pos):
+    """(sample uv (n, 2), sample position (n, 3)) at FACE_SAMPLE_BARY inside each of `faces` (an (m, 3) index array)."""
+    import numpy as np
+    B = np.array(FACE_SAMPLE_BARY)
+    suv = np.einsum("kj,mjc->mkc", B, uv[faces]).reshape(-1, 2)
+    spos = np.einsum("kj,mjc->mkc", B, pos[faces]).reshape(-1, 3)
+    return suv, spos
 
 
 def _glb_accessor(js, bin_, index):
@@ -2244,32 +2284,63 @@ def glove_contrast_reading(path, js=None, bin_=None, atlas=None):
         dom = jj[np.arange(len(jj)), ww.argmax(1)]
         names = np.array([joints[k] for k in dom])
         role = (n.get("extras") or {}).get("rl_role") or js["meshes"][n["mesh"]].get("name") or n.get("name")
-        per_role[role] = (pos, uv, names, joints, ibm)
+        idx = (_glb_accessor(js, bin_, prim["indices"]).reshape(-1, 3).astype(int) if "indices" in prim
+               else np.arange(len(pos)).reshape(-1, 3))
+        per_role[role] = (pos, uv, names, joints, ibm, idx, jj, ww)
     if "uniform" not in per_role:
         return {}
-    pos, uv, names, joints, ibm = per_role["uniform"]
+    pos, uv, names, joints, ibm, idx, jj_u, ww_u = per_role["uniform"]
+
+    def sample_lab(suv):
+        px = np.clip((suv[:, 0] * aw).astype(int), 0, aw - 1)
+        py = np.clip((suv[:, 1] * ah).astype(int), 0, ah - 1)
+        return _lab_of_rgb_arr(atlas[py, px])
 
     def head(joint):
         m = ibm[joints.index(joint)].reshape(4, 4).T          # glTF is column-major
         return -(m[:3, :3].T @ m[:3, 3])
     figures = sorted({nm[:-len("_hand_L")] for nm in joints if nm.endswith("_hand_L")})
-    wpos, wuv, wnames, _wj, _wi = per_role.get("weapon", (None, None, None, None, None))
-    fpos, fuv, fnames, _fj, _fi = per_role.get("face", (None, None, None, None, None))
+    wpos, wuv, wnames = per_role.get("weapon", (None,) * 8)[:3]
+    fpos, fuv, fnames = per_role.get("face", (None,) * 8)[:3]
     for fig in figures:
         for side in ("L", "R"):
             hand_j, fore_j = f"{fig}_hand_{side}", f"{fig}_forearm_{side}"
             gmask = (names == hand_j) | (names == f"{fig}_finger_{side}")
             if not gmask.any():
                 continue
-            glove = texel_lab(uv[gmask])
+            # B3 (round 5): the glove and the sleeve are read INSIDE their faces (FACE_SAMPLE_BARY), not at vertex UVs
+            gfaces = idx[gmask[idx].all(1)]
+            glove_s = sample_lab(_face_samples(gfaces, uv, pos)[0]) if len(gfaces) else sample_lab(uv[gmask])
+            glove = tuple(glove_s.mean(0))
             wrist, elbow = head(hand_j), head(fore_j)
             axis = (wrist - elbow) / np.linalg.norm(wrist - elbow)
-            t = (pos - wrist) @ axis
-            smask = (names == fore_j) & (t > -GLOVE_SLEEVE_REACH_M) & (t <= 0.0)
+            fmask = names == fore_j
+            sfaces = idx[fmask[idx].all(1)]
+            suv, spos = _face_samples(sfaces, uv, pos)
+            st = (spos - wrist) @ axis
+            ssel = (st > -GLOVE_SLEEVE_REACH_M) & (st <= 0.0)
+            # the spill (B3): every face with any weight on this hand, sampled inside; a sample whose hand weight,
+            # interpolated across the face as the importer paints it, is under GLOVE_SPILL_HW is sleeve, and must not
+            # read as the glove: within GLOVE_LIKE_DE of the glove AND nearer it than the sleeve by GLOVE_LIKE_MARGIN
+            # (a bake midtone halfway between the two is neither)
+            hw_ = (ww_u * np.isin(jj_u, [joints.index(j_) for j_ in (hand_j, f"{fig}_finger_{side}") if j_ in joints])).sum(1)
+            afaces = idx[(hw_[idx] > 0).any(1)]
+            auv, apos = _face_samples(afaces, uv, pos)
+            ahw = np.einsum("kj,mj->mk", np.array(FACE_SAMPLE_BARY), hw_[afaces]).reshape(-1)
+            # ...and lies up the sleeve, more than GLOVE_SPILL_M proximal of the wrist (a palm vertex the GUN's bone
+            # carries has no hand weight, and its fist faces are glove by design)
+            far = (ahw < GLOVE_SPILL_HW) & (((apos - wrist) @ axis) < -GLOVE_SPILL_M)
+            spill = 0
+            if far.any() and ssel.any():
+                lab_s = sample_lab(auv[far])
+                sleeve_lab = sample_lab(suv[ssel]).mean(0)
+                dg = np.linalg.norm(lab_s - np.array(glove), axis=1)
+                ds = np.linalg.norm(lab_s - sleeve_lab, axis=1)
+                spill = int(((dg < GLOVE_LIKE_DE) & (dg + GLOVE_LIKE_MARGIN < ds)).sum())
             vmask = names == f"{fig}_spine"        # the vest, as the review read it: the spine bone's own surface
             de = {}
-            if smask.any():
-                de["sleeve"] = _delta_e76(glove, texel_lab(uv[smask]))
+            if ssel.any():
+                de["sleeve"] = _delta_e76(glove, tuple(sample_lab(suv[ssel]).mean(0)))
             if vmask.any():
                 de["vest"] = _delta_e76(glove, texel_lab(uv[vmask]))
             if wpos is not None and (wnames == f"{fig}_weapon").any():
@@ -2278,14 +2349,17 @@ def glove_contrast_reading(path, js=None, bin_=None, atlas=None):
             # the figure's own `face` primitive, where the file has one
             if fpos is not None and (fnames == f"{fig}_head").any():
                 de["skin"] = _delta_e76(glove, texel_lab(fuv[fnames == f"{fig}_head"]))
-            reading[f"{fig}_{side}"] = {"glove": glove, "L": glove[0], "C": (glove[1] ** 2 + glove[2] ** 2) ** 0.5, "de": de}
+            hue = math.degrees(math.atan2(glove[2], glove[1])) % 360.0
+            reading[f"{fig}_{side}"] = {"glove": glove, "L": glove[0], "C": (glove[1] ** 2 + glove[2] ** 2) ** 0.5,
+                                        "hue": hue, "spill": spill, "spill_samples": int(far.sum()), "de": de}
     return reading
 
 
-def glove_contrast_failures(reading, name, sleeve_floor=GLOVE_MIN_DE):
+def glove_contrast_failures(reading, name, sleeve_floor=GLOVE_MIN_DE, tone=None):
     """The gate's rule, on a reading (see `glove_contrast_reading`): every hand differs from each of the sleeve, the
-    vest and the weapon by at least GLOVE_MIN_DE (the sleeve by `sleeve_floor`: GLOVE_SLEEVE_FLOOR_BAKED's, for its one
-    baked figure), sits inside the L* band and under the chroma ceiling."""
+    vest and the weapon by at least GLOVE_MIN_DE (the sleeve by `sleeve_floor`), sits inside the L* band and under the
+    chroma ceiling; for a baked figure in GLOVE_BAKED_TONE (`tone`), its L* floor and hue band are that entry's; and no
+    glove paint runs up the sleeve (GLOVE_SPILL_*)."""
     failures = []
     for key, r in sorted(reading.items()):
         for what in ("sleeve", "vest", "weapon") + (("skin",) if "skin" in r["de"] else ()):
@@ -2294,10 +2368,18 @@ def glove_contrast_failures(reading, name, sleeve_floor=GLOVE_MIN_DE):
                 failures.append(f"{name} {key}: no {what} sample to read the glove against")
             elif r["de"][what] < floor:
                 failures.append(f"{name} {key}: glove dE76 {r['de'][what]:.1f} against the {what}, under {floor:g}")
-        if not (GLOVE_L_BAND[0] <= r["L"] <= GLOVE_L_BAND[1]):
-            failures.append(f"{name} {key}: glove L* {r['L']:.1f} outside {GLOVE_L_BAND[0]:.0f} to {GLOVE_L_BAND[1]:.0f}")
+        lo = tone["L_floor"] if tone else GLOVE_L_BAND[0]
+        if not (lo <= r["L"] <= GLOVE_L_BAND[1]):
+            failures.append(f"{name} {key}: glove L* {r['L']:.1f} outside {lo:.0f} to {GLOVE_L_BAND[1]:.0f}")
         if r["C"] > GLOVE_MAX_CHROMA:
             failures.append(f"{name} {key}: glove C* {r['C']:.1f} over {GLOVE_MAX_CHROMA:.0f}")
+        if tone and not (tone["hue"][0] <= r["hue"] <= tone["hue"][1]):
+            failures.append(f"{name} {key}: glove hue {r['hue']:.0f} deg outside {tone['hue'][0]:.0f} to {tone['hue'][1]:.0f} "
+                            f"(dark brown, the lead's 9 Nov ruling)")
+        if r.get("spill", 0) > GLOVE_SPILL_MAX:
+            failures.append(f"{name} {key}: {r['spill']} glove-coloured samples where the hand weight is under "
+                            f"{GLOVE_SPILL_HW:g}, {GLOVE_SPILL_M * 100:g}+ cm up the sleeve (of {r.get('spill_samples', 0)}): "
+                            f"glove paint on the sleeve")
     return failures
 
 
@@ -2314,20 +2396,23 @@ def check_glove_contrast(teams_root):
             failures.append(f"{name}: carries rl_hands but no hand-bone vertex could be read")
             continue
         team = os.path.splitext(os.path.basename(path))[0]
-        floor = GLOVE_MIN_DE
-        if team in GLOVE_SLEEVE_FLOOR_BAKED:
+        floor, tone = GLOVE_MIN_DE, None
+        if team in GLOVE_BAKED_TONE:
             js, _bin = _read_glb_chunks(path)
             source = (((js.get("scenes") or [{}])[0].get("extras") or {}).get("rl_hands") or {}).get("source")
             if source != "meshy":
-                failures.append(f"{name}: GLOVE_SLEEVE_FLOOR_BAKED relaxes the sleeve floor for a baked Meshy figure, and this "
+                failures.append(f"{name}: GLOVE_BAKED_TONE relaxes the glove's L* floor for a baked Meshy figure, and this "
                                 f"file's rl_hands.source is {source!r}: delete the entry")
             else:
-                floor = GLOVE_SLEEVE_FLOOR_BAKED[team]
-        failures.extend(glove_contrast_failures(reading, name, floor))
+                tone = GLOVE_BAKED_TONE[team]
+        failures.extend(glove_contrast_failures(reading, name, floor, tone))
         worst = min(min(r["de"].values()) for r in reading.values() if r["de"])
         lines.append(f"{os.path.basename(path)}: {len(reading)} hand(s), glove L* {min(r['L'] for r in reading.values()):.1f}"
                      f"-{max(r['L'] for r in reading.values()):.1f}, C* {max(r['C'] for r in reading.values()):.1f}, "
-                     f"worst dE76 {worst:.1f} (floor {GLOVE_MIN_DE:.0f}" + (f", sleeve {floor:g}: baked, the lead's 9 Nov ruling)" if floor != GLOVE_MIN_DE else ")"))
+                     f"hue {min(r['hue'] for r in reading.values()):.0f}-{max(r['hue'] for r in reading.values()):.0f}, "
+                     f"spill {max(r['spill'] for r in reading.values())}, "
+                     f"worst dE76 {worst:.1f} (floor {GLOVE_MIN_DE:.0f}" + (f"; L* floor {tone['L_floor']:g}, hue {tone['hue'][0]:g}-{tone['hue'][1]:g}: "
+                                                                             f"baked dark brown, the lead's 9 Nov ruling)" if tone else ")"))
     return failures, lines
 
 
