@@ -273,6 +273,33 @@ describe('the twin graph', () => {
     expect((await compiledOutline(false)).c.vertex).not.toMatch(/skinWeight|skinIndex|NodeBuffer/);
   });
 
+  it('G1 on the program: the bone matrix is read column-major (column k always scales the k-th expanded component; never a transposed read)', async () => {
+    // The numeric stand-in above fixes `.element(c).x` to a column-major array by hand, so it cannot see how the REAL nodes index a bone.
+    // Here the compiled program is the witness: every read of the skinned bone buffer is `bone[k].c * v_k`. A mat4's column k holds the
+    // image of basis vector k, so the expanded vector's k-th component must multiply column k, for every output row c = x, y, z.
+    // Falsify: write `linear` row-major (`[c0.x, c1.x, c2.x, c0.y, ...]`); the same column then multiplies a different component.
+    const { c } = await compiledOutline(true);
+    const reads = [...expansionOf(c.vertex).matchAll(/buffer\d+\[ uvec4\( skinIndex \)\.[xyzw] \]\[ (\d)u \]\.([xyz]) \* nodeVar(\d+)/g)];
+    // 3 output components x 3 columns x 4 influences.
+    expect(reads.length).toBe(36);
+    const varOfColumn = new Map<string, Set<string>>();
+    for (const [, col, comp, v] of reads) {
+      void comp;
+      const set = varOfColumn.get(col as string) ?? new Set<string>();
+      set.add(v as string);
+      varOfColumn.set(col as string, set);
+    }
+    expect([...varOfColumn.keys()].sort()).toEqual(['0', '1', '2']);
+    // One variable per column, whatever the output component...
+    for (const set of varOfColumn.values()) expect(set.size).toBe(1);
+    // ... and the columns take the expanded x, y, z in order (consecutive, ascending node variables).
+    const vars = ['0', '1', '2'].map((k) => Number([...(varOfColumn.get(k) as Set<string>)][0]));
+    expect(vars[1]).toBe((vars[0] as number) + 1);
+    expect(vars[2]).toBe((vars[0] as number) + 2);
+    // Every (column, component) pair is read: no row is dropped.
+    expect(new Set(reads.map((r) => `${r[1]}${r[2]}`)).size).toBe(9);
+  });
+
   it('R12 the bone texture: past the uniform-buffer limit the expansion reads the skeleton\'s bone texture, as the skinning node does', async () => {
     const { c } = await compiledOutline(true, 64);
     // three's skinning and the twin each fetch the four bones' four columns from the texture: 32 fetches, and no bone buffer.
