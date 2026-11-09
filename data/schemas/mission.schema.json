@@ -263,6 +263,10 @@
             "type": "string",
             "description": "Trigger orders address groups -- spawnPlacement already registers this for every side, starting_force included. A `remove` trigger naming this group must not cover every starting_force entry: validate_data.mjs refuses one that would (removing the last living player unit would read as a wipe)."
           },
+          "tag": {
+            "type": "string",
+            "description": "Names these units for an objective: an `escort` objective's `target` is a tag on the player's own starting_force placements."
+          },
           "at": {
             "type": "array",
             "items": {
@@ -379,7 +383,7 @@
               "destroy_all",
               "raze"
             ],
-            "description": "destroy_all exists but should be rare. Layered objectives are what make a level a level. raze: every structure inside the zone named by `target` is destroyed. The set is snapshotted at mission start, so a zone holding no structures is an authoring error rather than an instant win. collapse: every tunnel route whose MOUTH lies inside the zone named by `target` is brought down; a route that merely passes under the zone does not count. The set is snapshotted at mission start, so a zone holding no mouths can never complete and is an authoring error. A primary collapse must declare `seconds`, for the same reason a primary raze must: losing every unit that can work a charge makes it permanently impossible, and without a deadline to fail on the mission is unwinnable and unlosable at once. escort: `target` is a tag on the player's own `starting_force` placements and `zone` is the destination. It fails the tick any tagged unit is dead or taken, and completes the first tick every tagged unit is alive, on the surface, standing and inside the zone; a unit carried by a transport counts where the carrier stands. A tag that starts inside the zone is an authoring error."
+            "description": "destroy_all exists but should be rare. Layered objectives are what make a level a level. raze: every structure inside the zone named by `target` is destroyed. The set is snapshotted at mission start, so a zone holding no structures is an authoring error rather than an instant win. collapse: every tunnel route whose MOUTH lies inside the zone named by `target` is brought down; a route that merely passes under the zone does not count. The set is snapshotted at mission start, so a zone holding no mouths can never complete and is an authoring error. A primary collapse must declare `seconds`, for the same reason a primary raze must: losing every unit that can work a charge makes it permanently impossible, and without a deadline to fail on the mission is unwinnable and unlosable at once. escort: `target` is a tag on the player's own `starting_force` placements and `zone` is the destination. It fails the tick any tagged unit is dead or taken, and completes the first tick every tagged unit is alive, on the surface, standing and inside the zone; a unit carried by a transport counts where the carrier stands, an airborne carrier included. A tag that starts inside the zone is an authoring error."
           },
           "primary": {
             "type": "boolean"

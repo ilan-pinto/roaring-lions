@@ -669,6 +669,40 @@ describe('escort (GH-2)', () => {
     expect(status(withEscort)).toBe('complete'); // and the objective did run in that span
   });
 
+  it('a man down in the zone has not arrived; he has once he is up (GH-707 wounds, `isDown`)', () => {
+    // Registering a type with `hull.wounds` is what turns the wound columns on (`woundLive`); without it `isDown` is false.
+    const w = world([escort()], undefined, (sim) => {
+      sim.addUnitType({ id: 'm_wounded', role: 'wounded', hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, can_embark: true }, mobility: { speed_tiles_s: 0.12 }, sensors: { optics: 0.5, sight_tiles: 0, signature: 0.3 } });
+      sim.addUnitType({ ...SQUAD, id: 'm_woundable', hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 }, wounds: { wound_chance: 1, bleed_s: 600, type: 'm_wounded', in_place: true } } });
+    });
+    w.sim.state.posX[0] = fx.from(21.5); // fixture: the body stands on the zone
+    w.sim.state.posY[0] = fx.from(5.5);
+    const ws = w.sim.state.woundState as Uint8Array;
+    ws[0] = 1; // DOWN
+    w.runtime.step([]); // the runtime alone: the sim's own wound machinery is not under test
+    expect(status(w)).toBe('active');
+    ws[0] = 0; // up
+    w.runtime.step([]);
+    expect(status(w)).toBe('complete');
+  });
+
+  for (const carrier of ['m_carrier', 'm_heli']) {
+    it(`an escort carried by a ${carrier} is where the carrier stands, and it completes there`, () => {
+      const w = world([escort()], [
+        { unit: carrier, count: 1, at: [3, 5], passengers: [{ unit: 'm_rider', count: 1, tag: 'vip' }] },
+        { unit: 'm_squad', count: 1, at: [3, 8] },
+      ]);
+      expect(w.sim.state.carriedBy[1]).toBe(0); // the rider is aboard
+      walk(w, 0);
+      expect(w.step(2).mission.some((e) => e.kind === 'objective')).toBe(false);
+      expect(status(w)).toBe('active'); // the carrier is on its way, so the rider is not in the zone
+      w.step(60 * TICKS_PER_SECOND);
+      expect(w.sim.state.carriedBy[1]).toBe(0); // and still aboard: it did not get out to arrive
+      expect(w.sim.state.posX[0] >> 16).toBeGreaterThanOrEqual(20);
+      expect(status(w)).toBe('complete');
+    });
+  }
+
   describe('refuses a broken escort at load', () => {
     it('with no tag', () => expect(() => world([escort({ target: undefined })])).toThrow(/needs a tag/));
     it('with a tag no placement carries', () => expect(() => world([escort({ target: 'nobody' })])).toThrow(/needs a tag/));
@@ -680,6 +714,23 @@ describe('escort (GH-2)', () => {
           objectives: [escort()],
         }), { zones: DEST }),
       ).toThrow(/not the player's/);
+    });
+    it('with a tag that names a player unit AND an enemy one: one stranger is enough', () => {
+      expect(() =>
+        makeWorld(baseMission({
+          starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5], tag: 'vip' }],
+          enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [22, 5], tag: 'vip' }] },
+          objectives: [escort()],
+        }), { zones: DEST }),
+      ).toThrow(/not the player's/);
+    });
+    it('and does NOT refuse a tag with one unit inside the zone and one outside: only all-inside is the first-tick win', () => {
+      expect(() =>
+        world([escort()], [
+          { unit: 'm_squad', count: 1, at: [21, 5], tag: 'vip' },
+          { unit: 'm_squad', count: 1, at: [3, 5], tag: 'vip' },
+        ]),
+      ).not.toThrow();
     });
     it('with no zone, or a zone the map does not have', () => {
       expect(() => world([escort({ zone: undefined })])).toThrow(/valid zone/);
