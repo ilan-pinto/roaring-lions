@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { emptyAccount } from '@lions/economy';
 import type { CampaignBody, ServerState } from '@lions/economy';
 import { accountLedgerStore } from './account-store';
@@ -8,7 +8,11 @@ import type { MeResult } from './client';
 import { cacheOf, confirmedState, memStorage, opIds, slotOf, world } from './fixtures';
 import { HELD_KEY, readHeld } from './local-held';
 import { heartbeatKey, outboxKey, readOutbox, writeOutbox, type OutboxOp } from './outbox';
-import { signOut, startSync, FLUSH_DEBOUNCE_MS, type SyncHandle } from './sync';
+import { signOut, startSync, FLUSH_DEBOUNCE_MS, HEARTBEAT_MS, type SyncHandle } from './sync';
+import { selectLedgerStore } from './select-store';
+import { TAB_ID_KEY } from './tab-id';
+import { clearTab } from './outbox';
+import { wipeMember } from './sync';
 import { clientFor, FakeServer, makeScheduler, sharedLocks, slotFrom, tick, type Sched } from './sync-kit';
 
 const MARK = 'campaign.slots_issued'; // a ledger key that survives canonicalisation, so a digest-checked slot still shows which write it holds
@@ -120,6 +124,83 @@ describe('A2-18 held_before_adopt', () => {
     expect(markOf(stored?.body)).toBe(2);
     // ...and leaves the list only because the answer's digest was its own.
     expect(readHeld(r.storage)).toEqual([]);
+  });
+
+  it('release() names the held ids it queued: [] while every system slot is full, the id once one frees (and again while it waits)', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const item = readHeld(r.storage)[0] as NonNullable<ReturnType<typeof readHeld>[number]>;
+    expect(r.sync.canRelease(item)).toBe(true);
+    expect(r.sync.canRelease({ ...item, digest: undefined })).toBe(false);
+    expect(r.sync.canRelease({ ...item, publicId: 'someone-else' })).toBe(false);
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [] });
+    r.server.slots.delete([...r.server.slots.keys()][0] as string);
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [item.id] });
+    expect(readHeld(r.storage)).toHaveLength(1); // still listed: the ack removes it, not the call
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [item.id] }); // queued already, still reported
+    await r.sync.flush();
+    expect(readHeld(r.storage)).toEqual([]);
+  });
+
+  it('a release put that wedges re-files the ORIGINAL held item as refused: one entry, same id, nothing waiting', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const item = readHeld(r.storage)[0] as NonNullable<ReturnType<typeof readHeld>[number]>;
+    r.server.slots.delete([...r.server.slots.keys()][0] as string);
+    await r.sync.release();
+    const put = r.store.sync.ops().find((x) => x.kind === 'slot.put') as NonNullable<ReturnType<typeof r.store.sync.ops>[number]>;
+    expect(r.sync.queuedHeldIds()).toEqual([item.id]);
+    r.server.failWith.set(put.opId, 500);
+    await r.sync.flush();
+    for (let i = 0; i < 5; i++) {
+      await r.sched.advance(60_000);
+      await r.sync.idle();
+    }
+    expect(readHeld(r.storage).map((h) => [h.id, h.reason, h.text])).toEqual([[item.id, 'refused', item.text]]);
+    expect(r.sync.queuedHeldIds()).toEqual([]);
+  });
+
+  it('a release put that loses the race for the slot (409 cap) leaves the item held and no longer waiting', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const item = readHeld(r.storage)[0] as NonNullable<ReturnType<typeof readHeld>[number]>;
+    r.server.slots.delete([...r.server.slots.keys()][0] as string);
+    await r.sync.release();
+    expect(r.sync.queuedHeldIds()).toEqual([item.id]);
+    r.server.addSystemSlot(); // another device took the slot first
+    await r.sync.flush();
+    expect(readHeld(r.storage).map((h) => [h.id, h.reason])).toEqual([[item.id, 'held']]);
+    expect(r.sync.queuedHeldIds()).toEqual([]);
+  });
+
+  it('release() says ok: false when the refresh did not complete (offline status 0, a 500, a 401, a rejection), never an empty queue', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const real = server.state.bind(server);
+    for (const status of [0, 500, 401]) {
+      server.state = (async () => ({ ok: false, status, body: null })) as never;
+      expect(await r.sync.release()).toEqual({ ok: false });
+    }
+    server.state = (() => Promise.reject(new Error('network'))) as never;
+    expect(await r.sync.release()).toEqual({ ok: false });
+    server.state = real;
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [] }); // reachable and genuinely full
   });
 
   it('a digest that is not its own leaves the item in the list (as refused: never uploaded twice)', async () => {
@@ -535,6 +616,38 @@ describe('R12 the send base (C1)', () => {
     const t1b = rig({ server, storage, sched, cache: readCache(storage) as NonNullable<ReturnType<typeof readCache>>, tabId: 'T1' });
     await t1b.sync.flush();
     expect(server.count('PUT campaign').map((c) => c.base)).toEqual([3, 3]); // tab 1 sent on the revision it was built on
+    expect(markOf(server.campaign)).toBe(2); // tab 2's write was not overwritten
+    expect([...server.slots.values()].filter((x) => x.meta.origin === 'conflict').map((x) => markOf(x.body))).toEqual([1]);
+    t2.sync.stop();
+  });
+
+  it('P3 (R17), victory variant: a queued, unsent campaign-carrying victory pins its base; another tab writes; after a reload the other write survives', async () => {
+    const server = new FakeServer();
+    const storage = memStorage();
+    const sched = makeScheduler();
+    // Tab 1's victory never reaches the server (the request fails in the air, once), so it stays queued and unsent.
+    const cache1 = cacheOf(server.snapshot());
+    // eslint-disable-next-line prefer-const -- the store's onChange closes over the sync that is built after it
+    let sync1: SyncHandle | undefined;
+    const store1 = accountLedgerStore({ storage, cache: cache1, world, onChange: () => sync1?.kick(), newOpId: opIds(), tabId: 'T1' });
+    sync1 = startSync({
+      store: store1,
+      client: { ...clientFor(server), victory: () => Promise.resolve({ ok: false as const, status: 0, body: { error: 'network' } }) },
+      storage,
+      now: sched.now,
+      schedule: sched.schedule,
+    });
+    const t1 = { store: store1, sync: sync1 };
+    t1.store.recordVictory({ ledger: led(1), account: null, roar: null, win: { missionId: 'm', stars: 1 } as never, start: 'n' }); // queued on revision 3, unsent
+    expect(t1.store.sync.ops().map((o) => o.kind)).toEqual(['victory']);
+    const t2 = rig({ server, storage, sched, cache: readCache(storage) as NonNullable<ReturnType<typeof readCache>>, tabId: 'T2' });
+    t2.store.writeLedger(led(2));
+    await t2.sync.flush(); // server revision 4, mark 2; the shared cache is now revision 4
+    expect(readCache(storage)?.confirmed.campaign?.revision).toBe(4);
+    t1.sync.stop();
+    const t1b = rig({ server, storage, sched, cache: readCache(storage) as NonNullable<ReturnType<typeof readCache>>, tabId: 'T1' });
+    await t1b.sync.flush();
+    expect(server.count('POST victory').map((c) => c.base)).toEqual([3]); // sent on the revision it was built on
     expect(markOf(server.campaign)).toBe(2); // tab 2's write was not overwritten
     expect([...server.slots.values()].filter((x) => x.meta.origin === 'conflict').map((x) => markOf(x.body))).toEqual([1]);
     t2.sync.stop();
@@ -969,6 +1082,7 @@ describe('signOut', () => {
     const r = rig({ server });
     writeBinding(r.storage, { version: 1, publicId: 'pub1', deviceId: '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc', claimedAt: 5 });
     writeCache(r.storage, r.cache);
+    r.storage.setItem('lions.account.claiming', '{"deviceId":"0b5f6d3e-1c2a-4f7b-9d8e-123456789abc","digests":{"campaign":null,"slots":{}},"at":1}');
     r.store.sync.setOps([camp('A', 1), { kind: 'slot.put', opId: 'P', slotId: 's1', slot: slotOf('s1'), origin: 'player' }]);
     await signOut({ sync: r.sync, store: r.store, client: clientFor(server), storage: r.storage, schedule: r.sched.schedule, now: r.sched.now });
     expect(readHeld(r.storage).map((h) => [h.id, h.reason])).toEqual([['A', 'refused'], ['P', 'refused']]);
@@ -979,6 +1093,7 @@ describe('signOut', () => {
     expect(b?.deviceId).toBeUndefined();
     expect(b?.claimedAt).toBeUndefined();
     expect(r.storage.getItem(ACCOUNT_BINDING_KEY)).not.toContain('claimedAt');
+    expect(r.storage.getItem('lions.account.claiming'), 'a pending claim marker must not survive sign-out').toBeNull();
   });
 
   it('a queue that sends cleanly files nothing', async () => {
@@ -1007,3 +1122,169 @@ describe('signOut', () => {
   });
 });
 
+
+describe('I1 the loop starts unverified', () => {
+  const other: MeResult = { kind: 'signedIn', publicId: 'someone-else', displayName: 'B', showRecord: false, fresh: false, identities: [] };
+  it('a fresh startSync whose me() names another member applies no GET state, sends no op and calls onForeignMember', async () => {
+    const server = new FakeServer();
+    const storage = memStorage();
+    writeBinding(storage, { version: 1, publicId: 'pub1', deviceId: '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc', claimedAt: 5 });
+    const staleState = confirmedState({ campaign: { ledger: led(1), brigade: emptyAccount(), tutorialDone: false, revision: 2, digest: 'old' } });
+    const r = rig({ server, storage, me: () => other, cacheFrom: staleState });
+    writeOutbox(storage, 'T1', [camp('A', 7)], 'pub1'); // A's queue sits on the device
+    r.store.sync.setOps([camp('A', 7)]);
+    const before = r.cache.confirmed;
+    await r.sync.refresh(); // boot's refresh
+    await r.sync.flush(); // the next drain
+    expect(r.sync.status()).toBe('foreign');
+    expect(r.foreign).toHaveBeenCalledTimes(1);
+    expect(r.server.calls.map((c) => c.name)).not.toContain('GET state');
+    expect(r.server.calls.filter((c) => c.name.startsWith('PUT') || c.name.startsWith('POST'))).toEqual([]);
+    expect(r.cache.confirmed).toBe(before);
+    expect(r.store.outboxSize()).toBe(1);
+  });
+
+  it('the same member verifies once, then refreshes and sends', async () => {
+    const r = rig();
+    r.store.writeLedger(led(5));
+    await r.sync.refresh();
+    expect(r.sync.status()).toBe('active');
+    await r.sync.flush();
+    expect(markOf(r.server.campaign)).toBe(5);
+  });
+
+  it('an outbox key stamped with another member is not adopted by this member\'s store and stays on disk', () => {
+    const storage = memStorage();
+    writeOutbox(storage, 'T1', [camp('A', 7)], 'pub-A');
+    const mine = accountLedgerStore({ storage, cache: cacheOf(), world, onChange: () => {}, newOpId: opIds(), tabId: 'T1' });
+    expect(mine.outboxSize()).toBe(0);
+    expect(readOutbox(storage, 'T1')).toHaveLength(1); // untouched until the right member comes back
+    const owner = accountLedgerStore({ storage, cache: { ...cacheOf(), publicId: 'pub-A' }, world, onChange: () => {}, newOpId: opIds(), tabId: 'T1' });
+    expect(owner.outboxSize()).toBe(1);
+  });
+});
+
+describe('NB1 an unanswered GET me backs off', () => {
+  const off: MeResult = { kind: 'off' };
+  const win: OutboxOp = { kind: 'victory', opId: 'V', missionId: 'm', stars: 2, start: 'n', campaign: body(5) };
+  /** The fake `me` answers through a resolved promise (as a real fetch does); after 200 asks it gives in and names the member, which only ends a runaway loop so the count assertions below can fail instead of hanging. */
+  const slowOff = (asks: { n: number }) => (): MeResult => {
+    asks.n++;
+    return asks.n > 200 ? { kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, fresh: false, identities: [] } : off;
+  };
+  const retries = (r: Rig): number[] => r.sched.delays.filter((d) => d !== HEARTBEAT_MS);
+  const bound = (asks: { n: number }): Rig => {
+    const storage = memStorage();
+    writeBinding(storage, { version: 1, publicId: 'pub1', deviceId: '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc', claimedAt: 5 });
+    return rig({ storage, me: slowOff(asks) });
+  };
+
+  it('a queued victory with me -> off asks once, then on the 2 s -> 4 s -> 8 s backoff, never in a loop', async () => {
+    const asks = { n: 0 };
+    const r = bound(asks);
+    r.store.sync.setOps([win]);
+    r.sync.kick();
+    for (let i = 0; i < 20; i++) await tick();
+    expect(asks.n).toBe(1);
+    expect(retries(r)).toEqual([2000]);
+    await r.sched.advance(2000);
+    for (let i = 0; i < 20; i++) await tick();
+    expect(asks.n).toBe(2);
+    await r.sched.advance(4000);
+    for (let i = 0; i < 20; i++) await tick();
+    expect(asks.n).toBe(3);
+    expect(retries(r)).toEqual([2000, 4000, 8000]);
+    expect(r.sync.status()).toBe('unverified');
+    expect(r.server.calls.filter((c) => c.name !== 'GET me')).toEqual([]);
+    r.sync.stop();
+  });
+
+  it('refresh with me -> off schedules the backoff', async () => {
+    const r = bound({ n: 0 });
+    await r.sync.refresh();
+    expect(retries(r)).toEqual([2000]);
+    r.sync.stop();
+  });
+
+  it('a barrier op with me -> off answers error 0 and schedules the backoff', async () => {
+    const r = bound({ n: 0 });
+    expect(await r.sync.spend({ item: 'unit', unitId: 'u' } as never)).toEqual({ kind: 'error', status: 0 });
+    expect(retries(r)).toEqual([2000]);
+    r.sync.stop();
+  });
+});
+
+describe('NB3 a rejected sign-out', () => {
+  const failLogout = (server: FakeServer) => ({ ...clientFor(server), logout: async () => ({ error: 'error', status: 500 }) as const });
+
+  it('takes back the refused copies it filed and resumes the loop, so the queued work keeps syncing', async () => {
+    const server = new FakeServer();
+    server.failWith.set('A', 0);
+    const r = rig({ server });
+    writeCache(r.storage, r.cache);
+    r.store.sync.setOps([camp('A', 1)]);
+    const prior = { id: 'old', kind: 'campaign' as const, reason: 'held' as const, text: '{}', at: 1, publicId: 'pub1', digest: 'd' };
+    r.storage.setItem(HELD_KEY, JSON.stringify([prior]));
+    await expect(signOut({ sync: r.sync, store: r.store, client: failLogout(server), storage: r.storage, schedule: r.sched.schedule, now: r.sched.now })).rejects.toThrow();
+    expect(readHeld(r.storage).map((h) => h.id)).toEqual(['old']);
+    expect(r.sync.status()).not.toBe('stopped');
+    expect(r.storage.getItem(ACCOUNT_CACHE_KEY)).not.toBeNull();
+    expect(r.store.outboxSize()).toBe(1);
+    server.failWith.delete('A');
+    await r.sync.flush();
+    await r.sched.advance(60_000);
+    await r.sync.flush();
+    expect(r.store.outboxSize()).toBe(0);
+    expect(markOf(r.server.campaign)).toBe(1);
+  });
+
+  it('a barrier op on a stopped loop answers offline and sends nothing', async () => {
+    const r = rig();
+    r.sync.stop();
+    const before = r.server.calls.length;
+    expect(await r.sync.spend({ item: 'unit', unitId: 'u' } as never)).toEqual({ kind: 'offline' });
+    expect(r.server.calls.length).toBe(before);
+  });
+});
+
+describe('R27 a foreign-owned tab key is re-keyed, not written', () => {
+  // Node 22 defines no global Web Storage and Node 25 does: install the tab's own sessionStorage so neither matters.
+  let tabSession: ReturnType<typeof memStorage>;
+  beforeEach(() => {
+    tabSession = memStorage();
+    vi.stubGlobal('sessionStorage', tabSession);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+  it('B boots in the tab whose key holds A\'s ops: B writes under a new key, A\'s key is byte-identical, and A\'s own loop adopts it later', async () => {
+    const storage = memStorage();
+    writeOutbox(storage, 'T', [camp('A1', 7)], 'pub-A');
+    const bytes = storage.getItem(outboxKey('T'));
+    const b = selectLedgerStore(new URLSearchParams('accounts'), (() => {
+      writeBinding(storage, { version: 1, publicId: 'pub1', claimedAt: 5 });
+      writeCache(storage, cacheOf());
+      return storage;
+    })(), (w) => w, { world, tabId: 'T', newOpId: opIds() });
+    const store = b.store as ReturnType<typeof accountLedgerStore>;
+    expect(store.sync.tabId).not.toBe('T');
+    expect(tabSession.getItem(TAB_ID_KEY)).toBe(store.sync.tabId);
+    store.writeLedger(led(3)); // B's write
+    store.sync.setBase(4);
+    store.sync.setOps([]); // B's sign-out
+    clearTab(storage, store.sync.tabId);
+    wipeMember({ store, storage, now: () => 1 }); // and a 401 wipe
+    expect(storage.getItem(outboxKey('T'))).toBe(bytes);
+    // A comes back: no heartbeat for T, so it is an orphan to A's own loop.
+    const server = new FakeServer();
+    const sched = makeScheduler();
+    const cacheA = { ...cacheOf(server.snapshot()), publicId: 'pub-A' };
+    const storeA = accountLedgerStore({ storage, cache: cacheA, world, onChange: () => {}, newOpId: opIds(), tabId: 'TA' });
+    const syncA = startSync({ store: storeA, client: clientFor(server, { me: () => ({ kind: 'signedIn', publicId: 'pub-A', displayName: 'A', showRecord: false, fresh: false, identities: [] }) }), storage, now: sched.now, schedule: sched.schedule });
+    storeA.sync.setOps([camp('A0', 1)]);
+    await syncA.flush();
+    expect(storage.getItem(outboxKey('T'))).toBeNull();
+    expect(markOf(server.campaign)).toBeDefined();
+    syncA.stop();
+  });
+});

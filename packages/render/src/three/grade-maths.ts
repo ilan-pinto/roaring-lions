@@ -212,7 +212,15 @@ export function gradeNoise<T>(ops: Ops<T>, x: T, y: T): T {
   return ops.fract(ops.mul(ops.lit(52.9829189), ops.fract(dot)));
 }
 
-/** What the dither adds to a colour (display-referred 0..1 units): one LSB at `lsb` = 1, centred on zero. */
+/** The second IGN sample's offset (pixels): far enough from the first that the pair is not the same pattern shifted by one tap. */
+export const GRADE_DITHER_OFFSET = { x: 47, y: 113 } as const;
+
+/**
+ * What the dither adds to a colour (display-referred 0..1 units): TRIANGULAR noise of +-1 LSB at `lsb` = 1, centred on zero (GH-943 P2 T8,
+ * R10). Two interleaved-gradient samples summed, `(n1 + n2 - 1)`, where a single sample (rectangular, +-0.5 LSB) left a flat gradient
+ * banding at 0.058 / 0.075 (L) and 0.070 / 0.065 (G) on the Metal sheet. The legacy GLSL spells the same two samples (`DITHER_GLSL`).
+ */
 export function gradeDitherOffset<T>(ops: Ops<T>, x: T, y: T, lsb: T): T {
-  return ops.mul(ops.sub(gradeNoise(ops, x, y), ops.lit(0.5)), ops.div(lsb, ops.lit(255)));
+  const second = gradeNoise(ops, ops.add(x, ops.lit(GRADE_DITHER_OFFSET.x)), ops.add(y, ops.lit(GRADE_DITHER_OFFSET.y)));
+  return ops.mul(ops.sub(ops.add(gradeNoise(ops, x, y), second), ops.lit(1)), ops.div(lsb, ops.lit(255)));
 }

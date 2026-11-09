@@ -46,6 +46,7 @@ import {
 import { rovingStep } from './garage-model';
 import { creditAsk, type CreditAsk } from '../upgrade-pay';
 import { addsAvailable, buildAddsPanel } from './stores-adds-view';
+import { blockText, creditBlock, netText, type CreditBlock, type NetState } from './spend-gate';
 
 export type StoresShelf = 'early' | 'cosmetics' | 'receipts';
 const SHELVES: readonly StoresShelf[] = ['early', 'cosmetics', 'receipts'];
@@ -81,6 +82,16 @@ export interface StoresOptions extends StoreInput {
   onBuyTierCredits?: (unitId: string, track: string, to: number, price: number) => void;
   /** The `data-buy`/`data-focus` key of the control to focus after a redraw. */
   focusKey?: string;
+  /** Signed in (GH-1075 A2): the `data-buy` key of the coin Buy now waiting on the server. Every coin Buy is disabled
+   *  while it is set, and the named one reads `stores.pending`. */
+  pending?: string | null;
+  /** Signed in (GH-1142): keys `unitId.track` and `unit:<id>` of coin Buys in flight. A credit Buy of one of them is drawn
+   *  disabled, with the reason `stores.pendingCoin`. Absent for a guest. */
+  pendingTracks?: () => ReadonlySet<string>;
+  /** Signed in (§0.39): a coupon or a reset is in flight; every credit Buy is drawn disabled with `stores.pending`. */
+  frozen?: () => boolean;
+  /** Signed in (§0.18): `offline` / `syncing` disable every coin Buy, with the reason. Absent for a guest. */
+  net?: () => NetState;
   /** The unit whose "What it adds" panel is open (GH-1076), kept through redraws like `shelf`. */
   adds?: string;
   /** Told when a panel opens (its unit id) or closes (`null`), so a redraw can reopen it. */
@@ -537,12 +548,17 @@ function coinBuy(coins: number, label: string, enabled: boolean, ctx: Ctx, key: 
   buy.type = 'button';
   buy.className = 'rl-stores__buy';
   buy.dataset.buy = key;
+  // Signed in, a coin Buy is a server call: it waits for the barrier (§0.18) and shows its own pending state.
+  const waiting = ctx.opts.pending === key;
+  const why = ctx.opts.pending != null ? t('stores.pending') : netText(ctx.opts.net?.() ?? 'ok');
+  const open = enabled && why === null;
   buy.appendChild(coinImg(ctx.opts.coinSrc(24), 24, 'rl-stores__coin'));
-  buy.appendChild(el('span', '', t('stores.buy.coins', { n: coins })));
-  buy.setAttribute('aria-label', label);
-  buy.disabled = !enabled;
+  buy.appendChild(el('span', '', waiting ? t('stores.pending') : t('stores.buy.coins', { n: coins })));
+  buy.setAttribute('aria-label', waiting ? t('stores.pending') : label);
+  if (enabled && why !== null) buy.title = why;
+  buy.disabled = !open;
   const onBuy = ctx.opts.onBuy;
-  if (enabled && onBuy !== undefined) buy.addEventListener('click', () => onBuy(ask));
+  if (open && onBuy !== undefined) buy.addEventListener('click', () => onBuy(ask));
   return buy;
 }
 
@@ -550,21 +566,29 @@ function coinBuy(coins: number, label: string, enabled: boolean, ctx: Ctx, key: 
  *  credits (`affordable`: the earned credits on hand cover its price), the
  *  account is live (`credits` is defined), and the caller can buy. Credits and
  *  coins never mix: this never reads the coin wallet. */
-export function creditBuyEnabled(item: UnitItem, credits: number | undefined, canBuy: boolean): boolean {
-  return canBuy && item.state === 'affordable' && item.credits !== undefined && credits !== undefined && credits >= item.credits;
+export function creditBuyEnabled(item: UnitItem, credits: number | undefined, canBuy: boolean, block: CreditBlock | null = null): boolean {
+  return canBuy && block === null && item.state === 'affordable' && item.credits !== undefined && credits !== undefined && credits >= item.credits;
 }
 
 function creditBuy(item: UnitItem, ctx: Ctx): HTMLButtonElement | null {
   const onBuyCredits = ctx.opts.onBuyCredits;
   const price = item.credits;
   if (price === undefined || !creditBuyEnabled(item, ctx.opts.credits, onBuyCredits !== undefined)) return null;
+  // Signed in (GH-1142, §0.39): drawn, but disabled, while a coin Buy of this unit or a coupon / reset is in flight.
+  const block = creditBlock(item.id, null, ctx.opts.pendingTracks?.(), ctx.opts.frozen?.() ?? false);
   const buy = document.createElement('button');
   buy.type = 'button';
   buy.className = 'rl-stores__buy rl-stores__buy--credits';
   buy.dataset.buy = `credits:${item.id}`;
   buy.textContent = t('stores.buy.credits', { n: price });
   buy.setAttribute('aria-label', t('stores.buy.credits.aria', { name: item.name, n: price }));
-  buy.addEventListener('click', () => onBuyCredits?.(item.id, price));
+  const enabled = creditBuyEnabled(item, ctx.opts.credits, onBuyCredits !== undefined, block);
+  buy.disabled = !enabled;
+  if (block !== null) {
+    buy.title = blockText(block);
+    buy.dataset.block = block;
+  }
+  if (enabled) buy.addEventListener('click', () => onBuyCredits?.(item.id, price));
   return buy;
 }
 
@@ -572,13 +596,23 @@ function creditBuy(item: UnitItem, ctx: Ctx): HTMLButtonElement | null {
  *  maxed), the unit is open, the caller can buy, and the earned credits cover the whole
  *  ASK, which is the run when coins have run ahead, not the one rung (R0.4). Credits
  *  alone: this never reads the coin wallet and never `TierItem.state`. */
-export function tierCreditBuyEnabled(ask: CreditAsk | null, credits: number | undefined, unitOpen: boolean, canBuy: boolean): boolean {
-  return canBuy && unitOpen && ask !== null && credits !== undefined && credits >= ask.price;
+export function tierCreditBuyEnabled(
+  ask: CreditAsk | null,
+  credits: number | undefined,
+  unitOpen: boolean,
+  canBuy: boolean,
+  block: CreditBlock | null = null
+): boolean {
+  return canBuy && block === null && unitOpen && ask !== null && credits !== undefined && credits >= ask.price;
 }
 
 function tierCreditBuy(item: TierItem, ask: CreditAsk, ctx: Ctx): HTMLButtonElement | null {
   const onBuy = ctx.opts.onBuyTierCredits;
   if (!tierCreditBuyEnabled(ask, ctx.opts.credits, ctx.unitOpen(item.unitId), onBuy !== undefined)) return null;
+  // Signed in (GH-1142, §0.39): the SAME predicate, asked again with the block. A pending coin Buy of this track, or a
+  // coupon / reset in flight, draws the button disabled with its reason instead of removing it.
+  const block = creditBlock(item.unitId, item.track, ctx.opts.pendingTracks?.(), ctx.opts.frozen?.() ?? false);
+  const enabled = tierCreditBuyEnabled(ask, ctx.opts.credits, ctx.unitOpen(item.unitId), onBuy !== undefined, block);
   const track = t(`garage.track.${item.track}`);
   const args = { to: ask.to, price: ask.price, from: ask.from, last: ask.to - 1, name: item.unitName, track, n: ask.price, tier: ask.to };
   const buy = document.createElement('button');
@@ -594,7 +628,12 @@ function tierCreditBuy(item: TierItem, ask: CreditAsk, ctx: Ctx): HTMLButtonElem
     buy.textContent = t('stores.buy.tier.credits', args);
     buy.setAttribute('aria-label', t('stores.buy.tier.credits.aria', args));
   }
-  buy.addEventListener('click', () => onBuy?.(item.unitId, item.track, ask.to, ask.price));
+  buy.disabled = !enabled;
+  if (block !== null) {
+    buy.title = blockText(block);
+    buy.dataset.block = block;
+  }
+  if (enabled) buy.addEventListener('click', () => onBuy?.(item.unitId, item.track, ask.to, ask.price));
   return buy;
 }
 

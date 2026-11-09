@@ -84,8 +84,8 @@ const WARM_FRAMES = 61;
  * legacy MINUS what the node arms cannot draw yet (measured on wadi_halam_4 z1, 300 figures, 5 Nov). The GTAO normal pre-pass
  * (a third draw of the scene: 10.54 M -> 7.80 M triangles) USED to be switched off here; P1 T7 gave the node chain its own AO, so
  * matched L keeps it on and the arms draw the same three scene passes. What is still removed:
- *  - every `ShaderMaterial` object and the occlusion outline (`rl-silhouette-outline`), which `censusUnported` hides on the node
- *    arms: the SAME function is run on L's scene here, so the hidden set is the node arms' by construction (7.58 M -> 5.312005 M,
+ *  - every `ShaderMaterial` object (and, until GH-943 P3 T5 gave it a twin, the occlusion outline), which `censusUnported` hides on
+ *    the node arms: the SAME function is run on L's scene here, so the hidden set is the node arms' by construction (7.58 M -> 5.312005 M,
  *    against the node arms' 5.311988 M: 17 triangles apart).
  * The screen-space post passes (fog, bloom, SMAA, grade, vignette) stay on L: they cost fragments, not triangles, and they are
  * stated with the result as the bias they are (in the node arms' favour). With `shipped`, the triangle refusal refuses, correctly.

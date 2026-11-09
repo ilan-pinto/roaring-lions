@@ -6,6 +6,7 @@ import { perMinute } from './limits';
 import { deleteIdentity } from './identity';
 import { deleteAccount, gone } from './delete';
 import { exportAccount } from './export';
+import { claim } from './claim';
 import { getState, putCampaign } from './campaign';
 import { me, patchProfile } from './profile';
 import { deleteSlot, getSlot, putSlot } from './slots';
@@ -62,6 +63,7 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
   { method: 'POST', pattern: 'gone', handler: gone },
   { method: 'POST', pattern: 'mission/start', handler: missionStart },
   { method: 'POST', pattern: 'victory', handler: victory },
+  { method: 'POST', pattern: 'claim', handler: claim },
   { method: 'POST', pattern: 'spend', handler: spend },
   { method: 'POST', pattern: 'coupon', handler: coupon },
   { method: 'POST', pattern: 'reset-free', handler: resetFreeRoute },

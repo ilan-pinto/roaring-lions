@@ -27,9 +27,20 @@ import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
 import { disturbBendOps, disturbSlotPushOps, DISTURB_MAX } from './terrain/disturb';
 import { foliageLeanOps } from './terrain/wind';
 import { backdropFadeOps } from './terrain/backdrop';
-import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
+import { DECAL_LIGHTS_KEY, DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS, DECAL_WET_DEFINE } from './decal-pool';
+import {
+  craterGradOps,
+  DECAL_PALETTE_ORDER,
+  decalAlphaOps,
+  decalGroundToneOps,
+  decalKindOps,
+  decalMultiplierOps,
+  decalOutRatioOps,
+  decalRimRatioOps,
+} from './decal-maths';
 import { SELECTION_RING } from './units/readability';
 import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
+import { outlineExpandOps, SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY, SILHOUETTE_EXPAND_ATTRIBUTE, SILHOUETTE_OUTLINE_UNIFORM_KEY } from './units/silhouette';
 import { zoneHatchOps } from './units/zone-band';
 import { dashOps } from './supply-route-maths';
 import { SUPPLY_ROUTE_ALPHA } from './supply-route';
@@ -61,11 +72,25 @@ export const MATERIAL_MATHS: MaterialMaths = {
   },
   // GH-943 P3 (T1): every P3 slot, null until its task fills it.
   unit: null,
-  outline: null,
+  // GH-943 P3 (T5): the outline's expansion (rigid and skinned), and the names of its attribute and uniform records.
+  outline: { expandOps: outlineExpandOps, expandAttribute: SILHOUETTE_EXPAND_ATTRIBUTE, widthKey: SILHOUETTE_OUTLINE_UNIFORM_KEY, biasKey: SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY },
   banner: null,
   // T10: the valley backdrop's distance fade (`terrain/backdrop.node.ts`).
   backdrop: { fadeOps: backdropFadeOps },
-  decal: null,
+  // T7: the decal kinds, the road under them, the albedo ratio and the crater rim (`decal-pool.node.ts`).
+  decal: {
+    kindOps: decalKindOps,
+    alphaOps: decalAlphaOps,
+    groundToneOps: decalGroundToneOps,
+    multiplierOps: decalMultiplierOps,
+    craterGradOps,
+    rimRatioOps: decalRimRatioOps,
+    outRatioOps: decalOutRatioOps,
+    roadRangeTiles: ROAD_DISTANCE_RANGE_TILES,
+    paletteSize: DECAL_PALETTE_ORDER.length,
+    wetDefine: DECAL_WET_DEFINE,
+    lightsKey: DECAL_LIGHTS_KEY,
+  },
   overlay: null,
   // T8: the zone band's hatch (`units/zone-band.node.ts`) and the supply route's dash and alpha (`supply-route.node.ts`).
   zoneBand: { hatchOps: zoneHatchOps },
