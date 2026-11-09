@@ -289,11 +289,25 @@ describe('the claim on the device', () => {
     writeBinding(d.storage, { version: 1, publicId: 'pub1', claimedAt: 5 });
     expect(finishInterruptedClaim(d.storage)).toBe(false); // no cache: nothing is touched
     expect(keysPresent(d.storage)).toEqual(GUEST_KEYS);
+    const DEV = '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc';
+    writeBinding(d.storage, { version: 1, publicId: 'pub1', claimedAt: 5, deviceId: DEV });
     writeCache(d.storage, cacheOf());
-    d.storage.setItem(CLAIMING_KEY, '{"deviceId":"x","digests":{"campaign":null,"slots":{}},"at":1}');
+    d.storage.setItem(CLAIMING_KEY, `{"deviceId":"${DEV}","digests":{"campaign":null,"slots":{}},"at":1}`);
     expect(finishInterruptedClaim(d.storage)).toBe(true);
     expect(keysPresent(d.storage)).toEqual([]);
     expect(d.storage.getItem(CLAIMING_KEY)).toBeNull();
+  });
+
+  it('I2: with no claiming marker (or one for another device) a claimed binding + cache + guest keys leaves the guest keys alone', () => {
+    const DEV = '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc';
+    const d = device({ slots: slots(1) });
+    writeBinding(d.storage, { version: 1, publicId: 'pub1', claimedAt: 5, deviceId: DEV });
+    writeCache(d.storage, cacheOf());
+    expect(finishInterruptedClaim(d.storage)).toBe(false); // no marker: guest play outside ?accounts, or under ?fresh
+    expect(keysPresent(d.storage)).toEqual(GUEST_KEYS);
+    d.storage.setItem(CLAIMING_KEY, '{"deviceId":"11111111-1c2a-4f7b-9d8e-123456789abc","digests":{"campaign":null,"slots":{}},"at":1}');
+    expect(finishInterruptedClaim(d.storage)).toBe(false); // a marker for another device id is not this device's claim
+    expect(keysPresent(d.storage)).toEqual(GUEST_KEYS);
   });
 });
 

@@ -7,7 +7,7 @@
  */
 import type { StorageLike } from '../brigade-account';
 import { SAVE_VERSION } from '@lions/economy';
-import { clearBinding, readBinding } from '../account/binding';
+import { clearBinding, clearDeviceId, readBinding } from '../account/binding';
 import { claimQuietly, hasGuestProgress, readClaiming, runClaim, type ClaimOutcome } from '../account/claim';
 import type { LedgerStore } from '../ledger-store';
 import { exportSlot, readActive } from '../profile';
@@ -28,6 +28,15 @@ export interface ProfileDeps {
   telemetryPlayer: () => string | null;
   /** Leaves the page for `href`: Steam's login URL is another origin, so main.ts passes a real page load. */
   navigate: (href: string) => void;
+  /** A HARD reload of the app (`shell/links.ts`'s `reloadMenuHref`: the menu plus the sticky query keys, `?accounts` among them), so the next boot chooses its store afresh. */
+  reload: () => void;
+  /**
+   * Signed in with the server-backed store (§0.46): flush, file what is left, send `logout`, clear the cache, the outboxes, `claimedAt` and
+   * `deviceId`. Absent on a boot with no account store; the screen then only logs out and forgets the device id. A rejection is shown as `profile.error`.
+   */
+  signOut?: (logout: () => Promise<'ok' | AccountError>) => Promise<void>;
+  /** After the account was deleted here: stop the sync loop and clear the cache and every outbox and tab key of that member. */
+  wipeDeleted?: () => void;
   /**
    * The guest-to-account claim (GH-1075 A2). Given only on a guest boot (`?accounts`, no claimed binding): `guest` is the
    * device's own store, `download` saves a file, `onClaimed` re-enters the app so the server-backed store is chosen.
@@ -127,11 +136,24 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     }
   };
 
-  const signOutWith = async (pending: Promise<'ok' | AccountError>, done: () => void): Promise<void> => {
-    const r = await pending;
-    if (disposed) return;
-    if (isError(r)) say(failText(r), true);
-    else done();
+  /** §0.46: with an account store the sync module signs out (flush, file, logout, clear); without one, log out and forget the device id. Then reload. */
+  const signOutWith = async (logout: () => Promise<'ok' | AccountError>): Promise<void> => {
+    try {
+      if (deps.signOut !== undefined) await deps.signOut(logout);
+      else {
+        const r = await logout();
+        if (isError(r)) {
+          if (!disposed) say(failText(r), true);
+          return;
+        }
+        clearDeviceId(deps.store);
+      }
+    } catch (err) {
+      console.error('profile sign-out', err);
+      if (!disposed) say(t('profile.error'), true);
+      return;
+    }
+    deps.reload(); // the keys are cleared: reload even when the player has left the profile, or the in-memory account store keeps writing (NB4)
   };
 
   const identityRow = (me: SignedInMe, id: IdentityView, reload: () => void): HTMLElement => {
@@ -151,7 +173,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     return li;
   };
 
-  const signedInBlock = (me: SignedInMe, reload: () => void, afterSignOut: () => void): HTMLElement => {
+  const signedInBlock = (me: SignedInMe, reload: () => void): HTMLElement => {
     const box = document.createElement('div');
     box.className = 'rl-profile__signed';
 
@@ -190,8 +212,8 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     const verbs = document.createElement('div');
     verbs.className = 'rl-profile__verbs';
     verbs.append(
-      button(t('profile.signOut'), () => void signOutWith(deps.client.logout(), afterSignOut)),
-      button(t('profile.signOutAll'), () => void signOutWith(deps.client.logoutAll(), afterSignOut)),
+      button(t('profile.signOut'), () => void signOutWith(() => deps.client.logout())),
+      button(t('profile.signOutAll'), () => void signOutWith(() => deps.client.logoutAll())),
       button(t('profile.export'), () => void download())
     );
     box.appendChild(verbs);
@@ -222,9 +244,11 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
         const r = await deps.client.deleteAccount(player === null ? {} : { telemetryPlayer: player });
         if (disposed) return;
         if (!isError(r)) {
+          deps.wipeDeleted?.();
           clearBinding(deps.store);
           content.replaceChildren(line('rl-profile__done', t('profile.delete.done')));
           say('');
+          deps.reload();
         } else if (r.error === 'reauth') {
           say(t('profile.reauth'), true);
           if (!content.querySelector('.rl-profile__reauth')) content.appendChild(button(t('profile.signIn'), () => void signIn(), 'rl-btn rl-profile__reauth'));
@@ -301,7 +325,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     content.replaceChildren();
     if (res.kind === 'signedIn' && res.me.kind === 'signedIn') {
       const me = res.me;
-      content.appendChild(signedInBlock(me, load, () => render({ kind: 'signedOut', publicId: me.publicId })));
+      content.appendChild(signedInBlock(me, load));
       void mountClaim();
     } else if (res.kind === 'deleted') {
       content.append(line('rl-profile__deleted', t('profile.deleted')), guestBlock());

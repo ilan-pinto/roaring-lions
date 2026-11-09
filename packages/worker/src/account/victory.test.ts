@@ -12,12 +12,12 @@ const op = (n: number): string => `${String(n).padStart(8, '0')}-4444-4444-8444-
 const BODY = { ledger: {}, brigade: {}, tutorialDone: false };
 
 /** A harness whose clock the test moves, and whose win floors it may set (R4). */
-function setup(opts: { floors?: Record<string, number>; failWallet?: boolean } = {}) {
+function setup(opts: { floors?: Record<string, number>; failLate?: boolean } = {}) {
   const clock = { now: T0 };
   const h = accountHarness({
     now: T0,
     handler: (req, env, now) =>
-      handleAccount(req, opts.failWallet === true ? { ...env, ACCOUNTS: failingD1(env.ACCOUNTS, /UPDATE wallet/) } : env, clock.now || now, {
+      handleAccount(req, opts.failLate === true ? { ...env, ACCOUNTS: failingD1(env.ACCOUNTS, /mission\.start\.used/) } : env, clock.now || now, {
         fetch: async () => new Response('no', { status: 500 }),
         ...(opts.floors !== undefined ? { minWinSeconds: opts.floors } : {}),
       }),
@@ -101,8 +101,8 @@ describe('victory', () => {
     expect((await lifetimeOf(s)).missions[M1]).toEqual({ won: true, stars: 3 });
   });
 
-  it('A2-9 victory_is_all_or_none: a failure at the wallet leaves the campaign, wallet, journal and ops as they were', async () => {
-    const s = setup({ failWallet: true });
+  it('A2-9 victory_is_all_or_none: a failure after the wallet, journal and campaign writes leaves the campaign, wallet, journal and ops as they were', async () => {
+    const s = setup({ failLate: true });
     const cookie = await member(s);
     await seedCampaign(s, 3);
     await start(s, cookie, 1);

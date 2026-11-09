@@ -6,11 +6,9 @@
  */
 import { canonicalCampaign, canonicalSlot, emptyRoar, parseSlot } from '@lions/economy';
 import type { ClaimBody, ClaimResult, InventoryItem, SaveSlot } from '@lions/economy';
-import { ACCOUNT_KEY, type StorageLike } from '../brigade-account';
-import { LEDGER_KEY, TUTORIAL_DONE_KEY } from '../main-keys';
+import type { StorageLike } from '../brigade-account';
 import { removeGuestProgress, type CampaignSnapshot, type LedgerStore } from '../ledger-store';
-import { DAMAGED_BLOB_ID, SAVES_KEY } from '../profile';
-import { ROAR_KEY } from '../roar-wallet';
+import { DAMAGED_BLOB_ID } from '../profile';
 import { CLAIMING_KEY, clearDeviceId, ensureDeviceId, readBinding, setClaimedAt } from './binding';
 import { readCache, writeCache } from './cache';
 import type { AccountClient } from './client';
@@ -280,8 +278,10 @@ function hasRawMarker(storage: StorageLike | null): boolean {
 }
 
 /**
- * At boot: a claimed binding with a cache and guest keys still present is a tab that died between the last two
- * writes of `finishClaim`. The guest keys go (the server has them) and so does the marker. True when it removed any.
+ * At boot: a claimed binding with a cache AND this device's claim marker is a tab that died between the last two writes of
+ * `finishClaim` (which removes the marker only after the guest keys). The guest keys go (the server has them) and so does the
+ * marker. Without the marker the keys are the player's own guest play (outside `?accounts`, under `?fresh`) and stay. True
+ * when it removed any.
  */
 export function finishInterruptedClaim(storage: StorageLike | null): boolean {
   if (!storage) return false;
@@ -289,9 +289,9 @@ export function finishInterruptedClaim(storage: StorageLike | null): boolean {
   if (b === null || b.claimedAt === undefined) return false;
   const cache = readCache(storage);
   if (cache === null || cache.publicId !== b.publicId) return false;
+  const marker = readClaiming(storage);
+  if (marker === null || b.deviceId === undefined || marker.deviceId !== b.deviceId) return false;
   try {
-    const present = [LEDGER_KEY, ACCOUNT_KEY, TUTORIAL_DONE_KEY, SAVES_KEY, ROAR_KEY].some((k) => storage.getItem(k) !== null);
-    if (!present && storage.getItem(CLAIMING_KEY) === null) return false;
     removeGuestProgress(storage);
     storage.removeItem(CLAIMING_KEY);
     return true;

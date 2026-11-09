@@ -266,8 +266,8 @@ function refusingWhileClaiming(backend: StorageLike): StorageLike {
  * function with a different backend, which is what keeps the test double from
  * being a second implementation that can disagree with the real one.
  */
-function overStorage(backend: StorageLike | null, backfill?: RoarBackfill, refuseWhileClaiming = true): LedgerStore {
-  const store = backend === null ? null : refuseWhileClaiming ? refusingWhileClaiming(backend) : backend;
+function overStorage(backend: StorageLike | null, backfill?: RoarBackfill, refuseClaim = true): LedgerStore {
+  const store = backend === null ? null : refuseClaim ? refusingWhileClaiming(backend) : backend;
   /** The back-payment, read from the ledger AS IT STANDS when the wallet is first made. */
   const seed: RoarSeed | undefined =
     backfill === undefined || store === null ? undefined : (w) => backfill(w, dropMalformed(loadLedger(store)));
@@ -392,9 +392,9 @@ export function blockedLedgerStore(): LedgerStore {
 }
 
 /** The shipping store. The app builds exactly one, in `main.ts`. */
-export function browserLedgerStore(backfill?: RoarBackfill, o: { refuseWhileClaiming?: boolean } = {}): LedgerStore {
-  // Off when accounts are off: no claim panel can appear to clear a retry marker, so it must not lock guest saves.
-  return overStorage(safeStorage(), backfill, o.refuseWhileClaiming ?? true);
+export function browserLedgerStore(backfill?: RoarBackfill, opts: { refuseWhileClaiming?: boolean } = {}): LedgerStore {
+  // M2: a claim marker locks the guest store only where a claim can run (`?accounts`); with accounts off or under `?fresh` it is inert.
+  return overStorage(safeStorage(), backfill, opts.refuseWhileClaiming ?? true);
 }
 
 /**

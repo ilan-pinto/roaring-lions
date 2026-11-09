@@ -81,3 +81,13 @@ export function removeHeld(storage: StorageLike | null, id: string, digest: stri
     items.filter((h) => h.id !== id),
   );
 }
+
+/** Remove the items with these ids, whatever their digest (a sign-out that was rejected takes back the copies it just filed). */
+export function dropHeld(storage: StorageLike | null, ids: readonly string[]): boolean {
+  const items = readHeld(storage);
+  if (!items.some((h) => ids.includes(h.id))) return true;
+  return write(
+    storage,
+    items.filter((h) => !ids.includes(h.id)),
+  );
+}

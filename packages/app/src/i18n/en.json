@@ -176,6 +176,7 @@
   "saves.title": "Saves",
   "saves.empty": "No saves yet.",
   "saves.slot.load": "Load",
+  "saves.downloading": "Downloading from your account\u2026",
   "saves.slot.export": "Export",
   "saves.slot.delete": "Delete",
   "saves.slot.meta": "{date} · {n, plural, one {# mission} other {# missions}} · {credits} credits · build {build}",

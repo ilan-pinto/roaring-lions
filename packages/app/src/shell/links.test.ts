@@ -7,8 +7,8 @@
 // this table builds that `legacyRedirect`/`stripBase`/`matchPath` disagree
 // with is a link that looks right and lands nowhere.
 import { describe, expect, it } from 'vitest';
-import { routes } from './links';
-import { matchPath, stripBase } from './router';
+import { reloadMenuHref, routes } from './links';
+import { matchPath, STICKY_QUERY_KEYS, stripBase } from './router';
 import { readFlags, unknownParams } from '../sandbox-help';
 
 describe('routes', () => {
@@ -81,5 +81,20 @@ describe('routes', () => {
       id: 'beit_sahwan_0_tutorial',
     });
     expect(unknownParams(mission.searchParams)).toEqual([]);
+  });
+});
+
+describe('reloadMenuHref (GH-1075 A2: a hard reload keeps the sticky keys)', () => {
+  it('copies accounts, lang and pseudo from the current search onto the menu href, and nothing else', () => {
+    const href = reloadMenuHref('?accounts&lang=he&pseudo=1&fresh=1&sandbox=x');
+    const u = new URL(href, 'http://x.test');
+    expect(u.pathname + '/').toContain(new URL(routes.menu(), 'http://x.test').pathname);
+    expect([...u.searchParams.keys()].sort()).toEqual([...STICKY_QUERY_KEYS].sort());
+    expect(u.searchParams.get('lang')).toBe('he');
+    expect(u.searchParams.has('accounts')).toBe(true);
+  });
+  it('is exactly routes.menu() when nothing sticky is present', () => {
+    expect(reloadMenuHref('?fresh=1')).toBe(routes.menu());
+    expect(reloadMenuHref('')).toBe(routes.menu());
   });
 });

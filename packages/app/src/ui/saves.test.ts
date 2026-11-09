@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
+import { t } from '../i18n/t';
 import { showSaves, type SavesDeps } from './saves';
 import { Router } from '../shell/router';
 import { ACCOUNT_KEY, emptyAccount } from '../brigade-account';
@@ -537,5 +538,20 @@ describe('the "On this device only" list (A2, held items)', () => {
     const stage = document.createElement('div');
     showSaves(stage, deps(memStore(), { heldItems: () => [held('h-1')] }));
     expect(stage.querySelector('button[data-action="release"]')).toBeNull();
+  });
+});
+
+describe('M1 downloading slots (§0.19)', () => {
+  it('lists a slot whose body is still on its way with saves.downloading and Load disabled, beside the loadable ones', () => {
+    const store = memStore();
+    const stage = document.createElement('div');
+    showSaves(stage, deps(store, { downloading: () => [{ id: 'd1', name: 'From another device', savedAt: 1_700_000_000_000 }] }));
+    const row = stage.querySelector<HTMLElement>('[data-slot="d1"]');
+    expect(row).not.toBeNull();
+    expect(row?.textContent).toContain('From another device');
+    expect(row?.textContent).toContain(t('saves.downloading'));
+    expect(row?.querySelector<HTMLButtonElement>('button[data-action="load"]')?.disabled).toBe(true);
+    expect(row?.querySelectorAll('button')).toHaveLength(1);
+    expect(stage.textContent).not.toContain(t('saves.empty')); // not an empty list
   });
 });

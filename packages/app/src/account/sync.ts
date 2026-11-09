@@ -28,8 +28,8 @@
  *    retry reads `held`): 500, 403, `busy`, an unknown 409, other 4xx, and a malformed 200. A 404 on
  *    `slot.delete` is success. Network failures, 429 and 502/503/504 back off and never file. A filed op keeps the WHOLE op as its held text.
  *
- * A rejected `signOut` (the unsent work could not be kept on this device) leaves this loop STOPPED: nothing is
- * cleared, the work is still queued, and the caller must start a new loop to try again.
+ * A rejected `signOut` (the unsent work could not be kept, or the logout failed) removes the `refused` copies it just
+ * filed and resumes this loop (NB3): nothing is cleared, the work is still queued and keeps syncing.
  */
 import { canonicalCampaign, canonicalSlot, SAVE_VERSION } from '@lions/economy';
 import type { CampaignBody, CampaignView, CoinAskWire, ConflictAnswer, SaveSlot, ServerState, SlotMetaView, WalletView } from '@lions/economy';
@@ -37,8 +37,8 @@ import type { StorageLike } from '../brigade-account';
 import type { AccountLedgerStore } from './account-store';
 import { clearBinding, clearDeviceId, readBinding, writeBinding } from './binding';
 import { ACCOUNT_CACHE_KEY, writeCache } from './cache';
-import type { AccountClient, CallResult, CampaignOp, CouponAnswer, ResetFreeAnswer, SlotPutOp, VictoryAnswer, VictoryOp } from './client';
-import { addHeld, readHeld, removeHeld, type HeldItem } from './local-held';
+import type { AccountClient, AccountError, CallResult, CampaignOp, CouponAnswer, ResetFreeAnswer, SlotPutOp, VictoryAnswer, VictoryOp } from './client';
+import { addHeld, dropHeld, readHeld, removeHeld, type HeldItem } from './local-held';
 import { carriesCampaign, clearTab, heartbeatKey, orphanedOutboxes, outboxOwner, outboxTabs, readOutbox, type OutboxOp } from './outbox';
 import { resolveSignedIn, sha256Hex } from './signed-in';
 
@@ -58,7 +58,7 @@ const TRANSIENT: ReadonlySet<number> = new Set([0, 429, 502, 503, 504]);
 /** The id of the held entry (and conflict slot) a snapshot behind `opId` becomes: stable, so a retry replaces rather than duplicates. */
 const heldId = (opId: string): string => `h-${opId}`;
 
-export type SyncMode = 'active' | 'signedOut' | 'foreign' | 'deleted' | 'stopped';
+export type SyncMode = 'unverified' | 'active' | 'signedOut' | 'foreign' | 'deleted' | 'stopped';
 
 export type BarrierOutcome<T> =
   | { kind: 'ok'; body: T }
@@ -109,6 +109,8 @@ export interface SyncHandle {
   idle(): Promise<void>;
   status(): SyncMode;
   stop(): void;
+  /** Undo a `stop()` that was followed by a failed sign-out: the loop verifies again and goes on with what is still queued. Not after a deleted account. */
+  resume(): void;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -145,7 +147,9 @@ export function startSync(o: SyncOptions): SyncHandle {
   const cache = api.cache;
   const online = o.online ?? defaultOnline;
   const newId = o.newId ?? ((): string => crypto.randomUUID());
-  let mode: SyncMode = 'active';
+  // I1: the loop starts UNVERIFIED. The device's cache and outbox may belong to a member who is not the one signed in now (a Steam
+  // redirect as someone else), so nothing is applied or sent until one `GET me` has named this cache's member.
+  let mode: SyncMode = 'unverified';
   let stopped = false;
   let running: Promise<void> | null = null;
   let backoff = BACKOFF_START_MS;
@@ -218,19 +222,7 @@ export function startSync(o: SyncOptions): SyncHandle {
 
   // ---- 401 -------------------------------------------------------------------------------------------------------
   /** The account is gone: file this member's queued work (own and siblings'), then clear every key of theirs. */
-  const wipe = (): void => {
-    const mine = cache.publicId;
-    const siblings = outboxTabs(storage, mine).filter((t) => t !== api.tabId);
-    const queued = [...api.ops(), ...siblings.flatMap((t) => readOutbox(storage, t))];
-    for (const x of queued) file(x); // best effort: the account is deleted either way
-    try {
-      storage?.removeItem(ACCOUNT_CACHE_KEY);
-    } catch {
-      /* as above */
-    }
-    api.setOps([]);
-    for (const t of [...siblings, api.tabId]) clearTab(storage, t);
-  };
+  const wipe = (): void => wipeMember({ store, storage, now: o.now });
   /** Ask who is signed in. True when it is this cache's member, so the loop may send. */
   async function recheck(): Promise<boolean> {
     const before = readBinding(storage);
@@ -242,7 +234,8 @@ export function startSync(o: SyncOptions): SyncHandle {
       return false;
     }
     if (res.kind === 'guest' || res.kind === 'signedOut') {
-      mode = 'signedOut';
+      // No answer at all (offline) is not a 401: an unverified loop stays so, and the next write or refresh asks again.
+      mode = res.kind === 'signedOut' && res.off === true && mode === 'unverified' ? 'unverified' : 'signedOut';
       return false;
     }
     if (res.me.kind === 'signedIn' && res.me.publicId === cache.publicId) {
@@ -306,6 +299,10 @@ export function startSync(o: SyncOptions): SyncHandle {
 
   const NOT_DONE: ReleaseOutcome = { ok: false };
   async function doRefresh(): Promise<ReleaseOutcome> {
+    if (mode === 'unverified' && !(await recheck())) {
+      retryIfUnverified();
+      return NOT_DONE;
+    }
     let r: Awaited<ReturnType<typeof client.state>>;
     try {
       r = await client.state();
@@ -602,9 +599,17 @@ export function startSync(o: SyncOptions): SyncHandle {
     });
   }
 
+  /** NB1: an unanswered `GET me` leaves the loop unverified; ask again on the backoff (2 s doubling to 60 s), never at once (`kick` stays out while the timer is set). */
+  function retryIfUnverified(): void {
+    if ((mode as SyncMode) === 'unverified') scheduleRetry();
+  }
+
   async function drain(): Promise<void> {
     if (stopped || mode === 'deleted') return;
-    if (mode !== 'active' && !(await recheck())) return;
+    if (mode !== 'active' && !(await recheck())) {
+      retryIfUnverified();
+      return;
+    }
     // This tab's heartbeat is written now, BEFORE the orphan scan: a live sibling with no beat yet would be adopted.
     try {
       storage?.setItem(heartbeatKey(api.tabId), String(o.now()));
@@ -644,7 +649,7 @@ export function startSync(o: SyncOptions): SyncHandle {
   }
 
   function kick(): void {
-    if (stopped || mode !== 'active' || cancelRetry !== null) return; // in backoff the retry timer is the only way back
+    if (stopped || (mode !== 'active' && mode !== 'unverified') || cancelRetry !== null) return; // in backoff the retry timer is the only way back
     const queue = api.ops();
     if (queue.length === 0) return;
     if (queue.some((x) => x.kind === 'victory')) {
@@ -668,7 +673,12 @@ export function startSync(o: SyncOptions): SyncHandle {
 
   /** A barrier op: sent only with the outbox empty and the lock held; its key is in `pendingSpends` while it is in the air. */
   async function viaBarrier<T extends { wallet: WalletView }>(call: () => Promise<CallResult<T>>, key?: string): Promise<BarrierOutcome<T>> {
+    if (stopped) return { kind: 'offline' }; // a stopped loop (a rejected sign-out) sends nothing
     const out = await barrier(async (): Promise<BarrierOutcome<T>> => {
+      if (mode === 'unverified' && !(await recheck())) {
+        retryIfUnverified();
+        return { kind: 'error', status: 0 };
+      }
       if (key !== undefined) api.markPending(key);
       try {
         const r = await call();
@@ -729,13 +739,45 @@ export function startSync(o: SyncOptions): SyncHandle {
       for (const c of [cancelRetry, cancelDebounce, cancelBeat]) c?.();
       cancelRetry = cancelDebounce = cancelBeat = null;
     },
+    resume() {
+      if (!stopped || mode === 'deleted') return;
+      stopped = false;
+      mode = 'unverified';
+      backoff = BACKOFF_START_MS;
+      beat();
+      kick();
+    },
   };
 }
 
+/**
+ * The account is gone (a 401 that says deleted, or the player deleted it here): file this member's queued work (own and
+ * siblings', best effort, the account is deleted either way), then clear the cache and every outbox and tab key of theirs.
+ */
+export function wipeMember(o: { store: AccountLedgerStore; storage: StorageLike | null; now: () => number }): void {
+  const api = o.store.sync;
+  const mine = api.cache.publicId;
+  const siblings = outboxTabs(o.storage, mine).filter((t) => t !== api.tabId);
+  const queued = [...api.ops(), ...siblings.flatMap((t) => readOutbox(o.storage, t))];
+  for (const x of queued) {
+    const item = heldFromOp(x, mine, o.now());
+    if (item !== null) addHeld(o.storage, item);
+  }
+  try {
+    o.storage?.removeItem(ACCOUNT_CACHE_KEY);
+  } catch {
+    /* as above */
+  }
+  api.setOps([]);
+  for (const t of [...siblings, api.tabId]) clearTab(o.storage, t);
+}
+
 export interface SignOutOptions {
-  sync: Pick<SyncHandle, 'flush' | 'stop'>;
+  sync: Pick<SyncHandle, 'flush' | 'stop'> & Partial<Pick<SyncHandle, 'resume'>>;
   store: AccountLedgerStore;
   client: AccountClient;
+  /** The logout to send: "Sign out everywhere" passes `client.logoutAll`; the default is `client.logout`. A failure rejects, and nothing is cleared. */
+  logout?: () => Promise<'ok' | AccountError>;
   storage: StorageLike | null;
   now: () => number;
   schedule: (ms: number, fn: () => void) => () => void;
@@ -758,11 +800,34 @@ export async function signOut(o: SignOutOptions): Promise<void> {
   const cache = o.store.sync.cache;
   // This member's other tabs' queues are filed too (R13): their keys are cleared with ours, and nothing is lost silently.
   const siblings = outboxTabs(o.storage, cache.publicId).filter((t) => t !== o.store.sync.tabId);
+  // NB3: what was held before this call, so a rejection can put the held list back exactly as it was.
+  const before = readHeld(o.storage);
+  const filed: string[] = [];
+  const undo = (): void => {
+    dropHeld(o.storage, filed);
+    for (const h of before) if (filed.includes(h.id)) addHeld(o.storage, h);
+    o.sync.resume?.(); // the work is still queued: the loop must keep syncing it
+  };
   for (const op of [...o.store.sync.ops(), ...siblings.flatMap((t) => readOutbox(o.storage, t))]) {
     const item = heldFromOp(op, cache.publicId, o.now());
-    if (item !== null && !addHeld(o.storage, item)) throw new Error('sign-out: the unsent work could not be kept on this device');
+    if (item === null) continue;
+    if (!addHeld(o.storage, item)) {
+      filed.push(item.id);
+      undo();
+      throw new Error('sign-out: the unsent work could not be kept on this device');
+    }
+    filed.push(item.id);
   }
-  await o.client.logout();
+  let out: 'ok' | AccountError;
+  try {
+    out = await (o.logout ?? ((): Promise<'ok' | AccountError> => o.client.logout()))();
+  } catch {
+    out = { error: 'network', status: 0 };
+  }
+  if (out !== 'ok') {
+    undo();
+    throw new Error('sign-out: the server did not log this device out');
+  }
   try {
     o.storage?.removeItem(ACCOUNT_CACHE_KEY);
   } catch {

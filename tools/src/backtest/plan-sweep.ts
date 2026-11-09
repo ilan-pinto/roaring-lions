@@ -141,6 +141,12 @@ function reportMinWin(runSets: Iterable<readonly RunRecord[]>, seeds: number): v
       process.exitCode = 1;
       return;
     }
+    if (failedSeeds.size > 0) {
+      // A seed that never reported may hold the fastest win, so the floors from the others could sit too high.
+      console.error(`min_win_seconds: FAILED — ${failedSeeds.size} seed(s) failed (${[...failedSeeds.keys()].join(', ')}); a partial sweep could write too high a floor`);
+      process.exitCode = 1;
+      return;
+    }
     const out: Record<string, number> = {};
     for (const id of ids) {
       const f = fastest.get(id);
