@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { emptyAccount } from '@lions/economy';
 import type { CampaignBody, ServerState } from '@lions/economy';
 import { accountLedgerStore } from './account-store';
@@ -1248,6 +1248,15 @@ describe('NB3 a rejected sign-out', () => {
 });
 
 describe('R27 a foreign-owned tab key is re-keyed, not written', () => {
+  // Node 22 defines no global Web Storage and Node 25 does: install the tab's own sessionStorage so neither matters.
+  let tabSession: ReturnType<typeof memStorage>;
+  beforeEach(() => {
+    tabSession = memStorage();
+    vi.stubGlobal('sessionStorage', tabSession);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
   it('B boots in the tab whose key holds A\'s ops: B writes under a new key, A\'s key is byte-identical, and A\'s own loop adopts it later', async () => {
     const storage = memStorage();
     writeOutbox(storage, 'T', [camp('A1', 7)], 'pub-A');
@@ -1259,7 +1268,7 @@ describe('R27 a foreign-owned tab key is re-keyed, not written', () => {
     })(), (w) => w, { world, tabId: 'T', newOpId: opIds() });
     const store = b.store as ReturnType<typeof accountLedgerStore>;
     expect(store.sync.tabId).not.toBe('T');
-    expect(sessionStorage.getItem(TAB_ID_KEY)).toBe(store.sync.tabId);
+    expect(tabSession.getItem(TAB_ID_KEY)).toBe(store.sync.tabId);
     store.writeLedger(led(3)); // B's write
     store.sync.setBase(4);
     store.sync.setOps([]); // B's sign-out
