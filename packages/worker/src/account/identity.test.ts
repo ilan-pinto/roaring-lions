@@ -163,20 +163,20 @@ describe('withOp', () => {
   it('rejects a malformed op id', async () => {
     const h = accountHarness({ now: T0 });
     await seed(h);
-    await expect(withOp(h.db, 'm1', 'nope', 'k', T0, async () => ({ statements: [], response: 1 }))).rejects.toBeInstanceOf(OpIdError);
+    await expect(withOp(h.db, 'm1', 'nope', 'k', T0, async () => ({ statements: [], status: 200, response: 1 }))).rejects.toBeInstanceOf(OpIdError);
   });
 
   it('rethrows an error that is not the op id collision', async () => {
     const h = accountHarness({ now: T0 });
     await seed(h);
     await expect(
-      withOp(h.db, 'm1', OP1, 'k', T0, async () => ({ statements: [h.db.prepare('INSERT INTO nope VALUES (1)')], response: 1 })),
+      withOp(h.db, 'm1', OP1, 'k', T0, async () => ({ statements: [h.db.prepare('INSERT INTO nope VALUES (1)')], status: 200, response: 1 })),
     ).rejects.toThrow();
   });
 
   it('rethrows a constraint error when no committed response is there to re-read', async () => {
     const h = accountHarness({ now: T0, foreignKeys: true });
     // m-ghost has no member row: the account_op insert fails its foreign key, and the re-read finds nothing.
-    await expect(withOp(h.db, 'm-ghost', OP1, 'k', T0, async () => ({ statements: [], response: 1 }))).rejects.toThrow();
+    await expect(withOp(h.db, 'm-ghost', OP1, 'k', T0, async () => ({ statements: [], status: 200, response: 1 }))).rejects.toThrow();
   });
 });

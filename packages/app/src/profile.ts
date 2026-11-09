@@ -15,32 +15,17 @@ import type { LedgerData } from '@lions/sim';
 // below is still declared here -- the slots are this module's own format --
 // and the door reads and writes it as an opaque string, because a damaged slot
 // has to stay skippable by `importSlot` without the door knowing what a slot is.
-import { migrateAccount, type BrigadeAccount } from './brigade-account';
-import { sanitiseLedger } from './ledger-shape';
+import type { BrigadeAccount } from './brigade-account';
+import { SAVE_ERROR_NOT_A_SAVE, SAVE_VERSION, parseSlot, type SaveSlot } from '@lions/economy';
 import type { LedgerStore } from './ledger-store';
 
 export const SAVES_KEY = 'lions.saves';
-export const SAVE_VERSION = 1 as const;
-
-export interface SaveSlot {
-  version: typeof SAVE_VERSION;
-  id: string;
-  name: string;
-  savedAt: number;
-  build: string;
-  ledger: LedgerData;
-  account: BrigadeAccount;
-  tutorialDone: boolean;
-}
+// The slot format and its parser moved to `@lions/economy` (GH-1075 A2); re-exported so no caller changes.
+export { SAVE_ERROR_NOT_A_SAVE, SAVE_VERSION };
+export type { SaveSlot };
 
 export interface SlotMeta { id: string; name: string; savedAt: number; build: string; missions: number; credits: number }
 export interface ActiveState { ledger: LedgerData; account: BrigadeAccount; tutorialDone: boolean }
-
-/** A slot ledger's completed missions, for `migrateAccount`. */
-function slotCompleted(ledger: unknown): ReadonlySet<string> {
-  const done = isRecord(ledger) ? ledger['campaign.completed_missions'] : undefined;
-  return new Set(Array.isArray(done) ? done.filter((m): m is string => typeof m === 'string') : []);
-}
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -193,42 +178,5 @@ export function exportSlot(slot: SaveSlot): string {
   return JSON.stringify(slot);
 }
 
-/**
- * The one coded reason an import is refused -- a catalogue KEY, not a sentence.
- *
- * I8 (final review): this used to be `throw new Error('not a Roaring Lions
- * save')`, and `ui/saves.ts` printed `err.message` straight into an
- * `aria-live` line. That is a player-facing chrome string outside the
- * catalogue, and one `tools/validate_i18n.mjs` structurally cannot see: its
- * regex is anchored on a sink assignment with an adjacent quote, and this is a
- * `throw` whose value reaches the sink through a variable (blind spot #2, which
- * the validator's own header names). Throwing the key instead keeps
- * `profile.ts` free of `t()` -- it owns storage, not language -- while giving
- * the screen something it can resolve.
- */
-export const SAVE_ERROR_NOT_A_SAVE = 'saves.error.notASave';
-
-export function importSlot(json: string): SaveSlot {
-  let v: unknown;
-  try {
-    v = JSON.parse(json);
-  } catch {
-    throw new Error(SAVE_ERROR_NOT_A_SAVE);
-  }
-  if (!isRecord(v) || v.version !== SAVE_VERSION || typeof v.id !== 'string' || typeof v.name !== 'string' || !isRecord(v.ledger) || !isRecord(v.account)) {
-    throw new Error(SAVE_ERROR_NOT_A_SAVE);
-  }
-  return {
-    version: SAVE_VERSION,
-    id: v.id,
-    name: v.name,
-    savedAt: typeof v.savedAt === 'number' ? v.savedAt : 0,
-    build: typeof v.build === 'string' ? v.build : '',
-    // review 559 F4: an imported file is somebody else's bytes -- element by element.
-    ledger: sanitiseLedger(v.ledger as LedgerData),
-    // A version-1 slot's per-campaign record (GH-330) is derived against the
-    // slot's OWN ledger, the campaign it was saved in, not the active one.
-    account: migrateAccount(v.account, slotCompleted(v.ledger)),
-    tutorialDone: v.tutorialDone === true,
-  };
-}
+/** A slot's one parser is `parseSlot` (`@lions/economy`); the importer is that. */
+export const importSlot = parseSlot;

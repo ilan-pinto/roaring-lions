@@ -42,3 +42,19 @@ export function limitHeadroom(
   }
   return { lines, failures };
 }
+
+/**
+ * GH-1075 A2: the fastest winning run per mission id. The server's win floor is a quarter of this
+ * (`MIN_WIN_DIVISOR`), so it is the MINIMUM that matters, where `limitHeadroom` above reads the maximum.
+ */
+export function fastestWins(wins: readonly WinTime[]): Map<string, WinTime> {
+  const fastest = new Map<string, WinTime>();
+  for (const w of wins) {
+    const f = fastest.get(w.id);
+    if (!f || w.seconds < f.seconds) fastest.set(w.id, w);
+  }
+  return fastest;
+}
+
+/** Lead decision 9 (GH-1075 A2): the floor is a quarter of the fastest scripted win, so 2x speed keeps a factor of 2. */
+export const MIN_WIN_DIVISOR = 4;

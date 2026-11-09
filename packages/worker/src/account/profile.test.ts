@@ -37,7 +37,9 @@ describe('PATCH profile', () => {
     const h = accountHarness({ now: T0 });
     const ck = await seed(h);
     // Same database, raced: the Env's ACCOUNTS is the wrapped one.
-    const env = { ...h.env, ACCOUNTS: racingD1(h.db, 2) };
+    // budgetedOp reads account_op twice (its own lookup, then withOp's): two requests make four reads.
+    const raced = racingD1(h.db, 4);
+    const env = { ...h.env, ACCOUNTS: raced };
     const { handleAccount } = await import('./routes');
     const go = (name: string) =>
       handleAccount(new Request('https://roaring-lions.pint12.workers.dev/api/account/profile', {
@@ -46,6 +48,7 @@ describe('PATCH profile', () => {
         body: JSON.stringify({ op_id: op(7), displayName: name }),
       }), env, T0);
     const [x, y] = await Promise.all([go('Alpha'), go('Bravo')]);
+    expect(raced.opened()).toBe(true);
     expect([x.status, y.status]).toEqual([200, 200]);
     const bx = await x.json() as { displayName: string };
     expect(await y.json()).toEqual(bx);

@@ -175,7 +175,8 @@ import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
 import { buyUnlock } from './brigade-account';
-import { buildCoinHalf, buyTierWithCredits } from './credit-buy';
+import { buyTierWithCredits } from './credit-buy';
+import { coinHalfFor, storeInputFor } from '@lions/economy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
@@ -372,7 +373,8 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { browserLedgerStore, newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
+import { selectLedgerStore } from './account/select-store';
+import { newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { showVersus, showVersusRoom, versusMaps, type VersusDeps } from './ui/versus';
@@ -431,7 +433,9 @@ function safeStorage(): Storage | null {
  *  slots (`ledger-store.ts`). One per page, because it is a handle on the
  *  browser's own store rather than a snapshot of anything -- every read below
  *  still goes to storage at the moment it is made. */
-const ledgerStore = browserLedgerStore((w, l) => roarBackfill(w, l, parseWorld(world), Date.now()));
+// Task 2.12 reads `selectedStore.needsState` and awaits `GET state` before the first screen; until then a claimed device with no cache gets a blocked store.
+const selectedStore = selectLedgerStore(new URLSearchParams(window.location.search), safeStorage(), (w, l) => roarBackfill(w, l, parseWorld(world), Date.now()), { world: parseWorld(world) });
+const ledgerStore = selectedStore.store;
 // Settle the one-time Store back-pay before any slot or import can swap the ledger (G-E3).
 settleRoarAtBoot(ledgerStore);
 
@@ -1186,7 +1190,7 @@ async function main(): Promise<void> {
       return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades };
     };
     /** Which part of the single-player account came from coins. */
-    const coinHalf = (): CoinHalf => buildCoinHalf(kdfUnits, ledgerStore.readAccount(), ledgerStore.readRoar());
+    const coinHalf = (): CoinHalf => coinHalfFor({ brigade: ledgerStore.readAccount(), roar: ledgerStore.readRoar() });
     return showBrigade(host, {
       units: kdfUnits,
       ledger: ledgerStore.readLedger(),
@@ -1246,16 +1250,10 @@ async function main(): Promise<void> {
         },
         onBuy: ledgerStore.available
             ? (ask) => {
-                const a = accountState();
+                const roar = ledgerStore.readRoar();
                 const { account, ok } = buyWithCoins(
-                  {
-                    units: garageUnits(a.boughtUnits),
-                    ledger: ledgerStore.readLedger(),
-                    credits: a.balance,
-                    owned: a.ownedTiers,
-                    coin: coinHalf(),
-                  },
-                  ledgerStore.readRoar(),
+                  storeInputFor({ ledger: ledgerStore.readLedger(), brigade: ledgerStore.readAccount(), roar }),
+                  roar,
                   ask,
                   Date.now()
                 );
@@ -6044,6 +6042,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   : null,
               world: parseWorld(world),
               at: Date.now(),
+              start: null, // Task 2.12 passes the mission/start answer here
             });
             const victoryWrite = coinsSettle.write;
             const ledgerSaved = victoryWrite === 'saved';
