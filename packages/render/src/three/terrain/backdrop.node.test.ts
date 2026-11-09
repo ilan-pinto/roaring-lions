@@ -121,7 +121,9 @@ describe('the legacy side', () => {
     const m = await legacyMaterial();
     const rec = m.userData[LEGACY_KEY] as { bg: { value: THREE.Vector3 }; size: { value: THREE.Vector2 }; fade: { value: THREE.Vector2 } };
     expect(rec.size.value.toArray()).toEqual([48, 32]);
-    expect(rec.fade.value.x).toBeCloseTo(rec.fade.value.y * (0.5 / 0.8), 12);
+    // Both edges as literals (read off the shipped build: M x FADE_FROM and M x FADE_TO): a ratio alone would pass a doubled pair.
+    expect(rec.fade.value.x).toBeCloseTo(24, 9);
+    expect(rec.fade.value.y).toBeCloseTo(38.4, 9);
     // The record is what the legacy shader binds, by reference.
     const shader = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: '', fragmentShader: '' };
     m.onBeforeCompile(shader as never, null as never);
@@ -207,12 +209,16 @@ describe('the seam', () => {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), legacy);
     const g = new THREE.Group();
     g.add(mesh);
+    // BEFORE adoption the legacy hook is the census's to report, and its key being listed is what exempts it. After adoption the
+    // mesh holds the twin, so a census taken there could not tell a listed key from an unlisted one.
+    expect(censusUnported(g, {}).map((e) => e.key)).toEqual(['rl-backdrop-fade']);
+    expect(censusUnported(g, { portedKeys: PORTED_MATERIAL_KEYS })).toEqual([]);
     const cache = createTwinCache();
     const n = adoptMaterials(g, { ...NULL_P3_SLOTS, ground: null, foliage: null, ring: null, backdrop: (l) => createNodeBackdropMaterial({ W, TSL: TSL as never, maths: MATERIAL_MATHS.backdrop }, l) }, cache);
     expect(n).toBe(1);
     expect(mesh.material).not.toBe(legacy);
     expect((mesh.material as THREE.Material).name).toBe(NODE_BACKDROP_MATERIAL_NAME);
-    // The ported legacy hook is not reported as unported once its key is listed.
-    expect(censusUnported(g, { portedKeys: PORTED_MATERIAL_KEYS })).toEqual([]);
+    // The twin carries no legacy hook of its own.
+    expect(censusUnported(g, {})).toEqual([]);
   });
 });
