@@ -3632,7 +3632,14 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // move by 0.1 to 0.2 min on the seed-424242 run line; the SLOWEST of the 30 seeds moves more, and only because it is one tail seed:
 // Beit Sahwan III 2.9 -> 3.7 min (its clinic at (38,25); with the placement removed the sweep reads 2.9 again) and Khan Rafid III
 // 3.9 -> 2.0 min (the clinic at (22,15) alone gives 2.0; with both placements removed 3.9). Neither tail was traced seed by seed. Every plan still wins 30 of 30, every passive control still loses, no star or gate moved.
-const LADDER_CREDITS = 7007;
+// 2026-11-08, a side no longer cuts a structure it owns (sim.ts `selectBreachTarget`): 7007 -> 6987, -20, read off the printed per-mission
+// credits. Was 7007. Exactly one mission moved: Wadi Halam V 220 -> 200 (stars 2, ROE 100, roster out 19, 30 of 30 wins; slowest win 5.6 -> 6.4
+// min). Its militia weapons workshop is the eighth `raze` target and a side-1 gun truck standing beside it used to cut it down at tick 127 of every
+// run, so the plan had been razing seven buildings and getting the eighth for nothing; now the plan levels it, inside the same five minutes.
+// The scripted plan's target list swaps its last two entries to keep the gate-open run winning (it lost seed 22 on the deadline otherwise): 30 of
+// 30 on the sweep seeds and on 100-129. Every other mission's credits line is byte-identical, and no star or gate moved. See docs/agent-notes/
+// mission-findings.md.
+const LADDER_CREDITS = 6987;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
