@@ -24,10 +24,12 @@ import {
 } from './terrain/relief-read';
 import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './terrain/ground-maths';
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
+import { disturbBendOps, disturbSlotPushOps, DISTURB_MAX } from './terrain/disturb';
 import { foliageLeanOps } from './terrain/wind';
 import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
 import { SELECTION_RING } from './units/readability';
 import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
+import { outlineExpandOps, SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY, SILHOUETTE_EXPAND_ATTRIBUTE, SILHOUETTE_OUTLINE_UNIFORM_KEY } from './units/silhouette';
 import { zoneHatchOps } from './units/zone-band';
 import { dashOps } from './supply-route-maths';
 import { SUPPLY_ROUTE_ALPHA } from './supply-route';
@@ -48,8 +50,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
       tintHigh: RELIEF_TINT_HIGH,
     },
   },
-  // T6: the wind's lean (mode 1) and the reduced-motion sway (mode 0), one body (`wind.ts`), and the attribute it reads.
-  foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE },
+  // T6, T7: the wind's lean (mode 1) and the reduced-motion sway (mode 0), one body (`wind.ts`), and the attribute it reads.
+  foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE, disturbSlotPushOps, disturbBendOps, disturbMax: DISTURB_MAX },
   ring: {
     fragmentOps: ringFragmentOps,
     outputOps: ringOutputOps,
@@ -59,7 +61,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
   },
   // GH-943 P3 (T1): every P3 slot, null until its task fills it.
   unit: null,
-  outline: null,
+  // GH-943 P3 (T5): the outline's expansion (rigid and skinned), and the names of its attribute and uniform records.
+  outline: { expandOps: outlineExpandOps, expandAttribute: SILHOUETTE_EXPAND_ATTRIBUTE, widthKey: SILHOUETTE_OUTLINE_UNIFORM_KEY, biasKey: SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY },
   banner: null,
   backdrop: null,
   decal: null,

@@ -1546,9 +1546,9 @@ export class ThreeRenderer implements Renderer {
   private rainDebugHidden = false;
   /** GH-943 P3 (T2): the FX debug layers held hidden (`trail`, `wreck-soot`, `particles`, `tracers`, `muzzle-burst`, `smoke-plume`,
    *  `collapse-shroud`). `writeFxLayerVisibility` consults it every frame (the `unitsDebugHidden` shape), so a hide holds across a repaint.
-   *  `fxLayerWritten` is the set it has written `visible = false` on, so a show puts back only what the flag took away. */
+   *  `fxLayerSaved` holds each hidden object's own prior `visible`, so a show puts back exactly that. */
   private readonly fxLayerHidden = new Set<FxFlagLayer>();
-  private readonly fxLayerWritten = new Set<FxFlagLayer>();
+  private readonly fxLayerSaved = new Map<FxFlagLayer, Map<THREE.Object3D, boolean>>();
   /** The `ripples` debug layer's flag (`unitsDebugHidden`'s shape): the
    *  per-frame write of `uRippleAmp` consults it, so a toggle holds across a
    *  repaint. */
@@ -2723,6 +2723,9 @@ export class ThreeRenderer implements Renderer {
   /** Set by the `overlays` layer; a material created AFTER the layer was
    *  hidden must start hidden too. */
   private smokeOutlinesHidden = false;
+  /** GH-943 P3 (T5): set by the `outline` layer (the team and smoke silhouettes only). Composed with `smokeOutlinesHidden` by
+   *  `writeSilhouetteVisibility`, the one writer of those materials' `visible`. */
+  private outlineDebugHidden = false;
   private readonly particleInstancerBelow = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_BELOW, true, false);
   private readonly particleInstancerAbove = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_ABOVE, false, false);
   /**
@@ -3144,6 +3147,7 @@ export class ThreeRenderer implements Renderer {
     this.disturbField = new DisturbField(n);
     this.disturbU.a.value = this.disturbField.a;
     this.disturbU.b.value = this.disturbField.b;
+    this.disturbU.slots = natureQualityOf(this.opts.quality).slots;
     this.disturbKindOfType = new Uint8Array(sim.unitTypes.length);
     this.disturbRadiusOfType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) {
@@ -4972,12 +4976,17 @@ export class ThreeRenderer implements Renderer {
         // rasterise anything using this material" with no per-entity
         // traversal required. The billboard path is not covered (see the
         // same comment).
-        for (const m of this.silhouetteMeshMaterials) m.visible = visible;
-        // The smoke outline's two materials are part of "the overlays" too.
-        for (const m of [this.smokeOutlineVehicleMaterial, this.smokeOutlineInfantryMaterial]) if (m) m.visible = visible;
+        // The smoke outline's two materials are part of "the overlays" too. GH-943 P3 (T5): written through
+        // `writeSilhouetteVisibility`, which also honours the `outline` layer.
         this.smokeOutlinesHidden = !visible;
+        this.writeSilhouetteVisibility();
         return batchCount + this.silhouetteMeshMaterials.length;
       }
+      case 'outline':
+        // GH-943 P3 (T5): the team and smoke silhouettes alone. `Material.visible`, which nothing per-frame re-asserts, shown only while
+        // `overlays` is shown too. Returns how many materials it wrote.
+        this.outlineDebugHidden = !visible;
+        return this.writeSilhouetteVisibility();
       case 'fog':
         // C2 (shell-upgrade Phase 0 final fix wave): this used to be
         // `Pass.enabled`, exactly `vignette`'s shape -- but skipping the
@@ -5214,11 +5223,13 @@ export class ThreeRenderer implements Renderer {
         return [this.collapseShrouds.mesh];
       case 'wreck-soot': {
         const out: THREE.Object3D[] = [];
-        for (const entity of this.vehicleMeshEntities.values()) {
-          entity.root.traverse((o) => {
-            if ((o.userData as { rl_wreck?: unknown }).rl_wreck === true) out.push(o);
-          });
-        }
+        const take = (o: THREE.Object3D): void => {
+          if ((o.userData as { rl_wreck?: unknown }).rl_wreck === true) out.push(o);
+        };
+        // The live entity's own twins, and the wrecks left standing after a death (`meshWrecks`: a vehicle's wreck is handed to a root
+        // of its own once the death clip ends, which is the wreck a player sees).
+        for (const entity of this.vehicleMeshEntities.values()) entity.root.traverse(take);
+        for (const w of this.meshWrecks) w.root.traverse(take);
         return out;
       }
     }
@@ -5233,13 +5244,25 @@ export class ThreeRenderer implements Renderer {
     let n = 0;
     for (const name of only === undefined ? FX_FLAG_LAYERS : [only]) {
       const hidden = this.fxLayerHidden.has(name);
-      if (!hidden && !this.fxLayerWritten.has(name)) continue;
-      for (const o of this.fxLayerObjects(name)) {
-        o.visible = !hidden;
-        n++;
+      const saved = this.fxLayerSaved.get(name);
+      if (!hidden && saved === undefined) continue;
+      if (hidden) {
+        // First touch records the object's own `visible` (a living vehicle's `WRECK_` twin is hidden for its own reasons); a show puts
+        // back exactly that and nothing else.
+        const keep = saved ?? new Map<THREE.Object3D, boolean>();
+        for (const o of this.fxLayerObjects(name)) {
+          if (!keep.has(o)) keep.set(o, o.visible);
+          o.visible = false;
+          n++;
+        }
+        this.fxLayerSaved.set(name, keep);
+      } else if (saved !== undefined) {
+        for (const [o, was] of saved) {
+          o.visible = was;
+          n++;
+        }
+        this.fxLayerSaved.delete(name);
       }
-      if (hidden) this.fxLayerWritten.add(name);
-      else this.fxLayerWritten.delete(name);
     }
     return n;
   }
@@ -13076,6 +13099,19 @@ export class ThreeRenderer implements Renderer {
     this.proxyBoxes?.setTeamColors(teamColors);
   }
 
+  /** GH-943 P3 (T5): the one writer of the team and smoke silhouette materials' `visible`: shown only while both the `overlays` and the
+   *  `outline` layers are. Returns how many materials it wrote. */
+  private writeSilhouetteVisibility(): number {
+    const visible = !this.smokeOutlinesHidden && !this.outlineDebugHidden;
+    let n = 0;
+    for (const m of [...this.silhouetteMeshMaterials, this.smokeOutlineVehicleMaterial, this.smokeOutlineInfantryMaterial]) {
+      if (m === null) continue;
+      m.visible = visible;
+      n++;
+    }
+    return n;
+  }
+
   /** `flash`: the occlusion outline's own material with NO depth test, so
    *  the outline shows whether the target stands in the open or behind a
    *  wall. The first cut used an ordinary depth test, and a target behind a
@@ -13105,7 +13141,7 @@ export class ThreeRenderer implements Renderer {
       const mk = (): THREE.MeshBasicMaterial => {
         const m = createMeshSilhouetteMaterial(this.silhouetteMaterialFor(this.viewer).color.getStyle());
         m.depthTest = false;
-        m.visible = !this.smokeOutlinesHidden;
+        m.visible = !this.smokeOutlinesHidden && !this.outlineDebugHidden;
         return m;
       };
       this.smokeOutlineVehicleMaterial = mk();
@@ -13136,6 +13172,8 @@ export class ThreeRenderer implements Renderer {
       if (!this.fireLinkFlashed.has(id)) {
         const was = this.silhouetteMaterialFor(st.side[id]);
         for (const m of list) m.material = was;
+        // GH-943 P3 (T5): the plain team silhouette is a LEGACY material; on node its twin draws from this frame (a no-op on legacy).
+        for (const m of list) this.queueNodeAdoption(m);
       }
       this.smokeOutlined.delete(id);
     }
@@ -13150,6 +13188,8 @@ export class ThreeRenderer implements Renderer {
         mesh.material = mat;
         list.push(mesh);
       });
+      // GH-943 P3 (T5): the smoke outline is a LEGACY material; on node its twin draws from this frame (a no-op on legacy).
+      this.queueNodeAdoption(root);
       this.smokeOutlined.set(id, list);
     }
   }
@@ -13167,6 +13207,8 @@ export class ThreeRenderer implements Renderer {
     for (const [id, list] of this.fireLinkFlashed) {
       if (active.has(id)) continue;
       for (const { mesh, was } of list) mesh.material = was;
+      // GH-943 P3 (T5): `was` is the plain team silhouette (LEGACY) for a unit that was in smoke; on node its twin draws from this frame.
+      for (const { mesh } of list) this.queueNodeAdoption(mesh);
       this.fireLinkFlashed.delete(id);
     }
     for (const id of active) {
@@ -13187,6 +13229,8 @@ export class ThreeRenderer implements Renderer {
         list.push({ mesh, was: smoked ? plain : mesh.material });
         mesh.material = mat;
       });
+      // GH-943 P3 (T5): the flash outline is a LEGACY material; on node its twin draws from this frame (a no-op on legacy).
+      this.queueNodeAdoption(root);
       this.fireLinkFlashed.set(id, list);
     }
   }
