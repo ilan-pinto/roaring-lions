@@ -65,7 +65,15 @@ export default defineConfig({
         // ThreeRenderer chunk) AND by the node AO's DenoiseNode addon (its own lazy chunk). Left alone the bundler hoists it into
         // ThreeRenderer, so the DenoiseNode chunk -- and with it the node backend -- statically loads the chunk that carries the legacy
         // composer, and the bundle census fails. A chunk of its own (about 3 kB) is imported by both and imports neither.
-        codeSplitting: { groups: [{ name: 'simplex-noise', test: /three[\\/]examples[\\/]jsm[\\/]math[\\/]SimplexNoise\.js$/ }] },
+        // GH-943 P3 (T1): the same for the two import-free twin-side modules (`twin-identity.ts`, `material-names.ts`): the legacy
+        // clone sites and the node census and twins both read them, and hoisted into ThreeRenderer they make the node backend load
+        // the legacy composer (the bundle census caught exactly that). A chunk of their own imports nothing.
+        codeSplitting: {
+          groups: [
+            { name: 'simplex-noise', test: /three[\\/]examples[\\/]jsm[\\/]math[\\/]SimplexNoise\.js$/ },
+            { name: 'twin-seam', test: /packages[\\/]render[\\/]src[\\/]three[\\/](twin-identity|material-names)\.ts$/ },
+          ],
+        },
       },
     },
   },

@@ -1107,7 +1107,7 @@ export const NODE_NATIVE_RAF_STATEMENT = `  await new Promise(function (r) { win
 export function layerToggleScript(layer: string, visible: boolean, arm: GpuArm = 'legacy', opts: CaptureScriptOptions = {}): string {
   return `(async () => {
   const objects = window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(layer)}, ${visible});
-${arm === 'legacy' ? '' : NODE_NATIVE_RAF_STATEMENT}  window.__lions.renderer.frame(1, 0);
+${arm !== 'legacy' && opts.nodeCensusRoot !== undefined ? nodeCensusStatements(opts.nodeCensusRoot) : ''}${arm === 'legacy' ? '' : NODE_NATIVE_RAF_STATEMENT}  window.__lions.renderer.frame(1, 0);
 ${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${layer === 'crown' ? '  window.__lions.redrawMinimap();\n' : ''}${opts.matchNodeRoot !== undefined ? matchNodeStatements(opts.matchNodeRoot) : ''}  return JSON.stringify({ layer: ${JSON.stringify(layer)}, visible: ${visible}, objects, tick: window.__lions.sim.tickCount });
 })()`;
 }
@@ -1136,13 +1136,18 @@ ${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${l
  * (`match-node-ported-keys.test.ts`): a legacy material whose twin the node chain now draws stays visible here, so the ported
  * layer's legacy delta is real and its parity ratio measures something. The node backend's own census never passes it.
  *
+ * GH-943 P3 (T1): the list is read per hook SEGMENT (`censusKey`): a hooked unit material stays visible here only when every one
+ * of its `rl-` program-key segments is on `PORTED_MATERIAL_KEYS` (a moving hull is `rl-team-mark-2|rl-running-gear-1`), so a port
+ * that lands one hook does not show a hull whose other hook the node chain still drops. Still the only caller (G7).
+ *
  * The AO pass stays ON. P0 had no node AO, so this used to switch the legacy GTAO off; T7 (`createNodeAoStage`) ported it, and with
  * the line still here the parity job compared an AO-less L against node arms that draw AO. Whatever the quality preset turns on for
  * the node chain, it turns on for legacy too, so nothing else needs matching.
  */
 export function matchNodeStatements(repoRoot: string): string {
   return `{
-${matchNodeCensusStatements(repoRoot)}  _r.frame(1, 0);
+${matchNodeCensusStatements(repoRoot)}  window.__rlMatchFound = _found;
+  _r.frame(1, 0);
 }
 `;
 }
@@ -1158,6 +1163,39 @@ function matchNodeCensusStatements(repoRoot: string): string {
 `;
 }
 
+/**
+ * GH-943 P2 (T4, ruling R9): the NODE arms' census, re-run after a layer toggle. The node backend hides every `ShaderMaterial` object
+ * (the decal pools, until P3) from `render()` every `CENSUS_EVERY_FRAMES` (60) frames. A layer toggle that shows a layer writes
+ * `visible = true` on those objects, and the frame loop is frozen, so no census runs before the next photograph: the node draws a
+ * ShaderMaterial as an empty node material, a ~330k-390k px constant. Every aftermath check after the `decals` toggle read it (T1 and
+ * T3 both saw the same 330k-390k px on roads, macro and the rest). Re-running the SAME census the backend runs puts the scene back in
+ * the state the real node chain draws. Placed BEFORE the repaint so the next photograph sees it. Node arms only.
+ */
+export function nodeCensusStatements(repoRoot: string): string {
+  const unported = `/@fs${repoRoot}/packages/render/src/three/backend/unported.ts`;
+  return `{
+  const _u = await import(${JSON.stringify(unported)});
+  const _found = _u.censusUnported(window.__lions.renderer.scene);
+  if (!Array.isArray(_found)) throw new Error('node-census: censusUnported returned no list');
+}
+`;
+}
+
+/**
+ * GH-943 P2 (T4, R9): the matched census, run ONCE MORE before the layer checks' reference photograph. On `relief` and `aftermath` the
+ * legacy-matched arm read a constant offset (12932 px / 1.27 and 17586 px / 2.36, EXACTLY its own `environment` reading) on every check
+ * after the first toggle: the first toggle's census hid or dropped something the capture's census had not yet met, so the reference
+ * (taken before any toggle) differed from every toggled photograph by that. Settling the census before the reference makes the
+ * reference and the toggled frames the same state. Legacy-matched arm only.
+ */
+export function matchNodeSettleScript(repoRoot: string): string {
+  // `matchNodeStatements` leaves its census list on `window.__rlMatchFound` (kind, key, objects), so the gate can NAME what the first
+  // matched census meets. It stays the ONLY caller of `censusUnported` with the ported-key option.
+  return `(async () => {
+${matchNodeStatements(repoRoot)}  return JSON.stringify({ tick: window.__lions.sim.tickCount, found: window.__rlMatchFound });
+})()`;
+}
+
 /** GH-943 P2 (T9): the matched census as a page expression that returns the list it left as JSON and does NOT repaint (the P2
  *  sheet's L arm reads the list, then repaints on its own schedule). Same statement as `matchNodeStatements`, so the ported-key
  *  option keeps one caller (`match-node-ported-keys.test.ts`). */
@@ -1168,6 +1206,8 @@ ${matchNodeCensusStatements(repoRoot)}  return JSON.stringify(_found);
 }
 
 export interface CaptureScriptOptions {
+  /** Re-run the node census after a layer toggle (NODE arms only; the gate sets it for webgl2 and webgpu). See `nodeCensusStatements`. */
+  readonly nodeCensusRoot?: string;
   /** Run `matchNodeStatements` before the camera is read (legacy arm only; the gate's `--match-node`). */
   readonly matchNodeRoot?: string;
 }

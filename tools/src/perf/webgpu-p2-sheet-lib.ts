@@ -69,13 +69,24 @@ export interface CensusRule {
  */
 export const CENSUS_RULES: readonly CensusRule[] = [
   { kind: /^partial$/, key: /^rl-ground: wet terms/, reason: 'wet ground terms (THEME_WET): a wet map draws dry on node, P4 (ruled 7 Nov)' },
-  { kind: /./, key: /garrison-banner/, reason: 'garrison banner wind (`rl-garrison-banner`, a separate hook): P3 (units)' },
+  { kind: /^on-before-compile$/, key: /garrison-banner/, reason: 'garrison banner wind (`rl-garrison-banner`, a separate hook): P3 (units)' },
   // Added after the Metal run's census was READ and every entry traced to its object (a scene probe listed name, parent and uniforms):
   { kind: /^shader-material$/, key: /^ShaderMaterial$/, reason: 'unnamed ShaderMaterial batches: ground decal pools, HP/overlay batches, tracers, shells, smoke, flipbook and tunnel overlays (decals, VFX): P3/P4' },
-  { kind: /^shader-material$/, key: /^(beam-batch|flipbook-fire|flipbook-smoke)$/, reason: 'the E6 beam and the flipbook fire and smoke (VFX): P4' },
-  { kind: /^shader-material$/, key: /^zone-band$/, reason: 'the zone-band overlay (overlays): P3' },
-  { kind: /^on-before-compile$/, key: /^(BakedMaterial|material|material\.001)$/, reason: 'textured bake vehicle and wreck materials carrying the team mark / bake-luma hook (textured bakes, team mark): P3' },
-  { kind: /^on-before-compile$/, key: /^backdrop-/, reason: 'the valley backdrop meshes (backdrop): P3/P4' },
+  { kind: /^shader-material$/, key: /^(rl-beam|rl-flipbook-fire|rl-flipbook-smoke)$/, reason: 'the E6 beam and the flipbook fire and smoke (VFX): P3 (T11, T12)' },
+  { kind: /^shader-material$/, key: /^(rl-zone-band|rl-supply-route)$/, reason: 'the zone-band and supply-route overlays (overlays): P3' },
+  // GH-943 P3 (T1): the census keys a named P3 batch by its material name (`material-names.ts`), no longer as `ShaderMaterial`.
+  {
+    kind: /^shader-material$/,
+    key: /^rl-(decal|overlay|trail|xray-(tube|collar|figure|beam)|fx-particle(-hot)?|fx-tracer|fx-mesh|smoke-screen|smoke-plume|collapse-shroud|swarm-rotors)$/,
+    reason: 'the named P3 batches: decals, the overlay batch, the trail, the tunnel x-ray and the VFX: P3 (T7-T12)',
+  },
+  // GH-943 P3 (T1): a hooked unit material keys by its hook segments (`censusKey`), no longer by its GLB material name.
+  {
+    kind: /^on-before-compile$/,
+    key: /^rl-(team-mark-2|running-gear-1|unit-rain-rim|wounded-floor|soot)(\|rl-(team-mark-2|running-gear-1|unit-rain-rim|wounded-floor|soot))*$/,
+    reason: 'unit materials carrying the team mark, running gear, rain rim, wounded floor or soot hooks (units): P3 (T3, T4)',
+  },
+  { kind: /^on-before-compile$/, key: /^rl-backdrop-fade$/, reason: 'the valley backdrop fade (backdrop): P3 (T10)' },
   { kind: /^on-before-compile$/, key: /^rl-silhouette-outline$/, reason: 'the occlusion outline (hidden on node by HIDE_WITHOUT_HOOK): P3' },
   { kind: /^image-release$/, key: /./, reason: 'GLB bitmap release disarmed on node (P0 behaviour, by design)' },
 ];
