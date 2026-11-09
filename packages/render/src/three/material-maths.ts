@@ -18,6 +18,9 @@ import { foliageLeanOps } from './terrain/wind';
 import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
 import { SELECTION_RING } from './units/readability';
 import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
+import { zoneHatchOps } from './units/zone-band';
+import { dashOps } from './supply-route-maths';
+import { SUPPLY_ROUTE_ALPHA } from './supply-route';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
@@ -39,8 +42,9 @@ export const MATERIAL_MATHS: MaterialMaths = {
   backdrop: null,
   decal: null,
   overlay: null,
-  zoneBand: null,
-  supplyRoute: null,
+  // T8: the zone band's hatch (`units/zone-band.node.ts`) and the supply route's dash and alpha (`supply-route.node.ts`).
+  zoneBand: { hatchOps: zoneHatchOps },
+  supplyRoute: { dashOps, alpha: SUPPLY_ROUTE_ALPHA },
   trail: null,
   xray: null,
   particle: null,

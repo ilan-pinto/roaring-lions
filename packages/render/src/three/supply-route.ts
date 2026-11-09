@@ -117,14 +117,15 @@ export class SupplyRouteMesh {
   }
 
   /** Rebuilds the geometry if the routes or the ground changed since the
-   *  last call. `groundY(x, y)` is the drawn ground's world height. */
-  sync(width: number, groundY: (x: number, y: number) => number): void {
-    if (!this.dirty) return;
+   *  last call. `groundY(x, y)` is the drawn ground's world height.
+   *  Returns true when a NEW mesh was put in the group (GH-943 P3 T8: the node backend adopts its material then). */
+  sync(width: number, groundY: (x: number, y: number) => number): boolean {
+    if (!this.dirty) return false;
     this.dirty = false;
     this.clear();
-    if (this.routes === null) return;
+    if (this.routes === null) return false;
     const r = buildSupplyRibbon(this.routes, width, groundY);
-    if (r.vertexCount === 0) return;
+    if (r.vertexCount === 0) return false;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(r.positions, 3));
     geometry.setAttribute('aDist', new THREE.BufferAttribute(r.dist, 1));
@@ -138,6 +139,7 @@ export class SupplyRouteMesh {
     mesh.receiveShadow = false;
     this.mesh = mesh;
     this.group.add(mesh);
+    return true;
   }
 
   /** The open line's and the cut stretch's colours, as hex; linearised here. */
