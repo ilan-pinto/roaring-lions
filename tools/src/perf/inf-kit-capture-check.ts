@@ -4,7 +4,8 @@
 // served file is the Draco ENCODE, and Draco drops 432 degenerate triangles from the shipped
 // `uniform` (7,032 -> 6,600, before the kit existed: 8,604 -> 8,172 at tier 0), so the in-game base is
 // 8,172; the KIT triangles are exactly the art file's (`infantry-kit-shipped.test.ts`). The 29 Oct redesign
-// ("real gear, fitted") has all eleven states: each tier of each track alone, and the full kit.
+// ("real gear, fitted") has all eleven states: each tier of each track alone, and the full kit. The Meshy Rifle Squad
+// (GH-746, 9 Nov): the kit re-fitted to the skinned figure, no deltoid, sleeve or nvg_mount (its bake shows the mount).
 
 export interface State {
   readonly id: string;
@@ -23,21 +24,23 @@ export interface Reading {
   calls: number;
 }
 
-/** Live triangles of the encoded `inf_squad` at tier 0 (GH-826 step 2: 8,172 before the hands; 11,730 in the art file less the same 432 Draco drops). */
-export const ENCODED_BASE_TRIS = 11298;
+/** Live triangles of the encoded `inf_squad` at tier 0 (GH-826 step 2: 8,172 before the hands; 11,730 in the art file less
+ *  the same 432 Draco drops). The Meshy pilot (GH-746, 9 Nov): 33,216 in the art file, 32,998 as the renderer reads the
+ *  encode (218 Draco drops), read by the real capture on Metal. */
+export const ENCODED_BASE_TRIS = 32998;
 
 export const STATES: readonly State[] = [
   { id: 'T0', label: 'tier 0', tiers: {}, kitTris: 0 },
-  { id: 'A1', label: 'armour 1', tiers: { armour: 1 }, kitTris: 786 },
-  { id: 'A2', label: 'armour 2', tiers: { armour: 2 }, kitTris: 1074 },
-  { id: 'A3', label: 'armour 3', tiers: { armour: 3 }, kitTris: 1242 },
-  { id: 'S1', label: 'sensors 1', tiers: { sensors: 1 }, kitTris: 372 },
-  { id: 'S2', label: 'sensors 2', tiers: { sensors: 2 }, kitTris: 728 },
-  { id: 'S3', label: 'sensors 3', tiers: { sensors: 3 }, kitTris: 958 },
+  { id: 'A1', label: 'armour 1', tiers: { armour: 1 }, kitTris: 810 },
+  { id: 'A2', label: 'armour 2', tiers: { armour: 2 }, kitTris: 954 },
+  { id: 'A3', label: 'armour 3', tiers: { armour: 3 }, kitTris: 1030 },
+  { id: 'S1', label: 'sensors 1', tiers: { sensors: 1 }, kitTris: 240 },
+  { id: 'S2', label: 'sensors 2', tiers: { sensors: 2 }, kitTris: 596 },
+  { id: 'S3', label: 'sensors 3', tiers: { sensors: 3 }, kitTris: 826 },
   { id: 'F1', label: 'firepower 1', tiers: { firepower: 1 }, kitTris: 570 },
   { id: 'F2', label: 'firepower 2', tiers: { firepower: 2 }, kitTris: 906 },
   { id: 'F3', label: 'firepower 3', tiers: { firepower: 3 }, kitTris: 1158 },
-  { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 3358 },
+  { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 3014 },
 ];
 
 /**
