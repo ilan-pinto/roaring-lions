@@ -32,6 +32,16 @@ describe('shipped first_contact triggers', () => {
     expect(t?.on).toEqual({ kind: 'first_contact' });
   });
 
+  // GH-1173: the spawned rocket team used to raze three lane walls inside the first 76 s of a passive walk (it spawned at tick 2). Those collapses are what
+  // `pnpm perf:memory` had drawn by its last frame; with a real first contact nothing in the walk razes a wall until the store wall falls at tick 2401, one
+  // tick after the walk's last frame, and the three wall-collapse textures stay decoded and un-uploaded (decoded ImageBitmaps 120 -> 168 MiB, over the 161 ceiling).
+  // The placed lane team (`kr_lane_east`) therefore carries no ambush stance: it shoots the lane walls from tick 9, as the spawned team did.
+  it('khan_rafid_3_clearance: the placed east-lane rocket team has no ambush stance (it razes lane walls in a passive walk)', () => {
+    const g = (missions as Record<string, MissionJson>).khan_rafid_3_clearance.enemy?.garrison?.find((x) => x.tag === 'kr_lane_east');
+    expect(g?.unit).toBe('rpg_team');
+    expect(g?.stance).toBeUndefined();
+  });
+
   for (const { mission, id } of firstContactTriggers()) {
     it(`${mission}: "${id}" does not fire in the first ${EARLY_TICKS} ticks of a passive run, seeds ${SEEDS.join(',')}`, () => {
       for (const seed of SEEDS) {

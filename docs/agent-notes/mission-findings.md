@@ -348,5 +348,11 @@ Eitan stopped at (33, 18) beside the placed lane team at (34, 15), was killed at
 field clinic (-12) and four danger-close hits (-3 each). The fix is one tile: the placed east-lane rocket team (`kr_lane_east`) moves from (34, 15)
 to (35, 14). 424242 then reads 2 stars, ROE 78, 2.5 min, 238 credits (was 90, 1.5 min, 260); seeds 1..200 read 200 of 200 at 2 stars, ROE min 75,
 mean 89.7. Many one-tile moves land 424242 on ROE 78 and others on 66: it is a branch point of the run, not a tuned margin, so ROE 78 is 8 over the
-70 bar and `LADDER_CREDITS` and `CAMPAIGN_CREDITS` moved 6997 -> 6975 (-22). The star ladder stays 68, so the `scout_shachaf` gate keeps its 30 stars. Full `pnpm playtest` (idle machine, 4 min): exit 0, credit ladder 6975, star ladder 68, Khan Rafid III 30 of 30 wins, slowest 2.5 min.
+70 bar and `LADDER_CREDITS` and `CAMPAIGN_CREDITS` moved 6997 -> 6975 (-22). `pnpm perf:memory` then failed on khan_rafid_3_clearance (decoded ImageBitmaps 168 MiB against 161, main 120). It is not a unit type (the roster is
+identical: `missionUnitTypes` walks strings and `first_contact` is not a unit id; no GPU owner changed). In a passive walk the timer-spawned rocket team
+razed three lane walls (ticks 13, 912, 1513), so the wall-collapse textures were drawn and released; with `first_contact` the first wall falls at tick
+2401 (the store militia's attrition on wall 7), one tick after the walk's last frame at 2400, so three 2048 px textures (16 MiB each) stay decoded and
+un-uploaded. The fix is data: the placed lane team (`kr_lane_east`) drops its ambush stance and shoots the lane walls from tick 9, as the spawned team did
+(walk: 120 MiB; seeds 1..200 still 200 of 200 at 2 stars, 424242 unchanged at ROE 78). The instrument is fragile to a collapse in its last tick: a final
+frame after the last slice would remove it (the lead's call, not made). The star ladder stays 68, so the `scout_shachaf` gate keeps its 30 stars. Full `pnpm playtest` (idle machine, 4 min): exit 0, credit ladder 6975, star ladder 68, Khan Rafid III 30 of 30 wins, slowest 2.5 min.
 The passive plan reaches contact late in the other four (Beit Sahwan I 2021, Breach 608, Khan Rafid III 5352 ticks; Wadi Halam IV and V never).
