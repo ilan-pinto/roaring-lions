@@ -203,9 +203,7 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
 
   // The record, bound up front.
   const nowSec = uni('uNowSec');
-  // TEMP DEAD WITNESS (GH-943 P3 T7): the rim gain held at 0 on the twin; reverted in the next commit.
-  const rimGain = TSL.float(0);
-  void uni('uRimGain');
+  const rimGain = uni('uRimGain');
   const rimShape = uni('uRimShape');
   const mapSize = uni('uMapSize');
   const roadTone = uni('uRoadTone');
