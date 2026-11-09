@@ -15,6 +15,14 @@ describe('the privacy page', () => {
     }
   });
 
+  it('A2-32 names_the_a2_data: the coin journal, the save slots, the device id and 30 days', () => {
+    const html = renderPrivacy(fixtureValues);
+    for (const m of ['coin journal', 'save slots', 'device id', '30 days']) expect(html, m).toContain(m);
+    // '30 days' is also the session rule below, so the request-log item is pinned by its own words.
+    expect(html).toContain('For 30 days, a log of recent requests');
+    expect(html).not.toContain('An empty coin wallet');
+  });
+
   it('the guest sentence does not deny the anonymous data the page goes on to list (A1 follow-up 5)', () => {
     const html = renderPrivacy(fixtureValues);
     expect(html).not.toContain('stores nothing about you');

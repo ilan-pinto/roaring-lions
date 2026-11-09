@@ -12,7 +12,7 @@ export const PRIVACY_CONTACT: string | null = null;
 /** The lead's minimum age (an integer 13 to 18). `null` until the lead decides it. */
 export const PRIVACY_MIN_AGE: number | null = null;
 /** The date this text last changed. Set at merge. */
-export const PRIVACY_UPDATED = '2026-11-08';
+export const PRIVACY_UPDATED = '2026-11-09';
 
 /** PAGE_CSP with its inline-script allowance removed: this page has no script, so it may run none. */
 export const PRIVACY_PAGE_CSP = PAGE_CSP.replace("script-src 'unsafe-inline'", "script-src 'none'");
@@ -54,7 +54,10 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <li>The day the account was created and the day you last signed in (the 36-month rule below uses it).</li>
 <li>A hash of each sign-in session, with the day it was made and the day it was last used.</li>
 <li>For a few minutes while you sign in, a hash of the sign-in challenge. It is swept away after five minutes.</li>
-<li>An empty coin wallet. Campaign progress, the brigade and save slots are added later, and this page is updated then.</li>
+<li>Roar coins: the balance, what was earned and how (the coin journal), the coin purchases and the coupons used.</li>
+<li>The campaign, the brigade (credits, purchases, upgrades) and the save slots, with the names you give them.</li>
+<li>For each device you moved progress from, a random device id, the day, and what was moved.</li>
+<li>For 30 days, a log of recent requests that makes retries safe, including when each mission was started.</li>
 </ul>
 
 <h2>What is never stored</h2>
@@ -77,7 +80,7 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 
 <h2>For how long</h2>
 <ul>
-<li>The account stays while you use it, and is deleted after 36 months with no sign-in.</li>
+<li>The account, with everything listed above, stays while you use it, and is deleted after 36 months with no sign-in.</li>
 <li>Sessions end 30 days after their last use, and 180 days at most.</li>
 <li>After a deletion, a hash of the Player ID is kept for 90 days, so your other devices learn the account is gone.</li>
 </ul>
