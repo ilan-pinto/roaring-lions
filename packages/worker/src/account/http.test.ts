@@ -15,16 +15,28 @@ async function rowCount(h: ReturnType<typeof accountHarness>): Promise<number> {
   return n;
 }
 
+/** A route's path with `:id` filled by a sample id, so a request reaches the handler instead of a 404. */
+const SAMPLE_ID = 'sample-id';
+const pathOf = (pattern: string): string => '/api/account/' + pattern.replace(/:\w+/g, SAMPLE_ID);
+
 describe('the account door', () => {
-  it('csrf: an evil origin, a missing origin, or a missing header answers 403 and writes nothing (A1-2)', async () => {
+  it('csrf: an evil origin, a missing origin, or a missing header answers 403 and writes nothing, on every non-GET route (A1-2)', async () => {
     const h = accountHarness();
+    const writes = ACCOUNT_ROUTES.filter((r) => r.method !== 'GET');
+    // The list is the thing under test: every non-GET route, A2 ones as they land, is walked, and GET state is a route.
+    expect(ACCOUNT_ROUTES.map((r) => `${r.method} ${r.pattern}`)).toContain('GET state');
+    expect(writes.length).toBeGreaterThanOrEqual(7);
     const before = await rowCount(h);
-    expect((await h.call('POST', '/api/account/logout', { origin: 'https://evil.example' })).status).toBe(403);
-    expect((await h.call('POST', '/api/account/logout', { origin: null })).status).toBe(403);
-    const bare = new Request('https://roaring-lions.pint12.workers.dev/api/account/logout', {
-      method: 'POST', headers: { origin: 'https://roaring-lions.pint12.workers.dev', 'content-type': 'application/json' }, body: '{}',
-    });
-    expect((await handleAccount(bare, h.env, Date.now())).status).toBe(403);
+    for (const r of writes) {
+      const where = `${r.method} ${r.pattern}`;
+      const path = pathOf(r.pattern);
+      expect((await h.call(r.method, path, { origin: 'https://evil.example', body: {} })).status, where).toBe(403);
+      expect((await h.call(r.method, path, { origin: null, body: {} })).status, where).toBe(403);
+      const bare = new Request('https://roaring-lions.pint12.workers.dev' + path, {
+        method: r.method, headers: { origin: 'https://roaring-lions.pint12.workers.dev', 'content-type': 'application/json' }, body: '{}',
+      });
+      expect((await handleAccount(bare, h.env, Date.now())).status, where).toBe(403);
+    }
     expect(await rowCount(h)).toBe(before);
   });
 
@@ -36,9 +48,9 @@ describe('the account door', () => {
 
   it('no CORS anywhere (A1-3)', async () => {
     const h = accountHarness();
-    expect(ACCOUNT_ROUTES.length).toBeGreaterThan(0);
+    expect(ACCOUNT_ROUTES.map((r) => `${r.method} ${r.pattern}`)).toContain('GET state');
     for (const r of ACCOUNT_ROUTES) {
-      const res = await h.call(r.method, `/api/account/${r.pattern}`, r.method === 'GET' ? {} : { body: {} });
+      const res = await h.call(r.method, pathOf(r.pattern), r.method === 'GET' ? {} : { body: {} });
       for (const name of res.headers.keys()) expect(name.startsWith('access-control-')).toBe(false);
     }
     const opt = await h.call('OPTIONS', '/api/account/open');

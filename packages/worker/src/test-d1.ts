@@ -24,20 +24,28 @@ export function openTestD1(opts: { dir?: string; foreignKeys?: boolean } = {}): 
     all: async <T>() => ({ results: db.prepare(sql).all(...(args as SQLInputValue[])) as T[] }),
     first: async <T>() => (db.prepare(sql).get(...(args as SQLInputValue[])) as T | undefined) ?? null,
   });
+  const runBatch = async (ss: D1Stmt[]): Promise<unknown[]> => {
+    db.exec('BEGIN');
+    try {
+      const out: unknown[] = [];
+      for (const s of ss) out.push(await s.run());
+      db.exec('COMMIT');
+      return out;
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  };
+  // One connection, and `run()` yields between BEGIN and COMMIT: two concurrent batches would interleave (the second
+  // BEGIN throws and its ROLLBACK aborts the first). D1 serialises a database's batches, so the harness does too.
+  let tail: Promise<unknown> = Promise.resolve();
   return {
     raw: db,
     prepare: (sql) => stmt(sql),
-    batch: async (ss) => {
-      db.exec('BEGIN');
-      try {
-        const out: unknown[] = [];
-        for (const s of ss) out.push(await s.run());
-        db.exec('COMMIT');
-        return out;
-      } catch (err) {
-        db.exec('ROLLBACK');
-        throw err;
-      }
+    batch: (ss) => {
+      const run = tail.then(() => runBatch(ss));
+      tail = run.catch(() => undefined);
+      return run;
     },
   };
 }
