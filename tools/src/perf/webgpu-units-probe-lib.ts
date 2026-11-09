@@ -322,7 +322,7 @@ function fxMoment(blastId: string, layer: string, tag = '@blast'): Pick<ProbeSub
  * `pre-port`. The set is read by `rowStatus` only.
  */
 export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
-  // GH-943 P3 (T11): the simple FX families. `flipbook`, `vehicle-death` (flipbook) and `smoke-screen` stay off until T12.
+  // GH-943 P3 (T11): the simple FX families.
   'mortar-impact', // particles
   'mortar-impact/muzzle-burst', // the flat-colour flash zones
   'vehicle-death/smoke-plume',
@@ -335,6 +335,10 @@ export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
   'damaged-zone',
   'route',
   'trail',
+  // GH-943 P3 (T12): the flipbook (smoke and fire passes) and the smoke screen.
+  'mortar-impact/flipbook',
+  'vehicle-death', // the flipbook
+  'smoke-screen',
 ]);
 
 // ---------------------------------------------------------------------------------------------------------------------------------

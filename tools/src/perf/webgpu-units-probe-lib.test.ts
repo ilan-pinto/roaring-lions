@@ -170,17 +170,19 @@ describe('the other refusals', () => {
 });
 
 describe('the ported subjects', () => {
-  it('GH-943 P3 (T11): the simple FX subjects are live, every one names a real fx subject, and the T12 ones (flipbook, smoke screen) are not', () => {
+  it('GH-943 P3 (T11, T12): every fx subject is live (T12: the flipbook and the smoke screen), and every one names a real fx subject', () => {
     const fxIds = new Set(PROBE_SUBJECTS.fx.map((s) => s.id));
-    const live = ['mortar-impact', 'mortar-impact/muzzle-burst', 'vehicle-death/smoke-plume', 'collapse', 'tracers', 'atgm', 'beam-swarm', 'beam-swarm/swarm'];
+    const live = [
+      'mortar-impact', 'mortar-impact/muzzle-burst', 'vehicle-death/smoke-plume', 'collapse', 'tracers', 'atgm', 'beam-swarm', 'beam-swarm/swarm',
+      // T12
+      'mortar-impact/flipbook', 'vehicle-death', 'smoke-screen',
+    ];
     for (const id of live) {
       expect(fxIds.has(id), id).toBe(true);
       expect(PORTED_PROBE_SUBJECTS.has(id), id).toBe(true);
     }
-    for (const id of ['mortar-impact/flipbook', 'vehicle-death', 'smoke-screen']) {
-      expect(fxIds.has(id), id).toBe(true);
-      expect(PORTED_PROBE_SUBJECTS.has(id), id).toBe(false);
-    }
+    // The T12 subjects read the layers their twins draw.
+    expect(PROBE_SUBJECTS.fx.filter((s) => ['mortar-impact/flipbook', 'vehicle-death', 'smoke-screen'].includes(s.id)).map((s) => s.layer)).toEqual(['flipbook', 'flipbook', 'smoke-screen']);
     // Nothing is live that is not a subject (a typo would flip nothing).
     for (const id of PORTED_PROBE_SUBJECTS) expect([...fxIds, ...PROBE_SUBJECTS.units.map((s) => s.id)], id).toContain(id);
   });
