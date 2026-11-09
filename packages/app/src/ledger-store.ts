@@ -37,7 +37,9 @@
  * somebody's `--ui-scale`. `main.ts` keeps its own `safeStorage()` for them.
  * Do not "finish the job" by moving them here.
  *
- * **Why the interface is eleven methods and not nine.** `clearLedger` and
+ * **Why the interface is eighteen methods and not nine.** (`recordVictory` is the eighteenth, added by GH-1075 A2:
+ * a victory is three writes to the guest store and ONE op to a server-backed one, and only the door can tell.)
+ * `clearLedger` and
  * `resetAccount` are the two REMOVALS the app already performed -- "New
  * campaign" (`main.ts`'s `purgeCampaign`) and the brigade screen's reset -- and
  * they are here rather than expressed as `writeLedger({})` /
@@ -58,8 +60,9 @@
  * catch it, put the three keys back from `snapshotCampaign`, and the screen
  * says the write was refused (save reliability, keyboard-and-saves).
  */
-import { emptyRoar, loadRoar, resetFree, restoreRoarText, saveRoar, snapshotRoarText, type RoarSeed, type RoarWallet } from './roar-wallet';
+import { ROAR_KEY, emptyRoar, loadRoar, resetFree, restoreRoarText, saveRoar, snapshotRoarText, type RoarSeed, type RoarWallet } from './roar-wallet';
 import type { LedgerData, LedgerRosterEntry } from '@lions/sim';
+import type { VictoryWin } from '@lions/economy';
 import {
   ACCOUNT_KEY,
   emptyAccount,
@@ -174,6 +177,25 @@ export interface LedgerStore {
   /** Put the three keys back exactly as `snapshotCampaign` found them; a key
    *  that was absent is removed. Can throw, like any write. */
   restoreCampaign(snap: CampaignSnapshot): void;
+  /** A won mission's whole write (GH-1075 A2, §0.8). The guest store's is `writeVictory`, byte for byte:
+   *  ledger, wallet, account, all or none. A server-backed store queues ONE victory op instead and ignores
+   *  `roar` (the server pays the coins). */
+  recordVictory(v: VictoryRecord): VictoryWrite;
+}
+
+/** What `recordVictory` takes. `start` is the `mission/start` nonce (null until the mission has one); the guest store ignores it. */
+export interface VictoryRecord {
+  ledger: CampaignLedger;
+  account: BrigadeAccount | null;
+  roar: RoarWallet | null;
+  win: VictoryWin | null;
+  start: string | null;
+}
+
+/** Remove everything a guest device holds: the three campaign keys, the save slots and the wallet. A claim does this
+ *  once the server has them; each key through its owning module's constant. */
+export function removeGuestProgress(storage: StorageLike): void {
+  for (const key of [LEDGER_KEY, ACCOUNT_KEY, TUTORIAL_DONE_KEY, SAVES_KEY, ROAR_KEY]) storage.removeItem(key);
 }
 
 /** Opaque to everything but this door: what `snapshotCampaign` took. */
@@ -228,7 +250,7 @@ function overStorage(store: StorageLike | null, backfill?: RoarBackfill): Ledger
   /** The back-payment, read from the ledger AS IT STANDS when the wallet is first made. */
   const seed: RoarSeed | undefined =
     backfill === undefined || store === null ? undefined : (w) => backfill(w, dropMalformed(loadLedger(store)));
-  return {
+  const self: LedgerStore = {
     available: store !== null,
     readLedger: (): CampaignLedger => dropMalformed(loadLedger(store)),
     writeLedger: (l: CampaignLedger): void => {
@@ -307,7 +329,13 @@ function overStorage(store: StorageLike | null, backfill?: RoarBackfill): Ledger
       for (const [key, value] of keys) if (value === null) store.removeItem(key);
       for (const [key, value] of keys) if (value !== null) store.setItem(key, value);
     },
+    // `this`, not `self`: a caller that spreads the store and overrides one write (the refusal specs do) must
+    // see its override inside the victory, as it did when `writeVictory` took the store as an argument.
+    recordVictory(this: LedgerStore, v: VictoryRecord): VictoryWrite {
+      return writeVictory(this, v.ledger, v.account, v.roar);
+    },
   };
+  return self;
 }
 
 /**
@@ -335,6 +363,12 @@ function safeStorage(): StorageLike | null {
 /** The wallet's one-time back-payment (GH-317): the new wallet and the ledger, the
  *  wallet with the old wins paid. Injected so this door does not import the world. */
 export type RoarBackfill = (w: RoarWallet, ledger: LedgerData) => RoarWallet;
+
+/** A store with nowhere to write (`available: false`): reads answer empty, writes do nothing. Held while a claimed
+ *  device waits for the server's state, so no guest key is read (the claim removed them). */
+export function blockedLedgerStore(): LedgerStore {
+  return overStorage(null);
+}
 
 /** The shipping store. The app builds exactly one, in `main.ts`. */
 export function browserLedgerStore(backfill?: RoarBackfill): LedgerStore {

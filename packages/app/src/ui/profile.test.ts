@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountClient, AccountError, IdentityView, MeResult } from '../account/client';
 import { ACCOUNT_BINDING_KEY } from '../account/binding';
+import { unusedA2Client } from '../account/fixtures';
 import { t } from '../i18n/t';
 import { showProfile, type ProfileDeps } from './profile';
 
@@ -31,6 +32,7 @@ function stub(over: Partial<AccountClient> = {}): AccountClient & { calls: strin
     exportData: async () => new Blob(['{}']),
     deleteAccount: async (o) => (calls.push('delete:' + JSON.stringify(o)), 'ok'),
     gone: async () => 'unknown',
+    ...unusedA2Client,
     ...over,
   };
   return Object.assign(c, { calls });

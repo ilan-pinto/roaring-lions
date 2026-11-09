@@ -321,6 +321,31 @@ was already dead, or not yet spawned, the tick they fired. The shapes, so the ne
   EQ I uses it; the regression test is `plans.test.ts`'s "each re-keyed beat fires, and with its group alive".
 - A plan that wins at 156 s sees a 150 s wave for six seconds: a beat on that wave can only fire as it arrives.
 
+## `first_contact` is the two combat sides meeting (8 Nov 2026)
+
+`first_contact` used to be true on ANY `fire` event and ANY identified `contact` event, from anyone to anything. Under a passive plan that
+made the trigger fire at tick 1 to 12 in four shipped missions, before the player had met anyone:
+
+- **An enemy identifying a civilian** (side 2): Beit Sahwan I (tick 7), Wadi Halam IV (12), and Beit Sahwan Breach (400, not early but still
+  not a meeting).
+- **An enemy breaching a wall**: `selectBreachTarget` makes a unit with a goal that is pressed against a wall shoot it, with no notion of who
+  owns the wall. At tick 1 to 2 a gun truck cut a NEUTRAL wall (Wadi Halam V) and a militiaman a neutral structure (Khan Rafid III). One Wadi Halam V gun
+  truck also shot its own side's weapons workshop. That breach rule is untouched here; it is why the event existed, and the workshop shot looks
+  like its own defect (not filed).
+
+The rule now (`MissionRuntime.isEnemyFire` / `isEnemyContact`): side 0 and side 1 only, never the same side, never a neutral unit, and a
+structure counts only if the other side owns it. A reveal or a pre-marked spawn (observer -1) still counts: it is the player's side identifying
+an enemy. `packages/sim/src/first-contact.test.ts` is the rule; `tools/src/first_contact_start.test.ts` holds the shipped data to it;
+`tools/src/backtest/first-contact-probe.ts` prints, per trigger and seed, the tick it fires under the passive plan with the old and the new
+reading side by side and the world at that tick.
+
+**Khan Rafid III is deliberately left as it plays.** Its rocket team (`a_rocket_team_moves_into_the_east_lane`) spawned at tick 2 only because
+of the old rule, and the mission was tuned and playtested with it there. With a real first contact the scripted plan wins in 3.4 min with 1
+star (ROE 66, 9 out) instead of 1.5 min with 2 (ROE 90, 10 out), which also takes the star ladder from 68 to 67 and closes the `scout_shachaf`
+gate (29 stars where 30 are pinned). So the trigger is an explicit `timer_s` of 0.1 s (tick 2, the same tick) and the mission is unchanged.
+To get the on-contact ambush the label says, put `first_contact` back and retune the plan: that is a balance decision, not made here.
+The passive plan reaches contact late in the other four (Beit Sahwan I 2021, Breach 608, Khan Rafid III 5352 ticks; Wadi Halam IV and V never).
+
 ## A side never cuts a structure it owns (8 Nov 2026)
 
 `selectBreachTarget` (a unit stopped against a wall, or standing beside one, cuts it) skipped garrisonable buildings and protected sites but never asked

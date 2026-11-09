@@ -28,6 +28,11 @@ export const PORTED_FILES = [
   'packages/render/src/three/terrain/decor-mesh.node.ts',
   // GH-943 P2 (T5): the selection, team and wound rings. Its legacy twin (units/selection-ring.ts) keeps its GLSL until P8.
   'packages/render/src/three/units/selection-ring.node.ts',
+  // GH-943 P3 (T8): the overlay batch, zone band, supply route and tunnel trail. Their legacy twins keep their GLSL until P8.
+  'packages/render/src/three/units/overlays.node.ts',
+  'packages/render/src/three/units/zone-band.node.ts',
+  'packages/render/src/three/supply-route.node.ts',
+  'packages/render/src/three/trail-mesh.node.ts',
 ];
 
 /**
@@ -46,11 +51,19 @@ export const TWINS = Object.freeze({
   [`${THREE}environment.ts`]: `${THREE}environment.node.ts`,
   [`${THREE}capture-view.ts`]: `${THREE}capture-view.node.ts`,
   [`${THREE}terrain/mesh.ts`]: `${THREE}terrain/mesh.node.ts`,
+  // GH-943 P2 (T4). relief-read.ts feeds the ground twin's slope light and contours: a change to it must touch mesh.node.ts too.
+  [`${THREE}terrain/relief-read.ts`]: `${THREE}terrain/mesh.node.ts`,
   // GH-943 P2 (T6). wind.ts also feeds the rain and the banners: a rain-only change to it must touch the twin too (intended).
   [`${THREE}terrain/decor-mesh.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
   [`${THREE}terrain/wind.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
   // GH-943 P2 (T5)
   [`${THREE}units/selection-ring.ts`]: `${THREE}units/selection-ring.node.ts`,
+  // GH-943 P3 (T8). supply-route-maths.ts holds the dash the route twin shares (a change to it must touch the twin too, intended).
+  [`${THREE}units/overlays.ts`]: `${THREE}units/overlays.node.ts`,
+  [`${THREE}units/zone-band.ts`]: `${THREE}units/zone-band.node.ts`,
+  [`${THREE}supply-route.ts`]: `${THREE}supply-route.node.ts`,
+  [`${THREE}supply-route-maths.ts`]: `${THREE}supply-route.node.ts`,
+  [`${THREE}trail-mesh.ts`]: `${THREE}trail-mesh.node.ts`,
 });
 
 /** The identifiers that mean "this file still carries GLSL" (also scanned for as text by the test). */

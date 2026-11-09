@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { StorageLike } from '../brigade-account';
 import { ACCOUNT_BINDING_KEY, readBinding, writeBinding } from './binding';
 import type { AccountClient, MeResult } from './client';
+import { unusedA2Client } from './fixtures';
 import { resolveSignedIn, sha256Hex } from './signed-in';
 
 function mem(): StorageLike {
@@ -12,7 +13,7 @@ function fake(me: MeResult, gone: 'deleted' | 'unknown', seen: string[] = []): A
   const never = (): never => {
     throw new Error('unused');
   };
-  return { enabled: true, me: () => Promise.resolve(me), gone: (h) => (seen.push(h), Promise.resolve(gone)), open: never, steamStart: never, logout: never, logoutAll: never, patchProfile: never, deleteIdentity: never, exportData: never, deleteAccount: never };
+  return { enabled: true, me: () => Promise.resolve(me), gone: (h) => (seen.push(h), Promise.resolve(gone)), open: never, steamStart: never, logout: never, logoutAll: never, patchProfile: never, deleteIdentity: never, exportData: never, deleteAccount: never, ...unusedA2Client };
 }
 const IN: MeResult = { kind: 'signedIn', publicId: 'pub1', displayName: 'Abc', showRecord: false, fresh: true, identities: [] };
 
@@ -21,6 +22,15 @@ describe('resolveSignedIn', () => {
     const s = mem();
     expect((await resolveSignedIn(fake(IN, 'unknown'), s)).kind).toBe('signedIn');
     expect(readBinding(s)?.publicId).toBe('pub1');
+  });
+  it('binding_survives_me: the same member keeps deviceId and claimedAt, another member clears both (§0.31)', async () => {
+    const DEV = '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc';
+    const s = mem();
+    writeBinding(s, { version: 1, publicId: 'pub1', deviceId: DEV, claimedAt: 9 });
+    await resolveSignedIn(fake(IN, 'unknown'), s);
+    expect(readBinding(s)).toEqual({ version: 1, publicId: 'pub1', deviceId: DEV, claimedAt: 9 });
+    await resolveSignedIn(fake({ ...IN, publicId: 'other' }, 'unknown'), s);
+    expect(readBinding(s)).toEqual({ version: 1, publicId: 'other' });
   });
   it('401 with no binding is a guest', async () => {
     expect(await resolveSignedIn(fake({ kind: 'signedOut' }, 'deleted'), mem())).toEqual({ kind: 'guest' });
