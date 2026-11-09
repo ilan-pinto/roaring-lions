@@ -1546,9 +1546,9 @@ export class ThreeRenderer implements Renderer {
   private rainDebugHidden = false;
   /** GH-943 P3 (T2): the FX debug layers held hidden (`trail`, `wreck-soot`, `particles`, `tracers`, `muzzle-burst`, `smoke-plume`,
    *  `collapse-shroud`). `writeFxLayerVisibility` consults it every frame (the `unitsDebugHidden` shape), so a hide holds across a repaint.
-   *  `fxLayerWritten` is the set it has written `visible = false` on, so a show puts back only what the flag took away. */
+   *  `fxLayerSaved` holds each hidden object's own prior `visible`, so a show puts back exactly that. */
   private readonly fxLayerHidden = new Set<FxFlagLayer>();
-  private readonly fxLayerWritten = new Set<FxFlagLayer>();
+  private readonly fxLayerSaved = new Map<FxFlagLayer, Map<THREE.Object3D, boolean>>();
   /** The `ripples` debug layer's flag (`unitsDebugHidden`'s shape): the
    *  per-frame write of `uRippleAmp` consults it, so a toggle holds across a
    *  repaint. */
@@ -5213,11 +5213,13 @@ export class ThreeRenderer implements Renderer {
         return [this.collapseShrouds.mesh];
       case 'wreck-soot': {
         const out: THREE.Object3D[] = [];
-        for (const entity of this.vehicleMeshEntities.values()) {
-          entity.root.traverse((o) => {
-            if ((o.userData as { rl_wreck?: unknown }).rl_wreck === true) out.push(o);
-          });
-        }
+        const take = (o: THREE.Object3D): void => {
+          if ((o.userData as { rl_wreck?: unknown }).rl_wreck === true) out.push(o);
+        };
+        // The live entity's own twins, and the wrecks left standing after a death (`meshWrecks`: a vehicle's wreck is handed to a root
+        // of its own once the death clip ends, which is the wreck a player sees).
+        for (const entity of this.vehicleMeshEntities.values()) entity.root.traverse(take);
+        for (const w of this.meshWrecks) w.root.traverse(take);
         return out;
       }
     }
@@ -5232,13 +5234,25 @@ export class ThreeRenderer implements Renderer {
     let n = 0;
     for (const name of only === undefined ? FX_FLAG_LAYERS : [only]) {
       const hidden = this.fxLayerHidden.has(name);
-      if (!hidden && !this.fxLayerWritten.has(name)) continue;
-      for (const o of this.fxLayerObjects(name)) {
-        o.visible = !hidden;
-        n++;
+      const saved = this.fxLayerSaved.get(name);
+      if (!hidden && saved === undefined) continue;
+      if (hidden) {
+        // First touch records the object's own `visible` (a living vehicle's `WRECK_` twin is hidden for its own reasons); a show puts
+        // back exactly that and nothing else.
+        const keep = saved ?? new Map<THREE.Object3D, boolean>();
+        for (const o of this.fxLayerObjects(name)) {
+          if (!keep.has(o)) keep.set(o, o.visible);
+          o.visible = false;
+          n++;
+        }
+        this.fxLayerSaved.set(name, keep);
+      } else if (saved !== undefined) {
+        for (const [o, was] of saved) {
+          o.visible = was;
+          n++;
+        }
+        this.fxLayerSaved.delete(name);
       }
-      if (hidden) this.fxLayerWritten.add(name);
-      else this.fxLayerWritten.delete(name);
     }
     return n;
   }
