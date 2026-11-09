@@ -9,7 +9,7 @@ import type { StorageLike } from '../brigade-account';
 import { blockedLedgerStore, browserLedgerStore, type LedgerStore, type RoarBackfill } from '../ledger-store';
 import { accountLedgerStore } from './account-store';
 import { tabIdOf } from './tab-id';
-import { finishInterruptedClaim } from './claim';
+import { dropOrphanClaiming, finishInterruptedClaim } from './claim';
 import { readBinding } from './binding';
 import { readCache } from './cache';
 import { accountsEnabled } from './enabled';
@@ -38,6 +38,7 @@ function sessionStorageOrNull(): StorageLike | null {
 }
 
 export function selectLedgerStore(query: URLSearchParams, storage: StorageLike | null, backfill: RoarBackfill, o: SelectOptions): SelectedStore {
+  dropOrphanClaiming(storage); // a claim marker with no binding behind it would lock the guest store for good
   const guest: SelectedStore = { store: browserLedgerStore(backfill), signedIn: false, needsState: false };
   if (!accountsEnabled(query)) return guest;
   const binding = readBinding(storage);

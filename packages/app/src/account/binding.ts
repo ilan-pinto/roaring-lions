@@ -42,6 +42,7 @@ export function writeBinding(store: StorageLike | null, b: AccountBinding): void
 
 export function clearBinding(store: StorageLike | null): void {
   try {
+    store?.removeItem(CLAIMING_KEY); // a pending claim marker belongs to the binding: it must not outlive it (it would lock the guest store)
     store?.removeItem(ACCOUNT_BINDING_KEY);
   } catch {
     /* as above */
@@ -50,6 +51,11 @@ export function clearBinding(store: StorageLike | null): void {
 
 /** Sign-out and account deletion forget the device id and the claim mark, so the next claim mints a new id (GH-1075 A2, §0.16). */
 export function clearDeviceId(store: StorageLike | null): void {
+  try {
+    store?.removeItem(CLAIMING_KEY); // as `clearBinding`: the marker names the device id being forgotten
+  } catch {
+    /* a marker that cannot be removed is dropped at the next boot */
+  }
   const b = readBinding(store);
   if (b === null) return;
   writeBinding(store, { version: 1, publicId: b.publicId });

@@ -202,9 +202,9 @@ export async function finishClaim(o: FinishOptions): Promise<FinishResult> {
   const { result, sent, storage } = o;
   const byId = new Map<string, InventoryItem>();
   for (const it of result.slots) byId.set(it.deviceId, it);
-  const wanted: { item: InventoryItem | null; text: string }[] = [];
-  if (sent.campaign !== null) wanted.push({ item: result.campaign, text: sent.campaign });
-  for (const [id, text] of Object.entries(sent.slots)) wanted.push({ item: byId.get(id) ?? null, text });
+  const wanted: { kind: 'campaign' | 'slot'; id: string; item: InventoryItem | null; text: string }[] = [];
+  if (sent.campaign !== null) wanted.push({ kind: 'campaign', id: 'campaign', item: result.campaign, text: sent.campaign });
+  for (const [id, text] of Object.entries(sent.slots)) wanted.push({ kind: 'slot', id, item: byId.get(id) ?? null, text });
 
   let accounted = 0;
   let broken = 0;
@@ -214,7 +214,7 @@ export async function finishClaim(o: FinishOptions): Promise<FinishResult> {
     if (it === null) broken++;
     else if (it.status === 'rejected') {
       accounted++;
-      rejected.push({ kind: it.deviceId === 'campaign' ? 'campaign' : 'slot', id: it.deviceId, reason: it.reason });
+      rejected.push({ kind: w.kind, id: w.id, reason: it.reason });
     } else if (it.digest === (await sha256Hex(w.text))) accounted++;
     else broken++;
   }
@@ -259,6 +259,27 @@ export async function finishClaim(o: FinishOptions): Promise<FinishResult> {
 }
 
 /**
+ * At boot: a claim marker that no binding stands behind (signed out, deleted, another member) would write-lock the
+ * guest store for good. It goes when the binding is absent or names another device id. True when it removed one.
+ */
+export function dropOrphanClaiming(storage: StorageLike | null): boolean {
+  const marker = readClaiming(storage);
+  if (marker === null && !hasRawMarker(storage)) return false;
+  const b = readBinding(storage);
+  if (b !== null && marker !== null && b.deviceId === marker.deviceId) return false;
+  clearClaiming(storage);
+  return true;
+}
+
+function hasRawMarker(storage: StorageLike | null): boolean {
+  try {
+    return typeof storage?.getItem(CLAIMING_KEY) === 'string';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * At boot: a claimed binding with a cache and guest keys still present is a tab that died between the last two
  * writes of `finishClaim`. The guest keys go (the server has them) and so does the marker. True when it removed any.
  */
@@ -299,15 +320,18 @@ export interface RunClaimOptions {
 
 /**
  * One whole attempt: the device id, the body, the marker, the send, the finish. A stored result that matches nothing
- * the device holds (`stale`) mints a new device id and rebuilds, at most twice. `retry` and a network failure leave the
+ * the device holds (`stale`) mints a new device id and rebuilds, at most once per run. `retry` and a network failure leave the
  * marker in place so the retry sends the same device id; a refusal the server will repeat (cap, size, bad body) answers
  * `kept`, with the marker removed so the player is not locked out of their own game.
  */
 export async function runClaim(o: RunClaimOptions): Promise<ClaimOutcome> {
   const now = o.now ?? Date.now;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     const binding = readBinding(o.storage);
-    if (binding === null) return 'failed';
+    if (binding === null) {
+      clearClaiming(o.storage);
+      return 'failed';
+    }
     const deviceId = ensureDeviceId(o.storage);
     const built = buildClaim(o.guest, deviceId, { publicId: binding.publicId, at: now() });
     const snapshot = { campaign: o.guest.snapshotCampaign(), slots: o.guest.readSlotsRaw() };
@@ -323,5 +347,6 @@ export async function runClaim(o: RunClaimOptions): Promise<ClaimOutcome> {
     // A new id for the same device; the marker is rewritten by the next beginClaim.
     clearDeviceId(o.storage);
   }
+  clearClaiming(o.storage); // a second stale answer must not leave the device write-locked
   return 'failed';
 }

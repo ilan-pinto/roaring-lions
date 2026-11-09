@@ -1001,6 +1001,7 @@ describe('signOut', () => {
     const r = rig({ server });
     writeBinding(r.storage, { version: 1, publicId: 'pub1', deviceId: '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc', claimedAt: 5 });
     writeCache(r.storage, r.cache);
+    r.storage.setItem('lions.account.claiming', '{"deviceId":"0b5f6d3e-1c2a-4f7b-9d8e-123456789abc","digests":{"campaign":null,"slots":{}},"at":1}');
     r.store.sync.setOps([camp('A', 1), { kind: 'slot.put', opId: 'P', slotId: 's1', slot: slotOf('s1'), origin: 'player' }]);
     await signOut({ sync: r.sync, store: r.store, client: clientFor(server), storage: r.storage, schedule: r.sched.schedule, now: r.sched.now });
     expect(readHeld(r.storage).map((h) => [h.id, h.reason])).toEqual([['A', 'refused'], ['P', 'refused']]);
@@ -1011,6 +1012,7 @@ describe('signOut', () => {
     expect(b?.deviceId).toBeUndefined();
     expect(b?.claimedAt).toBeUndefined();
     expect(r.storage.getItem(ACCOUNT_BINDING_KEY)).not.toContain('claimedAt');
+    expect(r.storage.getItem('lions.account.claiming'), 'a pending claim marker must not survive sign-out').toBeNull();
   });
 
   it('a queue that sends cleanly files nothing', async () => {

@@ -6,7 +6,7 @@ import { memoryLedgerStore, removeGuestProgress, writeVictory, type MemoryLedger
 import { LEDGER_KEY, TUTORIAL_DONE_KEY } from '../main-keys';
 import { SAVES_KEY } from '../profile';
 import { ROAR_KEY } from '../roar-wallet';
-import { ACCOUNT_BINDING_KEY, CLAIMING_KEY, clearDeviceId, readBinding, writeBinding } from './binding';
+import { ACCOUNT_BINDING_KEY, CLAIMING_KEY, clearBinding, clearDeviceId, readBinding, writeBinding } from './binding';
 import { ACCOUNT_CACHE_KEY, readCache, writeCache } from './cache';
 import type { AccountClient, CallResult } from './client';
 import {
@@ -15,6 +15,7 @@ import {
   beginClaim,
   buildClaim,
   claimQuietly,
+  dropOrphanClaiming,
   finishClaim,
   finishInterruptedClaim,
   runClaim,
@@ -318,5 +319,85 @@ describe('the guest store while a claim is moving (§0.40)', () => {
     d.storage.setItem(CLAIMING_KEY, '{}');
     removeGuestProgress(d.storage);
     expect(keysPresent(d.storage)).toEqual([]);
+  });
+});
+
+describe('fix round 1 (review of 2.11)', () => {
+  const MARKER = '{"deviceId":"0b5f6d3e-1c2a-4f7b-9d8e-123456789abc","digests":{"campaign":null,"slots":{}},"at":1}';
+
+  it('sign-out and deletion take the pending marker with them: the guest store writes again', () => {
+    for (const clear of [clearDeviceId, clearBinding]) {
+      const d = device({ slots: slots(1) });
+      writeBinding(d.storage, { version: 1, publicId: 'pub1', deviceId: '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc' });
+      d.storage.setItem(CLAIMING_KEY, MARKER);
+      expect(() => d.guest.writeLedger({})).toThrow();
+      clear(d.storage);
+      expect(d.storage.getItem(CLAIMING_KEY)).toBeNull();
+      expect(() => d.guest.writeLedger({ 'campaign.completed_missions': ['m2'] })).not.toThrow();
+    }
+  });
+
+  it('at boot a marker with no binding, or a binding with another device id, is dropped; a matching one stays', () => {
+    const d = device({ slots: slots(1) });
+    d.storage.removeItem(ACCOUNT_BINDING_KEY);
+    d.storage.setItem(CLAIMING_KEY, MARKER);
+    expect(dropOrphanClaiming(d.storage)).toBe(true);
+    expect(d.storage.getItem(CLAIMING_KEY)).toBeNull();
+    writeBinding(d.storage, { version: 1, publicId: 'pub1', deviceId: '11111111-1c2a-4f7b-9d8e-123456789abc' });
+    d.storage.setItem(CLAIMING_KEY, MARKER);
+    expect(dropOrphanClaiming(d.storage)).toBe(true);
+    writeBinding(d.storage, { version: 1, publicId: 'pub1', deviceId: '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc' });
+    d.storage.setItem(CLAIMING_KEY, MARKER);
+    expect(dropOrphanClaiming(d.storage)).toBe(false);
+    expect(d.storage.getItem(CLAIMING_KEY)).toBe(MARKER);
+  });
+
+  it('a third-time stale answer: runClaim re-mints once, answers failed, and leaves no marker', async () => {
+    const d = device({ slots: slots(1), campaign: false });
+    const old = buildClaim(d.guest, 'dev-old', CTX);
+    d.guest.writeSlotsRaw(JSON.stringify({ s1: { ...slotOf('s1', 'Slot 1', 50), build: 'changed' } }));
+    const stale = await answer(old.body); // matches nothing the device now holds
+    let claims = 0;
+    const client = { ...unusedA2Client, claim: async () => ((claims++, { ok: true, status: 200, body: stale })) } as unknown as AccountClient;
+    expect(await runClaim({ client, guest: d.guest, storage: d.storage })).toBe('failed');
+    expect(claims).toBe(2); // the first send and one re-mint, no more
+    expect(d.storage.getItem(CLAIMING_KEY)).toBeNull();
+    expect(() => d.guest.writeSlotsRaw('{}')).not.toThrow();
+  });
+
+  it('a rejected campaign is held verbatim from the snapshot, kept before any guest key goes (cap and size)', async () => {
+    for (const reason of ['cap', 'size'] as const) {
+      const d = device({ slots: slots(1) });
+      const built = buildClaim(d.guest, 'dev-1', CTX);
+      const result = { ...(await answer(built.body)), campaign: { deviceId: 'campaign', status: 'rejected', reason } as InventoryItem };
+      const snapshot = { campaign: d.guest.snapshotCampaign(), slots: d.guest.readSlotsRaw() };
+      d.log.length = 0;
+      const out = await finishClaim({ result, sent: built.sent, damaged: built.damaged, storage: d.storage, snapshot, now: () => 77 });
+      expect(out).toBe('moved');
+      const held = readHeld(d.storage);
+      expect(held).toHaveLength(1);
+      expect(held[0]).toMatchObject({ id: 'claim:campaign', kind: 'campaign', reason });
+      expect(held[0].text).toBe(
+        JSON.stringify({ ledger: JSON.parse(snapshot.campaign.ledger as string), brigade: JSON.parse(snapshot.campaign.account as string), tutorialDone: true }),
+      );
+      expect(d.log.indexOf('set:' + HELD_KEY)).toBeGreaterThanOrEqual(0);
+      expect(d.log.indexOf('set:' + HELD_KEY)).toBeLessThan(d.log.indexOf('rm:' + LEDGER_KEY));
+    }
+  });
+
+  it('a guest slot whose id is literally "campaign" is not mistaken for the campaign', async () => {
+    const all = { campaign: { ...slotOf('campaign', 'Odd', 3), build: 'b' } };
+    const d = device({ slots: all });
+    const built = buildClaim(d.guest, 'dev-1', CTX);
+    const result = await answer(built.body, { reject: { campaign: 'cap' } });
+    const snapshot = { campaign: d.guest.snapshotCampaign(), slots: d.guest.readSlotsRaw() };
+    expect(await finishClaim({ result, sent: built.sent, damaged: built.damaged, storage: d.storage, snapshot })).toBe('moved');
+    const held = readHeld(d.storage);
+    expect(held.map((h) => [h.id, h.kind, h.reason])).toEqual([['claim:slot:campaign', 'slot', 'cap']]);
+    expect(held[0].text).toBe(JSON.stringify(all.campaign));
+  });
+
+  it('CLAIM_BODY_MAX equals the Worker\'s (packages/worker/src/account/config.ts), which app code cannot import', () => {
+    expect(CLAIM_BODY_MAX).toBe(1048576);
   });
 });
