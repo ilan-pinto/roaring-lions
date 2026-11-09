@@ -67,6 +67,7 @@ const GUNNERS: readonly (readonly [string, string, Readonly<Record<string, numbe
   // kneelIn "demoted themselves": that was wrong. The arms had not moved; the kit's geometry had been counted as body.)
   ['inf_squad.glb', 'f0', { idle: 430, move: 580, kneelIn: 540 }],
   ['inf_squad.glb', 'f1', { idle: 430, move: 580, kneelIn: 540 }],
+  // DISCLOSURE: f2 kneelOut reads 400 on the bare body, EXACTLY its 400 ceiling: it passes with zero headroom. The ceiling is not widened.
   ['inf_squad.glb', 'f2', { idle: 430, move: 580, kneelIn: 540, kneelOut: 400 }],
 ];
 
