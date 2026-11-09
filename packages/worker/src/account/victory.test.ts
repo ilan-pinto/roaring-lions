@@ -1,6 +1,7 @@
 import { parseWorld, worldMissionIds } from '@lions/economy';
 import { world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
+import { CAMPAIGN_BODY_MAX } from './config';
 import { handleAccount } from './routes';
 import { accountHarness, failingD1, seedWalletMember } from './test-kit';
 
@@ -204,6 +205,47 @@ describe('victory', () => {
     expect([b.status, await b.json()]).toEqual([200, first]);
     expect((await snapshot(s)).journal.length).toBe(3);
     expect(await journalSum(s)).toBe(120);
+  });
+
+  it('a_nonce_is_the_members_own (risk d): m2 naming m1\'s start pays 0 and leaves m1\'s row a live start', async () => {
+    const s = setup();
+    const c1 = await member(s);
+    const c2 = (await seedWalletMember(s.h.db, 'm2', T0)).cookie;
+    await start(s, c1, 1);
+    s.clock.now = T0 + MIN;
+    const r = await win(s, c2, 2, { start: 1 });
+    expect([r.status, ((await r.json()) as { coins: number }).coins]).toEqual([200, 0]);
+    expect((await s.h.db.prepare("SELECT free FROM wallet WHERE member_id = 'm2'").first<{ free: number }>())?.free).toBe(0);
+    const row = await s.h.db.prepare('SELECT kind FROM account_op WHERE member_id = ?1 AND op_id = ?2').bind('m1', op(1)).first<{ kind: string }>();
+    expect(row?.kind).toBe('mission.start');
+    // m1 can still use it.
+    expect(((await (await win(s, c1, 3, { start: 1 })).json()) as { coins: number }).coins).toBe(120);
+  });
+
+  it('a body over CAMPAIGN_BODY_MAX answers 413 and writes nothing', async () => {
+    const s = setup();
+    const cookie = await member(s);
+    await start(s, cookie, 1);
+    const before = await snapshot(s);
+    const r = await win(s, cookie, 2, { start: 1, campaign: { ...BODY, pad: 'x'.repeat(CAMPAIGN_BODY_MAX) } });
+    expect([r.status, await r.json()]).toEqual([413, { error: 'too_large' }]);
+    expect(await snapshot(s)).toEqual(before);
+  });
+
+  it('a stale victory with 4 system slots held answers conflict held and still pays', async () => {
+    const s = setup();
+    const cookie = await member(s);
+    await seedCampaign(s, 3);
+    for (let i = 0; i < 4; i++) {
+      await s.h.db.prepare("INSERT INTO save_slot (member_id, slot_id, name, saved_at, build, origin, body, bytes) VALUES ('m1', ?1, 'c', 1, 'b', 'conflict', '{}', 2)").bind(`sys${i}`).run();
+    }
+    await start(s, cookie, 1);
+    s.clock.now = T0 + MIN;
+    const r = await win(s, cookie, 2, { start: 1, base: 2, campaign: BODY });
+    const out = await r.json() as { coins: number; conflict: unknown };
+    expect([r.status, out.coins, out.conflict]).toEqual([200, 120, { held: true }]);
+    expect((await s.h.db.prepare('SELECT COUNT(*) AS n FROM save_slot').first<{ n: number }>())?.n).toBe(4);
+    expect(await freeOf(s)).toBe(120);
   });
 
   it('refuses a malformed body with 400 and writes nothing', async () => {
