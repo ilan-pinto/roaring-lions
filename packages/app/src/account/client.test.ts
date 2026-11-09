@@ -48,6 +48,17 @@ describe('off means no request (A1-11)', () => {
   });
 });
 
+describe('sign out reports its result (A1 follow-up 1)', () => {
+  it('a server failure is an error, a 401 (already signed out) is ok', async () => {
+    expect(await make('?accounts', () => json(500, { error: 'boom' })).client.logout()).toEqual({ error: 'boom', status: 500 });
+    expect(await make('?accounts', () => json(503, {})).client.logoutAll()).toMatchObject({ status: 503 });
+    expect(await make('?accounts', () => json(401, { error: 'signed_out' })).client.logout()).toBe('ok');
+    expect(await make('?accounts', () => json(200, {})).client.logoutAll()).toBe('ok');
+    const net = createAccountClient({ enabled: true, fetch: (() => Promise.reject(new Error('x'))) as unknown as typeof fetch, newOpId: () => 'o' });
+    expect(await net.logout()).toEqual({ error: 'network', status: 0 });
+  });
+});
+
 describe('every body method sends content-type json (the worker answers 415 otherwise)', () => {
   it('POST, PATCH and DELETE, empty bodies as {}', async () => {
     const { spy, client } = make('?accounts');
