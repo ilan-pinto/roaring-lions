@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { QUIET_SCENARIO, captureScript, layerToggleScript } from './capture-protocol';
+import { QUIET_SCENARIO, captureScript, layerToggleScript, matchNodeSettleScript, nodeCensusStatements } from './capture-protocol';
 
 const ROOT = '/repo';
 
@@ -21,6 +21,29 @@ describe('layerToggleScript on a node arm (GH-943 P1)', () => {
   });
 });
 
+describe('the node arm re-runs its census after a toggle (R9: the re-shown decal ShaderMaterials)', () => {
+  it('toggle, THEN census, THEN the native rAF and the repaint, on both node arms and both directions', () => {
+    for (const arm of ['webgl2', 'webgpu'] as const) {
+      for (const visible of [true, false]) {
+        const s = layerToggleScript('decals', visible, arm, { nodeCensusRoot: ROOT });
+        const toggle = s.indexOf('setDebugLayerVisible');
+        const census = s.indexOf('censusUnported');
+        expect(census).toBeGreaterThan(toggle);
+        expect(s.indexOf('window.requestAnimationFrame')).toBeGreaterThan(census);
+        expect(s.indexOf('frame(1, 0)')).toBeGreaterThan(census);
+        expect(s).toContain(`/@fs${ROOT}/packages/render/src/three/backend/unported.ts`);
+        // The node arm runs the backend's OWN census: no ported-key exemption (that is the legacy-matched arm's).
+        expect(s).not.toContain('PORTED_MATERIAL_KEYS');
+      }
+    }
+  });
+  it('without the option, and on legacy, the toggle script is unchanged', () => {
+    expect(layerToggleScript('decals', true, 'webgpu')).not.toContain('censusUnported');
+    expect(layerToggleScript('decals', true, 'legacy', { nodeCensusRoot: ROOT })).toBe(layerToggleScript('decals', true));
+    expect(nodeCensusStatements(ROOT)).toContain('censusUnported');
+  });
+});
+
 describe('--match-node (the legacy-matched arm)', () => {
   it('a plain legacy capture script carries no matching', () => {
     expect(captureScript(QUIET_SCENARIO)).not.toContain('censusUnported');
@@ -38,6 +61,15 @@ describe('--match-node (the legacy-matched arm)', () => {
   });
   it('re-applies after every layer toggle (a re-shown layer would otherwise un-hide a ShaderMaterial object)', () => {
     expect(layerToggleScript('fog', true, 'legacy', { matchNodeRoot: ROOT })).toContain('censusUnported');
+  });
+  it('the settle script runs the matched census, then repaints, and reads back the tick', () => {
+    const s = matchNodeSettleScript(ROOT);
+    expect(s).toContain('PORTED_MATERIAL_KEYS');
+    expect(s.indexOf('censusUnported')).toBeGreaterThan(-1);
+    expect(s.indexOf('frame(1, 0)')).toBeGreaterThan(s.indexOf('censusUnported'));
+    expect(s).toContain('tickCount');
+    // It returns the census list so the gate can name what the first matched census meets.
+    expect(s).toContain('window.__rlMatchFound');
   });
   it('is refused on a node arm', () => {
     expect(() => captureScript(QUIET_SCENARIO, 'webgpu', { matchNodeRoot: ROOT })).toThrow(/legacy-arm/);

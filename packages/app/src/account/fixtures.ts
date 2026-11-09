@@ -40,3 +40,21 @@ export function memStorage(): StorageLike & { map: Map<string, string>; length: 
 
 let n = 0;
 export const opIds = (): (() => string) => () => `op-${++n}`;
+
+/** The A2 client methods a spec does not drive: each throws, so a call a test did not expect goes red (spread into a fake `AccountClient`). */
+const unexpected = (what: string) => (): never => {
+  throw new Error(`unexpected AccountClient.${what}`);
+};
+export const unusedA2Client = {
+  state: unexpected('state'),
+  slot: unexpected('slot'),
+  missionStart: unexpected('missionStart'),
+  victory: unexpected('victory'),
+  putCampaign: unexpected('putCampaign'),
+  spend: unexpected('spend'),
+  coupon: unexpected('coupon'),
+  resetFree: unexpected('resetFree'),
+  putSlot: unexpected('putSlot'),
+  deleteSlot: unexpected('deleteSlot'),
+  claim: unexpected('claim'),
+};

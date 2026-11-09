@@ -217,7 +217,7 @@ function runEstimate(rest: readonly string[], usdPerCredit: number): number {
   }
   if (subkind === 'text') {
     const opts = parseEstimateTextArgs(rest.slice(1));
-    const previewCredits = estimateCredits('text-preview', { modelType: opts.modelType, ultra: opts.ultra });
+    const previewCredits = estimateCredits('text-preview', { modelType: opts.modelType, aiModel: opts.aiModel, ultra: opts.ultra });
     const refineCredits = opts.refine ? estimateCredits('text-refine', { textureResolution: opts.textureResolution }) : 0;
     const credits = previewCredits + refineCredits;
     const usd = estimateUsd(credits, usdPerCredit);
@@ -235,6 +235,7 @@ function runEstimate(rest: readonly string[], usdPerCredit: number): number {
   const opts = parseEstimateImageArgs(rest.slice(1));
   const credits = estimateCredits('image', {
     modelType: opts.modelType,
+    aiModel: opts.aiModel,
     ultra: opts.ultra,
     shouldTexture: !opts.noTexture,
     textureResolution: opts.textureResolution,
@@ -347,7 +348,7 @@ export async function runText(
   opts: TextOptions,
   paths: MeshyPaths = DEFAULT_PATHS
 ): Promise<number> {
-  const previewCredits = estimateCredits('text-preview', { modelType: opts.modelType, ultra: opts.ultra });
+  const previewCredits = estimateCredits('text-preview', { modelType: opts.modelType, aiModel: opts.aiModel, ultra: opts.ultra });
   const refineCredits = opts.refine ? estimateCredits('text-refine', { textureResolution: opts.textureResolution }) : 0;
   const totalCredits = previewCredits + refineCredits;
 
@@ -486,6 +487,7 @@ export async function runImage(
 ): Promise<number> {
   const credits = estimateCredits('image', {
     modelType: opts.modelType,
+    aiModel: opts.aiModel,
     ultra: opts.ultra,
     shouldTexture: !opts.noTexture,
     textureResolution: opts.textureResolution,
@@ -1020,6 +1022,10 @@ Commands (network, need a key):
   image <path-or-url> [options] image-to-3d
       text/image: --pose a-pose|t-pose|none   pose_mode sent to Meshy (default none;
                                               a-pose is what a figure needs to be rigged)
+      text/image: --model-type standard|smart-topology (default standard; lowpoly retired 2026-10-30)
+                  --ai-model  standard: meshy-6 (default), meshy-6-lite, meshy-7.1, meshy-7, latest
+                              smart-topology: meshy-t2.5 (default), meshy-t2  -- a mismatched pair is refused
+                  5-credit previews: meshy-6-lite, meshy-t2, meshy-t2.5; the rest 20
   t2i "<prompt>" [options]      text-to-image (--model nano-banana-2|gpt-image-2|..., --aspect 4:3|3:2|..., --negative "...",
                                 --plan <tier>, --name ...); no reference image
   i2i --prompt "<text>" <ref.png>... [options]   image-to-image from 1-5 reference images, or --from-task <id> (not both)

@@ -324,6 +324,10 @@ function fxMoment(blastId: string, layer: string, tag = '@blast'): Pick<ProbeSub
 export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
   // GH-943 P3 (T10): the valley backdrop's fade (`terrain/backdrop.node.ts`).
   'valley',
+  // GH-943 P3 (T8): the overlay batch with the zone band, the supply route, the tunnel trail.
+  'damaged-zone',
+  'route',
+  'trail',
 ]);
 
 // ---------------------------------------------------------------------------------------------------------------------------------

@@ -12,20 +12,46 @@
 import type { MaterialMaths } from './backend/backend';
 import { GROUND_SLOTS, slotUniforms } from './terrain/mesh';
 import { ROAD_DISTANCE_RANGE_TILES } from './terrain/control-map';
+import {
+  RELIEF_CONTOUR_STRENGTH,
+  RELIEF_CONTOUR_WIDTH_PX,
+  RELIEF_SLOPE_MAX_TILT_RAD,
+  RELIEF_TINT_HIGH,
+  RELIEF_TINT_LOW,
+  contourFactorOps,
+  reliefTiltOps,
+  reliefTintRampOps,
+} from './terrain/relief-read';
 import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './terrain/ground-maths';
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
+import { disturbBendOps, disturbSlotPushOps, DISTURB_MAX } from './terrain/disturb';
 import { foliageLeanOps } from './terrain/wind';
 import { backdropFadeOps } from './terrain/backdrop';
 import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
 import { SELECTION_RING } from './units/readability';
 import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
+import { zoneHatchOps } from './units/zone-band';
+import { dashOps } from './supply-route-maths';
+import { SUPPLY_ROUTE_ALPHA } from './supply-route';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
   // T3: the node ground (`terrain/mesh.node.ts`).
-  ground: { slots: GROUND_SLOTS, slotUniforms, roadDistanceRangeTiles: ROAD_DISTANCE_RANGE_TILES, roadBands, heightBiased, rescaleWeights, macroDecode, macroFactor, groundBlend },
-  // T6: the wind's lean (mode 1) and the reduced-motion sway (mode 0), one body (`wind.ts`), and the attribute it reads.
-  foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE },
+  ground: { slots: GROUND_SLOTS, slotUniforms, roadDistanceRangeTiles: ROAD_DISTANCE_RANGE_TILES, roadBands, heightBiased, rescaleWeights, macroDecode, macroFactor, groundBlend,
+    // T4: the relief read.
+    relief: {
+      tilt: reliefTiltOps,
+      contour: contourFactorOps,
+      tintRamp: reliefTintRampOps,
+      maxTiltRad: RELIEF_SLOPE_MAX_TILT_RAD,
+      contourStrength: RELIEF_CONTOUR_STRENGTH,
+      contourWidthPx: RELIEF_CONTOUR_WIDTH_PX,
+      tintLow: RELIEF_TINT_LOW,
+      tintHigh: RELIEF_TINT_HIGH,
+    },
+  },
+  // T6, T7: the wind's lean (mode 1) and the reduced-motion sway (mode 0), one body (`wind.ts`), and the attribute it reads.
+  foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE, disturbSlotPushOps, disturbBendOps, disturbMax: DISTURB_MAX },
   ring: {
     fragmentOps: ringFragmentOps,
     outputOps: ringOutputOps,
@@ -41,8 +67,9 @@ export const MATERIAL_MATHS: MaterialMaths = {
   backdrop: { fadeOps: backdropFadeOps },
   decal: null,
   overlay: null,
-  zoneBand: null,
-  supplyRoute: null,
+  // T8: the zone band's hatch (`units/zone-band.node.ts`) and the supply route's dash and alpha (`supply-route.node.ts`).
+  zoneBand: { hatchOps: zoneHatchOps },
+  supplyRoute: { dashOps, alpha: SUPPLY_ROUTE_ALPHA },
   trail: null,
   xray: null,
   particle: null,

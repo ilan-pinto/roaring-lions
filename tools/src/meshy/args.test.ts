@@ -140,7 +140,7 @@ describe('parseTextArgs', () => {
         '--name',
         'watchtower',
         '--model-type',
-        'smart-topology',
+        'standard',
         '--ai-model',
         'meshy-7',
         '--polycount',
@@ -164,7 +164,7 @@ describe('parseTextArgs', () => {
     );
     expect(opts).toMatchObject({
       name: 'watchtower',
-      modelType: 'smart-topology',
+      modelType: 'standard',
       aiModel: 'meshy-7',
       polycount: 8000,
       topology: 'quad',
@@ -194,7 +194,7 @@ describe('parseTextArgs', () => {
   it('refuses --polycount outside the documented range', () => {
     expect(() => parseTextArgs(['p', '--polycount', '99', '--yes'], NO_TTY)).toThrow(/out of range/);
     expect(() => parseTextArgs(['p', '--polycount', '300001', '--yes'], NO_TTY)).toThrow(/out of range/);
-    expect(() => parseTextArgs(['p', '--model-type', 'smart-topology', '--polycount', '15001', '--yes'], NO_TTY)).toThrow(
+    expect(() => parseTextArgs(['p', '--model-type', 'smart-topology', '--polycount', '30001', '--yes'], NO_TTY)).toThrow(
       /out of range/
     );
   });
@@ -253,9 +253,13 @@ describe('parseImageArgs', () => {
   });
 
   it('refuses --polycount outside range for the chosen model-type', () => {
-    expect(() => parseImageArgs(['a.png', '--model-type', 'smart-topology', '--polycount', '20000', '--yes'], NO_TTY)).toThrow(
+    // smart-topology defaults to meshy-t2.5 (100-30,000); meshy-t2 stops at 15,000
+    expect(() => parseImageArgs(['a.png', '--model-type', 'smart-topology', '--polycount', '30001', '--yes'], NO_TTY)).toThrow(
       /out of range/
     );
+    expect(() =>
+      parseImageArgs(['a.png', '--model-type', 'smart-topology', '--ai-model', 'meshy-t2', '--polycount', '20000', '--yes'], NO_TTY)
+    ).toThrow(/out of range/);
   });
 
   it('refuses to run non-interactively without --yes', () => {
@@ -274,10 +278,10 @@ describe('parseEstimateTextArgs', () => {
   });
 
   it('parses every flag it accepts', () => {
-    const opts = parseEstimateTextArgs(['--model-type', 'smart-topology', '--ai-model', 'meshy-7', '--ultra', '--refine', '--tex', '8k', '--json']);
+    const opts = parseEstimateTextArgs(['--model-type', 'standard', '--ai-model', 'meshy-7.1', '--ultra', '--refine', '--tex', '8k', '--json']);
     expect(opts).toEqual({
-      modelType: 'smart-topology',
-      aiModel: 'meshy-7',
+      modelType: 'standard',
+      aiModel: 'meshy-7.1',
       ultra: true,
       refine: true,
       textureResolution: '8k',
@@ -459,5 +463,77 @@ describe('parseRefineArgs (B7: a texture pass on an existing preview)', () => {
   it('estimate refine reads --tex and nothing else', () => {
     expect(parseEstimateRefineArgs(['--tex', '8k'])).toEqual({ textureResolution: '8k', json: false });
     expect(() => parseEstimateRefineArgs(['x'])).toThrow(/unexpected argument/);
+  });
+});
+
+describe('model-type / ai-model pairing (2026-11-09, GH-746)', () => {
+  it('defaults smart-topology to meshy-t2.5 and standard to meshy-6', () => {
+    expect(parseTextArgs(['p', '--model-type', 'smart-topology', '--yes'], NO_TTY).aiModel).toBe('meshy-t2.5');
+    expect(parseTextArgs(['p', '--yes'], NO_TTY).aiModel).toBe('meshy-6');
+    expect(parseEstimateTextArgs(['--model-type', 'smart-topology']).aiModel).toBe('meshy-t2.5');
+    expect(parseEstimateImageArgs(['--model-type', 'smart-topology']).aiModel).toBe('meshy-t2.5');
+    expect(parseImageArgs(['a.png', '--model-type', 'smart-topology', '--yes'], NO_TTY).aiModel).toBe('meshy-t2.5');
+  });
+
+  it('accepts every current model under its own type', () => {
+    for (const m of ['meshy-6-lite', 'meshy-6', 'meshy-7.1', 'meshy-7', 'latest']) {
+      expect(parseTextArgs(['p', '--ai-model', m, '--yes'], NO_TTY).aiModel).toBe(m);
+    }
+    for (const m of ['meshy-t2', 'meshy-t2.5']) {
+      expect(parseTextArgs(['p', '--model-type', 'smart-topology', '--ai-model', m, '--yes'], NO_TTY).aiModel).toBe(m);
+    }
+  });
+
+  it('refuses a standard model under smart-topology, and a smart-topology model under standard', () => {
+    expect(() => parseTextArgs(['p', '--model-type', 'smart-topology', '--ai-model', 'meshy-6', '--yes'], NO_TTY)).toThrow(
+      /not a smart-topology model/
+    );
+    expect(() => parseTextArgs(['p', '--ai-model', 'meshy-t2.5', '--yes'], NO_TTY)).toThrow(/not a standard model/);
+    expect(() => parseImageArgs(['a.png', '--model-type', 'smart-topology', '--ai-model', 'latest', '--yes'], NO_TTY)).toThrow(
+      /not a smart-topology model/
+    );
+    expect(() => parseEstimateTextArgs(['--model-type', 'smart-topology', '--ai-model', 'meshy-7'])).toThrow(/not a smart-topology model/);
+    expect(() => parseEstimateImageArgs(['--ai-model', 'meshy-t2'])).toThrow(/not a standard model/);
+  });
+
+  it('refuses the retired lowpoly model type', () => {
+    expect(() => parseTextArgs(['p', '--model-type', 'lowpoly', '--yes'], NO_TTY)).toThrow(/model-type/);
+  });
+
+  it('refuses quad topology under smart-topology', () => {
+    expect(() => parseTextArgs(['p', '--model-type', 'smart-topology', '--topology', 'quad', '--yes'], NO_TTY)).toThrow(
+      /triangles only/
+    );
+    expect(parseTextArgs(['p', '--topology', 'quad', '--yes'], NO_TTY).topology).toBe('quad');
+  });
+
+  it('gives meshy-t2.5 its 30,000 ceiling and meshy-t2 its 15,000', () => {
+    expect(parseTextArgs(['p', '--model-type', 'smart-topology', '--polycount', '30000', '--yes'], NO_TTY).polycount).toBe(30000);
+    expect(() =>
+      parseTextArgs(['p', '--model-type', 'smart-topology', '--ai-model', 'meshy-t2', '--polycount', '15001', '--yes'], NO_TTY)
+    ).toThrow(/out of range/);
+  });
+});
+
+describe('--ultra and meshy-6-lite texture limits (review, 2026-11-09)', () => {
+  it('accepts --ultra only on meshy-7.1, meshy-7 and latest', () => {
+    for (const m of ['meshy-7.1', 'meshy-7', 'latest']) {
+      expect(parseTextArgs(['p', '--ai-model', m, '--ultra', '--yes'], NO_TTY).ultra).toBe(true);
+    }
+    for (const m of ['meshy-6', 'meshy-6-lite']) {
+      expect(() => parseTextArgs(['p', '--ai-model', m, '--ultra', '--yes'], NO_TTY)).toThrow(/--ultra is not supported/);
+      expect(() => parseEstimateTextArgs(['--ai-model', m, '--ultra'])).toThrow(/--ultra is not supported/);
+    }
+    expect(() => parseImageArgs(['a.png', '--model-type', 'smart-topology', '--ultra', '--yes'], NO_TTY)).toThrow(
+      /--ultra is not supported/
+    );
+    expect(() => parseEstimateImageArgs(['--ultra'])).toThrow(/--ultra is not supported/);
+  });
+
+  it('refuses a meshy-6-lite image texture above 2k, and allows it mesh-only', () => {
+    expect(() => parseImageArgs(['a.png', '--ai-model', 'meshy-6-lite', '--tex', '8k', '--yes'], NO_TTY)).toThrow(/2k only/);
+    expect(() => parseImageArgs(['a.png', '--ai-model', 'meshy-6-lite', '--tex', '4k', '--yes'], NO_TTY)).toThrow(/2k only/);
+    expect(parseImageArgs(['a.png', '--ai-model', 'meshy-6-lite', '--tex', '8k', '--no-texture', '--yes'], NO_TTY).noTexture).toBe(true);
+    expect(parseImageArgs(['a.png', '--ai-model', 'meshy-6-lite', '--yes'], NO_TTY).textureResolution).toBe('2k');
   });
 });
