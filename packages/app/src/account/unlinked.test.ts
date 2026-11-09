@@ -12,6 +12,7 @@ import { createTelemetry, type RuntimeView, type TelemetryDeps } from '../teleme
 import { resolveIdentity } from '../telemetry/identity';
 import { ACCOUNT_BINDING_KEY, readBinding } from './binding';
 import type { AccountClient } from './client';
+import { unusedA2Client } from './fixtures';
 import { resolveSignedIn } from './signed-in';
 
 const SENTINELS = ['ZZZZ9999', 'SentinelName', '76561197960287930', 'tok-sentinel'] as const;
@@ -46,6 +47,7 @@ const client: AccountClient = {
   exportData: async () => new Blob([]),
   deleteAccount: async () => 'ok',
   gone: async () => 'unknown',
+  ...unusedA2Client,
 };
 
 async function corpus(): Promise<{ bodies: Record<string, string[]>; store: ReturnType<typeof memStore> }> {

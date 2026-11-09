@@ -31,11 +31,29 @@ export interface AccountStoreOptions {
   tabId: string;
 }
 
+/**
+ * What the sync loop (`sync.ts`) may do to the store's own state. The store is the only writer of this tab's outbox
+ * key, so the loop goes through it and the in-memory queue and the stored one never part. `cache.confirmed` is
+ * REPLACED with a new object, never mutated (the view memo keys on its identity).
+ */
+export interface StoreSyncApi {
+  readonly cache: AccountCache;
+  readonly tabId: string;
+  ops(): readonly OutboxOp[];
+  /** Replace the whole queue (an ack, a drop, an adoption). Writes this tab's key and drops the view memo; no `onChange`. False when storage refused (the memory copy is then the truth). */
+  setOps(next: readonly OutboxOp[]): boolean;
+  /** The op was handed to the network: a later append may no longer coalesce into it. */
+  markSent(opId: string): void;
+  markPending(key: string): void;
+  clearPending(key: string): void;
+}
+
 export type AccountLedgerStore = LedgerStore & {
-  /** Keys of coin Buys in flight (`<unitId>.<track>`, `unit:<id>`); the sync loop fills it (Task 2.10). */
+  /** Keys of coin Buys in flight (`<unitId>.<track>`, `unit:<id>`); the sync loop fills it through `sync`. */
   pendingSpends: ReadonlySet<string>;
   outboxSize(): number;
   view(): ServerState;
+  sync: StoreSyncApi;
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -43,6 +61,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
   const tabId = o.tabId;
   const pendingSpends = new Set<string>();
+  const sent = new Set<string>();
   let ops: OutboxOp[] = readOutbox(o.storage, tabId);
   // The view is memoised on the identity of the confirmed state AND the ops. The sync loop (Task 2.10) refreshes by
   // REPLACING `cache.confirmed` with a new object (never mutating it in place); no explicit refresh call is needed.
@@ -57,7 +76,7 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
     return cached;
   };
   const push = (op: OutboxOp): void => {
-    ops = coalesce(ops, op);
+    ops = coalesce(ops, op, sent);
     writeOutbox(o.storage, tabId, ops); // a refused write keeps the memory copy
     cached = null;
     o.onChange();
@@ -88,9 +107,24 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
     throw new ServerCoinsError(what);
   };
 
+  const sync: StoreSyncApi = {
+    cache: o.cache,
+    tabId,
+    ops: () => ops,
+    setOps: (next) => {
+      ops = [...next];
+      cached = null;
+      return writeOutbox(o.storage, tabId, ops);
+    },
+    markSent: (opId) => void sent.add(opId),
+    markPending: (key) => void pendingSpends.add(key),
+    clearPending: (key) => void pendingSpends.delete(key),
+  };
+
   return {
     available: true,
     pendingSpends,
+    sync,
     outboxSize: () => ops.length,
     view,
     readLedger: (): CampaignLedger => structuredClone(body().ledger) as CampaignLedger,
