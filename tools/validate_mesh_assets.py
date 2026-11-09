@@ -2254,6 +2254,7 @@ def glove_contrast_reading(path, js=None, bin_=None, atlas=None):
         return -(m[:3, :3].T @ m[:3, 3])
     figures = sorted({nm[:-len("_hand_L")] for nm in joints if nm.endswith("_hand_L")})
     wpos, wuv, wnames, _wj, _wi = per_role.get("weapon", (None, None, None, None, None))
+    fpos, fuv, fnames, _fj, _fi = per_role.get("face", (None, None, None, None, None))
     for fig in figures:
         for side in ("L", "R"):
             hand_j, fore_j = f"{fig}_hand_{side}", f"{fig}_forearm_{side}"
@@ -2273,6 +2274,10 @@ def glove_contrast_reading(path, js=None, bin_=None, atlas=None):
                 de["vest"] = _delta_e76(glove, texel_lab(uv[vmask]))
             if wpos is not None and (wnames == f"{fig}_weapon").any():
                 de["weapon"] = _delta_e76(glove, texel_lab(wuv[wnames == f"{fig}_weapon"]))
+            # the skin (the lead, 9 Nov 2026: "dark brown", and a glove that reads as the face's colour reads as a bare hand):
+            # the figure's own `face` primitive, where the file has one
+            if fpos is not None and (fnames == f"{fig}_head").any():
+                de["skin"] = _delta_e76(glove, texel_lab(fuv[fnames == f"{fig}_head"]))
             reading[f"{fig}_{side}"] = {"glove": glove, "L": glove[0], "C": (glove[1] ** 2 + glove[2] ** 2) ** 0.5, "de": de}
     return reading
 
@@ -2283,7 +2288,7 @@ def glove_contrast_failures(reading, name, sleeve_floor=GLOVE_MIN_DE):
     baked figure), sits inside the L* band and under the chroma ceiling."""
     failures = []
     for key, r in sorted(reading.items()):
-        for what in ("sleeve", "vest", "weapon"):
+        for what in ("sleeve", "vest", "weapon") + (("skin",) if "skin" in r["de"] else ()):
             floor = sleeve_floor if what == "sleeve" else GLOVE_MIN_DE
             if what not in r["de"]:
                 failures.append(f"{name} {key}: no {what} sample to read the glove against")

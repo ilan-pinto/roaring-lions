@@ -11,6 +11,7 @@ reader, the sampler and the rule all have to work for it to go red:
   1. the sleeve's own texel      -> dE against the sleeve about 0
   2. today's orange claw colour  -> C* about 38 (the texel nearest Lab 42.1, 18.2, 33.0)
   3. Breach's black              -> L* about 12, and dE to the carbine under 15
+  0. the face's skin (the lead, 9 Nov: dark brown, not skin) -> dE against the skin under 15
 
 The relaxed sleeve floor (the lead, 9 Nov 2026: GLOVE_SLEEVE_FLOOR_BAKED, the Rifle Squad's baked Meshy glove only) is
 held three more ways, each watched red:
@@ -183,7 +184,10 @@ def main():
     sleeve = sleeve_texel(js, bin_, atlas)                       # the solid block nearest what the gate reads as the sleeve
     orange = nearest_texel(atlas, (42.1, 18.2, 33.0))            # the review's measured claw
     black = nearest_texel(atlas, (12.0, 0.0, 0.0))
+    skin = nearest_texel(atlas, (40.0, 16.0, 20.0))                # the face's mean skin (Lab 40, 16, 20 on the Meshy squad)
     cases = [
+        # the lead, 9 Nov: a glove is "dark brown", never the face's own colour (round 3's dusky rose read 11.4 from it)
+        ("the face's skin texel", skin, "against the skin"),
         ("the sleeve's own texel", sleeve, "against the sleeve"),
         ("today's orange", orange, "C*"),
         ("Breach's black", black, "L*"),
@@ -229,7 +233,7 @@ def main():
         for b in bad:
             print("  " + b)
         sys.exit(1)
-    print("ok: inf_squad passes; the sleeve texel, the orange claw and Breach's black each go red; the relaxed sleeve "
+    print("ok: inf_squad passes; the face's skin, the sleeve texel, the orange claw and Breach's black each go red; the relaxed sleeve "
           "floor is inf_squad's alone and dies with its Meshy source")
 
 
