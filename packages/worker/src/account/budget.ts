@@ -58,7 +58,10 @@ export async function budgetedOp(ctx: AccountCtx, s: OpSpec, build: () => Promis
       if (err instanceof OpReject) return { status: err.status, body: err.body };
       if (isCapFailure(err)) return { status: 409, body: { error: s.capError ?? 'cap' } };
       if (!isCasFailure(err)) throw err;
-      if ((await revisions(db, s.memberId)) === seen) return { status: 500, body: { error: 'server' } };
+      if ((await revisions(db, s.memberId)) === seen) {
+        console.error('account op failed a CHECK with no revision moved', s.kind, err);
+        return { status: 500, body: { error: 'server' } };
+      }
     }
   }
   return { status: 409, body: { error: 'busy' } };

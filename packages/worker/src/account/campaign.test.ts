@@ -23,7 +23,8 @@ describe('campaignWrite', () => {
   it('two first writes race: one wins with revision 1, the other is stale, never 500 (A2 §0.34)', async () => {
     const h = accountHarness({ now: T0 });
     await seedWalletMember(h.db, 'm1', T0);
-    const raced = racingD1(h.db, 2, { match: /FROM campaign_state/ });
+    // Each request reads campaign_state twice (budgetedOp's revisions snapshot, then readCampaign): two requests, four reads.
+    const raced = racingD1(h.db, 4, { match: /FROM campaign_state/ });
     const ctx = ctxFor({ ...h.env, ACCOUNTS: raced }, T0);
     // The test-only build R1 describes: base 0 means no row; a base that no longer matches is a stale 409.
     const put = (n: number, body: CampaignBody) =>

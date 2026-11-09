@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { budgetedOp } from './budget';
 import { asRoar, capGuard, isCapFailure, isCasFailure, readWallet, receiptsOf, walletView, walletWrite, type JournalEntry } from './coin';
 import { accountHarness, ctxFor, seedWalletMember } from './test-kit';
@@ -71,10 +71,14 @@ describe('walletWrite', () => {
     const h = accountHarness({ now: T0 });
     await seedWalletMember(h.db, 'm1', T0);
     let builds = 0;
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const out = await budgetedOp(ctxFor(h.env, T0), { memberId: 'm1', opId: op(9), kind: 'test' }, async () => {
       builds++;
       return { ...(await moveTo(h, -5, [entry(-5)])), status: 200, response: {} };
     });
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(logged.mock.calls[0]?.[1]).toBe('test');
+    logged.mockRestore();
     expect(out.status).toBe(500);
     expect(builds).toBe(1);
     expect(await freeOf(h)).toBe(0);
