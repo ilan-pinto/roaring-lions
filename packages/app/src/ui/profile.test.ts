@@ -24,8 +24,8 @@ function stub(over: Partial<AccountClient> = {}): AccountClient & { calls: strin
     open: async () => true,
     me: async () => ({ kind: 'signedOut' }),
     steamStart: async () => ({ url: 'https://steam.example/login' }),
-    logout: async () => void calls.push('logout'),
-    logoutAll: async () => void calls.push('logoutAll'),
+    logout: async () => (calls.push('logout'), 'ok'),
+    logoutAll: async () => (calls.push('logoutAll'), 'ok'),
     patchProfile: async (p) => (calls.push('patch:' + JSON.stringify(p)), 'ok'),
     deleteIdentity: async (id) => (calls.push('rm:' + id), 'ok'),
     exportData: async () => new Blob(['{}']),
@@ -149,6 +149,34 @@ describe('showProfile', () => {
     expect(c.calls).toContain('logout');
     expect(stage.textContent).toContain(t('profile.signedOut'));
     expect(store.m.get(ACCOUNT_BINDING_KEY)).toContain('ABCD2345');
+  });
+
+  it('a failed sign out says so and does not claim success (A1 follow-up 1)', async () => {
+    const err: AccountError = { error: 'error', status: 500 };
+    const c = stub({ me: async () => signedIn(), logout: async () => err, logoutAll: async () => err });
+    const { stage } = mount(c);
+    await flush();
+    for (const label of [t('profile.signOut'), t('profile.signOutAll')]) {
+      btn(stage, label).click();
+      await flush();
+      expect(stage.textContent).toContain(t('profile.error'));
+      expect(stage.textContent).not.toContain(t('profile.signedOut'));
+    }
+  });
+
+  it.each([
+    ['reauth', 'profile.reauth'],
+    ['last_identity', 'profile.identity.last'],
+  ] as const)('removing an identity answered %s shows its own message (A1 follow-up 2)', async (code, key) => {
+    const two = [steam, { ...steam, id: 'ident-2' }];
+    const c = stub({ me: async () => signedIn(two), deleteIdentity: async () => ({ error: code, status: code === 'reauth' ? 403 : 409 }) });
+    const { stage } = mount(c);
+    await flush();
+    [...stage.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === t('profile.identity.remove'))?.click();
+    await flush();
+    const status = stage.querySelector('.rl-bad');
+    expect(status?.textContent).toBe(t(key));
+    expect(status?.textContent).not.toBe(t('profile.error'));
   });
 
   it('shows the deleted line when the tombstone answers', async () => {
