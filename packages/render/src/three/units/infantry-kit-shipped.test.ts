@@ -12,7 +12,7 @@
  *  - the kit adds NO mesh (+0 draw calls) at any tier;
  *  - the triangle counts of every state, as LITERALS measured from the file on
  *    29 Oct 2026 (the redesign, GH-826), re-measured 9 Nov 2026 on the skinned Meshy figure (GH-746: a new body,
- *    and the kit re-fitted to it) -- the oracle never recomputes them from the part table it is
+ *    the kit re-fitted to it, no deltoid or sleeve armour and no nvg_mount on it) -- the oracle never recomputes them from the part table it is
  *    checking (the tier selection logic itself is `infantry-kit.test.ts`).
  */
 import { readFileSync } from 'node:fs';
@@ -30,16 +30,16 @@ const BASE = { boot: 3792, face: 519, uniform: 24995, weapon: 3910 };
 
 /** [label, tiers, triangles per role mesh] */
 const STATES: [string, Record<string, number>, Partial<typeof BASE>][] = [
-  ['armour 1', { armour: 1 }, { uniform: 25829 }],
-  ['armour 2', { armour: 2 }, { uniform: 26117 }],
-  ['armour 3', { armour: 3 }, { uniform: 26289 }],
-  ['sensors 1', { sensors: 1 }, { weapon: 4282 }],
-  ['sensors 2', { sensors: 2 }, { uniform: 25191, weapon: 4442 }],
-  ['sensors 3', { sensors: 3 }, { uniform: 25223, weapon: 4640 }],
+  ['armour 1', { armour: 1 }, { uniform: 25805 }],
+  ['armour 2', { armour: 2 }, { uniform: 25949 }],
+  ['armour 3', { armour: 3 }, { uniform: 26025 }],
+  ['sensors 1', { sensors: 1 }, { weapon: 4150 }],
+  ['sensors 2', { sensors: 2 }, { uniform: 25191, weapon: 4310 }],
+  ['sensors 3', { sensors: 3 }, { uniform: 25223, weapon: 4508 }],
   ['firepower 1', { firepower: 1 }, { uniform: 25355, weapon: 4120 }],
   ['firepower 2', { firepower: 2 }, { uniform: 25355, weapon: 4456 }],
   ['firepower 3', { firepower: 3 }, { uniform: 25475, weapon: 4588 }],
-  ['full kit', { armour: 3, sensors: 3, firepower: 3 }, { uniform: 26997, weapon: 5318 }],
+  ['full kit', { armour: 3, sensors: 3, firepower: 3 }, { uniform: 26733, weapon: 5186 }],
 ];
 
 /**
@@ -90,10 +90,10 @@ describe('inf_squad through the real loader', () => {
     }
   });
 
-  it('full kit draws 3,410 kit triangles: 1,110 + 1,186 + 1,114 per figure, superseded parts dropped', async () => {
+  it('full kit draws 3,014 kit triangles: 978 + 1,054 + 982 per figure, superseded parts dropped', async () => {
     const { meshes } = await build({ armour: 3, sensors: 3, firepower: 3 });
     const all = Object.values(meshes).reduce((n, m) => n + tris(m), 0);
-    expect(all - 33216).toBe(1110 + 1186 + 1114);
+    expect(all - 33216).toBe(978 + 1054 + 982);
   });
 
   it('the kit rides the team\'s bones: kit vertices are skinned at weight 1 to bones of the shared skeleton', async () => {
@@ -154,7 +154,7 @@ describe('the shipped switch (INFANTRY_KIT_ENABLED, GH-826)', () => {
     const maxed = (await build(FULL)).meshes;
     expect(Object.keys(maxed).sort()).toEqual(Object.keys(tier0).sort());
     // Literals, not a recomputation of the part table: the full-kit state.
-    const FULL_KIT = { ...BASE, uniform: 26997, weapon: 5318 };
+    const FULL_KIT = { ...BASE, uniform: 26733, weapon: 5186 };
     for (const name of Object.keys(tier0)) {
       expect(tris(tier0[name]), `${name} tier 0`).toBe(BASE[name as keyof typeof BASE]);
       expect(tris(maxed[name]), `${name} max`).toBe(FULL_KIT[name as keyof typeof FULL_KIT]);

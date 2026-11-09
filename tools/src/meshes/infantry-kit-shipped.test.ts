@@ -38,8 +38,8 @@ const REPO = fileURLToPath(new URL('../../../', import.meta.url));
  * 1,799,936 on main; the hands pass (GH-826 step 2) put 3,126 triangles and 45 bones into it and `collapseConstantTracks` took
  * the never-moving keys out, so its pre-kit encode was 1,650,052 (the hands cost 0.46 MB of raw animation keys before the cut).
  * The Meshy pilot (GH-746, 9 Nov) replaced the body: the skinned figure's own pre-kit encode (`art/meshes/inf_squad.glb` with
- * its `kit_*` nodes stripped by `stripKit`, then the encode pass's own draco()) is 1,950,160; shipped with the kit 1,986,328
- * (+36,168, inside the +64 KiB).
+ * its `kit_*` nodes stripped by `stripKit`, then the encode pass's own draco()) is 1,950,160; shipped with the kit 1,980,744
+ * (+30,584, inside the +64 KiB).
  * `hosts` are the role primitives its kit joins: the Demolition squad's weapon primitive is a palette one with no UVs, so
  * its devices ride `uniform`. `leaderOnly` are the parts only the radio man carries.
  */

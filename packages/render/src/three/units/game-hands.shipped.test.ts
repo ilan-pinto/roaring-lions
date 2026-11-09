@@ -213,10 +213,8 @@ const HAND_VISIBILITY_EXEMPT: Readonly<Record<string, string>> = {
   // read 0 in idle. Its palette rifle (role weapon, on demo_b_weapon) still occludes.
   digger_crew: 'both hands 0 of 8: the arm is fused into the torso (and the team has no fire clip)',
   inf_grenadier: 'gre0 and gre2 R 0 of 8: the launcher hides the support claw; gre1 R 4',
-  // the Meshy pilot (9 Nov, torso looked through per the lead's ruling): idle 6-8 on every hand; in fire the tall
-  // figure's firing hand (f0_L) shows in 5 of 8, hidden by his own shouldered arm, head and rifle -- NOT the torso, so it
-  // counts. Looked through the whole own body it reads 8; counted, 5. f1_L 6, f2_L 7.
-  inf_squad: 'f0_L (the tall figure\'s firing hand) 5 of 8 in fire: his own arm, head and rifle hide it, not the torso',
+  // inf_squad (the Meshy pilot) is not here: with its torso looked through (the lead's 9 Nov ruling) every hand shows in
+  // 6-8 of 8 in idle and fire at full kit (counted, 4-7).
   inf_medic_squad: 'med_a R 5, med_b R 5 and 4 (block hands)',
   manpad_team: 'mpd_fire L shows in 4 of 8 facings',
   militia_cell: 'every hand 5 of 8 in idle',
@@ -283,12 +281,12 @@ describe('G4 can fail (constructed inputs)', () => {
     expect(counted).toBeLessThan(excluded);
     expect(excluded).toBeGreaterThanOrEqual(FACINGS_NEEDED);
   }, 240_000);
-  it('...and only the TORSO: looked through the whole own body, the Rifle Squad\'s fire reads a hand the ruling still counts as hidden', async () => {
-    // f0_L in fire: 5 of 8 with the torso looked through (his arm, head and rifle hide it), 8 with the whole body.
-    // Widening the exclusion to the whole body would pass inf_squad, and its exemption's demotion test would go red.
-    const f0L = (r: HandReading[] | null) => (r ?? []).find((h) => h.hand === 'f0_L')?.facings ?? -1;
-    const torso = f0L(await readHands('inf_squad', 'fire'));
-    const whole = f0L(await readHands('inf_squad', 'fire', { torsoOnly: false }));
+  it('...and only the TORSO: looked through the whole own body, a hand the ruling still counts as hidden would pass', async () => {
+    // sarim_rifles sar0_R in idle: 5 of 8 with the torso looked through (his own arm and the rifle hide it), 7 with the
+    // whole own body. Widening the exclusion to the whole body would pass a hand its own arm hides.
+    const hand = (r: HandReading[] | null) => (r ?? []).find((h) => h.hand === 'sar0_R')?.facings ?? -1;
+    const torso = hand(await readHands('sarim_rifles', 'idle'));
+    const whole = hand(await readHands('sarim_rifles', 'idle', { torsoOnly: false }));
     expect(torso).toBeLessThan(FACINGS_NEEDED);
     expect(whole).toBeGreaterThanOrEqual(FACINGS_NEEDED);
   }, 240_000);
