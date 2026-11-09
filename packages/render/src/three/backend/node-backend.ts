@@ -35,6 +35,7 @@ import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
 import { createNodeBannerMaterial } from '../units/garrison-banner.node';
 import type { GarrisonBannerMaterial } from '../units/garrison-banner';
+import { createNodeUnitMaterial } from '../units/unit-material.node';
 import { markTwin } from '../twin-identity';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -167,6 +168,13 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     const rec = (legacy as Partial<GarrisonBannerMaterial>).rlBanner;
     if (rec === undefined) throw new Error('materials.banner: the legacy material carries no rlBanner record (not a GarrisonBannerBatch material)');
     const twin = createNodeBannerMaterial({ W, TSL, maths: opts.materialMaths.banner }, legacy, rec);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T3): every hooked unit material (team mark, running gear, soot; the rim and the floor are named partial terms until T4).
+  // Adoption shares one twin per (base, segments, pipeline state) and copies the pipeline state onto it.
+  materials.unit = (legacy) => {
+    const twin = createNodeUnitMaterial({ W, TSL, maths: opts.materialMaths.unit }, legacy);
     markTwin(twin, legacy);
     return twin;
   };
