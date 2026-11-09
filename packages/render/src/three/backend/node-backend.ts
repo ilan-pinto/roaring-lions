@@ -26,6 +26,7 @@ import { createNodeOverlayMaterial } from '../units/overlays.node';
 import { createNodeZoneBandMaterial } from '../units/zone-band.node';
 import { createNodeSupplyRouteMaterial, type SupplyRouteUniformRecord } from '../supply-route.node';
 import { createNodeTrailMaterial, type TrailUniformRecord } from '../trail-mesh.node';
+import { createNodeDecalMaterial } from '../decal-pool.node';
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
 import { createNodeOutlineMaterial } from '../units/silhouette.node';
 import type { RingStyle } from '../units/selection-ring';
@@ -185,6 +186,12 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   };
   materials.trail = (legacy) => {
     const twin = createNodeTrailMaterial(batchDeps, legacy.uniforms as unknown as TrailUniformRecord);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T7): the decal pools and the crater rim. The legacy material keeps its record, and carries its scene's light objects.
+  materials.decal = (legacy) => {
+    const twin = createNodeDecalMaterial({ W, TSL, maths: opts.materialMaths.decal }, legacy);
     markTwin(twin, legacy);
     return twin;
   };

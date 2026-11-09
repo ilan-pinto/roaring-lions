@@ -247,6 +247,7 @@ import { decalShowcase, showcaseAnchor, showcaseSites } from './decal-showcase';
 import {
   DecalPool,
   createDecalMaterial,
+  setDecalLights,
   decalPaletteKeysFor,
   CRATER_RIM_GAIN,
   craterRadiusTiles,
@@ -3480,6 +3481,9 @@ export class ThreeRenderer implements Renderer {
     this.sceneLights.sun.shadow.intensity =
       rain === null ? shadowIntensityOf(opts.lightOverride) : (opts.lightOverride?.shadow ?? rain.shadowIntensity);
     this.sceneLights.addTo(this.scene);
+    // GH-943 P3 (T7): the decal material's node twin relights the crater rim from these light OBJECTS (the legacy material reads
+    // them through three's light uniforms). The scene holds no ambient light. Presentation only; legacy never reads the record.
+    setDecalLights(this.decalMaterial, { sun: this.sceneLights.sun, hemisphere: this.sceneLights.hemisphere, ambient: [] });
     this.applyWetUniforms();
     this.shadowFitMode = (opts.quality ?? QUALITY_PRESETS.high).shadowFit ?? 'map';
     // GH-705 smoke uplift P2: the flipbook's low tier (no sparks, thinned column).
