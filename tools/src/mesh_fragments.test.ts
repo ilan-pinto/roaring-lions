@@ -25,7 +25,7 @@ import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readGlb } from './mesh_gait';
-import { infantryTeams, rebindVertices, strayClawPieces, strayClawReport } from './mesh_figures';
+import { deltaE, infantryTeams, rebindVertices, strayClawPieces, strayClawReport } from './mesh_figures';
 import { handsSource } from './mesh_hand_gates';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
@@ -78,6 +78,28 @@ describe('G2: no claw-coloured geometry off the hand', () => {
   it.each(teams.filter(([t]) => t in STRAY_CLAW_EXEMPT))('%s: still has stray pieces (else delete it from STRAY_CLAW_EXEMPT)', (team, glb) => {
     expect(strayClawPieces(glb).length, `${team} has no stray claw piece now: its exemption has expired. Delete it.`).toBeGreaterThan(0);
     expect(STRAY_CLAW_EXEMPT[team].length, 'a reason, not a name').toBeGreaterThan(20);
+  });
+});
+
+describe('R7 (the coordinator, 9 Nov): the legacy claw tones read CLAW builds only', () => {
+  // The change stands only if (a) a claw piece on a claw-hand figure still turns G2 red, and (b) what the legacy tones
+  // flagged on the Meshy Rifle Squad (a non-claw figure with a glove texel) was not a claw.
+  it('(a) a claw-hand figure: mortar_team\'s pink claw (a LEGACY tone, 55 28 26) bound to the pelvis still reads red', () => {
+    const mt = teams.find(([t]) => t === 'mortar_team')![1];
+    const v = strayClawPieces(rebindVertices(mt, 'mtr_crew0_forearm_L', 'mtr_crew0_pelvis', 60));
+    expect(v.length).toBeGreaterThan(0);
+    expect(v.every((p) => p.how === 'tone')).toBe(true);
+  });
+  it('(b) the Meshy Rifle Squad: every piece the legacy tones would flag is its coyote carrier, on the trunk, not a hand', () => {
+    const squad = readGlb(`${MESHES}inf_squad.glb`);
+    const forced = strayClawReport(squad, { legacyTones: 'always' }).pieces.filter((p) => p.how === 'tone');
+    for (const p of forced) {
+      expect(p.bones.every((b) => /_(spine|pelvis)$/.test(b)), JSON.stringify(p)).toBe(true);
+      // the carrier coyote #806032 is Lab (43, 7, 31): a piece within 8 dE of it is the vest the lead had retinted
+      expect(deltaE(p.lab!, [43, 7, 31]), JSON.stringify(p)).toBeLessThan(8);
+    }
+    // ...and the scoped reading reads none of them
+    expect(strayClawReport(squad).pieces.filter((p) => p.how === 'tone')).toEqual([]);
   });
 });
 
