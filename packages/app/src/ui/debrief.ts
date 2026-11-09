@@ -83,6 +83,8 @@ export interface DebriefOptions {
   missionId: string;
   /** A signed-in victory's server-backed coin line; absent for a guest, whose awards ride in `report.changed`. */
   coins?: DebriefCoins;
+  /** The guest's "Save your progress" line (A2-13): whether to show it is `account/prompt.ts`'s call, made by the caller. */
+  accountPrompt?: { onShown(): void; onSave(): void; onNever(): void };
   /** The rating prompt (GH-464), mounted in the foot above the nav. Built and
    *  disposed by the caller; this only places it. */
   prompt?: HTMLElement;
@@ -284,6 +286,29 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
     column('changed', t('aar.col.changed'), r.changed, changedExtra)
   );
   b.appendChild(grid);
+
+  // --- the guest's save prompt (A2-13) ------------------------------------------
+  if (o.accountPrompt) {
+    const ap = o.accountPrompt;
+    const line = el('p', 'rl-aar__prompt');
+    const save = el('button', 'rl-btn rl-aar__prompt-save', t('account.prompt.save'));
+    save.type = 'button';
+    save.dataset.action = 'save';
+    save.addEventListener('click', () => ap.onSave());
+    const link = (action: 'notNow' | 'never', label: string, then?: () => void): HTMLButtonElement => {
+      const l = el('button', 'rl-linkbtn', label);
+      l.type = 'button';
+      l.dataset.action = action;
+      l.addEventListener('click', () => {
+        then?.();
+        line.remove();
+      });
+      return l;
+    };
+    line.append(el('span', 'rl-aar__prompt-lead', t('account.prompt.lead')), save, link('notNow', t('account.prompt.notNow')), link('never', t('account.prompt.never'), ap.onNever));
+    b.appendChild(line);
+    ap.onShown();
+  }
 
   // --- one primary action ------------------------------------------------------
   // The one footer row (`foot.ts`, GH-498): the ways out first -- the campaign

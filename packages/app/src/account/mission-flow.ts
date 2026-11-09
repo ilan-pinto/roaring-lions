@@ -18,7 +18,10 @@ export interface MissionStartOptions {
   /** `mission.ledger.produces.length > 0`: the tutorial and sandboxes never ask. */
   campaign: boolean;
   missionId: string | undefined;
-  /** Null for a guest (no account session): nothing is asked. */
+  /** The device is signed in (an account store). With no `client` (a cached device whose client failed to load) the mission cannot
+   *  ask for a nonce, so the briefing says coins are not promised. Absent/false for a guest: nothing is said. */
+  signedIn?: boolean;
+  /** Null for a guest (no account session), or a signed-in device whose client failed to load: nothing is asked. */
   client: Pick<AccountClient, 'missionStart'> | null;
   /** The answer did not come (a refusal, a thrown request): the briefing says coins are not promised. */
   onFailed: () => void;
@@ -27,11 +30,15 @@ export interface MissionStartOptions {
 /** Calls `mission/start` for a signed-in campaign mission only. Not awaited by the caller: the handle fills in when it lands. */
 export function requestMissionStart(o: MissionStartOptions): MissionStartHandle {
   const h = { start: null as string | null, failed: false };
-  if (!o.campaign || o.missionId === undefined || o.client === null) return h;
+  if (!o.campaign || o.missionId === undefined) return h;
   const failed = (): void => {
     h.failed = true;
     o.onFailed();
   };
+  if (o.client === null) {
+    if (o.signedIn === true) failed();
+    return h;
+  }
   o.client.missionStart(o.missionId).then((r) => {
     if (r.ok) h.start = r.body.start;
     else failed();

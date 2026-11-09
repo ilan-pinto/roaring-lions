@@ -6,6 +6,7 @@ import { ACCOUNT_KEY, emptyAccount } from '../brigade-account';
 import { LEDGER_KEY } from '../main-keys';
 import { memoryLedgerStore, type LedgerStore } from '../ledger-store';
 import { listSlots, saveSlot, type ActiveState } from '../profile';
+import type { HeldItem } from '../account/local-held';
 
 /** The app's own door (`ledger-store.ts`) over a Map instead of
  *  `localStorage` -- the same implementation the browser path runs, not a
@@ -406,5 +407,56 @@ describe('showSaves', () => {
     expect(stage2.querySelector('.rl-saves__row--damaged')).toBeNull();
     expect(stage2.querySelectorAll('.rl-saves__row')).toHaveLength(1);
     stage2.remove();
+  });
+});
+
+describe('the "On this device only" list (A2, held items)', () => {
+  const held = (id: string, over: Partial<HeldItem> = {}): HeldItem => ({ id, kind: 'campaign', reason: 'held', text: '{"ledger":{}}', at: 5, publicId: 'p', digest: 'd', ...over });
+
+  it('held_items_are_listed: two held items show with their reasons and an Export each', () => {
+    const items = [held('h-1', { reason: 'held' }), held('claim:2', { kind: 'slot', reason: 'size' })];
+    const stage = document.createElement('div');
+    const downloads: [string, string][] = [];
+    showSaves(stage, deps(memStore(), { heldItems: () => items, download: (n, j) => downloads.push([n, j]) }));
+    const rows = [...stage.querySelectorAll<HTMLElement>('.rl-saves__held-row')];
+    expect(rows).toHaveLength(2);
+    expect(stage.textContent).toContain('On this device only');
+    expect(rows[0].textContent).toContain('No free account slot');
+    expect(rows[1].textContent).toContain('too large');
+    for (const r of rows) expect(r.querySelector('button[data-action="export"]')).not.toBeNull();
+    rows[0].querySelector<HTMLButtonElement>('button[data-action="export"]')!.click();
+    expect(downloads).toEqual([['held-h-1.json', '{"ledger":{}}']]);
+  });
+
+  it('shows nothing at all with no held items', () => {
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore(), { heldItems: () => [] }));
+    expect(stage.querySelector('.rl-saves__held')).toBeNull();
+    expect(stage.textContent).not.toContain('On this device only');
+  });
+
+  it('an unsent victory (kind campaign, reason refused, the whole op) is listed with Export only, never read as a campaign', () => {
+    const op = JSON.stringify({ kind: 'victory', opId: 'x', missionId: 'm', stars: 3, start: null, campaign: null });
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-x', { reason: 'refused', text: op })], releaseHeld: async () => {} }));
+    const row = stage.querySelector<HTMLElement>('.rl-saves__held-row')!;
+    expect(row.querySelector('button[data-action="export"]')).not.toBeNull();
+    expect(row.querySelector('button[data-action="release"]')).toBeNull();
+  });
+
+  it('"Save to my account" goes through the sync refresh, and says so when the slots are still full', async () => {
+    let calls = 0;
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-1')], releaseHeld: async () => void calls++ }));
+    stage.querySelector<HTMLButtonElement>('button[data-action="release"]')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toBe(1);
+    expect(stage.querySelector('.rl-saves__msg')?.textContent).toContain('still full');
+  });
+
+  it('a guest screen (no release) offers no "Save to my account"', () => {
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-1')] }));
+    expect(stage.querySelector('button[data-action="release"]')).toBeNull();
   });
 });

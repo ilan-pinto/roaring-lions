@@ -44,6 +44,7 @@ import {
   creditInputFrom,
   MAX_PATROL_WAYPOINTS,
   unitTypeFromJson,
+  type LedgerData,
   type MissionEvent,
   type MissionJson,
   type SimEvent,
@@ -369,6 +370,8 @@ import {
   promotionAfter,
   villainState,
   regionForTown,
+  regionProgress,
+  type ParsedWorld,
   villainPortrait,
   possibleStars,
 } from './campaign';
@@ -380,6 +383,8 @@ import { isAccountStore } from './account/account-store';
 import type { SpendFlow } from './account/spend-flow';
 import { garageServerMode, serverControls } from './account/garage-server';
 import { opIdsOf, requestMissionStart, victoryCoinLine } from './account/mission-flow';
+import { markNever, markShown, promptDue, type PromptMoment } from './account/prompt';
+import { readHeld } from './account/local-held';
 import { newCampaign, type CampaignLedger, type LedgerStore, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
@@ -433,6 +438,24 @@ function safeStorage(): Storage | null {
   } catch {
     return null;
   }
+}
+
+/** The save prompt has been drawn on this page load: all the answer there is when storage is blocked (`account/prompt.ts`). */
+let savePromptShownOnPage = false;
+/** `?accounts` is on for this page (set once by `main()`): the save prompt and the held list exist only then. */
+let accountsOnPage = false;
+
+/** Which moment a victory is, for the guest's save prompt: the first campaign win, the first finished town (its region went
+ *  complete), or the end of the war. Null for a tutorial, a replay or any other win. */
+function saveMoment(worldData: ParsedWorld, campaign: boolean, region: ReturnType<typeof regionForTown>, before: LedgerData | undefined, after: LedgerData | undefined): PromptMoment | null {
+  if (!campaign) return null;
+  if (campaignComplete(worldData, after) && !campaignComplete(worldData, before)) return 'campaignDone';
+  if (region !== undefined && regionProgress(region, after).status === 'complete' && regionProgress(region, before).status !== 'complete') return 'firstTown';
+  const done = (l: LedgerData | undefined): number => {
+    const d = l?.['campaign.completed_missions'];
+    return Array.isArray(d) ? d.length : 0;
+  };
+  return done(before) === 0 && done(after) > 0 ? 'firstVictory' : null;
 }
 
 /** The app's one door to the campaign ledger, the brigade account and the save
@@ -967,6 +990,7 @@ async function main(): Promise<void> {
   // GH-1075 A1: the one account client of this page. Disabled (no `?accounts`, or `?fresh`) it is never even loaded, so it
   // never calls `fetch`; enabled, its module is fetched on first use and the one client is shared by every caller.
   const accountsOn = accountsEnabled(q);
+  accountsOnPage = accountsOn;
   let accountClientP: Promise<AccountClient> | null = null;
   const accountClient = (): Promise<AccountClient> =>
     (accountClientP ??= import('./account/client').then(({ createAccountClient }) =>
@@ -1167,6 +1191,9 @@ async function main(): Promise<void> {
       onChanged: () => {},
       // Signed in (§0.39): off while a coupon or a reset is in flight.
       ...(spendFlowRef !== null ? { frozen: () => spendFlowRef?.gate.campaignFrozen() ?? false, subscribe: spendFlowRef.gate.subscribe } : {}),
+      // The work this device holds that the server did not take; "Save to my account" is the sync loop's own refresh.
+      ...(accountsOn ? { heldItems: () => readHeld(safeStorage()) } : {}),
+      ...(syncHandle !== null ? { releaseHeld: () => syncHandle?.refresh() ?? Promise.resolve() } : {}),
     };
     return showSaves(host, deps);
   }
@@ -2814,7 +2841,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     box.appendChild(note);
   };
   const startHandle = requestMissionStart({
-    campaign: paysCredits && mission !== undefined && spendFlowRef !== null,
+    campaign: paysCredits && mission !== undefined && (spendFlowRef !== null || isAccountStore(ledgerStore)),
+    // A signed-in device whose client failed to load has the account store but no client: the briefing says coins are not promised.
+    signedIn: isAccountStore(ledgerStore),
     missionId: mission?.id,
     client: accountSession?.client ?? null,
     onFailed: noteOfflineCoins,
@@ -6422,6 +6451,29 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               // GH-464: "How was that mission?", at most once per mission
               // (`prompt-policy.ts`). Asked is recorded now, so a reload on
               // this screen does not ask twice.
+              // GH-1075 A2 (A2-13): the guest's "Save your progress", at the first campaign victory, the first finished town and the
+              // end of the war; at most three showings, and never in the tutorial or on a menu.
+              const moment = mev.result === 'victory' && missionId ? saveMoment(worldData, mission.ledger.produces.length > 0, enemyRegion, ledger, updatedLedger) : null;
+              const savePrompt =
+                moment !== null &&
+                promptDue({
+                  storage: safeStorage(),
+                  enabled: accountsOnPage,
+                  open: accountsOnPage,
+                  signedIn: isAccountStore(ledgerStore),
+                  moment,
+                  tutorial: mission.ledger.produces.length === 0,
+                  pageShown: savePromptShownOnPage,
+                })
+                  ? {
+                      onShown: () => {
+                        savePromptShownOnPage = true;
+                        markShown(safeStorage());
+                      },
+                      onSave: () => req.navigate(routes.profile()),
+                      onNever: () => markNever(safeStorage()),
+                    }
+                  : null;
               let prompt: RatingPrompt | null = null;
               if (fb.shown && !feedbackClosed()) {
                 const asking = readPromptState(fb.storage, __APP_BUILD__);
@@ -6438,6 +6490,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               screenDisposers.push(
                 showDebrief(document.body, {
                   ...debriefOpts,
+                  ...(savePrompt ? { accountPrompt: savePrompt } : {}),
                   aftermath: momentOptions.aftermath,
                   ground: debriefOpts.ground ? { ...debriefOpts.ground, photo } : undefined,
                   ...(prompt ? { prompt: prompt.el } : {}),

@@ -4863,6 +4863,29 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-aar__coins-status { font-size: var(--t-s); color: var(--ink-mute); }
 .rl-aar__coins[data-phase='saved'] .rl-aar__coins-status { color: var(--good); }
 .rl-aar__coins-total { flex-basis: 100%; color: var(--ink-dim); }
+/* GH-1075 A2: the guest's "Save your progress" line in the debrief, and the Saves screen's held list. */
+.rl-aar__prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2) var(--s3);
+  margin: var(--s3) 0 0;
+  font: var(--t-m) / 1.4 var(--font-body);
+  color: var(--ink);
+}
+.rl-aar__prompt-lead { flex-basis: 100%; }
+.rl-linkbtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.rl-saves__held { margin-top: var(--s4); }
+.rl-saves__held-title { margin: 0 0 var(--s2); font: var(--t-m) / 1.3 var(--font-body); font-weight: 600; color: var(--ink); }
 /* The briefing's and the menu's one-line notes that the account could not be reached. */
 .rl-loading__offline-coins,
 .rl-menu__unreachable {

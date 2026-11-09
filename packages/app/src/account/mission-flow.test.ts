@@ -39,6 +39,21 @@ describe('requestMissionStart (§0.10)', () => {
   });
 });
 
+describe('a signed-in device with no account client (2.12 review carry)', () => {
+  it('a campaign mission says coins are not promised, asks nobody, and leaves start null', async () => {
+    let notes = 0;
+    const h = requestMissionStart({ campaign: true, signedIn: true, missionId: 'm', client: null, onFailed: () => notes++ });
+    await flush();
+    expect([h.start, h.failed, notes]).toEqual([null, true, 1]);
+  });
+  it('the tutorial/sandbox and a guest still say nothing', () => {
+    let notes = 0;
+    const a = requestMissionStart({ campaign: false, signedIn: true, missionId: 'm', client: null, onFailed: () => notes++ });
+    const b = requestMissionStart({ campaign: true, signedIn: false, missionId: 'm', client: null, onFailed: () => notes++ });
+    expect([a.failed, b.failed, notes]).toEqual([false, false, 0]);
+  });
+});
+
 describe('victoryOpSince (R21)', () => {
   it('finds the settle\'s own victory by id, not by position: a later op does not hide it', () => {
     const before = opIdsOf([victory('old')]);

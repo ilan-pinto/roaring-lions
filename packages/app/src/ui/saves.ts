@@ -17,6 +17,7 @@ import type { Disposer } from '../shell/router';
 import type { LedgerStore } from '../ledger-store';
 import { SAVE_ERROR_LOAD_MIXED, SAVE_ERROR_NOT_A_SAVE, damagedRaw, deleteSlot, exportSlot, importSlot, listDamaged, listSlots, loadSlot, readActive, saveSlot, writeActive, type DamagedMeta, type SlotMeta } from '../profile';
 import { confirmDialog } from './confirm';
+import type { HeldItem } from '../account/local-held';
 import { panel } from './panel';
 import { stagger } from './motion';
 import { markConfirm } from './confirm-cue';
@@ -45,6 +46,10 @@ export interface SavesDeps {
   /** Signed in (GH-1075 A2, §0.39): a coupon or a reset is in flight. Saving a slot and loading one write or read the campaign
    *  the server is about to replace, so both are off with `stores.pending` until it answers. Absent for a guest. */
   frozen?: () => boolean;
+  /** The work this device holds that the server did not take (`account/local-held.ts`), re-read on every draw. Absent for a guest. */
+  heldItems?: () => readonly HeldItem[];
+  /** Signed in: asks the sync loop to try again (its `refresh`, which uploads a held campaign when a system slot frees). Absent for a guest. */
+  releaseHeld?: () => Promise<void>;
   /** Told when `frozen` may have changed; returns the unsubscribe. */
   subscribe?: (cb: () => void) => () => void;
 }
@@ -185,6 +190,9 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   list.className = 'rl-saves__list';
   p.body.appendChild(list);
 
+  const heldBox = document.createElement('section');
+  heldBox.className = 'rl-saves__held';
+
   const empty = document.createElement('p');
   empty.className = 'rl-dim';
   empty.textContent = t('saves.empty');
@@ -217,7 +225,67 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   };
 
   const frozenNow = (): boolean => deps.frozen?.() ?? false;
+  // The "On this device only" list: each item with the reason it is here and an Export. Its text is shown to nobody and parsed
+  // by nothing: a filed victory op is a `campaign` item whose text is the whole op, so only a `held` campaign (a campaign body
+  // the sync loop uploads) is offered "Save to my account", and that goes through the sync loop's own release.
+  const renderHeld = (): void => {
+    heldBox.replaceChildren();
+    const items = deps.heldItems?.() ?? [];
+    if (items.length === 0) {
+      heldBox.remove();
+      return;
+    }
+    if (!heldBox.isConnected) list.after(heldBox);
+    const h = document.createElement('h3');
+    h.className = 'rl-saves__held-title';
+    h.textContent = t('saves.held.title');
+    const lead = document.createElement('p');
+    lead.className = 'rl-dim';
+    lead.textContent = t('saves.held.lead');
+    heldBox.append(h, lead);
+    for (const item of items) {
+      const row = document.createElement('div');
+      row.className = 'rl-saves__row rl-saves__held-row';
+      row.dataset.held = item.id;
+      const info = document.createElement('div');
+      info.className = 'rl-saves__info';
+      const name = document.createElement('div');
+      name.className = 'rl-saves__name';
+      name.textContent = t('saves.held.item', { date: DATE.format(new Date(item.at)) });
+      const sub = document.createElement('div');
+      sub.className = 'rl-saves__sub';
+      sub.textContent = t(`saves.held.${item.reason}`);
+      info.append(name, sub);
+      const actions = document.createElement('div');
+      actions.className = 'rl-saves__actions';
+      const button = (label: string, action: string, onClick: () => void): void => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'rl-btn';
+        b.dataset.action = action;
+        b.textContent = label;
+        b.addEventListener('click', onClick);
+        actions.appendChild(b);
+      };
+      button(t('saves.slot.export'), 'export', () => deps.download(`held-${item.id}.json`, item.text));
+      if (deps.releaseHeld !== undefined && item.kind === 'campaign' && item.reason === 'held') {
+        const release = deps.releaseHeld;
+        button(t('saves.held.save'), 'release', () => {
+          void release().then(
+            () => {
+              renderHeld();
+              say((deps.heldItems?.() ?? []).some((x) => x.id === item.id) ? t('saves.held.stillFull') : '');
+            },
+            () => say(t('saves.held.stillFull')),
+          );
+        });
+      }
+      row.append(info, actions);
+      heldBox.appendChild(row);
+    }
+  };
   const renderList = (): void => {
+    renderHeld();
     list.replaceChildren();
     const slots = listSlots(deps.store);
     const damaged = listDamaged(deps.store);
