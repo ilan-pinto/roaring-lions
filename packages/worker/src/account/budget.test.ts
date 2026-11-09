@@ -92,6 +92,7 @@ const BUDGETED: BudgetRow[] = [
   { key: 'PUT campaign', call: (h, cookie) => h.call('PUT', '/api/account/campaign', { cookie, body: { op_id: op(57), base: 0, ledger: {}, brigade: {}, tutorialDone: false } }) },
   { key: 'PUT slots/:id', call: (h, cookie) => h.call('PUT', '/api/account/slots/s1', { cookie, body: { op_id: op(58), name: 'A', savedAt: 1, build: 'b', body: { version: 1, id: 's1', name: 'A', savedAt: 1, build: 'b', ledger: {}, account: {} } } }) },
   { key: 'DELETE slots/:id', call: (h, cookie) => h.call('DELETE', '/api/account/slots/s1', { cookie, body: { op_id: op(59) } }) },
+  { key: 'POST claim', call: (h, cookie) => h.call('POST', '/api/account/claim', { cookie, body: { op_id: op(60), device_id: op(61), campaign: null, slots: [], wallet: {}, coupons: [] } }) },
   { key: 'POST reset-free', call: (h, cookie) => h.call('POST', '/api/account/reset-free', { cookie, body: { op_id: op(56) } }) },
 ];
 // Not budgeted, by name. `DELETE identity/:id` is NOT here: it is budgeted (plan §0.48), so it is in the table above.

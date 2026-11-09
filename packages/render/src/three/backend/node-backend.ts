@@ -27,6 +27,7 @@ import { createNodeZoneBandMaterial } from '../units/zone-band.node';
 import { createNodeSupplyRouteMaterial, type SupplyRouteUniformRecord } from '../supply-route.node';
 import { createNodeTrailMaterial, type TrailUniformRecord } from '../trail-mesh.node';
 import { createNodeXrayMaterial, XRAY_STYLE_BY_NAME } from '../tunnel-xray.node';
+import { createNodeDecalMaterial } from '../decal-pool.node';
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
 import { createNodeOutlineMaterial } from '../units/silhouette.node';
 import type { RingStyle } from '../units/selection-ring';
@@ -194,6 +195,12 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     const style = XRAY_STYLE_BY_NAME[legacy.name];
     if (style === undefined) throw new Error(`node x-ray twin: no style for the legacy material "${legacy.name}"`);
     const twin = createNodeXrayMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.xray }, legacy, style);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T7): the decal pools and the crater rim. The legacy material keeps its record, and carries its scene's light objects.
+  materials.decal = (legacy) => {
+    const twin = createNodeDecalMaterial({ W, TSL, maths: opts.materialMaths.decal }, legacy);
     markTwin(twin, legacy);
     return twin;
   };

@@ -17,6 +17,8 @@ import type { Disposer } from '../shell/router';
 import type { LedgerStore } from '../ledger-store';
 import { SAVE_ERROR_LOAD_MIXED, SAVE_ERROR_NOT_A_SAVE, damagedRaw, deleteSlot, exportSlot, importSlot, listDamaged, listSlots, loadSlot, readActive, saveSlot, writeActive, type DamagedMeta, type SlotMeta } from '../profile';
 import { confirmDialog } from './confirm';
+import type { HeldItem } from '../account/local-held';
+import type { ReleaseOutcome } from '../account/sync';
 import { panel } from './panel';
 import { stagger } from './motion';
 import { markConfirm } from './confirm-cue';
@@ -42,6 +44,22 @@ export interface SavesDeps {
    *  whichever future screen needs to react to a slot changing under it
    *  without polling. */
   onChanged(): void;
+  /** Signed in (GH-1075 A2, §0.39): a coupon or a reset is in flight. Saving a slot and loading one write or read the campaign
+   *  the server is about to replace, so both are off with `stores.pending` until it answers. Absent for a guest. */
+  frozen?: () => boolean;
+  /** The work this device holds that the server did not take (`account/local-held.ts`), re-read on every draw. Absent for a guest. */
+  heldItems?: () => readonly HeldItem[];
+  /** Signed in: asks the sync loop to try again (its `release`, which queues a held campaign's upload when a system slot is free) and answers
+   *  the ids of the held items now waiting in the outbox. An id missing from the answer was not queued (no system slot is free). Absent for a guest. */
+  releaseHeld?: () => Promise<ReleaseOutcome>;
+  /** The held ids whose upload is still waiting in the outbox; a queued line for any other id is dropped. Absent: only the reason prunes. */
+  queuedHeldIds?: () => readonly string[];
+  /** Whether `releaseHeld` could ever upload this item (same member as the cache, has a digest). Defaults to true when absent. */
+  canReleaseHeld?: (item: HeldItem) => boolean;
+  /** Signed in (§0.19): the account's slots whose body this device has not downloaded yet. Each is listed as "downloading" with Load off; the sync loop's body fetch then fills it. Absent for a guest. */
+  downloading?: () => readonly { id: string; name: string; savedAt: number }[];
+  /** Told when `frozen` may have changed; returns the unsubscribe. */
+  subscribe?: (cb: () => void) => () => void;
 }
 
 function randomId(): string {
@@ -86,7 +104,8 @@ type SlotAction = 'load' | 'export' | 'delete';
 
 function slotRow(
   meta: SlotMeta,
-  actions: { onLoad(): void; onExport(): void; onDelete(): void }
+  actions: { onLoad(): void; onExport(): void; onDelete(): void },
+  frozen = false
 ): HTMLElement {
   const row = document.createElement('div');
   row.className = 'rl-saves__row';
@@ -116,6 +135,10 @@ function slotRow(
     b.className = 'rl-btn';
     b.dataset.action = action;
     b.textContent = label;
+    if (action === 'load' && frozen) {
+      b.disabled = true;
+      b.title = t('stores.pending');
+    }
     b.addEventListener('click', onClick);
     btnRow.appendChild(b);
   };
@@ -124,6 +147,33 @@ function slotRow(
   button(t('saves.slot.delete'), actions.onDelete, 'delete');
   row.appendChild(btnRow);
 
+  return row;
+}
+
+/** §0.19: a slot the account lists whose body is still on its way. Nothing can be done with it yet, so Load is off and there is no other verb. */
+function downloadingRow(m: { id: string; name: string; savedAt: number }): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'rl-saves__row rl-saves__row--downloading';
+  row.dataset.slot = m.id;
+  const info = document.createElement('div');
+  info.className = 'rl-saves__info';
+  const name = document.createElement('div');
+  name.className = 'rl-saves__name';
+  name.textContent = m.name;
+  const sub = document.createElement('div');
+  sub.className = 'rl-saves__sub';
+  sub.textContent = t('saves.downloading');
+  info.append(name, sub);
+  const btnRow = document.createElement('div');
+  btnRow.className = 'rl-saves__actions';
+  const load = document.createElement('button');
+  load.type = 'button';
+  load.className = 'rl-btn';
+  load.dataset.action = 'load';
+  load.disabled = true;
+  load.textContent = t('saves.slot.load');
+  btnRow.appendChild(load);
+  row.append(info, btnRow);
   return row;
 }
 
@@ -175,6 +225,9 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   list.className = 'rl-saves__list';
   p.body.appendChild(list);
 
+  const heldBox = document.createElement('section');
+  heldBox.className = 'rl-saves__held';
+
   const empty = document.createElement('p');
   empty.className = 'rl-dim';
   empty.textContent = t('saves.empty');
@@ -206,11 +259,88 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
     (target ?? nameInput).focus();
   };
 
+  const frozenNow = (): boolean => deps.frozen?.() ?? false;
+  // The "On this device only" list: each item with the reason it is here and an Export. Its text is shown to nobody and parsed
+  // by nothing: a filed victory op is a `campaign` item whose text is the whole op, so only a `held` campaign (a campaign body
+  // the sync loop uploads) is offered "Save to my account", and that goes through the sync loop's own release.
+  // id -> the reason it was queued under; forgotten when the item's reason changes (a refused put), so the line never sticks.
+  const queuedHeld = new Map<string, string>();
+  const renderHeld = (): void => {
+    heldBox.replaceChildren();
+    const items = deps.heldItems?.() ?? [];
+    if (items.length === 0) {
+      heldBox.remove();
+      return;
+    }
+    if (!heldBox.isConnected) list.after(heldBox);
+    const h = document.createElement('h3');
+    h.className = 'rl-saves__held-title';
+    h.textContent = t('saves.held.title');
+    const lead = document.createElement('p');
+    lead.className = 'rl-dim';
+    lead.textContent = t('saves.held.lead');
+    heldBox.append(h, lead);
+    const waiting = deps.queuedHeldIds?.();
+    for (const id of [...queuedHeld.keys()]) {
+      const live = items.find((i) => i.id === id);
+      if (live === undefined || live.reason !== queuedHeld.get(id) || (waiting !== undefined && !waiting.includes(id))) queuedHeld.delete(id);
+    }
+    for (const item of items) {
+      const row = document.createElement('div');
+      row.className = 'rl-saves__row rl-saves__held-row';
+      row.dataset.held = item.id;
+      const info = document.createElement('div');
+      info.className = 'rl-saves__info';
+      const name = document.createElement('div');
+      name.className = 'rl-saves__name';
+      name.textContent = t('saves.held.item', { date: DATE.format(new Date(item.at)) });
+      const sub = document.createElement('div');
+      sub.className = 'rl-saves__sub';
+      sub.textContent = t(`saves.held.${item.reason}`);
+      info.append(name, sub);
+      const actions = document.createElement('div');
+      actions.className = 'rl-saves__actions';
+      const button = (label: string, action: string, onClick: () => void): void => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'rl-btn';
+        b.dataset.action = action;
+        b.textContent = label;
+        b.addEventListener('click', onClick);
+        actions.appendChild(b);
+      };
+      button(t('saves.slot.export'), 'export', () => deps.download(`held-${item.id.replace(/[^\w.-]/g, '_')}.json`, item.text));
+      if (queuedHeld.has(item.id)) {
+        sub.textContent = t('saves.held.queued');
+      } else if (deps.releaseHeld !== undefined && item.kind === 'campaign' && item.reason === 'held' && (deps.canReleaseHeld?.(item) ?? true)) {
+        const release = deps.releaseHeld;
+        button(t('saves.held.save'), 'release', () => {
+          void release().then(
+            (outcome) => {
+              // "Full" is said only when the refresh ran and nothing could be queued; a refresh that did not complete says so.
+              // The item leaves the list when its upload is acked (the sync loop's change).
+              if (!outcome.ok) say(t('saves.held.unreached'));
+              else if (outcome.queued.includes(item.id)) {
+                queuedHeld.set(item.id, item.reason);
+                say(t('saves.held.queued'));
+              } else say(t('saves.held.stillFull'));
+              renderHeld();
+            },
+            () => say(t('saves.held.unreached')),
+          );
+        });
+      }
+      row.append(info, actions);
+      heldBox.appendChild(row);
+    }
+  };
   const renderList = (): void => {
+    renderHeld();
     list.replaceChildren();
     const slots = listSlots(deps.store);
     const damaged = listDamaged(deps.store);
-    if (slots.length === 0 && damaged.length === 0) {
+    const downloading = deps.downloading?.() ?? [];
+    if (slots.length === 0 && damaged.length === 0 && downloading.length === 0) {
       list.appendChild(empty);
       return;
     }
@@ -218,12 +348,13 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
       list.appendChild(
         slotRow(meta, {
           onLoad: () => {
+            if (frozenNow()) return;
             void confirmDialog(stage, {
               title: t('saves.load.confirm.title'),
               body: t('saves.load.confirm.body'),
               confirm: t('saves.load.confirm.action'),
             }).answer.then((ok) => {
-              if (!ok) return;
+              if (!ok || frozenNow()) return;
               const slot = loadSlot(deps.store, meta.id);
               if (!slot) return;
               // I2: `writeActive` writes three keys in sequence with no
@@ -273,9 +404,10 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
               deps.onChanged();
             });
           },
-        })
+        }, frozenNow())
       );
     }
+    for (const m of downloading) list.appendChild(downloadingRow(m));
     damaged.forEach((meta, i) => {
       list.appendChild(
         damagedRow(meta, i + 1, {
@@ -335,8 +467,15 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   saveBtn.textContent = t('saves.form.save');
   markConfirm(saveBtn);
   form.append(nameInput, saveBtn);
+  const syncFrozen = (): void => {
+    saveBtn.disabled = frozenNow();
+    if (frozenNow()) saveBtn.title = t('stores.pending');
+    else saveBtn.removeAttribute('title');
+  };
+  syncFrozen();
   form.addEventListener('submit', (e) => {
     e.preventDefault();
+    if (frozenNow()) return;
     const name = nameInput.value.trim() || defaultName();
     // Same hole as `onLoad` above, one level down: `saveSlot` -> `writeAll` ->
     // `setItem`, and the saves blob is the biggest thing this app writes, so
@@ -391,8 +530,15 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   p.el.appendChild(foot.el);
 
   renderList();
+  const unsubscribe = deps.subscribe?.(() => {
+    syncFrozen();
+    renderList();
+  });
 
   stagger(wrap);
   stage.appendChild(wrap);
-  return () => wrap.remove();
+  return () => {
+    unsubscribe?.();
+    wrap.remove();
+  };
 }

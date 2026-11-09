@@ -32,6 +32,7 @@ import type { OutlineMaths } from '../units/silhouette.node';
 import type { ZoneBandMaths } from '../units/zone-band.node';
 import type { SupplyRouteMaths } from '../supply-route.node';
 import type { XrayMaths } from '../tunnel-xray.node';
+import type { DecalMaths } from '../decal-pool.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -100,7 +101,8 @@ export interface MaterialMaths {
   readonly outline: OutlineMaths;
   readonly banner: null;
   readonly backdrop: null;
-  readonly decal: null;
+  /** T7: the decal kinds, the road under them, the albedo ratio and the crater rim. */
+  readonly decal: DecalMaths;
   readonly overlay: null;
   /** T8: the overlay batch and the trail are passthroughs (no shared maths); the zone band's hatch and the route's dash are values. */
   readonly zoneBand: ZoneBandMaths;

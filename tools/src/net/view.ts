@@ -40,20 +40,29 @@ export interface UnitLine {
   /** Why a unit that was ordered to move is not going anywhere (GH-1098); absent when nothing holds it. `moving` is the
    *  sim's order flag, not progress. See `heldReasonOf` for the reasons and their order. */
   held?: HeldReason;
+  /** GH-1097: the cover (1-3) of the tile it stands on, absent on open ground (0) and inside a building or a vehicle,
+   *  where the building's or the carrier's protection is what counts, and underground. The live grid: a fallen building's cover goes. */
+  cover?: number;
+  /** GH-1097: the elevation level (1-9) of its tile, absent at 0. Higher ground sees over lower obstacles, never further. */
+  elev?: number;
 }
 /**
  * `routed`: broken and fleeing, it ignores its goal. `immobilised`: mobility killed by component damage, the goal stays live
- * but the hull never steps. `garrisoned`: inside a building, it walks nowhere until it leaves. `pinned`: suppressed, so the sim
+ * but the hull never steps. `carried`: a passenger in a transport, it goes where its carrier goes until an `unload`.
+ * `tunnel`: underground in a tunnel, it takes no surface order until it comes up at the vent (`stepMovement` skips a
+ * buried body). `garrisoned`: inside a building, it walks nowhere until it leaves. `pinned`: suppressed, so the sim
  * slows it to 1/64 of its speed (`PIN_SPEED_SHIFT`, GDD 5.5) until the fire lifts. `checkpoint`: a formation member
  * waiting at a waypoint for its group's dress (`fmMarchHold`, duty WAIT).
  */
-export type HeldReason = 'routed' | 'immobilised' | 'garrisoned' | 'pinned' | 'checkpoint';
+export type HeldReason = 'routed' | 'immobilised' | 'carried' | 'tunnel' | 'garrisoned' | 'pinned' | 'checkpoint';
 
 /** Why unit `i` holds, from the sim's public reads (`sim.state`, `formationDutyOf`); the strongest cause first. */
 export function heldReasonOf(sim: MatchWorld['sim'], i: number): HeldReason | undefined {
   const st = sim.state;
   if (st.routed[i] !== 0) return 'routed';
   if (st.mobilityKilled[i] !== 0) return 'immobilised';
+  if (st.carriedBy[i] >= 0) return 'carried';
+  if (st.tunnelIn[i] >= 0) return 'tunnel';
   if (st.garrisonedIn[i] >= 0) return 'garrisoned';
   if (st.pinned[i] !== 0) return 'pinned';
   if (sim.formationDutyOf(i) === FM_DUTY_WAIT) return 'checkpoint';
@@ -65,7 +74,14 @@ export function heldReasonOf(sim: MatchWorld['sim'], i: number): HeldReason | un
  * confirmed it in sight (the fog refreshes every fourth tick, so it is at most 3 ticks old). What the seat remembers of
  * a unit that left sight is never a contact: it is `lastSeen` on an order or a refusal.
  */
-export interface ContactLine { id: number; type: string; tile: [number, number]; hp: number; inSight: true; seenTick: number }
+export interface ContactLine {
+  id: number; type: string; tile: [number, number]; hp: number; inSight: true; seenTick: number;
+  /** GH-1097: the cover and elevation of the tile it stands on, as `UnitLine`'s (the map is public; the contact is in sight). */
+  cover?: number;
+  elev?: number;
+}
+/** GH-1097: a combat formation this seat may order in this room now, and the verb that carries it. */
+export interface FormationLine { id: string; verb: 'move' | 'attackMove' | 'either' }
 /** A wounded man (GH-973): down on the field, in nobody's order of battle. Never an orderable combat unit. */
 export interface CasualtyLine { id: number; type: string; tile: [number, number]; state: 'down' | 'stabilised' | 'other'; bleeding?: number }
 export interface HeldLine { structure: number; tile: [number, number]; side: 0 | 1 }
@@ -85,6 +101,10 @@ export interface SideView {
   held: HeldLine[];
   /** The stances `order` accepts with verb `setStance` (GH-954): every room allows all three. */
   stances: StanceName[];
+  /** GH-1097: the formations `order` accepts here (a `formation` on a `move` or `attackMove`), from the room's own gate
+   *  (`seatWorld.formationAllowed`, the predicate the receiver applies); `[]` where the room closes them. Filled by the
+   *  agent client, which holds the gate; absent from a bare `sideView`. */
+  formations?: FormationLine[];
   /** Your production, purse and menu (GH-954); absent in a room with no economy (a mirror room, a win-mode room). Yours alone. */
   economy?: EconomyView;
   score: { mine: SideScore; theirs: SideScore };
@@ -154,6 +174,16 @@ export function inSightOf(sim: MatchWorld['sim'], i: number, side: 0 | 1, visibl
   return unitIsObserved(st.side[i], side, st.posX[i] / 65536, st.posY[i] / 65536, visibleAt);
 }
 
+/** GH-1097: write the live cover and the elevation of `tile` onto a row, each only when it is above 0 (a quiet row on open ground). */
+function groundOf<T extends { cover?: number; elev?: number }>(sim: MatchWorld['sim'], tile: readonly [number, number], row: T): T {
+  const [x, y] = tile;
+  if (x < 0 || y < 0 || x >= sim.width || y >= sim.height) return row;
+  const t = y * sim.width + x;
+  if (sim.cover[t] > 0) row.cover = sim.cover[t];
+  if (sim.elevation[t] > 0) row.elev = sim.elevation[t];
+  return row;
+}
+
 export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: string | null, by: string | null = null): SideView {
   const sim = w.sim;
   const st = sim.state;
@@ -199,9 +229,12 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
         curTarget: st.curTarget[i], curStructure: st.curStructure[i], demoTarget: st.demoTarget[i],
         carriedBy: st.carriedBy[i], garrisonedIn: st.garrisonedIn[i],
       }, side)) flags.push('idle');
+      // GH-1097: a unit that carries smoke (its type's `smoke` ability; one screen a unit every 45 s, within about 9 tiles).
+      if (type.canSmoke) flags.push('smoke');
       const unit: UnitLine = { id: i, type: type.id, tile, hp, flags, stance: 'free' };
       const held = heldReasonOf(sim, i);
       if (held !== undefined) unit.held = held;
+      if (st.garrisonedIn[i] < 0 && st.carriedBy[i] < 0 && st.tunnelIn[i] < 0) groundOf(sim, tile, unit);
       if (sim.isPatrolling(i)) {
         unit.stance = 'patrol';
         unit.points = sim.patrolCountOf(i);
@@ -215,7 +248,7 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
     // The renderer's draw gate, with this seat's fog: hidden inside a
     // building, a carrier or a tunnel, and fog-gated in the open.
     if (!inSightOf(sim, i, side, visibleAt)) continue;
-    contacts.push({ id: i, type: type.id, tile, hp, inSight: true, seenTick: fog.refreshedTick });
+    contacts.push(groundOf<ContactLine>(sim, tile, { id: i, type: type.id, tile, hp, inSight: true, seenTick: fog.refreshedTick }));
   }
   const held: HeldLine[] = [];
   for (const b of heldBuildings(sim, sim.entityCount)) {
@@ -266,5 +299,84 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
     win,
     result,
     by,
+  };
+}
+
+/** GH-1097: what `terrain` answers. */
+export interface TerrainView {
+  map: string;
+  size: [number, number];
+  /** The window's top-left tile; `rows[0][0]` is this tile. */
+  origin: [number, number];
+  legend: Record<string, string>;
+  /** One string a row, one character a tile. A tile the seat sees NOW reads the live ground (a building that fell in
+   *  sight reads as its rubble's cover); every other tile reads the ground as the match began (`OpeningGround`), so a
+   *  collapse under the fog is never told. */
+  rows: string[];
+  /** One digit a tile (0-9), the same window, as authored (the sim never changes a level); absent when every tile of
+   *  the window is level 0. */
+  elevation?: string[];
+}
+
+/**
+ * The ground as the match began (GH-1097 review): the map as authored and the structures the room places on it, copied
+ * from a world built fresh from the room's config and never ticked. It holds nothing the match has done, so `terrain`
+ * reads it for every tile out of the seat's sight. It is built from the config, not from the seat's own world, because a
+ * seat that rejoined from a snapshot holds a world already part-way through.
+ */
+export interface OpeningGround { width: number; blocked: Uint8Array; boulder: Uint8Array; cover: Uint8Array; elevation: Uint8Array }
+
+export function openingGroundOf(fresh: MatchWorld): OpeningGround {
+  const sim = fresh.sim;
+  return { width: sim.width, blocked: sim.blocked.slice(), boulder: sim.boulder.slice(), cover: sim.cover.slice(), elevation: sim.elevation.slice() };
+}
+
+export const TERRAIN_LEGEND: Readonly<Record<string, string>> = {
+  '.': 'open ground: no cover',
+  '1': 'light cover', '2': 'medium cover', '3': 'heavy cover',
+  '#': 'building or wall: blocks movement and sight (garrison a building through observe `held` and `garrison`)',
+  '^': 'rock ridge: blocks movement and sight',
+  'b': 'boulder field: open ground on foot, a wall to wheels and tracks',
+  'd': 'ditch: open on foot, a wall to wheels and tracks',
+  '~': 'marsh: light cover on foot, a wall to wheels and tracks',
+};
+
+/**
+ * The ground of a window of the map (GH-1097), as a human seat knows it: the opening ground for every tile, and the
+ * sim's live `blocked`, `boulder` and `cover` only where `visibleAt` says the seat sees the tile now (the fog's own
+ * test, `FogTracker.visibleTile`). The authored symbol only tells a ridge from a building and a boulder field from a
+ * ditch or a marsh. Never an entity, never smoke: a pure read.
+ */
+export function terrainView(w: MatchWorld, opening: OpeningGround, visibleAt: (x: number, y: number) => boolean, x0: number, y0: number, wTiles: number, hTiles: number): TerrainView {
+  const sim = w.sim;
+  const rows: string[] = [];
+  const elev: string[] = [];
+  let anyElev = false;
+  for (let y = y0; y < y0 + hTiles; y++) {
+    let row = '';
+    let er = '';
+    const authored = w.mapJson.rows[y];
+    for (let x = x0; x < x0 + wTiles; x++) {
+      const t = y * sim.width + x;
+      const a = authored[x];
+      const g = visibleAt(x, y) ? sim : opening;
+      if (g.blocked[t] !== 0) row += a === '^' ? '^' : '#';
+      else if (g.boulder[t] !== 0) row += a === 'd' || a === '~' ? a : 'b';
+      else if (g.cover[t] > 0) row += String(Math.min(3, g.cover[t]));
+      else row += '.';
+      const e = opening.elevation[t];
+      if (e > 0) anyElev = true;
+      er += String(e);
+    }
+    rows.push(row);
+    elev.push(er);
+  }
+  return {
+    map: w.mapJson.id,
+    size: [sim.width, sim.height],
+    origin: [x0, y0],
+    legend: { ...TERRAIN_LEGEND },
+    rows,
+    ...(anyElev ? { elevation: elev } : {}),
   };
 }

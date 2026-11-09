@@ -152,7 +152,9 @@
  */
 import { STAMP_SPACING_TILES } from './vehicle-tracks';
 import { MARK_EPSILON } from './terrain/shared';
-import { tileHash } from '../tile-hash';
+import { tileHashOps } from '../tile-hash';
+import { NUMBER_INT_OPS, NUMBER_OPS, type IntOps, type Ops } from './fog-ops';
+import { roadBands } from './terrain/ground-maths';
 
 // ---------------------------------------------------------------------------
 // Kinds, the clock, grid geometry, and the approved size curves.
@@ -712,8 +714,36 @@ export function decalMultiplier(
   ground: readonly [number, number, number],
   alpha: number
 ): [number, number, number] {
-  const m = (c: number): number => 1 + alpha * (decal[c] / Math.max(ground[c], DECAL_GROUND_FLOOR) - 1);
+  const m = (c: 0 | 1 | 2): number => decalMultiplierOps(NUMBER_OPS, decal[c], ground[c], alpha);
   return [m(0), m(1), m(2)];
+}
+
+/** A three-vector of `Ops<T>` scalars (the GH-943 P3 T7 maths below works per channel: `Ops<T>` is scalar). */
+export type V3<T> = readonly [T, T, T];
+
+/**
+ * GH-943 P3 (T7): `decalMultiplier`, written once against `Ops<T>`: `decalMultiplier` is it on numbers, channel by channel, and
+ * the node twin (`decal-pool.node.ts`) builds it on whole vec3 nodes (every op here is per component, the scalar `alpha` and
+ * literals broadcast). `1 + alpha * (decal / max(ground, DECAL_GROUND_FLOOR) - 1)`.
+ */
+export function decalMultiplierOps<T>(o: Ops<T>, decal: T, ground: T, alpha: T): T {
+  return o.add(o.lit(1), o.mul(alpha, o.sub(o.div(decal, o.max(ground, o.lit(DECAL_GROUND_FLOOR))), o.lit(1))));
+}
+
+/**
+ * GH-943 P3 (T7): the ground tone under one decal FRAGMENT, the divisor of `decalMultiplierOps` (fix wave I-3): the decal's own
+ * tile tone `base` (`aGround`), with the road surface and its shoulder mixed in from control B's road distance `bG` and edge bend
+ * `bA` (both [0, 1]) exactly as the ground mixes them (`roadBands`, `terrain/ground-maths.ts`), each gated by the roads toggle
+ * `roadOn`. `rangeTiles` is `ROAD_DISTANCE_RANGE_TILES`. Per component (one channel on numbers, a whole vec3 on nodes: the bands
+ * are scalars). The legacy material's GLSL is its transcription
+ * (`mix(mix(vGround, uRoadTone, rlRoadSurf), uShoulderTone, rlShoulder)`); `decalRoadMix` (`terrain/decal-ground-tone.ts`) is
+ * the same mix on an exact road distance.
+ */
+export function decalGroundToneOps<T>(o: Ops<T>, base: T, road: T, shoulder: T, bG: T, bA: T, roadOn: T, rangeTiles: number): T {
+  const bands = roadBands(o, o.mul(bG, o.lit(rangeTiles)), o.sub(o.mul(bA, o.lit(2)), o.lit(1)), o.lit(0));
+  const surf = o.mul(roadOn, bands.surface);
+  const sh = o.mul(roadOn, bands.shoulder);
+  return o.mix(o.mix(base, road, surf), shoulder, sh);
 }
 
 /** `decalMultiplier`'s divide-by-zero floor -- see its doc comment. */
@@ -756,12 +786,139 @@ export function decalPaletteKeysFor(weather: 'clear' | 'rain' | undefined): Read
  * `uRimShape` carries `(bowlDepth, rimHeight)` in the shader.
  */
 export function craterHeight(s: number, t: number, seed: number, bowlDepth: number, rimHeight: number): number {
-  const rw = wobbledRadius(s, t, seed, CRATER_WOBBLE, CRATER_LOBES);
-  const x = rw / CRATER_LIP_IN1;
-  const bowl = -bowlDepth * Math.max(1 - x * x, 0);
+  return craterHeightOps(NUMBER_OPS, s, t, seed, bowlDepth, rimHeight);
+}
+
+/** GH-943 P3 (T7): `craterHeight`, written once against `Ops<T>` (`craterHeight` is it on numbers; the node twin, a graph). */
+export function craterHeightOps<T>(o: Ops<T>, s: T, t: T, seed: T, bowlDepth: T, rimHeight: T): T {
+  const rw = wobbledRadiusOps(o, s, t, seed, CRATER_WOBBLE, CRATER_LOBES);
+  const x = o.div(rw, o.lit(CRATER_LIP_IN1));
+  const bowl = o.mul(o.sub(o.lit(0), bowlDepth), o.max(o.sub(o.lit(1), o.mul(x, x)), o.lit(0)));
   const rimC = (CRATER_LIP_IN1 + CRATER_LIP_OUT0) / 2;
-  const rim = rimHeight * smoothstep(CRATER_BOWL_EDGE0 - 0.06, rimC, rw) * (1 - smoothstep(rimC, 1, rw));
-  return bowl + rim;
+  const rim = o.mul(
+    o.mul(rimHeight, o.smoothstep(o.lit(CRATER_BOWL_EDGE0 - 0.06), o.lit(rimC), rw)),
+    o.sub(o.lit(1), o.smoothstep(o.lit(rimC), o.lit(1), rw))
+  );
+  return o.add(bowl, rim);
+}
+
+/** The crater rim's central-difference step, in offset units (the legacy material's `float e = 0.01;`, pinned by its test). */
+export const CRATER_RIM_EPSILON = 0.01;
+
+/**
+ * GH-943 P3 (T7): the crater height's gradient over `(s, t)` by central differences of `craterHeightOps`, step
+ * `CRATER_RIM_EPSILON`: `(h(st + e) - h(st - e)) / 2e` on each axis, as the legacy material takes it.
+ */
+export function craterGradOps<T>(o: Ops<T>, s: T, t: T, seed: T, bowlDepth: T, rimHeight: T): { readonly hs: T; readonly ht: T } {
+  const e = o.lit(CRATER_RIM_EPSILON);
+  const twoE = o.lit(2 * CRATER_RIM_EPSILON);
+  const h = (a: T, b: T): T => craterHeightOps(o, a, b, seed, bowlDepth, rimHeight);
+  return {
+    hs: o.div(o.sub(h(o.add(s, e), t), h(o.sub(s, e), t)), twoE),
+    ht: o.div(o.sub(h(s, o.add(t, e)), h(s, o.sub(t, e))), twoE),
+  };
+}
+
+/**
+ * GH-943 P3 (T7): the lights the crater rim is relit by, as the legacy material reads them (`ambientLightColor`,
+ * `directionalLights[0]`, `hemisphereLights[0]`): every colour already times its light's intensity, every direction in VIEW space
+ * and pointing TOWARD the light. An absent light is a zero colour, which is what the legacy `#if NUM_*_LIGHTS > 0` amounts to.
+ */
+export interface DecalRimLights<T> {
+  readonly ambient: V3<T>;
+  readonly sunColor: V3<T>;
+  readonly sunDir: V3<T>;
+  readonly hemiSky: V3<T>;
+  readonly hemiGround: V3<T>;
+  readonly hemiDir: V3<T>;
+}
+
+/**
+ * The decal facet's own frame at one fragment, PASSED IN (a screen-space rate is graph-only, `Ops<T>` has no derivative): the screen
+ * derivatives of the view-space position (`dpx`, `dpy`) and of the `(s, t)` offset (`dstx`, `dsty`).
+ */
+export interface DecalRimFacet<T> {
+  readonly dpx: V3<T>;
+  readonly dpy: V3<T>;
+  readonly dstx: readonly [T, T];
+  readonly dsty: readonly [T, T];
+}
+
+function dot3<T>(o: Ops<T>, a: V3<T>, b: V3<T>): T {
+  return o.add(o.add(o.mul(a[0], b[0]), o.mul(a[1], b[1])), o.mul(a[2], b[2]));
+}
+
+function cross3<T>(o: Ops<T>, a: V3<T>, b: V3<T>): [T, T, T] {
+  return [
+    o.sub(o.mul(a[1], b[2]), o.mul(a[2], b[1])),
+    o.sub(o.mul(a[2], b[0]), o.mul(a[0], b[2])),
+    o.sub(o.mul(a[0], b[1]), o.mul(a[1], b[0])),
+  ];
+}
+
+function normalize3<T>(o: Ops<T>, a: V3<T>): [T, T, T] {
+  const len = o.sqrt(dot3(o, a, a));
+  return [o.div(a[0], len), o.div(a[1], len), o.div(a[2], len)];
+}
+
+/**
+ * GH-943 P3 (T7): the sun and sky irradiance on a view-space normal `n`, the legacy material's `rlIrradiance` (Lambert; the pi
+ * cancels in the ratio): `ambient + sun * max(n . sunDir, 0) * shadow + mix(hemiGround, hemiSky, 0.5 n . hemiDir + 0.5)`.
+ * `shadow` scales the sun only.
+ */
+export function decalIrradianceOps<T>(o: Ops<T>, n: V3<T>, lights: DecalRimLights<T>, shadow: T): [T, T, T] {
+  const ndl = o.max(dot3(o, n, lights.sunDir), o.lit(0));
+  const w = o.add(o.mul(o.lit(0.5), dot3(o, n, lights.hemiDir)), o.lit(0.5));
+  const e = (c: 0 | 1 | 2): T =>
+    o.add(o.add(lights.ambient[c], o.mul(o.mul(lights.sunColor[c], ndl), shadow)), o.mix(lights.hemiGround[c], lights.hemiSky[c], w));
+  return [e(0), e(1), e(2)];
+}
+
+/** The rim ratio's divide-by-zero floor (the legacy `max(rlIrradiance(n0, rlShadow), 1e-4)`). */
+export const CRATER_RIM_IRRADIANCE_FLOOR = 1e-4;
+
+/**
+ * GH-943 P3 (T7): the crater rim's light ratio, the legacy material's rim block: the height gradient `grad` (in crater radii per
+ * offset unit) scaled to world units by `halfLength` and by the gain, bump-mapped onto the facet (surface-gradient form), and the
+ * bumped normal's irradiance over the facet's, both under the SAME shadow, so a rim in a building's shadow catches nothing.
+ */
+export function decalRimRatioOps<T>(
+  o: Ops<T>,
+  grad: { readonly hs: T; readonly ht: T },
+  halfLength: T,
+  gain: T,
+  facet: DecalRimFacet<T>,
+  lights: DecalRimLights<T>,
+  shadow: T
+): [T, T, T] {
+  const gs = o.mul(o.mul(grad.hs, halfLength), gain);
+  const gt = o.mul(o.mul(grad.ht, halfLength), gain);
+  const dhx = o.add(o.mul(gs, facet.dstx[0]), o.mul(gt, facet.dstx[1]));
+  const dhy = o.add(o.mul(gs, facet.dsty[0]), o.mul(gt, facet.dsty[1]));
+  const raw = normalize3(o, cross3(o, facet.dpx, facet.dpy));
+  const flip = o.selectLt(raw[2], o.lit(0), o.lit(-1), o.lit(1));
+  const n0: V3<T> = [o.mul(raw[0], flip), o.mul(raw[1], flip), o.mul(raw[2], flip)];
+  const r1 = cross3(o, facet.dpy, n0);
+  const r2 = cross3(o, n0, facet.dpx);
+  const det = dot3(o, facet.dpx, r1);
+  const sg = o.sign(det);
+  const ad = o.abs(det);
+  const bumped = (c: 0 | 1 | 2): T => o.sub(o.mul(ad, n0[c]), o.mul(sg, o.add(o.mul(dhx, r1[c]), o.mul(dhy, r2[c]))));
+  const n1 = normalize3(o, [bumped(0), bumped(1), bumped(2)]);
+  const i1 = decalIrradianceOps(o, n1, lights, shadow);
+  const i0 = decalIrradianceOps(o, n0, lights, shadow);
+  const floor = o.lit(CRATER_RIM_IRRADIANCE_FLOOR);
+  return [o.div(i1[0], o.max(i0[0], floor)), o.div(i1[1], o.max(i0[1], floor)), o.div(i1[2], o.max(i0[2], floor))];
+}
+
+/**
+ * GH-943 P3 (T7): the decal's output ratio, `base` (the albedo ratio) times the rim ratio `rim` on a crater whose rim gain is on,
+ * `base` itself on every other fragment (the legacy `if (kind == crater && uRimGain > 0.0) outRatio *= ...`), as one select. Per
+ * component, like `decalMultiplierOps` (the twin passes whole vec3 nodes, so the rim is evaluated once, on a rim fragment only).
+ */
+export function decalOutRatioOps<T>(o: Ops<T>, kind: T, gain: T, base: T, rim: T): T {
+  const on = o.mul(kindIs(o, kind, DECAL_KIND_INDEX.crater), o.selectLt(o.lit(0), gain, o.lit(1), o.lit(0)));
+  return o.selectLt(o.lit(0.5), on, o.mul(base, rim), base);
 }
 
 /** Water stands in a crater's bowl where the height is below this (radii). With
@@ -811,20 +968,27 @@ function smoothstep(e0: number, e1: number, x: number): number {
   return u * u * (3 - 2 * u);
 }
 
-function clamp01(x: number): number {
-  return Math.min(1, Math.max(0, x));
-}
-
-function fract(x: number): number {
-  return x - Math.floor(x);
-}
-
 /** `r(1 + amp sin(lobes θ + 2π seed))`, with θ taken as 0 at the centre --
  *  GLSL's `atan(0, 0)` is undefined, and `r = 0` there anyway. */
-function wobbledRadius(s: number, t: number, seed: number, amp: number, lobes: number): number {
-  const r = Math.hypot(s, t);
-  const theta = r > 0 ? Math.atan2(t, s) : 0;
-  return r * (1 + amp * Math.sin(lobes * theta + 2 * Math.PI * seed));
+function wobbledRadiusOps<T>(o: Ops<T>, s: T, t: T, seed: T, amp: number, lobes: number): T {
+  const r = o.length2(s, t);
+  const theta = o.selectLt(o.lit(0), r, o.atan2(t, s), o.lit(0));
+  return o.mul(r, o.add(o.lit(1), o.mul(o.lit(amp), o.sin(o.add(o.mul(o.lit(lobes), theta), o.mul(o.lit(2 * Math.PI), seed))))));
+}
+
+/** 1 where the decoded kind index `kind` is `index`, else 0 (the kind is an integer carried in a float). */
+function kindIs<T>(o: Ops<T>, kind: T, index: number): T {
+  return o.selectLt(o.abs(o.sub(kind, o.lit(index))), o.lit(0.5), o.lit(1), o.lit(0));
+}
+
+/** `flag` (0 or 1) ? `x` : `y`. */
+function pick<T>(o: Ops<T>, flag: T, x: T, y: T): T {
+  return o.selectLt(o.lit(0.5), flag, x, y);
+}
+
+/** The kind index carried in `aDecal.x`, decoded as the legacy material does (`int(vDecal.x + 0.5)`; the index is never negative). */
+export function decalKindOps<T>(o: Ops<T>, raw: T): T {
+  return o.floor(o.add(raw, o.lit(0.5)));
 }
 
 /**
@@ -851,73 +1015,109 @@ export function decalAlpha(
   ageSec: number,
   halfLength: number
 ): DecalSample {
-  switch (kind) {
-    case 'crater': {
-      const rw = wobbledRadius(s, t, seed, CRATER_WOBBLE, CRATER_LOBES);
-      const bowl = CRATER_BOWL_ALPHA * (1 - smoothstep(CRATER_BOWL_EDGE0, CRATER_BOWL_EDGE1, rw));
-      const lip =
-        CRATER_LIP_ALPHA *
-        smoothstep(CRATER_LIP_IN0, CRATER_LIP_IN1, rw) *
-        (1 - smoothstep(CRATER_LIP_OUT0, CRATER_LIP_OUT1, rw));
-      return lip > bowl ? { alpha: lip, colour: COLOUR_CRATER_LIP } : { alpha: bowl, colour: COLOUR_CRATER_BOWL };
-    }
-    case 'scorch': {
-      const r = Math.hypot(s, t);
-      return { alpha: SCORCH_ALPHA * (1 - smoothstep(SCORCH_EDGE_INNER, 1, r)), colour: COLOUR_SCORCH };
-    }
-    case 'oil': {
-      const rw = wobbledRadius(s, t, seed, OIL_WOBBLE, OIL_LOBES);
-      return { alpha: OIL_ALPHA * (1 - smoothstep(OIL_EDGE_INNER, 1, rw)), colour: COLOUR_OIL };
-    }
-    case 'rubble': {
-      // Tiles from the centre, turned by the seed, in cell units.
-      const th = 2 * Math.PI * seed;
-      const px = (s * halfLength) / RUBBLE_CELL_TILES;
-      const pz = (t * halfLength) / RUBBLE_CELL_TILES;
-      const qx = Math.cos(th) * px - Math.sin(th) * pz;
-      const qz = Math.sin(th) * px + Math.cos(th) * pz;
-      const cx = Math.floor(qx);
-      const cz = Math.floor(qz);
-      const ix = cx + RUBBLE_CELL_OFFSET;
-      const iz = cz + RUBBLE_CELL_OFFSET + Math.floor(RUBBLE_SEED_SCALE * seed);
-      const h = tileHash(ix, iz);
-      const jx = 0.5 + RUBBLE_JITTER * (tileHash(ix + RUBBLE_JITTER_SALT, iz) - 0.5);
-      const jz = 0.5 + RUBBLE_JITTER * (tileHash(ix, iz + RUBBLE_JITTER_SALT) - 0.5);
-      const rc = (Math.hypot(cx + jx, cz + jz) * RUBBLE_CELL_TILES) / Math.max(halfLength, 1e-6);
-      const chip = h < RUBBLE_DENSITY * (1 - smoothstep(RUBBLE_EDGE_INNER, 1, rc)) ? 1 : 0;
-      const size = RUBBLE_CHIP_SIZE_MIN + (1 - RUBBLE_CHIP_SIZE_MIN) * fract(RUBBLE_SIZE_SCALE * h);
-      const disc = 1 - smoothstep(RUBBLE_CHIP_R0 * size, RUBBLE_CHIP_R1 * size, Math.hypot(qx - cx - jx, qz - cz - jz));
-      return {
-        alpha: RUBBLE_ALPHA * chip * disc,
-        colour: fract(RUBBLE_TONE_SCALE * h) < 0.5 ? COLOUR_RUBBLE_A : COLOUR_RUBBLE_B,
-      };
-    }
-    case 'tread':
-    case 'tyre': {
-      const u = s * halfLength;
-      const feather = clamp01((halfLength - Math.abs(u)) / TRACK_FEATHER_TILES);
-      const side = 1 - smoothstep(TRACK_SIDE_INNER, 1, Math.abs(t));
-      const fade = clamp01(1 - Math.max(ageSec, 0) / TRACK_FADE_SEC);
-      let pattern = 1;
-      if (kind === 'tread') {
-        const p = u / TREAD_PERIOD_TILES;
-        pattern = TREAD_PATTERN_BASE + TREAD_PATTERN_CLEAT * (p - Math.floor(p) >= 0.5 ? 1 : 0);
-      }
-      return {
-        alpha: TRACK_ALPHA * feather * side * fade * pattern,
-        colour: kind === 'tread' ? COLOUR_TREAD : COLOUR_TYRE,
-      };
-    }
-    case 'churn': {
-      const rw = wobbledRadius(s, t, seed, CHURN_WOBBLE, CHURN_LOBES);
-      const body = 1 - smoothstep(CHURN_EDGE_INNER, 1, rw);
-      const r = Math.hypot(s, t);
-      const theta = r > 0 ? Math.atan2(t, s) : 0;
-      const raked = fract((theta / (2 * Math.PI)) * CHURN_SPOKES + seed) >= 0.5 ? 1 : 0;
-      const spoke = CHURN_SPOKE_BASE + (1 - CHURN_SPOKE_BASE) * raked;
-      const core = smoothstep(0, CHURN_SPOKE_CORE, r);
-      const fade = clamp01(1 - Math.max(ageSec, 0) / CHURN_FADE_SEC);
-      return { alpha: CHURN_ALPHA * body * (1 + (spoke - 1) * core) * fade, colour: COLOUR_TREAD };
-    }
-  }
+  const d = decalAlphaOps(NUMBER_OPS, NUMBER_INT_OPS, DECAL_KIND_INDEX[kind], s, t, seed, ageSec, halfLength);
+  return { alpha: d.alpha, colour: d.colour };
+}
+
+/**
+ * GH-943 P3 (T7): `decalAlpha`, written ONCE against `Ops<T>` and `IntOps<T>` (the rubble lattice hash is `tileHashOps`, read as
+ * its top 24 bits, the legacy material's `rlHash`): `decalAlpha` is it on numbers, and the node twin builds it as a graph. `kind`
+ * is the decoded `DECAL_KIND_INDEX` (`decalKindOps`). BRANCH-FREE: every kind's opacity and colour index is evaluated and the
+ * kind's own is selected, so the twin's graph has no kind branch at all; a kind outside the table reads opacity 0 (the legacy
+ * `a = 0.0`, then its discard).
+ */
+export function decalAlphaOps<T>(
+  o: Ops<T>,
+  io: IntOps<T>,
+  kind: T,
+  s: T,
+  t: T,
+  seed: T,
+  ageSec: T,
+  halfLength: T
+): { readonly alpha: T; readonly colour: T } {
+  const one = o.lit(1);
+  const L = (n: number): T => o.lit(n);
+  const inv = (x: T): T => o.sub(one, x);
+  const age = o.max(ageSec, L(0));
+
+  // crater
+  const rwCrater = wobbledRadiusOps(o, s, t, seed, CRATER_WOBBLE, CRATER_LOBES);
+  const bowl = o.mul(L(CRATER_BOWL_ALPHA), inv(o.smoothstep(L(CRATER_BOWL_EDGE0), L(CRATER_BOWL_EDGE1), rwCrater)));
+  const lip = o.mul(
+    o.mul(L(CRATER_LIP_ALPHA), o.smoothstep(L(CRATER_LIP_IN0), L(CRATER_LIP_IN1), rwCrater)),
+    inv(o.smoothstep(L(CRATER_LIP_OUT0), L(CRATER_LIP_OUT1), rwCrater))
+  );
+  const craterA = o.selectLt(bowl, lip, lip, bowl);
+  const craterC = o.selectLt(bowl, lip, L(COLOUR_CRATER_LIP), L(COLOUR_CRATER_BOWL));
+
+  // scorch
+  const scorchA = o.mul(L(SCORCH_ALPHA), inv(o.smoothstep(L(SCORCH_EDGE_INNER), one, o.length2(s, t))));
+
+  // oil
+  const rwOil = wobbledRadiusOps(o, s, t, seed, OIL_WOBBLE, OIL_LOBES);
+  const oilA = o.mul(L(OIL_ALPHA), inv(o.smoothstep(L(OIL_EDGE_INNER), one, rwOil)));
+
+  // rubble: tiles from the centre, turned by the seed, in cell units
+  const th = o.mul(L(2 * Math.PI), seed);
+  const px = o.div(o.mul(s, halfLength), L(RUBBLE_CELL_TILES));
+  const pz = o.div(o.mul(t, halfLength), L(RUBBLE_CELL_TILES));
+  const qx = o.sub(o.mul(o.cos(th), px), o.mul(o.sin(th), pz));
+  const qz = o.add(o.mul(o.sin(th), px), o.mul(o.cos(th), pz));
+  const cx = o.floor(qx);
+  const cz = o.floor(qz);
+  const ix = o.add(cx, L(RUBBLE_CELL_OFFSET));
+  const iz = o.add(o.add(cz, L(RUBBLE_CELL_OFFSET)), o.floor(o.mul(L(RUBBLE_SEED_SCALE), seed)));
+  const hash = (a: T, b: T): T => io.toFloat01(tileHashOps(io, a, b));
+  const h = hash(ix, iz);
+  const jx = o.add(L(0.5), o.mul(L(RUBBLE_JITTER), o.sub(hash(o.add(ix, L(RUBBLE_JITTER_SALT)), iz), L(0.5))));
+  const jz = o.add(L(0.5), o.mul(L(RUBBLE_JITTER), o.sub(hash(ix, o.add(iz, L(RUBBLE_JITTER_SALT))), L(0.5))));
+  const rc = o.div(o.mul(o.length2(o.add(cx, jx), o.add(cz, jz)), L(RUBBLE_CELL_TILES)), o.max(halfLength, L(1e-6)));
+  const chip = o.selectLt(h, o.mul(L(RUBBLE_DENSITY), inv(o.smoothstep(L(RUBBLE_EDGE_INNER), one, rc))), one, L(0));
+  const size = o.add(L(RUBBLE_CHIP_SIZE_MIN), o.mul(L(1 - RUBBLE_CHIP_SIZE_MIN), o.fract(o.mul(L(RUBBLE_SIZE_SCALE), h))));
+  const disc = inv(
+    o.smoothstep(
+      o.mul(L(RUBBLE_CHIP_R0), size),
+      o.mul(L(RUBBLE_CHIP_R1), size),
+      o.length2(o.sub(o.sub(qx, cx), jx), o.sub(o.sub(qz, cz), jz))
+    )
+  );
+  const rubbleA = o.mul(o.mul(L(RUBBLE_ALPHA), chip), disc);
+  const rubbleC = o.selectLt(o.fract(o.mul(L(RUBBLE_TONE_SCALE), h)), L(0.5), L(COLOUR_RUBBLE_A), L(COLOUR_RUBBLE_B));
+
+  // tread / tyre
+  const isTread = kindIs(o, kind, DECAL_KIND_INDEX.tread);
+  const u = o.mul(s, halfLength);
+  const feather = o.clamp01(o.div(o.sub(halfLength, o.abs(u)), L(TRACK_FEATHER_TILES)));
+  const side = inv(o.smoothstep(L(TRACK_SIDE_INNER), one, o.abs(t)));
+  const trackFade = o.clamp01(o.sub(one, o.div(age, L(TRACK_FADE_SEC))));
+  const cleat = o.add(L(TREAD_PATTERN_BASE), o.mul(L(TREAD_PATTERN_CLEAT), o.step(L(0.5), o.fract(o.div(u, L(TREAD_PERIOD_TILES))))));
+  const pattern = pick(o, isTread, cleat, one);
+  const trackA = o.mul(o.mul(o.mul(o.mul(L(TRACK_ALPHA), feather), side), trackFade), pattern);
+  const trackC = pick(o, isTread, L(COLOUR_TREAD), L(COLOUR_TYRE));
+
+  // churn
+  const rwChurn = wobbledRadiusOps(o, s, t, seed, CHURN_WOBBLE, CHURN_LOBES);
+  const body = inv(o.smoothstep(L(CHURN_EDGE_INNER), one, rwChurn));
+  const r = o.length2(s, t);
+  const theta = o.selectLt(L(0), r, o.atan2(t, s), L(0));
+  const raked = o.step(L(0.5), o.fract(o.add(o.mul(o.div(theta, L(2 * Math.PI)), L(CHURN_SPOKES)), seed)));
+  const spoke = o.add(L(CHURN_SPOKE_BASE), o.mul(L(1 - CHURN_SPOKE_BASE), raked));
+  const core = o.smoothstep(L(0), L(CHURN_SPOKE_CORE), r);
+  const churnFade = o.clamp01(o.sub(one, o.div(age, L(CHURN_FADE_SEC))));
+  const churnA = o.mul(o.mul(o.mul(L(CHURN_ALPHA), body), o.add(one, o.mul(o.sub(spoke, one), core))), churnFade);
+
+  // the kind's own
+  const isTrack = o.add(isTread, kindIs(o, kind, DECAL_KIND_INDEX.tyre));
+  const sel = (crater: T, scorch: T, oil: T, rubble: T, track: T, churn: T, none: T): T =>
+    pick(o, kindIs(o, kind, DECAL_KIND_INDEX.crater), crater,
+      pick(o, kindIs(o, kind, DECAL_KIND_INDEX.scorch), scorch,
+        pick(o, kindIs(o, kind, DECAL_KIND_INDEX.oil), oil,
+          pick(o, kindIs(o, kind, DECAL_KIND_INDEX.rubble), rubble,
+            pick(o, isTrack, track,
+              pick(o, kindIs(o, kind, DECAL_KIND_INDEX.churn), churn, none))))));
+  return {
+    alpha: sel(craterA, scorchA, oilA, rubbleA, trackA, churnA, L(0)),
+    colour: sel(craterC, L(COLOUR_SCORCH), L(COLOUR_OIL), rubbleC, trackC, L(COLOUR_TREAD), L(0)),
+  };
 }
