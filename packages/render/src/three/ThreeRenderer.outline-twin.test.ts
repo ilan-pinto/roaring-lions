@@ -432,7 +432,10 @@ describe('a legacy boot', () => {
     priv.fireLinkFlashes.push({ target: a, startS: priv.fireLinkClockS });
     r.frame(1, 16);
     expect(kit.made).toHaveLength(0);
-    expect(silhouettesOf(priv.scene).every((m) => !isTwin(m.material as THREE.Material))).toBe(true);
+    const silhouettes = silhouettesOf(priv.scene);
+    // Non-empty first: `every` over no silhouettes is true, so a boot that drew none would pass.
+    expect(silhouettes.length).toBeGreaterThan(0);
+    expect(silhouettes.every((m) => !isTwin(m.material as THREE.Material))).toBe(true);
     r.dispose();
   });
 });
