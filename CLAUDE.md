@@ -69,6 +69,7 @@ pnpm kit:meshes       # graft art/parts/kit/<id>.glb into the vehicle GLBs (vehi
 pnpm damage:meshes    # cut real damage into the WRECK_ twins (after wreck:meshes, before encode:meshes)
 pnpm kit:capture      # in-game kitted-vehicle sheets, the `kit` toggle reading, the garage turntables
 pnpm validate:ui      # no colour literals AND no bare chrome strings in UI source
+pnpm store:threats   # the Stores "Hurt by" table (threat-table.json); regenerate after a roster or tuning change
 pnpm ui:routes        # drive the shell: one JS realm, two missions, no reload (CI only, ~130 s there: never run it locally)
 pnpm backdrop:layout -- --map=<id> [--write]   # a map's `backdrop` piece list from the slot grammar (Wadi Halam only)
 pnpm backdrop:test    # the kit build tools' unit tests (numpy only, ~2 min; not in CI)

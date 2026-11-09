@@ -312,3 +312,57 @@ describe('adoption survives a rebuild', () => {
     r.dispose();
   });
 });
+
+/**
+ * GH-943 P2 T5 (debug round): a ground photograph on a node boot puts each overlay back to what IT was. The node census hides the
+ * unported overlay batches (ShaderMaterials) and leaves the ring and zone-band groups shown; the photograph's restore used to read
+ * the whole `overlays` layer's state off `overlayBatch.mesh.visible`, so the first minimap photograph hid every ring for the rest of
+ * the mission (the node `selection-ring` A/B read 0 px on both node arms while L-matched read 4546). Falsified by each of:
+ *  - the old read, `const overlaysWereVisible = this.overlayBatch.mesh.visible;` (with the per-object line deleted): the rings stay hidden;
+ *  - deleting the per-object restore line: the census-hidden overlay batch is shown again;
+ *  - reading the layer state from `overlayBatch.mesh.visible` with the per-object line kept: the layer flag reads hidden.
+ */
+describe('a ground photograph on a node boot keeps every overlay as it was', () => {
+  interface Overlays {
+    overlayBatch: { mesh: THREE.Mesh };
+    selectionRingGroup: THREE.Group;
+    zoneBandGroup: THREE.Group;
+    smokeOutlinesHidden: boolean;
+  }
+
+  it('the census-hidden overlay batch stays hidden, and the ring and zone-band groups stay shown', async () => {
+    seam.kit = stubKit();
+    const { r, priv } = build(48, 'webgl2');
+    const o = priv as unknown as Overlays;
+    await r.init(HOST);
+    r.frame(1, 0);
+    // The precondition the defect needs, read rather than assumed: the census hid the unported batch, and not the ring group.
+    expect((o.overlayBatch.mesh.material as THREE.Material).type).toBe('ShaderMaterial');
+    expect(o.overlayBatch.mesh.visible).toBe(false);
+    expect(o.selectionRingGroup.visible).toBe(true);
+    expect(o.zoneBandGroup.visible).toBe(true);
+    // The photograph runs (it reaches the backend's `photographGround`, which this stub answers with null).
+    expect(await r.captureGroundAlbedoAsync(32)).toBeNull();
+    expect(o.selectionRingGroup.visible).toBe(true);
+    expect(o.zoneBandGroup.visible).toBe(true);
+    expect(o.overlayBatch.mesh.visible).toBe(false);
+    expect(o.smokeOutlinesHidden).toBe(false);
+    r.dispose();
+  });
+
+  it('a layer the harness switched off stays off across the photograph, and comes back when it is switched on', async () => {
+    seam.kit = stubKit();
+    const { r, priv } = build(48, 'webgl2');
+    const o = priv as unknown as Overlays;
+    await r.init(HOST);
+    r.frame(1, 0);
+    r.setDebugLayerVisible('overlays', false);
+    await r.captureGroundAlbedoAsync(32);
+    expect(o.selectionRingGroup.visible).toBe(false);
+    expect(o.zoneBandGroup.visible).toBe(false);
+    expect(o.smokeOutlinesHidden).toBe(true);
+    r.setDebugLayerVisible('overlays', true);
+    expect(o.selectionRingGroup.visible).toBe(true);
+    r.dispose();
+  });
+});

@@ -64,6 +64,7 @@ import {
 } from './readability';
 import { SELECTION_RING_RENDER_ORDER } from './render-order';
 import { tileRadiusToEllipsePx } from './overlays';
+import { NUMBER_OPS, type Ops } from '../fog-ops';
 
 /** Vertices per side of a SMALL ring's conforming grid: 16 vertices, 18 tris. */
 export const RING_GRID = 4;
@@ -118,34 +119,43 @@ export function ringThicknessTiles(pxPerTile: number): number {
  * and `b` (local Z). `k0 (k0 - 1) / k1` with `k0 = |p/r|`, `k1 = |p/r^2|`:
  * exactly `|p| - R` for a circle and exact on both semi-axes of an ellipse.
  * The shader's `ringSd` is this function's transcription.
+ *
+ * GH-943 P2 (T5): written ONCE against `Ops<T>`. `ringSignedDistance` runs it on numbers, and the node twin
+ * (`selection-ring.node.ts`) is handed this function as a value (`material-maths.ts`) and runs it on nodes. The centre guard is a
+ * select, not an early return, because a graph has no return.
  */
-export function ringSignedDistance(px: number, pz: number, a: number, b: number): number {
-  const qx = px / a;
-  const qz = pz / b;
-  const k0 = Math.hypot(qx, qz);
-  if (k0 < 1e-5) return -Math.min(a, b);
-  const k1 = Math.hypot(qx / a, qz / b);
-  return (k0 * (k0 - 1)) / k1;
+export function ringSignedDistanceOps<T>(o: Ops<T>, px: T, pz: T, a: T, b: T): T {
+  const qx = o.div(px, a);
+  const qz = o.div(pz, b);
+  const k0 = o.length2(qx, qz);
+  const k1 = o.length2(o.div(qx, a), o.div(qz, b));
+  return o.selectLt(k0, o.lit(1e-5), o.sub(o.lit(0), o.min(a, b)), o.div(o.mul(k0, o.sub(k0, o.lit(1))), k1));
 }
 
-function smoothstep(e0: number, e1: number, x: number): number {
-  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
-  return t * t * (3 - 2 * t);
+export function ringSignedDistance(px: number, pz: number, a: number, b: number): number {
+  return ringSignedDistanceOps(NUMBER_OPS, px, pz, a, b);
 }
 
 /** The core's coverage at signed distance `s`: solid over `[-w, 0]`, one
- *  feather outside each edge. Mirrors the shader. */
-export function ringCoreAlpha(s: number, w: number): number {
-  const f = SELECTION_RING.featherTiles;
-  return smoothstep(-w - f, -w, s) * (1 - smoothstep(0, f, s));
+ *  feather `f` outside each edge. The shader's `core`, written once. */
+export function ringCoreAlphaOps<T>(o: Ops<T>, s: T, w: T, f: T): T {
+  const inner = o.smoothstep(o.sub(o.sub(o.lit(0), w), f), o.sub(o.lit(0), w), s);
+  return o.mul(inner, o.sub(o.lit(1), o.smoothstep(o.lit(0), f, s)));
 }
 
 /** The halo's coverage: outside the ring only, fading in as the core's outer
- *  feather fades out, solid to `haloTiles`, gone by `haloTiles + feather` --
- *  which is the quad's own edge. Mirrors the shader. */
+ *  feather fades out, solid to `halo`, gone by `halo + f` -- which is the
+ *  quad's own edge. The shader's `halo`, written once. */
+export function ringHaloAlphaOps<T>(o: Ops<T>, s: T, f: T, halo: T): T {
+  return o.mul(o.smoothstep(o.lit(0), f, s), o.sub(o.lit(1), o.smoothstep(halo, o.add(halo, f), s)));
+}
+
+export function ringCoreAlpha(s: number, w: number): number {
+  return ringCoreAlphaOps(NUMBER_OPS, s, w, SELECTION_RING.featherTiles);
+}
+
 export function ringHaloAlpha(s: number): number {
-  const f = SELECTION_RING.featherTiles;
-  return smoothstep(0, f, s) * (1 - smoothstep(SELECTION_RING.haloTiles, SELECTION_RING.haloTiles + f, s));
+  return ringHaloAlphaOps(NUMBER_OPS, s, SELECTION_RING.featherTiles, SELECTION_RING.haloTiles);
 }
 
 /** The ring's look, as the shader bakes it. `SELECTION_RING`'s own values are
@@ -172,6 +182,60 @@ export interface RingStyle {
 }
 
 const DEFAULT_RING_STYLE: RingStyle = SELECTION_RING;
+
+/** Arc mode's per-fragment inputs (GH-707): the swept fraction and pulse flag of the ring (`aArc`), the SIM clock and `uPulseOn`. */
+export interface RingArcInputs<T> {
+  readonly fraction: T;
+  readonly pulse: T;
+  readonly timeSec: T;
+  readonly pulseOn: T;
+}
+
+export interface RingFragmentInputs<T> {
+  /** The fragment's position in the ring's own frame, tiles (`vLocal`). */
+  readonly localX: T;
+  readonly localZ: T;
+  /** The ring's semi-axes (`vAxes`). */
+  readonly axA: T;
+  readonly axB: T;
+  readonly pxPerTile: T;
+  /** Present exactly when `style.arcThicken` is. */
+  readonly arc?: RingArcInputs<T>;
+}
+
+/** What the fragment shader ends in: the core's alpha, the halo's, and the combined alpha. */
+export interface RingCoverage<T> {
+  readonly ca: T;
+  readonly ha: T;
+  readonly a: T;
+}
+
+/**
+ * The whole fragment's coverage maths (both shaders above, the plain annulus and the arc mode), written once against `Ops<T>`.
+ * `style` carries plain numbers, lifted through `o.lit`. The GLSL text above is unchanged and stays pinned; this is its second
+ * transcription, for the node twin and for the vitest literals.
+ */
+export function ringFragmentOps<T>(o: Ops<T>, style: RingStyle, i: RingFragmentInputs<T>): RingCoverage<T> {
+  const s = ringSignedDistanceOps(o, i.localX, i.localZ, i.axA, i.axB);
+  const f = o.lit(SELECTION_RING.featherTiles);
+  const halo = o.lit(SELECTION_RING.haloTiles);
+  const w = o.max(o.lit(style.thicknessTiles), o.div(o.lit(style.minThicknessPx), i.pxPerTile));
+  let wHere = w;
+  let am = o.lit(1);
+  if (style.arcThicken !== undefined && i.arc !== undefined) {
+    const turn = o.fract(o.add(o.mul(o.atan2(i.localZ, i.localX), o.lit(0.15915494)), o.lit(0.375)));
+    const extra = o.min(o.mul(w, o.lit(style.arcThicken - 1)), o.div(o.lit(style.arcExtraMaxPx ?? 1000), i.pxPerTile));
+    wHere = o.selectLt(turn, i.arc.fraction, o.add(w, extra), w);
+    const breathe = o.add(o.lit(0.5), o.mul(o.lit(0.5), o.sin(o.div(o.mul(i.arc.timeSec, o.lit(6.2831853)), o.lit(style.pulsePeriodS ?? 1.6)))));
+    const floor = o.lit(style.pulseMinAlpha ?? 0.5);
+    am = o.mix(o.lit(1), o.mix(floor, o.lit(1), breathe), o.mul(i.arc.pulse, i.arc.pulseOn));
+  }
+  const core = ringCoreAlphaOps(o, s, wHere, f);
+  const haloA = ringHaloAlphaOps(o, s, f, halo);
+  const ca = o.mul(o.mul(core, o.lit(style.coreAlpha)), am);
+  const ha = o.mul(o.mul(haloA, o.lit(style.haloAlpha)), am);
+  return { ca, ha, a: o.add(ca, o.mul(ha, o.sub(o.lit(1), ca))) };
+}
 
 const F = glslFloat(SELECTION_RING.featherTiles);
 const HALO = glslFloat(SELECTION_RING.haloTiles);
@@ -287,9 +351,27 @@ function ringFragmentShader(style: RingStyle): string {
 `;
 }
 
+/**
+ * The fragment's output composition, premultiplied "over" (`gl_FragColor = vec4(vColor * ca + uHaloColor * ha * (1 - ca), a)`),
+ * per channel and written once against `Ops<T>` so the node twin cannot drift from it unseen (GH-943 P2 T5 review).
+ */
+export function ringOutputOps<T>(
+  o: Ops<T>,
+  cov: RingCoverage<T>,
+  color: readonly [T, T, T],
+  halo: readonly [T, T, T]
+): { readonly rgb: readonly [T, T, T]; readonly a: T } {
+  const one = o.lit(1);
+  const ch = (c: T, h: T): T => o.add(o.mul(c, cov.ca), o.mul(o.mul(h, cov.ha), o.sub(one, cov.ca)));
+  return { rgb: [ch(color[0], halo[0]), ch(color[1], halo[1]), ch(color[2], halo[2])], a: cov.a };
+}
+
 /** GH-943 P2 (T1): the ring material's name, shared by all three batches (selection, team, wound): what the node census names it
  *  and what `legacyTwinSlot` keys the ring twin on. */
 export const SELECTION_RING_MATERIAL_NAME = 'rl-selection-ring';
+
+/** The `userData` key the ring material carries its `RingStyle` under, for the node twin. */
+export const RING_STYLE_KEY = 'rlRingStyle';
 
 /**
  * The ring's material: the annulus shader above, `uHaloColor` (LINEAR,
@@ -303,6 +385,8 @@ export function createSelectionRingMaterial(halo: Rgb, style: RingStyle = DEFAUL
   return new THREE.ShaderMaterial({
     // GH-943 P2 (T1): the census key and the node twin's slot (`node-material-adoption.ts`). A name moves no program.
     name: SELECTION_RING_MATERIAL_NAME,
+    // The node twin reads the style from here (it is a plain record, not a uniform): `selection-ring.node.ts`.
+    userData: { [RING_STYLE_KEY]: style },
     uniforms: {
       uPxPerTile: { value: ringPxPerTile(1) },
       uHaloColor: { value: new THREE.Vector3(halo[0], halo[1], halo[2]) },

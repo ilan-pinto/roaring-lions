@@ -22,6 +22,8 @@ import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
 import { captureNodeView, photographNodeGround, type NodeCaptureDeps, type ReadbackMaths } from '../capture-view.node';
+import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
+import type { RingStyle } from '../units/selection-ring';
 import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
 
@@ -104,6 +106,9 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   const materials: MaterialKit = { ground: null, foliage: null, ring: null };
   // T3: the node ground (the dry blend, the macro and the road).
   materials.ground = (legacy) => createNodeGroundMaterial({ W, TSL, maths: opts.materialMaths.ground }, legacy);
+  // GH-943 P2 (T5): the selection, team and wound rings. The legacy material keeps the uniform record the batch writes and carries its style.
+  materials.ring = (legacy) =>
+    createNodeRingMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.ring }, legacy.userData[RING_STYLE_KEY] as RingStyle, legacy.uniforms as unknown as RingUniformRecord);
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
   const seen = new Set<string>();
   const hooks = new Map<string, UnportedHook>();

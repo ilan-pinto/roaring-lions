@@ -249,14 +249,14 @@ describe('limits', () => {
     expect((await ok.call('POST', '/api/account/gone', { body: { idHash: 'a'.repeat(64) } })).status).toBe(404);
   });
 
-  it('the signed-in class takes ACCOUNT_OP_LIMIT; open and the sign-in class do not', async () => {
+  it('the signed-in class and open take ACCOUNT_OP_LIMIT; the sign-in class does not', async () => {
     const h = accountHarness({ now: NOW, denyLimiter: ['ACCOUNT_OP_LIMIT'] });
     const { cookie } = await seedFullMember(h.db, NOW);
     for (const [m, p] of [['GET', 'me'], ['GET', 'export'], ['POST', 'delete'], ['POST', 'logout'], ['PATCH', 'profile']] as const) {
       expect((await h.call(m, '/api/account/' + p, { cookie, body: {} })).status, p).toBe(429);
     }
     expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'm1'")).toBe(1);
-    expect((await h.call('GET', '/api/account/open')).status).toBe(200);
+    expect((await h.call('GET', '/api/account/open')).status).toBe(429); // GH-1131 M1: open takes the signed-in limiter now
     expect((await h.call('POST', '/api/account/gone', { body: { idHash: 'a'.repeat(64) } })).status).toBe(404);
   });
 });

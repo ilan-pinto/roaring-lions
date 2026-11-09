@@ -38,6 +38,8 @@ export const HIDE_WITHOUT_HOOK: ReadonlySet<string> = new Set(['rl-silhouette-ou
 export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   // T3: the ground (`terrain/mesh.node.ts`). The wet keys (`rl-ground-wet*`) stay off the list: node draws them dry (P4).
   'rl-ground',
+  // GH-943 P2 (T5): the selection, team and wound rings (all three styles share the one material name).
+  'rl-selection-ring',
 ]);
 
 /** `userData` key on a node twin: the terms of its legacy material it does NOT draw (`['rl-ground: wet terms']`). */
