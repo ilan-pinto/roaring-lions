@@ -23,6 +23,7 @@
  */
 import * as THREE from 'three';
 import { ONE, bleedClock, type BleedClockSource } from '@lions/sim';
+import type { Ops } from '../fog-ops';
 
 /** The slice of the sim it reads (structural, so a test hands a literal). */
 export type BleedSource = BleedClockSource;
@@ -85,6 +86,42 @@ const FLOOR_GLSL = `{
   float gate = 1.0 - smoothstep(uWoundedGateLo, uWoundedGateHi, lit);
   outgoingLight += diffuseColor.rgb * max(uWoundedFloor - lit, 0.0) * 0.7 * gate;
 }`;
+
+/** Rec. 709 weights of the floor's luma (the shader's `luma`). */
+export const FLOOR_LUMA_WEIGHTS = [0.2126, 0.7152, 0.0722] as const;
+/** The albedo luma's lower bound (the shader's `max( ..., 0.02 )`). */
+export const FLOOR_ALBEDO_LUMA_MIN = 0.02;
+/** The share of the deficit added back (the shader's `0.7`). */
+export const FLOOR_FILL = 0.7;
+
+/** What the floor reads, as `Ops<T>` inputs: the albedo (`diffuseColor.rgb` at the end of the colour chunks) and the LIT output. */
+export interface FloorInput<T> {
+  readonly diffuse: readonly [T, T, T];
+  readonly out: readonly [T, T, T];
+  readonly floor: T;
+  readonly lo: T;
+  readonly hi: T;
+}
+
+/**
+ * GH-943 P3 (T4): `FLOOR_GLSL`, written once against `Ops<T>`. `lit = luma(out) / max(luma(diffuse), 0.02)`,
+ * `out += diffuse * max(floor - lit, 0) * 0.7 * (1 - smoothstep(lo, hi, lit))`. `NUMBER_OPS` runs it in the tests; the node twin
+ * (`wounded-read.node.ts`) runs it on the lit output node.
+ */
+export function floorOps<T>(o: Ops<T>, i: FloorInput<T>): [T, T, T] {
+  const luma = (c: readonly [T, T, T]): T =>
+    o.add(o.add(o.mul(c[0], o.lit(FLOOR_LUMA_WEIGHTS[0])), o.mul(c[1], o.lit(FLOOR_LUMA_WEIGHTS[1]))), o.mul(c[2], o.lit(FLOOR_LUMA_WEIGHTS[2])));
+  const albedoLuma = o.max(luma(i.diffuse), o.lit(FLOOR_ALBEDO_LUMA_MIN));
+  const lit = o.div(luma(i.out), albedoLuma);
+  const gate = o.sub(o.lit(1), o.smoothstep(i.lo, i.hi, lit));
+  const add = o.mul(o.mul(o.max(o.sub(i.floor, lit), o.lit(0)), o.lit(FLOOR_FILL)), gate);
+  return [o.add(i.out[0], o.mul(i.diffuse[0], add)), o.add(i.out[1], o.mul(i.diffuse[1], add)), o.add(i.out[2], o.mul(i.diffuse[2], add))];
+}
+
+/** The three shared uniform objects every lifted material reads (the node twin re-reads them every render). */
+export function woundedUniforms(): { readonly floor: { value: number }; readonly lo: { value: number }; readonly hi: { value: number } } {
+  return { floor: floorUniform, lo: gateLoUniform, hi: gateHiUniform };
+}
 
 /** The fragment patch: declare the uniform, and clamp the outgoing light up to the floor. */
 export function patchWoundedFloor(fragmentShader: string): string {

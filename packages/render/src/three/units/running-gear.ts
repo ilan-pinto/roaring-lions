@@ -42,7 +42,13 @@
  * is `atan(wheelbase * omega / v)`, so a turn on the spot does not crab the
  * front wheels. It is clamped to the axle's measured clearance
  * (`maxSteerRad`, the smaller of its two wheels') under A9's 20 degrees.
+ *
+ * GH-943 P3 (T3): the shader's maths is written ONCE, against `Ops<T>` (`rgApplyOps`, `rgVertexOps`, `rgNormalOps`, `rgPhaseOps`,
+ * `rgBarOps`): `NUMBER_OPS` runs it here and in the tests, and the node twin (`running-gear.node.ts`) runs the same bodies on TSL
+ * nodes. The legacy GLSL (`running-gear-material.ts`) keeps its own text, pinned to these by `running-gear.test.ts`. A screen-space
+ * rate (the tread's `fwidth`) is graph-only and comes IN as an argument.
  */
+import { NUMBER_OPS, type Ops } from '../fog-ops';
 
 /** The most wheels one vehicle declares: the shader's uniform arrays. */
 export const RG_MAX_WHEELS = 16;
@@ -299,6 +305,70 @@ export function wheelRotation(
   return out;
 }
 
+/** Three components, as `Ops<T>` sees a vector. */
+export type Rg3<T> = readonly [T, T, T];
+/** `(cos spin, sin spin, cos yaw, sin yaw)`. */
+export type Rg4<T> = readonly [T, T, T, T];
+
+/**
+ * The vertex shader's wheel transform (`rgApply` in `running-gear-material.ts`), written once: spin about +Z, then yaw about +Y.
+ * `d` is relative to the axle (or a normal).
+ */
+export function rgApplyOps<T>(o: Ops<T>, d: Rg3<T>, rot: Rg4<T>): [T, T, T] {
+  const ax = o.sub(o.mul(rot[0], d[0]), o.mul(rot[1], d[1]));
+  const ay = o.add(o.mul(rot[1], d[0]), o.mul(rot[0], d[1]));
+  const az = d[2];
+  return [o.add(o.mul(rot[2], ax), o.mul(rot[3], az)), ay, o.sub(o.mul(rot[2], az), o.mul(rot[3], ax))];
+}
+
+/** The wheel test: `int(_rl_wheel + 0.5) - 1 >= 0`, i.e. the attribute is at least 0.5 (0 = not a wheel). */
+const onWheel = <T>(o: Ops<T>, wheel: T, yes: T, no: T): T => o.selectLt(wheel, o.lit(0.5), no, yes);
+
+/**
+ * The whole position update of one vertex, `p + (R d - d)` about the axle `centre`, which returns `p` bit for bit at the rest
+ * rotation; `p` itself when `wheel` (the `_rl_wheel` attribute) is 0.
+ */
+export function rgVertexOps<T>(o: Ops<T>, p: Rg3<T>, centre: Rg3<T>, rot: Rg4<T>, wheel: T): [T, T, T] {
+  const d: [T, T, T] = [o.sub(p[0], centre[0]), o.sub(p[1], centre[1]), o.sub(p[2], centre[2])];
+  const r = rgApplyOps(o, d, rot);
+  return [0, 1, 2].map((i) => onWheel(o, wheel, o.add(p[i] as T, o.sub(r[i] as T, d[i] as T)), p[i] as T)) as [T, T, T];
+}
+
+/** The normal turns with its wheel (no axle: a direction); untouched when `wheel` is 0. */
+export function rgNormalOps<T>(o: Ops<T>, n: Rg3<T>, rot: Rg4<T>, wheel: T): [T, T, T] {
+  const r = rgApplyOps(o, n, rot);
+  return [0, 1, 2].map((i) => onWheel(o, wheel, r[i] as T, n[i] as T)) as [T, T, T];
+}
+
+/**
+ * The tread bars' phase at a fragment: `track` is the `_rl_track` loop coordinate, `side` the mesh-local z (+ is the right side);
+ * `pitchInv` and `phase` are per side, `[right, left]`.
+ */
+export function rgPhaseOps<T>(o: Ops<T>, track: T, side: T, pitchInv: readonly [T, T], phase: readonly [T, T]): T {
+  const right = o.step(o.lit(0), side);
+  return o.sub(o.mul(track, o.mix(pitchInv[1], pitchInv[0], right)), o.mix(phase[1], phase[0], right));
+}
+
+/** The integral of a square wave of duty `RG_TREAD_DUTY`: floor(x) bars plus the part of the current one. */
+function rgBarIntegral<T>(o: Ops<T>, x: T): T {
+  return o.add(o.mul(o.floor(x), o.lit(RG_TREAD_DUTY)), o.min(o.fract(x), o.lit(RG_TREAD_DUTY)));
+}
+
+/**
+ * What the tread multiplies the bake by: `1 - depth x amp x fade x onTrack x (bar - duty)`. The bars are box-filtered over `rate`,
+ * the phase's screen-space rate (`fwidth`, computed by the caller), and fade to the bake's own tone once a bar spans under ~3 px.
+ * `track < 0` is off the track (the factor is exactly 1); `amp` is `uRgTrack.z`, 0 at rest.
+ */
+export function rgBarOps<T>(o: Ops<T>, phase: T, rate: T, track: T, amp: T): T {
+  const onTrack = o.step(o.lit(0), track);
+  const w = o.max(rate, o.lit(1e-4));
+  const half = o.mul(o.lit(0.5), w);
+  const bar = o.div(o.sub(rgBarIntegral(o, o.add(phase, half)), rgBarIntegral(o, o.sub(phase, half))), w);
+  const fade = o.sub(o.lit(1), o.smoothstep(o.lit(0.25), o.lit(0.5), w));
+  const depth = o.mul(o.mul(o.mul(o.mul(o.lit(RG_TREAD_DEPTH), amp), fade), onTrack), o.sub(bar, o.lit(RG_TREAD_DUTY)));
+  return o.sub(o.lit(1), depth);
+}
+
 /**
  * The vertex shader's wheel transform, mirrored in TypeScript so it can be
  * tested (`running-gear-material.ts` holds the GLSL, `rgApply` there).
@@ -308,10 +378,7 @@ export function applyWheelRotation(
   d: readonly [number, number, number],
   rot: readonly [number, number, number, number]
 ): [number, number, number] {
-  const ax = rot[0] * d[0] - rot[1] * d[1];
-  const ay = rot[1] * d[0] + rot[0] * d[1];
-  const az = d[2];
-  return [rot[2] * ax + rot[3] * az, ay, -rot[3] * ax + rot[2] * az];
+  return rgApplyOps(NUMBER_OPS, d, rot);
 }
 
 /** The vertex shader's whole position update for a tagged vertex, in the
@@ -321,7 +388,5 @@ export function wheelVertex(
   centre: readonly [number, number, number],
   rot: readonly [number, number, number, number]
 ): [number, number, number] {
-  const d: [number, number, number] = [p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]];
-  const r = applyWheelRotation(d, rot);
-  return [p[0] + (r[0] - d[0]), p[1] + (r[1] - d[1]), p[2] + (r[2] - d[2])];
+  return rgVertexOps(NUMBER_OPS, p, centre, rot, 1);
 }
