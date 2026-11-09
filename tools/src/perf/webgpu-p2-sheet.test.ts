@@ -120,6 +120,14 @@ describe('classifyCensus', () => {
     expect(v.expected.map((e) => e.key)).toEqual(['rl-ground: wet terms', 'rl-garrison-banner']);
     expect(v.unexpected.map((e) => e.key)).toEqual(['rl-selection-ring', 'rl-foliage-sway']);
   });
+  it('the garrison banner is expected only as an on-before-compile hook: an UNADOPTED one (a swap site that skipped adoption) is not', () => {
+    const v = classifyCensus([
+      { kind: 'on-before-compile', key: 'rl-garrison-banner', objects: 4 },
+      { kind: 'unadopted', key: 'rl-garrison-banner', objects: 2 },
+    ]);
+    expect(v.expected.map((e) => e.kind)).toEqual(['on-before-compile']);
+    expect(v.unexpected.map((e) => e.kind)).toEqual(['unadopted']);
+  });
   it('the P3/P4 entries read off the Metal census are expected, and only under their own kind', () => {
     // GH-943 P3 (T1): the keys as `censusKey` now names them (hook segments; the P3 batch names).
     const v = classifyCensus([

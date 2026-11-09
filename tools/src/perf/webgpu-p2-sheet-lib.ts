@@ -69,7 +69,7 @@ export interface CensusRule {
  */
 export const CENSUS_RULES: readonly CensusRule[] = [
   { kind: /^partial$/, key: /^rl-ground: wet terms/, reason: 'wet ground terms (THEME_WET): a wet map draws dry on node, P4 (ruled 7 Nov)' },
-  { kind: /./, key: /garrison-banner/, reason: 'garrison banner wind (`rl-garrison-banner`, a separate hook): P3 (units)' },
+  { kind: /^on-before-compile$/, key: /garrison-banner/, reason: 'garrison banner wind (`rl-garrison-banner`, a separate hook): P3 (units)' },
   // Added after the Metal run's census was READ and every entry traced to its object (a scene probe listed name, parent and uniforms):
   { kind: /^shader-material$/, key: /^ShaderMaterial$/, reason: 'unnamed ShaderMaterial batches: ground decal pools, HP/overlay batches, tracers, shells, smoke, flipbook and tunnel overlays (decals, VFX): P3/P4' },
   { kind: /^shader-material$/, key: /^(rl-beam|rl-flipbook-fire|rl-flipbook-smoke)$/, reason: 'the E6 beam and the flipbook fire and smoke (VFX): P3 (T11, T12)' },
