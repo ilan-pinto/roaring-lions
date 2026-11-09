@@ -599,6 +599,8 @@ export function collapseShroudPuffGeometry(): THREE.BufferGeometry {
  */
 export function createCollapseShroudMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+    name: 'rl-collapse-shroud',
     uniforms: {
       uDeep: { value: new THREE.Color(0, 0, 0) },
       uBody: { value: new THREE.Color(0, 0, 0) },

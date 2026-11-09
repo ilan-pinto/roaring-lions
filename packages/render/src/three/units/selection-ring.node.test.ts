@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { NUMBER_OPS } from '../fog-ops';
 import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from '../decal-pool';
 import { MATERIAL_MATHS } from '../material-maths';
-import { adoptMaterials, createTwinCache, legacyTwinSlot } from '../node-material-adoption';
+import { adoptMaterials, createTwinCache, legacyTwinSlot, NULL_P3_SLOTS } from '../node-material-adoption';
 import { censusUnported, PORTED_MATERIAL_KEYS } from '../backend/unported';
 import { SELECTION_RING, TEAM_RING, WOUND_RING } from './readability';
 import {
@@ -303,6 +303,7 @@ describe('adoption and the census', () => {
     const root = new THREE.Group();
     for (const b of batches) root.add(b.mesh);
     const kit = {
+      ...NULL_P3_SLOTS,
       ground: null,
       foliage: null,
       ring: (legacy: THREE.ShaderMaterial) =>

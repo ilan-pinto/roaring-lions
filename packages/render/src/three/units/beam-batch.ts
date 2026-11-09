@@ -148,6 +148,8 @@ export class BeamBatch {
     geometry.setDrawRange(0, 0);
 
     const material = new THREE.ShaderMaterial({
+      // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+      name: 'rl-beam',
       vertexShader: VERTEX,
       fragmentShader: FRAGMENT,
       transparent: true,

@@ -51,8 +51,10 @@ export async function startBudget(db: D1Like, env: Env, req: Request, now: numbe
   return bump(db, 'acct-start-all', '', now, START_ALL);
 }
 
-/** True when this member's write may proceed today. */
+/** True when this member's write may proceed today. Read first (as `startBudget` does): once the overall cap is
+ *  reached, a refused write bumps no member row. */
 export async function opBudget(db: D1Like, memberId: string, now: number): Promise<boolean> {
+  if ((await countToday(db, 'acct-all', '', now)) >= OPS_ALL) return false;
   if (!(await bump(db, 'acct-ops', memberId, now, OPS_PER_MEMBER))) return false;
   return bump(db, 'acct-all', '', now, OPS_ALL);
 }

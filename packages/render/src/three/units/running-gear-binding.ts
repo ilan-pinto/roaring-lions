@@ -18,6 +18,7 @@ import type * as THREE from 'three';
 import type { VehicleMeshEntity } from './mesh-vehicle';
 import { hasRunningGear, runningGearMaterial, type RunningGearUniforms } from './running-gear-material';
 import { wheelRotation, type RunningGearSpec, type RunningGearState } from './running-gear';
+import { legacyOf, recordLegacyBase } from '../twin-identity';
 
 export interface RunningGearBinding {
   readonly spec: RunningGearSpec;
@@ -47,10 +48,14 @@ export function bindRunningGear(entity: VehicleMeshEntity, spec: RunningGearSpec
     top.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || Array.isArray(mesh.material) || !hasRunningGear(mesh.geometry)) return;
-      const original = mesh.material;
+      // GH-943 P3 (T1): on a node boot `mesh.material` is the twin; the clone is cut from (and release restores) the LEGACY
+      // material, and the caller queues the swapped meshes for adoption.
+      const original = legacyOf(mesh.material, mesh);
       let clone = clones.get(original);
       if (!clone) {
         clone = runningGearMaterial(original, spec);
+        // GH-943 P3 (T1): every vehicle's running-gear clone of one material shares its node twin (the wheels are per object, T3).
+        recordLegacyBase(clone.material, original);
         clones.set(original, clone);
       }
       swaps.push({ mesh, original });
@@ -69,7 +74,8 @@ export function bindRunningGear(entity: VehicleMeshEntity, spec: RunningGearSpec
 }
 
 /** Put the original materials back and dispose the clones. Safe to call on
- *  an entity that was never bound. */
+ *  an entity that was never bound. The originals are LEGACY materials: on a
+ *  node boot the caller queues the entity for adoption (GH-943 P3 T1). */
 export function releaseRunningGear(entity: VehicleMeshEntity): void {
   const binding = bindings.get(entity);
   if (!binding) return;

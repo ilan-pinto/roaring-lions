@@ -57,7 +57,8 @@ export const WOUNDED_GATE_HI = 0.2;
 const floorUniform = { value: WOUNDED_LIFT };
 const gateLoUniform = { value: WOUNDED_GATE_LO };
 const gateHiUniform = { value: WOUNDED_GATE_HI };
-const PROGRAM_KEY = 'rl-wounded-floor';
+export const WOUNDED_FLOOR_PROGRAM_KEY = 'rl-wounded-floor';
+const PROGRAM_KEY = WOUNDED_FLOOR_PROGRAM_KEY;
 
 const live = new Set<WeakRef<THREE.Material>>();
 

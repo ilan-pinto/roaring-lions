@@ -1306,6 +1306,8 @@ export function writeShellInstances(
  */
 export function createParticleMaterial(depthTest: boolean, hotCore: boolean): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+    name: hotCore ? 'rl-fx-particle-hot' : 'rl-fx-particle',
     vertexShader: /* glsl */ `
       attribute vec2 aLocal;
       attribute vec3 aColor;
@@ -1523,6 +1525,8 @@ export class ParticleInstancer {
  */
 export function createTracerMaterial(depthTest = true): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+    name: 'rl-fx-tracer',
     uniforms: { uHdr: { value: 1 } },
     vertexShader: /* glsl */ `
       attribute vec3 aColor;
