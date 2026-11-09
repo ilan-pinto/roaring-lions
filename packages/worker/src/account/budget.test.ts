@@ -89,6 +89,9 @@ const BUDGETED: BudgetRow[] = [
   { key: 'POST victory', call: (h, cookie) => h.call('POST', '/api/account/victory', { cookie, body: { op_id: op(53), missionId: M1, stars: 1, start: null, base: 0, campaign: null } }) },
   { key: 'POST spend', call: (h, cookie) => h.call('POST', '/api/account/spend', { cookie, body: { op_id: op(54), item: 'unit', unitId: 'dozer_d9' } }) },
   { key: 'POST coupon', call: (h, cookie) => h.call('POST', '/api/account/coupon', { cookie, body: { op_id: op(55), code: 'x' } }) },
+  { key: 'PUT campaign', call: (h, cookie) => h.call('PUT', '/api/account/campaign', { cookie, body: { op_id: op(57), base: 0, ledger: {}, brigade: {}, tutorialDone: false } }) },
+  { key: 'PUT slots/:id', call: (h, cookie) => h.call('PUT', '/api/account/slots/s1', { cookie, body: { op_id: op(58), name: 'A', savedAt: 1, build: 'b', body: { version: 1, id: 's1', name: 'A', ledger: {}, account: {} } } }) },
+  { key: 'DELETE slots/:id', call: (h, cookie) => h.call('DELETE', '/api/account/slots/s1', { cookie, body: { op_id: op(59) } }) },
   { key: 'POST reset-free', call: (h, cookie) => h.call('POST', '/api/account/reset-free', { cookie, body: { op_id: op(56) } }) },
 ];
 // Not budgeted, by name. `DELETE identity/:id` is NOT here: it is budgeted (plan §0.48), so it is in the table above.

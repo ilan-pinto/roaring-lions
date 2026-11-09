@@ -6,9 +6,9 @@ import { perMinute } from './limits';
 import { deleteIdentity } from './identity';
 import { deleteAccount, gone } from './delete';
 import { exportAccount } from './export';
-import { getState } from './campaign';
+import { getState, putCampaign } from './campaign';
 import { me, patchProfile } from './profile';
-import { getSlot } from './slots';
+import { deleteSlot, getSlot, putSlot } from './slots';
 import { coupon, resetFreeRoute, spend } from './spend';
 import { missionStart, victory } from './victory';
 import { steamReturn, steamStart } from './steam';
@@ -52,6 +52,9 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
   { method: 'GET', pattern: 'me', handler: me },
   { method: 'GET', pattern: 'state', handler: getState },
   { method: 'GET', pattern: 'slots/:id', handler: getSlot },
+  { method: 'PUT', pattern: 'campaign', handler: putCampaign },
+  { method: 'PUT', pattern: 'slots/:id', handler: putSlot },
+  { method: 'DELETE', pattern: 'slots/:id', handler: deleteSlot },
   { method: 'PATCH', pattern: 'profile', handler: patchProfile },
   { method: 'DELETE', pattern: 'identity/:id', handler: deleteIdentity },
   { method: 'GET', pattern: 'export', handler: exportAccount },

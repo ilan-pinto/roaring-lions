@@ -4,7 +4,9 @@ import { budgetedOp } from './budget';
 import { isCasFailure } from './coin';
 import { campaignViewOf, campaignWrite, conflictSlot, digestOf, readCampaign, stateOf } from './campaign';
 import { OpReject } from './op';
-import { accountHarness, ctxFor, racingD1, seedWalletMember } from './test-kit';
+import type { D1Like } from '../d1';
+import { handleAccount } from './routes';
+import { accountHarness, ctxFor, failingD1, racingD1, seedWalletMember } from './test-kit';
 
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY;
@@ -151,5 +153,112 @@ describe('GET state and GET slots/:id', () => {
     const st = await (await h.call('GET', '/api/account/state', { cookie })).json() as ServerState;
     expect(st.campaign).toBeNull();
     expect(st.slots).toEqual([]);
+  });
+});
+
+describe('PUT campaign (A2-10, A2-18)', () => {
+  const OPS = (n: number): string => `${String(n).padStart(8, '0')}-5555-4555-8555-555555555555`;
+  /** A harness whose handler can be pointed at a wrapped database (failing or racing) after construction. */
+  const swappable = () => {
+    let over: D1Like | null = null;
+    const h = accountHarness({ now: T0, handler: (req, env, now) => handleAccount(req, over === null ? env : { ...env, ACCOUNTS: over }, now) });
+    return { h, use: (d: D1Like | null) => { over = d; } };
+  };
+  const putC = (h: H, cookie: string, n: number, base: number, body: CampaignBody) =>
+    h.call('PUT', '/api/account/campaign', { cookie, body: { op_id: OPS(n), base, ...body } });
+  const slotRows = async (h: H) =>
+    (await h.db.prepare('SELECT slot_id, origin, body, bytes FROM save_slot ORDER BY slot_id').all<{ slot_id: string; origin: string; body: string; bytes: number }>()).results;
+  const fill = async (h: H, player: number, system: number) => {
+    const ins = (id: string, origin: string) =>
+      h.db.prepare("INSERT INTO save_slot (member_id, slot_id, name, saved_at, build, origin, body, bytes) VALUES ('m1', ?1, 'x', 1, 'b', ?2, '{}', 2)").bind(id, origin).run();
+    for (let i = 0; i < player; i++) await ins(`p${i}`, 'player');
+    for (let i = 0; i < system; i++) await ins(`s${i}`, i % 2 === 0 ? 'conflict' : 'claim');
+  };
+
+  it('a_stale_put_keeps_both: the loser is a conflict slot, the base-1 write stays active, a retry replays the 409', async () => {
+    const h = accountHarness({ now: T0 });
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0);
+    const first = await putC(h, cookie, 1, 0, bodyOf(['a']));
+    expect(first.status).toBe(200);
+    expect(((await first.json()) as { campaign: CampaignView }).campaign.revision).toBe(1);
+    expect((await putC(h, cookie, 2, 1, bodyOf(['a', 'b']))).status).toBe(200);
+    const loser = bodyOf(['x']);
+    const stale = await putC(h, cookie, 3, 0, loser);
+    expect(stale.status).toBe(409);
+    const sj = (await stale.json()) as { error: string; campaign: CampaignView; conflict: { slot: { id: string; origin: string } } };
+    expect(sj.error).toBe('stale');
+    expect(sj.campaign.revision).toBe(2);
+    expect(sj.conflict.slot.origin).toBe('conflict');
+    const rows = await slotRows(h);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.slot_id).toBe(sj.conflict.slot.id);
+    const stored = JSON.parse(rows[0]?.body ?? '{}') as { ledger: unknown; account: unknown; tutorialDone: boolean };
+    const asCampaign = JSON.stringify({ ledger: stored.ledger, brigade: stored.account, tutorialDone: stored.tutorialDone });
+    expect(await digestOf(asCampaign)).toBe(await digestOf(canonicalCampaign(loser)));
+    expect((await readCampaign(h.db, 'm1'))?.body.ledger['campaign.completed_missions']).toEqual(['a', 'b']);
+    expect(await revisionOf(h)).toBe(2);
+
+    // R1: the stale PUT retried with its op id answers the stored 409, reduced, and stores no second slot.
+    const again = await putC(h, cookie, 3, 0, loser);
+    expect(again.status).toBe(409);
+    const aj = (await again.json()) as { campaign: Record<string, unknown> };
+    expect(Object.keys(aj.campaign).sort()).toEqual(['digest', 'revision']);
+    expect(await slotRows(h)).toHaveLength(1);
+  });
+
+  it('a batch that throws after the slot insert rolls back the slot, the campaign and the op', async () => {
+    const { h, use } = swappable();
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0);
+    await putC(h, cookie, 1, 0, bodyOf(['a']));
+    await putC(h, cookie, 2, 1, bodyOf(['a', 'b']));
+    // The campaign-state guard of the first brief case: the insert itself throws.
+    use(failingD1(h.db, /INSERT INTO save_slot/));
+    await expect(putC(h, cookie, 3, 0, bodyOf(['x']))).rejects.toThrow(/injected failure/);
+    expect(await slotRows(h)).toHaveLength(0);
+    expect(await revisionOf(h)).toBe(2);
+    // The throw at the cap guard comes AFTER the slot insert ran: the real rollback is what removes it.
+    use(failingD1(h.db, /UPDATE member SET last_seen_day/));
+    await expect(putC(h, cookie, 4, 0, bodyOf(['y']))).rejects.toThrow(/injected failure/);
+    expect(await slotRows(h)).toHaveLength(0);
+    expect((await h.db.prepare("SELECT COUNT(*) AS n FROM account_op WHERE op_id IN (?1, ?2)").bind(OPS(3), OPS(4)).first<{ n: number }>())?.n).toBe(0);
+    expect(await revisionOf(h)).toBe(2);
+  });
+
+  it('two base-0 PUTs raced: one 200 revision 1, one 409 stale, never 500', async () => {
+    const { h, use } = swappable();
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0);
+    const raced = racingD1(h.db, 2, { arrivals: true });
+    use(raced);
+    const [a, b] = await Promise.all([putC(h, cookie, 1, 0, bodyOf(['a'])), putC(h, cookie, 2, 0, bodyOf(['b']))]);
+    expect(raced.opened()).toBe(true);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const won = a.status === 200 ? a : b;
+    const lost = a.status === 200 ? b : a;
+    expect(((await won.json()) as { campaign: CampaignView }).campaign.revision).toBe(1);
+    expect(((await lost.json()) as { error: string }).error).toBe('stale');
+    expect(await revisionOf(h)).toBe(1);
+    expect(await slotRows(h)).toHaveLength(1);
+  });
+
+  it('a_conflict_at_the_caps_is_held: 4 system slots hold, 3 store one and leave 12 player slots', async () => {
+    const h = accountHarness({ now: T0 });
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0);
+    await putC(h, cookie, 1, 0, bodyOf(['a']));
+    await fill(h, 12, 4);
+    const before = await slotRows(h);
+    const held = await putC(h, cookie, 2, 0, bodyOf(['x']));
+    expect(held.status).toBe(409);
+    expect(((await held.json()) as { conflict: unknown }).conflict).toEqual({ held: true });
+    expect(await slotRows(h)).toEqual(before);
+
+    const h2 = accountHarness({ now: T0 });
+    const c2 = (await seedWalletMember(h2.db, 'm1', T0)).cookie;
+    await putC(h2, c2, 1, 0, bodyOf(['a']));
+    await fill(h2, 12, 3);
+    const stored = await putC(h2, c2, 2, 0, bodyOf(['x']));
+    expect(stored.status).toBe(409);
+    expect(((await stored.json()) as { conflict: { slot: unknown } }).conflict).toHaveProperty('slot');
+    const n = await h2.db.prepare("SELECT SUM(origin = 'player') AS p, SUM(origin <> 'player') AS s FROM save_slot").first<{ p: number; s: number }>();
+    expect(n).toEqual({ p: 12, s: 4 });
   });
 });
