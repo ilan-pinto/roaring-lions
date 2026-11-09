@@ -489,10 +489,20 @@ export function slotUniforms(slot: GroundSlot): {
 /** A 1x1 opaque white texture, bound as `uSand` until (or instead of) the
  *  real one. Sampling an unbound sampler is undefined behaviour and
  *  `NaN * 0` is still `NaN`, so the strength uniform alone is not enough to
- *  make a missing asset safe -- the sampler has to be valid too. */
+ *  make a missing asset safe -- the sampler has to be valid too.
+ *
+ *  LINEAR filtered, not `DataTexture`'s default Nearest (GH-943 P2 T3): the
+ *  node ground's WGSL is generated from the texture bound at its FIRST build,
+ *  and three's WGSL builder treats a Nearest/Nearest texture as unfilterable,
+ *  declares no sampler for it and reads it with `textureLoad` -- so the road
+ *  grain's `textureSampleGrad` failed validation (no `_sampler`), and every
+ *  slot kept an unfiltered, clamped load after its image landed. On a 1x1
+ *  texture at strength 0 the filter changes no legacy pixel. */
 function whitePixel(): THREE.DataTexture {
   const tex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
   tex.colorSpace = THREE.NoColorSpace;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
   tex.needsUpdate = true;
   return tex;
 }

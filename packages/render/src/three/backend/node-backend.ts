@@ -25,6 +25,7 @@ import { captureNodeView, photographNodeGround, type NodeCaptureDeps, type Readb
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
 import type { RingStyle } from '../units/selection-ring';
 import { censusUnadopted, censusUnported, unportedWarnings, type UnportedHook } from './unported';
+import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
 import { markTwin } from '../twin-identity';
 
@@ -133,6 +134,12 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     rotor: null,
     flipbook: null,
     smokeScreen: null,
+  };
+  // T3: the node ground (the dry blend, the macro and the road). P3 (T1): every twin names its legacy material.
+  materials.ground = (legacy) => {
+    const twin = createNodeGroundMaterial({ W, TSL, maths: opts.materialMaths.ground }, legacy);
+    markTwin(twin, legacy);
+    return twin;
   };
   // T6: the swaying foliage and trunk batches (the wind; the disturbers follow in T7). P3 (T1): every twin names its legacy material.
   const foliageTwin = createFoliageTwinFactory({ W, TSL, maths: opts.materialMaths.foliage });
