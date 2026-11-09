@@ -142,6 +142,45 @@ describe('A2-18 held_before_adopt', () => {
     expect(readHeld(r.storage)).toEqual([]);
   });
 
+  it('a release put that wedges re-files the ORIGINAL held item as refused: one entry, same id, nothing waiting', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const item = readHeld(r.storage)[0] as NonNullable<ReturnType<typeof readHeld>[number]>;
+    r.server.slots.delete([...r.server.slots.keys()][0] as string);
+    await r.sync.release();
+    const put = r.store.sync.ops().find((x) => x.kind === 'slot.put') as NonNullable<ReturnType<typeof r.store.sync.ops>[number]>;
+    expect(r.sync.queuedHeldIds()).toEqual([item.id]);
+    r.server.failWith.set(put.opId, 500);
+    await r.sync.flush();
+    for (let i = 0; i < 5; i++) {
+      await r.sched.advance(60_000);
+      await r.sync.idle();
+    }
+    expect(readHeld(r.storage).map((h) => [h.id, h.reason, h.text])).toEqual([[item.id, 'refused', item.text]]);
+    expect(r.sync.queuedHeldIds()).toEqual([]);
+  });
+
+  it('a release put that loses the race for the slot (409 cap) leaves the item held and no longer waiting', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const item = readHeld(r.storage)[0] as NonNullable<ReturnType<typeof readHeld>[number]>;
+    r.server.slots.delete([...r.server.slots.keys()][0] as string);
+    await r.sync.release();
+    expect(r.sync.queuedHeldIds()).toEqual([item.id]);
+    r.server.addSystemSlot(); // another device took the slot first
+    await r.sync.flush();
+    expect(readHeld(r.storage).map((h) => [h.id, h.reason])).toEqual([[item.id, 'held']]);
+    expect(r.sync.queuedHeldIds()).toEqual([]);
+  });
+
   it('release() says ok: false when the refresh did not complete (offline status 0, a 500, a 401, a rejection), never an empty queue', async () => {
     const server = new FakeServer();
     server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };

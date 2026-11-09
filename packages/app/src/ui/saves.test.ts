@@ -480,6 +480,26 @@ describe('the "On this device only" list (A2, held items)', () => {
     expect(stage.querySelector('button[data-action="release"]')).not.toBeNull(); // may try again
   });
 
+  it('a queued put that left the outbox with the item still held shows the button again, not "Saving" forever', async () => {
+    const items = [held('h-1')];
+    let waiting = ['h-1'];
+    let poke: () => void = () => {};
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore(), {
+      heldItems: () => items,
+      releaseHeld: async () => ({ ok: true, queued: ['h-1'] }),
+      queuedHeldIds: () => waiting,
+      subscribe: (cb) => ((poke = cb), () => {}),
+    }));
+    stage.querySelector<HTMLButtonElement>('button[data-action="release"]')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(stage.querySelector('button[data-action="release"]')).toBeNull();
+    waiting = []; // the put was dropped on a cap race; the item is still `held`
+    poke();
+    expect(stage.querySelector('.rl-saves__held-row .rl-saves__sub')?.textContent).not.toContain('Saving to your account');
+    expect(stage.querySelector('button[data-action="release"]')).not.toBeNull();
+  });
+
   it('a queued put later refused shows its reason again, not "Saving" forever', async () => {
     let items = [held('h-1')];
     let poke: () => void = () => {};

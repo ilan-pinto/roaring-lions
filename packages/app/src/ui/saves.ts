@@ -52,6 +52,8 @@ export interface SavesDeps {
   /** Signed in: asks the sync loop to try again (its `release`, which queues a held campaign's upload when a system slot is free) and answers
    *  the ids of the held items now waiting in the outbox. An id missing from the answer was not queued (no system slot is free). Absent for a guest. */
   releaseHeld?: () => Promise<ReleaseOutcome>;
+  /** The held ids whose upload is still waiting in the outbox; a queued line for any other id is dropped. Absent: only the reason prunes. */
+  queuedHeldIds?: () => readonly string[];
   /** Whether `releaseHeld` could ever upload this item (same member as the cache, has a digest). Defaults to true when absent. */
   canReleaseHeld?: (item: HeldItem) => boolean;
   /** Told when `frozen` may have changed; returns the unsubscribe. */
@@ -249,9 +251,10 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
     lead.className = 'rl-dim';
     lead.textContent = t('saves.held.lead');
     heldBox.append(h, lead);
+    const waiting = deps.queuedHeldIds?.();
     for (const id of [...queuedHeld.keys()]) {
       const live = items.find((i) => i.id === id);
-      if (live === undefined || live.reason !== queuedHeld.get(id)) queuedHeld.delete(id);
+      if (live === undefined || live.reason !== queuedHeld.get(id) || (waiting !== undefined && !waiting.includes(id))) queuedHeld.delete(id);
     }
     for (const item of items) {
       const row = document.createElement('div');

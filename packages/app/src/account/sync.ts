@@ -97,6 +97,8 @@ export interface SyncHandle {
   release(): Promise<ReleaseOutcome>;
   /** Whether `release` could ever upload this held item: a `held` campaign of the cached member, with a digest. */
   canRelease(item: HeldItem): boolean;
+  /** The held ids whose upload is still waiting in the outbox (a conflict-origin `slot.put` under a held item's id). */
+  queuedHeldIds(): readonly string[];
   barrier<T>(fn: () => Promise<T>): Promise<T | 'offline' | 'syncing'>;
   spend(ask: CoinAskWire): Promise<BarrierOutcome<{ wallet: WalletView }>>;
   coupon(code: string): Promise<BarrierOutcome<CouponAnswer>>;
@@ -480,7 +482,11 @@ export function startSync(o: SyncOptions): SyncHandle {
     const n = (failures.get(op.opId) ?? 0) + 1;
     failures.set(op.opId, n);
     if (n < WEDGE_AFTER) return 'wait';
-    if (!file(op)) return 'wait'; // not filed: not dropped
+    // A held campaign's release put that wedged re-files the ORIGINAL item as refused (one entry, same id), never a second one.
+    const held = op.kind === 'slot.put' && op.origin === 'conflict' ? heldItem(op.slotId) : undefined;
+    if (held !== undefined) {
+      if (!addHeld(storage, { ...held, reason: 'refused' })) return 'wait';
+    } else if (!file(op)) return 'wait'; // not filed: not dropped
     failures.delete(op.opId);
     removeOp(op.opId);
     return 'next';
@@ -706,6 +712,10 @@ export function startSync(o: SyncOptions): SyncHandle {
     },
     release: () => locked(doRefresh),
     canRelease: releasable,
+    queuedHeldIds: () => {
+      const ids = new Set(readHeld(storage).map((i) => i.id));
+      return api.ops().filter((x): x is SlotPutOp => x.kind === 'slot.put' && x.origin === 'conflict' && ids.has(x.slotId)).map((x) => x.slotId);
+    },
     barrier,
     spend: (ask) => viaBarrier(() => client.spend(ask), spendKey(ask)),
     coupon: (code) => viaBarrier(() => client.coupon(code)),

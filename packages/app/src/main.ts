@@ -1179,7 +1179,7 @@ async function main(): Promise<void> {
       ...(spendFlowRef !== null ? { frozen: () => spendFlowRef?.gate.campaignFrozen() ?? false, subscribe: spendFlowRef.gate.subscribe } : {}),
       // The work this device holds that the server did not take; "Save to my account" is the sync loop's own refresh.
       ...(accountsOn ? { heldItems: () => readHeld(safeStorage()) } : {}),
-      ...(syncHandle !== null ? { releaseHeld: () => syncHandle?.release() ?? Promise.resolve({ ok: false as const }), canReleaseHeld: (item: HeldItem) => syncHandle?.canRelease(item) ?? false } : {}),
+      ...(syncHandle !== null ? { releaseHeld: () => syncHandle?.release() ?? Promise.resolve({ ok: false as const }), canReleaseHeld: (item: HeldItem) => syncHandle?.canRelease(item) ?? false, queuedHeldIds: () => syncHandle?.queuedHeldIds() ?? [] } : {}),
     };
     return showSaves(host, deps);
   }
