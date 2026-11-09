@@ -1179,7 +1179,7 @@ async function main(): Promise<void> {
       ...(spendFlowRef !== null ? { frozen: () => spendFlowRef?.gate.campaignFrozen() ?? false, subscribe: spendFlowRef.gate.subscribe } : {}),
       // The work this device holds that the server did not take; "Save to my account" is the sync loop's own refresh.
       ...(accountsOn ? { heldItems: () => readHeld(safeStorage()) } : {}),
-      ...(syncHandle !== null ? { releaseHeld: () => syncHandle?.release() ?? Promise.resolve([]), canReleaseHeld: (item: HeldItem) => syncHandle?.canRelease(item) ?? false } : {}),
+      ...(syncHandle !== null ? { releaseHeld: () => syncHandle?.release() ?? Promise.resolve({ ok: false as const }), canReleaseHeld: (item: HeldItem) => syncHandle?.canRelease(item) ?? false } : {}),
     };
     return showSaves(host, deps);
   }
@@ -6458,7 +6458,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                         savePromptUnpersisted = !markShown(safeStorage());
                       },
                       onSave: () => req.navigate(routes.profile()),
-                      onNever: () => markNever(safeStorage()),
+                      // A refused write cannot keep "never": the page flag stops it for this page load only (like markShown's).
+                      onNever: () => {
+                        savePromptShownOnPage = true;
+                        savePromptUnpersisted = !markNever(safeStorage()) || savePromptUnpersisted;
+                      },
                     }
                   : null;
               let prompt: RatingPrompt | null = null;

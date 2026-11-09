@@ -133,13 +133,31 @@ describe('A2-18 held_before_adopt', () => {
     expect(r.sync.canRelease(item)).toBe(true);
     expect(r.sync.canRelease({ ...item, digest: undefined })).toBe(false);
     expect(r.sync.canRelease({ ...item, publicId: 'someone-else' })).toBe(false);
-    expect(await r.sync.release()).toEqual([]);
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [] });
     r.server.slots.delete([...r.server.slots.keys()][0] as string);
-    expect(await r.sync.release()).toEqual([item.id]);
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [item.id] });
     expect(readHeld(r.storage)).toHaveLength(1); // still listed: the ack removes it, not the call
-    expect(await r.sync.release()).toEqual([item.id]); // queued already, still reported
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [item.id] }); // queued already, still reported
     await r.sync.flush();
     expect(readHeld(r.storage)).toEqual([]);
+  });
+
+  it('release() says ok: false when the refresh did not complete (offline status 0, a 500, a 401, a rejection), never an empty queue', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const real = server.state.bind(server);
+    for (const status of [0, 500, 401]) {
+      server.state = (async () => ({ ok: false, status, body: null })) as never;
+      expect(await r.sync.release()).toEqual({ ok: false });
+    }
+    server.state = (() => Promise.reject(new Error('network'))) as never;
+    expect(await r.sync.release()).toEqual({ ok: false });
+    server.state = real;
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [] }); // reachable and genuinely full
   });
 
   it('a digest that is not its own leaves the item in the list (as refused: never uploaded twice)', async () => {

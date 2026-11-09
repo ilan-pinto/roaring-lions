@@ -438,7 +438,7 @@ describe('the "On this device only" list (A2, held items)', () => {
   it('an unsent victory (kind campaign, reason refused, the whole op) is listed with Export only, never read as a campaign', () => {
     const op = JSON.stringify({ kind: 'victory', opId: 'x', missionId: 'm', stars: 3, start: null, campaign: null });
     const stage = document.createElement('div');
-    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-x', { reason: 'refused', text: op })], releaseHeld: async () => [] }));
+    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-x', { reason: 'refused', text: op })], releaseHeld: async () => ({ ok: true, queued: [] }) }));
     const row = stage.querySelector<HTMLElement>('.rl-saves__held-row')!;
     expect(row.querySelector('button[data-action="export"]')).not.toBeNull();
     expect(row.querySelector('button[data-action="release"]')).toBeNull();
@@ -449,7 +449,7 @@ describe('the "On this device only" list (A2, held items)', () => {
     const items = [held('h-1')];
     const stage = document.createElement('div');
     // A sync handle whose release queues and removes the item only later (the ack), never at once.
-    showSaves(stage, deps(memStore(), { heldItems: () => items, releaseHeld: async () => (calls++, ['h-1']) }));
+    showSaves(stage, deps(memStore(), { heldItems: () => items, releaseHeld: async () => (calls++, { ok: true, queued: ['h-1'] }) }));
     stage.querySelector<HTMLButtonElement>('button[data-action="release"]')!.click();
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toBe(1);
@@ -463,15 +463,44 @@ describe('the "On this device only" list (A2, held items)', () => {
 
   it('says "still full" only when nothing was queued', async () => {
     const stage = document.createElement('div');
-    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-1')], releaseHeld: async () => [] }));
+    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-1')], releaseHeld: async () => ({ ok: true, queued: [] }) }));
     stage.querySelector<HTMLButtonElement>('button[data-action="release"]')!.click();
     await new Promise((r) => setTimeout(r, 0));
     expect(stage.querySelector('.rl-saves__msg')?.textContent).toContain('still full');
   });
 
+  it('a refresh that did not complete never says "full" (offline, 401, 500 all answer ok: false)', async () => {
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-1')], releaseHeld: async () => ({ ok: false }) }));
+    stage.querySelector<HTMLButtonElement>('button[data-action="release"]')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const msg = stage.querySelector('.rl-saves__msg')?.textContent ?? '';
+    expect(msg).toContain('Could not reach your account');
+    expect(msg).not.toContain('still full');
+    expect(stage.querySelector('button[data-action="release"]')).not.toBeNull(); // may try again
+  });
+
+  it('a queued put later refused shows its reason again, not "Saving" forever', async () => {
+    let items = [held('h-1')];
+    let poke: () => void = () => {};
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore(), {
+      heldItems: () => items,
+      releaseHeld: async () => ({ ok: true, queued: ['h-1'] }),
+      subscribe: (cb) => ((poke = cb), () => {}),
+    }));
+    stage.querySelector<HTMLButtonElement>('button[data-action="release"]')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(stage.querySelector('.rl-saves__held-row .rl-saves__sub')?.textContent).toContain('Saving to your account');
+    items = [held('h-1', { reason: 'refused' })]; // the server refused the put
+    poke();
+    expect(stage.querySelector('.rl-saves__held-row .rl-saves__sub')?.textContent).not.toContain('Saving to your account');
+    expect(stage.querySelector('.rl-saves__held-row .rl-saves__sub')?.textContent).toContain('refused');
+  });
+
   it('offers the button only for items the sync loop can upload', () => {
     const stage = document.createElement('div');
-    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-1', { digest: undefined })], releaseHeld: async () => [], canReleaseHeld: (i) => i.digest !== undefined }));
+    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-1', { digest: undefined })], releaseHeld: async () => ({ ok: true, queued: [] }), canReleaseHeld: (i) => i.digest !== undefined }));
     expect(stage.querySelector('button[data-action="release"]')).toBeNull();
     expect(stage.querySelector('button[data-action="export"]')).not.toBeNull();
   });

@@ -86,12 +86,15 @@ export interface SyncOptions {
   newId?: () => string;
 }
 
+/** What `release` did: `ok: false` when the refresh did not complete (offline, a server error, a 401, a stale answer, stopped), else the queued ids (empty = no system slot was free). */
+export type ReleaseOutcome = { readonly ok: false } | { readonly ok: true; readonly queued: readonly string[] };
+
 export interface SyncHandle {
   flush(): Promise<void>;
   /** `GET state`, then the slot bodies whose change token differs from the cache's, then any held campaign that now fits. */
   refresh(): Promise<void>;
-  /** `refresh`, and says what it did for the held list: the ids of the held campaigns now waiting in the outbox for a system slot (queued by this call or earlier), empty when none could be queued. */
-  release(): Promise<readonly string[]>;
+  /** `refresh`, and says what it did for the held list: `{ ok: true, queued }`: the ids of the held campaigns now waiting in the outbox for a system slot (queued by this call or earlier), empty when none could be queued; `{ ok: false }` when the refresh itself did not complete. */
+  release(): Promise<ReleaseOutcome>;
   /** Whether `release` could ever upload this held item: a `held` campaign of the cached member, with a digest. */
   canRelease(item: HeldItem): boolean;
   barrier<T>(fn: () => Promise<T>): Promise<T | 'offline' | 'syncing'>;
@@ -299,18 +302,24 @@ export function startSync(o: SyncOptions): SyncHandle {
     return waiting;
   }
 
-  async function doRefresh(): Promise<string[]> {
-    const r = await client.state();
-    if (stopped) return [];
+  const NOT_DONE: ReleaseOutcome = { ok: false };
+  async function doRefresh(): Promise<ReleaseOutcome> {
+    let r: Awaited<ReturnType<typeof client.state>>;
+    try {
+      r = await client.state();
+    } catch {
+      return NOT_DONE;
+    }
+    if (stopped) return NOT_DONE;
     if (r.status === 401) {
       await recheck();
-      return [];
+      return NOT_DONE;
     }
-    if (!r.ok) return []; // keep what the device has
+    if (!r.ok) return NOT_DONE; // keep what the device has
     const next = r.body;
     const prev = cache.confirmed;
     // Never move backwards: a state older than the cache's campaign is a slow answer, not the server's present.
-    if (next.campaign !== null && prev.campaign !== null && next.campaign.revision < prev.campaign.revision) return [];
+    if (next.campaign !== null && prev.campaign !== null && next.campaign.revision < prev.campaign.revision) return NOT_DONE;
     pinBase(); // a refresh never raises the base of what is queued (R12)
     cache.confirmed = { campaign: next.campaign, wallet: next.wallet, slots: next.slots };
     persist();
@@ -324,14 +333,14 @@ export function startSync(o: SyncOptions): SyncHandle {
         continue;
       }
       const got = await client.slot(meta.id);
-      if (stopped) return [];
+      if (stopped) return NOT_DONE;
       if (got.ok) bodies[meta.id] = got.body.body;
       else if (have !== undefined) bodies[meta.id] = have; // keep what we hold when the fetch failed
     }
     cache.bodies = bodies;
     persist();
     changed();
-    return releaseHeld();
+    return { ok: true, queued: await releaseHeld() };
   }
 
   // ---- one op ----------------------------------------------------------------------------------------------------

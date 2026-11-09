@@ -18,6 +18,7 @@ import type { LedgerStore } from '../ledger-store';
 import { SAVE_ERROR_LOAD_MIXED, SAVE_ERROR_NOT_A_SAVE, damagedRaw, deleteSlot, exportSlot, importSlot, listDamaged, listSlots, loadSlot, readActive, saveSlot, writeActive, type DamagedMeta, type SlotMeta } from '../profile';
 import { confirmDialog } from './confirm';
 import type { HeldItem } from '../account/local-held';
+import type { ReleaseOutcome } from '../account/sync';
 import { panel } from './panel';
 import { stagger } from './motion';
 import { markConfirm } from './confirm-cue';
@@ -50,7 +51,7 @@ export interface SavesDeps {
   heldItems?: () => readonly HeldItem[];
   /** Signed in: asks the sync loop to try again (its `release`, which queues a held campaign's upload when a system slot is free) and answers
    *  the ids of the held items now waiting in the outbox. An id missing from the answer was not queued (no system slot is free). Absent for a guest. */
-  releaseHeld?: () => Promise<readonly string[]>;
+  releaseHeld?: () => Promise<ReleaseOutcome>;
   /** Whether `releaseHeld` could ever upload this item (same member as the cache, has a digest). Defaults to true when absent. */
   canReleaseHeld?: (item: HeldItem) => boolean;
   /** Told when `frozen` may have changed; returns the unsubscribe. */
@@ -231,7 +232,8 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   // The "On this device only" list: each item with the reason it is here and an Export. Its text is shown to nobody and parsed
   // by nothing: a filed victory op is a `campaign` item whose text is the whole op, so only a `held` campaign (a campaign body
   // the sync loop uploads) is offered "Save to my account", and that goes through the sync loop's own release.
-  const queuedHeld = new Set<string>();
+  // id -> the reason it was queued under; forgotten when the item's reason changes (a refused put), so the line never sticks.
+  const queuedHeld = new Map<string, string>();
   const renderHeld = (): void => {
     heldBox.replaceChildren();
     const items = deps.heldItems?.() ?? [];
@@ -247,6 +249,10 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
     lead.className = 'rl-dim';
     lead.textContent = t('saves.held.lead');
     heldBox.append(h, lead);
+    for (const id of [...queuedHeld.keys()]) {
+      const live = items.find((i) => i.id === id);
+      if (live === undefined || live.reason !== queuedHeld.get(id)) queuedHeld.delete(id);
+    }
     for (const item of items) {
       const row = document.createElement('div');
       row.className = 'rl-saves__row rl-saves__held-row';
@@ -278,15 +284,17 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
         const release = deps.releaseHeld;
         button(t('saves.held.save'), 'release', () => {
           void release().then(
-            (queued) => {
-              // "Full" is said only when nothing could be queued; the item leaves the list when its upload is acked (the sync loop's change).
-              if (queued.includes(item.id)) {
-                queuedHeld.add(item.id);
+            (outcome) => {
+              // "Full" is said only when the refresh ran and nothing could be queued; a refresh that did not complete says so.
+              // The item leaves the list when its upload is acked (the sync loop's change).
+              if (!outcome.ok) say(t('saves.held.unreached'));
+              else if (outcome.queued.includes(item.id)) {
+                queuedHeld.set(item.id, item.reason);
                 say(t('saves.held.queued'));
               } else say(t('saves.held.stillFull'));
               renderHeld();
             },
-            () => say(t('saves.held.stillFull')),
+            () => say(t('saves.held.unreached')),
           );
         });
       }

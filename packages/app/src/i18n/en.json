@@ -1828,6 +1828,7 @@
   "saves.held.refused": "Not sent: the server refused it.",
   "saves.held.save": "Save to my account",
   "saves.held.stillFull": "Your account slots are still full. Free one, and it will be saved.",
+  "saves.held.unreached": "Could not reach your account just now. Nothing was sent. Try again in a moment.",
   "saves.held.queued": "Saving to your account. It leaves this list when the server has it.",
   "saves.held.item": "Held save, {date}",
   "account.claim.lead": "Move the progress on this device to your account, so it follows you to every device. Nothing is lost: anything the account cannot take stays on this device.",
