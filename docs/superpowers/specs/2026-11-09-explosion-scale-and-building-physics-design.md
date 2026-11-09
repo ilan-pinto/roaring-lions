@@ -1,9 +1,20 @@
 # Explosion scale and building physics: design (GH-1197)
 
-Status: DRAFT for the lead. Design only: no code, no render, no Meshy. Every number below is for approval
-before any render (the art-numbers rule). Written against `origin/main` f89e99407, 9 Nov 2026.
+Status: DRAFT, revision 2 after the lead's rulings on PR 1198 (9 Nov). Design only: no code, no render,
+no Meshy. Every number below is for approval before any render (the art-numbers rule). Written against
+`origin/main` f89e99407.
 
-**Lead ruling, 9 Nov (in chat), and it shapes everything here.** The Te'o howitzer (`spg_long_range`,
+**Revision 2 rulings (the lead, 9 Nov):**
+1. The Te'o's drawn ring is BIGGER than its 2.4-tile damage radius. It has two parts: a bright inner
+   shock to `S` and a faint outer pressure wave to 1.6 x `S`.
+2. The final collapse keeps today's dense shroud and ADDS flying debris. Sink-and-lean is dropped.
+3. Walls take REAL HOLES, not char marks (§3a). The vehicle-wreck no-holes ruling does not apply to
+   buildings.
+4. Rubble fades to its decal after 90 s.
+5. The data file, hit-stop only on the strike, demolition and the collapse, Grad in the heavy class, and
+   no 3D debris on low all stand as recommended.
+
+**The first ruling (9 Nov), which anchors the design.** The Te'o howitzer (`spg_long_range`,
 `howitzer_155`) is the anchor case and Phase 1. Its drawn blast must match its real 2.4-tile splash.
 The change is VISUAL only, with the sim's damage and splash untouched. More generally, **a weapon's drawn
 reach comes from its own `splash_tiles`** (and `submunitions.splash_tiles` for `spg_cluster`), so every
@@ -43,8 +54,10 @@ nothing is handed to `sim-guard`.** `fire` carries `weaponId`, `structureHit` ca
 **The rule (data, never code).** For a weapon with splash `S` tiles (sim damage falls off linearly,
 `1 - d/S`, so half damage is at `S/2`):
 
-- shock ring outer radius = `1.0 x S` (the reach, exactly);
-- ground dust skirt radius = `1.0 x S`;
+- inner shock ring = `1.0 x S`: bright, the real damage reach, exactly;
+- outer pressure wave and dust skirt = `k x S`, faint, with `k` per class (1.6 for the heavy classes).
+  **The outer part is not damage**: nothing past `S` is hurt, and the inner ring stays the readable
+  danger line;
 - fireball radius = `f x S`;
 - crater radius = `c x S`;
 - scorch radius = `s x S`;
@@ -52,7 +65,7 @@ nothing is handed to `sim-guard`.** `fire` carries `weaponId`, `structureHit` ca
 - debris count = `d x S^2` (it scales with area).
 
 The class supplies `f`, `c`, `s` and `d`, plus the column height, the light intensity, the shake and the
-hit-stop. A weapon with no splash (tank round, most ATGMs, RPG-7, SPG-9) draws no ring, because it has no
+hit-stop, and `k`. A weapon with no splash (tank round, most ATGMs, RPG-7, SPG-9) draws no ring, because it has no
 reach to show, and takes its class's nominal size. Crater depth needs no new parameter: `craterHeight` is
 already in units of the crater's own radius, so a 0.96-tile crater is twice as deep as a 0.48-tile one.
 
@@ -64,20 +77,24 @@ to class, reach `blast_tiles`). `S` is read from the weapon JSON itself, so the 
 Sim JSON gains no field. The renderer resolves the class once, in `onFire`, and carries it on the
 `ShellModel`.
 
-| Class (weapons) | f / c / s | Fireball r | Ring | Debris (count, throw, apex) | Dust column, life | Light (I, r, decay) | Shake, hit-stop |
+| Class (weapons) | f / c / s | Fireball r | Ring: inner `S` / outer `k x S` | Debris (count, throw, apex) | Dust column, life | Light (I, r, decay) | Shake, hit-stop |
 |---|---|---|---|---|---|---|---|
-| `grenade` (`gl_40` 1.2; bomblets 0.5-0.8) | 0.20 / 0.25 / 0.45 | 0.24 t | 1.2 t, 160 ms | 8 clods, 1.2 t, 0.6 t | 0.8 t, 2.5 s | 0.8, 3 t, 150 ms | 0, 0 |
-| `mortar` (`mortar_60` 1.8, `mortar_82` 2.0) | 0.28 / 0.25 / 0.45 | 0.56 t (82) | 2.0 t, 220 ms | 16 + 6 chunks, 2.0 t, 1.4 t | 1.6 t, 5 s | 1.6, 5 t, 380 ms | 2 px 300 ms, 0 |
-| `direct_he` (`gun_120`, ATGMs, RPGs, `warhead` 1.3, `hellfire` 0.8) | nominal 0.5 t | 0.5 t | none (warhead 1.3 t) | 12 + 8 chunks, 1.6 t, 1.2 t | 1.2 t, 4 s | 2.6, 3.5 t, 200 ms | 2 px 140 ms, 0 |
-| **`heavy_artillery` (`howitzer_155` 2.4, `grad_122` 3.0)** | 0.50 / 0.40 / 0.60 | **1.2 t** | **2.4 t**, 260 ms | 36 + 18, 2.4 t, 3.0 t | **4.0 t**, 6-9 s | 3.2, 6 t, 450 ms | 4 px 360 ms, 0 |
-| `air_strike` (profile 0, S 2.0; today's approved values) | 0.80 / 0.70 / 1.20 | 1.6 t | 2.0 t, 300 ms | 48 + 24, 3.5 t, 3.5 t | 5.5 t, 9-12 s | 6.3, 7 t, 520 ms | 7.5 px 520 ms, 60 ms |
-| `demolition` (`charges` 1.2, `vest` 1.6, placed charge 2.5) | 0.30 / 0.20 / 0.40 | 0.75 t (2.5) | 2.5 t, 240 ms, a ground-hugging dust ring | 30 masonry, 2.5 t, 2.5 t, thrown AWAY from the wall | 3.0 t, 8 s | 3.0, 5 t, 300 ms | 5 px 400 ms, 40 ms |
+| `grenade` (`gl_40` 1.2; bomblets 0.5-0.8) | 0.20 / 0.25 / 0.45 | 0.24 t | 1.2 t, 160 ms / none (k 1.0) | 8 clods, 1.2 t, 0.6 t | 0.8 t, 2.5 s | 0.8, 3 t, 150 ms | 0, 0 |
+| `mortar` (`mortar_60` 1.8, `mortar_82` 2.0) | 0.28 / 0.25 / 0.45 | 0.56 t (82) | 2.0 t, 220 ms / 2.5 t, 400 ms (k 1.25) | 16 + 6 chunks, 2.0 t, 1.4 t | 1.6 t, 5 s | 1.6, 5 t, 380 ms | 2 px 300 ms, 0 |
+| `direct_he` (`gun_120`, ATGMs, RPGs, `warhead` 1.3, `hellfire` 0.8) | nominal 0.5 t | 0.5 t | none (warhead 1.3 t / 1.6 t, k 1.25) | 12 + 8 chunks, 1.6 t, 1.2 t | 1.2 t, 4 s | 2.6, 3.5 t, 200 ms | 2 px 140 ms, 0 |
+| **`heavy_artillery` (`howitzer_155` 2.4, `grad_122` 3.0)** | 0.50 / 0.40 / 0.60 | **1.2 t** | **2.4 t, 260 ms / 3.84 t, 520 ms (k 1.6)** | 36 + 18, 2.4 t, 3.0 t | **4.0 t**, 6-9 s | 3.2, 6 t, 450 ms | 4 px 360 ms, 0 |
+| `air_strike` (profile 0, S 2.0; today's approved values) | 0.80 / 0.70 / 1.20 | 1.6 t | 2.0 t, 300 ms / 3.2 t, 560 ms (k 1.6) | 48 + 24, 3.5 t, 3.5 t | 5.5 t, 9-12 s | 6.3, 7 t, 520 ms | 7.5 px 520 ms, 60 ms |
+| `demolition` (`charges` 1.2, `vest` 1.6, placed charge 2.5) | 0.30 / 0.20 / 0.40 | 0.75 t (2.5) | 2.5 t, 240 ms / 3.5 t, 480 ms (k 1.4), dust-toned, hugging the ground | 30 masonry, 2.5 t, 2.5 t, thrown AWAY from the wall | 3.0 t, 8 s | 3.0, 5 t, 300 ms | 5 px 400 ms, 40 ms |
 | `blade` (`dozer_d9`) | none | none | none | 4 chunks per puff, 0.5 t | today's puff | none | 0, 0 |
+
+Inner ring: alpha 0.6 to 0, with a 120 ms `vfx.white_hot` leading edge, at `FX_RENDER_ORDER_ADDITIVE`.
+Outer wave: a non-additive `dust.2` annulus at alpha 0.2 to 0. It starts when the inner ring peaks and
+is drawn at `FX_RENDER_ORDER` under the inner ring. Its dust skirt is flipbook dust at alpha ≤ 0.35.
 
 Where the general rule collides with an approved GH-748 number, the approved number wins as an explicit
 override. The strike keeps a scorch of 2.4 (1.6 on relief), larger than its 2.0 splash, and a light radius
-of 7. The barrage round keeps `barrage_impact` at strength 0.8. Both gain only the reach rule: the ring is
-`S` (1.0 for the barrage, and 2.0 for the strike against today's 2.2).
+of 7. The barrage round keeps `barrage_impact` at strength 0.8. Both gain only the reach rule: the inner ring is
+`S` (1.0 for the barrage, and 2.0 for the strike against today's 2.2), and the outer wave is `k x S`.
 
 The ladder `fx-ladder.test.ts` holds (collapse > vehicle kill > shell landing) is kept. Heavy artillery's
 light of 3.2 sits under a kill's 3.5. The test learns to read the new classes: a ladder that skips them
@@ -85,14 +102,21 @@ would guard nothing.
 
 **The anchor, `howitzer_155`, today against proposed:**
 
-| | Fireball | Ring | Dust | Crater / scorch | Light | Shake |
-|---|---|---|---|---|---|---|
-| Today | 1.22 wu billow (the mortar's) | none | 9 billows, 4-6 s | 0.45 / 0.88 | 1.26, 4 t | 1.5 px |
-| Proposed | 1.2 t radius (the half-damage disc) | 0 to 2.4 t in 260 ms, alpha 0.6 to 0, plus a 120 ms `vfx.white_hot` leading edge | a 4.0 t column of 14 billows, 6-9 s, plus a ground skirt of 10 billows out to 2.4 t, 3 s | 0.96 / 1.44 | 3.2, 6 t, 450 ms | 4 px, 360 ms, falloff 12 t |
+| | Today | Proposed (revision 2) |
+|---|---|---|
+| Fireball | 1.22 wu billow (the mortar's) | radius 1.2 t (the half-damage disc), plus 5 lobes thrown 2.0 t |
+| Inner shock (the damage) | none | 0 to 2.4 t in 260 ms, alpha 0.6 to 0, a 120 ms `vfx.white_hot` leading edge |
+| Outer pressure wave (not damage) | none | 2.4 to 3.84 t from 260 to 520 ms, `dust.2` at alpha 0.2 to 0 |
+| Dust | 9 billows, 4-6 s | a column of 14 billows to 4.0 t high, 6-9 s, plus a skirt of 12 billows out to 3.84 t, 3-4 s, alpha ≤ 0.35 |
+| Debris | 16 dirt | 36 clods + 18 chunks, thrown 2.4 t, apex 3.0 t |
+| Crater / scorch | 0.45 / 0.88 | 0.96 / 1.44 |
+| Light | 1.26 over 4 t, 380 ms | 3.2 over 6 t, 450 ms |
+| Shake / hit-stop | 1.5 px / 12 ms | 4 px, 360 ms, falloff 12 t / 0 |
+| On a building | a centroid puff | a hole of r 0.5 t on the hit face (§3a), plus chunks |
 
 The fireball radius is a MEASURED claim (§4), not a billow scale trusted from the code. One caveat for the
-lead: the sim gives the 155 only 1.2x the 82 mm's reach (2.4 against 2.0). The ring tells that truth. The
-"much bigger" look comes from energy instead: a 2.1x fireball, a 2.5x column, a 1.9x crater and 2x the light.
+lead: the sim gives the 155 only 1.2x the 82 mm's reach (2.4 against 2.0). The inner ring tells that truth, and the outer wave
+reads the size the lead asked for without lying about damage. The rest of the "much bigger" look is energy: a 2.1x fireball, a 2.5x column, a 1.9x crater and 2x the light.
 
 ## 3. The building reaction
 
@@ -101,70 +125,136 @@ That face lies along the line from the footprint centre toward the shooter (dire
 point (indirect fire, strike or charge). It is never the centroid. Stages key on `structureHpBand`, the
 eighths the scars already use:
 
-1. **Every hit (bands 8-1).** Chunks come off the hit face. Each spawn point is area-weighted over the
-   template's own triangles on that side. They are precomputed once per template at load (64 samples
-   per octant, hash-seeded) and thrown out along the face normal ±35°. The building also takes a
-   **facade char mark**: up to 4 object-space spheres per building, each of radius `0.35 x S` (0.3 t for
-   direct fire), at char mix 0.7. It is the `team-mask.ts` precedent, a box or sphere test in the
-   fragment shader. **There are no holes**, which matches the vehicle wreck ruling (outline damage only).
+1. **Every hit (bands 8-1).** The building takes a **real hole** at the hit point (§3a). Chunks come off
+   the hole. Their spawn points are area-weighted over the template's own triangles within the hole's
+   radius (64 samples per octant, precomputed once per template at load, hash-seeded), and they are
+   thrown along the face normal ±35°. Today's band scars stay as they are.
 2. **Partial collapse (on first entering band 2).** The upper hit-side quadrant sags. It is a
    vertex-shader drop of 0.25 of a storey on vertices above 0.6 of the height and on the hit side, with a
-   smoothstep edge, on the building's own scar clone. That gives a one-off burst of 16 chunks and a dust
-   puff of 8 billows. No art is involved; it works on any GLB, textured or not.
-3. **Final collapse (band 0).** The building **sinks and leans** for 900 ms. The standing mesh
-   translates down by its own height on an ease-in `p^2`, leans 4° toward the hit side, and is clipped
-   at the ground (the `construction-clip.ts` mechanism: one clone per collapsing building, at most 6,
-   the shroud pool's cap). The wreck rises through it on today's settle, stretched to 900 ms. Debris
-   streams off the clip line: 40 chunks for a 3x3, scaled by footprint. Because standing and wreck now
-   cross through each other in geometry, **the swap no longer needs hiding**, so the shroud can thin (D3):
-   its hold fraction drops 0.35 to 0.15 and its cover 1.25 to 0.9. A per-tile wall is instanced and
-   cannot clip per instance, so it keeps today's swap and takes debris only.
-4. **Rubble settles.** Each chunk flies a CLOSED-FORM parabola: one bounce at restitution 0.3, then a
-   slide to rest. Its rest pose is computed once at spawn from a presentation hash
-   (`tileHash(structure, k)`) and from `ground-height.ts` at the landing point. The pose is therefore
-   independent of frame timing and reproducible in a capture. Under `setQuiet`, chunks are placed at
-   rest with no flight. A settled chunk stays inside the rubble decal's radius. After 90 s it sinks into
-   the decal over 1.5 s on the SIM clock, so the decal remains the record.
+   smoothstep edge. That gives a one-off burst of 16 chunks and 8 dust billows. No art is involved.
+3. **Final collapse (band 0).** **Today's shroud is unchanged**: 2.4 s, hold fraction 0.35, cover 1.25,
+   the swap at 420 ms, the 0.35 s settle. **Flying debris is added**: 40 chunks for a 3x3, scaled by
+   footprint area, launched from the roof line between 0 and 300 ms. They are biased 60/40 away from the
+   last hit side, thrown 1.5-3.0 t with apex 2-4 t. They fly over and through the shroud, which is
+   `depthTest: false` at band 5, so a chunk inside the cloud is hidden by it, as real masonry would be.
+   They land after it thins. Per-tile walls take the same debris, 6 chunks a tile.
+4. **Rubble settles, then fades.** Each chunk flies a CLOSED-FORM parabola: one bounce at restitution
+   0.3, then a slide to rest. Its rest pose is computed once at spawn from a presentation hash
+   (`tileHash(structure, k)`) and from `ground-height.ts`, so it is independent of frame timing and
+   reproducible in a capture. Under `setQuiet`, chunks are placed at rest with no flight. A settled
+   chunk stays inside the rubble decal's radius. **After 90 s it fades into the decal** over 1.5 s on
+   the SIM clock.
 5. **Dust.** Flipbook `smoke` billows in dust tones (`dust.2` to `dust.4`), from the existing atlas and
-   pool. Collapse: 40 billows, 10 s. A hit: 6 billows, 3 s.
+   pool. A hit: 6 billows, 3 s. The collapse keeps its shroud and plume, plus 12 billows from the
+   landing debris.
+
+### 3a. Real holes, with no authored art per building
+
+**Mechanism: a shader cut-out, depth-correct, with a dark interior.** Each holed building keeps up to 6
+holes in uniforms on its own material clone. A hole is two `vec4`s in the template's object space:
+`(centre, radius)` and `(axis, depth)`. The axis is the facade normal for a direct or flanking hit, and
+UP for a round that lands on the roof, so mortar and artillery punch roofs.
+
+The fragment hook (the `team-mask.ts` precedent: an object-space test in `onBeforeCompile`) works like
+this:
+
+- **Discard.** A FRONT face is discarded inside a cylinder: radial distance < `r x (1 + 0.25 x lobe
+  noise)` (5 lobes, the hole's own hash) and axial distance < `depth`. `depth` is 0.6 t, so a hole cuts
+  the near wall and never the far one.
+- **Interior.** The material becomes `DoubleSide` once it has a hole, so through the hole the player
+  sees the BACK faces of the far walls, floor and roof. These are real geometry with correct depth, and
+  they are shaded as interior: the darkest key of the type's own ramp, mixed 0.6 toward `gunmetal.2`
+  (the charred key), with flipped normals and no environment map. **What shows through is a dark,
+  correctly occluded room**, not the sky, and not the ground behind the building.
+- **Rim.** A 0.06 t band just outside the cut reads as broken masonry: the type's ramp one key LIGHTER,
+  so lower index. A 0.15 t char halo beyond it (the scar treatment at mix 0.7) stands in for the
+  missing wall thickness.
+- **Shadows.** The same hook goes on the clone's `customDepthMaterial`, so the hole cuts the sun's
+  shadow too: light falls through it onto the floor.
+- **AO.** AO is the exception. It draws through `scene.overrideMaterial` (`MeshNormalMaterial`), so it
+  sees the wall as solid. The cost is a little extra darkening at the hole, which is dark anyway;
+  measured in P4, and accepted unless the lead's eye says otherwise.
+
+**Size and count by class.** The radius sits on the wall, in tiles:
+
+| Class | Hole r | Axis |
+|---|---|---|
+| `grenade` | 0.12 (only from splash; `gl_40` cannot target a structure) | wall |
+| `mortar` | 0.25 | roof |
+| `direct_he` (tank HE, ATGM, RPG) | 0.30 | wall, at the hit height clamped to 0.3-0.8 of the building |
+| `heavy_artillery` | 0.50 | roof, or wall on a flanking landing |
+| `air_strike` | 0.80 | roof |
+| `demolition` | 0.60 | wall, at door height |
+| `blade` | no hole | — |
+
+At most 6 holes per building. A new hit within 1.2 r of an existing hole grows that hole by 25%, capped
+at 1.6x its class radius, instead of taking a slot. A seventh distinct hole grows the nearest hole. So a
+battered building reads as more and bigger breaches, never as a sieve. Holes survive band changes: the
+hole clone is rebuilt from that band's scar clone, and the hook is re-applied after every
+`Material.clone()`, which drops `onBeforeCompile`.
+
+**Why not pre-cut panels.** The shipped buildings are Meshy remeshes with baked textures. They have no
+facade or panel topology to swap, so pre-cut panels would mean authoring and baking every type again.
+The shader route needs no art, works on every textured and palette GLB, and holds for buildings added
+later.
+
+**Scope.** Clone-drawn buildings only, in P4. A per-tile wall is instanced, and its single hole per tile
+would be an instance attribute; that is P4b, a lead decision. A holed house keeps its full art below zoom
+2.0, as a scarred house already does (the LOD1 twin is clean-band only). The WebGPU node backend owes a
+twin: until it has one, the material census lists the hook as `partial` (`webgpu-backend.md`).
+
+**Cost of the holes** (estimates; `perf:fx --breakdown` measures them in P4):
+
+| | high | medium | low |
+|---|---|---|---|
+| Draw calls | +0 (same mesh) | +0 | +0 |
+| Triangles submitted | +0. Back faces of HOLED buildings are now rasterised, but mostly fail the depth test behind their own front faces | same | same |
+| Programs | +1 colour (`RL_HOLES`, `DoubleSide`) and +1 shadow depth, both prewarmed at boot | same | +1 colour only: 1024 shadow map, holes not cut into the shadow |
+| Textures | +0 (palette tones and hash noise) | +0 | +0 |
+| Materials | +1 clone per holed building per material: about 30 in a town fight, 1 KiB of uniforms each | same | same |
+| Fragment | discard turns off early-z on holed buildings only: ≤ 0.15 ms for 30 on screen | ≤ 0.15 ms | ≤ 0.1 ms, no rim band at `fxDetail` 0 |
+
+**Why an unhit map stays bit-identical.** The hole clone is minted on a building's FIRST hole and never
+before. A building with no hole draws its band material, untouched, and the prewarm compiles the program
+without drawing anything. So a map where nothing is hit binds no new program, material or side. No gated
+scenario damages a building before its capture tick (`building-damage.ts`'s own claim, held by the
+`visual` job).
 
 **Debris art, no new per-building art.** There are three shared procedural chunk shapes (slab 12 tris,
 block 20, shard 8), built in code, one `InstancedMesh` each. A chunk's colour comes from its type's
 `structures.json` `color` key and the two darker keys on that ramp (higher index, because **ramps descend
-in brightness**). A charred chunk takes `gunmetal.2`. A per-building debris kit (Blender or Meshy) is
-rejected for now: it would mean art for every building against a gain the lead would judge at gameplay
-zoom.
+in brightness**). A charred chunk takes `gunmetal.2`.
 
 **Pool and clocks.** The chunks are GPU-aged, like the flipbook: per-instance spawn attributes, and the
-vertex shader evaluates the flight. The CPU writes only at spawn, so it costs 0 per frame. The flight
-runs on the FX frame clock, so hit-stop freezes it mid-air. The sink runs on the sim clock. The order
-is `WORLD_RENDER_ORDER` (opaque, depth-writing world geometry, as for buildings). The chunks are kept
-out of AO (`userData.rlAoExempt`) and cast shadows on `high` only. The ring becomes one instanced mesh
-at `FX_RENDER_ORDER_ADDITIVE`, as today. Any new gain (for example `shockRing: 1.6`) goes in `HDR_GAINS`.
-A unit behind a flying chunk shows its occlusion outline for a few frames. That is correct, and it is
-stated here so nobody reads it as a bug.
+vertex shader evaluates the flight. The CPU writes only at spawn. The flight runs on the FX frame clock,
+so hit-stop freezes it mid-air. The fade runs on the sim clock. The chunks draw at `WORLD_RENDER_ORDER`
+(opaque world geometry, as for buildings), are kept out of AO (`userData.rlAoExempt`), and cast shadows
+on `high` only. Any new gain (for example `shockRing: 1.6`) goes in `HDR_GAINS`. A unit behind a flying
+chunk shows its occlusion outline for a few frames. That is correct.
 
-**Keeping the fight visible (numbers, all checked in §4).** No chunk is bigger than 0.35 t (22 px at
-zoom 1). Settled rubble stands no higher than 0.12 t, below an infantryman's knee. Hit dust peaks at
-alpha 0.55 and collapse dust at 0.7 for ≤ 1.0 s; after 0.6 s every dust stays ≤ 0.45, **under the smoke
-screen's 0.72**. Presentation dust is not cover in the sim, so it must never read as concealment. The
-dust coverage over alpha 0.3 is capped per event at zoom 1 (1440x900): an air strike ≤ 6% of the screen
-at 1 s and ≤ 2% at 4 s; a collapse ≤ 5% at 1 s.
+**Keeping the fight visible (all checked in §4).**
+- No chunk is bigger than 0.35 t (22 px at zoom 1).
+- Settled rubble stands no higher than 0.12 t, below an infantryman's knee.
+- Hit dust peaks at alpha 0.55. The outer pressure wave and its skirt stay ≤ 0.35. After 0.6 s every
+  presentation dust stays ≤ 0.45, under the smoke screen's 0.72. Dust is not cover in the sim, so it
+  must never read as concealment.
+- The collapse shroud is today's, by ruling.
+- Dust coverage over alpha 0.3, per event, at zoom 1 (1440x900): an air strike ≤ 6% of the screen at
+  1 s and ≤ 2% at 4 s; a 155 round ≤ 3% at 1 s.
+- Holes only ever REVEAL.
 
-**Cost (estimates; `pnpm perf:fx --breakdown` measures them in each phase).**
+**Debris cost:**
 
-| Preset | Chunk pool (flying + settled) | Draw calls | Worst-case triangles | Frame |
+| Preset | Chunk pool | Draw calls | Worst-case triangles | Frame |
 |---|---|---|---|---|
-| high | 1024 | +3 colour, +3 shadow | ≤ 49k (1024 x 24 x 2) | ≤ +0.1 ms at the measured ~1 ns per triangle |
-| medium | 512 | +3, no shadow | ≤ 12k | ≤ +0.05 ms |
-| low | 0 (dirt flipbook only, thinned by `low_fraction` 0.5) | +0 | 0 | ~0 |
+| high | 1024 | +3 colour, +3 shadow | ≤ 49k | ≤ +0.1 ms (measured ~1 ns per triangle) |
+| medium | 512 | +3 | ≤ 12k | ≤ +0.05 ms |
+| low | 0 (dirt flipbook only, `low_fraction` 0.5) | +0 | 0 | ~0 |
 
-Every preset adds +1 draw for the ring (while live), +0 for facade marks, sag and sink (same meshes),
-and at most 66 extra flipbook billows for each heavy round, inside the existing 2048. Materials: +1
-clone per damaged building per material, with one shared program variant. Clipping is a second variant,
-prewarmed at boot so the first collapse never hitches on a compile. When the pool is full, a lower
-`budget_priority` event spawns `ceil(count x free/needed)` and never steals a live chunk. A Grad salvo
-(20 rounds x 84 chunks = 1680 asked of 1024) therefore thins out rather than stutters.
+Every preset adds +2 draws for the two-part ring while it is live, and at most 68 extra flipbook billows
+for each heavy round, inside the existing 2048. When the pool is full, a lower `budget_priority` event
+spawns `ceil(count x free/needed)` and never steals a live chunk. A Grad salvo (20 x 84 chunks asked of
+1024) therefore thins out rather than stutters.
 
 ## 4. Phases (each one ships alone)
 
@@ -173,53 +263,58 @@ tick stated, one browser.
 
 | Phase | Ships | Witness | Each new check, and the input that turns it red |
 |---|---|---|---|
-| **P1, the anchor: splash-derived blasts** | `munitions.json` + schema, class routing in `onFire`, the `ShellModel` carrying its class. Existing flipbook, light, shake, crater and scorch, rescaled. The ring pool is extended to every class with a reach. The 155 ships with the numbers above | `blast:capture` gains `howitzer_155`, `mortar_82`, `grad_122`, `gl_40` and `dpicm_155`. It reads the ring's outer radius in px and the fireball's radius at 200 ms | (a) Coverage: every weapon with `splash_tiles` or `submunitions` resolves a class. Red: delete `howitzer_155` from the map, or add a splash weapon to a fixture. (b) Reach: ring radius = `S` ± 10% in px. Red: set the ring multiplier to 0.5. (c) Order: fireball px grenade < mortar < heavy < strike. Red: swap the mortar and heavy rows. (d) Ladder covers the classes. Red: heavy light 4.0 against a kill's 3.5. (e) Schema: raw hex in `munitions.json`. Red: `validate:data` |
-| P2, the debris pool | GPU-aged chunks and terrain clods, presets as in §3 | `blast:capture` `debris` toggle floor (a third of the smallest of 3 runs). `perf:fx` on high, medium and low | Floor. Red: make `spawnDebris` a no-op (0 px). Determinism: two captures bit-identical at rest. Red: integrate per frame with `dt` instead of the closed form. Low preset has 0 debris draws. Red: ignore `fxDetail` |
-| P3, the building hit | Hit-face chunks and dust, facade marks | New `building-hit:capture`: a hand-ticked series of 1, 3 and 6 hits on a house, from E and from S | Hit side: mean chunk velocity · (shooter - centre) > 0. Red: flip the sign. Marks: a `building-scars` toggle floor. Red: zero the mark radius. Versus: no chunk or mark for a hostile hit in fog. Red: drop the `hostileEffectVisible` guard (`versus-leaks.test.ts` style) |
-| P4, staged collapse | Partial sag at band 2, sink-and-lean, thinner shroud, settling, collapse dust | The collapse motion capture (`flip-<id>.html` pages; the lead judges motion, not stills). A **new gated `rubble` scenario**: a dated collapse showcase, chunks placed at rest at sim time 0 with no live effect (the `aftermath` pattern) | `debris` and `rubble-settle` floors. Red: no-op the placement. Fight visibility: the dust coverage ceilings in §3. Red: double the dust alpha. Nothing below ground: no chunk vertex under `ground-height`. Red: rest y - 0.05 |
-| P5 (optional), demolition | `chargeDetonated` drawn (directional, away from the wall). The D9 throws chunks along the blade | `blast:capture` `demo_tzav` subject | Direction: mean velocity · wall normal > 0. Red: flip it |
+| **P1, the anchor: splash-derived blasts and the two-part ring** | `munitions.json` + schema, class routing in `onFire`, the class carried on `ShellModel`. Existing flipbook, light, shake, crater and scorch, rescaled. Inner and outer rings for every class with a reach. The 155 ships with the numbers in §2 | `blast:capture` gains `howitzer_155`, `mortar_82`, `grad_122`, `gl_40` and `dpicm_155`. Each reports both ring radii in px and the fireball's radius at 200 ms | (a) Coverage: every weapon with `splash_tiles` or `submunitions` resolves a class. Red: delete `howitzer_155` from the map. (b) Inner ring = `S` ± 10% in px. Red: inner multiplier 0.5. (c) Outer ring = `k x S` ± 10%, and outer > inner. Red: `k` 0.9. (d) Fireball order grenade < mortar < heavy < strike. Red: swap two rows. (e) Ladder covers the classes. Red: heavy light 4.0 against a kill's 3.5. (f) Raw hex in `munitions.json`. Red: `validate:data` |
+| P2, the debris pool | GPU-aged chunks and terrain clods | `blast:capture` `debris` toggle floor (a third of the smallest of 3 runs). `perf:fx` on all three presets | Floor. Red: no-op `spawnDebris`. Rest poses bit-identical over two captures. Red: integrate per frame with `dt`. Low has 0 debris draws. Red: ignore `fxDetail` |
+| P3, the building hit | Hit-face chunks and dust at the face | New `building-hit:capture`: hand-ticked series of 1, 3 and 6 hits on a house, from E and from S | Hit side: mean chunk velocity · (shooter - centre) > 0. Red: flip the sign. Versus: nothing for a hostile hit in fog. Red: drop `hostileEffectVisible` (`versus-leaks.test.ts` style) |
+| **P4, real holes** | §3a for clone-drawn buildings. P4b: per-tile walls, if the lead says so | `building-hit:capture` adds a `holes` toggle floor, and flip pages from three angles at zoom 1 and 2 for the lead's eye | (a) `holes` floor. Red: make the discard a no-op. (b) Interior is dark: mean luminance inside the hole mask < 0.5x the wall around it. Red: shade back faces with the front material. (c) Never cuts the far wall: a unit test over the cylinder. Red: `depth` = infinity. (d) An unhit sim mints 0 hole clones. Red: mint one at load. (e) Six-hole cap and the growth rule. Red: cap 7. (f) Shadow is cut too: a toggle on the shadow-map photograph. Red: drop `customDepthMaterial` |
+| P5, staged collapse | Band-2 sag, flying debris under today's shroud, settling and fading, a gated `rubble` scenario (a dated collapse showcase with chunks at rest at sim time 0, the `aftermath` pattern) | Collapse flip pages (the lead judges motion). `rubble` gated | `debris` and `rubble-settle` floors. Red: no-op placement. Nothing below ground. Red: rest y - 0.05. Fade at 90 s on the sim clock: two ticks pinned either side. Red: fade on the frame clock (bimodal) |
+| P6 (optional), demolition | `chargeDetonated` drawn, directional. The D9 throws chunks along its blade | `blast:capture` `demo_tzav` | Direction: mean velocity · wall normal > 0. Red: flip it |
 
 **The visual gate.** `quiet`, `open-ground`, `vehicle`, `relief`, `kitted`, `fogged` and `aftermath`
 frame no live blast and no damaged building. They must read **0 px** in every phase, and any move there
-is a defect, never a bless. `aftermath` stamps its craters through the curves (`craterRadiusTiles`), which
-are unchanged. The classes only choose their inputs. `combat` and `dusk` (report-only) will move from P1
-on. The report states the move; it is not blessed. P4 adds `rubble`, which is exit 1 until its post-merge
-bless from CI numbers. A bless is judged on the picture, with the frame pairs looked at: chunks inside
-the rubble decal, none floating, none under the ground, and the dust under its ceiling.
+is a defect, never a bless. For P4 that is the "unhit map" argument in §3a. Its falsifier: put one hole
+on every building at boot, and the gated `quiet` and `relief` frames (both of which show buildings) must
+go red. `aftermath` stamps its craters through `craterRadiusTiles`, which is unchanged; the classes only
+choose its inputs. `combat` and `dusk` (report-only) move from P1 on, and P4 moves them most. That is
+stated in the report, not blessed. P5 adds `rubble`: exit 1 until its post-merge bless from CI numbers.
+A bless is judged on the picture, frame pairs looked at:
+- holes dark and ragged, never through to the sky;
+- chunks inside the rubble decal, none floating and none under the ground;
+- dust under its ceilings.
 
-## 5. Decisions for the lead (recommendation first)
+## 5. Decisions
 
-1. **Approve the number table in §2 and the 155 anchor, so the mock can be rendered.** Recommended as
-   written.
-2. **The class table lives in `data/vfx/munitions.json`** (recommended: presentation stays out of sim
-   data) rather than a `blast_class` field on each weapon. Either way, `S` is read from the weapon.
-3. **The collapse sinks and leans under a thinner shroud** (recommended: the fall becomes visible and
-   the fight stays visible) rather than keeping today's dense 2.4 s shroud with debris added.
-4. **Facade char marks with no holes** (recommended, as the vehicle wreck ruling) rather than holes or
-   cut-outs, which would need a mock first.
-5. **Hit-stop only on the air strike (60 ms), demolition (40 ms) and the collapse**, and none on any shell
-   (recommended, following the GH-748 barrage ruling).
-6. **Settled rubble sinks into its decal after 90 s** (recommended: the pool stays bounded and the decal
-   keeps the record) rather than staying for the whole mission.
-7. **`grad_122` stays in `heavy_artillery`** with the 155 (recommended; its 3.0 splash already makes it
-   wider) rather than a `rocket` class of its own.
-8. **Low preset: no 3D debris** (recommended); the dirt flipbook only.
+**Ruled (9 Nov):** the data file; hit-stop only on the strike, demolition and the collapse; Grad in
+`heavy_artillery`; no 3D debris on low; rubble fades to its decal at 90 s; today's shroud plus flying
+debris; real holes; a two-part ring.
+
+**Still open (recommendation first):**
+1. **Approve the revised §2 table, the 155 anchor and the §3a hole sizes**, so a mock can be rendered.
+2. **Six holes per building**, with growth rather than new slots past that, rather than an unlimited
+   count.
+3. **Indirect fire punches ROOF holes** (recommended), rather than every hole going on a facade.
+4. **Per-tile walls get holes later (P4b)**: one per tile as an instance attribute. Or walls keep debris
+   only.
+5. **Accept that AO does not see holes** (recommended unless the mock shows a halo), rather than routing
+   AO through the hole hook.
 
 **Mocks at game zoom 1** (a tile is 64 x 32 px on the ground; height is about 39 px a tile).
 
-A. 82 mm and 155 mm landing 6 tiles apart, at 200 ms:
+A. 82 mm and 155 mm landing 6 tiles apart, at 300 ms:
 ```
    82 mm                                   155 mm
      .  *  .                                 ,(@@@@),       column climbs to ~157 px by 2 s
    ( ##### )   fireball r 36 px            (@@@@@@@@@@)     fireball r 77 px
- -----O-----   ring 128 x 64 px ellipse  --------O--------  ring 154 x 77 px, the 2.4 t splash
+ -----O-----   inner ring 128 x 64 px  ::::------O------::::  inner 154 x 77 px (the 2.4 t that hurts)
+  ::     ::    outer 160 x 80, faint   outer pressure wave 246 x 123 px at alpha 0.2 (3.84 t, no damage)
                                          crater r 61 px, scorch r 92 px; 4 px shake for 360 ms
 ```
-B. A Lavi's round on a house from the east, hit 3 of 6 (band 5): about 20 chunks leave the EAST face,
-none bigger than 22 px. They land within 1.6 t (102 px) of the face. A dark char disc of r 0.3 t (19 px)
-on the plaster, and 6 dust billows at alpha ≤ 0.55, gone by 3 s. The west face is untouched.
+B. A Lavi's HE round on a house from the east, hit 3 of 6. Three ragged holes on the EAST face, r 19 px,
+the first grown to 24 px. Through them, a near-black interior with the floor catching a sliver of sun.
+Each has a pale masonry lip and a char halo. About 20 chunks of ≤ 22 px each land within 102 px of the
+face, and 6 dust billows (alpha ≤ 0.55) are gone by 3 s. The west face is clean.
 
-C. An apartment's final collapse: at 0 ms, the stand. At 300 ms, sunk 11% and leaning 4° east, chunks
-streaming off the cut line, dust at 0.7. At 900 ms, the standing mesh is gone below ground, the wreck
-stands, and 40 chunks are on the ground. At 3 s, dust ≤ 0.45, every unit legible through it, rubble
-≤ 5 px tall. At 90 s, the chunks sink and the rubble decal remains.
+C. An apartment hit by a 155 round on the roof: a 32 px roof hole and the dark storey below it. At its
+collapse, today's tan shroud swallows the block for 0.84 s while 40 chunks arc out of it, 96-190 px. By
+3 s the shroud is thinning over the wreck, with chunks scattered on the rubble decal, ≤ 5 px tall. At
+90 s they fade into the decal.
