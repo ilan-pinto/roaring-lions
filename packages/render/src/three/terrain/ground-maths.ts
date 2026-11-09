@@ -137,3 +137,103 @@ export function macroFactor<T>(o: Ops<T>, m: T, amp: T, bright: T, dark: T): T {
   const tint = o.selectLt(m, o.lit(0), dark, bright);
   return o.mul(luminance, o.add(o.lit(1), o.mul(hueWeight, o.sub(tint, o.lit(1)))));
 }
+
+// -- The blend's composition (T3 fix round) ---------------------------------------------------------------------------------
+
+/** What the composition needs beyond `Ops<T>`: a Rec. 709 luminance of an rgb value (a scalar) and the rgb constant (1, 1, 1). */
+export interface BlendVec<T> {
+  luma(rgb: T): T;
+  readonly one3: T;
+}
+
+/** The sampled inputs of one ground fragment. rgb values are `T` vectors; channels are passed one by one. */
+export interface GroundTaps<T> {
+  /** The vertex palette tone (rgb). */
+  readonly vertexTone: T;
+  /** The `wallAlbedo` attribute: -1 on a top, else the wall's rock weight. */
+  readonly wall: T;
+  /** Each slot's texel at its own repeat (rgb), in `GROUND_SLOTS` order: open, rock, scrub, grove, knoll. */
+  readonly slotTexels: readonly T[];
+  /** Control A (open, rock, scrub, grove weights) and control B (knoll weight, road distance, junction distance, edge bend). */
+  readonly controlA: readonly [T, T, T, T];
+  readonly controlB: readonly [T, T, T, T];
+  /** The knoll image at the road grain's uv (rgb). */
+  readonly grainTexel: T;
+  /** The macro field's red channel, 0..1. */
+  readonly macroTexel: T;
+}
+
+/** The uniform record's values the composition reads. */
+export interface GroundKnobs<T> {
+  /** Per slot, in `GROUND_SLOTS` order. */
+  readonly strengths: readonly T[];
+  readonly means: readonly T[];
+  /** The knoll image's mean (the grain's divisor). */
+  readonly grainMean: T;
+  readonly roadOn: T;
+  readonly grainGain: T;
+  readonly roadTone: T;
+  readonly shoulderTone: T;
+  readonly rutTone: T;
+  readonly macroAmp: T;
+  readonly macroBright: T;
+  readonly macroDark: T;
+}
+
+/**
+ * The dry ground blend after the taps, in the legacy `GROUND_BLEND_GLSL` order: slot ratios mixed from 1 by strength; the five
+ * weights from controls A/B (`top = step(wall, -0.5)`; a wall ignores the map and takes its rock weight); height bias and rescale;
+ * the road bands from control B's distance (G), junction distance (B) and bend (A), gated by the road switch AND the top mask; the
+ * surface takes the weights beneath it down and adds its grain term; the tones mixed into the vertex colour; then albedo x macro.
+ * Returns the colour (rgb) and `top` (the relief read applies on tops only). `roadRangeTiles` is `ROAD_DISTANCE_RANGE_TILES`.
+ * Written once: the node ground runs it on TSL nodes, the tests on number vectors.
+ */
+export function groundBlend<T>(
+  o: Ops<T>,
+  v: BlendVec<T>,
+  roadRangeTiles: number,
+  taps: GroundTaps<T>,
+  k: GroundKnobs<T>
+): { readonly colour: T; readonly top: T } {
+  const one = v.one3;
+  const lit = o.lit;
+  if (taps.slotTexels.length !== 5 || k.strengths.length !== 5 || k.means.length !== 5) {
+    throw new Error(`groundBlend: five slots expected, got ${taps.slotTexels.length} texels`);
+  }
+  // Slot factors: the texel as a ratio to its mean, mixed from 1 by the strength.
+  const factors = taps.slotTexels.map((t, i) => o.mix(one, o.div(t, k.means[i] as T), k.strengths[i] as T));
+  // The five weights. A wall ignores the map.
+  const [aR, aG, aB, aA] = taps.controlA;
+  const [bR, bG, bB, bA] = taps.controlB;
+  const top = o.step(taps.wall, lit(-0.5));
+  const w = [
+    o.mul(top, aR),
+    o.add(o.mul(top, aG), o.mul(o.sub(lit(1), top), o.max(taps.wall, lit(0)))),
+    o.mul(top, aB),
+    o.mul(top, aA),
+    o.mul(top, bR),
+  ];
+  // Height bias by each weight's own strength-scaled texel luminance deviation, then the rescale.
+  const biased = w.map((wi, i) => heightBiased(o, wi, o.sub(v.luma(factors[i] as T), lit(1))));
+  const weights = rescaleWeights(o, w, biased);
+  // The road.
+  const range = lit(roadRangeTiles);
+  const bands = roadBands(o, o.mul(bG, range), o.sub(o.mul(bA, lit(2)), lit(1)), o.mul(bB, range));
+  const gate = o.mul(k.roadOn, top);
+  const surf = o.mul(gate, bands.surface);
+  const shoulder = o.mul(gate, bands.shoulder);
+  const grain = o.div(taps.grainTexel, k.grainMean);
+  const rut = o.mul(o.mul(bands.rut, gate), o.smoothstep(lit(0.85), lit(1.05), v.luma(grain)));
+  const grainTerm = o.mul(surf, o.sub(o.mix(one, grain, k.grainGain), one));
+  const offRoad = o.sub(lit(1), surf);
+  // The tones into the vertex colour, then albedo x macro.
+  let tone = o.mix(taps.vertexTone, k.roadTone, surf);
+  tone = o.mix(tone, k.shoulderTone, shoulder);
+  tone = o.mix(tone, k.rutTone, rut);
+  let albedo = one;
+  for (let i = 0; i < weights.length; i++) albedo = o.add(albedo, o.mul(o.mul(weights[i] as T, offRoad), o.sub(factors[i] as T, one)));
+  albedo = o.add(albedo, grainTerm);
+  const m = macroDecode(o, taps.macroTexel);
+  const macro = macroFactor(o, m, k.macroAmp, k.macroBright, k.macroDark);
+  return { colour: o.mul(o.mul(tone, albedo), macro), top };
+}

@@ -26,8 +26,8 @@ export interface AccountClient {
   open(): Promise<boolean>;
   me(): Promise<MeResult>;
   steamStart(purpose: 'steam-login' | 'steam-link'): Promise<{ url: string } | AccountError>;
-  logout(): Promise<void>;
-  logoutAll(): Promise<void>;
+  logout(): Promise<'ok' | AccountError>;
+  logoutAll(): Promise<'ok' | AccountError>;
   patchProfile(p: { displayName?: string; showRecord?: boolean }): Promise<'ok' | AccountError>;
   deleteIdentity(id: string): Promise<'ok' | AccountError>;
   exportData(): Promise<Blob | AccountError>;
@@ -77,6 +77,10 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
       return { error: 'network', status: 0 };
     }
   }
+  async function signOut(path: string, goneIsOk: boolean): Promise<'ok' | AccountError> {
+    const r = await okOrError('POST', path);
+    return goneIsOk && r !== 'ok' && r.status === 401 ? 'ok' : r;
+  }
   return {
     enabled: o.enabled,
     async open() {
@@ -112,12 +116,10 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
         return { error: 'network', status: 0 };
       }
     },
-    async logout() {
-      if (o.enabled) await okOrError('POST', 'logout');
-    },
-    async logoutAll() {
-      if (o.enabled) await okOrError('POST', 'logout-all');
-    },
+    // For logout a 401 means this session is already gone, which is what the caller wanted. For logoutAll it means
+    // nothing was ended (the other sessions are still live), so it stays a failure.
+    logout: () => signOut('logout', true),
+    logoutAll: () => signOut('logout-all', false),
     patchProfile: (p) => okOrError('PATCH', 'profile', { op_id: o.newOpId(), ...p }),
     deleteIdentity: (id) => okOrError('DELETE', `identity/${encodeURIComponent(id)}`, { op_id: o.newOpId() }),
     async exportData() {

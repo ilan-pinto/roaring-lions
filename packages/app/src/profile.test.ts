@@ -23,6 +23,8 @@ const ledger = { 'campaign.completed_missions': ['beit_sahwan_1_recon'], 'roe.mi
 // stable balance rather than a number the very first read clips to zero.
 const account = { ...emptyAccount(), balance: 120, earned_total: 120, grants: [{ source: 'granted' as const, amount: 120, at: 1 }] };
 
+const PRICES = [160, 240, 340] as const;
+
 describe('profile slots', () => {
   it('a slot round-trips the ledger and the account byte for byte', () => {
     const s = memStore();
@@ -160,7 +162,7 @@ describe('T21 reset and slots with credit tiers and coin tiers', () => {
 
   it('resetAccount drops a bought unit\'s credit tiers, its unlock and the free coin tiers', () => {
     const s = memStore();
-    const bought = buyUpgradeRun({ ...funded, unlocks: ['spg_long_range'] }, 'spg_long_range', 'armour', 1, 3, 740).account;
+    const bought = buyUpgradeRun({ ...funded, unlocks: ['spg_long_range'] }, 'spg_long_range', 'armour', 1, 3, PRICES).account;
     s.writeAccount(bought);
     s.writeRoar(coinWallet());
     expect(s.readAccount().upgrades.spg_long_range?.armour).toBe(3);
@@ -186,7 +188,7 @@ describe('T21 reset and slots with credit tiers and coin tiers', () => {
 
   it('a slot load restores the earned tiers and leaves the coin tiers alone', () => {
     const s = memStore();
-    const earned = buyUpgradeRun(funded, 'spg_long_range', 'armour', 1, 2, 400).account;
+    const earned = buyUpgradeRun(funded, 'spg_long_range', 'armour', 1, 2, PRICES).account;
     s.writeAccount(earned);
     s.writeRoar(coinWallet());
     const roarBytes = s.map.get(ROAR_KEY);
@@ -196,7 +198,7 @@ describe('T21 reset and slots with credit tiers and coin tiers', () => {
     expect(exportSlot(slot)).not.toContain('entitlements');
     expect(exportSlot(slot)).not.toContain('paidTiers');
     // Play on: spend more credits, buy another coin tier, then load the slot back.
-    const played = buyUpgradeRun(earned, 'spg_long_range', 'armour', 3, 3, 340);
+    const played = buyUpgradeRun(earned, 'spg_long_range', 'armour', 3, 3, PRICES);
     expect(played.ok, 'the purchase after the slot was saved landed').toBe(true);
     s.writeAccount(played.account);
     expect(s.readAccount().upgrades.spg_long_range?.armour, 'play-on moved the tier before the load').toBe(3);
