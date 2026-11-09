@@ -26,6 +26,7 @@ import type { NodePmremHost } from '../environment';
 import type { RawPixels } from '../capture-view.node';
 import type { GroundMaterial } from '../terrain/mesh';
 import type { GroundMaths } from '../terrain/mesh.node';
+import type { RingMaths } from '../units/selection-ring.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -53,7 +54,7 @@ export interface MaterialMaths {
   /** T3: the ground blend (`terrain/mesh.node.ts`). */
   readonly ground: GroundMaths;
   readonly foliage: null;
-  readonly ring: null;
+  readonly ring: RingMaths;
 }
 
 /**

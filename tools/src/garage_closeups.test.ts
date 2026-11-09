@@ -25,19 +25,19 @@ function jpegSize(buf: Buffer): [number, number] {
 }
 
 describe('garage close-ups', () => {
-  it('owes one per KDF vehicle or aircraft type and track: 36 since WP-SC0', () => {
+  it('owes one per KDF vehicle or aircraft type and track: 47 since GH-1077', () => {
     // 59 on the 25 Oct roster, less the 23 infantry-team close-ups (8 teams;
     // WP-SC0, GH-746): they showed the 8 Oct orange claws. A literal, so a
     // roster change that ships without its close-ups fails here by name.
-    expect(plan).toHaveLength(36);
-    expect(new Set(plan.map((j) => j.id)).size).toBe(13);
+    expect(plan).toHaveLength(47);
+    expect(new Set(plan.map((j) => j.id)).size).toBe(18);
     expect(plan.filter((j) => j.id === 'dozer_d9').map((j) => j.track)).toEqual(['armour', 'sensors']);
   });
 
   it('refuses a run that wrote a different count', () => {
-    expect(() => assertCloseupCount(25, plan)).toThrow(/25 written, but data\/units\/kdf\/ declares 36 vehicle and aircraft/);
-    expect(() => assertCloseupCount(37, plan)).toThrow();
-    expect(() => assertCloseupCount(36, plan)).not.toThrow();
+    expect(() => assertCloseupCount(25, plan)).toThrow(/25 written, but data\/units\/kdf\/ declares 47 vehicle and aircraft/);
+    expect(() => assertCloseupCount(48, plan)).toThrow();
+    expect(() => assertCloseupCount(47, plan)).not.toThrow();
   });
 
   it('ships exactly the plan: in the manifest, on disk, 480x320', () => {
@@ -80,6 +80,6 @@ describe('garage close-ups', () => {
       .filter((f) => f.endsWith('.json'))
       .map((f) => JSON.parse(fs.readFileSync(path.join(kdf, f), 'utf8')) as { id: string; upgrades?: object })
       .filter((u) => u.id in RIGGED_UNIT_MESHES && Object.keys(u.upgrades ?? {}).length > 0);
-    expect(teamsWithTracks.length).toBe(8);
+    expect(teamsWithTracks.length).toBe(12);
   });
 });

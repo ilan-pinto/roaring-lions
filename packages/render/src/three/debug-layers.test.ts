@@ -149,6 +149,19 @@ describe('DEBUG_LAYERS', () => {
     r.dispose();
   });
 
+  it('hides the ground rings by their GROUP alone (selection, team, wound), and the other overlays stay', () => {
+    // GH-943 P2 (T5). The meshes' `visible` is rewritten by every `endFrame`, so the toggle that holds is the group's.
+    const r = makeRenderer();
+    const i = internals(r);
+    expect(r.setDebugLayerVisible('selection-ring', false)).toBe(1);
+    expect(i.selectionRingGroup.visible).toBe(false);
+    expect(i.overlayBatch.mesh.visible).toBe(true);
+    expect(i.zoneBandGroup.visible).toBe(true);
+    expect(r.setDebugLayerVisible('selection-ring', true)).toBe(1);
+    expect(i.selectionRingGroup.visible).toBe(true);
+    r.dispose();
+  });
+
   it('also hides the occlusion silhouette -- a different subsystem folded into the same name', () => {
     // Found while framing the key-art plate near a civic structure: a
     // hostile unit standing behind it showed as a thin red occlusion
