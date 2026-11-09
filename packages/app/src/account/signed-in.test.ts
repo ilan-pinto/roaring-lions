@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { StorageLike } from '../brigade-account';
 import { ACCOUNT_BINDING_KEY, readBinding, writeBinding } from './binding';
 import type { AccountClient, MeResult } from './client';
+import { unusedA2Client } from './fixtures';
 import { resolveSignedIn, sha256Hex } from './signed-in';
 
 function mem(): StorageLike {
@@ -12,7 +13,7 @@ function fake(me: MeResult, gone: 'deleted' | 'unknown', seen: string[] = []): A
   const never = (): never => {
     throw new Error('unused');
   };
-  return { enabled: true, me: () => Promise.resolve(me), gone: (h) => (seen.push(h), Promise.resolve(gone)), open: never, steamStart: never, logout: never, logoutAll: never, patchProfile: never, deleteIdentity: never, exportData: never, deleteAccount: never };
+  return { enabled: true, me: () => Promise.resolve(me), gone: (h) => (seen.push(h), Promise.resolve(gone)), open: never, steamStart: never, logout: never, logoutAll: never, patchProfile: never, deleteIdentity: never, exportData: never, deleteAccount: never, ...unusedA2Client };
 }
 const IN: MeResult = { kind: 'signedIn', publicId: 'pub1', displayName: 'Abc', showRecord: false, fresh: true, identities: [] };
 
@@ -52,7 +53,7 @@ describe('resolveSignedIn', () => {
     const s = mem();
     writeBinding(s, { version: 1, publicId: 'pub1' });
     const seen: string[] = [];
-    expect(await resolveSignedIn(fake({ kind: 'off' }, 'deleted', seen), s)).toEqual({ kind: 'signedOut', publicId: 'pub1' });
+    expect(await resolveSignedIn(fake({ kind: 'off' }, 'deleted', seen), s)).toEqual({ kind: 'signedOut', publicId: 'pub1', off: true });
     expect(seen).toEqual([]);
   });
   it('sha256Hex matches a known vector', async () => {

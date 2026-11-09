@@ -253,3 +253,68 @@ describe('the seat table decides who never cuts a wall by accident (N2)', () => 
     expect(() => new Sim({ seed: 1, width: 4, height: 4, capacity: 4, humanHeld: [1, 0] as never })).toThrow(/humanHeld/);
   });
 });
+
+// First-contact audit follow-up: `selectBreachTarget` skipped garrisonable and protected structures but never asked WHO OWNS the wall,
+// so a side-1 gun truck stood next to its own side's authored weapons workshop (Wadi Halam V) and razed it in 6 s of a passive run, and an
+// ATGM cell did the same to its own field clinic (Beit Sahwan III). A side never cuts a structure its own side owns. A neutral wall, and one
+// the other side owns, are still fair game: the breach rule itself is unchanged.
+describe('a side never cuts a structure it owns', () => {
+  /** One fence tile two tiles east of a side-1 rifleman with no order and nobody else on the map. */
+  function lone(owner: number) {
+    const sim = new Sim({ seed: 3, width: 32, height: 16, capacity: 32 });
+    const type = sim.addStructureType(FENCE);
+    const fence = sim.addStructure(type, [8 * sim.width + 14], { owner });
+    const rpg = sim.addUnitType(RPG);
+    const u = sim.spawn(rpg, 1, fx.from(12.5), fx.from(8.5));
+    return { sim, fence, u };
+  }
+  const hits = (events: SimEvent[]): number => events.filter((e) => e.kind === 'structureHit').length;
+
+  it('a stationary unit does not shoot a fence its own side owns (and the fence keeps every hit point)', () => {
+    const { sim, fence, u } = lone(1);
+    const events = run(sim, 120 * TICKS_PER_SECOND);
+    expect(sim.structures.owner[fence]).toBe(1);
+    expect(events.some((e) => e.kind === 'fire' && e.shooter === u)).toBe(false);
+    expect(hits(events)).toBe(0);
+    expect(sim.structures.hp[fence]).toBe(sim.structures.maxHp[fence]);
+    expect(sim.state.curStructure[u]).toBe(-1);
+  });
+
+  it('control: the same unit DOES cut the same fence when nobody owns it (the breach rule is unchanged)', () => {
+    const { sim, fence, u } = lone(-1);
+    const events = run(sim, 120 * TICKS_PER_SECOND);
+    expect(events.some((e) => e.kind === 'fire' && e.shooter === u && e.structure === fence)).toBe(true);
+    expect(sim.structures.hp[fence]).toBeLessThan(sim.structures.maxHp[fence]);
+  });
+
+  it('control: and when the OTHER side owns it', () => {
+    const { sim, fence, u } = lone(0);
+    const events = run(sim, 120 * TICKS_PER_SECOND);
+    expect(events.some((e) => e.kind === 'fire' && e.shooter === u && e.structure === fence)).toBe(true);
+    expect(sim.structures.hp[fence]).toBeLessThan(sim.structures.maxHp[fence]);
+  });
+
+  it('a unit sent through a sealed wall its own side owns does not cut it either; one sent through a neutral wall does', () => {
+    for (const [owner, cuts] of [[1, false], [-1, true]] as const) {
+      const sim = new Sim({ seed: 3, width: 32, height: 16, capacity: 32 });
+      const type = sim.addStructureType(FENCE);
+      const walls: number[] = [];
+      for (let y = 0; y < sim.height; y++) walls.push(sim.addStructure(type, [y * sim.width + 16], { owner }));
+      const rpg = sim.addUnitType(RPG);
+      const u = sim.spawn(rpg, 1, fx.from(13.5), fx.from(8.5));
+      sim.queueCommand({ kind: 'attackMove', ids: [u], x: fx.from(28.5), y: fx.from(8.5) });
+      const events = run(sim, 90 * TICKS_PER_SECOND);
+      expect(hits(events) > 0, `owner ${owner}`).toBe(cuts);
+    }
+  });
+
+  it('control: a side-0 unit never breaches in single-player (the seat table), whoever owns the fence', () => {
+    const sim = new Sim({ seed: 3, width: 32, height: 16, capacity: 32 });
+    const type = sim.addStructureType(FENCE);
+    const fence = sim.addStructure(type, [8 * sim.width + 14], { owner: -1 });
+    const u = sim.spawn(sim.addUnitType(RPG), 0, fx.from(12.5), fx.from(8.5));
+    run(sim, 120 * TICKS_PER_SECOND);
+    expect(sim.structures.hp[fence]).toBe(sim.structures.maxHp[fence]);
+    expect(sim.state.curStructure[u]).toBe(-1);
+  });
+});

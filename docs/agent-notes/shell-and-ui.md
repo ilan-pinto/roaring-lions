@@ -241,6 +241,52 @@ credit Buy), 1120 (the panel), 1122 (Stores tier-row credit Buy). PR 1123 (the n
 - **A2 requirement (stale cache).** `creditAsk` reads the coin tier through the cache. A coin spend still in the
   outbox can leave the cache one tier low, and a credit run would re-buy a tier coins already own (R4). When A2
   makes coin spends server-authoritative, DISABLE the credit Buy on a track with a pending coin spend for that
-  track. Tracked in GH-1142. `buyUpgradeRun` itself is GH-1146.
+  track. GH-1142 is done (A2): `pendingSpends` on the account store disables it. `buyUpgradeRun` itself is GH-1146.
 - **Known gaps left open** (each has an issue): `pnpm playtest` only exercises the medic's track, not the other eight (GH-1144); possible
   existing overflows at 1280 on the Garage cards and at 1920 on pseudo card text (GH-1145).
+
+## Accounts A2: claim and sync (GH-1075)
+
+Behind `?accounts`. Sources: `packages/app/src/account/` (`account-store.ts`, `outbox.ts`, `sync.ts`, `claim.ts`,
+`local-held.ts`); rulings in `docs/superpowers/plans/2026-11-09-accounts-a2.md` section 0. A2 adds no migration and no
+binding.
+
+- **Coins move only through the server routes.** The signed-in `accountLedgerStore` reads the wallet and never writes it:
+  `writeRoar`, `restoreRoar` and `resetAccount` throw `ServerCoinsError`. A coin Buy, a coupon and the brigade reset are
+  BARRIER ops (`sync.barrier`, section 0.18): never queued, sent only with an empty outbox, refused offline or while the
+  outbox drains. The server's journal balances (A2-24, the double spend).
+- **The outbox is per tab** (`lions.account.outbox.<tabId>`, section 0.38). A tab's writes append to its own key, so one
+  tab can never overwrite another's. The flusher runs under `navigator.locks` (`lions.account.flush`); with no Web Locks
+  a tab flushes alone and a 409 keeps the other tab's campaign as a conflict slot, losing nothing.
+- **The send base** (R12, R17) is the campaign revision the queued campaign ops are sent on. It is pinned at QUEUE time
+  (the revision the snapshot was built on), lives in this tab's own outbox value, and is advanced only by THIS tab's
+  acks, never by another tab's write to the shared cache.
+- **The conflict rule.** A 409 on a campaign op drops the campaign ops queued behind it; they are never re-based. The
+  newest queued snapshot becomes the body of the conflict slot the 409 named, or, with every system slot full, goes to
+  the held list. A queued victory behind it is sent coins-only (`campaign: null`). A victory's coin half is a fact and is
+  paid; its campaign half follows this rule and the answer is 200 with `conflict` set.
+- **The held list** is `lions.account.local` (`local-held.ts`): work this device holds that the server did not take,
+  kept verbatim. Reasons: `cap` and `size` (a claim slot the server rejected), `invalid` (a damaged `lions.saves` entry,
+  never sent), `held` (a campaign body displaced by a 409), `refused` (a wedged or refused op, kept whole). A held item is
+  written BEFORE the cache changes or `lions.saves` goes, and leaves only on its own digest. A refused held write keeps
+  every guest key (A2-19).
+- **The claim.** `runClaim` mints or reuses the binding's `deviceId`, writes the `lions.account.claiming` marker
+  (`{deviceId, digests, at}`) and the guest store refuses writes until it resolves. `finishClaim` writes in this order:
+  the held items, the cache, the binding's `claimedAt`, then `removeGuestProgress`; a digest mismatch removes nothing and
+  retries. The guest store refuses writes only under `?accounts` (without `?fresh`): with accounts off the marker is
+  inert. At boot `finishInterruptedClaim` removes leftover guest keys only when the marker is present with the binding's
+  `deviceId` (`finishClaim` takes the marker last): guest keys beside a claimed binding and no marker are the player's own
+  play and stay. A device with no guest progress sets `claimedAt` and makes no claim request.
+- **Sign-out and deletion** (section 0.46) run in `account/sync.ts` over the account store, never as a bare
+  `client.logout()`: `signOut` flushes (5 s), files what is left as `refused`, sends the logout (`logoutAll` for "Sign out
+  everywhere", passed in), then clears the cache, every outbox and heartbeat key of that member, `claimedAt` and
+  `deviceId` (A2-30). Deletion stops the loop and runs `wipeMember` (the same filing and clearing), then `clearBinding`.
+  Both then HARD-reload through `shell/links.ts`'s `reloadMenuHref`, which keeps the sticky query keys (`?accounts`, `lang`,
+  `pseudo`): a reload without `?accounts` lands the device on the guest store. `main.ts` hands the profile these
+  dependencies only when the sync handle and the account store exist; on an unclaimed binding the profile logs out and
+  clears the device id itself.
+- **The sync loop starts unverified** (I1): one `GET me` must name the cache's member before the first refresh or send.
+  Another member signed in (a Steam redirect) means no state applied, no op sent, `onForeignMember` called. A store adopts
+  its tab's outbox key only when it is that member's (or the old unowned shape).
+- **Privacy and telemetry.** The page at `/privacy` lists the A2 data (A2-32). Telemetry and the feedback context carry
+  neither the public id nor the device id (`account/unlinked.test.ts`, A1-10 extended).

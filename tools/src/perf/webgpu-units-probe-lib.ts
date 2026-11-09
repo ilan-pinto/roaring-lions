@@ -148,14 +148,14 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
       camera: { tile: [37.5, 31], zoom: 2.5 },
       setup: [
         // Six rifle squads packed against the south-east house (x 36-39, y 30-32, the `collapse_house` of blast-captures), the camera's far
-        // side among them. Damaged, so a health bar draws too: the layer is `overlays` until T5 gives the outline its own.
+        // side among them. GH-943 P3 (T5): the layer is the outline's own (`outline`: the team and smoke silhouettes, not the bars).
         "const ids = [[35.4, 29.4], [36.6, 29.2], [37.8, 29.1], [35.2, 30.6], [35.3, 31.8], [38.4, 29.3]].map((p) => __probe.spawn('inf_squad', 0, p[0], p[1]));",
         'await __probe.meshes(ids, false);',
         '__probe.damage(ids, 0.4);',
         '__probe.follow(ids[1], 2.5);',
         'await __probe.settle(4, 50);',
       ],
-      layer: 'overlays',
+      layer: 'outline',
       band: 'tight',
     },
     {
@@ -387,7 +387,15 @@ function fxMoment(blastId: string, layer: string, tag = '@blast'): Pick<ProbeSub
  * Subjects whose node side is LIVE: a port task adds its subject id here in the same PR. Until then a non-DEAD node delta is labelled
  * `pre-port`. The set is read by `rowStatus` only.
  */
-export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>();
+export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
+  // GH-943 P3 (T5): the occlusion outline and the smoke outline (`units/silhouette.node.ts`).
+  'occluded',
+  'smoke-own',
+  // GH-943 P3 (T8): the overlay batch with the zone band, the supply route, the tunnel trail.
+  'damaged-zone',
+  'route',
+  'trail',
+]);
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // The verdict.

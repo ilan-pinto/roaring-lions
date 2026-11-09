@@ -15,7 +15,7 @@ import type { Node as TslNode } from 'three/webgpu';
 import { NUMBER_OPS, type Ops } from './fog-ops';
 import { tslOps } from './fog-pass.node';
 import { VIGNETTE_RADIUS, VIGNETTE_SOFTNESS, VIGNETTE_STRENGTH, vignetteFactor, vignetteScale } from './vignette-spec';
-import { GRADE_LUT_SIZE, bakeLutFloats, gradeNoise, lutCoord, resolveGrade, IDENTITY_GRADE, type GradeJson } from './grade-maths';
+import { GRADE_LUT_SIZE, bakeLutFloats, gradeDitherOffset, gradeNoise, lutCoord, resolveGrade, IDENTITY_GRADE, type GradeJson } from './grade-maths';
 import { createNodePostChain, type NodePostDeps } from './post-chain.node';
 import { QUALITY_PRESETS } from '../quality';
 import type { PostKit } from './backend/backend';
@@ -129,6 +129,25 @@ describe('the LUT coordinate and the dither noise, node graph vs JS vs literals'
     expect(gradeNoise(NUMBER_OPS, 10.5, 20.5)).toBeCloseTo(0.67501, 5);
     expect(evalNode(gradeNoise(nodeOps, u(1), u(1)) as unknown as AnyNode) as number).toBeCloseTo(a, 6);
   });
+
+  it('the dither offset is TRIANGULAR: a pixel reads the worked literal, the range reaches past half an LSB, the mean is near zero', () => {
+    // (10.5, 20.5): n1 + n2 - 1 with n2 at (57.5, 133.5), worked in python independent of the TS. Falsify: drop the second sample in `gradeDitherOffset` (a rectangular dither never exceeds 0.5/255).
+    expect(gradeDitherOffset(NUMBER_OPS, 10.5, 20.5, 1)).toBeCloseTo(0.0018992018436175969, 7);
+    expect(evalNode(gradeDitherOffset(nodeOps, u(10.5), u(20.5), u(1)) as unknown as AnyNode) as number).toBeCloseTo(gradeDitherOffset(NUMBER_OPS, 10.5, 20.5, 1), 6);
+    let max = 0;
+    let sum = 0;
+    const n = 64 * 64;
+    for (let y = 0; y < 64; y++) {
+      for (let x = 0; x < 64; x++) {
+        const v = gradeDitherOffset(NUMBER_OPS, x + 0.5, y + 0.5, 1) * 255;
+        max = Math.max(max, Math.abs(v));
+        sum += v;
+      }
+    }
+    expect(max).toBeGreaterThan(0.5);
+    expect(max).toBeLessThanOrEqual(1);
+    expect(Math.abs(sum / n)).toBeLessThan(0.05);
+  });
 });
 
 // --- the real node chain ---------------------------------------------------------------------------------------------------------
@@ -180,11 +199,14 @@ describe('the order of the output stage in the node graph', () => {
     const lutSelect = selects.find((s) => subtree(s).has(lutSamples[0]));
     expect(lutSelect).toBeDefined();
     expect(subtree(lutSelect).has(outputNodes[0])).toBe(true);
-    // The dither is outermost: its select (the one holding the pixel position) contains the whole vignette product.
+    // The dither is outermost and UNGUARDED (T8): the output node is an add whose subtree holds the whole vignette product and the
+    // pixel position, and no ConditionalNode of the grade-on uniform wraps it.
     const frag = named(all, 'ScreenNode').filter((s) => (s as { scope?: string }).scope === 'coordinate');
     expect(frag.length).toBeGreaterThan(0);
-    const ditherSelect = selects.find((s) => subtree(s).has(frag[0]) && subtree(s).has(mul));
-    expect(ditherSelect).toBeDefined();
+    const ditherAdd = [...all].find((n) => (n as { op?: string }).op === '+' && subtree(n).has(frag[0]) && subtree(n).has(mul));
+    expect(ditherAdd, 'the dither add holds the vignette product and the pixel position').toBeDefined();
+    const guarded = selects.find((s) => subtree(s).has(frag[0]) && subtree(s).has(mul));
+    expect(guarded, 'no select of the grade-on uniform guards the dither').toBeUndefined();
     // ...and the vignette product does NOT contain the pixel position: the dither comes after it.
     expect(inVig.has(frag[0])).toBe(false);
     chain.dispose();
@@ -229,6 +251,12 @@ describe('the grade and vignette handles on the node chain', () => {
     expect(chain.grade.apply(null)).toBe(false);
     expect(chain.grade.apply(IDENTITY_GRADE)).toBe(false);
     expect(chain.grade.uniforms.uGradeOn.value).toBe(0);
+    // ...but it still dithers (T8): the amount is 1, not 0, with no grade on.
+    expect(chain.grade.uniforms.uGradeDither.value).toBe(1);
+    chain.grade.apply(null, { dither: false });
+    expect(chain.grade.uniforms.uGradeDither.value).toBe(0);
+    chain.grade.apply(null);
+    expect(chain.grade.uniforms.uGradeDither.value).toBe(1);
     chain.dispose();
   });
 

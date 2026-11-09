@@ -15,10 +15,11 @@ import {
   type SlotMetaView,
 } from '@lions/economy';
 import type { D1Like, D1Stmt } from '../d1';
-import { CAMPAIGN_MAX_BYTES, SYSTEM_SLOTS } from './config';
+import { budgetedOp } from './budget';
+import { CAMPAIGN_BODY_MAX, CAMPAIGN_MAX_BYTES, SYSTEM_SLOTS } from './config';
 import { capGuard, walletView } from './coin';
-import { accountJson } from './http';
-import { OpReject } from './op';
+import { accountJson, readAccountBody } from './http';
+import { OpReject, validOpId } from './op';
 import type { AccountCtx } from './routes';
 import { requireSession, sessionJson } from './session';
 import { slotCounts, slotMetas } from './slots';
@@ -108,8 +109,8 @@ export async function conflictSlot(
   body: CampaignBody,
   now: number,
   label: 'conflict' | 'claim',
-): Promise<{ statements: D1Stmt[]; answer: ConflictAnswer }> {
-  if ((await slotCounts(db, memberId)).system >= SYSTEM_SLOTS) return { statements: [], answer: { held: true } };
+): Promise<{ insert: D1Stmt[]; guard: D1Stmt[]; answer: ConflictAnswer }> {
+  if ((await slotCounts(db, memberId)).system >= SYSTEM_SLOTS) return { insert: [], guard: [], answer: { held: true } };
   const id = crypto.randomUUID();
   const canon = JSON.parse(canonicalCampaign(body)) as CampaignBody;
   const slot: SaveSlot = {
@@ -125,15 +126,15 @@ export async function conflictSlot(
   const text = JSON.stringify(slot);
   const bytes = utf8.encode(text).length;
   // The slot wraps the campaign in a few more bytes than its canonical text: at the very cap it will not fit.
-  if (bytes > CAMPAIGN_MAX_BYTES) return { statements: [], answer: { held: true } };
+  if (bytes > CAMPAIGN_MAX_BYTES) return { insert: [], guard: [], answer: { held: true } };
   const meta: SlotMetaView = { id, name: label, savedAt: now, build: slot.build, origin: label, bytes };
   return {
-    statements: [
+    insert: [
       db
         .prepare('INSERT INTO save_slot (member_id, slot_id, name, saved_at, build, origin, body, bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)')
         .bind(memberId, id, label, now, slot.build, label, text, bytes),
-      capGuard(db, memberId, "SELECT COUNT(*) FROM save_slot WHERE member_id = ?1 AND origin <> 'player'", SYSTEM_SLOTS),
     ],
+    guard: [capGuard(db, memberId, "SELECT COUNT(*) FROM save_slot WHERE member_id = ?1 AND origin <> 'player'", SYSTEM_SLOTS)],
     answer: { slot: meta },
   };
 }
@@ -153,4 +154,51 @@ export async function getState(ctx: AccountCtx): Promise<Response> {
   const db = ctx.env.ACCOUNTS;
   if (db === undefined) return accountJson(503, { error: 'accounts are not configured' });
   return sessionJson(200, await stateOf(db, got.session.memberId), got.setCookie);
+}
+
+const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * `PUT campaign` (§0.34, §0.33). A `base` equal to the revision read writes (`base: 0` is "no row yet"). A stale one
+ * answers 409 `stale` with the server's campaign and `conflictSlot`'s answer; the conflict slot rides in the SAME
+ * batch as the op, so a retry of the op id replays the stored 409 and never stores a second slot. Batch order:
+ * campaign, slot, cap guard, op (the guard is `conflictSlot`'s last statement).
+ */
+export async function putCampaign(ctx: AccountCtx): Promise<Response> {
+  const got = await requireSession(ctx);
+  if (got instanceof Response) return got;
+  const db = ctx.env.ACCOUNTS;
+  if (db === undefined) return accountJson(503, { error: 'accounts are not configured' });
+  const { session, setCookie } = got;
+  const raw = await readAccountBody<unknown>(ctx.req, CAMPAIGN_BODY_MAX);
+  if (raw === 'too_large') return sessionJson(413, { error: 'too_large' }, setCookie);
+  if (!isRec(raw) || !validOpId(raw.op_id)) return sessionJson(400, { error: 'op_id' }, setCookie);
+  const base = raw.base;
+  if (typeof base !== 'number' || !Number.isInteger(base) || base < 0 || !isRec(raw.ledger) || !isRec(raw.brigade) || typeof raw.tutorialDone !== 'boolean') {
+    return sessionJson(400, { error: 'body' }, setCookie);
+  }
+  const sent: CampaignBody = { ledger: raw.ledger as CampaignBody['ledger'], brigade: raw.brigade as unknown as CampaignBody['brigade'], tutorialDone: raw.tutorialDone };
+  let sentText: string;
+  try {
+    sentText = canonicalCampaign(sent);
+  } catch {
+    return sessionJson(400, { error: 'body' }, setCookie);
+  }
+  const memberId = session.memberId;
+  const out = await budgetedOp(ctx, { memberId, opId: raw.op_id, kind: 'campaign.put' }, async () => {
+    const camp = await readCampaign(db, memberId);
+    const expected = camp?.revision ?? 0;
+    if (base === expected) {
+      const statements = await campaignWrite(db, memberId, camp === null ? null : camp.revision, sent, ctx.now);
+      const view: CampaignView = { ...(JSON.parse(sentText) as CampaignBody), revision: expected + 1, digest: await digestOf(sentText) };
+      return { statements, status: 200, response: { campaign: view } };
+    }
+    const c = await conflictSlot(db, memberId, sent, ctx.now, 'conflict');
+    return {
+      statements: [...c.insert, ...c.guard],
+      status: 409,
+      response: { error: 'stale', campaign: camp === null ? null : await campaignViewOf(camp), conflict: c.answer },
+    };
+  });
+  return sessionJson(out.status, out.body, setCookie);
 }

@@ -86,10 +86,13 @@ export function steamStub(opts: { valid?: boolean; down?: boolean; status?: numb
 
 /** A D1 whose `batch()` that carries an `account_op` insert waits until `n` reads matching `match` (default
  *  `/FROM account_op/`) have run, so `n` requests all read before any of them writes. `opened()` says the gate opened:
- *  a race test asserts it, so a build that stops reading does not make the race pass vacuously. Tests only. */
-export function racingD1<T extends D1Like>(db: T, n: number, opts: { match?: RegExp } = {}): T & { opened(): boolean } {
+ *  a race test asserts it, so a build that stops reading does not make the race pass vacuously. With `arrivals`, the
+ *  gate opens instead when `n` such batches are WAITING at it: every request has built from its own read and none has
+ *  written, however many reads each build takes. Tests only. */
+export function racingD1<T extends D1Like>(db: T, n: number, opts: { match?: RegExp; arrivals?: boolean } = {}): T & { opened(): boolean } {
   const match = opts.match ?? /FROM account_op/;
   let reads = 0;
+  let waiting = 0;
   let open = false;
   let release: () => void = () => undefined;
   const gate = new Promise<void>((r) => { release = r; });
@@ -98,7 +101,7 @@ export function racingD1<T extends D1Like>(db: T, n: number, opts: { match?: Reg
     const seen = () => {
       if (match.test(sql)) {
         reads++;
-        if (reads >= n) {
+        if (opts.arrivals !== true && reads >= n) {
           open = true;
           release();
         }
@@ -125,7 +128,14 @@ export function racingD1<T extends D1Like>(db: T, n: number, opts: { match?: Reg
     ...db,
     prepare: (sql: string) => wrap(db.prepare(sql), sql),
     batch: async (ss: D1Stmt[]) => {
-      if (ss.some((s) => /INSERT INTO account_op/.test(sqlOf.get(s) ?? ''))) await gate;
+      if (ss.some((s) => /INSERT INTO account_op/.test(sqlOf.get(s) ?? ''))) {
+        waiting++;
+        if (opts.arrivals === true && waiting >= n) {
+          open = true;
+          release();
+        }
+        await gate;
+      }
       return db.batch(ss);
     },
     opened: () => open,
@@ -194,6 +204,8 @@ export async function seedFullMember(db: D1Like, now: number): Promise<{ memberI
   await run("INSERT INTO device_claim VALUES ('m1','dev1',?1,'{}')", now);
   await run("INSERT INTO rate_day VALUES ('acct-ops', 'm1', 1, 3)");
   await run("INSERT INTO rate_day VALUES ('acct-ops', 'n1', 1, 3)");
+  await run("INSERT INTO rate_day VALUES ('acct-claim', 'm1', 1, 2)");
+  await run("INSERT INTO rate_day VALUES ('acct-claim', 'n1', 1, 2)");
   await run("INSERT INTO account_op VALUES ('m1','op1','profile.patch',?1,'{}')", now);
   await run("INSERT INTO auth_challenge VALUES ('chal1','steam-link','m1','pre1',?1)", now + 300_000);
   for (const code of ['SHARED', 'SOLO']) {
@@ -226,6 +238,16 @@ export async function seedWalletMember(db: D1Like, id: string, now: number, opts
   return { memberId: id, cookie: `${SESSION_COOKIE}=${s.token}` };
 }
 
+/** A `claim` journal row carrying `detail.coupons` (Task 2.7 writes this shape), with the wallet raised to match so
+ *  the journal still balances. Tests only: no production path writes the journal outside coin.ts. */
+export async function seedClaimCoupons(db: D1Like, memberId: string, now: number, coupons: { id: string; credited: number; capped: boolean }[], kind: 'claim' | 'backfill' = 'claim'): Promise<void> {
+  const total = coupons.reduce((n, c) => n + c.credited, 0);
+  await db.batch([
+    db.prepare("UPDATE wallet SET free = free + ?2, revision = revision + 1 WHERE member_id = ?1").bind(memberId, total),
+    db.prepare("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").bind(memberId, now, kind, total, JSON.stringify({ coupons }), `seed-${kind}-${now}-${coupons.length}`),
+  ]);
+}
+
 /** A handler context for calling `budgetedOp` and the writers directly, with no route in between. */
 export function ctxFor(env: Env, now: number): AccountCtx {
   return {
@@ -236,4 +258,15 @@ export function ctxFor(env: Env, now: number): AccountCtx {
     path: 'test',
     params: {},
   };
+}
+
+/** A harness whose handler can be pointed at a wrapped database (failing or racing) after construction. With a
+ *  `clock`, a non-zero `clock.t` replaces the harness's `now` (a test moves time by writing it). Tests only. */
+export function swappableHarness(now: number, clock?: { t: number }) {
+  let over: D1Like | null = null;
+  const h = accountHarness({
+    now,
+    handler: (req, env, at) => handleAccount(req, over === null ? env : { ...env, ACCOUNTS: over }, (clock?.t ?? 0) || at, undefined),
+  });
+  return { h, use: (d: D1Like | null) => { over = d; } };
 }

@@ -12,23 +12,33 @@ describe('estimateCredits', () => {
     it('is 20 for standard, any ai_model', () => {
       expect(estimateCredits('text-preview', { modelType: 'standard' })).toBe(20);
     });
-    it('is 20 for lowpoly', () => {
-      expect(estimateCredits('text-preview', { modelType: 'lowpoly' })).toBe(20);
-    });
     it('is 5 for smart-topology', () => {
       expect(estimateCredits('text-preview', { modelType: 'smart-topology' })).toBe(5);
     });
     it('adds 5 for ultra_mode on standard', () => {
       expect(estimateCredits('text-preview', { modelType: 'standard', ultra: true })).toBe(25);
     });
-    it('adds 5 for ultra_mode on lowpoly', () => {
-      expect(estimateCredits('text-preview', { modelType: 'lowpoly', ultra: true })).toBe(25);
-    });
     it('does not add the ultra surcharge to smart-topology', () => {
       expect(estimateCredits('text-preview', { modelType: 'smart-topology', ultra: true })).toBe(5);
     });
     it('defaults to the standard rate when no modelType is given', () => {
       expect(estimateCredits('text-preview', {})).toBe(20);
+    });
+    // 2026-11-09 (GH-746): the page prices by ai_model. Literals, from the page, not from PRICING.
+    it('is 5 for meshy-6-lite, meshy-t2 and meshy-t2.5', () => {
+      expect(estimateCredits('text-preview', { modelType: 'standard', aiModel: 'meshy-6-lite' })).toBe(5);
+      expect(estimateCredits('text-preview', { modelType: 'smart-topology', aiModel: 'meshy-t2' })).toBe(5);
+      expect(estimateCredits('text-preview', { modelType: 'smart-topology', aiModel: 'meshy-t2.5' })).toBe(5);
+    });
+    it('is 20 for meshy-6, meshy-7, meshy-7.1 and latest', () => {
+      for (const aiModel of ['meshy-6', 'meshy-7', 'meshy-7.1', 'latest'] as const) {
+        expect(estimateCredits('text-preview', { modelType: 'standard', aiModel })).toBe(20);
+      }
+    });
+    it('lets the named ai_model decide the tier over the model type', () => {
+      expect(estimateCredits('text-preview', { modelType: 'standard', aiModel: 'meshy-6-lite', ultra: true })).toBe(10);
+      expect(estimateCredits('text-preview', { modelType: 'smart-topology', aiModel: 'meshy-t2.5', ultra: true })).toBe(5);
+      expect(estimateCredits('text-preview', { modelType: 'standard', aiModel: 'latest', ultra: true })).toBe(25);
     });
   });
 
@@ -67,6 +77,12 @@ describe('estimateCredits', () => {
       expect(estimateCredits('image', { modelType: 'smart-topology', shouldTexture: false })).toBe(5);
       expect(estimateCredits('image', { modelType: 'smart-topology', shouldTexture: true, textureResolution: '4k' })).toBe(15);
       expect(estimateCredits('image', { modelType: 'smart-topology', shouldTexture: true, textureResolution: '8k' })).toBe(20);
+    });
+    it('prices image-to-3d by ai_model too: meshy-6-lite and meshy-t2 mesh-only 5, meshy-6 20 (2026-11-09)', () => {
+      expect(estimateCredits('image', { modelType: 'standard', aiModel: 'meshy-6-lite', shouldTexture: false })).toBe(5);
+      expect(estimateCredits('image', { modelType: 'smart-topology', aiModel: 'meshy-t2', shouldTexture: false })).toBe(5);
+      expect(estimateCredits('image', { modelType: 'standard', aiModel: 'meshy-6-lite', shouldTexture: true, textureResolution: '2k' })).toBe(15);
+      expect(estimateCredits('image', { modelType: 'standard', aiModel: 'meshy-6', shouldTexture: false })).toBe(20);
     });
 
     // Important 2 (review): https://docs.meshy.ai/en/api/pricing (checked
@@ -126,7 +142,7 @@ describe('estimateCredits', () => {
   // unreachable orphan row of 17 still read "achievable" under that
   // version), which would have made the check nearly impossible to fail.
   it('every PRICING row is achievable from a full sweep of estimateCredits: a flat row verbatim, ultra_mode as an isolated delta', () => {
-    const MODEL_TYPES: readonly ModelType[] = ['standard', 'lowpoly', 'smart-topology'];
+    const MODEL_TYPES: readonly ModelType[] = ['standard', 'smart-topology'];
     const TEXTURE_RESOLUTIONS: readonly TextureResolution[] = ['2k', '4k', '8k'];
     const BOOLS = [false, true] as const;
 

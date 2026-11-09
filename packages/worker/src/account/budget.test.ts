@@ -1,3 +1,5 @@
+import { parseWorld, worldMissionIds } from '@lions/economy';
+import { world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import { budgetedOp } from './budget';
 import { OpReject } from './op';
@@ -9,6 +11,7 @@ import { accountHarness, ctxFor, memberTablesInMigration, seedWalletMember } fro
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY + 3_600_000;
 const op = (n: number): string => `${String(n).padStart(8, '0')}-2222-4222-8222-222222222222`;
+const M1 = worldMissionIds(parseWorld(world))[0] ?? '';
 type H = ReturnType<typeof accountHarness>;
 
 async function memberRows(h: H): Promise<Record<string, number>> {
@@ -82,6 +85,15 @@ interface BudgetRow { key: string; call: (h: H, cookie: string) => Promise<Respo
 const BUDGETED: BudgetRow[] = [
   { key: 'PATCH profile', call: (h, cookie) => h.call('PATCH', '/api/account/profile', { cookie, body: { op_id: op(50), displayName: 'Alpha' } }) },
   { key: 'DELETE identity/:id', call: (h, cookie) => h.call('DELETE', '/api/account/identity/ip', { cookie, body: { op_id: op(51) } }) },
+  { key: 'POST mission/start', call: (h, cookie) => h.call('POST', '/api/account/mission/start', { cookie, body: { op_id: op(52), missionId: M1 } }) },
+  { key: 'POST victory', call: (h, cookie) => h.call('POST', '/api/account/victory', { cookie, body: { op_id: op(53), missionId: M1, stars: 1, start: null, base: 0, campaign: null } }) },
+  { key: 'POST spend', call: (h, cookie) => h.call('POST', '/api/account/spend', { cookie, body: { op_id: op(54), item: 'unit', unitId: 'dozer_d9' } }) },
+  { key: 'POST coupon', call: (h, cookie) => h.call('POST', '/api/account/coupon', { cookie, body: { op_id: op(55), code: 'x' } }) },
+  { key: 'PUT campaign', call: (h, cookie) => h.call('PUT', '/api/account/campaign', { cookie, body: { op_id: op(57), base: 0, ledger: {}, brigade: {}, tutorialDone: false } }) },
+  { key: 'PUT slots/:id', call: (h, cookie) => h.call('PUT', '/api/account/slots/s1', { cookie, body: { op_id: op(58), name: 'A', savedAt: 1, build: 'b', body: { version: 1, id: 's1', name: 'A', savedAt: 1, build: 'b', ledger: {}, account: {} } } }) },
+  { key: 'DELETE slots/:id', call: (h, cookie) => h.call('DELETE', '/api/account/slots/s1', { cookie, body: { op_id: op(59) } }) },
+  { key: 'POST claim', call: (h, cookie) => h.call('POST', '/api/account/claim', { cookie, body: { op_id: op(60), device_id: op(61), campaign: null, slots: [], wallet: {}, coupons: [] } }) },
+  { key: 'POST reset-free', call: (h, cookie) => h.call('POST', '/api/account/reset-free', { cookie, body: { op_id: op(56) } }) },
 ];
 // Not budgeted, by name. `DELETE identity/:id` is NOT here: it is budgeted (plan §0.48), so it is in the table above.
 const EXEMPT = new Set(['POST delete', 'POST gone', 'POST logout', 'POST logout-all', 'POST steam/start']);

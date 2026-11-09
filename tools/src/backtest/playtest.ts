@@ -9,11 +9,15 @@ import {
   type LedgerData,
   type MissionResult,
   type Stars,
+  type UnitTypeJson,
 } from '@lions/sim';
 import {
+  applyUpgrades,
+  maxTiers,
   units,
   missions,
   world,
+  type UpgradableUnit,
 } from '@lions/data';
 // `tools` importing a pure module out of `packages/app` is the established
 // pattern (`tools/src/meshes/gait-pass.ts` imports `RIGGED_UNIT_MESHES` from
@@ -29,7 +33,9 @@ import { emptyAccount, startCampaign, type BrigadeAccount } from '../../../packa
 import { parseWorld } from '../../../packages/app/src/campaign';
 import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
-import { run, runLog, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
+import { NINE } from './special-units-probes';
+import { aloneAtMax, judge as judgeTracks, orphanExemptions, trackChecks, tracksOf } from './bought-tracks';
+import { registeredUnits, run, runLog, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
 import { censusViolations, populationLine } from './population-census';
 import { passiveAcrossSeeds, drainPassiveSweeps, controlIntel, SWEEP_SEEDS } from './passive-sweep';
 import { reportIntel, seedsNotSpent } from './intel-gate';
@@ -3032,6 +3038,121 @@ for (const probe of PLAN_CHILD ? [] : maxTierProbes) {
 }
 console.log(`max tier: ${maxTierHeld} of ${maxTierProbes.length} plain victories hold`);
 
+// --- GH-1144: every upgrade track of the nine bought-only units -------------
+//
+// The replay above patches the KDF units a plain winning run FIELDS, and of the nine units GH-1077 made upgradable only the medic squad is on any
+// plan's roster (it is loaned into every campaign mission but the tutorial); the other eight were never in a playtest run, so none of their tracks
+// was exercised. Two checks (`bought-tracks.ts`), each track on its own so a dead one cannot hide behind a live sibling:
+//
+//   drills   each track baked alone at its top tier against the unit at base tier, on the same 30 seeds, in the drill that track bears on
+//            (armour: seconds survived against one fixed attacker; sensors: the tick a standing target is identified at 6/10/14 tiles; firepower:
+//            damage dealt). A tie fails, except the three named armour ties (`EXEMPT`, GH-560: a penetration costs a share of max hp), and a named
+//            tie that starts to gain fails until its exemption is deleted.
+//   replays  the unit bought and fielded in Umm Zeitoun IV with its tracks at base, one track alone at max, and all at max, the mission's own plan
+//            unchanged. The purchase is asked for every 5 s from the first tick until the build is accepted (the camo Lavi costs 960 against 600 in
+//            hand). The run must be a VICTORY at no fewer stars than the plain line, the unit must have been built and fielded. The label
+//            `<id> (bought <unit> <variant>)` is not the mission id, so `missionStars`, `missionCredits`, `maxTierProbes` and both ladders never see
+//            these runs; whether they move the clock or the credits is PRINTED against the plain line, never tuned.
+if (!PLAN_CHILD) {
+  const checks = trackChecks();
+  const verdicts = judgeTracks(checks);
+  let gains = 0;
+  let exempt = 0;
+  for (const v of verdicts) {
+    const tag = v.state === 'ok' ? 'gains' : v.state === 'exempt' ? 'EXEMPT TIE' : v.state === 'stale' ? 'STALE EXEMPTION' : 'NO GAIN';
+    console.log(`bought track ${v.check.id}.${v.check.track} (${v.check.drill}): ${v.check.detail} -- ${tag}`);
+    if (v.state === 'ok') gains++;
+    else if (v.state === 'exempt') exempt++;
+    else if (v.state === 'stale') {
+      console.error(`bought track ${v.check.id}.${v.check.track}: FAILED — the named tie now gains; delete its entry in bought-tracks.ts EXEMPT`);
+      process.exitCode = 1;
+    } else {
+      console.error(`bought track ${v.check.id}.${v.check.track}: FAILED — the track buys nothing its drill can see (${v.check.detail})`);
+      process.exitCode = 1;
+    }
+  }
+  for (const k of orphanExemptions(checks)) {
+    console.error(`bought track ${k}: FAILED — EXEMPT names a unit/track no check covers`);
+    process.exitCode = 1;
+  }
+  console.log(`bought tracks: ${gains} of ${checks.length} gain, ${exempt} exempt tie(s), over ${NINE.length} units`);
+
+  const HOST = 'umm_zeitoun_4_clearance';
+  const hostStars = missionStars.get(HOST);
+  const hostCredits = missionCredits.get(HOST);
+  const hostRoe = missionRoe.get(HOST);
+  if (hostStars === undefined || hostCredits === undefined || hostRoe === undefined) {
+    console.error(`bought tracks: FAILED — no plain '${HOST}' winning line to compare against`);
+    process.exitCode = 1;
+  } else {
+    let held = 0;
+    let total = 0;
+    for (const unitId of NINE) {
+      const json = (units as Record<string, UnitTypeJson | undefined>)[unitId];
+      if (json === undefined) throw new Error(`bought tracks: ${unitId} is not registered in @lions/data`);
+      const own = tracksOf(json);
+      const variants: { name: string; tiers: { unit: string; tracks: readonly string[] } | undefined }[] = [
+        { name: 'base', tiers: undefined },
+        ...own.map((t) => ({ name: t, tiers: { unit: unitId, tracks: [t] } })),
+        { name: 'all tracks', tiers: { unit: unitId, tracks: own } },
+      ];
+      for (const variant of variants) {
+        total++;
+        const label = `${HOST} (bought ${unitId} ${variant.name}) (track replay)`;
+        const seen = { accepted: false, at: -1, blocked: null as string | null | undefined, fielded: false, aliveAtEnd: 0 };
+        let idsOf: ((t: string) => number[]) | undefined;
+        const plan: Plan = (sim, rt, ids, at) => {
+          idsOf = ids;
+          uz4Plan(sim, rt, ids, at);
+          for (let when = 0; when <= 600; when += 5) {
+            at(when, () => {
+              if (!seen.accepted) {
+                seen.blocked = rt.buildBlockedReason(unitId);
+                seen.accepted = rt.requestBuild(unitId);
+                if (seen.accepted) seen.at = when;
+              }
+              if (ids(unitId).length > 0) seen.fielded = true;
+            });
+          }
+        };
+        const measured = { result: 'ongoing' as 'ongoing' | 'victory' | 'defeat', stars: 0 as Stars, roeScore: 0, credits: 0, minutes: 0 };
+        run(HOST, plan, ledUZ3, 'victory', label, hostStars, undefined, new Set([unitId]), undefined, variant.tiers, measured);
+        seen.aliveAtEnd = idsOf ? idsOf(unitId).length : 0;
+        // The tier asked for is the tier the sim was handed: the registered JSON must equal the unit baked independently here (base: raw; one track:
+        // `aloneAtMax`; all: every track at its top tier), or a harness that dropped the tier would replay the base unit under a track's name.
+        const expected =
+          variant.tiers === undefined
+            ? json
+            : variant.tiers.tracks.length === own.length
+              ? (applyUpgrades(json as unknown as UpgradableUnit & UnitTypeJson, maxTiers(json as unknown as UpgradableUnit)) as UnitTypeJson)
+              : aloneAtMax(json, variant.tiers.tracks[0]);
+        const registeredAsAsked = JSON.stringify(registeredUnits.get(unitId)) === JSON.stringify(expected);
+        const ok = registeredAsAsked && seen.accepted && seen.fielded && measured.result === 'victory' && measured.stars >= hostStars;
+        console.log(
+          `${label}: build ${seen.accepted ? `ACCEPTED at ${seen.at} s` : `REFUSED${seen.blocked ? ` (${seen.blocked})` : ''}`}, fielded ${seen.fielded ? 'yes' : 'NO'}, alive at end ${seen.aliveAtEnd}; ` +
+            `${measured.result.toUpperCase()} ${measured.minutes.toFixed(1)} min, stars ${measured.stars} (plain ${hostStars}), ROE ${measured.roeScore} (plain ${hostRoe}), credits ${measured.credits} (plain ${hostCredits})`
+        );
+        if (ok) held++;
+        else {
+          console.error(
+            `${label}: FAILED — ${
+              !registeredAsAsked
+                ? 'the sim was not handed the tier this replay asked for'
+                : seen.accepted
+                  ? seen.fielded
+                    ? 'the run lost stars or the mission'
+                    : 'the unit never stood on the field'
+                  : 'the build was never accepted'
+            }`
+          );
+          process.exitCode = 1;
+        }
+      }
+    }
+    console.log(`bought track replays: ${held} of ${total} hold in ${HOST}`);
+  }
+}
+
 // --- Task 7: the harness proves the gates open where the ladder says -------
 //
 // The three star-gated units carry `stars_min` 12 (`breach_team`), 30
@@ -3632,7 +3753,27 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // move by 0.1 to 0.2 min on the seed-424242 run line; the SLOWEST of the 30 seeds moves more, and only because it is one tail seed:
 // Beit Sahwan III 2.9 -> 3.7 min (its clinic at (38,25); with the placement removed the sweep reads 2.9 again) and Khan Rafid III
 // 3.9 -> 2.0 min (the clinic at (22,15) alone gives 2.0; with both placements removed 3.9). Neither tail was traced seed by seed. Every plan still wins 30 of 30, every passive control still loses, no star or gate moved.
-const LADDER_CREDITS = 7007;
+// 2026-11-08, first_contact means the two combat sides meeting (mission.ts `isEnemyFire`/`isEnemyContact`): 7007 -> 6997, -10, read off the
+// printed per-mission credits. Was 7007. Exactly one mission moved: Beit Sahwan Breach 190 -> 180 (stars 2, ROE 100, 30 of 30 wins, 5.0 min and
+// roster out 5 all unchanged). Its two first-contact replies used to fire at tick 400, when a militiaman first spotted a villager; they now
+// fire at tick 608, when the plan's squad first sees the militia, so the south village's ring is committed later in the run. Every other
+// mission's credits line is byte-identical, and so is every star and gate. Khan Rafid III is the one mission whose plan would have lost a star
+// (2 -> 1, ROE 90 -> 66, 1.5 -> 3.4 min, and the star ladder 68 -> 67, which closes the scout_shachaf gate at 29 stars): its rocket team spawned at
+// tick 2 only because of the old rule, so that trigger is now an explicit 0.1 s timer and the mission plays as it did. See docs/agent-notes/mission-findings.md.
+// 2026-11-08, a side no longer cuts a structure it owns (sim.ts `selectBreachTarget`, GH-1183): 6997 -> 6977, -20, read off the printed per-mission
+// credits of a playtest on the tree with GH-1170 already in. Was 6997. Exactly one mission moved: Wadi Halam V 220 -> 200 (stars 2, ROE 100, roster out
+// 19, 30 of 30 wins; slowest win 5.6 -> 6.4 min). Its militia weapons workshop is the eighth `raze` target and a side-1 gun truck standing beside it
+// used to cut it down at tick 127 of every run, so the plan had been razing seven buildings and getting the eighth for nothing; now the plan levels it,
+// inside the same five minutes. The scripted plan's target list swaps its last two entries to keep the gate-open run winning (it lost seed 22 on the
+// deadline otherwise): 30 of 30 on the sweep seeds and on 100-129. Every other mission's credits line is byte-identical, and no star or gate moved.
+// The two changes (this one and GH-1170's -10) are independent: measured alone each, 7007 -> 6987 and 7007 -> 6997; together 6977.
+// See docs/agent-notes/mission-findings.md.
+// 2026-11-09, Khan Rafid III gets a real first contact (GH-1173): 6977 -> 6955, -22 (on top of GH-1183), read off the printed per-mission credits. Was 6977. Exactly one
+// mission moved: Khan Rafid III 260 -> 238 (stars 2, ROE 90 -> 78, 1.5 -> 2.5 min on 424242, roster out 10 -> 10). Its rocket team spawned at tick 2 only
+// because of the old rule and was held there by a 0.1 s timer (GH-1170); the trigger is `first_contact` again, which now fires at tick 176 (the
+// plan's drone identifies the souk's militia cell). Unchanged, the plan read 1 star (ROE 66, 3.4 min) on 424242 and 2 stars on every other seed (200 of
+// 200 on seeds 1..200). The one placed change is the east-lane rocket team, one tile, (34, 15) -> (35, 14). See docs/agent-notes/mission-findings.md.
+const LADDER_CREDITS = 6955;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

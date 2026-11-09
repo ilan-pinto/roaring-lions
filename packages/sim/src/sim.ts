@@ -8040,6 +8040,10 @@ export class Sim {
         const type = this.structureTypes[this.stTypeIdx[s]];
         if (type.garrisonSlots !== 0 || type.roePenalty >= PROTECTED_ROE) continue;
         if (this.stOccupants[s] !== 0) continue;
+        // Never a structure this unit's own side owns: an authored work (a militia workshop, a clinic) is the side's, and a
+        // gun truck parked beside it razed it in six seconds of a passive run. A neutral wall (-1) and one the other side
+        // owns are still the breach rule's business.
+        if (this.stOwner[s] === this.side[i]) continue;
         if (this.structDistSq(s, this.posX[i], this.posY[i]) > BREACH_RANGE_SQ) continue;
         // Cut the panel nearest the goal, ties by tile index so the choice does
         // not depend on scan order drifting.

@@ -1,9 +1,25 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountClient, AccountError, IdentityView, MeResult } from '../account/client';
-import { ACCOUNT_BINDING_KEY } from '../account/binding';
+import { ACCOUNT_BINDING_KEY, readBinding } from '../account/binding';
+import { canonicalCampaign } from '@lions/economy';
+import type { ClaimBody, ClaimResult } from '@lions/economy';
+import { memoryLedgerStore } from '../ledger-store';
+import { LEDGER_KEY } from '../main-keys';
+import { confirmedState } from '../account/fixtures';
+import { sha256Hex } from '../account/signed-in';
+import { parseSlot } from '@lions/economy';
+import { unusedA2Client } from '../account/fixtures';
 import { t } from '../i18n/t';
 import { showProfile, type ProfileDeps } from './profile';
+import { accountLedgerStore } from '../account/account-store';
+import { ACCOUNT_CACHE_KEY, writeCache } from '../account/cache';
+import { writeBinding } from '../account/binding';
+import { cacheOf, memStorage, opIds, world } from '../account/fixtures';
+import { HELD_KEY, readHeld } from '../account/local-held';
+import { outboxKey, writeOutbox, heartbeatKey } from '../account/outbox';
+import { signOut as syncSignOut, startSync, wipeMember } from '../account/sync';
+import { clientFor, FakeServer, makeScheduler } from '../account/sync-kit';
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 6; i++) await Promise.resolve();
@@ -31,6 +47,7 @@ function stub(over: Partial<AccountClient> = {}): AccountClient & { calls: strin
     exportData: async () => new Blob(['{}']),
     deleteAccount: async (o) => (calls.push('delete:' + JSON.stringify(o)), 'ok'),
     gone: async () => 'unknown',
+    ...unusedA2Client,
     ...over,
   };
   return Object.assign(c, { calls });
@@ -40,15 +57,17 @@ function mount(client: AccountClient, over: Partial<ProfileDeps> = {}, store = m
   const stage = document.createElement('div');
   document.body.appendChild(stage);
   const navigated: string[] = [];
+  const reloads: number[] = [];
   const dispose = showProfile(stage, {
     client,
     store,
     query: new URLSearchParams(),
     telemetryPlayer: () => 'tel-player',
     navigate: (h) => void navigated.push(h),
+    reload: () => void reloads.push(1),
     ...over,
   });
-  return { stage, dispose, navigated, store };
+  return { stage, dispose, navigated, store, reloads };
 }
 
 const btn = (stage: HTMLElement, label: string): HTMLButtonElement => {
@@ -140,15 +159,17 @@ describe('showProfile', () => {
     expect(c.calls).toContain('patch:{"displayName":"Ilan P"}');
   });
 
-  it('sign out shows the signed-out line and keeps the binding', async () => {
+  it('sign out with no account store logs out, forgets the device id (§0.46) and reloads', async () => {
+    const DEV = '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc';
+    const store = memStore({ [ACCOUNT_BINDING_KEY]: JSON.stringify({ version: 1, publicId: 'ABCD2345', deviceId: DEV }) });
     const c = stub({ me: async () => signedIn() });
-    const { stage, store } = mount(c);
+    const { stage, reloads } = mount(c, {}, store);
     await flush();
     btn(stage, t('profile.signOut')).click();
     await flush();
     expect(c.calls).toContain('logout');
-    expect(stage.textContent).toContain(t('profile.signedOut'));
-    expect(store.m.get(ACCOUNT_BINDING_KEY)).toContain('ABCD2345');
+    expect(reloads).toHaveLength(1);
+    expect(readBinding(store)).toEqual({ version: 1, publicId: 'ABCD2345' }); // the binding stays, the claim id and mark go
   });
 
   it('a failed sign out says so and does not claim success (A1 follow-up 1)', async () => {
@@ -285,5 +306,171 @@ describe('showProfile', () => {
     expect(document.querySelector('.rl-confirm')).toBeNull();
     await flush();
     expect(c.calls.some((x) => x.startsWith('delete'))).toBe(false);
+  });
+});
+
+describe('the claim panel (GH-1075 A2)', () => {
+  function claimRig(opts: { progress: boolean; claimedAt?: number; withClaim?: boolean }) {
+    const guest = memoryLedgerStore(opts.progress ? { [LEDGER_KEY]: JSON.stringify({ 'campaign.completed_missions': ['m1'] }) } : {});
+    const storage = {
+      getItem: (k: string) => guest.map.get(k) ?? null,
+      setItem: (k: string, v: string) => void guest.map.set(k, v),
+      removeItem: (k: string) => void guest.map.delete(k),
+    };
+    storage.setItem(ACCOUNT_BINDING_KEY, JSON.stringify({ version: 1, publicId: 'ABCD2345', ...(opts.claimedAt === undefined ? {} : { claimedAt: opts.claimedAt }) }));
+    const calls = { claim: 0, state: 0, downloads: [] as { name: string; json: string }[], claimed: 0 };
+    const client = stub({
+      me: async () => signedIn(),
+      claim: async (body: ClaimBody) => {
+        calls.claim++;
+        const result: ClaimResult = {
+          coins: 0, earned: 0, coupons: [], carried: [], notCarried: [], slots: [], state: confirmedState(),
+          campaign: body.campaign === null ? null : { deviceId: 'campaign', status: 'stored', serverId: 'c', digest: await sha256Hex(canonicalCampaign(body.campaign)) },
+        };
+        return { ok: true as const, status: 200 as const, body: result };
+      },
+      state: async () => (calls.state++, { ok: true as const, status: 200 as const, body: confirmedState() }),
+    });
+    const m = mount(client, {
+      store: storage,
+      claim: opts.withClaim === false ? undefined : { guest, download: (name, json) => void calls.downloads.push({ name, json }), onClaimed: () => void calls.claimed++, now: () => 42 },
+    }, storage as never);
+    return { ...m, guest, storage, calls };
+  }
+
+  it('shows the gain, a download, Move it and Not now to a signed-in guest device with progress', async () => {
+    const r = claimRig({ progress: true });
+    await flush();
+    expect(r.stage.textContent).toContain(t('account.claim.lead'));
+    for (const k of ['account.claim.download', 'account.claim.move', 'account.claim.notNow']) expect(btn(r.stage, t(k))).toBeTruthy();
+    btn(r.stage, t('account.claim.notNow')).click();
+    expect(r.stage.querySelector('.rl-profile__claim')).toBeNull();
+    expect(r.calls.claim).toBe(0);
+  });
+
+  it('Download a copy first hands over the active campaign as a slot, and changes nothing', async () => {
+    const r = claimRig({ progress: true });
+    await flush();
+    btn(r.stage, t('account.claim.download')).click();
+    expect(r.calls.downloads).toHaveLength(1);
+    const slot = parseSlot(r.calls.downloads[0].json);
+    expect(slot.ledger['campaign.completed_missions']).toEqual(['m1']);
+    expect(r.guest.map.has(LEDGER_KEY)).toBe(true);
+  });
+
+  it('Move it claims, removes the guest keys, and re-enters the app', async () => {
+    const r = claimRig({ progress: true });
+    await flush();
+    btn(r.stage, t('account.claim.move')).click();
+    for (let i = 0; i < 100 && r.calls.claimed === 0; i++) await new Promise((res) => setTimeout(res, 5)); // Web Crypto resolves off the microtask queue
+    expect(r.calls.claim).toBe(1);
+    expect(r.guest.map.has(LEDGER_KEY)).toBe(false);
+    expect(readBinding(r.storage)?.claimedAt).toBe(42);
+    expect(r.calls.claimed).toBe(1);
+  });
+
+  it('an empty device shows no panel, makes no claim request, sets claimedAt and loads the state (§0.41)', async () => {
+    const r = claimRig({ progress: false });
+    for (let i = 0; i < 10; i++) await flush();
+    expect(r.stage.querySelector('.rl-profile__claim')).toBeNull();
+    expect(r.calls.claim).toBe(0);
+    expect(r.calls.state).toBe(1);
+    expect(readBinding(r.storage)?.claimedAt).toBeDefined();
+  });
+
+  it('shows no panel on a claimed device, or when the screen was given no claim', async () => {
+    for (const o of [{ progress: true, claimedAt: 5 }, { progress: true, withClaim: false }]) {
+      const r = claimRig(o);
+      for (let i = 0; i < 10; i++) await flush();
+      expect(r.stage.querySelector('.rl-profile__claim')).toBeNull();
+      expect(r.calls.claim).toBe(0);
+    }
+  });
+});
+
+describe('C1: sign-out and deletion go through the sync module over the account store (§0.46)', () => {
+  const DEV = '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc';
+  function accountRig() {
+    const server = new FakeServer();
+    server.failWith.set('A', 0); // the queued op cannot be sent: sign-out must file it
+    const storage = memStorage();
+    const sched = makeScheduler();
+    writeBinding(storage, { version: 1, publicId: 'pub1', deviceId: DEV, claimedAt: 5 });
+    const cache = cacheOf(server.snapshot());
+    writeCache(storage, cache);
+    const client = { ...clientFor(server, { me: () => ({ kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, fresh: false, identities: [steam] }) }), logoutAll: async () => (server.calls.push({ name: 'logoutAll' }), 'ok' as const), deleteAccount: async () => 'ok' as const };
+    const store = accountLedgerStore({ storage, cache, world, onChange: () => {}, newOpId: opIds(), tabId: 'T1' });
+    const sync = startSync({ store, client, storage, now: sched.now, schedule: sched.schedule });
+    store.sync.setOps([{ kind: 'campaign', opId: 'A', campaign: { ledger: {}, brigade: store.readAccount(), tutorialDone: false } }]);
+    // a sibling tab of the same member, with a heartbeat
+    writeOutbox(storage, 'T2', [{ kind: 'slot.delete', opId: 'D', slotId: 'x' }], 'pub1');
+    storage.setItem(heartbeatKey('T2'), '1');
+    const wired: Partial<ProfileDeps> = {
+      signOut: (logout) => syncSignOut({ sync, store, client, logout, storage, now: sched.now, schedule: sched.schedule }),
+      wipeDeleted: () => {
+        sync.stop();
+        wipeMember({ store, storage, now: sched.now });
+      },
+      store: storage,
+    };
+    return { server, storage, client, wired };
+  }
+  const cleared = (storage: ReturnType<typeof memStorage>): void => {
+    expect(storage.getItem(ACCOUNT_CACHE_KEY)).toBeNull();
+    expect(storage.getItem(outboxKey('T1'))).toBeNull();
+    expect(storage.getItem(outboxKey('T2'))).toBeNull();
+    expect(storage.getItem(heartbeatKey('T2'))).toBeNull();
+    const b = readBinding(storage);
+    expect(b?.claimedAt).toBeUndefined();
+    expect(b?.deviceId).toBeUndefined();
+  };
+
+  it('"Sign out" and "Sign out everywhere" flush, file what is left, clear the cache, every outbox key, claimedAt and deviceId, then reload', async () => {
+    for (const label of [t('profile.signOut'), t('profile.signOutAll')]) {
+      const r = accountRig();
+      const { stage, reloads } = mount(r.client, r.wired);
+      await vi.waitFor(() => expect(btn(stage, label)).toBeTruthy());
+      btn(stage, label).click();
+      await vi.waitFor(() => expect(reloads).toHaveLength(1), { timeout: 3000 });
+      cleared(r.storage);
+      expect(readHeld(r.storage).map((h) => [h.id, h.reason]).sort()).toEqual([['A', 'refused']]);
+      expect(r.server.calls.some((c) => c.name === (label === t('profile.signOut') ? 'logout' : 'logoutAll'))).toBe(true);
+      expect(r.storage.getItem(HELD_KEY)).not.toBeNull();
+    }
+  });
+
+  it('a rejected sign-out shows profile.error, does not reload and clears nothing', async () => {
+    const r = accountRig();
+    const failing = { ...r.client, logout: async () => ({ error: 'error', status: 500 }) as AccountError };
+    const { stage, reloads } = mount(failing, { ...r.wired, signOut: (logout) => syncSignOut({ sync: { flush: async () => {}, stop: () => {} }, store: accountLedgerStore({ storage: r.storage, cache: cacheOf(), world, onChange: () => {}, newOpId: opIds(), tabId: 'T1' }), client: failing, logout, storage: r.storage, now: () => 1, schedule: () => () => {} }) });
+    await vi.waitFor(() => expect(btn(stage, t('profile.signOut'))).toBeTruthy());
+    btn(stage, t('profile.signOut')).click();
+    await vi.waitFor(() => expect(stage.textContent).toContain(t('profile.error')));
+    expect(reloads).toHaveLength(0);
+    expect(r.storage.getItem(ACCOUNT_CACHE_KEY)).not.toBeNull();
+  });
+
+  it('deleting the account stops the loop, wipes the member\'s cache and every outbox key, clears the binding, then reloads', async () => {
+    const r = accountRig();
+    const { stage, reloads } = mount(r.client, r.wired);
+    await vi.waitFor(() => expect(btn(stage, t('profile.delete'))).toBeTruthy());
+    btn(stage, t('profile.delete')).click();
+    (document.querySelector('.rl-confirm__yes') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(reloads).toHaveLength(1), { timeout: 3000 });
+    expect(r.storage.getItem(ACCOUNT_CACHE_KEY)).toBeNull();
+    expect(r.storage.getItem(outboxKey('T1'))).toBeNull();
+    expect(r.storage.getItem(outboxKey('T2'))).toBeNull();
+    expect(readBinding(r.storage)).toBeNull();
+  });
+
+  it('NB4: a sign-out that completes after the player left the profile still reloads', async () => {
+    const release: { go: () => void } = { go: () => {} };
+    const gate = new Promise<void>((r) => (release.go = r));
+    const { stage, dispose, reloads } = mount(stub({ me: async () => signedIn() }), { signOut: async () => gate });
+    await vi.waitFor(() => expect(btn(stage, t('profile.signOut'))).toBeTruthy());
+    btn(stage, t('profile.signOut')).click();
+    dispose();
+    release.go();
+    await vi.waitFor(() => expect(reloads).toHaveLength(1));
   });
 });
