@@ -269,24 +269,24 @@ describe('applyInfantryKitGraft', () => {
     it('a part with no approved size', () =>
       refuses((t) => makeSource(t, [{ track: 'armour', tier: 2, part: 'cape', figure: 'f0', bone: 'spine' }]), /no approved triangle count/));
 
-    it('a figure that draws more than 1,200 triangles at maximum kit', () => {
+    it('a figure that draws more than 2,700 triangles at maximum kit', () => {
       const many: PartSpec[] = [];
       for (const track of ['armour', 'sensors', 'firepower']) for (const tier of [1, 2, 3]) for (const side of ['L', 'R'] as const) {
-        many.push({ track, tier, part: 'helmet_cover', figure: 'f0', bone: 'head', side, tris: 70 });
+        many.push({ track, tier, part: 'carrier', figure: 'f0', bone: 'spine', side, tris: 200 });
       }
-      return refuses((t) => makeSource(t, many), /figure f0 draws 1260 kit triangles/);
+      return refuses((t) => makeSource(t, many), /figure f0 draws 3600 kit triangles/);
     });
 
-    it('a file that carries more than 5,000 kit triangles', () => {
+    it('a file that carries more than 8,100 kit triangles', () => {
       const many: PartSpec[] = [];
       for (const figure of ['f0', 'f1']) for (const track of ['armour', 'sensors', 'firepower']) for (const tier of [1, 2, 3]) for (const side of ['L', 'R'] as const) {
         many.push({ track, tier, part: 'carrier', figure, bone: 'spine', side, tris: 200 });
       }
-      // 36 x 200 = 7200 (over the file cap already, each node inside its own 1.10 x 190); a third figure's worth on top
+      // 54 x 200 = 10,800, over the 8,100 file cap (each node inside its own 1.10 x 190)
       for (const track of ['armour', 'sensors', 'firepower']) for (const tier of [1, 2, 3]) for (const side of ['L', 'R'] as const) {
         many.push({ track, tier, part: 'carrier', figure: 'f2', bone: 'spine', side, tris: 200 });
       }
-      return refuses((t) => makeSource(t, many), /over the 5,000 a team file may carry/);
+      return refuses((t) => makeSource(t, many), /over the 8,100 a team file may carry/);
     });
   });
 });

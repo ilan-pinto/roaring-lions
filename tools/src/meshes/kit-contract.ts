@@ -80,8 +80,10 @@ export const INFANTRY_KIT_TEAMS: readonly string[] = ['inf_squad', 'demo_squad']
 export const INFANTRY_KIT_HOSTS: readonly string[] = ['uniform', 'weapon'];
 
 /** Budgets (spec 26 Oct, section 5.1). */
-export const INFANTRY_KIT_FIGURE_TRIS = 1200; // one figure, every part it DRAWS at max kit
-export const INFANTRY_KIT_FILE_TRIS = 5000; // every kit node in the file
+// The lead, 9 Nov 2026 (GH-746): the kitted figure's budget rises to about 2,700 kit triangles per body, for the Meshy
+// kit parts (stage 1: the carrier and the optics). The file cap is three bodies' worth. Was 1,200 / 5,000.
+export const INFANTRY_KIT_FIGURE_TRIS = 2700; // one figure, every part it DRAWS at max kit
+export const INFANTRY_KIT_FILE_TRIS = 8100; // every kit node in the file
 /** A part may not exceed this multiple of its approved size (the vehicle rule). */
 export const INFANTRY_KIT_PART_SLACK = 1.1;
 

@@ -2107,8 +2107,8 @@ def check_kit_collisions(kit_masks, mesh_masks):
 # track alone at tier 3 -- then held against every OTHER unit at `IOU_LIMIT`,
 # `inf_grenadier` included.
 INFANTRY_KIT_HOSTS = ("uniform", "weapon")
-INFANTRY_KIT_FIGURE_TRIS = 1200
-INFANTRY_KIT_FILE_TRIS = 5000
+INFANTRY_KIT_FIGURE_TRIS = 2700   # the lead, 9 Nov 2026 (GH-746): about 2,700 per kitted body (was 1,200)
+INFANTRY_KIT_FILE_TRIS = 8100     # three bodies' worth (was 5,000)
 INFANTRY_KIT_TAG_ATTR = "_RL_KIT"
 TEAM_KIT_PREFIX = "teamkit_"
 

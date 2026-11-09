@@ -52,7 +52,7 @@
  *
  * **Budgets are refused here, not discovered later.** A node over 1.10x its
  * approved triangles (`INFANTRY_KIT_PART_TRIS`), a figure drawing more than
- * 1,200 at maximum kit, a file carrying more than 5,000.
+ * 2,700 at maximum kit, a file carrying more than 8,100 (the lead, 9 Nov 2026; was 1,200 and 5,000).
  *
  * Idempotent: it strips every `kit_*` node first, so a second run writes the
  * same bytes.

@@ -11,7 +11,7 @@
  *    were dropped would still load, still draw, and just never show up in the
  *    garage or the field -- `owes` is the check, and it is run below on a
  *    mutated copy that must fail it;
- *  - the budgets (<= 1,200 drawn per figure at max kit, <= 5,000 per file);
+ *  - the budgets (<= 2,700 drawn per figure at max kit, <= 8,100 per file; 1,200 and 5,000 before 9 Nov 2026);
  *  - the part table matches the vertices: every part id on a vertex is a row
  *    of `rl_kit.parts`, and every row has its triangles;
  *  - the Blender source and the mesh agree: `rl_kit_base` (the hash of the

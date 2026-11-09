@@ -50,7 +50,7 @@ def isolate(arm, keep):
 
 def tri_report(rows):
     """Per-part triangles against the spec column (cap 1.10x), per figure drawn at max kit
-    (superseded slot parts dropped) against 1,200, per file (every part) against 5,000."""
+    (superseded slot parts dropped) against 2,700, per file (every part) against 8,100 (the lead, 9 Nov 2026)."""
     by_part = {}
     for ob, part, pf, tris in rows:
         by_part.setdefault((part.name, pf), 0)
@@ -72,8 +72,8 @@ def tri_report(rows):
                 key = (part.slot, inf_kit._side_of(ob))
                 best[key] = max(best.get(key, 0), part.tier)
         drawn[pf] = sum(t for ob, part, f, t in rows if f == pf and (not part.slot or part.tier == best[(part.slot, inf_kit._side_of(ob))]))
-    return {"parts": parts, "totals": {"drawn_at_max_per_figure": drawn, "cap_per_figure": 1200,
-                                         "in_file_per_figure": infile, "in_file_total": sum(infile.values()), "cap_per_file": 5000,
+    return {"parts": parts, "totals": {"drawn_at_max_per_figure": drawn, "cap_per_figure": 2700,
+                                         "in_file_per_figure": infile, "in_file_total": sum(infile.values()), "cap_per_file": 8100,
                                          "parts_over_cap": [p["part"] for p in parts if not p["within_cap"]]}}
 
 
