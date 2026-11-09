@@ -213,6 +213,21 @@ the estimate, and only then run the real command. `--yes` skips the
 interactive `[y/N]` confirmation for scripted use; with no `--yes` and no TTY
 to prompt on, the CLI refuses outright rather than risk a silent spend.
 
+**The model pair is checked, and it sets the price** (pricing and text-to-3d pages re-read 2026-11-09, GH-746).
+`--model-type` is `standard` (default) or `smart-topology`; `lowpoly` was retired by Meshy on 2026-10-30 and is refused.
+`--ai-model` must belong to its type:
+- **`standard`:** `meshy-6` (this CLI's default), `meshy-6-lite`, `meshy-7.1`, `meshy-7` or `latest`.
+- **`smart-topology`:** `meshy-t2.5` (the default under that type) or `meshy-t2`.
+
+A mismatched pair is refused before anything is sent, as is `--topology quad` under Smart Topology. The polycount
+ranges are:
+- standard 100–300,000;
+- `meshy-t2` 100–15,000;
+- `meshy-t2.5` 100–30,000.
+
+A mesh-only preview costs **5** credits on `meshy-6-lite`, `meshy-t2` and `meshy-t2.5`, and **20** on the rest. The
+estimate keys on the `ai_model` sent.
+
 **`remesh` retopologizes a model already on Meshy's side** — a flat 5
 credits, regardless of target polycount or topology, per
 [the pricing page](https://docs.meshy.ai/en/api/pricing). It takes the

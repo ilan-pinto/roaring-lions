@@ -20,8 +20,11 @@ import {
   asTaskKind,
   asTextureResolution,
   asTopology,
+  assertModelPairing,
   assertPolycountInRange,
   assertPromptLength,
+  assertTopologyForModel,
+  defaultAiModel,
   defaultPolycount,
   parseTargetFormats,
   PROMPT_MAX_CHARS,
@@ -210,12 +213,20 @@ export interface GenerateCommonOptions {
   readonly json: boolean;
 }
 
-function parseGenerateCommon(options: ReadonlyMap<string, string>): GenerateCommonOptions {
+/** `--model-type` and `--ai-model`, defaulted together (`defaultAiModel`) and refused when they do not pair. */
+function parseModelPair(options: ReadonlyMap<string, string>): { modelType: ModelType; aiModel: AiModel } {
   const modelType = options.has('model-type') ? asModelType(options.get('model-type') as string) : 'standard';
-  const aiModel = options.has('ai-model') ? asAiModel(options.get('ai-model') as string) : 'meshy-6';
+  const aiModel = options.has('ai-model') ? asAiModel(options.get('ai-model') as string) : defaultAiModel(modelType);
+  assertModelPairing(modelType, aiModel);
+  return { modelType, aiModel };
+}
+
+function parseGenerateCommon(options: ReadonlyMap<string, string>): GenerateCommonOptions {
+  const { modelType, aiModel } = parseModelPair(options);
   const polycount = parseIntFlag(options, 'polycount') ?? defaultPolycount(modelType);
-  assertPolycountInRange(polycount, modelType);
+  assertPolycountInRange(polycount, modelType, aiModel);
   const topology = options.has('topology') ? asTopology(options.get('topology') as string) : 'triangle';
+  assertTopologyForModel(modelType, topology);
   const pose = options.has('pose') ? asPoseFlag(options.get('pose') as string) : 'none';
   const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
   const formats = options.has('formats') ? parseTargetFormats(options.get('formats') as string) : (['glb'] as const);
@@ -307,8 +318,7 @@ export function parseEstimateTextArgs(argv: readonly string[]): EstimateTextOpti
     valued: ESTIMATE_TEXT_VALUED_FLAGS,
   });
   if (positionals.length > 0) throw new Error(`estimate text: unexpected argument(s): ${positionals.join(' ')}`);
-  const modelType = options.has('model-type') ? asModelType(options.get('model-type') as string) : 'standard';
-  const aiModel = options.has('ai-model') ? asAiModel(options.get('ai-model') as string) : 'meshy-6';
+  const { modelType, aiModel } = parseModelPair(options);
   const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
   return {
     modelType,
@@ -338,8 +348,7 @@ export function parseEstimateImageArgs(argv: readonly string[]): EstimateImageOp
     valued: ESTIMATE_IMAGE_VALUED_FLAGS,
   });
   if (positionals.length > 0) throw new Error(`estimate image: unexpected argument(s): ${positionals.join(' ')}`);
-  const modelType = options.has('model-type') ? asModelType(options.get('model-type') as string) : 'standard';
-  const aiModel = options.has('ai-model') ? asAiModel(options.get('ai-model') as string) : 'meshy-6';
+  const { modelType, aiModel } = parseModelPair(options);
   const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
   return {
     modelType,
