@@ -166,7 +166,7 @@ describe('with the account store active, telemetry and feedback still carry neit
     guest.map.set(LEDGER_KEY, JSON.stringify({ 'campaign.completed_missions': ['m1'] }));
     const claimsSeen: string[] = [];
     const server = new FakeServer();
-    const base = clientFor(server);
+    const base = clientFor(server, { me: () => ({ kind: 'signedIn', publicId: A2_PUBLIC_ID, displayName: 'D', showRecord: false, fresh: false, identities: [] }) }); // the loop starts unverified (I1): it asks who is signed in
     const client: AccountClient = {
       ...base,
       claim: async (body: ClaimBody) => {

@@ -273,7 +273,20 @@ binding.
 - **The claim.** `runClaim` mints or reuses the binding's `deviceId`, writes the `lions.account.claiming` marker
   (`{deviceId, digests, at}`) and the guest store refuses writes until it resolves. `finishClaim` writes in this order:
   the held items, the cache, the binding's `claimedAt`, then `removeGuestProgress`; a digest mismatch removes nothing and
-  retries. Sign-out and deletion clear the `deviceId` so the next claim mints a new one (A2-30). A device with no guest
-  progress sets `claimedAt` and makes no claim request.
+  retries. The guest store refuses writes only under `?accounts` (without `?fresh`): with accounts off the marker is
+  inert. At boot `finishInterruptedClaim` removes leftover guest keys only when the marker is present with the binding's
+  `deviceId` (`finishClaim` takes the marker last): guest keys beside a claimed binding and no marker are the player's own
+  play and stay. A device with no guest progress sets `claimedAt` and makes no claim request.
+- **Sign-out and deletion** (section 0.46) run in `account/sync.ts` over the account store, never as a bare
+  `client.logout()`: `signOut` flushes (5 s), files what is left as `refused`, sends the logout (`logoutAll` for "Sign out
+  everywhere", passed in), then clears the cache, every outbox and heartbeat key of that member, `claimedAt` and
+  `deviceId` (A2-30). Deletion stops the loop and runs `wipeMember` (the same filing and clearing), then `clearBinding`.
+  Both then HARD-reload through `shell/links.ts`'s `reloadMenuHref`, which keeps the sticky query keys (`?accounts`, `lang`,
+  `pseudo`): a reload without `?accounts` lands the device on the guest store. `main.ts` hands the profile these
+  dependencies only when the sync handle and the account store exist; on an unclaimed binding the profile logs out and
+  clears the device id itself.
+- **The sync loop starts unverified** (I1): one `GET me` must name the cache's member before the first refresh or send.
+  Another member signed in (a Steam redirect) means no state applied, no op sent, `onForeignMember` called. A store adopts
+  its tab's outbox key only when it is that member's (or the old unowned shape).
 - **Privacy and telemetry.** The page at `/privacy` lists the A2 data (A2-32). Telemetry and the feedback context carry
   neither the public id nor the device id (`account/unlinked.test.ts`, A1-10 extended).

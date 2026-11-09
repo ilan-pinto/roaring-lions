@@ -39,7 +39,7 @@ function sessionStorageOrNull(): StorageLike | null {
 
 export function selectLedgerStore(query: URLSearchParams, storage: StorageLike | null, backfill: RoarBackfill, o: SelectOptions): SelectedStore {
   dropOrphanClaiming(storage); // a claim marker with no binding behind it would lock the guest store for good
-  const guest: SelectedStore = { store: browserLedgerStore(backfill), signedIn: false, needsState: false };
+  const guest: SelectedStore = { store: browserLedgerStore(backfill, { refuseWhileClaiming: accountsEnabled(query) }), signedIn: false, needsState: false };
   if (!accountsEnabled(query)) return guest;
   const binding = readBinding(storage);
   if (binding === null || binding.claimedAt === undefined) return guest;

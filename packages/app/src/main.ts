@@ -299,7 +299,7 @@ import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { accountsEnabled } from './account/enabled';
 // The account client and the profile screen load only behind `?accounts` (GH-1075 A1), never with the entry chunk.
-import type { AccountClient } from './account/client';
+import type { AccountClient, AccountError } from './account/client';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
 import { logRejoin, netReport } from './net/net-report';
@@ -341,7 +341,7 @@ import {
   type RouteDef,
   type RouteRequest,
 } from './shell/router';
-import { routes } from './shell/links';
+import { reloadMenuHref, routes } from './shell/links';
 import { importWithRetry } from './shell/chunk';
 import { chunkFailedCard } from './shell/chunk-card';
 import { forgetRetiredKeys } from './retired-keys';
@@ -1187,6 +1187,7 @@ async function main(): Promise<void> {
       ...(spendFlowRef !== null ? { frozen: () => spendFlowRef?.gate.campaignFrozen() ?? false, subscribe: spendFlowRef.gate.subscribe } : {}),
       // The work this device holds that the server did not take; "Save to my account" is the sync loop's own refresh.
       ...(accountsOn ? { heldItems: () => readHeld(safeStorage()) } : {}),
+      ...(isAccountStore(ledgerStore) ? { downloading: () => (isAccountStore(ledgerStore) ? ledgerStore.downloading() : []) } : {}),
       ...(syncHandle !== null ? { releaseHeld: () => syncHandle?.release() ?? Promise.resolve({ ok: false as const }), canReleaseHeld: (item: HeldItem) => syncHandle?.canRelease(item) ?? false, queuedHeldIds: () => syncHandle?.queuedHeldIds() ?? [] } : {}),
     };
     return showSaves(host, deps);
@@ -1643,19 +1644,36 @@ async function main(): Promise<void> {
             return () => {};
           }
           // The screen's module and the client load together; a navigation that lands meanwhile wins (`shell/router.ts`).
-          return Promise.all([importWithRetry(() => import('./ui/profile')), accountClient()]).then(([{ showProfile }, client]) =>
-            showProfile(host, {
+          // The sync module rides along only when the server-backed store is up (it is already loaded then: boot imported it).
+          const syncMod = syncHandle !== null && isAccountStore(ledgerStore) ? importWithRetry(() => import('./account/sync')) : Promise.resolve(null);
+          return Promise.all([importWithRetry(() => import('./ui/profile')), accountClient(), syncMod]).then(([{ showProfile }, client, syncApi]) => {
+            // C2: every hard reload here keeps the sticky query keys (`?accounts` above all), or the device lands on the guest store.
+            const reloadHere = (): void => window.location.assign(reloadMenuHref(window.location.search));
+            const sync = syncHandle;
+            const acct = isAccountStore(ledgerStore) ? ledgerStore : null;
+            const storage = safeStorage();
+            const clock = { now: () => Date.now(), schedule: (ms: number, fn: () => void) => { const id = window.setTimeout(fn, ms); return () => window.clearTimeout(id); } };
+            return showProfile(host, {
               client,
-              store: safeStorage(),
+              store: storage,
               query: req.query,
               telemetryPlayer: () => telemetry().ids()?.player ?? null,
               navigate: (href) => window.location.assign(href),
+              reload: reloadHere,
+              // C1 (§0.46): with the server-backed store, sign-out and deletion go through the sync module.
+              ...(sync !== null && acct !== null && syncApi !== null
+                ? {
+                    signOut: (logout: () => Promise<'ok' | AccountError>) => syncApi.signOut({ sync, store: acct, client, logout, storage, ...clock }),
+                    wipeDeleted: () => {
+                      sync.stop();
+                      syncApi.wipeMember({ store: acct, storage, now: clock.now });
+                    },
+                  }
+                : {}),
               // A guest boot only: a claimed device has the server-backed store and nothing to claim.
-              claim: selectedStore.signedIn
-                ? undefined
-                : { guest: ledgerStore, download: downloadFile, onClaimed: () => window.location.assign(routes.menu()) },
-            })
-          );
+              claim: selectedStore.signedIn ? undefined : { guest: ledgerStore, download: downloadFile, onClaimed: reloadHere },
+            });
+          });
         },
       },
       {

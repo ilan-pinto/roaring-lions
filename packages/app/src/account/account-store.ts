@@ -10,7 +10,7 @@ import type { BrigadeAccount, CampaignBody, ParsedWorld, RoarWallet, SaveSlot, S
 import { startCampaign as clearCampaignPay, type StorageLike } from '../brigade-account';
 import type { CampaignLedger, CampaignSnapshot, LedgerStore, VictoryRecord, VictoryWrite } from '../ledger-store';
 import type { AccountCache } from './cache';
-import { carriesCampaign, coalesce, readBase, readOutbox, writeOutbox, type OutboxOp } from './outbox';
+import { carriesCampaign, coalesce, outboxOwner, readBase, readOutbox, writeOutbox, type OutboxOp } from './outbox';
 import { viewOf, walletOf } from './replay';
 
 /** Thrown by every coin write while signed in: a path left on `writeRoar` goes red here, not silently local. */
@@ -55,6 +55,8 @@ export type AccountLedgerStore = LedgerStore & {
   /** Keys of coin Buys in flight (`<unitId>.<track>`, `unit:<id>`); the sync loop fills it through `sync`. */
   pendingSpends: ReadonlySet<string>;
   outboxSize(): number;
+  /** The slots the server lists whose body this device has not downloaded yet (§0.19): shown as "downloading", never loadable. */
+  downloading(): readonly { id: string; name: string; savedAt: number }[];
   view(): ServerState;
   sync: StoreSyncApi;
 };
@@ -65,9 +67,13 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
   const tabId = o.tabId;
   const pendingSpends = new Set<string>();
   const sent = new Set<string>();
-  let ops: OutboxOp[] = readOutbox(o.storage, tabId);
+  // I1: this tab's key is adopted only when it is this member's (or the old unowned shape). Another member's queue is left on disk,
+  // untouched, for them: it is neither shown in this member's view nor sent under this member's session.
+  const owner = outboxOwner(o.storage, tabId);
+  const mine = owner === null || owner === o.cache.publicId;
+  let ops: OutboxOp[] = mine ? readOutbox(o.storage, tabId) : [];
   // The send base (R12) lives with THIS tab's queue, never in the shared cache: another tab cannot move it.
-  let base: number | undefined = readBase(o.storage, tabId);
+  let base: number | undefined = mine ? readBase(o.storage, tabId) : undefined;
   // The view is memoised on the identity of the confirmed state AND the ops. The sync loop (Task 2.10) refreshes by
   // REPLACING `cache.confirmed` with a new object (never mutating it in place); no explicit refresh call is needed.
   let cached: ServerState | null = null;
@@ -140,6 +146,7 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
     pendingSpends,
     sync,
     outboxSize: () => ops.length,
+    downloading: () => view().slots.filter((m) => bodyFor(m.id) === undefined).map((m) => ({ id: m.id, name: m.name, savedAt: m.savedAt })),
     view,
     readLedger: (): CampaignLedger => structuredClone(body().ledger) as CampaignLedger,
     writeLedger: (l: CampaignLedger): void => putCampaign({ ledger: l }),

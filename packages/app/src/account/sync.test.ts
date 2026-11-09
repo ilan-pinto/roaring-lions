@@ -1118,3 +1118,44 @@ describe('signOut', () => {
   });
 });
 
+
+describe('I1 the loop starts unverified', () => {
+  const other: MeResult = { kind: 'signedIn', publicId: 'someone-else', displayName: 'B', showRecord: false, fresh: false, identities: [] };
+  it('a fresh startSync whose me() names another member applies no GET state, sends no op and calls onForeignMember', async () => {
+    const server = new FakeServer();
+    const storage = memStorage();
+    writeBinding(storage, { version: 1, publicId: 'pub1', deviceId: '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc', claimedAt: 5 });
+    const staleState = confirmedState({ campaign: { ledger: led(1), brigade: emptyAccount(), tutorialDone: false, revision: 2, digest: 'old' } });
+    const r = rig({ server, storage, me: () => other, cacheFrom: staleState });
+    writeOutbox(storage, 'T1', [camp('A', 7)], 'pub1'); // A's queue sits on the device
+    r.store.sync.setOps([camp('A', 7)]);
+    const before = r.cache.confirmed;
+    await r.sync.refresh(); // boot's refresh
+    await r.sync.flush(); // the next drain
+    expect(r.sync.status()).toBe('foreign');
+    expect(r.foreign).toHaveBeenCalledTimes(1);
+    expect(r.server.calls.map((c) => c.name)).not.toContain('GET state');
+    expect(r.server.calls.filter((c) => c.name.startsWith('PUT') || c.name.startsWith('POST'))).toEqual([]);
+    expect(r.cache.confirmed).toBe(before);
+    expect(r.store.outboxSize()).toBe(1);
+  });
+
+  it('the same member verifies once, then refreshes and sends', async () => {
+    const r = rig();
+    r.store.writeLedger(led(5));
+    await r.sync.refresh();
+    expect(r.sync.status()).toBe('active');
+    await r.sync.flush();
+    expect(markOf(r.server.campaign)).toBe(5);
+  });
+
+  it('an outbox key stamped with another member is not adopted by this member\'s store and stays on disk', () => {
+    const storage = memStorage();
+    writeOutbox(storage, 'T1', [camp('A', 7)], 'pub-A');
+    const mine = accountLedgerStore({ storage, cache: cacheOf(), world, onChange: () => {}, newOpId: opIds(), tabId: 'T1' });
+    expect(mine.outboxSize()).toBe(0);
+    expect(readOutbox(storage, 'T1')).toHaveLength(1); // untouched until the right member comes back
+    const owner = accountLedgerStore({ storage, cache: { ...cacheOf(), publicId: 'pub-A' }, world, onChange: () => {}, newOpId: opIds(), tabId: 'T1' });
+    expect(owner.outboxSize()).toBe(1);
+  });
+});

@@ -56,6 +56,8 @@ export interface SavesDeps {
   queuedHeldIds?: () => readonly string[];
   /** Whether `releaseHeld` could ever upload this item (same member as the cache, has a digest). Defaults to true when absent. */
   canReleaseHeld?: (item: HeldItem) => boolean;
+  /** Signed in (§0.19): the account's slots whose body this device has not downloaded yet. Each is listed as "downloading" with Load off; the sync loop's body fetch then fills it. Absent for a guest. */
+  downloading?: () => readonly { id: string; name: string; savedAt: number }[];
   /** Told when `frozen` may have changed; returns the unsubscribe. */
   subscribe?: (cb: () => void) => () => void;
 }
@@ -145,6 +147,33 @@ function slotRow(
   button(t('saves.slot.delete'), actions.onDelete, 'delete');
   row.appendChild(btnRow);
 
+  return row;
+}
+
+/** §0.19: a slot the account lists whose body is still on its way. Nothing can be done with it yet, so Load is off and there is no other verb. */
+function downloadingRow(m: { id: string; name: string; savedAt: number }): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'rl-saves__row rl-saves__row--downloading';
+  row.dataset.slot = m.id;
+  const info = document.createElement('div');
+  info.className = 'rl-saves__info';
+  const name = document.createElement('div');
+  name.className = 'rl-saves__name';
+  name.textContent = m.name;
+  const sub = document.createElement('div');
+  sub.className = 'rl-saves__sub';
+  sub.textContent = t('saves.downloading');
+  info.append(name, sub);
+  const btnRow = document.createElement('div');
+  btnRow.className = 'rl-saves__actions';
+  const load = document.createElement('button');
+  load.type = 'button';
+  load.className = 'rl-btn';
+  load.dataset.action = 'load';
+  load.disabled = true;
+  load.textContent = t('saves.slot.load');
+  btnRow.appendChild(load);
+  row.append(info, btnRow);
   return row;
 }
 
@@ -310,7 +339,8 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
     list.replaceChildren();
     const slots = listSlots(deps.store);
     const damaged = listDamaged(deps.store);
-    if (slots.length === 0 && damaged.length === 0) {
+    const downloading = deps.downloading?.() ?? [];
+    if (slots.length === 0 && damaged.length === 0 && downloading.length === 0) {
       list.appendChild(empty);
       return;
     }
@@ -377,6 +407,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
         }, frozenNow())
       );
     }
+    for (const m of downloading) list.appendChild(downloadingRow(m));
     damaged.forEach((meta, i) => {
       list.appendChild(
         damagedRow(meta, i + 1, {
