@@ -10,8 +10,9 @@
  *
  * **One graph, uniforms.** Legacy compiles the lookup in or out of the shader (`foldGradeShader`); a node graph is fixed once the
  * pipeline is built, so grade-on and the dither amount are UNIFORMS (`uGradeOn`, `uGradeDither`) and the LUT is ONE texture whose
- * texels are rewritten by `apply`. Off, or an identity grade, selects the input colour unchanged and adds no dither -- legacy's
- * "builds nothing" frame, as values.
+ * texels are rewritten by `apply`. Off, or an identity grade, selects the input colour unchanged at the lookup -- legacy's
+ * "builds no lookup" frame, as values. The dither is NOT part of that: it runs on every frame (GH-943 P2 T8), so a day map with no
+ * grade no longer bands a smooth gradient in 8 bits; only `uGradeDither` 0 (the measurement arm) turns it off.
  *
  * **Dither origin.** `gl_FragCoord` has its origin bottom-left. `screenCoordinate` is top-left on every node backend (the WebGL
  * backend flips it to follow WebGPU), so the node dither takes `screenSize.y - y`, which is `gl_FragCoord.y` of the same pixel
@@ -97,6 +98,7 @@ export class NodeOutputGrade implements OutputGradeLike {
     if (grade === null || this.maths.isIdentity(grade)) {
       this.folded = false;
       this.uniforms.uGradeOn.value = 0;
+      this.uniforms.uGradeDither.value = options.dither === false ? 0 : 1;
       return false;
     }
     const floats = this.maths.bakeLutFloats(grade);
@@ -116,15 +118,14 @@ export class NodeOutputGrade implements OutputGradeLike {
     return TSL.select((this.nodes.on as unknown as { greaterThan(o: number): TslNode }).greaterThan(0.5) as never, sampled as never, rgb as never) as unknown as TslNode;
   }
 
-  /** Stage 3: one LSB of noise on the pixel position, only while the grade is on. */
+  /** Stage 3: one LSB of noise on the pixel position, on EVERY frame (T8: not guarded by `uGradeOn`; `uGradeDither` 0 is the measurement arm). */
   dither(rgb: TslNode): TslNode {
     const TSL = this.TSL;
     const frag = TSL.screenCoordinate as unknown as { x: TslNode; y: TslNode };
     const size = TSL.screenSize as unknown as { y: TslNode };
     const y = (size.y as unknown as { sub(o: unknown): TslNode }).sub(frag.y);
     const offset = this.maths.gradeDitherOffset((tslOps(TSL as unknown as FogTsl) as unknown as Ops<TslNode>), frag.x, y, this.nodes.dither);
-    const added = (rgb as unknown as { add(o: unknown): TslNode }).add(offset);
-    return TSL.select((this.nodes.on as unknown as { greaterThan(o: number): TslNode }).greaterThan(0.5) as never, added as never, rgb as never) as unknown as TslNode;
+    return (rgb as unknown as { add(o: unknown): TslNode }).add(offset);
   }
 
   dispose(): void {

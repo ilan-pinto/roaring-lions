@@ -53,7 +53,7 @@ describe('resolveSignedIn', () => {
     const s = mem();
     writeBinding(s, { version: 1, publicId: 'pub1' });
     const seen: string[] = [];
-    expect(await resolveSignedIn(fake({ kind: 'off' }, 'deleted', seen), s)).toEqual({ kind: 'signedOut', publicId: 'pub1' });
+    expect(await resolveSignedIn(fake({ kind: 'off' }, 'deleted', seen), s)).toEqual({ kind: 'signedOut', publicId: 'pub1', off: true });
     expect(seen).toEqual([]);
   });
   it('sha256Hex matches a known vector', async () => {

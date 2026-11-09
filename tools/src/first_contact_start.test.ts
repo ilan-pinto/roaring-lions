@@ -16,28 +16,30 @@ const firstContactTriggers = (): { mission: string; id: string }[] =>
   );
 
 describe('shipped first_contact triggers', () => {
-  it('there are 6 of them, in 5 missions (a change of this count is a change to review here)', () => {
+  it('there are 7 of them, in 6 missions (a change of this count is a change to review here)', () => {
     const all = firstContactTriggers();
-    expect(all).toHaveLength(6);
-    expect(new Set(all.map((t) => t.mission)).size).toBe(5);
-    // Khan Rafid III's rocket team is deliberately NOT one of them: see below.
-    expect(all.some((t) => t.mission === 'khan_rafid_3_clearance')).toBe(false);
+    expect(all).toHaveLength(7);
+    expect(new Set(all.map((t) => t.mission)).size).toBe(6);
+    // Khan Rafid III's rocket team is one of them again (GH-1173).
+    expect(all.some((t) => t.mission === 'khan_rafid_3_clearance')).toBe(true);
   });
 
-  // Khan Rafid III's rocket team spawned at tick 2 only because the old rule counted a militiaman cutting a neutral structure as contact,
-  // and the mission was tuned and playtested that way (on a real first contact the scripted plan wins in 3.4 min with 1 star, not 1.5 min
-  // with 2). It is an explicit 0.1 s timer so the mission plays as it did; this pins both halves of that choice.
-  it('khan_rafid_3_clearance puts its rocket team on the board at tick 2, by an explicit 0.1 s timer', () => {
+  // Khan Rafid III's rocket team used to spawn at tick 2 only because the old rule counted a militiaman cutting a neutral structure as contact
+  // (GH-1170 held it there with a 0.1 s timer); GH-1173 put `first_contact` back. It is quiet for 100 ticks of a passive run (the loop below) and
+  // fires on a real meeting, which the scripted plan's drone makes at tick 176 on the pinned seed.
+  it('khan_rafid_3_clearance puts its rocket team on the board on a real first contact, not on a timer', () => {
     const t = (missions as Record<string, MissionJson>).khan_rafid_3_clearance.triggers?.find((x) => x.id === 'a_rocket_team_moves_into_the_east_lane');
-    expect(t?.on).toEqual({ kind: 'timer_s', value: 0.1 });
-    const { sim, runtime } = missionWorld('khan_rafid_3_clearance', {}, 1);
-    const before = sim.entityCount;
-    let firedAt = -1;
-    for (let n = 0; n < 5 && firedAt < 0; n++) {
-      for (const me of runtime.step(sim.tick())) if (me.kind === 'trigger' && me.id === 'a_rocket_team_moves_into_the_east_lane') firedAt = me.tick;
-    }
-    expect(firedAt).toBe(2);
-    expect(sim.entityCount).toBe(before + 1);
+    expect(t?.on).toEqual({ kind: 'first_contact' });
+  });
+
+  // GH-1173: the spawned rocket team used to raze three lane walls inside the first 76 s of a passive walk (it spawned at tick 2). Those collapses are what
+  // `pnpm perf:memory` had drawn by its last frame; with a real first contact nothing in the walk razes a wall until the store wall falls at tick 2401, one
+  // tick after the walk's last frame, and the three wall-collapse textures stay decoded and un-uploaded (decoded ImageBitmaps 120 -> 168 MiB, over the 161 ceiling).
+  // The placed lane team (`kr_lane_east`) therefore carries no ambush stance: it shoots the lane walls from tick 9, as the spawned team did.
+  it('khan_rafid_3_clearance: the placed east-lane rocket team has no ambush stance (it razes lane walls in a passive walk)', () => {
+    const g = (missions as Record<string, MissionJson>).khan_rafid_3_clearance.enemy?.garrison?.find((x) => x.tag === 'kr_lane_east');
+    expect(g?.unit).toBe('rpg_team');
+    expect(g?.stance).toBeUndefined();
   });
 
   for (const { mission, id } of firstContactTriggers()) {

@@ -24,3 +24,18 @@ export function tabIdOf(storage: StorageLike | null): string {
   }
   return (memoryId ??= mint());
 }
+
+/**
+ * R27 (NB2): this tab's outbox key belongs to another member, so this store must not write to it. Mint a new id, keep it in
+ * `sessionStorage` for the tab's later boots, and return it; the old key keeps its owner's ops and ages into an orphan.
+ */
+export function rekeyTabId(storage: StorageLike | null): string {
+  const id = mint();
+  memoryId = id; // also the fallback when storage is absent or refuses: one id for the page load
+  try {
+    storage?.setItem(TAB_ID_KEY, id);
+  } catch {
+    /* as above */
+  }
+  return id;
+}

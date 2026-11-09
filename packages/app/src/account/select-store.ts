@@ -8,7 +8,9 @@ import type { ParsedWorld } from '@lions/economy';
 import type { StorageLike } from '../brigade-account';
 import { blockedLedgerStore, browserLedgerStore, type LedgerStore, type RoarBackfill } from '../ledger-store';
 import { accountLedgerStore } from './account-store';
-import { tabIdOf } from './tab-id';
+import { rekeyTabId, tabIdOf } from './tab-id';
+import { outboxOwner } from './outbox';
+import { dropOrphanClaiming, finishInterruptedClaim } from './claim';
 import { readBinding } from './binding';
 import { readCache } from './cache';
 import { accountsEnabled } from './enabled';
@@ -37,19 +39,26 @@ function sessionStorageOrNull(): StorageLike | null {
 }
 
 export function selectLedgerStore(query: URLSearchParams, storage: StorageLike | null, backfill: RoarBackfill, o: SelectOptions): SelectedStore {
-  const guest: SelectedStore = { store: browserLedgerStore(backfill), signedIn: false, needsState: false };
+  dropOrphanClaiming(storage); // a claim marker with no binding behind it would lock the guest store for good
+  const guest: SelectedStore = { store: browserLedgerStore(backfill, { refuseWhileClaiming: accountsEnabled(query) }), signedIn: false, needsState: false };
   if (!accountsEnabled(query)) return guest;
   const binding = readBinding(storage);
   if (binding === null || binding.claimedAt === undefined) return guest;
   const cache = readCache(storage);
   if (cache === null || cache.publicId !== binding.publicId) return { store: blockedLedgerStore(), signedIn: true, needsState: true };
+  finishInterruptedClaim(storage); // a tab that died between the last two writes of a claim left guest keys behind
+  // R27: this tab's outbox key is another member's (they signed in here earlier and their queue is unsent): never write to it.
+  // A new tab id keeps their key as it is; it loses its heartbeat, ages into an orphan, and their own loop adopts it.
+  let tabId = o.tabId ?? tabIdOf(sessionStorageOrNull());
+  const keyOwner = outboxOwner(storage, tabId);
+  if (keyOwner !== null && keyOwner !== cache.publicId) tabId = rekeyTabId(sessionStorageOrNull());
   const store = accountLedgerStore({
     storage,
     cache,
     world: o.world,
     onChange: o.onChange ?? ((): void => {}),
     newOpId: o.newOpId ?? ((): string => crypto.randomUUID()),
-    tabId: o.tabId ?? tabIdOf(sessionStorageOrNull()),
+    tabId,
   });
   return { store, signedIn: true, needsState: false };
 }

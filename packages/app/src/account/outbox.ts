@@ -18,6 +18,9 @@ export type OutboxOp =
   | { kind: 'slot.put'; opId: string; slotId: string; slot: SaveSlot; origin: 'player' | 'conflict' }
   | { kind: 'slot.delete'; opId: string; slotId: string };
 
+/** Whether an op writes the campaign (a campaign op, or a victory that carries one): such an op pins the tab's send base (R17). */
+export const carriesCampaign = (op: OutboxOp): boolean => op.kind === 'campaign' || (op.kind === 'victory' && op.campaign !== null);
+
 export const outboxKey = (tabId: string): string => OUTBOX_PREFIX + tabId;
 export const heartbeatKey = (tabId: string): string => HEARTBEAT_PREFIX + tabId;
 

@@ -4,13 +4,23 @@
 // The four sentinels sit in the binding store, in a signed-in `me`, and in a display-name field; the corpus is every
 // body those three sources produce, and none may contain one.
 import { describe, expect, it } from 'vitest';
+import { canonicalCampaign, emptyAccount } from '@lions/economy';
+import type { ClaimBody, ClaimResult } from '@lions/economy';
 import type { MissionEvent } from '@lions/sim';
 import type { TelemetryEvent } from '@lions/data/telemetry';
 import { collectContext, type ContextInput } from '../feedback/context';
 import { connectMatch, openRoom } from '../net/connect';
 import { createTelemetry, type RuntimeView, type TelemetryDeps } from '../telemetry';
 import { resolveIdentity } from '../telemetry/identity';
-import { ACCOUNT_BINDING_KEY, readBinding } from './binding';
+import { memoryLedgerStore } from '../ledger-store';
+import { LEDGER_KEY } from '../main-keys';
+import { accountLedgerStore } from './account-store';
+import { ACCOUNT_BINDING_KEY, readBinding, writeBinding } from './binding';
+import { cacheOf, confirmedState, opIds, world } from './fixtures';
+import { runClaim } from './claim';
+import { sha256Hex } from './signed-in';
+import { startSync } from './sync';
+import { clientFor, FakeServer, makeScheduler, tick } from './sync-kit';
 import type { AccountClient } from './client';
 import { unusedA2Client } from './fixtures';
 import { resolveSignedIn } from './signed-in';
@@ -131,5 +141,91 @@ describe('telemetry, feedback and match stay unlinked from the account (A1-10)',
         for (const s of SENTINELS) expect(body, `${source} carries ${s}`).not.toContain(s);
       }
     }
+  });
+});
+
+// A2 (A1-10 extended): with the account store ACTIVE, the identifiers the account layer holds never reach telemetry or
+// the feedback context. A victory, a spend and a claim are run through the real account modules (account-store, sync
+// with a fake client, claim.ts); then every telemetry builder's output and the feedback context are searched.
+const A2_PUBLIC_ID = 'PUBSENTINEL77';
+const A2_DEVICE_ID = '5e57a1de-0000-4000-8000-0000deadbeef';
+
+describe('with the account store active, telemetry and feedback still carry neither the public id nor the device id (A1-10, A2)', () => {
+  it('a victory, a spend and a claim later, no sentinel is in any telemetry or feedback body', async () => {
+    const guest = memoryLedgerStore();
+    const storage = { getItem: (k: string) => guest.map.get(k) ?? null, setItem: (k: string, v: string) => void guest.map.set(k, v), removeItem: (k: string) => void guest.map.delete(k) };
+    writeBinding(storage, { version: 1, publicId: A2_PUBLIC_ID, deviceId: A2_DEVICE_ID });
+    expect(readBinding(storage)).toMatchObject({ publicId: A2_PUBLIC_ID, deviceId: A2_DEVICE_ID });
+    try {
+      window.localStorage.setItem(ACCOUNT_BINDING_KEY, guest.map.get(ACCOUNT_BINDING_KEY) ?? ''); // where a path reading the page's own storage would find it
+    } catch {
+      /* a jsdom without a real Storage */
+    }
+
+    // The claim: a guest ledger goes up through runClaim, the fake server answering with the digest of what it was sent.
+    guest.map.set(LEDGER_KEY, JSON.stringify({ 'campaign.completed_missions': ['m1'] }));
+    const claimsSeen: string[] = [];
+    const server = new FakeServer();
+    const base = clientFor(server, { me: () => ({ kind: 'signedIn', publicId: A2_PUBLIC_ID, displayName: 'D', showRecord: false, fresh: false, identities: [] }) }); // the loop starts unverified (I1): it asks who is signed in
+    const client: AccountClient = {
+      ...base,
+      claim: async (body: ClaimBody) => {
+        claimsSeen.push(body.device_id);
+        const campaign = body.campaign === null ? null : { deviceId: 'campaign', status: 'stored' as const, serverId: 'c', digest: await sha256Hex(canonicalCampaign(body.campaign)) };
+        const result: ClaimResult = { coins: 0, earned: 0, coupons: [], carried: [], notCarried: [], campaign, slots: [], state: confirmedState() };
+        return { ok: true, status: 200, body: result };
+      },
+    };
+    expect(await runClaim({ client, guest, storage })).toBe('moved');
+    expect(claimsSeen).toEqual([A2_DEVICE_ID]); // the sentinel really travelled the claim
+
+    // The store, the sync loop, a victory and a spend.
+    const sched = makeScheduler();
+    const cache = { ...cacheOf(server.snapshot()), publicId: A2_PUBLIC_ID };
+    // eslint-disable-next-line prefer-const -- the store's onChange closes over the sync built after it
+    let sync: ReturnType<typeof startSync> | undefined;
+    const store = accountLedgerStore({ storage, cache, world, onChange: () => sync?.kick(), newOpId: opIds(), tabId: 'T1' });
+    sync = startSync({ store, client, storage, now: sched.now, schedule: sched.schedule });
+    store.recordVictory({ ledger: { 'campaign.completed_missions': ['m1'] }, account: null, roar: null, win: { missionId: 'm1', stars: 1 } as never, start: 'n' });
+    await sync.flush();
+    const spent = await sync.spend({ item: 'unit', unitId: 'u1' });
+    await tick();
+    expect(spent.kind).toBe('ok');
+    expect(server.calls.map((c) => c.name)).toEqual(expect.arrayContaining(['POST spend']));
+    expect(server.calls.some((c) => c.name.startsWith('POST victory') || c.name.includes('victory'))).toBe(true);
+
+    // Every telemetry builder, fed from what those flows left in the store.
+    const sent: TelemetryEvent[] = [];
+    const tel = createTelemetry({
+      identity: resolveIdentity(memStore(), new URLSearchParams(), () => '0f8fad5b-d9cb-469f-a165-70867728950e'),
+      newSession: () => '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+      build: '0.0.0',
+      dev: false,
+      now: () => 1000,
+      viewport: () => [1440, 900],
+      visible: () => true,
+      setInterval: () => 0,
+      clearInterval: () => {},
+      onPagehide: () => {},
+      sink: { push: (e) => void sent.push(e), flush: () => {} },
+    });
+    const acct = store.readAccount() ?? emptyAccount();
+    const state: RuntimeView = { tick: 100, result: 'victory', defeatCause: undefined, roe: 100, fielded: 5, lost: 0, objectives: [{ id: 'hold', type: 'hold_for', primary: true, status: 'active' }] };
+    tel.sessionStart('menu', 'three');
+    const m = tel.missionStarted('m1', false, () => state);
+    m.onEvent({ kind: 'missionEnd', tick: 100, result: 'victory', roeRating: 90, survivors: [], ledger: {} } as MissionEvent);
+    m.end();
+    tel.account('mission_start', acct, { mission: 'm1' });
+    tel.account('payout', acct, { mission: 'm1', paid: 3 });
+    tel.account('purchase', acct, { item: 'u1', price: 5 });
+    tel.account('reset', acct);
+    expect(new Set(sent.map((e) => e.type))).toEqual(new Set(['session_start', 'mission_start', 'mission_end', 'account']));
+    const context = JSON.stringify(
+      collectContext({ renderer: 'three', viewport: [1920, 1080], dpr: 2, locale: 'en', ua: 'ua', route: '/profile', settings: { uiScale: 'auto', textSize: 1, motion: 'system', colorVision: 'default' }, errors: [] }),
+    );
+    const bodies = [...sent.map((e) => JSON.stringify(e)), context];
+    expect(bodies.length).toBeGreaterThan(5);
+    for (const body of bodies) for (const s of [A2_PUBLIC_ID, A2_DEVICE_ID]) expect(body, `carries ${s}`).not.toContain(s);
+    sync.stop();
   });
 });
