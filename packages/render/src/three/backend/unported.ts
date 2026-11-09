@@ -46,6 +46,8 @@ export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   'rl-foliage-sway', 'rl-foliage-sway-wet', 'rl-trunk-sway', 'rl-trunk-sway-wet',
   // GH-943 P2 (T5): the selection, team and wound rings (all three styles share the one material name).
   'rl-selection-ring',
+  // GH-943 P3 (T6): the garrison banner (`units/garrison-banner.node.ts`).
+  'rl-garrison-banner',
 ]);
 
 /** `userData` key on a node twin: the terms of its legacy material it does NOT draw (`['rl-ground: wet terms']`). */

@@ -18,6 +18,7 @@ import { foliageLeanOps } from './terrain/wind';
 import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
 import { SELECTION_RING } from './units/readability';
 import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
+import { bannerSwayOps } from './units/garrison-banner';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
@@ -35,7 +36,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
   // GH-943 P3 (T1): every P3 slot, null until its task fills it.
   unit: null,
   outline: null,
-  banner: null,
+  // T6: the garrison banner's swing (`units/garrison-banner.ts`), one body for the numbers and the node twin.
+  banner: { bannerSwayOps },
   backdrop: null,
   decal: null,
   overlay: null,
