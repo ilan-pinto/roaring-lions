@@ -15,6 +15,12 @@ describe('the privacy page', () => {
     }
   });
 
+  it('the guest sentence does not deny the anonymous data the page goes on to list (A1 follow-up 5)', () => {
+    const html = renderPrivacy(fixtureValues);
+    expect(html).not.toContain('stores nothing about you');
+    expect(html).toContain('no personal details');
+  });
+
   it('it never promises what is not true', () => {
     const html = renderPrivacy(fixtureValues);
     expect(html).not.toContain('email address we store');

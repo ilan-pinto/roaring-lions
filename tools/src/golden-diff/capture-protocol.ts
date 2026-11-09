@@ -1141,15 +1141,21 @@ ${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${l
  * the node chain, it turns on for legacy too, so nothing else needs matching.
  */
 export function matchNodeStatements(repoRoot: string): string {
-  const unported = `/@fs${repoRoot}/packages/render/src/three/backend/unported.ts`;
   return `{
-  const _r = window.__lions.renderer;
+${matchNodeCensusStatements(repoRoot)}  window.__rlMatchFound = _found;
+  _r.frame(1, 0);
+}
+`;
+}
+
+/** The matched census itself (declares `_r`, `_u`, `_found`): the ONE place the `portedKeys` call is written, shared by
+ *  `matchNodeStatements` and `matchNodeCensusScript`. */
+function matchNodeCensusStatements(repoRoot: string): string {
+  const unported = `/@fs${repoRoot}/packages/render/src/three/backend/unported.ts`;
+  return `  const _r = window.__lions.renderer;
   const _u = await import(${JSON.stringify(unported)});
   const _found = _u.censusUnported(_r.scene, { portedKeys: _u.PORTED_MATERIAL_KEYS });
   if (!Array.isArray(_found)) throw new Error('match-node: censusUnported returned no list');
-  window.__rlMatchFound = _found;
-  _r.frame(1, 0);
-}
 `;
 }
 
@@ -1183,6 +1189,15 @@ export function matchNodeSettleScript(repoRoot: string): string {
   // matched census meets. It stays the ONLY caller of `censusUnported` with the ported-key option.
   return `(async () => {
 ${matchNodeStatements(repoRoot)}  return JSON.stringify({ tick: window.__lions.sim.tickCount, found: window.__rlMatchFound });
+})()`;
+}
+
+/** GH-943 P2 (T9): the matched census as a page expression that returns the list it left as JSON and does NOT repaint (the P2
+ *  sheet's L arm reads the list, then repaints on its own schedule). Same statement as `matchNodeStatements`, so the ported-key
+ *  option keeps one caller (`match-node-ported-keys.test.ts`). */
+export function matchNodeCensusScript(repoRoot: string): string {
+  return `(async () => {
+${matchNodeCensusStatements(repoRoot)}  return JSON.stringify(_found);
 })()`;
 }
 

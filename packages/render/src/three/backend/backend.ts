@@ -26,6 +26,7 @@ import type { NodePmremHost } from '../environment';
 import type { RawPixels } from '../capture-view.node';
 import type { GroundMaterial } from '../terrain/mesh';
 import type { GroundMaths } from '../terrain/mesh.node';
+import type { FoliageMaths } from '../terrain/decor-mesh.node';
 import type { RingMaths } from '../units/selection-ring.node';
 
 /**
@@ -53,7 +54,7 @@ export interface MaterialMaths {
   readonly marker: 'rl-material-maths';
   /** T3: the ground blend (`terrain/mesh.node.ts`). */
   readonly ground: GroundMaths;
-  readonly foliage: null;
+  readonly foliage: FoliageMaths;
   readonly ring: RingMaths;
 }
 

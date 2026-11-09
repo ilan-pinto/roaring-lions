@@ -118,6 +118,13 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     }
   };
 
+  const signOutWith = async (pending: Promise<'ok' | AccountError>, done: () => void): Promise<void> => {
+    const r = await pending;
+    if (disposed) return;
+    if (isError(r)) say(failText(r), true);
+    else done();
+  };
+
   const identityRow = (me: SignedInMe, id: IdentityView, reload: () => void): HTMLElement => {
     const li = document.createElement('li');
     li.className = 'rl-profile__identity';
@@ -126,7 +133,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     const rm = button(t('profile.identity.remove'), () => {
       void deps.client.deleteIdentity(id.id).then((r) => {
         if (disposed) return;
-        if (isError(r)) say(t('profile.error'), true);
+        if (isError(r)) say(r.error === 'reauth' ? t('profile.reauth') : r.error === 'last_identity' ? t('profile.identity.last') : failText(r), true);
         else reload();
       });
     });
@@ -174,8 +181,8 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     const verbs = document.createElement('div');
     verbs.className = 'rl-profile__verbs';
     verbs.append(
-      button(t('profile.signOut'), () => void deps.client.logout().then(() => !disposed && afterSignOut())),
-      button(t('profile.signOutAll'), () => void deps.client.logoutAll().then(() => !disposed && afterSignOut())),
+      button(t('profile.signOut'), () => void signOutWith(deps.client.logout(), afterSignOut)),
+      button(t('profile.signOutAll'), () => void signOutWith(deps.client.logoutAll(), afterSignOut)),
       button(t('profile.export'), () => void download())
     );
     box.appendChild(verbs);
