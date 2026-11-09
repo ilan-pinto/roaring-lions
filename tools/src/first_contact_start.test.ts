@@ -1,0 +1,80 @@
+// The shipped missions' `first_contact` triggers must not fire in the first 100 ticks (5 s) of a passive run: nobody has met anyone
+// yet. Four of them did, at tick 1 to 12, because the old rule counted a militiaman spotting a civilian and a gun truck cutting a
+// neutral wall as "contact" (see packages/sim/src/first-contact.test.ts for the rule; this is the data it protects).
+// The probe that prints the table: tools/src/backtest/first-contact-probe.ts.
+import { describe, expect, it } from 'vitest';
+import { missions } from '@lions/data';
+import type { MissionJson, SimEvent } from '@lions/sim';
+import { missionWorld } from './mission-harness';
+
+const EARLY_TICKS = 100;
+const SEEDS = [1, 2, 3];
+
+const firstContactTriggers = (): { mission: string; id: string }[] =>
+  Object.entries(missions as Record<string, MissionJson>).flatMap(([mission, m]) =>
+    (m.triggers ?? []).flatMap((t, i) => (t.on.kind === 'first_contact' ? [{ mission, id: t.id ?? `trigger_${i}` }] : []))
+  );
+
+describe('shipped first_contact triggers', () => {
+  it('there are 6 of them, in 5 missions (a change of this count is a change to review here)', () => {
+    const all = firstContactTriggers();
+    expect(all).toHaveLength(6);
+    expect(new Set(all.map((t) => t.mission)).size).toBe(5);
+    // Khan Rafid III's rocket team is deliberately NOT one of them: see below.
+    expect(all.some((t) => t.mission === 'khan_rafid_3_clearance')).toBe(false);
+  });
+
+  // Khan Rafid III's rocket team spawned at tick 2 only because the old rule counted a militiaman cutting a neutral structure as contact,
+  // and the mission was tuned and playtested that way (on a real first contact the scripted plan wins in 3.4 min with 1 star, not 1.5 min
+  // with 2). It is an explicit 0.1 s timer so the mission plays as it did; this pins both halves of that choice.
+  it('khan_rafid_3_clearance puts its rocket team on the board at tick 2, by an explicit 0.1 s timer', () => {
+    const t = (missions as Record<string, MissionJson>).khan_rafid_3_clearance.triggers?.find((x) => x.id === 'a_rocket_team_moves_into_the_east_lane');
+    expect(t?.on).toEqual({ kind: 'timer_s', value: 0.1 });
+    const { sim, runtime } = missionWorld('khan_rafid_3_clearance', {}, 1);
+    const before = sim.entityCount;
+    let firedAt = -1;
+    for (let n = 0; n < 5 && firedAt < 0; n++) {
+      for (const me of runtime.step(sim.tick())) if (me.kind === 'trigger' && me.id === 'a_rocket_team_moves_into_the_east_lane') firedAt = me.tick;
+    }
+    expect(firedAt).toBe(2);
+    expect(sim.entityCount).toBe(before + 1);
+  });
+
+  for (const { mission, id } of firstContactTriggers()) {
+    it(`${mission}: "${id}" does not fire in the first ${EARLY_TICKS} ticks of a passive run, seeds ${SEEDS.join(',')}`, () => {
+      for (const seed of SEEDS) {
+        const { sim, runtime } = missionWorld(mission, {}, seed);
+        let firedAt = -1;
+        for (let n = 0; n < EARLY_TICKS && firedAt < 0; n++) {
+          for (const me of runtime.step(sim.tick())) if (me.kind === 'trigger' && me.id === id) firedAt = me.tick;
+        }
+        expect(firedAt, `seed ${seed}`).toBe(-1);
+      }
+    });
+  }
+
+  // Not vacuous: in these four worlds the sim DOES make the events the old rule fired on inside the window, so the test above is
+  // passing because of the rule and not because the worlds went quiet.
+  const loose: readonly [string, string][] = [
+    ['khan_rafid_3_clearance', 'fire at a structure'],
+    ['wadi_halam_5_depot', 'fire at a structure'],
+    ['beit_sahwan_1_recon', 'an enemy identifying a civilian'],
+    ['wadi_halam_4_village', 'an enemy identifying a civilian'],
+  ];
+  for (const [mission, what] of loose) {
+    it(`${mission} still makes the event the old rule fired on (${what}) inside ${EARLY_TICKS} ticks`, () => {
+      const { sim, runtime } = missionWorld(mission, {}, 1);
+      const S = sim.state as unknown as Record<string, ArrayLike<number>>;
+      let found = false;
+      for (let n = 0; n < EARLY_TICKS && !found; n++) {
+        const ev: SimEvent[] = sim.tick();
+        for (const e of ev) {
+          if (e.kind === 'fire' && e.target < 0 && S.side[e.shooter] === 1) found = true;
+          if (e.kind === 'contact' && e.level === 'identified' && e.side === 1 && S.side[e.target] === 2) found = true;
+        }
+        runtime.step(ev);
+      }
+      expect(found).toBe(true);
+    });
+  }
+});
