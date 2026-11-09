@@ -82,6 +82,14 @@ CAP_INSET_M = 0.015           # a gun's or a fist's collar goes this deep into i
 CAP_INSET_BODY_M = 0.025      # the body's collar goes this deep into the vest
 SMALL_ISLAND_VERTS = 80
 BODY_ISLAND_VERTS = 1500      # an island this big is the body (a figure's shell is ~5,000 welded vertices)
+ISLAND_FOLLOW_VERTS = 150     # an island smaller than this (not the gun, not a fist) moves as one piece with the body under it
+#: The fists and forearms to real size (the review of 9 Nov, the lead's ruling the same day). Meshy sculpted the closed
+#: fists 0.157-0.183 m long and the firing forearm 0.32-0.35 m (elbow to wrist): about 1.4x a gloved fist (~0.115-0.12,
+#: ANSUR II hand length 0.19 closed to ~0.6) and past the 99th percentile forearm (radiale-stylion ~0.153 S, 0.27 at 1.78).
+FIST_SCALE = 0.80             # each fist shrinks about the part of the gun it holds, so it stays closed on it
+FIST_GRIP_REACH_M = 0.05      # the gun vertices within this of the fist's centre are what it holds (the scale's centre)
+FOREARM_F = 0.153             # elbow to wrist as a fraction of stature: the elbow joint is placed there along the forearm
+FOREARM_MOVE_MAX_M = 0.06     # ...and moves at most this far from where the sleeve's bend was measured
 DEBRIS_GAP_M = 0.03           # a small island this far from everything at rest is Meshy's loose debris: deleted       # a separate shell piece smaller than this near the bore is the gun's (a loop, a buckle)
 ISLAND_NEAR_BORE_M = 0.14     # ...within this of the bore: the stock's rear loop sat 0.10 off it and stayed at the chest in fire
 GUN_L, GUN_C_MAX = (9.0, 28.0), 7.0
@@ -216,6 +224,44 @@ def _measure(co, cls, S, seeds):
         d = J["fist"][side] - J["elbow"][side]; d /= np.linalg.norm(d)
         J["wrist"][side] = J["fist"][side] - d * WRIST_BACK_M
     return J
+
+
+def _real_size_hands(src, co, cls, J):
+    """Fists to FIST_SCALE about the gun they hold, and each elbow joint placed FOREARM_F x S from its wrist. Geometry of
+    the SOURCE shell (every figure is a scaling of it) and its joints, in place; returns the new coordinates.
+
+    A fist's vertices (the glove blob ahead of the wrist plane, as `_fix_weights` reads it) scale about G, the centroid
+    of the gun-coloured vertices within FIST_GRIP_REACH_M of the fist's centre: the fist closes in on its own grip, so it
+    stays ON the gun (its inner surface goes ~4 mm deeper into a 2 cm grip). The cuff blends from FIST_SCALE at the wrist
+    plane to 1 at CUFF_BLEND_M behind it, so the sleeve meets the smaller glove with no step."""
+    out = co.copy()
+    for side in ("R", "L"):
+        fist, wr = J["fist"][side], J["wrist"][side]
+        d = (fist - wr) / np.linalg.norm(fist - wr)
+        t = (co - wr) @ d
+        dist = np.linalg.norm(co - fist, axis=1)
+        gm = cls["gun"] & (dist < FIST_GRIP_REACH_M)
+        G = co[gm].mean(0) if gm.sum() >= 8 else fist
+        blob = ((dist < 0.12) & cls["brown"]) | (dist < FIST_CORE_M)
+        blob &= ~(cls["gun"] & (dist < FIST_GRIP_REACH_M + 0.03))
+        k = np.where(t > 0.0, FIST_SCALE, FIST_SCALE + (1.0 - FIST_SCALE) * np.clip(-t / CUFF_BLEND_M, 0.0, 1.0))
+        m = blob & (t > -CUFF_BLEND_M)
+        out[m] = G + (co[m] - G) * k[m, None]
+        old_len = float(np.ptp((co[blob & (t > 0)] - wr) @ d)) if (blob & (t > 0)).any() else 0.0
+        J["fist"][side] = G + (fist - G) * FIST_SCALE
+        J["wrist"][side] = J["fist"][side] - d * WRIST_BACK_M * FIST_SCALE
+        # the elbow: FOREARM_F x S from the new wrist, along the measured forearm
+        e0 = J["elbow"][side]; u = (e0 - J["wrist"][side]) / np.linalg.norm(e0 - J["wrist"][side])
+        e1 = J["wrist"][side] + u * FOREARM_F * J["S"]
+        mv = e1 - e0
+        if np.linalg.norm(mv) > FOREARM_MOVE_MAX_M:
+            e1 = e0 + mv / np.linalg.norm(mv) * FOREARM_MOVE_MAX_M
+        J["elbow"][side] = e1
+        log(f"  real-size hands {side}: fist {int(m.sum())} verts x{FIST_SCALE} about the grip {np.round(G, 3)} "
+            f"(fist depth {old_len:.3f} -> {old_len * FIST_SCALE:.3f} m along the hand); elbow moved {np.linalg.norm(e1 - e0) * 100:.1f} cm, "
+            f"forearm {np.linalg.norm(e0 - wr):.3f} -> {np.linalg.norm(e1 - J['wrist'][side]):.3f} m")
+    src.data.vertices.foreach_set("co", out.reshape(-1)); src.data.update()
+    return out
 
 
 def _scale_joints(J, sz, sxy):
@@ -917,11 +963,63 @@ def _split_roles(ob, prefix, cls, roles, co):
         keep_set = set(int(i) for i in keep)
         bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.index not in keep_set], context="FACES")
         bm.to_mesh(pme); bm.free()
+        if role == "uniform":
+            _islands_follow_body(part, prefix)
         part["rl_role"] = role
         parts.append(part)
         log(f"{prefix}: role {role}: {len(pme.polygons)} tris")
     bpy.data.objects.remove(ob, do_unlink=True)
     return parts
+
+
+def _islands_follow_body(part, prefix):
+    """Every small island of the finished `uniform` mesh (welded by position) moves as ONE piece with the body vertex
+    nearest it: one weight row, copied. The seam cuts set scraps loose that sit 1.2-2.0 cm off the body at rest with
+    weights of their own (a belt pouch on the spine alone against a belt that follows the pelvis), and in fire and kneel
+    they parted 7.9-8.4 cm: the floating olive specks beside the torso (the review of 9 Nov, B1; `probe_islands.py`).
+    A fist (hand-dominant) keeps its own rigid weights."""
+    me = part.data
+    n = len(me.vertices)
+    if n == 0:
+        return
+    co = np.empty(n * 3); me.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
+    names, W = _weights(part)
+    hand_cols = [i for i, nm in enumerate(names) if nm in (f"{prefix}_hand_L", f"{prefix}_hand_R")]
+    dom_hand = np.isin(W.argmax(1), hand_cols) & (W.max(1) > 0)
+    parent = np.arange(n)
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]; a = parent[a]
+        return a
+    key = {}
+    for i, k in enumerate(map(tuple, np.round(co, 5))):
+        if k in key:
+            parent[find(i)] = find(key[k])
+        else:
+            key[k] = i
+    polys = np.empty(len(me.polygons) * 3, np.int64); me.polygons.foreach_get("vertices", polys); polys = polys.reshape(-1, 3)
+    for t in polys:
+        parent[find(t[0])] = find(t[1]); parent[find(t[1])] = find(t[2])
+    comp = np.array([find(i) for i in range(n)]); sizes = np.bincount(comp)
+    body = np.nonzero((sizes[comp] >= BODY_ISLAND_VERTS) & ~dom_hand)[0]
+    if len(body) == 0:
+        return
+    moved = pieces = 0
+    for c_id in np.unique(comp[sizes[comp] < ISLAND_FOLLOW_VERTS]):
+        idx = np.nonzero(comp == c_id)[0]
+        if dom_hand[idx].any():
+            continue
+        dmin, j = np.inf, -1
+        for i in idx:
+            d = np.linalg.norm(co[body] - co[i], axis=1); k = int(np.argmin(d))
+            if d[k] < dmin:
+                dmin, j = float(d[k]), int(body[k])
+        W[idx, :] = W[j, :]
+        moved += len(idx); pieces += 1
+    if moved:
+        _set_weights(part, names, W)
+        log(f"{prefix}: uniform: {moved} vertices of {pieces} small islands follow the body vertex nearest them (one weight row each)")
 
 
 # ---------------------------------------------------------------------------
@@ -1154,6 +1252,7 @@ def build_team(team_id, out_path=None):
     lab, uv = _vertex_lab(src, image)
     cls0 = _classes(co0, lab)
     J0 = _measure(co0, cls0, cfg["stature"], cfg["seeds"])
+    co0 = _real_size_hands(src, co0, cls0, J0)
     g = J0["gun"]
     log(f"{team_id}: joints -- crotch {J0['crotch']:.3f} knee {J0['knee']:.3f} chin {J0['chin']:.3f} head_xy {np.round(J0['head_xy'], 3)}")
     for side in ("R", "L"):

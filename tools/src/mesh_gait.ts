@@ -2841,8 +2841,18 @@ export function measureGrip(path: string, clip: string, prefix: string, opts: Gr
         const hp = picks.find((p) => p.skin.joints.includes(hNode[idx]))!;
         const Mh = matsOf.get(hp)![hp.skin.joints.indexOf(hNode[idx])];
         const rel = multiply(Mi, Mh);
-        const tr = rel[0] + rel[5] + rel[10];
-        r.axis = Math.max(r.axis, (Math.acos(Math.max(-1, Math.min(1, (tr - 1) / 2))) * 180) / Math.PI);
+        if (idx === 1) {
+          // The SUPPORT fist may roll round the handguard (the hold turns it about the bore as the weapon comes up, GH-746
+          // 9 Nov), which keeps it closed on the same handguard; what the axis limit holds is its TILT off the bore, the
+          // procedural gate's "channel axis against the bore". So: the posed-against-bind rotation, its twist about the
+          // weapon's axis removed (swing-twist), and the swing's angle read.
+          // the swing's angle is the angle the weapon's axis itself is turned through: acos(a . R a)
+          const ra = xfDir(rel, fr.axis);
+          r.axis = Math.max(r.axis, (Math.acos(Math.max(-1, Math.min(1, vdot(ra, fr.axis) / Math.max(1e-12, vlen(ra))))) * 180) / Math.PI);
+        } else {
+          const tr = rel[0] + rel[5] + rel[10];
+          r.axis = Math.max(r.axis, (Math.acos(Math.max(-1, Math.min(1, (tr - 1) / 2))) * 180) / Math.PI);
+        }
       }
       if (stationRest) {
         r.station = Math.max(r.station, vlen(vsub(refW, stationRest[idx])));
