@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEMO_ENCODED_BASE_TRIS, DEMO_STATES, MODEL_REGION, STATES, TEAM_CHECKS, differingPixels, mergeFailures, type Pixels, type Reading } from './inf-kit-capture-check';
 
-/** The kit triangles of each state, literals from the art file (the 29 Oct redesign, re-fitted to the Meshy figure 9 Nov; the v7 set 9 Nov, GH-746: from the art file's bytes, not a fresh browser capture, which is the controller's Metal run). */
+/** The kit triangles of each state, literals from the art file (the 29 Oct redesign, re-fitted to the Meshy figure 9 Nov; the v7 set 9 Nov, GH-746: from the art file's bytes, and the controller's real Metal capture of 9 Nov, which read exactly these: 32,955 live at tier 0, 54 draw calls in every state). */
 const KIT: Record<string, [Record<string, number>, number]> = {
   A1: [{ armour: 1 }, 7083], A2: [{ armour: 2 }, 8307], A3: [{ armour: 3 }, 8383],
   S1: [{ sensors: 1 }, 2028], S2: [{ sensors: 2 }, 4598], S3: [{ sensors: 3 }, 5410],
@@ -9,8 +9,8 @@ const KIT: Record<string, [Record<string, number>, number]> = {
   full: [{ armour: 3, sensors: 3, firepower: 3 }, 21125],
 };
 const MEASURED: Record<string, Reading> = {
-  T0: { tiers: {}, loaded: true, tris: 32962, kitTris: 0, meshes: 4, calls: 54 },
-  ...Object.fromEntries(Object.entries(KIT).map(([id, [tiers, kit]]) => [id, { tiers, loaded: true, tris: 32962 + kit, kitTris: kit, meshes: 4, calls: 54 }])),
+  T0: { tiers: {}, loaded: true, tris: 32955, kitTris: 0, meshes: 4, calls: 54 },
+  ...Object.fromEntries(Object.entries(KIT).map(([id, [tiers, kit]]) => [id, { tiers, loaded: true, tris: 32955 + kit, kitTris: kit, meshes: 4, calls: 54 }])),
 };
 const read = (over: (m: Record<string, Reading>) => void): string[] => {
   const m = structuredClone(MEASURED);
@@ -25,7 +25,7 @@ describe('inf-kit capture merge check', () => {
   });
   it('fails when the seed never arrived, a merge kept nothing, the kit added a mesh or a draw call', () => {
     expect(read((m) => { m.full.tiers = {}; })[0]).toMatch(/full: renderer tiers/);
-    expect(read((m) => { m.A3.kitTris = 0; m.A3.tris = 32962; })[0]).toMatch(/A3: 0 kit triangles merged, expected 8383/);
+    expect(read((m) => { m.A3.kitTris = 0; m.A3.tris = 32955; })[0]).toMatch(/A3: 0 kit triangles merged, expected 8383/);
     expect(read((m) => { m.S3.meshes = 5; })).toEqual([expect.stringMatching(/S3: 5 meshes/)]);
     expect(read((m) => { m.F3.calls = 56; })).toEqual([expect.stringMatching(/F3: 56 draw calls/)]);
     expect(read((m) => { m.T0.tris = 8604; m.T0.kitTris = 0; })[0]).toMatch(/T0: 8604 triangles/);

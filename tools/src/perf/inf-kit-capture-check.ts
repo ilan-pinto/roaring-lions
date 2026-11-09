@@ -28,8 +28,9 @@ export interface Reading {
  *  the same 432 Draco drops). The Meshy pilot (GH-746, 9 Nov): 33,216 in the art file read 32,998 in the real capture
  *  on Metal, which is exactly the decoded encode's live index count; after the real-size fists the art file is 33,394
  *  and its decoded encode 33,021 (same count, read off assets/meshes with the draco decoder); round 3 (9 Nov): 33,110 and
- *  32,976; round 4: 33,085 and 32,962. */
-export const ENCODED_BASE_TRIS = 32962;
+ *  32,976; round 4: 33,085 and 32,962; round 5 (the weld-cleaned fists): 32,955 in the art file AND 32,955 live, read in
+ *  the real Metal capture (`pnpm inf-kit:capture -- --gpu=metal`, ANGLE Metal, Apple M3 Pro, 9 Nov) -- Draco drops none now. */
+export const ENCODED_BASE_TRIS = 32955;
 
 // 9 Nov 2026 (GH-746): the v7 kit, re-counted from the art file's bytes (21,125 triangles over three figures at full kit; was 3,014).
 export const STATES: readonly State[] = [
