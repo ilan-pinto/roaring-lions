@@ -880,6 +880,11 @@ export class SmokePlumeManager {
     };
   }
 
+  /** The pooled zone meshes, empty until the GLB has loaded. The `muzzle-burst` / `smoke-plume` debug layers hide exactly these. */
+  get zoneMeshes(): readonly THREE.Object3D[] {
+    return this.meshes === null ? [] : Object.values(this.meshes);
+  }
+
   /** True once `load()` has resolved -- mirrors `ExplosionBurstManager.ready`. */
   get ready(): boolean {
     return this.meshes !== null;

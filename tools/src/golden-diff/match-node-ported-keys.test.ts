@@ -14,7 +14,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { matchNodeStatements } from './capture-protocol';
+import { matchNodeCensusScript, matchNodeStatements } from './capture-protocol';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const SKIP_DIRS = new Set(['node_modules', '.git', '.superpowers', 'assets', 'art', 'data', 'docs']);
@@ -79,6 +79,13 @@ describe('the ported-key option has exactly one caller', () => {
 
   it('the matched statement the page evaluates carries the option', () => {
     expect(matchNodeStatements('/repo')).toContain('_u.censusUnported(_r.scene, { portedKeys: _u.PORTED_MATERIAL_KEYS })');
+  });
+
+  it('the P2 sheet\'s census script is the same statement, returning the list and not repainting', () => {
+    const script = matchNodeCensusScript('/repo');
+    expect(script).toContain('_u.censusUnported(_r.scene, { portedKeys: _u.PORTED_MATERIAL_KEYS })');
+    expect(script).toContain('return JSON.stringify(_found);');
+    expect(script).not.toContain('_r.frame(');
   });
 });
 

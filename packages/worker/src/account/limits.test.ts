@@ -25,6 +25,14 @@ describe('account limits', () => {
     for (let i = 0; i < 6; i++) expect(await newAccountBudget(h.db, h.env, req('198.51.100.2'), NOW)).toBe(true);
   });
 
+  it('IPv6 addresses in one /64 share the per-ip account budget (A1 follow-up 3)', async () => {
+    const h = accountHarness();
+    const env = { ...h.env, TICKET_SECRET: 's' };
+    for (let i = 0; i < 5; i++) expect(await newAccountBudget(h.db, env, req(`2001:db8:1:2:${i}::1`), NOW)).toBe(true);
+    expect(await newAccountBudget(h.db, env, req('2001:db8:1:2:ffff::9'), NOW)).toBe(false);
+    expect(await newAccountBudget(h.db, env, req('2001:db8:1:3::1'), NOW)).toBe(true);
+  });
+
   it('no ip is stored', async () => {
     const h = accountHarness();
     const env = { ...h.env, TICKET_SECRET: 's' };

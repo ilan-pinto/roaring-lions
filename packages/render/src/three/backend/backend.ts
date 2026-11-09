@@ -25,6 +25,7 @@ import type { BloomControl } from '../bloom-spec';
 import type { NodePmremHost } from '../environment';
 import type { RawPixels } from '../capture-view.node';
 import type { GroundMaterial } from '../terrain/mesh';
+import type { FoliageMaths } from '../terrain/decor-mesh.node';
 import type { RingMaths } from '../units/selection-ring.node';
 
 /**
@@ -85,7 +86,7 @@ export interface MaterialKit {
 export interface MaterialMaths {
   readonly marker: 'rl-material-maths';
   readonly ground: null;
-  readonly foliage: null;
+  readonly foliage: FoliageMaths;
   readonly ring: RingMaths;
   /** GH-943 P3 (T1): one slot per `MaterialKit` P3 slot, each `null` until its task gives it the type its twin declares. */
   readonly unit: null;
