@@ -103,6 +103,8 @@ export function zoneBandCells(
  */
 export function createZoneBandMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+    name: 'rl-zone-band',
     vertexShader: /* glsl */ `
       attribute vec3 aColor;
       attribute float aAlpha;

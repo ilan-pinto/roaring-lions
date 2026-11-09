@@ -64,6 +64,10 @@ const lazyGzip = lazy.reduce((n, c) => n + (c.gzipBytes ?? 0), 0);
 lines.push(`node-boot extra download (webgpu + tsl + node backend): raw ${(lazyBytes / 1024).toFixed(1)} KiB, gzip ${(lazyGzip / 1024).toFixed(1)} KiB; a legacy boot downloads none of it`);
 lines.push(`node post chain (post-chain.node.ts) in: ${f.nodePostChunks.join(', ') || '(NOWHERE)'}; legacy composer (three/addons/postprocessing) in: ${f.legacyPostChunks.join(', ') || '(NOWHERE)'}`);
 lines.push(`material-maths.ts (app-side material values) in: ${f.materialMathsChunks.join(', ') || '(NOWHERE)'}; node material twins (${'rl-node-material-*'}) in: ${f.nodeMaterialChunks.join(', ') || '(none yet)'}`);
+// GH-943 P3 (T1): the two import-free twin-side modules (`twin-identity.ts`, `material-names.ts`), by a literal only each holds.
+// Report-only: they import nothing, so wherever the bundler puts them they drag no chunk in (the G9 source spec is the gate).
+const holders = (marker: string): string => chunks.filter((c) => c.code.includes(marker)).map((c) => c.file).join(', ') || '(NOWHERE)';
+lines.push(`twin-identity.ts (rlLegacyBase) in: ${holders('rlLegacyBase')}; material-names.ts (rl-backdrop-fade) in: ${holders('rl-backdrop-fade')}`);
 lines.push(`entry static closure: ${f.entryStaticClosure.join(', ') || '(none)'}`);
 lines.push(f.failures.length === 0 ? 'FINDINGS: none (core shared, webgpu lazy, main chunk clean, node post chain only in the node backend chunk, no postprocessing addons in it, material values off the node load, twins only in the node backend chunk)' : `FINDINGS:\n  ${f.failures.join('\n  ')}`);
 console.log(lines.join('\n'));

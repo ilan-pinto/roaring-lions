@@ -48,6 +48,8 @@ export const SUPPLY_ROUTE_ALPHA = 0.9;
 
 export function createSupplyRouteMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+    name: 'rl-supply-route',
     uniforms: {
       uOpen: { value: new THREE.Vector3(1, 1, 1) },
       uCut: { value: new THREE.Vector3(1, 1, 1) },

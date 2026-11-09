@@ -120,21 +120,40 @@ describe('classifyCensus', () => {
     expect(v.expected.map((e) => e.key)).toEqual(['rl-ground: wet terms', 'rl-garrison-banner']);
     expect(v.unexpected.map((e) => e.key)).toEqual(['rl-selection-ring', 'rl-foliage-sway']);
   });
-  it('the P3/P4 entries read off the Metal census are expected, and only under their own kind', () => {
+  it('the garrison banner is expected only as an on-before-compile hook: an UNADOPTED one (a swap site that skipped adoption) is not', () => {
     const v = classifyCensus([
-      { kind: 'shader-material', key: 'ShaderMaterial', objects: 30 },
-      { kind: 'on-before-compile', key: 'BakedMaterial', objects: 25 },
-      { kind: 'on-before-compile', key: 'backdrop-kit-lod1', objects: 1 },
+      { kind: 'on-before-compile', key: 'rl-garrison-banner', objects: 4 },
+      { kind: 'unadopted', key: 'rl-garrison-banner', objects: 2 },
+    ]);
+    expect(v.expected.map((e) => e.kind)).toEqual(['on-before-compile']);
+    expect(v.unexpected.map((e) => e.kind)).toEqual(['unadopted']);
+  });
+  it('the P3/P4 entries read off the Metal census are expected, and only under their own kind', () => {
+    // GH-943 P3 (T1): the keys as `censusKey` now names them (hook segments; the P3 batch names).
+    const v = classifyCensus([
+      { kind: 'shader-material', key: 'ShaderMaterial', objects: 4 },
+      { kind: 'shader-material', key: 'rl-decal', objects: 2 },
+      { kind: 'shader-material', key: 'rl-fx-particle-hot', objects: 2 },
+      { kind: 'shader-material', key: 'rl-zone-band', objects: 1 },
+      { kind: 'shader-material', key: 'rl-beam', objects: 1 },
+      { kind: 'on-before-compile', key: 'rl-team-mark-2', objects: 25 },
+      { kind: 'on-before-compile', key: 'rl-team-mark-2|rl-running-gear-1', objects: 2 },
+      { kind: 'on-before-compile', key: 'rl-unit-rain-rim|rl-wounded-floor', objects: 3 },
+      { kind: 'on-before-compile', key: 'rl-backdrop-fade', objects: 5 },
       { kind: 'on-before-compile', key: 'rl-silhouette-outline', objects: 38 },
     ]);
     expect(v.unexpected).toHaveLength(0);
-    // the same names under the wrong kind, and a ported ground that came back, are NOT expected
+    // the same names under the wrong kind, a ported ground that came back, a unit chain with a foreign segment, and the retired
+    // P2 keys (a GLB name, a backdrop mesh name) are NOT expected
     const w = classifyCensus([
       { kind: 'on-before-compile', key: 'ShaderMaterial', objects: 1 },
-      { kind: 'shader-material', key: 'BakedMaterial', objects: 1 },
+      { kind: 'shader-material', key: 'rl-team-mark-2', objects: 1 },
       { kind: 'on-before-compile', key: 'rl-ground', objects: 1 },
+      { kind: 'on-before-compile', key: 'rl-team-mark-2|rl-garrison-x', objects: 1 },
+      { kind: 'on-before-compile', key: 'BakedMaterial', objects: 1 },
+      { kind: 'on-before-compile', key: 'backdrop-kit-lod1', objects: 1 },
     ]);
-    expect(w.unexpected).toHaveLength(3);
+    expect(w.unexpected).toHaveLength(6);
   });
   it('every rule carries a reason that names a phase or a ruling', () => {
     for (const r of CENSUS_RULES) expect(r.reason).toMatch(/P\d|ruled|by design/);

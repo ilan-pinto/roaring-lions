@@ -40,6 +40,7 @@
 import * as THREE from 'three';
 import { hexToLinear } from '../terrain/shared';
 import type { VehicleMeshEntity } from './mesh-vehicle';
+import { legacyOf } from '../twin-identity';
 
 /** The lead's ruling (2 Nov, GH-943): strength 0.85. */
 export const TEAM_MASK_STRENGTH = 0.85;
@@ -268,8 +269,12 @@ export class VehicleTeamMaterials {
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh || Array.isArray(mesh.material)) return;
         if ((mesh.userData as { rl_role?: unknown }).rl_role !== MARK_ROLE) return;
-        const next = this.materialFor(mesh.material, slot);
-        if (next !== mesh.material) {
+        // GH-943 P3 (T1): on a node boot `mesh.material` is a twin; the variant is minted from (and compared with) the LEGACY
+        // material, and the caller queues the entity for adoption. Never a separate base per variant: each slot's hook reads its
+        // own colour uniform, so variants must not share a twin.
+        const current = legacyOf(mesh.material, mesh);
+        const next = this.materialFor(current, slot);
+        if (next !== current) {
           mesh.material = next;
           n++;
         }

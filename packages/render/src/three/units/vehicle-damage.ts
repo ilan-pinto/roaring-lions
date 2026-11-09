@@ -54,6 +54,7 @@ import { CHARRED_RAMP } from './vehicle-mesh-role';
 import { runningGearBinding } from './running-gear-binding';
 import { carryTeamMark } from './team-mask';
 import type { VehicleMeshEntity } from './mesh-vehicle';
+import { legacyOf, recordLegacyBase } from '../twin-identity';
 
 /** A clean hull's band, and the band of anything never processed. */
 export const VEHICLE_BAND_CLEAN = 8;
@@ -137,6 +138,8 @@ export class VehicleScarMaterials {
       scarred.needsUpdate = true;
       perBand.set(band, scarred);
       scarBase.set(scarred, base);
+      // GH-943 P3 (T1): a scar shares its template's node twin (colour and roughness are per object, T3).
+      recordLegacyBase(scarred, base);
     }
     return scarred;
   }
@@ -165,15 +168,17 @@ export class VehicleScarMaterials {
 export function applyVehicleDamageBand(entity: VehicleMeshEntity, band: number, scars: VehicleScarMaterials): void {
   drawnBand.set(entity, band);
   const rg = runningGearBinding(entity);
-  const rgOriginal = new Map<THREE.Material, THREE.Material>();
-  if (rg) for (const s of rg.swaps) rgOriginal.set(s.mesh.material as THREE.Material, s.original);
+  // Keyed by mesh: on a node boot every vehicle's running-gear clone of one material draws one shared twin (GH-943 P3 T1).
+  const rgOriginal = new Map<THREE.Mesh, THREE.Material>();
+  if (rg) for (const s of rg.swaps) rgOriginal.set(s.mesh, s.original);
   const mix = vehicleScarMixForBand(band);
   for (const top of entity.liveTop) {
     top.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || Array.isArray(mesh.material)) return;
-      const current = mesh.material;
-      const original = rgOriginal.get(current);
+      // GH-943 P3 (T1): the LEGACY material this mesh draws (its twin on a node boot); the caller queues the swap for adoption.
+      const current = legacyOf(mesh.material, mesh);
+      const original = rgOriginal.get(mesh);
       if (original) {
         // This vehicle's own running-gear clone: written in place.
         const base = (scarBase.get(original) ?? original) as THREE.MeshStandardMaterial;
