@@ -31,6 +31,7 @@ import type { RingMaths } from '../units/selection-ring.node';
 import type { OutlineMaths } from '../units/silhouette.node';
 import type { ZoneBandMaths } from '../units/zone-band.node';
 import type { SupplyRouteMaths } from '../supply-route.node';
+import type { XrayMaths } from '../tunnel-xray.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -105,7 +106,8 @@ export interface MaterialMaths {
   readonly zoneBand: ZoneBandMaths;
   readonly supplyRoute: SupplyRouteMaths;
   readonly trail: null;
-  readonly xray: null;
+  /** T9: the x-ray's four styles share one body of maths (`tunnel-xray.ts`). */
+  readonly xray: XrayMaths;
   readonly particle: null;
   readonly tracer: null;
   readonly vfxMesh: null;

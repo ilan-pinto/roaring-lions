@@ -33,6 +33,7 @@ import { outlineExpandOps, SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY, SILHOUETTE_EXPAND_
 import { zoneHatchOps } from './units/zone-band';
 import { dashOps } from './supply-route-maths';
 import { SUPPLY_ROUTE_ALPHA } from './supply-route';
+import { xrayBeamOps, xrayCollarOps, xrayFigureOps, xrayRevealOps, xrayScanOps, xrayTubeOps } from './tunnel-xray';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
@@ -71,7 +72,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
   zoneBand: { hatchOps: zoneHatchOps },
   supplyRoute: { dashOps, alpha: SUPPLY_ROUTE_ALPHA },
   trail: null,
-  xray: null,
+  // T9: the tunnel x-ray's tube, collar, figure and beam (`tunnel-xray.node.ts`).
+  xray: { revealOps: xrayRevealOps, scanOps: xrayScanOps, tubeOps: xrayTubeOps, collarOps: xrayCollarOps, figureOps: xrayFigureOps, beamOps: xrayBeamOps },
   particle: null,
   tracer: null,
   vfxMesh: null,
