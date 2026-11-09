@@ -25,6 +25,7 @@ import type { MaterialKit, RenderBackend } from './backend/backend';
 import { nodeDisturbBindings, type DisturbBindings } from './terrain/decor-mesh.node';
 import type { DisturbUniformSet } from './terrain/disturb-uniforms';
 import { ThreeRenderer } from './ThreeRenderer';
+import { NULL_P3_SLOTS } from './node-material-adoption';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -168,7 +169,7 @@ async function boot(): Promise<World> {
   const TSL = await import('three/tsl');
   const { createFoliageTwinFactory } = await import('./terrain/decor-mesh.node');
   const { MATERIAL_MATHS } = await import('./material-maths');
-  seam.kit = { ground: null, ring: null, foliage: createFoliageTwinFactory({ W: WG, TSL, maths: MATERIAL_MATHS.foliage }) };
+  seam.kit = { ...NULL_P3_SLOTS, ground: null, ring: null, foliage: createFoliageTwinFactory({ W: WG, TSL, maths: MATERIAL_MATHS.foliage }) };
   const sim = new Sim({ seed: 1, width: W, height: H, capacity: 16 });
   for (let y = 0; y < H; y += 3) for (let x = 0; x < W; x += 3) sim.cover[y * W + x] = 1;
   const tank = sim.spawn(sim.addUnitType(TANK), 0, fx.from(5.5), fx.from(11.5));

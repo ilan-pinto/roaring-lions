@@ -20,6 +20,7 @@ import type { RendererOptions, TerrainTones } from '../api';
 import type { MaterialKit, RenderBackend } from './backend/backend';
 import { censusUnported, type UnportedHook } from './backend/unported';
 import { ThreeRenderer } from './ThreeRenderer';
+import { NULL_P3_SLOTS } from './node-material-adoption';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -162,7 +163,7 @@ function stubKit(): StubKit {
     calls[slot]++;
     return new THREE.MeshBasicMaterial({ name: `stub-twin-${slot}` });
   };
-  return { ground: make('ground'), foliage: make('foliage'), ring: make('ring'), calls };
+  return { ...NULL_P3_SLOTS, ground: make('ground'), foliage: make('foliage'), ring: make('ring'), calls };
 }
 
 const HOST = { clientWidth: 320, clientHeight: 240, appendChild(): void {} } as unknown as HTMLElement;

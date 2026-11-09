@@ -6719,9 +6719,7 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-body);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 /* No ellipsis, deliberately. The chip carries `gateShort`'s REQUIREMENT
    (`Locked · Conduct 55`, `Locked · 12★`), which fits; the first cut put the
@@ -6730,10 +6728,12 @@ button.rl-menu__item[data-kind='aside'] {
    floor of 35 and one of 75. A rule that hides the only part of a string that
    differs is worse than no rule. The sentence is on the card's `title` and in
    the bay. */
+/* GH-1145: it wraps rather than clips. Wrapping hides nothing (an ellipsis did), and in a 16rem rail
+   a longer string -- the pseudo-locale's, or a translation's -- otherwise ran past the card's edge. */
 .rl-garage__card-chip {
   font-size: var(--t-band);
   color: var(--ink-dim);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .rl-garage__card[data-status='earned'] .rl-garage__card-chip,
 .rl-garage__card[data-status='bought'] .rl-garage__card-chip {
@@ -7074,6 +7074,16 @@ button.rl-menu__item[data-kind='aside'] {
   text-transform: uppercase;
   color: var(--ink-dim);
   white-space: nowrap;
+}
+/* GH-1145: on a rail card the tag sits in a flex column whose width is what is left of a 16rem
+   rail after the art and the kit grid. `nowrap` + `fit-content` let "Special forces" (and far
+   more so its pseudo-locale form) push past the card's edge at 1280. The card's tag may
+   shrink to the column and wrap; the bay's own tag (`.rl-garage__tag`) has the room and keeps one line. */
+.rl-garage__card-tag {
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* Visually hidden, still read by assistive tech. */
 .rl-sr-only {

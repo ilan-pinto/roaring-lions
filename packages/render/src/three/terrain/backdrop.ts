@@ -58,6 +58,7 @@ import { fbm2, valueNoise2 } from './noise';
 import { hexToUnit, hexToLinear } from './shared';
 import { paletteHex } from '../palette-hex';
 import { WORLD_RENDER_ORDER } from '../units/render-order';
+import { BACKDROP_HOOK_KEY } from '../material-names';
 import { assembleKit, floorSurface, LOD1_BELOW_ZOOM, type BackdropPiece, type KitSource, type PlacedKit, type Taper } from './backdrop-kit';
 
 /** A map's `backdrop` block (map.schema.json), as the renderer reads it. */
@@ -465,6 +466,9 @@ function fadeToBackground(mat: THREE.MeshStandardMaterial, w: number, h: number,
         '#include <dithering_fragment>\n  {\n    vec2 bdOut = max(vec2(0.0), max(-vBdXZ, vBdXZ - uBdSize));\n    float bdF = smoothstep(uBdFade.x, uBdFade.y, length(bdOut));\n    gl_FragColor.rgb = mix(gl_FragColor.rgb, uBdBg, bdF);\n  }'
       );
   };
+  // GH-943 P3 (T1): a constant key, so the census and the twin table name the hook (`rl-backdrop-fade`, the `backdrop` slot) rather
+  // than the mesh. All five materials share the one hook source, so three already keyed them as one program: no program moves.
+  mat.customProgramCacheKey = () => BACKDROP_HOOK_KEY;
 }
 
 /** Releases what `buildBackdrop` made: the floor and kit geometry, the floor's
