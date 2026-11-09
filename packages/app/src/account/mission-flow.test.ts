@@ -60,8 +60,14 @@ describe('victoryCoinLine', () => {
   });
   it('no nonce, no flow, not eligible or no queued victory: no line', () => {
     expect(victoryCoinLine({ ...base, start: null })).toBeUndefined();
-    expect(victoryCoinLine({ ...base, flow: null })).toBeUndefined();
     expect(victoryCoinLine({ ...base, eligible: false })).toBeUndefined();
     expect(victoryCoinLine({ ...base, ops: [slot('x')] })).toBeUndefined();
+    expect(victoryCoinLine({ ...base, flow: null, start: null })).toBeUndefined();
+    expect(victoryCoinLine({ ...base, flow: null, eligible: false })).toBeUndefined();
+  });
+  it('a signed-in win with no flow (offline from the cache) is the static willSync line, never a final award', () => {
+    const line = victoryCoinLine({ ...base, flow: null });
+    expect(line?.initial).toEqual({ coins: 120, balance: 5120, phase: 'willSync' });
+    expect(line?.subscribe(() => {})()).toBeUndefined();
   });
 });

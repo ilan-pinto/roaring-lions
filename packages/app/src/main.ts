@@ -378,6 +378,7 @@ import { bootAccountLazy } from './account/boot';
 import type { SyncHandle } from './account/sync';
 import { isAccountStore } from './account/account-store';
 import type { SpendFlow } from './account/spend-flow';
+import { garageServerMode, serverControls } from './account/garage-server';
 import { opIdsOf, requestMissionStart, victoryCoinLine } from './account/mission-flow';
 import { newCampaign, type CampaignLedger, type LedgerStore, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
@@ -1242,7 +1243,48 @@ async function main(): Promise<void> {
     };
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => coinHalfFor({ brigade: ledgerStore.readAccount(), roar: ledgerStore.readRoar() });
-    const flow = spendFlowRef;
+    // Signed-in-ness comes from the STORE (fix round 2): an account store with no flow is offline, never a guest.
+    const serverCtl = serverControls<GarageState>(garageServerMode(ledgerStore, spendFlowRef), now, {
+      guest: () => ({
+        buy: (ask) => {
+          const roar = ledgerStore.readRoar();
+          const { account, ok } = buyWithCoins(
+            storeInputFor({ ledger: ledgerStore.readLedger(), brigade: ledgerStore.readAccount(), roar }),
+            roar,
+            ask,
+            Date.now()
+          );
+          if (ok) {
+            try {
+              ledgerStore.writeRoar(account);
+            } catch (err) {
+              // A refused write buys nothing (G-S2): the wallet is read back as it was.
+              console.error('the Roar-coin wallet write was refused:', err);
+            }
+          }
+          return now();
+        },
+        reset: () => {
+          telemetry().account('reset', ledgerStore.resetAccount());
+          return now();
+        },
+        redeem: (code) => {
+          const out = redeemOnStore(ledgerStore, code, coupons, sha256Hex, Date.now());
+          return { state: now(), ...out };
+        },
+      }),
+      // Signed in: the server prices and moves the coins (§0.9); each waits for its barrier and answers the account as it then
+      // stands. The wallet is never written here.
+      flow: (flow) => ({
+        buy: (ask) => flow.buy(ask).then(() => now()),
+        reset: () =>
+          flow.reset().then((out) => {
+            if (out === 'ok') telemetry().account('reset', ledgerStore.readAccount());
+            return now();
+          }),
+        redeem: (code) => flow.redeem(code).then((out) => ({ state: now(), ...out })),
+      }),
+    });
     return showBrigade(host, {
       units: kdfUnits,
       ledger: ledgerStore.readLedger(),
@@ -1300,56 +1342,16 @@ async function main(): Promise<void> {
             wallet: ledgerStore.available ? { coins: spendable(r), receipts: r.receipts } : undefined,
           };
         },
-        // Signed in (GH-1142): which tracks have a coin Buy in flight, so their credit Buys wait.
-        ...(flow !== null ? { pendingTracks: flow.gate.pendingTracks } : {}),
-        onBuy: ledgerStore.available
-          ? flow !== null
-            ? // Signed in: the server prices and moves the coins (§0.9); the Buy waits for its barrier and answers the account as it
-              // then stands. The wallet is never written here.
-              (ask) => flow.buy(ask).then(() => now())
-            : (ask) => {
-                const roar = ledgerStore.readRoar();
-                const { account, ok } = buyWithCoins(
-                  storeInputFor({ ledger: ledgerStore.readLedger(), brigade: ledgerStore.readAccount(), roar }),
-                  roar,
-                  ask,
-                  Date.now()
-                );
-                if (ok) {
-                  try {
-                    ledgerStore.writeRoar(account);
-                  } catch (err) {
-                    // A refused write buys nothing (G-S2): the wallet is read back as it was.
-                    console.error('the Roar-coin wallet write was refused:', err);
-                  }
-                }
-                return now();
-              }
-          : undefined,
+        // Signed in (GH-1142): which tracks have a coin Buy in flight, so their credit Buys wait. An account store with no flow
+        // gets the offline gate (fix round 2), so its coin Buy reads `stores.offlineNow`.
+        ...(serverCtl.gate !== undefined ? { pendingTracks: serverCtl.gate.pendingTracks } : {}),
+        onBuy: ledgerStore.available ? serverCtl.handlers.buy : undefined,
       },
-      ...(flow !== null ? { gate: flow.gate, pendingTracks: flow.gate.pendingTracks } : {}),
-      onReset: ledgerStore.available
-        ? flow !== null
-          ? () =>
-              flow.reset().then((out) => {
-                if (out === 'ok') telemetry().account('reset', ledgerStore.readAccount());
-                return now();
-              })
-          : () => {
-              telemetry().account('reset', ledgerStore.resetAccount());
-              return now();
-            }
-        : undefined,
+      ...(serverCtl.gate !== undefined ? { gate: serverCtl.gate, pendingTracks: serverCtl.gate.pendingTracks } : {}),
+      onReset: ledgerStore.available ? serverCtl.handlers.reset : undefined,
       // A coupon code (`data/coupons.json`, hashes only). Client-side and trust-based
       // until the server ledger (GH-205). No telemetry: the attempt carries the code.
-      onRedeem: ledgerStore.available
-        ? flow !== null
-          ? (code) => flow.redeem(code).then((out) => ({ state: now(), ...out }))
-          : (code) => {
-              const out = redeemOnStore(ledgerStore, code, coupons, sha256Hex, Date.now());
-              return { state: now(), ...out };
-            }
-        : undefined,
+      onRedeem: ledgerStore.available ? serverCtl.handlers.redeem : undefined,
       onBuy: ledgerStore.available
         ? (unitId, price) => {
             const { account, ok } = buyUnlock(ledgerStore.readAccount(), unitId, price);
@@ -6263,7 +6265,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               credits: creditsInfo,
               // A signed-in win's coins are the server's: its rows ride the live line below, not this table (no rows to correct).
               coins:
-                coinsSettle !== null && coinsSettle.awards.length > 0 && spendFlowRef === null
+                coinsSettle !== null && coinsSettle.awards.length > 0 && !isAccountStore(ledgerStore)
                   ? { awards: coinsSettle.awards, balance: coinsSettle.balance }
                   : undefined,
               unsaved: victoryUnsaved,

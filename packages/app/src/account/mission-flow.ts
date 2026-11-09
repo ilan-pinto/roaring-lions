@@ -58,9 +58,17 @@ export interface VictoryCoinLineOptions {
   balance: number;
 }
 
-/** The debrief's live coin line, or undefined (guest, nothing queued, or no nonce so no provisional award). */
+/**
+ * The debrief's coin line, or undefined (a guest, or no nonce so no provisional award). An eligible win with no spend flow is a
+ * signed-in device running offline from its cache: the local award is NOT final, so the line is the static `willSync` one and
+ * the caller must not draw the guest's final table. With a flow it is live: provisional, corrected in place on the answer.
+ */
 export function victoryCoinLine(o: VictoryCoinLineOptions): DebriefCoins | undefined {
-  if (o.flow === null || !o.eligible) return undefined;
+  if (!o.eligible) return undefined;
+  if (o.flow === null) {
+    const initial = provisionalLine(o.start, o.total, o.balance);
+    return initial === null ? undefined : { initial: { ...initial, phase: 'willSync' }, subscribe: () => () => undefined };
+  }
   const opId = victoryOpSince(o.before, o.ops);
   const initial: CoinLineState | null = provisionalLine(o.start, o.total, o.balance);
   return opId !== undefined && initial !== null ? o.flow.coinLine(opId, initial) : undefined;
