@@ -28,9 +28,9 @@ export function accountGuard(req: Request, env: Env, path: string): Response | n
   return null;
 }
 
-/** The parsed JSON body; null if empty or not JSON; 'too_large' above ACCOUNT_BODY_MAX_BYTES. */
-export async function readAccountBody<T>(req: Request): Promise<T | null | 'too_large'> {
-  const bytes = await readCapped(req, ACCOUNT_BODY_MAX_BYTES);
+/** The parsed JSON body; null if empty or not JSON; 'too_large' above `max` (default ACCOUNT_BODY_MAX_BYTES). */
+export async function readAccountBody<T>(req: Request, max: number = ACCOUNT_BODY_MAX_BYTES): Promise<T | null | 'too_large'> {
+  const bytes = await readCapped(req, max);
   if (bytes === null) return 'too_large';
   if (bytes.byteLength === 0) return null;
   try {

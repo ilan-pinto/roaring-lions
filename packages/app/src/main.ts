@@ -175,7 +175,8 @@ import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
 import { buyUnlock } from './brigade-account';
-import { buildCoinHalf, buyTierWithCredits } from './credit-buy';
+import { buyTierWithCredits } from './credit-buy';
+import { coinHalfFor, storeInputFor } from '@lions/economy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
@@ -341,6 +342,8 @@ import {
   type RouteRequest,
 } from './shell/router';
 import { routes } from './shell/links';
+import { importWithRetry } from './shell/chunk';
+import { chunkFailedCard } from './shell/chunk-card';
 import { forgetRetiredKeys } from './retired-keys';
 // The menu's scene host (scene-host plan, Task 6): the lit diorama behind the
 // column. `ui/scene-host.ts` is the only thing that reaches its three.js door,
@@ -372,7 +375,8 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { browserLedgerStore, newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
+import { selectLedgerStore } from './account/select-store';
+import { newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { showVersus, showVersusRoom, versusMaps, type VersusDeps } from './ui/versus';
@@ -431,7 +435,9 @@ function safeStorage(): Storage | null {
  *  slots (`ledger-store.ts`). One per page, because it is a handle on the
  *  browser's own store rather than a snapshot of anything -- every read below
  *  still goes to storage at the moment it is made. */
-const ledgerStore = browserLedgerStore((w, l) => roarBackfill(w, l, parseWorld(world), Date.now()));
+// Task 2.12 reads `selectedStore.needsState` and awaits `GET state` before the first screen; until then a claimed device with no cache gets a blocked store.
+const selectedStore = selectLedgerStore(new URLSearchParams(window.location.search), safeStorage(), (w, l) => roarBackfill(w, l, parseWorld(world), Date.now()), { world: parseWorld(world) });
+const ledgerStore = selectedStore.store;
 // Settle the one-time Store back-pay before any slot or import can swap the ledger (G-E3).
 settleRoarAtBoot(ledgerStore);
 
@@ -945,12 +951,18 @@ async function main(): Promise<void> {
   const accountsOn = accountsEnabled(q);
   let accountClientP: Promise<AccountClient> | null = null;
   const accountClient = (): Promise<AccountClient> =>
-    (accountClientP ??= import('./account/client').then(({ createAccountClient }) =>
-      createAccountClient({
-        enabled: true,
-        fetch: window.fetch.bind(window),
-        newOpId: () => crypto.randomUUID(),
-      })
+    (accountClientP ??= importWithRetry(() => import('./account/client')).then(
+      ({ createAccountClient }) =>
+        createAccountClient({
+          enabled: true,
+          fetch: window.fetch.bind(window),
+          newOpId: () => crypto.randomUUID(),
+        }),
+      (err: unknown) => {
+        // A failed load must not be cached: the next visit to the screen gets a fresh try.
+        accountClientP = null;
+        throw err;
+      }
     ));
   const lang = resolveLang(q.get('lang'), settings.language);
   const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
@@ -1169,7 +1181,7 @@ async function main(): Promise<void> {
     // The screen's own module (the garage, the Stores, the "What it adds" panel) is fetched beside the portraits:
     // it is off the entry chunk (MAIN_CHUNK_MAX_BYTES, `pnpm --filter @lions/tools webgpu:bundle`).
     const [{ showBrigade }] = await Promise.all([
-      import('./ui/brigade'),
+      importWithRetry(() => import('./ui/brigade')),
       ...kdfUnits.map(async ({ id }) => {
         const picture = await loadBrigadePortrait(id);
         if (picture === null) return;
@@ -1186,7 +1198,7 @@ async function main(): Promise<void> {
       return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades };
     };
     /** Which part of the single-player account came from coins. */
-    const coinHalf = (): CoinHalf => buildCoinHalf(kdfUnits, ledgerStore.readAccount(), ledgerStore.readRoar());
+    const coinHalf = (): CoinHalf => coinHalfFor({ brigade: ledgerStore.readAccount(), roar: ledgerStore.readRoar() });
     return showBrigade(host, {
       units: kdfUnits,
       ledger: ledgerStore.readLedger(),
@@ -1246,16 +1258,10 @@ async function main(): Promise<void> {
         },
         onBuy: ledgerStore.available
             ? (ask) => {
-                const a = accountState();
+                const roar = ledgerStore.readRoar();
                 const { account, ok } = buyWithCoins(
-                  {
-                    units: garageUnits(a.boughtUnits),
-                    ledger: ledgerStore.readLedger(),
-                    credits: a.balance,
-                    owned: a.ownedTiers,
-                    coin: coinHalf(),
-                  },
-                  ledgerStore.readRoar(),
+                  storeInputFor({ ledger: ledgerStore.readLedger(), brigade: ledgerStore.readAccount(), roar }),
+                  roar,
                   ask,
                   Date.now()
                 );
@@ -1403,7 +1409,7 @@ async function main(): Promise<void> {
           name: 'arena-setup',
           pattern: '/arena',
           mount: async (host) => {
-            const [{ showArenaSetup }, { keyFromHash }] = await Promise.all([import('./ui/arena-setup'), import('./net/watch-connect')]);
+            const [{ showArenaSetup }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-setup')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaSetup(host, {
               key: keyFromHash(arenaHash),
               fetch: window.fetch.bind(window),
@@ -1419,7 +1425,7 @@ async function main(): Promise<void> {
           name: 'arena-results',
           pattern: '/arena/results',
           mount: async (host) => {
-            const [{ showArenaResults }, { keyFromHash }] = await Promise.all([import('./ui/arena-results'), import('./net/watch-connect')]);
+            const [{ showArenaResults }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-results')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaResults(host, {
               key: keyFromHash(arenaHash),
               fetch: window.fetch.bind(window),
@@ -1434,7 +1440,7 @@ async function main(): Promise<void> {
           // A battlefield owns its focus: its keys reach the game.
           focus: false,
           mount: async (host, req) => {
-            const [{ showArenaReplay }, { keyFromHash }] = await Promise.all([import('./ui/arena-replay'), import('./net/watch-connect')]);
+            const [{ showArenaReplay }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-replay')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaReplay(host, {
               key: keyFromHash(arenaHash),
               game: req.query.get('game'),
@@ -1460,7 +1466,7 @@ async function main(): Promise<void> {
           // A battlefield owns its focus: its keys reach the game.
           focus: false,
           mount: async (host) => {
-            const [{ showArenaWatch }, { keyFromHash }] = await Promise.all([import('./ui/arena-watch'), import('./net/watch-connect')]);
+            const [{ showArenaWatch }, { keyFromHash }] = await Promise.all([importWithRetry(() => import('./ui/arena-watch')), importWithRetry(() => import('./net/watch-connect'))]);
             return showArenaWatch(host, {
               key: keyFromHash(arenaHash),
               fetch: window.fetch.bind(window),
@@ -1555,7 +1561,7 @@ async function main(): Promise<void> {
             return () => {};
           }
           // The screen's module and the client load together; a navigation that lands meanwhile wins (`shell/router.ts`).
-          return Promise.all([import('./ui/profile'), accountClient()]).then(([{ showProfile }, client]) =>
+          return Promise.all([importWithRetry(() => import('./ui/profile')), accountClient()]).then(([{ showProfile }, client]) =>
             showProfile(host, {
               client,
               store: safeStorage(),
@@ -1596,6 +1602,8 @@ async function main(): Promise<void> {
       bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), t('boot.notFound.next'), routes.menu());
       return () => host.replaceChildren();
     },
+    // A route chunk that failed twice (`shell/chunk.ts`): the card, with a reload, in the route's place -- never a blank stage.
+    chunkFailed: chunkFailedCard(routes.menu()),
   });
   // Same-origin anchors become navigations, for the whole life of the
   // document -- there is no point at which this page stops wanting them, so
@@ -6044,6 +6052,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   : null,
               world: parseWorld(world),
               at: Date.now(),
+              start: null, // Task 2.12 passes the mission/start answer here
             });
             const victoryWrite = coinsSettle.write;
             const ledgerSaved = victoryWrite === 'saved';

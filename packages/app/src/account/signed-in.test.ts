@@ -22,6 +22,15 @@ describe('resolveSignedIn', () => {
     expect((await resolveSignedIn(fake(IN, 'unknown'), s)).kind).toBe('signedIn');
     expect(readBinding(s)?.publicId).toBe('pub1');
   });
+  it('binding_survives_me: the same member keeps deviceId and claimedAt, another member clears both (§0.31)', async () => {
+    const DEV = '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc';
+    const s = mem();
+    writeBinding(s, { version: 1, publicId: 'pub1', deviceId: DEV, claimedAt: 9 });
+    await resolveSignedIn(fake(IN, 'unknown'), s);
+    expect(readBinding(s)).toEqual({ version: 1, publicId: 'pub1', deviceId: DEV, claimedAt: 9 });
+    await resolveSignedIn(fake({ ...IN, publicId: 'other' }, 'unknown'), s);
+    expect(readBinding(s)).toEqual({ version: 1, publicId: 'other' });
+  });
   it('401 with no binding is a guest', async () => {
     expect(await resolveSignedIn(fake({ kind: 'signedOut' }, 'deleted'), mem())).toEqual({ kind: 'guest' });
   });

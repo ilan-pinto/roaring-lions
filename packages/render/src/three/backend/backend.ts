@@ -28,6 +28,8 @@ import type { GroundMaterial } from '../terrain/mesh';
 import type { GroundMaths } from '../terrain/mesh.node';
 import type { FoliageMaths } from '../terrain/decor-mesh.node';
 import type { RingMaths } from '../units/selection-ring.node';
+import type { ZoneBandMaths } from '../units/zone-band.node';
+import type { SupplyRouteMaths } from '../supply-route.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -97,8 +99,9 @@ export interface MaterialMaths {
   readonly backdrop: null;
   readonly decal: null;
   readonly overlay: null;
-  readonly zoneBand: null;
-  readonly supplyRoute: null;
+  /** T8: the overlay batch and the trail are passthroughs (no shared maths); the zone band's hatch and the route's dash are values. */
+  readonly zoneBand: ZoneBandMaths;
+  readonly supplyRoute: SupplyRouteMaths;
   readonly trail: null;
   readonly xray: null;
   readonly particle: null;
