@@ -60,6 +60,11 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   // `vehicle` scenario's layer checks. The legacy floors are small and were measured on Metal (25 px / 0.0015 and 15 px / 0.0008), so the band is `ao`.
   { scenario: 'vehicle', layer: 'disturb', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T7: vehicle bend, tick-built capsules, uDisturbAmp by reference' },
   { scenario: 'vehicle', layer: 'wash', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T7: rotor wash flatten and thrash, sim clock' },
+  // GH-943 P3 (T7): the decal pools and the crater rim (`decal-pool.node.ts`), on the one scenario that stamps them. `decals` is
+  // `loose` (filtered control B tap, branch-free kinds); `crater-rims` is `ao`: lighting- and shadow-dependent (the rim reads the
+  // scene's sun, sky and the sun's node shadow).
+  { scenario: 'aftermath', layer: 'decals', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T7: both decal pools, the kinds over the road-mixed ground tone' },
+  { scenario: 'aftermath', layer: 'crater-rims', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T7: the rim relit by the sun, sky and node shadow; uRimGain by reference' },
   { scenario: 'vehicle', layer: 'selection-ring', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: the team rings, analytic coverage, no textures' },
   // GH-943 P3 (T5) Step A: the occlusion and smoke outline (`units/silhouette.node.ts`), flat colour, untextured: `tight`. One row per
   // scenario whose `outline` check holds (Step A branch 1: `fogged` read 144 px < 200 and left).

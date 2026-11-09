@@ -482,9 +482,14 @@ export const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
     [30, 10],
     [35, 10],
     [38, 11],
-    [36, 14],
-    // The militia weapons workshop the mission places inside the wire (GH-277 Task 15): a `raze` target like the rest.
+    // The militia weapons workshop the mission places inside the wire (GH-277 Task 15): the eighth `raze` target. Since 2026-11-08
+    // nothing else razes it for the plan: until then a side-1 gun truck beside it cut it down at tick 127 of every run (the breach
+    // rule had no notion of who owned a wall), so this plan never once had to level it. It is listed before (36,14) so the
+    // engineers, who scan from the end, take (36,14) first, as they always did, and the workshop second; the old order sent them to
+    // the workshop first and the gate-open run lost seed 22 on the five-minute deadline with (36,14) still standing. This order wins
+    // 30 of 30 on the sweep seeds and on 100-129, which took no part in the choice (slowest 6.1 and 6.2 min).
     [36, 12],
+    [36, 14],
   ];
   // Checked against the live structure table so a target already down is
   // skipped. Scanned from opposite ends of the shared list so that, when
