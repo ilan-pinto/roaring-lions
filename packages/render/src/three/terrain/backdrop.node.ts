@@ -90,8 +90,8 @@ export function createNodeBackdropMaterial(deps: BackdropTwinDeps, legacy: THREE
     z: wp.z,
     sizeX: uBdSize.x,
     sizeZ: uBdSize.y,
-    fadeFrom: T.float(1e6), // DEAD WITNESS (temporary)
-    fadeTo: T.float(2e6),
+    fadeFrom: uBdFade.x,
+    fadeTo: uBdFade.y,
     lit: [lit.x, lit.y, lit.z],
     bg: [uBdBg.x, uBdBg.y, uBdBg.z],
   });
