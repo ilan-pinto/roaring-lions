@@ -41,6 +41,7 @@
  * passes keep the rest pose, as for the wind. Nothing here reads or writes sim state.
  */
 import { QUALITY_PRESETS, type NatureQuality, type RenderQuality } from '../../quality';
+import { NUMBER_OPS, type Ops } from '../fog-ops';
 import { ROTOR_WASH_MIN_STRENGTH, rotorWashHeightNorm, rotorWashStrength } from '../units/rotor-wash';
 import { WIND_CLASS_GRASS, WIND_CLASS_REED, WIND_CLASS_SHRUB, WIND_CLASS_TREE } from './wind';
 
@@ -143,67 +144,181 @@ export function disturbThrashMax(cls: number): number {
   return Math.acos(1 - DISTURB_CLASSES[cls].thrash);
 }
 
-// --- the maths (the shader's mirror) --------------------------------------------------------------
+// --- the maths, written once against `Ops<T>` (GH-943 P2 T7) --------------------------------------
+//
+// Every body below runs on numbers through `NUMBER_OPS` (the exports after them, which `disturb.test.ts` compares with the
+// transpiled GLSL and with literals) and on TSL nodes in the node twin (`decor-mesh.node.ts`), which receives them by injection
+// (`material-maths.ts`): this file is also imported by `ThreeRenderer`, so a value import in the twin would load that chunk.
 
-function smoothstep(lo: number, hi: number, x: number): number {
-  const t = Math.min(1, Math.max(0, (x - lo) / (hi - lo)));
-  return t * t * (3 - 2 * t);
+/** A per-class table read at the wind's class id (an integer-valued float, `rlNature.y`) as selects at the half-integers, the GLSL's `int(cls + 0.5)`. */
+function classOf<T>(o: Ops<T>, cls: T, pick: (c: DisturbClass, i: number) => number): T {
+  const v = DISTURB_CLASSES.map((c, i) => o.lit(pick(c, i)));
+  return o.selectLt(cls, o.lit(0.5), v[0], o.selectLt(cls, o.lit(1.5), v[1], o.selectLt(cls, o.lit(2.5), v[2], v[3])));
 }
+
+/** `t` in [0, 1]: where along the capsule from the head (0) to the tail (1) the point `o` is nearest; 0 for a capsule with no length. */
+export function disturbTOps<T>(o: Ops<T>, ox: T, oz: T, ax: T, az: T, bx: T, bz: T): T {
+  const dx = o.sub(bx, ax);
+  const dz = o.sub(bz, az);
+  const len2 = o.add(o.mul(dx, dx), o.mul(dz, dz));
+  const eps = o.lit(1e-8);
+  const raw = o.clamp01(o.div(o.add(o.mul(o.sub(ox, ax), dx), o.mul(o.sub(oz, az), dz)), o.max(len2, eps)));
+  return o.selectLt(len2, eps, o.lit(0), raw);
+}
+
+/** The release curve at `t` along the wake: the spring (`spring` 1) or the monotone fall (`spring` 0). */
+export function disturbProfileOps<T>(o: Ops<T>, t: T, spring: T): T {
+  const w = 2 * Math.PI * DISTURB_SPRING_HZ;
+  const z = DISTURB_SPRING_ZETA;
+  const wd = w * Math.sqrt(1 - z * z);
+  const tau = o.mul(t, o.lit(DISTURB_WAKE_S));
+  const decay = o.exp(o.mul(o.lit(-z * w), tau));
+  const phase = o.mul(o.lit(wd), tau);
+  const osc = o.mul(decay, o.add(o.cos(phase), o.mul(o.lit((z * w) / wd), o.sin(phase))));
+  const calm = o.sub(o.lit(1), o.smoothstep(o.lit(0), o.lit(1), t));
+  const springy = o.max(osc, o.lit(DISTURB_SPRING_FLOOR));
+  return o.mix(calm, springy, spring);
+}
+
+/**
+ * One disturber's signed push on an instance at distance `d` from its capsule, `t` along it, the capsule `len` tiles long. A wake
+ * shorter than `DISTURB_WAKE_MIN_LEN` blends to the disc's flat 1.
+ */
+export function disturbAmountOps<T>(o: Ops<T>, d: T, t: T, len: T, radius: T, strength: T, spring: T): T {
+  const falloff = o.sub(o.lit(1), o.smoothstep(o.mul(o.lit(DISTURB_CORE), radius), o.mul(o.lit(DISTURB_REACH), radius), d));
+  const wake = o.smoothstep(o.lit(0), o.lit(DISTURB_WAKE_MIN_LEN), len);
+  const profile = o.add(o.lit(1), o.mul(o.sub(disturbProfileOps(o, t, spring), o.lit(1)), wake));
+  return o.mul(o.mul(strength, falloff), profile);
+}
+
+/** One slot as the loop reads it: the capsule `(ax, az) -> (bx, bz)`, the ring `radius`, the `strength`, and `kind` (0 ground, 1 wash). */
+export interface DisturbSlotOps<T> {
+  readonly ax: T;
+  readonly az: T;
+  readonly bx: T;
+  readonly bz: T;
+  readonly radius: T;
+  readonly strength: T;
+  readonly kind: T;
+}
+
+/** What one slot adds to the loop's running sums: the radial push (a VECTOR, so opposed pushes cancel) and the wash it contributes. */
+export interface DisturbSlotPush<T> {
+  readonly px: T;
+  readonly pz: T;
+  readonly wash: T;
+}
+
+/**
+ * The loop body: the instance at world `(ox, oz)` pushed away from the nearest point of the slot's capsule. A wash slot counts
+ * `DISTURB_WASH_PUSH_GAIN` times over, and what it adds is also summed on its own (the thrash).
+ */
+export function disturbSlotPushOps<T>(o: Ops<T>, ox: T, oz: T, s: DisturbSlotOps<T>, spring: T): DisturbSlotPush<T> {
+  const t = disturbTOps(o, ox, oz, s.ax, s.az, s.bx, s.bz);
+  const awayX = o.sub(ox, o.add(s.ax, o.mul(o.sub(s.bx, s.ax), t)));
+  const awayZ = o.sub(oz, o.add(s.az, o.mul(o.sub(s.bz, s.az), t)));
+  const d = o.length2(awayX, awayZ);
+  const eps = o.lit(1e-4);
+  const safe = o.max(d, eps);
+  // Standing on the capsule: no direction, so the push goes along +x.
+  const ux = o.selectLt(eps, d, o.div(awayX, safe), o.lit(1));
+  const uz = o.selectLt(eps, d, o.div(awayZ, safe), o.lit(0));
+  const len = o.length2(o.sub(s.bx, s.ax), o.sub(s.bz, s.az));
+  const amount = disturbAmountOps(o, d, t, len, s.radius, s.strength, spring);
+  const pushed = o.mul(amount, o.add(o.lit(1), o.mul(s.kind, o.lit(DISTURB_WASH_PUSH_GAIN - 1))));
+  return { px: o.mul(ux, pushed), pz: o.mul(uz, pushed), wash: o.mul(s.kind, pushed) };
+}
+
+/** The rotation of a vertex whose family-box height is `hN`, for a push of length `mag`. */
+export function disturbAngleOps<T>(o: Ops<T>, cls: T, hN: T, mag: T): T {
+  const weight = o.pow(o.clamp01(hN), classOf(o, cls, (c) => c.stiffness));
+  return o.mul(o.mul(o.min(mag, o.lit(1)), weight), classOf(o, cls, (_c, i) => disturbThetaMax(i)));
+}
+
+/** Where in its cycle an instance at world `(ox, oz)` is. 0..1. */
+export function disturbPhaseOps<T>(o: Ops<T>, ox: T, oz: T): T {
+  return o.fract(o.add(o.mul(ox, o.lit(0.7361)), o.mul(oz, o.lit(0.4219))));
+}
+
+/** The thrash: a swing about the lean, `sin` of the SIM clock at the period, scaled by the wash a vertex stands in (capped at 1) and the lean's height weight. Signed. */
+export function disturbThrashOps<T>(o: Ops<T>, cls: T, hN: T, wash: T, tSec: T, phase: T): T {
+  const weight = o.pow(o.clamp01(hN), classOf(o, cls, (c) => c.stiffness));
+  const swing = o.sin(o.mul(o.lit(2 * Math.PI), o.add(o.div(tSec, o.lit(DISTURB_THRASH_PERIOD_S)), phase)));
+  return o.mul(o.mul(o.mul(o.min(wash, o.lit(1)), weight), classOf(o, cls, (_c, i) => disturbThrashMax(i))), swing);
+}
+
+/** What the loop leaves for the rotation: the summed push, the summed wash, and the vertex relative to the instance's foot. */
+export interface DisturbBendIn<T> {
+  readonly cls: T;
+  readonly hN: T;
+  readonly ox: T;
+  readonly oz: T;
+  readonly px: T;
+  readonly pz: T;
+  readonly wash: T;
+  readonly spring: T;
+  readonly tSec: T;
+  readonly relX: T;
+  readonly relH: T;
+  readonly relZ: T;
+}
+
+/**
+ * The world-space displacement of one vertex after the loop: rotated about the instance's foot, away from the push, by the lean
+ * plus (only where a wash reaches, as the GLSL gates it) the thrash. Zero when the push is gone.
+ */
+export function disturbBendOps<T>(o: Ops<T>, x: DisturbBendIn<T>): { dx: T; dy: T; dz: T } {
+  const mag = o.length2(x.px, x.pz);
+  const tiny = o.lit(1e-5);
+  const safe = o.max(mag, tiny);
+  const dirX = o.div(x.px, safe);
+  const dirZ = o.div(x.pz, safe);
+  const thrash = o.selectLt(
+    o.lit(1e-4),
+    x.wash,
+    o.mul(disturbThrashOps(o, x.cls, x.hN, x.wash, x.tSec, disturbPhaseOps(o, x.ox, x.oz)), x.spring),
+    o.lit(0)
+  );
+  const theta = o.add(disturbAngleOps(o, x.cls, x.hN, mag), thrash);
+  const along = o.add(o.mul(x.relX, dirX), o.mul(x.relZ, dirZ));
+  const sinT = o.sin(theta);
+  const cosT = o.cos(theta);
+  const dAlong = o.sub(o.add(o.mul(along, cosT), o.mul(x.relH, sinT)), along);
+  const lift = o.sub(o.sub(o.mul(x.relH, cosT), o.mul(along, sinT)), x.relH);
+  const on = (v: T): T => o.selectLt(tiny, mag, v, o.lit(0));
+  return { dx: on(o.mul(dirX, dAlong)), dy: on(lift), dz: on(o.mul(dirZ, dAlong)) };
+}
+
+// --- the same maths on numbers (the tests' and the legacy mirror's entry points) ------------------
+
+const N = NUMBER_OPS;
 
 /** `t` in [0, 1]: where along the capsule from the head (0) to the tail (1) the point `o` is nearest. */
 export function disturbT(ox: number, oz: number, ax: number, az: number, bx: number, bz: number): number {
-  const dx = bx - ax;
-  const dz = bz - az;
-  const len2 = dx * dx + dz * dz;
-  if (len2 < 1e-8) return 0;
-  return Math.min(1, Math.max(0, ((ox - ax) * dx + (oz - az) * dz) / len2));
+  return disturbTOps(N, ox, oz, ax, az, bx, bz);
 }
 
 /** The release curve at `t` along the wake: the spring (`spring` 1) or the monotone fall (`spring` 0). */
 export function disturbProfile(t: number, spring: number): number {
-  const w = 2 * Math.PI * DISTURB_SPRING_HZ;
-  const z = DISTURB_SPRING_ZETA;
-  const wd = w * Math.sqrt(1 - z * z);
-  const tau = t * DISTURB_WAKE_S;
-  const osc = Math.exp(-z * w * tau) * (Math.cos(wd * tau) + ((z * w) / wd) * Math.sin(wd * tau));
-  const calm = 1 - smoothstep(0, 1, t);
-  const springy = Math.max(osc, DISTURB_SPRING_FLOOR);
-  return calm + (springy - calm) * spring;
+  return disturbProfileOps(N, t, spring);
 }
 
-/**
- * One disturber's signed push on an instance at distance `d` from its capsule, `t` along it, the
- * capsule `len` tiles long. A wake shorter than `DISTURB_WAKE_MIN_LEN` blends to the disc's flat 1.
- */
 export function disturbAmount(d: number, t: number, len: number, radius: number, strength: number, spring: number): number {
-  const falloff = 1 - smoothstep(DISTURB_CORE * radius, DISTURB_REACH * radius, d);
-  const wake = smoothstep(0, DISTURB_WAKE_MIN_LEN, len);
-  const profile = 1 + (disturbProfile(t, spring) - 1) * wake;
-  return strength * falloff * profile;
+  return disturbAmountOps(N, d, t, len, radius, strength, spring);
 }
 
 /** The rotation of a vertex whose family-box height is `hN`, for a push of length `mag`. */
 export function disturbAngle(cls: number, hN: number, mag: number): number {
-  const c = DISTURB_CLASSES[cls];
-  const weight = Math.pow(Math.min(1, Math.max(0, hN)), c.stiffness);
-  return Math.min(1, mag) * weight * disturbThetaMax(cls);
+  return disturbAngleOps(N, cls, hN, mag);
 }
 
 /** Where in its cycle an instance at world `(ox, oz)` is: neighbours differ, so a stand of crowns does not beat in unison. 0..1. */
 export function disturbPhase(ox: number, oz: number): number {
-  const p = ox * 0.7361 + oz * 0.4219;
-  return p - Math.floor(p);
+  return disturbPhaseOps(N, ox, oz);
 }
 
-/**
- * The thrash: a swing about the lean, `sin` of the SIM clock at the period, scaled by the wash a vertex stands in
- * (`wash`, the sum of the wash slots' pushes there, capped at 1) and the same height weight as the lean.
- * Signed: it swings back toward the hull as well as away.
- */
 export function disturbThrash(cls: number, hN: number, wash: number, tSec: number, phase: number): number {
-  const c = DISTURB_CLASSES[cls];
-  const weight = Math.pow(Math.min(1, Math.max(0, hN)), c.stiffness);
-  return Math.min(1, wash) * weight * disturbThrashMax(cls) * Math.sin(2 * Math.PI * (tSec / DISTURB_THRASH_PERIOD_S + phase));
+  return disturbThrashOps(N, cls, hN, wash, tSec, phase);
 }
 
 /** A vertex at `along` the push direction and `h` above the foot, rotated by `theta` about the foot. */
@@ -243,32 +358,18 @@ export function disturbDisplacement(
   let pz = 0;
   let wash = 0;
   for (const s of slots) {
-    const t = disturbT(ox, oz, s.ax, s.az, s.bx, s.bz);
-    let awayX = ox - (s.ax + (s.bx - s.ax) * t);
-    let awayZ = oz - (s.az + (s.bz - s.az) * t);
-    const d = Math.hypot(awayX, awayZ);
-    if (d > 1e-4) {
-      awayX /= d;
-      awayZ /= d;
-    } else {
-      awayX = 1;
-      awayZ = 0;
-    }
-    const amount = disturbAmount(d, t, Math.hypot(s.bx - s.ax, s.bz - s.az), s.radius, s.strength, spring);
-    const isWash = s.kind === DISTURB_SLOT_WASH;
-    const pushed = isWash ? amount * DISTURB_WASH_PUSH_GAIN : amount;
-    px += awayX * pushed;
-    pz += awayZ * pushed;
-    if (isWash) wash += pushed;
+    const p = disturbSlotPushOps(
+      N,
+      ox,
+      oz,
+      { ax: s.ax, az: s.az, bx: s.bx, bz: s.bz, radius: s.radius, strength: s.strength, kind: s.kind === DISTURB_SLOT_WASH ? 1 : 0 },
+      spring
+    );
+    px += p.px;
+    pz += p.pz;
+    wash += p.wash;
   }
-  const mag = Math.hypot(px, pz);
-  if (mag <= 1e-5) return { dx: 0, dy: 0, dz: 0 };
-  const dirX = px / mag;
-  const dirZ = pz / mag;
-  const theta = disturbAngle(cls, hN, mag) + disturbThrash(cls, hN, wash, tSec, disturbPhase(ox, oz)) * spring;
-  const along = rel.x * dirX + rel.z * dirZ;
-  const dAlong = disturbAlong(along, rel.h, theta) - along;
-  return { dx: dirX * dAlong, dy: disturbUp(along, rel.h, theta) - rel.h, dz: dirZ * dAlong };
+  return disturbBendOps(N, { cls, hN, ox, oz, px, pz, wash, spring, tSec, relX: rel.x, relH: rel.h, relZ: rel.z });
 }
 
 // --- the tick ring --------------------------------------------------------------------------------
