@@ -36,6 +36,8 @@ export const HIDE_WITHOUT_HOOK: ReadonlySet<string> = new Set(['rl-silhouette-ou
  * escaped adoption is still hidden and named whatever list it is on: an adoption bug stays loud.
  */
 export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
+  // T6: the foliage and trunk sway, dry and wet (`terrain/decor-mesh.node.ts`).
+  'rl-foliage-sway', 'rl-foliage-sway-wet', 'rl-trunk-sway', 'rl-trunk-sway-wet',
   // GH-943 P2 (T5): the selection, team and wound rings (all three styles share the one material name).
   'rl-selection-ring',
 ]);
