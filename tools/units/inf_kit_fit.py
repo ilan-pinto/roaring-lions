@@ -14,6 +14,11 @@ import inf_kit_parts as kp
 import inf_kit_scene as scn
 
 HELMET_Z0 = 1.56      # above this, head-bound uniform verts are the helmet
+#: A skinned body only (`rl_skinned`): a vertex with at least this weight on a bone is rigid with it, and one that a pose
+#: carries further than SKIN_MOVED_M from its rest place, seen from its dominant bone, is moving against that bone.
+SKIN_RIGID_W = 0.999
+SKIN_MOVED_M = 0.001
+SKIN_COLLAR_M = 0.04
 
 _CACHE = {}
 
@@ -119,9 +124,20 @@ class Fit:
             return geo.bvh_from(co, t)
         w = lambda b: W[f"{pf}_{b}"]
 
+        z = co[:, 2]
+        neck_z = float(bones[f"{pf}_neck"].head_local.z) if f"{pf}_neck" in bones else None
+
         def wz(b, thr):
-            """`bone`'s zone: weight >= thr on a rigid rig; the dominant influence on a skinned one."""
-            return (dom == f"{pf}_{b}") if self.skinned else (w(b) >= thr)
+            """`bone`'s zone: weight >= thr on a rigid rig; the dominant influence on a skinned one. On a skinned body the
+            SPINE's zone is the trunk's surface: bone heat hands the vest's collar and the top of the chest to the neck
+            (f1: neck-dominant from z 1.33 at the front, its joint at 1.388), so the neck's own skin below its joint plus
+            SKIN_COLLAR_M is the trunk's too (a rigid rig cut it there)."""
+            if not self.skinned:
+                return w(b) >= thr
+            m = dom == f"{pf}_{b}"
+            if b == "spine" and neck_z is not None:
+                m = m | ((dom == f"{pf}_neck") & (z < neck_z + SKIN_COLLAR_M))
+            return m
         self.wz = wz
         z = co[:, 2]
         self.zone_all = zone(mine)
@@ -339,6 +355,14 @@ class PoseBank:
         for ob in objs:
             names = {vg.index: vg.name for vg in ob.vertex_groups}
             self.dom.append(np.array([names[max(v.groups, key=lambda g: g.weight).group] for v in ob.data.vertices], dtype=object))
+        # A skinned body (`extras.rl_skinned`): a vertex DOMINATED by the part's bone can still move against it (the vest's
+        # hem is spine 0.7 / pelvis 0.3), so the bank also keeps those, in the poses where they leave their rest place.
+        self.skinned = bool(bpy.context.scene.get("rl_skinned"))
+        self.wt = []
+        if self.skinned:
+            for ob in objs:
+                names = {vg.index: vg.name for vg in ob.vertex_groups}
+                self.wt.append([{names[g.group]: g.weight for g in v.groups} for v in ob.data.vertices])
         self.poses = []     # (matrices {bone: 4x4 np}, world verts per obj)
         saved = arm.data.pose_position
         for clip in self.CLIPS:
@@ -389,11 +413,27 @@ class PoseBank:
             if (pf, key, oi) not in self._own:
                 # every other bone of this figure, and the free-standing prop (a charge on the ground) if the file has one
                 self._own[(pf, key, oi)] = np.array([isinstance(d, str) and (d.startswith(pf + "_") or d == "prop") and d != key for d in self.dom[oi]])
+        if self.skinned:
+            if not hasattr(self, "_blend"):
+                self._blend, self._rest_co = {}, [np.array([v.co[:] for v in ob.data.vertices]) for ob in self.objs]
+            for oi in range(len(self.objs)):
+                if (pf, key, oi) not in self._blend:
+                    # this figure's vertices that are the part bone's by dominance but not rigid on it
+                    self._blend[(pf, key, oi)] = np.array([d == key and w_.get(key, 0.0) < SKIN_RIGID_W for d, w_ in zip(self.dom[oi], self.wt[oi])])
         out, who = [], []
         for mats, W in self.poses:
             M = self.rest[key] @ np.linalg.inv(mats[key])
             for oi, w in enumerate(W):
                 own = self._own[(pf, key, oi)]
+                if self.skinned:
+                    # ...and, of the part bone's own blended skin, what this pose moved off its rest place (carried into the
+                    # bone's rest frame, a vertex rigid with it lands back where it was: the body surface itself, not a blocker)
+                    bl = self._blend[(pf, key, oi)]
+                    if bl.any():
+                        Xb = w[bl] @ M[:3, :3].T + M[:3, 3]
+                        moved = np.zeros(len(own), bool)
+                        moved[np.nonzero(bl)[0]] = np.linalg.norm(Xb - self._rest_co[oi][bl], axis=1) > SKIN_MOVED_M
+                        own = own | moved
                 p = w[own]
                 X = p @ M[:3, :3].T + M[:3, 3]
                 m = ((X >= lo) & (X <= hi)).all(1)
