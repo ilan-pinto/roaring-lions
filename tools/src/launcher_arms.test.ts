@@ -60,9 +60,14 @@ const GUNNERS: readonly (readonly [string, string, Readonly<Record<string, numbe
   // The skinned Meshy Rifle Squad (GH-746, 9 Nov) holds the SAME ceilings where it meets them: idle and
   // move 141 / 90 / 235 (f0 / f1 / f2; 190 / 56 / 331 in idle), under the rigid arms' 423 and 555. Its aimed clips are an exemption below.
   ['inf_squad.glb', 'f0', { idle: 430, move: 580 }],
-  // 9 Nov (the v7 kit): f1 and f2 kneelIn now read 457 / 514, under the rigid figure's 540, so the exemption below demoted itself (its own rule) and the ceiling is back here.
+  // 9 Nov, the v7 fix round: `measureArmInBody` now SKIPS `kit_*` nodes (the kit's spine- and head-bound skins were joining the body
+  // soup the arms are read against: the v7 kit swap alone moved f1 / f2 kneelIn from 639 / 736 to 457 / 514). On the BARE body
+  // kneelIn reads f0 394, f1 368, f2 439 (all under the rigid figure's 540) and f2 kneelOut 400 (at its 400 ceiling), so those rows
+  // are meeting their ceilings and left the exemption below by its own rule. (The earlier commit 3b983b272 wrote that f1 / f2
+  // kneelIn "demoted themselves": that was wrong. The arms had not moved; the kit's geometry had been counted as body.)
+  ['inf_squad.glb', 'f0', { idle: 430, move: 580, kneelIn: 540 }],
   ['inf_squad.glb', 'f1', { idle: 430, move: 580, kneelIn: 540 }],
-  ['inf_squad.glb', 'f2', { idle: 430, move: 580, kneelIn: 540 }],
+  ['inf_squad.glb', 'f2', { idle: 430, move: 580, kneelIn: 540, kneelOut: 400 }],
 ];
 
 /**
@@ -75,7 +80,7 @@ const GUNNERS: readonly (readonly [string, string, Readonly<Record<string, numbe
  */
 const ARMS_EXEMPT: readonly (readonly [string, string, string, number])[] = ['f0', 'f1', 'f2'].flatMap((f) =>
   (['fire', 'moveFire', 'kneel', 'kneelIn', 'kneelOut', 'pinned'] as const)
-    .filter((c) => !(c === 'kneelIn' && f !== 'f0')) // demoted 9 Nov: see the GUNNERS rows
+    .filter((c) => !(c === 'kneelIn' || (c === 'kneelOut' && f === 'f2'))) // meeting their ceilings on the bare body (9 Nov): see the GUNNERS rows
     .map((c) => ['inf_squad.glb', f, c, { fire: 300, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }[c]] as const)
 );
 

@@ -1913,6 +1913,9 @@ export function measureArmInBody(path: string, clip: string, figure: string): Ar
     if (node.mesh === undefined || node.skin === undefined) continue;
     const skin = glb.json.skins?.[node.skin];
     if (!skin) continue;
+    // The kit's skins (`kit_uniform`, `kit_weapon`) are gear, not the body: their spine- and head-bound triangles must not join the
+    // soup the arms are read against (the v7 review, 9 Nov: the kit swap alone moved f1 / f2 kneelIn from 639 / 736 to 457 / 514).
+    if ((node.name ?? '').startsWith('kit_')) continue;
     const role = node.name ?? meshes[node.mesh]?.name ?? '';
     const held = role === 'weapon' || role === 'metal';
     for (const prim of meshes[node.mesh].primitives) {

@@ -274,3 +274,37 @@ def surf_frame(bvhs, p, direction, du, dv_, up=(0, 0, 1), reach=0.5):
         n = -n
     return c, n
 
+
+
+# ------------------------------------------------------------ limb cut-outs
+
+def in_hollow(bvh, pts):
+    """Which of `pts` lie in the shell's hollow read as a solid hull: a ray from the point hits the shell in each of +x, -x, +y and -y
+    (the shell is open at the top and bottom, and its holes do not flip the answer as ray parity does)."""
+    from mathutils import Vector
+    dirs = [Vector(d) for d in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0))]
+    out = np.zeros(len(pts), bool)
+    for i, p in enumerate(pts):
+        v = Vector(p)
+        out[i] = all(bvh.ray_cast(v + d * 1e-5, d)[0] is not None for d in dirs)
+    return out
+
+
+def cut_out_limbs(V, T, bvh, pts, reach=0.02, voxel=0.005):
+    """A rigid shell cannot give where a limb of the figure swings through its hollow, in some key of some clip: cut the triangles
+    within `reach` of every such point out of it (an armhole where the arm goes, not an arm inside a wall).
+    `pts` are limb vertices (the pose bank's, in the shell's rest frame). Returns (T', points inside, triangles removed)."""
+    lo, hi = V.min(0) - 0.01, V.max(0) + 0.01
+    pts = pts[((pts >= lo) & (pts <= hi)).all(1)]
+    if len(pts) == 0:
+        return T, 0, 0
+    q = np.unique(np.round(pts / voxel).astype(np.int64), axis=0) * voxel
+    inside = q[in_hollow(bvh, q)]
+    if len(inside) == 0:
+        return T, 0, 0
+    cen = V[T].mean(1)
+    keep = np.ones(len(T), bool)
+    for a in range(0, len(inside), 500):
+        d = np.linalg.norm(cen[:, None, :] - inside[None, a:a + 500, :], axis=2)
+        keep &= (d > reach).all(1)
+    return T[keep], int(len(inside)), int((~keep).sum())

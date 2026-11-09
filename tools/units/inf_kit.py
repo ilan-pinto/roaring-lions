@@ -265,7 +265,7 @@ def _centre_fn(f, bone="spine"):
     return fn
 
 
-def torso_wrap(f, rows, ncols=16, span=None, fill_below=None, whole=False, rlim=None):
+def torso_wrap(f, rows, ncols=16, span=None, fill_below=None, whole=False, rlim=None, zone=None):
     cols = [i * 360.0 / ncols for i in range(ncols)] if span is None else span
     fr = None if fill_below is None else (lambda j: rows[j] <= fill_below)
     fallback = None
@@ -287,7 +287,7 @@ def torso_wrap(f, rows, ncols=16, span=None, fill_below=None, whole=False, rlim=
                 k1, u = (k0 + 1) % n, x - math.floor(x)
                 r0, r1 = ring[j][k0], ring[j][k1]
                 return None if r0 is None or r1 is None else r0 * (1.0 - u) + r1 * u
-    return Wrap(f.zone_torso_all if whole else f.zone_torso, (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
+    return Wrap(zone if zone is not None else (f.zone_torso_all if whole else f.zone_torso), (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
                 centre_fn=_centre_fn(f), col_span=None if span is None else True, fill_rows=fr, clamp=f.zone_arms, ellipse=lambda t: kp.TEAM.torso_ellipse,
                 ring_cap=kp.TEAM.torso_ring_cap, back_plate=kp.TEAM.carrier_back_plate and not whole, rlim=rlim, fallback=fallback)
 

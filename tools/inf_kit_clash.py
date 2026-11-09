@@ -92,6 +92,43 @@ def inside_depth(bvh, pts, bbox):
     return out
 
 
+LIMB_BONES = ("forearm", "hand", "finger", "upperarm")
+SHOULDER_SKIP_M = 0.12      # an upper-arm vertex this close to its shoulder joint belongs in the armhole
+
+
+def limb_through_wall(arm, rows_, kit, body, names, pf):
+    """The census column "limb through the wall" (GH-746 fix round): limb vertices (forearm, hand, finger and the upper arm more
+    than SHOULDER_SKIP_M from its shoulder) that lie inside the carrier's HOLLOW, read as a solid hull: a point is in it when a
+    ray from it hits the carrier in each of +x, -x, +y and -y (the shell is open at the top and bottom, so parity is not asked of
+    it and its holes do not flip the answer). Depth = distance to the nearest carrier face. Returns (n vertices, max depth m)."""
+    ob = next((o for o, part, f_, _ in rows_ if f_ == pf and part.name == "carrier"), None)
+    if ob is None:
+        return 0, 0.0
+    co, tris = kit[ob.name]
+    bvh = BVHTree.FromPolygons([Vector(c) for c in co], tris)
+    lo, hi = co.min(0) - 0.01, co.max(0) + 0.01
+    sh = {k: np.array(arm.matrix_world @ arm.data.bones[f"{pf}_upperarm_{k}"].head_local) for k in "LR"}
+    n, worst = 0, 0.0
+    dirs = [Vector(d) for d in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0))]
+    for nm, (bco, _t) in body.items():
+        for i, b in enumerate(names[nm]):
+            if not isinstance(b, str) or not b.startswith(pf + "_"):
+                continue
+            part = b[len(pf) + 1:]
+            if part.split("_")[0] not in LIMB_BONES:
+                continue
+            p = bco[i]
+            if (p < lo).any() or (p > hi).any():
+                continue
+            if part.startswith("upperarm") and np.linalg.norm(p - sh[part[-1]]) < SHOULDER_SKIP_M:
+                continue
+            v = Vector(p)
+            if all(bvh.ray_cast(v + d * 1e-5, d)[0] is not None for d in dirs):
+                n += 1
+                worst = max(worst, bvh.find_nearest(v)[3])
+    return n, worst
+
+
 def main():
     a = parse()
     out = os.path.abspath(a["out"])
@@ -138,6 +175,7 @@ def main():
             rest_co[n] = np.array([(o.matrix_world @ v.co)[:] for v in o.data.vertices])
             own_w[n] = [{vg[g.group]: g.weight for g in v.groups} for v in o.data.vertices]
     result = {}
+    wall = {}
     for clip in clips:
         act = bpy.data.actions[clip]
         keys, lo = clip_keys(act, step, team.dense_keys)
@@ -171,6 +209,14 @@ def main():
                         hands[(nm, pf_)] = (BVHTree.FromPolygons([Vector(c) for c in bco], hp),
                                             (bco[sorted({i for t in hp for i in t})].min(0) - TOL,
                                              bco[sorted({i for t in hp for i in t})].max(0) + TOL))
+            for pf_w in figs:
+                n_w, d_w = limb_through_wall(arm, rows, kit, body, names, pf_w)
+                if n_w and d_w > wall.get((clip, pf_w), (0, 0.0, 0))[1]:
+                    wall[(clip, pf_w)] = (n_w, d_w, fr)
+                elif (clip, pf_w) not in wall:
+                    wall[(clip, pf_w)] = (0, 0.0, fr)
+                else:
+                    wall[(clip, pf_w)] = (max(n_w, wall[(clip, pf_w)][0]), wall[(clip, pf_w)][1], wall[(clip, pf_w)][2])
             for ob, part, pf, _ in rows:
                 co, tris = kit[ob.name]
                 bvh = BVHTree.FromPolygons([Vector(c) for c in co], tris)
@@ -241,6 +287,10 @@ def main():
         for k, v in sorted(result[clip].items(), key=lambda kv: -kv[1]["depth_m"])[:14]:
             print(f"   {v['depth_m']*1000:6.1f} mm  {k}  (frame {v['frame']})")
         result[clip + "__keys"] = len(keys)
+        result[clip + "__wall"] = {pf_w: {"verts": wall[(clip, pf_w)][0], "depth_m": round(wall[(clip, pf_w)][1], 4), "frame": wall[(clip, pf_w)][2]} for pf_w in figs if (clip, pf_w) in wall}
+        for pf_w in figs:
+            if (clip, pf_w) in wall:
+                print(f"   limb through the wall {pf_w}: {wall[(clip, pf_w)][0]} verts, {wall[(clip, pf_w)][1] * 1000:.1f} mm (frame {wall[(clip, pf_w)][2]})")
     with open(os.path.join(out, a.get("name", "clash.json")), "w") as fh:
         json.dump(result, fh, indent=1)
 

@@ -32,6 +32,7 @@ BELT_THICK = 0.012                           # the belt's padded thickness (the 
 BELT_CLEAR = 0.003
 BELT_NATIVE = (0.285, 0.356, 0.0544)
 BELT_Z = 0.9125
+CUT_LIMBS = True                             # open the carrier where a limb passes through its hollow (see carrier_fit)
 GAP = 0.001                                  # a placed rigid piece stands this far off the surface it sits on
 LENS_DEG = 25.0                              # a face whose normal is within this of the bore, at the extreme end, is glass
 UP = (0.0, 0.0, 1.0)
@@ -75,17 +76,47 @@ def count_faces(pc):
 
 # ------------------------------------------------------------ the fitted soft goods
 
+def spine_only_zone(f):
+    """A BVH of the trunk's own skin: triangles whose three vertices are spine-dominant AND carry no arm weight (upper arm, forearm,
+    hand: under 2%). The Meshy figure's upper arms are welded to the ribs, so the plain spine zone (and the ring a wrap reads off
+    it) includes the shoulder weld and its shards; this one is the ribcage and the vest Meshy sculpted on it (GH-746 fix round)."""
+    c = _cache(f)
+    if "spine_zone" not in c:
+        W = f.W
+        armw = sum(W[f"{f.prefix}_{b}"] for b in ("upperarm_L", "upperarm_R", "forearm_L", "forearm_R", "hand_L", "hand_R"))
+        ok = (f.dom == f"{f.prefix}_spine") & (armw < 0.02) & f.mine
+        t = f.tris[ok[f.tris].all(1)]
+        c["spine_zone"] = geo.bvh_from(f.co, t)
+    return c["spine_zone"]
+
+
 def _carrier_ring(f):
-    wr = ik.torso_wrap(f, ik.CARRIER_ROWS, 16, fill_below=1.24)
+    wr = ik.torso_wrap(f, ik.CARRIER_ROWS, 16, fill_below=1.24, zone=spine_only_zone(f))
     wr.sample()
     return wr
 
 
-def _median_radii(wr, rows, ks):
+def _median_radii(wr, rows, ks, clamp=None):
+    """The ring's radius at each column of `ks`: the median over `rows` and a window of columns round it that widens until it
+    holds a value the sampler really measured. `clamp` = (rmin, rmax) of the wrap's `rlim`: a radius AT a limit is the limit, not
+    a measurement (f0's belt read 0.12 at its front for want of a ray that hit, and the belt came out 312 mm deep against 431 and
+    465 on f1 and f2: the fix round, 9 Nov)."""
+    n = len(wr.cols)
     out = []
     for k in ks:
-        vals = [wr.R[j][k] for j in rows if wr.R[j][k] is not None]
-        out.append(float(np.median(vals)) if vals else None)
+        val = None
+        for half in range(0, n // 4 + 1):
+            vals = []
+            for j in rows:
+                for dk in range(-half, half + 1):
+                    r = wr.R[j][(k + dk) % n]
+                    if r is None or (clamp is not None and (abs(r - clamp[0]) < 1e-6 or abs(r - clamp[1]) < 1e-6)):
+                        continue
+                    vals.append(r)
+            if vals:
+                val = float(np.median(vals))
+                break
+        out.append(val)
     return out
 
 
@@ -107,10 +138,35 @@ def carrier_fit(f):
     V = km.place(V0, origin, (1, 0, 0), UP, (sx, sy, sz))
     V, st = km.ring_fit(wr, V, T, BODY_CLEAR)
     bvh = geo.bvh_from(V, T)
+    c["carrier_hull"] = (V, T, bvh)          # the uncut shell: what the parts hung on it stand on (a hole is not a surface)
+    if CUT_LIMBS:
+        # The Meshy figure's aimed clips carry the support arm across its own chest (`launcher_arms`: ~750 arm vertices inside the
+        # torso in fire), so any shell fitted to the trunk has that arm inside it: a fit cannot cure that, only an opening can. The
+        # opening is where a limb vertex (forearm, hand, fingers, and the upper arm more than 12 cm from its shoulder) lies in the
+        # shell's hollow in some key of a living clip (the pose bank's own samples).
+        pts, who = f.bank.blockers(f.prefix, "spine", (f.O[0] - 0.7, f.O[1] - 0.7, CARRIER_BOT - 0.05), (f.O[0] + 0.7, f.O[1] + 0.7, CARRIER_TOP + 0.05))
+        keep = np.zeros(len(who), bool)
+        for i, w_ in enumerate(who):
+            w_ = str(w_)
+            kind = w_.split("_")[0]
+            if kind in ("forearm", "hand", "finger"):
+                keep[i] = True
+            elif kind == "upperarm":
+                sh = f.sh[w_[-1]]
+                keep[i] = float(np.linalg.norm(pts[i] - np.array([sh.x, sh.y, sh.z]))) > 0.12
+        T, n_in, n_cut = km.cut_out_limbs(V, T, bvh, pts[keep] if len(who) else pts)
+        bvh = geo.bvh_from(V, T)
+        st["limb_points_in_hollow"], st["triangles_cut"] = n_in, n_cut
     _stats(f, name="carrier", body_depth_mm=round(1000 * (rf + rb), 1), body_width_mm=round(1000 * (rl + rr), 1),
            scale=[round(sx, 3), round(sy, 3), round(sz, 3)], origin=[round(float(x), 4) for x in origin], **st)
     c["carrier"] = (V, T, bvh)
     return c["carrier"]
+
+
+def carrier_hull(f):
+    """(vertices, triangles, bvh) of the fitted carrier BEFORE its limb openings are cut: the surface throat, groin, radio and EUD stand on."""
+    carrier_fit(f)
+    return _cache(f)["carrier_hull"]
 
 
 def belt_fit(f):
@@ -119,7 +175,7 @@ def belt_fit(f):
         return c["belt"]
     wr = ik._belt_wrap(f, [0.885, 0.9125, 0.94], 16)
     wr.sample()
-    rf, rb, rl, rr = _median_radii(wr, (1,), (0, 8, 4, 12))
+    rf, rb, rl, rr = _median_radii(wr, (0, 1, 2), (0, 8, 4, 12), clamp=(0.12, 0.26))
     V0, T = km.source("battle_belt")
     nx, ny, _nz = BELT_NATIVE
     sx = (rf + rb + 2 * BELT_THICK) / nx
@@ -167,42 +223,85 @@ def _unbend(V0, c):
     return V
 
 
+PLATE_MAX_TILT_DEG = 20.0   # a hanging plate's long face stands within this of vertical
+
+
+def plate_tilt_deg(x_axis):
+    """The angle a hanging plate's long face makes with vertical: its normal (the kit's +X) against the horizontal."""
+    x = np.asarray(x_axis, dtype=float)
+    return math.degrees(math.asin(min(1.0, abs(float(x[2])) / float(np.linalg.norm(x)))))
+
+
+def assert_upright(name, f, x_axis, limit=PLATE_MAX_TILT_DEG):
+    """Export-time refusal: a throat or groin whose long face is more than `limit` degrees off vertical is a plate lying down
+    (the first v7 fit placed the throat 79 degrees off, a 111 mm shelf, from an up-tilted collar normal)."""
+    t = plate_tilt_deg(x_axis)
+    if t > limit:
+        raise ValueError(f"{f.prefix}: {name} would stand {t:.1f} degrees off vertical (limit {limit}); its frame came from a tilted normal")
+    return t
+
+
+def _level(n):
+    """The surface normal with its vertical part removed: a hanging plate faces horizontally."""
+    h = np.array([n[0], n[1], 0.0])
+    return h / float(np.linalg.norm(h))
+
+
 def v7_throat(f, side=None):
-    """Hangs from the fitted carrier's collar: top edge at the collar's front top, inner surface on the carrier's front."""
-    cv, _ct, cb = carrier_fit(f)
+    """Hangs from the fitted carrier's collar: top edge at the collar's front top, inner surface on the carrier's front. Its frame
+    is the carrier front's normal at MID-PLATE (the plate's own height below the collar), levelled."""
+    cv, _ct, cb = carrier_hull(f)
     cx, cy = _centre_xy(f)
     sel = (np.abs(cv[:, 1] - cy) < 0.04) & (cv[:, 0] > cx)
     ztop = float(cv[sel, 2].max())
-    c, n = _front_frame(f, [cb], cy, ztop - 0.004)
-    if c is None:
-        raise ValueError(f"{f.prefix}: the throat found no carrier front at its collar")
     V0, T = km.source("throat_protector")
+    plate_h = float(-V0[:, 2].min())
+    c, n = _front_frame(f, [cb], cy, ztop - plate_h / 2)
+    if c is None:
+        raise ValueError(f"{f.prefix}: the throat found no carrier front at mid-plate")
+    n = _level(n)
+    c = np.array([c[0], c[1], ztop - 0.004])          # the plate hangs from the collar along -z
+    tilt = assert_upright("throat", f, n)
     V0 = _unbend(V0, 0.0298 / 0.0983 ** 2)
     V = km.place(V0, c - n * 0.0005, n, UP)
     shift, _g = km.clear_shift([cb, f.zone_torso], V, n, gap=GAP, mask=V0[:, 0] < 0.004)
     V = V + n * shift
-    _stats(f, name="throat", collar_z=round(ztop, 4), shift_mm=round(1000 * shift, 2))
+    _stats(f, name="throat", collar_z=round(ztop, 4), shift_mm=round(1000 * shift, 2), tilt_deg=round(tilt, 1),
+           z_span_mm=round(1000 * float(V[:, 2].max() - V[:, 2].min()), 1))
     pc = Piece(f.world())
     add_mesh(pc, V, T, "coyote")
     return pc
 
 
 def v7_groin(f, side=None):
-    """Hangs from the fitted carrier's hem: top edge just inside the hem's front, apron in front of the belt."""
-    cv, _ct, cb = carrier_fit(f)
+    """Hangs from the fitted carrier's hem: its top edge on the hem's front face, the apron leaning out (the smallest pitch, up to
+    the plate limit) until it clears the belt and the body, instead of standing proud of the hem by a rigid shift."""
+    cv, _ct, cb = carrier_hull(f)
     _bv, _bt, bb = belt_fit(f)
     cx, cy = _centre_xy(f)
     sel = (np.abs(cv[:, 1] - cy) < 0.06) & (cv[:, 0] > cx)
     zhem = float(cv[sel, 2].min())
-    c, n = _front_frame(f, [cb], cy, zhem + 0.012)
+    c, n = _front_frame(f, [cb], cy, zhem + 0.03)
     if c is None:
         raise ValueError(f"{f.prefix}: the groin found no carrier front at its hem")
+    n = _level(n)
+    c = np.array([c[0], c[1], zhem + 0.004])
     V0, T = km.source("groin_apron")
     V0 = _unbend(V0, 0.0366 / 0.1236 ** 2)
-    V = km.place(V0, c - n * 0.0005, n, UP)
-    shift, _g = km.clear_shift([cb, bb, f.zone_lower], V, n, gap=GAP, mask=V0[:, 0] < 0.004)
+    best = None
+    for deg in range(0, int(PLATE_MAX_TILT_DEG), 1):
+        t = math.radians(deg)
+        x = n * math.cos(t) + np.array(UP) * math.sin(t)
+        V = km.place(V0, c - x * 0.0005, x, UP)
+        shift, _g = km.clear_shift([cb, bb], V, n, gap=GAP, mask=V0[:, 0] < 0.004)      # horizontally: the plate hangs, it does not slide up
+        if best is None or shift < best[0] - 1e-9:
+            best = (shift, deg, x, V)
+        if shift <= 0.002:
+            break
+    shift, deg, x, V = best
+    assert_upright("groin", f, x)
     V = V + n * shift
-    _stats(f, name="groin", hem_z=round(zhem, 4), shift_mm=round(1000 * shift, 2))
+    _stats(f, name="groin", hem_z=round(zhem, 4), pitch_deg=deg, shift_mm=round(1000 * shift, 2))
     pc = Piece(f.world())
     add_mesh(pc, V, T, "coyote")
     return pc
@@ -244,7 +343,7 @@ def _back_bvhs(f):
 
 def _back_piece(f, src, y, z_origin, tex, stand=()):
     """A part whose back face stands on the carrier's back at (y, z_origin): origin on the surface, +X out of the back."""
-    cb = carrier_fit(f)[2]
+    cb = carrier_hull(f)[2]
     c, n = km.surf_frame([cb], np.array([f.O[0], f.O[1] + y, z_origin]), (1, 0, 0), 0.04, 0.05)
     on = "carrier"
     if c is None:
@@ -277,7 +376,7 @@ def v7_radio_pack(f, side=None):
 
 def v7_eud(f, side=None):
     ey, ez = ik.EUD_AT
-    cb = carrier_fit(f)[2]
+    cb = carrier_hull(f)[2]
     c, n = km.surf_frame([cb], np.array([f.O[0], f.O[1] + ey, ez]), (-1, 0, 0), 0.04, 0.05)
     if c is None:
         raise ValueError(f"{f.prefix}: the EUD found no carrier front at y {ey} z {ez}")

@@ -96,7 +96,7 @@ export const INFANTRY_KIT_PART_SLACK = 1.1;
  * triangles = that part's source count, per side for a sided part). The graft refuses a node over
  * `INFANTRY_KIT_PART_SLACK` times its row here, and falls back to `INFANTRY_KIT_PART_TRIS` for a part the team's row does not
  * name (the helmet cover, the yoke, the foregrip and the whips stay procedural), so `demo_squad` keeps its own limits.
- * `tools/src/meshes/kit-contract.test.ts` pins this table to `kit_parts_report.json` and to `inf_kit_parts.py`.
+ * `tools/src/meshes/kit-contract.test.ts` pins this table to the part GLB files and to `inf_kit_parts.py`.
  */
 export const INFANTRY_KIT_TEAM_PART_TRIS: Readonly<Record<string, Readonly<Record<string, number>>>> = {
   inf_squad: {

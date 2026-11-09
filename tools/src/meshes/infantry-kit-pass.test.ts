@@ -284,6 +284,15 @@ describe('applyInfantryKitGraft', () => {
       // one figure: 6 carriers x 2,299 = 13,794, over 7,200 and under the file cap
       refuses((t) => makeSource(t, carriers(['f0']).slice(0, 6)), /figure f0 draws 13794 kit triangles at maximum kit, over the 7200 a figure may/, {}, 'inf_squad'));
 
+    it('the figure cap is exact: 7,201 triangles refuse, 7,200 graft (the review\'s boundary input)', async () => {
+      const three = (a: number, b: number, c: number): PartSpec[] =>
+        [a, b, c].map((tris, i) => ({ track: 'armour', tier: i + 1, part: 'carrier', figure: 'f0', bone: 'spine', tris }));
+      await refuses((t) => makeSource(t, three(2528, 2528, 2145)), /figure f0 draws 7201 kit triangles at maximum kit, over the 7200 a figure may/, {}, 'inf_squad');
+      const t = await makeTeam();
+      const src = await makeSource(t, three(2528, 2528, 2144));
+      expect(() => applyInfantryKitGraft(t, src, 'inf_squad')).not.toThrow();
+    });
+
     it('a file that carries more than 23,200 kit triangles', () =>
       // 2 figures x 6 carriers x 2,299 = 27,588 (the file check runs before the figure check)
       refuses((t) => makeSource(t, [...carriers(['f0']).slice(0, 6), ...carriers(['f1']).slice(0, 6)]), /over the 23,200 a team file may carry/, {}, 'inf_squad'));
