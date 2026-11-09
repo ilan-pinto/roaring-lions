@@ -152,6 +152,10 @@ import { disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
 import { reassertHiddenFigures, stopSquadPlayers } from './squad-rig';
 import { carryTeamMark } from './team-mask';
 import { pickDeathClips } from './mesh-anim';
+import { legacyOf, recordLegacyBase } from '../twin-identity';
+
+/** GH-943 P3 (T1): queues a subtree for node adoption (`ThreeRenderer.queueNodeAdoption`, a no-op on legacy). */
+export type AdoptQueue = (root: THREE.Object3D) => void;
 
 /** Seconds a dying mesh unit fades before it either becomes a wreck or is
  *  torn down -- see this file's own top comment, "The curve, read from the
@@ -216,13 +220,14 @@ export interface MeshFadeSwap {
  * writes lands on the one object the meshes actually draw through, so they
  * end up fading in lockstep regardless of how many times it is written.
  */
-export function beginMeshDeathFade(root: THREE.Object3D): MeshFadeSwap[] {
+export function beginMeshDeathFade(root: THREE.Object3D, adopt?: AdoptQueue): MeshFadeSwap[] {
   const swaps: MeshFadeSwap[] = [];
   const cloned = new Map<THREE.Material, THREE.Material>();
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
-    const original = mesh.material as THREE.Material;
+    // GH-943 P3 (T1): on a node boot `mesh.material` is the twin; the fade clones (and later restores) the LEGACY material.
+    const original = legacyOf(mesh.material as THREE.Material, mesh);
     let fade = cloned.get(original);
     if (!fade) {
       fade = original.clone();
@@ -230,11 +235,14 @@ export function beginMeshDeathFade(root: THREE.Object3D): MeshFadeSwap[] {
       // fade. Carry the hook (a no-op for a material that has none).
       carryTeamMark(fade, original);
       fade.transparent = true;
+      // GH-943 P3 (T1): every entity's fade shares its base's node twin (opacity is per object, T3).
+      recordLegacyBase(fade, original);
       cloned.set(original, fade);
     }
     mesh.material = fade;
     swaps.push({ mesh, original, fade });
   });
+  adopt?.(root);
   return swaps;
 }
 
@@ -255,10 +263,12 @@ export function setMeshDeathOpacity(swaps: readonly MeshFadeSwap[], opacity: num
  *  full-opacity material back (a wreck draws at full opacity, matching
  *  Pixi's own `addWreck`, which never touches `spr.alpha`); being torn down
  *  needs the clones disposed so they do not leak. */
-export function endMeshDeathFade(swaps: readonly MeshFadeSwap[]): void {
+export function endMeshDeathFade(swaps: readonly MeshFadeSwap[], adopt?: AdoptQueue): void {
   const disposed = new Set<THREE.Material>();
   for (const s of swaps) {
     s.mesh.material = s.original;
+    // GH-943 P3 (T1): `original` is the legacy material; on a node boot it is adopted back onto its twin.
+    adopt?.(s.mesh);
     if (disposed.has(s.fade)) continue;
     disposed.add(s.fade);
     s.fade.dispose();
@@ -466,8 +476,8 @@ function startWreck(d: DyingMeshUnit, cut: boolean): void {
 /** Enters the Pixi fade for a body with no wreck: clones the materials now
  *  (not at `beginMeshDeath`), so a body that falls or topples into a wreck
  *  never pays for clones it will not use. */
-function beginFadePhase(d: DyingMeshUnit): void {
-  d.swaps = beginMeshDeathFade(d.entity.root);
+function beginFadePhase(d: DyingMeshUnit, adopt: AdoptQueue | undefined): void {
+  d.swaps = beginMeshDeathFade(d.entity.root, adopt);
   d.phase = 'fading';
   d.t = 0;
 }
@@ -573,6 +583,8 @@ export interface MeshDeathEnv {
   readonly width: number;
   readonly height: number;
   readonly isExplored: (x: number, y: number) => boolean;
+  /** GH-943 P3 (T1): the node adoption queue, handed to every fade begin and end (`ThreeRenderer.queueNodeAdoption`). */
+  readonly adopt?: AdoptQueue;
 }
 
 /**
@@ -728,7 +740,7 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
     if (!d.fallAction || !d.fallAction.paused) return 'fading';
     // D4: the body is already lying in its final pose -- no fade, no sink.
     if (d.entity.actions.has('wreck')) startWreck(d, false);
-    else beginFadePhase(d);
+    else beginFadePhase(d, env.adopt);
     return 'fading';
   }
 
@@ -741,7 +753,7 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
     // The swap is always a cut: a blend would have the mixer lay the wreck
     // pose under a figure still pitched 90 deg (spec 3.3).
     if (d.entity.actions.has('wreck')) startWreck(d, true);
-    else beginFadePhase(d);
+    else beginFadePhase(d, env.adopt);
     return 'fading';
   }
 
@@ -756,7 +768,7 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
   reassertHiddenFigures(d.entity.squad);
   if (d.t < MESH_DEATH_SECONDS) return 'fading';
 
-  endMeshDeathFade(d.swaps);
+  endMeshDeathFade(d.swaps, env.adopt);
   d.swaps = [];
   env.scene.remove(d.entity.root);
   disposeMeshUnitEntity(d.entity);

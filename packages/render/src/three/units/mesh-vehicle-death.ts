@@ -81,6 +81,7 @@ import {
   meshDeathOpacity,
   meshDeathSinkPx,
   setMeshDeathOpacity,
+  type AdoptQueue,
   type MeshDeathEnv,
   type MeshFadeSwap,
   type MeshWreck,
@@ -142,7 +143,9 @@ export interface DyingVehicle {
 export function beginVehicleDeath(
   entity: VehicleMeshEntity,
   entityId: number,
-  template: VehicleMeshTemplate
+  template: VehicleMeshTemplate,
+  /** GH-943 P3 (T1): the node adoption queue (`ThreeRenderer.queueNodeAdoption`), handed to the fade. */
+  adopt?: AdoptQueue
 ): DyingVehicle | null {
   if (template.hasWreck !== entity.actions.has('wreck')) {
     console.warn(
@@ -157,7 +160,7 @@ export function beginVehicleDeath(
     entity,
     t: 0,
     baseWorldY: entity.root.position.y,
-    swaps: beginMeshDeathFade(entity.root),
+    swaps: beginMeshDeathFade(entity.root, adopt),
     settling: false,
     wreckAction: null,
   };
@@ -241,7 +244,7 @@ export function stepVehicleDeath(
 
   if (d.t < MESH_DEATH_SECONDS) return 'fading';
 
-  endMeshDeathFade(d.swaps);
+  endMeshDeathFade(d.swaps, env.adopt);
 
   const deathRoot = d.entity.deathRoot;
   if (!mixer || !deathRoot || !d.entity.actions.has('wreck')) {

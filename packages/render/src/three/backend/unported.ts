@@ -12,12 +12,14 @@
  */
 import * as THREE from 'three';
 import { NODE_PMREM_TAG } from '../environment.node';
+import { hookSegments } from '../material-names';
 
-export type UnportedKind = 'shader-material' | 'on-before-compile' | 'env-map' | 'image-release' | 'partial';
+export type UnportedKind = 'shader-material' | 'on-before-compile' | 'env-map' | 'image-release' | 'partial' | 'unadopted';
 
 export interface UnportedHook {
   readonly kind: UnportedKind;
-  /** A name a reader can grep: the material's `name`, its `customProgramCacheKey()`, else the first object's name. A `partial`
+  /** A name a reader can grep (`censusKey`): a hooked material's `rl-` program-key segments joined by `|`
+   *  (`rl-running-gear-1|rl-team-mark-2`), else its `name`, a short program key, or the first object's name. A `partial`
    *  hook's key is the term itself, as its twin declares it (`rl-ground: wet terms`). */
   readonly key: string;
   /** How many scene objects carry it. */
@@ -29,7 +31,9 @@ export const HIDE_WITHOUT_HOOK: ReadonlySet<string> = new Set(['rl-silhouette-ou
 
 /**
  * GH-943 P2 (T1): the legacy material keys (as `censusUnported` names them) that have a node twin. Each port task APPENDS its key
- * in the PR that lands the twin (T3 the ground, T5 the ring, T6 the foliage). Read ONLY through the explicit `portedKeys` option
+ * in the PR that lands the twin (T3 the ground, T5 the ring, T6 the foliage). GH-943 P3 (T1): a HOOKED material is read per
+ * program-key SEGMENT: it is exempt only when EVERY one of its `rl-` segments is listed, so porting the team mark alone leaves a
+ * moving hull (`rl-running-gear-1|rl-team-mark-2`) reported. Read ONLY through the explicit `portedKeys` option
  * of `censusUnported`, which only `matchNodeStatements` (`tools/src/golden-diff/capture-protocol.ts`) passes, on the LEGACY
  * scene: there a listed key is drawn by legacy because node now draws it too, so it is neither hidden nor reported, and the parity
  * ratio of a ported layer measures something. The node backend's own census never passes it, so on node a legacy material that
@@ -56,6 +60,7 @@ interface DrawLike extends THREE.Object3D {
   material?: THREE.Material | THREE.Material[];
 }
 
+/** P2's key, kept for a material with no `rl-` program-key segment (a `ShaderMaterial`, a stock or an unkeyed hook). */
 function materialKey(m: THREE.Material, o: THREE.Object3D): string {
   let cache: string;
   try {
@@ -66,6 +71,24 @@ function materialKey(m: THREE.Material, o: THREE.Object3D): string {
   // `ShaderMaterial.customProgramCacheKey()` is the hook's own source text: never a usable name. Nor is the STOCK text (every
   // unnamed ShaderMaterial shares it, so a key list naming it would cover all of them): those fall through to the object's name.
   return m.name || (cache.length <= 60 && cache !== STOCK_PROGRAM_KEY ? cache : '') || o.name || o.parent?.name || m.type;
+}
+
+/**
+ * GH-943 P3 (T1): the key the census names `m` by: its `rl-` program-key segments joined by `|`, in order, when it has any (a unit
+ * hook's key is the stock text plus segments, 65+ characters, so P2's rule fell back to the GLB material name and could not say
+ * WHICH hook was missing), else P2's `materialKey`.
+ */
+export function censusKey(m: THREE.Material, o: THREE.Object3D): string {
+  const segments = hookSegments(m);
+  return segments.length > 0 ? segments.join('|') : materialKey(m, o);
+}
+
+/** True when `ported` exempts `m`: every `rl-` segment listed (a hooked material), else its key listed. */
+function isPorted(m: THREE.Material, o: THREE.Object3D, ported: ReadonlySet<string> | undefined): boolean {
+  if (ported === undefined) return false;
+  const segments = hookSegments(m);
+  if (segments.length > 0) return segments.every((s) => ported.has(s));
+  return ported.has(materialKey(m, o));
 }
 
 /**
@@ -95,15 +118,14 @@ export function censusUnported(root: THREE.Object3D, opts: CensusOptions = {}): 
       const terms = (m.userData as Record<string, unknown>)[UNPORTED_TERMS_KEY];
       if (Array.isArray(terms)) for (const t of terms) if (typeof t === 'string') note('partial', t);
       if ((m as THREE.ShaderMaterial).isShaderMaterial === true) {
-        const key = materialKey(m, o);
-        if (ported?.has(key) === true) continue;
-        note('shader-material', key);
+        if (isPorted(m, o, ported)) continue;
+        note('shader-material', censusKey(m, o));
         o.visible = false;
         continue;
       }
       if (m.onBeforeCompile !== STOCK_ON_BEFORE_COMPILE) {
-        const key = materialKey(m, o);
-        if (ported?.has(key) !== true) {
+        const key = censusKey(m, o);
+        if (!isPorted(m, o, ported)) {
           note('on-before-compile', key);
           // The occlusion outline is a depth-fail trick in GLSL; as a stock material it would paint every unit a flat colour.
           if (HIDE_WITHOUT_HOOK.has(key)) o.visible = false;
@@ -116,7 +138,7 @@ export function censusUnported(root: THREE.Object3D, opts: CensusOptions = {}): 
         const img = t && t.isTexture === true ? (t.image as { close?: unknown; width?: number } | null) : null;
         if (t && img && typeof img.close === 'function' && (img.width ?? 0) > 0 && t.onUpdate !== null) {
           t.onUpdate = null;
-          note('image-release', materialKey(m, o));
+          note('image-release', censusKey(m, o));
         }
       }
       const env = (m as THREE.MeshStandardMaterial).envMap;
@@ -126,7 +148,7 @@ export function censusUnported(root: THREE.Object3D, opts: CensusOptions = {}): 
         (env as THREE.Texture & { isRenderTargetTexture?: boolean }).isRenderTargetTexture === true &&
         (env.userData as Record<string, unknown>)[NODE_PMREM_TAG] !== true
       ) {
-        note('env-map', materialKey(m, o));
+        note('env-map', censusKey(m, o));
         (m as THREE.MeshStandardMaterial).envMap = null;
       }
     }
@@ -134,13 +156,38 @@ export function censusUnported(root: THREE.Object3D, opts: CensusOptions = {}): 
   return [...found.values()].sort((a, b) => (a.kind + a.key < b.kind + b.key ? -1 : 1));
 }
 
-/** One warning line per hook, in the shape a log reader greps for: `[lions] UNPORTED ...`. */
+/**
+ * GH-943 P3 (T1): the census backstop. Every material under `root` that `adoptable` says has a twin factory (its kit slot is filled
+ * on this backend) but is still on a mesh is reported as `unadopted`, keyed by `censusKey`: a swap site that does not queue its
+ * adoption draws the stock material until a site that does, and this makes it loud. Mutates nothing. Only the node backend calls it.
+ */
+export function censusUnadopted(root: THREE.Object3D, adoptable: (m: THREE.Material) => boolean): UnportedHook[] {
+  const found = new Map<string, UnportedHook>();
+  root.traverse((o) => {
+    const mat = (o as DrawLike).material;
+    if (!mat) return;
+    for (const m of Array.isArray(mat) ? mat : [mat]) {
+      if (!adoptable(m)) continue;
+      const key = censusKey(m, o);
+      const hit = found.get(key);
+      if (hit) hit.objects++;
+      else found.set(key, { kind: 'unadopted', key, objects: 1 });
+    }
+  });
+  return [...found.values()].sort((a, b) => (a.key < b.key ? -1 : 1));
+}
+
+/** One warning line per hook, in the shape a log reader greps for: `[lions] UNPORTED ...` (`[lions] UNADOPTED ...` for P3's backstop). */
 export function unportedWarnings(hooks: readonly UnportedHook[], seen: Set<string>): string[] {
   const out: string[] = [];
   for (const h of hooks) {
     const id = `${h.kind}|${h.key}`;
     if (seen.has(id)) continue;
     seen.add(id);
+    if (h.kind === 'unadopted') {
+      out.push(`[lions] UNADOPTED "${h.key}" (${h.objects} object${h.objects === 1 ? '' : 's'}): its node twin exists but the legacy material is still on a mesh: a swap site does not queue its adoption`);
+      continue;
+    }
     const what =
       h.kind === 'shader-material'
         ? 'ShaderMaterial has no TSL port on the node backend: the object is HIDDEN'

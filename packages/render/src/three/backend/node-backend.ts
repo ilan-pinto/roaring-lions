@@ -24,7 +24,8 @@ import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment
 import { captureNodeView, photographNodeGround, type NodeCaptureDeps, type ReadbackMaths } from '../capture-view.node';
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
 import type { RingStyle } from '../units/selection-ring';
-import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
+import { censusUnadopted, censusUnported, unportedWarnings, type UnportedHook } from './unported';
+import { markTwin } from '../twin-identity';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
 const CENSUS_EVERY_FRAMES = 60;
@@ -45,6 +46,12 @@ export interface NodeBackendOptions {
   /** GH-943 P2 (T1): the material twins' shared maths, injected (see `MaterialMaths`); `material-maths.ts`'s `MATERIAL_MATHS`.
    *  Read by the `materials` factories as each lands (T3, T5, T6). */
   readonly materialMaths: MaterialMaths;
+  /**
+   * GH-943 P3 (T1): the kit slot a LEGACY material belongs to (`legacyTwinSlot`, null for a twin or a material with no slot), handed
+   * over by `ThreeRenderer` because the table reads legacy modules this chunk must not load. The census reports a material whose
+   * slot HAS a factory but which is still on a mesh as `unadopted` (`[lions] UNADOPTED`): an adoption site is missing.
+   */
+  readonly twinSlotOf?: (m: THREE.Material) => keyof MaterialKit | null;
   readonly warn?: (msg: string) => void;
 }
 
@@ -102,17 +109,50 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   const aoControl: AoControl = aoStage.control;
   /** GH-943 P2 (T1): the material twins, null until each task lands (T3 ground, T5 ring, T6 foliage), each built from
    *  `opts.materialMaths`. A null factory leaves the legacy material in place, and this backend's census hides or names it. */
-  const materials: MaterialKit = { ground: null, foliage: null, ring: null };
+  const materials: MaterialKit = {
+    ground: null,
+    foliage: null,
+    ring: null,
+    // GH-943 P3 (T1): every P3 slot, null until its task lands (T3-T12).
+    unit: null,
+    outline: null,
+    banner: null,
+    backdrop: null,
+    decal: null,
+    overlay: null,
+    zoneBand: null,
+    supplyRoute: null,
+    trail: null,
+    xray: null,
+    particle: null,
+    tracer: null,
+    vfxMesh: null,
+    rimFade: null,
+    beam: null,
+    rotor: null,
+    flipbook: null,
+    smokeScreen: null,
+  };
   // GH-943 P2 (T5): the selection, team and wound rings. The legacy material keeps the uniform record the batch writes and carries its style.
-  materials.ring = (legacy) =>
-    createNodeRingMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.ring }, legacy.userData[RING_STYLE_KEY] as RingStyle, legacy.uniforms as unknown as RingUniformRecord);
+  materials.ring = (legacy) => {
+    const twin = createNodeRingMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.ring }, legacy.userData[RING_STYLE_KEY] as RingStyle, legacy.uniforms as unknown as RingUniformRecord);
+    markTwin(twin, legacy);
+    return twin;
+  };
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
   const seen = new Set<string>();
   const hooks = new Map<string, UnportedHook>();
   let frames = 0;
 
+  const slotOf = opts.twinSlotOf;
+  // P3 (T1): a legacy material is `unadopted` when its slot has a factory here and it is still on a mesh.
+  const adoptable = (m: THREE.Material): boolean => {
+    const slot = slotOf?.(m) ?? null;
+    return slot !== null && materials[slot] !== null;
+  };
   const runCensus = (scene: THREE.Scene): void => {
     const found = censusUnported(scene);
+    if (slotOf !== undefined) found.push(...censusUnadopted(scene, adoptable));
     for (const h of found) hooks.set(`${h.kind}|${h.key}`, h);
     for (const line of unportedWarnings(found, seen)) warn(line);
   };

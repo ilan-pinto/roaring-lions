@@ -36,10 +36,44 @@ import type { RingMaths } from '../units/selection-ring.node';
  * `foliage` (the swaying foliage and trunk batches). A legacy boot never reaches the kit.
  */
 export type MaterialTwinFactory<L extends THREE.Material> = (legacy: L) => THREE.Material;
+/**
+ * GH-943 P3 (T1): a slot per P3 material family, each `null` until its task lands (the brief's owners in brackets). A `ShaderMaterial`
+ * slot is recognised by the legacy material's `name` (`../material-names.ts`, `P3_MATERIAL_NAMES`); `unit` by its hook segments
+ * (all in `UNIT_HOOK_SEGMENTS`), and memoised SHARED by base, segments and pipeline state; `outline`, `banner` and `backdrop` by their
+ * one-segment program keys. Every factory marks its twin (`../twin-identity.ts`, `markTwin`); adoption copies `RENDER_STATE_KEYS`
+ * onto every P3 twin.
+ */
 export interface MaterialKit {
   ground: MaterialTwinFactory<GroundMaterial> | null;
   foliage: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
   ring: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** Team mark, running gear, rain rim, wounded floor, soot (T3, T4). */
+  unit: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
+  /** The occlusion outline, `rl-silhouette-outline` (T5). */
+  outline: MaterialTwinFactory<THREE.MeshBasicMaterial> | null;
+  /** The garrison banner, `rl-garrison-banner` (T6). */
+  banner: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
+  /** The valley backdrop's fade, `rl-backdrop-fade` (T10). */
+  backdrop: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
+  /** Decals and crater rims, `rl-decal` (T7). */
+  decal: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** The overlay batch, zone band, supply route and tunnel trail (T8). */
+  overlay: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  zoneBand: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  supplyRoute: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  trail: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** The tunnel x-ray tube, collar, figure and beam (T9). */
+  xray: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** Particles, tracers, flat-colour FX meshes, the plume/shroud rim fade, the beam and the rotor blur (T11). */
+  particle: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  tracer: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  vfxMesh: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  rimFade: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  beam: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  rotor: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** The flipbook smoke and fire, and the smoke screen (T12). */
+  flipbook: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  smokeScreen: MaterialTwinFactory<THREE.ShaderMaterial> | null;
 }
 /**
  * GH-943 P2 (T1): the values bundle the material twins receive (`../material-maths.ts`'s `MATERIAL_MATHS`, the `OutputMaths`
@@ -53,6 +87,25 @@ export interface MaterialMaths {
   readonly ground: null;
   readonly foliage: null;
   readonly ring: RingMaths;
+  /** GH-943 P3 (T1): one slot per `MaterialKit` P3 slot, each `null` until its task gives it the type its twin declares. */
+  readonly unit: null;
+  readonly outline: null;
+  readonly banner: null;
+  readonly backdrop: null;
+  readonly decal: null;
+  readonly overlay: null;
+  readonly zoneBand: null;
+  readonly supplyRoute: null;
+  readonly trail: null;
+  readonly xray: null;
+  readonly particle: null;
+  readonly tracer: null;
+  readonly vfxMesh: null;
+  readonly rimFade: null;
+  readonly beam: null;
+  readonly rotor: null;
+  readonly flipbook: null;
+  readonly smokeScreen: null;
 }
 
 /**

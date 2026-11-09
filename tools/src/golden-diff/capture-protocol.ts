@@ -1136,6 +1136,10 @@ ${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${l
  * (`match-node-ported-keys.test.ts`): a legacy material whose twin the node chain now draws stays visible here, so the ported
  * layer's legacy delta is real and its parity ratio measures something. The node backend's own census never passes it.
  *
+ * GH-943 P3 (T1): the list is read per hook SEGMENT (`censusKey`): a hooked unit material stays visible here only when every one
+ * of its `rl-` program-key segments is on `PORTED_MATERIAL_KEYS` (a moving hull is `rl-team-mark-2|rl-running-gear-1`), so a port
+ * that lands one hook does not show a hull whose other hook the node chain still drops. Still the only caller (G7).
+ *
  * The AO pass stays ON. P0 had no node AO, so this used to switch the legacy GTAO off; T7 (`createNodeAoStage`) ported it, and with
  * the line still here the parity job compared an AO-less L against node arms that draw AO. Whatever the quality preset turns on for
  * the node chain, it turns on for legacy too, so nothing else needs matching.

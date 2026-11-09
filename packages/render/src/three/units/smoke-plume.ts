@@ -765,6 +765,8 @@ export const SMOKE_PLUME_TOP_DENSITY = 0.4;
  */
 export function createSmokePlumeMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+    name: 'rl-smoke-plume',
     uniforms: {
       uColor: { value: new THREE.Color(0, 0, 0) },
       /** Object-space height of the WHOLE column (all three zones), so

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { censusUnported, PORTED_MATERIAL_KEYS, UNPORTED_TERMS_KEY, unportedWarnings } from './unported';
+import { censusKey, censusUnadopted, censusUnported, PORTED_MATERIAL_KEYS, UNPORTED_TERMS_KEY, unportedWarnings } from './unported';
 
 describe('censusUnported: no hook is dropped silently', () => {
   it('names a ShaderMaterial, hides it, and names an onBeforeCompile material without hiding it', () => {
@@ -118,5 +118,71 @@ describe('GH-943 P2 (T1): the partial census and the ported-key exemption', () =
     b.name = 'quad-b';
     root.add(a, b);
     expect(censusUnported(root).map((h) => h.key)).toEqual(['quad-a', 'quad-b']);
+  });
+});
+
+/** A unit-like hooked material: the stock program key plus `segments`, as the five unit hooks compose theirs. */
+function chained(name: string, segments: readonly string[]): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ name });
+  const stock = m.customProgramCacheKey();
+  m.onBeforeCompile = () => {};
+  m.customProgramCacheKey = () => [stock, ...segments].join('|');
+  return m;
+}
+
+/**
+ * GH-943 P3 (T1), G4: the census names each hook. A unit hook's key is 65+ characters, so P2's rule fell back to the GLB material
+ * name (`BakedMaterial`) and could not say which hook a moving hull lacked. With `portedKeys`, a hooked material is exempt only
+ * when EVERY segment is listed. Falsify: `segments.some(...)` for `segments.every(...)` in `isPorted`: the one-listed case goes red.
+ */
+describe('G4: the census keys a hooked material by its segments, and exempts it only when every segment is ported', () => {
+  it('stock|rl-team-mark-2|rl-running-gear-1 keys as rl-team-mark-2|rl-running-gear-1, not as its GLB name', () => {
+    const m = chained('BakedMaterial', ['rl-team-mark-2', 'rl-running-gear-1']);
+    expect(m.customProgramCacheKey().length).toBeGreaterThan(60);
+    const mesh = new THREE.Mesh(new THREE.BufferGeometry(), m);
+    expect(censusKey(m, mesh)).toBe('rl-team-mark-2|rl-running-gear-1');
+    const root = new THREE.Group();
+    root.add(mesh);
+    expect(censusUnported(root).map((h) => `${h.kind}:${h.key}`)).toEqual(['on-before-compile:rl-team-mark-2|rl-running-gear-1']);
+  });
+
+  it('one segment listed: still reported; both listed: exempt', () => {
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(new THREE.BufferGeometry(), chained('BakedMaterial', ['rl-team-mark-2', 'rl-running-gear-1'])));
+    expect(censusUnported(root, { portedKeys: new Set(['rl-team-mark-2']) }).map((h) => h.key)).toEqual(['rl-team-mark-2|rl-running-gear-1']);
+    expect(censusUnported(root, { portedKeys: new Set(['rl-team-mark-2', 'rl-running-gear-1']) })).toEqual([]);
+  });
+
+  it('a material with no segment keeps its P2 key (a named ShaderMaterial, a short hook key)', () => {
+    const shader = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial({ name: 'rl-decal' }));
+    expect(censusKey(shader.material, shader)).toBe('rl-decal');
+    const plain = new THREE.MeshStandardMaterial({ name: 'ground' });
+    plain.onBeforeCompile = () => {};
+    const o = new THREE.Mesh(new THREE.BufferGeometry(), plain);
+    expect(censusKey(plain, o)).toBe('ground');
+  });
+});
+
+/**
+ * GH-943 P3 (T1): the census backstop. A material whose slot HAS a factory but which is still on a mesh is `unadopted`, keyed by
+ * `censusKey`, and its log line is `[lions] UNADOPTED`. Falsify: return `[]` from `censusUnadopted`: both specs go red.
+ */
+describe('the unadopted census', () => {
+  it('names every adoptable material still on a mesh, once per key, and mutates nothing', () => {
+    const root = new THREE.Group();
+    const hull = chained('BakedMaterial', ['rl-team-mark-2']);
+    const a = new THREE.Mesh(new THREE.BufferGeometry(), hull);
+    const b = new THREE.Mesh(new THREE.BufferGeometry(), hull);
+    const other = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial());
+    root.add(a, b, other);
+    const found = censusUnadopted(root, (m) => m === hull);
+    expect(found).toEqual([{ kind: 'unadopted', key: 'rl-team-mark-2', objects: 2 }]);
+    expect([a.visible, b.visible, other.visible]).toEqual([true, true, true]);
+  });
+
+  it('its warning line is [lions] UNADOPTED', () => {
+    const lines = unportedWarnings([{ kind: 'unadopted', key: 'rl-running-gear-1', objects: 1 }], new Set());
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^\[lions\] UNADOPTED "rl-running-gear-1" \(1 object\): /);
   });
 });
