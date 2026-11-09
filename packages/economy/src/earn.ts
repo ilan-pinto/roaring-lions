@@ -111,8 +111,14 @@ export function evidenceFromLedger(ledger: LedgerData, world: ParsedWorld): Earn
  * record once paid. Pure; ids are taken in `worldMissionIds` order, and an id off
  * the world pays nothing.
  */
-export function earnDifference(record: EarnRecord, evidence: EarnEvidence, world: ParsedWorld): { coins: number; record: EarnRecord } {
+export function earnDifference(
+  record: EarnRecord,
+  evidence: EarnEvidence,
+  world: ParsedWorld,
+): { coins: number; record: EarnRecord; raised: EarnEvidence & { welcomed: boolean } } {
   const missions: Record<string, { won: boolean; stars: number }> = { ...record.missions };
+  // What this call PAID: a claim raises `earn` by this alone (GH-1075 A2), never by the whole evidence.
+  const raisedMissions: Record<string, { won: boolean; stars: number }> = {};
   let coins = 0;
   let anyWin = false;
   for (const id of worldMissionIds(world)) {
@@ -125,11 +131,17 @@ export function earnDifference(record: EarnRecord, evidence: EarnEvidence, world
     if (!prev.won) coins += EARN.firstWin;
     coins += EARN.star * Math.max(0, stars - prev.stars);
     missions[id] = { won: true, stars: Math.max(prev.stars, stars) };
+    if (!prev.won || stars > prev.stars) raisedMissions[id] = missions[id];
   }
-  if (anyWin && !record.welcomed) coins += EARN.welcome;
+  const welcomes = anyWin && !record.welcomed;
+  if (welcomes) coins += EARN.welcome;
   const finishes = evidence.campaignDone && !record.campaignDone;
   if (finishes) coins += EARN.campaign;
-  return { coins, record: { welcomed: record.welcomed || anyWin, campaignDone: record.campaignDone || finishes, backfilled: record.backfilled, missions } };
+  return {
+    coins,
+    record: { welcomed: record.welcomed || anyWin, campaignDone: record.campaignDone || finishes, backfilled: record.backfilled, missions },
+    raised: { missions: raisedMissions, welcomed: welcomes, campaignDone: finishes },
+  };
 }
 
 /**

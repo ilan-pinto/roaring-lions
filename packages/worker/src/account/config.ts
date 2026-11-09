@@ -28,6 +28,23 @@ export const OPS_ALL = 20_000;
 
 export const ACCOUNT_BODY_MAX_BYTES = 4096;
 
+// GH-1075 A2. Values are the plan's Global Constraints, verbatim.
+/** A campaign or a slot, canonical UTF-8: `campaign_state.bytes` and `save_slot.bytes` CHECK against it. */
+export const CAMPAIGN_MAX_BYTES = 262_144;
+/** 256 KiB plus 8 KiB of envelope: PUT campaign, POST victory, PUT slots/:id. */
+export const CAMPAIGN_BODY_MAX = 270_336;
+export const CLAIM_BODY_MAX = 1_048_576;
+export const CLAIM_COUPON_COINS_CAP = 800;
+export const CLAIMS_PER_DAY = 5;
+export const DEVICE_CLAIMS_MAX = 20;
+export const START_MAX_AGE_MS = 7 * DAY_MS;
+/** Attempts a write gets while its batch loses a compare-and-swap race (budgetedOp). */
+export const CAS_TRIES = 3;
+export const PLAYER_SLOTS = 12;
+export const SYSTEM_SLOTS = 4;
+/** Code points. */
+export const SLOT_NAME_MAX = 64;
+
 export const PINNED_ORIGINS: readonly string[] = ['https://roaring-lions.pint12.workers.dev'];
 export const STEAM_OP = 'https://steamcommunity.com/openid/login';
 export const ACCOUNT_RETURN_PATH = '/profile?accounts';

@@ -33,3 +33,16 @@ describe('binding', () => {
     }
   });
 });
+
+describe('binding (A2)', () => {
+  const DEV = '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc';
+  it('keeps a valid deviceId and an integer claimedAt, and drops anything else', () => {
+    const s = mem();
+    writeBinding(s, { version: 1, publicId: 'p1', deviceId: DEV, claimedAt: 5 });
+    expect(readBinding(s)).toEqual({ version: 1, publicId: 'p1', deviceId: DEV, claimedAt: 5 });
+    s.map.set(ACCOUNT_BINDING_KEY, JSON.stringify({ version: 1, publicId: 'p1', deviceId: 'nope', claimedAt: 1.5 }));
+    expect(readBinding(s)).toEqual({ version: 1, publicId: 'p1' });
+    s.map.set(ACCOUNT_BINDING_KEY, JSON.stringify({ version: 1, publicId: 'p1', deviceId: 7, claimedAt: '5' }));
+    expect(readBinding(s)).toEqual({ version: 1, publicId: 'p1' });
+  });
+});
