@@ -122,6 +122,83 @@ describe('A2-18 held_before_adopt', () => {
     expect(readHeld(r.storage)).toEqual([]);
   });
 
+  it('release() names the held ids it queued: [] while every system slot is full, the id once one frees (and again while it waits)', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const item = readHeld(r.storage)[0] as NonNullable<ReturnType<typeof readHeld>[number]>;
+    expect(r.sync.canRelease(item)).toBe(true);
+    expect(r.sync.canRelease({ ...item, digest: undefined })).toBe(false);
+    expect(r.sync.canRelease({ ...item, publicId: 'someone-else' })).toBe(false);
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [] });
+    r.server.slots.delete([...r.server.slots.keys()][0] as string);
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [item.id] });
+    expect(readHeld(r.storage)).toHaveLength(1); // still listed: the ack removes it, not the call
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [item.id] }); // queued already, still reported
+    await r.sync.flush();
+    expect(readHeld(r.storage)).toEqual([]);
+  });
+
+  it('a release put that wedges re-files the ORIGINAL held item as refused: one entry, same id, nothing waiting', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const item = readHeld(r.storage)[0] as NonNullable<ReturnType<typeof readHeld>[number]>;
+    r.server.slots.delete([...r.server.slots.keys()][0] as string);
+    await r.sync.release();
+    const put = r.store.sync.ops().find((x) => x.kind === 'slot.put') as NonNullable<ReturnType<typeof r.store.sync.ops>[number]>;
+    expect(r.sync.queuedHeldIds()).toEqual([item.id]);
+    r.server.failWith.set(put.opId, 500);
+    await r.sync.flush();
+    for (let i = 0; i < 5; i++) {
+      await r.sched.advance(60_000);
+      await r.sync.idle();
+    }
+    expect(readHeld(r.storage).map((h) => [h.id, h.reason, h.text])).toEqual([[item.id, 'refused', item.text]]);
+    expect(r.sync.queuedHeldIds()).toEqual([]);
+  });
+
+  it('a release put that loses the race for the slot (409 cap) leaves the item held and no longer waiting', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const item = readHeld(r.storage)[0] as NonNullable<ReturnType<typeof readHeld>[number]>;
+    r.server.slots.delete([...r.server.slots.keys()][0] as string);
+    await r.sync.release();
+    expect(r.sync.queuedHeldIds()).toEqual([item.id]);
+    r.server.addSystemSlot(); // another device took the slot first
+    await r.sync.flush();
+    expect(readHeld(r.storage).map((h) => [h.id, h.reason])).toEqual([[item.id, 'held']]);
+    expect(r.sync.queuedHeldIds()).toEqual([]);
+  });
+
+  it('release() says ok: false when the refresh did not complete (offline status 0, a 500, a 401, a rejection), never an empty queue', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const real = server.state.bind(server);
+    for (const status of [0, 500, 401]) {
+      server.state = (async () => ({ ok: false, status, body: null })) as never;
+      expect(await r.sync.release()).toEqual({ ok: false });
+    }
+    server.state = (() => Promise.reject(new Error('network'))) as never;
+    expect(await r.sync.release()).toEqual({ ok: false });
+    server.state = real;
+    expect(await r.sync.release()).toEqual({ ok: true, queued: [] }); // reachable and genuinely full
+  });
+
   it('a digest that is not its own leaves the item in the list (as refused: never uploaded twice)', async () => {
     const server = new FakeServer();
     server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7' };

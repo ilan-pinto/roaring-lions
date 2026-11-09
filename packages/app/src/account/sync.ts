@@ -79,15 +79,26 @@ export interface SyncOptions {
   onForeignMember?: () => void;
   /** The view changed (a response landed): the screens re-read. Not the store's `onChange`, which means "an op was queued". */
   onChange?: () => void;
+  /** A victory op was answered (its coins are the server's, Review Focus 4): the debrief corrects its provisional line from `answer`. */
+  onVictory?: (opId: string, answer: VictoryAnswer) => void;
   /** Connection state; defaults to `navigator.onLine`. */
   online?: () => boolean;
   newId?: () => string;
 }
 
+/** What `release` did: `ok: false` when the refresh did not complete (offline, a server error, a 401, a stale answer, stopped), else the queued ids (empty = no system slot was free). */
+export type ReleaseOutcome = { readonly ok: false } | { readonly ok: true; readonly queued: readonly string[] };
+
 export interface SyncHandle {
   flush(): Promise<void>;
   /** `GET state`, then the slot bodies whose change token differs from the cache's, then any held campaign that now fits. */
   refresh(): Promise<void>;
+  /** `refresh`, and says what it did for the held list: `{ ok: true, queued }`: the ids of the held campaigns now waiting in the outbox for a system slot (queued by this call or earlier), empty when none could be queued; `{ ok: false }` when the refresh itself did not complete. */
+  release(): Promise<ReleaseOutcome>;
+  /** Whether `release` could ever upload this held item: a `held` campaign of the cached member, with a digest. */
+  canRelease(item: HeldItem): boolean;
+  /** The held ids whose upload is still waiting in the outbox (a conflict-origin `slot.put` under a held item's id). */
+  queuedHeldIds(): readonly string[];
   barrier<T>(fn: () => Promise<T>): Promise<T | 'offline' | 'syncing'>;
   spend(ask: CoinAskWire): Promise<BarrierOutcome<{ wallet: WalletView }>>;
   coupon(code: string): Promise<BarrierOutcome<CouponAnswer>>;
@@ -263,19 +274,24 @@ export function startSync(o: SyncOptions): SyncHandle {
   };
 
   // ---- refresh ---------------------------------------------------------------------------------------------------
-  async function releaseHeld(): Promise<void> {
+  const releasable = (item: HeldItem): boolean =>
+    item.kind === 'campaign' && item.reason === 'held' && item.publicId === cache.publicId && item.digest !== undefined;
+
+  async function releaseHeld(): Promise<string[]> {
     const queued = api.ops();
     const queuedPuts = new Set(queued.filter((x): x is SlotPutOp => x.kind === 'slot.put' && x.origin === 'conflict').map((x) => x.slotId));
     let free = SYSTEM_SLOTS - cache.confirmed.slots.filter((s) => s.origin !== 'player').length - queuedPuts.size;
     const add: OutboxOp[] = [];
+    const waiting: string[] = readHeld(storage).filter((i) => releasable(i) && queuedPuts.has(i.id)).map((i) => i.id);
     for (const item of readHeld(storage)) {
       if (free <= 0) break;
-      if (item.kind !== 'campaign' || item.reason !== 'held' || item.publicId !== cache.publicId || item.digest === undefined || queuedPuts.has(item.id)) continue;
+      if (!releasable(item) || queuedPuts.has(item.id)) continue;
       let campaign: CampaignBody;
       try {
         campaign = JSON.parse(item.text) as CampaignBody;
         const slot = slotFromCampaign(campaign, item.id, 'conflict', item.at);
         add.push({ kind: 'slot.put', opId: newId(), slotId: item.id, slot, origin: 'conflict' });
+        waiting.push(item.id);
         free--;
       } catch {
         /* an unreadable held entry stays where it is */
@@ -285,20 +301,27 @@ export function startSync(o: SyncOptions): SyncHandle {
       api.setOps([...api.ops(), ...add]);
       kick();
     }
+    return waiting;
   }
 
-  async function doRefresh(): Promise<void> {
-    const r = await client.state();
-    if (stopped) return;
+  const NOT_DONE: ReleaseOutcome = { ok: false };
+  async function doRefresh(): Promise<ReleaseOutcome> {
+    let r: Awaited<ReturnType<typeof client.state>>;
+    try {
+      r = await client.state();
+    } catch {
+      return NOT_DONE;
+    }
+    if (stopped) return NOT_DONE;
     if (r.status === 401) {
       await recheck();
-      return;
+      return NOT_DONE;
     }
-    if (!r.ok) return; // keep what the device has
+    if (!r.ok) return NOT_DONE; // keep what the device has
     const next = r.body;
     const prev = cache.confirmed;
     // Never move backwards: a state older than the cache's campaign is a slow answer, not the server's present.
-    if (next.campaign !== null && prev.campaign !== null && next.campaign.revision < prev.campaign.revision) return;
+    if (next.campaign !== null && prev.campaign !== null && next.campaign.revision < prev.campaign.revision) return NOT_DONE;
     pinBase(); // a refresh never raises the base of what is queued (R12)
     cache.confirmed = { campaign: next.campaign, wallet: next.wallet, slots: next.slots };
     persist();
@@ -312,14 +335,14 @@ export function startSync(o: SyncOptions): SyncHandle {
         continue;
       }
       const got = await client.slot(meta.id);
-      if (stopped) return;
+      if (stopped) return NOT_DONE;
       if (got.ok) bodies[meta.id] = got.body.body;
       else if (have !== undefined) bodies[meta.id] = have; // keep what we hold when the fetch failed
     }
     cache.bodies = bodies;
     persist();
     changed();
-    await releaseHeld();
+    return { ok: true, queued: await releaseHeld() };
   }
 
   // ---- one op ----------------------------------------------------------------------------------------------------
@@ -411,6 +434,7 @@ export function startSync(o: SyncOptions): SyncHandle {
       }
       case 'victory': {
         const b = body as VictoryAnswer;
+        o.onVictory?.(op.opId, b);
         if (b.conflict !== undefined) {
           const out = await resolveConflict(op, op.campaign, b.conflict, b.campaign, b.wallet);
           if (out === 'next') removeOp(op.opId);
@@ -458,7 +482,11 @@ export function startSync(o: SyncOptions): SyncHandle {
     const n = (failures.get(op.opId) ?? 0) + 1;
     failures.set(op.opId, n);
     if (n < WEDGE_AFTER) return 'wait';
-    if (!file(op)) return 'wait'; // not filed: not dropped
+    // A held campaign's release put that wedged re-files the ORIGINAL item as refused (one entry, same id), never a second one.
+    const held = op.kind === 'slot.put' && op.origin === 'conflict' ? heldItem(op.slotId) : undefined;
+    if (held !== undefined) {
+      if (!addHeld(storage, { ...held, reason: 'refused' })) return 'wait';
+    } else if (!file(op)) return 'wait'; // not filed: not dropped
     failures.delete(op.opId);
     removeOp(op.opId);
     return 'next';
@@ -679,7 +707,15 @@ export function startSync(o: SyncOptions): SyncHandle {
 
   return {
     flush,
-    refresh: () => locked(doRefresh),
+    refresh: async () => {
+      await locked(doRefresh);
+    },
+    release: () => locked(doRefresh),
+    canRelease: releasable,
+    queuedHeldIds: () => {
+      const ids = new Set(readHeld(storage).map((i) => i.id));
+      return api.ops().filter((x): x is SlotPutOp => x.kind === 'slot.put' && x.origin === 'conflict' && ids.has(x.slotId)).map((x) => x.slotId);
+    },
     barrier,
     spend: (ask) => viaBarrier(() => client.spend(ask), spendKey(ask)),
     coupon: (code) => viaBarrier(() => client.coupon(code)),

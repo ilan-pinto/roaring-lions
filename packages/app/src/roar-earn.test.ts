@@ -307,7 +307,7 @@ describe('GH-317: the back-payment for a wallet that already exists', () => {
 
   it('main.ts settles at boot, right after building the store', () => {
     const src = readFileSync(resolve(__dirname, 'main.ts'), 'utf8');
-    expect(src).toMatch(/const ledgerStore = selectedStore\.store;\s*(\/\/[^\n]*\n\s*)*settleRoarAtBoot\(ledgerStore\);/);
+    expect(src).toMatch(/let ledgerStore: LedgerStore = selectedStore\.store;\s*(\/\/[^\n]*\n\s*)*settleRoarAtBoot\(ledgerStore\);/);
   });
 
   it('a wallet with the marker set pays 0', () => {
