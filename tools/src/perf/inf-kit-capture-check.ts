@@ -25,9 +25,10 @@ export interface Reading {
 }
 
 /** Live triangles of the encoded `inf_squad` at tier 0 (GH-826 step 2: 8,172 before the hands; 11,730 in the art file less
- *  the same 432 Draco drops). The Meshy pilot (GH-746, 9 Nov): 33,216 in the art file, 32,998 as the renderer reads the
- *  encode (218 Draco drops), read by the real capture on Metal. */
-export const ENCODED_BASE_TRIS = 32998;
+ *  the same 432 Draco drops). The Meshy pilot (GH-746, 9 Nov): 33,216 in the art file read 32,998 in the real capture
+ *  on Metal, which is exactly the decoded encode's live index count; after the real-size fists the art file is 33,394
+ *  and its decoded encode 33,021 (same count, read off assets/meshes with the draco decoder). */
+export const ENCODED_BASE_TRIS = 33021;
 
 export const STATES: readonly State[] = [
   { id: 'T0', label: 'tier 0', tiers: {}, kitTris: 0 },

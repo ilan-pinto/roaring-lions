@@ -140,12 +140,16 @@ describe('every figure of a team the hands pass has been through carries proport
  *   - hand over forearm 0.631-0.656 on the support side, from the short support forearm.
  */
 const FUSED_HAND_OPEN: Readonly<Record<string, readonly string[]>> = {
-  'inf_squad f0_L': ['hand length', 'visible forearm', 'hung elbow height over stature'],
-  'inf_squad f0_R': ['hand over forearm', 'visible forearm', 'hung elbow height over stature'],
-  'inf_squad f1_L': ['hand length', 'visible forearm', 'hung elbow height over stature'],
-  'inf_squad f1_R': ['hand length', 'hand over forearm', 'visible forearm', 'hung elbow height over stature'],
-  'inf_squad f2_L': ['hand length', 'visible forearm', 'hung elbow height over stature'],
-  'inf_squad f2_R': ['hand length', 'hand over forearm', 'hung elbow height over stature'],
+  // 9 Nov, after the fists went to x0.8 and the elbows to 0.153 S from the wrist: the support fists (_R) are in band but
+  // for the elbow; the firing fists (_L) read 0.161-0.162 long (0.16) and 0.070-0.083 across the palm (0.085: the closed
+  // fist round the pistol grip is narrow once scaled); every hung elbow reads 0.641-0.651 of stature (0.605-0.625): Meshy's
+  // upper arm is short (0.288-0.304) and the shoulder joint sits at the humeral head; f2's firing forearm reads 0.300.
+  'inf_squad f0_L': ['hand length', 'palm breadth', 'hung elbow height over stature'],
+  'inf_squad f0_R': ['hung elbow height over stature'],
+  'inf_squad f1_L': ['hand length', 'palm breadth', 'hung elbow height over stature'],
+  'inf_squad f1_R': ['hung elbow height over stature'],
+  'inf_squad f2_L': ['palm breadth', 'visible forearm', 'hung elbow height over stature'],
+  'inf_squad f2_R': ['hung elbow height over stature'],
 };
 
 describe('a fused (Meshy) figure\'s hands, against the same bands: every violation named', () => {

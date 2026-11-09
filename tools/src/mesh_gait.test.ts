@@ -1302,14 +1302,8 @@ const FACE_SPREAD_DEG = 25;
  * still fail, or the entry is deleted). Not a widened bar: every other row keeps FACE_MEAN_DEG / FACE_SPREAD_DEG.
  */
 const FACING_OPEN_DEFECT: Readonly<Record<string, string>> = {
-  // GH-746 Meshy pilot (9 Nov, the bytes after round 3): the rest-carry hold tilts the head 22 deg onto the stock
-  // (hold.ts REST_CARRY_CHEEK_TILT_DEG), and the face's bearing reads 30.1 / 30.8 / 34.1 deg off the figure's
-  // forward in fire (kneel 16.6-20.6, inside). The cheek weld turns the face, not only the head's roll: open.
-  'inf_squad.glb fire f0_head': 'fire: face bearing 30.1 deg off forward (bar 25): the 22 deg cheek tilt onto the stock turns the face',
-  'inf_squad.glb fire f1_head': 'fire: face bearing 30.8 deg off forward (bar 25): the 22 deg cheek tilt onto the stock turns the face',
-  'inf_squad.glb fire f2_head': 'fire: face bearing 34.1 deg off forward (bar 25): the 22 deg cheek tilt onto the stock turns the face',
-  // f2 (the 1.72 m body) rises out of the kneel with a 26.0 deg sweep of the head (f0 21.7, f1 22.5).
-  'inf_squad.glb kneelOut f2_head': 'kneelOut: f2 head sweeps 26.0 deg in the rise (bar 25; f0 21.7, f1 22.5)',
+  // GH-746 Meshy pilot: the four inf_squad rows that stood here (fire 30.1-34.1 deg, the 22 deg cheek tilt; f2's 26.0 deg
+  // kneelOut sweep) left on 9 Nov with the tilt back to 12 deg and the pocket at 0.05: fire reads 20.2-22.7, kneelOut inside.
 };
 
 /**
@@ -1708,9 +1702,10 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'inf_squad.glb move f0_head 0.0263',
       'inf_squad.glb move f1_head 0.0272',
       'inf_squad.glb move f2_head 0.0286',
-      'inf_squad.glb moveFire f0_head 0.0176',
-      'inf_squad.glb moveFire f1_head 0.0146',
-      'inf_squad.glb moveFire f2_head 0.0093',
+      // (moveFire re-read 9 Nov after the 12 deg cheek tilt: 0.0176 / 0.0146 / 0.0093 before)
+      'inf_squad.glb moveFire f0_head 0.0245',
+      'inf_squad.glb moveFire f1_head 0.0214',
+      'inf_squad.glb moveFire f2_head 0.0191',
       'inf_grenadier.glb pinned gre0_head 0.0231',
       'inf_grenadier.glb pinned gre1_head 0.0206',
       'inf_grenadier.glb pinned gre2_head 0.0278',
@@ -1814,7 +1809,7 @@ const WEAPON_RIGS: readonly {
   // GH-746 Meshy pilot (9 Nov): Meshy's own gun, not kdf_carbine, so not HANDS_CARBINE_AXIS_BIAS_DEG. Its cloud's
   // principal axis sits 3.65 / 4.28 / 4.86 deg above the level bore per body (the bodies are anisotropic scalings of
   // one sculpt, so the same gun's shape tilts differently), read on the bytes: per joint, literals.
-  { file: 'inf_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: { f0_weapon: 3.65, f1_weapon: 4.28, f2_weapon: 4.86 } },
+  { file: 'inf_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: { f0_weapon: 5.6, f1_weapon: 6.17, f2_weapon: 1.04 } }, // re-read 9 Nov (pocket 0.05, real-size fists): was 3.65 / 4.28 / 4.86
   { file: 'sarim_rifles.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   // GH-709 phase 3 (22 Oct): two revolving launchers and the leader's carbine,
   // every one a `rifle`-kind hold, so the same 0 deg aim and -30 deg low ready.
@@ -2019,9 +2014,11 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   // gun, butt at the right shoulder (z 1.36), muzzle at the left hip (z 0.81), measured on the bytes per body (f0 is
   // scaled 1.034 tall x 0.98 wide, f2 0.966 x 1.08, which tilts the same gun differently). The lead saw this idle on
   // 1 Nov ("idle good"). Was -30 + the kdf_carbine bias (-24.13) for the cut body.
-  'inf_squad.glb f0_weapon': -43.51,
-  'inf_squad.glb f1_weapon': -41.38,
-  'inf_squad.glb f2_weapon': -37.55,
+  // Re-read 9 Nov after the real-size fists and forearms (the elbows and wrists moved; the gun did not): -43.51 / -41.38 /
+  // -37.55 before.
+  'inf_squad.glb f0_weapon': -41.59,
+  'inf_squad.glb f1_weapon': -39.51,
+  'inf_squad.glb f2_weapon': -41.38,
   'inf_grenadier.glb gre0_weapon': -30,
   'inf_grenadier.glb gre1_weapon': -30,
   'inf_grenadier.glb gre2_weapon': -30,

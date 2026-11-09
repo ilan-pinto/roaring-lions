@@ -213,8 +213,11 @@ const HAND_VISIBILITY_EXEMPT: Readonly<Record<string, string>> = {
   // read 0 in idle. Its palette rifle (role weapon, on demo_b_weapon) still occludes.
   digger_crew: 'both hands 0 of 8: the arm is fused into the torso (and the team has no fire clip)',
   inf_grenadier: 'gre0 and gre2 R 0 of 8: the launcher hides the support claw; gre1 R 4',
-  // inf_squad (the Meshy pilot) is not here: with its torso looked through (the lead's 9 Nov ruling) every hand shows in
-  // 6-8 of 8 in idle and fire at full kit (counted, 4-7).
+  // the Meshy pilot after the real-size fists (9 Nov, the lead's ruling: fists x0.8): with the torso looked through, idle
+  // f0_L 4, f1_L 4 (the firing fists at the low ready, behind their own arm and the magazine), fire f0_L 5, f0_R 5,
+  // f1_L 4, f1_R 5, f2_R 5; counted 3-6. At 1.4x size (before) every hand read 6-8: the smaller fist is under 3 px at the
+  // zoom ceiling from more facings. Open, for the lead: real size and visibility pull against each other here.
+  inf_squad: 'real-size fists: firing fists 4 of 8 in idle, 4-5 of 8 in fire (at 1.4x size they read 6-8)',
   inf_medic_squad: 'med_a R 5, med_b R 5 and 4 (block hands)',
   manpad_team: 'mpd_fire L shows in 4 of 8 facings',
   militia_cell: 'every hand 5 of 8 in idle',
@@ -272,12 +275,11 @@ describe('G4 can fail (constructed inputs)', () => {
     const v = await violations('officer_infantry', { occluder: 'maya_L' });
     expect(v.join(' | ')).toMatch(/maya_L/);
   }, 120_000);
-  it('the self-occlusion exclusion does work: counted, the Rifle Squad\'s own torso hides a hand it otherwise shows', async () => {
-    // the shipped bytes (9 Nov): at the low ready the hands sit in front of the chest; counted, the worst reads 4 of 8,
-    // with the torso looked through, 6
+  it('the self-occlusion exclusion does work: counted, a figure\'s own torso hides a hand it otherwise shows', async () => {
+    // demo_squad in idle (9 Nov): demo_b's firing claw reads 0 of 8 counted and 6 with its own torso looked through
     const worst = (r: HandReading[] | null) => Math.min(...(r ?? []).map((h) => h.facings));
-    const counted = worst(await readHands('inf_squad', 'idle', { selfOcclusion: 'count' }));
-    const excluded = worst(await readHands('inf_squad', 'idle'));
+    const counted = worst(await readHands('demo_squad', 'idle', { selfOcclusion: 'count' }));
+    const excluded = worst(await readHands('demo_squad', 'idle'));
     expect(counted).toBeLessThan(excluded);
     expect(excluded).toBeGreaterThanOrEqual(FACINGS_NEEDED);
   }, 240_000);

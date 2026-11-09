@@ -57,8 +57,8 @@ const GUNNERS: readonly (readonly [string, string, Readonly<Record<string, numbe
   ['../../tools/src/fixtures/inf_squad_rigid_592ebbb19.glb', 'f0', { idle: 430, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }],
   ['../../tools/src/fixtures/inf_squad_rigid_592ebbb19.glb', 'f1', { idle: 430, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }],
   ['../../tools/src/fixtures/inf_squad_rigid_592ebbb19.glb', 'f2', { idle: 430, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }],
-  // The skinned Meshy Rifle Squad (GH-746, 9 Nov) holds the SAME ceilings where it meets them: idle 237 / 56 / 109 and
-  // move 175 / 120 / 151 (f0 / f1 / f2), far under the rigid arms' 423 and 555. Its aimed clips are an exemption below.
+  // The skinned Meshy Rifle Squad (GH-746, 9 Nov) holds the SAME ceilings where it meets them: idle and
+  // move 141 / 90 / 235 (f0 / f1 / f2; 190 / 56 / 331 in idle), under the rigid arms' 423 and 555. Its aimed clips are an exemption below.
   ['inf_squad.glb', 'f0', { idle: 430, move: 580 }],
   ['inf_squad.glb', 'f1', { idle: 430, move: 580 }],
   ['inf_squad.glb', 'f2', { idle: 430, move: 580 }],
@@ -66,11 +66,11 @@ const GUNNERS: readonly (readonly [string, string, Readonly<Record<string, numbe
 
 /**
  * Rows that do NOT meet their ceiling: each must stay over it (else delete the row here and put the ceiling back above).
- * The Meshy Rifle Squad's aimed clips (read 9 Nov, of 3,350-3,410 arm vertices per figure): fire 1,327 / 1,325 / 1,190,
- * moveFire 892 / 1,133 / 1,107, kneel 1,329 / 1,315 / 1,223, kneelIn 1,316 / 1,209 / 1,184, kneelOut 1,329 / 1,315 /
- * 1,213, pinned 1,334 / 1,316 / 1,245. Open: the shouldered arms of a smoothly skinned shell (the upper arm welded to the
- * ribs, deliberately smooth) against this count, which was built for rigid parts; whether it is arm through chest or the
- * weld's blend is the infantry review's question, and the lead's.
+ * The Meshy Rifle Squad's aimed clips (read 9 Nov, after the real-size fists and the support fist's roll; of ~3,400 arm
+ * vertices per figure, f0 / f1 / f2): fire 830 / 757 / 809, moveFire 537 / 535 / 560, kneel 838 / 739 / 849, kneelIn
+ * 824 / 710 / 872, kneelOut 838 / 731 / 841, pinned 843 / 744 / 867 (892-1,334 before). Open: the shouldered arms of a
+ * smoothly skinned shell (the upper arm welded to the ribs, deliberately smooth) against this count, which was built
+ * for rigid parts; whether it is arm through chest or the weld's blend is the infantry review's question, and the lead's.
  */
 const ARMS_EXEMPT: readonly (readonly [string, string, string, number])[] = ['f0', 'f1', 'f2'].flatMap((f) =>
   (['fire', 'moveFire', 'kneel', 'kneelIn', 'kneelOut', 'pinned'] as const).map(
