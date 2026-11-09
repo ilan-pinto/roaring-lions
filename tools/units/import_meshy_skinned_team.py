@@ -1267,9 +1267,21 @@ def build_team(team_id, out_path=None):
                   centre=Js[s["prefix"]]["gun"]["centre"] + np.array([s["x"], s["y"], 0.0])), slot=(s["x"], s["y"], 0.0)) for s in figures}, gun_tris, hand_tris)
     blend_out = os.environ.get("SKINNED_BLEND_OUT")
     if blend_out:
-        for im in bpy.data.images:
-            if im.packed_file is None and im.size[0]:
-                im.pack()
+        # The source beside the GLB carries the atlas the GLB carries: the retinted 2048 buffer, not the 8k bake the
+        # importer read (the packed file is still the 8k PNG after `scale`, 70 MB, and without the retint). Each image
+        # is re-made as a generated one from its own pixels and packed (a generated image packs as PNG).
+        for im in list(bpy.data.images):
+            if not im.size[0]:
+                continue
+            w_, h_ = im.size
+            px_ = np.empty(w_ * h_ * 4, np.float32); im.pixels.foreach_get(px_)
+            new = bpy.data.images.new(im.name + "_atlas", w_, h_, alpha=True)
+            new.pixels.foreach_set(px_)
+            new.pack()
+            im.user_remap(new)
+            name_ = im.name
+            bpy.data.images.remove(im)
+            new.name = name_
         os.makedirs(os.path.dirname(blend_out), exist_ok=True)
         bpy.ops.wm.save_as_mainfile(filepath=blend_out, copy=True)
         log(f"{team_id}: scene saved to {blend_out}")

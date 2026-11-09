@@ -265,3 +265,9 @@ art/meshy/aa-gachelet-20261024-01a16f86/texture_*
 
 # GH-943 P0: the bundle census build (tools/src/perf/webgpu-bundle-census.ts)
 packages/app/dist-bundle-census/
+# GH-746 Meshy pilot f1 (1 Nov): the Rifle Squad leader's remesh (86 MB, its 8k bake embedded) is the source
+# tools/units/import_meshy_skinned_team.py reads, far too big to track like the other 8k sources above; it is backed
+# up in ~/dev/roaring-lions-art-backup/meshy/. The importer's output scene (the 2048 retinted atlas, the skin, the
+# clips) is the tracked source beside the GLB: art/src/units/inf_squad.blend. task.json and the thumbnail are tracked.
+art/meshy/inf-squad-f1-20261101-01a197a3/model.glb
+art/meshy/inf-squad-f1-20261101-01a197a3/texture_*
