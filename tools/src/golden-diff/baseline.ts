@@ -1209,6 +1209,19 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'Floors are a third of the smallest reading, rounded down (1368, 0.0591). Falsified by forcing the ring\'s core AND halo alpha to 0 in the ' +
           'legacy shader (the halo is drawn outside the core, so zeroing the core alone leaves pixels): the commit pair carries the CI line.',
       },
+      {
+        layer: 'outline',
+        // GH-943 P3 (T5) Step A: NO FLOOR YET, on purpose. Hiding the occlusion and smoke outlines on this frame, to learn whether
+        // an existing gated scenario shows an outline (>= 200 px on all 3 CI runs). If it does, the floor is a third of the smallest
+        // of three fresh-process CI readings; if no scenario does, this check leaves and the `occluded` scenario (ruling 3) takes it.
+        // Until then this check cannot pass, and the `visual` job is red on this branch. The reading it prints is the number to take.
+        minDiffPixels: Number.POSITIVE_INFINITY,
+        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        rationale:
+          'GH-943 P3 T5 Step A: hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the vehicle frame. ' +
+          'Floor NOT YET MEASURED: take it from this branch\'s CI `visual` readings. Falsified by forcing `uOutlineWidth` to 0 in the legacy ' +
+          'material (the shell then lies inside the body\'s own stencil stamp and draws nothing): FAIL.',
+      },
     ],
     rationale:
       'whole frame, mesh vehicles plus continuous dust/exhaust FX. 40 px / 0.004 since GH-803 ' +
@@ -1310,6 +1323,19 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'its colour. 43/40 px is under SUB_THRESHOLD_PX (100), so the pixel floor is 0 and the magnitude ' +
           'floor carries it (a third of the smallest, rounded down). WATCHED GOING RED: `setUnitSurfacePass` made a no-op (returns before writing) reads 0 px / 0.0000 on this frame, under both floors.',
       },
+      {
+        layer: 'outline',
+        // GH-943 P3 (T5) Step A: NO FLOOR YET, on purpose. Hiding the occlusion and smoke outlines on this frame, to learn whether
+        // an existing gated scenario shows an outline (>= 200 px on all 3 CI runs). If it does, the floor is a third of the smallest
+        // of three fresh-process CI readings; if no scenario does, this check leaves and the `occluded` scenario (ruling 3) takes it.
+        // Until then this check cannot pass, and the `visual` job is red on this branch. The reading it prints is the number to take.
+        minDiffPixels: Number.POSITIVE_INFINITY,
+        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        rationale:
+          'GH-943 P3 T5 Step A: hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the kitted frame. ' +
+          'Floor NOT YET MEASURED: take it from this branch\'s CI `visual` readings. Falsified by forcing `uOutlineWidth` to 0 in the legacy ' +
+          'material (the shell then lies inside the body\'s own stencil stamp and draws nothing): FAIL.',
+      },
     ],
     rationale:
       "whole frame, `vehicle`'s mesh vehicles carrying the sandbox ladder's kit. 40 px / 0.004 since " +
@@ -1379,6 +1405,19 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'Proves the vehicles are really in frame: hiding every unit body moves 9036 px / 0.6724. A small share of the ' +
           'frame at zoom 0.5 by design; the shroud is the rest.',
       },
+      {
+        layer: 'outline',
+        // GH-943 P3 (T5) Step A: NO FLOOR YET, on purpose. Hiding the occlusion and smoke outlines on this frame, to learn whether
+        // an existing gated scenario shows an outline (>= 200 px on all 3 CI runs). If it does, the floor is a third of the smallest
+        // of three fresh-process CI readings; if no scenario does, this check leaves and the `occluded` scenario (ruling 3) takes it.
+        // Until then this check cannot pass, and the `visual` job is red on this branch. The reading it prints is the number to take.
+        minDiffPixels: Number.POSITIVE_INFINITY,
+        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        rationale:
+          'GH-943 P3 T5 Step A: hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the fogged frame. ' +
+          'Floor NOT YET MEASURED: take it from this branch\'s CI `visual` readings. Falsified by forcing `uOutlineWidth` to 0 in the legacy ' +
+          'material (the shell then lies inside the body\'s own stencil stamp and draws nothing): FAIL.',
+      },
     ],
     rationale:
       'whole frame: shroud, haze, the off-map fade and the force\'s mesh vehicles at zoom 0.5. 40 px / 0.004, ' +
@@ -1426,6 +1465,19 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
         rationale:
           L2_GRADE +
           'The sky environment still reaches the vehicles under the grade (L1 + L2 together): 192 px / 0.3496.',
+      },
+      {
+        layer: 'outline',
+        // GH-943 P3 (T5) Step A: NO FLOOR YET, on purpose. Hiding the occlusion and smoke outlines on this frame, to learn whether
+        // an existing gated scenario shows an outline (>= 200 px on all 3 CI runs). If it does, the floor is a third of the smallest
+        // of three fresh-process CI readings; if no scenario does, this check leaves and the `occluded` scenario (ruling 3) takes it.
+        // Until then this check cannot pass, and the `visual` job is red on this branch. The reading it prints is the number to take.
+        minDiffPixels: Number.POSITIVE_INFINITY,
+        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        rationale:
+          'GH-943 P3 T5 Step A: hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the graded frame. ' +
+          'Floor NOT YET MEASURED: take it from this branch\'s CI `visual` readings. Falsified by forcing `uOutlineWidth` to 0 in the legacy ' +
+          'material (the shell then lies inside the body\'s own stencil stamp and draws nothing): FAIL.',
       },
     ],
     rationale:

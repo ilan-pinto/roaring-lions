@@ -179,6 +179,28 @@ describe('DEBUG_LAYERS', () => {
     r.dispose();
   });
 
+  it('outline (GH-943 P3 T5): the team silhouettes alone, and shown only while overlays is shown too', () => {
+    const r = makeRenderer();
+    const i = internals(r);
+    const others = [i.overlayBatch.mesh, i.numeralBatch.mesh, i.chevronBatch.mesh, i.selectionRingGroup];
+    expect(r.setDebugLayerVisible('outline', false)).toBe(3);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(false);
+    // Not the other overlays.
+    for (const o of others) expect(o.visible).toBe(true);
+    expect(r.setDebugLayerVisible('outline', true)).toBe(3);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(true);
+    // Composition: overlays hidden keeps them hidden whatever outline says, and outline hidden survives overlays coming back.
+    r.setDebugLayerVisible('overlays', false);
+    r.setDebugLayerVisible('outline', true);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(false);
+    r.setDebugLayerVisible('outline', false);
+    r.setDebugLayerVisible('overlays', true);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(false);
+    r.setDebugLayerVisible('outline', true);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(true);
+    r.dispose();
+  });
+
   it('flips the skirt beyond the map, and back', () => {
     // Built in the CONSTRUCTOR rather than in `rebuildTerrain` (it is a
     // function of the map's dimensions alone), so unlike every other layer

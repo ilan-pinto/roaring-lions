@@ -942,8 +942,9 @@ describe('BASELINES layerChecks', () => {
      *  is still asserted non-zero below, and total erasure still fails them
      *  (the last assertion in this loop). */
     const SUB_THRESHOLD_PX = 100;
-    /** `scenario/layer` checks whose first CI reading has not been taken (T5's `vehicle/selection-ring`). */
-    const PENDING_FLOOR: ReadonlySet<string> = new Set();
+    /** `scenario/layer` checks whose first CI reading has not been taken. GH-943 P3 (T5) Step A: the `outline` layer on the four unit
+     *  scenarios, pending its three CI readings. */
+    const PENDING_FLOOR: ReadonlySet<string> = new Set(['vehicle/outline', 'kitted/outline', 'fogged/outline', 'graded/outline']);
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
         // GH-943 P1 (T5): a `zero` check has no floor to derive from a signal; it has its own test below.
@@ -1007,7 +1008,8 @@ describe('the `fogged` scenario (look uplift L1, GH-943)', () => {
 
   it('holds the shroud, the haze and the vehicles it is named for, and the environment on them', () => {
     const layers = (BASELINES.fogged.layerChecks ?? []).filter((c) => c.kind !== 'zero').map((c) => c.layer).sort();
-    expect(layers).toEqual(['environment', 'fog', 'haze', 'units']);
+    // GH-943 P3 (T5) Step A: `outline` while its readings are pending (it stays only if this frame shows an outline).
+    expect(layers).toEqual(['environment', 'fog', 'haze', 'outline', 'units']);
   });
 
   it('every gated scenario that holds a unit, building or prop votes the environment', () => {
@@ -1020,7 +1022,8 @@ describe('the `fogged` scenario (look uplift L1, GH-943)', () => {
 describe('the `graded` scenario (look uplift L2, GH-943)', () => {
   it('carries the grade layer check, and the vehicles and environment the frame is named for', () => {
     const layers = (BASELINES.graded.layerChecks ?? []).filter((c) => c.kind !== 'zero').map((c) => c.layer).sort();
-    expect(layers).toEqual(['environment', 'grade', 'units']);
+    // GH-943 P3 (T5) Step A: `outline` while its readings are pending (it stays only if this frame shows an outline).
+    expect(layers).toEqual(['environment', 'grade', 'outline', 'units']);
   });
 
   it('is gated, and under the dusk preset with the grade on by default (no flag names it)', () => {
