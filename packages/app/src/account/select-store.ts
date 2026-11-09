@@ -9,6 +9,7 @@ import type { StorageLike } from '../brigade-account';
 import { blockedLedgerStore, browserLedgerStore, type LedgerStore, type RoarBackfill } from '../ledger-store';
 import { accountLedgerStore } from './account-store';
 import { tabIdOf } from './tab-id';
+import { finishInterruptedClaim } from './claim';
 import { readBinding } from './binding';
 import { readCache } from './cache';
 import { accountsEnabled } from './enabled';
@@ -43,6 +44,7 @@ export function selectLedgerStore(query: URLSearchParams, storage: StorageLike |
   if (binding === null || binding.claimedAt === undefined) return guest;
   const cache = readCache(storage);
   if (cache === null || cache.publicId !== binding.publicId) return { store: blockedLedgerStore(), signedIn: true, needsState: true };
+  finishInterruptedClaim(storage); // a tab that died between the last two writes of a claim left guest keys behind
   const store = accountLedgerStore({
     storage,
     cache,

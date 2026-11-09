@@ -540,6 +540,38 @@ describe('R12 the send base (C1)', () => {
     t2.sync.stop();
   });
 
+  it('P3 (R17), victory variant: a queued, unsent campaign-carrying victory pins its base; another tab writes; after a reload the other write survives', async () => {
+    const server = new FakeServer();
+    const storage = memStorage();
+    const sched = makeScheduler();
+    // Tab 1's victory never reaches the server (the request fails in the air, once), so it stays queued and unsent.
+    const cache1 = cacheOf(server.snapshot());
+    // eslint-disable-next-line prefer-const -- the store's onChange closes over the sync that is built after it
+    let sync1: SyncHandle | undefined;
+    const store1 = accountLedgerStore({ storage, cache: cache1, world, onChange: () => sync1?.kick(), newOpId: opIds(), tabId: 'T1' });
+    sync1 = startSync({
+      store: store1,
+      client: { ...clientFor(server), victory: () => Promise.resolve({ ok: false as const, status: 0, body: { error: 'network' } }) },
+      storage,
+      now: sched.now,
+      schedule: sched.schedule,
+    });
+    const t1 = { store: store1, sync: sync1 };
+    t1.store.recordVictory({ ledger: led(1), account: null, roar: null, win: { missionId: 'm', stars: 1 } as never, start: 'n' }); // queued on revision 3, unsent
+    expect(t1.store.sync.ops().map((o) => o.kind)).toEqual(['victory']);
+    const t2 = rig({ server, storage, sched, cache: readCache(storage) as NonNullable<ReturnType<typeof readCache>>, tabId: 'T2' });
+    t2.store.writeLedger(led(2));
+    await t2.sync.flush(); // server revision 4, mark 2; the shared cache is now revision 4
+    expect(readCache(storage)?.confirmed.campaign?.revision).toBe(4);
+    t1.sync.stop();
+    const t1b = rig({ server, storage, sched, cache: readCache(storage) as NonNullable<ReturnType<typeof readCache>>, tabId: 'T1' });
+    await t1b.sync.flush();
+    expect(server.count('POST victory').map((c) => c.base)).toEqual([3]); // sent on the revision it was built on
+    expect(markOf(server.campaign)).toBe(2); // tab 2's write was not overwritten
+    expect([...server.slots.values()].filter((x) => x.meta.origin === 'conflict').map((x) => markOf(x.body))).toEqual([1]);
+    t2.sync.stop();
+  });
+
   it('R16: a 409 cap on a campaign op is transient: retried, never a strike', async () => {
     const r = rig();
     r.store.sync.setOps([camp('X', 1)]);

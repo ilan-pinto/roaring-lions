@@ -10,7 +10,7 @@ import type { BrigadeAccount, CampaignBody, ParsedWorld, RoarWallet, SaveSlot, S
 import { startCampaign as clearCampaignPay, type StorageLike } from '../brigade-account';
 import type { CampaignLedger, CampaignSnapshot, LedgerStore, VictoryRecord, VictoryWrite } from '../ledger-store';
 import type { AccountCache } from './cache';
-import { coalesce, readBase, readOutbox, writeOutbox, type OutboxOp } from './outbox';
+import { carriesCampaign, coalesce, readBase, readOutbox, writeOutbox, type OutboxOp } from './outbox';
 import { viewOf, walletOf } from './replay';
 
 /** Thrown by every coin write while signed in: a path left on `writeRoar` goes red here, not silently local. */
@@ -84,7 +84,7 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
     ops = coalesce(ops, op, sent);
     // R17: a campaign-carrying op pins this tab's send base at QUEUE time (the revision its snapshot was built on), so another
     // tab's ack, which advances the shared cache, cannot re-base it later. This queue's own acks still advance it.
-    if (base === undefined && (op.kind === 'campaign' || (op.kind === 'victory' && op.campaign !== null))) base = o.cache.confirmed.campaign?.revision ?? 0;
+    if (base === undefined && carriesCampaign(op)) base = o.cache.confirmed.campaign?.revision ?? 0;
     writeOutbox(o.storage, tabId, ops, o.cache.publicId, base); // a refused write keeps the memory copy
     cached = null;
     o.onChange();

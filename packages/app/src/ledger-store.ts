@@ -82,6 +82,7 @@ import {
   tutorialDone as storedTutorialDone,
 } from './main-keys';
 import { sanitiseLedger } from './ledger-shape';
+import { CLAIMING_KEY } from './account/binding';
 import { SAVES_KEY } from './profile';
 
 /**
@@ -240,13 +241,33 @@ function completedIn(ledger: LedgerData | null | undefined): ReadonlySet<string>
   return new Set(Array.isArray(done) ? done.filter((m): m is string => typeof m === 'string') : []);
 }
 
+/** While `lions.account.claiming` exists a claim is in flight (GH-1075 A2, §0.40): every write throws, which is the
+ *  existing "not saved" path (`writeVictory` puts back and answers `refused`). With the marker absent it is the backend. */
+function refusingWhileClaiming(backend: StorageLike): StorageLike {
+  const refuse = (): void => {
+    if (backend.getItem(CLAIMING_KEY) !== null) throw new Error("a claim is moving this device's progress to the account");
+  };
+  return {
+    getItem: (k) => backend.getItem(k),
+    setItem: (k, v) => {
+      refuse();
+      backend.setItem(k, v);
+    },
+    removeItem: (k) => {
+      refuse();
+      backend.removeItem(k);
+    },
+  };
+}
+
 /**
  * The whole implementation, over anything shaped like `Storage`. `null` is the
  * blocked store. Both `browserLedgerStore` and `memoryLedgerStore` are this
  * function with a different backend, which is what keeps the test double from
  * being a second implementation that can disagree with the real one.
  */
-function overStorage(store: StorageLike | null, backfill?: RoarBackfill): LedgerStore {
+function overStorage(backend: StorageLike | null, backfill?: RoarBackfill): LedgerStore {
+  const store = backend === null ? null : refusingWhileClaiming(backend);
   /** The back-payment, read from the ledger AS IT STANDS when the wallet is first made. */
   const seed: RoarSeed | undefined =
     backfill === undefined || store === null ? undefined : (w) => backfill(w, dropMalformed(loadLedger(store)));

@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountClient, AccountError, IdentityView, MeResult } from '../account/client';
-import { ACCOUNT_BINDING_KEY } from '../account/binding';
+import { ACCOUNT_BINDING_KEY, readBinding } from '../account/binding';
+import { canonicalCampaign } from '@lions/economy';
+import type { ClaimBody, ClaimResult } from '@lions/economy';
+import { memoryLedgerStore } from '../ledger-store';
+import { LEDGER_KEY } from '../main-keys';
+import { confirmedState } from '../account/fixtures';
+import { sha256Hex } from '../account/signed-in';
+import { parseSlot } from '@lions/economy';
 import { unusedA2Client } from '../account/fixtures';
 import { t } from '../i18n/t';
 import { showProfile, type ProfileDeps } from './profile';
@@ -287,5 +294,84 @@ describe('showProfile', () => {
     expect(document.querySelector('.rl-confirm')).toBeNull();
     await flush();
     expect(c.calls.some((x) => x.startsWith('delete'))).toBe(false);
+  });
+});
+
+describe('the claim panel (GH-1075 A2)', () => {
+  function claimRig(opts: { progress: boolean; claimedAt?: number; withClaim?: boolean }) {
+    const guest = memoryLedgerStore(opts.progress ? { [LEDGER_KEY]: JSON.stringify({ 'campaign.completed_missions': ['m1'] }) } : {});
+    const storage = {
+      getItem: (k: string) => guest.map.get(k) ?? null,
+      setItem: (k: string, v: string) => void guest.map.set(k, v),
+      removeItem: (k: string) => void guest.map.delete(k),
+    };
+    storage.setItem(ACCOUNT_BINDING_KEY, JSON.stringify({ version: 1, publicId: 'ABCD2345', ...(opts.claimedAt === undefined ? {} : { claimedAt: opts.claimedAt }) }));
+    const calls = { claim: 0, state: 0, downloads: [] as { name: string; json: string }[], claimed: 0 };
+    const client = stub({
+      me: async () => signedIn(),
+      claim: async (body: ClaimBody) => {
+        calls.claim++;
+        const result: ClaimResult = {
+          coins: 0, earned: 0, coupons: [], carried: [], notCarried: [], slots: [], state: confirmedState(),
+          campaign: body.campaign === null ? null : { deviceId: 'campaign', status: 'stored', serverId: 'c', digest: await sha256Hex(canonicalCampaign(body.campaign)) },
+        };
+        return { ok: true as const, status: 200 as const, body: result };
+      },
+      state: async () => (calls.state++, { ok: true as const, status: 200 as const, body: confirmedState() }),
+    });
+    const m = mount(client, {
+      store: storage,
+      claim: opts.withClaim === false ? undefined : { guest, download: (name, json) => void calls.downloads.push({ name, json }), onClaimed: () => void calls.claimed++, now: () => 42 },
+    }, storage as never);
+    return { ...m, guest, storage, calls };
+  }
+
+  it('shows the gain, a download, Move it and Not now to a signed-in guest device with progress', async () => {
+    const r = claimRig({ progress: true });
+    await flush();
+    expect(r.stage.textContent).toContain(t('account.claim.lead'));
+    for (const k of ['account.claim.download', 'account.claim.move', 'account.claim.notNow']) expect(btn(r.stage, t(k))).toBeTruthy();
+    btn(r.stage, t('account.claim.notNow')).click();
+    expect(r.stage.querySelector('.rl-profile__claim')).toBeNull();
+    expect(r.calls.claim).toBe(0);
+  });
+
+  it('Download a copy first hands over the active campaign as a slot, and changes nothing', async () => {
+    const r = claimRig({ progress: true });
+    await flush();
+    btn(r.stage, t('account.claim.download')).click();
+    expect(r.calls.downloads).toHaveLength(1);
+    const slot = parseSlot(r.calls.downloads[0].json);
+    expect(slot.ledger['campaign.completed_missions']).toEqual(['m1']);
+    expect(r.guest.map.has(LEDGER_KEY)).toBe(true);
+  });
+
+  it('Move it claims, removes the guest keys, and re-enters the app', async () => {
+    const r = claimRig({ progress: true });
+    await flush();
+    btn(r.stage, t('account.claim.move')).click();
+    for (let i = 0; i < 100 && r.calls.claimed === 0; i++) await new Promise((res) => setTimeout(res, 5)); // Web Crypto resolves off the microtask queue
+    expect(r.calls.claim).toBe(1);
+    expect(r.guest.map.has(LEDGER_KEY)).toBe(false);
+    expect(readBinding(r.storage)?.claimedAt).toBe(42);
+    expect(r.calls.claimed).toBe(1);
+  });
+
+  it('an empty device shows no panel, makes no claim request, sets claimedAt and loads the state (§0.41)', async () => {
+    const r = claimRig({ progress: false });
+    for (let i = 0; i < 10; i++) await flush();
+    expect(r.stage.querySelector('.rl-profile__claim')).toBeNull();
+    expect(r.calls.claim).toBe(0);
+    expect(r.calls.state).toBe(1);
+    expect(readBinding(r.storage)?.claimedAt).toBeDefined();
+  });
+
+  it('shows no panel on a claimed device, or when the screen was given no claim', async () => {
+    for (const o of [{ progress: true, claimedAt: 5 }, { progress: true, withClaim: false }]) {
+      const r = claimRig(o);
+      for (let i = 0; i < 10; i++) await flush();
+      expect(r.stage.querySelector('.rl-profile__claim')).toBeNull();
+      expect(r.calls.claim).toBe(0);
+    }
   });
 });
