@@ -6,7 +6,8 @@
  * rule that no FX writer reaches its uniforms through `mesh.material`.
  */
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { WEAPON_CLASS } from '@lions/sim';
 import { describe, expect, it } from 'vitest';
@@ -27,7 +28,7 @@ import { fxKit } from './fx-twin-test-kit';
 
 const SLOTS = ['particle', 'tracer', 'vfxMesh', 'rimFade', 'beam', 'rotor'] as const;
 const NAMES = ['rl-fx-particle', 'rl-fx-particle-hot', 'rl-fx-tracer', 'rl-fx-mesh', 'rl-smoke-plume', 'rl-collapse-shroud', 'rl-beam', 'rl-swarm-rotors'] as const;
-const SRC = resolve(process.cwd(), 'src/three');
+const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel: string): string => readFileSync(resolve(SRC, rel), 'utf8');
 /** Source with comments removed, so a rule about code is not tripped by a sentence about it. */
 const code = (rel: string): string => read(rel).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
