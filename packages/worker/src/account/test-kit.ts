@@ -204,6 +204,8 @@ export async function seedFullMember(db: D1Like, now: number): Promise<{ memberI
   await run("INSERT INTO device_claim VALUES ('m1','dev1',?1,'{}')", now);
   await run("INSERT INTO rate_day VALUES ('acct-ops', 'm1', 1, 3)");
   await run("INSERT INTO rate_day VALUES ('acct-ops', 'n1', 1, 3)");
+  await run("INSERT INTO rate_day VALUES ('acct-claim', 'm1', 1, 2)");
+  await run("INSERT INTO rate_day VALUES ('acct-claim', 'n1', 1, 2)");
   await run("INSERT INTO account_op VALUES ('m1','op1','profile.patch',?1,'{}')", now);
   await run("INSERT INTO auth_challenge VALUES ('chal1','steam-link','m1','pre1',?1)", now + 300_000);
   for (const code of ['SHARED', 'SOLO']) {

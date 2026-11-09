@@ -93,17 +93,17 @@ describe('conflictSlot', () => {
     for (let i = 0; i < 4; i++) {
       const c = await conflictSlot(h.db, 'm1', bodyOf([`m${i}`]), T0 + i, i % 2 === 0 ? 'conflict' : 'claim');
       expect(c.answer).toHaveProperty('slot');
-      expect(c.statements).toHaveLength(2);
-      await h.db.batch(c.statements);
+      expect([c.insert.length, c.guard.length]).toEqual([1, 1]);
+      await h.db.batch([...c.insert, ...c.guard]);
     }
     const held = await conflictSlot(h.db, 'm1', bodyOf(['x']), T0, 'conflict');
-    expect(held).toEqual({ statements: [], answer: { held: true } });
+    expect(held).toEqual({ insert: [], guard: [], answer: { held: true } });
 
     // The guard is what stops two parallel requests that both read 3: a fifth slot forced in by hand rolls back.
     const h2 = accountHarness({ now: T0 });
     await seedWalletMember(h2.db, 'm1', T0);
     const racers = await Promise.all([0, 1, 2, 3, 4].map((i) => conflictSlot(h2.db, 'm1', bodyOf([`r${i}`]), T0, 'conflict')));
-    const results = await Promise.all(racers.map((r) => h2.db.batch(r.statements).then(() => 'ok', () => 'cap')));
+    const results = await Promise.all(racers.map((r) => h2.db.batch([...r.insert, ...r.guard]).then(() => 'ok', () => 'cap')));
     expect(results.filter((r) => r === 'ok')).toHaveLength(4);
     expect((await h2.db.prepare('SELECT COUNT(*) AS n FROM save_slot').first<{ n: number }>())?.n).toBe(4);
   });
@@ -119,7 +119,7 @@ describe('GET state and GET slots/:id', () => {
     const receipt = { kind: 'earn', id: 'r1', at: T0, coins: { free: 5, paid: 0 }, source: 'first_win' };
     await h.db.prepare("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES ('m1', ?1, 'earn', 0, ?2, 'o2')").bind(T0, JSON.stringify({ receipt })).run();
     const c = await conflictSlot(h.db, 'm1', bodyOf(['z']), T0 + 7, 'conflict');
-    await h.db.batch(c.statements);
+    await h.db.batch([...c.insert, ...c.guard]);
     const slotId = (c.answer as { slot: { id: string } }).slot.id;
     await h.db.prepare("INSERT INTO save_slot (member_id, slot_id, name, saved_at, build, body, bytes) VALUES ('m2', 'theirs', 'T', 1, 'b', '{}', 2)").run();
 

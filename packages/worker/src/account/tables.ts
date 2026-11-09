@@ -80,7 +80,7 @@ WHERE s.member_id = ?1 ORDER BY r.started_at`,
 export const MATCH_ORPHAN_SWEEP_SQL =
   "DELETE FROM match_record WHERE NOT EXISTS (SELECT 1 FROM match_seat s WHERE s.code = match_record.code AND s.started_at = match_record.started_at AND s.kind = 'member')";
 
-export const RATE_DAY_SQL = "DELETE FROM rate_day WHERE scope = 'acct-ops' AND key = ?1";
+export const RATE_DAY_SQL = "DELETE FROM rate_day WHERE scope IN ('acct-ops', 'acct-claim') AND key = ?1";
 
 /** The whole delete batch in order: each table's delete (member id as ?1), the orphan sweep after `match_seat`. */
 export function deleteStatements(): { sql: string; bindsMember: boolean }[] {

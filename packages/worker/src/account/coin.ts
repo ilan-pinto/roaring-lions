@@ -155,14 +155,18 @@ export async function walletView(db: D1Like, memberId: string): Promise<WalletVi
 export const isCasFailure = (err: unknown): boolean => /CHECK constraint failed/i.test(err instanceof Error ? err.message : String(err));
 export const isCapFailure = (err: unknown): boolean =>
   /NOT NULL constraint failed: member\.last_seen_day/i.test(err instanceof Error ? err.message : String(err));
+/** The claim's device guard trips a different NOT NULL column, so a slot-cap trip is never reported as `claim_cap`. */
+export const isDeviceCapFailure = (err: unknown): boolean =>
+  /NOT NULL constraint failed: member\.created_at/i.test(err instanceof Error ? err.message : String(err));
 
 /**
  * The count guard of §0.36: the LAST statement before the op insert in any batch that adds a slot or a
  * `device_claim` row. `countSql` is a `SELECT COUNT(*)` that takes the member id as `?1`. Past `cap` it sets
- * `member.last_seen_day` to NULL, which trips its NOT NULL and rolls the batch back (`isCapFailure`).
+ * `member.last_seen_day` to NULL, which trips its NOT NULL and rolls the batch back (`isCapFailure`). The claim's device
+ * guard passes `created_at` instead (`isDeviceCapFailure`), so the two caps answer differently.
  */
-export function capGuard(db: D1Like, memberId: string, countSql: string, cap: number): D1Stmt {
+export function capGuard(db: D1Like, memberId: string, countSql: string, cap: number, column: 'last_seen_day' | 'created_at' = 'last_seen_day'): D1Stmt {
   return db
-    .prepare(`UPDATE member SET last_seen_day = CASE WHEN (${countSql}) <= ?2 THEN last_seen_day ELSE NULL END WHERE id = ?1`)
+    .prepare(`UPDATE member SET ${column} = CASE WHEN (${countSql}) <= ?2 THEN ${column} ELSE NULL END WHERE id = ?1`)
     .bind(memberId, cap);
 }
