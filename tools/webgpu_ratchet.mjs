@@ -28,11 +28,15 @@ export const PORTED_FILES = [
   'packages/render/src/three/terrain/decor-mesh.node.ts',
   // GH-943 P2 (T5): the selection, team and wound rings. Its legacy twin (units/selection-ring.ts) keeps its GLSL until P8.
   'packages/render/src/three/units/selection-ring.node.ts',
+  // GH-943 P3 (T5): the occlusion and smoke outline. Its legacy twin (units/silhouette.ts) keeps its GLSL until P8.
+  'packages/render/src/three/units/silhouette.node.ts',
   // GH-943 P3 (T8): the overlay batch, zone band, supply route and tunnel trail. Their legacy twins keep their GLSL until P8.
   'packages/render/src/three/units/overlays.node.ts',
   'packages/render/src/three/units/zone-band.node.ts',
   'packages/render/src/three/supply-route.node.ts',
   'packages/render/src/three/trail-mesh.node.ts',
+  // GH-943 P3 (T7): the decal pools and the crater rim. Its legacy twin (decal-pool.ts) keeps its GLSL until P8.
+  'packages/render/src/three/decal-pool.node.ts',
 ];
 
 /**
@@ -56,14 +60,21 @@ export const TWINS = Object.freeze({
   // GH-943 P2 (T6). wind.ts also feeds the rain and the banners: a rain-only change to it must touch the twin too (intended).
   [`${THREE}terrain/decor-mesh.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
   [`${THREE}terrain/wind.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
+  // GH-943 P2 (T7): the disturbers (N2 vehicles, N3 rotor wash) are the same twin's second term; disturb.ts feeds the legacy chunk too.
+  [`${THREE}terrain/disturb.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
   // GH-943 P2 (T5)
   [`${THREE}units/selection-ring.ts`]: `${THREE}units/selection-ring.node.ts`,
+  // GH-943 P3 (T5)
+  [`${THREE}units/silhouette.ts`]: `${THREE}units/silhouette.node.ts`,
   // GH-943 P3 (T8). supply-route-maths.ts holds the dash the route twin shares (a change to it must touch the twin too, intended).
   [`${THREE}units/overlays.ts`]: `${THREE}units/overlays.node.ts`,
   [`${THREE}units/zone-band.ts`]: `${THREE}units/zone-band.node.ts`,
   [`${THREE}supply-route.ts`]: `${THREE}supply-route.node.ts`,
   [`${THREE}supply-route-maths.ts`]: `${THREE}supply-route.node.ts`,
   [`${THREE}trail-mesh.ts`]: `${THREE}trail-mesh.node.ts`,
+  // GH-943 P3 (T7). decal-maths.ts holds the kinds and the rim the decal twin shares (a change to it must touch the twin too, intended).
+  [`${THREE}decal-pool.ts`]: `${THREE}decal-pool.node.ts`,
+  [`${THREE}decal-maths.ts`]: `${THREE}decal-pool.node.ts`,
 });
 
 /** The identifiers that mean "this file still carries GLSL" (also scanned for as text by the test). */

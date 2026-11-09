@@ -27,10 +27,12 @@
  * is re-read each render (`onRenderUpdate`), numbers and the heading vector alike, so a debug write (`sway.amp`), the sim clock
  * (`sway.time`), the reduced-motion preference (`wind.mode`) and the map's wind reach the graph with no call-site change.
  *
- * **The disturbers (GH-984 N2 vehicles, N3 rotor wash) are not drawn yet** (T7): the twin declares the term in
- * `userData.rlUnportedTerms`, so the census names it. T7 adds them as a `FoliageTerm`, a world-space displacement computed from the
- * same `FoliageVertex` (rest position, origin, nature, clock), summed with the wind before the frame change, as the legacy chunk adds
- * both to `mvPosition`.
+ * **The disturbers (GH-984 N2 vehicles, N3 rotor wash)** are a `FoliageTerm` summed with the wind before the frame change, as the
+ * legacy chunk adds both to `mvPosition`. The slot loop is `disturbSlotPushOps` per slot and `disturbBendOps` after it (`disturb.ts`,
+ * the bodies `disturb.test.ts` runs on numbers and against the transpiled GLSL), inside the same early-outs (the count, the layer
+ * toggle, the bounding box of every reach). The slot arrays are `uniformArray` nodes of Vector4/Vector3 that COPY the record's flat
+ * `Float32Array`s in their render update, because the record's `a.value` and `b.value` are replaced after construction; the loop
+ * bound is the preset's slot budget (`DisturbUniformSet.slots`). The sets are shared by every twin of one record.
  *
  * Imports the backend's own addon-free modules and TYPES of the legacy files: the maths arrives as values (`FoliageMaths`), or the
  * node chunk would statically load the ThreeRenderer chunk (`MATERIAL_MATHS_MARKER`, `tools/src/perf/bundle-census.ts`).
@@ -40,15 +42,21 @@
 import type * as THREE from 'three';
 import type { Material } from 'three';
 import { tslIntOps, tslOps, type N, type Tsl } from '../fog-pass.node';
-import { UNPORTED_TERMS_KEY } from '../backend/unported';
 import type { MaterialTwinFactory } from '../backend/backend';
 import type { NATURE_ATTRIBUTE, SwayRecord, SwayingFoliageMaterial } from './decor-mesh';
+import type { DisturbUniformSet } from './disturb-uniforms';
+import type { disturbBendOps, disturbSlotPushOps } from './disturb';
 import type { foliageLeanOps } from './wind';
 
 /** The foliage twin's shared maths, injected (`material-maths.ts`'s `MATERIAL_MATHS.foliage`). */
 export interface FoliageMaths {
   readonly foliageLeanOps: typeof foliageLeanOps;
   readonly natureAttribute: typeof NATURE_ATTRIBUTE;
+  /** T7: the disturbers' per-slot push and the bend after the loop (`disturb.ts`). */
+  readonly disturbSlotPushOps: typeof disturbSlotPushOps;
+  readonly disturbBendOps: typeof disturbBendOps;
+  /** `DISTURB_MAX`: the length of the uniform arrays. */
+  readonly disturbMax: number;
 }
 
 export interface NodeFoliageDeps {
@@ -59,9 +67,6 @@ export interface NodeFoliageDeps {
 
 /** The twin's `name` prefix (`NODE_MATERIAL_MARKER`, `tools/src/perf/bundle-census.ts`), then the legacy key without its `rl-`. */
 const NAME_PREFIX = 'rl-node-material-';
-
-/** The partial term the twin declares until T7 ports the disturbers. */
-export const FOLIAGE_UNPORTED_TERMS: readonly string[] = ['rl-foliage-sway: disturb'];
 
 /** The slice of the node builder the position graph reads at build time. */
 interface BuilderLike {
@@ -79,6 +84,10 @@ interface FoliageTsl {
   int(a: N | number): N;
   ivec2(a: N, b: N): N;
   vec3(...a: Array<N | number>): N;
+  uniformArray(values: unknown[], type: string): N;
+  Loop(params: Record<string, unknown>, body: (i: { i: N }) => void): void;
+  If(cond: N, body: () => void): void;
+  Break(): void;
   vec4(...a: Array<N | number>): N;
   mat3(m: N): N;
   uniform(v: unknown): N;
@@ -86,6 +95,15 @@ interface FoliageTsl {
   readonly modelWorldMatrix: N;
   readonly modelWorldMatrixInverse: N;
   readonly batchIndirectIndex: N;
+}
+
+/** `N` plus what the disturber loop uses: the boolean joins, a node index into a uniform array, and the comparison N lacks. */
+interface NB extends N {
+  and(b: N): NB;
+  lessThan(b: N | number): NB;
+  greaterThan(b: N | number): NB;
+  greaterThanEqual(b: N | number): N;
+  element(i: N | number): N;
 }
 
 /** `N` plus the integer ops the origin fetch uses. */
@@ -120,7 +138,25 @@ export interface FoliageBindings {
   readonly uWindDir: N;
 }
 
+/** The disturbance's nodes as the twin holds them. The arrays hold the per-slot vectors the loop reads (`.array`), copied from the record each render. */
+export interface DisturbBindings {
+  readonly uDisturbA: N & { readonly array: Array<{ x: number; y: number; z: number; w: number }> };
+  readonly uDisturbB: N & { readonly array: Array<{ x: number; y: number; z: number }> };
+  readonly uDisturbBox: N;
+  readonly uDisturbN: N;
+  readonly uDisturbAmp: N;
+  readonly uDisturbSpring: N;
+}
+
 const BINDINGS = new WeakMap<Material, FoliageBindings>();
+const DISTURB_BINDINGS = new WeakMap<Material, DisturbBindings>();
+/** One set of nodes per record, shared by the four twins (foliage and trunk, dry and wet): they update once per render. */
+const DISTURB_BY_RECORD = new WeakMap<DisturbUniformSet, DisturbBindings>();
+
+/** The disturbance's nodes a foliage twin reads (null for any other material). */
+export function nodeDisturbBindings(twin: Material): DisturbBindings | null {
+  return DISTURB_BINDINGS.get(twin) ?? null;
+}
 
 /** The uniform nodes a foliage twin reads (null for any other material). */
 export function nodeFoliageBindings(twin: Material): FoliageBindings | null {
@@ -139,6 +175,89 @@ function batchOriginLocal(T: FoliageTsl, matrices: THREE.DataTexture): N {
   return T.textureLoad(matrices, T.ivec2(x.add(3), y)).xyz;
 }
 
+/**
+ * The record's disturbance as nodes. The slot arrays are `uniformArray`s whose elements are overwritten from the record's flat arrays
+ * in the render update (`rec.a.value` is read each time: `ThreeRenderer` points it at the field's array after the record exists).
+ */
+function disturbNodes(deps: NodeFoliageDeps, rec: DisturbUniformSet, bind: (r: { readonly value: unknown }) => N): DisturbBindings {
+  const known = DISTURB_BY_RECORD.get(rec);
+  if (known !== undefined) return known;
+  const { W, maths } = deps;
+  const T = deps.TSL as unknown as FoliageTsl;
+  const va = Array.from({ length: maths.disturbMax }, () => new W.Vector4());
+  const vb = Array.from({ length: maths.disturbMax }, () => new W.Vector3());
+  const uDisturbA = T.uniformArray(va, 'vec4') as DisturbBindings['uDisturbA'];
+  const uDisturbB = T.uniformArray(vb, 'vec3') as DisturbBindings['uDisturbB'];
+  uDisturbA.onRenderUpdate(() => {
+    for (let k = 0; k < va.length; k++) va[k].fromArray(rec.a.value, 4 * k);
+  });
+  uDisturbB.onRenderUpdate(() => {
+    for (let k = 0; k < vb.length; k++) vb[k].fromArray(rec.b.value, 3 * k);
+  });
+  const nodes: DisturbBindings = {
+    uDisturbA,
+    uDisturbB,
+    uDisturbBox: bind(rec.box),
+    uDisturbN: bind(rec.n),
+    uDisturbAmp: bind(rec.amp),
+    uDisturbSpring: bind(rec.spring),
+  };
+  DISTURB_BY_RECORD.set(rec, nodes);
+  return nodes;
+}
+
+/**
+ * The disturbers as a `FoliageTerm` (the legacy `disturbVertexChunk`): the early-outs, the slot loop and the bend. `slots` is the
+ * loop bound (the preset's budget); the loop also breaks at `uDisturbN`, as the legacy one does.
+ */
+function disturbTerm(deps: NodeFoliageDeps, d: DisturbBindings, slots: number): FoliageTerm {
+  const T = deps.TSL as unknown as FoliageTsl;
+  const o = tslOps(deps.TSL as unknown as Tsl);
+  const { maths } = deps;
+  return (v) => {
+    const out = T.vec3(0, 0, 0).toVar();
+    if (slots <= 0) return out;
+    const ox = v.originWorld.x;
+    const oz = v.originWorld.z;
+    const box = d.uDisturbBox;
+    const inX = (ox as NB).greaterThan(box.x).and((ox as NB).lessThan(box.z));
+    const inZ = (oz as NB).greaterThan(box.y).and((oz as NB).lessThan(box.w));
+    const active = (d.uDisturbN.mul(d.uDisturbAmp) as NB).greaterThan(0.5).and(inX).and(inZ);
+    T.If(active, () => {
+      const px = T.float(0).toVar();
+      const pz = T.float(0).toVar();
+      const wash = T.float(0).toVar();
+      T.Loop({ start: T.int(0), end: T.int(slots), type: 'int', condition: '<' }, ({ i }) => {
+        T.If((T.float(i) as NB).greaterThanEqual(d.uDisturbN), () => {
+          T.Break();
+        });
+        const a = (d.uDisturbA as unknown as NB).element(i);
+        const b = (d.uDisturbB as unknown as NB).element(i);
+        const p = maths.disturbSlotPushOps(o, ox, oz, { ax: a.x, az: a.y, bx: a.z, bz: a.w, radius: b.x, strength: b.y, kind: b.z }, d.uDisturbSpring);
+        px.addAssign(p.px);
+        pz.addAssign(p.pz);
+        wash.addAssign(p.wash);
+      });
+      const bend = maths.disturbBendOps(o, {
+        cls: v.nature.y,
+        hN: v.nature.x,
+        ox,
+        oz,
+        px,
+        pz,
+        wash,
+        spring: d.uDisturbSpring,
+        tSec: v.time,
+        relX: v.restWorld.x.sub(ox),
+        relH: v.restWorld.y.sub(v.originWorld.y),
+        relZ: v.restWorld.z.sub(oz),
+      });
+      out.assign(T.vec3(bend.dx, bend.dy, bend.dz));
+    });
+    return out;
+  };
+}
+
 /** The record a legacy swaying material carries; a material without one is not a foliage material, and adoption is a bug. */
 function recordOf(legacy: THREE.MeshStandardMaterial): SwayRecord {
   const rec = (legacy as Partial<SwayingFoliageMaterial>).rlSway;
@@ -148,7 +267,7 @@ function recordOf(legacy: THREE.MeshStandardMaterial): SwayRecord {
 
 /**
  * The twin of one legacy swaying material. `sway` is its record (`legacy.rlSway`); `variant` its two compile-time choices.
- * `terms` are further world-space displacements (T7), summed with the wind's.
+ * `terms` are further world-space displacements, summed with the wind's.
  */
 export function createNodeFoliageMaterial(
   deps: NodeFoliageDeps,
@@ -181,8 +300,8 @@ export function createNodeFoliageMaterial(
   twin.depthWrite = legacy.depthWrite;
   twin.fog = legacy.fog;
   twin.envMapIntensity = legacy.envMapIntensity;
-  // A fresh object: the env class tag travels, the twin's own terms never land on the legacy material.
-  twin.userData = { ...(legacy.userData as Record<string, unknown>), [UNPORTED_TERMS_KEY]: [...FOLIAGE_UNPORTED_TERMS] };
+  // A fresh object: the env class tag travels, and nothing the twin adds lands on the legacy material.
+  twin.userData = { ...(legacy.userData as Record<string, unknown>) };
 
   // The record, by reference: each value re-read every render.
   const bind = (rec: { readonly value: unknown }): N => {
@@ -200,6 +319,9 @@ export function createNodeFoliageMaterial(
     uWindDir: bind(sway.wind.dir),
   };
   BINDINGS.set(twin, bound);
+  const disturb = disturbNodes(deps, sway.disturb, bind);
+  DISTURB_BINDINGS.set(twin, disturb);
+  const disturbers = disturbTerm(deps, disturb, Math.min(maths.disturbMax, Math.max(0, sway.disturb.slots)));
 
   const wind: FoliageTerm = (v) => {
     const lean = maths.foliageLeanOps(
@@ -242,6 +364,7 @@ export function createNodeFoliageMaterial(
       time: bound.uSwayTime,
     };
     let lean = wind(v);
+    lean = lean.add(disturbers(v));
     for (const term of terms) lean = lean.add(term(v));
     return T.positionLocal.add(T.mat3(T.modelWorldMatrixInverse).mul(lean));
   });

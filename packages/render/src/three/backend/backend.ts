@@ -28,8 +28,10 @@ import type { GroundMaterial } from '../terrain/mesh';
 import type { GroundMaths } from '../terrain/mesh.node';
 import type { FoliageMaths } from '../terrain/decor-mesh.node';
 import type { RingMaths } from '../units/selection-ring.node';
+import type { OutlineMaths } from '../units/silhouette.node';
 import type { ZoneBandMaths } from '../units/zone-band.node';
 import type { SupplyRouteMaths } from '../supply-route.node';
+import type { DecalMaths } from '../decal-pool.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -94,10 +96,12 @@ export interface MaterialMaths {
   readonly ring: RingMaths;
   /** GH-943 P3 (T1): one slot per `MaterialKit` P3 slot, each `null` until its task gives it the type its twin declares. */
   readonly unit: null;
-  readonly outline: null;
+  /** T5: the occlusion and smoke outline (`units/silhouette.node.ts`). */
+  readonly outline: OutlineMaths;
   readonly banner: null;
   readonly backdrop: null;
-  readonly decal: null;
+  /** T7: the decal kinds, the road under them, the albedo ratio and the crater rim. */
+  readonly decal: DecalMaths;
   readonly overlay: null;
   /** T8: the overlay batch and the trail are passthroughs (no shared maths); the zone band's hatch and the route's dash are values. */
   readonly zoneBand: ZoneBandMaths;

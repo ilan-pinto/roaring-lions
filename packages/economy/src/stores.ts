@@ -87,8 +87,9 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Was 6979: GH-277 (2026-11-04), the three footholds lent a demo squad, +15 (Beit Sahwan II 210 -> 220, Khan Rafid II 235 -> 240); reasons beside `LADDER_CREDITS`.
 // Was 6994: GH-277 (2026-11-04), the militia works placed in eight missions, +13 (Wadi Halam V 210 -> 220, Umm Zeitoun IV 259 -> 262); reasons beside `LADDER_CREDITS`.
 // Was 7007: first_contact means the two combat sides meeting (2026-11-08), Beit Sahwan Breach 190 -> 180 (-10); reasons beside `LADDER_CREDITS`.
-// Was 6997: Khan Rafid III gets a real first contact (2026-11-09, GH-1173), Khan Rafid III 260 -> 238 (-22); reasons beside `LADDER_CREDITS`.
-export const CAMPAIGN_CREDITS = 6975;
+// Was 6997: a side no longer cuts a structure it owns (2026-11-08, GH-1183), Wadi Halam V 220 -> 200 (-20); reasons beside `LADDER_CREDITS`.
+// Was 6977: Khan Rafid III gets a real first contact (2026-11-09, GH-1173), Khan Rafid III 260 -> 238 (-22); reasons beside `LADDER_CREDITS`.
+export const CAMPAIGN_CREDITS = 6955;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 // Was 26: GH-912 (2026-10-31), the ladder is over 29 missions now (`pnpm playtest` prints "credit ladder: 7007 over 29
