@@ -66,7 +66,7 @@ const KIND = arg('kind', '') as ProbeKind;
 const HW = arg('hw', 'swiftshader');
 const ARMS = arg('arms', 'L,F,G').split(',') as ProbeArm[];
 const FRAME_STEPS_OVERRIDE = arg('frame-steps', ''); // DEBUG ONLY, `n:dtMs`: replaces every moment's frameSteps (never used by CI)
-const QUIET = arg('quiet', 'particles').split(',').filter((l) => l.length > 0); // layers hidden on every unit subject (noise sources)
+const QUIET = arg('quiet', 'particles,wind').split(',').filter((l) => l.length > 0); // layers hidden on every unit subject (noise sources)
 const ONLY = arg('only', '').split(',').filter((s) => s.length > 0);
 const OUT = path.resolve(arg('out-dir', ''));
 const VIEWPORT = { width: 1000, height: 640 } as const;
@@ -443,6 +443,16 @@ async function probeMoment(browser: Browser, port: number, arm: ProbeArm, group:
         await page.evaluate(repaintScript(arm));
         const hid = await grab();
         await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(s.layer)}, true)`);
+        if (node || phase === 'Lm') {
+          // A layer's plain show re-shows what the census hid (the overlay batches, say): counted, then the census is run again so the
+          // restore check reads only what the toggle itself leaves behind. The backend would hide them again within 60 frames.
+          const before = rd.visibleShaders[arm as 'F' | 'G']?.length ?? 0;
+          if (node) {
+            const after = (await listShaders()).length;
+            if (after > before) notes.push(`${tag}/${s.id}: showing \`${s.layer}\` re-showed ${after - before} census-hidden ShaderMaterial object(s) (the layer's plain visible write undoes the census)`);
+            await page.evaluate('window.__lions.renderer.nodeBackend.prepare(window.__lions.renderer.scene, window.__lions.renderer.viewCamera)');
+          } else await page.evaluate(`(async () => {\n${matchNodeStatements(ROOT)}\nreturn 'ok';\n})()`);
+        }
         await page.evaluate(repaintScript(arm));
         const back = await grab();
         const d = abDelta(base, hid, unstable, region);
