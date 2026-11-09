@@ -516,7 +516,7 @@ def helmet_front(f, z, dy=0.0):
 def build_headset(f, side):
     sg = -1.0 if side == "L" else 1.0
     pc = Piece(f.world())
-    inner, zc, dx = HEADSET_AT
+    inner, zc, dx = HEADSET_AT if kp.TEAM.headset_at is None else kp.TEAM.headset_at
     cx = f.O[0] + f.hel_c.x + dx
     cy = f.O[1] + f.hel_c.y
     # a tapered cup: 0.086 tall, 0.070 fore-aft, 0.049 proud of the head
@@ -636,7 +636,7 @@ def _front_hit(f, y, z):
 
 
 def build_radio_pouch(f, side=None):
-    loc, n = _back_hit(f, RADIO_POUCH_Y, 1.17)
+    loc, n = _back_hit(f, RADIO_POUCH_Y if kp.TEAM.radio_pouch_y is None else kp.TEAM.radio_pouch_y, 1.17)
     pc = Piece(f.world())
     fr = _frame(-n)               # local x = into the body ... keep outward = n
     fr = _frame(n)
@@ -692,7 +692,7 @@ def build_eud(f, side=None):
     """A phone in a frame on the plate, as a conformed pad whose standoff is trimmed against the
     clips: where an arm, the stock or the chin comes within reach in any key it sinks to that
     height plus 3.5 mm (flat on the plate where nothing does: 22 + 16 mm)."""
-    ey, ez = EUD_AT
+    ey, ez = EUD_AT if kp.TEAM.eud_at is None else kp.TEAM.eud_at
     loc, n = _front_hit(f, ey, ez)
     fr = _frame(n)
     pc = Piece(f.world(), open_thick=EUD_T)
@@ -901,12 +901,13 @@ def _rail_top(f, u0, u1):
 
 
 def build_red_dot(f, side=None):
-    top = _rail_top(f, RED_DOT_REAR, RED_DOT_REAR + 0.10)
+    rr = RED_DOT_REAR if kp.TEAM.red_dot_rear is None else kp.TEAM.red_dot_rear
+    top = _rail_top(f, rr, rr + 0.10)
     ax = top + 0.039 - 0.012
     pc = Piece(f.wpn())
-    geo.lathe(pc, (RED_DOT_REAR, 0.0, ax), (1, 0, 0), (0, 0, 1), [(0.0, 0.015), (0.064, 0.015)], 8, "coyote",
+    geo.lathe(pc, (rr, 0.0, ax), (1, 0, 0), (0, 0, 1), [(0.0, 0.015), (0.064, 0.015)], 8, "coyote",
               cap0="glass", cap1="glass")
-    geo.rbox(pc, (RED_DOT_REAR + 0.03, 0.0, top + 0.006 + 0.0), Matrix.Identity(3), (0.05, 0.026, 0.012 + (ax - 0.015 - top) * 1.0), 0.0, "coyote")
+    geo.rbox(pc, (rr + 0.03, 0.0, top + 0.006 + 0.0), Matrix.Identity(3), (0.05, 0.026, 0.012 + (ax - 0.015 - top) * 1.0), 0.0, "coyote")
     return pc
 
 
@@ -968,7 +969,8 @@ def build_weapon_light(f, side=None):
     top, bot, wlo, whi = f.station(0.19)
     pc = Piece(f.wpn())
     zc = (top + bot) / 2
-    geo.lathe(pc, (WEAPON_LIGHT_REAR, wlo - 0.0125, zc), (1, 0, 0), (0, 0, 1), [(0.0, 0.0125), (0.14, 0.0125)], 8, "coyote",
+    wlr = WEAPON_LIGHT_REAR if kp.TEAM.weapon_light_rear is None else kp.TEAM.weapon_light_rear
+    geo.lathe(pc, (wlr, wlo - 0.0125, zc), (1, 0, 0), (0, 0, 1), [(0.0, 0.0125), (0.14, 0.0125)], 8, "coyote",
               cap0="coyote", cap1="glass")
     return pc
 

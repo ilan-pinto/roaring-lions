@@ -174,6 +174,11 @@ class Team:
     belt_ring_cap: bool = False  # the belt wrap's sampled radii are capped by the ring its front and back walls imply (spine-bound hands and gun stand out at the hip)
     laser_front: float = None    # the laser box's front face, metres behind the muzzle (None: the Rifle Squad's -0.115)
     lpvo_rear: float = None      # the LPVO eyepiece's rear, metres behind the muzzle (None: the Rifle Squad's -0.49)
+    radio_pouch_y: float = None  # the radio pouch's across-the-back station, Blender y (None: inf_kit.RADIO_POUCH_Y)
+    eud_at: tuple = None         # the EUD's (y, z) on the chest (None: inf_kit.EUD_AT)
+    headset_at: tuple = None     # the headset cup's (inner |y|, centre z, dx from the helmet centre) (None: inf_kit.HEADSET_AT)
+    red_dot_rear: float = None   # the red dot's rear face, metres behind the muzzle (None: inf_kit.RED_DOT_REAR)
+    weapon_light_rear: float = None  # the weapon light's rear face, metres behind the muzzle (None: inf_kit.WEAPON_LIGHT_REAR)
     laser_dims: tuple = None     # (length, width, height) of the laser box when the team's is not the PEQ-15 class 0.109 x 0.069 x 0.038
     laser_side: str = "top"      # where the laser sits on the handguard: "top", "L" (9 o'clock) or "R" (3 o'clock)
     foregrip_back: float = 0.17  # the vertical grip's station, metres behind the muzzle
@@ -236,6 +241,13 @@ TEAMS["breach_team"] = Team(
     # under the front of the handguard at 0.13 m; the T2 optic is a 4x PRISM sight (ACOG class, 0.145 m) on the upper receiver instead of
     # the 0.265 m LPVO, whose length cannot sit over the receiver without the thigh in it. Each was tested against every living clip.
     drop=("deltoid", "sleeve", "lpvo"),
+    # Stations the lead reviewed on 30 Oct (R2). The Rifle Squad's later moves (PR 924, GH-826 step 2) were measured on its reshaped
+    # carbine and new hands; breach's carbine is its baked Meshy one with spine-bound hands, so it keeps the pre-step-2 values.
+    radio_pouch_y=-0.13,          # right side of the back, as reviewed (the Rifle Squad moved to +0.13 for its bladed elbow)
+    eud_at=(-0.045, 1.345),       # on the centre line, as reviewed (the Rifle Squad moved to the left chest for its firing hand's knuckles)
+    headset_at=(0.106, 1.572, -0.03),   # cup inner |y| as reviewed (the Rifle Squad widened to 0.116 for its new head)
+    red_dot_rear=-0.46,           # sight rear face as reviewed (the Rifle Squad moved to -0.42 for its bladed head's brow)
+    weapon_light_rear=-0.26,      # light rear face as reviewed (the Rifle Squad moved to -0.22 for its reshaped handguard)
     laser_front=-0.12, laser_dims=(0.075, 0.032, 0.032), laser_side="L", foregrip_back=0.13,
     carrier_back_plate=True, pack_box=True, pack_median=True, helmet_front_trim=60.0, yoke_rmax=0.15, yoke_slack=0.0, yoke_cols=6,
     torso_vest_lum=0.15, torso_ring_cap=True, belt_ring_cap=True, belt_rmax=0.23, belly_cos=0.25, carrier_fill=1.45, helmet_cols=8, helmet_dome=True, bank_stride=2, clear_pouches=True,
