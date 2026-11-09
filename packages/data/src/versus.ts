@@ -331,6 +331,10 @@ export const SETUP_KIT: Readonly<Record<SetupKitPiece, number>> = { hesco: 12, s
 export const SETUP_SECONDS = 180;
 /** The flag match cap, minutes, set-up included. A twin of `@lions/net`'s (the Worker imports net and not data); WP4 pins the pair. */
 export const FLAG_SETUP_CAP_MINUTES = 30;
+/** The flag backstop (lead ruling, 9 Nov 2026, GH-976 WP6a): in a set-up room, a match nobody has won 12 minutes after the bell is
+ *  decided on standing-force value, the higher value winning and a level one drawing. Counted from the BELL, not the match
+ *  start, so the set-up (3:00 at most, shorter once both sides are Ready) never eats into it. A ruling, not data. */
+export const FLAG_BACKSTOP_MINUTES = 12;
 /** Band width, tiles, by size class: 8 on a 48x48 map, 12 on an 80x80 or 96x96 map. */
 export const SETUP_BAND_TILES_48 = 8;
 export const SETUP_BAND_TILES_LARGE = 12;
