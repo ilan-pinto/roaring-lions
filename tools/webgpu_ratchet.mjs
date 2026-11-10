@@ -28,6 +28,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/terrain/decor-mesh.node.ts',
   // GH-943 P2 (T5): the selection, team and wound rings. Its legacy twin (units/selection-ring.ts) keeps its GLSL until P8.
   'packages/render/src/three/units/selection-ring.node.ts',
+  // GH-943 P3 (T6): the garrison banner. Its legacy twin (units/garrison-banner.ts) keeps its splice until P8.
+  'packages/render/src/three/units/garrison-banner.node.ts',
   // GH-943 P3 (T11): the simple FX families. Their legacy twins keep their GLSL until P8.
   'packages/render/src/three/units/fx.node.ts',
   'packages/render/src/three/units/vfx-mesh-material.node.ts',
@@ -82,6 +84,8 @@ export const TWINS = Object.freeze({
   [`${THREE}terrain/disturb.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
   // GH-943 P2 (T5)
   [`${THREE}units/selection-ring.ts`]: `${THREE}units/selection-ring.node.ts`,
+  // GH-943 P3 (T6)
+  [`${THREE}units/garrison-banner.ts`]: `${THREE}units/garrison-banner.node.ts`,
   // GH-943 P3 (T11): the simple FX families.
   [`${THREE}units/fx.ts`]: `${THREE}units/fx.node.ts`,
   [`${THREE}units/vfx-mesh-material.ts`]: `${THREE}units/vfx-mesh-material.node.ts`,
