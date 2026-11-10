@@ -12,7 +12,11 @@ import {
   churnStamps,
   isPivoting,
   makeChurnState,
+  makeScuffState,
+  pivotScuffStamp,
+  SCUFF_RADIUS_TILES,
   stepChurn,
+  stepPivotScuff,
   turnDelta,
 } from './ground-churn';
 
@@ -91,5 +95,47 @@ describe('churnStamps', () => {
     expect(churnStamps(CHURN_EVENT_NONE, 0, 0, 0, 'tracked')).toEqual([]);
     // A motorcycle has one track line.
     expect(churnStamps(CHURN_EVENT_LAUNCH, 10, 10, 0, 'single')).toHaveLength(1);
+  });
+});
+
+describe('pivot scuff (GH-1207): one disc, exactly once per pivot, tracked only', () => {
+  const run = (kind: 'tracked' | 'wheeled', ticks: { speed: number; yaw: number }[]): boolean[] => {
+    const s = makeScuffState(1);
+    return ticks.map((t) => stepPivotScuff(s, 0, t.speed, t.yaw, kind));
+  };
+
+  it('a pivoting tracked hull stamps exactly one scuff, after the hold, and no more while it keeps turning', () => {
+    const stamps = run('tracked', Array.from({ length: 30 }, () => ({ speed: 0, yaw: 0.2 })));
+    expect(stamps.filter(Boolean)).toHaveLength(1);
+    expect(stamps.indexOf(true)).toBe(CHURN_PIVOT_HOLD_TICKS - 1);
+  });
+
+  it('a wheeled hull never pivots, so it stamps nothing', () => {
+    expect(run('wheeled', Array.from({ length: 30 }, () => ({ speed: 0, yaw: 0.2 }))).some(Boolean)).toBe(false);
+  });
+
+  it('a parked hull (no yaw) stamps nothing', () => {
+    expect(run('tracked', Array.from({ length: 30 }, () => ({ speed: 0, yaw: 0 }))).some(Boolean)).toBe(false);
+  });
+
+  it('a translating hull (a driven turn) stamps nothing', () => {
+    expect(run('tracked', Array.from({ length: 30 }, () => ({ speed: 1.1, yaw: 0.2 }))).some(Boolean)).toBe(false);
+  });
+
+  it('stamps once per pivot episode: stop, then pivot again', () => {
+    const s = makeScuffState(1);
+    const a = Array.from({ length: 12 }, () => stepPivotScuff(s, 0, 0, 0.2, 'tracked'));
+    // The pivot ends (a driven tick), then resumes.
+    stepPivotScuff(s, 0, 1.1, 0, 'tracked');
+    stepPivotScuff(s, 0, 0, 0.2, 'tracked');
+    const b = Array.from({ length: 12 }, () => stepPivotScuff(s, 0, 0, 0.2, 'tracked'));
+    expect(a.filter(Boolean)).toHaveLength(1);
+    expect(b.filter(Boolean)).toHaveLength(1);
+  });
+
+  it('pivotScuffStamp is one round disc a hull length across, centred on the hull', () => {
+    const stamp = pivotScuffStamp(10, 10, 0);
+    expect(stamp).toEqual({ x: 10, y: 10, halfLength: SCUFF_RADIUS_TILES, halfWidth: SCUFF_RADIUS_TILES, facingNorm: 0 });
+    expect(SCUFF_RADIUS_TILES).toBe(1.0);
   });
 });

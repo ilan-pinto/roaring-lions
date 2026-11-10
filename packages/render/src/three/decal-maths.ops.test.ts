@@ -48,7 +48,7 @@ const hash32 = (x: number, y: number): number => {
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
-const KIND_INDEX: Record<DecalKind, number> = { crater: 0, scorch: 1, oil: 2, rubble: 3, tread: 4, tyre: 5, churn: 6 };
+const KIND_INDEX: Record<DecalKind, number> = { crater: 0, scorch: 1, oil: 2, rubble: 3, tread: 4, tyre: 5, churn: 6, scuff: 7 };
 
 function frozenDecalAlpha(kind: DecalKind, s: number, t: number, seed: number, age: number, hl: number): { alpha: number; colour: number } {
   switch (kind) {
@@ -104,6 +104,10 @@ function frozenDecalAlpha(kind: DecalKind, s: number, t: number, seed: number, a
       const fade = c01(1 - Math.max(age, 0) / 120);
       return { alpha: 0.5 * body * (1 + (spoke - 1) * core) * fade, colour: 6 };
     }
+    case 'scuff': {
+      const fade = c01(1 - Math.max(age, 0) / 180);
+      return { alpha: 0.4 * (1 - ss(0.55, 1, Math.hypot(s, t))) * fade, colour: 6 };
+    }
   }
 }
 
@@ -116,7 +120,7 @@ function lcg(seed: number): () => number {
   };
 }
 
-const KINDS: readonly DecalKind[] = ['crater', 'scorch', 'oil', 'rubble', 'tread', 'tyre', 'churn'];
+const KINDS: readonly DecalKind[] = ['crater', 'scorch', 'oil', 'rubble', 'tread', 'tyre', 'churn', 'scuff'];
 
 describe('G1: the maths on numbers', () => {
   it('decalAlphaOps(NUMBER_OPS) equals the frozen pre-port decalAlpha on 500 seeded (kind, seed, age, offset) points', () => {

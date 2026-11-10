@@ -11,10 +11,14 @@ import {
   VEHICLE_DUST_FULL_SPEED_TILES_S,
   VEHICLE_DUST_INTERVAL_MS,
   VEHICLE_DUST_MIN_INTERVAL_MS,
+  PIVOT_DUST_MAGNITUDE,
+  PIVOT_DUST_MIN_YAW_TURNS_S,
+  PIVOT_DUST_MAX_SPEED_TILES_S,
   nextVehicleMoving,
   vehicleDustMagnitude,
   vehicleDustIntervalMs,
   vehicleFxAnchor,
+  pivotDustMagnitude,
 } from './vehicle-fx';
 
 describe('nextVehicleMoving', () => {
@@ -97,6 +101,37 @@ describe('vehicleFxAnchor', () => {
     const far = vehicleFxAnchor(0, 0, 0, 2);
     expect(far.x).toBeLessThan(near.x); // further behind (more negative x) facing east
     expect(far.dirTurns).toBeCloseTo(near.dirTurns);
+  });
+});
+
+describe('pivotDustMagnitude (GH-1207): dust from a tracked hull turning on the spot', () => {
+  it('a tracked hull at zero speed with a real yaw rate dusts, scaling with the turn', () => {
+    const floor = pivotDustMagnitude(0, PIVOT_DUST_MIN_YAW_TURNS_S, true);
+    expect(floor).toBe(0); // exactly at the floor does not (yet) count
+    expect(pivotDustMagnitude(0, 0.2, true)).toBeCloseTo(PIVOT_DUST_MAGNITUDE, 9);
+    expect(pivotDustMagnitude(0, 0.1, true)).toBeGreaterThan(0);
+    expect(pivotDustMagnitude(0, 0.1, true)).toBeLessThan(PIVOT_DUST_MAGNITUDE);
+    // A counter-clockwise pivot dusts the same as a clockwise one.
+    expect(pivotDustMagnitude(0, -0.2, true)).toBeCloseTo(PIVOT_DUST_MAGNITUDE, 9);
+  });
+
+  it('a wheeled hull never pivots, so it never pivot-dusts', () => {
+    expect(pivotDustMagnitude(0, 0.2, false)).toBe(0);
+  });
+
+  it('a translating hull is not pivoting, however fast it turns (a driven turn is moving-dust)', () => {
+    expect(pivotDustMagnitude(PIVOT_DUST_MAX_SPEED_TILES_S + 0.001, 0.2, true)).toBe(0);
+    expect(pivotDustMagnitude(1.1, 0.2, true)).toBe(0);
+  });
+
+  it('a parked hull (no yaw) dusts nothing', () => {
+    expect(pivotDustMagnitude(0, 0, true)).toBe(0);
+  });
+
+  it('never goes negative or above full for any input', () => {
+    expect(pivotDustMagnitude(0, 99, true)).toBe(PIVOT_DUST_MAGNITUDE);
+    expect(pivotDustMagnitude(-5, 0.2, true)).toBeGreaterThanOrEqual(0);
+    expect(pivotDustMagnitude(0, -0.2, true)).toBeGreaterThanOrEqual(0);
   });
 });
 
