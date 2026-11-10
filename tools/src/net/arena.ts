@@ -93,7 +93,7 @@ import { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } fr
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { MATCHUPS, factionsOfMatchup, flagSetupFor, matchCapTicksOf, matchupAllowed, versusMapAllowed, winModeRequest, type CapConfig, type MatchConfig, type Matchup, type TransportStatus, type WinMode } from '@lions/net';
-import { goalsOf, productionOf, type MatchResult, type OutcomeGoals, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
+import { goalsOf, productionOf, type MatchResult, type OutcomeGoals, type OutcomeProduction, type OutcomeSimAt } from '../../../packages/app/src/net/outcome';
 import { scoreOf, type MatchScore } from '../../../packages/app/src/net/scoreboard';
 import { AgentClient } from './agent-client';
 import { displayName, recordGame, writeFrames, type GameFrames } from './arena-frames';
@@ -406,7 +406,7 @@ export interface SeatSnapshot {
   result: MatchResult | null;
   tick: number;
   status: TransportStatus;
-  sim: OutcomeSim | null;
+  sim: OutcomeSimAt | null;
   /** The economy half of the win rule (an economy room only). */
   production?: OutcomeProduction;
   /** The goal of a win-mode room (GH-976 P2): read by `capOutcome`, so a goal completed by the cap is not lost to the cap rule. */

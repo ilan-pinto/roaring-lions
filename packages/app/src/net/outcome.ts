@@ -316,9 +316,7 @@ export function hashTickOutcome(frameTick: number, config: MatchConfig | null, s
   if (!isHashTick(frameTick, config)) return null;
   // The cap is the ROOM's (GH-913 L8, GH-976 R0.8): 25 minutes, the longer one its map's rules file declares, or 30 in a flag set-up room.
   const cap = config === null ? matchCapTicks(undefined) : matchCapTicksOf(config);
-  // GH-976 WP6a: a flag set-up room is decided on standing-force value 12 minutes after the bell, the cap's own rule held earlier.
-  const stop = flagBackstopTick(config, sim);
-  const o = outcomeOf(sim, sim.tickCount, unitCost, production, stop === null ? cap : Math.min(cap, stop), goals);
+  const o = outcomeOf(sim, sim.tickCount, unitCost, production, effectiveCapTicks(config, sim, cap), goals);
   return o.kind === 'ongoing' ? null : o;
 }
 
@@ -333,11 +331,19 @@ export type OutcomeSimAt = OutcomeSim & { readonly tickCount: number; readonly s
  *  `FLAG_BACKSTOP_TICKS`. Null in any other room, before the bell (`setupActive` true or unknown), and in a world with no
  *  set-up (`setupBellTick` below 0). Read from the sim's own bell, so both seats and a rejoiner reach the same tick; the
  *  decision is still asked on hash ticks only, so it lands on the first hash tick at or after it. Integer maths only. */
-export function flagBackstopTick(config: MatchConfig | null, sim: Pick<OutcomeSimAt, 'setupActive' | 'setupBellTick'>): number | null {
+export function flagBackstopTick(config: Pick<MatchConfig, 'winMode' | 'flagSetup'> | null, sim: Pick<OutcomeSimAt, 'setupActive' | 'setupBellTick'>): number | null {
   if (config === null || !flagSetupRoom(config)) return null;
   const bell = sim.setupBellTick;
   if (bell === undefined || bell < 0 || sim.setupActive !== false) return null;
   return bell + FLAG_BACKSTOP_TICKS;
+}
+
+/** The cap the rule actually decides a match on (GH-1208): the room's cap, or in a flag set-up room the earlier of that cap
+ *  and the backstop (`flagBackstopTick`, `bell + FLAG_BACKSTOP_TICKS`). ONE function, read by both `hashTickOutcome` (the room)
+ *  and `capOutcome` (the arena's harness cap), so the two sites cannot drift: the cap is `min(room cap, bell + 12 minutes)`. */
+export function effectiveCapTicks(config: Pick<MatchConfig, 'winMode' | 'flagSetup'> | null, sim: Pick<OutcomeSimAt, 'setupActive' | 'setupBellTick'>, cap: number): number {
+  const stop = flagBackstopTick(config, sim);
+  return stop === null ? cap : Math.min(cap, stop);
 }
 
 /** A result this seat's sim reached, and the frame tick it was read on:
