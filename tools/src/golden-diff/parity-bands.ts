@@ -28,15 +28,15 @@ const NO_FLOOR = { wgl2: null, wgpu: null } as const;
 
 export const PARITY_ROWS: readonly ParityRow[] = [
   { scenario: 'quiet', layer: 'repaint-control', band: 'zero', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'a zero-time repaint moves nothing on either arm' },
-  { scenario: 'quiet', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6: intensity on node, null envMap on legacy' },
+  { scenario: 'quiet', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6: intensity on node, null envMap on legacy (T4 note: the matched census drops the legacy envMap, so L-matched reads ~0 px here and the ratio denominator is vacuous: report-only, read the node delta, not r)' },
   { scenario: 'quiet', layer: 'haze', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T4: haze lives in the fog pass' },
   { scenario: 'quiet', layer: 'vignette', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T3: vignette x roundTripHalf, after the grade' },
   { scenario: 'relief', layer: 'vignette', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T3: the second vignette witness (tel_marum, different corners)' },
   { scenario: 'fogged', layer: 'fog', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T4: shroud' },
   { scenario: 'fogged', layer: 'haze', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T4' },
-  { scenario: 'fogged', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6' },
+  { scenario: 'fogged', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6 (T4 note: the matched census drops the legacy envMap, so L-matched reads ~0 px here and the ratio denominator is vacuous: report-only, read the node delta, not r)' },
   { scenario: 'graded', layer: 'grade', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T3: the grade LUT, display-referred' },
-  { scenario: 'graded', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6' },
+  { scenario: 'graded', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6 (T4 note: the matched census drops the legacy envMap, so L-matched reads ~0 px here and the ratio denominator is vacuous: report-only, read the node delta, not r)' },
   // GH-943 P2 (T3): the node ground's dry blend, macro and road (`terrain/mesh.node.ts`). `loose`: texture filtering differs by backend.
   // Node floors (T3 fix round): a third of the smallest of 3 CI runs per key (42463528089, 42502614669, 42506783555: identical
   // readings on both keys), rounded DOWN to 4 places. The aftermath rows stay null: on this branch their node readings are a
@@ -49,9 +49,40 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   { scenario: 'quiet', layer: 'macro', band: 'loose', r0: UNREAD, nodeFloor: { wgl2: 0.1575, wgpu: 0.1529 }, note: 'P2 T3: the macro field' },
   { scenario: 'open-ground', layer: 'macro', band: 'loose', r0: UNREAD, nodeFloor: { wgl2: 0.2977, wgpu: 0.298 }, note: 'P2 T3' },
   { scenario: 'aftermath', layer: 'macro', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3' },
+  // GH-943 P2 (T4): the relief read on the node ground (`terrain/mesh.node.ts`, maths in `terrain/relief-read.ts`). `loose`.
+  { scenario: 'relief', layer: 'slope-light', band: 'loose', r0: UNREAD, nodeFloor: { wgl2: 0.0188, wgpu: 0.0186 }, note: 'P2 T4: the lighting normal tilted by gain 2, capped at 38 degrees' },
+  { scenario: 'aftermath', layer: 'slope-light', band: 'loose', r0: UNREAD, nodeFloor: { wgl2: 0.5096, wgpu: 0.5072 }, note: 'P2 T4' },
+  { scenario: 'relief', layer: 'height-contours', band: 'loose', r0: UNREAD, nodeFloor: { wgl2: 0.1571, wgpu: 0.156 }, note: 'P2 T4: half-level contour lines and the height tint' },
+  { scenario: 'aftermath', layer: 'height-contours', band: 'loose', r0: UNREAD, nodeFloor: { wgl2: 0.1333, wgpu: 0.1328 }, note: 'P2 T4' },
   // GH-943 P2 (T6): the node foliage's wind (`terrain/decor-mesh.node.ts`). `quiet`'s `repaint-control` row above must stay 0 with it live.
   { scenario: 'quiet', layer: 'wind', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T6: the foliage sway, sim clock, uSwayAmp by reference' },
+  // GH-943 P2 (T7): the vehicles' bend and the rotor wash on the node foliage (`disturb.ts` -> `decor-mesh.node.ts`), witnessed by the
+  // `vehicle` scenario's layer checks. The legacy floors are small and were measured on Metal (25 px / 0.0015 and 15 px / 0.0008), so the band is `ao`.
+  { scenario: 'vehicle', layer: 'disturb', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T7: vehicle bend, tick-built capsules, uDisturbAmp by reference' },
+  { scenario: 'vehicle', layer: 'wash', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T7: rotor wash flatten and thrash, sim clock' },
+  // GH-943 P3 (T7): the decal pools and the crater rim (`decal-pool.node.ts`), on the one scenario that stamps them. `decals` is
+  // `loose` (filtered control B tap, branch-free kinds); `crater-rims` is `ao`: lighting- and shadow-dependent (the rim reads the
+  // scene's sun, sky and the sun's node shadow).
+  // r0 and node floors from ci.yml run 42630404599 attempts 1-3 (head 1a78c22d6, SwiftShader): every reading bit-identical across the
+  // three, node decals 3.5672 (wgl2) / 3.5456 (wgpu), rims 0.6268 / 0.6234; floor = a third, rounded DOWN to 4 places. Before T7 the
+  // L-matched arm hid both pools, so neither row could be judged.
+  { scenario: 'aftermath', layer: 'decals', band: 'loose', r0: { wgl2: 1.0084, wgpu: 1.0023 }, nodeFloor: { wgl2: 1.189, wgpu: 1.1818 }, note: 'P3 T7: both decal pools, the kinds over the road-mixed ground tone' },
+  { scenario: 'aftermath', layer: 'crater-rims', band: 'ao', r0: { wgl2: 1.0092, wgpu: 1.0036 }, nodeFloor: { wgl2: 0.2089, wgpu: 0.2078 }, note: 'P3 T7: the rim relit by the sun, sky and node shadow; uRimGain by reference' },
   { scenario: 'vehicle', layer: 'selection-ring', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: the team rings, analytic coverage, no textures' },
+  // GH-943 P3 (T3): the node unit twin (`units/unit-material.node.ts`): the team mark, the running gear and the soot on the hooked unit
+  // materials, the per-entity fields per object. `loose`: textured. r0 and the node floors from this PR's `visual-parity` runs.
+  ...['vehicle', 'kitted', 'fogged', 'graded'].map(
+    (scenario): ParityRow => ({ scenario, layer: 'units', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: every unit, the hooked ones through the unit twin' })
+  ),
+  { scenario: 'vehicle', layer: 'team-mask', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: the Lavi team mark (rl-team-mark-2), slot colour by reference' },
+  { scenario: 'vehicle', layer: 'unit-surface', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: per-role roughness/metalness, per object on the twin' },
+  { scenario: 'kitted', layer: 'unit-surface', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3' },
+  { scenario: 'kitted', layer: 'kit', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: the grafted kit parts (excluded from the mark by their UVs)' },
+  // GH-943 P3 (T5) Step A: the occlusion and smoke outline (`units/silhouette.node.ts`), flat colour, untextured: `tight`. One row per
+  // scenario whose `outline` check holds (Step A branch 1: `fogged` read 144 px < 200 and left).
+  ...['vehicle', 'kitted', 'graded'].map(
+    (scenario): ParityRow => ({ scenario, layer: 'outline', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T5: the occlusion outline (Step A)' })
+  ),
   // GH-943 P1 (T5): bloom adds exactly 0 wherever nothing exceeds linear luminance 1.0 (a ZERO check on every quiet gated scenario).
   ...['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'].map(
     (scenario): ParityRow => ({ scenario, layer: 'bloom', band: 'zero', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: bloom adds +0 on a frame with nothing over 1.0' })

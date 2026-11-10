@@ -41,6 +41,7 @@ import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS, glslFloat } fr
 import { ZONE_BAND_RENDER_ORDER } from './render-order';
 import { createTriangleSoup, pushPolygonFillWorld, resetSoup, type TriangleSoup } from './overlay-geometry';
 import { cachedHexToLinear } from './overlays';
+import type { Ops } from '../fog-ops';
 
 /** How deep the band reaches in from the zone's edge, in tiles. */
 export const ZONE_BAND_TILES = 0.5;
@@ -96,6 +97,20 @@ export function zoneBandCells(
 }
 
 /**
+ * GH-943 P3 (T8): the hatch's stripe strength at a world point, the fragment shader's `s` / `stripe` lines written ONCE against
+ * `Ops<T>` (the node twin gets it as a value, `material-maths.ts`; the legacy GLSL below keeps its text, pinned to the same
+ * constants by `zone-band.test.ts`). `x`, `z` are the fragment's world position: the stripes run along `x + z`, so the hatch holds
+ * still on the ground as the camera pans.
+ */
+export function zoneHatchOps<T>(o: Ops<T>, x: T, z: T): T {
+  const s = o.fract(o.div(o.add(x, z), o.lit(ZONE_HATCH_PERIOD_TILES)));
+  // A soft-edged stripe: antialiasing is off for world materials.
+  const rise = o.smoothstep(o.lit(0), o.lit(0.06), s);
+  const fall = o.sub(o.lit(1), o.smoothstep(o.lit(ZONE_HATCH_DUTY - 0.06), o.lit(ZONE_HATCH_DUTY), s));
+  return o.mul(rise, fall);
+}
+
+/**
  * The band's material: depth-tested, not depth-writing, multiplied onto
  * what is already drawn (the decal pool's blend, alpha kept). The fragment
  * shader cuts the world-space diagonal hatch; `aAlpha` is the stripe's
@@ -103,6 +118,8 @@ export function zoneBandCells(
  */
 export function createZoneBandMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+    name: 'rl-zone-band',
     vertexShader: /* glsl */ `
       attribute vec3 aColor;
       attribute float aAlpha;

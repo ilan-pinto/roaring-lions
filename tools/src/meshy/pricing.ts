@@ -11,11 +11,17 @@
  * is captioned as an estimate for exactly that reason.
  */
 import type { ImageModel } from './images';
-import type { ModelType, TextureResolution } from './options';
+import type { AiModel, ModelType, TextureResolution } from './options';
 
+/**
+ * Re-read 2026-11-09 (GH-746). The 3D numbers are unchanged since 2026-09-18, but the page now prices by `ai_model`,
+ * not by `model_type`: `meshy-6-lite`, `meshy-t2` and `meshy-t2.5` are the 5-credit previews; `meshy-6`, `meshy-7`,
+ * `meshy-7.1` and `latest` are 20. The `lowpoly` model type was retired on 2026-10-30 and has no row. Before this
+ * date the CLI priced `meshy-6-lite` at 20 (an over-estimate) and could not name `meshy-t2` / `meshy-t2.5` at all.
+ */
 export const PRICING_SOURCE = {
   url: 'https://docs.meshy.ai/en/api/pricing',
-  quotedAt: '2026-09-18',
+  quotedAt: '2026-11-09',
 } as const;
 
 /**
@@ -60,16 +66,16 @@ export const USD_PER_CREDIT_ENV_VAR = 'MESHY_USD_PER_CREDIT';
  * `estimateCredits`'s tests) so a future command has nothing left to guess.
  */
 export const PRICING = {
-  textPreviewStandard: 20, // model_type standard|lowpoly, any ai_model
-  textPreviewSmartTopology: 5,
-  textPreviewUltraSurcharge: 5, // ultra_mode, meshy-7 only; smart-topology has no ultra tier
+  textPreviewStandard: 20, // ai_model meshy-6, meshy-7, meshy-7.1, latest
+  textPreviewSmartTopology: 5, // the 5-credit tier: ai_model meshy-6-lite, meshy-t2, meshy-t2.5 (`LITE_TIER_AI_MODELS`)
+  textPreviewUltraSurcharge: 5, // ultra_mode / geometry_resolution 2k, meshy-7 / 7.1 / latest only; the 5-credit tier has none
   textRefine2kOr4k: 10,
   textRefine8k: 15,
   imageStandardNoTexture: 20,
   imageStandardWithTexture: 30,
   imageStandardWithTexture8k: 35,
   imageUltraSurcharge: 5,
-  imageSmartTopologyNoTexture: 5,
+  imageSmartTopologyNoTexture: 5, // the image rows named SmartTopology are the 5-credit tier's (meshy-6-lite, meshy-t2, meshy-t2.5)
   imageSmartTopologyWithTexture: 15,
   imageSmartTopologyWithTexture8k: 20,
   remesh: 5,
@@ -93,8 +99,10 @@ export const ESTIMATE_KINDS = [
 export type EstimateKind = (typeof ESTIMATE_KINDS)[number];
 
 export interface EstimateOptions {
-  /** text-preview, image */
+  /** text-preview, image: used only to pick the tier when `aiModel` is not given (smart-topology -> the 5-credit tier) */
   readonly modelType?: ModelType;
+  /** text-preview, image: the `ai_model` sent. It decides the price tier (`LITE_TIER_AI_MODELS`), since 2026-11-09 */
+  readonly aiModel?: AiModel;
   /** text-preview (meshy-7 only in practice, not enforced here), image */
   readonly ultra?: boolean;
   /** text-refine, image, retexture */
@@ -107,29 +115,37 @@ export interface EstimateOptions {
   readonly imageModel?: ImageModel;
 }
 
-const isSmartTopology = (modelType: ModelType | undefined): boolean => modelType === 'smart-topology';
+/** The `ai_model`s priced at 5 credits for a mesh-only preview (pricing page, 2026-11-09). */
+export const LITE_TIER_AI_MODELS: ReadonlySet<AiModel> = new Set<AiModel>(['meshy-6-lite', 'meshy-t2', 'meshy-t2.5']);
+
+/** The 5-credit tier: by `aiModel` when the caller names it, else by `model_type` (smart-topology's models are all in it). */
+const isLiteTier = (opts: EstimateOptions): boolean =>
+  opts.aiModel !== undefined ? LITE_TIER_AI_MODELS.has(opts.aiModel) : opts.modelType === 'smart-topology';
 
 /** Pure: no network, no I/O. Every row of `PRICING` has a covering test. */
 export function estimateCredits(kind: EstimateKind, opts: EstimateOptions = {}): number {
   switch (kind) {
     case 'text-preview': {
-      const smart = isSmartTopology(opts.modelType);
-      let credits: number = smart ? PRICING.textPreviewSmartTopology : PRICING.textPreviewStandard;
-      if (opts.ultra && !smart) credits += PRICING.textPreviewUltraSurcharge;
+      const lite = isLiteTier(opts);
+      let credits: number = lite ? PRICING.textPreviewSmartTopology : PRICING.textPreviewStandard;
+      // Conservative (review, 2026-11-09): only Smart Topology is documented as having no ultra tier, so only it skips
+      // the surcharge; a standard lite-tier model with ultra (refused by the parsers anyway) is over-, never under-stated.
+      const smartTopology = opts.aiModel !== undefined ? opts.aiModel === 'meshy-t2' || opts.aiModel === 'meshy-t2.5' : opts.modelType === 'smart-topology';
+      if (opts.ultra && !smartTopology) credits += PRICING.textPreviewUltraSurcharge;
       return credits;
     }
     case 'text-refine':
       return opts.textureResolution === '8k' ? PRICING.textRefine8k : PRICING.textRefine2kOr4k;
     case 'image': {
-      const smart = isSmartTopology(opts.modelType);
+      const lite = isLiteTier(opts);
       const textured = opts.shouldTexture !== false;
       let credits: number;
       if (!textured) {
-        credits = smart ? PRICING.imageSmartTopologyNoTexture : PRICING.imageStandardNoTexture;
+        credits = lite ? PRICING.imageSmartTopologyNoTexture : PRICING.imageStandardNoTexture;
       } else if (opts.textureResolution === '8k') {
-        credits = smart ? PRICING.imageSmartTopologyWithTexture8k : PRICING.imageStandardWithTexture8k;
+        credits = lite ? PRICING.imageSmartTopologyWithTexture8k : PRICING.imageStandardWithTexture8k;
       } else {
-        credits = smart ? PRICING.imageSmartTopologyWithTexture : PRICING.imageStandardWithTexture;
+        credits = lite ? PRICING.imageSmartTopologyWithTexture : PRICING.imageStandardWithTexture;
       }
       // Important 2 (review, 2026-09-18): unlike text-preview above, this
       // adds the surcharge even under smart-topology. Checked against

@@ -320,6 +320,46 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
     });
   });
 
+  describe('GH-746 (2026-11-09) -- the ai_model reaches the body and decides the estimate', () => {
+    it('a meshy-t2.5 smart-topology preview sends that pair and ledgers 5, not 20', async () => {
+      const bodies: TextToThreeDRequest[] = [];
+      const client: TextTaskClient = {
+        submitTextTask: vi.fn(async (body: TextToThreeDRequest): Promise<SubmitTaskResponse> => {
+          bodies.push(body);
+          return { result: 't25-task' };
+        }),
+        getTextTask: vi.fn(async (id: string): Promise<TextToThreeDTask> => textTask(id, { consumed_credits: 5 })),
+      };
+      const code = await runText(
+        client,
+        CONFIG,
+        baseTextOptions({ modelType: 'smart-topology', aiModel: 'meshy-t2.5', polycount: 12000 }),
+        paths
+      );
+      expect(code).toBe(0);
+      expect(bodies[0]).toMatchObject({ model_type: 'smart-topology', ai_model: 'meshy-t2.5', target_polycount: 12000 });
+      expect(readLedger(paths.ledgerPath)[0]).toMatchObject({ id: 't25-task', credits_estimated: 5, credits_consumed: 5 });
+    });
+
+    it('a meshy-6-lite preview ledgers 5 (the CLI priced it 20 before)', async () => {
+      const client: TextTaskClient = {
+        submitTextTask: vi.fn(async (): Promise<SubmitTaskResponse> => ({ result: 'lite-task' })),
+        getTextTask: vi.fn(async (id: string): Promise<TextToThreeDTask> => textTask(id, { consumed_credits: 5 })),
+      };
+      await runText(client, CONFIG, baseTextOptions({ aiModel: 'meshy-6-lite' }), paths);
+      expect(readLedger(paths.ledgerPath)[0]).toMatchObject({ credits_estimated: 5 });
+    });
+
+    it('a meshy-6-lite mesh-only image-to-3d ledgers 5', async () => {
+      const client: ImageTaskClient = {
+        submitImageTask: vi.fn(async (): Promise<SubmitTaskResponse> => ({ result: 'lite-image' })),
+        getImageTask: vi.fn(async (id: string): Promise<ImageToThreeDTask> => imageTask(id, { consumed_credits: 5 })),
+      };
+      await runImage(client, CONFIG, baseImageOptions({ aiModel: 'meshy-6-lite', noTexture: true }), paths);
+      expect(readLedger(paths.ledgerPath)[0]).toMatchObject({ credits_estimated: 5 });
+    });
+  });
+
   describe('Minor 2 -- dry run needs no client and no key', () => {
     const originalDryRun = process.env.MESHY_DRY_RUN;
 

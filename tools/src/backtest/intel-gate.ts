@@ -15,6 +15,7 @@
 // that earned less, and `intel_start` (a grant, not an earning) is never counted.
 
 import type { IntelRun, RunRecord } from './playtest-run';
+import { isPinnedOnly } from './pinned-only';
 
 /** Intel earned by `tick`, inclusive: every `intelEarned` event stamped at or before it. */
 export function intelAt(run: IntelRun, tick: number): number {
@@ -112,7 +113,7 @@ export const SWEEP_PRICE = 150;
 
 /** Every winning plan (a `(bought)`, `(gate open)` or `(price-only closed)` probe included, a max-tier replay not). */
 export function winningPlans(runs: readonly RunRecord[]): RunRecord[] {
-  return runs.filter((r) => r.expect === 'victory' && !r.label.endsWith('(max tier)'));
+  return runs.filter((r) => r.expect === 'victory' && !isPinnedOnly(r.label));
 }
 
 /** The winning plans that earned at least one sweep by doing. */

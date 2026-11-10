@@ -22,11 +22,21 @@ import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
 import { captureNodeView, photographNodeGround, type NodeCaptureDeps, type ReadbackMaths } from '../capture-view.node';
+import { createNodeOverlayMaterial } from '../units/overlays.node';
+import { createNodeZoneBandMaterial } from '../units/zone-band.node';
+import { createNodeSupplyRouteMaterial, type SupplyRouteUniformRecord } from '../supply-route.node';
+import { createNodeTrailMaterial, type TrailUniformRecord } from '../trail-mesh.node';
+import { createNodeXrayMaterial, XRAY_STYLE_BY_NAME } from '../tunnel-xray.node';
+import { createNodeDecalMaterial } from '../decal-pool.node';
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
+import { createNodeOutlineMaterial } from '../units/silhouette.node';
 import type { RingStyle } from '../units/selection-ring';
-import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
+import { censusUnadopted, censusUnported, reassertCensusHides, unportedWarnings, type CensusHides, type UnportedHook } from './unported';
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
+import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
+import { createNodeUnitMaterial } from '../units/unit-material.node';
+import { markTwin } from '../twin-identity';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
 const CENSUS_EVERY_FRAMES = 60;
@@ -47,6 +57,12 @@ export interface NodeBackendOptions {
   /** GH-943 P2 (T1): the material twins' shared maths, injected (see `MaterialMaths`); `material-maths.ts`'s `MATERIAL_MATHS`.
    *  Read by the `materials` factories as each lands (T3, T5, T6). */
   readonly materialMaths: MaterialMaths;
+  /**
+   * GH-943 P3 (T1): the kit slot a LEGACY material belongs to (`legacyTwinSlot`, null for a twin or a material with no slot), handed
+   * over by `ThreeRenderer` because the table reads legacy modules this chunk must not load. The census reports a material whose
+   * slot HAS a factory but which is still on a mesh as `unadopted` (`[lions] UNADOPTED`): an adoption site is missing.
+   */
+  readonly twinSlotOf?: (m: THREE.Material) => keyof MaterialKit | null;
   readonly warn?: (msg: string) => void;
 }
 
@@ -104,21 +120,121 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   const aoControl: AoControl = aoStage.control;
   /** GH-943 P2 (T1): the material twins, null until each task lands (T3 ground, T5 ring, T6 foliage), each built from
    *  `opts.materialMaths`. A null factory leaves the legacy material in place, and this backend's census hides or names it. */
-  const materials: MaterialKit = { ground: null, foliage: null, ring: null };
-  // T3: the node ground (the dry blend, the macro and the road).
-  materials.ground = (legacy) => createNodeGroundMaterial({ W, TSL, maths: opts.materialMaths.ground }, legacy);
-  // T6: the swaying foliage and trunk batches (the wind; the disturbers follow in T7).
-  materials.foliage = createFoliageTwinFactory({ W, TSL, maths: opts.materialMaths.foliage });
+  const materials: MaterialKit = {
+    ground: null,
+    foliage: null,
+    ring: null,
+    // GH-943 P3 (T1): every P3 slot, null until its task lands (T3-T12).
+    unit: null,
+    outline: null,
+    banner: null,
+    backdrop: null,
+    decal: null,
+    overlay: null,
+    zoneBand: null,
+    supplyRoute: null,
+    trail: null,
+    xray: null,
+    particle: null,
+    tracer: null,
+    vfxMesh: null,
+    rimFade: null,
+    beam: null,
+    rotor: null,
+    flipbook: null,
+    smokeScreen: null,
+  };
+  // T3: the node ground (the dry blend, the macro and the road). P3 (T1): every twin names its legacy material.
+  materials.ground = (legacy) => {
+    const twin = createNodeGroundMaterial({ W, TSL, maths: opts.materialMaths.ground }, legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // T6: the swaying foliage and trunk batches (the wind; the disturbers follow in T7). P3 (T1): every twin names its legacy material.
+  const foliageTwin = createFoliageTwinFactory({ W, TSL, maths: opts.materialMaths.foliage });
+  materials.foliage = (legacy) => {
+    const twin = foliageTwin(legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
   // GH-943 P2 (T5): the selection, team and wound rings. The legacy material keeps the uniform record the batch writes and carries its style.
-  materials.ring = (legacy) =>
-    createNodeRingMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.ring }, legacy.userData[RING_STYLE_KEY] as RingStyle, legacy.uniforms as unknown as RingUniformRecord);
+  materials.ring = (legacy) => {
+    const twin = createNodeRingMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.ring }, legacy.userData[RING_STYLE_KEY] as RingStyle, legacy.uniforms as unknown as RingUniformRecord);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T10): the valley backdrop's distance fade, an output term over the stock lit material (all five materials, one factory).
+  materials.backdrop = (legacy) => {
+    const twin = createNodeBackdropMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.backdrop }, legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T3): every hooked unit material (team mark, running gear, soot; the rim and the floor are named partial terms until T4).
+  // Adoption shares one twin per (base, segments, pipeline state) and copies the pipeline state onto it.
+  materials.unit = (legacy) => {
+    const twin = createNodeUnitMaterial({ W, TSL, maths: opts.materialMaths.unit }, legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T5): the occlusion outline, the smoke outline and the hit flash's outline (every `rl-silhouette-outline` material). The
+  // legacy material keeps its two uniform records (written once a frame by `setSilhouetteOutlineZoom`) and its colour object.
+  materials.outline = (legacy) => {
+    const twin = createNodeOutlineMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.outline }, legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T8): the overlay batch, the zone band, the supply route and the tunnel trail. Each legacy material keeps its record.
+  const batchDeps = { W, TSL: TSL as never };
+  materials.overlay = (legacy) => {
+    const twin = createNodeOverlayMaterial(batchDeps);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  materials.zoneBand = (legacy) => {
+    const twin = createNodeZoneBandMaterial({ ...batchDeps, maths: opts.materialMaths.zoneBand });
+    markTwin(twin, legacy);
+    return twin;
+  };
+  materials.supplyRoute = (legacy) => {
+    const twin = createNodeSupplyRouteMaterial({ ...batchDeps, maths: opts.materialMaths.supplyRoute }, legacy.uniforms as unknown as SupplyRouteUniformRecord);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  materials.trail = (legacy) => {
+    const twin = createNodeTrailMaterial(batchDeps, legacy.uniforms as unknown as TrailUniformRecord);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T9): the tunnel x-ray, one factory and four styles, chosen by the legacy material's name.
+  materials.xray = (legacy) => {
+    const style = XRAY_STYLE_BY_NAME[legacy.name];
+    if (style === undefined) throw new Error(`node x-ray twin: no style for the legacy material "${legacy.name}"`);
+    const twin = createNodeXrayMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.xray }, legacy, style);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T7): the decal pools and the crater rim. The legacy material keeps its record, and carries its scene's light objects.
+  materials.decal = (legacy) => {
+    const twin = createNodeDecalMaterial({ W, TSL, maths: opts.materialMaths.decal }, legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
   const seen = new Set<string>();
   const hooks = new Map<string, UnportedHook>();
   let frames = 0;
 
+  const slotOf = opts.twinSlotOf;
+  // P3 (T1): a legacy material is `unadopted` when its slot has a factory here and it is still on a mesh.
+  const adoptable = (m: THREE.Material): boolean => {
+    const slot = slotOf?.(m) ?? null;
+    return slot !== null && materials[slot] !== null;
+  };
+  // GH-943 P3 (T2b, P3-R13): what the census hid, re-hidden before every render (a per-frame writer re-shows it between censuses).
+  const censusHides: CensusHides = new Set();
   const runCensus = (scene: THREE.Scene): void => {
-    const found = censusUnported(scene);
+    const found = censusUnported(scene, { hides: censusHides });
+    if (slotOf !== undefined) found.push(...censusUnadopted(scene, adoptable));
     for (const h of found) hooks.set(`${h.kind}|${h.key}`, h);
     for (const line of unportedWarnings(found, seen)) warn(line);
   };
@@ -159,6 +275,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
       await renderer.compileAsync(scene, camera);
     },
     render(scene, camera) {
+      reassertCensusHides(censusHides, scene);
       if (frames % CENSUS_EVERY_FRAMES === 0) runCensus(scene);
       frames++;
       if (!chain || !builtFor || builtFor.scene !== scene || builtFor.camera !== camera) build({ scene, camera, quality: builtFor?.quality ?? DEFAULT_QUALITY });

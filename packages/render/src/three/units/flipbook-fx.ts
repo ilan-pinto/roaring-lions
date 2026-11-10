@@ -509,6 +509,8 @@ export class FlipbookFx {
     });
     const material = (firePass: number): THREE.ShaderMaterial =>
       new THREE.ShaderMaterial({
+        // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+        name: firePass === 0 ? 'rl-flipbook-smoke' : 'rl-flipbook-fire',
         uniforms: uniforms(firePass),
         vertexShader: VERT,
         fragmentShader: FRAG,

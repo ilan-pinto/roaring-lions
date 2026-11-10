@@ -44,6 +44,15 @@ describe('earnDifference', () => {
     expect(r.coins).toBe(25); // 5 (m1's second star) + 10 + 10 (m2's win and two stars)
     expect(r.record.missions[m1].stars).toBe(2);
     expect(r.record.missions[m2]).toEqual({ won: true, stars: 2 });
+    expect(r.raised).toEqual({ missions: { [m1]: { won: true, stars: 2 }, [m2]: { won: true, stars: 2 } }, welcomed: false, campaignDone: false });
+  });
+  it('an unpaid difference raises nothing', () => {
+    const [m1, m2] = ids;
+    const record = { welcomed: true, campaignDone: false, backfilled: false, missions: { [m1]: { won: true, stars: 3 }, [m2]: { won: true, stars: 3 } } };
+    const evidence = { missions: { [m1]: { won: true, stars: 2 }, [m2]: { won: true, stars: 2 } }, campaignDone: false };
+    const r = earnDifference(record, evidence, world);
+    expect(r.coins).toBe(0);
+    expect(r.raised).toEqual({ missions: {}, welcomed: false, campaignDone: false });
   });
   it('walks the world order, not the evidence key order', () => {
     const [m1, m2] = ids;

@@ -24,7 +24,7 @@ import { EARN, MAX_STARS, roarEarn, roarBackfill, worldMissionIds } from '@lions
 import type { EarnAward, VictoryWin } from '@lions/economy';
 import type { BrigadeAccount } from './brigade-account';
 import type { ParsedWorld } from './campaign';
-import { writeVictory, type CampaignLedger, type LedgerStore, type VictoryWrite } from './ledger-store';
+import type { CampaignLedger, LedgerStore, VictoryWrite } from './ledger-store';
 import { spendable } from './roar-wallet';
 
 /** The earn table and its rules live in `@lions/economy` (GH-1075 A0); re-exported so no caller changes. */
@@ -45,18 +45,23 @@ export interface VictorySettle {
  * The victory handler's whole write: the ledger, the brigade account's credit pay
  * and the wallet's coins, all or none (`writeVictory`). `account` is the credit pay
  * `payVictory` computed, untouched by coins (G-E4); `win` is `null` for a mission
- * that pays no coins (the tutorial, or a blocked store).
+ * that pays no coins (the tutorial, or a blocked store). `start` is the `mission/start` nonce a server-backed
+ * store sends with the win (null until Task 2.12 wires it); the guest store ignores it.
  */
 export function settleVictory(
   store: LedgerStore,
-  v: { ledger: CampaignLedger; account: BrigadeAccount | null; win: VictoryWin | null; world: ParsedWorld; at: number }
+  v: { ledger: CampaignLedger; account: BrigadeAccount | null; win: VictoryWin | null; world: ParsedWorld; at: number; start: string | null }
 ): VictorySettle {
   const before = store.readRoar();
   const earned = v.win !== null ? roarEarn(before, v.win, v.world, v.at) : null;
   const owed = earned !== null && earned.awards.length > 0 ? earned : null;
-  const write = writeVictory(store, v.ledger, v.account, owed !== null ? owed.wallet : null);
+  const write = store.recordVictory({ ledger: v.ledger, account: v.account, roar: owed !== null ? owed.wallet : null, win: v.win, start: v.start });
   if (write !== 'saved' || owed === null) return { write, awards: [], total: 0, balance: spendable(before) };
-  return { write, awards: owed.awards, total: owed.total, balance: spendable(owed.wallet) };
+  // The balance is what the store holds AFTER the write: a server-backed store with no `start` nonce queues a victory
+  // that moves no coin (§0.48), so the local `roarEarn` must not be reported as paid. A guest's read equals `owed.wallet`.
+  const after = spendable(store.readRoar());
+  if (after <= spendable(before)) return { write, awards: [], total: 0, balance: after };
+  return { write, awards: owed.awards, total: owed.total, balance: after };
 }
 
 /* `roarBackfill` moved to @lions/economy (GH-1075 A0); see the re-export above. */

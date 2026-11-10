@@ -56,8 +56,11 @@
 import * as THREE from 'three';
 import { fbm2, valueNoise2 } from './noise';
 import { hexToUnit, hexToLinear } from './shared';
+import type { Ops } from '../fog-ops';
 import { paletteHex } from '../palette-hex';
 import { WORLD_RENDER_ORDER } from '../units/render-order';
+import { BACKDROP_HOOK_KEY } from '../material-names';
+import { legacyOf } from '../twin-identity';
 import { assembleKit, floorSurface, LOD1_BELOW_ZOOM, type BackdropPiece, type KitSource, type PlacedKit, type Taper } from './backdrop-kit';
 
 /** A map's `backdrop` block (map.schema.json), as the renderer reads it. */
@@ -441,6 +444,40 @@ export function buildBackdrop(spec: BackdropSpec, kit: LoadedBackdropKit, rim: R
   };
 }
 
+/** The `userData` key a backdrop fade material carries its three uniforms under (`BackdropFadeRecord`), for the node twin. */
+export const BACKDROP_FADE_KEY = 'rlBackdropFade';
+
+/** The fade's uniforms, `uBdBg` (linear background), `uBdSize` (map w, h in tiles) and `uBdFade` (the smoothstep edges, tiles past the map). */
+export interface BackdropFadeRecord {
+  readonly bg: { readonly value: THREE.Vector3 };
+  readonly size: { readonly value: THREE.Vector2 };
+  readonly fade: { readonly value: THREE.Vector2 };
+}
+
+/** What `backdropFadeOps` reads: the fragment's world x and z, the three uniforms, and the LIT colour. */
+export interface BackdropFadeInputs<T> {
+  readonly x: T;
+  readonly z: T;
+  readonly sizeX: T;
+  readonly sizeZ: T;
+  readonly fadeFrom: T;
+  readonly fadeTo: T;
+  readonly lit: readonly [T, T, T];
+  readonly bg: readonly [T, T, T];
+}
+
+/**
+ * The fade's fragment lines, written ONCE against `Ops<T>` (GH-943 P3 T10; the GLSL in `fadeToBackground` keeps its own text):
+ * `out = max(0, max(-xz, xz - size))` per axis, `f = smoothstep(fadeFrom, fadeTo, length(out))`, and the LIT colour mixed toward
+ * the linear background by `f`. The node twin (`backdrop.node.ts`) is handed this as a value and runs it over the lit output.
+ */
+export function backdropFadeOps<T>(o: Ops<T>, p: BackdropFadeInputs<T>): { readonly f: T; readonly rgb: readonly [T, T, T] } {
+  const zero = o.lit(0);
+  const beyond = (v: T, size: T): T => o.max(zero, o.max(o.sub(zero, v), o.sub(v, size)));
+  const f = o.smoothstep(p.fadeFrom, p.fadeTo, o.length2(beyond(p.x, p.sizeX), beyond(p.z, p.sizeZ)));
+  return { f, rgb: [o.mix(p.lit[0], p.bg[0], f), o.mix(p.lit[1], p.bg[1], f), o.mix(p.lit[2], p.bg[2], f)] };
+}
+
 /**
  * The mesh ends `M` tiles out and the camera, at minimum zoom, sees past that
  * on the near sides (the ramp lifts its own far edge up the screen), so an
@@ -451,10 +488,18 @@ export function buildBackdrop(spec: BackdropSpec, kit: LoadedBackdropKit, rim: R
  */
 function fadeToBackground(mat: THREE.MeshStandardMaterial, w: number, h: number, M: number, background: string): void {
   const bg = hexToLinear(background);
+  // GH-943 P3 (T10): the three uniforms as a RECORD on the material, made up front (they used to be made inside the compile hook), so the
+  // node twin reads the same objects the shader below binds. Vectors by reference; nothing writes them after this.
+  const record: BackdropFadeRecord = {
+    bg: { value: new THREE.Vector3(bg[0], bg[1], bg[2]) },
+    size: { value: new THREE.Vector2(w, h) },
+    fade: { value: new THREE.Vector2(M * FADE_FROM, M * FADE_TO) },
+  };
+  mat.userData[BACKDROP_FADE_KEY] = record;
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uBdBg = { value: new THREE.Vector3(bg[0], bg[1], bg[2]) };
-    shader.uniforms.uBdSize = { value: new THREE.Vector2(w, h) };
-    shader.uniforms.uBdFade = { value: new THREE.Vector2(M * FADE_FROM, M * FADE_TO) };
+    shader.uniforms.uBdBg = record.bg;
+    shader.uniforms.uBdSize = record.size;
+    shader.uniforms.uBdFade = record.fade;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vBdXZ;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n#ifdef USE_INSTANCING\n  vBdXZ = (modelMatrix * instanceMatrix * vec4(position, 1.0)).xz;\n#else\n  vBdXZ = (modelMatrix * vec4(position, 1.0)).xz;\n#endif');
@@ -465,6 +510,9 @@ function fadeToBackground(mat: THREE.MeshStandardMaterial, w: number, h: number,
         '#include <dithering_fragment>\n  {\n    vec2 bdOut = max(vec2(0.0), max(-vBdXZ, vBdXZ - uBdSize));\n    float bdF = smoothstep(uBdFade.x, uBdFade.y, length(bdOut));\n    gl_FragColor.rgb = mix(gl_FragColor.rgb, uBdBg, bdF);\n  }'
       );
   };
+  // GH-943 P3 (T1): a constant key, so the census and the twin table name the hook (`rl-backdrop-fade`, the `backdrop` slot) rather
+  // than the mesh. All five materials share the one hook source, so three already keyed them as one program: no program moves.
+  mat.customProgramCacheKey = () => BACKDROP_HOOK_KEY;
 }
 
 /** Releases what `buildBackdrop` made: the floor and kit geometry, the floor's
@@ -481,7 +529,11 @@ export function disposeBackdrop(b: Backdrop): void {
     if (o instanceof THREE.Mesh) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) {
-        if (m instanceof THREE.MeshStandardMaterial && o.name === 'backdrop-ground') m.map?.dispose();
+        // GH-943 P3 (T10): on a node boot `o.material` is the NodeMaterial TWIN, which is not a `MeshStandardMaterial`, so the floor
+        // texture is read off the LEGACY material the twin stands for (`legacyOf` is the identity on a legacy boot).
+        const legacy = legacyOf(m, o);
+        if (legacy instanceof THREE.MeshStandardMaterial && o.name === 'backdrop-ground') legacy.map?.dispose();
+        if (legacy !== m) legacy.dispose();
         m.dispose();
       }
     }

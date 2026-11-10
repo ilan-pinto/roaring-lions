@@ -8,7 +8,7 @@ describe('the accounts table map', () => {
     const found = memberTablesInMigration();
     // Excluded by name, none of them has a member_id column:
     //  - rate_day: per-day counters keyed by scope/IP hash, no member_id column (plan 0.8); the one scope keyed by the member id
-    //    ('acct-ops') is deleted by RATE_DAY_SQL in the delete batch, and delete.test.ts asserts it is gone;
+    //    ('acct-ops', 'acct-claim') are deleted by RATE_DAY_SQL in the delete batch, and delete.test.ts asserts it is gone;
     //  - flags: the lead's switches, no member;
     //  - match_record: a match, not a person; swept by MATCH_ORPHAN_SWEEP_SQL when no member seat is left.
     for (const n of ['rate_day', 'flags', 'match_record']) expect(found.has(n)).toBe(false);

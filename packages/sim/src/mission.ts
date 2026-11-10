@@ -2730,9 +2730,9 @@ export class MissionRuntime {
     // Digest sim events: contacts feed locate + first_contact; kills feed
     // veterancy progression.
     for (const e of simEvents) {
-      if (e.kind === 'fire') this.firstContact = true;
+      if (e.kind === 'fire' && this.isEnemyFire(e)) this.firstContact = true;
       if (e.kind === 'contact' && e.level === 'identified') {
-        this.firstContact = true;
+        if (this.isEnemyContact(e)) this.firstContact = true;
         // GH-707 (the lead, 22 Oct): a wounded man is the same man already spotted, so seeing
         // him pays no intel and counts toward no `locate`.
         if (e.side === 0 && this.sim.state.side[e.target] === 1 && !this.sim.isDown(e.target)) {
@@ -4166,6 +4166,33 @@ export class MissionRuntime {
       }
     }
     out.push({ kind: 'intelEarned', tick, amount: INTEL_PER_OBJECTIVE, cause: 'objective', ref: d.id, at: { x, y } });
+  }
+
+  /**
+   * `first_contact` means the two fighting sides, 0 and 1, meeting: one of them firing on the other, or one of them identifying the
+   * other. It used to be ANY `fire` and ANY identified `contact`, so a militiaman who spotted a civilian (side 2) at tick 7, or a
+   * gun truck that cut a neutral wall (or its own side's workshop) on its way somewhere at tick 1, "made first contact" before the
+   * player had met anyone, and the trigger's reply (a spawn, a commit) went off at the start of the mission. Side 2, a neutral
+   * structure and a side's own structure never count. A reveal or a pre-marked spawn (observer -1) still does, as before: it is the
+   * player's side identifying an enemy.
+   */
+  private isEnemyFire(e: Extract<SimEvent, { kind: 'fire' }>): boolean {
+    const st = this.sim.state;
+    const shooterSide = st.side[e.shooter];
+    if (shooterSide > 1) return false;
+    if (e.target >= 0) {
+      const targetSide = st.side[e.target];
+      return targetSide <= 1 && targetSide !== shooterSide;
+    }
+    const s = e.structure ?? -1;
+    if (s < 0) return false;
+    const owner = this.sim.structures.owner[s];
+    return (owner === 0 || owner === 1) && owner !== shooterSide;
+  }
+
+  private isEnemyContact(e: Extract<SimEvent, { kind: 'contact' }>): boolean {
+    const targetSide = this.sim.state.side[e.target];
+    return e.side <= 1 && targetSide <= 1 && targetSide !== e.side;
   }
 
   private stepTriggers(tick: number, out: MissionEvent[]): void {

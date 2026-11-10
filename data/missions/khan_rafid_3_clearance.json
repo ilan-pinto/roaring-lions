@@ -69,7 +69,7 @@
       { "unit": "militia_cell", "count": 1, "at": [20, 14], "group": "souk", "stance": { "kind": "garrison", "building": [20, 14] } },
       { "unit": "militia_cell", "count": 1, "at": [28, 22], "group": "souk", "stance": { "kind": "garrison", "building": [28, 22] } },
       { "unit": "rpg_team", "count": 1, "at": [24, 13], "group": "souk", "stance": { "kind": "ambush", "tiles": 3 } },
-      { "unit": "rpg_team", "count": 1, "at": [34, 15], "tag": "kr_lane_east", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "rpg_team", "count": 1, "at": [35, 14], "tag": "kr_lane_east" },
       { "unit": "atgm_cell", "count": 1, "at": [44, 27], "tag": "kr_watch", "stance": { "kind": "ambush", "tiles": 6 } },
       { "unit": "charge_squad", "count": 1, "at": [18, 5] },
       { "unit": "militia_cell", "count": 2, "at": [19, 3], "group": "store", "stance": { "kind": "garrison", "building": [19, 3] } },

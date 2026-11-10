@@ -142,6 +142,13 @@ describe.each(DEPLOYMENTS)('the service worker policy ($name)', ({ sw, base }) =
     expect(strategyFor(at('some/new/thing.bin'), GET)).toBe('passthrough');
   });
 
+  it('never caches the account API (A2-15): a stale /api/account GET would show a signed-out or old campaign', () => {
+    for (const path of ['api/account/state', 'api/account/me', 'api/account/slot/abc']) {
+      expect(strategyFor(at(path), GET), path).toBe('passthrough');
+      expect(strategyFor(at(path), NAVIGATE), path).toBe('passthrough');
+    }
+  });
+
   it('never touches the telemetry endpoint or the stats dashboard', () => {
     for (const path of ['stats', 'stats/', 'stats/api/summary', 'api/events']) {
       expect(strategyFor(at(path), GET), path).toBe('passthrough');

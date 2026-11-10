@@ -101,11 +101,13 @@ describe('the Garage credit Buy asks creditAsk (WP5)', () => {
   it('the track head says spent = credits paid for EARNED tiers: coins 2, earned 0 -> 0 spent (not 300)', () => {
     const head = (host: HTMLElement): string =>
       host.querySelector('.rl-garage__track[data-track="armour"] .rl-garage__track-spend')?.textContent ?? '';
+    // "to max" is what CREDITS still pay, the run the Buy button asks (GH-1143 follow-up): coins hold tiers 1-2, credits
+    // none, so the run is tiers 1-3 = 100 + 200 + 300 = 600, where the head used to say 300 (tier 3 alone).
     const g = garage(2);
-    expect(head(g.host)).toContain(t('garage.track.spent', { spent: 0, toMax: 300 }));
-    // earned 1, coins 2: only tier 1 was paid for in credits.
+    expect(head(g.host)).toContain(t('garage.track.spent', { spent: 0, toMax: 600 }));
+    // earned 1, coins 2: only tier 1 was paid for in credits; the run is tiers 2-3 = 200 + 300 = 500.
     const h = garage(2, account({ upgrades: { [UNIT_ID]: { armour: 1 } } }));
-    expect(head(h.host)).toContain(t('garage.track.spent', { spent: 100, toMax: 300 }));
+    expect(head(h.host)).toContain(t('garage.track.spent', { spent: 100, toMax: 500 }));
   });
 
   it('Review Focus 2, a stale ask: the coin tier moved after the draw -> landed false, account untouched', () => {

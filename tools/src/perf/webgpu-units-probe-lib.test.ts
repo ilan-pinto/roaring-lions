@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BLAST_SUBJECTS } from './blast-captures';
 import { DEBUG_LAYERS } from '../../../packages/render/src/three/debug-layers';
@@ -14,7 +17,9 @@ import {
   nodeCell,
   probeTable,
   probeVerdict,
+  notRestoredRefusals,
   repaintControlRefusals,
+  zeroObjectRefusals,
   selectSubjects,
   shaderMaterialRefusals,
   visibleShaderObjects,
@@ -107,9 +112,9 @@ describe('G3: census-hidden objects stay hidden', () => {
   it('a visible ShaderMaterial mesh is found, by isShaderMaterial and not by material.type', () => {
     // A RawShaderMaterial's `type` is "RawShaderMaterial", and three sets isShaderMaterial on both.
     const raw = { isShaderMaterial: true, type: 'RawShaderMaterial', visible: true };
-    expect(visibleShaderObjects(scene(mesh(raw, { name: 'muzzle' })))).toEqual(['muzzle']);
+    expect(visibleShaderObjects(scene(mesh(raw, { name: 'muzzle' })))).toEqual([expect.stringMatching(/^muzzle<Mesh> mat=RawShaderMaterial ro=0 n=1 \^Scene$/)]);
     const plain = { isShaderMaterial: true, type: 'ShaderMaterial', visible: true };
-    expect(visibleShaderObjects(scene(mesh(plain, { name: 'plume' })))).toEqual(['plume']);
+    expect(visibleShaderObjects(scene(mesh(plain, { name: 'plume' })))).toEqual([expect.stringMatching(/^plume</)]);
   });
 
   it('a hidden object, a hidden ancestor, a hidden material and a standard material are not visible shader objects', () => {
@@ -122,7 +127,7 @@ describe('G3: census-hidden objects stay hidden', () => {
 
   it('a material array is walked', () => {
     const sh = { isShaderMaterial: true, type: 'RawShaderMaterial' };
-    expect(visibleShaderObjects(scene(mesh([{ type: 'MeshBasicMaterial' }, sh], { name: 'two' })))).toEqual(['two']);
+    expect(visibleShaderObjects(scene(mesh([{ type: 'MeshBasicMaterial' }, sh], { name: 'two' })))).toEqual([expect.stringMatching(/^two</)]);
   });
 
   it('the refusal names the arm and the object', () => {
@@ -135,9 +140,34 @@ describe('G3: census-hidden objects stay hidden', () => {
 });
 
 describe('the other refusals', () => {
-  it('a node subject whose two zero-time repaints differ refuses; a legacy one is masked, not refused', () => {
-    expect(repaintControlRefusals([reading({ controlPx: { L: 40, F: 0, G: 3 } })])).toHaveLength(1);
-    expect(repaintControlRefusals([reading({ controlPx: { L: 40, F: 0, G: 0 } })])).toEqual([]);
+  it('a subject whose two zero-time repaints differ refuses, on the legacy arm too', () => {
+    expect(repaintControlRefusals([reading({ controlPx: { L: 0, F: 0, G: 3 } })])).toHaveLength(1);
+    const legacy = repaintControlRefusals([reading({ controlPx: { L: 40, F: 0, G: 0 } })]);
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0]).toContain('(L)');
+    expect(repaintControlRefusals([reading({ controlPx: { L: 0, F: 0, G: 0 } })])).toEqual([]);
+  });
+
+  it('a layer whose hide reported 0 objects refuses (the delta is something else\'s), whatever the delta', () => {
+    const out = zeroObjectRefusals([reading({ id: 'smoke-own', layer: 'smoke-outline', hidObjects: { L: 0, Lm: 0 } })]);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toContain('smoke-own (L)');
+    expect(zeroObjectRefusals([reading({ hidObjects: { L: 3, Lm: 3 } })])).toEqual([]);
+    expect(zeroObjectRefusals([reading()])).toEqual([]);
+  });
+
+  it('a toggle that does not restore the frame refuses', () => {
+    const out = notRestoredRefusals([reading({ id: 'wreck-lavi', layer: 'wreck-soot', notRestored: ['L', 'G'] })]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('NOT RESTORED');
+    expect(out[0]).toContain('L, G');
+    expect(notRestoredRefusals([reading({ notRestored: [] })])).toEqual([]);
+  });
+
+  it('all three are part of the run\'s refusal list', () => {
+    const bad = reading({ controlPx: { L: 5 }, hidObjects: { L: 0 }, notRestored: ['L'] });
+    const out = allRefusals('units', PROBE_SUBJECTS.units, [bad], []);
+    expect(out.filter((l) => /differ by|reported 0 objects|NOT RESTORED/.test(l))).toHaveLength(3);
   });
 
   it('a run mixing backends refuses: a fallback arm, or arms on different hardware', () => {
@@ -190,6 +220,15 @@ describe('the table', () => {
     }
   });
 
+  it('GH-943 P3 (T8): damaged-zone, route and trail are ported subjects, so their L-matched ratio is live, not pre-port', () => {
+    const row = { band: 'tight' as const, node: d(2), legacyMatched: d(2) };
+    for (const id of ['damaged-zone', 'route', 'trail']) {
+      expect(PORTED_PROBE_SUBJECTS.has(id), id).toBe(true);
+      expect(nodeCell(id, row), id).not.toContain('pre-port');
+      expect(nodeCell(id, row), id).toContain('r 1.000 in');
+    }
+  });
+
   it('one line per reading, with the header', () => {
     const t = probeTable([reading(), reading({ id: 't2' })]);
     expect(t).toHaveLength(4);
@@ -206,7 +245,7 @@ describe('the subject lists', () => {
       'moving-lavi', 'wreck-lavi', 'rain-kdf', 'wounded-squad', 'occluded', 'smoke-own', 'held-house', 'damaged-zone', 'route', 'trail', 'tunnel', 'valley',
     ]);
     const roots = new Set(PROBE_SUBJECTS.fx.map((s) => s.id.split('/')[0]));
-    expect([...roots]).toEqual(['mortar-impact', 'vehicle-death', 'smoke-screen', 'collapse', 'tracers', 'atgm', 'beam-swarm']);
+    expect([...roots]).toEqual(['mortar-impact', 'vehicle-death', 'lavi-fire', 'smoke-screen', 'collapse', 'tracers', 'atgm', 'beam-swarm']);
   });
 
   it('have unique ids and a layer the renderer knows (a layer that no longer resolves would throw in the page)', () => {
@@ -228,7 +267,7 @@ describe('the subject lists', () => {
   it('subjects on one moment share a page; different moments do not', () => {
     const groups = groupMoments(PROBE_SUBJECTS.fx);
     const mortar = groups.find((g) => g.some((s) => s.id === 'mortar-impact'));
-    expect(mortar?.map((s) => s.id)).toEqual(['mortar-impact', 'mortar-impact/muzzle-burst', 'mortar-impact/flipbook']);
+    expect(mortar?.map((s) => s.id)).toEqual(['mortar-impact', 'mortar-impact/flipbook']);
     const unitGroups = groupMoments(PROBE_SUBJECTS.units);
     expect(unitGroups.find((g) => g.some((s) => s.id === 'trail'))?.map((s) => s.id)).toEqual(['trail', 'tunnel']);
     expect(momentKey(PROBE_SUBJECTS.units[0] as never)).not.toBe(momentKey(PROBE_SUBJECTS.units[1] as never));
@@ -237,5 +276,33 @@ describe('the subject lists', () => {
   it('every fx subject has a frame-clock advance or is a tick-driven moment, and every setup is non-empty', () => {
     for (const s of all) expect(s.setup.length, s.id).toBeGreaterThan(0);
     for (const s of PROBE_SUBJECTS.fx) if (s.frameSteps !== undefined) expect(s.frameSteps.n).toBeGreaterThan(0);
+  });
+});
+
+describe('T2b: the subjects name what the renderer actually draws', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  it('the tracers subject stages a unit whose weapon class has no travelling round (flat tracer: demolition or interceptor)', () => {
+    const t = PROBE_SUBJECTS.fx.find((s) => s.id === 'tracers');
+    const unit = /__probe\.spawn\('([a-z_0-9]+)', 0/.exec((t?.setup ?? []).join('\n'))?.[1];
+    expect(unit).toBe('demo_squad');
+    const json = JSON.parse(readFileSync(join(here, '../../../data/units/kdf/demo_squad.json'), 'utf8')) as { weapons: { type: string }[] };
+    expect(json.weapons.some((w) => w.type === 'demolition')).toBe(true);
+  });
+  it('the plume subject holds the shroud hidden and reads past the first second', () => {
+    const p = PROBE_SUBJECTS.fx.find((s) => s.id === 'collapse/smoke-plume');
+    expect(p?.alsoHide).toEqual(['collapse-shroud']);
+    expect((p?.frameSteps?.n ?? 0) * (p?.frameSteps?.dtMs ?? 0)).toBeGreaterThanOrEqual(1500);
+  });
+  it('held-house waits for the garrison itself, never for a fixed tick count', () => {
+    const h = PROBE_SUBJECTS.units.find((s) => s.id === 'held-house');
+    const text = (h?.setup ?? []).join('\n');
+    expect(text).toMatch(/garrisonedIn/);
+    expect(text).not.toMatch(/step\(120\)/);
+  });
+  it('held-house and damaged-zone read a crop that keeps their animating figures out (x 426+ and x 403+ of the 1000 px frame)', () => {
+    const h = PROBE_SUBJECTS.units.find((x) => x.id === 'held-house')?.crop;
+    const d = PROBE_SUBJECTS.units.find((x) => x.id === 'damaged-zone')?.crop;
+    expect((h?.[0] ?? 0) + (h?.[2] ?? 1e9)).toBeLessThanOrEqual(426);
+    expect((d?.[0] ?? 0) + (d?.[2] ?? 1e9)).toBeLessThanOrEqual(403);
   });
 });

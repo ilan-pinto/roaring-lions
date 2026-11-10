@@ -18,6 +18,7 @@
  * the names itself.
  */
 import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
+import { STICKY_QUERY_KEYS } from './router';
 
 const BASE: string = import.meta.env.BASE_URL;
 
@@ -72,3 +73,19 @@ export const routes = {
   arenaResults: (): string => (import.meta.env.DEV ? href('/arena/results') : href('/')),
   arenaReplay: (file: string): string => (import.meta.env.DEV ? href('/arena/replay', new URLSearchParams({ game: file })) : href('/')),
 } as const;
+
+/**
+ * The menu href for a HARD reload (GH-1075 A2): `routes.menu()` plus the sticky keys copied from `search` (the current
+ * `location.search`). A router navigation carries them itself; a `location.assign` does not, and a reload that loses
+ * `?accounts` lands a signed-in device on the guest store.
+ */
+export function reloadMenuHref(search: string): string {
+  const here = new URLSearchParams(search);
+  const keep = new URLSearchParams();
+  for (const k of STICKY_QUERY_KEYS) {
+    const v = here.get(k);
+    if (v !== null) keep.set(k, v);
+  }
+  const base = routes.menu();
+  return [...keep.keys()].length > 0 ? `${base}?${keep.toString()}` : base;
+}

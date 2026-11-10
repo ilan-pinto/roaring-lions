@@ -45,6 +45,8 @@ export interface ProbeSubject {
   readonly setup: string[];
   /** fx: after `setup`, advance the FRAME clock `n` frames of `dtMs` each (no sim tick), so a moment is read at a fixed age. */
   readonly frameSteps?: { n: number; dtMs: number };
+  /** Layers held hidden on every arm for this subject (a cover that stands over the measured layer: the collapse shroud over the plume). */
+  readonly alsoHide?: string[];
   /** The debug layer whose shown-minus-hidden delta is the reading. */
   readonly layer: string;
   readonly band: BandName;
@@ -81,11 +83,15 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
       tick: 20,
       camera: { tile: FORCE, zoom: 2 },
       setup: [
+        '__probe.clearFoot([]);',
         ...aim('mbt_lavi', 0, 2, 'lv'),
         "__lions.sim.queueCommand({ kind: 'move', ids: [lv.id], x: Math.round((lv.x + 12) * 65536), y: Math.round((lv.y + 0.5) * 65536) });",
-        '__lions.step(30);',
-        'await __probe.settle(4, 50);',
-        '__probe.follow(lv.id, 2);',
+        'const x0 = __lions.sim.state.posX[lv.id] / 65536, y0 = __lions.sim.state.posY[lv.id] / 65536;',
+        '__lions.step(40);',
+        'const moved = Math.hypot(__lions.sim.state.posX[lv.id] / 65536 - x0, __lions.sim.state.posY[lv.id] / 65536 - y0);',
+        "if (moved < 1.5) throw new Error('probe: the Lavi moved only ' + moved.toFixed(2) + ' tiles');",
+        'await __probe.settle(20, 100);',
+        '__probe.follow(lv.id, 4);',
       ],
       layer: 'running-gear',
       band: 'loose',
@@ -97,6 +103,7 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
       tick: 20,
       camera: { tile: FORCE, zoom: 2.5 },
       setup: [
+        '__probe.clearFoot([]);',
         ...aim('mbt_lavi', 1, 2.5, 'lv'),
         '__lions.sim.debugKill(lv.id);',
         '__lions.step(1);',
@@ -141,14 +148,14 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
       camera: { tile: [37.5, 31], zoom: 2.5 },
       setup: [
         // Six rifle squads packed against the south-east house (x 36-39, y 30-32, the `collapse_house` of blast-captures), the camera's far
-        // side among them. Damaged, so a health bar draws too: the layer is `overlays` until T5 gives the outline its own.
+        // side among them. GH-943 P3 (T5): the layer is the outline's own (`outline`: the team and smoke silhouettes, not the bars).
         "const ids = [[35.4, 29.4], [36.6, 29.2], [37.8, 29.1], [35.2, 30.6], [35.3, 31.8], [38.4, 29.3]].map((p) => __probe.spawn('inf_squad', 0, p[0], p[1]));",
         'await __probe.meshes(ids, false);',
         '__probe.damage(ids, 0.4);',
         '__probe.follow(ids[1], 2.5);',
         'await __probe.settle(4, 50);',
       ],
-      layer: 'overlays',
+      layer: 'outline',
       band: 'tight',
     },
     {
@@ -158,10 +165,21 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
       tick: 20,
       camera: { tile: FORCE, zoom: 2.5 },
       setup: [
+        '__probe.clearFoot([]);',
         ...aim('apc_eitan', 0, 2.5, 'ap'),
-        // The hull lays a screen over itself; 60 ticks later it stands and the hull is inside it.
-        "__lions.sim.queueCommand({ kind: 'smoke', ids: [ap.id], x: Math.round((ap.x + 0.5) * 65536), y: Math.round((ap.y + 0.5) * 65536) });",
+        // The hull lays a screen three tiles east (`smoke_eitan` of blast-captures); once it stands, a Lavi of ours is put INTO it (the
+        // outline is for an own unit standing in smoke).
+        "const sx = ap.x + 3, sy = ap.y;",
+        "__lions.sim.queueCommand({ kind: 'smoke', ids: [ap.id], x: Math.round(sx * 65536), y: Math.round(sy * 65536) });",
         '__lions.step(60);',
+        "const lv = __lions.units().filter((x) => x.type === 'mbt_lavi')[0];",
+        // The densest smoke tile within four tiles of the aim point; none at all is a setup fault, named with what was found.
+        'let best = null;',
+        'for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const lvl = __lions.sim.smokeAt(Math.floor(sx) + dx, Math.floor(sy) + dy); if (lvl > 0 && (best === null || lvl > best.lvl)) best = { x: Math.floor(sx) + dx, y: Math.floor(sy) + dy, lvl }; }',
+        "if (best === null) throw new Error('probe: no smoke within 4 tiles of ' + sx + ',' + sy + ' after 60 ticks');",
+        '__lions.sim.teleport(lv.id, Math.round((best.x + 0.5) * 65536), Math.round((best.y + 0.5) * 65536));',
+        '__lions.step(2);',
+        '__probe.follow(lv.id, 2.5);',
         'await __probe.settle(4, 50);',
       ],
       layer: 'smoke-outline',
@@ -174,18 +192,29 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
       tick: 20,
       camera: { tile: [37.5, 31], zoom: 2.5 },
       setup: [
-        // Two squads put beside the south-east house, ordered in. `teleport` is the dev hook; the garrison walk itself is the sim's.
+        // Two squads spawned beside the south-east house and ordered in; the garrison walk itself is the sim's.
         "const hs = __lions.sim.structureAt(37, 31);",
         "if (hs < 0) throw new Error('probe: no structure at 37,31');",
-        "const sq = __lions.units().filter((x) => x.type === 'inf_squad').slice(0, 2);",
-        'sq.forEach((u, i) => __lions.sim.teleport(u.id, Math.round((37.5 + i) * 65536), Math.round(33.2 * 65536)));',
-        "__lions.sim.queueCommand({ kind: 'garrison', ids: sq.map((u) => u.id), structure: hs });",
-        '__lions.step(120);',
+        // Fresh squads, not the boot ones teleported: a boot squad carries its order and its gait, and two zero-time repaints of it differ
+        // (the local run: 1675 px of control at the figures). A spawn is still, like every other settled unit subject.
+        '__probe.clearFoot([]);',
+        "const sq = [0, 1].map((i) => __probe.spawn('inf_squad', 0, 37.5 + i, 33.2));",
+        'await __probe.meshes(sq, false);',
+        "__lions.sim.queueCommand({ kind: 'garrison', ids: sq, structure: hs });",
+        // Until they are INSIDE (a squad still walking is a moving figure: the frame never settles), never a fixed tick count.
+        'let k = 0;',
+        'for (; k < 800 && !sq.every((id) => __lions.sim.state.garrisonedIn[id] === hs); k += 5) __lions.step(5);',
+        "if (k >= 800) throw new Error('probe: the squads never entered structure ' + hs + ' in 800 ticks');",
+        // Then 2 s more: a figure that moved in the LAST tick is interpolated by the wall clock, so two zero-time repaints differ.
+        '__lions.step(40);',
         '__probe.goto(37.5, 31, 2.5);',
         'await __probe.settle(4, 50);',
       ],
       layer: 'garrison-banner',
       band: 'loose',
+      // The banner on the west wall. The garrisoned figures' occlusion outlines (x 426+) never settle between two zero-time repaints on
+      // this build (1569-1675 px of control in four local runs), so the reading is the banner's own rectangle, on every arm.
+      crop: [300, 100, 120, 200],
     },
     {
       id: 'damaged-zone',
@@ -195,18 +224,26 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
       camera: { tile: FORCE, zoom: 1 },
       setup: [
         // The synthesised zone sits on the midpoint of the two anchors; the damaged hull goes into it.
+        '// NEEDS_HOSTILE: the midpoint is read off both forces, so this subject keeps the hostile force on the field',
         "const f = __lions.units(0), h = __lions.units(1);",
         "const mx = (f.reduce((a, u) => a + u.x, 0) / f.length + h.reduce((a, u) => a + u.x, 0) / h.length) / 2;",
         "const my = (f.reduce((a, u) => a + u.y, 0) / f.length + h.reduce((a, u) => a + u.y, 0) / h.length) / 2;",
-        "const ap = __lions.units().filter((x) => x.type === 'apc_eitan')[0];",
-        '__lions.sim.teleport(ap.id, Math.round(mx * 65536), Math.round(my * 65536));',
-        '__probe.damage([ap.id], 0.5);',
-        '__lions.step(2);',
+        // A fresh squad on the midpoint (a boot squad teleported keeps its order and gait: 5317 px of control locally).
+        '__probe.clearFoot([]);',
+        "const ap = { id: __probe.spawn('inf_squad', 0, mx, my) };",
+        'await __probe.meshes([ap.id], false);',
+        '__probe.damage([ap.id], 0.12);',
+        // The midpoint is read; now the hostiles go (a squad that fires is a moving figure and the frame never settles).
+        '__probe.peace();',
+        '__lions.step(40);',
         '__probe.goto(mx, my, 1.4);',
         'await __probe.settle(4, 50);',
       ],
       layer: 'overlays',
       band: 'tight',
+      // The ROE zone's ribbon and the rings west of the squad: the squad's own figures (x 403+) animate between two zero-time repaints
+      // (4600-5400 px of control in four local runs), so the reading is the left of the frame, on every arm.
+      crop: [0, 0, 400, 640],
     },
     {
       id: 'route',
@@ -258,13 +295,41 @@ export const PROBE_SUBJECTS: Record<ProbeKind, ProbeSubject[]> = {
   fx: [
     // Each is a scripted moment from `blast-captures.ts` / `e6-captures.ts`, replayed by import. Subjects on one moment share a page.
     { id: 'mortar-impact', ...fxMoment('mortar_team', 'particles'), band: 'loose', frameSteps: { n: 6, dtMs: 50 } },
-    { id: 'mortar-impact/muzzle-burst', ...fxMoment('mortar_team', 'muzzle-burst'), band: 'loose', frameSteps: { n: 6, dtMs: 50 } },
     { id: 'mortar-impact/flipbook', ...fxMoment('mortar_team', 'flipbook'), band: 'loose', frameSteps: { n: 6, dtMs: 50 } },
     { id: 'vehicle-death', ...fxMoment('mbt_lavi', 'flipbook'), band: 'loose', frameSteps: { n: 16, dtMs: 50 } },
-    { id: 'vehicle-death/smoke-plume', ...fxMoment('mbt_lavi', 'smoke-plume'), band: 'loose', frameSteps: { n: 16, dtMs: 50 } },
+    // A main-gun shot: the modelled muzzle flash (`fire_apfsds`'s `mesh_flash`, 130 ms), read at the 50 ms rung of its blast subject.
+    { id: 'lavi-fire/muzzle-burst', ...fxMoment('lavi_fire', 'muzzle-burst'), band: 'loose', frameSteps: { n: 1, dtMs: 50 } },
     { id: 'smoke-screen', ...fxMoment('smoke_eitan', 'smoke-screen'), band: 'loose', frameSteps: { n: 20, dtMs: 50 } },
     { id: 'collapse', ...fxMoment('collapse_house', 'collapse-shroud'), band: 'loose', frameSteps: { n: 10, dtMs: 50 } },
-    { id: 'tracers', ...fxMoment('blast_in_firefight', 'tracers', '@firefight'), band: 'loose', frameSteps: { n: 1, dtMs: 16 } },
+    // The collapse's dust column (`structure_collapse`'s `mesh_plume`) rises over seconds and stands UNDER the 2.4 s tan shroud (the first
+    // CI round read 0 at 1.2 s): read it at 2.0 s with the shroud held hidden on every arm.
+    { id: 'collapse/smoke-plume', ...fxMoment('collapse_house', 'smoke-plume'), band: 'loose', frameSteps: { n: 40, dtMs: 50 }, alsoHide: ['collapse-shroud'] },
+    {
+      id: 'tracers',
+      map: BSO,
+      flags: [],
+      tick: 5,
+      camera: { tile: FORCE, zoom: 2.5 },
+      // The flat full-span tracer is drawn for the weapon classes with no travelling round (`shellKindFor` returns null): `interceptor` and
+      // `demolition`. Rifles and machine guns are streaks (`rifle`/`mg` shells) and no longer touch `tracers`, which the first CI round's
+      // 417 fire events and 0 tracers showed. A KDF demolition squad (`charges`, 1.5 tiles) beside two hostile militia: its charge shot
+      // is the `demolition`-class `fire` event. Tick on until a tracer is in the air.
+      setup: [
+        // The sandbox's own forces are taken off the field first: a whole task force firing at its enemy fills the frame with muzzle lights
+        // that two zero-time repaints never settle (the first local run: 225553 px of control).
+        '{ const S = __lions.sim; for (let e = 0; e < S.entityCount; e++) if (S.state.alive[e] === 1) S.removeFromPlay(e); }',
+        "const f = [0, 1].map((i) => __probe.spawn('demo_squad', 0, 7 + i * 0.6, 20 + i * 0.8));",
+        "const h = [__probe.spawn('militia_cell', 1, 8.4, 20.4), __probe.spawn('militia_cell', 1, 8.2, 21.4)];",
+        'for (let i = 0; i < 4; i++) __lions.renderer.snapshot();',
+        'let guard = 0; const kinds = {};',
+        'while (__lions.renderer.tracers.length === 0 && guard++ < 400) { const ev = __lions.sim.tick(); for (const x of ev) kinds[x.kind] = (kinds[x.kind] || 0) + 1; __lions.renderer.snapshot(); __lions.renderer.onEvents(ev); }',
+        "if (__lions.renderer.tracers.length === 0) throw new Error('probe: the exchange fired no tracer in 400 ticks; events ' + JSON.stringify(kinds) + '; units ' + JSON.stringify(__lions.units().filter((u) => [...f, ...h].includes(u.id)).map((u) => [u.type, u.side, u.x.toFixed(1), u.y.toFixed(1), u.alive])));",
+        '__probe.goto(8.5, 20.8, 2.5);',
+      ],
+      layer: 'tracers',
+      band: 'loose',
+      frameSteps: { n: 1, dtMs: 16 },
+    },
     { id: 'atgm', ...fxMoment('aps_lavi', 'missiles'), band: 'loose', frameSteps: { n: 1, dtMs: 16 } },
     {
       id: 'beam-swarm',
@@ -302,6 +367,7 @@ function TUNNEL_SETUP(): string[] {
     "const dr = __lions.units().filter((x) => x.type === 'recon_drone')[0];",
     'if (dr !== undefined) __lions.sim.teleport(dr.id, mid[0], mid[1]);',
     '__lions.step(80);',
+    '__probe.stampTrail(0);',
     '__probe.goto(mid[0] / 65536, mid[1] / 65536, 1.5);',
     'await __probe.settle(4, 50);',
   ];
@@ -321,7 +387,25 @@ function fxMoment(blastId: string, layer: string, tag = '@blast'): Pick<ProbeSub
  * Subjects whose node side is LIVE: a port task adds its subject id here in the same PR. Until then a non-DEAD node delta is labelled
  * `pre-port`. The set is read by `rowStatus` only.
  */
-export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>();
+export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
+  // GH-943 P3 (T10): the valley backdrop's fade (`terrain/backdrop.node.ts`).
+  'valley',
+  // GH-943 P3 (T3): the running gear and the wreck soot on the node unit twin.
+  'moving-lavi',
+  'wreck-lavi',
+  // GH-943 P3 (T4): the rain exposure and contrast on the KDF figure, and the wounded floor. Probe rows: batched round (P3-R11).
+  'rain-kdf',
+  'wounded-squad',
+  // GH-943 P3 (T5): the occlusion outline and the smoke outline (`units/silhouette.node.ts`).
+  'occluded',
+  'smoke-own',
+  // GH-943 P3 (T8): the overlay batch with the zone band, the supply route, the tunnel trail.
+  'damaged-zone',
+  'route',
+  'trail',
+  // GH-943 P3 (T9): the tunnel x-ray (`tunnel-xray.node.ts`). Probe rows: batched round (P3-R11).
+  'tunnel',
+]);
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // The verdict.
@@ -382,8 +466,12 @@ export interface SubjectReading {
   readonly deltas: Partial<Record<ReadingArm, ArmDelta>>;
   /** Pixels that differ between two zero-time repaints of the SHOWN state, per ARM (not per reading): L, F, G. */
   readonly controlPx: Partial<Record<ProbeArm, number>>;
-  /** Names of visible `ShaderMaterial` objects in the node frame (empty on a legacy arm), per node arm. */
+  /** Descriptions of visible `ShaderMaterial` objects in the node frame (empty on a legacy arm), per node arm: see `visibleShaderObjects`. */
   readonly visibleShaders: Partial<Record<'F' | 'G', string[]>>;
+  /** What `setDebugLayerVisible(layer, false)` reported it hid, per reading. A layer that hid 0 objects measured something else. */
+  readonly hidObjects?: Partial<Record<ReadingArm, number>>;
+  /** Readings after which showing the layer did not put the frame back (stable pixels differ from the shown baseline). */
+  readonly notRestored?: readonly ReadingArm[];
 }
 
 export const isZeroDelta = (d: ArmDelta | undefined): boolean => d === undefined || !(d.meanAbsChannelDelta > 0 || d.changedPixels > 0);
@@ -401,16 +489,36 @@ export function legacyDeltaRefusals(readings: readonly SubjectReading[]): string
     .map((r) => `${r.id}: the legacy A/B of \`${r.layer}\` read ${r.deltas.L === undefined ? 'nothing' : '0'} (the toggle moved nothing, so a ratio against it would be vacuous): fix the subject's framing, tick or setup`);
 }
 
-/** A node subject whose two zero-time repaints of one state differ is not a stable reading: the delta would contain the noise. */
+/**
+ * A subject whose two zero-time repaints of ONE state differ is not a stable reading: the delta contains the noise. Every arm, legacy
+ * included (the first version masked the L arm's unstable pixels instead, and three subjects read 17-21k px of control against deltas
+ * under 6k px).
+ */
 export function repaintControlRefusals(readings: readonly SubjectReading[]): string[] {
   const out: string[] = [];
   for (const r of readings) {
-    for (const arm of ['F', 'G'] as const) {
+    for (const arm of ['L', 'F', 'G'] as const) {
       const px = r.controlPx[arm];
-      if (px !== undefined && px > 0) out.push(`${r.id} (${arm}): two zero-time repaints of the same state differ by ${px} px`);
+      if (px !== undefined && px > 0) out.push(`${r.id} (${arm}): two zero-time repaints of the same state differ by ${px} px (the frame is not settled; the delta would contain that noise)`);
     }
   }
   return out;
+}
+
+/** A layer whose hide reported 0 objects moved a frame by something else (the casebook's "measured something else"). */
+export function zeroObjectRefusals(readings: readonly SubjectReading[]): string[] {
+  const out: string[] = [];
+  for (const r of readings) {
+    for (const [arm, n] of Object.entries(r.hidObjects ?? {})) {
+      if (n === 0) out.push(`${r.id} (${arm}): hiding \`${r.layer}\` reported 0 objects, so whatever the delta measured is not that layer`);
+    }
+  }
+  return out;
+}
+
+/** A show that does not put the frame back leaves every later reading on a perturbed scene. */
+export function notRestoredRefusals(readings: readonly SubjectReading[]): string[] {
+  return readings.filter((r) => (r.notRestored ?? []).length > 0).map((r) => `${r.id}: NOT RESTORED after the \`${r.layer}\` toggle on ${(r.notRestored ?? []).join(', ')}`);
 }
 
 /** A node frame that draws a `ShaderMaterial` object is not the node chain (Review Focus 5). */
@@ -451,23 +559,32 @@ export function emptySubjectRefusal(kind: string, subjects: readonly unknown[]):
  * The in-page walk that finds visible `ShaderMaterial` objects. A function, not a string, so a test can run it on a stub scene and the
  * driver can inject `String(visibleShaderObjects)` into the page. `isShaderMaterial` and not `material.type`: a `RawShaderMaterial`'s type
  * is `RawShaderMaterial`, and three sets `isShaderMaterial` on both. An object is visible when it and every ancestor is.
+ *
+ * Each hit is DESCRIBED so it can be triaged: `name<type> mat=<material name or type> ro=<renderOrder> n=<instance count>
+ * ^parent^chain`. An unnamed mesh is still identifiable by its material name, render order and chain.
  */
 export const visibleShaderObjects = (root: { visible?: boolean; name?: string; type?: string; material?: unknown; children?: unknown[] }): string[] => {
+  type N = { visible?: boolean; name?: string; type?: string; material?: unknown; children?: unknown[]; renderOrder?: number; count?: number };
   const out: string[] = [];
-  const walk = (o: { visible?: boolean; name?: string; type?: string; material?: unknown; children?: unknown[] }, parentVisible: boolean): void => {
+  const walk = (o: N, parentVisible: boolean, chain: string): void => {
     const visible = parentVisible && o.visible !== false;
     if (!visible) return;
+    const label = o.name !== undefined && o.name !== '' ? o.name : (o.type ?? 'object');
     const m = o.material as unknown;
     if (m !== undefined && m !== null) {
       const list = Array.isArray(m) ? m : [m];
       for (const x of list) {
-        const mat = x as { isShaderMaterial?: boolean; visible?: boolean } | null;
-        if (mat !== null && mat.isShaderMaterial === true && mat.visible !== false) out.push(o.name !== undefined && o.name !== '' ? o.name : (o.type ?? 'object'));
+        const mat = x as { isShaderMaterial?: boolean; visible?: boolean; name?: string; type?: string } | null;
+        if (mat !== null && mat.isShaderMaterial === true && mat.visible !== false) {
+          const matName = mat.name !== undefined && mat.name !== '' ? mat.name : (mat.type ?? 'material');
+          out.push(`${label}<${o.type ?? 'object'}> mat=${matName} ro=${o.renderOrder ?? 0} n=${o.count ?? 1}${chain === '' ? '' : ' ^' + chain}`);
+        }
       }
     }
-    for (const c of o.children ?? []) walk(c as typeof o, visible);
+    const next = chain === '' ? label : label + '^' + chain;
+    for (const c of o.children ?? []) walk(c as N, visible, next);
   };
-  walk(root, true);
+  walk(root, true, '');
   return out;
 };
 
@@ -534,5 +651,12 @@ export function probeTable(readings: readonly SubjectReading[]): string[] {
 export function allRefusals(kind: string, subjects: readonly unknown[], readings: readonly SubjectReading[], backends: readonly BackendReading[]): string[] {
   const empty = emptySubjectRefusal(kind, subjects);
   if (empty !== null) return [empty];
-  return [...mixedBackendRefusals(backends), ...legacyDeltaRefusals(readings), ...repaintControlRefusals(readings), ...shaderMaterialRefusals(readings)];
+  return [
+    ...mixedBackendRefusals(backends),
+    ...legacyDeltaRefusals(readings),
+    ...repaintControlRefusals(readings),
+    ...zeroObjectRefusals(readings),
+    ...notRestoredRefusals(readings),
+    ...shaderMaterialRefusals(readings),
+  ];
 }

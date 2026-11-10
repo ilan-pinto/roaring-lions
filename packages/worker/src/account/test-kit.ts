@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { D1Like, D1Stmt, Env, RateLimiter } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { memoryKV } from './kv';
-import { handleAccount, type AccountDeps } from './routes';
+import { handleAccount, type AccountCtx, type AccountDeps } from './routes';
 import { createSession } from './session';
 import { SESSION_COOKIE } from './config';
 import { sha256Hex } from './crypto';
@@ -84,24 +84,40 @@ export function steamStub(opts: { valid?: boolean; down?: boolean; status?: numb
   };
 }
 
-/** A D1 whose `batch()` that carries an `account_op` insert waits until `n` lookups of `account_op` have run, so `n`
- *  requests with one op id all miss the lookup before any of them writes. Tests only. */
-export function racingD1<T extends D1Like>(db: T, n: number): T {
-  let lookups = 0;
+/** A D1 whose `batch()` that carries an `account_op` insert waits until `n` reads matching `match` (default
+ *  `/FROM account_op/`) have run, so `n` requests all read before any of them writes. `opened()` says the gate opened:
+ *  a race test asserts it, so a build that stops reading does not make the race pass vacuously. With `arrivals`, the
+ *  gate opens instead when `n` such batches are WAITING at it: every request has built from its own read and none has
+ *  written, however many reads each build takes. Tests only. */
+export function racingD1<T extends D1Like>(db: T, n: number, opts: { match?: RegExp; arrivals?: boolean } = {}): T & { opened(): boolean } {
+  const match = opts.match ?? /FROM account_op/;
+  let reads = 0;
+  let waiting = 0;
+  let open = false;
   let release: () => void = () => undefined;
   const gate = new Promise<void>((r) => { release = r; });
   const sqlOf = new WeakMap<D1Stmt, string>();
   const wrap = (s: D1Stmt, sql: string): D1Stmt => {
+    const seen = () => {
+      if (match.test(sql)) {
+        reads++;
+        if (opts.arrivals !== true && reads >= n) {
+          open = true;
+          release();
+        }
+      }
+    };
     const out: D1Stmt = {
       bind: (...v) => wrap(s.bind(...v), sql),
       run: () => s.run(),
-      all: <R>() => s.all<R>(),
+      all: async <R>() => {
+        const rows = await s.all<R>();
+        seen();
+        return rows;
+      },
       first: async <R>() => {
         const row = await s.first<R>();
-        if (/FROM account_op/.test(sql)) {
-          lookups++;
-          if (lookups >= n) release();
-        }
+        seen();
         return row;
       },
     };
@@ -112,8 +128,41 @@ export function racingD1<T extends D1Like>(db: T, n: number): T {
     ...db,
     prepare: (sql: string) => wrap(db.prepare(sql), sql),
     batch: async (ss: D1Stmt[]) => {
-      if (ss.some((s) => /INSERT INTO account_op/.test(sqlOf.get(s) ?? ''))) await gate;
+      if (ss.some((s) => /INSERT INTO account_op/.test(sqlOf.get(s) ?? ''))) {
+        waiting++;
+        if (opts.arrivals === true && waiting >= n) {
+          open = true;
+          release();
+        }
+        await gate;
+      }
       return db.batch(ss);
+    },
+    opened: () => open,
+  };
+}
+
+/** A D1 whose `batch()` throws, from inside the batch, when its first statement matching `match` is reached: the
+ *  statements before it have run, so the real database's rollback is what the test then checks. Tests only. */
+export function failingD1<T extends D1Like>(db: T, match: RegExp): T {
+  const sqlOf = new WeakMap<D1Stmt, string>();
+  const wrap = (s: D1Stmt, sql: string): D1Stmt => {
+    const out: D1Stmt = { ...s, bind: (...v) => wrap(s.bind(...v), sql) };
+    sqlOf.set(out, sql);
+    return out;
+  };
+  return {
+    ...db,
+    prepare: (sql: string) => wrap(db.prepare(sql), sql),
+    batch: (ss: D1Stmt[]) => {
+      let hit = false;
+      const mapped = ss.map((s): D1Stmt => {
+        const sql = sqlOf.get(s) ?? '';
+        if (hit || !match.test(sql)) return s;
+        hit = true;
+        return { ...s, run: () => Promise.reject(new Error(`injected failure at: ${sql.slice(0, 60)}`)) };
+      });
+      return db.batch(mapped);
     },
   };
 }
@@ -155,6 +204,8 @@ export async function seedFullMember(db: D1Like, now: number): Promise<{ memberI
   await run("INSERT INTO device_claim VALUES ('m1','dev1',?1,'{}')", now);
   await run("INSERT INTO rate_day VALUES ('acct-ops', 'm1', 1, 3)");
   await run("INSERT INTO rate_day VALUES ('acct-ops', 'n1', 1, 3)");
+  await run("INSERT INTO rate_day VALUES ('acct-claim', 'm1', 1, 2)");
+  await run("INSERT INTO rate_day VALUES ('acct-claim', 'n1', 1, 2)");
   await run("INSERT INTO account_op VALUES ('m1','op1','profile.patch',?1,'{}')", now);
   await run("INSERT INTO auth_challenge VALUES ('chal1','steam-link','m1','pre1',?1)", now + 300_000);
   for (const code of ['SHARED', 'SOLO']) {
@@ -167,4 +218,55 @@ export async function seedFullMember(db: D1Like, now: number): Promise<{ memberI
   const s = await createSession(db, 'm1', now);
   await db.batch(s.statements);
   return { memberId: 'm1', idHash, cookie: `${SESSION_COOKIE}=${s.token}` };
+}
+
+/** A member `id` with a profile, an empty wallet (valid JSON) and a fresh session; returns its cookie. */
+export async function seedWalletMember(db: D1Like, id: string, now: number, opts: { free?: number } = {}): Promise<{ memberId: string; cookie: string }> {
+  const run = (sql: string, ...v: unknown[]) => db.prepare(sql).bind(...v).run();
+  await run('INSERT INTO member (id, public_id, id_hash, user_handle, created_at, last_seen_day) VALUES (?1, ?2, ?3, ?4, ?5, 0)', id, `PUB-${id}`, `hash-${id}`, `uh-${id}`, now);
+  await run('INSERT INTO profile (member_id, display_name, show_record, updated_at) VALUES (?1, ?2, 0, ?3)', id, 'Callsign', now);
+  const empty = '{"welcomed":false,"campaignDone":false,"backfilled":false,"missions":{}}';
+  await run(
+    "INSERT INTO wallet (member_id, free, earn, earn_lifetime, entitlements, updated_at) VALUES (?1, ?2, ?3, ?3, '{\"units\":{},\"upgrades\":{}}', ?4)",
+    id, opts.free ?? 0, empty, now,
+  );
+  if ((opts.free ?? 0) > 0) {
+    await run("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES (?1, ?2, 'claim', ?3, '{}', 'seed')", id, now, opts.free);
+  }
+  const s = await createSession(db, id, now);
+  await db.batch(s.statements);
+  return { memberId: id, cookie: `${SESSION_COOKIE}=${s.token}` };
+}
+
+/** A `claim` journal row carrying `detail.coupons` (Task 2.7 writes this shape), with the wallet raised to match so
+ *  the journal still balances. Tests only: no production path writes the journal outside coin.ts. */
+export async function seedClaimCoupons(db: D1Like, memberId: string, now: number, coupons: { id: string; credited: number; capped: boolean }[], kind: 'claim' | 'backfill' = 'claim'): Promise<void> {
+  const total = coupons.reduce((n, c) => n + c.credited, 0);
+  await db.batch([
+    db.prepare("UPDATE wallet SET free = free + ?2, revision = revision + 1 WHERE member_id = ?1").bind(memberId, total),
+    db.prepare("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").bind(memberId, now, kind, total, JSON.stringify({ coupons }), `seed-${kind}-${now}-${coupons.length}`),
+  ]);
+}
+
+/** A handler context for calling `budgetedOp` and the writers directly, with no route in between. */
+export function ctxFor(env: Env, now: number): AccountCtx {
+  return {
+    req: new Request(TEST_ORIGIN + '/api/account/test'),
+    env,
+    now,
+    deps: { fetch: async () => new Response('no', { status: 500 }) },
+    path: 'test',
+    params: {},
+  };
+}
+
+/** A harness whose handler can be pointed at a wrapped database (failing or racing) after construction. With a
+ *  `clock`, a non-zero `clock.t` replaces the harness's `now` (a test moves time by writing it). Tests only. */
+export function swappableHarness(now: number, clock?: { t: number }) {
+  let over: D1Like | null = null;
+  const h = accountHarness({
+    now,
+    handler: (req, env, at) => handleAccount(req, over === null ? env : { ...env, ACCOUNTS: over }, (clock?.t ?? 0) || at, undefined),
+  });
+  return { h, use: (d: D1Like | null) => { over = d; } };
 }

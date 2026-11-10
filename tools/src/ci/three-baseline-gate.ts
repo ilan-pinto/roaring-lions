@@ -120,6 +120,7 @@ import {
   threeUrl,
   captureScript,
   layerToggleScript,
+  matchNodeSettleScript,
   repaintScriptFor,
   type CaptureScriptOptions,
   SCENARIOS,
@@ -344,7 +345,22 @@ async function runSelfChecks(
   // milliseconds, so this is the same picture drawn twice.
   const shownPng = path.join(dir, 'layer-shown.png');
   await rephotograph(page, repaintScriptFor(arm), shownPng, captured.rect);
-  const control = computeDiff(capturedPng, shownPng, {
+  // The legacy-matched arm settles its census once more and re-photographs, so the control (and every toggle below, which re-runs the
+  // census) is measured against the same state: see `matchNodeSettleScript`. Other arms compare against the capture itself.
+  let controlRef = capturedPng;
+  let settleNote = '';
+  if (scriptOpts.matchNodeRoot !== undefined) {
+    controlRef = path.join(dir, 'current-matched.png');
+    // Run once by hand first to NAME what this census meets for the first time after the capture (kind|key|objects): the open
+    // question behind the offset (R9, T4 review). The photograph below re-runs it, which finds nothing new.
+    const settled = JSON.parse((await page.evaluate(matchNodeSettleScript(scriptOpts.matchNodeRoot))) as string) as {
+      found: { kind: string; key: string; objects: number }[];
+    };
+    settleNote = `match-node settle: the census found ${settled.found.map((h) => `${h.kind}|${h.key}|${h.objects}`).join(', ') || 'nothing'}`;
+    await rephotograph(page, matchNodeSettleScript(scriptOpts.matchNodeRoot), controlRef, captured.rect);
+    await rephotograph(page, repaintScriptFor(arm), shownPng, captured.rect);
+  }
+  const control = computeDiff(controlRef, shownPng, {
     outDir: dir,
     diffFileName: 'diff-repaint-control.png',
     threshold: PIXELMATCH_THRESHOLD,
@@ -357,6 +373,7 @@ async function runSelfChecks(
   const controlMaxMean = spec.repaintControl?.maxMeanAbsChannelDelta ?? REPAINT_CONTROL_MAX_MEAN_DELTA;
   const controlOk =
     control.diffPixels <= controlMaxPixels && control.meanAbsChannelDelta <= controlMaxMean;
+  if (settleNote !== '') lines.push(settleNote);
   lines.push(
     `repaint-control: a zero-time repaint moved ${control.diffPixels} px / ` +
       `${control.meanAbsChannelDelta.toFixed(4)} (budget <=${controlMaxPixels} px / ` +
@@ -467,6 +484,8 @@ async function main(): Promise<void> {
     // environment read as "no baseline", which is exactly the report-only mode every node arm runs in.
     args.baselineDir = path.join(args.outDir, 'no-baseline-for-match-node');
   }
+  // R9: a node arm re-runs its census after every layer toggle, so a re-shown ShaderMaterial object (the decal pools) is hidden again.
+  if (arm !== 'legacy') scriptOpts = { nodeCensusRoot: REPO_ROOT };
   if (args.bless && arm !== 'legacy') {
     console.error(
       `[${TAG}] refusing to bless the ${arm} arm: the node backends have NO baselines in P0 (GH-943). Their first blesses go through the ` +

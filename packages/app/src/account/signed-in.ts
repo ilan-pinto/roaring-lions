@@ -6,7 +6,8 @@ export type SignedInResult =
   | { kind: 'signedIn'; me: MeResult }
   | { kind: 'guest' }
   | { kind: 'deleted' }
-  | { kind: 'signedOut'; publicId: string };
+  /** `off`: the server did not answer (offline), so the 401 is not known; the binding is kept either way. */
+  | { kind: 'signedOut'; publicId: string; off?: boolean };
 
 export async function sha256Hex(text: string): Promise<string> {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
@@ -16,7 +17,9 @@ export async function sha256Hex(text: string): Promise<string> {
 export async function resolveSignedIn(client: AccountClient, store: StorageLike | null): Promise<SignedInResult> {
   const me = await client.me();
   if (me.kind === 'signedIn') {
-    writeBinding(store, { version: 1, publicId: me.publicId });
+    // The same member keeps the device id and the claim mark; a different member starts clean (§0.31).
+    const bound = readBinding(store);
+    writeBinding(store, bound !== null && bound.publicId === me.publicId ? { ...bound, publicId: me.publicId } : { version: 1, publicId: me.publicId });
     return { kind: 'signedIn', me };
   }
   const bound = readBinding(store);
@@ -26,5 +29,5 @@ export async function resolveSignedIn(client: AccountClient, store: StorageLike 
     clearBinding(store);
     return { kind: 'deleted' };
   }
-  return { kind: 'signedOut', publicId: bound.publicId };
+  return me.kind === 'off' ? { kind: 'signedOut', publicId: bound.publicId, off: true } : { kind: 'signedOut', publicId: bound.publicId };
 }

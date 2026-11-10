@@ -26,6 +26,7 @@ import { emblemSvg } from './kit-emblems';
 import { nextTierPrice, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
 import { t } from '../i18n/t';
 import type { CreditAsk } from '../upgrade-pay';
+import { blockText, type CreditBlock } from './spend-gate';
 import { previewDeltas } from './garage-stats';
 import { formatBenefit, upgradeBenefits, type BenefitLine } from './upgrade-benefit';
 
@@ -61,8 +62,14 @@ export interface TrackSummary {
 }
 
 /** `spent` is credits actually PAID: only the tiers the account earned (`earned`, default `owned`), never a tier
- *  the coin path holds, which cost coins. `toMax` and `next` follow `owned`, the single-player tier. */
-export function trackSummary(track: UpgradeTrack, owned: number, earned: number = owned): TrackSummary {
+ *  the coin path holds, which cost coins. `next` follows `owned`, the single-player tier.
+ *
+ *  `toMax` is what credits still have to pay to reach the top. With the credit Buy's run (`ask`, `creditAsk`) it is the
+ *  tiers `ask.from ... length`: a credit Buy fills the EARNED path, so a tier only the coins hold is paid again, and the
+ *  figure the board states is the one the Buy button prices (GH-1143's follow-up: coins own tiers 1-2, credits none,
+ *  tier 3 asks tiers 1-3, not tier 3 alone). Without an ask (a read-only board, or a caller from before the run) it is
+ *  the tiers above `owned`, as it always was. */
+export function trackSummary(track: UpgradeTrack, owned: number, earned: number = owned, ask?: CreditAsk | null): TrackSummary {
   const length = track.tiers.length;
   const clamped = Math.min(Math.max(owned, 0), length);
   const paid = Math.min(Math.max(earned, 0), clamped);
@@ -73,6 +80,10 @@ export function trackSummary(track: UpgradeTrack, owned: number, earned: number 
     if (i < paid) spent += tier.price;
     if (i >= clamped) toMax += tier.price;
   });
+  if (ask !== undefined && ask !== null) {
+    toMax = 0;
+    for (let t = ask.from; t <= length; t++) toMax += track.tiers[t - 1].price;
+  }
   return { owned: clamped, length, spent, toMax, next: clamped < length ? clamped + 1 : null };
 }
 
@@ -123,6 +134,9 @@ export interface TrackDeps {
      *  Buy off `owned`, the shape every caller had before the run (R0.1, R3). */
     readonly ask?: CreditAsk | null;
     readonly onBuy: (tier: number, price: number, asked: string) => void;
+    /** Signed in (GH-1142, §0.39): why the Buy is held although the credits cover it (`spend-gate.ts`); drawn disabled with
+     *  that reason. Absent for a guest. */
+    readonly block?: CreditBlock | null;
   };
   /** F7: the unit is not in the brigade -- never unlocked, or re-locked by a
    *  gate it no longer clears -- so this track is read-only. Tiers it owns
@@ -178,7 +192,7 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   // mark and a kit total that all read the account and said otherwise.
   const locked = deps.locked === true;
 
-  const summary = trackSummary(track, deps.owned, deps.earned);
+  const summary = trackSummary(track, deps.owned, deps.earned, deps.buy?.ask);
 
   const trackWrap = el('div', 'rl-garage__track');
   trackWrap.dataset.track = trackName;
@@ -338,8 +352,14 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
           // Named by the TRACK, not the tier, so the next tier's Buy after a
           // purchase answers to the same key and `restoreFocus` finds it.
           buy.dataset.focusKey = `buy:${trackName}`;
-          buy.disabled = credits < price;
+          const block = deps.buy.block ?? null;
+          buy.disabled = credits < price || block !== null;
+          if (block !== null) {
+            buy.title = blockText(block);
+            buy.dataset.block = block;
+          }
           buy.addEventListener('click', () => {
+            if (buy.disabled) return;
             buy.disabled = true; // one purchase per render; the caller's answer redraws
             onBuy(tier, price, `buy:${trackName}`);
           });

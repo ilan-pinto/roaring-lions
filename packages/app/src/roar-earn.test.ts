@@ -196,7 +196,7 @@ describe('G-E3: a save slot earns nothing, and a win pays by its own run', () =>
     const ledger = { ...full, 'campaign.completed_missions': ids.slice(0, -1) } as CampaignLedger;
     writeActive(s, { ledger, account, tutorialDone: true });
     // The ledger now says 3 stars on every mission; this RUN earns 1.
-    const settle = settleVictory(s, { ledger: s.readLedger() as CampaignLedger, account: null, win: { missionId: ids[0], stars: 1, ledger: s.readLedger() }, world, at: 1 });
+    const settle = settleVictory(s, { ledger: s.readLedger() as CampaignLedger, account: null, win: { missionId: ids[0], stars: 1, ledger: s.readLedger() }, world, at: 1, start: null });
     expect(settle.write).toBe('saved');
     expect(settle.total).toBe(100 + 10 + 5);
     expect(s.readRoar().earn.missions[ids[0]]).toEqual({ won: true, stars: 1 });
@@ -212,7 +212,7 @@ describe('G-E4: coins never move credits', () => {
     const s = memoryLedgerStore();
     s.writeAccount(before());
     expect(s.readAccount().balance).toBe(200); // the fixture is one the door keeps
-    const settle = settleVictory(s, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: after(), win: win(0, 2), world, at: 1 });
+    const settle = settleVictory(s, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: after(), win: win(0, 2), world, at: 1, start: null });
     expect(settle.total).toBe(120);
     expect(s.readAccount().balance).toBe(380);
     expect(s.readAccount().earned_total).toBe(380);
@@ -224,7 +224,7 @@ describe('G-E4: coins never move credits', () => {
     const s = memoryLedgerStore();
     s.writeAccount(before());
     const bytes = s.raw(ACCOUNT_KEY);
-    const settle = settleVictory(s, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 3), world, at: 1 });
+    const settle = settleVictory(s, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 3), world, at: 1, start: null });
     expect(settle.total).toBe(125);
     expect(s.raw(ACCOUNT_KEY)).toBe(bytes);
   });
@@ -235,10 +235,17 @@ describe('settling a victory', () => {
 
   it('a mission that pays no coins writes no wallet', () => {
     const s = memoryLedgerStore();
-    const settle = settleVictory(s, { ledger: ledgerOf([]) as CampaignLedger, account: null, win: tutorial, world, at: 1 });
+    const settle = settleVictory(s, { ledger: ledgerOf([]) as CampaignLedger, account: null, win: tutorial, world, at: 1, start: null });
     expect(settle).toEqual({ write: 'saved', awards: [], total: 0, balance: 0 });
     expect(s.raw(ROAR_KEY)).toBeNull();
-    expect(settleVictory(s, { ledger: ledgerOf([]) as CampaignLedger, account: null, win: null, world, at: 2 }).awards).toEqual([]);
+    expect(settleVictory(s, { ledger: ledgerOf([]) as CampaignLedger, account: null, win: null, world, at: 2, start: null }).awards).toEqual([]);
+  });
+
+  it('a store that saves the win but moves no coin (a server store with no start nonce) reports no award', () => {
+    const inner = memoryLedgerStore();
+    const s: LedgerStore = { ...inner, recordVictory: () => 'saved' };
+    const settle = settleVictory(s, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 2), world, at: 1, start: null });
+    expect(settle).toEqual({ write: 'saved', awards: [], total: 0, balance: 0 });
   });
 
   it('a refused write earns nothing and reads the balance as it was', () => {
@@ -252,21 +259,21 @@ describe('settling a victory', () => {
         throw new Error('QuotaExceededError');
       },
     };
-    const settle = settleVictory(refusing, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 3), world, at: 1 });
+    const settle = settleVictory(refusing, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 3), world, at: 1, start: null });
     expect(settle).toEqual({ write: 'refused', awards: [], total: 0, balance: 40 });
     expect(base.raw(ROAR_KEY)).toBe(before);
     error.mockRestore();
   });
 
   it('a blocked store is its own answer and pays nothing', () => {
-    const settle = settleVictory(memoryLedgerStore.blocked(), { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 3), world, at: 1 });
+    const settle = settleVictory(memoryLedgerStore.blocked(), { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 3), world, at: 1, start: null });
     expect(settle).toEqual({ write: 'unavailable', awards: [], total: 0, balance: 0 });
   });
 
   it('two wins in a row accumulate in the stored wallet, through the door', () => {
     const s = memoryLedgerStore();
-    settleVictory(s, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 2), world, at: 1 });
-    const second = settleVictory(s, { ledger: ledgerOf([ids[0], ids[1]]) as CampaignLedger, account: null, win: win(1, 3), world, at: 2 });
+    settleVictory(s, { ledger: ledgerOf([ids[0]]) as CampaignLedger, account: null, win: win(0, 2), world, at: 1, start: null });
+    const second = settleVictory(s, { ledger: ledgerOf([ids[0], ids[1]]) as CampaignLedger, account: null, win: win(1, 3), world, at: 2, start: null });
     expect(second.balance).toBe(120 + 10 + 15);
     expect(s.readRoar().coins.free).toBe(145);
   });
@@ -307,7 +314,7 @@ describe('GH-317: the back-payment for a wallet that already exists', () => {
 
   it('main.ts settles at boot, right after building the store', () => {
     const src = readFileSync(resolve(__dirname, 'main.ts'), 'utf8');
-    expect(src).toMatch(/const ledgerStore = browserLedgerStore\([^;]*;\s*(\/\/[^\n]*\n\s*)*settleRoarAtBoot\(ledgerStore\);/);
+    expect(src).toMatch(/let ledgerStore: LedgerStore = selectedStore\.store;\s*(\/\/[^\n]*\n\s*)*settleRoarAtBoot\(ledgerStore\);/);
   });
 
   it('a wallet with the marker set pays 0', () => {

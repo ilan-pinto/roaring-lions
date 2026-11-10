@@ -2,6 +2,9 @@
  * The ONLY file under packages/app/src that names the account API (a source scan pins that). With the client
  * disabled no method calls `fetch` (GH-1075 A1, A1-11).
  */
+import type { CampaignView, ClaimBody, ClaimResult, CoinAskWire, ConflictAnswer, EarnAward, SaveSlot, ServerState, SlotMetaView, WalletView } from '@lions/economy';
+import type { OutboxOp } from './outbox';
+
 export interface IdentityView {
   id: string;
   provider: string;
@@ -21,6 +24,33 @@ export type MeResult =
   | { kind: 'signedOut' }
   | { kind: 'off' };
 
+/** The A2 routes' answers (GH-1075 A2): a 200 with its body, or any other status with whatever the server said. Network failure is status 0. */
+export type CallResult<T> = { ok: true; status: 200; body: T } | { ok: false; status: number; body: unknown };
+
+export interface VictoryAnswer {
+  coins: number;
+  awards: EarnAward[];
+  wallet: WalletView;
+  campaign: CampaignView | { revision: number; digest: string } | null;
+  conflict?: ConflictAnswer;
+}
+export interface CouponAnswer {
+  result: 'ok' | 'unknown' | 'used';
+  ids: string[];
+  coins: number;
+  credits: number;
+  wallet: WalletView;
+  campaign: CampaignView | { revision: number; digest: string } | null;
+}
+export interface ResetFreeAnswer {
+  wallet: WalletView;
+  campaign: CampaignView | { revision: number; digest: string } | null;
+}
+export type CampaignOp = Extract<OutboxOp, { kind: 'campaign' }>;
+export type VictoryOp = Extract<OutboxOp, { kind: 'victory' }>;
+export type SlotPutOp = Extract<OutboxOp, { kind: 'slot.put' }>;
+export type SlotDeleteOp = Extract<OutboxOp, { kind: 'slot.delete' }>;
+
 export interface AccountClient {
   enabled: boolean;
   open(): Promise<boolean>;
@@ -33,6 +63,18 @@ export interface AccountClient {
   exportData(): Promise<Blob | AccountError>;
   deleteAccount(o: { telemetryPlayer?: string }): Promise<'ok' | AccountError>;
   gone(idHash: string): Promise<'deleted' | 'unknown'>;
+  // The A2 routes. `base` is the campaign revision at SEND time, never at queue time.
+  state(): Promise<CallResult<ServerState>>;
+  slot(id: string): Promise<CallResult<{ slot: SlotMetaView; body: SaveSlot }>>;
+  missionStart(missionId: string): Promise<CallResult<{ start: string; missionId: string; at: number }>>;
+  victory(op: VictoryOp, base: number): Promise<CallResult<VictoryAnswer>>;
+  putCampaign(op: CampaignOp, base: number): Promise<CallResult<{ campaign: CampaignView | { revision: number; digest: string } }>>;
+  spend(ask: CoinAskWire): Promise<CallResult<{ wallet: WalletView }>>;
+  coupon(code: string): Promise<CallResult<CouponAnswer>>;
+  resetFree(): Promise<CallResult<ResetFreeAnswer>>;
+  putSlot(op: SlotPutOp): Promise<CallResult<{ slot: SlotMetaView }>>;
+  deleteSlot(op: SlotDeleteOp): Promise<CallResult<{ ok: true }>>;
+  claim(body: ClaimBody): Promise<CallResult<ClaimResult>>;
 }
 
 /** The `r=` codes `steam/return` appends to the profile path (plan section 0, ruling 12). */
@@ -81,6 +123,22 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
     const r = await okOrError('POST', path);
     return goneIsOk && r !== 'ok' && r.status === 401 ? 'ok' : r;
   }
+  async function result<T>(method: string, path: string, body?: unknown): Promise<CallResult<T>> {
+    if (!o.enabled) return { ok: false, status: 0, body: { error: 'off' } };
+    try {
+      const res = await call(method, path, body);
+      let parsed: unknown = null;
+      try {
+        parsed = await res.json();
+      } catch {
+        /* a non-JSON body is null */
+      }
+      return res.status === 200 ? { ok: true, status: 200, body: parsed as T } : { ok: false, status: res.status, body: parsed };
+    } catch {
+      return { ok: false, status: 0, body: { error: 'network' } };
+    }
+  }
+  const slotPath = (id: string): string => `slots/${encodeURIComponent(id)}`;
   return {
     enabled: o.enabled,
     async open() {
@@ -132,6 +190,18 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
       }
     },
     deleteAccount: (a) => okOrError('POST', 'delete', a.telemetryPlayer === undefined ? {} : { telemetryPlayer: a.telemetryPlayer }),
+    state: () => result('GET', 'state'),
+    slot: (id) => result('GET', slotPath(id)),
+    missionStart: (missionId) => result('POST', 'mission/start', { op_id: o.newOpId(), missionId }),
+    victory: (op, base) => result('POST', 'victory', { op_id: op.opId, missionId: op.missionId, stars: op.stars, start: op.start, base, campaign: op.campaign }),
+    putCampaign: (op, base) => result('PUT', 'campaign', { op_id: op.opId, base, ...op.campaign }),
+    spend: (ask) => result('POST', 'spend', { op_id: o.newOpId(), ...ask }),
+    coupon: (code) => result('POST', 'coupon', { op_id: o.newOpId(), code }),
+    resetFree: () => result('POST', 'reset-free', { op_id: o.newOpId() }),
+    putSlot: (op) =>
+      result('PUT', slotPath(op.slotId), { op_id: op.opId, name: op.slot.name, savedAt: op.slot.savedAt, build: op.slot.build, body: op.slot, origin: op.origin }),
+    deleteSlot: (op) => result('DELETE', slotPath(op.slotId), { op_id: op.opId }),
+    claim: (body) => result('POST', 'claim', body),
     async gone(idHash) {
       if (!o.enabled) return 'unknown';
       try {

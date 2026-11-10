@@ -13,8 +13,8 @@
  * room closes itself two minutes after both seats have reported it. That
  * ending (`over`) is no result of its own -- the panel is already up.
  */
-import { doctrines, units } from '@lions/data';
-import { endingLoser, matchCapTicks, matchCapTicksOf, type MatchConfig, type Seat, type WinMode } from '@lions/net';
+import { FLAG_BACKSTOP_MINUTES, doctrines, units } from '@lions/data';
+import { endingLoser, flagSetupRoom, matchCapTicks, matchCapTicksOf, type MatchConfig, type Seat, type WinMode } from '@lions/net';
 import { isHashTick } from './frame-step';
 
 /** Each side's surviving force value, by SIDE (index 0 is side 0). */
@@ -312,11 +312,32 @@ export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string
  *  hash sent on that tick covers the state the decision was read from. The
  *  cap is measured on the sim's own tick count. Null while it is ongoing,
  *  on any other tick, and without a room. */
-export function hashTickOutcome(frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction, goals?: OutcomeGoals): MatchResult | null {
+export function hashTickOutcome(frameTick: number, config: MatchConfig | null, sim: OutcomeSimAt, production?: OutcomeProduction, goals?: OutcomeGoals): MatchResult | null {
   if (!isHashTick(frameTick, config)) return null;
   // The cap is the ROOM's (GH-913 L8, GH-976 R0.8): 25 minutes, the longer one its map's rules file declares, or 30 in a flag set-up room.
-  const o = outcomeOf(sim, sim.tickCount, unitCost, production, (config === null ? matchCapTicks(undefined) : matchCapTicksOf(config)), goals);
+  const cap = config === null ? matchCapTicks(undefined) : matchCapTicksOf(config);
+  // GH-976 WP6a: a flag set-up room is decided on standing-force value 12 minutes after the bell, the cap's own rule held earlier.
+  const stop = flagBackstopTick(config, sim);
+  const o = outcomeOf(sim, sim.tickCount, unitCost, production, stop === null ? cap : Math.min(cap, stop), goals);
   return o.kind === 'ongoing' ? null : o;
+}
+
+/** `FLAG_BACKSTOP_MINUTES` in 20 Hz ticks. */
+export const FLAG_BACKSTOP_TICKS = FLAG_BACKSTOP_MINUTES * 60 * 20;
+
+/** The sim slice the decision reads on top of `OutcomeSim`: its tick, and (a flag set-up room only) the bell. Both are
+ *  optional so a world with no set-up, and every test double that predates it, reads as "no backstop". */
+export type OutcomeSimAt = OutcomeSim & { readonly tickCount: number; readonly setupActive?: boolean; readonly setupBellTick?: number };
+
+/** The tick a flag set-up room is decided on standing-force value (GH-976 WP6a, lead ruling 9 Nov 2026): the bell tick plus
+ *  `FLAG_BACKSTOP_TICKS`. Null in any other room, before the bell (`setupActive` true or unknown), and in a world with no
+ *  set-up (`setupBellTick` below 0). Read from the sim's own bell, so both seats and a rejoiner reach the same tick; the
+ *  decision is still asked on hash ticks only, so it lands on the first hash tick at or after it. Integer maths only. */
+export function flagBackstopTick(config: MatchConfig | null, sim: Pick<OutcomeSimAt, 'setupActive' | 'setupBellTick'>): number | null {
+  if (config === null || !flagSetupRoom(config)) return null;
+  const bell = sim.setupBellTick;
+  if (bell === undefined || bell < 0 || sim.setupActive !== false) return null;
+  return bell + FLAG_BACKSTOP_TICKS;
 }
 
 /** A result this seat's sim reached, and the frame tick it was read on:
@@ -327,7 +348,7 @@ export interface LocalDecision { readonly result: MatchResult; readonly tick: nu
  *  first decision stands. Both seats read it on the same frame tick, so both
  *  report the same `over` tick. */
 export function decideOnHashTick(
-  prev: LocalDecision | null, frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction, goals?: OutcomeGoals,
+  prev: LocalDecision | null, frameTick: number, config: MatchConfig | null, sim: OutcomeSimAt, production?: OutcomeProduction, goals?: OutcomeGoals,
 ): LocalDecision | null {
   if (prev !== null) return prev;
   const result = hashTickOutcome(frameTick, config, sim, production, goals);
