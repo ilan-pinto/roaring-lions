@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "e0b6413975ece844d5c855bb443a3d8bba56e464",
-  "blessedAt": "2026-11-09T14:50:59.011Z",
-  "reason": "WebGPU P2 T8 (PR 1136, GH-943): the triangular output dither now runs on every frame on both paths (banding 0.636 -> 0.000). Every gated scenario moves by meanAbsChannelDelta ~0.23-0.36 with 0-46 diff pixels; all self-checks passed on the PR's visual run. Lead ruling 8 Nov: ship T8, bless on CI.",
+  "commit": "0dc1e5c0ccd9a75d068735193d544fcf4c74f011",
+  "blessedAt": "2026-11-10T14:12:18.564Z",
+  "reason": "Meshy Rifle Squad pilot v7 kit (PR 1174, GH-746): new skinned inf_squad figures and kit. Lead approved the look 10 Nov. CI visual: vehicle/kitted/graded/fogged/aftermath moved by meanAbs 0.014-0.075 (262-1314 px), all self-checks pass.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "fb9ac6734b3ee9d7bc7f0fcbe83914b609d5ffa3f46188d5ca18048ceee3b782"
+      "sha256": "3e8d83c571eb0e5c9857aa8ba00df2c1e29380ae149d9dddc912f70a500fd509"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "fe589bd18c480ba9d6020d5e7de18f0ba7ff2b57918c458571e84d5f6c40c1f3"
+      "sha256": "67b23e5fa8271cb77101d86cc08ffef56bb83ae0b22c788609da4f5ac2aaeb41"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "8677d6204a332c120843415e89ee35e506a278dcbb6880905621a208fce733ca"
+      "sha256": "754d917c3e0e21d09c1540038eedf2860bce7b572e7f6d0e0d289156285e8801"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "253e464b74b9c15528bf7fd964b11bf524a36c78e8203226f00276d2f541f214"
+      "sha256": "ce18560bc953aec9d5bb6df6e6a58ae8b7ae67d88550e57a0e943db7cac508e2"
     },
     "fogged": {
       "tick": 140,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "75dbc147baa6ccbe610011faa3700f746ce9d801c0e7b124e8c1e8d026c0e325"
+      "sha256": "ba1fcae788cd838fb7b4aa0a638ab20f8760002c46f376c9235f67c889bd7fb9"
     },
     "graded": {
       "tick": 140,
@@ -95,7 +95,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "4ad11ad1066a444861bebc862c1b235a67cc2965b061104c4602e4bcd1554e71"
+      "sha256": "6cbab85d39bdf7f91454b70a85fe377ddcd1c18eb9ea4ee54ac59bec3d2f089a"
     },
     "relief": {
       "tick": 500,
@@ -123,7 +123,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "d9ebb2f5b1e73d4e3d2a353d6f226d5764f31d936e1de11a0b13c4cf20b6ed40"
+      "sha256": "9ea9d7396352e0b83a8687387951fab259e81b3e2da4a8933509dac34536e4f9"
     }
   }
 }

@@ -221,3 +221,59 @@ export function vehicleFxAnchor(cx: number, cy: number, facingNorm: number, offs
     dirTurns: (((facingNorm + 0.5) % 1) + 1) % 1,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Pivot dust (GH-1207): a tracked hull turning on the spot throws dust from
+// its track ends even though it is not translating, so the ordinary
+// translation-speed dust ramp (`vehicleDustMagnitude`) gives it none.
+// ---------------------------------------------------------------------------
+
+/**
+ * Below this yaw rate a hull is settling onto a bearing, not turning -- the
+ * same floor `ground-churn.ts`'s `CHURN_PIVOT_MIN_YAW_TURNS_S` uses (0.05
+ * turns/s, 18 deg/s), so a pivot that churns the earth also dusts, and a
+ * heading correction neither churns nor dusts.
+ */
+export const PIVOT_DUST_MIN_YAW_TURNS_S = 0.05;
+
+/**
+ * The yaw rate at which pivot dust reads at full strength: 0.2 turns/s
+ * (72 deg/s), just above the roster's fastest tracked turn rate (the
+ * `ifv_namer` at 75 deg/s), so the fastest pivot scales to a whisker under
+ * full and slower ones ramp down linearly toward the floor.
+ */
+export const PIVOT_DUST_FULL_YAW_TURNS_S = 0.2;
+
+/**
+ * Translation at or below which a turning hull is considered to be pivoting
+ * on the spot ("about 0"). Equal to `VEHICLE_MOVE_OFF_SPEED_TILES_S`: a hull
+ * below the stop threshold is, to the dust code, not translating.
+ */
+export const PIVOT_DUST_MAX_SPEED_TILES_S = 0.05;
+
+/**
+ * The strongest a pivot plume reads, as a `ParticleSystem.spawn` magnitude.
+ * Below 1 so a hard launch's full-throttle plume (`vehicleDustMagnitude` at
+ * cruise) still reads stronger than a turn on the spot.
+ */
+export const PIVOT_DUST_MAGNITUDE = 0.8;
+
+/**
+ * 0..1 dust magnitude for a hull turning on the spot, or 0 when it is not
+ * pivoting. `tracked` gates the whole thing: only a tracked hull can pivot
+ * in place (a wheeled hull turns through a forward arc, which the ordinary
+ * moving-dust ramp already covers), and only when its translation is about 0
+ * and its smoothed yaw rate (`units/vehicle-weight.ts`'s `smoothedYawRate`,
+ * turns/s, read by the caller) is a real turn. Ramp is 0 at
+ * `PIVOT_DUST_MIN_YAW_TURNS_S` to `PIVOT_DUST_MAGNITUDE` at
+ * `PIVOT_DUST_FULL_YAW_TURNS_S`, clamped, so it never goes negative or
+ * above full for any input.
+ */
+export function pivotDustMagnitude(speedTilesS: number, yawTurnsS: number, tracked: boolean): number {
+  if (!tracked) return 0;
+  if (speedTilesS > PIVOT_DUST_MAX_SPEED_TILES_S) return 0;
+  const yaw = Math.abs(yawTurnsS);
+  if (yaw < PIVOT_DUST_MIN_YAW_TURNS_S) return 0;
+  const share = (yaw - PIVOT_DUST_MIN_YAW_TURNS_S) / (PIVOT_DUST_FULL_YAW_TURNS_S - PIVOT_DUST_MIN_YAW_TURNS_S);
+  return (share > 1 ? 1 : share) * PIVOT_DUST_MAGNITUDE;
+}
