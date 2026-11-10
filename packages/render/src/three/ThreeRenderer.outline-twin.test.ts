@@ -320,6 +320,8 @@ describe('the outline twin on a node boot', () => {
     };
     frame('spawn');
     const outlinesA = silhouettesOf((priv.vehicleMeshEntities.get(a) as VehicleMeshEntity).root);
+    // Non-empty first: `wears` loops over this list and a vehicle that drew no outline would pass every step.
+    expect(outlinesA.length).toBeGreaterThan(0);
     const wears = (want: THREE.Material | null | undefined): void => {
       for (const m of outlinesA) expect(legacyOf(m.material as THREE.Material, m)).toBe(want);
     };
@@ -362,12 +364,17 @@ describe('the outline twin on a node boot', () => {
     const enemyRoot = (priv.vehicleMeshEntities.get(e) as VehicleMeshEntity).root;
     // Precondition: the enemy is drawn (in sight), so only its side keeps the smoke outline off it.
     expect(enemyRoot.visible).toBe(true);
-    for (const m of silhouettesOf((priv.vehicleMeshEntities.get(a) as VehicleMeshEntity).root)) {
+    const ownOutlines = silhouettesOf((priv.vehicleMeshEntities.get(a) as VehicleMeshEntity).root);
+    const enemyOutlines = silhouettesOf(enemyRoot);
+    // Both lists are looped over below; an empty one would pass every expectation in it.
+    expect(ownOutlines.length).toBeGreaterThan(0);
+    expect(enemyOutlines.length).toBeGreaterThan(0);
+    for (const m of ownOutlines) {
       expect(isTwin(m.material as THREE.Material)).toBe(true);
       expect(legacyOf(m.material as THREE.Material, m)).toBe(priv.smokeOutlineVehicleMaterial);
       expect((m.material as THREE.Material).depthTest).toBe(false);
     }
-    for (const m of silhouettesOf(enemyRoot)) {
+    for (const m of enemyOutlines) {
       expect(isTwin(m.material as THREE.Material)).toBe(true);
       expect(legacyOf(m.material as THREE.Material, m)).toBe(priv.silhouetteMeshMaterials[1]);
       expect((m.material as THREE.Material).depthTest).toBe(true);

@@ -367,6 +367,8 @@ export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
   'damaged-zone',
   'route',
   'trail',
+  // GH-943 P3 (T9): the tunnel x-ray (`tunnel-xray.node.ts`). Probe rows: batched round (P3-R11).
+  'tunnel',
 ]);
 
 // ---------------------------------------------------------------------------------------------------------------------------------

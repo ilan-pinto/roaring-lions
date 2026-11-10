@@ -33,6 +33,7 @@ import type { UnitMaths } from '../units/unit-material.node';
 import type { OutlineMaths } from '../units/silhouette.node';
 import type { ZoneBandMaths } from '../units/zone-band.node';
 import type { SupplyRouteMaths } from '../supply-route.node';
+import type { XrayMaths } from '../tunnel-xray.node';
 import type { DecalMaths } from '../decal-pool.node';
 
 /**
@@ -110,7 +111,8 @@ export interface MaterialMaths {
   readonly zoneBand: ZoneBandMaths;
   readonly supplyRoute: SupplyRouteMaths;
   readonly trail: null;
-  readonly xray: null;
+  /** T9: the x-ray's four styles share one body of maths (`tunnel-xray.ts`). */
+  readonly xray: XrayMaths;
   readonly particle: null;
   readonly tracer: null;
   readonly vfxMesh: null;
