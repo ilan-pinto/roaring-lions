@@ -153,7 +153,7 @@ describe('mountGarageView: the bought kit on a team on the turntable (GH-826)', 
     bare.view.dispose();
 
     const full = await mount(SQUAD, 'inf_squad', FULL);
-    expect(full.drawn()).toEqual({ ...BASE, uniform: 39447, weapon: 10322 });
+    expect(full.drawn()).toEqual({ ...BASE, uniform: 39447, weapon: 9602 });
     full.view.dispose();
 
     // Mounted with a track at tier 0 is the plain figure too.
@@ -168,7 +168,7 @@ describe('mountGarageView: the bought kit on a team on the turntable (GH-826)', 
     const frames = m.view.stats().frames;
 
     m.view.setKit(FULL);
-    expect(m.drawn()).toEqual({ ...BASE, uniform: 39447, weapon: 10322 });
+    expect(m.drawn()).toEqual({ ...BASE, uniform: 39447, weapon: 9602 });
     expect(m.view.stats().frames).toBe(frames + 1);
     m.view.setKit({ armour: 1 });
     expect(m.drawn()).toEqual({ ...BASE, uniform: 31901 });

@@ -80,7 +80,7 @@ def main():
     import json
     rep = json.load(open(os.path.join(HERE, "..", "art", "parts", "inf_kit", "v7", "kit_parts_report.json")))
     src_of = {"throat": ["throat_protector"], "groin": ["groin_apron"], "mag_pouches": ["mag_pouch"] * 2, "grenade_pouches": ["grenade_pouch"] * 2,
-              "eud": ["phone_case"], "lpvo": ["scope"], "laser_box": ["laser"], "headset": ["headset_l_built"]}
+              "lpvo": ["scope"], "laser_box": ["laser"], "headset": ["headset_l_built"]}
     for name, rows in kp.TEAMS["inf_squad"].part_tris.items():
         srcs = src_of.get(name, [name])
         want = sum(rep[s]["tris"] for s in srcs)

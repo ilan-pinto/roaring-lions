@@ -175,7 +175,7 @@ _BASE_ALL, _BASE_LEADER, _BASE_RIFLEMEN = ALL, LEADER, RIFLEMEN
 #: `INFANTRY_KIT_TEAM_PART_TRIS` in `tools/src/meshes/kit-contract.ts` by `kit-contract.test.ts`. The carrier is the v7 part
 #: decimated 2,474 -> 2,299 to hold the lead's 7,200 per figure (9 Nov, GH-746).
 V7_PART_TRIS = {
-    "battle_belt": 556, "carrier": 2299, "counterweight": 140, "eud": 240, "grenade_pouches": 392, "groin": 220,
+    "battle_belt": 556, "carrier": 2299, "counterweight": 140, "grenade_pouches": 392, "groin": 220,
     "headset": 280, "ir_strobe": 116, "laser_box": 192, "lpvo": 326, "mag_pouches": 592, "nvg_bino": 336, "nvg_mono": 348,
     "radio_pack": 514, "radio_panel": 386, "radio_pouch": 346, "red_dot": 198, "suppressor": 140, "throat": 188,
     "weapon_light": 216,
@@ -199,7 +199,7 @@ TEAMS = {
                       # arm is welded to the ribs, so its surface by dominant bone is shoulder AND chest wall, and the arm
                       # wraps came out as flat slabs standing off the shoulder (9 Nov render) -- the lead's ruling for the
                       # Demolition squad (30 Oct), applied here (the lead accepted it for this figure on 9 Nov)
-                      drop=("nvg_mount", "deltoid", "sleeve"), baked_mount=True, helmet_front_trim=60.0, torso_ring_cap=True,
+                      drop=("nvg_mount", "deltoid", "sleeve", "eud"), baked_mount=True, helmet_front_trim=60.0, torso_ring_cap=True,
                       # the lead (9 Nov, GH-746): the approved v7 kit set is fitted to this figure
                       v7=True, part_tris=V7_PART_TRIS),
                       # (no `torso_vest_lum`: since 9 Nov the bake's vest is retinted to the carrier's coyote, so it is no

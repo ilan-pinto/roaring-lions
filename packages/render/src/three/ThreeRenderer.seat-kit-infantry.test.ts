@@ -143,11 +143,11 @@ describe('loadMeshUnit files a template set per seat only where the infantry kit
     expect(priv.meshUnitTemplates.get('inf_squad')).toEqual([t0]);
     expect(priv.meshUnitTemplates.get('inf_squad#s1')).toEqual([t1]);
     // Literals: armour 1 alone, and the full kit (infantry-kit-shipped.test.ts). Re-pinned 9 Nov 2026 (GH-746) from the Meshy Rifle Squad's bytes
-    // (the rigid figure's 10,749 / 1,140 / 11,913 / 2,548 are gone).
+    // (the rigid figure's 10,749 / 1,140 / 11,913 / 2,548 are gone). Full-kit weapon 9,602 since the EUD was dropped (10 Nov).
     expect(tris(t0, 'uniform')).toBe(31901);
     expect(tris(t0, 'weapon')).toBe(3826);
     expect(tris(t1, 'uniform')).toBe(39447);
-    expect(tris(t1, 'weapon')).toBe(10322);
+    expect(tris(t1, 'weapon')).toBe(9602);
     renderer.dispose();
   });
 

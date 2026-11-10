@@ -4,9 +4,9 @@ import { DEMO_ENCODED_BASE_TRIS, DEMO_STATES, MODEL_REGION, STATES, TEAM_CHECKS,
 /** The kit triangles of each state, literals from the art file (the 29 Oct redesign, re-fitted to the Meshy figure 9 Nov; the v7 set 9 Nov, GH-746: from the art file's bytes, and the controller's real Metal capture of 9 Nov, which read exactly these: 32,955 live at tier 0, 54 draw calls in every state). */
 const KIT: Record<string, [Record<string, number>, number]> = {
   A1: [{ armour: 1 }, 7083], A2: [{ armour: 2 }, 8307], A3: [{ armour: 3 }, 8383],
-  S1: [{ sensors: 1 }, 2028], S2: [{ sensors: 2 }, 4598], S3: [{ sensors: 3 }, 5410],
+  S1: [{ sensors: 1 }, 2028], S2: [{ sensors: 2 }, 4598], S3: [{ sensors: 3 }, 4690],
   F1: [{ firepower: 1 }, 4128], F2: [{ firepower: 2 }, 5736], F3: [{ firepower: 3 }, 7332],
-  full: [{ armour: 3, sensors: 3, firepower: 3 }, 21125],
+  full: [{ armour: 3, sensors: 3, firepower: 3 }, 20405],
 };
 const MEASURED: Record<string, Reading> = {
   T0: { tiers: {}, loaded: true, tris: 32955, kitTris: 0, meshes: 4, calls: 54 },

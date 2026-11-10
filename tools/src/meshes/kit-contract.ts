@@ -103,7 +103,6 @@ export const INFANTRY_KIT_TEAM_PART_TRIS: Readonly<Record<string, Readonly<Recor
     battle_belt: 556,
     carrier: 2299, // the v7 carrier decimated from 2,474 (Blender Decimate collapse, `carrier_src.glb` beside it)
     counterweight: 140,
-    eud: 240,
     grenade_pouches: 392, // two pouches in one node
     groin: 220,
     headset: 280, // one node per side

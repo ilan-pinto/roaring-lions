@@ -40,7 +40,6 @@ const SOURCES: Record<string, string[]> = {
   groin: ['groin_apron'],
   mag_pouches: ['mag_pouch', 'mag_pouch'],
   grenade_pouches: ['grenade_pouch', 'grenade_pouch'],
-  eud: ['phone_case'],
   lpvo: ['scope'],
   laser_box: ['laser'],
   headset: ['headset_l_built'],
@@ -50,7 +49,7 @@ describe('the kit contract', () => {
   const team = INFANTRY_KIT_TEAM_PART_TRIS.inf_squad;
 
   it('the Rifle Squad rows are the v7 part files\' own triangle counts', () => {
-    expect(Object.keys(team).length).toBe(20);
+    expect(Object.keys(team).length).toBe(19);
     for (const [part, rows] of Object.entries(team)) {
       const files = SOURCES[part] ?? [part];
       expect(rows, part).toBe(files.reduce((n, f) => n + glbTris(f), 0));

@@ -32,7 +32,7 @@ export interface Reading {
  *  the real Metal capture (`pnpm inf-kit:capture -- --gpu=metal`, ANGLE Metal, Apple M3 Pro, 9 Nov) -- Draco drops none now. */
 export const ENCODED_BASE_TRIS = 32955;
 
-// 9 Nov 2026 (GH-746): the v7 kit, re-counted from the art file's bytes (21,125 triangles over three figures at full kit; was 3,014).
+// 9 Nov 2026 (GH-746): the v7 kit, re-counted from the art file's bytes (20,405 triangles over three figures (no EUD since 10 Nov) at full kit; was 3,014).
 export const STATES: readonly State[] = [
   { id: 'T0', label: 'tier 0', tiers: {}, kitTris: 0 },
   { id: 'A1', label: 'armour 1', tiers: { armour: 1 }, kitTris: 7083 },
@@ -40,11 +40,11 @@ export const STATES: readonly State[] = [
   { id: 'A3', label: 'armour 3', tiers: { armour: 3 }, kitTris: 8383 },
   { id: 'S1', label: 'sensors 1', tiers: { sensors: 1 }, kitTris: 2028 },
   { id: 'S2', label: 'sensors 2', tiers: { sensors: 2 }, kitTris: 4598 },
-  { id: 'S3', label: 'sensors 3', tiers: { sensors: 3 }, kitTris: 5410 },
+  { id: 'S3', label: 'sensors 3', tiers: { sensors: 3 }, kitTris: 4690 },
   { id: 'F1', label: 'firepower 1', tiers: { firepower: 1 }, kitTris: 4128 },
   { id: 'F2', label: 'firepower 2', tiers: { firepower: 2 }, kitTris: 5736 },
   { id: 'F3', label: 'firepower 3', tiers: { firepower: 3 }, kitTris: 7332 },
-  { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 21125 },
+  { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 20405 },
 ];
 
 /**
