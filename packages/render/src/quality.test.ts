@@ -19,8 +19,10 @@ describe('QUALITY_PRESETS', () => {
       // lead removed the open-ground puddle terms at S-L1.
       // GH-871 cheap-wet: every preset gains `rain.ground`, how much of the wet ground program it compiles. Was: no
       // such field (every preset compiled the full program). high stays 'full' (byte-identical); medium 'lite', low 'minimal'.
-      low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false } },
-      medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false } },
+      // GH-1197 P2: every preset gains `debris`, the 3D debris pool (the design's cost table: 1024 with shadows,
+      // 512 without, none on low). Was: no such field. Read only when a landing throws debris; no gated frame has one.
+      low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, debris: { pool: 0, shadows: false } },
+      medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, debris: { pool: 512, shadows: false } },
       // GH-984 N2: every preset gains `nature`, the vehicles' disturber budget (24 / 16 / 8 slots; wakes off and no foot on low,
       // foot on high only). Was: no such field. Read only by the foliage and trunk shader's loop; no other frame moves.
       // GH-777: aoScale 0.25. Was 0.5 (absent). `high` missed 60 fps at DPR 2.
@@ -38,6 +40,7 @@ describe('QUALITY_PRESETS', () => {
         smokeBillboardGain: 0.8,
         rain: { drops: 6000, ripples: true, ground: 'full' },
         nature: { slots: 24, wakes: true, foot: true },
+        debris: { pool: 1024, shadows: true },
       },
     };
     expect(QUALITY_PRESETS).toEqual(expected);

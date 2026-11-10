@@ -20,6 +20,8 @@ import type { EmitterSpec, FlipbookLayerSpec } from '../vfx/emitters';
 import type { RingSpec } from './munitions';
 import type { ShellModel } from './units/shells';
 import type { MissileModel } from './units/missiles';
+import type { DebrisPool } from './units/debris-pool';
+import { QUALITY_PRESETS } from '../quality';
 import { hexToLinear } from './terrain/shared';
 import { paletteHex } from './palette-hex';
 import shellImpact from '../../../../data/vfx/shell_impact.json';
@@ -106,17 +108,22 @@ interface Priv {
   shakeState: { live: readonly { amplitudePx: number; falloffTiles: number }[] };
   stampGroundDecal(s: DecalStamp): boolean;
   onStrike(e: { x: number; y: number; tick: number; profile: number }): void;
+  debris: DebrisPool | null;
   cssWidth: number;
   cssHeight: number;
 }
 
-function world(file: string, typeId: string): { sim: Sim; r: ThreeRenderer; p: Priv; shooter: number; target: number } {
+function world(
+  file: string,
+  typeId: string,
+  quality?: RendererOptions['quality']
+): { sim: Sim; r: ThreeRenderer; p: Priv; shooter: number; target: number } {
   const sim = new Sim({ seed: 3, width: 40, height: 40, capacity: 8 });
   const st = sim.addUnitType(shooterType(file, typeId));
   const tt = sim.addUnitType(TARGET);
   const shooter = sim.spawn(st, 0, fx.from(5.5), fx.from(20.5));
   const target = sim.spawn(tt, 1, fx.from(17.5), fx.from(20.5));
-  const r = new ThreeRenderer(sim, makeOpts());
+  const r = new ThreeRenderer(sim, { ...makeOpts(), ...(quality ? { quality } : {}) });
   r.useEmitters(
     [shellImpact, barrageImpact, airStrikeImpact] as unknown as EmitterSpec[],
     (key) => (key.startsWith('#') ? key : '#FFB43C')
@@ -267,6 +274,63 @@ describe('a missile with a reach carries it to its landing', () => {
     r.onEvents([fireEvent(shooter, target, 'hellfire')]);
     const m = p.missileFx.missiles[0];
     expect(m?.munition).toEqual({ cls: 'direct_he', splash: expect.closeTo(0.8, 4) as unknown as number });
+    r.dispose();
+  });
+});
+
+describe('every landing with a reach throws its class debris (GH-1197 P2, coordinator ruling Q1)', () => {
+  it("the 155: 36 clods and 18 chunks into the pool, in the ground's own ramp", () => {
+    const { r, p, shooter, target } = world('kdf/spg_long_range.json', 't_spg');
+    r.onEvents([fireEvent(shooter, target, 'howitzer_155')]);
+    landAll(r, p);
+    expect(p.debris?.liveCount).toBe(54);
+    // The test map's open tone is limestone.3 (#C8B494): clods limestone.2, chunks limestone.4 / .5, charred gunmetal.2.
+    const lin = (key: string): number[] => hexToLinear(paletteHex(key));
+    const seen = new Set<string>();
+    for (let shape = 0; shape < 3; shape++) {
+      for (let i = 0; i < 18; i++) {
+        const c = p.debris!.slot(shape, i).color;
+        const hit = ['limestone.2', 'limestone.4', 'limestone.5', 'gunmetal.2'].find((k) =>
+          lin(k).every((v, j) => Math.abs(v - [c.r, c.g, c.b][j]) < 1e-6)
+        );
+        expect(hit, `shape ${shape} slot ${i}`).toBeDefined();
+        seen.add(hit!);
+      }
+    }
+    expect([...seen].sort()).toEqual(['gunmetal.2', 'limestone.2', 'limestone.4', 'limestone.5']);
+    r.dispose();
+  });
+
+  it('a mortar_82 throws its own row (16 + 6), a DPICM bomblet 4 clods', () => {
+    const mortar = world('enemy/mortar_crew.json', 't_mortar');
+    mortar.r.onEvents([fireEvent(mortar.shooter, mortar.target, 'mortar_82')]);
+    landAll(mortar.r, mortar.p);
+    expect(mortar.p.debris?.liveCount).toBe(22);
+    mortar.r.dispose();
+    const cluster = world('kdf/spg_cluster.json', 't_cluster');
+    cluster.r.onEvents([
+      { kind: 'submunition', tick: 1, by: cluster.shooter, weaponId: 'dpicm_155', x: fx.from(10), y: fx.from(10), index: 0, count: 12 } as SimEvent,
+    ]);
+    expect(cluster.p.debris?.liveCount).toBe(4);
+    cluster.r.dispose();
+  });
+
+  it('the low preset builds no pool: the dirt flipbook only', () => {
+    const { r, p, shooter, target } = world('kdf/spg_long_range.json', 't_spg', QUALITY_PRESETS.low);
+    expect(p.debris).toBeNull();
+    r.onEvents([fireEvent(shooter, target, 'howitzer_155')]);
+    landAll(r, p);
+    r.dispose();
+  });
+
+  it('a catch-up places the strike debris at rest, with no ring', () => {
+    const { r, p } = world('enemy/mortar_crew.json', 't_mortar');
+    r.setQuiet(true);
+    p.onStrike({ x: fx.from(10), y: fx.from(10), tick: 1, profile: 0 });
+    r.setQuiet(false);
+    expect(p.blastRings.liveCount).toBe(0);
+    expect(p.debris!.liveCount).toBe(72);
+    expect(p.debris!.slot(0, 0).t.slice(1)).toEqual([0, 0, 0]);
     r.dispose();
   });
 });
