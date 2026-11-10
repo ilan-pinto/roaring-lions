@@ -75,6 +75,14 @@ export interface FullReason {
   other: number;
 }
 
+/** GPU uploads in one frame, by what three asked the backend to upload (T14). */
+export interface Uploads {
+  attribute: number;
+  binding: number;
+  texture: number;
+}
+const fmtUploads = (u: Uploads | null | undefined): string => (u == null ? 'n/a' : `${u.attribute}/${u.binding}/${u.texture}`);
+
 /** One reading: one arm, one unit count, one variant, on one page. */
 export interface SubmitReading {
   readonly arm: SubmitArm;
@@ -97,6 +105,10 @@ export interface SubmitReading {
   /** FULL refreshes in the stats frame, by type (node arms only; null on L). */
   readonly fullRefresh: Record<DrawType, number> | null;
   readonly fullReason: FullReason | null;
+  /** GPU uploads in the stats frame (node arms only; null on L or a tree without the count): `backend.updateAttribute` (vertex
+   *  attributes), `updateBinding` (uniform buffers) and `updateTexture` calls (GH-1152 T14: the two writeBuffer sources T13's profile
+   *  named, and the bone textures that replace the uniform-buffer bones). Optional so a tree before T14 still reads. */
+  readonly uploads?: Uploads | null;
   /** Median CPU render over the timed frames, the census LEFT OUT (null on a counts-only run). */
   readonly cpuRenderMs: number | null;
   /** The same median with the census left in (the P0-P2 definition). */
@@ -448,11 +460,11 @@ export function hypothesisTable(rows: readonly HypothesisRow[]): string[] {
 /** The per-pass and per-type tallies, one line per reading. */
 export function tallyTable(readings: readonly SubmitReading[]): string[] {
   return [
-    '| arm | n | variant | living | calls | triangles | shadow c/o | scene c/o | ao c/o | post c/o | batchedEntry | skinned | instanced | nodeMesh | stockMesh | FULL (G) |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+    '| arm | n | variant | living | calls | triangles | shadow c/o | scene c/o | ao c/o | post c/o | batchedEntry | skinned | instanced | nodeMesh | stockMesh | FULL (G) | uploads attr/bind/tex (G) |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
     ...readings.map((r) => {
       const pp = (k: RenderPassId): string => (r.perPass === null ? 'n/a' : `${r.perPass[k].calls}/${r.perPass[k].objects}`);
-      return `| ${r.arm} | ${r.n} | ${r.variant} | ${r.living} | ${r.calls} | ${r.triangles} | ${pp('shadow')} | ${pp('scene')} | ${pp('ao')} | ${pp('post')} | ${r.byType.batchedEntry} | ${r.byType.skinned} | ${r.byType.instanced} | ${r.byType.nodeMesh} | ${r.byType.stockMesh} | ${r.fullRefresh === null ? 'n/a' : totalOf(r.fullRefresh)} |`;
+      return `| ${r.arm} | ${r.n} | ${r.variant} | ${r.living} | ${r.calls} | ${r.triangles} | ${pp('shadow')} | ${pp('scene')} | ${pp('ao')} | ${pp('post')} | ${r.byType.batchedEntry} | ${r.byType.skinned} | ${r.byType.instanced} | ${r.byType.nodeMesh} | ${r.byType.stockMesh} | ${r.fullRefresh === null ? 'n/a' : totalOf(r.fullRefresh)} | ${fmtUploads(r.uploads)} |`;
     }),
   ];
 }

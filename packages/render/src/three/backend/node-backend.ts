@@ -38,6 +38,8 @@ import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
 import { createNodeUnitMaterial } from '../units/unit-material.node';
 import { markTwin } from '../twin-identity';
 import { installPassCounter, type PassRendererLike, type RenderPassId } from './pass-counter';
+import { installVersionedUploads, type AttributesLike } from './attribute-uploads';
+import { installBoneTextureSkinning, type BuilderHookHostLike } from './bone-texture';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
 const CENSUS_EVERY_FRAMES = 60;
@@ -114,6 +116,12 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     return { reason: `WebGPURenderer chose ${isGpu ? 'its WebGPU' : 'its WebGL2'} backend but forceWebGL was ${String(opts.forceWebGL)}` };
   }
   const kind: BackendKind = isGpu ? 'node-webgpu' : 'node-webgl2';
+  // GH-943 P3 (T14, GH-1152): a dynamic vertex attribute uploads when it changed, as on legacy (three re-uploads it on every FULL
+  // refresh, and every node-twinned batch is FULL every frame: `attribute-uploads.ts`).
+  const uploads = installVersionedUploads((renderer as unknown as { _attributes: AttributesLike })._attributes, THREE.DynamicDrawUsage);
+  // GH-943 P3 (T14, GH-1152): a skinned mesh skins from its skeleton's bone texture, uploaded once a frame, as on legacy (three's
+  // uniform-buffer bones are written on every FULL refresh of every render object: `bone-texture.ts`).
+  const boneTexture = installBoneTextureSkinning(renderer as unknown as BuilderHookHostLike);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -329,6 +337,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     },
     dispose() {
       passes.dispose();
+      uploads.dispose();
+      boneTexture.dispose();
       chain?.dispose();
       chain = null;
       // WebGPU path: renderer.dispose() then device.destroy() (design section 1). Never `loseContext()` ourselves.
