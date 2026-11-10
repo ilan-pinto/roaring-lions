@@ -55,12 +55,13 @@ describe('the rest pose is closed-form and reproducible', () => {
     }
   });
 
-  it('climbs no higher than the apex, lands within the throw (plus its bounce and slide)', () => {
+  it('climbs no higher than the apex, and comes to rest within the throw (2.4 t), bounce and slide included', () => {
     for (const p of all(0, 0)) {
       const apex = (p.v0[1] * p.v0[1]) / (2 * 9.8);
       expect(apex).toBeLessThanOrEqual(3.0 + 1e-9);
+      // The design: the 155's "54 pieces at rest within 2.4 t" -- the bounce and the slide included.
       const d = Math.hypot(p.rest[0], p.rest[2]);
-      expect(d).toBeLessThanOrEqual(2.4 * 1.5);
+      expect(d).toBeLessThanOrEqual(2.4 + 1e-9);
       expect(Math.hypot(p.p1[0], p.p1[2])).toBeLessThanOrEqual(2.4 + 1e-9);
     }
   });

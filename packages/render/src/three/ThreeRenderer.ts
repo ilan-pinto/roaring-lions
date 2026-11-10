@@ -5749,16 +5749,21 @@ export class ThreeRenderer implements Renderer {
     const overlayObjects = this.overlayLayerObjects();
     const overlayObjectsWere = overlayObjects.map((o) => o.visible);
     const rainWasVisible = this.rain?.mesh.visible ?? false;
+    // GH-1197 P2: the debris pool is a one-off effect, not ground: the minimap never photographs a flying chunk.
+    // Its GROUP is hidden, so the pool's own per-mesh `visible` (its live window) is left alone.
+    const debrisWasVisible = this.debris?.group.visible ?? false;
     const restore = (): void => {
       this.setDebugLayerVisible('overlays', overlaysWereVisible);
       overlayObjects.forEach((o, k) => (o.visible = overlayObjectsWere[k] ?? o.visible));
       this.setDebugLayerVisible('units', unitsWereVisible);
       if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
+      if (this.debris !== null) this.debris.group.visible = debrisWasVisible;
     };
     try {
       this.setDebugLayerVisible('units', false);
       this.setDebugLayerVisible('overlays', false);
       if (this.rain !== null) this.rain.mesh.visible = false;
+      if (this.debris !== null) this.debris.group.visible = false;
       this.fitShadowToMap();
     } catch (err) {
       restore();

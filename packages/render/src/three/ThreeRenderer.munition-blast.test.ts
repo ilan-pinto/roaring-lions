@@ -334,3 +334,37 @@ describe('every landing with a reach throws its class debris (GH-1197 P2, coordi
     r.dispose();
   });
 });
+
+describe('the debris pool rides the renderer clocks (PR 1218 review)', () => {
+  it('each frame advances its flight clock by the frame time, and hands it the presented sim time', () => {
+    const { sim, r, p, shooter, target } = world('kdf/spg_long_range.json', 't_spg');
+    r.onEvents([fireEvent(shooter, target, 'howitzer_155')]);
+    landAll(r, p);
+    const pool = p.debris!;
+    const t0 = pool.nowMs;
+    r.frame(1, 40);
+    r.frame(1, 40);
+    // The 155 asks no hit-stop, so every frame's time reaches the pool.
+    expect(pool.nowMs - t0).toBeCloseTo(80, 6);
+    for (let i = 0; i < 30; i++) sim.tick();
+    r.snapshot();
+    r.frame(1, 16);
+    // `frame(alpha 1)` presents the sim's last tick: 50 ms a tick, never 0.
+    expect(pool.simMs).toBeGreaterThan(0);
+    expect(pool.simMs).toBeCloseTo(sim.tickCount * 50, -2);
+    r.dispose();
+  });
+
+  it('the minimap photograph hides the pool and puts it back', () => {
+    const { r, p, shooter, target } = world('kdf/spg_long_range.json', 't_spg');
+    r.onEvents([fireEvent(shooter, target, 'howitzer_155')]);
+    landAll(r, p);
+    const priv = r as unknown as { hideForGroundPhoto(): () => void };
+    expect(p.debris!.group.visible).toBe(true);
+    const restore = priv.hideForGroundPhoto();
+    expect(p.debris!.group.visible).toBe(false);
+    restore();
+    expect(p.debris!.group.visible).toBe(true);
+    r.dispose();
+  });
+});

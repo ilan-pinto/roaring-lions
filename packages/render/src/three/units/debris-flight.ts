@@ -122,8 +122,14 @@ export function planDebris(
   const apex = Math.max(0.05, t.apexTiles * (0.35 + 0.65 * h(2)));
   const heading = h(3) * Math.PI * 2;
   const vy = Math.sqrt(2 * g * apex);
-  // The horizontal speed that covers `range` over a flight back to the burst's own height.
-  const vh = range / ((2 * vy) / g);
+  // The horizontal speed whose WHOLE travel on flat ground -- the flight back to the burst's own height, the bounce
+  // and the slide -- is `range`, so a piece comes to rest inside the class's throw (the design: "54 pieces at rest
+  // within 2.4 t" for the 155). The flight and the bounce cover vh x flatT x (1 + KEEP x RESTITUTION); the slide
+  // vs^2 / 2a with vs = vh x KEEP^2. Solved for vh.
+  const flatT = (2 * vy) / g;
+  const qa = (DEBRIS_BOUNCE_KEEP ** 4) / (2 * DEBRIS_SLIDE_DECEL);
+  const qb = flatT * (1 + DEBRIS_BOUNCE_KEEP * DEBRIS_RESTITUTION);
+  const vh = (-qb + Math.sqrt(qb * qb + 4 * qa * range)) / (2 * qa);
   const dx = Math.cos(heading);
   const dz = Math.sin(heading);
   const size = (clod ? CLOD_SIZE : CHUNK_SIZE)[0] + ((clod ? CLOD_SIZE : CHUNK_SIZE)[1] - (clod ? CLOD_SIZE : CHUNK_SIZE)[0]) * h(4);
@@ -132,7 +138,7 @@ export function planDebris(
   const v0: [number, number, number] = [dx * vh, vy, dz * vh];
   // First touchdown: from the flat-ground landing point, refined a few times onto the ground under the arc
   // (a fixed count, so the plan stays a pure function of its inputs).
-  let t1 = (2 * vy) / g;
+  let t1 = flatT;
   let g1 = p0[1];
   for (let i = 0; i < 4; i++) {
     g1 = groundAt(x + v0[0] * t1, z + v0[2] * t1) + half;
