@@ -8,6 +8,7 @@ import { activeObjectiveZoneNames, incomeZonesFor, objectiveZonesFor } from './o
 import { incomeViewOf, type IncomeView } from './ui/income-view';
 import { SupplyRouteDisplay } from './ui/supply-route-display';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
+import { withConductProgress } from './conduct-progress';
 import { unitsJustOutside, withOutsideCounts } from './hold-outside';
 import {
   deadlineWarningLine,
@@ -3208,7 +3209,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     runtime
       ? withoutHiddenClocks(
           withOutsideCounts(
-            withEvacuationProgress(runtime.objectiveList, evacTargets, evacuatedSoFar, refugeAt),
+            withConductProgress(
+              withEvacuationProgress(runtime.objectiveList, evacTargets, evacuatedSoFar, refugeAt),
+              runtime.roeScore
+            ),
             map.zones,
             (zone) => unitsJustOutside(sim.state, sim.entityCount, zone)
           ),

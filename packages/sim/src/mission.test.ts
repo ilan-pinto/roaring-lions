@@ -538,12 +538,12 @@ describe('objectives and mission end', () => {
   });
 
   it('rejects objective types the runtime does not support yet', () => {
-    // The example was `collapse` until that type gained a runtime, then `escort`;
-    // `no_collateral_above` is the schema's next still-unimplemented type. When it
-    // graduates too, move to another — the guard under test is SUPPORTED, not the example.
+    // The example was `collapse` until that type gained a runtime, then `escort`, then
+    // `no_collateral_above`; `mark` is the schema's last still-unimplemented type. When it
+    // graduates too, cut the enum entry — the guard under test is SUPPORTED, not the example.
     expect(() =>
-      makeWorld(baseMission({ objectives: [{ id: 'x', type: 'no_collateral_above', primary: true }] }))
-    ).toThrow(/no_collateral_above/);
+      makeWorld(baseMission({ objectives: [{ id: 'x', type: 'mark', primary: true }] }))
+    ).toThrow(/mark/);
   });
 });
 
@@ -742,6 +742,86 @@ describe('escort (GH-2)', () => {
     it('on any other type: a zone belongs to escort alone', () => {
       expect(() => world([{ id: 'x', type: 'survive_until', primary: true, seconds: 60, zone: 'dest' }])).toThrow(/takes no zone/);
     });
+  });
+});
+
+// GH-4: `no_collateral_above` is the hard ROE ceiling as an objective. `threshold` is the Conduct
+// floor (the same units as `roe.fail_below`); it shares the ROE score rather than a second counter,
+// fails the tick that score drops below the floor, and completes once every OTHER primary is done.
+describe('no_collateral_above (GH-4)', () => {
+  const guard = (extra: Partial<ObjectiveJson> = {}): ObjectiveJson =>
+    ({ id: 'hold_conduct', type: 'no_collateral_above', primary: true, threshold: 90, ...extra });
+  const world = (objectives: ObjectiveJson[]): World =>
+    makeWorld(baseMission({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [10, 5] }] },
+      roe: { enabled: true, civilian_casualty_penalty: 8 },
+      objectives,
+    }));
+  const status = (w: World) => w.runtime.objectiveList.find((o) => o.id === 'hold_conduct')?.status;
+  /** The player kills the one civilian (id 1): Conduct 100 -> 92. */
+  const killCiv = (w: World): void => {
+    w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 1, by: 0 }]);
+  };
+
+  it('shares the ROE score, and fails the tick Conduct drops below its threshold', () => {
+    const w = world([guard({ threshold: 95 }), { id: 'hold', type: 'survive_until', primary: true, seconds: 600 }]);
+    expect(w.runtime.roeScore).toBe(100);
+    expect(status(w)).toBe('active');
+    killCiv(w);
+    expect(w.runtime.roeScore).toBe(92);
+    expect(status(w)).toBe('failed');
+    expect(w.runtime.result).toBe('defeat');
+    expect(w.runtime.defeatCause).toEqual({ objective: 'hold_conduct' });
+  });
+
+  it('stays active while Conduct is above the threshold and the others are not done', () => {
+    const w = world([guard({ threshold: 70 }), { id: 'hold', type: 'survive_until', primary: true, seconds: 600 }]);
+    w.step(5);
+    expect(status(w)).toBe('active');
+    expect(w.runtime.roeScore).toBe(100);
+  });
+
+  it('completes the tick every other primary completes, and the mission is won', () => {
+    const w = world([guard({ threshold: 70 }), { id: 'hold', type: 'survive_until', primary: true, seconds: 1 }]);
+    w.step(1 * TICKS_PER_SECOND);
+    expect(status(w)).toBe('complete');
+    expect(w.runtime.result).toBe('victory');
+  });
+
+  it('a secondary guard that fails does not end the mission', () => {
+    const w = world([guard({ primary: false, threshold: 95 }), { id: 'hold', type: 'survive_until', primary: true, seconds: 600 }]);
+    killCiv(w);
+    expect(status(w)).toBe('failed');
+    expect(w.runtime.result).toBe('ongoing');
+  });
+
+  it('reports its threshold in the objective list, for the live Conduct reading', () => {
+    const w = world([guard({ threshold: 70 }), { id: 'hold', type: 'survive_until', primary: true, seconds: 600 }]);
+    expect(w.runtime.objectiveList.find((o) => o.id === 'hold_conduct')?.threshold).toBe(70);
+  });
+
+  it('writes nothing into the sim: the hash with a guard equals the hash without one, every tick', () => {
+    const withGuard = world([guard({ threshold: 70 }), { id: 'hold', type: 'survive_until', primary: true, seconds: 600 }]);
+    const without = world([{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }]);
+    for (let t = 0; t < 40 * TICKS_PER_SECOND; t++) {
+      withGuard.step(1);
+      without.step(1);
+      expect(withGuard.sim.hash(), `tick ${t + 1}`).toBe(without.sim.hash());
+    }
+  });
+
+  describe('refuses a broken guard at load', () => {
+    const hold: ObjectiveJson = { id: 'hold', type: 'survive_until', primary: true, seconds: 60 };
+    it('with no threshold', () => expect(() => world([guard({ threshold: undefined }), hold])).toThrow(/threshold/));
+    it('with a threshold outside 1..100', () => {
+      expect(() => world([guard({ threshold: 0 }), hold])).toThrow(/threshold/);
+      expect(() => world([guard({ threshold: 101 }), hold])).toThrow(/threshold/);
+    });
+    it('on any other type: a threshold belongs to no_collateral_above alone', () => {
+      expect(() => world([{ id: 'x', type: 'survive_until', primary: true, seconds: 60, threshold: 50 }])).toThrow(/threshold/);
+    });
+    it('as the only primary', () => expect(() => world([guard()])).toThrow(/primary/));
   });
 });
 

@@ -691,6 +691,19 @@ const garrisonableSymbols = new Set(
       } else if (o.zone !== undefined) {
         failures.push(`${rel(file)}: objective "${o.id}" is a ${o.type}, which takes no zone (only escort does)`);
       }
+      // GH-4: a no_collateral_above guard names a Conduct floor (`threshold`, the same units as
+      // roe.fail_below). The runtime throws on the same faults; this is the same refusal at authoring
+      // time. A primary guard needs another primary to complete against (the runtime's completion rule).
+      if (o.type === 'no_collateral_above') {
+        if (typeof o.threshold !== 'number' || !Number.isInteger(o.threshold) || o.threshold < 1 || o.threshold > 100) {
+          failures.push(`${rel(file)}: no_collateral_above "${o.id}" needs an integer threshold 1..100`);
+        }
+        if (o.primary && !(mi.objectives ?? []).some((x) => x.id !== o.id && x.primary)) {
+          failures.push(`${rel(file)}: a primary no_collateral_above "${o.id}" needs another primary to complete against`);
+        }
+      } else if (o.threshold !== undefined) {
+        failures.push(`${rel(file)}: objective "${o.id}" is a ${o.type}, which takes no threshold (only no_collateral_above does)`);
+      }
       if ((o.type === 'capture' || o.type === 'hold_for') && o.target) {
         if (!zoneNames.has(o.target)) {
           failures.push(`${rel(file)}: objective "${o.id}" references unknown zone "${o.target}"`);

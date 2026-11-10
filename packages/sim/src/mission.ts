@@ -225,6 +225,9 @@ export interface ObjectiveJson {
   /** `escort` only: the destination zone, a name in the map's zones. `target` names the escorted units (a tag on a
    *  `starting_force` placement). Absent on every other type; the schema's description is the authority. */
   zone?: string;
+  /** `no_collateral_above` only: the Conduct floor (the same units and direction as `roe.fail_below`).
+   *  The objective fails the tick the live Conduct score drops below it. Absent on every other type. */
+  threshold?: number;
   count?: number;
   seconds?: number;
   /** Fires as a `MissionEvent` the tick this objective completes, right
@@ -721,7 +724,7 @@ interface WorksCharge {
 
 const SUPPORTED = new Set([
   'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all',
-  'evacuate_before', 'raze', 'collapse', 'score', 'escort',
+  'evacuate_before', 'raze', 'collapse', 'score', 'escort', 'no_collateral_above',
 ]);
 
 /** The types that may name a `side` (GH-976): the ones whose evaluation reads it. */
@@ -1119,6 +1122,14 @@ export class MissionRuntime {
       if (def.zone !== undefined && def.type !== 'escort') {
         throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no zone (only escort does)`);
       }
+      if (def.threshold !== undefined && def.type !== 'no_collateral_above') {
+        throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no threshold (only no_collateral_above does)`);
+      }
+      if (def.type === 'no_collateral_above') {
+        if (def.threshold === undefined || !Number.isInteger(def.threshold) || def.threshold < 1 || def.threshold > 100) {
+          throw new Error(`mission ${mission.id}: no_collateral_above "${def.id}" needs an integer threshold 1..100`);
+        }
+      }
       if (def.side !== undefined) {
         if (!SIDED.has(def.type)) {
           throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no side`);
@@ -1141,6 +1152,16 @@ export class MissionRuntime {
         }
       }
       this.objectives.push({ def, status: 'active', holdTicks: 0, paused: null, completeTick: -1 });
+    }
+    // A `no_collateral_above` guard completes only once every OTHER primary is complete, so
+    // one as the only primary could never be won -- the same unwinnable-and-unlosable trap
+    // `raze`/`collapse` dodge with a `seconds` deadline. Refuse it up front rather than let it
+    // hang until the time limit blames the clock.
+    if (
+      mission.objectives.some((o) => o.primary && o.type === 'no_collateral_above') &&
+      !mission.objectives.some((o) => o.primary && o.type !== 'no_collateral_above')
+    ) {
+      throw new Error(`mission ${mission.id}: a primary no_collateral_above needs another primary to complete against`);
     }
     this.firedTriggers = new Array(mission.triggers?.length ?? 0).fill(false);
     this.spawnedWaves = new Array(mission.enemy?.waves?.length ?? 0).fill(false);
@@ -2525,6 +2546,9 @@ export class MissionRuntime {
     paused?: 'contested' | 'unheld';
     /** Zone this objective is fought over, so the map can show it. */
     zone?: string;
+    /** The Conduct floor for a `no_collateral_above` objective, so the HUD can show the
+     *  ceiling as a live reading (`roeScore`) against it. Undefined on every other type. */
+    threshold?: number;
   }[] {
     return this.objectives.map((o) => {
       let ticksLeft: number | undefined;
@@ -2570,6 +2594,7 @@ export class MissionRuntime {
             : o.def.type === 'escort'
               ? o.def.zone
               : undefined,
+        threshold: o.def.type === 'no_collateral_above' ? o.def.threshold : undefined,
       };
     });
   }
@@ -4459,6 +4484,12 @@ export class MissionRuntime {
         const dest = this.zone(d.zone);
         failed = ids.some((id) => this.sim.state.alive[id] === 0);
         complete = dest !== undefined && ids.every((id) => this.standsIn(id, dest));
+      } else if (d.type === 'no_collateral_above') {
+        // GH-4: the hard ROE ceiling as an objective. It shares the ROE score (`roeScoreValue`), never a second
+        // counter, and fails the tick that score drops below the declared floor. It completes in `checkEnd`, once
+        // every OTHER primary is complete and the ceiling has held all the way -- so a primary guard does not strand
+        // the mission unwinnable, and a secondary guard reads as a held bonus at victory.
+        failed = this.roeScoreValue < (d.threshold ?? 100);
       } else if (d.type === 'eliminate_hvt') {
         const ids = this.tags.get(d.target ?? '') ?? [];
         // Eliminated means KILLED. A `remove` trigger (the enemy's act: an escape, an
@@ -4564,6 +4595,25 @@ export class MissionRuntime {
     // (`minItems: 1`), so none reaches this.
     if (this.objectives.length === 0) return;
     const primaries = this.objectives.filter((o) => o.def.primary);
+    // A `no_collateral_above` guard is the last thing to close: it completes the tick every OTHER
+    // primary is complete (the mission's goal is met and the Conduct ceiling held). Done here, after
+    // `stepObjectives`, so it is independent of authored order -- the same tick the last real primary
+    // completes, not a tick later. It never completes on its own, so without this a guard primary would
+    // leave the mission permanently unwinnable (the trap `raze`/`collapse` dodge with a deadline).
+    const guards = primaries.filter((o) => o.def.type === 'no_collateral_above' && o.status === 'active');
+    if (guards.length > 0) {
+      const others = primaries.filter((o) => o.def.type !== 'no_collateral_above');
+      const othersDone = others.length > 0 && others.every((o) => o.status === 'complete');
+      if (othersDone) {
+        for (const g of guards) {
+          this.payObjective(g.def, tick, out);
+          g.status = 'complete';
+          g.completeTick = tick;
+          out.push({ kind: 'objective', tick, id: g.def.id, status: 'complete' });
+          if (g.def.say) out.push({ kind: 'say', tick, speaker: g.def.say.speaker, text: g.def.say.text });
+        }
+      }
+    }
     const won = primaries.length > 0 && primaries.every((o) => o.status === 'complete');
     const wiped =
       this.playerIds.length > 0 && this.playerIds.every((id) => this.isLost(id));
