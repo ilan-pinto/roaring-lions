@@ -31,7 +31,7 @@ import { createNodeDecalMaterial } from '../decal-pool.node';
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
 import { createNodeOutlineMaterial } from '../units/silhouette.node';
 import type { RingStyle } from '../units/selection-ring';
-import { censusUnadopted, censusUnported, unportedWarnings, type UnportedHook } from './unported';
+import { censusUnadopted, censusUnported, reassertCensusHides, unportedWarnings, type CensusHides, type UnportedHook } from './unported';
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
 import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
@@ -230,8 +230,10 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     const slot = slotOf?.(m) ?? null;
     return slot !== null && materials[slot] !== null;
   };
+  // GH-943 P3 (T2b, P3-R13): what the census hid, re-hidden before every render (a per-frame writer re-shows it between censuses).
+  const censusHides: CensusHides = new Set();
   const runCensus = (scene: THREE.Scene): void => {
-    const found = censusUnported(scene);
+    const found = censusUnported(scene, { hides: censusHides });
     if (slotOf !== undefined) found.push(...censusUnadopted(scene, adoptable));
     for (const h of found) hooks.set(`${h.kind}|${h.key}`, h);
     for (const line of unportedWarnings(found, seen)) warn(line);
@@ -273,6 +275,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
       await renderer.compileAsync(scene, camera);
     },
     render(scene, camera) {
+      reassertCensusHides(censusHides, scene);
       if (frames % CENSUS_EVERY_FRAMES === 0) runCensus(scene);
       frames++;
       if (!chain || !builtFor || builtFor.scene !== scene || builtFor.camera !== camera) build({ scene, camera, quality: builtFor?.quality ?? DEFAULT_QUALITY });
