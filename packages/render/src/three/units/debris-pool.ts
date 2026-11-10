@@ -288,14 +288,14 @@ export class DebrisPool {
   }
 
   /** The slot's written plan values, for a test. */
-  slot(shape: number, i: number): { t: number[]; p0: number[]; rest: THREE.Vector3; color: THREE.Color } {
+  slot(shape: number, i: number): { t: number[]; p0: number[]; v0: number[]; rest: THREE.Vector3; color: THREE.Color } {
     const s = this.shapes[shape];
     const m = new THREE.Matrix4();
     s.mesh.getMatrixAt(i, m);
     const c = new THREE.Color();
     s.mesh.getColorAt(i, c);
     const at = (a: THREE.InstancedBufferAttribute): number[] => Array.from((a.array as Float32Array).slice(i * a.itemSize, (i + 1) * a.itemSize));
-    return { t: at(s.attrs.aDebT), p0: at(s.attrs.aDebP0), rest: new THREE.Vector3().setFromMatrixPosition(m), color: c };
+    return { t: at(s.attrs.aDebT), p0: at(s.attrs.aDebP0), v0: at(s.attrs.aDebV0), rest: new THREE.Vector3().setFromMatrixPosition(m), color: c };
   }
 
   private freeSlot(s: ShapeMesh, sim: number): number {

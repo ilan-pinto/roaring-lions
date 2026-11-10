@@ -210,6 +210,16 @@ import { BlastRingPool, ringColorLinear } from './units/blast-ring';
 import { DebrisPool } from './units/debris-pool';
 import { debrisThrowFor, planDebris, restingPlan, type DebrisPlan } from './units/debris-flight';
 import { debrisKeysFor } from './units/debris-tone';
+import {
+  BUILDING_HIT_DUST_EMITTER_ID,
+  HIT_BURST_MIN_TICKS,
+  HIT_EJECTA_SPREAD_RAD,
+  HIT_HEIGHT_FRACTION,
+  HIT_STANDOFF_TILES,
+  hitFace,
+  masonryKeyFor,
+  masonryKeysFor,
+} from './units/building-hit';
 import { tileBaseToneHex } from './terrain/ground';
 import {
   AIR_STRIKE_IMPACT_POWER,
@@ -431,7 +441,7 @@ import {
   MISS_SCORCH_POWER,
 } from './units/missile-fx';
 import type { MissileLanding, TargetTrack } from './units/missiles';
-import { missileClassOf, missileDurationS, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
+import { missileClassOf, missileDurationS, missileResolveTick, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
 import { SwarmBatch, extractSwarmParts, newSwarmEntityScratch, type SwarmBatchEvent, type SwarmFrameEnvScratch } from './units/swarm-batch';
 import type { DiveRequest } from './units/swarm-layout';
 import { BEAM_CAPACITY, BeamBatch, vehicleMuzzleOf } from './units/beam-batch';
@@ -831,6 +841,18 @@ import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, conta
 
 /** COPIED from tuning.ts (FS_MORTAR_BARRAGE, SMOKE_RANGE_SQ); the vfx-triggers spec reads tuning.ts as text. */
 const FS_MORTAR_BARRAGE = 1;
+
+/** GH-1197 P3: the direct-fire classes whose hit on a building throws masonry from the hit face (the coordinator's
+ *  ruling Q2): one explosive round per shot. Small arms and the HMG keep today's centroid puff; indirect rounds add
+ *  nothing at the building (their landing throws its own); a charge is `eod_breach`. */
+const HIT_FACE_CLASSES: ReadonlySet<number> = new Set([
+  WEAPON_CLASS.apfsds,
+  WEAPON_CLASS.autocannon,
+  WEAPON_CLASS.atgm,
+  WEAPON_CLASS.rpg,
+  WEAPON_CLASS.heat,
+  WEAPON_CLASS.he,
+]);
 
 /** GH-1197: a loaded weapon's munition, its reach read off the weapon the sim built from the unit JSON
  *  (`splash_tiles`, or the bomblets' for a cluster round). Null for no weapon or one the table does not map. */
@@ -2367,6 +2389,11 @@ export class ThreeRenderer implements Renderer {
    * they went off -- see `trigger-fx.ts`'s `PendingCharge`.
    */
   private readonly pendingCharges: PendingCharge[] = [];
+  /** GH-1197 P3: explosive direct-fire rounds in flight at a building, matched to the `structureHit` that resolves
+   *  them (the event names no weapon). The `pendingCharges` pattern. */
+  private readonly pendingStructShots: { shooter: number; structure: number; resolveTick: number; munition: Munition }[] = [];
+  /** GH-1197 P3: the last tick a building threw a hit-face burst (`HIT_BURST_MIN_TICKS`). */
+  private readonly structHitBurstTick = new Map<number, number>();
   /** Presentation sim time at the last `updateFx`, null before the first. */
   /** Presentation sim time at the last `frame()`, null before the first. */
   private lastFrameSimMs: number | null = null;
@@ -6609,6 +6636,9 @@ export class ThreeRenderer implements Renderer {
         // with the blast (`eod_breach`).
         if (this.detonateChargeOnStructure(e.by, hitStruct, e.tick)) {
           // The blast is the whole effect.
+        } else if (this.takeStructShot(e.by, hitStruct, e.tick)) {
+          // GH-1197 P3: an explosive direct-fire round: masonry and dust from the hit face (or nothing, in fog
+          // or during a catch-up), in place of the centroid puff.
         } else if (this.quiet) {
           // A tick far behind the live edge: the building's damage above is
           // kept, the dust it threw is not.
@@ -6848,6 +6878,21 @@ export class ThreeRenderer implements Renderer {
         resolveTick: demolitionResolveTick(e.tick, Math.hypot(ax - sx, ay - sy)),
       });
     }
+    // GH-1197 P3: an explosive direct-fire round at a building is matched to the hit that resolves it, which throws
+    // masonry from the hit face. Registered whatever the fog: the hit decides what is drawn.
+    if (atStruct && wp !== undefined && HIT_FACE_CLASSES.has(cls)) {
+      const sx = fx.toNumber(st.posX[e.shooter]);
+      const sy = fx.toNumber(st.posY[e.shooter]);
+      const dist = Math.hypot(tx - sx, ty - sy);
+      const direct = munitionRow('direct_he');
+      this.pendingStructShots.push({
+        shooter: e.shooter,
+        structure: e.structure as number,
+        resolveTick: shellKind === 'missile' ? missileResolveTick(cls, dist, e.tick) : e.tick,
+        munition: weaponMunition(wp) ?? { cls: 'direct_he', splash: direct.reference_splash_tiles },
+      });
+      if (this.pendingStructShots.length > 64) this.pendingStructShots.shift();
+    }
 
     // Latch the fire clip for its own declared duration (renderer.ts:772-777)
     // -- WHOSE duration decided by which asset is actually drawing this
@@ -7000,6 +7045,7 @@ export class ThreeRenderer implements Renderer {
       // GH-1197: a missile with a reach (Hellfire, RPG) draws its ring where it lands.
       const missileMunition = weaponMunition(wp);
       if (missile !== null && missileMunition !== null) missile.munition = missileMunition;
+      if (missile !== null && atStruct) missile.atStructure = true;
       const mcls = missileClassOf(cls);
       flightS = Math.hypot(tx - this.curX[e.shooter], ty - this.curY[e.shooter]) / SIM_PROJ_SPEED_TILES_S[mcls ?? 'atgm'];
     } else if (shellKind !== null) {
@@ -12572,10 +12618,77 @@ export class ThreeRenderer implements Renderer {
    * during a catch-up (`setQuiet`); the debris is world state for 90 s, so a catch-up places it at rest.
    * No munition, nothing.
    */
-  private spawnReachFx(m: Munition | null | undefined, x: number, y: number): void {
+  private spawnReachFx(m: Munition | null | undefined, x: number, y: number, debris = true): void {
     if (m === null || m === undefined) return;
     if (!this.quiet) this.blastRings.spawn(x, y, ringSpecFor(m));
-    if (this.debris !== null && m.splash > 0) this.spawnDebris(m, x, y);
+    if (debris && this.debris !== null && m.splash > 0) this.spawnDebris(m, x, y);
+  }
+
+  /**
+   * GH-1197 P3: a `structureHit` that resolves an explosive direct-fire round (`pendingStructShots`). True when it
+   * did, so the caller draws no centroid puff for it. The burst itself is thrown only out of a catch-up, where the
+   * versus seat can see the building (`hostileEffectVisible`, a hostile hit in fog draws nothing), and at most once
+   * per `HIT_BURST_MIN_TICKS` a building.
+   */
+  private takeStructShot(by: number, structure: number, tick: number): boolean {
+    const list = this.pendingStructShots;
+    for (let i = list.length - 1; i >= 0; i--) if (list[i].resolveTick < tick - 40) list.splice(i, 1);
+    const k = list.findIndex((p) => p.shooter === by && p.structure === structure && tick >= p.resolveTick - 1);
+    if (k < 0) return false;
+    const shot = list[k];
+    list.splice(k, 1);
+    if (this.quiet) return true;
+    if (!hostileEffectVisible(this.versus, this.structureIsOwn(structure), this.footprintInSight(structure))) return true;
+    if (tick - (this.structHitBurstTick.get(structure) ?? -1e9) < HIT_BURST_MIN_TICKS) return true;
+    this.structHitBurstTick.set(structure, tick);
+    this.spawnBuildingHitFx(structure, by, shot.munition, tick);
+    return true;
+  }
+
+  /**
+   * GH-1197 P3: the hit face of `structure` struck by a round from `shooter`: the class's debris (clods and chunks,
+   * all masonry here) thrown along the face normal +-35 degrees back toward the shooter, from a point 0.3-0.8 up
+   * the wall, in the building's own ramp with a quarter charred; and the masonry dust (`building_hit_dust`) at the
+   * face. Never at the centroid. Returns the pieces placed.
+   */
+  private spawnBuildingHitFx(structure: number, shooter: number, m: Munition, tick: number): number {
+    const st = this.sim.structures;
+    const sx = shooter >= 0 && shooter < this.curX.length ? this.curX[shooter] : fx.toNumber(st.cx[structure]) + 1;
+    const sy = shooter >= 0 && shooter < this.curY.length ? this.curY[shooter] : fx.toNumber(st.cy[structure]);
+    const face = hitFace(st.minX[structure], st.minY[structure], st.maxX[structure], st.maxY[structure], sx, sy);
+    const px = face.x + face.nx * HIT_STANDOFF_TILES;
+    const py = face.y + face.ny * HIT_STANDOFF_TILES;
+    const type = this.sim.structureTypes[st.typeIdx[structure]];
+    const height = this.buildingMeshBounds.get(type.id)?.y ?? type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+    const frac = HIT_HEIGHT_FRACTION[0] + (HIT_HEIGHT_FRACTION[1] - HIT_HEIGHT_FRACTION[0]) * tileHash(tick, structure);
+    const groundY = this.ringHeightAt(px, py);
+    const hitY = groundY + height * frac;
+    const dirRad = Math.atan2(face.ny, face.nx);
+    // The dust, at the face, drifting out along its normal.
+    const em = this.emitterLibrary.byName(BUILDING_HIT_DUST_EMITTER_ID);
+    const recipe = this.flipbookRecipeOf(em);
+    if (recipe) this.flipbook.spawnRecipe(recipe, px, hitY, py, 0, dirRad, groundY);
+    else if (em && this.particleSystem) {
+      const prio = em.budget_priority ?? 6;
+      for (const layer of em.particles) {
+        this.particleSystem.spawn(layer, px, py, dirRad / (Math.PI * 2), 1, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+      }
+    }
+    const pool = this.debris;
+    if (pool === null) return 0;
+    const row = munitionRow(m.cls);
+    const t = debrisThrowFor(row.debris, m.splash, row.reference_splash_tiles);
+    const n = t.clods + t.chunks;
+    const keys = masonryKeysFor(type.color);
+    const plans: DebrisPlan[] = [];
+    const colors: THREE.Color[] = [];
+    // A per-hit salt, so two hits on one face do not throw the identical spray; still a function of sim data.
+    const salt = (tick % 4096) * 64;
+    for (let k = 0; k < n; k++) {
+      plans.push(planDebris(px, hitY, py, salt + k, k < t.clods, t, this.ringHeightAt, { dirRad, spreadRad: HIT_EJECTA_SPREAD_RAD }));
+      colors.push(ringColorLinear(paletteHex(masonryKeyFor(keys, k))));
+    }
+    return pool.spawn(plans, colors);
   }
 
   /** GH-1197 P2: the debris of one landing into the pool. Returns how many pieces were placed. */
@@ -12656,10 +12769,11 @@ export class ThreeRenderer implements Renderer {
    * `scale` rather than x `impactPower` (P-4), and there is no hit-stop and no
    * crater: a kill already owns the blast. A miss marks the ground.
    */
-  private spawnMissileImpactFx(l: Pick<MissileLanding, 'x' | 'y' | 'headingTurns' | 'power' | 'scale' | 'miss' | 'munition'>): void {
+  private spawnMissileImpactFx(l: Pick<MissileLanding, 'x' | 'y' | 'headingTurns' | 'power' | 'scale' | 'miss' | 'munition' | 'atStructure'>): void {
     // GH-1197: a landing with a reach (a missile with a splash, a kamikaze's warhead, a swarm's bomblet)
     // draws its two-part ring; an intercept carries no munition and bursts in the air with none.
-    this.spawnReachFx(l.munition, l.x, l.y);
+    // A round fired at a building throws masonry from its hit face instead (P3); a miss still marks the ground.
+    this.spawnReachFx(l.munition, l.x, l.y, !(l.atStructure === true && !l.miss));
     const em = this.emitterLibrary.byName(MISSILE_IMPACT_EMITTER_ID);
     const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, l.x, l.y);
     // Defilade T4 (D6): `missile_impact`'s flipbook recipe replaces its
