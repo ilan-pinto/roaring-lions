@@ -505,8 +505,13 @@ function nodeTallies(nr: NodeRendererInternals): { done: () => { byType: Record<
 export async function submitMeasure(o: { n: number; variant: VariantId; frames: number; warmFrames: number; gpuFrames: number }): Promise<SubmitReading> {
   const s = submitState();
   const { r, sim, spawner, arm } = s;
+  // ONE snapshot per spawn, as `runArm` does. The Metal hold (2026-11-10) and both CI runs called `snapshot()` before EVERY reading,
+  // and the drawn scene grew with the calls, with no sim tick between them (n300: 435 skinned draws at the 1st and 2nd call, 708 at
+  // the 3rd, 1295 at the 4th, on L and G alike, byte-identical across runs), so every toggle after the second read a bigger scene than
+  // its base. Why repeated snapshots change the drawn set is not diagnosed here (GH-1152 T13 report).
+  const before = sim.entityCount;
   spawnUpTo(sim, spawner, o.n);
-  r.snapshot();
+  if (sim.entityCount !== before) r.snapshot();
   r.camera.zoom = 0.5;
   const undo: MeshLike[] = [];
   const applied = applyVariant(s, o.variant, true, undo);
