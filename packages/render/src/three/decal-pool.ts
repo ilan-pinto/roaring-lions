@@ -158,6 +158,9 @@ import {
   RUBBLE_TONE_SCALE,
   SCORCH_ALPHA,
   SCORCH_EDGE_INNER,
+  SCUFF_ALPHA,
+  SCUFF_EDGE_INNER,
+  SCUFF_FADE_SEC,
   TILE_HASH_MIX,
   TILE_HASH_MX,
   TILE_HASH_MY,
@@ -579,6 +582,11 @@ const DECAL_FRAGMENT_SHADER_DRY = /* glsl */ `
       float core = smoothstep(0.0, ${f(CHURN_SPOKE_CORE)}, r);
       float fade = clamp(1.0 - max(ageSec, 0.0) / ${f(CHURN_FADE_SEC)}, 0.0, 1.0);
       a = ${f(CHURN_ALPHA)} * body * (1.0 + (spoke - 1.0) * core) * fade;
+      ci = ${COLOUR_TREAD};
+    } else if (kind == ${DECAL_KIND_INDEX.scuff}) {
+      // GH-1207: the single round scrape a tracked hull leaves where it pivots on the spot.
+      float scuffFade = clamp(1.0 - max(ageSec, 0.0) / ${f(SCUFF_FADE_SEC)}, 0.0, 1.0);
+      a = ${f(SCUFF_ALPHA)} * (1.0 - smoothstep(${f(SCUFF_EDGE_INNER)}, 1.0, length(vOffset))) * scuffFade;
       ci = ${COLOUR_TREAD};
     }
 

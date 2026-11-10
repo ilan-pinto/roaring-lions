@@ -162,7 +162,7 @@ import { roadBands } from './terrain/ground-maths';
 
 /** Every mark this pool draws. Order fixes `DECAL_KIND_INDEX` -- see that
  *  constant's own doc comment for why the order itself is load-bearing. */
-export type DecalKind = 'crater' | 'scorch' | 'oil' | 'rubble' | 'tread' | 'tyre' | 'churn';
+export type DecalKind = 'crater' | 'scorch' | 'oil' | 'rubble' | 'tread' | 'tyre' | 'churn' | 'scuff';
 
 /**
  * `DecalKind` as a small integer, written into the `aDecal` vertex
@@ -184,13 +184,15 @@ export const DECAL_KIND_INDEX: Readonly<Record<DecalKind, number>> = {
   tyre: 5,
   // GH-984 N2: the earth a tracked hull churns on a pivot and a hard launch. Appended, so no index moved.
   churn: 6,
+  // GH-1207: the single round scrape a tracked hull leaves where it pivots on the spot. Appended, so no index moved.
+  scuff: 7,
 };
 
-/** `tread`/`tyre` (R-15's 180 s fade) and `churn` (GH-984 N2, `CHURN_FADE_SEC`) are the kinds that age out;
- *  crater/scorch/oil/rubble are permanent for the mission, matching
- *  `scorch-decals.ts`'s own "No TTL" for the mark it already ships. */
+/** `tread`/`tyre` (R-15's 180 s fade), `churn` (GH-984 N2, `CHURN_FADE_SEC`) and `scuff` (GH-1207,
+ *  `SCUFF_FADE_SEC`) are the kinds that age out; crater/scorch/oil/rubble are permanent for the
+ *  mission, matching `scorch-decals.ts`'s own "No TTL" for the mark it already ships. */
 export function isFadingKind(k: DecalKind): boolean {
-  return k === 'tread' || k === 'tyre' || k === 'churn';
+  return k === 'tread' || k === 'tyre' || k === 'churn' || k === 'scuff';
 }
 
 /** See this file's top comment, "One pool class, two instances (R-10)". */
@@ -676,6 +678,19 @@ export const CHURN_SPOKE_CORE = 0.18;
 /** The three sizes the showcase stamps (half extents, tiles): a pivot's scuff, a launch's, and a heavy dozer's dig-in. */
 export const CHURN_SHOWCASE_RADII: readonly [number, number, number] = [0.3, 0.45, 0.6];
 
+/**
+ * Scuff (GH-1207): the single round scrape a tracked hull leaves where it PIVOTS on the spot --
+ * one clean disc about a hull length across, laid through `stampGroundDecal` once per pivot (see
+ * `units/ground-churn.ts`'s `stepPivotScuff`/`pivotScuffStamp`). Unlike `churn`'s two under-track
+ * torn-earth discs it is a single smooth-edged circle (no wobble, no spokes): the footprint the
+ * whole hull swept. It takes `tread`'s colour (dust on a dry map, mud under rain), like `churn`,
+ * and fades LINEARLY over `SCUFF_FADE_SEC` -- a little longer than a churn, since the scrape is
+ * deeper than the loose earth.
+ */
+export const SCUFF_ALPHA = 0.4;
+export const SCUFF_EDGE_INNER = 0.55;
+export const SCUFF_FADE_SEC = 180;
+
 /** `tileHash`'s multipliers and shifts, owned by `../tile-hash.ts` and
  *  re-exported here for the shader -- see this file's top comment. */
 export { TILE_HASH_MIX, TILE_HASH_MX, TILE_HASH_MY, TILE_HASH_SHIFT_A, TILE_HASH_SHIFT_B } from '../tile-hash';
@@ -1107,17 +1122,22 @@ export function decalAlphaOps<T>(
   const churnFade = o.clamp01(o.sub(one, o.div(age, L(CHURN_FADE_SEC))));
   const churnA = o.mul(o.mul(o.mul(L(CHURN_ALPHA), body), o.add(one, o.mul(o.sub(spoke, one), core))), churnFade);
 
+  // scuff (GH-1207): one clean fading disc, no wobble and no spokes.
+  const scuffFade = o.clamp01(o.sub(one, o.div(age, L(SCUFF_FADE_SEC))));
+  const scuffA = o.mul(o.mul(L(SCUFF_ALPHA), inv(o.smoothstep(L(SCUFF_EDGE_INNER), one, o.length2(s, t)))), scuffFade);
+
   // the kind's own
   const isTrack = o.add(isTread, kindIs(o, kind, DECAL_KIND_INDEX.tyre));
-  const sel = (crater: T, scorch: T, oil: T, rubble: T, track: T, churn: T, none: T): T =>
+  const sel = (crater: T, scorch: T, oil: T, rubble: T, track: T, churn: T, scuff: T, none: T): T =>
     pick(o, kindIs(o, kind, DECAL_KIND_INDEX.crater), crater,
       pick(o, kindIs(o, kind, DECAL_KIND_INDEX.scorch), scorch,
         pick(o, kindIs(o, kind, DECAL_KIND_INDEX.oil), oil,
           pick(o, kindIs(o, kind, DECAL_KIND_INDEX.rubble), rubble,
             pick(o, isTrack, track,
-              pick(o, kindIs(o, kind, DECAL_KIND_INDEX.churn), churn, none))))));
+              pick(o, kindIs(o, kind, DECAL_KIND_INDEX.churn), churn,
+                pick(o, kindIs(o, kind, DECAL_KIND_INDEX.scuff), scuff, none)))))));
   return {
-    alpha: sel(craterA, scorchA, oilA, rubbleA, trackA, churnA, L(0)),
-    colour: sel(craterC, L(COLOUR_SCORCH), L(COLOUR_OIL), rubbleC, trackC, L(COLOUR_TREAD), L(0)),
+    alpha: sel(craterA, scorchA, oilA, rubbleA, trackA, churnA, scuffA, L(0)),
+    colour: sel(craterC, L(COLOUR_SCORCH), L(COLOUR_OIL), rubbleC, trackC, L(COLOUR_TREAD), L(COLOUR_TREAD), L(0)),
   };
 }
