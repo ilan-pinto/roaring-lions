@@ -654,7 +654,7 @@ describe('flag backstop: 12 minutes after the bell a set-up room is decided on s
   });
 
   it('only a flag set-up room: the same sim in any other room plays on (the map cap is 25 minutes)', () => {
-    for (const other of [{ hashEveryTicks: 20, map: 'milh_flats_l', winMode: 'flag' }, { hashEveryTicks: 20, map: 'milh_flats_l' }, { hashEveryTicks: 20, map: 'milh_flats_l', winMode: 'points' }]) {
+    for (const other of [{ hashEveryTicks: 20, map: 'milh_flats_l', winMode: 'flag' }, { hashEveryTicks: 20, map: 'milh_flats_l' }, { hashEveryTicks: 20, map: 'milh_flats_l', winMode: 'points' }, { hashEveryTicks: 20, map: 'milh_flats_l', winMode: 'points', flagSetup: true }, { hashEveryTicks: 20, map: 'milh_flats_l', flagSetup: true }]) {
       expect(hashTickOutcome(19, other as MatchConfig, at(STOP, ahead0))).toBeNull();
     }
   });
