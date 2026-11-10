@@ -28,6 +28,7 @@ import type { GroundMaterial } from '../terrain/mesh';
 import type { GroundMaths } from '../terrain/mesh.node';
 import type { FoliageMaths } from '../terrain/decor-mesh.node';
 import type { RingMaths } from '../units/selection-ring.node';
+import type { BackdropMaths } from '../terrain/backdrop.node';
 import type { UnitMaths } from '../units/unit-material.node';
 import type { OutlineMaths } from '../units/silhouette.node';
 import type { ZoneBandMaths } from '../units/zone-band.node';
@@ -102,7 +103,7 @@ export interface MaterialMaths {
   /** T5: the occlusion and smoke outline (`units/silhouette.node.ts`). */
   readonly outline: OutlineMaths;
   readonly banner: null;
-  readonly backdrop: null;
+  readonly backdrop: BackdropMaths;
   /** T7: the decal kinds, the road under them, the albedo ratio and the crater rim. */
   readonly decal: DecalMaths;
   readonly overlay: null;

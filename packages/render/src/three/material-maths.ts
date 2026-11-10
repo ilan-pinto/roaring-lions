@@ -26,6 +26,7 @@ import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, ro
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
 import { disturbBendOps, disturbSlotPushOps, DISTURB_MAX } from './terrain/disturb';
 import { foliageLeanOps } from './terrain/wind';
+import { backdropFadeOps } from './terrain/backdrop';
 import { DECAL_LIGHTS_KEY, DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS, DECAL_WET_DEFINE } from './decal-pool';
 import {
   craterGradOps,
@@ -98,7 +99,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
   // GH-943 P3 (T5): the outline's expansion (rigid and skinned), and the names of its attribute and uniform records.
   outline: { expandOps: outlineExpandOps, expandAttribute: SILHOUETTE_EXPAND_ATTRIBUTE, widthKey: SILHOUETTE_OUTLINE_UNIFORM_KEY, biasKey: SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY },
   banner: null,
-  backdrop: null,
+  // T10: the valley backdrop's distance fade (`terrain/backdrop.node.ts`).
+  backdrop: { fadeOps: backdropFadeOps },
   // T7: the decal kinds, the road under them, the albedo ratio and the crater rim (`decal-pool.node.ts`).
   decal: {
     kindOps: decalKindOps,

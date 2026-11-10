@@ -354,6 +354,8 @@ function fxMoment(blastId: string, layer: string, tag = '@blast'): Pick<ProbeSub
  * `pre-port`. The set is read by `rowStatus` only.
  */
 export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
+  // GH-943 P3 (T10): the valley backdrop's fade (`terrain/backdrop.node.ts`).
+  'valley',
   // GH-943 P3 (T3): the running gear and the wreck soot on the node unit twin.
   'moving-lavi',
   'wreck-lavi',
