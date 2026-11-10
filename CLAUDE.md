@@ -208,6 +208,20 @@ in `docs/agent-notes/`; read the one for an area before changing it:
 `campaign-board-and-scene-host.md`, `scaling-debts.md`, `mission-findings.md`
 (tunnels, loans, playtest limits, smoke, Tel Marum).
 
+### Domain skills
+
+Five project skills in `.claude/skills/` carry sourced real-world knowledge mapped
+to this game's scale and rules. Open the one for an area (Skill tool) before
+designing, tuning or judging work in it; each names its own references.
+
+| Skill | Open it for |
+|---|---|
+| `explosion-physics` | any blast, impact, crater, scorch, dust, debris, blast light or shake, building damage or collapse (GH-1197) |
+| `vehicle-movement` | vehicle speed, acceleration, turning, reversing, turret slew, pitch and settle, slopes, vehicle formations and AI movement |
+| `infantry-movement` | gait, clips, postures (kneel, prone, crawl), figure slots, squad formations and drills, suppression, APC dismount |
+| `levant-terrain` | maps, ground, palette for terrain, vegetation, rocks, buildings, backdrop, haze, light and time of day |
+| `rts-art-direction` | any art, material or lighting work: readability at play zoom, team colour, PBR values, matching a new or Meshy asset to the world, tone mapping, look-dev, Blender export, WebGPU/TSL techniques |
+
 ---
 
 ## Tool, browser and worktree rules

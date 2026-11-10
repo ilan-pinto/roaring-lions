@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BLAST_SUBJECTS } from './blast-captures';
 import { DEBUG_LAYERS } from '../../../packages/render/src/three/debug-layers';
@@ -200,7 +203,7 @@ describe('the ported subjects', () => {
   it('GH-943 P3 (T11, T12): every fx subject is live (T12: the flipbook and the smoke screen), and every one names a real fx subject', () => {
     const fxIds = new Set(PROBE_SUBJECTS.fx.map((s) => s.id));
     const live = [
-      'mortar-impact', 'vehicle-death/muzzle-burst', 'lavi-fire/muzzle-burst', 'mortar-impact/smoke-plume', 'collapse', 'tracers', 'atgm', 'beam-swarm', 'beam-swarm/swarm',
+      'mortar-impact', 'lavi-fire/muzzle-burst', 'collapse/smoke-plume', 'collapse', 'tracers', 'atgm', 'beam-swarm', 'beam-swarm/swarm',
       // T12
       'mortar-impact/flipbook', 'vehicle-death', 'smoke-screen',
     ];
@@ -292,5 +295,33 @@ describe('the subject lists', () => {
   it('every fx subject has a frame-clock advance or is a tick-driven moment, and every setup is non-empty', () => {
     for (const s of all) expect(s.setup.length, s.id).toBeGreaterThan(0);
     for (const s of PROBE_SUBJECTS.fx) if (s.frameSteps !== undefined) expect(s.frameSteps.n).toBeGreaterThan(0);
+  });
+});
+
+describe('T2b: the subjects name what the renderer actually draws', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  it('the tracers subject stages a unit whose weapon class has no travelling round (flat tracer: demolition or interceptor)', () => {
+    const t = PROBE_SUBJECTS.fx.find((s) => s.id === 'tracers');
+    const unit = /__probe\.spawn\('([a-z_0-9]+)', 0/.exec((t?.setup ?? []).join('\n'))?.[1];
+    expect(unit).toBe('demo_squad');
+    const json = JSON.parse(readFileSync(join(here, '../../../data/units/kdf/demo_squad.json'), 'utf8')) as { weapons: { type: string }[] };
+    expect(json.weapons.some((w) => w.type === 'demolition')).toBe(true);
+  });
+  it('the plume subject holds the shroud hidden and reads past the first second', () => {
+    const p = PROBE_SUBJECTS.fx.find((s) => s.id === 'collapse/smoke-plume');
+    expect(p?.alsoHide).toEqual(['collapse-shroud']);
+    expect((p?.frameSteps?.n ?? 0) * (p?.frameSteps?.dtMs ?? 0)).toBeGreaterThanOrEqual(1500);
+  });
+  it('held-house waits for the garrison itself, never for a fixed tick count', () => {
+    const h = PROBE_SUBJECTS.units.find((s) => s.id === 'held-house');
+    const text = (h?.setup ?? []).join('\n');
+    expect(text).toMatch(/garrisonedIn/);
+    expect(text).not.toMatch(/step\(120\)/);
+  });
+  it('held-house and damaged-zone read a crop that keeps their animating figures out (x 426+ and x 403+ of the 1000 px frame)', () => {
+    const h = PROBE_SUBJECTS.units.find((x) => x.id === 'held-house')?.crop;
+    const d = PROBE_SUBJECTS.units.find((x) => x.id === 'damaged-zone')?.crop;
+    expect((h?.[0] ?? 0) + (h?.[2] ?? 1e9)).toBeLessThanOrEqual(426);
+    expect((d?.[0] ?? 0) + (d?.[2] ?? 1e9)).toBeLessThanOrEqual(403);
   });
 });

@@ -5835,6 +5835,8 @@ export class ThreeRenderer implements Renderer {
       routes.push({ points: pts, length: len });
     }
     this.tunnelXray.build(routes, (x, y) => groundWorldY(elevation, sim.width, sim.height, x, y));
+    // GH-943 P3 (T9): the bore and the collars are made here, after init, so a node boot adopts their materials on the frame they appear.
+    this.queueNodeAdoption(this.tunnelXray.group);
   }
 
   /** GH-471, on the trail's own 5 Hz refresh: the viewer's level on each route

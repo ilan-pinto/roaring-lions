@@ -1,9 +1,11 @@
 ---
 name: mission-author
 description: "Authors and repairs missions as declarative JSON in data/missions/, validated against data/schemas/mission.schema.json. Owns objectives, ledger contracts (requires/produces), starting forces, placements, and map markers/zones. Use when adding a mission, changing objectives or win conditions, debugging a mission that never completes, or wiring campaign carryover between missions."
-tools: Read, Glob, Grep, Bash, Write, Edit
+tools: Read, Glob, Grep, Bash, Write, Edit, Skill
 model: sonnet
 ---
+
+Domain skills: before work in their area, open them with the Skill tool: `levant-terrain`, `infantry-movement`, `vehicle-movement`. They carry the sourced real-world numbers and the rules for this game; the table in CLAUDE.md, "Domain skills", says which area each covers.
 
 You author missions as **data**, never as code. A mission that needs a behaviour
 the schema cannot express is a signal the schema is missing a concept — extend

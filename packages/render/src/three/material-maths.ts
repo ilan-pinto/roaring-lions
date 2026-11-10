@@ -26,6 +26,7 @@ import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, ro
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
 import { disturbBendOps, disturbSlotPushOps, DISTURB_MAX } from './terrain/disturb';
 import { foliageLeanOps } from './terrain/wind';
+import { backdropFadeOps } from './terrain/backdrop';
 import { DECAL_LIGHTS_KEY, DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS, DECAL_WET_DEFINE } from './decal-pool';
 import {
   craterGradOps,
@@ -58,6 +59,7 @@ import { flipbookAliveOps, flipbookCoverOps, flipbookMotionOps, flipbookShadeOps
 import { smokeScreenCoverOps, smokeScreenPuffOps, smokeScreenShadeOps } from './smoke-mesh';
 import { vfxBillboardOps } from './units/vfx-noise';
 import { SUPPLY_ROUTE_ALPHA } from './supply-route';
+import { xrayBeamOps, xrayCollarOps, xrayFigureOps, xrayRevealOps, xrayScanOps, xrayTubeOps } from './tunnel-xray';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
@@ -106,7 +108,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
   // GH-943 P3 (T5): the outline's expansion (rigid and skinned), and the names of its attribute and uniform records.
   outline: { expandOps: outlineExpandOps, expandAttribute: SILHOUETTE_EXPAND_ATTRIBUTE, widthKey: SILHOUETTE_OUTLINE_UNIFORM_KEY, biasKey: SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY },
   banner: null,
-  backdrop: null,
+  // T10: the valley backdrop's distance fade (`terrain/backdrop.node.ts`).
+  backdrop: { fadeOps: backdropFadeOps },
   // T7: the decal kinds, the road under them, the albedo ratio and the crater rim (`decal-pool.node.ts`).
   decal: {
     kindOps: decalKindOps,
@@ -126,7 +129,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
   zoneBand: { hatchOps: zoneHatchOps },
   supplyRoute: { dashOps, alpha: SUPPLY_ROUTE_ALPHA },
   trail: null,
-  xray: null,
+  // T9: the tunnel x-ray's tube, collar, figure and beam (`tunnel-xray.node.ts`).
+  xray: { revealOps: xrayRevealOps, scanOps: xrayScanOps, tubeOps: xrayTubeOps, collarOps: xrayCollarOps, figureOps: xrayFigureOps, beamOps: xrayBeamOps },
   // T11: the simple FX families. The tracer and the flat-colour FX mesh need no maths.
   particle: { softOps: softParticleOps, sparksGain: HDR_GAINS.sparks },
   tracer: null,

@@ -26,14 +26,16 @@ import { createNodeOverlayMaterial } from '../units/overlays.node';
 import { createNodeZoneBandMaterial } from '../units/zone-band.node';
 import { createNodeSupplyRouteMaterial, type SupplyRouteUniformRecord } from '../supply-route.node';
 import { createNodeTrailMaterial, type TrailUniformRecord } from '../trail-mesh.node';
+import { createNodeXrayMaterial, XRAY_STYLE_BY_NAME } from '../tunnel-xray.node';
 import { createNodeDecalMaterial } from '../decal-pool.node';
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
 import { createNodeOutlineMaterial } from '../units/silhouette.node';
 import type { RingStyle } from '../units/selection-ring';
 import { fxTwinFactories } from '../units/fx-twins.node';
-import { censusUnadopted, censusUnported, unportedWarnings, type UnportedHook } from './unported';
+import { censusUnadopted, censusUnported, reassertCensusHides, unportedWarnings, type CensusHides, type UnportedHook } from './unported';
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
+import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
 import { createNodeUnitMaterial } from '../units/unit-material.node';
 import { markTwin } from '../twin-identity';
 
@@ -164,6 +166,12 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   };
   // GH-943 P3 (T11): the simple FX families (particle, tracer, flat-colour mesh, rim fade, beam, rotor), wired once in `fx-twins.node.ts`.
   Object.assign(materials, fxTwinFactories({ W, TSL: TSL as never, maths: opts.materialMaths }));
+  // GH-943 P3 (T10): the valley backdrop's distance fade, an output term over the stock lit material (all five materials, one factory).
+  materials.backdrop = (legacy) => {
+    const twin = createNodeBackdropMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.backdrop }, legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
   // GH-943 P3 (T3): every hooked unit material (team mark, running gear, soot; the rim and the floor are named partial terms until T4).
   // Adoption shares one twin per (base, segments, pipeline state) and copies the pipeline state onto it.
   materials.unit = (legacy) => {
@@ -200,6 +208,14 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     markTwin(twin, legacy);
     return twin;
   };
+  // GH-943 P3 (T9): the tunnel x-ray, one factory and four styles, chosen by the legacy material's name.
+  materials.xray = (legacy) => {
+    const style = XRAY_STYLE_BY_NAME[legacy.name];
+    if (style === undefined) throw new Error(`node x-ray twin: no style for the legacy material "${legacy.name}"`);
+    const twin = createNodeXrayMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.xray }, legacy, style);
+    markTwin(twin, legacy);
+    return twin;
+  };
   // GH-943 P3 (T7): the decal pools and the crater rim. The legacy material keeps its record, and carries its scene's light objects.
   materials.decal = (legacy) => {
     const twin = createNodeDecalMaterial({ W, TSL, maths: opts.materialMaths.decal }, legacy);
@@ -217,8 +233,10 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     const slot = slotOf?.(m) ?? null;
     return slot !== null && materials[slot] !== null;
   };
+  // GH-943 P3 (T2b, P3-R13): what the census hid, re-hidden before every render (a per-frame writer re-shows it between censuses).
+  const censusHides: CensusHides = new Set();
   const runCensus = (scene: THREE.Scene): void => {
-    const found = censusUnported(scene);
+    const found = censusUnported(scene, { hides: censusHides });
     if (slotOf !== undefined) found.push(...censusUnadopted(scene, adoptable));
     for (const h of found) hooks.set(`${h.kind}|${h.key}`, h);
     for (const line of unportedWarnings(found, seen)) warn(line);
@@ -260,6 +278,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
       await renderer.compileAsync(scene, camera);
     },
     render(scene, camera) {
+      reassertCensusHides(censusHides, scene);
       if (frames % CENSUS_EVERY_FRAMES === 0) runCensus(scene);
       frames++;
       if (!chain || !builtFor || builtFor.scene !== scene || builtFor.camera !== camera) build({ scene, camera, quality: builtFor?.quality ?? DEFAULT_QUALITY });

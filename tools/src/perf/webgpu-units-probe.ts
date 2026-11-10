@@ -66,7 +66,7 @@ const KIND = arg('kind', '') as ProbeKind;
 const HW = arg('hw', 'swiftshader');
 const ARMS = arg('arms', 'L,F,G').split(',') as ProbeArm[];
 const FRAME_STEPS_OVERRIDE = arg('frame-steps', ''); // DEBUG ONLY, `n:dtMs`: replaces every moment's frameSteps (never used by CI)
-const QUIET = arg('quiet', 'particles').split(',').filter((l) => l.length > 0); // layers hidden on every unit subject (noise sources)
+const QUIET = arg('quiet', 'particles,wind').split(',').filter((l) => l.length > 0); // layers hidden on every unit subject (noise sources)
 const ONLY = arg('only', '').split(',').filter((s) => s.length > 0);
 const OUT = path.resolve(arg('out-dir', ''));
 const VIEWPORT = { width: 1000, height: 640 } as const;
@@ -300,17 +300,23 @@ async function runE6Beam(page: Page): Promise<void> {
   const L = window.__lions, R = L.renderer;
   const raf = () => new Promise((r) => window.requestAnimationFrame(() => r()));
   const node = R.nodeBackend !== null && R.nodeBackend !== undefined;
+  // E6's own order (its waitForMeshes): the types are spawned FIRST and the sim ticked (a spawned type's mesh is queued by the app's sweep,
+  // which a frame alone never runs), the field cleared, then the sequence spawned again onto loaded templates.
+  const first = api.spawn('aa_remetz', 0, 3, 6);
+  api.spawn('drone_swarm', 1, 45, 7);
+  const deadline = performance.now() + 120000;
+  for (;;) {
+    if (node) await raf();
+    L.step(20);
+    if (api.meshReady(first) && api.swarmReady()) break;
+    if (performance.now() > deadline) throw new Error('e6: the carrier and swarm meshes never loaded');
+    await new Promise((r) => setTimeout(r, 400));
+  }
   api.clear();
   const carrier = api.spawn('aa_remetz', 0, 4, 3);
   api.spawn('drone_swarm', 1, ${4 + BEAM_GAP_TILES}, 3);
-  const deadline = performance.now() + 60000;
-  while (!api.meshReady(carrier) || !api.swarmReady()) {
-    if (performance.now() > deadline) throw new Error('e6: the carrier mesh never arrived');
-    if (node) await raf();
-    R.snapshot();
-    R.frame(1, 100);
-    await new Promise((r) => setTimeout(r, 200));
-  }
+  for (let n = 0; n < 40 && !api.meshReady(carrier); n++) api.tick(1);
+  if (!api.meshReady(carrier)) throw new Error('e6: the carrier clone never attached');
   let dwell = 0;
   for (let n = 0; n < 200 && dwell < 22; n++) {
     api.tick(1);
@@ -383,6 +389,8 @@ async function probeMoment(browser: Browser, port: number, arm: ProbeArm, group:
     // zero-time repaints differ by them and the delta would contain the noise. Hidden on every arm, for every unit subject.
     if (KIND === 'units') for (const q of QUIET) if (q !== first.layer) await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(q)}, false)`);
 
+    for (const q of first.alsoHide ?? []) await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(q)}, false)`);
+
     const node = arm !== 'L';
     const listShaders = async (): Promise<string[]> => (await page.evaluate(`(${String(visibleShaderObjects)})(window.__lions.renderer.scene)`)) as string[];
     const diag: ShaderDiagnosis = { moment: first.id, arm, beforeCensus: [], afterCensus: [], afterRepaint: [] };
@@ -436,16 +444,32 @@ async function probeMoment(browser: Browser, port: number, arm: ProbeArm, group:
         const objects = (await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(s.layer)}, false)`)) as number;
         await page.evaluate(repaintScript(arm));
         const hid = await grab();
-        await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(s.layer)}, true)`);
+        const shownCount = (await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(s.layer)}, true)`)) as number;
+        // A layer that clears its own list on a hide (smoke-outline) returns 0 from the hide; the show's count is the list it put back.
+        const objectsHid = Math.max(objects, shownCount);
+        if (node || phase === 'Lm') {
+          // A layer's plain show can re-show what the census hid (the overlay batches, say): counted here, and the node render's own
+          // re-assert (P3-R13) must have hidden them again by the repaint below, which is checked after it (a node bug otherwise).
+          const before = rd.visibleShaders[arm as 'F' | 'G']?.length ?? 0;
+          if (node) {
+            const after = (await listShaders()).length;
+            if (after > before) notes.push(`${tag}/${s.id}: showing \`${s.layer}\` re-showed ${after - before} census-hidden ShaderMaterial object(s) until the next node render`);
+          } else await page.evaluate(`(async () => {\n${matchNodeStatements(ROOT)}\nreturn 'ok';\n})()`);
+        }
         await page.evaluate(repaintScript(arm));
         const back = await grab();
+        if (node) {
+          // After the render the re-assert ran in: nothing a toggle re-showed may still be drawing.
+          const final = await listShaders();
+          if (final.length > (rd.visibleShaders[arm as 'F' | 'G']?.length ?? 0)) rd.visibleShaders[arm as 'F' | 'G'] = final;
+        }
         const d = abDelta(base, hid, unstable, region);
         rd.deltas[phase] = { meanAbsChannelDelta: d.meanAbs, changedPixels: d.changed };
-        rd.objects[phase] = objects;
+        rd.objects[phase] = objectsHid;
         if (abDelta(base, back, unstable, region).changed !== 0) rd.notRestored.push(phase);
         writeFrame(base, path.join(OUT, `${fileSafe(s.id)}-${phase}-shown.png`));
         writeFrame(hid, path.join(OUT, `${fileSafe(s.id)}-${phase}-hidden.png`));
-        console.log(`[units-probe] ${s.id} ${phase}: ${s.layer} objects ${objects}, delta ${d.meanAbs.toFixed(4)} (${d.changed} px of ${d.pixels}); control ${rd.controlPx[arm] ?? '-'} px${rd.notRestored.includes(phase) ? '; NOT RESTORED' : ''}${rd.visibleShaders[arm as 'F' | 'G'] ? `; ${rd.visibleShaders[arm as 'F' | 'G']?.length} visible ShaderMaterial` : ''}`);
+        console.log(`[units-probe] ${s.id} ${phase}: ${s.layer} objects ${objectsHid}, delta ${d.meanAbs.toFixed(4)} (${d.changed} px of ${d.pixels}); control ${rd.controlPx[arm] ?? '-'} px${rd.notRestored.includes(phase) ? '; NOT RESTORED' : ''}${rd.visibleShaders[arm as 'F' | 'G'] ? `; ${rd.visibleShaders[arm as 'F' | 'G']?.length} visible ShaderMaterial` : ''}`);
       }
     }
     const bad = errors.filter((l) => /GPUValidationError|Destroyed texture|uploaded again/i.test(l));

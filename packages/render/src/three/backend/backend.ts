@@ -34,10 +34,12 @@ import type { FlipbookMaths } from '../units/flipbook-fx.node';
 import type { SmokeScreenMaths } from '../smoke-mesh.node';
 import type { BeamMaths } from '../units/beam-batch.node';
 import type { RotorMaths } from '../units/swarm-batch.node';
+import type { BackdropMaths } from '../terrain/backdrop.node';
 import type { UnitMaths } from '../units/unit-material.node';
 import type { OutlineMaths } from '../units/silhouette.node';
 import type { ZoneBandMaths } from '../units/zone-band.node';
 import type { SupplyRouteMaths } from '../supply-route.node';
+import type { XrayMaths } from '../tunnel-xray.node';
 import type { DecalMaths } from '../decal-pool.node';
 
 /**
@@ -107,7 +109,7 @@ export interface MaterialMaths {
   /** T5: the occlusion and smoke outline (`units/silhouette.node.ts`). */
   readonly outline: OutlineMaths;
   readonly banner: null;
-  readonly backdrop: null;
+  readonly backdrop: BackdropMaths;
   /** T7: the decal kinds, the road under them, the albedo ratio and the crater rim. */
   readonly decal: DecalMaths;
   readonly overlay: null;
@@ -115,9 +117,10 @@ export interface MaterialMaths {
   readonly zoneBand: ZoneBandMaths;
   readonly supplyRoute: SupplyRouteMaths;
   readonly trail: null;
-  readonly xray: null;
   /** T11: the particle disc's coverage and `HDR_GAINS.sparks` (`units/fx.node.ts`). The tracer and flat-colour FX mesh need no maths. */
   readonly particle: ParticleMaths;
+  /** T9: the x-ray's four styles share one body of maths (`tunnel-xray.ts`). */
+  readonly xray: XrayMaths;
   readonly tracer: null;
   readonly vfxMesh: null;
   /** T11: the plume's and the shroud's rim fade (`units/rim-fade.node.ts`). */

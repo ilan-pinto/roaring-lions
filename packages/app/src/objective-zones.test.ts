@@ -31,6 +31,14 @@ describe('objectiveZonesFor', () => {
     expect(contested.state).toBe('contested');
   });
 
+  it('outlines an escort\'s destination while it is active (GH-2), in the friendly colour, and drops it when it ends', () => {
+    const [dest] = objectiveZonesFor([{ id: 'vip', type: 'escort', status: 'active', zone: 'approach' }], ZONES);
+    expect(dest).toEqual({ id: 'vip', rect: ZONES.approach, state: 'held' });
+    for (const status of ['complete', 'failed']) {
+      expect(objectiveZonesFor([{ id: 'vip', type: 'escort', status, zone: 'approach' }], ZONES)).toEqual([]);
+    }
+  });
+
   it('drops a completed or failed objective, and one whose zone the map does not declare', () => {
     const out = objectiveZonesFor(
       [
