@@ -485,6 +485,11 @@ export interface RendererOptions {
    */
   gpu?: GpuRequest;
   /**
+   * GH-943 P3 (T13, GH-1152): build the node renderer with timestamp queries, so the probe page can read the frame's GPU time. Read
+   * ONLY on a node boot (`initNodeBackend`); a legacy boot never reads it. Default off: the queries cost CPU per pass. Tools only.
+   */
+  timestamps?: boolean;
+  /**
    * Look uplift L2 (GH-943): a colour grade, folded into the output pass between the tone map and the
    * vignette (`three/output-grade.ts`, maths in `three/grade-maths.ts`). `json` is a `data/grades/<id>.json`
    * file; `strength` scales every deviation from identity (1 = as authored, 0 = identity, default 1).

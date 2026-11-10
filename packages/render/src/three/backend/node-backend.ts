@@ -38,6 +38,9 @@ import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
 import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
 import { createNodeUnitMaterial } from '../units/unit-material.node';
 import { markTwin } from '../twin-identity';
+import { installPassCounter, type PassRendererLike, type RenderPassId } from './pass-counter';
+import { installVersionedUploads, type AttributesLike } from './attribute-uploads';
+import { installBoneTextureSkinning, type BuilderHookHostLike } from './bone-texture';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
 const CENSUS_EVERY_FRAMES = 60;
@@ -64,6 +67,12 @@ export interface NodeBackendOptions {
    * slot HAS a factory but which is still on a mesh as `unadopted` (`[lions] UNADOPTED`): an adoption site is missing.
    */
   readonly twinSlotOf?: (m: THREE.Material) => keyof MaterialKit | null;
+  /**
+   * GH-943 P3 (T13, GH-1152): build the renderer with `trackTimestamp`, so `gpuTimeMs` reads the frame's GPU time from timestamp queries
+   * (where the adapter offers `timestamp-query`). Default false, and false never passes `trackTimestamp` at all: the queries cost CPU
+   * per pass, so only the probe page's GPU-time run turns them on (`RendererOptions.timestamps`).
+   */
+  readonly timestamps?: boolean;
   readonly warn?: (msg: string) => void;
 }
 
@@ -71,6 +80,14 @@ interface BackendLike {
   isWebGPUBackend?: boolean;
   isWebGLBackend?: boolean;
   device?: { queue: { onSubmittedWorkDone(): Promise<void> }; destroy?: () => void };
+}
+
+/**
+ * The `WebGPURenderer` constructor's parameters (GH-943 P3 T13 G4). `trackTimestamp` appears only when `timestamps` is true: the
+ * default build is the one every earlier phase measured.
+ */
+export function nodeRendererParameters(opts: Pick<NodeBackendOptions, 'forceWebGL' | 'timestamps'>): { antialias: false; alpha: false; forceWebGL: boolean; trackTimestamp?: true } {
+  return { antialias: false, alpha: false, forceWebGL: opts.forceWebGL, ...(opts.timestamps === true ? { trackTimestamp: true as const } : {}) };
 }
 
 export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ backend: RenderBackend } | { reason: string }> {
@@ -85,7 +102,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   const gtaoModule = await import('three/addons/tsl/display/GTAONode.js');
   const gtao = createOrthoAwareGtao({ TSL, GTAONode: gtaoModule.default as never });
   const { denoise } = await import('three/addons/tsl/display/DenoiseNode.js');
-  const renderer: WebGPURenderer = new W.WebGPURenderer({ antialias: false, alpha: false, forceWebGL: opts.forceWebGL });
+  const renderer: WebGPURenderer = new W.WebGPURenderer(nodeRendererParameters(opts));
   try {
     await renderer.init();
   } catch (e) {
@@ -100,6 +117,12 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     return { reason: `WebGPURenderer chose ${isGpu ? 'its WebGPU' : 'its WebGL2'} backend but forceWebGL was ${String(opts.forceWebGL)}` };
   }
   const kind: BackendKind = isGpu ? 'node-webgpu' : 'node-webgl2';
+  // GH-943 P3 (T14, GH-1152): a dynamic vertex attribute uploads when it changed, as on legacy (three re-uploads it on every FULL
+  // refresh, and every node-twinned batch is FULL every frame: `attribute-uploads.ts`).
+  const uploads = installVersionedUploads((renderer as unknown as { _attributes: AttributesLike })._attributes, THREE.DynamicDrawUsage);
+  // GH-943 P3 (T14, GH-1152): a skinned mesh skins from its skeleton's bone texture, uploaded once a frame, as on legacy (three's
+  // uniform-buffer bones are written on every FULL refresh of every render object: `bone-texture.ts`).
+  const boneTexture = installBoneTextureSkinning(renderer as unknown as BuilderHookHostLike);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -251,6 +274,19 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
 
   const capture: NodeCaptureDeps = { W, TSL, renderer, kind, readback: opts.readbackMaths };
 
+  // GH-943 P3 (T13, GH-1152): the frame's draw calls by pass (`stats().perPass`). The main scene drawn from another camera is the sun's
+  // shadow map (`ShadowNode.renderShadow`); from the main camera it is the AO pre-pass when the AO pre-pass's target is bound, else the
+  // scene pass; anything else (the pipeline's quads) is post.
+  const classifyPass = (object: unknown, camera: unknown): RenderPassId => {
+    if (builtFor === null || object !== builtFor.scene) return 'post';
+    if (camera !== builtFor.camera) return 'shadow';
+    const ao = aoStage.parts()?.prePass.renderTarget;
+    return ao !== undefined && renderer.getRenderTarget() === ao ? 'ao' : 'scene';
+  };
+  const passes = installPassCounter(renderer as unknown as PassRendererLike, classifyPass);
+  /** What the census walk cost inside the last `render` (0 on a frame it did not run), so a timing can leave it out (T13 H5). */
+  let lastCensusMs = 0;
+
   const backend: RenderBackend = {
     kind,
     adapter: isGpu ? opts.adapter : 'webgl2',
@@ -278,8 +314,14 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
       await renderer.compileAsync(scene, camera);
     },
     render(scene, camera) {
+      passes.beginFrame();
       reassertCensusHides(censusHides, scene);
-      if (frames % CENSUS_EVERY_FRAMES === 0) runCensus(scene);
+      lastCensusMs = 0;
+      if (frames % CENSUS_EVERY_FRAMES === 0) {
+        const t0 = performance.now();
+        runCensus(scene);
+        lastCensusMs = performance.now() - t0;
+      }
       frames++;
       if (!chain || !builtFor || builtFor.scene !== scene || builtFor.camera !== camera) build({ scene, camera, quality: builtFor?.quality ?? DEFAULT_QUALITY });
       chain?.render();
@@ -288,8 +330,18 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     captureView: async (maxWidth) => (chain ? captureNodeView(capture, chain.pipeline, maxWidth) : null),
     whenSubmitted: () => (be.device ? be.device.queue.onSubmittedWorkDone() : Promise.resolve()),
     unported: () => [...hooks.values()],
-    stats: () => ({ calls: renderer.info.render.drawCalls, triangles: renderer.info.render.triangles }),
+    stats: () => ({ calls: renderer.info.render.drawCalls, triangles: renderer.info.render.triangles, perPass: passes.perPass(), censusMs: lastCensusMs }),
+    // Null unless the renderer was built with timestamps AND the adapter kept them (`WebGPUBackend` drops `trackTimestamp` without
+    // `timestamp-query`); otherwise the GPU time of every pass since the last call, in ms.
+    gpuTimeMs: async () => {
+      if (opts.timestamps !== true || (renderer as unknown as { backend: { trackTimestamp?: boolean } }).backend.trackTimestamp !== true) return null;
+      const ms = (await renderer.resolveTimestampsAsync('render')) as number | undefined;
+      return typeof ms === 'number' ? ms : null;
+    },
     dispose() {
+      passes.dispose();
+      uploads.dispose();
+      boneTexture.dispose();
       chain?.dispose();
       chain = null;
       // WebGPU path: renderer.dispose() then device.destroy() (design section 1). Never `loseContext()` ourselves.

@@ -3794,6 +3794,8 @@ export class ThreeRenderer implements Renderer {
         materialMaths: MATERIAL_MATHS,
         // GH-943 P3 (T1): the census backstop's table (`unadopted`). A twin has no slot.
         twinSlotOf: (m) => (isTwin(m) ? null : legacyTwinSlot(m)),
+        // GH-943 P3 (T13): timestamp queries for the probe's GPU time; the only read of the option (a legacy boot never gets here).
+        timestamps: this.opts.timestamps === true,
       });
       if (this.disposed) {
         if ('backend' in made) made.backend.dispose();

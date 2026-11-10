@@ -15,6 +15,7 @@ import type { maps, ParsedMap } from '@lions/data';
 import { DECOR_LOD1, DECOR_MESHES, PROP_MESHES, meshPlanFor } from '../../../packages/app/src/mesh-catalogue';
 import { censusUnported } from '../../../packages/render/src/three/backend/unported';
 import type { ArmId } from './webgpu-refusals';
+import { drawTypeOf, emptyByType, medianOrNull, type DrawObjectLike, type DrawType, type FullReason, type PerPass, type RenderPassId, type SubmitReading, type Uploads, type VariantId } from './webgpu-submit-probe-lib';
 
 interface BatchedLike {
   isBatchedMesh?: boolean;
@@ -25,7 +26,10 @@ interface BatchedLike {
 interface NodeBackendLike {
   render(scene: unknown, camera: unknown): void;
   whenSubmitted(): Promise<void>;
-  stats(): { calls: number; triangles: number };
+  /** `perPass` and `censusMs` from GH-943 P3 T13; absent on an older tree (H6's before arm runs this file's `runArm` there). */
+  stats(): { calls: number; triangles: number; perPass?: PerPass; censusMs?: number };
+  gpuTimeMs?(): Promise<number | null>;
+  post?: { pipeline?: { renderer?: unknown } } | null;
 }
 
 interface RendererLike {
@@ -115,6 +119,8 @@ export interface Row {
   frameTriangles: number;
   calls: number;
   entries: number;
+  /** GH-943 P3 T13 (H5): the census's mean cost per timed frame, left out of `cpuRender` (0 on L). */
+  censusMs: number;
 }
 
 function batches(r: RendererLike): BatchedLike[] {
@@ -139,15 +145,20 @@ export async function timeFrames(r: RendererLike, frames: number, beforeMeasure:
     if (gl) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
     else await r.whenGpuIdle();
   };
-  // Wrap the render call alone.
+  // Wrap the render call alone. GH-943 P3 T13 (H5): the census walk the node backend runs inside `render` every 60th frame is LEFT
+  // OUT of cpuRender and summed into `censusMs` (`stats().censusMs`, what it cost inside that frame's call; 0 on an older tree).
   let renderMs = 0;
+  let censusMs = 0;
   let restore: () => void;
   if (node) {
     const orig = node.render;
     node.render = (...a: [unknown, unknown]) => {
       const t = performance.now();
       orig.apply(node, a);
-      renderMs += performance.now() - t;
+      const dt = performance.now() - t;
+      const c = node.stats().censusMs ?? 0;
+      renderMs += dt - c;
+      censusMs += c;
     };
     restore = () => {
       node.render = orig;
@@ -200,6 +211,7 @@ export async function timeFrames(r: RendererLike, frames: number, beforeMeasure:
     const synced: number[] = [];
     const cpuFrame: number[] = [];
     const cpuRender: number[] = [];
+    censusMs = 0;
     for (let i = 0; i < frames; i++) {
       await tick();
       renderMs = 0;
@@ -212,7 +224,7 @@ export async function timeFrames(r: RendererLike, frames: number, beforeMeasure:
       cpuFrame.push(t1 - t0);
       cpuRender.push(renderMs);
     }
-    return { synced: stats(synced), cpuFrame: stats(cpuFrame), cpuRender: stats(cpuRender), triangles, frameTriangles, calls, entries };
+    return { synced: stats(synced), cpuFrame: stats(cpuFrame), cpuRender: stats(cpuRender), triangles, frameTriangles, calls, entries, censusMs: frames > 0 ? censusMs / frames : 0 };
   } finally {
     restore();
   }
@@ -314,4 +326,403 @@ export async function runArm(o: {
   renderer.dispose();
   host.remove();
   return result;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// GH-943 P3 T13 (GH-1152): the draw-submission probe's page half (`webgpu-submit-probe.ts` drives it, `webgpu-submit-probe-lib.ts`
+// decides). One world per page (`submitSetup`), then one reading per (count, variant) (`submitMeasure`), the toggles applied on top
+// of the base scene and taken back after. Kept here, beside `runArm`, so the two share one world, one spawn and one timing contract.
+// ---------------------------------------------------------------------------------------------------------------------------
+
+interface SubmitRendererLike extends RendererLike {
+  setDebugLayerVisible(name: string, visible: boolean): number;
+  snapshot(): void;
+  dispose(): void;
+}
+interface GlRendererLike {
+  info: { render: { calls: number; triangles: number } };
+  shadowMap: { render: (...a: unknown[]) => unknown };
+  renderBufferDirect: (camera: unknown, scene: unknown, geometry: unknown, material: unknown, object: unknown, group: unknown) => unknown;
+}
+interface NodeRendererInternals {
+  info: { update: (object: unknown, count: number, instanceCount: number) => void };
+  _nodes: { needsRefresh: (ro: NodeRenderObject) => number };
+  /** The backend's upload entries (T14's counts): every vertex-attribute, uniform-buffer and texture upload three asks for. */
+  backend: Record<UploadMethod, (...a: unknown[]) => unknown>;
+}
+type UploadMethod = 'updateAttribute' | 'updateBinding' | 'updateTexture';
+const UPLOAD_KIND: Readonly<Record<UploadMethod, keyof Uploads>> = { updateAttribute: 'attribute', updateBinding: 'binding', updateTexture: 'texture' };
+interface NodeRenderObject {
+  object: DrawObjectLike;
+  getMonitor(): { hasNode?: boolean; hasAnimation?: boolean };
+}
+interface MeshLike {
+  isMesh?: boolean;
+  visible: boolean;
+  castShadow: boolean;
+  traverse(f: (o: MeshLike) => void): void;
+}
+
+interface SubmitState {
+  r: SubmitRendererLike;
+  sim: Sim;
+  spawner: ReturnType<typeof createSpawner>;
+  arm: ArmId;
+  host: HTMLElement;
+  /** The private unit roots (`meshUnitEntities`, `vehicleMeshEntities`), read for H3's castShadow toggle. */
+  unitRoots: () => MeshLike[];
+}
+
+const SUBMIT_KEY = '__lionsSubmitProbe';
+const submitState = (): SubmitState => {
+  const s = (window as unknown as Record<string, SubmitState | undefined>)[SUBMIT_KEY];
+  if (s === undefined) throw new Error('submit probe: submitSetup was not called on this page');
+  return s;
+};
+
+/** `RenderObjectRefreshType.FULL` (three 0.186.1 `constants.js`). */
+const REFRESH_FULL = 2;
+
+/** One world on this page: the arm's ThreeRenderer, the all-mesh roster, decor and props, the camera on the line, z0.5. */
+export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; capacity: number; timestamps: boolean }): Promise<{ backendKind: string; adapter: string; rafSource: string; unported: number }> {
+  const { sim, map, typeOf } = buildWorld(o.capacity, o.mapId);
+  const opts = { ...buildRendererOptions(), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.timestamps ? { timestamps: true } : {}) };
+  const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
+  const renderer = new ThreeRenderer(sim, opts);
+  renderer.setDecor(map.decor);
+  renderer.setElevation(map.elevation);
+  const host = createHost();
+  await renderer.init(host);
+  await loadAllMeshes(renderer, map);
+  const r = renderer as unknown as SubmitRendererLike;
+  await loadDecorAndProps(r, map);
+  const anchors = computeAnchors(map);
+  const spawner = createSpawner(sim as Sim, typeOf, anchors.friendly, anchors.hostile);
+  r.camera.x = (anchors.friendly[0] + anchors.hostile[0]) / 2;
+  r.camera.y = (anchors.friendly[1] + anchors.hostile[1]) / 2;
+  r.camera.zoom = 0.5;
+  const priv = renderer as unknown as { meshUnitEntities: Map<number, { root: MeshLike }>; vehicleMeshEntities: Map<number, { root: MeshLike }> };
+  const unitRoots = (): MeshLike[] => [...priv.meshUnitEntities.values(), ...priv.vehicleMeshEntities.values()].map((e) => e.root);
+  (window as unknown as Record<string, SubmitState>)[SUBMIT_KEY] = { r, sim: sim as Sim, spawner, arm: o.arm, host, unitRoots };
+  const info = r.backendInfo();
+  return { backendKind: info.kind, adapter: info.adapter, rafSource: String(window.requestAnimationFrame), unported: r.unportedHooks().length };
+}
+
+/** Applies a variant (on = the toggle in force) and returns what it changed; `off` puts back exactly what `on` changed. */
+function applyVariant(s: SubmitState, variant: VariantId, on: boolean, undo: MeshLike[]): number {
+  switch (variant) {
+    case 'base':
+      return 0;
+    case 'decor-props-hidden':
+      return s.r.setDebugLayerVisible('decor', !on) + s.r.setDebugLayerVisible('props', !on);
+    case 'ao-hidden':
+      return s.r.setDebugLayerVisible('ao', !on);
+    case 'unit-shadow-off': {
+      // Nothing per-frame writes a unit mesh's castShadow (grepped: only the builders do), so a plain write holds.
+      if (!on) {
+        for (const m of undo) m.castShadow = true;
+        const n = undo.length;
+        undo.length = 0;
+        return n;
+      }
+      for (const root of s.unitRoots()) {
+        root.traverse((m) => {
+          if (m.isMesh === true && m.castShadow) {
+            m.castShadow = false;
+            undo.push(m);
+          }
+        });
+      }
+      return undo.length;
+    }
+  }
+}
+
+/** The stats frame's per-type and per-pass tallies on L: one `renderBufferDirect` is one draw (a BatchedMesh's multi-draw included). */
+function legacyTallies(gl: GlRendererLike, mainScene: unknown): { done: () => { perPass: PerPass; byType: Record<DrawType, number> } } {
+  const perPass: PerPass = { shadow: { calls: 0, objects: 0 }, scene: { calls: 0, objects: 0 }, ao: { calls: 0, objects: 0 }, post: { calls: 0, objects: 0 } };
+  const byType = emptyByType();
+  const last: Record<RenderPassId, unknown> = { shadow: undefined, scene: undefined, ao: undefined, post: undefined };
+  const orig = gl.renderBufferDirect;
+  gl.renderBufferDirect = function (camera, scene, geometry, material, object, group) {
+    // The shadow map draws with a null scene (`WebGLShadowMap`); the GTAO normal pre-pass is the main scene under an override
+    // material (`WorldGTAOPass`); the composer's quads are another scene.
+    const pass: RenderPassId = scene === null ? 'shadow' : scene !== mainScene ? 'post' : (mainScene as { overrideMaterial: unknown }).overrideMaterial !== null ? 'ao' : 'scene';
+    perPass[pass].calls++;
+    if (last[pass] !== object) {
+      perPass[pass].objects++;
+      last[pass] = object;
+    }
+    byType[drawTypeOf(object as DrawObjectLike)]++;
+    return orig.call(this, camera, scene, geometry, material, object, group);
+  };
+  return {
+    done: () => {
+      gl.renderBufferDirect = orig;
+      return { perPass, byType };
+    },
+  };
+}
+
+/** The stats frame's per-type draws and FULL refreshes on a node arm: counting wraps of `info.update` and `_nodes.needsRefresh`. */
+function nodeTallies(nr: NodeRendererInternals): { done: () => { byType: Record<DrawType, number>; full: Record<DrawType, number>; reason: FullReason; uploads: Uploads } } {
+  const uploads: Uploads = { attribute: 0, binding: 0, texture: 0 };
+  const be = nr.backend;
+  const restoreUploads = (Object.keys(UPLOAD_KIND) as UploadMethod[]).map((k) => {
+    const own = Object.prototype.hasOwnProperty.call(be, k);
+    const orig = be[k];
+    be[k] = function (this: unknown, ...a: unknown[]) {
+      uploads[UPLOAD_KIND[k]]++;
+      return orig.apply(this, a);
+    };
+    return (): void => {
+      if (own) be[k] = orig;
+      else delete (be as Partial<Record<UploadMethod, unknown>>)[k];
+    };
+  });
+  const byType = emptyByType();
+  const full = emptyByType();
+  const reason: FullReason = { hasNode: 0, hasAnimation: 0, other: 0 };
+  const info = nr.info;
+  const nodes = nr._nodes;
+  const ownUpdate = Object.prototype.hasOwnProperty.call(info, 'update');
+  const ownRefresh = Object.prototype.hasOwnProperty.call(nodes, 'needsRefresh');
+  const update = info.update;
+  const refresh = nodes.needsRefresh;
+  info.update = function (object, count, instanceCount) {
+    byType[drawTypeOf(object as DrawObjectLike)]++;
+    update.call(this, object, count, instanceCount);
+  };
+  nodes.needsRefresh = function (ro) {
+    const t = refresh.call(this, ro);
+    if (t === REFRESH_FULL) {
+      full[drawTypeOf(ro.object)]++;
+      const m = ro.getMonitor();
+      if (m.hasNode === true) reason.hasNode++;
+      else if (m.hasAnimation === true) reason.hasAnimation++;
+      else reason.other++;
+    }
+    return t;
+  };
+  return {
+    done: () => {
+      if (ownUpdate) info.update = update;
+      else delete (info as { update?: unknown }).update;
+      if (ownRefresh) nodes.needsRefresh = refresh;
+      else delete (nodes as { needsRefresh?: unknown }).needsRefresh;
+      for (const r of restoreUploads) r();
+      return { byType, full, reason, uploads };
+    },
+  };
+}
+
+/**
+ * One reading: spawn up to `n`, apply `variant`, `warmFrames` warm-up frames (61 after a spawn, so a node census has run), the stats
+ * frame (counts), then `frames` timed frames (0 on a counts-only run) and `gpuFrames` GPU-time frames (a timestamps page only), then
+ * the toggle is taken back. On L-matched the census hides the node set before the stats frame, as `runArm` does.
+ */
+export async function submitMeasure(o: { n: number; variant: VariantId; frames: number; warmFrames: number; gpuFrames: number }): Promise<SubmitReading> {
+  const s = submitState();
+  const { r, sim, spawner, arm } = s;
+  // ONE snapshot per spawn, as `runArm` does. The Metal hold (2026-11-10) and both CI runs called `snapshot()` before EVERY reading,
+  // and the drawn scene grew with the calls, with no sim tick between them (n300: 435 skinned draws at the 1st and 2nd call, 708 at
+  // the 3rd, 1295 at the 4th, on L and G alike, byte-identical across runs), so every toggle after the second read a bigger scene than
+  // its base. Why repeated snapshots change the drawn set is not diagnosed here (GH-1152 T13 report).
+  const before = sim.entityCount;
+  spawnUpTo(sim, spawner, o.n);
+  if (sim.entityCount !== before) r.snapshot();
+  r.camera.zoom = 0.5;
+  const undo: MeshLike[] = [];
+  const applied = applyVariant(s, o.variant, true, undo);
+  try {
+    const node = r.nodeBackend;
+    const isGpu = r.backendInfo().kind === 'node-webgpu';
+    const gl = isGpu ? null : (r.canvas.getContext('webgl2') as WebGL2RenderingContext | null);
+    const px = new Uint8Array(4);
+    const sync = async (): Promise<void> => {
+      if (gl) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      else await r.whenGpuIdle();
+    };
+    const settled = await settleScene(s, o.warmFrames, sync);
+    if (arm === 'L') matchNodeScene(r);
+    // The stats frame.
+    let perPass: PerPass;
+    let byType: Record<DrawType, number>;
+    let fullRefresh: Record<DrawType, number> | null = null;
+    let fullReason: FullReason | null = null;
+    let uploads: Uploads | null = null;
+    let calls: number;
+    let triangles: number;
+    await tick();
+    if (node) {
+      const nr = node.post?.pipeline?.renderer as NodeRendererInternals | undefined;
+      if (nr === undefined) throw new Error('submit probe: the node post chain is not built (no pipeline renderer)');
+      const t = nodeTallies(nr);
+      r.frame(1, 0);
+      const st = node.stats();
+      const got = t.done();
+      if (st.perPass === undefined) throw new Error('submit probe: the node backend has no per-pass counter (an older tree)');
+      perPass = st.perPass;
+      calls = st.calls;
+      triangles = st.triangles;
+      byType = got.byType;
+      fullRefresh = got.full;
+      fullReason = got.reason;
+      uploads = got.uploads;
+    } else {
+      const glr = r.renderer as unknown as GlRendererLike;
+      const info = r.renderer.info;
+      info.autoReset = false;
+      info.reset();
+      const t = legacyTallies(glr, r.scene);
+      r.frame(1, 0);
+      const got = t.done();
+      calls = info.render.calls;
+      triangles = info.render.triangles;
+      info.autoReset = true;
+      perPass = got.perPass;
+      byType = got.byType;
+    }
+    await sync();
+    // The timed frames: the same contract as `timeFrames` (the census left out of cpuRender on the node arms).
+    let cpuRenderMs: number | null = null;
+    let cpuRenderInclCensusMs: number | null = null;
+    let censusMs: number | null = null;
+    if (o.frames > 0) {
+      const t = await timedOnly(s, o.frames);
+      cpuRenderMs = t.cpuRenderMs;
+      cpuRenderInclCensusMs = t.cpuRenderInclCensusMs;
+      censusMs = t.censusMs;
+    }
+    const gpu: number[] = [];
+    if (o.gpuFrames > 0 && node?.gpuTimeMs !== undefined) {
+      await node.gpuTimeMs();
+      for (let i = 0; i < o.gpuFrames; i++) {
+        await tick();
+        r.frame(1, 0);
+        await r.whenGpuIdle();
+        const ms = await node.gpuTimeMs();
+        if (ms !== null) gpu.push(ms);
+      }
+    }
+    return { arm, n: o.n, living: livingCount(sim), variant: o.variant, applied, settleFrames: settled.frames, settled: settled.ok, perPass, calls, triangles, byType, fullRefresh, fullReason, uploads, cpuRenderMs, cpuRenderInclCensusMs, censusMs, gpuMs: medianOrNull(gpu), profileTop: [] };
+  } finally {
+    applyVariant(s, o.variant, false, undo);
+  }
+}
+
+/** The longest a reading waits for the scene to stop changing (frames). */
+const SETTLE_MAX_FRAMES = 900;
+/** Frames the unit signature must hold unchanged. */
+const SETTLE_STILL_FRAMES = 20;
+
+/**
+ * The unit scene's signature: how many unit roots exist and how many meshes under them are visible. The first CI run (GH-1152 T13,
+ * run 42728357786) read the base 61 frames after a spawn and the variants after it, and the figures were STILL being realised
+ * (n300: 435 skinned draws in the base, 1295 three readings later, on both arms), so the toggles' count deltas were the scene
+ * filling in, not the toggles: H4 "moved" while the AO pre-pass drew nothing.
+ */
+function unitSignature(s: SubmitState): string {
+  const roots = s.unitRoots();
+  let visible = 0;
+  for (const root of roots) {
+    root.traverse((m) => {
+      if (m.isMesh === true && m.visible) visible++;
+    });
+  }
+  return `${roots.length}:${visible}`;
+}
+
+/**
+ * Warm-up until the unit scene has stopped changing: at least `minFrames`, then until the signature holds for
+ * `SETTLE_STILL_FRAMES` frames, and on a node arm until one census has run after the last change (it hides what a newly realised
+ * mesh brought). Gives up at `SETTLE_MAX_FRAMES`; `ok` false is a refusal (a reading of a moving scene).
+ */
+async function settleScene(s: SubmitState, minFrames: number, sync: () => Promise<void>): Promise<{ frames: number; ok: boolean }> {
+  const { r } = s;
+  const node = r.nodeBackend;
+  let last = '';
+  let still = 0;
+  let censusSinceChange = node === null;
+  for (let i = 0; i < SETTLE_MAX_FRAMES; i++) {
+    await tick();
+    r.frame(1, 16);
+    if (node !== null && (node.stats().censusMs ?? 0) > 0) censusSinceChange = true;
+    await sync();
+    const sig = unitSignature(s);
+    if (sig === last) still++;
+    else {
+      last = sig;
+      still = 0;
+      censusSinceChange = node === null;
+    }
+    if (i + 1 >= minFrames && still >= SETTLE_STILL_FRAMES && censusSinceChange) return { frames: i + 1, ok: true };
+  }
+  return { frames: SETTLE_MAX_FRAMES, ok: false };
+}
+
+/** `frames` timed frames of the current state and nothing else (the profile window wraps exactly this call). */
+export async function submitTimeOnly(frames: number): Promise<{ cpuRenderMs: number; cpuRenderInclCensusMs: number; censusMs: number }> {
+  return timedOnly(submitState(), frames);
+}
+
+async function timedOnly(s: SubmitState, frames: number): Promise<{ cpuRenderMs: number; cpuRenderInclCensusMs: number; censusMs: number }> {
+  const { r } = s;
+  const node = r.nodeBackend;
+  const isGpu = r.backendInfo().kind === 'node-webgpu';
+  const gl = isGpu ? null : (r.canvas.getContext('webgl2') as WebGL2RenderingContext | null);
+  const px = new Uint8Array(4);
+  let renderMs = 0;
+  let censusFrame = 0;
+  let restore: () => void;
+  if (node) {
+    const orig = node.render;
+    node.render = (...a: [unknown, unknown]) => {
+      const t = performance.now();
+      orig.apply(node, a);
+      renderMs += performance.now() - t;
+      censusFrame += node.stats().censusMs ?? 0;
+    };
+    restore = () => {
+      node.render = orig;
+    };
+  } else if (r.post) {
+    const post = r.post;
+    const orig = post.render;
+    post.render = () => {
+      const t = performance.now();
+      orig.call(post);
+      renderMs += performance.now() - t;
+    };
+    restore = () => {
+      post.render = orig;
+    };
+  } else throw new Error('no render call to wrap');
+  const excl: number[] = [];
+  const incl: number[] = [];
+  let census = 0;
+  try {
+    for (let i = 0; i < frames; i++) {
+      await tick();
+      renderMs = 0;
+      censusFrame = 0;
+      r.frame(1, 0);
+      if (gl) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      else await r.whenGpuIdle();
+      incl.push(renderMs);
+      excl.push(renderMs - censusFrame);
+      census += censusFrame;
+    }
+  } finally {
+    restore();
+  }
+  return { cpuRenderMs: stats(excl).med, cpuRenderInclCensusMs: stats(incl).med, censusMs: frames > 0 ? census / frames : 0 };
+}
+
+/** Takes the page's world down. */
+export function submitDispose(): void {
+  const s = submitState();
+  s.r.dispose();
+  s.host.remove();
+  delete (window as unknown as Record<string, SubmitState | undefined>)[SUBMIT_KEY];
 }
