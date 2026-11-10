@@ -117,7 +117,7 @@ import { rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTab
 import { rainReadNow, rainRimNow, setRainRead, setRainRimGain, type RainRead } from './units/rain-rim';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
-import { fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
+import { FIRE_SUPPORT, fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent, type WeaponStats } from '@lions/sim';
 import type { AimFootprint, AuraRingView, BeamReadback, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
@@ -206,7 +206,7 @@ import { captureComposerView } from './capture-view';
 import { AsyncPhotoMemo } from './readback';
 import { FlashLightManager } from './flash-light';
 import { SupportAircraftManager } from './units/support-aircraft';
-import { ShockRingPool } from './units/shock-ring';
+import { BlastRingPool } from './units/blast-ring';
 import {
   AIR_STRIKE_IMPACT_POWER,
   BARRAGE_CRATER_TILES,
@@ -277,7 +277,21 @@ import {
   blastLightSpec,
   blastShake,
   blastHitStopMs,
+  munitionHitStopMs,
+  munitionLightSpec,
+  munitionShake,
 } from './blast-spec';
+import {
+  classBlastRecipe,
+  drawsClassBlast,
+  munitionCraterTiles,
+  munitionForSupport,
+  munitionForWeapon,
+  munitionRow,
+  munitionScorchTiles,
+  ringSpecFor,
+  type Munition,
+} from './munitions';
 import {
   initShakeState,
   pushShake,
@@ -813,6 +827,26 @@ import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, conta
 
 /** COPIED from tuning.ts (FS_MORTAR_BARRAGE, SMOKE_RANGE_SQ); the vfx-triggers spec reads tuning.ts as text. */
 const FS_MORTAR_BARRAGE = 1;
+/** tuning.ts's FS_AIR_STRIKE, the precision strike's `FIRE_SUPPORT` row (GH-1197 reads its splash). */
+const FS_AIR_STRIKE_PROFILE = 0;
+
+/** GH-1197: a loaded weapon's munition, its reach read off the weapon the sim built from the unit JSON
+ *  (`splash_tiles`, or the bomblets' for a cluster round). Null for no weapon or one the table does not map. */
+function weaponMunition(wp: WeaponStats | undefined): Munition | null {
+  if (wp === undefined) return null;
+  return munitionForWeapon(wp.id, fx.toNumber(wp.splash), wp.submunitions ? fx.toNumber(wp.submunitions.splash) : 0);
+}
+
+/** GH-1197: the first weapon of a type that maps to a munition of `cls`-class weapons (a kamikaze's warhead,
+ *  a swarm's bomblet, a demolition team's charge). */
+function typeMunition(weapons: readonly WeaponStats[], cls?: number): Munition | null {
+  for (const w of weapons) {
+    if (cls !== undefined && w.cls !== cls) continue;
+    const m = weaponMunition(w);
+    if (m !== null) return m;
+  }
+  return null;
+}
 const CARRIER_SMOKE_RANGE_SQ_TILES = 5242880 / 65536; // tuning.ts SMOKE_RANGE_SQ, 80 tile^2
 
 /** Recoil/flinch decay durations, seconds -- redeclared from `renderer.ts`'s
@@ -1166,9 +1200,6 @@ export const FLASH_LIGHT_FALLBACK = paletteHex('vfx.fire');
 /** GH-748: the flash-pool tag on a fire-support impact's light, which the
  *  `support-blast` debug layer zeroes. */
 export const SUPPORT_BLAST_TAG = 'support-blast';
-/** GH-748: the air strike's ground shock ring, tiles and ms. */
-export const STRIKE_SHOCK_RING_TILES = 2.2;
-export const STRIKE_SHOCK_RING_MS = 300;
 export const HP_BAR_FALLBACK = paletteHex('scrub.0');
 export const BUILDING_BAR_FALLBACK = paletteHex(MOBILITY_KILL_COLOR_KEY);
 /** The flat muzzle-smoke puff's palette key (polish VR-09). */
@@ -2045,7 +2076,15 @@ export class ThreeRenderer implements Renderer {
    *  Built with the flash lights, in the constructor. */
   private supportAircraft!: SupportAircraftManager;
   /** GH-748: the air strike's ground shock ring. */
-  private shockRings!: ShockRingPool;
+  /** GH-1197: the two-part blast ring of every landing with a reach (and the strike's, GH-748). */
+  private blastRings!: BlastRingPool;
+  /** GH-1197: a class blast's flipbook recipe, built once per (class, splash). */
+  private readonly classRecipes = new Map<string, FlipbookLayerSpec[]>();
+  /** GH-1197: the munition each `swarmBatchList` entry dives with (null: none), rebuilt beside it. */
+  private swarmMunitions: (Munition | null)[] = [];
+  /** The ground's world Y at (x, z) tiles, for the blast rings; one closure, not one a frame. */
+  private readonly ringHeightAt = (x: number, z: number): number =>
+    groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z);
   /** GH-748: the `support-blast` debug layer -- a FLAG, `blast-light`'s
    *  shape: the flash pool rewrites its lights every frame, so the support
    *  impacts' own (tagged) lights are zeroed again after each `step`. */
@@ -3497,13 +3536,16 @@ export class ThreeRenderer implements Renderer {
     // scene's only MOVING lights; the sun and sky above are the standing
     // ones.
     this.flashLights.addTo(this.scene);
-    // GH-748: the fire-support aircraft and the strike's shock ring. Both
-    // always in the scene and drawing nothing until a call or a strike.
+    // GH-748: the fire-support aircraft. GH-1197: the blast rings (the strike's
+    // since GH-748, every landing with a reach since GH-1197). Both always in
+    // the scene and drawing nothing until a call or a landing. Ring colours are
+    // palette keys, resolved to LINEAR (`THREE.Color` decodes the hex): they
+    // are vertex colours, which nothing downstream decodes.
     this.supportAircraft = new SupportAircraftManager(this.overlayColor('vfx.fire', FLASH_LIGHT_FALLBACK));
-    this.shockRings = new ShockRingPool(this.overlayColor('vfx.white_hot', FLASH_LIGHT_FALLBACK));
+    this.blastRings = new BlastRingPool((key) => new THREE.Color(this.overlayColor(key)));
     // E6 chunk C: the beam's two palette keys, a white-hot core in an ember sheath.
     this.beamBatch.setColors(this.overlayColor('vfx.white_hot', FLASH_LIGHT_FALLBACK), this.overlayColor('vfx.ember', FLASH_LIGHT_FALLBACK));
-    this.scene.add(this.supportAircraft.group, this.shockRings.group);
+    this.scene.add(this.supportAircraft.group, this.blastRings.group);
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above -- both start at drawRange 0 (`beginFrame`/`endFrame`
     // haven't run yet) and stay that way until `updateOverlays`'s first
@@ -4299,7 +4341,7 @@ export class ThreeRenderer implements Renderer {
     // this actually frees today.
     this.flashLights.dispose();
     this.supportAircraft.dispose();
-    this.shockRings.dispose();
+    this.blastRings.dispose();
     this.muzzleFlashes.dispose();
     this.explosionBursts.dispose();
     this.collapseFlashBursts.dispose();
@@ -4570,11 +4612,11 @@ export class ThreeRenderer implements Renderer {
     // in shipping code and is the only thing that makes the toggle a
     // measurement rather than the false green `units` once produced.
     if (this.flashLightsDebugHidden) this.zeroFlashLights();
-    // GH-748: the strike's shock ring ages on the same frame clock as the
-    // light it rides with; the support impacts' lights are zeroed AFTER the
+    // GH-748/GH-1197: the blast rings age on the same frame clock as the
+    // lights they ride with (hit-stop freezes them); the support impacts' lights are zeroed AFTER the
     // step that wrote them while `support-blast` is hidden. The aircraft fly
     // on the SIM clock, so a paused game or a frozen capture holds them.
-    this.shockRings.step(this.frameDtMs(dtMs));
+    this.blastRings.step(this.frameDtMs(dtMs), this.ringHeightAt);
     if (this.supportBlastDebugHidden) this.flashLights.zeroTagged(SUPPORT_BLAST_TAG);
     this.supportAircraft.update(presentationSimMs(this.sim.tickCount, alpha), (x, y) =>
       groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y)
@@ -5118,13 +5160,13 @@ export class ThreeRenderer implements Renderer {
       case 'support-blast':
         // GH-748: a FLAG, `blast-light`'s shape for the support impacts' own
         // (tagged) lights, zeroed again after every `flashLights.step`, plus
-        // the shock-ring pool, which `step` re-asserts the same way. Returns
-        // how many lights and rings it holds now: 0 with no support impact
+        // the blast-ring pool (every landing's ring since GH-1197), which `step` re-asserts the same way.
+        // Returns how many lights and rings it holds now: 0 with no impact
         // live, the honest reading for a check to fail on.
         this.supportBlastDebugHidden = !visible;
-        this.shockRings.setDebugHidden(!visible);
+        this.blastRings.setDebugHidden(!visible);
         if (this.supportBlastDebugHidden) this.flashLights.zeroTagged(SUPPORT_BLAST_TAG);
-        return this.flashLights.countTagged(SUPPORT_BLAST_TAG) + this.shockRings.liveCount;
+        return this.flashLights.countTagged(SUPPORT_BLAST_TAG) + this.blastRings.liveCount;
       case 'garrison-banner':
         // A FLAG, `missiles`' shape: `GarrisonBannerBatch.update` writes the
         // mesh's `visible` every frame. Returns 1, the one mesh.
@@ -6290,6 +6332,12 @@ export class ThreeRenderer implements Renderer {
         // pairing): two stamps a bomblet, so a 12-bomblet round spends 24 slots.
         this.stampGroundDecal(this.persistentStamp('crater', bx, by, BOMBLET_CRATER_RADIUS_TILES));
         this.stampGroundDecal(this.persistentStamp('scorch', bx, by, BOMBLET_SCORCH_RADIUS_TILES));
+        // GH-1197: each bomblet's ring at the bomblets' own splash (grenade class, inner ring only).
+        if (e.by >= 0 && e.by < this.sim.state.typeIdx.length) {
+          const bw = this.sim.unitTypes[this.sim.state.typeIdx[e.by]].weapons.find((w) => w.id === e.weaponId);
+          const bm = weaponMunition(bw);
+          if (bm !== null) this.blastRings.spawn(bx, by, ringSpecFor(bm));
+        }
         // The last bomblet of the round completes its group: the carrier
         // shell opens in the air over the centroid. The sim emits no centre.
         const centre = this.clusterBursts.push({ by: e.by, x: bx, y: by, index: e.index, count: e.count });
@@ -6926,7 +6974,7 @@ export class ThreeRenderer implements Renderer {
       // for a MOVING shooter or target: these are the renderer's
       // interpolated positions, not the sim's own at the fire tick.
       const targetAir = !atStruct && e.target >= 0 && this.sim.unitTypes[st.typeIdx[e.target]].isAir;
-      this.missileFx.launch({
+      const missile = this.missileFx.launch({
         sx: mzX, sy: mzY, tx, ty,
         simDistTiles: Math.hypot(tx - this.curX[e.shooter], ty - this.curY[e.shooter]),
         side: st.side[e.shooter], cls, weaponId: e.weaponId,
@@ -6934,6 +6982,9 @@ export class ThreeRenderer implements Renderer {
         shooterAir: type.isAir, targetAir, tick: e.tick, shooter: e.shooter,
         indirect: wp?.isIndirect === true,
       });
+      // GH-1197: a missile with a reach (Hellfire, RPG) draws its ring where it lands.
+      const missileMunition = weaponMunition(wp);
+      if (missile !== null && missileMunition !== null) missile.munition = missileMunition;
       const mcls = missileClassOf(cls);
       flightS = Math.hypot(tx - this.curX[e.shooter], ty - this.curY[e.shooter]) / SIM_PROJ_SPEED_TILES_S[mcls ?? 'atgm'];
     } else if (shellKind !== null) {
@@ -6955,6 +7006,10 @@ export class ThreeRenderer implements Renderer {
         flightS = burst.length > 0 ? burst[0].duration : null;
       } else {
         const shell = spawnShell(mzX, mzY, tx, ty, st.side[e.shooter], shellKind);
+        // GH-1197: the round's munition class and reach, carried to its landing. Absent for a weapon
+        // with no reach, which lands exactly as before.
+        const munition = weaponMunition(wp);
+        if (munition !== null) shell.munition = munition;
         if (tagStrike) {
           shell.shooter = e.shooter;
           shell.target = e.target;
@@ -7190,12 +7245,16 @@ export class ThreeRenderer implements Renderer {
     // GH-748: a round re-anchors the aircraft flying for its call, so the
     // one-tick gap between the click and the applied command never shows.
     this.supportAircraft.onStrike(e.profile, e.tick, sx, sy);
+    // GH-1197: each call draws its class's two-part ring at the sim's own splash for that profile
+    // (`FIRE_SUPPORT`, read, never copied): the barrage round 1.0 inner / 1.25 outer, the strike 2.0 / 3.2.
     if (e.profile === FS_MORTAR_BARRAGE) {
-      this.spawnSupportImpact(BARRAGE_IMPACT_EMITTER_ID, sx, sy, BARRAGE_IMPACT_POWER, BARRAGE_CRATER_TILES, BARRAGE_SCORCH_TILES, false);
+      const ring = munitionForSupport('mortar_barrage', fx.toNumber(FIRE_SUPPORT[FS_MORTAR_BARRAGE].splash));
+      this.spawnSupportImpact(BARRAGE_IMPACT_EMITTER_ID, sx, sy, BARRAGE_IMPACT_POWER, BARRAGE_CRATER_TILES, BARRAGE_SCORCH_TILES, ring);
       return;
     }
     const scorch = strikeScorchRadius(this.retained.elevationLevels, this.sim.width, this.sim.height, sx, sy);
-    this.spawnSupportImpact(AIR_STRIKE_IMPACT_EMITTER_ID, sx, sy, AIR_STRIKE_IMPACT_POWER, STRIKE_CRATER_TILES, scorch, true);
+    const ring = munitionForSupport('air_strike', fx.toNumber(FIRE_SUPPORT[FS_AIR_STRIKE_PROFILE].splash));
+    this.spawnSupportImpact(AIR_STRIKE_IMPACT_EMITTER_ID, sx, sy, AIR_STRIKE_IMPACT_POWER, STRIKE_CRATER_TILES, scorch, ring);
   }
 
   /**
@@ -7212,6 +7271,9 @@ export class ThreeRenderer implements Renderer {
    * Without its emitter nothing but the marks is thrown -- no light, no
    * shake, no ring -- which is what makes an unregistered emitter read as 0
    * on the `support-blast` toggle rather than as a smaller blast.
+   *
+   * GH-1197: `ring` is the call's munition; its two-part ring replaces the
+   * strike's single 2.2-tile ring (GH-748), and the barrage round gains one.
    */
   private spawnSupportImpact(
     emitterId: string,
@@ -7220,7 +7282,7 @@ export class ThreeRenderer implements Renderer {
     power: number,
     craterTiles: number,
     scorchTiles: number,
-    shockRing: boolean
+    ring: Munition | null
   ): void {
     this.stampGroundDecal(this.persistentStamp('crater', tx, ty, craterTiles));
     this.stampGroundDecal(this.persistentStamp('scorch', tx, ty, scorchTiles));
@@ -7243,7 +7305,7 @@ export class ThreeRenderer implements Renderer {
     }
     this.shakeState = pushShake(this.shakeState, blastShake(em, power), tx, ty);
     this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, power));
-    if (shockRing) this.shockRings.spawn(tx, worldY, ty, STRIKE_SHOCK_RING_TILES, STRIKE_SHOCK_RING_MS);
+    if (ring) this.blastRings.spawn(tx, ty, ringSpecFor(ring));
   }
 
   /**
@@ -7288,7 +7350,7 @@ export class ThreeRenderer implements Renderer {
       flights: this.supportAircraft.flightCount,
       warm: this.supportAircraft.isWarm,
       ...this.supportAircraft.ready,
-      rings: this.shockRings.liveCount,
+      rings: this.blastRings.liveCount,
       lights: this.flashLights.countTagged(SUPPORT_BLAST_TAG),
     };
   }
@@ -8382,6 +8444,11 @@ export class ThreeRenderer implements Renderer {
 
   private refreshSwarmBatchList(): void {
     this.swarmBatchList = Array.from(this.swarmBatches.values());
+    // GH-1197: each swarm's dive munition (its bomblet's ring), in the list's own order.
+    this.swarmMunitions = Array.from(this.swarmBatches.keys()).map((id) => {
+      const t = this.sim.unitTypes.find((u) => u.id === id);
+      return t ? typeMunition(t.weapons) : null;
+    });
   }
 
   /**
@@ -8640,6 +8707,7 @@ export class ThreeRenderer implements Renderer {
             power: l.power,
             scale: l.scale,
             miss: l.miss,
+            munition: this.swarmMunitions[b] ?? undefined,
           });
         }
       }
@@ -12374,7 +12442,7 @@ export class ThreeRenderer implements Renderer {
    * top of the burst rather than instead of it.
    */
   private spawnShellImpactFx(s: ShellModel): void {
-    this.spawnShellLandingAt(s.kind, s.tx, s.ty);
+    this.spawnShellLandingAt(s.kind, s.tx, s.ty, s.munition);
   }
 
   /**
@@ -12415,8 +12483,16 @@ export class ThreeRenderer implements Renderer {
 
   /** A shell of `kind` landing at (tx, ty): the body `spawnShellImpactFx` always
    *  had, lifted out so a barrage round (F-Q8) lands through the same code. */
-  private spawnShellLandingAt(kind: ShellKind, tx: number, ty: number): void {
+  private spawnShellLandingAt(kind: ShellKind, tx: number, ty: number, munition?: Munition): void {
     const power = SHELL_PROFILES[kind].impactPower;
+    // GH-1197: the two-part ring of a round with a reach, whatever its look.
+    if (munition !== undefined && power > 0 && !this.quiet) this.blastRings.spawn(tx, ty, ringSpecFor(munition));
+    // GH-1197 Phase 1: a class that draws its own row (heavy artillery: the 155 and the Grad) lands as that
+    // row, sized by the round's splash; every other round lands exactly as before.
+    if (munition !== undefined && power > 0 && drawsClassBlast(munition)) {
+      this.spawnClassBlast(munition, kind, tx, ty);
+      return;
+    }
     // The one gate on this whole method, unchanged: `impactPower` is 0 for
     // `bolt`, so direct fire never detonates on landing (a missile is
     // `MissileFx`'s since GH-250 and lands through `spawnMissileImpactFx`). A
@@ -12456,6 +12532,53 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * GH-1197 Phase 1: a round whose class draws its own row (`blast_from: 'class'`
+   * in `data/vfx/munitions.json`: `heavy_artillery`, the Te'o 155 and the Grad),
+   * sized by its own splash `S`. The flipbook recipe is built from the row
+   * (`classBlastRecipe`: a fireball of `f x S` at 200 ms, lobes, thrown dirt, the
+   * dust column and the dust skirt out to the outer wave), beside the shell
+   * emitter's shards, which no recipe supersedes. The light, shake and hit-stop
+   * are the row's own (the ladder holds them under a kill, `fx-ladder.test.ts`),
+   * and the crater and scorch are `c x S` and `s x S`. Until the flipbook's
+   * atlases are in, the shell emitter's own look stands in, so a landing never
+   * draws nothing. The ring is the caller's.
+   */
+  private spawnClassBlast(m: Munition, kind: ShellKind, tx: number, ty: number): void {
+    const row = munitionRow(m.cls);
+    const yawTurns = tileHash(Math.floor(tx), Math.floor(ty));
+    const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, tx, ty);
+    const em = this.emitterLibrary.byName(SHELL_IMPACT_EMITTER_ID);
+    if (this.flipbook.ready) {
+      if (!this.quiet) {
+        const key = `${m.cls}:${m.splash}`;
+        let recipe = this.classRecipes.get(key);
+        if (recipe === undefined) {
+          recipe = classBlastRecipe(row, m.splash);
+          this.classRecipes.set(key, recipe);
+        }
+        this.flipbook.spawnRecipe(recipe, tx, worldY, ty, 0);
+        if (em && this.particleSystem) {
+          const prio = em.budget_priority ?? 1;
+          for (const layer of em.particles) {
+            if (flipbookSupersedes(layer)) continue;
+            this.particleSystem.spawn(layer, tx, ty, 0.25, 1, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+          }
+        }
+      }
+    } else {
+      this.spawnCollapseFx(SHELL_IMPACT_EMITTER_ID, tx, ty, SHELL_PROFILES[kind].impactPower, yawTurns);
+    }
+    const light = munitionLightSpec(row, m.splash);
+    if (light) {
+      this.flashLights.spawn(tx, ty, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
+    }
+    this.shakeState = pushShake(this.shakeState, munitionShake(row), tx, ty);
+    this.hitStop = requestHitStop(this.hitStop, munitionHitStopMs(row));
+    this.stampGroundDecal(this.persistentStamp('crater', tx, ty, munitionCraterTiles(row, m.splash)));
+    this.stampGroundDecal(this.persistentStamp('scorch', tx, ty, munitionScorchTiles(row, m.splash)));
+  }
+
+  /**
    * GH-250: the HEAT impact -- `missile_impact.json`, spawned where the
    * missile visibly lands, off the frame clock (spec D7). `spawnCollapseFx`'s
    * loop, except the particles leave along the missile's own heading (a spall
@@ -12463,7 +12586,10 @@ export class ThreeRenderer implements Renderer {
    * `scale` rather than x `impactPower` (P-4), and there is no hit-stop and no
    * crater: a kill already owns the blast. A miss marks the ground.
    */
-  private spawnMissileImpactFx(l: Pick<MissileLanding, 'x' | 'y' | 'headingTurns' | 'power' | 'scale' | 'miss'>): void {
+  private spawnMissileImpactFx(l: Pick<MissileLanding, 'x' | 'y' | 'headingTurns' | 'power' | 'scale' | 'miss' | 'munition'>): void {
+    // GH-1197: a landing with a reach (a missile with a splash, a kamikaze's warhead, a swarm's bomblet)
+    // draws its two-part ring; an intercept carries no munition and bursts in the air with none.
+    if (l.munition !== undefined && !this.quiet) this.blastRings.spawn(l.x, l.y, ringSpecFor(l.munition));
     const em = this.emitterLibrary.byName(MISSILE_IMPACT_EMITTER_ID);
     const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, l.x, l.y);
     // Defilade T4 (D6): `missile_impact`'s flipbook recipe replaces its
@@ -12521,6 +12647,7 @@ export class ThreeRenderer implements Renderer {
         power: KAMIKAZE_BLAST_POWER,
         scale: KAMIKAZE_BLAST_SCALE,
         miss: false,
+        munition: typeMunition(this.sim.unitTypes[this.sim.state.typeIdx[munition]].weapons) ?? undefined,
       });
     }
     this.stampGroundDecal(this.persistentStamp('scorch', x, y, scorchRadiusTiles(KAMIKAZE_BLAST_POWER)));
@@ -12631,7 +12758,12 @@ export class ThreeRenderer implements Renderer {
    *  the same path a shell landing uses (`spawnCollapseFx`: the pooled burst
    *  for the `mesh_burst` layer, particles for the rest). False when nothing
    *  could be spawned, so the caller keeps its flat fallback. */
-  private spawnDemolitionBlast(x: number, y: number): boolean {
+  private spawnDemolitionBlast(x: number, y: number, shooter: number): boolean {
+    // GH-1197: the thrower's charge draws its class's ring (demolition: dust-toned, hugging the ground).
+    if (!this.quiet && shooter >= 0 && shooter < this.sim.state.typeIdx.length) {
+      const m = typeMunition(this.sim.unitTypes[this.sim.state.typeIdx[shooter]].weapons, WEAPON_CLASS.demolition);
+      if (m !== null) this.blastRings.spawn(x, y, ringSpecFor(m));
+    }
     return this.spawnCollapseFx(DEMOLITION_BLAST_EMITTER_ID, x, y, DEMOLITION_BLAST_POWER, tileHash(Math.floor(x * 4), Math.floor(y * 4)));
   }
 
@@ -12643,7 +12775,7 @@ export class ThreeRenderer implements Renderer {
     if (!wp || wp.cls !== WEAPON_CLASS.demolition) return false;
     const k = findPendingCharge(this.pendingCharges, shooter);
     if (k >= 0) this.pendingCharges.splice(k, 1);
-    return this.spawnDemolitionBlast(x, y);
+    return this.spawnDemolitionBlast(x, y, shooter);
   }
 
   /** A `structureHit` by a thrower with a charge in the air at that building,
@@ -12656,7 +12788,7 @@ export class ThreeRenderer implements Renderer {
     if (k < 0 || tick < this.pendingCharges[k].resolveTick - 1) return false;
     this.pendingCharges.splice(k, 1);
     const [px, py] = this.chargeWallPoint(structure, by);
-    return this.spawnDemolitionBlast(px, py);
+    return this.spawnDemolitionBlast(px, py, by);
   }
 
   /** Charges whose resolve tick passed a tick ago with no event naming them:
@@ -12671,9 +12803,9 @@ export class ThreeRenderer implements Renderer {
       this.pendingCharges.splice(i, 1);
       if (c.structure >= 0) {
         const [px, py] = this.chargeWallPoint(c.structure, c.shooter);
-        this.spawnDemolitionBlast(px, py);
+        this.spawnDemolitionBlast(px, py, c.shooter);
       } else if (c.target >= 0) {
-        this.spawnDemolitionBlast(this.curX[c.target], this.curY[c.target]);
+        this.spawnDemolitionBlast(this.curX[c.target], this.curY[c.target], c.shooter);
       }
     }
   }

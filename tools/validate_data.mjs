@@ -6,7 +6,8 @@
 // Validates:
 //   data/units/**    against data/schemas/unit.schema.json
 //   data/missions/** against data/schemas/mission.schema.json
-//   data/vfx/**      against data/schemas/vfx_emitter.schema.json
+//   data/vfx/**      against data/schemas/vfx_emitter.schema.json, except
+//                    data/vfx/munitions.json, against vfx_munitions.schema.json (GH-1197)
 //   data/maps/**     against data/schemas/map.schema.json, plus grid
 //                    dimensions and marker/zone bounds
 //   data/tutorial/** against data/schemas/tutorial.schema.json
@@ -156,8 +157,10 @@ function jsonFilesIn(dir, skipDirs = []) {
   return out.sort();
 }
 
-function validateDir(dir, validate, schemaName, skipDirs = []) {
-  const files = jsonFilesIn(dir, skipDirs);
+// `skipFiles` names files directly under `dir` to leave out: data/vfx/munitions.json is the munition-class table
+// (GH-1197), not an emitter, and has its own schema and its own validateFile below.
+function validateDir(dir, validate, schemaName, skipDirs = [], skipFiles = []) {
+  const files = jsonFilesIn(dir, skipDirs).filter((f) => !skipFiles.includes(relative(dir, f)));
   for (const file of files) {
     const doc = loadJson(file);
     if (doc === null) continue;
@@ -191,6 +194,7 @@ const schemas = {
   unit: loadJson(join(ROOT, 'data/schemas/unit.schema.json')),
   mission: loadJson(join(ROOT, 'data/schemas/mission.schema.json')),
   vfx: loadJson(join(ROOT, 'data/schemas/vfx_emitter.schema.json')),
+  vfxMunitions: loadJson(join(ROOT, 'data/schemas/vfx_munitions.schema.json')),
   map: loadJson(join(ROOT, 'data/schemas/map.schema.json')),
   tutorial: loadJson(join(ROOT, 'data/schemas/tutorial.schema.json')),
   world: loadJson(join(ROOT, 'data/schemas/world.schema.json')),
@@ -216,7 +220,7 @@ const schemas = {
 
 let checked = 0;
 if (
-  schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
+  schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
   schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.minWin && schemas.arenaResults && schemas.arenaPlayers
 ) {
@@ -224,6 +228,7 @@ if (
     unit: ajv.compile(schemas.unit),
     mission: ajv.compile(schemas.mission),
     vfx: ajv.compile(schemas.vfx),
+    vfxMunitions: ajv.compile(schemas.vfxMunitions),
     map: ajv.compile(schemas.map),
     tutorial: ajv.compile(schemas.tutorial),
     world: ajv.compile(schemas.world),
@@ -245,7 +250,8 @@ if (
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
-  checked += validateDir(join(ROOT, 'data/vfx'), validators.vfx, 'vfx_emitter.schema');
+  checked += validateDir(join(ROOT, 'data/vfx'), validators.vfx, 'vfx_emitter.schema', [], ['munitions.json']);
+  checked += validateFile(join(ROOT, 'data/vfx/munitions.json'), validators.vfxMunitions, 'vfx_munitions.schema');
   checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
   checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema');
@@ -1596,7 +1602,8 @@ function collectPaletteRefs(node, path, out) {
   }
   if (node && typeof node === 'object') {
     for (const [k, v] of Object.entries(node)) {
-      if (k === 'color' || k === 'color_over_life') collectPaletteRefs(v, `${path}.${k}`, out);
+      // `inner_color`/`outer_color`: the munition rings (data/vfx/munitions.json, GH-1197).
+      if (k === 'color' || k === 'color_over_life' || k.endsWith('_color')) collectPaletteRefs(v, `${path}.${k}`, out);
       else if (typeof v === 'object') collectPaletteRefs(v, `${path}.${k}`, out);
     }
   }

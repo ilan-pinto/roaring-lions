@@ -13,6 +13,8 @@ import {
   units,
   variantAwareResolver,
   vfxEmitters,
+  vfxMunitions,
+  VFX_MUNITIONS_FILE,
 } from './index';
 
 const DATA_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data');
@@ -173,7 +175,7 @@ describe('vfxEmitters is pinned to the directory it comes from', () => {
 
   it('carries every emitter file on disk, by id', () => {
     const onDisk = readdirSync(vfxDir)
-      .filter((f) => f.endsWith('.json'))
+      .filter((f) => f.endsWith('.json') && f !== VFX_MUNITIONS_FILE)
       .map((f) => JSON.parse(readFileSync(path.join(vfxDir, f), 'utf8')).id as string)
       .sort();
     expect(onDisk.length).toBeGreaterThan(0);
@@ -184,6 +186,19 @@ describe('vfxEmitters is pinned to the directory it comes from', () => {
   it('registers each of them exactly once', () => {
     const ids = vfxEmitters.map((e) => (e as { id: string }).id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  // GH-1197: the munition table lives here too, and is the ONE file without an emitter `id`. Without this,
+  // a second non-emitter file (or an emitter that lost its id) would drop out of the sweep above silently.
+  it('has exactly one non-emitter file, the munition table, registered as vfxMunitions', () => {
+    const idless = readdirSync(vfxDir)
+      .filter((f) => f.endsWith('.json'))
+      .filter((f) => typeof JSON.parse(readFileSync(path.join(vfxDir, f), 'utf8')).id !== 'string');
+    expect(idless).toEqual([VFX_MUNITIONS_FILE]);
+    const onDisk = JSON.parse(readFileSync(path.join(vfxDir, VFX_MUNITIONS_FILE), 'utf8'));
+    expect(vfxMunitions).toEqual(onDisk);
+    expect(Object.keys(onDisk.classes).length).toBeGreaterThan(0);
+    expect(Object.keys(onDisk.weapons).length).toBeGreaterThan(0);
   });
 
   it('carries vehicle_mud (GH-871 P4): the rain`s spray, by name, with the plan`s numbers', () => {
