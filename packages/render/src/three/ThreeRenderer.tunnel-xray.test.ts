@@ -155,4 +155,16 @@ describe('tunnel x-ray (GH-471)', () => {
     run(5);
     expect(priv.buildTrailInput().routeLevel(route)).toBe(1);
   });
+
+  it('GH-943 P3 (T9): the bore and collars are queued for node adoption when they are built, once per build, and only then', () => {
+    const { renderer, priv, run } = world({ marker: true, fighters: 0 });
+    const queue = vi.spyOn(renderer, 'queueNodeAdoption');
+    const group = priv.tunnelXray.group;
+    run(1);
+    const queued = (): number => queue.mock.calls.filter(([root]) => root === group).length;
+    expect(queued()).toBe(1);
+    // Nothing rebuilt on the next frames: nothing queued again.
+    run(5);
+    expect(queued()).toBe(1);
+  });
 });

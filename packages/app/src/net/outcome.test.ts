@@ -617,3 +617,64 @@ describe('the cap of a points room is decided on the points (GH-976 P3)', () => 
     expect([g.scoreOf(0), g.scoreOf(1)]).toEqual([7, 17]);
   });
 });
+
+describe('flag backstop: 12 minutes after the bell a set-up room is decided on standing-force value (GH-976 WP6a, lead ruling 9 Nov 2026)', () => {
+  // Real unit ids, so `unitCost` reads the shipped data: type 0 is the Lavi (906), type 1 a rifle squad (292). Literals, not the data module.
+  const REAL = [
+    { id: 'mbt_lavi', weapons: [1], stepPerTick: 3000, isAir: false },
+    { id: 'inf_squad', weapons: [1], stepPerTick: 3000, isAir: false },
+  ];
+  const room = { hashEveryTicks: 20, map: 'milh_flats_l', winMode: 'flag', flagSetup: true } as MatchConfig;
+  const BELL = 500;
+  const STOP = BELL + 14_400; // 12 minutes of 20 Hz ticks after the bell
+  /** A sim at `tick` with the bell at BELL, rung. */
+  const at = (tick: number, units: [number, number, number][], extra: { setupActive?: boolean; setupBellTick?: number } = {}) =>
+    ({ ...world(units), unitTypes: REAL, tickCount: tick, setupActive: false, setupBellTick: BELL, ...extra });
+  // Side 0 holds a Lavi and a squad (1198); side 1 holds two squads (584). Both sides stay armed, so only the clock can end it.
+  const ahead0: [number, number, number][] = [[0, 1, 0], [0, 1, 1], [1, 1, 1], [1, 1, 1]];
+
+  it('one tick short of the twelfth minute it plays on; on the tick the side ahead on value wins by time', () => {
+    expect(hashTickOutcome(19, room, at(STOP - 1, ahead0))).toBeNull();
+    expect(hashTickOutcome(19, room, at(STOP, ahead0))).toEqual({ kind: 'won', side: 0, by: 'time', forces: [1198, 584] });
+  });
+
+  it('the other side ahead wins for it (the comparison is not hard-wired to side 0)', () => {
+    const ahead1: [number, number, number][] = [[0, 1, 1], [0, 1, 1], [1, 1, 0], [1, 1, 1]];
+    expect(hashTickOutcome(19, room, at(STOP, ahead1))).toEqual({ kind: 'won', side: 1, by: 'time', forces: [584, 1198] });
+  });
+
+  it('level value draws', () => {
+    const level: [number, number, number][] = [[0, 1, 1], [1, 1, 1]];
+    expect(hashTickOutcome(19, room, at(STOP, level))).toEqual({ kind: 'draw', by: 'time', forces: [292, 292] });
+  });
+
+  it('the clock starts at the BELL, not the match start: an early bell moves the stop with it', () => {
+    expect(hashTickOutcome(19, room, at(STOP, ahead0, { setupBellTick: BELL + 100 }))).toBeNull();
+    expect(hashTickOutcome(19, room, at(STOP + 100, ahead0, { setupBellTick: BELL + 100 }))).toEqual({ kind: 'won', side: 0, by: 'time', forces: [1198, 584] });
+  });
+
+  it('only a flag set-up room: the same sim in any other room plays on (the map cap is 25 minutes)', () => {
+    for (const other of [{ hashEveryTicks: 20, map: 'milh_flats_l', winMode: 'flag' }, { hashEveryTicks: 20, map: 'milh_flats_l' }, { hashEveryTicks: 20, map: 'milh_flats_l', winMode: 'points' }, { hashEveryTicks: 20, map: 'milh_flats_l', winMode: 'points', flagSetup: true }, { hashEveryTicks: 20, map: 'milh_flats_l', flagSetup: true }]) {
+      expect(hashTickOutcome(19, other as MatchConfig, at(STOP, ahead0))).toBeNull();
+    }
+  });
+
+  it('never before the bell, and never in a world with no set-up (an old test double reads as no backstop)', () => {
+    expect(hashTickOutcome(19, room, at(STOP, ahead0, { setupActive: true }))).toBeNull();
+    expect(hashTickOutcome(19, room, at(STOP, ahead0, { setupBellTick: -1 }))).toBeNull();
+    expect(hashTickOutcome(19, room, { ...world(ahead0), unitTypes: REAL, tickCount: STOP })).toBeNull();
+    // A bell but no `setupActive` at all (a double that cannot say whether the set-up is over) is not a rung bell.
+    expect(hashTickOutcome(19, room, { ...at(STOP, ahead0), setupActive: undefined })).toBeNull();
+  });
+
+  it('a goal completed by then still wins by the objective, ahead of the value rule', () => {
+    const goals: OutcomeGoals = { mode: 'flag', sideWon: (s) => s === 1, scoreUnitsOf: () => 0, scoreOf: () => 0, completeTickOf: (s) => (s === 1 ? 100 : -1) };
+    expect(hashTickOutcome(19, room, at(STOP, ahead0), undefined, goals)).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'flag' });
+  });
+
+  it('annihilation still ends it first, and the 30-minute cap is never reached', () => {
+    expect(hashTickOutcome(19, room, at(STOP - 400, [[0, 1, 0], [1, 0, 1]]))).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+    // Past the stop the rule has decided already: there is no ongoing sim at the cap tick to find.
+    expect(hashTickOutcome(19, room, at(30 * 60 * 20, ahead0))).toEqual({ kind: 'won', side: 0, by: 'time', forces: [1198, 584] });
+  });
+});
