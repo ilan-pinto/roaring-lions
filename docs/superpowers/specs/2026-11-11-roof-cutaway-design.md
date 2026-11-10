@@ -1,12 +1,12 @@
 # Roof cutaway: see units inside and under buildings (GH-1225)
 
-**Status:** design for the lead's review. This document adds no code.
+**Status:** ruled 10 Nov (GH-1225). Option A is chosen; L2 to L8 are accepted decisions; B stays only as a rejected alternative. This document adds no code.
 **Scope** (coordinator ruling, 11 Nov): TWO triggers only, the selected unit and the garrisoned unit.
 **Mock:** [`2026-11-11-roof-cutaway-mock.svg`](2026-11-11-roof-cutaway-mock.svg). It shows both options in section.
 **Depends on:** GH-1197 P4 (PR 1221, real holes). That PR provides the per-building material clones, the shared uniform
 set, the cut shadow and the interior shade, all reused here. The cutaway lands after P4 merges.
 
-## Recommendation
+## Decision
 
 **The cut:** cut a vertical cylinder out of a building above a waist-high cut height, with a soft slope band at its edge.
 - **Where:** around every selected unit near a building, and over the whole of any building with a garrison the viewer
@@ -49,14 +49,14 @@ warehouse 2, shanty 1.
 | Edge band W | **0.5 t** | Over the band the cut height slopes linearly back up to the roof, so the edge reads as a broken section rather than a stencil. No dither and no blending. |
 | Section cap | 0.03 t below the cut, the wall ramp's lightest key | The cut wall tops read as cut, like an architect's section drawing. |
 | Interior | P4's back-face shade (the wall ramp's darkest key, 0.6 toward `gunmetal.2`) | Already built and pinned. |
-| Open | R grows 0 → full over **250 ms**, ease-out | An iris. Frame clock: the trigger is UI state, so it works during a pause. |
+| Open | R grows 0 → full over **250 ms**, ease-out | An iris. Frame clock: the trigger is UI state (selection, a garrison the viewer sees), and it must work while the sim is paused. The sim-clock rule covers WORLD animation (wet effects, foliage sway, rain), which must freeze with the sim; a UI-driven reveal is not that, so there is no conflict. |
 | Close | hold **1.0 s** after the trigger ends, then shrink over **400 ms** | Stops flicker when a selection changes or a garrison steps out. |
 | Volume cap | **8** active at once: garrisons first, then selected units nearest the camera focus | A fixed shader loop. |
-| Garrison figures | spread to the type's `garrison_slots` stations, hashed inside the footprint inset by 0.3 t | Today all garrisoned figures stack at the centre. This only changes where they are drawn; the sim is not touched. |
+| Garrison figures | spread to the type's `garrison_slots` stations, hashed inside the footprint inset by 0.3 t, **ONLY while that building is cut** | Today all garrisoned figures stack at the centre. The uncut draw is unchanged, so the golden baselines stay still. This only changes where they are drawn; the sim is not touched. |
 
-## Option A (recommended) and Option B: cost for each
+## Option A (chosen) and Option B (rejected): cost for each
 
-**Option A, the vertical cylinder.** A fragment is cut when all three hold:
+**Option A, the vertical cylinder (chosen).** A fragment is cut when all three hold:
 - its horizontal distance ρ from the centre is under R + W;
 - it is above the volume's cut height;
 - it is above the band's slope.
@@ -71,7 +71,7 @@ Cost and effect:
   building also has holes). To be prewarmed with the P4 variants.
 - **Shadow:** the same term on the building's depth material.
 
-**Option B, the view-line cylinder.** The cylinder's axis runs along the fixed 30° camera ray through the unit. Only
+**Option B, the view-line cylinder (rejected).** The cylinder's axis runs along the fixed 30° camera ray through the unit. Only
 fragments between the unit and the camera are cut.
 
 Cost and effect:
@@ -83,6 +83,8 @@ Cost and effect:
   - a slanted cut that reads as a slot, not a floor plan;
   - a garrison needs a slot per figure station, so up to 4 volumes per building;
   - the shadow cut makes no sense for B (it is a view-dependent shape), so B leaves the shadow whole.
+
+**Reads sim state, writes none; nothing feeds back into the sim.** The cutaway is presentation only (invariant 4).
 
 The cutaway costs nothing until the lead turns on a trigger: no material, program or uniform exists before the first
 cut.
@@ -100,6 +102,9 @@ cut.
   its first cut. When its cutaway closes and it has no holes, it returns to its band material and the clones are
   released, so "no trigger" leaves the scene as it is on `main`.
 - **Space:** world space, P4's ruling: a standing building never moves.
+- **Colour:** the section cap and interior colours are palette keys resolved through `hexToLinear` (vertex and uniform colours must be LINEAR), never a raw hex.
+- **AO pre-pass:** the cut is consistent with it. The AO occluder uses the building's depth material, which carries the same `rl-cut` mask, so a cut building does not occlude the units inside it. (The `rlAoExempt` opt-out in `ao-occluder.ts` is not used.)
+- **`photographGround` (the minimap):** EXEMPT, stated explicitly. The minimap is a map-wide photograph and shows the uncut footprint; `photographGround` suppresses the cut (volume count forced to 0 for the photograph, restored after, as the rain batch is hidden and restored there).
 
 ## TSL twin (WebGPU)
 
@@ -117,9 +122,9 @@ pattern of the `T9` tunnel x-ray and the `P3` unit twins:
 
 - **No trigger, no change.**
   - **Nothing selected:** the capture already asserts `renderer.selection.length === 0`.
-  - **No garrison:** the sandbox force garrisons nobody.
-  - **A new assertion:** a precondition `renderer.cutawayCount() === 0` beside the selection one.
-  - **Result:** every gated scenario (8 on `main`) mints no cut material.
+  - **No garrison:** the sandbox force garrisons nobody (`grep -i garrison packages/app/src/sandbox-force.ts` finds nothing; `sandbox-force.test.ts` is where to pin it).
+  - **A new assertion:** a precondition `renderer.cutawayCount() === 0` beside the selection one (`capture-protocol.ts` line 852, the `renderer.selection.length !== 0` throw).
+  - **Result:** every gated scenario mints no cut material. 8 on `main`: `SCENARIOS` in `tools/src/golden-diff/capture-protocol.ts` lists 10, and `combat` and `dusk` are report-only.
   - **Falsifier:** a cut on every building as it stands up turns the "no trigger mints nothing" test red.
 - **Unit tests (Node):**
   - the cut height, the slope, the cap band and the 8-volume cap (literal oracles);
@@ -128,27 +133,33 @@ pattern of the `T9` tunnel x-ray and the `P3` unit twins:
   - a garrison's figures land on distinct stations inside the footprint;
   - the GLSL against the TS maths, by text;
   - the twin compiled on GLSL and WGSL.
+- **Falsification, one line each (constructed and run, then put back):**
+  - open and close timings: change the open duration constant 250 to 251 (or the hold 1.0 s to 1.1 s); the edge test two frames either side goes red.
+  - GLSL-vs-TS text pin: edit one constant in the GLSL (the edge band `0.5` to `0.6`) and leave the TS; the text pin goes red.
+  - twin compile test: rename one uniform in the TSL twin (`uRlCutV` to `uRlCutX`); the GLSL and WGSL compile test goes red.
+  - `cutawayCount() === 0` precondition: force one cut (select a unit beside a house in the scenario) and the capture throws "precondition violated".
 - **Mutations to show red:**
   - the cap at 9;
   - a fogged garrison cut;
   - the band removed (a hard cut);
   - the shadow left whole;
   - the clone kept after the cut closes.
+- **Sandbox flag.** `&cutaway` is added to the `SANDBOX_FLAGS` table in `packages/app/src/sandbox-help.ts` (and `SandboxFlagName`), marked sandbox-only: it garrisons a house for the capture and never changes how a real mission scores. `sandbox-help.test.ts` pins the table.
 - **A new gated `cutaway` scenario.** It shows a sandbox-only `&cutaway` garrison on a house at the capture tick, with
   the iris long finished. PENDING floors until CI reads it, in the `rubble` and `ragdoll` pattern. No local bless.
 
-## Lead decisions (recommendation first)
+## Lead decisions (ruled 10 Nov, GH-1225)
 
-| # | Decision | Recommendation |
+| # | Decision | Ruling |
 |---|---|---|
-| L1 | Cut shape: Option A (vertical cylinder) or Option B (view-line slot) | **A**: one shape serves both triggers, it reads as a floor plan, and it can cut the shadow |
-| L2 | Cut height: ground + 0.4 t, or only the top storey | **0.4 t**: garrisoned units stand on the ground inside |
-| L3 | Selection radius 1.25 t, band 0.5 t | **Yes** |
-| L4 | Open 250 ms, hold 1.0 s, close 400 ms, on the frame clock | **Yes** |
-| L5 | Cut the shadow with the building | **Yes**: units inside read lit. P4 already cuts the shadow for holes |
-| L6 | Spread garrison figures to slot stations (presentation only) | **Yes**: otherwise the cut shows one stack at the centre |
-| L7 | Port P4's holes into the same twin | **Yes**: one twin, one hook, and the WebGPU holes gap closes |
-| L8 | At most 8 volumes, garrisons first | **Yes** |
+| L1 | Cut shape: Option A (vertical cylinder) or Option B (view-line slot) | **A chosen**: one shape serves both triggers, it reads as a floor plan, and it can cut the shadow |
+| L2 | Cut height: ground + 0.4 t, or only the top storey | **Accepted: 0.4 t**: garrisoned units stand on the ground inside |
+| L3 | Selection radius 1.25 t, band 0.5 t | **Accepted: Yes** |
+| L4 | Open 250 ms, hold 1.0 s, close 400 ms, on the frame clock | **Accepted: Yes** |
+| L5 | Cut the shadow with the building | **Accepted: Yes**: units inside read lit. P4 already cuts the shadow for holes |
+| L6 | Spread garrison figures to slot stations (presentation only) | **Accepted: Yes**: otherwise the cut shows one stack at the centre |
+| L7 | Port P4's holes into the same twin | **Accepted: Yes**: one twin, one hook, and the WebGPU holes gap closes |
+| L8 | At most 8 volumes, garrisons first | **Accepted: Yes** |
 
 ## Risks
 

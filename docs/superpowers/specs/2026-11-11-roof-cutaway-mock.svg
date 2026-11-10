@@ -2,8 +2,8 @@
   <!-- GH-1225 mock: a 2-storey house in section (1 tile = 60 px; 1 t = 3 m). Left: Option A, the vertical cylinder.
        Right: Option B, the view-line cylinder along the fixed 30-degree camera ray. Grey = drawn, dashed = cut away. -->
   <rect width="900" height="380" fill="#f4efe4"/>
-  <text x="20" y="24" font-weight="bold">Option A (recommended): vertical cylinder, R 1.25 t, cut at 0.4 t, 0.5 t slope band</text>
-  <text x="470" y="24" font-weight="bold">Option B: view-line cylinder, R 0.9 t, along the 30° camera ray</text>
+  <text x="20" y="24" font-weight="bold">Option A (chosen): vertical cylinder, R 1.25 t, cut at 0.4 t, 0.5 t slope band</text>
+  <text x="470" y="24" font-weight="bold">Option B (rejected): view-line cylinder, R 0.9 t, along the 30° camera ray</text>
   <!-- ground lines -->
   <line x1="20" y1="320" x2="440" y2="320" stroke="#6e7449" stroke-width="2"/>
   <line x1="470" y1="320" x2="890" y2="320" stroke="#6e7449" stroke-width="2"/>
