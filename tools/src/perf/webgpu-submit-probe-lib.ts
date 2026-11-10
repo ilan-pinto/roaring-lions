@@ -84,6 +84,9 @@ export interface SubmitReading {
   readonly variant: VariantId;
   /** What the toggle reported changing (objects or a layer count); 0 for the base. */
   readonly applied: number;
+  /** Warm-up frames until the unit scene stopped changing, and whether it did within the page's cap (false refuses). */
+  readonly settleFrames: number;
+  readonly settled: boolean;
   /** Calls and distinct objects by pass, from the node backend's `stats().perPass` (G, F) or the page's own legacy wraps (L). Null on
    *  a tree that has no per-pass counter (H6's before arm). */
   readonly perPass: PerPass | null;
@@ -120,6 +123,29 @@ export function perPassRefusals(readings: readonly SubmitReading[]): string[] {
     if (s !== r.calls) out.push(`${r.arm} n${r.n} ${r.variant}: the per-pass calls sum to ${s}, the frame counter reads ${r.calls} (the passes do not add up)`);
   }
   return out;
+}
+
+/** A reading of a scene that never stopped changing is not a reading of the scene. */
+export function unsettledRefusals(readings: readonly SubmitReading[]): string[] {
+  return readings.filter((r) => !r.settled).map((r) => `${r.arm} n${r.n} ${r.variant}: the unit scene was still changing after ${r.settleFrames} frames`);
+}
+
+/** The pass each toggle hypothesis removes work from, when it has one. */
+export const TOGGLE_PASS: Readonly<Record<ToggleHypothesis, RenderPassId | null>> = { H1: null, H3: 'shadow', H4: 'ao' };
+
+/**
+ * A toggle hypothesis the COUNT settles without its toggle: the pass it would remove draws 0 calls in EVERY base reading (H4 at z0.5,
+ * where `zoomFadeWeight` is 0 and the AO pre-pass is skipped on both arms). Its toggle has nothing to remove, so its silence is the
+ * answer, not a dead toggle: `deadHypotheses` leaves it out, and the table says why. One base reading with a call in that pass, or a
+ * base with no per-pass counts, and it is an ordinary hypothesis again.
+ */
+export function settledByCount(readings: readonly SubmitReading[]): ToggleHypothesis[] {
+  return TOGGLE_HYPOTHESES.filter((h) => {
+    const pass = TOGGLE_PASS[h];
+    if (pass === null) return false;
+    const bases = readings.filter((r) => r.variant === 'base');
+    return bases.length > 0 && bases.every((r) => r.perPass !== null && r.perPass[pass].calls === 0);
+  });
 }
 
 /** A timed cell: one arm, count and variant over the ABBA rounds (median of round medians, and its spread). */
@@ -173,7 +199,9 @@ export function costMoved(base: TimedCell, v: TimedCell): boolean {
  */
 export function deadHypotheses(readings: readonly SubmitReading[], cells: readonly TimedCell[] = []): ToggleHypothesis[] {
   const out: ToggleHypothesis[] = [];
+  const settled = settledByCount(readings);
   for (const h of TOGGLE_HYPOTHESES) {
+    if (settled.includes(h)) continue;
     const variant = VARIANTS.find((v) => v.hypothesis === h)?.id as VariantId;
     const rows = readings.filter((r) => r.variant === variant);
     if (rows.length === 0) continue;
@@ -336,7 +364,11 @@ export function hypothesisRows(o: {
         lMs: ms('L', n, v.id),
         gMs: ms('G', n, v.id),
         count: `G ${gv?.calls ?? 'n/a'} calls (${fmtPerPass(gv?.perPass ?? null)}), toggle applied ${gv?.applied ?? 'n/a'}`,
-        verdict: n === hi ? toggleVerdict(o.readings, o.cells, v.id, lo, hi) + dMs : `read at n${n}${dMs}`,
+        verdict: settledByCount(o.readings).includes(v.hypothesis)
+          ? `settled by the count: the ${TOGGLE_PASS[v.hypothesis]} pass draws 0 calls in every base reading, so the toggle has nothing to remove${dMs}`
+          : n === hi
+            ? toggleVerdict(o.readings, o.cells, v.id, lo, hi) + dMs
+            : `read at n${n}${dMs}`,
       });
     }
   }

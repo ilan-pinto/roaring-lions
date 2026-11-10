@@ -46,8 +46,10 @@ import {
   profileRefusal,
   profileTopOf,
   recommendLever,
+  settledByCount,
   tallyTable,
   timedCells,
+  unsettledRefusals,
   type BeforeAfter,
   type ProfileTop,
   type SubmitArm,
@@ -185,7 +187,7 @@ async function allReadings(o: Opened, frames: number, gpuFrames: number): Promis
       const r = await measure(o, n, v.id, frames, first ? WARM_AFTER_SPAWN : WARM_AFTER_TOGGLE, gpuFrames);
       first = false;
       out.push(r);
-      console.log(`[submit-probe]   ${r.arm} n${n} ${v.id}: calls ${r.calls}, tris ${r.triangles}, applied ${r.applied}${r.cpuRenderMs === null ? '' : `, cpuRender ${r.cpuRenderMs.toFixed(2)} ms (census ${r.censusMs?.toFixed(3)})`}${r.gpuMs === null ? '' : `, gpu ${r.gpuMs.toFixed(2)} ms`}`);
+      console.log(`[submit-probe]   ${r.arm} n${n} ${v.id}: settled in ${r.settleFrames}${r.settled ? '' : ' (NOT SETTLED)'}, calls ${r.calls}, tris ${r.triangles}, applied ${r.applied}${r.cpuRenderMs === null ? '' : `, cpuRender ${r.cpuRenderMs.toFixed(2)} ms (census ${r.censusMs?.toFixed(3)})`}${r.gpuMs === null ? '' : `, gpu ${r.gpuMs.toFixed(2)} ms`}`);
     }
   }
   return out;
@@ -342,7 +344,8 @@ const withGpu = withProfiles.map((r) => {
   return g === undefined ? r : { ...r, gpuMs: g.gpuMs };
 });
 
-refusals.push(...perPassRefusals(readings));
+refusals.push(...perPassRefusals(readings), ...unsettledRefusals(readings));
+for (const h of settledByCount(readings)) notes.push(`${h} (${HYPOTHESIS_NAME[h]}) is settled by the count: its pass draws 0 calls in every base reading (left out of the dead-toggle refusal)`);
 for (const h of deadHypotheses(readings, cells)) refusals.push(`${h} (${HYPOTHESIS_NAME[h]}): its toggle moved neither cost nor count on any arm and count; it tested nothing`);
 for (const h of missingHypotheses(readings)) refusals.push(`${h} (${HYPOTHESIS_NAME[h]}): never read`);
 for (const re of BAD_CONSOLE) {

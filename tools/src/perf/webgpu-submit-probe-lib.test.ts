@@ -16,6 +16,8 @@ import {
   hypothesisRows,
   missingHypotheses,
   perPassRefusals,
+  settledByCount,
+  unsettledRefusals,
   profileRefusal,
   profileTopOf,
   recommendLever,
@@ -43,6 +45,8 @@ function reading(arm: SubmitArm, n: number, variant: VariantId, perPass: PerPass
     living: n,
     variant,
     applied: variant === 'base' ? 0 : 1,
+    settleFrames: 81,
+    settled: true,
     perPass,
     calls,
     triangles: calls * 100,
@@ -130,6 +134,40 @@ describe('deadHypotheses (G2: each hypothesis moves the frame)', () => {
     expect(deadHypotheses(rows)).toEqual([]);
     expect(missingHypotheses(rows)).toEqual(['H4']);
     expect(missingHypotheses(healthy())).toEqual([]);
+  });
+});
+
+/** The z0.5 shape: the AO pre-pass is skipped (zoom fade weight 0), so every base draws 0 AO calls and the H4 toggle moves nothing. */
+function aoSkipped(): SubmitReading[] {
+  return healthy().map((r) => {
+    if (r.perPass === null) return r;
+    const p = { ...r.perPass, ao: { calls: 0, objects: 0 } };
+    const fixed = reading(r.arm, r.n, r.variant, p);
+    return r.variant === 'ao-hidden' ? reading(r.arm, r.n, 'ao-hidden', { ...(healthy().find((b) => b.arm === r.arm && b.n === r.n && b.variant === 'base')?.perPass as PerPass), ao: { calls: 0, objects: 0 } }) : fixed;
+  });
+}
+
+describe('settledByCount (a toggle whose pass is already empty) and the settle refusal', () => {
+  it('every base draws 0 AO calls: H4 is settled by the count, not dead, and its row says so', () => {
+    const rows = aoSkipped();
+    expect(settledByCount(rows)).toEqual(['H4']);
+    expect(deadHypotheses(rows)).toEqual([]);
+    const table = hypothesisRows({ readings: rows, cells: [], counts: [300, 600] });
+    expect(table.find((r) => r.hypothesis === 'H4' && r.n === 600)?.verdict).toMatch(/^settled by the count: the ao pass draws 0 calls in every base reading/);
+  });
+  it('one base with an AO call and the same silent toggle: H4 is dead', () => {
+    // L n300 draws one AO call in its base AND under the toggle (the toggle is silent there too).
+    const rows = aoSkipped().map((r) => (r.arm === 'L' && r.n === 300 && (r.variant === 'base' || r.variant === 'ao-hidden') ? reading('L', 300, r.variant, { ...(r.perPass as PerPass), ao: { calls: 1, objects: 1 } }) : r));
+    expect(settledByCount(rows)).toEqual([]);
+    expect(deadHypotheses(rows)).toContain('H4');
+  });
+  it('the H3 toggle stubbed is still dead on the z0.5 shape (the exemption is per pass)', () => {
+    const rows = aoSkipped().map((r) => (r.variant === 'unit-shadow-off' ? { ...(aoSkipped().find((b) => b.arm === r.arm && b.n === r.n && b.variant === 'base') as SubmitReading), variant: 'unit-shadow-off' as const } : r));
+    expect(deadHypotheses(rows)).toEqual(['H3']);
+  });
+  it('a reading of a scene that never settled refuses', () => {
+    expect(unsettledRefusals(healthy())).toEqual([]);
+    expect(unsettledRefusals([{ ...reading('G', 600, 'base', pp(1, 1, 1, 1)), settled: false, settleFrames: 900 }])).toEqual(['G n600 base: the unit scene was still changing after 900 frames']);
   });
 });
 

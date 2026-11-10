@@ -354,6 +354,7 @@ interface NodeRenderObject {
 }
 interface MeshLike {
   isMesh?: boolean;
+  visible: boolean;
   castShadow: boolean;
   traverse(f: (o: MeshLike) => void): void;
 }
@@ -518,11 +519,7 @@ export async function submitMeasure(o: { n: number; variant: VariantId; frames: 
       if (gl) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
       else await r.whenGpuIdle();
     };
-    for (let i = 0; i < o.warmFrames; i++) {
-      await tick();
-      r.frame(1, 16);
-      await sync();
-    }
+    const settled = await settleScene(s, o.warmFrames, sync);
     if (arm === 'L') matchNodeScene(r);
     // The stats frame.
     let perPass: PerPass;
@@ -582,10 +579,60 @@ export async function submitMeasure(o: { n: number; variant: VariantId; frames: 
         if (ms !== null) gpu.push(ms);
       }
     }
-    return { arm, n: o.n, living: livingCount(sim), variant: o.variant, applied, perPass, calls, triangles, byType, fullRefresh, fullReason, cpuRenderMs, cpuRenderInclCensusMs, censusMs, gpuMs: medianOrNull(gpu), profileTop: [] };
+    return { arm, n: o.n, living: livingCount(sim), variant: o.variant, applied, settleFrames: settled.frames, settled: settled.ok, perPass, calls, triangles, byType, fullRefresh, fullReason, cpuRenderMs, cpuRenderInclCensusMs, censusMs, gpuMs: medianOrNull(gpu), profileTop: [] };
   } finally {
     applyVariant(s, o.variant, false, undo);
   }
+}
+
+/** The longest a reading waits for the scene to stop changing (frames). */
+const SETTLE_MAX_FRAMES = 900;
+/** Frames the unit signature must hold unchanged. */
+const SETTLE_STILL_FRAMES = 20;
+
+/**
+ * The unit scene's signature: how many unit roots exist and how many meshes under them are visible. The first CI run (GH-1152 T13,
+ * run 42728357786) read the base 61 frames after a spawn and the variants after it, and the figures were STILL being realised
+ * (n300: 435 skinned draws in the base, 1295 three readings later, on both arms), so the toggles' count deltas were the scene
+ * filling in, not the toggles: H4 "moved" while the AO pre-pass drew nothing.
+ */
+function unitSignature(s: SubmitState): string {
+  const roots = s.unitRoots();
+  let visible = 0;
+  for (const root of roots) {
+    root.traverse((m) => {
+      if (m.isMesh === true && m.visible) visible++;
+    });
+  }
+  return `${roots.length}:${visible}`;
+}
+
+/**
+ * Warm-up until the unit scene has stopped changing: at least `minFrames`, then until the signature holds for
+ * `SETTLE_STILL_FRAMES` frames, and on a node arm until one census has run after the last change (it hides what a newly realised
+ * mesh brought). Gives up at `SETTLE_MAX_FRAMES`; `ok` false is a refusal (a reading of a moving scene).
+ */
+async function settleScene(s: SubmitState, minFrames: number, sync: () => Promise<void>): Promise<{ frames: number; ok: boolean }> {
+  const { r } = s;
+  const node = r.nodeBackend;
+  let last = '';
+  let still = 0;
+  let censusSinceChange = node === null;
+  for (let i = 0; i < SETTLE_MAX_FRAMES; i++) {
+    await tick();
+    r.frame(1, 16);
+    if (node !== null && (node.stats().censusMs ?? 0) > 0) censusSinceChange = true;
+    await sync();
+    const sig = unitSignature(s);
+    if (sig === last) still++;
+    else {
+      last = sig;
+      still = 0;
+      censusSinceChange = node === null;
+    }
+    if (i + 1 >= minFrames && still >= SETTLE_STILL_FRAMES && censusSinceChange) return { frames: i + 1, ok: true };
+  }
+  return { frames: SETTLE_MAX_FRAMES, ok: false };
 }
 
 /** `frames` timed frames of the current state and nothing else (the profile window wraps exactly this call). */
