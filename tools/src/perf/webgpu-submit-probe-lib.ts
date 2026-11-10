@@ -231,6 +231,16 @@ export const FRAME_CODE = /three|packages\/render|ThreeRenderer|node-backend/;
 const META_FN = /^\((idle|program|garbage collector|root)\)$/;
 
 /**
+ * Why `--counts` cannot be read, or null. The slope between the lowest and highest count needs two DISTINCT counts: one count (or the same
+ * one twice) is a zero-width range and every slope is NaN in the report. Each must be a finite positive integer (it sizes the spawned force).
+ */
+export function countsRefusal(counts: readonly number[]): string | null {
+  if (counts.length === 0 || counts.some((n) => !Number.isInteger(n) || n <= 0)) return `--counts: every count must be a positive integer (got ${counts.join(',')})`;
+  if (new Set(counts).size < 2) return `--counts: need at least two distinct counts for a slope (got ${counts.join(',')})`;
+  return null;
+}
+
+/**
  * G3: an empty profile, a 0-sample one, or one with no sample in the frame's code (the profiler did not cover the timed frames: it
  * was started after them, or stopped before) refuses (exit 2).
  */

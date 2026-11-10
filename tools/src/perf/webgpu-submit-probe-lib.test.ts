@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CpuProfile } from './cpu-profile';
 import {
+  countsRefusal,
   deadHypotheses,
   drawTypeOf,
   emptyByType,
@@ -246,5 +247,16 @@ describe('timing: the cells, the verdicts and the lever', () => {
     const rows = hypothesisRows({ readings: healthy(), cells: [], counts: [300, 600] });
     expect([...new Set(rows.map((r) => r.hypothesis))]).toEqual(['H1', 'H3', 'H4', 'H2', 'H5', 'H6']);
     expect(rows.find((r) => r.hypothesis === 'H6')?.verdict).toBe('not run (needs the Metal hold)');
+  });
+});
+
+describe('--counts (CodeRabbit on PR 1203)', () => {
+  it('needs two distinct positive integer counts: one, a repeat, zero, a fraction and NaN all refuse', () => {
+    expect(countsRefusal([300, 600])).toBeNull();
+    expect(countsRefusal([300])).toMatch(/two distinct/);
+    expect(countsRefusal([300, 300])).toMatch(/two distinct/);
+    expect(countsRefusal([0, 600])).toMatch(/positive integer/);
+    expect(countsRefusal([300.5, 600])).toMatch(/positive integer/);
+    expect(countsRefusal([Number('x'), 600])).toMatch(/positive integer/);
   });
 });
