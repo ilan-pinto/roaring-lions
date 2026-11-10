@@ -1,4 +1,5 @@
-"""Limb edges piercing the carrier: a REPORT for the lead's B2 ruling (GH-746), not a gate. No bar is set.
+"""Limb edges piercing the carrier (and thigh edges the groin apron): the READING behind the ratchet `tools/test_inf_kit_pierce.py` (GH-746).
+This tool only reads; the ceilings live in `tools/inf_kit_pierce_ratchet.json` and the test holds them.
 
     blender -b --factory-startup -P tools/inf_kit_pierce.py -- <inf_squad.glb> <out.json> [--figs f1,f2]
 
@@ -33,10 +34,13 @@ att = np.array([x.value for x in ku.data.attributes["_RL_KIT"].data])
 kpolys = [tuple(p.vertices) for p in ku.data.polygons]
 parts = [dict(p) for p in ku["rl_kit"]["parts"]]
 cid = {f: next(i for i, p in enumerate(parts) if p["part"] == "carrier" and p["figure"] == f) for f in FIGS}
+gid = {f: next(i for i, p in enumerate(parts) if p["part"] == "groin" and p["figure"] == f) for f in FIGS}
 names = {g.index: g.name for g in uni.vertex_groups}
 dom = [names[max(v.groups, key=lambda g: g.weight).group] if len(v.groups) else "" for v in uni.data.vertices]
 edges = np.array([tuple(e.vertices) for e in uni.data.edges])
 limb = {f: np.array([d.startswith(f + "_") and d[len(f) + 1:].split("_")[0] in LIMB for d in dom]) for f in FIGS}
+THIGH = ("thigh", "shin")
+thigh = {f: np.array([d.startswith(f + "_") and d[len(f) + 1:].split("_")[0] in THIGH for d in dom]) for f in FIGS}
 
 
 def posed(ob):
@@ -47,8 +51,9 @@ def posed(ob):
     return co
 
 
-def carrier(co, f):
-    sel = [p for p in kpolys if att[p[0]] == cid[f]]
+def carrier(co, f, ids=None):
+    ids = cid if ids is None else ids
+    sel = [p for p in kpolys if att[p[0]] == ids[f]]
     used = sorted({i for p in sel for i in p})
     rm = {i: j for j, i in enumerate(used)}
     return co[used], [tuple(rm[i] for i in p) for p in sel]
@@ -66,7 +71,7 @@ for clip in CLIPS:
     frames = list(np.arange(lo, hi + 1e-6, 0.25 if hi - lo < 6 else 1.0))
     for f in FIGS:
         res[f"{clip}|{f}"] = {"edges": 0, "frames_with_a_piercing_edge": 0, "frames": len(frames), "worst_frame": None,
-                              "segments": {"upperarm": 0, "forearm": 0, "hand": 0}}
+                              "segments": {"upperarm": 0, "forearm": 0, "hand": 0}, "groin_thigh": 0}
     for fr in frames:
         bpy.context.scene.frame_set(int(np.floor(fr)), subframe=float(fr - np.floor(fr)))
         cu, cku = posed(uni), posed(ku)
@@ -93,6 +98,20 @@ for clip in CLIPS:
                     n += 1
                     seg = dom[e0][len(f) + 1:].split("_")[0]
                     seg_n["hand" if seg == "finger" else seg] += 1
+            # the groin apron: thigh and shin mesh edges crossing its triangles (the apron hangs in the legs' way in the kneel clips)
+            GV, GT = carrier(cku, f, gid)
+            gb = BVHTree.FromPolygons([Vector(c) for c in GV], GT)
+            glo, ghi = GV.min(0) - 0.01, GV.max(0) + 0.01
+            ng = 0
+            for e0, e1 in edges[thigh[f][edges[:, 0]] & thigh[f][edges[:, 1]]]:
+                p0, p1 = cu[e0], cu[e1]
+                if (np.minimum(p0, p1) > ghi).any() or (np.maximum(p0, p1) < glo).any():
+                    continue
+                dv = p1 - p0
+                L = float(np.linalg.norm(dv))
+                if L > 1e-7 and gb.ray_cast(Vector(p0), Vector(dv / L), L)[0] is not None:
+                    ng += 1
+            r["groin_thigh"] = max(r["groin_thigh"], ng)
             if n:
                 r["frames_with_a_piercing_edge"] += 1
             for k_, v_ in seg_n.items():
