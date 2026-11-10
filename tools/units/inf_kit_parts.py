@@ -199,6 +199,8 @@ TEAMS = {
                       # arm is welded to the ribs, so its surface by dominant bone is shoulder AND chest wall, and the arm
                       # wraps came out as flat slabs standing off the shoulder (9 Nov render) -- the lead's ruling for the
                       # Demolition squad (30 Oct), applied here (the lead accepted it for this figure on 9 Nov)
+                      # eud: dropped from this squad's sensors tier 3 for the pilot (the lead, 10 Nov 2026, GH-746): no chest or wrist spot
+                      # clears the grip, arm, neck and throat on this carrier; it returns later as a smaller wrist-strapped part
                       drop=("nvg_mount", "deltoid", "sleeve", "eud"), baked_mount=True, helmet_front_trim=60.0, torso_ring_cap=True,
                       # the lead (9 Nov, GH-746): the approved v7 kit set is fitted to this figure
                       v7=True, part_tris=V7_PART_TRIS),

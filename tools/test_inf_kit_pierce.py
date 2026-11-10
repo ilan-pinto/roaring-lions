@@ -11,17 +11,19 @@ segment (upperarm, forearm, hand) the worst-frame count of limb mesh edges that 
 `tools/inf_kit_pierce_ratchet.json`, measured on the final wave-4 bytes. Lowering the ceilings when the arm path is fixed is
 the point of the file; raising one is a ruling, not an edit.
 
-What the ceilings also freeze, and the lead's ruling did not name: the idle / move SUPPORT-HAND rows (247-288 edges on f0 and f1, mostly
+What the ceilings also freeze (both ACCEPTED by the lead, 10 Nov 2026, GH-746): the idle / move SUPPORT-HAND rows, part of the
+accepted arm-through-carrier item and fixed in the same later motion pass, (247-288 edges on f0 and f1, mostly
 hidden inside the carrier's doubled front relief), and the third kind of row, `groin_thigh`: thigh and shin mesh edges crossing the
 groin apron's triangles (the apron hangs 20 cm below the belt, in the legs' way in move and the kneel clips; hidden from the front;
-24-222 edges in wave 4). It is frozen at its post-wave-5 value, PENDING THE LEAD'S WORD with the arm item.
+24-222 edges in wave 4), frozen at its post-wave-5 value: a named open item the lead ACCEPTED on 10 Nov, to be fixed in the
+later art pass.
 The kneel-family groin_thigh rows SATURATE: the thigh is already through the apron's whole depth there, so pushing the apron
 deeper into the leg (the review's 10 mm and 30 mm mutations) does not raise them. Only move / moveFire, where the leg just grazes it, react to
 the apron's depth; the kneel, kneelIn, kneelOut and pinned ceilings guard a drop in coverage, not a deeper apron.
 
 Disclosed here because the gates that guard them cannot: f2's throat reads a 19.9 degree thin axis against the 20 degree limit of
 `assert_hangs` (a 0.1 degree margin: a small change to the part refuses the export), and f1's collar gap is 37 mm (a hinged throat
-resting on the carrier's forward relief would lean past 20: the lead's question, not widened here).
+resting on the carrier's forward relief would lean past 20; the lead ACCEPTED the gap as a named open item, 10 Nov; not widened).
 
 `RL_PIERCE_GLB=<file>` reads another GLB (a scratch copy, for the falsification: `inf_squad.glb` with the carrier's depth shrunk
 10% reads over the ceilings and this goes red). Needs Blender (`BLENDER_BIN`, PATH, or the macOS app); exits 2 without it.
