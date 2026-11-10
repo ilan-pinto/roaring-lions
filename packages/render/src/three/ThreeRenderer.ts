@@ -477,7 +477,7 @@ import {
   washSlotAt,
   washSlotsDue,
 } from './units/rotor-wash';
-import { nextVehicleMoving, vehicleDustIntervalMs, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
+import { nextVehicleMoving, pivotDustMagnitude, vehicleDustIntervalMs, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
 import {
   CHURN_EVENT_LAUNCH,
   CHURN_EVENT_NONE,
@@ -491,11 +491,16 @@ import {
   CLOD_SPAWN_OFFSET_TILES,
   churnStamps,
   makeChurnState,
+  makeScuffState,
+  pivotScuffStamp,
   resetChurn,
+  resetScuff,
   stepChurn,
+  stepPivotScuff,
   turnDelta,
   type ChurnEvent,
   type ChurnState,
+  type ScuffState,
 } from './units/ground-churn';
 import {
   makeVehicleWeightArrays,
@@ -1827,6 +1832,8 @@ export class ThreeRenderer implements Renderer {
   private reducedPrefNow = false;
   /** Pivot and launch detection per vehicle (`units/ground-churn.ts`), stepped by `snapshot()`, once a TICK. */
   private readonly churn: ChurnState;
+  /** Pivot-scuff detection per vehicle (GH-1207, `units/ground-churn.ts`), stepped by `snapshot()`, once a TICK. */
+  private readonly scuff: ScuffState;
   /**
    * Clod events, `CLOD_HISTORY` deep per entity (`units/ground-churn.ts` says why two): the tick, the kind, where,
    * which way the hull faced, and whether a frame has spawned it. Written by `snapshot()`, drained by `updateVehicleClods`.
@@ -3178,6 +3185,7 @@ export class ThreeRenderer implements Renderer {
       skip: (i) => this.hiddenFromViewer(i) || this.buriedLast[i] === 1 || this.sim.state.garrisonedIn[i] >= 0,
     };
     this.churn = makeChurnState(n);
+    this.scuff = makeScuffState(n);
     this.clodTick = new Int32Array(n * CLOD_HISTORY).fill(-1);
     this.clodKind = new Uint8Array(n * CLOD_HISTORY);
     this.clodDone = new Uint8Array(n * CLOD_HISTORY).fill(1);
@@ -3794,6 +3802,8 @@ export class ThreeRenderer implements Renderer {
         materialMaths: MATERIAL_MATHS,
         // GH-943 P3 (T1): the census backstop's table (`unadopted`). A twin has no slot.
         twinSlotOf: (m) => (isTwin(m) ? null : legacyTwinSlot(m)),
+        // GH-943 P3 (T13): timestamp queries for the probe's GPU time; the only read of the option (a legacy boot never gets here).
+        timestamps: this.opts.timestamps === true,
       });
       if (this.disposed) {
         if ('backend' in made) made.backend.dispose();
@@ -6088,34 +6098,52 @@ export class ThreeRenderer implements Renderer {
     if (kind === null) return;
     if (newcomer || Math.hypot(dx, dy) > MAX_PLAUSIBLE_TRACK_STEP_TILES) {
       resetChurn(this.churn, i);
+      resetScuff(this.scuff, i);
       return;
     }
     const facingNorm = fx.toNumber(st.facing[i]);
     const yawTurnsS = turnDelta(this.prevFacing[i], this.curFacing[i]) * SIM_HZ;
     const event = stepChurn(this.churn, i, tick, this.entitySpeed[i], yawTurnsS, fx.toNumber(type.stepPerTick) * SIM_HZ, kind);
-    if (event === CHURN_EVENT_NONE || this.hiddenFromViewer(i)) return;
+    // GH-1207: the pivot scuff, on its own once-per-episode cadence, sharing the churn's pivot detection.
+    const scuffed = stepPivotScuff(this.scuff, i, this.entitySpeed[i], yawTurnsS, kind);
+    const hidden = this.hiddenFromViewer(i);
     const simMs = stampSimMs(tick);
-    for (const c of churnStamps(event, this.curX[i], this.curY[i], facingNorm, kind)) {
+    if (event !== CHURN_EVENT_NONE && !hidden) {
+      for (const c of churnStamps(event, this.curX[i], this.curY[i], facingNorm, kind)) {
+        this.stampGroundDecal({
+          kind: 'churn',
+          x: c.x,
+          z: c.y,
+          halfLength: c.halfLength,
+          halfWidth: c.halfWidth,
+          facingRad: c.facingNorm * Math.PI * 2,
+          seed: decalSeed('churn', c.x, c.y),
+          simMs,
+        });
+      }
+      // The clod burst is an EVENT the frame that presents this tick spawns (`updateVehicleClods`).
+      const slot = i * CLOD_HISTORY + this.clodNext[i];
+      this.clodNext[i] = (this.clodNext[i] + 1) % CLOD_HISTORY;
+      this.clodTick[slot] = tick;
+      this.clodKind[slot] = event;
+      this.clodDone[slot] = 0;
+      this.clodX[slot] = this.curX[i];
+      this.clodY[slot] = this.curY[i];
+      this.clodFacing[slot] = facingNorm;
+    }
+    if (scuffed && !hidden) {
+      const c = pivotScuffStamp(this.curX[i], this.curY[i], facingNorm);
       this.stampGroundDecal({
-        kind: 'churn',
+        kind: 'scuff',
         x: c.x,
         z: c.y,
         halfLength: c.halfLength,
         halfWidth: c.halfWidth,
         facingRad: c.facingNorm * Math.PI * 2,
-        seed: decalSeed('churn', c.x, c.y),
+        seed: decalSeed('scuff', c.x, c.y),
         simMs,
       });
     }
-    // The clod burst is an EVENT the frame that presents this tick spawns (`updateVehicleClods`).
-    const slot = i * CLOD_HISTORY + this.clodNext[i];
-    this.clodNext[i] = (this.clodNext[i] + 1) % CLOD_HISTORY;
-    this.clodTick[slot] = tick;
-    this.clodKind[slot] = event;
-    this.clodDone[slot] = 0;
-    this.clodX[slot] = this.curX[i];
-    this.clodY[slot] = this.curY[i];
-    this.clodFacing[slot] = facingNorm;
   }
 
   /**
@@ -7624,6 +7652,31 @@ export class ThreeRenderer implements Renderer {
       } else {
         // Idle exhaust is emitted by `updateIdleExhaust`, on the sim clock.
         this.vehicleDustAccumMs[i] = 0;
+      }
+
+      // Pivot dust (GH-1207): a tracked hull turning on the spot throws dust
+      // at both track ends even though it is not translating -- the moving
+      // branch above gives it none, since it ramps off translation speed.
+      // Read from the weight model's smoothed yaw rate (stepped just above,
+      // in `updateVehicleMeshes`), gated on a real turn with translation
+      // about 0 and a tracked hull. A wheeled hull cannot pivot, and a parked
+      // one has no yaw, so both read 0 and spawn nothing.
+      if (dust) {
+        const pivot = pivotDustMagnitude(speed, this.vehicleWeight.smoothedYawRate[i], trackKindFor(type.id) === 'tracked');
+        if (pivot > 0 && !this.hiddenFromViewer(i)) {
+          const prio = dust.budget_priority ?? 2;
+          const centers = trackStampCenters(this.curX[i], this.curY[i], facingNorm, 'tracked');
+          // Dust off each flank as the tracks counter-rotate -- the same two
+          // perpendicular directions the churn's pivot clods use.
+          for (let k = 0; k < centers.length; k++) {
+            const c = centers[k];
+            const dirTurns = (facingNorm + (k === 0 ? 0.25 : 0.75)) % 1;
+            for (const layer of dust.particles) {
+              const fxLayer = fxLayerIndex(dust.layer, layer.additive ?? false);
+              this.particleSystem.spawn(layer, c.x, c.y, dirTurns, pivot, prio, fxLayer);
+            }
+          }
+        }
       }
     }
   }

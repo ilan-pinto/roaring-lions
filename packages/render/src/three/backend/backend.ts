@@ -18,6 +18,7 @@ import type { BackendKind } from '../../gpu';
 import type { Node as TslNode, PassNode } from 'three/webgpu';
 import type { PostChainLike, PostQuality } from '../post-chain-shared';
 import type { UnportedHook } from './unported';
+import type { PerPass } from './pass-counter';
 import type { FogUniformTable } from '../fog-spec';
 import type { FogMaths } from '../fog-pass.node';
 import type { OutputMaths } from '../post-chain.node';
@@ -226,7 +227,14 @@ export interface RenderBackend {
   whenSubmitted(): Promise<void>;
   /** Every GLSL-only hook the last census found, cumulative. */
   unported(): readonly UnportedHook[];
-  /** Draw calls and triangles of the last frame, from the renderer's own counters. */
-  stats(): { calls: number; triangles: number };
+  /**
+   * Draw calls and triangles of the last frame, from the renderer's own counters. GH-943 P3 (T13, GH-1152): `perPass` splits the calls
+   * by pass (`pass-counter.ts`; they sum to `calls`), and `censusMs` is what the unported-hook census cost inside that frame's `render`
+   * (0 on the 59 frames in 60 it does not run), so a timing can leave the census out.
+   */
+  stats(): { calls: number; triangles: number; perPass: PerPass; censusMs: number };
+  /** GH-943 P3 (T13): the GPU time (ms) of everything rendered since the last call, from timestamp queries; null unless the backend was
+   *  built with `timestamps` and the adapter offers `timestamp-query`. */
+  gpuTimeMs(): Promise<number | null>;
   dispose(): void;
 }

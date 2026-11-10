@@ -82,7 +82,8 @@ const SQUAD = readFileSync(new URL('../../../../../art/meshes/inf_squad.glb', im
 const GRENADIER = readFileSync(new URL('../../../../../art/meshes/inf_grenadier.glb', import.meta.url));
 
 /** The shipped figure before the kit: boot, face, uniform, weapon. */
-const BASE = { boot: 546, face: 81, uniform: 9963, weapon: 1140 };
+// Re-pinned 9 Nov 2026 (GH-746): the Meshy Rifle Squad's own bytes (art/meshes/inf_squad.glb); the rigid figure's 546 / 81 / 9,963 / 1,140 are gone.
+const BASE = { boot: 3792, face: 519, uniform: 24818, weapon: 3826 };
 const FULL = { armour: 3, sensors: 3, firepower: 3 };
 
 const COLORS = { key: '#ffffff', fill: '#ffffff', sky: '#ffffff', bounce: '#ffffff', ground: '#c8b494' };
@@ -152,7 +153,7 @@ describe('mountGarageView: the bought kit on a team on the turntable (GH-826)', 
     bare.view.dispose();
 
     const full = await mount(SQUAD, 'inf_squad', FULL);
-    expect(full.drawn()).toEqual({ ...BASE, uniform: 11913, weapon: 2548 });
+    expect(full.drawn()).toEqual({ ...BASE, uniform: 39447, weapon: 9602 });
     full.view.dispose();
 
     // Mounted with a track at tier 0 is the plain figure too.
@@ -167,12 +168,12 @@ describe('mountGarageView: the bought kit on a team on the turntable (GH-826)', 
     const frames = m.view.stats().frames;
 
     m.view.setKit(FULL);
-    expect(m.drawn()).toEqual({ ...BASE, uniform: 11913, weapon: 2548 });
+    expect(m.drawn()).toEqual({ ...BASE, uniform: 39447, weapon: 9602 });
     expect(m.view.stats().frames).toBe(frames + 1);
     m.view.setKit({ armour: 1 });
-    expect(m.drawn()).toEqual({ ...BASE, uniform: 10749 });
+    expect(m.drawn()).toEqual({ ...BASE, uniform: 31901 });
     m.view.setKit({ sensors: 1 });
-    expect(m.drawn()).toEqual({ ...BASE, weapon: 1512 });
+    expect(m.drawn()).toEqual({ ...BASE, weapon: 5854 });
     m.view.setKit({});
     expect(m.drawn()).toEqual(BASE);
     expect(m.view.stats().frames).toBe(frames + 4);

@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readGlb } from './mesh_gait';
 import { infantryTeams, rebindVertices, strayClawPieces, strayClawReport } from './mesh_figures';
+import { handsSource } from './mesh_hand_gates';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 
@@ -80,12 +81,42 @@ describe('G2: no claw-coloured geometry off the hand', () => {
   });
 });
 
+describe('R7 (the coordinator, 9 Nov): the legacy claw tones read CLAW builds only', () => {
+  // The change stands only if (a) a claw piece on a claw-hand figure still turns G2 red, and (b) what the legacy tones
+  // flagged on the Meshy Rifle Squad (a non-claw figure with a glove texel) was not a claw.
+  it('(a) a claw-hand figure: mortar_team\'s pink claw (a LEGACY tone, 55 28 26) bound to the pelvis still reads red', () => {
+    const mt = teams.find(([t]) => t === 'mortar_team')![1];
+    const v = strayClawPieces(rebindVertices(mt, 'mtr_crew0_forearm_L', 'mtr_crew0_pelvis', 60));
+    expect(v.length).toBeGreaterThan(0);
+    expect(v.every((p) => p.how === 'tone')).toBe(true);
+  });
+  it('(b) the Meshy Rifle Squad: the legacy tones, forced, flag no piece (round 4: only its coyote carrier, on the trunk)', () => {
+    const squad = readGlb(`${MESHES}inf_squad.glb`);
+    const forced = strayClawReport(squad, { legacyTones: 'always' }).pieces.filter((p) => p.how === 'tone');
+    // Round 5 (9 Nov): with the per-texel glove the legacy tones, FORCED onto the squad, flag no piece at all, so the
+    // scoping is no longer what keeps it green. Asserted as an equality, not looped over (the review's S4: a loop over an
+    // empty set passes vacuously). On round 4's bytes (d31bdc16d) the forced set was every spine/pelvis piece within 8 dE
+    // of the carrier coyote (43, 7, 31): the retinted vest, not a claw.
+    expect(forced.map((p) => `${p.bones.join('+')} ${p.lab!.map((x) => x.toFixed(0)).join(',')}`)).toEqual([]);
+    // ...and the scoped reading reads none either
+    expect(strayClawReport(squad).pieces.filter((p) => p.how === 'tone')).toEqual([]);
+  });
+});
+
 describe('G2 can fail (constructed inputs)', () => {
   const squad = readGlb(`${MESHES}inf_squad.glb`);
   it('the shipped Rifle Squad is clean', () => {
     expect(strayClawPieces(squad)).toEqual([]);
   });
   it('a few hand vertices re-bound to the spine read as a piece off the hand (a modelled glove\'s own texel)', () => {
+    if (handsSource(squad) === 'meshy') {
+      // A sculpted, BAKED glove (the Meshy pilot, 1 Nov) has no single glove texel and, retinted dark brown (C* under
+      // 25), no tone a claw test can tell from the trousers: G2 has NO instrument for a piece of it bound elsewhere.
+      // Asserted here as the gate's known blind spot, not passed quietly; the census (G1) and the holds (G3) are what
+      // read a sculpted hand today.
+      expect(strayClawPieces(rebindVertices(squad, 'f1_hand_L', 'f1_spine', 40))).toEqual([]);
+      return;
+    }
     const v = strayClawPieces(rebindVertices(squad, 'f1_hand_L', 'f1_spine', 6));
     expect(v.length).toBeGreaterThan(0);
     expect(v[0].how).toBe('glove');

@@ -37,7 +37,7 @@ import type { GameRecord } from './arena-score';
 import { startLocalRelay } from './local-relay';
 import { FLAG_SETUP_MAPS, type TransportStatus } from '@lions/net';
 import { capOutcome } from './cap';
-import { MATCH_CAP_TICKS, type MatchResult, type OutcomeGoals, type OutcomeSim } from '../../../packages/app/src/net/outcome';
+import { MATCH_CAP_TICKS, type MatchResult, type OutcomeGoals, type OutcomeSimAt } from '../../../packages/app/src/net/outcome';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -283,10 +283,11 @@ describe('pnpm arena', () => {
 });
 
 /** A world where side 0 keeps a Lavi (906) and side 1 an infantry squad (292): at the cap, side 0 is ahead on forces. */
-const capSim: OutcomeSim = {
+const capSim: OutcomeSimAt = {
   entityCount: 2,
   state: { side: [0, 1], alive: [1, 1], typeIdx: [0, 1], mobilityKilled: [0, 0], firepowerKilled: [0, 0] },
   unitTypes: [{ id: 'mbt_lavi', weapons: [{}], stepPerTick: 1, isAir: false }, { id: 'inf_squad', weapons: [{}], stepPerTick: 1, isAir: false }],
+  tickCount: 6000,
 };
 function client(result: MatchResult | null, o: { tick?: number; status?: TransportStatus } = {}): SeatSnapshot {
   return { result, tick: o.tick ?? 600, sim: capSim, status: o.status ?? { kind: 'live', behind: 0 } };

@@ -216,12 +216,12 @@
       "file": "inf_squad.png",
       "extent": [
         174,
-        138
+        146
       ],
       "lead": {
         "file": "lead/inf_squad.png",
         "extent": [
-          88,
+          84,
           174
         ]
       }

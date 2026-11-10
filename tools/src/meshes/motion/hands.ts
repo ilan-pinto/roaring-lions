@@ -10,7 +10,7 @@
  * no sliding back along the handguard.
  */
 import type { Node } from '@gltf-transform/core';
-import { compose, deg, invert, qconj, qmul, qrot, type Q, type V3, type Xf } from './math';
+import { compose, deg, dot, invert, norm, qconj, qmul, qrot, scale, sub, type Q, type V3, type Xf } from './math';
 import type { Rig } from './rig';
 import { contactTable, type ContactTable, type FingerSpec } from './contact';
 
@@ -30,6 +30,15 @@ export interface HandStation {
   readonly channel: V3;
   /** What the palm keeps of its contact with the weapon when the hand is turned off the station (roll, tilt, tilt). */
   readonly contact: ContactTable;
+  /**
+   * A hand that is part of the weapon (a Meshy figure skinned with its fists sculpted closed on its own carbine,
+   * `rl_hands.source === 'meshy'`): the hold never turns it off its station and puts the hand bone EXACTLY at
+   * `weapon x station` (translation too), so the fused fingers can never leave the grip; whatever the arm's IK leaves
+   * over is absorbed by the smooth-skinned wrist, not by the hand.
+   */
+  readonly locked?: boolean;
+  /** The elbow's own rest direction off the shoulder-to-wrist line, unit: the pole that reproduces the sculpted arm. */
+  readonly restPole?: V3;
 }
 
 /** The channel axes in the hand's own frame, from the stations' rotations (`hands_fit.py`): the fist about the pistol
@@ -47,10 +56,12 @@ export interface HandRig {
 }
 
 interface RlHandsExtras {
+  /** `'meshy'`: the hands are the figure's own sculpted fists, fused to its weapon (import_meshy_skinned_team.py). */
+  readonly source?: string;
   readonly stations: {
     readonly grip: { readonly R: number[][]; readonly t: number[]; readonly ref: number[] };
     readonly support: { readonly R: number[][]; readonly t: number[]; readonly ref: number[] };
-    readonly finger: { readonly trigger_deg: number; readonly pivot: number[]; readonly axis: number[] };
+    readonly finger?: { readonly trigger_deg: number; readonly pivot: number[]; readonly axis: number[] };
   };
   readonly weapons: Record<string, { readonly origin: number[]; readonly q: number[]; readonly root: { readonly t: number[]; readonly r: number[] } }>;
   readonly part: { readonly butt_x: number; readonly triangles: number };
@@ -114,26 +125,38 @@ export function weaponFrameOf(rig: Rig, prefix: string): WeaponFrame | undefined
   return { butt, axis: fwd, up, length: -2 * rh.part.butt_x, xf };
 }
 
+/** A fused hand keeps all of its contact whatever: it is never turned, so the table is a constant. */
+const FUSED_CONTACT: ContactTable = { at: () => 1, depth: () => 0 };
+
+/** The elbow's rest direction off the shoulder-to-wrist line, unit (the sculpted arm's own bend plane). */
+function restPoleOf(rig: Rig, upper: Node, fore: Node, hand: Node): V3 {
+  const S = rig.restWorld.get(upper)!.t, E = rig.restWorld.get(fore)!.t, W = rig.restWorld.get(hand)!.t;
+  const d = norm(sub(W, S));
+  const off = sub(sub(E, S), scale(d, dot(sub(E, S), d)));
+  return norm(off);
+}
+
 export function describeHands(rig: Rig, prefix: string, shootSide: 'L' | 'R'): HandRig | undefined {
   const rh = rlHands(rig);
   const wf = weaponFrameOf(rig, prefix);
   if (!rh || !wf) return undefined;
   const support = shootSide === 'L' ? 'R' : 'L';
+  const fused = rh.source === 'meshy';
   const mk = (side: 'L' | 'R', st: { R: number[][]; t: number[]; ref: number[] }, channel: V3, parts: readonly string[], finger: FingerSpec | null): HandStation => {
     const station: Xf = { t: st.t as unknown as V3, r: qfromRows(st.R), s: 1 };
+    const upper = rig.node(`${prefix}_upperarm_${side}`), fore = rig.node(`${prefix}_forearm_${side}`), hand = rig.node(`${prefix}_hand_${side}`);
     return {
-      side,
-      upper: rig.node(`${prefix}_upperarm_${side}`),
-      fore: rig.node(`${prefix}_forearm_${side}`),
-      hand: rig.node(`${prefix}_hand_${side}`),
+      side, upper, fore, hand,
       rest: compose(wf.xf, station),
       ref: st.ref as unknown as V3,
       thumbMinusX: side === 'L',
       channel,
-      contact: contactTable(st, st.ref as unknown as V3, channel, parts, finger),
+      contact: fused ? FUSED_CONTACT : contactTable(st, st.ref as unknown as V3, channel, parts, finger),
+      ...(fused ? { locked: true, restPole: restPoleOf(rig, upper, fore, hand) } : {}),
     };
   };
-  const fire = mk(shootSide, rh.stations.grip, GRIP_CHANNEL, ['inf_grip_R', 'inf_grip_R_index'], { part: 'inf_grip_R_index', pivot: rh.stations.finger.pivot, axis: rh.stations.finger.axis, deg: rh.stations.finger.trigger_deg });
+  const fg = rh.stations.finger;
+  const fire = mk(shootSide, rh.stations.grip, GRIP_CHANNEL, ['inf_grip_R', 'inf_grip_R_index'], fg ? { part: 'inf_grip_R_index', pivot: fg.pivot, axis: fg.axis, deg: fg.trigger_deg } : null);
   const sup = mk(support, rh.stations.support, SUPPORT_CHANNEL, ['inf_support_L'], null);
   const fingerName = `${prefix}_finger_${shootSide}`;
   const fists = new Map<Node, Node>();
@@ -141,7 +164,7 @@ export function describeHands(rig: Rig, prefix: string, shootSide: 'L' | 'R'): H
   return {
     fire,
     support: sup,
-    ...(rig.has(fingerName) ? { finger: { node: rig.node(fingerName), triggerDeg: rh.stations.finger.trigger_deg } } : {}),
+    ...(rig.has(fingerName) && fg ? { finger: { node: rig.node(fingerName), triggerDeg: fg.trigger_deg } } : {}),
     fists,
   };
 }
