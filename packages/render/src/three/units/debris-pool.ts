@@ -239,6 +239,11 @@ export class DebrisPool {
     return this.clocks.uDebTime.value;
   }
 
+  /** The sim clock (ms) the fade reads, as last stepped. */
+  get simMs(): number {
+    return this.clocks.uDebSimMs.value;
+  }
+
   /** Pieces whose fade has not ended at the current sim clock. */
   get liveCount(): number {
     let n = 0;

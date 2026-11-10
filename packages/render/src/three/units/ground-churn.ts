@@ -155,6 +155,73 @@ export function churnStamps(event: ChurnEvent, cx: number, cy: number, facingNor
   }));
 }
 
+/**
+ * Pivot scuff (GH-1207): ONE round scrape decal, about a hull length across, where a TRACKED
+ * hull pivots on the spot -- laid through `stampGroundDecal` as the `scuff` kind. Unlike the
+ * churn above (which is the two small under-track discs of torn earth, restamped while the
+ * pivot lasts), the scuff is the single footprint the whole hull swept, and it is stamped
+ * EXACTLY ONCE per pivot episode -- the same `isPivoting` detection, the same hold, then one
+ * stamp and nothing more until the pivot stops and starts again. A wheeled hull (which cannot
+ * pivot) and a parked one (no yaw) never stamp it. Reuses the churn's hold constant so a pivot
+ * that churns also scuffs on the same tick.
+ */
+export const SCUFF_RADIUS_TILES = 1.0;
+
+export interface ScuffState {
+  /** Consecutive ticks pivoting -- the scuff's own hold counter, mirroring the churn's. */
+  readonly pivoting: Uint16Array;
+  /** 1 once this pivot episode's scuff has been laid; cleared when the pivot ends. */
+  readonly done: Uint8Array;
+}
+
+export function makeScuffState(n: number): ScuffState {
+  return { pivoting: new Uint16Array(n), done: new Uint8Array(n) };
+}
+
+/** A newcomer, or a hull that teleported: no history, no scuff. */
+export function resetScuff(s: ScuffState, e: number): void {
+  s.pivoting[e] = 0;
+  s.done[e] = 0;
+}
+
+/**
+ * One tick for one hull: true exactly on the tick that lays the scuff -- a tracked hull whose
+ * pivot has held for `CHURN_PIVOT_HOLD_TICKS`, once per episode (the `done` flag), and false on
+ * every other tick (a wheeled hull, a parked one, a shorter-than-the-hold turn, a translating
+ * hull, or a pivot already scuffed). `speedTilesS`/`yawTurnsS` are the same per-tick numbers
+ * `stepChurn` reads.
+ */
+export function stepPivotScuff(
+  s: ScuffState,
+  e: number,
+  speedTilesS: number,
+  yawTurnsS: number,
+  kind: VehicleTrackKind
+): boolean {
+  if (kind !== 'tracked' || !isPivoting(speedTilesS, yawTurnsS, TRACK_FOOTPRINT.tracked.gaugeTiles)) {
+    s.pivoting[e] = 0;
+    s.done[e] = 0;
+    return false;
+  }
+  if (s.pivoting[e] < 65535) s.pivoting[e]++;
+  if (s.pivoting[e] < CHURN_PIVOT_HOLD_TICKS || s.done[e]) return false;
+  s.done[e] = 1;
+  return true;
+}
+
+export interface ScuffStamp {
+  readonly x: number;
+  readonly y: number;
+  readonly halfLength: number;
+  readonly halfWidth: number;
+  readonly facingNorm: number;
+}
+
+/** The one disc a pivot leaves: centred on the hull, round, `SCUFF_RADIUS_TILES` across each way. */
+export function pivotScuffStamp(cx: number, cy: number, facingNorm: number): ScuffStamp {
+  return { x: cx, y: cy, halfLength: SCUFF_RADIUS_TILES, halfWidth: SCUFF_RADIUS_TILES, facingNorm };
+}
+
 /** Clod bursts: two events a second at most per hull, each alive for under 0.6 s, so a two-deep history is every event a frame can still owe. */
 export const CLOD_HISTORY = 2;
 /** The longest a clod layer lives, ms: an event older than this at the frame that sees it spawns nothing. */
