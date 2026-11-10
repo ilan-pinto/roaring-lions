@@ -38,6 +38,7 @@ import type { ArmRun } from './webgpu-page';
 import {
   HYPOTHESIS_NAME,
   VARIANTS,
+  countsRefusal,
   deadHypotheses,
   hypothesisRows,
   hypothesisTable,
@@ -92,6 +93,10 @@ if (args.find((a) => a.startsWith('--out-dir=')) === undefined) refuse('--out-di
 if (HW !== 'metal' && HW !== 'swiftshader') refuse(`--hw=${HW}: expected metal or swiftshader`);
 for (const a of ARMS) if (a !== 'L' && a !== 'G' && a !== 'F') refuse(`--arms: ${a} is not L, F or G`);
 if (!ARMS.includes('L') || !ARMS.includes('G')) refuse('--arms must include L and G (every hypothesis is read on both)');
+{
+  const cr = countsRefusal(COUNTS);
+  if (cr !== null) refuse(cr);
+}
 if (METAL) {
   if (LOCK === '' || !existsSync(LOCK)) refuse('--lock=<dir> must name the BROWSER.lock directory the caller holds (mkdir it first)');
   const rr = roundsRefusal(ROUNDS);
