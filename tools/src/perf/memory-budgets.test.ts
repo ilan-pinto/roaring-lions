@@ -81,9 +81,9 @@ describe('the after-leave JS ceiling (lead ruling 10 Nov, GH-746)', () => {
     // the first menu keeps the menu ceiling (60 here)
     expect(fails(walk({ menu: { js: 61 }, after: { js: 63 } })).some((d) => /^menu: JS heap/.test(d))).toBe(true);
   });
-  it('the shipped CI budget: 68 after leaving, 65 for the first menu', () => {
+  it('the shipped CI budget: 70 after leaving, 65 for the first menu', () => {
     const ci = MEMORY_BUDGETS['linux-x64-swiftshader'];
-    expect(ci.menuAfterJsTotalMiB).toBe(68);
+    expect(ci.menuAfterJsTotalMiB).toBe(70);
     expect(ci.menu.jsTotalMiB).toBe(65);
   });
 });

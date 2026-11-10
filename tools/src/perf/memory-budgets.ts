@@ -234,9 +234,9 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   'linux-x64-swiftshader': {
     conditions: 'linux-x64-swiftshader: ubuntu-latest, SwiftShader, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured at GH-469 savings 1+2+3: CI n=1, Metal n=3; JS re-measured at vite 8 with inline source maps stripped: CI n=3, Metal n=3), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
     menu: { jsTotalMiB: 65, gpuMiB: 266, processMiB: 1406, bitmapsMiB: 16 },
-    // lead ruling 10 Nov: Meshy Rifle Squad template +7.9 MiB, measured (GH-746: menu after leaving
-    // qarn_hadid_3 / umm_zeitoun_4 / khan_rafid_3 read 67.4-67.7 MiB, SwiftShader, port 5236; the first menu stays at 65)
-    menuAfterJsTotalMiB: 68,
+    // lead ruling 10 Nov: Meshy Rifle Squad template +7.9 MiB, measured on CI run 42778024885: 68.2-68.9 MiB
+    // (menu after leaving umm_zeitoun_4 / khan_rafid_3; locally 67.4-67.7, SwiftShader); the first menu stays at 65
+    menuAfterJsTotalMiB: 70,
     board: { jsTotalMiB: 26, gpuMiB: 159, processMiB: 810, bitmapsMiB: 16 },
     mission: { jsTotalMiB: 154, gpuMiB: 1015, processMiB: 2511, bitmapsMiB: 161 },
     leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
