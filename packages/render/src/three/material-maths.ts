@@ -40,6 +40,7 @@ import {
 } from './decal-maths';
 import { SELECTION_RING } from './units/readability';
 import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
+import { bannerSwayOps } from './units/garrison-banner';
 import { softParticleOps } from './units/fx';
 import { HDR_GAINS } from './units/hdr-gains';
 import { rimFadeOps, SMOKE_PLUME_DENSITY, SMOKE_PLUME_EDGE_SOFTNESS, SMOKE_PLUME_TOP_DENSITY } from './units/smoke-plume';
@@ -107,7 +108,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
   // GH-943 P3 (T1): every other P3 slot, null until its task fills it.
   // GH-943 P3 (T5): the outline's expansion (rigid and skinned), and the names of its attribute and uniform records.
   outline: { expandOps: outlineExpandOps, expandAttribute: SILHOUETTE_EXPAND_ATTRIBUTE, widthKey: SILHOUETTE_OUTLINE_UNIFORM_KEY, biasKey: SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY },
-  banner: null,
+  // T6: the garrison banner's swing (`units/garrison-banner.ts`), one body for the numbers and the node twin.
+  banner: { bannerSwayOps },
   // T10: the valley backdrop's distance fade (`terrain/backdrop.node.ts`).
   backdrop: { fadeOps: backdropFadeOps },
   // T7: the decal kinds, the road under them, the albedo ratio and the crater rim (`decal-pool.node.ts`).
