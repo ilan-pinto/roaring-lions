@@ -305,6 +305,10 @@ try {
               const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: DPR });
               await page.addInitScript(musicOffInitScript({}, { quality: 'high' }));
               await page.addInitScript('window.__name = (f) => f; window.process = { env: {} };');
+              page.on('pageerror', (e) => consoleLines.push(`H6 ${which}: pageerror: ${e.message}`));
+              page.on('console', (m) => {
+                if (m.type() === 'error' || m.type() === 'warning') consoleLines.push(`H6 ${which}: ${m.text()}`);
+              });
               await page.emulateMedia({ reducedMotion: 'reduce' });
               const p = which === 'before' ? BEFORE_PORT : port;
               const root = which === 'before' ? BEFORE_ROOT : ROOT;

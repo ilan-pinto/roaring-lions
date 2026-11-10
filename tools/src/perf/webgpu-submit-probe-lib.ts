@@ -352,7 +352,7 @@ export function toggleVerdict(readings: readonly SubmitReading[], cells: readonl
     slope = `; G slope n${lo}->n${hi} ${sb.toFixed(2)} -> ${sv.toFixed(2)} ms`;
     interceptOnly = Math.abs(sv - sb) <= sNoise && Math.abs(gv.cpuRender.value - gb.cpuRender.value) > gb.cpuRender.spread + gv.cpuRender.spread;
   }
-  const what = ratioMoves ? 'MOVES the n600 ratio' : interceptOnly ? 'only the intercept' : 'does not move the ratio';
+  const what = ratioMoves ? `MOVES the n${hi} ratio` : interceptOnly ? 'only the intercept' : 'does not move the ratio';
   return `${what}: G/L x${rb.toFixed(3)} -> x${rv.toFixed(3)} (noise ${noise.toFixed(3)})${slope}; ${counts.join(', ')}`;
 }
 
