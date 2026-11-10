@@ -40,6 +40,12 @@ import {
 } from './decal-maths';
 import { SELECTION_RING } from './units/readability';
 import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
+import { softParticleOps } from './units/fx';
+import { HDR_GAINS } from './units/hdr-gains';
+import { rimFadeOps, SMOKE_PLUME_DENSITY, SMOKE_PLUME_EDGE_SOFTNESS, SMOKE_PLUME_TOP_DENSITY } from './units/smoke-plume';
+import { COLLAPSE_SHROUD_DENSITY, COLLAPSE_SHROUD_EDGE_SOFTNESS, COLLAPSE_SHROUD_SHADE_BREAKS } from './units/collapse-shroud';
+import { beamShapeOps } from './units/beam-batch';
+import { rotorBlurOps, rotorSpinOps } from './units/swarm-batch';
 import { teamHookOf, teamMarkOps } from './units/team-mask';
 import { RG_MAX_WHEELS, rgBarOps, rgNormalOps, rgPhaseOps, rgVertexOps } from './units/running-gear';
 import { RG_TRACK_GEOMETRY_ATTR, RG_WHEEL_GEOMETRY_ATTR, runningGearUniformsOf } from './units/running-gear-material';
@@ -122,12 +128,17 @@ export const MATERIAL_MATHS: MaterialMaths = {
   trail: null,
   // T9: the tunnel x-ray's tube, collar, figure and beam (`tunnel-xray.node.ts`).
   xray: { revealOps: xrayRevealOps, scanOps: xrayScanOps, tubeOps: xrayTubeOps, collarOps: xrayCollarOps, figureOps: xrayFigureOps, beamOps: xrayBeamOps },
-  particle: null,
+  // T11: the simple FX families. The tracer and the flat-colour FX mesh need no maths.
+  particle: { softOps: softParticleOps, sparksGain: HDR_GAINS.sparks },
   tracer: null,
   vfxMesh: null,
-  rimFade: null,
-  beam: null,
-  rotor: null,
+  rimFade: {
+    ops: rimFadeOps,
+    plume: { softness: SMOKE_PLUME_EDGE_SOFTNESS, density: SMOKE_PLUME_DENSITY, topDensity: SMOKE_PLUME_TOP_DENSITY },
+    shroud: { softness: COLLAPSE_SHROUD_EDGE_SOFTNESS, density: COLLAPSE_SHROUD_DENSITY, shadeBreaks: COLLAPSE_SHROUD_SHADE_BREAKS },
+  },
+  beam: { shapeOps: beamShapeOps },
+  rotor: { blurOps: rotorBlurOps, spinOps: rotorSpinOps },
   flipbook: null,
   smokeScreen: null,
 };

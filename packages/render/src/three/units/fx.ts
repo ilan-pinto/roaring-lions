@@ -360,6 +360,7 @@
 import * as THREE from 'three';
 import { HDR_GAINS, hostileStreakGain, streakHeadGain, streakKindGain } from './hdr-gains';
 import { linearLuminance } from '../bloom';
+import type { Ops } from '../fog-ops';
 import type { ParticleSystem } from '../../vfx';
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, isoX, isoY } from '../../project';
 import { screenOffsetToWorld, hexToLinear } from '../terrain/shared';
@@ -1149,6 +1150,27 @@ export function writeShellInstances(
 // end to end needs a real WebGLRenderer. Covered by the browser verification
 // in the B3.13 report instead.
 // ---------------------------------------------------------------------------
+
+/**
+ * GH-943 WebGPU P3 (T11): the particle fragment's coverage maths, written ONCE against `Ops<T>`. The legacy GLSL below keeps its own
+ * text (pinned to `SOFT_PARTICLE_CORE` by its template); the node twin (`fx.node.ts`) is handed this function as a value.
+ *
+ *   `r2    = |local|^2`                                   the fragment is DISCARDED where `r2 > 1` (the hard circle cutout)
+ *   `alpha = base * mix(1, 1 - smoothstep(CORE, 1, |local|), soft)`    `base` is the instance alpha, or 1 for a `hotCore` sibling
+ *
+ * `soft` 0 makes the mix exactly 1, so a spark, a shard or a ring keeps its hard fill.
+ */
+export function softParticleOps<T>(
+  o: Ops<T>,
+  i: { readonly localX: T; readonly localY: T; readonly alpha: T; readonly soft: T },
+  hotCore: boolean
+): { readonly r2: T; readonly alpha: T } {
+  const r2 = o.add(o.mul(i.localX, i.localX), o.mul(i.localY, i.localY));
+  const d = o.length2(i.localX, i.localY);
+  const feather = o.sub(o.lit(1), o.smoothstep(o.lit(SOFT_PARTICLE_CORE), o.lit(1), d));
+  const base = hotCore ? o.lit(1) : i.alpha;
+  return { r2, alpha: o.mul(base, o.mix(o.lit(1), feather, i.soft)) };
+}
 
 /**
  * One draw call's worth of particles, on ONE of Pixi's former layers --

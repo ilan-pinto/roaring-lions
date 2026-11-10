@@ -47,6 +47,8 @@ export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   'rl-foliage-sway', 'rl-foliage-sway-wet', 'rl-trunk-sway', 'rl-trunk-sway-wet',
   // GH-943 P2 (T5): the selection, team and wound rings (all three styles share the one material name).
   'rl-selection-ring',
+  // GH-943 P3 (T11): the simple FX families (`units/fx.node.ts`, `rim-fade.node.ts`, `beam-batch.node.ts`, `swarm-batch.node.ts`).
+  'rl-fx-particle', 'rl-fx-particle-hot', 'rl-fx-tracer', 'rl-fx-mesh', 'rl-smoke-plume', 'rl-collapse-shroud', 'rl-beam', 'rl-swarm-rotors',
   // GH-943 P3 (T10): the valley backdrop's fade (`terrain/backdrop.node.ts`).
   'rl-backdrop-fade',
   // GH-943 P3 (T3): the vehicle hooks of the unit twin (`units/unit-material.node.ts`), read per segment.

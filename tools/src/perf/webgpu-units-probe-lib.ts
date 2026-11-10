@@ -388,6 +388,15 @@ function fxMoment(blastId: string, layer: string, tag = '@blast'): Pick<ProbeSub
  * `pre-port`. The set is read by `rowStatus` only.
  */
 export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
+  // GH-943 P3 (T11): the simple FX families. `flipbook`, `vehicle-death` (flipbook) and `smoke-screen` stay off until T12.
+  'mortar-impact', // particles
+  'lavi-fire/muzzle-burst', // the flat-colour flash zones
+  'collapse/smoke-plume',
+  'collapse', // the shroud
+  'tracers',
+  'atgm', // missiles: tracer body, halo and core particles
+  'beam-swarm', // the beam
+  'beam-swarm/swarm', // the rotor blur
   // GH-943 P3 (T10): the valley backdrop's fade (`terrain/backdrop.node.ts`).
   'valley',
   // GH-943 P3 (T3): the running gear and the wreck soot on the node unit twin.

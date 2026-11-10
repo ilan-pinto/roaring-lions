@@ -31,6 +31,7 @@ import { createNodeDecalMaterial } from '../decal-pool.node';
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
 import { createNodeOutlineMaterial } from '../units/silhouette.node';
 import type { RingStyle } from '../units/selection-ring';
+import { fxTwinFactories } from '../units/fx-twins.node';
 import { censusUnadopted, censusUnported, reassertCensusHides, unportedWarnings, type CensusHides, type UnportedHook } from './unported';
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
@@ -163,6 +164,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     markTwin(twin, legacy);
     return twin;
   };
+  // GH-943 P3 (T11): the simple FX families (particle, tracer, flat-colour mesh, rim fade, beam, rotor), wired once in `fx-twins.node.ts`.
+  Object.assign(materials, fxTwinFactories({ W, TSL: TSL as never, maths: opts.materialMaths }));
   // GH-943 P3 (T10): the valley backdrop's distance fade, an output term over the stock lit material (all five materials, one factory).
   materials.backdrop = (legacy) => {
     const twin = createNodeBackdropMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.backdrop }, legacy);
