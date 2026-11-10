@@ -20,6 +20,8 @@ import type { EmitterSpec, FlipbookLayerSpec } from '../vfx/emitters';
 import type { RingSpec } from './munitions';
 import type { ShellModel } from './units/shells';
 import type { MissileModel } from './units/missiles';
+import { hexToLinear } from './terrain/shared';
+import { paletteHex } from './palette-hex';
 import shellImpact from '../../../../data/vfx/shell_impact.json';
 import barrageImpact from '../../../../data/vfx/barrage_impact.json';
 import airStrikeImpact from '../../../../data/vfx/air_strike_impact.json';
@@ -92,7 +94,12 @@ const TARGET: UnitTypeJson = {
 interface Priv {
   shells: ShellModel[];
   missileFx: { missiles: MissileModel[] };
-  blastRings: { liveCount: number; liveRings(): { x: number; z: number; spec: RingSpec }[] };
+  blastRings: {
+    liveCount: number;
+    liveRings(): { x: number; z: number; spec: RingSpec; outer: unknown }[];
+    additive: { bands: number; vertex(v: number): { r: number; g: number; b: number } };
+    normal: { bands: number; vertex(v: number): { r: number; g: number; b: number } };
+  };
   flashLights: { spawn(...args: unknown[]): void };
   flipbook: { setAtlases(a: THREE.Texture, b: THREE.Texture): void; spawnRecipe(layers: readonly FlipbookLayerSpec[], ...rest: unknown[]): number };
   hitStop: { remainingMs: number };
@@ -176,6 +183,29 @@ describe("the Te'o 155 lands as its class (GH-1197 P1)", () => {
     landAll(r, p);
     const counts = spawn.mock.calls.map(([layers]) => layers.reduce((n, l) => n + l.count, 0));
     expect(counts).toContain(76);
+    r.dispose();
+  });
+});
+
+describe('the ring colours reach the vertex buffer LINEAR (CLAUDE.md: hexToLinear)', () => {
+  it('the inner ring is hexToLinear(vfx.white_hot) and the outer wave hexToLinear(dust.2)', () => {
+    const { r, p, shooter, target } = world('kdf/spg_long_range.json', 't_spg');
+    r.onEvents([fireEvent(shooter, target, 'howitzer_155')]);
+    landAll(r, p);
+    r.frame(1, 16);
+    // Oracles from the palette, not from the code under test.
+    const hot = hexToLinear(paletteHex('vfx.white_hot'));
+    const dust = hexToLinear(paletteHex('dust.2'));
+    expect(p.blastRings.additive.bands).toBeGreaterThan(0);
+    const inner = p.blastRings.additive.vertex(0);
+    expect([inner.r, inner.g, inner.b].map((c, i) => c - hot[i]).every((d) => Math.abs(d) < 1e-6)).toBe(true);
+    // Until the outer wave is live (from 260 ms, a ring's inner peak).
+    for (let i = 0; i < 40 && !p.blastRings.liveRings().some((g) => g.outer !== null); i++) r.frame(1, 16);
+    expect(p.blastRings.normal.bands).toBeGreaterThan(0);
+    const outer = p.blastRings.normal.vertex(0);
+    expect([outer.r, outer.g, outer.b].map((c, i) => c - dust[i]).every((d) => Math.abs(d) < 1e-6)).toBe(true);
+    // And not the raw sRGB channels: the oracle can tell the two apart for this key.
+    expect(Math.abs(outer.r - parseInt(paletteHex('dust.2').slice(1, 3), 16) / 255)).toBeGreaterThan(1e-3);
     r.dispose();
   });
 });

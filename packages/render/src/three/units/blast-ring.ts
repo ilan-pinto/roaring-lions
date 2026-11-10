@@ -25,6 +25,7 @@
  */
 import * as THREE from 'three';
 import type { RingSpec } from '../munitions';
+import { hexToLinear } from '../terrain/shared';
 import { HDR_GAINS } from './hdr-gains';
 import { FX_RENDER_ORDER, FX_RENDER_ORDER_ADDITIVE } from './render-order';
 
@@ -204,10 +205,10 @@ class BandMesh {
   }
 
   /** The written vertex at index `v`, for a test. */
-  vertex(v: number): { x: number; y: number; z: number; a: number } {
+  vertex(v: number): { x: number; y: number; z: number; r: number; g: number; b: number; a: number } {
     const p = this.pos.array as Float32Array;
     const c = this.col.array as Float32Array;
-    return { x: p[v * 3], y: p[v * 3 + 1], z: p[v * 3 + 2], a: c[v * 4 + 3] };
+    return { x: p[v * 3], y: p[v * 3 + 1], z: p[v * 3 + 2], r: c[v * 4], g: c[v * 4 + 1], b: c[v * 4 + 2], a: c[v * 4 + 3] };
   }
 
   dispose(): void {
@@ -218,6 +219,13 @@ class BandMesh {
 
 /** A ring's palette keys resolved to LINEAR colours (vertex colours are not decoded). */
 export type RingColorResolver = (paletteKey: string) => THREE.Color;
+
+/** A palette hex as the LINEAR colour a ring's vertex buffer carries: `hexToLinear`, set without any
+ *  colour-management conversion (CLAUDE.md: vertex and uniform colours are linear). */
+export function ringColorLinear(hex: string): THREE.Color {
+  const [r, g, b] = hexToLinear(hex);
+  return new THREE.Color().setRGB(r, g, b, THREE.LinearSRGBColorSpace);
+}
 
 export class BlastRingPool {
   readonly group = new THREE.Group();

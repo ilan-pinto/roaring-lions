@@ -117,7 +117,7 @@ import { rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTab
 import { rainReadNow, rainRimNow, setRainRead, setRainRimGain, type RainRead } from './units/rain-rim';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
-import { FIRE_SUPPORT, fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent, type WeaponStats } from '@lions/sim';
+import { FIRE_SUPPORT, FS_AIR_STRIKE, fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent, type WeaponStats } from '@lions/sim';
 import type { AimFootprint, AuraRingView, BeamReadback, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
@@ -206,7 +206,7 @@ import { captureComposerView } from './capture-view';
 import { AsyncPhotoMemo } from './readback';
 import { FlashLightManager } from './flash-light';
 import { SupportAircraftManager } from './units/support-aircraft';
-import { BlastRingPool } from './units/blast-ring';
+import { BlastRingPool, ringColorLinear } from './units/blast-ring';
 import {
   AIR_STRIKE_IMPACT_POWER,
   BARRAGE_CRATER_TILES,
@@ -827,8 +827,6 @@ import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, conta
 
 /** COPIED from tuning.ts (FS_MORTAR_BARRAGE, SMOKE_RANGE_SQ); the vfx-triggers spec reads tuning.ts as text. */
 const FS_MORTAR_BARRAGE = 1;
-/** tuning.ts's FS_AIR_STRIKE, the precision strike's `FIRE_SUPPORT` row (GH-1197 reads its splash). */
-const FS_AIR_STRIKE_PROFILE = 0;
 
 /** GH-1197: a loaded weapon's munition, its reach read off the weapon the sim built from the unit JSON
  *  (`splash_tiles`, or the bomblets' for a cluster round). Null for no weapon or one the table does not map. */
@@ -3539,10 +3537,10 @@ export class ThreeRenderer implements Renderer {
     // GH-748: the fire-support aircraft. GH-1197: the blast rings (the strike's
     // since GH-748, every landing with a reach since GH-1197). Both always in
     // the scene and drawing nothing until a call or a landing. Ring colours are
-    // palette keys, resolved to LINEAR (`THREE.Color` decodes the hex): they
-    // are vertex colours, which nothing downstream decodes.
+    // palette keys, resolved to LINEAR through `hexToLinear`: they are vertex
+    // colours, which nothing downstream decodes (`ringColorLinear`).
     this.supportAircraft = new SupportAircraftManager(this.overlayColor('vfx.fire', FLASH_LIGHT_FALLBACK));
-    this.blastRings = new BlastRingPool((key) => new THREE.Color(this.overlayColor(key)));
+    this.blastRings = new BlastRingPool((key) => ringColorLinear(this.overlayColor(key)));
     // E6 chunk C: the beam's two palette keys, a white-hot core in an ember sheath.
     this.beamBatch.setColors(this.overlayColor('vfx.white_hot', FLASH_LIGHT_FALLBACK), this.overlayColor('vfx.ember', FLASH_LIGHT_FALLBACK));
     this.scene.add(this.supportAircraft.group, this.blastRings.group);
@@ -7253,7 +7251,7 @@ export class ThreeRenderer implements Renderer {
       return;
     }
     const scorch = strikeScorchRadius(this.retained.elevationLevels, this.sim.width, this.sim.height, sx, sy);
-    const ring = munitionForSupport('air_strike', fx.toNumber(FIRE_SUPPORT[FS_AIR_STRIKE_PROFILE].splash));
+    const ring = munitionForSupport('air_strike', fx.toNumber(FIRE_SUPPORT[FS_AIR_STRIKE].splash));
     this.spawnSupportImpact(AIR_STRIKE_IMPACT_EMITTER_ID, sx, sy, AIR_STRIKE_IMPACT_POWER, STRIKE_CRATER_TILES, scorch, ring);
   }
 
