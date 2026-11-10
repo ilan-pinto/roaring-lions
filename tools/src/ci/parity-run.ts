@@ -127,6 +127,8 @@ export function runParity(argv: readonly string[], log: (l: string) => void = co
   try {
     // `--key=` (an unset shell variable in ci.yml) is a key that was asked for and is empty: it would silently read no floor, the very fault `floorKeyOf` exists to stop.
     if (given === '') throw new Error('parity-run: --key= is empty (want webgl2|webgpu, or wgl2|wgpu)');
+    // A bare `--key` (no `=value`) is a key that was asked for and has no operand, not an absent one.
+    if (argv.includes('--key')) throw new Error('parity-run: --key needs a value (--key=webgl2|webgpu, or wgl2|wgpu)');
     floorKeyOf(key);
   } catch (e) {
     console.error(String(e));

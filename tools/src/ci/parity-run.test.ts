@@ -100,6 +100,11 @@ describe('runParity without --key (GH-943, CodeRabbit on PR 1202)', () => {
     expect(runParity(['--legacy=/nonexistent/legacy', '--node=/nonexistent/out', '--key='], (l) => lines.push(l))).toBe(2);
     expect(lines).toEqual([]);
   });
+  it('a bare --key (no value) refuses before any report instead of reading as absent', () => {
+    const lines: string[] = [];
+    expect(runParity(['--legacy=/nonexistent/legacy', '--node=/nonexistent/out', '--key'], (l) => lines.push(l))).toBe(2);
+    expect(lines).toEqual([]);
+  });
   it('an explicit unknown --key still refuses before any report', () => {
     const lines: string[] = [];
     expect(runParity(['--legacy=/nonexistent/legacy', '--node=/nonexistent/out', '--key=wgl'], (l) => lines.push(l))).toBe(2);
