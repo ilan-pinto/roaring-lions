@@ -39,6 +39,9 @@ export interface MemoryBudget {
   /** How the measurements behind these numbers were taken -- printed with every verdict. */
   conditions: string;
   menu: Ceiling;
+  /** The JS (heap + ArrayBuffers) ceiling for a menu reached AFTER leaving a mission, when it differs from `menu`'s;
+   *  every other ceiling of that reading is `menu`'s. */
+  menuAfterJsTotalMiB?: number;
   board: Ceiling;
   /** Applied to every mission checkpoint. */
   mission: Ceiling;
@@ -97,7 +100,9 @@ export function judge(readings: readonly Reading[], b: MemoryBudget): Verdict[] 
     return [{ ok: false, detail: `${missions.length} mission reading(s) and ${afters.length} after-leave reading(s): nothing to judge` }];
   }
   for (const r of readings) {
-    if (r.label === 'menu' || r.label.startsWith('menu ')) out.push(...ceilingChecks(r, b.menu, 'menu'));
+    if (r.label.startsWith('menu after ') && b.menuAfterJsTotalMiB !== undefined) {
+      out.push(...ceilingChecks(r, { ...b.menu, jsTotalMiB: b.menuAfterJsTotalMiB }, 'menu after a mission'));
+    } else if (r.label === 'menu' || r.label.startsWith('menu ')) out.push(...ceilingChecks(r, b.menu, 'menu'));
     else if (r.label === 'board') out.push(...ceilingChecks(r, b.board, 'board'));
     else if (r.label.startsWith('mission ')) out.push(...ceilingChecks(r, b.mission, 'mission'));
   }
@@ -229,6 +234,9 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   'linux-x64-swiftshader': {
     conditions: 'linux-x64-swiftshader: ubuntu-latest, SwiftShader, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured at GH-469 savings 1+2+3: CI n=1, Metal n=3; JS re-measured at vite 8 with inline source maps stripped: CI n=3, Metal n=3), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
     menu: { jsTotalMiB: 65, gpuMiB: 266, processMiB: 1406, bitmapsMiB: 16 },
+    // lead ruling 10 Nov: Meshy Rifle Squad template +7.9 MiB, measured (GH-746: menu after leaving
+    // qarn_hadid_3 / umm_zeitoun_4 / khan_rafid_3 read 67.4-67.7 MiB, SwiftShader, port 5236; the first menu stays at 65)
+    menuAfterJsTotalMiB: 68,
     board: { jsTotalMiB: 26, gpuMiB: 159, processMiB: 810, bitmapsMiB: 16 },
     mission: { jsTotalMiB: 154, gpuMiB: 1015, processMiB: 2511, bitmapsMiB: 161 },
     leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
