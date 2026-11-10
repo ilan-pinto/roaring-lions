@@ -70,7 +70,9 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
   if (HANDS_TEAMS[id] && !extras.rl_hands) throw new Error(`${id}: the hands pass has not been through it (\`pnpm hands:meshes\` runs before \`pnpm motion:meshes\`)`);
   const lines: string[] = [];
   const posed = spec.figures.filter((f) => f.weapon || f.kneels).map((f) => f.prefix);
-  if (posed.length > 0) lines.push(...tidyArms(doc, posed));
+  // A smooth-skinned figure (`rl_skinned`) has no cut web to fold in, and its upper arm is welded to the ribs: the fold
+  // would pull the torso's own surface onto the arm's axis.
+  if (posed.length > 0 && !extras.rl_skinned) lines.push(...tidyArms(doc, posed));
   if (spec.formation) lines.push(...applyFormation(doc, spec));
   // An ankle for every walker the pass grounds, too: a foot is planted at it.
   if (spec.stride || spec.kneel || spec.ground) lines.push(...addFeet(doc));

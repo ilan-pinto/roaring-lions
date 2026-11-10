@@ -1,6 +1,6 @@
 // GH-943 WebGPU-primary (P1 T1): the parity report, REPORT-ONLY in P1.
 //
-//   pnpm --filter @lions/tools exec tsx src/ci/parity-run.ts --legacy=<out-dir of --match-node> --node=<out-dir of --gpu=webgl2|webgpu> [--key=wgl2|wgpu]
+//   pnpm --filter @lions/tools exec tsx src/ci/parity-run.ts --legacy=<out-dir of --match-node> --node=<out-dir of --gpu=webgl2|webgpu> [--key=webgl2|webgpu]
 //
 // Reads `<dir>/<scenario>/summary.json` (the gate writes a `readings` block into it: the repaint control and every layer toggle)
 // from the legacy-MATCHED arm and a node arm, and judges every row of `golden-diff/parity-bands.ts` by `golden-diff/parity.ts`.
@@ -47,21 +47,35 @@ function readingFor(s: SummaryJson | undefined, layer: string): ReadingJson | nu
 }
 
 /**
+ * The ONE place a key name becomes a `nodeFloor` column. ci.yml passes `--key=webgl2|webgpu` (the `--gpu=` names); the table's columns
+ * are `wgl2|wgpu`. Both spellings are accepted. An unknown non-empty key THROWS: reading it as "no floor" is what left every floor
+ * unapplied on CI (DEAD fired only at exactly 0). '' is the no-key case and reads no floor.
+ */
+export function floorKeyOf(key: string): 'wgl2' | 'wgpu' | null {
+  if (key === 'wgl2' || key === 'webgl2') return 'wgl2';
+  if (key === 'wgpu' || key === 'webgpu') return 'wgpu';
+  if (key === '') return null;
+  throw new Error(`parity-run: unknown key "${key}" (want webgl2|webgpu, or wgl2|wgpu)`);
+}
+
+/**
  * DEAD (ruling 3, report-only): the node delta is under the row's floor for this key, or exactly 0 while no floor is read yet. A delta
  * EQUAL to the floor is alive. A `zero`-band row is exempt: 0 is its pass. Strict `<` against a floor that is at least the smallest
  * positive number, so 0 is DEAD with no floor and a floor of 0 is treated as unread.
  */
 export function isDead(row: ParityRow, key: string, nodeDelta: number): boolean {
   if (row.band === 'zero') return false;
-  const floor = (key === 'wgl2' || key === 'wgpu' ? row.nodeFloor?.[key] : null) ?? 0;
+  const fk = floorKeyOf(key);
+  const floor = (fk === null ? null : row.nodeFloor?.[fk]) ?? 0;
   return nodeDelta < Math.max(floor, Number.MIN_VALUE);
 }
 
 export function buildParityLines(legacy: ArmSummaries, node: ArmSummaries, rows: readonly ParityRow[] = PARITY_ROWS, key = ''): ParityLine[] {
+  const fk = floorKeyOf(key);
   return rows.map((row) => {
     const l = readingFor(legacy.get(row.scenario), row.layer);
     const n = readingFor(node.get(row.scenario), row.layer);
-    const floor = (key === 'wgl2' || key === 'wgpu' ? row.nodeFloor?.[key] : null) ?? 0;
+    const floor = (fk === null ? null : row.nodeFloor?.[fk]) ?? 0;
     if (l === null) return { row, verdict: null, dead: false, nodeDelta: n?.meanAbsChannelDelta ?? null, floor, refusal: 'the legacy-matched arm has no reading for this row' };
     if (n === null) return { row, verdict: null, dead: false, nodeDelta: null, floor, refusal: 'the node arm has no reading for this row' };
     return { row, verdict: parityVerdict(BANDS[row.band], n, l), dead: isDead(row, key, n.meanAbsChannelDelta), nodeDelta: n.meanAbsChannelDelta, floor, refusal: null };
@@ -105,7 +119,21 @@ export function runParity(argv: readonly string[], log: (l: string) => void = co
     return 2;
   }
   const scenarios = [...new Set(PARITY_ROWS.map((r) => r.scenario))];
-  const key = arg('key') ?? path.basename(nodeDir);
+  // An explicit --key must be a known name (an unknown one is read as "no floor" on CI, which is what `floorKeyOf` refuses). With none given,
+  // the node dir's own name is a key only when it IS one: a local run on `out/` reports with no floor (as before) rather than refusing.
+  const base = path.basename(nodeDir);
+  const given = arg('key');
+  const key = given ?? (['wgl2', 'wgpu', 'webgl2', 'webgpu'].includes(base) ? base : '');
+  try {
+    // `--key=` (an unset shell variable in ci.yml) is a key that was asked for and is empty: it would silently read no floor, the very fault `floorKeyOf` exists to stop.
+    if (given === '') throw new Error('parity-run: --key= is empty (want webgl2|webgpu, or wgl2|wgpu)');
+    // A bare `--key` (no `=value`) is a key that was asked for and has no operand, not an absent one.
+    if (argv.includes('--key')) throw new Error('parity-run: --key needs a value (--key=webgl2|webgpu, or wgl2|wgpu)');
+    floorKeyOf(key);
+  } catch (e) {
+    console.error(String(e));
+    return 2;
+  }
   const lines = buildParityLines(load(legacyDir, scenarios), load(nodeDir, scenarios), PARITY_ROWS, key);
   for (const l of formatParity(lines, key)) log(`[parity-run] ${l}`);
   const code = parityExit(lines);

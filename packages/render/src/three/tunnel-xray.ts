@@ -56,6 +56,7 @@ import {
   TUNNEL_XRAY_RENDER_ORDER,
 } from './units/render-order';
 import { XrayRouteClock, XRAY_MAX_FIGURES, XRAY_MAX_ROUTES, figureAlongRoute, nearestSample } from './tunnel-xray-state';
+import type { Ops } from './fog-ops';
 
 /** Bore centre below the drawn ground, world units (1 tile = 1 wu = 3 m). */
 export const XRAY_BORE_DEPTH = 0.62;
@@ -78,6 +79,102 @@ export const XRAY_COLOR_KEYS = {
 } as const;
 
 export type XrayColors = Record<keyof typeof XRAY_COLOR_KEYS, string>;
+
+/**
+ * GH-943 P3 (T9): the x-ray's per-fragment maths, written ONCE against `Ops<T>` for the node twin (`tunnel-xray.node.ts`), which gets
+ * it as a value (`material-maths.ts`'s `xray` slot); the vitest runs the same bodies on numbers. The GLSL below is unchanged and is
+ * pinned to these constants by `tunnel-xray.node.test.ts`. Three places where the text differs, none in value:
+ *  - `smoothstep(f + 0.4, f - 0.4, d)` has its edges REVERSED, which WGSL does not define. It is written `1 - smoothstep(f - 0.4,
+ *    f + 0.4, d)`, which is the same curve (smoothstep(1 - t) = 1 - smoothstep(t)).
+ *  - `pow(x, 2.0)` of a signed value is `x * x` (WGSL's `pow` is undefined for a negative base).
+ *  - `grazing` is floored at 0, so rounding on a unit dot product cannot hand `pow` a negative base.
+ * `mod` is not an `Ops` member: the scan band derives it from `floor` here, as GLSL defines it, `x - y * floor(x / y)`.
+ */
+const XRAY_SCAN_SPEED = 6;
+const XRAY_SCAN_SPAN = 30;
+
+/** The reveal front on route arc length `s`: distance from the sweep's origin, the fade behind the front, and the gaussian edge ON it. */
+export function xrayRevealOps<T>(o: Ops<T>, s: T, origin: T, front: T, flash: T): { d: T; revealed: T; edge: T } {
+  const d = o.abs(o.sub(s, origin));
+  const revealed = o.sub(o.lit(1), o.smoothstep(o.sub(front, o.lit(0.4)), o.add(front, o.lit(0.4)), d));
+  const k = o.mul(o.sub(front, d), o.lit(2.2));
+  const edge = o.mul(o.exp(o.sub(o.lit(0), o.mul(k, k))), flash);
+  return { d, revealed, edge };
+}
+
+/** The scan band: one gaussian at a time sweeping mouth to vent (30 tiles at 6 tiles/s, 5 s) of SIM time (`time`), on the bore only (`kind` 0). */
+export function xrayScanOps<T>(o: Ops<T>, s: T, time: T, kind: T): T {
+  const x = o.mul(time, o.lit(XRAY_SCAN_SPEED));
+  const span = o.lit(XRAY_SCAN_SPAN);
+  const band = o.sub(o.sub(x, o.mul(o.floor(o.div(x, span)), span)), o.lit(3));
+  const k = o.mul(o.sub(s, band), o.lit(1.6));
+  return o.mul(o.exp(o.sub(o.lit(0), o.mul(k, k))), o.sub(o.lit(1), kind));
+}
+
+/** What a style's fragment hands the output: linear rgb, alpha, and `keep` (1 draws, 0 is the shader's `discard`). */
+export interface XrayOut<T> {
+  readonly rgb: T;
+  readonly a: T;
+  readonly keep: T;
+}
+
+export interface XrayTubeIn<T> {
+  /** The route's strength, then the reveal's three terms (`xrayRevealOps`). */
+  readonly st: T;
+  readonly revealed: T;
+  readonly edge: T;
+  readonly flash: T;
+  /** `1 - abs(dot(n, toCam))`. */
+  readonly grazing: T;
+  /** `xrayScanOps`. */
+  readonly scan: T;
+  readonly rim: T;
+  readonly core: T;
+  readonly hot: T;
+}
+
+/** The bore and its shafts. */
+export function xrayTubeOps<T>(o: Ops<T>, i: XrayTubeIn<T>): XrayOut<T> {
+  const g = o.max(i.grazing, o.lit(0));
+  const rim = o.pow(g, o.lit(4));
+  const edgeIn = o.pow(g, o.lit(3));
+  const lit = (n: number): T => o.lit(n);
+  const t = o.clamp01(o.add(o.add(o.mul(edgeIn, lit(0.9)), rim), o.mul(i.scan, lit(0.7))));
+  const base = o.mix(i.core, i.rim, t);
+  const shown = o.mul(i.st, i.revealed);
+  const a0 = o.mul(shown, o.add(o.add(o.add(lit(0.62), o.mul(edgeIn, lit(0.3))), o.mul(rim, lit(0.35))), o.mul(i.scan, lit(0.3))));
+  const col = o.mix(base, i.hot, o.clamp01(i.edge));
+  const a1 = o.max(o.mul(a0, o.add(lit(1), o.mul(lit(0.5), i.flash))), o.mul(i.edge, lit(0.9)));
+  const gain = o.add(o.add(lit(1), o.mul(lit(1.4), i.edge)), o.mul(o.mul(lit(0.4), i.flash), i.revealed));
+  return {
+    rgb: o.mul(col, gain),
+    a: o.clamp(a1, 0, 0.9),
+    keep: o.max(o.step(lit(0.003), shown), o.step(lit(0.01), i.edge)),
+  };
+}
+
+/** The surface collars; the vent's (`kind` 1) breathes on the sim clock. */
+export function xrayCollarOps<T>(o: Ops<T>, st: T, d: T, front: T, kind: T, time: T, flash: T, rim: T, hot: T): XrayOut<T> {
+  const revealed = o.step(d, front);
+  const breathe = o.selectLt(o.lit(0.5), kind, o.add(o.lit(0.65), o.mul(o.lit(0.35), o.sin(o.mul(time, o.lit(3.4))))), o.lit(0.8));
+  const a = o.mul(o.mul(st, revealed), breathe);
+  return { rgb: o.mix(rim, hot, o.mul(flash, o.lit(0.6))), a, keep: o.step(o.lit(0.01), a) };
+}
+
+/** A fighter in the bore: a fresnel mix of his team colour. `alpha` is the instance's (`aAlpha`). */
+export function xrayFigureOps<T>(o: Ops<T>, grazing: T, fig: T, alpha: T): XrayOut<T> {
+  const fres = o.pow(o.max(grazing, o.lit(0)), o.lit(1.3));
+  return {
+    rgb: o.mix(o.mul(fig, o.lit(0.55)), o.mul(fig, o.lit(1.35)), fres),
+    a: o.mul(alpha, o.add(o.lit(0.62), o.mul(o.lit(0.38), fres))),
+    keep: o.step(o.lit(0.01), alpha),
+  };
+}
+
+/** The finder's beam: a gradient on the cylinder's own `position.y` (0 at the finder, 1 at the route), `uA` its fading alpha. */
+export function xrayBeamOps<T>(o: Ops<T>, y: T, hot: T, rim: T, uA: T): XrayOut<T> {
+  return { rgb: o.mix(hot, rim, y), a: o.mul(uA, o.add(o.lit(0.35), o.mul(o.lit(0.65), y))), keep: o.lit(1) };
+}
 
 export interface XrayRoute {
   /** Samples XRAY_STEP apart along the route, in world tiles (tile centre). */

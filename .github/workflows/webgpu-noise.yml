@@ -14,6 +14,10 @@
 # GH-943 WebGPU P3 T2: `probe: units` and `probe: fx` run the units/fx probe (`tools/src/perf/webgpu-units-probe.ts`) the same way: ONE job,
 # the plain-legacy, legacy-matched, wgl2 and wgpu readings in sequence on SwiftShader, its JSON, table and frames uploaded. The parity
 # method's ungated rows (plan, "Parity method"): every later P3 port appends a subject to it and flips its node side live.
+#
+# GH-943 WebGPU P3 T13 (GH-1152): `probe: submit` runs the draw-submission probe (`tools/src/perf/webgpu-submit-probe.ts`) with
+# `--hw=swiftshader`: the COUNTS only (per-pass calls/objects, per-type draws, FULL refreshes per type, every hypothesis toggle at n300
+# and n600 on L and G, one profile window on G). Its timing is the Metal lock hold's, never SwiftShader's.
 name: webgpu-noise
 
 on:
@@ -23,7 +27,7 @@ on:
         description: Fresh-process captures per key
         default: '24'
       probe:
-        description: noise (the zero-noise check), banding (the P2 T2 banding probe), or units / fx (the P3 T2 units/fx probe)
+        description: noise (the zero-noise check), banding (the P2 T2 banding probe), units / fx (the P3 T2 units/fx probe), or submit (the P3 T13 draw-submission counts)
         default: noise
 
 permissions:
@@ -31,7 +35,7 @@ permissions:
 
 jobs:
   noise:
-    if: inputs.probe != 'banding' && inputs.probe != 'units' && inputs.probe != 'fx'
+    if: inputs.probe != 'banding' && inputs.probe != 'units' && inputs.probe != 'fx' && inputs.probe != 'submit'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -156,5 +160,46 @@ jobs:
           path: |
             units-probe
             units-probe.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  submit:
+    if: inputs.probe == 'submit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+      - name: Submit probe (counts only, L and wgpu on SwiftShader)
+        run: |
+          set +e
+          pnpm --filter @lions/tools exec tsx src/perf/webgpu-submit-probe.ts --hw=swiftshader --arms=L,G --port=5197 --out-dir="$GITHUB_WORKSPACE/submit-probe" 2>&1 | tee submit-probe.log
+          code=${PIPESTATUS[0]}
+          {
+            echo "### webgpu submit probe (SwiftShader, counts only): exit \`$code\` (0 read, 2 refused)"
+            cat "$GITHUB_WORKSPACE/submit-probe/submit-probe.md" 2>/dev/null || tail -40 submit-probe.log
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $code
+      - name: Upload
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webgpu-submit-probe
+          path: |
+            submit-probe
+            submit-probe.log
           if-no-files-found: ignore
           retention-days: 14

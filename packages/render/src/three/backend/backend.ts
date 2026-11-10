@@ -18,6 +18,7 @@ import type { BackendKind } from '../../gpu';
 import type { Node as TslNode, PassNode } from 'three/webgpu';
 import type { PostChainLike, PostQuality } from '../post-chain-shared';
 import type { UnportedHook } from './unported';
+import type { PerPass } from './pass-counter';
 import type { FogUniformTable } from '../fog-spec';
 import type { FogMaths } from '../fog-pass.node';
 import type { OutputMaths } from '../post-chain.node';
@@ -29,10 +30,16 @@ import type { GroundMaths } from '../terrain/mesh.node';
 import type { FoliageMaths } from '../terrain/decor-mesh.node';
 import type { RingMaths } from '../units/selection-ring.node';
 import type { BannerMaths } from '../units/garrison-banner.node';
+import type { ParticleMaths } from '../units/fx.node';
+import type { RimFadeMaths } from '../units/rim-fade.node';
+import type { BeamMaths } from '../units/beam-batch.node';
+import type { RotorMaths } from '../units/swarm-batch.node';
+import type { BackdropMaths } from '../terrain/backdrop.node';
 import type { UnitMaths } from '../units/unit-material.node';
 import type { OutlineMaths } from '../units/silhouette.node';
 import type { ZoneBandMaths } from '../units/zone-band.node';
 import type { SupplyRouteMaths } from '../supply-route.node';
+import type { XrayMaths } from '../tunnel-xray.node';
 import type { DecalMaths } from '../decal-pool.node';
 
 /**
@@ -103,7 +110,7 @@ export interface MaterialMaths {
   readonly outline: OutlineMaths;
   /** T6: the garrison banner's sway (`units/garrison-banner.node.ts`). */
   readonly banner: BannerMaths;
-  readonly backdrop: null;
+  readonly backdrop: BackdropMaths;
   /** T7: the decal kinds, the road under them, the albedo ratio and the crater rim. */
   readonly decal: DecalMaths;
   readonly overlay: null;
@@ -111,13 +118,18 @@ export interface MaterialMaths {
   readonly zoneBand: ZoneBandMaths;
   readonly supplyRoute: SupplyRouteMaths;
   readonly trail: null;
-  readonly xray: null;
-  readonly particle: null;
+  /** T11: the particle disc's coverage and `HDR_GAINS.sparks` (`units/fx.node.ts`). The tracer and flat-colour FX mesh need no maths. */
+  readonly particle: ParticleMaths;
+  /** T9: the x-ray's four styles share one body of maths (`tunnel-xray.ts`). */
+  readonly xray: XrayMaths;
   readonly tracer: null;
   readonly vfxMesh: null;
-  readonly rimFade: null;
-  readonly beam: null;
-  readonly rotor: null;
+  /** T11: the plume's and the shroud's rim fade (`units/rim-fade.node.ts`). */
+  readonly rimFade: RimFadeMaths;
+  /** T11: the beam's kind-branch alpha (`units/beam-batch.node.ts`). */
+  readonly beam: BeamMaths;
+  /** T11: the rotor blur's coverage and spin (`units/swarm-batch.node.ts`). */
+  readonly rotor: RotorMaths;
   readonly flipbook: null;
   readonly smokeScreen: null;
 }
@@ -214,7 +226,14 @@ export interface RenderBackend {
   whenSubmitted(): Promise<void>;
   /** Every GLSL-only hook the last census found, cumulative. */
   unported(): readonly UnportedHook[];
-  /** Draw calls and triangles of the last frame, from the renderer's own counters. */
-  stats(): { calls: number; triangles: number };
+  /**
+   * Draw calls and triangles of the last frame, from the renderer's own counters. GH-943 P3 (T13, GH-1152): `perPass` splits the calls
+   * by pass (`pass-counter.ts`; they sum to `calls`), and `censusMs` is what the unported-hook census cost inside that frame's `render`
+   * (0 on the 59 frames in 60 it does not run), so a timing can leave the census out.
+   */
+  stats(): { calls: number; triangles: number; perPass: PerPass; censusMs: number };
+  /** GH-943 P3 (T13): the GPU time (ms) of everything rendered since the last call, from timestamp queries; null unless the backend was
+   *  built with `timestamps` and the adapter offers `timestamp-query`. */
+  gpuTimeMs(): Promise<number | null>;
   dispose(): void;
 }

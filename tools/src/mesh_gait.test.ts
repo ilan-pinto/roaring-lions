@@ -44,12 +44,29 @@ import {
   measureRootTravel,
   measureUpperBodyMotion,
   measureWeaponAxis,
+  maxOf,
+  minOf,
   readGlb,
   rotationDeltaDeg,
   swingLiftFraction,
   type RootTravel,
 } from './mesh_gait';
 import { pcaElevationDeg } from './kdf_carbine_part';
+
+describe('minOf / maxOf read a list too long to spread onto the call stack', () => {
+  // The skinned Meshy Rifle Squad (9 Nov): measureFootSkate spread 65 instants x ~1,250 boot vertices into Math.min and
+  // the whole file died with a RangeError before any gate ran. The spread is the failing input: it still throws here.
+  const big = Array.from({ length: 300_000 }, (_, i) => Math.sin(i) * 3);
+  big[123_456] = -9; big[7] = 11;
+  it('a spread of the same list throws (the instrument bug, kept as its witness)', () => {
+    expect(() => Math.min(...big)).toThrow(RangeError);
+  });
+  it('the loops read it', () => {
+    expect(minOf(big)).toBe(-9);
+    expect(maxOf(big)).toBe(11);
+    expect(minOf([])).toBe(Infinity);
+  });
+});
 import { GAIT_CRAWL_ONLY, MIN_GAIT_TRAVEL_M } from './meshes/gait-pass';
 import { MOTION_TEAMS } from './meshes/motion/teams';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
@@ -852,7 +869,9 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // GH-709 phase 3 (22 Oct): the Chomet grenadier squad, three men on rig.py's
   // gait, a 1,521-tri remesh bisected at six planes (the belt too: BELT_BISECT).
   'inf_grenadier.glb move': 909, // three different builds (BODY_VARIANT), 903 before
-  'inf_squad.glb move': 735, // the motion pass's new rifleman (5 Oct) // B7: Meshy boots, three men, rig.py gait; the source is bisected at its cut planes (B7 review), so every boot count below moved once more
+  // GH-746 Meshy pilot (9 Nov): the body was REPLACED by the skinned posed Meshy figure (import_meshy_skinned_team.py),
+  // three bodies of one 10,405-tri remesh split at every UV seam: 3,792 boot vertices each. Was 735 (the B7 cut body).
+  'inf_squad.glb move': 11376,
   'sarim_rifles.glb move': 1078, // B7 (2 Oct ruling): three of B3's militia_cell body
   'mortar_team.glb move': 590, // B7: Meshy boots -- two D6 walkers and the No.3
   'yahalom_squad.glb move': 508, // B7: Meshy boots, two men
@@ -887,7 +906,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'rpg_team.glb moveFire': 640,
   'charge_squad.glb moveFire': 444,
   'inf_grenadier.glb moveFire': 909,
-  'inf_squad.glb moveFire': 735,
+  'inf_squad.glb moveFire': 11376, // as move (GH-746, 9 Nov); was 735
   'sarim_rifles.glb moveFire': 1078,
   'mortar_team.glb moveFire': 590,
   'yahalom_squad.glb moveFire': 508,
@@ -1279,6 +1298,15 @@ const FACE_MEAN_DOWN_DEG = 90;
 const FACE_SPREAD_DEG = 25;
 
 /**
+ * Head readings that fail the facing bars for a REAL defect, each named with its reading and a demotion (the row must
+ * still fail, or the entry is deleted). Not a widened bar: every other row keeps FACE_MEAN_DEG / FACE_SPREAD_DEG.
+ */
+const FACING_OPEN_DEFECT: Readonly<Record<string, string>> = {
+  // GH-746 Meshy pilot: the four inf_squad rows that stood here (fire 30.1-34.1 deg, the 22 deg cheek tilt; f2's 26.0 deg
+  // kneelOut sweep) left on 9 Nov with the tilt back to 12 deg and the pocket at 0.05: fire reads 20.2-22.7, kneelOut inside.
+};
+
+/**
  * Below this lever the bearing is noise and is not asserted -- see
  * `FigureFacing.leverM`.
  *
@@ -1452,7 +1480,10 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // GH-707 P2 (22 Oct): + 18, inf_medic_squad's two men over its 9 headed clips.
     // GH-826 step 2 (1 Nov): + 3, inf_squad's three pinned heads: its neck takes none of the huddle's fold (`MotionTeam.pinnedFold`,
     // so the NVG tubes clear the support hand), the face sits forward of the head joint again, and a bearing can be read.
-    expect(rows).toHaveLength(313); // B7: 21 GLBs, every one with a face mesh now
+    // GH-746 Meshy pilot (9 Nov): - 6, inf_squad's move and moveFire heads now read under the lever floor (listed by
+    // name in the short-lever test below): the skinned figure's head joint sits over its own face in the run's lean.
+    // GH-746 round 3 (9 Nov): + 3, inf_squad's moveFire heads read again (the rest carry walks moveFire upright).
+    expect(rows).toHaveLength(310); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1665,6 +1696,14 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // line goes red, which is the reminder to gate her.
     expect(shortLever).toEqual([
       'rpg_team.glb pinned rpg_load_head 0.0227',
+      // GH-746 Meshy pilot (9 Nov): the skinned Rifle Squad's head joint was measured on the sculpt (the chin, 1.448 m on
+      // f1) and the run leans the head forward over it, so the face's centroid sits 1-3 cm from the joint in the ground
+      // plane in move and moveFire (it reads 7.9-8.1 cm in idle, 8-9 in fire): no bearing to read. An OPEN coverage
+      // gap, not a pass: these six heads' facing is unread until the instrument reads a bone axis on a skinned figure.
+      'inf_squad.glb move f0_head 0.0263',
+      'inf_squad.glb move f1_head 0.0272',
+      'inf_squad.glb move f2_head 0.0286',
+      // (the three moveFire heads left this list on 9 Nov, round 3: walked upright, their faces are read and gated)
       'inf_grenadier.glb pinned gre0_head 0.0231',
       'inf_grenadier.glb pinned gre1_head 0.0206',
       'inf_grenadier.glb pinned gre2_head 0.0278',
@@ -1684,9 +1723,23 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     }
   });
 
+  it('every open facing defect names a row this sweep really reads', () => {
+    for (const k of Object.keys(FACING_OPEN_DEFECT)) {
+      expect(rows.some((r) => `${r.file} ${r.clip} ${r.joint}` === k), `FACING_OPEN_DEFECT "${k}": no row`).toBe(true);
+      expect(FACING_OPEN_DEFECT[k].length, 'a reason, not a name').toBeGreaterThan(20);
+    }
+  });
+
   it.each(rows.map((r) => [`${r.file} ${r.clip} ${r.joint}`, r] as const))(
     '%s faces the way it travels',
     (_label, row) => {
+      if (_label in FACING_OPEN_DEFECT) {
+        // the demotion: once the defect is fixed this goes red, and the entry is deleted
+        const ceiling = row.clip === 'moveFire' ? FACE_MEAN_MOVEFIRE_DEG : FACE_MEAN_DEG;
+        expect(Math.abs(row.meanDeg) >= ceiling || row.spreadDeg >= FACE_SPREAD_DEG,
+          `${_label}: reads ${row.meanDeg.toFixed(1)} mean, ${row.spreadDeg.toFixed(1)} spread, inside the bars: delete its FACING_OPEN_DEFECT entry`).toBe(true);
+        return;
+      }
       const pan = FACING_PAN[`${row.file} ${row.clip}`];
       if (pan) {
         expect(Math.abs(row.meanDeg), `${_label}: pan centre (circular mean)`).toBeLessThan(PAN_MEAN_TOL_DEG);
@@ -1747,11 +1800,14 @@ const WEAPON_RIGS: readonly {
    *  absolute, because the carry it is drawn from (`idle`) is a low ready 30
    *  deg down, which an aim is supposed to leave. Absent on the rig.py
    *  launchers the pass leaves on the forearm, which keep the drift rule. */
-  readonly aimDeg?: number;
+  readonly aimDeg?: number | Readonly<Record<string, number>>;
 }[] = [
   // The motion pass's held weapons (`tools/src/meshes/motion/hold.ts`): every
   // aimed clip -- `fire`, `moveFire` where the file has one, and `kneel`.
-  { file: 'inf_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: HANDS_CARBINE_AXIS_BIAS_DEG },
+  // GH-746 Meshy pilot (9 Nov): Meshy's own gun, not kdf_carbine, so not HANDS_CARBINE_AXIS_BIAS_DEG. Its cloud's
+  // principal axis sits 3.65 / 4.28 / 4.86 deg above the level bore per body (the bodies are anisotropic scalings of
+  // one sculpt, so the same gun's shape tilts differently), read on the bytes: per joint, literals.
+  { file: 'inf_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: { f0_weapon: 0.82, f1_weapon: 3.9, f2_weapon: 4.2 } }, // re-read 9 Nov round 3 (moveFire upright, fists by weight); round 2 5.6 / 6.17 / 1.04, before 3.65 / 4.28 / 4.86
   { file: 'sarim_rifles.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   // GH-709 phase 3 (22 Oct): two revolving launchers and the leader's carbine,
   // every one a `rifle`-kind hold, so the same 0 deg aim and -30 deg low ready.
@@ -1951,9 +2007,17 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   // The motion pass (5 Oct): every held rifle's `idle` is the hold's low
   // ready, the muzzle 30 deg down and 15 across the body (hold.ts's
   // READY_PITCH_DEG). Before, these read 2.5-7.8: the level hip carry.
-  'inf_squad.glb f0_weapon': -30 + HANDS_CARBINE_AXIS_BIAS_DEG,
-  'inf_squad.glb f1_weapon': -30 + HANDS_CARBINE_AXIS_BIAS_DEG,
-  'inf_squad.glb f2_weapon': -30 + HANDS_CARBINE_AXIS_BIAS_DEG,
+  // GH-746 Meshy pilot (9 Nov): the skinned figure's idle is its SCULPTED carry, not the hold's formula low ready
+  // (hold.ts `restCarry`: at aim 0 the gun stays where Meshy sculpted it, the fists fused to it): Meshy's own 0.79 m
+  // gun, butt at the right shoulder (z 1.36), muzzle at the left hip (z 0.81), measured on the bytes per body (f0 is
+  // scaled 1.034 tall x 0.98 wide, f2 0.966 x 1.08, which tilts the same gun differently). The lead saw this idle on
+  // 1 Nov ("idle good"). Was -30 + the kdf_carbine bias (-24.13) for the cut body.
+  // Re-read 9 Nov after the real-size fists and forearms (the elbows and wrists moved; the gun did not): -43.51 / -41.38 /
+  // -37.55 before.
+  // Round 3 (9 Nov: the fists by hand weight, the firing fist 10 mm off the gun): -41.59 / -39.51 / -41.38 before.
+  'inf_squad.glb f0_weapon': -46.35,
+  'inf_squad.glb f1_weapon': -41.77,
+  'inf_squad.glb f2_weapon': -38.22,
   'inf_grenadier.glb gre0_weapon': -30,
   'inf_grenadier.glb gre1_weapon': -30,
   'inf_grenadier.glb gre2_weapon': -30,
@@ -2140,14 +2204,16 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
         // low ready 30 deg down, which an aim is MEANT to leave, so the
         // drift-from-idle rule below would refuse exactly the fix.
         if (spec.aimDeg !== undefined) {
+          const aim = typeof spec.aimDeg === 'number' ? spec.aimDeg : spec.aimDeg[a.joint];
+          expect(aim, `${file} ${a.joint}: no aim pinned for this joint`).toBeDefined();
           const off = Math.max(
-            Math.abs(a.elevationMaxDeg - spec.aimDeg),
-            Math.abs(a.elevationMinDeg - spec.aimDeg)
+            Math.abs(a.elevationMaxDeg - (aim ?? NaN)),
+            Math.abs(a.elevationMinDeg - (aim ?? NaN))
           );
           expect(
             off,
             `${file} ${clip} ${a.joint}: elevation [${a.elevationMinDeg.toFixed(2)}, ` +
-              `${a.elevationMaxDeg.toFixed(2)}] against its aim ${spec.aimDeg}`
+              `${a.elevationMaxDeg.toFixed(2)}] against its aim ${aim}`
           ).toBeLessThan(WEAPON_AIM_TOL_DEG);
           continue;
         }

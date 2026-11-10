@@ -56,6 +56,9 @@ import {
   rubbleRadiusTiles,
   SCORCH_ALPHA,
   SCORCH_EDGE_INNER,
+  SCUFF_ALPHA,
+  SCUFF_EDGE_INNER,
+  SCUFF_FADE_SEC,
   stampSimMs,
   TILE_HASH_MIX,
   TILE_HASH_MX,
@@ -428,9 +431,10 @@ describe('decalAlpha -- spec §5, kind by kind', () => {
 });
 
 describe('churn (GH-984 N2): turned earth where a hull pivots or digs in', () => {
-  it('is the last kind, in the fading pool, in the tread colour, with its approved opacity and a 120 s linear fade', () => {
+  it('is the sixth kind, in the fading pool, in the tread colour, with its approved opacity and a 120 s linear fade', () => {
     expect(DECAL_KIND_INDEX.churn).toBe(6);
-    expect(Object.values(DECAL_KIND_INDEX).sort()).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(DECAL_KIND_INDEX.scuff).toBe(7);
+    expect(Object.values(DECAL_KIND_INDEX).sort()).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
     expect(isFadingKind('churn')).toBe(true);
     expect(isFadingKind('crater')).toBe(false);
     expect(CHURN_ALPHA).toBe(0.5);
@@ -459,6 +463,36 @@ describe('churn (GH-984 N2): turned earth where a hull pivots or digs in', () =>
     expect(DECAL_FRAGMENT_SHADER).toContain(`${CHURN_ALPHA.toFixed(6)} * body`);
     expect(DECAL_FRAGMENT_SHADER).toContain(`${CHURN_FADE_SEC.toFixed(6)}`);
     expect(DECAL_FRAGMENT_SHADER).toContain(`${CHURN_SPOKES.toFixed(6)}`);
+  });
+});
+
+describe('scuff (GH-1207): the single round scrape a tracked hull leaves where it pivots', () => {
+  it('is the last kind, in the fading pool, in the tread colour, with its approved opacity and a 180 s linear fade', () => {
+    expect(DECAL_KIND_INDEX.scuff).toBe(7);
+    expect(isFadingKind('scuff')).toBe(true);
+    expect(SCUFF_ALPHA).toBe(0.4);
+    expect(SCUFF_FADE_SEC).toBe(180);
+    expect(decalAlpha('scuff', 0, 0, 0, 0, 1).alpha).toBeCloseTo(SCUFF_ALPHA, 9);
+    expect(decalAlpha('scuff', 0, 0, 0, 0, 1).colour).toBe(COLOUR_TREAD);
+    expect(decalAlpha('scuff', 0, 0, 0, SCUFF_FADE_SEC / 2, 1).alpha).toBeCloseTo(SCUFF_ALPHA / 2, 9);
+    expect(decalAlpha('scuff', 0, 0, 0, SCUFF_FADE_SEC, 1).alpha).toBe(0);
+    expect(decalAlpha('scuff', 0, 0, 0, -1, 1).alpha).toBeCloseTo(SCUFF_ALPHA, 9);
+  });
+  it('is a clean disc: solid inside the edge, zero past the rim, no spokes (it is a scrape, not torn ground)', () => {
+    expect(SCUFF_EDGE_INNER).toBeLessThan(1);
+    expect(decalAlpha('scuff', 1, 0, 0, 0, 1).alpha).toBe(0);
+    expect(decalAlpha('scuff', 0, 0, 0, 0, 1).alpha).toBeCloseTo(SCUFF_ALPHA, 9);
+    // A ring at a fixed radius reads the same alpha at every angle (a churn's spokes would not).
+    const ring = Array.from({ length: 90 }, (_, i) => {
+      const th = (i / 90) * 2 * Math.PI;
+      return decalAlpha('scuff', 0.3 * Math.cos(th), 0.3 * Math.sin(th), 0, 0, 1).alpha;
+    });
+    expect(new Set(ring.map((a) => a.toFixed(9))).size).toBe(1);
+  });
+  it('is in the fragment shader as the same arithmetic, built from the same names', () => {
+    expect(DECAL_FRAGMENT_SHADER).toContain(`kind == ${DECAL_KIND_INDEX.scuff}`);
+    expect(DECAL_FRAGMENT_SHADER).toContain(`${SCUFF_ALPHA.toFixed(6)} * (1.0 - smoothstep`);
+    expect(DECAL_FRAGMENT_SHADER).toContain(`${SCUFF_FADE_SEC.toFixed(6)}`);
   });
 });
 

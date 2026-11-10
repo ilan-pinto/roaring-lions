@@ -96,17 +96,17 @@ class Piece:
         except ValueError:
             return None
         f[self.layer] = self._tex(tex)
-        f[self.hlayer] = 1 if hint else 0
+        f[self.hlayer] = int(hint)       # 0 closed volume, 1 oriented by `outward`, 2 keeps the winding it was given (a placed mesh part)
         return f
 
     # -- finishing ----------------------------------------------------------
     def finish(self, name):
         bm = self.bm
-        closed = [f for f in bm.faces if not f[self.hlayer]]
+        closed = [f for f in bm.faces if f[self.hlayer] == 0]
         if closed:
             bmesh.ops.recalc_face_normals(bm, faces=closed)
         for f in bm.faces:
-            if f[self.hlayer] and self.outward is not None:
+            if f[self.hlayer] == 1 and self.outward is not None:
                 if f.normal.dot(self.outward(f.calc_center_median())) < 0:
                     f.normal_flip()
         bmesh.ops.triangulate(bm, faces=bm.faces[:])
@@ -328,7 +328,8 @@ class Wrap:
     figure's surface, offset by the real fabric and plate thickness."""
 
     def __init__(self, zone, axis_o, axis_d, up, rows_t, cols_deg, centre_fn=None, r_out=0.9,
-                 col_span=None, dilate=(0.5, 0.5), fill_rows=None, clamp=None, ellipse=None, rlim=None, default_r=None, fill_vertical=False, ring_cap=False, back_plate=False):
+                 col_span=None, dilate=(0.5, 0.5), fill_rows=None, clamp=None, ellipse=None, rlim=None, default_r=None, fill_vertical=False, ring_cap=False, back_plate=False,
+                 fallback=None):
         self.zone = zone
         self.o = Vector(axis_o)
         self.e1, self.e2, self.a = basis(axis_d, up)
@@ -346,6 +347,7 @@ class Wrap:
         self.back_plate = back_plate     # flatten the columns nearest 180 deg (the back) onto a plane fitted to the row back walls
         self.ring_cap = ring_cap         # a cyclic wrap's SAMPLED radii are capped by the ring the row's own front and back walls imply
         self.clamp = clamp             # BVH: a bridged vertex stays inside its first surface from the axis
+        self.fallback = fallback       # f(j, k) -> radius or None, for a vertex still missing after every fill (skinned bodies only)
         self.R = None      # radius per vertex (without offset)
 
     def centre(self, t):
@@ -445,6 +447,11 @@ class Wrap:
                         self.R[j][k] = r
                     elif self.default_r is not None:
                         self.R[j][k] = self.default_r
+        if self.fallback is not None:
+            for j in range(rows):
+                for k in range(cols):
+                    if self.R[j][k] is None:
+                        self.R[j][k] = self.fallback(j, k)
         return self.R
 
     def _apply_ring_cap(self, side_gain=1.08):

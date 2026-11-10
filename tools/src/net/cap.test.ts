@@ -2,10 +2,10 @@
 // every site that holds the room's config reads it through `matchCapTicksOf`. The sites with no config in hand
 // (lane-probe, versus-breach, versus-probe) play no flag room and keep the map form.
 import { describe, expect, it, vi } from 'vitest';
-import { matchCapTicksOf, validateConfig, type MatchConfig } from '@lions/net';
+import { matchCapTicksOf, validateConfig, type CapConfig, type MatchConfig } from '@lions/net';
 import { MAX_LOG_CMD_CHARS, logCmdCharsOf } from '../../../packages/worker/src/match/room-core';
 import type { RoomState } from '../../../packages/worker/src/match/room-core';
-import { hashTickOutcome } from '../../../packages/app/src/net/outcome';
+import { FLAG_BACKSTOP_TICKS, hashTickOutcome, type OutcomeSimAt } from '../../../packages/app/src/net/outcome';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
 import * as outcome from '../../../packages/app/src/net/outcome';
 import { capOutcome } from './cap';
@@ -69,5 +69,45 @@ describe('capOutcome keeps the map form for a bare map', () => {
     capOutcome(w.sim, undefined, 'rujm_sawda');
     capOutcome(w.sim);
     expect(spy.mock.calls.map((c) => c[4])).toEqual([42_000, 30_000]);
+  });
+});
+
+describe('capOutcome applies the flag backstop (GH-1208)', () => {
+  // Real unit ids, so `unitCost` reads the shipped data: type 0 is the Lavi (906), type 1 a rifle squad (292). Literals, not the data module.
+  const REAL = [
+    { id: 'mbt_lavi', weapons: [1], stepPerTick: 1, isAir: false },
+    { id: 'inf_squad', weapons: [1], stepPerTick: 1, isAir: false },
+  ];
+  const setRoom: CapConfig = { map: 'milh_flats_l', winMode: 'flag', flagSetup: true };
+  const BELL = 500;
+  const STOP = BELL + FLAG_BACKSTOP_TICKS; // 12 minutes of 20 Hz ticks after the bell
+  /** A set-up room's sim after the bell, side 0 ahead on value (a Lavi + a squad against a squad: 1198 vs 292). */
+  const ahead0: OutcomeSimAt = {
+    entityCount: 3,
+    state: { side: [0, 0, 1], alive: [1, 1, 1], typeIdx: [0, 1, 1], firepowerKilled: [0, 0, 0], mobilityKilled: [0, 0, 0] },
+    unitTypes: REAL,
+    tickCount: STOP,
+    setupActive: false,
+    setupBellTick: BELL,
+  };
+
+  it('a set-up room settled through capOutcome at bell + 12 min wins by time on value, asked at the backstop, not the 30-minute cap', () => {
+    const spy = vi.mocked(outcome.outcomeOf);
+    spy.mockClear();
+    const r = capOutcome(ahead0, undefined, setRoom);
+    // The value winner on time: side 0 holds the Lavi and a squad (1198) against one squad (292).
+    expect(r).toEqual({ kind: 'won', side: 0, by: 'time', forces: [1198, 292] });
+    // The rule was asked AT the backstop, as `hashTickOutcome` would have asked it in the room.
+    expect([spy.mock.calls[0][1], spy.mock.calls[0][4]]).toEqual([STOP, STOP]);
+  });
+
+  it('a no-set-up room is unchanged: the same sim is decided at the map cap, never the backstop', () => {
+    const spy = vi.mocked(outcome.outcomeOf);
+    for (const room of [{ map: 'milh_flats_l' }, { map: 'milh_flats_l', winMode: 'flag' }, { map: 'milh_flats_l', winMode: 'points', flagSetup: true }, { map: 'milh_flats_l', flagSetup: true }] as CapConfig[]) {
+      spy.mockClear();
+      capOutcome(ahead0, undefined, room);
+      const cap = matchCapTicksOf(room);
+      expect([spy.mock.calls[0][1], spy.mock.calls[0][4]]).toEqual([cap, cap]);
+    }
   });
 });

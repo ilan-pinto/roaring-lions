@@ -30,6 +30,14 @@ export const PORTED_FILES = [
   'packages/render/src/three/units/selection-ring.node.ts',
   // GH-943 P3 (T6): the garrison banner. Its legacy twin (units/garrison-banner.ts) keeps its splice until P8.
   'packages/render/src/three/units/garrison-banner.node.ts',
+  // GH-943 P3 (T11): the simple FX families. Their legacy twins keep their GLSL until P8.
+  'packages/render/src/three/units/fx.node.ts',
+  'packages/render/src/three/units/vfx-mesh-material.node.ts',
+  'packages/render/src/three/units/rim-fade.node.ts',
+  'packages/render/src/three/units/beam-batch.node.ts',
+  'packages/render/src/three/units/swarm-batch.node.ts',
+  // GH-943 P3 (T10): the valley backdrop's distance fade. Its legacy twin (terrain/backdrop.ts) keeps its splice until P8.
+  'packages/render/src/three/terrain/backdrop.node.ts',
   // GH-943 P3 (T3): the vehicle terms of the node unit twin (team mark, running gear, soot). Their legacy twins keep their splices
   // until P7. The composer (`units/unit-material.node.ts`) twins no single legacy file, so it has no TWINS row and is not listed.
   'packages/render/src/three/units/team-mask.node.ts',
@@ -45,6 +53,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/units/zone-band.node.ts',
   'packages/render/src/three/supply-route.node.ts',
   'packages/render/src/three/trail-mesh.node.ts',
+  // GH-943 P3 (T9): the tunnel x-ray (tube, collar, figure, beam). Its legacy twin (tunnel-xray.ts) keeps its GLSL until P8.
+  'packages/render/src/three/tunnel-xray.node.ts',
   // GH-943 P3 (T7): the decal pools and the crater rim. Its legacy twin (decal-pool.ts) keeps its GLSL until P8.
   'packages/render/src/three/decal-pool.node.ts',
 ];
@@ -76,6 +86,15 @@ export const TWINS = Object.freeze({
   [`${THREE}units/selection-ring.ts`]: `${THREE}units/selection-ring.node.ts`,
   // GH-943 P3 (T6)
   [`${THREE}units/garrison-banner.ts`]: `${THREE}units/garrison-banner.node.ts`,
+  // GH-943 P3 (T11): the simple FX families.
+  [`${THREE}units/fx.ts`]: `${THREE}units/fx.node.ts`,
+  [`${THREE}units/vfx-mesh-material.ts`]: `${THREE}units/vfx-mesh-material.node.ts`,
+  [`${THREE}units/smoke-plume.ts`]: `${THREE}units/rim-fade.node.ts`,
+  [`${THREE}units/collapse-shroud.ts`]: `${THREE}units/rim-fade.node.ts`,
+  [`${THREE}units/beam-batch.ts`]: `${THREE}units/beam-batch.node.ts`,
+  [`${THREE}units/swarm-batch.ts`]: `${THREE}units/swarm-batch.node.ts`,
+  // GH-943 P3 (T10)
+  [`${THREE}terrain/backdrop.ts`]: `${THREE}terrain/backdrop.node.ts`,
   // GH-943 P3 (T3)
   [`${THREE}units/team-mask.ts`]: `${THREE}units/team-mask.node.ts`,
   // running-gear.ts carries the wheel and tread maths the twin runs (`rgVertexOps`, `rgBarOps`); running-gear-material.ts the splice.
@@ -93,6 +112,8 @@ export const TWINS = Object.freeze({
   [`${THREE}supply-route.ts`]: `${THREE}supply-route.node.ts`,
   [`${THREE}supply-route-maths.ts`]: `${THREE}supply-route.node.ts`,
   [`${THREE}trail-mesh.ts`]: `${THREE}trail-mesh.node.ts`,
+  // GH-943 P3 (T9)
+  [`${THREE}tunnel-xray.ts`]: `${THREE}tunnel-xray.node.ts`,
   // GH-943 P3 (T7). decal-maths.ts holds the kinds and the rim the decal twin shares (a change to it must touch the twin too, intended).
   [`${THREE}decal-pool.ts`]: `${THREE}decal-pool.node.ts`,
   [`${THREE}decal-maths.ts`]: `${THREE}decal-pool.node.ts`,

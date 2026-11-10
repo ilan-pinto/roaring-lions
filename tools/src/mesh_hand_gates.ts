@@ -11,20 +11,36 @@ import { figureBuilds, handAssembly, handsExtras, isTwin, owns, readRoleMeshes, 
 /** A living modelled hand: its pieces, and its triangle count's band (397 shipped; the spec's cap is 400). */
 export const HAND_PIECES = 7;
 export const HAND_TRIANGLES: readonly [number, number] = [350, 400];
+/**
+ * A hand that is the figure's own sculpt (a Meshy figure generated with its fists closed on its carbine and skinned,
+ * `rl_hands.source === 'meshy'`, the 1 Nov pilot): ONE welded piece on its bone, and the Meshy pilot design's band of
+ * triangles at a 10,000-triangle remesh (section 5: each living hand 200 to 450).
+ */
+export const FUSED_HAND_PIECES = 1;
+export const FUSED_HAND_TRIANGLES: readonly [number, number] = [200, 450];
+
+/** The hands' provenance a file declares: `'meshy'` for the sculpted fused fists, else the generator's. */
+export function handsSource(glb: GlbFile): string | null {
+  const e = (glb.json.scenes?.[0]?.extras ?? {}) as { rl_hands?: { source?: string } };
+  return e.rl_hands?.source ?? null;
+}
 
 /** Why a file fails the hand census, as a list. Empty is a pass. */
 export function censusViolations(glb: GlbFile): string[] {
   const meshes = readRoleMeshes(glb);
   const builds = figureBuilds(glb);
   const out: string[] = [];
+  const fused = handsSource(glb) === 'meshy';
+  const pieces = fused ? FUSED_HAND_PIECES : HAND_PIECES;
+  const band = fused ? FUSED_HAND_TRIANGLES : HAND_TRIANGLES;
   for (const p of builds.filter((b) => !isTwin(b, builds))) {
     let hands = 0;
     for (const side of ['L', 'R'] as const) {
       const h = handAssembly(glb, p, side, meshes);
       if (h.triangles === 0) { out.push(`${p}_hand_${side}: no hand assembly on its bone`); continue; }
       hands += 1;
-      if (h.pieces !== HAND_PIECES) out.push(`${p}_hand_${side}: ${h.pieces} pieces, the generator makes ${HAND_PIECES}`);
-      if (h.triangles < HAND_TRIANGLES[0] || h.triangles > HAND_TRIANGLES[1]) out.push(`${p}_hand_${side}: ${h.triangles} triangles outside ${HAND_TRIANGLES.join('-')}`);
+      if (h.pieces !== pieces) out.push(`${p}_hand_${side}: ${h.pieces} pieces, ${fused ? 'a sculpted hand is one' : `the generator makes ${pieces}`}`);
+      if (h.triangles < band[0] || h.triangles > band[1]) out.push(`${p}_hand_${side}: ${h.triangles} triangles outside ${band.join('-')}`);
     }
     if (hands !== 2) out.push(`${p}: ${hands} hands, not 2`);
   }

@@ -265,12 +265,42 @@ def _centre_fn(f, bone="spine"):
     return fn
 
 
-def torso_wrap(f, rows, ncols=16, span=None, fill_below=None, whole=False, rlim=None):
+def torso_wrap(f, rows, ncols=16, span=None, fill_below=None, whole=False, rlim=None, zone=None):
     cols = [i * 360.0 / ncols for i in range(ncols)] if span is None else span
     fr = None if fill_below is None else (lambda j: rows[j] <= fill_below)
-    return Wrap(f.zone_torso_all if whole else f.zone_torso, (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
+    fallback = None
+    if f.skinned and not whole:
+        # A skinned body's trunk zone has holes no rigid one had: the vest Meshy sculpted under the stock went with the
+        # stock (its pocket), and bone heat hands the collar to the neck. Every row of a VEST wrap is bridged around the
+        # ring (within the section ellipse and inside the arms, as the carrier's lower rows always were), and a column
+        # span (the throat) takes what its own rays miss from that bridged ring: the plate stands where the chest would
+        # be. A `whole` wrap (the yoke, above the vest) keeps the rigid rule: its top row ends where the zone does.
+        fr = lambda j: True
+        if span is not None:
+            ring = _torso_ring(f, rows, whole)
+
+            def fallback(j, k):
+                a = cols[k] % 360.0
+                n = len(ring[j])
+                x = a / (360.0 / n)
+                k0 = int(math.floor(x)) % n
+                k1, u = (k0 + 1) % n, x - math.floor(x)
+                r0, r1 = ring[j][k0], ring[j][k1]
+                return None if r0 is None or r1 is None else r0 * (1.0 - u) + r1 * u
+    return Wrap(zone if zone is not None else (f.zone_torso_all if whole else f.zone_torso), (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
                 centre_fn=_centre_fn(f), col_span=None if span is None else True, fill_rows=fr, clamp=f.zone_arms, ellipse=lambda t: kp.TEAM.torso_ellipse,
-                ring_cap=kp.TEAM.torso_ring_cap, back_plate=kp.TEAM.carrier_back_plate and not whole, rlim=rlim)
+                ring_cap=kp.TEAM.torso_ring_cap, back_plate=kp.TEAM.carrier_back_plate and not whole, rlim=rlim, fallback=fallback)
+
+
+def _torso_ring(f, rows, whole=False, ncols=16):
+    """A skinned body's closed torso ring at `rows`, every row bridged: the radii a column-span wrap falls back on."""
+    key = ("ring", tuple(round(r, 4) for r in rows), whole, ncols)
+    if key not in f.__dict__.setdefault("_rings", {}):
+        wr = Wrap(f.zone_torso_all if whole else f.zone_torso, (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows,
+                  [i * 360.0 / ncols for i in range(ncols)], centre_fn=_centre_fn(f), fill_rows=lambda j: True, clamp=f.zone_arms,
+                  ellipse=lambda t: kp.TEAM.torso_ellipse, ring_cap=kp.TEAM.torso_ring_cap)
+        f._rings[key] = wr.sample()
+    return f._rings[key]
 
 
 def trimmed(f, wr, bone, zlo, zhi, allow=None, pf_bone=None):
@@ -989,6 +1019,9 @@ def build(repo, arm, meshes, mat, only=None, figs=None):
     arm.data.pose_position = "REST"
     bpy.context.view_layer.update()
     use = [pf for pf in kp.ALL if figs is None or pf in figs]
+    v7 = None
+    if kp.TEAM.v7:
+        import inf_kit_v7 as v7            # the approved v7 mesh parts, fitted (a team opts in; the others stay procedural)
     fits = {p: kf.Fit(arm, meshes, p) for p in use}
     bank = kf.PoseBank(arm, meshes, fits)
     for p in use:
@@ -1006,7 +1039,8 @@ def build(repo, arm, meshes, mat, only=None, figs=None):
                 continue
             for suf, _base in kp.object_suffixes(part):
                 side = suf[-1] if suf[-2] == "_" and suf[-1] in "LR" else None
-                piece = BUILDERS[part.name](fits[pf], side)
+                builder = v7.V7_BUILDERS[part.name] if v7 is not None and part.name in v7.V7_BUILDERS else BUILDERS[part.name]
+                piece = builder(fits[pf], side)
                 oname = f"{pf}_{suf}"
                 open_thick = piece.open_thick
                 me, tris = piece.finish(oname)

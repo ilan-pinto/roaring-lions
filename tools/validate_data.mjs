@@ -669,6 +669,28 @@ const garrisonableSymbols = new Set(
       for (const u of t.do?.units ?? []) wantUnit(u.unit, 'trigger spawn');
     }
     for (const o of mi.objectives ?? []) {
+      // GH-2: an escort names the player's own tagged units (`target`) and a destination zone (`zone`). The runtime
+      // throws on the same faults at load; this is the same refusal at authoring time. `zone` belongs to escort alone.
+      if (o.type === 'escort') {
+        if (!o.zone || !zoneNames.has(o.zone)) {
+          failures.push(`${rel(file)}: escort "${o.id}" references unknown zone "${o.zone}"`);
+        }
+        const tagged = (mi.starting_force ?? []).filter((p) => p.tag === o.target);
+        if (!o.target || tagged.length === 0) {
+          failures.push(`${rel(file)}: escort "${o.id}" needs a tag on a starting_force placement, not "${o.target}"`);
+        }
+        // Already there at tick zero completes on the first tick (the runtime throws). Mirrored here for the case that
+        // is exact on `at` alone: every tagged placement is ONE unit (a larger one spreads from `at` and the runtime
+        // reads the bodies), standing on a tile inside the zone.
+        const zr = map.zones?.[o.zone];
+        if (zr && tagged.length > 0 && tagged.every((p) => p.count === 1 && Array.isArray(p.at)
+          && Math.floor(p.at[0]) >= zr[0] && Math.floor(p.at[0]) < zr[0] + zr[2]
+          && Math.floor(p.at[1]) >= zr[1] && Math.floor(p.at[1]) < zr[1] + zr[3])) {
+          failures.push(`${rel(file)}: escort "${o.id}" starts inside zone "${o.zone}", so it would complete on the first tick`);
+        }
+      } else if (o.zone !== undefined) {
+        failures.push(`${rel(file)}: objective "${o.id}" is a ${o.type}, which takes no zone (only escort does)`);
+      }
       if ((o.type === 'capture' || o.type === 'hold_for') && o.target) {
         if (!zoneNames.has(o.target)) {
           failures.push(`${rel(file)}: objective "${o.id}" references unknown zone "${o.target}"`);

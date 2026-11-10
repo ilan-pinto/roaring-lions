@@ -11,12 +11,38 @@
  * 0.064-0.075 m on every aimed rifle, 0.03 on the RPG (its sight sits beside
  * the cheek, the bore lower than a rifle's). The bands below sit in those gaps.
  */
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
-import { measureHold } from './mesh_gait';
+import { afterAll, describe, expect, it } from 'vitest';
+import { measureHold, readGlb } from './mesh_gait';
 import { MOTION_TEAMS } from './meshes/motion/teams';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
+
+const scratch = mkdtempSync(path.join(tmpdir(), 'hold-'));
+afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+/** A copy of `file` with every key of `node`'s translation track in `clip` moved `dx` metres along its parent's x. */
+function withWeaponMoved(file: string, clip: string, node: string, dx: number): string {
+  const raw = readFileSync(file);
+  const glb = readGlb(file);
+  const bin = Buffer.from(glb.bin);
+  const ni = (glb.json.nodes ?? []).findIndex((n) => n.name === node);
+  const anim = glb.json.animations!.find((a) => a.name === clip)!;
+  const ch = anim.channels.find((c) => c.target.node === ni && c.target.path === 'translation');
+  if (!ch) throw new Error(`${file}: ${node} has no translation track in ${clip}`);
+  const acc = glb.json.accessors![anim.samplers[ch.sampler].output];
+  const bv = glb.json.bufferViews![acc.bufferView!];
+  const base = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0);
+  const stride = bv.byteStride ?? 12;
+  for (let k = 0; k < acc.count; k++) bin.writeFloatLE(bin.readFloatLE(base + k * stride) + dx, base + k * stride);
+  const out = Buffer.from(raw);
+  bin.copy(out, 20 + raw.readUInt32LE(12) + 8);
+  const f = path.join(scratch, `moved_${node}_${clip}.glb`);
+  writeFileSync(f, out);
+  return f;
+}
 
 /** Worse hand to the weapon's nearest vertex, metres. */
 const HAND_GAP_MAX_M = 0.1;
@@ -31,9 +57,36 @@ const EYE_ABOVE_BORE: readonly [number, number] = [0.02, 0.12];
  */
 const EYE_AT_SPIKE: readonly [number, number] = [-0.1, 0.0];
 
+/**
+ * A reading that fails for a REAL defect, named with its reading and a demotion (it must still fail, or the entry goes).
+ * GH-746 Meshy pilot (9 Nov, round-3 bytes): the skinned f2 (the 1.72 m body) runs with the rifle up and his lean kept,
+ * and his eye dips to 0.018 m over the bore at the low point of the stride (f0 0.029, f1 0.027; the motion pass prints
+ * -0.019..0.004 by its own measure): the cheek leaves the stock in the run. Fire, kneel and pinned read 0.063-0.084.
+ */
+const EYE_OPEN_DEFECT: Readonly<Record<string, string>> = {
+  // (inf_squad f2 moveFire left on 9 Nov, round 3: a rest carry walks its moveFire upright, the eye 0.069-0.087 over the bore)
+};
+
 const HELD = Object.entries(MOTION_TEAMS).flatMap(([team, spec]) =>
   spec.figures.filter((f) => f.weapon).map((f) => ({ team, prefix: f.prefix, kind: f.weapon!, kneels: !!f.kneels }))
 );
+
+describe('the hold can fail on a fused (Meshy) hand', () => {
+  // The fused-hand reading (the hand bone's own vertices, measureHold) must still see a hand off the gun: the shipped
+  // inf_squad with f1's weapon bone carried 0.25 m along x in fire reads past HAND_GAP_MAX_M. A constructed input.
+  it('f1 fire with the weapon bone moved 0.25 m reads the worse hand past the limit, and the shipped bytes do not', () => {
+    const file = `${MESHES}inf_squad.glb`;
+    expect(measureHold(file, 'fire', 'f1').handGapM).toBeLessThan(HAND_GAP_MAX_M);
+    expect(measureHold(withWeaponMoved(file, 'fire', 'f1_weapon', 0.25), 'fire', 'f1').handGapM).toBeGreaterThan(HAND_GAP_MAX_M);
+  }, 60_000);
+  it('every open eye defect names a held figure and clip this file reads', () => {
+    for (const k of Object.keys(EYE_OPEN_DEFECT)) {
+      const [team, prefix] = k.split(' ');
+      expect(HELD.some((h) => h.team === team && h.prefix === prefix), k).toBe(true);
+      expect(EYE_OPEN_DEFECT[k].length, 'a reason, not a name').toBeGreaterThan(20);
+    }
+  });
+});
 
 describe('the hold: hands on the weapon, eye over the bore', () => {
   it('reads every held figure the motion pass places', () => {
@@ -61,6 +114,11 @@ describe('the hold: hands on the weapon, eye over the bore', () => {
         expect(r.handGapM, 'worse hand to the weapon').toBeLessThan(HAND_GAP_MAX_M);
         if (!eyeClips.includes(clip)) return;
         const band = h.kind === 'spike' ? EYE_AT_SPIKE : EYE_ABOVE_BORE;
+        if (`${h.team} ${h.prefix} ${clip}` in EYE_OPEN_DEFECT) {
+          expect(r.eyeAboveBoreMin, `still under the band (else delete its EYE_OPEN_DEFECT entry)`).toBeLessThanOrEqual(band[0]);
+          expect(r.eyeAboveBoreMax, 'eye above bore, highest').toBeLessThan(band[1]);
+          return;
+        }
         expect(r.eyeAboveBoreMin, 'eye above bore, lowest').toBeGreaterThan(band[0]);
         expect(r.eyeAboveBoreMax, 'eye above bore, highest').toBeLessThan(band[1]);
       }, 60_000);

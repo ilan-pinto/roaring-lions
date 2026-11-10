@@ -68,6 +68,19 @@ export interface GlbFile {
   readonly bin: Uint8Array;
 }
 
+/** Least / greatest of a list, by a loop: `Math.min(...xs)` spreads every element onto the call stack, and a skinned
+ *  figure's boots over 65 instants (81,000 values, the Meshy inf_squad, 9 Nov) overflow it with a RangeError. */
+export function minOf(xs: ArrayLike<number>): number {
+  let m = Infinity;
+  for (let i = 0; i < xs.length; i++) if (xs[i] < m) m = xs[i];
+  return m;
+}
+export function maxOf(xs: ArrayLike<number>): number {
+  let m = -Infinity;
+  for (let i = 0; i < xs.length; i++) if (xs[i] > m) m = xs[i];
+  return m;
+}
+
 /** Splits a `.glb` into its JSON chunk and its binary chunk. */
 export function readGlb(path: string): GlbFile {
   // Memoised per path and per process (GH-344): a file's clips and tests all
@@ -1900,6 +1913,9 @@ export function measureArmInBody(path: string, clip: string, figure: string): Ar
     if (node.mesh === undefined || node.skin === undefined) continue;
     const skin = glb.json.skins?.[node.skin];
     if (!skin) continue;
+    // The kit's skins (`kit_uniform`, `kit_weapon`) are gear, not the body: their spine- and head-bound triangles must not join the
+    // soup the arms are read against (the v7 review, 9 Nov: the kit swap alone moved f1 / f2 kneelIn from 639 / 736 to 457 / 514).
+    if ((node.name ?? '').startsWith('kit_')) continue;
     const role = node.name ?? meshes[node.mesh]?.name ?? '';
     const held = role === 'weapon' || role === 'metal';
     for (const prim of meshes[node.mesh].primitives) {
@@ -2002,7 +2018,7 @@ export function measureUpperBodyMotion(path: string, clip: string): UpperBodyMot
     if (head >= 0) figures.push({ figure: m[1], pelvis: i, head });
   }
   if (figures.length === 0) throw new Error(`${path}: no pelvis/head joint pair -- measureUpperBodyMotion needs one per figure`);
-  const range = (a: number[]): number => Math.max(...a) - Math.min(...a);
+  const range = (a: number[]): number => maxOf(a) - minOf(a);
   return figures.map(({ figure, pelvis, head }) => {
     const lean: number[] = [];
     const fx: number[] = [];
@@ -2161,13 +2177,13 @@ export function measureFootSkate(
   for (const [f, fr] of frames) {
     // A figure scaled out of this clip (a hidden walker or kneeler) has
     // every boot vertex at one point: it is not on the ground, it is gone.
-    const spread = Math.max(...fr[0].map((p) => p[1])) - Math.min(...fr[0].map((p) => p[1]));
+    const spread = maxOf(fr[0].map((p) => p[1])) - minOf(fr[0].map((p) => p[1]));
     if (spread < 1e-4) continue;
     // The ground is the figure's lowest boot point over the whole cycle, not
     // at each instant: in a run's flight phase the lowest point is in the
     // air, and counting it as "on the ground" reads a sprinter's airborne
     // feet as gliding (measured: 1.0 on a planted charge_squad).
-    const ground = Math.min(...fr.flatMap((f) => f.map((p) => p[1])));
+    const ground = minOf(fr.flatMap((f) => f.map((p) => p[1])));
     const speeds: number[] = [];
     for (let s = 0; s < n; s++) {
       const a = fr[s];
@@ -2201,7 +2217,8 @@ export function measureFootSkate(
  * worst case:
  *
  *   handGapM      for each forearm, the distance from its hand's centroid to
- *                 the nearest weapon vertex; the WORSE of the two hands
+ *                 the nearest weapon vertex; the WORSE of the two hands (on a
+ *                 fused Meshy figure, the hand bone's vertices are the hand)
  *   eyeAboveBoreM how far the eye sits above the weapon's own long axis
  *                 (the first principal component of its vertices), at the
  *                 point under the eye -- the cheek weld
@@ -2224,6 +2241,11 @@ export function measureHold(path: string, clip: string, prefix: string): HoldRea
   const meshes = glb.json.meshes ?? [];
   const names = nodes.map((n) => n.name ?? '');
   const wName = names.includes(`${prefix}_weapon`) ? `${prefix}_weapon` : `${prefix}_forearm_R`;
+  // A FUSED figure (`rl_hands.source` "meshy", GH-746): Meshy sculpted the fist closed on the gun and the importer skinned
+  // it rigidly to `{p}_hand_{L|R}`, so the forearm's outermost tenth is the cuff 6-10 cm BEHIND the fist (it read 0.101-
+  // 0.102 m off the gun in fire on the 9 Nov bytes, the fists themselves on it). On such a file the hand is the hand
+  // bone's own vertices; every other file keeps the forearm-tenth reading this gate was calibrated on.
+  const fused = ((glb.json.scenes?.[0] as { extras?: { rl_hands?: { source?: string } } } | undefined)?.extras?.rl_hands?.source) === 'meshy';
   const { tracks, start, end } = readClip(glb, clip);
   type Pick = { pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null; role: string; idx: Map<string, number[]> };
   const picks: Pick[] = [];
@@ -2251,7 +2273,8 @@ export function measureHold(path: string, clip: string, prefix: string): HoldRea
       let key: string | null = null;
       if (role === 'weapon') key = jn === wName ? 'weapon' : null;
       else if (role === 'face') key = jn === `${prefix}_head` ? 'face' : null;
-      else if (role !== 'metal' && (jn === `${prefix}_forearm_L` || jn === `${prefix}_forearm_R`)) key = jn;
+      else if (role !== 'metal' && !fused && (jn === `${prefix}_forearm_L` || jn === `${prefix}_forearm_R`)) key = jn;
+      else if (role !== 'metal' && fused && (jn === `${prefix}_hand_L` || jn === `${prefix}_hand_R`)) key = jn;
       if (!key) continue;
       if (!pick.idx.has(key)) pick.idx.set(key, []);
       pick.idx.get(key)!.push(i);
@@ -2276,17 +2299,17 @@ export function measureHold(path: string, clip: string, prefix: string): HoldRea
     const weapon = pts.get('weapon') ?? [];
     if (weapon.length < 30) continue;
     // A figure scaled out of the clip collapses to a point: not drawn.
-    const span = Math.max(...weapon.map((q) => q[1])) - Math.min(...weapon.map((q) => q[1]));
+    const span = maxOf(weapon.map((q) => q[1])) - minOf(weapon.map((q) => q[1]));
     if (span < 1e-4) continue;
     instants++;
     for (const side of ['L', 'R']) {
-      const jn = `${prefix}_forearm_${side}`;
+      const jn = `${prefix}_${fused ? 'hand' : 'forearm'}_${side}`;
       const hp = pts.get(jn) ?? [];
       if (hp.length < 8) throw new Error(`${path}: ${jn} owns ${hp.length} hand vertices`);
       const m = worlds[names.indexOf(jn)];
       const elbow = [m[12], m[13], m[14]];
       const d = hp.map((q) => Math.hypot(q[0] - elbow[0], q[1] - elbow[1], q[2] - elbow[2]));
-      const cut = [...d].sort((a, b) => a - b)[Math.floor(d.length * 0.9)];
+      const cut = fused ? -Infinity : [...d].sort((a, b) => a - b)[Math.floor(d.length * 0.9)];
       const far = hp.filter((_, i) => d[i] >= cut);
       const c = [0, 1, 2].map((k) => far.reduce((a, q) => a + q[k], 0) / far.length);
       let best = Infinity;
@@ -2519,7 +2542,7 @@ function readWeaponFrame(W: V3t[], downRest: V3t, headRest: V3t): {
   const X = W.map((p) => vsub(p, centre));
   const t = X.map((x) => vdot(x, ax));
   const y = X.map((x) => vdot(x, up));
-  const t0 = Math.min(...t), L = Math.max(...t) - t0;
+  const t0 = minOf(t), L = maxOf(t) - t0;
   const sOf = t.map((v) => (v - t0) / L);
   const nb = 50;
   const low: number[] = new Array(nb).fill(NaN);
@@ -2640,7 +2663,11 @@ export function measureGrip(path: string, clip: string, prefix: string, opts: Gr
   let stationRest: [V3t, V3t] | null = null;
   let gripAxisRest: V3t | null = null;
   let boreRest: V3t | null = null;
-  if (bones) {
+  // A Meshy figure skinned with its own fists fused to its own carbine (`rl_hands.source === 'meshy'`) has no library
+  // part to fit and no station reference points: its hands ARE the stations. The contact and the depth are read all
+  // the same; the station and axis gaps read null.
+  const fusedHands = ((glb.json.scenes?.[0]?.extras ?? {}) as { rl_hands?: { source?: string } }).rl_hands?.source === 'meshy';
+  if (bones && !fusedHands) {
     const partGlb = readGlb(opts.partPath ?? fileURLToPath(new URL('../../art/parts/kdf_carbine/kdf_carbine.glb', import.meta.url)));
     const pp = readAccessor(partGlb, partGlb.json.meshes![0].primitives[0].attributes.POSITION);
     if (pp.count !== W.length) throw new Error(`${path}: ${prefix}'s weapon has ${W.length} vertices, the carbine part ${pp.count}: not the reshaped carbine`);
@@ -2766,6 +2793,18 @@ export function measureGrip(path: string, clip: string, prefix: string, opts: Gr
       }
     }
   }
+  // A fused hand's station is where Meshy sculpted it on the gun: its centroid in the weapon's bind space, and its bone's
+  // bind orientation against the weapon's. The station gap is how far the posed hand (carried back into the weapon's
+  // bind space) is from that place, the axis how far it has turned from it: zero while the hand is locked to the gun,
+  // and a hand left behind by a moved weapon, or drifting between keys, reads it.
+  const fusedBind = fusedHands && bones
+    ? surf.map((sf) => {
+      const pts = sf.filter((q) => q.hand).map((q) => at(q.pick, q.v));
+      const c: V3t = [0, 0, 0];
+      for (const q of pts) for (let k = 0; k < 3; k++) c[k] += q[k] / pts.length;
+      return c;
+    })
+    : null;
   const res = [0, 1].map(() => ({ review: 0, station: 0, axis: 0, contact: Infinity, contactV: Infinity, depth: 0, sMin: Infinity, sMax: -Infinity, wrist: 0 }));
   const dt = 1 / hz;
   let instants = 0;
@@ -2795,15 +2834,34 @@ export function measureGrip(path: string, clip: string, prefix: string, opts: Gr
       r.sMin = Math.min(r.sMin, sHere);
       r.sMax = Math.max(r.sMax, sHere);
       if (!bones) continue;
-      // the station: the hand's reference point (posed) against the station
+      // the station: the hand's reference point (posed) against the station; the channel axis. Not for fused hands.
       const refL = idx === 0 ? GRIP_REF_LOCAL : SUPPORT_REF_LOCAL;
       const refW = xfPoint(Mi, xfPoint(worlds[hNode[idx]], refL));
-      r.station = Math.max(r.station, vlen(vsub(refW, stationRest![idx])));
-      // the channel axis
       const local = idx === 0 ? GRIP_CHANNEL_LOCAL : SUPPORT_CHANNEL_LOCAL;
       const wa = xfDir(Mi, xfDir(worlds[hNode[idx]], local));
-      const target = idx === 0 ? gripAxisRest! : boreRest!;
-      r.axis = Math.max(r.axis, (Math.acos(Math.min(1, Math.abs(vdot(wa, target)))) * 180) / Math.PI);
+      if (fusedBind) {
+        r.station = Math.max(r.station, vlen(vsub(hc, fusedBind[idx])));
+        const hp = picks.find((p) => p.skin.joints.includes(hNode[idx]))!;
+        const Mh = matsOf.get(hp)![hp.skin.joints.indexOf(hNode[idx])];
+        const rel = multiply(Mi, Mh);
+        if (idx === 1) {
+          // The SUPPORT fist may roll round the handguard (the hold turns it about the bore as the weapon comes up, GH-746
+          // 9 Nov), which keeps it closed on the same handguard; what the axis limit holds is its TILT off the bore, the
+          // procedural gate's "channel axis against the bore". So: the posed-against-bind rotation, its twist about the
+          // weapon's axis removed (swing-twist), and the swing's angle read.
+          // the swing's angle is the angle the weapon's axis itself is turned through: acos(a . R a)
+          const ra = xfDir(rel, fr.axis);
+          r.axis = Math.max(r.axis, (Math.acos(Math.max(-1, Math.min(1, vdot(ra, fr.axis) / Math.max(1e-12, vlen(ra))))) * 180) / Math.PI);
+        } else {
+          const tr = rel[0] + rel[5] + rel[10];
+          r.axis = Math.max(r.axis, (Math.acos(Math.max(-1, Math.min(1, (tr - 1) / 2))) * 180) / Math.PI);
+        }
+      }
+      if (stationRest) {
+        r.station = Math.max(r.station, vlen(vsub(refW, stationRest[idx])));
+        const target = idx === 0 ? gripAxisRest! : boreRest!;
+        r.axis = Math.max(r.axis, (Math.acos(Math.min(1, Math.abs(vdot(wa, target)))) * 180) / Math.PI);
+      }
       // contact: by area, palm-side triangles whose centroid lies within the radius of the weapon's surface
       let area = 0, near = 0;
       for (const tr of palm[idx]) {
@@ -2861,13 +2919,17 @@ export function measureGrip(path: string, clip: string, prefix: string, opts: Gr
       // the wrist
       const wo = wristOver(relRest[idx], relRotation(worlds[fNode[idx]], worlds[hNode[idx]]), sides[idx] === 'L');
       r.wrist = Math.max(r.wrist, wo);
-      opts.trace?.(t, idx === 0 ? 'fire' : 'support', { stationM: vlen(vsub(refW, stationRest![idx])), axisDeg: (Math.acos(Math.min(1, Math.abs(vdot(wa, target)))) * 180) / Math.PI, contact: area > 0 ? near / area : NaN, wristOverDeg: wo });
+      opts.trace?.(t, idx === 0 ? 'fire' : 'support', {
+        stationM: stationRest ? vlen(vsub(refW, stationRest[idx])) : NaN,
+        axisDeg: stationRest ? (Math.acos(Math.min(1, Math.abs(vdot(wa, idx === 0 ? gripAxisRest! : boreRest!)))) * 180) / Math.PI : NaN,
+        contact: area > 0 ? near / area : NaN, wristOverDeg: wo,
+      });
     }
   }
   const out = (i: 0 | 1): GripHand => ({
     reviewGapM: res[i].review,
-    stationGapM: bones ? res[i].station : null,
-    axisDeg: bones ? res[i].axis : null,
+    stationGapM: bones && (stationRest || fusedBind) ? res[i].station : null,
+    axisDeg: bones && (stationRest || fusedBind) ? res[i].axis : null,
     contact: bones ? res[i].contact : null,
     contactVerts: bones ? res[i].contactV : null,
     depthM: bones ? res[i].depth : null,
