@@ -155,7 +155,14 @@ translucency. Fonts are self-hosted in `assets/fonts/`; never a CDN.
 
 ## What not to do
 
-- Do not add a game engine, ECS library, or physics library. The sim is hand-written on purpose; determinism cannot be delegated.
+- Do not add a game engine or ECS library, and never let a physics library near the sim. The sim is hand-written on
+  purpose; determinism cannot be delegated. **One exception, for presentation only** (GH-1223, the lead, 10 Nov
+  2026): Rapier (`@dimforge/rapier3d-deterministic-compat`, pinned exactly) may drive ragdolls, debris collision and
+  wreck tumble from `packages/render/src/three/physics/**` and nowhere else (lint-fenced, `physics_fence.test.ts`).
+  Nothing it computes may be read by the sim, sent over the network or change an outcome (invariant 4); hits,
+  ricochet, penetration, LOS and pathing stay in the sim. It steps on the sim clock at a fixed 50/3 ms, never on frame
+  time; it is never loaded on `low`; a version bump is its own PR and re-blesses the `ragdoll` scenario. Design:
+  `docs/superpowers/specs/2026-11-10-presentation-physics-design.md`.
 - Do not add floating point to the sim, even "just for this one calculation."
 - Do not let VFX, audio, or UI state influence simulation outcomes.
 - Do not write mission logic as TypeScript. Missions are declarative data; if a mission needs a behaviour the schema cannot express, extend the schema.

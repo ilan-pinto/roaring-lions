@@ -106,7 +106,22 @@ export interface RenderQuality {
    * (0 drops them); the churn decal is kept on every preset.
    */
   nature?: NatureQuality;
+  /**
+   * GH-1223: presentation-only physics (Rapier; `three/physics/`). `ragdolls` is how many dying infantry FIGURES may be
+   * ragdolls at once; past it a death keeps the animated fall. **0 on every preset** (shipped dark, the lead's ruling
+   * L4, 10 Nov 2026) until the lead has seen them: the sandbox flag `&ragdoll` raises it to 16 for a look. At 0 the
+   * WASM is never even fetched, so `low` pays nothing, ever. Absent reads 0.
+   */
+  physics?: PhysicsQuality;
 }
+
+/** `RenderQuality.physics`: see there. `ragdolls` is a rung of the 16/8/4/0 cost ladder. */
+export interface PhysicsQuality {
+  ragdolls: 0 | 4 | 8 | 16;
+}
+
+/** The ragdoll cap the sandbox's `&ragdoll` flag forces (the design's `high` figure). */
+export const RAGDOLL_SHOWCASE_CAP = 16;
 
 /** `RenderQuality.nature`: see there. `slots` is a rung of `DISTURB_LADDER`. */
 export interface NatureQuality {
@@ -125,8 +140,8 @@ export type WetGroundTier = 'full' | 'lite' | 'minimal';
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
   // Was drops 900 (and 1500 before it): the P4 final-tip cost run read NET (total wet) 0.5 / 0.5 / 0.4 ms against low's +0.4 budget (z1 / z1.6 / z2.5) at load 3-5 (GH-871).
   // The first step, 1500 -> 900, followed 0.7 and 0.9 ms at zoom 2.5, twice.
-  low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false } },
-  medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false } },
+  low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, physics: { ragdolls: 0 } },
+  medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, physics: { ragdolls: 0 } },
   high: {
     grade: true,
     ao: true,
@@ -139,5 +154,6 @@ export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQ
     smokeBillboardGain: 0.8,
     rain: { drops: 6000, ripples: true, ground: 'full' },
     nature: { slots: 24, wakes: true, foot: true },
+    physics: { ragdolls: 0 },
   },
 };

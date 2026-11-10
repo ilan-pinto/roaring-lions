@@ -612,3 +612,31 @@ slot of kind `DISTURB_KIND_AIR` in N2's array. +0 draw calls, +0 programs; the c
   on Metal, so re-measure from CI at the bless. No new scenario was added.
 - Instrument: `pnpm nature:capture` defaults to `--phase=wash-sheets,signal,cost --layer=wash` (`--layer=disturb` reproduces N2, `--phase=sheets` is N2's sheets).
   The sheet arms are two page loads (the dust is dated by slot).
+
+## Presentation-only physics: ragdolls (GH-1223 slice 1)
+
+- **Rapier** (`@dimforge/rapier3d-deterministic-compat`, exactly 0.21.0) lives in `three/physics/` and nowhere else;
+  only `ThreeRenderer.ts` (and the three folder's specs) may import that folder. `tools/physics_fence.mjs` is the rule
+  (static imports, re-exports, `import()`, `require`), `tools/src/physics_fence.test.ts` pins it. Loaded by a dynamic
+  import (`physics/rapier.ts`) only when `RenderQuality.physics.ragdolls > 0`: **0 on every preset** (shipped dark), so
+  no player fetches the WASM until the lead turns it on. `&ragdoll` (sandbox) raises it to 16.
+- **The clock is the sim's.** `RagdollIncident.advanceTo(presentationSimMs)` runs every owed step at 50/3 ms (three a
+  tick, counted in integers by `stepsOwed`); frame time is never read and steps are never dropped. The drawn pose is
+  the last two steps interpolated by the sim time.
+- **One world per incident** (an entity's figures, killed on one tick): measured, a shared world's bits move when
+  unrelated bodies are added. Bodies start at the identity rotation with their capsules rotated inside them, so a
+  joint's angle 0 is the handoff pose (ball limits +-1.0 rad per axis, hinge +-1.4 rad, a muscle tone toward it that
+  fades over 0.6 s).
+- **Bones to bodies, structurally** (`physics/ragdoll-rig.ts`; the contract forbids bone names): bodies are the LINK
+  bones under each `liveFigureRoots` root (a bone with a bone child: 11 on a rig.py figure); leaves (head, hand, foot,
+  hip, weapon) ride their parent, so the rifle stays on the spine it is bound to. Capsules from the body's own
+  vertices (plus its leaves' when it ends a chain); a hinge where a body ends a two-link chain (elbow, knee).
+- **Handoff:** claimed at the death (seen, in the camera's view, not in a catch-up, under the cap, in (tick, id)
+  order); the death sequence plays as today until `deathTick x 50 + 200 ms`, when the start pose is SAMPLED from the
+  death clip (`fall`/`fallAlt`, else `idle` with the topple's spin) at the sim's position and facing -- never read off
+  the frame-clock screen -- and the screen blends into the ragdoll over 100 ms. Freeze at 30 quiet steps or 240 steps;
+  the entity is then a `MeshWreck` (fog-revealed as usual).
+- **The `ragdolls` debug layer** hides every root the ragdolls hold or froze (a flag re-applied after the wreck reveal).
+- Tests: `physics/ragdoll-world.test.ts` (a committed digest, so CI's Linux and a developer's macOS must agree),
+  `physics/ragdoll-rig.test.ts` (the shipped GLBs), `ThreeRenderer.ragdoll*.test.ts` (wiring, the sim hash with physics
+  on and off, low never loads, the showcase).

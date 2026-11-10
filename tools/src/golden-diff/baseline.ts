@@ -1950,6 +1950,40 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
       'force, 519-656 px / 0.040-0.047 between two captures of the same commit. No committed ' +
       'baseline yet in any environment -- see `GROUND_T17`.',
   },
+  ragdoll: {
+    // GH-1223 slice 1, `RAGDOLL_SCENARIO`: the ragdoll showcase. No baseline exists for it in ANY environment: it ships in
+    // the change that adds it, and the first comes from CI and the post-merge bless after the lead has seen it. CI's
+    // `visual` job is red until then -- the `fogged` and `aftermath` precedent, and intended. Do not bless from the
+    // branch.
+    //
+    // 40 px / 0.004 is `aftermath`'s own ceiling, carried over: the same map and zoom, no sim unit or live effect in
+    // frame, and every body placed by physics stepped on the SIM clock from hashed inputs (the deterministic Rapier
+    // build), so two captures of one commit must agree. Re-derive it from the first CI readings, as GH-803 did.
+    region: null,
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.004,
+    layerChecks: [
+      {
+        layer: 'ragdolls',
+        // PENDING: no CI reading yet, so the floor is infinite -- the check cannot pass vacuously, and fails until the
+        // first three CI readings are written into `MEASURED` (a third of the smallest, rounded down; the
+        // `vehicle/selection-ring` precedent).
+        minDiffPixels: Number.POSITIVE_INFINITY,
+        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        rationale:
+          'GH-1223 slice 1: hiding the ragdolls (the `ragdolls` layer, a flag re-applied every frame) must move this ' +
+          'frame -- the six figures of the two showcase teams are the picture. PENDING: no CI reading exists; the floors ' +
+          'are re-derived from the first three CI runs at the bless. At the renderer level, a showcase that claims ' +
+          'nothing turns `ThreeRenderer.ragdoll-showcase.test.ts` red.',
+      },
+    ],
+    rationale:
+      'whole frame, qarn_hadid ragdoll showcase @ (38.5,36.5), zoom 2.2, tick 300 -- two renderer-only inf_squad teams ' +
+      'on the decal showcase flat site, clear of the sandbox force: one ragdoll frozen at rest (died at sim time 0), ' +
+      'one 0.2 s into its fall (died at tick 292). The mid-fall team is the determinism witness: frame-clock physics ' +
+      'moves it per process. Ceilings carried from aftermath; NO baseline yet: the first comes from CI at the ' +
+      'post-merge bless, after the lead has seen it (GH-1223).',
+  },
   dusk: {
     // NOT GATED, deliberately and from birth (spec §3.6: "`dusk` is a
     // report-only capture"), the same way `combat` is NOT GATED as a finding

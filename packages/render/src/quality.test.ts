@@ -19,8 +19,8 @@ describe('QUALITY_PRESETS', () => {
       // lead removed the open-ground puddle terms at S-L1.
       // GH-871 cheap-wet: every preset gains `rain.ground`, how much of the wet ground program it compiles. Was: no
       // such field (every preset compiled the full program). high stays 'full' (byte-identical); medium 'lite', low 'minimal'.
-      low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false } },
-      medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false } },
+      low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, physics: { ragdolls: 0 } },
+      medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, physics: { ragdolls: 0 } },
       // GH-984 N2: every preset gains `nature`, the vehicles' disturber budget (24 / 16 / 8 slots; wakes off and no foot on low,
       // foot on high only). Was: no such field. Read only by the foliage and trunk shader's loop; no other frame moves.
       // GH-777: aoScale 0.25. Was 0.5 (absent). `high` missed 60 fps at DPR 2.
@@ -38,6 +38,8 @@ describe('QUALITY_PRESETS', () => {
         smokeBillboardGain: 0.8,
         rain: { drops: 6000, ripples: true, ground: 'full' },
         nature: { slots: 24, wakes: true, foot: true },
+        // GH-1223: every preset ships 0 ragdolls (dark), so no preset fetches the WASM until the lead turns it on.
+        physics: { ragdolls: 0 },
       },
     };
     expect(QUALITY_PRESETS).toEqual(expected);

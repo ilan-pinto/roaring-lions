@@ -340,6 +340,7 @@ describe('the launch URL', () => {
       civ: false,
       ditch: false,
       decals: false,
+      ragdoll: false,
       kit: true,
       works: false,
     });

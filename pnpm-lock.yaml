@@ -92,6 +92,9 @@ importers:
 
   packages/render:
     dependencies:
+      '@dimforge/rapier3d-deterministic-compat':
+        specifier: 0.21.0
+        version: 0.21.0
       '@lions/sim':
         specifier: workspace:*
         version: link:../sim
@@ -280,6 +283,9 @@ packages:
 
   '@dimforge/rapier3d-compat@0.12.0':
     resolution: {integrity: sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow==}
+
+  '@dimforge/rapier3d-deterministic-compat@0.21.0':
+    resolution: {integrity: sha512-n7JuU62Obljlgq+OeH2DHhTmRSjRzwuJPl54tS9pFIzVQyvXsO5CH+a5KkIRBtnFWDbg1Zicv9BulG0jfBAopA==}
 
   '@emnapi/runtime@1.11.3':
     resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
@@ -2130,6 +2136,8 @@ snapshots:
   '@csstools/css-tokenizer@4.0.2': {}
 
   '@dimforge/rapier3d-compat@0.12.0': {}
+
+  '@dimforge/rapier3d-deterministic-compat@0.21.0': {}
 
   '@emnapi/runtime@1.11.3':
     dependencies:

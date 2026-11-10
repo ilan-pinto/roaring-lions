@@ -71,6 +71,7 @@ describe('routes', () => {
       civ: false,
       ditch: false,
       decals: false,
+      ragdoll: false,
       kit: true,
       works: false,
     });

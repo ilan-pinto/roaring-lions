@@ -58,6 +58,13 @@ export const MATERIAL_MATHS_MARKER = 'rl-material-maths';
  */
 export const NODE_MATERIAL_MARKER = 'rl-node-material-';
 
+/**
+ * GH-1223 (design guard 6): a wasm-bindgen export name only Rapier's glue carries (it survives minification: it is the
+ * WASM's own export). Rapier must live in exactly ONE chunk, reached only by a dynamic `import()`: never the entry, never
+ * anything the entry or any other chunk imports statically. Pinned against the installed package in the test.
+ */
+export const RAPIER_MARKER = 'rawintegrationparameters_new';
+
 export interface CensusFindings {
   readonly coreChunks: string[];
   readonly webgpuChunks: string[];
@@ -67,6 +74,8 @@ export interface CensusFindings {
   /** GH-943 P2 (T1): the chunks carrying `MATERIAL_MATHS_MARKER` and `NODE_MATERIAL_MARKER`. */
   readonly materialMathsChunks: string[];
   readonly nodeMaterialChunks: string[];
+  /** GH-1223: the chunks carrying `RAPIER_MARKER`. */
+  readonly rapierChunks: string[];
   readonly entryHasThree: string[];
   /** Chunks reachable from the entry by STATIC imports only. */
   readonly entryStaticClosure: string[];
@@ -100,10 +109,11 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
   const legacyPostChunks = chunks.filter((c) => LEGACY_POST_MARKERS.some((m) => has(c, m))).map((c) => c.file);
   const materialMathsChunks = chunks.filter((c) => has(c, MATERIAL_MATHS_MARKER)).map((c) => c.file);
   const nodeMaterialChunks = chunks.filter((c) => has(c, NODE_MATERIAL_MARKER)).map((c) => c.file);
+  const rapierChunks = chunks.filter((c) => has(c, RAPIER_MARKER)).map((c) => c.file);
   const entry = byFile.get(entryFile);
   const failures: string[] = [];
   if (!entry) {
-    return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, entryHasThree: [], entryStaticClosure: [], entryClosureBytes: 0, failures: [`entry chunk ${entryFile} not found`] };
+    return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, rapierChunks, entryHasThree: [], entryStaticClosure: [], entryClosureBytes: 0, failures: [`entry chunk ${entryFile} not found`] };
   }
   const entryHasThree = [CORE_MARKER, WEBGPU_MARKER, WEBGL_MARKER].filter((m) => has(entry, m));
   // Static closure from the entry.
@@ -169,6 +179,16 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
     }
     if (legacyPostChunks.includes(f)) failures.push(`the node-backend chunk ${f} carries three/addons/postprocessing code (${LEGACY_POST_MARKERS.join('/')})`);
   }
+  // GH-1223: presentation-only physics is one lazy chunk, fetched by the renderer only when a preset asks for ragdolls.
+  if (rapierChunks.length !== 1) failures.push(`Rapier must live in exactly ONE lazy chunk; found ${rapierChunks.length} (${rapierChunks.join(', ') || 'none'})`);
+  for (const f of rapierChunks) {
+    if (f === entryFile) failures.push(`MAIN CHUNK GUARD: Rapier is in the entry chunk ${f}`);
+    else if (seen.has(f)) failures.push(`MAIN CHUNK GUARD: Rapier is in ${f}, which the entry ${entryFile} statically imports`);
+    if (coreChunks.includes(f) || has(byFile.get(f) as Chunk, WEBGL_MARKER)) failures.push(`Rapier is bundled into a renderer chunk (${f}): a static import of it`);
+    for (const c of chunks) {
+      if (c.file !== f && staticImports(c.code).includes(f)) failures.push(`${c.file} statically imports the Rapier chunk ${f}: it must be a dynamic import()`);
+    }
+  }
   if (entryHasThree.length > 0) failures.push(`MAIN CHUNK GUARD: the entry chunk ${entryFile} carries three code (${entryHasThree.join(', ')})`);
   for (const f of [...coreChunks, ...webgpuChunks, ...nodeBackendChunks]) {
     if (seen.has(f)) failures.push(`MAIN CHUNK GUARD: the entry statically imports ${f}`);
@@ -177,5 +197,5 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
     const parts = [entryFile, ...entryStaticClosure].map((f) => `${f} ${byFile.get(f)?.code.length ?? 0}`).join(' + ');
     failures.push(`MAIN CHUNK GUARD: the entry chunk and its static imports are ${entryClosureBytes} bytes (${parts}), over the ${entryMaxBytes} ceiling`);
   }
-  return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, entryHasThree, entryStaticClosure, entryClosureBytes, failures };
+  return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, rapierChunks, entryHasThree, entryStaticClosure, entryClosureBytes, failures };
 }

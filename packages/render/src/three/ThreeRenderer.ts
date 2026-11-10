@@ -243,7 +243,7 @@ import {
   CLUSTER_BURST_POWER,
   clusterCarrierToRetire,
 } from './units/cluster-burst';
-import { decalShowcase, showcaseAnchor, showcaseSites } from './decal-showcase';
+import { decalShowcase, ragdollShowcaseSite, showcaseAnchor, showcaseSites } from './decal-showcase';
 import {
   DecalPool,
   createDecalMaterial,
@@ -660,6 +660,9 @@ import { TeamMaskSlots, VehicleTeamMaterials, setTeamMaskPass } from './units/te
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
 import { TEXTURED_INFANTRY_TYPES } from './units/textured-infantry';
+// GH-1223: the one door into presentation-only physics (`tools/physics_fence.mjs`).
+import { RagdollSystem, type RagdollDeath } from './physics/ragdoll-system';
+import type { StaticBox } from './physics/ragdoll-world';
 import {
   beginMeshDeath,
   settleMeshDeath,
@@ -818,6 +821,14 @@ import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, conta
 
 /** COPIED from tuning.ts (FS_MORTAR_BARRAGE, SMOKE_RANGE_SQ); the vfx-triggers spec reads tuning.ts as text. */
 const FS_MORTAR_BARRAGE = 1;
+/** GH-1223: the ragdoll showcase's team, its deaths (sim tick, tiles east of the site) and the ids its hashes use (no
+ *  sim entity has an index this high). 292 ticks is 14.6 s: 0.4 s into its fall at the scenario's tick 300. */
+const RAGDOLL_SHOWCASE_TYPE = 'inf_squad';
+const RAGDOLL_SHOWCASE_DEATHS: readonly { tick: number; dx: number }[] = [
+  { tick: 0, dx: -1 },
+  { tick: 292, dx: 1 },
+];
+const RAGDOLL_SHOWCASE_ID_BASE = 60_100;
 const CARRIER_SMOKE_RANGE_SQ_TILES = 5242880 / 65536; // tuning.ts SMOKE_RANGE_SQ, 80 tile^2
 
 /** Recoil/flinch decay durations, seconds -- redeclared from `renderer.ts`'s
@@ -2154,6 +2165,21 @@ export class ThreeRenderer implements Renderer {
    *  a later unit. */
   private readonly killerX: Float64Array;
   private readonly killerY: Float64Array;
+  /** GH-1223: the tick each entity's `destroyed` fired (-1 = none seen), and whether it fired during a catch-up --
+   *  a ragdoll's clock starts at the death TICK, never at the frame that noticed it. */
+  private readonly deathTick: Int32Array;
+  private readonly deathQuiet: Uint8Array;
+  /**
+   * GH-1223 slice 1: presentation-only ragdolls (`physics/ragdoll-system.ts`). The cap is the preset's
+   * `physics.ragdolls`, 0 everywhere today (shipped dark), and at 0 the WASM is never fetched. Nothing it computes is
+   * read by the sim (invariant 4): it moves bones of entities the sim has already killed.
+   */
+  private readonly ragdolls: RagdollSystem<DyingMeshUnit>;
+  /** GH-1223: the ragdoll showcase is owed (`RendererOptions.ragdollShowcase`, the gated `ragdoll` scenario). */
+  private ragdollShowcasePending: boolean;
+  /** GH-1223: every root the ragdolls hold or froze (the `ragdolls` debug layer's reach), and that layer's flag. */
+  private readonly ragdollRoots = new Set<THREE.Object3D>();
+  private ragdollLayerHidden = false;
   private readonly entitySpeed: Float64Array;
   /**
    * Task B3.14: event-driven presentation timers, one-shot latches set from
@@ -3088,6 +3114,11 @@ export class ThreeRenderer implements Renderer {
     this.fogViewer = this.viewer;
     this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
+    this.ragdollShowcasePending = opts.ragdollShowcase !== undefined;
+    this.ragdolls = new RagdollSystem<DyingMeshUnit>(opts.quality?.physics?.ragdolls ?? 0, {
+      groundAt: (x, z) => groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z),
+      boxesNear: (x, z) => this.ragdollBoxesNear(x, z),
+    });
     // The world never moves (a shake moves a COPY of the camera), so the scene
     // stops forcing a world-matrix multiply on every object each frame; what
     // does move still updates itself (`static-matrix.ts`).
@@ -3108,6 +3139,8 @@ export class ThreeRenderer implements Renderer {
     this.meshBodyYawSet = new Uint8Array(n);
     this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
     this.killerX = new Float64Array(n).fill(NaN);
+    this.deathTick = new Int32Array(n).fill(-1);
+    this.deathQuiet = new Uint8Array(n);
     this.buriedLast = new Uint8Array(n);
     this.killerY = new Float64Array(n).fill(NaN);
     this.entitySpeed = new Float64Array(n);
@@ -4208,6 +4241,12 @@ export class ThreeRenderer implements Renderer {
     // themselves are disposed once, below, by `disposeMeshUnitTemplate`.
     for (const w of this.meshWrecks) this.scene.remove(w.root);
     this.meshWrecks.length = 0;
+    // GH-1223: the incidents' worlds, and the entities only the ragdolls hold (shared template resources, as above).
+    for (const e of this.ragdolls.dispose()) {
+      this.scene.remove(e.root);
+      disposeMeshUnitEntity(e);
+    }
+    this.ragdollRoots.clear();
     this.pendingSettle.clear();
     this.settledDeadIds.clear();
     for (const variants of this.meshUnitTemplates.values()) {
@@ -4762,6 +4801,17 @@ export class ThreeRenderer implements Renderer {
         const next = visible ? 1 : 0;
         const changed = this.disturbU.amp.value === next ? 0 : 1;
         this.disturbU.amp.value = next;
+        return changed;
+      }
+      case 'ragdolls': {
+        // A FLAG, re-applied after the corpses' fog reveal every frame (`stepMeshDeaths`).
+        this.ragdollLayerHidden = !visible;
+        let changed = 0;
+        for (const root of this.ragdollRoots) {
+          if (root.parent === null) continue;
+          if (root.visible !== visible) changed++;
+          root.visible = visible;
+        }
         return changed;
       }
       case 'selection-ring':
@@ -6403,6 +6453,8 @@ export class ThreeRenderer implements Renderer {
       } else if (e.kind === 'destroyed') {
         this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
         this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;
+        this.deathTick[e.entity] = e.tick;
+        this.deathQuiet[e.entity] = this.quiet ? 1 : 0;
         const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
         // GH-85: a kamikaze's warhead going off. Inferred, not reported --
         // see `units/kamikaze-blast.ts` for the rule and its one accepted
@@ -10317,6 +10369,7 @@ export class ThreeRenderer implements Renderer {
     // `beginMeshDeath`'s own doc comment spells out why that makes this
     // safe with no captured x/y/facing/typeId at all, unlike Pixi's
     // `DyingUnit`.
+    const ragdollOffers: RagdollDeath<DyingMeshUnit>[] = [];
     for (const [id, entity] of this.meshUnitEntities) {
       if (id < n && st.alive[id] !== 0) continue;
       this.meshUnitEntities.delete(id);
@@ -10359,9 +10412,16 @@ export class ThreeRenderer implements Renderer {
         disposeMeshUnitEntity(entity);
       } else {
         const kx = this.killerX[id];
-        this.meshDying.push(beginMeshDeath(entity, id, Number.isNaN(kx) ? null : { x: kx, y: this.killerY[id] }));
+        const dying = beginMeshDeath(entity, id, Number.isNaN(kx) ? null : { x: kx, y: this.killerY[id] });
+        this.meshDying.push(dying);
+        const offer = this.ragdollOffer(id, dying);
+        if (offer !== null) ragdollOffers.push(offer);
       }
     }
+    // GH-1223: claims in (death tick, entity id) order, whatever order the map iterated in.
+    ragdollOffers.sort((a, b) => a.deathTick - b.deathTick || a.entityId - b.entityId);
+    for (const o of ragdollOffers) if (this.ragdolls.claim(o)) this.ragdollRoots.add(o.entity.root);
+    this.stepRagdolls();
     this.stepMeshDeaths(dtSeconds);
     this.stepMeshEvacs(dtSeconds);
   }
@@ -11908,6 +11968,136 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * GH-1223 slice 1: whether a death just handed to `meshDying` is offered to the ragdolls, and in what frame. Only a
+   * death the sim reported (`destroyed`, so its tick is known), outside a catch-up (a catch-up's deaths are placed at
+   * rest, today's path), drawn for this viewer and inside the camera's view. The frame is the SIM's: the snapshot
+   * position and facing, the ground under it, the killer's side -- never the interpolated, frame-clock pose on screen.
+   */
+  private ragdollOffer(id: number, dying: DyingMeshUnit): RagdollDeath<DyingMeshUnit> | null {
+    if (!this.ragdolls.ready || this.quiet) return null;
+    if (id >= this.snapshottedCount || this.deathTick[id] < 0 || this.deathQuiet[id] === 1) return null;
+    const entity = dying.entity;
+    if (!entity.root.visible) return null;
+    const st = this.sim.state;
+    const variants = this.infantryTemplates(entity.typeId, st.side[id]);
+    if (!variants) return null;
+    const x = this.curX[id];
+    const z = this.curY[id];
+    const y = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z);
+    const cam = this.threeCamera();
+    cam.updateMatrixWorld();
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(
+      new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse)
+    );
+    if (!frustum.containsPoint(new THREE.Vector3(x, y, z))) return null;
+    const yaw = meshYawFromFacing(this.curFacing[id]);
+    const kx = this.killerX[id];
+    const ky = this.killerY[id];
+    let ax = Number.isNaN(kx) ? -Math.cos(yaw) : x - kx;
+    let az = Number.isNaN(kx) ? Math.sin(yaw) : z - ky;
+    const len = Math.hypot(ax, az);
+    if (len < 1e-9) [ax, az] = [1, 0];
+    else [ax, az] = [ax / len, az / len];
+    return {
+      entityId: id,
+      deathTick: this.deathTick[id],
+      entity,
+      template: pickMeshVariant(variants, id),
+      at: { x, y, z, yaw },
+      away: [ax, az],
+      handle: dying,
+    };
+  }
+
+  /**
+   * GH-1223 slice 1: steps the ragdolls to the presentation SIM time (`beginFrameSimClock`'s, never frame time): drops
+   * the death sequences they took over from `meshDying`, and files every incident that froze as a corpse
+   * (`MeshWreck`), revealed by the fog like any other.
+   */
+  private stepRagdolls(): void {
+    if (this.ragdollShowcasePending) this.stampRagdollShowcase();
+    if (this.ragdolls.incidents === 0) return;
+    const { taken, settled } = this.ragdolls.update(this.lastFrameSimMs ?? 0);
+    for (const d of taken) {
+      const k = this.meshDying.indexOf(d);
+      if (k >= 0) this.meshDying.splice(k, 1);
+    }
+    for (const c of settled) {
+      const shown = this.opts.ragdollShowcase !== undefined || this.isExplored(c.x, c.z);
+      c.entity.root.visible = c.entity.root.visible && shown;
+      pushMeshWreck(this.meshWrecks, { root: c.entity.root, x: c.x, y: c.z, shown }, this.scene);
+    }
+  }
+
+  /** GH-1223: standing footprints within 2 tiles of (x, z), as boxes in world metres (the ragdoll's static patch). */
+  private ragdollBoxesNear(x: number, z: number): StaticBox[] {
+    const st = this.sim.structures;
+    const out: StaticBox[] = [];
+    const M = METRES_PER_TILE;
+    for (let s = 0; s < st.alive.length; s++) {
+      if (st.alive[s] !== 1) continue;
+      if (st.maxX[s] + 1 < x - 2 || st.minX[s] > x + 2 || st.maxY[s] + 1 < z - 2 || st.minY[s] > z + 2) continue;
+      const type = this.sim.structureTypes[st.typeIdx[s]];
+      const cx = (st.minX[s] + st.maxX[s] + 1) / 2;
+      const cz = (st.minY[s] + st.maxY[s] + 1) / 2;
+      const base = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cz);
+      const height = this.buildingMeshBounds.get(type.id)?.y ?? type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+      out.push({
+        centre: [cx * M, (base + height / 2) * M, cz * M],
+        half: [((st.maxX[s] - st.minX[s] + 1) / 2) * M, (height / 2) * M, ((st.maxY[s] - st.minY[s] + 1) / 2) * M],
+      });
+    }
+    return out;
+  }
+
+  /**
+   * GH-1223 slice 1: the ragdoll showcase (`RendererOptions.ragdollShowcase`, the gated `ragdoll` scenario). Two
+   * `inf_squad` teams on the decal showcase's flat site, renderer-only (no sim entity, no sim kill): one dies at sim
+   * time 0 (settled long before tick 300), one at 14.6 s (mid-fall at 15 s). Ids, yaws and pushes are hashed; every
+   * time is on the sim clock. Owed until the ragdolls are loaded, the terrain is built and the team's mesh is warm.
+   */
+  private stampRagdollShowcase(): void {
+    const anchor = this.opts.ragdollShowcase;
+    const ground = this.decalGround;
+    const surface = this.retained.elevation;
+    if (anchor === undefined || ground === null || surface === null || !this.ragdolls.ready) return;
+    const variants = this.meshUnitTemplates.get(RAGDOLL_SHOWCASE_TYPE);
+    if (!variants || variants.length === 0) return;
+    if (this.coldUnitTypes.has(RAGDOLL_SHOWCASE_TYPE)) {
+      this.warmUnitMesh(RAGDOLL_SHOWCASE_TYPE, 'spawned');
+      return;
+    }
+    this.ragdollShowcasePending = false;
+    const site = ragdollShowcaseSite(showcaseSites(ground.input, surface, showcaseAnchor(ground.input, surface, anchor)));
+    if (site === null) return;
+    RAGDOLL_SHOWCASE_DEATHS.forEach((d, k) => {
+      const id = RAGDOLL_SHOWCASE_ID_BASE + k;
+      const x = site.x + 0.5 + d.dx;
+      const z = site.y + 0.5;
+      const y = groundWorldY(surface, this.sim.width, this.sim.height, x, z);
+      const yaw = tileHash(id, 1) * Math.PI * 2;
+      const heading = tileHash(id, 2) * Math.PI * 2;
+      const template = variants[0];
+      const entity = instantiateMeshUnit(template, RAGDOLL_SHOWCASE_TYPE);
+      this.queueNodeAdoption(entity.root);
+      entity.root.position.set(x, y, z);
+      entity.root.rotation.y = yaw;
+      this.scene.add(entity.root);
+      this.ragdollRoots.add(entity.root);
+      entity.root.visible = !this.ragdollLayerHidden;
+      this.ragdolls.claim({
+        entityId: id,
+        deathTick: d.tick,
+        entity,
+        template,
+        at: { x, y, z, yaw },
+        away: [Math.cos(heading), Math.sin(heading)],
+        handle: null,
+      });
+    });
+  }
+
+  /**
    * Advances every mesh unit mid-death-fade (`units/mesh-death.ts`'s own
    * `stepMeshDeath`) and reveals any newly-explored permanent wreck
    * (`updateMeshWrecks`). All GPU-facing state lives in `mesh-death.ts`,
@@ -11933,6 +12123,12 @@ export class ThreeRenderer implements Renderer {
       if (result !== 'removed') pushMeshWreck(this.meshWrecks, result, this.scene);
     }
     updateMeshWrecks(this.meshWrecks, (x, y) => this.isExplored(x, y));
+    if (this.ragdollLayerHidden) {
+      for (const root of this.ragdollRoots) {
+        if (root.parent === null) this.ragdollRoots.delete(root);
+        else root.visible = false;
+      }
+    }
   }
 
   /**
