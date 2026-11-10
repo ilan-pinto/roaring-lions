@@ -386,6 +386,7 @@ class PoseBank:
                 names = {vg.index: vg.name for vg in ob.vertex_groups}
                 self.wt.append([{names[g.group]: g.weight for g in v.groups} for v in ob.data.vertices])
         self.poses = []     # (matrices {bone: 4x4 np}, world verts per obj)
+        self.pose_clip = []     # the clip each entry of `poses` was sampled from
         saved = arm.data.pose_position
         for clip in self.CLIPS:
             act = bpy.data.actions[clip]
@@ -408,6 +409,7 @@ class PoseBank:
                     W.append(np.array([v.co[:] for v in me.vertices]))
                     e.to_mesh_clear()
                 self.poses.append((mats, W))
+                self.pose_clip.append(clip)
         arm.data.pose_position = "REST"
         if arm.animation_data:
             arm.animation_data.action = None
