@@ -17,9 +17,12 @@ import {
  *
  * Every literal below is a reading re-run on this branch, not imagined:
  *
- *   Ambush (200 seeds, non-recon column, RPG in ambush(3), cover 2):
- *     base 100% volley-first / 100% identified · max tier 100% / 100%
- *     red arm (signature 3.0 ≈ 6.7× shipped 0.45): 0% volley-first, both tiers
+ *   Ambush (200 seeds, MBT-led non-recon column, RPG in ambush(3), cover 2):
+ *     base 100% volley-first (held fire ≤3.5 tiles AND before identified) ·
+ *     max tier 100%. Red arm WITHOUT the stance (fires at ~4.1 tiles): 0% at
+ *     both tiers — removing `setAmbush` turns the test red. A second red arm
+ *     (signature 3.0 ≈ 6.7× shipped 0.45) reads 0%: the column identifies the
+ *     team before the held volley, so the "before identified" bar is also live.
  *
  *   Raid escape (200 seeds × 3 technicals, engage + disengage vs 2 rifles + APC):
  *     base 98% survive · max tier 99% (gate ≥60%)
@@ -41,9 +44,11 @@ describe('Ambush (Ashwar) gate (GH-26)', () => {
     const base = ambushReading({}, SEEDS);
     const max = withRoster(unitsAtMaxTier, () => ambushReading({}, SEEDS));
     expect(base.volleyFirstPct).toBeGreaterThanOrEqual(90); // 100 read
+    expect(base.heldPct).toBeGreaterThanOrEqual(90); // 100 read — the stance held fire
     expect(base.firedPct).toBeGreaterThanOrEqual(90); // 100 read
     expect(base.identifiedPct).toBeGreaterThanOrEqual(90); // 100 read
     expect(max.volleyFirstPct).toBeGreaterThanOrEqual(90); // 100 read
+    expect(max.heldPct).toBeGreaterThanOrEqual(90); // 100 read
     expect(ambushPasses(base)).toBe(true);
     expect(ambushPasses(max)).toBe(true);
   }, 60_000);
@@ -51,6 +56,16 @@ describe('Ambush (Ashwar) gate (GH-26)', () => {
   it('the shipped target row reads PASS at both tiers', () => {
     expect(ambush(SEEDS).pass).toBe(true);
     expect(withRoster(unitsAtMaxTier, () => ambush(SEEDS)).pass).toBe(true);
+  }, 60_000);
+
+  it('goes red without the ambush stance (the RPG fires at max range), both tiers', () => {
+    const base = ambushReading({ stance: false }, SEEDS);
+    const max = withRoster(unitsAtMaxTier, () => ambushReading({ stance: false }, SEEDS));
+    expect(base.heldPct).toBeLessThanOrEqual(10); // 0 read: the volley goes out at ~4.1 tiles
+    expect(base.volleyFirstPct).toBeLessThan(80); // 0 read
+    expect(max.volleyFirstPct).toBeLessThan(80); // 0 read
+    expect(ambushPasses(base)).toBe(false);
+    expect(ambushPasses(max)).toBe(false);
   }, 60_000);
 
   it('goes red when the team is too visible (signature 3.0), both tiers', () => {

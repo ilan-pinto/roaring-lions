@@ -820,72 +820,83 @@ export function standoff(seeds = STANDOFF_SEEDS): TargetResult {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Ambush (Ashwar): an unspotted RPG team in `ambush(3)` gets its first
-//    volley off before a non-reconnoitred column identifies it.
+// 7. Ambush (Ashwar): an RPG team in `ambush(3)` holds fire until the column
+//    closes to the trap, then fires its first volley before being identified.
 //
-//    GDD §5.7 (extended, M1–M2): "an unspotted RPG team in `ambush(3)` gets
-//    its first volley off before being identified in ≥80% of engagements
-//    against a non-reconnoitred column." The `ambush` stance (GDD 5.5a) is the
-//    whole point: it halves the team's signature (`AMBUSH_SIG` 0.5) and holds
-//    fire until a target closes to the radius, then the team fires ON THE TICK
-//    it springs (`brace.test.ts` pins "already kneeling"). The measurement is
-//    the race between that first volley and the column's identification of the
-//    team: the volley must come first, in ≥80% of engagements.
+//    GDD §5.7 (extended, M1–M2): "an unspotted RPG team in `ambush(3)` gets its
+//    first volley off before being identified in ≥80% of engagements against a
+//    non-reconnoitred column." The `ambush` stance (GDD 5.5a) has two effects:
+//    it halves the team's signature while it waits (`AMBUSH_SIG` 0.5), and —
+//    the load-bearing one — it HOLDS FIRE until a target closes to the radius
+//    (3 tiles), where the RPG7's 5-tile range would otherwise let the team
+//    shoot the moment it identifies the column.
 //
-//    The column is deliberately NON-RECONNOITRED — no recon unit (the `scout`,
-//    `recon_*`, `ugv_recon_dog` types all read optics 1.8–2.0 against the
-//    convoy's 1.0) — because §5.7's Ashwar line is what makes "recon quality
-//    matters by Phase 5" true (GDD 6). With a recon unit in the column the
-//    optics beat the ambush signature and the target is a different claim.
+//    The first version of this target measured only "first volley before
+//    identified" and read 100% whether or not the stance was set: against an
+//    APC/jeep/rifle column the RPG team identifies the column at ~3 tiles, so
+//    it fires at ~3 tiles with or without `ambush(3)`, and its 0.45 signature
+//    keeps it unspotted either way — the gate measured the RPG's stealth, not
+//    the stance it is named for (reviewer finding). The fix leads the column
+//    with an `mbt_lavi` (signature 1.0, the most visible ground vehicle), which
+//    the RPG identifies at ~4.1 tiles: WITHOUT the stance the first volley goes
+//    out at 4.1 tiles (near max range), but WITH `ambush(3)` the RPG holds it
+//    until the column is at 2.85 tiles. The gate now requires the first volley
+//    to fire from ≤ AMBUSH_HOLD_FIRE_TILES (3.5, the RPG7's effective range)
+//    AND before the column identifies the team, in ≥80% of engagements.
+//    Removing `setAmbush` flips the measurement 100% → 0%: `doctrine-targets.test.ts`
+//    runs that red arm, and the commit message records the mutation.
 //
-//    Measured (200 seeds, base and max tier): 100% volley-first. The column
-//    identifies the team in every engagement, just AFTER the volley — the
-//    firing signature (4.5×) closes the race a few ticks later. The measurement
-//    is sensitive to the model, not a tautology: an RPG team with a 3.0
-//    signature (≈6.7× the shipped 0.45) reads 0% volley-first because the
-//    column identifies it before it closes to 3 tiles (`doctrine-targets.test.ts`
-//    runs that red arm; 2.0 is the boundary — 0% at max tier, 100% at base).
-//    The falsification in the commit message is the one-line inversion of the
-//    identification test.
+//    Measured (200 seeds, base and max tier): 100%. The column identifies the
+//    team in every engagement just AFTER the volley — the firing signature
+//    (4.5×) closes the race a few ticks later.
 // ---------------------------------------------------------------------------
 export const AMBUSH_SEEDS = 200;
 export const AMBUSH_SEED_BASE = 93000;
 export const AMBUSH_MIN_VOLLEY_FIRST_PCT = 80;
 /** Cover on the RPG team's tile (bushes/rocks that hide a waiting team). */
 export const AMBUSH_COVER = 2;
+/** The first volley must fire from within this many tiles — the RPG7's effective range, which the
+ *  ambush(3) hold-fire guarantees (measured 2.85 tiles); a non-ambushing team fires at ~4.1 tiles. */
+export const AMBUSH_HOLD_FIRE_TILES = 3.5;
 
 export interface AmbushArm {
-  /** Overrides the RPG team's signature (a falsification knob; undefined = shipped data). */
+  /** Set false to omit the ambush(3) stance — the red arm: the team fires at max range instead of holding. */
+  stance?: boolean;
+  /** Overrides the RPG team's signature (a second sensitivity knob; undefined = shipped data). */
   signature?: number;
 }
 
 export interface AmbushReading {
   seeds: number;
-  /** The team got a first volley off before the column identified it (0–100). */
+  /** First volley from ≤ AMBUSH_HOLD_FIRE_TILES AND before the column identified the team (0–100). */
   volleyFirstPct: number;
-  /** The team fired at least once (the "first volley" exists). */
+  /** The team fired at least once (0–100). */
   firedPct: number;
+  /** The first volley fired from ≤ AMBUSH_HOLD_FIRE_TILES — the stance held fire (0–100). */
+  heldPct: number;
   /** The column identified the team (the race is real, not "never seen"). */
   identifiedPct: number;
 }
 
-/** One engagement: a non-recon column driving east past an RPG team in ambush. */
-function ambushRun(seed: number, arm: AmbushArm): { firstFire: number; identified: number } {
+/** One engagement: a non-recon column, led by an MBT, driving east past an RPG team. */
+function ambushRun(seed: number, arm: AmbushArm): { firstFire: number; identified: number; held: boolean } {
   const W = 40;
   const H = 16;
-  const sim = new Sim({ seed, width: W, height: H, capacity: 16 });
+  const sim = new Sim({ seed, width: W, height: H, capacity: 24 });
   const rpgType: UnitTypeJson =
     arm.signature === undefined
       ? units.rpg_team
       : ({ ...units.rpg_team, sensors: { ...units.rpg_team.sensors, signature: arm.signature } } as UnitTypeJson);
   const rpg = sim.addUnitType(rpgType);
   const rpgId = sim.spawn(rpg, 1, fx.fromInt(20), fx.fromInt(10), 0); // just off the road (y=8)
-  sim.setAmbush(rpgId, fx.fromInt(3));
+  if (arm.stance !== false) sim.setAmbush(rpgId, fx.fromInt(3));
   sim.setCover(20, 10, AMBUSH_COVER);
 
-  // A non-reconnoitred column: an APC, a jeep and a rifle squad, no recon unit.
+  // A non-reconnoitred column led by an MBT (signature 1.0). The MBT is visible enough that the
+  // RPG identifies the column before 3 tiles, so the ambush(3) hold-fire is what keeps the first
+  // volley inside the trap radius rather than the RPG's own detection lag.
   const column: number[] = [];
-  const types = [units.apc_eitan, units.jeep_shoded, units.inf_squad];
+  const types = [units.mbt_lavi, units.inf_squad, units.apc_eitan];
   for (let i = 0; i < types.length; i++) {
     column.push(sim.spawn(sim.addUnitType(types[i]), 0, fx.fromInt(4 + i * 2), fx.fromInt(8)));
   }
@@ -893,39 +904,51 @@ function ambushRun(seed: number, arm: AmbushArm): { firstFire: number; identifie
 
   let firstFire = -1;
   let identified = -1;
+  let held = false;
   for (let t = 0; t < 60 * TICKS_PER_SECOND; t++) {
     for (const e of sim.tick()) {
-      if (e.kind === 'fire' && e.shooter === rpgId && firstFire < 0) firstFire = t;
+      if (e.kind === 'fire' && e.shooter === rpgId && firstFire < 0) {
+        firstFire = t;
+        // The trap closed: the first volley went out from inside the hold-fire radius.
+        if (e.target >= 0) {
+          const dx = (sim.state.posX[e.target] - sim.state.posX[rpgId]) / 65536;
+          const dy = (sim.state.posY[e.target] - sim.state.posY[rpgId]) / 65536;
+          held = Math.hypot(dx, dy) <= AMBUSH_HOLD_FIRE_TILES;
+        }
+      }
       if (e.kind === 'contact' && e.level === 'identified' && e.side === 0 && e.target === rpgId && identified < 0) identified = t;
     }
     if (firstFire >= 0 && identified >= 0) break;
     if (sim.state.alive[rpgId] === 0) break;
   }
-  return { firstFire, identified };
+  return { firstFire, identified, held };
 }
 
 export function ambushReading(arm: AmbushArm = {}, seeds = AMBUSH_SEEDS): AmbushReading {
   let volleyFirst = 0;
+  let held = 0;
   let fired = 0;
   let identified = 0;
   for (let s = 0; s < seeds; s++) {
     const o = ambushRun(AMBUSH_SEED_BASE + s, arm);
     if (o.firstFire >= 0) fired++;
+    if (o.held) held++;
     if (o.identified >= 0) identified++;
-    // "First volley before identified": the team fired, and either the column
-    // never identified it or did so only after the volley.
-    if (o.firstFire >= 0 && (o.identified < 0 || o.firstFire < o.identified)) volleyFirst++;
+    // "First volley before identified", held to the ambush radius: the team fired from inside
+    // the trap, and either the column never identified it or did so only after the volley.
+    if (o.firstFire >= 0 && o.held && (o.identified < 0 || o.firstFire < o.identified)) volleyFirst++;
   }
   return {
     seeds,
     volleyFirstPct: (100 * volleyFirst) / seeds,
     firedPct: (100 * fired) / seeds,
+    heldPct: (100 * held) / seeds,
     identifiedPct: (100 * identified) / seeds,
   };
 }
 
-/** The gate: ≥80% volley-first, and not vacuous (the team fires AND the column
- *  actually identifies it — else "before identified" is trivially true). */
+/** The gate: ≥80% of engagements the first volley fires from inside the trap AND before the
+ *  column identifies the team, and not vacuous (the column really does identify it). */
 export function ambushPasses(r: AmbushReading): boolean {
   return r.volleyFirstPct >= AMBUSH_MIN_VOLLEY_FIRST_PCT && r.identifiedPct >= 50;
 }
@@ -935,9 +958,9 @@ export function ambush(seeds = AMBUSH_SEEDS): TargetResult {
   const pct = (n: number) => `${n.toFixed(0)}%`;
   return {
     name: 'Ambush (Ashwar), RPG in ambush(3)',
-    detail: `${seeds} seeds, non-recon column: volley first ${pct(r.volleyFirstPct)}, team fired ${pct(r.firedPct)}, column identified ${pct(r.identifiedPct)}`,
+    detail: `${seeds} seeds, MBT-led non-recon column: volley first ${pct(r.volleyFirstPct)}, held fire ≤${AMBUSH_HOLD_FIRE_TILES} tiles ${pct(r.heldPct)}, team fired ${pct(r.firedPct)}, column identified ${pct(r.identifiedPct)}`,
     measured: `${pct(r.volleyFirstPct)} volley-first`,
-    target: `≥${AMBUSH_MIN_VOLLEY_FIRST_PCT}% first volley before identified`,
+    target: `≥${AMBUSH_MIN_VOLLEY_FIRST_PCT}% first volley from ≤${AMBUSH_HOLD_FIRE_TILES} tiles before identified`,
     pass: ambushPasses(r),
   };
 }
