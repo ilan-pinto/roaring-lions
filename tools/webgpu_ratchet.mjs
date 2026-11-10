@@ -43,6 +43,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/units/zone-band.node.ts',
   'packages/render/src/three/supply-route.node.ts',
   'packages/render/src/three/trail-mesh.node.ts',
+  // GH-943 P3 (T9): the tunnel x-ray (tube, collar, figure, beam). Its legacy twin (tunnel-xray.ts) keeps its GLSL until P8.
+  'packages/render/src/three/tunnel-xray.node.ts',
   // GH-943 P3 (T7): the decal pools and the crater rim. Its legacy twin (decal-pool.ts) keeps its GLSL until P8.
   'packages/render/src/three/decal-pool.node.ts',
 ];
@@ -89,6 +91,8 @@ export const TWINS = Object.freeze({
   [`${THREE}supply-route.ts`]: `${THREE}supply-route.node.ts`,
   [`${THREE}supply-route-maths.ts`]: `${THREE}supply-route.node.ts`,
   [`${THREE}trail-mesh.ts`]: `${THREE}trail-mesh.node.ts`,
+  // GH-943 P3 (T9)
+  [`${THREE}tunnel-xray.ts`]: `${THREE}tunnel-xray.node.ts`,
   // GH-943 P3 (T7). decal-maths.ts holds the kinds and the rim the decal twin shares (a change to it must touch the twin too, intended).
   [`${THREE}decal-pool.ts`]: `${THREE}decal-pool.node.ts`,
   [`${THREE}decal-maths.ts`]: `${THREE}decal-pool.node.ts`,
