@@ -209,6 +209,7 @@ import { SupportAircraftManager } from './units/support-aircraft';
 import { BlastRingPool, ringColorLinear } from './units/blast-ring';
 import { DebrisPool } from './units/debris-pool';
 import { debrisThrowFor, planDebris, restingPlan, type DebrisPlan } from './units/debris-flight';
+import { collapseChunkCount, collapseDustRecipe, planCollapseChunks } from './units/collapse-debris';
 import { debrisKeysFor, rampStep } from './units/debris-tone';
 import { HOLE_INTERIOR_TOWARD_CHAR, HOLE_SEED_LIMIT, addHole, type Hole } from './units/building-holes';
 import { BuildingHoleMaterials, type HoleColors } from './units/holed-material';
@@ -848,6 +849,9 @@ import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, conta
 
 /** COPIED from tuning.ts (FS_MORTAR_BARRAGE, SMOKE_RANGE_SQ); the vfx-triggers spec reads tuning.ts as text. */
 const FS_MORTAR_BARRAGE = 1;
+/** GH-1197 P5: the rubble showcase's two collapses hash as these (no real structure has an index this high; times 64
+ *  plus a salt it stays under 2^22, where `tileHash` is exact). */
+const RUBBLE_SHOWCASE_ID_BASE = 60000;
 
 /** GH-1197 P3: the direct-fire classes whose hit on a building throws masonry from the hit face (the coordinator's
  *  ruling Q2): one explosive round per shot. Small arms and the HMG keep today's centroid puff; indirect rounds add
@@ -2404,6 +2408,11 @@ export class ThreeRenderer implements Renderer {
   /** GH-1197 P4: the real holes of each holed building, and its holed materials -- minted on its FIRST hole and never
    *  before, so an unhit map binds no new program, material or side. Clone-drawn buildings only (per-tile walls: P4b). */
   private readonly buildingHoles = new Map<number, { holes: Hole[]; mats: BuildingHoleMaterials }>();
+  /** GH-1197 P5: where each building was last hit FROM (the shooter's position), so its collapse throws its chunks
+   *  60/40 away from that side. */
+  private readonly lastHitFrom = new Map<number, { x: number; y: number }>();
+  /** GH-1197 P5: the settled-rubble showcase is owed (`RendererOptions.rubbleShowcase`, stamped on the first frame). */
+  private rubbleShowcasePending = false;
   /** GH-1197 P3: the last tick a building threw a hit-face burst (`HIT_BURST_MIN_TICKS`). */
   private readonly structHitBurstTick = new Map<number, number>();
   /** Presentation sim time at the last `updateFx`, null before the first. */
@@ -3163,6 +3172,7 @@ export class ThreeRenderer implements Renderer {
     this.fogViewer = this.viewer;
     this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
+    this.rubbleShowcasePending = opts.rubbleShowcase !== undefined;
     // The world never moves (a shake moves a COPY of the camera), so the scene
     // stops forcing a world-matrix multiply on every object each frame; what
     // does move still updates itself (`static-matrix.ts`).
@@ -4633,6 +4643,7 @@ export class ThreeRenderer implements Renderer {
     // before any frame has run, and the showcase must still be stamped by
     // the next frame rather than lost to whichever caller built first.
     if (this.showcasePending) this.stampDecalShowcase();
+    if (this.rubbleShowcasePending) this.stampRubbleShowcase();
     this.updateMeshUnits(alpha, dtMs);
     this.updateVehicleMeshes(alpha, dtMs);
     this.updateSwarms(alpha, dtMs);
@@ -6669,6 +6680,8 @@ export class ThreeRenderer implements Renderer {
         // is the shared, sim-only predicate that tells the two apart (see its
         // own doc comment in `grind.ts`), same as the debug overlay uses.
         const hitStruct = e.structure;
+        // GH-1197 P5: the side this building was last hit from, for its collapse's 60/40 bias.
+        if (e.by >= 0 && e.by < this.curX.length) this.lastHitFrom.set(hitStruct, { x: this.curX[e.by], y: this.curY[e.by] });
         // GH-85: a demolition charge against the wall replaces the dust puff
         // with the blast (`eod_breach`).
         if (this.detonateChargeOnStructure(e.by, hitStruct, e.tick)) {
@@ -6777,6 +6790,9 @@ export class ThreeRenderer implements Renderer {
           const maxX = st.maxX[deadStruct];
           const maxY = st.maxY[deadStruct];
           this.stampGroundDecal(this.persistentStamp('rubble', bx, by, rubbleRadiusTiles(minX, minY, maxX, maxY)));
+          // GH-1197 P5: the flying debris, added under the shroud (unchanged). Flown when the collapse is seen; else
+          // placed at rest -- settled rubble is state, like the decal under it.
+          this.spawnCollapseDebris(deadStruct, collapseSeen);
         }
         if (collapseSeen && !this.spawnCollapseFx('structure_collapse', bx, by, collapsePower, collapseYawTurns)) {
           for (let k = 0; k < 14; k++) {
@@ -13507,6 +13523,96 @@ export class ThreeRenderer implements Renderer {
     const at = showcaseAnchor(ground.input, surface, anchor);
     for (const s of decalShowcase(showcaseSites(ground.input, surface, at))) this.stampGroundDecal(s);
     this.showcasePending = false;
+  }
+
+  /**
+   * GH-1197 P5: a building's final collapse throws its masonry from the roof line (`units/collapse-debris.ts`): 40
+   * chunks a 3x3 by area, capped at 48 (6 a tile for a per-tile wall), over 0-300 ms, 60/40 away from the side it was
+   * last hit from, 1.5-3.0 t and an apex of 2-4 t, coming to rest inside the rubble decal; the building's own ramp,
+   * a quarter charred. `fly` false places them at rest (a catch-up, or a collapse a versus seat cannot see). The
+   * landing debris' 12 dust billows go with a flown collapse only. Returns the chunks placed.
+   */
+  private spawnCollapseDebris(s: number, fly: boolean): number {
+    const st = this.sim.structures;
+    const type = this.sim.structureTypes[st.typeIdx[s]];
+    const minX = st.minX[s];
+    const minY = st.minY[s];
+    const maxX = st.maxX[s];
+    const maxY = st.maxY[s];
+    const radius = rubbleRadiusTiles(minX, minY, maxX, maxY);
+    const cx = (minX + maxX + 1) / 2;
+    const cz = (minY + maxY + 1) / 2;
+    const groundY = this.ringHeightAt(cx, cz);
+    if (fly && this.flipbook.ready) this.flipbook.spawnRecipe(collapseDustRecipe(radius), cx, groundY, cz, 0, 0, groundY);
+    const hitFrom = this.lastHitFrom.get(s) ?? null;
+    this.lastHitFrom.delete(s);
+    const pool = this.debris;
+    if (pool === null) return 0;
+    const root = this.buildingMeshIdleEntities.get(s);
+    const roofY = root !== undefined
+      ? new THREE.Box3().setFromObject(root).max.y
+      : groundY + (this.buildingMeshBounds.get(type.id)?.y ?? type.heightPx * WORLD_Y_PER_LIFT_PIXEL);
+    const tiles = (maxX - minX + 1) * (maxY - minY + 1);
+    const chunks = planCollapseChunks(s, minX, minY, maxX, maxY, hitFrom, radius, collapseChunkCount(tiles, type.perTile));
+    return pool.spawn(...this.collapsePlans(chunks, roofY, type.color, fly));
+  }
+
+  /** The pool's plans and colours for planned collapse chunks launched from `roofY`, in the masonry of `colorKey`. */
+  private collapsePlans(
+    chunks: ReturnType<typeof planCollapseChunks>, roofY: number, colorKey: string, fly: boolean
+  ): [DebrisPlan[], THREE.Color[]] {
+    const keys = masonryKeysFor(colorKey);
+    const plans: DebrisPlan[] = [];
+    const colors: THREE.Color[] = [];
+    for (let k = 0; k < chunks.length; k++) {
+      const c = chunks[k];
+      const plan = planDebris(
+        c.x, roofY, c.z, k, false,
+        { clods: 0, chunks: 1, throwTiles: c.rangeTiles, apexTiles: c.apexTiles },
+        this.ringHeightAt, { dirRad: c.headingRad, spreadRad: 0 }, true
+      );
+      plans.push(fly ? { ...plan, delayMs: c.delayMs } : restingPlan(plan));
+      colors.push(ringColorLinear(paletteHex(masonryKeyFor(keys, k))));
+    }
+    return [plans, colors];
+  }
+
+  /**
+   * GH-1197 P5: the settled-rubble showcase (`RendererOptions.rubbleShowcase`, the gated `rubble` scenario): on the
+   * decal showcase's own anchor (clear of the force) and its flat and road sites, a 3x3 `limestone.3` house and a 2x2
+   * `dust.1` shed, each a rubble decal and its chunks at rest, all dated sim time 0. Owed until the terrain exists.
+   */
+  private stampRubbleShowcase(): void {
+    const anchor = this.opts.rubbleShowcase;
+    const ground = this.decalGround;
+    const surface = this.retained.elevation;
+    if (anchor === undefined || ground === null || surface === null) return;
+    this.rubbleShowcasePending = false;
+    const at = showcaseAnchor(ground.input, surface, anchor);
+    const sites = showcaseSites(ground.input, surface, at);
+    const flat = sites.find((x) => x.kind === 'flat');
+    // The shed takes the road site, else the relief one, else stands five tiles east of the house.
+    const shed = sites.find((x) => x.kind === 'road') ?? sites.find((x) => x.kind === 'relief') ?? (flat ? { x: flat.x + 5, y: flat.y } : undefined);
+    const specs: { site: { x: number; y: number } | undefined; size: number; color: string; id: number }[] = [
+      { site: flat, size: 3, color: 'limestone.3', id: 0 },
+      { site: shed, size: 2, color: 'dust.1', id: 1 },
+    ];
+    for (const spec of specs) {
+      const site = spec.site;
+      if (site === undefined) continue;
+      const minX = site.x - (spec.size === 3 ? 1 : 0);
+      const minY = site.y - (spec.size === 3 ? 1 : 0);
+      const maxX = minX + spec.size - 1;
+      const maxY = minY + spec.size - 1;
+      const radius = rubbleRadiusTiles(minX, minY, maxX, maxY);
+      const cx = (minX + maxX + 1) / 2;
+      const cz = (minY + maxY + 1) / 2;
+      this.stampGroundDecal({ ...this.persistentStamp('rubble', cx, cz, radius), simMs: 0 });
+      if (this.debris === null) continue;
+      const chunks = planCollapseChunks(RUBBLE_SHOWCASE_ID_BASE + spec.id, minX, minY, maxX, maxY, null, radius, collapseChunkCount(spec.size * spec.size, false));
+      const [plans, colors] = this.collapsePlans(chunks, this.ringHeightAt(cx, cz) + 1, spec.color, false);
+      this.debris.spawn(plans, colors, 0);
+    }
   }
 
   /** A round persistent mark of radius `r` tiles at `(x, z)`, dated this

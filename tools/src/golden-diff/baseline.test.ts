@@ -948,10 +948,21 @@ describe('BASELINES layerChecks', () => {
      *  is still asserted non-zero below, and total erasure still fails them
      *  (the last assertion in this loop). */
     const SUB_THRESHOLD_PX = 100;
+    /** Checks that ship before any CI reading exists (GH-1197 P5's `rubble` scenario): their floors are INFINITE, so
+     *  they fail until the first three CI readings are written into `MEASURED` and the floors are derived from them --
+     *  never a check that passes on nothing. Listed by hand: leaving this list is a deliberate edit. */
+    const PENDING = new Set(['rubble/debris']);
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
         // GH-943 P1 (T5): a `zero` check has no floor to derive from a signal; it has its own test below.
         if (check.kind === 'zero') continue;
+        if (PENDING.has(`${id}/${check.layer}`)) {
+          expect(MEASURED[id]?.[check.layer], `${id}/${check.layer} is measured: derive its floors and leave PENDING`).toBeUndefined();
+          expect(check.minDiffPixels).toBe(Number.POSITIVE_INFINITY);
+          expect(check.minMeanAbsChannelDelta).toBe(Number.POSITIVE_INFINITY);
+          expect(evaluateLayerCheck(summary({ diffPixels: 1e9, meanAbsChannelDelta: 255 }), check).ok).toBe(false);
+          continue;
+        }
         const m = MEASURED[id]?.[check.layer];
         expect(m, `no measurement recorded for ${id}/${check.layer}`).toBeDefined();
         if (!m) continue;

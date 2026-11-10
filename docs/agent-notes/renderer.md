@@ -719,3 +719,19 @@ Design: `docs/superpowers/specs/2026-11-09-explosion-scale-and-building-physics-
   (`ThreeRenderer.building-holes.test.ts`, "an unhit map mints no holed material"; its falsifier, a hole on every building as
   it stands up, goes red). The GLSL was checked with `glslangValidator` (GLSL ES 3.00) outside the suite; its edge lattice
   is pinned line for line in `holed-material.test.ts`, because the TS mirror's seam test cannot see the GLSL copy.
+
+## The staged collapse (GH-1197 P5)
+
+- **Today's shroud is unchanged** (the lead's ruling 2: 2.4 s, hold 0.35, cover 1.25, the swap at 420 ms). On a building's
+  `structureDestroyed`, beside its rubble decal, `spawnCollapseDebris` ADDS the flying debris (`units/collapse-debris.ts`): 40
+  chunks a 3x3 by area, capped at 48 (6 a tile for a per-tile wall), launched from the roof line over 0-300 ms (the plan's
+  `delayMs`), 60/40 AWAY from the side the building was last hit from (`lastHitFrom`, the shooter's position on its last
+  `structureHit`; no hit, all round), 1.5-3.0 t and an apex of 2-4 t, clamped so every chunk rests INSIDE the rubble decal (the
+  clamp wins where the two meet). The building's own masonry ramp, a quarter `gunmetal.2`. The landing debris' 12 dust billows
+  (alpha 0.45) go with a flown collapse. A catch-up, or a collapse a versus seat cannot see, places the chunks at rest (state,
+  like the decal). Rubble fades into its decal 90 s on, over 1.5 s, on the SIM clock: the P2 pool's own fade.
+- `planDebris(..., exact)` takes the collapse's own range and apex, and the launch speed is now solved from the fall to the
+  ground under the launch point (a roof or a wall is higher), so a piece rests within its range from any height.
+- **Not in P5** (the coordinator's ruling Q1): the band-2 partial-collapse sag.
+- The settled-rubble showcase for the gated `rubble` scenario: `RendererOptions.rubbleShowcase` (`&rubble`, sandbox only; see
+  `visual-gate.md`).
