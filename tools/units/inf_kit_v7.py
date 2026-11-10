@@ -292,7 +292,7 @@ def v7_throat(f, side=None):
     return pc
 
 
-GROIN_BELT_GAP = 0.001    # the apron's inner face stands this far off the belt's front
+GROIN_BELT_GAP = 0.001    # the apron's inner face stands this far off the belt's front (was 0.0025 in wave 4; 0.001 from wave 5)
 GROIN_TOP_GAP_LIMIT = 0.005   # contact: its top edge within this of the belt front at rest
 
 
@@ -343,10 +343,15 @@ def groin_fit(f, V0=None):
     tilt, h = assert_hangs("groin", f, V, GROIN_MIN_HEIGHT)
     g = km.outer_gap([bb], V, FORWARD)
     band = inner & ~np.isnan(g) & (V[:, 2] > 0.86) & (V[:, 2] < 0.96)
-    med = float(np.median(g[band])) if band.any() else 0.0
-    if med > GROIN_BAND_MEDIAN_LIMIT:
-        raise ValueError(f"{f.prefix}: groin inner face stands a median {1000 * med:.1f} mm off the belt band (limit {1000 * GROIN_BAND_MEDIAN_LIMIT:.0f}): a board, not an apron")
-    _stats(f, name="groin", top_edge_gap_mm=round(1000 * gap, 2), inner_face_gap_to_belt_mm=round(1000 * float(np.median(g[band])), 1) if band.any() else None,
+    # The bar is the OUTER EDGES' gap to the belt (lateral offset over 90 mm from the buckle), where a flattened plate stands off a
+    # curving belt: 35-37 mm for wave 4's unbent apron, 9-15 mm for the approved curvature (the earlier band-median gate, 25 mm, sat
+    # 1.2 mm above the measured maximum and the flattened apron passed it).
+    edge = inner & ~np.isnan(g) & (np.abs(V[:, 1] - yb) > 0.09) & (V[:, 2] > top - 0.06)
+    edge_med = float(np.median(g[edge])) if edge.any() else 0.0
+    if edge_med > GROIN_EDGE_GAP_LIMIT:
+        raise ValueError(f"{f.prefix}: groin outer edges stand a median {1000 * edge_med:.1f} mm off the belt (limit {1000 * GROIN_EDGE_GAP_LIMIT:.0f}): "
+                         f"a flat board on a curving belt, not an apron")
+    _stats(f, name="groin", top_edge_gap_mm=round(1000 * gap, 2), inner_face_band_median_mm=round(1000 * float(np.median(g[band])), 1) if band.any() else None, outer_edge_gap_mm=round(1000 * edge_med, 1),
            belt_pairs=pb, carrier_pairs=pc_, thin_axis_deg=round(tilt, 1), z_span_mm=round(1000 * h, 1))
     if V0 is None:
         c["groin"] = (V, T)
@@ -354,8 +359,8 @@ def groin_fit(f, V0=None):
 
 
 GROIN_MIN_HEIGHT = 0.15
-GROIN_BAND_MEDIAN_LIMIT = 0.025   # the inner face's median distance to the belt band along -X. Measured with the part's own curvature: 23.4 / 21.7 / 18.8 mm (wave 4, flattened: 26 / 23 / 33). 15 mm is not reachable by a rigid, un-notched apron: the buckle stands about 20 mm ahead of the band and the plate must clear it
-GROIN_DROP = 0.002     # the apron's top edge starts this far below the belt's top (the buckle's own top is lower than the band's)
+GROIN_EDGE_GAP_LIMIT = 0.020   # the apron's outer edges' median gap to the belt along -X (approved curvature 9-15 mm; flattened 35-37 mm)
+GROIN_DROP = 0.002     # the apron's top edge starts this far below the belt's top (0.004 in wave 4; 0.002 from wave 5); the loop below lowers it to 6 / 10 / 15 / 20 mm if the belt makes the plate stand out
 THROAT_GAP = 0.0025
 
 
@@ -433,84 +438,179 @@ def v7_radio_pack(f, side=None):
     return _back_piece(f, "radio_pack", 0.0, 1.40, "olive")
 
 
-GRIP_BONES = ("hand", "finger", "weapon")     # what a case on the chest must stay out of at every pose-bank key
+GRIP_BONES = ("hand", "finger", "weapon", "upperarm", "forearm", "neck", "head")   # what a case on the chest must stay out of at every pose-bank key
 GRIP_NEAR_M = 0.003
+EUD_MAX_TILT_DEG = 15.0        # the case's yaw and pitch off the figure's front
+EUD_BACK_GAP_LIMIT = 0.005     # its back face's MEDIAN gap to the plate (the Meshy plate is faceted: no rigid case is within 5 mm at every corner)
+EUD_BACK_GAP_MAX = 0.012       # and its worst back-face vertex within this
+EUD_FOOTPRINT = ((0.0, 0.0), (0.04, 0.08), (-0.04, 0.08), (0.04, -0.08), (-0.04, -0.08))    # (across, up) under the case: its centre and corners, metres
 
 
-def eud_grip_hits(f, V, T):
-    """Pose-bank points of the hands, fingers and the weapon (every other bone's vertices at every sampled key of every living
-    clip, in the spine's rest frame: `PoseBank.blockers`) that lie INSIDE the placed case (a ray hits it in all six directions) or
-    within GRIP_NEAR_M of its surface. Returns (hand points, weapon points). The first search (wave 4) tested only the throat and
-    moved the case 100-150 mm down into the low-ready grip: the firing hand crossed it and the rifle went through it."""
+def eud_grip_hits(f, V, T, kinds=None):
+    """Pose-bank points of the hands, fingers, weapon, upper arms, forearms, neck and head (every other bone's vertices at every
+    sampled key of every living clip, in the spine's rest frame: `PoseBank.blockers`) that lie INSIDE the placed case (a ray hits it in
+    all six directions) or within GRIP_NEAR_M of its surface. Returns {kind: points}. Wave 4 tested the throat only and the case went
+    into the grip; wave 5 added hand, finger and weapon and the case went to the plate's outer corner, across the support upper arm
+    (6 of 8 clips) and the neck and collar (idle and move)."""
     if f.bank is None:
         raise ValueError(f"{f.prefix}: the EUD grip check needs the pose bank")
     lo, hi = V.min(0) - 0.01, V.max(0) + 0.01
     pts, who = f.bank.blockers(f.prefix, "spine", tuple(lo), tuple(hi))
     b = geo.bvh_from(V, T)
     dirs = [Vector(d) for d in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))]
-    hand = weapon = 0
+    hits = {}
     seen = set()
     for q, w_ in zip(pts, who):
         kind = str(w_).split("_")[0]
-        if kind not in GRIP_BONES:
+        if kind not in (GRIP_BONES if kinds is None else kinds):
             continue
-        key = (kind == "weapon", round(float(q[0]) * 1000), round(float(q[1]) * 1000), round(float(q[2]) * 1000))      # one point per mm
+        key = (kind, round(float(q[0]) * 1000), round(float(q[1]) * 1000), round(float(q[2]) * 1000))      # one point per mm
         if key in seen:
             continue
         seen.add(key)
         v = Vector(q)
         near = b.find_nearest(v)[3]
         # a point inside the thin case is within half its thickness (14 mm) of a face: only those get the six-way inside test
-        hit = near < GRIP_NEAR_M or (near < 0.02 and all(b.ray_cast(v + d * 1e-5, d)[0] is not None for d in dirs))
-        if hit:
-            if kind == "weapon":
-                weapon += 1
-            else:
-                hand += 1
-    return hand, weapon
+        if near < GRIP_NEAR_M or (near < 0.02 and all(b.ray_cast(v + d * 1e-5, d)[0] is not None for d in dirs)):
+            hits[kind] = hits.get(kind, 0) + 1
+    return hits
 
 
-def eud_place(f, dy, dz, V0, cb):
-    ey, ez = ik.EUD_AT
-    c, n = km.surf_frame([cb], np.array([f.O[0], f.O[1] + ey + dy, ez + dz]), (-1, 0, 0), 0.04, 0.05)
-    if c is None:
-        return None, 0.0
-    V = km.place(V0, c - n * 0.0005, n, UP)
-    shift, _g = km.clear_shift([cb, f.zone_torso], V, n, gap=GAP, mask=V0[:, 0] < 0.004)
-    return V + n * shift, shift
+def eud_frame(f, cb, y, z):
+    """The plate's own local normal under the case's footprint: the carrier's front hit at the case's centre and corners, a plane through
+    them (SVD), oriented outward. Returns (centre point, normal, worst plane residual m) or None if any of the five rays misses."""
+    pts = []
+    for da, du in EUD_FOOTPRINT:
+        loc = cb.ray_cast(Vector((f.O[0] + 1.0, y + da, z + du)), Vector((-1, 0, 0)), 2.0)[0]
+        if loc is None:
+            return None
+        pts.append(np.array(loc))
+    P = np.array(pts)
+    c = P.mean(0)
+    n = np.linalg.svd(P - c)[2][2]
+    if n[0] < 0:
+        n = -n
+    return P[0], n / np.linalg.norm(n), float(np.abs((P - c) @ n).max())
 
 
-def v7_eud(f, side=None):
-    """The phone case on the carrier's front. It starts at EUD_AT (high on the LEFT chest) and searches ASIDE (+y, away from the firing
-    side) and UP before DOWN, in 1 cm steps. A spot is accepted only with 0 triangle pairs with the throat AND no hand, finger or
-    weapon point of the pose bank inside it or within 3 mm at any key of any clip. If none passes it is refused, not shipped."""
+def eud_tilt_deg(n):
+    """(yaw, pitch) of a case normal off the figure's front."""
+    return math.degrees(math.atan2(n[1], n[0])), math.degrees(math.asin(max(-1.0, min(1.0, float(n[2])))))
+
+
+def eud_try(f, cb, tb, V0, T, y, z):
+    """Place the case at (y, z) on the plate and run every check but the pose bank. Returns (V, normal, back_gap) or (None, reason)."""
+    fr = eud_frame(f, cb, y, z)
+    if fr is None:
+        return None, "off the plate"
+    c, n, resid = fr
+    yaw, pitch = eud_tilt_deg(n)
+    if abs(yaw) > EUD_MAX_TILT_DEG or abs(pitch) > EUD_MAX_TILT_DEG:
+        return None, f"normal {yaw:.0f} / {pitch:.0f} degrees"
+    base = km.place(V0, c - n * 0.0005, n, UP)
+    shift = 0.0
+    while overlap_pairs(base + n * shift, T, [cb]) and shift < 0.04:      # out along the normal until no triangle of the case crosses the plate
+        shift += 0.001
+    V = base + n * shift
+    if overlap_pairs(V, T, [cb]):
+        return None, "crosses the carrier"
+    if overlap_pairs(V, T, [tb]):
+        return None, "crosses the throat"
+    g = km.outer_gap([cb], V, n)
+    back = (V0[:, 0] < 0.004) & ~np.isnan(g)
+    gap = float(np.median(g[back])) if back.any() else 9.0
+    worst = float(g[back].max()) if back.any() else 9.0
+    if gap > EUD_BACK_GAP_LIMIT or worst > EUD_BACK_GAP_MAX:
+        return None, f"back face {1000 * gap:.1f} mm (worst corner {1000 * worst:.1f}) off the plate"
+    return (V, n, gap), None
+
+
+def eud_readings(f, V, T, n, back_gap, cb, tb):
+    """Every reading the gate holds, for the report and the refusals."""
+    yaw, pitch = eud_tilt_deg(n)
+    return {"yaw_deg": round(yaw, 1), "pitch_deg": round(pitch, 1), "back_gap_mm": round(1000 * back_gap, 1),
+            "carrier_pairs": overlap_pairs(V, T, [cb]), "throat_pairs": overlap_pairs(V, T, [tb]), "pose_bank_hits": eud_grip_hits(f, V, T)}
+
+
+EUD_STRICT = False   # the wave-7 rules (below) have no solution on this carrier: see `v7_eud`. The wave-5 placement ships until the lead rules.
+
+
+def v7_eud_wave5(f, side=None):
+    """Wave 5's placement, unchanged and still SHIPPING: from EUD_AT, aside (+y) and up before down in 1 cm steps, accepted with 0 throat
+    pairs and no hand, finger or weapon pose-bank point in or within 3 mm. It ends at the plate's upper OUTER corner (110 / 100 / 100 mm
+    aside), yawed 34-37 degrees and pitched 23-36, 29-53 mm off the carrier on f0 and f1 and half sunk on f2, across the support upper arm
+    in 6 of 8 clips and the neck and collar in idle and move (the wave-5 review, N4). It is kept because the wave-7 rules refuse every spot."""
     cb = carrier_hull(f)[2]
     tv, tt = throat_fit(f)
     tb = geo.bvh_from(tv, tt)
     V0, T = km.source("phone_case")
+    ey, ez = ik.EUD_AT
     dzs = [0.0, 0.01, 0.02] + [-0.01 * k for k in range(1, 16)]
     best = None
     for dz in dzs:
         for dy in [0.01 * k for k in range(0, 16)]:
-            V, shift = eud_place(f, dy, dz, V0, cb)
-            if V is None:
+            c, n = km.surf_frame([cb], np.array([f.O[0], f.O[1] + ey + dy, ez + dz]), (-1, 0, 0), 0.04, 0.05)
+            if c is None:
                 continue
-            tp = overlap_pairs(V, T, [tb])
-            if tp:
+            V = km.place(V0, c - n * 0.0005, n, UP)
+            shift, _g = km.clear_shift([cb, f.zone_torso], V, n, gap=GAP, mask=V0[:, 0] < 0.004)
+            V = V + n * shift
+            if overlap_pairs(V, T, [tb]):
                 continue
-            hand, weapon = eud_grip_hits(f, V, T)
-            if best is None or (hand + weapon) < best[0]:
-                best = (hand + weapon, V, shift, dy, dz, hand, weapon)
+            hits = eud_grip_hits(f, V, T, kinds=("hand", "finger", "weapon"))
+            hand, weapon = hits.get("hand", 0) + hits.get("finger", 0), hits.get("weapon", 0)
+            if best is None or hand + weapon < best[0]:
+                best = (hand + weapon, hand, weapon, dy, dz)
             if hand + weapon == 0:
-                _stats(f, name="phone_case", shift_mm=round(1000 * shift, 2), moved_aside_mm=round(1000 * dy), moved_up_mm=round(1000 * dz),
-                       throat_pairs=0, grip_points_hand=0, grip_points_weapon=0)
+                _stats(f, name="phone_case", where="wave5", shift_mm=round(1000 * shift, 2), moved_aside_mm=round(1000 * dy), moved_up_mm=round(1000 * dz), throat_pairs=0)
                 pc = Piece(f.world())
                 add_mesh(pc, V, T, "olive_dark")
                 return pc
-    if best is None:
-        raise ValueError(f"{f.prefix}: the EUD found no place on the plate clear of the throat")
-    raise ValueError(f"{f.prefix}: the EUD found no place clear of the grip: the best, {1000 * best[3]:.0f} mm aside and {1000 * best[4]:+.0f} mm up, "
-                     f"still has {best[5]} hand / finger and {best[6]} weapon pose-bank points in or within {1000 * GRIP_NEAR_M:.0f} mm of it")
+    raise ValueError(f"{f.prefix}: the EUD found no place clear of the throat and the grip (best {best})")
+
+
+def v7_eud(f, side=None):
+    if not EUD_STRICT:
+        return v7_eud_wave5(f, side)
+    return v7_eud_strict(f, side)
+
+
+def v7_eud_strict(f, side=None):
+    """The phone case LIES FLAT on the carrier's front plate: its back face on the plate's own local normal under its footprint, yaw and pitch
+    off the front under 15 degrees, 0 carrier and throat pairs, the back face within 5 mm of the plate. The spot is searched on a 2-D grid
+    over the plate (sideways x up / down, 1 cm steps), nearest first from EUD_AT (high on the left chest), and accepted only if no hand,
+    finger, weapon, upper arm, forearm, neck or head pose-bank point lies in it or within 3 mm at any key of any clip. If none passes, the
+    fallback ruling: the case on the front's LOW CENTRE, below where the rifle and fists pass at low ready. If that fails, the export is
+    refused with the best candidates' readings."""
+    cb = carrier_hull(f)[2]
+    tv, tt = throat_fit(f)
+    tb = geo.bvh_from(tv, tt)
+    V0, T = km.source("phone_case")
+    ey, ez = ik.EUD_AT
+    grid = sorted(((dy, dz) for dy in [0.01 * k for k in range(-12, 16)] for dz in [0.01 * k for k in range(-16, 5)]),
+                  key=lambda t: (t[0] ** 2 + t[1] ** 2, -t[1], -t[0]))
+    low = sorted(((dy, dz) for dy in [0.01 * k for k in range(-5, 6)] for dz in [0.01 * k for k in range(-22, -10)]),
+                 key=lambda t: (t[0] ** 2, -t[1]))
+    best = []
+    for tag, cands in (("grid", grid), ("low centre", low)):
+        for dy, dz in cands:
+            y, z = f.O[1] + ey + dy, ez + dz
+            if tag == "low centre":
+                y = _centre_xy(f)[1] + dy
+            got, why = eud_try(f, cb, tb, V0, T, y, z)
+            if got is None:
+                continue
+            V, n, gap = got
+            r = eud_readings(f, V, T, n, gap, cb, tb)
+            if not r["pose_bank_hits"]:
+                _stats(f, name="phone_case", where=tag, aside_mm=round(1000 * dy), up_mm=round(1000 * dz), **{k: v for k, v in r.items() if k != "pose_bank_hits"})
+                pc = Piece(f.world())
+                add_mesh(pc, V, T, "olive_dark")
+                return pc
+            best.append((sum(r["pose_bank_hits"].values()), tag, dy, dz, r))
+    best.sort(key=lambda b_: b_[0])
+    raise ValueError(f"{f.prefix}: the EUD found no spot on the plate or the low centre clear of the body and the gun; best: "
+                     + "; ".join(f"{t} {1000 * dy:+.0f} / {1000 * dz:+.0f} mm: {r['pose_bank_hits']}" for _n, t, dy, dz, r in best[:3]))
 
 
 # ------------------------------------------------------------ the helmet
