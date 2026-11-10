@@ -223,3 +223,23 @@ describe('a hostile hit in versus fog draws nothing (versus-leaks style)', () =>
     expect(pieces({ versus: true, viewerSide: 0 }, true)).toBe(20);
   });
 });
+
+describe('a missile fired at a building throws no ground debris on landing (its hit throws the masonry)', () => {
+  type Landing = { x: number; y: number; headingTurns: number; power: number; scale: number; miss: boolean; munition?: unknown; atStructure?: boolean };
+  function landed(l: Partial<Landing>): number {
+    const { r, p } = world(TANK);
+    (r as unknown as { spawnMissileImpactFx(l: Landing): void }).spawnMissileImpactFx({
+      x: 21, y: 21, headingTurns: 0, power: 1, scale: 1, miss: false, munition: { cls: 'direct_he', splash: 0.9 }, ...l,
+    });
+    const n = p.debris!.liveCount;
+    r.dispose();
+    return n;
+  }
+  it('a hit on a building: no ground debris', () => {
+    expect(landed({ atStructure: true })).toBe(0);
+  });
+  it('a miss still marks the ground, and a round at a unit throws as P2 did', () => {
+    expect(landed({ atStructure: true, miss: true })).toBeGreaterThan(0);
+    expect(landed({})).toBeGreaterThan(0);
+  });
+});
