@@ -538,12 +538,210 @@ describe('objectives and mission end', () => {
   });
 
   it('rejects objective types the runtime does not support yet', () => {
-    // The example was `collapse` until that type gained a runtime; `escort`
-    // is the schema's next still-unimplemented type. When it graduates too,
-    // move to another — the guard under test is SUPPORTED, not the example.
+    // The example was `collapse` until that type gained a runtime, then `escort`;
+    // `no_collateral_above` is the schema's next still-unimplemented type. When it
+    // graduates too, move to another — the guard under test is SUPPORTED, not the example.
     expect(() =>
-      makeWorld(baseMission({ objectives: [{ id: 'x', type: 'escort', primary: true }] }))
-    ).toThrow(/escort/);
+      makeWorld(baseMission({ objectives: [{ id: 'x', type: 'no_collateral_above', primary: true }] }))
+    ).toThrow(/no_collateral_above/);
+  });
+});
+
+// GH-2: `escort` keeps the units a tag names alive until they all stand in a zone. `target` is the tag, `zone` the destination.
+describe('escort (GH-2)', () => {
+  const DEST = { dest: [20, 2, 5, 7] };
+  const escort = (extra: Partial<ObjectiveJson> = {}): ObjectiveJson => ({ id: 'vip', type: 'escort', primary: true, target: 'vip', zone: 'dest', ...extra });
+  /** One escorted squad (id 0), one bystander squad of the player's (id 1) so a death is not a wiped force. */
+  const world = (objectives: ObjectiveJson[] = [escort()], force: PlacementJson[] = [
+    { unit: 'm_squad', count: 1, at: [3, 5], tag: 'vip' },
+    { unit: 'm_squad', count: 1, at: [3, 8] },
+  ], prep?: (sim: Sim) => void): World =>
+    makeWorld(baseMission({ starting_force: force, objectives }), { zones: DEST }, prep);
+  const walk = (w: World, id = 0): void => w.sim.queueCommand({ kind: 'move', ids: [id], x: fx.from(21.5), y: fx.from(5.5) });
+  const status = (w: World, id = 'vip') => w.runtime.objectiveList.find((o) => o.id === id)?.status;
+
+  it('completes the tick the escorted unit stands in the zone, and not before', () => {
+    const w = world();
+    walk(w);
+    expect(w.step(2).mission.some((e) => e.kind === 'objective')).toBe(false);
+    expect(status(w)).toBe('active');
+    const { mission } = w.step(60 * TICKS_PER_SECOND);
+    expect(mission.some((e) => e.kind === 'objective' && e.id === 'vip' && e.status === 'complete')).toBe(true);
+    expect(w.sim.state.posX[0] >> 16).toBeGreaterThanOrEqual(20);
+    expect(w.runtime.result).toBe('victory');
+  });
+
+  it('reports its destination as the objective zone, for the map and the minimap', () => {
+    expect(world().runtime.objectiveList.find((o) => o.id === 'vip')?.zone).toBe('dest');
+  });
+
+  it('fails the tick the escorted unit dies, and a primary escort loses the mission', () => {
+    const w = world();
+    walk(w);
+    w.step(10);
+    w.sim.debugKill(0);
+    const { mission } = w.step(2);
+    expect(mission.some((e) => e.kind === 'objective' && e.id === 'vip' && e.status === 'failed')).toBe(true);
+    expect(w.runtime.result).toBe('defeat');
+    expect(w.runtime.defeatCause).toEqual({ objective: 'vip' });
+  });
+
+  it('a secondary escort that fails does not end the mission', () => {
+    const w = world([escort({ primary: false }), { id: 'hold', type: 'survive_until', primary: true, seconds: 600 }]);
+    w.step(5);
+    w.sim.debugKill(0);
+    w.step(2);
+    expect(status(w)).toBe('failed');
+    expect(w.runtime.result).toBe('ongoing');
+  });
+
+  it('a tag of two needs both in the zone at once, and the loss of either fails it', () => {
+    const force: PlacementJson[] = [{ unit: 'm_squad', count: 2, at: [3, 5], tag: 'vip' }, { unit: 'm_squad', count: 1, at: [3, 8] }];
+    const slow = world([escort()], force);
+    walk(slow, 0);
+    slow.step(40 * TICKS_PER_SECOND);
+    expect(slow.sim.state.posX[0] >> 16).toBeGreaterThanOrEqual(20); // one has arrived and the other has not moved
+    expect(status(slow)).toBe('active');
+    walk(slow, 1);
+    slow.step(60 * TICKS_PER_SECOND);
+    expect(status(slow)).toBe('complete');
+    const lost = world([escort()], force);
+    walk(lost, 0);
+    lost.step(40 * TICKS_PER_SECOND);
+    lost.sim.debugKill(1);
+    lost.step(2);
+    expect(status(lost)).toBe('failed');
+  });
+
+  it('the zone is its tiles exactly: the four corners are in, the tile beyond each edge is out', () => {
+    // dest is [20, 2, 5, 7]: x 20..24, y 2..8.
+    const at = (x: number, y: number) => {
+      const w = world();
+      w.step(1);
+      w.sim.state.posX[0] = fx.from(x); // fixture: the body is placed, not walked, so the edge is exact
+      w.sim.state.posY[0] = fx.from(y);
+      w.step(1);
+      return status(w);
+    };
+    for (const [x, y] of [[20.5, 2.5], [24.5, 2.5], [20.5, 8.5], [24.5, 8.5]]) expect(at(x, y), `(${x}, ${y})`).toBe('complete');
+    for (const [x, y] of [[19.5, 5.5], [25.5, 5.5], [22.5, 1.5], [22.5, 9.5]]) expect(at(x, y), `(${x}, ${y})`).toBe('active');
+  });
+
+  it('a unit that dies standing in the zone has not arrived: the loss is what the objective reads', () => {
+    const w = world();
+    w.step(2);
+    w.sim.state.posX[0] = fx.from(21.5); // fixture: the body is already on the zone when it dies
+    w.sim.state.posY[0] = fx.from(5.5);
+    w.sim.debugKill(0);
+    w.step(2);
+    expect(status(w)).toBe('failed');
+  });
+
+  it('a buried escort is not in the zone, whatever its body coordinates say', () => {
+    const w = world([escort()], undefined, (sim) => {
+      sim.addTunnel({ id: 'tn_esc', points: [[1, 1], [3, 1]], dig_tiles_per_s: 1 });
+    });
+    walk(w);
+    w.step(60 * TICKS_PER_SECOND);
+    expect(status(w)).toBe('complete'); // control: on the surface the same walk arrives
+    const buried = world([escort()], undefined, (sim) => {
+      sim.addTunnel({ id: 'tn_esc', points: [[1, 1], [3, 1]], dig_tiles_per_s: 1 });
+    });
+    walk(buried);
+    buried.step(5);
+    buried.sim.putInTunnel(0, 0);
+    buried.sim.state.posX[0] = fx.from(21.5);
+    buried.sim.state.posY[0] = fx.from(5.5);
+    buried.step(2);
+    expect(status(buried)).toBe('active');
+  });
+
+  it('writes nothing into the sim: the hash with an escort objective equals the hash without one, every tick', () => {
+    const force: PlacementJson[] = [{ unit: 'm_squad', count: 1, at: [3, 5], tag: 'vip' }];
+    const withEscort = world([escort(), { id: 'hold', type: 'survive_until', primary: true, seconds: 600 }], force);
+    const without = world([{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }], force);
+    for (const w of [withEscort, without]) walk(w);
+    for (let t = 0; t < 40 * TICKS_PER_SECOND; t++) {
+      withEscort.step(1);
+      without.step(1);
+      expect(withEscort.sim.hash(), `tick ${t + 1}`).toBe(without.sim.hash());
+    }
+    expect(status(withEscort)).toBe('complete'); // and the objective did run in that span
+  });
+
+  it('a man down in the zone has not arrived; he has once he is up (GH-707 wounds, `isDown`)', () => {
+    // Registering a type with `hull.wounds` is what turns the wound columns on (`woundLive`); without it `isDown` is false.
+    const w = world([escort()], undefined, (sim) => {
+      sim.addUnitType({ id: 'm_wounded', role: 'wounded', hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, can_embark: true }, mobility: { speed_tiles_s: 0.12 }, sensors: { optics: 0.5, sight_tiles: 0, signature: 0.3 } });
+      sim.addUnitType({ ...SQUAD, id: 'm_woundable', hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 }, wounds: { wound_chance: 1, bleed_s: 600, type: 'm_wounded', in_place: true } } });
+    });
+    w.sim.state.posX[0] = fx.from(21.5); // fixture: the body stands on the zone
+    w.sim.state.posY[0] = fx.from(5.5);
+    const ws = w.sim.state.woundState as Uint8Array;
+    ws[0] = 1; // DOWN
+    w.runtime.step([]); // the runtime alone: the sim's own wound machinery is not under test
+    expect(status(w)).toBe('active');
+    ws[0] = 0; // up
+    w.runtime.step([]);
+    expect(status(w)).toBe('complete');
+  });
+
+  for (const carrier of ['m_carrier', 'm_heli']) {
+    it(`an escort carried by a ${carrier} is where the carrier stands, and it completes there`, () => {
+      const w = world([escort()], [
+        { unit: carrier, count: 1, at: [3, 5], passengers: [{ unit: 'm_rider', count: 1, tag: 'vip' }] },
+        { unit: 'm_squad', count: 1, at: [3, 8] },
+      ]);
+      expect(w.sim.state.carriedBy[1]).toBe(0); // the rider is aboard
+      walk(w, 0);
+      expect(w.step(2).mission.some((e) => e.kind === 'objective')).toBe(false);
+      expect(status(w)).toBe('active'); // the carrier is on its way, so the rider is not in the zone
+      w.step(60 * TICKS_PER_SECOND);
+      expect(w.sim.state.carriedBy[1]).toBe(0); // and still aboard: it did not get out to arrive
+      expect(w.sim.state.posX[0] >> 16).toBeGreaterThanOrEqual(20);
+      expect(status(w)).toBe('complete');
+    });
+  }
+
+  describe('refuses a broken escort at load', () => {
+    it('with no tag', () => expect(() => world([escort({ target: undefined })])).toThrow(/needs a tag/));
+    it('with a tag no placement carries', () => expect(() => world([escort({ target: 'nobody' })])).toThrow(/needs a tag/));
+    it('with a tag on the enemy', () => {
+      expect(() =>
+        makeWorld(baseMission({
+          starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+          enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [22, 5], tag: 'vip' }] },
+          objectives: [escort()],
+        }), { zones: DEST }),
+      ).toThrow(/not the player's/);
+    });
+    it('with a tag that names a player unit AND an enemy one: one stranger is enough', () => {
+      expect(() =>
+        makeWorld(baseMission({
+          starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5], tag: 'vip' }],
+          enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [22, 5], tag: 'vip' }] },
+          objectives: [escort()],
+        }), { zones: DEST }),
+      ).toThrow(/not the player's/);
+    });
+    it('and does NOT refuse a tag with one unit inside the zone and one outside: only all-inside is the first-tick win', () => {
+      expect(() =>
+        world([escort()], [
+          { unit: 'm_squad', count: 1, at: [21, 5], tag: 'vip' },
+          { unit: 'm_squad', count: 1, at: [3, 5], tag: 'vip' },
+        ]),
+      ).not.toThrow();
+    });
+    it('with no zone, or a zone the map does not have', () => {
+      expect(() => world([escort({ zone: undefined })])).toThrow(/valid zone/);
+      expect(() => world([escort({ zone: 'nowhere' })])).toThrow(/valid zone/);
+    });
+    it('that starts inside its zone', () => {
+      expect(() => world([escort()], [{ unit: 'm_squad', count: 1, at: [21, 5], tag: 'vip' }])).toThrow(/first tick/);
+    });
+    it('on any other type: a zone belongs to escort alone', () => {
+      expect(() => world([{ id: 'x', type: 'survive_until', primary: true, seconds: 60, zone: 'dest' }])).toThrow(/takes no zone/);
+    });
   });
 });
 
