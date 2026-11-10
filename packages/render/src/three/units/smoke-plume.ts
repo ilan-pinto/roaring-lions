@@ -206,6 +206,7 @@
  * did its job," not as a defect to chase.
  */
 import * as THREE from 'three';
+import type { Ops } from '../fog-ops';
 import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import {
@@ -725,6 +726,23 @@ export const SMOKE_PLUME_EDGE_SOFTNESS = 0.55;
  * dissolves the seam.
  */
 export const SMOKE_PLUME_TOP_DENSITY = 0.4;
+
+/**
+ * GH-943 WebGPU P3 (T11): the rim-fade alpha, written ONCE against `Ops<T>` for BOTH rim-fade materials (the plume and the collapse
+ * shroud; `rim-fade.node.ts` is handed this function as a value). The legacy GLSL keeps its own text.
+ *
+ *   `rim   = smoothstep(0, softness, facing)`               `facing` is |N.V|: abs(viewNormal.z) on the orthographic camera
+ *   `thin  = mix(1, topDensity, height)`                    the plume only (`height` 0 at the base, 1 at the top of the column)
+ *   `alpha = density * opacity * rim * thin`                the fragment is DISCARDED where this is <= 0
+ */
+export function rimFadeOps<T>(
+  o: Ops<T>,
+  i: { readonly facing: T; readonly opacity: T; readonly softness: number; readonly density: number; readonly height?: T; readonly topDensity?: number }
+): { readonly rim: T; readonly thin: T; readonly alpha: T } {
+  const rim = o.smoothstep(o.lit(0), o.lit(i.softness), i.facing);
+  const thin = i.height !== undefined && i.topDensity !== undefined ? o.mix(o.lit(1), o.lit(i.topDensity), i.height) : o.lit(1);
+  return { rim, thin, alpha: o.mul(o.mul(o.mul(o.lit(i.density), i.opacity), rim), thin) };
+}
 
 /**
  * The soft, translucent material every plume zone draws through -- a

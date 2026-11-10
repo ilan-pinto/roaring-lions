@@ -996,3 +996,14 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   carries (landed or hovering) in `livingIn`/`contestedIn`/`enemyNear`; a unit in a GROUND vehicle keeps today's rule. `stepGoals` returns before `stepObjectives` while
   `setupActive`, so a flag's hold clock starts at the bell. 36 placements in one tick on wadi_tarfan_l with 30 live fields cost about 6.6 ms
   (`tools/src/perf/setup-kit-timing.ts`, printed, not a gate).
+
+- **The flag backstop (GH-976, WP6a, lead ruling 9 Nov 2026).** In a flag SET-UP room (`flagSetupRoom(config)`), a match nobody has won 12 minutes after the
+  bell is decided on standing-force value: the higher `forcesOf` wins, a level value draws, `by: 'time'` (the panel's existing "Time — won on remaining
+  forces" line; no new string). `FLAG_BACKSTOP_MINUTES` (12, `@lions/data`, a ruling pinned in `versus.test.ts`) counts from the BELL (`sim.setupBellTick`, which
+  an early Ready moves earlier), not from tick 0, so the set-up never eats into it. It is NOT sim code: `hashTickOutcome` passes `outcomeOf` a cap of
+  `min(room cap, flagBackstopTick(config, sim))`, so the goal still wins first (a completed hold at the stop tick beats the value rule), annihilation and a
+  stalemate still end it first, and the decision lands on the first hash tick at or after the stop. `flagBackstopTick` is null before the bell
+  (`setupActive` true or absent), in a world with no set-up (`setupBellTick` -1) and in every other room, so v1 flag, camp, points and economy rooms keep
+  their caps and the sim's golden hash did not move. Measured as WP5e (GH-976, seeds 53000..53095, three maps, a scripted attacker): it decides 59-68% of games
+  and picks the side that went on to win in 93-94% of the games play would have decided later. `tools/src/net/cap.ts`'s `capOutcome` is unchanged and still reads
+  the room's own cap: a harness that settles a set-up room on the cap tick instead of through `hashTickOutcome` does not see the backstop.

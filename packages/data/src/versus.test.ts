@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { VersusModeFileJson } from './versus';
-import { SETUP_BAND_TILES_LARGE, SETUP_KIT, SETUP_SECONDS, VERSUS_CAP_MINUTES_DEFAULT, doctrines, flagBlockOf, maps, setupLineOf, setupRegionOf, versusCapMinutesOf, versusMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf } from './index';
+import { FLAG_BACKSTOP_MINUTES, SETUP_BAND_TILES_LARGE, SETUP_KIT, SETUP_SECONDS, VERSUS_CAP_MINUTES_DEFAULT, doctrines, flagBlockOf, maps, setupLineOf, setupRegionOf, versusCapMinutesOf, versusMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf } from './index';
 
 describe('the exports', () => {
   it('doctrines are the two shipped files, keyed by faction, with the Q4 caps', () => {
@@ -14,6 +14,12 @@ describe('the exports', () => {
     // rujm_sawda (GH-913) is in VERSUS_FAIR_MAPS (L8) and not in FACTION_MATCHUP_MAPS.
     expect(Object.keys(versusRules).sort()).toEqual(['milh_flats_l', 'rujm_sawda', 'tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']); // Was 3 rules files; wadi_tarfan_l and milh_flats_l are GH-920 B3
     for (const [id, r] of Object.entries(versusRules)) expect(r.map).toBe(id);
+  });
+});
+
+describe('the flag backstop ruling (GH-976 WP6a)', () => {
+  it('is 12 minutes after the bell: a ruling pinned here, so a change is a decision and not a drive-by', () => {
+    expect(FLAG_BACKSTOP_MINUTES).toBe(12);
   });
 });
 

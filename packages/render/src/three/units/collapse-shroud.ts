@@ -570,6 +570,12 @@ export function collapseShroudPuffGeometry(): THREE.BufferGeometry {
 }
 
 /**
+ * GH-943 WebGPU P3 (T11): the `aShade` thresholds that pick `uDeep` (below the first), `uBody` (below the second) or `uCrown`. The
+ * shader below spells them from here, and the node twin (`rim-fade.node.ts`) is handed them as values, so the two cannot drift.
+ */
+export const COLLAPSE_SHROUD_SHADE_BREAKS: readonly [number, number] = [0.5, 1.5];
+
+/**
  * The material every puff draws through.
  *
  * Two channels multiply into alpha and each answers a different question:
@@ -622,7 +628,7 @@ export function createCollapseShroudMaterial(): THREE.ShaderMaterial {
         // is a constant view-space +Z, so |N.V| is exactly abs(viewNormal.z).
         vFacing = abs(viewNormal.z);
         vOpacity = aOpacity;
-        vColor = aShade < 0.5 ? uDeep : (aShade < 1.5 ? uBody : uCrown);
+        vColor = aShade < ${COLLAPSE_SHROUD_SHADE_BREAKS[0].toFixed(1)} ? uDeep : (aShade < ${COLLAPSE_SHROUD_SHADE_BREAKS[1].toFixed(1)} ? uBody : uCrown);
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
       }
     `,

@@ -15,7 +15,7 @@ import type { maps, ParsedMap } from '@lions/data';
 import { DECOR_LOD1, DECOR_MESHES, PROP_MESHES, meshPlanFor } from '../../../packages/app/src/mesh-catalogue';
 import { censusUnported } from '../../../packages/render/src/three/backend/unported';
 import type { ArmId } from './webgpu-refusals';
-import { drawTypeOf, emptyByType, medianOrNull, type DrawObjectLike, type DrawType, type FullReason, type PerPass, type RenderPassId, type SubmitReading, type VariantId } from './webgpu-submit-probe-lib';
+import { drawTypeOf, emptyByType, medianOrNull, type DrawObjectLike, type DrawType, type FullReason, type PerPass, type RenderPassId, type SubmitReading, type Uploads, type VariantId } from './webgpu-submit-probe-lib';
 
 interface BatchedLike {
   isBatchedMesh?: boolean;
@@ -347,7 +347,11 @@ interface GlRendererLike {
 interface NodeRendererInternals {
   info: { update: (object: unknown, count: number, instanceCount: number) => void };
   _nodes: { needsRefresh: (ro: NodeRenderObject) => number };
+  /** The backend's upload entries (T14's counts): every vertex-attribute, uniform-buffer and texture upload three asks for. */
+  backend: Record<UploadMethod, (...a: unknown[]) => unknown>;
 }
+type UploadMethod = 'updateAttribute' | 'updateBinding' | 'updateTexture';
+const UPLOAD_KIND: Readonly<Record<UploadMethod, keyof Uploads>> = { updateAttribute: 'attribute', updateBinding: 'binding', updateTexture: 'texture' };
 interface NodeRenderObject {
   object: DrawObjectLike;
   getMonitor(): { hasNode?: boolean; hasAnimation?: boolean };
@@ -461,7 +465,21 @@ function legacyTallies(gl: GlRendererLike, mainScene: unknown): { done: () => { 
 }
 
 /** The stats frame's per-type draws and FULL refreshes on a node arm: counting wraps of `info.update` and `_nodes.needsRefresh`. */
-function nodeTallies(nr: NodeRendererInternals): { done: () => { byType: Record<DrawType, number>; full: Record<DrawType, number>; reason: FullReason } } {
+function nodeTallies(nr: NodeRendererInternals): { done: () => { byType: Record<DrawType, number>; full: Record<DrawType, number>; reason: FullReason; uploads: Uploads } } {
+  const uploads: Uploads = { attribute: 0, binding: 0, texture: 0 };
+  const be = nr.backend;
+  const restoreUploads = (Object.keys(UPLOAD_KIND) as UploadMethod[]).map((k) => {
+    const own = Object.prototype.hasOwnProperty.call(be, k);
+    const orig = be[k];
+    be[k] = function (this: unknown, ...a: unknown[]) {
+      uploads[UPLOAD_KIND[k]]++;
+      return orig.apply(this, a);
+    };
+    return (): void => {
+      if (own) be[k] = orig;
+      else delete (be as Partial<Record<UploadMethod, unknown>>)[k];
+    };
+  });
   const byType = emptyByType();
   const full = emptyByType();
   const reason: FullReason = { hasNode: 0, hasAnimation: 0, other: 0 };
@@ -492,7 +510,8 @@ function nodeTallies(nr: NodeRendererInternals): { done: () => { byType: Record<
       else delete (info as { update?: unknown }).update;
       if (ownRefresh) nodes.needsRefresh = refresh;
       else delete (nodes as { needsRefresh?: unknown }).needsRefresh;
-      return { byType, full, reason };
+      for (const r of restoreUploads) r();
+      return { byType, full, reason, uploads };
     },
   };
 }
@@ -531,6 +550,7 @@ export async function submitMeasure(o: { n: number; variant: VariantId; frames: 
     let byType: Record<DrawType, number>;
     let fullRefresh: Record<DrawType, number> | null = null;
     let fullReason: FullReason | null = null;
+    let uploads: Uploads | null = null;
     let calls: number;
     let triangles: number;
     await tick();
@@ -548,6 +568,7 @@ export async function submitMeasure(o: { n: number; variant: VariantId; frames: 
       byType = got.byType;
       fullRefresh = got.full;
       fullReason = got.reason;
+      uploads = got.uploads;
     } else {
       const glr = r.renderer as unknown as GlRendererLike;
       const info = r.renderer.info;
@@ -584,7 +605,7 @@ export async function submitMeasure(o: { n: number; variant: VariantId; frames: 
         if (ms !== null) gpu.push(ms);
       }
     }
-    return { arm, n: o.n, living: livingCount(sim), variant: o.variant, applied, settleFrames: settled.frames, settled: settled.ok, perPass, calls, triangles, byType, fullRefresh, fullReason, cpuRenderMs, cpuRenderInclCensusMs, censusMs, gpuMs: medianOrNull(gpu), profileTop: [] };
+    return { arm, n: o.n, living: livingCount(sim), variant: o.variant, applied, settleFrames: settled.frames, settled: settled.ok, perPass, calls, triangles, byType, fullRefresh, fullReason, uploads, cpuRenderMs, cpuRenderInclCensusMs, censusMs, gpuMs: medianOrNull(gpu), profileTop: [] };
   } finally {
     applyVariant(s, o.variant, false, undo);
   }

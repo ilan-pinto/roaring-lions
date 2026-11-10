@@ -17,6 +17,15 @@
  * claw, taken as the forearm bone's triangles within 0.12 m of its farthest point from the posed elbow (an approximation
  * the audit's wrist table refines; held and worn roles excluded). A hand with no geometry (fused into the torso) reads 0.
  *
+ * Self-occlusion (the lead's rulings, 1 and 9 Nov): "directions where the figure's own torso hides the hand do not count;
+ * the bar stays strict for every other direction". The reading looks through the figure's own TORSO -- its triangles on
+ * its own `spine` and `pelvis` bones that are not a held role, the kit worn there included (a plate carrier is the
+ * torso's surface) -- and keeps everything else as an occluder: its own arms and head, the held weapon (the magazine),
+ * another figure of the team, any unskinned object. So a facing counts as seen when nothing but the torso stands between
+ * the camera and the hand, and still needs the 3 pixels; the 6 of 8 bar is unchanged. `selfOcclusion: 'count'` is the
+ * old reading, kept to show the exclusion does work; `occluder` puts a box in front of a hand to show a foreign object
+ * still hides it; `torsoOnly: false` looks through the whole own body, to show the arm is still an occluder.
+ *
  * Zoom 1 is not gated: a hand is 2 px there by construction. The bar of 6 of 8 is the audit's A8, awaiting the lead's
  * word; most claw hands sit at 4-5.
  *
@@ -26,7 +35,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { updateDimetricCamera } from '../camera';
-import { collectTriangles, visibleSubject } from '../garage/garage-focus';
+import { collectTriangles, visibleSubject, type SceneTriangles } from '../garage/garage-focus';
 import { parseGlbHeadless } from './headless-gltf';
 import { MESH_SCALE } from './mesh-anim';
 import { buildMeshUnitTemplate } from './mesh-unit';
@@ -40,9 +49,28 @@ const VIEWPORT = 640;
 const MIN_PIXELS = 3;
 const FACINGS = 8;
 const FACINGS_NEEDED = 6;
+/**
+ * The lead, 9 Nov 2026 (GH-746): a figure with REAL-SIZE fists -- the Meshy figure, its fists scaled to ANSUR size
+ * (`rl_hands.source` "meshy") -- must show each hand in 4 of 8 facings, not 6. At the zoom ceiling a real fist is 1-2 px
+ * from more facings than the 1.4x fists the bar of 6 was set on; the bar still holds a hand that is not there (below).
+ */
+const FACINGS_NEEDED_REAL_SIZE = 4;
+const realSizeFists = (id: string): boolean => {
+  const b = readFileSync(new URL(`${id}.glb`, DIR));
+  const jl = b.readUInt32LE(12);
+  const js = JSON.parse(b.subarray(20, 20 + jl).toString('utf8')) as { scenes?: { extras?: { rl_hands?: { source?: string } } }[] };
+  return js.scenes?.[0]?.extras?.rl_hands?.source === 'meshy';
+};
+const facingsNeeded = (id: string): number => (realSizeFists(id) ? FACINGS_NEEDED_REAL_SIZE : FACINGS_NEEDED);
 const CLAW_REACH_M = 0.12;
 const FULL_KIT = { armour: 3, sensors: 3, firepower: 3 } as const;
 const HELD_OR_WORN = new Set(['weapon', 'metal', 'charge', 'wood', 'webbing', 'face']);
+/** A thing in the hand: never "the figure's own torso" for the self-occlusion exclusion. */
+const HELD = new Set(['weapon', 'metal', 'charge', 'wood']);
+/** The figure's own torso, by bone (after the `{p}_` prefix): what the self-occlusion exclusion looks through. */
+const TORSO_BONES = new Set(['spine', 'pelvis']);
+/** The constructed foreign occluder: a cube this wide (metres) at the hand's centroid. */
+const OCCLUDER_M = 0.3;
 const NOT_A_TEAM = /^(wounded_|ugv_)/;
 
 interface HandReading {
@@ -54,11 +82,44 @@ interface HandReading {
 }
 
 /**
+ * `tris` without figure `p`'s own torso: its triangles on its own `spine`/`pelvis` that are not a held role (the worn kit
+ * there included), the hand's own (`keep`) excepted. What the camera sees of the hand when the figure's own torso is looked
+ * through; its arms and head, another figure, the held weapon and any unskinned object stay. `torsoOnly: false` looks
+ * through the whole own body (a constructed input: the arm must still hide a hand). Returns the subset and `keep`
+ * remapped onto it.
+ */
+function withoutOwnTorso(tris: SceneTriangles, p: string, keep: Uint8Array, torsoOnly = true): { tris: SceneTriangles; mask: Uint8Array } {
+  const idx: number[] = [];
+  for (let i = 0; i < tris.count; i++) {
+    const b = tris.bone[i];
+    // a KIT part on the torso is worn, never held, whichever role mesh carries it (round 5, 9 Nov: the EUD, a phone flat
+    // on the plate, rides the `weapon` role mesh for its glass; read as held, it hid the firing fist in idle once the
+    // round-5 base seated it on the chest -- round 4's f0 EUD had hit a stray face 32 cm in front of the chest)
+    const wornKit = tris.kit[i] === 1 && TORSO_BONES.has(b.slice(p.length + 1));
+    const own = b.startsWith(`${p}_`) && (!HELD.has(tris.role[i]) || wornKit);
+    const looked = own && (!torsoOnly || TORSO_BONES.has(b.slice(p.length + 1)));
+    if (keep[i] || !looked) idx.push(i);
+  }
+  const pos = new Float32Array(idx.length * 9);
+  idx.forEach((t, k) => pos.set(tris.pos.subarray(t * 9, t * 9 + 9), k * 9));
+  return {
+    tris: {
+      pos, count: idx.length, role: idx.map((t) => tris.role[t]), name: idx.map((t) => tris.name[t]),
+      kit: Uint8Array.from(idx, (t) => tris.kit[t]), owner: Int16Array.from(idx, (t) => tris.owner[t]), bone: idx.map((t) => tris.bone[t])
+    },
+    mask: Uint8Array.from(idx, (t) => keep[t]),
+  };
+}
+
+/**
  * Every shown figure's hands in `clip`, at `zoom` (default the game's ceiling), as facings seen of 8. `hide` names bones to
- * scale away after the pose (a constructed failing input).
+ * scale away after the pose (a constructed failing input); `occluder` names a hand (`{build}_{L|R}`) to put a foreign cube
+ * in front of (another); `selfOcclusion: 'count'` counts the figure's own torso as an occluder (the pre-ruling reading);
+ * `torsoOnly: false` looks through the whole own body, arms and head too (wider than the ruling: a constructed input).
  */
 async function readHands(
-  id: string, clip: 'idle' | 'fire', opts: { zoom?: number; hide?: readonly string[] } = {}
+  id: string, clip: 'idle' | 'fire',
+  opts: { zoom?: number; hide?: readonly string[]; occluder?: string; selfOcclusion?: 'exclude' | 'count'; torsoOnly?: boolean } = {}
 ): Promise<HandReading[] | null> {
   const zoom = (opts.zoom ?? ZOOM_MAX) * SUPERSAMPLE;
   const gltf = await parseGlbHeadless(readFileSync(new URL(`${id}.glb`, DIR)));
@@ -74,10 +135,47 @@ async function readHands(
   mixer.setTime(clip === 'idle' ? 0 : clipData.duration * 0.5);
   for (const h of opts.hide ?? []) bones.find((b) => b.name === h)?.scale.setScalar(0);
   const seen = new Map<string, { kind: HandReading['kind']; facings: number }>();
+  const handMask = (tris: SceneTriangles, p: string, s: 'L' | 'R'): { kind: HandReading['kind']; mask: boolean[] } => {
+    let kind: HandReading['kind'] = 'modelled';
+    let mask = tris.bone.map((b) => b === `${p}_hand_${s}` || b === `${p}_finger_${s}`);
+    if (!mask.some(Boolean)) {
+      kind = 'claw';
+      const fb = `${p}_forearm_${s}`;
+      const elbow = root.getObjectByName(fb)?.getWorldPosition(new THREE.Vector3());
+      const idx = elbow ? [...Array(tris.count).keys()].filter((i) => tris.bone[i] === fb && !HELD_OR_WORN.has(tris.role[i])) : [];
+      const d = idx.map((i) => Math.hypot(
+        (tris.pos[i * 9] + tris.pos[i * 9 + 3] + tris.pos[i * 9 + 6]) / 3 - elbow!.x,
+        (tris.pos[i * 9 + 1] + tris.pos[i * 9 + 4] + tris.pos[i * 9 + 7]) / 3 - elbow!.y,
+        (tris.pos[i * 9 + 2] + tris.pos[i * 9 + 5] + tris.pos[i * 9 + 8]) / 3 - elbow!.z));
+      const far = d.length > 0 ? Math.max(...d) : 0;
+      const keep = new Set(idx.filter((_, j) => d[j] >= far - CLAW_REACH_M * MESH_SCALE));
+      mask = tris.bone.map((_, i) => keep.has(i));
+    }
+    return { kind, mask };
+  };
+  let occluderPlaced = false;
   for (let k = 0; k < FACINGS; k++) {
     root.rotation.y = (k * Math.PI * 2) / FACINGS;
     root.updateMatrixWorld(true);
-    const tris = collectTriangles(root, []);
+    let tris = collectTriangles(root, []);
+    if (opts.occluder && !occluderPlaced) {
+      // a foreign cube at the hand's centroid, a child of the root so it turns with the facings; unskinned, so no bone
+      const [p, s] = [opts.occluder.slice(0, -2), opts.occluder.slice(-1) as 'L' | 'R'];
+      const { mask } = handMask(tris, p, s);
+      const c = new THREE.Vector3();
+      let n = 0;
+      mask.forEach((m, i) => { if (m) { for (let j = 0; j < 3; j++) c.add(new THREE.Vector3(tris.pos[i * 9 + j * 3], tris.pos[i * 9 + j * 3 + 1], tris.pos[i * 9 + j * 3 + 2])); n += 3; } });
+      if (n === 0) throw new Error(`${opts.occluder}: no hand triangles to occlude`);
+      c.divideScalar(n);
+      const ws = root.getWorldScale(new THREE.Vector3()).x;
+      const cube = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+      cube.scale.setScalar((OCCLUDER_M * MESH_SCALE) / ws);
+      cube.position.copy(root.worldToLocal(c.clone()));
+      root.add(cube);
+      root.updateMatrixWorld(true);
+      occluderPlaced = true;
+      tris = collectTriangles(root, []);
+    }
     const box = new THREE.Box3();
     const v = new THREE.Vector3();
     for (let i = 0; i < tris.count * 3; i++) box.expandByPoint(v.set(tris.pos[i * 3], tris.pos[i * 3 + 1], tris.pos[i * 3 + 2]));
@@ -87,25 +185,12 @@ async function readHands(
       if (!tris.bone.some((b) => b.startsWith(`${p}_`))) continue; // not drawn in this clip: a posture twin, a corpse rig
       for (const s of ['L', 'R'] as const) {
         const key = `${p}_${s}`;
-        let kind: HandReading['kind'] = 'modelled';
-        let mask = tris.bone.map((b) => b === `${p}_hand_${s}` || b === `${p}_finger_${s}`);
-        if (!mask.some(Boolean)) {
-          kind = 'claw';
-          const fb = `${p}_forearm_${s}`;
-          const elbow = root.getObjectByName(fb)?.getWorldPosition(new THREE.Vector3());
-          const idx = elbow ? [...Array(tris.count).keys()].filter((i) => tris.bone[i] === fb && !HELD_OR_WORN.has(tris.role[i])) : [];
-          const d = idx.map((i) => Math.hypot(
-            (tris.pos[i * 9] + tris.pos[i * 9 + 3] + tris.pos[i * 9 + 6]) / 3 - elbow!.x,
-            (tris.pos[i * 9 + 1] + tris.pos[i * 9 + 4] + tris.pos[i * 9 + 7]) / 3 - elbow!.y,
-            (tris.pos[i * 9 + 2] + tris.pos[i * 9 + 5] + tris.pos[i * 9 + 8]) / 3 - elbow!.z));
-          const far = d.length > 0 ? Math.max(...d) : 0;
-          const keep = new Set(idx.filter((_, j) => d[j] >= far - CLAW_REACH_M * MESH_SCALE));
-          mask = tris.bone.map((_, i) => keep.has(i));
-        }
+        const { kind, mask } = handMask(tris, p, s);
         const prev = seen.get(key) ?? { kind: mask.some(Boolean) ? kind : 'none', facings: 0 };
         if (mask.some(Boolean)) {
           const m = Uint8Array.from(mask, (x) => (x ? 1 : 0));
-          const px = visibleSubject(tris, m, cam, VIEWPORT, VIEWPORT).pixels;
+          const seenBy = opts.selfOcclusion === 'count' ? { tris, mask: m } : withoutOwnTorso(tris, p, m, opts.torsoOnly ?? true);
+          const px = visibleSubject(seenBy.tris, seenBy.mask, cam, VIEWPORT, VIEWPORT).pixels;
           if (px / (SUPERSAMPLE * SUPERSAMPLE) >= MIN_PIXELS) prev.facings += 1;
           prev.kind = kind;
         }
@@ -126,7 +211,8 @@ async function violations(id: string, opts: Parameters<typeof readHands>[2] = {}
       continue;
     }
     if (hands.length === 0) out.push(`${clip}: no figure drawn`);
-    for (const h of hands) if (h.facings < FACINGS_NEEDED) out.push(`${clip} ${h.hand} (${h.kind}): ${h.facings} of ${FACINGS} facings`);
+    const need = facingsNeeded(id);
+    for (const h of hands) if (h.facings < need) out.push(`${clip} ${h.hand} (${h.kind}): ${h.facings} of ${FACINGS} facings`);
   }
   return out;
 }
@@ -141,11 +227,12 @@ const HAND_VISIBILITY_EXEMPT: Readonly<Record<string, string>> = {
   atgm_cell: 'atgm_crew1 L 0 (the missing left hand); atgm_crew0 R 4',
   breach_team: 'left hand 0 of 8 on both men (fused firing arm, support hand behind the shield); brc_point R 3',
   charge_squad: 'every hand 5 of 8 in idle, fire',
-  demo_squad: 'demo_b L 0 of 8 in idle (the firing claw behind the palette rifle), 5 in fire; demo_a 5',
+  // demo_squad left 9 Nov: with its own torso looked through (the lead's ruling) every hand reads 6-7 of 8; counted, demo_b L
+  // read 0 in idle. Its palette rifle (role weapon, on demo_b_weapon) still occludes.
   digger_crew: 'both hands 0 of 8: the arm is fused into the torso (and the team has no fire clip)',
   inf_grenadier: 'gre0 and gre2 R 0 of 8: the launcher hides the support claw; gre1 R 4',
+  // inf_squad (the Meshy pilot, real-size fists) is held to its own bar of 4 (FACINGS_NEEDED_REAL_SIZE), no exemption.
   inf_medic_squad: 'med_a R 5, med_b R 5 and 4 (block hands)',
-  inf_squad: 'the firing hand (bone _L) 0 of 8 in idle, 3-4 in fire: behind the magazine, the pouches and the upper arm. The support hand shows 7',
   manpad_team: 'mpd_fire L shows in 4 of 8 facings',
   militia_cell: 'every hand 5 of 8 in idle',
   mortar_crew: 'emtr_crew0 R 5 and 4, emtr_crew1 L 5',
@@ -198,4 +285,31 @@ describe('G4 can fail (constructed inputs)', () => {
     const v = await violations('officer_infantry', { hide: ['maya_forearm_L'] });
     expect(v.join(' | ')).toMatch(/maya_L/);
   }, 120_000);
+  it('...and fails with a foreign cube in front of a hand: only the figure\'s OWN body is looked through', async () => {
+    const v = await violations('officer_infantry', { occluder: 'maya_L' });
+    expect(v.join(' | ')).toMatch(/maya_L/);
+  }, 120_000);
+  it('the real-size bar of 4 still fails a hand that is not there: inf_squad with f0\'s firing forearm scaled away', async () => {
+    expect(realSizeFists('inf_squad')).toBe(true);
+    expect(await violations('inf_squad')).toEqual([]);
+    const v = await violations('inf_squad', { hide: ['f0_forearm_L'] });
+    expect(v.join(' | ')).toMatch(/f0_L/);
+  }, 240_000);
+  it('the self-occlusion exclusion does work: counted, a figure\'s own torso hides a hand it otherwise shows', async () => {
+    // demo_squad in idle (9 Nov): demo_b's firing claw reads 0 of 8 counted and 6 with its own torso looked through
+    const worst = (r: HandReading[] | null) => Math.min(...(r ?? []).map((h) => h.facings));
+    const counted = worst(await readHands('demo_squad', 'idle', { selfOcclusion: 'count' }));
+    const excluded = worst(await readHands('demo_squad', 'idle'));
+    expect(counted).toBeLessThan(excluded);
+    expect(excluded).toBeGreaterThanOrEqual(FACINGS_NEEDED);
+  }, 240_000);
+  it('...and only the TORSO: looked through the whole own body, a hand the ruling still counts as hidden would pass', async () => {
+    // sarim_rifles sar0_R in idle: 5 of 8 with the torso looked through (his own arm and the rifle hide it), 7 with the
+    // whole own body. Widening the exclusion to the whole body would pass a hand its own arm hides.
+    const hand = (r: HandReading[] | null) => (r ?? []).find((h) => h.hand === 'sar0_R')?.facings ?? -1;
+    const torso = hand(await readHands('sarim_rifles', 'idle'));
+    const whole = hand(await readHands('sarim_rifles', 'idle', { torsoOnly: false }));
+    expect(torso).toBeLessThan(FACINGS_NEEDED);
+    expect(whole).toBeGreaterThanOrEqual(FACINGS_NEEDED);
+  }, 240_000);
 });

@@ -18,6 +18,7 @@ import {
   missingHypotheses,
   perPassRefusals,
   settledByCount,
+  tallyTable,
   unsettledRefusals,
   profileRefusal,
   profileTopOf,
@@ -258,5 +259,17 @@ describe('--counts (CodeRabbit on PR 1203)', () => {
     expect(countsRefusal([0, 600])).toMatch(/positive integer/);
     expect(countsRefusal([300.5, 600])).toMatch(/positive integer/);
     expect(countsRefusal([Number('x'), 600])).toMatch(/positive integer/);
+  });
+});
+
+describe('the upload counts (T14, GH-1152)', () => {
+  it('the tally prints a node reading\'s attribute/binding/texture uploads, and n/a on L and on a tree without the count', () => {
+    const g = reading('G', 600, 'base', pp(1, 1, 0, 1), { uploads: { attribute: 3, binding: 41, texture: 7 } });
+    const l = reading('L', 600, 'base', pp(1, 1, 0, 1), { uploads: null });
+    const old = reading('G', 300, 'base', pp(1, 1, 0, 1));
+    const [, , gRow, lRow, oldRow] = tallyTable([g, l, old]);
+    expect(gRow?.endsWith('| 3/41/7 |')).toBe(true);
+    expect(lRow?.endsWith('| n/a |')).toBe(true);
+    expect(oldRow?.endsWith('| n/a |')).toBe(true);
   });
 });

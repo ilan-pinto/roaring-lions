@@ -45,6 +45,12 @@ describe('twin-check (the same-PR rule)', () => {
     const io: TwinIo = { ...fixtureIo(true), changedSince: () => { throw new Error('bad ref'); } };
     expect(runTwinCheck(['--base=nope'], io)).toBe(2);
   });
+  // Each twin that serves several legacy files, with exactly the legacy files it serves (GH-943 P3 T11). A new shared recipe is added here
+  // on purpose, in the same PR as its row.
+  const THREE = 'packages/render/src/three/';
+  const SHARED_RECIPES: Readonly<Record<string, readonly string[]>> = {
+    [`${THREE}units/rim-fade.node.ts`]: [`${THREE}units/smoke-plume.ts`, `${THREE}units/collapse-shroud.ts`],
+  };
   it('the shipped TWINS table is a legacy -> .node.ts map over existing legacy files', () => {
     const rows = twinRows(TWINS);
     expect(rows.length).toBeGreaterThan(0);
@@ -54,12 +60,19 @@ describe('twin-check (the same-PR rule)', () => {
       expect(existsSync(path.resolve(__dirname, '../../..', r.legacy)), r.legacy).toBe(true);
       // GH-943 P2: a legacy file whose maths a twin of ANOTHER file carries (T6 `wind.ts`, T7 `disturb.ts`, T4 `relief-read.ts`) points
       // at that twin, which must be the name-paired twin of some other row: no row may point at a twin nobody owns.
+      // GH-943 P3 (T11): or the twin is ONE recipe for several legacy files (`rim-fade.node.ts` serves the plume and the shroud, which
+      // have no name-paired twin of their own): then at least two rows must point at it.
       if (r.twin !== own(r.legacy)) {
-        expect(rows.some((o) => o.legacy !== r.legacy && o.twin === r.twin && own(o.legacy) === o.twin), `${r.legacy} -> ${r.twin}`).toBe(true);
+        const namePaired = rows.some((o) => o.legacy !== r.legacy && o.twin === r.twin && own(o.legacy) === o.twin);
+        // The shared recipes are named, not counted: a row pointing at a mistyped twin that a second row also mistypes would pass a count.
+        const oneRecipe = (SHARED_RECIPES[r.twin] ?? []).includes(r.legacy);
+        expect(namePaired || oneRecipe, `${r.legacy} -> ${r.twin}`).toBe(true);
         shared++;
       }
       expect(twinVerdict([r.legacy], [r], () => true).violations).toHaveLength(1);
     }
+    // And every named member really points at its recipe.
+    for (const [twin, legacies] of Object.entries(SHARED_RECIPES)) for (const l of legacies) expect(rows.find((r) => r.legacy === l)?.twin, l).toBe(twin);
     // Anti-vacuity: the name-paired rule still binds the rest.
     expect(rows.length - shared).toBeGreaterThan(shared);
   });

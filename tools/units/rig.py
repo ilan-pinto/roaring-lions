@@ -216,7 +216,12 @@ TEAM_MESH_OWNER = {
     # tools/units/import_meshy_crew_team.py -- inf_squad, mortar_team and
     # yahalom_squad reclaim their own file names from the superseded kit
     # builds; sniper_team leaves tools/export_meshy_sniper.py.
-    "inf_squad": "tools/units/import_meshy_crew_team.py",
+    # Meshy pilot (GH-826/GH-746, 1 Nov 2026, the lead's "skin it, keep our
+    # motion"): the squad leader is a POSED Meshy figure skinned smoothly to
+    # these bones by tools/units/import_meshy_skinned_team.py, the one importer
+    # that does not bind rigidly (its docstring says why). Was the crew
+    # importer's A-pose cut (motion pass, 5 Oct).
+    "inf_squad": "tools/units/import_meshy_skinned_team.py",
     # B3 (GH-179, 2026-09-30): Meshy figures with their own bake, cut and
     # driven by this module through tools/units/import_meshy_crew_team.py.
     "militia_cell": "tools/units/import_meshy_crew_team.py",

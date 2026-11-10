@@ -31,12 +31,16 @@ import { createNodeDecalMaterial } from '../decal-pool.node';
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
 import { createNodeOutlineMaterial } from '../units/silhouette.node';
 import type { RingStyle } from '../units/selection-ring';
-import { censusUnadopted, censusUnported, unportedWarnings, type UnportedHook } from './unported';
+import { fxTwinFactories } from '../units/fx-twins.node';
+import { censusUnadopted, censusUnported, reassertCensusHides, unportedWarnings, type CensusHides, type UnportedHook } from './unported';
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
+import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
 import { createNodeUnitMaterial } from '../units/unit-material.node';
 import { markTwin } from '../twin-identity';
 import { installPassCounter, type PassRendererLike, type RenderPassId } from './pass-counter';
+import { installVersionedUploads, type AttributesLike } from './attribute-uploads';
+import { installBoneTextureSkinning, type BuilderHookHostLike } from './bone-texture';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
 const CENSUS_EVERY_FRAMES = 60;
@@ -113,6 +117,12 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     return { reason: `WebGPURenderer chose ${isGpu ? 'its WebGPU' : 'its WebGL2'} backend but forceWebGL was ${String(opts.forceWebGL)}` };
   }
   const kind: BackendKind = isGpu ? 'node-webgpu' : 'node-webgl2';
+  // GH-943 P3 (T14, GH-1152): a dynamic vertex attribute uploads when it changed, as on legacy (three re-uploads it on every FULL
+  // refresh, and every node-twinned batch is FULL every frame: `attribute-uploads.ts`).
+  const uploads = installVersionedUploads((renderer as unknown as { _attributes: AttributesLike })._attributes, THREE.DynamicDrawUsage);
+  // GH-943 P3 (T14, GH-1152): a skinned mesh skins from its skeleton's bone texture, uploaded once a frame, as on legacy (three's
+  // uniform-buffer bones are written on every FULL refresh of every render object: `bone-texture.ts`).
+  const boneTexture = installBoneTextureSkinning(renderer as unknown as BuilderHookHostLike);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -177,6 +187,14 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     markTwin(twin, legacy);
     return twin;
   };
+  // GH-943 P3 (T11): the simple FX families (particle, tracer, flat-colour mesh, rim fade, beam, rotor), wired once in `fx-twins.node.ts`.
+  Object.assign(materials, fxTwinFactories({ W, TSL: TSL as never, maths: opts.materialMaths }));
+  // GH-943 P3 (T10): the valley backdrop's distance fade, an output term over the stock lit material (all five materials, one factory).
+  materials.backdrop = (legacy) => {
+    const twin = createNodeBackdropMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.backdrop }, legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
   // GH-943 P3 (T3): every hooked unit material (team mark, running gear, soot; the rim and the floor are named partial terms until T4).
   // Adoption shares one twin per (base, segments, pipeline state) and copies the pipeline state onto it.
   materials.unit = (legacy) => {
@@ -238,8 +256,10 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     const slot = slotOf?.(m) ?? null;
     return slot !== null && materials[slot] !== null;
   };
+  // GH-943 P3 (T2b, P3-R13): what the census hid, re-hidden before every render (a per-frame writer re-shows it between censuses).
+  const censusHides: CensusHides = new Set();
   const runCensus = (scene: THREE.Scene): void => {
-    const found = censusUnported(scene);
+    const found = censusUnported(scene, { hides: censusHides });
     if (slotOf !== undefined) found.push(...censusUnadopted(scene, adoptable));
     for (const h of found) hooks.set(`${h.kind}|${h.key}`, h);
     for (const line of unportedWarnings(found, seen)) warn(line);
@@ -295,6 +315,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     },
     render(scene, camera) {
       passes.beginFrame();
+      reassertCensusHides(censusHides, scene);
       lastCensusMs = 0;
       if (frames % CENSUS_EVERY_FRAMES === 0) {
         const t0 = performance.now();
@@ -319,6 +340,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     },
     dispose() {
       passes.dispose();
+      uploads.dispose();
+      boneTexture.dispose();
       chain?.dispose();
       chain = null;
       // WebGPU path: renderer.dispose() then device.destroy() (design section 1). Never `loseContext()` ourselves.

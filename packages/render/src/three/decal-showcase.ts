@@ -106,7 +106,7 @@ export const SHOWCASE_FLAT_NORMAL_Y = 0.999;
 export const SHOWCASE_RUN = 6;
 
 /** The lattice's rows, north to south. */
-const LATTICE_ROWS: readonly Exclude<DecalKind, 'tread' | 'tyre' | 'churn'>[] = ['crater', 'scorch', 'oil', 'rubble'];
+const LATTICE_ROWS: readonly Exclude<DecalKind, 'tread' | 'tyre' | 'churn' | 'scuff'>[] = ['crater', 'scorch', 'oil', 'rubble'];
 
 interface Candidate {
   readonly x: number;
@@ -239,7 +239,7 @@ export function showcaseAnchor(
 }
 
 /** The half extents of a lattice cell's mark, by row kind and column. */
-function latticeRadius(kind: Exclude<DecalKind, 'tread' | 'tyre' | 'churn'>, col: number): number {
+function latticeRadius(kind: Exclude<DecalKind, 'tread' | 'tyre' | 'churn' | 'scuff'>, col: number): number {
   const power = SHOWCASE_POWERS[col];
   switch (kind) {
     case 'crater':

@@ -2,7 +2,7 @@
   "unit": "inf_squad",
   "variant": "team",
   "source": "assets/meshes/inf_squad.glb",
-  "source_sha256": "633b5cdcc07d8561019dcef7745f5398c958774c1e0b828bfdc9f2c9d7684f7c",
+  "source_sha256": "4024e1417abe23d8a15adb8bcbc474dd0b4461a7decd99649c35448410445d4a",
   "yaw_deg": -125.0,
   "elevation_deg": 12.0,
   "fov_deg": 30.0,
@@ -13,8 +13,8 @@
   "ndc_box": [
     0.06,
     0.94,
-    0.1549,
-    0.8451
+    0.1326,
+    0.8674
   ],
   "materials": {
     "baked": 4,
