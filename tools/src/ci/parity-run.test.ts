@@ -95,6 +95,11 @@ describe('runParity without --key (GH-943, CodeRabbit on PR 1202)', () => {
     expect(lines.length).toBeGreaterThan(1); // but the report was printed, not refused up front
     expect(lines.at(-1)).toMatch(/exit 2/);
   });
+  it('an explicitly EMPTY --key= refuses before any report (it would read no floor)', () => {
+    const lines: string[] = [];
+    expect(runParity(['--legacy=/nonexistent/legacy', '--node=/nonexistent/out', '--key='], (l) => lines.push(l))).toBe(2);
+    expect(lines).toEqual([]);
+  });
   it('an explicit unknown --key still refuses before any report', () => {
     const lines: string[] = [];
     expect(runParity(['--legacy=/nonexistent/legacy', '--node=/nonexistent/out', '--key=wgl'], (l) => lines.push(l))).toBe(2);

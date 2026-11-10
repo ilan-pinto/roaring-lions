@@ -122,8 +122,11 @@ export function runParity(argv: readonly string[], log: (l: string) => void = co
   // An explicit --key must be a known name (an unknown one is read as "no floor" on CI, which is what `floorKeyOf` refuses). With none given,
   // the node dir's own name is a key only when it IS one: a local run on `out/` reports with no floor (as before) rather than refusing.
   const base = path.basename(nodeDir);
-  const key = arg('key') ?? (['wgl2', 'wgpu', 'webgl2', 'webgpu'].includes(base) ? base : '');
+  const given = arg('key');
+  const key = given ?? (['wgl2', 'wgpu', 'webgl2', 'webgpu'].includes(base) ? base : '');
   try {
+    // `--key=` (an unset shell variable in ci.yml) is a key that was asked for and is empty: it would silently read no floor, the very fault `floorKeyOf` exists to stop.
+    if (given === '') throw new Error('parity-run: --key= is empty (want webgl2|webgpu, or wgl2|wgpu)');
     floorKeyOf(key);
   } catch (e) {
     console.error(String(e));
