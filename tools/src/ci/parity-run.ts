@@ -119,7 +119,10 @@ export function runParity(argv: readonly string[], log: (l: string) => void = co
     return 2;
   }
   const scenarios = [...new Set(PARITY_ROWS.map((r) => r.scenario))];
-  const key = arg('key') ?? path.basename(nodeDir);
+  // An explicit --key must be a known name (an unknown one is read as "no floor" on CI, which is what `floorKeyOf` refuses). With none given,
+  // the node dir's own name is a key only when it IS one: a local run on `out/` reports with no floor (as before) rather than refusing.
+  const base = path.basename(nodeDir);
+  const key = arg('key') ?? (['wgl2', 'wgpu', 'webgl2', 'webgpu'].includes(base) ? base : '');
   try {
     floorKeyOf(key);
   } catch (e) {

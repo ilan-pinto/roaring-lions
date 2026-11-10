@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BASELINES } from '../golden-diff/baseline';
 import { PARITY_ROWS, type ParityRow } from '../golden-diff/parity-bands';
-import { buildParityLines, floorKeyOf, formatParity, parityExit, type ArmSummaries, type SummaryJson } from './parity-run';
+import { buildParityLines, floorKeyOf, formatParity, parityExit, runParity, type ArmSummaries, type SummaryJson } from './parity-run';
 
 const row = (layer: string, band: ParityRow['band'] = 'tight', floor: number | null = null): ParityRow => ({ scenario: 's', layer, band, r0: { wgl2: null, wgpu: null }, nodeFloor: { wgl2: floor, wgpu: floor }, note: '' });
 const rd = (layer: string, mean: number, px = 100) => ({ layer, meanAbsChannelDelta: mean, changedPixels: px, diffPixels: px });
@@ -84,6 +84,21 @@ describe('the key ci.yml passes reaches the floor (GH-943, P3-R14)', () => {
   it('an unknown key throws rather than reading no floor', () => {
     expect(() => floorKeyOf('wgl')).toThrow();
     expect(floorKeyOf('')).toBeNull();
+  });
+});
+
+describe('runParity without --key (GH-943, CodeRabbit on PR 1202)', () => {
+  it('a node dir that is not named like a key reports with no floor instead of refusing before any report', () => {
+    const lines: string[] = [];
+    const code = runParity(['--legacy=/nonexistent/legacy', '--node=/nonexistent/out'], (l) => lines.push(l));
+    expect(code).toBe(2); // no readings in either arm: nothing could be judged
+    expect(lines.length).toBeGreaterThan(1); // but the report was printed, not refused up front
+    expect(lines.at(-1)).toMatch(/exit 2/);
+  });
+  it('an explicit unknown --key still refuses before any report', () => {
+    const lines: string[] = [];
+    expect(runParity(['--legacy=/nonexistent/legacy', '--node=/nonexistent/out', '--key=wgl'], (l) => lines.push(l))).toBe(2);
+    expect(lines).toEqual([]);
   });
 });
 
