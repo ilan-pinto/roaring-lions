@@ -28,6 +28,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/terrain/decor-mesh.node.ts',
   // GH-943 P2 (T5): the selection, team and wound rings. Its legacy twin (units/selection-ring.ts) keeps its GLSL until P8.
   'packages/render/src/three/units/selection-ring.node.ts',
+  // GH-943 P3 (T10): the valley backdrop's distance fade. Its legacy twin (terrain/backdrop.ts) keeps its splice until P8.
+  'packages/render/src/three/terrain/backdrop.node.ts',
   // GH-943 P3 (T3): the vehicle terms of the node unit twin (team mark, running gear, soot). Their legacy twins keep their splices
   // until P7. The composer (`units/unit-material.node.ts`) twins no single legacy file, so it has no TWINS row and is not listed.
   'packages/render/src/three/units/team-mask.node.ts',
@@ -74,6 +76,8 @@ export const TWINS = Object.freeze({
   [`${THREE}terrain/disturb.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
   // GH-943 P2 (T5)
   [`${THREE}units/selection-ring.ts`]: `${THREE}units/selection-ring.node.ts`,
+  // GH-943 P3 (T10)
+  [`${THREE}terrain/backdrop.ts`]: `${THREE}terrain/backdrop.node.ts`,
   // GH-943 P3 (T3)
   [`${THREE}units/team-mask.ts`]: `${THREE}units/team-mask.node.ts`,
   // running-gear.ts carries the wheel and tread maths the twin runs (`rgVertexOps`, `rgBarOps`); running-gear-material.ts the splice.

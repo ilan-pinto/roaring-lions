@@ -222,6 +222,9 @@ export interface ObjectiveJson {
   hostages?: boolean;
   text?: string;
   target?: string;
+  /** `escort` only: the destination zone, a name in the map's zones. `target` names the escorted units (a tag on a
+   *  `starting_force` placement). Absent on every other type; the schema's description is the authority. */
+  zone?: string;
   count?: number;
   seconds?: number;
   /** Fires as a `MissionEvent` the tick this objective completes, right
@@ -718,7 +721,7 @@ interface WorksCharge {
 
 const SUPPORTED = new Set([
   'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all',
-  'evacuate_before', 'raze', 'collapse', 'score',
+  'evacuate_before', 'raze', 'collapse', 'score', 'escort',
 ]);
 
 /** The types that may name a `side` (GH-976): the ones whose evaluation reads it. */
@@ -1112,6 +1115,9 @@ export class MissionRuntime {
         throw new Error(
           `mission ${mission.id}: objective type "${def.type}" is not supported by the runtime yet`
         );
+      }
+      if (def.zone !== undefined && def.type !== 'escort') {
+        throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no zone (only escort does)`);
       }
       if (def.side !== undefined) {
         if (!SIDED.has(def.type)) {
@@ -2561,7 +2567,9 @@ export class MissionRuntime {
           o.def.type === 'raze' ||
           o.def.type === 'collapse'
             ? o.def.target
-            : undefined,
+            : o.def.type === 'escort'
+              ? o.def.zone
+              : undefined,
       };
     });
   }
@@ -2623,6 +2631,27 @@ export class MissionRuntime {
         const tag = o.def.target;
         if (!tag || !this.tags.has(tag)) {
           throw new Error(`mission ${this.mission.id}: eliminate_hvt "${o.def.id}" needs a garrisoned tag`);
+        }
+      }
+      if (o.def.type === 'escort') {
+        // The escorted units are named by a tag on the player's own placements; the destination is a zone. Both are
+        // load-time wiring faults, like an eliminate_hvt with no tag: an escort that can never be evaluated would
+        // hang a primary until the clock ran out.
+        const ids = this.tags.get(o.def.target ?? '');
+        if (ids === undefined) {
+          throw new Error(`mission ${this.mission.id}: escort "${o.def.id}" needs a tag on a starting_force placement`);
+        }
+        if (ids.some((id) => this.sim.state.side[id] !== 0)) {
+          throw new Error(`mission ${this.mission.id}: escort "${o.def.id}" tag "${o.def.target}" names units that are not the player's`);
+        }
+        const dest = this.zone(o.def.zone);
+        if (!dest) {
+          throw new Error(`mission ${this.mission.id}: escort "${o.def.id}" needs a valid zone`);
+        }
+        // Already there at tick zero would complete on the first tick, the same authoring error as a raze zone with
+        // nothing in it.
+        if (ids.every((id) => this.standsIn(id, dest))) {
+          throw new Error(`mission ${this.mission.id}: escort "${o.def.id}" starts inside zone "${o.def.zone}", so it would complete on the first tick`);
         }
       }
       if (
@@ -4070,6 +4099,15 @@ export class MissionRuntime {
     return car >= 0 && this.sim.isAircraft(car);
   }
 
+  /** Whether entity `id` is standing in `zone`, by `livingIn`'s rule: alive, on the surface, not down. */
+  private standsIn(id: number, zone: readonly number[]): boolean {
+    const st = this.sim.state;
+    if (st.alive[id] === 0 || st.tunnelIn[id] >= 0 || this.sim.isDown(id)) return false;
+    const tx = st.posX[id] >> 16;
+    const ty = st.posY[id] >> 16;
+    return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
+  }
+
   private livingIn(zone: readonly number[], side: number, groundOnly = false): number {
     let n = 0;
     const st = this.sim.state;
@@ -4412,6 +4450,15 @@ export class MissionRuntime {
         // comes down is a charge worked by a unit with the ability, so losing
         // every such unit makes a collapse primary permanently impossible.
         failed = !complete && d.seconds !== undefined && tick >= d.seconds * TICKS_PER_SECOND;
+      } else if (d.type === 'escort') {
+        // Lost: any escorted unit is dead or taken (`remove` clears `alive` too). Arrived: EVERY escorted unit stands
+        // in the zone at once (`standsIn` needs it alive, so a dead unit can never count as arrived and the two
+        // verdicts cannot both hold). `start()` guarantees the tag is non-empty and the zone exists. Stateless on
+        // purpose: the verdict is a function of this tick's bodies, so it adds no column and no hash word.
+        const ids = this.tags.get(d.target ?? '') ?? [];
+        const dest = this.zone(d.zone);
+        failed = ids.some((id) => this.sim.state.alive[id] === 0);
+        complete = dest !== undefined && ids.every((id) => this.standsIn(id, dest));
       } else if (d.type === 'eliminate_hvt') {
         const ids = this.tags.get(d.target ?? '') ?? [];
         // Eliminated means KILLED. A `remove` trigger (the enemy's act: an escape, an

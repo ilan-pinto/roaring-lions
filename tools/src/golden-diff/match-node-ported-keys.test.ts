@@ -59,12 +59,13 @@ function calls(): Call[] {
 }
 
 describe('the ported-key option has exactly one caller', () => {
-  it('only matchNodeStatements passes a second argument to censusUnported; every other caller passes the root alone', () => {
+  it('only matchNodeStatements passes portedKeys to censusUnported; every other caller passes none', () => {
     const all = calls();
     // Non-vacuous: the node backend's own census and the matched arm are both found.
     expect(all.some((c) => c.file === 'packages/render/src/three/backend/node-backend.ts')).toBe(true);
     expect(all.some((c) => c.file === 'tools/src/golden-diff/capture-protocol.ts')).toBe(true);
-    const withOption = all.filter((c) => c.args.includes(',') || /portedKeys/.test(c.args));
+    // T2b: the node backend passes `{ hides }` (P3-R13), never `portedKeys`: the guard is on the option that exempts a key.
+    const withOption = all.filter((c) => /portedKeys/.test(c.args));
     expect(withOption.map((c) => c.file)).toEqual(['tools/src/golden-diff/capture-protocol.ts']);
     expect(withOption[0]?.args).toBe('_r.scene, { portedKeys: _u.PORTED_MATERIAL_KEYS }');
   });
