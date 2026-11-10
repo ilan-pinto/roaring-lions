@@ -30,6 +30,10 @@ const CROSSINGS: [string, string][] = [
   ['packages/render/src/three/decal-maths.ts', "export { RagdollSystem } from './physics/ragdoll-system';\n"],
   ['packages/app/src/main.ts', "import { loadRapier } from '../../render/src/three/physics/rapier';\nvoid loadRapier;\n"],
   ['packages/sim/src/index.ts', "import { loadRapier } from '../../render/src/three/physics/rapier';\nvoid loadRapier;\n"],
+  // Design guard 3: the physics folder imports nothing from the sim, values or types.
+  ['packages/render/src/three/physics/zz.ts', "import type { SimState } from '@lions/sim';\nexport type X = SimState;\n"],
+  ['packages/render/src/three/physics/zz.ts', "import { fx } from '@lions/sim/fixed';\nvoid fx;\n"],
+  ['packages/render/src/three/physics/zz.ts', "import { Sim } from '../../../../sim/src/index';\nvoid Sim;\n"],
 ];
 
 const LEGAL: [string, string][] = [

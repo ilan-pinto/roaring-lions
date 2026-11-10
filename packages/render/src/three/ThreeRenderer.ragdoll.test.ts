@@ -189,14 +189,19 @@ describe('a killed squad becomes a ragdoll, on the sim clock', () => {
     r.dispose();
   });
 
-  it('a death in a catch-up keeps today\'s path (no ragdoll)', async () => {
+  it('a death in a catch-up keeps today\'s path (no ragdoll), in the order main.ts calls it', async () => {
     const w = await world(ON);
     tick(w.sim, w.r, 1);
     w.sim.debugKill(w.victim);
+    // main.ts: setQuiet(true), the ticks and their events, then setQuiet(false) BEFORE any frame is painted, so
+    // `quiet` is never true inside frame(); only `deathQuiet` (stamped by onEvents) can stop the ragdoll.
     w.r.setQuiet(true);
-    tick(w.sim, w.r, 1);
+    const ev = w.sim.tick();
+    w.r.snapshot();
+    w.r.onEvents(ev);
     w.r.setQuiet(false);
-    tick(w.sim, w.r, 1);
+    w.r.frame(1, 50);
+    w.r.frame(1, 16);
     expect(w.p.ragdolls.incidents).toBe(0);
     w.r.dispose();
   });

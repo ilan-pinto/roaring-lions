@@ -24,6 +24,14 @@ function check(context, node, source) {
   const cwd = context.cwd ?? process.cwd();
   const file = posix(relative(cwd, context.filename ?? context.getFilename()));
   const insidePhysics = file.startsWith(`${PHYSICS_DIR}/`);
+  // Design guard 3: the physics folder reads no sim module, value or type. It is handed plain numbers by the door.
+  if (insidePhysics) {
+    const simTarget = source.startsWith('.') ? posix(relative(cwd, resolve(dirname(resolve(cwd, file)), source))) : '';
+    if (/^@lions\/sim(\/|$)/.test(source) || simTarget === 'packages/sim' || simTarget.startsWith('packages/sim/')) {
+      context.report({ node, messageId: 'sim', data: { source } });
+      return;
+    }
+  }
   if (/^@dimforge(\/|$)/.test(source)) {
     if (!insidePhysics) context.report({ node, messageId: 'rapier', data: { source } });
     return;
@@ -45,6 +53,9 @@ export const physicsFencePlugin = {
           rapier:
             "'{{source}}': Rapier is presentation-only physics (GH-1223) and may be imported only under " +
             `${PHYSICS_DIR}/. Nothing it computes may reach the sim, the network or an outcome (invariant 4).`,
+          sim:
+            "'{{source}}': the physics folder may not import @lions/sim, values or types (GH-1223 design guard 3): " +
+            'presentation-only physics reads nothing from the sim and the door hands it plain numbers.',
           door:
             "'{{source}}': the physics folder is reached only through ThreeRenderer.ts (GH-1223): one door, " +
             'so presentation-only physics cannot leak into the sim, the net package, the app or another renderer module.',
