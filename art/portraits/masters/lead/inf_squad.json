@@ -2,7 +2,7 @@
   "unit": "inf_squad",
   "variant": "lead",
   "source": "assets/meshes/inf_squad.glb",
-  "source_sha256": "93882436e34eaeec81417329e289cce6e4f639be1b77721f3f494b208c9f3817",
+  "source_sha256": "4024e1417abe23d8a15adb8bcbc474dd0b4461a7decd99649c35448410445d4a",
   "yaw_deg": -125.0,
   "elevation_deg": 12.0,
   "fov_deg": 30.0,
