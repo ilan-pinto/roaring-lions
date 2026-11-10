@@ -17,6 +17,7 @@ import { scarredMaterial } from './units/building-damage';
 import type { Hole } from './units/building-holes';
 import type { BuildingHoleMaterials } from './units/holed-material';
 import { hexToLinear } from './terrain/shared';
+import { MUNITIONS } from './munitions';
 import { paletteHex } from './palette-hex';
 
 vi.mock('three', async (importOriginal) => {
@@ -220,6 +221,48 @@ describe('an explosive direct-fire hit cuts a wall hole (ruling Q1 a)', () => {
       expect(mat.userData.rlHoles).toBe(true);
       expect(mat.color.getHex()).toBe(scarredMaterial(base, 3).color.getHex());
     }
+    r.dispose();
+  });
+});
+
+describe('wall or roof is the DATA: the class row hole.axis (PR 1221 review)', () => {
+  it('a direct_he row edited to `roof` makes the same tank round punch the roof', () => {
+    const row = MUNITIONS.classes.direct_he!;
+    const was = row.hole!.axis;
+    row.hole!.axis = 'roof';
+    try {
+      const { r, p, shooter, s } = world(TANK);
+      r.onEvents([fireAt(shooter, s, 'gun_120'), hit(shooter, s)]);
+      expect(p.buildingHoles.get(s)!.holes[0].axis).toEqual([0, 1, 0]);
+      r.dispose();
+    } finally {
+      row.hole!.axis = was;
+    }
+  });
+  it('a mortar row edited to `wall` makes the mortar round hole the wall facing the mortar', () => {
+    const row = MUNITIONS.classes.mortar!;
+    const was = row.hole!.axis;
+    row.hole!.axis = 'wall';
+    try {
+      const { r, p, shooter, s } = world(MORTAR, [27.5, 20.5]);
+      r.onEvents([fireAt(shooter, s, 'mortar_82', 5)]);
+      r.onEvents([hit(shooter, s, 45)]);
+      expect(p.buildingHoles.get(s)!.holes[0].axis).toEqual([1, 0, 0]);
+      r.dispose();
+    } finally {
+      row.hole!.axis = was;
+    }
+  });
+});
+
+describe('holes are world state: cut during a catch-up, like the scars (ruling Q1)', () => {
+  it('a tank round resolved while quiet still cuts its hole (and throws no burst)', () => {
+    const { r, p, shooter, s } = world(TANK);
+    r.onEvents([fireAt(shooter, s, 'gun_120')]);
+    r.setQuiet(true);
+    r.onEvents([hit(shooter, s)]);
+    r.setQuiet(false);
+    expect(p.buildingHoles.get(s)?.holes).toHaveLength(1);
     r.dispose();
   });
 });

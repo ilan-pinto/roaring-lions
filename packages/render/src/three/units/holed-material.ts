@@ -22,7 +22,11 @@
  * already had; the program key is the base's plus `|rl-holes`. The node backend has no twin: there a holed building
  * draws its stock material, whole (the census names `rl-holes`).
  *
- * Positions are WORLD space: a standing building is frozen in place (`freezeStatic`), so its world frame is fixed.
+ * Positions are WORLD space, not the template's object space (the coordinator's ruling on PR 1221): a standing building
+ * never moves or rotates at runtime -- it is placed once and frozen (`freezeStatic`), and its facing is gated
+ * (CLAUDE.md, the building-facing rule) -- so its world frame IS its object frame, moved and scaled once. World space
+ * also keeps a hole round under the per-building, non-uniform `buildingFitFor` scale, which object space would squash.
+ * Anything that later moves a standing root (a P5 sag, say) must move the holes with it.
  */
 import * as THREE from 'three';
 import { TILE_HASH_MIX, TILE_HASH_MX, TILE_HASH_MY, TILE_HASH_SHIFT_A, TILE_HASH_SHIFT_B } from '../../tile-hash';

@@ -704,8 +704,18 @@ Design: `docs/superpowers/specs/2026-11-09-explosion-scale-and-building-physics-
   material, `DoubleSide`, the base's own hook chained, key `<base>|rl-holes`) and its `customDepthMaterial` (the shadow is
   cut). Back faces seen through a hole are the interior: the wall ramp's darkest key 0.6 toward `gunmetal.2`. A band change
   re-derives the clones from the new band material; a holed building keeps its full art (no LOD1 twin); death releases them.
-- **WebGPU:** no node twin (ruling Q3). The census lists `on-before-compile` `rl-holes` (and `rl-holes-depth`), and the node
-  backend draws a holed building's stock band material: whole, with no cut, lip, cracks, halo or interior.
+- **WebGPU:** no node twin (ruling Q3). The census (`censusUnported`) walks each object's `.material` only, so it lists the
+  holed colour clones as kind `on-before-compile`, key `rl-holes` -- not as `partial`, which is a twin's own declaration,
+  and there is no twin. The depth material is a `customDepthMaterial`, which the census never walks, so `rl-holes-depth` is
+  NOT listed. On node a holed building draws its band material without the hook: whole (no cut, lip, cracks, halo or
+  interior), but still `DoubleSide` (the clone's side), and its shadow is uncut.
+- **Why world space, not object space** (the coordinator's ruling on PR 1221): a standing building never moves or rotates
+  at runtime (placed once and frozen, `freezeStatic`; its facing is gated), so its world frame is its object frame; world
+  space also keeps a hole round under the non-uniform `buildingFitFor` scale. Anything that moves a standing root must
+  move its holes with it.
+- **Wall or roof is data:** `cutClassHole` dispatches on the class row's `hole.axis`; every call site hands both a wall
+  face and a roof point.
 - **The gate:** the gated scenarios hit no building, so they mint no holed material
   (`ThreeRenderer.building-holes.test.ts`, "an unhit map mints no holed material"; its falsifier, a hole on every building as
-  it stands up, goes red). The GLSL was checked with `glslangValidator` (GLSL ES 3.00) outside the suite.
+  it stands up, goes red). The GLSL was checked with `glslangValidator` (GLSL ES 3.00) outside the suite; its edge lattice
+  is pinned line for line in `holed-material.test.ts`, because the TS mirror's seam test cannot see the GLSL copy.

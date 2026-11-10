@@ -86,6 +86,37 @@ describe('the hook', () => {
   it('throws when three no longer holds a splice point, rather than compiling a building with no holes', () => {
     expect(() => holesShaderHook('void main() {}', THREE.ShaderLib.standard.fragmentShader, true)).toThrow(/project_vertex/);
   });
+  // PR 1221 review: the GLSL edge is the copy that DRAWS, so its lattice is pinned as text, line for line. The TS
+  // mirror's seam test (building-holes.test.ts) cannot see a change here; this can.
+  it('the GLSL edge noise is the periodic lattice the TypeScript mirror tests: pinned line for line', () => {
+    const start = HOLES_PARS_GLSL.indexOf('float rlHoleEdge(float theta, int seed) {');
+    const end = HOLES_PARS_GLSL.indexOf('void rlHoleApply() {');
+    expect(start).toBeGreaterThan(0);
+    const body = HOLES_PARS_GLSL.slice(start, end).trim().split('\n').map((l) => l.trim());
+    expect(body).toEqual([
+      'float rlHoleEdge(float theta, int seed) {',
+      'float turn = fract(theta / 6.283185307179586);',
+      'float sum = 0.0;',
+      'float norm = 0.0;',
+      'float amp = 1.0;',
+      'for (int o = 0; o < 4; o++) {',
+      'int cells = 4 << o;',
+      'float u = turn * float(cells);',
+      'int i0 = int(floor(u)) % cells;',
+      'int i1 = (i0 + 1) % cells;',
+      'float fr = u - floor(u);',
+      'float s = fr * fr * (3.0 - 2.0 * fr);',
+      'float a = rlHoleHash(i0, seed * 128 + o);',
+      'float b = rlHoleHash(i1, seed * 128 + o);',
+      'sum += amp * mix(a, b, s);',
+      'norm += amp;',
+      'amp *= 0.5;',
+      '}',
+      'return sum / norm;',
+      '}',
+    ]);
+  });
+
   it('spells the module constants: the cap, the depth, the +-15% edge, 4 octaves, the lip and the halo', () => {
     expect(HOLES_PARS_GLSL).toContain(`uniform vec4 uRlHoleC[${HOLE_CAP}];`);
     expect(HOLES_PARS_GLSL).toContain('if (abs(ax) >= 0.6) continue;');

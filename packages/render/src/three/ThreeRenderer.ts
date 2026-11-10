@@ -12721,16 +12721,15 @@ export class ThreeRenderer implements Renderer {
     if (k < 0) return false;
     const shot = list[k];
     list.splice(k, 1);
-    // GH-1197 P4: the hole is world state, like the scars: cut whatever the fog, the catch-up or the burst limit.
-    if (shot.indirect === true) {
-      this.cutRoofHole(structure, shot.munition, tick);
-      // An indirect hit adds nothing else at the building (P3 ruling Q2): the caller draws today's puff.
-      return false;
-    }
+    // GH-1197 P4: the hole is world state, like the scars: cut whatever the fog, the catch-up or the burst limit. Wall
+    // or roof is the class row's `hole.axis` (munitions.json): a direct round's classes punch walls, an indirect one's
+    // roofs, as data.
     {
       const at = this.structHitPoint(structure, by, tick);
-      this.cutWallHole(structure, shot.munition, at.face.x, at.hitY, at.face.y, at.face.nx, at.face.ny, tick);
+      this.cutClassHole(structure, shot.munition, tick, { x: at.face.x, y: at.hitY, z: at.face.y, nx: at.face.nx, nz: at.face.ny });
     }
+    // An indirect hit adds nothing else at the building (P3 ruling Q2): the caller draws today's puff.
+    if (shot.indirect === true) return false;
     if (this.quiet) return true;
     if (!hostileEffectVisible(this.versus, this.structureIsOwn(structure), this.footprintInSight(structure))) return true;
     if (tick - (this.structHitBurstTick.get(structure) ?? -1e9) < HIT_BURST_MIN_TICKS) return true;
@@ -12745,6 +12744,12 @@ export class ThreeRenderer implements Renderer {
     const st = this.sim.structures;
     const sx = shooter >= 0 && shooter < this.curX.length ? this.curX[shooter] : fx.toNumber(st.cx[structure]) + 1;
     const sy = shooter >= 0 && shooter < this.curY.length ? this.curY[shooter] : fx.toNumber(st.cy[structure]);
+    return this.facePointToward(structure, sx, sy, tick);
+  }
+
+  /** GH-1197 P4: `structHitPoint` from a point rather than a shooter (a strike's detonation). */
+  private facePointToward(structure: number, sx: number, sy: number, tick: number) {
+    const st = this.sim.structures;
     const face = hitFace(st.minX[structure], st.minY[structure], st.maxX[structure], st.maxY[structure], sx, sy);
     const px = face.x + face.nx * HIT_STANDOFF_TILES;
     const py = face.y + face.ny * HIT_STANDOFF_TILES;
@@ -12771,6 +12776,22 @@ export class ThreeRenderer implements Renderer {
     const ray = new THREE.Raycaster(origin, dir, 0, far);
     const hits = ray.intersectObject(root, true);
     return hits.length > 0 ? hits[0].point : null;
+  }
+
+  /**
+   * GH-1197 P4: the hole a munition's class cuts, by its row's `hole.axis` (munitions.json, the section 3a table): a
+   * `roof` class punches the roof (at a hashed point, or the point nearest `roofAt`), a `wall` class the face given by
+   * `wall`. A class with no `hole` cuts nothing. Every caller hands both, so the data decides, never the call site.
+   */
+  private cutClassHole(
+    s: number, m: Munition, tick: number,
+    wall: { x: number; y: number; z: number; nx: number; nz: number },
+    roofAt?: { x: number; y: number }
+  ): void {
+    const hole = munitionRow(m.cls).hole;
+    if (hole === undefined) return;
+    if (hole.axis === 'roof') this.cutRoofHole(s, m, tick, roofAt);
+    else this.cutWallHole(s, m, wall.x, wall.y, wall.z, wall.nx, wall.nz, tick);
   }
 
   /** GH-1197 P4: a WALL hole of the munition's class radius at (x, y, z) on the face whose outward normal is (nx, nz),
@@ -12807,8 +12828,8 @@ export class ThreeRenderer implements Renderer {
     this.cutBuildingHole(s, root, [x, hit ? hit.y : top, z], [0, 1, 0], radius, tick);
   }
 
-  /** GH-1197 P4 (ruling Q1 d): a strike or a barrage round punches the roof of every building inside its splash, at the
-   *  roof point nearest the detonation. World state, so a catch-up cuts them too. */
+  /** GH-1197 P4 (ruling Q1 d): a strike or a barrage round holes every building inside its splash -- its class is a roof
+   *  class, so at the roof point nearest the detonation. World state, so a catch-up cuts them too. */
   private cutSupportHoles(m: Munition | null, x: number, y: number, tick: number): void {
     if (m === null || !(m.splash > 0)) return;
     const st = this.sim.structures;
@@ -12817,7 +12838,8 @@ export class ThreeRenderer implements Renderer {
       const dx = Math.max(st.minX[s] - x, 0, x - (st.maxX[s] + 1));
       const dy = Math.max(st.minY[s] - y, 0, y - (st.maxY[s] + 1));
       if (dx * dx + dy * dy > m.splash * m.splash) continue;
-      this.cutRoofHole(s, m, tick, { x, y });
+      const at = this.facePointToward(s, x, y, tick);
+      this.cutClassHole(s, m, tick, { x: at.face.x, y: at.hitY, z: at.face.y, nx: at.face.nx, nz: at.face.ny }, { x, y });
     }
   }
 
@@ -12829,7 +12851,8 @@ export class ThreeRenderer implements Renderer {
     if (m === null || radius === undefined) return;
     const st = this.sim.structures;
     const face = hitFace(st.minX[structure], st.minY[structure], st.maxX[structure], st.maxY[structure], this.curX[thrower], this.curY[thrower]);
-    this.cutWallHole(structure, m, px, this.ringHeightAt(px, py) + radius, py, face.nx, face.ny, tick);
+    // Door height: the hole's foot on the ground.
+    this.cutClassHole(structure, m, tick, { x: px, y: this.ringHeightAt(px, py) + radius, z: py, nx: face.nx, nz: face.ny });
   }
 
   /** GH-1197 P4: adds a hole to building `s` (minting its holed materials on the first) and puts them on its meshes. */
