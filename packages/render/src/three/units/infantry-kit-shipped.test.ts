@@ -7,11 +7,12 @@
  *  - the kit survives `GLTFLoader` (a packed node, a custom `_rl_kit`
  *    attribute, the team's own skin) and merges: `mergeGeometries` refuses any
  *    attribute mismatch, and `gpuType` was one nothing but this file found;
- *  - TIER 0 IS THE SHIPPED FIGURE: 11,730 triangles in 4 meshes, the host
+ *  - TIER 0 IS THE SHIPPED FIGURE: 32,955 triangles in 4 meshes, the host
  *    geometry untouched, exactly what main drew before the kit;
  *  - the kit adds NO mesh (+0 draw calls) at any tier;
  *  - the triangle counts of every state, as LITERALS measured from the file on
- *    29 Oct 2026 (the redesign, GH-826) -- the oracle never recomputes them from the part table it is
+ *    29 Oct 2026 (the redesign, GH-826), re-measured 9 Nov 2026 on the skinned Meshy figure (GH-746: a new body,
+ *    the kit re-fitted to it, no deltoid or sleeve armour and no nvg_mount on it) -- the oracle never recomputes them from the part table it is
  *    checking (the tier selection logic itself is `infantry-kit.test.ts`).
  */
 import { readFileSync } from 'node:fs';
@@ -25,20 +26,20 @@ import { KIT_BASE_COUNT_KEY } from './vehicle-kit';
 const GLB = readFileSync(new URL('../../../../../art/meshes/inf_squad.glb', import.meta.url));
 
 /** The shipped figure before the kit: boot, face, uniform, weapon. */
-const BASE = { boot: 546, face: 81, uniform: 9963, weapon: 1140 };
+const BASE = { boot: 3792, face: 519, uniform: 24818, weapon: 3826 };
 
-/** [label, tiers, triangles per role mesh] */
+/** [label, tiers, triangles per role mesh]. Re-counted 9 Nov 2026 from the v7 kit bytes (GH-746): the kit is 20,405 triangles over three figures (the whole carrier; no EUD, dropped for the pilot on the lead's 10 Nov ruling). */
 const STATES: [string, Record<string, number>, Partial<typeof BASE>][] = [
-  ['armour 1', { armour: 1 }, { uniform: 10749 }],
-  ['armour 2', { armour: 2 }, { uniform: 11037 }],
-  ['armour 3', { armour: 3 }, { uniform: 11205 }],
-  ['sensors 1', { sensors: 1 }, { weapon: 1512 }],
-  ['sensors 2', { sensors: 2 }, { uniform: 10159, weapon: 1672 }],
-  ['sensors 3', { sensors: 3 }, { uniform: 10191, weapon: 1870 }],
-  ['firepower 1', { firepower: 1 }, { uniform: 10323, weapon: 1350 }],
-  ['firepower 2', { firepower: 2 }, { uniform: 10323, weapon: 1686 }],
-  ['firepower 3', { firepower: 3 }, { uniform: 10443, weapon: 1818 }],
-  ['full kit', { armour: 3, sensors: 3, firepower: 3 }, { uniform: 11913, weapon: 2548 }],
+  ['armour 1', { armour: 1 }, { uniform: 31901 }],
+  ['armour 2', { armour: 2 }, { uniform: 33125 }],
+  ['armour 3', { armour: 3 }, { uniform: 33201 }],
+  ['sensors 1', { sensors: 1 }, { weapon: 5854 }],
+  ['sensors 2', { sensors: 2 }, { uniform: 26316, weapon: 6926 }],
+  ['sensors 3', { sensors: 3 }, { uniform: 26444, weapon: 6890 }],
+  ['firepower 1', { firepower: 1 }, { uniform: 28262, weapon: 4510 }],
+  ['firepower 2', { firepower: 2 }, { uniform: 28262, weapon: 6118 }],
+  ['firepower 3', { firepower: 3 }, { uniform: 29438, weapon: 6538 }],
+  ['full kit', { armour: 3, sensors: 3, firepower: 3 }, { uniform: 39447, weapon: 9602 }],
 ];
 
 /**
@@ -63,7 +64,7 @@ async function build(tiers?: Record<string, number>, kitEnabled?: boolean) {
 const tris = (m: THREE.Mesh): number => (m.geometry.index?.count ?? 0) / 3;
 
 describe('inf_squad through the real loader', () => {
-  it('tier 0 is the shipped figure: 11,730 triangles, four meshes, host geometry untouched', async () => {
+  it('tier 0 is the shipped figure: 32,955 triangles, four meshes, host geometry untouched', async () => {
     const none: (Record<string, number> | undefined)[] = [undefined, {}, { armour: 0, sensors: 0, firepower: 0 }];
     for (const tiers of none) {
       const { t, meshes } = await build(tiers);
@@ -89,10 +90,10 @@ describe('inf_squad through the real loader', () => {
     }
   });
 
-  it('full kit draws 3,358 kit triangles: 1,094 + 1,170 + 1,094 per figure, superseded parts dropped', async () => {
+  it('full kit draws 20,405 kit triangles: 6,735 + 6,931 + 6,739 per figure, superseded parts dropped', async () => {
     const { meshes } = await build({ armour: 3, sensors: 3, firepower: 3 });
     const all = Object.values(meshes).reduce((n, m) => n + tris(m), 0);
-    expect(all - 11730).toBe(1094 + 1170 + 1094);
+    expect(all - 32955).toBe(6735 + 6931 + 6739);
   });
 
   it('the kit rides the team\'s bones: kit vertices are skinned at weight 1 to bones of the shared skeleton', async () => {
@@ -153,7 +154,7 @@ describe('the shipped switch (INFANTRY_KIT_ENABLED, GH-826)', () => {
     const maxed = (await build(FULL)).meshes;
     expect(Object.keys(maxed).sort()).toEqual(Object.keys(tier0).sort());
     // Literals, not a recomputation of the part table: the full-kit state.
-    const FULL_KIT = { ...BASE, uniform: 11913, weapon: 2548 };
+    const FULL_KIT = { ...BASE, uniform: 39447, weapon: 9602 };
     for (const name of Object.keys(tier0)) {
       expect(tris(tier0[name]), `${name} tier 0`).toBe(BASE[name as keyof typeof BASE]);
       expect(tris(maxed[name]), `${name} max`).toBe(FULL_KIT[name as keyof typeof FULL_KIT]);
@@ -177,7 +178,7 @@ describe('the shipped switch (INFANTRY_KIT_ENABLED, GH-826)', () => {
       }
       expect(b.userData[KIT_BASE_COUNT_KEY], name).toBeUndefined();
     }
-  });
+  }, 60_000); // a full attribute compare of the 33k-triangle skinned figure: 5 s was too tight once the body grew (9 Nov)
 
   it('and no kit node is left in the scene, switch on or off', async () => {
     for (const enabled of [undefined, false]) {

@@ -295,6 +295,8 @@ export interface StrayPiece {
   readonly areaCm2: number;
   /** `tone`: painted a legacy claw tone near the hand; `glove`: painted the modelled glove's own texel. */
   readonly how: 'tone' | 'glove';
+  /** The piece's mean CIE Lab (its triangles' texels), for a reader that asks what it is painted. */
+  readonly lab?: V3;
 }
 
 /** A claw tone is chromatic enough to tell from a uniform when its chroma C* (of L*a*b*) is at least this. Orange, pink and tan
@@ -322,7 +324,7 @@ export interface StrayReport {
  *
  * Corpse rigs (`*death*` bones) are the other build and are not read; held and worn roles are not skin.
  */
-export function strayClawReport(glb: GlbFile): StrayReport {
+export function strayClawReport(glb: GlbFile, opts: { legacyTones?: 'claw-only' | 'always' } = {}): StrayReport {
   const meshes = readRoleMeshes(glb);
   const tex = readTexture(glb);
   if (!tex) throw new Error('strayClawPieces: the file carries no baked skin to read tones from');
@@ -339,7 +341,11 @@ export function strayClawReport(glb: GlbFile): StrayReport {
     const near = (c: V3): boolean => hands.some((h) => Math.hypot(h[0] - c[0], h[1] - c[1], h[2] - c[2]) <= STRAY_NEAR_HAND_M);
     const claw = hs.some((h) => h.kind === 'claw');
     if (hands.length === 0 && !isTwin(p, builds)) blind.push(p);
-    const tones: V3[] = [...LEGACY_CLAW_TONES];
+    // The legacy claw tones (KDF orange, the crews' pink) describe CLAWS. A build whose hands are modelled gloves with
+    // their own texel (`rl_hands.glove`) and no claw is read by that texel (`painted` below), not by them: the Meshy Rifle
+    // Squad's vest is the kit carrier's coyote by the lead's ruling (9 Nov 2026), Lab (43, 7, 31), 10.8 dE from the
+    // legacy (42, 18, 33), and its pouches beside the fists read as six "claw" pieces on the spine.
+    const tones: V3[] = glove !== null && !claw && opts.legacyTones !== 'always' ? [] : [...LEGACY_CLAW_TONES];
     if (claw) {
       const labs = handTris.filter((t) => hs.some((h) => h.kind === 'claw' && h.tris.includes(t))).map((t) => triLab(tex, t)).filter((l): l is V3 => l !== null);
       if (labs.length > 0) {
@@ -365,7 +371,9 @@ export function strayClawReport(glb: GlbFile): StrayReport {
       for (const comp of components(set)) {
         const areaCm2 = comp.reduce((a, t) => a + triAreaM2(t), 0) * 1e4;
         if (areaCm2 < min) continue;
-        out.push({ build: p, bones: [...new Set(comp.map((t) => t.bone))].sort(), triangles: comp.length, areaCm2, how });
+        const labs = comp.map((t) => triLab(tex, t)).filter((l): l is V3 => l !== null);
+        const mean = [0, 1, 2].map((k) => labs.reduce((a, l) => a + l[k], 0) / Math.max(1, labs.length)) as V3;
+        out.push({ build: p, bones: [...new Set(comp.map((t) => t.bone))].sort(), triangles: comp.length, areaCm2, how, lab: mean });
       }
     }
   }

@@ -50,7 +50,7 @@ def isolate(arm, keep):
 
 def tri_report(rows):
     """Per-part triangles against the spec column (cap 1.10x), per figure drawn at max kit
-    (superseded slot parts dropped) against 1,200, per file (every part) against 5,000."""
+    (superseded slot parts dropped) against 7,200, per file (every part) against 23,200 (the lead, 9 Nov 2026: the v7 set)."""
     by_part = {}
     for ob, part, pf, tris in rows:
         by_part.setdefault((part.name, pf), 0)
@@ -59,8 +59,11 @@ def tri_report(rows):
     for part in kp.PARTS:
         per_fig = {pf: by_part[(part.name, pf)] for pf in kp.ALL if (part.name, pf) in by_part}
         worst = max(per_fig.values())
-        cap = part.spec_tris * kp.PART_LIMIT
-        parts.append({"part": part.name, "track": part.track, "tier": part.tier, "spec": part.spec_tris,
+        # a team with its own per-node rows (the Rifle Squad's v7 parts) is held to those, per node x the nodes the part has
+        own = kp.TEAM.part_tris.get(part.name)
+        spec = own * len(kp.object_suffixes(part)) if own is not None else part.spec_tris
+        cap = spec * kp.PART_LIMIT
+        parts.append({"part": part.name, "track": part.track, "tier": part.tier, "spec": spec,
                       "cap": round(cap, 1), "built": per_fig, "within_cap": worst <= cap + 1e-9})
     drawn, infile = {}, {}
     for pf in kp.ALL:
@@ -72,8 +75,8 @@ def tri_report(rows):
                 key = (part.slot, inf_kit._side_of(ob))
                 best[key] = max(best.get(key, 0), part.tier)
         drawn[pf] = sum(t for ob, part, f, t in rows if f == pf and (not part.slot or part.tier == best[(part.slot, inf_kit._side_of(ob))]))
-    return {"parts": parts, "totals": {"drawn_at_max_per_figure": drawn, "cap_per_figure": 1200,
-                                         "in_file_per_figure": infile, "in_file_total": sum(infile.values()), "cap_per_file": 5000,
+    return {"parts": parts, "totals": {"drawn_at_max_per_figure": drawn, "cap_per_figure": 7200,
+                                         "in_file_per_figure": infile, "in_file_total": sum(infile.values()), "cap_per_file": 23200,
                                          "parts_over_cap": [p["part"] for p in parts if not p["within_cap"]]}}
 
 

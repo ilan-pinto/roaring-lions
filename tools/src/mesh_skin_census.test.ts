@@ -1,0 +1,207 @@
+/**
+ * The Meshy Rifle Squad's skinned surface, read on the shipped bytes (GH-746, the round-4 review of 9 Nov):
+ *
+ *  N1 -- no needle at a fist: within 0.12 m of each fist, at rest and through every living clip, at most 3 slivers
+ *        (longest edge over 25 mm, height under 2.5 mm), none longer than 40 mm. The fused grip, parted from the gun,
+ *        left an open rim of them (b79fe403c: f2's firing fist 15, the longest 96 mm); the importer now caps the rim and
+ *        refuses a build that keeps more (`_clean_fist_slivers`).
+ *  N3 -- no comb in the armpit: in fire and moveFire, at most 30 edges between a figure's spine and an upper arm stretched
+ *        past 2.5x and 3 cm, none past 0.15 m (7320cef47: moveFire 44-71 edges at 0.19-0.23 m on the firing side).
+ *
+ * Open readings are named, each with its demotion (they must keep failing, or the entry goes):
+ *  - `move`: the SUPPORT fist (rig R) shows 1-2 slivers of 45-85 mm in the run's arm swing (rest and every other clip:
+ *    none; 9 Nov round 4);
+ *  - the support-side armpit (rig R, `upperarm_R`): 100-110 edges at 0.37-0.38 m in fire and moveFire, unchanged since
+ *    round 1 and not visible at the garage or game framings (the reviews of 9 Nov).
+ *
+ *  B2 -- no torn rim at a fist (round 5): the `uniform` mesh welded by position, at most 4 EXPOSED open edges within
+ *        6 cm of each fist, the fists checked by ROLE (`rl_hands.stations`: grip = firing, here rig `hand_L`; support,
+ *        rig `hand_R`), at rest and through every living clip. An open edge inside the figure's gun or within 4 mm of its
+ *        surface is sealed by the gun and counted apart (the importer parts the fused fist from the gun there, and
+ *        reports it: 20-29 such edges per fist). Round 4's bytes (d31bdc16d) read 4-13 exposed (red), 25-39 in all.
+ *        Open: f2's firing fist in the living clips (RIM_OPEN), off its sculpted station by the shared hold.
+ *
+ *  B4 -- no vertex torn off a fist (round-5 review): no edge within 10 cm of a fist stretched past 2.5x and 3 cm, at any
+ *        sampled instant of any living clip. Round 5's first build welded coincident vertices across bones and stood a
+ *        75-86 mm spike off every support fist when aimed: f157c35e8 reads 160 stretched rows (up to 18 edges, 93 mm);
+ *        d31bdc16d reads 0.
+ *
+ * Constructed failing inputs, each run: a triangle at f1's firing fist made a 6 cm needle (N1 red); f1's firing upper arm
+ * swung 50 deg in moveFire (N3 red); three triangles of each fist deleted, outside the gun, each alone opening 3 exposed
+ * edges (B2 red).
+ */
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { readGlb, type GlbFile } from './mesh_gait';
+import { armpitStretch, fistRoles, fistSlivers, fistStretch, openRim, readUniform, withoutTriangle, withVertexAt, withVertexBoundTo } from './mesh_skin_census';
+
+const SQUAD = fileURLToPath(new URL('../../art/meshes/inf_squad.glb', import.meta.url));
+const FIGURES = ['f0', 'f1', 'f2'] as const;
+const CLIPS = [null, 'idle', 'move', 'fire', 'moveFire', 'kneel', 'kneelIn', 'kneelOut', 'pinned'] as const;
+const FRACS = [0, 0.25, 0.5, 0.75, 0.875];
+const MAX_SLIVERS = 3;
+const MAX_SLIVER_M = 0.04;
+const MAX_STRETCH_EDGES = 30;
+const MAX_STRETCH_M = 0.15;
+const MAX_EXPOSED = 4;
+/** figure + role -> reason; must still fail in some living clip (else delete the entry). Rest is never exempt. */
+const RIM_OPEN: Readonly<Record<string, string>> = {
+  'f2 firing': 'f2 is a 0.966 x 1.08 scaling of the one measured body, and the hold puts his firing fist on the shared station '
+    + '23.4 mm off where it was sculpted on his gun (mesh_grip.test.ts, "f2 station fire"): in the living clips its parted rim '
+    + 'stands 8-20 mm off the grip, 9-13 exposed edges (rest: 3)',
+};
+
+/** clip + rig side of a fist -> the reason; the reading must still fail somewhere in that clip, on some figure. */
+const SLIVER_OPEN: Readonly<Record<string, string>> = {
+  'move R': 'the support fist shows 1-2 slivers of 45-85 mm in the run\'s arm swing (9 Nov, round 4); none at rest or in any other clip',
+};
+/** rig side -> reason; the support-side armpit's web, still over the bar in fire and moveFire. */
+const STRETCH_OPEN: Readonly<Record<string, string>> = {
+  R: 'the support armpit (upperarm_R): 100-110 edges at 0.37-0.38 m in fire and moveFire, unchanged since round 1, not visible at the garage or game framings',
+};
+
+const glb = readGlb(SQUAD);
+const over = (r: { count: number; longestM: number }): boolean => r.count > MAX_SLIVERS || r.longestM > MAX_SLIVER_M;
+
+describe('N1: no needle at a fist (rest and every living clip)', () => {
+  for (const fig of FIGURES) {
+    it(`${fig}: at most ${MAX_SLIVERS} slivers per fist, none over ${MAX_SLIVER_M * 1000} mm`, () => {
+      const bad: string[] = [];
+      for (const clip of CLIPS) for (const fr of clip === null ? [0] : FRACS) {
+        for (const r of fistSlivers(glb, fig, clip, fr)) {
+          if (!over(r)) continue;
+          const key = `${clip ?? 'rest'} ${r.hand.slice(-1)}`;
+          if (key in SLIVER_OPEN) continue;
+          bad.push(`${key} @${fr}: ${r.count} slivers, longest ${(r.longestM * 1000).toFixed(0)} mm`);
+        }
+      }
+      expect(bad).toEqual([]);
+    }, 300_000);
+  }
+  it.each(Object.keys(SLIVER_OPEN))('open reading "%s" still fails (else delete it)', (key) => {
+    const [clip, side] = key.split(' ');
+    const fails = FIGURES.some((fig) => FRACS.some((fr) => fistSlivers(glb, fig, clip, fr).some((r) => r.hand.endsWith(`_${side}`) && over(r))));
+    expect(fails, `${key}: now inside the bar, delete its SLIVER_OPEN entry`).toBe(true);
+    expect(SLIVER_OPEN[key].length).toBeGreaterThan(20);
+  }, 300_000);
+  it('fails on a needle: a triangle at f1\'s firing fist stretched into a 6 cm sliver (constructed input)', () => {
+    const u = readUniform(glb);
+    const v = u.dom.findIndex((d) => d === 'f1_hand_L');
+    const tri = u.tris.find((t) => t.includes(v))!;
+    const [a, b] = tri.filter((x) => x !== v).map((x) => [u.pos.data[x * 3], u.pos.data[x * 3 + 1], u.pos.data[x * 3 + 2]] as [number, number, number]);
+    const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const n = Math.hypot(d[0], d[1], d[2]);
+    const far: [number, number, number] = [a[0] + (d[0] / n) * 0.06, a[1] + (d[1] / n) * 0.06, a[2] + (d[2] / n) * 0.06];
+    const r = fistSlivers(withVertexAt(glb, v, far) as GlbFile, 'f1', null);
+    expect(r.some(over)).toBe(true);
+    expect(fistSlivers(glb, 'f1', null).some(over)).toBe(false);
+  }, 120_000);
+});
+
+describe('N3: no comb in the armpit (fire, moveFire)', () => {
+  for (const fig of FIGURES) for (const side of ['L', 'R'] as const) for (const clip of ['fire', 'moveFire']) {
+    it(`${fig} ${side} ${clip}`, () => {
+      const r = armpitStretch(glb, fig, side, clip);
+      const bad = r.edges > MAX_STRETCH_EDGES || r.longestM > MAX_STRETCH_M;
+      if (side in STRETCH_OPEN) expect(bad, `${side}: inside the bar now, delete its STRETCH_OPEN entry`).toBe(true);
+      else expect(bad, `${r.pair} in ${clip}: ${r.edges} edges, longest ${r.longestM.toFixed(3)} m`).toBe(false);
+    }, 120_000);
+  }
+  it('fails on a swung arm: f1\'s firing upper arm turned 50 deg in moveFire (constructed input)', () => {
+    const json = JSON.parse(JSON.stringify(glb.json)) as GlbFile['json'];
+    const bin = new Uint8Array(glb.bin);
+    const nodes = json.nodes ?? [];
+    const ni = nodes.findIndex((n) => n.name === 'f1_upperarm_L');
+    const anim = json.animations!.find((a) => a.name === 'moveFire')!;
+    const ch = anim.channels.find((c) => c.target.node === ni && c.target.path === 'rotation')!;
+    const acc = json.accessors![anim.samplers[ch.sampler].output];
+    const bv = json.bufferViews![acc.bufferView!];
+    const base = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0);
+    const dv = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
+    const h = (50 * Math.PI) / 360, s = Math.sin(h), c = Math.cos(h);
+    for (let k = 0; k < acc.count; k++) {
+      const [x, y, z, w] = [0, 1, 2, 3].map((i) => dv.getFloat32(base + (k * 4 + i) * 4, true));
+      // q * (rotation about local x by 50 deg)
+      const q = [w * s + x * c, y * c + z * s, z * c - y * s, w * c - x * s];
+      q.forEach((val, i) => dv.setFloat32(base + (k * 4 + i) * 4, val, true));
+    }
+    const r = armpitStretch({ json, bin }, 'f1', 'L', 'moveFire');
+    expect(r.edges > MAX_STRETCH_EDGES || r.longestM > MAX_STRETCH_M).toBe(true);
+  }, 120_000);
+});
+
+describe('B2: no torn rim at a fist (welded; rest and every living clip; by role)', () => {
+  it('the fists are named by role from rl_hands: grip = rig hand_L, support = rig hand_R', () => {
+    expect(fistRoles(glb)).toEqual({ firing: 'L', support: 'R' });
+  });
+  for (const fig of FIGURES) {
+    it(`${fig}: at most ${MAX_EXPOSED} exposed open edges within 6 cm of the firing AND the support fist`, () => {
+      const bad: string[] = [];
+      const roles = new Set<string>();
+      for (const clip of CLIPS) for (const fr of clip === null ? [0] : [0, 0.5]) {
+        for (const r of openRim(glb, fig, clip, fr)) {
+          roles.add(r.role);
+          if (r.exposed <= MAX_EXPOSED) continue;
+          if (clip !== null && `${fig} ${r.role}` in RIM_OPEN) continue;
+          bad.push(`${clip ?? 'rest'} @${fr} ${r.role} (${r.hand}): ${r.exposed} exposed of ${r.open}`);
+        }
+      }
+      expect([...roles].sort(), 'both fists read').toEqual(['firing', 'support']);
+      expect(bad).toEqual([]);
+    }, 600_000);
+  }
+  it.each(Object.keys(RIM_OPEN))('open reading "%s" still fails in a living clip (else delete it)', (key) => {
+    const [fig, role] = key.split(' ');
+    const fails = CLIPS.some((clip) => clip !== null
+      && openRim(glb, fig, clip, 0.5).some((r) => r.role === role && r.exposed > MAX_EXPOSED));
+    expect(fails, `${key}: inside the bar now, delete its RIM_OPEN entry`).toBe(true);
+  }, 600_000);
+  it('fails on a torn rim: three triangles of each fist, outside the gun, deleted (constructed input)', () => {
+    const u = readUniform(glb);
+    for (const side of ['L', 'R'] as const) {
+      const at = (g: GlbFile): number => openRim(g, 'f1', null).find((r) => r.hand === `f1_hand_${side}`)!.exposed;
+      const before = at(glb);
+      expect(before).toBeLessThanOrEqual(MAX_EXPOSED);
+      // up to three triangles of the hand, sharing no POSITION, each of which alone opens 3 EXPOSED edges (not on the gun)
+      const key = (v: number): string => [0, 1, 2].map((k) => Math.round(u.pos.data[v * 3 + k] * 1e5)).join(',');
+      const picked: number[] = [];
+      const used = new Set<string>();
+      for (let i = 0; i < u.tris.length && picked.length < 3; i++) {
+        const t = u.tris[i];
+        if (!t.every((v) => u.dom[v] === `f1_hand_${side}`) || t.some((v) => used.has(key(v)))) continue;
+        if (at(withoutTriangle(glb, i)) !== before + 3) continue;
+        picked.push(i);
+        t.forEach((v) => used.add(key(v)));
+      }
+      expect(picked.length, `${side}: three exposed triangles found`).toBe(3);
+      const torn = at(withoutTriangle(withoutTriangle(withoutTriangle(glb, picked[0]), picked[1]), picked[2]));
+      expect(torn, `${side}: ${before} exposed before, ${torn} after`).toBeGreaterThan(MAX_EXPOSED);
+    }
+  }, 600_000);
+});
+
+describe('B4: no vertex torn off a fist (every living clip)', () => {
+  for (const fig of FIGURES) {
+    it(`${fig}: no edge within 10 cm of a fist stretched past 2.5x and 3 cm`, () => {
+      const bad: string[] = [];
+      for (const clip of CLIPS) {
+        if (clip === null) continue;
+        for (const fr of FRACS) for (const r of fistStretch(glb, fig, clip, fr)) {
+          if (r.edges > 0) bad.push(`${clip} @${fr} ${r.hand}: ${r.edges} edges, longest ${(r.longestM * 1000).toFixed(0)} mm`);
+        }
+      }
+      expect(bad).toEqual([]);
+    }, 600_000);
+  }
+  it('fails on a re-bound vertex: one of f1\'s support-fist vertices bound to the firing forearm (constructed input)', () => {
+    const u = readUniform(glb);
+    const v = u.dom.findIndex((d) => d === 'f1_hand_R');
+    const nodes = glb.json.nodes ?? [];
+    const joint = u.skin.joints.findIndex((n) => nodes[n]?.name === 'f1_forearm_L');
+    expect(v >= 0 && joint >= 0).toBe(true);
+    const bad = withVertexBoundTo(glb, v, joint);
+    const hit = ['fire', 'moveFire', 'kneel'].some((clip) => fistStretch(bad, 'f1', clip, 0.5).some((r) => r.edges > 0));
+    expect(hit).toBe(true);
+    expect(['fire', 'moveFire', 'kneel'].some((clip) => fistStretch(glb, 'f1', clip, 0.5).some((r) => r.edges > 0))).toBe(false);
+  }, 120_000);
+});

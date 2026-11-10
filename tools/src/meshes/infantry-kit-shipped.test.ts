@@ -11,7 +11,7 @@
  *    were dropped would still load, still draw, and just never show up in the
  *    garage or the field -- `owes` is the check, and it is run below on a
  *    mutated copy that must fail it;
- *  - the budgets (<= 1,200 drawn per figure at max kit, <= 5,000 per file);
+ *  - the budgets (<= 7,200 drawn per figure at max kit, <= 23,200 per file; 2,700 and 8,100, and 1,200 and 5,000 before);
  *  - the part table matches the vertices: every part id on a vertex is a row
  *    of `rl_kit.parts`, and every row has its triangles;
  *  - the Blender source and the mesh agree: `rl_kit_base` (the hash of the
@@ -36,17 +36,25 @@ const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 /**
  * What differs per team. `preKitEncodedBytes` is `assets/meshes/<team>.glb` as encoded before its kit. The Rifle Squad's was
  * 1,799,936 on main; the hands pass (GH-826 step 2) put 3,126 triangles and 45 bones into it and `collapseConstantTracks` took
- * the never-moving keys out, so its pre-kit encode is 1,650,052 (the hands cost 0.46 MB of raw animation keys before the cut).
+ * the never-moving keys out, so its pre-kit encode was 1,650,052 (the hands cost 0.46 MB of raw animation keys before the cut).
+ * The Meshy pilot (GH-746, 9 Nov) replaced the body: the skinned figure's own pre-kit encode (`art/meshes/inf_squad.glb` with
+ * its `kit_*` nodes stripped by `stripKit`, then the encode pass's own draco()) is 1,965,212 after round 3's fists and
+ * retints (1,950,160, then 1,953,472 before), 1,961,376 after round 4's capped fists; shipped with the kit 1,992,080
+ * (+30,704 at about 2,700 kit triangles a figure, inside the +64 KiB; with the v7 kit, 7,200 a figure, +110,104 and the Rifle Squad's
+ * budget is 128 KiB). `growthKiB` is PER TEAM: the Demolition squad's kit is unchanged and keeps 64 (+18,964 today).
  * `hosts` are the role primitives its kit joins: the Demolition squad's weapon primitive is a palette one with no UVs, so
  * its devices ride `uniform`. `leaderOnly` are the parts only the radio man carries.
  */
 const TEAMS: Readonly<
-  Record<string, { figures: string[]; hosts: string[]; leader: string; preKitEncodedBytes: number }>
+  Record<string, { figures: string[]; hosts: string[]; leader: string; preKitEncodedBytes: number; growthKiB: number }>
 > = {
-  inf_squad: { figures: ['f0', 'f1', 'f2'], hosts: ['uniform', 'weapon'], leader: 'f1', preKitEncodedBytes: 1_650_052 },
-  demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform'], leader: 'demo_b', preKitEncodedBytes: 1_018_964 },
+  inf_squad: { figures: ['f0', 'f1', 'f2'], hosts: ['uniform', 'weapon'], leader: 'f1', preKitEncodedBytes: 1_961_376, growthKiB: 128 },
+  demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform'], leader: 'demo_b', preKitEncodedBytes: 1_018_964, growthKiB: 64 },
 };
-const GROWTH_BUDGET_BYTES = 64 * 1024;
+// 9 Nov 2026 (the v7 set, GH-746, lead-approved 7,200 triangles a figure): the Rifle Squad's encoded kit now adds 110,104 bytes
+// (107.5 KiB) to its pre-kit file, so ITS budget is 128 KiB (`growthKiB` above) and at 64 KiB this test goes red on the shipped
+// bytes. The budget is per team: demo_squad's kit did not change and its budget is back at 64 KiB (the fix round, review should-fix 3).
+const GROWTH_BUDGET_BYTES = (team: string): number => TEAMS[team].growthKiB * 1024;
 
 type Packed = InfantryKitTag & { name: string; tris: number };
 
@@ -177,8 +185,15 @@ describe(`${team}: the kit in assets/meshes`, () => {
     expect([...s.keys()].sort()).toEqual([...a.keys()].sort());
     for (const [host, parts] of a) expect(s.get(host)?.map((p) => p.name)).toEqual(parts.map((p) => p.name));
     const bytes = readFileSync(SHIPPED).length;
-    expect(bytes - spec.preKitEncodedBytes).toBeLessThanOrEqual(GROWTH_BUDGET_BYTES);
+    expect(bytes - spec.preKitEncodedBytes).toBeLessThanOrEqual(GROWTH_BUDGET_BYTES(team));
     expect(bytes).toBeGreaterThan(spec.preKitEncodedBytes); // the kit is in it
   });
 });
 }
+
+describe('the encoded-growth budget is per team', () => {
+  it('the Demolition squad reads 64 KiB and the Rifle Squad 128 KiB', () => {
+    expect(GROWTH_BUDGET_BYTES('demo_squad')).toBe(64 * 1024);
+    expect(GROWTH_BUDGET_BYTES('inf_squad')).toBe(128 * 1024);
+  });
+});

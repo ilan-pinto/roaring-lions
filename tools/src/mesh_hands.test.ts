@@ -11,9 +11,11 @@
  *    That block pins both directions: a file that does not carry `rl_hands` must be red, and
  *    one that does must be green, so the hands pass cannot ship without turning it.
  */
+import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readGlb } from './mesh_gait';
+import { isFusedHands } from './mesh_hand_source';
 import {
   HAND_BANDS, handViolations, measureHand, measureShippedHand, principalExtents, readingFrom, type HandReading,
 } from './mesh_hands';
@@ -21,6 +23,17 @@ import {
 const PROBE = fileURLToPath(new URL('../../art/parts/hands/hands_probe.glb', import.meta.url));
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 const S = 1.778;
+/** The frozen rigid Rifle Squad (origin/main before the GH-746 Meshy pilot; see fixtures/README.txt): the one figure the
+ *  hands pass built, read in its place while the shipped inf_squad is a fused Meshy figure. */
+const RIGID_SQUAD = fileURLToPath(new URL('./fixtures/inf_squad_rigid_592ebbb19.glb', import.meta.url));
+/** A shipped team file, or, for a team whose shipped file is now FUSED (Meshy-sculpted fists, `rl_hands.source`
+ *  "meshy") and which had a hands-pass generation, that frozen generation: the gate keeps its subject. */
+const handsPassFileOf = (team: string): string => {
+  const shipped = `${MESHES}${team}.glb`;
+  if (!isFusedHands(shipped)) return shipped;
+  if (team === 'inf_squad') return RIGID_SQUAD;
+  throw new Error(`${team}: shipped fused, and no frozen hands-pass generation to read in its place`);
+};
 
 describe('the generator\'s hands, on bones', () => {
   const hands: [string, 'L' | 'R', string][] = [['p0', 'L', 'grip, anatomical right'], ['p1', 'R', 'support, anatomical left'], ['p2', 'R', 'shield handle']];
@@ -76,9 +89,10 @@ describe('falsification: today\'s shipped bytes', () => {
     ['breach_team', 'brc_point', 'R', 0.03],
   ];
   for (const [team, prefix, side, wrist] of SHIPPED) {
-    it(`${team} ${prefix}_${side}: ${'rl_hands' in (readGlb(`${MESHES}${team}.glb`).json.scenes?.[0]?.extras ?? {}) ? 'carries hands: green' : 'still a Meshy claw: red'}`, () => {
-      const carries = 'rl_hands' in (readGlb(`${MESHES}${team}.glb`).json.scenes?.[0]?.extras ?? {});
-      const r = measureShippedHand(`${MESHES}${team}.glb`, prefix, side, wrist);
+    const file = handsPassFileOf(team);
+    it(`${team} ${prefix}_${side}: ${'rl_hands' in (readGlb(file).json.scenes?.[0]?.extras ?? {}) ? 'carries hands: green' : 'still a Meshy claw: red'}`, () => {
+      const carries = 'rl_hands' in (readGlb(file).json.scenes?.[0]?.extras ?? {});
+      const r = measureShippedHand(file, prefix, side, wrist);
       const v = handViolations(r);
       if (carries) { expect(v).toEqual([]); return; }
       const text = v.join(' | ');
@@ -95,13 +109,65 @@ describe('falsification: today\'s shipped bytes', () => {
 
 
 describe('every figure of a team the hands pass has been through carries proportioned hands (GH-826 step 2)', () => {
+  it('reads the hands-pass population: the Rifle Squad, shipped or (while it ships fused) its frozen rigid generation', () => {
+    expect(isFusedHands(handsPassFileOf('inf_squad')), 'the subject is a hands-pass figure').toBe(false);
+  });
   for (const team of ['inf_squad']) {
     for (const prefix of ['f0', 'f1', 'f2']) {
       for (const side of ['L', 'R'] as const) {
         it(`${team} ${prefix}_${side}: length, palm, thickness, forearm and hung elbow inside the bands`, () => {
-          const r = measureShippedHand(`${MESHES}${team}.glb`, prefix, side, 0);
+          const r = measureShippedHand(handsPassFileOf(team), prefix, side, 0);
           expect(r.elbowOverStature, 'read with a stature (hand bones present)').not.toBeNull();
           expect(handViolations(r), JSON.stringify(r)).toEqual([]);
+        });
+      }
+    }
+  }
+});
+
+/**
+ * A FUSED figure's hands (GH-746 Meshy pilot): fists Meshy sculpted closed on the gun, skinned rigidly to the hand bones.
+ * Not the hands pass's output, but the same anthropometry applies, read by the same instrument on the hand bones, with
+ * the same literal bands. Every violation the bytes show today is listed per hand with its reading (the open defects of
+ * the pilot, for the lead and the high-effort review), and the list is exact both ways: a violation not listed fails, and
+ * a listed one that is gone fails (delete it). Read 9 Nov 2026 on the round-3 bytes.
+ *
+ *   - fist length 0.157-0.183 m against 0.115-0.16 on 5 of 6 hands (the sculpted fist; the 3 cm cuff blend is forearm-
+ *     dominant, so not that): the fists read large;
+ *   - visible forearm 0.248-0.257 on the support side (anatomical left, `_R`) and 0.320-0.352 on the firing side: the
+ *     importer's elbow joints, not the sleeve (the support elbow sits inside the sleeve bulge, round-1 notes);
+ *   - hung elbow 0.644-0.648 of stature against 0.605-0.625: the elbow joints sit 3-4 cm high on every figure;
+ *   - hand over forearm 0.631-0.656 on the support side, from the short support forearm.
+ */
+const FUSED_HAND_OPEN: Readonly<Record<string, readonly string[]>> = {
+  // 9 Nov, after the fists went to x0.8 and the elbows to 0.153 S from the wrist: the support fists (_R) are in band but
+  // for the elbow; the firing fists (_L) read 0.161-0.162 long (0.16) and 0.070-0.083 across the palm (0.085: the closed
+  // fist round the pistol grip is narrow once scaled); every hung elbow reads 0.641-0.651 of stature (0.605-0.625): Meshy's
+  // upper arm is short (0.288-0.304) and the shoulder joint sits at the humeral head; f2's firing forearm reads 0.300.
+  // round 3 (fists by hand weight; firing x0.80, support x0.86): firing fists 0.152-0.153 long on f0 / f1 (in band),
+  // f2's 0.170; the firing palms 0.068-0.070 across; the support fists in band but for the elbow
+  'inf_squad f0_L': ['palm breadth', 'hung elbow height over stature'],
+  'inf_squad f0_R': ['hung elbow height over stature'],
+  'inf_squad f1_L': ['palm breadth', 'hung elbow height over stature'],
+  'inf_squad f1_R': ['hung elbow height over stature'],
+  'inf_squad f2_L': ['hand length', 'palm breadth', 'visible forearm', 'hung elbow height over stature'],
+  'inf_squad f2_R': ['hung elbow height over stature'],
+};
+
+describe('a fused (Meshy) figure\'s hands, against the same bands: every violation named', () => {
+  const fused = readdirSync(MESHES).filter((n) => n.endsWith('.glb')).map((n) => n.slice(0, -4)).filter((t) => isFusedHands(`${MESHES}${t}.glb`));
+  it('reads the fused population: today the Rifle Squad alone, and every exemption names one of its hands', () => {
+    expect(fused).toEqual(['inf_squad']);
+    for (const k of Object.keys(FUSED_HAND_OPEN)) expect(fused, k).toContain(k.split(' ')[0]);
+  });
+  for (const team of fused) {
+    for (const prefix of ['f0', 'f1', 'f2']) {
+      for (const side of ['L', 'R'] as const) {
+        it(`${team} ${prefix}_${side}: palm and thickness in band; the open violations exactly as listed`, () => {
+          const r = measureShippedHand(`${MESHES}${team}.glb`, prefix, side, 0);
+          expect(r.elbowOverStature, 'read with a stature (hand bones present)').not.toBeNull();
+          const names = handViolations(r).map((v) => v.replace(/ [-\d.]+ (outside|over) .*$/, ''));
+          expect(names, JSON.stringify(r)).toEqual(FUSED_HAND_OPEN[`${team} ${prefix}_${side}`] ?? []);
         });
       }
     }

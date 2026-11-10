@@ -72,6 +72,22 @@ describe('judge', () => {
   });
 });
 
+describe('the after-leave JS ceiling (lead ruling 10 Nov, GH-746)', () => {
+  const AFTER: MemoryBudget = { ...BUDGET, menuAfterJsTotalMiB: 64 };
+  const fails = (rs: Reading[]): string[] => judge(rs, AFTER).filter((v) => !v.ok).map((v) => v.detail);
+  it('holds a menu after leaving to its own ceiling, and only that reading', () => {
+    expect(fails(walk({ menu: { js: 55 }, after: { js: 63 } }))).toEqual([]);
+    expect(fails(walk({ menu: { js: 55 }, after: { js: 64.5 } }))).toEqual([expect.stringMatching(/menu after a: JS heap \+ ArrayBuffers 64\.5 MiB <= 64 \(menu after a mission\)/)]);
+    // the first menu keeps the menu ceiling (60 here)
+    expect(fails(walk({ menu: { js: 61 }, after: { js: 63 } })).some((d) => /^menu: JS heap/.test(d))).toBe(true);
+  });
+  it('the shipped CI budget: 70 after leaving, 65 for the first menu', () => {
+    const ci = MEMORY_BUDGETS['linux-x64-swiftshader'];
+    expect(ci.menuAfterJsTotalMiB).toBe(70);
+    expect(ci.menu.jsTotalMiB).toBe(65);
+  });
+});
+
 describe('envKeyFor', () => {
   it('keys on the rasteriser the browser reported', () => {
     expect(envKeyFor('linux', 'x64', 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)')).toBe(
