@@ -59,6 +59,7 @@ import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPort } from '../ui-review/port';
 import { driveBoot, startPreview, type Milestones } from './boot';
+import { summariseProfile, type CpuProfile } from './cpu-profile';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
@@ -255,46 +256,6 @@ async function closeWindow(page: Page): Promise<WindowStats> {
   };
 }
 
-
-interface ProfileNode {
-  id: number;
-  callFrame: { functionName: string; url: string; lineNumber: number };
-  children?: number[];
-}
-interface CpuProfile {
-  nodes: ProfileNode[];
-  samples: number[];
-  timeDeltas: number[];
-  startTime: number;
-  endTime: number;
-}
-
-/** Self time per function and per file, as a share of the window's wall
- *  time. `(program)`/`(idle)`/`(garbage collector)` are kept: under a
- *  throttled CPU the GC line is one of the answers. */
-function summariseProfile(p: CpuProfile, top = 14): string[] {
-  const byId = new Map(p.nodes.map((n) => [n.id, n]));
-  const selfUs = new Map<number, number>();
-  for (let i = 0; i < p.samples.length; i++) selfUs.set(p.samples[i], (selfUs.get(p.samples[i]) ?? 0) + (p.timeDeltas[i] ?? 0));
-  const total = p.endTime - p.startTime;
-  const fn = new Map<string, number>();
-  const file = new Map<string, number>();
-  for (const [id, us] of selfUs) {
-    const n = byId.get(id);
-    if (!n) continue;
-    const f = n.callFrame.url.replace(/^https?:\/\/[^/]+/, '').replace(/\?.*$/, '') || '(native)';
-    const short = f.split('/').slice(-2).join('/');
-    const key = `${n.callFrame.functionName || '(anonymous)'}  ${short}:${n.callFrame.lineNumber + 1}`;
-    fn.set(key, (fn.get(key) ?? 0) + us);
-    file.set(short, (file.get(short) ?? 0) + us);
-  }
-  const rows = (m: Map<string, number>): string[] =>
-    [...m.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, top)
-      .map(([k, us]) => `    ${((us / total) * 100).toFixed(1).padStart(5)}%  ${(us / 1000).toFixed(0).padStart(6)} ms  ${k}`);
-  return [`   window ${(total / 1000).toFixed(0)} ms -- by function:`, ...rows(fn), '   by file:', ...rows(file)];
-}
 
 /** `--profile-dir=<dir>`: also write each window's raw `.cpuprofile` (opens
  *  in Chrome DevTools' Performance panel) for a top-down read. */
