@@ -1965,16 +1965,17 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
     layerChecks: [
       {
         layer: 'ragdolls',
-        // PENDING: no CI reading yet, so the floor is infinite -- the check cannot pass vacuously, and fails until the
-        // first three CI readings are written into `MEASURED` (a third of the smallest, rounded down; the
-        // `vehicle/selection-ring` precedent).
-        minDiffPixels: Number.POSITIVE_INFINITY,
-        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        // Derived 11 Nov 2026 from six CI readings of the SAME picture. `visual-backends (webgl2)`: 3254 px / 0.1654 on
+        // ci.yml runs 42924511919, 42965034375, 43017132029 and 43035076032, bit-identical. `visual` (SwiftShader): 3309 px /
+        // 0.1699 on runs 42908323186 and 42984769518, higher, so one floor holds for both. A third of the smallest, rounded
+        // down: 1084 px, 0.0551.
+        minDiffPixels: 1084,
+        minMeanAbsChannelDelta: 0.0551,
         rationale:
           'GH-1223 slice 1: hiding the ragdolls (the `ragdolls` layer, a flag re-applied every frame) must move this ' +
-          'frame -- the six figures of the two showcase teams are the picture. PENDING: no CI reading exists; the floors ' +
-          'are re-derived from the first three CI runs at the bless. At the renderer level, a showcase that claims ' +
-          'nothing turns `ThreeRenderer.ragdoll-showcase.test.ts` red.',
+          'frame -- the six figures of the two showcase teams are the picture. Floors are a third of the smallest of ' +
+          'three CI readings (3254 px / 0.1654; runs 42924511919, 42965034375, 43017132029). At the renderer level, a ' +
+          'showcase that claims nothing turns `ThreeRenderer.ragdoll-showcase.test.ts` red.',
       },
     ],
     rationale:

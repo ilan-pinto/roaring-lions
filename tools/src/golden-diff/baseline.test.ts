@@ -936,6 +936,10 @@ describe('BASELINES layerChecks', () => {
         haze: { px: 285, mean: 0.9784 },
         units: { px: 9036, mean: 0.6724 },
       },
+      // GH-1223 slice 1, 11 Nov 2026: ci.yml `visual-backends (webgl2)` runs 42924511919, 42965034375, 43017132029 (the smaller; SwiftShader read 3309 / 0.1699).
+      ragdoll: {
+        ragdolls: { px: 3254, mean: 0.1654 },
+      },
     };
     /** Below this many pixels a count is not a measurement you can take a
      *  third of, and `LayerCheckSpec` says so: `minDiffPixels` "is
@@ -951,7 +955,7 @@ describe('BASELINES layerChecks', () => {
     /** Checks that ship before any CI reading exists (GH-1223's `ragdoll` scenario): their floors are INFINITE, so they
      *  fail until the first three CI readings are written into `MEASURED` and the floors are derived from them --
      *  never a check that passes on nothing. Listed by hand: leaving this list is a deliberate edit. */
-    const PENDING = new Set(['ragdoll/ragdolls']);
+    const PENDING = new Set<string>();
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
         // GH-943 P1 (T5): a `zero` check has no floor to derive from a signal; it has its own test below.
