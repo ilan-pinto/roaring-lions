@@ -17,7 +17,7 @@ import type { WebGPURenderer } from 'three/webgpu';
 import type { BackendKind } from '../../gpu';
 import type { AoControl, MaterialKit, MaterialMaths, PostConfig, PostKit, RenderBackend } from './backend';
 import { createOrthoAwareGtao } from '../gtao-ortho.node';
-import { createNodePostChain, createNodeAoStage, type NodePostChain, type OutputMaths, type AoMaths } from '../post-chain.node';
+import { createNodePostChain, createNodeAoStage, nodeSoftDepthOn, SOFT_DEPTH_FEATURE, type NodePostChain, type OutputMaths, type AoMaths } from '../post-chain.node';
 import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
@@ -293,10 +293,13 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     for (const line of unportedWarnings(found, seen)) warn(line);
   };
 
+  // GH-1227 slice 3: the soft-particle copy needs a copyable depth aspect (`SOFT_DEPTH_FEATURE`), and WebGPU's copy semantics. The
+  // node-WebGL2 arm never copies: soft particles stay inert there, exactly as before this slice.
+  const softDepthCopyable = isGpu && renderer.hasFeature(SOFT_DEPTH_FEATURE);
   const build = (config: PostConfig): void => {
     chain?.dispose();
     if (outputMaths === null) throw new Error('node backend: setOutputMaths must be called before the post chain is built');
-    chain = createNodePostChain({ W, TSL, smaa: smaa as never, outputMaths }, renderer, config.scene, config.camera, config.quality, kit);
+    chain = createNodePostChain({ W, TSL, smaa: smaa as never, outputMaths }, renderer, config.scene, config.camera, config.quality, kit, softDepthCopyable);
     builtFor = config;
   };
 
@@ -336,6 +339,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
       kit.fog = createFogStageFactory(table, hazeLow, maths);
     },
     configure: (config) => build(config),
+    softDepthOn: (quality) => nodeSoftDepthOn(quality, softDepthCopyable),
     setPixelRatio: (r) => renderer.setPixelRatio(r),
     getPixelRatio: () => renderer.getPixelRatio(),
     setSize: (w, h) => renderer.setSize(w, h),
