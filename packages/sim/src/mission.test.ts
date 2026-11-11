@@ -538,12 +538,181 @@ describe('objectives and mission end', () => {
   });
 
   it('rejects objective types the runtime does not support yet', () => {
-    // The example was `collapse` until that type gained a runtime, then `escort`;
-    // `no_collateral_above` is the schema's next still-unimplemented type. When it
+    // The example was `collapse` until that type gained a runtime, then `escort`, then
+    // `no_collateral_above`; `mark` is the schema's last still-unimplemented type. When it
     // graduates too, move to another — the guard under test is SUPPORTED, not the example.
     expect(() =>
-      makeWorld(baseMission({ objectives: [{ id: 'x', type: 'no_collateral_above', primary: true }] }))
-    ).toThrow(/no_collateral_above/);
+      makeWorld(baseMission({ objectives: [{ id: 'x', type: 'mark', primary: true }] }))
+    ).toThrow(/mark/);
+  });
+});
+
+// GH-4: `no_collateral_above` is a hard ceiling on the ROE score the HUD already shows as Conduct. `threshold` is the most
+// Conduct the mission may lose; it fails the tick the loss is strictly above it, and completes with the other primaries.
+describe('no_collateral_above (GH-4)', () => {
+  const PENALTY = 15; // Conduct per civilian killed by the player: two kills lose 30, three lose 45
+  const clean = (extra: Partial<ObjectiveJson> = {}): ObjectiveJson => ({ id: 'clean', type: 'no_collateral_above', primary: false, threshold: 30, ...extra });
+  const hold = (seconds = 600, extra: Partial<ObjectiveJson> = {}): ObjectiveJson => ({ id: 'hold', type: 'survive_until', primary: true, seconds, ...extra });
+  /** The player's squad is id 0; four civilians are ids 1..4. */
+  const world = (objectives: ObjectiveJson[] = [hold(), clean()], roe: MissionJson['roe'] = { enabled: true, civilian_casualty_penalty: PENALTY }): World =>
+    makeWorld(baseMission({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      civilians: { groups: [{ unit: 'm_civ', count: 4, at: [14, 8] }] },
+      objectives,
+      roe,
+    }));
+  /** The player kills civilian `civ`: the event the ROE pass judges (the same literal the Conduct tests use). */
+  const kill = (w: World, civ: number): MissionEvent[] => w.runtime.step([{ kind: 'destroyed', tick: 1, entity: civ, by: 0 }]);
+  const status = (w: World, id = 'clean') => w.runtime.objectiveList.find((o) => o.id === id)?.status;
+  const row = (w: World, id = 'clean') => w.runtime.objectiveList.find((o) => o.id === id);
+
+  it('stays active at the ceiling and fails the tick Conduct lost is strictly above it', () => {
+    const w = world();
+    kill(w, 1);
+    kill(w, 2); // 30 lost, threshold 30: at the line is still clean
+    expect(w.runtime.roeScore).toBe(70);
+    expect(status(w)).toBe('active');
+    const out = kill(w, 3); // 45 lost
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'clean' && e.status === 'failed')).toBe(true);
+    expect(status(w)).toBe('failed');
+    expect(w.runtime.result).toBe('ongoing'); // a secondary: it costs its star, not the mission
+  });
+
+  it('a primary ceiling that is crossed loses the mission, with the objective as the cause', () => {
+    const w = world([hold(), clean({ primary: true, threshold: 20 })]);
+    kill(w, 1);
+    expect(status(w)).toBe('active'); // 15 lost
+    kill(w, 2); // 30 lost
+    expect(w.runtime.result).toBe('defeat');
+    expect(w.runtime.defeatCause).toEqual({ objective: 'clean' });
+  });
+
+  it('a zero ceiling fails on the first civilian', () => {
+    const w = world([hold(), clean({ threshold: 0 })]);
+    expect(status(w)).toBe('active');
+    kill(w, 1);
+    expect(status(w)).toBe('failed');
+  });
+
+  it('completes the tick the other primaries do, and the mission ends with it complete, wherever it is authored', () => {
+    for (const objectives of [[clean(), hold(3)], [hold(3), clean()]]) {
+      const w = world(objectives);
+      expect(w.step(2 * TICKS_PER_SECOND).mission.some((e) => e.kind === 'objective' && e.id === 'clean')).toBe(false);
+      const { mission } = w.step(4 * TICKS_PER_SECOND);
+      expect(mission.some((e) => e.kind === 'objective' && e.id === 'hold' && e.status === 'complete')).toBe(true);
+      expect(mission.some((e) => e.kind === 'objective' && e.id === 'clean' && e.status === 'complete')).toBe(true);
+      expect(w.runtime.result).toBe('victory');
+      expect(status(w)).toBe('complete');
+    }
+  });
+
+  it('crossing the line on the very tick the hold completes still fails it: the failure wins the tick', () => {
+    const w = world([hold(3), clean()]);
+    w.step(3 * TICKS_PER_SECOND - 1);
+    const se = w.sim.tick(); // tick 60: the hold's tick
+    const out = w.runtime.step([...se, { kind: 'destroyed', tick: 60, entity: 1, by: 0 }, { kind: 'destroyed', tick: 60, entity: 2, by: 0 }, { kind: 'destroyed', tick: 60, entity: 3, by: 0 }]);
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'hold' && e.status === 'complete')).toBe(true);
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'clean' && e.status === 'failed')).toBe(true);
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'clean' && e.status === 'complete')).toBe(false);
+  });
+
+  it('a ceiling is not completed on the way to a defeat: when another primary ceiling fails on the tick the hold completes, this one is not reported complete', () => {
+    // clean2 (threshold 5) is crossed by the civilian who dies on the very tick the hold completes; clean (50) is still inside its line.
+    const w = world([hold(3), clean({ primary: true, threshold: 50 }), clean({ id: 'clean2', primary: true, threshold: 5 })]);
+    w.step(3 * TICKS_PER_SECOND - 1);
+    const se = w.sim.tick(); // tick 60: the hold's tick
+    const out = w.runtime.step([...se, { kind: 'destroyed', tick: 60, entity: 1, by: 0 }]);
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'hold' && e.status === 'complete')).toBe(true);
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'clean2' && e.status === 'failed')).toBe(true);
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'clean' && e.status === 'complete')).toBe(false);
+    expect(status(w)).toBe('active');
+    expect(w.runtime.result).toBe('defeat');
+  });
+
+  it('cannot be completed from outside: the tutorial channel refuses a ceiling, so a later deduction still fails it', () => {
+    const w = world([hold(), clean()]);
+    expect(w.runtime.completeObjective('clean')).toBe(false);
+    expect(status(w)).toBe('active');
+    kill(w, 1);
+    kill(w, 2);
+    kill(w, 3); // 45 lost, over the 30 line
+    expect(status(w)).toBe('failed');
+    expect(w.runtime.completeObjective('hold')).toBe(true); // control: an ordinary objective still completes from outside
+  });
+
+  it('only the PRIMARIES gate it: another secondary that never completes does not hold the ceiling open', () => {
+    const w = world([hold(3), clean(), { id: 'later', type: 'survive_until', primary: false, seconds: 600 }]);
+    w.step(5 * TICKS_PER_SECOND);
+    expect(status(w)).toBe('complete');
+    expect(status(w, 'later')).toBe('active');
+    expect(w.runtime.result).toBe('victory');
+  });
+
+  it('two primary ceilings do not wait on each other: with a hold they all complete and the mission is won', () => {
+    const w = world([hold(3, { primary: true }), clean({ primary: true }), clean({ id: 'clean2', primary: true, threshold: 50 })]);
+    w.step(6 * TICKS_PER_SECOND);
+    expect(status(w)).toBe('complete');
+    expect(status(w, 'clean2')).toBe('complete');
+    expect(w.runtime.result).toBe('victory');
+  });
+
+  it('a deduction that crosses the line is latched even if a rescue credit in the SAME tick lifts the score back inside', () => {
+    // 15 lost; then in one step a second civilian dies (30 lost, over a 29 ceiling) and a civilian wounded is rescued (+3 back).
+    const w = world([hold(), clean({ threshold: 29 })]);
+    kill(w, 1);
+    expect(status(w)).toBe('active');
+    const out = w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 2, by: 0 }, { kind: 'woundEvacuated', tick: 1, entity: 3, carrier: -1, side: 0 }]);
+    expect(w.runtime.roeScore).toBe(73); // 100 - 30 + 3: back inside the line at the end of the tick
+    expect(100 - w.runtime.roeScore).toBeLessThanOrEqual(29);
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'clean' && e.status === 'failed')).toBe(true);
+    expect(status(w)).toBe('failed');
+  });
+
+  it('a primary ceiling is part of the win: victory needs it complete, and it completes with the rest', () => {
+    const w = world([clean({ primary: true }), hold(3)]);
+    w.step(6 * TICKS_PER_SECOND);
+    expect(w.runtime.result).toBe('victory');
+    expect(status(w)).toBe('complete');
+  });
+
+  it('shares the ROE score: the panel row reads 100 minus the live score, against the ceiling, and no other row carries one', () => {
+    const w = world();
+    expect(row(w)?.collateral).toEqual({ lost: 0, limit: 30 });
+    kill(w, 1);
+    expect(row(w)?.collateral).toEqual({ lost: 100 - w.runtime.roeScore, limit: 30 });
+    expect(row(w)?.collateral?.lost).toBe(PENALTY);
+    expect(row(w, 'hold')?.collateral).toBeUndefined();
+  });
+
+  it('writes nothing into the sim: the hash with the objective equals the hash without it, every tick', () => {
+    const withIt = world();
+    const without = world([hold()]);
+    for (let t = 0; t < 30 * TICKS_PER_SECOND; t++) {
+      withIt.step(1);
+      without.step(1);
+      expect(withIt.sim.hash(), `tick ${t + 1}`).toBe(without.sim.hash());
+    }
+  });
+
+  describe('refuses a broken ceiling at load', () => {
+    it('with no threshold, a fractional one, or one outside 0 to 100', () => {
+      for (const threshold of [undefined, 10.5, -1, 101]) {
+        expect(() => world([hold(), clean({ threshold })]), String(threshold)).toThrow(/whole threshold/);
+      }
+    });
+    it('when the mission switches ROE off', () => {
+      expect(() => world([hold(), clean()], { enabled: false })).toThrow(/switches off/);
+    });
+    it('with no other primary to complete alongside', () => {
+      expect(() => world([clean({ primary: true })])).toThrow(/another primary/);
+      expect(() => world([clean(), hold(600, { primary: false })])).toThrow(/another primary/);
+      // Another ceiling is not "another primary": ceilings complete on the others, so two would wait on each other for ever.
+      expect(() => world([clean({ primary: true }), clean({ id: 'clean2', primary: true, threshold: 50 })])).toThrow(/another primary/);
+      expect(() => world([clean(), clean({ id: 'clean2', primary: true }), hold(600, { primary: false })])).toThrow(/another primary/);
+    });
+    it('on any other type: a threshold belongs to no_collateral_above alone', () => {
+      expect(() => world([hold(600, { threshold: 10 })])).toThrow(/takes no threshold/);
+    });
   });
 });
 

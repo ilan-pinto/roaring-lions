@@ -697,6 +697,20 @@ const garrisonableSymbols = new Set(
       } else if (o.zone !== undefined) {
         failures.push(`${rel(file)}: objective "${o.id}" is a ${o.type}, which takes no zone (only escort does)`);
       }
+      // GH-4: a hard ceiling on the ROE score. The runtime throws on the same faults at load.
+      if (o.type === 'no_collateral_above') {
+        if (!Number.isInteger(o.threshold) || o.threshold < 0 || o.threshold > 100) {
+          failures.push(`${rel(file)}: no_collateral_above "${o.id}" needs a whole threshold from 0 to 100, not ${o.threshold}`);
+        }
+        if (mi.roe?.enabled === false) {
+          failures.push(`${rel(file)}: no_collateral_above "${o.id}" reads the ROE score, which this mission switches off`);
+        }
+        if (!(mi.objectives ?? []).some((x) => x.primary && x.type !== 'no_collateral_above')) {
+          failures.push(`${rel(file)}: no_collateral_above "${o.id}" needs another primary objective (not a ceiling) to complete alongside`);
+        }
+      } else if (o.threshold !== undefined) {
+        failures.push(`${rel(file)}: objective "${o.id}" is a ${o.type}, which takes no threshold (only no_collateral_above does)`);
+      }
       if ((o.type === 'capture' || o.type === 'hold_for') && o.target) {
         if (!zoneNames.has(o.target)) {
           failures.push(`${rel(file)}: objective "${o.id}" references unknown zone "${o.target}"`);
