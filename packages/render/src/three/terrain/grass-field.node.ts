@@ -20,7 +20,8 @@
  *   4. the per-blade flutter (`grassFlutterOps`, new), along the blade's width axis in the clump frame, through the instance
  *      matrix's linear part, multiplied by `uWindMode` (off in reduced motion) and `uSwayAmp` (the `wind` debug layer);
  *   5. the width floor (`grassWidthFloorOps`): the blade never narrower than 1 device px, from the `zoom` and `dpr` the record holds
- *      (camera state, not time).
+ *      (camera state, not time) and the width axis's on-screen length (`modelViewMatrix * mat3(instanceMatrix) * axis`, its `xy`),
+ *      which carries the clump's turn, its scale and the dimetric squash.
  *
  * **The uniforms stay a record, bound BY REFERENCE** (`GrassFieldRecord`): `sway` is the very `SwayRecord` the foliage twin binds
  * (`time` = SIM seconds from `presentationSimMs`, `amp`, the wind set, the disturber set); `zoom` and `dpr` are the field's. Every
@@ -115,6 +116,7 @@ interface NE extends N {
   toVar(): NE;
   length(): N;
   readonly xyz: NE;
+  readonly xy: NE;
   readonly w: N;
 }
 
@@ -132,6 +134,7 @@ interface GrassTsl {
   readonly positionLocal: N;
   readonly modelWorldMatrix: N;
   readonly modelWorldMatrixInverse: N;
+  readonly modelViewMatrix: N;
   readonly normalViewGeometry: N;
 }
 
@@ -241,15 +244,19 @@ export function createGrassFieldMaterial(deps: NodeGrassFieldDeps, rec: GrassFie
     const world = T.vec3(lean.dx, 0, lean.dz).add(disturbers(v));
     // 4 and 5. The clump-frame terms, along the blade's width axis.
     const flutter = maths.flutterOps(o, { t: bound.uSwayTime, phase: nature.z, hN: nature.x, mode: bound.uWindMode, amp: bound.uSwayAmp });
+    // The width axis in the clump frame; its on-screen length (view units per local tile) sizes the floor: the clump's turn, its
+    // scale and the dimetric squash, all in one projection.
+    const axis = T.vec3(width.x, 0, width.y);
+    const axisView = T.mat3(T.modelViewMatrix).mul(T.mat3(im).mul(axis)) as NE;
     const floor = maths.widthFloorOps(o, {
       signedHalf: width.z,
       baseHalf: width.w,
-      scale: im.element(0).xyz.length(),
+      viewLen: axisView.xy.length(),
       zoom: bound.uGrassZoom,
       dpr: bound.uGrassDpr,
       pxPerUnit: T.float(maths.pxPerUnit),
     });
-    const local = T.vec3(width.x, 0, width.y).mul(flutter.add(floor));
+    const local = axis.mul(flutter.add(floor));
     return T.positionLocal.add(T.mat3(im).mul(local)).add(T.mat3(T.modelWorldMatrixInverse).mul(world));
   });
   mat.positionNode = position() as never;

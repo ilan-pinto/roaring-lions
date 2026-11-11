@@ -17,6 +17,7 @@ import { presentationSimMs } from '../decal-maths';
 import { ENV_USERDATA_KEY } from '../environment-classes';
 import { GRASS_RENDER_ORDER } from '../units/render-order';
 import { SILHOUETTE_PX_PER_WORLD_UNIT } from '../units/silhouette';
+import { updateDimetricCamera, VIEW_DIRECTION } from '../camera';
 import { swayingFoliageMaterial, type SwayingFoliageMaterial } from './decor-mesh';
 import { createFoliageTwinFactory, nodeDisturbBindings } from './decor-mesh.node';
 import { makeWindUniforms } from './wind-uniforms';
@@ -189,27 +190,67 @@ describe('G1: the flutter and the width floor on numbers (NUMBER_OPS), against l
     expect(flutter(12.5, 0.31, 0.8, 1)).not.toBeCloseTo(flutter(12.5, 0.3, 0.8, 1), 4);
   });
 
-  // floor = signedHalf * (max(1, 0.5 / (pxPerUnit zoom dpr scale) / baseHalf) - 1), pxPerUnit = 64 sqrt(2) / 2.
-  const FLOOR: ReadonlyArray<readonly [signedHalf: number, baseHalf: number, scale: number, zoom: number, dpr: number, out: number]> = [
+  // floor = signedHalf * (max(1, 0.5 / (pxPerUnit zoom dpr viewLen) / baseHalf) - 1), pxPerUnit = 64 sqrt(2) / 2.
+  const FLOOR: ReadonlyArray<readonly [signedHalf: number, baseHalf: number, viewLen: number, zoom: number, dpr: number, out: number]> = [
     [0.006, 0.006, 1.0, 0.5, 2, 0.005048543456039804],
     [-0.003, 0.006, 0.9, 0.35, 1, -0.014537370565142546],
     [0.006, 0.006, 1.0, 2.5, 2, 0],
     [0.009, 0.009, 1.1, 0.5, 1, 0.01108826082916328],
   ];
-  const floor = (signedHalf: number, baseHalf: number, scale: number, zoom: number, dpr: number): number =>
-    grassWidthFloorOps(NUMBER_OPS, { signedHalf, baseHalf, scale, zoom, dpr, pxPerUnit: 45.254833995939045 });
+  const floor = (signedHalf: number, baseHalf: number, viewLen: number, zoom: number, dpr: number): number =>
+    grassWidthFloorOps(NUMBER_OPS, { signedHalf, baseHalf, viewLen, zoom, dpr, pxPerUnit: 45.254833995939045 });
 
   it('the width floor matches the literals: widens at wide zoom, nothing at close zoom, keeps the sign and the taper', () => {
-    // Falsify: drop `x.dpr` from the device-px product / drop `x.scale` (the 0.9 and 1.1 rows go red) / `max(1, ...)` -> the ratio.
+    // Falsify: drop `x.dpr` from the device-px product / drop `x.viewLen` (the 0.9 and 1.1 rows go red) / `max(1, ...)` -> the ratio.
     for (const [sh, bh, s, z, d, out] of FLOOR) expect(floor(sh, bh, s, z, d), `floor ${sh} at z${z}`).toBeCloseTo(out, 14);
     expect(SILHOUETTE_PX_PER_WORLD_UNIT).toBeCloseTo(45.254833995939045, 12);
   });
 
-  it('the floored blade is exactly 1 device px wide at its root at z0.5 DPR 2, and the tip stays a point', () => {
-    const half = 0.006;
-    const widened = half + floor(half, half, 1, 0.5, 2);
-    expect(2 * widened * 45.254833995939045 * 0.5 * 2).toBeCloseTo(1, 12);
-    expect(floor(0, half, 1, 0.35, 1)).toBe(0);
+  /**
+   * The floored root's width in DEVICE px, measured through the REAL dimetric camera: a clump turned by `yaw` and scaled by `s`,
+   * whose blade's width axis runs along `worldDir` (horizontal). `viewLen` is computed as the node graph computes it
+   * (`modelViewMatrix * mat3(instanceMatrix) * axis`, its `xy`); the width is the distance between the two widened root edges
+   * PROJECTED to the viewport, so nothing here reuses the floor's own scale.
+   */
+  const VP = { width: 1400, height: 900 };
+  function flooredRootDevicePx(worldDir: THREE.Vector3, zoom: number, dpr: number, yaw: number, s: number, half: number): number {
+    const camera = updateDimetricCamera({ x: 20, y: 20, zoom }, VP, new THREE.OrthographicCamera());
+    const origin = new THREE.Vector3(20, 0.5, 20);
+    const im = new THREE.Matrix4().compose(origin, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(s, s, s));
+    // The blade's clump-local width axis: the world direction carried back through the clump's turn (the record stores x and z).
+    const local = worldDir.clone().normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), -yaw);
+    const modelView = new THREE.Matrix3().setFromMatrix4(camera.matrixWorldInverse);
+    const view = local.clone().applyMatrix3(new THREE.Matrix3().setFromMatrix4(im)).applyMatrix3(modelView);
+    const viewLen = Math.hypot(view.x, view.y);
+    const widened = half + grassWidthFloorOps(NUMBER_OPS, { signedHalf: half, baseHalf: half, viewLen, zoom, dpr, pxPerUnit: SILHOUETTE_PX_PER_WORLD_UNIT });
+    const edge = (sign: number): THREE.Vector2 => {
+      const ndc = local.clone().multiplyScalar(sign * widened).applyMatrix4(im).project(camera);
+      return new THREE.Vector2(((ndc.x + 1) / 2) * VP.width * dpr, ((1 - ndc.y) / 2) * VP.height * dpr);
+    };
+    return edge(1).distanceTo(edge(-1));
+  }
+
+  it('the floored blade is at least 1 device px on screen at every azimuth, through the real camera (z0.5 DPR 2)', () => {
+    // Falsify: size the floor by the clump scale alone, `o.max(x.viewLen, ..)` -> `o.lit(1)` (the old horizontal measure): the
+    // toward-camera axis reads 0.500 px, world x and z 0.791, and this goes red.
+    const toward = new THREE.Vector3(VIEW_DIRECTION.x, 0, VIEW_DIRECTION.z);
+    const cases: ReadonlyArray<readonly [name: string, dir: THREE.Vector3]> = [
+      ['toward the camera (the worst)', toward],
+      ['across the view', new THREE.Vector3(Math.SQRT1_2, 0, -Math.SQRT1_2)],
+      ['world x', new THREE.Vector3(1, 0, 0)],
+      ['world z', new THREE.Vector3(0, 0, 1)],
+    ];
+    for (const [name, dir] of cases) {
+      for (const [yaw, s] of [[0, 1], [0.7, 1.1], [2.3, 0.9]] as const) {
+        const px = flooredRootDevicePx(dir, 0.5, 2, yaw, s, 0.006);
+        expect(px, `${name}, yaw ${yaw}, scale ${s}`).toBeGreaterThanOrEqual(1 - 1e-9);
+        // The floor widens exactly to the line, never past it.
+        expect(px, `${name}, yaw ${yaw}, scale ${s}`).toBeCloseTo(1, 9);
+      }
+    }
+    // At close zoom the authored blade is already wider than the line: the floor adds nothing.
+    expect(flooredRootDevicePx(toward, 2.5, 2, 0, 1, 0.006)).toBeGreaterThan(1);
+    expect(floor(0, 0.006, 1, 0.35, 1)).toBe(0);
   });
 });
 
@@ -228,8 +269,11 @@ describe('the material, compiled on a grass InstancedMesh', () => {
     expect(main).toMatch(new RegExp(`vec4\\( ${m}\\[ 3u \\]\\.xyz, 1\\.0 \\)`));
     expect(main).not.toMatch(new RegExp(`vec4\\( ${m}\\[ 2u \\]\\.xyz, 1\\.0 \\)`));
     expect(main).toMatch(new RegExp(`mat3\\( ${m}\\[ 0 \\]\\.xyz, ${m}\\[ 1 \\]\\.xyz, ${m}\\[ 2 \\]\\.xyz \\) \\* `));
-    // The clump's scale for the width floor: the length of column 0.
-    expect(main).toContain(`length( ${m}[ 0u ].xyz )`);
+    // The width floor's measure: the width axis's ON-SCREEN length, `modelViewMatrix * mat3(im) * axis`, its xy (the clump's turn,
+    // scale and the dimetric squash); never the clump scale alone (column 0's length), which misses the squash (GH-1167 review).
+    const mv = 'mat3\\( modelViewMatrix\\[ 0 \\]\\.xyz, modelViewMatrix\\[ 1 \\]\\.xyz, modelViewMatrix\\[ 2 \\]\\.xyz \\)';
+    expect(main).toMatch(new RegExp(`length\\( \\( ${mv} \\* \\( mat3\\( ${m}\\[ 0 \\]\\.xyz, ${m}\\[ 1 \\]\\.xyz, ${m}\\[ 2 \\]\\.xyz \\) \\* nodeVar\\d+ \\) \\)\\.xy \\)`));
+    expect(main).not.toContain(`length( ${m}[ 0u ].xyz )`);
   });
 
   it('G2: every record uniform reaches the vertex program, and so do rlNature (vec3) and the width record (vec4)', async () => {

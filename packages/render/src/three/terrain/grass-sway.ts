@@ -66,13 +66,20 @@ export interface GrassWidthFloorInputs<T> {
   readonly signedHalf: T;
   /** The blade's half width at its ROOT for this LOD (clump-local tiles): the taper's scale. */
   readonly baseHalf: T;
-  /** The clump's scale: the length of the instance matrix's first column (local tiles to world tiles). */
-  readonly scale: T;
+  /**
+   * The ON-SCREEN length of one clump-local tile along the blade's width axis, in VIEW units:
+   * `length((modelViewMatrix * mat3(instanceMatrix) * widthAxis).xy)`. It carries the clump's turn, its scale and the dimetric
+   * squash (a width axis running toward the camera shows `SIN_EL` of its length), so the floor holds at every azimuth.
+   */
+  readonly viewLen: T;
   /** The camera's zoom (`OrthographicCamera.zoom`). */
   readonly zoom: T;
   /** The device pixel ratio. */
   readonly dpr: T;
-  /** CSS px per world unit (one tile) at zoom 1 (`SILHOUETTE_PX_PER_WORLD_UNIT`, the dimetric camera's own figure). */
+  /**
+   * CSS px per VIEW unit at zoom 1 (`SILHOUETTE_PX_PER_WORLD_UNIT`, the dimetric camera's own figure). The orthographic frustum
+   * maps a view unit to the same CSS px on both screen axes (`updateDimetricCamera`), so one figure converts any view-space length.
+   */
   readonly pxPerUnit: T;
 }
 
@@ -82,12 +89,11 @@ export interface GrassWidthFloorInputs<T> {
  * wide enough, so at close zoom the blade keeps its authored shape.
  *
  * The blade's half width scales by `f = max(1, minHalf / baseHalf)`, `minHalf` being half a floor's width in local tiles; the
- * offset is `signedHalf * (f - 1)`, so the taper (and the tip) are kept. Measured on the screen's horizontal scale: the
- * orthographic camera's vertical squash and a blade seen edge-on are not compensated (the floor is a shimmer guard, not a
- * guarantee for every azimuth).
+ * offset is `signedHalf * (f - 1)`, so the taper (and the tip) are kept. Measured by the width axis's own on-screen length
+ * (`viewLen`), so a blade whose width runs toward the camera is widened by the squash it suffers: 1 device px at every azimuth.
  */
 export function grassWidthFloorOps<T>(o: Ops<T>, x: GrassWidthFloorInputs<T>): T {
-  const devicePxPerLocal = o.mul(o.mul(x.pxPerUnit, o.max(x.zoom, o.lit(1e-3))), o.mul(x.dpr, o.max(x.scale, o.lit(1e-6))));
+  const devicePxPerLocal = o.mul(o.mul(x.pxPerUnit, o.max(x.zoom, o.lit(1e-3))), o.mul(x.dpr, o.max(x.viewLen, o.lit(1e-6))));
   const minHalf = o.div(o.lit(GRASS_WIDTH_FLOOR_DEVICE_PX * 0.5), devicePxPerLocal);
   const f = o.max(o.lit(1), o.div(minHalf, o.max(x.baseHalf, o.lit(1e-6))));
   return o.mul(x.signedHalf, o.sub(f, o.lit(1)));
