@@ -113,6 +113,16 @@ const FIXTURE = join(__dirname, 'theme-identity.fixture.json');
  * hidden at boot; `program` and `light` did not move.
  *      arid, green and highland: 9674d4010402. Was 1d42154a4fa5.
  *      wetland:                  41f938a36c4b. Was 0f264f473907.
+ *
+ * GH-1197 P2 (the debris pool) moved `scene` only, the same way: the high preset's
+ * pool adds its group and three instanced meshes (Group 10, was 9; Mesh 37, was 34),
+ * all hidden until a landing; `program` and `light` did not move.
+ *      arid, green and highland: da3e7776707e. Was 9674d4010402.
+ *      wetland:                  22b183ab7e71. Was 41f938a36c4b.
+ * Merged with main's GH-1207 (the pivot scuff, which moved `scene` on main to d1671b28e72f /
+ * 5e15ed1bdc46), the two together read:
+ *      arid, green and highland: df00c776d85c. Was da3e7776707e.
+ *      wetland:                  e1842083f7c8. Was 22b183ab7e71.
  */
 const UPDATE = process.env.UPDATE_THEME_IDENTITY === '1';
 const HIGH = { colorVision: 'default', quality: 'high' } as const;

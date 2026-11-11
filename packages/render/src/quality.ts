@@ -106,6 +106,19 @@ export interface RenderQuality {
    * (0 drops them); the churn decal is kept on every preset.
    */
   nature?: NatureQuality;
+  /**
+   * GH-1197 P2: the 3D debris pool (`three/units/debris-pool.ts`). `pool` pieces in all, a third per shape (0
+   * builds none: `low` throws the dirt flipbook only); `shadows` casts them into the sun's map (`high` only).
+   * Absent means `high`'s (`debrisQualityOf`). The design's cost table: high +3 colour and +3 shadow draws and
+   * at most 49k triangles, medium +3 draws, low none.
+   */
+  debris?: DebrisQuality;
+}
+
+/** `RenderQuality.debris`: see there. */
+export interface DebrisQuality {
+  readonly pool: number;
+  readonly shadows: boolean;
 }
 
 /** `RenderQuality.nature`: see there. `slots` is a rung of `DISTURB_LADDER`. */
@@ -125,8 +138,8 @@ export type WetGroundTier = 'full' | 'lite' | 'minimal';
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
   // Was drops 900 (and 1500 before it): the P4 final-tip cost run read NET (total wet) 0.5 / 0.5 / 0.4 ms against low's +0.4 budget (z1 / z1.6 / z2.5) at load 3-5 (GH-871).
   // The first step, 1500 -> 900, followed 0.7 and 0.9 ms at zoom 2.5, twice.
-  low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false } },
-  medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false } },
+  low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, debris: { pool: 0, shadows: false } },
+  medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, debris: { pool: 512, shadows: false } },
   high: {
     grade: true,
     ao: true,
@@ -139,5 +152,11 @@ export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQ
     smokeBillboardGain: 0.8,
     rain: { drops: 6000, ripples: true, ground: 'full' },
     nature: { slots: 24, wakes: true, foot: true },
+    debris: { pool: 1024, shadows: true },
   },
 };
+
+/** A preset's debris pool, `high`'s when it names none. */
+export function debrisQualityOf(q: RenderQuality | undefined): DebrisQuality {
+  return q?.debris ?? (QUALITY_PRESETS.high.debris as DebrisQuality);
+}
