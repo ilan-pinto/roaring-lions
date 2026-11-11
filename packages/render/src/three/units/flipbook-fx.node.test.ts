@@ -206,6 +206,7 @@ async function spied(pass: 'smoke' | 'fire') {
     coverOps: ((op, i) => ((seen.cover = i as never), maths.flipbook.coverOps(op, i))) as typeof flipbookCoverOps,
     shadeOps: ((op, i) => ((seen.shade = i as never), maths.flipbook.shadeOps(op, i))) as typeof flipbookShadeOps,
     billboardOps: ((...a: Parameters<typeof vfxBillboardOps>) => ((seen.billboard = a as never), maths.flipbook.billboardOps(...a))) as typeof vfxBillboardOps,
+    softOps: maths.flipbook.softOps,
   };
   const twin = createNodeFlipbookMaterial({ W, TSL, maths: spy }, legacy, pass);
   copyRenderState(legacy, twin);
