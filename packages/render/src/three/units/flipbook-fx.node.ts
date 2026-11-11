@@ -264,7 +264,10 @@ export function createNodeFlipbookMaterial(
   // in the record, never this pass's own attachment; how the node backend fills it is the design's section 5 (WebGPU cannot copy
   // the depth aspect of the scene pass's `depth24plus-stencil8`). `screenUV` is normalised and flip-correct on both backends, so
   // the legacy `uSoftInvSize` has no twin; `uSoftSpan` is re-read from the record (the smoke mesh's `onBeforeRender` writes it, and
-  // the node renderer calls that hook too). The fragment's own window depth is its orthographic view depth, as `gl_FragCoord.z`.
+  // the node renderer calls that hook too). That hook is CHAINED on the legacy side, not overwritten: whatever the mesh carried runs first and
+  // comes back when soft particles go off, so the twin may rely on it still firing. `FlipbookFx.dispose` turns soft particles off FIRST
+  // (`setSoftDepth(null)` drops `uSoftDepth` from the record), so a twin built after a dispose is the shipped graph and holds no pointer to
+  // the snapshot's freed depth texture; the twin needs no mesh lifecycle of its own (GH-1227 follow-up). The fragment's own window depth is its orthographic view depth, as `gl_FragCoord.z`.
   const soft =
     pass === 'smoke' && legacy.uniforms.uSoftDepth !== undefined
       ? (() => {
