@@ -14,7 +14,7 @@
  * ending (`over`) is no result of its own -- the panel is already up.
  */
 import { FLAG_BACKSTOP_MINUTES, doctrines, units } from '@lions/data';
-import { endingLoser, flagSetupRoom, matchCapTicks, matchCapTicksOf, type MatchConfig, type Seat, type WinMode } from '@lions/net';
+import { endingLoser, flagSetupRoom, matchCapTicks, matchCapTicksOf, type MatchConfig, type OverResult, type Seat, type WinMode } from '@lions/net';
 import { isHashTick } from './frame-step';
 
 /** Each side's surviving force value, by SIDE (index 0 is side 0). */
@@ -366,8 +366,19 @@ export function decideOnHashTick(
  *  back that very object). A result taken from the room's own ending (a
  *  surrender, a leave) owes nothing: that room has ended already. The
  *  transport sends one `over` however often it is asked. */
-export function reportOver(room: { over(tick: number): void } | null, shown: MatchResult, local: LocalDecision | null): void {
-  if (room !== null && local !== null && shown === local.result) room.over(local.tick);
+export function reportOver(room: { over(tick: number, result: OverResult): void } | null, shown: MatchResult, local: LocalDecision | null, config: MatchConfig | null): void {
+  if (room === null || local === null || config === null || shown !== local.result) return;
+  const result = seatResultOf(shown, config);
+  if (result !== null) room.over(local.tick, result);
+}
+
+/** A sim result as the wire names it (GH-1075 A3 §0.8): by SEAT, because the KDF seat is side 0 whichever seat hosts.
+ *  A draw has no winner. `surrender`, `left` and `forfeit` are the room's own endings, never a sim result: null. */
+export function seatResultOf(result: MatchResult, config: MatchConfig): OverResult | null {
+  if (result.by === 'surrender' || result.by === 'left' || result.by === 'forfeit') return null;
+  if (result.kind === 'draw') return { winner: null, by: result.by };
+  const seat = config.seats.find((s) => s.side === result.side);
+  return seat === undefined ? null : { winner: seat.seat, by: result.by };
 }
 
 /** The other playing side. */

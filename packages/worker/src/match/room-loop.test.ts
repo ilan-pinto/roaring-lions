@@ -539,7 +539,7 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     while (Math.min(p0.taken.length, p1.taken.length) <= RESULT_TICK) await step(loop, [p0, p1], 1);
     for (const p of [p0, p1]) {
       p.taken.splice(RESULT_TICK + 1);   // a seat runs nothing past the tick that decided it
-      p.t.over(RESULT_TICK);
+      p.t.over(RESULT_TICK, { winner: 0, by: 'annihilation' });
     }
     // The meter, by kind: the state blob (`put`), the alarm (set and delete) and the batch rows (the rest).
     const tally = { put: 0, alarm: 0 };
