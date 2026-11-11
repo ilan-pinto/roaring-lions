@@ -110,7 +110,15 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium (mix check)
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+        # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
+        # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
+        run: |
+          for i in 1 2 3; do
+            pnpm --filter @lions/tools exec playwright install --with-deps chromium && exit 0
+            echo "playwright install failed (try $i of 3); retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       - run: pnpm audio:mix
       - run: python tools/validate_balance.py --units data/units
       - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709
@@ -204,7 +212,15 @@ jobs:
       # Firefox and WebKit too. The cache key changed with the set, so a cache
       # holding Chromium alone is never restored over a three-engine install.
       - name: Install Playwright Chromium, Firefox and WebKit
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium firefox webkit
+        # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
+        # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
+        run: |
+          for i in 1 2 3; do
+            pnpm --filter @lions/tools exec playwright install --with-deps chromium firefox webkit && exit 0
+            echo "playwright install failed (try $i of 3); retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       # Exit 3 is "no baseline blessed for this capture environment yet" -- a
       # distinct code precisely so it can be told apart from "the picture
       # changed" (exit 1). It warns rather than failing, so a fork or a
@@ -398,7 +414,15 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+        # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
+        # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
+        run: |
+          for i in 1 2 3; do
+            pnpm --filter @lions/tools exec playwright install --with-deps chromium && exit 0
+            echo "playwright install failed (try $i of 3); retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       # Which Chromium launch arguments give a stable WebGPU device on this runner (report-only; the evidence behind
       # `chromiumArgsFor('webgpu')`). Only the wgpu arm needs it.
       - name: WebGPU device smoke (launch-argument variants)
@@ -506,7 +530,15 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+        # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
+        # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
+        run: |
+          for i in 1 2 3; do
+            pnpm --filter @lions/tools exec playwright install --with-deps chromium && exit 0
+            echo "playwright install failed (try $i of 3); retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       - name: Download the node arms' captures
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
@@ -576,7 +608,15 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+        # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
+        # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
+        run: |
+          for i in 1 2 3; do
+            pnpm --filter @lions/tools exec playwright install --with-deps chromium && exit 0
+            echo "playwright install failed (try $i of 3); retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       - name: memory -- the walk, and the leave
         run: pnpm perf:memory -- --gate --port=5179 --out=memory-output/memory.json
       - name: Upload the readings

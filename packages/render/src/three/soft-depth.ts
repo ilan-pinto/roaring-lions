@@ -86,6 +86,17 @@ function depthStencilTexture(w: number, h: number): THREE.DepthTexture {
 }
 
 /**
+ * Whether a consumer will draw this frame. A mesh is on when it is visible; an `InstancedMesh` is also off while its `count` is 0
+ * (`ParticleInstancer` keeps its mesh visible and drops the count when it has nothing to draw), or an idle particle tier would take
+ * a snapshot every frame.
+ */
+function consumerDraws(c: THREE.Object3D): boolean {
+  if (!c.visible) return false;
+  const im = c as THREE.InstancedMesh;
+  return im.isInstancedMesh !== true || im.count > 0;
+}
+
+/**
  * The sentinel both backends use: a transparent mesh at `SOFT_DEPTH_SNAPSHOT_RENDER_ORDER` (the first transparent draw, so the
  * depth at its turn is exactly the opaque world's) that draws ZERO vertices and writes no colour, depth or stencil, has no `normal`
  * attribute (so the AO pre-pass, `isAoOccluder`, never draws it) and casts no shadow. Hidden until a consumer is (`sync`).
@@ -144,7 +155,7 @@ export class SoftDepthSnapshot implements SoftDepthSource {
 
   /** The sentinel draws only while a consumer does: an idle frame takes no snapshot. Call once a frame, before the render. */
   sync(consumers: readonly THREE.Object3D[]): void {
-    this.sentinel.visible = consumers.some((c) => c.visible);
+    this.sentinel.visible = consumers.some(consumerDraws);
   }
 
   /**

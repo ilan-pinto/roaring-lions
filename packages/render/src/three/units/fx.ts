@@ -365,6 +365,7 @@ import type { ParticleSystem } from '../../vfx';
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, isoX, isoY } from '../../project';
 import { screenOffsetToWorld, hexToLinear } from '../terrain/shared';
 import { groundWorldY, type ElevationSource } from '../ground-height';
+import { SOFT_PARTICLE_GLSL, type SoftDepthSource } from '../soft-depth';
 import { tracerAlpha, type TracerModel } from './tracers';
 import { isHostileSide } from '../../relation';
 import {
@@ -1392,6 +1393,50 @@ export function createParticleMaterial(depthTest: boolean, hotCore: boolean): TH
 }
 
 /**
+ * GH-1227 slice 4: a soft particle's drawn size, in world units (the camera is orthographic, so a view-plane length), per unit of the
+ * instance scale. The scale is the particle's radius in screen pixels and the quad's corners sit at +-1 along the screen-right ground
+ * vector, whose length is `|screenOffsetToWorld(1, 0)|` (`sqrt2 / TILE_W`): the drawn diameter is twice that, per unit of scale.
+ * `rlSoftFade` wants a WORLD length (its `gap` is in world units), so passing the radius in pixels would make the band 3 to 25 world
+ * units wide and the dust nearly invisible.
+ */
+export const PARTICLE_QUAD_EDGE_PER_SCALE = 2 * Math.hypot(screenOffsetToWorld(1, 0).dx, screenOffsetToWorld(1, 0).dy);
+
+/** The anchors `softParticleShaders` splices at; each must occur exactly once in `createParticleMaterial`'s text for the soft tier. */
+const SOFT_PARTICLE_ANCHORS = Object.freeze({
+  main: '\n      void main() {',
+  vertOut: '        vSoft = aSoft;\n',
+  fragOut: '        gl_FragColor = vec4(vColor * 1.0, a);',
+});
+
+function spliceOnce(src: string, anchor: string, replacement: string, where: string): string {
+  const at = src.indexOf(anchor);
+  if (at < 0 || src.indexOf(anchor, at + 1) >= 0) throw new Error(`particle soft depth: the ${where} anchor must occur exactly once`);
+  return src.slice(0, at) + replacement + src.slice(at + anchor.length);
+}
+
+/**
+ * GH-1227 slice 4: the normal-blended, depth-tested particle material's two shaders with the soft-particle depth fade spliced in
+ * (`../soft-depth.ts`, the SAME fade the flipbook smoke pass uses, against the same snapshot). The drawn world size arrives as the
+ * `aSize` instance attribute and leaves the vertex stage as `vSoftSize`; the fragment multiplies its ALPHA by `rlSoftFade` and nothing
+ * else (the colour expression is untouched, which is the palette guarantee). Built only by `ParticleInstancer.setSoftDepth`, so with
+ * soft particles off the material carries the shipped text byte for byte. The hot-core text does not match the fragment anchor and
+ * is refused: its alpha is pinned to 1 on purpose.
+ */
+export function softParticleShaders(vert: string, frag: string, fadeGlsl: string): { vertexShader: string; fragmentShader: string } {
+  let v = spliceOnce(vert, SOFT_PARTICLE_ANCHORS.main, `\n      attribute float aSize;\n      varying float vSoftSize;${SOFT_PARTICLE_ANCHORS.main}`, 'vertex main');
+  v = spliceOnce(v, SOFT_PARTICLE_ANCHORS.vertOut, `${SOFT_PARTICLE_ANCHORS.vertOut}        vSoftSize = aSize;\n`, 'vertex output');
+  let f = spliceOnce(frag, SOFT_PARTICLE_ANCHORS.main, `\n      varying float vSoftSize;${fadeGlsl}${SOFT_PARTICLE_ANCHORS.main}`, 'fragment main');
+  f = spliceOnce(
+    f,
+    SOFT_PARTICLE_ANCHORS.fragOut,
+    '        float soft = rlSoftFade(texture2D(uSoftDepth, gl_FragCoord.xy * uSoftInvSize).x, gl_FragCoord.z, uSoftSpan, vSoftSize);\n' +
+      '        gl_FragColor = vec4(vColor * 1.0, a * soft);',
+    'fragment output'
+  );
+  return { vertexShader: v, fragmentShader: f };
+}
+
+/**
  * Every live particle on ONE tier (`layerIdx`), one `THREE.InstancedMesh`,
  * one draw call -- the same shape `UnitInstancer` gives units, sized to
  * `PARTICLE_CAPACITY` (not a fraction of it) so a live particle can never
@@ -1420,6 +1465,18 @@ export class ParticleInstancer {
   private readonly scratchPositions: Float32Array;
   private readonly scratchScales: Float32Array;
   private readonly scratchMatrix = new THREE.Matrix4();
+  private readonly capacity: number;
+  /** The legacy material, held apart: once the node backend adopts the mesh, `mesh.material` is the twin and must not be written through. */
+  private readonly legacyMaterial: THREE.ShaderMaterial;
+  /** This tier's own pipeline state, kept for `setSoftDepth`: only the depth-tested, normal-blended tier can fade. */
+  private readonly depthTest: boolean;
+  private readonly hotCore: boolean;
+  /** The shipped shader text, restored when soft particles go off. */
+  private readonly shippedShaders: { readonly vertexShader: string; readonly fragmentShader: string };
+  /** GH-1227 slice 4: the per-instance drawn world size (`aSize`), present only while soft particles are on. */
+  private sizeAttr: THREE.InstancedBufferAttribute | null = null;
+  /** The mesh's `onBeforeRender` from before `setSoftDepth` turned soft particles on; null while they are off. */
+  private softPrevBeforeRender: THREE.Object3D['onBeforeRender'] | null = null;
 
   /**
    * `layerIdx` selects which of `ParticleSystem`'s FOUR draw layers this
@@ -1446,6 +1503,9 @@ export class ParticleInstancer {
    */
   constructor(capacity: number, layerIdx: number, depthTest: boolean, additive = false) {
     this.layerIdx = layerIdx;
+    this.capacity = capacity;
+    this.depthTest = depthTest;
+    this.hotCore = additive;
     const geo = particleBillboardGeometry();
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(geo.positions, 3));
@@ -1459,7 +1519,10 @@ export class ParticleInstancer {
     geometry.setAttribute('aAlpha', this.alphaAttr);
     geometry.setAttribute('aSoft', this.softAttr);
 
-    this.mesh = new THREE.InstancedMesh(geometry, createParticleMaterial(depthTest, additive), capacity);
+    const material = createParticleMaterial(depthTest, additive);
+    this.shippedShaders = { vertexShader: material.vertexShader, fragmentShader: material.fragmentShader };
+    this.legacyMaterial = material;
+    this.mesh = new THREE.InstancedMesh(geometry, material, capacity);
     this.mesh.count = 0;
     // Draw after every unit, deliberately -- see this file's top comment,
     // "FX-vs-UNIT ordering is a DIFFERENT question", for why this is now
@@ -1525,9 +1588,69 @@ export class ParticleInstancer {
     this.colorAttr.needsUpdate = true;
     this.alphaAttr.needsUpdate = true;
     this.softAttr.needsUpdate = true;
+    const sizes = this.sizeAttr;
+    if (sizes !== null) {
+      const out = sizes.array as Float32Array;
+      for (let i = 0; i < count; i++) out[i] = this.scratchScales[i]! * PARTICLE_QUAD_EDGE_PER_SCALE;
+      sizes.needsUpdate = true;
+    }
+  }
+
+  /**
+   * GH-1227 slice 4: soft particles on this tier (the design's decision D4, "debris dust"), or `null` to take them off again. On: the
+   * material's program gains the SAME depth fade the flipbook smoke pass uses (`softParticleShaders`, `rlSoftFade`), bound to `source`
+   * (the snapshot, by reference), with the drawn world size fed through an `aSize` instance attribute and the camera's `far - near`
+   * refreshed by the mesh's `onBeforeRender` (chained onto any hook the mesh already had). Off: the shipped program, an empty uniform
+   * record, no `aSize` and the previous hook, exactly. Only the depth-tested, normal-blended tier (band 2) can fade: the above tiers
+   * are `depthTest: false` (they draw over what they would fade against) and the hot core pins its alpha to 1 on purpose, so turning
+   * either on throws rather than quietly drawing unfaded. WebGL2 only here; the node twin (`fx.node.ts`) reads the same record.
+   */
+  setSoftDepth(source: SoftDepthSource | null): void {
+    const m = this.legacyMaterial;
+    if (source) {
+      if (!this.depthTest || this.hotCore) throw new Error('particle soft depth: only the depth-tested, normal-blended tier can fade');
+      const s = softParticleShaders(this.shippedShaders.vertexShader, this.shippedShaders.fragmentShader, SOFT_PARTICLE_GLSL);
+      m.vertexShader = s.vertexShader;
+      m.fragmentShader = s.fragmentShader;
+      m.uniforms.uSoftDepth = { value: source.depthTexture };
+      m.uniforms.uSoftInvSize = { value: source.invSize };
+      const span = { value: 1 };
+      m.uniforms.uSoftSpan = span;
+      if (this.sizeAttr === null) {
+        this.sizeAttr = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity), 1);
+        this.mesh.geometry.setAttribute('aSize', this.sizeAttr);
+      }
+      // CHAINED, not overwritten, and a second call chains onto the hook saved the first time, never onto its own.
+      const prev = (this.softPrevBeforeRender ??= this.mesh.onBeforeRender);
+      this.mesh.onBeforeRender = function (this: THREE.Object3D, renderer, scene, camera, geometry, material, group) {
+        prev.call(this, renderer, scene, camera, geometry, material, group);
+        const c = camera as THREE.OrthographicCamera;
+        span.value = c.far - c.near;
+      };
+    } else {
+      m.vertexShader = this.shippedShaders.vertexShader;
+      m.fragmentShader = this.shippedShaders.fragmentShader;
+      delete m.uniforms.uSoftDepth;
+      delete m.uniforms.uSoftInvSize;
+      delete m.uniforms.uSoftSpan;
+      if (this.sizeAttr !== null) {
+        this.mesh.geometry.deleteAttribute('aSize');
+        this.sizeAttr = null;
+      }
+      if (this.softPrevBeforeRender) this.mesh.onBeforeRender = this.softPrevBeforeRender;
+      this.softPrevBeforeRender = null;
+    }
+    m.needsUpdate = true;
+  }
+
+  /** Whether `setSoftDepth` is on (tests). */
+  get softDepthOn(): boolean {
+    return this.legacyMaterial.uniforms.uSoftDepth !== undefined;
   }
 
   dispose(): void {
+    // Soft particles off first, so no uniform keeps a pointer to the snapshot's depth texture its owner frees next.
+    if (this.softDepthOn) this.setSoftDepth(null);
     this.mesh.geometry.dispose();
     (this.mesh.material as THREE.Material).dispose();
   }
