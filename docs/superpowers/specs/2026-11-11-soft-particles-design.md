@@ -50,7 +50,7 @@ Which layers (D3, D4):
 | flipbook SMOKE pass (smoke, dust tint, oil soot, dirt) | band 5, depth-tested | **yes: slice 1** |
 | flipbook FIRE pass (fire, sparks) | band 5.5, `depthTest: false`, engulfs its hull | no (D3); at most its late soot phase |
 | `ParticleInstancer` debris dust | band 2, depth-tested | yes, later slice (same snapshot) |
-| collapse shroud, smoke screen (`smoke-mesh.ts`) | band 5, `depthTest: false` | no (D4): smoke is cover; a depth fade would hide it behind walls and change what the player reads |
+| collapse shroud, smoke screen (`smoke-mesh.ts`) | band 5, `depthTest: false` | no (D4): smoke is cover; a depth fade would thin the screen where it meets the ground, which is where it hides a unit, and weaken how it reads as cover |
 | explosion-burst mesh, plumes | fallback paths only once atlases are in | no |
 
 ## 3. The depth source
@@ -160,6 +160,10 @@ Slice 1 (built, each mutation run red once; the commit message lists them):
 | G10 | the camera span is `far - near` | `flipbook-soft.test.ts` | `far` alone: red |
 | G11 | the splice refuses a missing or repeated anchor | `flipbook-soft.test.ts` | drop the repeat check: red |
 | G12 | no preset turns it on | `flipbook-soft.test.ts` | `softParticles: true` on `high`: red |
+| G13 | the depth copy runs with the scissor test off and restores it (a blit honours the scissor) | `soft-depth.test.ts` | delete the disable: red |
+| G14 | `FlipbookFx.dispose` turns soft particles off, so no uniform keeps the freed snapshot texture | `flipbook-soft.test.ts` | delete the call in `dispose`: red |
+| G15 | the smoke mesh hook is chained, not overwritten, and comes back when soft particles go off | `flipbook-soft.test.ts` | overwrite instead of chaining: red |
+| G16 | D4 gives the corrected reason (thinning at the ground, not hiding behind walls) | `soft-depth.test.ts` | restore the old wording: red |
 
 Disclosed survivor: the `ThreeRenderer.init` wiring (`quality.softParticles === true`) has no unit test, because no
 `ThreeRenderer` test calls `init` (it needs a live context). Mutating the condition to `!== false` would survive the unit tests (not run: no test reaches that line); G12 plus
@@ -189,9 +193,9 @@ Later slices:
 | id | decision | options | recommendation |
 |---|---|---|---|
 | D1 | depth source | A mid-pass snapshot / B post-pass soft layers / C last frame / D ground height-field / E pre-pass | **A** (no new rendering, no order change); D as the cheap tier if G-cost fails on `medium` |
-| D2 | which presets get it | high / high+medium / all; budget | **`high` only**, budget 2 ms at DPR 2 with smoke on screen; `medium` only if G-cost shows no cliff; `low` never (or D) |
+| D2 | which presets get it | high / high+medium / all; budget | **`high` only**, budget 2 ms at DPR 2 with smoke on screen; `medium` only if G-cost shows no cliff; `low` never (or D); the reviewer suggests D, the ground height-field, as the `medium` tier: a later slice weighs it |
 | D3 | the fire pass | no fade / fade the late soot phase only / full fade | **no fade**: a fireball engulfing its hull is the authored look; revisit soot-phase-only after slice 5 |
-| D4 | other layers | debris dust / collapse shroud / smoke screen | **debris dust yes** (slice 4); **shroud and smoke screen no**: smoke is cover, and a depth fade would hide it behind walls |
+| D4 | other layers | debris dust / collapse shroud / smoke screen | **debris dust yes** (slice 4); **shroud and smoke screen no**: smoke is cover, and a depth fade would thin the screen where it meets the ground and weaken how it reads as cover (accepted 11 Nov; reason corrected per the reviewer) |
 | D5 | band width | 0.35 x billow size, 0.05-unit floor | **keep**, retune by eye in the slice-2 Metal check |
 | D6 | half-resolution snapshot | full / half | **full**: half saves only the blit term (~25%) and needs a hand-written scaled blit; revisit if G-cost misses |
 | D7 | the 0.32 lift (D10) | keep / lower now that the cut is soft | **keep** until slice 5: lowering it moves every flipbook frame, a separate look decision |
