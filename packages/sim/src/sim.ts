@@ -6636,8 +6636,8 @@ export class Sim {
     return a;
   }
 
-  /** Field works: the `aura.garrison.range_bonus` unit `i`'s weapon `w` adds ON TOP of
-   *  GARRISON_RANGE_BONUS. Direct fire only: an indirect weapon (`isIndirect`) gets none (spec §3). */
+  /** Field works: the `aura.garrison.range_bonus` unit `i`'s weapon `w` adds ON TOP of its
+   *  building's own bonus (`garrisonBonus`, GH-34). Direct fire only: an indirect weapon (`isIndirect`) gets none (spec §3). */
   private auraRangeBonus(i: number, w: WeaponStats): Fx {
     if (w.isIndirect) return 0;
     const a = this.garrisonAura(i);

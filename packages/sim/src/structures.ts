@@ -114,7 +114,8 @@ export interface AreaEffectJson {
 export interface StructureAuraJson {
   area?: AreaEffectJson[];
   /** Bonuses for whoever is garrisoned inside. `range_bonus` (tiles, direct fire only) is ON
-   *  TOP of the global GARRISON_RANGE_BONUS; `sight_bonus` (tiles) adds to sight from the window. */
+   *  TOP of the building's own bonus (`garrison_range_bonus`, GARRISON_RANGE_BONUS when unauthored);
+   *  `sight_bonus` (tiles) adds to sight from the window. */
   garrison?: { range_bonus?: number; sight_bonus?: number };
   /** The structure itself as an eye of its owner's side (Task 7): `sight` and `optics` as a
    *  unit's, and `tunnel_radius` (tiles, 0/absent = none) inside which any tile of a route
