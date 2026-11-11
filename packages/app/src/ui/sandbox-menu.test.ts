@@ -342,6 +342,7 @@ describe('the launch URL', () => {
       decals: false,
       kit: true,
       works: false,
+      soft: false,
     });
     expect(unknownParams(params)).toEqual([]);
   });
