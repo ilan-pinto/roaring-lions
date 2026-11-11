@@ -76,3 +76,36 @@ export async function adoptFx(mesh: THREE.Mesh | THREE.InstancedMesh, cache: Twi
   if (swapped !== 1) throw new Error(`fx spec: adoption swapped ${swapped} objects, expected 1`);
   return mesh.material as THREE.Material;
 }
+
+/** GH-943 P3 (T12): the builder after a GLSL build, for a spec that must reach its update nodes (an `OnBeforeObjectUpdate`). */
+export async function buildGlsl(mesh: THREE.Mesh | THREE.InstancedMesh): Promise<{ fragment: string; vertex: string; updateBeforeNodes: Array<{ updateBefore(frame: unknown): void }> }> {
+  const W = await import('three/webgpu');
+  const r = new W.WebGPURenderer({ forceWebGL: true });
+  const backend = (r as unknown as { backend: { extensions: { has(): boolean }; capabilities: { getUniformBufferLimit(): number } } }).backend;
+  backend.extensions = { has: () => false };
+  backend.capabilities = { getUniformBufferLimit: () => 65536 };
+  const builder = new W.GLSLNodeBuilder(mesh as never, r) as unknown as BuilderLike & { updateBeforeNodes: Array<{ updateBefore(frame: unknown): void }> };
+  builder.scene = new THREE.Scene();
+  builder.camera = new THREE.OrthographicCamera();
+  builder.material = mesh.material;
+  builder.build();
+  return { fragment: builder.fragmentShader, vertex: builder.vertexShader, updateBeforeNodes: builder.updateBeforeNodes };
+}
+
+/** GH-943 P3 (T12): the WGSL a node material compiles to on `mesh` (three's own `WGSLNodeBuilder`, a stubbed device: no GPU). */
+export async function compileWgsl(mesh: THREE.Mesh | THREE.InstancedMesh): Promise<{ fragment: string; vertex: string }> {
+  const W = await import('three/webgpu');
+  const r = new W.WebGPURenderer({ forceWebGL: false });
+  const stubbed = r as unknown as { hasFeature(): boolean; backend: Record<string, unknown> };
+  stubbed.hasFeature = () => false;
+  stubbed.backend.utils = { getTextureSampleData: () => ({ primarySamples: 1 }), getTextureFormatGPU: () => 'rgba8unorm' };
+  stubbed.backend.device = { features: new Set<string>(), limits: { maxUniformBufferBindingSize: 65536 } };
+  stubbed.backend.capabilities = { getUniformBufferLimit: () => 65536 };
+  const Builder = (W as unknown as { WGSLNodeBuilder: new (m: THREE.Mesh, r: unknown) => unknown }).WGSLNodeBuilder;
+  const builder = new Builder(mesh as never, r) as BuilderLike;
+  builder.scene = new THREE.Scene();
+  builder.camera = new THREE.OrthographicCamera();
+  builder.material = mesh.material;
+  builder.build();
+  return { fragment: builder.fragmentShader, vertex: builder.vertexShader };
+}

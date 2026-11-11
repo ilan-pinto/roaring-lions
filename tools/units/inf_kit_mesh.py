@@ -232,6 +232,22 @@ def outer_gap(bvhs, V, d, reach=0.25, near=0.15):
     return gaps
 
 
+def masked_median(g, mask, what, owner):
+    """The median of `outer_gap`'s `g` over the vertices `mask` selects, REFUSING an empty or non-finite set.
+
+    An empty set has no median, and the old `... if edge.any() else 0.0` read that as 0.0 mm: a part whose every ray missed the
+    surface it stands on (a badly placed apron, say) passed its gap limit vacuously (review, 10 Nov 2026). So does a NaN median.
+    `what` names the selection and `owner` prefixes the figure, as the gate's own refusal does."""
+    n = int(np.count_nonzero(mask))
+    if n == 0:
+        raise ValueError(f"{owner}: {what} selects no vertex (0 of {len(g)}): every ray missed the surface it stands on, so its "
+                         f"median would read 0.0 and the limit would pass vacuously")
+    med = float(np.median(g[mask]))
+    if not math.isfinite(med):
+        raise ValueError(f"{owner}: {what}: its {n} selected gaps have no finite median ({med})")
+    return med
+
+
 def clear_shift(bvhs, V, d, gap=0.001, mask=None, **kw):
     """The shift along `d` (>= 0) that leaves every vertex of V (of `mask`, the part's body-side face; all when None) at least
     `gap` outboard of the surfaces it stands on."""

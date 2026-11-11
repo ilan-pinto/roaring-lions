@@ -24,26 +24,33 @@ import type { MissileLaunch, TargetTrack } from './missiles';
 import { createRotorBlurMaterial } from './swarm-batch';
 import { createSmokePlumeMaterial } from './smoke-plume';
 import { createVfxMeshMaterial } from './vfx-mesh-material';
+import { FlipbookFx } from './flipbook-fx';
+import { SmokeMesh } from '../smoke-mesh';
 import { fxKit } from './fx-twin-test-kit';
 
-const SLOTS = ['particle', 'tracer', 'vfxMesh', 'rimFade', 'beam', 'rotor'] as const;
-const NAMES = ['rl-fx-particle', 'rl-fx-particle-hot', 'rl-fx-tracer', 'rl-fx-mesh', 'rl-smoke-plume', 'rl-collapse-shroud', 'rl-beam', 'rl-swarm-rotors'] as const;
+const SLOTS = ['particle', 'tracer', 'vfxMesh', 'rimFade', 'beam', 'rotor', 'flipbook', 'smokeScreen'] as const;
+const NAMES = [
+  'rl-fx-particle', 'rl-fx-particle-hot', 'rl-fx-tracer', 'rl-fx-mesh', 'rl-smoke-plume', 'rl-collapse-shroud', 'rl-beam', 'rl-swarm-rotors',
+  // T12
+  'rl-flipbook-smoke', 'rl-flipbook-fire', 'rl-smoke-screen',
+] as const;
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel: string): string => readFileSync(resolve(SRC, rel), 'utf8');
 /** Source with comments removed, so a rule about code is not tripped by a sentence about it. */
 const code = (rel: string): string => read(rel).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
 describe('the kit: which slot makes which twin', () => {
-  it('fills exactly the six FX slots of this task and leaves the flipbook and smoke screen (T12) empty', async () => {
+  it('fills exactly the eight FX slots (T11 six, T12 the flipbook and the smoke screen) and no other', async () => {
     const kit = await fxKit();
     for (const s of SLOTS) expect(kit[s], s).not.toBeNull();
-    for (const s of ['flipbook', 'smokeScreen', 'unit', 'decal', 'overlay', 'xray'] as const) expect(kit[s], s).toBeNull();
+    for (const s of ['unit', 'decal', 'overlay', 'xray'] as const) expect(kit[s], s).toBeNull();
   });
 
   it('each legacy material name is recognised for the slot that owns it, and every one of them is a P3 name', () => {
     const slotOf: Record<string, (typeof SLOTS)[number]> = {
       'rl-fx-particle': 'particle', 'rl-fx-particle-hot': 'particle', 'rl-fx-tracer': 'tracer', 'rl-fx-mesh': 'vfxMesh',
       'rl-smoke-plume': 'rimFade', 'rl-collapse-shroud': 'rimFade', 'rl-beam': 'beam', 'rl-swarm-rotors': 'rotor',
+      'rl-flipbook-smoke': 'flipbook', 'rl-flipbook-fire': 'flipbook', 'rl-smoke-screen': 'smokeScreen',
     };
     for (const n of NAMES) {
       expect(P3_MATERIAL_NAMES[n], n).toBe(slotOf[n]);
@@ -60,6 +67,9 @@ describe('the kit: which slot makes which twin', () => {
       ['vfxMesh', createVfxMeshMaterial()],
       ['rimFade', createSmokePlumeMaterial()],
       ['rotor', createRotorBlurMaterial()],
+      ['flipbook', new FlipbookFx(2).mesh.material],
+      ['flipbook', new FlipbookFx(2).fireMesh.material],
+      ['smokeScreen', new SmokeMesh(4, 4, 1).mesh.material as THREE.Material],
     ];
     for (const [slot, legacy] of legacies) {
       const twin = (kit[slot] as (m: THREE.Material) => THREE.Material)(legacy);
@@ -70,9 +80,8 @@ describe('the kit: which slot makes which twin', () => {
 });
 
 describe('the census and the L-matched arm', () => {
-  it('the eight legacy names are in PORTED_MATERIAL_KEYS, and the flipbook, fire and smoke screen (T12) are not', () => {
+  it('the eleven legacy names are in PORTED_MATERIAL_KEYS (T12: the flipbook\'s two passes and the smoke screen)', () => {
     for (const n of NAMES) expect(PORTED_MATERIAL_KEYS.has(n), n).toBe(true);
-    for (const n of ['rl-flipbook-smoke', 'rl-flipbook-fire', 'rl-smoke-screen']) expect(PORTED_MATERIAL_KEYS.has(n), n).toBe(false);
   });
 
   it('adopted, none of them is hidden or named by the node census; un-adopted, each is hidden and named (so the check can fail)', async () => {
@@ -82,16 +91,22 @@ describe('the census and the L-matched arm', () => {
       g.add(new THREE.InstancedMesh(new THREE.BoxGeometry(), createVfxMeshMaterial(), 1));
       g.add(new THREE.InstancedMesh(new THREE.BoxGeometry(), createRotorBlurMaterial(), 1));
       g.add(new ParticleInstancer(2, 0, true, false).mesh);
+      const fb = new FlipbookFx(2);
+      fb.setAtlases(new THREE.Texture(), new THREE.Texture());
+      fb.spawn({ x: 0, y: 0, z: 0, durationMs: 100, scale: 1, type: 0 });
+      fb.spawn({ x: 0, y: 0, z: 0, durationMs: 100, scale: 1, type: 1 });
+      g.add(...fb.meshes);
+      g.add(new SmokeMesh(4, 4, 2).mesh);
       return g;
     };
     const adopted = make();
-    expect(adoptMaterials(adopted, await fxKit(), createTwinCache())).toBe(4);
+    expect(adoptMaterials(adopted, await fxKit(), createTwinCache())).toBe(7);
     expect(censusUnported(adopted)).toEqual([]);
     for (const o of adopted.children) expect(o.visible).toBe(true);
     const bare = make();
-    expect(censusUnported(bare)).toHaveLength(4);
+    expect(censusUnported(bare)).toHaveLength(7);
     for (const o of bare.children) expect(o.visible).toBe(false);
-    // L-matched: the same legacy scene, read with the ported keys, keeps all four visible and reports none.
+    // L-matched: the same legacy scene, read with the ported keys, keeps all seven visible and reports none.
     const lm = make();
     expect(censusUnported(lm, { portedKeys: PORTED_MATERIAL_KEYS })).toEqual([]);
     for (const o of lm.children) expect(o.visible).toBe(true);
@@ -146,6 +161,8 @@ describe('the writers hold their legacy material apart', () => {
   const FILES = [
     'units/fx.ts', 'units/missile-fx.ts', 'units/muzzle-flash.ts', 'units/explosion-burst.ts', 'units/smoke-plume.ts',
     'units/collapse-shroud.ts', 'units/beam-batch.ts', 'units/swarm-batch.ts', 'units/vfx-mesh-material.ts',
+    // T12
+    'units/flipbook-fx.ts', 'smoke-mesh.ts',
   ];
   it('no FX module writes a uniform through a mesh\'s material (it is the twin once adopted)', () => {
     for (const f of FILES) {
