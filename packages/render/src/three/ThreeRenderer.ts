@@ -409,7 +409,7 @@ import {
   type TexturedDecorSet,
 } from './terrain/decor-textured-mesh';
 import { lod1Shown } from './units/building-lod';
-import { buildingSkin, keepsFullArt } from './units/building-skin';
+import { buildingMask, buildingSkin, keepsFullArt } from './units/building-skin';
 import { isTexturedDecorKey } from './terrain/textured-decor';
 import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
@@ -565,11 +565,21 @@ import {
   CUT_SELECT_RADIUS_TILES,
   CutawayTable,
   footprintDistance,
+  garrisonCutKey,
+  garrisonCutRadius,
+  garrisonStations,
   writeCutVolumes,
   type CutTrigger,
   type CutVolume,
 } from './units/building-cutaway';
-import { BuildingCutMaterials, createCutUniforms, cutColorsFor, type CutUniforms } from './units/cut-material';
+import {
+  BuildingCutMaterials,
+  createCutMaskMaterials,
+  createCutUniforms,
+  cutColorsFor,
+  type CutMaskMaterials,
+  type CutUniforms,
+} from './units/cut-material';
 import { DEFAULT_BUILDING_FIT, buildingFitScale, type FitScale } from './units/building-fit';
 import {
   FX_RENDER_ORDER,
@@ -2796,6 +2806,15 @@ export class ThreeRenderer implements Renderer {
   private readonly buildingRoofY = new Map<number, { root: THREE.Object3D; y: number }>();
   private readonly cutTriggers: CutTrigger[] = [];
   private readonly cutVolumes: CutVolume[] = [];
+  /** GH-1225 slice 2: the shared shadow and AO mask materials, minted with the first cut, never before. */
+  private cutMask: CutMaskMaterials | null = null;
+  /** GH-1225 slice 2: the garrisons the viewer may know about, as triggers, re-derived only when the tick, the fog array or the
+   *  standing clones moved (the banner's own key: garrisons change on a tick). */
+  private garrisonCutTriggers: CutTrigger[] = [];
+  private garrisonCutKeyState: { tick: number; fog: Uint8Array | null; clones: number } = { tick: -1, fog: null, clones: -1 };
+  /** GH-1225 slice 2: where each garrisoned unit inside a CUT building is drawn this frame (x, z), by entity; empty while no
+   *  building is cut, so the uncut draw reads the sim's position exactly as before. */
+  private readonly garrisonStationAt = new Map<number, [number, number]>();
   /**
    * GH-31, the vehicle half: the per-TYPE memo of scarred hull materials
    * (`units/vehicle-damage.ts`). The band each hull is drawn at lives on the
@@ -4452,6 +4471,13 @@ export class ThreeRenderer implements Renderer {
     this.buildingCuts.clear();
     this.buildingRoofY.clear();
     this.cutaway.clear();
+    this.garrisonStationAt.clear();
+    this.garrisonCutTriggers = [];
+    if (this.cutMask !== null) {
+      this.cutMask.depth.dispose();
+      this.cutMask.ao.dispose();
+      this.cutMask = null;
+    }
     // The scar clones before their templates: a clone shares its base's
     // map by reference and must not outlive the template that owns it.
     for (const scars of this.buildingScars.values()) scars.dispose();
@@ -10464,8 +10490,13 @@ export class ThreeRenderer implements Renderer {
         this.scene.add(entity.root);
       }
 
-      const wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
-      const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      const simX = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const simY = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      // GH-1225 slice 2: a garrisoned unit in a CUT building is drawn at its station (presentation only; the sim is not
+      // touched). Uncut, the map is empty and this is the sim's position, as before.
+      const station = this.garrisonStationAt.size > 0 ? this.garrisonStationAt.get(i) : undefined;
+      const wx = station !== undefined ? station[0] : simX;
+      const wy = station !== undefined ? station[1] : simY;
       const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
       entity.root.position.set(wx, worldY, wy);
       // Interpolated between the last two ticks, the short way round, like
@@ -10478,7 +10509,7 @@ export class ThreeRenderer implements Renderer {
       // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
       // GH-681: a buried unit has no body on the surface, for any viewer.
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.fogViewer, wx, wy, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.fogViewer, simX, simY, this.fogVisibleAt);
 
       const anim: UnitAnimInput = {
         alive: st.alive[i],
@@ -12149,11 +12180,18 @@ export class ThreeRenderer implements Renderer {
     if (this.nodeBackend !== null) return;
     const triggers = this.cutTriggers;
     triggers.length = 0;
-    if (this.selection.length > 0 && this.buildingMeshIdleEntities.size > 0) this.collectCutTriggers(alpha, triggers);
-    if (triggers.length === 0 && this.cutaway.size === 0 && this.buildingCuts.size === 0) return;
+    if (this.buildingMeshIdleEntities.size > 0) {
+      for (const t of this.collectGarrisonCutTriggers()) triggers.push(t);
+      if (this.selection.length > 0) this.collectCutTriggers(alpha, triggers);
+    }
+    if (triggers.length === 0 && this.cutaway.size === 0 && this.buildingCuts.size === 0) {
+      this.garrisonStationAt.clear();
+      return;
+    }
     this.cutaway.step(triggers, this.frameDtMs(dtMs));
     const vols = this.cutaway.volumes(this.cutVolumes);
     if (vols.length > 0 && this.cutUniforms === null) this.cutUniforms = createCutUniforms();
+    if (vols.length > 0 && this.cutMask === null) this.cutMask = createCutMaskMaterials(this.cutUniforms!);
     if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = writeCutVolumes(vols, this.cutUniforms.uRlCutV.value);
     const st = this.sim.structures;
     let changed = false;
@@ -12188,6 +12226,68 @@ export class ThreeRenderer implements Renderer {
       }
     }
     if (changed) this.stepLod1(this.camera.zoom);
+    this.placeGarrisonStations();
+  }
+
+  /**
+   * GH-1225 slice 2, the garrison trigger: one volume over the whole of every standing clone holding a garrison the viewer may
+   * know about -- the banner's rule (`heldShown`): its own garrison always, anyone else's only while a tile of the building is
+   * in sight. A fogged enemy garrison cuts nothing. The volume stands at the footprint centre, R its half-diagonal + 0.25 t,
+   * the cut 0.4 t over the ground there. Re-derived on the banner's key (tick, fog array, standing clones), else reused.
+   */
+  private collectGarrisonCutTriggers(): readonly CutTrigger[] {
+    const key = this.garrisonCutKeyState;
+    if (key.tick === this.sim.tickCount && key.fog === this.fog && key.clones === this.buildingMeshIdleEntities.size) {
+      return this.garrisonCutTriggers;
+    }
+    this.garrisonCutKeyState = { tick: this.sim.tickCount, fog: this.fog, clones: this.buildingMeshIdleEntities.size };
+    const out: CutTrigger[] = [];
+    const ss = this.sim.structures;
+    for (const b of heldBuildings(this.sim, this.snapshottedCount)) {
+      if (!heldShown(this.sim, b, this.fogViewer, this.fogVisibleAt)) continue;
+      const root = this.buildingMeshIdleEntities.get(b.s);
+      if (root === undefined) continue;
+      const cx = (ss.minX[b.s] + ss.maxX[b.s] + 1) / 2;
+      const cz = (ss.minY[b.s] + ss.maxY[b.s] + 1) / 2;
+      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cz) + CUT_HEIGHT_TILES;
+      const yTop = this.roofYOf(b.s, root);
+      if (yTop <= yCut) continue;
+      const r = garrisonCutRadius(ss.minX[b.s], ss.minY[b.s], ss.maxX[b.s], ss.maxY[b.s]);
+      out.push({ key: garrisonCutKey(b.s), r, garrison: true, x: cx, z: cz, yCut, yTop, focusDist2: 0 });
+    }
+    this.garrisonCutTriggers = out;
+    return out;
+  }
+
+  /**
+   * GH-1225 slice 2 (L6): each garrisoned unit inside a CUT building gets one of its type's `garrison_slots` stations
+   * (`garrisonStations`), by its rank among that building's occupants in entity order, so the cut shows the men spread
+   * through the house rather than stacked at the centre. Only while that building is cut: with no cut the map is empty and
+   * `updateMeshUnits` draws the sim's position, byte for byte. Presentation only.
+   */
+  private placeGarrisonStations(): void {
+    this.garrisonStationAt.clear();
+    if (this.buildingCuts.size === 0) return;
+    const st = this.sim.state;
+    const ss = this.sim.structures;
+    const n = this.snapshottedCount;
+    const rank = new Map<number, number>();
+    const stations = new Map<number, number[]>();
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] !== 1) continue;
+      const s = st.garrisonedIn[i];
+      if (s < 0 || !this.buildingCuts.has(s)) continue;
+      let pts = stations.get(s);
+      if (pts === undefined) {
+        const slots = this.sim.structureTypes[ss.typeIdx[s]].garrisonSlots;
+        pts = garrisonStations(s, ss.minX[s], ss.minY[s], ss.maxX[s], ss.maxY[s], Math.max(1, slots));
+        stations.set(s, pts);
+      }
+      const k = rank.get(s) ?? 0;
+      rank.set(s, k + 1);
+      const at = k % (pts.length / 2);
+      this.garrisonStationAt.set(i, [pts[2 * at], pts[2 * at + 1]]);
+    }
   }
 
   /** Every selected unit this seat may see that stands within `CUT_SELECT_RADIUS_TILES` of a standing clone's footprint, where
@@ -12218,7 +12318,7 @@ export class ThreeRenderer implements Renderer {
       if (!near) continue;
       const dx = x - this.camera.x;
       const dz = z - this.camera.y;
-      out.push({ key: i, x, z, yCut, yTop, focusDist2: dx * dx + dz * dz });
+      out.push({ key: i, r: CUT_SELECT_RADIUS_TILES, garrison: false, x, z, yCut, yTop, focusDist2: dx * dx + dz * dz });
     }
   }
 
@@ -12234,7 +12334,7 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * GH-1225 L7: the ONE material write for a holed and/or cut clone-drawn building: each mesh gets its band material, holed
-   * then cut (`buildingSkin`), so one clone carries both hooks. Holes bring their depth material.
+   * then cut (`buildingSkin`), so one clone carries both hooks, and its shadow and AO mask (`buildingMask`) discard alike.
    */
   private applyBuildingSkin(s: number, root: THREE.Object3D): void {
     const sc = this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id);
@@ -12242,13 +12342,17 @@ export class ThreeRenderer implements Renderer {
     const holes = this.buildingHoles.get(s)?.mats ?? null;
     const c = this.buildingCuts.get(s);
     const cut = c !== undefined && c.root === root ? c.mats : null;
+    const mask = buildingMask(holes, cut, this.cutMask);
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       // Through the scar memo FIRST: it records each mesh's own base the first time it sees it, so a mesh is never taken
       // to have been born with a holed or cut clone.
       mesh.material = buildingSkin(sc.materialFor(mesh, band), holes, cut);
-      if (holes !== null) mesh.customDepthMaterial = holes.depth;
+      // GH-1225 x GH-1197 P4: the shadow and the AO G-buffer take ONE mask of holes and cut, the colour clone's discards.
+      mesh.customDepthMaterial = mask.depth;
+      if (mask.ao !== undefined) mesh.userData.rlCutAo = mask.ao;
+      else delete mesh.userData.rlCutAo;
     });
   }
 
@@ -12267,6 +12371,13 @@ export class ThreeRenderer implements Renderer {
   private dropBuildingCut(s: number): void {
     const cut = this.buildingCuts.get(s);
     if (cut === undefined) return;
+    // The shadow and AO masks off every mesh: an uncut building casts its stock shadow and occludes through the override.
+    cut.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.customDepthMaterial = undefined;
+      delete mesh.userData.rlCutAo;
+    });
     cut.mats.dispose();
     this.buildingCuts.delete(s);
   }

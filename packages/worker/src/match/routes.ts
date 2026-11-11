@@ -13,7 +13,8 @@ import { originAllowed } from '../origin';
 import { readCapped } from '../read-capped';
 import { signTicket, verifyTicket } from './ticket';
 import { mintCode, isCode } from './code';
-import { ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, matchupAllowed, matchupField, versusMapAllowed, winModeRequest, type AdvisorScope } from '@lions/net';
+import { botModelField, ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, matchupAllowed, matchupField, versusMapAllowed, winModeRequest, type AdvisorScope } from '@lions/net';
+import { seatMemberOf } from '../account/seat-member';
 import { callsignField, kitField, mapField, paceField, seatKindField, seatSpecialsField, seatTiersField, textField } from './room-fields';
 
 /** A size bound on the request bodies of create, join and the advisor ticket (hardening). */
@@ -22,7 +23,7 @@ export const MATCH_BODY_MAX_BYTES = 3584;
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
 
-interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; specials?: unknown; winMode?: unknown; ticket?: unknown; scope?: unknown }
+interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; specials?: unknown; winMode?: unknown; ticket?: unknown; scope?: unknown; botModel?: unknown }
 
 /** The JSON body, `{}` when it is unreadable, or null when it is over `MATCH_BODY_MAX_BYTES`
  *  (the caller answers 413). An oversize body is refused before it is read or parsed: a
@@ -111,15 +112,21 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     const tiers = seatTiersField(body.tiers);
     // GH-1102: the host's Store specials, cleaned against the shipped table here and again by the room.
     const specials = seatSpecialsField(body.specials);
+    // GH-1075 A3: the declared bot model is refused before any room is reached; the seat's member comes from the cookie only.
+    const declared = botModelField(body.botModel);
+    if (!declared.ok) return new Response('botModel', { status: 400 });
+    const seated = await seatMemberOf(req, env, now);
+    const member = seated?.member ?? null;
+    const botModel = kind === 'bot' && member === null && declared.model !== null ? declared.model : null;
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const c = mintCode();
       const res = await rooms.get(rooms.idFromName(c)).fetch(new Request('https://room/create', {
-        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers, specials, ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) }),
+        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers, specials, member, ...(botModel === null ? {} : { botModel }), ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) }),
       }));
       if (res.status === 409) continue;   // that code is taken
       if (!res.ok) return new Response('room', { status: 502 });
       const ticket = await signTicket(secret, { matchId: c, seat: 0, player, exp: now + TICKET_MS });
-      return Response.json({ code: c, seat: 0, ticket }, { status: 201 });
+      return Response.json({ code: c, seat: 0, ticket }, { status: 201, ...(seated?.setCookie ? { headers: { 'set-cookie': seated.setCookie } } : {}) });
     }
     return new Response('no free code', { status: 503 });
   }
@@ -136,13 +143,19 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     if (body === null) return tooLarge();
     const player = playerOf(body);
     if (player === '') return new Response('player required', { status: 400 });
-    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind: seatKindField(body.kind), tiers: seatTiersField(body.tiers), specials: seatSpecialsField(body.specials), ...(textField(body.build, '') === '' ? {} : { build: textField(body.build, '') }) }) }));
+    const declared = botModelField(body.botModel);
+    if (!declared.ok) return new Response('botModel', { status: 400 });
+    const seated = await seatMemberOf(req, env, now);
+    const member = seated?.member ?? null;
+    const kind = seatKindField(body.kind);
+    const botModel = kind === 'bot' && member === null && declared.model !== null ? declared.model : null;
+    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind, member, ...(botModel === null ? {} : { botModel }), tiers: seatTiersField(body.tiers), specials: seatSpecialsField(body.specials), ...(textField(body.build, '') === '' ? {} : { build: textField(body.build, '') }) }) }));
     // 412: the joiner named a build the room does not run; the room's answer names its own (see /join in match-room).
     if (res.status === 412) return new Response(await res.text(), { status: 412, headers: { 'content-type': 'application/json' } });
     if (res.status !== 200) return new Response('', { status: res.status });
     const { seat } = (await res.json()) as { seat: 0 | 1 };
     const ticket = await signTicket(secret, { matchId: code, seat, player, exp: now + TICKET_MS });
-    return Response.json({ code, seat, ticket });
+    return Response.json({ code, seat, ticket }, seated?.setCookie ? { headers: { 'set-cookie': seated.setCookie } } : undefined);
   }
   // action === 'ws': the room answers the upgrade itself; the ticket rides in the first message.
   if (req.method !== 'GET') return new Response('method', { status: 405 });
