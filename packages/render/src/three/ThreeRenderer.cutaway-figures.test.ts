@@ -116,6 +116,16 @@ describe('roof cutaway slice 2: where a garrisoned figure is drawn', () => {
     expect([p.x, p.z]).toEqual([6, 6]);
   }, 60_000);
 
+  it('fog reads the SIM position, not the station: a cut enemy garrison whose tile is fogged stays hidden, though its station is in sight', async () => {
+    const { renderer, priv, id, frames } = await setUp(1);
+    priv.fog[5 * W + 5] = 2; // one footprint tile in sight (the house is shown and cut); the garrison's own tile (6, 6) stays fogged
+    frames(30);
+    expect(renderer.cutawayCount(), 'the building is cut: its garrison is known').toBe(1);
+    const station = priv.garrisonStationAt.get(id)!;
+    expect(Math.floor(station[0]) + Math.floor(station[1]) * W, 'the station stands on the visible tile').toBe(5 * W + 5);
+    expect(priv.meshUnitEntities.get(id)!.root.visible).toBe(false);
+  }, 60_000);
+
   it('cut (the viewer\'s own garrison): the root stands at its station, inside the footprint and off the centre', async () => {
     const { renderer, priv, id, frames } = await setUp(0);
     const p = frames(30);

@@ -225,6 +225,19 @@ describe('slice 2: the garrison volume', () => {
     expect(xs).not.toContain(8);
   });
 
+  it('among CLOSING volumes the cap evicts a selection before a garrison, even one with the larger scale', () => {
+    const t = new CutawayTable();
+    const garrison = { ...trigger(-2, 1e6, true), x: 50 };
+    const sel0 = trigger(1, 1);
+    t.step([sel0, garrison], 300); // both fully open
+    t.step([sel0], 1200); // the garrison's trigger ended 1200 ms ago: 200 ms into its close, scale < 1; the selection is still triggered
+    t.step([2, 3, 4, 5, 6, 7, 8].map((k) => trigger(k, k)), 16); // seven new selections: sel0 and the garrison are both closing, nine entries, one goes
+    const xs = t.volumes([]).map((v) => v.cx);
+    expect(xs).toHaveLength(8);
+    expect(xs).toContain(50); // the garrison stays although the selection's scale is the larger
+    expect(xs).not.toContain(1);
+  });
+
   it('a held garrison outranks a closing selection when the table overflows', () => {
     const t = new CutawayTable();
     t.step([1, 2, 3, 4, 5, 6, 7, 8].map((k) => trigger(k, k)), 300);
