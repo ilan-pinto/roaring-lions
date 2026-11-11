@@ -452,6 +452,11 @@
           {
             "if": { "properties": { "hostages": { "const": true } }, "required": ["hostages"] },
             "then": { "properties": { "type": { "const": "evacuate_before" } } }
+          },
+          {
+            "if": { "properties": { "type": { "const": "no_collateral_above" } }, "required": ["type"] },
+            "then": { "required": ["threshold"] },
+            "else": { "not": { "required": ["threshold"] } }
           }
         ]
       }

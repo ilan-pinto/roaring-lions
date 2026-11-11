@@ -2280,7 +2280,9 @@ export class MissionRuntime {
   completeObjective(id: string): boolean {
     if (this.ended) return false;
     const o = this.objectives.find((x) => x.def.id === id);
-    if (!o || o.status !== 'active') return false;
+    // A ceiling is satisfied only by winning without crossing it (the objective pass completes it): completing one from
+    // outside would stop a later deduction from failing it.
+    if (!o || o.status !== 'active' || o.def.type === 'no_collateral_above') return false;
     // Same earn rule as an internally-detected completion (spec §4.8) -- the
     // tutorial's step-driven objectives share the same nine types, so a
     // hold_for/capture/survive_until/locate/collapse forced complete from
@@ -4500,8 +4502,13 @@ export class MissionRuntime {
         // has lost from 100. Lost the tick it passes the ceiling, and it stays lost. It completes with the other
         // primaries (`stepObjectives` runs it in the second pass), so it is satisfied exactly when the mission is won without crossing it.
         failed = 100 - this.roeScoreValue > (d.threshold ?? 0);
+        // Another primary ceiling does not gate this one, but a FAILED one does: that mission is lost, and this must not
+        // be reported complete on the way out.
         complete =
-          !failed && this.objectives.every((x) => !x.def.primary || x.def.type === 'no_collateral_above' || x.status === 'complete');
+          !failed &&
+          this.objectives.every((x) =>
+            !x.def.primary || (x.def.type === 'no_collateral_above' ? x.status !== 'failed' : x.status === 'complete'),
+          );
       } else if (d.type === 'escort') {
         // Lost: any escorted unit is dead or taken (`remove` clears `alive` too). Arrived: EVERY escorted unit stands
         // in the zone at once (`standsIn` needs it alive, so a dead unit can never count as arrived and the two

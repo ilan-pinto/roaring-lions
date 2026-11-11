@@ -616,6 +616,30 @@ describe('no_collateral_above (GH-4)', () => {
     expect(out.some((e) => e.kind === 'objective' && e.id === 'clean' && e.status === 'complete')).toBe(false);
   });
 
+  it('a ceiling is not completed on the way to a defeat: when another primary ceiling fails on the tick the hold completes, this one is not reported complete', () => {
+    // clean2 (threshold 5) is crossed by the civilian who dies on the very tick the hold completes; clean (50) is still inside its line.
+    const w = world([hold(3), clean({ primary: true, threshold: 50 }), clean({ id: 'clean2', primary: true, threshold: 5 })]);
+    w.step(3 * TICKS_PER_SECOND - 1);
+    const se = w.sim.tick(); // tick 60: the hold's tick
+    const out = w.runtime.step([...se, { kind: 'destroyed', tick: 60, entity: 1, by: 0 }]);
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'hold' && e.status === 'complete')).toBe(true);
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'clean2' && e.status === 'failed')).toBe(true);
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'clean' && e.status === 'complete')).toBe(false);
+    expect(status(w)).toBe('active');
+    expect(w.runtime.result).toBe('defeat');
+  });
+
+  it('cannot be completed from outside: the tutorial channel refuses a ceiling, so a later deduction still fails it', () => {
+    const w = world([hold(), clean()]);
+    expect(w.runtime.completeObjective('clean')).toBe(false);
+    expect(status(w)).toBe('active');
+    kill(w, 1);
+    kill(w, 2);
+    kill(w, 3); // 45 lost, over the 30 line
+    expect(status(w)).toBe('failed');
+    expect(w.runtime.completeObjective('hold')).toBe(true); // control: an ordinary objective still completes from outside
+  });
+
   it('only the PRIMARIES gate it: another secondary that never completes does not hold the ceiling open', () => {
     const w = world([hold(3), clean(), { id: 'later', type: 'survive_until', primary: false, seconds: 600 }]);
     w.step(5 * TICKS_PER_SECOND);

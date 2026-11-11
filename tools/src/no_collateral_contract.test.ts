@@ -115,6 +115,15 @@ describe('the no_collateral_above data contract (GH-4)', () => {
     }
   });
 
+  it('the schema ties threshold to the type: required on a ceiling, forbidden on any other objective', () => {
+    const missing = mission();
+    delete missing.objectives[1].threshold;
+    expect(validate(missing)).toBe(false);
+    const stray = mission();
+    stray.objectives[0].threshold = 30; // on the survive_until
+    expect(validate(stray)).toBe(false);
+  });
+
   it('the schema still bites: an unknown objective key is refused', () => {
     const stray = mission();
     stray.objectives[1].bogus = 1;
