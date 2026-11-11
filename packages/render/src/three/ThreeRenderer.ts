@@ -209,7 +209,9 @@ import { SupportAircraftManager } from './units/support-aircraft';
 import { BlastRingPool, ringColorLinear } from './units/blast-ring';
 import { DebrisPool } from './units/debris-pool';
 import { debrisThrowFor, planDebris, restingPlan, type DebrisPlan } from './units/debris-flight';
-import { debrisKeysFor } from './units/debris-tone';
+import { debrisKeysFor, rampStep } from './units/debris-tone';
+import { HOLE_INTERIOR_TOWARD_CHAR, HOLE_SEED_LIMIT, addHole, type Hole } from './units/building-holes';
+import { BuildingHoleMaterials, type HoleColors } from './units/holed-material';
 import {
   BUILDING_HIT_DUST_EMITTER_ID,
   HIT_BURST_MIN_TICKS,
@@ -407,6 +409,7 @@ import {
   type TexturedDecorSet,
 } from './terrain/decor-textured-mesh';
 import { lod1Shown } from './units/building-lod';
+import { buildingSkin, keepsFullArt } from './units/building-skin';
 import { isTexturedDecorKey } from './terrain/textured-decor';
 import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
@@ -2414,7 +2417,10 @@ export class ThreeRenderer implements Renderer {
   private readonly pendingCharges: PendingCharge[] = [];
   /** GH-1197 P3: explosive direct-fire rounds in flight at a building, matched to the `structureHit` that resolves
    *  them (the event names no weapon). The `pendingCharges` pattern. */
-  private readonly pendingStructShots: { shooter: number; structure: number; resolveTick: number; munition: Munition }[] = [];
+  private readonly pendingStructShots: { shooter: number; structure: number; resolveTick: number; munition: Munition; indirect?: boolean }[] = [];
+  /** GH-1197 P4: the real holes of each holed building, and its holed materials -- minted on its FIRST hole and never
+   *  before, so an unhit map binds no new program, material or side. Clone-drawn buildings only (per-tile walls: P4b). */
+  private readonly buildingHoles = new Map<number, { holes: Hole[]; mats: BuildingHoleMaterials }>();
   /** GH-1197 P3: the last tick a building threw a hit-face burst (`HIT_BURST_MIN_TICKS`). */
   private readonly structHitBurstTick = new Map<number, number>();
   /** Presentation sim time at the last `updateFx`, null before the first. */
@@ -3929,6 +3935,8 @@ export class ThreeRenderer implements Renderer {
         twinSlotOf: (m) => (isTwin(m) ? null : legacyTwinSlot(m)),
         // GH-943 P3 (T13): timestamp queries for the probe's GPU time; the only read of the option (a legacy boot never gets here).
         timestamps: this.opts.timestamps === true,
+        // GH-943 P3 (T14b): the draw-submission switches; read here only, so a legacy boot never reads them (G3).
+        ...(this.opts.nodeDraw !== undefined ? { nodeDraw: this.opts.nodeDraw } : {}),
       });
       if (this.disposed) {
         if ('backend' in made) made.backend.dispose();
@@ -4443,6 +4451,7 @@ export class ThreeRenderer implements Renderer {
     this.collapseFlashBursts.dispose();
     this.flipbook.dispose();
     this.debris?.dispose();
+    for (const s of [...this.buildingHoles.keys()]) this.dropBuildingHoles(s);
     this.smokePlumes.dispose();
     this.collapseShrouds.dispose();
     // Same "added once in the constructor, no scene.remove needed" shape as
@@ -6984,6 +6993,18 @@ export class ThreeRenderer implements Renderer {
       });
       if (this.pendingStructShots.length > 64) this.pendingStructShots.shift();
     }
+    // GH-1197 P4: an indirect round fired AT a building (not a cluster carrier) is matched to its hit too: it punches
+    // the roof. Its flight is the sim's own speed (`SHELL_PROFILES`, the copied PROJ_SPEED).
+    if (atStruct && wp !== undefined && wp.submunitions === null && shellKind !== null && shellKind !== 'missile' && isIndirectShell(shellKind)) {
+      const m = weaponMunition(wp);
+      if (m !== null) {
+        const sx = fx.toNumber(st.posX[e.shooter]);
+        const sy = fx.toNumber(st.posY[e.shooter]);
+        const flightTicks = Math.ceil((Math.hypot(tx - sx, ty - sy) / SHELL_PROFILES[shellKind].speedTilesS) * 20);
+        this.pendingStructShots.push({ shooter: e.shooter, structure: e.structure as number, resolveTick: e.tick + flightTicks, munition: m, indirect: true });
+        if (this.pendingStructShots.length > 64) this.pendingStructShots.shift();
+      }
+    }
 
     // Latch the fire clip for its own declared duration (renderer.ts:772-777)
     // -- WHOSE duration decided by which asset is actually drawing this
@@ -7402,11 +7423,13 @@ export class ThreeRenderer implements Renderer {
     if (e.profile === FS_MORTAR_BARRAGE) {
       const ring = munitionForSupport('mortar_barrage', fx.toNumber(FIRE_SUPPORT[FS_MORTAR_BARRAGE].splash));
       this.spawnSupportImpact(BARRAGE_IMPACT_EMITTER_ID, sx, sy, BARRAGE_IMPACT_POWER, BARRAGE_CRATER_TILES, BARRAGE_SCORCH_TILES, ring);
+      this.cutSupportHoles(ring, sx, sy, e.tick);
       return;
     }
     const scorch = strikeScorchRadius(this.retained.elevationLevels, this.sim.width, this.sim.height, sx, sy);
     const ring = munitionForSupport('air_strike', fx.toNumber(FIRE_SUPPORT[FS_AIR_STRIKE].splash));
     this.spawnSupportImpact(AIR_STRIKE_IMPACT_EMITTER_ID, sx, sy, AIR_STRIKE_IMPACT_POWER, STRIKE_CRATER_TILES, scorch, ring);
+    this.cutSupportHoles(ring, sx, sy, e.tick);
   }
 
   /**
@@ -9345,6 +9368,7 @@ export class ThreeRenderer implements Renderer {
         if (this.sim.structureTypes[st.typeIdx[s]].id !== structureId) continue;
         this.scene.remove(root);
         this.buildingMeshIdleEntities.delete(s);
+        this.dropBuildingHoles(s);
         this.removeLod1Entity(s);
         this.buildingDamageBand.delete(s);
       }
@@ -11337,6 +11361,7 @@ export class ThreeRenderer implements Renderer {
       if (!this.perTileInstanced(this.sim.structureTypes[st.typeIdx[s]])) continue;
       this.scene.remove(root);
       this.buildingMeshIdleEntities.delete(s);
+      this.dropBuildingHoles(s);
       this.buildingDamageBand.delete(s);
     }
     for (const [s, root] of [...this.buildingMeshWreckEntities]) {
@@ -11743,6 +11768,7 @@ export class ThreeRenderer implements Renderer {
         if (idleEntity) {
           this.scene.remove(idleEntity);
           this.buildingMeshIdleEntities.delete(s);
+          this.dropBuildingHoles(s);
           this.removeLod1Entity(s);
         }
         this.buildingDamageBand.delete(s);
@@ -11809,8 +11835,9 @@ export class ThreeRenderer implements Renderer {
     for (const [s, twin] of this.buildingMeshLod1Entities) {
       const full = this.buildingMeshIdleEntities.get(s);
       if (full === undefined) continue;
-      // GH-1225: a cut building keeps its full art, as a scarred one does (the twin has no cut).
-      const showTwin = !this.buildingLayerHidden && lod1Shown(this.buildingLodOn, this.buildingDamageBand.get(s)) && !this.buildingCuts.has(s);
+      // GH-1197 P4 / GH-1225 L7: a holed or cut building keeps its full art, as a scarred one does (the twin has neither).
+      const showTwin = !this.buildingLayerHidden && lod1Shown(this.buildingLodOn, this.buildingDamageBand.get(s))
+        && !keepsFullArt(this.buildingHoles.has(s), this.buildingCuts.has(s));
       twin.visible = showTwin;
       full.visible = !this.buildingLayerHidden && !showTwin;
     }
@@ -12023,9 +12050,9 @@ export class ThreeRenderer implements Renderer {
     }
     if (root) {
       applyBuildingDamageBand(root, band, scars);
-      // GH-1225: a cut building stays cut across a band change: the cut clones of the new band's materials.
-      const cut = this.buildingCuts.get(s);
-      if (cut !== undefined && cut.root === root) this.applyBuildingCut(s, root, cut.mats);
+      // GH-1197 P4 / GH-1225 L7: a holed or cut building keeps both across a band change: one clone of the new band's
+      // material carrying every hook it has.
+      if (this.buildingHoles.has(s) || this.buildingCuts.get(s)?.root === root) this.applyBuildingSkin(s, root);
     } else {
       // One set per scar band, none for the clean three: bands 8-6 share the
       // template's own material, so they share one set too.
@@ -12084,7 +12111,7 @@ export class ThreeRenderer implements Renderer {
         const type = this.sim.structureTypes[st.typeIdx[s]];
         const mats = new BuildingCutMaterials(this.cutUniforms!, cutColorsFor(type.color));
         this.buildingCuts.set(s, { root, mats });
-        this.applyBuildingCut(s, root, mats);
+        this.applyBuildingSkin(s, root);
         changed = true;
       } else if (!reached && cut !== undefined) {
         this.releaseBuildingCut(s);
@@ -12143,16 +12170,23 @@ export class ThreeRenderer implements Renderer {
     return y;
   }
 
-  /** Puts building `s`'s cut clones of its CURRENT band materials on every mesh of `root`. */
-  private applyBuildingCut(s: number, root: THREE.Object3D, mats: BuildingCutMaterials): void {
+  /**
+   * GH-1225 L7: the ONE material write for a holed and/or cut clone-drawn building: each mesh gets its band material, holed
+   * then cut (`buildingSkin`), so one clone carries both hooks. Holes bring their depth material.
+   */
+  private applyBuildingSkin(s: number, root: THREE.Object3D): void {
     const sc = this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id);
     const band = this.buildingDamageBand.get(s) ?? 8;
+    const holes = this.buildingHoles.get(s)?.mats ?? null;
+    const c = this.buildingCuts.get(s);
+    const cut = c !== undefined && c.root === root ? c.mats : null;
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       // Through the scar memo FIRST: it records each mesh's own base the first time it sees it, so a mesh is never taken
-      // to have been born with a cut clone.
-      mesh.material = mats.materialFor(sc.materialFor(mesh, band));
+      // to have been born with a holed or cut clone.
+      mesh.material = buildingSkin(sc.materialFor(mesh, band), holes, cut);
+      if (holes !== null) mesh.customDepthMaterial = holes.depth;
     });
   }
 
@@ -12160,9 +12194,11 @@ export class ThreeRenderer implements Renderer {
   private releaseBuildingCut(s: number): void {
     const cut = this.buildingCuts.get(s);
     if (cut === undefined) return;
-    const band = this.buildingDamageBand.get(s) ?? 8;
-    applyBuildingDamageBand(cut.root, band, this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id));
+    const root = cut.root;
     this.dropBuildingCut(s);
+    // GH-1225 L7: a holed building keeps its holes once the cut closes.
+    if (this.buildingHoles.has(s)) this.applyBuildingSkin(s, root);
+    else applyBuildingDamageBand(root, this.buildingDamageBand.get(s) ?? 8, this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id));
   }
 
   /** Releases building `s`'s cut clones without touching its meshes (its clone is gone, or about to be re-cut). */
@@ -12897,16 +12933,185 @@ export class ThreeRenderer implements Renderer {
   private takeStructShot(by: number, structure: number, tick: number): boolean {
     const list = this.pendingStructShots;
     for (let i = list.length - 1; i >= 0; i--) if (list[i].resolveTick < tick - 40) list.splice(i, 1);
-    const k = list.findIndex((p) => p.shooter === by && p.structure === structure && tick >= p.resolveTick - 1);
+    // An indirect round's flight is the renderer's estimate of the sim's: three ticks of slack.
+    const k = list.findIndex((p) => p.shooter === by && p.structure === structure && tick >= p.resolveTick - (p.indirect ? 3 : 1));
     if (k < 0) return false;
     const shot = list[k];
     list.splice(k, 1);
+    // GH-1197 P4: the hole is world state, like the scars: cut whatever the fog, the catch-up or the burst limit. Wall
+    // or roof is the class row's `hole.axis` (munitions.json): a direct round's classes punch walls, an indirect one's
+    // roofs, as data.
+    {
+      const at = this.structHitPoint(structure, by, tick);
+      this.cutClassHole(structure, shot.munition, tick, { x: at.face.x, y: at.hitY, z: at.face.y, nx: at.face.nx, nz: at.face.ny });
+    }
+    // An indirect hit adds nothing else at the building (P3 ruling Q2): the caller draws today's puff.
+    if (shot.indirect === true) return false;
     if (this.quiet) return true;
     if (!hostileEffectVisible(this.versus, this.structureIsOwn(structure), this.footprintInSight(structure))) return true;
     if (tick - (this.structHitBurstTick.get(structure) ?? -1e9) < HIT_BURST_MIN_TICKS) return true;
     this.structHitBurstTick.set(structure, tick);
     this.spawnBuildingHitFx(structure, by, shot.munition, tick);
     return true;
+  }
+
+  /** GH-1197 P3/P4: where a round from `shooter` hits `structure` -- the face toward the shooter, 0.3-0.8 up the wall
+   *  (hashed on the tick) -- and the standoff point just outside it. */
+  private structHitPoint(structure: number, shooter: number, tick: number) {
+    const st = this.sim.structures;
+    const sx = shooter >= 0 && shooter < this.curX.length ? this.curX[shooter] : fx.toNumber(st.cx[structure]) + 1;
+    const sy = shooter >= 0 && shooter < this.curY.length ? this.curY[shooter] : fx.toNumber(st.cy[structure]);
+    return this.facePointToward(structure, sx, sy, tick);
+  }
+
+  /** GH-1197 P4: `structHitPoint` from a point rather than a shooter (a strike's detonation). */
+  private facePointToward(structure: number, sx: number, sy: number, tick: number) {
+    const st = this.sim.structures;
+    const face = hitFace(st.minX[structure], st.minY[structure], st.maxX[structure], st.maxY[structure], sx, sy);
+    const px = face.x + face.nx * HIT_STANDOFF_TILES;
+    const py = face.y + face.ny * HIT_STANDOFF_TILES;
+    const type = this.sim.structureTypes[st.typeIdx[structure]];
+    const height = this.buildingMeshBounds.get(type.id)?.y ?? type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+    const frac = HIT_HEIGHT_FRACTION[0] + (HIT_HEIGHT_FRACTION[1] - HIT_HEIGHT_FRACTION[0]) * tileHash(tick, structure);
+    const groundY = this.ringHeightAt(px, py);
+    return { face, px, py, groundY, hitY: groundY + height * frac, type };
+  }
+
+  /** GH-1197 P4: a building's clone-drawn root, or null (per-tile walls, instanced or not, take no holes: P4b). */
+  private holeRoot(s: number): THREE.Object3D | null {
+    const root = this.buildingMeshIdleEntities.get(s);
+    if (root === undefined || this.sim.structures.alive[s] !== 1) return null;
+    if (this.sim.structureTypes[this.sim.structures.typeIdx[s]].perTile) return null;
+    return root;
+  }
+
+  /** The first point of `root`'s meshes along a ray, or null. Raycast against the frozen clone, so a hole sits on the
+   *  surface the player sees, not on the footprint's edge. */
+  private surfaceAlong(root: THREE.Object3D, origin: THREE.Vector3, dir: THREE.Vector3, far: number): THREE.Vector3 | null {
+    // A frozen clone's world matrices are refreshed by the render pass; a hit between two frames must not read stale ones.
+    root.updateWorldMatrix(true, true);
+    const ray = new THREE.Raycaster(origin, dir, 0, far);
+    const hits = ray.intersectObject(root, true);
+    return hits.length > 0 ? hits[0].point : null;
+  }
+
+  /**
+   * GH-1197 P4: the hole a munition's class cuts, by its row's `hole.axis` (munitions.json, the section 3a table): a
+   * `roof` class punches the roof (at a hashed point, or the point nearest `roofAt`), a `wall` class the face given by
+   * `wall`. A class with no `hole` cuts nothing. Every caller hands both, so the data decides, never the call site.
+   */
+  private cutClassHole(
+    s: number, m: Munition, tick: number,
+    wall: { x: number; y: number; z: number; nx: number; nz: number },
+    roofAt?: { x: number; y: number }
+  ): void {
+    const hole = munitionRow(m.cls).hole;
+    if (hole === undefined) return;
+    if (hole.axis === 'roof') this.cutRoofHole(s, m, tick, roofAt);
+    else this.cutWallHole(s, m, wall.x, wall.y, wall.z, wall.nx, wall.nz, tick);
+  }
+
+  /** GH-1197 P4: a WALL hole of the munition's class radius at (x, y, z) on the face whose outward normal is (nx, nz),
+   *  moved onto the wall the mesh actually draws there. A class with no hole cuts nothing. */
+  private cutWallHole(s: number, m: Munition, x: number, y: number, z: number, nx: number, nz: number, tick: number): void {
+    const root = this.holeRoot(s);
+    const radius = munitionRow(m.cls).hole?.radius_tiles;
+    if (root === null || radius === undefined) return;
+    const origin = new THREE.Vector3(x + nx * 2, y, z + nz * 2);
+    const hit = this.surfaceAlong(root, origin, new THREE.Vector3(-nx, 0, -nz).normalize(), 4);
+    const c: [number, number, number] = hit ? [hit.x, hit.y, hit.z] : [x, y, z];
+    const len = Math.hypot(nx, nz) || 1;
+    this.cutBuildingHole(s, root, c, [nx / len, 0, nz / len], radius, tick);
+  }
+
+  /** GH-1197 P4: a ROOF hole of the munition's class radius at a hashed point of the roof, inset so the cut stays off
+   *  the walls (or, with `at`, the roof point nearest it), on the roof surface the mesh draws there. */
+  private cutRoofHole(s: number, m: Munition, tick: number, at?: { x: number; y: number }): void {
+    const root = this.holeRoot(s);
+    const radius = munitionRow(m.cls).hole?.radius_tiles;
+    if (root === null || radius === undefined) return;
+    const st = this.sim.structures;
+    const inset = radius + 0.15;
+    const lane = (lo: number, hi: number, u: number): number => (hi - lo > 2 * inset ? lo + inset + (hi - lo - 2 * inset) * u : (lo + hi) / 2);
+    const clampIn = (lo: number, hi: number, v: number): number => (hi - lo > 2 * inset ? Math.min(Math.max(v, lo + inset), hi - inset) : (lo + hi) / 2);
+    const x0 = st.minX[s];
+    const x1 = st.maxX[s] + 1;
+    const z0 = st.minY[s];
+    const z1 = st.maxY[s] + 1;
+    const x = at ? clampIn(x0, x1, at.x) : lane(x0, x1, tileHash(tick, s * 2 + 1));
+    const z = at ? clampIn(z0, z1, at.y) : lane(z0, z1, tileHash(s * 2 + 1, tick));
+    const top = new THREE.Box3().setFromObject(root).max.y;
+    const hit = this.surfaceAlong(root, new THREE.Vector3(x, top + 2, z), new THREE.Vector3(0, -1, 0), top + 4);
+    this.cutBuildingHole(s, root, [x, hit ? hit.y : top, z], [0, 1, 0], radius, tick);
+  }
+
+  /** GH-1197 P4 (ruling Q1 d): a strike or a barrage round holes every building inside its splash -- its class is a roof
+   *  class, so at the roof point nearest the detonation. World state, so a catch-up cuts them too. */
+  private cutSupportHoles(m: Munition | null, x: number, y: number, tick: number): void {
+    if (m === null || !(m.splash > 0)) return;
+    const st = this.sim.structures;
+    for (let s = 0; s < this.sim.structureCount; s++) {
+      if (st.alive[s] !== 1) continue;
+      const dx = Math.max(st.minX[s] - x, 0, x - (st.maxX[s] + 1));
+      const dy = Math.max(st.minY[s] - y, 0, y - (st.maxY[s] + 1));
+      if (dx * dx + dy * dy > m.splash * m.splash) continue;
+      const at = this.facePointToward(s, x, y, tick);
+      this.cutClassHole(s, m, tick, { x: at.face.x, y: at.hitY, z: at.face.y, nx: at.face.nx, nz: at.face.ny }, { x, y });
+    }
+  }
+
+  /** GH-1197 P4 (ruling Q1 c): a demolition charge against a wall cuts a door-height hole of its class radius there. */
+  private cutChargeHole(structure: number, thrower: number, px: number, py: number, tick: number): void {
+    if (thrower < 0 || thrower >= this.sim.state.typeIdx.length) return;
+    const m = typeMunition(this.sim.unitTypes[this.sim.state.typeIdx[thrower]].weapons, WEAPON_CLASS.demolition);
+    const radius = m === null ? undefined : munitionRow(m.cls).hole?.radius_tiles;
+    if (m === null || radius === undefined) return;
+    const st = this.sim.structures;
+    const face = hitFace(st.minX[structure], st.minY[structure], st.maxX[structure], st.maxY[structure], this.curX[thrower], this.curY[thrower]);
+    // Door height: the hole's foot on the ground.
+    this.cutClassHole(structure, m, tick, { x: px, y: this.ringHeightAt(px, py) + radius, z: py, nx: face.nx, nz: face.ny });
+  }
+
+  /** GH-1197 P4: adds a hole to building `s` (minting its holed materials on the first) and puts them on its meshes. */
+  private cutBuildingHole(
+    s: number, root: THREE.Object3D, c: [number, number, number], axis: [number, number, number], radius: number, tick: number
+  ): void {
+    let entry = this.buildingHoles.get(s);
+    if (entry === undefined) {
+      const type = this.sim.structureTypes[this.sim.structures.typeIdx[s]];
+      entry = { holes: [], mats: new BuildingHoleMaterials(this.holeColorsFor(type.color)) };
+      this.buildingHoles.set(s, entry);
+    }
+    const seed = Math.floor(tileHash(s, tick + entry.holes.length * 7919) * HOLE_SEED_LIMIT);
+    entry.holes = addHole(entry.holes, { c, axis, radius, seed });
+    entry.mats.setHoles(entry.holes);
+    this.applyBuildingHoles(s, root);
+  }
+
+  /** Puts building `s`'s holed clones of its CURRENT band materials on every mesh, and its depth material (under its cut, if any). */
+  private applyBuildingHoles(s: number, root: THREE.Object3D): void {
+    if (!this.buildingHoles.has(s)) return;
+    this.applyBuildingSkin(s, root);
+  }
+
+  /** A holed building's edge and interior colours, from its type's palette key: the lip one ramp key darker, the
+   *  halo `gunmetal.3`, the cracks `shadow.1`, the interior the ramp's darkest key 0.6 toward `gunmetal.2`. */
+  private holeColorsFor(colorKey: string): HoleColors {
+    const interior = ringColorLinear(paletteHex(rampStep(colorKey, 99))).lerp(ringColorLinear(paletteHex('gunmetal.2')), HOLE_INTERIOR_TOWARD_CHAR);
+    return {
+      lip: ringColorLinear(paletteHex(rampStep(colorKey, 1))),
+      halo: ringColorLinear(paletteHex('gunmetal.3')),
+      crack: ringColorLinear(paletteHex('shadow.1')),
+      interior,
+    };
+  }
+
+  /** Releases building `s`'s holes (it died, or its clone left). */
+  private dropBuildingHoles(s: number): void {
+    const entry = this.buildingHoles.get(s);
+    if (entry === undefined) return;
+    entry.mats.dispose();
+    this.buildingHoles.delete(s);
   }
 
   /**
@@ -12916,17 +13121,7 @@ export class ThreeRenderer implements Renderer {
    * face. Never at the centroid. Returns the pieces placed.
    */
   private spawnBuildingHitFx(structure: number, shooter: number, m: Munition, tick: number): number {
-    const st = this.sim.structures;
-    const sx = shooter >= 0 && shooter < this.curX.length ? this.curX[shooter] : fx.toNumber(st.cx[structure]) + 1;
-    const sy = shooter >= 0 && shooter < this.curY.length ? this.curY[shooter] : fx.toNumber(st.cy[structure]);
-    const face = hitFace(st.minX[structure], st.minY[structure], st.maxX[structure], st.maxY[structure], sx, sy);
-    const px = face.x + face.nx * HIT_STANDOFF_TILES;
-    const py = face.y + face.ny * HIT_STANDOFF_TILES;
-    const type = this.sim.structureTypes[st.typeIdx[structure]];
-    const height = this.buildingMeshBounds.get(type.id)?.y ?? type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
-    const frac = HIT_HEIGHT_FRACTION[0] + (HIT_HEIGHT_FRACTION[1] - HIT_HEIGHT_FRACTION[0]) * tileHash(tick, structure);
-    const groundY = this.ringHeightAt(px, py);
-    const hitY = groundY + height * frac;
+    const { face, px, py, groundY, hitY, type } = this.structHitPoint(structure, shooter, tick);
     const dirRad = Math.atan2(face.ny, face.nx);
     // The dust, at the face, drifting out along its normal.
     const em = this.emitterLibrary.byName(BUILDING_HIT_DUST_EMITTER_ID);
@@ -13235,6 +13430,7 @@ export class ThreeRenderer implements Renderer {
     if (k < 0 || tick < this.pendingCharges[k].resolveTick - 1) return false;
     this.pendingCharges.splice(k, 1);
     const [px, py] = this.chargeWallPoint(structure, by);
+    this.cutChargeHole(structure, by, px, py, tick);
     return this.spawnDemolitionBlast(px, py, by);
   }
 
@@ -13250,6 +13446,7 @@ export class ThreeRenderer implements Renderer {
       this.pendingCharges.splice(i, 1);
       if (c.structure >= 0) {
         const [px, py] = this.chargeWallPoint(c.structure, c.shooter);
+        this.cutChargeHole(c.structure, c.shooter, px, py, tick);
         this.spawnDemolitionBlast(px, py, c.shooter);
       } else if (c.target >= 0) {
         this.spawnDemolitionBlast(this.curX[c.target], this.curY[c.target], c.shooter);

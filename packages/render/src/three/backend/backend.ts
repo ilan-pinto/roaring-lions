@@ -19,6 +19,8 @@ import type { Node as TslNode, PassNode } from 'three/webgpu';
 import type { PostChainLike, PostQuality } from '../post-chain-shared';
 import type { UnportedHook } from './unported';
 import type { PerPass } from './pass-counter';
+import type { RefreshMode } from './refresh-policy';
+import type { MatrixWalk as MatrixWalkMode, UploadsMode } from './node-draw-options';
 import type { FogUniformTable } from '../fog-spec';
 import type { FogMaths } from '../fog-pass.node';
 import type { OutputMaths } from '../post-chain.node';
@@ -244,5 +246,21 @@ export interface RenderBackend {
   /** GH-943 P3 (T13): the GPU time (ms) of everything rendered since the last call, from timestamp queries; null unless the backend was
    *  built with `timestamps` and the adapter offers `timestamp-query`. */
   gpuTimeMs(): Promise<number | null>;
+  /**
+   * GH-943 P3 (T14b, GH-1152): the draw-submission switches at RUN time (the probe page's H7-H9 variants flip them on one page), and
+   * their counts since the last `takeCounts`. Optional: only the node backend has them (the test doubles leave them out).
+   */
+  readonly drawSwitches?: DrawSwitches;
   dispose(): void;
+}
+
+/** GH-943 P3 (T14b): the node backend's run-time draw switches (`RenderBackend.drawSwitches`). */
+export interface DrawSwitches {
+  get(): { refreshPolicy: RefreshMode; matrixWalk: MatrixWalkMode; uploads: UploadsMode };
+  setRefresh(m: RefreshMode): void;
+  setMatrixWalk(w: MatrixWalkMode): void;
+  /** FULL refreshes three asked for, those F2 turned into SHARED, scene walks done and skipped, since the last call. */
+  takeCounts(): { full: number; downgraded: number; walks: number; walksSkipped: number };
+  /** The `type:name` update nodes that kept a program from being downgraded (the G2c census), cumulative. */
+  undeclared(): readonly string[];
 }

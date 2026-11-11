@@ -73,6 +73,16 @@
             "edge": { "type": "boolean", "description": "A 0.07 t white-hot leading edge on the inner ring (additive rings only)." }
           }
         },
+        "hole": {
+          "type": "object",
+          "description": "GH-1197 P4: the real hole a round of this class cuts in a building it was fired at (design section 3a): its radius on the wall or roof, tiles, and whether it punches a wall (direct fire, a charge) or a roof (indirect fire, a strike). A class with none cuts no hole.",
+          "required": ["radius_tiles", "axis"],
+          "additionalProperties": false,
+          "properties": {
+            "radius_tiles": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "axis": { "enum": ["wall", "roof"] }
+          }
+        },
         "lobes": {
           "type": "object",
           "required": ["count", "throw_tiles", "scale_of_fireball"],
