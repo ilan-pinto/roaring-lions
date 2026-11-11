@@ -76,6 +76,18 @@ describe('pushValue, an unrecognised object', () => {
   });
 });
 
+describe('pushValue, a string or a function', () => {
+  it('never reads as unchanged: two different strings, or the same function, refresh FULL', () => {
+    for (const [a, b] of [['one', 'two'], [() => 1, () => 1]] as const) {
+      const before: number[] = [];
+      pushValue(a, before);
+      const after: number[] = [];
+      pushValue(b, after);
+      expect(refreshVerdict(REFRESH.FULL, 'hasNode', before, after)).toBe(REFRESH.FULL);
+    }
+  });
+});
+
 describe('classifyUpdateNodes (G2c, the rule)', () => {
   const singleton = { type: 'UniformNode', isUniformNode: true };
   it("three's matrix, reference and texture nodes, shared-group uniforms and declared names are keyed; anything else blocks", () => {
