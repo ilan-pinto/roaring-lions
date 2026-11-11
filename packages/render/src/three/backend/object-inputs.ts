@@ -43,8 +43,8 @@ interface ArrayLikeValue {
 
 /**
  * Flattens a uniform value onto `out`: a number, a boolean, a colour / vector / matrix (`toArray` or `elements`), a texture (its id
- * and version: a late image bumps the version), an array of those. Anything else pushes `ABSENT` and its type tag, so a change of
- * KIND still shows.
+ * and version: a late image bumps the version), an array of those. Anything else (a string, a function, an object of an
+ * unrecognised shape) pushes NaN, which never compares equal, so the render object stays FULL.
  */
 export function pushValue(v: unknown, out: number[]): void {
   if (typeof v === 'number') {
@@ -60,7 +60,7 @@ export function pushValue(v: unknown, out: number[]): void {
     return;
   }
   if (typeof v !== 'object') {
-    out.push(ABSENT, 1);
+    out.push(Number.NaN);
     return;
   }
   const o = v as { isTexture?: boolean; id?: number; version?: number; elements?: ArrayLikeValue; isColor?: boolean; r?: number; g?: number; b?: number; x?: number; y?: number; z?: number; w?: number };
@@ -86,5 +86,7 @@ export function pushValue(v: unknown, out: number[]): void {
     out.push(o.x, o.y ?? ABSENT, o.z ?? ABSENT, o.w ?? ABSENT);
     return;
   }
-  out.push(ABSENT, 2);
+  // An object this cannot read (its contents may change in place) must never read as unchanged: NaN never compares equal, so the
+  // key forces FULL for this render object.
+  out.push(Number.NaN);
 }
