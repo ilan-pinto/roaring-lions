@@ -35,6 +35,8 @@ import { fxTwinFactories } from '../units/fx-twins.node';
 import { censusUnadopted, censusUnported, reassertCensusHides, unportedWarnings, type CensusHides, type UnportedHook } from './unported';
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
+import { createNodeBannerMaterial } from '../units/garrison-banner.node';
+import type { GarrisonBannerMaterial } from '../units/garrison-banner';
 import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
 import { createNodeUnitMaterial } from '../units/unit-material.node';
 import { markTwin } from '../twin-identity';
@@ -184,6 +186,14 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   // GH-943 P2 (T5): the selection, team and wound rings. The legacy material keeps the uniform record the batch writes and carries its style.
   materials.ring = (legacy) => {
     const twin = createNodeRingMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.ring }, legacy.userData[RING_STYLE_KEY] as RingStyle, legacy.uniforms as unknown as RingUniformRecord);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T6): the garrison banner (the sway, the team cloth, the glow). The legacy material carries its record (`rlBanner`).
+  materials.banner = (legacy) => {
+    const rec = (legacy as Partial<GarrisonBannerMaterial>).rlBanner;
+    if (rec === undefined) throw new Error('materials.banner: the legacy material carries no rlBanner record (not a GarrisonBannerBatch material)');
+    const twin = createNodeBannerMaterial({ W, TSL, maths: opts.materialMaths.banner }, legacy, rec);
     markTwin(twin, legacy);
     return twin;
   };

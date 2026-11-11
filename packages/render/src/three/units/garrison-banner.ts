@@ -39,7 +39,8 @@ import { VIEW_DIRECTION } from '../camera';
 import { paletteHex } from '../palette-hex';
 import { WORLD_ROUGHNESS } from '../world-materials';
 import { SWAY_GUST_EVERY_S, SWAY_GUST_GAIN, SWAY_GUST_WIDTH_S, SWAY_PHASE_X, SWAY_PHASE_Z } from '../terrain/sway';
-import { WIND_GUST_GAIN, windGustGlsl } from '../terrain/wind';
+import { WIND_GUST_GAIN, windGustGlsl, windGustOps } from '../terrain/wind';
+import type { IntOps, Ops } from '../fog-ops';
 import { legacyWindUniforms, type WindUniformSet } from '../terrain/wind-uniforms';
 import { BANNER_STANDOFF, placeBanner, type BannerSpot } from './banner-placement';
 import type { FitScale } from './building-fit';
@@ -182,6 +183,59 @@ function swayChunk(): string {
 `;
 }
 
+/** What one banner vertex reads (GH-943 P3 T6): the sim clock, the debug amplitude, the instance origin, the cloth's hem weight, the wind. */
+export interface BannerSwayInputs<T> {
+  /** `uBannerTime`, SIM seconds. */
+  readonly t: T;
+  /** `uBannerAmp`: 1 in play, 0 holds every cloth at rest. */
+  readonly amp: T;
+  /** The instance origin, `instanceMatrix[3].x` and `.z`. */
+  readonly ox: T;
+  readonly oz: T;
+  /** `aHem`: 0 at the rod, 1 at the hem. */
+  readonly hem: T;
+  /** `uWindMode`: 1 the wind, 0 reduced motion's periodic gust. */
+  readonly mode: T;
+  readonly strength: T;
+  /** `uWindDir`. */
+  readonly dirX: T;
+  readonly dirZ: T;
+}
+
+/**
+ * `swayChunk` (the GLSL above) written ONCE against `Ops<T>`: the swing in the cloth's OWN frame (before the instance matrix), `dz`
+ * out from the wall (never into it) and `dx` a touch sideways, both growing with `aHem` squared. `NUMBER_OPS` runs it on doubles
+ * (the vitest readings); the node twin (`garrison-banner.node.ts`) runs the same body on TSL nodes, handed over as a value
+ * (`material-maths.ts`). Both branches are evaluated and the mode picks one (the GLSL's `if (uWindMode > 0.5)`); GLSL `mod` is
+ * `x - floor(x / y) * y`. The GLSL string above keeps its own text.
+ */
+export function bannerSwayOps<T>(o: Ops<T>, io: IntOps<T>, x: BannerSwayInputs<T>): { readonly dx: T; readonly dz: T } {
+  const phase = o.add(o.mul(o.lit(SWAY_PHASE_X), x.ox), o.mul(o.lit(SWAY_PHASE_Z), x.oz));
+  const front = windGustOps(o, io, x.t, x.ox, x.oz, x.dirX, x.dirZ);
+  const windGain = o.mul(o.add(o.lit(1), o.mul(o.lit(WIND_GUST_GAIN - 1), front)), x.strength);
+  const every = o.lit(SWAY_GUST_EVERY_S);
+  const gustT = o.sub(x.t, o.mul(o.floor(o.div(x.t, every)), every));
+  const b = o.sin(o.div(o.mul(o.lit(Math.PI), gustT), o.lit(SWAY_GUST_WIDTH_S)));
+  const bump = o.selectLt(gustT, o.lit(SWAY_GUST_WIDTH_S), o.mul(b, b), o.lit(0));
+  const legacyGain = o.add(o.lit(1), o.mul(o.lit(SWAY_GUST_GAIN - 1), bump));
+  const gust = o.selectLt(x.mode, o.lit(0.5), legacyGain, windGain);
+  const wave = o.sin(o.add(o.div(o.mul(o.lit(2 * Math.PI), x.t), o.lit(BANNER_SWAY_PERIOD_S)), phase));
+  const swing = o.mul(o.mul(o.mul(x.amp, o.lit(BANNER_SWAY)), gust), wave);
+  const hem2 = o.mul(x.hem, x.hem);
+  return { dx: o.mul(o.mul(o.lit(0.4), swing), hem2), dz: o.mul(o.max(o.lit(0), swing), hem2) };
+}
+
+/** The uniform records the banner's material binds: the very objects its splice binds, and what the node twin re-reads every render. */
+export interface BannerRecord {
+  readonly time: { value: number };
+  readonly amp: { value: number };
+  readonly glow: { value: number };
+  readonly wind: WindUniformSet;
+}
+
+/** The banner material, carrying its record (as the foliage material carries `rlSway`) for the node backend's `banner` factory. */
+export type GarrisonBannerMaterial = THREE.MeshStandardMaterial & { rlBanner: BannerRecord };
+
 export class GarrisonBannerBatch {
   readonly mesh: THREE.InstancedMesh;
   /** Sim-clock seconds, shared by reference with the crowns' sway. */
@@ -233,6 +287,7 @@ export class GarrisonBannerBatch {
         );
     };
     material.customProgramCacheKey = () => 'rl-garrison-banner';
+    (material as GarrisonBannerMaterial).rlBanner = { time: this.time, amp: this.amp, glow: this.glow, wind: this.wind };
     this.mesh = new THREE.InstancedMesh(buildBannerGeometry(), material, capacity);
     this.mesh.name = 'garrison-banners';
     this.mesh.renderOrder = GARRISON_BANNER_RENDER_ORDER;
