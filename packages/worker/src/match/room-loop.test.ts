@@ -16,6 +16,7 @@ import { endingLoser, FORFEIT_MS, LOG_PART_CHARS, OVER_CLOSE_MS, RECONNECT_DELAY
 import type { D1Like, Env } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, openSocket, type FakeSocket } from './fake-do';
+import { recordOf, type RoomState } from './room-core';
 import { MatchRoom, PURGE_AFTER_MS, TICK_MS } from './match-room';
 import { gzip, snapshotBytes } from './snapshot-fixture';
 import { signTicket } from './ticket';
@@ -529,6 +530,23 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p0.taken.flatMap((f) => f.cmds)).toEqual([{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [1] } }]);
   });
 
+  /** A3 §0.24, measured: two honest seats that report the result on the first hash tick they decide
+   *  meet the record's hash rule, so the room writes an agreed record. */
+  it('an_honest_pair_meets_the_hash_rule', async () => {
+    const { loop, p0, p1 } = await started(undefined, 'versus');
+    const RESULT_TICK = 39;   // the first hash tick after the start the two seats decide on
+    while (Math.min(p0.taken.length, p1.taken.length) <= RESULT_TICK) await step(loop, [p0, p1], 1);
+    for (const p of [p0, p1]) {
+      p.taken.splice(RESULT_TICK + 1);
+      p.t.over(RESULT_TICK, { winner: 1, by: 'annihilation' });
+    }
+    await loop.flush();
+    await step(loop, [], OVER_CLOSE_MS / TICK_MS);
+    const st = (loop.room as unknown as { st: RoomState }).st;
+    expect(st.endedReason).toBe('over');
+    expect(recordOf(st)).toMatchObject({ agreed: true, winnerSeat: 1, reason: 'annihilation', ticks: RESULT_TICK });
+  });
+
   /** L-1 (R-B26): the result, then the room's own close. Both seats run to the
    *  result's hash tick, report it (`over`) and stop running -- as a seat
    *  does once its end panel is up -- and the room waits two minutes,
@@ -539,7 +557,7 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     while (Math.min(p0.taken.length, p1.taken.length) <= RESULT_TICK) await step(loop, [p0, p1], 1);
     for (const p of [p0, p1]) {
       p.taken.splice(RESULT_TICK + 1);   // a seat runs nothing past the tick that decided it
-      p.t.over(RESULT_TICK);
+      p.t.over(RESULT_TICK, { winner: 0, by: 'annihilation' });
     }
     // The meter, by kind: the state blob (`put`), the alarm (set and delete) and the batch rows (the rest).
     const tally = { put: 0, alarm: 0 };

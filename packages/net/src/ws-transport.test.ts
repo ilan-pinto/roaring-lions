@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { WsTransport, RECONNECT_DELAY_MS, REPLACED_CLOSE_CODE, type SocketLike } from './ws-transport';
 import type { MatchConfig } from './config';
+import type { OverResult } from './protocol';
 
 const CONFIG: MatchConfig = {
   matchId: 'm', code: 'ABCDEF', seed: 1, map: 'x', mode: 'sandbox',
@@ -604,17 +605,29 @@ describe('WsTransport', () => {
 
 });
 
+const RESULT: OverResult = { winner: 1, by: 'annihilation' };
+
 describe('WsTransport: the result reported to the room (L-1, R-B26)', () => {
+  it('over(40, r) sends one message carrying the result; a second call sends nothing', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    const r: OverResult = { winner: null, by: 'mutual' };
+    t.over(40, r);
+    t.over(40, RESULT);
+    expect(sock.sent.map((x) => JSON.parse(x) as { t: string }).filter((m) => m.t === 'over')).toEqual([{ t: 'over', tick: 40, result: r }]);
+  });
   const sentOf = (sock: Fake, t: string): unknown[] => sock.sent.map((x) => JSON.parse(x) as { t: string }).filter((m) => m.t === t);
   it('over(tick) sends one over, however often it is called', () => {
     const sock = fakeSocket();
     const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
     sock.open();
     sock.recv({ t: 'start', config: CONFIG });
-    t.over(399);
-    t.over(399);
-    t.over(419);
-    expect(sentOf(sock, 'over')).toEqual([{ t: 'over', tick: 399 }]);
+    t.over(399, RESULT);
+    t.over(399, RESULT);
+    t.over(419, RESULT);
+    expect(sentOf(sock, 'over')).toEqual([{ t: 'over', tick: 399, result: RESULT }]);
   });
   it('a report made before a drop is said again once the room answers the reconnect (a send into a dead socket is lost)', () => {
     vi.useFakeTimers();
@@ -624,13 +637,13 @@ describe('WsTransport: the result reported to the room (L-1, R-B26)', () => {
     sock.recv({ t: 'start', config: CONFIG });
     sock.recv({ t: 'log', config: CONFIG, frames: [] });   // no report yet: a log says nothing
     expect(sentOf(sock, 'over')).toEqual([]);
-    t.over(399);
+    t.over(399, RESULT);
     sock.closeFromServer();
     vi.runAllTimers();
     sock.open();
     expect(sentOf(sock, 'over')).toHaveLength(1);   // not before the room has the seat back
     sock.recv({ t: 'log', config: CONFIG, frames: [] });
-    expect(sentOf(sock, 'over')).toEqual([{ t: 'over', tick: 399 }, { t: 'over', tick: 399 }]);
+    expect(sentOf(sock, 'over')).toEqual([{ t: 'over', tick: 399, result: RESULT }, { t: 'over', tick: 399, result: RESULT }]);
   });
   it('ended over: onEnded hears it, the transport closes, and the frames already received still drain', () => {
     const sock = fakeSocket();
@@ -644,7 +657,7 @@ describe('WsTransport: the result reported to the room (L-1, R-B26)', () => {
     expect(seen).toEqual([['over', undefined]]);
     expect(t.status()).toEqual({ kind: 'closed', reason: 'over' });
     expect(t.take(10).map((f) => f.tick)).toEqual([2, 3, 4]);
-    t.over(4);
+    t.over(4, RESULT);
     expect(sentOf(sock, 'over')).toEqual([]);   // the room is gone: nothing to report to
   });
 });
@@ -755,7 +768,7 @@ describe('WsTransport: a log in parts (#559 H-1)', () => {
     sock.open();
     sock.recv({ t: 'start', config: CONFIG });
     for (let tick = 0; tick < 3; tick++) sock.recv({ t: 'frame', tick, cmds: [] });
-    t.over(0);
+    t.over(0, RESULT);
     sock.closeFromServer();
     vi.runAllTimers();
     sock.open();
@@ -823,7 +836,7 @@ describe('N4a: the advisor role, advisor and done messages, the round stall', ()
     sock.sent.length = 0;
     t.reportTick(19, 123);
     t.ready();
-    t.over(5);
+    t.over(5, RESULT);
     t.close();
     expect(sock.sent).toEqual([]);
   });
@@ -835,7 +848,7 @@ describe('N4a: the advisor role, advisor and done messages, the round stall', ()
     sock.sent.length = 0;
     t.reportTick(19, 123);
     t.ready();
-    t.over(5);
+    t.over(5, RESULT);
     t.close();
     expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['ack', 'hash', 'ready', 'over', 'bye']);
   });
@@ -989,7 +1002,7 @@ describe('GH-954 W1: the watch role', () => {
     t.advisor({ kind: 'ping', x: 3, y: 4 });
     t.done(2);
     t.ready();
-    t.over(5);
+    t.over(5, RESULT);
     t.reportTick(9, null);
     t.reportTick(19, 123);
     t.close();
