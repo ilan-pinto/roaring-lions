@@ -63,7 +63,9 @@
  * dirt are multiplied by `hazeRadiance` of the active light preset
  * (`setLighting`), so they sit at lit ground's scene-referred level and never
  * reach it. Each quad is lifted by 0.32 of its size so a puff stands ON the
- * ground rather than cutting into it (D10: soft ground intersection deferred).
+ * ground rather than cutting into it (D10: soft ground intersection deferred;
+ * GH-1227 slice 1 adds an opt-in depth fade on the smoke pass, `setSoftDepth`,
+ * behind `RenderQuality.softParticles`, which no preset sets).
  *
  * IDLE COSTS 0 DRAW CALLS, PER PASS. Each mesh keeps the latest expiry ever
  * spawned of its own types (`fireLiveUntilMs`, `smokeLiveUntilMs`); once the
@@ -87,6 +89,7 @@ import { HDR_GAINS } from './hdr-gains';
 import type { FlipbookLayerSpec, ParticleSpec } from '../../vfx/emitters';
 import type { Ops } from '../fog-ops';
 import { vfxBillowOps, vfxFrameUvOps, vfxRotateOps, vfxSunShadeOps, vfxUnrotateOps, type V2 } from './vfx-noise';
+import { SOFT_PARTICLE_GLSL, type SoftDepthSource } from '../soft-depth';
 
 // GH-943 P3 (T12): the shared billow noise, re-exported here beside the shader that carries its GLSL copy (the text below is
 // unchanged and pinned by `flipbook-fx.test.ts`; `vfx-noise.test.ts` pins the body to a literal reading of it).
@@ -351,6 +354,42 @@ const FRAG = /* glsl */ `
     gl_FragColor = vec4(col, alpha * vAlpha);
   }
 `;
+
+/** The anchors `softFlipbookShaders` splices at; each must occur exactly once in the shipped text. */
+const SOFT_ANCHORS = Object.freeze({
+  main: '\n  void main() {',
+  vertOut: '    gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);',
+  fragOut: '    gl_FragColor = vec4(col, alpha * vAlpha);',
+});
+
+function spliceOnce(src: string, anchor: string, replacement: string, where: string): string {
+  const at = src.indexOf(anchor);
+  if (at < 0 || src.indexOf(anchor, at + 1) >= 0) throw new Error(`flipbook soft particles: the ${where} anchor must occur exactly once`);
+  return src.slice(0, at) + replacement + src.slice(at + anchor.length);
+}
+
+/**
+ * GH-1227 slice 1: the smoke pass's two shaders with the soft-particle depth fade spliced in (`../soft-depth.ts`). The billow's drawn
+ * size leaves the vertex stage as `vSoftSize`; the fragment multiplies its alpha by `rlSoftFade` against the snapshot. Built only when
+ * soft particles are on, so with them off the material carries the shipped `VERT` / `FRAG` text byte for byte. Sparks return earlier
+ * in the fragment and are not faded (they draw in the fire pass anyway).
+ */
+export function softFlipbookShaders(vert: string, frag: string, fadeGlsl: string): { vertexShader: string; fragmentShader: string } {
+  let v = spliceOnce(vert, SOFT_ANCHORS.main, `\n  varying float vSoftSize;${SOFT_ANCHORS.main}`, 'vertex main');
+  v = spliceOnce(v, SOFT_ANCHORS.vertOut, `    vSoftSize = size * uQuadScale;\n${SOFT_ANCHORS.vertOut}`, 'vertex output');
+  let f = spliceOnce(frag, SOFT_ANCHORS.main, `\n  varying float vSoftSize;${fadeGlsl}${SOFT_ANCHORS.main}`, 'fragment main');
+  f = spliceOnce(
+    f,
+    SOFT_ANCHORS.fragOut,
+    '    float soft = rlSoftFade(texture2D(uSoftDepth, gl_FragCoord.xy * uSoftInvSize).x, gl_FragCoord.z, uSoftSpan, vSoftSize);\n' +
+      '    gl_FragColor = vec4(col, alpha * vAlpha * soft);',
+    'fragment output'
+  );
+  return { vertexShader: v, fragmentShader: f };
+}
+
+/** The shipped flipbook program text (tests: the soft-off identity and the splice). */
+export const FLIPBOOK_SHADERS = Object.freeze({ vertexShader: VERT, fragmentShader: FRAG });
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // GH-943 P3 (T12): the shader's maths written ONCE against `Ops<T>`, for the node twin (`flipbook-fx.node.ts`, handed these as
@@ -817,6 +856,43 @@ export class FlipbookFx {
   /** Both meshes, for the caller's scene. */
   get meshes(): readonly [FlipbookMesh, FlipbookMesh] {
     return [this.mesh, this.fireMesh];
+  }
+
+  /**
+   * GH-1227 slice 1: soft particles on the SMOKE pass (smoke and dirt), or `null` to take them off again. On: the smoke material's
+   * program gains the depth fade (`softFlipbookShaders`), three uniforms bound to `source` (the snapshot's depth and size, by
+   * reference) and the camera's `far - near`, refreshed by the smoke mesh's `onBeforeRender`. Off: the shipped program and uniform
+   * record, exactly. The fire pass is never touched (`depthTest: false`, a fireball engulfs its hull: the design's decision D3).
+   * WebGL2 only: the node twin does not read these uniforms, so the node backend must not call this.
+   */
+  setSoftDepth(source: SoftDepthSource | null): void {
+    const m = this.smokeMaterial;
+    if (source) {
+      const s = softFlipbookShaders(VERT, FRAG, SOFT_PARTICLE_GLSL);
+      m.vertexShader = s.vertexShader;
+      m.fragmentShader = s.fragmentShader;
+      m.uniforms.uSoftDepth = { value: source.depthTexture };
+      m.uniforms.uSoftInvSize = { value: source.invSize };
+      const span = { value: 1 };
+      m.uniforms.uSoftSpan = span;
+      this.mesh.onBeforeRender = (_r, _s, camera) => {
+        const c = camera as THREE.OrthographicCamera;
+        span.value = c.far - c.near;
+      };
+    } else {
+      m.vertexShader = VERT;
+      m.fragmentShader = FRAG;
+      delete m.uniforms.uSoftDepth;
+      delete m.uniforms.uSoftInvSize;
+      delete m.uniforms.uSoftSpan;
+      this.mesh.onBeforeRender = THREE.Object3D.prototype.onBeforeRender;
+    }
+    m.needsUpdate = true;
+  }
+
+  /** Whether `setSoftDepth` is on (tests). */
+  get softDepthOn(): boolean {
+    return this.smokeMaterial.uniforms.uSoftDepth !== undefined;
   }
 
   /** Sets the effects detail (the quality preset's `fxDetail`); read at the next spawn. */
