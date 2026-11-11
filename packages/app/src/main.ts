@@ -8,6 +8,7 @@ import { activeObjectiveZoneNames, incomeZonesFor, objectiveZonesFor } from './o
 import { incomeViewOf, type IncomeView } from './ui/income-view';
 import { SupplyRouteDisplay } from './ui/supply-route-display';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
+import { withCollateralProgress } from './collateral-progress';
 import { unitsJustOutside, withOutsideCounts } from './hold-outside';
 import {
   deadlineWarningLine,
@@ -3131,7 +3132,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     runtime
       ? withoutHiddenClocks(
           withOutsideCounts(
-            withEvacuationProgress(runtime.objectiveList, evacTargets, evacuatedSoFar, refugeAt),
+            withEvacuationProgress(withCollateralProgress(runtime.objectiveList), evacTargets, evacuatedSoFar, refugeAt),
             map.zones,
             (zone) => unitsJustOutside(sim.state, sim.entityCount, zone)
           ),
@@ -6824,7 +6825,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (spectating) { endSpectate(matchDecided !== null ? 'result' : 'ended'); return; }
     // The sim's own result is told to the room, which closes itself two
     // minutes later (L-1); a result from the room's own ending owes nothing.
-    reportOver(room, result, matchDecided);
+    reportOver(room, result, matchDecided, netConfig);
     pauseHandle?.close();
     pauseHandle = null;
     closeOpenDialog();
