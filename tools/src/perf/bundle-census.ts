@@ -58,6 +58,15 @@ export const MATERIAL_MATHS_MARKER = 'rl-material-maths';
  */
 export const NODE_MATERIAL_MARKER = 'rl-node-material-';
 
+/**
+ * GH-1167 S3 (P1): the marker of the node-native 3D grass field (`grass-field.node.ts`, S4; its scene objects are named
+ * `rl-grass-field*`, which is what the legacy-scene pin P3 looks for). The field is a `.node.ts` module: it lives in the
+ * node-backend chunk and nowhere else (not the entry, the shared core, or the `ThreeRenderer` chunk the legacy path loads).
+ * No such file exists in S3, so the check is armed by S4: a bundle with no carrier passes, and a carrier anywhere but the
+ * node-backend chunk is red from the day it exists.
+ */
+export const GRASS_FIELD_MARKER = 'rl-grass-field';
+
 export interface CensusFindings {
   readonly coreChunks: string[];
   readonly webgpuChunks: string[];
@@ -67,6 +76,8 @@ export interface CensusFindings {
   /** GH-943 P2 (T1): the chunks carrying `MATERIAL_MATHS_MARKER` and `NODE_MATERIAL_MARKER`. */
   readonly materialMathsChunks: string[];
   readonly nodeMaterialChunks: string[];
+  /** GH-1167 S3 (P1): the chunks carrying `GRASS_FIELD_MARKER`. */
+  readonly grassFieldChunks: string[];
   readonly entryHasThree: string[];
   /** Chunks reachable from the entry by STATIC imports only. */
   readonly entryStaticClosure: string[];
@@ -100,10 +111,11 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
   const legacyPostChunks = chunks.filter((c) => LEGACY_POST_MARKERS.some((m) => has(c, m))).map((c) => c.file);
   const materialMathsChunks = chunks.filter((c) => has(c, MATERIAL_MATHS_MARKER)).map((c) => c.file);
   const nodeMaterialChunks = chunks.filter((c) => has(c, NODE_MATERIAL_MARKER)).map((c) => c.file);
+  const grassFieldChunks = chunks.filter((c) => has(c, GRASS_FIELD_MARKER)).map((c) => c.file);
   const entry = byFile.get(entryFile);
   const failures: string[] = [];
   if (!entry) {
-    return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, entryHasThree: [], entryStaticClosure: [], entryClosureBytes: 0, failures: [`entry chunk ${entryFile} not found`] };
+    return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, grassFieldChunks, entryHasThree: [], entryStaticClosure: [], entryClosureBytes: 0, failures: [`entry chunk ${entryFile} not found`] };
   }
   const entryHasThree = [CORE_MARKER, WEBGPU_MARKER, WEBGL_MARKER].filter((m) => has(entry, m));
   // Static closure from the entry.
@@ -147,6 +159,11 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
   for (const f of nodeMaterialChunks) {
     if (!nodeBackendChunks.includes(f)) failures.push(`a node material twin ("${NODE_MATERIAL_MARKER}*", a .node.ts) leaked into ${f}, which is not the node-backend chunk`);
   }
+  // GH-1167 S3 (P1): the grass field is node-native. Any carrier that is not the node-backend chunk (the entry, the shared core, the
+  // ThreeRenderer chunk) means a static import of `grass-field.node.ts` from the legacy side.
+  for (const f of grassFieldChunks) {
+    if (!nodeBackendChunks.includes(f)) failures.push(`the 3D grass field ("${GRASS_FIELD_MARKER}", grass-field.node.ts) leaked into ${f}, which is not the node-backend chunk`);
+  }
   for (const f of nodeBackendChunks) {
     // Bundlers hoist a module shared by two chunks into one of them: a twin that imports a legacy pass does not make its OWN chunk
     // carry the marker, it makes the node-backend chunk import the legacy renderer chunk. So walk what a node boot actually loads.
@@ -177,5 +194,5 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
     const parts = [entryFile, ...entryStaticClosure].map((f) => `${f} ${byFile.get(f)?.code.length ?? 0}`).join(' + ');
     failures.push(`MAIN CHUNK GUARD: the entry chunk and its static imports are ${entryClosureBytes} bytes (${parts}), over the ${entryMaxBytes} ceiling`);
   }
-  return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, entryHasThree, entryStaticClosure, entryClosureBytes, failures };
+  return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, grassFieldChunks, entryHasThree, entryStaticClosure, entryClosureBytes, failures };
 }
