@@ -14,6 +14,7 @@ import { buildWorld, buildRendererOptions, createHost, loadAllMeshes, computeAnc
 import type { maps, ParsedMap } from '@lions/data';
 import { DECOR_LOD1, DECOR_MESHES, PROP_MESHES, meshPlanFor } from '../../../packages/app/src/mesh-catalogue';
 import { censusUnported } from '../../../packages/render/src/three/backend/unported';
+import { resolveNodeDraw, type NodeDrawOptions } from '../../../packages/render/src/three/backend/node-draw-options';
 import type { ArmId } from './webgpu-refusals';
 import { drawTypeOf, emptyByType, medianOrNull, type DrawObjectLike, type DrawType, type FullReason, type PerPass, type RenderPassId, type SubmitReading, type Uploads, type VariantId } from './webgpu-submit-probe-lib';
 
@@ -30,6 +31,14 @@ interface NodeBackendLike {
   stats(): { calls: number; triangles: number; perPass?: PerPass; censusMs?: number };
   gpuTimeMs?(): Promise<number | null>;
   post?: { pipeline?: { renderer?: unknown } } | null;
+  /** GH-943 P3 T14b: the run-time draw switches (absent on an older tree). */
+  drawSwitches?: {
+    get(): { refreshPolicy: string; matrixWalk: string; uploads: string };
+    setRefresh(m: 'three' | 'parked' | 'unsafe-shared'): void;
+    setMatrixWalk(w: 'every-pass' | 'once'): void;
+    takeCounts(): { full: number; downgraded: number; walks: number; walksSkipped: number };
+    undeclared(): readonly string[];
+  };
 }
 
 interface RendererLike {
@@ -280,12 +289,14 @@ export async function runArm(o: {
   frames: number;
   viewFrames: number;
   legacyScene?: LegacyScene;
+  /** GH-943 P3 T14b: the node draw switches for a node arm (`--node-opts=`); never passed on L. */
+  nodeDraw?: NodeDrawOptions;
 }): Promise<ArmRun> {
   const legacyScene = o.legacyScene ?? 'matched';
   const capacity = Math.max(...o.counts) + 50;
   const { sim, map, typeOf } = buildWorld(capacity, o.mapId);
   // `environmentLight: false` on every arm: the L1 sky is a legacy PMREM the node backend does not draw until P1.
-  const opts = { ...buildRendererOptions(), environmentLight: false, gpu: GPU_OF[o.arm] };
+  const opts = { ...buildRendererOptions(), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.nodeDraw !== undefined && o.arm !== 'L' ? { nodeDraw: o.nodeDraw } : {}) };
   const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
   const renderer = new ThreeRenderer(sim, opts);
   renderer.setDecor(map.decor);
@@ -371,6 +382,8 @@ interface SubmitState {
   host: HTMLElement;
   /** The private unit roots (`meshUnitEntities`, `vehicleMeshEntities`), read for H3's castShadow toggle. */
   unitRoots: () => MeshLike[];
+  /** The node switches as the page booted (what an H7-H9 toggle puts back). */
+  boot: { refreshPolicy: 'three' | 'parked'; matrixWalk: 'every-pass' | 'once' };
 }
 
 const SUBMIT_KEY = '__lionsSubmitProbe';
@@ -384,9 +397,9 @@ const submitState = (): SubmitState => {
 const REFRESH_FULL = 2;
 
 /** One world on this page: the arm's ThreeRenderer, the all-mesh roster, decor and props, the camera on the line, z0.5. */
-export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; capacity: number; timestamps: boolean }): Promise<{ backendKind: string; adapter: string; rafSource: string; unported: number }> {
+export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; capacity: number; timestamps: boolean; nodeDraw?: NodeDrawOptions }): Promise<{ backendKind: string; adapter: string; rafSource: string; unported: number; drawSwitches: string }> {
   const { sim, map, typeOf } = buildWorld(o.capacity, o.mapId);
-  const opts = { ...buildRendererOptions(), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.timestamps ? { timestamps: true } : {}) };
+  const opts = { ...buildRendererOptions(), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.timestamps ? { timestamps: true } : {}), ...(o.nodeDraw !== undefined && o.arm !== 'L' ? { nodeDraw: o.nodeDraw } : {}) };
   const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
   const renderer = new ThreeRenderer(sim, opts);
   renderer.setDecor(map.decor);
@@ -403,9 +416,11 @@ export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; cap
   r.camera.zoom = 0.5;
   const priv = renderer as unknown as { meshUnitEntities: Map<number, { root: MeshLike }>; vehicleMeshEntities: Map<number, { root: MeshLike }> };
   const unitRoots = (): MeshLike[] => [...priv.meshUnitEntities.values(), ...priv.vehicleMeshEntities.values()].map((e) => e.root);
-  (window as unknown as Record<string, SubmitState>)[SUBMIT_KEY] = { r, sim: sim as Sim, spawner, arm: o.arm, host, unitRoots };
+  const draw = resolveNodeDraw(o.arm === 'L' ? undefined : o.nodeDraw);
+  (window as unknown as Record<string, SubmitState>)[SUBMIT_KEY] = { r, sim: sim as Sim, spawner, arm: o.arm, host, unitRoots, boot: { refreshPolicy: draw.refreshPolicy, matrixWalk: draw.matrixWalk } };
   const info = r.backendInfo();
-  return { backendKind: info.kind, adapter: info.adapter, rafSource: String(window.requestAnimationFrame), unported: r.unportedHooks().length };
+  const sw = (r as unknown as RendererLike).nodeBackend?.drawSwitches?.get();
+  return { backendKind: info.kind, adapter: info.adapter, rafSource: String(window.requestAnimationFrame), unported: r.unportedHooks().length, drawSwitches: sw === undefined ? 'n/a' : `refreshPolicy=${sw.refreshPolicy},matrixWalk=${sw.matrixWalk},uploads=${sw.uploads}` };
 }
 
 /** Applies a variant (on = the toggle in force) and returns what it changed; `off` puts back exactly what `on` changed. */
@@ -417,6 +432,16 @@ function applyVariant(s: SubmitState, variant: VariantId, on: boolean, undo: Mes
       return s.r.setDebugLayerVisible('decor', !on) + s.r.setDebugLayerVisible('props', !on);
     case 'ao-hidden':
       return s.r.setDebugLayerVisible('ao', !on);
+    // GH-943 P3 T14b: the node switches. `off` puts back the page's boot value; a no-op on L (no node backend).
+    case 'refresh-unsafe':
+    case 'refresh-three':
+    case 'walk-every-pass': {
+      const sw = (s.r as unknown as RendererLike).nodeBackend?.drawSwitches;
+      if (sw === undefined) return 0;
+      if (variant === 'walk-every-pass') sw.setMatrixWalk(on ? 'every-pass' : s.boot.matrixWalk);
+      else sw.setRefresh(on ? (variant === 'refresh-unsafe' ? 'unsafe-shared' : 'three') : s.boot.refreshPolicy);
+      return 1;
+    }
     case 'unit-shadow-off': {
       // Nothing per-frame writes a unit mesh's castShadow (grepped: only the builders do), so a plain write holds.
       if (!on) {
@@ -551,6 +576,7 @@ export async function submitMeasure(o: { n: number; variant: VariantId; frames: 
     let fullRefresh: Record<DrawType, number> | null = null;
     let fullReason: FullReason | null = null;
     let uploads: Uploads | null = null;
+    let drawCounts: SubmitReading['drawCounts'] = null;
     let calls: number;
     let triangles: number;
     await tick();
@@ -558,8 +584,10 @@ export async function submitMeasure(o: { n: number; variant: VariantId; frames: 
       const nr = node.post?.pipeline?.renderer as NodeRendererInternals | undefined;
       if (nr === undefined) throw new Error('submit probe: the node post chain is not built (no pipeline renderer)');
       const t = nodeTallies(nr);
+      node.drawSwitches?.takeCounts();
       r.frame(1, 0);
       const st = node.stats();
+      drawCounts = node.drawSwitches?.takeCounts() ?? null;
       const got = t.done();
       if (st.perPass === undefined) throw new Error('submit probe: the node backend has no per-pass counter (an older tree)');
       perPass = st.perPass;
@@ -605,7 +633,7 @@ export async function submitMeasure(o: { n: number; variant: VariantId; frames: 
         if (ms !== null) gpu.push(ms);
       }
     }
-    return { arm, n: o.n, living: livingCount(sim), variant: o.variant, applied, settleFrames: settled.frames, settled: settled.ok, perPass, calls, triangles, byType, fullRefresh, fullReason, uploads, cpuRenderMs, cpuRenderInclCensusMs, censusMs, gpuMs: medianOrNull(gpu), profileTop: [] };
+    return { arm, n: o.n, living: livingCount(sim), variant: o.variant, applied, settleFrames: settled.frames, settled: settled.ok, perPass, calls, triangles, byType, fullRefresh, fullReason, uploads, drawCounts, cpuRenderMs, cpuRenderInclCensusMs, censusMs, gpuMs: medianOrNull(gpu), profileTop: [] };
   } finally {
     applyVariant(s, o.variant, false, undo);
   }

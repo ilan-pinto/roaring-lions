@@ -3,6 +3,8 @@
  * Falsifications (each run once, red, then reverted; listed in the commit message).
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { NUMBER_OPS } from './fog-ops';
 import { isAoOccluder } from './ao-occluder';
@@ -25,8 +27,10 @@ function composerTarget(w: number, h: number): THREE.WebGLRenderTarget {
 }
 
 /** Records every call a capture makes, with `current` as the bound target. */
-function recorder(current: THREE.WebGLRenderTarget | null) {
+function recorder(current: THREE.WebGLRenderTarget | null, scissorOn = false) {
   const calls: string[] = [];
+  let scissor = scissorOn;
+  const scissorAtCopy: boolean[] = [];
   const copies: Array<[THREE.Texture, THREE.Texture]> = [];
   let bound = current;
   const r: SoftDepthRenderer = {
@@ -39,9 +43,14 @@ function recorder(current: THREE.WebGLRenderTarget | null) {
     copyTextureToTexture: (src, dst) => {
       calls.push('copy');
       copies.push([src, dst]);
+      scissorAtCopy.push(scissor);
+    },
+    getScissorTest: () => scissor,
+    setScissorTest: (on) => {
+      scissor = on;
     },
   };
-  return { r, calls, copies, bound: () => bound };
+  return { r, calls, copies, bound: () => bound, scissor: () => scissor, scissorAtCopy };
 }
 
 describe('softParticleFadeOps (GH-1227)', () => {
@@ -77,6 +86,19 @@ describe('SoftDepthSnapshot (GH-1227)', () => {
     expect(snap.invSize.x).toBeCloseTo(1 / 320, 9);
     expect(snap.invSize.y).toBeCloseTo(1 / 200, 9);
     expect(snap.captures).toBe(1);
+  });
+
+  it('copies with the scissor test off (a blit honours it) and puts it back after', () => {
+    const src = composerTarget(32, 32);
+    const snap = new SoftDepthSnapshot([src]);
+    const on = recorder(src, true);
+    expect(snap.capture(on.r)).toBe(true);
+    expect(on.scissorAtCopy).toEqual([false]);
+    expect(on.scissor()).toBe(true);
+    const off = recorder(src, false);
+    snap.capture(off.r);
+    expect(off.scissorAtCopy).toEqual([false]);
+    expect(off.scissor()).toBe(false);
   });
 
   it('never copies from a target it was not given, nor from the canvas', () => {
@@ -143,5 +165,17 @@ describe('SoftDepthSnapshot (GH-1227)', () => {
     s.onBeforeRender(rec.r as unknown as THREE.WebGLRenderer, new THREE.Scene(), new THREE.Camera(), s.geometry, s.material, null as never);
     expect(snap.captures).toBe(1);
     expect(rec.calls).toEqual(['init', 'copy', 'bind']);
+  });
+});
+
+describe('the soft-particles design (GH-1227 review)', () => {
+  it("D4 gives the reviewer's reason: a fade thins the smoke screen at the ground, it does not hide it behind walls", () => {
+    const doc = readFileSync(fileURLToPath(new URL('../../../../docs/superpowers/specs/2026-11-11-soft-particles-design.md', import.meta.url)), 'utf8');
+    const d4 = doc.split('\n').filter((l) => l.includes('(D4):') || l.startsWith('| D4 |'));
+    expect(d4.length).toBe(2);
+    for (const line of d4) {
+      expect(line).toContain('thin the screen where it meets the ground');
+      expect(line).not.toContain('behind walls');
+    }
   });
 });

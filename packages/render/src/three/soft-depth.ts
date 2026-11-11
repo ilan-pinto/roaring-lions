@@ -68,6 +68,8 @@ export interface SoftDepthRenderer {
   setRenderTarget(target: THREE.WebGLRenderTarget | null): void;
   initRenderTarget(target: THREE.WebGLRenderTarget): void;
   copyTextureToTexture(src: THREE.Texture, dst: THREE.Texture): void;
+  getScissorTest(): boolean;
+  setScissorTest(on: boolean): void;
 }
 
 function depthStencilTexture(w: number, h: number): THREE.DepthTexture {
@@ -153,9 +155,13 @@ export class SoftDepthSnapshot implements SoftDepthSource {
       this.target.setSize(src.width, src.height);
       this.invSize.set(1 / src.width, 1 / src.height);
     }
+    // `blitFramebuffer` honours the scissor test, so a scissored frame would copy only its rectangle: off for the copy, then restored.
+    const scissor = renderer.getScissorTest();
+    if (scissor) renderer.setScissorTest(false);
     renderer.initRenderTarget(this.target);
     renderer.copyTextureToTexture(src.depthTexture, this.depthTexture);
     renderer.setRenderTarget(src);
+    if (scissor) renderer.setScissorTest(true);
     this.captures++;
     return true;
   }
