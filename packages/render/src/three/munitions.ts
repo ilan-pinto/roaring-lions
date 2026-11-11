@@ -46,6 +46,8 @@ export interface MunitionClassRow {
   crater_c?: number;
   scorch_s?: number;
   reference_splash_tiles: number;
+  /** GH-1197 P4: the hole a round of this class cuts in a building (section 3a). */
+  hole?: { radius_tiles: number; axis: 'wall' | 'roof' };
   ring?: MunitionRingRow;
   lobes?: { count: number; throw_tiles: number; scale_of_fireball: number };
   debris: { clods: number; chunks: number; throw_tiles: number; apex_tiles: number };
