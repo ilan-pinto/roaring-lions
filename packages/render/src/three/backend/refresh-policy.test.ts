@@ -9,7 +9,7 @@
  *  - per render object: key the WeakMap by `ro.object` instead of `ro`: the shadow render object of a moved mesh reads SHARED.
  */
 import { describe, expect, it } from 'vitest';
-import { classifyUpdateNodes, installRefreshPolicy, objectTextures, plainMesh, REFRESH, refreshVerdict, writeKey, type NodesLike, type RenderObjectLike, type UpdateNodeLike } from './refresh-policy';
+import { classifyUpdateNodes, installRefreshPolicy, objectBindings, plainMesh, REFRESH, refreshVerdict, writeKey, type NodesLike, type RenderObjectLike, type UpdateNodeLike } from './refresh-policy';
 import { ABSENT, declareObjectInputs, pushValue } from './object-inputs';
 
 const key = (...v: number[]): number[] => v;
@@ -91,11 +91,19 @@ describe('classifyUpdateNodes (G2c, the rule)', () => {
   });
 });
 
-describe('objectTextures and plainMesh', () => {
-  it('reads the non-shared sampled textures; a storage buffer makes the object ineligible', () => {
+describe('objectBindings and plainMesh', () => {
+  it('reads the non-shared textures, uniforms and buffers; a storage buffer, a huge buffer or an unknown kind is ineligible', () => {
     const t = { value: 1 };
-    expect(objectTextures([{ bindings: [{ isSampledTexture: true, textureNode: t }, { isSampledTexture: true, textureNode: { value: 2 }, groupNode: { shared: true } }] }])).toEqual([t]);
-    expect(objectTextures([{ bindings: [{ isStorageBuffer: true }] }])).toBeNull();
+    const u = { getValue: () => 3 };
+    const buf = { isNodeUniformBuffer: true, buffer: new Float32Array(8) };
+    const got = objectBindings([
+      { bindings: [{ isSampledTexture: true, textureNode: t }, { isSampler: true }, { isSampledTexture: true, textureNode: { value: 2 }, groupNode: { shared: true } }] },
+      { bindings: [{ isNodeUniformsGroup: true, uniforms: [u] }, buf, { isNodeUniformsGroup: true, uniforms: [{ getValue: () => 9 }], groupNode: { shared: true } }] },
+    ]);
+    expect(got).toEqual({ textures: [t], uniforms: [u], buffers: [buf] });
+    expect(objectBindings([{ bindings: [{ isStorageBuffer: true }] }])).toBeNull();
+    expect(objectBindings([{ bindings: [{ isNodeUniformBuffer: true, buffer: new Float32Array(5000) }] }])).toBeNull();
+    expect(objectBindings([{ bindings: [{}] }])).toBeNull();
   });
   it('only a plain mesh', () => {
     const m = { matrixWorld: { elements: [] }, isMesh: true };
@@ -207,10 +215,11 @@ describe('installRefreshPolicy', () => {
     const ro = fakeRo({ matrixWorld: identity(), isMesh: true }, { version: 0 }, { matrixWorld: identity(), projectionMatrix: identity() });
     const plan = classifyUpdateNodes([], undefined, new Set());
     const a: number[] = [];
-    writeKey(ro, plan, [], a);
+    const none = { textures: [], uniforms: [], buffers: [] };
+    writeKey(ro, plan, none, a);
     (ro.geometry.attributes.position as { version: number }).version = 4;
     const b: number[] = [];
-    writeKey(ro, plan, [], b);
+    writeKey(ro, plan, none, b);
     expect(refreshVerdict(REFRESH.FULL, 'hasNode', a, b)).toBe(REFRESH.FULL);
   });
 });

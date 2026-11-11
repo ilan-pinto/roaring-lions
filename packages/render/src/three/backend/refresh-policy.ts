@@ -20,7 +20,9 @@
  *  - its key is unchanged since its last call (`refreshVerdict`): the world matrix, the camera's world and projection matrices (the
  *    object group's model-view and normal matrices are camera-derived), the material version, the geometry and every attribute's
  *    version and draw range, every explicit Object3D node's matrix, every material reference's value, every per-object texture node's
- *    transform, every sampled texture's id and version, and the declared inputs' values.
+ *    transform, and the declared inputs' values (the update nodes, at their INPUTS, since they run after this decision); and every
+ *    value the non-shared groups hold now (`objectBindings`: each uniform's current value, the uniform buffers, each sampled
+ *    texture's id and version), which covers a uniform with no update type that app code writes directly.
  *
  * A moving unit changes its matrix and stays FULL; a fading one changes its legacy material's opacity (declared) and stays FULL.
  *
@@ -147,11 +149,32 @@ export interface KeyRenderObjectLike {
 export interface BindingGroupLike {
   readonly bindings: readonly {
     readonly isSampledTexture?: boolean;
+    readonly isSampler?: boolean;
     readonly isStorageBuffer?: boolean;
+    readonly isNodeUniformsGroup?: boolean;
+    readonly isNodeUniformBuffer?: boolean;
     readonly textureNode?: { readonly value?: unknown };
+    /** A `NodeUniformsGroup`'s members: each reads its node's CURRENT value (`NodeUniform.value`). */
+    readonly uniforms?: readonly { getValue(): unknown }[];
+    /** A `NodeUniformBuffer`'s data (the node's value). */
+    readonly buffer?: unknown;
     readonly groupNode?: { readonly shared?: boolean } | null;
   }[];
 }
+
+/**
+ * What a render object's NON-shared groups hold, which SHARED never writes: the sampled textures, every uniform of the object groups
+ * (whatever its update type: a uniform with NO update type that app code writes is in no update node, yet FULL's
+ * `NodeUniformsGroup.update` compares its value and SHARED would skip it), and the uniform buffers.
+ */
+export interface ObjectBindings {
+  readonly textures: readonly { readonly value?: unknown }[];
+  readonly uniforms: readonly { getValue(): unknown }[];
+  readonly buffers: readonly { readonly buffer?: unknown }[];
+}
+
+/** A uniform buffer bigger than this (floats) is not keyed: the object stays FULL. */
+export const MAX_KEYED_BUFFER = 4096;
 
 const pushMatrix = (m: MatrixLike, out: number[]): void => {
   const e = m.elements;
@@ -176,7 +199,7 @@ function pushTexture(t: unknown, out: number[]): void {
 }
 
 /** Writes the render object's key onto `out` (cleared first). */
-export function writeKey(ro: KeyRenderObjectLike, plan: ProgramPlan, textures: readonly { readonly value?: unknown }[], out: number[]): void {
+export function writeKey(ro: KeyRenderObjectLike, plan: ProgramPlan, bound: ObjectBindings, out: number[]): void {
   out.length = 0;
   pushMatrix(ro.object.matrixWorld, out);
   pushMatrix(ro.camera.matrixWorld, out);
@@ -191,21 +214,35 @@ export function writeKey(ro: KeyRenderObjectLike, plan: ProgramPlan, textures: r
     pushValue(n.getValueFromReference !== undefined ? n.getValueFromReference(ref as object) : undefined, out);
   }
   for (const n of plan.textureNodes) pushTexture(n.value, out);
-  for (const t of textures) pushValue(t.value, out);
+  for (const t of bound.textures) pushValue(t.value, out);
+  for (const u of bound.uniforms) pushValue(u.getValue(), out);
+  for (const b of bound.buffers) pushValue(b.buffer, out);
   plan.inputs?.read(ro.object, out);
 }
 
-/** The sampled textures of the render object's NON-shared groups (SHARED skips them), or null when a group holds a storage buffer. */
-export function objectTextures(groups: readonly BindingGroupLike[]): { readonly value?: unknown }[] | null {
-  const out: { readonly value?: unknown }[] = [];
+/**
+ * The render object's NON-shared bindings (SHARED skips them), or null (never downgrade) when one is a storage buffer, a uniform buffer
+ * over `MAX_KEYED_BUFFER` floats, or a kind this does not know.
+ */
+export function objectBindings(groups: readonly BindingGroupLike[]): ObjectBindings | null {
+  const textures: { readonly value?: unknown }[] = [];
+  const uniforms: { getValue(): unknown }[] = [];
+  const buffers: { readonly buffer?: unknown }[] = [];
   for (const g of groups) {
     for (const b of g.bindings) {
       if (b.groupNode?.shared === true) continue;
       if (b.isStorageBuffer === true) return null;
-      if (b.isSampledTexture === true && b.textureNode !== undefined) out.push(b.textureNode);
+      if (b.isSampledTexture === true && b.textureNode !== undefined) textures.push(b.textureNode);
+      else if (b.isNodeUniformsGroup === true && b.uniforms !== undefined) uniforms.push(...b.uniforms);
+      else if (b.isNodeUniformBuffer === true) {
+        const len = (b.buffer as { length?: number } | null | undefined)?.length ?? Infinity;
+        if (!(len <= MAX_KEYED_BUFFER)) return null;
+        buffers.push(b);
+        // A sampler (WGSL binds one beside each texture) follows its texture, which is keyed.
+      } else if (b.isSampledTexture !== true && b.isSampler !== true) return null;
     }
   }
-  return out;
+  return { textures, uniforms, buffers };
 }
 
 /** A plain mesh: skinning, instancing, batching and morph targets refresh their own way. */
@@ -248,7 +285,8 @@ export interface RefreshPolicyHandle {
 interface Entry {
   state: object;
   plan: ProgramPlan;
-  textures: { readonly value?: unknown }[] | null;
+  /** Undefined until read; null when the bindings make the object ineligible. */
+  bound: ObjectBindings | null | undefined;
   prev: number[] | null;
 }
 
@@ -275,7 +313,7 @@ export function installRefreshPolicy(nodes: NodesLike, renderer: unknown, initia
       // First sight of this render object, or a new program: FULL, and the plan for next time.
       const plan = classifyUpdateNodes(state.updateNodes, objectInputsOf(ro.material), matrixSingletons);
       for (const u of plan.undeclared) blocked.add(u);
-      e = { state, plan, textures: null, prev: null };
+      e = { state, plan, bound: undefined, prev: null };
       seen.set(ro, e);
       return t;
     }
@@ -285,10 +323,10 @@ export function installRefreshPolicy(nodes: NodesLike, renderer: unknown, initia
       return REFRESH.SHARED;
     }
     // The bindings exist from the first FULL refresh on; read once.
-    if (e.textures === null) e.textures = objectTextures(ro.getBindings());
-    const reason: RefreshReason = e.plan.downgradable && e.textures !== null ? 'hasNode' : 'ineligible';
-    if (reason !== 'hasNode') return t;
-    writeKey(ro, e.plan, e.textures ?? [], scratch);
+    if (e.bound === undefined) e.bound = objectBindings(ro.getBindings());
+    const reason: RefreshReason = e.plan.downgradable && e.bound !== null ? 'hasNode' : 'ineligible';
+    if (reason !== 'hasNode' || e.bound === null) return t;
+    writeKey(ro, e.plan, e.bound, scratch);
     const v = refreshVerdict(t, reason, e.prev, scratch);
     if (v === REFRESH.SHARED) tally.downgraded++;
     else if (e.prev === null || e.prev.length !== scratch.length) e.prev = scratch.slice();
