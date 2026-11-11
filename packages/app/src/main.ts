@@ -285,6 +285,7 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
+import { withSoftParticles } from './soft-flag';
 import { PAUSES_PER_SEAT, WsTransport, flagSetupRoom, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
@@ -2359,12 +2360,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // mission as well as the sandbox. Absent leaves the renderer's default.
   const fit = buildingFitOf(params);
   if (fit.warning) console.warn(`[lions] ${fit.warning}`);
+  // GH-1227 slice 2: `&soft`, sandbox only, quality.softParticles for this boot.
+  const softChoice = withSoftParticles(
+    rendererOptionsFor(map, { colorVision: cvdVariant, quality: req.settings.get().video.quality }, BASE),
+    params,
+    mission === undefined
+  );
+  if (softChoice.warning) console.warn(`[lions] ${softChoice.warning}`);
   const opts: RendererOptions = {
-    ...rendererOptionsFor(
-      map,
-      { colorVision: cvdVariant, quality: req.settings.get().video.quality },
-      BASE
-    ),
+    ...softChoice.options,
     timeOfDay: tod.value,
     // PA-24: a mission's own `map.light` (First Light's lifted dawn fill).
     ...(lightOverride !== undefined ? { lightOverride } : {}),
