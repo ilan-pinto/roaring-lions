@@ -87,22 +87,17 @@ export function cutShaderHook(vertex: string, fragment: string): { vertex: strin
 }
 
 /** The hook that only discards, for the shadow's depth material and the AO's normal material: `CUT_PARS_GLSL` (the same
- *  text the colour hook splices, so the text pin covers both) and the cut at the top of `main`, no colour splice. */
+ *  text the colour hook splices, so the text pin covers both) and the cut at the top of `main`, no colour splice. Anchored on
+ *  `void main() {` and `#include <project_vertex>` alone: r186's `ShaderLib.depth` fragment holds no `#include <common>`. */
 export function cutMaskHook(vertex: string, fragment: string): { vertex: string; fragment: string } {
-  const need = (src: string, token: string): void => {
-    if (!src.includes(token)) throw new Error(`cut mask hook: program no longer holds "${token}"`);
-  };
-  need(vertex, '#include <common>');
-  need(vertex, '#include <project_vertex>');
-  need(fragment, '#include <common>');
-  if (!/void main\(\)\s*\{/.test(fragment)) throw new Error('cut mask hook: program no longer holds "void main() {"');
+  const main = /void main\(\)\s*\{/;
+  if (!vertex.includes('#include <project_vertex>')) throw new Error('cut mask hook: program no longer holds "#include <project_vertex>"');
+  if (!main.test(vertex) || !main.test(fragment)) throw new Error('cut mask hook: program no longer holds "void main() {"');
   return {
     vertex: vertex
-      .replace('#include <common>', '#include <common>\nvarying vec3 vRlCutW;')
+      .replace(main, (m) => `varying vec3 vRlCutW;\n${m}`)
       .replace('#include <project_vertex>', '#include <project_vertex>\n  vRlCutW = (modelMatrix * vec4(transformed, 1.0)).xyz;'),
-    fragment: fragment
-      .replace('#include <common>', `#include <common>\n${CUT_PARS_GLSL}`)
-      .replace(/void main\(\)\s*\{/, (m) => `${m}\n  rlCutApply();`),
+    fragment: fragment.replace(main, (m) => `${CUT_PARS_GLSL}\n${m}\n  rlCutApply();`),
   };
 }
 

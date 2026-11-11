@@ -404,8 +404,8 @@ describe('roof cutaway slice 2: the shadow and AO depth cut (L5)', () => {
     for (const m of [mask.depth, mask.ao]) {
       const shader = {
         uniforms: {} as Record<string, unknown>,
-        vertexShader: '#include <common>\n#include <project_vertex>',
-        fragmentShader: '#include <common>\nvoid main() {\n}',
+        vertexShader: THREE.ShaderLib.depth.vertexShader,
+        fragmentShader: THREE.ShaderLib.depth.fragmentShader,
       };
       m.onBeforeCompile(shader as never, undefined as never);
       expect(shader.uniforms.uRlCutN).toBe(priv.cutUniforms!.uRlCutN);

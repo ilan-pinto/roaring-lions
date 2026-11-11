@@ -142,7 +142,7 @@ describe('the hook', () => {
 });
 
 describe('slice 2: the mask hook (shadow depth and AO normal)', () => {
-  const v = '#include <common>\n#include <project_vertex>';
+  const v = '#include <common>\nvoid main() {\n#include <project_vertex>\n}';
   const f = '#include <common>\nvoid main() {\n}';
   it('splices the SAME pars text and the cut at the top of main, and no colour', () => {
     const out = cutMaskHook(v, f);
@@ -152,6 +152,17 @@ describe('slice 2: the mask hook (shadow depth and AO normal)', () => {
     expect(out.vertex).toContain('vRlCutW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
   });
   it('refuses a program that lost its anchor', () => {
-    expect(() => cutMaskHook('#include <common>', f)).toThrow(/project_vertex/);
+    expect(() => cutMaskHook('#include <common>\nvoid main() {}', f)).toThrow(/project_vertex/);
+  });
+  // The text r186 really hands `onBeforeCompile` for the two mask materials (the depth fragment has no `#include <common>`).
+  // Falsify: put back a `#include <common>` requirement on the fragment and the depth row throws.
+  it('takes the real ShaderLib depth and normal programs', () => {
+    for (const k of ['depth', 'normal'] as const) {
+      const out = cutMaskHook(THREE.ShaderLib[k].vertexShader, THREE.ShaderLib[k].fragmentShader);
+      expect(out.fragment).toContain(CUT_PARS_GLSL);
+      expect(out.fragment).toMatch(/void main\(\) \{\n {2}rlCutApply\(\);/);
+      expect(out.vertex).toContain('vRlCutW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      expect(out.vertex.indexOf('varying vec3 vRlCutW;')).toBeLessThan(out.vertex.indexOf('void main'));
+    }
   });
 });
