@@ -3024,4 +3024,32 @@ describe('watch sockets (GH-954 W1)', () => {
     await say(room, ws0, { t: 'surrender' });
     expect(ofType(w, 'ended')).toEqual([{ t: 'ended', reason: 'surrender', seat: 0 }]);
   });
+
+describe('a room keeps its members (GH-1075 A3 Task 3.3)', () => {
+  const A = { memberId: 'mA', publicId: 'PUBA', name: 'Alpha', showRecord: true, record: { won: 1, lost: 2, drawn: 3 } };
+  it('a_room_keeps_its_members', async () => {
+    const state = new FakeState();
+    const room = new MatchRoom(state, env, YIELD);
+    const mk = (path: string, body: unknown) => room.fetch(new Request(`https://room/${path}`, { method: 'POST', body: JSON.stringify(body) }));
+    expect((await mk('create', { code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', member: A })).status).toBe(200);
+    expect((await mk('join', { player: 'p-guest', callsign: 'Guest', member: null })).status).toBe(200);
+    expect((state.storage.kv.get('meta') as { members: unknown }).members).toEqual([A, null]);
+
+    const state2 = new FakeState();
+    const room2 = new MatchRoom(state2, env, YIELD);
+    await room2.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host' }) }));
+    await room2.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', member: { memberId: 7 } }) }));
+    expect((state2.storage.kv.get('meta') as { members: unknown }).members).toEqual([null, null]);
+  });
+
+  it('a bot model is kept for a bot seat with no member only', async () => {
+    const state = new FakeState();
+    const room = new MatchRoom(state, env, YIELD);
+    const mk = (path: string, body: unknown) => room.fetch(new Request(`https://room/${path}`, { method: 'POST', body: JSON.stringify(body) }));
+    await mk('create', { code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', kind: 'human', botModel: { id: 'scripted' } });
+    await mk('join', { player: 'p-guest', kind: 'bot', botModel: { id: 'other', name: 'MyNet v3' } });
+    expect((state.storage.kv.get('meta') as { botModels: unknown }).botModels).toEqual([null, { id: 'other', name: 'MyNet v3' }]);
+  });
+});
+
 });

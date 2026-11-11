@@ -72,7 +72,9 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { advisorMayRelay, factionsOfMatchup, flagSetupFor, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, winModeField, winModeRequest, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, sha256Hex, snapshotEvery, specialRefusal, type AdvisorScope, type ClientMsg, type Faction, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg, type WinMode } from '@lions/net';
+import { advisorMayRelay, factionsOfMatchup, flagSetupFor, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, winModeField, winModeRequest, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, sha256Hex, snapshotEvery, specialRefusal, type AdvisorScope, type ClientMsg, type Faction, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg, type WinMode, type BotModel } from '@lions/net';
+import { botModelField } from '@lions/net';
+import { seatMemberShape, type SeatMemberInfo } from '../account/seat-member';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { readCapped } from '../read-capped';
@@ -152,6 +154,10 @@ interface RoomMeta {
   owned: [SeatSpecials, SeatSpecials];
   /** The win mode `/create` asked for (GH-976 P2); absent is annihilation. Versus rooms only. */
   winMode?: WinMode;
+  /** GH-1075 A3: each seat's member, from the Worker's own room request (never a client field); null is a guest, a bot or a human with no session. */
+  members: [SeatMemberInfo | null, SeatMemberInfo | null];
+  /** GH-1075 A3 (§0.16): a bot seat's declared model, a label only, kept out of `MatchConfig`. */
+  botModels: [BotModel | null, BotModel | null];
 }
 /** 16 random hex characters: 64 bits from `crypto.getRandomValues`. */
 function mintToken(): string {
@@ -185,7 +191,19 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
     owned: Array.isArray(m.owned) && m.owned.length === 2 ? [seatSpecialsField(m.owned[0]), seatSpecialsField(m.owned[1])] : [[], []],
     // A room from before win modes is annihilation; a stored mode is read through the same field as a client's.
     ...(m.mode === 'versus' && winModeField(m.winMode) !== undefined ? { winMode: winModeField(m.winMode) } : {}),
+    // A room from before A3 has no members and no declared models.
+    members: Array.isArray(m.members) && m.members.length === 2 ? [seatMemberShape(m.members[0]), seatMemberShape(m.members[1])] : [null, null],
+    botModels: Array.isArray(m.botModels) && m.botModels.length === 2 ? [storedBotModel(m.botModels[0]), storedBotModel(m.botModels[1])] : [null, null],
   };
+}
+/** The room trusts nothing it is sent or stored: a declared model is parsed again, and a malformed one is null. */
+function storedBotModel(v: unknown): BotModel | null {
+  const r = botModelField(v === null ? undefined : v);
+  return r.ok ? r.model : null;
+}
+/** A bot seat's model: only for a `bot` seat with no member (a member or human seat drops it, §0.9). */
+function seatBotModel(kind: SeatKind, member: SeatMemberInfo | null, v: unknown): BotModel | null {
+  return kind === 'bot' && member === null ? storedBotModel(v) : null;
 }
 /** A socket's seat; `at`, while it has none, is when it was accepted, for the
  *  hello deadline (#559 M-1). A socket the room has closed has neither.
@@ -816,7 +834,8 @@ export class MatchRoom {
       this.st = createRoom(body.code, body.matchId, Date.now(), map, factions);
       this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens(), kinds: [seatKindField(body.kind), 'human'], pace: paceField(body.pace),
         kit: mode === 'versus' ? kitField(body.kit) : 'matched', claims: [seatTiersField(body.tiers), seatTiersField(null)], owned: [seatSpecialsField(body.specials), []],
-        ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) };
+        ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }),
+        members: [seatMemberShape(body.member), null], botModels: [seatBotModel(seatKindField(body.kind), seatMemberShape(body.member), body.botModel), null] };
       // The table, the keys and the TTL alarm exist from here, and only from here (#559 H-1).
       this.ctx.storage.sql.exec(CREATE_SQL);
       this.openSnapshotStore();
@@ -860,7 +879,8 @@ export class MatchRoom {
       if (typeof body.build === 'string' && body.build !== '' && meta.build !== '' && body.build !== meta.build) {
         return Response.json({ error: 'build_mismatch', build: meta.build }, { status: 412 });
       }
-      this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true, kinds: [meta.kinds[0], seatKindField(body.kind)], claims: [meta.claims[0], seatTiersField(body.tiers)], owned: [meta.owned[0], seatSpecialsField(body.specials)] };
+      this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true, kinds: [meta.kinds[0], seatKindField(body.kind)], claims: [meta.claims[0], seatTiersField(body.tiers)], owned: [meta.owned[0], seatSpecialsField(body.specials)],
+        members: [meta.members[0], seatMemberShape(body.member)], botModels: [meta.botModels[0], seatBotModel(seatKindField(body.kind), seatMemberShape(body.member), body.botModel)] };
       await this.ctx.storage.put('meta', this.meta);
       return Response.json({ seat: 1 });
     }
