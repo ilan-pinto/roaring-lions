@@ -627,3 +627,88 @@ describe('field works: a mission placement owns its structure', () => {
     expect(() => start([{ type: 'house', at: [4, 4], size: [2, 2], owner: 2 }])).toThrow(/owner 2, expected -1, 0 or 1/);
   });
 });
+
+// GH-34 (lead ruling 11 Nov 2026): a garrisoned unit's reach grows by its BUILDING's `garrison_range_bonus`; a type that does not author it keeps the
+// global one tile. The numbers below are written as literals (Q16.16: one tile is 65536), not read from tuning.ts, so a change to the default shows here.
+describe('garrison range scales with the building (GH-34)', () => {
+  const SHED = { id: 'shed', name: 'Shed', hp_per_tile: 120, garrison_slots: 1, rubble_cover: 1 };
+  const reachOf = (extra: Record<string, number>): number => {
+    // The farthest quarter-tile step from the east window at which a garrisoned rifle squad (range 8) still has a shot.
+    let best = -1;
+    for (let q = 1; q <= 20; q++) {
+      const sim = new Sim({ seed: 3, width: 48, height: 32, capacity: 8 });
+      const type = sim.addStructureType({ ...SHED, ...extra });
+      const rifles = sim.addUnitType(RIFLES);
+      const dummy = sim.addUnitType({ ...RIFLES, id: 's_dummy', weapons: [], hull: { hp: 30000, armor: { front: 10, side: 10, rear: 10 } } });
+      const b = sim.addStructure(type, [14 * 48 + 20, 14 * 48 + 21, 15 * 48 + 20, 15 * 48 + 21]);
+      const u = sim.spawn(rifles, 0, fx.from(19.5), fx.from(14.5));
+      sim.queueCommand({ kind: 'garrison', ids: [u], structure: b });
+      for (let k = 0; k < 400 && sim.state.garrisonedIn[u] !== b; k++) sim.tick();
+      if (sim.state.garrisonedIn[u] !== b) throw new Error('never got in');
+      const t = sim.spawn(dummy, 1, fx.from(21.5 + 8 + q / 4), fx.from(14.5));
+      sim.identifyTo(0, t);
+      if (sim.projectHit(u, t).kind !== 'shot') break;
+      best = q / 4;
+    }
+    return best;
+  };
+
+  it('a type that authors nothing keeps the one global tile', () => {
+    expect(reachOf({})).toBe(1);
+  });
+  it('an authored 2 reaches two tiles, an authored 0.5 half a tile, an authored 0 none', () => {
+    expect(reachOf({ garrison_range_bonus: 2 })).toBe(2);
+    expect(reachOf({ garrison_range_bonus: 0.5 })).toBe(0.5);
+    expect(reachOf({ garrison_range_bonus: 0 })).toBe(-1); // no step past the 8 tiles of the unit's own range has a shot
+  });
+  it('is read per building: two garrisons in one world reach differently', () => {
+    const sim = new Sim({ seed: 3, width: 48, height: 32, capacity: 8 });
+    const plain = sim.addStructureType(SHED);
+    const tall = sim.addStructureType({ ...SHED, id: 'tall', garrison_range_bonus: 2 });
+    const rifles = sim.addUnitType(RIFLES);
+    const dummy = sim.addUnitType({ ...RIFLES, id: 's_dummy', weapons: [], hull: { hp: 30000, armor: { front: 10, side: 10, rear: 10 } } });
+    const b1 = sim.addStructure(plain, [6 * 48 + 20, 6 * 48 + 21]);
+    const b2 = sim.addStructure(tall, [20 * 48 + 20, 20 * 48 + 21]);
+    const u1 = sim.spawn(rifles, 0, fx.from(19.5), fx.from(6.5));
+    const u2 = sim.spawn(rifles, 0, fx.from(19.5), fx.from(20.5));
+    sim.queueCommand({ kind: 'garrison', ids: [u1], structure: b1 });
+    sim.queueCommand({ kind: 'garrison', ids: [u2], structure: b2 });
+    for (let k = 0; k < 400 && (sim.state.garrisonedIn[u1] !== b1 || sim.state.garrisonedIn[u2] !== b2); k++) sim.tick();
+    // 1.5 tiles past the unit's own range from the east window (x 21.5): in reach of the tall building only.
+    const t1 = sim.spawn(dummy, 1, fx.from(21.5 + 8 + 1.5), fx.from(6.5));
+    const t2 = sim.spawn(dummy, 1, fx.from(21.5 + 8 + 1.5), fx.from(20.5));
+    sim.identifyTo(0, t1);
+    sim.identifyTo(0, t2);
+    expect(sim.projectHit(u1, t1).kind).not.toBe('shot');
+    expect(sim.projectHit(u2, t2).kind).toBe('shot');
+  });
+  it('the hit falloff and the stop-and-fire latch read the building too (effective range, not only the maximum)', () => {
+    // Effective range 6.4 + the building's bonus: 7.4 in the plain shed, 8.4 in the tall one. A target 7.9 tiles from the east window is past the first
+    // and inside the second, so its hit falloff is gentler and the shooter latches to stand and fire.
+    function at(extra: Record<string, number>): { falloff: number; latched: number } {
+      const sim = new Sim({ seed: 3, width: 48, height: 32, capacity: 8 });
+      const type = sim.addStructureType({ ...SHED, ...extra });
+      const rifles = sim.addUnitType(RIFLES);
+      const dummy = sim.addUnitType({ ...RIFLES, id: 's_dummy', weapons: [], hull: { hp: 30000, armor: { front: 10, side: 10, rear: 10 } } });
+      const b = sim.addStructure(type, [14 * 48 + 20, 14 * 48 + 21, 15 * 48 + 20, 15 * 48 + 21]);
+      const u = sim.spawn(rifles, 0, fx.from(19.5), fx.from(14.5));
+      sim.queueCommand({ kind: 'garrison', ids: [u], structure: b });
+      for (let k = 0; k < 400 && sim.state.garrisonedIn[u] !== b; k++) sim.tick();
+      const t = sim.spawn(dummy, 1, fx.from(21.5 + 7.9), fx.from(14.5));
+      sim.identifyTo(0, t);
+      const shot = sim.projectHit(u, t);
+      if (shot.kind !== 'shot') throw new Error('no shot at 7.9 tiles');
+      sim.tick();
+      return { falloff: shot.factors.rangeFalloff, latched: (sim as unknown as { engaging: Uint8Array }).engaging[u] };
+    }
+    const plain = at({});
+    const tall = at({ garrison_range_bonus: 2 });
+    expect(tall.falloff).toBeGreaterThan(plain.falloff);
+    expect(plain.latched).toBe(0);
+    expect(tall.latched).toBe(1);
+  });
+  it('rejects a negative bonus', () => {
+    const sim = new Sim({ seed: 3, width: 8, height: 8, capacity: 2 });
+    expect(() => sim.addStructureType({ ...SHED, garrison_range_bonus: -1 })).toThrow(/garrison_range_bonus/);
+  });
+});

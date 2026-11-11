@@ -7,7 +7,7 @@
 // nothing to a wall; a mortar shell does a great deal.
 
 import { fx, ONE, type Fx } from './fixed';
-import { WOUND_MAX_RADIUS_TILES, WOUND_MAX_SECONDS } from './tuning';
+import { GARRISON_RANGE_BONUS, WOUND_MAX_RADIUS_TILES, WOUND_MAX_SECONDS } from './tuning';
 
 export interface StructureTypeJson {
   id: string;
@@ -81,6 +81,11 @@ export interface StructureTypeJson {
   /** Storeys; each above the ground lifts a garrison's eye one elevation
    *  level. Default 1. */
   floors?: number;
+  /** GH-34: tiles a garrisoned unit's direct-fire range and effective range grow by inside THIS
+   *  building (so an apartment block can out-reach a shed). Absent = the global
+   *  `GARRISON_RANGE_BONUS` (1 tile), so a structure that does not author it is exactly as it was.
+   *  A field work's `aura.garrison.range_bonus` still adds on top. */
+  garrison_range_bonus?: number;
   /** A linear run of arbitrary length -- a wall, a fence -- whose tiles each
    *  stand alone: the map loader gives every tile its own structure and its own
    *  HP, and the renderer stamps a sprite per tile. Length is exactly what makes
@@ -207,6 +212,8 @@ export interface StructureType {
   garrisonCover: number;
   /** See StructureTypeJson.floors. */
   floors: number;
+  /** See StructureTypeJson.garrison_range_bonus: Q16.16 tiles, `GARRISON_RANGE_BONUS` when unauthored. */
+  garrisonRangeBonus: Fx;
   /** Field works: the parsed `aura`, null when the type has none. */
   aura: StructureAura | null;
   /** GH-277 follow-on: the parsed `production` block, null when completing this type opens no line. */
@@ -352,6 +359,15 @@ export function areaEffectsFromJson(
   return area;
 }
 
+/** GH-34: a structure's own garrison range bonus, Q16.16 tiles. Unauthored = `GARRISON_RANGE_BONUS`, so only a type that names the field changes. */
+function garrisonRangeBonusFromJson(json: StructureTypeJson): Fx {
+  const b = json.garrison_range_bonus;
+  if (b === undefined) return GARRISON_RANGE_BONUS;
+  const bonus = fx.from(b);
+  if (bonus < 0) throw new Error(`structure type ${json.id}: garrison_range_bonus must be >= 0`);
+  return bonus;
+}
+
 /** Parse a structure's `aura` block; the area list through `areaEffectsFromJson`. */
 function auraFromJson(json: StructureTypeJson, ticksPerSecond: number): StructureAura | null {
   const a = json.aura;
@@ -396,6 +412,7 @@ export function structureTypeFromJson(json: StructureTypeJson, ticksPerSecond: n
     standingCover: json.standing_cover ?? 2,
     garrisonCover: json.garrison_cover ?? 3,
     floors: json.floors ?? 1,
+    garrisonRangeBonus: garrisonRangeBonusFromJson(json),
     aura: auraFromJson(json, ticksPerSecond),
     production: productionFromJson(json),
     aid: aidFromJson(json, ticksPerSecond),

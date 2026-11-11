@@ -6644,13 +6644,22 @@ export class Sim {
     return a === null ? 0 : a.rangeBonus;
   }
 
-  /** `w`'s maximum range squared for unit `i`: longer from inside (ruling 4),
+  /** GH-34: how many tiles the building unit `i` is garrisoned in adds to its direct-fire reach: the
+   *  structure type's own `garrison_range_bonus`, `GARRISON_RANGE_BONUS` for a type that does not author it
+   *  (so those units take the precomputed `WeaponStats.garrison*` fields and every number is as it was). 0 in the open. */
+  private garrisonBonus(i: number): Fx {
+    const s = this.garrisonedIn[i];
+    return s < 0 ? 0 : this.structureTypes[this.stTypeIdx[s]].garrisonRangeBonus;
+  }
+
+  /** `w`'s maximum range squared for unit `i`: longer from inside (ruling 4) by its building's bonus,
    *  longer again by a field work's range bonus. */
   private reachSq(i: number, w: WeaponStats): Fx {
     if (this.garrisonedIn[i] < 0) return w.rangeSq;
     const b = this.auraRangeBonus(i, w);
-    if (b === 0) return w.garrisonRangeSq;
-    const r = fx.add(fx.add(w.range, GARRISON_RANGE_BONUS), b);
+    const g = this.garrisonBonus(i);
+    if (b === 0 && g === GARRISON_RANGE_BONUS) return w.garrisonRangeSq;
+    const r = fx.add(fx.add(w.range, g), b);
     return fx.mul(r, r);
   }
 
@@ -6658,15 +6667,16 @@ export class Sim {
   private effSq(i: number, w: WeaponStats): Fx {
     if (this.garrisonedIn[i] < 0) return w.effectiveRangeSq;
     const b = this.auraRangeBonus(i, w);
-    if (b === 0) return w.garrisonEffRangeSq;
-    const r = fx.add(w.garrisonEffRange, b);
+    const g = this.garrisonBonus(i);
+    if (b === 0 && g === GARRISON_RANGE_BONUS) return w.garrisonEffRangeSq;
+    const r = fx.add(fx.add(w.effectiveRange, g), b);
     return fx.mul(r, r);
   }
 
   /** `w`'s effective range for unit `i`, the hit-falloff scale. */
   private effRange(i: number, w: WeaponStats): Fx {
     if (this.garrisonedIn[i] < 0) return w.effectiveRange;
-    return fx.add(w.garrisonEffRange, this.auraRangeBonus(i, w));
+    return fx.add(fx.add(w.effectiveRange, this.garrisonBonus(i)), this.auraRangeBonus(i, w));
   }
 
   /** Unit `i`'s sight squared: its type's, plus a field work's `sight_bonus` from inside. */
