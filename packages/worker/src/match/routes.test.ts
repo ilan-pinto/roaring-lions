@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { handleMatch } from './routes';
 import { signTicket, verifyTicket } from './ticket';
-import type { Env, RateLimiter } from '../d1';
+import type { D1Like, Env, RateLimiter } from '../d1';
+import { openTestD1 } from '../test-d1';
+import { ACCOUNTS_MIGRATIONS, seedWalletMember } from '../account/test-kit';
 
 const NOW = 1_790_000_000_000;
 const ORIGIN = 'https://roaring-lions.pint12.workers.dev';
@@ -73,7 +75,7 @@ describe('/api/match', () => {
     expect(createBodies[0]).toMatchObject({ player: 'id-1', callsign: 'Ari', mode: 'versus' });
     const join = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-2', callsign: 'Bo' }), env, NOW);
     expect(await verifyTicket('secret', ((await join.json()) as { ticket: string }).ticket, NOW)).toMatchObject({ seat: 1, player: 'id-2' });
-    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Bo', kind: 'human', tiers: {}, specials: [] });
+    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Bo', kind: 'human', member: null, tiers: {}, specials: [] });
     // Anything but 'versus' is a sandbox; an absent callsign is 'Lion'.
     await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-3', build: 'b1', mode: 'conquest' }), env, NOW);
     expect(createBodies[1]).toMatchObject({ mode: 'sandbox', callsign: 'Lion' });
@@ -191,10 +193,10 @@ describe('/api/match', () => {
     expect(createBodies[0]).toMatchObject({ callsign: 'A ri BO ' + 'x'.repeat(16) });
     expect((createBodies[0] as { callsign: string }).callsign).toHaveLength(24);
     await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-2', callsign: '\u202E\u0007\u200B' }), env, NOW);
-    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Lion', kind: 'human', tiers: {}, specials: [] });
+    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Lion', kind: 'human', member: null, tiers: {}, specials: [] });
     const again = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-4', callsign: 'Bo\tX\u2028Y' }), env, NOW);
     expect(again.status).toBeLessThan(500);
-    expect(joinBodies[1]).toEqual({ player: 'id-4', callsign: 'Bo X Y', kind: 'human', tiers: {}, specials: [] });
+    expect(joinBodies[1]).toEqual({ player: 'id-4', callsign: 'Bo X Y', kind: 'human', member: null, tiers: {}, specials: [] });
   });
   it('a missing or empty player answers 400 on create and join, before any room is touched', async () => {
     const { env, createBodies, joinBodies } = fakeRooms();
@@ -667,5 +669,109 @@ describe('POST /api/match/:code/watch (GH-954 W1)', () => {
     expect((await handleMatch(new Request(`${ORIGIN}/api/match/${code}/watch`, { method: 'GET', headers: { origin: ORIGIN } }), env, NOW)).status).toBe(405);
     const gone = await signTicket('secret', { matchId: 'ZZZZZZ', seat: 0, player: 'x', exp: NOW + 60_000 });
     expect((await handleMatch(post(`${ORIGIN}/api/match/ZZZZZZ/watch`, { ticket: gone }), env, NOW)).status).toBe(404);
+  });
+});
+
+describe('a seat\'s member comes from the cookie (GH-1075 A3 Task 3.3)', () => {
+  const MS_DAY = 86_400_000;
+  /** A members database with A and B (B's session is never sent), and the rooms env bound to it. */
+  async function world(opts: { bind?: boolean; aAt?: number } = {}) {
+    const db: D1Like = openTestD1({ dir: ACCOUNTS_MIGRATIONS });
+    const a = await seedWalletMember(db, 'idA', opts.aAt ?? NOW);
+    const b = await seedWalletMember(db, 'idB', NOW);
+    const rooms = fakeRooms();
+    const env = (opts.bind === false ? rooms.env : { ...rooms.env, ACCOUNTS: db }) as Env;
+    return { ...rooms, env, a, b };
+  }
+  const withCookie = (url: string, body: unknown, cookie?: string) =>
+    new Request(url, { method: 'POST', headers: { origin: ORIGIN, 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.9', ...(cookie === undefined ? {} : { cookie }) }, body: JSON.stringify(body) });
+  /** The forged body: names B three ways. */
+  const forged = (b: { memberId: string }, extra: Record<string, unknown> = {}) => ({ player: 'PUB-idB', callsign: 'X', build: 'b1', member: 'PUB-idB', memberId: b.memberId, ...extra });
+  type Seen = { member: { publicId: string } | null; [k: string]: unknown };
+  /** What the room request holds besides the anonymous `player` id, which legitimately echoes the body. */
+  const outsidePlayer = (o: Record<string, unknown>): string => JSON.stringify({ ...o, player: undefined });
+
+  it('the_member_is_the_cookie', async () => {
+    const w = await world();
+    // 1. no cookie, a body naming B: a guest
+    expect((await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(w.b)), w.env, NOW)).status).toBe(201);
+    expect((w.createBodies[0] as Seen).member).toBeNull();
+    // 2. A's cookie: A, and B appears nowhere beside `player`
+    expect((await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(w.b), w.a.cookie), w.env, NOW)).status).toBe(201);
+    const c = w.createBodies[1] as Seen;
+    expect(c.member?.publicId).toBe('PUB-idA');
+    expect(outsidePlayer(c)).not.toContain('idB');
+    expect(outsidePlayer(c)).not.toContain('PUB-idB');
+    // 3. the same two cases for a join
+    const code = w.created[0];
+    expect((await handleMatch(withCookie(`${ORIGIN}/api/match/${code}/join`, forged(w.b)), w.env, NOW)).status).toBe(200);
+    expect((w.joinBodies[0] as Seen).member).toBeNull();
+    const code2 = w.created[1];
+    expect((await handleMatch(withCookie(`${ORIGIN}/api/match/${code2}/join`, forged(w.b), w.a.cookie), w.env, NOW)).status).toBe(200);
+    const j = w.joinBodies[1] as Seen;
+    expect(j.member?.publicId).toBe('PUB-idA');
+    expect(outsidePlayer(j)).not.toContain('idB');
+    expect(outsidePlayer(j)).not.toContain('PUB-idB');
+  });
+
+  it('unbound_accounts_seat_guests', async () => {
+    const w = await world({ bind: false });
+    const res = await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(w.b), w.a.cookie), w.env, NOW);
+    expect(res.status).toBe(201);
+    expect((w.createBodies[0] as Seen).member).toBeNull();
+  });
+
+  it('an_expired_session_is_a_guest', async () => {
+    const w = await world({ aAt: NOW - 181 * MS_DAY });
+    const res = await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(w.b), w.a.cookie), w.env, NOW);
+    expect(res.status).toBe(201);
+    expect((w.createBodies[0] as Seen).member).toBeNull();
+  });
+
+  it('the_answer_names_no_member', async () => {
+    const w = await world();
+    const res = await handleMatch(withCookie(`${ORIGIN}/api/match`, { player: 'p-host', callsign: 'A', build: 'b1' }, w.a.cookie), w.env, NOW);
+    const text = await res.text();
+    const { ticket } = JSON.parse(text) as { ticket: string };
+    const payload = Buffer.from(ticket.split('.')[0], 'base64url').toString();
+    for (const hay of [text, payload]) {
+      expect(hay).not.toContain('PUB-idA');
+      expect(hay).not.toContain('idA');
+    }
+    expect((w.createBodies[0] as Seen).member?.publicId).toBe('PUB-idA');
+  });
+
+  it('the_bot_model_reaches_the_room_for_a_bot_only', async () => {
+    const w = await world();
+    const model = { id: 'other', name: 'MyNet v3' };
+    await handleMatch(withCookie(`${ORIGIN}/api/match`, { player: 'h', build: 'b1' }), w.env, NOW);
+    const room = (n: number) => w.created[n];
+    const join = (n: number, body: Record<string, unknown>, cookie?: string) =>
+      handleMatch(withCookie(`${ORIGIN}/api/match/${room(n)}/join`, { player: 'bot1', build: 'b1', botModel: model, ...body }, cookie), w.env, NOW);
+    expect((await join(0, { kind: 'bot' })).status).toBe(200);
+    expect(w.joinBodies[0].botModel).toEqual(model);
+    // a human seat drops it
+    await handleMatch(withCookie(`${ORIGIN}/api/match`, { player: 'h', build: 'b1' }), w.env, NOW);
+    expect((await join(1, {})).status).toBe(200);
+    expect('botModel' in w.joinBodies[1]).toBe(false);
+    // a member seat (the cookie) drops it, whatever kind it claims
+    await handleMatch(withCookie(`${ORIGIN}/api/match`, { player: 'h', build: 'b1' }), w.env, NOW);
+    expect((await join(2, { kind: 'bot' }, w.a.cookie)).status).toBe(200);
+    expect('botModel' in w.joinBodies[2]).toBe(false);
+    // the same on create: a bot host keeps it, a human host and a member host drop it
+    const mk = (body: Record<string, unknown>, cookie?: string) => handleMatch(withCookie(`${ORIGIN}/api/match`, { player: 'h', build: 'b1', botModel: model, ...body }, cookie), w.env, NOW);
+    await mk({ kind: 'bot' });
+    await mk({});
+    await mk({ kind: 'bot' }, w.a.cookie);
+    const cb = w.createBodies.slice(-3);
+    expect(cb[0].botModel).toEqual(model);
+    expect('botModel' in cb[1]).toBe(false);
+    expect('botModel' in cb[2]).toBe(false);
+    // `other` with no name is refused before any room is reached
+    const before = w.calls.length;
+    const bad = await handleMatch(withCookie(`${ORIGIN}/api/match`, { player: 'b', build: 'b1', kind: 'bot', botModel: { id: 'other' } }), w.env, NOW);
+    expect(bad.status).toBe(400);
+    expect(await bad.text()).toBe('botModel');
+    expect(w.calls.length).toBe(before);
   });
 });
