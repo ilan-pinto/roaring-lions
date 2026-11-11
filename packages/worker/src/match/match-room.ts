@@ -81,7 +81,8 @@ import { readCapped } from '../read-capped';
 import { LOG_FROM_SQL, SNAP_CREATE_SQL, SNAP_GET_SQL, SNAP_PUT_SQL, SNAP_TICK_SQL } from './snapshot-sql';
 import { PendingBook, ReservationBook, admitTick, decide } from './snapshot-intake';
 import { SNAP_MISMATCH_PER_ROOM, writeSnapMismatch } from './snap-mismatch-log';
-import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
+import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, recordOf, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
+import { writeMatchRecord, type RecordSeat } from './record';
 import { verifyTicket } from './ticket';
 import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, seatKindField, seatSpecialsField, seatTiersField, textField, type Kit, type SeatKind, type SeatSpecials, type SeatTiers } from './room-fields';
 import { compactLog, writeDesync } from './desync-log';
@@ -624,6 +625,29 @@ export class MatchRoom {
     // AWAITED: an unawaited D1 call may be cancelled when the object hibernates.
     await Promise.all(snapshots);
     if (desync !== null) await this.logDesync(desync.tick, desync.hashes);
+    await this.recordMatch();
+  }
+  /** GH-1075 A3: once an ended versus room has a record draft, write it ONCE. `recorded` is saved BEFORE the write, so an
+   *  eviction mid-write loses at most one record and never writes two (`INSERT OR IGNORE` is the second guard); a
+   *  failing write is logged and never breaks the room. With no accounts database bound there is nothing to write. */
+  private async recordMatch(): Promise<void> {
+    const db = this.env.ACCOUNTS;
+    const st = this.st;
+    const meta = this.meta;
+    if (db === undefined || meta === null || st === null) return;
+    const draft = recordOf(st);
+    if (draft === null) return;
+    st.recorded = true;
+    await this.saveIfChanged();
+    const seat = (i: 0 | 1): RecordSeat => ({ memberId: meta.members[i]?.memberId ?? null, claimedBot: meta.kinds[i] === 'bot', botModel: meta.botModels[i], side: st.factions[i] });
+    try {
+      await writeMatchRecord(db, Date.now(), {
+        code: st.code, draft, map: st.map, matchup: `${st.factions[0]}-${st.factions[1]}`, winMode: meta.winMode ?? null, kit: meta.kit, build: meta.build,
+        seats: [seat(0), seat(1)],
+      });
+    } catch (e) {
+      console.error('MatchRoom: record write failed', e instanceof Error ? e.message : String(e));
+    }
   }
   /** The pair's hashes for a snapshot tick agreed on `h`: remember the two
    *  newest in memory (no row), then see whether the uploads waiting for this

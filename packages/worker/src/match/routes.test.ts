@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { handleMatch } from './routes';
 import { signTicket, verifyTicket } from './ticket';
 import type { D1Like, Env, RateLimiter } from '../d1';
@@ -722,10 +722,37 @@ describe('a seat\'s member comes from the cookie (GH-1075 A3 Task 3.3)', () => {
   });
 
   it('an_expired_session_is_a_guest', async () => {
+    // 181 days back: past the 180-day absolute cap
     const w = await world({ aAt: NOW - 181 * MS_DAY });
     const res = await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(w.b), w.a.cookie), w.env, NOW);
     expect(res.status).toBe(201);
     expect((w.createBodies[0] as Seen).member).toBeNull();
+    // 31 days back: inside the absolute cap, past the 30-day IDLE expiry: a guest, through `expires_at` alone
+    const idle = await world({ aAt: NOW - 31 * MS_DAY });
+    expect((await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(idle.b), idle.a.cookie), idle.env, NOW)).status).toBe(201);
+    expect((idle.createBodies[0] as Seen).member).toBeNull();
+    // 29 days back: still a member (the control: the same world, two days younger)
+    const live = await world({ aAt: NOW - 29 * MS_DAY });
+    expect((await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(live.b), live.a.cookie), live.env, NOW)).status).toBe(201);
+    expect((live.createBodies[0] as Seen).member?.publicId).toBe('PUB-idA');
+  });
+
+  it('a_failing_accounts_database_seats_a_guest', async () => {
+    const w = await world();
+    const broken = { prepare: () => { throw new Error('D1 down'); }, batch: () => Promise.reject(new Error('D1 down')) } as unknown as D1Like;
+    const env = { ...w.env, ACCOUNTS: broken } as Env;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const created = await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(w.b), w.a.cookie), env, NOW);
+      expect(created.status).toBe(201);
+      expect((w.createBodies[0] as Seen).member).toBeNull();
+      const joined = await handleMatch(withCookie(`${ORIGIN}/api/match/${w.created[0]}/join`, forged(w.b), w.a.cookie), env, NOW);
+      expect(joined.status).toBe(200);
+      expect((w.joinBodies[0] as Seen).member).toBeNull();
+      expect(err).toHaveBeenCalledTimes(2);
+    } finally {
+      err.mockRestore();
+    }
   });
 
   it('the_answer_names_no_member', async () => {
