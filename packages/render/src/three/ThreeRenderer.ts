@@ -555,6 +555,18 @@ import {
 import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
 import { footprintCentre } from './units/footprint';
+import {
+  CUT_BAND_TILES,
+  CUT_HEIGHT_TILES,
+  CUT_ROOF_FALLBACK_TILES,
+  CUT_SELECT_RADIUS_TILES,
+  CutawayTable,
+  footprintDistance,
+  writeCutVolumes,
+  type CutTrigger,
+  type CutVolume,
+} from './units/building-cutaway';
+import { BuildingCutMaterials, createCutUniforms, cutColorsFor, type CutUniforms } from './units/cut-material';
 import { DEFAULT_BUILDING_FIT, buildingFitScale, type FitScale } from './units/building-fit';
 import {
   FX_RENDER_ORDER,
@@ -2736,6 +2748,19 @@ export class ThreeRenderer implements Renderer {
   private readonly buildingScars = new Map<string, BuildingScarMaterials>();
   private readonly buildingDamageBand = new Map<number, number>();
   /**
+   * GH-1225 slice 1, the roof cutaway (`units/building-cutaway.ts`, `units/cut-material.ts`): the live volumes, keyed by the
+   * selected unit that asked for each, on the FRAME clock; the shared volume block every cut clone binds by reference, minted on
+   * the first cut and never before; and the buildings a volume reaches now, each with its cut clones and the root they were put
+   * on. Empty while nothing is selected, so a gated capture mints nothing (`cutawayCount`). Presentation only (invariant 4).
+   */
+  private readonly cutaway = new CutawayTable();
+  private cutUniforms: CutUniforms | null = null;
+  private readonly buildingCuts = new Map<number, { root: THREE.Object3D; mats: BuildingCutMaterials }>();
+  /** Each standing clone's drawn roof, world Y (tiles), read once from its frozen bounds: a standing building never moves. */
+  private readonly buildingRoofY = new Map<number, { root: THREE.Object3D; y: number }>();
+  private readonly cutTriggers: CutTrigger[] = [];
+  private readonly cutVolumes: CutVolume[] = [];
+  /**
    * GH-31, the vehicle half: the per-TYPE memo of scarred hull materials
    * (`units/vehicle-damage.ts`). The band each hull is drawn at lives on the
    * entity itself (`vehicleDrawnBand`), so a rebuilt clone starts clean.
@@ -4352,6 +4377,11 @@ export class ThreeRenderer implements Renderer {
     // dangling it would otherwise be a map full of stale `THREE.Object3D`
     // references after this method returns.
     this.buildingMeshSettling.clear();
+    // GH-1225: the cut clones, on the same footing as the scar clones below.
+    for (const cut of this.buildingCuts.values()) cut.mats.dispose();
+    this.buildingCuts.clear();
+    this.buildingRoofY.clear();
+    this.cutaway.clear();
     // The scar clones before their templates: a clone shares its base's
     // map by reference and must not outlive the template that owns it.
     for (const scars of this.buildingScars.values()) scars.dispose();
@@ -4641,6 +4671,8 @@ export class ThreeRenderer implements Renderer {
     // frame late and hand the last frame of it to a swap that already ran.
     this.stepCollapseShrouds(dtMs);
     this.updateBuildingMeshes();
+    // GH-1225: after the clones it cuts are stood up (or taken down) this frame.
+    this.updateCutaway(alpha, dtMs);
     this.stepBuildingMeshSettle(this.frameDtSeconds(dtMs));
     this.stepBuildingBurning(dtMs);
     this.updateFx(dtMs, alpha);
@@ -5776,6 +5808,8 @@ export class ThreeRenderer implements Renderer {
     const overlayObjects = this.overlayLayerObjects();
     const overlayObjectsWere = overlayObjects.map((o) => o.visible);
     const rainWasVisible = this.rain?.mesh.visible ?? false;
+    // GH-1225: the minimap is a map-wide photograph of the UNCUT footprints: the cutaway's volume count is forced to 0 for it.
+    const cutsWere = this.cutUniforms?.uRlCutN.value ?? 0;
     // GH-1197 P2: the debris pool is a one-off effect, not ground: the minimap never photographs a flying chunk.
     // Its GROUP is hidden, so the pool's own per-mesh `visible` (its live window) is left alone.
     const debrisWasVisible = this.debris?.group.visible ?? false;
@@ -5784,12 +5818,14 @@ export class ThreeRenderer implements Renderer {
       overlayObjects.forEach((o, k) => (o.visible = overlayObjectsWere[k] ?? o.visible));
       this.setDebugLayerVisible('units', unitsWereVisible);
       if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
+      if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = cutsWere;
       if (this.debris !== null) this.debris.group.visible = debrisWasVisible;
     };
     try {
       this.setDebugLayerVisible('units', false);
       this.setDebugLayerVisible('overlays', false);
       if (this.rain !== null) this.rain.mesh.visible = false;
+      if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = 0;
       if (this.debris !== null) this.debris.group.visible = false;
       this.fitShadowToMap();
     } catch (err) {
@@ -11749,7 +11785,8 @@ export class ThreeRenderer implements Renderer {
     for (const [s, twin] of this.buildingMeshLod1Entities) {
       const full = this.buildingMeshIdleEntities.get(s);
       if (full === undefined) continue;
-      const showTwin = !this.buildingLayerHidden && lod1Shown(this.buildingLodOn, this.buildingDamageBand.get(s));
+      // GH-1225: a cut building keeps its full art, as a scarred one does (the twin has no cut).
+      const showTwin = !this.buildingLayerHidden && lod1Shown(this.buildingLodOn, this.buildingDamageBand.get(s)) && !this.buildingCuts.has(s);
       twin.visible = showTwin;
       full.visible = !this.buildingLayerHidden && !showTwin;
     }
@@ -11960,8 +11997,12 @@ export class ThreeRenderer implements Renderer {
       scars = new BuildingScarMaterials();
       this.buildingScars.set(typeId, scars);
     }
-    if (root) applyBuildingDamageBand(root, band, scars);
-    else {
+    if (root) {
+      applyBuildingDamageBand(root, band, scars);
+      // GH-1225: a cut building stays cut across a band change: the cut clones of the new band's materials.
+      const cut = this.buildingCuts.get(s);
+      if (cut !== undefined && cut.root === root) this.applyBuildingCut(s, root, cut.mats);
+    } else {
       // One set per scar band, none for the clean three: bands 8-6 share the
       // template's own material, so they share one set too.
       this.structureInstances.setIdleState(s, scarMixForBand(band) === 0 ? 0 : band, this.scarMaterialFor(typeId));
@@ -11975,6 +12016,147 @@ export class ThreeRenderer implements Renderer {
     } else {
       this.buildingBurning.delete(s);
     }
+  }
+
+  /**
+   * GH-1225 slice 1: how many buildings are cut now (hold cut clones). 0 whenever nothing has been selected beside a building
+   * for the last `CUT_HOLD_MS + CUT_CLOSE_MS`, which is what the visual gate's capture precondition asserts.
+   */
+  cutawayCount(): number {
+    return this.buildingCuts.size;
+  }
+
+  /**
+   * GH-1225 slice 1, the roof cutaway on the FRAME clock: the selection's triggers into the volume table, the table into the
+   * shared volume block, and the cut clones onto exactly the clone-drawn buildings a volume reaches (released from the rest).
+   * Returns before touching anything while nothing is selected and nothing is open, so a frame with no selection does no new
+   * work and binds nothing. Instanced per-tile sets take no cut. The node backend draws none (the TSL twin is a later slice).
+   */
+  private updateCutaway(alpha: number, dtMs: number): void {
+    if (this.nodeBackend !== null) return;
+    const triggers = this.cutTriggers;
+    triggers.length = 0;
+    if (this.selection.length > 0 && this.buildingMeshIdleEntities.size > 0) this.collectCutTriggers(alpha, triggers);
+    if (triggers.length === 0 && this.cutaway.size === 0 && this.buildingCuts.size === 0) return;
+    this.cutaway.step(triggers, this.frameDtMs(dtMs));
+    const vols = this.cutaway.volumes(this.cutVolumes);
+    if (vols.length > 0 && this.cutUniforms === null) this.cutUniforms = createCutUniforms();
+    if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = writeCutVolumes(vols, this.cutUniforms.uRlCutV.value);
+    const st = this.sim.structures;
+    let changed = false;
+    for (const [s, root] of this.buildingMeshIdleEntities) {
+      let reached = false;
+      if (st.alive[s] === 1) {
+        for (const v of vols) {
+          if (footprintDistance(st.minX[s], st.minY[s], st.maxX[s], st.maxY[s], v.cx, v.cz) < v.r + v.w) {
+            reached = true;
+            break;
+          }
+        }
+      }
+      const cut = this.buildingCuts.get(s);
+      if (reached && (cut === undefined || cut.root !== root)) {
+        if (cut !== undefined) this.dropBuildingCut(s);
+        const type = this.sim.structureTypes[st.typeIdx[s]];
+        const mats = new BuildingCutMaterials(this.cutUniforms!, cutColorsFor(type.color));
+        this.buildingCuts.set(s, { root, mats });
+        this.applyBuildingCut(s, root, mats);
+        changed = true;
+      } else if (!reached && cut !== undefined) {
+        this.releaseBuildingCut(s);
+        changed = true;
+      }
+    }
+    // A cut whose clone left the scene (death, a template reload) goes with it.
+    for (const [s, cut] of this.buildingCuts) {
+      if (this.buildingMeshIdleEntities.get(s) !== cut.root) {
+        this.dropBuildingCut(s);
+        changed = true;
+      }
+    }
+    if (changed) this.stepLod1(this.camera.zoom);
+  }
+
+  /** Every selected unit this seat may see that stands within `CUT_SELECT_RADIUS_TILES` of a standing clone's footprint, where
+   *  it is drawn this frame, with its cut height and the tallest roof in its reach. */
+  private collectCutTriggers(alpha: number, out: CutTrigger[]): void {
+    const st = this.sim.state;
+    const ss = this.sim.structures;
+    const n = this.snapshottedCount;
+    const reach = CUT_SELECT_RADIUS_TILES + CUT_BAND_TILES;
+    for (const i of this.selection) {
+      if (i >= n || st.alive[i] !== 1 || st.tunnelIn[i] >= 0) continue;
+      const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      if (!isOwnSide(st.side[i], this.fogViewer) && !this.isVisible(x, z)) continue;
+      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z) + CUT_HEIGHT_TILES;
+      let near = false;
+      let yTop = -Infinity;
+      for (const [s, root] of this.buildingMeshIdleEntities) {
+        if (ss.alive[s] !== 1) continue;
+        const d = footprintDistance(ss.minX[s], ss.minY[s], ss.maxX[s], ss.maxY[s], x, z);
+        if (d >= reach) continue;
+        const roof = this.roofYOf(s, root);
+        // A structure no taller than the cut (a sandbag line) has nothing to take away.
+        if (roof <= yCut) continue;
+        if (d <= CUT_SELECT_RADIUS_TILES) near = true;
+        if (roof > yTop) yTop = roof;
+      }
+      if (!near) continue;
+      const dx = x - this.camera.x;
+      const dz = z - this.camera.y;
+      out.push({ key: i, x, z, yCut, yTop, focusDist2: dx * dx + dz * dz });
+    }
+  }
+
+  /** Building `s`'s drawn roof, world Y: its clone's bounds, read once (a standing building never moves). */
+  private roofYOf(s: number, root: THREE.Object3D): number {
+    const known = this.buildingRoofY.get(s);
+    if (known !== undefined && known.root === root) return known.y;
+    const box = new THREE.Box3().setFromObject(root);
+    const y = box.isEmpty() ? root.position.y + CUT_HEIGHT_TILES + CUT_ROOF_FALLBACK_TILES : box.max.y;
+    this.buildingRoofY.set(s, { root, y });
+    return y;
+  }
+
+  /** Puts building `s`'s cut clones of its CURRENT band materials on every mesh of `root`. */
+  private applyBuildingCut(s: number, root: THREE.Object3D, mats: BuildingCutMaterials): void {
+    const sc = this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id);
+    const band = this.buildingDamageBand.get(s) ?? 8;
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      // Through the scar memo FIRST: it records each mesh's own base the first time it sees it, so a mesh is never taken
+      // to have been born with a cut clone.
+      mesh.material = mats.materialFor(sc.materialFor(mesh, band));
+    });
+  }
+
+  /** Building `s` leaves the cut: its meshes back on their band materials, and its clones released. */
+  private releaseBuildingCut(s: number): void {
+    const cut = this.buildingCuts.get(s);
+    if (cut === undefined) return;
+    const band = this.buildingDamageBand.get(s) ?? 8;
+    applyBuildingDamageBand(cut.root, band, this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id));
+    this.dropBuildingCut(s);
+  }
+
+  /** Releases building `s`'s cut clones without touching its meshes (its clone is gone, or about to be re-cut). */
+  private dropBuildingCut(s: number): void {
+    const cut = this.buildingCuts.get(s);
+    if (cut === undefined) return;
+    cut.mats.dispose();
+    this.buildingCuts.delete(s);
+  }
+
+  /** The per-type scar memo, minted on first use. */
+  private scarsFor(typeId: string): BuildingScarMaterials {
+    let scars = this.buildingScars.get(typeId);
+    if (!scars) {
+      scars = new BuildingScarMaterials();
+      this.buildingScars.set(typeId, scars);
+    }
+    return scars;
   }
 
   /**
