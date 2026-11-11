@@ -438,10 +438,19 @@ describe('flipbook recipes, as shipped', () => {
     .map((f) => ({ file: f, em: JSON.parse(readFileSync(path.join(VFX_DIR, f), 'utf8')) as { flipbook?: FlipbookLayerSpec[] } }))
     .filter((r) => r.em.flipbook !== undefined);
 
-  it('finds the eight shipped recipes', () => {
+  // GH-1197 P3: `building_hit_dust` is masonry dust and no fireball: it has no fire layer and nothing scales from one.
+  const NO_FIREBALL = ['building_hit_dust.json'];
+
+  it('finds the nine shipped recipes', () => {
     expect(recipes.map((r) => r.file).sort()).toEqual([
-      'air_strike_impact.json', 'barrage_impact.json', 'catastrophic_kill.json', 'cluster_airburst.json', 'fire_apfsds.json', 'fire_heat.json', 'missile_impact.json', 'shell_impact.json',
+      'air_strike_impact.json', 'barrage_impact.json', 'building_hit_dust.json', 'catastrophic_kill.json', 'cluster_airburst.json', 'fire_apfsds.json', 'fire_heat.json', 'missile_impact.json', 'shell_impact.json',
     ]);
+  });
+
+  it('a recipe with no fireball has nothing that scales from one', () => {
+    for (const { file, em } of recipes.filter((r) => NO_FIREBALL.includes(r.file))) {
+      expect(em.flipbook?.some((l) => l.type === 'fire' || l.scale_from !== undefined), file).toBe(false);
+    }
   });
 
   // `spawnRecipe` reads the fireball scale off layer 0 (`base + per_power *
@@ -450,7 +459,7 @@ describe('flipbook recipes, as shipped', () => {
   // be one random draw, not a size) and no `scale_from` (it would scale by
   // itself).
   it('every recipe opens on a fire layer with no rand and no scale_from', () => {
-    for (const { file, em } of recipes) {
+    for (const { file, em } of recipes.filter((r) => !NO_FIREBALL.includes(r.file))) {
       const first = em.flipbook?.[0];
       expect(first?.type, file).toBe('fire');
       expect(first?.scale.rand, file).toBeUndefined();

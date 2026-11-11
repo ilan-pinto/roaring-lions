@@ -186,6 +186,9 @@ export interface MissileModel {
   /** GH-1197: the weapon's munition class and reach, for a missile with a
    *  splash (Hellfire, RPG). Its landing draws the two-part ring. */
   munition?: Munition;
+  /** GH-1197 P3: the round was fired at a BUILDING. Its hit throws masonry from the hit face
+   *  (`ThreeRenderer`'s structure hit), so its landing throws no ground debris on top of that. */
+  atStructure?: boolean;
 }
 
 export interface TargetTrack {
@@ -207,6 +210,8 @@ export interface MissileLanding {
   /** GH-1197: the missile's munition, on a real landing only (never an
    *  intercept, which bursts in the air). */
   munition?: Munition;
+  /** GH-1197 P3: copied from the missile (a real landing only). */
+  atStructure?: boolean;
 }
 
 /** A cheap, deterministic 32-bit hash mixing two integers into [0, 1). */
@@ -453,6 +458,7 @@ export function stepMissiles(
     if (m.t + dt >= m.duration && simTick > m.resolveTick) {
       const landing = landingFor(m, 1, 1);
       if (m.munition !== undefined) landing.munition = m.munition;
+      if (m.atStructure === true) landing.atStructure = true;
       landings.push(landing);
       // dropped: not copied forward
     } else {

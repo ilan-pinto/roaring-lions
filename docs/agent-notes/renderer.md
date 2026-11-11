@@ -665,3 +665,22 @@ Design: `docs/superpowers/specs/2026-11-09-explosion-scale-and-building-physics-
 - **Cost (`RenderQuality.debris`):** high 1024 pieces with shadows (+3 colour, +3 shadow draws, <= 27.4k triangles of the
   design's 49k), medium 512 with none (+3, <= 6.9k of 12k), low none. `debris-pool.test.ts` is the cost test. The `debris` debug
   layer hides the pool; `blast:capture` has no `debris` toggle floor yet (no browser in P2).
+
+## Building hits (GH-1197 P3)
+
+- **Which hits:** only an explosive DIRECT-fire round (`apfsds`, `autocannon`, `atgm`, `rpg`, `heat`, `he`) fired at a
+  building (coordinator ruling Q2). `structureHit` names no weapon, so `onFire` files the round in `pendingStructShots`
+  (resolve tick: the fire tick for a bolt, `missileResolveTick` for a missile; the `pendingCharges` pattern) and the hit
+  that resolves it consumes it (`takeStructShot`). Small arms and the HMG keep today's centroid puff, an indirect hit adds
+  nothing (its landing throws ring and debris), a charge stays `eod_breach`. A missile fired at a building lands with its
+  ring but no ground debris (`MissileLanding.atStructure`), unless it missed.
+- **Where and which way (`units/building-hit.ts`):** the hit face is the footprint's nearest point to the shooter, its
+  normal the side that point is on, the hit 0.3-0.8 up the wall (hashed). The class debris (a mapped weapon's row at its
+  S; an unmapped one, `gun_120` or `kornet`, `direct_he` at its reference S: 12 + 8) leaves along the normal +-35 degrees
+  back toward the shooter (ruling Q3; the 60/40 bias "away" is the P5 collapse's). `planDebris` takes the `aim`.
+- **Colour:** the building type's `structures.json` colour key and the two darker keys on its ramp, every fourth piece
+  `gunmetal.2`. **Dust:** `data/vfx/building_hit_dust.json` (trigger `structure_hit`), 6 flipbook smoke billows in dust
+  tones for about 3 s at alpha 0.55, drifting out along the normal; its particle layer stands in until the atlases load.
+- **Limits:** at most one burst a building per 4 ticks (an autocannon lands ten rounds a second); nothing in a catch-up;
+  in versus nothing for a hostile hit on a building out of sight (`hostileEffectVisible`, the collapse's rule).
+- **Not here:** the char halo goes with the hole (P4, ruling Q1); holes (P4); the staged collapse (P5).
