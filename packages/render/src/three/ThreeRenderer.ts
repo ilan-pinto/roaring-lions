@@ -409,7 +409,7 @@ import {
   type TexturedDecorSet,
 } from './terrain/decor-textured-mesh';
 import { lod1Shown } from './units/building-lod';
-import { buildingSkin, keepsFullArt } from './units/building-skin';
+import { buildingMask, buildingSkin, keepsFullArt } from './units/building-skin';
 import { isTexturedDecorKey } from './terrain/textured-decor';
 import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
@@ -12261,7 +12261,7 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * GH-1225 L7: the ONE material write for a holed and/or cut clone-drawn building: each mesh gets its band material, holed
-   * then cut (`buildingSkin`), so one clone carries both hooks. Holes bring their depth material.
+   * then cut (`buildingSkin`), so one clone carries both hooks, and its shadow and AO mask (`buildingMask`) discard alike.
    */
   private applyBuildingSkin(s: number, root: THREE.Object3D): void {
     const sc = this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id);
@@ -12269,18 +12269,17 @@ export class ThreeRenderer implements Renderer {
     const holes = this.buildingHoles.get(s)?.mats ?? null;
     const c = this.buildingCuts.get(s);
     const cut = c !== undefined && c.root === root ? c.mats : null;
+    const mask = buildingMask(holes, cut, this.cutMask);
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       // Through the scar memo FIRST: it records each mesh's own base the first time it sees it, so a mesh is never taken
       // to have been born with a holed or cut clone.
       mesh.material = buildingSkin(sc.materialFor(mesh, band), holes, cut);
-      if (holes !== null) mesh.customDepthMaterial = holes.depth;
-      else if (cut !== null && this.cutMask !== null) {
-        // Slice 2: the shadow and the AO G-buffer take the same mask (L5).
-        mesh.customDepthMaterial = this.cutMask.depth;
-        mesh.userData.rlCutAo = this.cutMask.ao;
-      }
+      // GH-1225 x GH-1197 P4: the shadow and the AO G-buffer take ONE mask of holes and cut, the colour clone's discards.
+      mesh.customDepthMaterial = mask.depth;
+      if (mask.ao !== undefined) mesh.userData.rlCutAo = mask.ao;
+      else delete mesh.userData.rlCutAo;
     });
   }
 

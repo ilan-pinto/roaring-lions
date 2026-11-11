@@ -16,7 +16,8 @@
  *   darkest key, 0.6 toward `gunmetal.2`.
  *
  * The same cut is hooked onto the building's `customDepthMaterial`, so the hole cuts the sun's shadow and light falls
- * through it. AO draws through an override material and still sees the wall whole (accepted by the design).
+ * through it. AO draws through an override material and still sees the wall whole (accepted by the design) -- except on a
+ * building that is also cut, whose depth and AO take ONE mask of holes and cut (`buildingMask`, GH-1225).
  *
  * `Material.clone()` drops `onBeforeCompile`, so the hook is put on every clone here, chained after any hook the base
  * already had; the program key is the base's plus `|rl-holes`. The node backend has no twin: there a holed building
@@ -29,6 +30,7 @@
  * Anything that later moves a standing root (a P5 sag, say) must move the holes with it.
  */
 import * as THREE from 'three';
+import type { MaskTerm } from './building-mask';
 import { TILE_HASH_MIX, TILE_HASH_MX, TILE_HASH_MY, TILE_HASH_SHIFT_A, TILE_HASH_SHIFT_B } from '../../tile-hash';
 import {
   HOLE_CAP,
@@ -130,6 +132,10 @@ void rlHoleApply() {
   }
 }
 `;
+
+/** The holes as a mask term (`building-mask.ts`): the same pars text the colour hook splices, discards and all. A holed
+ *  building's AO takes it only while the building is also cut (`buildingMask`). */
+export const HOLES_MASK_TERM: MaskTerm = { varying: 'vRlHoleW', pars: HOLES_PARS_GLSL, call: 'rlHoleApply();' };
 
 /** The colour program's splice after the base colour is known: the interior on a back face, the edge on a front one. */
 export const HOLES_COLOUR_GLSL = /* glsl */ `

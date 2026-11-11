@@ -19,7 +19,8 @@
  * material that the AO pre-pass swaps onto a cut mesh (`post-chain.ts`, `userData.rlCutAo`), because GTAO draws its G-buffer
  * through `scene.overrideMaterial` and so never reads a depth material. Both carry `cutMaskHook`, which discards and paints
  * nothing, over the SAME volume block, so the minimap's forced count of 0 (`photographGround`) suspends them too. The node
- * backend draws no cut (the TSL twin is a later slice; `ThreeRenderer` mints none there).
+ * backend draws no cut (the TSL twin is a later slice; `ThreeRenderer` mints none there). A building both holed and cut takes
+ * its own pair instead, ONE mask of holes and cut (`maskWith`, `building-mask.ts`), so depth, AO and colour discard alike.
  *
  * `Material.clone()` drops `onBeforeCompile`, so the hook is put on every clone, chained after any hook the base already had;
  * the program key is the base's plus `|rl-cut`. Positions are WORLD space: a standing building never moves (P4's ruling).
@@ -29,6 +30,8 @@ import paletteJson from '../../../../../data/palette.json';
 import { paletteHex } from '../palette-hex';
 import { hexToLinear } from '../terrain/shared';
 import { CUT_FLOATS_PER_VOLUME, CUT_SECTION_TILES, CUT_VOLUME_CAP } from './building-cutaway';
+import { createMaskMaterials, maskHook, type MaskMaterials, type MaskTerm } from './building-mask';
+import { HOLES_MASK_TERM, type BuildingHoleMaterials } from './holed-material';
 
 export const CUT_PROGRAM_KEY = 'rl-cut';
 /** How far the interior colour is taken from the wall ramp's darkest key toward `gunmetal.2` (P4's `HOLE_INTERIOR_TOWARD_CHAR`). */
@@ -86,56 +89,29 @@ export function cutShaderHook(vertex: string, fragment: string): { vertex: strin
   return { vertex: v, fragment: fr };
 }
 
-/** The hook that only discards, for the shadow's depth material and the AO's normal material: `CUT_PARS_GLSL` (the same
- *  text the colour hook splices, so the text pin covers both) and the cut at the top of `main`, no colour splice. Anchored on
- *  `void main() {` and `#include <project_vertex>` alone: r186's `ShaderLib.depth` fragment holds no `#include <common>`. */
+/** The cut as a mask term (`building-mask.ts`): `CUT_PARS_GLSL`, the same text the colour hook splices, so the text pin
+ *  covers both. */
+export const CUT_MASK_TERM: MaskTerm = { varying: 'vRlCutW', pars: CUT_PARS_GLSL, call: 'rlCutApply();' };
+
+/** The hook that only discards, for the shadow's depth material and the AO's normal material: the cut at the top of `main`,
+ *  no colour splice (`maskHook` over the one cut term). */
 export function cutMaskHook(vertex: string, fragment: string): { vertex: string; fragment: string } {
-  const main = /void main\(\)\s*\{/;
-  if (!vertex.includes('#include <project_vertex>')) throw new Error('cut mask hook: program no longer holds "#include <project_vertex>"');
-  if (!main.test(vertex) || !main.test(fragment)) throw new Error('cut mask hook: program no longer holds "void main() {"');
-  return {
-    vertex: vertex
-      .replace(main, (m) => `varying vec3 vRlCutW;\n${m}`)
-      .replace('#include <project_vertex>', '#include <project_vertex>\n  vRlCutW = (modelMatrix * vec4(transformed, 1.0)).xyz;'),
-    fragment: fragment.replace(main, (m) => `${CUT_PARS_GLSL}\n${m}\n  rlCutApply();`),
-  };
+  return maskHook(vertex, fragment, [CUT_MASK_TERM]);
 }
 
 export const CUT_MASK_PROGRAM_KEY = 'rl-cut-mask';
-
-function maskHooked<M extends THREE.Material>(material: M, shared: CutUniforms): M {
-  material.userData = { ...material.userData, rlCutMask: true };
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, { uRlCutV: shared.uRlCutV, uRlCutN: shared.uRlCutN });
-    const out = cutMaskHook(shader.vertexShader, shader.fragmentShader);
-    shader.vertexShader = out.vertex;
-    shader.fragmentShader = out.fragment;
-  };
-  material.customProgramCacheKey = () => CUT_MASK_PROGRAM_KEY;
-  return material;
-}
+/** The mask of a building both holed and cut: holes then cut, as its colour clone. */
+export const HOLES_CUT_MASK_PROGRAM_KEY = 'rl-holes|rl-cut-mask';
 
 /**
- * The two mask materials every cut mesh shares, over the shared volume block (the mask reads world position alone, so one of
- * each serves every building). Minted with the block, on the first cut; nothing exists before it.
- *
- * - `depth`: the shadow caster. Built exactly as r186's stock `_depthMaterial` (`new MeshDepthMaterial()`, basic packing),
- *   so a cut building's uncut walls cast the shadow they did. The shadow map writes its `side` from the mesh's material.
- * - `ao`: the AO G-buffer's normal material, built as `GTAOPass`'s own (`MeshNormalMaterial`, `NoBlending`), double-sided like
- *   the cut clone, and `allowOverride = false` so the pre-pass's `scene.overrideMaterial` leaves it in place.
+ * The two mask materials every cut mesh WITHOUT holes shares, over the shared volume block (the cut reads world position
+ * alone, so one of each serves every such building). Minted with the block, on the first cut; nothing exists before it. A
+ * holed building's cut takes its own pair (`BuildingCutMaterials.maskWith`), because its holes are its own uniforms.
  */
-export interface CutMaskMaterials {
-  readonly depth: THREE.MeshDepthMaterial;
-  readonly ao: THREE.MeshNormalMaterial;
-}
+export type CutMaskMaterials = MaskMaterials;
 
 export function createCutMaskMaterials(shared: CutUniforms): CutMaskMaterials {
-  const depth = maskHooked(new THREE.MeshDepthMaterial(), shared);
-  const ao = maskHooked(new THREE.MeshNormalMaterial(), shared);
-  ao.blending = THREE.NoBlending;
-  ao.side = THREE.DoubleSide;
-  ao.allowOverride = false;
-  return { depth, ao };
+  return createMaskMaterials({ uRlCutV: shared.uRlCutV, uRlCutN: shared.uRlCutN }, [CUT_MASK_TERM], CUT_MASK_PROGRAM_KEY);
 }
 
 /** The volume block every cut clone binds BY REFERENCE: `CUT_VOLUME_CAP` volumes of `CUT_FLOATS_PER_VOLUME` floats, and the
@@ -186,6 +162,7 @@ const STOCK_HOOK = THREE.Material.prototype.onBeforeCompile;
 export class BuildingCutMaterials {
   private readonly uniforms: CutUniforms & { readonly uRlCutCap: { value: THREE.Color }; readonly uRlCutInterior: { value: THREE.Color } };
   private readonly byBase = new Map<THREE.Material, THREE.Material>();
+  private holed: { readonly holes: BuildingHoleMaterials; readonly mask: MaskMaterials } | null = null;
 
   constructor(shared: CutUniforms, colors: CutColors) {
     this.uniforms = {
@@ -222,6 +199,27 @@ export class BuildingCutMaterials {
     return cut;
   }
 
+  /**
+   * The ONE mask of this building cut AND holed by `holes`: depth and AO discard on a hole OR the cut, over the holes'
+   * uniforms and the shared volume block by reference, the terms in the colour clone's order (holes, then cut). Memoised
+   * on `holes`; released with the cut.
+   */
+  maskWith(holes: BuildingHoleMaterials): MaskMaterials {
+    if (this.holed !== null && this.holed.holes === holes) return this.holed.mask;
+    this.disposeMask();
+    const uniforms = { ...holes.uniforms, uRlCutV: this.uniforms.uRlCutV, uRlCutN: this.uniforms.uRlCutN };
+    const mask = createMaskMaterials(uniforms, [HOLES_MASK_TERM, CUT_MASK_TERM], HOLES_CUT_MASK_PROGRAM_KEY);
+    this.holed = { holes, mask };
+    return mask;
+  }
+
+  private disposeMask(): void {
+    if (this.holed === null) return;
+    this.holed.mask.depth.dispose();
+    this.holed.mask.ao.dispose();
+    this.holed = null;
+  }
+
   /** How many cut colour clones exist. */
   get size(): number {
     return this.byBase.size;
@@ -238,5 +236,6 @@ export class BuildingCutMaterials {
   dispose(): void {
     for (const m of this.byBase.values()) m.dispose();
     this.byBase.clear();
+    this.disposeMask();
   }
 }

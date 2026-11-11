@@ -680,6 +680,13 @@ with P4's `rl-holes` hook, and the TSL twin are later slices.
   depth material; it does not**: `GTAOPass` draws its G-buffer through `scene.overrideMaterial`, so `WorldGTAOPass.render` swaps
   `rlCutAo` on for that render and back in `finally`. Both masks bind the shared block, so `photographGround`'s forced 0 suspends
   them. Release unsets both.
+- **One mask for holes and cut (after PR 1221):** `buildingMask` (`units/building-skin.ts`) is `buildingSkin`'s composition for
+  the shadow and AO, built from the colour hook's own discard terms (`maskHook`, `units/building-mask.ts`; `HOLES_MASK_TERM`,
+  `CUT_MASK_TERM`). Holed AND cut: the building's own pair (`BuildingCutMaterials.maskWith`, key `rl-holes|rl-cut-mask`), over
+  its hole uniforms and the shared block by reference, so depth, AO and colour discard on a hole OR the cut alike (a mismatch
+  draws a hole open in colour and shut in depth). Cut alone: the shared pair, text unchanged (one term is slice 2's hook byte
+  for byte). Holed alone: P4's `holes.depth` and no AO mask, unchanged (P4 accepted the AO seeing the wall whole). The one
+  write is `applyBuildingSkin`.
 - **The capture precondition:** a `mission=` scenario (only the report-only `combat`) drops the `cutawayCount` clause
   (`capturePreconditionFor`): a mission's visible garrison is its own picture. Every gated (sandbox) scenario keeps it.
 
