@@ -29,8 +29,11 @@ import type { GroundMaterial } from '../terrain/mesh';
 import type { GroundMaths } from '../terrain/mesh.node';
 import type { FoliageMaths } from '../terrain/decor-mesh.node';
 import type { RingMaths } from '../units/selection-ring.node';
+import type { BannerMaths } from '../units/garrison-banner.node';
 import type { ParticleMaths } from '../units/fx.node';
 import type { RimFadeMaths } from '../units/rim-fade.node';
+import type { FlipbookMaths } from '../units/flipbook-fx.node';
+import type { SmokeScreenMaths } from '../smoke-mesh.node';
 import type { BeamMaths } from '../units/beam-batch.node';
 import type { RotorMaths } from '../units/swarm-batch.node';
 import type { BackdropMaths } from '../terrain/backdrop.node';
@@ -107,7 +110,8 @@ export interface MaterialMaths {
   /** GH-943 P3 (T1): one slot per `MaterialKit` P3 slot, each `null` until its task gives it the type its twin declares. */
   /** T5: the occlusion and smoke outline (`units/silhouette.node.ts`). */
   readonly outline: OutlineMaths;
-  readonly banner: null;
+  /** T6: the garrison banner's sway (`units/garrison-banner.node.ts`). */
+  readonly banner: BannerMaths;
   readonly backdrop: BackdropMaths;
   /** T7: the decal kinds, the road under them, the albedo ratio and the crater rim. */
   readonly decal: DecalMaths;
@@ -128,8 +132,9 @@ export interface MaterialMaths {
   readonly beam: BeamMaths;
   /** T11: the rotor blur's coverage and spin (`units/swarm-batch.node.ts`). */
   readonly rotor: RotorMaths;
-  readonly flipbook: null;
-  readonly smokeScreen: null;
+  /** T12: the flipbook's motion, cover and shade (`units/flipbook-fx.node.ts`), and the smoke screen's (`smoke-mesh.node.ts`). */
+  readonly flipbook: FlipbookMaths;
+  readonly smokeScreen: SmokeScreenMaths;
 }
 
 /**

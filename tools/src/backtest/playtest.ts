@@ -4,6 +4,7 @@
 import {
   Sim,
   fx,
+  TICKS_PER_SECOND,
   unlockReason,
   starsEarned,
   type LedgerData,
@@ -2969,6 +2970,139 @@ boughtProbe('wadi_halam_5_depot', wadiHalam5Plan, wh4, 'demo_tzav', 255, 'sets',
   return best < 0 ? null : { kind: 'demolish', ids: mine, structure: best };
 }, undefined, 215);
 
+// --- GH-868: a bought Peten and a bought Remetz meet a technical -------------------------------------------------------------------------
+//
+// GH-560 made every penetration of a hard hull cost at least 34% of its max hp, which put a 12.7 mm round through a thin side plate on a level with
+// an ATGM: a technical's DShK killed a Peten from the side in 8 s and a Remetz in 3. The floor now scales with the round's damage (R = 85,
+// `PEN_HP_REF_DAMAGE`), and the unit-level table is gated by the `sf2` rows of `pnpm vehicle-health:probe`. This is the MISSION-level half the issue
+// asked for: each unit is bought into a mission that fields technicals and sent at them, and what a technical's round costs it is pinned.
+//
+//   Peten   Wadi Halam III (technicals at 45 s from rif_east, at 170 s from rif_south and at 205 s from rif_east). The mission's own plan builds a
+//           Remetz, so the Remetz cannot be bought here. 402 against the 50 logistics the plan leaves: asked every second, accepted at 141 s,
+//           on the field at 183 s, then attack-moved at (36,12), 10 tiles from where the 205 s technical enters. Measured on 424242: 4 DShK hits,
+//           ONE penetration, costing 113 of 640 hp (17.7%); it kills 3 technicals and stands at the end.
+//   Remetz  Wadi Halam V (technicals at 45 s from rif_south and 100 s from rif_east; the plan builds no air). 350 against 400, accepted at 0,
+//           on the field at 30 s, attack-moved at (33,30), which the 45 s technical passes. The beam hits air only, so the Remetz cannot answer:
+//           it takes six penetrations at 194 of 1100 hp (17.6%) each and dies at 52.7 s. That the Remetz does not outlast ONE technical is the
+//           issue's open design half, REPORTED here and not pinned.
+//
+// Pins, each with the one-line mutation that turns it red (applied, run, restored; see the commit message):
+//   bought      the build is accepted and the unit stands on the field                  (`requestBuild` forced false)
+//   engaged     at least one technical penetration reached the unit: a survival or cost
+//               reading with no sample behind it is vacuous, so none passes             (the unit left at its dock)
+//   cost        no single technical penetration costs more than 25% of the unit's max hp (the flat 34% floor: PEN_HP_REF_DAMAGE 5570560 -> 65536
+//               reads 218 of 640 and 374+ of 1100)
+//   rounds      the Remetz takes at least 5 technical penetrations before it dies        (the flat floor: 3 or 4 on seeds 424242, 1 and 2)
+//   used        the Peten scores a kill                                                  (the order sent at the far corner)
+//   mission     the plan's mission is still a VICTORY at no fewer stars than its plain line
+// Labels `<id> (bought <unit> vs technicals)` are not the mission id, so `missionStars`, `missionCredits`, `maxTierProbes` and both ladders never see
+// them. The 30-seed plan sweep re-runs each at every seed and needs a VICTORY on all of them; the pins are read on the pinned seed only (on seeds 1 and 2
+// no technical penetrates the Peten, so a pin read there would be vacuous by design).
+const TECHNICAL_COST_MAX = 0.25;
+const TECHNICAL_ROUNDS_MIN = 5;
+
+function technicalProbe(
+  id: keyof typeof missions,
+  basePlan: Plan,
+  ledger: LedgerData,
+  unitId: 'heli_peten' | 'aa_remetz',
+  target: readonly [number, number],
+  /** Whether the unit can answer a technical (a Peten scores a kill); a Remetz cannot and is judged on what the technical costs it. */
+  fires: boolean
+): void {
+  const label = `${id} (bought ${unitId} vs technicals)`;
+  const baseStars = missionStars.get(id as string);
+  const baseRoe = missionRoe.get(id as string);
+  if (baseStars === undefined || baseRoe === undefined) {
+    console.error(`${label}: FAILED — no plain '${id}' winning line to compare against`);
+    process.exitCode = 1;
+    return;
+  }
+  const hullHp = (units as Record<string, { hull: { hp: number } }>)[unitId].hull.hp;
+  const seen = {
+    accepted: false,
+    acceptedAt: -1,
+    fieldedAt: -1,
+    penetrations: 0,
+    costs: [] as number[],
+    firstHit: -1,
+    death: -1,
+    kills: 0,
+    aliveAtEnd: 0,
+  };
+  const mineEver = new Set<number>();
+  let idsOf: ((t: string) => number[]) | undefined;
+  let simRef: Sim | undefined;
+  const plan: Plan = (sim, rt, ids, at) => {
+    idsOf = ids;
+    simRef = sim;
+    basePlan(sim, rt, ids, at);
+    // Asked every second from the first tick until the build is accepted (the Peten waits for the income); the first sighting of the unit sends it.
+    for (let when = 0; when <= 300; when++) {
+      at(when, () => {
+        if (!seen.accepted) {
+          seen.accepted = rt.requestBuild(unitId);
+          if (seen.accepted) seen.acceptedAt = when;
+        }
+        const mine = ids(unitId);
+        for (const m of mine) mineEver.add(m);
+        if (seen.fieldedAt < 0 && mine.length > 0) {
+          seen.fieldedAt = when;
+          sim.queueCommand({ kind: 'attackMove', ids: mine, ...M(target[0], target[1]) });
+        }
+      });
+    }
+  };
+  const measured = { result: 'ongoing' as 'ongoing' | 'victory' | 'defeat', stars: 0 as Stars, roeScore: 0, credits: 0, minutes: 0 };
+  let prevHp = -1;
+  run(id, plan, ledger, 'victory', label, baseStars, undefined, new Set([unitId]), undefined, undefined, measured, [], (evs) => {
+    const sim = simRef;
+    if (sim === undefined || mineEver.size === 0) return;
+    const me = [...mineEver][0];
+    const typeOfShooter = (i: number): string => sim.unitTypes[sim.state.typeIdx[i]].id;
+    const pens = evs.filter((e) => e.kind === 'impact' && mineEver.has(e.target) && e.penetrated && typeOfShooter(e.shooter) === 'technical');
+    const hp = sim.state.hp[me];
+    seen.penetrations += pens.length;
+    if (pens.length > 0 && seen.firstHit < 0) seen.firstHit = sim.tickCount / TICKS_PER_SECOND;
+    // One penetration in the tick and the hull still standing: the hp it lost is what that round cost.
+    if (pens.length === 1 && prevHp >= 0 && sim.state.alive[me] === 1) seen.costs.push((prevHp - hp) / (hullHp * 65536));
+    prevHp = hp;
+    for (const e of evs) {
+      if (e.kind === 'destroyed' && mineEver.has(e.entity) && seen.death < 0) seen.death = sim.tickCount / TICKS_PER_SECOND;
+      else if (e.kind === 'destroyed' && mineEver.has(e.by) && typeOfShooter(e.entity) === 'technical') seen.kills++;
+    }
+  });
+  seen.aliveAtEnd = idsOf ? idsOf(unitId).length : 0;
+  const worst = seen.costs.length > 0 ? Math.max(...seen.costs) : 0;
+  console.log(
+    `${label}: build ${seen.accepted ? `ACCEPTED at ${seen.acceptedAt} s` : 'REFUSED'}, on the field at ${seen.fieldedAt} s, sent to (${target[0]},${target[1]}); ` +
+      `technical penetrations ${seen.penetrations} (first at ${seen.firstHit.toFixed(1)} s), worst single cost ${(worst * 100).toFixed(1)}% of max hp over ${seen.costs.length} sample(s), ` +
+      `technicals killed ${seen.kills}, ${seen.death >= 0 ? `DEAD at ${seen.death.toFixed(1)} s` : 'alive at the end'}`
+  );
+  console.log(
+    `${label}: vs plain ${id}: ${measured.result.toUpperCase()}, stars ${measured.stars} (plain ${baseStars}), ROE ${measured.roeScore} (plain ${baseRoe}), clock ${measured.minutes.toFixed(1)} min`
+  );
+  if (PLAN_CHILD) return;
+  const fail = (why: string): void => {
+    console.error(`${label}: FAILED — ${why}`);
+    process.exitCode = 1;
+  };
+  if (!seen.accepted || seen.fieldedAt < 0) fail(`the purchase did not put a ${unitId} in the field`);
+  else if (seen.penetrations === 0) fail(`no technical penetration reached the ${unitId}: the cost reading has no sample behind it`);
+  else {
+    if (seen.costs.length > 0 && worst > TECHNICAL_COST_MAX)
+      fail(`a technical penetration cost ${(worst * 100).toFixed(1)}% of max hp, above ${(TECHNICAL_COST_MAX * 100).toFixed(0)}% (GH-868: the flat 34% floor is back)`);
+    if (seen.costs.length === 0) fail('no penetration was alone in its tick: the cost could not be read');
+    if (seen.death >= 0 && seen.penetrations < TECHNICAL_ROUNDS_MIN)
+      fail(`the ${unitId} died to ${seen.penetrations} technical penetration(s), under ${TECHNICAL_ROUNDS_MIN} (GH-868: the flat 34% floor is back)`);
+  }
+  if (fires && seen.kills < 1) fail(`the ${unitId} never scored a kill on a technical`);
+  if (measured.result !== 'victory' || measured.stars < baseStars) fail(`${measured.result.toUpperCase()}/${measured.stars}★ against the plan's ${baseStars}★`);
+}
+
+technicalProbe('wadi_halam_3_counterraid', wadiHalam3Plan, wh2, 'heli_peten', [36, 12], true);
+technicalProbe('wadi_halam_5_depot', wadiHalam5Plan, wh4, 'aa_remetz', [33, 30], false);
+
 // --- Brigade economy Task 5: every optimal plan holds at max tier ----------
 //
 // Controller ruling (overrides this task's own brief, which asked for exact
@@ -4040,7 +4174,9 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // out of `runLog` and is not counted.
 // 2026-11-04, GH-277: 40 -> 41. Was 40. The Ein Qasab III run with a forward camp is a winning plan and earns its sweep (302 intel).
 // 2026-11-05, GH-277: 41 -> 42. Was 41. The Umm Zeitoun IV run with a forward camp is a winning plan and earns its sweep (316 intel).
-const INTEL_WINNERS_ONE_SWEEP = 42;
+// 2026-11-09, GH-868: 42 -> 44. Was 42. The bought Peten (Wadi Halam III, 304 intel) and the bought Remetz (Wadi Halam V, 382 intel) meet technicals
+// in winning runs too, and each earns its sweep. The one short plan is still `beit_sahwan_2_foothold`, so "44 of 45".
+const INTEL_WINNERS_ONE_SWEEP = 44;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend
