@@ -8,7 +8,8 @@
 // on, so a miss is an invisible crowd rather than a sprite where a model
 // should be.
 import { describe, expect, it } from 'vitest';
-import { kitLevel, units } from '@lions/data';
+import { Sim, TICKS_PER_SECOND } from '@lions/sim';
+import { applyTerrain, kitLevel, maps, parseMap, units, type MapId } from '@lions/data';
 import {
   SANDBOX_CIV,
   SANDBOX_ENEMY,
@@ -21,6 +22,9 @@ import {
   sandboxKitTiers,
   sandboxUnitTypes,
 } from './sandbox-force';
+import { sandboxSpawns } from './sandbox-spawn';
+import { sandboxAnchors } from './sandbox-anchors';
+import { standMapStructures } from './map-sim';
 import { RIGGED_UNIT_MESHES } from './mesh-catalogue';
 
 const NONE = { tunnel: false, sur: false, civ: false, works: false };
@@ -127,5 +131,81 @@ describe('bootTiers', () => {
 
   it('is the ladder, not the account, in a sandbox with &kit', () => {
     expect(bootTiers(account, { mission: false, kitFlag: true }, roster)).toEqual(sandboxKitTiers(roster));
+  });
+});
+
+// The sandbox force garrisons NOBODY. The roof cutaway (GH-1225) cuts over a
+// building only when the viewer's own garrison holds it, and the gated golden
+// capture asserts `cutawayCount() === 0` on every scenario; that precondition
+// is true only while a sandbox spawns no garrison. This is the one list of what
+// a sandbox places, so the pin belongs here: every placement is a bare
+// `[unit, dx, dy]` with nowhere to say "garrison this house" and no stance to
+// stand in, and the force each shipped map actually spawns has no unit inside,
+// on its way into, or holding a building.
+describe('the sandbox force garrisons nobody', () => {
+  const ALL = { tunnel: true, sur: true, civ: true, works: true };
+  const TABLES = {
+    SANDBOX_KDF,
+    SANDBOX_ENEMY,
+    SANDBOX_SUR,
+    SANDBOX_CIV,
+    SANDBOX_TUNNEL_KDF,
+    SANDBOX_WORKS_KDF,
+  } as const;
+
+  it('builds every shipped map’s force and finds no garrison stance or target', () => {
+    // The shape is the pin: a placement that can carry a stance or a target is
+    // a fourth field, or an object where a dx/dy belongs. `sandboxSpawns`
+    // (`sandbox-spawn.ts`) reads all three and nothing else, so a fourth
+    // element is data the force would drop -- and the one obvious thing to put
+    // there is where a unit should garrison.
+    for (const [name, rows] of Object.entries(TABLES)) {
+      for (const [i, row] of rows.entries()) {
+        expect(row.length, `${name}[${i}] fields`).toBe(3);
+        expect(typeof row[0], `${name}[${i}] unit id`).toBe('string');
+        expect(typeof row[1], `${name}[${i}] dx`).toBe('number');
+        expect(typeof row[2], `${name}[${i}] dy`).toBe('number');
+      }
+    }
+
+    const planned =
+      SANDBOX_KDF.length + SANDBOX_TUNNEL_KDF.length + SANDBOX_ENEMY.length + SANDBOX_SUR.length + SANDBOX_CIV.length;
+    for (const mapId of Object.keys(maps) as MapId[]) {
+      const parsed = parseMap(maps[mapId]);
+      const sim = new Sim({ seed: 20260727, width: parsed.width, height: parsed.height, capacity: 256 });
+      applyTerrain(parsed, sim);
+      standMapStructures(sim, parsed);
+
+      const typeOf = new Map<string, number>();
+      for (const id of sandboxUnitTypes(ALL)) {
+        const spec = (units as Record<string, unknown>)[id];
+        if (spec === undefined) throw new Error(`sandbox places unknown unit "${id}"`);
+        typeOf.set(id, sim.addUnitType(spec as never));
+      }
+
+      // The REAL spawner `main.ts` boots with, not a second copy of its loop.
+      sandboxSpawns(sim, typeOf, sandboxAnchors(parsed), ALL);
+      // A placement silently dropped would make "nobody is garrisoned" cheaper
+      // than it looks. `&works` is excluded: its squad arrives through
+      // `sandboxWorksMission`, not this spawner.
+      expect(sim.entityCount, mapId).toBe(planned);
+
+      // A queued garrison reaches the state arrays only on a tick: without
+      // stepping, a mutant that queued one in the placer would still read -1.
+      // Two seconds (40 ticks at 20 Hz) is past the command pass and the walk
+      // to the door.
+      for (let t = 0; t < 2 * TICKS_PER_SECOND; t++) sim.tick();
+
+      for (let id = 0; id < sim.entityCount; id++) {
+        const st = sim.state;
+        // A garrison needs a structure to stand in AND the structure it was
+        // ordered into; either one is a garrison the cutaway would trigger on.
+        expect([st.garrisonedIn[id], st.garrisonGoal[id]], `${mapId}: unit ${id} garrison`).toEqual([-1, -1]);
+        // No stance either: an ambush or a patrol is an order a sandbox spawn
+        // does not carry.
+        expect(sim.ambushRadiusSqOf(id), `${mapId}: unit ${id} ambush`).toBe(0);
+        expect(sim.isPatrolling(id), `${mapId}: unit ${id} patrol`).toBe(false);
+      }
+    }
   });
 });
