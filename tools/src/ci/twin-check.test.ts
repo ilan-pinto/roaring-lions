@@ -99,6 +99,13 @@ describe('twin-check exemption (change verified outside the shader program)', ()
     expect(hunksOutsideShader('@@ -9 +9 @@\n@@ -3 +3 @@\n', SRC, SRC)).toBe(false);
     expect(hunksOutsideShader('', SRC, SRC)).toBe(false);
   });
+  it('judges each side against its OWN source: a hunk is refused when only the old side, or only the new side, lies in a shader (the sources differ)', () => {
+    // Two lines inserted at the top shift the new file's shader to lines 4-9; the old file's stays 2-7.
+    const SHIFTED = ['import a;', 'import b;', SRC].join('\n');
+    expect(hunksOutsideShader('@@ -3 +10 @@\n', SRC, SHIFTED)).toBe(false); // old line 3 is GLSL; new line 10 is lifecycle
+    expect(hunksOutsideShader('@@ -8 +5 @@\n', SRC, SHIFTED)).toBe(false); // old line 8 is lifecycle; new line 5 is GLSL
+    expect(hunksOutsideShader('@@ -8 +10 @@\n', SRC, SHIFTED)).toBe(true); // lifecycle on both sides is honoured
+  });
   it('is the shipped entry, and verdicts follow the verification', () => {
     expect(EXEMPTIONS.map((e) => e.file)).toEqual([FX]);
     const rows = [{ legacy: FX, twin: FX_NODE }];
