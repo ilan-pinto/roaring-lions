@@ -92,6 +92,9 @@ export interface FlipbookLayerSpec {
   low_fraction?: number;
   /** Start at the caller's ground height rather than its origin height. */
   at_ground?: boolean;
+  /** 0..1: a multiplier on every instance's drawn alpha (GH-1197: the dust skirt's 0.35 and the column's 0.45
+   *  ceilings). Absent is 1, the shipped look. */
+  alpha?: number;
 }
 
 /** One emitter, as authored in data/vfx/*.json. */

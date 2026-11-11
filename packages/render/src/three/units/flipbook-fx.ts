@@ -85,6 +85,12 @@ import * as THREE from 'three';
 import { COLLAPSE_FLASH_RENDER_ORDER, SMOKE_RENDER_ORDER } from './render-order';
 import { HDR_GAINS } from './hdr-gains';
 import type { FlipbookLayerSpec, ParticleSpec } from '../../vfx/emitters';
+import type { Ops } from '../fog-ops';
+import { vfxBillowOps, vfxFrameUvOps, vfxRotateOps, vfxSunShadeOps, vfxUnrotateOps, type V2 } from './vfx-noise';
+
+// GH-943 P3 (T12): the shared billow noise, re-exported here beside the shader that carries its GLSL copy (the text below is
+// unchanged and pinned by `flipbook-fx.test.ts`; `vfx-noise.test.ts` pins the body to a literal reading of it).
+export { VFX_BILLOW, VFX_FBM, VFX_HASH, VFX_SHADE, vfxBillboardOps, vfxBillowOps, vfxFbmOps, vfxFrameUvOps, vfxHashOps, vfxSunShadeOps, vfxValueNoiseOps } from './vfx-noise';
 
 export const FLIPBOOK_CAPACITY = 2048;
 export const FLIP_FIRE = 0;
@@ -139,11 +145,13 @@ const VERT = /* glsl */ `
   attribute float aSeed;
   attribute float aTint;
   attribute float aWhite;
+  attribute float aAlpha;
   uniform float uTime;
   uniform float uFirePass;
   uniform float uQuadScale;
   varying float vTint;
   varying float vWhite;
+  varying float vAlpha;
   varying vec2 vUv;
   varying float vT;
   varying float vType;
@@ -190,6 +198,7 @@ const VERT = /* glsl */ `
     vAge = age;
     vTint = aTint;
     vWhite = aWhite;
+    vAlpha = aAlpha;
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
   }
 `;
@@ -223,6 +232,7 @@ const FRAG = /* glsl */ `
   varying float vSeed;
   varying float vTint;
   varying float vWhite;
+  varying float vAlpha;
 
   const float GRID = ${FLIPBOOK_GRID.toFixed(1)};
   const float LAST = ${(FLIPBOOK_GRID * FLIPBOOK_GRID - 1).toFixed(1)};
@@ -259,7 +269,7 @@ const FRAG = /* glsl */ `
       float dotDensity = 1.0 - smoothstep(0.35, 1.0, length(vUv));
       vec3 sparkCol = mix(uHot, uFire, smoothstep(0.0, 0.35, vT));
       sparkCol = mix(sparkCol, uEmber, smoothstep(0.35, 0.8, vT)) * uSparkGain;
-      gl_FragColor = vec4(sparkCol, dotDensity * (1.0 - smoothstep(0.7, 1.0, vT)));
+      gl_FragColor = vec4(sparkCol, dotDensity * (1.0 - smoothstep(0.7, 1.0, vT)) * vAlpha);
       return;
     }
     float ang = vSeed * 6.2831853;
@@ -338,9 +348,271 @@ const FRAG = /* glsl */ `
       col = mix(uDirtDark, uDirt, smoothstep(0.0, 0.6, vT)) * uLight * shade;
       alpha = density * 0.95 * (1.0 - smoothstep(0.45, 1.0, vT));
     }
-    gl_FragColor = vec4(col, alpha);
+    gl_FragColor = vec4(col, alpha * vAlpha);
   }
 `;
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// GH-943 P3 (T12): the shader's maths written ONCE against `Ops<T>`, for the node twin (`flipbook-fx.node.ts`, handed these as
+// VALUES through `material-maths.ts`). The GLSL above keeps its own text; `flipbook-fx.node.test.ts` evaluates these bodies on
+// numbers against literal readings of it. A colour input `T` is one channel on numbers and a `vec3` node on the graph: every colour
+// term below is channel-separable (a colour times, or mixed by, a scalar).
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+/** The atlas frame of the last cell (`LAST` in the shader). */
+export const FLIPBOOK_LAST_FRAME = FLIPBOOK_GRID * FLIPBOOK_GRID - 1;
+
+/** A 3-vector as three scalars. */
+export interface V3<T> {
+  readonly x: T;
+  readonly y: T;
+  readonly z: T;
+}
+
+/** The vertex stage's inputs: the instance's life `t` (0..1), its age in seconds, `aParams.zw`, `aOrigin` and `aVel`. */
+export interface FlipbookMotionIn<T> {
+  readonly t: T;
+  readonly age: T;
+  readonly type: T;
+  readonly scale: T;
+  readonly origin: V3<T>;
+  readonly vel: V3<T>;
+}
+
+/** The four motion models by type (fire, smoke, dirt, spark): the billow's centre and size. Every model is evaluated; the type selects. */
+export function flipbookMotionOps<T>(o: Ops<T>, i: FlipbookMotionIn<T>): V3<T> & { readonly size: T } {
+  const L = (n: number): T => o.lit(n);
+  const { t, age, origin, vel } = i;
+  const age2 = o.mul(age, age);
+  // Fire: grows fast and rises.
+  const grow = o.sub(L(1), o.pow(o.sub(L(1), o.min(o.mul(t, L(4)), L(1))), L(3)));
+  const fireSize = o.mul(i.scale, o.add(o.add(L(0.6), o.mul(L(0.6), grow)), o.mul(L(0.5), t)));
+  const fireDrag = o.div(o.sub(L(1), o.exp(o.mul(o.sub(L(0), age), L(4)))), L(4));
+  // Smoke: drifts and lingers.
+  const smokeSize = o.mul(i.scale, o.add(L(0.55), o.mul(L(1.3), o.sqrt(t))));
+  const smokeDrag = o.div(o.sub(L(1), o.exp(o.mul(o.sub(L(0), age), L(1.2)))), L(1.2));
+  // Dirt: ballistic, floored at its origin.
+  const dirtSize = o.mul(i.scale, o.add(L(0.45), o.mul(L(0.9), o.sqrt(t))));
+  const fire: V3<T> = {
+    x: o.add(origin.x, o.mul(vel.x, fireDrag)),
+    y: o.add(o.add(origin.y, o.mul(vel.y, fireDrag)), o.mul(L(0.45), age)),
+    z: o.add(origin.z, o.mul(vel.z, fireDrag)),
+  };
+  const smoke: V3<T> = {
+    x: o.add(o.add(origin.x, o.mul(vel.x, smokeDrag)), o.mul(L(0.1), age)),
+    y: o.add(o.add(origin.y, o.mul(vel.y, smokeDrag)), o.mul(L(0.22), age)),
+    z: o.add(o.add(origin.z, o.mul(vel.z, smokeDrag)), o.mul(L(0.04), age)),
+  };
+  const ballisticY = (g: number): T => o.max(o.add(o.add(origin.y, o.mul(vel.y, age)), o.mul(L(-g), age2)), origin.y);
+  const thrownX = o.add(origin.x, o.mul(vel.x, age));
+  const thrownZ = o.add(origin.z, o.mul(vel.z, age));
+  const pick = (f: T, s: T, d: T, sp: T): T => o.selectLt(i.type, L(0.5), f, o.selectLt(i.type, L(1.5), s, o.selectLt(i.type, L(2.5), d, sp)));
+  return {
+    x: pick(fire.x, smoke.x, thrownX, thrownX),
+    y: pick(fire.y, smoke.y, ballisticY(4.9), ballisticY(3.2)),
+    z: pick(fire.z, smoke.z, thrownZ, thrownZ),
+    size: pick(fireSize, smokeSize, dirtSize, i.scale),
+  };
+}
+
+/** 1 when the instance draws in this pass, 0 when the vertex stage collapses it off-screen: dead (`t` outside 0..1), or the other
+ *  pass's type (fire and spark draw in the fire pass, `firePass` 1; smoke and dirt in the smoke pass, `firePass` 0). */
+export function flipbookAliveOps<T>(o: Ops<T>, t: T, type: T, firePass: T): T {
+  const L = (n: number): T => o.lit(n);
+  const isFire = o.selectLt(type, L(0.5), L(1), o.selectLt(L(2.5), type, L(1), L(0)));
+  const inPass = o.sub(L(1), o.abs(o.sub(isFire, o.step(L(0.5), firePass))));
+  return o.mul(o.mul(o.step(L(0), t), o.step(t, L(1))), inPass);
+}
+
+/** `uFireFit` / `uSmokeFit` (zoom, gain, k0, k1) and `uFireNoise` / `uSmokeNoise` (freq, disp, amp), as scalars. */
+export interface FlipbookFit<T> {
+  readonly zoom: T;
+  readonly gain: T;
+  readonly k0: T;
+  readonly k1: T;
+}
+export interface FlipbookNoise<T> {
+  readonly freq: T;
+  readonly disp: T;
+  readonly amp: T;
+}
+
+/** What the fragment needs BEFORE it samples: the varyings and the two fits. */
+export interface FlipbookCoverIn<T> {
+  readonly uv: V2<T>;
+  readonly seed: T;
+  readonly age: T;
+  readonly t: T;
+  readonly type: T;
+  readonly fireFit: FlipbookFit<T>;
+  readonly smokeFit: FlipbookFit<T>;
+  readonly fireNoise: FlipbookNoise<T>;
+  readonly smokeNoise: FlipbookNoise<T>;
+}
+
+/** The per-fragment read: the rotation, the billow, the type's fit, the two frames and their lerp weight, and where both are sampled. */
+export interface FlipbookCover<T> {
+  readonly cs: T;
+  readonly sn: T;
+  readonly b: T;
+  readonly zoom: T;
+  readonly gain: T;
+  readonly amp: T;
+  readonly tc: T;
+  readonly k0: T;
+  readonly k1: T;
+  readonly w: T;
+  readonly local: V2<T>;
+  /** Frame `k0`'s and frame `k1`'s atlas coordinates: BOTH atlases are sampled at these, unconditionally. */
+  readonly uv0: V2<T>;
+  readonly uv1: V2<T>;
+}
+
+export function flipbookCoverOps<T>(o: Ops<T>, i: FlipbookCoverIn<T>): FlipbookCover<T> {
+  const L = (n: number): T => o.lit(n);
+  const ang = o.mul(i.seed, L(6.2831853));
+  const cs = o.cos(ang);
+  const sn = o.sin(ang);
+  // Per-instance rotation about the frame's centre.
+  const a = vfxRotateOps(o, cs, sn, i.uv);
+  const byType = (f: T, s: T): T => o.selectLt(i.type, L(0.5), f, s);
+  const zoom = byType(i.fireFit.zoom, i.smokeFit.zoom);
+  const gain = byType(i.fireFit.gain, i.smokeFit.gain);
+  const fk0 = byType(i.fireFit.k0, i.smokeFit.k0);
+  const fk1 = byType(i.fireFit.k1, i.smokeFit.k1);
+  const freq = byType(i.fireNoise.freq, i.smokeNoise.freq);
+  const disp = byType(i.fireNoise.disp, i.smokeNoise.disp);
+  const amp = byType(i.fireNoise.amp, i.smokeNoise.amp);
+  const seed31 = o.mul(i.seed, L(31));
+  const q: V2<T> = { x: o.add(o.mul(a.x, freq), seed31), y: o.add(o.add(o.mul(a.y, freq), seed31), o.mul(o.sub(L(0), i.age), L(0.45))) };
+  const b = vfxBillowOps(o, q, 2);
+  const spread = o.mul(o.add(L(1), o.mul(o.sub(b, L(0.5)), disp)), o.mul(L(0.5), zoom));
+  const local: V2<T> = { x: o.add(o.mul(a.x, spread), L(0.5)), y: o.add(o.mul(a.y, spread), L(0.5)) };
+  const tc = o.clamp01(i.t);
+  const f = o.add(fk0, o.mul(tc, o.sub(fk1, fk0)));
+  const k0 = o.floor(f);
+  const k1 = o.min(o.add(k0, L(1)), L(FLIPBOOK_LAST_FRAME));
+  const w = o.sub(f, k0);
+  return {
+    cs, sn, b, zoom, gain, amp, tc, k0, k1, w, local,
+    uv0: vfxFrameUvOps(o, k0, local, FLIPBOOK_GRID),
+    uv1: vfxFrameUvOps(o, k1, local, FLIPBOOK_GRID),
+  };
+}
+
+/** One atlas tap, as four scalars. */
+export interface Tap4<T> {
+  readonly r: T;
+  readonly g: T;
+  readonly b: T;
+  readonly a: T;
+}
+
+/** The flipbook's colours: one channel each on numbers, a `vec3` node each on the graph. */
+export interface FlipbookColorsIn<T> {
+  readonly hot: T;
+  readonly fire: T;
+  readonly ember: T;
+  readonly soot: T;
+  readonly smoke: T;
+  readonly dirt: T;
+  readonly dirtDark: T;
+  readonly white: T;
+  readonly whiteShade: T;
+}
+
+/** What the fragment needs AFTER it samples. */
+export interface FlipbookShadeIn<T> {
+  readonly cover: FlipbookCover<T>;
+  /** The fire atlas at `uv0`, `uv1`, and the smoke atlas at the same two. */
+  readonly fire0: Tap4<T>;
+  readonly fire1: Tap4<T>;
+  readonly smoke0: Tap4<T>;
+  readonly smoke1: Tap4<T>;
+  readonly uv: V2<T>;
+  readonly t: T;
+  readonly type: T;
+  readonly tint: T;
+  /** `aWhite`: how far a smoke puff turns white. */
+  readonly whiteAmount: T;
+  readonly age: T;
+  readonly seed: T;
+  readonly colors: FlipbookColorsIn<T>;
+  readonly fireGain: T;
+  readonly sparkGain: T;
+  readonly light: T;
+  readonly smokeAlpha: T;
+  readonly oilCrown: T;
+  readonly sun: V2<T>;
+}
+
+/** The fragment: `col`, `alpha`, and `keep` (0 where the legacy shader discards: outside the disc, or a non-spark density under 0.01). */
+export function flipbookShadeOps<T>(o: Ops<T>, i: FlipbookShadeIn<T>): { col: T; alpha: T; keep: T; density: T } {
+  const L = (n: number): T => o.lit(n);
+  const ss = (e0: number, e1: number, x: T): T => o.smoothstep(L(e0), L(e1), x);
+  const c = i.colors;
+  const { t, cover } = i;
+  const r2 = o.add(o.mul(i.uv.x, i.uv.x), o.mul(i.uv.y, i.uv.y));
+  const isSpark = o.selectLt(L(2.5), i.type, L(1), L(0));
+
+  // A spark: a procedural round dot, white-hot to ember, HDR so it blooms.
+  const dotDensity = o.sub(L(1), ss(0.35, 1, o.length2(i.uv.x, i.uv.y)));
+  const sparkCol = o.mul(o.mix(o.mix(c.hot, c.fire, ss(0, 0.35, t)), c.ember, ss(0.35, 0.8, t)), i.sparkGain);
+  const sparkAlpha = o.mul(dotDensity, o.sub(L(1), ss(0.7, 1, t)));
+
+  // The frame lerp, both atlases; the type picks one (a select: the legacy samples inside a varying branch).
+  const lerp = (a: Tap4<T>, b: Tap4<T>): Tap4<T> => ({ r: o.mix(a.r, b.r, cover.w), g: o.mix(a.g, b.g, cover.w), b: o.mix(a.b, b.b, cover.w), a: o.mix(a.a, b.a, cover.w) });
+  const fs = lerp(i.fire0, i.fire1);
+  const ms = lerp(i.smoke0, i.smoke1);
+  const pick = (f: T, s: T): T => o.selectLt(i.type, L(0.5), f, s);
+  const s: Tap4<T> = { r: pick(fs.r, ms.r), g: pick(fs.g, ms.g), b: pick(fs.b, ms.b), a: pick(fs.a, ms.a) };
+
+  // The mock's density: its own gain and 0.99 t^2 erosion.
+  const density = o.clamp01(o.sub(o.mul(o.mul(cover.gain, s.r), o.add(L(1), o.mul(o.sub(cover.b, L(0.5)), cover.amp))), o.mul(L(0.99), o.mul(cover.tc, cover.tc))));
+  const gk = o.mul(o.mul(L(4), cover.zoom), cover.gain);
+  const ga: V2<T> = { x: o.mul(o.sub(o.mul(s.g, L(2)), L(1)), gk), y: o.mul(o.sub(o.mul(s.b, L(2)), L(1)), gk) };
+  const g = vfxUnrotateOps(o, cover.cs, cover.sn, ga);
+  const shade = vfxSunShadeOps(o, g, i.uv, i.sun);
+
+  // FIRE: the dual-phase curve, the core hot, then ember, then soot.
+  const heat = o.clamp01(o.sub(L(1), o.div(t, L(0.16))));
+  const core = o.max(ss(0.25, 0.95, density), s.a);
+  const hot = o.mul(o.mul(o.mix(c.fire, c.hot, o.pow(o.mul(core, heat), L(4))), i.fireGain), o.add(L(0.35), o.mul(L(0.65), core)));
+  const ember = o.mul(c.ember, o.add(L(1), o.mul(L(1.2), core)));
+  const fireMix = o.mix(ember, hot, heat);
+  const sooty = o.mul(o.mul(o.mix(c.soot, c.smoke, ss(0.5, 1, t)), i.light), shade);
+  const cool = ss(0.1, 0.42, o.sub(t, o.mul(L(0.1), core)));
+  const fireCol = o.mix(fireMix, sooty, cool);
+  const fireAlpha = o.mul(density, o.sub(L(1), ss(0.55, 1, t)));
+
+  // SMOKE: soot, dust or oil (a negative tint), white HE smoke, the oily crown and the ember glow.
+  const oil = o.clamp01(o.sub(L(0), i.tint));
+  const dustT = o.max(i.tint, L(0));
+  const soot0 = o.mix(c.soot, c.smoke, ss(0.1, 1, t));
+  const oily = o.mix(c.soot, o.mul(c.smoke, L(0.45)), ss(0.55, 1, t));
+  const soot = o.mix(soot0, oily, oil);
+  const dusty = o.mul(o.mix(c.dirtDark, c.dirt, ss(0, 0.75, t)), L(0.85));
+  const base0 = o.mix(soot, dusty, dustT);
+  const whiteCol = o.mix(c.whiteShade, c.white, ss(0.7, 1.15, shade));
+  const base = o.mix(base0, whiteCol, o.mul(i.whiteAmount, ss(0, 0.18, t)));
+  const crown = o.mul(o.mul(o.mul(o.mul(oil, i.oilCrown), c.smoke), i.light), ss(0.95, 1.25, shade));
+  const low = o.sub(L(1), ss(-0.3, 0.5, i.uv.y));
+  const flick = o.add(L(0.7), o.mul(L(0.3), o.sin(o.add(o.mul(i.age, L(23)), o.mul(i.seed, L(40))))));
+  const glow = o.mul(o.mul(o.mul(o.mul(oil, o.pow(density, L(3))), low), flick), o.sub(L(1), ss(0, 0.12, t)));
+  const smokeCol = o.add(o.add(o.mul(o.mul(base, i.light), shade), crown), o.mul(o.mul(c.ember, L(1.4)), glow));
+  const late = o.mix(L(0.4), L(0.62), oil);
+  const smokeAlpha = o.mul(o.mul(o.mul(density, o.mix(i.smokeAlpha, L(0.97), oil)), ss(0, 0.06, t)), o.sub(L(1), o.smoothstep(late, L(1), t)));
+
+  // DIRT: the ground's dust tones, lit.
+  const dirtCol = o.mul(o.mul(o.mix(c.dirtDark, c.dirt, ss(0, 0.6, t)), i.light), shade);
+  const dirtAlpha = o.mul(o.mul(density, L(0.95)), o.sub(L(1), ss(0.45, 1, t)));
+
+  const byType = (f: T, sm: T, d: T): T => o.selectLt(i.type, L(0.5), f, o.selectLt(i.type, L(1.5), sm, d));
+  const col = o.selectLt(L(2.5), i.type, sparkCol, byType(fireCol, smokeCol, dirtCol));
+  const alpha = o.selectLt(L(2.5), i.type, sparkAlpha, byType(fireAlpha, smokeAlpha, dirtAlpha));
+  const keep = o.mul(o.step(r2, L(1)), o.max(isSpark, o.step(L(0.01), density)));
+  return { col, alpha, keep, density };
+}
 
 /** Palette keys for every colour the flipbook draws (resolved to linear). */
 export interface FlipbookColors {
@@ -385,6 +657,8 @@ export interface FlipbookSpawn {
   tint?: number;
   /** SMOKE only, 0..1: how far the puff turns white (HE smoke), beside `tint`. */
   white?: number;
+  /** 0..1, a multiplier on the drawn alpha (GH-1197). Absent is 1. */
+  alpha?: number;
 }
 
 /** A `FLIPBOOK_FIT` entry as the shader's two uniform vectors: the atlas fit, and the billow noise. */
@@ -438,6 +712,12 @@ export class FlipbookFx {
   private readonly seed: THREE.InstancedBufferAttribute;
   private readonly tint: THREE.InstancedBufferAttribute;
   private readonly white: THREE.InstancedBufferAttribute;
+  /** GH-943 P3 (T12): the two LEGACY materials, held apart: every writer below writes their uniform records, never through
+   *  `mesh.material`, which is the node twin once adopted (the twin reads these records). */
+  private readonly smokeMaterial: THREE.ShaderMaterial;
+  private readonly fireMaterial: THREE.ShaderMaterial;
+  /** GH-1197: per-instance alpha multiplier, 1 for every recipe that does not author `alpha`. */
+  private readonly alphaMul: THREE.InstancedBufferAttribute;
   private head = 0;
   private written = 0;
   private timeMs = 0;
@@ -473,13 +753,15 @@ export class FlipbookFx {
     this.seed = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     this.tint = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     this.white = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
-    for (const a of [this.origin, this.vel, this.params, this.seed, this.tint, this.white]) a.setUsage(THREE.DynamicDrawUsage);
+    this.alphaMul = new THREE.InstancedBufferAttribute(new Float32Array(capacity).fill(1), 1);
+    for (const a of [this.origin, this.vel, this.params, this.seed, this.tint, this.white, this.alphaMul]) a.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aOrigin', this.origin);
     geometry.setAttribute('aVel', this.vel);
     geometry.setAttribute('aParams', this.params);
     geometry.setAttribute('aSeed', this.seed);
     geometry.setAttribute('aTint', this.tint);
     geometry.setAttribute('aWhite', this.white);
+    geometry.setAttribute('aAlpha', this.alphaMul);
     geometry.instanceCount = 0;
     const uniforms = (firePass: number): Record<string, THREE.IUniform> => ({
       uTime: { value: 0 },
@@ -519,11 +801,13 @@ export class FlipbookFx {
         depthWrite: false,
         blending: THREE.NormalBlending,
       });
-    this.mesh = new THREE.Mesh(geometry, material(0));
+    this.smokeMaterial = material(0);
+    this.fireMaterial = material(1);
+    this.mesh = new THREE.Mesh(geometry, this.smokeMaterial);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = SMOKE_RENDER_ORDER;
     this.mesh.name = 'flipbook-smoke';
-    this.fireMesh = new THREE.Mesh(geometry, material(1));
+    this.fireMesh = new THREE.Mesh(geometry, this.fireMaterial);
     this.fireMesh.frustumCulled = false;
     this.fireMesh.renderOrder = COLLAPSE_FLASH_RENDER_ORDER;
     this.fireMesh.name = 'flipbook-fire';
@@ -552,7 +836,7 @@ export class FlipbookFx {
   }
 
   setColors(resolveLinear: (key: string) => THREE.Color, c: FlipbookColors = FLIPBOOK_COLOR_KEYS): void {
-    for (const u of [this.mesh.material.uniforms, this.fireMesh.material.uniforms]) {
+    for (const u of [this.smokeMaterial.uniforms, this.fireMaterial.uniforms]) {
       (u.uHot.value as THREE.Color).copy(resolveLinear(c.hot));
       (u.uFire.value as THREE.Color).copy(resolveLinear(c.fire));
       (u.uEmber.value as THREE.Color).copy(resolveLinear(c.ember));
@@ -568,7 +852,7 @@ export class FlipbookFx {
   /** `radiance`: `hazeRadiance` of the active lights. `sunScreen`: the sun's
    *  direction projected on the camera's right/up axes, normalised. */
   setLighting(radiance: number, sunScreen: THREE.Vector2): void {
-    for (const u of [this.mesh.material.uniforms, this.fireMesh.material.uniforms]) {
+    for (const u of [this.smokeMaterial.uniforms, this.fireMaterial.uniforms]) {
       u.uLight.value = radiance;
       (u.uSun.value as THREE.Vector2).copy(sunScreen);
     }
@@ -581,7 +865,7 @@ export class FlipbookFx {
     prepareFlipbookAtlas(fire);
     prepareFlipbookAtlas(smoke);
     this.atlases = { fire, smoke };
-    for (const u of [this.mesh.material.uniforms, this.fireMesh.material.uniforms]) {
+    for (const u of [this.smokeMaterial.uniforms, this.fireMaterial.uniforms]) {
       u.uFireAtlas.value = fire;
       u.uSmokeAtlas.value = smoke;
     }
@@ -640,8 +924,8 @@ export class FlipbookFx {
 
   step(dtMs: number): void {
     this.timeMs += dtMs;
-    this.mesh.material.uniforms.uTime.value = this.timeMs;
-    this.fireMesh.material.uniforms.uTime.value = this.timeMs;
+    this.smokeMaterial.uniforms.uTime.value = this.timeMs;
+    this.fireMaterial.uniforms.uTime.value = this.timeMs;
     this.syncVisible();
   }
 
@@ -652,7 +936,7 @@ export class FlipbookFx {
 
   /** One instance. */
   spawn(o: FlipbookSpawn): void {
-    this.push(o.x, o.y, o.z, o.vx ?? 0, o.vy ?? 0, o.vz ?? 0, o.delayMs ?? 0, o.durationMs, o.scale, o.type, o.tint ?? 0, o.white ?? 0);
+    this.push(o.x, o.y, o.z, o.vx ?? 0, o.vy ?? 0, o.vz ?? 0, o.delayMs ?? 0, o.durationMs, o.scale, o.type, o.tint ?? 0, o.white ?? 0, o.alpha ?? 1);
   }
 
   private syncVisible(): void {
@@ -674,7 +958,7 @@ export class FlipbookFx {
   private push(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number,
-    delayMs: number, durMs: number, scale: number, type: number, tint = 0, white = 0
+    delayMs: number, durMs: number, scale: number, type: number, tint = 0, white = 0, alpha = 1
   ): void {
     const i = this.head;
     this.head = (this.head + 1) % this.capacity;
@@ -689,8 +973,9 @@ export class FlipbookFx {
     (this.seed.array as Float32Array)[i] = this.rand();
     (this.tint.array as Float32Array)[i] = tint;
     (this.white.array as Float32Array)[i] = white;
+    (this.alphaMul.array as Float32Array)[i] = alpha;
     // Upload only the touched slot.
-    for (const [attr, size] of [[this.origin, 3], [this.vel, 3], [this.params, 4], [this.seed, 1], [this.tint, 1], [this.white, 1]] as const) {
+    for (const [attr, size] of [[this.origin, 3], [this.vel, 3], [this.params, 4], [this.seed, 1], [this.tint, 1], [this.white, 1], [this.alphaMul, 1]] as const) {
       attr.addUpdateRange(i * size, size);
       attr.needsUpdate = true;
     }
@@ -750,7 +1035,8 @@ export class FlipbookFx {
         this.push(
           px, y0, pz,
           Math.cos(a) * radial + dx * along, up, Math.sin(a) * radial + dz * along,
-          L.delay_ms[0] + L.delay_ms[1] * k, between(L.duration_ms), scale, type, L.oil ? -L.oil : (L.tint ?? 0), L.white ?? 0
+          L.delay_ms[0] + L.delay_ms[1] * k, between(L.duration_ms), scale, type, L.oil ? -L.oil : (L.tint ?? 0), L.white ?? 0,
+          L.alpha ?? 1
         );
         n++;
       }
@@ -761,8 +1047,9 @@ export class FlipbookFx {
   dispose(): void {
     this.disposed = true;
     this.mesh.geometry.dispose();
-    this.mesh.material.dispose();
-    this.fireMesh.material.dispose();
+    // The legacy materials: disposing one frees its node twin too (adoption listens for it).
+    this.smokeMaterial.dispose();
+    this.fireMaterial.dispose();
     this.atlases?.fire.dispose();
     this.atlases?.smoke.dispose();
     this.atlases = null;

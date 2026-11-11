@@ -33,7 +33,9 @@ describe('the rotor blur on numbers (literals)', () => {
   it('the alpha is mix(0.15, 0.45, smoothstep(0, 1, r)) plus 0.25 of the streak, capped at 1', () => {
     // Between the blades r 0.5: no streak, so the base alone: smoothstep(0, 1, 0.5) = 0.5.
     expect(blur(0.5 * Math.SQRT1_2, 0.5 * Math.SQRT1_2, 0).alpha).toBeCloseTo(0.3, 9);
-    expect(blur(0.5, 0, 0).alpha).toBeCloseTo(0.3 + 0.25 * blur(0.5, 0, 0).streak, 12);
+    // On a blade at r 0.5 the streak is the fade-in alone, spelled out (not read back from the body under test).
+    const t = (0.5 - 0.2) / (0.75 - 0.2);
+    expect(blur(0.5, 0, 0).alpha).toBeCloseTo(0.3 + 0.25 * (t * t * (3 - 2 * t)), 12);
     expect(blur(0.99999, 0, 0).alpha).toBeCloseTo(Math.min(1, 0.45 + 0.25), 4);
     expect(blur(0, 0, 0).alpha).toBeCloseTo(0.15, 12);
   });

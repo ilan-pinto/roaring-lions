@@ -56,6 +56,9 @@ import { floorOps, woundedUniforms } from './units/wounded-read';
 import { outlineExpandOps, SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY, SILHOUETTE_EXPAND_ATTRIBUTE, SILHOUETTE_OUTLINE_UNIFORM_KEY } from './units/silhouette';
 import { zoneHatchOps } from './units/zone-band';
 import { dashOps } from './supply-route-maths';
+import { flipbookAliveOps, flipbookCoverOps, flipbookMotionOps, flipbookShadeOps } from './units/flipbook-fx';
+import { smokeScreenCoverOps, smokeScreenPuffOps, smokeScreenShadeOps } from './smoke-mesh';
+import { vfxBillboardOps } from './units/vfx-noise';
 import { SUPPLY_ROUTE_ALPHA } from './supply-route';
 import { xrayBeamOps, xrayCollarOps, xrayFigureOps, xrayRevealOps, xrayScanOps, xrayTubeOps } from './tunnel-xray';
 
@@ -141,6 +144,7 @@ export const MATERIAL_MATHS: MaterialMaths = {
   },
   beam: { shapeOps: beamShapeOps },
   rotor: { blurOps: rotorBlurOps, spinOps: rotorSpinOps },
-  flipbook: null,
-  smokeScreen: null,
+  // T12: the flipbook and the smoke screen (their shared billow noise is `units/vfx-noise.ts`, reached through these bodies).
+  flipbook: { motionOps: flipbookMotionOps, aliveOps: flipbookAliveOps, coverOps: flipbookCoverOps, shadeOps: flipbookShadeOps, billboardOps: vfxBillboardOps },
+  smokeScreen: { coverOps: smokeScreenCoverOps, shadeOps: smokeScreenShadeOps, puffOps: smokeScreenPuffOps, billboardOps: vfxBillboardOps },
 };

@@ -239,6 +239,12 @@ import { pushPolygon, hexToLinear } from './terrain/shared';
 import { tileGroundWorldY, type ElevationSource } from './ground-height';
 import { SMOKE_RENDER_ORDER } from './units/render-order';
 import { paletteHex } from './palette-hex';
+import type { Ops } from './fog-ops';
+import { vfxBillowOps, vfxFrameUvOps, vfxRotateOps, vfxSunShadeOps, vfxUnrotateOps, type V2, type V3s, type VfxDetail } from './units/vfx-noise';
+
+// GH-943 P3 (T12): the shared billow noise, re-exported here beside the shader that carries its GLSL copy (the text below is
+// unchanged and pinned by `smoke-mesh.test.ts`; `units/vfx-noise.test.ts` pins the body to a literal reading of it).
+export { VFX_BILLOW, VFX_FBM, VFX_HASH, VFX_SHADE, vfxBillboardOps, vfxBillowOps, vfxFbmOps, vfxFrameUvOps, vfxHashOps, vfxSunShadeOps, vfxValueNoiseOps } from './units/vfx-noise';
 
 // ---------------------------------------------------------------------------
 // Pure: no THREE.* below this line yet -- mirrors fog-mesh.ts's own split.
@@ -821,6 +827,102 @@ export const SMOKE_FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
+/**
+ * GH-943 P3 (T12): the smoke screen's read of the flipbook's smoke atlas, as the fragment spells it: the billow at `freq` drifting
+ * up at `drift` per ms of `uClock`, the sample radius displaced by `disp`, the frame window `zoom`, the density `gain`, `amp` and
+ * `erosion`, the gradient `gradGain`, and the frame `firstFrame + floor(seed * frames)`. `smoke-mesh.test.ts` pins the shader text
+ * to these numbers.
+ */
+export const SMOKE_SCREEN_ATLAS = Object.freeze({
+  freq: 1.7,
+  drift: 0.00018,
+  disp: 0.7,
+  zoom: 0.625,
+  gain: 2.4,
+  amp: 1.2,
+  erosion: 0.25,
+  gradGain: 2.2,
+  firstFrame: 12,
+  frames: 8,
+  grid: 8,
+});
+
+/**
+ * The smoke screen's vertex stage from its instance matrix's columns `m0` (the elongated x axis), `m2` (the z axis) and `m3` (the
+ * centre): the half-size the two axes average, and the puff's angle `atan(ax.z, ax.x)`. The billboard is `vfxBillboardOps` at quad 1,
+ * lift 0.
+ */
+export function smokeScreenPuffOps<T>(o: Ops<T>, m0: V3s<T>, m2: V3s<T>): { size: T; ang: T } {
+  const len = (v: V3s<T>): T => o.sqrt(o.add(o.add(o.mul(v.x, v.x), o.mul(v.y, v.y)), o.mul(v.z, v.z)));
+  return { size: o.mul(o.lit(0.5), o.add(len(m0), len(m2))), ang: o.atan2(m0.z, m0.x) };
+}
+
+/** What the smoke screen's fragment needs BEFORE it samples. `cs`, `sn` are the cosine and sine of the puff's angle (`vAng`). */
+export interface SmokeScreenCoverIn<T> {
+  readonly uv: V2<T>;
+  readonly cs: T;
+  readonly sn: T;
+  readonly seed: T;
+  readonly clock: T;
+}
+
+/** The billow `b`, and where the atlas is sampled (`uv`), at `detail` (`FX_DETAIL`, a JS choice: detail 0 builds no noise). */
+export function smokeScreenCoverOps<T>(o: Ops<T>, i: SmokeScreenCoverIn<T>, detail: VfxDetail): { b: T; k: T; local: V2<T>; uv: V2<T> } {
+  const L = (n: number): T => o.lit(n);
+  const A = SMOKE_SCREEN_ATLAS;
+  const a = vfxRotateOps(o, i.cs, i.sn, i.uv);
+  const seed31 = o.mul(i.seed, L(31));
+  const q: V2<T> = { x: o.add(o.mul(a.x, L(A.freq)), seed31), y: o.add(o.add(o.mul(a.y, L(A.freq)), seed31), o.mul(o.sub(L(0), i.clock), L(A.drift))) };
+  const b = vfxBillowOps(o, q, detail);
+  const spread = o.mul(o.add(L(1), o.mul(o.sub(b, L(0.5)), L(A.disp))), L(0.5 * A.zoom));
+  const local: V2<T> = { x: o.add(o.mul(a.x, spread), L(0.5)), y: o.add(o.mul(a.y, spread), L(0.5)) };
+  const k = o.add(L(A.firstFrame), o.floor(o.mul(i.seed, L(A.frames))));
+  return { b, k, local, uv: vfxFrameUvOps(o, k, local, A.grid) };
+}
+
+/** What the fragment needs AFTER it samples: the tap's density and gradient channels, the record, the puff's own alpha. `lit` and
+ *  `shade` are one channel each on numbers and a `vec3` node each on the graph (every colour term is channel-separable). */
+export interface SmokeScreenShadeIn<T> {
+  readonly uv: V2<T>;
+  readonly cs: T;
+  readonly sn: T;
+  readonly b: T;
+  readonly s: { readonly r: T; readonly g: T; readonly b: T };
+  readonly ready: T;
+  readonly alpha: T;
+  readonly lit: T;
+  readonly shade: T;
+  readonly light: T;
+  readonly sun: V2<T>;
+}
+
+/** The fragment: `col`, `alpha`, and `keep` (0 where the legacy shader discards). The atlas read and the procedural puff are both
+ *  computed, and `ready` selects (the legacy branch is on a uniform; the twin keeps every tap unconditional anyway). */
+export function smokeScreenShadeOps<T>(o: Ops<T>, i: SmokeScreenShadeIn<T>): { col: T; alpha: T; keep: T; density: T } {
+  const L = (n: number): T => o.lit(n);
+  const A = SMOKE_SCREEN_ATLAS;
+  const ss = (e0: number, e1: number, x: T): T => o.smoothstep(L(e0), L(e1), x);
+  const half = L(0.5);
+  const atlasDensity = o.clamp01(o.sub(o.mul(o.mul(L(A.gain), i.s.r), o.add(L(1), o.mul(o.sub(i.b, half), L(A.amp)))), L(A.erosion)));
+  const gk = L(4 * A.zoom * A.gradGain);
+  const ga: V2<T> = { x: o.mul(o.sub(o.mul(i.s.g, L(2)), L(1)), gk), y: o.mul(o.sub(o.mul(i.s.b, L(2)), L(1)), gk) };
+  const atlasG = vfxUnrotateOps(o, i.cs, i.sn, ga);
+  const procDensity = o.mul(o.sub(L(1), ss(0.35, 1, o.length2(i.uv.x, i.uv.y))), o.add(L(0.6), o.mul(L(0.4), i.b)));
+  const ready = (x: T, y: T): T => o.selectLt(half, i.ready, x, y);
+  const density = ready(atlasDensity, procDensity);
+  const g: V2<T> = { x: ready(atlasG.x, o.mul(i.uv.x, L(-2))), y: ready(atlasG.y, o.mul(i.uv.y, L(-2))) };
+  const shade = vfxSunShadeOps(o, g, i.uv, i.sun);
+  const lit = ss(0.7, 1.15, shade);
+  const col0 = o.mul(o.mul(o.mul(o.mix(o.mul(i.shade, L(0.8)), i.lit, lit), i.light), L(0.85)), o.add(L(0.6), o.mul(L(0.45), shade)));
+  // Self-shadow: the dense core away from the sun is darker; ground occlusion: the foot darker than the crown.
+  const col1 = o.mul(col0, o.sub(L(1), o.mul(o.mul(L(0.3), ss(0.45, 1, density)), o.sub(L(1), lit))));
+  const col = o.mul(col1, o.mix(L(0.72), L(1), ss(-1, 0.4, i.uv.y)));
+  const alpha = o.mul(o.clamp(o.mul(o.mul(density, i.alpha), L(1.1)), 0, 0.92), ss(-1, -0.55, i.uv.y));
+  const r2 = o.add(o.mul(i.uv.x, i.uv.x), o.mul(i.uv.y, i.uv.y));
+  const keep = o.mul(o.step(r2, L(1)), o.step(L(0.01), density));
+  return { col, alpha, keep, density };
+}
+
 /** The lit side and the shaded side of a standing puff (palette keys). */
 export const SMOKE_LIT_KEY = 'limestone.0';
 export const SMOKE_SHADE_KEY = 'gunmetal.1';
@@ -884,6 +986,9 @@ function createSmokeMaterial(fxDetail: 0 | 1 | 2): THREE.ShaderMaterial {
  */
 export class SmokeMesh {
   readonly mesh: THREE.InstancedMesh;
+  /** GH-943 P3 (T12): the LEGACY material, held apart: `update` and `setLook` write its uniform record, never through
+   *  `mesh.material`, which is the node twin once adopted (the twin reads this record). */
+  private readonly material: THREE.ShaderMaterial;
   private readonly alphaAttr: THREE.InstancedBufferAttribute;
   private readonly seedAttr: THREE.InstancedBufferAttribute;
   private readonly tileCapacity: number;
@@ -930,7 +1035,8 @@ export class SmokeMesh {
     this.seedAttr = new THREE.InstancedBufferAttribute(new Float32Array(puffCapacity), 1);
     geometry.setAttribute('aSeed', this.seedAttr);
 
-    this.mesh = new THREE.InstancedMesh(geometry, createSmokeMaterial(fxDetail), puffCapacity);
+    this.material = createSmokeMaterial(fxDetail);
+    this.mesh = new THREE.InstancedMesh(geometry, this.material, puffCapacity);
     this.mesh.count = 0;
     this.mesh.renderOrder = SMOKE_RENDER_ORDER;
     // Smoke can drift anywhere on the map, exactly like fog/units/particles
@@ -966,7 +1072,7 @@ export class SmokeMesh {
     });
     const alphas = this.alphaAttr.array as Float32Array;
     const seeds = this.seedAttr.array as Float32Array;
-    (this.mesh.material as THREE.ShaderMaterial).uniforms.uClock.value = clockMs;
+    this.material.uniforms.uClock.value = clockMs;
     // Coherent field drift -- see this file's own top comment, "A smooth
     // phase FIELD for animation..."; computed once for the whole field,
     // not per tile or per puff, matching GH #144's own fix for the
@@ -1024,7 +1130,7 @@ export class SmokeMesh {
   /** The flipbook's smoke atlas, and the same light the flipbook shades its
    *  billows by. Until the atlas lands the shader uses a procedural puff. */
   setLook(atlas: THREE.Texture | null, radiance: number, sunScreen: THREE.Vector2): void {
-    const u = (this.mesh.material as THREE.ShaderMaterial).uniforms;
+    const u = this.material.uniforms;
     if (atlas && u.uAtlas.value !== atlas) {
       u.uAtlas.value = atlas;
       u.uReady.value = 1;
@@ -1042,6 +1148,7 @@ export class SmokeMesh {
 
   dispose(): void {
     this.mesh.geometry.dispose();
-    (this.mesh.material as THREE.Material).dispose();
+    // The legacy material: disposing it frees its node twin too (adoption listens for it).
+    this.material.dispose();
   }
 }

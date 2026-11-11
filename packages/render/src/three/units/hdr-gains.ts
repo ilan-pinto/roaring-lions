@@ -38,6 +38,10 @@ export const HDR_GAINS = Object.freeze({
   arc: 3.5,
   sparks: 4,
   fireball: 2.6,
+  // GH-1197: the white-hot leading edge of a blast's inner shock ring (`units/blast-ring.ts`), the approved mock's
+  // emission 1.3 against the ring body's 1.0. At the held body alpha 0.6 x 1.6 the edge adds about 1.25 over the
+  // ground, so it blooms faintly; the body (white_hot x 0.6) does not.
+  shockRingEdge: 1.3,
   // E6 chunk C (units/beam-batch.ts): a laser carrier's beam. The core is a bolt-hot streak; the
   // ember sheath stays just over the bloom threshold, so the beam blooms from its core outward.
   beamCore: 4,

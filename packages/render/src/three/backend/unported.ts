@@ -61,6 +61,8 @@ export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   'rl-silhouette-outline',
   // GH-943 P3 (T8): the overlay batch, the zone band, the supply route and the tunnel trail.
   'rl-overlay', 'rl-zone-band', 'rl-supply-route', 'rl-trail',
+  // GH-943 P3 (T12): the flipbook's smoke and fire passes, and the smoke screen (`units/flipbook-fx.node.ts`, `smoke-mesh.node.ts`).
+  'rl-flipbook-smoke', 'rl-flipbook-fire', 'rl-smoke-screen',
   // GH-943 P3 (T9): the tunnel x-ray's tube, collar, figure and beam.
   'rl-xray-tube', 'rl-xray-collar', 'rl-xray-figure', 'rl-xray-beam',
   // GH-943 P3 (T7): the decal pools and the crater rim (dry and wet share the name; node draws a wet owner dry, `rl-decal: wet terms`).

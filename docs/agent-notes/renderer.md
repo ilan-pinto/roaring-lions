@@ -640,3 +640,34 @@ slot of kind `DISTURB_KIND_AIR` in N2's array. +0 draw calls, +0 programs; the c
 - Tests: `physics/ragdoll-world.test.ts` (a committed digest, so CI's Linux and a developer's macOS must agree),
   `physics/ragdoll-rig.test.ts` (the shipped GLBs), `ThreeRenderer.ragdoll*.test.ts` (wiring, the sim hash with physics
   on and off, low never loads, the showcase).
+
+## Blast size from splash, and the two-part ring (GH-1197 P1)
+
+Design: `docs/superpowers/specs/2026-11-09-explosion-scale-and-building-physics-design.md` §2 (approved 9 Nov, mock v2).
+
+- **The table is data:** `data/vfx/munitions.json` (`vfx_munitions.schema.json`; `@lions/data`'s `vfxMunitions`, the one
+  non-emitter file in `data/vfx/`, which every emitter sweep skips by name). `weapons` maps every weapon with a reach to a class;
+  `support` maps the fire-support kinds; `charge` the placed charge. **`S` is never copied**: the renderer reads
+  `WeaponStats.splash` (or the bomblets' `submunitions.splash`) at the `fire` event, and `FIRE_SUPPORT[profile].splash` for a
+  call (`three/munitions.ts`, `weaponMunition` in `ThreeRenderer.ts`). The round carries it as `ShellModel.munition` /
+  `MissileModel.munition` to the frame it lands.
+- **Phase 1 scope (the brief and the coordinator's ruling Q1):** only a class with `blast_from: "class"` draws its row (fireball
+  `f x S` at 200 ms through `classBlastRecipe`, lobes, dirt, the dust column and skirt, crater `c x S`, scorch `s x S`, the row's
+  light, shake and hit-stop). That is `heavy_artillery`: `howitzer_155` AND `grad_122`. Every other class keeps its emitter's look
+  and gains only the ring. The fireball radius is a MODEL (`flipbookFireRadius`: the shader's size times the billow's fill,
+  `0.5 / FLIPBOOK_FIT.fire.zoom`); `blast:capture` has not measured it yet.
+- **The ring** (`units/blast-ring.ts`): inner shock 0 -> `S` over `inner_ms` (ease-out, alpha 0.6 held to 70% then linear to 0, a
+  0.07 t edge at `HDR_GAINS.shockRingEdge` and 1.6x the alpha for 120 ms, then easing to the body's); the outer wave `S` ->
+  `outer_k x S` from `inner_ms` to `outer_end_ms`, a 0.45 t band never inside `S`, alpha 0.3 -> 0, non-additive. Two meshes (one
+  additive at `FX_RENDER_ORDER_ADDITIVE`, one normal at `FX_RENDER_ORDER`), each one dynamic geometry rewritten from the live
+  rings once a frame on the FX frame clock, every vertex on the ground: **+2 draws only while a ring lives**, stock
+  `MeshBasicMaterial` with vertex colour and alpha, so no GLSL and no node twin. It replaced the strike's single 2.2 t
+  `ShockRingPool` (the strike now rings 2.0 / 3.2). Drawn on: shell landings, bomblets (grenade class, k 1: inner only), missile
+  landings with a splash (never an intercept), kamikaze warheads, swarm dives, demolition charges, the barrage round and the
+  strike. The `support-blast` debug layer hides the whole pool. A placed charge (`chargeDetonated`) still has no consumer (P6).
+- **Flipbook `alpha`** (`FlipbookLayerSpec.alpha`, the `aAlpha` instance attribute, 1 by default): the dust column's 0.45 and the
+  skirt's 0.35 ceilings. A recipe that authors none multiplies by exactly 1.
+- **The ladder** (`fx-ladder.test.ts`) reads every drawn shell-rung class through `munitionLightSpec`/`munitionShake`/
+  `munitionHitStopMs`, and names every class on a rung. The 155's approved 4 px shake EQUALS a barrage round's (5 x 0.8); the
+  strict strike > barrage > shell order is kept for the emitter-drawn landings, and a drawn heavy class is held at or under a
+  barrage round.

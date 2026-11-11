@@ -26,7 +26,8 @@ interface Authored {
 
 function authored(): Authored[] {
   return readdirSync(VFX_DIR)
-    .filter((f) => f.endsWith('.json'))
+    // GH-1197: `munitions.json` is the munition-class table, not an emitter (`@lions/data`'s VFX_MUNITIONS_FILE).
+    .filter((f) => f.endsWith('.json') && f !== 'munitions.json')
     .map((f) => JSON.parse(readFileSync(new URL(f, VFX_DIR), 'utf8')) as Authored);
 }
 
