@@ -87,6 +87,9 @@ function template(): { template: BuildingMeshTemplate; base: THREE.MeshStandardM
 interface Private {
   buildingMeshIdleTemplates: Map<string, BuildingMeshTemplate>;
   buildingMeshIdleEntities: Map<number, THREE.Object3D>;
+  buildingMeshLod1Templates: Map<string, BuildingMeshTemplate>;
+  buildingMeshLod1Entities: Map<number, THREE.Object3D>;
+  camera: { zoom: number };
   buildingDamageBand: Map<number, number>;
   cutUniforms: CutUniforms | null;
   updateBuildingMeshes(): void;
@@ -103,7 +106,7 @@ function materialsOf(root: THREE.Object3D): THREE.Material[] {
 }
 
 /** The house, and selectable riflemen at the given tile positions (side 0, the viewer's own; side 1 for `hostile`). */
-function arm(at: readonly [number, number][], hostile: readonly [number, number][] = []) {
+function arm(at: readonly [number, number][], hostile: readonly [number, number][] = [], lod1 = false) {
   const sim = new Sim({ seed: 1, width: W, height: W, capacity: 32 });
   const rifles = sim.addUnitType(RIFLES);
   const type = sim.addStructureType({ id: 'house', hp_per_tile: 200, height_px: 22, color: 'limestone.3' });
@@ -116,6 +119,11 @@ function arm(at: readonly [number, number][], hostile: readonly [number, number]
   renderer.snapshot();
   const t = template();
   priv.buildingMeshIdleTemplates.set('house', t.template);
+  if (lod1) {
+    // The LOD1 twin, and a zoom inside its band (below 2.0), so the house stands as its twin.
+    priv.buildingMeshLod1Templates.set('house', template().template);
+    priv.camera.zoom = 1;
+  }
   priv.updateBuildingMeshes();
   const root = priv.buildingMeshIdleEntities.get(s)!;
   /** `n` frames of `dtMs` each, at alpha 1. */
@@ -233,6 +241,26 @@ describe('roof cutaway: the selected-unit trigger', () => {
     const m = materialsOf(root)[0] as THREE.MeshStandardMaterial;
     expect(isCut(m)).toBe(true);
     expect(m.color.getHex()).not.toBe(base.color.getHex());
+  });
+
+  // Review of PR 1232: the twin has no cut, so a cut building must draw its full model at LOD1 zoom. Falsify: delete
+  // `&& !this.buildingCuts.has(s)` from `stepLod1`'s `showTwin` and this goes red.
+  it('a cut building at LOD1 zoom shows its full model, not the twin, and the twin again once released', () => {
+    const { s, priv, renderer, root, units, frames } = arm([[8, 6]], [], true);
+    const twin = priv.buildingMeshLod1Entities.get(s)!;
+    expect(twin).toBeDefined();
+    expect([twin.visible, root.visible]).toEqual([true, false]);
+    renderer.selection = [units[0]];
+    frames(30);
+    expect(renderer.cutawayCount()).toBe(1);
+    // The next frame's LOD pass, as `frame()` runs it.
+    priv.updateBuildingMeshes();
+    expect([twin.visible, root.visible]).toEqual([false, true]);
+    renderer.selection = [];
+    frames(140);
+    expect(renderer.cutawayCount()).toBe(0);
+    priv.updateBuildingMeshes();
+    expect([twin.visible, root.visible]).toEqual([true, false]);
   });
 
   it('the minimap photograph sees the uncut footprint: the volume count is 0 for it and restored after', () => {
