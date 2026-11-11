@@ -57,10 +57,10 @@ vi.mock('./post-chain', async (importOriginal) => {
   };
 });
 
-const seen = vi.hoisted(() => ({ options: [] as { timestamps?: boolean }[] }));
+const seen = vi.hoisted(() => ({ options: [] as { timestamps?: boolean; nodeDraw?: unknown }[] }));
 
 vi.mock('./backend/node-backend', async () => ({
-  createNodeBackend: async (o: { timestamps?: boolean }): Promise<{ backend: RenderBackend }> => {
+  createNodeBackend: async (o: { timestamps?: boolean; nodeDraw?: unknown }): Promise<{ backend: RenderBackend }> => {
     seen.options.push(o);
     const backend = {
       kind: 'node-webgl2',
@@ -177,6 +177,51 @@ describe('RendererOptions.timestamps (G4, the renderer half)', () => {
     await r.init(HOST);
     expect(seen.options.map((o) => o.timestamps)).toEqual([false]);
     r.dispose();
+  });
+});
+
+/**
+ * GH-943 P3 (T14b, GH-1152) G3: `RendererOptions.nodeDraw` (the F2 / F8 / 1205 switches) is read ONLY on a node boot, like
+ * `timestamps`. Falsification (run by hand, in the commit message): `void this.opts.nodeDraw;` as the first line of
+ * `ThreeRenderer.init`: the legacy spec goes red.
+ */
+function countingDraw(gpu: RendererOptions['gpu']): { opts: RendererOptions; reads: () => number } {
+  const { opts } = countingOpts(gpu, undefined);
+  let reads = 0;
+  const value = { refreshPolicy: 'three', matrixWalk: 'every-pass' } as const;
+  Object.defineProperty(opts, 'nodeDraw', {
+    enumerable: true,
+    get: () => {
+      reads++;
+      return value;
+    },
+  });
+  return { opts, reads: () => reads };
+}
+
+describe('RendererOptions.nodeDraw (G3, T14b)', () => {
+  it('a legacy boot never reads it', async () => {
+    const { opts, reads } = countingDraw(undefined);
+    const r = new ThreeRenderer(new Sim({ seed: 1, width: 48, height: 48, capacity: 4 }), opts);
+    await r.init(HOST);
+    r.frame(1, 0);
+    expect(r.backendInfo().kind).toBe('legacy-gl');
+    expect(reads()).toBe(0);
+    r.dispose();
+  });
+
+  it('a node boot hands it to the backend as given; absent, the backend gets none (its defaults apply)', async () => {
+    const { opts, reads } = countingDraw('webgl2');
+    const r = new ThreeRenderer(new Sim({ seed: 1, width: 48, height: 48, capacity: 4 }), opts);
+    await r.init(HOST);
+    expect(seen.options.map((o) => o.nodeDraw)).toEqual([{ refreshPolicy: 'three', matrixWalk: 'every-pass' }]);
+    expect(reads()).toBeGreaterThan(0);
+    r.dispose();
+    seen.options.length = 0;
+    const plain = boot('webgl2', undefined);
+    await plain.r.init(HOST);
+    expect(seen.options.map((o) => o.nodeDraw)).toEqual([undefined]);
+    plain.r.dispose();
   });
 });
 
