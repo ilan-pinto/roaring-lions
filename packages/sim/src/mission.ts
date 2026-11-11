@@ -225,6 +225,10 @@ export interface ObjectiveJson {
   /** `escort` only: the destination zone, a name in the map's zones. `target` names the escorted units (a tag on a
    *  `starting_force` placement). Absent on every other type; the schema's description is the authority. */
   zone?: string;
+  /** `no_collateral_above` only: the most Conduct (ROE score points) this mission may lose, a whole number 0 to 100.
+   *  The objective fails the tick `100 - roeScore` is above it. The schema types it as a plain number for every type;
+   *  the constructor holds the rule. */
+  threshold?: number;
   count?: number;
   seconds?: number;
   /** Fires as a `MissionEvent` the tick this objective completes, right
@@ -721,7 +725,7 @@ interface WorksCharge {
 
 const SUPPORTED = new Set([
   'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all',
-  'evacuate_before', 'raze', 'collapse', 'score', 'escort',
+  'evacuate_before', 'raze', 'collapse', 'score', 'escort', 'no_collateral_above',
 ]);
 
 /** The types that may name a `side` (GH-976): the ones whose evaluation reads it. */
@@ -1115,6 +1119,23 @@ export class MissionRuntime {
         throw new Error(
           `mission ${mission.id}: objective type "${def.type}" is not supported by the runtime yet`
         );
+      }
+      if (def.threshold !== undefined && def.type !== 'no_collateral_above') {
+        throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no threshold (only no_collateral_above does)`);
+      }
+      if (def.type === 'no_collateral_above') {
+        // A ceiling on the SAME score the HUD shows (`roeScoreValue`), so it needs that score to move, a ceiling that
+        // can be crossed, and something else to win: it completes with the primaries, and with none it would complete
+        // on the first tick.
+        if (def.threshold === undefined || !Number.isInteger(def.threshold) || def.threshold < 0 || def.threshold > 100) {
+          throw new Error(`mission ${mission.id}: no_collateral_above "${def.id}" needs a whole threshold from 0 to 100, not ${String(def.threshold)}`);
+        }
+        if (mission.roe?.enabled === false) {
+          throw new Error(`mission ${mission.id}: no_collateral_above "${def.id}" reads the ROE score, which this mission switches off`);
+        }
+        if (!mission.objectives.some((x) => x !== def && x.primary)) {
+          throw new Error(`mission ${mission.id}: no_collateral_above "${def.id}" needs another primary objective to complete alongside`);
+        }
       }
       if (def.zone !== undefined && def.type !== 'escort') {
         throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no zone (only escort does)`);
@@ -2525,6 +2546,8 @@ export class MissionRuntime {
     paused?: 'contested' | 'unheld';
     /** Zone this objective is fought over, so the map can show it. */
     zone?: string;
+    /** `no_collateral_above` only: Conduct lost so far (100 minus the ROE score) against the ceiling. */
+    collateral?: { lost: number; limit: number };
   }[] {
     return this.objectives.map((o) => {
       let ticksLeft: number | undefined;
@@ -2570,6 +2593,10 @@ export class MissionRuntime {
             : o.def.type === 'escort'
               ? o.def.zone
               : undefined,
+        collateral:
+          o.def.type === 'no_collateral_above'
+            ? { lost: 100 - this.roeScoreValue, limit: o.def.threshold ?? 0 }
+            : undefined,
       };
     });
   }
@@ -4413,8 +4440,18 @@ export class MissionRuntime {
   }
 
   private stepObjectives(tick: number, out: MissionEvent[]): void {
+    // Two passes, no stored order (the runtime snapshot has a row for every field): every objective in authored order,
+    // then each `no_collateral_above`, so on the tick the other primaries complete the ceiling sees them complete and
+    // finishes with them. A mission ends the same tick, and would otherwise end with it still active. With none
+    // authored the second pass skips every row.
+    this.stepObjectivePass(tick, out, false);
+    this.stepObjectivePass(tick, out, true);
+  }
+
+  private stepObjectivePass(tick: number, out: MissionEvent[], ceilings: boolean): void {
     for (const o of this.objectives) {
       if (o.status !== 'active') continue;
+      if ((o.def.type === 'no_collateral_above') !== ceilings) continue;
       const d = o.def;
       let complete = false;
       let failed = false;
@@ -4450,6 +4487,13 @@ export class MissionRuntime {
         // comes down is a charge worked by a unit with the ability, so losing
         // every such unit makes a collapse primary permanently impossible.
         failed = !complete && d.seconds !== undefined && tick >= d.seconds * TICKS_PER_SECOND;
+      } else if (d.type === 'no_collateral_above') {
+        // The ROE score is the one counter (`stepRoe` writes it, the HUD and the grade read it): collateral is what it
+        // has lost from 100. Lost the tick it passes the ceiling, and it stays lost. It completes with the other
+        // primaries (`stepObjectives` runs it in the second pass), so it is satisfied exactly when the mission is won without crossing it.
+        failed = 100 - this.roeScoreValue > (d.threshold ?? 0);
+        complete =
+          !failed && this.objectives.every((x) => x === o || !x.def.primary || x.status === 'complete');
       } else if (d.type === 'escort') {
         // Lost: any escorted unit is dead or taken (`remove` clears `alive` too). Arrived: EVERY escorted unit stands
         // in the zone at once (`standsIn` needs it alive, so a dead unit can never count as arrived and the two
