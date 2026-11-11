@@ -3934,6 +3934,8 @@ export class ThreeRenderer implements Renderer {
         twinSlotOf: (m) => (isTwin(m) ? null : legacyTwinSlot(m)),
         // GH-943 P3 (T13): timestamp queries for the probe's GPU time; the only read of the option (a legacy boot never gets here).
         timestamps: this.opts.timestamps === true,
+        // GH-943 P3 (T14b): the draw-submission switches; read here only, so a legacy boot never reads them (G3).
+        ...(this.opts.nodeDraw !== undefined ? { nodeDraw: this.opts.nodeDraw } : {}),
       });
       if (this.disposed) {
         if ('backend' in made) made.backend.dispose();

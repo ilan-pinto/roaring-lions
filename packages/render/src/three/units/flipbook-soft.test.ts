@@ -68,6 +68,32 @@ describe('flipbook soft particles (GH-1227 slice 1)', () => {
     expect(fx.softDepthOn).toBe(false);
   });
 
+  it('chains the smoke mesh hook it found rather than overwriting it, and gives it back when turned off', () => {
+    const fx = new FlipbookFx(8);
+    const seen: string[] = [];
+    const own: THREE.Object3D['onBeforeRender'] = () => seen.push('own');
+    fx.mesh.onBeforeRender = own;
+    const src = source();
+    fx.setSoftDepth(src);
+    fx.setSoftDepth(src); // a second call must not chain onto its own hook
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 11);
+    fx.mesh.onBeforeRender({} as never, new THREE.Scene(), cam, fx.mesh.geometry, fx.mesh.material, null as never);
+    expect(seen).toEqual(['own']);
+    expect((fx.mesh.material as Mat).uniforms.uSoftSpan!.value).toBe(10);
+    fx.setSoftDepth(null);
+    expect(fx.mesh.onBeforeRender).toBe(own);
+  });
+
+  it('dispose turns soft particles off, so no uniform keeps the snapshot texture', () => {
+    const fx = new FlipbookFx(8);
+    const src = source();
+    fx.setSoftDepth(src);
+    const m = fx.mesh.material as Mat;
+    fx.dispose();
+    expect(fx.softDepthOn).toBe(false);
+    expect(Object.values(m.uniforms).some((u) => u.value === src.depthTexture)).toBe(false);
+  });
+
   it('the splice refuses a missing or repeated anchor rather than shipping an unfaded program', () => {
     const { vertexShader: v, fragmentShader: f } = FLIPBOOK_SHADERS;
     expect(() => softFlipbookShaders(v, f.replace('gl_FragColor = vec4(col, alpha * vAlpha);', 'gl_FragColor = vec4(col, alpha);'), '')).toThrow(/fragment output/);

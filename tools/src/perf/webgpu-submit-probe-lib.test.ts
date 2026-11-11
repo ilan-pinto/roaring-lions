@@ -17,6 +17,7 @@ import {
   hypothesisRows,
   missingHypotheses,
   perPassRefusals,
+  parkedRefreshRefusals,
   settledByCount,
   tallyTable,
   unsettledRefusals,
@@ -73,6 +74,15 @@ function healthy(): SubmitReading[] {
       out.push(reading(arm, n, 'decor-props-hidden', pp(n - 50, 2 * n - 100, n - 50, 9)));
       out.push(reading(arm, n, 'unit-shadow-off', pp(40, 2 * n, n, 9)));
       out.push(reading(arm, n, 'ao-hidden', pp(n, 2 * n, 0, 8)));
+      // T14b's node switches: no draw moves; on G the FULL refreshes and the scene walks do, on L nothing (no node backend).
+      const base = out.find((r) => r.arm === arm && r.n === n && r.variant === 'base') as SubmitReading;
+      const node = arm === 'G';
+      const full = (k: number): SubmitReading['fullRefresh'] => ({ ...emptyByType(), stockMesh: k });
+      const counts = (downgraded: number, walks: number, walksSkipped: number): SubmitReading['drawCounts'] => ({ full: 4 * n, downgraded, walks, walksSkipped });
+      out[out.indexOf(base)] = { ...base, ...(node ? { fullRefresh: full(4 * n - 3 * n), drawCounts: counts(3 * n, 1, 1) } : {}) };
+      out.push({ ...base, variant: 'refresh-unsafe', applied: node ? 1 : 0, ...(node ? { fullRefresh: full(n / 2), drawCounts: counts(3.5 * n, 1, 1) } : {}) });
+      out.push({ ...base, variant: 'refresh-three', applied: node ? 1 : 0, ...(node ? { fullRefresh: full(4 * n), drawCounts: counts(0, 1, 1) } : {}) });
+      out.push({ ...base, variant: 'walk-every-pass', applied: node ? 1 : 0, ...(node ? { fullRefresh: full(n), drawCounts: counts(3 * n, 2, 0) } : {}) });
     }
   }
   return out;
@@ -112,6 +122,27 @@ describe('perPassRefusals (G1 at run time)', () => {
   });
 });
 
+describe('T14b: the node switches (G4) and G2a', () => {
+  it('every switch moved its count on G: none is dead, none is missing', () => {
+    expect(deadHypotheses(healthy())).toEqual([]);
+    expect(missingHypotheses(healthy())).toEqual([]);
+  });
+  // G4's falsification: `matrixWalk` stubbed to do nothing reads the base's counts on every arm.
+  it('the H9 switch stubbed (its readings equal the base on every arm): H9 is dead and the run refuses', () => {
+    const rows = healthy();
+    const stubbed = rows.map((r) => (r.variant === 'walk-every-pass' ? { ...(rows.find((b) => b.arm === r.arm && b.n === r.n && b.variant === 'base') as SubmitReading), variant: 'walk-every-pass' as const } : r));
+    expect(deadHypotheses(stubbed)).toEqual(['H9']);
+  });
+  it('G2a: the parked base takes fewer FULL refreshes than three on the same page; equal (F2 cut nothing) refuses', () => {
+    expect(parkedRefreshRefusals(healthy())).toEqual([]);
+    const rows = healthy();
+    const cutNothing = rows.map((r) => (r.arm === 'G' && r.n === 600 && r.variant === 'base' ? { ...r, fullRefresh: { ...emptyByType(), stockMesh: 2400 }, drawCounts: { full: 2400, downgraded: 0, walks: 1, walksSkipped: 1 } } : r));
+    expect(parkedRefreshRefusals(cutNothing)).toEqual(["G2a G n600: the parked policy took 2400 FULL refreshes, three's own 2400: F2 cut nothing"]);
+    const noCounts = rows.map((r) => (r.arm === 'G' && r.n === 300 && r.variant === 'refresh-three' ? { ...r, fullRefresh: null } : r));
+    expect(parkedRefreshRefusals(noCounts)).toEqual(['G2a G n300: no FULL-refresh counts to compare']);
+  });
+});
+
 describe('deadHypotheses (G2: each hypothesis moves the frame)', () => {
   it('every toggle moved its pass: none is dead', () => {
     expect(deadHypotheses(healthy())).toEqual([]);
@@ -144,7 +175,8 @@ function aoSkipped(): SubmitReading[] {
   return healthy().map((r) => {
     if (r.perPass === null) return r;
     const p = { ...r.perPass, ao: { calls: 0, objects: 0 } };
-    const fixed = reading(r.arm, r.n, r.variant, p);
+    // The T14b counts ride along: only the AO pass changes shape.
+    const fixed = { ...reading(r.arm, r.n, r.variant, p), applied: r.applied, fullRefresh: r.fullRefresh, drawCounts: r.drawCounts };
     return r.variant === 'ao-hidden' ? reading(r.arm, r.n, 'ao-hidden', { ...(healthy().find((b) => b.arm === r.arm && b.n === r.n && b.variant === 'base')?.perPass as PerPass), ao: { calls: 0, objects: 0 } }) : fixed;
   });
 }
@@ -246,7 +278,7 @@ describe('timing: the cells, the verdicts and the lever', () => {
   });
   it('the table has every hypothesis, H6 marked not run without the hold', () => {
     const rows = hypothesisRows({ readings: healthy(), cells: [], counts: [300, 600] });
-    expect([...new Set(rows.map((r) => r.hypothesis))]).toEqual(['H1', 'H3', 'H4', 'H2', 'H5', 'H6']);
+    expect([...new Set(rows.map((r) => r.hypothesis))]).toEqual(['H1', 'H3', 'H4', 'H7', 'H8', 'H9', 'H2', 'H5', 'H6']);
     expect(rows.find((r) => r.hypothesis === 'H6')?.verdict).toBe('not run (needs the Metal hold)');
   });
 });

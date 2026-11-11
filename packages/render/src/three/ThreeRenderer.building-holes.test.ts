@@ -16,6 +16,7 @@ import type { BuildingMeshTemplate } from './units/mesh-building';
 import { scarredMaterial } from './units/building-damage';
 import type { Hole } from './units/building-holes';
 import type { BuildingHoleMaterials } from './units/holed-material';
+import { BuildingCutMaterials, CUT_PROGRAM_KEY, createCutUniforms, cutColorsFor, type CutUniforms } from './units/cut-material';
 import { hexToLinear } from './terrain/shared';
 import { MUNITIONS } from './munitions';
 import { paletteHex } from './palette-hex';
@@ -97,6 +98,10 @@ interface Priv {
   buildingMeshIdleEntities: Map<number, THREE.Object3D>;
   buildingMeshLod1Entities: Map<number, THREE.Object3D>;
   buildingHoles: Map<number, { holes: Hole[]; mats: BuildingHoleMaterials }>;
+  buildingCuts: Map<number, { root: THREE.Object3D; mats: BuildingCutMaterials }>;
+  cutUniforms: CutUniforms | null;
+  applyBuildingSkin(s: number, root: THREE.Object3D): void;
+  releaseBuildingCut(s: number): void;
   updateBuildingMeshes(): void;
   stepLod1(zoom: number): void;
   onStrike(e: { x: number; y: number; tick: number; profile: number }): void;
@@ -340,6 +345,37 @@ describe('a holed building keeps its full art and leaves with its holes', () => 
     }
     expect(p.buildingHoles.has(s)).toBe(false);
     expect(holedInScene(p.scene)).toBe(0);
+    r.dispose();
+  });
+});
+
+describe('a holed building keeps its holes once a roof cut opens and closes (PR 1221 review, GH-1225 L7)', () => {
+  it('hole, then cut (both hooks), then the cut closes: the holes hook is back, uRlHoleN > 0, the cut hook gone', () => {
+    const { r, p, shooter, s } = world(TANK);
+    r.onEvents([fireAt(shooter, s, 'gun_120'), hit(shooter, s)]);
+    const entry = p.buildingHoles.get(s)!;
+    const root = p.buildingMeshIdleEntities.get(s)!;
+    // The cut opens as updateCutaway opens it: uniforms, the building's cut clones, then the one skin write.
+    p.cutUniforms = createCutUniforms();
+    const type = (r as unknown as { sim: Sim }).sim.structureTypes[0];
+    p.buildingCuts.set(s, { root, mats: new BuildingCutMaterials(p.cutUniforms, cutColorsFor(type.color)) });
+    p.applyBuildingSkin(s, root);
+    for (const m of meshes(root)) {
+      const key = (m.material as THREE.Material).customProgramCacheKey();
+      expect(key).toContain('rl-holes');
+      expect(key).toContain(CUT_PROGRAM_KEY);
+    }
+    // The cut closes.
+    p.releaseBuildingCut(s);
+    expect(p.buildingCuts.has(s)).toBe(false);
+    expect(entry.mats.uniforms.uRlHoleN.value).toBeGreaterThan(0);
+    for (const m of meshes(root)) {
+      const mat = m.material as THREE.Material;
+      expect(mat.userData.rlHoles).toBe(true);
+      expect(mat.customProgramCacheKey()).toContain('rl-holes');
+      expect(mat.customProgramCacheKey()).not.toContain(CUT_PROGRAM_KEY);
+      expect(m.customDepthMaterial).toBe(entry.mats.depth);
+    }
     r.dispose();
   });
 });

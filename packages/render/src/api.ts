@@ -18,6 +18,7 @@ import type { Camera } from './project';
 import type { EmitterSpec } from './vfx';
 import type { RenderQuality } from './quality';
 import type { BackendInfo, GpuRequest } from './gpu';
+import type { NodeDrawOptions } from './three/backend/node-draw-options';
 // A type from a three-FREE module beside `lighting.ts` (it imports nothing),
 // so this file still reaches neither backend's library.
 import type { LightOverride, TimeOfDay } from './three/time-of-day';
@@ -497,6 +498,13 @@ export interface RendererOptions {
    * ONLY on a node boot (`initNodeBackend`); a legacy boot never reads it. Default off: the queries cost CPU per pass. Tools only.
    */
   timestamps?: boolean;
+  /**
+   * GH-943 P3 (T14b, GH-1152): the node renderer's draw-submission switches (`three/backend/node-draw.ts`), each one on its own so a
+   * single Metal hold can read it on and off. Absent fields take the shipped defaults (`NODE_DRAW_DEFAULTS`): `refreshPolicy:
+   * 'parked'` (F2, lead ruling D3), `matrixWalk: 'once'` (F8), `uploads: 'versioned'` (PR 1205). Read ONLY on a node boot
+   * (`initNodeBackend`); a legacy boot never reads it. Tools only: the measurement pages pass a non-default value on a named arm.
+   */
+  nodeDraw?: NodeDrawOptions;
   /**
    * Look uplift L2 (GH-943): a colour grade, folded into the output pass between the tone map and the
    * vignette (`three/output-grade.ts`, maths in `three/grade-maths.ts`). `json` is a `data/grades/<id>.json`
