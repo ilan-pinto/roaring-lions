@@ -139,11 +139,13 @@ const VERT = /* glsl */ `
   attribute float aSeed;
   attribute float aTint;
   attribute float aWhite;
+  attribute float aAlpha;
   uniform float uTime;
   uniform float uFirePass;
   uniform float uQuadScale;
   varying float vTint;
   varying float vWhite;
+  varying float vAlpha;
   varying vec2 vUv;
   varying float vT;
   varying float vType;
@@ -190,6 +192,7 @@ const VERT = /* glsl */ `
     vAge = age;
     vTint = aTint;
     vWhite = aWhite;
+    vAlpha = aAlpha;
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
   }
 `;
@@ -223,6 +226,7 @@ const FRAG = /* glsl */ `
   varying float vSeed;
   varying float vTint;
   varying float vWhite;
+  varying float vAlpha;
 
   const float GRID = ${FLIPBOOK_GRID.toFixed(1)};
   const float LAST = ${(FLIPBOOK_GRID * FLIPBOOK_GRID - 1).toFixed(1)};
@@ -259,7 +263,7 @@ const FRAG = /* glsl */ `
       float dotDensity = 1.0 - smoothstep(0.35, 1.0, length(vUv));
       vec3 sparkCol = mix(uHot, uFire, smoothstep(0.0, 0.35, vT));
       sparkCol = mix(sparkCol, uEmber, smoothstep(0.35, 0.8, vT)) * uSparkGain;
-      gl_FragColor = vec4(sparkCol, dotDensity * (1.0 - smoothstep(0.7, 1.0, vT)));
+      gl_FragColor = vec4(sparkCol, dotDensity * (1.0 - smoothstep(0.7, 1.0, vT)) * vAlpha);
       return;
     }
     float ang = vSeed * 6.2831853;
@@ -338,7 +342,7 @@ const FRAG = /* glsl */ `
       col = mix(uDirtDark, uDirt, smoothstep(0.0, 0.6, vT)) * uLight * shade;
       alpha = density * 0.95 * (1.0 - smoothstep(0.45, 1.0, vT));
     }
-    gl_FragColor = vec4(col, alpha);
+    gl_FragColor = vec4(col, alpha * vAlpha);
   }
 `;
 
@@ -385,6 +389,8 @@ export interface FlipbookSpawn {
   tint?: number;
   /** SMOKE only, 0..1: how far the puff turns white (HE smoke), beside `tint`. */
   white?: number;
+  /** 0..1, a multiplier on the drawn alpha (GH-1197). Absent is 1. */
+  alpha?: number;
 }
 
 /** A `FLIPBOOK_FIT` entry as the shader's two uniform vectors: the atlas fit, and the billow noise. */
@@ -438,6 +444,8 @@ export class FlipbookFx {
   private readonly seed: THREE.InstancedBufferAttribute;
   private readonly tint: THREE.InstancedBufferAttribute;
   private readonly white: THREE.InstancedBufferAttribute;
+  /** GH-1197: per-instance alpha multiplier, 1 for every recipe that does not author `alpha`. */
+  private readonly alphaMul: THREE.InstancedBufferAttribute;
   private head = 0;
   private written = 0;
   private timeMs = 0;
@@ -473,13 +481,15 @@ export class FlipbookFx {
     this.seed = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     this.tint = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     this.white = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
-    for (const a of [this.origin, this.vel, this.params, this.seed, this.tint, this.white]) a.setUsage(THREE.DynamicDrawUsage);
+    this.alphaMul = new THREE.InstancedBufferAttribute(new Float32Array(capacity).fill(1), 1);
+    for (const a of [this.origin, this.vel, this.params, this.seed, this.tint, this.white, this.alphaMul]) a.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aOrigin', this.origin);
     geometry.setAttribute('aVel', this.vel);
     geometry.setAttribute('aParams', this.params);
     geometry.setAttribute('aSeed', this.seed);
     geometry.setAttribute('aTint', this.tint);
     geometry.setAttribute('aWhite', this.white);
+    geometry.setAttribute('aAlpha', this.alphaMul);
     geometry.instanceCount = 0;
     const uniforms = (firePass: number): Record<string, THREE.IUniform> => ({
       uTime: { value: 0 },
@@ -652,7 +662,7 @@ export class FlipbookFx {
 
   /** One instance. */
   spawn(o: FlipbookSpawn): void {
-    this.push(o.x, o.y, o.z, o.vx ?? 0, o.vy ?? 0, o.vz ?? 0, o.delayMs ?? 0, o.durationMs, o.scale, o.type, o.tint ?? 0, o.white ?? 0);
+    this.push(o.x, o.y, o.z, o.vx ?? 0, o.vy ?? 0, o.vz ?? 0, o.delayMs ?? 0, o.durationMs, o.scale, o.type, o.tint ?? 0, o.white ?? 0, o.alpha ?? 1);
   }
 
   private syncVisible(): void {
@@ -674,7 +684,7 @@ export class FlipbookFx {
   private push(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number,
-    delayMs: number, durMs: number, scale: number, type: number, tint = 0, white = 0
+    delayMs: number, durMs: number, scale: number, type: number, tint = 0, white = 0, alpha = 1
   ): void {
     const i = this.head;
     this.head = (this.head + 1) % this.capacity;
@@ -689,8 +699,9 @@ export class FlipbookFx {
     (this.seed.array as Float32Array)[i] = this.rand();
     (this.tint.array as Float32Array)[i] = tint;
     (this.white.array as Float32Array)[i] = white;
+    (this.alphaMul.array as Float32Array)[i] = alpha;
     // Upload only the touched slot.
-    for (const [attr, size] of [[this.origin, 3], [this.vel, 3], [this.params, 4], [this.seed, 1], [this.tint, 1], [this.white, 1]] as const) {
+    for (const [attr, size] of [[this.origin, 3], [this.vel, 3], [this.params, 4], [this.seed, 1], [this.tint, 1], [this.white, 1], [this.alphaMul, 1]] as const) {
       attr.addUpdateRange(i * size, size);
       attr.needsUpdate = true;
     }
@@ -750,7 +761,8 @@ export class FlipbookFx {
         this.push(
           px, y0, pz,
           Math.cos(a) * radial + dx * along, up, Math.sin(a) * radial + dz * along,
-          L.delay_ms[0] + L.delay_ms[1] * k, between(L.duration_ms), scale, type, L.oil ? -L.oil : (L.tint ?? 0), L.white ?? 0
+          L.delay_ms[0] + L.delay_ms[1] * k, between(L.duration_ms), scale, type, L.oil ? -L.oil : (L.tint ?? 0), L.white ?? 0,
+          L.alpha ?? 1
         );
         n++;
       }

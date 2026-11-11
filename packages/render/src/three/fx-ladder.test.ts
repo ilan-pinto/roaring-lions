@@ -18,7 +18,12 @@
  *   reference footprint (3x3, power 1). Twelve-tile houses ship.
  * - vehicle kill: `catastrophic_kill` at `explosionBurstPowerFromMaxHp` of the
  *   roster's largest hull, read from `data/units` (the Lavi, 3000 hp, power 1).
- * - shell landing: `shell_impact` at the largest indirect `impactPower`.
+ * - shell landing: `shell_impact` at the largest indirect `impactPower`, and
+ *   (GH-1197) every munition class on the shell rung whose `blast_from` is
+ *   `'class'` (heavy artillery: the 155 and the Grad), at its own row through
+ *   `munitionLightSpec`/`munitionShake`/`munitionHitStopMs` -- the functions
+ *   the renderer calls. A ladder that read only `SHELL_PROFILES` would stop
+ *   guarding the order the moment a round's look moved to the class table.
  * - muzzle flash: every `weapon_fire` emitter's light, plus `rpg_backblast`'s
  *   for a class a launcher team fires from a tube (`shellKindFor` -> missile),
  *   because ONE shot spawns both lights (`ThreeRenderer.onFire`/
@@ -30,7 +35,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { WEAPON_CLASS } from '@lions/sim';
 import type { EmitterSpec } from '../vfx/emitters';
-import { blastHitStopMs, blastLightSpec, blastShake } from './blast-spec';
+import { blastHitStopMs, blastLightSpec, blastShake, munitionHitStopMs, munitionLightSpec, munitionShake } from './blast-spec';
+import { MUNITIONS, munitionRow, type MunitionClassId } from './munitions';
 import { AIR_STRIKE_IMPACT_POWER, BARRAGE_IMPACT_POWER } from './support-air';
 import { explosionBurstPowerFromFootprint, explosionBurstPowerFromMaxHp } from './units/explosion-burst';
 import { SHELL_PROFILES, shellKindFor } from './units/shells';
@@ -40,7 +46,8 @@ const UNITS_DIR = new URL('../../../../data/units/', import.meta.url);
 
 function emitters(): EmitterSpec[] {
   return readdirSync(VFX_DIR)
-    .filter((f) => f.endsWith('.json'))
+    // GH-1197: `munitions.json` is the munition-class table, not an emitter.
+    .filter((f) => f.endsWith('.json') && f !== 'munitions.json')
     .map((f) => JSON.parse(readFileSync(new URL(f, VFX_DIR), 'utf8')) as EmitterSpec);
 }
 
@@ -79,6 +86,31 @@ function blastLevel(em: EmitterSpec, power: number): Level {
   };
 }
 
+/**
+ * GH-1197: which rung each munition class sits on. LITERALS, and every class in
+ * `munitions.json` must be named here (the coverage case below), so a new class
+ * cannot slip off the ladder unread.
+ */
+const SHELL_RUNG: readonly MunitionClassId[] = ['grenade', 'mortar', 'direct_he', 'heavy_artillery', 'blade'];
+const SUPPORT_RUNG: readonly MunitionClassId[] = ['air_strike'];
+const DEMOLITION_RUNG: readonly MunitionClassId[] = ['demolition'];
+
+/** A munition class's level, through the renderer's own functions. The light is read at the class's largest
+ *  mapped splash (its radius grows with S; its intensity does not). */
+function classLevel(cls: MunitionClassId): Level {
+  const row = munitionRow(cls);
+  return {
+    light: munitionLightSpec(row, row.reference_splash_tiles)?.intensity ?? 0,
+    shake: munitionShake(row)?.amplitudePx ?? 0,
+    hitStop: munitionHitStopMs(row),
+  };
+}
+
+/** The shell-rung classes the renderer DRAWS from their row (Phase 1: heavy artillery). */
+function drawnShellClasses(): MunitionClassId[] {
+  return SHELL_RUNG.filter((c) => MUNITIONS.classes[c]?.blast_from === 'class');
+}
+
 /** The four levels, each at its strongest, as the renderer would spawn them. */
 function ladder(): { collapse: Level; kill: Level; shell: Level; muzzle: Level } {
   const collapsePower = explosionBurstPowerFromFootprint(0, 0, 2, 2);
@@ -97,10 +129,13 @@ function ladder(): { collapse: Level; kill: Level; shell: Level; muzzle: Level }
         return shellKindFor(WEAPON_CLASS[cls]) === 'missile' ? own + backblast : own;
       })
     );
+  const emitterShell = blastLevel(byId('shell_impact'), shellPower);
+  const classShells = drawnShellClasses().map(classLevel);
+  const strongest = (key: keyof Level): number => Math.max(emitterShell[key], ...classShells.map((l) => l[key]));
   return {
     collapse: blastLevel(byId('structure_collapse'), collapsePower),
     kill: blastLevel(byId('catastrophic_kill'), killPower),
-    shell: blastLevel(byId('shell_impact'), shellPower),
+    shell: { light: strongest('light'), shake: strongest('shake'), hitStop: strongest('hitStop') },
     // The fire path reads `light` and nothing else (`ThreeRenderer.onFire`).
     muzzle: { light: Math.max(...muzzleLights), shake: 0, hitStop: 0 },
   };
@@ -126,15 +161,59 @@ describe('explosion strength follows the event (VR-22)', () => {
   }
 });
 
+describe('the munition classes are on the ladder (GH-1197)', () => {
+  it('names every class in munitions.json on exactly one rung', () => {
+    const named = [...SHELL_RUNG, ...SUPPORT_RUNG, ...DEMOLITION_RUNG];
+    expect(new Set(named).size).toBe(named.length);
+    expect(Object.keys(MUNITIONS.classes).sort()).toEqual([...named].sort());
+  });
+
+  it('reads at least one drawn class into the shell level (the 155 anchor)', () => {
+    // An empty list would leave the ladder guarding only SHELL_PROFILES, vacuously.
+    expect(drawnShellClasses()).toContain('heavy_artillery');
+  });
+
+  for (const key of ['light', 'shake', 'hitStop'] as const) {
+    it(`every shell-rung class row, drawn yet or not, sits under a vehicle kill on ${key}`, () => {
+      const kill = ladder().kill[key];
+      for (const cls of SHELL_RUNG) expect(classLevel(cls)[key], cls).toBeLessThan(kill);
+    });
+  }
+
+  it('freezes the frame for no shell class (the lead, 9 Nov)', () => {
+    for (const cls of SHELL_RUNG) expect(classLevel(cls).hitStop, cls).toBe(0);
+  });
+});
+
 describe('the fire-support detonations (GH-748, the lead 22 Oct)', () => {
-  it('air strike > barrage round > shell landing, on light and shake', () => {
+  it('air strike > barrage round > an emitter-drawn shell landing, on light and shake', () => {
     const strike = blastLevel(byId('air_strike_impact'), AIR_STRIKE_IMPACT_POWER);
     const round = blastLevel(byId('barrage_impact'), BARRAGE_IMPACT_POWER);
-    const shell = ladder().shell;
+    const shellPower = Math.max(
+      ...Object.values(SHELL_PROFILES)
+        .filter((p) => p.indirect)
+        .map((p) => p.impactPower)
+    );
+    const shell = blastLevel(byId('shell_impact'), shellPower);
     for (const key of ['light', 'shake'] as const) {
       const row = `strike ${strike[key]}, barrage ${round[key]}, shell ${shell[key]}`;
       expect(strike[key], row).toBeGreaterThan(round[key]);
       expect(round[key], row).toBeGreaterThan(shell[key]);
+    }
+  });
+
+  // GH-1197: the 155 anchor's approved 4 px shake EQUALS a barrage round's (5 px x 0.8), and its light (3.2)
+  // sits under the round's (4.2 x 0.8 = 3.36). So the drawn heavy classes sit at or under a barrage round, and
+  // strictly under the strike; the strict order above stays on the emitter-drawn landings.
+  it('a drawn heavy class sits under the strike, and at or under a barrage round', () => {
+    const strike = blastLevel(byId('air_strike_impact'), AIR_STRIKE_IMPACT_POWER);
+    const round = blastLevel(byId('barrage_impact'), BARRAGE_IMPACT_POWER);
+    for (const cls of drawnShellClasses()) {
+      const l = classLevel(cls);
+      expect(l.light, cls).toBeLessThan(round.light);
+      expect(l.shake, cls).toBeLessThanOrEqual(round.shake);
+      expect(l.light, cls).toBeLessThan(strike.light);
+      expect(l.shake, cls).toBeLessThan(strike.shake);
     }
   });
   it('freezes the frame 60 ms on the strike and never on a barrage round', () => {

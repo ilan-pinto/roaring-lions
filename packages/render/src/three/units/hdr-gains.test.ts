@@ -15,6 +15,8 @@ describe('HDR_GAINS', () => {
       arc: 3.5,
       sparks: 4,
       fireball: 2.6,
+      // GH-1197: the approved mock v2's ring edge (emission 1.3 over the body's 1.0).
+      shockRingEdge: 1.3,
       beamCore: 4,
       beamSheath: 1.6,
       beamGlow: 2.4,
