@@ -110,17 +110,25 @@ medium, 3 runs interleaved, load under 6; falsified by hiding the `flipbook` lay
 
 ## 5. The WebGPU twin
 
-- **Maths:** `softParticleFadeOps` goes into `material-maths.ts`'s `flipbook` slot; `createNodeFlipbookMaterial` multiplies its
-  alpha by it when the legacy record carries `uSoftSpan` (read through `vfxRecord.uni`, like every other uniform), and builds the
-  shipped graph otherwise (pinned by `twin-identity`).
-- **Depth:** three's `viewportDepthTexture()` copies the pass's depth mid-pass, once per frame, the same pass break as option A.
-  **Risk:** our scene pass is `depth24plus-stencil8` (`post-chain.node.ts`), and WebGPU's copy rules do not allow copying the depth
-  aspect of a `depth24plus` format, so that copy may fail validation. Two ways out, to be tried in order: (W1) switch the scene pass
-  to `depth32float-stencil8` (an optional feature, present on Apple), whose depth aspect is copyable; (W2) copy by a full-screen draw
-  that samples the depth through a depth-only view (the view the GH-943 patch already makes) into an R32F target. Either is a
-  separate slice with its own Metal read.
-- **Until then the node backend never builds the snapshot**: `ThreeRenderer.init` returns before the wiring on the node path, so
-  `softParticles` is inert there. The twin slice adds a test pinning that refusal, then removes it.
+**Built in slice 1 (lead ruling, 11 Nov: the same-PR twin rule holds), switched off like the WebGL side.**
+
+- **Maths:** `softParticleFadeOps` is in `material-maths.ts`'s `flipbook` slot (`softOps`). `createNodeFlipbookMaterial` builds the
+  fade on the SMOKE pass only, and only when the legacy record carries `uSoftDepth` (only `setSoftDepth`, so only
+  `quality.softParticles`, puts it there). Otherwise none of it is built: the default smoke and fire programs (GLSL and WGSL, vertex
+  and fragment) are pinned by hash to the shipped twin's, taken before the change (`flipbook-soft.node.test.ts`).
+- **What the twin samples:** the INJECTED depth texture in the record (`uSoftDepth`, a late texture tap like the atlases, a
+  statement in uniform control flow, compiled as `texture_depth_2d`), at `screenUV` (normalised and flip-correct on both backends,
+  so `uSoftInvSize` has no twin), against the fragment's own orthographic window depth
+  (`viewZToOrthographicDepth(positionView.z, cameraNear, cameraFar)`), with `uSoftSpan` re-read from the record (the node renderer
+  also calls the smoke mesh's `onBeforeRender`, which writes it).
+- **What is NOT built: the node backend's copy that fills it.** three's `viewportDepthTexture()` would copy the pass's depth
+  mid-pass, but our scene pass is `depth24plus-stencil8` (`post-chain.node.ts`), and WebGPU's copy rules do not allow copying the
+  depth aspect of a `depth24plus` format. Two ways out, for the later slice, in order: (W1) switch the scene pass to
+  `depth32float-stencil8` (an optional feature, present on Apple), whose depth aspect is copyable; (W2) copy by a full-screen draw
+  that samples the depth through a depth-only view (the view the GH-943 patch already makes) into an R32F target. Either needs its
+  own Metal read.
+- **So on the node backend `softParticles` stays inert**: `ThreeRenderer.init` returns before the wiring on the node path, no
+  `setSoftDepth` runs, and the twin builds its shipped graph. The copy slice wires it and adds the test that pins the copy.
 
 ## 6. How the golden baselines move
 
@@ -170,6 +178,15 @@ Disclosed survivor: the `ThreeRenderer.init` wiring (`quality.softParticles === 
 the unchanged CI baselines are what hold it. The spliced program was compiled once with `glslangValidator` as GLSL ES 3.00 (vertex
 and fragment both clean; a misspelt identifier in the splice failed), which is a compile check, not a picture.
 
+Twin gates (slice 1, `units/flipbook-soft.node.test.ts`; each mutation run red once, listed in the commit message):
+
+| id | gate | falsification (one-line mutation) |
+|---|---|---|
+| T1 | off: the default smoke and fire twins compile to the shipped programs (four hashes), and after on-then-off too | build the fade whenever the pass is smoke: red |
+| T2 | on: the fade samples the injected `uSoftDepth` at `screenUV`, through its statement var, with the record's `uSoftSpan` | tap `uSmokeAtlas` instead: red; tap at the atlas uv: red; drop `.toVar()`: red; a literal span: red |
+| T3 | on: the fade's value reaches the alpha | compute the fade but do not multiply: red |
+| T4 | the fire pass never fades, even handed a record with the soft uniforms | drop `pass === 'smoke'`: red |
+
 Later slices:
 
 | id | gate | falsification |
@@ -177,14 +194,14 @@ Later slices:
 | G-cost | flag on vs off, `high` and `medium`, DPR 2, `render-frame-cost.ts --stress`; within the budget the lead sets (D2) | hide the `flipbook` layer: the delta must vanish |
 | G-visual | a reference-free layer check (`BaselineSpec.layerChecks`): a `soft` toggle on a frame with a billow on the ground changes the frame by a calibrated floor | force `soft = 1.0` in the splice: the check must go red |
 | G-palette | HDR gains and colours unchanged: the fade multiplies alpha only | multiply `col` by `soft`: a colour-identity test (a fully-in-front fragment's colour equals today's) goes red |
-| G-twin | node twin: Ops parity on numbers vs literals, twin graph unchanged when off | drop the twin's soft term: parity red |
+| G-twin-copy | node backend fills the snapshot (W1 or W2) and the twin's fade matches the legacy one on a Metal read | hide the `flipbook` layer: the delta must vanish |
 | G-baseline | CI report of every scenario with the flag on, read by the lead before any bless | the flag-off CI run must read zero on every scenario |
 
 ## 8. Slices
 
 1. **This PR.** WebGL2 snapshot and smoke-pass fade, flag off on every preset; design.
 2. `&soft` sandbox flag (`sandbox-help.ts`) for an A/B look; G-cost on Metal; the lead's one Metal browser check.
-3. The WebGPU twin (section 5), its depth path and G-twin.
+3. The node backend's depth copy (section 5, W1 or W2) and G-twin-copy; the twin's fade itself is built in slice 1.
 4. `ParticleInstancer` debris dust on the same snapshot (D4).
 5. Flip on at the presets the lead picks (D2); G-baseline; bless from CI after the lead sees it.
 

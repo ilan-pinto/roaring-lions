@@ -37,6 +37,7 @@ import { tslOps, type N } from '../fog-pass.node';
 import type { Ops } from '../fog-ops';
 import type { flipbookAliveOps, flipbookCoverOps, flipbookMotionOps, flipbookShadeOps, Tap4 } from './flipbook-fx';
 import type { V3s, vfxBillboardOps } from './vfx-noise';
+import type { softParticleFadeOps } from '../soft-depth';
 import { finishFxTwin, type FxTsl, type FxTwinBound, type FxTwinDeps, type HasUniforms, type NX } from './fx.node';
 
 /** The flipbook maths, INJECTED (`material-maths.ts`'s `flipbook` slot). */
@@ -46,6 +47,8 @@ export interface FlipbookMaths {
   readonly coverOps: typeof flipbookCoverOps;
   readonly shadeOps: typeof flipbookShadeOps;
   readonly billboardOps: typeof vfxBillboardOps;
+  /** GH-1227: the soft-particle fade (`soft-depth.ts`), read only when the legacy smoke record carries `uSoftDepth`. */
+  readonly softOps: typeof softParticleFadeOps;
 }
 
 export const NODE_FLIPBOOK_SMOKE_NAME = 'rl-node-material-flipbook-smoke';
@@ -64,6 +67,15 @@ export type VfxTsl = FxTsl & {
   instancedDynamicBufferAttribute(value: unknown, type: string, stride: number, offset: number): N;
   mat4(...cols: N[]): N;
   length(a: N): N;
+};
+
+/** The TSL the soft-particle fade adds (GH-1227). */
+type SoftTsl = VfxTsl & {
+  readonly screenUV: N;
+  readonly positionView: N;
+  readonly cameraNear: N;
+  readonly cameraFar: N;
+  viewZToOrthographicDepth(viewZ: N, near: N, far: N): N;
 };
 
 /** A legacy texture uniform's taps, re-synced from the record by their carrier's render update. */
@@ -246,18 +258,41 @@ export function createNodeFlipbookMaterial(
   const knobs = {
     fireGain: uni('uFireGain'), sparkGain: uni('uSparkGain'), light: uLight, smokeAlpha: uni('uSmokeAlpha'), oilCrown: uni('uOilCrown'),
   };
+  // GH-1227 slice 1: the soft-particle fade, SMOKE pass only and only when the legacy record carries `uSoftDepth` (that is,
+  // `FlipbookFx.setSoftDepth` ran, which only `quality.softParticles` does). Otherwise none of this is built and the graph is the
+  // shipped one, node for node (`flipbook-fx.node.test.ts` pins the default program's hashes). The depth is the INJECTED texture
+  // in the record, never this pass's own attachment; how the node backend fills it is the design's section 5 (WebGPU cannot copy
+  // the depth aspect of the scene pass's `depth24plus-stencil8`). `screenUV` is normalised and flip-correct on both backends, so
+  // the legacy `uSoftInvSize` has no twin; `uSoftSpan` is re-read from the record (the smoke mesh's `onBeforeRender` writes it, and
+  // the node renderer calls that hook too). The fragment's own window depth is its orthographic view depth, as `gl_FragCoord.z`.
+  const soft =
+    pass === 'smoke' && legacy.uniforms.uSoftDepth !== undefined
+      ? (() => {
+          const ST = TSL as SoftTsl;
+          return {
+            depth: tap('uSoftDepth', uLight, ST.screenUV),
+            fragDepth: ST.viewZToOrthographicDepth(ST.positionView.z, ST.cameraNear, ST.cameraFar),
+            span: uni('uSoftSpan'),
+            size: TSL.varying(p.size.mul(uQuadScale)),
+          };
+        })()
+      : null;
   const fragment = TSL.Fn(() => {
     const fire0 = taps.fire0.toVar();
     const fire1 = taps.fire1.toVar();
     const smoke0 = taps.smoke0.toVar();
     const smoke1 = taps.smoke1.toVar();
+    // Like the atlas taps: a statement in uniform control flow, before anything selects.
+    const sceneDepth = soft ? soft.depth.toVar() : null;
     const shaded = maths.shadeOps(o, {
       cover,
       fire0: channels(fire0), fire1: channels(fire1), smoke0: channels(smoke0), smoke1: channels(smoke1),
       uv, t: vT, type: vType, tint: vTint, whiteAmount: vWhite, age: vAge, seed: vSeed,
       colors, ...knobs, sun: { x: sun.x, y: sun.y },
     });
-    return packFragment(TSL, { ...shaded, alpha: (shaded.alpha as NX).mul(vAlpha) });
+    const alpha = (shaded.alpha as NX).mul(vAlpha);
+    if (soft === null || sceneDepth === null) return packFragment(TSL, { ...shaded, alpha });
+    return packFragment(TSL, { ...shaded, alpha: (alpha as NX).mul(maths.softOps(o, sceneDepth, soft.fragDepth, soft.span, soft.size)) });
   })();
 
   const m = new W.MeshBasicNodeMaterial();
