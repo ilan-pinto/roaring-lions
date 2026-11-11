@@ -415,7 +415,7 @@ export class AgentClient {
         this.decided = decideOnHashTick(this.decided, tick, config, sim, productionOf(w), goalsOf(w));
         if (this.decided === null) return false;
         // As the browser does through its end panel: the sim's result, told once.
-        reportOver(this.o.role === 'seat' ? this.transport : null, this.decided.result, this.decided);
+        reportOver(this.o.role === 'seat' ? this.transport : null, this.decided.result, this.decided, config);
         this.log(`result at tick ${tick}: ${resultLine(this.decided.result, live.side)}`);
         return true;
       },

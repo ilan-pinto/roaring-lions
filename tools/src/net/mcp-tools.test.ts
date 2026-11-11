@@ -581,8 +581,8 @@ describe('wait (case 5)', () => {
     expect(c.client.result()).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
     const r = await drive(loop, [a.client, c.client], waiting, 20);
     expect(body(r)).toMatchObject({ reason: 'result', ran: decidedOn + 1 - at, result: 'won (annihilation)' });
-    expect(sentBy(loop, a)).toContainEqual({ t: 'over', tick: decidedOn });
-    expect(sentBy(loop, c)).toContainEqual({ t: 'over', tick: decidedOn });
+    expect(sentBy(loop, a)).toContainEqual({ t: 'over', tick: decidedOn, result: { winner: 0, by: 'annihilation' } });
+    expect(sentBy(loop, c)).toContainEqual({ t: 'over', tick: decidedOn, result: { winner: 0, by: 'annihilation' } });
     expect(a.client.transport.stats().desyncTick).toBeNull();
     // An acting tool says the match is over.
     expect(body(await call(ctx, 'order', { verb: 'halt', ids: sideIds(a.client.world() as MatchWorld, 0) })).error).toBe('match over');
