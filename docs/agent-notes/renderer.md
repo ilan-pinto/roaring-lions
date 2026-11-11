@@ -671,3 +671,25 @@ Design: `docs/superpowers/specs/2026-11-09-explosion-scale-and-building-physics-
   `munitionHitStopMs`, and names every class on a rung. The 155's approved 4 px shake EQUALS a barrage round's (5 x 0.8); the
   strict strike > barrage > shell order is kept for the emitter-drawn landings, and a drawn heavy class is held at or under a
   barrage round.
+
+## The debris pool (GH-1197 P2)
+
+- **What throws it:** every landing that draws a P1 ring (`spawnReachFx` in `ThreeRenderer.ts`), with clods and chunks from
+  its class row in `munitions.json` scaled by `(S / reference_splash_tiles)^2` and thrown `throw_tiles x S / ref` (the
+  coordinator's ruling Q1). A DPICM bomblet throws about 4 clods, the 155 36 + 18, the strike 48 + 24. The dirt flipbook stays
+  on every preset.
+- **Colour (ruling Q2):** the ground under the landing (`tileBaseToneHex`, the tile tone the terrain builder drew) is a palette
+  entry; `units/debris-tone.ts` finds its key and steps its OWN ramp: a clod one step lighter, chunks one and two darker, a
+  quarter of the chunks `gunmetal.2` (charred). A basalt ground throws basalt. Resolved through `hexToLinear`, as instance colours.
+- **Flight (`units/debris-flight.ts`):** closed form, solved once at spawn: a parabola at the flipbook dirt's gravity (9.8), one
+  touchdown on the drawn ground, one bounce (restitution 0.3, horizontal x0.5), a slide at 4 t/s^2 to rest. Every random number
+  is a hash of the landing point (to 1/16 tile) and the piece's index, so a capture reproduces bit for bit. A catch-up
+  (`setQuiet`) places the pieces at rest. Settled debris shrinks into the ground from 90 s over 1.5 s on the SIM clock.
+- **Draw (`units/debris-pool.ts`):** three shared shapes built in code (slab 12, block 20, shard 8 triangles), one
+  `InstancedMesh` each, a lit `MeshStandardMaterial` with an `onBeforeCompile` flight hook (`rl-debris`, and `rl-debris-depth`
+  on the custom depth material, so the shadow flies too). The CPU writes a slot once; the instance matrix IS the rest pose, so
+  the node backend (no twin yet) draws the pieces at rest with no flight or fade. `WORLD_RENDER_ORDER`, out of AO
+  (`rlAoExempt`). Caps: 0.35 t largest, 0.12 t settled height. A full pool never steals a live piece.
+- **Cost (`RenderQuality.debris`):** high 1024 pieces with shadows (+3 colour, +3 shadow draws, <= 27.4k triangles of the
+  design's 49k), medium 512 with none (+3, <= 6.9k of 12k), low none. `debris-pool.test.ts` is the cost test. The `debris` debug
+  layer hides the pool; `blast:capture` has no `debris` toggle floor yet (no browser in P2).
