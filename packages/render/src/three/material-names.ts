@@ -53,6 +53,10 @@ export const UNIT_HOOK_SEGMENTS: ReadonlySet<string> = new Set([
   'rl-soot',
 ]);
 
+/** GH-1225 slice 3 (L7): the program-key segments of a clone-drawn building's holed (`rl-holes`, GH-1197 P4) and cut (`rl-cut`)
+ *  colour clones. A hooked material whose segments are ALL in this set is a `building` material: one twin draws both. */
+export const BUILDING_HOOK_SEGMENTS: ReadonlySet<string> = new Set(['rl-holes', 'rl-cut']);
+
 /** The other hooked P3 materials, each a single-segment program key: the occlusion outline, the garrison banner, the backdrop. */
 export const OUTLINE_HOOK_KEY = 'rl-silhouette-outline';
 export const BANNER_HOOK_KEY = 'rl-garrison-banner';

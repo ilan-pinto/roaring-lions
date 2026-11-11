@@ -19,7 +19,7 @@
  * material that the AO pre-pass swaps onto a cut mesh (`post-chain.ts`, `userData.rlCutAo`), because GTAO draws its G-buffer
  * through `scene.overrideMaterial` and so never reads a depth material. Both carry `cutMaskHook`, which discards and paints
  * nothing, over the SAME volume block, so the minimap's forced count of 0 (`photographGround`) suspends them too. The node
- * backend draws no cut (the TSL twin is a later slice; `ThreeRenderer` mints none there). A building both holed and cut takes
+ * backend draws the cut through its TSL twin (slice 3, `building-cut.node.ts`, reading `cutHookOf`). A building both holed and cut takes
  * its own pair instead, ONE mask of holes and cut (`maskWith`, `building-mask.ts`), so depth, AO and colour discard alike.
  *
  * `Material.clone()` drops `onBeforeCompile`, so the hook is put on every clone, chained after any hook the base already had;
@@ -155,12 +155,29 @@ export function cutColorsFor(colorKey: string): CutColors {
 
 const STOCK_HOOK = THREE.Material.prototype.onBeforeCompile;
 
+/** GH-1225 slice 3: the uniform record of one building's cut clones (the shared volume block by reference, and its two colours). */
+export type CutHookUniforms = CutUniforms & { readonly uRlCutCap: { value: THREE.Color }; readonly uRlCutInterior: { value: THREE.Color } };
+
+/** GH-1225 slice 3: what the TSL twin (`building-cut.node.ts`) reads off a cut clone: the record its hook binds, and the material
+ *  it was cloned from (a holed clone, for a building both holed and cut, whose holes the twin reads through `holesHookOf`). */
+export interface CutHook {
+  readonly uniforms: CutHookUniforms;
+  readonly base: THREE.Material;
+}
+
+const cutHooks = new WeakMap<THREE.Material, CutHook>();
+
+/** The cut hook a cut clone carries, or undefined for any other material. Handed to the twin as a value (`MATERIAL_MATHS`). */
+export function cutHookOf(m: THREE.Material): CutHook | undefined {
+  return cutHooks.get(m);
+}
+
 /**
  * The cut of ONE building: its cut colour clones (one per band material it draws) over the shared volume block. Minted when a
  * volume first reaches the building, disposed when the last leaves.
  */
 export class BuildingCutMaterials {
-  private readonly uniforms: CutUniforms & { readonly uRlCutCap: { value: THREE.Color }; readonly uRlCutInterior: { value: THREE.Color } };
+  private readonly uniforms: CutHookUniforms;
   private readonly byBase = new Map<THREE.Material, THREE.Material>();
   private holed: { readonly holes: BuildingHoleMaterials; readonly mask: MaskMaterials } | null = null;
 
@@ -194,6 +211,7 @@ export class BuildingCutMaterials {
       };
       cut.customProgramCacheKey = () => (baseKey ? `${baseKey}|${CUT_PROGRAM_KEY}` : CUT_PROGRAM_KEY);
       cut.needsUpdate = true;
+      cutHooks.set(cut, { uniforms, base });
       this.byBase.set(base, cut);
     }
     return cut;
