@@ -151,11 +151,18 @@ jobs:
       # GH-943 P0: three.core shared, three/webgpu lazy, main chunk clean and under its ceiling.
       - run: pnpm --filter @lions/tools webgpu:bundle
       # GH-943 P1: the same-PR rule. A PR that changes a legacy GLSL file whose node twin exists (TWINS, tools/webgpu_ratchet.mjs) must
-      # change the twin too. HEAD is the PR's merge commit, so a two-dot diff against the fetched base is exactly the PR's change.
+      # change the twin too. The checker diffs against merge-base(base tip, HEAD), NOT the base tip: main may have moved a twin file after the
+      # branch was cut, and a tip diff would charge that to every older branch. A merge-base needs history on both sides, so deepen until found.
       - name: Twin check (same-PR rule)
         if: github.event_name == 'pull_request'
         run: |
-          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          git fetch --no-tags --depth=100 origin "${{ github.base_ref }}"
+          git fetch --no-tags --deepen=100 origin HEAD || true
+          for i in 1 2 3 4 5 6; do
+            git merge-base FETCH_HEAD HEAD >/dev/null 2>&1 && break
+            git fetch --no-tags --deepen=400 origin "${{ github.base_ref }}"
+            git fetch --no-tags --deepen=400 origin HEAD || true
+          done
           pnpm --filter @lions/tools exec tsx src/ci/twin-check.ts --base=FETCH_HEAD
 
   # The visual regression gate: three.js against a committed three.js baseline
