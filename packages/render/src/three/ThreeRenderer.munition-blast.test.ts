@@ -367,4 +367,51 @@ describe('the debris pool rides the renderer clocks (PR 1218 review)', () => {
     expect(p.debris!.group.visible).toBe(true);
     r.dispose();
   });
+
+  // R-J: `frame()` withholds `dtMs` for the length of a hit-stop, and the pool
+  // is fed that same withheld delta -- so a chunk caught mid-air hangs there
+  // while the sim keeps ticking underneath. Without the freeze the debris
+  // clock would keep running through the 60 ms stop (40 ms x the strike's
+  // 1.5 power) and the pieces would land early; the pull request review found
+  // this case unguarded.
+  it('freezes the debris flight clock for a hit-stop and resumes it when the stop drains', () => {
+    const { sim, r, p } = world('enemy/mortar_crew.json', 't_mortar');
+    p.onStrike({ x: fx.from(10), y: fx.from(10), tick: 1, profile: 0 });
+    const pool = p.debris!;
+    expect(pool.liveCount, 'the strike really threw debris').toBeGreaterThan(0);
+    const stopMs = p.hitStop.remainingMs;
+    expect(stopMs, 'the strike really asked for a hit-stop').toBeGreaterThan(48);
+
+    const t0 = pool.nowMs;
+    const sim0 = pool.simMs;
+    // The sim does not stop for a hit-stop (invariant 4: nothing here reaches
+    // it), so the fade clock, which runs on sim time, must keep moving even
+    // while the flight clock is pinned.
+    sim.tick();
+    sim.tick();
+    r.snapshot();
+
+    const pinnedFrames: number[] = [];
+    let released = -1;
+    for (let guard = 0; guard < 20 && released < 0; guard++) {
+      const before = pool.nowMs;
+      const frozenAfter = p.hitStop.remainingMs > 16;
+      r.frame(1, 16);
+      if (frozenAfter) pinnedFrames.push(pool.nowMs - before);
+      else released = pool.nowMs - before;
+    }
+
+    // Every frame the stop still had time left is pinned to the millisecond...
+    expect(pinnedFrames.length, 'the freeze spanned several frames').toBeGreaterThanOrEqual(2);
+    expect(pinnedFrames.every((d) => d === 0)).toBe(true);
+    // ...while the fade clock took the sim's time throughout.
+    expect(pool.simMs).toBeGreaterThan(sim0);
+
+    // The frame that drains the stop is the first released one, and it hands
+    // its own dt to the pool; the next frame keeps going.
+    expect(released).toBeCloseTo(16, 6);
+    r.frame(1, 16);
+    expect(pool.nowMs - t0).toBeCloseTo(32, 6);
+    r.dispose();
+  });
 });

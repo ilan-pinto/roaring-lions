@@ -409,6 +409,7 @@ import {
   type TexturedDecorSet,
 } from './terrain/decor-textured-mesh';
 import { lod1Shown } from './units/building-lod';
+import { buildingSkin, keepsFullArt } from './units/building-skin';
 import { isTexturedDecorKey } from './terrain/textured-decor';
 import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
@@ -557,6 +558,18 @@ import {
 import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
 import { footprintCentre } from './units/footprint';
+import {
+  CUT_BAND_TILES,
+  CUT_HEIGHT_TILES,
+  CUT_ROOF_FALLBACK_TILES,
+  CUT_SELECT_RADIUS_TILES,
+  CutawayTable,
+  footprintDistance,
+  writeCutVolumes,
+  type CutTrigger,
+  type CutVolume,
+} from './units/building-cutaway';
+import { BuildingCutMaterials, createCutUniforms, cutColorsFor, type CutUniforms } from './units/cut-material';
 import { DEFAULT_BUILDING_FIT, buildingFitScale, type FitScale } from './units/building-fit';
 import {
   FX_RENDER_ORDER,
@@ -715,6 +728,7 @@ import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel, hazeAmountOps, HAZE_FORWARD } from './haze';
 import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
+import { SoftDepthSnapshot } from './soft-depth';
 import { FogOfWarPass } from './fog-pass';
 import { FOG_OFFMAP_FADE_TILES, FogUniforms, type FogPassLike } from './fog-spec';
 import { fogDim } from './fog-ops';
@@ -1394,6 +1408,8 @@ export class ThreeRenderer implements Renderer {
    *  keeps a composer-less path: the raw renderer, whose own `antialias:
    *  true` covers what SMAA covers in the game. */
   private post: PostChain | null = null;
+  /** GH-1227 slice 1: the soft-particle depth snapshot, built by `init` only for `quality.softParticles` (no preset sets it). */
+  private softDepth: SoftDepthSnapshot | null = null;
   /** CSS pixels, which is what `width`/`height` report -- see their own doc
    *  comment for why that is not the drawing buffer's size any more. */
   private cssWidth = 0;
@@ -2741,6 +2757,19 @@ export class ThreeRenderer implements Renderer {
   private readonly buildingScars = new Map<string, BuildingScarMaterials>();
   private readonly buildingDamageBand = new Map<number, number>();
   /**
+   * GH-1225 slice 1, the roof cutaway (`units/building-cutaway.ts`, `units/cut-material.ts`): the live volumes, keyed by the
+   * selected unit that asked for each, on the FRAME clock; the shared volume block every cut clone binds by reference, minted on
+   * the first cut and never before; and the buildings a volume reaches now, each with its cut clones and the root they were put
+   * on. Empty while nothing is selected, so a gated capture mints nothing (`cutawayCount`). Presentation only (invariant 4).
+   */
+  private readonly cutaway = new CutawayTable();
+  private cutUniforms: CutUniforms | null = null;
+  private readonly buildingCuts = new Map<number, { root: THREE.Object3D; mats: BuildingCutMaterials }>();
+  /** Each standing clone's drawn roof, world Y (tiles), read once from its frozen bounds: a standing building never moves. */
+  private readonly buildingRoofY = new Map<number, { root: THREE.Object3D; y: number }>();
+  private readonly cutTriggers: CutTrigger[] = [];
+  private readonly cutVolumes: CutVolume[] = [];
+  /**
    * GH-31, the vehicle half: the per-TYPE memo of scarred hull materials
    * (`units/vehicle-damage.ts`). The band each hull is drawn at lives on the
    * entity itself (`vehicleDrawnBand`), so a rebuilt clone starts clean.
@@ -3803,6 +3832,13 @@ export class ThreeRenderer implements Renderer {
     // `setFogPass`'s again: `dispose()` below frees it.
     this.bloomPass = bloomPassFor(quality, this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
     if (this.bloomPass) this.post.setBloomPass(this.bloomPass);
+    // GH-1227 slice 1: soft particles, opt-in (no preset sets it). The snapshot copies only from the
+    // composer's own two buffers; its sentinel is the first transparent draw (`soft-depth.ts`).
+    if (quality.softParticles === true) {
+      this.softDepth = new SoftDepthSnapshot([this.post.composer.renderTarget1, this.post.composer.renderTarget2]);
+      this.scene.add(this.softDepth.sentinel);
+      this.flipbook.setSoftDepth(this.softDepth);
+    }
     // Shell upgrade Phase 0: the corner vignette, on display-referred colour
     // (after the tone map, before SMAA). Since GH-829 it is folded into
     // `OutputPass`'s shader, so there is nothing to build, slot or free: the
@@ -4357,6 +4393,11 @@ export class ThreeRenderer implements Renderer {
     // dangling it would otherwise be a map full of stale `THREE.Object3D`
     // references after this method returns.
     this.buildingMeshSettling.clear();
+    // GH-1225: the cut clones, on the same footing as the scar clones below.
+    for (const cut of this.buildingCuts.values()) cut.mats.dispose();
+    this.buildingCuts.clear();
+    this.buildingRoofY.clear();
+    this.cutaway.clear();
     // The scar clones before their templates: a clone shares its base's
     // map by reference and must not outlive the template that owns it.
     for (const scars of this.buildingScars.values()) scars.dispose();
@@ -4466,6 +4507,9 @@ export class ThreeRenderer implements Renderer {
     this.post?.setBloomPass(null);
     this.bloomPass?.dispose();
     this.bloomPass = null;
+    // GH-1227: the soft-particle snapshot (its sentinel leaves the scene with it).
+    this.softDepth?.dispose();
+    this.softDepth = null;
     // The skirt's geometry and material -- added once in the constructor, so
     // no `scene.remove`, exactly like `smokeMesh`/`trailMesh` below.
     disposeSkirt(this.skirtMesh);
@@ -4647,6 +4691,8 @@ export class ThreeRenderer implements Renderer {
     // frame late and hand the last frame of it to a swap that already ran.
     this.stepCollapseShrouds(dtMs);
     this.updateBuildingMeshes();
+    // GH-1225: after the clones it cuts are stood up (or taken down) this frame.
+    this.updateCutaway(alpha, dtMs);
     this.stepBuildingMeshSettle(this.frameDtSeconds(dtMs));
     this.stepBuildingBurning(dtMs);
     this.updateFx(dtMs, alpha);
@@ -5782,6 +5828,8 @@ export class ThreeRenderer implements Renderer {
     const overlayObjects = this.overlayLayerObjects();
     const overlayObjectsWere = overlayObjects.map((o) => o.visible);
     const rainWasVisible = this.rain?.mesh.visible ?? false;
+    // GH-1225: the minimap is a map-wide photograph of the UNCUT footprints: the cutaway's volume count is forced to 0 for it.
+    const cutsWere = this.cutUniforms?.uRlCutN.value ?? 0;
     // GH-1197 P2: the debris pool is a one-off effect, not ground: the minimap never photographs a flying chunk.
     // Its GROUP is hidden, so the pool's own per-mesh `visible` (its live window) is left alone.
     const debrisWasVisible = this.debris?.group.visible ?? false;
@@ -5790,12 +5838,14 @@ export class ThreeRenderer implements Renderer {
       overlayObjects.forEach((o, k) => (o.visible = overlayObjectsWere[k] ?? o.visible));
       this.setDebugLayerVisible('units', unitsWereVisible);
       if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
+      if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = cutsWere;
       if (this.debris !== null) this.debris.group.visible = debrisWasVisible;
     };
     try {
       this.setDebugLayerVisible('units', false);
       this.setDebugLayerVisible('overlays', false);
       if (this.rain !== null) this.rain.mesh.visible = false;
+      if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = 0;
       if (this.debris !== null) this.debris.group.visible = false;
       this.fitShadowToMap();
     } catch (err) {
@@ -11772,8 +11822,9 @@ export class ThreeRenderer implements Renderer {
     for (const [s, twin] of this.buildingMeshLod1Entities) {
       const full = this.buildingMeshIdleEntities.get(s);
       if (full === undefined) continue;
-      // GH-1197 P4: a holed building keeps its full art, as a scarred one does (the twin has no holes).
-      const showTwin = !this.buildingLayerHidden && lod1Shown(this.buildingLodOn, this.buildingDamageBand.get(s)) && !this.buildingHoles.has(s);
+      // GH-1197 P4 / GH-1225 L7: a holed or cut building keeps its full art, as a scarred one does (the twin has neither).
+      const showTwin = !this.buildingLayerHidden && lod1Shown(this.buildingLodOn, this.buildingDamageBand.get(s))
+        && !keepsFullArt(this.buildingHoles.has(s), this.buildingCuts.has(s));
       twin.visible = showTwin;
       full.visible = !this.buildingLayerHidden && !showTwin;
     }
@@ -11986,8 +12037,9 @@ export class ThreeRenderer implements Renderer {
     }
     if (root) {
       applyBuildingDamageBand(root, band, scars);
-      // GH-1197 P4: a holed building keeps its holes across a band change: the holed clones of the new band's materials.
-      if (this.buildingHoles.has(s)) this.applyBuildingHoles(s, root);
+      // GH-1197 P4 / GH-1225 L7: a holed or cut building keeps both across a band change: one clone of the new band's
+      // material carrying every hook it has.
+      if (this.buildingHoles.has(s) || this.buildingCuts.get(s)?.root === root) this.applyBuildingSkin(s, root);
     } else {
       // One set per scar band, none for the clean three: bands 8-6 share the
       // template's own material, so they share one set too.
@@ -12002,6 +12054,156 @@ export class ThreeRenderer implements Renderer {
     } else {
       this.buildingBurning.delete(s);
     }
+  }
+
+  /**
+   * GH-1225 slice 1: how many buildings are cut now (hold cut clones). 0 whenever nothing has been selected beside a building
+   * for the last `CUT_HOLD_MS + CUT_CLOSE_MS`, which is what the visual gate's capture precondition asserts.
+   */
+  cutawayCount(): number {
+    return this.buildingCuts.size;
+  }
+
+  /**
+   * GH-1225 slice 1, the roof cutaway on the FRAME clock: the selection's triggers into the volume table, the table into the
+   * shared volume block, and the cut clones onto exactly the clone-drawn buildings a volume reaches (released from the rest).
+   * Returns before touching anything while nothing is selected and nothing is open, so a frame with no selection does no new
+   * work and binds nothing. Instanced per-tile sets take no cut. The node backend draws none (the TSL twin is a later slice).
+   */
+  private updateCutaway(alpha: number, dtMs: number): void {
+    if (this.nodeBackend !== null) return;
+    const triggers = this.cutTriggers;
+    triggers.length = 0;
+    if (this.selection.length > 0 && this.buildingMeshIdleEntities.size > 0) this.collectCutTriggers(alpha, triggers);
+    if (triggers.length === 0 && this.cutaway.size === 0 && this.buildingCuts.size === 0) return;
+    this.cutaway.step(triggers, this.frameDtMs(dtMs));
+    const vols = this.cutaway.volumes(this.cutVolumes);
+    if (vols.length > 0 && this.cutUniforms === null) this.cutUniforms = createCutUniforms();
+    if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = writeCutVolumes(vols, this.cutUniforms.uRlCutV.value);
+    const st = this.sim.structures;
+    let changed = false;
+    for (const [s, root] of this.buildingMeshIdleEntities) {
+      let reached = false;
+      if (st.alive[s] === 1) {
+        for (const v of vols) {
+          if (footprintDistance(st.minX[s], st.minY[s], st.maxX[s], st.maxY[s], v.cx, v.cz) < v.r + v.w) {
+            reached = true;
+            break;
+          }
+        }
+      }
+      const cut = this.buildingCuts.get(s);
+      if (reached && (cut === undefined || cut.root !== root)) {
+        if (cut !== undefined) this.dropBuildingCut(s);
+        const type = this.sim.structureTypes[st.typeIdx[s]];
+        const mats = new BuildingCutMaterials(this.cutUniforms!, cutColorsFor(type.color));
+        this.buildingCuts.set(s, { root, mats });
+        this.applyBuildingSkin(s, root);
+        changed = true;
+      } else if (!reached && cut !== undefined) {
+        this.releaseBuildingCut(s);
+        changed = true;
+      }
+    }
+    // A cut whose clone left the scene (death, a template reload) goes with it.
+    for (const [s, cut] of this.buildingCuts) {
+      if (this.buildingMeshIdleEntities.get(s) !== cut.root) {
+        this.dropBuildingCut(s);
+        changed = true;
+      }
+    }
+    if (changed) this.stepLod1(this.camera.zoom);
+  }
+
+  /** Every selected unit this seat may see that stands within `CUT_SELECT_RADIUS_TILES` of a standing clone's footprint, where
+   *  it is drawn this frame, with its cut height and the tallest roof in its reach. */
+  private collectCutTriggers(alpha: number, out: CutTrigger[]): void {
+    const st = this.sim.state;
+    const ss = this.sim.structures;
+    const n = this.snapshottedCount;
+    const reach = CUT_SELECT_RADIUS_TILES + CUT_BAND_TILES;
+    for (const i of this.selection) {
+      if (i >= n || st.alive[i] !== 1 || st.tunnelIn[i] >= 0) continue;
+      const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      if (!isOwnSide(st.side[i], this.fogViewer) && !this.isVisible(x, z)) continue;
+      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z) + CUT_HEIGHT_TILES;
+      let near = false;
+      let yTop = -Infinity;
+      for (const [s, root] of this.buildingMeshIdleEntities) {
+        if (ss.alive[s] !== 1) continue;
+        const d = footprintDistance(ss.minX[s], ss.minY[s], ss.maxX[s], ss.maxY[s], x, z);
+        if (d >= reach) continue;
+        const roof = this.roofYOf(s, root);
+        // A structure no taller than the cut (a sandbag line) has nothing to take away.
+        if (roof <= yCut) continue;
+        if (d <= CUT_SELECT_RADIUS_TILES) near = true;
+        if (roof > yTop) yTop = roof;
+      }
+      if (!near) continue;
+      const dx = x - this.camera.x;
+      const dz = z - this.camera.y;
+      out.push({ key: i, x, z, yCut, yTop, focusDist2: dx * dx + dz * dz });
+    }
+  }
+
+  /** Building `s`'s drawn roof, world Y: its clone's bounds, read once (a standing building never moves). */
+  private roofYOf(s: number, root: THREE.Object3D): number {
+    const known = this.buildingRoofY.get(s);
+    if (known !== undefined && known.root === root) return known.y;
+    const box = new THREE.Box3().setFromObject(root);
+    const y = box.isEmpty() ? root.position.y + CUT_HEIGHT_TILES + CUT_ROOF_FALLBACK_TILES : box.max.y;
+    this.buildingRoofY.set(s, { root, y });
+    return y;
+  }
+
+  /**
+   * GH-1225 L7: the ONE material write for a holed and/or cut clone-drawn building: each mesh gets its band material, holed
+   * then cut (`buildingSkin`), so one clone carries both hooks. Holes bring their depth material.
+   */
+  private applyBuildingSkin(s: number, root: THREE.Object3D): void {
+    const sc = this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id);
+    const band = this.buildingDamageBand.get(s) ?? 8;
+    const holes = this.buildingHoles.get(s)?.mats ?? null;
+    const c = this.buildingCuts.get(s);
+    const cut = c !== undefined && c.root === root ? c.mats : null;
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      // Through the scar memo FIRST: it records each mesh's own base the first time it sees it, so a mesh is never taken
+      // to have been born with a holed or cut clone.
+      mesh.material = buildingSkin(sc.materialFor(mesh, band), holes, cut);
+      if (holes !== null) mesh.customDepthMaterial = holes.depth;
+    });
+  }
+
+  /** Building `s` leaves the cut: its meshes back on their band materials, and its clones released. */
+  private releaseBuildingCut(s: number): void {
+    const cut = this.buildingCuts.get(s);
+    if (cut === undefined) return;
+    const root = cut.root;
+    this.dropBuildingCut(s);
+    // GH-1225 L7: a holed building keeps its holes once the cut closes.
+    if (this.buildingHoles.has(s)) this.applyBuildingSkin(s, root);
+    else applyBuildingDamageBand(root, this.buildingDamageBand.get(s) ?? 8, this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id));
+  }
+
+  /** Releases building `s`'s cut clones without touching its meshes (its clone is gone, or about to be re-cut). */
+  private dropBuildingCut(s: number): void {
+    const cut = this.buildingCuts.get(s);
+    if (cut === undefined) return;
+    cut.mats.dispose();
+    this.buildingCuts.delete(s);
+  }
+
+  /** The per-type scar memo, minted on first use. */
+  private scarsFor(typeId: string): BuildingScarMaterials {
+    let scars = this.buildingScars.get(typeId);
+    if (!scars) {
+      scars = new BuildingScarMaterials();
+      this.buildingScars.set(typeId, scars);
+    }
+    return scars;
   }
 
   /**
@@ -12470,6 +12672,8 @@ export class ThreeRenderer implements Renderer {
     // shades its billows toward the sun as the camera sees it: the sun's
     // direction on the camera's right/up axes. A few multiplies a frame.
     this.flipbook.step(dtMs);
+    // GH-1227: the soft-particle snapshot is taken only while the smoke pass draws.
+    this.softDepth?.sync([this.flipbook.mesh]);
     // GH-1197 P2: debris flies on the same frame clock (hit-stop freezes it mid-air) and fades on the sim clock.
     this.debris?.step(dtMs, presentationSimMs(this.sim.tickCount, alpha ?? 0));
     {
@@ -12871,24 +13075,10 @@ export class ThreeRenderer implements Renderer {
     this.applyBuildingHoles(s, root);
   }
 
-  /** Puts building `s`'s holed clones of its CURRENT band materials on every mesh, and its depth material. */
+  /** Puts building `s`'s holed clones of its CURRENT band materials on every mesh, and its depth material (under its cut, if any). */
   private applyBuildingHoles(s: number, root: THREE.Object3D): void {
-    const entry = this.buildingHoles.get(s);
-    if (entry === undefined) return;
-    const typeId = this.sim.structureTypes[this.sim.structures.typeIdx[s]].id;
-    let scars = this.buildingScars.get(typeId);
-    if (!scars) {
-      scars = new BuildingScarMaterials();
-      this.buildingScars.set(typeId, scars);
-    }
-    const band = this.buildingDamageBand.get(s) ?? 8;
-    const sc = scars;
-    root.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      mesh.material = entry.mats.materialFor(sc.materialFor(mesh, band));
-      mesh.customDepthMaterial = entry.mats.depth;
-    });
+    if (!this.buildingHoles.has(s)) return;
+    this.applyBuildingSkin(s, root);
   }
 
   /** A holed building's edge and interior colours, from its type's palette key: the lip one ramp key darker, the

@@ -644,6 +644,27 @@ Design: `docs/superpowers/specs/2026-11-09-explosion-scale-and-building-physics-
   strict strike > barrage > shell order is kept for the emitter-drawn landings, and a drawn heavy class is held at or under a
   barrage round.
 
+## Roof cutaway, slice 1: the selected-unit cut (GH-1225)
+
+Design: `docs/superpowers/specs/2026-11-11-roof-cutaway-design.md` (Option A, L2-L8 ruled 10 Nov). Slice 1 is the WebGL2 colour
+pass for the SELECTED-unit trigger only; the garrison trigger and figure spread, the shadow and AO cut (a depth material), the merge
+with P4's `rl-holes` hook, and the TSL twin are later slices.
+
+- **Maths** (`units/building-cutaway.ts`): the constants, `cutawayOps<T>` against `Ops<T>` (reach `r + w`, the cut height sloping
+  from `yCut` to `yTop` over the band, the 0.03 t section cap), and `CutawayTable`, the live volumes keyed by unit index. The iris
+  scales R AND W together (a fresh cut takes nothing away), opens ease-out over 250 ms, holds 1.0 s after the trigger ends and
+  closes ease-in over 400 ms, on the FRAME clock (`frameDtMs`; a hit-stop holds it, a paused sim does not). At most 8 volumes:
+  triggered nearest the camera focus first, then the most-open closing ones.
+- **The hook** (`units/cut-material.ts`, key `rl-cut`): a per-building `DoubleSide` clone of the band material, minted when a
+  volume first reaches the building and released (meshes back on the band material, clones disposed) when none does. Every clone
+  binds ONE shared volume block (`uRlCutV`, a `Float32Array` of two `vec4` a volume, and `uRlCutN`) by reference; each building owns
+  its cap (ramp key 0) and interior (darkest key 0.6 toward `gunmetal.2`) colours, LINEAR. The GLSL is pinned line for line
+  against `cutawayOps` in `cut-material.test.ts`.
+- **No trigger, no change:** `updateCutaway` returns before anything while nothing is selected and nothing is open, so a capture
+  mints no material, program or uniform; the capture precondition asserts `renderer.cutawayCount() === 0` beside the selection
+  check. A cut building keeps its full art over its LOD1 twin; instanced per-tile sets take no cut; the node backend draws none
+  yet; `hideForGroundPhoto` forces the volume count to 0 for the minimap.
+
 ## The debris pool (GH-1197 P2)
 
 - **What throws it:** every landing that draws a P1 ring (`spawnReachFx` in `ThreeRenderer.ts`), with clods and chunks from
