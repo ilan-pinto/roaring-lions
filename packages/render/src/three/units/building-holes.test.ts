@@ -5,6 +5,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   HOLE_CAP,
+  HOLE_CRACK_ROOT_RAD,
+  HOLE_CRACKS,
   HOLE_EDGE_OCTAVES,
   addHole,
   holeAt,
@@ -130,6 +132,33 @@ describe('what a fragment is, against one hole', () => {
     expect(holeAt(h, [edge + 0.04, 0, 0]).halo).toBeGreaterThan(0.6);
     expect(holeAt(h, [edge + 0.17, 0, 0]).halo).toBeLessThan(0.1);
     expect(holeAt(h, [edge + 0.2, 0, 0]).halo).toBe(0);
+  });
+  it('a crack is a wedge that TAPERS to a point: wide at the edge, narrower with distance, gone past its length', () => {
+    // A seed whose crack 0 has no other crack within 11 degrees, so a point beside it can only be crack 0's.
+    const near = (a: number, b: number): boolean => {
+      const d = Math.abs(a - b) % (Math.PI * 2);
+      return Math.min(d, Math.PI * 2 - d) < 0.2;
+    };
+    let seed = -1;
+    for (let s = 1; s < 400 && seed < 0; s++) {
+      const a0 = holeCrack(s, 0).angle;
+      if ([1, 2, 3, 4, 5].every((k) => !near(holeCrack(s, k).angle, a0))) seed = s;
+    }
+    expect(seed, 'a seed with an isolated crack 0').toBeGreaterThan(0);
+    const hole: Hole = { c: [0, 0, 0], radius: 0.3, axis: [0, 0, 1], seed, classRadius: 0.3 };
+    const { angle, length } = holeCrack(seed, 0);
+    const deg = Math.PI / 180;
+    // On the wall (axis +z) the basis is t = +x, b = +y, so theta = atan2(y, x) and a point is (rho cos, rho sin, 0).
+    const at = (theta: number, out: number) => {
+      const rho = holeEdgeRadius(hole.radius, theta, seed) + out;
+      return holeAt(hole, [rho * Math.cos(theta), rho * Math.sin(theta), 0]);
+    };
+    expect(HOLE_CRACKS).toBe(6);
+    expect(at(angle, 0.2 * length).crack, 'on the crack line').toBe(true);
+    expect(at(angle + 2 * deg, 0.1 * length).crack, 'near the root a 2 degree offset is inside the 2.6 degree half-angle').toBe(true);
+    expect(at(angle + 2 * deg, 0.5 * length).crack, 'halfway out the wedge has narrowed to 1.3 degrees').toBe(false);
+    expect(at(angle, 1.05 * length).crack, 'past its length it is gone').toBe(false);
+    expect(2 * deg).toBeLessThan(HOLE_CRACK_ROOT_RAD);
   });
   it('six cracks of 0.05-0.1 t, each a wedge at its own angle', () => {
     const lengths = [0, 1, 2, 3, 4, 5].map((k) => holeCrack(h.seed, k).length);
