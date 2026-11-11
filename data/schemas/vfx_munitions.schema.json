@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/vfx_munitions.schema.json",
+  "title": "VFX munition classes (GH-1197)",
+  "description": "data/vfx/munitions.json: how big a weapon's blast is DRAWN. A weapon's reach S is read from its own JSON (splash_tiles, or submunitions.splash_tiles), never copied here, so the two can never disagree. The inner shock ring is S exactly (the damage reach); the outer pressure wave is outer_k x S and is not damage. Fireball f x S, crater c x S, scorch s x S, light radius radius_per_splash x S (or a nominal radius_tiles), debris counts scale with (S / reference_splash_tiles)^2. PRESENTATION ONLY: the sim reads none of it. Colours are palette keys; raw hex is rejected.",
+  "type": "object",
+  "required": ["classes", "weapons", "support", "charge"],
+  "additionalProperties": false,
+  "properties": {
+    "description": { "type": "string" },
+    "classes": {
+      "type": "object",
+      "propertyNames": { "enum": ["grenade", "mortar", "direct_he", "heavy_artillery", "air_strike", "demolition", "blade"] },
+      "additionalProperties": { "$ref": "#/$defs/class" }
+    },
+    "weapons": {
+      "description": "weaponId -> class. Every weapon with splash_tiles or submunitions must be listed (`munitions.test.ts`).",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z0-9_]+$" },
+      "additionalProperties": { "$ref": "#/$defs/class_id" }
+    },
+    "support": {
+      "description": "Fire-support kind (`FIRE_SUPPORT_KINDS`) -> class. Its reach is the sim's own FIRE_SUPPORT row's splash, read at runtime.",
+      "type": "object",
+      "propertyNames": { "enum": ["air_strike", "mortar_barrage"] },
+      "additionalProperties": { "$ref": "#/$defs/class_id" }
+    },
+    "charge": {
+      "description": "A placed charge (`placed_charge`, reach `blast_tiles`) -> class.",
+      "type": "object",
+      "propertyNames": { "enum": ["placed_charge"] },
+      "additionalProperties": { "$ref": "#/$defs/class_id" }
+    }
+  },
+  "$defs": {
+    "class_id": { "enum": ["grenade", "mortar", "direct_he", "heavy_artillery", "air_strike", "demolition", "blade"] },
+    "palette_ref": {
+      "type": "string",
+      "description": "Palette key, e.g. 'vfx.white_hot' or 'dust.2'. Raw hex is rejected.",
+      "pattern": "^[a-z_]+\\.[a-z0-9_]+$"
+    },
+    "ms_range": {
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "class": {
+      "type": "object",
+      "required": ["blast_from", "reference_splash_tiles", "debris", "shake", "hit_stop_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "blast_from": {
+          "enum": ["class", "emitter"],
+          "description": "'class': the renderer draws this row (fireball, dust, debris, crater, scorch, light, shake, hit-stop). 'emitter': the class keeps its emitter's look and takes only its ring from this row (GH-1197 Phase 1)."
+        },
+        "fireball_f": { "type": "number", "exclusiveMinimum": 0, "description": "Fireball radius = f x S, at 200 ms." },
+        "nominal_fireball_tiles": { "type": "number", "exclusiveMinimum": 0, "description": "For a class with no f: a nominal fireball radius, tiles." },
+        "crater_c": { "type": "number", "exclusiveMinimum": 0 },
+        "scorch_s": { "type": "number", "exclusiveMinimum": 0 },
+        "reference_splash_tiles": { "type": "number", "exclusiveMinimum": 0, "description": "The S the debris and lobe numbers are authored at." },
+        "ring": {
+          "type": "object",
+          "required": ["inner_ms", "outer_k", "inner_color", "outer_color", "inner_additive", "edge"],
+          "additionalProperties": false,
+          "properties": {
+            "inner_ms": { "type": "number", "exclusiveMinimum": 0, "description": "The inner shock grows 0 -> S over this (ease-out), alpha held to 70% of it." },
+            "outer_k": { "type": "number", "minimum": 1, "description": "The outer pressure wave reaches outer_k x S. 1 draws no outer wave." },
+            "outer_end_ms": { "type": "number", "exclusiveMinimum": 0, "description": "The outer wave grows S -> k x S from inner_ms to this. Required when outer_k > 1." },
+            "inner_color": { "$ref": "#/$defs/palette_ref" },
+            "outer_color": { "$ref": "#/$defs/palette_ref" },
+            "inner_additive": { "type": "boolean" },
+            "edge": { "type": "boolean", "description": "A 0.07 t white-hot leading edge on the inner ring (additive rings only)." }
+          }
+        },
+        "hole": {
+          "type": "object",
+          "description": "GH-1197 P4: the real hole a round of this class cuts in a building it was fired at (design section 3a): its radius on the wall or roof, tiles, and whether it punches a wall (direct fire, a charge) or a roof (indirect fire, a strike). A class with none cuts no hole.",
+          "required": ["radius_tiles", "axis"],
+          "additionalProperties": false,
+          "properties": {
+            "radius_tiles": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "axis": { "enum": ["wall", "roof"] }
+          }
+        },
+        "lobes": {
+          "type": "object",
+          "required": ["count", "throw_tiles", "scale_of_fireball"],
+          "additionalProperties": false,
+          "properties": {
+            "count": { "type": "integer", "minimum": 0, "maximum": 16 },
+            "throw_tiles": { "type": "number", "minimum": 0 },
+            "scale_of_fireball": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "debris": {
+          "type": "object",
+          "required": ["clods", "chunks", "throw_tiles", "apex_tiles"],
+          "additionalProperties": false,
+          "properties": {
+            "clods": { "type": "integer", "minimum": 0 },
+            "chunks": { "type": "integer", "minimum": 0 },
+            "throw_tiles": { "type": "number", "minimum": 0 },
+            "apex_tiles": { "type": "number", "minimum": 0 }
+          }
+        },
+        "dust": {
+          "type": "object",
+          "required": ["column_tiles", "life_ms"],
+          "additionalProperties": false,
+          "properties": {
+            "column_tiles": { "type": "number", "exclusiveMinimum": 0 },
+            "billows": { "type": "integer", "minimum": 1, "maximum": 64 },
+            "life_ms": { "$ref": "#/$defs/ms_range" },
+            "alpha": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+          }
+        },
+        "skirt": {
+          "type": "object",
+          "required": ["billows", "radius_tiles", "life_ms", "alpha"],
+          "additionalProperties": false,
+          "properties": {
+            "billows": { "type": "integer", "minimum": 1, "maximum": 64 },
+            "radius_tiles": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 2, "maxItems": 2 },
+            "life_ms": { "$ref": "#/$defs/ms_range" },
+            "alpha": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+          }
+        },
+        "flipbook_cap": { "type": "integer", "minimum": 1, "maximum": 256, "description": "At most this many flipbook billows a blast; the dirt gives way first." },
+        "light": {
+          "type": "object",
+          "required": ["color", "intensity", "decay_ms"],
+          "additionalProperties": false,
+          "properties": {
+            "color": { "$ref": "#/$defs/palette_ref" },
+            "intensity": { "type": "number", "exclusiveMinimum": 0 },
+            "radius_per_splash": { "type": "number", "exclusiveMinimum": 0 },
+            "radius_tiles": { "type": "number", "exclusiveMinimum": 0 },
+            "decay_ms": { "type": "number", "exclusiveMinimum": 0 }
+          },
+          "oneOf": [{ "required": ["radius_per_splash"] }, { "required": ["radius_tiles"] }]
+        },
+        "shake": {
+          "type": "object",
+          "required": ["amplitude_px", "duration_ms"],
+          "additionalProperties": false,
+          "properties": {
+            "amplitude_px": { "type": "number", "minimum": 0, "maximum": 24 },
+            "duration_ms": { "type": "number", "minimum": 0 },
+            "falloff_tiles": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "hit_stop_ms": { "type": "number", "minimum": 0, "maximum": 120 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "blast_from": { "const": "class" } } },
+          "then": {
+            "required": ["fireball_f", "crater_c", "scorch_s", "ring", "dust", "light"],
+            "properties": { "shake": { "required": ["amplitude_px", "duration_ms", "falloff_tiles"] } }
+          }
+        }
+      ]
+    }
+  }
+}

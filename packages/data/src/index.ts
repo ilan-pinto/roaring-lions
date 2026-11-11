@@ -240,12 +240,16 @@ import armorPenetration from '../../../data/vfx/armor_penetration.json';
 import wreckSmoulder from '../../../data/vfx/wreck_smoulder.json';
 import apsLaunch from '../../../data/vfx/aps_launch.json';
 import demolitionBlast from '../../../data/vfx/demolition_blast.json';
+// GH-1197 P3: masonry dust at a building's hit face, spawned by name on an explosive direct-fire hit.
+import buildingHitDust from '../../../data/vfx/building_hit_dust.json';
 import smokeDischarge from '../../../data/vfx/smoke_discharge.json';
 // E6 (GH-274) chunk B: a swarm member shot down, thrown by id where it was hit.
 import swarmMemberDown from '../../../data/vfx/swarm_member_down.json';
 // E6 (GH-274) chunk C: the laser carrier's beam. `beam_strike` where a dwell completed, `beam_vent` on a lockout.
 import beamStrike from '../../../data/vfx/beam_strike.json';
 import beamVent from '../../../data/vfx/beam_vent.json';
+// GH-1197: the munition-class table (not an emitter; `vfx_munitions.schema.json`).
+import munitions from '../../../data/vfx/munitions.json';
 
 // The scene-host diorama (2026-09-24-scene-host §3.2/§10): a real map, a
 // camera and a few idle units, standing behind the main menu. One file, one
@@ -697,6 +701,8 @@ export const vfxEmitters = [
   wreckSmoulder,
   apsLaunch,
   demolitionBlast,
+  // GH-1197 P3: by id (`BUILDING_HIT_DUST_EMITTER_ID`), at the hit face of a building an explosive round struck.
+  buildingHitDust,
   smokeDischarge,
   // E6 (GH-274) chunk B: a swarm member shot down (`SwarmBatch`'s 'down' event), by id.
   swarmMemberDown,
@@ -704,6 +710,19 @@ export const vfxEmitters = [
   beamStrike,
   beamVent,
 ];
+
+/**
+ * GH-1197: `data/vfx/munitions.json`, the munition classes that size a weapon's
+ * DRAWN blast from its own `splash_tiles` (`vfx_munitions.schema.json`). It sits
+ * in `data/vfx/` beside the emitters but is not one, so it is not in
+ * `vfxEmitters`; `index.test.ts` pins that it is the only non-emitter file there
+ * and that this export is the file. The renderer reads the same file
+ * (`packages/render/src/three/munitions.ts`).
+ */
+export const vfxMunitions = munitions;
+
+/** The one file in `data/vfx/` that is not an emitter (GH-1197). */
+export const VFX_MUNITIONS_FILE = 'munitions.json';
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */
 export function paletteColor(key: string): string {

@@ -818,3 +818,326 @@ export function standoff(seeds = STANDOFF_SEEDS): TargetResult {
     pass: standoffPasses(r),
   };
 }
+
+// ---------------------------------------------------------------------------
+// 7. Ambush (Ashwar): an RPG team in `ambush(3)` holds fire until the column
+//    closes to the trap, then fires its first volley before being identified.
+//
+//    GDD §5.7 (extended, M1–M2): "an unspotted RPG team in `ambush(3)` gets its
+//    first volley off before being identified in ≥80% of engagements against a
+//    non-reconnoitred column." The `ambush` stance (GDD 5.5a) has two effects:
+//    it halves the team's signature while it waits (`AMBUSH_SIG` 0.5), and —
+//    the load-bearing one — it HOLDS FIRE until a target closes to the radius
+//    (3 tiles), where the RPG7's 5-tile range would otherwise let the team
+//    shoot the moment it identifies the column.
+//
+//    The first version of this target measured only "first volley before
+//    identified" and read 100% whether or not the stance was set: against an
+//    APC/jeep/rifle column the RPG team identifies the column at ~3 tiles, so
+//    it fires at ~3 tiles with or without `ambush(3)`, and its 0.45 signature
+//    keeps it unspotted either way — the gate measured the RPG's stealth, not
+//    the stance it is named for (reviewer finding). The fix leads the column
+//    with an `mbt_lavi` (signature 1.0, the most visible ground vehicle), which
+//    the RPG identifies at ~4.1 tiles: WITHOUT the stance the first volley goes
+//    out at 4.1 tiles (near max range), but WITH `ambush(3)` the RPG holds it
+//    until the column is at 2.85 tiles. The gate now requires the first volley
+//    to fire from ≤ AMBUSH_HOLD_FIRE_TILES (3.5, the RPG7's effective range)
+//    AND before the column identifies the team, in ≥80% of engagements.
+//    Removing `setAmbush` flips the measurement 100% → 0%: `doctrine-targets.test.ts`
+//    runs that red arm, and the commit message records the mutation.
+//
+//    Measured (200 seeds, base and max tier): 100%. The column identifies the
+//    team in every engagement just AFTER the volley — the firing signature
+//    (4.5×) closes the race a few ticks later.
+// ---------------------------------------------------------------------------
+export const AMBUSH_SEEDS = 200;
+export const AMBUSH_SEED_BASE = 93000;
+export const AMBUSH_MIN_VOLLEY_FIRST_PCT = 80;
+/** Cover on the RPG team's tile (bushes/rocks that hide a waiting team). */
+export const AMBUSH_COVER = 2;
+/** The first volley must fire from within this many tiles — the RPG7's effective range, which the
+ *  ambush(3) hold-fire guarantees (measured 2.85 tiles); a non-ambushing team fires at ~4.1 tiles. */
+export const AMBUSH_HOLD_FIRE_TILES = 3.5;
+
+export interface AmbushArm {
+  /** Set false to omit the ambush(3) stance — the red arm: the team fires at max range instead of holding. */
+  stance?: boolean;
+  /** Overrides the RPG team's signature (a second sensitivity knob; undefined = shipped data). */
+  signature?: number;
+}
+
+export interface AmbushReading {
+  seeds: number;
+  /** First volley from ≤ AMBUSH_HOLD_FIRE_TILES AND before the column identified the team (0–100). */
+  volleyFirstPct: number;
+  /** The team fired at least once (0–100). */
+  firedPct: number;
+  /** The first volley fired from ≤ AMBUSH_HOLD_FIRE_TILES — the stance held fire (0–100). */
+  heldPct: number;
+  /** The column identified the team (the race is real, not "never seen"). */
+  identifiedPct: number;
+}
+
+/** One engagement: a non-recon column, led by an MBT, driving east past an RPG team. */
+function ambushRun(seed: number, arm: AmbushArm): { firstFire: number; identified: number; held: boolean } {
+  const W = 40;
+  const H = 16;
+  const sim = new Sim({ seed, width: W, height: H, capacity: 24 });
+  const rpgType: UnitTypeJson =
+    arm.signature === undefined
+      ? units.rpg_team
+      : ({ ...units.rpg_team, sensors: { ...units.rpg_team.sensors, signature: arm.signature } } as UnitTypeJson);
+  const rpg = sim.addUnitType(rpgType);
+  const rpgId = sim.spawn(rpg, 1, fx.fromInt(20), fx.fromInt(10), 0); // just off the road (y=8)
+  if (arm.stance !== false) sim.setAmbush(rpgId, fx.fromInt(3));
+  sim.setCover(20, 10, AMBUSH_COVER);
+
+  // A non-reconnoitred column led by an MBT (signature 1.0). The MBT is visible enough that the
+  // RPG identifies the column before 3 tiles, so the ambush(3) hold-fire is what keeps the first
+  // volley inside the trap radius rather than the RPG's own detection lag.
+  const column: number[] = [];
+  const types = [units.mbt_lavi, units.inf_squad, units.apc_eitan];
+  for (let i = 0; i < types.length; i++) {
+    column.push(sim.spawn(sim.addUnitType(types[i]), 0, fx.fromInt(4 + i * 2), fx.fromInt(8)));
+  }
+  sim.queueCommand({ kind: 'move', ids: column, x: fx.fromInt(36), y: fx.fromInt(8) });
+
+  let firstFire = -1;
+  let identified = -1;
+  let held = false;
+  for (let t = 0; t < 60 * TICKS_PER_SECOND; t++) {
+    for (const e of sim.tick()) {
+      if (e.kind === 'fire' && e.shooter === rpgId && firstFire < 0) {
+        firstFire = t;
+        // The trap closed: the first volley went out from inside the hold-fire radius.
+        if (e.target >= 0) {
+          const dx = (sim.state.posX[e.target] - sim.state.posX[rpgId]) / 65536;
+          const dy = (sim.state.posY[e.target] - sim.state.posY[rpgId]) / 65536;
+          held = Math.hypot(dx, dy) <= AMBUSH_HOLD_FIRE_TILES;
+        }
+      }
+      if (e.kind === 'contact' && e.level === 'identified' && e.side === 0 && e.target === rpgId && identified < 0) identified = t;
+    }
+    if (firstFire >= 0 && identified >= 0) break;
+    if (sim.state.alive[rpgId] === 0) break;
+  }
+  return { firstFire, identified, held };
+}
+
+export function ambushReading(arm: AmbushArm = {}, seeds = AMBUSH_SEEDS): AmbushReading {
+  let volleyFirst = 0;
+  let held = 0;
+  let fired = 0;
+  let identified = 0;
+  for (let s = 0; s < seeds; s++) {
+    const o = ambushRun(AMBUSH_SEED_BASE + s, arm);
+    if (o.firstFire >= 0) fired++;
+    if (o.held) held++;
+    if (o.identified >= 0) identified++;
+    // "First volley before identified", held to the ambush radius: the team fired from inside
+    // the trap, and either the column never identified it or did so only after the volley.
+    if (o.firstFire >= 0 && o.held && (o.identified < 0 || o.firstFire < o.identified)) volleyFirst++;
+  }
+  return {
+    seeds,
+    volleyFirstPct: (100 * volleyFirst) / seeds,
+    firedPct: (100 * fired) / seeds,
+    heldPct: (100 * held) / seeds,
+    identifiedPct: (100 * identified) / seeds,
+  };
+}
+
+/** The gate: ≥80% of engagements the first volley fires from inside the trap AND before the
+ *  column identifies the team, and not vacuous (the column really does identify it). */
+export function ambushPasses(r: AmbushReading): boolean {
+  return r.volleyFirstPct >= AMBUSH_MIN_VOLLEY_FIRST_PCT && r.identifiedPct >= 50;
+}
+
+export function ambush(seeds = AMBUSH_SEEDS): TargetResult {
+  const r = ambushReading({}, seeds);
+  const pct = (n: number) => `${n.toFixed(0)}%`;
+  return {
+    name: 'Ambush (Ashwar), RPG in ambush(3)',
+    detail: `${seeds} seeds, MBT-led non-recon column: volley first ${pct(r.volleyFirstPct)}, held fire ≤${AMBUSH_HOLD_FIRE_TILES} tiles ${pct(r.heldPct)}, team fired ${pct(r.firedPct)}, column identified ${pct(r.identifiedPct)}`,
+    measured: `${pct(r.volleyFirstPct)} volley-first`,
+    target: `≥${AMBUSH_MIN_VOLLEY_FIRST_PCT}% first volley from ≤${AMBUSH_HOLD_FIRE_TILES} tiles before identified`,
+    pass: ambushPasses(r),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 8. Raid (Rif): technicals that engage and disengage escape; caught die fast.
+//
+//    GDD §5.7 (extended): "technicals that engage and disengage against a
+//    slower force escape with ≥60% survival; technicals that get caught die
+//    fast. Mobility must actually be their armour." Two claims, each its own
+//    arm, run from the same scenario function:
+//
+//    * `raidEscape` — the raid: three `technical`s drive at a slower force,
+//      fire, then disengage and run. The escape rate is the gate (≥60%).
+//    * `raidCaught` — one technical that engages but is CAUGHT (it cannot
+//      extract: a mobility kill or a pinned crew; here modelled as no
+//      disengage order). It must be destroyed fast.
+//
+//    The "slower force" is two rifle squads and an `apc_eitan` — every unit
+//    slower than the technical's 2.6 tiles/s, and the APC's RWS-50 (25 mm pen)
+//    is the lightest shipped weapon that can hurt the technical's 15 mm front
+//    (rifles at 8 pen cannot). "Fast" is median time from first fire to
+//    destruction ≤ 10 s. Justification: a caught technical has 600 hp and no
+//    APS; measured median is ~6 s (the APC lands ~15 penetrating hits). 10 s
+//    sits ~70% above that median — seed noise stays inside it, but a durability
+//    buff that lets a caught technical soak 10 s of concentrated fire is
+//    exactly the "armour, not mobility" the doctrine forbids, and doubling the
+//    technical's hp pushes the median past it (`doctrine-targets.test.ts` runs
+//    that red arm). The falsification in the commit message counts every
+//    technical as escaped.
+// ---------------------------------------------------------------------------
+export const RAID_SEEDS = 200;
+export const RAID_SEED_BASE = 94000;
+export const RAID_MIN_ESCAPE_PCT = 60;
+/** "Fast" for a caught technical: median time first-fire → destroyed, in ticks (10 s). */
+export const RAID_CAUGHT_TTD_MAX_TICKS = 10 * TICKS_PER_SECOND;
+/** The slower force a Rif raid hits: every unit slower than the technical. */
+export const RAID_TECHS = 3;
+
+export interface RaidArm {
+  /** Technicals in the raid. */
+  techCount: number;
+  /** True = the raid (engage then disengage); false = caught (no extract). */
+  disengage: boolean;
+  /** Overrides the technical's hull.hp (a falsification knob; undefined = shipped data). */
+  techHp?: number;
+}
+
+export interface RaidReading {
+  seeds: number;
+  techs: number;
+  /** Fraction that survived (escaped), 0–100. */
+  survivedPct: number;
+  /** Fraction destroyed (caught), 0–100. */
+  caughtPct: number;
+  /** Fraction that actually engaged (fired at least once), 0–100. */
+  firedPct: number;
+  /** Median ticks from first fire to destruction among the caught (0 if none). */
+  medianTtdTicks: number;
+}
+
+function raidRun(seed: number, arm: RaidArm): RaidTechOutcome[] {
+  const W = 48;
+  const H = 20;
+  const sim = new Sim({ seed, width: W, height: H, capacity: 32 });
+  const techType: UnitTypeJson =
+    arm.techHp === undefined
+      ? units.technical
+      : ({ ...units.technical, hull: { ...units.technical.hull, hp: arm.techHp } } as UnitTypeJson);
+  const tech = sim.addUnitType(techType);
+  const techs: number[] = [];
+  for (let i = 0; i < arm.techCount; i++) techs.push(sim.spawn(tech, 1, fx.from(38.5), fx.from(8 + i * 3)));
+  // The slower force: two rifle squads and an APC, every unit slower than the technical.
+  const defenders = [units.inf_squad, units.inf_squad, units.apc_eitan];
+  for (let d = 0; d < defenders.length; d++) {
+    sim.spawn(sim.addUnitType(defenders[d]), 0, fx.from(18 + d * 2), fx.from(8 + (d % 2) * 2), 0);
+  }
+  // Engage: technicals drive at the defenders.
+  sim.queueCommand({ kind: 'attackMove', ids: techs, x: fx.from(14), y: fx.from(10), sweep: true });
+
+  const out: RaidTechOutcome[] = techs.map(() => ({ survived: false, firstFire: -1, destroyed: -1 }));
+  const disengaged = new Set<number>();
+  for (let t = 0; t < 90 * TICKS_PER_SECOND; t++) {
+    for (const e of sim.tick()) {
+      for (let k = 0; k < techs.length; k++) {
+        if (e.kind === 'fire' && e.shooter === techs[k] && out[k].firstFire < 0) out[k].firstFire = t;
+        if (e.kind === 'destroyed' && e.entity === techs[k]) out[k].destroyed = t;
+      }
+    }
+    // Disengage: the first tick a technical has fired, it breaks off and runs east.
+    if (arm.disengage) {
+      for (let k = 0; k < techs.length; k++) {
+        const id = techs[k];
+        if (out[k].firstFire >= 0 && !disengaged.has(id) && sim.state.alive[id] === 1) {
+          sim.queueCommand({ kind: 'move', ids: [id], x: fx.from(46), y: fx.from(8 + k * 3) });
+          disengaged.add(id);
+        }
+      }
+    }
+    if ((t & 31) === 0) {
+      let aliveTech = 0;
+      for (const id of techs) if (sim.state.alive[id] === 1) aliveTech++;
+      if (aliveTech === 0) break;
+    }
+  }
+  for (let k = 0; k < techs.length; k++) out[k].survived = sim.state.alive[techs[k]] === 1;
+  return out;
+}
+
+export interface RaidTechOutcome {
+  survived: boolean;
+  firstFire: number;
+  destroyed: number;
+}
+
+export function raidReading(arm: RaidArm, seeds = RAID_SEEDS): RaidReading {
+  let survived = 0;
+  let caught = 0;
+  let fired = 0;
+  const ttd: number[] = [];
+  const total = arm.techCount * seeds;
+  for (let s = 0; s < seeds; s++) {
+    for (const o of raidRun(RAID_SEED_BASE + s, arm)) {
+      if (o.survived) survived++;
+      if (o.firstFire >= 0) fired++;
+      if (o.destroyed >= 0) {
+        caught++;
+        if (o.firstFire >= 0) ttd.push(o.destroyed - o.firstFire);
+      }
+    }
+  }
+  const median = (xs: number[]): number => {
+    if (xs.length === 0) return 0;
+    const s = [...xs].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+  return {
+    seeds,
+    techs: arm.techCount,
+    survivedPct: (100 * survived) / total,
+    caughtPct: (100 * caught) / total,
+    firedPct: (100 * fired) / total,
+    medianTtdTicks: median(ttd),
+  };
+}
+
+/** The raid gate: ≥60% escape, and not vacuous (the technicals really engaged). */
+export function raidEscapePasses(r: RaidReading): boolean {
+  return r.survivedPct >= RAID_MIN_ESCAPE_PCT && r.firedPct >= 90;
+}
+
+/** The caught gate: caught technicals die fast, and not vacuous (some were caught). */
+export function raidCaughtPasses(r: RaidReading): boolean {
+  return r.caughtPct >= 50 && r.medianTtdTicks <= RAID_CAUGHT_TTD_MAX_TICKS;
+}
+
+export function raidEscape(seeds = RAID_SEEDS): TargetResult {
+  const r = raidReading({ techCount: RAID_TECHS, disengage: true }, seeds);
+  const s = `${(r.medianTtdTicks / TICKS_PER_SECOND).toFixed(1)}s`;
+  return {
+    name: 'Raid (Rif), technicals escape',
+    detail: `${seeds} seeds × ${r.techs} technicals: ${r.survivedPct.toFixed(0)}% escape, ${r.firedPct.toFixed(0)}% engaged · caught die in median ${s}`,
+    measured: `${r.survivedPct.toFixed(0)}% survival`,
+    target: `≥${RAID_MIN_ESCAPE_PCT}% escape after engaging and disengaging`,
+    pass: raidEscapePasses(r),
+  };
+}
+
+export function raidCaught(seeds = RAID_SEEDS): TargetResult {
+  const r = raidReading({ techCount: 1, disengage: false }, seeds);
+  const s = `${(r.medianTtdTicks / TICKS_PER_SECOND).toFixed(1)}s`;
+  return {
+    name: 'Raid (Rif), caught technical dies fast',
+    detail: `${seeds} seeds × 1 caught technical: ${r.caughtPct.toFixed(0)}% destroyed, ${r.firedPct.toFixed(0)}% engaged · median time-to-die ${s}`,
+    measured: `${s} to die`,
+    target: `caught technical destroyed in ≤${RAID_CAUGHT_TTD_MAX_TICKS / TICKS_PER_SECOND}s (median)`,
+    pass: raidCaughtPasses(r),
+  };
+}

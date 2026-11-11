@@ -480,6 +480,8 @@ export const DEBUG_LAYERS = [
   'blast-light',
   'missiles',
   'flipbook',
+  // GH-1197 P2: the 3D debris pool (`units/debris-pool.ts`), a flag the pool's visibility consults.
+  'debris',
   'kit',
   'tunnel-xray',
   'running-gear',

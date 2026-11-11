@@ -41,6 +41,7 @@ import inf_kit_scene as scn  # noqa: E402
 
 CLIPS = ("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "down")   # the Rifle Squad's; `--team` reads the team's own
 TOL = 0.004      # a vertex within 4 mm of the surface is touching, not inside
+SKIN_RIGID_W, SKIN_MOVED_M = 0.999, 0.001   # a skinned body only: as `inf_kit_fit.py`'s
 
 
 def parse():
@@ -126,10 +127,24 @@ def main():
         vg = {g.index: g.name for g in o.vertex_groups}
         names[n] = [vg[max(v.groups, key=lambda g: g.weight).group] for v in o.data.vertices]
     kit_bone = {ob.name: arm.data.bones[ob.vertex_groups[0].name].name for ob, _, _, _ in rows}
+    # A skinned body (`extras.rl_skinned`, the Meshy pilot): a vertex the part's bone DOMINATES can still move against it
+    # (the vest's hem is spine 0.7 / pelvis 0.3). Those are tested too, in the keys where they leave the place they would
+    # hold if they were rigid with the part's bone. A rigid team has none: its census is unchanged.
+    skinned = bool(bpy.context.scene.get("rl_skinned"))
+    rest_co, own_w = {}, {}
+    if skinned:
+        for n, o in base.items():
+            vg = {g.index: g.name for g in o.vertex_groups}
+            rest_co[n] = np.array([(o.matrix_world @ v.co)[:] for v in o.data.vertices])
+            own_w[n] = [{vg[g.group]: g.weight for g in v.groups} for v in o.data.vertices]
     result = {}
     for clip in clips:
         act = bpy.data.actions[clip]
         keys, lo = clip_keys(act, step, team.dense_keys)
+        if a.get("keycap") and len(keys) > int(a["keycap"]):
+            # a scoped run (`--keycap N`): N keys spread evenly over the clip, the first and the last among them. Off by default.
+            n = int(a["keycap"])
+            keys = [keys[round(i * (len(keys) - 1) / (n - 1))] for i in range(n)]
         worst = {}
         for kf_ in keys:
             fr = kf_ - lo
@@ -188,6 +203,15 @@ def main():
                 for nm, (bco, _) in body.items():
                     bone = np.array(names[nm])
                     sel = (bone != own) & np.array([b.startswith(pf + "_") or b == "prop" for b in bone])
+                    if skinned:
+                        bl = np.array([b == own and w_.get(own, 0.0) < SKIN_RIGID_W for b, w_ in zip(names[nm], own_w[nm])])
+                        if bl.any():
+                            pb = arm.pose.bones[own]
+                            M = np.array(arm.matrix_world @ pb.matrix @ arm.data.bones[own].matrix_local.inverted() @ arm.matrix_world.inverted())
+                            rigid = rest_co[nm][bl] @ M[:3, :3].T + M[:3, 3]
+                            mv = np.zeros(len(sel), bool)
+                            mv[np.nonzero(bl)[0]] = np.linalg.norm(bco[bl] - rigid, axis=1) > SKIN_MOVED_M
+                            sel = sel | mv
                     pts = bco[sel]
                     near = pts[((pts >= bbox[0]) & (pts <= bbox[1])).all(1)]
                     if len(near) == 0:

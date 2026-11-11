@@ -612,3 +612,131 @@ slot of kind `DISTURB_KIND_AIR` in N2's array. +0 draw calls, +0 programs; the c
   on Metal, so re-measure from CI at the bless. No new scenario was added.
 - Instrument: `pnpm nature:capture` defaults to `--phase=wash-sheets,signal,cost --layer=wash` (`--layer=disturb` reproduces N2, `--phase=sheets` is N2's sheets).
   The sheet arms are two page loads (the dust is dated by slot).
+
+## Blast size from splash, and the two-part ring (GH-1197 P1)
+
+Design: `docs/superpowers/specs/2026-11-09-explosion-scale-and-building-physics-design.md` §2 (approved 9 Nov, mock v2).
+
+- **The table is data:** `data/vfx/munitions.json` (`vfx_munitions.schema.json`; `@lions/data`'s `vfxMunitions`, the one
+  non-emitter file in `data/vfx/`, which every emitter sweep skips by name). `weapons` maps every weapon with a reach to a class;
+  `support` maps the fire-support kinds; `charge` the placed charge. **`S` is never copied**: the renderer reads
+  `WeaponStats.splash` (or the bomblets' `submunitions.splash`) at the `fire` event, and `FIRE_SUPPORT[profile].splash` for a
+  call (`three/munitions.ts`, `weaponMunition` in `ThreeRenderer.ts`). The round carries it as `ShellModel.munition` /
+  `MissileModel.munition` to the frame it lands.
+- **Phase 1 scope (the brief and the coordinator's ruling Q1):** only a class with `blast_from: "class"` draws its row (fireball
+  `f x S` at 200 ms through `classBlastRecipe`, lobes, dirt, the dust column and skirt, crater `c x S`, scorch `s x S`, the row's
+  light, shake and hit-stop). That is `heavy_artillery`: `howitzer_155` AND `grad_122`. Every other class keeps its emitter's look
+  and gains only the ring. The fireball radius is a MODEL (`flipbookFireRadius`: the shader's size times the billow's fill,
+  `0.5 / FLIPBOOK_FIT.fire.zoom`); `blast:capture` has not measured it yet.
+- **The ring** (`units/blast-ring.ts`): inner shock 0 -> `S` over `inner_ms` (ease-out, alpha 0.6 held to 70% then linear to 0, a
+  0.07 t edge at `HDR_GAINS.shockRingEdge` and 1.6x the alpha for 120 ms, then easing to the body's); the outer wave `S` ->
+  `outer_k x S` from `inner_ms` to `outer_end_ms`, a 0.45 t band never inside `S`, alpha 0.3 -> 0, non-additive. Two meshes (one
+  additive at `FX_RENDER_ORDER_ADDITIVE`, one normal at `FX_RENDER_ORDER`), each one dynamic geometry rewritten from the live
+  rings once a frame on the FX frame clock, every vertex on the ground: **+2 draws only while a ring lives**, stock
+  `MeshBasicMaterial` with vertex colour and alpha, so no GLSL and no node twin. It replaced the strike's single 2.2 t
+  `ShockRingPool` (the strike now rings 2.0 / 3.2). Drawn on: shell landings, bomblets (grenade class, k 1: inner only), missile
+  landings with a splash (never an intercept), kamikaze warheads, swarm dives, demolition charges, the barrage round and the
+  strike. The `support-blast` debug layer hides the whole pool. A placed charge (`chargeDetonated`) still has no consumer (P6).
+- **Flipbook `alpha`** (`FlipbookLayerSpec.alpha`, the `aAlpha` instance attribute, 1 by default): the dust column's 0.45 and the
+  skirt's 0.35 ceilings. A recipe that authors none multiplies by exactly 1.
+- **The ladder** (`fx-ladder.test.ts`) reads every drawn shell-rung class through `munitionLightSpec`/`munitionShake`/
+  `munitionHitStopMs`, and names every class on a rung. The 155's approved 4 px shake EQUALS a barrage round's (5 x 0.8); the
+  strict strike > barrage > shell order is kept for the emitter-drawn landings, and a drawn heavy class is held at or under a
+  barrage round.
+
+## Roof cutaway, slice 1: the selected-unit cut (GH-1225)
+
+Design: `docs/superpowers/specs/2026-11-11-roof-cutaway-design.md` (Option A, L2-L8 ruled 10 Nov). Slice 1 is the WebGL2 colour
+pass for the SELECTED-unit trigger only; the garrison trigger and figure spread, the shadow and AO cut (a depth material), the merge
+with P4's `rl-holes` hook, and the TSL twin are later slices.
+
+- **Maths** (`units/building-cutaway.ts`): the constants, `cutawayOps<T>` against `Ops<T>` (reach `r + w`, the cut height sloping
+  from `yCut` to `yTop` over the band, the 0.03 t section cap), and `CutawayTable`, the live volumes keyed by unit index. The iris
+  scales R AND W together (a fresh cut takes nothing away), opens ease-out over 250 ms, holds 1.0 s after the trigger ends and
+  closes ease-in over 400 ms, on the FRAME clock (`frameDtMs`; a hit-stop holds it, a paused sim does not). At most 8 volumes:
+  triggered nearest the camera focus first, then the most-open closing ones.
+- **The hook** (`units/cut-material.ts`, key `rl-cut`): a per-building `DoubleSide` clone of the band material, minted when a
+  volume first reaches the building and released (meshes back on the band material, clones disposed) when none does. Every clone
+  binds ONE shared volume block (`uRlCutV`, a `Float32Array` of two `vec4` a volume, and `uRlCutN`) by reference; each building owns
+  its cap (ramp key 0) and interior (darkest key 0.6 toward `gunmetal.2`) colours, LINEAR. The GLSL is pinned line for line
+  against `cutawayOps` in `cut-material.test.ts`.
+- **No trigger, no change:** `updateCutaway` returns before anything while nothing is selected and nothing is open, so a capture
+  mints no material, program or uniform; the capture precondition asserts `renderer.cutawayCount() === 0` beside the selection
+  check. A cut building keeps its full art over its LOD1 twin; instanced per-tile sets take no cut; the node backend draws none
+  yet; `hideForGroundPhoto` forces the volume count to 0 for the minimap.
+
+## The debris pool (GH-1197 P2)
+
+- **What throws it:** every landing that draws a P1 ring (`spawnReachFx` in `ThreeRenderer.ts`), with clods and chunks from
+  its class row in `munitions.json` scaled by `(S / reference_splash_tiles)^2` and thrown `throw_tiles x S / ref` (the
+  coordinator's ruling Q1). A DPICM bomblet throws about 4 clods, the 155 36 + 18, the strike 48 + 24. The dirt flipbook stays
+  on every preset.
+- **Colour (ruling Q2):** the ground under the landing (`tileBaseToneHex`, the tile tone the terrain builder drew) is a palette
+  entry; `units/debris-tone.ts` finds its key and steps its OWN ramp: a clod one step lighter, chunks one and two darker, a
+  quarter of the chunks `gunmetal.2` (charred). A basalt ground throws basalt. Resolved through `hexToLinear`, as instance colours.
+- **Flight (`units/debris-flight.ts`):** closed form, solved once at spawn: a parabola at the flipbook dirt's gravity (9.8), one
+  touchdown on the drawn ground, one bounce (restitution 0.3, horizontal x0.5), a slide at 4 t/s^2 to rest. Every random number
+  is a hash of the landing point (to 1/16 tile) and the piece's index, so a capture reproduces bit for bit. A catch-up
+  (`setQuiet`) places the pieces at rest. Settled debris shrinks into the ground from 90 s over 1.5 s on the SIM clock.
+- **Draw (`units/debris-pool.ts`):** three shared shapes built in code (slab 12, block 20, shard 8 triangles), one
+  `InstancedMesh` each, a lit `MeshStandardMaterial` with an `onBeforeCompile` flight hook (`rl-debris`, and `rl-debris-depth`
+  on the custom depth material, so the shadow flies too). The CPU writes a slot once; the instance matrix IS the rest pose, so
+  the node backend (no twin yet) draws the pieces at rest with no flight or fade. `WORLD_RENDER_ORDER`, out of AO
+  (`rlAoExempt`). Caps: 0.35 t largest, 0.12 t settled height. A full pool never steals a live piece.
+- **Cost (`RenderQuality.debris`):** high 1024 pieces with shadows (+3 colour, +3 shadow draws, <= 27.4k triangles of the
+  design's 49k), medium 512 with none (+3, <= 6.9k of 12k), low none. `debris-pool.test.ts` is the cost test. The `debris` debug
+  layer hides the pool; `blast:capture` has no `debris` toggle floor yet (no browser in P2).
+
+## Building hits (GH-1197 P3)
+
+- **Which hits:** only an explosive DIRECT-fire round (`apfsds`, `autocannon`, `atgm`, `rpg`, `heat`, `he`) fired at a
+  building (coordinator ruling Q2). `structureHit` names no weapon, so `onFire` files the round in `pendingStructShots`
+  (resolve tick: the fire tick for a bolt, `missileResolveTick` for a missile; the `pendingCharges` pattern) and the hit
+  that resolves it consumes it (`takeStructShot`). Small arms and the HMG keep today's centroid puff, an indirect hit adds
+  nothing (its landing throws ring and debris), a charge stays `eod_breach`. A missile fired at a building lands with its
+  ring but no ground debris (`MissileLanding.atStructure`), unless it missed.
+- **Where and which way (`units/building-hit.ts`):** the hit face is the footprint's nearest point to the shooter, its
+  normal the side that point is on, the hit 0.3-0.8 up the wall (hashed). The class debris (a mapped weapon's row at its
+  S; an unmapped one, `gun_120` or `kornet`, `direct_he` at its reference S: 12 + 8) leaves along the normal +-35 degrees
+  back toward the shooter (ruling Q3; the 60/40 bias "away" is the P5 collapse's). `planDebris` takes the `aim`.
+- **Colour:** the building type's `structures.json` colour key and the two darker keys on its ramp, every fourth piece
+  `gunmetal.2`. **Dust:** `data/vfx/building_hit_dust.json` (trigger `structure_hit`), 6 flipbook smoke billows in dust
+  tones for about 3 s at alpha 0.55, drifting out along the normal; its particle layer stands in until the atlases load.
+- **Limits:** at most one burst a building per 4 ticks (an autocannon lands ten rounds a second); nothing in a catch-up;
+  in versus nothing for a hostile hit on a building out of sight (`hostileEffectVisible`, the collapse's rule).
+- **Not here:** the char halo goes with the hole (P4, ruling Q1); holes (P4); the staged collapse (P5).
+
+## Real holes in buildings (GH-1197 P4)
+
+- **Which hits cut (coordinator ruling Q1):** a P3-matched explosive direct-fire round -> a WALL hole at its hit point; an
+  indirect round fired AT a building (not a cluster carrier), matched to its `structureHit` the same way -> a ROOF hole at a
+  hashed roof point; a demolition charge -> a 0.60 wall hole at door height (`cutChargeHole`); the strike and the barrage ->
+  a roof hole in every building inside their splash (`cutSupportHoles`). Radii and axes are data: each munition class row's
+  `hole` block (`munitions.json`, section 3a's table). No holes from small arms, the HMG, the blade, kamikaze, or splash on a
+  building nobody fired at; none on per-tile walls (P4b). Holes are world state: cut through fog and catch-ups, like scars.
+- **Where:** raycast onto the surface the frozen clone draws (`surfaceAlong`), so a hole sits on the wall or roof, not on the
+  footprint's edge. WORLD space: a standing building never moves.
+- **Bookkeeping (`units/building-holes.ts`):** at most 6 holes; a hit within 1.2 r grows the nearest by 25%, capped at 1.6x
+  its class radius; a seventh distinct hit grows the nearest. The edge: `r (0.85 + 0.30 e(theta))`, `e` a 4-octave periodic
+  value-noise fbm on the `tileHash` lattice (the GLSL carries the same uint hash); 6 cracks, a 0.03 t lip one ramp key darker,
+  a 0.15 t `gunmetal.3` halo at 0.7 (the char halo P3 deferred).
+- **The material (`units/holed-material.ts`):** minted on a building's FIRST hole and never before (`buildingHoles`), so an
+  unhit map binds no new program, material or side. One uniform set per building, shared by its holed clones (one per band
+  material, `DoubleSide`, the base's own hook chained, key `<base>|rl-holes`) and its `customDepthMaterial` (the shadow is
+  cut). Back faces seen through a hole are the interior: the wall ramp's darkest key 0.6 toward `gunmetal.2`. A band change
+  re-derives the clones from the new band material; a holed building keeps its full art (no LOD1 twin); death releases them.
+- **WebGPU:** no node twin (ruling Q3). The census (`censusUnported`) walks each object's `.material` only, so it lists the
+  holed colour clones as kind `on-before-compile`, key `rl-holes` -- not as `partial`, which is a twin's own declaration,
+  and there is no twin. The depth material is a `customDepthMaterial`, which the census never walks, so `rl-holes-depth` is
+  NOT listed. On node a holed building draws its band material without the hook: whole (no cut, lip, cracks, halo or
+  interior), but still `DoubleSide` (the clone's side), and its shadow is uncut.
+- **Why world space, not object space** (the coordinator's ruling on PR 1221): a standing building never moves or rotates
+  at runtime (placed once and frozen, `freezeStatic`; its facing is gated), so its world frame is its object frame; world
+  space also keeps a hole round under the non-uniform `buildingFitFor` scale. Anything that moves a standing root must
+  move its holes with it.
+- **Wall or roof is data:** `cutClassHole` dispatches on the class row's `hole.axis`; every call site hands both a wall
+  face and a roof point.
+- **The gate:** the gated scenarios hit no building, so they mint no holed material
+  (`ThreeRenderer.building-holes.test.ts`, "an unhit map mints no holed material"; its falsifier, a hole on every building as
+  it stands up, goes red). The GLSL was checked with `glslangValidator` (GLSL ES 3.00) outside the suite; its edge lattice
+  is pinned line for line in `holed-material.test.ts`, because the TS mirror's seam test cannot see the GLSL copy.

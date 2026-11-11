@@ -47,6 +47,8 @@ export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   'rl-foliage-sway', 'rl-foliage-sway-wet', 'rl-trunk-sway', 'rl-trunk-sway-wet',
   // GH-943 P2 (T5): the selection, team and wound rings (all three styles share the one material name).
   'rl-selection-ring',
+  // GH-943 P3 (T6): the garrison banner (`units/garrison-banner.node.ts`).
+  'rl-garrison-banner',
   // GH-943 P3 (T11): the simple FX families (`units/fx.node.ts`, `rim-fade.node.ts`, `beam-batch.node.ts`, `swarm-batch.node.ts`).
   'rl-fx-particle', 'rl-fx-particle-hot', 'rl-fx-tracer', 'rl-fx-mesh', 'rl-smoke-plume', 'rl-collapse-shroud', 'rl-beam', 'rl-swarm-rotors',
   // GH-943 P3 (T10): the valley backdrop's fade (`terrain/backdrop.node.ts`).
@@ -59,6 +61,8 @@ export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   'rl-silhouette-outline',
   // GH-943 P3 (T8): the overlay batch, the zone band, the supply route and the tunnel trail.
   'rl-overlay', 'rl-zone-band', 'rl-supply-route', 'rl-trail',
+  // GH-943 P3 (T12): the flipbook's smoke and fire passes, and the smoke screen (`units/flipbook-fx.node.ts`, `smoke-mesh.node.ts`).
+  'rl-flipbook-smoke', 'rl-flipbook-fire', 'rl-smoke-screen',
   // GH-943 P3 (T9): the tunnel x-ray's tube, collar, figure and beam.
   'rl-xray-tube', 'rl-xray-collar', 'rl-xray-figure', 'rl-xray-beam',
   // GH-943 P3 (T7): the decal pools and the crater rim (dry and wet share the name; node draws a wet owner dry, `rl-decal: wet terms`).

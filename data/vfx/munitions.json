@@ -1,0 +1,118 @@
+{
+  "description": "GH-1197: the munition classes. A weapon's drawn blast comes from its own splash S (the weapon JSON's splash_tiles, or submunitions.splash_tiles for a cluster round) and the flavour of its class. Presentation only: the sim reads none of this. Phase 1 draws the two-part ring for every class with a reach, and only the classes whose blast_from is 'class' (heavy_artillery) take the rest of their row; the others keep their emitter's look until a later phase.",
+  "classes": {
+    "grenade": {
+      "blast_from": "emitter",
+      "fireball_f": 0.2,
+      "crater_c": 0.25,
+      "scorch_s": 0.45,
+      "reference_splash_tiles": 1.2,
+      "hole": { "radius_tiles": 0.12, "axis": "wall" },
+      "ring": { "inner_ms": 160, "outer_k": 1.0, "inner_color": "vfx.white_hot", "outer_color": "dust.2", "inner_additive": true, "edge": true },
+      "debris": { "clods": 8, "chunks": 0, "throw_tiles": 1.2, "apex_tiles": 0.6 },
+      "dust": { "column_tiles": 0.8, "life_ms": [2500, 2500] },
+      "light": { "color": "vfx.fire", "intensity": 0.8, "radius_per_splash": 2.5, "decay_ms": 150 },
+      "shake": { "amplitude_px": 0, "duration_ms": 0 },
+      "hit_stop_ms": 0
+    },
+    "mortar": {
+      "blast_from": "emitter",
+      "fireball_f": 0.28,
+      "crater_c": 0.25,
+      "scorch_s": 0.45,
+      "reference_splash_tiles": 2.0,
+      "hole": { "radius_tiles": 0.25, "axis": "roof" },
+      "ring": { "inner_ms": 220, "outer_k": 1.25, "outer_end_ms": 400, "inner_color": "vfx.white_hot", "outer_color": "dust.2", "inner_additive": true, "edge": true },
+      "debris": { "clods": 16, "chunks": 6, "throw_tiles": 2.0, "apex_tiles": 1.4 },
+      "dust": { "column_tiles": 1.6, "life_ms": [5000, 5000] },
+      "light": { "color": "vfx.fire", "intensity": 1.6, "radius_per_splash": 2.5, "decay_ms": 380 },
+      "shake": { "amplitude_px": 2, "duration_ms": 300 },
+      "hit_stop_ms": 0
+    },
+    "direct_he": {
+      "blast_from": "emitter",
+      "nominal_fireball_tiles": 0.5,
+      "reference_splash_tiles": 1.3,
+      "hole": { "radius_tiles": 0.30, "axis": "wall" },
+      "ring": { "inner_ms": 180, "outer_k": 1.25, "outer_end_ms": 330, "inner_color": "vfx.white_hot", "outer_color": "dust.2", "inner_additive": true, "edge": true },
+      "debris": { "clods": 12, "chunks": 8, "throw_tiles": 1.6, "apex_tiles": 1.2 },
+      "dust": { "column_tiles": 1.2, "life_ms": [4000, 4000] },
+      "light": { "color": "vfx.fire", "intensity": 2.6, "radius_tiles": 3.5, "decay_ms": 200 },
+      "shake": { "amplitude_px": 2, "duration_ms": 140 },
+      "hit_stop_ms": 0
+    },
+    "heavy_artillery": {
+      "blast_from": "class",
+      "fireball_f": 0.5,
+      "crater_c": 0.4,
+      "scorch_s": 0.6,
+      "reference_splash_tiles": 2.4,
+      "hole": { "radius_tiles": 0.50, "axis": "roof" },
+      "ring": { "inner_ms": 260, "outer_k": 1.6, "outer_end_ms": 520, "inner_color": "vfx.white_hot", "outer_color": "dust.2", "inner_additive": true, "edge": true },
+      "lobes": { "count": 5, "throw_tiles": 2.0, "scale_of_fireball": 0.375 },
+      "debris": { "clods": 36, "chunks": 18, "throw_tiles": 2.4, "apex_tiles": 3.0 },
+      "dust": { "column_tiles": 4.0, "billows": 14, "life_ms": [6000, 9000], "alpha": 0.45 },
+      "skirt": { "billows": 20, "radius_tiles": [0.4, 0.52], "life_ms": [3000, 4000], "alpha": 0.35 },
+      "flipbook_cap": 76,
+      "light": { "color": "vfx.fire", "intensity": 3.2, "radius_per_splash": 2.5, "decay_ms": 450 },
+      "shake": { "amplitude_px": 4, "duration_ms": 360, "falloff_tiles": 12 },
+      "hit_stop_ms": 0
+    },
+    "air_strike": {
+      "blast_from": "emitter",
+      "fireball_f": 0.8,
+      "crater_c": 0.7,
+      "scorch_s": 1.2,
+      "reference_splash_tiles": 2.0,
+      "hole": { "radius_tiles": 0.80, "axis": "roof" },
+      "ring": { "inner_ms": 300, "outer_k": 1.6, "outer_end_ms": 560, "inner_color": "vfx.white_hot", "outer_color": "dust.2", "inner_additive": true, "edge": true },
+      "debris": { "clods": 48, "chunks": 24, "throw_tiles": 3.5, "apex_tiles": 3.5 },
+      "dust": { "column_tiles": 5.5, "life_ms": [9000, 12000] },
+      "light": { "color": "vfx.fire", "intensity": 6.3, "radius_tiles": 7, "decay_ms": 520 },
+      "shake": { "amplitude_px": 7.5, "duration_ms": 520 },
+      "hit_stop_ms": 60
+    },
+    "demolition": {
+      "blast_from": "emitter",
+      "fireball_f": 0.3,
+      "crater_c": 0.2,
+      "scorch_s": 0.4,
+      "reference_splash_tiles": 2.5,
+      "hole": { "radius_tiles": 0.60, "axis": "wall" },
+      "ring": { "inner_ms": 240, "outer_k": 1.4, "outer_end_ms": 480, "inner_color": "dust.1", "outer_color": "dust.2", "inner_additive": false, "edge": false },
+      "debris": { "clods": 0, "chunks": 30, "throw_tiles": 2.5, "apex_tiles": 2.5 },
+      "dust": { "column_tiles": 3.0, "life_ms": [8000, 8000] },
+      "light": { "color": "vfx.fire", "intensity": 3.0, "radius_tiles": 5, "decay_ms": 300 },
+      "shake": { "amplitude_px": 5, "duration_ms": 400 },
+      "hit_stop_ms": 40
+    },
+    "blade": {
+      "blast_from": "emitter",
+      "reference_splash_tiles": 0.5,
+      "debris": { "clods": 0, "chunks": 4, "throw_tiles": 0.5, "apex_tiles": 0.5 },
+      "shake": { "amplitude_px": 0, "duration_ms": 0 },
+      "hit_stop_ms": 0
+    }
+  },
+  "weapons": {
+    "bomblet_dive": "grenade",
+    "charges": "demolition",
+    "dpicm_155": "grenade",
+    "gl_40": "grenade",
+    "grad_122": "heavy_artillery",
+    "hellfire": "direct_he",
+    "howitzer_155": "heavy_artillery",
+    "mortar_60": "mortar",
+    "mortar_82": "mortar",
+    "rpg": "direct_he",
+    "vest": "demolition",
+    "warhead": "direct_he"
+  },
+  "support": {
+    "air_strike": "air_strike",
+    "mortar_barrage": "mortar"
+  },
+  "charge": {
+    "placed_charge": "demolition"
+  }
+}

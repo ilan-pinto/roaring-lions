@@ -7,6 +7,9 @@
  *       [--counts=300,600] [--map=wadi_halam_4] [--port=5197]
  *   Metal only: --lock=<BROWSER.lock dir> [--rounds=6] [--frames=80] [--max-load=4] [--wait-quiet=0] [--profile-frames=60]
  *       [--gpu-frames=40] [--skip=profile,gpu] [--before-root=<P2 tree checkout> --before-port=5198]
+ *   T14b: [--node-opts=refreshPolicy=three|parked,matrixWalk=every-pass|once,uploads=three|versioned] boots every NODE page with those
+ *       switches (`node-draw-options.ts`); H10 (the 1205 uploads) is a second run with `--node-opts=uploads=three`. H7-H9 are
+ *       toggles on every page; G2a (`parkedRefreshRefusals`) refuses a run where the parked policy cut no FULL refresh.
  *
  * SwiftShader (CI, `webgpu-noise.yml probe=submit`): COUNTS ONLY, one fresh page per arm: every variant at every count, the stats
  * frame's per-pass calls/objects, the per-type draws, the FULL refreshes per type on the node arms (H2), and one profile window on G
@@ -28,6 +31,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { parseNodeDraw, resolveNodeDraw, type NodeDrawOptions } from '../../../packages/render/src/three/backend/node-draw-options';
 import { claimPort, portBusy } from '../ui-review/port';
 import { gpuLaunchArgs } from '../ui-review/gpu';
 import { resolveCensusGpu } from './bloom-census-args';
@@ -44,6 +48,7 @@ import {
   hypothesisTable,
   missingHypotheses,
   perPassRefusals,
+  parkedRefreshRefusals,
   profileRefusal,
   profileTopOf,
   recommendLever,
@@ -77,6 +82,13 @@ const LOCK = arg('lock', '');
 const BEFORE_ROOT = arg('before-root', '');
 const BEFORE_PORT = Number(arg('before-port', '5198'));
 const SKIP = new Set(arg('skip', '').split(',').filter((s) => s !== ''));
+let NODE_DRAW: NodeDrawOptions = {};
+try {
+  NODE_DRAW = parseNodeDraw(arg('node-opts', ''));
+} catch (e) {
+  console.error(`webgpu-submit-probe: REFUSED: ${(e as Error).message}`);
+  process.exit(2);
+}
 const METAL = HW === 'metal';
 const DPR = METAL ? 2 : 1;
 const VIEWPORT = { width: 1280, height: 720 };
@@ -152,12 +164,13 @@ async function openPage(browser: Browser, port: number, root: string, arm: Submi
   });
   const capacity = Math.max(...COUNTS) + 50;
   const info = (await page.evaluate(
-    async ({ mod, arm, mapId, capacity: cap, timestamps: ts }) => {
+    async ({ mod, arm, mapId, capacity: cap, timestamps: ts, nodeDraw }) => {
       const m = (await import(/* @vite-ignore */ mod)) as typeof import('./webgpu-page');
-      return m.submitSetup({ mapId: mapId as never, arm, capacity: cap, timestamps: ts });
+      return m.submitSetup({ mapId: mapId as never, arm, capacity: cap, timestamps: ts, nodeDraw });
     },
-    { mod: MODULE(root), arm, mapId: MAP, capacity, timestamps }
-  )) as { backendKind: string; adapter: string; rafSource: string };
+    { mod: MODULE(root), arm, mapId: MAP, capacity, timestamps, nodeDraw: NODE_DRAW }
+  )) as { backendKind: string; adapter: string; rafSource: string; drawSwitches?: string };
+  if (arm !== 'L') console.log(`[submit-probe] ${label} ${arm} node draw switches: ${info.drawSwitches ?? 'n/a (an older tree)'}`);
   const gpu = arm === 'G' ? info.adapter : gl;
   if (info.backendKind !== ARM_KIND[arm]) refuse(`${label} ${arm}: backendInfo().kind is "${info.backendKind}", expected "${ARM_KIND[arm]}" (a fallback is evidence about the fallback)`);
   if (METAL && (!/metal|apple/i.test(gpu) || /swiftshader/i.test(gpu))) refuse(`${label} ${arm}: draws on "${gpu}", not hardware Metal`);
@@ -354,6 +367,8 @@ const withGpu = withProfiles.map((r) => {
 });
 
 refusals.push(...perPassRefusals(readings), ...unsettledRefusals(readings));
+// G2a (T14b): only when the pages booted with the parked policy (the default); a `refreshPolicy=three` boot has nothing to compare.
+if (resolveNodeDraw(NODE_DRAW).refreshPolicy === 'parked') refusals.push(...parkedRefreshRefusals(readings));
 for (const h of settledByCount(readings)) notes.push(`${h} (${HYPOTHESIS_NAME[h]}) is settled by the count: its pass draws 0 calls in every base reading (left out of the dead-toggle refusal)`);
 for (const h of deadHypotheses(readings, cells)) refusals.push(`${h} (${HYPOTHESIS_NAME[h]}): its toggle moved neither cost nor count on any arm and count; it tested nothing`);
 for (const h of missingHypotheses(readings)) refusals.push(`${h} (${HYPOTHESIS_NAME[h]}): never read`);
@@ -374,6 +389,7 @@ const conditions = [
   `L is MATCHED to the node scene (the node census's hidden set hidden before the stats frame), as webgpu-page.ts runArm`,
   `profile: ${Object.entries(profiles).map(([a, p]) => `${a} ${p.samples} samples over ${PROFILE_FRAMES} frames at n${hi}`).join('; ') || 'not run'}`,
   `gpu time: ${gpuReadings.length === 0 ? 'not run' : 'a separate timestamps page on G (never the CPU timing pages)'}`,
+  `node draw switches at boot: ${JSON.stringify(resolveNodeDraw(NODE_DRAW))} (--node-opts=${arg('node-opts', '')})`,
   `H6: ${beforeAfter === null ? 'not run' : `G on ${ROOT} against G on ${BEFORE_ROOT}${beforeShas}`}`,
 ].join('\n- ');
 const md = [

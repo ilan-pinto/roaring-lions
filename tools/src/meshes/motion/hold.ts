@@ -45,7 +45,7 @@ import {
 } from './math';
 import { carry, type Pose, type RestVertex, type Rig } from './rig';
 import { turnOf } from './contact';
-import { describeHands, MAX_AXIS_ERROR_DEG, weaponFrameOf, wristReading, type HandRig, type HandStation, type WristReading } from './hands';
+import { describeHands, MAX_AXIS_ERROR_DEG, rlHands, weaponFrameOf, wristReading, type HandRig, type HandStation, type WristReading } from './hands';
 
 /** `spike` (spike-walk, 6 Oct): the at_team gunner's Spike. Unlike the
  *  other two tubes it is not re-seated by formula -- its command-launch unit
@@ -133,9 +133,32 @@ export const READY_TORSO = { lean: 0, blade: 10 };
  * and the formula pocket the support wrist was 0.17 m out of reach in `fire`, 0.09 m at low ready.
  */
 export const HANDS_READY_TORSO = { lean: 0, blade: 28 };
+/** A rest carry's ready stance is the sculpt's own: nothing added. Its aim blades less than the modelled hands' 38:
+ *  the sculpt's arms reach the shouldered carbine from a squarer stance, and at 38 the rifle pointed away from the
+ *  store camera and the support arm crossed the face. The hold still adds blade (BLADE_EXTRAS) where a hand cannot reach. */
+export const REST_CARRY_TORSO = { lean: 0, blade: 0 };
+export const REST_CARRY_AIM_TORSO = { lean: 10, blade: 18 };
 export const HANDS_AIM_TORSO = { lean: 12, blade: 38 };
 export const HANDS_PROTRACTION: V3 = [0.11, 0.0, 0.045];
 export const HANDS_RIFLE_POCKET: V3 = [0.015, 0.16, 0.05];
+/** A skinned Meshy figure's shoulder joint is the humeral head itself (measured on the shell, not an armpit cut), so its
+ *  butt pocket is where a shooter's really is: 6 cm above the joint (the pocket under the collarbone, where the shipped
+ *  rigs' +0.16 over their armpit cut also lands), a little forward, in toward the chest. Measured with the capture's
+ *  own 44 deg fire lean kept: at 0.0 above the eye sat AT the bore, at 0.06 five cm under it, and the cheek weld
+ *  pitched the head 39 deg back looking for it; so a rest carry aims `fire` from an UPRIGHT torso (apply-hold.ts). */
+export const REST_CARRY_RIFLE_POCKET: V3 = [0.03, 0.02, 0.05];
+/** A rest carry's head goes ONTO the stock. Round 3 put the butt 0.09 in from the humeral head and tilted the head 22 deg
+ *  to meet it; stacked on the 18 deg blade that turned the face 30-34 deg off the bore and lifted the handguard and the
+ *  support elbow to the mouth (the review of 9 Nov, B2). Back to a 0.05 pocket and 12 deg, a little over the cut rigs' 10. */
+export const REST_CARRY_CHEEK_TILT_DEG = 12;
+/** A rest carry's aimed support-elbow pole: straight DOWN under the handguard. The cut rigs' [0.1, -1, -0.35] swung the
+ *  sculpted support arm out level with the bore, so from the support side the forearm hid the whole rifle but its muzzle
+ *  (the review of 9 Nov, B2); with the elbow under it the forearm rises to the handguard and the rifle reads above it. */
+export const REST_CARRY_SUPPORT_POLE: V3 = [0.0, -1, 0.0];
+/** ...and its fist rolls round the handguard by this much at full aim (in proportion to the aim on the way up): the wrist
+ *  can then take the forearm from below. An optimised roll sat at the -40 deg limit in 2,188 of 3,210 solves and jumped 35
+ *  deg in one 120 Hz step in kneelOut (mesh_arm_pops); tied to the aim it is as smooth as the aim. */
+export const REST_CARRY_SUPPORT_ROLL_DEG = -40;
 export const HANDS_READY_POCKET: V3 = [0.0, 0.12, 0.06];
 /** The support shoulder reaching for the handguard: the scapula slides
  *  forward and in (protraction), metres in the figure's frame. The cut
@@ -169,6 +192,12 @@ export interface HoldFigure {
   readonly restGrips?: { readonly shoot: V3; readonly support: V3 };
   /** A figure whose hands are modelled pieces on bones of their own (GH-826): the stations the hold closes them on. */
   readonly hands?: HandRig;
+  /**
+   * A skinned Meshy figure generated already at the low ready (`rl_hands.source === 'meshy'`): its ready stance is its
+   * own rest pose. At aim 0 the weapon is CARRIED with the spine from where it was sculpted (no formula pocket, no
+   * blade, no protraction), so idle shows the figure undeformed; the aim blends from there to the shouldered formula.
+   */
+  readonly restCarry?: boolean;
 }
 
 /** +1 when the weapon is held on the anatomical right (+Z), -1 on the left. */
@@ -240,6 +269,7 @@ export function describeHold(rig: Rig, verts: RestVertex[], prefix: string, kind
     return {
       prefix, kind, butt: wf.butt, axis: wf.axis, up: wf.up, length: wf.length, fromJoint, handShoot: wristS, handSupport: wristP,
       eye, eyeJoint: head, shootSide, hands,
+      ...(rlHands(rig)?.source === 'meshy' ? { restCarry: true } : {}),
     };
   }
   const handShoot = handPoint(rig, verts, rig.node(`${prefix}_forearm_${shootSide}`));
@@ -428,8 +458,8 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
   const p = h.prefix;
   const side = holdSide(h); // anatomical right is +Z
   const spine = rig.node(`${p}_spine`);
-  const aimTorso = h.hands ? HANDS_AIM_TORSO : AIM_TORSO[h.kind];
-  const readyTorso = h.hands ? HANDS_READY_TORSO : READY_TORSO;
+  const aimTorso = h.restCarry ? REST_CARRY_AIM_TORSO : h.hands ? HANDS_AIM_TORSO : AIM_TORSO[h.kind];
+  const readyTorso = h.restCarry ? REST_CARRY_TORSO : h.hands ? HANDS_READY_TORSO : READY_TORSO;
   const lean = readyTorso.lean + ((st.aimLean ?? aimTorso.lean) - readyTorso.lean) * st.aim;
   const blade = readyTorso.blade + (aimTorso.blade - readyTorso.blade) * st.aim + (st.bladeExtra ?? 0);
   let lostHeading = 0;
@@ -459,7 +489,7 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
   const eye0 = carry(rig, W, h.eyeJoint, h.eye);
 
   // The two placements, then blended by `aim`.
-  const place = (aim: boolean): { butt: V3; dir: V3 } => {
+  const place = (aim: boolean): { butt: V3; dir: V3; r?: Q } => {
     if (h.kind === 'spike') {
       // Aimed: the rest seat, carried with the eye -- the CLU in front of it,
       // the bore beside the cheek, level. Carried: low in front, muzzle down.
@@ -470,9 +500,16 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
     }
     if (h.kind === 'rifle') {
       if (aim) {
-        const pk = h.hands ? HANDS_RIFLE_POCKET : RIFLE_POCKET;
+        const pk = h.restCarry ? REST_CARRY_RIFLE_POCKET : h.hands ? HANDS_RIFLE_POCKET : RIFLE_POCKET;
         const butt = add(shoulder, [pk[0], pk[1], -side * pk[2]]);
         return { butt, dir: weaponDir(AIM_ELEVATION_DEG.rifle, 0, side) };
+      }
+      if (h.restCarry) {
+        // the sculpted carry, moved with the spine (breath, sway, a kneel's drop): where the weapon was at rest,
+        // relative to the spine, it stays
+        const sw = W(spine);
+        const moved = compose(sw, invert(rig.restWorld.get(spine)!));
+        return { butt: apply(moved, h.butt), dir: qrot(moved.r, h.axis), r: moved.r };
       }
       const rk = h.hands ? HANDS_READY_POCKET : READY_POCKET;
       const butt = add(shoulder, [rk[0], rk[1], -side * rk[2]]);
@@ -486,13 +523,15 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
   const a = place(false);
   const b = place(true);
   const butt = lerp3(a.butt, b.butt, st.aim);
-  const dir = norm(lerp3(a.dir, b.dir, st.aim));
-  const r = qmul(qbasis(dir, [0, 1, 0]), qconj(qbasis(h.axis, h.up)));
+  // the weapon's turn: from its rest frame to the placement. A rest carry keeps the sculpt's own roll at aim 0 (the
+  // carried frame itself), where the formula re-derives the roll from world up.
+  const rOf = (p: { dir: V3; r?: Q }): Q => p.r ?? qmul(qbasis(p.dir, [0, 1, 0]), qconj(qbasis(h.axis, h.up)));
+  const r = qnorm(qslerp(rOf(a), rOf(b), st.aim));
+  const dir = norm(qrot(r, h.axis));
   // The weapon bone's rest world is `weaponRest(h)` (at the rest butt, no
   // rotation), so posing its WORLD at (butt, r) maps every rest vertex v to
   // butt + r (v - restButt): the weapon, moved and turned as a whole.
   pose.set(weapon, rig.localFor(weapon, { t: butt, r, s: 1 }, pose));
-
   // Cheek weld on an aimed rifle: pitch the neck and head down until the
   // eye sits CHEEK_EYE_ABOVE_BORE over the bore, and tilt the head onto the
   // stock. Blended by `aim`.
@@ -514,7 +553,7 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
       rotateWorld(rig, pose, neck, qaxis(lateral, -step * 0.5));
       rotateWorld(rig, pose, head, qaxis(lateral, -step * 0.5));
     }
-    rotateWorld(rig, pose, head, qaxis([1, 0, 0], deg(10) * st.aim));
+    rotateWorld(rig, pose, head, qaxis([1, 0, 0], deg(h.restCarry ? REST_CARRY_CHEEK_TILT_DEG : 10) * st.aim));
     const eye = carry(rig, W, h.eyeJoint, h.eye);
     const along = dot(sub(eye, butt), dir);
     eyeAboveBore = eye[1] - add(butt, scale(dir, along))[1];
@@ -524,9 +563,10 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
     const hr = h.hands;
     const delta: Xf = { t: sub(butt, qrot(r, h.butt)), r, s: 1 };
     const sup0 = h.shootSide === 'L' ? 'R' : 'L';
-    // Protract the support shoulder, as the formula grips always did (SUPPORT_PROTRACTION).
+    // Protract the support shoulder, as the formula grips always did (SUPPORT_PROTRACTION). A rest carry protracts
+    // only as it comes up to the aim: at aim 0 its shoulders are the sculpt's.
     {
-      const k = (0.7 + 0.3 * st.aim) * (h.kind === 'rifle' ? 1 : PROTRACTION_TUBE);
+      const k = (h.restCarry ? st.aim : 0.7 + 0.3 * st.aim) * (h.kind === 'rifle' ? 1 : PROTRACTION_TUBE);
       const ua = rig.node(`${p}_upperarm_${sup0}`);
       const parentW = rig.worldOf(rig.parent.get(ua)!, pose);
       const want: V3 = [HANDS_PROTRACTION[0] * k, HANDS_PROTRACTION[1] * k, side * HANDS_PROTRACTION[2] * k];
@@ -534,8 +574,21 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
       const cur = pose.get(ua)!;
       pose.set(ua, { ...cur, t: add(cur.t, local) });
     }
-    const fire = placeHand(rig, pose, hr.fire, delta, [-0.2, -1, 0.7 * side], smoothstep(Math.min(1, st.aim / TRIGGER_CLOSE_AIM)));
-    const supp = placeHand(rig, pose, hr.support, delta, [0.1, -1, -0.35 * side]);
+    // A fused hand's arm starts from the sculpt's own elbow (its rest pole reproduces the low ready exactly) and comes
+    // round to the shooter's elbows as the weapon comes up: a rest pole kept at full aim put the support elbow up at
+    // the face (the garage render of 1 Nov: the arm across the face, the rifle hidden).
+    const blendPole = (restPole: V3 | undefined, aimed: V3): V3 => (restPole ? norm(lerp3(restPole, aimed, st.aim)) : aimed);
+    const fire = placeHand(rig, pose, hr.fire, delta, blendPole(hr.fire.restPole, [-0.2, -1, 0.7 * side]), smoothstep(Math.min(1, st.aim / TRIGGER_CLOSE_AIM)));
+    const suppPole: V3 = h.restCarry ? [REST_CARRY_SUPPORT_POLE[0], REST_CARRY_SUPPORT_POLE[1], REST_CARRY_SUPPORT_POLE[2] * side] : [0.1, -1, -0.35 * side];
+    // A rest carry's support fist may roll round the handguard (the bore line through it) as the weapon comes up: locked
+    // at its sculpted angle, the wrist forced the elbow out level with the bore at full aim, whatever the pole (9 Nov).
+    const suppRoll = h.restCarry && hr.support.locked && st.aim > 0
+      ? (() => {
+        const sw = compose(delta, hr.support.rest).t; const tt = dot(sub(sw, butt), dir);
+        return { axis: dir, pivot: add(butt, scale(dir, tt)), angle: deg(REST_CARRY_SUPPORT_ROLL_DEG) * side * st.aim };
+      })()
+      : undefined;
+    const supp = placeHand(rig, pose, hr.support, delta, blendPole(hr.support.restPole, suppPole), 0, suppRoll);
     if (hr.finger) {
       // The trigger finger lies along the receiver at low ready and goes onto the trigger as the weapon comes up.
       const rest = rig.rest.get(hr.finger.node)!;
@@ -688,7 +741,9 @@ const clampVars = (v: HandVars): HandVars => {
  * rotation vector, at most 15 degrees). They are found by a compass search that starts from the last frame's answer, so
  * a clip moves continuously; only a frame the last answer no longer serves starts again from a spread of swings.
  */
-export function placeHand(rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole: V3, trigger = 0): { gap: number; wrist: WristReading; offsetDeg: number; cost: number } {
+export function placeHand(
+  rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole: V3, trigger = 0, roll?: { readonly axis: V3; readonly pivot: V3; readonly angle: number }
+): { gap: number; wrist: WristReading; offsetDeg: number; cost: number } {
   const hw = compose(delta, st.rest);
   const refStation = add(hw.t, qrot(hw.r, st.ref));
   const restWrist = rig.restWorld.get(st.hand)!.t;
@@ -708,13 +763,19 @@ export function placeHand(rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole
     return [c(v[0], prev[0]), c(v[1], prev[1]), c(v[2], prev[2]), c(v[3], prev[3])];
   };
   const evalAt = (vIn: HandVars): Eval => {
-    const v = windowed(clampVars(vIn));
+    // a locked (fused) hand has one freedom, the elbow's swing: it is never rolled or tilted off its station
+    const v0 = windowed(clampVars(vIn));
+    // ...unless it ROLLS round the part it holds (`roll`: a fused support fist about the bore, the handguard's axis, by a
+    // given angle): the fist turns about that axis and moves round it with its station, so it stays closed on the handguard
+    const v: HandVars = st.locked ? [v0[0], roll ? roll.angle : 0, 0, 0] : v0;
     pose.set(st.upper, savedUpper);
     pose.set(st.fore, savedFore);
     pose.set(st.hand, savedHand);
     // the hand's turn off its station, in the hand's own frame: a roll about its channel axis, then a tilt of that axis
-    const R = qnorm(qmul(hw.r, turnOf(st.channel, v[1], v[2], v[3])));
-    const target = sub(refStation, qrot(R, st.ref));
+    const qRoll = st.locked && roll ? qaxis(roll.axis, v[1]) : null;
+    const R = qRoll ? qnorm(qmul(qRoll, hw.r)) : qnorm(qmul(hw.r, turnOf(st.channel, v[1], v[2], v[3])));
+    const refAt = qRoll ? add(roll!.pivot, qrot(qRoll, sub(refStation, roll!.pivot))) : refStation;
+    const target = sub(refAt, qrot(R, st.ref));
     const axis = norm(sub(target, S0));
     const poleSwung = qrot(qaxis(axis, v[0]), pole);
     twoBoneIK(rig, pose, st.upper, st.fore, restWrist, target, poleSwung, true);
@@ -725,15 +786,23 @@ export function placeHand(rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole
     {
       const f0 = rig.worldOf(st.fore, pose);
       const l0 = qnorm(qmul(qconj(f0.r), R));
-      const tau = 2 * Math.atan2(l0[1], l0[3]);
+      // a locked (fused) hand's bone keeps the roll the sculpt gave it relative to its forearm, so the twist the forearm
+      // takes is the CHANGE from that rest relation: twisting to the hand's absolute roll pronated the sleeve 30 to 40
+      // degrees in every clip, idle included (volume census, 1 Nov)
+      const lt = st.locked ? qnorm(qmul(l0, qconj(restLocal))) : l0;
+      const tau = 2 * Math.atan2(lt[1], lt[3]);
       const cur = pose.get(st.fore)!;
       pose.set(st.fore, { ...cur, r: qnorm(qmul(cur.r, qaxis([0, 1, 0], tau))) });
     }
     const fw = rig.worldOf(st.fore, pose);
     const local = qnorm(qmul(qconj(fw.r), R));
-    pose.set(st.hand, { ...savedHand, r: local });
+    if (st.locked) {
+      // the hand bone sits EXACTLY on its station, translation included: the IK's residual becomes a stretch of the
+      // skinned wrist, never a finger off the grip
+      pose.set(st.hand, rig.localFor(st.hand, { t: sub(refAt, qrot(R, st.ref)), r: R, s: 1 }, pose));
+    } else pose.set(st.hand, { ...savedHand, r: local });
     const hwNow = rig.worldOf(st.hand, pose);
-    const gap = len(sub(add(hwNow.t, qrot(hwNow.r, st.ref)), refStation));
+    const gap = len(sub(add(hwNow.t, qrot(hwNow.r, st.ref)), refAt));
     const wrist = wristReading(restLocal, local, st.thumbMinusX);
     const off = (Math.hypot(v[2], v[3]) * 180) / Math.PI;
     // an arm swung off its natural bend is charged a little, a hand turned off its station a little more; a change from
@@ -753,7 +822,7 @@ export function placeHand(rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole
     let swStep = deg(12), oStep = deg(5);
     for (let it = 0; it < 80 && (swStep > deg(0.3) || oStep > deg(0.15)); it++) {
       let improved = false;
-      for (const [i, step] of [[0, swStep], [1, oStep * 2], [2, oStep], [3, oStep]] as const) {
+      for (const [i, step] of ([[0, swStep], [1, oStep * 2], [2, oStep], [3, oStep]] as const).slice(0, st.locked ? 1 : 4)) {
         for (const sgn of [1, -1]) {
           const w = [...cur.v] as [number, number, number, number];
           w[i] += sgn * step;

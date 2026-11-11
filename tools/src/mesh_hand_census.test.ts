@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readGlb } from './mesh_gait';
 import { figureBuilds, infantryTeams, rebindVertices } from './mesh_figures';
-import { censusViolations } from './mesh_hand_gates';
+import { censusViolations, handsSource } from './mesh_hand_gates';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 
@@ -96,9 +96,13 @@ describe('G1 can fail (constructed inputs)', () => {
     expect(v.join(' | ')).toMatch(/f1: 1 hands, not 2/);
   });
   it('a hand missing a piece reads the wrong piece count', () => {
-    // moving a thumb-sized corner of vertices away leaves 6 or fewer connected pieces, or breaks the triangle band
-    const v = censusViolations(rebindVertices(squad, 'f2_hand_L', 'f2_forearm_L', 20));
+    // A generated hand: moving a thumb-sized corner of vertices away leaves 6 or fewer connected pieces, or breaks the
+    // triangle band. A sculpted (Meshy) hand is ONE welded piece, so 20 vertices off it still read as one piece inside
+    // the band; the damage that shows is a hand cut under the band's floor (half its vertices moved to the forearm).
+    const fused = handsSource(squad) === 'meshy';
+    const v = censusViolations(rebindVertices(squad, 'f2_hand_L', 'f2_forearm_L', fused ? 400 : 20));
     expect(v.length).toBeGreaterThan(0);
+    if (fused) expect(v.join(' | ')).toMatch(/f2_hand_L: \d+ triangles outside 200-450|f2_hand_L: \d+ pieces/);
   });
   it('a Meshy claw (no hand bone at all) reads zero hands', () => {
     const mortar = teams.find(([t]) => t === 'mortar_team')![1];

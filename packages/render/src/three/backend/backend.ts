@@ -19,6 +19,8 @@ import type { Node as TslNode, PassNode } from 'three/webgpu';
 import type { PostChainLike, PostQuality } from '../post-chain-shared';
 import type { UnportedHook } from './unported';
 import type { PerPass } from './pass-counter';
+import type { RefreshMode } from './refresh-policy';
+import type { MatrixWalk as MatrixWalkMode, UploadsMode } from './node-draw-options';
 import type { FogUniformTable } from '../fog-spec';
 import type { FogMaths } from '../fog-pass.node';
 import type { OutputMaths } from '../post-chain.node';
@@ -29,8 +31,11 @@ import type { GroundMaterial } from '../terrain/mesh';
 import type { GroundMaths } from '../terrain/mesh.node';
 import type { FoliageMaths } from '../terrain/decor-mesh.node';
 import type { RingMaths } from '../units/selection-ring.node';
+import type { BannerMaths } from '../units/garrison-banner.node';
 import type { ParticleMaths } from '../units/fx.node';
 import type { RimFadeMaths } from '../units/rim-fade.node';
+import type { FlipbookMaths } from '../units/flipbook-fx.node';
+import type { SmokeScreenMaths } from '../smoke-mesh.node';
 import type { BeamMaths } from '../units/beam-batch.node';
 import type { RotorMaths } from '../units/swarm-batch.node';
 import type { BackdropMaths } from '../terrain/backdrop.node';
@@ -107,7 +112,8 @@ export interface MaterialMaths {
   /** GH-943 P3 (T1): one slot per `MaterialKit` P3 slot, each `null` until its task gives it the type its twin declares. */
   /** T5: the occlusion and smoke outline (`units/silhouette.node.ts`). */
   readonly outline: OutlineMaths;
-  readonly banner: null;
+  /** T6: the garrison banner's sway (`units/garrison-banner.node.ts`). */
+  readonly banner: BannerMaths;
   readonly backdrop: BackdropMaths;
   /** T7: the decal kinds, the road under them, the albedo ratio and the crater rim. */
   readonly decal: DecalMaths;
@@ -128,8 +134,9 @@ export interface MaterialMaths {
   readonly beam: BeamMaths;
   /** T11: the rotor blur's coverage and spin (`units/swarm-batch.node.ts`). */
   readonly rotor: RotorMaths;
-  readonly flipbook: null;
-  readonly smokeScreen: null;
+  /** T12: the flipbook's motion, cover and shade (`units/flipbook-fx.node.ts`), and the smoke screen's (`smoke-mesh.node.ts`). */
+  readonly flipbook: FlipbookMaths;
+  readonly smokeScreen: SmokeScreenMaths;
 }
 
 /**
@@ -233,5 +240,21 @@ export interface RenderBackend {
   /** GH-943 P3 (T13): the GPU time (ms) of everything rendered since the last call, from timestamp queries; null unless the backend was
    *  built with `timestamps` and the adapter offers `timestamp-query`. */
   gpuTimeMs(): Promise<number | null>;
+  /**
+   * GH-943 P3 (T14b, GH-1152): the draw-submission switches at RUN time (the probe page's H7-H9 variants flip them on one page), and
+   * their counts since the last `takeCounts`. Optional: only the node backend has them (the test doubles leave them out).
+   */
+  readonly drawSwitches?: DrawSwitches;
   dispose(): void;
+}
+
+/** GH-943 P3 (T14b): the node backend's run-time draw switches (`RenderBackend.drawSwitches`). */
+export interface DrawSwitches {
+  get(): { refreshPolicy: RefreshMode; matrixWalk: MatrixWalkMode; uploads: UploadsMode };
+  setRefresh(m: RefreshMode): void;
+  setMatrixWalk(w: MatrixWalkMode): void;
+  /** FULL refreshes three asked for, those F2 turned into SHARED, scene walks done and skipped, since the last call. */
+  takeCounts(): { full: number; downgraded: number; walks: number; walksSkipped: number };
+  /** The `type:name` update nodes that kept a program from being downgraded (the G2c census), cumulative. */
+  undeclared(): readonly string[];
 }

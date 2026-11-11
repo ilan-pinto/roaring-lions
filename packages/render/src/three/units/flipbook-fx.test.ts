@@ -438,10 +438,19 @@ describe('flipbook recipes, as shipped', () => {
     .map((f) => ({ file: f, em: JSON.parse(readFileSync(path.join(VFX_DIR, f), 'utf8')) as { flipbook?: FlipbookLayerSpec[] } }))
     .filter((r) => r.em.flipbook !== undefined);
 
-  it('finds the eight shipped recipes', () => {
+  // GH-1197 P3: `building_hit_dust` is masonry dust and no fireball: it has no fire layer and nothing scales from one.
+  const NO_FIREBALL = ['building_hit_dust.json'];
+
+  it('finds the nine shipped recipes', () => {
     expect(recipes.map((r) => r.file).sort()).toEqual([
-      'air_strike_impact.json', 'barrage_impact.json', 'catastrophic_kill.json', 'cluster_airburst.json', 'fire_apfsds.json', 'fire_heat.json', 'missile_impact.json', 'shell_impact.json',
+      'air_strike_impact.json', 'barrage_impact.json', 'building_hit_dust.json', 'catastrophic_kill.json', 'cluster_airburst.json', 'fire_apfsds.json', 'fire_heat.json', 'missile_impact.json', 'shell_impact.json',
     ]);
+  });
+
+  it('a recipe with no fireball has nothing that scales from one', () => {
+    for (const { file, em } of recipes.filter((r) => NO_FIREBALL.includes(r.file))) {
+      expect(em.flipbook?.some((l) => l.type === 'fire' || l.scale_from !== undefined), file).toBe(false);
+    }
   });
 
   // `spawnRecipe` reads the fireball scale off layer 0 (`base + per_power *
@@ -450,7 +459,7 @@ describe('flipbook recipes, as shipped', () => {
   // be one random draw, not a size) and no `scale_from` (it would scale by
   // itself).
   it('every recipe opens on a fire layer with no rand and no scale_from', () => {
-    for (const { file, em } of recipes) {
+    for (const { file, em } of recipes.filter((r) => !NO_FIREBALL.includes(r.file))) {
       const first = em.flipbook?.[0];
       expect(first?.type, file).toBe('fire');
       expect(first?.scale.rand, file).toBeUndefined();
@@ -694,5 +703,40 @@ describe('the low tier (fxDetail 0)', () => {
 
   it('ships low_fraction on the column and the cook-off, and on nothing else in the kill', () => {
     expect(kill.map((l) => l.low_fraction)).toEqual([undefined, undefined, undefined, 0.5, 0.5, undefined]);
+  });
+});
+
+describe('a layer alpha multiplier (GH-1197: the dust ceilings)', () => {
+  const smokeLayer = (extra: Partial<FlipbookLayerSpec>): FlipbookLayerSpec[] => [
+    { type: 'fire', count: 1, delay_ms: [0, 0], duration_ms: [100, 100], scale: { base: 1 }, velocity: { radial: [0, 0], up: [0, 0] } },
+    { type: 'smoke', count: 1, delay_ms: [0, 0], duration_ms: [1000, 1000], scale: { base: 1 }, velocity: { radial: [0, 0], up: [0, 0] }, ...extra },
+  ];
+
+  it('lands in its instance slot of aAlpha; a layer without one writes 1, also over a reused slot', () => {
+    const ring = ready(2);
+    ring.spawnRecipe(smokeLayer({ alpha: 0.41 }), 0, 0, 0, 1);
+    const a = ring.mesh.geometry.getAttribute('aAlpha').array as Float32Array;
+    expect(a[0]).toBe(1);
+    expect(a[1]).toBeCloseTo(0.41, 6);
+    ring.spawnRecipe(smokeLayer({}), 0, 0, 0, 1);
+    expect(a[1]).toBe(1);
+    const direct = ready();
+    direct.spawn({ x: 0, y: 0, z: 0, durationMs: 1000, scale: 1, type: FLIP_SMOKE, alpha: 0.5 });
+    expect((direct.mesh.geometry.getAttribute('aAlpha').array as Float32Array)[0]).toBeCloseTo(0.5, 6);
+  });
+
+  it('starts every slot at 1, so a recipe that authors none draws exactly as before', () => {
+    const fx = new FlipbookFx(8);
+    expect(Array.from(fx.mesh.geometry.getAttribute('aAlpha').array as Float32Array)).toEqual(new Array(8).fill(1));
+    fx.dispose();
+  });
+
+  it('multiplies the drawn alpha in both passes, sparks included', () => {
+    const fx = new FlipbookFx();
+    const frag = fx.mesh.material.fragmentShader;
+    expect(frag).toContain('gl_FragColor = vec4(col, alpha * vAlpha);');
+    expect(frag).toMatch(/smoothstep\(0\.7, 1\.0, vT\)\) \* vAlpha\)/);
+    expect(fx.fireMesh.material.fragmentShader).toBe(frag);
+    fx.dispose();
   });
 });

@@ -18,8 +18,25 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { measureForearm, SLEEVE_RECT } from './mesh_forearm';
+import { isFusedHands } from './mesh_hand_source';
 
-const FILE = fileURLToPath(new URL('../../art/meshes/inf_squad.glb', import.meta.url));
+/**
+ * The SUBJECT of this gate is the R1 forearm tube the kit-built Rifle Squad carried. The GH-746 Meshy pilot replaced
+ * that figure with a skinned Meshy body (`rl_hands.source` "meshy": a sculpted sleeve, no tube), so while the shipped
+ * file is fused the gate reads the frozen rigid squad (`fixtures/inf_squad_rigid_592ebbb19.glb`, origin/main's bytes
+ * before the pilot): the instrument and its constructed failing inputs stay exercised, and the population is asserted
+ * below rather than going quietly empty. A procedural-hands inf_squad shipped again is read directly.
+ */
+const SHIPPED = fileURLToPath(new URL('../../art/meshes/inf_squad.glb', import.meta.url));
+const FIXTURE = fileURLToPath(new URL('./fixtures/inf_squad_rigid_592ebbb19.glb', import.meta.url));
+const FILE = isFusedHands(SHIPPED) ? FIXTURE : SHIPPED;
+
+describe('the forearm gate reads a figure that has the tube', () => {
+  it('reads the shipped Rifle Squad unless it is a fused (Meshy) figure, and then the frozen rigid one, which is not', () => {
+    expect(FILE === FIXTURE, 'the shipped file is fused, so the fixture is read').toBe(isFusedHands(SHIPPED));
+    expect(isFusedHands(FILE), `${FILE}: the gate's subject must be a procedural-hands figure`).toBe(false);
+  });
+});
 const FIGURES = ['f0', 'f1', 'f2'] as const;
 const SIDES = ['L', 'R'] as const;
 const RINGS = 5;

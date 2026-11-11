@@ -59,6 +59,7 @@
  * airburst is a smaller event than a hull hit.
  */
 
+import type { Munition } from '../munitions';
 import { WEAPON_CLASS } from '@lions/sim';
 import { AIR_LIFT_PX } from './frame-state';
 
@@ -182,6 +183,12 @@ export interface MissileModel {
   t: number;
   seed: number;
   trailTiles: number;
+  /** GH-1197: the weapon's munition class and reach, for a missile with a
+   *  splash (Hellfire, RPG). Its landing draws the two-part ring. */
+  munition?: Munition;
+  /** GH-1197 P3: the round was fired at a BUILDING. Its hit throws masonry from the hit face
+   *  (`ThreeRenderer`'s structure hit), so its landing throws no ground debris on top of that. */
+  atStructure?: boolean;
 }
 
 export interface TargetTrack {
@@ -200,6 +207,11 @@ export interface MissileLanding {
   miss: boolean;
   variant: MissileVariant;
   side: number;
+  /** GH-1197: the missile's munition, on a real landing only (never an
+   *  intercept, which bursts in the air). */
+  munition?: Munition;
+  /** GH-1197 P3: copied from the missile (a real landing only). */
+  atStructure?: boolean;
 }
 
 /** A cheap, deterministic 32-bit hash mixing two integers into [0, 1). */
@@ -444,7 +456,10 @@ export function stepMissiles(
       }
     }
     if (m.t + dt >= m.duration && simTick > m.resolveTick) {
-      landings.push(landingFor(m, 1, 1));
+      const landing = landingFor(m, 1, 1);
+      if (m.munition !== undefined) landing.munition = m.munition;
+      if (m.atStructure === true) landing.atStructure = true;
+      landings.push(landing);
       // dropped: not copied forward
     } else {
       m.t = Math.min(m.t + dt, m.duration);

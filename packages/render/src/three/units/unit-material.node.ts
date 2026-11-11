@@ -34,6 +34,7 @@ import type { Material } from 'three';
 import { tslOps, type N, type Tsl } from '../fog-pass.node';
 import type { Ops } from '../fog-ops';
 import { UNPORTED_TERMS_KEY } from '../backend/unported';
+import { declareObjectInputs, pushValue } from '../backend/object-inputs';
 import { hookSegments } from '../material-names';
 import { legacyBaseOf, legacyMaterialOf, type HasUserData } from '../twin-identity';
 import { teamMarkTerms, type TeamMarkMaths } from './team-mask.node';
@@ -229,6 +230,12 @@ export function createNodeUnitMaterial(deps: NodeUnitDeps, legacy: THREE.MeshSta
     uniforms.set(name, n);
     return n.setName(name);
   };
+  /**
+   * GH-943 P3 (T14b, GH-1152): every uniform this twin updates per object or per render, with what it will read, so the parked
+   * refresh policy can see a change (`backend/object-inputs.ts`). A uniform made below without passing through `declared` is not
+   * declared, and the policy never downgrades the twin (G2c).
+   */
+  const declared: { readonly node: UN; readonly value: (object: ObjectFrame['object']) => unknown }[] = [];
   const ownLegacy = (frame: ObjectFrame): Material | null => {
     const obj = frame.object;
     if (obj === null || obj.material === undefined || Array.isArray(obj.material)) return null;
@@ -247,6 +254,7 @@ export function createNodeUnitMaterial(deps: NodeUnitDeps, legacy: THREE.MeshSta
     renderUniform: (read: () => unknown, name: string): UN => {
       const n = T.uniform(read());
       n.onRenderUpdate(() => read());
+      declared.push({ node: n, value: () => read() });
       return named(n, name);
     },
     renderArray: (read: () => readonly unknown[], type: string, name: string): UN => {
@@ -254,6 +262,7 @@ export function createNodeUnitMaterial(deps: NodeUnitDeps, legacy: THREE.MeshSta
       n.onRenderUpdate(() => {
         n.array = read();
       });
+      declared.push({ node: n, value: () => read() });
       return named(n, name);
     },
     objectUniform: (read: (l: Material) => unknown, fallback: unknown, name: string): UN => {
@@ -262,6 +271,13 @@ export function createNodeUnitMaterial(deps: NodeUnitDeps, legacy: THREE.MeshSta
         const l = ownLegacy(frame);
         return (l !== null ? read(l) : undefined) ?? fallback;
       });
+      declared.push({
+        node: n,
+        value: (object) => {
+          const l = ownLegacy({ object });
+          return (l !== null ? read(l) : undefined) ?? fallback;
+        },
+      });
       return named(n, name);
     },
     objectArray: (read: (l: Material) => readonly unknown[] | undefined, fallback: readonly unknown[], type: string, name: string): UN => {
@@ -269,6 +285,13 @@ export function createNodeUnitMaterial(deps: NodeUnitDeps, legacy: THREE.MeshSta
       n.onObjectUpdate((frame) => {
         const l = ownLegacy(frame);
         n.array = (l !== null ? read(l) : undefined) ?? fallback;
+      });
+      declared.push({
+        node: n,
+        value: (object) => {
+          const l = ownLegacy({ object });
+          return (l !== null ? read(l) : undefined) ?? fallback;
+        },
       });
       return named(n, name);
     },
@@ -331,5 +354,17 @@ export function createNodeUnitMaterial(deps: NodeUnitDeps, legacy: THREE.MeshSta
     twin.castShadowPositionNode = T.positionLocal as never;
   }
   BINDINGS.set(twin as unknown as Material, { uniforms, sync, applied });
+  // The declaration (T14b). `sync` mirrors the base's map, envMap and envMapIntensity in `OnBeforeMaterialUpdate`, which runs AFTER
+  // the refresh decision, so the reader keys the base's own fields: a late map lands in the same frame, not one later.
+  declareObjectInputs(twin, {
+    nodes: new Set<unknown>(declared.map((d) => d.node)),
+    events: true,
+    read(object, out) {
+      pushValue(base.map, out);
+      pushValue(base.envMap, out);
+      pushValue(base.envMapIntensity, out);
+      for (const d of declared) pushValue(d.value(object as ObjectFrame['object']), out);
+    },
+  });
   return twin as unknown as THREE.Material;
 }

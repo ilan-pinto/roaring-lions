@@ -1,0 +1,556 @@
+{
+ "carrier": {
+  "tris": 2299,
+  "budget": 2500,
+  "nonmanifold_edges": 47,
+  "pipeline": {
+   "src_tris": 2566,
+   "islands": 1,
+   "final": 2474
+  },
+  "size_m": [
+   0.2189,
+   0.2653,
+   0.4197
+  ],
+  "bbox_min": [
+   -0.1095,
+   -0.1326,
+   -0.4197
+  ],
+  "bbox_max": [
+   0.1095,
+   0.1326,
+   0.0
+  ],
+  "mount": "origin at the shell top centre (x/y centre of the bbox, z at the top of the collar); front is +X",
+  "note": "Meshy 7.1 remesh of K1 (2,566 tris, 1 island, with a normal map that is not used): only collapsed from 2,566 to 2,500; throat and groin pieces stay as the separate v3 built parts | 9 Nov (GH-746 fit): DECIMATED 2,474 -> 2,299 (Blender Decimate collapse, ratio 0.9301, triangulated; bbox identical, boundary edges 352 -> 349) to hold the lead's 7,200 per figure; the 2,474 source is carrier_src.glb/.blend",
+  "src_tris_before_fit_decimation": 2474
+ },
+ "mag_pouch": {
+  "tris": 296,
+  "budget": 300,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "reduced_from": 364
+  },
+  "size_m": [
+   0.0595,
+   0.08,
+   0.1199
+  ],
+  "bbox_min": [
+   0.0005,
+   -0.04,
+   -0.1193
+  ],
+  "bbox_max": [
+   0.06,
+   0.04,
+   0.0006
+  ],
+  "mount": "origin at the top edge of the back face, centre (belt contact); front is +X",
+  "note": "Meshy remesh of K2: the two single-mag pouches, specks under 6 mm dropped, scaled per axis to 80 x 60 x 120 mm"
+ },
+ "radio_pouch": {
+  "tris": 346,
+  "budget": 350,
+  "nonmanifold_edges": 16,
+  "pipeline": {
+   "reduced_from": 562
+  },
+  "size_m": [
+   0.0792,
+   0.0895,
+   0.2021
+  ],
+  "bbox_min": [
+   0.0012,
+   -0.0445,
+   -0.0996
+  ],
+  "bbox_max": [
+   0.0804,
+   0.045,
+   0.1025
+  ],
+  "mount": "origin at the top edge of the pouch back face, centre; front is +X",
+  "note": "Meshy remesh of K2: radio pouch with its radio and stub antenna as delivered; width/depth scaled to 90 x 80 mm (height native)"
+ },
+ "radio_panel": {
+  "tris": 386,
+  "budget": 500,
+  "nonmanifold_edges": 64,
+  "pipeline": {},
+  "size_m": [
+   0.07,
+   0.1955,
+   0.2997
+  ],
+  "bbox_min": [
+   0.0,
+   -0.0977,
+   -0.2997
+  ],
+  "bbox_max": [
+   0.07,
+   0.0977,
+   0.0
+  ],
+  "mount": "origin at the top edge of the back face, centre; front is +X",
+  "note": "Meshy remesh of K3 panel with its pouches; depth scaled to 70 mm"
+ },
+ "groin_apron": {
+  "tris": 220,
+  "budget": 220,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.0485,
+   0.2472,
+   0.1998
+  ],
+  "bbox_min": [
+   -0.0366,
+   -0.1236,
+   -0.1999
+  ],
+  "bbox_max": [
+   0.0119,
+   0.1236,
+   -0.0001
+  ],
+  "mount": "origin at the top edge, centre, on the inner (body-side) surface; hangs 200 mm below; front is +X",
+  "note": "UNCHANGED from v3. built: padded hanging flap 250 x 200 x 12 mm on a 200 mm radius, 16-point rounded section, shortened rounded lower corners"
+ },
+ "throat_protector": {
+  "tris": 188,
+  "budget": 190,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.0403,
+   0.1966,
+   0.1098
+  ],
+  "bbox_min": [
+   -0.0298,
+   -0.0983,
+   -0.1099
+  ],
+  "bbox_max": [
+   0.0105,
+   0.0983,
+   -0.0001
+  ],
+  "mount": "origin at the top edge, centre, on the inner (body-side) surface; hangs 110 mm below; outward is +X",
+  "note": "UNCHANGED from v3. built: padded curved plate 200 x 110 x 12 mm on a 150 mm radius, fully rolled 16-point edge, rounded lower corners"
+ },
+ "battle_belt": {
+  "tris": 556,
+  "budget": 620,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.285,
+   0.356,
+   0.0544
+  ],
+  "bbox_min": [
+   -0.138,
+   -0.178,
+   -0.0272
+  ],
+  "bbox_max": [
+   0.147,
+   0.178,
+   0.0272
+  ],
+  "mount": "origin at the centre of the waist loop, belt mid-height; buckle at +X (front); loop 340 mm wide (Y) x 260 mm deep (X)",
+  "note": "UNCHANGED from v3. UNCHANGED from v2 (review: PASS). built: closed superellipse loop (16 stations), 14-point section with rounded padded corners (r 4 mm) and two V grooves dividing three MOLLE rows, plus a rounded buckle plate"
+ },
+ "grenade_pouch": {
+  "tris": 196,
+  "budget": 200,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "body": [
+    636,
+    28176,
+    1498,
+    118,
+    26
+   ],
+   "flap": [
+    1141,
+    97008,
+    2744,
+    78,
+    26
+   ]
+  },
+  "size_m": [
+   0.053,
+   0.0741,
+   0.1093
+  ],
+  "bbox_min": [
+   0.0,
+   -0.037,
+   -0.1093
+  ],
+  "bbox_max": [
+   0.053,
+   0.037,
+   0.0
+  ],
+  "mount": "origin at the top edge of the back face, centre; front/flap is +X",
+  "note": "UNCHANGED from v3. K2 frag pouch: body and flap/buckle sealed separately; scaled per axis to 75 x 55 x 110 mm (brief)"
+ },
+ "radio_pack": {
+  "tris": 514,
+  "budget": 520,
+  "nonmanifold_edges": 0,
+  "pipeline": [
+   1928,
+   38424,
+   19440,
+   514
+  ],
+  "size_m": [
+   0.1873,
+   0.2416,
+   0.307
+  ],
+  "bbox_min": [
+   0.0,
+   -0.1208,
+   -0.307
+  ],
+  "bbox_max": [
+   0.1873,
+   0.1208,
+   0.0
+  ],
+  "mount": "origin at the top edge of the back face, centre; front is +X",
+  "note": "UNCHANGED from v3. UNCHANGED from v2 (review: PASS). K3 small assault pack, UNIFORM x1.638 so height is 0.30 m (brief 0.13x0.26x0.30)"
+ },
+ "phone_case": {
+  "tris": 240,
+  "budget": 210,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.0272,
+   0.09,
+   0.17
+  ],
+  "bbox_min": [
+   0.0,
+   -0.045,
+   -0.085
+  ],
+  "bbox_max": [
+   0.0272,
+   0.045,
+   0.085
+  ],
+  "mount": "origin at the centre of the back face (chest-mount side); thickness toward +X; portrait, long axis Z",
+  "note": "UNCHANGED from v3. UNCHANGED from v2 (review: PASS). built: closed rounded case 170x90x25 mm (r 7 mm body, 2 segments) with a hinged flap, closure tab and clasp"
+ },
+ "red_dot": {
+  "tris": 198,
+  "budget": 200,
+  "nonmanifold_edges": 0,
+  "pipeline": [
+   3921,
+   50688,
+   24996,
+   198
+  ],
+  "size_m": [
+   0.065,
+   0.0244,
+   0.0366
+  ],
+  "bbox_min": [
+   -0.0325,
+   -0.0122,
+   0.0
+  ],
+  "bbox_max": [
+   0.0325,
+   0.0122,
+   0.0366
+  ],
+  "mount": "origin at the centre of the mount base underside (top rail); bore axis +X",
+  "note": "UNCHANGED from v3. UNCHANGED from v2 (review: PASS). K6a sealed 0.6 mm"
+ },
+ "scope": {
+  "tris": 326,
+  "budget": 330,
+  "nonmanifold_edges": 0,
+  "pipeline": [
+   4772,
+   119312,
+   49990,
+   326
+  ],
+  "size_m": [
+   0.2661,
+   0.0407,
+   0.0632
+  ],
+  "bbox_min": [
+   -0.1331,
+   -0.0203,
+   0.0
+  ],
+  "bbox_max": [
+   0.1331,
+   0.0203,
+   0.0632
+  ],
+  "mount": "origin at the centre of the mount underside (top rail); bore axis +X, objective +X",
+  "note": "UNCHANGED from v3. UNCHANGED from v2 (review: PASS). K6b sealed 0.9 mm"
+ },
+ "laser": {
+  "tris": 192,
+  "budget": 200,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.1112,
+   0.06,
+   0.045
+  ],
+  "bbox_min": [
+   -0.0545,
+   -0.03,
+   0.0
+  ],
+  "bbox_max": [
+   0.0567,
+   0.03,
+   0.045
+  ],
+  "mount": "origin at the centre of the underside (top rail); bore axis +X",
+  "note": "UNCHANGED from v3. built: PEQ-class box 109 x 60 x 38 mm with 4.5 mm rounded edges, two emitter windows on the front face and a top knob"
+ },
+ "suppressor": {
+  "tris": 140,
+  "budget": 150,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.165,
+   0.0416,
+   0.0416
+  ],
+  "bbox_min": [
+   0.0,
+   -0.0208,
+   -0.0208
+  ],
+  "bbox_max": [
+   0.165,
+   0.0208,
+   0.0208
+  ],
+  "mount": "origin at the centre of the rear (thread) face, on the bore axis; extends +X",
+  "note": "UNCHANGED from v3. built lathe: 165 mm can, 38 mm, 41 mm QD collar, rounded muzzle shoulder and a visible bore"
+ },
+ "weapon_light": {
+  "tris": 216,
+  "budget": 220,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.14,
+   0.0304,
+   0.0289
+  ],
+  "bbox_min": [
+   -0.07,
+   -0.0152,
+   -0.0145
+  ],
+  "bbox_max": [
+   0.07,
+   0.0152,
+   0.0145
+  ],
+  "mount": "origin on the body axis at mid-length; lens/bezel +X, tail cap -X",
+  "note": "UNCHANGED from v3. built lathe: 140 mm, 25 mm body, domed tail cap, a groove, a wider 30 mm bezel stepped from the body, closed manifold"
+ },
+ "nvg_mono": {
+  "tris": 348,
+  "budget": 360,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "body": [
+    2674,
+    69976,
+    3296,
+    212,
+    26
+   ]
+  },
+  "size_m": [
+   0.1239,
+   0.039,
+   0.0811
+  ],
+  "bbox_min": [
+   -0.032,
+   -0.0195,
+   -0.0741
+  ],
+  "bbox_max": [
+   0.092,
+   0.0195,
+   0.007
+  ],
+  "mount": "origin at the top of the J-arm pivot (helmet-mount shoe); objective +X; arm drops then curves forward onto the body",
+  "note": "UNCHANGED from v3. Meshy tube (second tube cut off, holes filled) sealed as one shell; built J-arm as a flat 18 x 4 mm bar with a bevelled dovetail shoe"
+ },
+ "nvg_bino": {
+  "tris": 336,
+  "budget": 350,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.095,
+   0.122,
+   0.056
+  ],
+  "bbox_min": [
+   -0.0475,
+   -0.061,
+   -0.056
+  ],
+  "bbox_max": [
+   0.0475,
+   0.061,
+   0.0
+  ],
+  "mount": "origin at the centre of the top of the dovetail shoe; objectives toward +X (down/in-use pose)",
+  "note": "UNCHANGED from v3. built: two clear 43 mm tubes (8-sided lathes with eyecup and objective bezel) 74 mm apart, a bridge and a dovetail shoe"
+ },
+ "headset_l_built": {
+  "tris": 280,
+  "budget": 260,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.07,
+   0.0559,
+   0.1189
+  ],
+  "bbox_min": [
+   -0.035,
+   -0.0039,
+   -0.116
+  ],
+  "bbox_max": [
+   0.035,
+   0.052,
+   0.0029
+  ],
+  "mount": "origin at the helmet side-rail pivot; cup hangs 30 mm below, outboard +Y",
+  "note": "UNCHANGED from v3. UNCHANGED from v2 (review: PASS). ALTERNATIVE to the Meshy-cut cup: built smooth superellipse oval cup 70x86x42 mm (16-sided, rounded padded shoulder) on the same rail arm"
+ },
+ "headset_r_built": {
+  "tris": 280,
+  "budget": 260,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.07,
+   0.0559,
+   0.1189
+  ],
+  "bbox_min": [
+   -0.035,
+   -0.052,
+   -0.116
+  ],
+  "bbox_max": [
+   0.035,
+   0.0039,
+   0.0029
+  ],
+  "mount": "origin at the helmet side-rail pivot; cup hangs 30 mm below, outboard -Y",
+  "note": "UNCHANGED from v3. UNCHANGED from v2 (review: PASS). ALTERNATIVE to the Meshy-cut cup: built smooth superellipse oval cup 70x86x42 mm (16-sided, rounded padded shoulder) on the same rail arm"
+ },
+ "counterweight": {
+  "tris": 140,
+  "budget": 140,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.0468,
+   0.1146,
+   0.0642
+  ],
+  "bbox_min": [
+   -0.042,
+   -0.0573,
+   -0.0321
+  ],
+  "bbox_max": [
+   0.0047,
+   0.0573,
+   0.0321
+  ],
+  "mount": "origin on the helmet rear surface at the centre of the pouch; bulges toward -X (rear)",
+  "note": "UNCHANGED from v3. UNCHANGED from v2 (review: PASS). built: padded battery pouch 119x65x43 mm, 12-point rounded section (r 12 mm), tapered ends, curved to a 95 mm rear shell radius"
+ },
+ "ir_strobe": {
+  "tris": 116,
+  "budget": 120,
+  "nonmanifold_edges": 0,
+  "pipeline": {
+   "built": true
+  },
+  "size_m": [
+   0.0594,
+   0.0432,
+   0.026
+  ],
+  "bbox_min": [
+   -0.0297,
+   -0.0216,
+   0.0
+  ],
+  "bbox_max": [
+   0.0297,
+   0.0216,
+   0.026
+  ],
+  "mount": "origin at the centre of the underside (helmet crown); dome up (+Z)",
+  "note": "UNCHANGED from v3. UNCHANGED from v2 (review: PASS). built: 59x43x27 mm (x1.08), 12-sided superellipse housing, rounded shoulder, low lens crown"
+ }
+}

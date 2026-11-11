@@ -117,10 +117,10 @@ import { rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTab
 import { rainReadNow, rainRimNow, setRainRead, setRainRimGain, type RainRead } from './units/rain-rim';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
-import { fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
+import { FIRE_SUPPORT, FS_AIR_STRIKE, fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent, type WeaponStats } from '@lions/sim';
 import type { AimFootprint, AuraRingView, BeamReadback, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
-import { QUALITY_PRESETS } from '../quality';
+import { QUALITY_PRESETS, debrisQualityOf } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import type { FlipbookLayerSpec } from '../vfx/emitters';
 import { SIM_HZ } from '../anim';
@@ -206,7 +206,23 @@ import { captureComposerView } from './capture-view';
 import { AsyncPhotoMemo } from './readback';
 import { FlashLightManager } from './flash-light';
 import { SupportAircraftManager } from './units/support-aircraft';
-import { ShockRingPool } from './units/shock-ring';
+import { BlastRingPool, ringColorLinear } from './units/blast-ring';
+import { DebrisPool } from './units/debris-pool';
+import { debrisThrowFor, planDebris, restingPlan, type DebrisPlan } from './units/debris-flight';
+import { debrisKeysFor, rampStep } from './units/debris-tone';
+import { HOLE_INTERIOR_TOWARD_CHAR, HOLE_SEED_LIMIT, addHole, type Hole } from './units/building-holes';
+import { BuildingHoleMaterials, type HoleColors } from './units/holed-material';
+import {
+  BUILDING_HIT_DUST_EMITTER_ID,
+  HIT_BURST_MIN_TICKS,
+  HIT_EJECTA_SPREAD_RAD,
+  HIT_HEIGHT_FRACTION,
+  HIT_STANDOFF_TILES,
+  hitFace,
+  masonryKeyFor,
+  masonryKeysFor,
+} from './units/building-hit';
+import { tileBaseToneHex } from './terrain/ground';
 import {
   AIR_STRIKE_IMPACT_POWER,
   BARRAGE_CRATER_TILES,
@@ -277,7 +293,21 @@ import {
   blastLightSpec,
   blastShake,
   blastHitStopMs,
+  munitionHitStopMs,
+  munitionLightSpec,
+  munitionShake,
 } from './blast-spec';
+import {
+  classBlastRecipe,
+  drawsClassBlast,
+  munitionCraterTiles,
+  munitionForSupport,
+  munitionForWeapon,
+  munitionRow,
+  munitionScorchTiles,
+  ringSpecFor,
+  type Munition,
+} from './munitions';
 import {
   initShakeState,
   pushShake,
@@ -379,6 +409,7 @@ import {
   type TexturedDecorSet,
 } from './terrain/decor-textured-mesh';
 import { lod1Shown } from './units/building-lod';
+import { buildingSkin, keepsFullArt } from './units/building-skin';
 import { isTexturedDecorKey } from './terrain/textured-decor';
 import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
@@ -413,7 +444,7 @@ import {
   MISS_SCORCH_POWER,
 } from './units/missile-fx';
 import type { MissileLanding, TargetTrack } from './units/missiles';
-import { missileClassOf, missileDurationS, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
+import { missileClassOf, missileDurationS, missileResolveTick, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
 import { SwarmBatch, extractSwarmParts, newSwarmEntityScratch, type SwarmBatchEvent, type SwarmFrameEnvScratch } from './units/swarm-batch';
 import type { DiveRequest } from './units/swarm-layout';
 import { BEAM_CAPACITY, BeamBatch, vehicleMuzzleOf } from './units/beam-batch';
@@ -527,6 +558,18 @@ import {
 import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
 import { footprintCentre } from './units/footprint';
+import {
+  CUT_BAND_TILES,
+  CUT_HEIGHT_TILES,
+  CUT_ROOF_FALLBACK_TILES,
+  CUT_SELECT_RADIUS_TILES,
+  CutawayTable,
+  footprintDistance,
+  writeCutVolumes,
+  type CutTrigger,
+  type CutVolume,
+} from './units/building-cutaway';
+import { BuildingCutMaterials, createCutUniforms, cutColorsFor, type CutUniforms } from './units/cut-material';
 import { DEFAULT_BUILDING_FIT, buildingFitScale, type FitScale } from './units/building-fit';
 import {
   FX_RENDER_ORDER,
@@ -685,6 +728,7 @@ import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel, hazeAmountOps, HAZE_FORWARD } from './haze';
 import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
+import { SoftDepthSnapshot } from './soft-depth';
 import { FogOfWarPass } from './fog-pass';
 import { FOG_OFFMAP_FADE_TILES, FogUniforms, type FogPassLike } from './fog-spec';
 import { fogDim } from './fog-ops';
@@ -818,6 +862,36 @@ import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, conta
 
 /** COPIED from tuning.ts (FS_MORTAR_BARRAGE, SMOKE_RANGE_SQ); the vfx-triggers spec reads tuning.ts as text. */
 const FS_MORTAR_BARRAGE = 1;
+
+/** GH-1197 P3: the direct-fire classes whose hit on a building throws masonry from the hit face (the coordinator's
+ *  ruling Q2): one explosive round per shot. Small arms and the HMG keep today's centroid puff; indirect rounds add
+ *  nothing at the building (their landing throws its own); a charge is `eod_breach`. */
+const HIT_FACE_CLASSES: ReadonlySet<number> = new Set([
+  WEAPON_CLASS.apfsds,
+  WEAPON_CLASS.autocannon,
+  WEAPON_CLASS.atgm,
+  WEAPON_CLASS.rpg,
+  WEAPON_CLASS.heat,
+  WEAPON_CLASS.he,
+]);
+
+/** GH-1197: a loaded weapon's munition, its reach read off the weapon the sim built from the unit JSON
+ *  (`splash_tiles`, or the bomblets' for a cluster round). Null for no weapon or one the table does not map. */
+function weaponMunition(wp: WeaponStats | undefined): Munition | null {
+  if (wp === undefined) return null;
+  return munitionForWeapon(wp.id, fx.toNumber(wp.splash), wp.submunitions ? fx.toNumber(wp.submunitions.splash) : 0);
+}
+
+/** GH-1197: the first weapon of a type that maps to a munition of `cls`-class weapons (a kamikaze's warhead,
+ *  a swarm's bomblet, a demolition team's charge). */
+function typeMunition(weapons: readonly WeaponStats[], cls?: number): Munition | null {
+  for (const w of weapons) {
+    if (cls !== undefined && w.cls !== cls) continue;
+    const m = weaponMunition(w);
+    if (m !== null) return m;
+  }
+  return null;
+}
 const CARRIER_SMOKE_RANGE_SQ_TILES = 5242880 / 65536; // tuning.ts SMOKE_RANGE_SQ, 80 tile^2
 
 /** Recoil/flinch decay durations, seconds -- redeclared from `renderer.ts`'s
@@ -1171,9 +1245,6 @@ export const FLASH_LIGHT_FALLBACK = paletteHex('vfx.fire');
 /** GH-748: the flash-pool tag on a fire-support impact's light, which the
  *  `support-blast` debug layer zeroes. */
 export const SUPPORT_BLAST_TAG = 'support-blast';
-/** GH-748: the air strike's ground shock ring, tiles and ms. */
-export const STRIKE_SHOCK_RING_TILES = 2.2;
-export const STRIKE_SHOCK_RING_MS = 300;
 export const HP_BAR_FALLBACK = paletteHex('scrub.0');
 export const BUILDING_BAR_FALLBACK = paletteHex(MOBILITY_KILL_COLOR_KEY);
 /** The flat muzzle-smoke puff's palette key (polish VR-09). */
@@ -1337,6 +1408,8 @@ export class ThreeRenderer implements Renderer {
    *  keeps a composer-less path: the raw renderer, whose own `antialias:
    *  true` covers what SMAA covers in the game. */
   private post: PostChain | null = null;
+  /** GH-1227 slice 1: the soft-particle depth snapshot, built by `init` only for `quality.softParticles` (no preset sets it). */
+  private softDepth: SoftDepthSnapshot | null = null;
   /** CSS pixels, which is what `width`/`height` report -- see their own doc
    *  comment for why that is not the drawing buffer's size any more. */
   private cssWidth = 0;
@@ -2052,7 +2125,17 @@ export class ThreeRenderer implements Renderer {
    *  Built with the flash lights, in the constructor. */
   private supportAircraft!: SupportAircraftManager;
   /** GH-748: the air strike's ground shock ring. */
-  private shockRings!: ShockRingPool;
+  /** GH-1197: the two-part blast ring of every landing with a reach (and the strike's, GH-748). */
+  private blastRings!: BlastRingPool;
+  /** GH-1197 P2: the 3D debris pool, null on a preset that builds none (`low`). */
+  private debris: DebrisPool | null = null;
+  /** GH-1197: a class blast's flipbook recipe, built once per (class, splash). */
+  private readonly classRecipes = new Map<string, FlipbookLayerSpec[]>();
+  /** GH-1197: the munition each `swarmBatchList` entry dives with (null: none), rebuilt beside it. */
+  private swarmMunitions: (Munition | null)[] = [];
+  /** The ground's world Y at (x, z) tiles, for the blast rings; one closure, not one a frame. */
+  private readonly ringHeightAt = (x: number, z: number): number =>
+    groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z);
   /** GH-748: the `support-blast` debug layer -- a FLAG, `blast-light`'s
    *  shape: the flash pool rewrites its lights every frame, so the support
    *  impacts' own (tagged) lights are zeroed again after each `step`. */
@@ -2331,6 +2414,14 @@ export class ThreeRenderer implements Renderer {
    * they went off -- see `trigger-fx.ts`'s `PendingCharge`.
    */
   private readonly pendingCharges: PendingCharge[] = [];
+  /** GH-1197 P3: explosive direct-fire rounds in flight at a building, matched to the `structureHit` that resolves
+   *  them (the event names no weapon). The `pendingCharges` pattern. */
+  private readonly pendingStructShots: { shooter: number; structure: number; resolveTick: number; munition: Munition; indirect?: boolean }[] = [];
+  /** GH-1197 P4: the real holes of each holed building, and its holed materials -- minted on its FIRST hole and never
+   *  before, so an unhit map binds no new program, material or side. Clone-drawn buildings only (per-tile walls: P4b). */
+  private readonly buildingHoles = new Map<number, { holes: Hole[]; mats: BuildingHoleMaterials }>();
+  /** GH-1197 P3: the last tick a building threw a hit-face burst (`HIT_BURST_MIN_TICKS`). */
+  private readonly structHitBurstTick = new Map<number, number>();
   /** Presentation sim time at the last `updateFx`, null before the first. */
   /** Presentation sim time at the last `frame()`, null before the first. */
   private lastFrameSimMs: number | null = null;
@@ -2665,6 +2756,19 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly buildingScars = new Map<string, BuildingScarMaterials>();
   private readonly buildingDamageBand = new Map<number, number>();
+  /**
+   * GH-1225 slice 1, the roof cutaway (`units/building-cutaway.ts`, `units/cut-material.ts`): the live volumes, keyed by the
+   * selected unit that asked for each, on the FRAME clock; the shared volume block every cut clone binds by reference, minted on
+   * the first cut and never before; and the buildings a volume reaches now, each with its cut clones and the root they were put
+   * on. Empty while nothing is selected, so a gated capture mints nothing (`cutawayCount`). Presentation only (invariant 4).
+   */
+  private readonly cutaway = new CutawayTable();
+  private cutUniforms: CutUniforms | null = null;
+  private readonly buildingCuts = new Map<number, { root: THREE.Object3D; mats: BuildingCutMaterials }>();
+  /** Each standing clone's drawn roof, world Y (tiles), read once from its frozen bounds: a standing building never moves. */
+  private readonly buildingRoofY = new Map<number, { root: THREE.Object3D; y: number }>();
+  private readonly cutTriggers: CutTrigger[] = [];
+  private readonly cutVolumes: CutVolume[] = [];
   /**
    * GH-31, the vehicle half: the per-TYPE memo of scarred hull materials
    * (`units/vehicle-damage.ts`). The band each hull is drawn at lives on the
@@ -3505,13 +3609,22 @@ export class ThreeRenderer implements Renderer {
     // scene's only MOVING lights; the sun and sky above are the standing
     // ones.
     this.flashLights.addTo(this.scene);
-    // GH-748: the fire-support aircraft and the strike's shock ring. Both
-    // always in the scene and drawing nothing until a call or a strike.
+    // GH-748: the fire-support aircraft. GH-1197: the blast rings (the strike's
+    // since GH-748, every landing with a reach since GH-1197). Both always in
+    // the scene and drawing nothing until a call or a landing. Ring colours are
+    // palette keys, resolved to LINEAR through `hexToLinear`: they are vertex
+    // colours, which nothing downstream decodes (`ringColorLinear`).
     this.supportAircraft = new SupportAircraftManager(this.overlayColor('vfx.fire', FLASH_LIGHT_FALLBACK));
-    this.shockRings = new ShockRingPool(this.overlayColor('vfx.white_hot', FLASH_LIGHT_FALLBACK));
+    this.blastRings = new BlastRingPool((key) => ringColorLinear(this.overlayColor(key)));
     // E6 chunk C: the beam's two palette keys, a white-hot core in an ember sheath.
     this.beamBatch.setColors(this.overlayColor('vfx.white_hot', FLASH_LIGHT_FALLBACK), this.overlayColor('vfx.ember', FLASH_LIGHT_FALLBACK));
-    this.scene.add(this.supportAircraft.group, this.shockRings.group);
+    this.scene.add(this.supportAircraft.group, this.blastRings.group);
+    // GH-1197 P2: the debris pool, three instanced draws while a piece lives; none on a preset with no pool.
+    const debrisQuality = debrisQualityOf(this.opts.quality);
+    if (debrisQuality.pool > 0) {
+      this.debris = new DebrisPool(debrisQuality);
+      this.scene.add(this.debris.group);
+    }
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above -- both start at drawRange 0 (`beginFrame`/`endFrame`
     // haven't run yet) and stay that way until `updateOverlays`'s first
@@ -3719,6 +3832,13 @@ export class ThreeRenderer implements Renderer {
     // `setFogPass`'s again: `dispose()` below frees it.
     this.bloomPass = bloomPassFor(quality, this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
     if (this.bloomPass) this.post.setBloomPass(this.bloomPass);
+    // GH-1227 slice 1: soft particles, opt-in (no preset sets it). The snapshot copies only from the
+    // composer's own two buffers; its sentinel is the first transparent draw (`soft-depth.ts`).
+    if (quality.softParticles === true) {
+      this.softDepth = new SoftDepthSnapshot([this.post.composer.renderTarget1, this.post.composer.renderTarget2]);
+      this.scene.add(this.softDepth.sentinel);
+      this.flipbook.setSoftDepth(this.softDepth);
+    }
     // Shell upgrade Phase 0: the corner vignette, on display-referred colour
     // (after the tone map, before SMAA). Since GH-829 it is folded into
     // `OutputPass`'s shader, so there is nothing to build, slot or free: the
@@ -3804,6 +3924,8 @@ export class ThreeRenderer implements Renderer {
         twinSlotOf: (m) => (isTwin(m) ? null : legacyTwinSlot(m)),
         // GH-943 P3 (T13): timestamp queries for the probe's GPU time; the only read of the option (a legacy boot never gets here).
         timestamps: this.opts.timestamps === true,
+        // GH-943 P3 (T14b): the draw-submission switches; read here only, so a legacy boot never reads them (G3).
+        ...(this.opts.nodeDraw !== undefined ? { nodeDraw: this.opts.nodeDraw } : {}),
       });
       if (this.disposed) {
         if ('backend' in made) made.backend.dispose();
@@ -4273,6 +4395,11 @@ export class ThreeRenderer implements Renderer {
     // dangling it would otherwise be a map full of stale `THREE.Object3D`
     // references after this method returns.
     this.buildingMeshSettling.clear();
+    // GH-1225: the cut clones, on the same footing as the scar clones below.
+    for (const cut of this.buildingCuts.values()) cut.mats.dispose();
+    this.buildingCuts.clear();
+    this.buildingRoofY.clear();
+    this.cutaway.clear();
     // The scar clones before their templates: a clone shares its base's
     // map by reference and must not outlive the template that owns it.
     for (const scars of this.buildingScars.values()) scars.dispose();
@@ -4307,11 +4434,13 @@ export class ThreeRenderer implements Renderer {
     // this actually frees today.
     this.flashLights.dispose();
     this.supportAircraft.dispose();
-    this.shockRings.dispose();
+    this.blastRings.dispose();
     this.muzzleFlashes.dispose();
     this.explosionBursts.dispose();
     this.collapseFlashBursts.dispose();
     this.flipbook.dispose();
+    this.debris?.dispose();
+    for (const s of [...this.buildingHoles.keys()]) this.dropBuildingHoles(s);
     this.smokePlumes.dispose();
     this.collapseShrouds.dispose();
     // Same "added once in the constructor, no scene.remove needed" shape as
@@ -4380,6 +4509,9 @@ export class ThreeRenderer implements Renderer {
     this.post?.setBloomPass(null);
     this.bloomPass?.dispose();
     this.bloomPass = null;
+    // GH-1227: the soft-particle snapshot (its sentinel leaves the scene with it).
+    this.softDepth?.dispose();
+    this.softDepth = null;
     // The skirt's geometry and material -- added once in the constructor, so
     // no `scene.remove`, exactly like `smokeMesh`/`trailMesh` below.
     disposeSkirt(this.skirtMesh);
@@ -4561,6 +4693,8 @@ export class ThreeRenderer implements Renderer {
     // frame late and hand the last frame of it to a swap that already ran.
     this.stepCollapseShrouds(dtMs);
     this.updateBuildingMeshes();
+    // GH-1225: after the clones it cuts are stood up (or taken down) this frame.
+    this.updateCutaway(alpha, dtMs);
     this.stepBuildingMeshSettle(this.frameDtSeconds(dtMs));
     this.stepBuildingBurning(dtMs);
     this.updateFx(dtMs, alpha);
@@ -4578,11 +4712,11 @@ export class ThreeRenderer implements Renderer {
     // in shipping code and is the only thing that makes the toggle a
     // measurement rather than the false green `units` once produced.
     if (this.flashLightsDebugHidden) this.zeroFlashLights();
-    // GH-748: the strike's shock ring ages on the same frame clock as the
-    // light it rides with; the support impacts' lights are zeroed AFTER the
+    // GH-748/GH-1197: the blast rings age on the same frame clock as the
+    // lights they ride with (hit-stop freezes them); the support impacts' lights are zeroed AFTER the
     // step that wrote them while `support-blast` is hidden. The aircraft fly
     // on the SIM clock, so a paused game or a frozen capture holds them.
-    this.shockRings.step(this.frameDtMs(dtMs));
+    this.blastRings.step(this.frameDtMs(dtMs), this.ringHeightAt);
     if (this.supportBlastDebugHidden) this.flashLights.zeroTagged(SUPPORT_BLAST_TAG);
     this.supportAircraft.update(presentationSimMs(this.sim.tickCount, alpha), (x, y) =>
       groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y)
@@ -5104,6 +5238,10 @@ export class ThreeRenderer implements Renderer {
         // so a plain write would be undone by the gate's own repaint.
         // Returns 2, the meshes it hides.
         return this.flipbook.setDebugHidden(!visible);
+      case 'debris':
+        // GH-1197 P2: a FLAG the pool's own `visible` derivation consults (its live window rewrites the three
+        // meshes on every step and spawn). Returns the meshes it hides: 3, or 0 on a preset with no pool.
+        return this.debris?.setDebugHidden(!visible) ?? 0;
       case 'missiles':
         // P-5: a FLAG, `blast-light`'s shape -- `MissileFx.step` rewrites all
         // three meshes' `visible` every frame (`count > 0 && !debugHidden`),
@@ -5126,13 +5264,13 @@ export class ThreeRenderer implements Renderer {
       case 'support-blast':
         // GH-748: a FLAG, `blast-light`'s shape for the support impacts' own
         // (tagged) lights, zeroed again after every `flashLights.step`, plus
-        // the shock-ring pool, which `step` re-asserts the same way. Returns
-        // how many lights and rings it holds now: 0 with no support impact
+        // the blast-ring pool (every landing's ring since GH-1197), which `step` re-asserts the same way.
+        // Returns how many lights and rings it holds now: 0 with no impact
         // live, the honest reading for a check to fail on.
         this.supportBlastDebugHidden = !visible;
-        this.shockRings.setDebugHidden(!visible);
+        this.blastRings.setDebugHidden(!visible);
         if (this.supportBlastDebugHidden) this.flashLights.zeroTagged(SUPPORT_BLAST_TAG);
-        return this.flashLights.countTagged(SUPPORT_BLAST_TAG) + this.shockRings.liveCount;
+        return this.flashLights.countTagged(SUPPORT_BLAST_TAG) + this.blastRings.liveCount;
       case 'garrison-banner':
         // A FLAG, `missiles`' shape: `GarrisonBannerBatch.update` writes the
         // mesh's `visible` every frame. Returns 1, the one mesh.
@@ -5692,16 +5830,25 @@ export class ThreeRenderer implements Renderer {
     const overlayObjects = this.overlayLayerObjects();
     const overlayObjectsWere = overlayObjects.map((o) => o.visible);
     const rainWasVisible = this.rain?.mesh.visible ?? false;
+    // GH-1225: the minimap is a map-wide photograph of the UNCUT footprints: the cutaway's volume count is forced to 0 for it.
+    const cutsWere = this.cutUniforms?.uRlCutN.value ?? 0;
+    // GH-1197 P2: the debris pool is a one-off effect, not ground: the minimap never photographs a flying chunk.
+    // Its GROUP is hidden, so the pool's own per-mesh `visible` (its live window) is left alone.
+    const debrisWasVisible = this.debris?.group.visible ?? false;
     const restore = (): void => {
       this.setDebugLayerVisible('overlays', overlaysWereVisible);
       overlayObjects.forEach((o, k) => (o.visible = overlayObjectsWere[k] ?? o.visible));
       this.setDebugLayerVisible('units', unitsWereVisible);
       if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
+      if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = cutsWere;
+      if (this.debris !== null) this.debris.group.visible = debrisWasVisible;
     };
     try {
       this.setDebugLayerVisible('units', false);
       this.setDebugLayerVisible('overlays', false);
       if (this.rain !== null) this.rain.mesh.visible = false;
+      if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = 0;
+      if (this.debris !== null) this.debris.group.visible = false;
       this.fitShadowToMap();
     } catch (err) {
       restore();
@@ -6316,6 +6463,12 @@ export class ThreeRenderer implements Renderer {
         // pairing): two stamps a bomblet, so a 12-bomblet round spends 24 slots.
         this.stampGroundDecal(this.persistentStamp('crater', bx, by, BOMBLET_CRATER_RADIUS_TILES));
         this.stampGroundDecal(this.persistentStamp('scorch', bx, by, BOMBLET_SCORCH_RADIUS_TILES));
+        // GH-1197: each bomblet's ring at the bomblets' own splash (grenade class, inner ring only).
+        if (e.by >= 0 && e.by < this.sim.state.typeIdx.length) {
+          const bw = this.sim.unitTypes[this.sim.state.typeIdx[e.by]].weapons.find((w) => w.id === e.weaponId);
+          const bm = weaponMunition(bw);
+          this.spawnReachFx(bm, bx, by);
+        }
         // The last bomblet of the round completes its group: the carrier
         // shell opens in the air over the centroid. The sim emits no centre.
         const centre = this.clusterBursts.push({ by: e.by, x: bx, y: by, index: e.index, count: e.count });
@@ -6572,6 +6725,9 @@ export class ThreeRenderer implements Renderer {
         // with the blast (`eod_breach`).
         if (this.detonateChargeOnStructure(e.by, hitStruct, e.tick)) {
           // The blast is the whole effect.
+        } else if (this.takeStructShot(e.by, hitStruct, e.tick)) {
+          // GH-1197 P3: an explosive direct-fire round: masonry and dust from the hit face (or nothing, in fog
+          // or during a catch-up), in place of the centroid puff.
         } else if (this.quiet) {
           // A tick far behind the live edge: the building's damage above is
           // kept, the dust it threw is not.
@@ -6811,6 +6967,33 @@ export class ThreeRenderer implements Renderer {
         resolveTick: demolitionResolveTick(e.tick, Math.hypot(ax - sx, ay - sy)),
       });
     }
+    // GH-1197 P3: an explosive direct-fire round at a building is matched to the hit that resolves it, which throws
+    // masonry from the hit face. Registered whatever the fog: the hit decides what is drawn.
+    if (atStruct && wp !== undefined && HIT_FACE_CLASSES.has(cls)) {
+      const sx = fx.toNumber(st.posX[e.shooter]);
+      const sy = fx.toNumber(st.posY[e.shooter]);
+      const dist = Math.hypot(tx - sx, ty - sy);
+      const direct = munitionRow('direct_he');
+      this.pendingStructShots.push({
+        shooter: e.shooter,
+        structure: e.structure as number,
+        resolveTick: shellKind === 'missile' ? missileResolveTick(cls, dist, e.tick) : e.tick,
+        munition: weaponMunition(wp) ?? { cls: 'direct_he', splash: direct.reference_splash_tiles },
+      });
+      if (this.pendingStructShots.length > 64) this.pendingStructShots.shift();
+    }
+    // GH-1197 P4: an indirect round fired AT a building (not a cluster carrier) is matched to its hit too: it punches
+    // the roof. Its flight is the sim's own speed (`SHELL_PROFILES`, the copied PROJ_SPEED).
+    if (atStruct && wp !== undefined && wp.submunitions === null && shellKind !== null && shellKind !== 'missile' && isIndirectShell(shellKind)) {
+      const m = weaponMunition(wp);
+      if (m !== null) {
+        const sx = fx.toNumber(st.posX[e.shooter]);
+        const sy = fx.toNumber(st.posY[e.shooter]);
+        const flightTicks = Math.ceil((Math.hypot(tx - sx, ty - sy) / SHELL_PROFILES[shellKind].speedTilesS) * 20);
+        this.pendingStructShots.push({ shooter: e.shooter, structure: e.structure as number, resolveTick: e.tick + flightTicks, munition: m, indirect: true });
+        if (this.pendingStructShots.length > 64) this.pendingStructShots.shift();
+      }
+    }
 
     // Latch the fire clip for its own declared duration (renderer.ts:772-777)
     // -- WHOSE duration decided by which asset is actually drawing this
@@ -6952,7 +7135,7 @@ export class ThreeRenderer implements Renderer {
       // for a MOVING shooter or target: these are the renderer's
       // interpolated positions, not the sim's own at the fire tick.
       const targetAir = !atStruct && e.target >= 0 && this.sim.unitTypes[st.typeIdx[e.target]].isAir;
-      this.missileFx.launch({
+      const missile = this.missileFx.launch({
         sx: mzX, sy: mzY, tx, ty,
         simDistTiles: Math.hypot(tx - this.curX[e.shooter], ty - this.curY[e.shooter]),
         side: st.side[e.shooter], cls, weaponId: e.weaponId,
@@ -6960,6 +7143,10 @@ export class ThreeRenderer implements Renderer {
         shooterAir: type.isAir, targetAir, tick: e.tick, shooter: e.shooter,
         indirect: wp?.isIndirect === true,
       });
+      // GH-1197: a missile with a reach (Hellfire, RPG) draws its ring where it lands.
+      const missileMunition = weaponMunition(wp);
+      if (missile !== null && missileMunition !== null) missile.munition = missileMunition;
+      if (missile !== null && atStruct) missile.atStructure = true;
       const mcls = missileClassOf(cls);
       flightS = Math.hypot(tx - this.curX[e.shooter], ty - this.curY[e.shooter]) / SIM_PROJ_SPEED_TILES_S[mcls ?? 'atgm'];
     } else if (shellKind !== null) {
@@ -6981,6 +7168,10 @@ export class ThreeRenderer implements Renderer {
         flightS = burst.length > 0 ? burst[0].duration : null;
       } else {
         const shell = spawnShell(mzX, mzY, tx, ty, st.side[e.shooter], shellKind);
+        // GH-1197: the round's munition class and reach, carried to its landing. Absent for a weapon
+        // with no reach, which lands exactly as before.
+        const munition = weaponMunition(wp);
+        if (munition !== null) shell.munition = munition;
         if (tagStrike) {
           shell.shooter = e.shooter;
           shell.target = e.target;
@@ -7216,12 +7407,18 @@ export class ThreeRenderer implements Renderer {
     // GH-748: a round re-anchors the aircraft flying for its call, so the
     // one-tick gap between the click and the applied command never shows.
     this.supportAircraft.onStrike(e.profile, e.tick, sx, sy);
+    // GH-1197: each call draws its class's two-part ring at the sim's own splash for that profile
+    // (`FIRE_SUPPORT`, read, never copied): the barrage round 1.0 inner / 1.25 outer, the strike 2.0 / 3.2.
     if (e.profile === FS_MORTAR_BARRAGE) {
-      this.spawnSupportImpact(BARRAGE_IMPACT_EMITTER_ID, sx, sy, BARRAGE_IMPACT_POWER, BARRAGE_CRATER_TILES, BARRAGE_SCORCH_TILES, false);
+      const ring = munitionForSupport('mortar_barrage', fx.toNumber(FIRE_SUPPORT[FS_MORTAR_BARRAGE].splash));
+      this.spawnSupportImpact(BARRAGE_IMPACT_EMITTER_ID, sx, sy, BARRAGE_IMPACT_POWER, BARRAGE_CRATER_TILES, BARRAGE_SCORCH_TILES, ring);
+      this.cutSupportHoles(ring, sx, sy, e.tick);
       return;
     }
     const scorch = strikeScorchRadius(this.retained.elevationLevels, this.sim.width, this.sim.height, sx, sy);
-    this.spawnSupportImpact(AIR_STRIKE_IMPACT_EMITTER_ID, sx, sy, AIR_STRIKE_IMPACT_POWER, STRIKE_CRATER_TILES, scorch, true);
+    const ring = munitionForSupport('air_strike', fx.toNumber(FIRE_SUPPORT[FS_AIR_STRIKE].splash));
+    this.spawnSupportImpact(AIR_STRIKE_IMPACT_EMITTER_ID, sx, sy, AIR_STRIKE_IMPACT_POWER, STRIKE_CRATER_TILES, scorch, ring);
+    this.cutSupportHoles(ring, sx, sy, e.tick);
   }
 
   /**
@@ -7238,6 +7435,9 @@ export class ThreeRenderer implements Renderer {
    * Without its emitter nothing but the marks is thrown -- no light, no
    * shake, no ring -- which is what makes an unregistered emitter read as 0
    * on the `support-blast` toggle rather than as a smaller blast.
+   *
+   * GH-1197: `ring` is the call's munition; its two-part ring replaces the
+   * strike's single 2.2-tile ring (GH-748), and the barrage round gains one.
    */
   private spawnSupportImpact(
     emitterId: string,
@@ -7246,13 +7446,19 @@ export class ThreeRenderer implements Renderer {
     power: number,
     craterTiles: number,
     scorchTiles: number,
-    shockRing: boolean
+    ring: Munition | null
   ): void {
     this.stampGroundDecal(this.persistentStamp('crater', tx, ty, craterTiles));
     this.stampGroundDecal(this.persistentStamp('scorch', tx, ty, scorchTiles));
-    if (this.quiet) return;
+    if (this.quiet) {
+      // GH-1197 P2: a catch-up places the call's debris at rest, like the marks; the ring is a burst and is not drawn.
+      this.spawnReachFx(ring, tx, ty);
+      return;
+    }
     const em = this.emitterLibrary.byName(emitterId);
     if (em === null) return;
+    // GH-1197: the call's two-part ring and its debris.
+    this.spawnReachFx(ring, tx, ty);
     const yawTurns = tileHash(Math.floor(tx), Math.floor(ty));
     this.spawnCollapseFx(emitterId, tx, ty, power, yawTurns);
     const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, tx, ty);
@@ -7269,7 +7475,6 @@ export class ThreeRenderer implements Renderer {
     }
     this.shakeState = pushShake(this.shakeState, blastShake(em, power), tx, ty);
     this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, power));
-    if (shockRing) this.shockRings.spawn(tx, worldY, ty, STRIKE_SHOCK_RING_TILES, STRIKE_SHOCK_RING_MS);
   }
 
   /**
@@ -7314,7 +7519,7 @@ export class ThreeRenderer implements Renderer {
       flights: this.supportAircraft.flightCount,
       warm: this.supportAircraft.isWarm,
       ...this.supportAircraft.ready,
-      rings: this.shockRings.liveCount,
+      rings: this.blastRings.liveCount,
       lights: this.flashLights.countTagged(SUPPORT_BLAST_TAG),
     };
   }
@@ -8433,6 +8638,11 @@ export class ThreeRenderer implements Renderer {
 
   private refreshSwarmBatchList(): void {
     this.swarmBatchList = Array.from(this.swarmBatches.values());
+    // GH-1197: each swarm's dive munition (its bomblet's ring), in the list's own order.
+    this.swarmMunitions = Array.from(this.swarmBatches.keys()).map((id) => {
+      const t = this.sim.unitTypes.find((u) => u.id === id);
+      return t ? typeMunition(t.weapons) : null;
+    });
   }
 
   /**
@@ -8691,6 +8901,7 @@ export class ThreeRenderer implements Renderer {
             power: l.power,
             scale: l.scale,
             miss: l.miss,
+            munition: this.swarmMunitions[b] ?? undefined,
           });
         }
       }
@@ -9146,6 +9357,7 @@ export class ThreeRenderer implements Renderer {
         if (this.sim.structureTypes[st.typeIdx[s]].id !== structureId) continue;
         this.scene.remove(root);
         this.buildingMeshIdleEntities.delete(s);
+        this.dropBuildingHoles(s);
         this.removeLod1Entity(s);
         this.buildingDamageBand.delete(s);
       }
@@ -11138,6 +11350,7 @@ export class ThreeRenderer implements Renderer {
       if (!this.perTileInstanced(this.sim.structureTypes[st.typeIdx[s]])) continue;
       this.scene.remove(root);
       this.buildingMeshIdleEntities.delete(s);
+      this.dropBuildingHoles(s);
       this.buildingDamageBand.delete(s);
     }
     for (const [s, root] of [...this.buildingMeshWreckEntities]) {
@@ -11544,6 +11757,7 @@ export class ThreeRenderer implements Renderer {
         if (idleEntity) {
           this.scene.remove(idleEntity);
           this.buildingMeshIdleEntities.delete(s);
+          this.dropBuildingHoles(s);
           this.removeLod1Entity(s);
         }
         this.buildingDamageBand.delete(s);
@@ -11610,7 +11824,9 @@ export class ThreeRenderer implements Renderer {
     for (const [s, twin] of this.buildingMeshLod1Entities) {
       const full = this.buildingMeshIdleEntities.get(s);
       if (full === undefined) continue;
-      const showTwin = !this.buildingLayerHidden && lod1Shown(this.buildingLodOn, this.buildingDamageBand.get(s));
+      // GH-1197 P4 / GH-1225 L7: a holed or cut building keeps its full art, as a scarred one does (the twin has neither).
+      const showTwin = !this.buildingLayerHidden && lod1Shown(this.buildingLodOn, this.buildingDamageBand.get(s))
+        && !keepsFullArt(this.buildingHoles.has(s), this.buildingCuts.has(s));
       twin.visible = showTwin;
       full.visible = !this.buildingLayerHidden && !showTwin;
     }
@@ -11821,8 +12037,12 @@ export class ThreeRenderer implements Renderer {
       scars = new BuildingScarMaterials();
       this.buildingScars.set(typeId, scars);
     }
-    if (root) applyBuildingDamageBand(root, band, scars);
-    else {
+    if (root) {
+      applyBuildingDamageBand(root, band, scars);
+      // GH-1197 P4 / GH-1225 L7: a holed or cut building keeps both across a band change: one clone of the new band's
+      // material carrying every hook it has.
+      if (this.buildingHoles.has(s) || this.buildingCuts.get(s)?.root === root) this.applyBuildingSkin(s, root);
+    } else {
       // One set per scar band, none for the clean three: bands 8-6 share the
       // template's own material, so they share one set too.
       this.structureInstances.setIdleState(s, scarMixForBand(band) === 0 ? 0 : band, this.scarMaterialFor(typeId));
@@ -11836,6 +12056,156 @@ export class ThreeRenderer implements Renderer {
     } else {
       this.buildingBurning.delete(s);
     }
+  }
+
+  /**
+   * GH-1225 slice 1: how many buildings are cut now (hold cut clones). 0 whenever nothing has been selected beside a building
+   * for the last `CUT_HOLD_MS + CUT_CLOSE_MS`, which is what the visual gate's capture precondition asserts.
+   */
+  cutawayCount(): number {
+    return this.buildingCuts.size;
+  }
+
+  /**
+   * GH-1225 slice 1, the roof cutaway on the FRAME clock: the selection's triggers into the volume table, the table into the
+   * shared volume block, and the cut clones onto exactly the clone-drawn buildings a volume reaches (released from the rest).
+   * Returns before touching anything while nothing is selected and nothing is open, so a frame with no selection does no new
+   * work and binds nothing. Instanced per-tile sets take no cut. The node backend draws none (the TSL twin is a later slice).
+   */
+  private updateCutaway(alpha: number, dtMs: number): void {
+    if (this.nodeBackend !== null) return;
+    const triggers = this.cutTriggers;
+    triggers.length = 0;
+    if (this.selection.length > 0 && this.buildingMeshIdleEntities.size > 0) this.collectCutTriggers(alpha, triggers);
+    if (triggers.length === 0 && this.cutaway.size === 0 && this.buildingCuts.size === 0) return;
+    this.cutaway.step(triggers, this.frameDtMs(dtMs));
+    const vols = this.cutaway.volumes(this.cutVolumes);
+    if (vols.length > 0 && this.cutUniforms === null) this.cutUniforms = createCutUniforms();
+    if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = writeCutVolumes(vols, this.cutUniforms.uRlCutV.value);
+    const st = this.sim.structures;
+    let changed = false;
+    for (const [s, root] of this.buildingMeshIdleEntities) {
+      let reached = false;
+      if (st.alive[s] === 1) {
+        for (const v of vols) {
+          if (footprintDistance(st.minX[s], st.minY[s], st.maxX[s], st.maxY[s], v.cx, v.cz) < v.r + v.w) {
+            reached = true;
+            break;
+          }
+        }
+      }
+      const cut = this.buildingCuts.get(s);
+      if (reached && (cut === undefined || cut.root !== root)) {
+        if (cut !== undefined) this.dropBuildingCut(s);
+        const type = this.sim.structureTypes[st.typeIdx[s]];
+        const mats = new BuildingCutMaterials(this.cutUniforms!, cutColorsFor(type.color));
+        this.buildingCuts.set(s, { root, mats });
+        this.applyBuildingSkin(s, root);
+        changed = true;
+      } else if (!reached && cut !== undefined) {
+        this.releaseBuildingCut(s);
+        changed = true;
+      }
+    }
+    // A cut whose clone left the scene (death, a template reload) goes with it.
+    for (const [s, cut] of this.buildingCuts) {
+      if (this.buildingMeshIdleEntities.get(s) !== cut.root) {
+        this.dropBuildingCut(s);
+        changed = true;
+      }
+    }
+    if (changed) this.stepLod1(this.camera.zoom);
+  }
+
+  /** Every selected unit this seat may see that stands within `CUT_SELECT_RADIUS_TILES` of a standing clone's footprint, where
+   *  it is drawn this frame, with its cut height and the tallest roof in its reach. */
+  private collectCutTriggers(alpha: number, out: CutTrigger[]): void {
+    const st = this.sim.state;
+    const ss = this.sim.structures;
+    const n = this.snapshottedCount;
+    const reach = CUT_SELECT_RADIUS_TILES + CUT_BAND_TILES;
+    for (const i of this.selection) {
+      if (i >= n || st.alive[i] !== 1 || st.tunnelIn[i] >= 0) continue;
+      const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      if (!isOwnSide(st.side[i], this.fogViewer) && !this.isVisible(x, z)) continue;
+      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z) + CUT_HEIGHT_TILES;
+      let near = false;
+      let yTop = -Infinity;
+      for (const [s, root] of this.buildingMeshIdleEntities) {
+        if (ss.alive[s] !== 1) continue;
+        const d = footprintDistance(ss.minX[s], ss.minY[s], ss.maxX[s], ss.maxY[s], x, z);
+        if (d >= reach) continue;
+        const roof = this.roofYOf(s, root);
+        // A structure no taller than the cut (a sandbag line) has nothing to take away.
+        if (roof <= yCut) continue;
+        if (d <= CUT_SELECT_RADIUS_TILES) near = true;
+        if (roof > yTop) yTop = roof;
+      }
+      if (!near) continue;
+      const dx = x - this.camera.x;
+      const dz = z - this.camera.y;
+      out.push({ key: i, x, z, yCut, yTop, focusDist2: dx * dx + dz * dz });
+    }
+  }
+
+  /** Building `s`'s drawn roof, world Y: its clone's bounds, read once (a standing building never moves). */
+  private roofYOf(s: number, root: THREE.Object3D): number {
+    const known = this.buildingRoofY.get(s);
+    if (known !== undefined && known.root === root) return known.y;
+    const box = new THREE.Box3().setFromObject(root);
+    const y = box.isEmpty() ? root.position.y + CUT_HEIGHT_TILES + CUT_ROOF_FALLBACK_TILES : box.max.y;
+    this.buildingRoofY.set(s, { root, y });
+    return y;
+  }
+
+  /**
+   * GH-1225 L7: the ONE material write for a holed and/or cut clone-drawn building: each mesh gets its band material, holed
+   * then cut (`buildingSkin`), so one clone carries both hooks. Holes bring their depth material.
+   */
+  private applyBuildingSkin(s: number, root: THREE.Object3D): void {
+    const sc = this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id);
+    const band = this.buildingDamageBand.get(s) ?? 8;
+    const holes = this.buildingHoles.get(s)?.mats ?? null;
+    const c = this.buildingCuts.get(s);
+    const cut = c !== undefined && c.root === root ? c.mats : null;
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      // Through the scar memo FIRST: it records each mesh's own base the first time it sees it, so a mesh is never taken
+      // to have been born with a holed or cut clone.
+      mesh.material = buildingSkin(sc.materialFor(mesh, band), holes, cut);
+      if (holes !== null) mesh.customDepthMaterial = holes.depth;
+    });
+  }
+
+  /** Building `s` leaves the cut: its meshes back on their band materials, and its clones released. */
+  private releaseBuildingCut(s: number): void {
+    const cut = this.buildingCuts.get(s);
+    if (cut === undefined) return;
+    const root = cut.root;
+    this.dropBuildingCut(s);
+    // GH-1225 L7: a holed building keeps its holes once the cut closes.
+    if (this.buildingHoles.has(s)) this.applyBuildingSkin(s, root);
+    else applyBuildingDamageBand(root, this.buildingDamageBand.get(s) ?? 8, this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id));
+  }
+
+  /** Releases building `s`'s cut clones without touching its meshes (its clone is gone, or about to be re-cut). */
+  private dropBuildingCut(s: number): void {
+    const cut = this.buildingCuts.get(s);
+    if (cut === undefined) return;
+    cut.mats.dispose();
+    this.buildingCuts.delete(s);
+  }
+
+  /** The per-type scar memo, minted on first use. */
+  private scarsFor(typeId: string): BuildingScarMaterials {
+    let scars = this.buildingScars.get(typeId);
+    if (!scars) {
+      scars = new BuildingScarMaterials();
+      this.buildingScars.set(typeId, scars);
+    }
+    return scars;
   }
 
   /**
@@ -12304,6 +12674,10 @@ export class ThreeRenderer implements Renderer {
     // shades its billows toward the sun as the camera sees it: the sun's
     // direction on the camera's right/up axes. A few multiplies a frame.
     this.flipbook.step(dtMs);
+    // GH-1227: the soft-particle snapshot is taken only while the smoke pass draws.
+    this.softDepth?.sync([this.flipbook.mesh]);
+    // GH-1197 P2: debris flies on the same frame clock (hit-stop freezes it mid-air) and fades on the sim clock.
+    this.debris?.step(dtMs, presentationSimMs(this.sim.tickCount, alpha ?? 0));
     {
       const m = this.viewCamera.matrixWorld.elements;
       this.flipbookRight.set(m[0], m[1], m[2]).normalize();
@@ -12425,7 +12799,7 @@ export class ThreeRenderer implements Renderer {
    * top of the burst rather than instead of it.
    */
   private spawnShellImpactFx(s: ShellModel): void {
-    this.spawnShellLandingAt(s.kind, s.tx, s.ty);
+    this.spawnShellLandingAt(s.kind, s.tx, s.ty, s.munition);
   }
 
   /**
@@ -12466,8 +12840,16 @@ export class ThreeRenderer implements Renderer {
 
   /** A shell of `kind` landing at (tx, ty): the body `spawnShellImpactFx` always
    *  had, lifted out so a barrage round (F-Q8) lands through the same code. */
-  private spawnShellLandingAt(kind: ShellKind, tx: number, ty: number): void {
+  private spawnShellLandingAt(kind: ShellKind, tx: number, ty: number, munition?: Munition): void {
     const power = SHELL_PROFILES[kind].impactPower;
+    // GH-1197: the two-part ring of a round with a reach, whatever its look.
+    if (power > 0) this.spawnReachFx(munition, tx, ty);
+    // GH-1197 Phase 1: a class that draws its own row (heavy artillery: the 155 and the Grad) lands as that
+    // row, sized by the round's splash; every other round lands exactly as before.
+    if (munition !== undefined && power > 0 && drawsClassBlast(munition)) {
+      this.spawnClassBlast(munition, kind, tx, ty);
+      return;
+    }
     // The one gate on this whole method, unchanged: `impactPower` is 0 for
     // `bolt`, so direct fire never detonates on landing (a missile is
     // `MissileFx`'s since GH-250 and lands through `spawnMissileImpactFx`). A
@@ -12507,6 +12889,327 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * GH-1197 Phase 1: a round whose class draws its own row (`blast_from: 'class'`
+   * in `data/vfx/munitions.json`: `heavy_artillery`, the Te'o 155 and the Grad),
+   * sized by its own splash `S`. The flipbook recipe is built from the row
+   * (`classBlastRecipe`: a fireball of `f x S` at 200 ms, lobes, thrown dirt, the
+   * dust column and the dust skirt out to the outer wave), beside the shell
+   * emitter's shards, which no recipe supersedes. The light, shake and hit-stop
+   * are the row's own (the ladder holds them under a kill, `fx-ladder.test.ts`),
+   * and the crater and scorch are `c x S` and `s x S`. Until the flipbook's
+   * atlases are in, the shell emitter's own look stands in, so a landing never
+   * draws nothing. The ring is the caller's.
+   */
+  /**
+   * GH-1197: what a landing with a reach throws beside its own look -- the two-part ring (P1), and the
+   * 3D debris from its class row (P2): clods and chunks by `(S / ref)^2`, thrown `throw x S / ref`, in the
+   * colours of the ground they land on (`debris-tone.ts`). The ring is a one-shot burst and is skipped
+   * during a catch-up (`setQuiet`); the debris is world state for 90 s, so a catch-up places it at rest.
+   * No munition, nothing.
+   */
+  private spawnReachFx(m: Munition | null | undefined, x: number, y: number, debris = true): void {
+    if (m === null || m === undefined) return;
+    if (!this.quiet) this.blastRings.spawn(x, y, ringSpecFor(m));
+    if (debris && this.debris !== null && m.splash > 0) this.spawnDebris(m, x, y);
+  }
+
+  /**
+   * GH-1197 P3: a `structureHit` that resolves an explosive direct-fire round (`pendingStructShots`). True when it
+   * did, so the caller draws no centroid puff for it. The burst itself is thrown only out of a catch-up, where the
+   * versus seat can see the building (`hostileEffectVisible`, a hostile hit in fog draws nothing), and at most once
+   * per `HIT_BURST_MIN_TICKS` a building.
+   */
+  private takeStructShot(by: number, structure: number, tick: number): boolean {
+    const list = this.pendingStructShots;
+    for (let i = list.length - 1; i >= 0; i--) if (list[i].resolveTick < tick - 40) list.splice(i, 1);
+    // An indirect round's flight is the renderer's estimate of the sim's: three ticks of slack.
+    const k = list.findIndex((p) => p.shooter === by && p.structure === structure && tick >= p.resolveTick - (p.indirect ? 3 : 1));
+    if (k < 0) return false;
+    const shot = list[k];
+    list.splice(k, 1);
+    // GH-1197 P4: the hole is world state, like the scars: cut whatever the fog, the catch-up or the burst limit. Wall
+    // or roof is the class row's `hole.axis` (munitions.json): a direct round's classes punch walls, an indirect one's
+    // roofs, as data.
+    {
+      const at = this.structHitPoint(structure, by, tick);
+      this.cutClassHole(structure, shot.munition, tick, { x: at.face.x, y: at.hitY, z: at.face.y, nx: at.face.nx, nz: at.face.ny });
+    }
+    // An indirect hit adds nothing else at the building (P3 ruling Q2): the caller draws today's puff.
+    if (shot.indirect === true) return false;
+    if (this.quiet) return true;
+    if (!hostileEffectVisible(this.versus, this.structureIsOwn(structure), this.footprintInSight(structure))) return true;
+    if (tick - (this.structHitBurstTick.get(structure) ?? -1e9) < HIT_BURST_MIN_TICKS) return true;
+    this.structHitBurstTick.set(structure, tick);
+    this.spawnBuildingHitFx(structure, by, shot.munition, tick);
+    return true;
+  }
+
+  /** GH-1197 P3/P4: where a round from `shooter` hits `structure` -- the face toward the shooter, 0.3-0.8 up the wall
+   *  (hashed on the tick) -- and the standoff point just outside it. */
+  private structHitPoint(structure: number, shooter: number, tick: number) {
+    const st = this.sim.structures;
+    const sx = shooter >= 0 && shooter < this.curX.length ? this.curX[shooter] : fx.toNumber(st.cx[structure]) + 1;
+    const sy = shooter >= 0 && shooter < this.curY.length ? this.curY[shooter] : fx.toNumber(st.cy[structure]);
+    return this.facePointToward(structure, sx, sy, tick);
+  }
+
+  /** GH-1197 P4: `structHitPoint` from a point rather than a shooter (a strike's detonation). */
+  private facePointToward(structure: number, sx: number, sy: number, tick: number) {
+    const st = this.sim.structures;
+    const face = hitFace(st.minX[structure], st.minY[structure], st.maxX[structure], st.maxY[structure], sx, sy);
+    const px = face.x + face.nx * HIT_STANDOFF_TILES;
+    const py = face.y + face.ny * HIT_STANDOFF_TILES;
+    const type = this.sim.structureTypes[st.typeIdx[structure]];
+    const height = this.buildingMeshBounds.get(type.id)?.y ?? type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+    const frac = HIT_HEIGHT_FRACTION[0] + (HIT_HEIGHT_FRACTION[1] - HIT_HEIGHT_FRACTION[0]) * tileHash(tick, structure);
+    const groundY = this.ringHeightAt(px, py);
+    return { face, px, py, groundY, hitY: groundY + height * frac, type };
+  }
+
+  /** GH-1197 P4: a building's clone-drawn root, or null (per-tile walls, instanced or not, take no holes: P4b). */
+  private holeRoot(s: number): THREE.Object3D | null {
+    const root = this.buildingMeshIdleEntities.get(s);
+    if (root === undefined || this.sim.structures.alive[s] !== 1) return null;
+    if (this.sim.structureTypes[this.sim.structures.typeIdx[s]].perTile) return null;
+    return root;
+  }
+
+  /** The first point of `root`'s meshes along a ray, or null. Raycast against the frozen clone, so a hole sits on the
+   *  surface the player sees, not on the footprint's edge. */
+  private surfaceAlong(root: THREE.Object3D, origin: THREE.Vector3, dir: THREE.Vector3, far: number): THREE.Vector3 | null {
+    // A frozen clone's world matrices are refreshed by the render pass; a hit between two frames must not read stale ones.
+    root.updateWorldMatrix(true, true);
+    const ray = new THREE.Raycaster(origin, dir, 0, far);
+    const hits = ray.intersectObject(root, true);
+    return hits.length > 0 ? hits[0].point : null;
+  }
+
+  /**
+   * GH-1197 P4: the hole a munition's class cuts, by its row's `hole.axis` (munitions.json, the section 3a table): a
+   * `roof` class punches the roof (at a hashed point, or the point nearest `roofAt`), a `wall` class the face given by
+   * `wall`. A class with no `hole` cuts nothing. Every caller hands both, so the data decides, never the call site.
+   */
+  private cutClassHole(
+    s: number, m: Munition, tick: number,
+    wall: { x: number; y: number; z: number; nx: number; nz: number },
+    roofAt?: { x: number; y: number }
+  ): void {
+    const hole = munitionRow(m.cls).hole;
+    if (hole === undefined) return;
+    if (hole.axis === 'roof') this.cutRoofHole(s, m, tick, roofAt);
+    else this.cutWallHole(s, m, wall.x, wall.y, wall.z, wall.nx, wall.nz, tick);
+  }
+
+  /** GH-1197 P4: a WALL hole of the munition's class radius at (x, y, z) on the face whose outward normal is (nx, nz),
+   *  moved onto the wall the mesh actually draws there. A class with no hole cuts nothing. */
+  private cutWallHole(s: number, m: Munition, x: number, y: number, z: number, nx: number, nz: number, tick: number): void {
+    const root = this.holeRoot(s);
+    const radius = munitionRow(m.cls).hole?.radius_tiles;
+    if (root === null || radius === undefined) return;
+    const origin = new THREE.Vector3(x + nx * 2, y, z + nz * 2);
+    const hit = this.surfaceAlong(root, origin, new THREE.Vector3(-nx, 0, -nz).normalize(), 4);
+    const c: [number, number, number] = hit ? [hit.x, hit.y, hit.z] : [x, y, z];
+    const len = Math.hypot(nx, nz) || 1;
+    this.cutBuildingHole(s, root, c, [nx / len, 0, nz / len], radius, tick);
+  }
+
+  /** GH-1197 P4: a ROOF hole of the munition's class radius at a hashed point of the roof, inset so the cut stays off
+   *  the walls (or, with `at`, the roof point nearest it), on the roof surface the mesh draws there. */
+  private cutRoofHole(s: number, m: Munition, tick: number, at?: { x: number; y: number }): void {
+    const root = this.holeRoot(s);
+    const radius = munitionRow(m.cls).hole?.radius_tiles;
+    if (root === null || radius === undefined) return;
+    const st = this.sim.structures;
+    const inset = radius + 0.15;
+    const lane = (lo: number, hi: number, u: number): number => (hi - lo > 2 * inset ? lo + inset + (hi - lo - 2 * inset) * u : (lo + hi) / 2);
+    const clampIn = (lo: number, hi: number, v: number): number => (hi - lo > 2 * inset ? Math.min(Math.max(v, lo + inset), hi - inset) : (lo + hi) / 2);
+    const x0 = st.minX[s];
+    const x1 = st.maxX[s] + 1;
+    const z0 = st.minY[s];
+    const z1 = st.maxY[s] + 1;
+    const x = at ? clampIn(x0, x1, at.x) : lane(x0, x1, tileHash(tick, s * 2 + 1));
+    const z = at ? clampIn(z0, z1, at.y) : lane(z0, z1, tileHash(s * 2 + 1, tick));
+    const top = new THREE.Box3().setFromObject(root).max.y;
+    const hit = this.surfaceAlong(root, new THREE.Vector3(x, top + 2, z), new THREE.Vector3(0, -1, 0), top + 4);
+    this.cutBuildingHole(s, root, [x, hit ? hit.y : top, z], [0, 1, 0], radius, tick);
+  }
+
+  /** GH-1197 P4 (ruling Q1 d): a strike or a barrage round holes every building inside its splash -- its class is a roof
+   *  class, so at the roof point nearest the detonation. World state, so a catch-up cuts them too. */
+  private cutSupportHoles(m: Munition | null, x: number, y: number, tick: number): void {
+    if (m === null || !(m.splash > 0)) return;
+    const st = this.sim.structures;
+    for (let s = 0; s < this.sim.structureCount; s++) {
+      if (st.alive[s] !== 1) continue;
+      const dx = Math.max(st.minX[s] - x, 0, x - (st.maxX[s] + 1));
+      const dy = Math.max(st.minY[s] - y, 0, y - (st.maxY[s] + 1));
+      if (dx * dx + dy * dy > m.splash * m.splash) continue;
+      const at = this.facePointToward(s, x, y, tick);
+      this.cutClassHole(s, m, tick, { x: at.face.x, y: at.hitY, z: at.face.y, nx: at.face.nx, nz: at.face.ny }, { x, y });
+    }
+  }
+
+  /** GH-1197 P4 (ruling Q1 c): a demolition charge against a wall cuts a door-height hole of its class radius there. */
+  private cutChargeHole(structure: number, thrower: number, px: number, py: number, tick: number): void {
+    if (thrower < 0 || thrower >= this.sim.state.typeIdx.length) return;
+    const m = typeMunition(this.sim.unitTypes[this.sim.state.typeIdx[thrower]].weapons, WEAPON_CLASS.demolition);
+    const radius = m === null ? undefined : munitionRow(m.cls).hole?.radius_tiles;
+    if (m === null || radius === undefined) return;
+    const st = this.sim.structures;
+    const face = hitFace(st.minX[structure], st.minY[structure], st.maxX[structure], st.maxY[structure], this.curX[thrower], this.curY[thrower]);
+    // Door height: the hole's foot on the ground.
+    this.cutClassHole(structure, m, tick, { x: px, y: this.ringHeightAt(px, py) + radius, z: py, nx: face.nx, nz: face.ny });
+  }
+
+  /** GH-1197 P4: adds a hole to building `s` (minting its holed materials on the first) and puts them on its meshes. */
+  private cutBuildingHole(
+    s: number, root: THREE.Object3D, c: [number, number, number], axis: [number, number, number], radius: number, tick: number
+  ): void {
+    let entry = this.buildingHoles.get(s);
+    if (entry === undefined) {
+      const type = this.sim.structureTypes[this.sim.structures.typeIdx[s]];
+      entry = { holes: [], mats: new BuildingHoleMaterials(this.holeColorsFor(type.color)) };
+      this.buildingHoles.set(s, entry);
+    }
+    const seed = Math.floor(tileHash(s, tick + entry.holes.length * 7919) * HOLE_SEED_LIMIT);
+    entry.holes = addHole(entry.holes, { c, axis, radius, seed });
+    entry.mats.setHoles(entry.holes);
+    this.applyBuildingHoles(s, root);
+  }
+
+  /** Puts building `s`'s holed clones of its CURRENT band materials on every mesh, and its depth material (under its cut, if any). */
+  private applyBuildingHoles(s: number, root: THREE.Object3D): void {
+    if (!this.buildingHoles.has(s)) return;
+    this.applyBuildingSkin(s, root);
+  }
+
+  /** A holed building's edge and interior colours, from its type's palette key: the lip one ramp key darker, the
+   *  halo `gunmetal.3`, the cracks `shadow.1`, the interior the ramp's darkest key 0.6 toward `gunmetal.2`. */
+  private holeColorsFor(colorKey: string): HoleColors {
+    const interior = ringColorLinear(paletteHex(rampStep(colorKey, 99))).lerp(ringColorLinear(paletteHex('gunmetal.2')), HOLE_INTERIOR_TOWARD_CHAR);
+    return {
+      lip: ringColorLinear(paletteHex(rampStep(colorKey, 1))),
+      halo: ringColorLinear(paletteHex('gunmetal.3')),
+      crack: ringColorLinear(paletteHex('shadow.1')),
+      interior,
+    };
+  }
+
+  /** Releases building `s`'s holes (it died, or its clone left). */
+  private dropBuildingHoles(s: number): void {
+    const entry = this.buildingHoles.get(s);
+    if (entry === undefined) return;
+    entry.mats.dispose();
+    this.buildingHoles.delete(s);
+  }
+
+  /**
+   * GH-1197 P3: the hit face of `structure` struck by a round from `shooter`: the class's debris (clods and chunks,
+   * all masonry here) thrown along the face normal +-35 degrees back toward the shooter, from a point 0.3-0.8 up
+   * the wall, in the building's own ramp with a quarter charred; and the masonry dust (`building_hit_dust`) at the
+   * face. Never at the centroid. Returns the pieces placed.
+   */
+  private spawnBuildingHitFx(structure: number, shooter: number, m: Munition, tick: number): number {
+    const { face, px, py, groundY, hitY, type } = this.structHitPoint(structure, shooter, tick);
+    const dirRad = Math.atan2(face.ny, face.nx);
+    // The dust, at the face, drifting out along its normal.
+    const em = this.emitterLibrary.byName(BUILDING_HIT_DUST_EMITTER_ID);
+    const recipe = this.flipbookRecipeOf(em);
+    if (recipe) this.flipbook.spawnRecipe(recipe, px, hitY, py, 0, dirRad, groundY);
+    else if (em && this.particleSystem) {
+      const prio = em.budget_priority ?? 6;
+      for (const layer of em.particles) {
+        this.particleSystem.spawn(layer, px, py, dirRad / (Math.PI * 2), 1, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+      }
+    }
+    const pool = this.debris;
+    if (pool === null) return 0;
+    const row = munitionRow(m.cls);
+    const t = debrisThrowFor(row.debris, m.splash, row.reference_splash_tiles);
+    const n = t.clods + t.chunks;
+    const keys = masonryKeysFor(type.color);
+    const plans: DebrisPlan[] = [];
+    const colors: THREE.Color[] = [];
+    // A per-hit salt, so two hits on one face do not throw the identical spray; still a function of sim data.
+    const salt = (tick % 4096) * 64;
+    for (let k = 0; k < n; k++) {
+      plans.push(planDebris(px, hitY, py, salt + k, k < t.clods, t, this.ringHeightAt, { dirRad, spreadRad: HIT_EJECTA_SPREAD_RAD }));
+      colors.push(ringColorLinear(paletteHex(masonryKeyFor(keys, k))));
+    }
+    return pool.spawn(plans, colors);
+  }
+
+  /** GH-1197 P2: the debris of one landing into the pool. Returns how many pieces were placed. */
+  private spawnDebris(m: Munition, x: number, y: number): number {
+    const pool = this.debris;
+    if (pool === null) return 0;
+    const row = munitionRow(m.cls);
+    const t = debrisThrowFor(row.debris, m.splash, row.reference_splash_tiles);
+    const n = t.clods + t.chunks;
+    if (n === 0) return 0;
+    const groundAt = this.ringHeightAt;
+    const y0 = groundAt(x, y);
+    const keys = debrisKeysFor(this.groundToneHexAt(x, y), this.opts.terrainTones.open);
+    const clod = ringColorLinear(paletteHex(keys.clod));
+    const chunks = [ringColorLinear(paletteHex(keys.chunks[0])), ringColorLinear(paletteHex(keys.chunks[1]))];
+    const charred = ringColorLinear(paletteHex(keys.charred));
+    const plans: DebrisPlan[] = [];
+    const colors: THREE.Color[] = [];
+    for (let k = 0; k < n; k++) {
+      const isClod = k < t.clods;
+      const plan = planDebris(x, y0, y, k, isClod, t, groundAt);
+      plans.push(this.quiet ? restingPlan(plan) : plan);
+      const c = k - t.clods;
+      colors.push(isClod ? clod : c % 4 === 3 ? charred : chunks[c % 2]);
+    }
+    return pool.spawn(plans, colors);
+  }
+
+  /** The ground's own palette tone at (x, y), tiles: the tile tone the terrain builder drew there. */
+  private groundToneHexAt(x: number, y: number): string {
+    const src = this.decalGround;
+    if (src === null) return this.opts.terrainTones.open;
+    const tx = Math.min(src.input.width - 1, Math.max(0, Math.floor(x)));
+    const tz = Math.min(src.input.height - 1, Math.max(0, Math.floor(y)));
+    return tileBaseToneHex(src.input, src.tones, tz * src.input.width + tx, src.background);
+  }
+
+  private spawnClassBlast(m: Munition, kind: ShellKind, tx: number, ty: number): void {
+    const row = munitionRow(m.cls);
+    const yawTurns = tileHash(Math.floor(tx), Math.floor(ty));
+    const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, tx, ty);
+    const em = this.emitterLibrary.byName(SHELL_IMPACT_EMITTER_ID);
+    if (this.flipbook.ready) {
+      if (!this.quiet) {
+        const key = `${m.cls}:${m.splash}`;
+        let recipe = this.classRecipes.get(key);
+        if (recipe === undefined) {
+          recipe = classBlastRecipe(row, m.splash);
+          this.classRecipes.set(key, recipe);
+        }
+        this.flipbook.spawnRecipe(recipe, tx, worldY, ty, 0);
+        if (em && this.particleSystem) {
+          const prio = em.budget_priority ?? 1;
+          for (const layer of em.particles) {
+            if (flipbookSupersedes(layer)) continue;
+            this.particleSystem.spawn(layer, tx, ty, 0.25, 1, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+          }
+        }
+      }
+    } else {
+      this.spawnCollapseFx(SHELL_IMPACT_EMITTER_ID, tx, ty, SHELL_PROFILES[kind].impactPower, yawTurns);
+    }
+    const light = munitionLightSpec(row, m.splash);
+    if (light) {
+      this.flashLights.spawn(tx, ty, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
+    }
+    this.shakeState = pushShake(this.shakeState, munitionShake(row), tx, ty);
+    this.hitStop = requestHitStop(this.hitStop, munitionHitStopMs(row));
+    this.stampGroundDecal(this.persistentStamp('crater', tx, ty, munitionCraterTiles(row, m.splash)));
+    this.stampGroundDecal(this.persistentStamp('scorch', tx, ty, munitionScorchTiles(row, m.splash)));
+  }
+
+  /**
    * GH-250: the HEAT impact -- `missile_impact.json`, spawned where the
    * missile visibly lands, off the frame clock (spec D7). `spawnCollapseFx`'s
    * loop, except the particles leave along the missile's own heading (a spall
@@ -12514,7 +13217,11 @@ export class ThreeRenderer implements Renderer {
    * `scale` rather than x `impactPower` (P-4), and there is no hit-stop and no
    * crater: a kill already owns the blast. A miss marks the ground.
    */
-  private spawnMissileImpactFx(l: Pick<MissileLanding, 'x' | 'y' | 'headingTurns' | 'power' | 'scale' | 'miss'>): void {
+  private spawnMissileImpactFx(l: Pick<MissileLanding, 'x' | 'y' | 'headingTurns' | 'power' | 'scale' | 'miss' | 'munition' | 'atStructure'>): void {
+    // GH-1197: a landing with a reach (a missile with a splash, a kamikaze's warhead, a swarm's bomblet)
+    // draws its two-part ring; an intercept carries no munition and bursts in the air with none.
+    // A round fired at a building throws masonry from its hit face instead (P3); a miss still marks the ground.
+    this.spawnReachFx(l.munition, l.x, l.y, !(l.atStructure === true && !l.miss));
     const em = this.emitterLibrary.byName(MISSILE_IMPACT_EMITTER_ID);
     const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, l.x, l.y);
     // Defilade T4 (D6): `missile_impact`'s flipbook recipe replaces its
@@ -12572,6 +13279,7 @@ export class ThreeRenderer implements Renderer {
         power: KAMIKAZE_BLAST_POWER,
         scale: KAMIKAZE_BLAST_SCALE,
         miss: false,
+        munition: typeMunition(this.sim.unitTypes[this.sim.state.typeIdx[munition]].weapons) ?? undefined,
       });
     }
     this.stampGroundDecal(this.persistentStamp('scorch', x, y, scorchRadiusTiles(KAMIKAZE_BLAST_POWER)));
@@ -12682,7 +13390,11 @@ export class ThreeRenderer implements Renderer {
    *  the same path a shell landing uses (`spawnCollapseFx`: the pooled burst
    *  for the `mesh_burst` layer, particles for the rest). False when nothing
    *  could be spawned, so the caller keeps its flat fallback. */
-  private spawnDemolitionBlast(x: number, y: number): boolean {
+  private spawnDemolitionBlast(x: number, y: number, shooter: number): boolean {
+    // GH-1197: the thrower's charge draws its class's ring (demolition: dust-toned, hugging the ground).
+    if (shooter >= 0 && shooter < this.sim.state.typeIdx.length) {
+      this.spawnReachFx(typeMunition(this.sim.unitTypes[this.sim.state.typeIdx[shooter]].weapons, WEAPON_CLASS.demolition), x, y);
+    }
     return this.spawnCollapseFx(DEMOLITION_BLAST_EMITTER_ID, x, y, DEMOLITION_BLAST_POWER, tileHash(Math.floor(x * 4), Math.floor(y * 4)));
   }
 
@@ -12694,7 +13406,7 @@ export class ThreeRenderer implements Renderer {
     if (!wp || wp.cls !== WEAPON_CLASS.demolition) return false;
     const k = findPendingCharge(this.pendingCharges, shooter);
     if (k >= 0) this.pendingCharges.splice(k, 1);
-    return this.spawnDemolitionBlast(x, y);
+    return this.spawnDemolitionBlast(x, y, shooter);
   }
 
   /** A `structureHit` by a thrower with a charge in the air at that building,
@@ -12707,7 +13419,8 @@ export class ThreeRenderer implements Renderer {
     if (k < 0 || tick < this.pendingCharges[k].resolveTick - 1) return false;
     this.pendingCharges.splice(k, 1);
     const [px, py] = this.chargeWallPoint(structure, by);
-    return this.spawnDemolitionBlast(px, py);
+    this.cutChargeHole(structure, by, px, py, tick);
+    return this.spawnDemolitionBlast(px, py, by);
   }
 
   /** Charges whose resolve tick passed a tick ago with no event naming them:
@@ -12722,9 +13435,10 @@ export class ThreeRenderer implements Renderer {
       this.pendingCharges.splice(i, 1);
       if (c.structure >= 0) {
         const [px, py] = this.chargeWallPoint(c.structure, c.shooter);
-        this.spawnDemolitionBlast(px, py);
+        this.cutChargeHole(c.structure, c.shooter, px, py, tick);
+        this.spawnDemolitionBlast(px, py, c.shooter);
       } else if (c.target >= 0) {
-        this.spawnDemolitionBlast(this.curX[c.target], this.curY[c.target]);
+        this.spawnDemolitionBlast(this.curX[c.target], this.curY[c.target], c.shooter);
       }
     }
   }
