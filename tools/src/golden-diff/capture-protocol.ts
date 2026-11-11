@@ -869,6 +869,27 @@ export const CAPTURE_PRECONDITION_STATEMENTS = `
 }
 `.trim();
 
+/** The roof cutaway's clause of `CAPTURE_PRECONDITION_STATEMENTS`, spelled once so a `mission=` scenario can drop it. */
+const CUTAWAY_PRECONDITION_CLAUSE = `
+  if (_r.cutawayCount() !== 0) {
+    throw new Error('capture precondition violated: renderer.cutawayCount() is ' + _r.cutawayCount() + ', expected 0');
+  }`;
+
+/**
+ * GH-1225 slice 2: the precondition for a `mission=` scenario, which is `CAPTURE_PRECONDITION_STATEMENTS` WITHOUT the cutaway
+ * clause. A mission places real garrisons, and slice 2 cuts a building whose garrison the viewer can see: that is the
+ * mission's own picture, not a leftover trigger (the selection, the hover and the range preview are still asserted, so no UI
+ * state can cut). The only mission scenario is the report-only `combat`; every GATED scenario is a sandbox, whose force
+ * garrisons nobody (`sandbox-force.test.ts`), and keeps the full assertion.
+ */
+export function capturePreconditionFor(scenario: Pick<Scenario, 'mission'>): string {
+  if (scenario.mission === undefined) return CAPTURE_PRECONDITION_STATEMENTS;
+  if (!CAPTURE_PRECONDITION_STATEMENTS.includes(CUTAWAY_PRECONDITION_CLAUSE)) {
+    throw new Error('capturePreconditionFor: the cutaway clause is no longer spelled as CUTAWAY_PRECONDITION_CLAUSE');
+  }
+  return CAPTURE_PRECONDITION_STATEMENTS.replace(CUTAWAY_PRECONDITION_CLAUSE, '');
+}
+
 /** Parks the hover somewhere nothing lives, for `mission=` scenarios.
  *  The deploy-gate clicks leave the cursor resting where the button was, which
  *  is over the canvas once the loading screen goes; `updateHover` can then pick
@@ -1258,7 +1279,7 @@ ${FREEZE_FRAME_LOOP_STATEMENTS}
 ${HIDE_ALERT_FEED_STATEMENTS}
 ${gotoLine}
 ${zoomLine}${ordersLine}${parkLine}${stepLine}
-${CAPTURE_PRECONDITION_STATEMENTS}
+${capturePreconditionFor(scenario)}
 ${opts.matchNodeRoot !== undefined ? matchNodeStatements(opts.matchNodeRoot) : ''}${arm === 'legacy' ? '' : NODE_HUD_SETTLE_STATEMENTS + 'await window.__lions.renderer.whenGpuIdle();\n'}const c = window.__lions.renderer.camera;
 const canvas = window.__lions.renderer.canvas;
 const r = canvas.getBoundingClientRect();

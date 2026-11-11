@@ -16,7 +16,16 @@ import type { BuildingMeshTemplate } from './units/mesh-building';
 import { scarredMaterial } from './units/building-damage';
 import type { Hole } from './units/building-holes';
 import type { BuildingHoleMaterials } from './units/holed-material';
-import { BuildingCutMaterials, CUT_PROGRAM_KEY, createCutUniforms, cutColorsFor, type CutUniforms } from './units/cut-material';
+import {
+  BuildingCutMaterials,
+  CUT_PROGRAM_KEY,
+  HOLES_CUT_MASK_PROGRAM_KEY,
+  createCutMaskMaterials,
+  createCutUniforms,
+  cutColorsFor,
+  type CutMaskMaterials,
+  type CutUniforms,
+} from './units/cut-material';
 import { hexToLinear } from './terrain/shared';
 import { MUNITIONS } from './munitions';
 import { paletteHex } from './palette-hex';
@@ -100,6 +109,7 @@ interface Priv {
   buildingHoles: Map<number, { holes: Hole[]; mats: BuildingHoleMaterials }>;
   buildingCuts: Map<number, { root: THREE.Object3D; mats: BuildingCutMaterials }>;
   cutUniforms: CutUniforms | null;
+  cutMask: CutMaskMaterials | null;
   applyBuildingSkin(s: number, root: THREE.Object3D): void;
   releaseBuildingCut(s: number): void;
   updateBuildingMeshes(): void;
@@ -194,6 +204,7 @@ describe('an explosive direct-fire hit cuts a wall hole (ruling Q1 a)', () => {
       expect((m.material as THREE.Material).userData.rlHoles).toBe(true);
       expect((m.material as THREE.Material).side).toBe(THREE.DoubleSide);
       expect(m.customDepthMaterial).toBe(entry.mats.depth);
+      expect(m.userData.rlCutAo).toBeUndefined();
     }
     r.dispose();
   });
@@ -355,15 +366,24 @@ describe('a holed building keeps its holes once a roof cut opens and closes (PR 
     r.onEvents([fireAt(shooter, s, 'gun_120'), hit(shooter, s)]);
     const entry = p.buildingHoles.get(s)!;
     const root = p.buildingMeshIdleEntities.get(s)!;
-    // The cut opens as updateCutaway opens it: uniforms, the building's cut clones, then the one skin write.
+    // The cut opens as updateCutaway opens it: uniforms and the shared cut pair, the building's cut clones, then the one skin write.
     p.cutUniforms = createCutUniforms();
+    p.cutMask = createCutMaskMaterials(p.cutUniforms);
     const type = (r as unknown as { sim: Sim }).sim.structureTypes[0];
-    p.buildingCuts.set(s, { root, mats: new BuildingCutMaterials(p.cutUniforms, cutColorsFor(type.color)) });
+    const cutMats = new BuildingCutMaterials(p.cutUniforms, cutColorsFor(type.color));
+    p.buildingCuts.set(s, { root, mats: cutMats });
     p.applyBuildingSkin(s, root);
+    // ONE mask: every mesh casts and occludes through the building's holes-and-cut pair, never the cut-only or holes-only one.
+    // Falsify: write `holes.depth` (P4's) or the shared cut pair in `applyBuildingSkin` and these go red.
+    const mask = cutMats.maskWith(entry.mats);
+    expect(meshes(root).length, 'the clone has meshes to check').toBeGreaterThan(0);
     for (const m of meshes(root)) {
       const key = (m.material as THREE.Material).customProgramCacheKey();
       expect(key).toContain('rl-holes');
       expect(key).toContain(CUT_PROGRAM_KEY);
+      expect(m.customDepthMaterial).toBe(mask.depth);
+      expect(m.userData.rlCutAo).toBe(mask.ao);
+      expect(mask.depth.customProgramCacheKey()).toBe(HOLES_CUT_MASK_PROGRAM_KEY);
     }
     // The cut closes.
     p.releaseBuildingCut(s);
@@ -375,6 +395,7 @@ describe('a holed building keeps its holes once a roof cut opens and closes (PR 
       expect(mat.customProgramCacheKey()).toContain('rl-holes');
       expect(mat.customProgramCacheKey()).not.toContain(CUT_PROGRAM_KEY);
       expect(m.customDepthMaterial).toBe(entry.mats.depth);
+      expect(m.userData.rlCutAo).toBeUndefined();
     }
     r.dispose();
   });

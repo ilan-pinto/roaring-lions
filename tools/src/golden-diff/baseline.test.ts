@@ -50,6 +50,7 @@ import {
 import { computeDiff, type DiffSummary } from './diff';
 import {
   CAPTURE_PRECONDITION_STATEMENTS,
+  capturePreconditionFor,
   HIDE_ALERT_FEED_STATEMENTS,
   PARK_POINTER_STATEMENTS,
   CAPTURE_VIEWPORT,
@@ -1186,6 +1187,19 @@ describe('capture precondition: no selection, no hover (GH-186)', () => {
   it('throws a named error for a building the roof cutaway has cut', () => {
     expect(() => run({ ...clean, cutawayCount: () => 1 })).toThrow(/capture precondition violated: renderer.cutawayCount\(\) is 1/);
   });
+  // GH-1225 slice 2: a mission's own visible garrison is cut, so the report-only mission scenario drops ONLY that clause; every
+  // sandbox scenario (all the gated ones) keeps it. Falsify: return the full statements for a mission and the first goes red.
+  it('a mission scenario tolerates a garrison cut and nothing else; a sandbox scenario tolerates none', () => {
+    const runWith = (src: string, r: Record<string, unknown>): void => new Function('window', src)({ __lions: { renderer: r } });
+    const mission = capturePreconditionFor({ mission: 'm' });
+    expect(() => runWith(mission, { ...clean, cutawayCount: () => 2 })).not.toThrow();
+    expect(() => runWith(mission, { ...clean, selection: [3] })).toThrow(/renderer.selection/);
+    // The other clauses stay armed for a mission too (PR 1238 review): only the cutaway one is dropped.
+    expect(() => runWith(mission, { ...clean, hoverEntity: 7 })).toThrow(/renderer.hoverEntity/);
+    expect(() => runWith(mission, { ...clean, rangeRingPreview: 2 })).toThrow(/renderer.rangeRingPreview/);
+    expect(() => runWith(capturePreconditionFor({}), { ...clean, cutawayCount: () => 1 })).toThrow(/cutawayCount\(\) is 1/);
+    for (const sc of SCENARIOS) if (sc.mission === undefined) expect(captureScript(sc)).toContain(CAPTURE_PRECONDITION_STATEMENTS);
+  });
   it('parks the pointer before the final step, for mission scenarios only', () => {
     let missions = 0;
     for (const sc of SCENARIOS) {
@@ -1195,7 +1209,7 @@ describe('capture precondition: no selection, no hover (GH-186)', () => {
         const at = script.indexOf(PARK_POINTER_STATEMENTS);
         expect(at).toBeGreaterThan(-1);
         expect(at).toBeLessThan(script.lastIndexOf('.step('));
-        expect(at).toBeLessThan(script.indexOf(CAPTURE_PRECONDITION_STATEMENTS));
+        expect(at).toBeLessThan(script.indexOf(capturePreconditionFor(sc)));
       } else {
         expect(script).not.toContain(PARK_POINTER_STATEMENTS);
       }
@@ -1205,7 +1219,7 @@ describe('capture precondition: no selection, no hover (GH-186)', () => {
   it('is part of every scenario capture script, after the final step', () => {
     for (const sc of SCENARIOS) {
       const script = captureScript(sc);
-      const at = script.indexOf(CAPTURE_PRECONDITION_STATEMENTS);
+      const at = script.indexOf(capturePreconditionFor(sc));
       expect(at).toBeGreaterThan(script.lastIndexOf('.step('));
     }
   });
