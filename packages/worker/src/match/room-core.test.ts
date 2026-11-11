@@ -1437,6 +1437,32 @@ describe('recordOf (GH-1075 A3, the agreed-result rule)', () => {
     expect(recordOf(st)).toMatchObject({ agreed: true, winnerSeat: 1, reason: 'surrender' });
   });
 
+  it('a silent loser gets no agreed win when the reporting winner leaves (bye)', () => {
+    const st = versusAt400();
+    report(st, 0, { winner: 0, by: 'annihilation' });
+    seatMessage(st, 0, { t: 'bye' }, 6000, mintV);
+    expect(st.endedReason).toBe('left');
+    expect(recordOf(st)).toMatchObject({ agreed: false, winnerSeat: 0, reason: 'annihilation' });
+  });
+
+  it('a silent loser gets no agreed win when the reporting winner forfeits', () => {
+    const st = versusAt400();
+    report(st, 0, { winner: 0, by: 'annihilation' });
+    seatGone(st, 0, 6000);
+    forfeitIfDue(st, 6000 + FORFEIT_MS + 1);
+    expect(st.endedReason).toBe('forfeit');
+    expect(recordOf(st)).toMatchObject({ agreed: false, winnerSeat: 0, reason: 'annihilation' });
+  });
+
+  it('a room that agreed and then desynced (void) records nothing', () => {
+    const st = versusAt400(399);
+    report(st, 0, WIN1);
+    report(st, 1, WIN1);
+    st.status = 'ended';
+    st.endedReason = 'void';
+    expect(recordOf(st)).toBeNull();
+  });
+
   it('a_surrender_is_agreed', () => {
     const sur = versusAt400();
     seatMessage(sur, 1, { t: 'surrender' }, 6000, mintV);

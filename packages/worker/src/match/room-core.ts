@@ -685,6 +685,7 @@ const sameResult = (a: OverResult | null, b: OverResult | null): boolean => a !=
  *  room itself decided it with no settled report before it. */
 export function recordOf(st: RoomState): RecordDraft | null {
   if (st.status !== 'ended' || st.config?.mode !== 'versus' || st.startedMs === null || st.recorded) return null;
+  if (st.endedReason === 'void' || st.endedReason === 'expired') return null;
   const startedAt = st.startedMs;
   const endedAt = st.endedAtMs ?? st.startedMs;
   const reported = ([0, 1] as const).filter((s) => st.over[s] >= 0);
@@ -700,7 +701,9 @@ export function recordOf(st: RoomState): RecordDraft | null {
   if (reported.length === 1) {
     const s = reported[0];
     const r = st.overResults[s];
-    const lone = r !== null && (reason === 'over' || (gaveUp && st.surrendered !== s));
+    // The reporter's own exit by `surrender` is its loss (agreed, below); its own `left` or `forfeit` is
+    // not: a silent loser could otherwise collect the winner's agreed loss, so it stays unconfirmed.
+    const lone = r !== null && (reason === 'over' || (gaveUp && (st.surrendered !== s || reason !== 'surrender')));
     if (lone) return { startedAt, endedAt, reason: r.by, winnerSeat: r.winner, ticks: st.over[s], agreed: false };
   }
   if (gaveUp && st.surrendered !== null) {
