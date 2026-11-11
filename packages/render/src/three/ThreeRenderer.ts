@@ -731,7 +731,7 @@ import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel, hazeAmountOps, HAZE_FORWARD } from './haze';
 import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
-import { SoftDepthSnapshot } from './soft-depth';
+import { NodeSoftDepthCopy, SoftDepthSnapshot } from './soft-depth';
 import { FogOfWarPass } from './fog-pass';
 import { FOG_OFFMAP_FADE_TILES, FogUniforms, type FogPassLike } from './fog-spec';
 import { fogDim } from './fog-ops';
@@ -1419,8 +1419,9 @@ export class ThreeRenderer implements Renderer {
    *  keeps a composer-less path: the raw renderer, whose own `antialias:
    *  true` covers what SMAA covers in the game. */
   private post: PostChain | null = null;
-  /** GH-1227 slice 1: the soft-particle depth snapshot, built by `init` only for `quality.softParticles` (no preset sets it). */
-  private softDepth: SoftDepthSnapshot | null = null;
+  /** GH-1227 slice 1: the soft-particle depth snapshot, built by `init` only for `quality.softParticles` (no preset sets it).
+   *  Slice 3: on a node boot it is the node copy (`NodeSoftDepthCopy`), built only when the backend's `softDepthOn` says so. */
+  private softDepth: SoftDepthSnapshot | NodeSoftDepthCopy | null = null;
   /** CSS pixels, which is what `width`/`height` report -- see their own doc
    *  comment for why that is not the drawing buffer's size any more. */
   private cssWidth = 0;
@@ -3789,6 +3790,16 @@ export class ThreeRenderer implements Renderer {
         if (this.opts.grade !== undefined) this.setGrade(this.opts.grade.json, this.opts.grade.strength ?? 1);
       }
       this.environment?.attach(this.nodeBackend.pmrem);
+      // GH-1227 slice 3: the node twin of the soft-particle snapshot, built only when the backend says the flag is on AND the device
+      // can copy the depth (`softDepthOn`, the same predicate that switched the scene pass to depth32float-stencil8). BEFORE the
+      // adoption below, so the flipbook's smoke twin is built with `uSoftDepth` in its record. Off: nothing is added, no format moves.
+      if (this.nodeBackend.softDepthOn?.(this.opts.quality ?? QUALITY_PRESETS.high) === true) {
+        const backend = this.nodeBackend;
+        const copy = new NodeSoftDepthCopy(() => (backend.post as { scenePass?: { renderTarget: THREE.RenderTarget } } | null)?.scenePass?.renderTarget ?? null);
+        this.softDepth = copy;
+        this.scene.add(copy.sentinel);
+        this.flipbook.setSoftDepth(copy);
+      }
       this.mountAndObserve(host);
       this.seedFromSim();
       // GH-943 P2 (T1): every legacy material with a twin is swapped BEFORE the first census (inside `prepare`), which would
@@ -3871,6 +3882,8 @@ export class ThreeRenderer implements Renderer {
       this.softDepth = new SoftDepthSnapshot([this.post.composer.renderTarget1, this.post.composer.renderTarget2]);
       this.scene.add(this.softDepth.sentinel);
       this.flipbook.setSoftDepth(this.softDepth);
+      // Slice 4 (decision D4): the band-2 dust tier fades against the same snapshot. The above tiers and the hot cores never do.
+      this.particleInstancerBelow.setSoftDepth(this.softDepth);
     }
     // Shell upgrade Phase 0: the corner vignette, on display-referred colour
     // (after the tone map, before SMAA). Since GH-829 it is folded into
@@ -12870,8 +12883,8 @@ export class ThreeRenderer implements Renderer {
     // shades its billows toward the sun as the camera sees it: the sun's
     // direction on the camera's right/up axes. A few multiplies a frame.
     this.flipbook.step(dtMs);
-    // GH-1227: the soft-particle snapshot is taken only while the smoke pass draws.
-    this.softDepth?.sync([this.flipbook.mesh]);
+    // GH-1227: the soft-particle snapshot is taken only while the smoke pass or the band-2 dust tier draws.
+    this.softDepth?.sync([this.flipbook.mesh, this.particleInstancerBelow.mesh]);
     // GH-1197 P2: debris flies on the same frame clock (hit-stop freezes it mid-air) and fades on the sim clock.
     this.debris?.step(dtMs, presentationSimMs(this.sim.tickCount, alpha ?? 0));
     {

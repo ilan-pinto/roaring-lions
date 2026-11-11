@@ -81,3 +81,4 @@ export * from './tiled-mesh';
 export * from './chunks';
 export * from './incremental';
 export * from './crown';
+export * from './grass-field-place';

@@ -4,7 +4,7 @@
 // DOM. Everything else in this file is pure and does not care.
 
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, PLAYER_ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, rebind, resolveKey, shouldYieldSpace, supportKeyTarget } from './keymap';
+import { ACTIONS, PLAYER_ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, rebind, resolveKey, shouldYieldSpace, supportKeyTarget, unloadPress } from './keymap';
 import { SUPPORT, SUPPORT_KINDS } from '../ui/support-kinds';
 
 describe('keymap', () => {
@@ -296,6 +296,15 @@ describe('keymap', () => {
     });
     it('still opens the pause menu when nothing is armed', () => {
       expect(escapeTarget(false, false, false)).toBe('pause');
+    });
+  });
+
+  describe('unloadPress (GH-698 unload-at-point)', () => {
+    it('arms only with a loaded air carrier, and a second press while armed unloads where they are', () => {
+      expect(unloadPress(false, true)).toBe('arm');
+      expect(unloadPress(false, false)).toBe('unloadHere');
+      expect(unloadPress(true, true)).toBe('disarmAndUnload');
+      expect(unloadPress(true, false)).toBe('disarmAndUnload');
     });
   });
 

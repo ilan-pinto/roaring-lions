@@ -43,7 +43,9 @@ export type PlayerIntent =
   /** `carriers` (GH-972): every carrier the selection held, when it held two or more. The sim shares the
    *  riders across the ground ones (`load.carriers`); absent, everyone boards `carrier`. */
   | { kind: 'mount'; riders: number[]; carrier: number; carriers?: number[] }
-  | { kind: 'dismount'; carriers: number[] }
+  /** `x`/`y` (GH-698, world tiles): unload-at-point, for air carriers only. The sim lands each at the
+   *  footprint nearest the point and unloads there; absent, the plain unload. */
+  | { kind: 'dismount'; carriers: number[]; x?: number; y?: number }
   | { kind: 'smoke'; ids: number[]; x: number; y: number }
   | { kind: 'halt'; ids: number[] }
   /** A patrol beat (Lane A mock, approved 22 Oct): 2 to `MAX_PATROL_WAYPOINTS`
@@ -141,7 +143,12 @@ export function applyIntent(sink: CommandSink, intent: PlayerIntent, map: MapSiz
       });
       return;
     case 'dismount':
-      sink.queueCommand({ kind: 'unload', ids: intent.carriers });
+      // GH-698: with a point, the order every machine sees carries it (Q16.16, inside the map box, as a move's).
+      sink.queueCommand(
+        intent.x !== undefined && intent.y !== undefined
+          ? { kind: 'unload', ids: intent.carriers, x: clampToMap(fx.from(intent.x), map.width), y: clampToMap(fx.from(intent.y), map.height) }
+          : { kind: 'unload', ids: intent.carriers }
+      );
       return;
     case 'smoke':
       sink.queueCommand({ kind: 'smoke', ids: intent.ids, x: fx.from(intent.x), y: fx.from(intent.y) });
@@ -698,6 +705,9 @@ export interface KeyContext {
   /** GH-698: a carrier that flies (the Yanshuf). It lands to take riders aboard
    *  and lands to unload, so the verb's note says so. Absent reads as never. */
   isAirCarrier?(id: number): boolean;
+  /** GH-698 unload-at-point: `dismount` at (x, y) -- the armed Unload's click. The air carriers land
+   *  there; a ground carrier in the same selection unloads where it stands. Absent: the plain dismount. */
+  atPoint?: boolean;
 }
 
 /**
@@ -737,6 +747,25 @@ export function resolveKeyVerb(
     // one used to do nothing at all, which reads as a dead key.
     if (carriers.length === 0) {
       return { intents: [], roe: free, marker: false, note: { text: t('intent.dismount.none'), tone: 'mute' } };
+    }
+    if (ctx.atPoint === true) {
+      const air = carriers.filter((i) => ctx.isAirCarrier?.(i) === true);
+      const ground = carriers.filter((i) => ctx.isAirCarrier?.(i) !== true);
+      // Past the edge is refused, as smoke's point is: the clamp would land them somewhere not clicked.
+      if (air.length > 0 && world.groundAt(ctx.x, ctx.y) === 'offmap') {
+        return { intents: [], roe: free, marker: false, groundRefused: 'offmap', note: { text: t('intent.ground.offmap'), tone: 'mute' } };
+      }
+      if (air.length > 0) {
+        return {
+          intents: [
+            { kind: 'dismount', carriers: air, x: ctx.x, y: ctx.y },
+            ...(ground.length > 0 ? [{ kind: 'dismount' as const, carriers: ground }] : []),
+          ],
+          roe: free,
+          marker: true,
+          note: { text: t('intent.dismount.atPoint'), tone: 'info' },
+        };
+      }
     }
     return {
       intents: [{ kind: 'dismount', carriers }],

@@ -74,6 +74,7 @@ describe('routes', () => {
       ragdoll: false,
       kit: true,
       works: false,
+      soft: false,
     });
     expect(unknownParams(url.searchParams)).toEqual([]);
 
