@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tools",
     "lint": "eslint .",
     "validate:data": "node tools/validate_data.mjs",
-    "validate:meshes": "python3 tools/validate_mesh_assets.py && python3 tools/test_lod_twin_gate.py && python3 tools/test_inf_kit_pierce.py",
+    "validate:meshes": "python3 tools/validate_mesh_assets.py && python3 tools/test_lod_twin_gate.py && python3 tools/test_inf_kit_pierce.py && python3 tools/test_inf_kit_mesh.py",
     "validate:ui": "node tools/validate_ui_palette.mjs && node tools/validate_i18n.mjs",
     "validate:audio": "python3 tools/validate_audio.py && python3 tools/test_gen_audio_args.py && python3 tools/test_validate_audio_voices.py && python3 tools/test_validate_audio_ui.py && python3 tools/test_validate_audio_mix.py && python3 tools/test_validate_audio_ambience.py && python3 tools/test_validate_audio_music.py && python3 tools/test_validate_audio_engines.py && python3 tools/test_prepare_support_audio.py && python3 tools/test_validate_audio_support.py && python3 tools/test_prepare_medic_voice.py",
     "balance": "pnpm --filter @lions/tools balance",
