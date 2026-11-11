@@ -1421,6 +1421,9 @@ export class ThreeRenderer implements Renderer {
   /** GH-1227 slice 1: the soft-particle depth snapshot, built by `init` only for `quality.softParticles` (no preset sets it).
    *  Slice 3: on a node boot it is the node copy (`NodeSoftDepthCopy`), built only when the backend's `softDepthOn` says so. */
   private softDepth: SoftDepthSnapshot | NodeSoftDepthCopy | null = null;
+  /** The meshes that sample `softDepth`, set where it is built: its sentinel draws (and the depth is copied) only while one of
+   *  these does. Legacy: the smoke pass and the band-2 dust tier. Node: the smoke pass alone, the only node twin that samples it. */
+  private softDepthConsumers: readonly THREE.Object3D[] = [];
   /** CSS pixels, which is what `width`/`height` report -- see their own doc
    *  comment for why that is not the drawing buffer's size any more. */
   private cssWidth = 0;
@@ -3783,6 +3786,7 @@ export class ThreeRenderer implements Renderer {
         const backend = this.nodeBackend;
         const copy = new NodeSoftDepthCopy(() => (backend.post as { scenePass?: { renderTarget: THREE.RenderTarget } } | null)?.scenePass?.renderTarget ?? null);
         this.softDepth = copy;
+        this.softDepthConsumers = [this.flipbook.mesh];
         this.scene.add(copy.sentinel);
         this.flipbook.setSoftDepth(copy);
       }
@@ -3866,6 +3870,7 @@ export class ThreeRenderer implements Renderer {
     // composer's own two buffers; its sentinel is the first transparent draw (`soft-depth.ts`).
     if (quality.softParticles === true) {
       this.softDepth = new SoftDepthSnapshot([this.post.composer.renderTarget1, this.post.composer.renderTarget2]);
+      this.softDepthConsumers = [this.flipbook.mesh, this.particleInstancerBelow.mesh];
       this.scene.add(this.softDepth.sentinel);
       this.flipbook.setSoftDepth(this.softDepth);
       // Slice 4 (decision D4): the band-2 dust tier fades against the same snapshot. The above tiers and the hot cores never do.
@@ -4551,6 +4556,7 @@ export class ThreeRenderer implements Renderer {
     // GH-1227: the soft-particle snapshot (its sentinel leaves the scene with it).
     this.softDepth?.dispose();
     this.softDepth = null;
+    this.softDepthConsumers = [];
     // The skirt's geometry and material -- added once in the constructor, so
     // no `scene.remove`, exactly like `smokeMesh`/`trailMesh` below.
     disposeSkirt(this.skirtMesh);
@@ -12798,8 +12804,9 @@ export class ThreeRenderer implements Renderer {
     // shades its billows toward the sun as the camera sees it: the sun's
     // direction on the camera's right/up axes. A few multiplies a frame.
     this.flipbook.step(dtMs);
-    // GH-1227: the soft-particle snapshot is taken only while the smoke pass or the band-2 dust tier draws.
-    this.softDepth?.sync([this.flipbook.mesh, this.particleInstancerBelow.mesh]);
+    // GH-1227: the soft-particle snapshot is taken only while one of its consumers draws (legacy: the smoke pass or the band-2
+    // dust tier; node: the smoke pass).
+    this.softDepth?.sync(this.softDepthConsumers);
     // GH-1197 P2: debris flies on the same frame clock (hit-stop freezes it mid-air) and fades on the sim clock.
     this.debris?.step(dtMs, presentationSimMs(this.sim.tickCount, alpha ?? 0));
     {
