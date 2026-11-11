@@ -56,6 +56,7 @@ import {
   type ProbeArm,
   type VariantRow,
 } from './webgpu-banding-probe-lib';
+import { grassCondition, hideGrassOnPage } from './webgpu-grass-lib';
 
 const args = process.argv.slice(2);
 const arg = (n: string, d: string): string => (args.find((a) => a.startsWith(`--${n}=`)) ?? `--${n}=${d}`).slice(n.length + 3);
@@ -303,6 +304,8 @@ async function probeArm(arm: ProbeArm, port: number): Promise<ArmResult> {
     const settled = JSON.parse((await page.evaluate(BOOT_SETTLE_SCRIPT)) as string) as { tick: number };
     const fr = bootFreezeRefusal(settled.tick);
     if (fr !== null) refuse(`${arm}: ${fr}`);
+    // GH-1167 S6: the L-vs-G tools hide the 3D grass field (the grass cost is its own column).
+    await hideGrassOnPage(page, `banding-probe ${arm}`).catch((e: Error) => refuse(e.message));
     const info = (await page.evaluate('window.__lions.renderer.backendInfo()')) as { kind: string; adapter: string };
     const gpu = (await page.evaluate(() => {
       const gl = document.createElement('canvas').getContext('webgl2');
@@ -422,7 +425,7 @@ const allRows = results.flatMap((r) => r.rows);
 const dead = deadHypotheses(allRows);
 const refusedCrops = results.flatMap((r) => CROP_IDS.filter((c) => 'refused' in r.baseline[c]).map((c) => `${r.arm} ${c}`));
 const validation = results.flatMap((r) => r.consoleErrors.filter((l) => /GPUValidationError/i.test(l)).map((l) => `${r.arm}: ${l}`));
-const conditions = `map=${MAP} 1440x900 DPR ${DPR} (2880x1800 device px), booted camera z1, sim tick ${results[0]?.tick ?? '?'}, quality high, music off, reduced motion, L matched (node census hidden set hidden); hw=${HW}; ${results.map((r) => `${r.arm}=${r.backend} on ${r.backend === 'node-webgpu' ? r.adapter : r.gpu} (${r.grab})`).join('; ')}; loadavg ${loads.map((l) => `${l.at} ${l.load1m.toFixed(2)}`).join(', ')}`;
+const conditions = `map=${MAP} 1440x900 DPR ${DPR} (2880x1800 device px), booted camera z1, sim tick ${results[0]?.tick ?? '?'}, quality high, music off, reduced motion, L matched (node census hidden set hidden); ${grassCondition('hidden')}; hw=${HW}; ${results.map((r) => `${r.arm}=${r.backend} on ${r.backend === 'node-webgpu' ? r.adapter : r.gpu} (${r.grab})`).join('; ')}; loadavg ${loads.map((l) => `${l.at} ${l.load1m.toFixed(2)}`).join(', ')}`;
 
 const md: string[] = [
   `# WebGPU P2 T2: the banding probe (${HW})`,
