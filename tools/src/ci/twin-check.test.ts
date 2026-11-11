@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { TWINS } from '../../webgpu_ratchet.mjs';
-import { runTwinCheck, twinRows, twinVerdict, type TwinIo } from './twin-check';
+import { EXEMPTIONS, hunksOutsideShader, runTwinCheck, shaderLines, twinRows, twinVerdict, type TwinIo } from './twin-check';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FOG = 'packages/render/src/three/fog-pass.ts';
@@ -17,7 +17,7 @@ function fixtureIo(withTwin: boolean): TwinIo & { out: string[] } {
   writeFileSync(path.join(root, FOG), '');
   if (withTwin) writeFileSync(path.join(root, FOG_NODE), '');
   const out: string[] = [];
-  return { root, out, log: (l) => out.push(l), err: (l) => out.push(l), changedSince: () => [] };
+  return { root, out, log: (l) => out.push(l), err: (l) => out.push(l), changedSince: () => [], outsideShader: () => false };
 }
 
 describe('twin-check (the same-PR rule)', () => {
@@ -75,5 +75,50 @@ describe('twin-check (the same-PR rule)', () => {
     for (const [twin, legacies] of Object.entries(SHARED_RECIPES)) for (const l of legacies) expect(rows.find((r) => r.legacy === l)?.twin, l).toBe(twin);
     // Anti-vacuity: the name-paired rule still binds the rest.
     expect(rows.length - shared).toBeGreaterThan(shared);
+  });
+});
+
+// The narrow exemption: a legacy file's change outside its shader program, VERIFIED from the diff (GH-1227).
+const FX = 'packages/render/src/three/units/flipbook-fx.ts';
+const FX_NODE = 'packages/render/src/three/units/flipbook-fx.node.ts';
+const SRC = ['import x;', 'const VERT = /* glsl */ `', 'void main() {}', '`;', 'const SOFT_ANCHORS = {};', 'function splice() {}', 'export const FLIPBOOK_SHADERS = {};', 'class A {', '  dispose() {}', '}'].join('\n');
+// Lines: 1 import, 2-4 glsl, 5-7 shader-building span, 8-10 lifecycle.
+describe('twin-check exemption (change verified outside the shader program)', () => {
+  it('finds the shader lines, and fails closed when a marker is missing', () => {
+    expect([...(shaderLines(SRC) ?? [])].sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 6, 7]);
+    expect(shaderLines('const x = 1;')).toBeNull();
+  });
+  it('honours a hunk in the lifecycle code only', () => {
+    expect(hunksOutsideShader('@@ -9,0 +10,2 @@\n+a', SRC, SRC + '\n\n')).toBe(true);
+    expect(hunksOutsideShader('@@ -9 +9 @@\n', SRC, SRC)).toBe(true);
+  });
+  it('refuses a hunk touching a GLSL line (old side, new side, or an insertion between GLSL lines)', () => {
+    expect(hunksOutsideShader('@@ -3 +3 @@\n', SRC, SRC)).toBe(false);
+    expect(hunksOutsideShader('@@ -3,0 +4 @@\n', SRC, SRC)).toBe(false);
+    expect(hunksOutsideShader('@@ -6 +6 @@\n', SRC, SRC)).toBe(false);
+    expect(hunksOutsideShader('@@ -9 +9 @@\n@@ -3 +3 @@\n', SRC, SRC)).toBe(false);
+    expect(hunksOutsideShader('', SRC, SRC)).toBe(false);
+  });
+  it('judges each side against its OWN source: a hunk is refused when only the old side, or only the new side, lies in a shader (the sources differ)', () => {
+    // Two lines inserted at the top shift the new file's shader to lines 4-9; the old file's stays 2-7.
+    const SHIFTED = ['import a;', 'import b;', SRC].join('\n');
+    expect(hunksOutsideShader('@@ -3 +10 @@\n', SRC, SHIFTED)).toBe(false); // old line 3 is GLSL; new line 10 is lifecycle
+    expect(hunksOutsideShader('@@ -8 +5 @@\n', SRC, SHIFTED)).toBe(false); // old line 8 is lifecycle; new line 5 is GLSL
+    expect(hunksOutsideShader('@@ -8 +10 @@\n', SRC, SHIFTED)).toBe(true); // lifecycle on both sides is honoured
+  });
+  it('is the shipped entry, and verdicts follow the verification', () => {
+    expect(EXEMPTIONS.map((e) => e.file)).toEqual([FX]);
+    const rows = [{ legacy: FX, twin: FX_NODE }];
+    expect(twinVerdict([FX], rows, () => true, () => true).violations).toEqual([]);
+    expect(twinVerdict([FX], rows, () => true, () => false).violations).toHaveLength(1);
+    expect(twinVerdict([FX], rows, () => true, () => true, []).violations).toHaveLength(1);
+    expect(twinVerdict(['packages/render/src/three/fog-pass.ts'], [{ legacy: 'packages/render/src/three/fog-pass.ts', twin: 'x.node.ts' }], () => true, () => true).violations).toHaveLength(1);
+  });
+  it('--files mode never honours it (nothing to diff)', () => {
+    const io = fixtureIo(true);
+    mkdirSync(path.join(io.root, 'packages/render/src/three/units'), { recursive: true });
+    writeFileSync(path.join(io.root, FX), '');
+    writeFileSync(path.join(io.root, FX_NODE), '');
+    expect(runTwinCheck([`--files=${FX}`], { ...io, outsideShader: () => true })).toBe(1);
   });
 });

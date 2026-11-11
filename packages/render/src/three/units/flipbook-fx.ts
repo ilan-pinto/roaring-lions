@@ -875,7 +875,11 @@ export class FlipbookFx {
       m.uniforms.uSoftInvSize = { value: source.invSize };
       const span = { value: 1 };
       m.uniforms.uSoftSpan = span;
-      this.mesh.onBeforeRender = (_r, _s, camera) => {
+      // CHAINED, not overwritten: whatever hook the mesh carried before soft particles runs first, and comes back when they go off.
+      // A second `setSoftDepth(source)` chains onto the hook saved the first time, never onto its own.
+      const prev = (this.softPrevBeforeRender ??= this.mesh.onBeforeRender);
+      this.mesh.onBeforeRender = function (this: THREE.Object3D, renderer, scene, camera, geometry, material, group) {
+        prev.call(this, renderer, scene, camera, geometry, material, group);
         const c = camera as THREE.OrthographicCamera;
         span.value = c.far - c.near;
       };
@@ -885,10 +889,14 @@ export class FlipbookFx {
       delete m.uniforms.uSoftDepth;
       delete m.uniforms.uSoftInvSize;
       delete m.uniforms.uSoftSpan;
-      this.mesh.onBeforeRender = THREE.Object3D.prototype.onBeforeRender;
+      if (this.softPrevBeforeRender) this.mesh.onBeforeRender = this.softPrevBeforeRender;
+      this.softPrevBeforeRender = null;
     }
     m.needsUpdate = true;
   }
+
+  /** The smoke mesh's `onBeforeRender` from before `setSoftDepth` turned soft particles on; null while they are off. */
+  private softPrevBeforeRender: THREE.Object3D['onBeforeRender'] | null = null;
 
   /** Whether `setSoftDepth` is on (tests). */
   get softDepthOn(): boolean {
@@ -1122,6 +1130,8 @@ export class FlipbookFx {
 
   dispose(): void {
     this.disposed = true;
+    // GH-1227: soft particles off first, so no uniform keeps a pointer to the snapshot's depth texture its owner frees next.
+    if (this.softDepthOn) this.setSoftDepth(null);
     this.mesh.geometry.dispose();
     // The legacy materials: disposing one frees its node twin too (adoption listens for it).
     this.smokeMaterial.dispose();
