@@ -8,7 +8,8 @@
 // on, so a miss is an invisible crowd rather than a sprite where a model
 // should be.
 import { describe, expect, it } from 'vitest';
-import { kitLevel, units } from '@lions/data';
+import { Sim } from '@lions/sim';
+import { applyTerrain, kitLevel, maps, parseMap, units, type MapId } from '@lions/data';
 import {
   SANDBOX_CIV,
   SANDBOX_ENEMY,
@@ -21,6 +22,10 @@ import {
   sandboxKitTiers,
   sandboxUnitTypes,
 } from './sandbox-force';
+import { sandboxAnchors } from './sandbox-anchors';
+import { hostileFacing } from './sandbox-facing';
+import { standMapStructures } from './map-sim';
+import { placeOnOpen } from './sandbox-place';
 import { RIGGED_UNIT_MESHES } from './mesh-catalogue';
 
 const NONE = { tunnel: false, sur: false, civ: false, works: false };
@@ -127,5 +132,92 @@ describe('bootTiers', () => {
 
   it('is the ladder, not the account, in a sandbox with &kit', () => {
     expect(bootTiers(account, { mission: false, kitFlag: true }, roster)).toEqual(sandboxKitTiers(roster));
+  });
+});
+
+// The sandbox force garrisons NOBODY. The roof cutaway (GH-1225) cuts over a
+// building only when the viewer's own garrison holds it, and the gated golden
+// capture asserts `cutawayCount() === 0` on every scenario; that precondition
+// is true only while a sandbox spawns no garrison. This is the one list of what
+// a sandbox places, so the pin belongs here: every placement is a bare
+// `[unit, dx, dy]` with nowhere to say "garrison this house" and no stance to
+// stand in, and the force each shipped map actually spawns has no unit inside,
+// on its way into, or holding a building.
+describe('the sandbox force garrisons nobody', () => {
+  const ALL = { tunnel: true, sur: true, civ: true, works: true };
+  const TABLES = {
+    SANDBOX_KDF,
+    SANDBOX_ENEMY,
+    SANDBOX_SUR,
+    SANDBOX_CIV,
+    SANDBOX_TUNNEL_KDF,
+    SANDBOX_WORKS_KDF,
+  } as const;
+
+  it('builds every shipped map’s force and finds no garrison stance or target', () => {
+    // The shape is the pin: a placement that can carry a stance or a target is
+    // a fourth field, or an object where a dx/dy belongs. `sandboxSpawns`
+    // (`main.ts`) reads all three and nothing else, so a fourth element is
+    // data the force would drop -- and the one obvious thing to put there is
+    // where a unit should garrison.
+    for (const [name, rows] of Object.entries(TABLES)) {
+      for (const [i, row] of rows.entries()) {
+        expect(row.length, `${name}[${i}] fields`).toBe(3);
+        expect(typeof row[0], `${name}[${i}] unit id`).toBe('string');
+        expect(typeof row[1], `${name}[${i}] dx`).toBe('number');
+        expect(typeof row[2], `${name}[${i}] dy`).toBe('number');
+      }
+    }
+
+    const planned = Object.values(TABLES).reduce((n, rows) => n + rows.length, 0);
+    for (const mapId of Object.keys(maps) as MapId[]) {
+      const parsed = parseMap(maps[mapId]);
+      const sim = new Sim({ seed: 20260727, width: parsed.width, height: parsed.height, capacity: 256 });
+      applyTerrain(parsed, sim);
+      standMapStructures(sim, parsed);
+
+      const typeOf = new Map<string, number>();
+      for (const id of sandboxUnitTypes(ALL)) {
+        const spec = (units as Record<string, unknown>)[id];
+        if (spec === undefined) throw new Error(`sandbox places unknown unit "${id}"`);
+        typeOf.set(id, sim.addUnitType(spec as never));
+      }
+
+      // The same placement `main.ts`'s `sandboxSpawns` makes: the shared
+      // open-tile spiral, the map's own anchors, the tables as offsets. The
+      // works squad is the `&works` mission's single placement
+      // (`sandboxWorksMission`), on the friendly anchor like the rest.
+      const spawn = placeOnOpen(sim, typeOf);
+      const anchors = sandboxAnchors(parsed);
+      const [fxA, fyA] = anchors.friendly;
+      const [hxA, hyA] = anchors.hostile;
+      const facing = hostileFacing(fxA, fyA, hxA, hyA);
+      const ids: number[] = [];
+      const place = (rows: readonly (readonly [string, number, number])[], side: number, ax: number, ay: number, face = 0): void => {
+        for (const [id, dx, dy] of rows) ids.push(spawn(id, side, ax + dx, ay + dy, face));
+      };
+      place(SANDBOX_KDF, 0, fxA, fyA);
+      place(SANDBOX_TUNNEL_KDF, 0, fxA, fyA);
+      place(SANDBOX_WORKS_KDF, 0, fxA, fyA);
+      place(SANDBOX_ENEMY, 1, hxA, hyA, facing);
+      place(SANDBOX_SUR, 1, hxA, hyA, facing);
+      place(SANDBOX_CIV, 2, (fxA + hxA) / 2, (fyA + hyA) / 2);
+
+      // Every table above reached the map -- a placement silently skipped
+      // would make the "nobody is garrisoned" answer cheaper than it looks.
+      expect(ids.length, mapId).toBe(planned);
+
+      for (const id of ids) {
+        const st = sim.state;
+        // A garrison needs a structure to stand in AND the structure it was
+        // ordered into; either one is a garrison the cutaway would trigger on.
+        expect([st.garrisonedIn[id], st.garrisonGoal[id]], `${mapId}: unit ${id} garrison`).toEqual([-1, -1]);
+        // No stance or target either: an ambush, a patrol, a firing target or
+        // a structure under fire is an order, and a sandbox spawn carries none.
+        expect(sim.ambushRadiusSqOf(id), `${mapId}: unit ${id} ambush`).toBe(0);
+        expect(sim.isPatrolling(id), `${mapId}: unit ${id} patrol`).toBe(false);
+        expect([st.curTarget[id], st.curStructure[id]], `${mapId}: unit ${id} target`).toEqual([-1, -1]);
+      }
+    }
   });
 });
