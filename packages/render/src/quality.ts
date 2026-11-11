@@ -106,6 +106,15 @@ export interface RenderQuality {
    * (0 drops them); the churn decal is kept on every preset.
    */
   nature?: NatureQuality;
+  /**
+   * Soft particles (GH-1227 slice 1; `three/soft-depth.ts`, the design
+   * `docs/superpowers/specs/2026-11-11-soft-particles-design.md`): the
+   * flipbook's smoke pass fades its alpha by the scene depth where a billow
+   * meets the ground or a wall. WebGL2 only. Absent or `false` builds nothing
+   * and leaves every program byte for byte; NO preset sets it until the lead
+   * rules on the cost and the baseline move (the design's decisions table).
+   */
+  softParticles?: boolean;
 }
 
 /** `RenderQuality.nature`: see there. `slots` is a rung of `DISTURB_LADDER`. */

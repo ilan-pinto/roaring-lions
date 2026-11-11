@@ -699,6 +699,7 @@ import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel, hazeAmountOps, HAZE_FORWARD } from './haze';
 import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
+import { SoftDepthSnapshot } from './soft-depth';
 import { FogOfWarPass } from './fog-pass';
 import { FOG_OFFMAP_FADE_TILES, FogUniforms, type FogPassLike } from './fog-spec';
 import { fogDim } from './fog-ops';
@@ -1366,6 +1367,8 @@ export class ThreeRenderer implements Renderer {
    *  keeps a composer-less path: the raw renderer, whose own `antialias:
    *  true` covers what SMAA covers in the game. */
   private post: PostChain | null = null;
+  /** GH-1227 slice 1: the soft-particle depth snapshot, built by `init` only for `quality.softParticles` (no preset sets it). */
+  private softDepth: SoftDepthSnapshot | null = null;
   /** CSS pixels, which is what `width`/`height` report -- see their own doc
    *  comment for why that is not the drawing buffer's size any more. */
   private cssWidth = 0;
@@ -3759,6 +3762,13 @@ export class ThreeRenderer implements Renderer {
     // `setFogPass`'s again: `dispose()` below frees it.
     this.bloomPass = bloomPassFor(quality, this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
     if (this.bloomPass) this.post.setBloomPass(this.bloomPass);
+    // GH-1227 slice 1: soft particles, opt-in (no preset sets it). The snapshot copies only from the
+    // composer's own two buffers; its sentinel is the first transparent draw (`soft-depth.ts`).
+    if (quality.softParticles === true) {
+      this.softDepth = new SoftDepthSnapshot([this.post.composer.renderTarget1, this.post.composer.renderTarget2]);
+      this.scene.add(this.softDepth.sentinel);
+      this.flipbook.setSoftDepth(this.softDepth);
+    }
     // Shell upgrade Phase 0: the corner vignette, on display-referred colour
     // (after the tone map, before SMAA). Since GH-829 it is folded into
     // `OutputPass`'s shader, so there is nothing to build, slot or free: the
@@ -4420,6 +4430,9 @@ export class ThreeRenderer implements Renderer {
     this.post?.setBloomPass(null);
     this.bloomPass?.dispose();
     this.bloomPass = null;
+    // GH-1227: the soft-particle snapshot (its sentinel leaves the scene with it).
+    this.softDepth?.dispose();
+    this.softDepth = null;
     // The skirt's geometry and material -- added once in the constructor, so
     // no `scene.remove`, exactly like `smokeMesh`/`trailMesh` below.
     disposeSkirt(this.skirtMesh);
@@ -12370,6 +12383,8 @@ export class ThreeRenderer implements Renderer {
     // shades its billows toward the sun as the camera sees it: the sun's
     // direction on the camera's right/up axes. A few multiplies a frame.
     this.flipbook.step(dtMs);
+    // GH-1227: the soft-particle snapshot is taken only while the smoke pass draws.
+    this.softDepth?.sync([this.flipbook.mesh]);
     {
       const m = this.viewCamera.matrixWorld.elements;
       this.flipbookRight.set(m[0], m[1], m[2]).normalize();
