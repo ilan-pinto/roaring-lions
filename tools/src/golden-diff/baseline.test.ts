@@ -1179,11 +1179,11 @@ describe('capture precondition: no selection, no hover (GH-186)', () => {
   const run = (r: Record<string, unknown>): void => {
     new Function('window', CAPTURE_PRECONDITION_STATEMENTS)({ __lions: { renderer: r } });
   };
-  const clean = { selection: [], hoverEntity: -1, rangeRingPreview: -1 };
+  const clean = { selection: [], hoverEntity: -1, rangeRingPreview: -1, cutawayCount: () => 0 };
 
   it('passes on a clean renderer, and when rangeRingPreview is absent', () => {
     expect(() => run(clean)).not.toThrow();
-    expect(() => run({ selection: [], hoverEntity: -1 })).not.toThrow();
+    expect(() => run({ selection: [], hoverEntity: -1, cutawayCount: () => 0 })).not.toThrow();
   });
   it('throws a named error for a selection, a hostile hover and a range-ring preview', () => {
     expect(() => run({ ...clean, selection: [3] })).toThrow(/capture precondition violated: renderer.selection/);
@@ -1191,6 +1191,11 @@ describe('capture precondition: no selection, no hover (GH-186)', () => {
     expect(() => run({ ...clean, rangeRingPreview: 2 })).toThrow(
       /capture precondition violated: renderer.rangeRingPreview/
     );
+  });
+  // GH-1225: a building cut by the roof cutaway at capture time is a picture difference, named like the others.
+  // Falsify: drop the `cutawayCount` check from CAPTURE_PRECONDITION_STATEMENTS and this goes red.
+  it('throws a named error for a building the roof cutaway has cut', () => {
+    expect(() => run({ ...clean, cutawayCount: () => 1 })).toThrow(/capture precondition violated: renderer.cutawayCount\(\) is 1/);
   });
   it('parks the pointer before the final step, for mission scenarios only', () => {
     let missions = 0;
