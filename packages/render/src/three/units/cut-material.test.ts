@@ -16,6 +16,7 @@ import {
   cutColorKeys,
   cutColorsFor,
   cutShaderHook,
+  cutMaskHook,
 } from './cut-material';
 
 const colors = { cap: new THREE.Color(0.8, 0.7, 0.6), interior: new THREE.Color(0.02, 0.02, 0.03) };
@@ -137,5 +138,20 @@ describe('the hook', () => {
       'if (!gl_FrontFacing) diffuseColor.rgb = uRlCutInterior;',
       'else if (rlCutSection > 0.5) diffuseColor.rgb = uRlCutCap;',
     ]);
+  });
+});
+
+describe('slice 2: the mask hook (shadow depth and AO normal)', () => {
+  const v = '#include <common>\n#include <project_vertex>';
+  const f = '#include <common>\nvoid main() {\n}';
+  it('splices the SAME pars text and the cut at the top of main, and no colour', () => {
+    const out = cutMaskHook(v, f);
+    expect(out.fragment).toContain(CUT_PARS_GLSL);
+    expect(out.fragment).toMatch(/void main\(\) \{\n {2}rlCutApply\(\);/);
+    expect(out.fragment).not.toContain('diffuseColor');
+    expect(out.vertex).toContain('vRlCutW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+  });
+  it('refuses a program that lost its anchor', () => {
+    expect(() => cutMaskHook('#include <common>', f)).toThrow(/project_vertex/);
   });
 });

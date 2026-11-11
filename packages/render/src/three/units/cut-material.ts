@@ -14,8 +14,12 @@
  * - shades **back faces** -- the far walls seen through the cut -- as interior: the wall ramp's darkest key, 0.6 toward
  *   `gunmetal.2` (P4's interior, GH-1197).
  *
- * Slice 1 cuts the colour pass alone: the building's shadow and its AO occluder stay whole (the depth material is a later
- * slice), and the node backend draws no cut (the TSL twin is a later slice; `ThreeRenderer` mints none there).
+ * Slice 2 cuts the shadow and the AO G-buffer with the same mask (`CutMaskMaterials`): one shared depth material, set as a
+ * cut mesh's `customDepthMaterial` (the sun's shadow map reads it, `WebGLShadowMap.getDepthMaterial`), and one shared normal
+ * material that the AO pre-pass swaps onto a cut mesh (`post-chain.ts`, `userData.rlCutAo`), because GTAO draws its G-buffer
+ * through `scene.overrideMaterial` and so never reads a depth material. Both carry `cutMaskHook`, which discards and paints
+ * nothing, over the SAME volume block, so the minimap's forced count of 0 (`photographGround`) suspends them too. The node
+ * backend draws no cut (the TSL twin is a later slice; `ThreeRenderer` mints none there).
  *
  * `Material.clone()` drops `onBeforeCompile`, so the hook is put on every clone, chained after any hook the base already had;
  * the program key is the base's plus `|rl-cut`. Positions are WORLD space: a standing building never moves (P4's ruling).
@@ -80,6 +84,63 @@ export function cutShaderHook(vertex: string, fragment: string): { vertex: strin
     .replace(/void main\(\)\s*\{/, (m) => `${m}\n  rlCutApply();`)
     .replace('#include <map_fragment>', `#include <map_fragment>\n${CUT_COLOUR_GLSL}`);
   return { vertex: v, fragment: fr };
+}
+
+/** The hook that only discards, for the shadow's depth material and the AO's normal material: `CUT_PARS_GLSL` (the same
+ *  text the colour hook splices, so the text pin covers both) and the cut at the top of `main`, no colour splice. */
+export function cutMaskHook(vertex: string, fragment: string): { vertex: string; fragment: string } {
+  const need = (src: string, token: string): void => {
+    if (!src.includes(token)) throw new Error(`cut mask hook: program no longer holds "${token}"`);
+  };
+  need(vertex, '#include <common>');
+  need(vertex, '#include <project_vertex>');
+  need(fragment, '#include <common>');
+  if (!/void main\(\)\s*\{/.test(fragment)) throw new Error('cut mask hook: program no longer holds "void main() {"');
+  return {
+    vertex: vertex
+      .replace('#include <common>', '#include <common>\nvarying vec3 vRlCutW;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\n  vRlCutW = (modelMatrix * vec4(transformed, 1.0)).xyz;'),
+    fragment: fragment
+      .replace('#include <common>', `#include <common>\n${CUT_PARS_GLSL}`)
+      .replace(/void main\(\)\s*\{/, (m) => `${m}\n  rlCutApply();`),
+  };
+}
+
+export const CUT_MASK_PROGRAM_KEY = 'rl-cut-mask';
+
+function maskHooked<M extends THREE.Material>(material: M, shared: CutUniforms): M {
+  material.userData = { ...material.userData, rlCutMask: true };
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, { uRlCutV: shared.uRlCutV, uRlCutN: shared.uRlCutN });
+    const out = cutMaskHook(shader.vertexShader, shader.fragmentShader);
+    shader.vertexShader = out.vertex;
+    shader.fragmentShader = out.fragment;
+  };
+  material.customProgramCacheKey = () => CUT_MASK_PROGRAM_KEY;
+  return material;
+}
+
+/**
+ * The two mask materials every cut mesh shares, over the shared volume block (the mask reads world position alone, so one of
+ * each serves every building). Minted with the block, on the first cut; nothing exists before it.
+ *
+ * - `depth`: the shadow caster. Built exactly as r186's stock `_depthMaterial` (`new MeshDepthMaterial()`, basic packing),
+ *   so a cut building's uncut walls cast the shadow they did. The shadow map writes its `side` from the mesh's material.
+ * - `ao`: the AO G-buffer's normal material, built as `GTAOPass`'s own (`MeshNormalMaterial`, `NoBlending`), double-sided like
+ *   the cut clone, and `allowOverride = false` so the pre-pass's `scene.overrideMaterial` leaves it in place.
+ */
+export interface CutMaskMaterials {
+  readonly depth: THREE.MeshDepthMaterial;
+  readonly ao: THREE.MeshNormalMaterial;
+}
+
+export function createCutMaskMaterials(shared: CutUniforms): CutMaskMaterials {
+  const depth = maskHooked(new THREE.MeshDepthMaterial(), shared);
+  const ao = maskHooked(new THREE.MeshNormalMaterial(), shared);
+  ao.blending = THREE.NoBlending;
+  ao.side = THREE.DoubleSide;
+  ao.allowOverride = false;
+  return { depth, ao };
 }
 
 /** The volume block every cut clone binds BY REFERENCE: `CUT_VOLUME_CAP` volumes of `CUT_FLOATS_PER_VOLUME` floats, and the

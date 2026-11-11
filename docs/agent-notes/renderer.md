@@ -665,6 +665,24 @@ with P4's `rl-holes` hook, and the TSL twin are later slices.
   check. A cut building keeps its full art over its LOD1 twin; instanced per-tile sets take no cut; the node backend draws none
   yet; `hideForGroundPhoto` forces the volume count to 0 for the minimap.
 
+## Roof cutaway, slice 2: garrisons, the figure spread, the shadow and AO cut (GH-1225)
+
+- **The garrison trigger:** every standing clone holding a garrison the viewer may know about, by the banner's rule
+  (`heldBuildings` + `heldShown`: own always, anyone else's only while a footprint tile is in sight; a fogged enemy garrison cuts
+  nothing). One volume at the footprint centre, R = half-diagonal + 0.25 t (`garrisonCutRadius`), keyed `-1 - s`, re-derived on the
+  banner's key (tick, fog array, clone count). Garrisons rank first under the 8-volume cap, in the slice and in the trim.
+- **The figure spread:** `placeGarrisonStations` (after the cut is applied, so `updateMeshUnits` reads it a frame later) gives each
+  garrisoned unit in a CUT building a station from `garrisonStations` (a jittered grid over the footprint inset 0.3 t, distinct by
+  construction). Only `entity.root`'s drawn position moves; fog is still asked at the sim position, so a station cannot reveal a
+  fogged unit. Uncut, the map is empty and the draw is the sim's position.
+- **Shadow and AO:** a cut mesh gets `customDepthMaterial` = one shared mask `MeshDepthMaterial` (built like r186's stock one) and
+  `userData.rlCutAo` = one shared mask `MeshNormalMaterial` (`allowOverride` false). **The design said the AO occluder reads the
+  depth material; it does not**: `GTAOPass` draws its G-buffer through `scene.overrideMaterial`, so `WorldGTAOPass.render` swaps
+  `rlCutAo` on for that render and back in `finally`. Both masks bind the shared block, so `photographGround`'s forced 0 suspends
+  them. Release unsets both.
+- **The capture precondition:** a `mission=` scenario (only the report-only `combat`) drops the `cutawayCount` clause
+  (`capturePreconditionFor`): a mission's visible garrison is its own picture. Every gated (sandbox) scenario keeps it.
+
 ## The debris pool (GH-1197 P2)
 
 - **What throws it:** every landing that draws a P1 ring (`spawnReachFx` in `ThreeRenderer.ts`), with clods and chunks from

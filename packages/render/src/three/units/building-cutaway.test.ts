@@ -23,6 +23,9 @@ import {
   type CutIris,
   type CutTrigger,
   type CutVolume,
+  garrisonCutKey,
+  garrisonCutRadius,
+  garrisonStations,
 } from './building-cutaway';
 
 /** The design's numbers, as literals: a change to any constant is a change to the design. */
@@ -130,7 +133,9 @@ describe('stepIris: open, hold and close on the frame clock, two frames either s
   });
 });
 
-const trigger = (key: number, focusDist2: number): CutTrigger => ({ key, x: key, z: 0, yCut: 0.4, yTop: 2.4, focusDist2 });
+const trigger = (key: number, focusDist2: number, garrison = false): CutTrigger => ({
+  key, r: CUT_SELECT_RADIUS_TILES, garrison, x: key, z: 0, yCut: 0.4, yTop: 2.4, focusDist2,
+});
 
 describe('CutawayTable: the volume cap and the order', () => {
   it('nothing in, nothing out', () => {
@@ -190,5 +195,66 @@ describe('writeCutVolumes and footprintDistance', () => {
     expect(footprintDistance(2, 3, 4, 5, 3.5, 4)).toBe(0);
     expect(footprintDistance(2, 3, 4, 5, 6.25, 4)).toBe(1.25);
     expect(footprintDistance(2, 3, 4, 5, 8, 10)).toBe(5); // the corner (5, 6): 3 across, 4 down
+  });
+});
+
+describe('slice 2: the garrison volume', () => {
+  it('R is the footprint half-diagonal + 0.25 t: a 3 x 3 house gives 2.371 t, a 2 x 2 one 1.664 t', () => {
+    expect(garrisonCutRadius(10, 10, 12, 12)).toBeCloseTo(2.3713, 4);
+    expect(garrisonCutRadius(5, 5, 6, 6)).toBeCloseTo(1.6642, 4);
+  });
+
+  it('a garrison key never meets a unit index', () => {
+    expect(garrisonCutKey(0)).toBe(-1);
+    expect(garrisonCutKey(7)).toBe(-8);
+  });
+
+  it('the volume carries its own R through the iris', () => {
+    const t = new CutawayTable();
+    t.step([{ ...trigger(-1, 99, true), r: 2.5 }], 300);
+    expect(t.volumes([])[0].r).toBe(2.5);
+  });
+
+  it('garrisons first (L8): eight selected units nearer the focus and one garrison keep the garrison', () => {
+    const t = new CutawayTable();
+    const eight = [1, 2, 3, 4, 5, 6, 7, 8].map((k) => trigger(k, k));
+    t.step([...eight, { ...trigger(-1, 1e6, true), x: 50 }], 300);
+    const xs = t.volumes([]).map((v) => v.cx);
+    expect(xs).toHaveLength(8);
+    expect(xs).toContain(50);
+    expect(xs).not.toContain(8);
+  });
+
+  it('a held garrison outranks a closing selection when the table overflows', () => {
+    const t = new CutawayTable();
+    t.step([1, 2, 3, 4, 5, 6, 7, 8].map((k) => trigger(k, k)), 300);
+    t.step([{ ...trigger(-1, 1e6, true), x: 50 }], 16);
+    expect(t.volumes([]).map((v) => v.cx)).toContain(50);
+  });
+});
+
+describe('slice 2: garrison stations', () => {
+  const inside = (pts: number[], minX: number, minY: number, maxX: number, maxY: number): void => {
+    for (let k = 0; k < pts.length; k += 2) {
+      expect(pts[k]).toBeGreaterThanOrEqual(minX + 0.3);
+      expect(pts[k]).toBeLessThanOrEqual(maxX + 1 - 0.3);
+      expect(pts[k + 1]).toBeGreaterThanOrEqual(minY + 0.3);
+      expect(pts[k + 1]).toBeLessThanOrEqual(maxY + 1 - 0.3);
+    }
+  };
+  it('a house with 4 slots: 4 distinct stations inside the footprint inset by 0.3 t, at least 0.3 t apart', () => {
+    const pts = garrisonStations(3, 10, 10, 12, 12, 4);
+    expect(pts).toHaveLength(8);
+    inside(pts, 10, 10, 12, 12);
+    for (let a = 0; a < 4; a++) {
+      for (let b = a + 1; b < 4; b++) {
+        expect(Math.hypot(pts[2 * a] - pts[2 * b], pts[2 * a + 1] - pts[2 * b + 1])).toBeGreaterThan(0.3);
+      }
+    }
+  });
+  it('pure: the same building gives the same stations every call; another building, other ones', () => {
+    expect(garrisonStations(3, 10, 10, 12, 12, 6)).toEqual(garrisonStations(3, 10, 10, 12, 12, 6));
+    expect(garrisonStations(4, 10, 10, 12, 12, 6)).not.toEqual(garrisonStations(3, 10, 10, 12, 12, 6));
+    inside(garrisonStations(9, 0, 0, 0, 0, 3), 0, 0, 0, 0);
   });
 });
