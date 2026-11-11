@@ -114,6 +114,15 @@ export interface RenderQuality {
    */
   physics?: PhysicsQuality;
   /**
+   * Soft particles (GH-1227 slice 1; `three/soft-depth.ts`, the design
+   * `docs/superpowers/specs/2026-11-11-soft-particles-design.md`): the
+   * flipbook's smoke pass fades its alpha by the scene depth where a billow
+   * meets the ground or a wall. WebGL2 only. Absent or `false` builds nothing
+   * and leaves every program byte for byte; NO preset sets it until the lead
+   * rules on the cost and the baseline move (the design's decisions table).
+   */
+  softParticles?: boolean;
+  /**
    * GH-1197 P2: the 3D debris pool (`three/units/debris-pool.ts`). `pool` pieces in all, a third per shape (0
    * builds none: `low` throws the dirt flipbook only); `shadows` casts them into the sun's map (`high` only).
    * Absent means `high`'s (`debrisQualityOf`). The design's cost table: high +3 colour and +3 shadow draws and

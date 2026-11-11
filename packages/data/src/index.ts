@@ -240,6 +240,8 @@ import armorPenetration from '../../../data/vfx/armor_penetration.json';
 import wreckSmoulder from '../../../data/vfx/wreck_smoulder.json';
 import apsLaunch from '../../../data/vfx/aps_launch.json';
 import demolitionBlast from '../../../data/vfx/demolition_blast.json';
+// GH-1197 P3: masonry dust at a building's hit face, spawned by name on an explosive direct-fire hit.
+import buildingHitDust from '../../../data/vfx/building_hit_dust.json';
 import smokeDischarge from '../../../data/vfx/smoke_discharge.json';
 // E6 (GH-274) chunk B: a swarm member shot down, thrown by id where it was hit.
 import swarmMemberDown from '../../../data/vfx/swarm_member_down.json';
@@ -699,6 +701,8 @@ export const vfxEmitters = [
   wreckSmoulder,
   apsLaunch,
   demolitionBlast,
+  // GH-1197 P3: by id (`BUILDING_HIT_DUST_EMITTER_ID`), at the hit face of a building an explosive round struck.
+  buildingHitDust,
   smokeDischarge,
   // E6 (GH-274) chunk B: a swarm member shot down (`SwarmBatch`'s 'down' event), by id.
   swarmMemberDown,

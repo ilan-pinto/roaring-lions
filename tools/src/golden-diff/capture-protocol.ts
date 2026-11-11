@@ -871,12 +871,20 @@ if (!document.getElementById('rl-capture-hide-feed')) {
  *  and a selection draws a ground ring, so a stray hover or selection at
  *  capture time is a real picture difference, not noise. Run after the final
  *  `step()` so it sees the state the screenshot will. Throws a named error in
- *  the page, which surfaces as a capture failure. */
+ *  the page, which surfaces as a capture failure.
+ *
+ *  GH-1225: no building is cut by the roof cutaway either (`cutawayCount`, the
+ *  buildings holding cut clones), so every gated scenario mints no cut
+ *  material: a cut outlives its trigger by the hold and the close, and a
+ *  selection cleared just before the capture would otherwise still show one. */
 export const CAPTURE_PRECONDITION_STATEMENTS = `
 {
   const _r = window.__lions.renderer;
   if (_r.selection.length !== 0) {
     throw new Error('capture precondition violated: renderer.selection.length is ' + _r.selection.length + ', expected 0');
+  }
+  if (_r.cutawayCount() !== 0) {
+    throw new Error('capture precondition violated: renderer.cutawayCount() is ' + _r.cutawayCount() + ', expected 0');
   }
   if (_r.hoverEntity !== -1) {
     throw new Error('capture precondition violated: renderer.hoverEntity is ' + _r.hoverEntity + ', expected -1');

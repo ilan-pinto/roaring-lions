@@ -105,14 +105,21 @@ function fallTime(y0: number, vy: number, h: number): number {
   return (vy + Math.sqrt(disc)) / DEBRIS_GRAVITY;
 }
 
+/** A directed throw (GH-1197 P3, a building hit): headings within `spreadRad` either side of `dirRad`. */
+export interface DebrisAim {
+  readonly dirRad: number;
+  readonly spreadRad: number;
+}
+
 /**
- * Plans one piece: index `k` of a landing at (x, z) whose ground stands at `y0`, thrown by `t`. `clod` picks the
- * size band. Everything else is hashed from the landing point and `k`. `groundAt(x, z)` is the drawn ground's
- * world Y.
+ * Plans one piece: index `k` of a landing at (x, z) whose launch base stands at `y0` (the ground, or a point on a
+ * wall), thrown by `t`. `clod` picks the size band. Everything else is hashed from the point and `k`. `groundAt(x,
+ * z)` is the drawn ground's world Y. With `aim`, the heading is inside the aim's cone rather than all round.
  */
 export function planDebris(
   x: number, y0: number, z: number, k: number, clod: boolean, t: DebrisThrow,
-  groundAt: (x: number, z: number) => number
+  groundAt: (x: number, z: number) => number,
+  aim?: DebrisAim
 ): DebrisPlan {
   const [sx, sz] = debrisSeed(x, z);
   const h = (salt: number): number => debrisHash(sx + salt * 7919, sz, k);
@@ -120,7 +127,7 @@ export function planDebris(
   // Bulk lands close (explosion-physics: "mostly steep, bulk lands close"): range is skewed toward the burst.
   const range = t.throwTiles * (0.25 + 0.75 * Math.pow(h(1), 1.5));
   const apex = Math.max(0.05, t.apexTiles * (0.35 + 0.65 * h(2)));
-  const heading = h(3) * Math.PI * 2;
+  const heading = aim ? aim.dirRad + (h(3) * 2 - 1) * aim.spreadRad : h(3) * Math.PI * 2;
   const vy = Math.sqrt(2 * g * apex);
   // The horizontal speed whose WHOLE travel on flat ground -- the flight back to the burst's own height, the bounce
   // and the slide -- is `range`, so a piece comes to rest inside the class's throw (the design: "54 pieces at rest

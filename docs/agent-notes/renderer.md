@@ -672,6 +672,27 @@ Design: `docs/superpowers/specs/2026-11-09-explosion-scale-and-building-physics-
   strict strike > barrage > shell order is kept for the emitter-drawn landings, and a drawn heavy class is held at or under a
   barrage round.
 
+## Roof cutaway, slice 1: the selected-unit cut (GH-1225)
+
+Design: `docs/superpowers/specs/2026-11-11-roof-cutaway-design.md` (Option A, L2-L8 ruled 10 Nov). Slice 1 is the WebGL2 colour
+pass for the SELECTED-unit trigger only; the garrison trigger and figure spread, the shadow and AO cut (a depth material), the merge
+with P4's `rl-holes` hook, and the TSL twin are later slices.
+
+- **Maths** (`units/building-cutaway.ts`): the constants, `cutawayOps<T>` against `Ops<T>` (reach `r + w`, the cut height sloping
+  from `yCut` to `yTop` over the band, the 0.03 t section cap), and `CutawayTable`, the live volumes keyed by unit index. The iris
+  scales R AND W together (a fresh cut takes nothing away), opens ease-out over 250 ms, holds 1.0 s after the trigger ends and
+  closes ease-in over 400 ms, on the FRAME clock (`frameDtMs`; a hit-stop holds it, a paused sim does not). At most 8 volumes:
+  triggered nearest the camera focus first, then the most-open closing ones.
+- **The hook** (`units/cut-material.ts`, key `rl-cut`): a per-building `DoubleSide` clone of the band material, minted when a
+  volume first reaches the building and released (meshes back on the band material, clones disposed) when none does. Every clone
+  binds ONE shared volume block (`uRlCutV`, a `Float32Array` of two `vec4` a volume, and `uRlCutN`) by reference; each building owns
+  its cap (ramp key 0) and interior (darkest key 0.6 toward `gunmetal.2`) colours, LINEAR. The GLSL is pinned line for line
+  against `cutawayOps` in `cut-material.test.ts`.
+- **No trigger, no change:** `updateCutaway` returns before anything while nothing is selected and nothing is open, so a capture
+  mints no material, program or uniform; the capture precondition asserts `renderer.cutawayCount() === 0` beside the selection
+  check. A cut building keeps its full art over its LOD1 twin; instanced per-tile sets take no cut; the node backend draws none
+  yet; `hideForGroundPhoto` forces the volume count to 0 for the minimap.
+
 ## The debris pool (GH-1197 P2)
 
 - **What throws it:** every landing that draws a P1 ring (`spawnReachFx` in `ThreeRenderer.ts`), with clods and chunks from
@@ -693,3 +714,22 @@ Design: `docs/superpowers/specs/2026-11-09-explosion-scale-and-building-physics-
 - **Cost (`RenderQuality.debris`):** high 1024 pieces with shadows (+3 colour, +3 shadow draws, <= 27.4k triangles of the
   design's 49k), medium 512 with none (+3, <= 6.9k of 12k), low none. `debris-pool.test.ts` is the cost test. The `debris` debug
   layer hides the pool; `blast:capture` has no `debris` toggle floor yet (no browser in P2).
+
+## Building hits (GH-1197 P3)
+
+- **Which hits:** only an explosive DIRECT-fire round (`apfsds`, `autocannon`, `atgm`, `rpg`, `heat`, `he`) fired at a
+  building (coordinator ruling Q2). `structureHit` names no weapon, so `onFire` files the round in `pendingStructShots`
+  (resolve tick: the fire tick for a bolt, `missileResolveTick` for a missile; the `pendingCharges` pattern) and the hit
+  that resolves it consumes it (`takeStructShot`). Small arms and the HMG keep today's centroid puff, an indirect hit adds
+  nothing (its landing throws ring and debris), a charge stays `eod_breach`. A missile fired at a building lands with its
+  ring but no ground debris (`MissileLanding.atStructure`), unless it missed.
+- **Where and which way (`units/building-hit.ts`):** the hit face is the footprint's nearest point to the shooter, its
+  normal the side that point is on, the hit 0.3-0.8 up the wall (hashed). The class debris (a mapped weapon's row at its
+  S; an unmapped one, `gun_120` or `kornet`, `direct_he` at its reference S: 12 + 8) leaves along the normal +-35 degrees
+  back toward the shooter (ruling Q3; the 60/40 bias "away" is the P5 collapse's). `planDebris` takes the `aim`.
+- **Colour:** the building type's `structures.json` colour key and the two darker keys on its ramp, every fourth piece
+  `gunmetal.2`. **Dust:** `data/vfx/building_hit_dust.json` (trigger `structure_hit`), 6 flipbook smoke billows in dust
+  tones for about 3 s at alpha 0.55, drifting out along the normal; its particle layer stands in until the atlases load.
+- **Limits:** at most one burst a building per 4 ticks (an autocannon lands ten rounds a second); nothing in a catch-up;
+  in versus nothing for a hostile hit on a building out of sight (`hostileEffectVisible`, the collapse's rule).
+- **Not here:** the char halo goes with the hole (P4, ruling Q1); holes (P4); the staged collapse (P5).

@@ -210,6 +210,16 @@ import { BlastRingPool, ringColorLinear } from './units/blast-ring';
 import { DebrisPool } from './units/debris-pool';
 import { debrisThrowFor, planDebris, restingPlan, type DebrisPlan } from './units/debris-flight';
 import { debrisKeysFor } from './units/debris-tone';
+import {
+  BUILDING_HIT_DUST_EMITTER_ID,
+  HIT_BURST_MIN_TICKS,
+  HIT_EJECTA_SPREAD_RAD,
+  HIT_HEIGHT_FRACTION,
+  HIT_STANDOFF_TILES,
+  hitFace,
+  masonryKeyFor,
+  masonryKeysFor,
+} from './units/building-hit';
 import { tileBaseToneHex } from './terrain/ground';
 import {
   AIR_STRIKE_IMPACT_POWER,
@@ -431,7 +441,7 @@ import {
   MISS_SCORCH_POWER,
 } from './units/missile-fx';
 import type { MissileLanding, TargetTrack } from './units/missiles';
-import { missileClassOf, missileDurationS, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
+import { missileClassOf, missileDurationS, missileResolveTick, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
 import { SwarmBatch, extractSwarmParts, newSwarmEntityScratch, type SwarmBatchEvent, type SwarmFrameEnvScratch } from './units/swarm-batch';
 import type { DiveRequest } from './units/swarm-layout';
 import { BEAM_CAPACITY, BeamBatch, vehicleMuzzleOf } from './units/beam-batch';
@@ -545,6 +555,18 @@ import {
 import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
 import { footprintCentre } from './units/footprint';
+import {
+  CUT_BAND_TILES,
+  CUT_HEIGHT_TILES,
+  CUT_ROOF_FALLBACK_TILES,
+  CUT_SELECT_RADIUS_TILES,
+  CutawayTable,
+  footprintDistance,
+  writeCutVolumes,
+  type CutTrigger,
+  type CutVolume,
+} from './units/building-cutaway';
+import { BuildingCutMaterials, createCutUniforms, cutColorsFor, type CutUniforms } from './units/cut-material';
 import { DEFAULT_BUILDING_FIT, buildingFitScale, type FitScale } from './units/building-fit';
 import {
   FX_RENDER_ORDER,
@@ -706,6 +728,7 @@ import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel, hazeAmountOps, HAZE_FORWARD } from './haze';
 import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
+import { SoftDepthSnapshot } from './soft-depth';
 import { FogOfWarPass } from './fog-pass';
 import { FOG_OFFMAP_FADE_TILES, FogUniforms, type FogPassLike } from './fog-spec';
 import { fogDim } from './fog-ops';
@@ -847,6 +870,18 @@ const RAGDOLL_SHOWCASE_DEATHS: readonly { tick: number; dx: number }[] = [
   { tick: 292, dx: 1 },
 ];
 const RAGDOLL_SHOWCASE_ID_BASE = 60_100;
+
+/** GH-1197 P3: the direct-fire classes whose hit on a building throws masonry from the hit face (the coordinator's
+ *  ruling Q2): one explosive round per shot. Small arms and the HMG keep today's centroid puff; indirect rounds add
+ *  nothing at the building (their landing throws its own); a charge is `eod_breach`. */
+const HIT_FACE_CLASSES: ReadonlySet<number> = new Set([
+  WEAPON_CLASS.apfsds,
+  WEAPON_CLASS.autocannon,
+  WEAPON_CLASS.atgm,
+  WEAPON_CLASS.rpg,
+  WEAPON_CLASS.heat,
+  WEAPON_CLASS.he,
+]);
 
 /** GH-1197: a loaded weapon's munition, its reach read off the weapon the sim built from the unit JSON
  *  (`splash_tiles`, or the bomblets' for a cluster round). Null for no weapon or one the table does not map. */
@@ -1381,6 +1416,8 @@ export class ThreeRenderer implements Renderer {
    *  keeps a composer-less path: the raw renderer, whose own `antialias:
    *  true` covers what SMAA covers in the game. */
   private post: PostChain | null = null;
+  /** GH-1227 slice 1: the soft-particle depth snapshot, built by `init` only for `quality.softParticles` (no preset sets it). */
+  private softDepth: SoftDepthSnapshot | null = null;
   /** CSS pixels, which is what `width`/`height` report -- see their own doc
    *  comment for why that is not the drawing buffer's size any more. */
   private cssWidth = 0;
@@ -2400,6 +2437,11 @@ export class ThreeRenderer implements Renderer {
    * they went off -- see `trigger-fx.ts`'s `PendingCharge`.
    */
   private readonly pendingCharges: PendingCharge[] = [];
+  /** GH-1197 P3: explosive direct-fire rounds in flight at a building, matched to the `structureHit` that resolves
+   *  them (the event names no weapon). The `pendingCharges` pattern. */
+  private readonly pendingStructShots: { shooter: number; structure: number; resolveTick: number; munition: Munition }[] = [];
+  /** GH-1197 P3: the last tick a building threw a hit-face burst (`HIT_BURST_MIN_TICKS`). */
+  private readonly structHitBurstTick = new Map<number, number>();
   /** Presentation sim time at the last `updateFx`, null before the first. */
   /** Presentation sim time at the last `frame()`, null before the first. */
   private lastFrameSimMs: number | null = null;
@@ -2734,6 +2776,19 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly buildingScars = new Map<string, BuildingScarMaterials>();
   private readonly buildingDamageBand = new Map<number, number>();
+  /**
+   * GH-1225 slice 1, the roof cutaway (`units/building-cutaway.ts`, `units/cut-material.ts`): the live volumes, keyed by the
+   * selected unit that asked for each, on the FRAME clock; the shared volume block every cut clone binds by reference, minted on
+   * the first cut and never before; and the buildings a volume reaches now, each with its cut clones and the root they were put
+   * on. Empty while nothing is selected, so a gated capture mints nothing (`cutawayCount`). Presentation only (invariant 4).
+   */
+  private readonly cutaway = new CutawayTable();
+  private cutUniforms: CutUniforms | null = null;
+  private readonly buildingCuts = new Map<number, { root: THREE.Object3D; mats: BuildingCutMaterials }>();
+  /** Each standing clone's drawn roof, world Y (tiles), read once from its frozen bounds: a standing building never moves. */
+  private readonly buildingRoofY = new Map<number, { root: THREE.Object3D; y: number }>();
+  private readonly cutTriggers: CutTrigger[] = [];
+  private readonly cutVolumes: CutVolume[] = [];
   /**
    * GH-31, the vehicle half: the per-TYPE memo of scarred hull materials
    * (`units/vehicle-damage.ts`). The band each hull is drawn at lives on the
@@ -3804,6 +3859,13 @@ export class ThreeRenderer implements Renderer {
     // `setFogPass`'s again: `dispose()` below frees it.
     this.bloomPass = bloomPassFor(quality, this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
     if (this.bloomPass) this.post.setBloomPass(this.bloomPass);
+    // GH-1227 slice 1: soft particles, opt-in (no preset sets it). The snapshot copies only from the
+    // composer's own two buffers; its sentinel is the first transparent draw (`soft-depth.ts`).
+    if (quality.softParticles === true) {
+      this.softDepth = new SoftDepthSnapshot([this.post.composer.renderTarget1, this.post.composer.renderTarget2]);
+      this.scene.add(this.softDepth.sentinel);
+      this.flipbook.setSoftDepth(this.softDepth);
+    }
     // Shell upgrade Phase 0: the corner vignette, on display-referred colour
     // (after the tone map, before SMAA). Since GH-829 it is folded into
     // `OutputPass`'s shader, so there is nothing to build, slot or free: the
@@ -4364,6 +4426,11 @@ export class ThreeRenderer implements Renderer {
     // dangling it would otherwise be a map full of stale `THREE.Object3D`
     // references after this method returns.
     this.buildingMeshSettling.clear();
+    // GH-1225: the cut clones, on the same footing as the scar clones below.
+    for (const cut of this.buildingCuts.values()) cut.mats.dispose();
+    this.buildingCuts.clear();
+    this.buildingRoofY.clear();
+    this.cutaway.clear();
     // The scar clones before their templates: a clone shares its base's
     // map by reference and must not outlive the template that owns it.
     for (const scars of this.buildingScars.values()) scars.dispose();
@@ -4472,6 +4539,9 @@ export class ThreeRenderer implements Renderer {
     this.post?.setBloomPass(null);
     this.bloomPass?.dispose();
     this.bloomPass = null;
+    // GH-1227: the soft-particle snapshot (its sentinel leaves the scene with it).
+    this.softDepth?.dispose();
+    this.softDepth = null;
     // The skirt's geometry and material -- added once in the constructor, so
     // no `scene.remove`, exactly like `smokeMesh`/`trailMesh` below.
     disposeSkirt(this.skirtMesh);
@@ -4653,6 +4723,8 @@ export class ThreeRenderer implements Renderer {
     // frame late and hand the last frame of it to a swap that already ran.
     this.stepCollapseShrouds(dtMs);
     this.updateBuildingMeshes();
+    // GH-1225: after the clones it cuts are stood up (or taken down) this frame.
+    this.updateCutaway(alpha, dtMs);
     this.stepBuildingMeshSettle(this.frameDtSeconds(dtMs));
     this.stepBuildingBurning(dtMs);
     this.updateFx(dtMs, alpha);
@@ -5799,6 +5871,8 @@ export class ThreeRenderer implements Renderer {
     const overlayObjects = this.overlayLayerObjects();
     const overlayObjectsWere = overlayObjects.map((o) => o.visible);
     const rainWasVisible = this.rain?.mesh.visible ?? false;
+    // GH-1225: the minimap is a map-wide photograph of the UNCUT footprints: the cutaway's volume count is forced to 0 for it.
+    const cutsWere = this.cutUniforms?.uRlCutN.value ?? 0;
     // GH-1197 P2: the debris pool is a one-off effect, not ground: the minimap never photographs a flying chunk.
     // Its GROUP is hidden, so the pool's own per-mesh `visible` (its live window) is left alone.
     const debrisWasVisible = this.debris?.group.visible ?? false;
@@ -5807,12 +5881,14 @@ export class ThreeRenderer implements Renderer {
       overlayObjects.forEach((o, k) => (o.visible = overlayObjectsWere[k] ?? o.visible));
       this.setDebugLayerVisible('units', unitsWereVisible);
       if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
+      if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = cutsWere;
       if (this.debris !== null) this.debris.group.visible = debrisWasVisible;
     };
     try {
       this.setDebugLayerVisible('units', false);
       this.setDebugLayerVisible('overlays', false);
       if (this.rain !== null) this.rain.mesh.visible = false;
+      if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = 0;
       if (this.debris !== null) this.debris.group.visible = false;
       this.fitShadowToMap();
     } catch (err) {
@@ -6692,6 +6768,9 @@ export class ThreeRenderer implements Renderer {
         // with the blast (`eod_breach`).
         if (this.detonateChargeOnStructure(e.by, hitStruct, e.tick)) {
           // The blast is the whole effect.
+        } else if (this.takeStructShot(e.by, hitStruct, e.tick)) {
+          // GH-1197 P3: an explosive direct-fire round: masonry and dust from the hit face (or nothing, in fog
+          // or during a catch-up), in place of the centroid puff.
         } else if (this.quiet) {
           // A tick far behind the live edge: the building's damage above is
           // kept, the dust it threw is not.
@@ -6931,6 +7010,21 @@ export class ThreeRenderer implements Renderer {
         resolveTick: demolitionResolveTick(e.tick, Math.hypot(ax - sx, ay - sy)),
       });
     }
+    // GH-1197 P3: an explosive direct-fire round at a building is matched to the hit that resolves it, which throws
+    // masonry from the hit face. Registered whatever the fog: the hit decides what is drawn.
+    if (atStruct && wp !== undefined && HIT_FACE_CLASSES.has(cls)) {
+      const sx = fx.toNumber(st.posX[e.shooter]);
+      const sy = fx.toNumber(st.posY[e.shooter]);
+      const dist = Math.hypot(tx - sx, ty - sy);
+      const direct = munitionRow('direct_he');
+      this.pendingStructShots.push({
+        shooter: e.shooter,
+        structure: e.structure as number,
+        resolveTick: shellKind === 'missile' ? missileResolveTick(cls, dist, e.tick) : e.tick,
+        munition: weaponMunition(wp) ?? { cls: 'direct_he', splash: direct.reference_splash_tiles },
+      });
+      if (this.pendingStructShots.length > 64) this.pendingStructShots.shift();
+    }
 
     // Latch the fire clip for its own declared duration (renderer.ts:772-777)
     // -- WHOSE duration decided by which asset is actually drawing this
@@ -7083,6 +7177,7 @@ export class ThreeRenderer implements Renderer {
       // GH-1197: a missile with a reach (Hellfire, RPG) draws its ring where it lands.
       const missileMunition = weaponMunition(wp);
       if (missile !== null && missileMunition !== null) missile.munition = missileMunition;
+      if (missile !== null && atStruct) missile.atStructure = true;
       const mcls = missileClassOf(cls);
       flightS = Math.hypot(tx - this.curX[e.shooter], ty - this.curY[e.shooter]) / SIM_PROJ_SPEED_TILES_S[mcls ?? 'atgm'];
     } else if (shellKind !== null) {
@@ -11763,7 +11858,8 @@ export class ThreeRenderer implements Renderer {
     for (const [s, twin] of this.buildingMeshLod1Entities) {
       const full = this.buildingMeshIdleEntities.get(s);
       if (full === undefined) continue;
-      const showTwin = !this.buildingLayerHidden && lod1Shown(this.buildingLodOn, this.buildingDamageBand.get(s));
+      // GH-1225: a cut building keeps its full art, as a scarred one does (the twin has no cut).
+      const showTwin = !this.buildingLayerHidden && lod1Shown(this.buildingLodOn, this.buildingDamageBand.get(s)) && !this.buildingCuts.has(s);
       twin.visible = showTwin;
       full.visible = !this.buildingLayerHidden && !showTwin;
     }
@@ -11974,8 +12070,12 @@ export class ThreeRenderer implements Renderer {
       scars = new BuildingScarMaterials();
       this.buildingScars.set(typeId, scars);
     }
-    if (root) applyBuildingDamageBand(root, band, scars);
-    else {
+    if (root) {
+      applyBuildingDamageBand(root, band, scars);
+      // GH-1225: a cut building stays cut across a band change: the cut clones of the new band's materials.
+      const cut = this.buildingCuts.get(s);
+      if (cut !== undefined && cut.root === root) this.applyBuildingCut(s, root, cut.mats);
+    } else {
       // One set per scar band, none for the clean three: bands 8-6 share the
       // template's own material, so they share one set too.
       this.structureInstances.setIdleState(s, scarMixForBand(band) === 0 ? 0 : band, this.scarMaterialFor(typeId));
@@ -11989,6 +12089,147 @@ export class ThreeRenderer implements Renderer {
     } else {
       this.buildingBurning.delete(s);
     }
+  }
+
+  /**
+   * GH-1225 slice 1: how many buildings are cut now (hold cut clones). 0 whenever nothing has been selected beside a building
+   * for the last `CUT_HOLD_MS + CUT_CLOSE_MS`, which is what the visual gate's capture precondition asserts.
+   */
+  cutawayCount(): number {
+    return this.buildingCuts.size;
+  }
+
+  /**
+   * GH-1225 slice 1, the roof cutaway on the FRAME clock: the selection's triggers into the volume table, the table into the
+   * shared volume block, and the cut clones onto exactly the clone-drawn buildings a volume reaches (released from the rest).
+   * Returns before touching anything while nothing is selected and nothing is open, so a frame with no selection does no new
+   * work and binds nothing. Instanced per-tile sets take no cut. The node backend draws none (the TSL twin is a later slice).
+   */
+  private updateCutaway(alpha: number, dtMs: number): void {
+    if (this.nodeBackend !== null) return;
+    const triggers = this.cutTriggers;
+    triggers.length = 0;
+    if (this.selection.length > 0 && this.buildingMeshIdleEntities.size > 0) this.collectCutTriggers(alpha, triggers);
+    if (triggers.length === 0 && this.cutaway.size === 0 && this.buildingCuts.size === 0) return;
+    this.cutaway.step(triggers, this.frameDtMs(dtMs));
+    const vols = this.cutaway.volumes(this.cutVolumes);
+    if (vols.length > 0 && this.cutUniforms === null) this.cutUniforms = createCutUniforms();
+    if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = writeCutVolumes(vols, this.cutUniforms.uRlCutV.value);
+    const st = this.sim.structures;
+    let changed = false;
+    for (const [s, root] of this.buildingMeshIdleEntities) {
+      let reached = false;
+      if (st.alive[s] === 1) {
+        for (const v of vols) {
+          if (footprintDistance(st.minX[s], st.minY[s], st.maxX[s], st.maxY[s], v.cx, v.cz) < v.r + v.w) {
+            reached = true;
+            break;
+          }
+        }
+      }
+      const cut = this.buildingCuts.get(s);
+      if (reached && (cut === undefined || cut.root !== root)) {
+        if (cut !== undefined) this.dropBuildingCut(s);
+        const type = this.sim.structureTypes[st.typeIdx[s]];
+        const mats = new BuildingCutMaterials(this.cutUniforms!, cutColorsFor(type.color));
+        this.buildingCuts.set(s, { root, mats });
+        this.applyBuildingCut(s, root, mats);
+        changed = true;
+      } else if (!reached && cut !== undefined) {
+        this.releaseBuildingCut(s);
+        changed = true;
+      }
+    }
+    // A cut whose clone left the scene (death, a template reload) goes with it.
+    for (const [s, cut] of this.buildingCuts) {
+      if (this.buildingMeshIdleEntities.get(s) !== cut.root) {
+        this.dropBuildingCut(s);
+        changed = true;
+      }
+    }
+    if (changed) this.stepLod1(this.camera.zoom);
+  }
+
+  /** Every selected unit this seat may see that stands within `CUT_SELECT_RADIUS_TILES` of a standing clone's footprint, where
+   *  it is drawn this frame, with its cut height and the tallest roof in its reach. */
+  private collectCutTriggers(alpha: number, out: CutTrigger[]): void {
+    const st = this.sim.state;
+    const ss = this.sim.structures;
+    const n = this.snapshottedCount;
+    const reach = CUT_SELECT_RADIUS_TILES + CUT_BAND_TILES;
+    for (const i of this.selection) {
+      if (i >= n || st.alive[i] !== 1 || st.tunnelIn[i] >= 0) continue;
+      const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      if (!isOwnSide(st.side[i], this.fogViewer) && !this.isVisible(x, z)) continue;
+      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z) + CUT_HEIGHT_TILES;
+      let near = false;
+      let yTop = -Infinity;
+      for (const [s, root] of this.buildingMeshIdleEntities) {
+        if (ss.alive[s] !== 1) continue;
+        const d = footprintDistance(ss.minX[s], ss.minY[s], ss.maxX[s], ss.maxY[s], x, z);
+        if (d >= reach) continue;
+        const roof = this.roofYOf(s, root);
+        // A structure no taller than the cut (a sandbag line) has nothing to take away.
+        if (roof <= yCut) continue;
+        if (d <= CUT_SELECT_RADIUS_TILES) near = true;
+        if (roof > yTop) yTop = roof;
+      }
+      if (!near) continue;
+      const dx = x - this.camera.x;
+      const dz = z - this.camera.y;
+      out.push({ key: i, x, z, yCut, yTop, focusDist2: dx * dx + dz * dz });
+    }
+  }
+
+  /** Building `s`'s drawn roof, world Y: its clone's bounds, read once (a standing building never moves). */
+  private roofYOf(s: number, root: THREE.Object3D): number {
+    const known = this.buildingRoofY.get(s);
+    if (known !== undefined && known.root === root) return known.y;
+    const box = new THREE.Box3().setFromObject(root);
+    const y = box.isEmpty() ? root.position.y + CUT_HEIGHT_TILES + CUT_ROOF_FALLBACK_TILES : box.max.y;
+    this.buildingRoofY.set(s, { root, y });
+    return y;
+  }
+
+  /** Puts building `s`'s cut clones of its CURRENT band materials on every mesh of `root`. */
+  private applyBuildingCut(s: number, root: THREE.Object3D, mats: BuildingCutMaterials): void {
+    const sc = this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id);
+    const band = this.buildingDamageBand.get(s) ?? 8;
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      // Through the scar memo FIRST: it records each mesh's own base the first time it sees it, so a mesh is never taken
+      // to have been born with a cut clone.
+      mesh.material = mats.materialFor(sc.materialFor(mesh, band));
+    });
+  }
+
+  /** Building `s` leaves the cut: its meshes back on their band materials, and its clones released. */
+  private releaseBuildingCut(s: number): void {
+    const cut = this.buildingCuts.get(s);
+    if (cut === undefined) return;
+    const band = this.buildingDamageBand.get(s) ?? 8;
+    applyBuildingDamageBand(cut.root, band, this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id));
+    this.dropBuildingCut(s);
+  }
+
+  /** Releases building `s`'s cut clones without touching its meshes (its clone is gone, or about to be re-cut). */
+  private dropBuildingCut(s: number): void {
+    const cut = this.buildingCuts.get(s);
+    if (cut === undefined) return;
+    cut.mats.dispose();
+    this.buildingCuts.delete(s);
+  }
+
+  /** The per-type scar memo, minted on first use. */
+  private scarsFor(typeId: string): BuildingScarMaterials {
+    let scars = this.buildingScars.get(typeId);
+    if (!scars) {
+      scars = new BuildingScarMaterials();
+      this.buildingScars.set(typeId, scars);
+    }
+    return scars;
   }
 
   /**
@@ -12593,6 +12834,8 @@ export class ThreeRenderer implements Renderer {
     // shades its billows toward the sun as the camera sees it: the sun's
     // direction on the camera's right/up axes. A few multiplies a frame.
     this.flipbook.step(dtMs);
+    // GH-1227: the soft-particle snapshot is taken only while the smoke pass draws.
+    this.softDepth?.sync([this.flipbook.mesh]);
     // GH-1197 P2: debris flies on the same frame clock (hit-stop freezes it mid-air) and fades on the sim clock.
     this.debris?.step(dtMs, presentationSimMs(this.sim.tickCount, alpha ?? 0));
     {
@@ -12824,10 +13067,77 @@ export class ThreeRenderer implements Renderer {
    * during a catch-up (`setQuiet`); the debris is world state for 90 s, so a catch-up places it at rest.
    * No munition, nothing.
    */
-  private spawnReachFx(m: Munition | null | undefined, x: number, y: number): void {
+  private spawnReachFx(m: Munition | null | undefined, x: number, y: number, debris = true): void {
     if (m === null || m === undefined) return;
     if (!this.quiet) this.blastRings.spawn(x, y, ringSpecFor(m));
-    if (this.debris !== null && m.splash > 0) this.spawnDebris(m, x, y);
+    if (debris && this.debris !== null && m.splash > 0) this.spawnDebris(m, x, y);
+  }
+
+  /**
+   * GH-1197 P3: a `structureHit` that resolves an explosive direct-fire round (`pendingStructShots`). True when it
+   * did, so the caller draws no centroid puff for it. The burst itself is thrown only out of a catch-up, where the
+   * versus seat can see the building (`hostileEffectVisible`, a hostile hit in fog draws nothing), and at most once
+   * per `HIT_BURST_MIN_TICKS` a building.
+   */
+  private takeStructShot(by: number, structure: number, tick: number): boolean {
+    const list = this.pendingStructShots;
+    for (let i = list.length - 1; i >= 0; i--) if (list[i].resolveTick < tick - 40) list.splice(i, 1);
+    const k = list.findIndex((p) => p.shooter === by && p.structure === structure && tick >= p.resolveTick - 1);
+    if (k < 0) return false;
+    const shot = list[k];
+    list.splice(k, 1);
+    if (this.quiet) return true;
+    if (!hostileEffectVisible(this.versus, this.structureIsOwn(structure), this.footprintInSight(structure))) return true;
+    if (tick - (this.structHitBurstTick.get(structure) ?? -1e9) < HIT_BURST_MIN_TICKS) return true;
+    this.structHitBurstTick.set(structure, tick);
+    this.spawnBuildingHitFx(structure, by, shot.munition, tick);
+    return true;
+  }
+
+  /**
+   * GH-1197 P3: the hit face of `structure` struck by a round from `shooter`: the class's debris (clods and chunks,
+   * all masonry here) thrown along the face normal +-35 degrees back toward the shooter, from a point 0.3-0.8 up
+   * the wall, in the building's own ramp with a quarter charred; and the masonry dust (`building_hit_dust`) at the
+   * face. Never at the centroid. Returns the pieces placed.
+   */
+  private spawnBuildingHitFx(structure: number, shooter: number, m: Munition, tick: number): number {
+    const st = this.sim.structures;
+    const sx = shooter >= 0 && shooter < this.curX.length ? this.curX[shooter] : fx.toNumber(st.cx[structure]) + 1;
+    const sy = shooter >= 0 && shooter < this.curY.length ? this.curY[shooter] : fx.toNumber(st.cy[structure]);
+    const face = hitFace(st.minX[structure], st.minY[structure], st.maxX[structure], st.maxY[structure], sx, sy);
+    const px = face.x + face.nx * HIT_STANDOFF_TILES;
+    const py = face.y + face.ny * HIT_STANDOFF_TILES;
+    const type = this.sim.structureTypes[st.typeIdx[structure]];
+    const height = this.buildingMeshBounds.get(type.id)?.y ?? type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+    const frac = HIT_HEIGHT_FRACTION[0] + (HIT_HEIGHT_FRACTION[1] - HIT_HEIGHT_FRACTION[0]) * tileHash(tick, structure);
+    const groundY = this.ringHeightAt(px, py);
+    const hitY = groundY + height * frac;
+    const dirRad = Math.atan2(face.ny, face.nx);
+    // The dust, at the face, drifting out along its normal.
+    const em = this.emitterLibrary.byName(BUILDING_HIT_DUST_EMITTER_ID);
+    const recipe = this.flipbookRecipeOf(em);
+    if (recipe) this.flipbook.spawnRecipe(recipe, px, hitY, py, 0, dirRad, groundY);
+    else if (em && this.particleSystem) {
+      const prio = em.budget_priority ?? 6;
+      for (const layer of em.particles) {
+        this.particleSystem.spawn(layer, px, py, dirRad / (Math.PI * 2), 1, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+      }
+    }
+    const pool = this.debris;
+    if (pool === null) return 0;
+    const row = munitionRow(m.cls);
+    const t = debrisThrowFor(row.debris, m.splash, row.reference_splash_tiles);
+    const n = t.clods + t.chunks;
+    const keys = masonryKeysFor(type.color);
+    const plans: DebrisPlan[] = [];
+    const colors: THREE.Color[] = [];
+    // A per-hit salt, so two hits on one face do not throw the identical spray; still a function of sim data.
+    const salt = (tick % 4096) * 64;
+    for (let k = 0; k < n; k++) {
+      plans.push(planDebris(px, hitY, py, salt + k, k < t.clods, t, this.ringHeightAt, { dirRad, spreadRad: HIT_EJECTA_SPREAD_RAD }));
+      colors.push(ringColorLinear(paletteHex(masonryKeyFor(keys, k))));
+    }
+    return pool.spawn(plans, colors);
   }
 
   /** GH-1197 P2: the debris of one landing into the pool. Returns how many pieces were placed. */
@@ -12908,10 +13218,11 @@ export class ThreeRenderer implements Renderer {
    * `scale` rather than x `impactPower` (P-4), and there is no hit-stop and no
    * crater: a kill already owns the blast. A miss marks the ground.
    */
-  private spawnMissileImpactFx(l: Pick<MissileLanding, 'x' | 'y' | 'headingTurns' | 'power' | 'scale' | 'miss' | 'munition'>): void {
+  private spawnMissileImpactFx(l: Pick<MissileLanding, 'x' | 'y' | 'headingTurns' | 'power' | 'scale' | 'miss' | 'munition' | 'atStructure'>): void {
     // GH-1197: a landing with a reach (a missile with a splash, a kamikaze's warhead, a swarm's bomblet)
     // draws its two-part ring; an intercept carries no munition and bursts in the air with none.
-    this.spawnReachFx(l.munition, l.x, l.y);
+    // A round fired at a building throws masonry from its hit face instead (P3); a miss still marks the ground.
+    this.spawnReachFx(l.munition, l.x, l.y, !(l.atStructure === true && !l.miss));
     const em = this.emitterLibrary.byName(MISSILE_IMPACT_EMITTER_ID);
     const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, l.x, l.y);
     // Defilade T4 (D6): `missile_impact`'s flipbook recipe replaces its
