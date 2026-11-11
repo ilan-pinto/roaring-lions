@@ -12101,10 +12101,10 @@ export class ThreeRenderer implements Renderer {
    * GH-1225 slice 1, the roof cutaway on the FRAME clock: the selection's triggers into the volume table, the table into the
    * shared volume block, and the cut clones onto exactly the clone-drawn buildings a volume reaches (released from the rest).
    * Returns before touching anything while nothing is selected and nothing is open, so a frame with no selection does no new
-   * work and binds nothing. Instanced per-tile sets take no cut. The node backend draws none (the TSL twin is a later slice).
+   * work and binds nothing. Instanced per-tile sets take no cut. GH-1225 slice 3: the node backend runs the same table and draws
+   * the cut through the TSL twin (`units/building-cut.node.ts`), adopted at the skin write (`applyBuildingSkin`).
    */
   private updateCutaway(alpha: number, dtMs: number): void {
-    if (this.nodeBackend !== null) return;
     const triggers = this.cutTriggers;
     triggers.length = 0;
     if (this.buildingMeshIdleEntities.size > 0) {
@@ -12281,6 +12281,8 @@ export class ThreeRenderer implements Renderer {
       if (mask.ao !== undefined) mesh.userData.rlCutAo = mask.ao;
       else delete mesh.userData.rlCutAo;
     });
+    // GH-1225 slice 3 (L7): on the node backend the holed and/or cut clone draws through its TSL twin from this frame on.
+    this.queueNodeAdoption(root);
   }
 
   /** Building `s` leaves the cut: its meshes back on their band materials, and its clones released. */

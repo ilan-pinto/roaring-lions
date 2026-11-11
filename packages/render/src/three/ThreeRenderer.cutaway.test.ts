@@ -433,3 +433,33 @@ describe('roof cutaway slice 2: the shadow and AO depth cut (L5)', () => {
     });
   });
 });
+
+describe('roof cutaway slice 3: the node backend runs the cut and adopts its twin (GH-1225, L7)', () => {
+  /** The renderer as a node boot sees it: a backend present, the node path wanted, no WebGL renderer built. */
+  const asNode = (priv: Private): Set<THREE.Object3D> => {
+    const p = priv as unknown as { nodeBackend: unknown; nodeWanted: boolean; glRenderer: unknown; pendingAdoption: Set<THREE.Object3D> };
+    p.nodeBackend = {};
+    p.nodeWanted = true;
+    p.glRenderer = null;
+    return p.pendingAdoption;
+  };
+
+  it('nothing selected: no cut, nothing queued for adoption', () => {
+    const { priv, renderer, frames } = arm([[8, 6]]);
+    const queued = asNode(priv);
+    frames(200);
+    expect(renderer.cutawayCount()).toBe(0);
+    expect(priv.cutUniforms).toBeNull();
+    expect(queued.size).toBe(0);
+  });
+
+  it('a selected unit beside the house cuts it on node too, and the cut root is queued for the twin on that frame', () => {
+    const { priv, renderer, root, units, frames } = arm([[8, 6]]);
+    const queued = asNode(priv);
+    renderer.selection = [units[0]];
+    frames(10);
+    expect(renderer.cutawayCount()).toBe(1);
+    expect(queued.has(root)).toBe(true);
+    for (const m of materialsOf(root)) expect(isCut(m)).toBe(true);
+  });
+});

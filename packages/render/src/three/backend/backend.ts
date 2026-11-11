@@ -45,6 +45,7 @@ import type { ZoneBandMaths } from '../units/zone-band.node';
 import type { SupplyRouteMaths } from '../supply-route.node';
 import type { XrayMaths } from '../tunnel-xray.node';
 import type { DecalMaths } from '../decal-pool.node';
+import type { BuildingCutMaths } from '../units/building-cut.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -93,6 +94,8 @@ export interface MaterialKit {
   /** The flipbook smoke and fire, and the smoke screen (T12). */
   flipbook: MaterialTwinFactory<THREE.ShaderMaterial> | null;
   smokeScreen: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** GH-1225 slice 3 (L7): a clone-drawn building's holed and/or cut colour clone, `rl-holes` / `rl-cut`. */
+  building: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
 }
 /**
  * GH-943 P2 (T1): the values bundle the material twins receive (`../material-maths.ts`'s `MATERIAL_MATHS`, the `OutputMaths`
@@ -137,6 +140,8 @@ export interface MaterialMaths {
   /** T12: the flipbook's motion, cover and shade (`units/flipbook-fx.node.ts`), and the smoke screen's (`smoke-mesh.node.ts`). */
   readonly flipbook: FlipbookMaths;
   readonly smokeScreen: SmokeScreenMaths;
+  /** GH-1225 slice 3 (L7): the holes and the roof cut (`units/building-cut.node.ts`). */
+  readonly building: BuildingCutMaths;
 }
 
 /**

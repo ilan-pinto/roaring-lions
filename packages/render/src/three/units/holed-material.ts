@@ -20,8 +20,8 @@
  * building that is also cut, whose depth and AO take ONE mask of holes and cut (`buildingMask`, GH-1225).
  *
  * `Material.clone()` drops `onBeforeCompile`, so the hook is put on every clone here, chained after any hook the base
- * already had; the program key is the base's plus `|rl-holes`. The node backend has no twin: there a holed building
- * draws its stock material, whole (the census names `rl-holes`).
+ * already had; the program key is the base's plus `|rl-holes`. The node backend draws the holes through the cut's TSL twin
+ * (GH-1225 slice 3, decision L7: `building-cut.node.ts`, reading `holesHookOf`).
  *
  * Positions are WORLD space, not the template's object space (the coordinator's ruling on PR 1221): a standing building
  * never moves or rotates at runtime -- it is placed once and frozen (`freezeStatic`), and its facing is gated
@@ -170,7 +170,7 @@ export interface HoleColors {
   readonly interior: THREE.Color;
 }
 
-interface HoleUniforms {
+export interface HoleUniforms {
   uRlHoleC: { value: THREE.Vector4[] };
   uRlHoleA: { value: THREE.Vector4[] };
   uRlHoleN: { value: number };
@@ -181,6 +181,14 @@ interface HoleUniforms {
 }
 
 const STOCK_HOOK = THREE.Material.prototype.onBeforeCompile;
+
+const holeHooks = new WeakMap<THREE.Material, HoleUniforms>();
+
+/** GH-1225 slice 3 (L7): the uniform record a holed colour clone's hook binds, or undefined for any other material. The TSL twin
+ *  (`building-cut.node.ts`) reads the holes through it, handed over as a value (`MATERIAL_MATHS`). */
+export function holesHookOf(m: THREE.Material): HoleUniforms | undefined {
+  return holeHooks.get(m);
+}
 
 function hook(material: THREE.Material, base: THREE.Material | null, uniforms: HoleUniforms, colour: boolean, key: string): void {
   const prior = base !== null && base.onBeforeCompile !== STOCK_HOOK ? base.onBeforeCompile : null;
@@ -229,6 +237,7 @@ export class BuildingHoleMaterials {
       holed.userData = { ...base.userData, rlHoles: true };
       hook(holed, base, this.uniforms, true, HOLES_PROGRAM_KEY);
       holed.needsUpdate = true;
+      holeHooks.set(holed, this.uniforms);
       this.byBase.set(base, holed);
     }
     return holed;
