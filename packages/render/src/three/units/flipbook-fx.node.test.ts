@@ -396,6 +396,18 @@ describe('G4: a late atlas is sampled', () => {
   });
 });
 
+describe('GH-1197: the per-instance alpha multiplier reaches the fragment', () => {
+  it('both passes, GLSL and WGSL: `aAlpha` is read through a varying (the multiply by vAlpha is in the graph)', async () => {
+    for (const pass of ['smoke', 'fire'] as const) {
+      const fx = new FlipbookFx(16);
+      const mesh = pass === 'fire' ? fx.fireMesh : fx.mesh;
+      await adoptFx(mesh);
+      expect((await compileFx(mesh)).vertex, `${pass} GLSL`).toContain('aAlpha');
+      expect((await compileWgsl(mesh)).vertex, `${pass} WGSL`).toContain('aAlpha');
+    }
+  });
+});
+
 describe('G2: no implicit-gradient tap inside a branch (both atlases sampled unconditionally)', () => {
   it('GLSL and WGSL, both passes: the four taps are top-level statements', async () => {
     for (const pass of ['smoke', 'fire'] as const) {
