@@ -1858,5 +1858,15 @@
   "profile.result.steam": "Steam did not answer. Try again in a minute.",
   "profile.result.closed": "New accounts are not open yet.",
   "profile.result.limit": "Too many sign-ins from here. Try again later.",
-  "profile.result.taken": "That Steam account belongs to another player."
+  "profile.result.taken": "That Steam account belongs to another player.",
+  "versus.seat.member": "Member",
+  "versus.seat.guest": "Guest",
+  "versus.seat.bot": "Bot",
+  "versus.seat.record": "{won}-{lost}",
+  "versus.seat.record.drawn": "{won}-{lost}-{drawn}",
+  "bot.model.scripted": "Scripted",
+  "bot.model.claude-opus-5-5": "Claude Opus 5.5",
+  "bot.model.claude-sonnet-5-5": "Claude Sonnet 5.5",
+  "bot.model.claude-haiku-5-5": "Claude Haiku 5.5",
+  "bot.model.claude-fable-5-2": "Claude Fable 5.2"
 }

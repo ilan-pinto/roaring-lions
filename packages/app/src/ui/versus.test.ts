@@ -1101,7 +1101,7 @@ describe('showVersusRoom (/versus/:code) with the lobby handed from /versus', ()
     dispose();
     expect(fake.close).not.toHaveBeenCalled();
     expect(fake.detach).not.toHaveBeenCalled();
-    expect(takeHanded('ABCDEF')).toEqual({ transport, seat: 0, config });
+    expect(takeHanded('ABCDEF')).toMatchObject({ transport, seat: 0, config });
   });
 
   it('the disposer before the start says bye (closes)', async () => {
@@ -1499,5 +1499,70 @@ describe('the lobby: invite an advisor, and the advisor badge (N4a Task 9)', () 
     assist.checked = true;
     assist.dispatchEvent(new Event('change', { bubbles: true }));
     expect(missingKeys()).toEqual([]);
+  });
+});
+
+describe('members, guests and bots (GH-1075 A3, Task 3.7)', () => {
+  const lobbyOf = (seats: SeatState[]) => ({ seats, map: 'tel_marum', factions: ['kdf', 'kdf'] as ['kdf', 'kdf'], kit: 'matched' as const });
+  const MEMBER_SEATS: SeatState[] = [
+    { seat: 0, callsign: 'Ari', connected: true, ready: false },
+    { seat: 1, callsign: 'ignored', connected: true, ready: false, member: { name: 'Ilan', publicId: 'K7Q2M4XA', record: { won: 3, lost: 1, drawn: 0 } } },
+  ];
+  async function hosted(seats: SeatState[]) {
+    const { fake, transport } = fakeTransport();
+    const d = deps({ open: vi.fn().mockResolvedValue(opened(transport, { lobby: lobbyOf(seats) })) });
+    const entry = document.createElement('div');
+    const leave = showVersus(entry, d);
+    entry.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+    await flush();
+    leave();
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    room(stage, 'ABCDEF', d);
+    return { fake, transport, stage };
+  }
+
+  it('the lobby shows members, guests and bots', async () => {
+    setCatalogue('en', en);
+    const { stage } = await hosted([...MEMBER_SEATS.slice(0, 1), { ...MEMBER_SEATS[1]! }]);
+    const card1 = stage.querySelector('.rl-versus__seat[data-seat="1"]')!;
+    expect(card1.querySelector('.rl-versus__name')!.textContent).toBe('Ilan · K7Q2M4XA');
+    expect(card1.querySelector('.rl-versus__record')!.textContent).toBe('3-1');
+    const card0 = stage.querySelector('.rl-versus__seat[data-seat="0"]')!;
+    expect(card0.querySelector('.rl-versus__name')!.textContent).toBe('Ari');
+    expect(card0.querySelector('.rl-versus__tag')!.textContent).toBe('Guest');
+    const bot = await hosted([{ seat: 0, callsign: 'Ari', connected: true, ready: false }, { seat: 1, callsign: 'B', connected: true, ready: false, kind: 'bot' }]);
+    expect(bot.stage.querySelector('.rl-versus__seat[data-seat="1"] .rl-versus__tag')!.textContent).toBe('Bot');
+  });
+  it('?pseudo=1 brackets every tag', async () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const { stage } = await hosted(MEMBER_SEATS);
+      const tags = [...stage.querySelectorAll('.rl-versus__tag')].map((x) => x.textContent ?? '');
+      expect(tags.length).toBe(2);
+      for (const tg of tags) expect(tg).toMatch(/^⟦[\s\S]*⟧$/);
+    } finally { setCatalogue('en', en); }
+  });
+  it('a_typed_model_is_text_not_html', async () => {
+    setCatalogue('en', en);
+    const { stage } = await hosted([{ seat: 0, callsign: 'Ari', connected: true, ready: false }, { seat: 1, callsign: 'B', connected: true, ready: false, kind: 'bot', botModel: { id: 'other', name: '<b>x</b>' } }]);
+    expect(stage.querySelector('.rl-versus__model')!.textContent).toBe('<b>x</b>');
+    expect(stage.querySelector('.rl-versus__seat b')).toBeNull();
+  });
+  it('chat_names_use_the_label', async () => {
+    setCatalogue('en', en);
+    const { fake, stage } = await hosted(MEMBER_SEATS);
+    fake.hooks.onChat?.(1, 'hello');
+    expect(stage.querySelector('.rl-chat__line')!.textContent).toContain('Ilan · K7Q2M4XA');
+  });
+  it('labels_reach_the_match', async () => {
+    setCatalogue('en', en);
+    const { fake, transport } = await hosted(MEMBER_SEATS);
+    const config = { code: 'ABCDEF', map: 'tel_marum', mode: 'versus', seats: [{ callsign: 'Ari' }, { callsign: 'Lion' }] } as unknown as MatchConfig;
+    fake.hooks.onStart?.(config);
+    const handed = takeHanded('ABCDEF');
+    expect(handed?.transport).toBe(transport);
+    expect(handed?.labels?.[1]?.text).toBe('Ilan · K7Q2M4XA');
+    expect(handed?.labels?.[0]?.text).toBe('Ari');
   });
 });

@@ -286,6 +286,7 @@ import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, flagSetupRoom, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
+import { nameFrom } from './net/seat-label';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
@@ -2014,6 +2015,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   onDispose(() => transport.close());
   const netSeat: Seat | null = match.seat;
   const netConfig = match.config;
+  /** A seat's name: the lobby's label (a member's name and public id, GH-1075 A3), else the config's callsign. The
+   *  config carries no label (§0.14); after a reload nothing was handed over and the callsign stands. */
+  const seatName = (seat: number): string => nameFrom(match.labels, seat, netConfig?.seats[seat]?.callsign ?? '');
   /** This battlefield's room, when it is one seat of a match (N1b task 8):
    *  where Escape's pause, the menu's Resume and Surrender go. Null in
    *  single-player, which keeps its local pause exactly as it was. */
@@ -3739,11 +3743,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
    *  which escapes them. */
   const netChat = room !== null && netConfig !== null && !spectating
-    ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => netConfig.seats[seat].callsign })
+    ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat) })
     : null;
   if (netChat !== null) onDispose(() => netChat.dispose());
   if (room !== null && netConfig !== null && !spectating) {
-    room.setHooks({ onChat: (seat, text) => hud.note(chatFeedLine(netConfig.seats[seat].callsign, text), 'info') });
+    room.setHooks({ onChat: (seat, text) => hud.note(chatFeedLine(seatName(seat), text), 'info') });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
    *  places that learn of one: the dispatch below (withheld here) and the room
@@ -6760,7 +6764,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  single-player there is nothing to say and nothing is mounted. */
   // (Not for a spectator: its lines speak to a seat -- "until you win by forfeit" -- and the strip says what the room is doing.)
   const netStatus = netSeat !== null && !spectating
-    ? new NetStatusLine(document.body, (seat) => netConfig?.seats[seat ?? netSeat].callsign ?? '', {
+    ? new NetStatusLine(document.body, (seat) => seatName(seat ?? netSeat), {
         code: netConfig?.code ?? '',
         // Report only where it leads somewhere: a room, with the feedback
         // form offered at all (`feedback/gate.ts`).
@@ -6773,7 +6777,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  show the same board. A versus room only: single-player and a sandbox room
    *  mount nothing. */
   const otherSeat = netSeat === 0 ? 1 : 0;
-  const scoreNames = { theirs: netConfig?.seats[otherSeat].callsign ?? '' };
+  const scoreNames = { theirs: seatName(otherSeat) };
   const netScore = showsScoreboard(netConfig) && !spectating ? new NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());
   /** The points race (GH-976 P2): both sides' points against the target, from the goals-only runtime. Scores and
