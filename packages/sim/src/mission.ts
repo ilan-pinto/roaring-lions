@@ -1133,8 +1133,9 @@ export class MissionRuntime {
         if (mission.roe?.enabled === false) {
           throw new Error(`mission ${mission.id}: no_collateral_above "${def.id}" reads the ROE score, which this mission switches off`);
         }
-        if (!mission.objectives.some((x) => x !== def && x.primary)) {
-          throw new Error(`mission ${mission.id}: no_collateral_above "${def.id}" needs another primary objective to complete alongside`);
+        // Another CEILING does not count: ceilings complete on the other primaries, so two of them would wait on each other.
+        if (!mission.objectives.some((x) => x.primary && x.type !== 'no_collateral_above')) {
+          throw new Error(`mission ${mission.id}: no_collateral_above "${def.id}" needs another primary objective (not a ceiling) to complete alongside`);
         }
       }
       if (def.zone !== undefined && def.type !== 'escort') {
@@ -3756,6 +3757,13 @@ export class MissionRuntime {
       out.push({ kind: 'roe', tick, penalty, reason, score: this.roeScoreValue });
       const floor = roe?.fail_below;
       if (floor !== undefined && this.roeScoreValue < floor) this.roeFailed = true;
+      // A `no_collateral_above` ceiling is latched HERE, at the deduction, as `fail_below` is: a rescue credit later in
+      // the same tick can lift the score back inside the line, and the end-of-tick read would never see the crossing.
+      for (const o of this.objectives) {
+        if (o.status === 'active' && o.def.type === 'no_collateral_above' && 100 - this.roeScoreValue > (o.def.threshold ?? 0)) {
+          this.failObjective(o, tick, out);
+        }
+      }
     };
     // GH-707 ruling 3: a rescue of someone else's wounded raises Conduct, by at most
     // CONDUCT_GAIN_CAP a mission and never past 100. What is added is what is counted.
@@ -4493,7 +4501,7 @@ export class MissionRuntime {
         // primaries (`stepObjectives` runs it in the second pass), so it is satisfied exactly when the mission is won without crossing it.
         failed = 100 - this.roeScoreValue > (d.threshold ?? 0);
         complete =
-          !failed && this.objectives.every((x) => x === o || !x.def.primary || x.status === 'complete');
+          !failed && this.objectives.every((x) => !x.def.primary || x.def.type === 'no_collateral_above' || x.status === 'complete');
       } else if (d.type === 'escort') {
         // Lost: any escorted unit is dead or taken (`remove` clears `alive` too). Arrived: EVERY escorted unit stands
         // in the zone at once (`standsIn` needs it alive, so a dead unit can never count as arrived and the two
@@ -4583,12 +4591,18 @@ export class MissionRuntime {
         out.push({ kind: 'objective', tick, id: d.id, status: 'complete' });
         if (d.say) out.push({ kind: 'say', tick, speaker: d.say.speaker, text: d.say.text });
       } else if (failed) {
-        o.status = 'failed';
-        out.push({ kind: 'objective', tick, id: d.id, status: 'failed' });
-        if (d.say_on_fail) {
-          out.push({ kind: 'say', tick, speaker: d.say_on_fail.speaker, text: d.say_on_fail.text });
-        }
+        this.failObjective(o, tick, out);
       }
+    }
+  }
+
+  /** An objective fails: status, the event, and its authored line. One place, for the objective pass and for a ceiling
+   *  that a Conduct deduction crosses (`stepRoe`). */
+  private failObjective(o: ObjectiveState, tick: number, out: MissionEvent[]): void {
+    o.status = 'failed';
+    out.push({ kind: 'objective', tick, id: o.def.id, status: 'failed' });
+    if (o.def.say_on_fail) {
+      out.push({ kind: 'say', tick, speaker: o.def.say_on_fail.speaker, text: o.def.say_on_fail.text });
     }
   }
 

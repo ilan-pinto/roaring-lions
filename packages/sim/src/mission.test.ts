@@ -624,6 +624,26 @@ describe('no_collateral_above (GH-4)', () => {
     expect(w.runtime.result).toBe('victory');
   });
 
+  it('two primary ceilings do not wait on each other: with a hold they all complete and the mission is won', () => {
+    const w = world([hold(3, { primary: true }), clean({ primary: true }), clean({ id: 'clean2', primary: true, threshold: 50 })]);
+    w.step(6 * TICKS_PER_SECOND);
+    expect(status(w)).toBe('complete');
+    expect(status(w, 'clean2')).toBe('complete');
+    expect(w.runtime.result).toBe('victory');
+  });
+
+  it('a deduction that crosses the line is latched even if a rescue credit in the SAME tick lifts the score back inside', () => {
+    // 15 lost; then in one step a second civilian dies (30 lost, over a 29 ceiling) and a civilian wounded is rescued (+3 back).
+    const w = world([hold(), clean({ threshold: 29 })]);
+    kill(w, 1);
+    expect(status(w)).toBe('active');
+    const out = w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 2, by: 0 }, { kind: 'woundEvacuated', tick: 1, entity: 3, carrier: -1, side: 0 }]);
+    expect(w.runtime.roeScore).toBe(73); // 100 - 30 + 3: back inside the line at the end of the tick
+    expect(100 - w.runtime.roeScore).toBeLessThanOrEqual(29);
+    expect(out.some((e) => e.kind === 'objective' && e.id === 'clean' && e.status === 'failed')).toBe(true);
+    expect(status(w)).toBe('failed');
+  });
+
   it('a primary ceiling is part of the win: victory needs it complete, and it completes with the rest', () => {
     const w = world([clean({ primary: true }), hold(3)]);
     w.step(6 * TICKS_PER_SECOND);
@@ -662,6 +682,9 @@ describe('no_collateral_above (GH-4)', () => {
     it('with no other primary to complete alongside', () => {
       expect(() => world([clean({ primary: true })])).toThrow(/another primary/);
       expect(() => world([clean(), hold(600, { primary: false })])).toThrow(/another primary/);
+      // Another ceiling is not "another primary": ceilings complete on the others, so two would wait on each other for ever.
+      expect(() => world([clean({ primary: true }), clean({ id: 'clean2', primary: true, threshold: 50 })])).toThrow(/another primary/);
+      expect(() => world([clean(), clean({ id: 'clean2', primary: true }), hold(600, { primary: false })])).toThrow(/another primary/);
     });
     it('on any other type: a threshold belongs to no_collateral_above alone', () => {
       expect(() => world([hold(600, { threshold: 10 })])).toThrow(/takes no threshold/);

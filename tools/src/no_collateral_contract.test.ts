@@ -102,10 +102,20 @@ describe('the no_collateral_above data contract (GH-4)', () => {
     expect(runtime.roeScore).toBe(55);
   });
 
-  it('the schema still bites: a threshold must be a number, and an unknown objective key is refused', () => {
-    const text = mission();
-    text.objectives[1].threshold = 'thirty';
-    expect(validate(text)).toBe(false);
+  it('the schema holds the threshold to the runtime\'s rule: a whole number from 0 to 100', () => {
+    for (const bad of [12.5, -1, 101, 'thirty']) {
+      const m = mission();
+      m.objectives[1].threshold = bad;
+      expect(validate(m), String(bad)).toBe(false);
+    }
+    for (const good of [0, 30, 100]) {
+      const m = mission();
+      m.objectives[1].threshold = good;
+      expect(validate(m), String(good)).toBe(true);
+    }
+  });
+
+  it('the schema still bites: an unknown objective key is refused', () => {
     const stray = mission();
     stray.objectives[1].bogus = 1;
     expect(validate(stray)).toBe(false);

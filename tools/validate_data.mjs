@@ -705,8 +705,8 @@ const garrisonableSymbols = new Set(
         if (mi.roe?.enabled === false) {
           failures.push(`${rel(file)}: no_collateral_above "${o.id}" reads the ROE score, which this mission switches off`);
         }
-        if (!(mi.objectives ?? []).some((x) => x !== o && x.primary)) {
-          failures.push(`${rel(file)}: no_collateral_above "${o.id}" needs another primary objective to complete alongside`);
+        if (!(mi.objectives ?? []).some((x) => x.primary && x.type !== 'no_collateral_above')) {
+          failures.push(`${rel(file)}: no_collateral_above "${o.id}" needs another primary objective (not a ceiling) to complete alongside`);
         }
       } else if (o.threshold !== undefined) {
         failures.push(`${rel(file)}: objective "${o.id}" is a ${o.type}, which takes no threshold (only no_collateral_above does)`);
