@@ -8,7 +8,7 @@ whips) stay procedural.
 
 Soft goods on the skinned torso (carrier, belt) are scaled per axis to THIS figure's own ring and pushed out of the body
 to a clearance; the throat and the groin hang from the FITTED carrier (its collar and its hem) and are checked not to
-cross it; pouches, the radio and the phone case stand on the fitted belt / carrier / body by their back faces.
+cross it; pouches and the radio stand on the fitted belt / carrier / body by their back faces.
 Every vertex stays rigid on the row's one bone (weight 1), every UV is pinned to the row's texel: no material, no texture.
 """
 import math
@@ -145,7 +145,7 @@ def carrier_fit(f):
 
 
 def carrier_hull(f):
-    """(vertices, triangles, bvh) of the fitted carrier BEFORE its limb openings are cut: the surface throat, groin, radio and EUD stand on."""
+    """(vertices, triangles, bvh) of the fitted carrier BEFORE its limb openings are cut: the surface throat, groin and radio stand on."""
     carrier_fit(f)
     return _cache(f)["carrier_hull"]
 
@@ -310,9 +310,9 @@ def assert_groin_contact(name, f, V, T, bb, cb):
 
 
 def groin_fit(f, V0=None):
-    """The apron hangs from the BELT's front band: vertical, its top edge at the belt's top, its inner face 2.5 mm ahead of the belt's
-    most forward point under it (the buckle). Hung from the carrier hem it could only float, 12 cm above the belt and 42-74 mm behind
-    the belt's front (v7c review M1). No lean, no search."""
+    """The apron hangs from the BELT's front band: vertical, its top edge at the belt's top, its inner face 1 mm ahead of the belt's
+    most forward point under it (the buckle; GROIN_BELT_GAP, 2.5 mm in wave 4). Hung from the carrier hem it could only float, 12 cm
+    above the belt and 42-74 mm behind the belt's front (v7c review M1). No lean, no search."""
     c = _cache(f)
     if "groin" in c and V0 is None:
         return c["groin"]
@@ -345,13 +345,15 @@ def groin_fit(f, V0=None):
     band = inner & ~np.isnan(g) & (V[:, 2] > 0.86) & (V[:, 2] < 0.96)
     # The bar is the OUTER EDGES' gap to the belt (lateral offset over 90 mm from the buckle), where a flattened plate stands off a
     # curving belt: 35-37 mm for wave 4's unbent apron, 9-15 mm for the approved curvature (the earlier band-median gate, 25 mm, sat
-    # 1.2 mm above the measured maximum and the flattened apron passed it).
+    # 1.2 mm above the measured maximum and the flattened apron passed it). Both selections REFUSE an empty set rather than read 0.0
+    # and pass: no edge ray hitting the belt is the vacuous pass the 10 Nov review found.
     edge = inner & ~np.isnan(g) & (np.abs(V[:, 1] - yb) > 0.09) & (V[:, 2] > top - 0.06)
-    edge_med = float(np.median(g[edge])) if edge.any() else 0.0
+    edge_med = km.masked_median(g, edge, "the groin's outer edge set (over 90 mm from the buckle, top 6 cm)", f.prefix)
     if edge_med > GROIN_EDGE_GAP_LIMIT:
         raise ValueError(f"{f.prefix}: groin outer edges stand a median {1000 * edge_med:.1f} mm off the belt (limit {1000 * GROIN_EDGE_GAP_LIMIT:.0f}): "
                          f"a flat board on a curving belt, not an apron")
-    _stats(f, name="groin", top_edge_gap_mm=round(1000 * gap, 2), inner_face_band_median_mm=round(1000 * float(np.median(g[band])), 1) if band.any() else None, outer_edge_gap_mm=round(1000 * edge_med, 1),
+    band_med = km.masked_median(g, band, "the groin's inner-face band (0.86-0.96 m, buckle side)", f.prefix)
+    _stats(f, name="groin", top_edge_gap_mm=round(1000 * gap, 2), inner_face_band_median_mm=round(1000 * band_med, 1), outer_edge_gap_mm=round(1000 * edge_med, 1),
            belt_pairs=pb, carrier_pairs=pc_, thin_axis_deg=round(tilt, 1), z_span_mm=round(1000 * h, 1))
     if V0 is None:
         c["groin"] = (V, T)

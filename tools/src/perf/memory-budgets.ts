@@ -236,7 +236,8 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
     menu: { jsTotalMiB: 65, gpuMiB: 266, processMiB: 1406, bitmapsMiB: 16 },
     // lead ruling 10 Nov: Meshy Rifle Squad template +7.9 MiB, measured on CI run 42778024885: 68.2-68.9 MiB
     // (menu after leaving umm_zeitoun_4 / khan_rafid_3; locally 67.4-67.7, SwiftShader); the first menu stays at 65
-    menuAfterJsTotalMiB: 70,
+    // lead ruling 10 Nov: GH-1197 P1 blast ring and munitions table, measured 70.1 on CI. Was 70.
+    menuAfterJsTotalMiB: 72,
     board: { jsTotalMiB: 26, gpuMiB: 159, processMiB: 810, bitmapsMiB: 16 },
     mission: { jsTotalMiB: 154, gpuMiB: 1015, processMiB: 2511, bitmapsMiB: 161 },
     leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },

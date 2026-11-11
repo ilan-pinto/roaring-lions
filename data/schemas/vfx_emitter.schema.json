@@ -453,6 +453,12 @@
         "at_ground": {
           "type": "boolean",
           "description": "Start at the caller's ground height rather than the event's origin height."
+        },
+        "alpha": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "description": "A multiplier on every instance's drawn alpha (GH-1197: the dust ceilings). Absent is 1."
         }
       }
     }

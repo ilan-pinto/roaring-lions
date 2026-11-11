@@ -696,3 +696,38 @@ describe('the low tier (fxDetail 0)', () => {
     expect(kill.map((l) => l.low_fraction)).toEqual([undefined, undefined, undefined, 0.5, 0.5, undefined]);
   });
 });
+
+describe('a layer alpha multiplier (GH-1197: the dust ceilings)', () => {
+  const smokeLayer = (extra: Partial<FlipbookLayerSpec>): FlipbookLayerSpec[] => [
+    { type: 'fire', count: 1, delay_ms: [0, 0], duration_ms: [100, 100], scale: { base: 1 }, velocity: { radial: [0, 0], up: [0, 0] } },
+    { type: 'smoke', count: 1, delay_ms: [0, 0], duration_ms: [1000, 1000], scale: { base: 1 }, velocity: { radial: [0, 0], up: [0, 0] }, ...extra },
+  ];
+
+  it('lands in its instance slot of aAlpha; a layer without one writes 1, also over a reused slot', () => {
+    const ring = ready(2);
+    ring.spawnRecipe(smokeLayer({ alpha: 0.41 }), 0, 0, 0, 1);
+    const a = ring.mesh.geometry.getAttribute('aAlpha').array as Float32Array;
+    expect(a[0]).toBe(1);
+    expect(a[1]).toBeCloseTo(0.41, 6);
+    ring.spawnRecipe(smokeLayer({}), 0, 0, 0, 1);
+    expect(a[1]).toBe(1);
+    const direct = ready();
+    direct.spawn({ x: 0, y: 0, z: 0, durationMs: 1000, scale: 1, type: FLIP_SMOKE, alpha: 0.5 });
+    expect((direct.mesh.geometry.getAttribute('aAlpha').array as Float32Array)[0]).toBeCloseTo(0.5, 6);
+  });
+
+  it('starts every slot at 1, so a recipe that authors none draws exactly as before', () => {
+    const fx = new FlipbookFx(8);
+    expect(Array.from(fx.mesh.geometry.getAttribute('aAlpha').array as Float32Array)).toEqual(new Array(8).fill(1));
+    fx.dispose();
+  });
+
+  it('multiplies the drawn alpha in both passes, sparks included', () => {
+    const fx = new FlipbookFx();
+    const frag = fx.mesh.material.fragmentShader;
+    expect(frag).toContain('gl_FragColor = vec4(col, alpha * vAlpha);');
+    expect(frag).toMatch(/smoothstep\(0\.7, 1\.0, vT\)\) \* vAlpha\)/);
+    expect(fx.fireMesh.material.fragmentShader).toBe(frag);
+    fx.dispose();
+  });
+});

@@ -210,6 +210,8 @@ export function createNodeFlipbookMaterial(
   const vAge = TSL.varying(age);
   const vTint = TSL.varying(TSL.attribute('aTint', 'float'));
   const vWhite = TSL.varying(TSL.attribute('aWhite', 'float'));
+  // GH-1197: the per-instance alpha multiplier (`aAlpha`, 1 unless a recipe authors `alpha`), the legacy shader's `vAlpha`.
+  const vAlpha = TSL.varying(TSL.attribute('aAlpha', 'float'));
 
   // ---- the fragment ----
   const fit = (key: string) => {
@@ -255,7 +257,7 @@ export function createNodeFlipbookMaterial(
       uv, t: vT, type: vType, tint: vTint, whiteAmount: vWhite, age: vAge, seed: vSeed,
       colors, ...knobs, sun: { x: sun.x, y: sun.y },
     });
-    return packFragment(TSL, shaded);
+    return packFragment(TSL, { ...shaded, alpha: (shaded.alpha as NX).mul(vAlpha) });
   })();
 
   const m = new W.MeshBasicNodeMaterial();

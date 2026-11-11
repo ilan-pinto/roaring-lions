@@ -137,6 +137,7 @@
  * scale either.
  */
 import { WEAPON_CLASS } from '@lions/sim';
+import type { Munition } from '../munitions';
 
 /**
  * How a round flies.
@@ -207,6 +208,12 @@ export interface ShellModel {
    *  round -- draws the whole flight, exactly as before. `stepShells` copies
    *  it along with every other field. */
   hiddenUntil?: number;
+  /** GH-1197: the round's munition class and reach (`../munitions.ts`), set at
+   *  spawn for a weapon with a reach. Its landing draws the two-part ring and,
+   *  for a class that draws its own row, that row's blast. Absent: the kind's
+   *  `impactPower` look, exactly as before. `stepShells` copies it along with
+   *  every other field. */
+  munition?: Munition;
 }
 
 export interface ShellProfile {

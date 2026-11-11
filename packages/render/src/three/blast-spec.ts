@@ -44,6 +44,7 @@
  */
 import type { EmitterSpec } from '../vfx/emitters';
 import type { FlashLightSpec } from './flash-light';
+import type { MunitionClassRow } from './munitions';
 
 /** The adopted blast emitter -- a vehicle's catastrophic kill. */
 export const BLAST_EMITTER_ID = 'catastrophic_kill';
@@ -141,4 +142,36 @@ export function blastHitStopMs(em: EmitterSpec | null, power: number): number {
   const hitStopMs = em.hit_stop_ms;
   if (hitStopMs === undefined) return 0;
   return hitStopMs * power;
+}
+
+// ---------------------------------------------------------------------------
+// GH-1197: a munition CLASS's blast (`data/vfx/munitions.json`), for a class
+// whose `blast_from` is `'class'`. Unlike the emitter functions above there is
+// no power term: the row's numbers ARE the blast, and its reach comes from the
+// weapon's own splash. Same contract otherwise: null/0 for a block the row does
+// not carry, never a spec built from defaults nobody authored.
+// ---------------------------------------------------------------------------
+
+/** The class's light: its own intensity and decay, and a radius of
+ *  `radius_per_splash x S` (or its nominal `radius_tiles`). */
+export function munitionLightSpec(row: MunitionClassRow, splash: number): FlashLightSpec | null {
+  const light = row.light;
+  if (light === undefined || !(light.intensity > 0)) return null;
+  const radius = light.radius_tiles ?? (light.radius_per_splash !== undefined ? light.radius_per_splash * splash : 0);
+  if (!(radius > 0)) return null;
+  return { color: light.color, intensity: light.intensity, radius_tiles: radius, decay_ms: light.decay_ms };
+}
+
+/** The class's shake, or null when it authors none (amplitude 0) or gives it no reach: `pushShake` skips a
+ *  shake with no `falloffTiles`, so building one would be a silent no-op (the schema requires the falloff of
+ *  a class that draws its row). */
+export function munitionShake(row: MunitionClassRow): ScaledShake | null {
+  const shake = row.shake;
+  if (!(shake.amplitude_px > 0) || !((shake.falloff_tiles ?? 0) > 0)) return null;
+  return { amplitudePx: shake.amplitude_px, durationMs: shake.duration_ms, falloffTiles: shake.falloff_tiles ?? 0 };
+}
+
+/** The class's hit-stop, ms (0 for every shell, by the lead's ruling of 9 Nov). */
+export function munitionHitStopMs(row: MunitionClassRow): number {
+  return row.hit_stop_ms > 0 ? row.hit_stop_ms : 0;
 }

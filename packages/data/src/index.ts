@@ -246,6 +246,8 @@ import swarmMemberDown from '../../../data/vfx/swarm_member_down.json';
 // E6 (GH-274) chunk C: the laser carrier's beam. `beam_strike` where a dwell completed, `beam_vent` on a lockout.
 import beamStrike from '../../../data/vfx/beam_strike.json';
 import beamVent from '../../../data/vfx/beam_vent.json';
+// GH-1197: the munition-class table (not an emitter; `vfx_munitions.schema.json`).
+import munitions from '../../../data/vfx/munitions.json';
 
 // The scene-host diorama (2026-09-24-scene-host §3.2/§10): a real map, a
 // camera and a few idle units, standing behind the main menu. One file, one
@@ -704,6 +706,19 @@ export const vfxEmitters = [
   beamStrike,
   beamVent,
 ];
+
+/**
+ * GH-1197: `data/vfx/munitions.json`, the munition classes that size a weapon's
+ * DRAWN blast from its own `splash_tiles` (`vfx_munitions.schema.json`). It sits
+ * in `data/vfx/` beside the emitters but is not one, so it is not in
+ * `vfxEmitters`; `index.test.ts` pins that it is the only non-emitter file there
+ * and that this export is the file. The renderer reads the same file
+ * (`packages/render/src/three/munitions.ts`).
+ */
+export const vfxMunitions = munitions;
+
+/** The one file in `data/vfx/` that is not an emitter (GH-1197). */
+export const VFX_MUNITIONS_FILE = 'munitions.json';
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */
 export function paletteColor(key: string): string {
