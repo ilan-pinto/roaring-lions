@@ -38,7 +38,7 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { map?: string; winMode?: unknown; flagSetup?: unknown; mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown; specials?: unknown; joinSpecials?: unknown; accounts?: D1Like; member?: unknown; joinMember?: unknown; joinPlayer?: string; joinCallsign?: string }
+interface CreateOpts { map?: string; winMode?: unknown; flagSetup?: unknown; mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown; specials?: unknown; joinSpecials?: unknown; accounts?: D1Like; member?: unknown; joinMember?: unknown; joinPlayer?: string; joinCallsign?: string; joinBotModel?: unknown }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
   const room = new MatchRoom(state, { ...env, ...(opts.db ? { DB: opts.db } : {}), ...(opts.accounts ? { ACCOUNTS: opts.accounts } : {}) } as Env, opts.snapshotEveryTicks === undefined ? YIELD : { ...YIELD, snapshotEveryTicks: opts.snapshotEveryTicks });
@@ -48,7 +48,7 @@ async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<
   }));
   expect(res.status).toBe(200);
   if (opts.join !== false) {
-    const join = await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: opts.joinPlayer ?? 'p-guest', callsign: opts.joinCallsign ?? 'Guest', ...(opts.joinMember !== undefined ? { member: opts.joinMember } : {}), ...(opts.joinKind ? { kind: opts.joinKind } : {}), ...(opts.joinTiers !== undefined ? { tiers: opts.joinTiers } : {}), ...(opts.joinSpecials !== undefined ? { specials: opts.joinSpecials } : {}) }) }));
+    const join = await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: opts.joinPlayer ?? 'p-guest', callsign: opts.joinCallsign ?? 'Guest', ...(opts.joinMember !== undefined ? { member: opts.joinMember } : {}), ...(opts.joinKind ? { kind: opts.joinKind } : {}), ...(opts.joinBotModel !== undefined ? { botModel: opts.joinBotModel } : {}), ...(opts.joinTiers !== undefined ? { tiers: opts.joinTiers } : {}), ...(opts.joinSpecials !== undefined ? { specials: opts.joinSpecials } : {}) }) }));
     expect(join.status).toBe(200);
   }
   return { state, room };
@@ -3150,6 +3150,37 @@ describe('the room writes the record (GH-1075 A3 Task 3.4)', () => {
     const rows = rowsOf(db, 'match_seat');
     expect(rows[1]).toMatchObject({ kind: 'bot', bot_label: null });
     expect(rows[0]).toMatchObject({ kind: 'member', member_id: 'A', bot_label: null });
+  });
+
+  it('the_declared_bot_model_reaches_the_written_row (room wiring): other + typed name, and a listed id', async () => {
+    for (const [declared, label, code] of [
+      [{ id: 'other', name: 'MyNet v3' }, 'other:MyNet v3', 'BMODL1'],
+      [{ id: 'claude-opus-5-5' }, 'id:claude-opus-5-5', 'BMODL2'],
+    ] as const) {
+      const db = await accounts();
+      const r = await start(db, { member: info('A'), joinKind: 'bot', joinBotModel: declared, code });
+      await report(r, 0);
+      await close();
+      const rows = rowsOf(db, 'match_seat');
+      expect(rows[1]).toMatchObject({ kind: 'bot', bot_label: label });
+      expect(rows[0]).toMatchObject({ kind: 'member', bot_label: null });
+    }
+  });
+
+  it('versus_pays_nothing (A3-7, the data half): an agreed member win writes a record and moves no coin', async () => {
+    const db = openTestD1({ dir: ACCOUNTS_MIGRATIONS, foreignKeys: true });
+    await seedWalletMember(db, 'A', NOW, { free: 50 });
+    await seedWalletMember(db, 'B', NOW);
+    const snap = () => ({ journal: rowsOf(db, 'coin_journal'), wallet: rowsOf(db, 'wallet') });
+    const before = snap();
+    expect(before.journal).toHaveLength(1);
+    expect(before.wallet.find((w) => w.member_id === 'A')).toMatchObject({ free: 50 });
+    const r = await start(db, { member: info('A') });
+    await report(r, 0);
+    await close();
+    expect(await memberRecord(db, 'A')).toEqual({ won: 1, lost: 0, drawn: 0 });
+    expect(rowsOf(db, 'match_record')).toHaveLength(1);
+    expect(snap()).toEqual(before);
   });
 
   it('a_failing_record_never_breaks_the_room', async () => {
