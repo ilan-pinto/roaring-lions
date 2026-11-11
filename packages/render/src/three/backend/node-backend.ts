@@ -39,6 +39,7 @@ import { createNodeBannerMaterial } from '../units/garrison-banner.node';
 import type { GarrisonBannerMaterial } from '../units/garrison-banner';
 import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
 import { createNodeUnitMaterial } from '../units/unit-material.node';
+import { createGrassFieldKit } from '../terrain/grass-field.node';
 import { markTwin } from '../twin-identity';
 import { installPassCounter, type PassRendererLike, type RenderPassId } from './pass-counter';
 import { installVersionedUploads, type AttributesLike } from './attribute-uploads';
@@ -326,6 +327,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     domElement: canvas,
     kit,
     materials,
+    // GH-1167 S5: the 3D grass field, built only here (the bundle pin P1 finds its marker in this chunk alone).
+    grassField: createGrassFieldKit({ W, TSL, maths: opts.materialMaths.grassField }),
     bloom: nodeBloom.control,
     pmrem: createNodePmremHost(W.PMREMGenerator as unknown as NodePmremGeneratorCtor, renderer),
     ao: aoControl,

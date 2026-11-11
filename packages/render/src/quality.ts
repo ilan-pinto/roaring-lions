@@ -122,6 +122,13 @@ export interface RenderQuality {
    * at most 49k triangles, medium +3 draws, low none.
    */
   debris?: DebrisQuality;
+  /**
+   * GH-1167 S5: the 3D grass field on a node boot of a map whose tones carry `grassField` (design 2026-11-11, decision 8).
+   * `'full'` draws the LOD bands as specified (LOD0 at zoom >= 1.5, LOD1 at >= 0.9); `'coarse'` moves both bands one step
+   * coarser (x 1.2); `'off'` builds no field, and the node boot draws today's sward strokes and Meshy tufts. Absent means
+   * `high`'s (`grassQualityOf`). The legacy path never reads it.
+   */
+  grass?: 'full' | 'coarse' | 'off';
 }
 
 /** `RenderQuality.debris`: see there. */
@@ -147,8 +154,8 @@ export type WetGroundTier = 'full' | 'lite' | 'minimal';
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
   // Was drops 900 (and 1500 before it): the P4 final-tip cost run read NET (total wet) 0.5 / 0.5 / 0.4 ms against low's +0.4 budget (z1 / z1.6 / z2.5) at load 3-5 (GH-871).
   // The first step, 1500 -> 900, followed 0.7 and 0.9 ms at zoom 2.5, twice.
-  low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, debris: { pool: 0, shadows: false } },
-  medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, debris: { pool: 512, shadows: false } },
+  low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, debris: { pool: 0, shadows: false }, grass: 'off' },
+  medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, debris: { pool: 512, shadows: false }, grass: 'coarse' },
   high: {
     grade: true,
     ao: true,
@@ -162,8 +169,14 @@ export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQ
     rain: { drops: 6000, ripples: true, ground: 'full' },
     nature: { slots: 24, wakes: true, foot: true },
     debris: { pool: 1024, shadows: true },
+    grass: 'full',
   },
 };
+
+/** A preset's grass field, `high`'s when it names none (GH-1167 S5). */
+export function grassQualityOf(q: RenderQuality | undefined): 'full' | 'coarse' | 'off' {
+  return q?.grass ?? (QUALITY_PRESETS.high.grass as 'full');
+}
 
 /** A preset's debris pool, `high`'s when it names none. */
 export function debrisQualityOf(q: RenderQuality | undefined): DebrisQuality {

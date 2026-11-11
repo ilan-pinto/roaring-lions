@@ -211,8 +211,18 @@ function rectCorners(
   return sharedRectCorners(-halfW, halfW, botDy, topDy);
 }
 
-export function buildScatter(input: TerrainInput, tones: TerrainTones, background: string): MeshData {
-  return buildScatterTiled(input, tones, background).mesh;
+/**
+ * GH-1167 S5: what a scatter build may leave out. `swardMarks` (default `true`) is the flat sward strokes and the tussock on open
+ * ground under `tones.scatter === 'sward'`; a node boot that draws the 3D grass field passes `false`, because the field replaces
+ * them (design 2026-11-11, section 3.5). Every other mark, and every mark at the default, is today's byte for byte (pin P2,
+ * `packages/app/src/grass-legacy-pins.test.ts`). The marks it drops draw from pure `tileHash` reads, so no other mark moves.
+ */
+export interface ScatterOptions {
+  readonly swardMarks?: boolean;
+}
+
+export function buildScatter(input: TerrainInput, tones: TerrainTones, background: string, opts: ScatterOptions = {}): MeshData {
+  return buildScatterTiled(input, tones, background, buildTerrainSurface(input), opts).mesh;
 }
 
 /** `buildScatter`, keeping where each tile's marks start, so a later rebuild
@@ -225,9 +235,10 @@ export function buildScatterTiled(
   input: TerrainInput,
   tones: TerrainTones,
   background: string,
-  surface: TerrainSurface = buildTerrainSurface(input)
+  surface: TerrainSurface = buildTerrainSurface(input),
+  opts: ScatterOptions = {}
 ): TiledMeshData {
-  return buildTiledMesh(input.width, input.height, [], scatterTileEmitter(input, tones, background, surface));
+  return buildTiledMesh(input.width, input.height, [], scatterTileEmitter(input, tones, background, surface, opts));
 }
 
 /** `buildScatterTiled`'s result with only the `dirty` tiles rebuilt -- see
@@ -238,9 +249,10 @@ export function spliceScatter(
   input: TerrainInput,
   tones: TerrainTones,
   background: string,
-  surface: TerrainSurface
+  surface: TerrainSurface,
+  opts: ScatterOptions = {}
 ): TiledMeshData {
-  return spliceTiledMesh(prev, dirty, scatterTileEmitter(input, tones, background, surface));
+  return spliceTiledMesh(prev, dirty, scatterTileEmitter(input, tones, background, surface, opts));
 }
 
 /** One tile's marks: what the tile loop in `buildScatter` always ran per
@@ -250,9 +262,11 @@ function scatterTileEmitter(
   input: TerrainInput,
   tones: TerrainTones,
   background: string,
-  surface: TerrainSurface
+  surface: TerrainSurface,
+  opts: ScatterOptions = {}
 ): TileEmitter {
   const { width, height } = input;
+  const swardMarks = opts.swardMarks ?? true;
   let sink: TileSink = { positions: [], colors: [], indices: [] };
 
   // Computed once, outside the tile loop: both alphas are fixed, and the base
@@ -617,7 +631,12 @@ function scatterTileEmitter(
         // table and out of scope here. Left flat rather than guessed at.
       } else {
         // Open hillside grain: stone or sward, per `tones.scatter`.
-        if (tones.scatter === 'sward') {
+        // GH-1167 S5: where the 3D grass field grows (open ground: no cover, no boulder; `isOpenScatterAt`), it draws this ground
+        // instead (`ScatterOptions.swardMarks`). A cover or boulder tile keeps its strokes (design decision 9: open tiles only).
+        const fieldHere = !swardMarks && coverHere === 0 && !(input.boulder !== undefined && input.boulder !== null && input.boulder[ti] !== 0);
+        if (tones.scatter === 'sward' && fieldHere) {
+          // Nothing: the field's clumps stand here.
+        } else if (tones.scatter === 'sward') {
           // Sward blades (renderer.ts:1577-1596).
           const n = 8 + Math.floor(rnd * 7);
           for (let k = 0; k < n; k++) {
