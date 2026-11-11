@@ -68,6 +68,9 @@ export interface DebrisPlan {
   readonly spinRate: number;
   /** True for a clod (soil), false for a chunk (the surface). */
   readonly clod: boolean;
+  /** GH-1197 P5: the piece waits this long, on the frame clock, before it leaves (a collapse launches over 0-300 ms).
+   *  Absent is 0. */
+  readonly delayMs?: number;
 }
 
 /** How one class throws, at the landing's own reach (`munitions.json`'s debris block, already scaled). */
@@ -119,29 +122,35 @@ export interface DebrisAim {
 export function planDebris(
   x: number, y0: number, z: number, k: number, clod: boolean, t: DebrisThrow,
   groundAt: (x: number, z: number) => number,
-  aim?: DebrisAim
+  aim?: DebrisAim,
+  /** GH-1197 P5: take `t.throwTiles` and `t.apexTiles` as THE range and apex, not as the top of a hashed spread (the
+   *  collapse plans its own per piece). */
+  exact = false
 ): DebrisPlan {
   const [sx, sz] = debrisSeed(x, z);
   const h = (salt: number): number => debrisHash(sx + salt * 7919, sz, k);
   const g = DEBRIS_GRAVITY;
   // Bulk lands close (explosion-physics: "mostly steep, bulk lands close"): range is skewed toward the burst.
-  const range = t.throwTiles * (0.25 + 0.75 * Math.pow(h(1), 1.5));
-  const apex = Math.max(0.05, t.apexTiles * (0.35 + 0.65 * h(2)));
+  const range = exact ? t.throwTiles : t.throwTiles * (0.25 + 0.75 * Math.pow(h(1), 1.5));
+  const apex = Math.max(0.05, exact ? t.apexTiles : t.apexTiles * (0.35 + 0.65 * h(2)));
   const heading = aim ? aim.dirRad + (h(3) * 2 - 1) * aim.spreadRad : h(3) * Math.PI * 2;
   const vy = Math.sqrt(2 * g * apex);
-  // The horizontal speed whose WHOLE travel on flat ground -- the flight back to the burst's own height, the bounce
-  // and the slide -- is `range`, so a piece comes to rest inside the class's throw (the design: "54 pieces at rest
-  // within 2.4 t" for the 155). The flight and the bounce cover vh x flatT x (1 + KEEP x RESTITUTION); the slide
-  // vs^2 / 2a with vs = vh x KEEP^2. Solved for vh.
-  const flatT = (2 * vy) / g;
-  const qa = (DEBRIS_BOUNCE_KEEP ** 4) / (2 * DEBRIS_SLIDE_DECEL);
-  const qb = flatT * (1 + DEBRIS_BOUNCE_KEEP * DEBRIS_RESTITUTION);
-  const vh = (-qb + Math.sqrt(qb * qb + 4 * qa * range)) / (2 * qa);
-  const dx = Math.cos(heading);
-  const dz = Math.sin(heading);
   const size = (clod ? CLOD_SIZE : CHUNK_SIZE)[0] + ((clod ? CLOD_SIZE : CHUNK_SIZE)[1] - (clod ? CLOD_SIZE : CHUNK_SIZE)[0]) * h(4);
   const half = (size * DEBRIS_REST_HEIGHT_FRACTION) / 2;
   const p0: [number, number, number] = [x, y0 + half, z];
+  // The horizontal speed whose WHOLE travel on flat ground -- the flight down to the ground under the launch point,
+  // the bounce and the slide -- is `range`, so a piece comes to rest inside its throw (the design: "54 pieces at rest
+  // within 2.4 t" for the 155). Launched from the ground, the flight lasts flatT and the bounce KEEP x RESTITUTION x
+  // flatT of it; launched from a roof or a wall (P3, P5) the fall is longer, and both are solved from it. The slide is
+  // vs^2 / 2a with vs = vh x KEEP^2. Solved for vh.
+  const flatT = (2 * vy) / g;
+  const t1f = fallTime(p0[1], vy, groundAt(x, z) + half);
+  const tbf = (2 * DEBRIS_RESTITUTION * Math.abs(vy - g * t1f)) / g;
+  const qa = (DEBRIS_BOUNCE_KEEP ** 4) / (2 * DEBRIS_SLIDE_DECEL);
+  const qb = t1f + DEBRIS_BOUNCE_KEEP * tbf;
+  const vh = (-qb + Math.sqrt(qb * qb + 4 * qa * range)) / (2 * qa);
+  const dx = Math.cos(heading);
+  const dz = Math.sin(heading);
   const v0: [number, number, number] = [dx * vh, vy, dz * vh];
   // First touchdown: from the flat-ground landing point, refined a few times onto the ground under the arc
   // (a fixed count, so the plan stays a pure function of its inputs).

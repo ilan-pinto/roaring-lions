@@ -350,3 +350,14 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
 - **`environment`** votes on `quiet`, `open-ground`, `vehicle`, `kitted`, `relief`, `aftermath` and `fogged`. Hiding it (`EnvironmentRegistry.setEnabled(false)`) strips the sky `envMap` from every unit, building and prop material; a material-field write nothing per-frame re-asserts. Measured with `relief-read-signal.ts --layers=environment`, 3 fresh loads, bit-identical, SwiftShader: quiet 69 px / 0.8959, open-ground 4 px / 0.0814, vehicle 1074 / 0.4642, kitted 1542 / 0.4733, relief 12848 / 1.2654, aftermath 17317 / 2.3523, fogged 253 / 0.3295. `quiet` and `open-ground` are under SUB_THRESHOLD_PX, so the magnitude floor carries them. Each was watched red with `setEnabled` a no-op (0 px / 0.0000).
 - **`fogged`** (`FOGGED_SCENARIO`) is `vehicle`'s map and tick at zoom 0.5 panned east of the force, so the frame holds the shroud, the haze and the off-map fade. Its checks are `environment`, `fog` (350407 px / 29.3152: the frame really is shrouded), `haze` (285 / 0.9784) and `units` (9036 / 0.6724). Its ceilings (40 px / 0.004) are `vehicle`'s, carried over until a baseline exists. Its falsifier, `tools/src/perf/env-doublecount.ts`, doubles every `envMapIntensity`: 87 px / 0.3183, past both ceilings. **No baseline yet**: exit 1 in an existing manifest until the post-merge bless (the `aftermath` and `kitted` precedent). Do not bless it from the branch.
 - The ground is the class that must NOT change: with units, buildings, decor and props hidden, toggling the environment moves 0 px, and giving the ground an `envMap` moves it millions (`look-l1-captures.ts --only=probe`).
+
+## The `rubble` scenario (GH-1197 P5)
+
+- **`rubble`** (`RUBBLE_SCENARIO`) is `qarn_hadid` under the sandbox flag `&rubble` (NOT `&decals`, so `aftermath` does not
+  move): `RendererOptions.rubbleShowcase` stamps two settled collapses on the decal showcase's own anchor, clear of the force --
+  a 3x3 `limestone.3` house on the flat site and a 2x2 `dust.1` shed on the road site -- each its rubble decal and its chunks AT
+  REST, dated sim time 0. Camera (35, 33), the two footprints' centroid (`rubble.test.ts` recomputes it from the site picker),
+  zoom 2.2, tick 300: 15 s, far inside the 90 s before the rubble fades into its decal. Ceilings 40 px / 0.004, `aftermath`'s.
+- Its one check, `debris`, is PENDING: infinite floors (`baseline.test.ts`'s `PENDING` set, which demands them) until the
+  first three CI readings are written into `MEASURED` and the floors derived from them. **No baseline yet**: CI's `visual` job
+  is red until the post-merge bless, after the lead has looked. Do not capture or bless it from the branch.

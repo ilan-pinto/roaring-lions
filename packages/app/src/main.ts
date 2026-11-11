@@ -1961,6 +1961,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the friendly anchor. Sandbox-only and three-only, like every flag beside
   // it -- a real mission's ground must remember only its own battle.
   const wantDecals = flags.decals;
+  const wantRubble = flags.rubble;
   // A misspelled flag (`&tunel`) otherwise does nothing at all, silently,
   // which reads as a broken feature rather than as a typo.
   // Level load time step 5. Fire-and-forget and deliberately NOT awaited: the
@@ -2397,6 +2398,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // never change how one looks.
     ...(!mission && wantDecals
       ? { decalShowcase: { x: anchors.friendly[0], y: anchors.friendly[1] } }
+      : {}),
+    // GH-1197 P5: the settled-rubble showcase, sandbox only, for the same reason.
+    ...(!mission && wantRubble
+      ? { rubbleShowcase: { x: anchors.friendly[0], y: anchors.friendly[1] } }
       : {}),
   };
   // --- which meshes this mission needs -------------------------------------
