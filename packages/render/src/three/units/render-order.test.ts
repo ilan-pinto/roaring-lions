@@ -46,6 +46,8 @@ import {
   TUNNEL_XRAY_BEAM_RENDER_ORDER,
   ZONE_BAND_RENDER_ORDER,
   SUPPLY_ROUTE_RENDER_ORDER,
+  GRASS_RENDER_ORDER,
+  SOFT_DEPTH_SNAPSHOT_RENDER_ORDER,
   SWARM_ROTOR_RENDER_ORDER,
 } from './render-order';
 
@@ -231,6 +233,7 @@ describe('render order bands', () => {
     expect(table).toMatch(/^ \* \| 0\.2 +\| `SUPPLY_ROUTE_RENDER_ORDER`/m);
     expect(table).toMatch(/^ \* \| 1\.5 +\| `SWARM_ROTOR_RENDER_ORDER`/m);
     expect(table).toMatch(/^ \* \| 3 +\| `RAIN_RENDER_ORDER`/m);
+    expect(table).toMatch(/^ \* \| -0\.5 +\| `GRASS_RENDER_ORDER`/m);
   });
 
   it('RAIN_RENDER_ORDER (GH-871 P4 T8) is the FX-above band: over units, under the overlay tier, smoke and the silhouette', () => {
@@ -241,5 +244,16 @@ describe('render order bands', () => {
     expect(RAIN_RENDER_ORDER).toBeLessThan(OVERLAY_RENDER_ORDER);
     expect(RAIN_RENDER_ORDER).toBeLessThan(SMOKE_RENDER_ORDER);
     expect(RAIN_RENDER_ORDER).toBeLessThan(SILHOUETTE_RENDER_ORDER);
+  });
+
+  it('GRASS_RENDER_ORDER (GH-1167 S4) is -0.5: over the persistent decals, under every depth-tested overlay from the zone band to the ring', () => {
+    // A literal as well as the relations (design 2026-11-11 section 3.3): the grass writes no depth, so this number is the whole of
+    // its order against the ground overlays. Falsify: set it to 0 (ties the zone band) or -1 (ties the persistent decals).
+    expect(GRASS_RENDER_ORDER).toBe(-0.5);
+    expect(GRASS_RENDER_ORDER).toBeGreaterThan(DECAL_PERSISTENT_RENDER_ORDER);
+    expect(GRASS_RENDER_ORDER).toBeGreaterThan(SOFT_DEPTH_SNAPSHOT_RENDER_ORDER);
+    for (const above of [DECAL_FADING_RENDER_ORDER, ZONE_BAND_RENDER_ORDER, TRAIL_RENDER_ORDER, SUPPLY_ROUTE_RENDER_ORDER, TUNNEL_XRAY_RENDER_ORDER, SELECTION_RING_RENDER_ORDER, SILHOUETTE_RENDER_ORDER]) {
+      expect(GRASS_RENDER_ORDER).toBeLessThan(above);
+    }
   });
 });
