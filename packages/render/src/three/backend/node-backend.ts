@@ -43,6 +43,9 @@ import { markTwin } from '../twin-identity';
 import { installPassCounter, type PassRendererLike, type RenderPassId } from './pass-counter';
 import { installVersionedUploads, type AttributesLike } from './attribute-uploads';
 import { installBoneTextureSkinning, type BuilderHookHostLike } from './bone-texture';
+import { installRefreshPolicy, type NodesLike } from './refresh-policy';
+import { installMatrixWalk } from './matrix-walk';
+import { resolveNodeDraw, type NodeDrawOptions } from './node-draw-options';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
 const CENSUS_EVERY_FRAMES = 60;
@@ -75,6 +78,11 @@ export interface NodeBackendOptions {
    * per pass, so only the probe page's GPU-time run turns them on (`RendererOptions.timestamps`).
    */
   readonly timestamps?: boolean;
+  /**
+   * GH-943 P3 (T14b, GH-1152): the draw-submission switches (`node-draw-options.ts`); absent fields take the shipped defaults (F2
+   * `refreshPolicy: 'parked'`, F8 `matrixWalk: 'once'`, 1205 `uploads: 'versioned'`). `RendererOptions.nodeDraw`.
+   */
+  readonly nodeDraw?: NodeDrawOptions;
   readonly warn?: (msg: string) => void;
 }
 
@@ -121,10 +129,20 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   const kind: BackendKind = isGpu ? 'node-webgpu' : 'node-webgl2';
   // GH-943 P3 (T14, GH-1152): a dynamic vertex attribute uploads when it changed, as on legacy (three re-uploads it on every FULL
   // refresh, and every node-twinned batch is FULL every frame: `attribute-uploads.ts`).
-  const uploads = installVersionedUploads((renderer as unknown as { _attributes: AttributesLike })._attributes, THREE.DynamicDrawUsage);
+  const draw = resolveNodeDraw(opts.nodeDraw);
+  // `uploads: 'three'` installs neither 1205 fix (N2: the main before 1205, read through a switch).
+  const uploads = draw.uploads === 'versioned' ? installVersionedUploads((renderer as unknown as { _attributes: AttributesLike })._attributes, THREE.DynamicDrawUsage) : null;
   // GH-943 P3 (T14, GH-1152): a skinned mesh skins from its skeleton's bone texture, uploaded once a frame, as on legacy (three's
   // uniform-buffer bones are written on every FULL refresh of every render object: `bone-texture.ts`).
-  const boneTexture = installBoneTextureSkinning(renderer as unknown as BuilderHookHostLike);
+  const boneTexture = draw.uploads === 'versioned' ? installBoneTextureSkinning(renderer as unknown as BuilderHookHostLike) : null;
+  // GH-943 P3 (T14b, GH-1152) F2: a parked object's hasNode-only FULL refresh becomes SHARED (`refresh-policy.ts`). Three's anonymous
+  // matrix uniforms are derived from the world matrix the key holds.
+  const refresh = installRefreshPolicy(
+    (renderer as unknown as { _nodes: NodesLike })._nodes,
+    renderer,
+    draw.refreshPolicy,
+    new Set<unknown>([TSL.modelNormalMatrix, TSL.modelWorldMatrixInverse])
+  );
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -294,6 +312,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     return ao !== undefined && renderer.getRenderTarget() === ao ? 'ao' : 'scene';
   };
   const passes = installPassCounter(renderer as unknown as PassRendererLike, classifyPass);
+  // GH-943 P3 (T14b, GH-1152) F8: the scene's world matrices walked once per frame (`matrix-walk.ts`), around the pass counter's wrap.
+  const walk = installMatrixWalk(renderer as unknown as PassRendererLike, draw.matrixWalk === 'once');
   /** What the census walk cost inside the last `render` (0 on a frame it did not run), so a timing can leave it out (T13 H5). */
   let lastCensusMs = 0;
 
@@ -334,7 +354,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
       }
       frames++;
       if (!chain || !builtFor || builtFor.scene !== scene || builtFor.camera !== camera) build({ scene, camera, quality: builtFor?.quality ?? DEFAULT_QUALITY });
-      chain?.render();
+      walk.run(() => chain?.render());
     },
     photographGround: (scene, camera, size) => photographNodeGround(capture, scene, camera, size),
     captureView: async (maxWidth) => (chain ? captureNodeView(capture, chain.pipeline, maxWidth) : null),
@@ -348,10 +368,20 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
       const ms = (await renderer.resolveTimestampsAsync('render')) as number | undefined;
       return typeof ms === 'number' ? ms : null;
     },
+    drawSwitches: {
+      get: () => ({ refreshPolicy: refresh.mode(), matrixWalk: walk.once() ? 'once' : 'every-pass', uploads: draw.uploads }),
+      setRefresh: (m) => refresh.setMode(m),
+      setMatrixWalk: (w) => walk.setOnce(w === 'once'),
+      takeCounts: () => ({ ...refresh.takeTally(), walks: walk.takeWalks(), walksSkipped: walk.takeSkipped() }),
+      undeclared: () => refresh.undeclared(),
+    },
     dispose() {
+      // The reverse of install: the walk wraps the pass counter's wrap.
+      walk.dispose();
       passes.dispose();
-      uploads.dispose();
-      boneTexture.dispose();
+      refresh.dispose();
+      uploads?.dispose();
+      boneTexture?.dispose();
       chain?.dispose();
       chain = null;
       // WebGPU path: renderer.dispose() then device.destroy() (design section 1). Never `loseContext()` ourselves.
