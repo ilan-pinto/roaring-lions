@@ -301,6 +301,7 @@ describe('roof cutaway slice 2: the garrison trigger (the banner\'s fog rule)', 
     priv.fog.fill(0);
     frames(30);
     expect(renderer.cutawayCount()).toBe(1);
+    expect(materialsOf(root).length).toBeGreaterThan(0);
     for (const m of materialsOf(root)) expect(isCut(m)).toBe(true);
     const v = Array.from(priv.cutUniforms!.uRlCutV.value.slice(0, 6));
     expect(priv.cutUniforms!.uRlCutN.value).toBe(1);
@@ -460,6 +461,8 @@ describe('roof cutaway slice 3: the node backend runs the cut and adopts its twi
     frames(10);
     expect(renderer.cutawayCount()).toBe(1);
     expect(queued.has(root)).toBe(true);
+    // The house has meshes to cut: an empty list would pass the loop below vacuously.
+    expect(materialsOf(root).length).toBeGreaterThan(0);
     for (const m of materialsOf(root)) expect(isCut(m)).toBe(true);
   });
 });
