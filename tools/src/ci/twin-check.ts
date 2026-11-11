@@ -1,6 +1,6 @@
 // GH-943 WebGPU-primary (P1 T1): the SAME-PR RULE, enforced (design section 8).
 //
-//   pnpm --filter @lions/tools exec tsx src/ci/twin-check.ts --base=<ref>            # the files changed since <ref> (two-dot)
+//   pnpm --filter @lions/tools exec tsx src/ci/twin-check.ts --base=<ref>            # the files the branch changed since it left <ref> (three-dot: against merge-base(<ref>, HEAD))
 //   pnpm --filter @lions/tools exec tsx src/ci/twin-check.ts --files=a.ts,b.ts        # an explicit list (tests, local use)
 //
 // A ported area has two shader sources until the P7 cutover: the legacy GLSL file and its `X.node.ts` twin (`TWINS`, in
@@ -13,6 +13,10 @@
 // `--base` at line level and honours the exemption only when no changed line (old side or new side) lies inside a GLSL template literal
 // (`/* glsl */` backtick strings) or the shader-building span (`const SOFT_ANCHORS` .. `export const FLIPBOOK_SHADERS`). It fails CLOSED:
 // with `--files` (no base to diff), an unfindable region marker, or any touched shader line, the same-PR rule applies in full.
+//
+// The base is resolved to `git merge-base <ref> HEAD` first. Diffing HEAD against the base TIP is wrong the moment the base moves a twin file
+// after the branch was cut: every older branch then "changes" that file and fails. If no merge-base is reachable (a history too shallow to
+// hold it), that is exit 2, never a pass.
 //
 // Exit codes: 0 clean, 1 a violation, 2 usage (no input, or an unreadable base).
 import { execFileSync } from 'node:child_process';
@@ -132,6 +136,8 @@ export interface TwinIo {
   readonly root: string;
   readonly log: (line: string) => void;
   readonly err: (line: string) => void;
+  /** The fork point of `base` and HEAD (`git merge-base`); throws when none is reachable. */
+  readonly mergeBase: (base: string, root: string) => string;
   /** Files changed since `base`; throws when `base` cannot be read. */
   readonly changedSince: (base: string, root: string) => string[];
   /** True iff `file`'s diff against `base` touches no shader line (see `hunksOutsideShader`); throws when it cannot tell. */
@@ -144,6 +150,7 @@ export const realIo: TwinIo = {
   root: REPO_ROOT,
   log: (l) => console.log(l),
   err: (l) => console.error(l),
+  mergeBase: (base, root) => execFileSync('git', ['merge-base', base, 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
   changedSince: (base, root) =>
     execFileSync('git', ['diff', '--name-only', base, 'HEAD'], { cwd: root, encoding: 'utf8' })
       .split('\n')
@@ -158,14 +165,16 @@ export const realIo: TwinIo = {
 export function runTwinCheck(argv: readonly string[], io: TwinIo = realIo, table: Readonly<Record<string, string>> = TWINS): number {
   const arg = (n: string): string | undefined => argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3);
   const files = arg('files');
-  const base = arg('base');
+  const baseRef = arg('base');
+  let base: string | undefined;
   let changed: string[];
   if (files !== undefined) changed = files.split(',').filter((f) => f.length > 0);
-  else if (base !== undefined) {
+  else if (baseRef !== undefined) {
     try {
+      base = io.mergeBase(baseRef, io.root);
       changed = io.changedSince(base, io.root);
     } catch (e) {
-      io.err(`[twin-check] cannot read the diff against "${base}": ${e instanceof Error ? e.message : String(e)}`);
+      io.err(`[twin-check] cannot read the diff against the merge-base with "${baseRef}": ${e instanceof Error ? e.message : String(e)}`);
       return 2;
     }
   } else {
