@@ -210,6 +210,16 @@ describe('--log-file and joinRoom (GH-954)', () => {
     }
     await expect(joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', async () => Response.json({ seat: 2 }))).rejects.toThrow(/no seat and ticket/);
   });
+  it('joinRoom sends a botModel when given, and has no botModel key when not (the old shape)', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const f: typeof fetch = async (_i, init) => { bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>); return Response.json({ seat: 1, ticket: 't' }); };
+    await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', f, undefined, { id: 'other', name: 'Home Net' });
+    expect(bodies[0].botModel).toEqual({ id: 'other', name: 'Home Net' });
+    await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', f, 'b1');
+    expect(Object.keys(bodies[1]).sort()).toEqual(['build', 'callsign', 'kind', 'player']);
+    await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', f);
+    expect(Object.keys(bodies[2]).sort()).toEqual(['callsign', 'kind', 'player']);
+  });
   it('joinRoom names its build, and a 412 carries the room\'s (only a short printable one)', async () => {
     const bodies: Record<string, unknown>[] = [];
     const answer = (res: () => Response): typeof fetch => async (_input, init) => { bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>); return res(); };
