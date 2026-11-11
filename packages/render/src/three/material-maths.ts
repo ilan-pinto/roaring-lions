@@ -61,6 +61,11 @@ import { softParticleFadeOps } from './soft-depth';
 import { smokeScreenCoverOps, smokeScreenPuffOps, smokeScreenShadeOps } from './smoke-mesh';
 import { vfxBillboardOps } from './units/vfx-noise';
 import { SUPPLY_ROUTE_ALPHA } from './supply-route';
+import { buildingFragmentOps } from './units/building-cut-maths';
+import { cutHookOf } from './units/cut-material';
+import { holesHookOf } from './units/holed-material';
+import { CUT_FLOATS_PER_VOLUME, CUT_VOLUME_CAP } from './units/building-cutaway';
+import { HOLE_CAP } from './units/building-holes';
 import { xrayBeamOps, xrayCollarOps, xrayFigureOps, xrayRevealOps, xrayScanOps, xrayTubeOps } from './tunnel-xray';
 
 export const MATERIAL_MATHS: MaterialMaths = {
@@ -148,4 +153,6 @@ export const MATERIAL_MATHS: MaterialMaths = {
   // T12: the flipbook and the smoke screen (their shared billow noise is `units/vfx-noise.ts`, reached through these bodies).
   flipbook: { motionOps: flipbookMotionOps, aliveOps: flipbookAliveOps, coverOps: flipbookCoverOps, shadeOps: flipbookShadeOps, billboardOps: vfxBillboardOps, softOps: softParticleFadeOps },
   smokeScreen: { coverOps: smokeScreenCoverOps, shadeOps: smokeScreenShadeOps, puffOps: smokeScreenPuffOps, billboardOps: vfxBillboardOps },
+  // GH-1225 slice 3 (L7): the holes and the roof cut, one fragment body (`units/building-cut.node.ts`).
+  building: { fragmentOps: buildingFragmentOps, cutHookOf, holesHookOf, cutBlockFloats: CUT_VOLUME_CAP * CUT_FLOATS_PER_VOLUME, holeCap: HOLE_CAP },
 };

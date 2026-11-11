@@ -680,6 +680,32 @@ export const AFTERMATH_SCENARIO: Scenario = {
   zoom: 2.2,
 };
 
+/** GH-1197 P5: the settled-rubble showcase -- the `aftermath` pattern for collapse debris. `qarn_hadid` under
+ *  `&rubble` (and NOT `&decals`, so `aftermath` does not move): `RendererOptions.rubbleShowcase` stamps two finished
+ *  collapses on the decal showcase's own anchor, clear of the sandbox force -- a 3x3 `limestone.3` house on the flat
+ *  site and a 2x2 `dust.1` shed on the road site -- each its rubble decal and its chunks AT REST, dated sim time 0.
+ *
+ *  THE CAMERA is the two sites' centroid, rounded to the half tile (`rubble.test.ts` recomputes it from the
+ *  renderer's own site picker, so a picker change re-fails this scenario's own test). Zoom 2.2 and no orders for
+ *  `aftermath`'s reasons: no unit or live effect in frame. `targetTick: 300` is 15 sim-seconds, far inside the 90 s
+ *  the rubble stands before it fades into its decal, so the frame is the settled state, identically every run.
+ *
+ *  No baseline exists for it in any environment: the first comes from CI and the post-merge bless, after the lead
+ *  has looked at it. CI's `visual` job is red until then (the `fogged` and `aftermath` precedent). */
+export const RUBBLE_SCENARIO: Scenario = {
+  id: 'rubble',
+  description:
+    'qarn_hadid @ the rubble showcase centroid, zoom 2.2, tick 300 -- two settled collapses (a 3x3 house, a 2x2 ' +
+    'shed): rubble decals and their chunks at rest, dated sim time 0, clear of the sandbox force (GH-1197 P5).',
+  sandboxMap: 'qarn_hadid',
+  sandboxFlags: ['rubble'],
+  // The house on the flat site (38,36) is centred at (38.5, 36.5), the shed on the road site (30,28) at (31, 29).
+  cameraTile: [35, 33],
+  ticks: 20, // unused when targetTick is set
+  targetTick: 300,
+  zoom: 2.2,
+};
+
 /** GH-1223 slice 1: the ragdoll showcase -- the `aftermath` pattern for presentation-only physics. `qarn_hadid` under
  *  `&ragdoll` (and NOT `&decals`, so `aftermath` does not move): `RendererOptions.ragdollShowcase` stands two
  *  `inf_squad` teams on the decal showcase's flat site, clear of the sandbox force, renderer-only (no sim entity, no
@@ -751,6 +777,7 @@ export const SCENARIOS: readonly Scenario[] = [
   GRADED_SCENARIO,
   RELIEF_SCENARIO,
   AFTERMATH_SCENARIO,
+  RUBBLE_SCENARIO,
   RAGDOLL_SCENARIO,
   DUSK_SCENARIO,
   COMBAT_SCENARIO,

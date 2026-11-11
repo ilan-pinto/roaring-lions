@@ -51,6 +51,15 @@ describe('twin-check (the same-PR rule)', () => {
   const THREE = 'packages/render/src/three/';
   const SHARED_RECIPES: Readonly<Record<string, readonly string[]>> = {
     [`${THREE}units/rim-fade.node.ts`]: [`${THREE}units/smoke-plume.ts`, `${THREE}units/collapse-shroud.ts`],
+    // GH-1225 slice 3 (L7): ONE twin for the roof cut and the P4 holes, which have no name-paired twins of their own.
+    [`${THREE}units/building-cut.node.ts`]: [
+      `${THREE}units/cut-material.ts`,
+      `${THREE}units/holed-material.ts`,
+      `${THREE}units/building-cutaway.ts`,
+      `${THREE}units/building-holes.ts`,
+      `${THREE}units/building-cut-maths.ts`,
+      `${THREE}units/building-mask.ts`,
+    ],
   };
   it('the shipped TWINS table is a legacy -> .node.ts map over existing legacy files', () => {
     const rows = twinRows(TWINS);

@@ -26,7 +26,7 @@ import type * as THREE from 'three';
 import type { MaterialKit } from './backend/backend';
 import { FOLIAGE_SWAY_KEY, FOLIAGE_SWAY_WET_KEY, TRUNK_SWAY_KEY, TRUNK_SWAY_WET_KEY } from './terrain/decor-mesh';
 import { SELECTION_RING_MATERIAL_NAME } from './units/selection-ring';
-import { BACKDROP_HOOK_KEY, BANNER_HOOK_KEY, hookSegments, OUTLINE_HOOK_KEY, P3_MATERIAL_NAMES, UNIT_HOOK_SEGMENTS } from './material-names';
+import { BACKDROP_HOOK_KEY, BANNER_HOOK_KEY, BUILDING_HOOK_SEGMENTS, hookSegments, OUTLINE_HOOK_KEY, P3_MATERIAL_NAMES, UNIT_HOOK_SEGMENTS } from './material-names';
 import { copyRenderState, isTwin, legacyBaseOf, markTwin, recordAdoption, TWIN_LEGACY_KEY } from './twin-identity';
 
 export type TwinSlot = keyof MaterialKit;
@@ -60,6 +60,7 @@ export const NULL_P3_SLOTS: Readonly<Omit<MaterialKit, 'ground' | 'foliage' | 'r
   rotor: null,
   flipbook: null,
   smokeScreen: null,
+  building: null,
 });
 
 /** The kit slot whose twin replaces `m`, or null for a material with no twin slot (stock materials, every other hook). */
@@ -80,6 +81,8 @@ export function legacyTwinSlot(m: THREE.Material): TwinSlot | null {
   const segments = hookSegments(m);
   if (segments.length === 0) return null;
   if (segments.every((s) => UNIT_HOOK_SEGMENTS.has(s))) return 'unit';
+  // GH-1225 slice 3 (L7): a holed and/or cut building clone, one twin per clone.
+  if (segments.every((s) => BUILDING_HOOK_SEGMENTS.has(s))) return 'building';
   return segments.length === 1 ? (ONE_SEGMENT_SLOTS.get(segments[0] as string) ?? null) : null;
 }
 

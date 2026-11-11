@@ -1962,6 +1962,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the friendly anchor. Sandbox-only and three-only, like every flag beside
   // it -- a real mission's ground must remember only its own battle.
   const wantDecals = flags.decals;
+  const wantRubble = flags.rubble;
   // GH-1223 slice 1: the ragdoll showcase, and the ragdoll cap raised for a look (every preset ships 0). Sandbox-only:
   // a dev flag must never change how a mission looks or runs.
   const wantRagdoll = flags.ragdoll;
@@ -2401,6 +2402,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // never change how one looks.
     ...(!mission && wantDecals
       ? { decalShowcase: { x: anchors.friendly[0], y: anchors.friendly[1] } }
+      : {}),
+    // GH-1197 P5: the settled-rubble showcase, sandbox only, for the same reason.
+    ...(!mission && wantRubble
+      ? { rubbleShowcase: { x: anchors.friendly[0], y: anchors.friendly[1] } }
       : {}),
   };
   if (!mission && wantRagdoll && opts.quality !== undefined) {
@@ -6855,7 +6860,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (spectating) { endSpectate(matchDecided !== null ? 'result' : 'ended'); return; }
     // The sim's own result is told to the room, which closes itself two
     // minutes later (L-1); a result from the room's own ending owes nothing.
-    reportOver(room, result, matchDecided);
+    reportOver(room, result, matchDecided, netConfig);
     pauseHandle?.close();
     pauseHandle = null;
     closeOpenDialog();
