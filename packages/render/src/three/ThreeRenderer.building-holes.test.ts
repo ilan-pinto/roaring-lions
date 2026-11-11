@@ -376,6 +376,7 @@ describe('a holed building keeps its holes once a roof cut opens and closes (PR 
     // ONE mask: every mesh casts and occludes through the building's holes-and-cut pair, never the cut-only or holes-only one.
     // Falsify: write `holes.depth` (P4's) or the shared cut pair in `applyBuildingSkin` and these go red.
     const mask = cutMats.maskWith(entry.mats);
+    expect(meshes(root).length, 'the clone has meshes to check').toBeGreaterThan(0);
     for (const m of meshes(root)) {
       const key = (m.material as THREE.Material).customProgramCacheKey();
       expect(key).toContain('rl-holes');

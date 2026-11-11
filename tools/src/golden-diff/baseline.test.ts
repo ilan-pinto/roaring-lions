@@ -1194,6 +1194,9 @@ describe('capture precondition: no selection, no hover (GH-186)', () => {
     const mission = capturePreconditionFor({ mission: 'm' });
     expect(() => runWith(mission, { ...clean, cutawayCount: () => 2 })).not.toThrow();
     expect(() => runWith(mission, { ...clean, selection: [3] })).toThrow(/renderer.selection/);
+    // The other clauses stay armed for a mission too (PR 1238 review): only the cutaway one is dropped.
+    expect(() => runWith(mission, { ...clean, hoverEntity: 7 })).toThrow(/renderer.hoverEntity/);
+    expect(() => runWith(mission, { ...clean, rangeRingPreview: 2 })).toThrow(/renderer.rangeRingPreview/);
     expect(() => runWith(capturePreconditionFor({}), { ...clean, cutawayCount: () => 1 })).toThrow(/cutawayCount\(\) is 1/);
     for (const sc of SCENARIOS) if (sc.mission === undefined) expect(captureScript(sc)).toContain(CAPTURE_PRECONDITION_STATEMENTS);
   });

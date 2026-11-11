@@ -248,6 +248,9 @@ describe('slice 2: the garrison volume', () => {
 
 describe('slice 2: garrison stations', () => {
   const inside = (pts: number[], minX: number, minY: number, maxX: number, maxY: number): void => {
+    // A loop over no stations asserts nothing: the stations must exist (PR 1238 review).
+    expect(pts.length, 'the stations exist').toBeGreaterThan(0);
+    expect(pts.length % 2).toBe(0);
     for (let k = 0; k < pts.length; k += 2) {
       expect(pts[k]).toBeGreaterThanOrEqual(minX + 0.3);
       expect(pts[k]).toBeLessThanOrEqual(maxX + 1 - 0.3);
