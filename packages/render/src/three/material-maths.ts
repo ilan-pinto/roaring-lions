@@ -135,7 +135,7 @@ export const MATERIAL_MATHS: MaterialMaths = {
   // T9: the tunnel x-ray's tube, collar, figure and beam (`tunnel-xray.node.ts`).
   xray: { revealOps: xrayRevealOps, scanOps: xrayScanOps, tubeOps: xrayTubeOps, collarOps: xrayCollarOps, figureOps: xrayFigureOps, beamOps: xrayBeamOps },
   // T11: the simple FX families. The tracer and the flat-colour FX mesh need no maths.
-  particle: { softOps: softParticleOps, sparksGain: HDR_GAINS.sparks },
+  particle: { softOps: softParticleOps, sparksGain: HDR_GAINS.sparks, depthFadeOps: softParticleFadeOps },
   tracer: null,
   vfxMesh: null,
   rimFade: {

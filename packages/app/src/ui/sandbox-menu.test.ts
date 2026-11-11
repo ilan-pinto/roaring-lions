@@ -343,6 +343,7 @@ describe('the launch URL', () => {
       rubble: false,
       kit: true,
       works: false,
+      soft: false,
     });
     expect(unknownParams(params)).toEqual([]);
   });

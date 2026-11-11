@@ -16,7 +16,7 @@
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
 
-export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'decals' | 'rubble' | 'kit' | 'works';
+export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'decals' | 'rubble' | 'kit' | 'works' | 'soft';
 
 export interface UrlParam {
   name: string;
@@ -77,6 +77,12 @@ export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
     blurb:
       'Field works: every buildable KDF type on offer twice, logistics to pay for them, and one demolition squad to raise them',
     labelKey: 'freePlay.option.works',
+  },
+  {
+    name: 'soft',
+    blurb:
+      'soft particles on for this boot (GH-1227): smoke fades where it meets the ground; sandbox only, off in every preset; inert on the node backend until its depth copy lands',
+    labelKey: 'freePlay.option.soft',
   },
 ];
 
