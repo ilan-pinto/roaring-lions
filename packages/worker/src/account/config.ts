@@ -54,3 +54,8 @@ export function accountOrigins(env: Env): string[] {
   const extra = (env.ACCOUNT_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   return [...PINNED_ORIGINS, ...extra];
 }
+
+// GH-1075 A3.
+/** `GET matches`: the largest `limit`; the default page is `MATCHES_PAGE_DEFAULT`. */
+export const MATCHES_PAGE_MAX = 50;
+export const MATCHES_PAGE_DEFAULT = 20;
