@@ -83,10 +83,13 @@ describe("height cap and ground (N-4)", () => {
         for (const s of [GRASS_SCALE_MIN, 1, GRASS_SCALE_MAX, 5]) {
           const k = clampGrassScale(v, s);
           let top = 0;
+          expect(g.positions.length).toBeGreaterThan(0);
           for (let i = 1; i < g.positions.length; i += 3) {
             expect(g.positions[i]).toBeGreaterThanOrEqual(0);
             top = Math.max(top, g.positions[i] * k);
           }
+          // A real blade stands up: top 0 (a flattened clump) must not pass the cap check.
+          expect(top).toBeGreaterThan(0.06);
           expect(top).toBeLessThanOrEqual(GRASS_TIP_CAP + 1e-6);
         }
       }
@@ -98,15 +101,18 @@ describe("height cap and ground (N-4)", () => {
     }
   });
   it("blade heights stay inside 0.05-0.12", () => {
-    for (const v of VARIANTS)
+    for (const v of VARIANTS) {
+      expect(grassBlades(v).length).toBe([12, 16, 20][v]);
       for (const b of grassBlades(v)) {
         expect(b.height).toBeGreaterThanOrEqual(0.05);
         expect(b.height).toBeLessThanOrEqual(0.12);
       }
+    }
   });
   it("the footprint is 0.17 tile across", () => {
     for (const v of VARIANTS) {
       const g = buildGrassClump(v, 0, COLOURS);
+      expect(g.positions.length).toBeGreaterThan(0);
       for (let i = 0; i < g.positions.length; i += 3)
         expect(Math.hypot(g.positions[i], g.positions[i + 2])).toBeLessThan(
           0.17,
@@ -199,30 +205,41 @@ describe("straw and colours", () => {
     // Not sRGB: raw bytes would be far brighter than linear.
     expect(grassRoot[1]).toBeLessThan(0.4);
   });
-  it("a tip vertex carries its tip colour, unshaded", () => {
-    const g = buildGrassClump(0, 0, COLOURS);
+  it("every blade tip carries its literal tip colour, unshaded: 21 grass.3, 17 grass.2, 6 grass.1, 4 straw over the three variants", () => {
+    // Literals, with the palette keys they stand for checked once; no call to grassRootOcclusion.
+    expect(paletteColor("grass.3").toUpperCase()).toBe("#8AB04E");
+    expect(paletteColor("grass.2").toUpperCase()).toBe("#A6BC66");
+    expect(paletteColor("grass.1").toUpperCase()).toBe("#C0CE7E");
+    expect(paletteColor("limestone.3").toUpperCase()).toBe("#C8B494");
     const wanted = [
       hexToLinear("#8AB04E"),
       hexToLinear("#A6BC66"),
       hexToLinear("#C0CE7E"),
-      hexToLinear("#B8A182"),
-    ]; // grass.3, grass.2, grass.1, limestone.3 (checked below)
-    expect(paletteColor("limestone.3").toUpperCase()).toBe("#C8B494");
-    wanted[3] = hexToLinear("#C8B494");
-    let hits = 0;
-    for (let i = 0; i < g.positions.length / 3; i++) {
-      const c = [g.colors[i * 3], g.colors[i * 3 + 1], g.colors[i * 3 + 2]];
-      if (
-        wanted.some((w) =>
-          w.every(
-            (x, k) =>
-              Math.abs(x * grassRootOcclusion(g.nature[i * 3]) - c[k]) < 1e-6,
-          ),
-        )
-      )
-        hits++;
+      hexToLinear("#C8B494"),
+    ];
+    const seen = [0, 0, 0, 0];
+    let tips = 0;
+    for (const v of VARIANTS) {
+      const g = buildGrassClump(v, 0, COLOURS);
+      const per = g.indices.length / 3 / g.blades;
+      for (let b = 0; b < g.blades; b++) {
+        // The vertex that closes the blade's last triangle is its tip (the same reading the LOD-subset test uses).
+        const vi = g.indices[(b * per + per - 1) * 3 + 2];
+        const c = [
+          g.colors[vi * 3],
+          g.colors[vi * 3 + 1],
+          g.colors[vi * 3 + 2],
+        ];
+        const hit = wanted.findIndex((w) =>
+          w.every((x, k) => Math.abs(x - c[k]) < 1e-6),
+        );
+        expect(hit).toBeGreaterThanOrEqual(0);
+        seen[hit]++;
+        tips++;
+      }
     }
-    expect(hits).toBeGreaterThanOrEqual(12);
+    expect(tips).toBe(48);
+    expect(seen).toEqual([21, 17, 6, 4]);
   });
   it("root occlusion is 0.65 at the root and 1 from 40% up", () => {
     expect(grassRootOcclusion(0)).toBeCloseTo(0.65, 12);
