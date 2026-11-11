@@ -1680,6 +1680,7 @@
   "objectives.title": "Objectives",
   "objectives.close": "Close",
   "objectives.evacProgress": "{text} ({n}/{of})",
+  "objectives.collateralProgress": "{text} (Conduct lost {lost} of {limit})",
   "objectives.jumpRefuge": "Show refuge",
   "objective.reward.carries": "Carries forward · +{credits} credits · needed for the third star",
   "objective.reward.carriesNoCredits": "Carries forward · needed for the third star",

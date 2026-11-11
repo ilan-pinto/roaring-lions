@@ -100,12 +100,14 @@ in step with it.
   (GH-912) is a member of a named group (garrison, wave or spawn) in one, and waits for a wave's
   group to exist rather than firing on nobody. That is the whole
   AI. Design inside it and name what falls outside as a gap.
-- **Ten live objective types.** `locate eliminate_hvt capture hold_for
-  survive_until destroy_all raze collapse evacuate_before escort`. Two more are in the
-  schema and the runtime throws on them (`mark no_collateral_above`). `escort` (GH-2):
+- **Eleven live objective types.** `locate eliminate_hvt capture hold_for
+  survive_until destroy_all raze collapse evacuate_before escort no_collateral_above`. One more is in the
+  schema and the runtime throws on it (`mark`). `escort` (GH-2):
   `target` is a tag on the player's own `starting_force` placements, `zone` the destination;
   it fails the tick any tagged unit is dead or taken and completes when every one stands in
-  the zone at once. No shipped mission uses it yet.
+  the zone at once. `no_collateral_above` (GH-4): `threshold` is the most Conduct (the ROE score) the mission
+  may lose, a whole number 0 to 100; it fails the tick the loss is strictly above it and completes the tick every
+  other primary does, so it needs ROE on and another primary. No shipped mission uses either yet.
 - **ROE is the second score, and the player calls it Conduct.** 0–100, `flagged_zones` from map zones, `fail_below`
   loses the mission. Since 2026-09-10 the HUD, the deduction notice, the lock label,
   the end screen and the board all print **Conduct**, never the acronym, and authored
