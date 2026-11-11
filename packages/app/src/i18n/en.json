@@ -1396,6 +1396,8 @@
   "intent.load.airLanding": "<b>mount up</b> — landing to take them aboard",
   "intent.dismount": "<b>dismount</b> — infantry debussing",
   "intent.dismount.airLanding": "<b>dismount</b> — landing to unload",
+  "intent.dismount.atPoint": "<b>dismount</b> — flying there to land and unload",
+  "intent.unload.armed": "unload — click where to land (U again: unload here · Esc cancels)",
   "intent.smoke.none": "nothing selected that carries smoke",
   "intent.dismount.none": "nothing selected is carrying troops — select a loaded transport to unload",
   "intent.halt.none": "nothing of yours selected to halt — select units first",

@@ -72,6 +72,18 @@ describe('applyIntent', () => {
     expect(s.out).toEqual([{ kind: 'load', ids: [5, 6], carrier: 9, carriers: [9, 10, 11] }]);
   });
 
+  it('GH-698: a dismount at a point sends the point in Q16.16, inside the map box; without one, the plain unload', () => {
+    const s = sink();
+    applyIntent(s, { kind: 'dismount', carriers: [4], x: 2.5, y: 3 }, MAP);
+    applyIntent(s, { kind: 'dismount', carriers: [4], x: -1, y: 1e6 }, MAP);
+    applyIntent(s, { kind: 'dismount', carriers: [4] }, MAP);
+    expect(s.out).toEqual([
+      { kind: 'unload', ids: [4], x: 163840, y: 196608 },
+      { kind: 'unload', ids: [4], x: 0, y: 48 * 65536 - 1 },
+      { kind: 'unload', ids: [4] },
+    ]);
+  });
+
   it('GH-972: a garrison of two or more is a spread order, of one is the plain order', () => {
     const s = sink();
     applyIntent(s, { kind: 'garrison', ids: [5, 6], structure: 3 }, MAP);
