@@ -936,6 +936,10 @@ describe('BASELINES layerChecks', () => {
         haze: { px: 285, mean: 0.9784 },
         units: { px: 9036, mean: 0.6724 },
       },
+      // GH-1197 P5, 11 Nov 2026: ci.yml `visual` runs 42964829598, 42984171949, 43010354828 (SwiftShader), bit-identical.
+      rubble: {
+        debris: { px: 9993, mean: 0.4669 },
+      },
     };
     /** Below this many pixels a count is not a measurement you can take a
      *  third of, and `LayerCheckSpec` says so: `minDiffPixels` "is
@@ -951,7 +955,7 @@ describe('BASELINES layerChecks', () => {
     /** Checks that ship before any CI reading exists (GH-1197 P5's `rubble` scenario): their floors are INFINITE, so
      *  they fail until the first three CI readings are written into `MEASURED` and the floors are derived from them --
      *  never a check that passes on nothing. Listed by hand: leaving this list is a deliberate edit. */
-    const PENDING = new Set(['rubble/debris']);
+    const PENDING = new Set<string>();
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
         // GH-943 P1 (T5): a `zero` check has no floor to derive from a signal; it has its own test below.

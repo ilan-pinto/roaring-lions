@@ -1965,16 +1965,18 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
     layerChecks: [
       {
         layer: 'debris',
-        // PENDING: no CI reading yet, so the floor is infinite -- the check cannot pass vacuously, and fails until
-        // the first three CI readings are written here (a third of the smallest, rounded down; the
-        // `vehicle/selection-ring` precedent).
-        minDiffPixels: Number.POSITIVE_INFINITY,
-        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        // Derived 11 Nov 2026 from `visual` (linux-x64-swiftshader) readings of the SAME picture, bit-identical on
+        // ci.yml runs 42964829598, 42984171949 and 43010354828 (and 42877078966): 9993 px / 0.4669 each. The
+        // `visual-backends (webgl2)` job, a different environment, read 10314 px / 0.4759 (runs 42984171949,
+        // 43010354828), above these, so one floor holds for both. A third of the smallest, rounded down: 3331 px,
+        // 0.1556.
+        minDiffPixels: 3331,
+        minMeanAbsChannelDelta: 0.1556,
         rationale:
           'GH-1197 P5: hiding the debris pool (the `debris` layer, a flag the pool consults) must move this frame -- ' +
-          'the 58 resting chunks of the two showcase collapses are the picture. PENDING: no CI reading exists; the ' +
-          'floors are re-derived from the first three CI runs at the bless. At the renderer level, a no-op placement ' +
-          '(the showcase spawning no chunks) turns `ThreeRenderer.collapse-debris.test.ts` red.',
+          'the 58 resting chunks of the two showcase collapses are the picture. Floors are a third of the smallest of ' +
+          'three CI readings (9993 px / 0.4669; runs 42964829598, 42984171949, 43010354828). At the renderer level, a ' +
+          'no-op placement (the showcase spawning no chunks) turns `ThreeRenderer.collapse-debris.test.ts` red.',
       },
     ],
     rationale:
