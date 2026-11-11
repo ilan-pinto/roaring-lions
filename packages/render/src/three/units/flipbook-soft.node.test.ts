@@ -104,6 +104,29 @@ describe('flipbook node twin, soft particles (GH-1227)', () => {
     assertNoImplicitSampleInConditional(w.fragment);
   });
 
+  it("on: the fade's fragment depth is the orthographic view depth of the fragment, never a camera constant", async () => {
+    const { W, TSL } = await webgpuModules();
+    const fx = new FlipbookFx(8);
+    fx.setSoftDepth(source());
+    const legacy = fx.mesh.material as unknown as HasUniforms;
+    const seen: { args: unknown[]; out: unknown }[] = [];
+    const real = (TSL as unknown as { viewZToOrthographicDepth: (...a: unknown[]) => unknown }).viewZToOrthographicDepth;
+    const wrapped = { ...(TSL as object), viewZToOrthographicDepth: (...a: unknown[]) => { const out = real(...a); seen.push({ args: a, out }); return out; } };
+    const calls: unknown[][] = [];
+    const spy: FlipbookMaths = { ...maths.flipbook, softOps: ((...a: unknown[]) => (calls.push(a), (maths.flipbook.softOps as (...x: unknown[]) => unknown)(...a))) as FlipbookMaths['softOps'] };
+    const twin = createNodeFlipbookMaterial({ W, TSL: wrapped as never, maths: spy }, legacy, 'smoke');
+    copyRenderState(legacy as never, twin);
+    fx.mesh.material = twin as never;
+    await compileFx(fx.mesh);
+    // The depth term comes from the view-space depth conversion, fed the camera's near and far, and that very node reaches the fade.
+    expect(seen.length).toBe(1);
+    const T = TSL as unknown as { cameraNear: unknown; cameraFar: unknown };
+    expect(seen[0]!.args[1]).toBe(T.cameraNear);
+    expect(seen[0]!.args[2]).toBe(T.cameraFar);
+    expect(calls[0]![2]).toBe(seen[0]!.out);
+    expect(calls[0]![2]).not.toBe(T.cameraNear);
+  });
+
   it('the fire pass never fades, even handed a record that carries the soft uniforms', async () => {
     const fx = new FlipbookFx(8);
     fx.setSoftDepth(source());

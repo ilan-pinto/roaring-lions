@@ -2,6 +2,9 @@
  * The P0 ABBA figure-curve runner (GH-943 WebGPU-primary, design section 6).
  *
  *   pnpm --filter @lions/tools webgpu:abba -- --port=5190 [--map=wadi_halam_4] [--counts=300,600] [--rounds=3] [--frames=80] [--out=<json>]
+ *       [--node-opts=refreshPolicy=three,matrixWalk=every-pass,uploads=three]   (GH-943 P3 T14b: the node arms' draw switches)
+ *
+ * Every round runs L against the test arm (`abbaOrder('L', test, round)`), so `--arms=G` still yields G against L.
  *
  * Arms L (legacy), F (node on WebGL2), G (node on WebGPU) run L-vs-F and L-vs-G in ABBA order, each on a FRESH page, hardware Metal
  * (ANGLE/Metal; WebGPU through Dawn/Metal), 1280x720 DPR 2, z0.5, music off. REFUSES (exit 2) when:
@@ -23,6 +26,7 @@ import { claimPort } from '../ui-review/port';
 import { MAX_LOADAVG_1M, abbaOrder, barMet, compare, loadRefusal, roundsRefusal, summarise } from './webgpu-abba';
 import { ARM_KIND, harnessRefusals, type ArmId, type ArmReading } from './webgpu-refusals';
 import type { ArmRun, LegacyScene } from './webgpu-page';
+import { parseNodeDraw, resolveNodeDraw, type NodeDrawOptions } from '../../../packages/render/src/three/backend/node-draw-options';
 
 const args = process.argv.slice(2);
 const arg = (n: string, d: string): string => (args.find((a) => a.startsWith(`--${n}=`)) ?? `--${n}=${d}`).slice(n.length + 3);
@@ -43,6 +47,13 @@ const LEGACY = arg('legacy', 'matched') as LegacyScene;
 if (LEGACY !== 'matched' && LEGACY !== 'shipped') refuse(`--legacy=${LEGACY}: expected matched or shipped`);
 if (!(MAX_LOAD > 0)) refuse(`--max-load=${arg('max-load', '')} is not a positive number`);
 const MODULE = `/@fs${root}/tools/src/perf/webgpu-page.ts`;
+// GH-943 P3 T14b: `--node-opts=k=v,...`, the node draw switches for the F and G arms only (L never gets them). A typo refuses.
+let NODE_DRAW: NodeDrawOptions = {};
+try {
+  NODE_DRAW = parseNodeDraw(arg('node-opts', ''));
+} catch (e) {
+  refuse((e as Error).message);
+}
 
 function refuse(msg: string): never {
   console.error(`webgpu-abba: REFUSED: ${msg}`);
@@ -92,11 +103,11 @@ async function runOne(arm: ArmId): Promise<{ run: ArmRun; lines: string[]; gpu: 
     return ext ? String(gl?.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : 'unknown';
   });
   const run = (await page.evaluate(
-    async ({ mod, arm, mapId, counts, frames, legacyScene }) => {
+    async ({ mod, arm, mapId, counts, frames, legacyScene, nodeDraw }) => {
       const m = (await import(/* @vite-ignore */ mod)) as typeof import('./webgpu-page');
-      return m.runArm({ mapId: mapId as never, arm, counts, frames, viewFrames: 40, legacyScene });
+      return m.runArm({ mapId: mapId as never, arm, counts, frames, viewFrames: 40, legacyScene, ...(arm === 'L' || nodeDraw === null ? {} : { nodeDraw }) });
     },
-    { mod: MODULE, arm, mapId: MAP, counts: COUNTS, frames: FRAMES, legacyScene: LEGACY }
+    { mod: MODULE, arm, mapId: MAP, counts: COUNTS, frames: FRAMES, legacyScene: LEGACY, nodeDraw: Object.keys(NODE_DRAW).length === 0 ? null : NODE_DRAW }
   )) as ArmRun;
   await page.close();
   return { run, lines, gpu: arm === 'G' ? run.adapter : glRenderer };
@@ -166,7 +177,7 @@ const refusals = harnessRefusals(
 if (refusals.length > 0) refuse(`\n  ${refusals.join('\n  ')}`);
 
 const out: string[] = [];
-out.push(`conditions: map=${MAP} 1280x720 DPR 2, z0.5, quality high, ${FRAMES} frames/point, ${ROUNDS} ABBA rounds, L ${LEGACY === 'matched' ? 'MATCHED to the node scene (the node census hidden set hidden, AO ON since P1 T7; fog/bloom/SMAA/grade still on L)' : 'shipped'}, music off, max-load ${MAX_LOAD}, loadavg per page ${Math.min(...loads.map((l) => l.load1m)).toFixed(2)}-${Math.max(...loads.map((l) => l.load1m)).toFixed(2)}, at end ${os.loadavg()[0]?.toFixed(2)}`);
+out.push(`conditions: map=${MAP} 1280x720 DPR 2, z0.5, quality high, ${FRAMES} frames/point, ${ROUNDS} ABBA rounds, L ${LEGACY === 'matched' ? 'MATCHED to the node scene (the node census hidden set hidden, AO ON since P1 T7; fog/bloom/SMAA/grade still on L)' : 'shipped'}, music off, node draw ${JSON.stringify(resolveNodeDraw(NODE_DRAW))}, max-load ${MAX_LOAD}, loadavg per page ${Math.min(...loads.map((l) => l.load1m)).toFixed(2)}-${Math.max(...loads.map((l) => l.load1m)).toFixed(2)}, at end ${os.loadavg()[0]?.toFixed(2)}`);
 out.push(`  gpu: ${[...new Set(readings.map((r) => `${r.arm}=${r.gpu}`))].join('; ')}`);
 for (const arm of ['L', ...ARMS] as ArmId[])
   out.push(
@@ -192,7 +203,7 @@ for (const test of ARMS) {
 console.log(out.join('\n'));
 if (OUT) {
   mkdirSync(path.dirname(OUT), { recursive: true });
-  writeFileSync(OUT, JSON.stringify({ conditions: out[0], maxLoad: MAX_LOAD, legacyScene: LEGACY, loads, gpu: [...new Set(readings.map((r) => `${r.arm}=${r.gpu}`))], verdict, sample }, null, 2));
+  writeFileSync(OUT, JSON.stringify({ conditions: out[0], maxLoad: MAX_LOAD, legacyScene: LEGACY, nodeDraw: resolveNodeDraw(NODE_DRAW), loads, gpu: [...new Set(readings.map((r) => `${r.arm}=${r.gpu}`))], verdict, sample }, null, 2));
   writeFileSync(OUT.replace(/\.json$/, '.txt'), out.join('\n'));
 }
 process.exit(0);

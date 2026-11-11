@@ -733,3 +733,38 @@ with P4's `rl-holes` hook, and the TSL twin are later slices.
 - **Limits:** at most one burst a building per 4 ticks (an autocannon lands ten rounds a second); nothing in a catch-up;
   in versus nothing for a hostile hit on a building out of sight (`hostileEffectVisible`, the collapse's rule).
 - **Not here:** the char halo goes with the hole (P4, ruling Q1); holes (P4); the staged collapse (P5).
+
+## Real holes in buildings (GH-1197 P4)
+
+- **Which hits cut (coordinator ruling Q1):** a P3-matched explosive direct-fire round -> a WALL hole at its hit point; an
+  indirect round fired AT a building (not a cluster carrier), matched to its `structureHit` the same way -> a ROOF hole at a
+  hashed roof point; a demolition charge -> a 0.60 wall hole at door height (`cutChargeHole`); the strike and the barrage ->
+  a roof hole in every building inside their splash (`cutSupportHoles`). Radii and axes are data: each munition class row's
+  `hole` block (`munitions.json`, section 3a's table). No holes from small arms, the HMG, the blade, kamikaze, or splash on a
+  building nobody fired at; none on per-tile walls (P4b). Holes are world state: cut through fog and catch-ups, like scars.
+- **Where:** raycast onto the surface the frozen clone draws (`surfaceAlong`), so a hole sits on the wall or roof, not on the
+  footprint's edge. WORLD space: a standing building never moves.
+- **Bookkeeping (`units/building-holes.ts`):** at most 6 holes; a hit within 1.2 r grows the nearest by 25%, capped at 1.6x
+  its class radius; a seventh distinct hit grows the nearest. The edge: `r (0.85 + 0.30 e(theta))`, `e` a 4-octave periodic
+  value-noise fbm on the `tileHash` lattice (the GLSL carries the same uint hash); 6 cracks, a 0.03 t lip one ramp key darker,
+  a 0.15 t `gunmetal.3` halo at 0.7 (the char halo P3 deferred).
+- **The material (`units/holed-material.ts`):** minted on a building's FIRST hole and never before (`buildingHoles`), so an
+  unhit map binds no new program, material or side. One uniform set per building, shared by its holed clones (one per band
+  material, `DoubleSide`, the base's own hook chained, key `<base>|rl-holes`) and its `customDepthMaterial` (the shadow is
+  cut). Back faces seen through a hole are the interior: the wall ramp's darkest key 0.6 toward `gunmetal.2`. A band change
+  re-derives the clones from the new band material; a holed building keeps its full art (no LOD1 twin); death releases them.
+- **WebGPU:** no node twin (ruling Q3). The census (`censusUnported`) walks each object's `.material` only, so it lists the
+  holed colour clones as kind `on-before-compile`, key `rl-holes` -- not as `partial`, which is a twin's own declaration,
+  and there is no twin. The depth material is a `customDepthMaterial`, which the census never walks, so `rl-holes-depth` is
+  NOT listed. On node a holed building draws its band material without the hook: whole (no cut, lip, cracks, halo or
+  interior), but still `DoubleSide` (the clone's side), and its shadow is uncut.
+- **Why world space, not object space** (the coordinator's ruling on PR 1221): a standing building never moves or rotates
+  at runtime (placed once and frozen, `freezeStatic`; its facing is gated), so its world frame is its object frame; world
+  space also keeps a hole round under the non-uniform `buildingFitFor` scale. Anything that moves a standing root must
+  move its holes with it.
+- **Wall or roof is data:** `cutClassHole` dispatches on the class row's `hole.axis`; every call site hands both a wall
+  face and a roof point.
+- **The gate:** the gated scenarios hit no building, so they mint no holed material
+  (`ThreeRenderer.building-holes.test.ts`, "an unhit map mints no holed material"; its falsifier, a hole on every building as
+  it stands up, goes red). The GLSL was checked with `glslangValidator` (GLSL ES 3.00) outside the suite; its edge lattice
+  is pinned line for line in `holed-material.test.ts`, because the TS mirror's seam test cannot see the GLSL copy.

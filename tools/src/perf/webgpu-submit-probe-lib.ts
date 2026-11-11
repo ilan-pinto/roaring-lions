@@ -36,7 +36,7 @@ export function drawTypeOf(o: DrawObjectLike): DrawType {
 
 export const emptyByType = (): Record<DrawType, number> => ({ batchedEntry: 0, skinned: 0, instanced: 0, nodeMesh: 0, stockMesh: 0 });
 
-export type Hypothesis = 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'H6';
+export type Hypothesis = 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'H6' | 'H7' | 'H8' | 'H9';
 export const HYPOTHESIS_NAME: Record<Hypothesis, string> = {
   H1: 'BatchedMesh per-entry loop: decor and props hidden',
   H2: 'per-object FULL refresh: FULL refreshes per frame by type (a counting wrap of needsRefresh)',
@@ -44,22 +44,31 @@ export const HYPOTHESIS_NAME: Record<Hypothesis, string> = {
   H4: 'the AO pre-pass: `ao` hidden',
   H5: 'the measurement: the census inside cpuRender',
   H6: 'the P3 additions: the same run before (P2 tree) and after the T3-T12 twins',
+  // GH-943 P3 T14b. H10 (the 1205 uploads) is a BOOT switch (the bone texture is compiled into the programs), so it is read by a
+  // second probe run with `--node-opts=uploads=three` and by the ABBA's step 3, never as a toggle on one page.
+  H7: 'F2 ceiling: every hasNode-only FULL refresh made SHARED with no key check (timing only, can draw stale)',
+  H8: "F2: the parked refresh policy off (refreshPolicy 'three' against the default 'parked')",
+  H9: "F8: the world-matrix walk on every pass (matrixWalk 'every-pass' against the default 'once')",
 };
 
 /** A toggle the page applies on top of the base scene; `base` is none. */
-export type VariantId = 'base' | 'decor-props-hidden' | 'unit-shadow-off' | 'ao-hidden';
+export type VariantId = 'base' | 'decor-props-hidden' | 'unit-shadow-off' | 'ao-hidden' | 'refresh-unsafe' | 'refresh-three' | 'walk-every-pass';
 export interface Variant {
   readonly id: VariantId;
   /** The hypothesis this toggle reads; null for the base. */
-  readonly hypothesis: 'H1' | 'H3' | 'H4' | null;
+  readonly hypothesis: ToggleHypothesis | null;
 }
 export const VARIANTS: readonly Variant[] = [
   { id: 'base', hypothesis: null },
   { id: 'decor-props-hidden', hypothesis: 'H1' },
   { id: 'unit-shadow-off', hypothesis: 'H3' },
   { id: 'ao-hidden', hypothesis: 'H4' },
+  // GH-943 P3 T14b: the node switches, flipped at run time on the same page (`RenderBackend.drawSwitches`); a no-op on L.
+  { id: 'refresh-unsafe', hypothesis: 'H7' },
+  { id: 'refresh-three', hypothesis: 'H8' },
+  { id: 'walk-every-pass', hypothesis: 'H9' },
 ];
-export const TOGGLE_HYPOTHESES = ['H1', 'H3', 'H4'] as const;
+export const TOGGLE_HYPOTHESES = ['H1', 'H3', 'H4', 'H7', 'H8', 'H9'] as const;
 export type ToggleHypothesis = (typeof TOGGLE_HYPOTHESES)[number];
 
 export interface ProfileTop {
@@ -109,6 +118,9 @@ export interface SubmitReading {
    *  attributes), `updateBinding` (uniform buffers) and `updateTexture` calls (GH-1152 T14: the two writeBuffer sources T13's profile
    *  named, and the bone textures that replace the uniform-buffer bones). Optional so a tree before T14 still reads. */
   readonly uploads?: Uploads | null;
+  /** GH-943 P3 T14b: the node backend's own draw counts in the stats frame (`drawSwitches.takeCounts`): FULL refreshes three asked
+   *  for, those F2 made SHARED, scene walks done and skipped. Null on L or a tree without the switches. */
+  readonly drawCounts?: { full: number; downgraded: number; walks: number; walksSkipped: number } | null;
   /** Median CPU render over the timed frames, the census LEFT OUT (null on a counts-only run). */
   readonly cpuRenderMs: number | null;
   /** The same median with the census left in (the P0-P2 definition). */
@@ -143,7 +155,7 @@ export function unsettledRefusals(readings: readonly SubmitReading[]): string[] 
 }
 
 /** The pass each toggle hypothesis removes work from, when it has one. */
-export const TOGGLE_PASS: Readonly<Record<ToggleHypothesis, RenderPassId | null>> = { H1: null, H3: 'shadow', H4: 'ao' };
+export const TOGGLE_PASS: Readonly<Record<ToggleHypothesis, RenderPassId | null>> = { H1: null, H3: 'shadow', H4: 'ao', H7: null, H8: null, H9: null };
 
 /**
  * A toggle hypothesis the COUNT settles without its toggle: the pass it would remove draws 0 calls in EVERY base reading (H4 at z0.5,
@@ -196,6 +208,10 @@ export function countMoved(base: SubmitReading, v: SubmitReading): boolean {
   if (base.perPass !== null && v.perPass !== null) {
     for (const p of PASSES) if (base.perPass[p].calls !== v.perPass[p].calls || base.perPass[p].objects !== v.perPass[p].objects) return true;
   }
+  // GH-943 P3 T14b: the node switches move no draw, only the work per draw: the FULL refreshes, the uploads, the scene walks.
+  if (base.fullRefresh != null && v.fullRefresh != null && totalOf(base.fullRefresh) !== totalOf(v.fullRefresh)) return true;
+  if (base.uploads != null && v.uploads != null && (base.uploads.attribute !== v.uploads.attribute || base.uploads.binding !== v.uploads.binding || base.uploads.texture !== v.uploads.texture)) return true;
+  if (base.drawCounts != null && v.drawCounts != null && (base.drawCounts.downgraded !== v.drawCounts.downgraded || base.drawCounts.walks !== v.drawCounts.walks || base.drawCounts.walksSkipped !== v.drawCounts.walksSkipped)) return true;
   return false;
 }
 
@@ -467,6 +483,29 @@ export function tallyTable(readings: readonly SubmitReading[]): string[] {
       return `| ${r.arm} | ${r.n} | ${r.variant} | ${r.living} | ${r.calls} | ${r.triangles} | ${pp('shadow')} | ${pp('scene')} | ${pp('ao')} | ${pp('post')} | ${r.byType.batchedEntry} | ${r.byType.skinned} | ${r.byType.instanced} | ${r.byType.nodeMesh} | ${r.byType.stockMesh} | ${r.fullRefresh === null ? 'n/a' : totalOf(r.fullRefresh)} | ${fmtUploads(r.uploads)} |`;
     }),
   ];
+}
+
+/**
+ * G2a (GH-943 P3 T14b): on every node arm and count, the parked policy (the base, the default) must take FEWER FULL refreshes in the
+ * stats frame than three's own observer on the same page (`refresh-three`, H8), and must have downgraded at least one. Relative, on
+ * the same run: the absolute CI literal the plan names is written into this spec once the first CI run on main has read it.
+ */
+export function parkedRefreshRefusals(readings: readonly SubmitReading[]): string[] {
+  const out: string[] = [];
+  for (const b of readings) {
+    if (b.arm === 'L' || b.variant !== 'base') continue;
+    const three = findReading(readings, b.arm, b.n, 'refresh-three');
+    if (three === undefined) continue;
+    if (b.fullRefresh == null || three.fullRefresh == null) {
+      out.push(`G2a ${b.arm} n${b.n}: no FULL-refresh counts to compare`);
+      continue;
+    }
+    const fb = totalOf(b.fullRefresh);
+    const ft = totalOf(three.fullRefresh);
+    if (!(fb < ft)) out.push(`G2a ${b.arm} n${b.n}: the parked policy took ${fb} FULL refreshes, three's own ${ft}: F2 cut nothing`);
+    else if ((b.drawCounts?.downgraded ?? 0) === 0) out.push(`G2a ${b.arm} n${b.n}: the parked policy downgraded nothing (drawCounts)`);
+  }
+  return out;
 }
 
 /**
