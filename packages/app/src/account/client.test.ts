@@ -142,6 +142,8 @@ describe('the A2 routes (GH-1075)', () => {
     await client.putSlot(SLOT_PUT);
     await client.deleteSlot({ kind: 'slot.delete', opId: 'd1', slotId: 's1' });
     await client.claim({ op_id: 'x', device_id: 'y', campaign: null, slots: [], wallet: {}, coupons: [] });
+    await client.matches();
+    await client.matches(77);
     const seen = spy.mock.calls.map(([u, i]) => `${i?.method} ${String(u)}`);
     expect(seen).toEqual([
       'GET /api/account/state',
@@ -155,6 +157,8 @@ describe('the A2 routes (GH-1075)', () => {
       'PUT /api/account/slots/s1',
       'DELETE /api/account/slots/s1',
       'POST /api/account/claim',
+      'GET /api/account/matches',
+      'GET /api/account/matches?before=77',
     ]);
     const body = (n: number): Record<string, unknown> => JSON.parse(String(spy.mock.calls[n]?.[1]?.body)) as Record<string, unknown>;
     expect(body(2)).toEqual({ op_id: 'op1', missionId: 'm1' });

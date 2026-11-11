@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountClient, AccountError, IdentityView, MeResult } from '../account/client';
 import { ACCOUNT_BINDING_KEY, readBinding } from '../account/binding';
 import { canonicalCampaign } from '@lions/economy';
@@ -10,7 +10,10 @@ import { confirmedState } from '../account/fixtures';
 import { sha256Hex } from '../account/signed-in';
 import { parseSlot } from '@lions/economy';
 import { unusedA2Client } from '../account/fixtures';
-import { t } from '../i18n/t';
+import { setCatalogue, t } from '../i18n/t';
+import en from '../i18n/en.json';
+import { pseudo } from '../i18n/pseudo';
+import type { MatchView, MatchesView } from '@lions/economy';
 import { showProfile, type ProfileDeps } from './profile';
 import { accountLedgerStore } from '../account/account-store';
 import { ACCOUNT_CACHE_KEY, writeCache } from '../account/cache';
@@ -48,6 +51,7 @@ function stub(over: Partial<AccountClient> = {}): AccountClient & { calls: strin
     deleteAccount: async (o) => (calls.push('delete:' + JSON.stringify(o)), 'ok'),
     gone: async () => 'unknown',
     ...unusedA2Client,
+    matches: async () => ({ ok: true, status: 200, body: { matches: [], next: null, record: { won: 0, lost: 0, drawn: 0 } } }),
     ...over,
   };
   return Object.assign(c, { calls });
@@ -212,7 +216,7 @@ describe('showProfile', () => {
     const c = stub({ me: async () => signedIn() });
     const { stage } = mount(c, {}, store);
     await flush();
-    const box = stage.querySelector<HTMLInputElement>('input[type=checkbox]');
+    const box = stage.querySelector<HTMLInputElement>('.rl-profile__telemetry input');
     expect(box?.checked).toBe(false);
     btn(stage, t('profile.delete')).click();
     expect(c.calls.some((x) => x.startsWith('delete'))).toBe(false);
@@ -228,7 +232,7 @@ describe('showProfile', () => {
     const c = stub({ me: async () => signedIn() });
     const { stage } = mount(c);
     await flush();
-    const box = stage.querySelector<HTMLInputElement>('input[type=checkbox]');
+    const box = stage.querySelector<HTMLInputElement>('.rl-profile__telemetry input');
     if (!box) throw new Error('no box');
     box.checked = true;
     btn(stage, t('profile.delete')).click();
@@ -472,5 +476,134 @@ describe('C1: sign-out and deletion go through the sync module over the account 
     dispose();
     release.go();
     await vi.waitFor(() => expect(reloads).toHaveLength(1));
+  });
+});
+
+describe('the history and the record (GH-1075 A3)', () => {
+  afterEach(() => setCatalogue('en', en));
+  const view = (over: Partial<MatchView> & { opponent: MatchView['opponent'] }): MatchView => ({
+    code: 'ABCDE',
+    startedAt: 1_700_000_000_000,
+    endedAt: 1_700_000_600_000,
+    map: 'tel_marum',
+    matchup: 'kdf-v-sarim',
+    winMode: null,
+    kit: 'k',
+    reason: 'annihilation',
+    winnerSeat: 0,
+    ticks: 100,
+    agreed: true,
+    seat: 0,
+    side: 'kdf',
+    ...over,
+  });
+  const answer = (matches: MatchView[], over: Partial<MatchesView> = {}): MatchesView => ({ matches, next: null, record: { won: 2, lost: 1, drawn: 0 }, ...over });
+  const withMatches = (a: MatchesView | ((before?: number) => MatchesView), over: Partial<AccountClient> = {}) =>
+    stub({
+      me: async () => signedIn(),
+      matches: async (before) => ({ ok: true, status: 200, body: typeof a === 'function' ? a(before) : a }),
+      ...over,
+    });
+  const rows = (stage: HTMLElement): string[] => [...stage.querySelectorAll('.rl-profile__match')].map((x) => x.textContent ?? '');
+
+  it('history_shows_guest_never_a_callsign', async () => {
+    const stray = { callsign: 'ZZ-SENTINEL-CALL' }; // a server bug, simulated: on the match and on the opponent
+    const guest = { ...view({ opponent: { kind: 'guest', ...stray } as MatchView['opponent'] }), ...stray } as MatchView;
+    const { stage } = mount(withMatches(answer([guest])));
+    await flush();
+    expect(rows(stage)[0]).toContain(t('profile.history.guest'));
+    expect(stage.textContent).not.toContain('ZZ-SENTINEL-CALL');
+    expect(stage.innerHTML).not.toContain('ZZ-SENTINEL-CALL');
+    setCatalogue('pseudo', en, pseudo);
+    const again = mount(withMatches(answer([guest])));
+    await flush();
+    expect(rows(again.stage)[0]).toContain(pseudo(en['profile.history.guest']));
+  });
+
+  it('history_kinds', async () => {
+    const { stage } = mount(
+      withMatches(
+        answer([
+          view({ opponent: { kind: 'member', name: 'Dana', publicId: 'K7Q2M4XA' } }),
+          view({ opponent: { kind: 'bot', model: null }, winnerSeat: 1 }),
+          view({ opponent: { kind: 'deleted' }, winnerSeat: null }),
+          view({ opponent: { kind: 'guest' }, agreed: false }),
+        ])
+      )
+    );
+    await flush();
+    const r = rows(stage);
+    expect(r[0]).toContain('Dana · K7Q2M4XA');
+    expect(r[0]).toContain(t('profile.history.won'));
+    expect(r[0]).toContain('Tel Marum');
+    expect(r[0]).not.toContain(t('profile.history.unconfirmed'));
+    expect(r[1]).toContain(t('profile.history.lost'));
+    expect(r[1]).toContain(t('profile.history.bot'));
+    expect(r[2]).toContain(t('profile.history.deleted'));
+    expect(r[2]).toContain(t('profile.history.drawn'));
+    expect(r[3]).toContain(t('profile.history.unconfirmed'));
+  });
+
+  it('history_bot_models', async () => {
+    const a = answer([
+      view({ opponent: { kind: 'bot', model: { id: 'claude-haiku-5-5' } } }),
+      view({ opponent: { kind: 'bot', model: { id: 'other', name: '<i>MyNet</i>' } } }),
+      view({ opponent: { kind: 'bot', model: null } }),
+    ]);
+    setCatalogue('pseudo', en, pseudo);
+    const { stage } = mount(withMatches(a));
+    await flush();
+    const r = rows(stage);
+    expect(r[0]).toContain(t('bot.model.claude-haiku-5-5'));
+    expect(r[1]).toContain('<i>MyNet</i>');
+    expect(stage.querySelector('.rl-profile__match i')).toBeNull();
+    expect(r[2]?.endsWith(t('profile.history.bot'))).toBe(true);
+  });
+
+  it('history_record_counts_everything', async () => {
+    const { stage } = mount(withMatches(answer([view({ opponent: { kind: 'guest' } })], { record: { won: 7, lost: 3, drawn: 2 } })));
+    await flush();
+    expect(stage.querySelector('.rl-profile__record')?.textContent).toBe(t('profile.record', { won: 7, lost: 3, drawn: 2 }));
+  });
+
+  it('show_record_toggle', async () => {
+    const c = withMatches(answer([]));
+    const { stage } = mount(c);
+    await flush();
+    const cb = stage.querySelector<HTMLInputElement>('.rl-profile__show-record input')!;
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change'));
+    await flush();
+    expect(c.calls.filter((x) => x.startsWith('patch:'))).toEqual(['patch:{"showRecord":true}']);
+    expect(cb.checked).toBe(true);
+
+    const bad = withMatches(answer([]), { patchProfile: async () => ({ error: 'error', status: 500 }) });
+    const m = mount(bad);
+    await flush();
+    const cb2 = m.stage.querySelector<HTMLInputElement>('.rl-profile__show-record input')!;
+    cb2.checked = true;
+    cb2.dispatchEvent(new Event('change'));
+    await flush();
+    expect(cb2.checked).toBe(false);
+    expect(m.stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.error'));
+  });
+
+  it('more_pages', async () => {
+    const seen: (number | undefined)[] = [];
+    const { stage } = mount(
+      withMatches((before) => {
+        seen.push(before);
+        return before === undefined
+          ? answer([view({ opponent: { kind: 'guest' } })], { next: 555 })
+          : answer([view({ opponent: { kind: 'deleted' } })], { next: null });
+      })
+    );
+    await flush();
+    expect(rows(stage)).toHaveLength(1);
+    btn(stage, t('profile.history.more')).click();
+    await flush();
+    expect(seen).toEqual([undefined, 555]);
+    expect(rows(stage)).toHaveLength(2);
+    expect(stage.querySelector<HTMLButtonElement>('.rl-profile__more')?.hidden).toBe(true);
   });
 });
