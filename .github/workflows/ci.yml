@@ -110,7 +110,15 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium (mix check)
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+        # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
+        # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
+        run: |
+          for i in 1 2 3; do
+            pnpm --filter @lions/tools exec playwright install --with-deps chromium && exit 0
+            echo "playwright install failed (try $i of 3); retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       - run: pnpm audio:mix
       - run: python tools/validate_balance.py --units data/units
       - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709
@@ -151,11 +159,18 @@ jobs:
       # GH-943 P0: three.core shared, three/webgpu lazy, main chunk clean and under its ceiling.
       - run: pnpm --filter @lions/tools webgpu:bundle
       # GH-943 P1: the same-PR rule. A PR that changes a legacy GLSL file whose node twin exists (TWINS, tools/webgpu_ratchet.mjs) must
-      # change the twin too. HEAD is the PR's merge commit, so a two-dot diff against the fetched base is exactly the PR's change.
+      # change the twin too. The checker diffs against merge-base(base tip, HEAD), NOT the base tip: main may have moved a twin file after the
+      # branch was cut, and a tip diff would charge that to every older branch. A merge-base needs history on both sides, so deepen until found.
       - name: Twin check (same-PR rule)
         if: github.event_name == 'pull_request'
         run: |
-          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          git fetch --no-tags --depth=100 origin "${{ github.base_ref }}"
+          git fetch --no-tags --deepen=100 origin HEAD || true
+          for i in 1 2 3 4 5 6; do
+            git merge-base FETCH_HEAD HEAD >/dev/null 2>&1 && break
+            git fetch --no-tags --deepen=400 origin "${{ github.base_ref }}"
+            git fetch --no-tags --deepen=400 origin HEAD || true
+          done
           pnpm --filter @lions/tools exec tsx src/ci/twin-check.ts --base=FETCH_HEAD
 
   # The visual regression gate: three.js against a committed three.js baseline
@@ -197,7 +212,15 @@ jobs:
       # Firefox and WebKit too. The cache key changed with the set, so a cache
       # holding Chromium alone is never restored over a three-engine install.
       - name: Install Playwright Chromium, Firefox and WebKit
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium firefox webkit
+        # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
+        # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
+        run: |
+          for i in 1 2 3; do
+            pnpm --filter @lions/tools exec playwright install --with-deps chromium firefox webkit && exit 0
+            echo "playwright install failed (try $i of 3); retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       # Exit 3 is "no baseline blessed for this capture environment yet" -- a
       # distinct code precisely so it can be told apart from "the picture
       # changed" (exit 1). It warns rather than failing, so a fork or a
@@ -391,7 +414,15 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+        # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
+        # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
+        run: |
+          for i in 1 2 3; do
+            pnpm --filter @lions/tools exec playwright install --with-deps chromium && exit 0
+            echo "playwright install failed (try $i of 3); retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       # Which Chromium launch arguments give a stable WebGPU device on this runner (report-only; the evidence behind
       # `chromiumArgsFor('webgpu')`). Only the wgpu arm needs it.
       - name: WebGPU device smoke (launch-argument variants)
@@ -499,7 +530,15 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+        # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
+        # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
+        run: |
+          for i in 1 2 3; do
+            pnpm --filter @lions/tools exec playwright install --with-deps chromium && exit 0
+            echo "playwright install failed (try $i of 3); retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       - name: Download the node arms' captures
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
@@ -569,7 +608,15 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+        # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
+        # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
+        run: |
+          for i in 1 2 3; do
+            pnpm --filter @lions/tools exec playwright install --with-deps chromium && exit 0
+            echo "playwright install failed (try $i of 3); retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       - name: memory -- the walk, and the leave
         run: pnpm perf:memory -- --gate --port=5179 --out=memory-output/memory.json
       - name: Upload the readings

@@ -21,7 +21,11 @@
  * it anyway: no `normal` attribute) never resizes or overwrites the snapshot. It is visible only
  * while a consumer is (`sync`), so an idle frame pays nothing.
  *
- * WebGL2 only. The node backend never builds one (the twin is the design's WebGPU section).
+ * `SoftDepthSnapshot` is WebGL2 only. Its node twin is `NodeSoftDepthCopy` below (GH-1227 slice 3, the design's section 5, W1):
+ * the same sentinel at the same band, whose `onBeforeRender` asks the node renderer to copy the scene pass's depth
+ * (`copyFramebufferToTexture`: three's WebGPU backend ends the render pass, copies on the same encoder and resumes it with `load`).
+ * That copy needs a copyable depth aspect, so the node scene pass renders `depth32float-stencil8` while (and only while) the copy
+ * exists (`post-chain.node.ts`'s `nodeSoftDepthOn`).
  * Presentation only. Nothing here is read by the sim.
  */
 import * as THREE from 'three';
@@ -81,6 +85,44 @@ function depthStencilTexture(w: number, h: number): THREE.DepthTexture {
   return t;
 }
 
+/**
+ * Whether a consumer will draw this frame. A mesh is on when it is visible; an `InstancedMesh` is also off while its `count` is 0
+ * (`ParticleInstancer` keeps its mesh visible and drops the count when it has nothing to draw), or an idle particle tier would take
+ * a snapshot every frame.
+ */
+function consumerDraws(c: THREE.Object3D): boolean {
+  if (!c.visible) return false;
+  const im = c as THREE.InstancedMesh;
+  return im.isInstancedMesh !== true || im.count > 0;
+}
+
+/**
+ * The sentinel both backends use: a transparent mesh at `SOFT_DEPTH_SNAPSHOT_RENDER_ORDER` (the first transparent draw, so the
+ * depth at its turn is exactly the opaque world's) that draws ZERO vertices and writes no colour, depth or stencil, has no `normal`
+ * attribute (so the AO pre-pass, `isAoOccluder`, never draws it) and casts no shadow. Hidden until a consumer is (`sync`).
+ */
+function softDepthSentinel(onBeforeRender: (renderer: unknown) => void): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(9), 3));
+  geometry.setDrawRange(0, 0);
+  const material = new THREE.MeshBasicMaterial({
+    name: 'rl-soft-depth-sentinel',
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    colorWrite: false,
+  });
+  const sentinel = new THREE.Mesh(geometry, material);
+  sentinel.name = 'soft-depth-sentinel';
+  sentinel.renderOrder = SOFT_DEPTH_SNAPSHOT_RENDER_ORDER;
+  sentinel.frustumCulled = false;
+  sentinel.castShadow = false;
+  sentinel.receiveShadow = false;
+  sentinel.visible = false;
+  sentinel.onBeforeRender = (renderer) => onBeforeRender(renderer);
+  return sentinel;
+}
+
 export class SoftDepthSnapshot implements SoftDepthSource {
   /** The sentinel: add it to the scene. */
   readonly sentinel: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
@@ -102,26 +144,9 @@ export class SoftDepthSnapshot implements SoftDepthSource {
       samples: 0,
     });
     this.target.depthTexture = depthStencilTexture(1, 1);
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(9), 3));
-    geometry.setDrawRange(0, 0);
-    const material = new THREE.MeshBasicMaterial({
-      name: 'rl-soft-depth-sentinel',
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
-      colorWrite: false,
-    });
-    this.sentinel = new THREE.Mesh(geometry, material);
-    this.sentinel.name = 'soft-depth-sentinel';
-    this.sentinel.renderOrder = SOFT_DEPTH_SNAPSHOT_RENDER_ORDER;
-    this.sentinel.frustumCulled = false;
-    this.sentinel.castShadow = false;
-    this.sentinel.receiveShadow = false;
-    this.sentinel.visible = false;
-    this.sentinel.onBeforeRender = (renderer) => {
+    this.sentinel = softDepthSentinel((renderer) => {
       this.capture(renderer as unknown as SoftDepthRenderer);
-    };
+    });
   }
 
   get depthTexture(): THREE.DepthTexture {
@@ -130,7 +155,7 @@ export class SoftDepthSnapshot implements SoftDepthSource {
 
   /** The sentinel draws only while a consumer does: an idle frame takes no snapshot. Call once a frame, before the render. */
   sync(consumers: readonly THREE.Object3D[]): void {
-    this.sentinel.visible = consumers.some((c) => c.visible);
+    this.sentinel.visible = consumers.some(consumerDraws);
   }
 
   /**
@@ -161,5 +186,83 @@ export class SoftDepthSnapshot implements SoftDepthSource {
     this.sentinel.material.dispose();
     this.target.depthTexture?.dispose();
     this.target.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// GH-1227 slice 3: the node (WebGPU) backend's copy. The design's section 5, option W1.
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+/** The slice of the node renderer (`WebGPURenderer`) a node copy uses; a test hands in a recorder. */
+export interface NodeSoftDepthRenderer {
+  getRenderTarget(): THREE.RenderTarget | null;
+  copyFramebufferToTexture(texture: THREE.Texture): void;
+}
+
+/**
+ * The node backend's twin of `SoftDepthSnapshot`. Same sentinel, same band, same `sync`; what differs is the copy. Mid-pass, the
+ * node renderer's `copyFramebufferToTexture` ends the scene pass's render pass, copies the depth attachment into this texture on
+ * the SAME command encoder (so the copy sees every opaque draw before it) and begins the pass again with `load`, which is exactly
+ * what three's own `viewportDepthTexture()` does. The flipbook twin samples `depthTexture` (`flipbook-fx.node.ts`, a depth-only
+ * view, so `texture_depth_2d`).
+ *
+ * A texture-to-texture copy needs the two formats EQUAL, and WebGPU does not copy the depth aspect of `depth24plus-stencil8` (the
+ * scene pass's format when soft particles are off). So this texture is `depth32float-stencil8` (`DepthStencilFormat` +
+ * `FloatType`), and the scene pass switches to the same format only while a copy exists (`post-chain.node.ts`, `nodeSoftDepthOn`):
+ * with the flag off neither is built and the pass is today's.
+ *
+ * It copies only while the bound target IS the current scene pass's (`sceneTarget`, re-read every time: the chain is rebuilt on a
+ * preset change), so the AO pre-pass, the sun's shadow map, `photographGround` and a capture view never resize or overwrite it,
+ * and only when that target's depth is the copyable type (a mismatch is a backend error, never a silent wrong copy).
+ */
+export class NodeSoftDepthCopy implements SoftDepthSource {
+  readonly sentinel: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  /** Unread on the node path (the twin samples at `screenUV`); kept so this is a `SoftDepthSource` like the legacy snapshot. */
+  readonly invSize = new THREE.Vector2(1, 1);
+  readonly depthTexture: THREE.DepthTexture;
+  /** Copies taken (tests and debugging). */
+  captures = 0;
+
+  /** `sceneTarget`: the node chain's CURRENT scene pass target (`NodePostChain.scenePass.renderTarget`), or null before one exists. */
+  constructor(private readonly sceneTarget: () => THREE.RenderTarget | null) {
+    const t = new THREE.DepthTexture(1, 1, THREE.FloatType);
+    t.format = THREE.DepthStencilFormat;
+    t.minFilter = THREE.NearestFilter;
+    t.magFilter = THREE.NearestFilter;
+    this.depthTexture = t;
+    this.sentinel = softDepthSentinel((renderer) => {
+      this.capture(renderer as NodeSoftDepthRenderer);
+    });
+  }
+
+  /** As `SoftDepthSnapshot.sync`: the sentinel draws only while a consumer does, so an idle frame copies nothing. */
+  sync(consumers: readonly THREE.Object3D[]): void {
+    this.sentinel.visible = consumers.some((c) => c.visible);
+  }
+
+  /** Copies the scene pass's depth if the bound target is the scene pass's own. Returns whether it copied. */
+  capture(renderer: NodeSoftDepthRenderer): boolean {
+    const src = renderer.getRenderTarget();
+    if (src === null || src !== this.sceneTarget()) return false;
+    const depth = src.depthTexture;
+    if (!depth || depth.type !== this.depthTexture.type || depth.format !== this.depthTexture.format) return false;
+    const image = this.depthTexture.image as { width: number; height: number };
+    if (image.width !== src.width || image.height !== src.height) {
+      image.width = src.width;
+      image.height = src.height;
+      this.invSize.set(1 / src.width, 1 / src.height);
+      // A new size is a new GPU texture: the node renderer recreates a depth texture whose version moved.
+      this.depthTexture.needsUpdate = true;
+    }
+    renderer.copyFramebufferToTexture(this.depthTexture);
+    this.captures++;
+    return true;
+  }
+
+  dispose(): void {
+    this.sentinel.removeFromParent();
+    this.sentinel.geometry.dispose();
+    this.sentinel.material.dispose();
+    this.depthTexture.dispose();
   }
 }

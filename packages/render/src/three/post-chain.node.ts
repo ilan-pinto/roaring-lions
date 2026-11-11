@@ -71,8 +71,29 @@ export interface NodePostChain extends PostChainLike {
   readonly smaaInput: { readonly renderTarget: THREE.RenderTarget } | null;
 }
 
-function depthStencilTexture(): THREE.DepthTexture {
-  const t = new THREE.DepthTexture(1, 1, THREE.UnsignedInt248Type);
+/**
+ * GH-1227 slice 3 (the soft-particles design, section 5, W1): the WebGPU feature that makes the scene pass's depth aspect copyable.
+ * three requests every feature the adapter has, so `renderer.hasFeature` says whether the device carries it (Apple GPUs do).
+ */
+export const SOFT_DEPTH_FEATURE = 'depth32float-stencil8';
+
+/**
+ * The ONE predicate for the node soft-particle copy: the preset asks for soft particles AND the backend can copy the depth (a
+ * WebGPU device with `SOFT_DEPTH_FEATURE`). The node backend reads it to pick the scene pass's depth type, and `ThreeRenderer.init`
+ * (through `RenderBackend.softDepthOn`) to build the copy, so the two can never disagree. Off: today's pass, no copy.
+ */
+export function nodeSoftDepthOn(quality: PostQuality, copyable: boolean): boolean {
+  return quality.softParticles === true && copyable;
+}
+
+/** The scene pass's depth type: `UnsignedInt248Type` (depth24plus-stencil8, today's) unless the soft copy is on, then `FloatType`
+ *  (depth32float-stencil8, whose depth aspect a texture copy may read; `soft-depth.ts`'s `NodeSoftDepthCopy` matches it). */
+export function nodeSceneDepthType(softDepth: boolean): THREE.TextureDataType {
+  return softDepth ? THREE.FloatType : THREE.UnsignedInt248Type;
+}
+
+function depthStencilTexture(type: THREE.TextureDataType): THREE.DepthTexture {
+  const t = new THREE.DepthTexture(1, 1, type);
   t.format = THREE.DepthStencilFormat;
   return t;
 }
@@ -83,14 +104,16 @@ export function createNodePostChain(
   scene: THREE.Scene,
   camera: THREE.Camera,
   quality: PostQuality,
-  kit: PostKit
+  kit: PostKit,
+  softDepthCopyable = false
 ): NodePostChain {
   const { W, TSL } = deps;
   const names: PostStageName[] = [];
   const owned: Array<{ dispose(): void }> = [];
 
   // 1. The scene pass: HalfFloat colour, single-sampled, depth24plus-stencil8 (a DepthStencilFormat / UnsignedInt248 depth texture).
-  const depthTexture = depthStencilTexture();
+  // GH-1227 slice 3: depth32float-stencil8 instead (FloatType) only while the soft-particle copy is on (`nodeSoftDepthOn`).
+  const depthTexture = depthStencilTexture(nodeSceneDepthType(nodeSoftDepthOn(quality, softDepthCopyable)));
   const scenePass = TSL.pass(scene, camera, {
     type: THREE.HalfFloatType,
     depthBuffer: true,

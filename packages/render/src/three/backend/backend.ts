@@ -220,6 +220,12 @@ export interface RenderBackend {
   configure(config: PostConfig): void;
   /** The node post chain (null before `configure`). Same `PostChainLike` the legacy `PostChain` extends. */
   readonly post: PostChainLike | null;
+  /**
+   * GH-1227 slice 3: whether this backend builds the soft-particle depth copy for `quality` (`post-chain.node.ts`'s
+   * `nodeSoftDepthOn`: the flag AND a WebGPU device with `depth32float-stencil8`). The SAME predicate picks the scene pass's depth
+   * format, so the copy and the format cannot disagree. Absent reads as false (soft particles inert on that backend).
+   */
+  softDepthOn?(quality: PostQuality): boolean;
   /** Compiles every program the scene needs now (`compileAsync`), so the first photographed frame is not a cold one. */
   prepare(scene: THREE.Scene, camera: THREE.Camera): Promise<void>;
   /** Draws one frame. Synchronous, like `WebGLRenderer.render`; never installs an animation loop of its own. */
