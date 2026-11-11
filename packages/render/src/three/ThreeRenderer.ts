@@ -3832,6 +3832,8 @@ export class ThreeRenderer implements Renderer {
       this.softDepth = new SoftDepthSnapshot([this.post.composer.renderTarget1, this.post.composer.renderTarget2]);
       this.scene.add(this.softDepth.sentinel);
       this.flipbook.setSoftDepth(this.softDepth);
+      // Slice 4 (decision D4): the band-2 dust tier fades against the same snapshot. The above tiers and the hot cores never do.
+      this.particleInstancerBelow.setSoftDepth(this.softDepth);
     }
     // Shell upgrade Phase 0: the corner vignette, on display-referred colour
     // (after the tone map, before SMAA). Since GH-829 it is folded into
@@ -12638,8 +12640,8 @@ export class ThreeRenderer implements Renderer {
     // shades its billows toward the sun as the camera sees it: the sun's
     // direction on the camera's right/up axes. A few multiplies a frame.
     this.flipbook.step(dtMs);
-    // GH-1227: the soft-particle snapshot is taken only while the smoke pass draws.
-    this.softDepth?.sync([this.flipbook.mesh]);
+    // GH-1227: the soft-particle snapshot is taken only while the smoke pass or the band-2 dust tier draws.
+    this.softDepth?.sync([this.flipbook.mesh, this.particleInstancerBelow.mesh]);
     // GH-1197 P2: debris flies on the same frame clock (hit-stop freezes it mid-air) and fades on the sim clock.
     this.debris?.step(dtMs, presentationSimMs(this.sim.tickCount, alpha ?? 0));
     {

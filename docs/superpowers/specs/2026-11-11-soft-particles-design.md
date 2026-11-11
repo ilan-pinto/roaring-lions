@@ -198,7 +198,7 @@ Later slices:
 1. **This PR.** WebGL2 snapshot and smoke-pass fade, flag off on every preset; design.
 2. `&soft` sandbox flag (`sandbox-help.ts`) for an A/B look; G-cost on Metal; the lead's one Metal browser check.
 3. The node backend's depth copy (section 5, W1 or W2) and G-twin-copy; the twin's fade itself is built in slice 1.
-4. `ParticleInstancer` debris dust on the same snapshot (D4).
+4. `ParticleInstancer` debris dust on the same snapshot (D4). **Built (slice 4, same flag, off on every preset):** the band-2 (depth-tested, normal-blended) tier only, `ParticleInstancer.setSoftDepth`; the above tiers (`depthTest: false`) and the hot cores (alpha pinned to 1) refuse. Every sprite on that tier fades, hard clods included; gating the fade by the instance's `aSoft` (feathered `smoke_puff` discs only) is the one-line alternative for the slice-2 Metal look. The drawn world size reaches the shader as the `aSize` instance attribute (present only while on): the instance scale is a radius in screen pixels, and `rlSoftFade` wants a world length. Tests: `units/particle-soft.test.ts`, `units/particle-soft.node.test.ts`.
 5. Flip on at the presets the lead picks (D2); G-baseline; bless from CI after the lead sees it.
 
 ## 9. Lead decisions
