@@ -182,7 +182,11 @@ export function withAoOccludersOnly<T>(scene: THREE.Scene, isOccluder: AoMaths['
   const hidden: THREE.Object3D[] = [];
   const frozen: THREE.LightShadow[] = [];
   scene.traverse((object) => {
-    if (object.visible && !isOccluder(object)) {
+    // GH-1225 slice 2, the legacy pass's cut swap (`post-chain.ts`, `userData.rlCutAo`) mirrored: the node backend mints no cut
+    // yet (the TSL twin is a later slice), and the legacy mask is a WebGL material, so a mesh that ever carries one here is
+    // left out of the G-buffer rather than drawn whole over the units inside. Off the cut path no mesh carries it: unchanged.
+    const cutAo = (object.userData as { rlCutAo?: unknown }).rlCutAo !== undefined;
+    if (object.visible && (cutAo || !isOccluder(object))) {
       object.visible = false;
       hidden.push(object);
     }
