@@ -93,6 +93,7 @@ import {
 import { OVERLAY_RENDER_ORDER, BADGE_NUMERAL_RENDER_ORDER } from './render-order';
 import { paletteHex } from '../palette-hex';
 import { colorSlot, isOwnSide } from '../../relation';
+import { markFrameUpload, type BatchUploadsMode } from './batch-uploads';
 
 // ---------------------------------------------------------------------------
 // Pure: palette-key policy and small per-overlay-kind numeric formulas. No
@@ -645,6 +646,8 @@ export class OverlayBatch {
   private readonly alphaAttr: THREE.BufferAttribute;
   /** `dashedEllipseRing`'s layouts, by shape. */
   private readonly dashLayouts = new Map<string, EllipseDash[]>();
+  /** GH-1152 (`batch-uploads.ts`): what `endFrame` marks for upload. */
+  private uploads: BatchUploadsMode = 'capacity';
 
   constructor(vertexCapacity: number) {
     this.soup = createTriangleSoup(vertexCapacity);
@@ -821,9 +824,16 @@ export class OverlayBatch {
    *  actually pushed -- call once per `frame()`, after every push* call. */
   endFrame(): void {
     this.mesh.geometry.setDrawRange(0, this.soup.count);
-    this.positionAttr.needsUpdate = true;
-    this.colorAttr.needsUpdate = true;
-    this.alphaAttr.needsUpdate = true;
+    markFrameUpload([this.positionAttr, this.colorAttr, this.alphaAttr], this.soup.count, this.uploads);
+  }
+
+  /** GH-1152: `'drawn'` on a node boot (`RendererOptions.nodeDraw.batchUploads`); a legacy boot keeps `'capacity'`. */
+  setUploads(mode: BatchUploadsMode): void {
+    this.uploads = mode;
+  }
+
+  get uploadsMode(): BatchUploadsMode {
+    return this.uploads;
   }
 
   dispose(): void {

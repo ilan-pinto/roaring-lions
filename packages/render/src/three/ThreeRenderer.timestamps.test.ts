@@ -225,5 +225,36 @@ describe('RendererOptions.nodeDraw (G3, T14b)', () => {
   });
 });
 
+/**
+ * GH-1152 (12 Nov): `nodeDraw.batchUploads` reaches the four fixed-capacity batches on a node boot only. Falsification (run by hand, in
+ * the commit message): delete the `setUploads` loop in `ThreeRenderer.init`: the node spec goes red ('capacity').
+ */
+describe('RendererOptions.nodeDraw.batchUploads (GH-1152)', () => {
+  type Batches = Record<'overlayBatch' | 'tracerBatch' | 'shellBatch' | 'boltBatch', { uploadsMode: string }>;
+  const modes = (r: ThreeRenderer): string[] => {
+    const b = r as unknown as Batches;
+    return [b.overlayBatch.uploadsMode, b.tracerBatch.uploadsMode, b.shellBatch.uploadsMode, b.boltBatch.uploadsMode];
+  };
+  it('a legacy boot keeps capacity uploads', async () => {
+    const { r } = boot(undefined, undefined);
+    await r.init(HOST);
+    expect(r.backendInfo().kind).toBe('legacy-gl');
+    expect(modes(r)).toEqual(['capacity', 'capacity', 'capacity', 'capacity']);
+    r.dispose();
+  });
+  it('a node boot uploads what was drawn by default, and capacity when asked', async () => {
+    const { r } = boot('webgl2', undefined);
+    await r.init(HOST);
+    expect(r.backendInfo().kind).toBe('node-webgl2');
+    expect(modes(r)).toEqual(['drawn', 'drawn', 'drawn', 'drawn']);
+    r.dispose();
+    const { opts } = countingOpts('webgl2', undefined);
+    const off = new ThreeRenderer(new Sim({ seed: 1, width: 48, height: 48, capacity: 4 }), { ...opts, nodeDraw: { batchUploads: 'capacity' } });
+    await off.init(HOST);
+    expect(modes(off)).toEqual(['capacity', 'capacity', 'capacity', 'capacity']);
+    off.dispose();
+  });
+});
+
 // Keeps the THREE import live for the faked module (the mock factory reads `three`'s real exports).
 void THREE;

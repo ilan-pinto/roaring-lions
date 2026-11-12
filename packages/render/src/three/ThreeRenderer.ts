@@ -186,6 +186,7 @@ import { adoptMaterials, createTwinCache, legacyTwinSlot, mirrorTwinVisibility }
 import { isTwin } from './twin-identity';
 import { MATERIAL_MATHS } from './material-maths';
 import type { UnportedHook } from './backend/unported';
+import { resolveNodeDraw } from './backend/node-draw-options';
 import { setImageReleaseEnabled } from './units/gltf-loader';
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain, type PostChainLike } from './post-chain';
@@ -4014,6 +4015,10 @@ export class ThreeRenderer implements Renderer {
       if ('backend' in made) {
         this.nodeBackend = made.backend;
         this.nodeMaterialKit = made.backend.materials;
+        // GH-1152 (12 Nov): the fixed-capacity per-frame batches upload only what they drew (`units/batch-uploads.ts`). Node boots
+        // only (G3): a legacy boot never reads `nodeDraw`, and its batches keep the whole-buffer upload they always had.
+        const batchUploads = resolveNodeDraw(this.opts.nodeDraw).batchUploads;
+        for (const b of [this.overlayBatch, this.tracerBatch, this.shellBatch, this.boltBatch]) b.setUploads(batchUploads);
         this.backendInfoValue = { kind: made.backend.kind, adapter: made.backend.adapter, requested, ...(reason !== '' ? { reason } : {}) };
         console.info(backendLogLine(this.backendInfoValue));
         return;

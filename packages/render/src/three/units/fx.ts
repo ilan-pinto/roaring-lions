@@ -368,6 +368,7 @@ import { groundWorldY, type ElevationSource } from '../ground-height';
 import { SOFT_PARTICLE_GLSL, type SoftDepthSource } from '../soft-depth';
 import { tracerAlpha, type TracerModel } from './tracers';
 import { isHostileSide } from '../../relation';
+import { markFrameUpload, type BatchUploadsMode } from './batch-uploads';
 import {
   shellPointAt,
   shellTrailSpan,
@@ -1734,6 +1735,8 @@ export class TracerBatch {
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
   private readonly alphaAttr: THREE.BufferAttribute;
+  /** GH-1152 (`batch-uploads.ts`): what a frame's write marks for upload. */
+  private uploads: BatchUploadsMode = 'capacity';
 
   constructor(capacity: number) {
     const geometry = new THREE.BufferGeometry();
@@ -1787,10 +1790,18 @@ export class TracerBatch {
       },
       viewer
     );
-    this.positionAttr.needsUpdate = true;
-    this.colorAttr.needsUpdate = true;
-    this.alphaAttr.needsUpdate = true;
+    // Quad i uses vertices 4i..4i+3 (`tracerIndexBuffer`), so `count` quads read the first `count * 4` vertices.
+    markFrameUpload([this.positionAttr, this.colorAttr, this.alphaAttr], count * 4, this.uploads);
     this.mesh.geometry.setDrawRange(0, count * 6);
+  }
+
+  /** GH-1152: `'drawn'` on a node boot (`RendererOptions.nodeDraw.batchUploads`); a legacy boot keeps `'capacity'`. */
+  setUploads(mode: BatchUploadsMode): void {
+    this.uploads = mode;
+  }
+
+  get uploadsMode(): BatchUploadsMode {
+    return this.uploads;
   }
 
   dispose(): void {
@@ -1878,6 +1889,8 @@ export class ShellBatch {
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
   private readonly alphaAttr: THREE.BufferAttribute;
+  /** GH-1152 (`batch-uploads.ts`): what a frame's write marks for upload. */
+  private uploads: BatchUploadsMode = 'capacity';
 
   constructor(capacity: number, opts: ShellBatchOptions = {}) {
     const geometry = new THREE.BufferGeometry();
@@ -1924,10 +1937,18 @@ export class ShellBatch {
       viewer,
       hostileStreakColor
     );
-    this.positionAttr.needsUpdate = true;
-    this.colorAttr.needsUpdate = true;
-    this.alphaAttr.needsUpdate = true;
+    // Quad i uses vertices 4i..4i+3 (`tracerIndexBuffer`), so `count` quads read the first `count * 4` vertices.
+    markFrameUpload([this.positionAttr, this.colorAttr, this.alphaAttr], count * 4, this.uploads);
     this.mesh.geometry.setDrawRange(0, count * 6);
+  }
+
+  /** GH-1152: `'drawn'` on a node boot (`RendererOptions.nodeDraw.batchUploads`); a legacy boot keeps `'capacity'`. */
+  setUploads(mode: BatchUploadsMode): void {
+    this.uploads = mode;
+  }
+
+  get uploadsMode(): BatchUploadsMode {
+    return this.uploads;
   }
 
   dispose(): void {
