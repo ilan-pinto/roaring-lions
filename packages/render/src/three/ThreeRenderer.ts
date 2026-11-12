@@ -12572,12 +12572,17 @@ export class ThreeRenderer implements Renderer {
    * (`MeshWreck`), revealed by the fog like any other.
    */
   private stepRagdolls(): void {
+    // A corpse the wreck cap evicted (`pushMeshWreck`) left the scene: forget its root, whether or not the layer is hidden.
+    for (const root of this.ragdollRoots) if (root.parent === null) this.ragdollRoots.delete(root);
     if (this.ragdollShowcasePending) this.stampRagdollShowcase();
     if (this.ragdolls.incidents === 0) return;
     const { taken, settled } = this.ragdolls.update(this.lastFrameSimMs ?? 0);
     for (const d of taken) {
       const k = this.meshDying.indexOf(d);
       if (k >= 0) this.meshDying.splice(k, 1);
+      // The fade clones the death sequence may hold are nobody's now: restore the shared materials and dispose them.
+      endMeshDeathFade(d.swaps, this.adoptQueue);
+      d.swaps = [];
     }
     for (const c of settled) {
       const shown = this.opts.ragdollShowcase !== undefined || this.isExplored(c.x, c.z);
