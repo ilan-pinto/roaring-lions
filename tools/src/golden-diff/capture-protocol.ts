@@ -706,6 +706,31 @@ export const RUBBLE_SCENARIO: Scenario = {
   zoom: 2.2,
 };
 
+/** GH-1223 slice 1: the ragdoll showcase -- the `aftermath` pattern for presentation-only physics. `qarn_hadid` under
+ *  `&ragdoll` (and NOT `&decals`, so `aftermath` does not move): `RendererOptions.ragdollShowcase` stands two
+ *  `inf_squad` teams on the decal showcase's flat site, clear of the sandbox force, renderer-only (no sim entity, no
+ *  sim kill). One dies at sim time 0 and has long frozen by the capture; the other dies at tick 292 and is 0.2 s into
+ *  its ragdoll at tick 300 -- MID-FLIGHT, which is the point: physics on the frame clock would put those bodies
+ *  somewhere different in every process (the `aftermath` measurement, 519-656 px), physics on the sim clock puts
+ *  them in the same place every time.
+ *
+ *  THE CAMERA is the site's tile centre (`ragdoll.test.ts` recomputes it from the renderer's own site picker). Zoom
+ *  2.2 and no orders for `aftermath`'s reasons. No baseline exists in any environment: the first comes from CI and
+ *  the post-merge bless, after the lead has looked at it. CI's `visual` job is red until then (the `fogged` and
+ *  `aftermath` precedent). */
+export const RAGDOLL_SCENARIO: Scenario = {
+  id: 'ragdoll',
+  description:
+    'qarn_hadid @ the ragdoll showcase (the decal showcase flat site), zoom 2.2, tick 300 -- two renderer-only ' +
+    'inf_squad teams: one ragdoll frozen at rest (died at 0 s), one 0.2 s into its fall (died at 14.6 s) (GH-1223).',
+  sandboxMap: 'qarn_hadid',
+  sandboxFlags: ['ragdoll'],
+  cameraTile: [38.5, 36.5],
+  ticks: 20, // unused when targetTick is set
+  targetTick: 300,
+  zoom: 2.2,
+};
+
 /** `QUIET_SCENARIO`'s own map/camera/tick, replayed under the dusk preset
  *  (ground plan 2, Task 11, spec §3.6). Deliberately not a new framing: the
  *  whole point of this scenario is to let a human compare the SAME shot
@@ -753,6 +778,7 @@ export const SCENARIOS: readonly Scenario[] = [
   RELIEF_SCENARIO,
   AFTERMATH_SCENARIO,
   RUBBLE_SCENARIO,
+  RAGDOLL_SCENARIO,
   DUSK_SCENARIO,
   COMBAT_SCENARIO,
 ];

@@ -327,3 +327,9 @@ export function decalShowcase(sites: readonly ShowcaseSite[]): readonly DecalSta
   }
   return out;
 }
+
+/** GH-1223: the ragdoll showcase (`RendererOptions.ragdollShowcase`) stands on the flat site, else the road or relief
+ *  one. Here, three-free, so the gated scenario's own test can find the same tile. */
+export function ragdollShowcaseSite(sites: readonly { kind: string; x: number; y: number }[]): { x: number; y: number } | null {
+  return sites.find((s) => s.kind === 'flat') ?? sites.find((s) => s.kind === 'road') ?? sites.find((s) => s.kind === 'relief') ?? null;
+}

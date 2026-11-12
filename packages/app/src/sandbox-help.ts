@@ -16,7 +16,7 @@
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
 
-export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'decals' | 'rubble' | 'kit' | 'works' | 'soft';
+export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'decals' | 'rubble' | 'ragdoll' | 'kit' | 'works' | 'soft';
 
 export interface UrlParam {
   name: string;
@@ -65,6 +65,12 @@ export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
     name: 'rubble',
     blurb: 'two settled building collapses -- rubble and chunks at rest -- beside the decal showcase, clear of the force',
     labelKey: 'freePlay.option.rubble',
+  },
+  {
+    // GH-1223 slice 1: the gated `ragdoll` scenario's witness. Sandbox only (`main.ts`): a flag must never change a mission.
+    name: 'ragdoll',
+    blurb: 'two squads falling as ragdolls beside the decal showcase, clear of the force (raises the ragdoll cap to 16)',
+    labelKey: 'freePlay.option.ragdoll',
   },
   {
     name: 'kit',

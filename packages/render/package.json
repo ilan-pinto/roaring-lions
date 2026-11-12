@@ -17,6 +17,7 @@
     "./chunk-census": "./src/three/chunk-census.ts"
   },
   "dependencies": {
+    "@dimforge/rapier3d-deterministic-compat": "0.21.0",
     "@lions/sim": "workspace:*",
     "three": "0.186.1"
   },

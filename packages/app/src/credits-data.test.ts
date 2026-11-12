@@ -55,6 +55,17 @@ describe('CREDITS', () => {
     }
     for (const l of CREDITS.libraries) expect(shipped.has(l.name), `${l.name} is credited and not shipped`).toBe(true);
   });
+  // GH-1223: Apache-2.0 section 4(a) -- recipients get a copy of the licence. So an Apache-2.0 library names its
+  // shipped text, the text is on disk under the public dir, and it IS the Apache licence.
+  it('ships the licence text of every Apache-2.0 library, under the public dir', () => {
+    for (const l of CREDITS.libraries as readonly { name: string; licence: string; licenceFile?: string }[]) {
+      if (l.licence !== 'Apache-2.0') continue;
+      expect(l.licenceFile, `${l.name}: an Apache-2.0 library ships its licence text`).toBeDefined();
+      const path = `${ROOT}assets/${l.licenceFile}`;
+      expect(existsSync(path), path).toBe(true);
+      expect(readFileSync(path, 'utf8')).toMatch(/Apache License\s+Version 2\.0, January 2004/);
+    }
+  });
   it('names every font file under assets/fonts with a licence file that exists', () => {
     const files = readdirSync(`${ROOT}assets/fonts`);
     for (const f of CREDITS.fonts) expect(files, f.licenceFile).toContain(f.licenceFile);
