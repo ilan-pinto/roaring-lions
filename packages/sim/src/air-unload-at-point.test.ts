@@ -353,6 +353,86 @@ describe('unload at a chosen point (GH-698)', () => {
     const [bx, by] = tileOf(w.sim, b);
     expect(Math.max(Math.abs(ax - bx), Math.abs(ay - by))).toBeGreaterThan(2);
   });
+
+  // GH-698 (PR 1252 review): the footprint check is by side. Ground an enemy carrier sits on is
+  // occupied; ground it merely plans to land on is not (and must not leak that plan).
+  it('an ENEMY carrier\'s reservation does not deny my landing (it flies to the point, I land first)', () => {
+    const w = loaded(22.5, 22.5, 2);
+    const e = w.sim.spawn(w.sim.state.typeIdx[w.heli], 1, at(38.5), at(38.5));
+    expect(w.sim.embarkAtSpawn(e, w.sim.spawn(w.inf, 1, at(38.5), at(38.5)))).toBe(true);
+    w.sim.queueCommand({ kind: 'unload', ids: [e], x: at(25.5), y: at(25.5) });
+    run(w.sim, 1);
+    expect(w.sim.state.airWant[e]).toBe(AIR_WANT_UNLOAD); // the enemy holds a reservation on (25,25)
+    w.sim.queueCommand({ kind: 'unload', ids: [w.heli], x: at(25.5), y: at(25.5) });
+    run(w.sim, 100);
+    expect(w.sim.state.airState[w.heli]).toBe(AIR_LANDED);
+    expect(w.sim.state.airState[e]).toBe(AIR_AIRBORNE); // still en route: only a plan, not ground
+    expect(tileOf(w.sim, w.heli)).toEqual([25, 25]);
+  });
+
+  it('an ENEMY carrier sitting on the footprint DOES occupy it: I land clear of it', () => {
+    const w = loaded(10.5, 10.5, 2);
+    const e = w.sim.spawn(w.sim.state.typeIdx[w.heli], 1, at(25.5), at(25.5));
+    expect(w.sim.settleOnGround(e)).toBe(true);
+    expect(w.sim.state.airState[e]).toBe(AIR_LANDED);
+    w.sim.queueCommand({ kind: 'unload', ids: [w.heli], x: at(25.5), y: at(25.5) });
+    run(w.sim, 320);
+    expect(w.sim.state.airState[w.heli]).toBe(AIR_LANDED);
+    const [ax, ay] = tileOf(w.sim, w.heli);
+    expect(Math.max(Math.abs(ax - 25), Math.abs(ay - 25))).toBeGreaterThan(2);
+    expect(tileOf(w.sim, e)).toEqual([25, 25]); // and the enemy was not moved
+  });
+
+  it('a FRIENDLY reservation still denies (same side keeps the old rule)', () => {
+    const w = loaded(22.5, 22.5, 2);
+    const f = w.sim.spawn(w.sim.state.typeIdx[w.heli], 0, at(38.5), at(38.5));
+    expect(w.sim.embarkAtSpawn(f, w.sim.spawn(w.inf, 0, at(38.5), at(38.5)))).toBe(true);
+    w.sim.queueCommand({ kind: 'unload', ids: [f], x: at(25.5), y: at(25.5) });
+    run(w.sim, 1);
+    w.sim.queueCommand({ kind: 'unload', ids: [w.heli], x: at(25.5), y: at(25.5) });
+    run(w.sim, 320);
+    expect(w.sim.state.airState[w.heli]).toBe(AIR_LANDED);
+    const [ax, ay] = tileOf(w.sim, w.heli);
+    expect(Math.max(Math.abs(ax - 25), Math.abs(ay - 25))).toBeGreaterThan(2);
+  });
+
+  it('an attack order mid-flight cancels the pending unload: no landing, no stale reservation', () => {
+    const sim = new Sim({ seed: 0x6980_0699, width: 40, height: 40, capacity: 64 });
+    const inf = sim.addUnitType(RIFLES);
+    const armed = sim.addUnitType({
+      ...HELI,
+      id: 'up_heli_gun',
+      weapons: [{
+        id: 'up_door_gun', type: 'hmg', range_tiles: 8, effective_range_tiles: 6, accuracy: 0.4,
+        penetration: 20, damage: 30, suppression: 40, rof_per_min: 120, can_target: ['ground'],
+      }],
+    });
+    const heli = sim.spawn(armed, 0, at(10.5), at(10.5));
+    const rider = sim.spawn(inf, 0, at(10.5), at(10.5));
+    expect(sim.embarkAtSpawn(heli, rider)).toBe(true);
+    const foe = sim.spawn(inf, 1, at(10.5), at(14.5));
+    const other = sim.spawn(armed, 0, at(10.5), at(30.5));
+    expect(sim.embarkAtSpawn(other, sim.spawn(inf, 0, at(10.5), at(30.5)))).toBe(true);
+    sim.queueCommand({ kind: 'unload', ids: [heli], x: at(30.5), y: at(30.5) });
+    sim.queueCommand({ kind: 'reveal', side: 0, x: at(10.5), y: at(14.5) });
+    run(sim, 3);
+    expect(sim.state.airWant[heli]).toBe(AIR_WANT_UNLOAD);
+    sim.queueCommand({ kind: 'attack', ids: [heli], target: foe });
+    sim.tick();
+    expect(sim.state.focusTarget[heli]).toBe(foe);
+    expect(sim.state.airWant[heli]).toBe(AIR_WANT_NONE);
+    // A second carrier sent to the same point takes it: nothing of the cancelled order is held.
+    sim.queueCommand({ kind: 'unload', ids: [other], x: at(30.5), y: at(30.5) });
+    run(sim, 1);
+    for (let k = 0; k < 200; k++) {
+      sim.tick();
+      expect(sim.state.airState[heli]).not.toBe(AIR_LANDED);
+      expect(sim.state.airState[heli]).not.toBe(AIR_LANDING);
+    }
+    expect(sim.state.airState[other]).toBe(AIR_LANDED);
+    expect(tileOf(sim, other)).toEqual([30, 30]);
+    expect(sim.state.carriedBy[rider]).toBe(heli); // the rider is still aboard
+  });
 });
 
 /**

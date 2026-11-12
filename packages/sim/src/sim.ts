@@ -11034,13 +11034,26 @@ export class Sim {
     return !this.lzTaken(cx, cy, self);
   }
 
-  /** R2: another living air carrier (id order) holds a footprint within Chebyshev 2 of (cx, cy):
-   *  LANDING or LANDED there, flying to land for a load or an unload, or lifting to land at a chosen
-   *  point (GH-698 UNLOAD_AT: its goal is that LZ). */
+  /** R2: another living air carrier (id order) holds a footprint within Chebyshev 2 of (cx, cy).
+   *  Same side: LANDING or LANDED there, flying to land for a load or an unload, or lifting to land at a
+   *  chosen point (GH-698 UNLOAD_AT: its goal is that LZ). Other side (GH-698, by side): only a carrier
+   *  physically on the ground there (LANDING, LANDED, LIFTING, at its position); never its reservation. */
   private lzTaken(cx: number, cy: number, self: number): boolean {
+    const mySide = self >= 0 ? this.side[self] : -1;
     for (let j = 0; j < this.count; j++) {
       if (j === self || this.alive[j] === 0 || !this.unitTypes[this.typeIdx[j]].isAirCarrier) continue;
       const st = this.airState[j];
+      if (mySide >= 0 && this.side[j] !== mySide) {
+        // GH-698: the other side's carrier occupies a footprint only PHYSICALLY: it is on the ground
+        // there (LANDING, LANDED or LIFTING, measured at where it sits). Its reservation (flying to
+        // land, a lift bound for a chosen point) is its own plan, and must neither deny my landing nor
+        // tell me where it is going (versus: a plan is hidden information).
+        if (st !== AIR_LANDING && st !== AIR_LANDED && st !== AIR_LIFTING) continue;
+        const px = fx.toInt(this.posX[j]) - cx;
+        const py = fx.toInt(this.posY[j]) - cy;
+        if (px >= -2 && px <= 2 && py >= -2 && py <= 2) return true;
+        continue;
+      }
       const want = this.airWant[j];
       if (st !== AIR_LANDING && st !== AIR_LANDED && want !== AIR_WANT_LOAD && want !== AIR_WANT_UNLOAD && want !== AIR_WANT_UNLOAD_AT) continue;
       const gx = fx.toInt(this.goalX[j]) - cx;
