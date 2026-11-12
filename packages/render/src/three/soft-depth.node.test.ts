@@ -273,6 +273,22 @@ describe('C4: the copy reads only the current scene pass target, into the textur
     expect(s.visible).toBe(true);
     copy.dispose();
   });
+
+  it("idle: an InstancedMesh consumer at count 0 is visible and draws nothing, so the sentinel stays hidden (the legacy rule)", () => {
+    const copy = new NodeSoftDepthCopy(() => null);
+    const tier = new THREE.InstancedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial(), 4);
+    tier.count = 0;
+    expect(tier.visible).toBe(true);
+    copy.sync([tier]);
+    expect(copy.sentinel.visible).toBe(false);
+    tier.count = 2;
+    copy.sync([tier]);
+    expect(copy.sentinel.visible).toBe(true);
+    tier.visible = false;
+    copy.sync([tier]);
+    expect(copy.sentinel.visible).toBe(false);
+    copy.dispose();
+  });
 });
 
 describe('C5: the flipbook smoke twin samples the filled texture', () => {
