@@ -3914,6 +3914,8 @@ export class ThreeRenderer implements Renderer {
       // GH-943 P2 (T1): every legacy material with a twin is swapped BEFORE the first census (inside `prepare`), which would
       // otherwise hide an un-adopted ring or name an un-adopted ground as unported. The ground and decor are built lazily, by the
       // first frame's `rebuildTerrain`, whose own adoption runs before that frame's census; this one takes what exists now.
+      // GH-1226 S5: the height-blend record, on the ground and the decals, BEFORE this adoption seals the decal twin.
+      this.installGroundBlend();
       this.adoptNodeMaterials(this.scene);
       // GH-943 P3 (T1): and what was queued before the backend existed (templates are not in the scene).
       this.flushNodeAdoption();
@@ -15974,6 +15976,9 @@ export class ThreeRenderer implements Renderer {
       options: { textureEdge: full, joints },
     };
     installHeightBlend(this.groundMat, record);
+    // The decal pools are in the scene from the constructor and their twin is sealed by init's adoption, so the SAME record goes on
+    // `decalMaterial` here too (the decal twin, S6, reads it): installing it later would throw on frame one.
+    installHeightBlend(this.decalMaterial, record);
     this.groundBlendState = { record, placeholder, lib: null, loading: false, surface: null, data: null, texture: null };
   }
 

@@ -168,6 +168,7 @@ function options(t: TerrainTones, quality = QUALITY_PRESETS.high): RendererOptio
 
 interface Private {
   groundMat: THREE.Material & { userData: Record<string, unknown> };
+  decalMaterial: THREE.Material & { userData: Record<string, unknown> };
   terrainState: { surface: TerrainSurface };
   groundBlendState: unknown;
 }
@@ -276,6 +277,13 @@ describe('GH-1226 S5: the node ground bakes and installs the height blend', () =
     expect(record.hollowTone.toArray()).toEqual([expect.closeTo(MID, 6), 1, 0]);
     expect([record.aR, record.aJ, record.aH, record.kH, record.amp]).toEqual([0.75, 0.6, 0.45, 0.4, 1]);
     expect(record.options).toEqual({ textureEdge: true, joints: true });
+  });
+
+  it('the SAME record is on the ground and on the decal material, installed in init before the scene adoption seals the decal twin', async () => {
+    const { priv } = await booted(tones(TONES_HIGHLAND));
+    const record = heightBlendOf(priv.groundMat);
+    expect(record).toBeDefined();
+    expect(heightBlendOf(priv.decalMaterial)).toBe(record);
   });
 
   it('a record installed after the twin exists throws (the seal is the real one)', async () => {
