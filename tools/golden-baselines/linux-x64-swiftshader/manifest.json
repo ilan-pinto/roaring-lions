@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "e2988051723e150c41a1ba925e5b34eb40994866",
-  "blessedAt": "2026-11-11T23:25:54.454Z",
-  "reason": "GH-1197 P5 (PR 1222): new gated rubble scenario (staged collapse and settling rubble). The lead looked at the CI capture on 11 Nov and approved it ('yes bless it'). Debris layer floor 3331 px / 0.1556 set from three CI readings.",
+  "commit": "b28bad48a20cd1190103c40398dc6ab5b35a76e0",
+  "blessedAt": "2026-11-12T01:36:11.556Z",
+  "reason": "GH-1223 slice 1 (PR 1228): new gated ragdoll scenario (presentation-only ragdolls, shipped dark). The lead looked at the CI capture on 11 Nov and approved it ('Ragdoll looks awesome'). Ragdolls layer floor 1084 px / 0.0551 set from three CI readings.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -138,6 +138,20 @@
       },
       "region": null,
       "sha256": "7ff9a029300d19355f6837994b7f2ca12a20e14bee923f3c3424a48b325d23b7"
+    },
+    "ragdoll": {
+      "tick": 300,
+      "camera": {
+        "x": 38.5,
+        "y": 36.5,
+        "zoom": 2.2
+      },
+      "rect": {
+        "w": 1400,
+        "h": 900
+      },
+      "region": null,
+      "sha256": "537ee52e95a512660c638b0fac6af5402834ff6542e53ebebe3c2e5bb76754b5"
     }
   }
 }

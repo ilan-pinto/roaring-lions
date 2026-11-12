@@ -560,7 +560,19 @@ export class MatchRoom {
   private lobbyFor(msg: Extract<ServerMsg, { t: 'lobby' }>, seat: Seat): ServerMsg {
     const brigade = this.meta?.kit === 'brigade' && this.meta.mode === 'versus';
     // The lobby names each seat's faction (`lobbyMsg`); a room that names none is the KDF mirror.
-    const seats = brigade ? msg.seats.map((s) => ({ ...s, specials: [...this.seatSpecials(s.seat, msg.factions?.[s.seat] ?? 'kdf')] })) : msg.seats;
+    const withSpecials = brigade ? msg.seats.map((s) => ({ ...s, specials: [...this.seatSpecials(s.seat, msg.factions?.[s.seat] ?? 'kdf')] })) : msg.seats;
+    // GH-1075 A3 (§0.14, §0.16): the labels are built field by field here and nowhere else, so the internal member id
+    // can never ride along, and `record` only when that member shows it. They are lobby-only: `mintConfig` never sees them.
+    const meta = this.meta;
+    const seats = meta === null ? withSpecials : withSpecials.map((s) => {
+      const m = meta.members[s.seat];
+      const model = meta.kinds[s.seat] === 'bot' ? meta.botModels[s.seat] : null;
+      return {
+        ...s, kind: meta.kinds[s.seat],
+        ...(m !== null ? { member: { name: m.name, publicId: m.publicId, ...(m.showRecord ? { record: { won: m.record.won, lost: m.record.lost, drawn: m.record.drawn } } : {}) } } : {}),
+        ...(model !== null ? { botModel: model } : {}),
+      };
+    });
     return { ...msg, seats, you: seat, ...(brigade ? { kit: 'brigade' as const } : {}), ...(this.meta?.mode === 'versus' && this.meta.winMode !== undefined ? { winMode: this.meta.winMode } : {}) };
   }
   /** `'all'` reaches every seated socket, advisors included, each `lobby` naming
