@@ -184,9 +184,9 @@ const ACACIA = [[22, 42], [66, 6], [84, 36], [31, 52]];
 
 const inFord = (v, r) => WADI.fords.some((f) => Math.abs(v - f) <= r);
 
-/** Seat 0's two tunnel routes (mouth first, vent last); seat 1's are their half-turn images. The shipped map's. */
+/** Seat 0's two tunnel routes (mouth first, vent last); seat 1's are their half-turn images. The shipped map's, but the north vent one tile back, (45,43) to (44,42): the tunnels cell read Sarim 70.3 / 65.6% and now reads KDF 53.6 / 54.2% (GH-974). */
 const ROUTES_FRIENDLY = [
-  { id: 'wtl_f_north', points: [[25, 23], [32, 28], [45, 43]], capacity: 3 },
+  { id: 'wtl_f_north', points: [[25, 23], [32, 28], [44, 42]], capacity: 3 },
   { id: 'wtl_f_west', points: [[23, 25], [26, 31], [42, 45]], capacity: 3 },
 ];
 
