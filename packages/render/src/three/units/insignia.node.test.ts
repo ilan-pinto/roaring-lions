@@ -60,7 +60,8 @@ describe('G1: the insignia term is wired, on program text', () => {
     for (const name of [...INS_UNIFORMS, 'uTeamColor', 'uMarkA']) expect(both.prog.usedFragment.has(uniformOf(both.twin, name)), name).toBe(true);
     expect(both.prog.vertex.match(/\bvMarkPos = position;/g)).toHaveLength(1);
     const wgsl = compileWgsl(d, both.mesh, both.twin);
-    expect(wgsl.fragment).toContain('textureSample');
+    // The INSIGNIA field is the one sampled (the diffuse map is sampled too, so any `textureSample` would pass without it).
+    expect(wgsl.fragment).toMatch(/textureSample\( uInsSdf, uInsSdf_sampler,/);
     const teamOnly = await built(d, laviMaterial(), false);
     expect(teamOnly.prog.fragment).not.toContain('uInsFrame');
     expect(() => uniformOf(teamOnly.twin, 'uInsSdf')).toThrow();

@@ -262,7 +262,8 @@ describe('the insignia variants (GH-1096 S1)', () => {
 
   it('binds the owner\'s shared texture, colour and ratio BY REFERENCE, and the frame\'s own numbers', () => {
     const ins = insigniaOf();
-    const v = new VehicleTeamMaterials(slotsOf(), undefined, ins).materialFor(lavi(), 0);
+    const slots = slotsOf();
+    const v = new VehicleTeamMaterials(slots, undefined, ins).materialFor(lavi(), 0);
     const { uniforms } = compile(v);
     expect(uniforms.uInsSdf).toBe(ins.shared.sdf);
     expect(uniforms.uInsColor).toBe(ins.shared.color);
@@ -273,14 +274,15 @@ describe('the insignia variants (GH-1096 S1)', () => {
     expect((uniforms.uInsStrength as { value: number }).value).toBe(0.85);
     // a colour-vision switch writes the team slots only
     const before = ins.shared.color.value.toArray();
-    slotsOf().set(['#FF0000', '#00FF00', '#0000FF']);
+    slots.set(['#FF0000', '#00FF00', '#0000FF']);
     expect(ins.shared.color.value.toArray()).toEqual(before);
   });
 
   it('the garage rule: NO team colour (slots null) still builds the insignia, and ignores the material\'s team mark', () => {
     const team = new VehicleTeamMaterials(null, undefined, insigniaOf());
-    const v = team.materialFor(lavi(), 0);
-    expect(v).not.toBe(lavi());
+    const garageBase = lavi();
+    const v = team.materialFor(garageBase, 0);
+    expect(v).not.toBe(garageBase); // a variant, not the input (a second lavi() would differ from anything)
     expect(teamHookOf(v)).toBeUndefined();
     expect(insigniaHookOf(v)).toBeDefined();
     expect(v.customProgramCacheKey().endsWith('|ins')).toBe(true);
