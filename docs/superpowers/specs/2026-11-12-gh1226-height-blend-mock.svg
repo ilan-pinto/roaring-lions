@@ -47,7 +47,7 @@
     <rect x="160" y="0" width="120" height="220" fill="url(#hlChips)"/>
     <!-- exposure edge follows the rock image's bright clasts (texture-driven, not a ruler line) -->
     <path d="M280 0 L560 0 L560 220 L280 220 C300 196 268 170 292 150 C310 128 276 108 296 86 C312 64 282 40 300 18 Z" fill="#A29887"/>
-    <!-- joints: terra rossa in the dark cracks of the rock image, about 18 percent of the exposed rock -->
+    <!-- joints: terra rossa in the dark texels of the rock image (ratio below 0.85-1.00), 20-32 percent of the exposed rock at every zoom -->
     <g fill="none" stroke="#A37B6A" stroke-width="3" stroke-linecap="round">
       <path d="M318 20 L352 46 L346 82 L388 104"/>
       <path d="M402 12 L420 52 L470 64 L498 40"/>

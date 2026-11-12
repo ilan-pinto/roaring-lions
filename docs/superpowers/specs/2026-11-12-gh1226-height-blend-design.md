@@ -24,7 +24,7 @@ colours and the readability bar.
   albedo image and no Meshy credit**.
 - The blend is one new stage in the shared `groundBlend` maths (`Ops<T>`), between the weight rescale and the road. It mixes three
   palette tones into the vertex tone and moves soil weight into the rock slot. With no stage, the node graph is byte-identical to
-  main's. On flat ground the stage is the identity to the bit, so 11 of the 41 shipped maps draw exactly today's node frame.
+  main's. On flat ground the stage contributes exactly 0, so the 11 shipped maps with no elevation (of 41) get no blend at all.
 - v1 covers `highland` (11 maps, the exact geological match) and the 10 `arid` maps with relief. Rujm Sawda, the eleventh, opts
   out until its basalt look lands. `wetland` is excluded: it is basalt, and it draws dry on node until P4. `green` waits for the GH-1167 grass,
   which covers the same open ground.
@@ -159,7 +159,7 @@ converts it to LINEAR (`hexToLinear`) and mixes in linear light. Composites are 
 | **Hollow tone** | terracotta.1, amplitude 0.45: dust.5 to **#8F5931** | limestone.4 (loess), amplitude 0.6: limestone.3 to **#BFA98A** | Fine soil settles. On arid this is loess, not dune sand (mistake 1, "sand everywhere"). |
 | **Hollow texture** | the open slot's chips softened 40% | the sand ripples softened 50% | Deep soil and silt have less clast. |
 | **Rock texture** | the rock slot (`rock_ground_tile`, 2 tiles a repeat, its crack network) | the same | It is already tapped on every ground fragment, so it costs nothing. |
-| **Joint share** | joints where the rock image's luminance ratio is below 0.70-0.90 (smoothstep): **17.8%** of exposed rock at the full-resolution mip | n/a | Measured on `rock_ground_tile.jpg` (ratio quantiles: p10 0.69, p20 0.83, p50 1.03). It reads as seams, not a red field. S1 re-reads it at the zoom-1 mip. |
+| **Joint share** | joints where the rock image's luminance ratio is below 0.85-1.00 (smoothstep): **20-32%** of exposed rock across the zoom range (table below) | n/a | A threshold that holds at the mip the game actually samples. The thin cracks are what a box filter removes first, so a tighter band vanishes at play zoom. It reads as seams close up and as a red-brown mottle at play zoom, never a red field. |
 | **Slope ramp** | exposure 0 at 10°, 1 at 22° (smoothstep) | the same | A one-level step is about 14°, so a single terrace-height bank shows patchy rock and a two-level bank is bare. |
 | **Crest** | +0.6 x smoothstep(0.15, 0.45) level above the 1.5-tile mean | the same | Soil erodes off convex crowns. |
 | **Hollow** | smoothstep(0.12, 0.40) level below the 1.5-tile mean, cut to 0 on slopes from 8° to 16°, and never under exposed rock | the same | Sediment rests on flats in concave ground, not on banks. |
@@ -167,6 +167,23 @@ converts it to LINEAR (`hexToLinear`) and mixes in linear light. Composites are 
 | **Texture edge** | the exposure biased by the rock texel, at gain 0.6, in `heightBiased`'s form (0 change at exposure 0 and 1) | the same | The boundary follows the rock image's bright clasts, as the ground's own `HEIGHT_BLEND` does at slot edges. This is the "height-based" blend in the texture-art sense. |
 | **Where it applies** | ground tops only; soil weight = open + knoll + half of scrub; never on a `^` top, a pad, a wall, the grove floor or a road surface | the same | The control map already says what is soil. |
 | **Roughness and metal** | unchanged (1, 0); no environment map | the same | The ground's class takes no environment, and a per-material roughness reads nothing under a side sun at RTS zoom. |
+
+**The joint share and the texture edge at the mip the game samples.** `rock_ground_tile.jpg` is 1024 px over 2 tiles, so 512 texels
+a tile. At DPR 2 a tile is 90.5·z device px across and half that in depth (the 30° pitch), so the ground samples about mip 2 at z2.5
+and mip 3-4 at z1. Read by box-downsampling the image with PIL; the image's mean is the `GROUND_ALBEDOS` row:
+
+| image px (mip) | about where | ratio p5 / p50 / p95 | joints at 0.70-0.90 | joints at 0.85-1.00 | texture-edge swing at gain 0.6 |
+|---|---|---|---|---|---|
+| 1024 (0) | closer than the camera goes | 0.56 / 1.03 / 1.31 | 17.8% | 32.0% | −0.26 to +0.19 |
+| 512 (1) | | 0.64 / 1.03 / 1.26 | 14.1% | 29.2% | −0.21 to +0.16 |
+| 256 (2) | z2.5 | 0.74 / 1.02 / 1.21 | 9.6% | 26.7% | −0.16 to +0.13 |
+| 128 (3) | z1.3 | 0.80 / 1.01 / 1.17 | 5.8% | 23.7% | −0.12 to +0.10 |
+| 64 (4) | z0.7 | 0.86 / 1.00 / 1.14 | 2.2% | 20.6% | −0.09 to +0.08 |
+
+At 0.70-0.90, the band first drafted, the joints fall to 2-6% at play zoom and the terra rossa would vanish where the player looks.
+0.85-1.00 holds 20-32% at every zoom, so it is the number proposed. The texture edge weakens with the mip, as it should: the boundary
+follows the clasts close up and stays smooth from afar. If the S8 sheet shows the joints as a mottle rather than seams, the fallback is
+decision 8's joint mask.
 
 `green` (deferred, decision 1), for the record: rock karst.1 at 0.6 (grass.2 to #A9AF87, ΔE2000 20.4 from olive.1), hollow grass.3
 at 0.5 (#99B65B, the lusher sward where water collects, ΔE2000 22.5), and joints terracotta.1 at 0.4. It ships when GH-1167's grass field (S5) can skip
@@ -260,7 +277,7 @@ eRaw  = clamp01( ss(10, 22, s) + 0.6 · ss(0.15, 0.45, t) )
 eP    = clamp01( eRaw · (1 + 0.5 · (2n − 1)) )                    patch: mean factor 1
 Lr    = luma(f_rock)                                              the rock slot's strength-mixed ratio (1 before its image lands)
 e     = clamp01( eP + 0.6 · (Lr − 1) · 4 · eP · (1 − eP) )        texture edge; 0 at eP = 0, 1 at eP = 1
-j     = e · (1 − ss(0.70, 0.90, Lr))                              joints; 0 while Lr = 1
+j     = e · (1 − ss(0.85, 1.00, Lr))                              joints; 0 while Lr = 1
 h     = ss(0.12, 0.40, −t) · (1 − ss(8, 16, s)) · (1 − e)         hollow, never under rock
 soil  = w_open + w_knoll + 0.5 · w_scrub                          (after the rescale, before the road)
 mE    = amp · e · soil       mH = amp · h · soil      mJ = amp · aJ · j · soil
@@ -271,9 +288,16 @@ tone  ← mix(mix(mix(vertexTone, T_hollow, aH · mH), T_rock, aR · mE), T_join
 
 Then the existing road block runs on the new tone and weights, followed by `albedo x macro` and the relief read, unchanged.
 
-**The identity, to the bit.** On flat ground `s` = 0 and `t` = 0 (byte 128), so `eRaw`, `e`, `j` and `h` are exactly 0. Every mix is
-`mix(x, y, 0)` = x, and every weight gives up `w · 0`. The same holds wherever `amp` = 0, and with the 1x1 placeholder field (R 0,
-G 128, B 128). S1 pins this on `NUMBER_OPS` by bit equality, and S7 pins it on the GPU with the `zero` check on `quiet`.
+**The stage contributes exactly 0 on flat ground.** On flat ground `s` = 0 and `t` = 0 (byte 128), so `eRaw`, `e`, `j` and `h` are
+exactly 0. Every mix is `mix(x, y, 0)` = x, and every weight gives up `w · 0`. The same holds wherever `amp` = 0, and with the 1x1
+placeholder field (R 0, G 128, B 128).
+- S1 pins this on `NUMBER_OPS` by bit equality, in JS doubles.
+- S7 pins it on the GPU, within one program, with the `zero` check on `quiet` (`amp` 1 against 0).
+
+What neither proves is that the program WITH the stage draws a flat map bit-identical to the program WITHOUT it: the extra ops can
+change how the compiler contracts the rest of the shader (FMA). So the claim is "the stage adds 0", not "the frame is today's". The
+CI probe row in §5 reads record-on against record-off on `quiet` and reports the pixel count. A non-zero count there is a compiler
+reading to report, not a defect in the stage.
 
 **One function, three readers.**
 - `groundBlend` gains an optional `stage`. Absent, it builds today's graph node for node (pin N1).
@@ -306,6 +330,16 @@ The constants live in `height-blend.ts` and are re-exported to nobody. The oracl
   - With no record at twin build (a theme with no `heightBlend`, the opted-out map, a legacy boot), the node ground compiles
     today's graph.
   - With a record, it compiles the stage. On `low` it compiles the stage without the texture edge and the joints (§3.5).
+- **The twin cache cannot hide that choice.** The adoption cache (`node-material-adoption.ts`) is an identity cache, one twin per
+  legacy object, held by each `ThreeRenderer` (`nodeTwins`). A renderer serves one mission, one theme and one preset (the preset
+  applies at boot), and is disposed with the mission. So a twin built without the stage is never reused on a highland map. The
+  legacy program key only selects the SLOT, and pin L2 holds it fixed whether or not a record exists.
+
+  Two things must be pinned, because the twin is built once:
+  - the record is installed before the first `adoptNodeMaterials` (S5);
+  - a record installed after the ground twin exists THROWS rather than being silently ignored (S4).
+
+  S4 also boots twice, once with a record and once without, and requires two different twins and two different node programs.
 - **`TerrainTones.heightBlend?`** (`packages/render/src/api.ts`, optional, absent by default): `{ rock, joint, hollow }` as resolved
   hexes, plus `aR`, `aJ`, `aH` and `kH`.
   - Only `highland` and `arid` set it in `packages/app/src/terrain-themes.ts`.
@@ -393,9 +427,12 @@ The precedent is the relief read: +0 draws, +0 textures, ALU only, about +0.15 m
 - The adapter is confirmed through `backendInfo()`, and every number goes out with its conditions line.
 - The same hold takes the look sheets (S8).
 
-**Counts on CI, free.** `webgpu-noise.yml` gains `probe=height-blend` (SwiftShader). It reads `stats().perPass` and the bound
-texture count with the blend on and off on `qarn_hadid`. It is report-only. It refuses an "on" arm whose ground twin has no record or
-whose field is still the placeholder, so it cannot pass vacuously.
+**Counts on CI, free.** `webgpu-noise.yml` gains `probe=height-blend` (SwiftShader). It is report-only, with two rows:
+- `qarn_hadid`: `stats().perPass` and the bound texture count, with the blend on and off;
+- `quiet` (`beit_sahwan_outskirts`, flat): the changed pixels between a record-on boot and a record-off boot. The stage adds 0 there,
+  so this row reads only what the compiler did to the rest of the program (§3.2).
+
+It refuses an "on" arm whose ground twin has no record or whose field is still the placeholder, so it cannot pass vacuously.
 
 **If a reading is over budget, shed in this order:**
 1. `medium` goes tone-only;
@@ -425,6 +462,10 @@ Never by the thresholds or the tones. Each rung is re-read, and the lead picks t
 | **G5. Node graph pins N1, wiring** | N1. Every record value bound by reference and re-read after two render cadences (the P2 T6/T7 wiring pattern). The field tap is filterable (not Nearest). No implicit-gradient sample in a conditional (`sample-uniformity.ts`). Sampler counts as literals. `low` compiles without the texture edge and the joints. | vitest (`mesh.node.test.ts`, `decal-pool.node.test.ts`) | Copying a tone instead of binding it: red. A Nearest placeholder: red. |
 | **G6. The decal match** | The node decal twin's divisor equals the ground's `heightBlendTone` at the same field texel and `aGround`, on literals; legacy decal unchanged (L4). | vitest | The twin dividing by `aGround` alone: red on a slope texel. |
 | **G7. Layer checks in the browser** | **Legacy, `zero`:** hiding `height-blend` moves 0 px on `relief` and `aftermath` (the gated `visual` job, existing baselines, no bless). **Node, `floor`:** hiding it moves the frame on `relief` and `aftermath` (floors are a third of the smallest of three CI readings, set in S7; the census predicts a large signal at 23-31% rock in frame). **Node, `zero`:** hiding it moves 0 px on `quiet` (flat). Needs a per-arm `arms` field on `LayerCheckSpec` (S7). | `visual` (legacy, gating); `visual-backends` (node: see below) | Legacy zero: reading `amp` in legacy GLSL. Node floor: tones equal to the base (amplitudes 0). Node zero: the texture edge without the `eRaw` factor. |
+
+**Why `relief`, `aftermath` and `quiet` can carry a `zero` check.** A `zero` check is sound only where the scenario's zero-time
+repaint control reads exactly 0. None of the three declares a `repaintControl` override in `baseline.ts`, so each is held to the
+global 0. `ragdoll` (frame-clock physics) is kept off the list.
 
 **The node layer checks cannot fail CI today, and that must be said plainly.**
 - The `visual-backends` "Gate arm" step ends in `exit 0`.
@@ -471,11 +512,14 @@ render of any kind, and it comes after the lead approves this document.
    halo, the decal twin takes the texture edge too (one more tap of the rock slot).
 4. **Bilinear slope at a terrace foot.** The field reads 0 on terrace texels, so a texel straddling a cliff foot interpolates
    towards 0. That under-reads slope in the last quarter tile, which is open ground right at a cliff and is under the apron anyway.
-5. **The issue's wording against the levant mapping.** Arid gets loess, not terra rossa, and the Marj's hamra is a palette gap
+5. **Joints at play zoom.** The rock image's thin cracks mip away, which is why the joint band was widened (§2.2). At z1 the
+   joints are the image's larger dark patches, not its crack lines. The S8 sheet judges whether that reads as terra rossa seams. If
+   it does not, decision 8's joint mask follows.
+6. **The issue's wording against the levant mapping.** Arid gets loess, not terra rossa, and the Marj's hamra is a palette gap
    (`skin.1` is the nearest key, ΔE 6.9). A new key is a palette change and needs the lead; v1 does not ask for one.
-6. **Bit-rot before P7.** Only sandbox node boots draw the blend until P7. The vitest gates, the legacy `zero` check and the CI probe
+7. **Bit-rot before P7.** Only sandbox node boots draw the blend until P7. The vitest gates, the legacy `zero` check and the CI probe
    row keep it alive.
-7. **three r186 internals.** The record re-bind and the texture riding on `uMapSize` follow the shipped twin's patterns, and S4
+8. **three r186 internals.** The record re-bind and the texture riding on `uMapSize` follow the shipped twin's patterns, and S4
    pins them. A three upgrade breaks them loudly, as it would the twin.
 
 ---
@@ -508,16 +552,21 @@ Each decision has a recommended default. A reply of "defaults" accepts them all.
    - hollows 0.12-0.40 level below the 1.5-tile mean, cut on slopes from 8° to 16°;
    - patch noise ±50% at a 3-tile period;
    - texture-edge gain 0.6;
-   - joints below a rock luminance ratio of 0.70-0.90 (about 18% of the exposed rock).
+   - joints below a rock luminance ratio of 0.85-1.00: 20-32% of the exposed rock at every zoom. The first draft's 0.70-0.90
+     collapses to 2-6% at play zoom (§2.2).
 
    On relief maps this exposes 2-26% of open ground and fills 2-11% (§1.4). **Recommended: as stated, re-judged on the S8 sheet.**
 6. **Tone mix or texture only.** Mixing palette tones (this design) lets limestone read as grey on highland's khaki ground, and it
    needs the decal slice (S6). Moving weight between the existing ratio slots alone costs no decal work, but on highland the rock
    would stay khaki. **Recommended: tone mix, with S6.**
 7. **Decals in v1.** The node decal twin reproduces the blended tone (S6). **Recommended: yes.**
-8. **New albedo images.** None: the rock and open slots carry the texture. If the sheet shows the rock image is wrong for a pavement,
-   the fallback is a procedural tile at 0 credits; a Meshy route would cost 45-90 credits and is not recommended. **Recommended: no
-   new image.**
+8. **New albedo images.** None: the rock and open slots carry the texture, and the joints are the rock image's own dark texels. Two
+   fallbacks, both at 0 credits:
+   - if the S8 sheet shows the joints as a mottle rather than seams, a procedural R8 joint mask (a karren network at 1-3 m with
+     joints wide enough to survive to mip 4): 512², 341 KiB on the GPU with mips, +1 sampler;
+   - if the rock image is wrong for a pavement, a procedural albedo tile (§2.4).
+
+   A Meshy route would cost 45-90 credits and is not recommended. **Recommended: no new image in v1.**
 9. **Quality presets.** `high` and `medium` full; `low` tone-only (no texture edge, no joints), or no stage at all if S8 reads `low`
    above +0.15 ms. **Recommended: as stated.**
 10. **Budget.**
