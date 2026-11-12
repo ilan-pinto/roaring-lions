@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { Sim, fx, type UnitTypeJson } from '@lions/sim';
+import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { QUALITY_PRESETS, type RenderQuality } from '../quality';
 import { ThreeRenderer } from './ThreeRenderer';
@@ -177,26 +177,53 @@ describe('a killed squad becomes a ragdoll, on the sim clock', () => {
     off.r.dispose();
   });
 
+  /** The push the victim's ragdoll takes when `other` did `prior` (real events through `onEvents`) and then killed it. */
+  const pushAfter = async (prior: (c: { victim: number; other: number; tick: number }) => SimEvent[], catchUp = false) => {
+    const w = await world(ON);
+    const claim = vi.spyOn((w.p as unknown as { ragdolls: { claim(d: { push?: unknown }): boolean } }).ragdolls, 'claim');
+    tick(w.sim, w.r, 1);
+    const evs = prior({ victim: w.victim, other: w.other, tick: w.sim.tickCount });
+    if (catchUp) w.r.setQuiet(true);
+    if (evs.length > 0) w.r.onEvents(evs);
+    if (catchUp) w.r.setQuiet(false);
+    w.sim.debugKill(w.victim);
+    const ev = w.sim.tick().map((e) => (e.kind === 'destroyed' && evs.length > 0 ? { ...e, by: w.other } : e));
+    w.r.snapshot();
+    w.r.onEvents(ev);
+    w.r.frame(1, 50);
+    const push = (claim.mock.calls[0][0] as { push?: unknown }).push;
+    w.r.dispose();
+    return push;
+  };
+  const fired = (weaponId: string) => (c: { victim: number; other: number; tick: number }): SimEvent[] => [
+    {
+      kind: 'fire', tick: c.tick, shooter: c.other, target: c.victim, weaponId,
+      pHit: fx.from(1), roll: fx.from(0), willHit: true,
+      breakdown: { accuracy: fx.from(1), rangeFalloff: fx.from(1), coverMod: fx.from(1), motionMod: fx.from(1), stanceMod: fx.from(1), suppressionMod: fx.from(1) },
+    } as SimEvent,
+  ];
+  const HOWITZER = { horizontalMS: 5.0, upMS: 2.8 };
+  const DEFAULT = { horizontalMS: 1.0, upMS: 0.4 };
+
   it('the push comes from the killing weapon\'s class: the killer\'s last shot, else the default (GH-1223)', async () => {
-    const pushOf = async (weapon: string | null) => {
-      const w = await world(ON);
-      const priv = w.p as unknown as { lastFiredWeapon: string[]; ragdolls: { claim(d: { push?: unknown }): boolean } };
-      const claim = vi.spyOn(priv.ragdolls, 'claim');
-      tick(w.sim, w.r, 1);
-      if (weapon !== null) priv.lastFiredWeapon[w.other] = weapon;
-      w.sim.debugKill(w.victim);
-      const ev = w.sim.tick().map((e) => (e.kind === 'destroyed' && weapon !== null ? { ...e, by: w.other } : e));
-      w.r.snapshot();
-      w.r.onEvents(ev);
-      w.r.frame(1, 50);
-      const push = (claim.mock.calls[0][0] as { push?: unknown }).push;
-      w.r.dispose();
-      return push;
-    };
-    expect(await pushOf('howitzer_155')).toEqual({ horizontalMS: 5.0, upMS: 2.8 });
-    expect(await pushOf('rpg')).toEqual({ horizontalMS: 3.5, upMS: 1.8 });
-    expect(await pushOf('rifle_556')).toEqual({ horizontalMS: 1.0, upMS: 0.4 });
-    expect(await pushOf(null)).toEqual({ horizontalMS: 1.0, upMS: 0.4 });
+    expect(await pushAfter(fired('howitzer_155'))).toEqual(HOWITZER);
+    expect(await pushAfter(fired('rpg'))).toEqual({ horizontalMS: 3.5, upMS: 1.8 });
+    expect(await pushAfter(fired('rifle_556'))).toEqual(DEFAULT);
+    expect(await pushAfter(() => [])).toEqual(DEFAULT);
+  });
+
+  it('a `strike` event by the caller makes the kill read the air-strike class, and a `chargeDetonated` the demolition class', async () => {
+    const strike = (c: { victim: number; other: number; tick: number }): SimEvent[] =>
+      [...fired('rifle_556')(c), { kind: 'strike', tick: c.tick, by: c.other, x: fx.from(10), y: fx.from(10), profile: 0 }];
+    const charge = (c: { victim: number; other: number; tick: number }): SimEvent[] =>
+      [...fired('rifle_556')(c), { kind: 'chargeDetonated', tick: c.tick, structure: 0, by: c.other }];
+    // The rifle shot comes first in each list: the later act wins the latch, so the push is the strike's / charge's.
+    expect(await pushAfter(strike)).toEqual({ horizontalMS: 5.0, upMS: 2.8 });
+    expect(await pushAfter(charge)).toEqual({ horizontalMS: 4.0, upMS: 2.2 });
+  });
+
+  it('a rejoin catch-up still latches: a quiet `fire` drops its burst but the kill reads its class', async () => {
+    expect(await pushAfter(fired('howitzer_155'), true)).toEqual(HOWITZER);
   });
 
   it('the `ragdolls` layer holds a corpse hidden through the fog reveal that would show it again', async () => {

@@ -306,7 +306,9 @@ import {
   munitionForWeapon,
   munitionRow,
   munitionScorchTiles,
-  ragdollPushForWeapon,
+  ragdollPushForKill,
+  LATCH_AIR_STRIKE,
+  LATCH_PLACED_CHARGE,
   ringSpecFor,
   type Munition,
 } from './munitions';
@@ -6540,6 +6542,11 @@ export class ThreeRenderer implements Renderer {
     }
   }
 
+  /** GH-1223: what an entity last did that can kill (a weapon id, or a latch key); the ragdoll push reads it. */
+  private latchKiller(who: number, key: string): void {
+    if (who >= 0 && who < this.lastFiredWeapon.length) this.lastFiredWeapon[who] = key;
+  }
+
   onEvents(events: SimEvent[]): void {
     const st = this.sim.state;
     // A catch-up tick: the next swarm frame must see it (`main.ts` has cleared `setQuiet` by then).
@@ -6549,9 +6556,13 @@ export class ThreeRenderer implements Renderer {
       // events whose whole effect is a one-shot flash, round or puff are
       // dropped here, and the ones that leave something standing (a wreck, a
       // collapsed building, a discovered route) still run below.
+      // The killer latch (GH-1223) writes nothing visible, so it runs BEFORE the catch-up drop: a rejoin's old
+      // `fire`, `strike` and `chargeDetonated` events still say what the killer last did.
+      if (e.kind === 'fire') this.latchKiller(e.shooter, e.weaponId);
+      else if (e.kind === 'strike') this.latchKiller(e.by, LATCH_AIR_STRIKE);
+      else if (e.kind === 'chargeDetonated') this.latchKiller(e.by, LATCH_PLACED_CHARGE);
       if (this.quiet && isBurstOnlyEvent(e.kind)) continue;
       if (e.kind === 'fire') {
-        if (e.shooter >= 0 && e.shooter < this.lastFiredWeapon.length) this.lastFiredWeapon[e.shooter] = e.weaponId;
         this.onFire(e);
       }
       else if (e.kind === 'beam') this.onBeam(e);
@@ -12534,7 +12545,7 @@ export class ThreeRenderer implements Renderer {
       template: pickMeshVariant(variants, id),
       at: { x, y, z, yaw },
       away: [ax, az],
-      push: ragdollPushForWeapon(this.killerWeapon[id]),
+      push: ragdollPushForKill(this.killerWeapon[id]),
       handle: dying,
     };
   }
