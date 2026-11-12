@@ -57,6 +57,7 @@ import {
 import {
   DebugOverlay,
   BattleAudio,
+  RAGDOLL_SHOWCASE_CAP,
   TERRAIN_DECOR,
   isHostileSide,
   isOwnSide,
@@ -1962,6 +1963,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // it -- a real mission's ground must remember only its own battle.
   const wantDecals = flags.decals;
   const wantRubble = flags.rubble;
+  // GH-1223 slice 1: the ragdoll showcase, and the ragdoll cap raised for a look (every preset ships 0). Sandbox-only:
+  // a dev flag must never change how a mission looks or runs.
+  const wantRagdoll = flags.ragdoll;
   // A misspelled flag (`&tunel`) otherwise does nothing at all, silently,
   // which reads as a broken feature rather than as a typo.
   // Level load time step 5. Fire-and-forget and deliberately NOT awaited: the
@@ -2404,6 +2408,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       ? { rubbleShowcase: { x: anchors.friendly[0], y: anchors.friendly[1] } }
       : {}),
   };
+  if (!mission && wantRagdoll && opts.quality !== undefined) {
+    opts.quality = { ...opts.quality, physics: { ragdolls: RAGDOLL_SHOWCASE_CAP } };
+    opts.ragdollShowcase = { x: anchors.friendly[0], y: anchors.friendly[1] };
+  }
   // --- which meshes this mission needs -------------------------------------
   //
   // The whole mesh library used to load at boot, before the loading screen was
