@@ -6,6 +6,7 @@ import {
   GRASS_SCALE_MAX,
   GRASS_SCALE_MIN,
   GRASS_TIP_CAP,
+  GRASS_WIDTH_ATTRIBUTE,
   NATURE_ATTRIBUTE,
   buildGrassClump,
   clampGrassScale,
@@ -67,6 +68,8 @@ describe("triangles per LOD (design 2.1)", () => {
       for (const v of VARIANTS) {
         const g = buildGrassClump(v, lod, COLOURS);
         const n = g.positions.length / 3;
+        expect(n).toBeGreaterThan(0);
+        expect(g.indices.length).toBeGreaterThan(0);
         expect(g.normals.length).toBe(n * 3);
         expect(g.colors.length).toBe(n * 3);
         expect(g.nature.length).toBe(n * 3);
@@ -274,11 +277,60 @@ describe("rlNature and normals", () => {
   it("normals are unit and lean up (bent toward up-and-out), never down", () => {
     for (const v of VARIANTS) {
       const g = buildGrassClump(v, 0, COLOURS);
+      expect(g.normals.length).toBeGreaterThan(0);
       for (let i = 0; i < g.normals.length; i += 3) {
         expect(
           Math.hypot(g.normals[i], g.normals[i + 1], g.normals[i + 2]),
         ).toBeCloseTo(1, 5);
         expect(g.normals[i + 1]).toBeGreaterThan(0.3);
+      }
+    }
+  });
+});
+
+describe("GH-1167 S4: the width record the node material's flutter and width floor read", () => {
+  // Falsify: push `+half` on both ring vertices (the edge-pair spec goes red) / write `baseW` instead of `baseW / 2` (the root half
+  // spec goes red) / write the axis without the twist (`b.twistRad * t` dropped: the axis-vs-positions spec goes red).
+  it("is named rlGrassWidth and has four floats per vertex", () => {
+    expect(GRASS_WIDTH_ATTRIBUTE).toBe("rlGrassWidth");
+    const g = buildGrassClump(1, 0, COLOURS);
+    expect(g.width.length).toBe((g.positions.length / 3) * 4);
+  });
+
+  it("each ring's two vertices sit at -half and +half along a unit axis that is exactly their separation; the tip has 0", () => {
+    for (const lod of [0, 1, 2] as const) {
+      for (const variant of [0, 1, 2] as const) {
+        const g = buildGrassClump(variant, lod, COLOURS);
+        const n = g.positions.length / 3;
+        // Literals (tiles): LOD0/1 base width 0.012, LOD2 0.018, halved.
+        const rootHalf = lod === 2 ? 0.009 : 0.006;
+        let tips = 0;
+        let pairs = 0;
+        for (let v = 0; v < n; v++) {
+          const w = g.width.subarray(4 * v, 4 * v + 4);
+          expect(Math.hypot(w[0], w[1])).toBeCloseTo(1, 6);
+          expect(w[3]).toBeCloseTo(rootHalf, 9);
+          if (w[2] === 0) {
+            tips++;
+            continue;
+          }
+          if (w[2] < 0) {
+            // Its partner is the next vertex: same axis, +half, and the positions differ by axis * 2 * half.
+            const u = g.width.subarray(4 * v + 4, 4 * v + 8);
+            expect(u[2]).toBeCloseTo(-w[2], 9);
+            expect(u[0]).toBeCloseTo(w[0], 9);
+            expect(u[1]).toBeCloseTo(w[1], 9);
+            const p = g.positions;
+            expect(p[3 * v + 3] - p[3 * v]).toBeCloseTo(w[0] * 2 * u[2], 6);
+            expect(p[3 * v + 4] - p[3 * v + 1]).toBeCloseTo(0, 6);
+            expect(p[3 * v + 5] - p[3 * v + 2]).toBeCloseTo(w[1] * 2 * u[2], 6);
+            pairs++;
+          }
+        }
+        expect(tips, `tips v${variant} lod${lod}`).toBe(g.blades);
+        // A root ring has the full root half width.
+        expect(pairs).toBeGreaterThan(0);
+        expect(Math.max(...Array.from({ length: n }, (_, v) => g.width[4 * v + 2]))).toBeCloseTo(rootHalf, 9);
       }
     }
   });

@@ -22,7 +22,7 @@ async function seed(db: D1Like, code: string, startedAt: number, s0: Seat, s1: S
 const mem = (m: string): Seat => ({ m, kind: 'member' });
 const guest: Seat = { m: null, kind: 'guest' };
 const get = async (h: Awaited<ReturnType<typeof setup>>['h'], cookie: string, qs = '') => h.call('GET', `/api/account/matches${qs}`, { cookie });
-type Body = { matches: { code: string; agreed: boolean; opponent: Record<string, unknown> }[]; next: number | null; record: { won: number; lost: number; drawn: number } };
+type Body = { matches: { code: string; agreed: boolean; opponent: Record<string, unknown> }[]; next: string | null; record: { won: number; lost: number; drawn: number } };
 
 describe('GET matches (GH-1075 A3)', () => {
   it('deleting_a_keeps_b_history (A3-5)', async () => {
@@ -96,9 +96,9 @@ describe('GET matches (GH-1075 A3)', () => {
     const { h, a } = await setup();
     for (let i = 1; i <= 45; i++) await seed(h.db, `M${i}`, i * 1000, mem('A'), guest, 0);
     const seen: string[] = [];
-    let before: number | null = null;
+    let before: string | null = null;
     const sizes: number[] = [];
-    const nexts: (number | null)[] = [];
+    const nexts: (string | null)[] = [];
     for (let page = 0; page < 5; page++) {
       const body = (await (await get(h, a.cookie, `?limit=20${before === null ? '' : `&before=${before}`}`)).json()) as Body;
       sizes.push(body.matches.length);
@@ -114,6 +114,17 @@ describe('GET matches (GH-1075 A3)', () => {
     expect(new Set(seen).size).toBe(45);
   });
 
+  it('ties_at_a_page_edge_are_neither_skipped_nor_repeated', async () => {
+    const { h, a } = await setup();
+    for (const code of ['T1', 'T2', 'T3']) await seed(h.db, code, 5000, mem('A'), guest, 0);
+    const p1 = (await (await get(h, a.cookie, '?limit=2')).json()) as Body;
+    expect(p1.matches.map((m) => m.code)).toEqual(['T3', 'T2']);
+    expect(p1.next).not.toBeNull();
+    const p2 = (await (await get(h, a.cookie, `?limit=2&before=${encodeURIComponent(p1.next ?? '')}`)).json()) as Body;
+    expect(p2.matches.map((m) => m.code)).toEqual(['T1']);
+    expect(p2.next).toBeNull();
+  });
+
   it('another_members_history_is_not_reachable', async () => {
     const { h, a } = await setup();
     await seed(h.db, 'AG', 1000, mem('A'), guest, 0);
@@ -124,8 +135,8 @@ describe('GET matches (GH-1075 A3)', () => {
 
   it('bad_query', async () => {
     const { h, a } = await setup();
-    for (const qs of ['?limit=0', '?limit=51', '?before=abc', '?limit=1.5']) expect((await get(h, a.cookie, qs)).status, qs).toBe(400);
-    expect((await get(h, a.cookie, '?limit=50&before=5')).status).toBe(200);
+    for (const qs of ['?limit=0', '?limit=51', '?before=abc', '?limit=1.5', '?before=5', '?before=5.', '?before=.A', '?before=x.A']) expect((await get(h, a.cookie, qs)).status, qs).toBe(400);
+    expect((await get(h, a.cookie, '?limit=50&before=5.A')).status).toBe(200);
     expect((await h.call('GET', '/api/account/matches')).status).toBe(401);
   });
 });

@@ -454,6 +454,9 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       // The result this seat's sim reached (L-1): only its first report counts,
       // and only for a tick the room has minted (`st.tick` is the NEXT frame's).
       if ((st.status !== 'running' && st.status !== 'stalled') || st.over[seat] >= 0 || msg.tick >= st.tick) return [];
+      // An honest sim decides only on a hash-window tick (decideOnHashTick); any other tick is a forgery
+      // that the lone-report rule would otherwise turn into an unconfirmed claim (GH-1075 A3).
+      if ((msg.tick + 1) % (st.config?.hashEveryTicks ?? 20) !== 0) return [];
       st.over[seat] = msg.tick;
       st.overResults[seat] = msg.result ?? null;
       armClose(st, nowMs);
@@ -693,7 +696,9 @@ export function recordOf(st: RoomState): RecordDraft | null {
     const [t0, t1] = [st.over[0], st.over[1]];
     const [r0, r1] = [st.overResults[0], st.overResults[1]];
     if (t0 !== t1 || !sameResult(r0, r1) || r0 === null) return null;
-    if (st.lastHashTick < t0 - st.config.hashEveryTicks) return null;
+    // No compared hash at all (lastHashTick -1) is never fresh: an `over` before the first checkpoint
+    // would otherwise pass the window below with nothing to check it against (GH-1075 A3, spec §A3 rule).
+    if (st.lastHashTick < 0 || st.lastHashTick < t0 - st.config.hashEveryTicks) return null;
     return { startedAt, endedAt, reason: r0.by, winnerSeat: r0.winner, ticks: t0, agreed: true };
   }
   const reason = st.endedReason;

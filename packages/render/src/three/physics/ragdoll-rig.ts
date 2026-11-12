@@ -220,6 +220,8 @@ export interface RagdollSeed {
   readonly deathTick: number;
   /** World unit direction (x, z) of the push: away from the killer. */
   readonly away: readonly [number, number];
+  /** The push, m/s, from the killing weapon's class (`munitions.json`); absent = the default constants below. */
+  readonly push?: { readonly horizontalMS: number; readonly upMS: number };
 }
 
 function worldOf(b: THREE.Object3D): { p: THREE.Vector3; q: THREE.Quaternion; s: THREE.Vector3 } {
@@ -267,10 +269,10 @@ export function buildFigures(
     // The push: away from the killer, turned and scaled by a hash of (entity, tick, figure).
     const hs = (salt: number): number => tileHash(seed.entityId * 16 + f, seed.deathTick * 8 + salt);
     const turn = (hs(1) - 0.5) * 2 * PUSH_JITTER;
-    const mag = PUSH_M_S * (1 + (hs(2) - 0.5) * 2 * PUSH_JITTER);
+    const mag = (seed.push?.horizontalMS ?? PUSH_M_S) * (1 + (hs(2) - 0.5) * 2 * PUSH_JITTER);
     const ax = seed.away[0] * Math.cos(turn) - seed.away[1] * Math.sin(turn);
     const az = seed.away[0] * Math.sin(turn) + seed.away[1] * Math.cos(turn);
-    const push = new THREE.Vector3(ax * mag, PUSH_UP_M_S * (1 + (hs(3) - 0.5) * PUSH_JITTER), az * mag);
+    const push = new THREE.Vector3(ax * mag, (seed.push?.upMS ?? PUSH_UP_M_S) * (1 + (hs(3) - 0.5) * PUSH_JITTER), az * mag);
     // A rig with no fall clip starts the topple's spin about its feet, away from the killer.
     const spinAxis = up.clone().cross(new THREE.Vector3(ax, 0, az)).normalize();
     const pivot = fw.p.clone().multiplyScalar(M);

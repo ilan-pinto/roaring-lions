@@ -498,7 +498,7 @@ describe('the history and the record (GH-1075 A3)', () => {
     ...over,
   });
   const answer = (matches: MatchView[], over: Partial<MatchesView> = {}): MatchesView => ({ matches, next: null, record: { won: 2, lost: 1, drawn: 0 }, ...over });
-  const withMatches = (a: MatchesView | ((before?: number) => MatchesView), over: Partial<AccountClient> = {}) =>
+  const withMatches = (a: MatchesView | ((before?: string) => MatchesView), over: Partial<AccountClient> = {}) =>
     stub({
       me: async () => signedIn(),
       matches: async (before) => ({ ok: true, status: 200, body: typeof a === 'function' ? a(before) : a }),
@@ -589,12 +589,12 @@ describe('the history and the record (GH-1075 A3)', () => {
   });
 
   it('more_pages', async () => {
-    const seen: (number | undefined)[] = [];
+    const seen: (string | undefined)[] = [];
     const { stage } = mount(
       withMatches((before) => {
         seen.push(before);
         return before === undefined
-          ? answer([view({ opponent: { kind: 'guest' } })], { next: 555 })
+          ? answer([view({ opponent: { kind: 'guest' } })], { next: '1731400000.K7Q2' })
           : answer([view({ opponent: { kind: 'deleted' } })], { next: null });
       })
     );
@@ -602,7 +602,7 @@ describe('the history and the record (GH-1075 A3)', () => {
     expect(rows(stage)).toHaveLength(1);
     btn(stage, t('profile.history.more')).click();
     await flush();
-    expect(seen).toEqual([undefined, 555]);
+    expect(seen).toEqual([undefined, '1731400000.K7Q2']);
     expect(rows(stage)).toHaveLength(2);
     expect(stage.querySelector<HTMLButtonElement>('.rl-profile__more')?.hidden).toBe(true);
   });

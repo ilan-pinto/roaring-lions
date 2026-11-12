@@ -76,7 +76,7 @@ export interface AccountClient {
   deleteSlot(op: SlotDeleteOp): Promise<CallResult<{ ok: true }>>;
   claim(body: ClaimBody): Promise<CallResult<ClaimResult>>;
   /** The member's match history, newest first (GH-1075 A3): `before` is the previous page's `next`. */
-  matches(before?: number): Promise<CallResult<MatchesView>>;
+  matches(before?: string): Promise<CallResult<MatchesView>>;
 }
 
 /** The `r=` codes `steam/return` appends to the profile path (plan section 0, ruling 12). */
@@ -204,7 +204,7 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
       result('PUT', slotPath(op.slotId), { op_id: op.opId, name: op.slot.name, savedAt: op.slot.savedAt, build: op.slot.build, body: op.slot, origin: op.origin }),
     deleteSlot: (op) => result('DELETE', slotPath(op.slotId), { op_id: op.opId }),
     claim: (body) => result('POST', 'claim', body),
-    matches: (before) => result('GET', before === undefined ? 'matches' : `matches?before=${before}`),
+    matches: (before) => result('GET', before === undefined ? 'matches' : `matches?before=${encodeURIComponent(before)}`),
     async gone(idHash) {
       if (!o.enabled) return 'unknown';
       try {

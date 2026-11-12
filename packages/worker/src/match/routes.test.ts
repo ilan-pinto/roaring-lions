@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { handleMatch } from './routes';
 import { signTicket, verifyTicket } from './ticket';
 import type { D1Like, Env, RateLimiter } from '../d1';
@@ -108,19 +108,22 @@ describe('/api/match', () => {
   it('GH-976 P2, P4: a win mode reaches the room only when it was read fair on the map in that pairing; anything else is a 400 before a room is made', async () => {
     const { env, createBodies } = fakeRooms();
     const body = (over: Record<string, unknown>) => ({ player: 'id-1', build: 'b1', mode: 'versus', map: 'wadi_tarfan', ...over });
-    // The oracle is a literal (GH-976 P4): the seven open maps, each read fair for the points race in the mirror (the flag raid too, until GH-1139 pulled it).
+    // The oracle is a literal (GH-976 P4): the seven open maps, each read fair for the points race in the mirror (the flag too on five of them since the 12 Nov relist).
     const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
     for (const map of SEVEN) {
       expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'points' })), env, NOW)).status, map).toBe(201);
     }
     expect(createBodies.map((b) => b.winMode)).toEqual(SEVEN.map(() => 'points'));
-    // GH-1139: the flag raid is out of every lobby until CTF v2 lands (WP9): a 400 on every map, and no room is made.
+    // GH-976 relist (12 Nov): the flag is a 201 on the five staged maps (mirror) and a 400 on the other two, and no room is made for those.
+    const FLAG_FIVE = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
     for (const map of SEVEN) {
       const res = await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'flag' })), env, NOW);
+      if (FLAG_FIVE.includes(map)) { expect(res.status, map).toBe(201); continue; }
       expect(res.status, map).toBe(400);
       expect(await res.text(), map).toBe('win mode not offered on this map');
     }
-    expect(createBodies.length).toBe(SEVEN.length);
+    expect(createBodies.slice(SEVEN.length).map((b) => b.map)).toEqual(FLAG_FIVE);
+    expect(createBodies.length).toBe(SEVEN.length + FLAG_FIVE.length);
     createBodies.splice(0, createBodies.length);
     // GH-976 P4 review: no KDF-v-Sarim cell passed, so every faction pairing is a 400 below, whoever hosts.
     // Annihilation by any of its spellings is no mode: the room is told nothing, as every room before.
@@ -722,10 +725,37 @@ describe('a seat\'s member comes from the cookie (GH-1075 A3 Task 3.3)', () => {
   });
 
   it('an_expired_session_is_a_guest', async () => {
+    // 181 days back: past the 180-day absolute cap
     const w = await world({ aAt: NOW - 181 * MS_DAY });
     const res = await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(w.b), w.a.cookie), w.env, NOW);
     expect(res.status).toBe(201);
     expect((w.createBodies[0] as Seen).member).toBeNull();
+    // 31 days back: inside the absolute cap, past the 30-day IDLE expiry: a guest, through `expires_at` alone
+    const idle = await world({ aAt: NOW - 31 * MS_DAY });
+    expect((await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(idle.b), idle.a.cookie), idle.env, NOW)).status).toBe(201);
+    expect((idle.createBodies[0] as Seen).member).toBeNull();
+    // 29 days back: still a member (the control: the same world, two days younger)
+    const live = await world({ aAt: NOW - 29 * MS_DAY });
+    expect((await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(live.b), live.a.cookie), live.env, NOW)).status).toBe(201);
+    expect((live.createBodies[0] as Seen).member?.publicId).toBe('PUB-idA');
+  });
+
+  it('a_failing_accounts_database_seats_a_guest', async () => {
+    const w = await world();
+    const broken = { prepare: () => { throw new Error('D1 down'); }, batch: () => Promise.reject(new Error('D1 down')) } as unknown as D1Like;
+    const env = { ...w.env, ACCOUNTS: broken } as Env;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const created = await handleMatch(withCookie(`${ORIGIN}/api/match`, forged(w.b), w.a.cookie), env, NOW);
+      expect(created.status).toBe(201);
+      expect((w.createBodies[0] as Seen).member).toBeNull();
+      const joined = await handleMatch(withCookie(`${ORIGIN}/api/match/${w.created[0]}/join`, forged(w.b), w.a.cookie), env, NOW);
+      expect(joined.status).toBe(200);
+      expect((w.joinBodies[0] as Seen).member).toBeNull();
+      expect(err).toHaveBeenCalledTimes(2);
+    } finally {
+      err.mockRestore();
+    }
   });
 
   it('the_answer_names_no_member', async () => {

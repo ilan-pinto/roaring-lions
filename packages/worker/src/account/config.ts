@@ -25,6 +25,8 @@ export const START_PER_IP = 50;
 export const START_ALL = 5000;
 export const OPS_PER_MEMBER = 400;
 export const OPS_ALL = 20_000;
+/** Rows one versus record writes: the record, two seats and the `acct-all` bump (GH-1075 A3). */
+export const RECORD_ROWS = 4;
 
 export const ACCOUNT_BODY_MAX_BYTES = 4096;
 

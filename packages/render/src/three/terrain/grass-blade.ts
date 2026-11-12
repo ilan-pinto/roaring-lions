@@ -15,6 +15,13 @@ import { WIND_CLASS_GRASS } from "./wind";
 
 export { NATURE_ATTRIBUTE };
 
+/**
+ * GH-1167 S4: the per-vertex width record the node material's flutter and width floor read (`grass-sway.ts`): x, z the blade's
+ * width axis at that ring (unit, clump-local xz), w0 the vertex's signed half width (-half, +half; 0 on the tip), w1 the blade's
+ * half width at its root for this LOD.
+ */
+export const GRASS_WIDTH_ATTRIBUTE = "rlGrassWidth";
+
 /** Blades per clump variant (design 2.1: 12, 16 and 20). */
 export const GRASS_BLADES: readonly [number, number, number] = [12, 16, 20];
 /** Blades kept at LOD1 (5 triangles each: 40 / 50 / 60) and at LOD2 (1 triangle each: 5 / 6 / 7). */
@@ -74,6 +81,8 @@ export interface GrassGeometry {
   readonly nature: Float32Array;
   /** LINEAR rgb per vertex (`hexToLinear`), the root occlusion already multiplied in. */
   readonly colors: Float32Array;
+  /** `GRASS_WIDTH_ATTRIBUTE`, four floats per vertex: width axis x, z, signed half width, root half width (tiles). */
+  readonly width: Float32Array;
   readonly indices: Uint16Array;
   readonly blades: number;
   readonly triangles: number;
@@ -250,6 +259,7 @@ export function buildGrassClump(
   const nor: number[] = [];
   const nat: number[] = [];
   const col: number[] = [];
+  const wid: number[] = [];
   const idx: number[] = [];
 
   for (const b of blades) {
@@ -261,8 +271,11 @@ export function buildGrassClump(
       p: [number, number, number],
       n: [number, number, number],
       t: number,
+      signedHalf: number,
     ): void => {
       pos.push(p[0], p[1], p[2]);
+      const th = b.azimuth + Math.PI / 2 + b.twistRad * t;
+      wid.push(Math.cos(th), Math.sin(th), signedHalf, baseW / 2);
       nor.push(n[0], n[1], n[2]);
       const hN = p[1] / boxTop;
       nat.push(hN, WIND_CLASS_GRASS, b.phase);
@@ -303,21 +316,23 @@ export function buildGrassClump(
         [p[0] - Math.cos(th) * half, p[1], p[2] - Math.sin(th) * half],
         n,
         t,
+        -half,
       );
       push(
         [p[0] + Math.cos(th) * half, p[1], p[2] + Math.sin(th) * half],
         n,
         t,
+        half,
       );
     };
     if (lod === 2) {
       ring(0);
-      push(axisPoint(b, 1), normalAt(1), 1);
+      push(axisPoint(b, 1), normalAt(1), 1, 0);
       idx.push(base, base + 1, base + 2);
       continue;
     }
     for (let s = 0; s < segs; s++) ring(s / segs);
-    push(axisPoint(b, 1), normalAt(1), 1);
+    push(axisPoint(b, 1), normalAt(1), 1, 0);
     for (let s = 0; s < segs - 1; s++) {
       const a = base + s * 2;
       idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
@@ -331,6 +346,7 @@ export function buildGrassClump(
     normals: new Float32Array(nor),
     nature: new Float32Array(nat),
     colors: new Float32Array(col),
+    width: new Float32Array(wid),
     indices: new Uint16Array(idx),
     blades: blades.length,
     triangles: idx.length / 3,

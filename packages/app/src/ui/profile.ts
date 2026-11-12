@@ -235,7 +235,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     more.hidden = true;
     const empty = line('rl-profile__history-empty', t('profile.history.empty'));
     empty.hidden = true;
-    let next: number | undefined;
+    let next: string | undefined;
 
     const row = (m: MatchView): HTMLElement => {
       const li = document.createElement('li');
@@ -248,7 +248,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
       li.textContent = parts.join(' · ');
       return li;
     };
-    const page = async (before: number | undefined): Promise<void> => {
+    const page = async (before: string | undefined): Promise<void> => {
       more.disabled = true;
       const r = await deps.client.matches(before);
       if (disposed) return;

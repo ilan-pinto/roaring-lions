@@ -43,6 +43,8 @@ export interface RagdollDeath<H> {
   readonly at: { readonly x: number; readonly y: number; readonly z: number; readonly yaw: number };
   /** World (x, z) unit direction away from the killer. */
   readonly away: readonly [number, number];
+  /** The push from the killing weapon's class, m/s; absent = the default (1.0 / 0.4). */
+  readonly push?: { readonly horizontalMS: number; readonly upMS: number };
   readonly handle: H | null;
 }
 
@@ -166,6 +168,7 @@ export class RagdollSystem<H> {
       entityId: d.entityId,
       deathTick: d.deathTick,
       away: d.away,
+      push: d.push,
     });
     const target = captureScreenPose(d.entity.root);
     const inc = new RagdollIncident(R, {

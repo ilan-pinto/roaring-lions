@@ -30,6 +30,9 @@ interface Row {
 }
 
 const INT = /^-?\d{1,15}$/;
+/** The page cursor: `<started_at>.<code>`, the pair the query orders by, so matches that share a start time are
+ *  neither skipped nor repeated across a page edge. */
+const CURSOR = /^(\d{1,15})\.(.{1,64})$/s;
 
 function opponentOf(r: Row): MatchOpponent {
   if (r.o_kind === 'member' && r.o_member !== null && r.o_public_id !== null) {
@@ -49,11 +52,13 @@ export async function matches(ctx: AccountCtx): Promise<Response> {
   const q = new URL(ctx.req.url).searchParams;
   const beforeRaw = q.get('before');
   const limitRaw = q.get('limit');
-  if (beforeRaw !== null && !INT.test(beforeRaw)) return sessionJson(400, { error: 'query' }, setCookie);
+  const cursor = beforeRaw === null ? null : CURSOR.exec(beforeRaw);
+  if (beforeRaw !== null && cursor === null) return sessionJson(400, { error: 'query' }, setCookie);
   if (limitRaw !== null && !INT.test(limitRaw)) return sessionJson(400, { error: 'query' }, setCookie);
   const limit = limitRaw === null ? MATCHES_PAGE_DEFAULT : Number(limitRaw);
   if (limit < 1 || limit > MATCHES_PAGE_MAX) return sessionJson(400, { error: 'query' }, setCookie);
-  const before = beforeRaw === null ? Number.MAX_SAFE_INTEGER : Number(beforeRaw);
+  const beforeAt = cursor === null ? Number.MAX_SAFE_INTEGER : Number(cursor[1]);
+  const beforeCode = cursor === null ? '' : (cursor[2] ?? '');
   const rows = await db
     .prepare(
       `SELECT r.code AS code, r.started_at AS started_at, r.ended_at AS ended_at, r.map AS map, r.matchup AS matchup,
@@ -66,11 +71,11 @@ export async function matches(ctx: AccountCtx): Promise<Response> {
        LEFT JOIN match_seat o ON o.code = s.code AND o.started_at = s.started_at AND o.seat = 1 - s.seat
        LEFT JOIN member om ON om.id = o.member_id
        LEFT JOIN profile op ON op.member_id = o.member_id
-       WHERE s.member_id = ?1 AND s.started_at < ?2
+       WHERE s.member_id = ?1 AND (s.started_at < ?2 OR (s.started_at = ?2 AND s.code < ?3))
        ORDER BY s.started_at DESC, s.code DESC
-       LIMIT ?3`,
+       LIMIT ?4`,
     )
-    .bind(session.memberId, before, limit)
+    .bind(session.memberId, beforeAt, beforeCode, limit)
     .all<Row>();
   const list: MatchView[] = rows.results.map((r) => ({
     code: r.code,
@@ -91,7 +96,7 @@ export async function matches(ctx: AccountCtx): Promise<Response> {
   const last = list[list.length - 1];
   const body: MatchesView = {
     matches: list,
-    next: list.length === limit && last !== undefined ? last.startedAt : null,
+    next: list.length === limit && last !== undefined ? `${last.startedAt}.${last.code}` : null,
     record: await memberRecord(db, session.memberId),
   };
   return sessionJson(200, body, setCookie);
