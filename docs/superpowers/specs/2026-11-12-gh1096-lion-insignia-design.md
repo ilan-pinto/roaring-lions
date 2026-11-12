@@ -33,7 +33,7 @@ From GH-1096, CLAUDE.md and the memory notes:
   L3 team mark.
 - **GLBs outside the `TEXTURED_*` sets ship zero materials.** This does not bind here: every KDF vehicle and
   aircraft GLB is already in `TEXTURED_VEHICLE_EXEMPT` (checked against `tools/validate_mesh_assets.py`), and so is
-  every KDF infantry team. The design adds no material and no image to any GLB.
+  every KDF infantry team except `wounded_kdf` (a palette figure, and unmarked in any case). The design adds no material and no image to any GLB.
 - **The per-class texture budgets are a ratchet:** vehicle 80 MiB / 2560 px, building 64 / 2048, infantry 32 /
   3072. Those budgets count images embedded in a GLB. The insignia texture is not embedded anywhere, so no
   budget moves. `pnpm perf:memory` is the gate that sees its 0.33 MiB.
@@ -267,7 +267,8 @@ The insignia is a second term of the SAME hook, not a second `onBeforeCompile`.
 - `VehicleTeamMaterials.materialFor` today returns `base` when the material declares no `rl_team_mark`.
 - It becomes "a team mark OR an insignia". An insignia-only template gets ONE variant (the colour is
   faction-fixed, so there is nothing per slot), memoised under slot `-1`.
-- The six team-marked templates keep their three slot variants, and each carries the insignia too.
+- The five team-marked templates in scope keep their three slot variants, and each carries the insignia too.
+  The Ambush Tank keeps its team mark only (decision 3).
 - **Draw calls: +0.** **Programs:** +1 per insignia-only template type (10 in scope), and the six team-marked
   templates recompile once under the new key.
 
@@ -323,31 +324,41 @@ the bake's luminance spread under each disc for that (section 9).
 
 ### 6.1 Ground vehicles (flank pair, both sides)
 
-| GLB | Surface | Probe: largest flat square, kit ignored / kit avoided | **D** | **Centre (x, y)** | Kit interplay | Basis | Roundel full / lion full at zoom |
+| GLB | Surface | Probe: largest flat square, kit ignored / kit avoided | **D** | **Centre (x, y)** | Kit interplay | Basis | Opacity at zoom 1 (broadside); roundel full / lion full at zoom |
 |---|---|---|---|---|---|---|---|
-| `mbt_lavi` (pilot) | hull flank, forward skirt panel | 1.00 / 0.40 m | **0.60** | **0.95, 1.00** | the tier-2 skirt (`kit_armour_2`, x -3.22..1.45, y 0.68..1.49) is flat plates with seams at x -1.4 and 0.5. The disc sits on the forward panel (x 0.5..1.4), on host and plate alike | measured | 0.96 / 1.91 |
-| `officer_armour` | the same hull, no kit | 0.80 m | **0.60** | **0.95, 1.00** | none | measured | 0.96 / 1.91 |
-| `apc_kipod` | upper hull flank | 0.80 / 0.65 m | **0.60** | **-0.38, 2.38** | clear of every tier's bounds | probe | 0.96 / 1.91 |
-| `demo_tzav` | hull flank | 1.25 / 1.25 m | **0.60** | **-0.38, 2.27** | no kit | probe | 0.96 / 1.91 |
-| `aa_remetz` | hull flank | 0.60 / 0.60 m | **0.55** | **0.15, 1.15** | no kit | probe | 1.04 / 2.09 |
-| `dozer_d9` | body flank | 0.55 / 0.55 m | **0.50** | **1.43, 0.78** | clear of every tier's bounds | probe | 1.15 / 2.30 |
-| `spg_long_range` | turret flank (turns with the turret) | 0.55 m | **0.50** | **0.83, 2.18** | no kit | probe | 1.15 / 2.30 |
-| `spg_cluster` | turret flank | 0.55 m | **0.50** | **0.58, 2.18** | no kit | probe | 1.15 / 2.30 |
-| `apc_eitan` | upper hull flank | 0.55 / under 0.15 m | **0.50** | **0.83, 2.23** | the tier-3 bounds span the whole flank. S2 checks whether a tier-3 plate stands there and is flat | to place | 1.15 / 2.30 |
-| `jeep_shoded` | rear body flank | 0.75 / 0.35 m | **0.50** | **-1.28, 0.62** | the tier-3 side-armour bounds (x -2.01..2.50, y 0.42..1.68) overlap | to place | 1.15 / 2.30 |
-| `ifv_namer` | lower aft flank, under the vision blocks | 0.40 / 0.35 m at 0.05 m cells (the 0.1 m map shows a wide flat flank at y 1.8..2.9) | **0.45** | **-1.80, 2.15** | the tier-2 band (y 1.89..2.41) covers it; the baked vision blocks (x -2.6..0.9) stand above it; the team band is at x 1.0..1.95 | to place | 1.28 / never |
-| `scout_shachaf` | hull flank | 0.40 / 0.20 m | **0.40** | **-2.00, 1.45** | tier bounds overlap | to place | 1.44 / never |
+| `mbt_lavi` (pilot) | hull flank, forward skirt panel | 1.00 / 0.40 m | **0.60** | **0.95, 1.00** | the tier-2 skirt (`kit_armour_2`, x -3.22..1.45, y 0.68..1.49) is flat plates with seams at x -1.4 and 0.5. The disc sits on the forward panel (x 0.5..1.4), on host and plate alike | measured | 100%; 0.96 / 1.91 |
+| `officer_armour` | the same hull, no kit | 1.00 m | **0.60** | **0.95, 1.00** | none | measured | 100%; 0.96 / 1.91 |
+| `apc_kipod` | upper hull flank | 0.80 / 0.65 m | **0.60** | **-0.38, 2.38** | clear of every tier's bounds | probe | 100%; 0.96 / 1.91 |
+| `demo_tzav` | hull flank | 1.25 / 1.25 m | **0.60** | **-0.38, 2.27** | no kit | probe | 100%; 0.96 / 1.91 |
+| `aa_remetz` | hull flank | 0.60 / 0.60 m | **0.55** | **0.15, 1.15** | no kit | probe | 96%; 1.04 / 2.09 |
+| `dozer_d9` | body flank | 0.55 / 0.55 m | **0.50** | **1.43, 0.78** | clear of every tier's bounds | probe | 67%; 1.15 / 2.30 |
+| `spg_long_range` | turret flank (turns with the turret) | 0.55 m | **0.50** | **0.83, 2.18** | no kit | probe | 67%; 1.15 / 2.30 |
+| `spg_cluster` | turret flank | 0.55 m | **0.50** | **0.58, 2.18** | no kit | probe | 67%; 1.15 / 2.30 |
+| `apc_eitan` | upper hull flank | 0.55 / under 0.15 m | **0.50** | **0.83, 2.23** | the tier-3 bounds span the whole flank. S2 checks whether a tier-3 plate stands there and is flat | to place | 67%; 1.15 / 2.30 |
+| `jeep_shoded` | rear body flank | 0.75 / 0.35 m | **0.50** | **-1.28, 0.62** | the tier-3 side-armour bounds (x -2.01..2.50, y 0.42..1.68) overlap | to place | 67%; 1.15 / 2.30 |
+| `ifv_namer` | lower aft flank, under the vision blocks | 0.40 / 0.35 m at 0.05 m cells (the 0.1 m map shows a wide flat flank at y 1.8..2.9) | **0.45** | **-1.80, 2.15** | the tier-2 band (y 1.89..2.41) covers it; the baked vision blocks (x -2.6..0.9) stand above it; the team band is at x 1.0..1.95 | to place | 28%; 1.28 / never |
+| `scout_shachaf` | hull flank | 0.40 / 0.20 m | **0.40** | **-2.00, 1.45** | tier bounds overlap | to place | 2%; 1.44 / never |
+
+**Read the opacity column before approving the sizes.** At the default zoom 1, seen broadside, the smaller emblems
+sit partway through the 5 to 7.5 px fade:
+- 0.50 m is at about 67%;
+- the Namer's 0.45 m is at about 28%;
+- the Shachaf's 0.40 m is at about 2%, so it is effectively absent until zoom 1.2.
+
+A faint disc can read as a smudge. That is the case for decision 13's lower threshold, or for leaving the smallest
+hulls unmarked in the world (garage only), rather than for a larger stencil. Any other yaw shrinks the short axis
+further.
 
 ### 6.2 Aircraft (flank pair)
 
-| GLB | Surface | Probe | **D** | **Centre (x, y)** | Basis | Roundel full / lion full |
+| GLB | Surface | Probe | **D** | **Centre (x, y)** | Basis | Opacity at zoom 1 (broadside); roundel full / lion full |
 |---|---|---|---|---|---|---|
-| `heli_yanshuf` | cabin flank, aft of the door | 0.70 m | **0.60** | **0.95, 0.70** | probe | 0.96 / 1.91 |
-| `heli_peten` | fuselage flank under the cockpit | 0.30 m | **0.30** | **0.30, 0.35** | probe | 1.91 / never. In the world a roundel only near maximum zoom; the lion only in the garage |
-| `heli_peten_gunship` | the same | 0.30 m | **0.30** | **0.30, 0.35** | probe | the same |
+| `heli_yanshuf` | cabin flank, aft of the door | 0.70 m | **0.60** | **0.95, 0.70** | probe | 100%; 0.96 / 1.91 |
+| `heli_peten` | fuselage flank under the cockpit | 0.30 m (kit ignored) | **0.30** | **0.30, 0.35** | to place: `kit_armour_3_hull_hull`'s bounds (x -0.05..1.67, y 0.11..0.54) overlap the disc | 0%; 1.91 / never. In the world a roundel only near maximum zoom; the lion only in the garage |
+| `heli_peten_gunship` | the same (no kit) | 0.30 m | **0.30** | **0.30, 0.35** | probe | 0%; the same |
 
-The Peten meshes are scaled to the game (a 4.97 m Apache), so their fuselage flank is small. A nose or tail emblem
-does not help either: the tail fin is smaller still.
+The Peten meshes are scaled to the game (a 4.97 m Apache), so their fuselage flank is small. A nose or tail emblem was
+not measured for this spec; S3 probes the tail fin, and the 0.30 m flank stands until it finds more.
 
 ### 6.3 Not marked (decisions 2 and 3)
 
@@ -357,7 +368,16 @@ does not help either: the tail fin is smaller still.
 | `ugv_recon_dog` | the infantry rig path, and smaller than a drone |
 | `mbt_lavi_camo` (Ambush Tank) | it is under a net. A stencil painted on a net is wrong, and the probe's 1.00 m patch is the rear hull the net drapes over |
 | `veh_ambulance`, `air_medevac_heli` | medical vehicles carry a protective medical marking, not a combat insignia. Putting the lion beside it blurs what that marking means |
-| every KDF infantry team | a 0.09 m left-shoulder patch is 1.2 px at zoom 1 and 2.9 px at 2.5: never in the world (section 2). Slice S4 below, only on a later yes |
+| every KDF infantry team | a 0.09 m left-shoulder patch is 1.2 px at zoom 1 and 2.9 px at 2.5: never in the world (section 2). Slice S4 below, only on a later yes; the per-team numbers are in 6.4 |
+
+### 6.4 Infantry, per team (deferred to S4)
+
+| Team | Patch | Size | Zoom 1 / zoom 2.5 | Note |
+|---|---|---|---|---|
+| `inf_squad`, `inf_grenadier`, `at_team`, `at_nlos_team`, `mortar_team`, `sniper_team`, `breach_team`, `demo_squad`, `yahalom_squad`, `recon_zikit` | left shoulder, every figure | 0.09 m | 1.2 / 2.9 px | garage only |
+| `officer_infantry`, `officer_fires`, `officer_engineer` | left shoulder | 0.09 m | 1.2 / 2.9 px | garage only |
+| `inf_medic_squad` | left shoulder | 0.09 m | 1.2 / 2.9 px | it IS marked, unlike the ambulance: a soldier wears the unit tag whatever the role, and the team is armed (`medic_carbines`). The protective-marking question in decision 3 is about a vehicle marked as medical transport |
+| `wounded_kdf` | none | | | a casualty figure; not textured |
 
 **If infantry is approved later (S4), the numbers would be:**
 - The patch: left shoulder (where real units wear the unit tag), **0.09 m** across, on the uniform part, centred on
@@ -457,8 +477,9 @@ that cannot be watched going red does not land.
    the committed PNG, and asserts the SVG's right-half-only authoring. Falsify: edit one SVG vertex without
    re-baking, and the bytes differ.
 7. **The visual gate.** An `insignia` layer check (`BaselineSpec.layerChecks`) on the gated `vehicle` scenario
-   (beit_sahwan_outskirts, zoom 1, tick 140). Its frame holds both Lavis, both Namers, the Eitan, the jeep, the D9
-   and the Peten.
+   (beit_sahwan_outskirts, zoom 1, tick 140). Its frame holds the two Lavis (confirmed by the `team-mask` check's
+   rationale), and likely others of `SANDBOX_KDF` (`packages/app/src/sandbox-force.ts`: the Namers, the Eitan, the jeep,
+   the D9, the Peten). Which of those are in frame was not checked for this spec; S1 reads it off the capture.
    - At zoom 1, a 0.60 m flank is 7.8 px on its short axis: just inside the solid-roundel band. So the signal
      exists, but it is small.
    - Floors are a third of the smallest of three measured runs, and the magnitude floor carries it if it is under
@@ -474,6 +495,15 @@ that cannot be watched going red does not land.
    census must be unchanged, which proves no GLB grew an image (decision 9).
 9. **Colour:** the colour is resolved through its palette key. A test pins that the key exists in
    `data/palette.json` and is not in a `reserved` band. Falsify: set the key to `team.kedem`, and it goes red.
+10. **The art gate:** `check_insignia_frames` in `validate_mesh_assets.py`, next to `check_team_marks` (so
+    `pnpm validate:meshes`, in CI). With a LITERAL `INSIGNIA_REQUIRED` list pinned to the generated table (the
+    `MARK_REQUIRED` / `MARK_RECIPES` precedent), it fails when:
+    - a GLB in the list has no frame in the table;
+    - the sha256 of its host hull POSITION accessors no longer matches the hash the table recorded.
+
+    So a re-exported or re-shaped mesh is caught at the art gate, before any runtime test, and its emblem cannot
+    silently float off a changed hull. Falsify: flip one byte of the recorded hash for `mbt_lavi`, and the gate
+    goes red; delete `mbt_lavi` from the table, and it goes red.
 
 ---
 
@@ -487,7 +517,7 @@ Each slice is one PR. No slice starts a render before its numbers are approved.
   - The lead approves the SVG as vector art.
 - **S1. The pilot: `mbt_lavi` alone.**
   - The hook term (WebGL2 and node), the variant rule, the garage change, the generated table with one entry, the
-    debug layer, and gates 1 to 6, 8 and 9.
+    debug layer, and gates 1 to 6 and 8 to 10.
   - Then ONE garage close-up sheet of the Lavi, through the existing kit-capture path: Metal, its own port, music
     off, one browser.
   - Then the `insignia` layer check on `vehicle` and `kitted`, and a CI bless.
@@ -540,7 +570,9 @@ Each item has my recommendation. "Yes" approves it as written.
    the per-class budgets are untouched; `perf:memory` sees it. *Recommend: yes.*
 10. **Standard size.** One stencil size, **0.60 m**, on every hull that takes it, and smaller only where the hull
     forces it: Remetz 0.55; the D9, the two Te'o, the Eitan and the jeep 0.50; the Namer 0.45; the Shachaf 0.40;
-    the Peten pair 0.30. Never larger than 0.60. *Recommend: yes.*
+    the Peten pair 0.30. Never larger than 0.60. At zoom 1 broadside the 0.50 m emblems are about 67% opaque, the
+    Namer's about 28% and the Shachaf's about 2% (section 6.1). *Recommend: yes; revisit the smallest on the S2
+    close-ups.*
 11. **Surface.** Both flanks (hull, or turret on the two Te'o). The roof stays the team's recognition panel.
     *Recommend: yes.*
 12. **Placements.** The per-unit centres in section 6 are starting numbers. The Lavi and the command Lavi are
@@ -548,8 +580,8 @@ Each item has my recommendation. "Yes" approves it as written.
     *Recommend: yes.*
 13. **LOD bands** (CSS px on the emblem's shorter screen axis): nothing under 5; the roundel fades in over 5 to 7.5;
     the lion's face over 11 to 15. Consequence: at the default zoom 1, a 0.60 m emblem is a roundel; the face
-    starts at zoom 1.4 and is complete at 1.9. The bands are uniforms, tunable on the close-up with no re-bake.
-    *Recommend: yes.*
+    starts at zoom 1.4 and is complete at 1.9, and the emblems under 0.55 m are still fading in (section 6.1). The
+    bands are uniforms, tunable on the close-up with no re-bake. *Recommend: yes.*
 14. **Kit.** Unlike the team mark, the lion paints the outermost FLAT kit plate standing in its box (the Lavi's
     tier-2 skirt), so an upgraded tank keeps its insignia. The geometry test refuses any non-flat kit face in the
     box. *Recommend: yes.*
