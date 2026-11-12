@@ -28,8 +28,12 @@ const tileOf = (sim: Sim, id: number): [number, number] => [fx.toInt(sim.state.p
 
 interface Pair { sim: Sim; a: number; b: number }
 
+/** How many grounded pairs `noTwoOnOneFootprint` has compared since the last `pair()`: a two-carrier scenario that compares none checked nothing. */
+let footprintPairsCompared = 0;
+
 /** Two loaded helis (a: side 0, b: side `sideB`) at the given starts; both ordered to unload at (20.5, 20.5). */
 function pair(aAt: [number, number], bAt: [number, number], sideB: number): Pair {
+  footprintPairsCompared = 0;
   const sim = new Sim({ seed: 0x6980_0699, width: 40, height: 40, capacity: 64 });
   const inf = sim.addUnitType(RIFLES);
   const heli = sim.addUnitType(HELI);
@@ -63,6 +67,7 @@ function noTwoOnOneFootprint(sim: Sim): void {
   }
   for (let x = 0; x < g.length; x++) {
     for (let y = x + 1; y < g.length; y++) {
+      footprintPairsCompared++;
       const dx = Math.abs(fx.toInt(sim.state.posX[g[x]]) - fx.toInt(sim.state.posX[g[y]]));
       const dy = Math.abs(fx.toInt(sim.state.posY[g[x]]) - fx.toInt(sim.state.posY[g[y]]));
       if (Math.max(dx, dy) <= 2) throw new Error(`carriers ${g[x]} and ${g[y]} share a footprint at tick ${sim.tickCount}`);
@@ -88,6 +93,7 @@ describe('a landing carrier re-checks its footprint on arrival (GH-698)', () => 
       expect(w.sim.state.airState[w.b]).toBe(AIR_LANDED);
       expect(apart(w)).toBeGreaterThanOrEqual(3);
       expect(tileOf(w.sim, first === 'a' ? w.a : w.b)).toEqual([20, 20]); // the earlier arrival keeps the point
+      expect(footprintPairsCompared, 'the footprint invariant compared grounded pairs').toBeGreaterThan(0);
     });
 
     it(`friends, same point, ${name}: order-time reservation already separates them; both land apart`, () => {
@@ -96,6 +102,7 @@ describe('a landing carrier re-checks its footprint on arrival (GH-698)', () => 
       expect(w.sim.state.airState[w.a]).toBe(AIR_LANDED);
       expect(w.sim.state.airState[w.b]).toBe(AIR_LANDED);
       expect(apart(w)).toBeGreaterThanOrEqual(3);
+      expect(footprintPairsCompared, 'the footprint invariant compared grounded pairs').toBeGreaterThan(0);
     });
   }
 
@@ -107,6 +114,7 @@ describe('a landing carrier re-checks its footprint on arrival (GH-698)', () => 
       expect(w.sim.state.airState[w.b]).toBe(AIR_LANDED);
       expect(apart(w)).toBeGreaterThanOrEqual(3);
       expect(tileOf(w.sim, w.a)).toEqual([20, 20]);
+      expect(footprintPairsCompared, 'the footprint invariant compared grounded pairs').toBeGreaterThan(0);
       return `${tileOf(w.sim, w.a)}|${tileOf(w.sim, w.b)}|${w.sim.hash()}`;
     };
     expect(outcome()).toBe(outcome());
@@ -117,6 +125,7 @@ describe('a landing carrier re-checks its footprint on arrival (GH-698)', () => 
     const ev = run(w.sim, 500);
     expect(ev.filter((e) => e.kind === 'landRefused')).toHaveLength(0);
     expect(tileOf(w.sim, w.b)).toEqual([17, 17]);
+    expect(footprintPairsCompared, 'the footprint invariant compared grounded pairs').toBeGreaterThan(0);
   });
 
   it('re-snap failure: nothing else clear within reach, the later carrier hovers, refused, riders kept', () => {
