@@ -181,7 +181,7 @@ export function heightBlendTone<T>(
  * The stage `groundBlend` runs between the rescale and the road. Weights are in `GROUND_SLOTS` order: open, rock, scrub, grove,
  * knoll. Open, knoll and half the scrub give up the fraction `amp x e` of themselves to the rock slot (the sum is unchanged); the
  * open slot's factor is softened toward 1 in hollows; the tone is the chain `tone <- mix(mix(mix(vertexTone, hollow, aH mH),
- * rock, aR mE), joint, aJ mJ)`. `v.luma` gives the rock slot's luminance ratio `Lr`.
+ * rock, aR mE), mix(rock, joint, aJ), mJ)`: the joint is the joint tone mixed at aJ over PURE rock tone (design 2.3's #A37B6A), laid in at weight mJ. `v.luma` gives the rock slot's luminance ratio `Lr`.
  */
 export function heightBlendStage<T>(
   o: Ops<T>,
@@ -215,7 +215,7 @@ export function heightBlendStage<T>(
     const movedFactors = factors.map((f, i) => (i === 0 ? o.mix(f, v.one3, o.mul(k.soften, mH)) : f));
     let tone = o.mix(vertexTone, k.hollowTone, o.mul(k.hollowAmp, mH));
     tone = o.mix(tone, k.rockTone, o.mul(k.rockAmp, mE));
-    if (options.joints) tone = o.mix(tone, k.jointTone, o.mul(k.jointAmp, o.mul(o.mul(k.amp, m.joint), soil)));
+    if (options.joints) tone = o.mix(tone, o.mix(k.rockTone, k.jointTone, k.jointAmp), o.mul(o.mul(k.amp, m.joint), soil));
     return { weights: movedWeights, factors: movedFactors, vertexTone: tone };
   };
 }

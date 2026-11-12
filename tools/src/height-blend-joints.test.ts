@@ -13,8 +13,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import jpeg from 'jpeg-js';
 import { describe, expect, it } from 'vitest';
-import { JOINT_RATIO_HI, JOINT_RATIO_LO } from '../../packages/render/src/three/terrain/height-blend';
 
+/** The approved joint band (design 2.2), written out: not imported from the code under test. */
+const JOINT_RATIO_LO = 0.85;
+const JOINT_RATIO_HI = 1.0;
 const MEAN_RGB = [152.9, 141.2, 125.2] as const;
 const luma = (r: number, g: number, b: number): number => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 const MEAN_LUMA = luma(...MEAN_RGB);

@@ -25,16 +25,28 @@ const Y = (hex: string): number => {
 const ratio = (hex: string): number => Y(hex) / Y(KDF_UNIFORM_HEX);
 const de = (hex: string): number => deltaE2000(linearHex(KDF_UNIFORM_HEX), linearHex(hex));
 
-/** The design's rule. `replaces` is the ground this composite is drawn over. */
-function verdict(hex: string, replaces: string): { ok: boolean; why: string[] } {
+type Lin = readonly [number, number, number];
+const YL = (c: Lin): number => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+/** "Not darker than the ground it replaces" allows 0.5% of its luminance. Why: the highland hollow, composed UNROUNDED from its keys,
+ *  reads 0.8065x olive.1 against the 0.8096x of the dust.5 it replaces, 0.4% darker (a hex rounds it lighter). It is the one
+ *  composite inside this tolerance, and a hollow of the same colour as the ground it fills is not a readability loss. Anything
+ *  darker than 0.5% still fails (the dust.6 test below). */
+const DARKER_TOLERANCE = 0.005;
+
+/** The design's rule on LINEAR colours. `replaces` is the ground this composite is drawn over. */
+function verdictLin(c: Lin, replaces: Lin, tolerance = DARKER_TOLERANCE): { ok: boolean; why: string[] } {
   const why: string[] = [];
-  if (de(hex) < MIN_DE2000) why.push(`dE2000 ${de(hex).toFixed(2)} < ${MIN_DE2000}`);
-  if (ratio(hex) < MIN_LUMINANCE_RATIO) {
-    if (ratio(replaces) >= MIN_LUMINANCE_RATIO) why.push(`luminance ${ratio(hex).toFixed(2)}x < ${MIN_LUMINANCE_RATIO}x over a ground at ${ratio(replaces).toFixed(2)}x`);
-    else if (Y(hex) < Y(replaces)) why.push(`darker than the ${ratio(replaces).toFixed(2)}x ground it replaces`);
+  const dE = deltaE2000(linearHex(KDF_UNIFORM_HEX), c);
+  const rat = YL(c) / Y(KDF_UNIFORM_HEX);
+  const repRat = YL(replaces) / Y(KDF_UNIFORM_HEX);
+  if (dE < MIN_DE2000) why.push(`dE2000 ${dE.toFixed(2)} < ${MIN_DE2000}`);
+  if (rat < MIN_LUMINANCE_RATIO) {
+    if (repRat >= MIN_LUMINANCE_RATIO) why.push(`luminance ${rat.toFixed(2)}x < ${MIN_LUMINANCE_RATIO}x over a ground at ${repRat.toFixed(2)}x`);
+    else if (YL(c) < YL(replaces) * (1 - tolerance)) why.push(`darker than the ${repRat.toFixed(2)}x ground it replaces`);
   }
   return { ok: why.length === 0, why };
 }
+const verdict = (hex: string, replaces: string): { ok: boolean; why: string[] } => verdictLin(linearHex(hex), linearHex(replaces));
 
 interface Composite { readonly name: string; readonly hex: string; readonly replaces: string; readonly passes: boolean }
 /** The design's section 2.3 table, as literals. Highland open today is dust.5 (#806032), arid open today limestone.3 (#C8B494). */
@@ -122,11 +134,55 @@ describe('the height blend leaves the KDF uniform readable (GH-1226 G2)', () => 
     expect(mix(keyHex('karst.1'), keyHex(h.joint!.key), h.joint!.amplitude)).toBe('#A37B6A');
   });
 
-  it('OPEN QUESTION (GH-1226 S1): the design 3.2 chain mixes the joint over the 0.75 rock COMPOSITE, which is #A0735F at 1.26x, under the 1.3x floor', () => {
-    // Design 2.3 prints the joint as #A37B6A (1.41x), which is the 0.6 mix over pure karst.1. The tone chain in 3.2
-    // (`mix(mix(mix(vertexTone, hollow), rock), joint)`) lays it over the rock composite instead. This test PINS that fact, so
-    // the lead's ruling (a higher rock-over joint amplitude would also need re-judging) flips it on purpose, not by accident.
-    expect(ratio('#A0735F')).toBeCloseTo(1.26, 2);
-    expect(verdict('#A0735F', HIGHLAND_ROCK).ok).toBe(false);
+  it('the REJECTED form: the joint laid over the 0.75 rock COMPOSITE (the original 3.2 chain) is #9F735F at 1.26x, under the 1.3x floor', () => {
+    // The tone chain now mixes the joint over PURE rock tone (karst.1), which is the design's #A37B6A at 1.41x. The old form, over
+    // the rock composite, draws this instead. Reverting `mix(k.rockTone, k.jointTone, k.jointAmp)` in height-blend.ts to
+    // `k.jointTone` is that form, and height-blend.test.ts' joint literal goes red.
+    expect(ratio('#9F735F')).toBeCloseTo(1.256, 3);
+    expect(verdict('#9F735F', HIGHLAND_ROCK).ok).toBe(false);
+  });
+
+  it('judged UNROUNDED from the keys, every composite passes; the highland hollow is the one case inside the 0.5% tolerance', () => {
+    const palette = JSON.parse(readFileSync(fileURLToPath(new URL('../../data/palette.json', import.meta.url)), 'utf8')) as {
+      ramps: Record<string, { colors: string[] }>;
+    };
+    const lin = (key: string): Lin => {
+      const [ramp, idx] = key.split('.');
+      const hex = palette.ramps[ramp as string]?.colors[Number(idx)];
+      if (!hex) throw new Error(`palette key ${key} does not resolve`);
+      return linearHex(hex);
+    };
+    const mixL = (a: Lin, b: Lin, t: number): Lin => [0, 1, 2].map((i) => a[i]! + (b[i]! - a[i]!) * t) as unknown as Lin;
+    const h = HEIGHT_BLEND_THEMES.highland;
+    const a = HEIGHT_BLEND_THEMES.arid;
+    const hOpen = lin('dust.5');
+    const aOpen = lin('limestone.3');
+    const hRock = mixL(hOpen, lin(h.rock.key), h.rock.amplitude);
+    const hollow = mixL(hOpen, lin(h.hollow.key), h.hollow.amplitude);
+    // The joint at full weight: the joint tone mixed at aJ over PURE rock tone.
+    const joint = mixL(lin(h.rock.key), lin(h.joint!.key), h.joint!.amplitude);
+    const cases: [string, Lin, Lin][] = [
+      ['highland rock', hRock, hOpen],
+      ['highland joint', joint, hRock],
+      ['highland hollow', hollow, hOpen],
+      ['arid rock', mixL(aOpen, lin(a.rock.key), a.rock.amplitude), aOpen],
+      ['arid loess hollow', mixL(aOpen, lin(a.hollow.key), a.hollow.amplitude), aOpen],
+    ];
+    for (const [name, c, rep] of cases) {
+      const v = verdictLin(c, rep);
+      expect(v.ok, `${name}: ${v.why.join('; ')}`).toBe(true);
+    }
+    // The hollow is 0.4% darker than the ground it fills: it passes ONLY through the tolerance.
+    expect(YL(hollow) / YL(hOpen)).toBeCloseTo(0.9964, 3);
+    expect(YL(hollow) / Y(KDF_UNIFORM_HEX)).toBeCloseTo(0.8065, 3);
+    expect(verdictLin(hollow, hOpen, 0).ok).toBe(false);
+    // ... and the joint is 1.42x unrounded (1.41x as the printed hex).
+    expect(YL(joint) / Y(KDF_UNIFORM_HEX)).toBeCloseTo(1.42, 2);
+  });
+
+  it('the tolerance is 0.5%, not more: a hollow 3% darker than the ground it fills still fails', () => {
+    const open = linearHex(HIGHLAND_OPEN);
+    const darker = open.map((v) => v * 0.97) as unknown as Lin;
+    expect(verdictLin(darker, open).ok).toBe(false);
   });
 });

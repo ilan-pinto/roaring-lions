@@ -159,11 +159,11 @@ describe('heightBlendStage: weights, softening and tone, on literals worked by h
     expect(out.weights.map((x) => x[0])).toEqual([0, 0, 0, 1, 0]);
     expect(out.vertexTone).toEqual([0.5, 0.4, 0.3]);
   });
-  it('joints: Lr 0.925 gives e 0.455, j 0.2275, and the tone ends a step toward the joint colour', () => {
+  it('joints: Lr 0.925 gives e 0.455, j 0.2275, and the tone ends toward mix(rock tone, joint tone, 0.6) = (0.6, 0.36, 0.42) at weight 0.2275 x 0.7', () => {
     const f: V[] = [FACTORS[0] as V, grey(0.925), grey(1), grey(1), grey(1)];
     const out = stageOf(field(63.75, 128, NEUTRAL_B))({ weights: [[0.4], [0.1], [0.2], [0.1], [0.2]], factors: f, vertexTone: [0.5, 0.4, 0.3] });
     [0.218, 0.4185, 0.1545, 0.1, 0.109].forEach((want, i) => expect(out.weights[i]?.[0], `weight ${i}`).toBeCloseTo(want, 9));
-    close(out.vertexTone, [0.48545490125, 0.42410009875, 0.41052029625]);
+    close(out.vertexTone, [0.47575816875, 0.43379683125, 0.43961049375]);
   });
   it('the low tier builds no joints: the same fragment ends on the rock mix alone', () => {
     const f: V[] = [FACTORS[0] as V, grey(0.925), grey(1), grey(1), grey(1)];
