@@ -8656,7 +8656,7 @@ fieldset.rl-versus__maps {
 }
 .rl-versus__tag {
   border: 1px solid var(--ink-mute);
-  border-radius: 0.25rem;
+  border-radius: 0;
   padding: 0 0.3rem;
 }
 .rl-versus__tag[data-tag='member'] { color: var(--good); border-color: var(--good); }
