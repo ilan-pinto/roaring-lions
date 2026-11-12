@@ -1479,7 +1479,8 @@ depends on someone remembering is provenance that eventually fails.
    2026-08-04 and that date remains licensed under it to whoever took a copy;
    the change stops adding to that set and cannot undo it.
 4. **Decide the `art/blend/` question deliberately** ([#137](https://github.com/ilan-pinto/roaring-lions/issues/137))
-   -- **still open; the census below is the input, not the decision.**
+   -- **decided 12 Nov 2026 (the lead): a documented exception in `ART_PIPELINE.md` §8 plus an off-repo backup; no Git LFS.**
+   The backup's location is not yet recorded (a TODO for the lead, stated in §8). The census below was the input.
    `art/blend/` is gitignored and exists only in the main checkout
    (`git ls-files art/blend` is empty; no worktree carries it, bar a stale
    325 MB `civilian/` fragment). It is a **single copy**: the off-repo art
