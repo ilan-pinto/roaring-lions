@@ -351,6 +351,7 @@ import {
   type GroundAlbedoId,
   type GroundSlot,
 } from './terrain/mesh';
+import { setHeightBlendVisible } from './terrain/height-blend-record';
 import { isDebugLayer, FX_FLAG_LAYERS, unknownDebugLayerMessage, type FxFlagLayer } from './debug-layers';
 import { buildTerrainSurface, isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import {
@@ -5230,6 +5231,9 @@ export class ThreeRenderer implements Renderer {
         // The same shape: the contour and tint amplitudes to 0 and back
         // (`GroundMaterial.setHeightContoursVisible`).
         return this.groundMat.setHeightContoursVisible(visible);
+      case 'height-blend':
+        // GH-1226 S4: the record's `amp` to 0 and back; 0 (and no record created) on a legacy boot.
+        return setHeightBlendVisible(this.groundMat, visible);
       case 'macro':
         // A uniform, like `ground-albedo` above: the macro field's amplitude
         // to 0 and back (`GroundMaterial.setMacroVisible`), 1 when it changed
