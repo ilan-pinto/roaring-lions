@@ -255,7 +255,7 @@ describe('with a member opponent in the lobby, telemetry, feedback and match bod
       build: '0.0.0', dev: false, now: () => 1000, viewport: () => [1440, 900], visible: () => true,
       setInterval: () => 0, clearInterval: () => {}, onPagehide: () => {}, sink: { push: (e) => void sent.push(e), flush: () => {} },
     });
-    tel.sessionStart('versus', 'three');
+    tel.sessionStart('other', 'three');
     const state: RuntimeView = { tick: 100, result: 'victory', defeatCause: undefined, roe: 100, fielded: 5, lost: 0, objectives: [{ id: 'hold', type: 'hold_for', primary: true, status: 'active' }] };
     const m = tel.missionStarted('m1', false, () => state);
     m.onEvent({ kind: 'missionEnd', tick: 100, result: 'victory', roeRating: 90, survivors: [], ledger: {} } as MissionEvent);
