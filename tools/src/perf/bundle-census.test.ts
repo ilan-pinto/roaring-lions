@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CORE_MARKER, GRASS_FIELD_MARKER, HEIGHT_BLEND_FIELD_MARKER, LEGACY_POST_MARKERS, MATERIAL_MATHS_MARKER, NODE_BACKEND_MARKER, NODE_MATERIAL_MARKER, NODE_POST_MARKER, RAPIER_MARKER, WEBGL_MARKER, WEBGPU_MARKER, censusChunks, preloadList, staticImports, type Chunk } from './bundle-census';
+import { CORE_MARKER, GRASS_FIELD_MARKER, HEIGHT_BLEND_FIELD_MARKER, LEGACY_POST_MARKERS, MATERIAL_MATHS_MARKER, NODE_BACKEND_MARKER, NODE_MATERIAL_MARKER, NODE_POST_MARKER, RAPIER_MARKER, WEBGL_MARKER, WEBGPU_MARKER, censusChunks, dynamicImports, heightBlendFieldUsedIn, preloadList, staticImports, type Chunk } from './bundle-census';
 
 const preload = (...files: string[]): string => `const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=[${files.map((f) => `"assets/${f}"`).join(',')}])))=>i.map(i=>d[i]);\n`;
 const good = (): Chunk[] => [
@@ -199,7 +199,7 @@ describe('GH-1226 S3 (L1): the height-blend field is node-path only, and the pin
     c[4] = { file: 'node-backend.js', code: preload('webgpu.js', 'core.js') + `throw new Error("${NODE_BACKEND_MARKER}");const n="${NODE_POST_MARKER}"${extra}` };
     return c;
   };
-  const armed = (chunks: Chunk[]): string[] => censusChunks(chunks, 'index.js', 10000, { heightBlendFieldExpected: true }).failures;
+  const armed = (chunks: Chunk[]): string[] => censusChunks(chunks, 'index.js', 10000, { heightBlendFieldExpected: true, heightBlendFieldUsed: true }).failures;
   const field = `,h="${HEIGHT_BLEND_FIELD_MARKER}"`;
   it('the marker is the one S2 gives the field texture (literal)', () => {
     expect(HEIGHT_BLEND_FIELD_MARKER).toBe('rl-height-blend-field');
@@ -220,8 +220,40 @@ describe('GH-1226 S3 (L1): the height-blend field is node-path only, and the pin
     d.push({ file: 'field.js', code: `export const h="${HEIGHT_BLEND_FIELD_MARKER}"` });
     expect(armed(d)).toEqual([]);
   });
-  it('armed, a bundle with NO carrier is red (the vacuous pass is gone the day the file exists)', () => {
+  it('armed (a source uses the field), a bundle with NO carrier is red (the vacuous pass is gone the day S5 wires it)', () => {
     expect(armed(good()).join()).toMatch(/no chunk carries the height-blend field marker/);
+  });
+  it('file present but nothing uses it (S2 alone: it bakes and wires nothing), no carrier is NOT red', () => {
+    expect(censusChunks(good(), 'index.js', 10000, { heightBlendFieldExpected: true, heightBlendFieldUsed: false }).failures).toEqual([]);
+  });
+  it('a dynamic importer is allowed from the ThreeRenderer chunk and the node-backend chunk, and from nowhere else', () => {
+    const ok = withNode(field);
+    ok[5] = { file: 'ThreeRenderer.js', code: `import{a}from"./core.js";export const r="${LEGACY_POST_MARKERS[0]}",mm={marker:"${MATERIAL_MATHS_MARKER}"};const l=()=>import("./field.js")` };
+    ok.push({ file: 'field.js', code: `export const h="${HEIGHT_BLEND_FIELD_MARKER}"` });
+    ok[0] = { file: 'index.js', code: preload('ThreeRenderer.js') + 'import{t as e}from"./runtime.js";console.log("app")' };
+    expect(armed(ok)).toEqual([]);
+    const bad = ok.map((c) => c.file === 'index.js' ? { file: 'index.js', code: c.code + ';const l=()=>import("./field.js")' } : c);
+    expect(armed(bad).join()).toMatch(/index.js dynamically imports the height-blend field chunk field.js/);
+    const app = ok.map((c) => c.file === 'rapier.js' ? { file: 'rapier.js', code: c.code + ';import("./field.js")' } : c);
+    expect(armed(app).join()).toMatch(/rapier.js dynamically imports/);
+  });
+  it('dynamicImports reads import("./x.js") and not static imports', () => {
+    expect(dynamicImports('import{a}from"./s.js";const z=import("./w.js"),y=import( "./v.js" )')).toEqual(['w.js', 'v.js']);
+  });
+  it('heightBlendFieldUsedIn: a real importer arms it; the two field files, the barrel and tests do not', () => {
+    const src = (e: Record<string, string>): ReadonlyMap<string, string> => new Map(Object.entries(e));
+    const imp = "const m = await import('./terrain/height-blend-field');";
+    expect(heightBlendFieldUsedIn(src({}))).toBe(false);
+    expect(heightBlendFieldUsedIn(src({ 'packages/render/src/three/ThreeRenderer.ts': imp }))).toBe(true);
+    expect(heightBlendFieldUsedIn(src({ 'packages/render/src/three/ThreeRenderer.ts': "import { x } from './terrain/height-blend-texture';" }))).toBe(true);
+    expect(heightBlendFieldUsedIn(src({ 'packages/app/src/a.ts': "import('../x/height-blend-field')" }))).toBe(true);
+    expect(heightBlendFieldUsedIn(src({
+      'packages/render/src/three/terrain/height-blend-field.ts': imp,
+      'packages/render/src/three/terrain/height-blend-texture.ts': "import { M } from './height-blend-field';",
+      'packages/render/src/three/terrain/index.ts': "export * from './height-blend-field';",
+      'packages/render/src/three/X.test.ts': imp,
+      'packages/render/src/three/Y.test-support.ts': imp,
+    }))).toBe(false);
   });
   it('disarmed, a carrier is red (a stale marker, or the driver\'s arming check is wrong)', () => {
     expect(run(withNode(field)).join()).toMatch(/height-blend-field.ts is not in the tree/);

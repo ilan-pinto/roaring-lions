@@ -22,6 +22,7 @@ import { Sim } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { GroundMaterial } from './terrain/mesh';
+import { LEGACY_GROUND, programOf } from './terrain/height-blend-pins.support';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -56,6 +57,12 @@ vi.mock('./terrain/height-blend-texture', recording('height-blend-texture'));
 /** Whether a module exists on disk now: the positive control runs from the day it does, and stays visible as skipped until then. */
 const exists = (rel: string): boolean => existsSync(fileURLToPath(new URL(`${rel}.ts`, import.meta.url)));
 
+/** What had loaded by the time every static import of this file (ThreeRenderer included) had run: a STATIC import of the field from
+ *  anything ThreeRenderer pulls in is in here, whatever order the tests then run in. */
+const loadedByStaticImports: string[] = [...seen.loads];
+/** Boots done so far: the positive control below refuses to run before any, because it caches the module and would hide a dynamic import. */
+let boots = 0;
+
 const MAP = JSON.parse(readFileSync(fileURLToPath(new URL('../../../../data/maps/qarn_hadid.json', import.meta.url)), 'utf8')) as {
   width: number;
   height: number;
@@ -86,7 +93,7 @@ function tonesThatThrowOnHeightBlend(reads: string[]): TerrainTones {
   return t;
 }
 
-function boot(tones: TerrainTones): { r: ThreeRenderer; sim: Sim } {
+async function boot(tones: TerrainTones, extra: Partial<RendererOptions> = {}): Promise<{ r: ThreeRenderer; sim: Sim }> {
   const sim = new Sim({ seed: 1, width: MAP.width, height: MAP.height, capacity: 4 });
   const opts: RendererOptions = {
     background: '#14150F',
@@ -101,11 +108,15 @@ function boot(tones: TerrainTones): { r: ThreeRenderer; sim: Sim } {
     nearMissColor: '#6E7449',
     interceptColor: '#8E9491',
     environmentLight: false,
+    ...extra,
   };
   const r = new ThreeRenderer(sim, opts);
   r.setDecor(new Uint8Array(MAP.width * MAP.height));
   r.setElevation(Uint8Array.from(MAP.elevation.join('').split('').map(Number)));
   r.frame(1, 0);
+  // A dynamic import the boot starts (a fire-and-forget `import(...)` after the ground is built) loads the module a tick later.
+  await vi.dynamicImportSettled();
+  boots++;
   return { r, sim };
 }
 
@@ -119,24 +130,34 @@ describe('L3: a legacy boot on qarn_hadid\'s elevation draws and computes no hei
     expect(new Set(MAP.elevation.join('')).size).toBeGreaterThan(2);
   });
 
-  it('holds no record, loads no field module and touches none of its exports, and never reads tones.heightBlend', () => {
-    // Nothing is cleared: this file's static import of ThreeRenderer has already run, so a module that ThreeRenderer imports statically
-    // is in `seen.loads` before this test starts. This test must stay FIRST in the file, ahead of the control that loads the module.
+  it('no height-blend module was loaded by a static import of anything this file imports', () => {
+    expect(loadedByStaticImports, 'a static import (of the field or its texture) is reachable from ThreeRenderer').toEqual([]);
+  });
+
+  it.each([
+    ['dry', {}, 'dry'],
+    ['rain', { weather: 'rain' as const }, 'wet full'],
+  ])('%s boot: holds no record, loads no field module, touches no export, never reads tones.heightBlend, and compiles main\'s ground', async (_n, extra, pinName) => {
+    const before = seen.loads.length;
     seen.reads.length = 0;
-    const { r } = boot(tonesThatThrowOnHeightBlend(seen.reads));
+    const { r } = await boot(tonesThatThrowOnHeightBlend(seen.reads), extra);
     const ground = (r as unknown as { groundMat: GroundMaterial }).groundMat;
-    expect(ground.customProgramCacheKey()).toBe('rl-ground');
+    // The BOOTED material compiles to the same literals the bare class does (L2): a define, a uniform or an anchor added at boot is red.
+    expect(programOf(ground)).toEqual((LEGACY_GROUND[pinName] as (typeof LEGACY_GROUND)[string]).pin);
+    expect(Object.keys(ground.defines ?? {}).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
     expect(ownNames(ground).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
     expect(Object.keys(ground.uniforms).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
     expect(ownNames(r).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
     expect(seen.reads, 'something read tones.heightBlend or a field-module export on a legacy boot').toEqual([]);
-    expect(seen.loads, 'a legacy boot imported a height-blend module').toEqual([]);
+    expect(seen.loads.slice(before), 'a legacy boot imported a height-blend module').toEqual([]);
     r.dispose();
   });
 
   // Armed by S2: the recorder cannot be exercised against a module that is not there. From the day the file exists this runs, and a
   // mock that no longer intercepts (a renamed module, a moved bake) is red here instead of silently recording nothing.
   it.runIf(exists('./terrain/height-blend-field'))('positive control: the recorder sees a load and a read of the real field module', async () => {
+    // Order pin: this control caches the module, which would hide a dynamic import from any boot that ran after it.
+    expect(boots, 'the positive control must run after the boots').toBeGreaterThan(0);
     seen.reads.length = 0;
     const spec = './terrain/height-blend-field';
     const m = (await import(/* @vite-ignore */ spec)) as Record<string, unknown>;

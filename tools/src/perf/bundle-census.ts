@@ -80,17 +80,22 @@ export const GRASS_FIELD_MARKER = 'rl-grass-field';
  * it may sit in the node-backend chunk or in a lazy chunk of its own, but never in the entry, its static closure, the shared core,
  * the three/webgpu chunk, or the `ThreeRenderer` chunk the legacy path loads, and no such chunk may import it statically.
  *
- * ARMING: this is vacuously true while the file does not exist, which is why `censusChunks` takes `heightBlendFieldExpected`. The
- * driver passes `existsSync(height-blend-field.ts)`. Once the file is on disk, a bundle with NO carrier is red (the marker moved, or
- * the module is in no chunk because nothing loads it), so the pin cannot go on passing after it stopped looking. S5's dynamic import
- * is what makes the carrier appear; nothing in S4/S5 needs to touch this. The converse is red too: a carrier with no file in the
- * tree is a stale marker or a wrong arming check.
+ * ARMING, two separate switches (both passed by the driver, which reads the source tree):
+ *  - `heightBlendFieldExpected` = the file exists. A carrier with no file is red (a stale marker or a wrong arming check). It does NOT
+ *    demand a carrier: S2 bakes but wires nothing, so the marker reaches no chunk until S5, and a pin that went red on merge would
+ *    block main.
+ *  - `heightBlendFieldUsed` = a non-test source other than the two field files and `terrain/index.ts` imports the field or its texture
+ *    module (`heightBlendFieldUsedIn`). From that day a bundle with NO carrier is red (the marker moved, or the import is tree-shaken
+ *    away), so the pin cannot go on passing after it stopped looking. S5's dynamic import from the node branch flips it on.
+ * A dynamic importer of the field's chunk is allowed only from the ThreeRenderer chunk (its node branch) or the node-backend chunk.
  */
 export const HEIGHT_BLEND_FIELD_MARKER = 'rl-height-blend-field';
 
 export interface CensusOptions {
-  /** True when `height-blend-field.ts` exists in the source tree: the bundle must then carry `HEIGHT_BLEND_FIELD_MARKER`. */
+  /** True when `height-blend-field.ts` exists in the source tree: a carrier with no file is red. */
   readonly heightBlendFieldExpected?: boolean;
+  /** True when a non-test source (not the field files or the barrel) imports the field: the bundle must then carry the marker. */
+  readonly heightBlendFieldUsed?: boolean;
 }
 
 export interface CensusFindings {
@@ -122,6 +127,26 @@ export function staticImports(code: string): string[] {
   const re = /(?:^|[;}\n])\s*(?:import|export)(?:[^"'`;(]*?from)?\s*["'`]\.\/([^"'`]+\.js)["'`]/g;
   for (const m of code.matchAll(re)) out.add(m[1] as string);
   return [...out];
+}
+
+/** `import("./x.js")` (dynamic). */
+export function dynamicImports(code: string): string[] {
+  return [...code.matchAll(/\bimport\(\s*["'`]\.\/([^"'`]+\.js)["'`]\s*\)/g)].map((m) => m[1] as string);
+}
+
+/**
+ * GH-1226 S3: whether any of `sources` (repo-relative path -> text; the driver passes every non-test `.ts` under `packages/`) imports
+ * the field or its texture module, other than those two files and the `terrain/index.ts` barrel (a re-export wires nothing: it is
+ * tree-shaken until something uses it).
+ */
+export function heightBlendFieldUsedIn(sources: ReadonlyMap<string, string>): boolean {
+  const own = /terrain\/(height-blend-field|height-blend-texture|index)\.ts$/;
+  const spec = /(?:from|import\()\s*['"][^'"]*height-blend-(?:field|texture)['"]/;
+  for (const [file, text] of sources) {
+    if (own.test(file) || /\.test(-support)?\.tsx?$/.test(file)) continue;
+    if (spec.test(text)) return true;
+  }
+  return false;
 }
 
 /** The `__vite__mapDeps` list at the top of a chunk: what a dynamic import FROM it preloads. */
@@ -197,8 +222,8 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
     if (!nodeBackendChunks.includes(f)) failures.push(`the 3D grass field ("${GRASS_FIELD_MARKER}", grass-field.node.ts) leaked into ${f}, which is not the node-backend chunk`);
   }
   // GH-1226 S3 (L1): the height-blend field is node-path only (see HEIGHT_BLEND_FIELD_MARKER). Armed by the source file's existence.
-  if (options.heightBlendFieldExpected === true && heightBlendFieldChunks.length === 0) {
-    failures.push(`no chunk carries the height-blend field marker "${HEIGHT_BLEND_FIELD_MARKER}", but height-blend-field.ts exists: the marker moved, or the module is in no chunk`);
+  if (options.heightBlendFieldUsed === true && heightBlendFieldChunks.length === 0) {
+    failures.push(`no chunk carries the height-blend field marker "${HEIGHT_BLEND_FIELD_MARKER}", but a source imports height-blend-field: the marker moved, or the import is in no chunk`);
   }
   if (options.heightBlendFieldExpected !== true && heightBlendFieldChunks.length > 0) {
     failures.push(`a chunk carries "${HEIGHT_BLEND_FIELD_MARKER}" (${heightBlendFieldChunks.join(', ')}) but height-blend-field.ts is not in the tree: a stale marker, or the driver's arming check is wrong`);
@@ -211,6 +236,9 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
     for (const other of chunks) {
       if (other.file === f || nodeBackendChunks.includes(other.file)) continue;
       if (staticImports(other.code).includes(f)) failures.push(`${other.file} statically imports the height-blend field chunk ${f}: only the node-backend chunk may, and ThreeRenderer must use a dynamic import()`);
+      else if (dynamicImports(other.code).includes(f) && !(legacyPostChunks.includes(other.file) || /^ThreeRenderer/.test(other.file))) {
+        failures.push(`${other.file} dynamically imports the height-blend field chunk ${f}: only ThreeRenderer's node branch (or the node-backend chunk) may`);
+      }
     }
   }
   for (const f of nodeBackendChunks) {
