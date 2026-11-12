@@ -25,6 +25,10 @@ const CROSSINGS: [string, string][] = [
   ['packages/render/src/three/units/x.ts', `const R = await import('${RAPIER}');\nvoid R;\n`],
   ['packages/render/src/three/units/x.ts', `import R from '@dimforge/rapier3d-compat';\nvoid R;\n`],
   ['tools/src/x.ts', `// eslint-disable-next-line @typescript-eslint/no-require-imports\nconst R = require('${RAPIER}');\nvoid R;\n`],
+  // A template literal with no substitution is the same specifier (CodeRabbit thread on PR 1228).
+  ['packages/app/src/main.ts', `void import(\`${RAPIER}\`);\n`],
+  ['tools/src/x.ts', `// eslint-disable-next-line @typescript-eslint/no-require-imports\nconst R = require(\`${RAPIER}\`);\nvoid R;\n`],
+  ['packages/app/src/main.ts', "void import(`../../render/src/three/physics/rapier`);\n"],
   // The physics folder's door: only ThreeRenderer.ts.
   ['packages/render/src/three/units/x.ts', "import { loadRapier } from '../physics/rapier';\nvoid loadRapier;\n"],
   ['packages/render/src/three/decal-maths.ts', "export { RagdollSystem } from './physics/ragdoll-system';\n"],
@@ -39,6 +43,8 @@ const CROSSINGS: [string, string][] = [
 const LEGAL: [string, string][] = [
   ['packages/render/src/three/physics/rapier.ts', `const m = await import('${RAPIER}');\nvoid m;\n`],
   ['packages/render/src/three/physics/ragdoll-world.ts', `import type R from '${RAPIER}';\nexport type X = typeof R;\n`],
+  // A computed specifier has no known source: neither rejected nor crashing.
+  ['packages/app/src/main.ts', 'const m = "x";\nvoid import(`./${m}`);\nvoid import(m);\n'],
   ['packages/render/src/three/ThreeRenderer.ts', "import { RagdollSystem } from './physics/ragdoll-system';\nvoid RagdollSystem;\n"],
   ['packages/render/src/three/ThreeRenderer.ragdoll.test.ts', "import { loadRapier } from './physics/rapier';\nvoid loadRapier;\n"],
 ];

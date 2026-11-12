@@ -14,7 +14,7 @@ import { QUALITY_PRESETS, type RenderQuality } from '../quality';
 import { ThreeRenderer } from './ThreeRenderer';
 import { parseGlbHeadless } from './units/headless-gltf';
 import { buildMeshUnitTemplate, type MeshUnitEntity, type MeshUnitTemplate } from './units/mesh-unit';
-import type { DyingMeshUnit, MeshWreck } from './units/mesh-death';
+import { beginMeshDeathFade, type DyingMeshUnit, type MeshWreck } from './units/mesh-death';
 import { loadRapier } from './physics/rapier';
 
 vi.mock('three', async (importOriginal) => {
@@ -75,6 +75,7 @@ interface Priv {
   cssWidth: number;
   cssHeight: number;
   ragdolls: { incidents: number; ready: boolean };
+  ragdollRoots: Set<THREE.Object3D>;
 }
 
 const ON: RenderQuality = { ...QUALITY_PRESETS.high, physics: { ragdolls: 16 } };
@@ -215,6 +216,38 @@ describe('a killed squad becomes a ragdoll, on the sim clock', () => {
     w.sim.debugKill(w.victim);
     tick(w.sim, w.r, 1);
     expect(w.p.ragdolls.incidents).toBe(0);
+    w.r.dispose();
+  });
+
+  it('forgets the root of a corpse the wreck cap evicted (no leak of its skeleton graph)', async () => {
+    const { sim, r, p } = await killAndSettle(ON, 1);
+    const root = p.meshWrecks[0].root;
+    expect(p.ragdollRoots.has(root)).toBe(true);
+    // What `pushMeshWreck` does to the oldest corpse past the cap.
+    root.removeFromParent();
+    tick(sim, r, 1);
+    expect(p.ragdollRoots.has(root)).toBe(false);
+    r.dispose();
+  });
+
+  it('hands a dying mesh back to the ragdoll with its fade materials restored and disposed', async () => {
+    const w = await world(ON);
+    for (let i = 0; i < 2; i++) tick(w.sim, w.r, 1);
+    w.sim.debugKill(w.victim);
+    for (let i = 0; i < 3; i++) tick(w.sim, w.r, 1);
+    // Death tick + 3: still the death sequence's. Give it fade clones, as a dying mesh in its fade window holds.
+    expect(w.p.meshDying).toHaveLength(1);
+    const d = w.p.meshDying[0];
+    d.swaps = beginMeshDeathFade(d.entity.root);
+    const swaps = d.swaps;
+    expect(swaps.length).toBeGreaterThan(0);
+    for (const s of swaps) expect(s.mesh.material).toBe(s.fade);
+    const disposed = swaps.map((s) => vi.spyOn(s.fade, 'dispose'));
+    tick(w.sim, w.r, 1);
+    expect(w.p.meshDying).toHaveLength(0);
+    for (const s of swaps) expect(s.mesh.material).toBe(s.original);
+    for (const spy of disposed) expect(spy).toHaveBeenCalled();
+    expect(d.swaps).toHaveLength(0);
     w.r.dispose();
   });
 });
