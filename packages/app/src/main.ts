@@ -174,7 +174,7 @@ import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
-import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
+import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget, unloadPress } from './input/keymap';
 import { buyUnlock } from './brigade-account';
 import { buyTierWithCredits } from './credit-buy';
 import { coinHalfFor, storeInputFor } from '@lions/economy';
@@ -1961,6 +1961,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the friendly anchor. Sandbox-only and three-only, like every flag beside
   // it -- a real mission's ground must remember only its own battle.
   const wantDecals = flags.decals;
+  const wantRubble = flags.rubble;
   // A misspelled flag (`&tunel`) otherwise does nothing at all, silently,
   // which reads as a broken feature rather than as a typo.
   // Level load time step 5. Fire-and-forget and deliberately NOT awaited: the
@@ -2397,6 +2398,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // never change how one looks.
     ...(!mission && wantDecals
       ? { decalShowcase: { x: anchors.friendly[0], y: anchors.friendly[1] } }
+      : {}),
+    // GH-1197 P5: the settled-rubble showcase, sandbox only, for the same reason.
+    ...(!mission && wantRubble
+      ? { rubbleShowcase: { x: anchors.friendly[0], y: anchors.friendly[1] } }
       : {}),
   };
   // --- which meshes this mission needs -------------------------------------
@@ -3228,9 +3233,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // so no temporal dead zone is ever entered — and the alternative, moving the
   // HUD's construction below the input block, would put the loading screen's
   // successor on screen after the pointer handlers instead of before them.
-  /** The armed order waiting for a click on the map, if any. Only the two
-   *  point-targeted orders can be armed; the other three act at once. */
-  let armedOrder: 'attackMove' | 'move' | 'smoke' | 'patrol' | null = null;
+  /** The armed order waiting for a click on the map, if any. Only the
+   *  point-targeted orders can be armed (Unload only with a loaded air carrier selected, GH-698). */
+  let armedOrder: 'attackMove' | 'move' | 'smoke' | 'patrol' | 'unload' | null = null;
   /** The armed patrol's walkers and the points placed so far (Lane A mock, Q7). Read only
    *  while `armedOrder === 'patrol'`; `orders.patrol` writes a fresh one on every arm. */
   let patrolDraft: PatrolDraft | null = null;
@@ -3265,7 +3270,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * `resolveKeyVerb` reads only the fields its verb needs — and removes three
    * chances to stub the wrong one.
    */
-  const runVerb = (verb: 'mount' | 'dismount' | 'smoke', at?: { x: number; y: number }): void => {
+  const runVerb = (verb: 'mount' | 'dismount' | 'smoke', at?: { x: number; y: number }, atPoint = false): void => {
     const w = at ?? renderer.screenToWorld(lastCursor.x, lastCursor.y);
     const res = resolveKeyVerb(intentWorld, verb, {
       ids: myLiving(),
@@ -3277,6 +3282,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       canSmoke: (i) => sim.unitTypes[sim.state.typeIdx[i]].canSmoke,
       passengerCount: (i) => sim.passengerCount(i),
       isAirCarrier: (i) => sim.unitTypes[sim.state.typeIdx[i]].isAirCarrier,
+      atPoint,
     });
     for (const intent of res.intents) dispatch(intent);
     if (res.note) hud.note(res.note.text, res.note.tone);
@@ -3299,7 +3305,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * end in the same `runVerb('smoke', …)` call, so what differs between a
    * button and its key is where the point comes from and nothing else.
    */
-  const armOrder = (id: 'attackMove' | 'move' | 'smoke' | 'patrol'): void => {
+  const armOrder = (id: 'attackMove' | 'move' | 'smoke' | 'patrol' | 'unload'): void => {
     armedOrder = armedOrder === id ? null : id;
     if (armedOrder !== 'patrol') patrolDraft = null;
     // Two armed modes cannot both own the next click. Arming an order disarms
@@ -3364,7 +3370,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     },
     smoke: () => armOrder('smoke'),
     load: () => runVerb('mount'),
-    unload: () => runVerb('dismount'),
+    // GH-698 unload-at-point: with a loaded air carrier selected, U or the Unload button ARMS, and the
+    // next click on the map is where it lands to unload (the armed branch of the pointerup handler).
+    // Pressed again while armed, it is today's unload, where each carrier is. With no loaded air
+    // carrier it acts at once, as it always has. Key and button stay one call (GH-153).
+    unload: () => {
+      const airLoaded = myLiving().some((i) => sim.unitTypes[sim.state.typeIdx[i]].isAirCarrier && sim.passengerCount(i) > 0);
+      const press = unloadPress(armedOrder === 'unload', airLoaded);
+      if (press === 'arm') {
+        armOrder('unload');
+        hud.note(t('intent.unload.armed'), 'info');
+        return;
+      }
+      if (press === 'disarmAndUnload') armOrder('unload');
+      runVerb('dismount');
+    },
   };
 
   // Task 6: Escape's target. Declared before `hud` so `isPaused` below closes
@@ -5151,6 +5171,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         armedOrder = null;
         if (spend === 'smoke') {
           runVerb('smoke', w);
+        } else if (spend === 'unload') {
+          // GH-698: the armed Unload's point, through the same `runVerb` the U key uses.
+          runVerb('dismount', w, true);
         } else if (spend === 'move') {
           // The plain move, to the point the hover cursor read (PA-14: a
           // building's wall is the building, and a building is refused as
@@ -6829,7 +6852,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (spectating) { endSpectate(matchDecided !== null ? 'result' : 'ended'); return; }
     // The sim's own result is told to the room, which closes itself two
     // minutes later (L-1); a result from the room's own ending owes nothing.
-    reportOver(room, result, matchDecided);
+    reportOver(room, result, matchDecided, netConfig);
     pauseHandle?.close();
     pauseHandle = null;
     closeOpenDialog();

@@ -296,7 +296,7 @@ export function escapeTarget(
  * assertion here instead of being hidden behind the other two passing.
  */
 export function anyArmed(
-  armedOrder: 'attackMove' | 'move' | 'smoke' | 'patrol' | null,
+  armedOrder: 'attackMove' | 'move' | 'smoke' | 'patrol' | 'unload' | null,
   armedSupport: SupportKind | null,
   armedRally: number | null,
   /** Field works (GH-277): an armed works type, the fifth source. */
@@ -307,6 +307,16 @@ export function anyArmed(
   // F4: Set rally armed on a camp's row is the fourth source -- Escape
   // disarms it like the others.
   return armedOrder !== null || armedSupport !== null || armedRally !== null || armedWorks !== null || armedFormation !== null;
+}
+
+/**
+ * GH-698 unload-at-point: what U (or the Unload button) does. Armed already: put the mode down and
+ * unload where each carrier is (`unloadHere`). A loaded air carrier selected: `arm`, so the next map
+ * click is where it lands. Otherwise today's immediate unload (`unloadHere`).
+ */
+export function unloadPress(armedUnload: boolean, airCarrierLoaded: boolean): 'arm' | 'disarmAndUnload' | 'unloadHere' {
+  if (armedUnload) return 'disarmAndUnload';
+  return airCarrierLoaded ? 'arm' : 'unloadHere';
 }
 
 /**

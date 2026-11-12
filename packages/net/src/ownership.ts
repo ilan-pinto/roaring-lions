@@ -65,8 +65,11 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
       );
     case 'smoke':
       return cmd.ids.length > 0 && cmd.ids.every(own) && onMap(cmd.x, cmd.y);
-    case 'halt': case 'unload':
+    case 'halt':
       return cmd.ids.length > 0 && cmd.ids.every(own);
+    case 'unload':
+      // GH-698: an unload-at-point's point is on the map, as every order's point is.
+      return cmd.ids.length > 0 && cmd.ids.every(own) && (cmd.x === undefined || cmd.y === undefined || onMap(cmd.x, cmd.y));
     case 'setStance':
       // N3 Task 9: a patrol's every waypoint must be on the map (the count and
       // the integers are `cleanCommand`'s); the sim clamps nothing it was not sent.

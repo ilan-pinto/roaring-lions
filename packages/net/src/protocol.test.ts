@@ -47,6 +47,8 @@ describe('parseClientMsg', () => {
       [{ kind: 'demolish', ids: [1], structure: 2, pad }, { kind: 'demolish', ids: [1], structure: 2 }],
       [{ kind: 'load', ids: [1], carrier: 2, pad }, { kind: 'load', ids: [1], carrier: 2 }],
       [{ kind: 'unload', ids: [1], pad }, { kind: 'unload', ids: [1] }],
+      // GH-698: unload-at-point's point survives the rebuild.
+      [{ kind: 'unload', ids: [1], x: 3, y: 4, pad }, { kind: 'unload', ids: [1], x: 3, y: 4 }],
       [{ kind: 'chargeTunnel', ids: [1], tunnel: 0, pad }, { kind: 'chargeTunnel', ids: [1], tunnel: 0 }],
       [{ kind: 'reveal', side: 0, x: 1, y: 2, pad }, { kind: 'reveal', side: 0, x: 1, y: 2 }],
       [{ kind: 'callStrike', caller: 3, x: 1, y: 2, pad }, { kind: 'callStrike', caller: 3, x: 1, y: 2 }],
@@ -60,6 +62,14 @@ describe('parseClientMsg', () => {
       const parsed = parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: sent }));
       expect(parsed).toEqual({ t: 'cmd', seq: 0, cmd: kept });
       expect(JSON.stringify(parsed)).not.toContain('AAAA');
+    }
+  });
+  it('GH-698: an unload point is both coordinates, integers, or neither; anything else voids the order', () => {
+    const parse = (cmd: Record<string, unknown>) => parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd }));
+    expect(parse({ kind: 'unload', ids: [1], x: 65536, y: 131072 })).toEqual({ t: 'cmd', seq: 0, cmd: { kind: 'unload', ids: [1], x: 65536, y: 131072 } });
+    expect(parse({ kind: 'unload', ids: [1] })).toEqual({ t: 'cmd', seq: 0, cmd: { kind: 'unload', ids: [1] } });
+    for (const bad of [{ x: 1 }, { y: 1 }, { x: 1.5, y: 1 }, { x: '1', y: 1 }, { x: 1, y: null }]) {
+      expect(parse({ kind: 'unload', ids: [1], ...bad }), JSON.stringify(bad)).toBeNull();
     }
   });
   it('F1 Task 6 (F-R5): a callStrike profile is optional, an index into FIRE_SUPPORT, and refused otherwise', () => {
@@ -238,6 +248,16 @@ describe('the room closes itself after the result (L-1, R-B26)', () => {
     expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 1.5 }))).toBeNull();
     expect(parseClientMsg(JSON.stringify({ t: 'over', tick: '19' }))).toBeNull();
     expect(parseClientMsg(JSON.stringify({ t: 'over' }))).toBeNull();
+  });
+  it('over carries a result', () => {
+    const ok = { t: 'over', tick: 40, result: { winner: 1, by: 'annihilation' } };
+    expect(parseClientMsg(JSON.stringify(ok))).toEqual(ok);
+    const draw = { t: 'over', tick: 40, result: { winner: null, by: 'mutual' } };
+    expect(parseClientMsg(JSON.stringify(draw))).toEqual(draw);
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 40 }))).toEqual({ t: 'over', tick: 40 });
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 40, result: { winner: 2, by: 'annihilation' } }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 40, result: { winner: 0, by: 'surrender' } }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 40, result: 'won' }))).toBeNull();
   });
   it('parses ended over, and the server never takes over from a client', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'over' }))).toEqual({ t: 'ended', reason: 'over' });

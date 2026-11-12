@@ -135,3 +135,14 @@ describe('STATS_HTML: accounts and loadouts (GH-254)', () => {
     expect(row).not.toContain('<td>,</td>');
   });
 });
+
+describe('STATS_HTML: blank a name (GH-1075 A3)', () => {
+  it('has both fields and posts to their routes', () => {
+    expect(STATS_HTML).toContain('id="blank-id"');
+    expect(STATS_HTML).toContain('id="blank-bot"');
+    expect(STATS_HTML).toContain("blank('members/blank'");
+    expect(STATS_HTML).toContain("blank('bots/blank'");
+    expect(STATS_HTML).toContain("Blank a player's name");
+    expect(STATS_HTML).toContain('Blank a bot model name');
+  });
+});

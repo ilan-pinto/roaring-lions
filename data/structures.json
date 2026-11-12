@@ -32,6 +32,7 @@
       "hp_per_tile": 520,
       "garrison_slots": 4,
       "floors": 3,
+      "garrison_range_bonus": 2,
       "rubble_cover": 2,
       "height_px": 30,
       "color": "limestone.4",

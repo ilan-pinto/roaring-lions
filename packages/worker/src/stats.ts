@@ -6,6 +6,7 @@ import { loginPageHtml } from './login-page';
 import { FEEDBACK_HTML, FEEDBACK_PAGE_CSP } from './feedback-page';
 import { handleFeedbackApi } from './feedback-triage';
 import { SESSION_COOKIE, readCookie, verifySession, sessionCookieHeader, clearedSessionCookieHeader, passwordsMatch } from './auth';
+import { cleanCallsign } from '@lions/net';
 import type { TelemetryOrderVerb } from '@lions/data/telemetry';
 
 export interface StatsFilter {
@@ -373,6 +374,41 @@ function handleLogout(req: Request): Response {
   return new Response(null, { status: 303, headers: { location: '/stats', 'set-cookie': clearedSessionCookieHeader(), ...NO_STORE } });
 }
 
+const PUBLIC_ID = /^[0-9A-HJKMNP-TV-Z]{8}$/;
+const MAX_BLANK_BODY_BYTES = 1024;
+
+/** GH-1075 A3: a display name or a typed bot model name blanked from /stats. POST only, from this origin, on the
+ *  accounts database alone (`env.DB` is never touched, and the two are never joined). Answers `{ changed }`. */
+async function handleBlank(req: Request, env: Env, kind: 'member' | 'bot'): Promise<Response> {
+  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: { allow: 'POST', ...NO_STORE } });
+  if (req.headers.get('origin') !== new URL(req.url).origin) return new Response('Forbidden', { status: 403, headers: NO_STORE });
+  const text = await req.text();
+  if (new TextEncoder().encode(text).length > MAX_BLANK_BODY_BYTES) return new Response('Payload too large', { status: 413, headers: NO_STORE });
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return json({ error: 'bad_request' }, 400);
+  }
+  const field = typeof body === 'object' && body !== null ? (body as Record<string, unknown>)[kind === 'member' ? 'publicId' : 'name'] : undefined;
+  const value = kind === 'member' ? (typeof field === 'string' && PUBLIC_ID.test(field) ? field : '') : cleanCallsign(field);
+  if (value === '') return json({ error: 'bad_request' }, 400);
+  const db = env.ACCOUNTS;
+  if (!db) return json({ error: 'unavailable' }, 503);
+  const rows =
+    kind === 'member'
+      ? await db
+          .prepare('UPDATE profile SET display_name = ?1, updated_at = ?2 WHERE member_id = (SELECT id FROM member WHERE public_id = ?1) RETURNING member_id')
+          .bind(value, Date.now())
+          .all<{ member_id: string }>()
+      : await db
+          .prepare("UPDATE match_seat SET bot_label = NULL WHERE kind = 'bot' AND bot_label = ?1 RETURNING seat")
+          .bind('other:' + value)
+          .all<{ seat: number }>();
+  if (rows.results.length === 0) return json({ error: 'not_found' }, 404);
+  return json({ changed: rows.results.length });
+}
+
 /** /stats and /stats/api/*, gated by a password (Worker secret STATS_PASSWORD)
  *  behind a signed, stateless session cookie -- see auth.ts. Fails closed until
  *  STATS_PASSWORD is set. */
@@ -399,6 +435,8 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
   if (isApi) {
     if (!authed) return json(UNAUTHORIZED_JSON, 401);
     if (path === '/stats/api/feedback' || path.startsWith('/stats/api/feedback/')) return handleFeedbackApi(req, env, url, now);
+    if (path === '/stats/api/members/blank') return handleBlank(req, env, 'member');
+    if (path === '/stats/api/bots/blank') return handleBlank(req, env, 'bot');
     const f = parseFilter(url, now);
     switch (path) {
       case '/stats/api/summary':

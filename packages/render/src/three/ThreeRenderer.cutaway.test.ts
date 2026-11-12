@@ -95,6 +95,9 @@ interface Private {
   updateBuildingMeshes(): void;
   updateCutaway(alpha: number, dtMs: number): void;
   hideForGroundPhoto(): () => void;
+  fog: Uint8Array;
+  cutMask: { depth: THREE.Material; ao: THREE.Material } | null;
+  garrisonStationAt: Map<number, [number, number]>;
 }
 
 function materialsOf(root: THREE.Object3D): THREE.Material[] {
@@ -106,13 +109,31 @@ function materialsOf(root: THREE.Object3D): THREE.Material[] {
 }
 
 /** The house, and selectable riflemen at the given tile positions (side 0, the viewer's own; side 1 for `hostile`). */
-function arm(at: readonly [number, number][], hostile: readonly [number, number][] = [], lod1 = false) {
+function arm(
+  at: readonly [number, number][],
+  hostile: readonly [number, number][] = [],
+  lod1 = false,
+  garrison: { side: number; count: number } | null = null,
+  second = false
+) {
   const sim = new Sim({ seed: 1, width: W, height: W, capacity: 32 });
   const rifles = sim.addUnitType(RIFLES);
-  const type = sim.addStructureType({ id: 'house', hp_per_tile: 200, height_px: 22, color: 'limestone.3' });
+  const type = sim.addStructureType({ id: 'house', hp_per_tile: 200, height_px: 22, color: 'limestone.3', garrison_slots: 4 });
   const s = sim.addStructure(type, [5 * W + 5, 5 * W + 6, 6 * W + 5, 6 * W + 6]);
+  // A second house on (11..12, 11..12), far from the first: it holds the garrison when `second` is set.
+  const s2 = second ? sim.addStructure(type, [11 * W + 11, 11 * W + 12, 12 * W + 11, 12 * W + 12]) : -1;
+  const held = second ? s2 : s;
+  const at0 = second ? 12 : 6;
   const units = at.map(([x, y]) => sim.spawn(rifles, 0, fx.from(x), fx.from(y)));
   const hostiles = hostile.map(([x, y]) => sim.spawn(rifles, 1, fx.from(x), fx.from(y)));
+  // A garrison placed by hand at the footprint centre, as the sim keeps one (the `versus-leaks` fixture's way in).
+  const garrisoned: number[] = [];
+  for (let k = 0; garrison !== null && k < garrison.count; k++) {
+    const g = sim.spawn(rifles, garrison.side, fx.from(at0), fx.from(at0));
+    sim.state.garrisonedIn[g] = held;
+    garrisoned.push(g);
+  }
+  if (garrison !== null) sim.structures.occupants[held] = garrison.count;
   const renderer = new ThreeRenderer(sim, makeOpts());
   const priv = renderer as unknown as Private;
   renderer.snapshot();
@@ -130,7 +151,7 @@ function arm(at: readonly [number, number][], hostile: readonly [number, number]
   const frames = (n: number, dtMs = 10): void => {
     for (let i = 0; i < n; i++) priv.updateCutaway(1, dtMs);
   };
-  return { sim, s, priv, base: t.base, renderer, root, units, hostiles, frames };
+  return { sim, s, priv, base: t.base, renderer, root, units, hostiles, garrisoned, frames };
 }
 
 const isCut = (m: THREE.Material): boolean => (m.userData as { rlCut?: boolean }).rlCut === true;
@@ -271,5 +292,177 @@ describe('roof cutaway: the selected-unit trigger', () => {
     expect(priv.cutUniforms!.uRlCutN.value).toBe(0);
     restore();
     expect(priv.cutUniforms!.uRlCutN.value).toBe(1);
+  });
+});
+
+describe('roof cutaway slice 2: the garrison trigger (the banner\'s fog rule)', () => {
+  it('the viewer\'s own garrison cuts the WHOLE building, under fog or not: one volume at the centre, R = half-diagonal + 0.25', () => {
+    const { priv, renderer, root, frames } = arm([], [], false, { side: 0, count: 2 });
+    priv.fog.fill(0);
+    frames(30);
+    expect(renderer.cutawayCount()).toBe(1);
+    expect(materialsOf(root).length).toBeGreaterThan(0);
+    for (const m of materialsOf(root)) expect(isCut(m)).toBe(true);
+    const v = Array.from(priv.cutUniforms!.uRlCutV.value.slice(0, 6));
+    expect(priv.cutUniforms!.uRlCutN.value).toBe(1);
+    expect(v[0]).toBe(6);
+    expect(v[1]).toBe(6);
+    expect(v[2]).toBeCloseTo(Math.SQRT2 + 0.25, 5); // a 2 x 2 footprint: 1.664 t
+    expect(v[3]).toBe(0.5);
+    expect(v[4]).toBeCloseTo(0.4, 5);
+    expect(v[5]).toBeCloseTo(2, 5);
+  });
+
+  it('a FOGGED enemy garrison cuts nothing and mints nothing: fog stays fog', () => {
+    const { priv, renderer, root, base, frames } = arm([], [], false, { side: 1, count: 1 });
+    priv.fog.fill(0);
+    frames(50);
+    expect(renderer.cutawayCount()).toBe(0);
+    expect(priv.cutUniforms).toBeNull();
+    expect(priv.cutMask).toBeNull();
+    for (const m of materialsOf(root)) expect(m).toBe(base);
+  });
+
+  it('an enemy garrison the viewer can see cuts it', () => {
+    const { sim, priv, renderer, frames } = arm([], [], false, { side: 1, count: 1 });
+    priv.fog.fill(0);
+    priv.fog[5 * W + 5] = 2;
+    sim.tick();
+    frames(30);
+    expect(renderer.cutawayCount()).toBe(1);
+  });
+
+  it('garrisons first under the cap (L8): eight selected units and a garrison write the garrison\'s volume', () => {
+    const spots: [number, number][] = [[8, 5.2], [8, 5.6], [8, 6], [8, 6.4], [8, 6.8], [4, 5.5], [4, 6], [4, 6.5]];
+    const { priv, renderer, units, frames } = arm(spots, [], false, { side: 0, count: 1 });
+    renderer.selection = [...units];
+    frames(30);
+    expect(priv.cutUniforms!.uRlCutN.value).toBe(8);
+    const block = priv.cutUniforms!.uRlCutV.value;
+    const centres = Array.from({ length: 8 }, (_, k) => [block[8 * k], block[8 * k + 1]]);
+    expect(centres).toContainEqual([6, 6]);
+  });
+});
+
+describe('roof cutaway slice 2: the figures spread to their stations only while cut (L6)', () => {
+  it('no cut, no station: a garrison the viewer may not know of leaves the draw at the sim position', () => {
+    const { priv, frames } = arm([], [], false, { side: 1, count: 3 });
+    priv.fog.fill(0);
+    frames(30);
+    expect(priv.garrisonStationAt.size).toBe(0);
+  });
+
+  // Falsify: drop `!this.buildingCuts.has(s)` from `placeGarrisonStations` and this goes red.
+  it('a garrison in an UNCUT building keeps the sim position while another building is cut', () => {
+    const { priv, renderer, units, garrisoned, frames } = arm([[8, 6]], [], false, { side: 1, count: 2 }, true);
+    priv.fog.fill(0);
+    renderer.selection = [units[0]];
+    frames(30);
+    expect(renderer.cutawayCount()).toBe(1);
+    for (const g of garrisoned) expect(priv.garrisonStationAt.has(g)).toBe(false);
+  });
+
+  it('cut: each garrisoned unit on a distinct station inside the footprint inset by 0.3 t; released, none', () => {
+    const { sim, s, priv, renderer, garrisoned, frames } = arm([], [], false, { side: 0, count: 3 });
+    frames(30);
+    expect(renderer.cutawayCount()).toBe(1);
+    const at = garrisoned.map((g) => priv.garrisonStationAt.get(g)!);
+    expect(at.every((p) => p !== undefined)).toBe(true);
+    expect(new Set(at.map((p) => p.join(','))).size).toBe(3);
+    for (const [x, z] of at) {
+      expect(x).toBeGreaterThanOrEqual(5.3);
+      expect(x).toBeLessThanOrEqual(6.7);
+      expect(z).toBeGreaterThanOrEqual(5.3);
+      expect(z).toBeLessThanOrEqual(6.7);
+    }
+    // The garrison steps out: the hold and the close, and the stations go with the cut.
+    for (const g of garrisoned) sim.state.garrisonedIn[g] = -1;
+    sim.structures.occupants[s] = 0;
+    sim.tick();
+    frames(150);
+    expect(renderer.cutawayCount()).toBe(0);
+    expect(priv.garrisonStationAt.size).toBe(0);
+  });
+});
+
+describe('roof cutaway slice 2: the shadow and AO depth cut (L5)', () => {
+  it('a cut mesh casts through the mask depth material and occludes AO through the mask normal material; released, neither', () => {
+    const { priv, renderer, root, units, frames } = arm([[8, 6]]);
+    renderer.selection = [units[0]];
+    frames(30);
+    const mask = priv.cutMask!;
+    expect(mask).not.toBeNull();
+    expect(mask.depth).toBeInstanceOf(THREE.MeshDepthMaterial);
+    expect((mask.depth as THREE.MeshDepthMaterial).depthPacking).toBe(new THREE.MeshDepthMaterial().depthPacking);
+    expect(mask.ao.allowOverride).toBe(false);
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      expect(mesh.customDepthMaterial).toBe(mask.depth);
+      expect(mesh.userData.rlCutAo).toBe(mask.ao);
+    });
+    // Both bind the SHARED block by reference, so the minimap's forced count of 0 suspends them too.
+    for (const m of [mask.depth, mask.ao]) {
+      const shader = {
+        uniforms: {} as Record<string, unknown>,
+        vertexShader: THREE.ShaderLib.depth.vertexShader,
+        fragmentShader: THREE.ShaderLib.depth.fragmentShader,
+      };
+      m.onBeforeCompile(shader as never, undefined as never);
+      expect(shader.uniforms.uRlCutN).toBe(priv.cutUniforms!.uRlCutN);
+      expect(shader.uniforms.uRlCutV).toBe(priv.cutUniforms!.uRlCutV);
+      expect(shader.fragmentShader).toContain('rlCutApply();');
+    }
+    renderer.selection = [];
+    frames(150);
+    expect(renderer.cutawayCount()).toBe(0);
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      expect(mesh.customDepthMaterial).toBeUndefined();
+      expect(mesh.userData.rlCutAo).toBeUndefined();
+    });
+  });
+
+  it('with nothing selected and no garrison, no mesh carries a depth or AO material', () => {
+    const { priv, root, frames } = arm([[8, 6]]);
+    frames(50);
+    expect(priv.cutMask).toBeNull();
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh) expect([mesh.customDepthMaterial, mesh.userData.rlCutAo]).toEqual([undefined, undefined]);
+    });
+  });
+});
+
+describe('roof cutaway slice 3: the node backend runs the cut and adopts its twin (GH-1225, L7)', () => {
+  /** The renderer as a node boot sees it: a backend present, the node path wanted, no WebGL renderer built. */
+  const asNode = (priv: Private): Set<THREE.Object3D> => {
+    const p = priv as unknown as { nodeBackend: unknown; nodeWanted: boolean; glRenderer: unknown; pendingAdoption: Set<THREE.Object3D> };
+    p.nodeBackend = {};
+    p.nodeWanted = true;
+    p.glRenderer = null;
+    return p.pendingAdoption;
+  };
+
+  it('nothing selected: no cut, nothing queued for adoption', () => {
+    const { priv, renderer, frames } = arm([[8, 6]]);
+    const queued = asNode(priv);
+    frames(200);
+    expect(renderer.cutawayCount()).toBe(0);
+    expect(priv.cutUniforms).toBeNull();
+    expect(queued.size).toBe(0);
+  });
+
+  it('a selected unit beside the house cuts it on node too, and the cut root is queued for the twin on that frame', () => {
+    const { priv, renderer, root, units, frames } = arm([[8, 6]]);
+    const queued = asNode(priv);
+    renderer.selection = [units[0]];
+    frames(10);
+    expect(renderer.cutawayCount()).toBe(1);
+    expect(queued.has(root)).toBe(true);
+    // The house has meshes to cut: an empty list would pass the loop below vacuously.
+    expect(materialsOf(root).length).toBeGreaterThan(0);
+    for (const m of materialsOf(root)) expect(isCut(m)).toBe(true);
   });
 });

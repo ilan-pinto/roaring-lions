@@ -14,7 +14,7 @@ import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  scoreNames, scoresSection, BOT_ADDENDUM, botMcpConfig, buildMessage, harnessRoomBuild, shortBuild, botPrompt, classify, fileStem, harnessLines, harnessRefusedBuild, joinRefusedMessage, reportMarkdown, clientArgs, ENTRYPOINT_WARNING, failureMessage, LIVE_SERVER, parseBotArgs, resolveModel, runBot, USAGE,
+  scoreNames, scoresSection, BOT_ADDENDUM, botMcpConfig, buildMessage, harnessRoomBuild, shortBuild, botPrompt, classify, fileStem, harnessLines, harnessRefusedBuild, joinRefusedMessage, reportMarkdown, clientArgs, ENTRYPOINT_WARNING, failureMessage, LIVE_SERVER, declaredModel, parseBotArgs, resolveModel, runBot, USAGE,
   type SignalSource, type StopSignal,
 } from './bot';
 import { HARNESS_AGENT, HARNESS_TSX, standingPrompt, type SpawnFn } from './external-player';
@@ -151,7 +151,7 @@ function harness(script: (child: FakeChild, call: Call) => void, extra: { env?: 
 describe('arguments and aliases', () => {
   it('defaults to sonnet, the live server and a callsign from the alias', () => {
     expect(parseBotArgs(['--room', 'abc234'])).toEqual({
-      room: 'ABC234', model: 'claude-sonnet-5-5', server: LIVE_SERVER, callsign: 'Sonnet Bot', client: ['claude'],
+      room: 'ABC234', model: 'claude-sonnet-5-5', server: LIVE_SERVER, callsign: 'Sonnet Bot', botModel: { id: 'claude-sonnet-5-5' }, client: ['claude'],
     });
   });
   it('resolves the three aliases and passes any other id through', () => {
@@ -166,9 +166,33 @@ describe('arguments and aliases', () => {
     const b = parseBotArgs(['--room', 'ABC234', '--model', 'my-model-id']);
     expect('error' in b ? '' : [b.model, b.callsign].join('|')).toBe('my-model-id|Claude Bot');
   });
+  it('the_model_is_declared', () => {
+    const of = (...argv: string[]): unknown => { const a = parseBotArgs(['--room', 'ABC234', ...argv]); return 'error' in a ? a : a.botModel; };
+    expect(of('--model', 'opus')).toEqual({ id: 'claude-opus-5-5' });
+    expect(of('--model', 'claude-fable-5-2')).toEqual({ id: 'claude-fable-5-2' });
+    expect(of('--model', 'my-local-7b')).toEqual({ id: 'other', name: 'my-local-7b' });
+    expect(of('--model', 'my-local-7b', '--model-name', 'Home Net')).toEqual({ id: 'other', name: 'Home Net' });
+    expect(declaredModel('claude-opus-5-5', 'opus')).toEqual({ id: 'claude-opus-5-5' });
+    expect(of()).toEqual({ id: 'claude-sonnet-5-5' });
+  });
+  it('a_long_model_name_is_refused', () => {
+    const err = (...argv: string[]): string => { const a = parseBotArgs(['--room', 'ABC234', ...argv]); return 'error' in a ? a.error : 'accepted'; };
+    expect(err('--model-name', 'x'.repeat(25))).toContain('24-character limit');
+    expect(err('--model', 'm'.repeat(30))).toContain('24-character limit');
+    expect(err('--model', 'm'.repeat(30), '--model-name', 'Short')).toBe('accepted');
+    expect(err('--model-name', 'x'.repeat(24))).toBe('accepted');
+    expect(err('--model-name', '\u200b')).toContain('--model-name');
+    expect(err('--model-name', '\u200b')).not.toBe('accepted');
+  });
+  it('the report header names the declared model', () => {
+    const base = { room: 'ABC234', model: 'my-local-7b', server: 's', build: 'b', outcome: 'completed', tokens: null, logName: 'l', message: 'm', why: null };
+    expect(reportMarkdown({ ...base, botModel: { id: 'other', name: 'Home Net' } })).toContain('- Declared model: Home Net');
+    expect(reportMarkdown({ ...base, botModel: { id: 'claude-opus-5-5' } })).toContain('- Declared model: claude-opus-5-5');
+    expect(reportMarkdown(base)).not.toContain('Declared model');
+  });
   it('takes every flag, in `--flag value` and `--flag=value` form, and skips the pnpm separator', () => {
     expect(parseBotArgs(['--', '--room=ABC234', '--server', 'http://127.0.0.1:8787', '--callsign=Rex', '--client', 'my-claude --fast "a b"'])).toEqual({
-      room: 'ABC234', model: 'claude-sonnet-5-5', server: 'http://127.0.0.1:8787', callsign: 'Rex', client: ['my-claude', '--fast', 'a b'],
+      room: 'ABC234', model: 'claude-sonnet-5-5', server: 'http://127.0.0.1:8787', callsign: 'Rex', botModel: { id: 'claude-sonnet-5-5' }, client: ['my-claude', '--fast', 'a b'],
     });
   });
   it('caps the callsign at the room\'s 24 characters and refuses longer', () => {

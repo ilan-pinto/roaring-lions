@@ -63,6 +63,8 @@ export const PORTED_FILES = [
   // GH-1167 S4: the 3D grass field's node material. NODE-NATIVE: there is no legacy file to twin (the legacy path keeps today's
   // grass, lead ruling 9 Nov), so it has no TWINS row; it is listed so it stays GLSL-free from the day it exists.
   'packages/render/src/three/terrain/grass-field.node.ts',
+  // GH-1225 slice 3 (L7): the roof cut and the P4 holes, one twin. Its legacy twins (cut-material.ts, holed-material.ts) keep their splices.
+  'packages/render/src/three/units/building-cut.node.ts',
 ];
 
 /**
@@ -136,6 +138,15 @@ export const TWINS = Object.freeze({
   // GH-943 P3 (T7). decal-maths.ts holds the kinds and the rim the decal twin shares (a change to it must touch the twin too, intended).
   [`${THREE}decal-pool.ts`]: `${THREE}decal-pool.node.ts`,
   [`${THREE}decal-maths.ts`]: `${THREE}decal-pool.node.ts`,
+  // GH-1225 slice 3 (L7): the roof cut and the P4 holes, one twin. building-cutaway.ts holds `cutawayOps`, building-holes.ts the hole
+  // constants, building-cut-maths.ts the fragment body the twin runs, and building-mask.ts the legacy depth/AO mask (a change to any
+  // of them must touch the twin too, intended).
+  [`${THREE}units/cut-material.ts`]: `${THREE}units/building-cut.node.ts`,
+  [`${THREE}units/holed-material.ts`]: `${THREE}units/building-cut.node.ts`,
+  [`${THREE}units/building-cutaway.ts`]: `${THREE}units/building-cut.node.ts`,
+  [`${THREE}units/building-holes.ts`]: `${THREE}units/building-cut.node.ts`,
+  [`${THREE}units/building-cut-maths.ts`]: `${THREE}units/building-cut.node.ts`,
+  [`${THREE}units/building-mask.ts`]: `${THREE}units/building-cut.node.ts`,
 });
 
 /** The identifiers that mean "this file still carries GLSL" (also scanned for as text by the test). */
