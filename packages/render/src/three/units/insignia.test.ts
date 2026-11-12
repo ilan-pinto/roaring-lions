@@ -214,8 +214,11 @@ describe('gate 9: the colour is a palette key, never a team slot', () => {
     reserved: Record<string, unknown>;
   };
 
-  it('limestone.1 exists in a RAMP of data/palette.json and its band is not reserved', () => {
+  it('the key is the lead\'s decision 5: limestone.1', () => {
     expect(INSIGNIA_COLOR_KEY).toBe('limestone.1');
+  });
+
+  it('the key exists in a RAMP of data/palette.json and its band is not reserved', () => {
     const [band, index] = INSIGNIA_COLOR_KEY.split('.');
     expect(Object.keys(palette.reserved)).not.toContain(band);
     expect(palette.ramps[band!]?.colors[Number(index)]).toMatch(/^#[0-9A-F]{6}$/);

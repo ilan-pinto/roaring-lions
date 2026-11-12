@@ -40,6 +40,7 @@ import { parseRigidFixture } from './units/rigid-mesh-fixture';
 import { parseFixture } from './units/mesh-fixture';
 import { parseRunningGear } from './units/running-gear';
 import { runningGearBinding } from './units/running-gear-binding';
+import { insigniaHookOf, teamHookOf } from './units/team-mask';
 import type { DyingVehicle } from './units/mesh-vehicle-death';
 import type { DyingMeshUnit } from './units/mesh-death';
 import { MESH_DEATH_SECONDS } from './units/mesh-death';
@@ -505,6 +506,31 @@ describe('G3: no new program per vehicle', () => {
     // twin leaves it with its last user's release.)
     expect(kit.calls()).toBe(afterFirstFade.made);
     expect(twinsInScene()).toBeLessThanOrEqual(afterFirstFade.inScene);
+    r.dispose();
+  });
+});
+
+describe('GH-1096 S1: a living Lavi built by the renderer wears the insignia; a type with no frame does not', () => {
+  it('the Lavi\'s hull variant carries both halves of the one hook; the Ambush Tank, same fixture hull, carries the team mark only', async () => {
+    seam.kit = stubKit();
+    const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
+    const a = sim.spawn(sim.addUnitType(LAVI), 0, fx.from(6.5), fx.from(6.5));
+    // A second type on the same fixture hull (the mock hands every load the Lavi's template): framed by TYPE id, so none.
+    const c = sim.spawn(sim.addUnitType({ ...LAVI, id: 'mbt_lavi_camo' }), 0, fx.from(14.5), fx.from(14.5));
+    const r = new ThreeRenderer(sim, makeOpts('webgl2'));
+    const priv = r as unknown as Private;
+    await r.init(HOST);
+    await r.loadVehicleMesh('mbt_lavi', 'mbt_lavi.glb');
+    await r.loadVehicleMesh('mbt_lavi_camo', 'mbt_lavi_camo.glb');
+    r.frame(1, 16);
+    const lavi = legacyOf(hullOf(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity).material as THREE.Material, hullOf(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity));
+    expect(teamHookOf(lavi)).toBeDefined();
+    expect(insigniaHookOf(lavi)).toBeDefined();
+    expect(lavi.customProgramCacheKey().endsWith('|rl-unit-mark-3|team+ins')).toBe(true);
+    const other = hullOf(priv.vehicleMeshEntities.get(c) as VehicleMeshEntity);
+    const camoHull = legacyOf(other.material as THREE.Material, other);
+    expect(teamHookOf(camoHull)).toBeDefined();
+    expect(insigniaHookOf(camoHull)).toBeUndefined();
     r.dispose();
   });
 });

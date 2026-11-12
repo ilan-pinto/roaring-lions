@@ -71,6 +71,7 @@ vi.mock('../units/gltf-loader', () => ({
 }));
 
 const { mountGarageView } = await import('./garage-view');
+const { insigniaHookOf, teamHookOf } = await import('../units/team-mask');
 
 interface FakeRendererStatic {
   last: { renders: { scene: THREE.Scene; camera: THREE.Vector3 }[] } | null;
@@ -278,5 +279,16 @@ describe('mountGarageView: the bought kit on the turntable', () => {
     m.view.dispose();
     expect(disposedTextures.filter((t) => t === m.v.sourceOnly)).toHaveLength(1);
     expect(disposedTextures.filter((t) => t === m.v.bake)).toHaveLength(1);
+  });
+});
+
+describe('mountGarageView: the Roaring Lion insignia whatever the team colour (GH-1096 S1)', () => {
+  it('a framed vehicle in a bay with NO team colour wears the insignia (no team term), and draws it from the first frame', async () => {
+    const bay = await mount();
+    const material = bay.drawnHull().material as THREE.Material;
+    expect(insigniaHookOf(material)).toBeDefined();
+    expect(teamHookOf(material)).toBeUndefined();
+    expect(material.customProgramCacheKey().endsWith('|rl-unit-mark-3|ins')).toBe(true);
+    bay.view.dispose();
   });
 });
