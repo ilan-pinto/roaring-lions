@@ -75,7 +75,7 @@ describe('the privacy page', () => {
   // EXPECTED-FAIL while either constant is null (the lead supplies BOTH the contact and the minimum age).
   // WHEN THE LEAD FILLS BOTH CONSTANTS this goes red ("expected to fail"): change `it.fails` to `it` in the same
   // commit. A contact alone leaves it failing, as it should.
-  it.fails('the lead\'s values are filled', () => {
+  it('the lead\'s values are filled', () => {
     expect(privacyValues(PRIVACY_CONTACT, PRIVACY_MIN_AGE)).not.toBeNull();
   });
 });

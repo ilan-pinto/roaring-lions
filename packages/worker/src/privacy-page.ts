@@ -8,11 +8,12 @@
 import { PAGE_CSP } from './security-headers';
 
 /** The lead's contact for privacy requests. `null` until the lead supplies it. */
-export const PRIVACY_CONTACT: string | null = null;
+export const PRIVACY_CONTACT: string | null =
+  'open an issue titled "Privacy" at https://github.com/ilan-pinto/roaring-lions/issues';
 /** The lead's minimum age (an integer 13 to 18). `null` until the lead decides it. */
-export const PRIVACY_MIN_AGE: number | null = null;
+export const PRIVACY_MIN_AGE: number | null = 16;
 /** The date this text last changed. Set at merge. */
-export const PRIVACY_UPDATED = '2026-11-09';
+export const PRIVACY_UPDATED = '2026-11-12';
 
 /** PAGE_CSP with its inline-script allowance removed: this page has no script, so it may run none. */
 export const PRIVACY_PAGE_CSP = PAGE_CSP.replace("script-src 'unsafe-inline'", "script-src 'none'");
