@@ -5,7 +5,7 @@ import { versusAnchors } from './versus-seats';
 import { runFrames, seatWorldFor } from './frame-step';
 import { versusSpawns } from './versus-force';
 import { buildWorld } from './versus-world.test-helper';
-import { MATCH_CAP_TICKS, decideOnHashTick, forcesOf, goalsOf, hashTickOutcome, matchResult, outcomeOf, productionOf, reportOver, roomEndingOutcome, unitCost, type LocalDecision, type OutcomeGoals, type OutcomeSim } from './outcome';
+import { MATCH_CAP_TICKS, decideOnHashTick, forcesOf, goalsOf, hashTickOutcome, matchResult, outcomeOf, productionOf, reportOver, roomEndingOutcome, seatResultOf, unitCost, type LocalDecision, type OutcomeGoals, type OutcomeSim } from './outcome';
 
 /** Type 0 is armed, type 1 is not (a drone, a truck), type 2 is armed and
  *  has no movement at all (speed 0), type 3 is an armed aircraft. All but
@@ -359,9 +359,9 @@ describe('the result reported to the room (L-1, R-B26)', () => {
 
   it('a panel showing the sim\'s own result sends one over with its tick, however often it is shown', () => {
     const { t, overs } = wired();
-    reportOver(t, local.result, local);
-    reportOver(t, local.result, local);
-    expect(overs()).toEqual([{ t: 'over', tick: 399 }]);
+    reportOver(t, local.result, local, CONFIG_FOR_WIRE);
+    reportOver(t, local.result, local, CONFIG_FOR_WIRE);
+    expect(overs()).toEqual([{ t: 'over', tick: 399, result: { winner: 1, by: 'annihilation' } }]);
   });
   it('a panel showing a room\'s ending (a surrender, a leave) sends nothing, decided sim or not', () => {
     const { t, overs, recv } = wired();
@@ -370,13 +370,32 @@ describe('the result reported to the room (L-1, R-B26)', () => {
     const left = roomEndingOutcome('left', undefined, 0, (s) => s);
     for (const shown of [surrendered, left]) {
       if (shown === null) throw new Error('a room ending with no result');
-      reportOver(t, shown, null);
-      reportOver(t, shown, { result: { ...local.result }, tick: 399 });   // an equal result is not the sim's own
+      reportOver(t, shown, null, CONFIG_FOR_WIRE);
+      reportOver(t, shown, { result: { ...local.result }, tick: 399 }, CONFIG_FOR_WIRE);   // an equal result is not the sim's own
     }
     expect(overs()).toEqual([]);
   });
   it('no room (single-player) is never asked', () => {
-    expect(() => reportOver(null, local.result, local)).not.toThrow();
+    expect(() => reportOver(null, local.result, local, CONFIG_FOR_WIRE)).not.toThrow();
+  });
+});
+
+describe('the result as the wire names it (GH-1075 A3)', () => {
+  const seatsOf = (sides: [0 | 1, 0 | 1]): MatchConfig => ({
+    ...CONFIG_FOR_WIRE,
+    seats: [{ ...CONFIG_FOR_WIRE.seats[0], side: sides[0] }, { ...CONFIG_FOR_WIRE.seats[1], side: sides[1] }],
+  });
+  it('the_result_names_a_seat', () => {
+    // KDF v Sarim: seat 0 is Sarim (side 1), seat 1 is KDF (side 0). A win for side 0 is seat 1's.
+    expect(seatResultOf({ kind: 'won', side: 0, by: 'annihilation' }, seatsOf([1, 0]))).toEqual({ winner: 1, by: 'annihilation' });
+    // A mirror: side and seat agree.
+    expect(seatResultOf({ kind: 'won', side: 0, by: 'annihilation' }, seatsOf([0, 1]))).toEqual({ winner: 0, by: 'annihilation' });
+  });
+  it('a_draw_has_no_winner', () => {
+    expect(seatResultOf({ kind: 'draw', by: 'mutual' }, seatsOf([0, 1]))).toEqual({ winner: null, by: 'mutual' });
+  });
+  it('the room\'s own endings are no sim result', () => {
+    for (const by of ['surrender', 'left', 'forfeit'] as const) expect(seatResultOf({ kind: 'won', side: 0, by }, seatsOf([0, 1]))).toBeNull();
   });
 });
 

@@ -358,6 +358,37 @@ describe('the keyboard verbs, resolved the same way', () => {
     expect(mixed.note?.text).toBe('<b>dismount</b> — infantry debussing');
   });
 
+  // GH-698 unload-at-point: the armed Unload's click.
+  it('at a point: the air carriers carry it, a ground carrier beside them unloads where it stands', () => {
+    const base = {
+      x: 12.5, y: 7.25, atPoint: true,
+      isCarrier: () => true, canEmbark: () => false,
+      canSmoke: () => false, passengerCount: () => 2,
+      isAirCarrier: (i: number) => i === 1 || i === 3,
+    };
+    const air = resolveKeyVerb(world(), 'dismount', { ...base, ids: [1, 3] });
+    expect(air.intents).toEqual([{ kind: 'dismount', carriers: [1, 3], x: 12.5, y: 7.25 }]);
+    expect(air.marker).toBe(true);
+    expect(air.note?.text).toBe('<b>dismount</b> — flying there to land and unload');
+    const mixed = resolveKeyVerb(world(), 'dismount', { ...base, ids: [1, 2] });
+    expect(mixed.intents).toEqual([{ kind: 'dismount', carriers: [1], x: 12.5, y: 7.25 }, { kind: 'dismount', carriers: [2] }]);
+    // No air carrier: the point means nothing, today's dismount.
+    const ground = resolveKeyVerb(world(), 'dismount', { ...base, ids: [2] });
+    expect(ground.intents).toEqual([{ kind: 'dismount', carriers: [2] }]);
+    expect(ground.marker).toBe(false);
+  });
+
+  it('at a point off the map: refused, as smoke is', () => {
+    const r = resolveKeyVerb(world({ groundAt: () => 'offmap' }), 'dismount', {
+      ids: [1], x: -2, y: 3, atPoint: true,
+      isCarrier: () => true, canEmbark: () => false,
+      canSmoke: () => false, passengerCount: () => 2,
+      isAirCarrier: () => true,
+    });
+    expect(r.intents).toEqual([]);
+    expect(r.groundRefused).toBe('offmap');
+  });
+
   it('halt with nothing of ours selected says what it wants; with units, says nothing (pass K)', () => {
     expect(haltNote(0)).toEqual({ text: 'nothing of yours selected to halt — select units first', tone: 'mute' });
     expect(haltNote(3)).toBeNull();

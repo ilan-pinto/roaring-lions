@@ -60,6 +60,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/tunnel-xray.node.ts',
   // GH-943 P3 (T7): the decal pools and the crater rim. Its legacy twin (decal-pool.ts) keeps its GLSL until P8.
   'packages/render/src/three/decal-pool.node.ts',
+  // GH-1225 slice 3 (L7): the roof cut and the P4 holes, one twin. Its legacy twins (cut-material.ts, holed-material.ts) keep their splices.
+  'packages/render/src/three/units/building-cut.node.ts',
 ];
 
 /**
@@ -123,6 +125,15 @@ export const TWINS = Object.freeze({
   // GH-943 P3 (T7). decal-maths.ts holds the kinds and the rim the decal twin shares (a change to it must touch the twin too, intended).
   [`${THREE}decal-pool.ts`]: `${THREE}decal-pool.node.ts`,
   [`${THREE}decal-maths.ts`]: `${THREE}decal-pool.node.ts`,
+  // GH-1225 slice 3 (L7): the roof cut and the P4 holes, one twin. building-cutaway.ts holds `cutawayOps`, building-holes.ts the hole
+  // constants, building-cut-maths.ts the fragment body the twin runs, and building-mask.ts the legacy depth/AO mask (a change to any
+  // of them must touch the twin too, intended).
+  [`${THREE}units/cut-material.ts`]: `${THREE}units/building-cut.node.ts`,
+  [`${THREE}units/holed-material.ts`]: `${THREE}units/building-cut.node.ts`,
+  [`${THREE}units/building-cutaway.ts`]: `${THREE}units/building-cut.node.ts`,
+  [`${THREE}units/building-holes.ts`]: `${THREE}units/building-cut.node.ts`,
+  [`${THREE}units/building-cut-maths.ts`]: `${THREE}units/building-cut.node.ts`,
+  [`${THREE}units/building-mask.ts`]: `${THREE}units/building-cut.node.ts`,
 });
 
 /** The identifiers that mean "this file still carries GLSL" (also scanned for as text by the test). */

@@ -10,7 +10,7 @@ import type { Faction, MatchConfig, Seat, WinMode } from './config';
 import type { AdvisorMsg, AdvisorScope } from './advisor';
 import type { Frame } from './frames';
 import { LockstepClock } from './lockstep';
-import { isFromTick, parseServerMsg, type ClientMsg, type LobbyKit, type SeatState, type ServerMsg } from './protocol';
+import { isFromTick, parseServerMsg, type ClientMsg, type LobbyKit, type OverResult, type SeatState, type ServerMsg } from './protocol';
 import type { MatchTransport, TransportStatus } from './transport';
 
 /** The room's `ACK_EVERY`: a seat acks the last tick of every ten it ran. */
@@ -123,6 +123,7 @@ export class WsTransport implements MatchTransport {
   private advisorsNow: [AdvisorScope | null, AdvisorScope | null] | null = null;
   /** The tick this seat's sim decided the match on, once reported (`over`, L-1). */
   private overTick: number | null = null;
+  private overResult: OverResult | null = null;
   /** The other seat's forfeit clock while it is disconnected (`dropped`), on this machine's wall clock. */
   private forfeit: ForfeitClock | null = null;
   /** The first tick this client lacks when its world began at a snapshot (S4): the
@@ -304,7 +305,7 @@ export class WsTransport implements MatchTransport {
         this.st = { kind: 'live', behind: this.clock.behind() };
         // A report sent while the link was down was lost with it: the room has
         // this seat back now, and keeps only a seat's first report anyway.
-        if (this.overTick !== null) this.send({ t: 'over', tick: this.overTick });
+        if (this.overTick !== null && this.overResult !== null) this.send({ t: 'over', tick: this.overTick, result: this.overResult });
         return;
       case 'frame': {
         const r = this.clock.push({ tick: msg.tick, cmds: msg.cmds });
@@ -392,10 +393,11 @@ export class WsTransport implements MatchTransport {
    *  once, so it can close itself `OVER_CLOSE_MS` after the result. Only the
    *  first call speaks (repeated after a reconnect's `log`); a room that has
    *  already ended, voided or been left hears nothing. */
-  over(tick: number): void {
+  over(tick: number, result: OverResult): void {
     if (this.role !== 'seat' || this.overTick !== null || this.terminal()) return;
     this.overTick = tick;
-    this.send({ t: 'over', tick });
+    this.overResult = result;
+    this.send({ t: 'over', tick, result });
   }
   /** Runs while live AND while stalled (R31): a 'behind' stall stalls every
    *  seat, the lagging one included, and only that seat's ack ends it -- so it

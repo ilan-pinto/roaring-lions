@@ -51,6 +51,12 @@ describe('validateCommand', () => {
     expect(validateCommand({ kind: 'halt', ids: [1, 12] }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'halt', ids: [999999] }, 0, world)).toBe(false);
   });
+  it('GH-698: an unload-at-point is the seat\'s own carriers and a point on the map', () => {
+    expect(validateCommand({ kind: 'unload', ids: [1], x: 5 * F, y: 5 * F }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'unload', ids: [12], x: 5 * F, y: 5 * F }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'unload', ids: [1], x: -1, y: 5 * F }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'unload', ids: [1], x: 5 * F, y: 100000 * F }, 0, world)).toBe(false);
+  });
   it('checks the carrier, the caller and the reveal side too', () => {
     expect(validateCommand({ kind: 'load', ids: [1], carrier: 12 }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'callStrike', caller: 12, x: 0, y: 0 }, 0, world)).toBe(false);

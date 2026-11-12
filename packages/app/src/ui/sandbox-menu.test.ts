@@ -340,8 +340,10 @@ describe('the launch URL', () => {
       civ: false,
       ditch: false,
       decals: false,
+      rubble: false,
       kit: true,
       works: false,
+      soft: false,
     });
     expect(unknownParams(params)).toEqual([]);
   });
