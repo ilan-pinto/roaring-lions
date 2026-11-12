@@ -178,6 +178,8 @@ describe.each(KINDS)('the node ground with a height-blend record, on %s', (kind)
     const landed = realField();
     rec.field = landed;
     renderUpdate();
+    // Non-empty first: with no tap registered the loop below runs no assertion at all.
+    expect(ground.textures.uHeightBlendField, 'the field tap is registered').toHaveLength(1);
     for (const t of ground.textures.uHeightBlendField ?? []) expect(t.value).toBe(landed);
     expect(used.some((u) => u.node.value === landed), 'a sampler holds the landed field').toBe(true);
     expect(used.some((u) => u.node.value === placeholder), 'no sampler still holds the placeholder').toBe(false);
