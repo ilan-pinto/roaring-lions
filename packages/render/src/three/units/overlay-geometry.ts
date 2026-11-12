@@ -690,6 +690,34 @@ export function rangeFillAlphaFor(drawing: number): number {
   return 1 - Math.pow(1 - RANGE_FILL_ALPHA, 1 / drawing);
 }
 
+/** What `envelopeRangesTiles` reads of a weapon: the two ranges in tiles, and the two flags that decide whether a building adds to them. */
+export interface EnvelopeWeapon {
+  /** `WeaponStats.range`, tiles. */
+  range: number;
+  /** `WeaponStats.effectiveRange`, tiles. */
+  effectiveRange: number;
+  /** An indirect weapon (mortar, rocket) gets no bonus from a building (spec section 3). */
+  isIndirect: boolean;
+  /** `fires_from_building`: a weapon that does not fire from a building (the mortar team's) is not extended either. */
+  firesFromBuilding: boolean;
+}
+
+/**
+ * GH-34 acceptance 3 (the lead approved the L-5 mock on 12 Nov 2026): the two radii of a selected unit's range envelope, in
+ * tiles. In the open they are the weapon's own `effectiveRange` and `range`. Garrisoned, a direct-fire weapon that fires from a
+ * building reaches `garrisonBonusTiles` further on BOTH, which is what the sim does (`reachSq`, `effSq`, `effRange`: the
+ * building's own `garrison_range_bonus`, PR 1243, added to the maximum and the effective range alike). `garrisonBonusTiles` is
+ * null for a unit not in a building.
+ *
+ * Known gap, the same one the sim has: the ring is anchored at the unit's drawn position (the building's centroid), while the sim
+ * measures from the nearest footprint tile (`eyePoint`), so the drawn ring can be off by up to half a building. A field work's aura
+ * bonus is not included either (`garrisonAura` is private in the sim).
+ */
+export function envelopeRangesTiles(w: EnvelopeWeapon, garrisonBonusTiles: number | null): { effective: number; max: number } {
+  const extra = garrisonBonusTiles !== null && !w.isIndirect && w.firesFromBuilding ? garrisonBonusTiles : 0;
+  return { effective: w.effectiveRange + extra, max: w.range + extra };
+}
+
 /** The fill's outer BOUNDARY -- "reach fades out at this line" (R-12).
  *  Brighter than the fill it bounds, and the one edge of the shape the
  *  player is meant to read a distance off. */
