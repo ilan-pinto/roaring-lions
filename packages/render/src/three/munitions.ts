@@ -93,12 +93,14 @@ export function ragdollPushForWeapon(weaponId: string | undefined, t: MunitionsT
 
 /** The latch keys a killer's last act is stored under when it was not a `fire` event (a weapon id is its own key). */
 export const LATCH_AIR_STRIKE = 'support:air_strike';
+export const LATCH_MORTAR_BARRAGE = 'support:mortar_barrage';
 export const LATCH_PLACED_CHARGE = 'charge:placed_charge';
 
 /** The push for a latched killer key: a weapon id, or a support call / placed charge (whose kill `by` is the caller,
  *  not a weapon in the weapons table). An unknown key takes the default. */
 export function ragdollPushForKill(key: string | undefined, t: MunitionsTable = MUNITIONS): RagdollPush {
   if (key === LATCH_AIR_STRIKE) return ragdollPushFor(t.support.air_strike ?? null, t);
+  if (key === LATCH_MORTAR_BARRAGE) return ragdollPushFor(t.support.mortar_barrage ?? null, t);
   if (key === LATCH_PLACED_CHARGE) return ragdollPushFor(t.charge.placed_charge ?? null, t);
   return ragdollPushForWeapon(key, t);
 }

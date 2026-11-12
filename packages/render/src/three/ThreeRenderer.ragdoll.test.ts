@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
+import { FS_AIR_STRIKE, FS_MORTAR_BARRAGE, Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { QUALITY_PRESETS, type RenderQuality } from '../quality';
 import { ThreeRenderer } from './ThreeRenderer';
@@ -178,7 +178,9 @@ describe('a killed squad becomes a ragdoll, on the sim clock', () => {
   });
 
   /** The push the victim's ragdoll takes when `other` did `prior` (real events through `onEvents`) and then killed it. */
-  const pushAfter = async (prior: (c: { victim: number; other: number; tick: number }) => SimEvent[], catchUp = false) => {
+  type Ctx = { victim: number; other: number; tick: number };
+  /** `withKill` events ride in the SAME batch as the kill, after its `destroyed` (the sim's order for a charge). */
+  const pushAfter = async (prior: (c: Ctx) => SimEvent[], catchUp = false, withKill: (c: Ctx) => SimEvent[] = () => []) => {
     const w = await world(ON);
     const claim = vi.spyOn((w.p as unknown as { ragdolls: { claim(d: { push?: unknown }): boolean } }).ragdolls, 'claim');
     tick(w.sim, w.r, 1);
@@ -187,7 +189,9 @@ describe('a killed squad becomes a ragdoll, on the sim clock', () => {
     if (evs.length > 0) w.r.onEvents(evs);
     if (catchUp) w.r.setQuiet(false);
     w.sim.debugKill(w.victim);
-    const ev = w.sim.tick().map((e) => (e.kind === 'destroyed' && evs.length > 0 ? { ...e, by: w.other } : e));
+    const after = withKill({ victim: w.victim, other: w.other, tick: w.sim.tickCount + 1 });
+    const ev = w.sim.tick().map((e) => (e.kind === 'destroyed' && evs.length + after.length > 0 ? { ...e, by: w.other } : e));
+    ev.push(...after);
     w.r.snapshot();
     w.r.onEvents(ev);
     w.r.frame(1, 50);
@@ -220,6 +224,25 @@ describe('a killed squad becomes a ragdoll, on the sim clock', () => {
     // The rifle shot comes first in each list: the later act wins the latch, so the push is the strike's / charge's.
     expect(await pushAfter(strike)).toEqual({ horizontalMS: 5.0, upMS: 2.8 });
     expect(await pushAfter(charge)).toEqual({ horizontalMS: 4.0, upMS: 2.2 });
+  });
+
+  it('a mortar barrage latches by its profile: the barrage kill reads the mortar class, the air strike its own', async () => {
+    const call = (profile: number) => (c: Ctx): SimEvent[] =>
+      [...fired('rifle_556')(c), { kind: 'strike', tick: c.tick, by: c.other, x: fx.from(10), y: fx.from(10), profile }];
+    expect(await pushAfter(call(FS_MORTAR_BARRAGE))).toEqual({ horizontalMS: 3.0, upMS: 1.6 });
+    expect(await pushAfter(call(FS_AIR_STRIKE))).toEqual({ horizontalMS: 5.0, upMS: 2.8 });
+  });
+
+  it('a charge names the garrison it kills in the same batch, though the sim pushes `destroyed` before `chargeDetonated`', async () => {
+    // `stepCharges`: `destroyStructure` kills the garrison, THEN `chargeDetonated` -- one tick, one batch, that order.
+    const charge = (c: Ctx): SimEvent[] => [{ kind: 'chargeDetonated', tick: c.tick, structure: 0, by: c.other }];
+    expect(await pushAfter(fired('rifle_556'), false, charge)).toEqual({ horizontalMS: 4.0, upMS: 2.2 });
+  });
+
+  it('a fire later in the kill\'s own batch does not reach back onto that kill', async () => {
+    expect(await pushAfter(fired('rifle_556'), false, fired('howitzer_155'))).toEqual(DEFAULT);
+    // ... but it is the killer's last act for the next batch.
+    expect(await pushAfter((c) => [...fired('rifle_556')(c), ...fired('howitzer_155')(c)])).toEqual(HOWITZER);
   });
 
   it('a rejoin catch-up still latches: a quiet `fire` drops its burst but the kill reads its class', async () => {

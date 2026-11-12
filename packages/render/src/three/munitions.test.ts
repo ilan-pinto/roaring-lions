@@ -27,6 +27,7 @@ import {
   ragdollPushForWeapon,
   ragdollPushForKill,
   LATCH_AIR_STRIKE,
+  LATCH_MORTAR_BARRAGE,
   LATCH_PLACED_CHARGE,
   recipeCount,
   ringSpecFor,
@@ -275,6 +276,7 @@ describe('the ragdoll push per class (GH-1223)', () => {
 
   it('a latched strike or charge key reads its support / charge class; a weapon id still reads the weapons table (GH-1223)', () => {
     expect(ragdollPushForKill(LATCH_AIR_STRIKE)).toEqual({ horizontalMS: 5.0, upMS: 2.8 });
+    expect(ragdollPushForKill(LATCH_MORTAR_BARRAGE)).toEqual({ horizontalMS: 3.0, upMS: 1.6 });
     expect(ragdollPushForKill(LATCH_PLACED_CHARGE)).toEqual({ horizontalMS: 4.0, upMS: 2.2 });
     expect(ragdollPushForKill('rpg')).toEqual({ horizontalMS: 3.5, upMS: 1.8 });
     expect(ragdollPushForKill(undefined)).toEqual(RAGDOLL_PUSH_DEFAULT);
