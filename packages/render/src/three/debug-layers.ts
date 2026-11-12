@@ -496,6 +496,9 @@ export const DEBUG_LAYERS = [
   'supply-route',
   'slope-light',
   'height-contours',
+  // GH-1226 S4: the node ground's height and slope blend (`terrain/height-blend-record.ts`): `amp` to 0 and back. A no-op on legacy,
+  // which has no record, so a legacy layer check can name it. A uniform write nothing per frame re-asserts, the `macro` standard.
+  'height-blend',
   'crown',
   'crater-rims',
   // GH-748: the aircraft over a fire-support call, and the support impacts'

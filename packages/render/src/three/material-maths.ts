@@ -22,6 +22,8 @@ import {
   reliefTiltOps,
   reliefTintRampOps,
 } from './terrain/relief-read';
+import { heightBlendStage } from './terrain/height-blend';
+import { HEIGHT_BLEND_BUILT_KEY, HEIGHT_BLEND_KEY } from './terrain/height-blend-record';
 import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './terrain/ground-maths';
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
 import { disturbBendOps, disturbSlotPushOps, DISTURB_MAX } from './terrain/disturb';
@@ -75,6 +77,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
   // T3: the node ground (`terrain/mesh.node.ts`).
   ground: { slots: GROUND_SLOTS, slotUniforms, roadDistanceRangeTiles: ROAD_DISTANCE_RANGE_TILES, roadBands, heightBiased, rescaleWeights, macroDecode, macroFactor, groundBlend,
+    // GH-1226 S4: the height blend's stage and the keys of its record and seal.
+    heightBlend: { stage: heightBlendStage, recordKey: HEIGHT_BLEND_KEY, builtKey: HEIGHT_BLEND_BUILT_KEY },
     // T4: the relief read.
     relief: {
       tilt: reliefTiltOps,
