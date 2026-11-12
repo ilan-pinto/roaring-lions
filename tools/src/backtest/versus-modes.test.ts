@@ -726,6 +726,7 @@ describe('the massed flag script (a reduced stand-in for the audit\'s strong att
     spy.mockRestore();
     return { w, cmds, parties };
   };
+  const MILH_FLATS_RALLY_FIXED = { 0: [18 * 65536, 29 * 65536], 1: [29 * 65536, 18 * 65536] } as const;
   const centre = (map: MapId, end: 'friendly' | 'hostile') => { const f = versusModes[map].flag_setup!.flags[end]; return [(f.at[0] + f.size[0] / 2) * 65536, (f.at[1] + f.size[1] / 2) * 65536]; };
 
   it('the rally tile lies inside the seat\'s own set-up region on every listed map, for both seats', () => {
@@ -746,7 +747,8 @@ describe('the massed flag script (a reduced stand-in for the audit\'s strong att
       expect(post.ids.slice().sort()).toEqual([...parties.get(side)!].sort());
       expect([post.x, post.y]).toEqual(centre('milh_flats', w.endOfSide[side]));
       const body = mine.find((c) => c.kind === 'move')!;
-      expect([body.x, body.y]).toEqual(rallyTile(w, side).map((v) => v * 65536));
+      // A literal, not `rallyTile` again: milh_flats rallies seat 0 at tile (18, 29) and seat 1 at (29, 18), in 16.16 fixed point.
+      expect([body.x, body.y]).toEqual(MILH_FLATS_RALLY_FIXED[side]);
       expect(mine.some((c) => c.kind === 'attackMove' && [c.x, c.y].join() === centre('milh_flats', w.endOfSide[side === 0 ? 1 : 0]).join())).toBe(false);
     }
   });
@@ -767,6 +769,9 @@ describe('the massed flag script (a reduced stand-in for the audit\'s strong att
 
   it('an idle side takes no order', () => {
     const { w, cmds } = issued('milh_flats', 0, new Set([1]));
+    // Before the bell + 30 s side 0 gets exactly two orders (its defenders onto the own flag, its body to the rally tile): an empty list would pass `every`.
+    expect(cmds.map((c) => c.kind)).toEqual(['attackMove', 'move']);
+    expect(cmds.every((c) => c.ids.length > 0)).toBe(true);
     expect(cmds.every((c) => c.ids.every((id) => w.sim.state.side[id] === 0))).toBe(true);
   });
 
