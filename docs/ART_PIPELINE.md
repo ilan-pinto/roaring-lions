@@ -347,20 +347,29 @@ Sound follows the same logic as sprites: mechanical gates, not taste. Emitters a
   work.
 - All contributions under **DCO sign-off**
 - Source `.blend` files required alongside rendered output — no binary-only art. Without source, the asset cannot be re-rendered when the rig or palette version bumps, and it becomes dead weight.
-  **Currently unmet for the supplied Meshy assets**, whose sources sit in a
-  gitignored, single-copy `art/blend/` that exists only in the main checkout:
-  **10.43 GB in 153 files** (9.71 GiB), censused 2026-10-14. The 465 MB this
-  line used to carry was true until 2026-09-01. Of the total, **6.12 GB is
-  live** (a current exporter, or `render_portrait.py`, on `main` still opens
-  those files) and **4.30 GB is dead** (superseded rigged figures, unread
-  alternates, duplicate delivery zips, a partial download). 51 files are over
-  GitHub's 100 MiB hard limit, so plain git is not an option for the live set.
-  The per-folder numbers, and the finding that material stripping is ruled out
-  for the live set, are in `docs/ASSET_PROVENANCE.md` (outstanding item 4). The
-  choice -- Git LFS for the live subset, or a documented exception with an
-  off-repo backup -- is still open
-  ([#137](https://github.com/ilan-pinto/roaring-lions/issues/137)): a decision
-  to be made, not an accident.
+  **Documented exception for the supplied Meshy assets** (the lead's ruling of 12 Nov 2026,
+  GH-137; no Git LFS): their `.blend` sources are too large for GitHub and stay
+  **outside git**, in the gitignored `art/blend/`, which exists only in the main
+  checkout: **10.43 GB in 153 files** (9.71 GiB), censused 2026-10-14. Of the
+  total, **6.12 GB is live** (a current exporter, or `render_portrait.py`, on
+  `main` still opens those files) and **4.30 GB is dead** (superseded rigged
+  figures, unread alternates, duplicate delivery zips, a partial download).
+  51 files are over GitHub's 100 MiB hard limit (32 live, 19 dead), so plain git
+  is not an option, and stripping materials was ruled out for the live set. The
+  per-folder numbers are in `docs/ASSET_PROVENANCE.md` (outstanding item 4).
+  What the exception is, and is not:
+  - It covers **only** a source that cannot be committed (over 100 MiB). Every
+    other `.blend` is committed beside its output (`art/src/`), as above.
+  - The shipped output is still reproducible: the exporters read `art/blend/`
+    by name, so a contributor with a clone but without that folder **cannot
+    re-run an exporter** for those assets. That is accepted, not an accident.
+  - An off-repo backup of `art/blend/` is required, because it is otherwise a
+    single copy. **It lives in the lead's personal Google Drive, in the folder
+    `Roaring Lions/art-blend-backup/art-blend/`** (copied 12 Nov 2026: 153 files,
+    10.4 GB; Drive for desktop syncs it, and Drive keeps earlier versions of a
+    changed file). Re-copy after a `.blend` changes. The existing off-repo art backup (`~/dev/roaring-lions-art-backup/`,
+    1.33 GB) holds the untracked Meshy-CLI sources and contains no `art/blend/`
+    and no `.blend` file, so it is not this backup.
 - Audio clips must be redistribution-safe (CC0 or equivalent) and declared in `data/audio.json` with their source.
 
 ---

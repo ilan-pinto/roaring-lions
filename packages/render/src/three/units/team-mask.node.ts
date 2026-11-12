@@ -1,6 +1,8 @@
 /**
  * GH-943 WebGPU P3 (T3): the team mark (`team-mask.ts`) as a term of the node unit twin (`unit-material.node.ts`), segment
- * `rl-team-mark-2`. It writes the COLOUR slot, after the map and the tread and before lighting, as the legacy chunk does.
+ * `rl-unit-mark-3` (GH-1096 S1; `rl-team-mark-2` before the insignia joined the hook). It writes the COLOUR slot, after the map and
+ * the tread and before lighting, as the legacy chunk does. The segment's second term is the insignia (`insignia.node.ts`); each term
+ * draws only when the hook record carries its half, as the legacy hook splices only the halves it has.
  *
  * What it mirrors:
  *  - the OBJECT-space position and normal, `positionGeometry` and `normalGeometry` as the varyings `vMarkPos` and `vMarkNrm` (the
@@ -18,25 +20,29 @@
  *
  * Presentation only. Nothing here is read by the sim.
  */
-import type { teamHookOf, teamMarkOps } from './team-mask';
+import type { teamHookOf, teamMarkOps, unitMarkHookOf } from './team-mask';
 import type { UnitTerm, UnitTermContext, UN } from './unit-material.node';
 
 /** The team mark's shared maths, injected (`MATERIAL_MATHS.unit.team`). */
 export interface TeamMarkMaths {
   readonly teamMarkOps: typeof teamMarkOps;
   readonly teamHookOf: typeof teamHookOf;
+  readonly unitMarkHookOf: typeof unitMarkHookOf;
 }
 
-export const TEAM_MARK_SEGMENT = 'rl-team-mark-2';
+export const TEAM_MARK_SEGMENT = 'rl-unit-mark-3';
 
 export function teamMarkTerms(maths: TeamMarkMaths): readonly UnitTerm[] {
   return [
     {
       segment: TEAM_MARK_SEGMENT,
       apply(ctx: UnitTermContext): void {
+        if (maths.unitMarkHookOf(ctx.legacy) === undefined) {
+          throw new Error(`node unit: a ${TEAM_MARK_SEGMENT} material ("${ctx.legacy.name}") carries no unit-mark hook`);
+        }
         const hook = maths.teamHookOf(ctx.legacy);
-        if (hook === undefined) throw new Error(`node unit: a ${TEAM_MARK_SEGMENT} material ("${ctx.legacy.name}") carries no team hook`);
-        if (ctx.texel === null) return;
+        // An insignia-only material: the segment's other term draws, this one does not.
+        if (hook === undefined || ctx.texel === null) return;
         const { T, o } = ctx;
         const team = ctx.renderUniform(() => hook.color.value, 'uTeamColor');
         const strength = ctx.renderUniform(() => hook.strength.value, 'uTeamStrength');
@@ -48,8 +54,7 @@ export function teamMarkTerms(maths: TeamMarkMaths): readonly UnitTerm[] {
         // slot's variant compile its own program text (three caches GPU programs by text).
         const kit = [0, 1, 2].map((i) => ctx.renderUniform(() => hook.kit.value[i], `uMarkKit${i}`));
         const edge = ctx.renderUniform(() => hook.edgePx.value, 'uMarkEdge');
-        const p = T.positionGeometry.toVarying('vMarkPos');
-        const n = T.normalGeometry.toVarying('vMarkNrm');
+        const { p, n } = ctx.markVaryings();
         const uv = T.uv();
         const d = ctx.color;
         const v4 = (u: UN): [UN, UN, UN, UN] => [u.x, u.y, u.z, u.w] as [UN, UN, UN, UN];

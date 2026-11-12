@@ -59,6 +59,7 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <li>The campaign, the brigade (credits, purchases, upgrades) and the save slots, with the names you give them.</li>
 <li>For each device you moved progress from, a random device id, the day, and what was moved.</li>
 <li>For 30 days, a log of recent requests that makes retries safe, including when each mission was started.</li>
+<li>Versus matches you play while signed in: the map, the sides, the result, when it was played, and whether your opponent was a member, a guest or a bot (with the model the bot's operator declared). A guest opponent's name is never stored. Kept while either player keeps an account.</li>
 </ul>
 
 <h2>What is never stored</h2>

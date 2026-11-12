@@ -722,7 +722,7 @@ model. The S4 re-run and the decision to open versus are written up separately.
 A versus room may play a WIN MODE beside annihilation: `MatchConfig.winMode` (`'camp'` | `'points'` | `'flag'`, absent is
 annihilation and every room that has ever been played). Phase 1 was the engine and the instrument; **phase 2 (below) opens
 `points` in the lobby, the bot harness and the scoring**. `camp` was offered nowhere (it failed the passive-seat bar on both
-maps); since GH-976 camp-mode it is offered on `milh_flats` alone (below) and reachable elsewhere from a test and `pnpm versus:probe -- --mode=camp`.
+maps); since GH-976 camp-mode it is offered on `milh_flats`, `wadi_tarfan` and `wadi_tarfan_l` (`WIN_MODE_FAIR_MAPS.camp`; the last two since PR 1066, below) and reachable elsewhere from a test and `pnpm versus:probe -- --mode=camp`.
 
 - **Data.** `data/versus/modes/<map>.json` against `versus_mode.schema.json`, registered in `@lions/data`'s
   `versusModes` (`index.test.ts`-style pin: `tools/src/validate_versus_modes.test.ts`). It carries the map's camps by END
@@ -834,8 +834,11 @@ maps); since GH-976 camp-mode it is offered on `milh_flats` alone (below) and re
 ### Phase 4 (GH-976 P4): the five other open maps, and KDF against Sarim
 
 - **What moved.** No sim source, no snapshot row, no pin: `data/versus/modes/<map>.json` for `tel_marum`, `beit_sahwan_outskirts`,
-  `rujm_sawda`, `wadi_tarfan_l` and `milh_flats_l`, the probe, and the Worker's allow-list. Both `points` and `flag` are now offered in the
-  mirror on all seven open maps (`WIN_MODE_FAIR_MAPS`); `camp` was still nowhere (see "GH-976 camp-mode" below).
+  `rujm_sawda`, `wadi_tarfan_l` and `milh_flats_l`, the probe, and the Worker's allow-list. Both `points` and `flag` were then offered in the
+  mirror on all seven open maps (`WIN_MODE_FAIR_MAPS`); `camp` was still nowhere (see "GH-976 camp-mode" below). **Today:** `points` is still on
+  those seven (`beit_sahwan_outskirts` and `rujm_sawda` were delisted and relisted on 12 Nov with re-fitted targets, PRs 1287 and 1296, with the finite
+  APS of PR 1050 as the cause); `flag` is on five (`wadi_tarfan`, `milh_flats`, `rujm_sawda`, `wadi_tarfan_l`, `milh_flats_l`) after GH-1139 pulled it
+  on 8 Nov (PR 1141) and PR 1286 relisted it, as the "Capture the flag is back in the lobby" entry above says.
 - **The probe reads a KDF-v-Sarim cell.** `pnpm versus:probe -- --mode=flag --maps=<id> --arr=kdf/sarim,sarim/kdf` (the factions by END,
   friendly first; the default is the mirror). A faction mode room is the two PLACED forces with no production and no tunnels, because
   `economyRoom` is false for any mode room, so the arm plays it with the orders it plays a mirror. The verdict line reads the leader twice:

@@ -19,11 +19,17 @@ import {
   teamMarkOf,
 } from './team-mask';
 import { runningGearMaterial } from './running-gear-material';
+import { beginMeshDeathFade } from './mesh-death';
+import { InsigniaShared, setInsigniaStrength } from './insignia';
+import { INSIGNIA_ONLY_SLOT, insigniaHookOf, setInsigniaPass, UNIT_MARK_PROGRAM_KEY } from './team-mask';
 import { VehicleScarMaterials } from './vehicle-damage';
 import { charredTexturedMaterial } from '../world-materials';
 import type { VehicleMeshEntity } from './mesh-vehicle';
 
-afterEach(() => setTeamMaskPass(true));
+afterEach(() => {
+  setTeamMaskPass(true);
+  setInsigniaStrength(true);
+});
 
 const tex = (): THREE.DataTexture => new THREE.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
 
@@ -201,5 +207,180 @@ describe('clones keep the mark, and a wreck has none', () => {
     expect(fragmentShader).not.toContain('uTeamColor');
     expect(vertexShader).not.toContain('vMarkPos');
     expect(wreck.customProgramCacheKey()).not.toContain(TEAM_MASK_PROGRAM_KEY);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// GH-1096 S1: the insignia rides the SAME hook (spec section 4.3, gate 5). Literals: the Lavi's frame, luma 0.12277.
+
+const FRAME = { centre: [0.95, 1.0, 1.7], d: 0.6, slab: [1.6, 1.95], min_n: 0.6, luma: 0.12277, host_sha256: 'x' } as const;
+const insigniaOf = (): { frame: typeof FRAME; shared: InsigniaShared } => ({ frame: FRAME, shared: new InsigniaShared() });
+/** A material with NO team mark (an S2 vehicle): the insignia alone. */
+const plainHull = (): THREE.MeshStandardMaterial => lavi({ rl_team_mark: undefined });
+
+describe('the insignia variants (GH-1096 S1)', () => {
+  it('an insignia-only material gets ONE variant, memoised under slot -1 whatever the side', () => {
+    const team = new VehicleTeamMaterials(slotsOf(), undefined, insigniaOf());
+    const base = plainHull();
+    const a = team.materialFor(base, 0);
+    expect(a).not.toBe(base);
+    expect(team.materialFor(base, 1)).toBe(a);
+    expect(team.materialFor(base, 2)).toBe(a);
+    expect(team.size).toBe(1);
+    expect((a.userData as { rlTeamSlot: number }).rlTeamSlot).toBe(INSIGNIA_ONLY_SLOT);
+    expect(teamHookOf(a)).toBeUndefined();
+    expect(insigniaHookOf(a)).toBeDefined();
+  });
+
+  it('the key names what was patched: |rl-unit-mark-3|team, |ins and |team+ins, each with its patch', () => {
+    const teamOnly = new VehicleTeamMaterials(slotsOf()).materialFor(lavi(), 0);
+    const insOnly = new VehicleTeamMaterials(slotsOf(), undefined, insigniaOf()).materialFor(plainHull(), 0);
+    const both = new VehicleTeamMaterials(slotsOf(), undefined, insigniaOf()).materialFor(lavi(), 1);
+    expect(teamOnly.customProgramCacheKey().endsWith(`|${UNIT_MARK_PROGRAM_KEY}|team`)).toBe(true);
+    expect(insOnly.customProgramCacheKey().endsWith(`|${UNIT_MARK_PROGRAM_KEY}|ins`)).toBe(true);
+    expect(both.customProgramCacheKey().endsWith(`|${UNIT_MARK_PROGRAM_KEY}|team+ins`)).toBe(true);
+    const t = compile(teamOnly).fragmentShader;
+    const i = compile(insOnly).fragmentShader;
+    const b = compile(both).fragmentShader;
+    expect(t).toContain('rlTeamMask');
+    expect(t).not.toContain('uInsSdf');
+    expect(i).toContain('rlInsMask');
+    expect(i).not.toContain('rlTeamMask');
+    expect(i.match(/varying vec3 vMarkPos;/g)).toHaveLength(1);
+    expect(b.match(/varying vec3 vMarkPos;/g)).toHaveLength(1);
+    // the insignia is applied AFTER the team mark, in the same color_fragment block, before lighting
+    expect(b.indexOf('rlInsMask')).toBeGreaterThan(b.indexOf('diffuseColor.rgb = mix( diffuseColor.rgb, rlPanel'));
+    expect(b.indexOf('rlInsMask')).toBeLessThan(b.indexOf('#include <roughnessmap_fragment>'));
+  });
+
+  it('a team-only material compiles L3\'s program byte for byte (only its key moved)', () => {
+    const v = new VehicleTeamMaterials(slotsOf()).materialFor(lavi(), 0);
+    const { fragmentShader, vertexShader } = compile(v);
+    expect(fragmentShader).not.toMatch(/uIns|rlIns/);
+    expect(vertexShader.match(/vMarkPos = position;/g)).toHaveLength(1);
+  });
+
+  it('binds the owner\'s shared texture, colour and ratio BY REFERENCE, and the frame\'s own numbers', () => {
+    const ins = insigniaOf();
+    const slots = slotsOf();
+    const v = new VehicleTeamMaterials(slots, undefined, ins).materialFor(lavi(), 0);
+    const { uniforms } = compile(v);
+    expect(uniforms.uInsSdf).toBe(ins.shared.sdf);
+    expect(uniforms.uInsColor).toBe(ins.shared.color);
+    expect(uniforms.uInsPixelRatio).toBe(ins.shared.pixelRatio);
+    expect((uniforms.uInsFrame as { value: THREE.Vector4 }).value.toArray()).toEqual([0.95, 1.0, 0.6, 0.6]);
+    expect((uniforms.uInsSlab as { value: THREE.Vector2 }).value.toArray()).toEqual([1.6, 1.95]);
+    expect((uniforms.uInsLuma as { value: number }).value).toBe(0.12277);
+    expect((uniforms.uInsStrength as { value: number }).value).toBe(0.85);
+    // a colour-vision switch writes the team slots only
+    const before = ins.shared.color.value.toArray();
+    slots.set(['#FF0000', '#00FF00', '#0000FF']);
+    expect(ins.shared.color.value.toArray()).toEqual(before);
+  });
+
+  it('the garage rule: NO team colour (slots null) still builds the insignia, and ignores the material\'s team mark', () => {
+    const team = new VehicleTeamMaterials(null, undefined, insigniaOf());
+    const garageBase = lavi();
+    const v = team.materialFor(garageBase, 0);
+    expect(v).not.toBe(garageBase); // a variant, not the input (a second lavi() would differ from anything)
+    expect(teamHookOf(v)).toBeUndefined();
+    expect(insigniaHookOf(v)).toBeDefined();
+    expect(v.customProgramCacheKey().endsWith('|ins')).toBe(true);
+    // and with neither, every material is returned as it is
+    const none = new VehicleTeamMaterials(null);
+    const base = lavi();
+    expect(none.materialFor(base, 0)).toBe(base);
+  });
+
+  it('the `insignia` layer zeroes the insignia\'s OWN strength, and never the team mark\'s', () => {
+    const v = new VehicleTeamMaterials(slotsOf(), undefined, insigniaOf()).materialFor(lavi(), 0);
+    const { uniforms } = compile(v);
+    const ins = uniforms.uInsStrength as { value: number };
+    const team = uniforms.uTeamStrength as { value: number };
+    expect(setInsigniaPass(false)).toBeGreaterThanOrEqual(1);
+    expect(ins.value).toBe(0);
+    expect(team.value).toBe(0.85);
+    setInsigniaPass(true);
+    expect(ins.value).toBe(0.85);
+    setTeamMaskPass(false);
+    expect(ins.value).toBe(0.85);
+  });
+});
+
+describe('gate 5: clones keep the insignia, and a wreck has none (GH-1096 S1)', () => {
+  const insOnly = (): THREE.MeshStandardMaterial =>
+    new VehicleTeamMaterials(slotsOf(), undefined, insigniaOf()).materialFor(plainHull(), 0) as THREE.MeshStandardMaterial;
+
+  it('a scar clone of an insignia-only variant is re-hooked, with its key', () => {
+    const variant = insOnly();
+    const scar = new VehicleScarMaterials().materialFor(variant, 3) as THREE.MeshStandardMaterial;
+    expect(scar).not.toBe(variant);
+    expect(insigniaHookOf(scar)).toBe(insigniaHookOf(variant));
+    expect(scar.customProgramCacheKey()).toContain(`${UNIT_MARK_PROGRAM_KEY}|ins`);
+    const { fragmentShader, uniforms } = compile(scar);
+    expect(fragmentShader).toContain('rlInsMask');
+    expect(uniforms.uInsSdf).toBe(compile(variant).uniforms.uInsSdf);
+  });
+
+  it('a running-gear clone compiles the tread AND the insignia, tread first, the segment named once', () => {
+    const variant = insOnly();
+    const spec = { wheels: [], track: { r: [10, 0.3], l: [10, 0.3] }, gauge: { r: 1.2, l: 1.2 }, wheelbase: 0, steerLimit: 0 } as never;
+    const { material } = runningGearMaterial(variant, spec);
+    const { fragmentShader, vertexShader } = compile(material);
+    expect(vertexShader).toContain('vMarkPos = position;');
+    expect(fragmentShader.indexOf('rgOnTrack')).toBeLessThan(fragmentShader.indexOf('float rlInsMask'));
+    expect(material.customProgramCacheKey().split(UNIT_MARK_PROGRAM_KEY)).toHaveLength(2);
+  });
+
+  it('the death-fade clone carries the insignia, so it does not pop off for the 0.4 s of the fade', () => {
+    const variant = insOnly();
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(new THREE.BufferGeometry(), variant));
+    const [swap] = beginMeshDeathFade(root);
+    expect(swap!.fade).not.toBe(variant);
+    expect(insigniaHookOf(swap!.fade)).toBe(insigniaHookOf(variant));
+    expect(compile(swap!.fade).fragmentShader).toContain('rlInsMask');
+  });
+
+  it('the soot wreck of an insignia variant is hook-free', () => {
+    const wreck = charredTexturedMaterial(new VehicleTeamMaterials(slotsOf(), undefined, insigniaOf()).materialFor(lavi(), 0) as THREE.MeshStandardMaterial);
+    expect(insigniaHookOf(wreck)).toBeUndefined();
+    const { fragmentShader } = compile(wreck);
+    expect(fragmentShader).not.toContain('uInsSdf');
+    expect(wreck.customProgramCacheKey()).not.toContain(UNIT_MARK_PROGRAM_KEY);
+  });
+});
+
+describe('gate 5 on the SHIPPED shape: the Lavi is team + insignia, and every clone keeps both halves (GH-1096 S1)', () => {
+  /** What the renderer mints for a Lavi: a team-marked bake (`lavi()`), a slot, and the Lavi's frame. */
+  const teamIns = (): THREE.MeshStandardMaterial =>
+    new VehicleTeamMaterials(slotsOf(), undefined, insigniaOf()).materialFor(lavi(), 0) as THREE.MeshStandardMaterial;
+  const spec = { wheels: [], track: { r: [10, 0.3], l: [10, 0.3] }, gauge: { r: 1.2, l: 1.2 }, wheelbase: 0, steerLimit: 0 } as never;
+  const clones: ReadonlyArray<readonly [string, (v: THREE.MeshStandardMaterial) => THREE.Material]> = [
+    ['scar', (v) => new VehicleScarMaterials().materialFor(v, 3)],
+    ['running gear', (v) => runningGearMaterial(v, spec).material],
+    [
+      'death fade',
+      (v) => {
+        const root = new THREE.Group();
+        root.add(new THREE.Mesh(new THREE.BufferGeometry(), v));
+        return beginMeshDeathFade(root)[0]!.fade;
+      },
+    ],
+  ];
+
+  it.each(clones)('the %s clone carries the team mark AND the insignia, keyed |team+ins, both patched', (_name, cut) => {
+    const variant = teamIns();
+    expect(teamHookOf(variant)).toBeDefined();
+    expect(insigniaHookOf(variant)).toBeDefined();
+    const clone = cut(variant);
+    expect(clone).not.toBe(variant);
+    expect(teamHookOf(clone)).toBe(teamHookOf(variant));
+    expect(insigniaHookOf(clone)).toBe(insigniaHookOf(variant));
+    expect(clone.customProgramCacheKey()).toContain(`${UNIT_MARK_PROGRAM_KEY}|team+ins`);
+    const { fragmentShader, uniforms } = compile(clone);
+    expect(fragmentShader).toContain('float rlTeamMask');
+    expect(fragmentShader).toContain('float rlInsMask');
+    expect(uniforms.uInsSdf).toBe(compile(variant).uniforms.uInsSdf);
   });
 });

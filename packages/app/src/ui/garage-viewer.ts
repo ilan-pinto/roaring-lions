@@ -86,6 +86,7 @@ export type MountGarageView = (
     readonly faction?: MeshFactionName;
     readonly dracoDecoderPath?: string;
     readonly groundTextureUrl?: string;
+    readonly insigniaSdfUrl?: string;
     readonly colors: GarageColors;
     readonly kitTiers?: Readonly<Record<string, number>>;
     readonly signal?: AbortSignal;
@@ -107,6 +108,8 @@ export interface GarageModelDeps {
   readonly source: (typeId: string) => ModelSource | null;
   readonly dracoDecoderPath: string;
   readonly groundTextureUrl: string;
+  /** GH-1096 S1: the insignia's distance field. Absent: a framed vehicle draws without its insignia. */
+  readonly insigniaSdfUrl?: string;
   readonly colors: GarageColors;
   readonly webgl?: () => boolean;
   readonly mount?: MountGarageView;
@@ -417,6 +420,7 @@ export function garageModel(
         faction: source.faction,
         dracoDecoderPath: deps.dracoDecoderPath,
         groundTextureUrl: deps.groundTextureUrl,
+        ...(deps.insigniaSdfUrl !== undefined ? { insigniaSdfUrl: deps.insigniaSdfUrl } : {}),
         colors: deps.colors,
         ...(kitTiers !== undefined ? { kitTiers } : {}),
         signal: controller.signal,

@@ -720,7 +720,9 @@ import {
   vehicleScarMixForBand,
   vehicleTakesDamageStates,
 } from './units/vehicle-damage';
-import { TeamMaskSlots, VehicleTeamMaterials, setTeamMaskPass } from './units/team-mask';
+import { TeamMaskSlots, VehicleTeamMaterials, setInsigniaPass, setTeamMaskPass } from './units/team-mask';
+import { InsigniaShared } from './units/insignia';
+import { insigniaFrameOf } from './units/insignia-frames';
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
 import { TEXTURED_INFANTRY_TYPES } from './units/textured-infantry';
@@ -789,6 +791,7 @@ import {
   objectiveZoneCorners,
   RANGE_FILL_DESATURATE,
   rangeFillAlphaFor,
+  envelopeRangesTiles,
   RANGE_ARC_ALPHA,
 } from './units/overlay-geometry';
 import {
@@ -2874,6 +2877,12 @@ export class ThreeRenderer implements Renderer {
    */
   private teamMaskSlots: TeamMaskSlots | null = null;
   private readonly vehicleTeamMaterials = new Map<string, VehicleTeamMaterials>();
+  /**
+   * GH-1096 S1: this renderer's Roaring Lion insignia: the one distance-field texture (a placeholder until
+   * `RendererOptions.insigniaSdfUrl` lands), the paint colour and the pixel ratio every insignia variant reads
+   * (`units/insignia.ts`). Released in `dispose`.
+   */
+  private readonly insigniaShared = new InsigniaShared();
   private readonly buildingBurning = new Map<number, { accumMs: number; remainingMs: number }>();
 
 
@@ -3825,11 +3834,20 @@ export class ThreeRenderer implements Renderer {
     if (this.opts.flipbookFireUrl && this.opts.flipbookSmokeUrl) {
       void this.flipbook.load(this.opts.flipbookFireUrl, this.opts.flipbookSmokeUrl);
     }
+    // GH-1096 S1: the insignia's distance field. Fail-soft and unawaited: until it lands (or if it never does) the placeholder
+    // reads "outside" and every hull draws as it did.
+    // Fetched only when the roster holds a FRAMED type (`sim.unitTypes` is complete before `init` and never grows), so a mission
+    // with no Lavi asks for nothing.
+    if (this.opts.insigniaSdfUrl && this.sim.unitTypes.some((t) => insigniaFrameOf(t.id) !== null)) {
+      void this.insigniaShared.load(this.opts.insigniaSdfUrl);
+    }
     // Everything in this method that needs a live GL context lives here
     // rather than in the constructor, which the nine `ThreeRenderer*.test.ts`
     // fakes exercise with a renderer stub that has four members.
     // `maxPixelRatio` (GH-469): the menu's backdrop asks for a lower one.
     this.pixelRatio = Math.min(globalThis.devicePixelRatio || 1, this.opts.maxPixelRatio ?? PIXEL_RATIO_CAP);
+    // GH-1096 S1: the insignia's LOD bands are CSS px; `fwidth` is framebuffer px.
+    this.insigniaShared.setPixelRatio(this.pixelRatio);
     if (this.nodeBackend) {
       this.nodeBackend.setPixelRatio(this.pixelRatio);
       this.fitToHost();
@@ -4540,6 +4558,7 @@ export class ThreeRenderer implements Renderer {
     this.vehicleScars.clear();
     for (const team of this.vehicleTeamMaterials.values()) team.dispose();
     this.vehicleTeamMaterials.clear();
+    this.insigniaShared.dispose();
     this.buildingDamageBand.clear();
     this.buildingBurning.clear();
     this.wreckSmoulder.clear();
@@ -5437,6 +5456,10 @@ export class ThreeRenderer implements Renderer {
       // L3 (GH-943): the team mark's shared strength to 0 and back: a uniform write nothing per-frame re-asserts.
       case 'team-mask':
         return setTeamMaskPass(visible);
+      // GH-1096 S1: the insignia's OWN shared strength to 0 and back (not the team mark's): a uniform write nothing per-frame
+      // re-asserts. Returns how many insignia variants exist.
+      case 'insignia':
+        return setInsigniaPass(visible);
       // L1 (GH-943): envMap on/off across the registered materials. 0 with the flag off.
       case 'environment':
         return this.environment?.setEnabled(visible) ?? 0;
@@ -10987,7 +11010,7 @@ export class ThreeRenderer implements Renderer {
         // L3 (GH-943): a living hull draws on the variant of its template's authored materials that carries
         // ITS side's colour (own, hostile or neutral for this viewer): +0 draw calls. BEFORE the silhouette
         // attach, which stamps the body material the hull actually draws with.
-        this.vehicleTeamFor(key).applyTo(entity, colorSlot(st.side[i], this.viewer));
+        this.vehicleTeamFor(key, type.id).applyTo(entity, colorSlot(st.side[i], this.viewer));
         // GH-943 P3 (T1): the team variant `applyTo` just minted or reused (`vehicleTeamFor`'s `onMint`) is adopted on node.
         this.queueNodeAdoption(entity.root);
         resetRunningGear(this.runningGear, i);
@@ -12159,12 +12182,20 @@ export class ThreeRenderer implements Renderer {
    * L3 (GH-943): the team-colour variants of one vehicle TEMPLATE's authored materials, minted on first use.
    * The slot colours are shared by every variant of a slot, so `setTeamColors` is one write per slot.
    * A minted variant goes to the environment registry under the class its surface clone was tagged with.
+   *
+   * GH-1096 S1: the insignia frame is looked up by the unit TYPE id, never the template key (a versus seat's `typeId#s1` is the
+   * same vehicle), and EXACTLY: `mbt_lavi_camo` and `officer_armour` share the Lavi's hull and have no frame of their own.
    */
-  private vehicleTeamFor(templateKey: string): VehicleTeamMaterials {
+  private vehicleTeamFor(templateKey: string, typeId: string): VehicleTeamMaterials {
     let team = this.vehicleTeamMaterials.get(templateKey);
     if (!team) {
       if (!this.teamMaskSlots) this.teamMaskSlots = new TeamMaskSlots(this.opts.teamColors);
-      team = new VehicleTeamMaterials(this.teamMaskSlots, (m) => this.adoptEnvironment([m], 'unitDielectric'));
+      const frame = insigniaFrameOf(typeId);
+      team = new VehicleTeamMaterials(
+        this.teamMaskSlots,
+        (m) => this.adoptEnvironment([m], 'unitDielectric'),
+        frame !== null ? { frame, shared: this.insigniaShared } : null
+      );
       this.vehicleTeamMaterials.set(templateKey, team);
     }
     return team;
@@ -14834,6 +14865,14 @@ export class ThreeRenderer implements Renderer {
    * the live `sim.entityCount` -- and its envelope would be drawn at world
    * (0, 0). Not drawn until the next snapshot, like the unit itself.
    */
+  /** GH-34: the tiles the building unit `i` is garrisoned in adds to its reach (that structure type's own `garrison_range_bonus`,
+   *  PR 1243), or null when it is not in one. Read from the sim's public state; presentation only. */
+  private garrisonBonusTiles(i: number): number | null {
+    const s = this.sim.state.garrisonedIn[i];
+    if (!(s >= 0)) return null;
+    return fx.toNumber(this.sim.structureTypes[this.sim.structures.typeIdx[s]].garrisonRangeBonus);
+  }
+
   private drawsEnvelope(i: number): boolean {
     const st = this.sim.state;
     if (i >= this.snapshottedCount || st.alive[i] === 0) return false;
@@ -15314,6 +15353,11 @@ export class ThreeRenderer implements Renderer {
         };
         census.envelopes++;
         const w0 = type.weapons[0];
+        // GH-34 acceptance 3: a garrisoned unit's ring is the building-extended envelope, not the open-ground reach.
+        const reach = envelopeRangesTiles(
+          { range: fx.toNumber(w0.range), effectiveRange: fx.toNumber(w0.effectiveRange), firesFromBuilding: w0.firesFromBuilding },
+          this.garrisonBonusTiles(i),
+        );
         const fillHex = cachedDesaturate(this.opts.teamColors[colorSlot(st.side[i], this.viewer)], RANGE_FILL_DESATURATE);
         // A preview is a hint at a unit the player has not committed to, so
         // every band of it is drawn at the same fraction of its own strength
@@ -15321,7 +15365,7 @@ export class ThreeRenderer implements Renderer {
         const strength = previewing ? PREVIEW_ENVELOPE_STRENGTH : 1;
         // `drawsEnvelope` has already established a non-zero effective range
         // -- it is the same predicate the count above used, on purpose.
-        const outer = tileRadiusToEllipsePx(fx.toNumber(w0.effectiveRange), TILE_W, TILE_H);
+        const outer = tileRadiusToEllipsePx(reach.effective, TILE_W, TILE_H);
         // `minRangeSq` is 0 for every weapon but a mortar's, and a zero
         // inner radius is a disc -- so this needs no branch.
         const inner = tileRadiusToEllipsePx(Math.sqrt(fx.toNumber(w0.minRangeSq)), TILE_W, TILE_H);
@@ -15335,7 +15379,7 @@ export class ThreeRenderer implements Renderer {
           fillAlpha * strength
         );
         this.overlayBatch.ellipseRing(envelopeAnchor, outer.rightR, outer.upR, 1.5, fillHex, RANGE_ARC_ALPHA * strength);
-        ring(fx.toNumber(w0.range), fillHex, 1, MAX_RANGE_HOOP_ALPHA * strength);
+        ring(reach.max, fillHex, 1, MAX_RANGE_HOOP_ALPHA * strength);
       };
       for (const d of draws) drawEnvelope(d.id, d.previewing);
     }

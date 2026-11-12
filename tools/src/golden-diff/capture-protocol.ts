@@ -1219,7 +1219,7 @@ ${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${l
  * layer's legacy delta is real and its parity ratio measures something. The node backend's own census never passes it.
  *
  * GH-943 P3 (T1): the list is read per hook SEGMENT (`censusKey`): a hooked unit material stays visible here only when every one
- * of its `rl-` program-key segments is on `PORTED_MATERIAL_KEYS` (a moving hull is `rl-team-mark-2|rl-running-gear-1`), so a port
+ * of its `rl-` program-key segments is on `PORTED_MATERIAL_KEYS` (a moving hull is `rl-unit-mark-3|rl-running-gear-1`), so a port
  * that lands one hook does not show a hull whose other hook the node chain still drops. Still the only caller (G7).
  *
  * The AO pass stays ON. P0 had no node AO, so this used to switch the legacy GTAO off; T7 (`createNodeAoStage`) ported it, and with

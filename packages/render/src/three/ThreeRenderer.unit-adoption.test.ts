@@ -40,6 +40,7 @@ import { parseRigidFixture } from './units/rigid-mesh-fixture';
 import { parseFixture } from './units/mesh-fixture';
 import { parseRunningGear } from './units/running-gear';
 import { runningGearBinding } from './units/running-gear-binding';
+import { insigniaHookOf, teamHookOf } from './units/team-mask';
 import type { DyingVehicle } from './units/mesh-vehicle-death';
 import type { DyingMeshUnit } from './units/mesh-death';
 import { MESH_DEATH_SECONDS } from './units/mesh-death';
@@ -337,7 +338,7 @@ describe('G1: every unit swap site adopts, on the frame of the swap', () => {
     const hullA = hullOf(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity);
     // Precondition: the hull really carries a unit hook (the team variant), and draws its twin.
     expect(isTwin(hullA.material as THREE.Material)).toBe(true);
-    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-unit-mark-3']);
     expect(priv.meshUnitEntities.has(squad)).toBe(true);
     // ...and so does the figure: the rain rim, then the wounded floor.
     const figureChains: string[][] = [];
@@ -351,7 +352,7 @@ describe('G1: every unit swap site adopts, on the frame of the swap', () => {
     frame('move (running-gear bind)');
     const bound = runningGearBinding(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity);
     expect(bound).toBeDefined();
-    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-team-mark-2', 'rl-running-gear-1']);
+    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-unit-mark-3', 'rl-running-gear-1']);
 
     toBand(a, 3);
     frame('damage band');
@@ -393,7 +394,7 @@ describe('G2: clone sites clone the legacy material', () => {
     const hull = hullOf(entity);
     const variant = legacyOf(hull.material as THREE.Material, hull);
     expect(isTwin(variant)).toBe(false);
-    expect(hookSegments(variant)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(variant)).toEqual(['rl-unit-mark-3']);
 
     priv.runningGear.moved[a] = 1;
     r.frame(1, 16);
@@ -403,7 +404,7 @@ describe('G2: clone sites clone the legacy material', () => {
     const rg = binding.materials[0] as THREE.Material;
     expect(isTwin(rg)).toBe(false);
     expect((rg as THREE.MeshStandardMaterial).isMeshStandardMaterial).toBe(true);
-    expect(hookSegments(rg)).toEqual(['rl-team-mark-2', 'rl-running-gear-1']);
+    expect(hookSegments(rg)).toEqual(['rl-unit-mark-3', 'rl-running-gear-1']);
     expect(legacyBaseOf(rg)).toBe(variant);
 
     // The scar on a moved hull is written onto its own (legacy) running-gear clone; on death the bind is released and the scar is
@@ -417,12 +418,12 @@ describe('G2: clone sites clone the legacy material', () => {
     if (!hullSwap) throw new Error('no hull swap');
     const scar = hullSwap.original;
     expect(isTwin(scar)).toBe(false);
-    expect(hookSegments(scar)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(scar)).toEqual(['rl-unit-mark-3']);
     expect(legacyBaseOf(scar)).toBe(variant);
     const fade = hullSwap.fade;
     expect(isTwin(fade)).toBe(false);
     expect(fade.transparent).toBe(true);
-    expect(hookSegments(fade)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(fade)).toEqual(['rl-unit-mark-3']);
     expect(legacyBaseOf(fade)).toBe(variant);
 
     // A clean, never-moved hull dies while it DRAWS its twin (no release, no scar re-apply): the fade is still cut from the legacy.
@@ -436,7 +437,7 @@ describe('G2: clone sites clone the legacy material', () => {
     if (!fadeB) throw new Error('no fade for the clean hull');
     expect(fadeB.original).toBe(variantB);
     expect(isTwin(fadeB.fade)).toBe(false);
-    expect(hookSegments(fadeB.fade)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(fadeB.fade)).toEqual(['rl-unit-mark-3']);
     expect(legacyBaseOf(fadeB.fade)).toBe(variantB);
     r.dispose();
   });
@@ -506,6 +507,51 @@ describe('G3: no new program per vehicle', () => {
     expect(kit.calls()).toBe(afterFirstFade.made);
     expect(twinsInScene()).toBeLessThanOrEqual(afterFirstFade.inScene);
     r.dispose();
+  });
+});
+
+describe('GH-1096 S1: a living Lavi built by the renderer wears the insignia; a type with no frame does not', () => {
+  it('the Lavi\'s hull variant carries both halves of the one hook; the Ambush Tank, same fixture hull, carries the team mark only', async () => {
+    seam.kit = stubKit();
+    const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
+    const a = sim.spawn(sim.addUnitType(LAVI), 0, fx.from(6.5), fx.from(6.5));
+    // A second type on the same fixture hull (the mock hands every load the Lavi's template): framed by TYPE id, so none.
+    const c = sim.spawn(sim.addUnitType({ ...LAVI, id: 'mbt_lavi_camo' }), 0, fx.from(14.5), fx.from(14.5));
+    const r = new ThreeRenderer(sim, makeOpts('webgl2'));
+    const priv = r as unknown as Private;
+    await r.init(HOST);
+    await r.loadVehicleMesh('mbt_lavi', 'mbt_lavi.glb');
+    await r.loadVehicleMesh('mbt_lavi_camo', 'mbt_lavi_camo.glb');
+    r.frame(1, 16);
+    const lavi = legacyOf(hullOf(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity).material as THREE.Material, hullOf(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity));
+    expect(teamHookOf(lavi)).toBeDefined();
+    expect(insigniaHookOf(lavi)).toBeDefined();
+    expect(lavi.customProgramCacheKey().endsWith('|rl-unit-mark-3|team+ins')).toBe(true);
+    const other = hullOf(priv.vehicleMeshEntities.get(c) as VehicleMeshEntity);
+    const camoHull = legacyOf(other.material as THREE.Material, other);
+    expect(teamHookOf(camoHull)).toBeDefined();
+    expect(insigniaHookOf(camoHull)).toBeUndefined();
+    r.dispose();
+  });
+});
+
+describe('GH-1096 S1: the insignia field is fetched only for a roster holding a framed type', () => {
+  const URL_SDF = '/t/textures/insignia/roaring_lion_sdf.png';
+  async function fetchesFor(types: readonly UnitTypeJson[]): Promise<number> {
+    seam.kit = stubKit();
+    const load = vi.spyOn(THREE.TextureLoader.prototype, 'load').mockImplementation(() => new THREE.Texture());
+    const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
+    types.forEach((t, i) => sim.spawn(sim.addUnitType(t), 0, fx.from(4.5 + 4 * i), fx.from(6.5)));
+    const r = new ThreeRenderer(sim, { ...makeOpts('webgl2'), insigniaSdfUrl: URL_SDF });
+    await r.init(HOST);
+    const n = load.mock.calls.filter((c) => c[0] === URL_SDF).length;
+    r.dispose();
+    load.mockRestore();
+    return n;
+  }
+  it('a Lavi in the roster: one fetch; no framed type (a wounded figure, the Ambush Tank): none', async () => {
+    expect(await fetchesFor([LAVI, WOUNDED])).toBe(1);
+    expect(await fetchesFor([WOUNDED, { ...LAVI, id: 'mbt_lavi_camo' }])).toBe(0);
   });
 });
 

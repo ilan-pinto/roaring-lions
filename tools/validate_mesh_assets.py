@@ -1505,6 +1505,86 @@ def check_team_marks(vehicles_root, required=MARK_REQUIRED):
     return failures, lines
 
 
+# ---------------------------------------------------------------------------
+# GH-1096: the ROARING LION insignia. Not in any GLB: a planar frame per vehicle TYPE in the GENERATED table
+# `packages/render/src/three/units/insignia-frames.ts` (`tools/vehicles/insignia.py --write`), which records the sha256 of the
+# host hull POSITION accessors it was measured on. A re-exported or re-shaped hull changes that hash, and this refuses the table
+# until the frame is re-measured, so an emblem cannot silently float off a changed hull. The hash is computed HERE, with struct
+# and hashlib only, independently of the generator (whose numpy reader wrote it) and of `tools/src/insignia.test.ts`'s TS one.
+INSIGNIA_TABLE = os.path.join(REPO, "packages", "render", "src", "three", "units", "insignia-frames.ts")
+#: The vehicles that MUST carry an insignia frame (GH-1096 S1: the Lavi pilot). Pinned against the table's keys by
+#: `tools/src/insignia.test.ts`; S2 and S3 grow both together.
+INSIGNIA_REQUIRED = ("mbt_lavi",)
+_INSIGNIA_BEGIN = "// BEGIN rl-insignia-frames"
+_INSIGNIA_END = "// END rl-insignia-frames"
+
+
+def insignia_frames(table_path=INSIGNIA_TABLE):
+    """The generated table's frames, parsed from the strict-JSON block between its markers."""
+    text = open(table_path, encoding="utf-8").read()
+    a, b = text.find(_INSIGNIA_BEGIN), text.find(_INSIGNIA_END)
+    if a < 0 or b < a:
+        raise ValueError(f"{table_path}: no {_INSIGNIA_BEGIN!r} ... {_INSIGNIA_END!r} block")
+    block = text[a:b]
+    body = block[block.index("=") + 1:block.rindex(";")]
+    return json.loads(body)
+
+
+def insignia_host_sha256(js, bin_):
+    """sha256 over each host hull mesh's POSITION (`rl_role: hull`, no `rl_kit`, no `rl_wreck`; by node name), as tightly
+    packed little-endian float32 x, y, z. Uncompressed GLBs only."""
+    import hashlib
+
+    h = hashlib.sha256()
+    hosts = sorted(
+        (nd["name"], nd) for nd in js["nodes"]
+        if "mesh" in nd and (nd.get("extras") or {}).get("rl_role") == "hull"
+        and "rl_kit" not in (nd.get("extras") or {}) and not (nd.get("extras") or {}).get("rl_wreck")
+    )
+    for _name, nd in hosts:
+        acc = js["accessors"][js["meshes"][nd["mesh"]]["primitives"][0]["attributes"]["POSITION"]]
+        if acc["componentType"] != 5126 or acc["type"] != "VEC3":
+            raise ValueError(f"{nd['name']}: POSITION is not float32 VEC3")
+        bv = js["bufferViews"][acc["bufferView"]]
+        off = bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
+        stride = bv.get("byteStride") or 12
+        for i in range(acc["count"]):
+            h.update(bin_[off + i * stride:off + i * stride + 12])
+    return h.hexdigest()
+
+
+def check_insignia_frames(vehicles_root, required=INSIGNIA_REQUIRED, table_path=INSIGNIA_TABLE):
+    """(failures, lines): every `required` id has a frame, and every frame's `host_sha256` matches its GLB's host hull."""
+    failures, lines = [], []
+    try:
+        frames = insignia_frames(table_path)
+    except (OSError, ValueError) as e:
+        return [f"insignia: cannot read the frame table: {e}"], lines
+    for name in required:
+        if name not in frames:
+            failures.append(f"insignia: {name} has no frame in {os.path.relpath(table_path, REPO)}, but it must (INSIGNIA_REQUIRED)")
+    for name in sorted(frames):
+        path = os.path.join(vehicles_root, f"{name}.glb")
+        if not os.path.exists(path):
+            failures.append(f"insignia: {name} has a frame but no GLB at {path}")
+            continue
+        js, bin_ = _read_glb_chunks(path)
+        try:
+            have = insignia_host_sha256(js, bin_)
+        except (KeyError, IndexError, ValueError) as e:
+            failures.append(f"insignia: {name}: cannot hash its host hull ({e!r})")
+            continue
+        want = frames[name].get("host_sha256")
+        if have != want:
+            failures.append(f"insignia: {name}: the host hull changed since its frame was measured (sha256 {have[:12]}..., the table "
+                            f"records {str(want)[:12]}...): re-measure with python3 tools/vehicles/insignia.py --write")
+            continue
+        f = frames[name]
+        lines.append(f"{name}: insignia {f['d']:.2f} m at ({f['centre'][0]:.2f}, {f['centre'][1]:.2f}), |z| {f['slab'][0]:.2f}..{f['slab'][1]:.2f}, "
+                     f"host hull unchanged since measured")
+    return failures, lines
+
+
 def _kit_uvs(js, bin_):
     """The distinct TEXCOORD_0 values (rounded to 5 places) of every `kit_*` node of an UNCOMPRESSED GLB."""
     import numpy as np
@@ -3374,6 +3454,11 @@ def main():
         failures.extend(mark_failures)
         print(f"  team mark: {len(mark_lines)} vehicle(s) carry one --")
         for line in mark_lines:
+            print(f"    {line}")
+        ins_failures, ins_lines = check_insignia_frames(vehicles_dir)
+        failures.extend(ins_failures)
+        print(f"  insignia (GH-1096): {len(ins_lines)} vehicle(s) carry a frame --")
+        for line in ins_lines:
             print(f"    {line}")
         census, _cost = texture_census(meshes_root, os.path.join(REPO, "data", "missions"),
                                        vehicles_dir if args.vehicles_dir else None)

@@ -282,7 +282,7 @@ import {
 } from './mesh-catalogue';
 import { rendererOptionsFor } from './renderer-options';
 import { bindLiveTeamColors } from './live-team-colors';
-import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
+import { garageColors, garageGroundTexture, garageInsigniaTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { withSoftParticles } from './soft-flag';
@@ -1274,6 +1274,8 @@ async function main(): Promise<void> {
         source: (typeId) => garageModelSource(typeId),
         dracoDecoderPath: dracoDecoderPath(),
         groundTextureUrl: garageGroundTexture(BASE),
+        // GH-1096 S1: the Roaring Lion insignia's distance field, as a mission's renderer loads it.
+        insigniaSdfUrl: garageInsigniaTexture(BASE),
         // L3 (GH-943): the owner's team-mark colour follows the colour-vision setting, as a mission's does.
         colors: garageColors(settings.accessibility.colorVision),
       },

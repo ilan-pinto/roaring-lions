@@ -74,7 +74,7 @@ describe('G7: a running-gear-plus-team clone composes both terms, the mark AFTER
     const variant = new VehicleTeamMaterials(slotsOf()).materialFor(laviMaterial(), 0) as THREE.MeshStandardMaterial;
     const { material } = runningGearMaterial(variant, SPEC);
     // The key names the mark first: the order is NOT read off the key.
-    expect(material.customProgramCacheKey().endsWith(`|${TEAM_MASK_PROGRAM_KEY}|${RG_PROGRAM_KEY}`)).toBe(true);
+    expect(material.customProgramCacheKey().endsWith(`|${TEAM_MASK_PROGRAM_KEY}|team|${RG_PROGRAM_KEY}`)).toBe(true);
     const twin = unitFactory(d)(material as THREE.MeshStandardMaterial);
     expect(bindingsOf(twin).applied).toEqual([RG_PROGRAM_KEY, TEAM_MASK_PROGRAM_KEY]);
     const frag = mainOf(compile(d, new THREE.Mesh(taggedGeometry(1, 0.5), twin), twin).fragment);
@@ -250,7 +250,7 @@ describe('every unit segment is drawn, so a unit twin names nothing as unported'
     adoptAll(d, [mesh]);
     const twin = mesh.material as THREE.Material;
     expect((twin.userData as Record<string, unknown>)[UNPORTED_TERMS_KEY]).toEqual([]);
-    expect(twin.name).toBe('rl-node-material-unit:team-mark-2+running-gear-1');
+    expect(twin.name).toBe('rl-node-material-unit:unit-mark-3+running-gear-1');
     expect(censusUnported(mesh.parent as THREE.Object3D)).toEqual([]);
   });
 });

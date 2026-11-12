@@ -85,6 +85,8 @@ import {
 } from '../units/mesh-vehicle';
 import type { VehicleKitTiers } from '../units/vehicle-kit';
 import { TeamMaskSlots, VehicleTeamMaterials } from '../units/team-mask';
+import { InsigniaShared } from '../units/insignia';
+import { insigniaFrameOf } from '../units/insignia-frames';
 import type { MeshFaction } from '../units/mesh-role';
 import { TEXTURED_INFANTRY_TYPES } from '../units/textured-infantry';
 import { TEXTURED_VEHICLE_TYPES } from '../units/textured-vehicle';
@@ -145,6 +147,10 @@ export interface GarageViewOptions {
   /** The open-ground albedo tile (`desert_sand_tile.jpg`). Fail-soft: absent
    *  or failed, the patch draws its flat tone. */
   readonly groundTextureUrl?: string;
+  /** GH-1096 S1: the Roaring Lion insignia's distance field
+   *  (`textures/insignia/roaring_lion_sdf.png`). Fail-soft: absent or failed, a
+   *  framed vehicle (`insignia-frames.ts`) draws without it, as in a mission. */
+  readonly insigniaSdfUrl?: string;
   readonly colors: GarageColors;
   /** A vehicle's bought kit, by track (`armour`, `sensors`, `firepower`):
    *  the brigade account's tiers for this type. Absent reads as no kit.
@@ -547,7 +553,7 @@ interface BuiltVehicle {
   readonly release: () => void;
 }
 
-function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationClip[] }, opts: GarageViewOptions): Staged {
+function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationClip[] }, opts: GarageViewOptions, insignia: InsigniaShared): Staged {
   const { rest } = splitShowcase(gltf.animations);
   // Never built from, never mutated: see "Kit" in this file's header.
   const pristine = gltf.scene;
@@ -557,9 +563,16 @@ function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationCli
     const tpl = buildVehicleMeshTemplate({ scene: cloneForBuild(pristine), animations: rest }, opts.typeId, textured, tiers);
     const ent = instantiateVehicleMesh(tpl, opts.typeId);
     // L3 (GH-943): the bay shows the owner's colour on the team mark, exactly as a mission does.
+    // GH-1096 S1: the variant set is built WHATEVER the team colour, so the insignia never depends on it: an absent team colour
+    // means no team term, not no materials (the lead's close-up is a bay with no team colour).
     const teamHex = opts.colors.team;
-    const teamMats = teamHex ? new VehicleTeamMaterials(new TeamMaskSlots([teamHex, teamHex, teamHex])) : null;
-    teamMats?.applyTo(ent, 0);
+    const frame = insigniaFrameOf(opts.typeId);
+    const teamMats = new VehicleTeamMaterials(
+      teamHex ? new TeamMaskSlots([teamHex, teamHex, teamHex]) : null,
+      undefined,
+      frame !== null ? { frame, shared: insignia } : null
+    );
+    teamMats.applyTo(ent, 0);
     if (ent.deathRoot) ent.deathRoot.visible = false;
     let pose: PoseSource = 'bind';
     const idle = ent.actions.get('idle');
@@ -581,7 +594,7 @@ function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationCli
       key: kitKey(tiers, ceiling),
       release: () => {
         disposeVehicleMeshEntity(ent);
-        teamMats?.dispose();
+        teamMats.dispose();
         disposeVehicleMeshTemplate(tpl);
       },
     };
@@ -669,15 +682,27 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
   else console.warn('[lions] garage: no dracoDecoderPath given, so a Draco-compressed GLB cannot parse');
   if (opts.signal?.aborted) throw leftEarly();
 
-  const [gltf, sand] = await Promise.all([gltfLoader().loadAsync(opts.meshUrl), loadSand(opts.groundTextureUrl)]);
+  // GH-1096 S1: this view's own insignia field, loaded beside the GLB so the first frame already wears it. Fail-soft: `load`
+  // resolves either way, and a failure keeps the "outside" placeholder.
+  const insignia = new InsigniaShared();
+  const [gltf, sand] = await Promise.all([
+    gltfLoader().loadAsync(opts.meshUrl),
+    loadSand(opts.groundTextureUrl),
+    // Only for a FRAMED vehicle: an unmarked one (and every team) fetches nothing.
+    opts.kind === 'vehicle' && opts.insigniaSdfUrl && insigniaFrameOf(opts.typeId) !== null ? insignia.load(opts.insigniaSdfUrl) : Promise.resolve(),
+  ]).catch((err: unknown) => {
+    insignia.dispose();
+    throw err;
+  });
   if (opts.signal?.aborted) {
     sand?.tex.dispose();
+    insignia.dispose();
     throw leftEarly();
   }
 
   const staged =
     opts.kind === 'vehicle'
-      ? stageVehicle(gltf as unknown as { scene: THREE.Group; animations: THREE.AnimationClip[] }, opts)
+      ? stageVehicle(gltf as unknown as { scene: THREE.Group; animations: THREE.AnimationClip[] }, opts, insignia)
       : stageRigged(gltf as unknown as { scene: THREE.Group; animations: THREE.AnimationClip[] }, opts);
   const { model, cls } = staged;
   model.traverse((o) => {
@@ -784,6 +809,7 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
   if (opts.signal?.aborted) {
     staged.release();
     sand?.tex.dispose();
+    insignia.dispose();
     throw leftEarly();
   }
 
@@ -827,6 +853,7 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
       for (const g of owned.geometries) g.dispose();
       for (const m of owned.materials) m.dispose();
       for (const t of textures) t.dispose();
+      insignia.dispose();
       key?.shadow.dispose();
     } finally {
       disposeAndReleaseContext(renderer);
@@ -841,7 +868,9 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
     renderer.shadowMap.enabled = true;
     // PCF: three r186 removed PCFSoft and made PCF the soft filter (ThreeRenderer.init).
     renderer.shadowMap.type = THREE.PCFShadowMap;
-    renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
+    const pixelRatio = Math.min(globalThis.devicePixelRatio || 1, 2);
+    renderer.setPixelRatio(pixelRatio);
+    insignia.setPixelRatio(pixelRatio);
     renderer.setClearAlpha(0);
     renderer.setSize(w, h, false);
     const canvas = renderer.domElement;

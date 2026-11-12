@@ -3282,4 +3282,69 @@ describe('the room writes the record (GH-1075 A3 Task 3.4)', () => {
     await close();
     expect(last(bare.ws0)).toEqual({ t: 'ended', reason: 'over' });
   });
+
+  // A1-10, extended for A3 (§0.15): member A plays member B; the room ends agreed, and a second room desyncs.
+  // The lobby SHOWS A's public id and name to B (spec §5.3); it must never show A's token, SteamID or internal id.
+  // The match rows hold none of A's four sentinels, and neither do the desync row, the `start` config or a replay
+  // header built from that config. A bot's typed model name is held to the same corpus.
+  it('A1-10 (extended): a member match leaves no account identifier in a row, a config, a desync log or a replay header', async () => {
+    const A = { pub: 'ZZZZ9999', name: 'SentinelName', steam: '76561197960287930', token: 'tok-sentinel', internal: 'ZZ-INTERNAL-A' };
+    const MODEL = 'ZZ-MODEL-SENTINEL';
+    const seed = async (): Promise<ReturnType<typeof openTestD1>> => {
+      const db = openTestD1({ dir: ACCOUNTS_MIGRATIONS, foreignKeys: true });
+      await seedWalletMember(db, A.internal, NOW);
+      await seedWalletMember(db, 'B-INTERNAL', NOW);
+      db.raw.prepare('UPDATE member SET public_id = ? WHERE id = ?').run(A.pub, A.internal);
+      db.raw.prepare('UPDATE profile SET display_name = ? WHERE member_id = ?').run(A.name, A.internal);
+      return db;
+    };
+    // The extra fields prove the room's own copy drops what it was not given a field for.
+    const aInfo = { memberId: A.internal, publicId: A.pub, name: A.name, showRecord: true, record: { won: 0, lost: 0, drawn: 0 }, steamId: A.steam, token: A.token };
+    const bInfo = { memberId: 'B-INTERNAL', publicId: 'BBBB2222', name: 'Bravo', showRecord: false, record: { won: 0, lost: 0, drawn: 0 } };
+    const dump = (v: unknown): string => JSON.stringify(v);
+    const four = [A.pub, A.name, A.steam, A.token];
+
+    // Run 1: agreed, with member B on seat 1.
+    const db = await seed();
+    const r = await start(db, { member: aInfo, joinMember: bInfo, code: 'UNLNK1' });
+    await report(r, 0);
+    await close();
+    expect(rowsOf(db, 'match_record')).toHaveLength(1);
+    const seatRows = rowsOf(db, 'match_seat');
+    expect(seatRows.map((x) => x.member_id)).toEqual([A.internal, 'B-INTERNAL']);   // the internal id is the FK, by design
+    for (const needle of four) {
+      expect(dump(rowsOf(db, 'match_record')), `match_record carries ${needle}`).not.toContain(needle);
+      expect(dump(seatRows), `match_seat carries ${needle}`).not.toContain(needle);
+    }
+    // B's lobby: A's public id and name are SHOWN; A's token, SteamID and internal id never.
+    const lobbyForB = dump(ofType(r.ws1, 'lobby'));
+    expect(lobbyForB).toContain(A.pub);
+    expect(lobbyForB).toContain(A.name);
+    for (const needle of [A.token, A.steam, A.internal]) expect(lobbyForB, `B's lobby carries ${needle}`).not.toContain(needle);
+    const start1 = ofType(r.ws1, 'start')[0];
+    expect(start1).toBeDefined();
+    for (const needle of [...four, A.internal]) expect(dump(start1?.config), `start config carries ${needle}`).not.toContain(needle);
+
+    // Run 2: a bot with a typed model name, and a desync that writes the log.
+    const telemetry = openTestD1();
+    const db2 = await seed();
+    const d = await start(db2, { member: aInfo, joinKind: 'bot', joinBotModel: { id: 'other', name: MODEL }, db: telemetry, code: 'UNLNK2' });
+    await vi.advanceTimersByTimeAsync(20 * TICK_MS);
+    await say(d.room, d.ws0, { t: 'hash', tick: 19, h: 111 });
+    await say(d.room, d.ws1, { t: 'hash', tick: 19, h: 222 });
+    await settle();
+    const desync = telemetry.raw.prepare('SELECT config, frames FROM match_desync').all() as { config: string; frames: string }[];
+    expect(desync).toHaveLength(1);
+    const start2 = ofType(d.ws0, 'start')[0];
+    expect(start2).toBeDefined();
+    // The replay header's shape (`replay-file.ts`, `arena-frames.ts`): the room's config under two display labels.
+    const replayHeader = { kind: 'header', v: 1, build: BUILD, labels: ['Host', 'Guest'], config: start2?.config };
+    expect(dump(replayHeader)).toContain('UNLNK2');                          // the header really holds the room's config
+    expect(dump(ofType(d.ws0, 'lobby'))).toContain(MODEL);                    // the lobby is where the model is allowed
+    const corpus: Record<string, string> = { desync: dump(desync), start: dump(start2?.config), replay: dump(replayHeader) };
+    for (const [source, text] of Object.entries(corpus)) {
+      expect(text.length, `${source} is empty`).toBeGreaterThan(20);
+      for (const needle of [...four, A.internal, MODEL]) expect(text, `${source} carries ${needle}`).not.toContain(needle);
+    }
+  });
 });

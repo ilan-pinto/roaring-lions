@@ -23,6 +23,12 @@ describe('the privacy page', () => {
     expect(html).not.toContain('An empty coin wallet');
   });
 
+  it('A3-9 names_the_a3_data: versus records, a guest opponent never stored, the declared bot model', () => {
+    const html = renderPrivacy(fixtureValues);
+    for (const m of ['versus', 'guest', 'never stored', 'declared']) expect(html.toLowerCase(), m).toContain(m);
+    expect(html).toContain('Versus matches you play while signed in');
+  });
+
   it('the guest sentence does not deny the anonymous data the page goes on to list (A1 follow-up 5)', () => {
     const html = renderPrivacy(fixtureValues);
     expect(html).not.toContain('stores nothing about you');

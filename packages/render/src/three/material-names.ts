@@ -10,8 +10,8 @@
  *   no legacy pixel and costs no program.
  * - `UNIT_HOOK_SEGMENTS`: the `customProgramCacheKey` segments of the five unit `onBeforeCompile` hooks. A hooked material whose
  *   segments are ALL in this set is a `unit` material: one twin composes the terms its segments name.
- * - `hookSegments`: the `rl-` segments of a material's program key, in order (`stock|rl-running-gear-1|rl-team-mark-2` gives
- *   `['rl-running-gear-1', 'rl-team-mark-2']`). The census keys a hooked material by them (`censusKey`), so a reader sees which
+ * - `hookSegments`: the `rl-` segments of a material's program key, in order (`stock|rl-running-gear-1|rl-unit-mark-3` gives
+ *   `['rl-running-gear-1', 'rl-unit-mark-3']`). The census keys a hooked material by them (`censusKey`), so a reader sees which
  *   hook it is, not the GLB material name the 60-character rule used to fall back to.
  *
  * Presentation only. Nothing here is read by the sim.
@@ -46,7 +46,7 @@ export type P3ShaderSlot = (typeof P3_MATERIAL_NAMES)[P3MaterialName];
 
 /** The five unit hooks' program-key segments (team mark, running gear, rain rim, wounded floor, soot). */
 export const UNIT_HOOK_SEGMENTS: ReadonlySet<string> = new Set([
-  'rl-team-mark-2',
+  'rl-unit-mark-3',
   'rl-running-gear-1',
   'rl-unit-rain-rim',
   'rl-wounded-floor',

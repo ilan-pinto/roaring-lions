@@ -316,3 +316,60 @@ Sources: `packages/worker/src/account/`, `packages/worker/migrations-accounts/`,
 - **After a D1 Time Travel restore** of the ACCOUNTS database, CLOSE the switch first. A restore can bring back members
   deleted since the restore point, and their tombstones in KV then say they are gone. Re-apply the deletions (the
   tombstone re-apply script, built in A4) and only then reopen. Until A4 builds it, do not restore without closing.
+
+## Accounts A3: versus records (GH-1075)
+
+A versus match a member plays is recorded on the member's account, but only a result the server can stand behind.
+Sources: `packages/worker/src/match/` (`room-core.ts` `recordOf`, `record.ts`, `routes.ts`), `account/seat-member.ts`,
+`account/matches.ts`, `packages/net/src/bot-model.ts`, `packages/app/src/net/seat-label.ts`; rulings in
+`docs/superpowers/plans/2026-11-11-accounts-a3.md` section 0 and its "Lead rulings" (GH-1075, 11 Nov). **A3 adds no
+migration and no binding**: `match_record` and `match_seat` are in `0001_members.sql` already, and A1 built their
+export, delete and orphan sweep.
+
+- **The member comes from the cookie, never the body** (section 0.13). Only `seatMemberOf` reads the session for a seat;
+  `routes.ts` puts the result into the Worker-to-room request field by field, and the room keeps it in
+  `RoomMeta.members`. The seat ticket is unchanged. With `ACCOUNTS` unbound, or a failing accounts database, the seat is
+  a guest's and nothing errors.
+- **Agreed results only** (`recordOf`, pure, in `room-core.ts`). `over` carries `result {winner: seat, by}` (a SEAT, not
+  a side). Two reports that differ in tick or result void the record for good, whatever ending follows (section 0.23). A
+  settled `over` beats a later `bye` (a winner who closes the tab still wins, section 0.7). A room-decided end
+  (`surrender`, `forfeit`, a started `left`) with no settled report names the other seat the winner, agreed. A lone
+  report is written `agreed = 0` and never counts. `void`, `expired`, a lobby `left` and a sandbox room write nothing.
+- **The hash rule** (section 0.24). Agreement also needs a COMPARED hash pair within one cadence of the result tick:
+  `lastHashTick >= 0 && lastHashTick >= overTick - hashEveryTicks`. **Changed since the plan (PR 1280):** the first
+  version let an early over through, because `lastHashTick` starts at -1 and `-1 >= t - 20` held at tick 19 or earlier.
+  So (a) matching reports with no compared hash record nothing (no record, not even unconfirmed), and (b) the room
+  ignores an `over` whose tick is not a hash-window tick (`(tick + 1) % hashEveryTicks !== 0`): an honest sim decides
+  only there. That closes a forged tick-0 `over` followed by a leave, which would have turned the room's agreed loss
+  into an unconfirmed claim.
+- **Labels are never in `MatchConfig`** (section 0.14). A member's public id and display name travel in the `lobby`
+  message only (`SeatState.member`, built field by field in `lobbyFor`); the app keeps them and hands them to the match
+  HUD (`seatLabel`, `nameFrom`). `config` goes to the desync log, replay files and feedback reports, so nothing a
+  member is called may be in it. The internal member id, the token and the SteamID never leave the server. A1-10,
+  extended, is the proof (`match-room.test.ts` `A1-10 (extended)` and `account/unlinked.test.ts`).
+- **The declared bot model** (section 0.16, ruling 2). A bot client declares the model that drives it: a listed id from
+  `BOT_MODELS` (`scripted`, `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, `claude-fable-5-2`; append-only,
+  because rows name ids) or `other` plus a typed name, cleaned by `cleanCallsign` (24 code points) on the client and
+  again on the Worker. It is a LABEL: it makes no seat a bot, moves no W-L, and is dropped for a member seat or a human
+  seat. It is stored in `match_seat.bot_label` as `id:<id>` or `other:<name>`, on a bot row only. History and the lobby
+  show a listed id through `t('bot.model.<id>')` and a typed name as a text node, never as HTML. The lead can blank a
+  typed name from `/stats` (`POST /stats/api/bots/blank`), and a display name (`/stats/api/members/blank`, which resets
+  it to the public id; no lock). **The column's SQL comment in `0001_members.sql` ("a bot preset's label, never text a
+  person typed") is stale and is not edited** (no migration): the column now holds an operator-declared model.
+- **W-L counts every agreed result** (ruling 1): guests and bots included. The two-tab risk (beating your own signed-out
+  tab, or a client that claims to be a bot) is accepted; versus pays 0 coins and writes no wallet or journal row.
+  `memberRecord` never reads the other seat's row, so no opponent filter can creep in. A member deleted mid-match
+  leaves the other seat's history intact (the seat becomes `deleted`).
+- **The profile** reads `GET /api/account/matches?before=<cursor>&limit=<n>`. **Changed since the plan (PR 1263
+  review):** `next` and `before` are a STRING cursor `<started_at>.<code>`, the pair the query orders by, so two matches
+  with one start time can straddle a page boundary without a skip. A malformed cursor is 400 `query`. The "Show my
+  record" toggle rides `PATCH profile` `showRecord`.
+- **The breaker** (section 0.21). Each record reads `acct-all` first and skips the write, logged, when the day is spent;
+  a record bumps `acct-all` by `RECORD_ROWS` (4) and no member's `acct-ops`. The lead stops every record with no deploy:
+  `npx wrangler d1 execute roaring-lions-accounts --remote --command "INSERT INTO flags (name, value, updated_at) VALUES ('records', 'closed', unixepoch() * 1000) ON CONFLICT (name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"`.
+  To reopen, set the value to `open` the same way, or `DELETE FROM flags WHERE name = 'records'` (a missing row means
+  records are written). The agent never runs either.
+- **Privacy.** `/privacy` has the versus item (A3-9, `names_the_a3_data`): the map, sides, result and time, the
+  opponent's kind, the declared bot model, and that a guest opponent's name is never stored.
+- **Gate still to come.** A3 deploys inert while `ACCOUNTS` is unbound (A1 Task 1.11). The lead's friend match, two
+  members through Steam, is played after 1.11; A3 counts as done only then.

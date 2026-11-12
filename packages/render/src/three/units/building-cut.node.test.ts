@@ -512,7 +512,7 @@ describe('G5: the seam and the census', () => {
 
   it('a material carrying any other hook is refused loudly', async () => {
     const m = new THREE.MeshStandardMaterial();
-    m.customProgramCacheKey = () => 'stock|rl-cut|rl-team-mark-2';
+    m.customProgramCacheKey = () => 'stock|rl-cut|rl-unit-mark-3';
     await expect(twinOf(m)).rejects.toThrow(/not only/);
   });
 });

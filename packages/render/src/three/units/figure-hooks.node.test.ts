@@ -57,21 +57,21 @@ describe('the fade clone of a figure drops the hooks the legacy clone lost, so t
     const d = await unitDeps();
     const hull = new VehicleTeamMaterials(slots()).materialFor(laviMaterial(), 0) as THREE.MeshStandardMaterial;
     applyRainRim(hull);
-    expect(hookSegments(hull)).toEqual(['rl-team-mark-2', 'rl-unit-rain-rim']);
+    expect(hookSegments(hull)).toEqual(['rl-unit-mark-3', 'rl-unit-rain-rim']);
     const root = new THREE.Group().add(new THREE.Mesh(taggedGeometry(0), hull));
     const scene = new THREE.Scene().add(root);
     const cache = adoptUnits(d, scene);
     const mesh = root.children[0] as THREE.Mesh;
     const baseTwin = mesh.material as THREE.Material;
-    expect(nodeUnitBindings(baseTwin)?.applied).toEqual(['rl-team-mark-2', 'rl-unit-rain-rim']);
+    expect(nodeUnitBindings(baseTwin)?.applied).toEqual(['rl-unit-mark-3', 'rl-unit-rain-rim']);
     const swaps = beginMeshDeathFade(root);
     const fade = swaps[0]?.fade as THREE.MeshStandardMaterial;
     expect(legacyOf(baseTwin, mesh)).toBe(hull);
-    expect(hookSegments(fade)).toEqual(['rl-team-mark-2']); // the legacy clone lost the rim
+    expect(hookSegments(fade)).toEqual(['rl-unit-mark-3']); // the legacy clone lost the rim
     adoptUnits(d, scene, cache);
     const fadeTwin = mesh.material as THREE.Material;
     expect(fadeTwin).not.toBe(baseTwin);
-    expect(nodeUnitBindings(fadeTwin)?.applied).toEqual(['rl-team-mark-2']);
+    expect(nodeUnitBindings(fadeTwin)?.applied).toEqual(['rl-unit-mark-3']);
     expect(nodeUnitBindings(fadeTwin)?.uniforms.has('uRimGain')).toBe(false);
     expect(nodeUnitBindings(baseTwin)?.uniforms.has('uRimGain')).toBe(true);
     const frag = mainOf(compile(d, mesh, fadeTwin).fragment);
