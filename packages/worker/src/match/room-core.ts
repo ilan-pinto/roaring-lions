@@ -454,6 +454,9 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       // The result this seat's sim reached (L-1): only its first report counts,
       // and only for a tick the room has minted (`st.tick` is the NEXT frame's).
       if ((st.status !== 'running' && st.status !== 'stalled') || st.over[seat] >= 0 || msg.tick >= st.tick) return [];
+      // An honest sim decides only on a hash-window tick (decideOnHashTick); any other tick is a forgery
+      // that the lone-report rule would otherwise turn into an unconfirmed claim (GH-1075 A3).
+      if ((msg.tick + 1) % (st.config?.hashEveryTicks ?? 20) !== 0) return [];
       st.over[seat] = msg.tick;
       st.overResults[seat] = msg.result ?? null;
       armClose(st, nowMs);

@@ -727,7 +727,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
 
   it('#559 L-1: an early `over` from one seat plus a blip of the other ends nothing while the other has not reported', () => {
     const st = minted();
-    seatMessage(st, 1, { t: 'over', tick: 1 }, 1000, mint);   // a claim the other seat's sim never reached
+    seatMessage(st, 1, { t: 'over', tick: 19 }, 1000, mint);   // a claim the other seat's sim never reached
     seatGone(st, 0, 1100);
     expect(st.closeAtMs).toBe(1100 + OVER_CLOSE_MS);
     seatJoin(st, 0, 'p0', 'Host', 2100);   // back a second later
@@ -854,8 +854,9 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     expect(old.over).toEqual([-1, -1]);
     expect(old.closeAtMs).toBeNull();
     expect(frames(clockTick(old, 9050))).toHaveLength(1);
-    seatMessage(old, 0, { t: 'over', tick: 0 }, 9100, mint);
-    seatMessage(old, 1, { t: 'over', tick: 0 }, 9100, mint);
+    old.tick = 30;   // frames minted past the first hash window
+    seatMessage(old, 0, { t: 'over', tick: 19 }, 9100, mint);
+    seatMessage(old, 1, { t: 'over', tick: 19 }, 9100, mint);
     expect(old.closeAtMs).toBe(9100 + OVER_CLOSE_MS);
   });
 });
@@ -1015,8 +1016,8 @@ describe('the player who drops loses (the lead\'s ruling, 2026-10-13)', () => {
   it('no forfeit once the result is settled (both seats reported the same over): the room closes itself as before', () => {
     const st = versus();
     run(st, 50, 1000);
-    seatMessage(st, 0, { t: 'over', tick: 10 }, 1000, mint);
-    seatMessage(st, 1, { t: 'over', tick: 10 }, 1000, mint);
+    seatMessage(st, 0, { t: 'over', tick: 19 }, 1000, mint);
+    seatMessage(st, 1, { t: 'over', tick: 19 }, 1000, mint);
     const gone = seatGone(st, 1, DROP);
     expect(sends(gone).filter((x) => x.msg.t === 'dropped')).toEqual([]);
     expect(forfeitDueAt(st)).toBeNull();
@@ -1354,7 +1355,7 @@ describe('recordOf (GH-1075 A3, the agreed-result rule)', () => {
     return st;
   }
   const report = (st: RoomState, seat: 0 | 1, result?: OverResult): void => {
-    seatMessage(st, seat, { t: 'over', tick: 400, ...(result ? { result } : {}) }, 5000, mintV);
+    seatMessage(st, seat, { t: 'over', tick: 399, ...(result ? { result } : {}) }, 5000, mintV);
   };
   const closeOver = (st: RoomState): void => { closeIfDue(st, 5200 + OVER_CLOSE_MS); };
 
@@ -1389,7 +1390,7 @@ describe('recordOf (GH-1075 A3, the agreed-result rule)', () => {
     report(st, 0, WIN1);
     report(st, 1, WIN1);
     closeOver(st);
-    expect(recordOf(st)).toEqual({ startedAt: 1000, endedAt: 5200 + OVER_CLOSE_MS, reason: 'annihilation', winnerSeat: 1, ticks: 400, agreed: true });
+    expect(recordOf(st)).toEqual({ startedAt: 1000, endedAt: 5200 + OVER_CLOSE_MS, reason: 'annihilation', winnerSeat: 1, ticks: 399, agreed: true });
   });
 
   it('a_winner_who_leaves_after_the_result_still_wins', () => {
@@ -1414,13 +1415,17 @@ describe('recordOf (GH-1075 A3, the agreed-result rule)', () => {
     expect(recordOf(fresh)).toMatchObject({ agreed: true });
   });
 
-  describe('an early over (before the first hash checkpoint)', () => {
+  describe('the first hash window (ticks 0..19)', () => {
     const early = (): RoomState => {
       const st = versusAt400(-1);
-      st.tick = 10;
+      st.tick = 30;
       return st;
     };
-    const rep = (st: RoomState, seat: 0 | 1): void => { seatMessage(st, seat, { t: 'over', tick: 5, result: WIN1 }, 5000, mintV); };
+    const rep = (st: RoomState, seat: 0 | 1, tick = 19): void => { seatMessage(st, seat, { t: 'over', tick, result: WIN1 }, 5000, mintV); };
+    const hashBoth = (st: RoomState, h1 = 7): void => {
+      seatMessage(st, 0, { t: 'hash', tick: 19, h: 7 }, 4000, mintV);
+      seatMessage(st, 1, { t: 'hash', tick: 19, h: h1 }, 4000, mintV);
+    };
 
     it('matching_reports_with_no_compared_hash_record_nothing', () => {
       const st = early();
@@ -1432,28 +1437,44 @@ describe('recordOf (GH-1075 A3, the agreed-result rule)', () => {
 
     it('matching_reports_after_a_compared_hash_are_agreed', () => {
       const st = early();
-      seatMessage(st, 0, { t: 'hash', tick: 4, h: 7 }, 4000, mintV);
-      seatMessage(st, 1, { t: 'hash', tick: 4, h: 7 }, 4000, mintV);
-      expect(st.lastHashTick).toBe(4);
+      hashBoth(st);
+      expect(st.lastHashTick).toBe(19);
       rep(st, 0); rep(st, 1);
       closeOver(st);
-      expect(recordOf(st)).toMatchObject({ agreed: true, ticks: 5, winnerSeat: 1 });
+      expect(recordOf(st)).toMatchObject({ agreed: true, ticks: 19, winnerSeat: 1 });
     });
 
     it('mismatching_hashes_void_the_match_and_record_nothing', () => {
       const st = early();
-      seatMessage(st, 0, { t: 'hash', tick: 4, h: 7 }, 4000, mintV);
-      seatMessage(st, 1, { t: 'hash', tick: 4, h: 8 }, 4000, mintV);
+      hashBoth(st, 8);
       expect(st.endedReason).toBe('void');
       expect(recordOf(st)).toBeNull();
     });
 
-    it('a_lone_early_report_stays_unconfirmed', () => {
+    it('a_lone_report_at_19_stays_unconfirmed', () => {
       const st = early();
       rep(st, 0);
       seatGone(st, 1, 5100);
       closeIfDue(st, 5200 + OVER_CLOSE_MS + 60_000);
-      expect(recordOf(st)).toMatchObject({ agreed: false, winnerSeat: 1, ticks: 5 });
+      expect(recordOf(st)).toMatchObject({ agreed: false, winnerSeat: 1, ticks: 19 });
+    });
+
+    it('an_over_off_the_hash_window_is_ignored', () => {
+      const st = early();
+      rep(st, 0, 0); rep(st, 1, 5); rep(st, 0, 18);
+      expect(st.over).toEqual([-1, -1]);
+      expect(st.closeAtMs).toBeNull();
+      rep(st, 0, 19);
+      expect(st.over).toEqual([19, -1]);
+    });
+
+    it('a_forged_over_at_tick_0_then_a_leave_records_the_rooms_agreed_loss_not_the_claim', () => {
+      const st = early();
+      // seat 0 (the loser) claims a win at tick 0, then leaves: the room's own `left` loss must stand.
+      seatMessage(st, 0, { t: 'over', tick: 0, result: { winner: 0, by: 'annihilation' } }, 5000, mintV);
+      seatMessage(st, 0, { t: 'bye' }, 6000, mintV);
+      expect(st.endedReason).toBe('left');
+      expect(recordOf(st)).toMatchObject({ winnerSeat: 1, reason: 'left', agreed: true });
     });
   });
 
@@ -1463,7 +1484,7 @@ describe('recordOf (GH-1075 A3, the agreed-result rule)', () => {
     seatGone(st, 1, 5100);
     closeOver(st);
     expect(st.endedReason).toBe('over');
-    expect(recordOf(st)).toMatchObject({ agreed: false, winnerSeat: 1, reason: 'annihilation', ticks: 400 });
+    expect(recordOf(st)).toMatchObject({ agreed: false, winnerSeat: 1, reason: 'annihilation', ticks: 399 });
   });
 
   it('a lone report then the other seat leaving is still the reporter\'s result, unconfirmed', () => {
