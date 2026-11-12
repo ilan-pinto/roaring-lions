@@ -195,5 +195,12 @@
       }
     ]
   },
-  "triggers": []
+  "triggers": [
+    {
+      "id": "the_yanshuf_comes_up",
+      "label": "Yanshuf comes up to the start line",
+      "on": { "kind": "timer_s", "value": 45 },
+      "do": { "kind": "reinforce", "units": [{ "unit": "heli_yanshuf", "count": 1, "marker": "start_line" }] }
+    }
+  ]
 }

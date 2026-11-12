@@ -201,9 +201,11 @@ describe('pnpm arena', () => {
     const list = FLAG_SETUP_MAPS as string[];
     const before = [...list]; // restored below, never cleared
     const argv = ['--a', 'rush', '--b', 'passive', '--map', 'rujm_sawda', '--mode', 'flag'];
-    expect(parseArgs(argv)).toMatchObject({ capTicks: 42_000 });
-    list.push('rujm_sawda');
+    expect(parseArgs(argv)).toMatchObject({ capTicks: 36_000 });   // rujm_sawda ships in FLAG_SETUP_MAPS (12 Nov relist)
+    list.splice(list.indexOf('rujm_sawda'), 1);
     try {
+      expect(parseArgs(argv)).toMatchObject({ capTicks: 42_000 });   // unlisted: the map's own cap
+      list.push('rujm_sawda');
       expect(parseArgs(argv)).toMatchObject({ capTicks: 36_000 });
       // The ceiling follows the room too: 40,000 is past 30 minutes.
       expect(parseArgs([...argv, '--cap-ticks', '40000'])).toHaveProperty('error');

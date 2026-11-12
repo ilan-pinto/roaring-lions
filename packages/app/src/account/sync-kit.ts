@@ -234,5 +234,6 @@ export function clientFor(server: FakeServer, o: { me?: () => MeResult; gone?: '
     putSlot: (op) => server.putSlot(op),
     deleteSlot: (op) => server.deleteSlot(op),
     claim: never,
+    matches: async () => ok({ matches: [], next: null, record: { won: 0, lost: 0, drawn: 0 } }),
   };
 }
