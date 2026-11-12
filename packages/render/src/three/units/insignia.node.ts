@@ -52,7 +52,8 @@ export function insigniaTerms(maths: InsigniaMaths): readonly UnitTerm[] {
         const { p, n } = ctx.markVaryings();
         const f4: [UN, UN, UN, UN] = [frame.x, frame.y, frame.z, frame.w] as [UN, UN, UN, UN];
         const { e, st } = maths.insigniaCoordOps(o, [p.x, p.y, p.z], f4);
-        const sample = ctx.renderTexture(() => hook.sdf.value, T.vec2(st[0], st[1]), 'uInsSdf');
+        // The field rides on the strength (always read by the mask): a texture node's own render update does not survive its setup.
+        const sample = ctx.renderTexture(() => hook.sdf.value, T.vec2(st[0], st[1]), 'uInsSdf', strength);
         const d = ctx.color;
         const r = maths.insigniaOps(o, {
           p: [p.x, p.y, p.z],

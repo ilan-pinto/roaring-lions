@@ -153,8 +153,13 @@ export interface UnitTermContext {
   renderUniform(read: () => unknown, name: string): UN;
   /** A uniform array re-read every render from `read()`. */
   renderArray(read: () => readonly unknown[], type: string, name: string): UN;
-  /** A texture sampled at `uv` whose image is re-read every render from `read()` (a late load swaps it with no rebuild). */
-  renderTexture(read: () => unknown, uv: N, name: string): UN;
+  /**
+   * A texture sampled at `uv` whose image is re-read every render from `read()` (a late load swaps it with no rebuild). A texture
+   * node has no render update of its own that survives its setup (three's `TextureNode.setup` rewrites `updateType`: NONE on WGSL,
+   * which has no flipY uniform), so the swap rides on `carrier`, a `renderUniform` the same term READS (an unread uniform leaves the
+   * update list), exactly as the ground's slot images ride on their strengths (`terrain/mesh.node.ts`).
+   */
+  renderTexture(read: () => unknown, uv: N, name: string, carrier: UN): UN;
   /**
    * The OBJECT-space position and normal as the varyings `vMarkPos` and `vMarkNrm`, made once per twin: the team mark and the
    * insignia (one hook segment, two terms) read the same pair, as the legacy hook declares it once.
@@ -263,6 +268,8 @@ export function createNodeUnitMaterial(deps: NodeUnitDeps, legacy: THREE.MeshSta
     ? T.Fn((builder) => ((builder.material as { map?: unknown } | null)?.map ? T.materialReference('map', 'texture') : T.vec4(1, 1, 1, 1)))()
     : null;
   let markVarying: { readonly p: UN; readonly n: UN } | null = null;
+  /** `renderTexture`'s syncs, by the `renderUniform` that carries them (its render update runs them first). */
+  const carried = new Map<UN, Array<() => void>>();
   const ctxBase = {
     W,
     TSL: deps.TSL,
@@ -273,15 +280,24 @@ export function createNodeUnitMaterial(deps: NodeUnitDeps, legacy: THREE.MeshSta
     base,
     renderUniform: (read: () => unknown, name: string): UN => {
       const n = T.uniform(read());
-      n.onRenderUpdate(() => read());
+      carried.set(n, []);
+      n.onRenderUpdate(() => {
+        for (const sync of carried.get(n) ?? []) sync();
+        return read();
+      });
       declared.push({ node: n, value: () => read() });
       return named(n, name);
     },
     markVaryings: (): { readonly p: UN; readonly n: UN } =>
       (markVarying ??= { p: T.positionGeometry.toVarying('vMarkPos'), n: T.normalGeometry.toVarying('vMarkNrm') }),
-    renderTexture: (read: () => unknown, uv: N, name: string): UN => {
+    renderTexture: (read: () => unknown, uv: N, name: string, carrier: UN): UN => {
       const n = T.texture(read(), uv);
-      n.onRenderUpdate(() => read());
+      const list = carried.get(carrier);
+      if (list === undefined) throw new Error(`node unit: ${name}'s carrier is not a renderUniform of this twin`);
+      list.push(() => {
+        (n as unknown as { value: unknown }).value = read();
+      });
+      // Still declared: the refresh policy keys the image it will bind, so a late load refreshes a parked hull.
       declared.push({ node: n, value: () => read() });
       return named(n, name);
     },

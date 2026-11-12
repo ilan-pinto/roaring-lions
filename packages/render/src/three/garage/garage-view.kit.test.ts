@@ -124,11 +124,12 @@ function kittedVehicle(sourceOnlyTexture = false) {
 const COLORS = { key: '#ffffff', fill: '#ffffff', sky: '#ffffff', bounce: '#ffffff', ground: '#c8b494' };
 const host = { clientWidth: 600, clientHeight: 400, appendChild: (): void => {} } as unknown as HTMLElement;
 
-async function mount(kitTiers?: Readonly<Record<string, number>>, sourceOnlyTexture = false) {
+async function mount(kitTiers?: Readonly<Record<string, number>>, sourceOnlyTexture = false, extra: { typeId?: string; insigniaSdfUrl?: string } = {}) {
   const v = kittedVehicle(sourceOnlyTexture);
   loader.make = () => v.gltf;
   const view = await mountGarageView(host, {
-    typeId: 'mbt_lavi',
+    ...extra,
+    typeId: extra.typeId ?? 'mbt_lavi',
     kind: 'vehicle',
     meshUrl: '/meshes/vehicles/mbt_lavi.glb',
     dracoDecoderPath: '/draco/',
@@ -290,5 +291,21 @@ describe('mountGarageView: the Roaring Lion insignia whatever the team colour (G
     expect(teamHookOf(material)).toBeUndefined();
     expect(material.customProgramCacheKey().endsWith('|rl-unit-mark-3|ins')).toBe(true);
     bay.view.dispose();
+  });
+});
+
+describe('mountGarageView: the insignia field is fetched only for a framed vehicle (GH-1096 S1)', () => {
+  it('the Lavi fetches it once; an unframed vehicle with the same URL fetches nothing', async () => {
+    const url = '/t/textures/insignia/roaring_lion_sdf.png';
+    const load = vi.spyOn(THREE.TextureLoader.prototype, 'load').mockImplementation((_u, ok) => {
+      ok?.(new THREE.Texture());
+      return new THREE.Texture();
+    });
+    const lavi = await mount(undefined, false, { insigniaSdfUrl: url });
+    expect(load.mock.calls.filter((c) => c[0] === url)).toHaveLength(1);
+    lavi.view.dispose();
+    const jeep = await mount(undefined, false, { typeId: 'jeep_shoded', insigniaSdfUrl: url });
+    expect(load.mock.calls.filter((c) => c[0] === url)).toHaveLength(1);
+    jeep.view.dispose();
   });
 });

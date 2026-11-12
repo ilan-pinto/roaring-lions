@@ -3835,7 +3835,11 @@ export class ThreeRenderer implements Renderer {
     }
     // GH-1096 S1: the insignia's distance field. Fail-soft and unawaited: until it lands (or if it never does) the placeholder
     // reads "outside" and every hull draws as it did.
-    if (this.opts.insigniaSdfUrl) void this.insigniaShared.load(this.opts.insigniaSdfUrl);
+    // Fetched only when the roster holds a FRAMED type (`sim.unitTypes` is complete before `init` and never grows), so a mission
+    // with no Lavi asks for nothing.
+    if (this.opts.insigniaSdfUrl && this.sim.unitTypes.some((t) => insigniaFrameOf(t.id) !== null)) {
+      void this.insigniaShared.load(this.opts.insigniaSdfUrl);
+    }
     // Everything in this method that needs a live GL context lives here
     // rather than in the constructor, which the nine `ThreeRenderer*.test.ts`
     // fakes exercise with a renderer stub that has four members.

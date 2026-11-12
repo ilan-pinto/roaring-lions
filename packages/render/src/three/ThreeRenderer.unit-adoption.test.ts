@@ -535,6 +535,26 @@ describe('GH-1096 S1: a living Lavi built by the renderer wears the insignia; a 
   });
 });
 
+describe('GH-1096 S1: the insignia field is fetched only for a roster holding a framed type', () => {
+  const URL_SDF = '/t/textures/insignia/roaring_lion_sdf.png';
+  async function fetchesFor(types: readonly UnitTypeJson[]): Promise<number> {
+    seam.kit = stubKit();
+    const load = vi.spyOn(THREE.TextureLoader.prototype, 'load').mockImplementation(() => new THREE.Texture());
+    const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
+    types.forEach((t, i) => sim.spawn(sim.addUnitType(t), 0, fx.from(4.5 + 4 * i), fx.from(6.5)));
+    const r = new ThreeRenderer(sim, { ...makeOpts('webgl2'), insigniaSdfUrl: URL_SDF });
+    await r.init(HOST);
+    const n = load.mock.calls.filter((c) => c[0] === URL_SDF).length;
+    r.dispose();
+    load.mockRestore();
+    return n;
+  }
+  it('a Lavi in the roster: one fetch; no framed type (a wounded figure, the Ambush Tank): none', async () => {
+    expect(await fetchesFor([LAVI, WOUNDED])).toBe(1);
+    expect(await fetchesFor([WOUNDED, { ...LAVI, id: 'mbt_lavi_camo' }])).toBe(0);
+  });
+});
+
 describe('G8: a legacy boot never calls the kit and never queues', () => {
   it('spawn, move, damage, death fade, reload: no factory call, an empty queue, every material legacy', async () => {
     const kit = stubKit();

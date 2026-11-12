@@ -688,7 +688,8 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
   const [gltf, sand] = await Promise.all([
     gltfLoader().loadAsync(opts.meshUrl),
     loadSand(opts.groundTextureUrl),
-    opts.kind === 'vehicle' && opts.insigniaSdfUrl ? insignia.load(opts.insigniaSdfUrl) : Promise.resolve(),
+    // Only for a FRAMED vehicle: an unmarked one (and every team) fetches nothing.
+    opts.kind === 'vehicle' && opts.insigniaSdfUrl && insigniaFrameOf(opts.typeId) !== null ? insignia.load(opts.insigniaSdfUrl) : Promise.resolve(),
   ]).catch((err: unknown) => {
     insignia.dispose();
     throw err;

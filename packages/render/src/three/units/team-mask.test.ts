@@ -350,3 +350,37 @@ describe('gate 5: clones keep the insignia, and a wreck has none (GH-1096 S1)', 
     expect(wreck.customProgramCacheKey()).not.toContain(UNIT_MARK_PROGRAM_KEY);
   });
 });
+
+describe('gate 5 on the SHIPPED shape: the Lavi is team + insignia, and every clone keeps both halves (GH-1096 S1)', () => {
+  /** What the renderer mints for a Lavi: a team-marked bake (`lavi()`), a slot, and the Lavi's frame. */
+  const teamIns = (): THREE.MeshStandardMaterial =>
+    new VehicleTeamMaterials(slotsOf(), undefined, insigniaOf()).materialFor(lavi(), 0) as THREE.MeshStandardMaterial;
+  const spec = { wheels: [], track: { r: [10, 0.3], l: [10, 0.3] }, gauge: { r: 1.2, l: 1.2 }, wheelbase: 0, steerLimit: 0 } as never;
+  const clones: ReadonlyArray<readonly [string, (v: THREE.MeshStandardMaterial) => THREE.Material]> = [
+    ['scar', (v) => new VehicleScarMaterials().materialFor(v, 3)],
+    ['running gear', (v) => runningGearMaterial(v, spec).material],
+    [
+      'death fade',
+      (v) => {
+        const root = new THREE.Group();
+        root.add(new THREE.Mesh(new THREE.BufferGeometry(), v));
+        return beginMeshDeathFade(root)[0]!.fade;
+      },
+    ],
+  ];
+
+  it.each(clones)('the %s clone carries the team mark AND the insignia, keyed |team+ins, both patched', (_name, cut) => {
+    const variant = teamIns();
+    expect(teamHookOf(variant)).toBeDefined();
+    expect(insigniaHookOf(variant)).toBeDefined();
+    const clone = cut(variant);
+    expect(clone).not.toBe(variant);
+    expect(teamHookOf(clone)).toBe(teamHookOf(variant));
+    expect(insigniaHookOf(clone)).toBe(insigniaHookOf(variant));
+    expect(clone.customProgramCacheKey()).toContain(`${UNIT_MARK_PROGRAM_KEY}|team+ins`);
+    const { fragmentShader, uniforms } = compile(clone);
+    expect(fragmentShader).toContain('float rlTeamMask');
+    expect(fragmentShader).toContain('float rlInsMask');
+    expect(uniforms.uInsSdf).toBe(compile(variant).uniforms.uInsSdf);
+  });
+});

@@ -110,7 +110,16 @@ interface DrawLike extends THREE.Object3D {
   material?: THREE.Material | THREE.Material[];
 }
 
-/** The pipeline state two users of one shared unit twin must agree on (the memo key past the base). */
+/**
+ * The pipeline state two users of one shared unit twin must agree on (the memo key past the base).
+ *
+ * GH-1096 S1: `hookSegments` keeps only the `rl-` parts of the program key, so the unit-mark hook's feature suffix (`|team`, `|ins`,
+ * `|team+ins`) is NOT in this key. That is safe because the memo is keyed by the BASE first (`TwinCache.shared`): every team or
+ * insignia variant is its own base, minted once with its features fixed (`VehicleTeamMaterials.materialFor`), and every user that
+ * can share its twin (a scar, a running-gear clone, a death fade) is cut from that base and carries the base's WHOLE hook record
+ * (`carryTeamMark`), so two users of one base can never differ in the suffix. Two different bases never share a twin whatever
+ * their key.
+ */
 function unitMemoKey(m: THREE.Material): string {
   return [
     hookSegments(m).join('|'),

@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { InsigniaShared, setInsigniaStrength } from './insignia';
 import { TeamMaskSlots, UNIT_MARK_PROGRAM_KEY, VehicleTeamMaterials, setInsigniaPass } from './team-mask';
-import { bindingsOf, compile, compileWgsl, laviMaterial, mainOf, runUpdate, taggedGeometry, uniformOf, unitDeps, unitFactory, type UnitDeps } from './unit-twin.test-support';
+import { bindingsOf, builderRenderer, compile, compileWgsl, laviMaterial, mainOf, runUpdate, taggedGeometry, uniformOf, unitDeps, unitFactory, type UnitDeps } from './unit-twin.test-support';
 
 afterEach(() => setInsigniaStrength(true));
 
@@ -86,7 +86,8 @@ describe('G2: the owner\'s field, colour and ratio and the module\'s strength, b
     expect(sdf.value).toBe(placeholder);
     const real = new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1);
     shared.setTexture(real);
-    runUpdate(sdf);
+    // The field rides on the strength's render update (a texture node's own does not survive its setup).
+    runUpdate(uniformOf(twin, 'uInsStrength'));
     expect(sdf.value).toBe(real);
     shared.setPixelRatio(2);
     const ratio = uniformOf(twin, 'uInsPixelRatio');
@@ -100,5 +101,53 @@ describe('G2: the owner\'s field, colour and ratio and the module\'s strength, b
     runUpdate(strength);
     expect(strength.value).toBe(0.85);
     expect((uniformOf(twin, 'uInsFrame').value as THREE.Vector4).toArray()).toEqual([0.95, 1.0, 0.6, 0.6]);
+  });
+});
+
+/**
+ * The update nodes three's builder hands `NodeManager.updateForRender` for `material` drawing `mesh`, on the WGSL builder (an
+ * UNINITIALISED WebGPU renderer given the three device facts the builder asks for, as `compileWgsl`) or the GLSL one.
+ */
+function updateNodesOf(d: UnitDeps, mesh: THREE.Object3D, material: THREE.Material, wgsl: boolean): Array<{ updateType: string; update?(frame: unknown): unknown }> {
+  let renderer: unknown = builderRenderer(d);
+  if (wgsl) {
+    const r = new d.W.WebGPURenderer() as unknown as { hasFeature(): boolean; backend: { device: unknown; compatibilityMode: boolean } };
+    r.hasFeature = () => false;
+    r.backend.device = { limits: { maxUniformBufferBindingSize: 65536 }, features: new Set() };
+    r.backend.compatibilityMode = false;
+    renderer = r;
+  }
+  const B = wgsl ? d.W.WGSLNodeBuilder : d.W.GLSLNodeBuilder;
+  const builder = new B(mesh, renderer as never) as unknown as {
+    scene: THREE.Scene;
+    camera: THREE.Camera;
+    material: unknown;
+    build(): void;
+    updateNodes: Array<{ updateType: string; update?(frame: unknown): unknown }>;
+  };
+  builder.scene = new THREE.Scene();
+  builder.camera = new THREE.OrthographicCamera();
+  builder.material = material;
+  builder.build();
+  return [...builder.updateNodes];
+}
+
+describe('G3: a late field reaches the texture node through the BUILT program\'s own render updates (WGSL and GLSL)', () => {
+  it.each([true, false])('wgsl %s: running every render-type update node the builder kept binds the landed field', async (wgsl) => {
+    const d = await unitDeps();
+    const { shared, twin, mesh } = await built(d, laviMaterial());
+    const nodes = updateNodesOf(d, mesh, twin, wgsl);
+    const sdf = uniformOf(twin, 'uInsSdf');
+    const real = new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1);
+    shared.setTexture(real);
+    expect(sdf.value).not.toBe(real);
+    let ran = 0;
+    for (const n of nodes) {
+      if (n.updateType !== 'render' || typeof n.update !== 'function') continue;
+      n.update({ object: null, material: null, camera: new THREE.OrthographicCamera(), scene: new THREE.Scene() });
+      ran++;
+    }
+    expect(ran).toBeGreaterThan(0);
+    expect(sdf.value, 'the placeholder is still bound after the frame\'s render updates').toBe(real);
   });
 });

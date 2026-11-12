@@ -203,6 +203,33 @@ describe('gate 3: the insignia maths on numbers (NUMBER_OPS, the committed textu
     expect(INSIGNIA_FRAGMENT).toContain('/ uInsPixelRatio');
     expect(INSIGNIA_FRAGMENT_HEAD).toContain(`( s - ${INSIGNIA_SDF_EDGE} )`);
     expect(INSIGNIA_SDF_EDGE).toBeCloseTo(128 / 255, 12);
+    // Every statement of the legacy chunk, as LITERALS, so a dropped `abs`, a wrong axis or a lost coverage term is red. The chunk
+    // is a hand-written twin of `insigniaOps`; these are the lines the numbers above cannot reach (the derivatives, the fetch).
+    const body = INSIGNIA_FRAGMENT.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('//'));
+    expect(body).toEqual([
+      '{',
+      'vec3 rlIP = vMarkPos;',
+      'vec3 rlIN = normalize( vMarkNrm );',
+      'vec2 rlIE = ( rlIP.xy - uInsFrame.xy ) / uInsFrame.z + 0.5;',
+      'vec4 rlIS = texture2D( uInsSdf, 0.03125 + 0.9375 * rlIE );',
+      'vec2 rlIRE = vec2( fwidth( rlIE.x ), fwidth( rlIE.y ) );',
+      'vec2 rlIRS = vec2( fwidth( rlIS.r ), fwidth( rlIS.g ) );',
+      'float rlIRZ = fwidth( abs( rlIP.z ) );',
+      'float rlInside = rlInsCov( abs( rlIP.z ), uInsSlab.x, uInsSlab.y, rlIRZ )',
+      '* smoothstep( uInsFrame.w - 0.04, uInsFrame.w + 0.04, abs( rlIN.z ) )',
+      '* rlInsCov( rlIE.x, 0.0, 1.0, rlIRE.x ) * rlInsCov( rlIE.y, 0.0, 1.0, rlIRE.y );',
+      'float rlInsPx = 1.0 / max( max( rlIRE.x, rlIRE.y ), 1e-5 ) / uInsPixelRatio;',
+      'float rlInsMask = uInsStrength * rlInside * smoothstep( uInsBands.x, uInsBands.y, rlInsPx ) * rlInsEdge( rlIS.r, rlIRS.x )',
+      '* ( 1.0 - smoothstep( uInsBands.z, uInsBands.w, rlInsPx ) * rlInsEdge( rlIS.g, rlIRS.y ) );',
+      'float rlInsY = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );',
+      'vec3 rlInsPaint = min( uInsColor * mix( 1.0, rlInsY / uInsLuma, 0.3 ), vec3( 1.0 ) );',
+      'diffuseColor.rgb = mix( diffuseColor.rgb, rlInsPaint, rlInsMask );',
+      '}',
+    ]);
+    // ...and its two helpers.
+    expect(INSIGNIA_FRAGMENT_HEAD).toContain('return clamp( ( v - lo ) / w + 0.5, 0.0, 1.0 ) * clamp( ( hi - v ) / w + 0.5, 0.0, 1.0 );');
+    expect(INSIGNIA_FRAGMENT_HEAD).toContain('float w = max( rate, 1e-5 );');
+    expect(INSIGNIA_FRAGMENT_HEAD).toContain('return clamp( ( s - 0.5019607843137255 ) / max( rate, 1e-5 ) + 0.5, 0.0, 1.0 );');
     // No branch: the fetch and every derivative are unconditional.
     expect(INSIGNIA_FRAGMENT).not.toMatch(/\bif\s*\(/);
   });
