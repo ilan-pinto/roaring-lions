@@ -7,6 +7,9 @@
  *       [--counts=300,600] [--map=wadi_halam_4] [--port=5197]
  *   Metal only: --lock=<BROWSER.lock dir> [--rounds=6] [--frames=80] [--max-load=4] [--wait-quiet=0] [--profile-frames=60]
  *       [--gpu-frames=40] [--skip=profile,gpu] [--before-root=<P2 tree checkout> --before-port=5198]
+ *   Profile only (GH-1152, 12 Nov): --hw=metal --skip=timing,gpu [--profile-rounds=2] [--sample-us=200] skips the ABBA timing rounds
+ *       and the hypothesis table, and takes `--profile-rounds` ABBA rounds of CDP windows (two per arm per round, fresh page each, load
+ *       bar checked before every page), each saved as profile-<arm>-n<hi>-r<k>.cpuprofile (k counts that arm's windows) with its self and INCLUSIVE tops (`profileTotal`).
  *   T14b: [--node-opts=refreshPolicy=three|parked,matrixWalk=every-pass|once,uploads=three|versioned] boots every NODE page with those
  *       switches (`node-draw-options.ts`); H10 (the 1205 uploads) is a second run with `--node-opts=uploads=three`. H7-H9 are
  *       toggles on every page; G2a (`parkedRefreshRefusals`) refuses a run where the parked policy cut no FULL refresh.
@@ -37,8 +40,8 @@ import { gpuLaunchArgs } from '../ui-review/gpu';
 import { resolveCensusGpu } from './bloom-census-args';
 import { MAX_LOADAVG_1M, abbaOrder, loadRefusal, roundsRefusal, summarise, type ArmSummary } from './webgpu-abba';
 import { ARM_KIND } from './webgpu-refusals';
-import type { CpuProfile } from './cpu-profile';
-import type { ArmRun } from './webgpu-page';
+import { profileTotal, type CpuProfile } from './cpu-profile';
+import type { ArmRun, UploadRow } from './webgpu-page';
 import {
   HYPOTHESIS_NAME,
   VARIANTS,
@@ -82,6 +85,8 @@ const LOCK = arg('lock', '');
 const BEFORE_ROOT = arg('before-root', '');
 const BEFORE_PORT = Number(arg('before-port', '5198'));
 const SKIP = new Set(arg('skip', '').split(',').filter((s) => s !== ''));
+const PROFILE_ROUNDS = Number(arg('profile-rounds', '1'));
+const SAMPLE_US = Number(arg('sample-us', '500'));
 let NODE_DRAW: NodeDrawOptions = {};
 try {
   NODE_DRAW = parseNodeDraw(arg('node-opts', ''));
@@ -115,6 +120,9 @@ if (METAL) {
   if (rr !== null) refuse(rr);
 }
 if (BEFORE_ROOT !== '' && !METAL) refuse('--before-root (H6) is a timing and runs on the Metal hold only');
+const PROFILE_ONLY = SKIP.has('timing');
+if (PROFILE_ONLY && (!METAL || SKIP.has('profile'))) refuse('--skip=timing is the Metal profile-only mode: it needs --hw=metal and the profile');
+if (!(PROFILE_ROUNDS >= 1) || !(SAMPLE_US >= 50)) refuse('--profile-rounds must be >= 1 and --sample-us >= 50');
 mkdirSync(OUT, { recursive: true });
 
 const loads: { at: string; load1m: number }[] = [];
@@ -212,14 +220,14 @@ async function allReadings(o: Opened, frames: number, gpuFrames: number): Promis
 }
 
 /** One CDP profile window over `PROFILE_FRAMES` timed frames at the high count, base scene. */
-async function profileWindow(o: Opened, arm: SubmitArm): Promise<{ top: ProfileTop[]; refusal: string | null; samples: number }> {
+async function profileWindow(o: Opened, arm: SubmitArm, round = 0): Promise<{ top: ProfileTop[]; refusal: string | null; samples: number; profile: CpuProfile; cpuRenderMs: number; censusMs: number }> {
   const hi = Math.max(...COUNTS);
   await measure(o, hi, 'base', 0, WARM_AFTER_SPAWN, 0);
   const cdp = await o.page.context().newCDPSession(o.page);
   await cdp.send('Profiler.enable');
-  await cdp.send('Profiler.setSamplingInterval', { interval: 500 });
+  await cdp.send('Profiler.setSamplingInterval', { interval: SAMPLE_US });
   await cdp.send('Profiler.start');
-  await o.page.evaluate(
+  const timed = await o.page.evaluate(
     async ({ mod, frames }) => {
       const m = (await import(/* @vite-ignore */ mod)) as typeof import('./webgpu-page');
       return m.submitTimeOnly(frames);
@@ -228,9 +236,9 @@ async function profileWindow(o: Opened, arm: SubmitArm): Promise<{ top: ProfileT
   );
   const { profile } = (await cdp.send('Profiler.stop')) as unknown as { profile: CpuProfile };
   await cdp.detach();
-  writeFileSync(path.join(OUT, `profile-${arm}-n${hi}.cpuprofile`), JSON.stringify(profile));
+  writeFileSync(path.join(OUT, PROFILE_ONLY ? `profile-${arm}-n${hi}-r${round + 1}.cpuprofile` : `profile-${arm}-n${hi}.cpuprofile`), JSON.stringify(profile));
   const refusal = profileRefusal(profile, `profile ${arm} n${hi}`);
-  return { top: refusal === null ? profileTopOf(profile) : [], refusal, samples: profile?.samples?.length ?? 0 };
+  return { top: refusal === null ? profileTopOf(profile) : [], refusal, samples: profile?.samples?.length ?? 0, profile, cpuRenderMs: timed.cpuRenderMs, censusMs: timed.censusMs };
 }
 
 async function launch(arm: SubmitArm): Promise<Browser> {
@@ -280,7 +288,40 @@ try {
   } else {
     const browser = await launch('G');
     try {
-      for (let round = 0; round < ROUNDS; round++) {
+      if (PROFILE_ONLY) {
+        const hi = Math.max(...COUNTS);
+        const md: string[] = [`# GH-1152 profile-only run (${startedAt})`, '', `- map=${MAP} 1280x720 DPR ${DPR}, z0.5, quality high, music off, reduced motion, n${hi}, ${PROFILE_FRAMES} frames per window, sampling ${SAMPLE_US} us, node draw ${JSON.stringify(resolveNodeDraw(NODE_DRAW))}`];
+        // An ABBA round is four pages (two per arm): each window is numbered per arm, in the order taken.
+        const taken: Record<string, number> = {};
+        for (let round = 0; round < PROFILE_ROUNDS; round++) {
+          for (const arm of abbaOrder<SubmitArm>('L', 'G', round)) {
+            const o = await openPage(browser, port, ROOT, arm, false, `profile ${round + 1}`);
+            backends.push({ arm, backendKind: o.backendKind, gpu: o.gpu });
+            const seq = (taken[arm] = (taken[arm] ?? 0) + 1);
+            const p = await profileWindow(o, arm, seq - 1);
+            if (p.refusal !== null) refusals.push(p.refusal);
+            const per = (ms: number): string => (ms / PROFILE_FRAMES).toFixed(3);
+            const load = loads[loads.length - 1]?.load1m ?? NaN;
+            md.push('', `## ${arm} window ${seq} (ABBA round ${round + 1}; ${o.backendKind} on ${o.gpu}; loadavg ${load}; ${p.samples} samples; cpuRender median ${p.cpuRenderMs.toFixed(2)} ms, census ${p.censusMs.toFixed(3)} ms/frame)`, '', '| ms/frame incl | ms/frame self | function |', '|---|---|---|');
+            for (const r of profileTotal(p.profile).filter((x) => x.fn !== '(idle)' && x.fn !== '(root)').slice(0, 60)) md.push(`| ${per(r.totalMs)} | ${per(r.selfMs)} | \`${r.key}\` |`);
+            console.log(`[submit-probe] profile ${arm} window ${seq}: ${p.samples} samples, cpuRender ${p.cpuRenderMs.toFixed(2)} ms`);
+            // After the window (never inside it): one frame with every upload named (`submitUploadCensus`).
+            const up = (await o.page.evaluate(async (mod) => {
+              const m = (await import(/* @vite-ignore */ mod)) as typeof import('./webgpu-page');
+              return m.submitUploadCensus();
+            }, MODULE(ROOT))) as UploadRow[];
+            const sum = (k: string): string => `${up.filter((u) => u.kind.endsWith(k)).reduce((n, u) => n + u.calls, 0)} calls, ${(up.filter((u) => u.kind.endsWith(k)).reduce((n, u) => n + u.bytes, 0) / 1024).toFixed(0)} KiB`;
+            const hidden = up.filter((u) => u.kind === 'hidden');
+            md.push('', `hidden meshes: ${hidden.reduce((n, u) => n + u.calls, 0)} (${hidden.map((u) => `${u.what} x${u.calls}`).join('; ')})`);
+            md.push('', `uploads in one frame: buffers/attributes ${arm === 'L' ? sum('buffer') : sum('attribute')}; textures ${sum('texture')}`, '', '| kind | what | calls | KiB |', '|---|---|---|---|');
+            for (const u of up.filter((x) => x.kind !== 'hidden').slice(0, 40)) md.push(`| ${u.kind} | \`${u.what}\` | ${u.calls} | ${(u.bytes / 1024).toFixed(1)} |`);
+            await closePage(o);
+          }
+        }
+        md.push('', `loadavg per page: ${loads.map((l) => `${l.at} ${l.load1m}`).join('; ')}; at end ${os.loadavg()[0]?.toFixed(2)}`, '', `refusals: ${refusals.length === 0 ? 'none' : refusals.join('; ')}`);
+        writeFileSync(path.join(OUT, 'profile-only.md'), md.join('\n') + '\n');
+      }
+      for (let round = 0; round < (PROFILE_ONLY ? 0 : ROUNDS); round++) {
         const order = abbaOrder<SubmitArm>('L', 'G', round);
         console.log(`[submit-probe] round ${round + 1}/${ROUNDS} order ${order.join('')}`);
         for (const arm of order) {
@@ -290,7 +331,7 @@ try {
           await closePage(o);
         }
       }
-      if (!SKIP.has('profile')) {
+      if (!SKIP.has('profile') && !PROFILE_ONLY) {
         for (const arm of ['L', 'G'] as const) {
           const o = await openPage(browser, port, ROOT, arm, false, 'profile');
           const p = await profileWindow(o, arm);
@@ -356,6 +397,11 @@ try {
   stop();
 }
 
+if (PROFILE_ONLY) {
+  if (refusals.length > 0) refuse(refusals.join('; '));
+  console.log(`webgpu-submit-probe: profile-only run written to ${OUT}`);
+  process.exit(0);
+}
 const readings = pages.flatMap((p) => p.readings);
 const cells = timedCells(pages);
 /** The count readings the table reads: the last page per arm (counts are deterministic per arm; the CI run has one page per arm). */

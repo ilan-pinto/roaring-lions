@@ -747,6 +747,149 @@ async function timedOnly(s: SubmitState, frames: number): Promise<{ cpuRenderMs:
   return { cpuRenderMs: stats(excl).med, cpuRenderInclCensusMs: stats(incl).med, censusMs: frames > 0 ? census / frames : 0 };
 }
 
+/** One row of the upload census: what was uploaded, by whom, how often and how many bytes in the frame. */
+export interface UploadRow {
+  readonly kind: 'attribute' | 'texture' | 'gl-buffer' | 'gl-texture' | 'app-bump' | 'hidden';
+  readonly what: string;
+  readonly calls: number;
+  readonly bytes: number;
+}
+
+/**
+ * GH-1152 (12 Nov): ONE frame of the current state, every GPU upload named. Node arms: `backend.updateAttribute` (attributed to the
+ * object whose geometry `_geometries.updateForRender` is updating, and its attribute name) and `backend.updateTexture` (by texture
+ * name, class and size). L: the WebGL2 context's `bufferSubData` / `bufferData` / `texSubImage2D` / `texImage2D`, by call only.
+ */
+export async function submitUploadCensus(): Promise<UploadRow[]> {
+  const s = submitState();
+  const { r } = s;
+  const node = r.nodeBackend;
+  const rows = new Map<string, { kind: UploadRow['kind']; what: string; calls: number; bytes: number }>();
+  const add = (kind: UploadRow['kind'], what: string, bytes: number): void => {
+    const k = `${kind}|${what}`;
+    const cur = rows.get(k) ?? { kind, what, calls: 0, bytes: 0 };
+    cur.calls++;
+    cur.bytes += bytes;
+    rows.set(k, cur);
+  };
+  const restores: (() => void)[] = [];
+  const wrap = <O extends object>(o: O, k: string, f: (orig: (...a: unknown[]) => unknown) => (...a: unknown[]) => unknown): void => {
+    const rec = o as unknown as Record<string, (...a: unknown[]) => unknown>;
+    const own = Object.prototype.hasOwnProperty.call(o, k);
+    const orig = rec[k] as (...a: unknown[]) => unknown;
+    rec[k] = f(orig);
+    restores.push(() => {
+      if (own) rec[k] = orig;
+      else delete rec[k];
+    });
+  };
+  type Attr = { array?: ArrayLike<number> & { byteLength?: number }; isInterleavedBufferAttribute?: boolean; data?: { array?: { byteLength?: number } }; name?: string };
+  type Obj = {
+    type?: string;
+    name?: string;
+    visible?: boolean;
+    material?: { name?: string; type?: string } | unknown[];
+    geometry?: { attributes?: Record<string, unknown>; index?: unknown; drawRange?: { count: number } };
+    instanceMatrix?: unknown;
+    instanceColor?: unknown;
+    parent?: Obj | null;
+  };
+  const label = (o: Obj | null): string => {
+    if (o === null) return '(no object)';
+    let named: Obj | null | undefined = o;
+    for (let i = 0; i < 4 && named && (named.name ?? '') === ''; i++) named = named.parent;
+    const m = Array.isArray(o.material) ? undefined : (o.material as { name?: string; type?: string } | undefined);
+    return `${o.type ?? '?'}:${(named?.name ?? '') || '?'} [${m?.name || m?.type || '?'}]`;
+  };
+  // Arm-agnostic: which attributes the APP bumped this frame (version delta over the frame), whoever draws them.
+  type VAttr = { version?: number; count?: number; usage?: number; updateRanges?: unknown[]; array?: { byteLength?: number } };
+  const versions = new Map<VAttr, { at: number; what: string }>();
+  (r.scene as unknown as { traverse(f: (o: Obj) => void): void }).traverse((o) => {
+    for (const [k, v] of Object.entries(o.geometry?.attributes ?? {})) versions.set(v as VAttr, { at: (v as VAttr).version ?? 0, what: `${label(o)} .${k}` });
+    if (o.instanceMatrix !== undefined) versions.set(o.instanceMatrix as VAttr, { at: (o.instanceMatrix as VAttr).version ?? 0, what: `${label(o)} .instanceMatrix` });
+  });
+  if (node) {
+    const nr = node.post?.pipeline?.renderer as unknown as { backend: object; _geometries: object } | undefined;
+    if (nr === undefined) throw new Error('upload census: the node post chain is not built');
+    let cur: Obj | null = null;
+    wrap(nr._geometries, 'updateForRender', (orig) =>
+      function (this: unknown, ...a: unknown[]) {
+        const prev = cur;
+        cur = ((a[0] as { object?: Obj }).object ?? null) as Obj | null;
+        try {
+          return orig.apply(this, a);
+        } finally {
+          cur = prev;
+        }
+      }
+    );
+    wrap(nr.backend, 'updateAttribute', (orig) =>
+      function (this: unknown, ...a: unknown[]) {
+        const at = a[0] as Attr;
+        let name = '?';
+        if (cur !== null) {
+          if (cur.instanceMatrix === at) name = 'instanceMatrix';
+          else if (cur.instanceColor === at) name = 'instanceColor';
+          else if (cur.geometry?.index === at) name = 'index';
+          else for (const [k, v] of Object.entries(cur.geometry?.attributes ?? {})) if (v === at) name = k;
+        }
+        const bytes = (at.isInterleavedBufferAttribute === true ? at.data?.array?.byteLength : at.array?.byteLength) ?? 0;
+        const ranges = (at as { updateRanges?: { count: number }[] }).updateRanges ?? [];
+        const ranged = ranges.reduce((n, g) => n + g.count * ((at.array as { BYTES_PER_ELEMENT?: number } | undefined)?.BYTES_PER_ELEMENT ?? 4), 0);
+        add('attribute', `${label(cur)} .${name} (drawRange ${cur?.geometry?.drawRange?.count ?? '?'}, ${ranges.length} update ranges)`, ranges.length > 0 ? ranged : bytes);
+        return orig.apply(this, a);
+      }
+    );
+    wrap(nr.backend, 'updateTexture', (orig) =>
+      function (this: unknown, ...a: unknown[]) {
+        const t = a[0] as { name?: string; constructor: { name: string }; image?: { width?: number; height?: number; data?: { byteLength?: number } } };
+        add('texture', `${t.constructor.name}:${t.name ?? ''} ${t.image?.width ?? '?'}x${t.image?.height ?? '?'}`, t.image?.data?.byteLength ?? 0);
+        return orig.apply(this, a);
+      }
+    );
+  } else {
+    const gl = r.canvas.getContext('webgl2') as WebGL2RenderingContext | null;
+    if (gl === null) throw new Error('upload census: no webgl2 context on L');
+    const g = gl as unknown as object;
+    for (const k of ['bufferSubData', 'bufferData'] as const)
+      wrap(g, k, (orig) =>
+        function (this: unknown, ...a: unknown[]) {
+          // bufferData(target, srcData | size, usage); bufferSubData(target, dstByteOffset, srcData, srcOffset?, length?) (elements).
+          const src = (k === 'bufferData' ? a[1] : a[2]) as { byteLength?: number; BYTES_PER_ELEMENT?: number } | number;
+          const bpe = typeof src === 'number' ? 1 : (src?.BYTES_PER_ELEMENT ?? 1);
+          const bytes = typeof src === 'number' ? src : typeof a[4] === 'number' ? a[4] * bpe : (src?.byteLength ?? 0) - (typeof a[3] === 'number' ? a[3] * bpe : 0);
+          add('gl-buffer', k, bytes);
+          return orig.apply(this, a);
+        }
+      );
+    for (const k of ['texSubImage2D', 'texImage2D'] as const)
+      wrap(g, k, (orig) =>
+        function (this: unknown, ...a: unknown[]) {
+          const w = typeof a[4] === 'number' ? `${a[4]}x${String(a[5])}` : '?';
+          add('gl-texture', `${k} ${w}`, 0);
+          return orig.apply(this, a);
+        }
+      );
+  }
+  try {
+    await tick();
+    r.frame(1, 0);
+  } finally {
+    for (const f of restores.reverse()) f();
+  }
+  // What this arm leaves hidden (a mesh with `visible` false), by material: L's `matchNodeScene` hides every legacy ShaderMaterial,
+  // while G draws a node twin of many, so the two drawn sets can differ.
+  (r.scene as unknown as { traverse(f: (o: Obj & { isMesh?: boolean }) => void): void }).traverse((o) => {
+    if (o.isMesh === true && o.visible === false) add('hidden', label(o), 0);
+  });
+  for (const [a, v] of versions) {
+    if ((a.version ?? 0) === v.at) continue;
+    const ranges = a.updateRanges?.length ?? 0;
+    add('app-bump', `${v.what} (+${(a.version ?? 0) - v.at}, usage ${a.usage}, ${ranges} update ranges)`, a.array?.byteLength ?? 0);
+  }
+  return [...rows.values()].sort((a, b) => b.bytes - a.bytes || b.calls - a.calls);
+}
+
 /** Takes the page's world down. */
 export function submitDispose(): void {
   const s = submitState();
