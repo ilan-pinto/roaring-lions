@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildTerrainSurface, smoothLevel, smoothNormal, terrainSurfaceFrom } from './surface';
 import { fbm2 } from './noise';
-import { bakeHeightBlendField, levelAndNormalY, spliceHeightBlendField } from './height-blend-field';
+import { bakeHeightBlendField, levelAndNormalY, patchNoise, spliceHeightBlendField } from './height-blend-field';
 import { heightBlendTexture } from './height-blend-texture';
 import * as THREE from 'three';
 
@@ -37,8 +37,6 @@ describe('the field encoding', () => {
       expect(f.data[k]).toBe(0);
       expect(f.data[k + 1]).toBe(128);
     }
-    // The decode S1 uses (`macroDecode`: (r x 255 - 128) / 127) reads that byte as exactly 0.
-    expect((128 / 255) * 255 - 128).toBe(0);
   });
 
   it('also bakes a uniform raised plateau to G 128 at every texel, edges included (the clamp, not a zero fill)', () => {
@@ -101,6 +99,30 @@ describe('the field encoding', () => {
   });
 });
 
+describe('the marker, the slope clamp and the size check', () => {
+  it('stamps the marker into the field and the texture name', () => {
+    const { surface } = surfaceOf(4, 4, () => 0);
+    const f = bakeHeightBlendField(surface, 4, 4);
+    expect(f.marker).toBe('rl-height-blend-field');
+    expect(heightBlendTexture(f).name).toBe('rl-height-blend-field');
+  });
+  it('saturates a slope past 64 degrees at byte 255 instead of wrapping (a 6-level step reads about 66+)', () => {
+    // Open ground, a 9-level cliff between x=3 and x=4: the Catmull-Rom slope at the step is far past 64 degrees.
+    const { surface } = surfaceOf(8, 8, (x) => (x < 4 ? 0 : 9));
+    const f = bakeHeightBlendField(surface, 8, 8);
+    let max = 0;
+    for (let k = 0; k < f.data.length; k += 4) max = Math.max(max, f.data[k]);
+    expect(max).toBe(255);
+    // and no texel in the steep band reads a wrapped, nearly flat byte next to a saturated one
+    const j = 16;
+    expect(px(f, 15, j, 0)).toBe(255);
+  });
+  it('refuses a tile size that is not the surface size', () => {
+    const { surface } = surfaceOf(6, 5, (x) => x);
+    expect(() => bakeHeightBlendField(surface, 5, 5)).toThrow();
+  });
+});
+
 describe('the one-pass level and slope', () => {
   it('is bit-equal to smoothLevel and smoothNormal on a grid of points, rim and terraces included', () => {
     const { surface } = surfaceOf(
@@ -119,6 +141,10 @@ describe('the one-pass level and slope', () => {
 });
 
 describe('the patch noise', () => {
+  it('is fbm2 to the bit (toBe on the values, not the rounded byte) on a grid of points', () => {
+    const at = patchNoise(23, 17);
+    for (let z = 0.05; z < 17; z += 0.37) for (let x = 0.05; x < 23; x += 0.41) expect(at(x, z)).toBe(fbm2(x, z, 3, 2, 1226));
+  });
   it('is fbm2 (3-tile period, 2 octaves, seed 1226) at every texel centre, to the byte: the B channel read back', () => {
     const { surface } = surfaceOf(23, 17, () => 0);
     const f = bakeHeightBlendField(surface, 23, 17);
@@ -127,6 +153,21 @@ describe('the patch noise', () => {
         const v = fbm2((i + 0.5) / 4, (j + 0.5) / 4, 3, 2, 1226);
         if (px(f, i, j, 2) !== Math.round((v * 0.5 + 0.5) * 255)) throw new Error(`texel ${i},${j}`);
       }
+  });
+});
+
+describe('the region splice, a terrace flip alone', () => {
+  it('re-bakes the slope when a tile turns terrace while the smoothing source does not change', () => {
+    // On a one-level-a-tile ramp a blocked tile is filled from its four neighbours' mean, which is its own level: the source is
+    // identical and only the terrace flag differs, so the slope byte at that tile must go 57 -> 0 by the diff of the flag alone.
+    const open = surfaceOf(16, 16, (x) => x);
+    const pad = surfaceOf(16, 16, (x) => x, (x, y) => (x === 8 && y === 8 ? 1 : 0));
+    expect(Array.from(pad.surface.field)).toEqual(Array.from(open.surface.field));
+    const f = bakeHeightBlendField(open.surface, 16, 16);
+    expect(px(f, 8 * 4 + 1, 8 * 4 + 1, 0)).toBe(57);
+    expect(spliceHeightBlendField(f, pad.surface)).toBeGreaterThan(0);
+    expect(px(f, 8 * 4 + 1, 8 * 4 + 1, 0)).toBe(0);
+    expect(Buffer.from(f.data).equals(Buffer.from(bakeHeightBlendField(pad.surface, 16, 16).data))).toBe(true);
   });
 });
 

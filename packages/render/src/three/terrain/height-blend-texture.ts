@@ -6,7 +6,7 @@
  * magnified: 192 texels across a 48-tile map against 760 CSS px at zoom 0.35). Nothing here is wired into the renderer yet (S5).
  */
 import * as THREE from 'three';
-import type { HeightBlendFieldData } from './height-blend-field';
+import { HEIGHT_BLEND_FIELD_MARKER, type HeightBlendFieldData } from './height-blend-field';
 
 export function heightBlendTexture(field: HeightBlendFieldData): THREE.DataTexture {
   const buffer = field.data.buffer;
@@ -18,7 +18,7 @@ export function heightBlendTexture(field: HeightBlendFieldData): THREE.DataTextu
   t.wrapS = THREE.ClampToEdgeWrapping;
   t.wrapT = THREE.ClampToEdgeWrapping;
   t.generateMipmaps = false;
-  t.name = 'rl-height-blend-field';
+  t.name = HEIGHT_BLEND_FIELD_MARKER;
   t.needsUpdate = true;
   return t;
 }

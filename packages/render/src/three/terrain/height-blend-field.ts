@@ -53,6 +53,8 @@ export const HEIGHT_BLEND_FIELD_NEUTRAL_R = 0;
 export const HEIGHT_BLEND_FIELD_NEUTRAL_G = 128;
 
 export interface HeightBlendFieldData {
+  /** `HEIGHT_BLEND_FIELD_MARKER`, stamped by the bake so the string travels with the code (the bundle pin looks for it). */
+  readonly marker: string;
   /** Tiles. */
   readonly tilesW: number;
   readonly tilesH: number;
@@ -75,7 +77,7 @@ export interface HeightBlendFieldData {
 const N = HEIGHT_BLEND_FIELD_TEXELS_PER_TILE;
 const R = HEIGHT_BLEND_FIELD_BOX_RADIUS_TEXELS;
 
-/** `noise.ts`'s quintic fade (private there); `patchNoiseAt` must stay bit-equal to `fbm2`, which the render spec pins on a grid of points. */
+/** `noise.ts`'s quintic fade (private there); `patchNoise` must stay bit-equal to `fbm2`, which the render spec pins on a grid of points. */
 function fade(t: number): number {
   return t * t * t * (t * (t * 6 - 15) + 10);
 }
@@ -84,7 +86,7 @@ function fade(t: number): number {
  * `fbm2(x, z, 3, 2, 1226)` to the bit, with the lattice hashes read from a table instead of rehashed four times a texel an octave
  * (the bake's cost on a 96x96 map was a third noise). The table covers the map plus one cell.
  */
-function patchNoise(tilesW: number, tilesH: number): (x: number, z: number) => number {
+export function patchNoise(tilesW: number, tilesH: number): (x: number, z: number) => number {
   const octaves: Array<{ freq: number; seed: number; w: number; table: Float64Array }> = [];
   let frequency = 1 / HEIGHT_BLEND_FIELD_PATCH_PERIOD_TILES;
   for (let o = 0; o < HEIGHT_BLEND_FIELD_PATCH_OCTAVES; o++) {
@@ -150,7 +152,10 @@ const rows = new Float64Array(4);
 const rowSlopes = new Float64Array(4);
 const sample = { level: 0, ny: 1 };
 
-/** `smoothLevel(surface, x, z)` and `smoothNormal(surface, x, z)[1]` of a relief surface, into `sample`. */
+/**
+ * `smoothLevel(surface, x, z)` and `smoothNormal(surface, x, z)[1]` of a RELIEF surface (NaN on a flat one, whose field is empty).
+ * Exported for the spec only: it returns a SHARED mutable sample, overwritten by the next call, so copy what you keep.
+ */
 export function levelAndNormalY(s: TerrainSurface, x: number, z: number): { level: number; ny: number } {
   const u = x - 0.5;
   const v = z - 0.5;
@@ -191,6 +196,7 @@ function bakeLevelTexel(f: HeightBlendFieldData, surface: TerrainSurface, noiseA
     const tile = Math.floor(z) * f.tilesW + Math.floor(x);
     if (surface.terrace[tile] === 0) {
       const theta = (Math.acos(sample.ny) * 180) / Math.PI;
+      // Clamped: a Uint8Array store wraps (66 degrees would read byte 7, nearly flat).
       slope = Math.round(Math.min(1, theta / HEIGHT_BLEND_FIELD_SLOPE_RANGE_DEG) * 255);
     }
   }
@@ -256,9 +262,13 @@ function refresh(
 
 /** The whole-map bake. */
 export function bakeHeightBlendField(surface: TerrainSurface, tilesW: number, tilesH: number): HeightBlendFieldData {
+  if (tilesW !== surface.width || tilesH !== surface.height) {
+    throw new Error(`bakeHeightBlendField: ${tilesW}x${tilesH} tiles asked of a ${surface.width}x${surface.height} surface`);
+  }
   const width = tilesW * N;
   const height = tilesH * N;
   const f: HeightBlendFieldData = {
+    marker: HEIGHT_BLEND_FIELD_MARKER,
     tilesW,
     tilesH,
     width,
