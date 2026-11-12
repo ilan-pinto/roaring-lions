@@ -789,6 +789,7 @@ import {
   objectiveZoneCorners,
   RANGE_FILL_DESATURATE,
   rangeFillAlphaFor,
+  envelopeRangesTiles,
   RANGE_ARC_ALPHA,
 } from './units/overlay-geometry';
 import {
@@ -14834,6 +14835,14 @@ export class ThreeRenderer implements Renderer {
    * the live `sim.entityCount` -- and its envelope would be drawn at world
    * (0, 0). Not drawn until the next snapshot, like the unit itself.
    */
+  /** GH-34: the tiles the building unit `i` is garrisoned in adds to its reach (that structure type's own `garrison_range_bonus`,
+   *  PR 1243), or null when it is not in one. Read from the sim's public state; presentation only. */
+  private garrisonBonusTiles(i: number): number | null {
+    const s = this.sim.state.garrisonedIn[i];
+    if (!(s >= 0)) return null;
+    return fx.toNumber(this.sim.structureTypes[this.sim.structures.typeIdx[s]].garrisonRangeBonus);
+  }
+
   private drawsEnvelope(i: number): boolean {
     const st = this.sim.state;
     if (i >= this.snapshottedCount || st.alive[i] === 0) return false;
@@ -15314,6 +15323,11 @@ export class ThreeRenderer implements Renderer {
         };
         census.envelopes++;
         const w0 = type.weapons[0];
+        // GH-34 acceptance 3: a garrisoned unit's ring is the building-extended envelope, not the open-ground reach.
+        const reach = envelopeRangesTiles(
+          { range: fx.toNumber(w0.range), effectiveRange: fx.toNumber(w0.effectiveRange), firesFromBuilding: w0.firesFromBuilding },
+          this.garrisonBonusTiles(i),
+        );
         const fillHex = cachedDesaturate(this.opts.teamColors[colorSlot(st.side[i], this.viewer)], RANGE_FILL_DESATURATE);
         // A preview is a hint at a unit the player has not committed to, so
         // every band of it is drawn at the same fraction of its own strength
@@ -15321,7 +15335,7 @@ export class ThreeRenderer implements Renderer {
         const strength = previewing ? PREVIEW_ENVELOPE_STRENGTH : 1;
         // `drawsEnvelope` has already established a non-zero effective range
         // -- it is the same predicate the count above used, on purpose.
-        const outer = tileRadiusToEllipsePx(fx.toNumber(w0.effectiveRange), TILE_W, TILE_H);
+        const outer = tileRadiusToEllipsePx(reach.effective, TILE_W, TILE_H);
         // `minRangeSq` is 0 for every weapon but a mortar's, and a zero
         // inner radius is a disc -- so this needs no branch.
         const inner = tileRadiusToEllipsePx(Math.sqrt(fx.toNumber(w0.minRangeSq)), TILE_W, TILE_H);
@@ -15335,7 +15349,7 @@ export class ThreeRenderer implements Renderer {
           fillAlpha * strength
         );
         this.overlayBatch.ellipseRing(envelopeAnchor, outer.rightR, outer.upR, 1.5, fillHex, RANGE_ARC_ALPHA * strength);
-        ring(fx.toNumber(w0.range), fillHex, 1, MAX_RANGE_HOOP_ALPHA * strength);
+        ring(reach.max, fillHex, 1, MAX_RANGE_HOOP_ALPHA * strength);
       };
       for (const d of draws) drawEnvelope(d.id, d.previewing);
     }
