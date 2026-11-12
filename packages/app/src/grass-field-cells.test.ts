@@ -53,6 +53,9 @@ function rig(id: MapId): { sim: Sim; build(prev: ComposedTerrainBuild | null): C
   };
 }
 
+/** The green maps that stand no structure (named, so a map that loses its structures is caught, not skipped). */
+const NO_STRUCTURES: ReadonlySet<string> = new Set(['wadi_halam_3']);
+
 const keyOf = (m: GrassCellMesh): string => `${m.cell}|${m.variant}|${m.part}`;
 
 /** The first difference between two mesh lists, or null when they are the same bytes. */
@@ -62,6 +65,8 @@ function planDiff(a: readonly GrassCellMesh[], b: readonly GrassCellMesh[]): str
     const x = a[i] as GrassCellMesh;
     const y = b[i] as GrassCellMesh;
     if (keyOf(x) !== keyOf(y) || x.count !== y.count) return `mesh ${i}: ${keyOf(x)} x${x.count} vs ${keyOf(y)} x${y.count}`;
+    // Each mesh carries 16 floats a clump: a mesh with count but no matrices would compare equal to itself below.
+    if (x.matrices.length !== x.count * 16 || y.matrices.length !== y.count * 16) return `mesh ${keyOf(x)}: ${x.matrices.length} / ${y.matrices.length} floats for ${x.count} clumps`;
     for (let k = 0; k < x.matrices.length; k++) if (x.matrices[k] !== y.matrices[k]) return `mesh ${keyOf(x)} [${k}]: ${x.matrices[k]} vs ${y.matrices[k]}`;
   }
   return null;
@@ -121,6 +126,8 @@ describe('GH-1167 S5: the grass cells on the five green maps', () => {
     const b = rig('wadi_halam_basin').build(null);
     const whole = grassCellMeshes(b.composed.input, b.state.surface, 14, CAP);
     const split = grassCellMeshes(b.composed.input, b.state.surface, 14, 16);
+    // Anti-vacuity: cell 14 of the basin holds grass, so the per-variant loop below has parts to compare.
+    expect(whole.length).toBeGreaterThan(0);
     expect(split.length).toBeGreaterThan(whole.length);
     for (const w of whole) {
       const parts = split.filter((s) => s.variant === w.variant);
@@ -144,6 +151,9 @@ describe('GH-1167 S5: a collapse re-places only the cells it touched, byte-ident
     let build = r.build(null);
     let meshes: GrassCellMesh[] = [...planGrassField(build.composed.input, build.state.surface, CAP).meshes];
     const n = r.sim.structureCount;
+    // A named exemption, not a silent skip: wadi_halam_3 stands no structure, so there is nothing to fell. Any other map with none
+    // would skip every assertion below and report success; and when wadi_halam_3 gains one, this fails and the entry goes.
+    expect(NO_STRUCTURES.has(id), `${id}: ${n} structures`).toBe(n === 0);
     if (n === 0) return;
     let felled = 0;
     let spliced = 0;
