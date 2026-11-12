@@ -8,7 +8,11 @@
  *  - W1: off (every preset; the flag without the device feature), the boot adds NOTHING: no sentinel, the flipbook smoke twin is
  *    the shipped one (no `uSoftDepth`);
  *  - W2: on, the sentinel is in the scene, the copy reads the node chain's scene pass target, and the smoke twin built at boot taps
- *    the copy's texture (so the copy must exist BEFORE adoption).
+ *    the copy's texture (so the copy must exist BEFORE adoption);
+ *  - W3: the LIVE per-frame path (`frame` -> `updateFx` -> `sync`, the one the Metal read of 11 Nov caught copying 120/120 idle
+ *    frames): with no smoke on screen the sentinel is hidden, so three never calls its `onBeforeRender` and no copy is taken. The
+ *    band-2 dust instancer is in the scene, visible, at `count` 0 (as `ParticleInstancer` keeps it), and on the node path it is not
+ *    a consumer at all (no node twin samples the copy for it), so live dust without smoke takes no copy either.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
@@ -124,6 +128,7 @@ interface Private {
   scene: THREE.Scene;
   flipbook: FlipbookFx;
   softDepth: unknown;
+  particleInstancerBelow: { mesh: THREE.InstancedMesh };
 }
 
 const HOST = { clientWidth: 320, clientHeight: 240, appendChild(): void {} } as unknown as HTMLElement;
@@ -208,5 +213,47 @@ describe('W2: on, a node boot builds the copy before adoption', () => {
     expect(copied).toEqual([c.depthTexture]);
     r.dispose();
     expect(sentinels(priv.scene)).toEqual([]);
+  });
+});
+
+describe('W3: the live frame path, an idle frame takes no copy', () => {
+  it('no smoke: the sentinel is hidden after every frame, though the dust instancer mesh is visible at count 0', async () => {
+    const { r, priv } = await boot({ ...QUALITY_PRESETS.high, softParticles: true }, true);
+    const c = priv.softDepth as NodeSoftDepthCopy;
+    const dust = priv.particleInstancerBelow.mesh;
+    for (let i = 0; i < 4; i++) {
+      r.frame(1 + i * 16, 0);
+      expect(priv.flipbook.mesh.visible, `frame ${i}: no smoke`).toBe(false);
+      expect(dust.visible && dust.count === 0, `frame ${i}: the idle dust tier`).toBe(true);
+      expect(c.sentinel.visible, `frame ${i}`).toBe(false);
+    }
+    r.dispose();
+  });
+
+  it('smoke on screen: the sentinel draws (the copy is still taken when a consumer is)', async () => {
+    const { r, priv } = await boot({ ...QUALITY_PRESETS.high, softParticles: true }, true);
+    const c = priv.softDepth as NodeSoftDepthCopy;
+    const step = priv.flipbook.step.bind(priv.flipbook);
+    priv.flipbook.step = (dt: number): void => {
+      step(dt);
+      priv.flipbook.mesh.visible = true;
+    };
+    r.frame(17, 0);
+    expect(c.sentinel.visible).toBe(true);
+    r.dispose();
+  });
+
+  it('dust live, no smoke: no copy on the node path (the dust tier is not a node consumer)', async () => {
+    const { r, priv } = await boot({ ...QUALITY_PRESETS.high, softParticles: true }, true);
+    const c = priv.softDepth as NodeSoftDepthCopy;
+    const step = priv.flipbook.step.bind(priv.flipbook);
+    priv.flipbook.step = (dt: number): void => {
+      step(dt);
+      priv.particleInstancerBelow.mesh.count = 3;
+    };
+    r.frame(17, 0);
+    expect(priv.flipbook.mesh.visible).toBe(false);
+    expect(c.sentinel.visible).toBe(false);
+    r.dispose();
   });
 });

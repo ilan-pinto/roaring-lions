@@ -665,6 +665,31 @@ with P4's `rl-holes` hook, and the TSL twin are later slices.
   check. A cut building keeps its full art over its LOD1 twin; instanced per-tile sets take no cut; the node backend draws none
   yet; `hideForGroundPhoto` forces the volume count to 0 for the minimap.
 
+## Roof cutaway, slice 2: garrisons, the figure spread, the shadow and AO cut (GH-1225)
+
+- **The garrison trigger:** every standing clone holding a garrison the viewer may know about, by the banner's rule
+  (`heldBuildings` + `heldShown`: own always, anyone else's only while a footprint tile is in sight; a fogged enemy garrison cuts
+  nothing). One volume at the footprint centre, R = half-diagonal + 0.25 t (`garrisonCutRadius`), keyed `-1 - s`, re-derived on the
+  banner's key (tick, fog array, clone count). Garrisons rank first under the 8-volume cap, in the slice and in the trim.
+- **The figure spread:** `placeGarrisonStations` (after the cut is applied, so `updateMeshUnits` reads it a frame later) gives each
+  garrisoned unit in a CUT building a station from `garrisonStations` (a jittered grid over the footprint inset 0.3 t, distinct by
+  construction). Only `entity.root`'s drawn position moves; fog is still asked at the sim position, so a station cannot reveal a
+  fogged unit. Uncut, the map is empty and the draw is the sim's position.
+- **Shadow and AO:** a cut mesh gets `customDepthMaterial` = one shared mask `MeshDepthMaterial` (built like r186's stock one) and
+  `userData.rlCutAo` = one shared mask `MeshNormalMaterial` (`allowOverride` false). **The design said the AO occluder reads the
+  depth material; it does not**: `GTAOPass` draws its G-buffer through `scene.overrideMaterial`, so `WorldGTAOPass.render` swaps
+  `rlCutAo` on for that render and back in `finally`. Both masks bind the shared block, so `photographGround`'s forced 0 suspends
+  them. Release unsets both.
+- **One mask for holes and cut (after PR 1221):** `buildingMask` (`units/building-skin.ts`) is `buildingSkin`'s composition for
+  the shadow and AO, built from the colour hook's own discard terms (`maskHook`, `units/building-mask.ts`; `HOLES_MASK_TERM`,
+  `CUT_MASK_TERM`). Holed AND cut: the building's own pair (`BuildingCutMaterials.maskWith`, key `rl-holes|rl-cut-mask`), over
+  its hole uniforms and the shared block by reference, so depth, AO and colour discard on a hole OR the cut alike (a mismatch
+  draws a hole open in colour and shut in depth). Cut alone: the shared pair, text unchanged (one term is slice 2's hook byte
+  for byte). Holed alone: P4's `holes.depth` and no AO mask, unchanged (P4 accepted the AO seeing the wall whole). The one
+  write is `applyBuildingSkin`.
+- **The capture precondition:** a `mission=` scenario (only the report-only `combat`) drops the `cutawayCount` clause
+  (`capturePreconditionFor`): a mission's visible garrison is its own picture. Every gated (sandbox) scenario keeps it.
+
 ## The debris pool (GH-1197 P2)
 
 - **What throws it:** every landing that draws a P1 ring (`spawnReachFx` in `ThreeRenderer.ts`), with clods and chunks from
@@ -740,3 +765,19 @@ with P4's `rl-holes` hook, and the TSL twin are later slices.
   (`ThreeRenderer.building-holes.test.ts`, "an unhit map mints no holed material"; its falsifier, a hole on every building as
   it stands up, goes red). The GLSL was checked with `glslangValidator` (GLSL ES 3.00) outside the suite; its edge lattice
   is pinned line for line in `holed-material.test.ts`, because the TS mirror's seam test cannot see the GLSL copy.
+
+## The staged collapse (GH-1197 P5)
+
+- **Today's shroud is unchanged** (the lead's ruling 2: 2.4 s, hold 0.35, cover 1.25, the swap at 420 ms). On a building's
+  `structureDestroyed`, beside its rubble decal, `spawnCollapseDebris` ADDS the flying debris (`units/collapse-debris.ts`): 40
+  chunks a 3x3 by area, capped at 48 (6 a tile for a per-tile wall), launched from the roof line over 0-300 ms (the plan's
+  `delayMs`), 60/40 AWAY from the side the building was last hit from (`lastHitFrom`, the shooter's position on its last
+  `structureHit`; no hit, all round), 1.5-3.0 t and an apex of 2-4 t, clamped so every chunk rests INSIDE the rubble decal (the
+  clamp wins where the two meet). The building's own masonry ramp, a quarter `gunmetal.2`. The landing debris' 12 dust billows
+  (alpha 0.45) go with a flown collapse. A catch-up, or a collapse a versus seat cannot see, places the chunks at rest (state,
+  like the decal). Rubble fades into its decal 90 s on, over 1.5 s, on the SIM clock: the P2 pool's own fade.
+- `planDebris(..., exact)` takes the collapse's own range and apex, and the launch speed is now solved from the fall to the
+  ground under the launch point (a roof or a wall is higher), so a piece rests within its range from any height.
+- **Not in P5** (the coordinator's ruling Q1): the band-2 partial-collapse sag.
+- The settled-rubble showcase for the gated `rubble` scenario: `RendererOptions.rubbleShowcase` (`&rubble`, sandbox only; see
+  `visual-gate.md`).

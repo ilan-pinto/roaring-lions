@@ -249,6 +249,16 @@ describe('the room closes itself after the result (L-1, R-B26)', () => {
     expect(parseClientMsg(JSON.stringify({ t: 'over', tick: '19' }))).toBeNull();
     expect(parseClientMsg(JSON.stringify({ t: 'over' }))).toBeNull();
   });
+  it('over carries a result', () => {
+    const ok = { t: 'over', tick: 40, result: { winner: 1, by: 'annihilation' } };
+    expect(parseClientMsg(JSON.stringify(ok))).toEqual(ok);
+    const draw = { t: 'over', tick: 40, result: { winner: null, by: 'mutual' } };
+    expect(parseClientMsg(JSON.stringify(draw))).toEqual(draw);
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 40 }))).toEqual({ t: 'over', tick: 40 });
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 40, result: { winner: 2, by: 'annihilation' } }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 40, result: { winner: 0, by: 'surrender' } }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 40, result: 'won' }))).toBeNull();
+  });
   it('parses ended over, and the server never takes over from a client', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'over' }))).toEqual({ t: 'ended', reason: 'over' });
     expect(parseServerMsg(JSON.stringify({ t: 'over', tick: 19 }))).toBeNull();

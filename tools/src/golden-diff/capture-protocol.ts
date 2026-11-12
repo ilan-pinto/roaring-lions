@@ -680,6 +680,32 @@ export const AFTERMATH_SCENARIO: Scenario = {
   zoom: 2.2,
 };
 
+/** GH-1197 P5: the settled-rubble showcase -- the `aftermath` pattern for collapse debris. `qarn_hadid` under
+ *  `&rubble` (and NOT `&decals`, so `aftermath` does not move): `RendererOptions.rubbleShowcase` stamps two finished
+ *  collapses on the decal showcase's own anchor, clear of the sandbox force -- a 3x3 `limestone.3` house on the flat
+ *  site and a 2x2 `dust.1` shed on the road site -- each its rubble decal and its chunks AT REST, dated sim time 0.
+ *
+ *  THE CAMERA is the two sites' centroid, rounded to the half tile (`rubble.test.ts` recomputes it from the
+ *  renderer's own site picker, so a picker change re-fails this scenario's own test). Zoom 2.2 and no orders for
+ *  `aftermath`'s reasons: no unit or live effect in frame. `targetTick: 300` is 15 sim-seconds, far inside the 90 s
+ *  the rubble stands before it fades into its decal, so the frame is the settled state, identically every run.
+ *
+ *  No baseline exists for it in any environment: the first comes from CI and the post-merge bless, after the lead
+ *  has looked at it. CI's `visual` job is red until then (the `fogged` and `aftermath` precedent). */
+export const RUBBLE_SCENARIO: Scenario = {
+  id: 'rubble',
+  description:
+    'qarn_hadid @ the rubble showcase centroid, zoom 2.2, tick 300 -- two settled collapses (a 3x3 house, a 2x2 ' +
+    'shed): rubble decals and their chunks at rest, dated sim time 0, clear of the sandbox force (GH-1197 P5).',
+  sandboxMap: 'qarn_hadid',
+  sandboxFlags: ['rubble'],
+  // The house on the flat site (38,36) is centred at (38.5, 36.5), the shed on the road site (30,28) at (31, 29).
+  cameraTile: [35, 33],
+  ticks: 20, // unused when targetTick is set
+  targetTick: 300,
+  zoom: 2.2,
+};
+
 /** `QUIET_SCENARIO`'s own map/camera/tick, replayed under the dusk preset
  *  (ground plan 2, Task 11, spec §3.6). Deliberately not a new framing: the
  *  whole point of this scenario is to let a human compare the SAME shot
@@ -726,6 +752,7 @@ export const SCENARIOS: readonly Scenario[] = [
   GRADED_SCENARIO,
   RELIEF_SCENARIO,
   AFTERMATH_SCENARIO,
+  RUBBLE_SCENARIO,
   DUSK_SCENARIO,
   COMBAT_SCENARIO,
 ];
@@ -868,6 +895,27 @@ export const CAPTURE_PRECONDITION_STATEMENTS = `
   }
 }
 `.trim();
+
+/** The roof cutaway's clause of `CAPTURE_PRECONDITION_STATEMENTS`, spelled once so a `mission=` scenario can drop it. */
+const CUTAWAY_PRECONDITION_CLAUSE = `
+  if (_r.cutawayCount() !== 0) {
+    throw new Error('capture precondition violated: renderer.cutawayCount() is ' + _r.cutawayCount() + ', expected 0');
+  }`;
+
+/**
+ * GH-1225 slice 2: the precondition for a `mission=` scenario, which is `CAPTURE_PRECONDITION_STATEMENTS` WITHOUT the cutaway
+ * clause. A mission places real garrisons, and slice 2 cuts a building whose garrison the viewer can see: that is the
+ * mission's own picture, not a leftover trigger (the selection, the hover and the range preview are still asserted, so no UI
+ * state can cut). The only mission scenario is the report-only `combat`; every GATED scenario is a sandbox, whose force
+ * garrisons nobody (`sandbox-force.test.ts`), and keeps the full assertion.
+ */
+export function capturePreconditionFor(scenario: Pick<Scenario, 'mission'>): string {
+  if (scenario.mission === undefined) return CAPTURE_PRECONDITION_STATEMENTS;
+  if (!CAPTURE_PRECONDITION_STATEMENTS.includes(CUTAWAY_PRECONDITION_CLAUSE)) {
+    throw new Error('capturePreconditionFor: the cutaway clause is no longer spelled as CUTAWAY_PRECONDITION_CLAUSE');
+  }
+  return CAPTURE_PRECONDITION_STATEMENTS.replace(CUTAWAY_PRECONDITION_CLAUSE, '');
+}
 
 /** Parks the hover somewhere nothing lives, for `mission=` scenarios.
  *  The deploy-gate clicks leave the cursor resting where the button was, which
@@ -1258,7 +1306,7 @@ ${FREEZE_FRAME_LOOP_STATEMENTS}
 ${HIDE_ALERT_FEED_STATEMENTS}
 ${gotoLine}
 ${zoomLine}${ordersLine}${parkLine}${stepLine}
-${CAPTURE_PRECONDITION_STATEMENTS}
+${capturePreconditionFor(scenario)}
 ${opts.matchNodeRoot !== undefined ? matchNodeStatements(opts.matchNodeRoot) : ''}${arm === 'legacy' ? '' : NODE_HUD_SETTLE_STATEMENTS + 'await window.__lions.renderer.whenGpuIdle();\n'}const c = window.__lions.renderer.camera;
 const canvas = window.__lions.renderer.canvas;
 const r = canvas.getBoundingClientRect();

@@ -50,6 +50,7 @@ import {
 import { computeDiff, type DiffSummary } from './diff';
 import {
   CAPTURE_PRECONDITION_STATEMENTS,
+  capturePreconditionFor,
   HIDE_ALERT_FEED_STATEMENTS,
   PARK_POINTER_STATEMENTS,
   CAPTURE_VIEWPORT,
@@ -936,6 +937,10 @@ describe('BASELINES layerChecks', () => {
         haze: { px: 285, mean: 0.9784 },
         units: { px: 9036, mean: 0.6724 },
       },
+      // GH-1197 P5, 11 Nov 2026: ci.yml `visual` runs 42964829598, 42984171949, 43010354828 (SwiftShader), bit-identical.
+      rubble: {
+        debris: { px: 9993, mean: 0.4669 },
+      },
     };
     /** Below this many pixels a count is not a measurement you can take a
      *  third of, and `LayerCheckSpec` says so: `minDiffPixels` "is
@@ -948,10 +953,21 @@ describe('BASELINES layerChecks', () => {
      *  is still asserted non-zero below, and total erasure still fails them
      *  (the last assertion in this loop). */
     const SUB_THRESHOLD_PX = 100;
+    /** Checks that ship before any CI reading exists (GH-1197 P5's `rubble` scenario): their floors are INFINITE, so
+     *  they fail until the first three CI readings are written into `MEASURED` and the floors are derived from them --
+     *  never a check that passes on nothing. Listed by hand: leaving this list is a deliberate edit. */
+    const PENDING = new Set<string>();
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
         // GH-943 P1 (T5): a `zero` check has no floor to derive from a signal; it has its own test below.
         if (check.kind === 'zero') continue;
+        if (PENDING.has(`${id}/${check.layer}`)) {
+          expect(MEASURED[id]?.[check.layer], `${id}/${check.layer} is measured: derive its floors and leave PENDING`).toBeUndefined();
+          expect(check.minDiffPixels).toBe(Number.POSITIVE_INFINITY);
+          expect(check.minMeanAbsChannelDelta).toBe(Number.POSITIVE_INFINITY);
+          expect(evaluateLayerCheck(summary({ diffPixels: 1e9, meanAbsChannelDelta: 255 }), check).ok).toBe(false);
+          continue;
+        }
         const m = MEASURED[id]?.[check.layer];
         expect(m, `no measurement recorded for ${id}/${check.layer}`).toBeDefined();
         if (!m) continue;
@@ -1186,6 +1202,19 @@ describe('capture precondition: no selection, no hover (GH-186)', () => {
   it('throws a named error for a building the roof cutaway has cut', () => {
     expect(() => run({ ...clean, cutawayCount: () => 1 })).toThrow(/capture precondition violated: renderer.cutawayCount\(\) is 1/);
   });
+  // GH-1225 slice 2: a mission's own visible garrison is cut, so the report-only mission scenario drops ONLY that clause; every
+  // sandbox scenario (all the gated ones) keeps it. Falsify: return the full statements for a mission and the first goes red.
+  it('a mission scenario tolerates a garrison cut and nothing else; a sandbox scenario tolerates none', () => {
+    const runWith = (src: string, r: Record<string, unknown>): void => new Function('window', src)({ __lions: { renderer: r } });
+    const mission = capturePreconditionFor({ mission: 'm' });
+    expect(() => runWith(mission, { ...clean, cutawayCount: () => 2 })).not.toThrow();
+    expect(() => runWith(mission, { ...clean, selection: [3] })).toThrow(/renderer.selection/);
+    // The other clauses stay armed for a mission too (PR 1238 review): only the cutaway one is dropped.
+    expect(() => runWith(mission, { ...clean, hoverEntity: 7 })).toThrow(/renderer.hoverEntity/);
+    expect(() => runWith(mission, { ...clean, rangeRingPreview: 2 })).toThrow(/renderer.rangeRingPreview/);
+    expect(() => runWith(capturePreconditionFor({}), { ...clean, cutawayCount: () => 1 })).toThrow(/cutawayCount\(\) is 1/);
+    for (const sc of SCENARIOS) if (sc.mission === undefined) expect(captureScript(sc)).toContain(CAPTURE_PRECONDITION_STATEMENTS);
+  });
   it('parks the pointer before the final step, for mission scenarios only', () => {
     let missions = 0;
     for (const sc of SCENARIOS) {
@@ -1195,7 +1224,7 @@ describe('capture precondition: no selection, no hover (GH-186)', () => {
         const at = script.indexOf(PARK_POINTER_STATEMENTS);
         expect(at).toBeGreaterThan(-1);
         expect(at).toBeLessThan(script.lastIndexOf('.step('));
-        expect(at).toBeLessThan(script.indexOf(CAPTURE_PRECONDITION_STATEMENTS));
+        expect(at).toBeLessThan(script.indexOf(capturePreconditionFor(sc)));
       } else {
         expect(script).not.toContain(PARK_POINTER_STATEMENTS);
       }
@@ -1205,7 +1234,7 @@ describe('capture precondition: no selection, no hover (GH-186)', () => {
   it('is part of every scenario capture script, after the final step', () => {
     for (const sc of SCENARIOS) {
       const script = captureScript(sc);
-      const at = script.indexOf(CAPTURE_PRECONDITION_STATEMENTS);
+      const at = script.indexOf(capturePreconditionFor(sc));
       expect(at).toBeGreaterThan(script.lastIndexOf('.step('));
     }
   });

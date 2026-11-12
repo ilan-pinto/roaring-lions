@@ -38,6 +38,7 @@ import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
 import { createNodeBannerMaterial } from '../units/garrison-banner.node';
 import type { GarrisonBannerMaterial } from '../units/garrison-banner';
 import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
+import { createNodeBuildingMaterial } from '../units/building-cut.node';
 import { createNodeUnitMaterial } from '../units/unit-material.node';
 import { createGrassFieldKit } from '../terrain/grass-field.node';
 import { markTwin } from '../twin-identity';
@@ -188,6 +189,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     rotor: null,
     flipbook: null,
     smokeScreen: null,
+    building: null,
   };
   // T3: the node ground (the dry blend, the macro and the road). P3 (T1): every twin names its legacy material.
   materials.ground = (legacy) => {
@@ -265,6 +267,12 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     const style = XRAY_STYLE_BY_NAME[legacy.name];
     if (style === undefined) throw new Error(`node x-ray twin: no style for the legacy material "${legacy.name}"`);
     const twin = createNodeXrayMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.xray }, legacy, style);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-1225 slice 3 (L7): a holed and/or cut building's colour clone. The legacy clone keeps its records (`cutHookOf`, `holesHookOf`).
+  materials.building = (legacy) => {
+    const twin = createNodeBuildingMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.building }, legacy);
     markTwin(twin, legacy);
     return twin;
   };
