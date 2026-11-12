@@ -24,6 +24,7 @@ import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPort } from '../ui-review/port';
 import { MAX_LOADAVG_1M, abbaOrder, barMet, compare, loadRefusal, roundsRefusal, summarise } from './webgpu-abba';
+import { grassColumnRefusals, grassCondition, hiddenRefusal, type GrassMode } from './webgpu-grass-lib';
 import { ARM_KIND, harnessRefusals, type ArmId, type ArmReading } from './webgpu-refusals';
 import type { ArmRun, LegacyScene } from './webgpu-page';
 import { parseNodeDraw, resolveNodeDraw, type NodeDrawOptions } from '../../../packages/render/src/three/backend/node-draw-options';
@@ -37,6 +38,11 @@ const COUNTS = arg('counts', '300,600').split(',').map(Number);
 const ROUNDS = Number(arg('rounds', '3'));
 const FRAMES = Number(arg('frames', '80'));
 const OUT = arg('out', '');
+// GH-1167 S6: `--grass` adds the grass COLUMN: G with the 3D grass field on against G with it off, in ABBA order on fresh pages. Without it every
+// L-vs-G reading hides the grass (`grass: hidden`), so the like-for-like comparison, and the GH-1152 ratio, are unchanged.
+const GRASS = args.includes('--grass');
+/** The grass budget's zooms (design 5.1): z0.5 is the figure points, these are the view probes. */
+const GRASS_VIEW_ZOOMS = [1, 1.5, 2.5];
 const ARMS = arg('arms', 'F,G').split(',') as ('F' | 'G')[];
 // `--max-load=<n>`: the 1-minute load-average bar (default MAX_LOADAVG_1M, 4, the design's figure). Raising it is a stated
 // condition, never a silent one: the value used is printed in the conditions line and written to the JSON.
@@ -86,7 +92,7 @@ const browser = await chromium.launch({
 });
 const consoleLines: string[] = [];
 
-async function runOne(arm: ArmId): Promise<{ run: ArmRun; lines: string[]; gpu: string }> {
+async function runOne(arm: ArmId, grass: GrassMode = 'hidden', viewZooms: number[] | null = null): Promise<{ run: ArmRun; lines: string[]; gpu: string }> {
   const lines: string[] = [];
   const page: Page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 2 });
   await page.addInitScript(musicOffInitScript({}, { quality: 'high' }));
@@ -103,12 +109,15 @@ async function runOne(arm: ArmId): Promise<{ run: ArmRun; lines: string[]; gpu: 
     return ext ? String(gl?.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : 'unknown';
   });
   const run = (await page.evaluate(
-    async ({ mod, arm, mapId, counts, frames, legacyScene, nodeDraw }) => {
+    async ({ mod, arm, mapId, counts, frames, legacyScene, nodeDraw, grass, viewZooms }) => {
       const m = (await import(/* @vite-ignore */ mod)) as typeof import('./webgpu-page');
-      return m.runArm({ mapId: mapId as never, arm, counts, frames, viewFrames: 40, legacyScene, ...(arm === 'L' || nodeDraw === null ? {} : { nodeDraw }) });
+      return m.runArm({ mapId: mapId as never, arm, counts, frames, viewFrames: 40, legacyScene, grass, ...(viewZooms === null ? {} : { viewZooms }), ...(arm === 'L' || nodeDraw === null ? {} : { nodeDraw }) });
     },
-    { mod: MODULE, arm, mapId: MAP, counts: COUNTS, frames: FRAMES, legacyScene: LEGACY, nodeDraw: Object.keys(NODE_DRAW).length === 0 ? null : NODE_DRAW }
+    { mod: MODULE, arm, mapId: MAP, counts: COUNTS, frames: FRAMES, legacyScene: LEGACY, nodeDraw: Object.keys(NODE_DRAW).length === 0 ? null : NODE_DRAW, grass, viewZooms }
   )) as ArmRun;
+  const hr = hiddenRefusal(`arm ${arm}`, grass === 'hidden' ? run.grass.meshes : 0);
+  if (run.grass.mode !== grass) refuse(`arm ${arm}: asked for ${grassCondition(grass)}, the page booted with ${grassCondition(run.grass.mode)}`);
+  if (hr !== null) refuse(hr);
   await page.close();
   return { run, lines, gpu: arm === 'G' ? run.adapter : glRenderer };
 }
@@ -163,6 +172,60 @@ for (const test of ARMS) {
     }
   }
 }
+// GH-1167 S6: the grass column, G with the field on against G with it off, ABBA on fresh pages (the same quiet-machine rules). The
+// L-vs-G rows above hid the grass; this is its cost on its own.
+const grassRes = new Map<'on' | 'off', { target: number; synced: number[][]; p95: number[][] }[]>();
+const grassViews = new Map<'on' | 'off', { zoom: number; synced: number[][]; p95: number[][]; triangles: number }[]>();
+const grassSample: Partial<Record<'on' | 'off', ArmRun>> = {};
+if (GRASS) {
+  if (!ARMS.includes('G')) refuse('--grass reads G: --arms must include G');
+  for (let round = 0; round < ROUNDS; round++) {
+    const order = abbaOrder<'on' | 'off'>('off', 'on', round);
+    console.log(`[webgpu-abba] grass column round ${round + 1}/${ROUNDS} order ${order.join(',')} loadavg ${os.loadavg().map((v) => v.toFixed(2)).join('/')}`);
+    const acc = new Map<'on' | 'off', { pts: { target: number; synced: number[]; p95: number[] }[]; views: Map<number, { synced: number[]; p95: number[]; triangles: number }> }>();
+    for (const mode of order) {
+      const lr = await untilQuiet();
+      if (lr !== null) {
+        await browser.close();
+        stop();
+        refuse(lr);
+      }
+      const load1 = os.loadavg()[0] as number;
+      const { run, lines } = await runOne('G', mode, GRASS_VIEW_ZOOMS);
+      loads.push({ test: `grass-${mode}`, round: round + 1, arm: 'G', load1m: Number(load1.toFixed(2)) });
+      consoleLines.push(...lines);
+      grassSample[mode] = run;
+      const a = acc.get(mode) ?? { pts: run.points.map((p) => ({ target: p.target, synced: [] as number[], p95: [] as number[] })), views: new Map() };
+      run.points.forEach((p, i) => {
+        a.pts[i]?.synced.push(p.row.synced.med);
+        a.pts[i]?.p95.push(p.row.synced.p95);
+      });
+      for (const v of run.views) {
+        const cur = a.views.get(v.zoom) ?? { synced: [], p95: [], triangles: v.triangles };
+        cur.synced.push(v.syncedMs);
+        cur.p95.push(v.syncedP95Ms);
+        a.views.set(v.zoom, cur);
+      }
+      acc.set(mode, a);
+    }
+    for (const [mode, a] of acc) {
+      const cur = grassRes.get(mode) ?? a.pts.map((p) => ({ target: p.target, synced: [] as number[][], p95: [] as number[][] }));
+      a.pts.forEach((p, i) => {
+        cur[i]?.synced.push(p.synced);
+        cur[i]?.p95.push(p.p95);
+      });
+      grassRes.set(mode, cur);
+      const cv = grassViews.get(mode) ?? [...a.views].map(([zoom, v]) => ({ zoom, synced: [] as number[][], p95: [] as number[][], triangles: v.triangles }));
+      for (const [zoom, v] of a.views) {
+        const e = cv.find((x) => x.zoom === zoom);
+        e?.synced.push(v.synced);
+        e?.p95.push(v.p95);
+      }
+      grassViews.set(mode, cv);
+    }
+  }
+}
+
 await browser.close();
 stop();
 
@@ -177,7 +240,7 @@ const refusals = harnessRefusals(
 if (refusals.length > 0) refuse(`\n  ${refusals.join('\n  ')}`);
 
 const out: string[] = [];
-out.push(`conditions: map=${MAP} 1280x720 DPR 2, z0.5, quality high, ${FRAMES} frames/point, ${ROUNDS} ABBA rounds, L ${LEGACY === 'matched' ? 'MATCHED to the node scene (the node census hidden set hidden, AO ON since P1 T7; fog/bloom/SMAA/grade still on L)' : 'shipped'}, music off, node draw ${JSON.stringify(resolveNodeDraw(NODE_DRAW))}, max-load ${MAX_LOAD}, loadavg per page ${Math.min(...loads.map((l) => l.load1m)).toFixed(2)}-${Math.max(...loads.map((l) => l.load1m)).toFixed(2)}, at end ${os.loadavg()[0]?.toFixed(2)}`);
+out.push(`conditions: map=${MAP} 1280x720 DPR 2, z0.5, quality high, ${FRAMES} frames/point, ${ROUNDS} ABBA rounds, L ${LEGACY === 'matched' ? 'MATCHED to the node scene (the node census hidden set hidden, AO ON since P1 T7; fog/bloom/SMAA/grade still on L)' : 'shipped'}, music off, node draw ${JSON.stringify(resolveNodeDraw(NODE_DRAW))}, ${grassCondition('hidden')} on the L-vs-G rows${GRASS ? ' (the grass column is G on against G off below)' : ''}, max-load ${MAX_LOAD}, loadavg per page ${Math.min(...loads.map((l) => l.load1m)).toFixed(2)}-${Math.max(...loads.map((l) => l.load1m)).toFixed(2)}, at end ${os.loadavg()[0]?.toFixed(2)}`);
 out.push(`  gpu: ${[...new Set(readings.map((r) => `${r.arm}=${r.gpu}`))].join('; ')}`);
 for (const arm of ['L', ...ARMS] as ArmId[])
   out.push(
@@ -198,6 +261,30 @@ for (const test of ARMS) {
         `cpuRender ${tc.value.toFixed(2)} vs ${lc.value.toFixed(2)} ms (x${(tc.value / lc.value).toFixed(2)}); bar ${test === 'G' ? 1.05 : 1.1} ${met ? 'MET' : 'NOT MET'}`
     );
     verdict.push({ test, target, l, t, ratio: c.ratio, withinSpread: c.withinSpread, cpuRenderL: lc.value, cpuRenderT: tc.value, met });
+  }
+}
+if (GRASS) {
+  const gon = grassSample.on as ArmRun;
+  const goff = grassSample.off as ArmRun;
+  const gr = grassColumnRefusals({ mode: 'on', meshes: gon.grass.meshes, views: gon.views }, { mode: 'off', meshes: goff.grass.meshes, views: goff.views });
+  if (gr.length > 0) refuse(`the grass column: ${gr.join('; ')}`);
+  out.push(`grass column (G on against G off, ${ROUNDS} ABBA rounds on fresh pages; budget per design 5.1: median <= +1.0 ms, p95 <= +1.5 ms at every zoom): grass ${grassCondition('on')} vs ${grassCondition('off')}`);
+  for (const [i, target] of COUNTS.entries()) {
+    const on = summarise(grassRes.get('on')?.[i]?.synced ?? []);
+    const off = summarise(grassRes.get('off')?.[i]?.synced ?? []);
+    const on95 = summarise(grassRes.get('on')?.[i]?.p95 ?? []);
+    const off95 = summarise(grassRes.get('off')?.[i]?.p95 ?? []);
+    out.push(`  n${target} z0.5: G on ${on.value.toFixed(2)} vs off ${off.value.toFixed(2)} ms (delta ${(on.value - off.value).toFixed(2)}, spread ${on.spread.toFixed(2)}/${off.spread.toFixed(2)}); p95 ${on95.value.toFixed(2)} vs ${off95.value.toFixed(2)} (delta ${(on95.value - off95.value).toFixed(2)})`);
+    verdict.push({ grassColumn: true, target, zoom: 0.5, on, off, on95, off95, deltaMed: on.value - off.value, deltaP95: on95.value - off95.value });
+  }
+  for (const v of grassViews.get('on') ?? []) {
+    const o = grassViews.get('off')?.find((x) => x.zoom === v.zoom);
+    const on = summarise(v.synced);
+    const off = summarise(o?.synced ?? []);
+    const on95 = summarise(v.p95);
+    const off95 = summarise(o?.p95 ?? []);
+    out.push(`  last count z${v.zoom}: G on ${on.value.toFixed(2)} vs off ${off.value.toFixed(2)} ms (delta ${(on.value - off.value).toFixed(2)}, spread ${on.spread.toFixed(2)}/${off.spread.toFixed(2)}); p95 ${on95.value.toFixed(2)} vs ${off95.value.toFixed(2)} (delta ${(on95.value - off95.value).toFixed(2)}); tris ${v.triangles} vs ${o?.triangles}`);
+    verdict.push({ grassColumn: true, zoom: v.zoom, on, off, on95, off95, deltaMed: on.value - off.value, deltaP95: on95.value - off95.value });
   }
 }
 console.log(out.join('\n'));

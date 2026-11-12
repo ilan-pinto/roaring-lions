@@ -42,6 +42,7 @@ import {
   syncedSummary,
   type AbbaVerdictRow,
 } from './webgpu-p1-sheet-lib';
+import { grassCondition, hideGrassOnPage } from './webgpu-grass-lib';
 
 const args = process.argv.slice(2);
 const arg = (n: string, d: string): string => (args.find((a) => a.startsWith(`--${n}=`)) ?? `--${n}=${d}`).slice(n.length + 3);
@@ -206,6 +207,8 @@ async function sheetArm(browser: Browser, arm: SheetArm, port: number): Promise<
   const settled = JSON.parse((await page.evaluate(BOOT_SETTLE_SCRIPT)) as string) as { tick: number };
   const refusal = bootFreezeRefusal(settled.tick);
   if (refusal !== null) refuse(`${arm}: ${refusal}`);
+  // GH-1167 S6: the L-vs-G tools hide the 3D grass field (the grass cost is its own column).
+  await hideGrassOnPage(page, `p1-sheet ${arm}`).catch((e: Error) => refuse(e.message));
   const info = (await page.evaluate(() => {
     const L = (window as unknown as { __lions: { renderer: { backendInfo(): { kind: string; adapter: string } } } }).__lions;
     return L.renderer.backendInfo();
@@ -460,6 +463,8 @@ const doc = [
   `${validation} (console lines of the four sheet pages plus every child tool's output; the ABBA harness also refuses on one).`,
   '',
   `ABBA conditions line: ${abbaNote}`,
+  '',
+  `Sheet pages: ${grassCondition('hidden')} on every arm (the 3D grass field, GH-1167, is hidden from the L-vs-G comparison).`,
 ];
 writeFileSync(path.join(OUT, 'p1-numbers.md'), doc.join('\n'));
 console.log('\n' + gates.map((g) => `${g.verdict}  ${g.item}  [${g.detail}]`).join('\n'));
