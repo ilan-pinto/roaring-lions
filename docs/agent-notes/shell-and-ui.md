@@ -291,6 +291,32 @@ binding.
 - **Privacy and telemetry.** The page at `/privacy` lists the A2 data (A2-32). Telemetry and the feedback context carry
   neither the public id nor the device id (`account/unlinked.test.ts`, A1-10 extended).
 
+## Accounts A1: bindings, the switch and the runbook (GH-1075)
+
+Sources: `packages/worker/src/account/`, `packages/worker/migrations-accounts/`, `wrangler.jsonc`. Plan:
+`docs/superpowers/plans/2026-11-08-accounts-a0-a1.md`, Task 1.11. The agent never runs `wrangler`; the lead does.
+
+- **What is bound.** `ACCOUNTS` (D1 `roaring-lions-accounts`, a second database, never joined to `DB`), `ACCOUNT_TOMBSTONES`
+  (KV), and the limiters `ACCOUNT_LIMIT` (1007, 10 a minute) and `ACCOUNT_OP_LIMIT` (1008, 60 a minute). `/privacy` is in
+  `assets.run_worker_first`; `account/wrangler-pin.test.ts` fails if `ACCOUNTS` is bound without it or without both limiters.
+  Without the `ACCOUNTS` binding every `/api/account/*` path answers 503. No account secret exists: the per-IP budgets use
+  `TICKET_SECRET` (or `STATS_PASSWORD`) through `ipSecret`, and the per-IP counts are skipped when neither is set.
+- **The switch** is the `flags` row `accounts` in the ACCOUNTS database. Anything but `'open'`, including no row, is CLOSED.
+  Closed, a Steam ID that belongs to no member makes no account; existing members still sign in, and `delete`, `export`,
+  `gone`, `logout` and `logout-all` work. `GET open` reports the switch to the app.
+  - **Open** (lead only, after the PR is merged and deployed and `GET https://roaring-lions.pint12.workers.dev/privacy` answers 200):
+    `npx wrangler d1 execute roaring-lions-accounts --remote --command "INSERT INTO flags (name, value, updated_at) VALUES ('accounts', 'open', unixepoch() * 1000) ON CONFLICT (name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"`
+  - **Close:** the same command with `'closed'` in place of `'open'`. No deploy is needed either way.
+  - Players sign up from `/?accounts`.
+- **Before the first merge:** `npx wrangler d1 migrations apply roaring-lions-accounts --remote`. Merging deploys to
+  production from `main`, and a Worker bound to an unmigrated database fails.
+- **Tombstones** are KV keys `tomb:<sha256(public_id)>` in `ACCOUNT_TOMBSTONES`, value `{deletedAt, lastSeenDay}`, TTL 90 days
+  (`TOMB_TTL_S`). They hold a hash only. A delete writes the tombstone FIRST, then one D1 batch; the daily cron
+  (`sweepAccounts`, then `reconcileTombstones`) finishes any delete whose tombstone exists while its member still does.
+- **After a D1 Time Travel restore** of the ACCOUNTS database, CLOSE the switch first. A restore can bring back members
+  deleted since the restore point, and their tombstones in KV then say they are gone. Re-apply the deletions (the
+  tombstone re-apply script, built in A4) and only then reopen. Until A4 builds it, do not restore without closing.
+
 ## Accounts A3: versus records (GH-1075)
 
 A versus match a member plays is recorded on the member's account, but only a result the server can stand behind.
