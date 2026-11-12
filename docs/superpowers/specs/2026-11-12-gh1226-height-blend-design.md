@@ -280,10 +280,10 @@ e     = clamp01( eP + 0.6 · (Lr − 1) · 4 · eP · (1 − eP) )        textur
 j     = e · (1 − ss(0.85, 1.00, Lr))                              joints; 0 while Lr = 1
 h     = ss(0.12, 0.40, −t) · (1 − ss(8, 16, s)) · (1 − e)         hollow, never under rock
 soil  = w_open + w_knoll + 0.5 · w_scrub                          (after the rescale, before the road)
-mE    = amp · e · soil       mH = amp · h · soil      mJ = amp · aJ · j · soil
+mE    = amp · e · soil       mH = amp · h · soil      mJ = amp · j · soil
 weights: w_open, w_knoll, 0.5·w_scrub each give up the fraction amp·e of themselves to w_rock (the sum is unchanged)
 f_open ← mix(1, f_open, 1 − kH · mH)                              hollow texture softening (kH: highland 0.4, arid 0.5)
-tone  ← mix(mix(mix(vertexTone, T_hollow, aH · mH), T_rock, aR · mE), T_joint, mJ)
+tone  ← mix(mix(mix(vertexTone, T_hollow, aH · mH), T_rock, aR · mE), mix(T_rock, T_joint, aJ), mJ)   the joint is over PURE rock tone: a full joint is #A37B6A
 ```
 
 Then the existing road block runs on the new tone and weights, followed by `albedo x macro` and the relief read, unchanged.
