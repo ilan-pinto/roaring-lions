@@ -381,6 +381,14 @@ Explicitly out of scope for v1.0, listed so they are not accidentally designed f
 
 The sim's determinism and command-based input mean multiplayer remains cheap to add later. That is the only deferred item the architecture actively protects.
 
+### Refused, not deferred (the Command & Conquer tradition, GH-115)
+
+§1 claims the Command & Conquer tradition. These are the parts of it the game refuses, recorded here so they stop being re-litigated. None is on a roadmap.
+
+- **The harvester loop is refused, permanently.** Logistics is throughput (§3); protecting the corridor is the gameplay.
+- **Base building is adopted as field works and field fortification, and nothing more** (GH-277, GH-73, GH-66). Engineers raise a small catalogue of support positions (medic station, outpost, intel centre, workshop) and barriers anywhere on open ground, paid from mission logistics, built under fire, one mission at a time. Each is a tactical position with a radius, not an economy. **Refused:** a construction yard, a power grid, selling, a build radius, tech prerequisites, and any structure that produces units or income. Repair by building exists in one form, the workshop's area repair. The reasoning is §4: the Build-up phase is *production and force composition*, so placeable structures would change the phase system rather than add a screen, and base management pulls against the principle that the combat model is the product. The one camp a player builds is the forward camp (§3, GH-277).
+- **Mirrored tech trees and a two-sided faction campaign are refused.** Pillar 3 (§1): asymmetry is structural, and neither side plays the same game. A mirror is anti-structural here by construction, not merely unscheduled. The enemy never builds from a menu that names units of the player's roster.
+
 ---
 
 ## 11. Story

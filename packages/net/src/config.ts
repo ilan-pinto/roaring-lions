@@ -87,16 +87,43 @@ export type WinMode = (typeof WIN_MODES)[number];
  *    84.4% by the goal; wadi_tarfan_l flag 126 / 125 / 37, 43.8% / 50.2% decisive, 87.2%; beit_sahwan_outskirts points
  *    133 / 155 / 0, 53.8%, 74.3%. wadi_tarfan_l points (1 point per 100, target 600) was read on a third range, 12000-12287:
  *    135 / 153 / 0, 53.1% over all and decisive games, 96.2% by the goal, the passive end lost 288 of 288 from each end.
- *    KDF against Sarim is `WIN_MODE_FAIR_FACTION_CELLS`'s question. */
+ *    KDF against Sarim is `WIN_MODE_FAIR_FACTION_CELLS`'s question.
+ *
+ *  - **GH-976, 12 Nov: `points` DELISTED on `beit_sahwan_outskirts` and `rujm_sawda`** (the lead's ruling, GH-976). The rows above for these
+ *    two cells (points: 51.4% and 54.9%) are SUPERSEDED: the probes machine's "Win-mode fairness check, part 2" (12 Nov 08:22Z, active
+ *    arm, seeds 4000-4287, against the 60/40 bar) read beit_sahwan_outskirts 82 / 206 (71.5% east) and rujm_sawda 188 / 100 (65.3%
+ *    west), so both drifted out of the bar. They are out until the bisect (running on the probes machine) finds the cause and a fresh
+ *    read lands inside 60/40. Every other row, map and mode is unchanged. */
 export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
   camp: ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'],
-  points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
-  // GH-1139 (the lead, 8 Nov): flag is OUT of every lobby until CTF v2 lands at WP9. The v1 raid that the seven reads above
-  // passed is won by an opening attack-move in 32-62 s on every map (0:55 in the lead's bot match). WP9 relists the maps that
-  // pass the v2 bars here and in `FLAG_SETUP_MAPS` together. The engine, the mode files and the probe stay; tools and tests
-  // build flag worlds directly (`validateConfig` does not read this table), and a test that needs a flag ROOM stands a map
-  // here for its own duration (read at call time, like `FLAG_SETUP_MAPS`).
-  flag: [],
+  points: ['tel_marum', 'wadi_tarfan', 'milh_flats', 'wadi_tarfan_l', 'milh_flats_l'],
+  // GH-976 (the lead's ruling of 12 Nov, relisting what GH-1139 pulled on 8 Nov): flag is offered on the five maps with a staged
+  // `flag_setup` block, in the MIRROR only (KDF v KDF), and always with the set-up rules: these five are also `FLAG_SETUP_MAPS`, and the
+  // two lists change together (a listed map missing from `FLAG_SETUP_MAPS` would offer the v1 raid GH-1139 pulled, which an opening
+  // attack-move won in 32-62 s). The evidence is the "Flag-mode fairness audit" comment on GH-976 (11 Nov, base e8da511): every leader
+  // 52-58%, no flag win under 2 minutes, no G1/G4 watch item. The lead's 11 Nov ruling is "ship as it is": capture the flag ships with the
+  // shipped placements, the shipped hold, the minute-12 backstop of PR 1201 and the set-up rules. KDF v Sarim stays unlisted
+  // (`WIN_MODE_FAIR_FACTION_CELLS.flag` is `{}`: the audit read the mirror only). tel_marum and beit_sahwan_outskirts have no staged
+  // block and stay out. The per-map table above is NOT the relist's evidence: its flag rows are the v1 raid, which GH-1139 pulled. The
+  // relist's rows are the audit's, in the next comment. Tools and tests build flag worlds directly (`validateConfig` does not read this
+  // table), and a test that needs a flag ROOM on another map stands it here for its own duration (read at call time, like
+  // `FLAG_SETUP_MAPS`).
+  //
+  // The audit's mirror rows (set-up rules on, KDF v KDF, strong scripted attacker both seats, early Ready, shipped placements, 45 s hold,
+  // minute-12 backstop; seeds 53200-53295, 96 a cell; leader by DECISIVE games / by ALL games; flag wins under 2:00; draws):
+  //
+  //   | map | W/E decisive | leader (decisive / all) | flag / annihilation / rule | draws | flag wins < 2:00 |
+  //   |---|---|---|---|---|---|
+  //   | wadi_tarfan | 41 / 30 | 58% / 43% | 1% / 32% / 67% | 26% | 0 |
+  //   | milh_flats | 35 / 48 | 58% / 50% | 11% / 25% / 64% | 14% | 0 |
+  //   | rujm_sawda | 44 / 39 | 53% / 46% | 10% / 23% / 67% | 14% | 0 |
+  //   | wadi_tarfan_l | 46 / 43 | 52% / 48% | 19% / 11% / 70% | 7% | 0 |
+  //   | milh_flats_l | 50 / 44 | 53% / 52% | 29% / 21% / 50% | 2% | 0 |
+  //
+  // Caveats, from the audit: one scripted attacker that masses before it moves (a bot that attack-moves from the bell may still win
+  // early, GH-1139's 0:55); each leader share carries 5-6 points of standard error; wadi_tarfan is a poor balance test (1% by the flag,
+  // 26% draws).
+  flag: ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
 };
 
 /** The KDF-v-Sarim cells each win mode has been read fair on (GH-976 P4): per mode, per map, the HOSTS (the matchup is the
@@ -134,8 +161,8 @@ export function winModeAllowed(mode: WinMode, map: string, matchup: Matchup = 'm
   return Object.hasOwn(cells, map) && cells[map].includes(matchup);
 }
 
-/** Whether any lobby offers `mode` at all: on some map in the mirror, or in some faction cell. False for flag until CTF v2 is
- *  relisted (GH-1139), so a tool that is TOLD a mode (`pnpm bot --mode`) can refuse one no room can play. */
+/** Whether any lobby offers `mode` at all: on some map in the mirror, or in some faction cell. A tool that is TOLD a mode
+ *  (`pnpm bot --mode`) can refuse one no room can play (flag was such a mode from GH-1139 to its relist, GH-976, 12 Nov). */
 export function winModeOpen(mode: WinMode): boolean {
   return WIN_MODE_FAIR_MAPS[mode].length > 0 || Object.values(WIN_MODE_FAIR_FACTION_CELLS[mode]).some((hosts) => hosts.length > 0);
 }
@@ -325,9 +352,10 @@ export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum', 'wadi_tarfa
  *  `tools/src/validate_versus_rules.test.ts` holds this table to every rules file, both ways. */
 export const MAP_CAP_MINUTES: Readonly<Record<string, number>> = { rujm_sawda: 35, wadi_tarfan_l: 35, milh_flats_l: 35 };
 
-/** GH-976 v2: the maps a FLAG room plays the set-up rules on. Empty until WP9's per-map relist, so no room mints `flagSetup` yet.
- *  Read at CALL time (`flagSetupFor`), so a test may stand a map in it. */
-export const FLAG_SETUP_MAPS: readonly string[] = [];
+/** GH-976 v2: the maps a FLAG room plays the set-up rules on: the five with a staged `flag_setup` block, the same five
+ *  `WIN_MODE_FAIR_MAPS.flag` lists (the lead's ruling of 12 Nov; change both together). Read at CALL time (`flagSetupFor`), so a
+ *  test may stand a map in it. */
+export const FLAG_SETUP_MAPS: readonly string[] = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
 
 /** The flag match cap, in minutes, of a set-up room on every map, set-up included. A TWIN of `FLAG_SETUP_CAP_MINUTES` in
  *  @lions/data (the Worker imports net and not data), held to it by `tools/src/validate_versus_modes.test.ts`. */

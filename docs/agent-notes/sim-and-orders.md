@@ -765,6 +765,7 @@ maps); since GH-976 camp-mode it is offered on `milh_flats` alone (below) and re
   P1 compared frozen scores, so the larger overshoot could beat the side that reached the target FIRST.
 - **`versusModes` is in the content digest** (`content-digest.ts`): a mode file that differs between two clients is a desync on the
   first hash tick, not later through a camp or a score.
+- **Capture the flag is back in the lobby (GH-976, 12 Nov).** `WIN_MODE_FAIR_MAPS.flag` and `FLAG_SETUP_MAPS` list the same five maps (`wadi_tarfan`, `milh_flats`, `rujm_sawda`, `wadi_tarfan_l`, `milh_flats_l`), mirror only, set-up rules on; change the two together. Evidence: the "Flag-mode fairness audit" comment on GH-976 (base e8da511); the v1 raid rows in `config.ts` are not it. KDF v Sarim stays unlisted.
 - **The lobby offers what was read fair.** `winModesOffered(map, matchup)` (`@lions/net`) lists the modes `WIN_MODE_FAIR_MAPS`
   names for the map, **in the mirror only** (the probe read every mode KDF v KDF; a faction pairing plays its economy and is offered
   none). The host's form has a "How to win" group, Annihilation by default, drawn only when something is offered; a pick the next
