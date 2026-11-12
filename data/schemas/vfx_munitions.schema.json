@@ -150,7 +150,17 @@
             "falloff_tiles": { "type": "number", "exclusiveMinimum": 0 }
           }
         },
-        "hit_stop_ms": { "type": "number", "minimum": 0, "maximum": 120 }
+        "hit_stop_ms": { "type": "number", "minimum": 0, "maximum": 120 },
+        "ragdoll_push": {
+          "type": "object",
+          "description": "GH-1223: the push a ragdoll takes when this class kills it, m/s: horizontal (away from the killer) and vertical. The hashed +-30% spread stays in code. A class with none pushes at the default (1.0 / 0.4). Presentation only: the sim reads none of it.",
+          "required": ["horizontal_m_s", "up_m_s"],
+          "additionalProperties": false,
+          "properties": {
+            "horizontal_m_s": { "type": "number", "exclusiveMinimum": 0, "maximum": 12 },
+            "up_m_s": { "type": "number", "minimum": 0, "maximum": 8 }
+          }
+        }
       },
       "allOf": [
         {

@@ -133,7 +133,6 @@ import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
 import { clock as missionClock, showDebrief, type DebriefCoins, type DebriefOptions, type ReportSpeaker } from './ui/debrief';
 import { campaignComplete, closingExchange } from './campaign-close';
-import { feedbackDialog } from './ui/feedback-dialog';
 import { ratingPrompt, type RatingPrompt } from './ui/feedback-prompt';
 import { browserFeedbackSession, type FeedbackSession, type SessionNote } from './feedback/session';
 import { collectContext, type ContextInput } from './feedback/context';
@@ -149,7 +148,7 @@ import { afterAction, promotionsBetween } from './ui/after-action';
 import { livingHostiles } from './ui/withdrew';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
 import { beatCamera, beatFocus, beatPose, beatThenReport, hideForBeat, type BeatCamera } from './ui/outcome-beat';
-import { showSettings, type SettingsDeps } from './ui/settings-panel';
+import type { SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
 import {
   EDGE_MARGIN_PX,
@@ -289,6 +288,7 @@ import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { withSoftParticles } from './soft-flag';
 import { PAUSES_PER_SEAT, WsTransport, flagSetupRoom, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
+import { nameFrom } from './net/seat-label';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
@@ -372,7 +372,6 @@ import {
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
 import { selectLedgerStore, type SelectedStore } from './account/select-store';
-import { bootAccountLazy } from './account/boot';
 import type { SyncHandle } from './account/sync';
 import { isAccountStore } from './account/account-store';
 import type { SpendFlow } from './account/spend-flow';
@@ -381,9 +380,10 @@ import { opIdsOf, requestMissionStart, victoryCoinLine } from './account/mission
 import { markNever, markShown, promptDue, saveMoment } from './account/prompt';
 import { readHeld, type HeldItem } from './account/local-held';
 import { newCampaign, type CampaignLedger, type LedgerStore, type LostRecord } from './ledger-store';
-import { showSaves, type SavesDeps } from './ui/saves';
-import { showCredits, type CreditsDeps } from './ui/credits';
-import { showVersus, showVersusRoom, versusMaps, type VersusDeps } from './ui/versus';
+import type { SavesDeps } from './ui/saves';
+import type { CreditsDeps } from './ui/credits';
+import { versusMaps } from './ui/versus-maps';
+import type { VersusDeps } from './ui/versus';
 import { LOCALES, applyLocale, loadLocale, resolveLang } from './i18n/locales';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo } from './i18n/pseudo';
@@ -935,6 +935,7 @@ async function main(): Promise<void> {
   // and the spend flow start around the account store. Behind `?accounts` only: a guest never reaches this network call.
   let accountUnreachable = false;
   if (selectedStore.signedIn && accountsOn) {
+    const { bootAccountLazy } = await importWithRetry(() => import('./account/boot'));
     const booted = await bootAccountLazy({
       selected: selectedStore,
       reselect: selectStore,
@@ -989,6 +990,9 @@ async function main(): Promise<void> {
     const tutorialIsDone = ledgerStore.tutorialDone();
     // GH-464: whether this menu offers feedback, asked per mount.
     const menuFeedback = browserFeedbackSession();
+    // The feedback dialog's late-load guards (see `feedback:` below).
+    let feedbackLoading = false;
+    let menuGone = false;
     // Where the campaign is RIGHT NOW (Task 7): the tutorial while nothing has
     // been played, else the first open mission of wherever the map is live.
     // Null once every authored mission is done, which is `continue: undefined`
@@ -1041,21 +1045,34 @@ async function main(): Promise<void> {
       },
       feedback: menuFeedback.shown && !feedbackClosed()
         ? () => {
-            feedbackDialog(host, {
-              who: menuFeedback.who,
-              build: menuFeedback.build,
-              storage: menuFeedback.storage,
-              send: async (sub, signal) =>
-                menuFeedback.send(
-                  {
-                    source: 'menu',
-                    category: sub.kind,
-                    text: sub.text,
-                    ...(sub.contact === undefined ? {} : { contact: sub.contact }),
-                    where: { context: collectContext(shellContextInput(settingsDeps.get())) },
-                  },
-                  { signal }
-                ),
+            // The dialog's chunk loads on the click (bundle headroom), so the menu
+            // can be left, or the button clicked again, before it arrives: open
+            // nothing once this menu is disposed, and one dialog per load.
+            if (feedbackLoading || menuGone) return;
+            feedbackLoading = true;
+            void importWithRetry(() => import('./ui/feedback-dialog')).then(({ feedbackDialog }) => {
+              feedbackLoading = false;
+              if (menuGone) return;
+              feedbackDialog(host, {
+                who: menuFeedback.who,
+                build: menuFeedback.build,
+                storage: menuFeedback.storage,
+                send: async (sub, signal) =>
+                  menuFeedback.send(
+                    {
+                      source: 'menu',
+                      category: sub.kind,
+                      text: sub.text,
+                      ...(sub.contact === undefined ? {} : { contact: sub.contact }),
+                      where: { context: collectContext(shellContextInput(settingsDeps.get())) },
+                    },
+                    { signal }
+                  ),
+              });
+            }, (err: unknown) => {
+              // A chunk that will not load twice: the menu stays as it is.
+              feedbackLoading = false;
+              console.error('feedback dialog: its chunk did not load', err);
             });
           }
         : undefined,
@@ -1081,6 +1098,7 @@ async function main(): Promise<void> {
     // does not empty). Nothing happens while no intro ships (`intro.ts`).
     const intro = firstLaunchIntro({ ...introDeps, settings: settingsDeps });
     return () => {
+      menuGone = true;
       intro();
       menu();
     };
@@ -1091,10 +1109,10 @@ async function main(): Promise<void> {
    *  `profile.ts`'s own header. No storage means no screen: a save slot with
    *  nowhere durable to live is worse than an error card naming why, and
    *  `available` is that question asked once. */
-  function mountSaves(host: HTMLElement): Disposer {
+  function mountSaves(host: HTMLElement): Promise<Disposer> {
     if (!ledgerStore.available) {
       bootError(host, t('boot.savesUnavailable.title'), t('boot.savesUnavailable.body'), t('boot.savesUnavailable.next'), routes.menu());
-      return () => host.replaceChildren();
+      return Promise.resolve(() => host.replaceChildren());
     }
     const deps: SavesDeps = {
       store: ledgerStore,
@@ -1116,7 +1134,7 @@ async function main(): Promise<void> {
       ...(isAccountStore(ledgerStore) ? { downloading: () => (isAccountStore(ledgerStore) ? ledgerStore.downloading() : []) } : {}),
       ...(syncHandle !== null ? { releaseHeld: () => syncHandle?.release() ?? Promise.resolve({ ok: false as const }), canReleaseHeld: (item: HeldItem) => syncHandle?.canRelease(item) ?? false, queuedHeldIds: () => syncHandle?.queuedHeldIds() ?? [] } : {}),
     };
-    return showSaves(host, deps);
+    return importWithRetry(() => import('./ui/saves')).then(({ showSaves }) => showSaves(host, deps));
   }
 
   /** The map page. publicDir is the repo-root assets/ dir (vite.config.ts), so
@@ -1551,13 +1569,15 @@ async function main(): Promise<void> {
         name: 'settings',
         pattern: '/settings',
         mount: (host) =>
-          showSettings(host, {
-            ...settingsDeps,
-            back: routes.menu(),
-            // "Replay intro": a row only when an intro ships. The pause menu's
-            // mount of the panel passes none, so a mission is never covered.
-            intro: introAvailable(introDeps) ? { replay: () => replayIntro(introDeps) } : undefined,
-          }),
+          importWithRetry(() => import('./ui/settings-panel')).then(({ showSettings }) =>
+            showSettings(host, {
+              ...settingsDeps,
+              back: routes.menu(),
+              // "Replay intro": a row only when an intro ships. The pause menu's
+              // mount of the panel passes none, so a mission is never covered.
+              intro: introAvailable(introDeps) ? { replay: () => replayIntro(introDeps) } : undefined,
+            }),
+          ),
       },
       { name: 'saves', pattern: '/saves', mount: (host) => mountSaves(host) },
       {
@@ -1606,16 +1626,18 @@ async function main(): Promise<void> {
         name: 'credits',
         pattern: '/credits',
         mount: (host) =>
-          showCredits(host, {
-            base: BASE,
-            build: __APP_BUILD__,
-            back: routes.menu(),
-            fetchText: fetchLicenceText,
-          } satisfies CreditsDeps),
+          importWithRetry(() => import('./ui/credits')).then(({ showCredits }) =>
+            showCredits(host, {
+              base: BASE,
+              build: __APP_BUILD__,
+              back: routes.menu(),
+              fetchText: fetchLicenceText,
+            } satisfies CreditsDeps),
+          ),
       },
-      { name: 'versus', pattern: '/versus', mount: (host) => showVersus(host, versusDeps) },
+      { name: 'versus', pattern: '/versus', mount: (host) => importWithRetry(() => import('./ui/versus')).then(({ showVersus }) => showVersus(host, versusDeps)) },
       // Room codes are upper case; a link typed in lower case is the same room.
-      { name: 'versus-room', pattern: '/versus/:code', mount: (host, req) => showVersusRoom(host, req.params.code.toUpperCase(), versusDeps) },
+      { name: 'versus-room', pattern: '/versus/:code', mount: (host, req) => importWithRetry(() => import('./ui/versus')).then(({ showVersusRoom }) => showVersusRoom(host, req.params.code.toUpperCase(), versusDeps)) },
       // Reserved for Phase 1's briefing screen. Until that exists the path is
       // a redirect rather than a 404, so a link written against it today lands
       // the player in the mission rather than on an error card.
@@ -2021,6 +2043,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   onDispose(() => transport.close());
   const netSeat: Seat | null = match.seat;
   const netConfig = match.config;
+  /** A seat's name: the lobby's label (a member's name and public id, GH-1075 A3), else the config's callsign. The
+   *  config carries no label (§0.14); after a reload nothing was handed over and the callsign stands. */
+  const seatName = (seat: number): string => nameFrom(match.labels, seat, netConfig?.seats[seat]?.callsign ?? '');
   /** This battlefield's room, when it is one seat of a match (N1b task 8):
    *  where Escape's pause, the menu's Resume and Surrender go. Null in
    *  single-player, which keeps its local pause exactly as it was. */
@@ -3772,11 +3797,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
    *  which escapes them. */
   const netChat = room !== null && netConfig !== null && !spectating
-    ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => netConfig.seats[seat].callsign })
+    ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat) })
     : null;
   if (netChat !== null) onDispose(() => netChat.dispose());
   if (room !== null && netConfig !== null && !spectating) {
-    room.setHooks({ onChat: (seat, text) => hud.note(chatFeedLine(netConfig.seats[seat].callsign, text), 'info') });
+    room.setHooks({ onChat: (seat, text) => hud.note(chatFeedLine(seatName(seat), text), 'info') });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
    *  places that learn of one: the dispatch below (withheld here) and the room
@@ -6796,7 +6821,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  single-player there is nothing to say and nothing is mounted. */
   // (Not for a spectator: its lines speak to a seat -- "until you win by forfeit" -- and the strip says what the room is doing.)
   const netStatus = netSeat !== null && !spectating
-    ? new NetStatusLine(document.body, (seat) => netConfig?.seats[seat ?? netSeat].callsign ?? '', {
+    ? new NetStatusLine(document.body, (seat) => seatName(seat ?? netSeat), {
         code: netConfig?.code ?? '',
         // Report only where it leads somewhere: a room, with the feedback
         // form offered at all (`feedback/gate.ts`).
@@ -6809,7 +6834,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  show the same board. A versus room only: single-player and a sandbox room
    *  mount nothing. */
   const otherSeat = netSeat === 0 ? 1 : 0;
-  const scoreNames = { theirs: netConfig?.seats[otherSeat].callsign ?? '' };
+  const scoreNames = { theirs: seatName(otherSeat) };
   const netScore = showsScoreboard(netConfig) && !spectating ? new NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());
   /** The points race (GH-976 P2): both sides' points against the target, from the goals-only runtime. Scores and

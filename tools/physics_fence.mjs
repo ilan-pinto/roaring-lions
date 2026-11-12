@@ -19,6 +19,17 @@ const THREE_DIR = 'packages/render/src/three';
 
 const posix = (p) => p.split(sep).join('/');
 
+// A module specifier the rule can read: a string literal, or a template literal with no `${}` in it (`import(`x`)`
+// is the same specifier as `import('x')`). Anything computed has no statically known source and is left alone.
+function staticSource(node) {
+  if (!node) return undefined;
+  if (node.type === 'Literal') return node.value;
+  if (node.type === 'TemplateLiteral' && node.expressions.length === 0 && node.quasis.length === 1) {
+    return node.quasis[0].value.cooked ?? undefined;
+  }
+  return undefined;
+}
+
 function check(context, node, source) {
   if (typeof source !== 'string') return;
   const cwd = context.cwd ?? process.cwd();
@@ -67,10 +78,10 @@ export const physicsFencePlugin = {
           ImportDeclaration: (node) => check(context, node, node.source.value),
           ExportNamedDeclaration: (node) => node.source && check(context, node, node.source.value),
           ExportAllDeclaration: (node) => check(context, node, node.source.value),
-          ImportExpression: (node) => node.source.type === 'Literal' && check(context, node, node.source.value),
+          ImportExpression: (node) => check(context, node, staticSource(node.source)),
           CallExpression: (node) => {
-            if (node.callee.type === 'Identifier' && node.callee.name === 'require' && node.arguments[0]?.type === 'Literal') {
-              check(context, node, node.arguments[0].value);
+            if (node.callee.type === 'Identifier' && node.callee.name === 'require') {
+              check(context, node, staticSource(node.arguments[0]));
             }
           },
         };

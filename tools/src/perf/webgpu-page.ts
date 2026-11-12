@@ -16,6 +16,8 @@ import { DECOR_LOD1, DECOR_MESHES, PROP_MESHES, meshPlanFor } from '../../../pac
 import { censusUnported } from '../../../packages/render/src/three/backend/unported';
 import { resolveNodeDraw, type NodeDrawOptions } from '../../../packages/render/src/three/backend/node-draw-options';
 import type { ArmId } from './webgpu-refusals';
+import { TERRAIN_THEMES } from '../../../packages/app/src/terrain-themes';
+import { GRASS_LAYER, countGrassMeshes, type GrassMode, type GrassNodeLike, type GrassReading, type GrassState } from './webgpu-grass-lib';
 import { drawTypeOf, emptyByType, medianOrNull, type DrawObjectLike, type DrawType, type FullReason, type PerPass, type RenderPassId, type SubmitReading, type Uploads, type VariantId } from './webgpu-submit-probe-lib';
 
 interface BatchedLike {
@@ -245,6 +247,8 @@ export interface ProbeView {
   triangles: number;
   frameTriangles: number;
   syncedMs: number;
+  /** GH-1167 S6: the p95 of the same synced frames (the grass budget reads G p95 at every zoom). */
+  syncedP95Ms: number;
   cpuFrameMs: number;
   entriesCullOn: number;
   entriesCullOff: number;
@@ -263,7 +267,7 @@ export async function probeViews(r: RendererLike, zooms: number[], frames: numbe
     await r.whenGpuIdle();
     const entriesCullOff = entriesNow(r);
     for (const b of bs) b.perObjectFrustumCulled = true;
-    out.push({ zoom: z, cpuRenderMs: on.cpuRender.med, triangles: on.triangles, frameTriangles: on.frameTriangles, syncedMs: on.synced.med, cpuFrameMs: on.cpuFrame.med, entriesCullOn: on.entries, entriesCullOff });
+    out.push({ zoom: z, cpuRenderMs: on.cpuRender.med, triangles: on.triangles, frameTriangles: on.frameTriangles, syncedMs: on.synced.med, syncedP95Ms: on.synced.p95, cpuFrameMs: on.cpuFrame.med, entriesCullOn: on.entries, entriesCullOff });
   }
   return out;
 }
@@ -277,9 +281,28 @@ export interface ArmRun {
   unportedCount: number;
   points: { target: number; living: number; row: Row }[];
   views: ProbeView[];
+  /** GH-1167 S6: the grass mode the page booted with and the visible grass meshes it then drew. */
+  grass: GrassState;
 }
 
 const GPU_OF: Record<ArmId, 'legacy' | 'webgl2' | 'webgpu'> = { L: 'legacy', F: 'webgl2', G: 'webgpu' };
+
+/**
+ * GH-1167 S6: the 3D grass field's mode on a harness page. `hidden` (the default, every L-vs-G reading): the harness's own arid tones
+ * carry no `grassField`, so no field is built, AND the layer is hidden after boot, so a later change to the tones cannot put grass on G
+ * alone. `on` / `off` (the G-on-against-G-off column): the green theme's tones, which build the field on a node boot, then the layer
+ * shown or hidden. L never draws a field (a legacy boot reads no `grassField`), so the mode is only ever `on`/`off` on a G arm.
+ */
+function grassBootTones(mode: GrassMode): { terrainTones?: (typeof TERRAIN_THEMES)['green'] } {
+  return mode === 'hidden' ? {} : { terrainTones: TERRAIN_THEMES.green };
+}
+
+/** Applies the mode after `init` and reports what the page now draws (visible grass meshes), so the driver prints the page's word. */
+function applyGrassMode(renderer: unknown, mode: GrassMode): GrassState {
+  const r = renderer as { setDebugLayerVisible(name: string, visible: boolean): number; scene: GrassNodeLike };
+  r.setDebugLayerVisible(GRASS_LAYER, mode === 'on');
+  return { mode, meshes: countGrassMeshes(r.scene) };
+}
 
 /** One arm of the figure curve: a private Sim + ThreeRenderer on `mapId`, the all-mesh roster, the sim held still. */
 export async function runArm(o: {
@@ -291,12 +314,17 @@ export async function runArm(o: {
   legacyScene?: LegacyScene;
   /** GH-943 P3 T14b: the node draw switches for a node arm (`--node-opts=`); never passed on L. */
   nodeDraw?: NodeDrawOptions;
+  /** GH-1167 S6: the grass mode (default `hidden`). */
+  grass?: GrassMode;
+  /** GH-1167 S6: the zooms of the view probes (default z1 and z2.5; the grass column reads z1, z1.5 and z2.5 beside the z0.5 points). */
+  viewZooms?: number[];
 }): Promise<ArmRun> {
   const legacyScene = o.legacyScene ?? 'matched';
   const capacity = Math.max(...o.counts) + 50;
   const { sim, map, typeOf } = buildWorld(capacity, o.mapId);
   // `environmentLight: false` on every arm: the L1 sky is a legacy PMREM the node backend does not draw until P1.
-  const opts = { ...buildRendererOptions(), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.nodeDraw !== undefined && o.arm !== 'L' ? { nodeDraw: o.nodeDraw } : {}) };
+  const grassMode = o.grass ?? 'hidden';
+  const opts = { ...buildRendererOptions(), ...grassBootTones(grassMode), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.nodeDraw !== undefined && o.arm !== 'L' ? { nodeDraw: o.nodeDraw } : {}) };
   const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
   const renderer = new ThreeRenderer(sim, opts);
   renderer.setDecor(map.decor);
@@ -306,6 +334,7 @@ export async function runArm(o: {
   await loadAllMeshes(renderer, map);
   const r = renderer as unknown as RendererLike;
   await loadDecorAndProps(r, map);
+  const grass = applyGrassMode(renderer, grassMode);
   const info = r.backendInfo();
   const anchors = computeAnchors(map);
   const spawner = createSpawner(sim as Sim, typeOf, anchors.friendly, anchors.hostile);
@@ -322,7 +351,7 @@ export async function runArm(o: {
     r.camera.zoom = 0.5;
     const row = await timeFrames(r, o.frames, beforeMeasure);
     points.push({ target, living: livingCount(sim), row });
-    if (views.length === 0) views = await probeViews(r, [1, 2.5], o.viewFrames, beforeMeasure);
+    if (views.length === 0) views = await probeViews(r, o.viewZooms ?? [1, 2.5], o.viewFrames, beforeMeasure);
   }
   const result: ArmRun = {
     arm: o.arm,
@@ -333,6 +362,7 @@ export async function runArm(o: {
     unportedCount: r.unportedHooks().length,
     points,
     views,
+    grass,
   };
   renderer.dispose();
   host.remove();
@@ -397,9 +427,11 @@ const submitState = (): SubmitState => {
 const REFRESH_FULL = 2;
 
 /** One world on this page: the arm's ThreeRenderer, the all-mesh roster, decor and props, the camera on the line, z0.5. */
-export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; capacity: number; timestamps: boolean; nodeDraw?: NodeDrawOptions }): Promise<{ backendKind: string; adapter: string; rafSource: string; unported: number; drawSwitches: string }> {
+export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; capacity: number; timestamps: boolean; nodeDraw?: NodeDrawOptions; grass?: GrassMode; noField?: boolean }): Promise<{ backendKind: string; adapter: string; rafSource: string; unported: number; drawSwitches: string; grass: GrassState }> {
   const { sim, map, typeOf } = buildWorld(o.capacity, o.mapId);
-  const opts = { ...buildRendererOptions(), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.timestamps ? { timestamps: true } : {}), ...(o.nodeDraw !== undefined && o.arm !== 'L' ? { nodeDraw: o.nodeDraw } : {}) };
+  const grassMode = o.grass ?? 'hidden';
+  // `noField`: the probe's falsification (`--falsify=no-field`): the arid tones, so NO field is built, with the layer toggled as if there were.
+  const opts = { ...buildRendererOptions(), ...grassBootTones(o.noField === true ? 'hidden' : grassMode), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.timestamps ? { timestamps: true } : {}), ...(o.nodeDraw !== undefined && o.arm !== 'L' ? { nodeDraw: o.nodeDraw } : {}) };
   const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
   const renderer = new ThreeRenderer(sim, opts);
   renderer.setDecor(map.decor);
@@ -409,6 +441,7 @@ export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; cap
   await loadAllMeshes(renderer, map);
   const r = renderer as unknown as SubmitRendererLike;
   await loadDecorAndProps(r, map);
+  const grass = applyGrassMode(renderer, grassMode);
   const anchors = computeAnchors(map);
   const spawner = createSpawner(sim as Sim, typeOf, anchors.friendly, anchors.hostile);
   r.camera.x = (anchors.friendly[0] + anchors.hostile[0]) / 2;
@@ -420,7 +453,7 @@ export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; cap
   (window as unknown as Record<string, SubmitState>)[SUBMIT_KEY] = { r, sim: sim as Sim, spawner, arm: o.arm, host, unitRoots, boot: { refreshPolicy: draw.refreshPolicy, matrixWalk: draw.matrixWalk } };
   const info = r.backendInfo();
   const sw = (r as unknown as RendererLike).nodeBackend?.drawSwitches?.get();
-  return { backendKind: info.kind, adapter: info.adapter, rafSource: String(window.requestAnimationFrame), unported: r.unportedHooks().length, drawSwitches: sw === undefined ? 'n/a' : `refreshPolicy=${sw.refreshPolicy},matrixWalk=${sw.matrixWalk},uploads=${sw.uploads}` };
+  return { backendKind: info.kind, adapter: info.adapter, rafSource: String(window.requestAnimationFrame), unported: r.unportedHooks().length, drawSwitches: sw === undefined ? 'n/a' : `refreshPolicy=${sw.refreshPolicy},matrixWalk=${sw.matrixWalk},uploads=${sw.uploads}`, grass };
 }
 
 /** Applies a variant (on = the toggle in force) and returns what it changed; `off` puts back exactly what `on` changed. */
@@ -908,4 +941,31 @@ export function submitDispose(): void {
   s.r.dispose();
   s.host.remove();
   delete (window as unknown as Record<string, SubmitState | undefined>)[SUBMIT_KEY];
+}
+
+/**
+ * GH-1167 S6: one stats frame of the G arm with the grass layer shown (`on`) or hidden (`off`) at `zoom` and `n` figures, after the scene
+ * settles. The page must have been set up with `submitSetup({ grass: 'on' })` (the green tones, so a field exists). COUNTS ONLY: the
+ * per-pass calls of the frame, the whole frame's triangles, and how many grass meshes were visible when it drew.
+ */
+export async function grassRead(o: { zoom: number; grass: 'on' | 'off'; n: number; warmFrames: number }): Promise<GrassReading> {
+  const s = submitState();
+  const { r } = s;
+  const node = r.nodeBackend;
+  if (node === null) throw new Error('grass probe: this arm has no node backend (the field is node-native)');
+  if (o.n > livingCount(s.sim)) {
+    spawnUpTo(s.sim, s.spawner, o.n);
+    r.snapshot();
+  }
+  const layerChanged = r.setDebugLayerVisible(GRASS_LAYER, o.grass === 'on');
+  r.camera.zoom = o.zoom;
+  const settled = await settleScene(s, o.warmFrames, () => r.whenGpuIdle());
+  if (!settled.ok) throw new Error(`grass probe: the scene did not settle in ${settled.frames} frames at z${o.zoom} n${o.n}`);
+  await tick();
+  r.frame(1, 0);
+  const st = node.stats();
+  if (st.perPass === undefined) throw new Error('grass probe: the node backend has no per-pass counter (an older tree)');
+  const grassMeshes = countGrassMeshes((r as unknown as { scene: GrassNodeLike }).scene);
+  await r.whenGpuIdle();
+  return { zoom: o.zoom, grass: o.grass, perPass: st.perPass, triangles: st.triangles, grassMeshes, layerChanged };
 }

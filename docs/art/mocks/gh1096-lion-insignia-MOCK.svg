@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="1180" viewBox="0 0 1200 1180" font-family="monospace">
+
+  <defs>
+    <!-- R channel: the SILHOUETTE. What the shader paints below the detail threshold: the mane's outline and the face, solid. -->
+    <g id="lionSil"><path d="M100.00,3.00 L113.37,24.17 L133.18,8.85 L138.50,33.32 L162.35,25.69 L158.99,50.51 L184.00,51.50 L172.36,73.66 L195.53,83.16 L177.00,100.00 L195.53,116.84 L172.36,126.34 L184.00,148.50 L158.99,149.49 L162.35,174.31 L138.50,166.68 L133.18,191.15 L113.37,175.83 L100.00,197.00 L86.63,175.83 L66.82,191.15 L61.50,166.68 L37.65,174.31 L41.01,149.49 L16.00,148.50 L27.64,126.34 L4.47,116.84 L23.00,100.00 L4.47,83.16 L27.64,73.66 L16.00,51.50 L41.01,50.51 L37.65,25.69 L61.50,33.32 L66.82,8.85 L86.63,24.17 Z"/></g>
+    <!-- R minus G: the FULL emblem. G is the cut-outs (mane layer gap, face gap, brows, eyes, nose, muzzle line, mouth); fangs stay paint. -->
+    <g id="lionFull">
+      <path d="M100.00,3.00 L113.37,24.17 L133.18,8.85 L138.50,33.32 L162.35,25.69 L158.99,50.51 L184.00,51.50 L172.36,73.66 L195.53,83.16 L177.00,100.00 L195.53,116.84 L172.36,126.34 L184.00,148.50 L158.99,149.49 L162.35,174.31 L138.50,166.68 L133.18,191.15 L113.37,175.83 L100.00,197.00 L86.63,175.83 L66.82,191.15 L61.50,166.68 L37.65,174.31 L41.01,149.49 L16.00,148.50 L27.64,126.34 L4.47,116.84 L23.00,100.00 L4.47,83.16 L27.64,73.66 L16.00,51.50 L41.01,50.51 L37.65,25.69 L61.50,33.32 L66.82,8.85 L86.63,24.17 Z M107.50,14.33 L118.63,30.45 L136.35,22.06 L141.30,41.02 L160.81,39.19 L158.98,58.70 L177.94,63.65 L169.55,81.37 L185.67,92.50 L171.73,106.28 L183.07,122.26 L165.25,130.43 L170.45,149.33 L150.91,150.91 L149.33,170.45 L130.43,165.25 L122.26,183.07 L106.28,171.73 L92.50,185.67 L81.37,169.55 L63.65,177.94 L58.70,158.98 L39.19,160.81 L41.02,141.30 L22.06,136.35 L30.45,118.63 L14.33,107.50 L28.27,93.72 L16.93,77.74 L34.75,69.57 L29.55,50.67 L49.09,49.09 L50.67,29.55 L69.57,34.75 L77.74,16.93 L93.72,28.27 Z" fill-rule="evenodd"/>
+      <path d="M107.06,19.31 L117.34,35.28 L134.23,26.59 L138.43,45.12 L157.28,42.72 L154.88,61.57 L173.41,65.77 L164.72,82.66 L180.69,92.94 L166.75,105.84 L178.24,120.96 L160.72,128.32 L166.35,146.46 L147.38,147.38 L146.46,166.35 L128.32,160.72 L120.96,178.24 L105.84,166.75 L92.94,180.69 L82.66,164.72 L65.77,173.41 L61.57,154.88 L42.72,157.28 L45.12,138.43 L26.59,134.23 L35.28,117.34 L19.31,107.06 L33.25,94.16 L21.76,79.04 L39.28,71.68 L33.65,53.54 L52.62,52.62 L53.54,33.65 L71.68,39.28 L79.04,21.76 L94.16,33.25 Z M100.0,33.0 L123.6,35.3 L143.1,48.1 L154.2,69.4 L156.9,91.0 L150.9,113.0 L142.2,130.7 L130.7,150.2 L115.2,166.9 L100.0,173.0 L100.0,173.0 L84.8,166.9 L69.3,150.2 L57.8,130.7 L49.1,113.0 L43.1,91.0 L45.8,69.4 L56.9,48.1 L76.4,35.3 L100.0,33.0 Z" fill-rule="evenodd"/>
+      <path d="M100.0,38.0 L122.0,40.0 L140.0,52.0 L150.0,72.0 L152.0,92.0 L146.0,112.0 L138.0,128.0 L128.0,146.0 L114.0,162.0 L100.0,168.0 L100.0,168.0 L86.0,162.0 L72.0,146.0 L62.0,128.0 L54.0,112.0 L48.0,92.0 L50.0,72.0 L60.0,52.0 L78.0,40.0 L100.0,38.0 Z M104.0,69.0 L138.0,60.0 L139.0,65.0 L105.0,75.0 Z M96.0,69.0 L62.0,60.0 L61.0,65.0 L95.0,75.0 Z M110.0,84.0 L134.0,75.0 L131.0,88.0 L114.0,92.0 Z M90.0,84.0 L66.0,75.0 L69.0,88.0 L86.0,92.0 Z M86.0,110.0 L114.0,110.0 L107.0,124.0 L93.0,124.0 Z M97.5,123.0 L102.5,123.0 L102.5,131.0 L97.5,131.0 Z M100.0,130.0 L122.0,134.0 L118.0,152.0 L100.0,161.0 L100.0,161.0 L82.0,152.0 L78.0,134.0 L100.0,130.0 Z" fill-rule="evenodd"/>
+      <path d="M110.0,134.0 L117.0,134.6 L113.5,148.0 Z M90.0,134.0 L83.0,134.6 L86.5,148.0 Z M108.0,155.5 L114.0,152.5 L110.0,143.0 Z M92.0,155.5 L86.0,152.5 L90.0,143.0 Z"/>
+    </g>
+  </defs>
+  <rect width="1200" height="1180" fill="#14150F"/>
+  <text x="24" y="36" fill="#D9C7A7" font-size="18">MOCK - GH-1096 Roaring Lion insignia. Hand-drawn SVG, NOT a render. Palette hexes only. Not final art.</text>
+  <text x="24" y="60" fill="#8C7659" font-size="13">Front-facing head, bilaterally symmetric by construction (each outline is one half, mirrored),</text>
+  <text x="24" y="78" fill="#8C7659" font-size="13">so both flanks read the same without mirroring the texture.</text>
+  <text x="24" y="100" fill="#D9C7A7" font-size="15">A. The canonical emblem, two states of one SDF texture (256 x 256, two channels)</text>
+  <rect x="24" y="114" width="280" height="280" fill="#4E5433"/>
+  <use xlink:href="#lionSil" transform="translate(44,134) scale(1.2)" fill="#E6D8BE"/>
+  <text x="24" y="414" fill="#D9C7A7" font-size="13">silhouette (R)</text>
+  <text x="24" y="432" fill="#8C7659" font-size="12">below ~11 px: a clean roundel</text>
+  <rect x="324" y="114" width="280" height="280" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(344,134) scale(1.2)" fill="#E6D8BE"/>
+  <text x="324" y="414" fill="#D9C7A7" font-size="13">full (R minus G)</text>
+  <text x="324" y="432" fill="#8C7659" font-size="12">from ~15 px: the lion</text>
+  <rect x="624" y="114" width="280" height="280" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(644,134) scale(1.2)" fill="#C3C7C4"/>
+  <text x="624" y="414" fill="#D9C7A7" font-size="13">full, gunmetal.0</text>
+  <text x="624" y="432" fill="#8C7659" font-size="12">colour alternative</text>
+  <text x="930" y="140" fill="#8C7659" font-size="12">paint  limestone.1 #E6D8BE</text>
+  <text x="930" y="158" fill="#8C7659" font-size="12">alt    gunmetal.0  #C3C7C4</text>
+  <text x="930" y="176" fill="#8C7659" font-size="12">ground olive.2 #4E5433</text>
+  <text x="930" y="194" fill="#8C7659" font-size="12">(stand-in for the bake;</text>
+  <text x="930" y="212" fill="#8C7659" font-size="12"> the Lavi bake median is</text>
+  <text x="930" y="230" fill="#8C7659" font-size="12"> darker, about #544F41)</text>
+  <text x="930" y="266" fill="#8C7659" font-size="12">Mane: 18 locks, two layers.</text>
+  <text x="930" y="284" fill="#8C7659" font-size="12">Face: a 5% gap from the mane.</text>
+  <text x="930" y="302" fill="#8C7659" font-size="12">Roar: open jaw, four fangs.</text>
+  <text x="930" y="320" fill="#8C7659" font-size="12">Smallest cut-out or gap:</text>
+  <text x="930" y="338" fill="#8C7659" font-size="12"> 2.5% of the diameter (5 of 200).</text>
+  <text x="24" y="480" fill="#D9C7A7" font-size="15">B. Screen-size ladder (emblem diameter in CSS px). Top: full detail at every size. Bottom: the proposed LOD.</text>
+  <rect x="20" y="496" width="32" height="13" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(24,500) scale(0.0250)" fill="#E6D8BE"/>
+  <rect x="20" y="566" width="32" height="13" fill="#4E5433"/>
+  <text x="24" y="650" fill="#8C7659" font-size="11">5</text>
+  <rect x="68" y="496" width="32" height="14" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(72,500) scale(0.0300)" fill="#E6D8BE"/>
+  <rect x="68" y="566" width="32" height="14" fill="#4E5433"/>
+  <use xlink:href="#lionSil" transform="translate(72,570) scale(0.0300)" fill="#E6D8BE" opacity="0.40"/>
+  <text x="72" y="650" fill="#8C7659" font-size="11">6</text>
+  <rect x="116" y="496" width="32" height="16" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(120,500) scale(0.0400)" fill="#E6D8BE"/>
+  <rect x="116" y="566" width="32" height="16" fill="#4E5433"/>
+  <use xlink:href="#lionSil" transform="translate(120,570) scale(0.0400)" fill="#E6D8BE" opacity="1.00"/>
+  <text x="120" y="650" fill="#8C7659" font-size="11">8</text>
+  <rect x="164" y="496" width="32" height="18" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(168,500) scale(0.0500)" fill="#E6D8BE"/>
+  <rect x="164" y="566" width="32" height="18" fill="#4E5433"/>
+  <use xlink:href="#lionSil" transform="translate(168,570) scale(0.0500)" fill="#E6D8BE" opacity="1.00"/>
+  <text x="168" y="650" fill="#8C7659" font-size="11">10</text>
+  <rect x="212" y="496" width="32" height="20" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(216,500) scale(0.0600)" fill="#E6D8BE"/>
+  <rect x="212" y="566" width="32" height="20" fill="#4E5433"/>
+  <use xlink:href="#lionSil" transform="translate(216,570) scale(0.0600)" fill="#E6D8BE" opacity="0.75"/>
+  <use xlink:href="#lionFull" transform="translate(216,570) scale(0.0600)" fill="#E6D8BE" opacity="0.25"/>
+  <text x="216" y="650" fill="#8C7659" font-size="11">12</text>
+  <rect x="260" y="496" width="32" height="22" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(264,500) scale(0.0700)" fill="#E6D8BE"/>
+  <rect x="260" y="566" width="32" height="22" fill="#4E5433"/>
+  <use xlink:href="#lionSil" transform="translate(264,570) scale(0.0700)" fill="#E6D8BE" opacity="0.25"/>
+  <use xlink:href="#lionFull" transform="translate(264,570) scale(0.0700)" fill="#E6D8BE" opacity="0.75"/>
+  <text x="264" y="650" fill="#8C7659" font-size="11">14</text>
+  <rect x="308" y="496" width="32" height="24" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(312,500) scale(0.0800)" fill="#E6D8BE"/>
+  <rect x="308" y="566" width="32" height="24" fill="#4E5433"/>
+  <use xlink:href="#lionSil" transform="translate(312,570) scale(0.0800)" fill="#E6D8BE" opacity="0.00"/>
+  <use xlink:href="#lionFull" transform="translate(312,570) scale(0.0800)" fill="#E6D8BE" opacity="1.00"/>
+  <text x="312" y="650" fill="#8C7659" font-size="11">16</text>
+  <rect x="356" y="496" width="32" height="28" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(360,500) scale(0.1000)" fill="#E6D8BE"/>
+  <rect x="356" y="566" width="32" height="28" fill="#4E5433"/>
+  <use xlink:href="#lionSil" transform="translate(360,570) scale(0.1000)" fill="#E6D8BE" opacity="0.00"/>
+  <use xlink:href="#lionFull" transform="translate(360,570) scale(0.1000)" fill="#E6D8BE" opacity="1.00"/>
+  <text x="360" y="650" fill="#8C7659" font-size="11">20</text>
+  <rect x="404" y="496" width="32" height="32" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(408,500) scale(0.1200)" fill="#E6D8BE"/>
+  <rect x="404" y="566" width="32" height="32" fill="#4E5433"/>
+  <use xlink:href="#lionSil" transform="translate(408,570) scale(0.1200)" fill="#E6D8BE" opacity="0.00"/>
+  <use xlink:href="#lionFull" transform="translate(408,570) scale(0.1200)" fill="#E6D8BE" opacity="1.00"/>
+  <text x="408" y="650" fill="#8C7659" font-size="11">24</text>
+  <rect x="452" y="496" width="40" height="40" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(456,500) scale(0.1600)" fill="#E6D8BE"/>
+  <rect x="452" y="566" width="40" height="40" fill="#4E5433"/>
+  <use xlink:href="#lionSil" transform="translate(456,570) scale(0.1600)" fill="#E6D8BE" opacity="0.00"/>
+  <use xlink:href="#lionFull" transform="translate(456,570) scale(0.1600)" fill="#E6D8BE" opacity="1.00"/>
+  <text x="456" y="650" fill="#8C7659" font-size="11">32</text>
+  <rect x="508" y="496" width="56" height="56" fill="#4E5433"/>
+  <use xlink:href="#lionFull" transform="translate(512,500) scale(0.2400)" fill="#E6D8BE"/>
+  <rect x="508" y="566" width="56" height="56" fill="#4E5433"/>
+  <use xlink:href="#lionSil" transform="translate(512,570) scale(0.2400)" fill="#E6D8BE" opacity="0.00"/>
+  <use xlink:href="#lionFull" transform="translate(512,570) scale(0.2400)" fill="#E6D8BE" opacity="1.00"/>
+  <text x="512" y="650" fill="#8C7659" font-size="11">48</text>
+  <text x="24" y="676" fill="#8C7659" font-size="12">Proposed: nothing under 5 px; the roundel fades in over 5 to 7.5 px; the lion's cut-outs fade in over 11 to 15 px.</text>
+  <text x="24" y="694" fill="#8C7659" font-size="12">Measured per fragment on the emblem's SHORTER screen axis (fwidth of its own coordinate), so the battlefield,</text>
+  <text x="24" y="712" fill="#8C7659" font-size="12">the garage turntable and every yaw behave alike. The browser rasteriser stands in for the SDF here.</text>
+  <text x="24" y="760" fill="#D9C7A7" font-size="15">C. Pilot placement, the Lavi's flank (mesh-local metres, X forward, Y up). Boxes from the GLB.</text>
+  <rect x="92.4" y="880.8" width="739.2" height="214.8" fill="#4E5433" stroke="#8C7659" stroke-width="1"/>
+  <rect x="232.8" y="840.0" width="412.8" height="70.8" fill="#6E7449" stroke="#8C7659" stroke-width="1"/>
+  <rect x="153.6" y="961.2" width="560.4" height="97.2" fill="none" stroke="#D9C7A7" stroke-width="1" stroke-dasharray="6 4"/>
+  <rect x="336.0" y="864.0" width="156.0" height="21.6" fill="#2F6FD9" opacity="0.8"/>
+  <use xlink:href="#lionFull" transform="translate(618.0,984.0) scale(0.3600)" fill="#E6D8BE"/>
+  <line x1="600.0" y1="1065.6" x2="600.0" y2="976.8" stroke="#8C7659" stroke-width="1"/>
+  <line x1="708.0" y1="1065.6" x2="708.0" y2="976.8" stroke="#8C7659" stroke-width="1"/>
+  <text x="54.0" y="1134.0" fill="#8C7659" font-size="11">-4</text>
+  <text x="174.0" y="1134.0" fill="#8C7659" font-size="11">-3</text>
+  <text x="294.0" y="1134.0" fill="#8C7659" font-size="11">-2</text>
+  <text x="414.0" y="1134.0" fill="#8C7659" font-size="11">-1</text>
+  <text x="534.0" y="1134.0" fill="#8C7659" font-size="11">0</text>
+  <text x="654.0" y="1134.0" fill="#8C7659" font-size="11">1</text>
+  <text x="774.0" y="1134.0" fill="#8C7659" font-size="11">2</text>
+  <text x="108.0" y="825.6" fill="#8C7659" font-size="12">turret_hull (y 1.91-2.50)</text>
+  <text x="336.0" y="856.8" fill="#D9C7A7" font-size="12">L3 team band (blue)</text>
+  <text x="108.0" y="1080.0" fill="#8C7659" font-size="12">hull_hull flank; dashed: tier-2 skirt (kit_armour_2), seams at x -1.4, 0.5</text>
+  <line x1="690.0" y1="1020.0" x2="840.0" y2="1012.8" stroke="#D9C7A7" stroke-width="1"/>
+  <text x="846.0" y="1008.0" fill="#D9C7A7" font-size="12">lion: 0.60 m, centre x 0.95, y 1.00</text>
+  <text x="846.0" y="1024.8" fill="#8C7659" font-size="12">both flanks, forward skirt panel</text>
+  <text x="24" y="1160" fill="#8C7659" font-size="12">Mock only, for the GH-1096 design spec. The shipped emblem is an SDF baked from a canonical SVG; this is not it.</text>
+</svg>

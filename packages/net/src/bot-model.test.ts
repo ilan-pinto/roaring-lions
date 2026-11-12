@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BOT_MODELS, botModelField, cleanCallsign, decodeBotModel, encodeBotModel } from './index';
+import { BOT_MODELS, botModelField, decodeBotModel, encodeBotModel } from './index';
 
 describe('the declared bot model (GH-1075 A3, §0.16)', () => {
   it('a_listed_id_round_trips', () => {
@@ -32,7 +32,8 @@ describe('the declared bot model (GH-1075 A3, §0.16)', () => {
     expect(r.ok).toBe(true);
     if (!r.ok || r.model === null || r.model.id !== 'other') throw new Error('expected other');
     expect(Array.from(r.model.name)).toHaveLength(24);
-    expect(r.model.name).toBe(cleanCallsign(long));
+    // The literal, not the function under test: NFKC folds each U+1D538 to 'A', and the first 24 code points are kept.
+    expect(r.model.name).toBe('AAAAAAAAAAabcdefghijklmn');
     const dirty = botModelField({ id: 'other', name: 'My‮Net‍v3' });
     expect(dirty).toEqual({ ok: true, model: { id: 'other', name: 'MyNetv3' } });
     const typed = botModelField({ id: 'other', name: 'claude-opus-5-5' });

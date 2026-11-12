@@ -30,6 +30,7 @@ import { claimPort } from '../ui-review/port';
 import type { Crop } from '../golden-diff/banding';
 import { abDelta, fmtIndex, readIndex, unstableMask, type CropId, type Frame, type IndexReading } from './webgpu-banding-probe-lib';
 import { amplifiedDiff, gateRows, legacyFalls, stretchedTile, stretchRange, type SheetArm, type SheetPhase, type SheetState } from './webgpu-banding-sheet-lib';
+import { grassCondition, hideGrassOnPage } from './webgpu-grass-lib';
 
 const args = process.argv.slice(2);
 const arg = (n: string, d: string): string => (args.find((a) => a.startsWith(`--${n}=`)) ?? `--${n}=${d}`).slice(n.length + 3);
@@ -129,6 +130,8 @@ async function runArm(arm: SheetArm, port: number): Promise<ArmOut> {
     const settled = JSON.parse((await page.evaluate(BOOT_SETTLE_SCRIPT)) as string) as { tick: number };
     const fr = bootFreezeRefusal(settled.tick);
     if (fr !== null) refuse(`${arm}: ${fr}`);
+    // GH-1167 S6: the L-vs-G tools hide the 3D grass field (the grass cost is its own column).
+    await hideGrassOnPage(page, `banding-sheet ${arm}`).catch((e: Error) => refuse(e.message));
     const info = (await page.evaluate('window.__lions.renderer.backendInfo()')) as { kind: string; adapter: string };
     const gpu = (await page.evaluate(() => {
       const gl = document.createElement('canvas').getContext('webgl2');
@@ -259,7 +262,7 @@ const legacy = legacyFalls(idxOf('L', 'flat', 'before'), idxOf('L', 'flat', 'aft
 const md: string[] = [
   `# T8 banding sheet (${startedAt})`,
   '',
-  `Conditions: map=${MAP}, 1440x900 DPR ${DPR}, booted camera z1, quality high, music off, reduced motion, Metal (L on ${out.get('L')?.info.kind}, G on ${out.get('G')?.info.adapter}); sim tick ${out.get('L')?.tick}; loadavg ${loads.map((l) => `${l.at} ${l.load1m.toFixed(2)}`).join(', ')}.`,
+  `Conditions: map=${MAP}, 1440x900 DPR ${DPR}, booted camera z1, quality high, music off, reduced motion, ${grassCondition('hidden')}, Metal (L on ${out.get('L')?.info.kind}, G on ${out.get('G')?.info.adapter}); sim tick ${out.get('L')?.tick}; loadavg ${loads.map((l) => `${l.at} ${l.load1m.toFixed(2)}`).join(', ')}.`,
   '',
   'BEFORE is dither 0 on the new code, not a frame from the pre-fix commit: that the two are byte-identical rests on the shader (uGradeDither 0 adds zero) and is not asserted by any check here.',
   '',

@@ -57,6 +57,7 @@ import {
   type ReadingArm,
   type SubjectReading,
 } from './webgpu-units-probe-lib';
+import { grassCondition, hideGrassOnPage } from './webgpu-grass-lib';
 
 const args = process.argv.slice(2);
 const arg = (n: string, d: string): string => (args.find((a) => a.startsWith(`--${n}=`)) ?? `--${n}=${d}`).slice(n.length + 3);
@@ -381,6 +382,8 @@ async function probeMoment(browser: Browser, port: number, arm: ProbeArm, group:
     await page.evaluate(PROBE_HELPERS);
     if (KIND === 'units' && !first.setup.some((x) => x.includes('NEEDS_HOSTILE'))) await page.evaluate('window.__probe.peace()');
     await page.evaluate(`window.__lions.renderer.setDebugLayerVisible('rain', false)`);
+    // GH-1167 S6: the 3D grass field is hidden on every arm too (the `valley` subject frames wadi_halam_4's L-vs-G; the grass cost is its own column).
+    await hideGrassOnPage(page, `units-probe ${arm}`);
 
     await runSetup(page, first);
     const steps = FRAME_STEPS_OVERRIDE === '' ? first.frameSteps : { n: Number(FRAME_STEPS_OVERRIDE.split(':')[0]), dtMs: Number(FRAME_STEPS_OVERRIDE.split(':')[1]) };
@@ -521,7 +524,7 @@ const final: SubjectReading[] = subjects.map((s) => {
   return { id: r.id, layer: r.layer, band: r.band, deltas: r.deltas, controlPx: r.controlPx, visibleShaders: r.visibleShaders, hidObjects: r.objects, notRestored: r.notRestored };
 });
 const refusals = [...allRefusals(KIND, subjects, final, backends), ...failures.map((f) => `a moment failed: ${f}`)];
-const conditions = `${KIND}: ${VIEWPORT.width}x${VIEWPORT.height} DPR 1, quality high, music off, reduced motion, hw=${HW}, arms ${ARMS.join(',')}, rain hidden on every arm; L = plain legacy, L-matched = the node census on the legacy scene; ${backends.map((b) => `${b.arm}=${b.backendKind} on ${b.gpu}`).filter((v, i, a) => a.indexOf(v) === i).join('; ')}`;
+const conditions = `${KIND}: ${VIEWPORT.width}x${VIEWPORT.height} DPR 1, quality high, music off, reduced motion, hw=${HW}, arms ${ARMS.join(',')}, rain hidden on every arm, ${grassCondition('hidden')} on every arm; L = plain legacy, L-matched = the node census on the legacy scene; ${backends.map((b) => `${b.arm}=${b.backendKind} on ${b.gpu}`).filter((v, i, a) => a.indexOf(v) === i).join('; ')}`;
 const md = [
   `# WebGPU P3 T2: the ${KIND} probe (${HW})`,
   '',

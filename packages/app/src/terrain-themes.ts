@@ -136,6 +136,17 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     groveFamily: 'tree',
     // N-18: a pale limestone haze over the basin rather than a desert dust.
     haze: paletteColor('limestone.1'),
+    // GH-1167: the 3D grass field's keys (design 2026-11-11, section 2.1 and decision 4). Only this theme sets it, so a node boot
+    // grows the field on exactly the five Wadi Halam maps; the legacy path never reads it. Never `scrub.0`: it is dE 9.8 from the
+    // KDF uniform `olive.1`, against the 15.6 floor.
+    grassField: {
+      root: paletteColor('grass.4'),
+      tip3: paletteColor('grass.3'),
+      tip2: paletteColor('grass.2'),
+      tip1: paletteColor('grass.1'),
+      strawRoot: paletteColor('dust.3'),
+      strawTip: paletteColor('limestone.3'),
+    },
   },
   // GH-322: the Sur front -- "rockets range onto Kedem's north from behind a
   // mountain wall". The lead's rulings of 1 Oct, on the revision-2 mock:

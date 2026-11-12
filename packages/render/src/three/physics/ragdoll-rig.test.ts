@@ -80,6 +80,29 @@ describe('bones to bodies, structurally', () => {
   });
 });
 
+describe('the push (GH-1223: per munition class)', () => {
+  /** The pelvis linvel of the first figure, for a seed. */
+  const pelvisV = (seed: object): readonly number[] => {
+    const e = instantiateMeshUnit(squad, 'inf_squad');
+    return buildFigures(e, squad, AT, { ...SEED, ...seed }).figures[0].bodies[0].linvel;
+  };
+  const sub = (a: readonly number[], b: readonly number[]): number[] => a.map((x, i) => x - b[i]);
+
+  it('no push in the seed is exactly the old constant (1.0 / 0.4)', () => {
+    expect(pelvisV({ push: { horizontalMS: 1.0, upMS: 0.4 } })).toEqual(pelvisV({}));
+  });
+
+  it('a class value scales the push: horizontal and up each by their own ratio, jitter kept', () => {
+    const zero = pelvisV({ push: { horizontalMS: 0, upMS: 0 } });
+    const base = sub(pelvisV({}), zero);
+    const heavy = sub(pelvisV({ push: { horizontalMS: 5.0, upMS: 2.8 } }), zero);
+    expect(Math.hypot(base[0], base[2])).toBeGreaterThan(0.5);
+    expect(Math.hypot(heavy[0], heavy[2])).toBeCloseTo(5 * Math.hypot(base[0], base[2]), 6);
+    expect(base[1]).toBeGreaterThan(0.2);
+    expect(heavy[1]).toBeCloseTo(7 * base[1], 6);
+  });
+});
+
 describe('a whole incident (design section 4)', () => {
   it('the same seed gives bit-identical body poses across two runs, whatever the screen was doing', () => {
     const a = settle(squad, 'inf_squad', 50);

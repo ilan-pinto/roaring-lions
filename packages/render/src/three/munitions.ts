@@ -57,6 +57,8 @@ export interface MunitionClassRow {
   light?: { color: string; intensity: number; radius_per_splash?: number; radius_tiles?: number; decay_ms: number };
   shake: { amplitude_px: number; duration_ms: number; falloff_tiles?: number };
   hit_stop_ms: number;
+  /** GH-1223: the push a ragdoll takes when this class kills it, m/s (horizontal away from the killer, and up). */
+  ragdoll_push?: { horizontal_m_s: number; up_m_s: number };
 }
 
 export type SupportMunitionKind = 'air_strike' | 'mortar_barrage';
@@ -69,6 +71,39 @@ export interface MunitionsTable {
 }
 
 export const MUNITIONS: MunitionsTable = table as unknown as MunitionsTable;
+
+/** GH-1223: a ragdoll's push, m/s. The default is what every death took before the push moved into the data. */
+export interface RagdollPush {
+  readonly horizontalMS: number;
+  readonly upMS: number;
+}
+export const RAGDOLL_PUSH_DEFAULT: RagdollPush = { horizontalMS: 1.0, upMS: 0.4 };
+
+/** The push a class kills with: its `ragdoll_push` row, else the default (also for no class: a rifle, a death with no
+ *  known weapon). Presentation only; the hashed +-30% spread is applied by the caller. */
+export function ragdollPushFor(cls: MunitionClassId | null, t: MunitionsTable = MUNITIONS): RagdollPush {
+  const p = cls === null ? undefined : t.classes[cls]?.ragdoll_push;
+  return p === undefined ? RAGDOLL_PUSH_DEFAULT : { horizontalMS: p.horizontal_m_s, upMS: p.up_m_s };
+}
+
+/** The push for a killing weapon id (`MUNITIONS.weapons`); an unmapped weapon or none takes the default. */
+export function ragdollPushForWeapon(weaponId: string | undefined, t: MunitionsTable = MUNITIONS): RagdollPush {
+  return ragdollPushFor(weaponId === undefined ? null : (t.weapons[weaponId] ?? null), t);
+}
+
+/** The latch keys a killer's last act is stored under when it was not a `fire` event (a weapon id is its own key). */
+export const LATCH_AIR_STRIKE = 'support:air_strike';
+export const LATCH_MORTAR_BARRAGE = 'support:mortar_barrage';
+export const LATCH_PLACED_CHARGE = 'charge:placed_charge';
+
+/** The push for a latched killer key: a weapon id, or a support call / placed charge (whose kill `by` is the caller,
+ *  not a weapon in the weapons table). An unknown key takes the default. */
+export function ragdollPushForKill(key: string | undefined, t: MunitionsTable = MUNITIONS): RagdollPush {
+  if (key === LATCH_AIR_STRIKE) return ragdollPushFor(t.support.air_strike ?? null, t);
+  if (key === LATCH_MORTAR_BARRAGE) return ragdollPushFor(t.support.mortar_barrage ?? null, t);
+  if (key === LATCH_PLACED_CHARGE) return ragdollPushFor(t.charge.placed_charge ?? null, t);
+  return ragdollPushForWeapon(key, t);
+}
 
 /** A resolved munition: its class and its reach, tiles (0 for none). */
 export interface Munition {

@@ -115,6 +115,35 @@ describe('the node scene pass and the SMAA input', () => {
     chain.dispose();
   });
 
+  it('GH-1270: resize() brings SMAA\'s targets to the drawing buffer between frames and rebuilds the output quad\'s bindings', async () => {
+    // Falsify: make `resize()` an empty body (targets stay 1x1, so `SMAANode.updateBefore` would dispose them mid-frame), or delete
+    // `pipeline.needsUpdate = true` (the quad keeps the bind group that holds the destroyed blend texture).
+    const buffer = { width: 2000, height: 1200 };
+    const renderer = { getDrawingBufferSize: (v: THREE.Vector2) => v.set(buffer.width, buffer.height) } as never;
+    const chain = createNodePostChain(await deps(), renderer, new THREE.Scene(), new THREE.PerspectiveCamera(), QUALITY_PRESETS.high, fullKit());
+    const smaa = chain.pipeline.outputNode as unknown as { _renderTargetBlend: THREE.RenderTarget; _renderTargetEdges: THREE.RenderTarget };
+    expect(smaa._renderTargetBlend.width).toBe(1);
+    chain.pipeline.needsUpdate = false;
+    chain.resize();
+    for (const rt of [smaa._renderTargetBlend, smaa._renderTargetEdges]) expect([rt.width, rt.height]).toEqual([2000, 1200]);
+    expect(chain.pipeline.needsUpdate).toBe(true);
+    // A second resize to the SAME size must not touch the targets again (the node's own per-frame call is then a no-op).
+    let disposed = 0;
+    smaa._renderTargetBlend.addEventListener('dispose', () => disposed++);
+    chain.resize();
+    expect(disposed).toBe(0);
+    buffer.width = 1280;
+    chain.resize();
+    expect(smaa._renderTargetBlend.width).toBe(1280);
+    chain.dispose();
+  });
+
+  it('GH-1270: resize() on a preset with no SMAA does nothing and does not read the renderer', async () => {
+    const chain = createNodePostChain(await deps(), fakeNodeRenderer, new THREE.Scene(), new THREE.PerspectiveCamera(), QUALITY_PRESETS.low, fullKit());
+    expect(() => chain.resize()).not.toThrow();
+    chain.dispose();
+  });
+
   it('a preset without SMAA builds no SMAA input at all', async () => {
     const chain = createNodePostChain(await deps(), fakeNodeRenderer, new THREE.Scene(), new THREE.PerspectiveCamera(), QUALITY_PRESETS.low, fullKit());
     expect(chain.smaaInput).toBeNull();

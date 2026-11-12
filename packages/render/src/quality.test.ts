@@ -21,8 +21,10 @@ describe('QUALITY_PRESETS', () => {
       // such field (every preset compiled the full program). high stays 'full' (byte-identical); medium 'lite', low 'minimal'.
       // GH-1197 P2: every preset gains `debris`, the 3D debris pool (the design's cost table: 1024 with shadows,
       // 512 without, none on low). Was: no such field. Read only when a landing throws debris; no gated frame has one.
-      low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, debris: { pool: 0, shadows: false }, physics: { ragdolls: 0 } },
-      medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, debris: { pool: 512, shadows: false }, physics: { ragdolls: 0 } },
+      // GH-1167 S5: every preset gains `grass`, the 3D grass field on a node boot (decision 8: high as specified, medium x 1.2
+      // coarser, low none). Was: no such field. The legacy path never reads it, so no legacy frame moves.
+      low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, debris: { pool: 0, shadows: false }, grass: 'off', physics: { ragdolls: 0 } },
+      medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, debris: { pool: 512, shadows: false }, grass: 'coarse', physics: { ragdolls: 0 } },
       // GH-984 N2: every preset gains `nature`, the vehicles' disturber budget (24 / 16 / 8 slots; wakes off and no foot on low,
       // foot on high only). Was: no such field. Read only by the foliage and trunk shader's loop; no other frame moves.
       // GH-777: aoScale 0.25. Was 0.5 (absent). `high` missed 60 fps at DPR 2.
@@ -43,6 +45,7 @@ describe('QUALITY_PRESETS', () => {
         // GH-1223: every preset ships 0 ragdolls (dark), so no preset fetches the WASM until the lead turns it on.
         physics: { ragdolls: 0 },
         debris: { pool: 1024, shadows: true },
+        grass: 'full',
       },
     };
     expect(QUALITY_PRESETS).toEqual(expected);

@@ -31,6 +31,7 @@
  */
 import { playerId } from './player-id';
 import { takeHanded } from './handoff';
+import type { SeatLabel } from './seat-label';
 import { forgetSeat, loadSeat, saveSeat } from './ticket-store';
 import { shippedContentDigest } from './content-digest';
 import { prepareRejoin, snapshotLink, type Prepared, type SnapshotLink } from './snapshot-link';
@@ -58,6 +59,8 @@ export interface Connected {
   transport: MatchTransport;
   seat: Seat | null;
   config: MatchConfig | null;
+  /** The lobby's seat labels, present only on the handed-over path (GH-1075 A3, §0.14). */
+  labels?: [SeatLabel | null, SeatLabel | null];
   /** What the reload's snapshot GET found, made BEFORE the `hello` (snapshot S4). Present on the
    *  stored-ticket path only; `settleRejoin` takes it as it is. A `path: 'snapshot'` result means the
    *  transport was opened with `from`, and the battlefield owes it the post-hello restore. */

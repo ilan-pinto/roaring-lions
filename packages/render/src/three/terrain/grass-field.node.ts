@@ -3,9 +3,10 @@
  * legacy path keeps today's grass, lead ruling 9 Nov), so this file is in `PORTED_FILES` with no `TWINS` row. Design:
  * docs/superpowers/specs/2026-11-11-wadi-halam-3d-grass-design.md, sections 2.1, 3.3 and 3.4.
  *
- * NOT built into `ThreeRenderer` yet (that is S5: cells, LOD, presets, the `grass-field` layer). Nothing imports this file outside
- * its spec; when S5 does, it must be by dynamic import from the node branch, or the bundle pin P1 (`GRASS_FIELD_MARKER`,
- * `tools/src/perf/bundle-census.ts`) goes red.
+ * GH-1167 S5: built into `ThreeRenderer` through the node backend alone (`createGrassFieldKit`, `RenderBackend.grassField`): the only
+ * value import of this file is `backend/node-backend.ts`, so it lives in the node-backend chunk, behind that chunk's dynamic import,
+ * and the bundle pin P1 (`GRASS_FIELD_MARKER`, `tools/src/perf/bundle-census.ts`) requires it there and nowhere else. The cells,
+ * matrices, LOD bands and splice are headless data from `grass-field-cells.ts`, computed on the app side and handed over.
  *
  * The material is a `MeshStandardNodeMaterial` (roughness 0.85, metalness 0, LINEAR vertex colours from `grass-blade.ts`, no
  * environment map: the ground's class) whose `positionNode` adds, in this order:
@@ -49,7 +50,8 @@ import { ENV_USERDATA_KEY } from '../environment-classes';
 import { GRASS_RENDER_ORDER } from '../units/render-order';
 import { disturbNodes, disturbTerm, type DisturbBindings, type FoliageMaths, type FoliageVertex } from './decor-mesh.node';
 import type { SwayRecord } from './decor-mesh';
-import type { GRASS_WIDTH_ATTRIBUTE, GrassGeometry } from './grass-blade';
+import type { GRASS_WIDTH_ATTRIBUTE, GrassGeometry, GrassLod } from './grass-blade';
+import type { GrassCellMesh } from './grass-field-cells';
 import type { grassFlutterOps, grassWidthFloorOps } from './grass-sway';
 
 /** The marker of every grass scene object's `name` (`GRASS_FIELD_MARKER`, the bundle pin P1; the legacy-scene pin P3 looks for it). */
@@ -300,4 +302,128 @@ export function createGrassFieldMesh(
   mesh.receiveShadow = true;
   mesh.userData.rlAoExempt = true;
   return mesh;
+}
+
+/**
+ * GH-1167 S5: how far past an instanced cell's rest bounds the grass may draw (tiles): the wind (0.015 tile at weight 1), the
+ * flutter (0.004), the disturbers' bend (at most the 0.12-tile blade laid flat) and the width floor's push. Padded so three's
+ * frustum test never drops a cell whose blades still reach the screen.
+ */
+export const GRASS_CELL_BOUNDS_PAD_TILES = 0.25;
+
+/** What `GrassFieldKit.build` takes: the record, the nine clump geometries and every cell mesh, all headless data. */
+export interface GrassFieldSpec {
+  readonly record: GrassFieldRecord;
+  /** `geometries[variant][lod]`: `buildGrassClump(variant, lod, tones.grassField)`. */
+  readonly geometries: readonly (readonly GrassGeometry[])[];
+  readonly meshes: readonly GrassCellMesh[];
+  /** The LOD to draw first (`grassLodFor`). */
+  readonly lod: GrassLod;
+}
+
+/** A built field. One material and nine geometries, shared by every cell mesh. */
+export interface GrassFieldHandle {
+  /** Named `GRASS_FIELD_NAME`; holds every cell mesh. The caller adds it to the scene. */
+  readonly root: THREE.Group;
+  readonly material: THREE.Material;
+  lod(): GrassLod;
+  /** Swaps every mesh's geometry to `lod`'s (same attribute layout, so the pipeline does not change; no matrix re-uploads). True when it changed. */
+  setLod(lod: GrassLod): boolean;
+  /** The collapse splice: every mesh of `cells` is removed and disposed, and `meshes` (all of them from those cells) are added. */
+  replaceCells(cells: readonly number[], meshes: readonly GrassCellMesh[]): void;
+  meshes(): readonly THREE.InstancedMesh[];
+  /** Out of its parent, and every GPU object it made released. Idempotent. */
+  dispose(): void;
+}
+
+/** The node backend's grass builder (`RenderBackend.grassField`). */
+export interface GrassFieldKit {
+  /** The most clumps one mesh may hold (`GRASS_INSTANCES_PER_MESH_MAX`): the app splits a (cell, variant) over it. */
+  readonly maxInstancesPerMesh: number;
+  build(spec: GrassFieldSpec): GrassFieldHandle;
+}
+
+/** GH-1167 S5: the grass field's builder, the only maker of grass scene objects. Lives in the node-backend chunk (pin P1). */
+export function createGrassFieldKit(deps: NodeGrassFieldDeps): GrassFieldKit {
+  const { W } = deps;
+  return {
+    maxInstancesPerMesh: GRASS_INSTANCES_PER_MESH_MAX,
+    build(spec: GrassFieldSpec): GrassFieldHandle {
+      if (spec.geometries.length !== 3 || spec.geometries.some((row) => row.length !== 3)) {
+        throw new Error('GrassFieldKit.build: geometries must be [3 variants][3 LODs]');
+      }
+      const material = createGrassFieldMaterial(deps, spec.record);
+      const geos = spec.geometries.map((row) => row.map((g) => grassClumpGeometry(deps, g)));
+      const root = new W.Group();
+      root.name = GRASS_FIELD_NAME;
+      root.userData.rlAoExempt = true;
+      root.matrixAutoUpdate = false;
+      let current: GrassLod = spec.lod;
+      const live: THREE.InstancedMesh[] = [];
+      const make = (m: GrassCellMesh): THREE.InstancedMesh => {
+        const row = geos[m.variant];
+        if (row === undefined) throw new Error(`GrassFieldKit: variant ${m.variant}`);
+        // Bounds from LOD0 (the superset of every LOD's blades), padded for the motion, then the drawn LOD's geometry.
+        const mesh = createGrassFieldMesh(deps, row[0] as THREE.BufferGeometry, material, m.count, `c${m.cell}-v${m.variant}-p${m.part}`);
+        (mesh.instanceMatrix.array as Float32Array).set(m.matrices);
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.computeBoundingSphere();
+        if (mesh.boundingSphere !== null) mesh.boundingSphere.radius += GRASS_CELL_BOUNDS_PAD_TILES;
+        mesh.geometry = row[current] as THREE.BufferGeometry;
+        mesh.userData.rlGrassCell = m.cell;
+        mesh.userData.rlGrassVariant = m.variant;
+        mesh.matrixAutoUpdate = false;
+        mesh.updateMatrix();
+        return mesh;
+      };
+      const add = (list: readonly GrassCellMesh[]): void => {
+        for (const m of list) {
+          const mesh = make(m);
+          live.push(mesh);
+          root.add(mesh);
+        }
+      };
+      add(spec.meshes);
+      root.updateMatrixWorld(true);
+      let disposed = false;
+      return {
+        root,
+        material,
+        lod: () => current,
+        setLod(lod: GrassLod): boolean {
+          if (lod === current) return false;
+          current = lod;
+          for (const mesh of live) {
+            const row = geos[mesh.userData.rlGrassVariant as number];
+            if (row !== undefined) mesh.geometry = row[lod] as THREE.BufferGeometry;
+          }
+          return true;
+        },
+        replaceCells(cells: readonly number[], meshes: readonly GrassCellMesh[]): void {
+          const set = new Set(cells);
+          for (const m of meshes) if (!set.has(m.cell)) throw new Error(`GrassFieldKit.replaceCells: mesh of cell ${m.cell} outside the replaced cells`);
+          for (let i = live.length - 1; i >= 0; i--) {
+            const mesh = live[i] as THREE.InstancedMesh;
+            if (!set.has(mesh.userData.rlGrassCell as number)) continue;
+            root.remove(mesh);
+            mesh.dispose();
+            live.splice(i, 1);
+          }
+          add(meshes);
+          root.updateMatrixWorld(true);
+        },
+        meshes: () => live,
+        dispose(): void {
+          if (disposed) return;
+          disposed = true;
+          root.removeFromParent();
+          for (const mesh of live) mesh.dispose();
+          live.length = 0;
+          root.clear();
+          for (const row of geos) for (const g of row) g.dispose();
+          material.dispose();
+        },
+      };
+    },
+  };
 }

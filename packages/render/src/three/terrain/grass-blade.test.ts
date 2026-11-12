@@ -5,8 +5,6 @@ import {
   GRASS_LOD2_BLADES,
   GRASS_SCALE_MAX,
   GRASS_SCALE_MIN,
-  GRASS_BLADE_BASE_WIDTH,
-  GRASS_LOD2_BASE_WIDTH,
   GRASS_TIP_CAP,
   GRASS_WIDTH_ATTRIBUTE,
   NATURE_ATTRIBUTE,
@@ -70,6 +68,8 @@ describe("triangles per LOD (design 2.1)", () => {
       for (const v of VARIANTS) {
         const g = buildGrassClump(v, lod, COLOURS);
         const n = g.positions.length / 3;
+        expect(n).toBeGreaterThan(0);
+        expect(g.indices.length).toBeGreaterThan(0);
         expect(g.normals.length).toBe(n * 3);
         expect(g.colors.length).toBe(n * 3);
         expect(g.nature.length).toBe(n * 3);
@@ -277,6 +277,7 @@ describe("rlNature and normals", () => {
   it("normals are unit and lean up (bent toward up-and-out), never down", () => {
     for (const v of VARIANTS) {
       const g = buildGrassClump(v, 0, COLOURS);
+      expect(g.normals.length).toBeGreaterThan(0);
       for (let i = 0; i < g.normals.length; i += 3) {
         expect(
           Math.hypot(g.normals[i], g.normals[i + 1], g.normals[i + 2]),
@@ -301,7 +302,8 @@ describe("GH-1167 S4: the width record the node material's flutter and width flo
       for (const variant of [0, 1, 2] as const) {
         const g = buildGrassClump(variant, lod, COLOURS);
         const n = g.positions.length / 3;
-        const rootHalf = (lod === 2 ? GRASS_LOD2_BASE_WIDTH : GRASS_BLADE_BASE_WIDTH) / 2;
+        // Literals (tiles): LOD0/1 base width 0.012, LOD2 0.018, halved.
+        const rootHalf = lod === 2 ? 0.009 : 0.006;
         let tips = 0;
         let pairs = 0;
         for (let v = 0; v < n; v++) {
