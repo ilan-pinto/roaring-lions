@@ -153,7 +153,7 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     // Camp is read fair on wadi_tarfan, milh_flats and wadi_tarfan_l (GH-976, 5 Nov) and nowhere else: not on tel_marum or rujm_sawda.
     expect(opts(modeField(r))).not.toContain('camp');
     pickMap(r, 'rujm_sawda');
-    expect(opts(modeField(r)), 'rujm_sawda').toEqual(['annihilation', 'points']);
+    expect(opts(modeField(r)), 'rujm_sawda').toEqual(['annihilation']);   // points delisted there, 12 Nov (GH-976)
     for (const id of ['wadi_tarfan', 'wadi_tarfan_l']) {
       pickMap(r, id);
       expect(opts(modeField(r)), id).toEqual(['annihilation', 'camp', 'points']);

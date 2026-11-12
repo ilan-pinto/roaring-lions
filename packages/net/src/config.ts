@@ -87,10 +87,16 @@ export type WinMode = (typeof WIN_MODES)[number];
  *    84.4% by the goal; wadi_tarfan_l flag 126 / 125 / 37, 43.8% / 50.2% decisive, 87.2%; beit_sahwan_outskirts points
  *    133 / 155 / 0, 53.8%, 74.3%. wadi_tarfan_l points (1 point per 100, target 600) was read on a third range, 12000-12287:
  *    135 / 153 / 0, 53.1% over all and decisive games, 96.2% by the goal, the passive end lost 288 of 288 from each end.
- *    KDF against Sarim is `WIN_MODE_FAIR_FACTION_CELLS`'s question. */
+ *    KDF against Sarim is `WIN_MODE_FAIR_FACTION_CELLS`'s question.
+ *
+ *  - **GH-976, 12 Nov: `points` DELISTED on `beit_sahwan_outskirts` and `rujm_sawda`** (the lead's ruling, GH-976). The rows above for these
+ *    two cells (points: 51.4% and 54.9%) are SUPERSEDED: the probes machine's "Win-mode fairness check, part 2" (12 Nov 08:22Z, active
+ *    arm, seeds 4000-4287, against the 60/40 bar) read beit_sahwan_outskirts 82 / 206 (71.5% east) and rujm_sawda 188 / 100 (65.3%
+ *    west), so both drifted out of the bar. They are out until the bisect (running on the probes machine) finds the cause and a fresh
+ *    read lands inside 60/40. Every other row, map and mode is unchanged. */
 export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
   camp: ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'],
-  points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
+  points: ['tel_marum', 'wadi_tarfan', 'milh_flats', 'wadi_tarfan_l', 'milh_flats_l'],
   // GH-1139 (the lead, 8 Nov): flag is OUT of every lobby until CTF v2 lands at WP9. The v1 raid that the seven reads above
   // passed is won by an opening attack-move in 32-62 s on every map (0:55 in the lead's bot match). WP9 relists the maps that
   // pass the v2 bars here and in `FLAG_SETUP_MAPS` together. The engine, the mode files and the probe stay; tools and tests

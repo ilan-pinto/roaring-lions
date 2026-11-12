@@ -213,11 +213,29 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
   // The oracle is a literal, not a read of the tables under test (GH-976 P4): the seven open maps, and what each plays in each pairing.
   const CAMP_MAPS = ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'];
   const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
-  it('offers points on all seven open maps in the mirror (GH-976 P4), the camp on wadi_tarfan, milh_flats and wadi_tarfan_l, and nothing else anywhere', () => {
-    for (const map of SEVEN) expect(winModesOffered(map), map).toEqual(CAMP_MAPS.includes(map) ? ['camp', 'points'] : ['points']);
+  // GH-976, 12 Nov (the lead's ruling): points drifted out of 60/40 on these two (71.5% east, 65.3% west) and is delisted until a fresh read.
+  const POINTS_DELISTED = ['beit_sahwan_outskirts', 'rujm_sawda'];
+  it('offers points on five of the seven open maps in the mirror (GH-976 P4; two delisted 12 Nov), the camp on wadi_tarfan, milh_flats and wadi_tarfan_l, and nothing else anywhere', () => {
+    for (const map of SEVEN) {
+      const want = [...(CAMP_MAPS.includes(map) ? ['camp'] : []), ...(POINTS_DELISTED.includes(map) ? [] : ['points'])];
+      expect(winModesOffered(map), map).toEqual(want);
+    }
+    expect([...WIN_MODE_FAIR_MAPS.points]).toEqual(['tel_marum', 'wadi_tarfan', 'milh_flats', 'wadi_tarfan_l', 'milh_flats_l']);
     // camp failed the passive-seat bar at its first camps; moved forward it passes on milh_flats (GH-976) and, with wipe after_camp, on wadi_tarfan and wadi_tarfan_l (5 Nov; config.ts); milh_flats_l, rujm_sawda and tel_marum stay out; a map that is not open has no mode file
     for (const map of ['qarn_hadid', 'tel_marum_1', 'tutorial_ground', 'nowhere', '']) expect(winModesOffered(map), map).toEqual([]);
     for (const map of SEVEN) expect(winModeAllowed('camp', map), map).toBe(CAMP_MAPS.includes(map));
+  });
+  it('GH-976, 12 Nov: points is refused on the two delisted maps (lobby and Worker) and every other mode they keep is still offered', () => {
+    for (const map of POINTS_DELISTED) {
+      expect(winModesOffered(map), map).not.toContain('points');
+      expect(winModeAllowed('points', map), map).toBe(false);
+      expect(winModeRequest('points', versus(map)).refused, map).toBe('win mode not offered on this map');
+      // annihilation (no mode) is still a legal room there, and the maps are still open versus maps
+      expect(winModeRequest('annihilation', versus(map)), map).toEqual({ mode: undefined });
+      expect(VERSUS_FAIR_MAPS, map).toContain(map);
+    }
+    // a mode that stays is still offered where it was: camp has no cell on either, so none is lost; the others keep points
+    expect(winModeRequest('points', versus('tel_marum'))).toEqual({ mode: 'points' });
   });
   /** Runs `fn` with one faction cell added to the table, and takes it out again, also on a throw. The table is empty today
    *  (GH-976 P4 review), so the mechanism is exercised with a cell the test adds. */

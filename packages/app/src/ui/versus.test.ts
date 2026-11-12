@@ -807,7 +807,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       offered[m.id] = winRadios(stage).map((r) => r.value);
     }
     expect(offered).toEqual({
-      beit_sahwan_outskirts: ['annihilation', 'points'], milh_flats: ['annihilation', 'camp', 'points'], tel_marum: ['annihilation', 'points'],
+      beit_sahwan_outskirts: [], /* points delisted 12 Nov (GH-976): nothing but annihilation, so no picker is drawn */ milh_flats: ['annihilation', 'camp', 'points'], tel_marum: ['annihilation', 'points'],
       wadi_tarfan: ['annihilation', 'camp', 'points'], wadi_tarfan_l: ['annihilation', 'camp', 'points'],
     });
   });
