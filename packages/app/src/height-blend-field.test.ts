@@ -121,6 +121,8 @@ const CENSUS: Record<string, readonly [number, number]> = {
   wadi_halam_4: [9.6, 6.6],
 };
 
+/** Relief maps the design's section 1.4 census does not list: the wetland maps and the green maps it defers (named, not counted). */
+const UNCENSUSED_RELIEF = ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'wadi_halam_3', 'wadi_halam_5', 'wadi_halam_basin'];
 const hasRelief = (id: MapId): boolean => {
   const e = parseMap(maps[id]).elevation;
   return e !== null && e.some((v) => v !== 0);
@@ -130,8 +132,10 @@ describe('the field on every shipped map', () => {
   it('names every relief map the census covers, and only those (no map slips past it)', () => {
     const relief = MAP_IDS.filter(hasRelief);
     for (const id of Object.keys(CENSUS)) expect(relief, id).toContain(id);
-    // Relief maps the design table omits (the wetland ones, the other greens) bake all the same; the table is a subset.
-    expect(relief.length).toBeGreaterThanOrEqual(Object.keys(CENSUS).length);
+    // Relief maps the design table omits bake all the same; the omissions are NAMED, so a new relief map with no census entry
+    // fails here instead of slipping past a length comparison.
+    const uncensused = relief.filter((id) => !(id in CENSUS)).sort();
+    expect(uncensused).toEqual(UNCENSUSED_RELIEF);
   });
 
   it.each(MAP_IDS.filter((id) => !hasRelief(id)))('bakes %s (no relief) to exactly R 0, G 128 everywhere', (id) => {
