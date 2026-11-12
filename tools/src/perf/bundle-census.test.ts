@@ -201,7 +201,7 @@ describe('GH-1167 S3/S5 (P1): the 3D grass field lives in the node-backend chunk
 describe('GH-1226 S3 (L1): the height-blend field is node-path only, and the pin cannot go on passing after it stopped looking', () => {
   const withNode = (extra: string): Chunk[] => {
     const c = good();
-    c[4] = { file: 'node-backend.js', code: preload('webgpu.js', 'core.js') + `throw new Error("${NODE_BACKEND_MARKER}");const n="${NODE_POST_MARKER}"${extra}` };
+    c[4] = { file: 'node-backend.js', code: preload('webgpu.js', 'core.js') + `throw new Error("${NODE_BACKEND_MARKER}");const n="${NODE_POST_MARKER}",g="${GRASS_FIELD_MARKER}"${extra}` };
     return c;
   };
   const armed = (chunks: Chunk[]): string[] => censusChunks(chunks, 'index.js', 10000, { heightBlendFieldExpected: true, heightBlendFieldUsed: true }).failures;
