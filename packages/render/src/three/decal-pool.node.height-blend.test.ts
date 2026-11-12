@@ -15,7 +15,7 @@ import { createDecalMaterial, DecalPool, setDecalLights, type DecalGroundUniform
 import { buildNodeDecal, type DecalMaths, type NodeDecal } from './decal-pool.node';
 import { DECAL_PERSISTENT_RENDER_ORDER } from './units/render-order';
 import { defaultControlB } from './terrain/mesh';
-import { heightBlendTone } from './terrain/height-blend';
+import { heightBlendStage, heightBlendTone } from './terrain/height-blend';
 import { HEIGHT_BLEND_BUILT_KEY, HEIGHT_BLEND_KEY, heightBlendPlaceholder, installHeightBlend, setHeightBlendVisible, type HeightBlendRecord } from './terrain/height-blend-record';
 import { assertNoImplicitSampleInConditional } from './sample-uniformity';
 
@@ -74,6 +74,8 @@ async function compile(kind: Kind, n: NodeDecal): Promise<Built> {
   const W = await import('three/webgpu');
   const pool = new DecalPool({ capacity: 4, grid: 2, renderOrder: DECAL_PERSISTENT_RENDER_ORDER, material: legacy() });
   const mesh = new THREE.Mesh(pool.mesh.geometry, n.material);
+  mesh.receiveShadow = pool.mesh.receiveShadow;
+  expect(mesh.receiveShadow, 'the production pools receive shadow (decal-pool.ts)').toBe(true);
   const r = new W.WebGPURenderer({ forceWebGL: kind === 'glsl' });
   r.shadowMap.enabled = true;
   const stubbed = r as unknown as { hasFeature(): boolean; hasCompatibility(): boolean; backend: Record<string, unknown> };
@@ -99,22 +101,24 @@ async function compile(kind: Kind, n: NodeDecal): Promise<Built> {
 const samplerCount = (b: Built): number => new Set(b.used.filter((x) => (x.node.value as THREE.Texture | null)?.isTexture === true).map((x) => x.name)).size;
 
 describe.each<Kind>(['glsl', 'wgsl'])('the node decal twin with a height-blend record, on %s', (kind) => {
-  it('adds exactly one filtered sampler: two as a literal (control B alone without a record), and no implicit sample in a conditional', async () => {
-    expect(samplerCount(await compile(kind, await nodes(legacy())))).toBe(1);
+  it('adds exactly one filtered sampler: three as a literal (control B and the shadow map without a record), on the production receiveShadow mesh, and no implicit sample in a conditional', async () => {
+    expect(samplerCount(await compile(kind, await nodes(legacy())))).toBe(2);
     const owner = legacy();
     const rec = makeRecord();
     installHeightBlend(owner, rec);
     const built = await compile(kind, await nodes(owner));
-    expect(samplerCount(built)).toBe(2);
+    expect(samplerCount(built)).toBe(3);
     expect(built.used.some((u) => u.node.value === rec.field), 'a sampler holds the field').toBe(true);
     if (kind === 'wgsl') {
       const declared = new Set([...built.frag.matchAll(/var (\w+_sampler) : sampler;/g)].map((m) => m[1]));
       const read = new Set([...built.frag.matchAll(/\btexture\w*\( \w+, (\w+_sampler),/g)].map((m) => m[1]));
       expect([...read].filter((x) => !declared.has(x)), 'a sampler read but never declared').toEqual([]);
-      expect(read.size).toBe(2);
-      expect(built.frag, 'an unfiltered load: the placeholder was unfilterable at the first build').not.toMatch(/\btextureLoad\(/);
+      expect(read.size, 'the field and control B share one filtered sampler; the shadow map has its comparison sampler').toBe(2);
+      const fieldName = (built.used.find((u) => u.node.value === rec.field) as Uniform).name;
+      expect(built.frag, 'an unfiltered load of the field: the placeholder was unfilterable at the first build').not.toContain(`textureLoad( ${fieldName}`);
+      expect(built.frag).toContain(`textureSample( ${fieldName}, ${fieldName}_sampler,`);
+      expect(() => assertNoImplicitSampleInConditional(built.frag)).not.toThrow();
     }
-    expect(() => assertNoImplicitSampleInConditional(built.frag)).not.toThrow();
   });
 
   it('a field that lands after the build is the texture the twin samples (the carrier survives setup on this builder)', async () => {
@@ -162,11 +166,17 @@ describe.each<Kind>(['glsl', 'wgsl'])('the node decal twin with a height-blend r
     if (kind === 'wgsl') return;
     const owner = legacy();
     installHeightBlend(owner, makeRecord());
-    const { frag } = await compile(kind, await nodes(owner));
+    const rec = (owner.userData as Record<string, unknown>)[HEIGHT_BLEND_KEY] as HeightBlendRecord;
+    const { frag, used } = await compile(kind, await nodes(owner));
     const main = frag.slice(frag.indexOf('void main()'));
-    const taps = [...main.matchAll(/texture\( nodeUniform\d+, /g)].map((m) => m.index ?? -1);
-    expect(taps, 'control B and the field').toHaveLength(2);
-    expect(Math.max(...taps)).toBeLessThan(main.indexOf('discard'));
+    const firstDiscard = main.indexOf('discard');
+    expect(firstDiscard).toBeGreaterThan(0);
+    const nameOf = (tex: unknown): string => (used.find((u) => u.node.value === tex) as Uniform).name;
+    for (const tex of [rec.field, owner.uniforms.uControlB?.value]) {
+      const at = main.indexOf(`texture( ${nameOf(tex)}, `);
+      expect(at, 'tapped').toBeGreaterThan(-1);
+      expect(at, 'before the first discard').toBeLessThan(firstDiscard);
+    }
   });
 });
 
@@ -177,26 +187,38 @@ describe('the divisor (G6): the twin hands the ground\'s own tone function aGrou
     installHeightBlend(owner, rec);
     const box: { seen: { base: unknown; field: unknown[]; soil: unknown; knobs: Record<string, unknown> } | null } = { seen: null };
     let calls = 0;
+    let returned: unknown = null;
+    let groundBase: unknown = null;
     const spy: DecalMaths = {
       ...MATERIAL_MATHS.decal,
+      groundToneOps: ((o, base, ...rest) => {
+        groundBase = base;
+        return MATERIAL_MATHS.decal.groundToneOps(o, base, ...rest);
+      }) as DecalMaths['groundToneOps'],
       heightBlend: {
         ...MATERIAL_MATHS.decal.heightBlend,
         tone: ((o, base, field, soil, knobs) => {
           calls++;
           box.seen = { base, field: [...field], soil, knobs: knobs as never };
-          return heightBlendTone(o, base, field, soil, knobs);
+          returned = heightBlendTone(o, base, field, soil, knobs);
+          return returned as never;
         }) as DecalMaths['heightBlend']['tone'],
       },
     };
     const n = await nodes(owner, spy);
     await compile('glsl', n);
     expect(calls).toBe(1);
+    expect(returned, 'the tone was computed').not.toBeNull();
+    expect(groundBase === returned, 'the road block mixes over the BLENDED tone, not aGround').toBe(true);
     const s = box.seen as NonNullable<typeof box.seen>;
     expect((s.base as { name?: string }).name, 'aGround, the flat varying').toBe('vRlGround');
     expect(s.field.map((c) => (c as { components?: string }).components)).toEqual(['x', 'y', 'z']);
     // One statement-level var (the tap is taken before any discard) read three times, and it is assigned from the field tap.
     const vars = new Set(s.field.map((c) => (c as { node?: unknown }).node));
     expect(vars.size).toBe(1);
+    const uvOf = (t: unknown): unknown => (t as { uvNode?: unknown }).uvNode;
+    expect(uvOf(n.heightField), 'the field is tapped at control B\'s own uv node').toBeDefined();
+    expect(uvOf(n.heightField) === uvOf(n.controlB), 'same uv node as control B').toBe(true);
     expect(n.heightField, 'the tap exists and holds the record\'s field').not.toBeNull();
     expect((n.heightField as unknown as { value: unknown }).value).toBe(rec.field);
     expect((s.soil as { node?: { value?: unknown } }).node?.value, 'the soil literal').toBe(1);
@@ -215,21 +237,34 @@ describe('the divisor (G6): the twin hands the ground\'s own tone function aGrou
   });
 
   it('on literals the divisor on a 22-degree bank is the rock mix of aGround, and on flat ground aGround itself (hand-worked)', () => {
-    const k = (amp: number) => ({
-      rockTone: [0.1, 0.2, 0.3], jointTone: [1, 1, 1], hollowTone: [0.7, 0.8, 0.9], rockAmp: [0.75], jointAmp: [0], hollowAmp: [0.45], soften: [0], amp: [amp],
-    });
-    const VEC = {
-      lit: (x: number) => [x], add: (a: number[], b: number[]) => a.map((v, i) => v + (b[i] ?? b[0] as number)),
-    };
-    void VEC;
     // Per channel on the scalar ops: s = 22.4 degrees (R 0.35 x 64), t = 0, n = 0.5 -> e = 1; mix(0.5, rock, 0.75).
     const ch = (base: number, rock: number): number =>
-      heightBlendTone(NUMBER_OPS, base, [0.35, 128 / 255, 0.5], 1, { ...k(1), rockTone: rock, jointTone: 1, hollowTone: 0.7, rockAmp: 0.75, jointAmp: 0, hollowAmp: 0.45, soften: 0, amp: 1 } as never);
+      heightBlendTone(NUMBER_OPS, base, [0.35, 128 / 255, 0.5], 1, { rockTone: rock, jointTone: 1, hollowTone: 0.7, rockAmp: 0.75, jointAmp: 0, hollowAmp: 0.45, soften: 0, amp: 1 } as never);
     expect(ch(0.5, 0.1)).toBeCloseTo(0.2, 12);
     expect(ch(0.5, 0.2)).toBeCloseTo(0.275, 12);
     expect(ch(0.5, 0.3)).toBeCloseTo(0.35, 12);
     const flat = heightBlendTone(NUMBER_OPS, 0.5, [0, 128 / 255, 0.5], 1, { rockTone: 0.1, jointTone: 1, hollowTone: 0.7, rockAmp: 0.75, jointAmp: 0, hollowAmp: 0.45, soften: 0, amp: 1 } as never);
     expect(flat).toBe(0.5);
+  });
+});
+
+describe('the ground stage and the decal tone agree', () => {
+  const k = { rockTone: 0.1, jointTone: 1, hollowTone: 0.7, rockAmp: 0.75, jointAmp: 0, hollowAmp: 0.45, soften: 0.4, amp: 1 };
+  const BV = { luma: (x: number): number => x, one3: 1 };
+  // R byte / 255 (x 64 = degrees), G byte / 255, B: bank, flat, a hollow (G 1 = -1 level), a crest (G 255 = +1 level).
+  const cases: Array<[string, [number, number, number]]> = [
+    ['a 22-degree bank', [0.35, 128 / 255, 0.5]],
+    ['flat', [0, 128 / 255, 0.5]],
+    ['a hollow', [0, 1 / 255, 0.5]],
+    ['a crest on a slope', [0.2, 255 / 255, 0.8]],
+  ];
+  it.each(cases)('at soil 1 and Lr 1 the stage\'s vertexTone bit-equals heightBlendTone: %s', (_name, f) => {
+    const stage = heightBlendStage(NUMBER_OPS, BV, f, k, { textureEdge: false, joints: false });
+    const out = stage({ weights: [1, 0, 0, 0, 0], factors: [1, 1, 1, 1, 1], vertexTone: 0.5 });
+    expect(out.vertexTone).toBe(heightBlendTone(NUMBER_OPS, 0.5, f, 1, k));
+    // Non-vacuous: the bank and the hollow actually move the tone.
+    if (_name === 'a 22-degree bank') expect(out.vertexTone).toBeCloseTo(0.2, 12);
+    if (_name === 'a hollow') expect(out.vertexTone).toBeCloseTo(0.5 + (0.7 - 0.5) * 0.45, 12);
   });
 });
 

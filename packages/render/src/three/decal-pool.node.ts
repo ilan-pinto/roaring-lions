@@ -92,7 +92,7 @@ export interface DecalMaths {
   /** `DECAL_LIGHTS_KEY`: where the legacy material carries its scene's light objects. */
   readonly lightsKey: string;
   /**
-   * GH-1226 S6: the height blend's tone half (`heightBlendTone`, the SAME function the ground's stage is built from) and the keys of the
+   * GH-1226 S6: the height blend's tone half (`heightBlendTone`; the ground's stage re-implements the same tone mix inline, and a spec pins the two to bit equality at soil 1, Lr 1) and the keys of the
    * record and the seal. The record is read off this material's own `userData` (the renderer installs the ground's record here too).
    */
   readonly heightBlend: {
@@ -283,14 +283,15 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
   // SHARED record the ground reads. Built here, emitted where the graph first reads it (a statement, before any discard).
   const worldXZ = TSL.positionWorld.xz;
   const ctlRec = read('uControlB');
-  const controlB = TSL.texture(ctlRec.value, worldXZ.div(mapSize));
+  const mapUv = worldXZ.div(mapSize);
+  const controlB = TSL.texture(ctlRec.value, mapUv);
   carried.set('uMapSize', [
     (): void => {
       controlB.value = ctlRec.value;
     },
   ]);
 
-  // GH-1226 S6: the height blend. With NO record on this material nothing below is created (pin N1's decal twin). The material is sealed either
+  // GH-1226 S6: the height blend. With NO record on this material nothing below is created (the decal twin's no-record graph is today's). The material is sealed either
   // way: a record installed after this build would be silently ignored, so `installHeightBlend` throws.
   const hb = legacy.userData[maths.heightBlend.recordKey] as HeightBlendRecord | undefined;
   Object.defineProperty(legacy.userData, maths.heightBlend.builtKey, { value: true, enumerable: false, configurable: true, writable: true });
@@ -307,7 +308,7 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
   let blendKnobs: Parameters<typeof maths.heightBlend.tone<N>>[4] | null = null;
   if (hb !== undefined) {
     // Re-bound each render through the carrier `uMapSize`, as the ground's field tap and control B are (a texture node's own update does not survive setup).
-    const field = TSL.texture(hb.field, worldXZ.div(mapSize));
+    const field = TSL.texture(hb.field, mapUv);
     heightField = field;
     carried.get('uMapSize')?.push(() => {
       field.value = hb.field;
