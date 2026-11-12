@@ -969,6 +969,27 @@ of scope.
 - **When W4's public arena exists,** the member who set a match up sees it under an "Arena" tab of
   their own profile, as the operator, not as wins. That is W4's design to confirm.
 
+### As built in A3
+
+The code follows `docs/superpowers/plans/2026-11-11-accounts-a3.md`, whose section 0 lists where it departs from this
+section. In short:
+
+- **The ticket does not gain `member`** (section 5.1). The Worker hands the cookie's member to the room in its own
+  room request, and the room keeps it in its meta. Member labels travel in the `lobby` message only and never in
+  `MatchConfig`, so a public id or display name cannot reach the desync log, a replay or a feedback report.
+- **`over` carries `{tick, result}`** (matchmaking P0's rule, built here). The telemetry `match_result` of section 5.2
+  is not written: it is P0's, and must take its result from the same `recordOf` draft.
+- **Agreed also means a compared hash** within one cadence of the result tick. Matching reports with no compared hash
+  record nothing, and the room ignores an `over` whose tick is not a hash-window tick (PR 1280). A lone report is stored
+  `agreed = 0`.
+- **W-L counts every agreed result**, guests and bots included (lead ruling, 11 Nov); the two-tab risk is accepted.
+- **`match_seat.bot_label` now holds the model the bot's operator declared**, `id:<listed id>` or `other:<typed name>`,
+  a label only. **The column comment in `0001_members.sql` ("a bot preset's label (arena), never text a person typed")
+  is therefore stale.** The file is not edited: A3 adds no migration and no binding. The lead can blank a typed name from
+  `/stats`.
+- **The public id is shown whole** (8 characters), not four. The history page cursor is the string
+  `<started_at>.<code>`.
+
 ---
 
 ## 6. Privacy
