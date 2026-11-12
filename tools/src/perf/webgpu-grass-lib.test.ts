@@ -55,6 +55,8 @@ describe('countGrassMeshes', () => {
 describe('grassRefusals: the probe cannot pass vacuously', () => {
   it('reads a good pair at every zoom', () => {
     expect(grassRefusals(goodReadings())).toEqual([]);
+    // One row per zoom (0.5, 1, 1.5, 2.5): an empty list would pass `every` vacuously.
+    expect(grassRows(goodReadings())).toHaveLength(4);
     expect(grassRows(goodReadings()).every((r) => r.sceneCalls === 40 && r.shadowCalls === 0 && r.aoCalls === 0 && r.triangles === 90_000)).toBe(true);
   });
   it('REFUSES a grass-on arm that built no field (0 visible grass meshes, scene calls equal the off arm)', () => {

@@ -534,6 +534,7 @@ describe('render state: no depth write, GRASS_RENDER_ORDER, no shadow, no AO, th
     expect(geo.getAttribute('rlNature').array).toBe(g.nature);
     expect(geo.getAttribute(GRASS_WIDTH_ATTRIBUTE).itemSize).toBe(4);
     expect(geo.getAttribute(GRASS_WIDTH_ATTRIBUTE).array).toBe(g.width);
-    expect(geo.getIndex()?.count).toBe(g.triangles * 3);
+    // Variant 2 at LOD1 is 12 blades of 5 triangles (design 2.1): 60 triangles, 180 indices, not read back from g.
+    expect(geo.getIndex()?.count).toBe(180);
   });
 });
