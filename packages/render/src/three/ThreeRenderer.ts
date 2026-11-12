@@ -306,6 +306,10 @@ import {
   munitionForWeapon,
   munitionRow,
   munitionScorchTiles,
+  ragdollPushForKill,
+  LATCH_AIR_STRIKE,
+  LATCH_MORTAR_BARRAGE,
+  LATCH_PLACED_CHARGE,
   ringSpecFor,
   type Munition,
 } from './munitions';
@@ -902,6 +906,12 @@ const HIT_FACE_CLASSES: ReadonlySet<number> = new Set([
 
 /** GH-1197: a loaded weapon's munition, its reach read off the weapon the sim built from the unit JSON
  *  (`splash_tiles`, or the bomblets' for a cluster round). Null for no weapon or one the table does not map. */
+/** GH-1223: the killer latch key for a support call (by its profile: a barrage is the mortar class) or a charge. */
+function batchActKey(e: { kind: 'strike'; profile: number } | { kind: 'chargeDetonated' }): string {
+  if (e.kind === 'chargeDetonated') return LATCH_PLACED_CHARGE;
+  return e.profile === FS_MORTAR_BARRAGE ? LATCH_MORTAR_BARRAGE : LATCH_AIR_STRIKE;
+}
+
 function weaponMunition(wp: WeaponStats | undefined): Munition | null {
   if (wp === undefined) return null;
   return munitionForWeapon(wp.id, fx.toNumber(wp.splash), wp.submunitions ? fx.toNumber(wp.submunitions.splash) : 0);
@@ -2266,6 +2276,12 @@ export class ThreeRenderer implements Renderer {
    *  a later unit. */
   private readonly killerX: Float64Array;
   private readonly killerY: Float64Array;
+  /** GH-1223: the weapon each entity last fired (`fire` events), and the weapon that killed entity `i` (its killer's last
+   *  shot at the `destroyed` event; '' = none known). Read once by `ragdollOffer` for the push. Presentation only. */
+  private readonly lastFiredWeapon: string[];
+  private readonly killerWeapon: string[];
+  /** GH-1223: the strike / charge each caller made in the batch `onEvents` is reading (cleared per batch). */
+  private readonly batchAct = new Map<number, string>();
   /** GH-1223: the tick each entity's `destroyed` fired (-1 = none seen), and whether it fired during a catch-up --
    *  a ragdoll's clock starts at the death TICK, never at the frame that noticed it. */
   private readonly deathTick: Int32Array;
@@ -3276,6 +3292,8 @@ export class ThreeRenderer implements Renderer {
     this.meshBodyYawSet = new Uint8Array(n);
     this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
     this.killerX = new Float64Array(n).fill(NaN);
+    this.lastFiredWeapon = new Array<string>(n).fill('');
+    this.killerWeapon = new Array<string>(n).fill('');
     this.deathTick = new Int32Array(n).fill(-1);
     this.deathQuiet = new Uint8Array(n);
     this.buriedLast = new Uint8Array(n);
@@ -6533,17 +6551,36 @@ export class ThreeRenderer implements Renderer {
     }
   }
 
+  /** GH-1223: what an entity last did that can kill (a weapon id, or a latch key); the ragdoll push reads it. */
+  private latchKiller(who: number, key: string): void {
+    if (who >= 0 && who < this.lastFiredWeapon.length) this.lastFiredWeapon[who] = key;
+  }
+
   onEvents(events: SimEvent[]): void {
     const st = this.sim.state;
     // A catch-up tick: the next swarm frame must see it (`main.ts` has cleared `setQuiet` by then).
     if (this.quiet) this.swarmCaughtUp = true;
+    // GH-1223: a strike or a charge in THIS batch names its caller's kills in this batch, wherever the kill sits:
+    // the sim's `stepCharges` kills a garrison (`destroyStructure`) BEFORE it pushes `chargeDetonated`, so an
+    // in-order latch would hand those men a stale act. A fire is NOT pre-latched: it never reaches back.
+    this.batchAct.clear();
+    for (const e of events) {
+      if (e.kind === 'strike' || e.kind === 'chargeDetonated') this.batchAct.set(e.by, batchActKey(e));
+    }
     for (const e of events) {
       // A tick far behind the live edge (`setQuiet`) throws no burst: the
       // events whose whole effect is a one-shot flash, round or puff are
       // dropped here, and the ones that leave something standing (a wreck, a
       // collapsed building, a discovered route) still run below.
+      // The killer latch (GH-1223) writes nothing visible, so it runs BEFORE the catch-up drop: a rejoin's old
+      // `fire`, `strike` and `chargeDetonated` events still say what the killer last did. In batch order, so a
+      // later act (a fire after a strike) wins for the NEXT batch, and a fire never reaches back onto an earlier kill.
+      if (e.kind === 'fire') this.latchKiller(e.shooter, e.weaponId);
+      else if (e.kind === 'strike' || e.kind === 'chargeDetonated') this.latchKiller(e.by, batchActKey(e));
       if (this.quiet && isBurstOnlyEvent(e.kind)) continue;
-      if (e.kind === 'fire') this.onFire(e);
+      if (e.kind === 'fire') {
+        this.onFire(e);
+      }
       else if (e.kind === 'beam') this.onBeam(e);
       else if (e.kind === 'nearMiss') {
         const nx = fx.toNumber(e.x);
@@ -6663,6 +6700,7 @@ export class ThreeRenderer implements Renderer {
         this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
         this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;
         this.deathTick[e.entity] = e.tick;
+        this.killerWeapon[e.entity] = e.by >= 0 ? this.batchAct.get(e.by) ?? this.lastFiredWeapon[e.by] ?? '' : '';
         this.deathQuiet[e.entity] = this.quiet ? 1 : 0;
         const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
         // GH-85: a kamikaze's warhead going off. Inferred, not reported --
@@ -12523,6 +12561,7 @@ export class ThreeRenderer implements Renderer {
       template: pickMeshVariant(variants, id),
       at: { x, y, z, yaw },
       away: [ax, az],
+      push: ragdollPushForKill(this.killerWeapon[id]),
       handle: dying,
     };
   }

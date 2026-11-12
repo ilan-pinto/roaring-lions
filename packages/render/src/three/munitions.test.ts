@@ -22,6 +22,13 @@ import {
   munitionForWeapon,
   munitionRow,
   munitionScorchTiles,
+  RAGDOLL_PUSH_DEFAULT,
+  ragdollPushFor,
+  ragdollPushForWeapon,
+  ragdollPushForKill,
+  LATCH_AIR_STRIKE,
+  LATCH_MORTAR_BARRAGE,
+  LATCH_PLACED_CHARGE,
   recipeCount,
   ringSpecFor,
   type MunitionClassId,
@@ -245,5 +252,40 @@ describe('the table fails loud', () => {
   });
   it('a weapon with no reach draws no ring', () => {
     expect(ringSpecFor({ cls: 'mortar', splash: 0 })).toBeNull();
+  });
+});
+
+describe('the ragdoll push per class (GH-1223)', () => {
+  it('the default is today\'s constant: 1.0 m/s away, 0.4 up', () => {
+    expect(RAGDOLL_PUSH_DEFAULT).toEqual({ horizontalMS: 1.0, upMS: 0.4 });
+    expect(ragdollPushFor(null)).toEqual({ horizontalMS: 1.0, upMS: 0.4 });
+    expect(ragdollPushForWeapon(undefined)).toEqual({ horizontalMS: 1.0, upMS: 0.4 });
+    expect(ragdollPushForWeapon('rifle_556')).toEqual({ horizontalMS: 1.0, upMS: 0.4 });
+    expect(ragdollPushForWeapon('')).toEqual({ horizontalMS: 1.0, upMS: 0.4 });
+  });
+  it('a class value reaches the push, by class and by weapon (literals)', () => {
+    expect(ragdollPushFor('mortar')).toEqual({ horizontalMS: 3.0, upMS: 1.6 });
+    expect(ragdollPushForWeapon('howitzer_155')).toEqual({ horizontalMS: 5.0, upMS: 2.8 });
+    expect(ragdollPushForWeapon('gl_40')).toEqual({ horizontalMS: 2.0, upMS: 1.0 });
+    expect(ragdollPushForWeapon('rpg')).toEqual({ horizontalMS: 3.5, upMS: 1.8 });
+  });
+  it('a class with no entry falls back to the default (a table with none)', () => {
+    const t = { classes: { mortar: { ...munitionRow('mortar'), ragdoll_push: undefined } }, weapons: { m: 'mortar' }, support: {}, charge: {} } as unknown as MunitionsTable;
+    expect(ragdollPushForWeapon('m', t)).toEqual(RAGDOLL_PUSH_DEFAULT);
+  });
+
+  it('a latched strike or charge key reads its support / charge class; a weapon id still reads the weapons table (GH-1223)', () => {
+    expect(ragdollPushForKill(LATCH_AIR_STRIKE)).toEqual({ horizontalMS: 5.0, upMS: 2.8 });
+    expect(ragdollPushForKill(LATCH_MORTAR_BARRAGE)).toEqual({ horizontalMS: 3.0, upMS: 1.6 });
+    expect(ragdollPushForKill(LATCH_PLACED_CHARGE)).toEqual({ horizontalMS: 4.0, upMS: 2.2 });
+    expect(ragdollPushForKill('rpg')).toEqual({ horizontalMS: 3.5, upMS: 1.8 });
+    expect(ragdollPushForKill(undefined)).toEqual(RAGDOLL_PUSH_DEFAULT);
+  });
+  it('heavier classes push harder than the default and than the class below', () => {
+    const h = (c: MunitionClassId): number => ragdollPushFor(c).horizontalMS;
+    expect(h('grenade')).toBeGreaterThan(1.0);
+    expect(h('mortar')).toBeGreaterThan(h('grenade'));
+    expect(h('direct_he')).toBeGreaterThan(h('mortar'));
+    expect(h('heavy_artillery')).toBeGreaterThan(h('direct_he'));
   });
 });
