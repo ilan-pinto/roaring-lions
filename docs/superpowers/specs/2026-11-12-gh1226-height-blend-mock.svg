@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 900" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <!--
+    GH-1226 close-up mock. HAND-DRAWN from the numbers in
+    2026-11-12-gh1226-height-blend-design.md section 2. It is NOT a render: no renderer, Blender or Meshy produced any
+    pixel here. Every fill is the sRGB value of the palette key (or the linear-light composite of two keys) named beside it.
+    Scale: panels A and B are about 3 tiles (9 m) across at zoom 2.5, where a tile is 113 CSS px; the figure is 0.6 tile (1.8 m).
+  -->
+  <defs>
+    <pattern id="hlChips" width="22" height="18" patternUnits="userSpaceOnUse">
+      <rect width="22" height="18" fill="#806032"/>
+      <ellipse cx="5" cy="5" rx="3.2" ry="2" fill="#ABA698"/>
+      <ellipse cx="15" cy="12" rx="2.6" ry="1.7" fill="#CFCBBF"/>
+      <ellipse cx="18" cy="3" rx="1.6" ry="1.1" fill="#8A857A"/>
+    </pattern>
+    <pattern id="hlHollow" width="26" height="20" patternUnits="userSpaceOnUse">
+      <rect width="26" height="20" fill="#8F5931"/>
+      <ellipse cx="8" cy="9" rx="1.6" ry="1" fill="#ABA698"/>
+    </pattern>
+    <pattern id="aridRipple" width="30" height="12" patternUnits="userSpaceOnUse">
+      <rect width="30" height="12" fill="#C8B494"/>
+      <path d="M0 8 Q7.5 4 15 8 T30 8" fill="none" stroke="#B8A182" stroke-width="1.2"/>
+    </pattern>
+    <pattern id="aridLoess" width="40" height="16" patternUnits="userSpaceOnUse">
+      <rect width="40" height="16" fill="#BFA98A"/>
+      <path d="M0 11 Q10 9 20 11 T40 11" fill="none" stroke="#B8A182" stroke-width="0.8" opacity="0.6"/>
+    </pattern>
+  </defs>
+
+  <rect width="1240" height="900" fill="#F2E8D5"/>
+  <text x="24" y="34" font-size="20" font-weight="bold" fill="#333821">GH-1226 height and slope ground blend: close-up mock (hand-drawn, not a render)</text>
+  <text x="24" y="56" fill="#5E4E3A">Fills are palette keys (data/palette.json) or the linear-light mix of two keys at the amplitude given. Node (WebGPU) path only; legacy is unchanged.</text>
+
+  <!-- ===================== Panel A: highland ===================== -->
+  <text x="24" y="92" font-size="16" font-weight="bold" fill="#333821">A. Highland (Sur: Tel Marum, Qarn Hadid, Umm Zeitoun), zoom 2.5, about 3 tiles across</text>
+  <!-- profile -->
+  <g transform="translate(24,104)">
+    <rect width="560" height="110" fill="#E6D8BE"/>
+    <path d="M0 96 C60 98 110 98 150 92 C220 80 260 40 330 26 C380 18 420 14 470 16 C510 18 540 22 560 24 L560 110 L0 110 Z" fill="#C8B494"/>
+    <path d="M0 96 C60 98 110 98 150 92 C220 80 260 40 330 26 C380 18 420 14 470 16 C510 18 540 22 560 24" fill="none" stroke="#5E4E3A" stroke-width="2"/>
+    <text x="10" y="86" fill="#5E4E3A" font-size="12">hollow: 0.12-0.40 level below the 1.5-tile mean</text>
+    <text x="196" y="72" fill="#5E4E3A" font-size="12" transform="rotate(-28 196 72)">slope 10-22 deg</text>
+    <text x="400" y="10" fill="#5E4E3A" font-size="12">crest: 0.15-0.45 level above</text>
+  </g>
+  <!-- plan strip -->
+  <g transform="translate(24,226)">
+    <rect x="0" y="0" width="160" height="220" fill="url(#hlHollow)"/>
+    <rect x="160" y="0" width="120" height="220" fill="url(#hlChips)"/>
+    <!-- exposure edge follows the rock image's bright clasts (texture-driven, not a ruler line) -->
+    <path d="M280 0 L560 0 L560 220 L280 220 C300 196 268 170 292 150 C310 128 276 108 296 86 C312 64 282 40 300 18 Z" fill="#A29887"/>
+    <!-- joints: terra rossa in the dark cracks of the rock image, about 18 percent of the exposed rock -->
+    <g fill="none" stroke="#A37B6A" stroke-width="3" stroke-linecap="round">
+      <path d="M318 20 L352 46 L346 82 L388 104"/>
+      <path d="M402 12 L420 52 L470 64 L498 40"/>
+      <path d="M352 140 L398 132 L430 168 L476 160 L520 190"/>
+      <path d="M470 96 L512 112 L548 98"/>
+      <path d="M320 186 L346 208"/>
+      <path d="M430 168 L424 214"/>
+    </g>
+    <!-- figure for scale and figure-ground: KDF uniform olive.1, 0.6 tile = 68 px at z2.5 -->
+    <g transform="translate(212,120)">
+      <ellipse cx="0" cy="66" rx="13" ry="4" fill="#23241F" opacity="0.35"/>
+      <rect x="-6" y="16" width="12" height="40" rx="4" fill="#6E7449"/>
+      <circle cx="0" cy="9" r="7" fill="#6E7449"/>
+      <rect x="-5" y="54" width="4" height="12" fill="#4E5433"/>
+      <rect x="1" y="54" width="4" height="12" fill="#4E5433"/>
+    </g>
+    <g transform="translate(420,118)">
+      <ellipse cx="0" cy="66" rx="13" ry="4" fill="#23241F" opacity="0.35"/>
+      <rect x="-6" y="16" width="12" height="40" rx="4" fill="#6E7449"/>
+      <circle cx="0" cy="9" r="7" fill="#6E7449"/>
+      <rect x="-5" y="54" width="4" height="12" fill="#4E5433"/>
+      <rect x="1" y="54" width="4" height="12" fill="#4E5433"/>
+    </g>
+    <rect x="0" y="0" width="560" height="220" fill="none" stroke="#333821" stroke-width="1.5"/>
+  </g>
+  <!-- legend A -->
+  <g transform="translate(600,226)" font-size="12" fill="#333821">
+    <rect x="0" y="0" width="30" height="22" fill="#8F5931"/><text x="40" y="15">hollow fill: dust.5 + terracotta.1 @0.45 = #8F5931 (Y 0.132, 0.81x olive.1, no worse than today)</text>
+    <rect x="0" y="32" width="30" height="22" fill="#806032"/><text x="40" y="47">open ground today: dust.5 #806032 under highland_v2_tile (Y 0.132)</text>
+    <rect x="0" y="64" width="30" height="22" fill="#A29887"/><text x="40" y="79">exposed limestone: dust.5 + karst.1 @0.75 = #A29887 (Y 0.319, 1.96x olive.1, dE00 19.3)</text>
+    <rect x="0" y="96" width="30" height="22" fill="#A37B6A"/><text x="40" y="111">joints: karst.1 + terracotta.1 @0.6 = #A37B6A (Y 0.230, 1.41x olive.1, dE00 24.9)</text>
+    <rect x="0" y="128" width="30" height="22" fill="#6E7449"/><text x="40" y="143">KDF uniform olive.1 #6E7449 (Y 0.163): the figure-ground reference</text>
+    <text x="0" y="176">Texture: exposed rock takes the rock slot (rock_ground_tile); the hollow</text>
+    <text x="0" y="192">softens the open slot's chips by 40%. No new image, no Meshy call.</text>
+  </g>
+
+  <!-- ===================== Panel B: arid ===================== -->
+  <text x="24" y="488" font-size="16" font-weight="bold" fill="#333821">B. Arid with relief (Milh Flats, Wadi Tarfan, Deir Amun, Beit Sahwan II/IV, Khan Rafid II), zoom 2.5</text>
+  <g transform="translate(24,502)">
+    <rect x="0" y="0" width="170" height="200" fill="url(#aridLoess)"/>
+    <rect x="170" y="0" width="140" height="200" fill="url(#aridRipple)"/>
+    <path d="M310 0 L560 0 L560 200 L310 200 C328 176 300 150 322 130 C340 108 306 84 326 62 C342 40 314 22 330 0 Z" fill="#CDC4B3"/>
+    <g fill="none" stroke="#B8A182" stroke-width="1.4" opacity="0.8">
+      <path d="M350 30 L380 52 L372 90"/>
+      <path d="M430 24 L452 70 L500 76"/>
+      <path d="M380 140 L430 128 L470 160"/>
+    </g>
+    <g transform="translate(240,104)">
+      <ellipse cx="0" cy="66" rx="13" ry="4" fill="#23241F" opacity="0.35"/>
+      <rect x="-6" y="16" width="12" height="40" rx="4" fill="#6E7449"/>
+      <circle cx="0" cy="9" r="7" fill="#6E7449"/>
+      <rect x="-5" y="54" width="4" height="12" fill="#4E5433"/>
+      <rect x="1" y="54" width="4" height="12" fill="#4E5433"/>
+    </g>
+    <rect x="0" y="0" width="560" height="200" fill="none" stroke="#333821" stroke-width="1.5"/>
+  </g>
+  <g transform="translate(600,502)" font-size="12" fill="#333821">
+    <rect x="0" y="0" width="30" height="22" fill="#BFA98A"/><text x="40" y="15">loess hollow: limestone.3 + limestone.4 @0.6 = #BFA98A (Y 0.413, dE00 24.1); sand ripples softened 50%</text>
+    <rect x="0" y="32" width="30" height="22" fill="#C8B494"/><text x="40" y="47">open ground today: limestone.3 #C8B494 under desert_sand_tile</text>
+    <rect x="0" y="64" width="30" height="22" fill="#CDC4B3"/><text x="40" y="79">exposed limestone / nari: limestone.3 + karst.0 @0.7 = #CDC4B3 (Y 0.557, dE00 29.5)</text>
+    <rect x="0" y="96" width="30" height="22" fill="#D2C0A0"/><text x="40" y="111">alternative hollow (Marj coastal sand): + limestone.2 @0.6 = #D2C0A0 (decision 4)</text>
+    <text x="0" y="144">No terra rossa on arid: the Marj is kurkar and hamra, Milh is loess and salt,</text>
+    <text x="0" y="160">Rujm Sawda is basalt (levant-terrain G1). Joints are off on arid (amplitude 0);</text>
+    <text x="0" y="176">the cracks shown are the rock image's own, at its own ratio.</text>
+  </g>
+
+  <!-- ===================== Panel C: the weight curves ===================== -->
+  <text x="24" y="744" font-size="16" font-weight="bold" fill="#333821">C. The weights (section 3.2), as drawn by the node ground</text>
+  <g transform="translate(24,756)">
+    <rect width="360" height="120" fill="#FFFFFF" stroke="#8C7659"/>
+    <text x="8" y="16" font-size="11" fill="#5E4E3A">exposure from slope (deg)</text>
+    <path d="M10 110 L120 110 C150 110 170 20 200 14 L350 14" fill="none" stroke="#5E4E3A" stroke-width="2"/>
+    <text x="110" y="106" font-size="10" fill="#5E4E3A">10</text><text x="196" y="30" font-size="10" fill="#5E4E3A">22</text>
+    <text x="250" y="40" font-size="11" fill="#5E4E3A">+ 0.6 x crest(0.15..0.45)</text>
+  </g>
+  <g transform="translate(404,756)">
+    <rect width="360" height="120" fill="#FFFFFF" stroke="#8C7659"/>
+    <text x="8" y="16" font-size="11" fill="#5E4E3A">hollow from -TPI (levels), cut on slopes 8..16 deg</text>
+    <path d="M10 110 L90 110 C120 110 160 20 210 14 L350 14" fill="none" stroke="#5E4E3A" stroke-width="2"/>
+    <text x="84" y="106" font-size="10" fill="#5E4E3A">0.12</text><text x="206" y="30" font-size="10" fill="#5E4E3A">0.40</text>
+  </g>
+  <g transform="translate(784,756)" font-size="12" fill="#333821">
+    <text x="0" y="14">Flat ground (slope 0, TPI 0) is the identity, to the bit:</text>
+    <text x="0" y="32">11 of the 41 shipped maps have no elevation and draw exactly</text>
+    <text x="0" y="50">today's node frame. A ^ top, a pad, a wall and a road surface</text>
+    <text x="0" y="68">take no blend (no soil weight there).</text>
+    <text x="0" y="96">Coverage on relief maps (census, section 1.4): exposed rock</text>
+    <text x="0" y="114">2-26% of open ground, hollows 2-11%.</text>
+  </g>
+</svg>
