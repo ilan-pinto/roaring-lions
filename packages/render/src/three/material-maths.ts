@@ -47,7 +47,8 @@ import { rimFadeOps, SMOKE_PLUME_DENSITY, SMOKE_PLUME_EDGE_SOFTNESS, SMOKE_PLUME
 import { COLLAPSE_SHROUD_DENSITY, COLLAPSE_SHROUD_EDGE_SOFTNESS, COLLAPSE_SHROUD_SHADE_BREAKS } from './units/collapse-shroud';
 import { beamShapeOps } from './units/beam-batch';
 import { rotorBlurOps, rotorSpinOps } from './units/swarm-batch';
-import { teamHookOf, teamMarkOps } from './units/team-mask';
+import { insigniaHookOf, teamHookOf, teamMarkOps, unitMarkHookOf } from './units/team-mask';
+import { insigniaCoordOps, insigniaOps } from './units/insignia';
 import { RG_MAX_WHEELS, rgBarOps, rgNormalOps, rgPhaseOps, rgVertexOps } from './units/running-gear';
 import { RG_TRACK_GEOMETRY_ATTR, RG_WHEEL_GEOMETRY_ATTR, runningGearUniformsOf } from './units/running-gear-material';
 import { sootOps } from './world-materials';
@@ -98,7 +99,9 @@ export const MATERIAL_MATHS: MaterialMaths = {
   // GH-943 P3 (T3): the vehicle hooks of the unit twin (`units/unit-material.node.ts`): the team mark, the running gear and the soot.
   // T4: the rain rim (exposure, contrast, rim) and the wounded floor.
   unit: {
-    team: { teamMarkOps, teamHookOf },
+    team: { teamMarkOps, teamHookOf, unitMarkHookOf },
+    // GH-1096 S1: the insignia, the unit-mark segment's second term (`units/insignia.node.ts`).
+    insignia: { insigniaOps, insigniaCoordOps, insigniaHookOf },
     rg: {
       rgVertexOps,
       rgNormalOps,

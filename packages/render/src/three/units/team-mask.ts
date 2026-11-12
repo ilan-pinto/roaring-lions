@@ -36,18 +36,43 @@
  * `carryTeamMark` re-applies the hook, composing with whatever hook the clone already carries. A clone whose KEY
  * says "team mark" but whose shader lacks the patch would poison the program cache for every material sharing that
  * key, so the key is only ever added together with the patch.
+ *
+ * **The insignia (GH-1096 S1) rides the SAME hook** (`insignia.ts`): a second term spliced after the mark, never a second
+ * `onBeforeCompile`, so the three clone sites keep their one `carryTeamMark`. The program key is `rl-unit-mark-3` and names
+ * the features it actually patched: `|rl-unit-mark-3|team`, `|rl-unit-mark-3|ins` or `|rl-unit-mark-3|team+ins` (the spec's
+ * decision 8). A team-only material compiles L3's program byte for byte; only its key moved. A vehicle TYPE with an insignia
+ * frame (`insignia-frames.ts`) gets it on every hull-role material it mints: an insignia-only material has ONE variant (the
+ * colour is the faction's, nothing is per slot), memoised under slot -1.
  */
 import * as THREE from 'three';
 import { hexToLinear } from '../terrain/shared';
 import type { VehicleMeshEntity } from './mesh-vehicle';
 import { legacyOf } from '../twin-identity';
 import type { Ops } from '../fog-ops';
+import {
+  INSIGNIA_FRAGMENT,
+  INSIGNIA_FRAGMENT_HEAD,
+  INSIGNIA_VARYINGS,
+  bindInsigniaUniforms,
+  insigniaHookFor,
+  setInsigniaStrength,
+  type InsigniaFrame,
+  type InsigniaHook,
+  type InsigniaShared,
+} from './insignia';
 
 /** The lead's ruling (2 Nov, GH-943): strength 0.85. */
 export const TEAM_MASK_STRENGTH = 0.85;
 /** The material extras key `mark-pass.ts` writes. */
 export const TEAM_MARK_USERDATA_KEY = 'rl_team_mark';
-export const TEAM_MASK_PROGRAM_KEY = 'rl-team-mark-2';
+/**
+ * The one unit-mark hook's program-key segment (GH-1096 S1: the team mark and the insignia; L3's `rl-team-mark-2` before it).
+ * The name `TEAM_MASK_PROGRAM_KEY` stays for the callers that test "does this material carry the mark hook".
+ */
+export const UNIT_MARK_PROGRAM_KEY = 'rl-unit-mark-3';
+export const TEAM_MASK_PROGRAM_KEY = UNIT_MARK_PROGRAM_KEY;
+/** What the hook patched, after the segment: `|rl-unit-mark-3|team`, `|ins` or `|team+ins`. Never a segment itself (no `rl-`). */
+export type UnitMarkFeature = 'team' | 'ins' | 'team+ins';
 /** `colorSlot`'s three: own, hostile, neutral. */
 export const TEAM_SLOT_COUNT = 3;
 /** Only a mesh with this `rl_role` carries the mark. */
@@ -204,6 +229,28 @@ function replaceOnce(src: string, find: string, by: string, what: string): strin
   return src.replace(find, by);
 }
 
+/** The fragment half of an insignia-only material: the varyings the team head would have declared, then the insignia's. */
+export function patchInsigniaOnly(fragment: string): string {
+  return replaceOnce(
+    replaceOnce(fragment, '#include <common>', `#include <common>\n${INSIGNIA_VARYINGS}\n${INSIGNIA_FRAGMENT_HEAD}`, 'fragment'),
+    '#include <color_fragment>',
+    `#include <color_fragment>\n#ifdef USE_MAP${INSIGNIA_FRAGMENT}\n#endif`,
+    'fragment'
+  );
+}
+
+/** The fragment half of a material carrying both: the team mark's patch, then the insignia, inside the same `#ifdef USE_MAP`. */
+export function patchTeamMaskAndInsignia(fragment: string): string {
+  const both = TEAM_MASK_FRAGMENT.replace(/\n#endif$/, `${INSIGNIA_FRAGMENT}\n#endif`);
+  if (both === TEAM_MASK_FRAGMENT) throw new Error('team-mask: the team chunk no longer ends in #endif');
+  return replaceOnce(
+    replaceOnce(fragment, '#include <common>', `${TEAM_MASK_FRAGMENT_HEAD}\n${INSIGNIA_FRAGMENT_HEAD}`, 'fragment'),
+    '#include <color_fragment>',
+    both,
+    'fragment'
+  );
+}
+
 /** The vertex half: the object-space position and normal, as varyings. */
 export function patchTeamMaskVertex(vertex: string): string {
   return replaceOnce(replaceOnce(vertex, '#include <common>', TEAM_MASK_VERTEX_HEAD, 'vertex'), '#include <begin_vertex>', TEAM_MASK_VERTEX_BODY, 'vertex');
@@ -217,12 +264,36 @@ export function patchTeamMask(fragment: string): string {
 /** The strength EVERY hooked material shares: the `team-mask` debug layer writes it. */
 const sharedStrength: Uniform<number> = { value: TEAM_MASK_STRENGTH };
 
+/** One material's unit-mark hook: the team term, the insignia term, or both. Never neither. */
+export interface UnitMarkHook {
+  readonly team: TeamHook | null;
+  readonly ins: InsigniaHook | null;
+}
+
 /** Which hook (if any) a material carries, so a clone can carry it on. */
-const hooks = new WeakMap<THREE.Material, TeamHook>();
+const hooks = new WeakMap<THREE.Material, UnitMarkHook>();
 const liveVariants = new Set<WeakRef<THREE.Material>>();
 
+/** The team half of a material's hook (undefined when it carries none, or only the insignia). */
 export function teamHookOf(m: THREE.Material): TeamHook | undefined {
+  return hooks.get(m)?.team ?? undefined;
+}
+
+/** The insignia half of a material's hook (undefined when it carries none). */
+export function insigniaHookOf(m: THREE.Material): InsigniaHook | undefined {
+  return hooks.get(m)?.ins ?? undefined;
+}
+
+/** The whole hook record, for the node twin's one segment. */
+export function unitMarkHookOf(m: THREE.Material): UnitMarkHook | undefined {
   return hooks.get(m);
+}
+
+export function unitMarkFeature(h: UnitMarkHook): UnitMarkFeature {
+  if (h.team !== null && h.ins !== null) return 'team+ins';
+  if (h.team !== null) return 'team';
+  if (h.ins !== null) return 'ins';
+  throw new Error('team-mask: a unit-mark hook with neither a team mark nor an insignia');
 }
 
 /** The mark a material declares, or null. */
@@ -232,24 +303,35 @@ export function teamMarkOf(m: THREE.Material): TeamMark | null {
   return v;
 }
 
-function installHook(mat: THREE.MeshStandardMaterial, hook: TeamHook, addKey: boolean): void {
+function installHook(mat: THREE.MeshStandardMaterial, hook: UnitMarkHook, addKey: boolean): void {
   const prior = mat.onBeforeCompile;
+  const feature = unitMarkFeature(hook);
   if (addKey) {
     const baseKey = mat.customProgramCacheKey();
-    mat.customProgramCacheKey = () => `${baseKey}|${TEAM_MASK_PROGRAM_KEY}`;
+    mat.customProgramCacheKey = () => `${baseKey}|${UNIT_MARK_PROGRAM_KEY}|${feature}`;
   }
+  const team = hook.team;
+  const ins = hook.ins;
   mat.onBeforeCompile = (shader, renderer) => {
     prior.call(mat, shader, renderer);
-    shader.uniforms.uTeamColor = hook.color;
-    shader.uniforms.uTeamStrength = hook.strength;
-    shader.uniforms.uTeamLuma = hook.luma;
-    shader.uniforms.uMarkA = hook.a;
-    shader.uniforms.uMarkB = hook.b;
-    shader.uniforms.uMarkC = hook.c;
-    shader.uniforms.uMarkKit = hook.kit;
-    shader.uniforms.uMarkEdge = hook.edgePx;
+    if (team !== null) {
+      shader.uniforms.uTeamColor = team.color;
+      shader.uniforms.uTeamStrength = team.strength;
+      shader.uniforms.uTeamLuma = team.luma;
+      shader.uniforms.uMarkA = team.a;
+      shader.uniforms.uMarkB = team.b;
+      shader.uniforms.uMarkC = team.c;
+      shader.uniforms.uMarkKit = team.kit;
+      shader.uniforms.uMarkEdge = team.edgePx;
+    }
+    if (ins !== null) bindInsigniaUniforms(shader.uniforms, ins);
     shader.vertexShader = patchTeamMaskVertex(shader.vertexShader);
-    shader.fragmentShader = patchTeamMask(shader.fragmentShader);
+    shader.fragmentShader =
+      team !== null && ins !== null
+        ? patchTeamMaskAndInsignia(shader.fragmentShader)
+        : team !== null
+          ? patchTeamMask(shader.fragmentShader)
+          : patchInsigniaOnly(shader.fragmentShader);
   };
   hooks.set(mat, hook);
   mat.needsUpdate = true;
@@ -279,7 +361,7 @@ export function carryTeamMark(clone: THREE.Material, source: THREE.Material): vo
   if (!hook || hooks.has(clone)) return;
   const std = clone as THREE.MeshStandardMaterial;
   const key = std.customProgramCacheKey();
-  installHook(std, hook, !key.includes(TEAM_MASK_PROGRAM_KEY));
+  installHook(std, hook, !key.includes(UNIT_MARK_PROGRAM_KEY));
 }
 
 /** The three shared slot colours (linear). One per renderer; every variant of a slot reads the same uniform. */
@@ -296,37 +378,54 @@ export class TeamMaskSlots {
   }
 }
 
+/** What a vehicle TYPE's insignia needs: its frame (`insignia-frames.ts`) and the owner's shared texture, colour and ratio. */
+export interface VehicleInsignia {
+  readonly frame: InsigniaFrame;
+  readonly shared: InsigniaShared;
+}
+
+/** The slot an insignia-only variant is memoised under: it has one, whatever the side. */
+export const INSIGNIA_ONLY_SLOT = -1;
+
 /**
  * The variants of a template's materials, one per colour slot, minted on first use and memoised.
  * The renderer keeps one per template key (like `VehicleScarMaterials`); the garage keeps one.
+ *
+ * `slots` null: no team term (the garage with no team colour), and a material's `rl_team_mark` is ignored. `insignia` null: no
+ * insignia term (every type without a frame). With neither, every material is returned as it is.
  */
 export class VehicleTeamMaterials {
   private readonly byBase = new Map<THREE.Material, Map<number, THREE.MeshStandardMaterial>>();
 
   constructor(
-    private readonly slots: TeamMaskSlots,
+    private readonly slots: TeamMaskSlots | null,
     /** Called once per variant minted, so the renderer can hand it to the environment registry. */
-    private readonly onMint?: (m: THREE.MeshStandardMaterial) => void
+    private readonly onMint?: (m: THREE.MeshStandardMaterial) => void,
+    private readonly insignia: VehicleInsignia | null = null
   ) {}
 
-  /** `base` itself when it declares no mark; else the slot's variant. */
+  /** `base` itself when it carries neither a mark nor an insignia; else the slot's variant (slot -1 for an insignia-only one). */
   materialFor(base: THREE.Material, slot: number): THREE.Material {
-    const mark = teamMarkOf(base);
     const std = base as THREE.MeshStandardMaterial;
-    if (mark === null || std.isMeshStandardMaterial !== true || !std.map) return base;
-    if (!(slot >= 0 && slot < TEAM_SLOT_COUNT)) throw new Error(`VehicleTeamMaterials: colour slot ${slot} is not 0..${TEAM_SLOT_COUNT - 1}`);
+    if (std.isMeshStandardMaterial !== true || !std.map) return base;
+    const mark = this.slots !== null ? teamMarkOf(base) : null;
+    const ins = this.insignia;
+    if (mark === null && ins === null) return base;
+    if (mark !== null && !(slot >= 0 && slot < TEAM_SLOT_COUNT)) throw new Error(`VehicleTeamMaterials: colour slot ${slot} is not 0..${TEAM_SLOT_COUNT - 1}`);
+    const key = mark !== null ? slot : INSIGNIA_ONLY_SLOT;
     let perSlot = this.byBase.get(base);
     if (!perSlot) {
       perSlot = new Map();
       this.byBase.set(base, perSlot);
     }
-    let v = perSlot.get(slot);
+    let v = perSlot.get(key);
     if (!v) {
       v = std.clone();
-      installHook(v, hookFor(this.slots.colors[slot], mark), true);
-      v.userData = { ...(v.userData as Record<string, unknown>), rlTeamSlot: slot };
+      const team = mark !== null && this.slots !== null ? hookFor(this.slots.colors[slot], mark) : null;
+      installHook(v, { team, ins: ins !== null ? insigniaHookFor(ins.shared, ins.frame) : null }, true);
+      v.userData = { ...(v.userData as Record<string, unknown>), rlTeamSlot: key };
       liveVariants.add(new WeakRef(v));
-      perSlot.set(slot, v);
+      perSlot.set(key, v);
       this.onMint?.(v);
     }
     return v;
@@ -378,13 +477,31 @@ export class VehicleTeamMaterials {
   }
 }
 
-/** The `team-mask` debug layer: the shared strength to 0 and back. Returns how many variants exist. */
-export function setTeamMaskPass(on: boolean): number {
-  sharedStrength.value = on ? TEAM_MASK_STRENGTH : 0;
+/** Live variants whose hook has the given half. */
+function countLive(has: (h: UnitMarkHook) => boolean): number {
   let n = 0;
   for (const ref of [...liveVariants]) {
-    if (ref.deref()) n++;
-    else liveVariants.delete(ref);
+    const m = ref.deref();
+    if (!m) liveVariants.delete(ref);
+    else {
+      const h = hooks.get(m);
+      if (h !== undefined && has(h)) n++;
+    }
   }
   return n;
+}
+
+/** The `team-mask` debug layer: the shared strength to 0 and back. Returns how many team-marked variants exist. */
+export function setTeamMaskPass(on: boolean): number {
+  sharedStrength.value = on ? TEAM_MASK_STRENGTH : 0;
+  return countLive((h) => h.team !== null);
+}
+
+/**
+ * GH-1096 S1: the `insignia` debug layer: the insignia's OWN shared strength to 0 and back (never the team mark's, so the gated
+ * `team-mask` check keeps measuring what it was calibrated on). Returns how many insignia variants exist.
+ */
+export function setInsigniaPass(on: boolean): number {
+  setInsigniaStrength(on);
+  return countLive((h) => h.ins !== null);
 }

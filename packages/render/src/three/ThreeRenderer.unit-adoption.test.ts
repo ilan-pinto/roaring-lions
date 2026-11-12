@@ -337,7 +337,7 @@ describe('G1: every unit swap site adopts, on the frame of the swap', () => {
     const hullA = hullOf(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity);
     // Precondition: the hull really carries a unit hook (the team variant), and draws its twin.
     expect(isTwin(hullA.material as THREE.Material)).toBe(true);
-    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-unit-mark-3']);
     expect(priv.meshUnitEntities.has(squad)).toBe(true);
     // ...and so does the figure: the rain rim, then the wounded floor.
     const figureChains: string[][] = [];
@@ -351,7 +351,7 @@ describe('G1: every unit swap site adopts, on the frame of the swap', () => {
     frame('move (running-gear bind)');
     const bound = runningGearBinding(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity);
     expect(bound).toBeDefined();
-    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-team-mark-2', 'rl-running-gear-1']);
+    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-unit-mark-3', 'rl-running-gear-1']);
 
     toBand(a, 3);
     frame('damage band');
@@ -393,7 +393,7 @@ describe('G2: clone sites clone the legacy material', () => {
     const hull = hullOf(entity);
     const variant = legacyOf(hull.material as THREE.Material, hull);
     expect(isTwin(variant)).toBe(false);
-    expect(hookSegments(variant)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(variant)).toEqual(['rl-unit-mark-3']);
 
     priv.runningGear.moved[a] = 1;
     r.frame(1, 16);
@@ -403,7 +403,7 @@ describe('G2: clone sites clone the legacy material', () => {
     const rg = binding.materials[0] as THREE.Material;
     expect(isTwin(rg)).toBe(false);
     expect((rg as THREE.MeshStandardMaterial).isMeshStandardMaterial).toBe(true);
-    expect(hookSegments(rg)).toEqual(['rl-team-mark-2', 'rl-running-gear-1']);
+    expect(hookSegments(rg)).toEqual(['rl-unit-mark-3', 'rl-running-gear-1']);
     expect(legacyBaseOf(rg)).toBe(variant);
 
     // The scar on a moved hull is written onto its own (legacy) running-gear clone; on death the bind is released and the scar is
@@ -417,12 +417,12 @@ describe('G2: clone sites clone the legacy material', () => {
     if (!hullSwap) throw new Error('no hull swap');
     const scar = hullSwap.original;
     expect(isTwin(scar)).toBe(false);
-    expect(hookSegments(scar)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(scar)).toEqual(['rl-unit-mark-3']);
     expect(legacyBaseOf(scar)).toBe(variant);
     const fade = hullSwap.fade;
     expect(isTwin(fade)).toBe(false);
     expect(fade.transparent).toBe(true);
-    expect(hookSegments(fade)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(fade)).toEqual(['rl-unit-mark-3']);
     expect(legacyBaseOf(fade)).toBe(variant);
 
     // A clean, never-moved hull dies while it DRAWS its twin (no release, no scar re-apply): the fade is still cut from the legacy.
@@ -436,7 +436,7 @@ describe('G2: clone sites clone the legacy material', () => {
     if (!fadeB) throw new Error('no fade for the clean hull');
     expect(fadeB.original).toBe(variantB);
     expect(isTwin(fadeB.fade)).toBe(false);
-    expect(hookSegments(fadeB.fade)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(fadeB.fade)).toEqual(['rl-unit-mark-3']);
     expect(legacyBaseOf(fadeB.fade)).toBe(variantB);
     r.dispose();
   });

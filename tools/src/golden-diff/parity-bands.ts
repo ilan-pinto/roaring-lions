@@ -74,7 +74,7 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   ...['vehicle', 'kitted', 'fogged', 'graded'].map(
     (scenario): ParityRow => ({ scenario, layer: 'units', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: every unit, the hooked ones through the unit twin' })
   ),
-  { scenario: 'vehicle', layer: 'team-mask', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: the Lavi team mark (rl-team-mark-2), slot colour by reference' },
+  { scenario: 'vehicle', layer: 'team-mask', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: the Lavi team mark (rl-unit-mark-3), slot colour by reference' },
   { scenario: 'vehicle', layer: 'unit-surface', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: per-role roughness/metalness, per object on the twin' },
   { scenario: 'kitted', layer: 'unit-surface', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3' },
   { scenario: 'kitted', layer: 'kit', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: the grafted kit parts (excluded from the mark by their UVs)' },

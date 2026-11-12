@@ -18,6 +18,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { VehicleTeamMaterials, TeamMaskSlots } from '../units/team-mask';
+import { InsigniaShared } from '../units/insignia';
 import { VehicleScarMaterials } from '../units/vehicle-damage';
 import { beginMeshDeathFade, setMeshDeathOpacity } from '../units/mesh-death';
 import { parseRunningGear, type RunningGearSpec } from '../units/running-gear';
@@ -64,7 +65,9 @@ function ro(mesh: THREE.Mesh, camera: THREE.Camera, updateNodes: UpdateNodeLike[
 
 interface World {
   readonly d: UnitDeps;
-  readonly meshes: { readonly rg: THREE.Mesh; readonly faded: THREE.Mesh; readonly scarred: THREE.Mesh; readonly plain: THREE.Mesh };
+  readonly meshes: { readonly rg: THREE.Mesh; readonly faded: THREE.Mesh; readonly scarred: THREE.Mesh; readonly plain: THREE.Mesh; readonly lion: THREE.Mesh };
+  /** GH-1096 S1: the owner's insignia field, whose late load must refresh a parked hull. */
+  readonly insignia: InsigniaShared;
   readonly fade: ReturnType<typeof beginMeshDeathFade>;
   readonly rgEntity: VehicleMeshEntity;
 }
@@ -87,10 +90,15 @@ async function world(): Promise<World> {
   const fade = beginMeshDeathFade(fadeRoot);
   const scarred = new THREE.Mesh(taggedGeometry(0), new VehicleScarMaterials().materialFor(variant, 2));
   const plain = new THREE.Mesh(taggedGeometry(0), variant);
-  scene.add(rgRoot, fadeRoot, scarred, plain);
+  // GH-1096 S1: a team-marked hull carrying the insignia too (the Lavi).
+  const insignia = new InsigniaShared();
+  const frame = { centre: [0.95, 1.0, 1.7], d: 0.6, slab: [1.6, 1.95], min_n: 0.6, luma: 0.12277, host_sha256: 'x' } as const;
+  const lionVariant = new VehicleTeamMaterials(slots, undefined, { frame, shared: insignia }).materialFor(laviMaterial(), 0);
+  const lion = new THREE.Mesh(taggedGeometry(0), lionVariant);
+  scene.add(rgRoot, fadeRoot, scarred, plain, lion);
   adoptUnits(d, scene);
   scene.updateMatrixWorld(true);
-  return { d, meshes: { rg, faded: fadeRoot.children[0] as THREE.Mesh, scarred, plain }, fade, rgEntity };
+  return { d, meshes: { rg, faded: fadeRoot.children[0] as THREE.Mesh, scarred, plain, lion }, fade, rgEntity, insignia };
 }
 
 describe('G2c: every per-object update node of a unit twin is keyed', () => {
@@ -171,6 +179,29 @@ describe('the pin (PR 1237 nit 3): a moving, fading or turning unit stays FULL i
     f = frame();
     expect(f.rg, 'wheels turning').toEqual([REFRESH.FULL, REFRESH.FULL]);
     expect(frame().rg).toEqual([REFRESH.SHARED, REFRESH.SHARED]);
+  });
+});
+
+describe('GH-1096 S1: the insignia field landing late refreshes a PARKED hull', () => {
+  it('parked goes SHARED; the placeholder swapped for the real field is FULL in both passes, then SHARED again', async () => {
+    const w = await world();
+    const nodes: NodesLike = { needsRefresh: () => REFRESH.FULL };
+    installRefreshPolicy(nodes, {}, 'parked', singletons(w.d));
+    const cam = new THREE.OrthographicCamera();
+    const sun = new THREE.OrthographicCamera();
+    cam.updateMatrixWorld();
+    sun.updateMatrixWorld();
+    const m = w.meshes.lion;
+    const a = programOf(w.d, m, m.material as THREE.Material);
+    const b = programOf(w.d, m, m.material as THREE.Material);
+    const pair = [ro(m, cam, a.updateNodes, a.bindings), ro(m, sun, b.updateNodes, b.bindings)];
+    const frame = (): number[] => pair.map((r) => nodes.needsRefresh(r));
+    frame();
+    frame();
+    expect(frame(), 'parked').toEqual([REFRESH.SHARED, REFRESH.SHARED]);
+    w.insignia.setTexture(new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1));
+    expect(frame(), 'the field landed').toEqual([REFRESH.FULL, REFRESH.FULL]);
+    expect(frame(), 'parked again').toEqual([REFRESH.SHARED, REFRESH.SHARED]);
   });
 });
 

@@ -391,6 +391,12 @@ export interface RendererOptions {
   flipbookFireUrl?: string;
   flipbookSmokeUrl?: string;
   /**
+   * GH-1096 S1: URL of the Roaring Lion insignia's distance field -- `assets/textures/insignia/roaring_lion_sdf.png` (data, loaded
+   * `NoColorSpace`). Three-only, fetched once in `init()`, optional and fail-soft: without it (or if it fails, with a
+   * `console.error` naming the file) a KDF hull draws exactly as it did, with no insignia.
+   */
+  insigniaSdfUrl?: string;
+  /**
    * Directory the Draco decoder is fetched from -- `${BASE}draco/`, ending in
    * a slash. Three-only, read once at construction and handed to
    * `three/units/gltf-loader.ts`.

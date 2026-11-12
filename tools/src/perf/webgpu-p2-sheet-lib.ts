@@ -86,7 +86,7 @@ export const CENSUS_RULES: readonly CensusRule[] = [
   // GH-943 P3 (T1): a hooked unit material keys by its hook segments (`censusKey`), no longer by its GLB material name.
   {
     kind: /^on-before-compile$/,
-    key: /^rl-(team-mark-2|running-gear-1|unit-rain-rim|wounded-floor|soot)(\|rl-(team-mark-2|running-gear-1|unit-rain-rim|wounded-floor|soot))*$/,
+    key: /^rl-(unit-mark-3|running-gear-1|unit-rain-rim|wounded-floor|soot)(\|rl-(unit-mark-3|running-gear-1|unit-rain-rim|wounded-floor|soot))*$/,
     reason: 'unit materials carrying the team mark, running gear, rain rim, wounded floor or soot hooks (units): P3 (T3, T4)',
   },
   { kind: /^on-before-compile$/, key: /^rl-backdrop-fade$/, reason: 'the valley backdrop fade (backdrop): P3 (T10)' },

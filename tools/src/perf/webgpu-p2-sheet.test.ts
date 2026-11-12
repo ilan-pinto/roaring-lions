@@ -136,8 +136,8 @@ describe('classifyCensus', () => {
       { kind: 'shader-material', key: 'rl-fx-particle-hot', objects: 2 },
       { kind: 'shader-material', key: 'rl-zone-band', objects: 1 },
       { kind: 'shader-material', key: 'rl-beam', objects: 1 },
-      { kind: 'on-before-compile', key: 'rl-team-mark-2', objects: 25 },
-      { kind: 'on-before-compile', key: 'rl-team-mark-2|rl-running-gear-1', objects: 2 },
+      { kind: 'on-before-compile', key: 'rl-unit-mark-3', objects: 25 },
+      { kind: 'on-before-compile', key: 'rl-unit-mark-3|rl-running-gear-1', objects: 2 },
       { kind: 'on-before-compile', key: 'rl-unit-rain-rim|rl-wounded-floor', objects: 3 },
       { kind: 'on-before-compile', key: 'rl-backdrop-fade', objects: 5 },
       { kind: 'on-before-compile', key: 'rl-silhouette-outline', objects: 38 },
@@ -147,9 +147,9 @@ describe('classifyCensus', () => {
     // P2 keys (a GLB name, a backdrop mesh name) are NOT expected
     const w = classifyCensus([
       { kind: 'on-before-compile', key: 'ShaderMaterial', objects: 1 },
-      { kind: 'shader-material', key: 'rl-team-mark-2', objects: 1 },
+      { kind: 'shader-material', key: 'rl-unit-mark-3', objects: 1 },
       { kind: 'on-before-compile', key: 'rl-ground', objects: 1 },
-      { kind: 'on-before-compile', key: 'rl-team-mark-2|rl-garrison-x', objects: 1 },
+      { kind: 'on-before-compile', key: 'rl-unit-mark-3|rl-garrison-x', objects: 1 },
       { kind: 'on-before-compile', key: 'BakedMaterial', objects: 1 },
       { kind: 'on-before-compile', key: 'backdrop-kit-lod1', objects: 1 },
       // GH-943 P3 (T7): the decal pools have a twin; a legacy decal material on node is a port that came back.

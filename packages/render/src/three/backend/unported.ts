@@ -19,7 +19,7 @@ export type UnportedKind = 'shader-material' | 'on-before-compile' | 'env-map' |
 export interface UnportedHook {
   readonly kind: UnportedKind;
   /** A name a reader can grep (`censusKey`): a hooked material's `rl-` program-key segments joined by `|`
-   *  (`rl-running-gear-1|rl-team-mark-2`), else its `name`, a short program key, or the first object's name. A `partial`
+   *  (`rl-running-gear-1|rl-unit-mark-3`), else its `name`, a short program key, or the first object's name. A `partial`
    *  hook's key is the term itself, as its twin declares it (`rl-ground: wet terms`). */
   readonly key: string;
   /** How many scene objects carry it. */
@@ -34,7 +34,7 @@ export const HIDE_WITHOUT_HOOK: ReadonlySet<string> = new Set<string>([]);
  * GH-943 P2 (T1): the legacy material keys (as `censusUnported` names them) that have a node twin. Each port task APPENDS its key
  * in the PR that lands the twin (T3 the ground, T5 the ring, T6 the foliage). GH-943 P3 (T1): a HOOKED material is read per
  * program-key SEGMENT: it is exempt only when EVERY one of its `rl-` segments is listed, so porting the team mark alone leaves a
- * moving hull (`rl-running-gear-1|rl-team-mark-2`) reported. Read ONLY through the explicit `portedKeys` option
+ * moving hull (`rl-running-gear-1|rl-unit-mark-3`) reported. Read ONLY through the explicit `portedKeys` option
  * of `censusUnported`, which only `matchNodeStatements` (`tools/src/golden-diff/capture-protocol.ts`) passes, on the LEGACY
  * scene: there a listed key is drawn by legacy because node now draws it too, so it is neither hidden nor reported, and the parity
  * ratio of a ported layer measures something. The node backend's own census never passes it, so on node a legacy material that
@@ -54,7 +54,7 @@ export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   // GH-943 P3 (T10): the valley backdrop's fade (`terrain/backdrop.node.ts`).
   'rl-backdrop-fade',
   // GH-943 P3 (T3): the vehicle hooks of the unit twin (`units/unit-material.node.ts`), read per segment.
-  'rl-team-mark-2', 'rl-running-gear-1', 'rl-soot',
+  'rl-unit-mark-3', 'rl-running-gear-1', 'rl-soot',
   // GH-943 P3 (T4): the rain rim and the wounded floor.
   'rl-unit-rain-rim', 'rl-wounded-floor',
   // GH-943 P3 (T5): the occlusion outline, the smoke outline and the hit flash's outline (`units/silhouette.node.ts`).

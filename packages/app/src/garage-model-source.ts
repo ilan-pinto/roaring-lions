@@ -42,3 +42,8 @@ export function garageColors(colorVision: ColorVisionVariant = 'default'): Garag
 export function garageGroundTexture(base: string): string {
   return `${base}textures/${TERRAIN_GROUND_TEXTURE.arid}.jpg`;
 }
+
+/** GH-1096 S1: the Roaring Lion insignia's distance field, the same file a mission's renderer loads (`renderer-options.ts`). */
+export function garageInsigniaTexture(base: string): string {
+  return `${base}textures/insignia/roaring_lion_sdf.png`;
+}

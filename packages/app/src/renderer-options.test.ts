@@ -152,6 +152,13 @@ describe('rendererOptionsFor', () => {
     }
   });
 
+  it('serves the insignia distance field from the deploy base, a file that exists (GH-1096 S1)', () => {
+    const o = rendererOptionsFor(arid, HIGH, '/roaring-lions/');
+    expect(o.insigniaSdfUrl).toBe('/roaring-lions/textures/insignia/roaring_lion_sdf.png');
+    const rel = String(o.insigniaSdfUrl).replace('/roaring-lions/', '');
+    expect(existsSync(new URL(rel, new URL('../../../assets/', import.meta.url))), rel).toBe(true);
+  });
+
   it('no longer asks for a road image', () => {
     // #226: the road is drawn procedurally from control texture B's
     // distance field, tone and grain both -- there is no wheel-track image
