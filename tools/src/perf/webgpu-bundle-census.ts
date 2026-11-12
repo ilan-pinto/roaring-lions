@@ -7,11 +7,11 @@
  * Prints the size of every three chunk (raw and gzip) and the findings; exit 1 on any failure. The ceiling is MAIN_CHUNK_MAX_BYTES.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { censusChunks, type Chunk } from './bundle-census';
+import { censusChunks, heightBlendFieldUsedIn, type Chunk } from './bundle-census';
 
 /**
  * The entry's ceiling, bytes (`code.length`): measured 1,794,107 bytes with P0 on 5 Nov 2026 (origin/main d05cd6da5 + this branch);
@@ -46,7 +46,19 @@ const chunks: Chunk[] = readdirSync(dir)
     return { file: f, code: buf.toString('utf8'), gzipBytes: gzipSync(buf).length };
   });
 const maxArg = Number(args.find((a) => a.startsWith('--max='))?.slice(6) ?? MAIN_CHUNK_MAX_BYTES);
-const f = censusChunks(chunks, entry, maxArg);
+// GH-1226 S3 (L1): the field's pin is armed by the source file's existence (bundle-census.ts, HEIGHT_BLEND_FIELD_MARKER).
+const heightBlendFieldExpected = existsSync(path.join(REPO, 'packages/render/src/three/terrain/height-blend-field.ts'));
+const sources = new Map<string, string>();
+const walk = (dir: string): void => {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) { if (e.name !== 'node_modules' && !e.name.startsWith('dist')) walk(p); }
+    else if (/\.tsx?$/.test(e.name)) sources.set(path.relative(REPO, p), readFileSync(p, 'utf8'));
+  }
+};
+for (const pkg of ['render', 'app']) walk(path.join(REPO, 'packages', pkg, 'src'));
+const heightBlendFieldUsed = heightBlendFieldUsedIn(sources);
+const f = censusChunks(chunks, entry, maxArg, { heightBlendFieldExpected, heightBlendFieldUsed });
 const row = (c: Chunk): string => `${c.file}  raw ${(c.code.length / 1024).toFixed(1)} KiB  gzip ${((c.gzipBytes ?? 0) / 1024).toFixed(1)} KiB`;
 const pick = (files: string[]): Chunk[] => chunks.filter((c) => files.includes(c.file));
 const lines: string[] = [];
@@ -70,6 +82,7 @@ lines.push(`material-maths.ts (app-side material values) in: ${f.materialMathsCh
 const holders = (marker: string): string => chunks.filter((c) => c.code.includes(marker)).map((c) => c.file).join(', ') || '(NOWHERE)';
 lines.push(`twin-identity.ts (rlLegacyBase) in: ${holders('rlLegacyBase')}; material-names.ts (rl-backdrop-fade) in: ${holders('rl-backdrop-fade')}`);
 lines.push(`3D grass field (rl-grass-field, S4) in: ${f.grassFieldChunks.join(', ') || '(none yet)'}`);
+lines.push(`height-blend field (rl-height-blend-field, GH-1226; file: ${heightBlendFieldExpected}, used: ${heightBlendFieldUsed}) in: ${f.heightBlendFieldChunks.join(', ') || (heightBlendFieldUsed ? '(NOWHERE)' : '(not used yet)')}`);
 lines.push(`entry static closure: ${f.entryStaticClosure.join(', ') || '(none)'}`);
 lines.push(f.failures.length === 0 ? 'FINDINGS: none (core shared, webgpu lazy, main chunk clean, node post chain only in the node backend chunk, no postprocessing addons in it, material values off the node load, twins only in the node backend chunk)' : `FINDINGS:\n  ${f.failures.join('\n  ')}`);
 console.log(lines.join('\n'));
