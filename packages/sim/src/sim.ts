@@ -10903,6 +10903,7 @@ export class Sim {
             // them at the new one, in id order, or they walk to a pad it no longer uses.
             for (let r = 0; r < this.count; r++) {
               if (this.alive[r] === 0 || this.boardGoal[r] !== i || this.carriedBy[r] >= 0) continue;
+              if (this.garrisonGoal[r] >= 0 || this.garrisonedIn[r] >= 0) continue;
               this.goalX[r] = this.goalX[i];
               this.goalY[r] = this.goalY[i];
               this.wpCount[r] = 0;
@@ -11465,6 +11466,7 @@ export class Sim {
   /** Send one unit to walk into structure `s`; the body `garrison` always had. */
   private sendToGarrison(id: number, s: number, spread: boolean): void {
     if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    this.boardGoal[id] = -1; // a garrison order replaces a pending `load`, as move, halt and attack do
     const gx = this.stCx[s];
     const gy = this.stCy[s];
     this.garrisonGoal[id] = s;

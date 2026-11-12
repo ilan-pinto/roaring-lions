@@ -12,6 +12,7 @@ const RIFLES: UnitTypeJson = {
   hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
   mobility: { speed_tiles_s: 0.9 },
   sensors: { optics: 1, sight_tiles: 8, signature: 0.6 },
+  abilities: ['garrison'],
   weapons: [],
 };
 const HELI: UnitTypeJson = {
@@ -229,6 +230,29 @@ describe('a landing carrier re-checks its footprint on arrival (GH-698)', () => 
     expect(w.sim.state.airState[w.b]).toBe(AIR_AIRBORNE);
     expect(w.sim.state.carriedBy[w.sq]).toBe(-1);
     expect(w.sim.state.moving[w.sq]).toBe(0);
+  });
+
+  it('load then garrison: the garrison order wins, the re-snap does not pull the rider off its walk to the house', () => {
+    const w = loadWorld(false);
+    const house = w.sim.addStructureType({ id: 'ar_house', name: 'House', hp_per_tile: 300, garrison_slots: 2, rubble_cover: 1 });
+    const hs = w.sim.addStructure(house, [30 * 40 + 21, 30 * 40 + 22]);
+    run(w.sim, 1);
+    w.sim.queueCommand({ kind: 'garrison', ids: [w.sq], structure: hs });
+    run(w.sim, 500);
+    expect(w.sim.state.airState[w.b]).toBe(AIR_LANDED); // b did arrive, and re-snapped off a's pad
+    expect(w.sim.state.garrisonedIn[w.sq]).toBe(hs);
+    expect(w.sim.state.carriedBy[w.sq]).toBe(-1);
+  });
+
+  it('two carriers with riders walking to them: only the one that re-snaps re-points its own riders', () => {
+    const w = loadWorld(false);
+    const inf2 = w.sim.addUnitType({ ...RIFLES, id: 'ar_inf2' });
+    const c = w.sim.spawn(w.sim.addUnitType({ ...HELI, id: 'ar_heli2' }), 0, at(38.5), at(5.5));
+    const sq2 = w.sim.spawn(inf2, 0, at(5.5), at(5.5));
+    w.sim.queueCommand({ kind: 'load', ids: [sq2], carrier: c });
+    run(w.sim, 1200);
+    expect(w.sim.state.carriedBy[w.sq]).toBe(w.b); // b re-snapped
+    expect(w.sim.state.carriedBy[sq2]).toBe(c); // c did not, and its rider kept its own pad
   });
 
   it('a lone carrier lands at a literal tick with a literal hash', () => {
