@@ -7,6 +7,7 @@ import { AMBUSH_RADIUS_MAX, FIRE_SUPPORT, MAX_PATROL_WAYPOINTS, FIRE_SUPPORT_KIN
 import { isFactionPair, validateConfig, winModeField, type Faction, type MatchConfig, type Seat, type WinMode } from './config';
 import type { Frame, Stamped } from './frames';
 import { SPECIALS_MAX } from './specials';
+import { botModelField, type BotModel } from './bot-model';
 import { ADVISOR_SCOPES, cleanAdvisorMsg, type AdvisorMsg, type AdvisorScope } from './advisor';
 
 export const MAX_MESSAGE_BYTES = 4096;
@@ -53,7 +54,11 @@ void COMMAND_KINDS_COMPLETE;
  *  (`seatSpecialsField`), refused ones included so the lobby can list them
  *  (`VERSUS_REFUSED_SPECIALS`). Named only in a brigade versus room, and `[]` for a bot or a
  *  Sarim seat there; absent everywhere else, which is every room before it. */
-export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean; specials?: string[] }
+/** A member seat's label, in the lobby only (GH-1075 A3, §0.14): never in `MatchConfig`. `record` is present only when
+ *  that member shows it. */
+export interface SeatMember { name: string; publicId: string; record?: { won: number; lost: number; drawn: number } }
+/** `member`, `kind` and `botModel` are lobby-only labels (A3); `kind` absent reads human. */
+export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean; specials?: string[]; member?: SeatMember; kind?: 'human' | 'bot'; botModel?: BotModel }
 
 export type ClientMsg =
   /** `from` (snapshot S3, D6): the first frame tick this client lacks; the
@@ -398,6 +403,29 @@ function isSeatState(v: unknown): v is SeatState {
     (s.specials === undefined || (Array.isArray(s.specials) && s.specials.length <= SPECIALS_MAX && s.specials.every(isStr)));
 }
 
+const PUBLIC_ID_RE = /^[0-9A-HJKMNP-TV-Z]{8}$/;
+const MEMBER_NAME_MAX = 20;
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+function cleanSeatMember(v: unknown): SeatMember | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (!isStr(o.name) || !isStr(o.publicId) || !PUBLIC_ID_RE.test(o.publicId)) return null;
+  const n = Array.from(o.name).length;
+  if (n < 1 || n > MEMBER_NAME_MAX) return null;
+  const base = { name: o.name, publicId: o.publicId };
+  if (o.record === undefined) return base;
+  const r = o.record as Record<string, unknown> | null;
+  if (typeof r !== 'object' || r === null || !isCount(r.won) || !isCount(r.lost) || !isCount(r.drawn)) return null;
+  return { ...base, record: { won: r.won, lost: r.lost, drawn: r.drawn } };
+}
+/** A lobby seat as the client keeps it: the A3 labels are each dropped when malformed, so a bad label never loses the lobby. */
+function cleanLobbySeat(s: SeatState): SeatState {
+  const { member, kind, botModel, ...rest } = s as SeatState & Record<string, unknown>;
+  const m = cleanSeatMember(member);
+  const b = botModel === undefined ? null : botModelField(botModel);
+  return { ...rest, ...(m !== null ? { member: m } : {}), ...(kind === 'human' || kind === 'bot' ? { kind } : {}), ...(b !== null && b.ok && b.model !== null ? { botModel: b.model } : {}) } as SeatState;
+}
+
 /** `log` and `lobby` are the two messages that can exceed the client cap (a
  *  20-minute log is ~24,000 frames, sent in parts of `LOG_PART_CHARS`), so
  *  the size cap applies to CLIENT messages only; a server message is trusted
@@ -431,7 +459,7 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       if (m.winMode !== undefined && winModeField(m.winMode) === undefined) return null;
       const winMode = winModeField(m.winMode);
       return Array.isArray(m.seats) && m.seats.every(isSeatState) && isSeat(m.you) && isStr(m.map)
-        ? { t: 'lobby', config: c, seats: m.seats, you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}), ...(m.kit !== undefined ? { kit: m.kit } : {}), ...(winMode !== undefined ? { winMode } : {}) } : null;
+        ? { t: 'lobby', config: c, seats: m.seats.map(cleanLobbySeat), you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}), ...(m.kit !== undefined ? { kit: m.kit } : {}), ...(winMode !== undefined ? { winMode } : {}) } : null;
     }
     case 'start': { const c = validateConfig(m.config); return c ? { t: 'start', config: c } : null; }
     case 'frame': return isInt(m.tick) && Array.isArray(m.cmds) && m.cmds.every(isStamped) ? { t: 'frame', tick: m.tick, cmds: m.cmds } : null;
