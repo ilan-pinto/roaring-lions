@@ -80,6 +80,8 @@ describe('the shipped missions', () => {
     for (const f of files) {
       const m = JSON.parse(readFileSync(join(dir, f), 'utf8')) as { map: { file: string }; objectives: Obj[] };
       const mp = JSON.parse(readFileSync(join(root, 'data', 'maps', `${m.map.file}.json`), 'utf8')) as typeof map;
+      // A mission with no objectives would skip every check below and report success.
+      expect(m.objectives.length, `${f}: objectives`).toBeGreaterThan(0);
       for (const o of m.objectives) {
         expect(objectiveFailures(o, m, mp, f), f).toEqual([]);
       }
