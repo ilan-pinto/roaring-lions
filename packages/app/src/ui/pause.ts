@@ -70,7 +70,8 @@ import { feedbackForm, type FeedbackForm, type FeedbackFormDeps } from './feedba
 import { focusTrap } from './focus-trap';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
 import { panel } from './panel';
-import { settingsPanel, type SettingsDeps } from './settings-panel';
+import { importWithRetry } from '../shell/chunk';
+import type { SettingsDeps } from './settings-panel';
 
 export interface PauseDeps {
   /** `MissionRuntime.objectiveList`'s own shape -- a structural superset of
@@ -222,6 +223,28 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   p.body.appendChild(feedbackPane);
   let mountedFeedback: FeedbackForm | null = null;
 
+  let closed = false;
+  // The panel's chunk loads on the first open (bundle headroom), so the menu can
+  // be closed, or Settings asked for again, before it arrives: mount nothing once
+  // this menu is closed, and one panel per load. A chunk that fails twice leaves
+  // the pane empty and the menu usable; the next open tries again.
+  let settingsLoading = false;
+  const loadSettings = (): void => {
+    if (settingsLoading || closed || mountedSettings) return;
+    settingsLoading = true;
+    void importWithRetry(() => import('./settings-panel')).then(
+      ({ settingsPanel }) => {
+        settingsLoading = false;
+        if (closed || mountedSettings) return;
+        mountedSettings = settingsPanel(settingsPane, deps.settings);
+      },
+      (err: unknown) => {
+        settingsLoading = false;
+        console.error('settings panel: its chunk did not load', err);
+      }
+    );
+  };
+
   const showTab = (tab: Tab): void => {
     objPanel.el.hidden = tab !== 'objectives';
     settingsPane.hidden = tab !== 'settings';
@@ -229,9 +252,7 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
     objTabBtn.dataset.on = tab === 'objectives' ? '1' : '0';
     setTabBtn.dataset.on = tab === 'settings' ? '1' : '0';
     if (fbTabBtn) fbTabBtn.dataset.on = tab === 'feedback' ? '1' : '0';
-    if (tab === 'settings' && !mountedSettings) {
-      mountedSettings = settingsPanel(settingsPane, deps.settings);
-    }
+    if (tab === 'settings' && !mountedSettings) loadSettings();
     if (tab === 'feedback' && deps.feedback) {
       mountedFeedback ??= feedbackForm(feedbackPane, {
         ...deps.feedback,
@@ -267,7 +288,6 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   foot.textContent = t('common.build', { build: deps.build });
   p.body.appendChild(foot);
 
-  let closed = false;
   const finish = (): void => {
     if (closed) return;
     closed = true;

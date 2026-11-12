@@ -99,11 +99,11 @@ describe('pauseMenu', () => {
       window.removeEventListener('keydown', gameVerbListener);
     }
   });
-  it('the Settings tab mounts the settings table inside the modal, not a navigation', () => {
+  it('the Settings tab mounts the settings table inside the modal, not a navigation', async () => {
     const d = deps();
     pauseMenu(document.body, d);
     (document.querySelector('.rl-pause button[data-tab="settings"]') as HTMLButtonElement).click();
-    expect(document.querySelector('.rl-pause .rl-settings')).not.toBeNull();
+    await vi.waitFor(() => expect(document.querySelector('.rl-pause .rl-settings')).not.toBeNull());
   });
   it('Restart and Quit hand off to the caller without closing (the caller confirms)', () => {
     const d = deps();
@@ -168,7 +168,7 @@ describe('pauseMenu', () => {
   // key must reach neither the game (nothing bubbles) nor resume the pause
   // menu, and Escape while a capture is pending must only cancel the capture,
   // not close the menu.
-  it('a pending keymap capture inside the mounted settings panel wins over the pause modal: a captured key neither reaches the game nor resumes, and Escape only cancels the capture', () => {
+  it('a pending keymap capture inside the mounted settings panel wins over the pause modal: a captured key neither reaches the game nor resumes, and Escape only cancels the capture', async () => {
     let bindings: Bindings = bindingsFrom({});
     const d = {
       ...deps(),
@@ -191,6 +191,7 @@ describe('pauseMenu', () => {
     };
     pauseMenu(document.body, d);
     (document.querySelector('.rl-pause button[data-tab="settings"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(document.querySelector('.rl-pause .rl-settings')).not.toBeNull());
 
     const seen: string[] = [];
     const gameVerbListener = (e: KeyboardEvent): void => {
@@ -623,5 +624,79 @@ describe('pauseMenu in a room', () => {
     expect(note?.textContent).toBe('No pauses left: the match keeps running <b>x</b>');
     expect(note?.querySelector('b')).toBeNull();
     expect(note?.nextElementSibling?.classList.contains('rl-pause__tabs')).toBe(true);
+  });
+});
+
+// The settings panel's chunk loads on demand. The mock holds the module back
+// until a test releases it, which is the only way to act between the click and
+// the chunk's arrival.
+const gate = vi.hoisted(() => ({ release: (): void => {}, wait: Promise.resolve(), fail: false, loads: 0 }));
+
+describe('pauseMenu settings panel loads on demand', () => {
+  afterEach(() => {
+    vi.doUnmock('./settings-panel');
+  });
+  const held = async (): Promise<typeof import('./pause')> => {
+    vi.resetModules();
+    vi.doMock('./settings-panel', async (orig: () => Promise<unknown>) => {
+      gate.loads += 1;
+      await gate.wait;
+      if (gate.fail) throw new Error('chunk gone');
+      return orig();
+    });
+    gate.fail = false;
+    gate.loads = 0;
+    gate.wait = new Promise<void>((resolve) => {
+      gate.release = resolve;
+    });
+    return import('./pause');
+  };
+  const settingsBtn = (): HTMLButtonElement =>
+    document.querySelector('.rl-pause button[data-act="settings"]') as HTMLButtonElement;
+  const flush = async (): Promise<void> => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 60));
+  };
+
+  it('a menu closed while the chunk loads never mounts the panel', async () => {
+    const mod = await held();
+    const handle = mod.pauseMenu(document.body, deps());
+    const pane = document.querySelector('.rl-pause__settings') as HTMLElement;
+    settingsBtn().click();
+    handle.close();
+    gate.release();
+    await flush();
+    expect(pane.querySelector('.rl-settings')).toBeNull();
+    expect(document.querySelector('.rl-pause')).toBeNull();
+  });
+  it('a double click mounts one panel and asks for one chunk', async () => {
+    const mod = await held();
+    mod.pauseMenu(document.body, deps());
+    settingsBtn().click();
+    settingsBtn().click();
+    (document.querySelector('.rl-pause button[data-tab="settings"]') as HTMLButtonElement).click();
+    gate.release();
+    await vi.waitFor(() => expect(document.querySelector('.rl-settings')).not.toBeNull());
+    await flush();
+    expect(document.querySelectorAll('.rl-pause .rl-settings')).toHaveLength(1);
+    expect(gate.loads).toBe(1);
+  });
+  it('a chunk that fails twice leaves the menu usable and rejects nothing', async () => {
+    const mod = await held();
+    gate.fail = true;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    const d = deps();
+    mod.pauseMenu(document.body, d);
+    settingsBtn().click();
+    gate.release();
+    await vi.waitFor(() => expect(err).toHaveBeenCalled(), { timeout: 3000 });
+    await flush();
+    process.off('unhandledRejection', unhandled);
+    err.mockRestore();
+    expect(unhandled).not.toHaveBeenCalled();
+    expect(document.querySelector('.rl-settings')).toBeNull();
+    (document.querySelector('.rl-pause button[data-act="resume"]') as HTMLButtonElement).click();
+    expect(d.onResume).toHaveBeenCalledTimes(1);
   });
 });
