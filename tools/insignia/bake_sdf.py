@@ -4,7 +4,8 @@
     python3 tools/insignia/bake_sdf.py [--svg art/src/insignia/roaring_lion.svg]
                                        [--out assets/textures/insignia/roaring_lion_sdf.png]
 
-The source is the hand-authored `art/src/insignia/roaring_lion.svg`. The bake reads exactly two groups of it:
+The source is the committed `art/src/insignia/roaring_lion.svg`, which `tools/insignia/author_svg.py` writes from
+control points chosen by hand. The bake reads exactly two groups of it:
 `<g id="silhouette">` and `<g id="cutouts">`. Each holds `<path>`s, and each path is ONE closed polygon written
 with absolute `M`, `L` and `Z` only. Every vertex sits in the RIGHT half of the 200 x 200 viewBox (x >= 100), and
 a polygon that reaches the centreline closes along it. The bake mirrors that half, so the emblem is symmetric by
