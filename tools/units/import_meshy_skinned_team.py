@@ -1878,7 +1878,15 @@ def _glove_texel(uv, hand_mask, W_px, H_px):
 SPOOL_Z_F = 0.80 / 1.78
 SPOOL_HUB_OUT_M = 0.04
 SPOOL_HALF_W_M = 0.07         # the disc's half thickness: the band of the back it hangs on
-CHARGE_AT = (0.76, -0.16, 0.0)   # the satchel charge on the ground ahead of demo_a (rig._demo_extras' own, unchanged)
+#: The satchel charge on the ground ahead of demo_a: rig._demo_extras' own (0.76, -0.16), moved 14 cm forward and 4 cm
+#: to his right. At (0.76, -0.16) this body's boots stood IN the box wherever the charge is drawn with a foot forward:
+#: 348 boot vertices, 33 mm deep, in `fire` (the captured squat steps the right foot out; the rigid figure's procedural
+#: fire did not: 0), and 206 at 32 mm in the kneel, the pinned huddle and `work` (the left foot's half-step; the rigid
+#: figure's 45 at 56 mm). The two feet come at the box from its two sides, so neither a step forward alone (0.82: 18 mm
+#: left in the kneel) nor a step aside alone (-0.21: 67 mm in `fire`) clears it. Every boot vertex of both men in every
+#: clip that draws the charge, against a 4 cm grid of centres (`fitA/tools/charge_grid.ts`): the nearest centre with
+#: none inside is this one. He still kneels over it: the box starts at his front toe.
+CHARGE_AT = (0.90, -0.20, 0.0)
 
 
 def _team_extras(team_id, figures, Js, co0):
