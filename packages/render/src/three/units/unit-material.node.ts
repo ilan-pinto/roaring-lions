@@ -242,7 +242,13 @@ export function createNodeUnitMaterial(deps: NodeUnitDeps, legacy: THREE.MeshSta
     return legacyMaterialOf(obj as unknown as HasUserData & { material: Material & HasUserData });
   };
 
-  const texel = base.map ? T.materialReference('map', 'texture') : null;
+  // GH-1270: three builds a mesh's SHADOW material from `material.colorNode.a` (`Renderer._getShadowNodes`), so this graph is also
+  // compiled with the shadow material as `builder.material`, which has no `map`: a bare `materialReference('map')` there threw
+  // "texture( value ) expects a valid instance of THREE.Texture()" once per textured hull, at boot. A material with no map reads
+  // the neutral 1 (opaque white: exactly the no-map colour); the shadow's own alpha cut-out is three's `reference('map', .., twin)`.
+  const texel = base.map
+    ? T.Fn((builder) => ((builder.material as { map?: unknown } | null)?.map ? T.materialReference('map', 'texture') : T.vec4(1, 1, 1, 1)))()
+    : null;
   const ctxBase = {
     W,
     TSL: deps.TSL,

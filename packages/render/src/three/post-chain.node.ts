@@ -69,6 +69,14 @@ export interface NodePostChain extends PostChainLike {
   readonly pipeline: RenderPipeline;
   /** The HalfFloat render-to-texture SMAA reads (null when the preset has no SMAA). */
   readonly smaaInput: { readonly renderTarget: THREE.RenderTarget } | null;
+  /**
+   * GH-1270: bring SMAA's three render targets to the renderer's drawing-buffer size NOW. Call it right after the renderer's
+   * `setSize` / `setPixelRatio`, between frames. `SMAANode.updateBefore` otherwise does it itself, in the middle of the frame that
+   * first sees the new size: `RenderTarget.setSize` disposes the target, the blend texture is destroyed under the frame's
+   * already-recorded work, and the queue submit raises "Destroyed texture SMAANode.blend used in a submit" once per resize.
+   * With the targets already at size, the node's own call is a no-op. A no-op for a preset with no SMAA.
+   */
+  resize(): void;
 }
 
 /**
@@ -152,10 +160,12 @@ export function createNodePostChain(
 
   // 6. SMAA, last, on display-referred colour. Its input is a HalfFloat render-to-texture.
   let smaaInput: NodePostChain['smaaInput'] = null;
+  let smaaNode: { setSize(w: number, h: number): void } | null = null;
   if (quality.smaa) {
     const input = TSL.rtt(colour, null, null, { type: THREE.HalfFloatType });
     smaaInput = input as unknown as NodePostChain['smaaInput'];
     colour = deps.smaa(input);
+    smaaNode = colour as unknown as { setSize(w: number, h: number): void };
     owned.push({ dispose: () => (colour as unknown as { dispose?: () => void }).dispose?.() });
     names.push('SMAAPass');
   }
@@ -167,6 +177,15 @@ export function createNodePostChain(
     scenePass,
     pipeline,
     smaaInput,
+    resize() {
+      if (smaaNode === null) return;
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      smaaNode.setSize(size.width, size.height);
+      // `Bindings._update` re-reads a sampled texture's `generation` only when the node binding reports a change of texture
+      // OBJECT, and the blend target is the same object before and after `RenderTarget.setSize`: the output quad would keep the
+      // bind group that holds the destroyed GPU texture. A fresh quad program state builds a fresh bind group.
+      pipeline.needsUpdate = true;
+    },
     grade,
     vignette,
     passNames: names,
