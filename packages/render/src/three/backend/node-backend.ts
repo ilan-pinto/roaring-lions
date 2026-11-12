@@ -17,7 +17,7 @@ import type { WebGPURenderer } from 'three/webgpu';
 import type { BackendKind } from '../../gpu';
 import type { AoControl, MaterialKit, MaterialMaths, PostConfig, PostKit, RenderBackend } from './backend';
 import { createOrthoAwareGtao } from '../gtao-ortho.node';
-import { createNodePostChain, createNodeAoStage, nodeSoftDepthOn, SOFT_DEPTH_FEATURE, type NodePostChain, type OutputMaths, type AoMaths } from '../post-chain.node';
+import { createSizedNodePostChain, createNodeAoStage, nodeSoftDepthOn, SOFT_DEPTH_FEATURE, type NodePostChain, type OutputMaths, type AoMaths } from '../post-chain.node';
 import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
@@ -308,7 +308,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   const build = (config: PostConfig): void => {
     chain?.dispose();
     if (outputMaths === null) throw new Error('node backend: setOutputMaths must be called before the post chain is built');
-    chain = createNodePostChain({ W, TSL, smaa: smaa as never, outputMaths }, renderer, config.scene, config.camera, config.quality, kit, softDepthCopyable);
+    chain = createSizedNodePostChain({ W, TSL, smaa: smaa as never, outputMaths }, renderer, config.scene, config.camera, config.quality, kit, softDepthCopyable);
     builtFor = config;
   };
 
