@@ -15325,7 +15325,7 @@ export class ThreeRenderer implements Renderer {
         const w0 = type.weapons[0];
         // GH-34 acceptance 3: a garrisoned unit's ring is the building-extended envelope, not the open-ground reach.
         const reach = envelopeRangesTiles(
-          { range: fx.toNumber(w0.range), effectiveRange: fx.toNumber(w0.effectiveRange), isIndirect: w0.isIndirect, firesFromBuilding: w0.firesFromBuilding },
+          { range: fx.toNumber(w0.range), effectiveRange: fx.toNumber(w0.effectiveRange), firesFromBuilding: w0.firesFromBuilding },
           this.garrisonBonusTiles(i),
         );
         const fillHex = cachedDesaturate(this.opts.teamColors[colorSlot(st.side[i], this.viewer)], RANGE_FILL_DESATURATE);

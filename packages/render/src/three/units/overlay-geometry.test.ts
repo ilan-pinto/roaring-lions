@@ -772,7 +772,7 @@ describe('rangeFillAlphaFor', () => {
 // GH-34 acceptance 3 (the L-5 mock, approved 12 Nov 2026): the range ring of a garrisoned unit is the building-extended envelope.
 // Literal numbers: a rifle squad's 8 tile range and 6.4 tile effective range, in the open and in a 1 tile and a 2 tile building.
 describe('envelopeRangesTiles (GH-34)', () => {
-  const rifle = { range: 8, effectiveRange: 6.4, isIndirect: false, firesFromBuilding: true };
+  const rifle = { range: 8, effectiveRange: 6.4, firesFromBuilding: true };
   it('is the weapon\'s own pair in the open', () => {
     expect(envelopeRangesTiles(rifle, null)).toEqual({ effective: 6.4, max: 8 });
   });
@@ -780,9 +780,9 @@ describe('envelopeRangesTiles (GH-34)', () => {
     expect(envelopeRangesTiles(rifle, 1)).toEqual({ effective: 7.4, max: 9 });
     expect(envelopeRangesTiles(rifle, 2)).toEqual({ effective: 8.4, max: 10 });
   });
-  it('leaves an indirect weapon alone: it gets no bonus from a building', () => {
-    const mortar = { range: 20, effectiveRange: 15, isIndirect: true, firesFromBuilding: true };
-    expect(envelopeRangesTiles(mortar, 2)).toEqual({ effective: 15, max: 20 });
+  it('extends an indirect weapon that fires from a building too: the sim adds the bonus to every weapon', () => {
+    const mortar = { range: 20, effectiveRange: 15, firesFromBuilding: true };
+    expect(envelopeRangesTiles(mortar, 2)).toEqual({ effective: 17, max: 22 });
   });
   it('leaves a weapon that does not fire from a building alone', () => {
     expect(envelopeRangesTiles({ ...rifle, firesFromBuilding: false }, 2)).toEqual({ effective: 6.4, max: 8 });
