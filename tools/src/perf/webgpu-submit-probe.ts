@@ -37,6 +37,7 @@ import { gpuLaunchArgs } from '../ui-review/gpu';
 import { resolveCensusGpu } from './bloom-census-args';
 import { MAX_LOADAVG_1M, abbaOrder, loadRefusal, roundsRefusal, summarise, type ArmSummary } from './webgpu-abba';
 import { ARM_KIND } from './webgpu-refusals';
+import { grassCondition, hiddenRefusal, type GrassState } from './webgpu-grass-lib';
 import type { CpuProfile } from './cpu-profile';
 import type { ArmRun } from './webgpu-page';
 import {
@@ -133,6 +134,8 @@ async function untilQuiet(at: string): Promise<number> {
 
 const BAD_CONSOLE = [/GPUValidationError/i, /Destroyed texture/i, /uploaded again/i];
 const consoleLines: string[] = [];
+/** What every page booted with (GH-1167 S6): printed in the conditions, so the line is the page's word. */
+const grassStates: GrassState[] = [];
 const refusals: string[] = [];
 const notes: string[] = [];
 
@@ -169,7 +172,13 @@ async function openPage(browser: Browser, port: number, root: string, arm: Submi
       return m.submitSetup({ mapId: mapId as never, arm, capacity: cap, timestamps: ts, nodeDraw });
     },
     { mod: MODULE(root), arm, mapId: MAP, capacity, timestamps, nodeDraw: NODE_DRAW }
-  )) as { backendKind: string; adapter: string; rafSource: string; drawSwitches?: string };
+  )) as { backendKind: string; adapter: string; rafSource: string; drawSwitches?: string; grass: GrassState };
+  grassStates.push(info.grass);
+  {
+    const hr = hiddenRefusal(`${label} ${arm}`, info.grass.meshes);
+    if (info.grass.mode !== 'hidden') refuse(`${label} ${arm}: the page booted with ${grassCondition(info.grass.mode)}; the L-vs-G readings hide the grass (GH-1167 S6)`);
+    if (hr !== null) refuse(hr);
+  }
   if (arm !== 'L') console.log(`[submit-probe] ${label} ${arm} node draw switches: ${info.drawSwitches ?? 'n/a (an older tree)'}`);
   const gpu = arm === 'G' ? info.adapter : gl;
   if (info.backendKind !== ARM_KIND[arm]) refuse(`${label} ${arm}: backendInfo().kind is "${info.backendKind}", expected "${ARM_KIND[arm]}" (a fallback is evidence about the fallback)`);
@@ -386,6 +395,7 @@ const conditions = [
   METAL ? `${ROUNDS} ABBA rounds L/G on fresh pages, ${FRAMES} timed frames per reading, warm-up ${WARM_AFTER_SPAWN} after a spawn and ${WARM_AFTER_TOGGLE} after a toggle, max-load ${MAX_LOAD}` : 'counts only (no timing on SwiftShader)',
   `loadavg per page ${loads.length === 0 ? 'n/a' : `${Math.min(...loads.map((l) => l.load1m)).toFixed(2)}-${Math.max(...loads.map((l) => l.load1m)).toFixed(2)}`}, at end ${os.loadavg()[0]?.toFixed(2)}`,
   `backends: ${[...new Set(backends.map((b) => `${b.arm}=${b.backendKind} on ${b.gpu}`))].join('; ')}`,
+  `${[...new Set(grassStates.map((g) => grassCondition(g.mode)))].join(', ') || 'grass: not read'} on every page (the 3D grass field is hidden from the L-vs-G readings; its cost is its own column: webgpu-grass-probe.ts)`,
   `L is MATCHED to the node scene (the node census's hidden set hidden before the stats frame), as webgpu-page.ts runArm`,
   `profile: ${Object.entries(profiles).map(([a, p]) => `${a} ${p.samples} samples over ${PROFILE_FRAMES} frames at n${hi}`).join('; ') || 'not run'}`,
   `gpu time: ${gpuReadings.length === 0 ? 'not run' : 'a separate timestamps page on G (never the CPU timing pages)'}`,

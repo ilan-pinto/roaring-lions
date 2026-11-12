@@ -48,7 +48,7 @@ describe('the account door', () => {
 
   it('no CORS anywhere (A1-3)', async () => {
     const h = accountHarness();
-    expect(ACCOUNT_ROUTES.map((r) => `${r.method} ${r.pattern}`)).toContain('GET state');
+    expect(ACCOUNT_ROUTES.map((r) => `${r.method} ${r.pattern}`)).toEqual(expect.arrayContaining(['GET state', 'GET matches']));
     for (const r of ACCOUNT_ROUTES) {
       const res = await h.call(r.method, pathOf(r.pattern), r.method === 'GET' ? {} : { body: {} });
       for (const name of res.headers.keys()) expect(name.startsWith('access-control-')).toBe(false);

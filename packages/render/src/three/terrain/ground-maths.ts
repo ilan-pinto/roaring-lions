@@ -181,6 +181,18 @@ export interface GroundKnobs<T> {
 }
 
 /**
+ * GH-1226 (S1): an optional stage between the weight rescale and the road. It receives the rescaled weights, the strength-mixed slot
+ * factors and the vertex tone, and returns all three (same lengths). `groundBlend` runs it ONLY when one is passed: with none, no
+ * stage node is built and the graph is today's, node for node. `terrain/height-blend.ts` builds the one that exists.
+ */
+export interface GroundStageInput<T> {
+  readonly weights: readonly T[];
+  readonly factors: readonly T[];
+  readonly vertexTone: T;
+}
+export type GroundStage<T> = (inp: GroundStageInput<T>) => GroundStageInput<T>;
+
+/**
  * The dry ground blend after the taps, in the legacy `GROUND_BLEND_GLSL` order: slot ratios mixed from 1 by strength; the five
  * weights from controls A/B (`top = step(wall, -0.5)`; a wall ignores the map and takes its rock weight); height bias and rescale;
  * the road bands from control B's distance (G), junction distance (B) and bend (A), gated by the road switch AND the top mask; the
@@ -193,7 +205,8 @@ export function groundBlend<T>(
   v: BlendVec<T>,
   roadRangeTiles: number,
   taps: GroundTaps<T>,
-  k: GroundKnobs<T>
+  k: GroundKnobs<T>,
+  stage?: GroundStage<T>
 ): { readonly colour: T; readonly top: T } {
   const one = v.one3;
   const lit = o.lit;
@@ -215,7 +228,19 @@ export function groundBlend<T>(
   ];
   // Height bias by each weight's own strength-scaled texel luminance deviation, then the rescale.
   const biased = w.map((wi, i) => heightBiased(o, wi, o.sub(v.luma(factors[i] as T), lit(1))));
-  const weights = rescaleWeights(o, w, biased);
+  let weights = rescaleWeights(o, w, biased);
+  // GH-1226: the optional stage (height and slope). Absent, nothing below changes.
+  let slotFactors: readonly T[] = factors;
+  let baseTone = taps.vertexTone;
+  if (stage) {
+    const staged = stage({ weights, factors, vertexTone: taps.vertexTone });
+    if (staged.weights.length !== weights.length || staged.factors.length !== factors.length) {
+      throw new Error('groundBlend: the stage must return as many weights and factors as it was given');
+    }
+    weights = [...staged.weights];
+    slotFactors = staged.factors;
+    baseTone = staged.vertexTone;
+  }
   // The road.
   const range = lit(roadRangeTiles);
   const bands = roadBands(o, o.mul(bG, range), o.sub(o.mul(bA, lit(2)), lit(1)), o.mul(bB, range));
@@ -227,11 +252,11 @@ export function groundBlend<T>(
   const grainTerm = o.mul(surf, o.sub(o.mix(one, grain, k.grainGain), one));
   const offRoad = o.sub(lit(1), surf);
   // The tones into the vertex colour, then albedo x macro.
-  let tone = o.mix(taps.vertexTone, k.roadTone, surf);
+  let tone = o.mix(baseTone, k.roadTone, surf);
   tone = o.mix(tone, k.shoulderTone, shoulder);
   tone = o.mix(tone, k.rutTone, rut);
   let albedo = one;
-  for (let i = 0; i < weights.length; i++) albedo = o.add(albedo, o.mul(o.mul(weights[i] as T, offRoad), o.sub(factors[i] as T, one)));
+  for (let i = 0; i < weights.length; i++) albedo = o.add(albedo, o.mul(o.mul(weights[i] as T, offRoad), o.sub(slotFactors[i] as T, one)));
   albedo = o.add(albedo, grainTerm);
   const m = macroDecode(o, taps.macroTexel);
   const macro = macroFactor(o, m, k.macroAmp, k.macroBright, k.macroDark);

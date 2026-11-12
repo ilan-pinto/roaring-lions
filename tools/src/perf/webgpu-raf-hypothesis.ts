@@ -19,6 +19,7 @@ import path from 'node:path';
 import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPort } from '../ui-review/port';
+import { grassCondition, hideGrassOnPage } from './webgpu-grass-lib';
 
 const args = process.argv.slice(2);
 const arg = (n: string, d: string): string => (args.find((a) => a.startsWith(`--${n}=`)) ?? `--${n}=${d}`).slice(n.length + 3);
@@ -57,6 +58,8 @@ async function read(mode: 'native' | 'stub' | 'flag'): Promise<Reading> {
   });
   await page.goto(`http://localhost:${port}/?sandbox=${MAP}&envlight=0&grade=0&tod=day&gpu=${GPU}`, { waitUntil: 'load' });
   await page.waitForFunction(() => !!(window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer, null, { timeout: 120000 });
+  // GH-1167 S6: hidden, so the three rAF modes compare the same scene on L and G alike.
+  await hideGrassOnPage(page, `raf-hypothesis ${mode}`);
   await page.waitForTimeout(3000);
   // The stub / the flag go up here, then the loop is given 500 ms to die out.
   await page.evaluate((mode) => {
@@ -111,7 +114,7 @@ const rows: Reading[] = [];
 for (const m of ['native', 'stub', 'flag'] as const) rows.push(await read(m));
 await browser.close();
 stop();
-console.log(`conditions: map=${MAP} gpu=${GPU} 1280x720 DPR 2, ${FRAMES} pumped frames per zoom, ANGLE/Metal, loadavg at start ${load.toFixed(2)}`);
+console.log(`conditions: map=${MAP} gpu=${GPU} ${grassCondition('hidden')} 1280x720 DPR 2, ${FRAMES} pumped frames per zoom, ANGLE/Metal, loadavg at start ${load.toFixed(2)}`);
 for (const r of rows) {
   console.log(
     `  ${r.mode.padEnd(6)} backend=${r.backend} rafNative=${r.rafNative} z1: ${r.z.z1?.syncedMs.toFixed(2)} ms calls ${r.z.z1?.calls} tris ${r.z.z1?.triangles} pic ${r.z.z1?.picture} | z2.5: ${r.z['z2.5']?.syncedMs.toFixed(2)} ms calls ${r.z['z2.5']?.calls} tris ${r.z['z2.5']?.triangles} pic ${r.z['z2.5']?.picture} | render() ${r.cpuRenderMedMs.toFixed(3)} ms${r.errors.length ? ` errors=${JSON.stringify(r.errors)}` : ''}`
