@@ -177,6 +177,28 @@ describe('a killed squad becomes a ragdoll, on the sim clock', () => {
     off.r.dispose();
   });
 
+  it('the push comes from the killing weapon\'s class: the killer\'s last shot, else the default (GH-1223)', async () => {
+    const pushOf = async (weapon: string | null) => {
+      const w = await world(ON);
+      const priv = w.p as unknown as { lastFiredWeapon: string[]; ragdolls: { claim(d: { push?: unknown }): boolean } };
+      const claim = vi.spyOn(priv.ragdolls, 'claim');
+      tick(w.sim, w.r, 1);
+      if (weapon !== null) priv.lastFiredWeapon[w.other] = weapon;
+      w.sim.debugKill(w.victim);
+      const ev = w.sim.tick().map((e) => (e.kind === 'destroyed' && weapon !== null ? { ...e, by: w.other } : e));
+      w.r.snapshot();
+      w.r.onEvents(ev);
+      w.r.frame(1, 50);
+      const push = (claim.mock.calls[0][0] as { push?: unknown }).push;
+      w.r.dispose();
+      return push;
+    };
+    expect(await pushOf('howitzer_155')).toEqual({ horizontalMS: 5.0, upMS: 2.8 });
+    expect(await pushOf('rpg')).toEqual({ horizontalMS: 3.5, upMS: 1.8 });
+    expect(await pushOf('rifle_556')).toEqual({ horizontalMS: 1.0, upMS: 0.4 });
+    expect(await pushOf(null)).toEqual({ horizontalMS: 1.0, upMS: 0.4 });
+  });
+
   it('the `ragdolls` layer holds a corpse hidden through the fog reveal that would show it again', async () => {
     const { sim, r, p } = await killAndSettle(ON, 1);
     const corpse = p.meshWrecks[0];

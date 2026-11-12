@@ -306,6 +306,7 @@ import {
   munitionForWeapon,
   munitionRow,
   munitionScorchTiles,
+  ragdollPushForWeapon,
   ringSpecFor,
   type Munition,
 } from './munitions';
@@ -2266,6 +2267,10 @@ export class ThreeRenderer implements Renderer {
    *  a later unit. */
   private readonly killerX: Float64Array;
   private readonly killerY: Float64Array;
+  /** GH-1223: the weapon each entity last fired (`fire` events), and the weapon that killed entity `i` (its killer's last
+   *  shot at the `destroyed` event; '' = none known). Read once by `ragdollOffer` for the push. Presentation only. */
+  private readonly lastFiredWeapon: string[];
+  private readonly killerWeapon: string[];
   /** GH-1223: the tick each entity's `destroyed` fired (-1 = none seen), and whether it fired during a catch-up --
    *  a ragdoll's clock starts at the death TICK, never at the frame that noticed it. */
   private readonly deathTick: Int32Array;
@@ -3276,6 +3281,8 @@ export class ThreeRenderer implements Renderer {
     this.meshBodyYawSet = new Uint8Array(n);
     this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
     this.killerX = new Float64Array(n).fill(NaN);
+    this.lastFiredWeapon = new Array<string>(n).fill('');
+    this.killerWeapon = new Array<string>(n).fill('');
     this.deathTick = new Int32Array(n).fill(-1);
     this.deathQuiet = new Uint8Array(n);
     this.buriedLast = new Uint8Array(n);
@@ -6543,7 +6550,10 @@ export class ThreeRenderer implements Renderer {
       // dropped here, and the ones that leave something standing (a wreck, a
       // collapsed building, a discovered route) still run below.
       if (this.quiet && isBurstOnlyEvent(e.kind)) continue;
-      if (e.kind === 'fire') this.onFire(e);
+      if (e.kind === 'fire') {
+        if (e.shooter >= 0 && e.shooter < this.lastFiredWeapon.length) this.lastFiredWeapon[e.shooter] = e.weaponId;
+        this.onFire(e);
+      }
       else if (e.kind === 'beam') this.onBeam(e);
       else if (e.kind === 'nearMiss') {
         const nx = fx.toNumber(e.x);
@@ -6663,6 +6673,7 @@ export class ThreeRenderer implements Renderer {
         this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
         this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;
         this.deathTick[e.entity] = e.tick;
+        this.killerWeapon[e.entity] = e.by >= 0 ? this.lastFiredWeapon[e.by] ?? '' : '';
         this.deathQuiet[e.entity] = this.quiet ? 1 : 0;
         const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
         // GH-85: a kamikaze's warhead going off. Inferred, not reported --
@@ -12523,6 +12534,7 @@ export class ThreeRenderer implements Renderer {
       template: pickMeshVariant(variants, id),
       at: { x, y, z, yaw },
       away: [ax, az],
+      push: ragdollPushForWeapon(this.killerWeapon[id]),
       handle: dying,
     };
   }
