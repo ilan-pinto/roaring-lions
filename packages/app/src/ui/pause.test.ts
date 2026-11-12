@@ -630,7 +630,15 @@ describe('pauseMenu in a room', () => {
 // The settings panel's chunk loads on demand. The mock holds the module back
 // until a test releases it, which is the only way to act between the click and
 // the chunk's arrival.
-const gate = vi.hoisted(() => ({ release: (): void => {}, wait: Promise.resolve(), fail: false, loads: 0 }));
+const gate = vi.hoisted(() => ({
+  release: (): void => {},
+  wait: Promise.resolve(),
+  // Resolves when the held factory has produced the real module: the point after which a mount, if one is coming, can happen.
+  loaded: Promise.resolve(),
+  markLoaded: (): void => {},
+  fail: false,
+  loads: 0,
+}));
 
 describe('pauseMenu settings panel loads on demand', () => {
   afterEach(() => {
@@ -642,12 +650,17 @@ describe('pauseMenu settings panel loads on demand', () => {
       gate.loads += 1;
       await gate.wait;
       if (gate.fail) throw new Error('chunk gone');
-      return orig();
+      const mod = await orig();
+      gate.markLoaded();
+      return mod;
     });
     gate.fail = false;
     gate.loads = 0;
     gate.wait = new Promise<void>((resolve) => {
       gate.release = resolve;
+    });
+    gate.loaded = new Promise<void>((resolve) => {
+      gate.markLoaded = resolve;
     });
     return import('./pause');
   };
@@ -664,7 +677,11 @@ describe('pauseMenu settings panel loads on demand', () => {
     settingsBtn().click();
     handle.close();
     gate.release();
-    await flush();
+    // Wait for the chunk to FINISH loading, then one macrotask for the import's continuation: a fixed sleep passes the negative
+    // check below whenever the load is slower than the sleep, even with the closed guard gone.
+    await gate.loaded;
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(gate.loads).toBe(1);
     expect(pane.querySelector('.rl-settings')).toBeNull();
     expect(document.querySelector('.rl-pause')).toBeNull();
   });
