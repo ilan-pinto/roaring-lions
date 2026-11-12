@@ -62,7 +62,9 @@ const seen = vi.hoisted(() => ({ options: [] as { timestamps?: boolean; nodeDraw
 vi.mock('./backend/node-backend', async () => ({
   createNodeBackend: async (o: { timestamps?: boolean; nodeDraw?: unknown }): Promise<{ backend: RenderBackend }> => {
     seen.options.push(o);
+    const { resolveNodeDraw } = await import('./backend/node-draw-options');
     const backend = {
+      batchUploads: resolveNodeDraw(o.nodeDraw as never).batchUploads,
       kind: 'node-webgl2',
       adapter: 'webgl2',
       domElement: {} as HTMLCanvasElement,
