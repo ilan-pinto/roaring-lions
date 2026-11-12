@@ -1950,6 +1950,41 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
       'force, 519-656 px / 0.040-0.047 between two captures of the same commit. No committed ' +
       'baseline yet in any environment -- see `GROUND_T17`.',
   },
+  rubble: {
+    // GH-1197 P5, `RUBBLE_SCENARIO`: the settled-rubble showcase. No baseline exists for it in ANY environment: it
+    // ships in the change that adds it, and the first comes from CI and the post-merge bless after the lead has seen
+    // it. CI's `visual` job is red until then -- the `fogged` and `aftermath` precedent, and intended. Do not bless
+    // from the branch.
+    //
+    // 40 px / 0.004 is `aftermath`'s own ceiling, carried over: the same map, the same anchor and zoom, no unit or
+    // live effect in frame, every mark and chunk dated sim time 0 (the chunks are placed AT REST: no flight, nothing on
+    // the frame clock). Re-derive it from the first CI readings, as GH-803 did for the others.
+    region: null,
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.004,
+    layerChecks: [
+      {
+        layer: 'debris',
+        // Derived 11 Nov 2026 from `visual` (linux-x64-swiftshader) readings of the SAME picture, bit-identical on
+        // ci.yml runs 42964829598, 42984171949 and 43010354828 (and 42877078966): 9993 px / 0.4669 each. The
+        // `visual-backends (webgl2)` job, a different environment, read 10314 px / 0.4759 (runs 42984171949,
+        // 43010354828), above these, so one floor holds for both. A third of the smallest, rounded down: 3331 px,
+        // 0.1556.
+        minDiffPixels: 3331,
+        minMeanAbsChannelDelta: 0.1556,
+        rationale:
+          'GH-1197 P5: hiding the debris pool (the `debris` layer, a flag the pool consults) must move this frame -- ' +
+          'the 58 resting chunks of the two showcase collapses are the picture. Floors are a third of the smallest of ' +
+          'three CI readings (9993 px / 0.4669; runs 42964829598, 42984171949, 43010354828). At the renderer level, a ' +
+          'no-op placement (the showcase spawning no chunks) turns `ThreeRenderer.collapse-debris.test.ts` red.',
+      },
+    ],
+    rationale:
+      'whole frame, qarn_hadid rubble showcase centroid @ (35,33), zoom 2.2, tick 300 -- two settled collapses (a 3x3 ' +
+      'limestone house on the decal showcase\'s flat site, a 2x2 dust shed on its road site), each its rubble decal and ' +
+      'its chunks at rest, dated sim time 0, clear of the sandbox force (GH-1197 P5). Ceilings carried from aftermath; ' +
+      'NO baseline yet: the first comes from CI at the post-merge bless, after the lead has seen it.',
+  },
   dusk: {
     // NOT GATED, deliberately and from birth (spec §3.6: "`dusk` is a
     // report-only capture"), the same way `combat` is NOT GATED as a finding

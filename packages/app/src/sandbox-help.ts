@@ -16,7 +16,7 @@
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
 
-export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'decals' | 'kit' | 'works';
+export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'decals' | 'rubble' | 'kit' | 'works' | 'soft';
 
 export interface UrlParam {
   name: string;
@@ -61,6 +61,12 @@ export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
     labelKey: 'freePlay.option.decals',
   },
   {
+    // GH-1197 P5: the gated `rubble` scenario's witness. Sandbox only (`main.ts`): a flag must never change a mission.
+    name: 'rubble',
+    blurb: 'two settled building collapses -- rubble and chunks at rest -- beside the decal showcase, clear of the force',
+    labelKey: 'freePlay.option.rubble',
+  },
+  {
     name: 'kit',
     blurb:
       'the sandbox force pre-kitted, level 1–3 by type -- the kit sign on the unit icons and the HUD card to walk',
@@ -71,6 +77,12 @@ export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
     blurb:
       'Field works: every buildable KDF type on offer twice, logistics to pay for them, and one demolition squad to raise them',
     labelKey: 'freePlay.option.works',
+  },
+  {
+    name: 'soft',
+    blurb:
+      'soft particles on for this boot (GH-1227): smoke fades where it meets the ground; sandbox only, off in every preset; inert on the node backend until its depth copy lands',
+    labelKey: 'freePlay.option.soft',
   },
 ];
 

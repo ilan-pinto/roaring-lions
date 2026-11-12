@@ -73,8 +73,9 @@ export type ClientMsg =
   | { t: 'resume' }
   | { t: 'surrender' }
   | { t: 'chat'; text: string }
-  /** This seat's sim decided the match on `tick` (L-1): sent once, so the room can close itself. */
-  | { t: 'over'; tick: number }
+  /** This seat's sim decided the match on `tick` (L-1): sent once, so the room can close itself. `result` is what
+   *  it decided, by SEAT (GH-1075 A3); absent from a client built before it, whose report never agrees with anything. */
+  | { t: 'over'; tick: number; result?: OverResult }
   /** An advisor's (or its human's) message for the OTHER half of one seat's pair (N4a): the room relays it, stores nothing. */
   | { t: 'advisor'; a: AdvisorMsg }
   /** This seat has finished `round` of a paced room (N4a): a bot seat's turn is over. */
@@ -90,6 +91,15 @@ export type LobbyKit = 'matched' | 'brigade';
 export type StallReason = 'behind' | 'gone' | 'round';
 /** Why a room ended. `over`: it closed itself `OVER_CLOSE_MS` after the result both seats reached (L-1).
  *  `forfeit`: a versus seat stayed disconnected for `FORFEIT_MS`; `seat` names it, and it lost. */
+/** The sim's own endings (what `outcomeOf` can say). */
+export const RESULT_BYS = ['annihilation', 'objective', 'stalemate', 'time', 'mutual'] as const;
+export type ResultBy = (typeof RESULT_BYS)[number];
+/** Why a match was recorded: a sim ending, or one the room itself called. */
+export const RECORD_REASONS = [...RESULT_BYS, 'surrender', 'forfeit', 'left'] as const;
+export type RecordReason = (typeof RECORD_REASONS)[number];
+/** What one seat's sim decided, by SEAT, never by side (GH-1075 A3 §0.8). `winner: null` is a draw. */
+export interface OverResult { winner: Seat | null; by: ResultBy }
+
 export const ENDED_REASONS = ['left', 'void', 'expired', 'surrender', 'over', 'forfeit'] as const;
 export type EndedReason = (typeof ENDED_REASONS)[number];
 
@@ -203,8 +213,13 @@ export function cleanCommand(v: unknown): Command | null {
       return out as Command;
     }
     case 'halt':
-    case 'unload':
       return ids === null ? null : { kind, ids };
+    case 'unload':
+      // GH-698 unload-at-point: `x` and `y` (Q16.16) ride together or not at all; one without the
+      // other, or a non-integer, voids the order rather than becoming a plain unload on one machine.
+      if (ids === null) return null;
+      if (c.x === undefined && c.y === undefined) return { kind, ids };
+      return isInt(c.x) && isInt(c.y) ? { kind, ids, x: c.x, y: c.y } : null;
     case 'demolish':
       return ids === null || !isInt(c.structure) ? null : { kind, ids, structure: c.structure };
     case 'garrison':
@@ -353,11 +368,26 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     case 'resume': return { t: 'resume' };
     case 'surrender': return { t: 'surrender' };
     case 'chat': return isStr(m.text) && m.text.length <= CHAT_MAX_CHARS ? { t: 'chat', text: m.text } : null;
-    case 'over': return isInt(m.tick) && m.tick >= 0 ? { t: 'over', tick: m.tick } : null;
+    case 'over': {
+      if (!isInt(m.tick) || m.tick < 0) return null;
+      if (m.result === undefined) return { t: 'over', tick: m.tick };
+      const result = cleanOverResult(m.result);
+      return result === null ? null : { t: 'over', tick: m.tick, result };
+    }
     case 'advisor': { const a = cleanAdvisorMsg(m.a); return a === null ? null : { t: 'advisor', a }; }
     case 'done': return isInt(m.round) && m.round >= 0 ? { t: 'done', round: m.round } : null;
     default: return null;
   }
+}
+
+/** A well-formed `OverResult`, rebuilt field by field, or null: a malformed one voids the whole message. */
+function cleanOverResult(v: unknown): OverResult | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const r = v as Record<string, unknown>;
+  const winner = r.winner;
+  if (winner !== 0 && winner !== 1 && winner !== null) return null;
+  const by = RESULT_BYS.find((b) => b === r.by);
+  return by === undefined ? null : { winner, by };
 }
 
 function isFrame(v: unknown): v is Frame {

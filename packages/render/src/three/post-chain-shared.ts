@@ -24,6 +24,9 @@ export interface PostQuality {
   readonly bloom: 'off' | 'quarter';
   /** The fraction of the frame the AO's own targets run at (`QualityPreset.aoScale`); absent means `AO_RESOLUTION_SCALE`. */
   readonly aoScale?: number;
+  /** GH-1227 (`RenderQuality.softParticles`): read by the node chain only, whose scene pass switches to a copyable depth format
+   *  while the soft-particle copy exists (`post-chain.node.ts`, `nodeSoftDepthOn`). The legacy composer never reads it. */
+  readonly softParticles?: boolean;
 }
 
 /** What both chains offer the renderer: the pass list (for the order pin), a frame, and a release. */

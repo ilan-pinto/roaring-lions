@@ -256,9 +256,10 @@ export class DebrisPool {
    * Throws `plans` with their LINEAR colours, at the current frame and sim clocks. Returns how many were placed:
    * a piece with no free slot (every slot of every shape still live) is dropped, never a live one stolen.
    */
-  spawn(plans: readonly DebrisPlan[], colors: readonly THREE.Color[]): number {
+  spawn(plans: readonly DebrisPlan[], colors: readonly THREE.Color[], simSpawnMs?: number): number {
     if (this.shapes.length === 0) return 0;
-    const sim = this.clocks.uDebSimMs.value;
+    // `simSpawnMs` dates the pieces (their fade) on the sim clock; absent, now. A showcase dates its rubble 0.
+    const sim = simSpawnMs ?? this.clocks.uDebSimMs.value;
     const now = this.clocks.uDebTime.value;
     let placed = 0;
     for (let k = 0; k < plans.length; k++) {
@@ -325,7 +326,7 @@ export class DebrisPool {
       a.addUpdateRange(i * a.itemSize, a.itemSize);
       a.needsUpdate = true;
     };
-    put(s.attrs.aDebT, [now, p.t1, p.t2, p.t3]);
+    put(s.attrs.aDebT, [now + (p.delayMs ?? 0), p.t1, p.t2, p.t3]);
     put(s.attrs.aDebP0, [p.p0[0], p.p0[1], p.p0[2], sim]);
     put(s.attrs.aDebV0, p.v0);
     put(s.attrs.aDebP1, p.p1);

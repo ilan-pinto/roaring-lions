@@ -71,8 +71,10 @@ describe('routes', () => {
       civ: false,
       ditch: false,
       decals: false,
+      rubble: false,
       kit: true,
       works: false,
+      soft: false,
     });
     expect(unknownParams(url.searchParams)).toEqual([]);
 
