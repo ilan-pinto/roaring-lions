@@ -399,7 +399,7 @@ function hookedBody(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial();
   const base = m.customProgramCacheKey();
   m.onBeforeCompile = () => {};
-  m.customProgramCacheKey = () => `${base}|rl-team-mark-2`;
+  m.customProgramCacheKey = () => `${base}|rl-unit-mark-3`;
   return m;
 }
 

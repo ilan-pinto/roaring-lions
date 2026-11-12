@@ -110,11 +110,11 @@ describe('the unit, outline, banner and backdrop recognisers', () => {
     );
   });
   it('a hook chain of unit segments is unit; a mixed chain, or no segment, is nothing', () => {
-    expect(legacyTwinSlot(hooked(['rl-team-mark-2']))).toBe('unit');
-    expect(legacyTwinSlot(hooked(['rl-team-mark-2', 'rl-running-gear-1']))).toBe('unit');
+    expect(legacyTwinSlot(hooked(['rl-unit-mark-3']))).toBe('unit');
+    expect(legacyTwinSlot(hooked(['rl-unit-mark-3', 'rl-running-gear-1']))).toBe('unit');
     expect(legacyTwinSlot(hooked(['rl-unit-rain-rim', 'rl-wounded-floor']))).toBe('unit');
     expect(legacyTwinSlot(hooked(['rl-soot']))).toBe('unit');
-    expect(legacyTwinSlot(hooked(['rl-team-mark-2', 'rl-garrison-banner']))).toBeNull();
+    expect(legacyTwinSlot(hooked(['rl-unit-mark-3', 'rl-garrison-banner']))).toBeNull();
     expect(legacyTwinSlot(hooked([]))).toBeNull();
   });
   it('the one-segment keys', () => {
@@ -145,9 +145,9 @@ describe('the shared unit twin', () => {
   it('two clones of one base with the same segments and state share one twin; a different state or base does not', () => {
     const kit = countingKit();
     const cache = createTwinCache();
-    const base = hooked(['rl-team-mark-2']);
-    const a = hooked(['rl-team-mark-2', 'rl-running-gear-1']);
-    const b = hooked(['rl-team-mark-2', 'rl-running-gear-1']);
+    const base = hooked(['rl-unit-mark-3']);
+    const a = hooked(['rl-unit-mark-3', 'rl-running-gear-1']);
+    const b = hooked(['rl-unit-mark-3', 'rl-running-gear-1']);
     recordLegacyBase(a, base);
     recordLegacyBase(b, base);
     const root = new THREE.Group();
@@ -164,10 +164,10 @@ describe('the shared unit twin', () => {
     expect(legacyOf(mb.material as THREE.Material, mb)).toBe(b);
     expect(legacyOf(ma.material as THREE.Material)).toBe(base);
     // A transparent clone (a death fade) keys apart; so does another base.
-    const fade = hooked(['rl-team-mark-2']);
+    const fade = hooked(['rl-unit-mark-3']);
     fade.transparent = true;
     recordLegacyBase(fade, base);
-    const other = hooked(['rl-team-mark-2']);
+    const other = hooked(['rl-unit-mark-3']);
     const root2 = new THREE.Group();
     root2.add(meshOf(fade), meshOf(other));
     adoptMaterials(root2, kit, cache);
@@ -178,9 +178,9 @@ describe('the shared unit twin', () => {
   it('is freed by its LAST legacy user, not its first', () => {
     const kit = countingKit();
     const cache = createTwinCache();
-    const base = hooked(['rl-team-mark-2']);
-    const a = hooked(['rl-team-mark-2', 'rl-running-gear-1']);
-    const b = hooked(['rl-team-mark-2', 'rl-running-gear-1']);
+    const base = hooked(['rl-unit-mark-3']);
+    const a = hooked(['rl-unit-mark-3', 'rl-running-gear-1']);
+    const b = hooked(['rl-unit-mark-3', 'rl-running-gear-1']);
     recordLegacyBase(a, base);
     recordLegacyBase(b, base);
     const root = new THREE.Group();
@@ -195,7 +195,7 @@ describe('the shared unit twin', () => {
     b.dispose();
     expect(freed).toBe(1);
     // A third clone after the last user went makes a fresh twin.
-    const c = hooked(['rl-team-mark-2', 'rl-running-gear-1']);
+    const c = hooked(['rl-unit-mark-3', 'rl-running-gear-1']);
     recordLegacyBase(c, base);
     const root2 = new THREE.Group();
     root2.add(meshOf(c));
@@ -225,7 +225,7 @@ describe('ruling P3-R4: visible follows the legacy material, both ways', () => {
     const kit = countingKit();
     const cache = createTwinCache();
     const decal = new THREE.ShaderMaterial({ name: 'rl-decal' });
-    const unitBase = hooked(['rl-team-mark-2']);
+    const unitBase = hooked(['rl-unit-mark-3']);
     const root = new THREE.Group();
     const md = meshOf(decal);
     const mu = meshOf(unitBase);

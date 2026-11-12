@@ -936,6 +936,11 @@ async function runGarage(args: Args, port: number): Promise<void> {
         const page = await ctx.newPage();
         page.setDefaultTimeout(60_000);
         page.on('pageerror', (err) => console.log(`  [garage] page error: ${err.message}`));
+        // A shader that fails to compile is a console.error from three, not a page error: print those too, or a broken
+        // material reads as a quiet sheet.
+        page.on('console', (msg) => {
+          if (msg.type() === 'error') console.log(`  [garage] console error: ${msg.text().slice(0, 400)}`);
+        });
         await page.goto(`${base}/brigade`, { waitUntil: 'load' });
         await page.waitForSelector('.rl-garage__card');
         for (const id of run.ids) {

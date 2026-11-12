@@ -546,6 +546,10 @@ export const DEBUG_LAYERS = [
   // material shares to 0 and back (`units/team-mask.ts`): a uniform write nothing per-frame re-asserts. Witnessed
   // by the gated `vehicle` scenario's layer check.
   'team-mask',
+  // GH-1096 S1: the Roaring Lion insignia painted on a KDF hull (the Lavi in S1). Writes the insignia's OWN shared strength to 0
+  // and back (`units/insignia.ts`, never the team mark's): a uniform write nothing per-frame re-asserts. No gated layer check yet:
+  // it lands on `vehicle` and `kitted` after the lead's look at the S1 close-up.
+  'insignia',
   // GH-984 N2: the vehicles' disturbance of the grass and bushes (`terrain/disturb.ts`). `uDisturbAmp` to 0 and back,
   // the `wind` shape: the frame writes the slot count and the arrays, never the amplitude, and skips its own work
   // while the amplitude is 0, so a repaint cannot undo it. Witnessed by the gated `vehicle` scenario's layer check.
