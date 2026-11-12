@@ -120,7 +120,7 @@ import * as THREE from 'three';
 import { FIRE_SUPPORT, FS_AIR_STRIKE, fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent, type WeaponStats } from '@lions/sim';
 import type { AimFootprint, AuraRingView, BeamReadback, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
-import { QUALITY_PRESETS, debrisQualityOf } from '../quality';
+import { QUALITY_PRESETS, debrisQualityOf, groundBlendQualityOf } from '../quality';
 import type { GrassFieldTones } from '../api';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import type { FlipbookLayerSpec } from '../vfx/emitters';
@@ -351,7 +351,8 @@ import {
   type GroundAlbedoId,
   type GroundSlot,
 } from './terrain/mesh';
-import { setHeightBlendVisible } from './terrain/height-blend-record';
+import { heightBlendPlaceholder, installHeightBlend, setHeightBlendVisible, type HeightBlendRecord } from './terrain/height-blend-record';
+import type { HeightBlendFieldData } from './terrain/height-blend-field';
 import { isDebugLayer, FX_FLAG_LAYERS, unknownDebugLayerMessage, type FxFlagLayer } from './debug-layers';
 import { buildTerrainSurface, isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import {
@@ -1312,6 +1313,20 @@ const CREW_BACKBLAST_MAGNITUDE = BACKBLAST_MAGNITUDE * 0.7;
 const SQUAD_UP = new THREE.Vector3(0, 1, 0);
 const SQUAD_LATERAL = new THREE.Vector3();
 
+/** GH-1226 S5: what the node ground's blend holds across rebuilds (`ThreeRenderer.groundBlendState`). */
+interface GroundBlendState {
+  /** The record installed on the legacy ground before its twin exists; its `field` is swapped, the object never is. */
+  readonly record: HeightBlendRecord;
+  readonly placeholder: THREE.Texture;
+  /** The lazy module (`terrain/height-blend-texture`: the bake, the splice and the texture), once loaded; null before. */
+  lib: typeof import('./terrain/height-blend-texture') | null;
+  loading: boolean;
+  /** The surface of the latest terrain build, so a bake that lands late reads the ground as it is now. */
+  surface: TerrainSurface | null;
+  data: HeightBlendFieldData | null;
+  texture: THREE.Texture | null;
+}
+
 /** The control-group badge (WP-P4, PA-18), in overlay pixels -- the same
  *  zoom-scaled units every overlay here uses. The disc keeps the 7 it always
  *  had; the halo is a 1.5 px `shadow.1` edge; the numeral quad grows from
@@ -1987,6 +2002,12 @@ export class ThreeRenderer implements Renderer {
    * the first `rebuildTerrain`. A collapse splices it (`replaceCells`); a full terrain build rebuilds it; `dispose()` releases it.
    */
   private grassField: GrassFieldHandle | null = null;
+  /**
+   * GH-1226 S5: the node ground's height and slope blend (design 2026-11-12, section 3.3), built ONLY on a node boot of a map whose tones
+   * carry `heightBlend`. Null on every legacy boot (pin L3), which never reads the tones for it and never loads the field's module.
+   * Deliberately not named for the feature: pin L3 greps a legacy renderer's own property names.
+   */
+  private groundBlendState: GroundBlendState | null = null;
   /** GH-1167 S5: the camera state the field's width floor reads (`GrassFieldRecord.zoom`/`dpr`), written by `stepGrassField`. */
   private readonly grassView = { zoom: { value: 1 }, dpr: { value: 1 } };
   /** GH-1167 S5: the `grass-field` debug layer's flag (the `unitsDebugHidden` shape): `stepGrassField` re-asserts the root's
@@ -4405,6 +4426,12 @@ export class ThreeRenderer implements Renderer {
     // GH-1167 S5: the grass field (its meshes, nine geometries and one material), out of the scene and released.
     this.grassField?.dispose();
     this.grassField = null;
+    // GH-1226 S5: the height-blend field's texture (the baked one, or the placeholder while none landed).
+    if (this.groundBlendState !== null) {
+      this.groundBlendState.texture?.dispose();
+      this.groundBlendState.placeholder.dispose();
+      this.groundBlendState = null;
+    }
     this.disposeDecorGeometrySet(this.decorSet);
     this.disposeTexturedDecorSet(this.texturedDecorSet);
     // Props: the batch and the source clones `loadPropMeshes` owns, the same
@@ -15920,6 +15947,90 @@ export class ThreeRenderer implements Renderer {
     field.root.visible = !this.grassDebugHidden;
   }
 
+  /**
+   * GH-1226 S5: installs the height-blend record on the legacy ground (design 2026-11-12, section 3.3), once, BEFORE the first node
+   * adoption builds the ground twin (`installHeightBlend` throws after it). The node check comes first, so a legacy boot never reads
+   * `terrainTones.heightBlend` (pin L3). The record starts on the 1x1 placeholder field, which makes the stage contribute 0; the bake
+   * swaps the real one in when its module lands. `low` compiles the stage without the texture edge and the joints, and a tone set with
+   * no joint (arid) compiles no joints: with joints on and `aJ` 0 the stage would still mix toward pure rock tone.
+   */
+  private installGroundBlend(): void {
+    if (this.groundBlendState !== null || this.nodeBackend === null) return;
+    const tones = this.opts.terrainTones.heightBlend;
+    if (tones === undefined) return;
+    const tone = (hex: string): THREE.Color => new THREE.Color().fromArray(hexToLinear(hex));
+    const full = groundBlendQualityOf(this.opts.quality) === 'full';
+    const joints = full && tones.joint !== undefined && tones.aJ !== undefined;
+    const placeholder = heightBlendPlaceholder();
+    const record: HeightBlendRecord = {
+      field: placeholder,
+      rockTone: tone(tones.rock),
+      ...(joints && tones.joint !== undefined && tones.aJ !== undefined ? { jointTone: tone(tones.joint), aJ: tones.aJ } : {}),
+      hollowTone: tone(tones.hollow),
+      aR: tones.aR,
+      aH: tones.aH,
+      kH: tones.kH,
+      amp: 1,
+      options: { textureEdge: full, joints },
+    };
+    installHeightBlend(this.groundMat, record);
+    this.groundBlendState = { record, placeholder, lib: null, loading: false, surface: null, data: null, texture: null };
+  }
+
+  /**
+   * GH-1226 S5: after a terrain build. The first call starts the field's lazy import (the only reference to it in this chunk: pin L1);
+   * once it has landed, a full build (`dirty` null) bakes the whole field from the surface just built and swaps its texture into the
+   * record, and a collapse splices the changed region in place (`spliceHeightBlendField`, byte-identical to a full bake) and re-uploads
+   * the same texture. A bake that was waiting on the import reads `state.surface`, the latest, never the surface it was asked about.
+   */
+  private syncGroundBlend(surface: TerrainSurface, dirty: Uint8Array | null): void {
+    const state = this.groundBlendState;
+    if (state === null) return;
+    state.surface = surface;
+    const lib = state.lib;
+    if (lib === null) {
+      if (state.loading) return;
+      state.loading = true;
+      void import('./terrain/height-blend-texture').then(
+        (loaded) => {
+          state.lib = loaded;
+          if (this.disposed || state.surface === null) return;
+          this.bakeGroundBlend(state, loaded, state.surface, null);
+        },
+        (err: unknown) => {
+          // The placeholder stays bound, so the stage adds nothing and the ground is today's.
+          state.loading = false;
+          console.error('height blend: the field module failed to load; the ground draws without the blend', err);
+        }
+      );
+      return;
+    }
+    this.bakeGroundBlend(state, lib, surface, dirty);
+  }
+
+  private bakeGroundBlend(
+    state: GroundBlendState,
+    lib: NonNullable<GroundBlendState['lib']>,
+    surface: TerrainSurface,
+    dirty: Uint8Array | null
+  ): void {
+    if (dirty !== null && state.data !== null && state.texture !== null) {
+      const written = lib.spliceHeightBlendField(state.data, surface);
+      if (written !== null) {
+        if (written > 0) state.texture.needsUpdate = true;
+        return;
+      }
+    }
+    const data = lib.bakeHeightBlendField(surface, surface.width, surface.height);
+    const texture = lib.heightBlendTexture(data);
+    const old = state.texture ?? state.placeholder;
+    state.record.field = texture;
+    state.data = data;
+    state.texture = texture;
+    // The twin may still be bound to the old one this frame: released after the next draw.
+    this.retiredAfterRender.push(() => old.dispose());
+  }
+
   private rebuildTerrain(): void {
     // The terrace rule reads `sim.blocked`, which changes under this class
     // (a destroyed structure). See `refreshSurface`.
@@ -16099,6 +16210,8 @@ export class ThreeRenderer implements Renderer {
     // Chunked on a map larger than 48 x 48 (`terrain/chunks.ts`), so the frustum can skip the parts
     // the camera cannot see; one mesh, built as ever, on every other map. A splice names the tiles
     // it re-emitted (`build.dirtyTiles`) and only the chunks holding one are rebuilt.
+    // GH-1226 S5: before the ground's first node adoption (a record installed after the twin exists throws).
+    this.installGroundBlend();
     if (this.groundLayer === null || this.scatterLayer === null) {
       this.groundLayer = new ChunkedMeshLayer(this.scene, 'ground', this.groundMat, true, (data, opts) => toGeometry(data, opts));
       this.scatterLayer = new ChunkedMeshLayer(this.scene, 'scatter', this.terrainMat, true, (data, opts) => toGeometry(data, opts));
@@ -16148,6 +16261,8 @@ export class ThreeRenderer implements Renderer {
     this.adoptNodeMaterials(this.decorGroup);
     // GH-1167 S5: the field, from the very input and surface the ground was just built from. Spliced on a collapse.
     this.syncGrassField(grassTones, composed.input, build.state.surface, build.dirtyTiles);
+    // GH-1226 S5: the height-blend field, from the very surface the ground was just built from. Spliced on a collapse.
+    this.syncGroundBlend(build.state.surface, build.dirtyTiles);
 
     // The textured half of the same placement list. `buildDecorMesh` above
     // and this partition it by family rather than competing for it -- a
