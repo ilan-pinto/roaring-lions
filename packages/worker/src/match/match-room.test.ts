@@ -1671,8 +1671,9 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
       [{ winMode: 'rally' }, 400], [{ winMode: 'camp' }, 200], [{ winMode: 'camp', map: 'wadi_tarfan_l' }, 200], [{ winMode: 'camp', map: 'tel_marum' }, 400],
       // GH-976 P4: tel_marum plays the points race and the flag raid in the mirror now; KDF against Sarim plays no mode anywhere
       // (the review removed the one cell), and the room asks the same question the route does.
-      // GH-1139: flag is out of every lobby until CTF v2 lands (WP9), so the room refuses it on a map it once offered.
-      [{ winMode: 'points', map: 'tel_marum' }, 200], [{ winMode: 'flag', map: 'milh_flats_l' }, 400], [{ winMode: 'flag', map: 'wadi_tarfan_l' }, 400],
+      // GH-976 relist (12 Nov): flag is offered on the five staged maps in the mirror, and the room refuses it on tel_marum and in every faction pairing.
+      [{ winMode: 'points', map: 'tel_marum' }, 200], [{ winMode: 'flag', map: 'milh_flats_l' }, 200], [{ winMode: 'flag', map: 'wadi_tarfan_l' }, 200],
+      [{ winMode: 'flag', map: 'tel_marum' }, 400], [{ winMode: 'flag', map: 'beit_sahwan_outskirts' }, 400],
       [{ winMode: 'points', matchup: 'sarim' }, 400], [{ winMode: 'points', matchup: 'kdf' }, 400], [{ winMode: 'flag', matchup: 'kdf' }, 400],
       [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'kdf' }, 400], [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'sarim' }, 400],
       [{ winMode: 'flag', map: 'wadi_tarfan_l', matchup: 'kdf' }, 400], [{ winMode: 'flag', map: 'wadi_tarfan_l', matchup: 'sarim' }, 400],
@@ -1706,24 +1707,28 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
 
 describe('capture the flag v2 (GH-976 WP4): the room mints flagSetup from FLAG_SETUP_MAPS and its own winMode, never from a client', () => {
   const FLAG = { mode: 'versus', map: 'wadi_tarfan', winMode: 'flag' };
-  // GH-1139: flag is out of the lobby until WP9 relists it; these tests of the minting stand the two maps they open back in.
-  const flagList = WIN_MODE_FAIR_MAPS.flag as string[];
-  const SHIPPED = [...flagList];
-  beforeEach(() => { flagList.push('wadi_tarfan', 'milh_flats'); });
-  afterEach(() => { flagList.splice(0, flagList.length, ...SHIPPED); });
-  /** Stands `wadi_tarfan` in the list for one test (the list is a const array, read at call time). */
-  const listed = async (fn: () => Promise<void>): Promise<void> => {
+  const FIVE = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+  /** Takes `wadi_tarfan` out of FLAG_SETUP_MAPS for one test (the list is a const array, read at call time) to prove the minting follows it. */
+  const unlisted = async (fn: () => Promise<void>): Promise<void> => {
     const list = FLAG_SETUP_MAPS as string[];
-    const before = [...list]; // restored below, never cleared
-    list.push('wadi_tarfan');
+    const before = [...list]; // restored below
+    list.splice(list.indexOf('wadi_tarfan'), 1);
     try { await fn(); } finally { list.splice(0, list.length, ...before); }
   };
-  it('a flag room on wadi_tarfan carries no flagSetup while the list is empty', async () => {
-    expect(FLAG_SETUP_MAPS).toEqual([]);
-    const { ws0, ws1 } = await running(FLAG);
-    expect('flagSetup' in ofType(ws0, 'start')[0].config).toBe(false);
-    expect('flagSetup' in ofType(ws1, 'start')[0].config).toBe(false);
-    expect(ofType(ws0, 'start')[0].config.winMode).toBe('flag');
+  const listed = async (fn: () => Promise<void>): Promise<void> => fn();
+  it('the five staged maps are offered the flag and minted flagSetup; the minting follows FLAG_SETUP_MAPS and not the lobby list', async () => {
+    expect(FLAG_SETUP_MAPS).toEqual(FIVE);
+    expect(WIN_MODE_FAIR_MAPS.flag).toEqual(FIVE);
+    for (const map of FIVE) {
+      const { ws0 } = await running({ ...FLAG, map });
+      expect(ofType(ws0, 'start')[0].config.flagSetup, map).toBe(true);
+    }
+    await unlisted(async () => {
+      const { ws0, ws1 } = await running(FLAG);
+      expect('flagSetup' in ofType(ws0, 'start')[0].config).toBe(false);
+      expect('flagSetup' in ofType(ws1, 'start')[0].config).toBe(false);
+      expect(ofType(ws0, 'start')[0].config.winMode).toBe('flag');
+    });
   });
   it('with the map listed, the room mints flagSetup: true into both seats\' configs, and the config validates', async () => {
     await listed(async () => {
@@ -1742,13 +1747,17 @@ describe('capture the flag v2 (GH-976 WP4): the room mints flagSetup from FLAG_S
       }
     });
   });
-  it('a create body that sends flagSetup changes nothing, listed or not', async () => {
+  it('a create body that sends flagSetup decides nothing: unlisted, the room still mints none', async () => {
     const lie = { ...FLAG, flagSetup: true };
-    const { ws0 } = await running(lie);
-    expect('flagSetup' in ofType(ws0, 'start')[0].config).toBe(false);
-    // And with the list empty on a map no one listed, the body still decides nothing.
-    const other = await running({ ...lie, map: 'milh_flats' });
-    expect('flagSetup' in ofType(other.ws0, 'start')[0].config).toBe(false);
+    await unlisted(async () => {
+      const { ws0 } = await running(lie);
+      expect('flagSetup' in ofType(ws0, 'start')[0].config).toBe(false);
+    });
+    // Listed, it is the room's own minting, not the body's: the same config as the honest body.
+    const honest = (await running(FLAG)).ws0;
+    const liar = (await running(lie)).ws0;
+    expect(ofType(liar, 'start')[0].config.flagSetup).toBe(true);
+    expect(ofType(honest, 'start')[0].config.flagSetup).toBe(true);
   });
 });
 
