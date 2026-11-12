@@ -64,7 +64,7 @@ export interface MatchView {
   winMode: string | null;
   kit: string;
   reason: string;
-  /** The winning seat, or null for a draw or a void. */
+  /** The winning seat, or null for a draw. */
   winnerSeat: 0 | 1 | null;
   ticks: number;
   /** False: a lone report, listed but never counted in `record`. */
@@ -76,7 +76,7 @@ export interface MatchView {
 }
 export interface MatchesView {
   matches: MatchView[];
-  /** The `before` of the next page, or null on the last. */
-  next: number | null;
+  /** The `before` of the next page (opaque: `<started_at>.<code>`), or null on the last. */
+  next: string | null;
   record: { won: number; lost: number; drawn: number };
 }
