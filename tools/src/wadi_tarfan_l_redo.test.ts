@@ -92,6 +92,11 @@ describe('the map is a plan: Wadi Tarfan (large), redone', () => {
       rs.map((r) => ({ ...r, points: r.points.map((p, i) => (i === 2 && vent[r.id] ? vent[r.id] : p)) }));
     const moved = { friendly: ventBack(shippedRules.tunnels?.friendly), hostile: ventBack(shippedRules.tunnels?.hostile) };
     expect(rules.tunnels).toEqual(moved);
+    // The vent tile itself, as literals and read directly (the mapping above changes nothing on a route with no third point, so it
+    // could compare two routes that both lost it): shipped (45,43) and (50,52), redone (44,42) and (51,53).
+    const thirdOf = (r: VersusRulesJson, side: 'friendly' | 'hostile', id: string) => r.tunnels?.[side]?.find((x) => x.id === id)?.points[2];
+    expect([thirdOf(shippedRules, 'friendly', 'wtl_f_north'), thirdOf(shippedRules, 'hostile', 'wtl_h_north')]).toEqual([[45, 43], [50, 52]]);
+    expect([thirdOf(rules, 'friendly', 'wtl_f_north'), thirdOf(rules, 'hostile', 'wtl_h_north')]).toEqual([[44, 42], [51, 53]]);
     expect((rules.tunnels?.friendly ?? []).map((r) => [r.id, r.capacity])).toEqual([['wtl_f_north', 3], ['wtl_f_west', 3]]);
     expect([rules.capacity, rules.cap_minutes, rules.id, rules.map]).toEqual([512, 35, 'wadi_tarfan_l', 'wadi_tarfan_l']);
     expect(matchCapMinutes('wadi_tarfan_l')).toBe(35);
