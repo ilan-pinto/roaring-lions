@@ -548,3 +548,32 @@ describe('cleanCommand: the set-up commands (GH-976 v2, R0.9)', () => {
     for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
   });
 });
+
+describe('lobby seat labels (GH-1075 A3 Task 3.5)', () => {
+  const seat = (extra: Record<string, unknown>) => ({ seat: 1, callsign: 'G', connected: true, ready: false, ...extra });
+  const lobby = (seats: unknown[]) => parseServerMsg(JSON.stringify({ t: 'lobby', config: null, seats, you: 0, map: 'tel_marum' }));
+  const seatsOf = (m: ReturnType<typeof lobby>) => (m !== null && m.t === 'lobby' ? m.seats : []);
+
+  it('drops a 25 code point member and keeps the rest of the lobby', () => {
+    const seats = seatsOf(lobby([seat({ member: { name: 'x'.repeat(25), publicId: '7K3M9Q2X' } }), { ...seat({}), seat: 0 }]));
+    expect(seats).toHaveLength(2);
+    expect(seats[0]).not.toHaveProperty('member');
+    expect(seats[0]?.callsign).toBe('G');
+  });
+
+  it('keeps a good member, with and without a record, and drops a bad record or id', () => {
+    const good = { name: 'Alpha', publicId: '7K3M9Q2X' };
+    expect(seatsOf(lobby([seat({ member: good })]))[0]?.member).toEqual(good);
+    const rec = { won: 2, lost: 0, drawn: 1 };
+    expect(seatsOf(lobby([seat({ member: { ...good, record: rec } })]))[0]?.member).toEqual({ ...good, record: rec });
+    expect(seatsOf(lobby([seat({ member: { ...good, record: { won: -1, lost: 0, drawn: 0 } } })]))[0]).not.toHaveProperty('member');
+    expect(seatsOf(lobby([seat({ member: { ...good, publicId: 'short' } })]))[0]).not.toHaveProperty('member');
+  });
+
+  it('drops an other botModel with no name, round-trips a listed one', () => {
+    const bad = seatsOf(lobby([seat({ kind: 'bot', botModel: { id: 'other' } })]))[0];
+    expect(bad).not.toHaveProperty('botModel');
+    expect(bad?.kind).toBe('bot');
+    expect(seatsOf(lobby([seat({ kind: 'bot', botModel: { id: 'claude-sonnet-5-5' } })]))[0]?.botModel).toEqual({ id: 'claude-sonnet-5-5' });
+  });
+});

@@ -93,9 +93,9 @@ describe('MatchRoom', () => {
   it('a hello with a valid ticket joins the lobby, and each socket is told its own seat', async () => {
     const { room } = await created();
     const ws0 = await hello(room, 0);
-    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false }], you: 0, map: 'tel_marum', factions: ['kdf', 'kdf'] });
+    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false, kind: 'human' }], you: 0, map: 'tel_marum', factions: ['kdf', 'kdf'] });
     const ws1 = await hello(room, 1);
-    const seats = [{ seat: 0, callsign: 'Host', connected: true, ready: false }, { seat: 1, callsign: 'Guest', connected: true, ready: false }];
+    const seats = [{ seat: 0, callsign: 'Host', connected: true, ready: false, kind: 'human' }, { seat: 1, callsign: 'Guest', connected: true, ready: false, kind: 'human' }];
     expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats, you: 0, map: 'tel_marum', factions: ['kdf', 'kdf'] });
     expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1, map: 'tel_marum', factions: ['kdf', 'kdf'] });
   });
@@ -475,7 +475,7 @@ describe('MatchRoom', () => {
     const { room } = await created(new FakeState(), { mode: 'versus' });
     await hello(room, 1);
     const again = await hello(room, 1, await ticket(1, CODE, 'p-guest-other-tab'));
-    expect(ofType(again, 'lobby').at(-1)?.seats).toEqual([{ seat: 1, callsign: 'Guest', connected: true, ready: false }]);
+    expect(ofType(again, 'lobby').at(-1)?.seats).toEqual([{ seat: 1, callsign: 'Guest', connected: true, ready: false, kind: 'human' }]);
   });
 
   it('a callsign handed to the room directly is cleaned too: the lobby and the config never carry a control or bidi character', async () => {
@@ -3049,6 +3049,63 @@ describe('a room keeps its members (GH-1075 A3 Task 3.3)', () => {
     await mk('create', { code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', kind: 'human', botModel: { id: 'scripted' } });
     await mk('join', { player: 'p-guest', kind: 'bot', botModel: { id: 'other', name: 'MyNet v3' } });
     expect((state.storage.kv.get('meta') as { botModels: unknown }).botModels).toEqual([null, { id: 'other', name: 'MyNet v3' }]);
+  });
+});
+
+describe('member labels in the lobby (GH-1075 A3 Task 3.5)', () => {
+  const MA = { memberId: 'INTERNAL-ID-AAA', publicId: '7K3M9Q2X', name: 'Alpha', showRecord: false, record: { won: 3, lost: 1, drawn: 0 } };
+  const MB = { memberId: 'INTERNAL-ID-BBB', publicId: 'H4J8N5R6', name: 'Bravo', showRecord: true, record: { won: 2, lost: 0, drawn: 0 } };
+  async function seated(host: unknown, guest: unknown, guestExtra: Record<string, unknown> = {}): Promise<{ room: MatchRoom; ws0: FakeSocket; ws1: FakeSocket }> {
+    const room = new MatchRoom(new FakeState(), env, YIELD);
+    const mk = (path: string, body: unknown) => room.fetch(new Request(`https://room/${path}`, { method: 'POST', body: JSON.stringify(body) }));
+    await mk('create', { code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus', member: host });
+    await mk('join', { player: 'p-guest', callsign: 'Guest', member: guest, ...guestExtra });
+    const ws0 = await hello(room, 0);
+    const ws1 = await hello(room, 1);
+    return { room, ws0, ws1 };
+  }
+
+  it('show_record_off_hides_the_record', async () => {
+    const { ws0, ws1 } = await seated(MA, MB);
+    for (const ws of [ws0, ws1]) {
+      const seats = ofType(ws, 'lobby').at(-1)?.seats ?? [];
+      expect(seats[0]?.member).toEqual({ name: 'Alpha', publicId: '7K3M9Q2X' });
+      expect(seats[1]?.member).toEqual({ name: 'Bravo', publicId: 'H4J8N5R6', record: { won: 2, lost: 0, drawn: 0 } });
+    }
+  });
+
+  it('the_internal_id_never_leaves', async () => {
+    const { room, ws0, ws1 } = await seated(MA, MB);
+    await say(room, ws0, { t: 'ready' });
+    await say(room, ws1, { t: 'ready' });
+    const all = JSON.stringify([...ws0.messages(), ...ws1.messages()]);
+    expect(all).toContain('Alpha');
+    expect(all).not.toContain('INTERNAL-ID');
+    const start = ofType(ws0, 'start')[0];
+    expect(start).toBeDefined();
+    const cfg = JSON.stringify(start?.config);
+    for (const needle of ['INTERNAL-ID', '7K3M9Q2X', 'H4J8N5R6', 'Alpha', 'Bravo']) expect(cfg).not.toContain(needle);
+  });
+
+  it('a_guest_seat_has_no_member', async () => {
+    const { ws0 } = await seated(MA, null);
+    const seats = ofType(ws0, 'lobby').at(-1)?.seats ?? [];
+    expect(seats[0]).toHaveProperty('member');
+    expect(seats[1]).not.toHaveProperty('member');
+    expect(seats.map((x) => x.kind)).toEqual(['human', 'human']);
+  });
+
+  it('the_bot_model_is_in_the_lobby_not_the_config', async () => {
+    const { room, ws0, ws1 } = await seated(null, null, { kind: 'bot', botModel: { id: 'other', name: 'ZZ-SENTINEL-MODEL' } });
+    const seats = ofType(ws0, 'lobby').at(-1)?.seats ?? [];
+    expect(seats[1]?.kind).toBe('bot');
+    expect(seats[1]?.botModel).toEqual({ id: 'other', name: 'ZZ-SENTINEL-MODEL' });
+    expect(seats[0]).not.toHaveProperty('botModel');
+    await say(room, ws0, { t: 'ready' });
+    await say(room, ws1, { t: 'ready' });
+    const start = ofType(ws0, 'start')[0];
+    expect(start).toBeDefined();
+    expect(JSON.stringify(start?.config)).not.toContain('ZZ-SENTINEL-MODEL');
   });
 });
 
