@@ -659,9 +659,9 @@ describe("bring your brigade: both line-ups in the lobby (GH-1102)", () => {
 
 // GH-976 P2: the host picks how the match is won; the lobby offers a mode only where it was read fair.
 describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => {
-  // GH-1139: flag is out of the lobby until CTF v2 lands (WP9, `WIN_MODE_FAIR_MAPS.flag` is empty). The flag lobby path is still
-  // code that WP9 turns back on, so these tests stand the seven v1 maps back in for their own run; the test that reads what
-  // the lobby offers TODAY takes them out first.
+  // GH-976 relist (12 Nov): flag is offered on the five staged maps only. Most of these tests drive the flag path on tel_marum too,
+  // so they stand the seven v1 maps in for their own run; the test that reads what the lobby offers TODAY puts the table back
+  // as it ships first.
   const V1_FLAG_MAPS = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
   const flagList = WIN_MODE_FAIR_MAPS.flag as string[];
   const SHIPPED = [...flagList];
@@ -721,7 +721,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     pick(mapRadio(stage, 'wadi_tarfan'));
     pick(winRadios(stage).find((r) => r.value === 'flag')!);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('flag');
-    expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('for 30 seconds');
+    expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('for 45 seconds');   // wadi_tarfan plays the set-up rules
     expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan', matchup: 'mirror', winMode: 'flag' });
   });
 
@@ -798,7 +798,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     }
   }));
 
-  it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: Destroy the camp on wadi_tarfan, milh_flats and wadi_tarfan_l, and never Capture the flag (GH-1139)', () => {
+  it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: Destroy the camp on wadi_tarfan, milh_flats and wadi_tarfan_l, and Capture the flag on the five staged maps, never on tel_marum or beit_sahwan_outskirts (GH-976 relist)', () => {
     asShipped();   // the table as it ships
     const stage = mountPick(deps({ maps: [...MAPS, WADI_TARFAN_L] }));
     const offered: Record<string, string[]> = {};
@@ -807,8 +807,8 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       offered[m.id] = winRadios(stage).map((r) => r.value);
     }
     expect(offered).toEqual({
-      beit_sahwan_outskirts: ['annihilation', 'points'], milh_flats: ['annihilation', 'camp', 'points'], tel_marum: ['annihilation', 'points'],
-      wadi_tarfan: ['annihilation', 'camp', 'points'], wadi_tarfan_l: ['annihilation', 'camp', 'points'],
+      beit_sahwan_outskirts: ['annihilation', 'points'], milh_flats: ['annihilation', 'camp', 'points', 'flag'], tel_marum: ['annihilation', 'points'],
+      wadi_tarfan: ['annihilation', 'camp', 'points', 'flag'], wadi_tarfan_l: ['annihilation', 'camp', 'points', 'flag'],
     });
   });
 
