@@ -989,6 +989,9 @@ async function main(): Promise<void> {
     const tutorialIsDone = ledgerStore.tutorialDone();
     // GH-464: whether this menu offers feedback, asked per mount.
     const menuFeedback = browserFeedbackSession();
+    // The feedback dialog's late-load guards (see `feedback:` below).
+    let feedbackLoading = false;
+    let menuGone = false;
     // Where the campaign is RIGHT NOW (Task 7): the tutorial while nothing has
     // been played, else the first open mission of wherever the map is live.
     // Null once every authored mission is done, which is `continue: undefined`
@@ -1041,22 +1044,35 @@ async function main(): Promise<void> {
       },
       feedback: menuFeedback.shown && !feedbackClosed()
         ? () => {
-            void importWithRetry(() => import('./ui/feedback-dialog')).then(({ feedbackDialog }) => feedbackDialog(host, {
-              who: menuFeedback.who,
-              build: menuFeedback.build,
-              storage: menuFeedback.storage,
-              send: async (sub, signal) =>
-                menuFeedback.send(
-                  {
-                    source: 'menu',
-                    category: sub.kind,
-                    text: sub.text,
-                    ...(sub.contact === undefined ? {} : { contact: sub.contact }),
-                    where: { context: collectContext(shellContextInput(settingsDeps.get())) },
-                  },
-                  { signal }
-                ),
-            }));
+            // The dialog's chunk loads on the click (bundle headroom), so the menu
+            // can be left, or the button clicked again, before it arrives: open
+            // nothing once this menu is disposed, and one dialog per load.
+            if (feedbackLoading || menuGone) return;
+            feedbackLoading = true;
+            void importWithRetry(() => import('./ui/feedback-dialog')).then(({ feedbackDialog }) => {
+              feedbackLoading = false;
+              if (menuGone) return;
+              feedbackDialog(host, {
+                who: menuFeedback.who,
+                build: menuFeedback.build,
+                storage: menuFeedback.storage,
+                send: async (sub, signal) =>
+                  menuFeedback.send(
+                    {
+                      source: 'menu',
+                      category: sub.kind,
+                      text: sub.text,
+                      ...(sub.contact === undefined ? {} : { contact: sub.contact }),
+                      where: { context: collectContext(shellContextInput(settingsDeps.get())) },
+                    },
+                    { signal }
+                  ),
+              });
+            }, (err: unknown) => {
+              // A chunk that will not load twice: the menu stays as it is.
+              feedbackLoading = false;
+              console.error('feedback dialog: its chunk did not load', err);
+            });
           }
         : undefined,
       // The host decides its own path (live, plate or off) and builds the
@@ -1081,6 +1097,7 @@ async function main(): Promise<void> {
     // does not empty). Nothing happens while no intro ships (`intro.ts`).
     const intro = firstLaunchIntro({ ...introDeps, settings: settingsDeps });
     return () => {
+      menuGone = true;
       intro();
       menu();
     };
