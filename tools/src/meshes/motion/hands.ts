@@ -65,6 +65,8 @@ interface RlHandsExtras {
   };
   readonly weapons: Record<string, { readonly origin: number[]; readonly q: number[]; readonly root: { readonly t: number[]; readonly r: number[] } }>;
   readonly part: { readonly butt_x: number; readonly triangles: number };
+  /** A fused figure's own aimed butt pocket, metres forward of, above and in from the shoulder joint (`hold.ts`, `HoldFigure.pocket`). */
+  readonly pocket?: [number, number, number];
 }
 
 export function rlHands(rig: Rig): RlHandsExtras | undefined {

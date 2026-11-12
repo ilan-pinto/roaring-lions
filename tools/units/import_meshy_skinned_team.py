@@ -18,10 +18,19 @@ Nothing here is hand-posed or weight-painted in a .blend: the weights are a func
 below, and the importer prints its census. The clips are `rig.build_clips`' own (the mocap retarget for inf_squad),
 then `pnpm motion:meshes` (the hold, the kneel, the wedge, the stride) as for every other team.
 
-usage: Blender -b --factory-startup -P tools/units/import_meshy_skinned_team.py -- inf_squad [--out path.glb]
+usage: Blender -b --factory-startup -P tools/units/import_meshy_skinned_team.py -- <team> [--out path.glb]
+       teams: inf_squad (the pilot, GH-746), demo_squad (infantry upgrade unit 1, GH-826)
 
 The three figures of the pilot are ONE Meshy body (f1, task 01a197a3): f0 and f2 are its measured scalings
 (stature 1.84 / 1.72, girth -2 % / +8 %), the design's 0-credit fallback, until their own bodies are bought.
+demo_squad's two men are ONE Meshy combat-engineer body (task 01a1d151) the same way: demo_a 1.84 m / -2 %, the leader
+demo_b 1.74 m / +8 % (the lead's numbers, 12 Nov 2026), with the team's satchel charge on its `prop` bone and the
+leader's cable spool on his spine (`_team_extras`).
+
+A team is one row of `SOURCES`. Every constant below is the PILOT's, tuned on the Rifle Squad's bake; a constant that
+has to move for another body goes in that team's `constants`, replaces the module's value for that team's build only
+(`_team_constants`) and is printed. Nothing here assumes a figure prefix has no underscore, that the first figure is
+`f1`, or that a team has no bone of its own beside its figures' (`prop`).
 No mathutils.noise anywhere (Blender 5.2 reseeds it per process).
 """
 import glob
@@ -41,6 +50,7 @@ TOOLS = os.path.dirname(HERE)
 REPO = os.path.dirname(TOOLS)
 sys.path.insert(0, TOOLS)
 sys.path.insert(0, HERE)
+import kit  # noqa: E402
 import rig  # noqa: E402
 from mesh_ownership import require_owner  # noqa: E402
 
@@ -71,11 +81,110 @@ SOURCES = {
         #: f0 / f2 as scalings of the one bought body (design 6, the 0-credit fallback): (z scale, xy scale).
         bodies={"f0": (1.84 / 1.78, 0.98), "f1": (1.0, 1.0), "f2": (1.72 / 1.78, 1.08)},
     ),
+    # Infantry upgrade unit 1 (GH-826; the lead's approval of 12 Nov 2026): the Combat Engineers, one bought body.
+    "demo_squad": dict(
+        glob=os.path.join(REPO, "art", "meshy", "demo-squad-body-*-01a1d151", "model.glb"),
+        task=dict(preview="01a1d14c-7e15-76f3-a5fd-974ddd514a3b", refine="01a1d14f-f163-70cd-ad35-63974b6f0f65",
+                  remesh="01a1d151-ef1e-7367-8496-de718e0a7907"),
+        #: the prompt's 1.79 m, to the top of the helmet as the pilot's 1.78 is (Meshy hands every figure back 1.897
+        #: tall, so the height itself cannot be measured; what was measured at 1.79 is in the build log: crotch,
+        #: knee, chin, shoulders)
+        stature=1.79,
+        #: yaw about Z that turns the remesh to face +X, measured as the pilot's: the hip/knee line's normal -74.1 deg,
+        #: the pelvis's minor axis -85.0, the feet -104.5 / -64.8 (mean -84.7, splayed 20 either side), the face -74.7.
+        #: Their mean is -79.6 and every one of the four is within 6 deg of it (the pilot took its hip/knee reading,
+        #: with the others within 12). The chest's minor axis does not read on this body: the vest is round in plan
+        #: (sd 0.087 x 0.111) and the carbine is held a hand's width in front of it.
+        yaw_deg=80.0,
+        seeds=dict(fist={"R": (0.19, -0.03, 1.245), "L": (0.30, 0.14, 1.235)},
+                   gun=dict(butt=(0.06, -0.14, 1.37), muzzle=(0.50, 0.30, 1.27)),
+                   elbow={"R": (-0.11, -0.29, 1.18), "L": (-0.05, 0.32, 1.13)},
+                   #: the hip joint's height. The pilot's scan (the first 2 cm band in which the legs are two bodies
+                   #: 7 cm apart) does not read this body: its trouser legs touch down to the fork at z 0.77, and the
+                   #: one band it finds higher (0.913-0.933) is 45 sparse vertices, not a gap. 0.93 is the trochanter's
+                   #: height, 0.52 of the stature, which gives a 0.42 thigh over a 0.42 shin.
+                   crotch=0.93),
+        #: the lead's two men (12 Nov): demo_a 1.84 m and 2 % leaner, the leader demo_b 1.74 m and 8 % rounder
+        bodies={"demo_a": (1.84 / 1.79, 0.98), "demo_b": (1.74 / 1.79, 1.08)},
+        #: What moves for THIS bake (CIE L*a*b*, read off the remesh's vertex texels; the pilot's value is printed
+        #: beside each at build). Meshy painted this figure's gloves the dark brown the prompt asked for (L* 13-30,
+        #: C* 8-17, hue 26-52) where the pilot's were a saturated orange-brown (C* 34-53), its uniform a lighter,
+        #: stronger khaki (L* 37-58, C* 19-30), and its carbine, plate carrier and knee pads ONE dark blue-grey
+        #: (L* 3-28, C* 3-12, hue -80) where the pilot's vest was a neutral black apart from a grey-blue gun.
+        constants=dict(
+            # the glove: low chroma, so the floor comes down; the face (C* 29-37, the same hue) is kept out by a ceiling
+            GLOVE_C_MIN=6.5, GLOVE_C_MAX=20.0, GLOVE_HUE=(15.0, 62.0),
+            BROWN_C_MIN=5.5, BROWN_C_MAX=20.0, BROWN_HUE=(15.0, 62.0),
+            # ...and the skin class starts above the glove's chroma (the pilot's 12 took 40 % of this glove as skin)
+            SKIN_C_MIN=20.0,
+            # the uniform, and the helmet's cover with it (L* 38, C* 9, hue 90: a duller khaki). With the pilot's C* floor
+            # of 12 the cover was khaki in patches only, and the olive re-tint left it blotched like a camouflage print
+            # (and up to C* 40: the cover's sunlit facets are L* 54, C* 34)
+            KHAKI_L=(20.0, 62.0), KHAKI_C=(6.0, 40.0),
+            GUN_L=(2.0, 30.0), GUN_C_MAX=13.0,
+            # the carrier's texels are blue-grey, not black: lighter and stronger than the pilot's (14, 8)
+            VEST_L_MAX=32.0, VEST_C_MAX=14.0,
+            # its shoulder straps go over the top of the shoulders, 1.47-1.50 against joints at 1.42
+            VEST_TOP_ABOVE_SHOULDER_M=0.10,
+            # the fists are held a hand's width in front of the chest: with the pilot's rule the cuffs' olive painted a
+            # leaf-shaped patch on the carrier's front, behind both wrists, bare as soon as the carbine came up
+            CUFF_TAKES_VEST=False,
+            # no orange was bled up these sleeves (the gloves are brown), and this khaki's own hue starts at 67: an
+            # "orange" that stops at 75 would re-tint half of every sleeve a second time, by a different rule
+            ORANGE_HUE=(15.0, 64.0),
+            # The carbine is held a hand's width IN FRONT of the vest, not sunk in it: read on the shell, the gun spans
+            # 6 cm either side of the bore across it and the vest starts 14 cm toward the torso (6 cm at the butt, where
+            # the gun is its bare buffer tube, 2.7 cm in radius). So the body side starts further out than on the pilot
+            # (2.8 cm, a stock lying in the vest), there is no stock pocket in the vest to take, the optic and the
+            # receiver reach 10 cm off the bore, and the magazine hangs clear of the body, both halves.
+            GUN_BODY_SIDE_M=0.05, STOCK_POCKET_M=-1.0, GUN_NEAR_M=0.11, GUN_REAR_FRAC=0.32, GUN_REAR_NEAR_M=0.045,
+            # (from 0.12 of the bore: the pistol grip's foot under the firing fist is the gun's too)
+            MAG_E_FRAC=(0.12, 0.62), MAG_DEPTH_MAX_M=0.05,
+            # The remesh left two thin triangles at the firing cuff, 60 and 101 mm long and 2.7 and 3.5 mm high: over
+            # the cleaner's 2.5 mm at rest, under it as soon as the wrist turns (read in move and every aimed clip by
+            # the N1 census, whose bar is 40 mm). The cleaner takes them at 4 mm.
+            SLIVER_THIN_M=0.004,
+            # ...and so are the forearms: both are held in the air in front of the chest, so the whole of each capsule is
+            # sleeve. With the pilot's outer half only, the inner half of both sleeves (136 khaki vertices) lost its arm
+            # weight to the chest zone and fell to the spine.
+            FOREARM_INNER_M=-1.0,
+            # a looser sleeve about a forearm bone whose elbow end was moved 5-6 cm (the real-size forearm): its cloth
+            # lies 6-9 cm off the bone, past the pilot's 6.2 cm (66 khaki vertices fell to the spine)
+            # (11.5 cm; its core, 0.45 of that, then holds the gloves' black wrist straps, 4.4-5 cm off the bone)
+            ARM_CAPSULE_R={"upper": 0.075, "fore": 0.115},
+        ),
+        #: The aimed butt pocket (`hold.ts` REST_CARRY_RIFLE_POCKET, the pilot's (0.03, 0.02, 0.05): forward of, above and
+        #: in from the humeral head), stamped as `rl_hands.pocket`. This figure's face stands 0.193 above its shoulder
+        #: joint and 0.132 above its neck joint, 1 cm ahead of it; the pilot's 0.150, 0.182 and 4 cm. With the pilot's
+        #: pocket the cheek weld had to drop the eye 10.5 cm on a 13 cm lever that starts vertical: 73 deg of neck, the
+        #: helmet's crown toward the target (rendered, 12 Nov). At 0.09 above the joint -- the tube's end on the top of
+        #: the collarbone, the bore beside the jaw -- the weld asks the 37 deg it asks of the pilot.
+        pocket=(0.03, 0.09, 0.05),
+    ),
 }
+
+#: A constant a team's row moved, as it was (the pilot's), while that team builds: `_team_constants` puts it back.
+_MOVED_CONSTANTS = {}
+
+
+def _team_constants(team_id):
+    """The module's constants for `team_id`'s build: the pilot's, with the row's `constants` in their place. Restores
+    whatever the previous team of this process moved, so `-- inf_squad demo_squad` builds each with its own."""
+    g = globals()
+    for k, v in _MOVED_CONSTANTS.items():
+        g[k] = v
+    _MOVED_CONSTANTS.clear()
+    for k, v in SOURCES[team_id].get("constants", {}).items():
+        if not k.isupper() or k not in g:
+            raise SystemExit(f"{team_id}: constants names {k!r}, which is not a constant of this importer")
+        _MOVED_CONSTANTS[k] = g[k]
+        g[k] = v
+        log(f"{team_id}: constant {k} = {v!r} (the pilot's {_MOVED_CONSTANTS[k]!r})")
 
 #: Colour classes of the bake, CIE L*a*b* (the design's own instrument for the glove, spec 1.5).
 GLOVE_C_MIN, GLOVE_HUE = 18.0, (20.0, 75.0)
 BROWN_C_MIN, BROWN_HUE = 16.0, (15.0, 80.0)   # the glove in shadow is C* 34; the vest's brownish greys are under 12
+GLOVE_C_MAX = BROWN_C_MAX = float("inf")      # no ceiling on the pilot's orange-brown; a team whose glove is a dull brown sets one
 FIST_CORE_M = 0.05            # within this of the fist's centre is the fist, whatever the bake says
 WRIST_FREE_M = 0.07           # the sleeve within this of a wrist is a smooth blend to the hand, never a cut seam
 CAP_INSET_M = 0.015           # a gun's or a fist's collar goes this deep into its own side
@@ -113,7 +222,11 @@ WRIST_BACK_M = 0.06           # the wrist crease sits this far behind the closed
 CUFF_BLEND_M = 0.06           # hand -> forearm blend behind the wrist plane (0.03 tore at the cuff when the support fist rolled round the handguard: review, 9 Nov, N1)
 CUFF_HAND_MAX = 0.45          # the hand's weight at the wrist plane: the cuff stays forearm-dominant
 GUN_NEAR_M = 0.075            # a gun-coloured vertex this close to the bore is the gun
+GUN_REAR_FRAC, GUN_REAR_NEAR_M = 0.0, float("inf")   # behind this fraction of the bore the gun is a thinner thing (a bare
+                              # buffer tube): within GUN_REAR_NEAR_M of the bore only. The pilot's: no such rear part
 GUN_BODY_SIDE_M = 0.028       # across the bore toward the torso: past this a vertex is the vest the gun lies on
+MAG_E_FRAC, MAG_DEPTH_MAX_M = (0.30, 0.60), 0.0   # the magazine: along the bore, and how far toward the torso it may reach
+                              # (the pilot's lies against the vest: its outer half only)
 STOCK_POCKET_M = 0.12         # the rear of the stock whose vest pocket goes with it
 GUN_LEN_BAND = (0.72, 0.98)   # a Meshy carbine must be within 15 % of 0.85 m, or the import refuses
 TORSO_HALF_W = 0.25           # the chest, its side pouches and the shoulder caps: inside it, off the arms' own sleeves, is torso
@@ -121,6 +234,8 @@ HIP_HALF_W = 0.36             # the hips and what hangs from the belt (holster, 
 HIP_KIT_ABOVE_CROTCH = 0.18   # ...up to the belt: the holster beside it kept forearm 0.15-0.33 from bone heat and tore in fire
 ARM_CAPSULE_R = {"upper": 0.075, "fore": 0.062}   # an arm's own radius about its bone, sleeve included
 ARM_LATERAL_M = 0.19          # outboard of this from the spine, an upper arm's capsule is all arm
+FOREARM_INNER_M = -0.01       # a forearm's sleeve is its capsule no further than this toward the spine (the pilot's lies ON the
+                              # belly: the outer half); a forearm held clear of the body is its whole capsule (-1.0)
 MAX_INFLUENCES = 4            # glTF's limit, pruned here (deterministically) rather than by the exporter
 
 
@@ -157,12 +272,15 @@ def _classes(co, lab):
     L, a, b = lab[:, 0], lab[:, 1], lab[:, 2]
     C = np.hypot(a, b); hue = np.degrees(np.arctan2(b, a))
     z = co[:, 2]
+    # the glove with its shadows: any brown, however dark, against the vest's neutral black (C* under 5)
+    brown = (C > BROWN_C_MIN) & (C < BROWN_C_MAX) & (hue > BROWN_HUE[0]) & (hue < BROWN_HUE[1]) & (L > 6)
     return dict(
         L=L, C=C,
-        glove=(C > GLOVE_C_MIN) & (hue > GLOVE_HUE[0]) & (hue < GLOVE_HUE[1]) & (L > 12),
-        # the glove with its shadows: any brown, however dark, against the vest's neutral black (C* under 5)
-        brown=(C > BROWN_C_MIN) & (hue > BROWN_HUE[0]) & (hue < BROWN_HUE[1]) & (L > 6),
-        gun=(L > GUN_L[0]) & (L < GUN_L[1]) & (C < GUN_C_MAX),
+        glove=(C > GLOVE_C_MIN) & (C < GLOVE_C_MAX) & (hue > GLOVE_HUE[0]) & (hue < GLOVE_HUE[1]) & (L > 12),
+        brown=brown,
+        # never a brown: where a team's gun class and its dull-brown glove overlap in chroma, the hue parts them (on the
+        # pilot the two cannot meet: its gun is C* under 7, its brown over 16)
+        gun=(L > GUN_L[0]) & (L < GUN_L[1]) & (C < GUN_C_MAX) & ~brown,
         khaki=(L > KHAKI_L[0]) & (L < KHAKI_L[1]) & (C > KHAKI_C[0]) & (C < KHAKI_C[1]) & (hue > KHAKI_HUE[0]) & (hue < KHAKI_HUE[1]),
         skin=(C > SKIN_C_MIN) & (L > SKIN_L_MIN) & (a > SKIN_A_MIN),
         # the boot: its tan leather by colour up to the trouser's blouse, and EVERYTHING under the boot's top whatever
@@ -175,7 +293,15 @@ def _classes(co, lab):
 # the figure's joints, measured on the normalised shell
 # ---------------------------------------------------------------------------
 
-def _measure(co, cls, S, seeds):
+#: A REVIEW build of a body whose gun reads outside GUN_LEN_BAND: `SKINNED_GUN_LEN_REVIEW=<team>` in the environment.
+#: The band does not move and the import still refuses by default. The switch exists so a short or long gun can be
+#: SHOWN to the lead on the figure, in motion, before he rules on it (re-roll the body, or accept it as a named item);
+#: the file it writes says so (`extras.rl_skinned.gun_len_review`), and `pnpm validate:meshes` refuses a file that
+#: carries that stamp, so a review build cannot ship.
+GUN_LEN_REVIEW_ENV = "SKINNED_GUN_LEN_REVIEW"
+
+
+def _measure(co, cls, S, seeds, team_id=None):
     z = co[:, 2]
     J = {"S": S, "sxy": 1.0, "sz": 1.0}
     near = lambda p, r, m: (np.linalg.norm(co - np.asarray(p), axis=1) < r) & m  # noqa: E731
@@ -185,6 +311,10 @@ def _measure(co, cls, S, seeds):
         m = (z > lo * S) & (z < lo * S + 0.02); ys = co[m, 1]; pos, neg = ys[ys > 0], ys[ys < 0]
         if len(pos) and len(neg) and pos.min() - neg.max() > 0.04 * S:
             crotch = float(lo * S + 0.02); break
+    if "crotch" in seeds:
+        # a body the scan cannot read (its legs touch below the hips): the row's own hip height, with the scan's printed
+        log(f"  hip height {seeds['crotch']:.3f} from the row (the leg-gap scan read {crotch:.3f})")
+        crotch = float(seeds["crotch"])
     J["crotch"], J["belt"], J["knee"], J["ankle"] = crotch, crotch + BELT_ABOVE_CROTCH, KNEE_F * S, ANKLE_M
     m = (z > J["knee"] - 0.05) & (z < J["knee"] + 0.05); P = co[m]
     J["leg"] = {"R": P[P[:, 1] < 0, :2].mean(0), "L": P[P[:, 1] > 0, :2].mean(0)}
@@ -211,7 +341,11 @@ def _measure(co, cls, S, seeds):
         e2 = (P - c) @ a2; b = c + a2 * e2.min(); mz = c + a2 * e2.max()
     length = float(np.linalg.norm(mz - b))
     if not (GUN_LEN_BAND[0] <= length <= GUN_LEN_BAND[1]):
-        raise SystemExit(f"the Meshy gun measures {length:.3f} m, outside {GUN_LEN_BAND} (0.85 m +-15 %): refused")
+        if team_id is None or os.environ.get(GUN_LEN_REVIEW_ENV) != team_id:
+            raise SystemExit(f"the Meshy gun measures {length:.3f} m, outside {GUN_LEN_BAND} (0.85 m +-15 %): refused")
+        log(f"{team_id}: REVIEW BUILD -- the Meshy gun measures {length:.3f} m, outside {GUN_LEN_BAND}; built only because "
+            f"{GUN_LEN_REVIEW_ENV}={team_id} is set, stamped rl_skinned.gun_len_review, and refused by validate:meshes")
+        J["gun_len_review"] = dict(length=round(length, 4), band=list(GUN_LEN_BAND))
     up = np.array([0.0, 0.0, 1.0]); up = up - a2 * (up @ a2); up /= np.linalg.norm(up)
     J["gun"] = dict(butt=b, muzzle=mz, axis=a2, up=up, length=length, centre=(b + mz) / 2, n=int(m.sum()))
     # shoulders: the shoulder band's outer surface, SHOULDER_IN inside it, at the deltoid's own x
@@ -516,6 +650,7 @@ def _fix_weights(ob, prefix, J, cls, co):
     on_body_side = depth_to_body > GUN_BODY_SIDE_M
     on_body_side_deep = depth_to_body > 0.10          # the chest plate proper, behind the pocket
     gun = along & (rr < GUN_NEAR_M) & ~cls["brown"] & ~cls["khaki"] & ~cls["skin"] & ~on_body_side
+    gun &= (e >= GUN_REAR_FRAC * g["length"]) | (rr < GUN_REAR_NEAR_M)
     # the stock's pocket: Meshy shaped the vest around the butt, and parted from it that black cup stood 10 cm proud of
     # the chest in fire and pinned, reading as a piece floating by the shoulder (40 vertices, L* 2, 0.05-0.125 off the
     # bore, 1-8 cm ahead of the butt). It is the fusion's remnant and goes with the stock.
@@ -528,7 +663,7 @@ def _fix_weights(ob, prefix, J, cls, co):
     if pocket.any():
         log(f"{prefix}: {int(pocket.sum())} vertices of the vest's stock pocket go with the stock")
     # the magazine: below the bore, ahead of the grip, away from the body
-    gun |= along & cls["gun"] & (rr < 0.20) & ((co - g["butt"]) @ g["up"] < -0.03) & (e > 0.30 * g["length"]) & (e < 0.60 * g["length"]) & (depth_to_body < 0.0)
+    gun |= along & cls["gun"] & (rr < 0.20) & ((co - g["butt"]) @ g["up"] < -0.03) & (e > MAG_E_FRAC[0] * g["length"]) & (e < MAG_E_FRAC[1] * g["length"]) & (depth_to_body < MAG_DEPTH_MAX_M)
     # a small island of the shell (a sling loop, a buckle) inside the gun's corridor is the gun's, whatever its
     # colour: left on the spine, the stock's rear loop stayed at the chest when the carbine came up to the shoulder
     # (a 45-vertex piece floating beside the figure in `fire`, 1 Nov)
@@ -620,7 +755,7 @@ def _fix_weights(ob, prefix, J, cls, co):
         radial = co - q
         outward = q - np.array([spine_xy[0], spine_xy[1], 0.0]); outward[:, 2] = 0.0
         outward /= np.maximum(np.linalg.norm(outward, axis=1), 1e-9)[:, None]
-        return (np.linalg.norm(radial, axis=1) < r) & ((radial * outward).sum(1) > -0.01)
+        return (np.linalg.norm(radial, axis=1) < r) & ((radial * outward).sum(1) > FOREARM_INNER_M)
     near_arm = np.zeros(len(co), bool); arm_core = np.zeros(len(co), bool)
     for side in ("R", "L"):
         near_arm |= capsule(J["shoulder"][side], J["elbow"][side], ARM_CAPSULE_R["upper"])
@@ -684,6 +819,28 @@ def _fix_weights(ob, prefix, J, cls, co):
     tot = W.sum(1)
     orphan = tot < 1e-6
     W[orphan, gi[f"{prefix}_spine"]] = 1.0
+    if os.environ.get("SKINNED_DEBUG") and orphan.any():
+        # SKINNED_DEBUG=1: where the vertices that lost every weight are, and what the bake says they are (how the demo
+        # body's constants were found: a vertex that falls to the spine here is a gun part, a sleeve or a strap the
+        # pilot's capsules and classes did not reach)
+        P_ = co[orphan]
+        log(f"  {prefix}: orphans x {P_[:, 0].min():+.3f}..{P_[:, 0].max():+.3f} y {P_[:, 1].min():+.3f}..{P_[:, 1].max():+.3f} "
+            f"z {P_[:, 2].min():.3f}..{P_[:, 2].max():.3f}; " + ", ".join(f"{k} {int(cls[k][: len(co)][orphan].sum())}" for k in ("gun", "brown", "khaki", "skin"))
+            + f"; within 15 cm of the bore {int((orphan & along & (rr < 0.15)).sum())}, near an arm {int((orphan & near_arm).sum())}")
+        def seg_d(a, b):
+            a = np.asarray(a); b = np.asarray(b); d_ = b - a
+            t_ = np.clip(((co - a) @ d_) / (d_ @ d_), 0.0, 1.0)
+            return np.linalg.norm(co - a - np.outer(t_, d_), axis=1), t_
+        for k_ in ("gun", "khaki", "skin"):
+            m_ = orphan & cls[k_][: len(co)]
+            if not m_.any():
+                continue
+            dR, tR = seg_d(J["elbow"]["R"], J["wrist"]["R"]); dL, tL = seg_d(J["elbow"]["L"], J["wrist"]["L"])
+            uR, _ = seg_d(J["shoulder"]["R"], J["elbow"]["R"]); uL, _ = seg_d(J["shoulder"]["L"], J["elbow"]["L"])
+            log(f"    {k_}: e/L {np.round(np.percentile(e[m_] / g['length'], [0, 50, 100]), 2)} rr {np.round(np.percentile(rr[m_], [0, 50, 100]), 3)} "
+                f"depth {np.round(np.percentile(depth_to_body[m_], [0, 50, 100]), 3)} up {np.round(np.percentile(((co - g['butt']) @ g['up'])[m_], [0, 50, 100]), 3)}; "
+                f"to forearm R {np.round(np.percentile(dR[m_], [0, 50, 100]), 3)} (t {np.round(np.percentile(tR[m_], [0, 50, 100]), 2)}) L {np.round(np.percentile(dL[m_], [0, 50, 100]), 3)} "
+                f"(t {np.round(np.percentile(tL[m_], [0, 50, 100]), 2)}); to upper R {np.round(uR[m_].min(), 3)} L {np.round(uL[m_].min(), 3)}")
     tot = W.sum(1)
     W /= tot[:, None]
     _set_weights(ob, names, W)
@@ -1381,7 +1538,12 @@ def _stamp_extras(path, team_id, figures, gun_tris, hand_tris):
         glove=list(GLOVE_TEXEL[team_id]), stations=stations, weapons=weapons,
         part=dict(triangles=int(gun_tris), butt_x=round(-float(next(iter(figures.values()))["gun"]["length"]) / 2, 6)),
     )
+    if "pocket" in SOURCES[team_id]:
+        ex["rl_hands"]["pocket"] = [float(x) for x in SOURCES[team_id]["pocket"]]
     ex["rl_skinned"] = dict(version=1, figures=sorted(figures), task=SOURCES[team_id]["task"], binding="smooth")
+    review = next(iter(figures.values())).get("gun_len_review")
+    if review:
+        ex["rl_skinned"]["gun_len_review"] = review
     _write_glb(path, js, bin_)
     log(f"{team_id}: rl_hands (source meshy) and rl_skinned stamped; grip station t {stations['grip']['t']}, support t {stations['support']['t']}")
 
@@ -1480,12 +1642,14 @@ def _final_glove_texels(ob, Jw, W_, H_):
     nV = len(me.vertices)
     co = np.empty(nV * 3); me.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
     hw = np.zeros(nV); tw = np.full(nV, -1.0)
+    by_len = sorted(Jw, key=len, reverse=True)
     for v in me.vertices:
         pref = None
         for g in v.groups:
             nm = names[g.group]
             if pref is None and g.weight > 0:
-                pref = nm.split("_")[0]
+                # the figure a bone belongs to: `demo_a_hand_L` is demo_a's, not `demo`'s (None for a team bone, `prop`)
+                pref = next((p_ for p_ in by_len if nm.startswith(p_ + "_")), None)
             if "_hand_" in nm:
                 hw[v.index] = max(hw[v.index], g.weight)
         if pref in Jw and hw[v.index] > 0:
@@ -1579,6 +1743,9 @@ SLEEVE_BLEED_M = 0.30         # the forearm's sleeve: uniform within this of a w
 VEST_L_MAX, VEST_C_MAX = 14.0, 8.0   # a vest texel: near-black and neutral (the bake's carrier, its pouches and straps)
 VEST_ISLAND_SHARE = 0.5       # a UV island is the carrier's when at least this share of its faces are vest faces
 VEST_FLOOR_L = 25.0           # after the retint no carrier texel may stay darker than this (the coyote's mean is ~43)
+VEST_TOP_ABOVE_SHOULDER_M = 0.06   # the carrier's vertices reach this far above the shoulder joints' height
+CUFF_TAKES_VEST = True        # the cuff's olive takes every face within CUFF_RETINT_M of a wrist, the carrier's included (the
+                              # pilot's fists lie ON the vest, under the forearms); False where the fists are held clear of it
 CUFF_RETINT_M = 0.10
 ORANGE_C_MIN, ORANGE_HUE = 18.0, (15.0, 75.0)
 GLOVE_L_CLAMP = (21.0, 30.0)   # about the dark brown's L* 22 (the gate's floor for this figure is 20)
@@ -1699,6 +1866,49 @@ def _glove_texel(uv, hand_mask, W_px, H_px):
 
 
 # ---------------------------------------------------------------------------
+# a team's own props
+# ---------------------------------------------------------------------------
+
+#: demo_squad's cable spool (`kit.cable_spool`: a disc of radius 0.26 on edge, 0.14 thick, its hub a 0.10 box) is worn
+#: on the leader's back, as `import_meshy_kdf_team.py` hung it on the body this one replaces: the disc's centre
+#: SPOOL_Z_F of his stature up, its hub SPOOL_HUB_OUT_M behind the back's own surface at that height. That importer set
+#: the centre 0.16 behind the figure's origin at z 0.80 of 1.78 (0.449); this body stands further back over its feet
+#: (the origin is the ankles' mean and its hips are 0.10 behind them), so the same literal would bury the disc to its
+#: hub. The surface is measured on the shell instead, and the number is printed.
+SPOOL_Z_F = 0.80 / 1.78
+SPOOL_HUB_OUT_M = 0.04
+SPOOL_HALF_W_M = 0.07         # the disc's half thickness: the band of the back it hangs on
+CHARGE_AT = (0.76, -0.16, 0.0)   # the satchel charge on the ground ahead of demo_a (rig._demo_extras' own, unchanged)
+
+
+def _team_extras(team_id, figures, Js, co0):
+    """(parts, bones, forced bone per part) of a team's props: kit parts, rigidly bound (`rig.rig_parts`), no material
+    (the runtime colours a bare role mesh from its role ramp, as it does for the same props on today's file)."""
+    if team_id != "demo_squad":
+        return [], [], {}
+    spec = next(s for s in figures if s["leader"])
+    p = spec["prefix"]; J = Js[p]
+    # the leader's back at the spool's height: the rear-most surface in the disc's own band, at his slot
+    zc = SPOOL_Z_F * J["S"]
+    cy = float((J["leg"]["R"][1] + J["leg"]["L"][1]) / 2)
+    body = co0 * np.array([J["sxy"], J["sxy"], J["sz"]])
+    band = (np.abs(body[:, 2] - zc) < 0.05) & (np.abs(body[:, 1] - cy) < SPOOL_HALF_W_M)
+    if band.sum() < 8:
+        raise SystemExit(f"{team_id}: {int(band.sum())} vertices of {p}'s back at the spool's height z {zc:.3f}: not measured")
+    rear = float(body[band, 0].min())
+    cx = rear - SPOOL_HUB_OUT_M
+    # kit.cable_spool draws its disc 0.30 above `at`
+    spool = kit.cable_spool("demo_spool", (spec["x"] + cx, spec["y"] + cy, zc - 0.30))
+    charge = kit.demo_charge("demo_charge", CHARGE_AT)
+    forced = {ob: "prop" for ob in charge}
+    forced.update({ob: f"{p}_spine" for ob in spool})
+    log(f"{team_id}: extras -- the charge at {CHARGE_AT} on `prop`; the spool on {p}_spine, disc centre "
+        f"({spec['x'] + cx:.3f}, {spec['y'] + cy:.3f}, {zc:.3f}): {p}'s back is at x {rear:+.3f} of his origin there, "
+        f"the hub {SPOOL_HUB_OUT_M * 100:.0f} cm behind it")
+    return charge + spool, [rig._prop_bone((CHARGE_AT[0], CHARGE_AT[1], 0.10))], forced
+
+
+# ---------------------------------------------------------------------------
 # build
 # ---------------------------------------------------------------------------
 
@@ -1709,10 +1919,14 @@ def build_team(team_id, out_path=None):
     if require_owner(rig.TEAM_MESH_OWNER, team_id, "TEAM_MESH_OWNER") != os.path.relpath(os.path.abspath(__file__), REPO):
         raise SystemExit(f"{team_id}: TEAM_MESH_OWNER names another script; this importer does not own its file")
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    _team_constants(team_id)
     src, image, co0 = _load(team_id)
     lab, uv = _vertex_lab(src, image)
     cls0 = _classes(co0, lab)
-    J0 = _measure(co0, cls0, cfg["stature"], cfg["seeds"])
+    if _MOVED_CONSTANTS:
+        log(f"{team_id}: colour classes on {len(co0)} vertices -- " + ", ".join(
+            f"{k} {int(cls0[k].sum())}" for k in ("glove", "brown", "gun", "khaki", "skin", "boot")))
+    J0 = _measure(co0, cls0, cfg["stature"], cfg["seeds"], team_id)
     _real_size_hands(co0, cls0, J0)
     g = J0["gun"]
     log(f"{team_id}: joints -- crotch {J0['crotch']:.3f} knee {J0['knee']:.3f} chin {J0['chin']:.3f} head_xy {np.round(J0['head_xy'], 3)}")
@@ -1729,7 +1943,18 @@ def build_team(team_id, out_path=None):
         p = spec["prefix"]; sz, sxy = cfg["bodies"][p]
         Js[p] = _scale_joints(J0, sz, sxy)
         bones += _bone_table(p, Js[p], spec["x"], spec["y"])
+    # the team's own props (demo_squad's charge and spool): rigid kit parts on bones of their own or a figure's
+    extra_parts, extra_bones, extra_forced = _team_extras(team_id, figures, Js, co0)
+    bones += extra_bones
     arm_obj = rig.build_armature(bones)
+    # a figure's bone, less its figure's prefix (`demo_a_root` -> `root`): the longest prefix a name starts with, never
+    # what follows the first underscore; a team bone (`prop`) belongs to no figure and keeps its whole name
+    by_len = sorted((s_["prefix"] for s_ in figures), key=len, reverse=True)
+
+    def bone_suffix(name):
+        p_ = next((q for q in by_len if name.startswith(q + "_")), None)
+        return name[len(p_) + 1:] if p_ else name
+    team_bones = [b.name for b in arm_obj.data.bones if bone_suffix(b.name) == b.name]
     # hand bones: +Z (the back of the hand) away from the bore; the rest keep rig.py's roll
     bpy.context.view_layer.objects.active = arm_obj
     bpy.ops.object.mode_set(mode="EDIT")
@@ -1742,9 +1967,12 @@ def build_team(team_id, out_path=None):
             eb.align_roll(Vector(off.tolist()).normalized())
     bpy.ops.object.mode_set(mode="OBJECT")
     for b in arm_obj.data.bones:
-        suffix = b.name.split("_", 1)[1]
+        suffix = bone_suffix(b.name)
         if suffix in ("root", "death_root", "hip_L", "hip_R"):
             b.use_deform = False
+    # ...and a team bone takes no part in a body's bone heat (it deforms again below, for the prop bound to it)
+    for name in team_bones:
+        arm_obj.data.bones[name].use_deform = False
 
     gun_tris = 0
     glove_texel = None
@@ -1799,6 +2027,11 @@ def build_team(team_id, out_path=None):
     src_for_uv = src.copy(); src_for_uv.data = src.data.copy()   # the source's faces and uv, for the glove re-tint
     bpy.data.objects.remove(src, do_unlink=True)
 
+    if extra_parts:
+        for name in team_bones:
+            arm_obj.data.bones[name].use_deform = True
+        rig.rig_parts(extra_parts, arm_obj, extra_forced, {s_["prefix"] for s_ in figures})
+        parts += extra_parts
     merged = rig.join_by_role(parts)
     for role, ob in merged.items():
         mod = next((m for m in ob.modifiers if m.type == "ARMATURE"), None)
@@ -1826,6 +2059,7 @@ def build_team(team_id, out_path=None):
         for side_ in ("R", "L"):
             cuff |= np.linalg.norm(co0 - J0["wrist"][side_], axis=1) < CUFF_RETINT_M
         cuff &= ~glove & ~skin & ~gun_mask_f1[:n0]
+        cuff_all = cuff.copy()
         sleeve = np.zeros(n0, bool)
         for side_ in ("R", "L"):
             sleeve |= np.linalg.norm(co0 - J0["wrist"][side_], axis=1) < SLEEVE_BLEED_M
@@ -1834,8 +2068,14 @@ def build_team(team_id, out_path=None):
         # not the gun, the fists, the skin or the boots
         sxy0 = (J0["leg"]["R"] + J0["leg"]["L"]) / 2
         vest = ((cls0["L"][:n0] <= VEST_L_MAX) & (cls0["C"][:n0] < VEST_C_MAX) & (co0[:, 2] > J0["belt"] - 0.06)
-                & (co0[:, 2] < SHOULDER_Z + 0.06) & (np.abs(co0[:, 1] - sxy0[1]) < TORSO_HALF_W)
-                & ~glove & ~skin & ~gun_mask_f1[:n0] & ~cls0["boot"][:n0])
+                & (co0[:, 2] < SHOULDER_Z + VEST_TOP_ABOVE_SHOULDER_M) & (np.abs(co0[:, 1] - sxy0[1]) < TORSO_HALF_W)
+                & ~glove & ~skin & ~gun_mask_f1[:n0] & ~cls0["boot"][:n0]
+                # never a brown or a khaki (the pilot's black vest, C* under 8, cannot be either; a team whose carrier is
+                # a dark blue-grey read by a wider band can: its gloves' dull-brown gauntlets and its shirt's shadows)
+                & ~cls0["brown"][:n0] & ~cls0["khaki"][:n0])
+        if not CUFF_TAKES_VEST:
+            cuff = cuff_all & ~vest
+            log(f"cuff: {int((cuff_all & vest).sum())} carrier vertices within {CUFF_RETINT_M * 100:.0f} cm of a wrist left to the carrier's coyote")
         # B3: the glove by TEXEL (the hand weight across each face, cut 1 cm proximal of the wrist); the glove blob ahead
         # of the wrist (Meshy's glove colour) counts as hand
         hw = np.maximum(hand_w_f1[:n0], glove_blob_f1[:n0].astype(float))
@@ -1899,6 +2139,8 @@ def main():
     if "--out" in argv:
         out = argv[argv.index("--out") + 1]; argv = [a for a in argv if a not in ("--out", out)]
     for name in argv or ["inf_squad"]:
+        if name not in SOURCES:
+            raise SystemExit(f"unknown team {name!r}; have {sorted(SOURCES)}")
         build_team(name, out)
 
 

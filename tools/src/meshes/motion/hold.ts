@@ -198,6 +198,12 @@ export interface HoldFigure {
    * blade, no protraction), so idle shows the figure undeformed; the aim blends from there to the shouldered formula.
    */
   readonly restCarry?: boolean;
+  /**
+   * A rest carry's own aimed butt pocket (`rl_hands.pocket`, the importer's row): REST_CARRY_RIFLE_POCKET was measured
+   * on the pilot's body, whose face stands 0.15 over its shoulder joint. A body with a longer neck needs the butt
+   * higher, or the cheek weld bows the head to the ground looking for the bore.
+   */
+  readonly pocket?: V3;
 }
 
 /** +1 when the weapon is held on the anatomical right (+Z), -1 on the left. */
@@ -270,6 +276,7 @@ export function describeHold(rig: Rig, verts: RestVertex[], prefix: string, kind
       prefix, kind, butt: wf.butt, axis: wf.axis, up: wf.up, length: wf.length, fromJoint, handShoot: wristS, handSupport: wristP,
       eye, eyeJoint: head, shootSide, hands,
       ...(rlHands(rig)?.source === 'meshy' ? { restCarry: true } : {}),
+      ...(rlHands(rig)?.source === 'meshy' && rlHands(rig)?.pocket ? { pocket: rlHands(rig)!.pocket } : {}),
     };
   }
   const handShoot = handPoint(rig, verts, rig.node(`${prefix}_forearm_${shootSide}`));
@@ -500,7 +507,7 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
     }
     if (h.kind === 'rifle') {
       if (aim) {
-        const pk = h.restCarry ? REST_CARRY_RIFLE_POCKET : h.hands ? HANDS_RIFLE_POCKET : RIFLE_POCKET;
+        const pk = h.restCarry ? (h.pocket ?? REST_CARRY_RIFLE_POCKET) : h.hands ? HANDS_RIFLE_POCKET : RIFLE_POCKET;
         const butt = add(shoulder, [pk[0], pk[1], -side * pk[2]]);
         return { butt, dir: weaponDir(AIM_ELEVATION_DEG.rifle, 0, side) };
       }
