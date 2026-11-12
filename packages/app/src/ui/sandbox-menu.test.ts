@@ -341,6 +341,7 @@ describe('the launch URL', () => {
       ditch: false,
       decals: false,
       rubble: false,
+      ragdoll: false,
       kit: true,
       works: false,
       soft: false,

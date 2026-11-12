@@ -25,7 +25,7 @@ export type { GradeJson } from './three/grade-maths';
 // rather than joining a lazy entry point. `main.ts` reads `QUALITY_PRESETS`
 // to translate `Settings.video.quality` into `RendererOptions.quality`
 // before the renderer's chunk has loaded.
-export { QUALITY_PRESETS, type RenderQuality } from './quality';
+export { QUALITY_PRESETS, RAGDOLL_SHOWCASE_CAP, type RenderQuality } from './quality';
 // Per-seat kit (Task 6): which vehicle template a (type, side) draws from.
 // Pure and three-free, so it stays on the barrel; the app's room-kit test
 // holds it against `buildMatchWorld`, which decides "side 1 gets its own

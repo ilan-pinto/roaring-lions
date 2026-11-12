@@ -430,6 +430,13 @@
  *                 frame, so a bare write would hold only until the gate's
  *                 repaint. Hides the streaks and their splashes, not the wet
  *                 ground. 0 on a map that does not rain.
+ * - `ragdolls`    every figure the presentation-only physics holds (GH-1223): the
+ *                 ragdolls in flight, the showcase teams waiting for their death,
+ *                 and the corpses they froze into. A FLAG
+ *                 (`ThreeRenderer.ragdollLayerHidden`) re-applied after the
+ *                 corpses' fog reveal each frame, so a repaint cannot undo it.
+ *                 Voted by the gated `ragdoll` scenario (PENDING its first CI
+ *                 readings); 0 wherever no ragdoll stands (every shipped preset).
  *
  * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
  * follow-up 2): the large dark diagonal a first attempt at the plate read as
@@ -576,6 +583,8 @@ export const DEBUG_LAYERS = [
   'muzzle-burst',
   'smoke-plume',
   'collapse-shroud',
+  // GH-1223 slice 1: the ragdolls. See the doc entry.
+  'ragdolls',
 ] as const;
 
 /** The layers `ThreeRenderer.writeFxLayerVisibility` holds hidden every frame. */

@@ -133,6 +133,16 @@ export function showCredits(stage: HTMLElement, deps: CreditsDeps): Disposer {
     a.rel = 'noopener noreferrer';
     a.textContent = `${lib.name} ${lib.version}`;
     li.append(a, document.createTextNode(` — ${lib.licence}`));
+    // GH-1223: a licence that asks for its text to travel with the work (Apache-2.0 4(a)) links the shipped copy.
+    if (lib.licenceFile !== undefined) {
+      const text = document.createElement('a');
+      text.href = `${deps.base}${lib.licenceFile}`;
+      text.target = '_blank';
+      text.rel = 'noopener noreferrer';
+      text.className = 'rl-credits__licence-link';
+      text.textContent = t('credits.library.licenceText');
+      li.append(document.createTextNode(' '), text);
+    }
     libs.appendChild(li);
   }
   built.appendChild(libs);

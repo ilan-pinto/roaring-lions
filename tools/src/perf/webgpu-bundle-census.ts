@@ -57,6 +57,7 @@ for (const c of pick(f.coreChunks)) lines.push(`three.core (+WebGLRenderer, shar
 for (const c of pick(f.webgpuChunks)) lines.push(`three/webgpu (lazy): ${row(c)}`);
 for (const c of chunks.filter((x) => /^three\.tsl-/.test(x.file))) lines.push(`three/tsl (lazy): ${row(c)}`);
 for (const c of pick(f.nodeBackendChunks)) lines.push(`node backend (lazy): ${row(c)}`);
+for (const c of pick(f.rapierChunks)) lines.push(`Rapier (lazy, ragdolls only; GH-1223): ${row(c)}`);
 for (const c of chunks.filter((x) => /^ThreeRenderer-/.test(x.file))) lines.push(`ThreeRenderer (lazy, legacy path + composer): ${row(c)}`);
 const lazy = pick(f.webgpuChunks).concat(chunks.filter((x) => /^three\.tsl-/.test(x.file)), pick(f.nodeBackendChunks));
 const lazyBytes = lazy.reduce((n, c) => n + c.code.length, 0);
