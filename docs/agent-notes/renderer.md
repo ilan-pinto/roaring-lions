@@ -13,6 +13,12 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   GTAO and SMAA and halves the shadow map. Since Defilade T4 `high`
   also builds a quarter-resolution bloom; `medium` and `low` build none (D8; `medium` off by
   the lead's ruling of 22 Oct pending a GPU-timer measurement).
+  **`high` at DPR 2 is best-effort on the Wadi Halam maps (GH-829, the lead's ruling of 12 Nov 2026).** It may run just under
+  60 fps there: 16.1-19.2 ms against the 16.7 ms frame budget (M3 Pro, ANGLE/Metal, 1440x900 at DPR 2, parked sandbox force,
+  synced readPixels; the free-running cadence with the app loop live read 16.7 ms and 0.0% of 300 frames over 20 ms, but the margin is
+  smaller than the machine's load swing). The look does not change to buy it back: no pixel-ratio cap, no SMAA change, no decor LOD.
+  Revisit only if holding 60 fps at `high` on Retina becomes a goal. The per-pass profile (no pass dominates; main scene 4.9-7.6 ms,
+  SMAA 2.1-2.8 ms) and the vignette fold into `OutputPass` (PR 841, pixel-identical) are in `docs/PERFORMANCE.md`.
 
 <!-- CLAUDE.md lines 632-917, section "The three.js backend" -->
 
