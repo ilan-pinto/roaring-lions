@@ -1,10 +1,10 @@
 // The versus probe's win-mode arm (GH-976 P1): the instrument has to tell its sides apart, play both ends the same
 // way, and read its own bars the way the header says. Each test is seen red under a one-line mutation of
 // versus-modes.ts; the commit message lists them.
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MapId } from '@lions/data';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
-import { economyRoom } from '@lions/net';
+import { FLAG_SETUP_MAPS, economyRoom } from '@lions/net';
 import {
   GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, RAZE_MEAN_MAX_S_48, RAZE_MEAN_MAX_S_96, contestedShare, holdsBalanced, razeLimitS, razeOk, razeVerdict, withCampOverride, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, describeTiming, g4Verdict, massedFlagOrder, rallyTile, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
   type ModePlayFn, type ModePlayed,
@@ -714,7 +714,14 @@ describe('the flag arm plays the lobby\'s set-up room (flagSetupFor), and --flag
 });
 
 describe('the massed flag script (a reduced stand-in for the audit\'s strong attacker) and the G4 line', () => {
-  const FLAG_MAPS = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'] as const;
+  // GH-976: PR 1307 took milh_flats off FLAG_SETUP_MAPS, so a flag room there is no set-up room any more (no bell, no regions, the v1
+  // flags). These tests pin the script on milh_flats' SET-UP room (the rally literals below are its), the room the strong attacker must
+  // be re-run on before milh_flats can come back (`WIN_MODE_FAIR_MAPS.flag` in config.ts). So this describe stands milh_flats back in the
+  // list for its run (`flagSetupFor` reads it at call time, as `arena.test.ts` relies on) and restores the shipped list after each test.
+  const setupList = FLAG_SETUP_MAPS as string[];
+  const SETUP_SHIPPED = [...setupList];
+  beforeEach(() => { if (!setupList.includes('milh_flats')) setupList.push('milh_flats'); });
+  afterEach(() => { setupList.splice(0, setupList.length, ...SETUP_SHIPPED); });
   const worldOf = (map: MapId) => buildMatchWorld(modeConfig(map, 'flag', seedOf(0), undefined, true));
   /** The commands `massedFlagOrder` queues, read off the sim by spying on its queue. */
   const issued = (map: MapId, nowTick: number, idle = new Set<number>()) => {
@@ -729,9 +736,15 @@ describe('the massed flag script (a reduced stand-in for the audit\'s strong att
   const MILH_FLATS_RALLY_FIXED = { 0: [18 * 65536, 29 * 65536], 1: [29 * 65536, 18 * 65536] } as const;
   const centre = (map: MapId, end: 'friendly' | 'hostile') => { const f = versusModes[map].flag_setup!.flags[end]; return [(f.at[0] + f.size[0] / 2) * 65536, (f.at[1] + f.size[1] / 2) * 65536]; };
 
-  it('the rally tile lies inside the seat\'s own set-up region on every listed map, for both seats', () => {
-    for (const map of FLAG_MAPS) {
+  it('the rally tile lies inside the seat\'s own set-up region on every set-up map (the shipped list, and milh_flats stood in), for both seats', () => {
+    // Read at run time, so a map delisted or relisted later is covered without editing this test.
+    const maps = [...FLAG_SETUP_MAPS] as MapId[];
+    expect(maps).toContain('milh_flats');
+    expect(maps.length).toBeGreaterThan(1);
+    for (const map of maps) {
       const w = worldOf(map);
+      // A dead stand-in (or a map with no staged block) would read -2 for every tile below: name it here instead.
+      expect(w.setup, `${map} is not a set-up room`).not.toBeNull();
       for (const side of [0, 1] as const) {
         const [x, y] = rallyTile(w, side);
         expect(w.sim.setupRegionAt(x, y), `${map} side ${side} rally ${x},${y}`).toBe(side);
@@ -799,5 +812,12 @@ describe('the massed flag script (a reduced stand-in for the audit\'s strong att
     const games = [win(119), win(121), ...Array.from({ length: 38 }, () => wipe)];
     expect(g4Verdict(games)).toBe('G4 flag wins within 120 s of the bell: 1 of 40 (2.5%) ok');
     expect(g4Verdict([win(10), win(20), ...Array.from({ length: 18 }, () => wipe)])).toBe('G4 flag wins within 120 s of the bell: 2 of 20 (10.0%) OVER 5%');
+  });
+});
+
+// Runs after the describe above (one file runs its tests in order): its stand-in must not outlive it.
+describe('after the massed describe', () => {
+  it('milh_flats is off FLAG_SETUP_MAPS again (the stand-in was restored)', () => {
+    expect(FLAG_SETUP_MAPS).not.toContain('milh_flats');
   });
 });
