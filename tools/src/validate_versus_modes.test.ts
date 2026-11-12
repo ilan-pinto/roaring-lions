@@ -77,9 +77,7 @@ describe('the shipped win-mode files', () => {
     }
     // The literals (GH-976 P4): each of the seven open maps carries both modes, each read fair in the mirror, in a fixed order.
     const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
-    // 12 Nov GH-976 delisting: beit_sahwan_outskirts (71.5%) and rujm_sawda (65.3%) left the points list; they stay versus-fair with their mode files.
-    const POINTS_FIVE = ['tel_marum', 'wadi_tarfan', 'milh_flats', 'wadi_tarfan_l', 'milh_flats_l'];
-    expect(WIN_MODE_FAIR_MAPS.points).toEqual(POINTS_FIVE); // wadi_tarfan 56.3%, milh_flats 57.3% (P1); see config.ts
+    expect(WIN_MODE_FAIR_MAPS.points).toEqual(SEVEN); // wadi_tarfan 56.3%, milh_flats 57.3% (P1); the other five 51-55% on 4000-4287: see config.ts
     // The v1 raid read fair on all seven (P3, P4) and is still in every mode file below; the lead pulled it from the lobby
     // (GH-1139) and relisted it on 12 Nov (GH-976) on the five maps with a staged `flag_setup` block, the mirror only.
     expect(WIN_MODE_FAIR_MAPS.flag).toEqual(['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']);
@@ -107,7 +105,12 @@ describe('the shipped win-mode files', () => {
     for (const s of shipped) {
       const p = s.doc.modes.points!;
       expect(p.per_value_destroyed, s.doc.map).toBeLessThanOrEqual(2);
-      expect(p.target, s.doc.map).toBeGreaterThanOrEqual(350);
+      expect(p.target, s.doc.map).toBeGreaterThanOrEqual(250);
+    }
+    // GH-976, 12 Nov: the two cells relisted after PR 1050 (finite APS) carry the re-fitted MARGIN targets, literals from the probes machine's re-fit
+    // (beit_sahwan_outskirts 600 -> 300, rujm_sawda 350 -> 250); at the old targets half and a sixth of their games ended by annihilation first.
+    for (const [map, target] of [['beit_sahwan_outskirts', 300], ['rujm_sawda', 250]] as const) {
+      expect(shipped.find((s) => s.doc.map === map)!.doc.modes.points, map).toMatchObject({ target });
     }
     expect(shipped.find((s) => s.doc.map === 'wadi_tarfan_l')!.doc.modes.points).toMatchObject({ per_value_destroyed: 1, target: 600 });
   });

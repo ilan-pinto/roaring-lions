@@ -89,14 +89,22 @@ export type WinMode = (typeof WIN_MODES)[number];
  *    135 / 153 / 0, 53.1% over all and decisive games, 96.2% by the goal, the passive end lost 288 of 288 from each end.
  *    KDF against Sarim is `WIN_MODE_FAIR_FACTION_CELLS`'s question.
  *
- *  - **GH-976, 12 Nov: `points` DELISTED on `beit_sahwan_outskirts` and `rujm_sawda`** (the lead's ruling, GH-976). The rows above for these
- *    two cells (points: 51.4% and 54.9%) are SUPERSEDED: the probes machine's "Win-mode fairness check, part 2" (12 Nov 08:22Z, active
- *    arm, seeds 4000-4287, against the 60/40 bar) read beit_sahwan_outskirts 82 / 206 (71.5% east) and rujm_sawda 188 / 100 (65.3%
- *    west), so both drifted out of the bar. They are out until the bisect (running on the probes machine) finds the cause and a fresh
- *    read lands inside 60/40. Every other row, map and mode is unchanged. */
+ *  - **GH-976, 12 Nov: `points` RELISTED on `beit_sahwan_outskirts` and `rujm_sawda` with re-fitted targets (300 and 250).** The lead
+ *    delisted both on 12 Nov (PR 1287) after the probes machine's part-2 read (active arm, seeds 4000-4287) put them outside 60/40:
+ *    beit_sahwan_outskirts 82 / 206 (71.5% east), rujm_sawda 188 / 100 (65.3% west). The cause is PR 1050 (finite APS, GH-884): after
+ *    it about half of the beit_sahwan_outskirts games and a sixth of the rujm_sawda games end by annihilation before the target is
+ *    reached. The probes machine's "Re-fit of the two delisted points cells with the finite APS kept" (12 Nov 12:57Z) found that a
+ *    lower `target` alone passes the full bars (leader inside 60/40 over all and decisive games, the passive seat losing every game
+ *    from either end, at least 70% decided by the goal): beit_sahwan_outskirts 600 -> 325 passes both ranges (55.6% / 95.5% on
+ *    4000-4287, 56.6% / 93.4% on 32000-32287), 300 passes the fresh range with more margin (52.1% / 95.8%; not run on 4000-4287);
+ *    rujm_sawda 350 -> 275 passes both (57.6% / 95.8%, 53.1% / 94.4%), 250 passes both with more margin (54.2% / 97.6%, 53.1% /
+ *    96.9%). The shipped values are the MARGIN steps, 300 and 250, because the smallest passers sat close to the bar (350 on
+ *    beit_sahwan_outskirts passed the first range by 0.3 points and failed the fresh one) and a read carries about 5 points of
+ *    noise. The race gets shorter (mean game 345 s -> ~200 s and 227 s -> ~186 s). Camp, flag, zones, weights and every other map
+ *    are unchanged. */
 export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
   camp: ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'],
-  points: ['tel_marum', 'wadi_tarfan', 'milh_flats', 'wadi_tarfan_l', 'milh_flats_l'],
+  points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
   // GH-976 (the lead's ruling of 12 Nov, relisting what GH-1139 pulled on 8 Nov): flag is offered on the five maps with a staged
   // `flag_setup` block, in the MIRROR only (KDF v KDF), and always with the set-up rules: these five are also `FLAG_SETUP_MAPS`, and the
   // two lists change together (a listed map missing from `FLAG_SETUP_MAPS` would offer the v1 raid GH-1139 pulled, which an opening

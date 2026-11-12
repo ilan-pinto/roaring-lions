@@ -15,7 +15,7 @@
         { "zone": "west_b", "per_min": 40, "at": [12, 28], "size": [6, 6] }
       ],
       "per_value_destroyed": 2,
-      "target": 600
+      "target": 300
     }
   }
 }
