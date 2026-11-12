@@ -1193,11 +1193,11 @@ describe('MatchRoom', () => {
 
 describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () => {
   /** A hash tick early in the match: the frames up to it are minted within 0.3 s. */
-  const RESULT_TICK = 5;
+  const RESULT_TICK = 19;
   /** Both seats report the same result tick at the current time, once the room
    *  has minted it (a report of an unminted tick is ignored); returns the deadline. */
   async function bothOver(room: MatchRoom, ws0: FakeSocket, ws1: FakeSocket, tick = RESULT_TICK): Promise<number> {
-    await vi.advanceTimersByTimeAsync((tick + 1) * TICK_MS);
+    await vi.advanceTimersByTimeAsync((tick + 2) * TICK_MS);
     await say(room, ws0, { t: 'over', tick });
     await say(room, ws1, { t: 'over', tick });
     return Date.now() + OVER_CLOSE_MS;
@@ -1269,8 +1269,8 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
 
   it('#559 L-1: an early over from one seat and a one-second blip of the other end nothing', async () => {
     const { room, ws0, ws1 } = await running();
-    await vi.advanceTimersByTimeAsync(TICK_MS * 5);
-    await say(room, ws1, { t: 'over', tick: 1 });
+    await vi.advanceTimersByTimeAsync(TICK_MS * 25);
+    await say(room, ws1, { t: 'over', tick: 19 });
     await deliverClose(room, ws0);
     const back = await hello(room, 0);
     await vi.advanceTimersByTimeAsync(121_000);
@@ -1280,7 +1280,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
 
   it('two different ticks never close the room', async () => {
     const { state, room, ws0, ws1 } = await running();
-    await vi.advanceTimersByTimeAsync(30 * TICK_MS);
+    await vi.advanceTimersByTimeAsync(45 * TICK_MS);
     await say(room, ws0, { t: 'over', tick: RESULT_TICK });
     await say(room, ws1, { t: 'over', tick: RESULT_TICK + 20 });
     await vi.advanceTimersByTimeAsync(2 * OVER_CLOSE_MS);
@@ -1561,9 +1561,9 @@ describe('advisor sockets (N4a task 7)', () => {
   it('when the room closes itself after the result, the advisor is told and closed with the seats; its late close writes nothing', async () => {
     const { state, room, ws0, ws1 } = await running({ mode: 'versus' });
     const adv = await advisorHello(room, 1, 'assist');
-    await vi.advanceTimersByTimeAsync(10 * TICK_MS);
-    await say(room, ws0, { t: 'over', tick: 5 });
-    await say(room, ws1, { t: 'over', tick: 5 });
+    await vi.advanceTimersByTimeAsync(25 * TICK_MS);
+    await say(room, ws0, { t: 'over', tick: 19 });
+    await say(room, ws1, { t: 'over', tick: 19 });
     await vi.advanceTimersByTimeAsync(OVER_CLOSE_MS + TICK_MS);
     expect(last(adv)).toEqual({ t: 'ended', reason: 'over' });
     expect(adv.closed).toEqual({ code: 1000, reason: 'ended' });
@@ -2041,7 +2041,7 @@ describe('hello.from (D6, snapshot S3)', () => {
     expect(framesOf(adv)).toEqual(all.filter((f) => f.tick >= 38));
     expect(logOf(adv).every((l) => l.from === 38)).toBe(true);
     // The ended-room replay: both seats report the same result tick, the room closes itself.
-    const tick = 40;
+    const tick = 39;
     await say(room, ws0, { t: 'over', tick });
     await say(room, ws1, { t: 'over', tick });
     await vi.advanceTimersByTimeAsync(OVER_CLOSE_MS + TICK_MS);
@@ -3115,7 +3115,7 @@ describe('member labels in the lobby (GH-1075 A3 Task 3.5)', () => {
 
 describe('the room writes the record (GH-1075 A3 Task 3.4)', () => {
   const info = (id: string) => ({ memberId: id, publicId: `PUB${id}`, name: id, showRecord: true, record: { won: 0, lost: 0, drawn: 0 } });
-  const RESULT = 5;
+  const RESULT = 19;   // the real cadence: the first hash-window tick (hashEveryTicks 20)
   async function accounts() {
     const db = openTestD1({ dir: ACCOUNTS_MIGRATIONS, foreignKeys: true });
     await seedWalletMember(db, 'A', NOW);
@@ -3135,7 +3135,9 @@ describe('the room writes the record (GH-1075 A3 Task 3.4)', () => {
     return { state, room, ws0, ws1 };
   }
   const report = async (r: { room: MatchRoom; ws0: FakeSocket; ws1: FakeSocket }, w0: Seat | null, w1: Seat | null = w0): Promise<void> => {
-    await vi.advanceTimersByTimeAsync((RESULT + 1) * TICK_MS);
+    await vi.advanceTimersByTimeAsync((RESULT + 2) * TICK_MS);
+    await say(r.room, r.ws0, { t: 'hash', tick: RESULT, h: 1 });
+    await say(r.room, r.ws1, { t: 'hash', tick: RESULT, h: 1 });
     await say(r.room, r.ws0, { t: 'over', tick: RESULT, result: { winner: w0, by: 'annihilation' } });
     await say(r.room, r.ws1, { t: 'over', tick: RESULT, result: { winner: w1, by: 'annihilation' } });
   };
