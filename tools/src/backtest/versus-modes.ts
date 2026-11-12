@@ -59,11 +59,13 @@
 //          --zones=<zone:rate,...>  --kill=<n>  --target=<n>   fit the points race in memory (never written to disk)
 //          --camp-wipe=<ends|after_camp>  --camps=rules   the camp room's wipe rule, and (a screen) the economy-rules camps, in memory only; --defend=<on|off> (G4 arm, camp mode)
 //          --flags=<x,y,w,h/x,y,w,h>  --hold=<s>   fit the flag raid in memory (friendly then hostile ground; never written to disk)
+//          --flag-setup=<on|off>  --ready-s=<s>   the flag arm plays the lobby's room: the set-up phase on the maps FLAG_SETUP_MAPS lists, each seat that
+//                 orders pressing Ready at --ready-s (default 20: the bell at 25 s, the audits' early Ready), no kit placed; off is the v1 read
 
 import { fileURLToPath } from 'node:url';
 import { flagBlockOf, versusModes, type MapId, type WinModeId } from '@lions/data';
-import { WIN_MODES, matchCapTicks, validateConfig, type MatchConfig } from '@lions/net';
-import { armedStanding, goalsOf, outcomeOf, unitCost, type MatchResult } from '../../../packages/app/src/net/outcome';
+import { WIN_MODES, flagSetupFor, matchCapTicksOf, validateConfig, type MatchConfig } from '@lions/net';
+import { armedStanding, effectiveCapTicks, goalsOf, outcomeOf, unitCost, type MatchResult } from '../../../packages/app/src/net/outcome';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, DECIDE_EVERY_TICKS, SEEDS_DEFAULT, livingOf, loneSurvivorOf, order, parseArrangements, roomConfig, seedOf, type Arrangement } from './versus-probe';
 import { fx, type Sim } from '@lions/sim';
@@ -80,6 +82,9 @@ export interface ModePlayed {
   winner: 0 | 1 | null;
   by: ModeFinish;
   ticks: number;
+  /** A flag set-up room only: the tick the bell rang (the sim's own `setupBellTick`), else absent. `ticks - bellTick` is the time
+   *  the audits quote ("flag wins within 120 s of the bell"). */
+  bellTick?: number;
   /** Final points by END (a points race), else absent. */
   points?: [number, number];
   /** The sim tick of the first decision tick on which a side had no armed unit (a WIPE), else absent. Under `wipe: ends` the
@@ -112,14 +117,26 @@ export interface ModePlayOptions {
   wipeEnds?: false;
   /** PIN ONLY: record `sim.hash()` and `runtime.digest()` once the sim has run this many ticks (`ModePlayed.probe`). Changes nothing else. */
   probeAt?: number;
+  /** GH-976 v2: play the room the lobby plays. The config carries `flagSetup: flagSetupFor(map, mode)` (true for a flag room on a
+   *  `FLAG_SETUP_MAPS` map, absent for any other), so the set-up phase runs: weapons held and the region clamp until the bell. Off by
+   *  default here, so `FLAG_V1_GAME_PIN` and every earlier read stay byte for byte; the CLI turns it on (`--flag-setup=off` to undo). */
+  flagSetup?: boolean;
+  /** With `flagSetup`: the second at which each seat that takes orders presses Ready (the bell then rings `SETUP_BELL_DELAY_TICKS`
+   *  later: 20 s gives the bell at 25 s, the 11 and 12 Nov audits' early Ready). A passive or cut seat never presses it. */
+  readyS?: number;
 }
+
+/** The second a seat presses Ready by default: the audits' early Ready (the bell at 25 s). */
+export const READY_S_DEFAULT = 20;
 
 /** The mirror, the arrangement every cell played before GH-976 P4. */
 export const MIRROR: Arrangement = ['kdf', 'kdf'];
 
 /** A mode room's config: the probe cell's (the mirror unless `arr` says two factions), with the mode set. */
-export function modeConfig(mapId: MapId, mode: WinModeId, seed: number, arr: Arrangement = MIRROR): MatchConfig {
-  const c = validateConfig({ ...roomConfig(mapId, arr, seed), winMode: mode });
+export function modeConfig(mapId: MapId, mode: WinModeId, seed: number, arr: Arrangement = MIRROR, flagSetup = false): MatchConfig {
+  // The Worker mints `flagSetup` through `flagSetupFor`; so does this, when asked (`undefined` -> no key at all).
+  const setup = flagSetup ? flagSetupFor(mapId, mode) : undefined;
+  const c = validateConfig({ ...roomConfig(mapId, arr, seed), winMode: mode, ...(setup === undefined ? {} : { flagSetup: setup }) });
   if (c === null) throw new Error(`versus modes: no valid ${mode} room config for ${mapId} ${arr.join('/')}`);
   return c;
 }
@@ -256,7 +273,7 @@ export function pointsOrder(w: MatchWorld, zoneNames: readonly string[], passive
 
 /** One game on `mapId` under `mode`. */
 export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: ModePlayOptions = {}): ModePlayed {
-  const config = modeConfig(mapId, mode, seed, opts.arr);
+  const config = modeConfig(mapId, mode, seed, opts.arr, opts.flagSetup === true);
   const w = buildMatchWorld(config);
   const runtime = w.runtime;
   if (runtime === null) throw new Error(`versus modes: ${mapId} ${mode} built no runtime`);
@@ -274,7 +291,11 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
   const idleSides = idleSidesFor(mode, passiveSide, opts.cutEnd === undefined ? -1 : sideOfEnd[opts.cutEnd]);
   const parties = new Map<number, readonly number[]>();
   if (mode === 'flag') for (const side of [0, 1] as const) parties.set(side, raidParty(w, side));
-  const cap = matchCapTicks(mapId);
+  // A set-up room's cap is its own (30 minutes), and it is decided on the earlier of that and the bell + 12 minutes (`effectiveCapTicks`),
+  // the one function the room reads. A room with no set-up reads `matchCapTicksOf` of the same config, which is the map's cap as before.
+  const cap = matchCapTicksOf(config);
+  const readyTick = (opts.readyS ?? READY_S_DEFAULT) * 20;
+  const capNow = (): number => effectiveCapTicks(config, w.sim, cap);
   const production = opts.wipeEnds === false ? { canField: () => true } : undefined;
   const defendSide = opts.defend === undefined ? -1 : sideOfEnd[opts.defend];
   // A WIPE is read on the decision ticks, the room's own cadence: the first one on which a side has no armed unit.
@@ -284,7 +305,7 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
   };
   let probe: { hash: number; digest: number } | undefined;
   const read = (o: MatchResult): ModePlayed => {
-    const base = finish(o, w.sim.tickCount, sideOfEnd);
+    const base = { ...finish(o, w.sim.tickCount, sideOfEnd), ...(w.setup === null ? {} : { bellTick: w.sim.setupBellTick }) };
     noteWipe();
     // Contested (G1b): the goal decided it, and the side that lost its camp still had an armed unit.
     const loserSide = o.kind === 'won' ? (o.side === 0 ? 1 : 0) : -1;
@@ -303,15 +324,17 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
       else if (mode === 'flag') flagOrder(w, mapId, parties, idleSides, sideOfEnd);
       else pointsOrder(w, zoneNames, passiveSide);
     }
+    // The set-up phase (a flag set-up room only): each seat that takes orders presses Ready once, as a player would.
+    if (w.setup !== null && t === readyTick) for (const side of [0, 1] as const) if (!idleSides.has(side)) w.sim.queueCommand({ kind: 'setupReady', side });
     matchTick(w);
     if (opts.probeAt !== undefined && w.sim.tickCount === opts.probeAt) probe = { hash: w.sim.hash(), digest: runtime.digest() };
     if (w.sim.tickCount % DECIDE_EVERY_TICKS === 0) {
       noteWipe();
-      const o = outcomeOf(w.sim, w.sim.tickCount, unitCost, production, cap, goals);
+      const o = outcomeOf(w.sim, w.sim.tickCount, unitCost, production, capNow(), goals);
       if (o.kind !== 'ongoing') return read(o);
     }
   }
-  const o = outcomeOf(w.sim, cap, unitCost, production, cap, goals);
+  const o = outcomeOf(w.sim, cap, unitCost, production, capNow(), goals);
   if (o.kind === 'ongoing') throw new Error('the cap rule left a mode game ongoing');
   return read(o);
 }
@@ -321,11 +344,12 @@ export const RUSH_S = 120;
 
 /** Report-only timing of the games the goal decided: the median seconds to win, and how many ended before `RUSH_S`. */
 export function describeTiming(games: readonly ModePlayed[]): string {
-  const won = games.filter((g) => g.by === 'objective').map((g) => g.ticks / 20).sort((a, b) => a - b);
+  // A set-up room is timed from its bell, as the audits quote it ("within 120 s of the bell"); a room with no set-up from tick 0.
+  const won = games.filter((g) => g.by === 'objective').map((g) => (g.ticks - (g.bellTick ?? 0)) / 20).sort((a, b) => a - b);
   if (won.length === 0) return 'no game decided by the goal';
   const mid = Math.floor(won.length / 2);
   const median = won.length % 2 === 1 ? won[mid] : (won[mid - 1] + won[mid]) / 2;
-  return `median ${Math.round(median)} s to win over ${won.length} goal games, rush wins (before ${RUSH_S} s) ${won.filter((t) => t < RUSH_S).length}`;
+  return `median ${Math.round(median)} s to win over ${won.length} goal games, rush wins (before ${RUSH_S} s${games.some((g) => g.bellTick !== undefined) ? ' of the bell' : ''}) ${won.filter((t) => t < RUSH_S).length}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -427,17 +451,17 @@ export function describeTally(t: ModeTally, arr: Arrangement = MIRROR): string {
 export type ModePlayFn = typeof playMode;
 
 /** The controls on one map and mode; each failure is a sentence. Empty means the arm can tell its sides apart. */
-export function modeSelfCheck(mapId: MapId, mode: WinModeId, playFn: ModePlayFn = playMode, arr: Arrangement = MIRROR): string[] {
+export function modeSelfCheck(mapId: MapId, mode: WinModeId, playFn: ModePlayFn = playMode, arr: Arrangement = MIRROR, room: Pick<ModePlayOptions, 'flagSetup' | 'readyS'> = {}): string[] {
   const failures: string[] = [];
   const seed = seedOf(0);
   const cell = arr[0] === arr[1] ? `${mapId} ${mode}` : `${mapId} ${mode} ${arr.join('/')}`;
   for (const strong of [0, 1] as const) {
-    const g = playFn(mapId, mode, seed, { cutEnd: strong === 0 ? 1 : 0, arr });
+    const g = playFn(mapId, mode, seed, { cutEnd: strong === 0 ? 1 : 0, arr, ...room });
     if (g.winner !== strong) failures.push(`${cell}: with end ${strong === 0 ? 1 : 0} cut to one unit, end ${strong} should win; read winner ${String(g.winner)} by ${g.by}`);
     if (g.by === 'cap') failures.push(`${cell}: with end ${strong === 0 ? 1 : 0} cut to one unit the game ran to the cap`);
   }
-  const a = playFn(mapId, mode, seed, { arr });
-  const b = playFn(mapId, mode, seed, { arr });
+  const a = playFn(mapId, mode, seed, { arr, ...room });
+  const b = playFn(mapId, mode, seed, { arr, ...room });
   if (a.winner !== b.winner || a.by !== b.by || a.ticks !== b.ticks) failures.push(`${cell}: one seed played twice read two games`);
   return failures;
 }
@@ -619,6 +643,15 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
   if (campSweeping && !modes.includes('camp')) throw new Error('--camp-wipe and --camps set the camp room: they need --mode=camp (or all)');
   if (campSweeping) console.log(`camp override (in memory only): ${JSON.stringify(campOverride)}`);
   const defendOn = (flag(args, 'defend') ?? 'on') !== 'off';
+  // GH-976 v2: the flag arm plays the lobby's room by default (the set-up phase on the maps `FLAG_SETUP_MAPS` lists, early Ready);
+  // `--flag-setup=off` is the v1 read (no set-up: the opening rush GH-1139 saw at 0:55).
+  const flagSetupArg = flag(args, 'flag-setup') ?? 'on';
+  if (flagSetupArg !== 'on' && flagSetupArg !== 'off') throw new Error('--flag-setup must be on (the lobby\'s room, the default) or off (the v1 read, no set-up)');
+  const readyArg = flag(args, 'ready-s');
+  const readyS = readyArg === undefined ? READY_S_DEFAULT : Number(readyArg);
+  if (!Number.isInteger(readyS) || readyS < 0 || readyS > 170) throw new Error('--ready-s must be a whole number of seconds, 0 to 170 (the set-up lasts 180)');
+  const room: Pick<ModePlayOptions, 'flagSetup' | 'readyS'> = flagSetupArg === 'on' ? { flagSetup: true, readyS } : {};
+  if (modes.includes('flag')) console.log(flagSetupArg === 'on' ? `flag room: the set-up phase on the maps FLAG_SETUP_MAPS lists, each seat that orders presses Ready at ${readyS} s (the bell ${readyS + 5} s in); timing is read from the bell` : 'flag room: --flag-setup=off, the v1 read (no set-up phase; every flag win is an opening rush)');
   const flagsArg = flag(args, 'flags');
   const holdArg = flag(args, 'hold');
   const flagOverride: FlagOverride = {
@@ -637,7 +670,7 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
   if (!skipCheck) {
     for (const mapId of mapIds) for (const mode of modes) for (const arr of arrangements) {
       // The self-check plays the same camp room the sweep will (a screen's injected camps and rule), not the shipped file's.
-      const problems = mode === 'camp' && campSweeping ? withCampOverride(mapId, campOverride, () => modeSelfCheck(mapId, mode, playFn, arr)) : modeSelfCheck(mapId, mode, playFn, arr);
+      const problems = mode === 'camp' && campSweeping ? withCampOverride(mapId, campOverride, () => modeSelfCheck(mapId, mode, playFn, arr, room)) : modeSelfCheck(mapId, mode, playFn, arr, room);
       for (const p of problems) { console.log(`SELF-CHECK FAILED: ${p}`); failed++; }
     }
     if (failed > 0) return 2;
@@ -645,7 +678,7 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
   }
   const rows = (mapId: MapId, mode: WinModeId, opts: ModePlayOptions): ModePlayed[] => {
     const out: ModePlayed[] = [];
-    for (let n = seedFrom; n < seedFrom + seeds; n++) out.push(playFn(mapId, mode, seedOf(n), { ...opts, ...wipeEnds }));
+    for (let n = seedFrom; n < seedFrom + seeds; n++) out.push(playFn(mapId, mode, seedOf(n), { ...room, ...opts, ...wipeEnds }));
     return out;
   };
   const run = (mapId: MapId): void => {

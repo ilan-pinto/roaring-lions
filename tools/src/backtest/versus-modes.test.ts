@@ -641,3 +641,74 @@ describe('GH-976 v2: FLAG_V1_GAME_PIN (R0.19): a v1 flag game stays byte for byt
     expect({ winner: g.winner, by: g.by, ticks: g.ticks }).toEqual(FLAG_V1_GAME_PIN.wadi_tarfan.result);
   }, FULL_GAMES_TIMEOUT_MS);
 });
+
+describe('the flag arm plays the lobby\'s set-up room (flagSetupFor), and --flag-setup=off is the v1 read', () => {
+  // Oracles are literals: Ready at 20 s is tick 400, the bell rings 100 ticks (SETUP_BELL_DELAY_TICKS) after both are Ready, the
+  // set-up lasts 180 s (3,600 ticks) without that, and the backstop is 12 minutes (14,400 ticks) after the bell.
+  const quiet = <T>(fn: () => T): T => { const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined); try { return fn(); } finally { spy.mockRestore(); } };
+
+  it('a map FLAG_SETUP_MAPS lists runs the set-up: the bell rings at 500, nothing is decided before it, the room is a set-up room', () => {
+    const g = playMode('wadi_tarfan', 'flag', seedOf(0), { flagSetup: true });
+    expect(g.bellTick).toBe(500);
+    expect(g.ticks).toBeGreaterThanOrEqual(500);
+    expect(buildMatchWorld(modeConfig('wadi_tarfan', 'flag', seedOf(0), undefined, true)).setup).not.toBeNull();
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('--ready-s moves the bell: Ready at 40 s rings it at tick 900', () => {
+    expect(playMode('wadi_tarfan', 'flag', seedOf(0), { flagSetup: true, readyS: 40 }).bellTick).toBe(900);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('a seat that takes no order never presses Ready: against a passive seat the bell waits the full 180 s (tick 3600)', () => {
+    const g = playMode('wadi_tarfan', 'flag', seedOf(0), { flagSetup: true, passive: 1 });
+    expect(g.bellTick).toBe(3600);
+    expect(g.winner).toBe(0); // the attacking end wins, by the flag or by the wipe (both are clean wins), never by the cap
+    expect(['objective', 'annihilation']).toContain(g.by);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('a flag map that is NOT listed plays no set-up even when asked (tel_marum has a v1 flag and no flag_setup)', () => {
+    const asked = playMode('tel_marum', 'flag', seedOf(0), { flagSetup: true });
+    expect(asked.bellTick).toBeUndefined();
+    expect(buildMatchWorld(modeConfig('tel_marum', 'flag', seedOf(0), undefined, true)).setup).toBeNull();
+    expect(asked).toEqual(playMode('tel_marum', 'flag', seedOf(0)));
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('a listed map with the set-up off is the v1 game, byte for byte: no bell, the FLAG_V1_GAME_PIN result', () => {
+    const g = playMode('wadi_tarfan', 'flag', seedOf(35000), { flagSetup: false });
+    expect(g.bellTick).toBeUndefined();
+    expect({ winner: g.winner, by: g.by, ticks: g.ticks }).toEqual({ winner: 1, by: 'objective', ticks: 1240 });
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('the room is decided on the earlier of its cap and the bell + 12 minutes: a game nobody wins by the flag ends at tick 500 + 14,400, not at the 30-minute cap', () => {
+    // wipeEnds:false (the experiment) lets the wiped seat play on, so nothing but the flag or the clock ends the game.
+    const g = playMode('wadi_tarfan', 'flag', seedOf(0), { flagSetup: true, wipeEnds: false });
+    expect(g).toMatchObject({ by: 'cap', ticks: 14900, bellTick: 500 });
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('describeTiming reads a set-up game from its bell (the audits\' "within 120 s of the bell")', () => {
+    const games: ModePlayed[] = [{ winner: 0, by: 'objective', ticks: 2900, bellTick: 500 }, { winner: 1, by: 'objective', ticks: 1700, bellTick: 500 }];
+    expect(describeTiming(games)).toBe('median 90 s to win over 2 goal games, rush wins (before 120 s of the bell) 1');
+    expect(describeTiming([{ winner: 0, by: 'objective', ticks: 2900 }])).toBe('median 145 s to win over 1 goal games, rush wins (before 120 s) 0');
+  });
+
+  it('the CLI plays the set-up room by default and --flag-setup=off plays the v1 room; a bad value is refused', () => {
+    const seen: { flagSetup?: boolean; readyS?: number }[] = [];
+    const fake: ModePlayFn = (_m, _mode, _s, o) => { seen.push({ flagSetup: o?.flagSetup, readyS: o?.readyS }); return { winner: 0, by: 'objective', ticks: 2400 }; };
+    quiet(() => modeMain(['--mode=flag', '--maps=wadi_tarfan', '--seeds=1', '--no-self-check', '--passive=off'], fake));
+    expect(seen).toEqual([{ flagSetup: true, readyS: 20 }]);
+    seen.length = 0;
+    quiet(() => modeMain(['--mode=flag', '--maps=wadi_tarfan', '--seeds=1', '--no-self-check', '--passive=off', '--ready-s=40'], fake));
+    expect(seen).toEqual([{ flagSetup: true, readyS: 40 }]);
+    seen.length = 0;
+    quiet(() => modeMain(['--mode=flag', '--maps=wadi_tarfan', '--seeds=1', '--no-self-check', '--passive=off', '--flag-setup=off'], fake));
+    expect(seen).toEqual([{ flagSetup: undefined, readyS: undefined }]);
+    expect(() => modeMain(['--mode=flag', '--flag-setup=maybe'], fake)).toThrow(/--flag-setup/);
+    expect(() => modeMain(['--mode=flag', '--ready-s=200'], fake)).toThrow(/--ready-s/);
+  });
+
+  it('the self-check plays the same room the sweep plays', () => {
+    const seen: unknown[] = [];
+    const fake: ModePlayFn = (_m, _mode, _s, o) => { seen.push(o?.flagSetup); return { winner: o?.cutEnd === 1 ? 0 : 1, by: 'objective', ticks: 2400 }; };
+    modeSelfCheck('wadi_tarfan', 'flag', fake, undefined, { flagSetup: true });
+    expect(seen).toEqual([true, true, true, true]);
+  });
+});
