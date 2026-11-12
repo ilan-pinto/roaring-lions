@@ -187,7 +187,8 @@ describe('GH-1248: the node AO pre-pass draws a cut building through its twin\'s
     // Falsify: the same `TSL.bool(TSL.float(1) as never)` in `cutAoFor`: the sentinel is never read.
     expect(g.used.has(sentinel), 'the AO discard does not read the twin\'s maskNode').toBe(true);
     expect(g.used.has(b.bound.uRlCutV), 'the AO mask reads the cut block past the twin\'s maskNode').toBe(false);
-    expect(g.frag).toMatch(/if \( [^\n]*\) \{\s*discard;/);
+    // The direction matters: discard when the mask says NOT kept (falsify: `.discard()` for `.not().discard()` in post-chain.node.ts).
+    expect(g.frag).toMatch(/if \( \( ! \( nodeUniform\d+ > 0\.5 \) \) \) \{\s*discard;/);
   });
 
   it('one mask material per twin, shared by its meshes, and disposed with it', async () => {
