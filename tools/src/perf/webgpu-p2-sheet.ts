@@ -75,6 +75,7 @@ import {
   type P2Section,
 } from './webgpu-p2-sheet-lib';
 import type { AbbaVerdictRow } from './webgpu-p1-sheet-lib';
+import { grassCondition, hideGrassOnPage } from './webgpu-grass-lib';
 
 const args = process.argv.slice(2);
 const arg = (n: string, d: string): string => (args.find((a) => a.startsWith(`--${n}=`)) ?? `--${n}=${d}`).slice(n.length + 3);
@@ -269,6 +270,8 @@ async function openArm(browser: Browser, arm: Arm, port: number, scenario: Scena
   const settled = JSON.parse((await page.evaluate(BOOT_SETTLE_SCRIPT)) as string) as { tick: number };
   const refusal = bootFreezeRefusal(settled.tick);
   if (refusal !== null) refuse(`${arm}: ${refusal}`);
+  // GH-1167 S6: the L-vs-G tools hide the 3D grass field (the grass cost is its own column).
+  await hideGrassOnPage(page, `p2-sheet ${arm}`).catch((e: Error) => refuse(e.message));
   const info = (await page.evaluate(() => (window as unknown as { __lions: { renderer: { backendInfo(): { kind: string; adapter: string } } } }).__lions.renderer.backendInfo())) as { kind: string; adapter: string };
   const gpu = await page.evaluate(() => {
     const gl = document.createElement('canvas').getContext('webgl2');
@@ -633,7 +636,7 @@ async function report(d: RunData): Promise<boolean> {
   const md: string[] = [
     "# WebGPU P2 T9: the lead's sheet and the Metal run",
     '',
-    `Run ${d.startedAt}. Machine: ${d.machine}. 1-minute load average: ${d.loads.map((l) => `${l.at} ${l.load1m.toFixed(2)}`).join(', ')}; ABBA pages ${d.abba?.loads || 'n/a'}.`,
+    `Run ${d.startedAt}. Machine: ${d.machine}. 1-minute load average: ${d.loads.map((l) => `${l.at} ${l.load1m.toFixed(2)}`).join(', ')}; ABBA pages ${d.abba?.loads || 'n/a'}. ${grassCondition('hidden')} on every arm (the 3D grass field, GH-1167, is hidden from the L-vs-G comparison).`,
     '',
     '## Gates',
     '',

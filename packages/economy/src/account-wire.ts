@@ -47,3 +47,36 @@ export interface ClaimResult {
 export function toCoinAsk(w: CoinAskWire): CoinAsk {
   return w.item === 'unit' ? { kind: 'unit', unitId: w.unitId } : { kind: 'tier', unitId: w.unitId, track: w.track, tier: w.tier };
 }
+
+// GH-1075 A3: `GET /api/account/matches`. The opponent's name is read NOW (a rename follows, §5.3).
+export type MatchBotModel = { id: string } | { id: 'other'; name: string };
+export type MatchOpponent =
+  | { kind: 'member'; name: string; publicId: string }
+  | { kind: 'guest' }
+  | { kind: 'bot'; model: MatchBotModel | null }
+  | { kind: 'deleted' };
+export interface MatchView {
+  code: string;
+  startedAt: number;
+  endedAt: number;
+  map: string;
+  matchup: string;
+  winMode: string | null;
+  kit: string;
+  reason: string;
+  /** The winning seat, or null for a draw. */
+  winnerSeat: 0 | 1 | null;
+  ticks: number;
+  /** False: a lone report, listed but never counted in `record`. */
+  agreed: boolean;
+  /** The member's own seat. */
+  seat: 0 | 1;
+  side: string;
+  opponent: MatchOpponent;
+}
+export interface MatchesView {
+  matches: MatchView[];
+  /** The `before` of the next page (opaque: `<started_at>.<code>`), or null on the last. */
+  next: string | null;
+  record: { won: number; lost: number; drawn: number };
+}

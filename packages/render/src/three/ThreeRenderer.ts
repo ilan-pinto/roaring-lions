@@ -121,6 +121,7 @@ import { FIRE_SUPPORT, FS_AIR_STRIKE, fx, MED_CARRYING, MED_DELIVERING, ONE, WEA
 import type { AimFootprint, AuraRingView, BeamReadback, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS, debrisQualityOf } from '../quality';
+import type { GrassFieldTones } from '../api';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import type { FlipbookLayerSpec } from '../vfx/emitters';
 import { SIM_HZ } from '../anim';
@@ -306,6 +307,10 @@ import {
   munitionForWeapon,
   munitionRow,
   munitionScorchTiles,
+  ragdollPushForKill,
+  LATCH_AIR_STRIKE,
+  LATCH_MORTAR_BARRAGE,
+  LATCH_PLACED_CHARGE,
   ringSpecFor,
   type Munition,
 } from './munitions';
@@ -376,11 +381,16 @@ import {
 } from './terrain/disturb';
 import { makeDisturbUniforms, type DisturbUniformSet } from './terrain/disturb-uniforms';
 import type { TerrainInput, MeshData } from './terrain/types';
+import { buildGrassClump, type GrassGeometry, type GrassLod, type GrassVariant } from './terrain/grass-blade';
+import { grassCellMeshes, grassLodFor, grassLodScaleOf, grassSpliceCells, planGrassField } from './terrain/grass-field-cells';
+import type { GrassFieldHandle } from './terrain/grass-field.node';
 import {
   buildDecorMesh,
   disposeDecorMesh,
   stripToBatchAttributes,
+  FOLIAGE_SWAY_KEY,
   type DecorGeometrySet,
+  type SwayRecord,
   type SwayUniforms,
 } from './terrain/decor-mesh';
 import {
@@ -902,6 +912,12 @@ const HIT_FACE_CLASSES: ReadonlySet<number> = new Set([
 
 /** GH-1197: a loaded weapon's munition, its reach read off the weapon the sim built from the unit JSON
  *  (`splash_tiles`, or the bomblets' for a cluster round). Null for no weapon or one the table does not map. */
+/** GH-1223: the killer latch key for a support call (by its profile: a barrage is the mortar class) or a charge. */
+function batchActKey(e: { kind: 'strike'; profile: number } | { kind: 'chargeDetonated' }): string {
+  if (e.kind === 'chargeDetonated') return LATCH_PLACED_CHARGE;
+  return e.profile === FS_MORTAR_BARRAGE ? LATCH_MORTAR_BARRAGE : LATCH_AIR_STRIKE;
+}
+
 function weaponMunition(wp: WeaponStats | undefined): Munition | null {
   if (wp === undefined) return null;
   return munitionForWeapon(wp.id, fx.toNumber(wp.splash), wp.submunitions ? fx.toNumber(wp.submunitions.splash) : 0);
@@ -1961,6 +1977,18 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly sway: SwayUniforms = { time: { value: 0 }, amp: { value: 1 }, wind: this.windU, disturb: this.disturbU };
   /**
+   * GH-1167 S5: the 3D grass field (design 2026-11-11, sections 3.1-3.5), built ONLY on a node boot of a map whose tones carry
+   * `grassField`, by the node backend's own builder (`RenderBackend.grassField`, `terrain/grass-field.node.ts`), which is the only
+   * code that makes a grass scene object (bundle pin P1). Null on every legacy boot (pin P3), on `low` (`grass: 'off'`) and before
+   * the first `rebuildTerrain`. A collapse splices it (`replaceCells`); a full terrain build rebuilds it; `dispose()` releases it.
+   */
+  private grassField: GrassFieldHandle | null = null;
+  /** GH-1167 S5: the camera state the field's width floor reads (`GrassFieldRecord.zoom`/`dpr`), written by `stepGrassField`. */
+  private readonly grassView = { zoom: { value: 1 }, dpr: { value: 1 } };
+  /** GH-1167 S5: the `grass-field` debug layer's flag (the `unitsDebugHidden` shape): `stepGrassField` re-asserts the root's
+   *  `visible` from it every frame, and a field built while it is set starts hidden. */
+  private grassDebugHidden = false;
+  /**
    * Owns the muzzle-flash/blast light pool (`./flash-light.ts`'s own top
    * comment) -- one instance for the whole renderer, `FLASH_CAPACITY` real
    * `THREE.PointLight`s, all `addTo`'d the scene once in the constructor and
@@ -2266,6 +2294,12 @@ export class ThreeRenderer implements Renderer {
    *  a later unit. */
   private readonly killerX: Float64Array;
   private readonly killerY: Float64Array;
+  /** GH-1223: the weapon each entity last fired (`fire` events), and the weapon that killed entity `i` (its killer's last
+   *  shot at the `destroyed` event; '' = none known). Read once by `ragdollOffer` for the push. Presentation only. */
+  private readonly lastFiredWeapon: string[];
+  private readonly killerWeapon: string[];
+  /** GH-1223: the strike / charge each caller made in the batch `onEvents` is reading (cleared per batch). */
+  private readonly batchAct = new Map<number, string>();
   /** GH-1223: the tick each entity's `destroyed` fired (-1 = none seen), and whether it fired during a catch-up --
    *  a ragdoll's clock starts at the death TICK, never at the frame that noticed it. */
   private readonly deathTick: Int32Array;
@@ -3276,6 +3310,8 @@ export class ThreeRenderer implements Renderer {
     this.meshBodyYawSet = new Uint8Array(n);
     this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
     this.killerX = new Float64Array(n).fill(NaN);
+    this.lastFiredWeapon = new Array<string>(n).fill('');
+    this.killerWeapon = new Array<string>(n).fill('');
     this.deathTick = new Int32Array(n).fill(-1);
     this.deathQuiet = new Uint8Array(n);
     this.buriedLast = new Uint8Array(n);
@@ -4347,6 +4383,9 @@ export class ThreeRenderer implements Renderer {
     // both released here.
     if (this.decorGroup) disposeDecorMesh(this.decorGroup);
     if (this.texturedDecorGroup) disposeTexturedDecorMesh(this.texturedDecorGroup);
+    // GH-1167 S5: the grass field (its meshes, nine geometries and one material), out of the scene and released.
+    this.grassField?.dispose();
+    this.grassField = null;
     this.disposeDecorGeometrySet(this.decorSet);
     this.disposeTexturedDecorSet(this.texturedDecorSet);
     // Props: the batch and the source clones `loadPropMeshes` owns, the same
@@ -4769,6 +4808,8 @@ export class ThreeRenderer implements Renderer {
     }
     // The valley kit's LOD1 twins below zoom 0.6 (terrain/backdrop.ts): by zoom band, never by distance.
     this.backdrop?.setZoom(this.camera.zoom);
+    // GH-1167 S5: the grass field's LOD band (zoom alone, with hysteresis), its width floor's camera state and the layer flag.
+    this.stepGrassField();
     // After the rebuild, not inside it: `groundPhoto` can build the terrain
     // before any frame has run, and the showcase must still be stamped by
     // the next frame rather than lost to whichever caller built first.
@@ -5007,6 +5048,15 @@ export class ThreeRenderer implements Renderer {
       case 'selection-ring':
         // The GROUP, not the meshes: each batch's `endFrame` rewrites its own mesh's `visible` every frame (an empty one costs no draw).
         return setObjectsVisible(visible, this.selectionRingGroup);
+      case 'grass-field': {
+        // GH-1167 S5: a FLAG `stepGrassField` consults every frame (the `unitsDebugHidden` shape: the LOD swap rewrites the meshes).
+        // 1 when it changed and a field exists; 0 on a boot with no field (legacy, `low`, a map without `grassField`).
+        const hidden = !visible;
+        const changed = hidden !== this.grassDebugHidden && this.grassField !== null ? 1 : 0;
+        this.grassDebugHidden = hidden;
+        if (this.grassField !== null) this.grassField.root.visible = visible;
+        return changed;
+      }
       case 'wash': {
         // The helicopters' slots, taken away and given back: `updateDisturbers` reads the flag every frame, so a repaint cannot undo it.
         const changed = this.washLayerOn === visible ? 0 : 1;
@@ -6533,17 +6583,36 @@ export class ThreeRenderer implements Renderer {
     }
   }
 
+  /** GH-1223: what an entity last did that can kill (a weapon id, or a latch key); the ragdoll push reads it. */
+  private latchKiller(who: number, key: string): void {
+    if (who >= 0 && who < this.lastFiredWeapon.length) this.lastFiredWeapon[who] = key;
+  }
+
   onEvents(events: SimEvent[]): void {
     const st = this.sim.state;
     // A catch-up tick: the next swarm frame must see it (`main.ts` has cleared `setQuiet` by then).
     if (this.quiet) this.swarmCaughtUp = true;
+    // GH-1223: a strike or a charge in THIS batch names its caller's kills in this batch, wherever the kill sits:
+    // the sim's `stepCharges` kills a garrison (`destroyStructure`) BEFORE it pushes `chargeDetonated`, so an
+    // in-order latch would hand those men a stale act. A fire is NOT pre-latched: it never reaches back.
+    this.batchAct.clear();
+    for (const e of events) {
+      if (e.kind === 'strike' || e.kind === 'chargeDetonated') this.batchAct.set(e.by, batchActKey(e));
+    }
     for (const e of events) {
       // A tick far behind the live edge (`setQuiet`) throws no burst: the
       // events whose whole effect is a one-shot flash, round or puff are
       // dropped here, and the ones that leave something standing (a wreck, a
       // collapsed building, a discovered route) still run below.
+      // The killer latch (GH-1223) writes nothing visible, so it runs BEFORE the catch-up drop: a rejoin's old
+      // `fire`, `strike` and `chargeDetonated` events still say what the killer last did. In batch order, so a
+      // later act (a fire after a strike) wins for the NEXT batch, and a fire never reaches back onto an earlier kill.
+      if (e.kind === 'fire') this.latchKiller(e.shooter, e.weaponId);
+      else if (e.kind === 'strike' || e.kind === 'chargeDetonated') this.latchKiller(e.by, batchActKey(e));
       if (this.quiet && isBurstOnlyEvent(e.kind)) continue;
-      if (e.kind === 'fire') this.onFire(e);
+      if (e.kind === 'fire') {
+        this.onFire(e);
+      }
       else if (e.kind === 'beam') this.onBeam(e);
       else if (e.kind === 'nearMiss') {
         const nx = fx.toNumber(e.x);
@@ -6663,6 +6732,7 @@ export class ThreeRenderer implements Renderer {
         this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
         this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;
         this.deathTick[e.entity] = e.tick;
+        this.killerWeapon[e.entity] = e.by >= 0 ? this.batchAct.get(e.by) ?? this.lastFiredWeapon[e.by] ?? '' : '';
         this.deathQuiet[e.entity] = this.quiet ? 1 : 0;
         const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
         // GH-85: a kamikaze's warhead going off. Inferred, not reported --
@@ -12523,6 +12593,7 @@ export class ThreeRenderer implements Renderer {
       template: pickMeshVariant(variants, id),
       at: { x, y, z, yaw },
       away: [ax, az],
+      push: ragdollPushForKill(this.killerWeapon[id]),
       handle: dying,
     };
   }
@@ -12533,12 +12604,17 @@ export class ThreeRenderer implements Renderer {
    * (`MeshWreck`), revealed by the fog like any other.
    */
   private stepRagdolls(): void {
+    // A corpse the wreck cap evicted (`pushMeshWreck`) left the scene: forget its root, whether or not the layer is hidden.
+    for (const root of this.ragdollRoots) if (root.parent === null) this.ragdollRoots.delete(root);
     if (this.ragdollShowcasePending) this.stampRagdollShowcase();
     if (this.ragdolls.incidents === 0) return;
     const { taken, settled } = this.ragdolls.update(this.lastFrameSimMs ?? 0);
     for (const d of taken) {
       const k = this.meshDying.indexOf(d);
       if (k >= 0) this.meshDying.splice(k, 1);
+      // The fade clones the death sequence may hold are nobody's now: restore the shared materials and dispose them.
+      endMeshDeathFade(d.swaps, this.adoptQueue);
+      d.swaps = [];
     }
     for (const c of settled) {
       const shown = this.opts.ragdollShowcase !== undefined || this.isExplored(c.x, c.z);
@@ -15718,6 +15794,84 @@ export class ThreeRenderer implements Renderer {
    * is now closed in PRACTICE too, not merely in principle -- see
    * `onEvents`'s own doc comment on those two kinds.
    */
+  /**
+   * GH-1167 S5: the grass field's tones when THIS boot draws the field, else null. The node check comes first, so a legacy boot
+   * never reads `terrainTones.grassField` (pin P4, `tools/src/grass_legacy_scene.test.ts`); then the backend's builder (absent on a
+   * test double), then the preset (`low` builds none, decision 8), and last the tones (only `green` sets `grassField`).
+   */
+  private grassFieldTones(): GrassFieldTones | null {
+    if (this.nodeBackend === null) return null;
+    if (this.nodeBackend.grassField === undefined) return null;
+    if (grassLodScaleOf(this.opts.quality) === null) return null;
+    return this.opts.terrainTones.grassField ?? null;
+  }
+
+  /**
+   * GH-1167 S5: builds, splices or drops the grass field after a terrain rebuild. `dirty` is the terrain splice's re-emitted tiles
+   * (`ComposedTerrainBuild.dirtyTiles`): with a field standing, only the cells it touched are re-placed (`grassSpliceCells`), each
+   * byte-identical to the same cell of a full build (`packages/app/src/grass-field-cells.test.ts`). A full terrain build (`dirty`
+   * null) builds the whole field; the one it replaces leaves the scene now and is released after the next draw (`disposeRetired`).
+   */
+  private syncGrassField(tones: GrassFieldTones | null, input: TerrainInput, surface: TerrainSurface, dirty: Uint8Array | null): void {
+    const kit = this.nodeBackend?.grassField;
+    if (tones === null || kit === undefined) {
+      this.retireGrassField();
+      return;
+    }
+    if (this.grassField !== null && dirty !== null) {
+      const cells = grassSpliceCells(dirty, input.width, input.height);
+      if (cells.length > 0) this.grassField.replaceCells(cells, cells.flatMap((c) => grassCellMeshes(input, surface, c, kit.maxInstancesPerMesh)));
+      return;
+    }
+    this.retireGrassField();
+    const plan = planGrassField(input, surface, kit.maxInstancesPerMesh);
+    const variants: readonly GrassVariant[] = [0, 1, 2];
+    const lods: readonly GrassLod[] = [0, 1, 2];
+    const geometries: GrassGeometry[][] = variants.map((v) => lods.map((l) => buildGrassClump(v, l, tones)));
+    const scale = grassLodScaleOf(this.opts.quality) ?? 1;
+    const sway: SwayRecord = {
+      time: this.sway.time,
+      amp: this.sway.amp,
+      wind: this.windU,
+      disturb: this.disturbU,
+      wet: this.opts.weather === 'rain',
+      trunk: false,
+      key: FOLIAGE_SWAY_KEY,
+    };
+    const field = kit.build({
+      record: { sway, zoom: this.grassView.zoom, dpr: this.grassView.dpr },
+      geometries,
+      meshes: plan.meshes,
+      lod: grassLodFor(this.camera.zoom, null, scale),
+    });
+    field.root.visible = !this.grassDebugHidden;
+    this.scene.add(field.root);
+    this.grassField = field;
+  }
+
+  /** GH-1167 S5: the standing field out of the scene now, released after the next draw (the decor's `retiredAfterRender` shape). */
+  private retireGrassField(): void {
+    const old = this.grassField;
+    if (old === null) return;
+    this.grassField = null;
+    old.root.removeFromParent();
+    this.retiredAfterRender.push(() => old.dispose());
+  }
+
+  /**
+   * GH-1167 S5: once a frame, with a field standing: the LOD band for the zoom (`grassLodFor`, +/-0.05 hysteresis; `medium` draws
+   * the bands x 1.2 coarser), the width floor's zoom and device pixel ratio, and the `grass-field` layer's flag. Camera state, never a
+   * clock: the field's wind reads the sim clock through the sway record.
+   */
+  private stepGrassField(): void {
+    const field = this.grassField;
+    if (field === null) return;
+    this.grassView.zoom.value = this.camera.zoom;
+    this.grassView.dpr.value = this.pixelRatio;
+    field.setLod(grassLodFor(this.camera.zoom, field.lod(), grassLodScaleOf(this.opts.quality) ?? 1));
+    field.root.visible = !this.grassDebugHidden;
+  }
+
   private rebuildTerrain(): void {
     // The terrace rule reads `sim.blocked`, which changes under this class
     // (a destroyed structure). See `refreshSurface`.
@@ -15761,6 +15915,9 @@ export class ThreeRenderer implements Renderer {
       this.propMesh = null;
     }
 
+    // GH-1167 S5: the 3D grass field's tones, non-null only on a node boot that draws it (`grassFieldTones`, which a legacy boot
+    // never reaches past its first line: pin P4). The field then replaces the sward strokes and the Meshy tufts (design 3.5).
+    const grassTones = this.grassFieldTones();
     // Spliced from the last build where it can be: a collapse re-emits the
     // ground, scatter and decor placements only around the footprint it
     // reopened, and the result is byte-identical to a full build
@@ -15778,7 +15935,8 @@ export class ThreeRenderer implements Renderer {
       this.opts.resolveColor,
       this.opts.background,
       this.drawnCrown(),
-      this.opts.weather === 'rain'
+      this.opts.weather === 'rain',
+      grassTones === null
     );
     const composed = build.composed;
     this.terrainState = build.state;
@@ -15926,8 +16084,11 @@ export class ThreeRenderer implements Renderer {
     // function's own doc comment for why giving `composeTerrain` a decor
     // layer, rather than reconstructing an `input` here, is the coherent
     // choice (this method has no `TerrainInput` of its own to reach for).
+    // GH-1167 S5: with a field, the `grass` family (the Meshy tufts) is filtered out AFTER placement, so every other placement's
+    // roll, family and position is today's (pin P2). The green theme remaps no family, so its tufts are `grass`.
+    const decorPlacements = grassTones === null ? composed.decorPlacements : composed.decorPlacements.filter((p) => p.family !== 'grass');
     this.decorGroup = buildDecorMesh(
-      composed.decorPlacements,
+      decorPlacements,
       this.decorSet,
       this.sway,
       this.opts.terrainTones.decorColors,
@@ -15937,6 +16098,8 @@ export class ThreeRenderer implements Renderer {
     // GH-943 P2 (T1): the decor is rebuilt wholesale on every rebuild, with new sway materials: adopted here, before the
     // environment below, so the class table adopts the material that draws. A no-op on legacy.
     this.adoptNodeMaterials(this.decorGroup);
+    // GH-1167 S5: the field, from the very input and surface the ground was just built from. Spliced on a collapse.
+    this.syncGrassField(grassTones, composed.input, build.state.surface, build.dirtyTiles);
 
     // The textured half of the same placement list. `buildDecorMesh` above
     // and this partition it by family rather than competing for it -- a
@@ -16509,7 +16672,10 @@ export function composeTerrainFrom(
    *  their lift. */
   crown: Uint8Array | null = null,
   /** `opts.weather === 'rain'`: control C is baked (GH-871 P4). */
-  wet: boolean = false
+  wet: boolean = false,
+  /** GH-1167 S5: the scatter's sward strokes (`ScatterOptions.swardMarks`); `false` on a node boot that draws the 3D grass field. A
+   *  `prev` built with the other value is not spliced from: the build is full. */
+  swardMarks: boolean = true
 ): ComposedTerrainBuild {
   const input: TerrainInput = {
     width: sim.width,
@@ -16544,7 +16710,7 @@ export function composeTerrainFrom(
   // One surface for both builders and for the diff -- each used to build its
   // own from the same `input`.
   const surface = buildTerrainSurface(input);
-  const changed = prev === null ? null : changedTerrainTiles(prev, input, surface);
+  const changed = prev === null || prev.swardMarks !== swardMarks ? null : changedTerrainTiles(prev, input, surface);
   let groundTiled: TiledMeshData;
   let scatterTiled: TiledMeshData;
   let decorTiled: TiledDecorPlacements;
@@ -16556,11 +16722,11 @@ export function composeTerrainFrom(
     rebuiltTiles = 0;
     for (let t = 0; t < dirty.length; t++) rebuiltTiles += dirty[t];
     groundTiled = rebuiltTiles === 0 ? prev.ground : spliceGround(prev.ground, dirty, input, tones, background, surface);
-    scatterTiled = rebuiltTiles === 0 ? prev.scatter : spliceScatter(prev.scatter, dirty, input, tones, background, surface);
+    scatterTiled = rebuiltTiles === 0 ? prev.scatter : spliceScatter(prev.scatter, dirty, input, tones, background, surface, { swardMarks });
     decorTiled = spliceDecor(prev.decorPlacements, changed, input, surface);
   } else {
     groundTiled = buildGroundTiled(input, tones, background, surface);
-    scatterTiled = buildScatterTiled(input, tones, background, surface);
+    scatterTiled = buildScatterTiled(input, tones, background, surface, { swardMarks });
     decorTiled = buildDecorPlacements(input, SCATTER_DENSITY, surface);
     rebuiltTiles = input.width * input.height;
   }
@@ -16595,7 +16761,7 @@ export function composeTerrainFrom(
       decorPlacements: decorTiled.placements,
       propPlacements: propPlacements(input),
     },
-    state: terrainBuildState(input, surface, groundTiled, scatterTiled, decorTiled),
+    state: terrainBuildState(input, surface, groundTiled, scatterTiled, decorTiled, swardMarks),
     rebuiltTiles,
     dirtyTiles,
   };

@@ -367,8 +367,10 @@ The lead approved L1-L8 as recommended. Where the build differs from the text ab
 - **Ball joints have limits after all** (+-1.0 rad per angular axis, about the handoff pose). Rapier 0.21's JS
   `SphericalImpulseJoint` declares per-axis motors but its runtime class has none; the joint set's own entry points
   (`jointSetLimits`, `jointConfigureMotorPosition`) do both, and the code calls them.
-- **The push is a constant** (1.0 m/s away from the killer, 0.4 up, +-30% hashed), not a per-class number in
-  `data/vfx/munitions.json`: that file is not on `main` yet (GH-1197 P1). A follow-up moves it into the data.
+- **The push is a per-class number** (follow-up, GH-1223): `ragdoll_push` (`horizontal_m_s`, `up_m_s`) on a class row of
+  `data/vfx/munitions.json`, read by the killer's last-fired weapon's class (`ragdollPushForWeapon`). A class with no
+  row, an unmapped weapon (a rifle) and a death with no known killer take the old constant (1.0 / 0.4); the +-30%
+  hashed spread stays in code. Slice 1 shipped it as a constant because that file was not on `main` yet.
 - **The fence is its own eslint rule** (`tools/physics_fence.mjs`), not more `no-restricted-imports` patterns: a later
   block would replace those, and they do not see `import()`.
 - **The outcome guard** (guard 5) is `ThreeRenderer.ragdoll.test.ts`: the sim's hash, tick by tick, with the ragdolls

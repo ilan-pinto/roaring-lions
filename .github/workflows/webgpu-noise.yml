@@ -18,6 +18,10 @@
 # GH-943 WebGPU P3 T13 (GH-1152): `probe: submit` runs the draw-submission probe (`tools/src/perf/webgpu-submit-probe.ts`) with
 # `--hw=swiftshader`: the COUNTS only (per-pass calls/objects, per-type draws, FULL refreshes per type, every hypothesis toggle at n300
 # and n600 on L and G, one profile window on G). Its timing is the Metal lock hold's, never SwiftShader's.
+#
+# GH-1167 S6: `probe: grass` runs the 3D grass probe (`tools/src/perf/webgpu-grass-probe.ts`) with SwiftShader: the G arm on wadi_halam_4 with the
+# green tones, the `grass-field` layer shown against hidden at z0.5, z1, z1.5 and z2.5, `stats().perPass` calls and triangles each way. COUNTS
+# only and report-only, except that it REFUSES (exit 2) a grass-on arm that drew 0 grass calls, so it cannot pass vacuously.
 name: webgpu-noise
 
 on:
@@ -27,7 +31,7 @@ on:
         description: Fresh-process captures per key
         default: '24'
       probe:
-        description: noise (the zero-noise check), banding (the P2 T2 banding probe), units / fx (the P3 T2 units/fx probe), or submit (the P3 T13 draw-submission counts)
+        description: noise (the zero-noise check), banding (the P2 T2 banding probe), units / fx (the P3 T2 units/fx probe), submit (the P3 T13 draw-submission counts), or grass (the GH-1167 S6 3D grass counts, G on against off)
         default: noise
 
 permissions:
@@ -35,7 +39,7 @@ permissions:
 
 jobs:
   noise:
-    if: inputs.probe != 'banding' && inputs.probe != 'units' && inputs.probe != 'fx' && inputs.probe != 'submit'
+    if: inputs.probe != 'banding' && inputs.probe != 'units' && inputs.probe != 'fx' && inputs.probe != 'submit' && inputs.probe != 'grass'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -201,5 +205,46 @@ jobs:
           path: |
             submit-probe
             submit-probe.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  grass:
+    if: inputs.probe == 'grass'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+      - name: Grass probe (G on SwiftShader, layer shown against hidden, counts only)
+        run: |
+          set +e
+          pnpm --filter @lions/tools exec tsx src/perf/webgpu-grass-probe.ts --port=5199 --out-dir="$GITHUB_WORKSPACE/grass-probe" 2>&1 | tee grass-probe.log
+          code=${PIPESTATUS[0]}
+          {
+            echo "### webgpu grass probe (SwiftShader, counts only): exit \`$code\` (0 read, 2 refused)"
+            cat "$GITHUB_WORKSPACE/grass-probe/grass-probe.md" 2>/dev/null || tail -40 grass-probe.log
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $code
+      - name: Upload
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webgpu-grass-probe
+          path: |
+            grass-probe
+            grass-probe.log
           if-no-files-found: ignore
           retention-days: 14

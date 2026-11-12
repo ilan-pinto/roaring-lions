@@ -162,6 +162,25 @@ export interface TerrainTones {
    * draws on the ground. Absent: the shared ground tone, unchanged.
    */
   marsh?: string;
+  /**
+   * GH-1167: the 3D grass field's colour keys, resolved to hex by the app (`paletteColor`, as `decorColors`). Its presence is what
+   * a NODE boot keys the field on (design 2026-11-11, section 3.1): only the `green` theme sets it, never a map id. The legacy
+   * path never reads it (pin P4, `tools/src/grass_legacy_scene.test.ts`). Absent: no field.
+   */
+  grassField?: GrassFieldTones;
+}
+
+/** `TerrainTones.grassField`: design 2026-11-11, section 2.1, Colour keys (the shape of `terrain/grass-blade.ts`'s `GrassColours`). */
+export interface GrassFieldTones {
+  /** Root and lower blade, `grass.4`. */
+  readonly root: string;
+  /** The three tips: `grass.3`, `grass.2`, `grass.1`. */
+  readonly tip3: string;
+  readonly tip2: string;
+  readonly tip1: string;
+  /** Last year's straw: root `dust.3`, tip `limestone.3`. */
+  readonly strawRoot: string;
+  readonly strawTip: string;
 }
 
 /**

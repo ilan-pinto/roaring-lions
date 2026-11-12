@@ -69,8 +69,8 @@ export const RAPIER_MARKER = 'rawintegrationparameters_new';
  * GH-1167 S3 (P1): the marker of the node-native 3D grass field (`grass-field.node.ts`, S4; its scene objects are named
  * `rl-grass-field*`, which is what the legacy-scene pin P3 looks for). The field is a `.node.ts` module: it lives in the
  * node-backend chunk and nowhere else (not the entry, the shared core, or the `ThreeRenderer` chunk the legacy path loads).
- * No such file exists in S3, so the check is armed by S4: a bundle with no carrier passes, and a carrier anywhere but the
- * node-backend chunk is red from the day it exists.
+ * S5 gives it its carrier (`node-backend.ts` builds `createGrassFieldKit`), so the marker must now be FOUND, or the leak check
+ * would pass on a bundle that lost the field (vacuous).
  */
 export const GRASS_FIELD_MARKER = 'rl-grass-field';
 
@@ -170,7 +170,8 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
     if (!nodeBackendChunks.includes(f)) failures.push(`a node material twin ("${NODE_MATERIAL_MARKER}*", a .node.ts) leaked into ${f}, which is not the node-backend chunk`);
   }
   // GH-1167 S3 (P1): the grass field is node-native. Any carrier that is not the node-backend chunk (the entry, the shared core, the
-  // ThreeRenderer chunk) means a static import of `grass-field.node.ts` from the legacy side.
+  // ThreeRenderer chunk) means a static import of `grass-field.node.ts` from the legacy side. S5: and a carrier must exist.
+  if (grassFieldChunks.length === 0) failures.push(`no chunk carries the 3D grass field marker "${GRASS_FIELD_MARKER}": grass-field.node.ts is no longer built by the node backend, or its name moved`);
   for (const f of grassFieldChunks) {
     if (!nodeBackendChunks.includes(f)) failures.push(`the 3D grass field ("${GRASS_FIELD_MARKER}", grass-field.node.ts) leaked into ${f}, which is not the node-backend chunk`);
   }

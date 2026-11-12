@@ -8643,6 +8643,9 @@ fieldset.rl-versus__maps {
 }
 .rl-versus__fcard[data-who='you'] .rl-versus__name { color: var(--title-accent); }
 .rl-versus__you,
+.rl-versus__tag,
+.rl-versus__record,
+.rl-versus__model,
 .rl-versus__state {
   font-family: var(--font-body);
   font-size: var(--t-s);
@@ -8651,6 +8654,12 @@ fieldset.rl-versus__maps {
   text-transform: none;
   color: var(--ink-mute);
 }
+.rl-versus__tag {
+  border: 1px solid var(--ink-mute);
+  border-radius: 0;
+  padding: 0 0.3rem;
+}
+.rl-versus__tag[data-tag='member'] { color: var(--good); border-color: var(--good); }
 .rl-versus__seat[data-ready='1'] .rl-versus__state {
   color: var(--good);
 }

@@ -45,6 +45,7 @@ import type { ZoneBandMaths } from '../units/zone-band.node';
 import type { SupplyRouteMaths } from '../supply-route.node';
 import type { XrayMaths } from '../tunnel-xray.node';
 import type { DecalMaths } from '../decal-pool.node';
+import type { GrassFieldKit, GrassFieldMaths } from '../terrain/grass-field.node';
 import type { BuildingCutMaths } from '../units/building-cut.node';
 
 /**
@@ -140,6 +141,9 @@ export interface MaterialMaths {
   /** T12: the flipbook's motion, cover and shade (`units/flipbook-fx.node.ts`), and the smoke screen's (`smoke-mesh.node.ts`). */
   readonly flipbook: FlipbookMaths;
   readonly smokeScreen: SmokeScreenMaths;
+  /** GH-1167 S5: the 3D grass field's maths (`terrain/grass-field.node.ts`): the foliage slot's, the flutter, the width floor. Not a
+   *  twin: the field has no legacy material, so it has no `MaterialKit` slot; `RenderBackend.grassField` builds it. */
+  readonly grassField: GrassFieldMaths;
   /** GH-1225 slice 3 (L7): the holes and the roof cut (`units/building-cut.node.ts`). */
   readonly building: BuildingCutMaths;
 }
@@ -256,6 +260,12 @@ export interface RenderBackend {
    * their counts since the last `takeCounts`. Optional: only the node backend has them (the test doubles leave them out).
    */
   readonly drawSwitches?: DrawSwitches;
+  /**
+   * GH-1167 S5: the 3D grass field's builder (`terrain/grass-field.node.ts`), the only maker of a grass scene object, so that file is
+   * reached only through this chunk (bundle pin P1). `ThreeRenderer.rebuildTerrain` calls it on a node boot of a map whose tones
+   * carry `grassField`. Optional: the test doubles leave it out, and then no field is built.
+   */
+  readonly grassField?: GrassFieldKit;
   dispose(): void;
 }
 

@@ -34,6 +34,7 @@ import {
   adoptUnits,
   bindingsOf,
   compile,
+  builderRenderer,
   compileWgsl,
   laviMaterial,
   mainOf,
@@ -213,6 +214,30 @@ describe('G9: a texture that lands after adoption is the image the twin samples'
     const sampled = taps.map((t) => t.value);
     expect(sampled).toContain(map);
     expect(sampled.every((t) => t.image !== null && (t.image as { width?: number }).width === 8)).toBe(true);
+  });
+});
+
+describe('GH-1270: a textured twin compiles as three\'s SHADOW material, which has no map', () => {
+  it('the shadow nodes three derives from the twin\'s colorNode build without the "texture( value )" throw, and the twin\'s own draw still samples its map', async () => {
+    const d = await unitDeps();
+    const map = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+    map.needsUpdate = true;
+    const variant = new VehicleTeamMaterials(slotsOf()).materialFor(laviMaterial(map), 0) as THREE.MeshStandardMaterial;
+    const scene = new THREE.Scene().add(new THREE.Group().add(new THREE.Mesh(taggedGeometry(0), variant)));
+    adoptUnits(d, scene);
+    const mesh = (scene.children[0] as THREE.Group).children[0] as THREE.Mesh;
+    const twin = mesh.material as THREE.MeshStandardMaterial;
+    expect(twin.map).toBe(map);
+    // Exactly what `Renderer._getShadowNodes` hands the shadow pass: colorNode = vec4(0, 0, 0, twin.colorNode.a), on a map-less material.
+    const nodes = (builderRenderer(d) as unknown as { _getShadowNodes(m: unknown): { colorNode: unknown } })._getShadowNodes(twin);
+    expect(nodes.colorNode).not.toBeNull();
+    const shadow = new d.W.MeshBasicNodeMaterial();
+    shadow.colorNode = nodes.colorNode as never;
+    expect(shadow.map).toBeNull();
+    expect(() => compile(d, mesh, shadow)).not.toThrow();
+    // The real draw is unchanged: the twin's own program still has a texture tap on the twin's map.
+    const built = compile(d, mesh, twin);
+    expect([...built.usedFragment].some((n) => (n as { isTextureNode?: boolean }).isTextureNode === true)).toBe(true);
   });
 });
 

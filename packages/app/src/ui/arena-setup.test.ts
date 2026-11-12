@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // GH-954 W2: the DEV-only /arena setup screen, in jsdom with a recording fetch. The token below is made up.
 import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { FLAG_SETUP_MAPS, WIN_MODE_FAIR_MAPS } from '@lions/net';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
@@ -100,8 +100,9 @@ describe('the setup form', () => {
 });
 
 describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen map and matchup', () => {
-  // GH-1139: flag is out of the lobby until CTF v2 lands (WP9). The picker's flag path is code WP9 turns back on, so these
-  // tests stand the seven v1 maps back in for their own run; the test that reads what is offered TODAY takes them out first.
+  // GH-976 relist (12 Nov): flag is offered on the five staged maps only. Most of these tests drive the picker's flag path on
+  // tel_marum and beit_sahwan_outskirts too, so they stand the seven v1 maps in for their own run; the test that reads what is
+  // offered TODAY puts the table back as it ships first.
   const V1_FLAG_MAPS = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
   const flagList = WIN_MODE_FAIR_MAPS.flag as string[];
   const SHIPPED = [...flagList];
@@ -141,7 +142,7 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     expect(bodyOfStart(r).matchup).toBe('kdf');
   });
 
-  it('lists exactly what winModesOffered lists for the map, in the mirror: Annihilation and Points race on all four maps, never Capture the flag (GH-1139)', async () => {
+  it('lists exactly what winModesOffered lists for the map, in the mirror, Capture the flag on the staged maps (the picker has four) and never on tel_marum (GH-976 relist)', async () => {
     asShipped();   // the table as it ships
     const r = rig();
     showArenaSetup(r.host, r.deps);
@@ -150,14 +151,19 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     expect(modeField(r).closest('.rl-arena-setup__field')!.hasAttribute('hidden')).toBe(false);
     expect(opts(modeField(r))).toEqual(['annihilation', 'points']);
     expect([...modeField(r).options].map((o) => o.textContent)).toEqual(['Annihilation', 'Points race']);
+
     // Camp is read fair on wadi_tarfan, milh_flats and wadi_tarfan_l (GH-976, 5 Nov) and nowhere else: not on tel_marum or rujm_sawda.
     expect(opts(modeField(r))).not.toContain('camp');
     pickMap(r, 'rujm_sawda');
-    expect(opts(modeField(r)), 'rujm_sawda').toEqual(['annihilation']);   // points delisted there, 12 Nov (GH-976)
+    expect(opts(modeField(r)), 'rujm_sawda').toEqual(['annihilation', 'flag']);   // points delisted there, 12 Nov (GH-976); the flag relisted
+    expect([...modeField(r).options].map((o) => o.textContent)).toEqual(['Annihilation', 'Capture the flag']);
     for (const id of ['wadi_tarfan', 'wadi_tarfan_l']) {
       pickMap(r, id);
-      expect(opts(modeField(r)), id).toEqual(['annihilation', 'camp', 'points']);
+      expect(opts(modeField(r)), id).toEqual(['annihilation', 'camp', 'points', 'flag']);
     }
+    // KDF against Sarim is offered nothing, the staged maps included.
+    pickMatchup(r, 'kdf');
+    expect(opts(modeField(r)), 'wadi_tarfan_l kdf').toEqual(['annihilation']);
   });
 
   it('a faction matchup nobody read fair on the map is offered none; the pick is dropped, not sent', async () => {
@@ -203,6 +209,11 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
   });
 
   it('the pick goes in the start body, the hint says the hold, and the cap follows the mode until the person types in it', async () => {
+    // The 30-second hold is a flag room on a map WITHOUT the set-up rules: take wadi_tarfan out of the list for this test.
+    const setupList = FLAG_SETUP_MAPS as string[];
+    const setupBefore = [...setupList];
+    setupList.splice(setupList.indexOf('wadi_tarfan'), 1);
+    onTestFinished(() => { setupList.splice(0, setupList.length, ...setupBefore); });
     const r = rig();
     showArenaSetup(r.host, r.deps);
     await settle();

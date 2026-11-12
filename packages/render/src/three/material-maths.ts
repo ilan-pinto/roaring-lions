@@ -53,7 +53,7 @@ import { RG_TRACK_GEOMETRY_ATTR, RG_WHEEL_GEOMETRY_ATTR, runningGearUniformsOf }
 import { sootOps } from './world-materials';
 import { rimOps, rimUniforms } from './units/rain-rim';
 import { floorOps, woundedUniforms } from './units/wounded-read';
-import { outlineExpandOps, SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY, SILHOUETTE_EXPAND_ATTRIBUTE, SILHOUETTE_OUTLINE_UNIFORM_KEY } from './units/silhouette';
+import { outlineExpandOps, SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY, SILHOUETTE_EXPAND_ATTRIBUTE, SILHOUETTE_OUTLINE_UNIFORM_KEY, SILHOUETTE_PX_PER_WORLD_UNIT } from './units/silhouette';
 import { zoneHatchOps } from './units/zone-band';
 import { dashOps } from './supply-route-maths';
 import { flipbookAliveOps, flipbookCoverOps, flipbookMotionOps, flipbookShadeOps } from './units/flipbook-fx';
@@ -61,6 +61,8 @@ import { softParticleFadeOps } from './soft-depth';
 import { smokeScreenCoverOps, smokeScreenPuffOps, smokeScreenShadeOps } from './smoke-mesh';
 import { vfxBillboardOps } from './units/vfx-noise';
 import { SUPPLY_ROUTE_ALPHA } from './supply-route';
+import { GRASS_WIDTH_ATTRIBUTE } from './terrain/grass-blade';
+import { grassFlutterOps, grassWidthFloorOps } from './terrain/grass-sway';
 import { buildingFragmentOps } from './units/building-cut-maths';
 import { cutHookOf } from './units/cut-material';
 import { holesHookOf } from './units/holed-material';
@@ -153,6 +155,15 @@ export const MATERIAL_MATHS: MaterialMaths = {
   // T12: the flipbook and the smoke screen (their shared billow noise is `units/vfx-noise.ts`, reached through these bodies).
   flipbook: { motionOps: flipbookMotionOps, aliveOps: flipbookAliveOps, coverOps: flipbookCoverOps, shadeOps: flipbookShadeOps, billboardOps: vfxBillboardOps, softOps: softParticleFadeOps },
   smokeScreen: { coverOps: smokeScreenCoverOps, shadeOps: smokeScreenShadeOps, puffOps: smokeScreenPuffOps, billboardOps: vfxBillboardOps },
+  // GH-1167 S5: the 3D grass field (`terrain/grass-field.node.ts`): the foliage slot's wind and disturbers, the per-blade flutter,
+  // the width floor, its attribute and the camera's CSS px per world unit at zoom 1.
+  grassField: {
+    foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE, disturbSlotPushOps, disturbBendOps, disturbMax: DISTURB_MAX },
+    flutterOps: grassFlutterOps,
+    widthFloorOps: grassWidthFloorOps,
+    widthAttribute: GRASS_WIDTH_ATTRIBUTE,
+    pxPerUnit: SILHOUETTE_PX_PER_WORLD_UNIT,
+  },
   // GH-1225 slice 3 (L7): the holes and the roof cut, one fragment body (`units/building-cut.node.ts`).
   building: { fragmentOps: buildingFragmentOps, cutHookOf, holesHookOf, cutBlockFloats: CUT_VOLUME_CAP * CUT_FLOATS_PER_VOLUME, holeCap: HOLE_CAP },
 };

@@ -12,8 +12,10 @@
  * that path is the stored ticket's (`ticket-store.ts`).
  */
 import type { MatchConfig, Seat, WsTransport } from '@lions/net';
+import type { SeatLabel } from './seat-label';
 
-export interface Handed { transport: WsTransport; seat: Seat; config: MatchConfig }
+/** `labels`: the lobby's seat labels (GH-1075 A3), never read from the config (§0.14). Absent after a reload. */
+export interface Handed { transport: WsTransport; seat: Seat; config: MatchConfig; labels?: [SeatLabel | null, SeatLabel | null] }
 
 /** How long a handoff waits for the battlefield to take it. */
 export const HANDOFF_EXPIRE_MS = 10_000;

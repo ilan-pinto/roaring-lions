@@ -554,6 +554,10 @@ export const DEBUG_LAYERS = [
   // disturber build reads every frame (a helicopter takes no slot while hidden), so a repaint cannot undo it, and the vehicles'
   // `disturb` bend stays. The dust ring is not this layer's. Witnessed by the gated `vehicle` scenario's layer check.
   'wash',
+  // GH-1167 S5: the 3D grass field (`terrain/grass-field.node.ts`), node boots of a `grassField` theme only (0 everywhere else). A FLAG
+  // `ThreeRenderer.stepGrassField` consults every frame (the `unitsDebugHidden` lesson: the LOD swap rewrites the meshes). The A/B for
+  // the field's cost reading and for the probes (design 2026-11-11, section 3.4); no gated golden scenario frames a green map.
+  'grass-field',
   // GH-943 P3 (T5): the occlusion outline (the three team silhouette materials) and the smoke outline (its two materials), on both
   // paths: their `Material.visible`, which nothing per-frame re-asserts, composed with the `overlays` layer's own hide (each shows only
   // while BOTH layers do; `ThreeRenderer.writeSilhouetteVisibility`). The hit flash's outline is not in it. Witnessed by the T5
