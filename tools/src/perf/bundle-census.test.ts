@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CORE_MARKER, GRASS_FIELD_MARKER, LEGACY_POST_MARKERS, MATERIAL_MATHS_MARKER, NODE_BACKEND_MARKER, NODE_MATERIAL_MARKER, NODE_POST_MARKER, RAPIER_MARKER, WEBGL_MARKER, WEBGPU_MARKER, censusChunks, preloadList, staticImports, type Chunk } from './bundle-census';
+import { CORE_MARKER, GRASS_FIELD_MARKER, HEIGHT_BLEND_FIELD_MARKER, LEGACY_POST_MARKERS, MATERIAL_MATHS_MARKER, NODE_BACKEND_MARKER, NODE_MATERIAL_MARKER, NODE_POST_MARKER, RAPIER_MARKER, WEBGL_MARKER, WEBGPU_MARKER, censusChunks, preloadList, staticImports, type Chunk } from './bundle-census';
 
 const preload = (...files: string[]): string => `const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=[${files.map((f) => `"assets/${f}"`).join(',')}])))=>i.map(i=>d[i]);\n`;
 const good = (): Chunk[] => [
@@ -190,5 +190,62 @@ describe('GH-1167 S3 (P1): the 3D grass field lives in the node-backend chunk an
   });
   it('the marker is the name prefix S4 gives the scene objects (P3 looks for the same prefix)', () => {
     expect(GRASS_FIELD_MARKER).toBe('rl-grass-field');
+  });
+});
+
+describe('GH-1226 S3 (L1): the height-blend field is node-path only, and the pin cannot go on passing after it stopped looking', () => {
+  const withNode = (extra: string): Chunk[] => {
+    const c = good();
+    c[4] = { file: 'node-backend.js', code: preload('webgpu.js', 'core.js') + `throw new Error("${NODE_BACKEND_MARKER}");const n="${NODE_POST_MARKER}"${extra}` };
+    return c;
+  };
+  const armed = (chunks: Chunk[]): string[] => censusChunks(chunks, 'index.js', 10000, { heightBlendFieldExpected: true }).failures;
+  const field = `,h="${HEIGHT_BLEND_FIELD_MARKER}"`;
+  it('the marker is the one S2 gives the field texture (literal)', () => {
+    expect(HEIGHT_BLEND_FIELD_MARKER).toBe('rl-height-blend-field');
+    // Armed by S2: once the file is on main, it must still carry this literal (a renamed marker would silently disarm the pin above).
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+    const file = path.join(root, 'packages/render/src/three/terrain/height-blend-field.ts');
+    if (existsSync(file)) expect(readFileSync(file, 'utf8')).toContain(`HEIGHT_BLEND_FIELD_MARKER = '${HEIGHT_BLEND_FIELD_MARKER}'`);
+  });
+  it('passes with no carrier while the file is not in the tree (today), and with the carrier in the node-backend chunk once it is', () => {
+    expect(run(good())).toEqual([]);
+    expect(armed(withNode(field))).toEqual([]);
+  });
+  it('passes with the carrier in a lazy chunk of its own that only the node-backend chunk imports (statically or dynamically)', () => {
+    const c = withNode(`;import{h}from"./field.js"`);
+    c.push({ file: 'field.js', code: `export const h="${HEIGHT_BLEND_FIELD_MARKER}"` });
+    expect(armed(c)).toEqual([]);
+    const d = withNode(`;const l=()=>import("./field.js")`);
+    d.push({ file: 'field.js', code: `export const h="${HEIGHT_BLEND_FIELD_MARKER}"` });
+    expect(armed(d)).toEqual([]);
+  });
+  it('armed, a bundle with NO carrier is red (the vacuous pass is gone the day the file exists)', () => {
+    expect(armed(good()).join()).toMatch(/no chunk carries the height-blend field marker/);
+  });
+  it('disarmed, a carrier is red (a stale marker, or the driver\'s arming check is wrong)', () => {
+    expect(run(withNode(field)).join()).toMatch(/height-blend-field.ts is not in the tree/);
+  });
+  it('fails when the marker is in the ThreeRenderer chunk (a static import of height-blend-field.ts from ThreeRenderer.ts)', () => {
+    const c = withNode(field);
+    c[5] = { file: 'ThreeRenderer.js', code: `import{a}from"./core.js";export const r="${LEGACY_POST_MARKERS[0]}",mm={marker:"${MATERIAL_MATHS_MARKER}"}${field}` };
+    expect(armed(c).join()).toMatch(/height-blend field leaked into ThreeRenderer.js/);
+  });
+  it('fails when the field is hoisted into its own chunk that ThreeRenderer imports statically', () => {
+    const c = withNode(`;import{h}from"./field.js"`);
+    c[5] = { file: 'ThreeRenderer.js', code: `import{a}from"./core.js";import{h}from"./field.js";export const r="${LEGACY_POST_MARKERS[0]}",mm={marker:"${MATERIAL_MATHS_MARKER}"}` };
+    c.push({ file: 'field.js', code: `export const h="${HEIGHT_BLEND_FIELD_MARKER}"` });
+    expect(armed(c).join()).toMatch(/ThreeRenderer.js statically imports the height-blend field chunk field.js/);
+  });
+  it('fails when the marker is in the entry, its static closure, or the shared core', () => {
+    const e = withNode(field);
+    e[0] = { file: 'index.js', code: preload('ThreeRenderer.js') + `import{t as e}from"./runtime.js";const h="${HEIGHT_BLEND_FIELD_MARKER}"` };
+    expect(armed(e).join()).toMatch(/MAIN CHUNK GUARD: the height-blend field is in the entry chunk index.js/);
+    const r = withNode(field);
+    r[1] = { file: 'runtime.js', code: `export const t="${HEIGHT_BLEND_FIELD_MARKER}"` };
+    expect(armed(r).join()).toMatch(/is in runtime.js, which the entry index.js statically imports/);
+    const k = withNode(field);
+    k[2] = { file: 'core.js', code: `console.warn("${CORE_MARKER}");throw new Error("${WEBGL_MARKER}: x");const h="${HEIGHT_BLEND_FIELD_MARKER}"` };
+    expect(armed(k).join()).toMatch(/leaked into core.js, a shared three chunk/);
   });
 });

@@ -74,6 +74,25 @@ export const RAPIER_MARKER = 'rawintegrationparameters_new';
  */
 export const GRASS_FIELD_MARKER = 'rl-grass-field';
 
+/**
+ * GH-1226 S3 (pin L1): the marker of the height-blend field (`terrain/height-blend-field.ts`, S2: `HEIGHT_BLEND_FIELD_MARKER`, the
+ * name of its `DataTexture`). The field is node-path only and is loaded by DYNAMIC import from `ThreeRenderer`'s node branch (S5), so
+ * it may sit in the node-backend chunk or in a lazy chunk of its own, but never in the entry, its static closure, the shared core,
+ * the three/webgpu chunk, or the `ThreeRenderer` chunk the legacy path loads, and no such chunk may import it statically.
+ *
+ * ARMING: this is vacuously true while the file does not exist, which is why `censusChunks` takes `heightBlendFieldExpected`. The
+ * driver passes `existsSync(height-blend-field.ts)`. Once the file is on disk, a bundle with NO carrier is red (the marker moved, or
+ * the module is in no chunk because nothing loads it), so the pin cannot go on passing after it stopped looking. S5's dynamic import
+ * is what makes the carrier appear; nothing in S4/S5 needs to touch this. The converse is red too: a carrier with no file in the
+ * tree is a stale marker or a wrong arming check.
+ */
+export const HEIGHT_BLEND_FIELD_MARKER = 'rl-height-blend-field';
+
+export interface CensusOptions {
+  /** True when `height-blend-field.ts` exists in the source tree: the bundle must then carry `HEIGHT_BLEND_FIELD_MARKER`. */
+  readonly heightBlendFieldExpected?: boolean;
+}
+
 export interface CensusFindings {
   readonly coreChunks: string[];
   readonly webgpuChunks: string[];
@@ -87,6 +106,8 @@ export interface CensusFindings {
   readonly rapierChunks: string[];
   /** GH-1167 S3 (P1): the chunks carrying `GRASS_FIELD_MARKER`. */
   readonly grassFieldChunks: string[];
+  /** GH-1226 S3 (L1): the chunks carrying `HEIGHT_BLEND_FIELD_MARKER`. */
+  readonly heightBlendFieldChunks: string[];
   readonly entryHasThree: string[];
   /** Chunks reachable from the entry by STATIC imports only. */
   readonly entryStaticClosure: string[];
@@ -110,7 +131,7 @@ export function preloadList(code: string): string[] {
   return [...(m[1] as string).matchAll(/"assets\/([^"]+)"/g)].map((x) => x[1] as string);
 }
 
-export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryMaxBytes: number): CensusFindings {
+export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryMaxBytes: number, options: CensusOptions = {}): CensusFindings {
   const byFile = new Map(chunks.map((c) => [c.file, c]));
   const has = (c: Chunk, marker: string): boolean => c.code.includes(marker);
   const coreChunks = chunks.filter((c) => has(c, CORE_MARKER)).map((c) => c.file);
@@ -122,10 +143,11 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
   const nodeMaterialChunks = chunks.filter((c) => has(c, NODE_MATERIAL_MARKER)).map((c) => c.file);
   const rapierChunks = chunks.filter((c) => has(c, RAPIER_MARKER)).map((c) => c.file);
   const grassFieldChunks = chunks.filter((c) => has(c, GRASS_FIELD_MARKER)).map((c) => c.file);
+  const heightBlendFieldChunks = chunks.filter((c) => has(c, HEIGHT_BLEND_FIELD_MARKER)).map((c) => c.file);
   const entry = byFile.get(entryFile);
   const failures: string[] = [];
   if (!entry) {
-    return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, rapierChunks, grassFieldChunks, entryHasThree: [], entryStaticClosure: [], entryClosureBytes: 0, failures: [`entry chunk ${entryFile} not found`] };
+    return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, rapierChunks, grassFieldChunks, heightBlendFieldChunks, entryHasThree: [], entryStaticClosure: [], entryClosureBytes: 0, failures: [`entry chunk ${entryFile} not found`] };
   }
   const entryHasThree = [CORE_MARKER, WEBGPU_MARKER, WEBGL_MARKER].filter((m) => has(entry, m));
   // Static closure from the entry.
@@ -174,6 +196,23 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
   for (const f of grassFieldChunks) {
     if (!nodeBackendChunks.includes(f)) failures.push(`the 3D grass field ("${GRASS_FIELD_MARKER}", grass-field.node.ts) leaked into ${f}, which is not the node-backend chunk`);
   }
+  // GH-1226 S3 (L1): the height-blend field is node-path only (see HEIGHT_BLEND_FIELD_MARKER). Armed by the source file's existence.
+  if (options.heightBlendFieldExpected === true && heightBlendFieldChunks.length === 0) {
+    failures.push(`no chunk carries the height-blend field marker "${HEIGHT_BLEND_FIELD_MARKER}", but height-blend-field.ts exists: the marker moved, or the module is in no chunk`);
+  }
+  if (options.heightBlendFieldExpected !== true && heightBlendFieldChunks.length > 0) {
+    failures.push(`a chunk carries "${HEIGHT_BLEND_FIELD_MARKER}" (${heightBlendFieldChunks.join(', ')}) but height-blend-field.ts is not in the tree: a stale marker, or the driver's arming check is wrong`);
+  }
+  for (const f of heightBlendFieldChunks) {
+    if (f === entryFile) failures.push(`MAIN CHUNK GUARD: the height-blend field is in the entry chunk ${f}`);
+    else if (seen.has(f)) failures.push(`MAIN CHUNK GUARD: the height-blend field is in ${f}, which the entry ${entryFile} statically imports`);
+    if (coreChunks.includes(f) || webgpuChunks.includes(f)) failures.push(`the height-blend field leaked into ${f}, a shared three chunk`);
+    if (legacyPostChunks.includes(f) || /^ThreeRenderer/.test(f)) failures.push(`the height-blend field leaked into ${f}, the ThreeRenderer chunk a legacy boot loads (a static import of height-blend-field.ts from ThreeRenderer.ts)`);
+    for (const other of chunks) {
+      if (other.file === f || nodeBackendChunks.includes(other.file)) continue;
+      if (staticImports(other.code).includes(f)) failures.push(`${other.file} statically imports the height-blend field chunk ${f}: only the node-backend chunk may, and ThreeRenderer must use a dynamic import()`);
+    }
+  }
   for (const f of nodeBackendChunks) {
     // Bundlers hoist a module shared by two chunks into one of them: a twin that imports a legacy pass does not make its OWN chunk
     // carry the marker, it makes the node-backend chunk import the legacy renderer chunk. So walk what a node boot actually loads.
@@ -214,5 +253,5 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
     const parts = [entryFile, ...entryStaticClosure].map((f) => `${f} ${byFile.get(f)?.code.length ?? 0}`).join(' + ');
     failures.push(`MAIN CHUNK GUARD: the entry chunk and its static imports are ${entryClosureBytes} bytes (${parts}), over the ${entryMaxBytes} ceiling`);
   }
-  return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, rapierChunks, grassFieldChunks, entryHasThree, entryStaticClosure, entryClosureBytes, failures };
+  return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, rapierChunks, grassFieldChunks, heightBlendFieldChunks, entryHasThree, entryStaticClosure, entryClosureBytes, failures };
 }
