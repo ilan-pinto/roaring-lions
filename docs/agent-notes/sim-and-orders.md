@@ -21,7 +21,14 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   have no `garrison` ability and carry no flag), and it is not required elsewhere
   (`tools/validate_garrison.mjs`, which also refuses a garrison stance on a
   unit without the `garrison` ability -- the runtime would silently skip it). `GARRISON_RANGE_BONUS`
-  (`tuning.ts`, +1 tile) lengthens max and effective range from inside, not sight and not min range. A
+  (`tuning.ts`, +1 tile) lengthens max and effective range from inside, not sight and not min range; **since
+  GH-34 (lead ruling 11 Nov 2026) a structure type's own `garrison_range_bonus` (tiles, `structure.schema.json`)
+  replaces it for units inside that building** (`Sim.garrisonBonus`, read by `reachSq`/`effSq`/`effRange`), so an
+  apartment block (3 floors) reaches 2 tiles further and every other type keeps the one tile; an unauthored type takes
+  the precomputed `WeaponStats.garrison*` fields, which is why a world with no edited JSON is byte-identical. The shipped
+  table is pinned in `tools/src/garrison_range_bonus.test.ts` (`apartment: 2`); `garrison-probes.ts --reach` prints the
+  reach per building. A field work's `aura.garrison.range_bonus` still adds on top. The `fire` breakdown has no garrison
+  term and the range ring still draws the open-ground envelope (GH-34 acceptance 2 and 3, the next slice). A
   dead or removed occupant frees its slot; an overflow unit waits at the door, stopped, and fights.
   **The §5.7 urban target builds no structures, so `pnpm balance` is blind to all of this** --
   `tools/src/backtest/garrison-probes.ts` is the report-only instrument that can see it (the #280 raid

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CORE_MARKER, LEGACY_POST_MARKERS, MATERIAL_MATHS_MARKER, NODE_BACKEND_MARKER, NODE_MATERIAL_MARKER, NODE_POST_MARKER, WEBGL_MARKER, WEBGPU_MARKER, censusChunks, preloadList, staticImports, type Chunk } from './bundle-census';
+import { CORE_MARKER, GRASS_FIELD_MARKER, LEGACY_POST_MARKERS, MATERIAL_MATHS_MARKER, NODE_BACKEND_MARKER, NODE_MATERIAL_MARKER, NODE_POST_MARKER, RAPIER_MARKER, WEBGL_MARKER, WEBGPU_MARKER, censusChunks, preloadList, staticImports, type Chunk } from './bundle-census';
 
 const preload = (...files: string[]): string => `const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=[${files.map((f) => `"assets/${f}"`).join(',')}])))=>i.map(i=>d[i]);\n`;
 const good = (): Chunk[] => [
@@ -11,7 +11,8 @@ const good = (): Chunk[] => [
   { file: 'core.js', code: `console.warn("${CORE_MARKER}");throw new Error("${WEBGL_MARKER}: x")` },
   { file: 'webgpu.js', code: `import{a}from"./core.js";throw new Error("${WEBGPU_MARKER}: x")` },
   { file: 'node-backend.js', code: preload('webgpu.js', 'core.js') + `throw new Error("${NODE_BACKEND_MARKER}");const n="${NODE_POST_MARKER}"` },
-  { file: 'ThreeRenderer.js', code: `import{a}from"./core.js";export const r="${LEGACY_POST_MARKERS[0]}",mm={marker:"${MATERIAL_MATHS_MARKER}"}` },
+  { file: 'ThreeRenderer.js', code: `import{a}from"./core.js";export const r="${LEGACY_POST_MARKERS[0]}",mm={marker:"${MATERIAL_MATHS_MARKER}"};const p=()=>import("./rapier.js")` },
+  { file: 'rapier.js', code: `const w={${RAPIER_MARKER}:1}` },
 ];
 const run = (chunks: Chunk[], max = 10000): string[] => censusChunks(chunks, 'index.js', max).failures;
 
@@ -91,6 +92,27 @@ describe('bundle census: each finding is driven red by a constructed bundle', ()
     noLegacy[5] = { file: 'ThreeRenderer.js', code: 'import{a}from"./core.js";export const r=1' };
     expect(run(noLegacy).join()).toMatch(/no chunk carries the legacy composer marker/);
   });
+  it('GH-1223: fails when Rapier is not one lazy chunk: in the entry, statically imported, inside the renderer, or doubled', () => {
+    const inEntry = good().filter((x) => x.file !== 'rapier.js');
+    inEntry[0] = { file: 'index.js', code: inEntry[0].code + `;const w={${RAPIER_MARKER}:1}` };
+    expect(run(inEntry).join()).toMatch(/MAIN CHUNK GUARD: Rapier is in the entry chunk/);
+    const staticFromEntry = good();
+    staticFromEntry[0] = { file: 'index.js', code: staticFromEntry[0].code + ';import"./rapier.js"' };
+    expect(run(staticFromEntry).join()).toMatch(/MAIN CHUNK GUARD: Rapier is in rapier.js, which the entry/);
+    const staticFromRenderer = good();
+    staticFromRenderer[5] = { file: 'ThreeRenderer.js', code: `import"./rapier.js";import{a}from"./core.js";export const r="${LEGACY_POST_MARKERS[0]}",mm={marker:"${MATERIAL_MATHS_MARKER}"}` };
+    expect(run(staticFromRenderer).join()).toMatch(/ThreeRenderer.js statically imports the Rapier chunk rapier.js/);
+    const inRenderer = good().filter((x) => x.file !== 'rapier.js');
+    inRenderer[2] = { file: 'core.js', code: inRenderer[2].code + `;const w={${RAPIER_MARKER}:1}` };
+    expect(run(inRenderer).join()).toMatch(/Rapier is bundled into a renderer chunk/);
+    const none = good().filter((x) => x.file !== 'rapier.js');
+    expect(run(none).join()).toMatch(/Rapier must live in exactly ONE lazy chunk; found 0/);
+  });
+  it('GH-1223: the Rapier marker is in the installed package\'s code', () => {
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+    const dist = path.join(root, 'packages/render/node_modules/@dimforge/rapier3d-deterministic-compat/dist/rapier.mjs');
+    expect(readFileSync(dist, 'utf8')).toContain(RAPIER_MARKER);
+  });
   it('the markers are real: the node marker is a literal in post-chain.node.ts, the legacy one in three\'s SMAAShader', () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
     expect(readFileSync(path.join(root, 'packages/render/src/three/post-chain.node.ts'), 'utf8')).toContain(`'${NODE_POST_MARKER}'`);
@@ -140,5 +162,33 @@ describe('bundle census: each finding is driven red by a constructed bundle', ()
   it('parses static imports, not dynamic ones, and the preload list', () => {
     expect(staticImports('import{a as b}from"./x.js";import"./y.js";const z=import("./w.js")')).toEqual(['x.js', 'y.js']);
     expect(preloadList(preload('a.js', 'b.js'))).toEqual(['a.js', 'b.js']);
+  });
+});
+
+describe('GH-1167 S3 (P1): the 3D grass field lives in the node-backend chunk and nowhere else', () => {
+  const withNode = (extra: string): Chunk[] => {
+    const c = good();
+    c[4] = { file: 'node-backend.js', code: preload('webgpu.js', 'core.js') + `throw new Error("${NODE_BACKEND_MARKER}");const n="${NODE_POST_MARKER}"${extra}` };
+    return c;
+  };
+  it('passes with the marker in the node-backend chunk, and with no carrier at all (armed by S4)', () => {
+    expect(run(withNode(`,g="${GRASS_FIELD_MARKER}"`))).toEqual([]);
+    expect(run(good())).toEqual([]);
+  });
+  it('fails when the marker is in the ThreeRenderer chunk (a static import of grass-field.node.ts from ThreeRenderer.ts)', () => {
+    const c = withNode(`,g="${GRASS_FIELD_MARKER}"`);
+    c[5] = { file: 'ThreeRenderer.js', code: `import{a}from"./core.js";export const r="${LEGACY_POST_MARKERS[0]}",mm={marker:"${MATERIAL_MATHS_MARKER}"},g="${GRASS_FIELD_MARKER}"` };
+    expect(run(c).join()).toMatch(/grass field .* leaked into ThreeRenderer.js/);
+  });
+  it('fails when the marker is in the entry or the shared core', () => {
+    const e = withNode('');
+    e[1] = { file: 'runtime.js', code: `export const t="${GRASS_FIELD_MARKER}"` };
+    expect(run(e).join()).toMatch(/leaked into runtime.js/);
+    const k = withNode('');
+    k[2] = { file: 'core.js', code: `console.warn("${CORE_MARKER}");throw new Error("${WEBGL_MARKER}: x");const g="${GRASS_FIELD_MARKER}"` };
+    expect(run(k).join()).toMatch(/leaked into core.js/);
+  });
+  it('the marker is the name prefix S4 gives the scene objects (P3 looks for the same prefix)', () => {
+    expect(GRASS_FIELD_MARKER).toBe('rl-grass-field');
   });
 });

@@ -63,6 +63,21 @@ describe('withAoOccludersOnly: the AO-exempt filter', () => {
     expect(w.sun.shadow.autoUpdate).toBe(true);
   });
 
+  // GH-1225 slice 2: the legacy pass swaps a cut building's mask on; the node path (no cut yet) leaves such a mesh out instead,
+  // and a mesh with no mask is drawn as before. Falsify: drop `cutAo ||` from `withAoOccludersOnly` and `cut` reads true.
+  it('leaves a mesh carrying the legacy cut mask out of the G-buffer, and the terrain in', () => {
+    const w = world();
+    const cut = new THREE.Mesh(w.terrain.geometry, new THREE.MeshStandardMaterial());
+    cut.userData.rlCutAo = new THREE.MeshNormalMaterial();
+    w.scene.add(cut);
+    let seen: boolean[] = [];
+    withAoOccludersOnly(w.scene, AO_MATHS.isOccluder, () => {
+      seen = [w.terrain.visible, cut.visible];
+    });
+    expect(seen).toEqual([true, false]);
+    expect(cut.visible).toBe(true);
+  });
+
   it('restores on a throw, and leaves an object that was already hidden hidden', () => {
     const w = world();
     w.smoke.visible = false;

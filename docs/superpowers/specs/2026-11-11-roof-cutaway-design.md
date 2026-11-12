@@ -115,8 +115,15 @@ pattern of the `T9` tunnel x-ray and the `P3` unit twins:
 - **Maths:** `cutawayOps` is handed over through `MATERIAL_MATHS`, so the two backends cannot drift.
 - **Uniforms:** the volume block is a `uniformArray` over the legacy record's `Float32Array`, by reference.
 - **Shadow:** `castShadowNode` carries the same mask. That must be pinned by test on r186 before building on it.
+  - *As built (slice 3):* r186 honours `castShadowNode` (`Renderer._getShadowNodes` makes it the caster's colour), but it is the
+    transmitted-shadow channel: without `shadowMap.transmitted` it warns and its colour is ignored. The same function applies
+    `maskShadowNode || maskNode` to every caster as a discard, so the twin's one `maskNode` cuts the shadow and `castShadowNode`
+    stays null. Both facts are pinned in `building-cut.node.test.ts` (G4). The node AO pre-pass draws through an override
+    material that carries no mask, so on node the AO still sees a cut building whole.
 - **Census:** `rl-cut` joins `PORTED_MATERIAL_KEYS` in the PR that lands the twin.
 - **Holes:** P4 holes have no twin today (P4 ruling Q3). Porting `rl-holes` into the same twin is decision L7.
+  - *As built (slice 3):* one fragment body, `units/building-cut-maths.ts` (`buildingFragmentOps`), runs on numbers and on nodes;
+    `rl-holes` joins `PORTED_MATERIAL_KEYS` with `rl-cut`.
 
 ## Gates and falsifiers
 

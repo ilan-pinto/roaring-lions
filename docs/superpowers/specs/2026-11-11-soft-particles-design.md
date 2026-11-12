@@ -129,6 +129,17 @@ medium, 3 runs interleaved, load under 6; falsified by hiding the `flipbook` lay
   own Metal read.
 - **So on the node backend `softParticles` stays inert**: `ThreeRenderer.init` returns before the wiring on the node path, no
   `setSoftDepth` runs, and the twin builds its shipped graph. The copy slice wires it and adds the test that pins the copy.
+- **Slice 3, as built: W1.** `soft-depth.ts`'s `NodeSoftDepthCopy` is the same sentinel at the same band; its `onBeforeRender`
+  calls the node renderer's `copyFramebufferToTexture` into a `depth32float-stencil8` texture of its own (three's WebGPU backend
+  ends the scene render pass, copies on the same encoder, and resumes the pass with `load`: the path three's own
+  `viewportDepthTexture()` takes). The scene pass renders `depth32float-stencil8` only while that copy exists: one predicate,
+  `post-chain.node.ts`'s `nodeSoftDepthOn` (the flag AND a WebGPU device with the feature), picks the pass format in the node
+  backend and gates the copy in `ThreeRenderer.init` (through `RenderBackend.softDepthOn`), before adoption, so the smoke twin is
+  built with the copy's texture. Off, or on a device without the feature, or on the node-WebGL2 arm: no copy, today's pass, and the
+  chain's compiled programs are main's (pinned by hash). W2 was not taken: a full-screen draw cannot run mid-pass through three's
+  public API without splitting the scene pass in two (a nested `render` is a separate command buffer, submitted BEFORE the outer
+  pass's opaque draws, so it would read last frame's depth); W1 changes nothing while the flag is off. The Metal read
+  (G-twin-copy) is still pending.
 
 ## 6. How the golden baselines move
 
@@ -187,6 +198,26 @@ Twin gates (slice 1, `units/flipbook-soft.node.test.ts`; each mutation run red o
 | T3 | on: the fade's value reaches the alpha | compute the fade but do not multiply: red |
 | T4 | the fire pass never fades, even handed a record with the soft uniforms | drop `pass === 'smoke'`: red |
 
+Slice 3 gates (`soft-depth.node.test.ts`, `ThreeRenderer.soft-depth-node.test.ts`; each mutation run red once, listed in the commit
+message):
+
+| id | gate | falsification (one-line mutation) |
+|---|---|---|
+| C1 | the copy is wanted only for the flag AND a copyable device; no preset turns it on | drop `&& copyable`: red |
+| C2 | off: the node scene pass is depth24plus-stencil8, the pass list and the chain's compiled WGSL equal main's literals | `nodeSceneDepthType` always `FloatType`: red; ACES -> Neutral in the output: red |
+| C3 | on: the scene pass is depth32float-stencil8, the copy's own format; passes and programs unchanged | the copy texture `UnsignedInt248Type`: red |
+| C4 | the copy reads only the current scene pass target, of its own type, recreates on resize, into its own texture | drop the target guard / the type guard / `needsUpdate` / copy into `depth`: each red |
+| C5 | the smoke twin taps the texture the copy fills (`texture_depth_2d`) | copy into the source's texture: red |
+| C6 | three's own `RenderList` order: opaque draws, then the copy, then the smoke pass, at any billow depth | sentinel `transparent: false`: red; band -2 -> 6: red |
+| W1 | off (every preset; the flag without the feature), a node boot adds no sentinel and adopts the shipped smoke twin | gate on `quality.softParticles` alone: red |
+| W2 | on, the boot adds the sentinel and the boot-built smoke twin taps the copy | drop `scene.add(sentinel)`: red; drop `setSoftDepth(copy)`: red |
+
+Disclosed survivor: `node-backend.ts` (it needs a live `WebGPURenderer.init`) is not unit-tested, so dropping its `softDepthCopyable`
+argument to `createNodePostChain`, or its `isGpu &&`, survives these tests. The first would leave the pass at depth24plus-stencil8
+while the copy exists, and C4's type guard then refuses every copy: no backend error, but the copy's texture is never filled, so
+the fade reads every billow as behind the scene and the smoke pass draws nothing (flag on only). G-twin-copy, on Metal, is what
+holds it.
+
 Later slices:
 
 | id | gate | falsification |
@@ -202,7 +233,7 @@ Later slices:
 1. **This PR.** WebGL2 snapshot and smoke-pass fade, flag off on every preset; design.
 2. `&soft` sandbox flag (`sandbox-help.ts`) for an A/B look; G-cost on Metal; the lead's one Metal browser check.
 3. The node backend's depth copy (section 5, W1 or W2) and G-twin-copy; the twin's fade itself is built in slice 1.
-4. `ParticleInstancer` debris dust on the same snapshot (D4).
+4. `ParticleInstancer` debris dust on the same snapshot (D4). **Built (slice 4, same flag, off on every preset):** the band-2 (depth-tested, normal-blended) tier only, `ParticleInstancer.setSoftDepth`; the above tiers (`depthTest: false`) and the hot cores (alpha pinned to 1) refuse. Every sprite on that tier fades, hard clods included; gating the fade by the instance's `aSoft` (feathered `smoke_puff` discs only) is the one-line alternative for the slice-2 Metal look. The drawn world size reaches the shader as the `aSize` instance attribute (present only while on): the instance scale is a radius in screen pixels, and `rlSoftFade` wants a world length. Tests: `units/particle-soft.test.ts`, `units/particle-soft.node.test.ts`.
 5. Flip on at the presets the lead picks (D2); G-baseline; bless from CI after the lead sees it.
 
 ## 9. Lead decisions

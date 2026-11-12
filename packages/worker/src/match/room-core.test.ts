@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { FORFEIT_MS, OVER_CLOSE_MS, PAUSE_MS, type ClientMsg, type MatchConfig } from '@lions/net';
-import { createRoom, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, MAX_LOG_CMD_CHARS, logCmdCharsOf, type RoomState, type Effect } from './room-core';
+import { FORFEIT_MS, OVER_CLOSE_MS, PAUSE_MS, type ClientMsg, type MatchConfig, type OverResult } from '@lions/net';
+import { createRoom, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, endedMsg, recordOf, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, MAX_LOG_CMD_CHARS, logCmdCharsOf, type RoomState, type Effect } from './room-core';
 
 const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -1335,5 +1335,192 @@ describe('the agreed effect (snapshot S3)', () => {
     expect(agreed(pairAt(st, mintC, 1199, 7, 7))).toHaveLength(1);
     expect(seatMessage(st, 0, { t: 'hash', tick: 1199, h: 7 }, 0, mintC)).toEqual([]);
     expect(seatMessage(st, 1, { t: 'hash', tick: 1199, h: 7 }, 0, mintC)).toEqual([]);
+  });
+});
+
+describe('recordOf (GH-1075 A3, the agreed-result rule)', () => {
+  const VERSUS: MatchConfig = { ...CONFIG, mode: 'versus' };
+  const mintV = (): MatchConfig => VERSUS;
+  const WIN1: OverResult = { winner: 1, by: 'annihilation' };
+  /** A started versus room, run to tick 400 with the hashes compared up to `hashed`. */
+  function versusAt400(hashed = 400): RoomState {
+    const st = createRoom('ABCDEF', 'm1', 0);
+    seatJoin(st, 0, 'p0', 'Host', 0);
+    seatJoin(st, 1, 'p1', 'Guest', 0);
+    seatMessage(st, 0, { t: 'ready' }, 1000, mintV);
+    seatMessage(st, 1, { t: 'ready' }, 1000, mintV);
+    st.tick = 401;
+    st.lastHashTick = hashed;
+    return st;
+  }
+  const report = (st: RoomState, seat: 0 | 1, result?: OverResult): void => {
+    seatMessage(st, seat, { t: 'over', tick: 400, ...(result ? { result } : {}) }, 5000, mintV);
+  };
+  const closeOver = (st: RoomState): void => { closeIfDue(st, 5200 + OVER_CLOSE_MS); };
+
+  it('a_disagreement_records_nothing', () => {
+    const st = versusAt400();
+    report(st, 0, { winner: 0, by: 'annihilation' });
+    report(st, 1, WIN1);
+    closeOver(st);
+    expect(st.status).toBe('ended');
+    expect(recordOf(st)).toBeNull();
+  });
+
+  it('a_disagreement_then_a_leave_records_nothing', () => {
+    const st = versusAt400();
+    report(st, 0, { winner: 0, by: 'annihilation' });
+    report(st, 1, WIN1);
+    seatMessage(st, 1, { t: 'bye' }, 6000, mintV);
+    expect(st.endedReason).toBe('left');
+    expect(recordOf(st)).toBeNull();
+  });
+
+  it('same_tick_different_by_records_nothing', () => {
+    const st = versusAt400();
+    report(st, 0, { winner: 1, by: 'annihilation' });
+    report(st, 1, { winner: 1, by: 'stalemate' });
+    closeOver(st);
+    expect(recordOf(st)).toBeNull();
+  });
+
+  it('agreement_records_agreed', () => {
+    const st = versusAt400();
+    report(st, 0, WIN1);
+    report(st, 1, WIN1);
+    closeOver(st);
+    expect(recordOf(st)).toEqual({ startedAt: 1000, endedAt: 5200 + OVER_CLOSE_MS, reason: 'annihilation', winnerSeat: 1, ticks: 400, agreed: true });
+  });
+
+  it('a_winner_who_leaves_after_the_result_still_wins', () => {
+    const st = versusAt400();
+    report(st, 0, { winner: 0, by: 'annihilation' });
+    report(st, 1, { winner: 0, by: 'annihilation' });
+    seatMessage(st, 0, { t: 'bye' }, 6000, mintV);
+    expect(st.endedReason).toBe('left');
+    expect(recordOf(st)).toMatchObject({ winnerSeat: 0, reason: 'annihilation', agreed: true });
+  });
+
+  it('the_hash_rule', () => {
+    const stale = versusAt400(360);
+    report(stale, 0, WIN1);
+    report(stale, 1, WIN1);
+    closeOver(stale);
+    expect(recordOf(stale)).toBeNull();
+    const fresh = versusAt400(380);
+    report(fresh, 0, WIN1);
+    report(fresh, 1, WIN1);
+    closeOver(fresh);
+    expect(recordOf(fresh)).toMatchObject({ agreed: true });
+  });
+
+  it('a_lone_report_is_unconfirmed', () => {
+    const st = versusAt400();
+    report(st, 0, WIN1);
+    seatGone(st, 1, 5100);
+    closeOver(st);
+    expect(st.endedReason).toBe('over');
+    expect(recordOf(st)).toMatchObject({ agreed: false, winnerSeat: 1, reason: 'annihilation', ticks: 400 });
+  });
+
+  it('a lone report then the other seat leaving is still the reporter\'s result, unconfirmed', () => {
+    const st = versusAt400();
+    report(st, 0, WIN1);
+    seatMessage(st, 1, { t: 'bye' }, 6000, mintV);
+    expect(recordOf(st)).toMatchObject({ agreed: false, winnerSeat: 1 });
+  });
+
+  it('a lone report then the reporter\'s own surrender is a loss for the reporter, agreed', () => {
+    const st = versusAt400();
+    report(st, 0, { winner: 0, by: 'annihilation' });
+    seatMessage(st, 0, { t: 'surrender' }, 6000, mintV);
+    expect(recordOf(st)).toMatchObject({ agreed: true, winnerSeat: 1, reason: 'surrender' });
+  });
+
+  it('a silent loser gets no agreed win when the reporting winner leaves (bye)', () => {
+    const st = versusAt400();
+    report(st, 0, { winner: 0, by: 'annihilation' });
+    seatMessage(st, 0, { t: 'bye' }, 6000, mintV);
+    expect(st.endedReason).toBe('left');
+    expect(recordOf(st)).toMatchObject({ agreed: false, winnerSeat: 0, reason: 'annihilation' });
+  });
+
+  it('a silent loser gets no agreed win when the reporting winner forfeits', () => {
+    const st = versusAt400();
+    report(st, 0, { winner: 0, by: 'annihilation' });
+    seatGone(st, 0, 6000);
+    forfeitIfDue(st, 6000 + FORFEIT_MS + 1);
+    expect(st.endedReason).toBe('forfeit');
+    expect(recordOf(st)).toMatchObject({ agreed: false, winnerSeat: 0, reason: 'annihilation' });
+  });
+
+  it('a room that agreed and then desynced (void) records nothing', () => {
+    const st = versusAt400(399);
+    report(st, 0, WIN1);
+    report(st, 1, WIN1);
+    st.status = 'ended';
+    st.endedReason = 'void';
+    expect(recordOf(st)).toBeNull();
+  });
+
+  it('a_surrender_is_agreed', () => {
+    const sur = versusAt400();
+    seatMessage(sur, 1, { t: 'surrender' }, 6000, mintV);
+    expect(recordOf(sur)).toMatchObject({ winnerSeat: 0, reason: 'surrender', agreed: true });
+    const left = versusAt400();
+    seatMessage(left, 1, { t: 'bye' }, 6000, mintV);
+    expect(recordOf(left)).toMatchObject({ winnerSeat: 0, reason: 'left', agreed: true });
+    const forf = versusAt400();
+    seatGone(forf, 1, 6000);
+    forfeitIfDue(forf, 6000 + FORFEIT_MS + 1);
+    expect(forf.endedReason).toBe('forfeit');
+    expect(recordOf(forf)).toMatchObject({ winnerSeat: 0, reason: 'forfeit', agreed: true });
+  });
+
+  it('no_result_from_an_old_client', () => {
+    const st = versusAt400();
+    report(st, 0);
+    report(st, 1);
+    closeOver(st);
+    expect(st.endedReason).toBe('over');
+    expect(recordOf(st)).toBeNull();
+  });
+
+  it('a sandbox room that ends by surrender records nothing (§0.22)', () => {
+    const st = running();
+    seatMessage(st, 1, { t: 'surrender' }, 6000, mint);
+    expect(st.endedReason).toBe('surrender');
+    expect(recordOf(st)).toBeNull();
+  });
+
+  it('a lobby leave and a void record nothing', () => {
+    const lobby = createRoom('ABCDEF', 'm1', 0);
+    seatJoin(lobby, 0, 'p0', 'Host', 0);
+    seatMessage(lobby, 0, { t: 'bye' }, 10, mintV);
+    expect(lobby.status).toBe('ended');
+    expect(recordOf(lobby)).toBeNull();
+    const voided = versusAt400();
+    voided.status = 'ended';
+    voided.endedReason = 'void';
+    expect(recordOf(voided)).toBeNull();
+  });
+
+  it('recorded_once', () => {
+    const st = versusAt400();
+    seatMessage(st, 1, { t: 'surrender' }, 6000, mintV);
+    expect(recordOf(st)).not.toBeNull();
+    st.recorded = true;
+    expect(recordOf(st)).toBeNull();
+  });
+
+  it('a room persisted before A3 revives with empty results, a start time from its creation, and unrecorded', () => {
+    const st = versusAt400();
+    const old: Partial<RoomState> = { ...st };
+    delete old.overResults; delete old.startedMs; delete old.recorded;
+    const revived = old as RoomState;
+    revive(revived, 401, 9000);
+    expect(revived.overResults).toEqual([null, null]);
+    expect(revived.startedMs).toBe(0);
+    expect(revived.recorded).toBe(false);
   });
 });

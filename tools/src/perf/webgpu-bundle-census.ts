@@ -57,6 +57,7 @@ for (const c of pick(f.coreChunks)) lines.push(`three.core (+WebGLRenderer, shar
 for (const c of pick(f.webgpuChunks)) lines.push(`three/webgpu (lazy): ${row(c)}`);
 for (const c of chunks.filter((x) => /^three\.tsl-/.test(x.file))) lines.push(`three/tsl (lazy): ${row(c)}`);
 for (const c of pick(f.nodeBackendChunks)) lines.push(`node backend (lazy): ${row(c)}`);
+for (const c of pick(f.rapierChunks)) lines.push(`Rapier (lazy, ragdolls only; GH-1223): ${row(c)}`);
 for (const c of chunks.filter((x) => /^ThreeRenderer-/.test(x.file))) lines.push(`ThreeRenderer (lazy, legacy path + composer): ${row(c)}`);
 const lazy = pick(f.webgpuChunks).concat(chunks.filter((x) => /^three\.tsl-/.test(x.file)), pick(f.nodeBackendChunks));
 const lazyBytes = lazy.reduce((n, c) => n + c.code.length, 0);
@@ -68,6 +69,7 @@ lines.push(`material-maths.ts (app-side material values) in: ${f.materialMathsCh
 // Report-only: they import nothing, so wherever the bundler puts them they drag no chunk in (the G9 source spec is the gate).
 const holders = (marker: string): string => chunks.filter((c) => c.code.includes(marker)).map((c) => c.file).join(', ') || '(NOWHERE)';
 lines.push(`twin-identity.ts (rlLegacyBase) in: ${holders('rlLegacyBase')}; material-names.ts (rl-backdrop-fade) in: ${holders('rl-backdrop-fade')}`);
+lines.push(`3D grass field (rl-grass-field, S4) in: ${f.grassFieldChunks.join(', ') || '(none yet)'}`);
 lines.push(`entry static closure: ${f.entryStaticClosure.join(', ') || '(none)'}`);
 lines.push(f.failures.length === 0 ? 'FINDINGS: none (core shared, webgpu lazy, main chunk clean, node post chain only in the node backend chunk, no postprocessing addons in it, material values off the node load, twins only in the node backend chunk)' : `FINDINGS:\n  ${f.failures.join('\n  ')}`);
 console.log(lines.join('\n'));

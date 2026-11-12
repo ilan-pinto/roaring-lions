@@ -4,6 +4,7 @@ import tseslint from 'typescript-eslint';
 import globals from 'globals';
 import { PORTED_FILES, portedFilesBlocks } from './tools/webgpu_ratchet.mjs';
 import { ROAR_FENCE, RENDER_DEP_SELECTOR, RATCHET_BASE } from './tools/webgpu_fences.mjs';
+import { physicsFencePlugin } from './tools/physics_fence.mjs';
 
 const ECON_MSG = '@lions/economy imports @lions/sim and @lions/data only (GH-1075 A0, CLAUDE.md dependency direction).';
 const SIM_MSG =
@@ -413,6 +414,14 @@ export default defineConfig(
     files: ['packages/app/src/net/**/*.ts'],
     ignores: ['**/*.test.ts'],
     rules: { 'no-restricted-imports': ['error', { ...APP_RESTRICTED, patterns: [...APP_RESTRICTED.patterns, ROAR_FENCE] }] },
+  },
+  // GH-1223: presentation-only physics. Rapier only under packages/render/src/three/physics/, that folder only through
+  // ThreeRenderer.ts. Its own rule, so no later `no-restricted-imports` block can replace it, and it sees `import()`.
+  // Pinned by tools/src/physics_fence.test.ts.
+  {
+    files: ['**/*.ts', '**/*.mjs', '**/*.js'],
+    plugins: { 'lions-physics': physicsFencePlugin },
+    rules: { 'lions-physics/physics-fence': 'error' },
   },
   // GH-943 P0: the GLSL ratchet. Empty until P1 ports a file; see tools/webgpu_ratchet.mjs.
   ...portedFilesBlocks(PORTED_FILES, RATCHET_BASE)

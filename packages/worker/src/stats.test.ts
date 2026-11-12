@@ -7,6 +7,7 @@ import { FEEDBACK_HTML } from './feedback-page';
 import { tutorials } from '@lions/data';
 import { LEGACY_TUTORIAL_STEP_IDS, labelTutorialRows } from './tutorial-funnel';
 import type { Env, RateLimiter } from './d1';
+import { ACCOUNTS_MIGRATIONS } from './account/test-kit';
 import { sessionCookieHeader, clearedSessionCookieHeader, signSession, SESSION_COOKIE } from './auth';
 
 const DAY = 86_400_000;
@@ -387,5 +388,75 @@ describe('handleStats', () => {
     const res = await stats.handleStats(new Request('https://g.dev/stats/api/nope', { headers: { cookie } }), env, T0);
     expect(res.status).toBe(404);
     expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+});
+
+describe('blank a name (GH-1075 A3)', () => {
+  const NOW = 1_800_000_000_000;
+  const ORIGIN = 'https://g.dev';
+  async function setup() {
+    const accounts = openTestD1({ dir: ACCOUNTS_MIGRATIONS });
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD, ACCOUNTS: accounts };
+    for (const [id, pub, name] of [['m1', 'AAAAAAAA', 'Rude Name'], ['m2', 'BBBBBBBB', 'Rude Name']]) {
+      await accounts.prepare('INSERT INTO member (id, public_id, id_hash, user_handle, created_at, last_seen_day) VALUES (?, ?, ?, ?, 1, 1)').bind(id, pub, 'h' + id, 'u' + id).run();
+      await accounts.prepare('INSERT INTO profile (member_id, display_name, updated_at) VALUES (?, ?, 1)').bind(id, name).run();
+    }
+    const seats: [number, string, string][] = [[0, 'other:Rude Net', 'bot'], [1, 'other:MyNet v3', 'bot']];
+    for (const [i, label, kind] of seats) {
+      await accounts.prepare('INSERT INTO match_seat (code, started_at, seat, kind, side, bot_label) VALUES (?, 1, ?, ?, ?, ?)').bind('C' + i, i === 0 ? 0 : 1, kind, 'kdf', label).run();
+    }
+    await accounts.prepare("INSERT INTO match_seat (code, started_at, seat, kind, side, bot_label) VALUES ('C9', 1, 0, 'bot', 'kdf', 'id:claude-opus-5-5')").run();
+    return { env, accounts, cookie: await loggedInCookie(PASSWORD, NOW) };
+  }
+  const post = (path: string, body: unknown, cookie: string | null, origin: string | null = ORIGIN, method = 'POST') => {
+    const headers: Record<string, string> = {};
+    if (cookie) headers.cookie = cookie;
+    if (origin !== null) headers.origin = origin;
+    return new Request(ORIGIN + path, { method, headers, body: method === 'POST' ? JSON.stringify(body) : undefined });
+  };
+  const names = async (a: { prepare: Env['DB']['prepare'] }) =>
+    (await a.prepare('SELECT m.public_id AS p, pr.display_name AS n FROM profile pr JOIN member m ON m.id = pr.member_id ORDER BY m.public_id').all<{ p: string; n: string }>()).results.map((r) => r.n);
+  const labels = async (a: { prepare: Env['DB']['prepare'] }) =>
+    (await a.prepare('SELECT bot_label AS l FROM match_seat ORDER BY code').all<{ l: string | null }>()).results.map((r) => r.l);
+
+  it('blank_resets_to_the_public_id', async () => {
+    const { env, accounts, cookie } = await setup();
+    const res = await stats.handleStats(post('/stats/api/members/blank', { publicId: 'AAAAAAAA' }, cookie), env, NOW);
+    expect(res.status).toBe(200);
+    expect(await names(accounts)).toEqual(['AAAAAAAA', 'Rude Name']);
+  });
+
+  it('blank_needs_the_session_and_the_origin', async () => {
+    const { env, accounts, cookie } = await setup();
+    const before = await names(accounts);
+    const bots = await labels(accounts);
+    for (const [path, body] of [['/stats/api/members/blank', { publicId: 'AAAAAAAA' }], ['/stats/api/bots/blank', { name: 'Rude Net' }]] as const) {
+      expect((await stats.handleStats(post(path, body, null), env, NOW)).status).toBe(401);
+      expect((await stats.handleStats(post(path, body, cookie, 'https://evil.dev'), env, NOW)).status).toBe(403);
+      expect((await stats.handleStats(post(path, body, cookie, null), env, NOW)).status).toBe(403);
+      expect((await stats.handleStats(post(path, body, cookie, ORIGIN, 'GET'), env, NOW)).status).toBe(405);
+    }
+    expect(await names(accounts)).toEqual(before);
+    expect(await labels(accounts)).toEqual(bots);
+  });
+
+  it('blank_is_400_for_a_bad_id_404_for_nobody_and_503_unbound', async () => {
+    const { env, cookie } = await setup();
+    expect((await stats.handleStats(post('/stats/api/members/blank', { publicId: 'short' }, cookie), env, NOW)).status).toBe(400);
+    expect((await stats.handleStats(post('/stats/api/members/blank', { publicId: 'CCCCCCCC' }, cookie), env, NOW)).status).toBe(404);
+    const unbound: Env = { ...env, ACCOUNTS: undefined };
+    expect((await stats.handleStats(post('/stats/api/members/blank', { publicId: 'AAAAAAAA' }, cookie), unbound, NOW)).status).toBe(503);
+    expect((await stats.handleStats(post('/stats/api/bots/blank', { name: 'Rude Net' }, cookie), unbound, NOW)).status).toBe(503);
+  });
+
+  it('blank_a_bot_model_name', async () => {
+    const { env, accounts, cookie } = await setup();
+    const res = await stats.handleStats(post('/stats/api/bots/blank', { name: ' Rude ​Net ' }, cookie), env, NOW);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ changed: 1 });
+    expect(await labels(accounts)).toEqual([null, 'other:MyNet v3', 'id:claude-opus-5-5']);
+    const again = await stats.handleStats(post('/stats/api/bots/blank', { name: 'Rude Net' }, cookie), env, NOW);
+    expect(again.status).toBe(404);
+    expect((await stats.handleStats(post('/stats/api/bots/blank', { name: '​' }, cookie), env, NOW)).status).toBe(400);
   });
 });

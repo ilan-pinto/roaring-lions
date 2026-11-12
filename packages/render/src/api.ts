@@ -439,6 +439,23 @@ export interface RendererOptions {
    */
   decalShowcase?: { readonly x: number; readonly y: number };
   /**
+   * GH-1197 P5: stamp the settled-rubble showcase around this tile once the terrain is built: two finished collapses
+   * (a 3x3 limestone house and a 2x2 dust shed), each its rubble decal and its chunks AT REST, on the decal showcase's
+   * own road and flat sites (anchored clear of the force the same way). Dated sim time 0, so a capture before the 90 s
+   * fade sees them identically every run. Three-only and sandbox-only, under `&rubble`, never on a mission: the
+   * witness of the gated `rubble` scenario.
+   */
+  rubbleShowcase?: { readonly x: number; readonly y: number };
+  /**
+   * GH-1223 slice 1: the ragdoll showcase around this tile, the witness of the gated `ragdoll` scenario. Two
+   * `inf_squad` teams on the decal showcase's flat site (anchored clear of the force the same way), killed by no sim
+   * event at all -- renderer-only figures dying at sim time 0 (settled by tick 300) and at 14.6 s (mid-fall at tick
+   * 300, 15 s). Every input is hashed or dated on the sim clock, so a capture at a tick sees them identically every
+   * run. Three-only and sandbox-only, under `&ragdoll` (which also raises the ragdoll cap to
+   * `RAGDOLL_SHOWCASE_CAP`), never on a mission.
+   */
+  ragdollShowcase?: { readonly x: number; readonly y: number };
+  /**
    * Pass C2/C4 (P5): the player's reduced-motion preference, asked live (a
    * settings change mid-mission takes effect at once). Absent reads as
    * "full motion". Today it gates one thing: a suppressed or pinned

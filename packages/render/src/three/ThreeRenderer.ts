@@ -209,6 +209,7 @@ import { SupportAircraftManager } from './units/support-aircraft';
 import { BlastRingPool, ringColorLinear } from './units/blast-ring';
 import { DebrisPool } from './units/debris-pool';
 import { debrisThrowFor, planDebris, restingPlan, type DebrisPlan } from './units/debris-flight';
+import { collapseChunkCount, collapseDustRecipe, planCollapseChunks } from './units/collapse-debris';
 import { debrisKeysFor, rampStep } from './units/debris-tone';
 import { HOLE_INTERIOR_TOWARD_CHAR, HOLE_SEED_LIMIT, addHole, type Hole } from './units/building-holes';
 import { BuildingHoleMaterials, type HoleColors } from './units/holed-material';
@@ -259,7 +260,7 @@ import {
   CLUSTER_BURST_POWER,
   clusterCarrierToRetire,
 } from './units/cluster-burst';
-import { decalShowcase, showcaseAnchor, showcaseSites } from './decal-showcase';
+import { decalShowcase, ragdollShowcaseSite, showcaseAnchor, showcaseSites } from './decal-showcase';
 import {
   DecalPool,
   createDecalMaterial,
@@ -409,7 +410,7 @@ import {
   type TexturedDecorSet,
 } from './terrain/decor-textured-mesh';
 import { lod1Shown } from './units/building-lod';
-import { buildingSkin, keepsFullArt } from './units/building-skin';
+import { buildingMask, buildingSkin, keepsFullArt } from './units/building-skin';
 import { isTexturedDecorKey } from './terrain/textured-decor';
 import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
@@ -565,11 +566,21 @@ import {
   CUT_SELECT_RADIUS_TILES,
   CutawayTable,
   footprintDistance,
+  garrisonCutKey,
+  garrisonCutRadius,
+  garrisonStations,
   writeCutVolumes,
   type CutTrigger,
   type CutVolume,
 } from './units/building-cutaway';
-import { BuildingCutMaterials, createCutUniforms, cutColorsFor, type CutUniforms } from './units/cut-material';
+import {
+  BuildingCutMaterials,
+  createCutMaskMaterials,
+  createCutUniforms,
+  cutColorsFor,
+  type CutMaskMaterials,
+  type CutUniforms,
+} from './units/cut-material';
 import { DEFAULT_BUILDING_FIT, buildingFitScale, type FitScale } from './units/building-fit';
 import {
   FX_RENDER_ORDER,
@@ -703,6 +714,9 @@ import { TeamMaskSlots, VehicleTeamMaterials, setTeamMaskPass } from './units/te
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
 import { TEXTURED_INFANTRY_TYPES } from './units/textured-infantry';
+// GH-1223: the one door into presentation-only physics (`tools/physics_fence.mjs`).
+import { RagdollSystem, type RagdollDeath } from './physics/ragdoll-system';
+import type { StaticBox } from './physics/ragdoll-world';
 import {
   beginMeshDeath,
   settleMeshDeath,
@@ -728,7 +742,7 @@ import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel, hazeAmountOps, HAZE_FORWARD } from './haze';
 import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
-import { SoftDepthSnapshot } from './soft-depth';
+import { NodeSoftDepthCopy, SoftDepthSnapshot } from './soft-depth';
 import { FogOfWarPass } from './fog-pass';
 import { FOG_OFFMAP_FADE_TILES, FogUniforms, type FogPassLike } from './fog-spec';
 import { fogDim } from './fog-ops';
@@ -862,6 +876,17 @@ import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, conta
 
 /** COPIED from tuning.ts (FS_MORTAR_BARRAGE, SMOKE_RANGE_SQ); the vfx-triggers spec reads tuning.ts as text. */
 const FS_MORTAR_BARRAGE = 1;
+/** GH-1197 P5: the rubble showcase's two collapses hash as these (no real structure has an index this high; times 64
+ *  plus a salt it stays under 2^22, where `tileHash` is exact). */
+const RUBBLE_SHOWCASE_ID_BASE = 60000;
+/** GH-1223: the ragdoll showcase's team, its deaths (sim tick, tiles east of the site) and the ids its hashes use (no
+ *  sim entity has an index this high). 292 ticks is 14.6 s: 0.4 s into its fall at the scenario's tick 300. */
+const RAGDOLL_SHOWCASE_TYPE = 'inf_squad';
+const RAGDOLL_SHOWCASE_DEATHS: readonly { tick: number; dx: number }[] = [
+  { tick: 0, dx: -1 },
+  { tick: 292, dx: 1 },
+];
+const RAGDOLL_SHOWCASE_ID_BASE = 60_100;
 
 /** GH-1197 P3: the direct-fire classes whose hit on a building throws masonry from the hit face (the coordinator's
  *  ruling Q2): one explosive round per shot. Small arms and the HMG keep today's centroid puff; indirect rounds add
@@ -1408,8 +1433,12 @@ export class ThreeRenderer implements Renderer {
    *  keeps a composer-less path: the raw renderer, whose own `antialias:
    *  true` covers what SMAA covers in the game. */
   private post: PostChain | null = null;
-  /** GH-1227 slice 1: the soft-particle depth snapshot, built by `init` only for `quality.softParticles` (no preset sets it). */
-  private softDepth: SoftDepthSnapshot | null = null;
+  /** GH-1227 slice 1: the soft-particle depth snapshot, built by `init` only for `quality.softParticles` (no preset sets it).
+   *  Slice 3: on a node boot it is the node copy (`NodeSoftDepthCopy`), built only when the backend's `softDepthOn` says so. */
+  private softDepth: SoftDepthSnapshot | NodeSoftDepthCopy | null = null;
+  /** The meshes that sample `softDepth`, set where it is built: its sentinel draws (and the depth is copied) only while one of
+   *  these does. Legacy: the smoke pass and the band-2 dust tier. Node: the smoke pass alone, the only node twin that samples it. */
+  private softDepthConsumers: readonly THREE.Object3D[] = [];
   /** CSS pixels, which is what `width`/`height` report -- see their own doc
    *  comment for why that is not the drawing buffer's size any more. */
   private cssWidth = 0;
@@ -2237,6 +2266,21 @@ export class ThreeRenderer implements Renderer {
    *  a later unit. */
   private readonly killerX: Float64Array;
   private readonly killerY: Float64Array;
+  /** GH-1223: the tick each entity's `destroyed` fired (-1 = none seen), and whether it fired during a catch-up --
+   *  a ragdoll's clock starts at the death TICK, never at the frame that noticed it. */
+  private readonly deathTick: Int32Array;
+  private readonly deathQuiet: Uint8Array;
+  /**
+   * GH-1223 slice 1: presentation-only ragdolls (`physics/ragdoll-system.ts`). The cap is the preset's
+   * `physics.ragdolls`, 0 everywhere today (shipped dark), and at 0 the WASM is never fetched. Nothing it computes is
+   * read by the sim (invariant 4): it moves bones of entities the sim has already killed.
+   */
+  private readonly ragdolls: RagdollSystem<DyingMeshUnit>;
+  /** GH-1223: the ragdoll showcase is owed (`RendererOptions.ragdollShowcase`, the gated `ragdoll` scenario). */
+  private ragdollShowcasePending: boolean;
+  /** GH-1223: every root the ragdolls hold or froze (the `ragdolls` debug layer's reach), and that layer's flag. */
+  private readonly ragdollRoots = new Set<THREE.Object3D>();
+  private ragdollLayerHidden = false;
   private readonly entitySpeed: Float64Array;
   /**
    * Task B3.14: event-driven presentation timers, one-shot latches set from
@@ -2420,6 +2464,11 @@ export class ThreeRenderer implements Renderer {
   /** GH-1197 P4: the real holes of each holed building, and its holed materials -- minted on its FIRST hole and never
    *  before, so an unhit map binds no new program, material or side. Clone-drawn buildings only (per-tile walls: P4b). */
   private readonly buildingHoles = new Map<number, { holes: Hole[]; mats: BuildingHoleMaterials }>();
+  /** GH-1197 P5: where each building was last hit FROM (the shooter's position), so its collapse throws its chunks
+   *  60/40 away from that side. */
+  private readonly lastHitFrom = new Map<number, { x: number; y: number }>();
+  /** GH-1197 P5: the settled-rubble showcase is owed (`RendererOptions.rubbleShowcase`, stamped on the first frame). */
+  private rubbleShowcasePending = false;
   /** GH-1197 P3: the last tick a building threw a hit-face burst (`HIT_BURST_MIN_TICKS`). */
   private readonly structHitBurstTick = new Map<number, number>();
   /** Presentation sim time at the last `updateFx`, null before the first. */
@@ -2769,6 +2818,15 @@ export class ThreeRenderer implements Renderer {
   private readonly buildingRoofY = new Map<number, { root: THREE.Object3D; y: number }>();
   private readonly cutTriggers: CutTrigger[] = [];
   private readonly cutVolumes: CutVolume[] = [];
+  /** GH-1225 slice 2: the shared shadow and AO mask materials, minted with the first cut, never before. */
+  private cutMask: CutMaskMaterials | null = null;
+  /** GH-1225 slice 2: the garrisons the viewer may know about, as triggers, re-derived only when the tick, the fog array or the
+   *  standing clones moved (the banner's own key: garrisons change on a tick). */
+  private garrisonCutTriggers: CutTrigger[] = [];
+  private garrisonCutKeyState: { tick: number; fog: Uint8Array | null; clones: number } = { tick: -1, fog: null, clones: -1 };
+  /** GH-1225 slice 2: where each garrisoned unit inside a CUT building is drawn this frame (x, z), by entity; empty while no
+   *  building is cut, so the uncut draw reads the sim's position exactly as before. */
+  private readonly garrisonStationAt = new Map<number, [number, number]>();
   /**
    * GH-31, the vehicle half: the per-TYPE memo of scarred hull materials
    * (`units/vehicle-damage.ts`). The band each hull is drawn at lives on the
@@ -3192,6 +3250,12 @@ export class ThreeRenderer implements Renderer {
     this.fogViewer = this.viewer;
     this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
+    this.rubbleShowcasePending = opts.rubbleShowcase !== undefined;
+    this.ragdollShowcasePending = opts.ragdollShowcase !== undefined;
+    this.ragdolls = new RagdollSystem<DyingMeshUnit>(opts.quality?.physics?.ragdolls ?? 0, {
+      groundAt: (x, z) => groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z),
+      boxesNear: (x, z) => this.ragdollBoxesNear(x, z),
+    });
     // The world never moves (a shake moves a COPY of the camera), so the scene
     // stops forcing a world-matrix multiply on every object each frame; what
     // does move still updates itself (`static-matrix.ts`).
@@ -3212,6 +3276,8 @@ export class ThreeRenderer implements Renderer {
     this.meshBodyYawSet = new Uint8Array(n);
     this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
     this.killerX = new Float64Array(n).fill(NaN);
+    this.deathTick = new Int32Array(n).fill(-1);
+    this.deathQuiet = new Uint8Array(n);
     this.buriedLast = new Uint8Array(n);
     this.killerY = new Float64Array(n).fill(NaN);
     this.entitySpeed = new Float64Array(n);
@@ -3756,6 +3822,17 @@ export class ThreeRenderer implements Renderer {
         if (this.opts.grade !== undefined) this.setGrade(this.opts.grade.json, this.opts.grade.strength ?? 1);
       }
       this.environment?.attach(this.nodeBackend.pmrem);
+      // GH-1227 slice 3: the node twin of the soft-particle snapshot, built only when the backend says the flag is on AND the device
+      // can copy the depth (`softDepthOn`, the same predicate that switched the scene pass to depth32float-stencil8). BEFORE the
+      // adoption below, so the flipbook's smoke twin is built with `uSoftDepth` in its record. Off: nothing is added, no format moves.
+      if (this.nodeBackend.softDepthOn?.(this.opts.quality ?? QUALITY_PRESETS.high) === true) {
+        const backend = this.nodeBackend;
+        const copy = new NodeSoftDepthCopy(() => (backend.post as { scenePass?: { renderTarget: THREE.RenderTarget } } | null)?.scenePass?.renderTarget ?? null);
+        this.softDepth = copy;
+        this.softDepthConsumers = [this.flipbook.mesh];
+        this.scene.add(copy.sentinel);
+        this.flipbook.setSoftDepth(copy);
+      }
       this.mountAndObserve(host);
       this.seedFromSim();
       // GH-943 P2 (T1): every legacy material with a twin is swapped BEFORE the first census (inside `prepare`), which would
@@ -3836,8 +3913,11 @@ export class ThreeRenderer implements Renderer {
     // composer's own two buffers; its sentinel is the first transparent draw (`soft-depth.ts`).
     if (quality.softParticles === true) {
       this.softDepth = new SoftDepthSnapshot([this.post.composer.renderTarget1, this.post.composer.renderTarget2]);
+      this.softDepthConsumers = [this.flipbook.mesh, this.particleInstancerBelow.mesh];
       this.scene.add(this.softDepth.sentinel);
       this.flipbook.setSoftDepth(this.softDepth);
+      // Slice 4 (decision D4): the band-2 dust tier fades against the same snapshot. The above tiers and the hot cores never do.
+      this.particleInstancerBelow.setSoftDepth(this.softDepth);
     }
     // Shell upgrade Phase 0: the corner vignette, on display-referred colour
     // (after the tone map, before SMAA). Since GH-829 it is folded into
@@ -4330,6 +4410,12 @@ export class ThreeRenderer implements Renderer {
     // themselves are disposed once, below, by `disposeMeshUnitTemplate`.
     for (const w of this.meshWrecks) this.scene.remove(w.root);
     this.meshWrecks.length = 0;
+    // GH-1223: the incidents' worlds, and the entities only the ragdolls hold (shared template resources, as above).
+    for (const e of this.ragdolls.dispose()) {
+      this.scene.remove(e.root);
+      disposeMeshUnitEntity(e);
+    }
+    this.ragdollRoots.clear();
     this.pendingSettle.clear();
     this.settledDeadIds.clear();
     for (const variants of this.meshUnitTemplates.values()) {
@@ -4400,6 +4486,13 @@ export class ThreeRenderer implements Renderer {
     this.buildingCuts.clear();
     this.buildingRoofY.clear();
     this.cutaway.clear();
+    this.garrisonStationAt.clear();
+    this.garrisonCutTriggers = [];
+    if (this.cutMask !== null) {
+      this.cutMask.depth.dispose();
+      this.cutMask.ao.dispose();
+      this.cutMask = null;
+    }
     // The scar clones before their templates: a clone shares its base's
     // map by reference and must not outlive the template that owns it.
     for (const scars of this.buildingScars.values()) scars.dispose();
@@ -4512,6 +4605,7 @@ export class ThreeRenderer implements Renderer {
     // GH-1227: the soft-particle snapshot (its sentinel leaves the scene with it).
     this.softDepth?.dispose();
     this.softDepth = null;
+    this.softDepthConsumers = [];
     // The skirt's geometry and material -- added once in the constructor, so
     // no `scene.remove`, exactly like `smokeMesh`/`trailMesh` below.
     disposeSkirt(this.skirtMesh);
@@ -4679,6 +4773,7 @@ export class ThreeRenderer implements Renderer {
     // before any frame has run, and the showcase must still be stamped by
     // the next frame rather than lost to whichever caller built first.
     if (this.showcasePending) this.stampDecalShowcase();
+    if (this.rubbleShowcasePending) this.stampRubbleShowcase();
     this.updateMeshUnits(alpha, dtMs);
     this.updateVehicleMeshes(alpha, dtMs);
     this.updateSwarms(alpha, dtMs);
@@ -4896,6 +4991,17 @@ export class ThreeRenderer implements Renderer {
         const next = visible ? 1 : 0;
         const changed = this.disturbU.amp.value === next ? 0 : 1;
         this.disturbU.amp.value = next;
+        return changed;
+      }
+      case 'ragdolls': {
+        // A FLAG, re-applied after the corpses' fog reveal every frame (`stepMeshDeaths`).
+        this.ragdollLayerHidden = !visible;
+        let changed = 0;
+        for (const root of this.ragdollRoots) {
+          if (root.parent === null) continue;
+          if (root.visible !== visible) changed++;
+          root.visible = visible;
+        }
         return changed;
       }
       case 'selection-ring':
@@ -6556,6 +6662,8 @@ export class ThreeRenderer implements Renderer {
       } else if (e.kind === 'destroyed') {
         this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
         this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;
+        this.deathTick[e.entity] = e.tick;
+        this.deathQuiet[e.entity] = this.quiet ? 1 : 0;
         const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
         // GH-85: a kamikaze's warhead going off. Inferred, not reported --
         // see `units/kamikaze-blast.ts` for the rule and its one accepted
@@ -6721,6 +6829,8 @@ export class ThreeRenderer implements Renderer {
         // is the shared, sim-only predicate that tells the two apart (see its
         // own doc comment in `grind.ts`), same as the debug overlay uses.
         const hitStruct = e.structure;
+        // GH-1197 P5: the side this building was last hit from, for its collapse's 60/40 bias.
+        if (e.by >= 0 && e.by < this.curX.length) this.lastHitFrom.set(hitStruct, { x: this.curX[e.by], y: this.curY[e.by] });
         // GH-85: a demolition charge against the wall replaces the dust puff
         // with the blast (`eod_breach`).
         if (this.detonateChargeOnStructure(e.by, hitStruct, e.tick)) {
@@ -6829,6 +6939,9 @@ export class ThreeRenderer implements Renderer {
           const maxX = st.maxX[deadStruct];
           const maxY = st.maxY[deadStruct];
           this.stampGroundDecal(this.persistentStamp('rubble', bx, by, rubbleRadiusTiles(minX, minY, maxX, maxY)));
+          // GH-1197 P5: the flying debris, added under the shroud (unchanged). Flown when the collapse is seen; else
+          // placed at rest -- settled rubble is state, like the decal under it.
+          this.spawnCollapseDebris(deadStruct, collapseSeen);
         }
         if (collapseSeen && !this.spawnCollapseFx('structure_collapse', bx, by, collapsePower, collapseYawTurns)) {
           for (let k = 0; k < 14; k++) {
@@ -10399,8 +10512,13 @@ export class ThreeRenderer implements Renderer {
         this.scene.add(entity.root);
       }
 
-      const wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
-      const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      const simX = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const simY = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      // GH-1225 slice 2: a garrisoned unit in a CUT building is drawn at its station (presentation only; the sim is not
+      // touched). Uncut, the map is empty and this is the sim's position, as before.
+      const station = this.garrisonStationAt.size > 0 ? this.garrisonStationAt.get(i) : undefined;
+      const wx = station !== undefined ? station[0] : simX;
+      const wy = station !== undefined ? station[1] : simY;
       const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
       entity.root.position.set(wx, worldY, wy);
       // Interpolated between the last two ticks, the short way round, like
@@ -10413,7 +10531,7 @@ export class ThreeRenderer implements Renderer {
       // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
       // GH-681: a buried unit has no body on the surface, for any viewer.
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.fogViewer, wx, wy, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.fogViewer, simX, simY, this.fogVisibleAt);
 
       const anim: UnitAnimInput = {
         alive: st.alive[i],
@@ -10529,6 +10647,7 @@ export class ThreeRenderer implements Renderer {
     // `beginMeshDeath`'s own doc comment spells out why that makes this
     // safe with no captured x/y/facing/typeId at all, unlike Pixi's
     // `DyingUnit`.
+    const ragdollOffers: RagdollDeath<DyingMeshUnit>[] = [];
     for (const [id, entity] of this.meshUnitEntities) {
       if (id < n && st.alive[id] !== 0) continue;
       this.meshUnitEntities.delete(id);
@@ -10571,9 +10690,16 @@ export class ThreeRenderer implements Renderer {
         disposeMeshUnitEntity(entity);
       } else {
         const kx = this.killerX[id];
-        this.meshDying.push(beginMeshDeath(entity, id, Number.isNaN(kx) ? null : { x: kx, y: this.killerY[id] }));
+        const dying = beginMeshDeath(entity, id, Number.isNaN(kx) ? null : { x: kx, y: this.killerY[id] });
+        this.meshDying.push(dying);
+        const offer = this.ragdollOffer(id, dying);
+        if (offer !== null) ragdollOffers.push(offer);
       }
     }
+    // GH-1223: claims in (death tick, entity id) order, whatever order the map iterated in.
+    ragdollOffers.sort((a, b) => a.deathTick - b.deathTick || a.entityId - b.entityId);
+    for (const o of ragdollOffers) if (this.ragdolls.claim(o)) this.ragdollRoots.add(o.entity.root);
+    this.stepRagdolls();
     this.stepMeshDeaths(dtSeconds);
     this.stepMeshEvacs(dtSeconds);
   }
@@ -12070,17 +12196,24 @@ export class ThreeRenderer implements Renderer {
    * GH-1225 slice 1, the roof cutaway on the FRAME clock: the selection's triggers into the volume table, the table into the
    * shared volume block, and the cut clones onto exactly the clone-drawn buildings a volume reaches (released from the rest).
    * Returns before touching anything while nothing is selected and nothing is open, so a frame with no selection does no new
-   * work and binds nothing. Instanced per-tile sets take no cut. The node backend draws none (the TSL twin is a later slice).
+   * work and binds nothing. Instanced per-tile sets take no cut. GH-1225 slice 3: the node backend runs the same table and draws
+   * the cut through the TSL twin (`units/building-cut.node.ts`), adopted at the skin write (`applyBuildingSkin`).
    */
   private updateCutaway(alpha: number, dtMs: number): void {
-    if (this.nodeBackend !== null) return;
     const triggers = this.cutTriggers;
     triggers.length = 0;
-    if (this.selection.length > 0 && this.buildingMeshIdleEntities.size > 0) this.collectCutTriggers(alpha, triggers);
-    if (triggers.length === 0 && this.cutaway.size === 0 && this.buildingCuts.size === 0) return;
+    if (this.buildingMeshIdleEntities.size > 0) {
+      for (const t of this.collectGarrisonCutTriggers()) triggers.push(t);
+      if (this.selection.length > 0) this.collectCutTriggers(alpha, triggers);
+    }
+    if (triggers.length === 0 && this.cutaway.size === 0 && this.buildingCuts.size === 0) {
+      this.garrisonStationAt.clear();
+      return;
+    }
     this.cutaway.step(triggers, this.frameDtMs(dtMs));
     const vols = this.cutaway.volumes(this.cutVolumes);
     if (vols.length > 0 && this.cutUniforms === null) this.cutUniforms = createCutUniforms();
+    if (vols.length > 0 && this.cutMask === null) this.cutMask = createCutMaskMaterials(this.cutUniforms!);
     if (this.cutUniforms !== null) this.cutUniforms.uRlCutN.value = writeCutVolumes(vols, this.cutUniforms.uRlCutV.value);
     const st = this.sim.structures;
     let changed = false;
@@ -12115,6 +12248,68 @@ export class ThreeRenderer implements Renderer {
       }
     }
     if (changed) this.stepLod1(this.camera.zoom);
+    this.placeGarrisonStations();
+  }
+
+  /**
+   * GH-1225 slice 2, the garrison trigger: one volume over the whole of every standing clone holding a garrison the viewer may
+   * know about -- the banner's rule (`heldShown`): its own garrison always, anyone else's only while a tile of the building is
+   * in sight. A fogged enemy garrison cuts nothing. The volume stands at the footprint centre, R its half-diagonal + 0.25 t,
+   * the cut 0.4 t over the ground there. Re-derived on the banner's key (tick, fog array, standing clones), else reused.
+   */
+  private collectGarrisonCutTriggers(): readonly CutTrigger[] {
+    const key = this.garrisonCutKeyState;
+    if (key.tick === this.sim.tickCount && key.fog === this.fog && key.clones === this.buildingMeshIdleEntities.size) {
+      return this.garrisonCutTriggers;
+    }
+    this.garrisonCutKeyState = { tick: this.sim.tickCount, fog: this.fog, clones: this.buildingMeshIdleEntities.size };
+    const out: CutTrigger[] = [];
+    const ss = this.sim.structures;
+    for (const b of heldBuildings(this.sim, this.snapshottedCount)) {
+      if (!heldShown(this.sim, b, this.fogViewer, this.fogVisibleAt)) continue;
+      const root = this.buildingMeshIdleEntities.get(b.s);
+      if (root === undefined) continue;
+      const cx = (ss.minX[b.s] + ss.maxX[b.s] + 1) / 2;
+      const cz = (ss.minY[b.s] + ss.maxY[b.s] + 1) / 2;
+      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cz) + CUT_HEIGHT_TILES;
+      const yTop = this.roofYOf(b.s, root);
+      if (yTop <= yCut) continue;
+      const r = garrisonCutRadius(ss.minX[b.s], ss.minY[b.s], ss.maxX[b.s], ss.maxY[b.s]);
+      out.push({ key: garrisonCutKey(b.s), r, garrison: true, x: cx, z: cz, yCut, yTop, focusDist2: 0 });
+    }
+    this.garrisonCutTriggers = out;
+    return out;
+  }
+
+  /**
+   * GH-1225 slice 2 (L6): each garrisoned unit inside a CUT building gets one of its type's `garrison_slots` stations
+   * (`garrisonStations`), by its rank among that building's occupants in entity order, so the cut shows the men spread
+   * through the house rather than stacked at the centre. Only while that building is cut: with no cut the map is empty and
+   * `updateMeshUnits` draws the sim's position, byte for byte. Presentation only.
+   */
+  private placeGarrisonStations(): void {
+    this.garrisonStationAt.clear();
+    if (this.buildingCuts.size === 0) return;
+    const st = this.sim.state;
+    const ss = this.sim.structures;
+    const n = this.snapshottedCount;
+    const rank = new Map<number, number>();
+    const stations = new Map<number, number[]>();
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] !== 1) continue;
+      const s = st.garrisonedIn[i];
+      if (s < 0 || !this.buildingCuts.has(s)) continue;
+      let pts = stations.get(s);
+      if (pts === undefined) {
+        const slots = this.sim.structureTypes[ss.typeIdx[s]].garrisonSlots;
+        pts = garrisonStations(s, ss.minX[s], ss.minY[s], ss.maxX[s], ss.maxY[s], Math.max(1, slots));
+        stations.set(s, pts);
+      }
+      const k = rank.get(s) ?? 0;
+      rank.set(s, k + 1);
+      const at = k % (pts.length / 2);
+      this.garrisonStationAt.set(i, [pts[2 * at], pts[2 * at + 1]]);
+    }
   }
 
   /** Every selected unit this seat may see that stands within `CUT_SELECT_RADIUS_TILES` of a standing clone's footprint, where
@@ -12145,7 +12340,7 @@ export class ThreeRenderer implements Renderer {
       if (!near) continue;
       const dx = x - this.camera.x;
       const dz = z - this.camera.y;
-      out.push({ key: i, x, z, yCut, yTop, focusDist2: dx * dx + dz * dz });
+      out.push({ key: i, r: CUT_SELECT_RADIUS_TILES, garrison: false, x, z, yCut, yTop, focusDist2: dx * dx + dz * dz });
     }
   }
 
@@ -12161,7 +12356,7 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * GH-1225 L7: the ONE material write for a holed and/or cut clone-drawn building: each mesh gets its band material, holed
-   * then cut (`buildingSkin`), so one clone carries both hooks. Holes bring their depth material.
+   * then cut (`buildingSkin`), so one clone carries both hooks, and its shadow and AO mask (`buildingMask`) discard alike.
    */
   private applyBuildingSkin(s: number, root: THREE.Object3D): void {
     const sc = this.scarsFor(this.sim.structureTypes[this.sim.structures.typeIdx[s]].id);
@@ -12169,14 +12364,20 @@ export class ThreeRenderer implements Renderer {
     const holes = this.buildingHoles.get(s)?.mats ?? null;
     const c = this.buildingCuts.get(s);
     const cut = c !== undefined && c.root === root ? c.mats : null;
+    const mask = buildingMask(holes, cut, this.cutMask);
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       // Through the scar memo FIRST: it records each mesh's own base the first time it sees it, so a mesh is never taken
       // to have been born with a holed or cut clone.
       mesh.material = buildingSkin(sc.materialFor(mesh, band), holes, cut);
-      if (holes !== null) mesh.customDepthMaterial = holes.depth;
+      // GH-1225 x GH-1197 P4: the shadow and the AO G-buffer take ONE mask of holes and cut, the colour clone's discards.
+      mesh.customDepthMaterial = mask.depth;
+      if (mask.ao !== undefined) mesh.userData.rlCutAo = mask.ao;
+      else delete mesh.userData.rlCutAo;
     });
+    // GH-1225 slice 3 (L7): on the node backend the holed and/or cut clone draws through its TSL twin from this frame on.
+    this.queueNodeAdoption(root);
   }
 
   /** Building `s` leaves the cut: its meshes back on their band materials, and its clones released. */
@@ -12194,6 +12395,13 @@ export class ThreeRenderer implements Renderer {
   private dropBuildingCut(s: number): void {
     const cut = this.buildingCuts.get(s);
     if (cut === undefined) return;
+    // The shadow and AO masks off every mesh: an uncut building casts its stock shadow and occludes through the override.
+    cut.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.customDepthMaterial = undefined;
+      delete mesh.userData.rlCutAo;
+    });
     cut.mats.dispose();
     this.buildingCuts.delete(s);
   }
@@ -12278,6 +12486,136 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * GH-1223 slice 1: whether a death just handed to `meshDying` is offered to the ragdolls, and in what frame. Only a
+   * death the sim reported (`destroyed`, so its tick is known), outside a catch-up (a catch-up's deaths are placed at
+   * rest, today's path), drawn for this viewer and inside the camera's view. The frame is the SIM's: the snapshot
+   * position and facing, the ground under it, the killer's side -- never the interpolated, frame-clock pose on screen.
+   */
+  private ragdollOffer(id: number, dying: DyingMeshUnit): RagdollDeath<DyingMeshUnit> | null {
+    if (!this.ragdolls.ready || this.quiet) return null;
+    if (id >= this.snapshottedCount || this.deathTick[id] < 0 || this.deathQuiet[id] === 1) return null;
+    const entity = dying.entity;
+    if (!entity.root.visible) return null;
+    const st = this.sim.state;
+    const variants = this.infantryTemplates(entity.typeId, st.side[id]);
+    if (!variants) return null;
+    const x = this.curX[id];
+    const z = this.curY[id];
+    const y = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z);
+    const cam = this.threeCamera();
+    cam.updateMatrixWorld();
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(
+      new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse)
+    );
+    if (!frustum.containsPoint(new THREE.Vector3(x, y, z))) return null;
+    const yaw = meshYawFromFacing(this.curFacing[id]);
+    const kx = this.killerX[id];
+    const ky = this.killerY[id];
+    let ax = Number.isNaN(kx) ? -Math.cos(yaw) : x - kx;
+    let az = Number.isNaN(kx) ? Math.sin(yaw) : z - ky;
+    const len = Math.hypot(ax, az);
+    if (len < 1e-9) [ax, az] = [1, 0];
+    else [ax, az] = [ax / len, az / len];
+    return {
+      entityId: id,
+      deathTick: this.deathTick[id],
+      entity,
+      template: pickMeshVariant(variants, id),
+      at: { x, y, z, yaw },
+      away: [ax, az],
+      handle: dying,
+    };
+  }
+
+  /**
+   * GH-1223 slice 1: steps the ragdolls to the presentation SIM time (`beginFrameSimClock`'s, never frame time): drops
+   * the death sequences they took over from `meshDying`, and files every incident that froze as a corpse
+   * (`MeshWreck`), revealed by the fog like any other.
+   */
+  private stepRagdolls(): void {
+    if (this.ragdollShowcasePending) this.stampRagdollShowcase();
+    if (this.ragdolls.incidents === 0) return;
+    const { taken, settled } = this.ragdolls.update(this.lastFrameSimMs ?? 0);
+    for (const d of taken) {
+      const k = this.meshDying.indexOf(d);
+      if (k >= 0) this.meshDying.splice(k, 1);
+    }
+    for (const c of settled) {
+      const shown = this.opts.ragdollShowcase !== undefined || this.isExplored(c.x, c.z);
+      c.entity.root.visible = c.entity.root.visible && shown;
+      pushMeshWreck(this.meshWrecks, { root: c.entity.root, x: c.x, y: c.z, shown }, this.scene);
+    }
+  }
+
+  /** GH-1223: standing footprints within 2 tiles of (x, z), as boxes in world metres (the ragdoll's static patch). */
+  private ragdollBoxesNear(x: number, z: number): StaticBox[] {
+    const st = this.sim.structures;
+    const out: StaticBox[] = [];
+    const M = METRES_PER_TILE;
+    for (let s = 0; s < st.alive.length; s++) {
+      if (st.alive[s] !== 1) continue;
+      if (st.maxX[s] + 1 < x - 2 || st.minX[s] > x + 2 || st.maxY[s] + 1 < z - 2 || st.minY[s] > z + 2) continue;
+      const type = this.sim.structureTypes[st.typeIdx[s]];
+      const cx = (st.minX[s] + st.maxX[s] + 1) / 2;
+      const cz = (st.minY[s] + st.maxY[s] + 1) / 2;
+      const base = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cz);
+      const height = this.buildingMeshBounds.get(type.id)?.y ?? type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+      out.push({
+        centre: [cx * M, (base + height / 2) * M, cz * M],
+        half: [((st.maxX[s] - st.minX[s] + 1) / 2) * M, (height / 2) * M, ((st.maxY[s] - st.minY[s] + 1) / 2) * M],
+      });
+    }
+    return out;
+  }
+
+  /**
+   * GH-1223 slice 1: the ragdoll showcase (`RendererOptions.ragdollShowcase`, the gated `ragdoll` scenario). Two
+   * `inf_squad` teams on the decal showcase's flat site, renderer-only (no sim entity, no sim kill): one dies at sim
+   * time 0 (settled long before tick 300), one at 14.6 s (mid-fall at 15 s). Ids, yaws and pushes are hashed; every
+   * time is on the sim clock. Owed until the ragdolls are loaded, the terrain is built and the team's mesh is warm.
+   */
+  private stampRagdollShowcase(): void {
+    const anchor = this.opts.ragdollShowcase;
+    const ground = this.decalGround;
+    const surface = this.retained.elevation;
+    if (anchor === undefined || ground === null || surface === null || !this.ragdolls.ready) return;
+    const variants = this.meshUnitTemplates.get(RAGDOLL_SHOWCASE_TYPE);
+    if (!variants || variants.length === 0) return;
+    if (this.coldUnitTypes.has(RAGDOLL_SHOWCASE_TYPE)) {
+      this.warmUnitMesh(RAGDOLL_SHOWCASE_TYPE, 'spawned');
+      return;
+    }
+    this.ragdollShowcasePending = false;
+    const site = ragdollShowcaseSite(showcaseSites(ground.input, surface, showcaseAnchor(ground.input, surface, anchor)));
+    if (site === null) return;
+    RAGDOLL_SHOWCASE_DEATHS.forEach((d, k) => {
+      const id = RAGDOLL_SHOWCASE_ID_BASE + k;
+      const x = site.x + 0.5 + d.dx;
+      const z = site.y + 0.5;
+      const y = groundWorldY(surface, this.sim.width, this.sim.height, x, z);
+      const yaw = tileHash(id, 1) * Math.PI * 2;
+      const heading = tileHash(id, 2) * Math.PI * 2;
+      const template = variants[0];
+      const entity = instantiateMeshUnit(template, RAGDOLL_SHOWCASE_TYPE);
+      this.queueNodeAdoption(entity.root);
+      entity.root.position.set(x, y, z);
+      entity.root.rotation.y = yaw;
+      this.scene.add(entity.root);
+      this.ragdollRoots.add(entity.root);
+      entity.root.visible = !this.ragdollLayerHidden;
+      this.ragdolls.claim({
+        entityId: id,
+        deathTick: d.tick,
+        entity,
+        template,
+        at: { x, y, z, yaw },
+        away: [Math.cos(heading), Math.sin(heading)],
+        handle: null,
+      });
+    });
+  }
+
+  /**
    * Advances every mesh unit mid-death-fade (`units/mesh-death.ts`'s own
    * `stepMeshDeath`) and reveals any newly-explored permanent wreck
    * (`updateMeshWrecks`). All GPU-facing state lives in `mesh-death.ts`,
@@ -12303,6 +12641,12 @@ export class ThreeRenderer implements Renderer {
       if (result !== 'removed') pushMeshWreck(this.meshWrecks, result, this.scene);
     }
     updateMeshWrecks(this.meshWrecks, (x, y) => this.isExplored(x, y));
+    if (this.ragdollLayerHidden) {
+      for (const root of this.ragdollRoots) {
+        if (root.parent === null) this.ragdollRoots.delete(root);
+        else root.visible = false;
+      }
+    }
   }
 
   /**
@@ -12674,8 +13018,9 @@ export class ThreeRenderer implements Renderer {
     // shades its billows toward the sun as the camera sees it: the sun's
     // direction on the camera's right/up axes. A few multiplies a frame.
     this.flipbook.step(dtMs);
-    // GH-1227: the soft-particle snapshot is taken only while the smoke pass draws.
-    this.softDepth?.sync([this.flipbook.mesh]);
+    // GH-1227: the soft-particle snapshot is taken only while one of its consumers draws (legacy: the smoke pass or the band-2
+    // dust tier; node: the smoke pass).
+    this.softDepth?.sync(this.softDepthConsumers);
     // GH-1197 P2: debris flies on the same frame clock (hit-stop freezes it mid-air) and fades on the sim clock.
     this.debris?.step(dtMs, presentationSimMs(this.sim.tickCount, alpha ?? 0));
     {
@@ -13699,6 +14044,96 @@ export class ThreeRenderer implements Renderer {
     const at = showcaseAnchor(ground.input, surface, anchor);
     for (const s of decalShowcase(showcaseSites(ground.input, surface, at))) this.stampGroundDecal(s);
     this.showcasePending = false;
+  }
+
+  /**
+   * GH-1197 P5: a building's final collapse throws its masonry from the roof line (`units/collapse-debris.ts`): 40
+   * chunks a 3x3 by area, capped at 48 (6 a tile for a per-tile wall), over 0-300 ms, 60/40 away from the side it was
+   * last hit from, 1.5-3.0 t and an apex of 2-4 t, coming to rest inside the rubble decal; the building's own ramp,
+   * a quarter charred. `fly` false places them at rest (a catch-up, or a collapse a versus seat cannot see). The
+   * landing debris' 12 dust billows go with a flown collapse only. Returns the chunks placed.
+   */
+  private spawnCollapseDebris(s: number, fly: boolean): number {
+    const st = this.sim.structures;
+    const type = this.sim.structureTypes[st.typeIdx[s]];
+    const minX = st.minX[s];
+    const minY = st.minY[s];
+    const maxX = st.maxX[s];
+    const maxY = st.maxY[s];
+    const radius = rubbleRadiusTiles(minX, minY, maxX, maxY);
+    const cx = (minX + maxX + 1) / 2;
+    const cz = (minY + maxY + 1) / 2;
+    const groundY = this.ringHeightAt(cx, cz);
+    if (fly && this.flipbook.ready) this.flipbook.spawnRecipe(collapseDustRecipe(radius), cx, groundY, cz, 0, 0, groundY);
+    const hitFrom = this.lastHitFrom.get(s) ?? null;
+    this.lastHitFrom.delete(s);
+    const pool = this.debris;
+    if (pool === null) return 0;
+    const root = this.buildingMeshIdleEntities.get(s);
+    const roofY = root !== undefined
+      ? new THREE.Box3().setFromObject(root).max.y
+      : groundY + (this.buildingMeshBounds.get(type.id)?.y ?? type.heightPx * WORLD_Y_PER_LIFT_PIXEL);
+    const tiles = (maxX - minX + 1) * (maxY - minY + 1);
+    const chunks = planCollapseChunks(s, minX, minY, maxX, maxY, hitFrom, radius, collapseChunkCount(tiles, type.perTile));
+    return pool.spawn(...this.collapsePlans(chunks, roofY, type.color, fly));
+  }
+
+  /** The pool's plans and colours for planned collapse chunks launched from `roofY`, in the masonry of `colorKey`. */
+  private collapsePlans(
+    chunks: ReturnType<typeof planCollapseChunks>, roofY: number, colorKey: string, fly: boolean
+  ): [DebrisPlan[], THREE.Color[]] {
+    const keys = masonryKeysFor(colorKey);
+    const plans: DebrisPlan[] = [];
+    const colors: THREE.Color[] = [];
+    for (let k = 0; k < chunks.length; k++) {
+      const c = chunks[k];
+      const plan = planDebris(
+        c.x, roofY, c.z, k, false,
+        { clods: 0, chunks: 1, throwTiles: c.rangeTiles, apexTiles: c.apexTiles },
+        this.ringHeightAt, { dirRad: c.headingRad, spreadRad: 0 }, true
+      );
+      plans.push(fly ? { ...plan, delayMs: c.delayMs } : restingPlan(plan));
+      colors.push(ringColorLinear(paletteHex(masonryKeyFor(keys, k))));
+    }
+    return [plans, colors];
+  }
+
+  /**
+   * GH-1197 P5: the settled-rubble showcase (`RendererOptions.rubbleShowcase`, the gated `rubble` scenario): on the
+   * decal showcase's own anchor (clear of the force) and its flat and road sites, a 3x3 `limestone.3` house and a 2x2
+   * `dust.1` shed, each a rubble decal and its chunks at rest, all dated sim time 0. Owed until the terrain exists.
+   */
+  private stampRubbleShowcase(): void {
+    const anchor = this.opts.rubbleShowcase;
+    const ground = this.decalGround;
+    const surface = this.retained.elevation;
+    if (anchor === undefined || ground === null || surface === null) return;
+    this.rubbleShowcasePending = false;
+    const at = showcaseAnchor(ground.input, surface, anchor);
+    const sites = showcaseSites(ground.input, surface, at);
+    const flat = sites.find((x) => x.kind === 'flat');
+    // The shed takes the road site, else the relief one, else stands five tiles east of the house.
+    const shed = sites.find((x) => x.kind === 'road') ?? sites.find((x) => x.kind === 'relief') ?? (flat ? { x: flat.x + 5, y: flat.y } : undefined);
+    const specs: { site: { x: number; y: number } | undefined; size: number; color: string; id: number }[] = [
+      { site: flat, size: 3, color: 'limestone.3', id: 0 },
+      { site: shed, size: 2, color: 'dust.1', id: 1 },
+    ];
+    for (const spec of specs) {
+      const site = spec.site;
+      if (site === undefined) continue;
+      const minX = site.x - (spec.size === 3 ? 1 : 0);
+      const minY = site.y - (spec.size === 3 ? 1 : 0);
+      const maxX = minX + spec.size - 1;
+      const maxY = minY + spec.size - 1;
+      const radius = rubbleRadiusTiles(minX, minY, maxX, maxY);
+      const cx = (minX + maxX + 1) / 2;
+      const cz = (minY + maxY + 1) / 2;
+      this.stampGroundDecal({ ...this.persistentStamp('rubble', cx, cz, radius), simMs: 0 });
+      if (this.debris === null) continue;
+      const chunks = planCollapseChunks(RUBBLE_SHOWCASE_ID_BASE + spec.id, minX, minY, maxX, maxY, null, radius, collapseChunkCount(spec.size * spec.size, false));
+      const [plans, colors] = this.collapsePlans(chunks, this.ringHeightAt(cx, cz) + 1, spec.color, false);
+      this.debris.spawn(plans, colors, 0);
+    }
   }
 
   /** A round persistent mark of radius `r` tiles at `(x, z)`, dated this

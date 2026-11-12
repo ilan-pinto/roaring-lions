@@ -7,6 +7,7 @@ import { AMBUSH_RADIUS_MAX, FIRE_SUPPORT, MAX_PATROL_WAYPOINTS, FIRE_SUPPORT_KIN
 import { isFactionPair, validateConfig, winModeField, type Faction, type MatchConfig, type Seat, type WinMode } from './config';
 import type { Frame, Stamped } from './frames';
 import { SPECIALS_MAX } from './specials';
+import { botModelField, type BotModel } from './bot-model';
 import { ADVISOR_SCOPES, cleanAdvisorMsg, type AdvisorMsg, type AdvisorScope } from './advisor';
 
 export const MAX_MESSAGE_BYTES = 4096;
@@ -53,7 +54,11 @@ void COMMAND_KINDS_COMPLETE;
  *  (`seatSpecialsField`), refused ones included so the lobby can list them
  *  (`VERSUS_REFUSED_SPECIALS`). Named only in a brigade versus room, and `[]` for a bot or a
  *  Sarim seat there; absent everywhere else, which is every room before it. */
-export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean; specials?: string[] }
+/** A member seat's label, in the lobby only (GH-1075 A3, §0.14): never in `MatchConfig`. `record` is present only when
+ *  that member shows it. */
+export interface SeatMember { name: string; publicId: string; record?: { won: number; lost: number; drawn: number } }
+/** `member`, `kind` and `botModel` are lobby-only labels (A3); `kind` absent reads human. */
+export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean; specials?: string[]; member?: SeatMember; kind?: 'human' | 'bot'; botModel?: BotModel }
 
 export type ClientMsg =
   /** `from` (snapshot S3, D6): the first frame tick this client lacks; the
@@ -68,8 +73,9 @@ export type ClientMsg =
   | { t: 'resume' }
   | { t: 'surrender' }
   | { t: 'chat'; text: string }
-  /** This seat's sim decided the match on `tick` (L-1): sent once, so the room can close itself. */
-  | { t: 'over'; tick: number }
+  /** This seat's sim decided the match on `tick` (L-1): sent once, so the room can close itself. `result` is what
+   *  it decided, by SEAT (GH-1075 A3); absent from a client built before it, whose report never agrees with anything. */
+  | { t: 'over'; tick: number; result?: OverResult }
   /** An advisor's (or its human's) message for the OTHER half of one seat's pair (N4a): the room relays it, stores nothing. */
   | { t: 'advisor'; a: AdvisorMsg }
   /** This seat has finished `round` of a paced room (N4a): a bot seat's turn is over. */
@@ -85,6 +91,15 @@ export type LobbyKit = 'matched' | 'brigade';
 export type StallReason = 'behind' | 'gone' | 'round';
 /** Why a room ended. `over`: it closed itself `OVER_CLOSE_MS` after the result both seats reached (L-1).
  *  `forfeit`: a versus seat stayed disconnected for `FORFEIT_MS`; `seat` names it, and it lost. */
+/** The sim's own endings (what `outcomeOf` can say). */
+export const RESULT_BYS = ['annihilation', 'objective', 'stalemate', 'time', 'mutual'] as const;
+export type ResultBy = (typeof RESULT_BYS)[number];
+/** Why a match was recorded: a sim ending, or one the room itself called. */
+export const RECORD_REASONS = [...RESULT_BYS, 'surrender', 'forfeit', 'left'] as const;
+export type RecordReason = (typeof RECORD_REASONS)[number];
+/** What one seat's sim decided, by SEAT, never by side (GH-1075 A3 §0.8). `winner: null` is a draw. */
+export interface OverResult { winner: Seat | null; by: ResultBy }
+
 export const ENDED_REASONS = ['left', 'void', 'expired', 'surrender', 'over', 'forfeit'] as const;
 export type EndedReason = (typeof ENDED_REASONS)[number];
 
@@ -198,8 +213,13 @@ export function cleanCommand(v: unknown): Command | null {
       return out as Command;
     }
     case 'halt':
-    case 'unload':
       return ids === null ? null : { kind, ids };
+    case 'unload':
+      // GH-698 unload-at-point: `x` and `y` (Q16.16) ride together or not at all; one without the
+      // other, or a non-integer, voids the order rather than becoming a plain unload on one machine.
+      if (ids === null) return null;
+      if (c.x === undefined && c.y === undefined) return { kind, ids };
+      return isInt(c.x) && isInt(c.y) ? { kind, ids, x: c.x, y: c.y } : null;
     case 'demolish':
       return ids === null || !isInt(c.structure) ? null : { kind, ids, structure: c.structure };
     case 'garrison':
@@ -348,11 +368,26 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     case 'resume': return { t: 'resume' };
     case 'surrender': return { t: 'surrender' };
     case 'chat': return isStr(m.text) && m.text.length <= CHAT_MAX_CHARS ? { t: 'chat', text: m.text } : null;
-    case 'over': return isInt(m.tick) && m.tick >= 0 ? { t: 'over', tick: m.tick } : null;
+    case 'over': {
+      if (!isInt(m.tick) || m.tick < 0) return null;
+      if (m.result === undefined) return { t: 'over', tick: m.tick };
+      const result = cleanOverResult(m.result);
+      return result === null ? null : { t: 'over', tick: m.tick, result };
+    }
     case 'advisor': { const a = cleanAdvisorMsg(m.a); return a === null ? null : { t: 'advisor', a }; }
     case 'done': return isInt(m.round) && m.round >= 0 ? { t: 'done', round: m.round } : null;
     default: return null;
   }
+}
+
+/** A well-formed `OverResult`, rebuilt field by field, or null: a malformed one voids the whole message. */
+function cleanOverResult(v: unknown): OverResult | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const r = v as Record<string, unknown>;
+  const winner = r.winner;
+  if (winner !== 0 && winner !== 1 && winner !== null) return null;
+  const by = RESULT_BYS.find((b) => b === r.by);
+  return by === undefined ? null : { winner, by };
 }
 
 function isFrame(v: unknown): v is Frame {
@@ -366,6 +401,29 @@ function isSeatState(v: unknown): v is SeatState {
   const s = v as Record<string, unknown>;
   return isSeat(s.seat) && isStr(s.callsign) && typeof s.connected === 'boolean' && typeof s.ready === 'boolean' &&
     (s.specials === undefined || (Array.isArray(s.specials) && s.specials.length <= SPECIALS_MAX && s.specials.every(isStr)));
+}
+
+const PUBLIC_ID_RE = /^[0-9A-HJKMNP-TV-Z]{8}$/;
+const MEMBER_NAME_MAX = 20;
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+function cleanSeatMember(v: unknown): SeatMember | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (!isStr(o.name) || !isStr(o.publicId) || !PUBLIC_ID_RE.test(o.publicId)) return null;
+  const n = Array.from(o.name).length;
+  if (n < 1 || n > MEMBER_NAME_MAX) return null;
+  const base = { name: o.name, publicId: o.publicId };
+  if (o.record === undefined) return base;
+  const r = o.record as Record<string, unknown> | null;
+  if (typeof r !== 'object' || r === null || !isCount(r.won) || !isCount(r.lost) || !isCount(r.drawn)) return null;
+  return { ...base, record: { won: r.won, lost: r.lost, drawn: r.drawn } };
+}
+/** A lobby seat as the client keeps it: the A3 labels are each dropped when malformed, so a bad label never loses the lobby. */
+function cleanLobbySeat(s: SeatState): SeatState {
+  const { member, kind, botModel, ...rest } = s as SeatState & Record<string, unknown>;
+  const m = cleanSeatMember(member);
+  const b = botModel === undefined ? null : botModelField(botModel);
+  return { ...rest, ...(m !== null ? { member: m } : {}), ...(kind === 'human' || kind === 'bot' ? { kind } : {}), ...(b !== null && b.ok && b.model !== null ? { botModel: b.model } : {}) } as SeatState;
 }
 
 /** `log` and `lobby` are the two messages that can exceed the client cap (a
@@ -401,7 +459,7 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       if (m.winMode !== undefined && winModeField(m.winMode) === undefined) return null;
       const winMode = winModeField(m.winMode);
       return Array.isArray(m.seats) && m.seats.every(isSeatState) && isSeat(m.you) && isStr(m.map)
-        ? { t: 'lobby', config: c, seats: m.seats, you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}), ...(m.kit !== undefined ? { kit: m.kit } : {}), ...(winMode !== undefined ? { winMode } : {}) } : null;
+        ? { t: 'lobby', config: c, seats: m.seats.map(cleanLobbySeat), you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}), ...(m.kit !== undefined ? { kit: m.kit } : {}), ...(winMode !== undefined ? { winMode } : {}) } : null;
     }
     case 'start': { const c = validateConfig(m.config); return c ? { t: 'start', config: c } : null; }
     case 'frame': return isInt(m.tick) && Array.isArray(m.cmds) && m.cmds.every(isStamped) ? { t: 'frame', tick: m.tick, cmds: m.cmds } : null;

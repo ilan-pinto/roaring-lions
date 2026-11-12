@@ -7,7 +7,15 @@
  * the ones whose licence REQUIRES a credit. AI-generated assets are disclosed
  * as a class, per CONTRIBUTING.md.
  */
-export interface LibraryCredit { name: string; version: string; licence: string; url: string }
+export interface LibraryCredit {
+  name: string;
+  version: string;
+  licence: string;
+  url: string;
+  /** The licence text, shipped beside the build under the public dir (`assets/`), when the licence asks recipients be
+   *  given a copy (Apache-2.0 section 4(a)). Linked from the credits screen. */
+  licenceFile?: string;
+}
 export interface FontCredit { family: string; licenceFile: string; holder: string }
 /**
  * One third-party work whose licence requires a credit. The fields are exactly
@@ -35,7 +43,16 @@ export const CREDITS = {
   people: ['Ilan Pinto and the Roaring Lions contributors'],
   libraries: [
     { name: 'three', version: '0.186', licence: 'MIT', url: 'https://threejs.org' },
-  ],
+    // GH-1223: presentation-only physics (ragdolls). Apache-2.0: the licence text ships with the build (section 4(a));
+    // the package has no NOTICE file, so section 4(d) asks nothing more.
+    {
+      name: '@dimforge/rapier3d-deterministic-compat',
+      version: '0.21',
+      licence: 'Apache-2.0',
+      url: 'https://rapier.rs',
+      licenceFile: 'licenses/rapier-Apache-2.0.txt',
+    },
+  ] as readonly LibraryCredit[],
   fonts: [
     { family: 'Big Shoulders Display', licenceFile: 'OFL-BigShouldersDisplay.txt', holder: 'The Big Shoulders Project Authors' },
     { family: 'Barlow', licenceFile: 'OFL-Barlow.txt', holder: 'The Barlow Project Authors' },
