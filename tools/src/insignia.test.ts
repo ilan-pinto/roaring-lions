@@ -482,9 +482,19 @@ describe('gate 2: each frame stands on its hull (independent, subdivided)', () =
     if (underStd) expect(s.std, 'a dark-hull witness the absolute spread cannot see').toBeLessThan(LUMA_STD_CEILING);
   }, 60_000);
 
+  /**
+   * How many kit configurations `kitConfigs` walks per framed vehicle, as literals (measured on the shipped GLBs, 12 Nov): a vehicle with
+   * no kit gets 3 (L0, and the all-tracks config at each LOD); the kitted ones get 21 or 15 (each track at each tier, near and far, plus
+   * those). A bare lower bound could not tell a vehicle whose kit tags were lost from one that never had a kit.
+   */
+  const KIT_CONFIGS: Record<string, number> = {
+    aa_remetz: 3, apc_eitan: 21, apc_kipod: 21, demo_tzav: 3, dozer_d9: 15, ifv_namer: 21, jeep_shoded: 21,
+    mbt_lavi: 21, officer_armour: 3, scout_shachaf: 21, spg_cluster: 3, spg_long_range: 3,
+  };
+
   it.each(FRAMED)('%s: the VISIBLE disc is painted on each flank at L0 and at every kit tier, near and far LOD', async (id) => {
     const v = await visibleCoverage(id, INSIGNIA_FRAMES[id]!);
-    expect(v.configs).toBeGreaterThanOrEqual(3);
+    expect(v.configs, `${id}: kit configurations walked`).toBe(KIT_CONFIGS[id]);
     expect(v.worst, `worst at ${v.at}`).toBeGreaterThanOrEqual(AREA_FLOOR);
   }, 120_000);
 
