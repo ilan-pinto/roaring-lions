@@ -1403,12 +1403,14 @@ describe('recordOf (GH-1075 A3, the agreed-result rule)', () => {
   });
 
   it('the_hash_rule', () => {
-    const stale = versusAt400(360);
+    // The over is at 399 (a hash-window tick), so the freshness threshold is 399 - 20 = 379: `fresh` sits ON it and
+    // `stale` one tick under, so an off-by-one (`<` -> `<=`) in recordOf's window goes red.
+    const stale = versusAt400(378);
     report(stale, 0, WIN1);
     report(stale, 1, WIN1);
     closeOver(stale);
     expect(recordOf(stale)).toBeNull();
-    const fresh = versusAt400(380);
+    const fresh = versusAt400(379);
     report(fresh, 0, WIN1);
     report(fresh, 1, WIN1);
     closeOver(fresh);
