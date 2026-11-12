@@ -133,7 +133,6 @@ import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
 import { clock as missionClock, showDebrief, type DebriefCoins, type DebriefOptions, type ReportSpeaker } from './ui/debrief';
 import { campaignComplete, closingExchange } from './campaign-close';
-import { feedbackDialog } from './ui/feedback-dialog';
 import { ratingPrompt, type RatingPrompt } from './ui/feedback-prompt';
 import { browserFeedbackSession, type FeedbackSession, type SessionNote } from './feedback/session';
 import { collectContext, type ContextInput } from './feedback/context';
@@ -149,7 +148,7 @@ import { afterAction, promotionsBetween } from './ui/after-action';
 import { livingHostiles } from './ui/withdrew';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
 import { beatCamera, beatFocus, beatPose, beatThenReport, hideForBeat, type BeatCamera } from './ui/outcome-beat';
-import { showSettings, type SettingsDeps } from './ui/settings-panel';
+import type { SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
 import {
   EDGE_MARGIN_PX,
@@ -372,7 +371,6 @@ import {
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
 import { selectLedgerStore, type SelectedStore } from './account/select-store';
-import { bootAccountLazy } from './account/boot';
 import type { SyncHandle } from './account/sync';
 import { isAccountStore } from './account/account-store';
 import type { SpendFlow } from './account/spend-flow';
@@ -381,9 +379,10 @@ import { opIdsOf, requestMissionStart, victoryCoinLine } from './account/mission
 import { markNever, markShown, promptDue, saveMoment } from './account/prompt';
 import { readHeld, type HeldItem } from './account/local-held';
 import { newCampaign, type CampaignLedger, type LedgerStore, type LostRecord } from './ledger-store';
-import { showSaves, type SavesDeps } from './ui/saves';
-import { showCredits, type CreditsDeps } from './ui/credits';
-import { showVersus, showVersusRoom, versusMaps, type VersusDeps } from './ui/versus';
+import type { SavesDeps } from './ui/saves';
+import type { CreditsDeps } from './ui/credits';
+import { versusMaps } from './ui/versus-maps';
+import type { VersusDeps } from './ui/versus';
 import { LOCALES, applyLocale, loadLocale, resolveLang } from './i18n/locales';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo } from './i18n/pseudo';
@@ -935,6 +934,7 @@ async function main(): Promise<void> {
   // and the spend flow start around the account store. Behind `?accounts` only: a guest never reaches this network call.
   let accountUnreachable = false;
   if (selectedStore.signedIn && accountsOn) {
+    const { bootAccountLazy } = await importWithRetry(() => import('./account/boot'));
     const booted = await bootAccountLazy({
       selected: selectedStore,
       reselect: selectStore,
@@ -989,6 +989,9 @@ async function main(): Promise<void> {
     const tutorialIsDone = ledgerStore.tutorialDone();
     // GH-464: whether this menu offers feedback, asked per mount.
     const menuFeedback = browserFeedbackSession();
+    // The feedback dialog's late-load guards (see `feedback:` below).
+    let feedbackLoading = false;
+    let menuGone = false;
     // Where the campaign is RIGHT NOW (Task 7): the tutorial while nothing has
     // been played, else the first open mission of wherever the map is live.
     // Null once every authored mission is done, which is `continue: undefined`
@@ -1041,21 +1044,34 @@ async function main(): Promise<void> {
       },
       feedback: menuFeedback.shown && !feedbackClosed()
         ? () => {
-            feedbackDialog(host, {
-              who: menuFeedback.who,
-              build: menuFeedback.build,
-              storage: menuFeedback.storage,
-              send: async (sub, signal) =>
-                menuFeedback.send(
-                  {
-                    source: 'menu',
-                    category: sub.kind,
-                    text: sub.text,
-                    ...(sub.contact === undefined ? {} : { contact: sub.contact }),
-                    where: { context: collectContext(shellContextInput(settingsDeps.get())) },
-                  },
-                  { signal }
-                ),
+            // The dialog's chunk loads on the click (bundle headroom), so the menu
+            // can be left, or the button clicked again, before it arrives: open
+            // nothing once this menu is disposed, and one dialog per load.
+            if (feedbackLoading || menuGone) return;
+            feedbackLoading = true;
+            void importWithRetry(() => import('./ui/feedback-dialog')).then(({ feedbackDialog }) => {
+              feedbackLoading = false;
+              if (menuGone) return;
+              feedbackDialog(host, {
+                who: menuFeedback.who,
+                build: menuFeedback.build,
+                storage: menuFeedback.storage,
+                send: async (sub, signal) =>
+                  menuFeedback.send(
+                    {
+                      source: 'menu',
+                      category: sub.kind,
+                      text: sub.text,
+                      ...(sub.contact === undefined ? {} : { contact: sub.contact }),
+                      where: { context: collectContext(shellContextInput(settingsDeps.get())) },
+                    },
+                    { signal }
+                  ),
+              });
+            }, (err: unknown) => {
+              // A chunk that will not load twice: the menu stays as it is.
+              feedbackLoading = false;
+              console.error('feedback dialog: its chunk did not load', err);
             });
           }
         : undefined,
@@ -1081,6 +1097,7 @@ async function main(): Promise<void> {
     // does not empty). Nothing happens while no intro ships (`intro.ts`).
     const intro = firstLaunchIntro({ ...introDeps, settings: settingsDeps });
     return () => {
+      menuGone = true;
       intro();
       menu();
     };
@@ -1091,10 +1108,10 @@ async function main(): Promise<void> {
    *  `profile.ts`'s own header. No storage means no screen: a save slot with
    *  nowhere durable to live is worse than an error card naming why, and
    *  `available` is that question asked once. */
-  function mountSaves(host: HTMLElement): Disposer {
+  function mountSaves(host: HTMLElement): Promise<Disposer> {
     if (!ledgerStore.available) {
       bootError(host, t('boot.savesUnavailable.title'), t('boot.savesUnavailable.body'), t('boot.savesUnavailable.next'), routes.menu());
-      return () => host.replaceChildren();
+      return Promise.resolve(() => host.replaceChildren());
     }
     const deps: SavesDeps = {
       store: ledgerStore,
@@ -1116,7 +1133,7 @@ async function main(): Promise<void> {
       ...(isAccountStore(ledgerStore) ? { downloading: () => (isAccountStore(ledgerStore) ? ledgerStore.downloading() : []) } : {}),
       ...(syncHandle !== null ? { releaseHeld: () => syncHandle?.release() ?? Promise.resolve({ ok: false as const }), canReleaseHeld: (item: HeldItem) => syncHandle?.canRelease(item) ?? false, queuedHeldIds: () => syncHandle?.queuedHeldIds() ?? [] } : {}),
     };
-    return showSaves(host, deps);
+    return importWithRetry(() => import('./ui/saves')).then(({ showSaves }) => showSaves(host, deps));
   }
 
   /** The map page. publicDir is the repo-root assets/ dir (vite.config.ts), so
@@ -1551,13 +1568,15 @@ async function main(): Promise<void> {
         name: 'settings',
         pattern: '/settings',
         mount: (host) =>
-          showSettings(host, {
-            ...settingsDeps,
-            back: routes.menu(),
-            // "Replay intro": a row only when an intro ships. The pause menu's
-            // mount of the panel passes none, so a mission is never covered.
-            intro: introAvailable(introDeps) ? { replay: () => replayIntro(introDeps) } : undefined,
-          }),
+          importWithRetry(() => import('./ui/settings-panel')).then(({ showSettings }) =>
+            showSettings(host, {
+              ...settingsDeps,
+              back: routes.menu(),
+              // "Replay intro": a row only when an intro ships. The pause menu's
+              // mount of the panel passes none, so a mission is never covered.
+              intro: introAvailable(introDeps) ? { replay: () => replayIntro(introDeps) } : undefined,
+            }),
+          ),
       },
       { name: 'saves', pattern: '/saves', mount: (host) => mountSaves(host) },
       {
@@ -1606,16 +1625,18 @@ async function main(): Promise<void> {
         name: 'credits',
         pattern: '/credits',
         mount: (host) =>
-          showCredits(host, {
-            base: BASE,
-            build: __APP_BUILD__,
-            back: routes.menu(),
-            fetchText: fetchLicenceText,
-          } satisfies CreditsDeps),
+          importWithRetry(() => import('./ui/credits')).then(({ showCredits }) =>
+            showCredits(host, {
+              base: BASE,
+              build: __APP_BUILD__,
+              back: routes.menu(),
+              fetchText: fetchLicenceText,
+            } satisfies CreditsDeps),
+          ),
       },
-      { name: 'versus', pattern: '/versus', mount: (host) => showVersus(host, versusDeps) },
+      { name: 'versus', pattern: '/versus', mount: (host) => importWithRetry(() => import('./ui/versus')).then(({ showVersus }) => showVersus(host, versusDeps)) },
       // Room codes are upper case; a link typed in lower case is the same room.
-      { name: 'versus-room', pattern: '/versus/:code', mount: (host, req) => showVersusRoom(host, req.params.code.toUpperCase(), versusDeps) },
+      { name: 'versus-room', pattern: '/versus/:code', mount: (host, req) => importWithRetry(() => import('./ui/versus')).then(({ showVersusRoom }) => showVersusRoom(host, req.params.code.toUpperCase(), versusDeps)) },
       // Reserved for Phase 1's briefing screen. Until that exists the path is
       // a redirect rather than a 404, so a link written against it today lands
       // the player in the mission rather than on an error card.
