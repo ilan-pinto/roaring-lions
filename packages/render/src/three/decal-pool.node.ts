@@ -61,6 +61,8 @@ import type {
   V3,
 } from './decal-maths';
 import type { Ops, IntOps } from './fog-ops';
+import type { heightBlendTone } from './terrain/height-blend';
+import type { HeightBlendRecord } from './terrain/height-blend-record';
 import { tslIntOps, tslOps, type N, type Tsl } from './fog-pass.node';
 import { copyRenderState } from './twin-identity';
 
@@ -89,13 +91,24 @@ export interface DecalMaths {
   readonly wetDefine: string;
   /** `DECAL_LIGHTS_KEY`: where the legacy material carries its scene's light objects. */
   readonly lightsKey: string;
+  /**
+   * GH-1226 S6: the height blend's tone half (`heightBlendTone`, the SAME function the ground's stage is built from) and the keys of the
+   * record and the seal. The record is read off this material's own `userData` (the renderer installs the ground's record here too).
+   */
+  readonly heightBlend: {
+    readonly tone: typeof heightBlendTone;
+    readonly recordKey: string;
+    readonly builtKey: string;
+  };
 }
 
 /** The node slice this file reads beyond the fog twin's `N`. */
 interface DN extends N {
   readonly x: DN;
   readonly y: DN;
+  readonly r: DN;
   readonly g: DN;
+  readonly b: DN;
   readonly a: DN;
   readonly xz: DN;
   readonly xy: DN;
@@ -154,6 +167,8 @@ export interface NodeDecal {
   readonly colours: N;
   /** The control B tap (its `value` re-bound on `uMapSize`'s update). */
   readonly controlB: N;
+  /** GH-1226 S6: the height-blend field tap (null with no record on the legacy material: the graph is then today's, node for node). */
+  readonly heightField: N | null;
   /** The light colours (each its light's colour times intensity, re-read every render) and the two view-space directions. */
   readonly lights: {
     readonly ambient: N;
@@ -275,6 +290,42 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
     },
   ]);
 
+  // GH-1226 S6: the height blend. With NO record on this material nothing below is created (pin N1's decal twin). The material is sealed either
+  // way: a record installed after this build would be silently ignored, so `installHeightBlend` throws.
+  const hb = legacy.userData[maths.heightBlend.recordKey] as HeightBlendRecord | undefined;
+  Object.defineProperty(legacy.userData, maths.heightBlend.builtKey, { value: true, enumerable: false, configurable: true, writable: true });
+  /** A record value as a uniform, re-read from the record EVERY render (by reference: a tone is bound, never copied). */
+  const recUni = (name: string, read: () => unknown): N => {
+    const n = TSL.uniform(read());
+    numbers[name] = n;
+    n.onRenderUpdate(() => {
+      n.value = read();
+    });
+    return n;
+  };
+  let heightField: DN | null = null;
+  let blendKnobs: Parameters<typeof maths.heightBlend.tone<N>>[4] | null = null;
+  if (hb !== undefined) {
+    // Re-bound each render through the carrier `uMapSize`, as the ground's field tap and control B are (a texture node's own update does not survive setup).
+    const field = TSL.texture(hb.field, worldXZ.div(mapSize));
+    heightField = field;
+    carried.get('uMapSize')?.push(() => {
+      field.value = hb.field;
+    });
+    const ones = TSL.vec3(1, 1, 1);
+    // The tone half reads neither joint input (no texture edge, no joints: design 3.4), so none is bound.
+    blendKnobs = {
+      rockTone: recUni('uHeightBlendRockTone', () => hb.rockTone),
+      jointTone: ones,
+      hollowTone: recUni('uHeightBlendHollowTone', () => hb.hollowTone),
+      rockAmp: recUni('uHeightBlendAR', () => hb.aR),
+      jointAmp: TSL.float(0),
+      hollowAmp: recUni('uHeightBlendAH', () => hb.aH),
+      soften: TSL.float(0),
+      amp: recUni('uHeightBlendAmp', () => hb.amp),
+    };
+  }
+
   const fragment = TSL.Fn(() => {
     // Uniform control flow: every derivative, the shadow and the control B tap are statements here, before any discard (an
     // `assign` is emitted where it is called; a bare expression where it is first read).
@@ -290,6 +341,8 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
     shadowV.assign(shadowFactor);
     const ctlB = TSL.vec4(0, 0, 0, 0).toVar() as DN;
     ctlB.assign(controlB);
+    const fx = TSL.vec4(0, 0, 0, 0).toVar() as DN;
+    if (heightField !== null) fx.assign(heightField);
     // Nothing hangs past the map edge over the skirt.
     TSL.Discard(
       worldXZ.x.lessThan(0).or(worldXZ.y.lessThan(0)).or(worldXZ.x.greaterThan(mapSize.x)).or(worldXZ.y.greaterThan(mapSize.y))
@@ -307,7 +360,10 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
     // The colour and the ground tone are whole vec3 nodes (the maths is per component); the albedo ratio is a statement, so the
     // rim's select below reads it once.
     const colour = colours.element(TSL.int(sample.colour));
-    const tone = maths.groundToneOps(o, ground, roadTone, shoulderTone, ctlB.g, ctlB.a, roadOn, maths.roadRangeTiles);
+    // The blended ground tone is the divisor (the ground's stage runs BEFORE its road block, so the road mixes over it here too). The decal has
+    // no control A, so the soil weight is 1: a pad, a grove floor or a `^` top, where the ground's soil weight is lower, is a known approximation.
+    const blended = blendKnobs === null ? ground : maths.heightBlend.tone(o, ground, [fx.r, fx.g, fx.b], o.lit(1), blendKnobs);
+    const tone = maths.groundToneOps(o, blended, roadTone, shoulderTone, ctlB.g, ctlB.a, roadOn, maths.roadRangeTiles);
     const base = TSL.vec3(1, 1, 1).toVar();
     base.assign(maths.multiplierOps(o, colour, tone, a));
     const grad = maths.craterGradOps(o, s, t, seed, rimShape.x, rimShape.y);
@@ -339,6 +395,7 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
     numbers,
     colours,
     controlB,
+    heightField,
     lights: { ambient: ambientColour, sunColor, sunDir, hemiSky, hemiGround, hemiDir },
     shadow: shadowNode,
   };
