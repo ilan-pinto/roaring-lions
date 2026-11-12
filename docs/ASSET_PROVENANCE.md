@@ -1480,7 +1480,7 @@ depends on someone remembering is provenance that eventually fails.
    the change stops adding to that set and cannot undo it.
 4. **Decide the `art/blend/` question deliberately** ([#137](https://github.com/ilan-pinto/roaring-lions/issues/137))
    -- **decided 12 Nov 2026 (the lead): a documented exception in `ART_PIPELINE.md` §8 plus an off-repo backup; no Git LFS.**
-   The backup's location is not yet recorded (a TODO for the lead, stated in §8). The census below was the input.
+   The backup lives in the lead's personal Google Drive, `Roaring Lions/art-blend-backup/art-blend/` (12 Nov 2026, 153 files, 10.4 GB; see §8 of `ART_PIPELINE.md`). The census below was the input.
    `art/blend/` is gitignored and exists only in the main checkout
    (`git ls-files art/blend` is empty; no worktree carries it, bar a stale
    325 MB `civilian/` fragment). It is a **single copy**: the off-repo art

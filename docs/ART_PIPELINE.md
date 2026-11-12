@@ -364,8 +364,10 @@ Sound follows the same logic as sprites: mechanical gates, not taste. Emitters a
     by name, so a contributor with a clone but without that folder **cannot
     re-run an exporter** for those assets. That is accepted, not an accident.
   - An off-repo backup of `art/blend/` is required, because it is otherwise a
-    single copy. **Where the backup lives is not yet recorded here (TODO for the
-    lead).** The existing off-repo art backup (`~/dev/roaring-lions-art-backup/`,
+    single copy. **It lives in the lead's personal Google Drive, in the folder
+    `Roaring Lions/art-blend-backup/art-blend/`** (copied 12 Nov 2026: 153 files,
+    10.4 GB; Drive for desktop syncs it, and Drive keeps earlier versions of a
+    changed file). Re-copy after a `.blend` changes. The existing off-repo art backup (`~/dev/roaring-lions-art-backup/`,
     1.33 GB) holds the untracked Meshy-CLI sources and contains no `art/blend/`
     and no `.blend` file, so it is not this backup.
 - Audio clips must be redistribution-safe (CC0 or equivalent) and declared in `data/audio.json` with their source.
