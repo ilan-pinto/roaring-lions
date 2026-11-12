@@ -47,7 +47,8 @@ packages/
   net/      the lockstep core (@lions/net): protocol, match config, frames, ownership, transport; runs in the browser, Node and the Worker; imports sim
   economy/  the pure coin and brigade rules (@lions/economy, GH-1075): imports sim + data only; app and worker import it
   worker/   Cloudflare Worker in front of the game: static assets, POST /api/events
-            into D1, /stats behind a password login (WP-T1). Nothing imports it.
+            into D1, /stats behind a password login (WP-T1), /api/account/* on its own
+            ACCOUNTS database (GH-1075), /privacy. Nothing imports it.
 tools/      render rig, asset validator, balance sim
 docs/       GDD, art pipeline
 ```
@@ -253,6 +254,7 @@ Each has cost a session or a false green.
 **Hosting, telemetry, feedback**
 - The playable build deploys to Cloudflare Workers from `main` (`wrangler.jsonc`). The game sends events to `/api/events` ONLY from a production build on a real host, or with `?telemetry`. Never from `pnpm dev`, tests or CI, because `pnpm ui:routes` fails on any console error. `?tester=<name>` labels a tester and `?notrack` opts out. `/stats` needs `STATS_PASSWORD`: make it long and random, not a memorised phrase. It answers 403 until that secret is set. Spec: `docs/superpowers/specs/2026-09-24-telemetry-design.md`.
 - `GET /arena-results` and `/arena-results.json` (GH-954 P3) are PUBLIC read-only pages rendered from the bundled `data/arena/results.json` by the one module `tools/src/net/arena-results-render.ts` (also the local preview). No D1, cookie or login; `cache-control: public, max-age=300, s-maxage=3600`, ETag = the file's digest; not under `/stats`. `ARENA_RESULTS_HIDDEN` (any value but empty, `0`, `false`) answers 404 on both with no deploy. The Worker learns the data in one place, `packages/worker/src/arena-data.ts` (`null` until the first publication, which the lead merges, D-P2). Design: the public-arena design (GH-954), §4 and gates G9-G12.
+- **Accounts (GH-1075 A1)** sit behind `?accounts` in the app and behind the D1 `flags` row `accounts` in the Worker, which is CLOSED unless it reads `'open'`. `/api/account/*` runs on a second D1 database, `ACCOUNTS` (`roaring-lions-accounts`, `packages/worker/migrations-accounts/`), never joined to the telemetry `DB`; deletion tombstones live in the KV namespace `ACCOUNT_TOMBSTONES` (90 days). Unbound bindings answer 503. `delete`, `export`, `gone` and logout work while the switch is closed. Opening and closing it, and the Time Travel note: `docs/agent-notes/shell-and-ui.md`, "Accounts A1".
 - `POST /api/feedback` (GH-464) is a PUBLIC write endpoint: capped, origin-checked and rate-limited. Its meta schema `data/schemas/feedback.schema.json` has a Worker twin, `packages/worker/src/feedback-meta.ts`. The kill switch needs no app deploy: the "Close feedback" button on `/stats/feedback`, or `FEEDBACK_CLOSED`. The prefilled GitHub issue URL never carries a token, or the tester's name or contact. Spec: `docs/superpowers/specs/2026-10-08-in-game-feedback-design.md`.
 - **Accounts (GH-1075).** A2: claim and sync behind `?accounts`; coins move only through the server routes; the journal balances. Notes: `shell-and-ui.md`, "Accounts A2".
 - No agent merges a change to data/arena/results.json; the lead reads the preview and merges it (D-P2). `pnpm arena:publish -- --runs <id,...>` is the only writer (working tree only: no git, no network, never called by `pnpm arena`); `data/arena/public-players.json` is the allow-list, and a game with an unlisted seat is withheld whole. Design: GH-954.
