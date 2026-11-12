@@ -22,7 +22,7 @@
  */
 import type { Ops } from '../fog-ops';
 
-/** At most this many volumes at once: the hook's fixed loop. Garrisons first (a later slice), then selected units nearest the
+/** At most this many volumes at once: the hook's fixed loop. Garrisons first, then selected units nearest the
  *  camera focus. */
 export const CUT_VOLUME_CAP = 8;
 /** The cut height above the ground at the volume's centre, tiles (1.2 m: waist high on a 0.6 t figure). */
@@ -41,6 +41,57 @@ export const CUT_HOLD_MS = 1000;
 export const CUT_CLOSE_MS = 400;
 /** The roof of a building whose drawn bounds are empty, above the cut height, tiles: a house's two storeys. */
 export const CUT_ROOF_FALLBACK_TILES = 2;
+/** A garrison's volume reaches this far past its footprint's half-diagonal, tiles (slice 2). */
+export const CUT_GARRISON_MARGIN_TILES = 0.25;
+/** A garrison's figures stand at stations inside the footprint inset by this, tiles (slice 2). */
+export const CUT_STATION_INSET_TILES = 0.3;
+
+/** The radius R of a garrison's volume over the footprint [minX, maxX + 1] x [minY, maxY + 1]: its half-diagonal plus
+ *  `CUT_GARRISON_MARGIN_TILES`, so the whole drawn footprint is cut. */
+export function garrisonCutRadius(minX: number, minY: number, maxX: number, maxY: number): number {
+  return Math.hypot(maxX + 1 - minX, maxY + 1 - minY) / 2 + CUT_GARRISON_MARGIN_TILES;
+}
+
+/** The trigger key of building `s`'s garrison: negative, so it can never meet a unit index. */
+export function garrisonCutKey(s: number): number {
+  return -1 - s;
+}
+
+/** A presentation hash of (a, b, c) to [0, 1): the stations' jitter. Pure, so a station never moves between frames. */
+function hash01(a: number, b: number, c: number): number {
+  let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x632be5ab, 0xc2b2ae35) ^ Math.imul(c + 0x27d4eb2f, 0x165667b1);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2c1b3c6d);
+  h ^= h >>> 12;
+  h = Math.imul(h, 0x297a2d39);
+  h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
+
+/**
+ * Building `s`'s `slots` garrison stations, world tiles (x, z) pairs into `out` (length 2 * slots). A grid of
+ * ceil(sqrt(slots)) columns over the footprint inset by `CUT_STATION_INSET_TILES`, one station to a cell, each jittered by the
+ * hash within the middle half of its cell: so the stations are distinct and inside the inset whatever the hash says. A
+ * footprint too small to inset keeps its centre line.
+ */
+export function garrisonStations(s: number, minX: number, minY: number, maxX: number, maxY: number, slots: number, out: number[] = []): number[] {
+  out.length = 0;
+  const n = Math.max(1, slots);
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  const x0 = minX + CUT_STATION_INSET_TILES;
+  const z0 = minY + CUT_STATION_INSET_TILES;
+  const w = Math.max(0, maxX + 1 - minX - 2 * CUT_STATION_INSET_TILES);
+  const d = Math.max(0, maxY + 1 - minY - 2 * CUT_STATION_INSET_TILES);
+  for (let k = 0; k < n; k++) {
+    const c = k % cols;
+    const r = Math.floor(k / cols);
+    const jx = 0.25 + 0.5 * hash01(s, k, 1);
+    const jz = 0.25 + 0.5 * hash01(s, k, 2);
+    out.push(x0 + ((c + jx) / cols) * w, z0 + ((r + jz) / rows) * d);
+  }
+  return out;
+}
 
 /** One active volume, world tiles: centre (cx, cz), radius and band (already scaled by the iris), cut height and roof. */
 export interface CutVolume {
@@ -125,6 +176,10 @@ export function stepIris(s: CutIris, triggered: boolean, dtMs: number): CutIris 
  *  roof in its reach (world tiles), and its squared distance from the camera focus (the cap's order). */
 export interface CutTrigger {
   readonly key: number;
+  /** The volume's full radius R: `CUT_SELECT_RADIUS_TILES` for a selected unit, `garrisonCutRadius` for a garrison. */
+  readonly r: number;
+  /** A garrison's volume: ranked before every selected unit's under the cap. */
+  readonly garrison: boolean;
   readonly x: number;
   readonly z: number;
   readonly yCut: number;
@@ -133,6 +188,8 @@ export interface CutTrigger {
 }
 
 interface CutEntry {
+  r: number;
+  garrison: boolean;
   x: number;
   z: number;
   yCut: number;
@@ -161,9 +218,11 @@ export class CutawayTable {
     for (const t of ranked) {
       let e = this.entries.get(t.key);
       if (e === undefined) {
-        e = { x: t.x, z: t.z, yCut: t.yCut, yTop: t.yTop, focusDist2: t.focusDist2, triggered: true, iris: IRIS_SHUT };
+        e = { r: t.r, garrison: t.garrison, x: t.x, z: t.z, yCut: t.yCut, yTop: t.yTop, focusDist2: t.focusDist2, triggered: true, iris: IRIS_SHUT };
         this.entries.set(t.key, e);
       }
+      e.r = t.r;
+      e.garrison = t.garrison;
       e.x = t.x;
       e.z = t.z;
       e.yCut = t.yCut;
@@ -179,6 +238,7 @@ export class CutawayTable {
     if (this.entries.size <= CUT_VOLUME_CAP) return;
     const order = [...this.entries].sort(([ka, a], [kb, b]) => {
       if (a.triggered !== b.triggered) return a.triggered ? -1 : 1;
+      if (a.garrison !== b.garrison) return a.garrison ? -1 : 1;
       if (a.triggered) return a.focusDist2 - b.focusDist2 || ka - kb;
       return b.iris.k - a.iris.k || ka - kb;
     });
@@ -191,7 +251,7 @@ export class CutawayTable {
     for (const e of this.entries.values()) {
       const k = e.iris.k;
       if (k <= 0) continue;
-      out.push({ cx: e.x, cz: e.z, r: k * CUT_SELECT_RADIUS_TILES, w: k * CUT_BAND_TILES, yCut: e.yCut, yTop: e.yTop });
+      out.push({ cx: e.x, cz: e.z, r: k * e.r, w: k * CUT_BAND_TILES, yCut: e.yCut, yTop: e.yTop });
     }
     return out;
   }
@@ -202,7 +262,9 @@ export class CutawayTable {
   }
 }
 
+/** The cap's order: garrisons first (L8), then nearest the camera focus. */
 function byFocus(a: CutTrigger, b: CutTrigger): number {
+  if (a.garrison !== b.garrison) return a.garrison ? -1 : 1;
   return a.focusDist2 - b.focusDist2 || a.key - b.key;
 }
 

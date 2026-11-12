@@ -402,7 +402,7 @@ const COMMAND_FIELDS: { readonly [K in Command['kind']]: { readonly [F in KeysOf
   setStance: { ids: 'ids', stance: ['hold', 'ambush', 'patrol'], radius: { opt: 'int' }, waypoints: { opt: 'waypoints' } },
   garrison: { ids: 'ids', structure: 'int', spread: { opt: 'bool' } },
   load: { ids: 'ids', carrier: 'int', carriers: { opt: 'ids' } },
-  unload: { ids: 'ids' },
+  unload: { ids: 'ids', x: { opt: 'int' }, y: { opt: 'int' } },
   reveal: { side: 'int', x: 'int', y: 'int' },
   callStrike: { caller: 'int', x: 'int', y: 'int', profile: { opt: 'int' } },
   smoke: { ids: 'ids', x: 'int', y: 'int' },

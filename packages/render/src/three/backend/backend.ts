@@ -45,6 +45,7 @@ import type { ZoneBandMaths } from '../units/zone-band.node';
 import type { SupplyRouteMaths } from '../supply-route.node';
 import type { XrayMaths } from '../tunnel-xray.node';
 import type { DecalMaths } from '../decal-pool.node';
+import type { BuildingCutMaths } from '../units/building-cut.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -93,6 +94,8 @@ export interface MaterialKit {
   /** The flipbook smoke and fire, and the smoke screen (T12). */
   flipbook: MaterialTwinFactory<THREE.ShaderMaterial> | null;
   smokeScreen: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** GH-1225 slice 3 (L7): a clone-drawn building's holed and/or cut colour clone, `rl-holes` / `rl-cut`. */
+  building: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
 }
 /**
  * GH-943 P2 (T1): the values bundle the material twins receive (`../material-maths.ts`'s `MATERIAL_MATHS`, the `OutputMaths`
@@ -137,6 +140,8 @@ export interface MaterialMaths {
   /** T12: the flipbook's motion, cover and shade (`units/flipbook-fx.node.ts`), and the smoke screen's (`smoke-mesh.node.ts`). */
   readonly flipbook: FlipbookMaths;
   readonly smokeScreen: SmokeScreenMaths;
+  /** GH-1225 slice 3 (L7): the holes and the roof cut (`units/building-cut.node.ts`). */
+  readonly building: BuildingCutMaths;
 }
 
 /**
@@ -215,6 +220,12 @@ export interface RenderBackend {
   configure(config: PostConfig): void;
   /** The node post chain (null before `configure`). Same `PostChainLike` the legacy `PostChain` extends. */
   readonly post: PostChainLike | null;
+  /**
+   * GH-1227 slice 3: whether this backend builds the soft-particle depth copy for `quality` (`post-chain.node.ts`'s
+   * `nodeSoftDepthOn`: the flag AND a WebGPU device with `depth32float-stencil8`). The SAME predicate picks the scene pass's depth
+   * format, so the copy and the format cannot disagree. Absent reads as false (soft particles inert on that backend).
+   */
+  softDepthOn?(quality: PostQuality): boolean;
   /** Compiles every program the scene needs now (`compileAsync`), so the first photographed frame is not a cold one. */
   prepare(scene: THREE.Scene, camera: THREE.Camera): Promise<void>;
   /** Draws one frame. Synchronous, like `WebGLRenderer.render`; never installs an animation loop of its own. */

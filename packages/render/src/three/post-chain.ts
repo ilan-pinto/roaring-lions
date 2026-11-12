@@ -184,10 +184,20 @@ class WorldGTAOPass extends GTAOPass {
     const shadowAutoUpdate = renderer.shadowMap.autoUpdate;
     const overrideMaterial = this.scene.overrideMaterial;
     const hidden: THREE.Object3D[] = [];
+    const swapped: [THREE.Mesh, THREE.Material | THREE.Material[]][] = [];
     this.scene.traverse((object) => {
       if (object.visible && !isAoOccluder(object)) {
         object.visible = false;
         hidden.push(object);
+        return;
+      }
+      // GH-1225 slice 2: a cut building's mesh occludes through the cut's mask material (`allowOverride` false), so the
+      // override cannot draw its walls back over the units inside. Put back in `finally`, like the hidden set.
+      const cutAo = (object.userData as { rlCutAo?: THREE.Material }).rlCutAo;
+      if (cutAo !== undefined && object.visible && (object as THREE.Mesh).isMesh) {
+        const mesh = object as THREE.Mesh;
+        swapped.push([mesh, mesh.material]);
+        mesh.material = cutAo;
       }
     });
     renderer.shadowMap.autoUpdate = false;
@@ -197,6 +207,7 @@ class WorldGTAOPass extends GTAOPass {
       renderer.shadowMap.autoUpdate = shadowAutoUpdate;
       this.scene.overrideMaterial = overrideMaterial;
       for (const object of hidden) object.visible = true;
+      for (const [mesh, material] of swapped) mesh.material = material;
     }
   }
 }

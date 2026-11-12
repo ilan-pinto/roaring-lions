@@ -28,6 +28,7 @@ import type * as WEBGPU from 'three/webgpu';
 import { tslOps, type N, type Tsl } from '../fog-pass.node';
 import type { Ops } from '../fog-ops';
 import type { softParticleOps } from './fx';
+import type { softParticleFadeOps } from '../soft-depth';
 
 /** `N` plus the comparison the discard tests use. */
 export type NX = N & { lessThanEqual(b: N | number): N };
@@ -53,6 +54,25 @@ export interface FxTwinDeps<M> {
 export interface ParticleMaths {
   readonly softOps: typeof softParticleOps;
   readonly sparksGain: number;
+  /** GH-1227 slice 4: the soft-particle DEPTH fade (`soft-depth.ts`; `softOps` above is the disc's feather, a different thing). */
+  readonly depthFadeOps: typeof softParticleFadeOps;
+}
+
+/** The TSL the particle's depth fade adds (GH-1227 slice 4): the same handles the flipbook twin's fade uses. */
+type SoftParticleTsl = FxTsl & {
+  texture(value: unknown, uv: N): N;
+  Fn(body: () => N): () => N;
+  readonly screenUV: N;
+  readonly positionView: N;
+  readonly cameraNear: N;
+  readonly cameraFar: N;
+  viewZToOrthographicDepth(viewZ: N, near: N, far: N): N;
+};
+
+/** The legacy particle material's soft record (`ParticleInstancer.setSoftDepth`): present only while soft particles are on. */
+interface SoftParticleRecord {
+  readonly uSoftDepth: { value: unknown };
+  readonly uSoftSpan: { value: number };
 }
 
 /** The legacy material name of the hot-core sibling (`createParticleMaterial(_, true)`); `fx.node.test.ts` pins it to the legacy spelling. */
@@ -96,9 +116,27 @@ export function createNodeParticleMaterial(deps: FxTwinDeps<ParticleMaths>, lega
   const aSoft = TSL.attribute('aSoft', 'float');
   const cov = maths.softOps(o, { localX: aLocal.x, localY: aLocal.y, alpha: aAlpha, soft: aSoft }, hotCore);
 
+  // GH-1227 slice 4: the depth fade, on the depth-tested NORMAL tier only and only when the legacy record carries `uSoftDepth` (that is,
+  // `ParticleInstancer.setSoftDepth` ran, which only `quality.softParticles` does). The hot core pins its alpha to 1 and the above tiers
+  // draw with the depth test off, so neither fades even when handed a record that has the uniforms. Otherwise none of this is built and
+  // the graph is the shipped one, node for node (`fx-soft.node.test.ts` pins the four default programs by hash). It multiplies the
+  // OPACITY only; `colorNode` below is untouched. The depth is the INJECTED texture in the record, never this pass's own attachment.
+  const rec = (legacy as Partial<HasUniforms>).uniforms;
+  const softRec = !hotCore && legacy.depthTest && rec?.uSoftDepth !== undefined ? (rec as unknown as SoftParticleRecord) : null;
+  let alpha = cov.alpha;
+  if (softRec !== null) {
+    const ST = TSL as SoftParticleTsl;
+    const depth = ST.texture(softRec.uSoftDepth.value, ST.screenUV);
+    const fragDepth = ST.viewZToOrthographicDepth(ST.positionView.z, ST.cameraNear, ST.cameraFar);
+    const span = recordNumber(TSL, softRec.uSoftSpan);
+    const size = TSL.varying(TSL.attribute('aSize', 'float'));
+    // The depth tap is a STATEMENT in uniform control flow (`.toVar()` inside a `Fn`), ahead of the disc's discard.
+    alpha = ST.Fn(() => (cov.alpha as NX).mul(maths.depthFadeOps(o, depth.toVar(), fragDepth, span, size)))();
+  }
+
   const m = new W.MeshBasicNodeMaterial();
   m.colorNode = (hotCore ? aColor.mul(maths.sparksGain) : aColor) as never;
-  m.opacityNode = cov.alpha as never;
+  m.opacityNode = alpha as never;
   // The hard circle cutout: the fragment is discarded outside the unit disc.
   m.maskNode = (cov.r2 as NX).lessThanEqual(1) as never;
   finishFxTwin(m, hotCore ? NODE_PARTICLE_HOT_NAME : NODE_PARTICLE_NAME, {});

@@ -65,6 +65,14 @@ th{font:600 12px 'IBM Plex Mono',monospace;text-transform:uppercase;color:var(--
 <p class="muted">The name sticks to the browser that opens the link, until its site data is cleared. Send each tester their own link.</p>
 <div class="wrap"><table id="testers"></table></div>
 <h2 id="tl-title" hidden>Timeline</h2><div class="wrap"><table id="timeline"></table></div>
+<h2>Blank a name</h2>
+<div class="controls">
+<input id="blank-id" placeholder="public id (8 characters)" maxlength="8" autocomplete="off" aria-label="Public id">
+<button id="blank-member">Blank a player's name</button>
+<input id="blank-bot" placeholder="typed bot model name" maxlength="64" autocomplete="off" aria-label="Bot model name">
+<button id="blank-bot-go">Blank a bot model name</button>
+</div>
+<p class="muted" id="blank-msg" aria-live="polite"></p>
 </main><script>
 const $=(id)=>document.getElementById(id);
 const esc=(s)=>String(s??'').replace(/[&<>"]/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -124,6 +132,9 @@ function shareFor(name){$('share-name').value=name;makeLink(name)}
 $('share-make').addEventListener('click',()=>makeLink($('share-name').value));
 $('share-name').addEventListener('keydown',(e)=>{if(e.key==='Enter'){e.preventDefault();makeLink($('share-name').value)}});
 $('testers').addEventListener('click',(e)=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.share!==undefined)shareFor(b.dataset.t);else showTimeline(b.dataset.t)});
+function blank(path,body){fetch('/stats/api/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then((r)=>r.json().then((j)=>{$('blank-msg').textContent=r.ok?'Changed: '+j.changed:'Nothing changed ('+(j.error||r.status)+')'})).catch(()=>{$('blank-msg').textContent='Nothing changed (network)'})}
+$('blank-member').addEventListener('click',()=>blank('members/blank',{publicId:$('blank-id').value.trim().toUpperCase()}));
+$('blank-bot-go').addEventListener('click',()=>blank('bots/blank',{name:$('blank-bot').value}));
 for(const id of ['range','who','tester'])$(id).addEventListener('change',load);
 load();
 /* GH-464: the "N new" feedback badge. Its own fetch, swallowed on failure, so a
