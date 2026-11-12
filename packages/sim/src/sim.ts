@@ -10899,6 +10899,16 @@ export class Sim {
             this.fieldRef[i] = this.fieldFor(this.snapX, this.snapY, DOMAIN_AIR);
             this.wpCount[i] = 0;
             this.moving[i] = 1;
+            // Riders bound for this carrier were sent to the old pad's field (`sendToCarrier`): point
+            // them at the new one, in id order, or they walk to a pad it no longer uses.
+            for (let r = 0; r < this.count; r++) {
+              if (this.alive[r] === 0 || this.boardGoal[r] !== i || this.carriedBy[r] >= 0) continue;
+              this.goalX[r] = this.goalX[i];
+              this.goalY[r] = this.goalY[i];
+              this.wpCount[r] = 0;
+              this.fieldRef[r] = this.fieldFor(this.snapX, this.snapY, this.domainOf(r));
+              this.moving[r] = 1;
+            }
           } else {
             this.pendingEvents.push({ kind: 'landRefused', tick: this.tickCount, carrier: i, reason: 'no_clear_ground' });
             this.airWant[i] = AIR_WANT_NONE;
@@ -11013,7 +11023,8 @@ export class Sim {
    * not set down on a building, a ridge, a boulder field or a ditch), and no OTHER living air
    * carrier holds a footprint within Chebyshev 2 of it (`lzTaken`). False, with no state touched
    * but `snapX`/`snapY`, when nothing within reach is clear. `self` is the asking carrier (-1: none).
-   * Per order, never per tick; no allocation. `lzTaken` scans the units per candidate tile; it is
+   * Per order, and once per held arrival (the GH-698 re-check in `stepAirCarriers`, bounded: one
+   * search per arrival event, never per tick of flight); no allocation. `lzTaken` scans the units per candidate tile; it is
    * left unhoisted (orders are rare, and the scan order is the contract).
    */
   private lzFor(x: Fx, y: Fx, self: number, physical = false): boolean {
