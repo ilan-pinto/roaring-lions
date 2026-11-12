@@ -60,6 +60,8 @@ export interface TerrainBuildState {
   /** The decor placed from it, per source tile (`decor-place.ts`), spliced
    *  the same way with its own wider margin, `DECOR_SPLICE_RADIUS_TILES`. */
   readonly decorPlacements: TiledDecorPlacements;
+  /** GH-1167 S5: the scatter's `swardMarks` option it was built with. A build with the other value cannot splice from this one. */
+  readonly swardMarks: boolean;
 }
 
 export function terrainBuildState(
@@ -67,9 +69,11 @@ export function terrainBuildState(
   surface: TerrainSurface,
   ground: TiledMeshData,
   scatter: TiledMeshData,
-  decorPlacements: TiledDecorPlacements
+  decorPlacements: TiledDecorPlacements,
+  swardMarks: boolean = true
 ): TerrainBuildState {
   return {
+    swardMarks,
     width: input.width,
     height: input.height,
     decor: input.decor,

@@ -8,7 +8,8 @@
  *
  * Falsified by (run red, then put back): P3, dropping the node check around the field build in `rebuildTerrain` once S4 adds it
  * (before S4 the stand-in is a mutation that adds a decor-foliage instance or an `rl-grass-field` object); P4, reading
- * `tones.grassField` outside the node branch.
+ * `tones.grassField` outside the node branch; the scatter pin, `ThreeRenderer.ts` `rebuildTerrain`'s last builder argument
+ * `grassTones === null` changed to `this.nodeBackend === null ? false : grassTones === null` (a legacy boot then draws no sward).
  */
 import { describe, expect, it, vi } from 'vitest';
 import type * as ThreeTypes from '../../packages/render/node_modules/@types/three';
@@ -41,9 +42,18 @@ const HIGH = { colorVision: 'default', quality: 'high' } as const;
 /** `wadi_halam_basin`'s `decor-foliage` instance count at the `high` preset, read on main (e8da5117c) on 11 Nov 2026. */
 const MAIN_FOLIAGE_INSTANCES = 1532;
 
+/**
+ * `wadi_halam_basin`'s legacy scatter mesh (the sward strokes, grain and flecks) at the `high` preset: vertices and indices of
+ * `terrainState.scatter.mesh`, read on origin/main 8b099f766 on 11 Nov 2026 by a probe run in a scratch worktree of that commit,
+ * never recomputed here. A legacy boot draws the sward strokes, and this is the renderer-level pin of that wiring (GH-1167 S5 review).
+ */
+const MAIN_SCATTER_VERTICES = 85180;
+const MAIN_SCATTER_INDICES = 127770;
+
 interface Private {
   scene: ThreeTypes.Scene;
   decorGroup: ThreeTypes.Group | null;
+  terrainState: { scatter: { mesh: { positions: ArrayLike<number>; indices: ArrayLike<number> } } };
   decorSet: { parts: Map<string, { role: string; geometry: ThreeTypes.BufferGeometry }[]> };
 }
 
@@ -92,6 +102,10 @@ describe('GH-1167 S3 P3: the legacy scene on wadi_halam_basin', () => {
     expect(foliage, 'decor-foliage exists').toBeDefined();
     if (process.env.PIN_PRINT) console.log(`PIN foliage ${foliage?.instanceCount}`);
     expect(foliage?.instanceCount).toBe(MAIN_FOLIAGE_INSTANCES);
+    const scatter = priv.terrainState.scatter.mesh;
+    if (process.env.PIN_PRINT) console.log(`PIN scatter ${scatter.positions.length / 3} ${scatter.indices.length}`);
+    expect(scatter.positions.length / 3, 'legacy sward strokes: scatter vertices').toBe(MAIN_SCATTER_VERTICES);
+    expect(scatter.indices.length, 'legacy sward strokes: scatter indices').toBe(MAIN_SCATTER_INDICES);
     r.dispose();
   });
 });
