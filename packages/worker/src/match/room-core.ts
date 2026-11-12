@@ -8,7 +8,7 @@
  */
 import {
   canonicalOrder, cleanChat, FORFEIT_MS, isSnapshotTick, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, maxLogCmdChars, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS, snapshotEvery,
-  type ClientMsg, type EndedReason, type Faction, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
+  type ClientMsg, type EndedReason, type Faction, type Frame, type MatchConfig, type OverResult, type RecordReason, type Seat, type ServerMsg, type Stamped, type SeatState,
 } from '@lions/net';
 
 export type RoomStatus = 'lobby' | 'running' | 'stalled' | 'ended';
@@ -55,6 +55,12 @@ export interface RoomState {
   factions: [Faction, Faction];
   /** The tick each seat's sim decided the match on (`over`, L-1), -1 (JSON-safe) before it reports. First report only. */
   over: [number, number];
+  /** The result each seat's FIRST `over` carried (A3), stored with `over[seat]`; null before it reports or from an old client. */
+  overResults: [OverResult | null, OverResult | null];
+  /** When `start` went out (status left `lobby`); null before, and read as `createdMs` for a room persisted before A3. */
+  startedMs: number | null;
+  /** The record was written (A3, Task 3.4): persisted, so an eviction never writes it twice. */
+  recorded: boolean;
   /** When the room closes itself after the result (L-1, R-B26), once armed; null before. */
   closeAtMs: number | null;
   /** #559 F2: each seat's command budget, a token bucket (`CMD_BUDGET`), and when it was last topped up. */
@@ -128,7 +134,7 @@ export function logCmdCharsOf(st: Pick<RoomState, 'map' | 'config'>): number {
 const MAX_OPEN_HASHES = 16;
 
 export function createRoom(code: string, matchId: string, nowMs: number, map = '', factions: [Faction, Faction] = ['kdf', 'kdf']): RoomState {
-  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, factions, over: [-1, -1], closeAtMs: null, cmdTokens: [CMD_BUDGET.burst, CMD_BUDGET.burst], cmdTokensAtMs: [nowMs, nowMs], cmdChars: 0, endedAtMs: null, doneRound: [-1, -1], roundClosedAtMs: null, roundWait: null };
+  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, factions, over: [-1, -1], overResults: [null, null], startedMs: null, recorded: false, closeAtMs: null, cmdTokens: [CMD_BUDGET.burst, CMD_BUDGET.burst], cmdTokensAtMs: [nowMs, nowMs], cmdChars: 0, endedAtMs: null, doneRound: [-1, -1], roundClosedAtMs: null, roundWait: null };
 }
 
 /** Every way a room ends goes through here, so the end is dated (#559 H-1). */
@@ -346,6 +352,7 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       if (!both) return [{ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) }];
       st.config = mintConfig();
       st.status = 'running';
+      st.startedMs = nowMs;
       // Silence is measured from the start of the match, not from the lobby.
       for (const seatState of st.seats) if (seatState) seatState.lastSeenMs = nowMs;
       return [{ kind: 'send', to: 'all', msg: { t: 'start', config: st.config } }];
@@ -448,6 +455,7 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       // and only for a tick the room has minted (`st.tick` is the NEXT frame's).
       if ((st.status !== 'running' && st.status !== 'stalled') || st.over[seat] >= 0 || msg.tick >= st.tick) return [];
       st.over[seat] = msg.tick;
+      st.overResults[seat] = msg.result ?? null;
       armClose(st, nowMs);
       return [];
     }
@@ -538,7 +546,7 @@ export function persistKey(st: RoomState): string {
   const status = st.status === 'stalled' ? 'running' : st.status;
   // The `over` reports and the armed close (L-1): two reports and one arming, each written once,
   // so the deadline survives an eviction; the two minutes' wait itself writes nothing.
-  return JSON.stringify([status, st.endedReason, st.config !== null, seats, st.pausesLeft, st.pause?.seat ?? null, st.surrendered, st.over, st.closeAtMs !== null]);
+  return JSON.stringify([status, st.endedReason, st.config !== null, seats, st.pausesLeft, st.pause?.seat ?? null, st.surrendered, st.over, st.closeAtMs !== null, st.overResults, st.startedMs, st.recorded]);
 }
 
 /** The state as storage gave it back after an eviction, made live again.
@@ -572,6 +580,9 @@ export function revive(st: RoomState, tick: number, nowMs: number): void {
   st.map = stored.map ?? '';
   st.factions = stored.factions ?? ['kdf', 'kdf'];
   st.over = stored.over ?? [-1, -1];
+  st.overResults = stored.overResults ?? [null, null];
+  st.startedMs = stored.startedMs ?? (st.status === 'lobby' ? null : st.createdMs);
+  st.recorded = stored.recorded ?? false;
   st.closeAtMs = stored.closeAtMs ?? null;
   st.cmdTokens = stored.cmdTokens ?? [CMD_BUDGET.burst, CMD_BUDGET.burst];
   st.cmdTokensAtMs = [nowMs, nowMs];
@@ -662,4 +673,41 @@ export function clockTick(st: RoomState, nowMs: number): Effect[] {
   out.push({ kind: 'frame', frame });
   out.push({ kind: 'send', to: 'all', msg: { t: 'frame', tick: frame.tick, cmds: frame.cmds } });
   return out;
+}
+
+/** What a finished match writes to the accounts database (GH-1075 A3). */
+export interface RecordDraft { startedAt: number; endedAt: number; reason: RecordReason; winnerSeat: Seat | null; ticks: number; agreed: boolean }
+
+const sameResult = (a: OverResult | null, b: OverResult | null): boolean => a !== null && b !== null && a.winner === b.winner && a.by === b.by;
+
+/** The one rule for a record (A3, §0). Pure: no effect, no I/O; the room calls it once it has ended.
+ *  Agreed means both seats reported the same result on the same tick (and the hash rule holds), or the
+ *  room itself decided it with no settled report before it. */
+export function recordOf(st: RoomState): RecordDraft | null {
+  if (st.status !== 'ended' || st.config?.mode !== 'versus' || st.startedMs === null || st.recorded) return null;
+  if (st.endedReason === 'void' || st.endedReason === 'expired') return null;
+  const startedAt = st.startedMs;
+  const endedAt = st.endedAtMs ?? st.startedMs;
+  const reported = ([0, 1] as const).filter((s) => st.over[s] >= 0);
+  if (reported.length === 2) {
+    const [t0, t1] = [st.over[0], st.over[1]];
+    const [r0, r1] = [st.overResults[0], st.overResults[1]];
+    if (t0 !== t1 || !sameResult(r0, r1) || r0 === null) return null;
+    if (st.lastHashTick < t0 - st.config.hashEveryTicks) return null;
+    return { startedAt, endedAt, reason: r0.by, winnerSeat: r0.winner, ticks: t0, agreed: true };
+  }
+  const reason = st.endedReason;
+  const gaveUp = (reason === 'surrender' || reason === 'forfeit' || reason === 'left') && st.surrendered !== null;
+  if (reported.length === 1) {
+    const s = reported[0];
+    const r = st.overResults[s];
+    // The reporter's own exit by `surrender` is its loss (agreed, below); its own `left` or `forfeit` is
+    // not: a silent loser could otherwise collect the winner's agreed loss, so it stays unconfirmed.
+    const lone = r !== null && (reason === 'over' || (gaveUp && (st.surrendered !== s || reason !== 'surrender')));
+    if (lone) return { startedAt, endedAt, reason: r.by, winnerSeat: r.winner, ticks: st.over[s], agreed: false };
+  }
+  if (gaveUp && st.surrendered !== null) {
+    return { startedAt, endedAt, reason, winnerSeat: st.surrendered === 0 ? 1 : 0, ticks: st.tick, agreed: true };
+  }
+  return null;
 }

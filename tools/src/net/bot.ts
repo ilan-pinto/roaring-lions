@@ -62,7 +62,7 @@ import { homedir } from 'node:os';
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MAX_CALLSIGN_CHARS, winModeOpen, type WinMode } from '@lions/net';
+import { BOT_MODELS, MAX_CALLSIGN_CHARS, cleanCallsign, winModeOpen, type BotModel, type WinMode } from '@lions/net';
 import { joinRoom, JoinRefused } from './agent';
 import { buildId } from './build-id';
 import { readScoreFile, refereeMarkdown, replyFormat, rubricText, scoresMarkdown, type ScoreOutcome } from './match-score';
@@ -79,8 +79,8 @@ export const MODEL_ALIASES: Readonly<Record<string, string>> = {
   haiku: 'claude-haiku-5-5',
 };
 
-export const USAGE = 'usage: pnpm bot -- --room <code> [--model sonnet|opus|haiku|<model id>] [--server <url>] [--callsign <name>] [--client <cmd>] [--mode points]';
-const VALUED = new Set(['room', 'model', 'server', 'callsign', 'client', 'mode']);
+export const USAGE = 'usage: pnpm bot -- --room <code> [--model sonnet|opus|haiku|<model id>] [--model-name <text>] [--server <url>] [--callsign <name>] [--client <cmd>] [--mode points]';
+const VALUED = new Set(['room', 'model', 'model-name', 'server', 'callsign', 'client', 'mode']);
 /** What the client may be asked to call: the harness's tools, and nothing else. */
 const ALLOWED_TOOLS = 'mcp__lions__*';
 
@@ -90,6 +90,8 @@ export interface BotArgs {
   model: string;
   server: string;
   callsign: string;
+  /** GH-1075 A3 (§0.16): the model this bot DECLARES to the room: a label, never identity. */
+  botModel: BotModel;
   /** The client command, already split: `['claude']` by default. */
   client: string[];
   /** GH-976 P2 (`--mode`): the win mode the room was opened with, named by the player who opened it. The prompt says how
@@ -110,6 +112,24 @@ const httpUrl = (v: string): boolean => {
 export function resolveModel(v: string): { id: string; alias: string | null } {
   const key = v.toLowerCase();
   return Object.prototype.hasOwnProperty.call(MODEL_ALIASES, key) ? { id: MODEL_ALIASES[key], alias: key } : { id: v, alias: null };
+}
+
+const modelRefusal = (what: string): { error: string } => ({ error: `${what} is at most ${MAX_CALLSIGN_CHARS} characters (the room's 24-character limit) and must show something; pass a shorter --model-name\n${USAGE}` });
+
+/**
+ * The model a bot declares (GH-1075 A3, §0.16). `--model-name` is "Other" plus that name; else the resolved id when it is
+ * listed in `BOT_MODELS`; else "Other" named by the `--model` value. A name that is over the cap or cleans to nothing is
+ * refused here, before any join or token, as a long `--callsign` is.
+ */
+export function declaredModel(model: string, alias: string | null, name?: string): BotModel | { error: string } {
+  const other = (raw: string, what: string): BotModel | { error: string } => {
+    const clean = cleanCallsign(raw);
+    return clean === '' || Array.from(raw).length > MAX_CALLSIGN_CHARS ? modelRefusal(what) : { id: 'other', name: clean };
+  };
+  if (name !== undefined) return other(name, '--model-name');
+  const listed = BOT_MODELS.find((id) => id === model);
+  // An alias always resolves to a listed id; if one is ever added to MODEL_ALIASES unlisted, it is declared by its alias.
+  return listed !== undefined ? { id: listed } : other(alias ?? model, '--model');
 }
 
 const capitalised = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
@@ -138,6 +158,8 @@ export function parseBotArgs(argv: readonly string[]): BotArgs | { error: string
   const server = got.get('server') ?? LIVE_SERVER;
   if (!httpUrl(server)) return { error: `--server is the game's http(s) URL\n${USAGE}` };
   const { id, alias } = resolveModel(got.get('model') ?? 'sonnet');
+  const botModel = declaredModel(id, alias, got.get('model-name'));
+  if ('error' in botModel) return botModel;
   let client: string[];
   try {
     const t = parseTemplate(got.get('client') ?? 'claude');
@@ -156,6 +178,7 @@ export function parseBotArgs(argv: readonly string[]): BotArgs | { error: string
     model: id,
     server,
     callsign: callsign ?? `${alias === null ? 'Claude' : capitalised(alias)} Bot`,
+    botModel,
     client,
     ...(winMode === undefined ? {} : { winMode }),
   };
@@ -377,7 +400,12 @@ export interface ReportInput {
   /** The seat the bot took, and its callsign: they name the two players in the scores. */
   seat?: 0 | 1 | null;
   callsign?: string;
+  /** GH-1075 A3: the model the bot declared to the room. */
+  botModel?: BotModel;
 }
+
+/** A declared model as a person reads it: a listed id, or the typed name. */
+export const botModelLabel = (m: BotModel): string => (m.id === 'other' ? m.name : m.id);
 
 /** The two players' names, BY SEAT: the bot's own seat first named as itself, the other as the opponent. */
 export function scoreNames(seat: 0 | 1 | null | undefined, callsign: string | undefined): [string, string] {
@@ -410,6 +438,7 @@ export function reportMarkdown(r: ReportInput): string {
     '',
     `- Room: ${r.room}`,
     `- Model: ${r.model}`,
+    ...(r.botModel === undefined ? [] : [`- Declared model: ${botModelLabel(r.botModel)}`]),
     `- Server: ${r.server}`,
     `- Build: ${r.build}`,
     `- Result: ${r.outcome}`,
@@ -546,7 +575,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     try {
       writeFileSync(reportFile, reportMarkdown({
         room: a.room, model: a.model, server: a.server, build, outcome: r.outcome, tokens: r.tokens,
-        logName: `${stem}.log`, message: r.message, why: r.why, scores, seat: r.seat, callsign: a.callsign,
+        logName: `${stem}.log`, message: r.message, why: r.why, scores, seat: r.seat, callsign: a.callsign, botModel: a.botModel,
       }), { mode: 0o600 });
     } catch (e) {
       log(`bot: the report ${reportFile} could not be written: ${messageOf(e)}`);
@@ -622,7 +651,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     let seat: 0 | 1;
     let ticket: string;
     try {
-      ({ seat, ticket } = await joinRoom(a.server, a.room, a.callsign, new URL(a.server).origin, fetchFn, build));
+      ({ seat, ticket } = await joinRoom(a.server, a.room, a.callsign, new URL(a.server).origin, fetchFn, build, a.botModel));
     } catch (e) {
       rec.outcome = 'failed';
       if (e instanceof JoinRefused && e.status === 412) {

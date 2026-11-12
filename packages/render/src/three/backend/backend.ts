@@ -46,6 +46,7 @@ import type { SupplyRouteMaths } from '../supply-route.node';
 import type { XrayMaths } from '../tunnel-xray.node';
 import type { DecalMaths } from '../decal-pool.node';
 import type { GrassFieldKit, GrassFieldMaths } from '../terrain/grass-field.node';
+import type { BuildingCutMaths } from '../units/building-cut.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -94,6 +95,8 @@ export interface MaterialKit {
   /** The flipbook smoke and fire, and the smoke screen (T12). */
   flipbook: MaterialTwinFactory<THREE.ShaderMaterial> | null;
   smokeScreen: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** GH-1225 slice 3 (L7): a clone-drawn building's holed and/or cut colour clone, `rl-holes` / `rl-cut`. */
+  building: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
 }
 /**
  * GH-943 P2 (T1): the values bundle the material twins receive (`../material-maths.ts`'s `MATERIAL_MATHS`, the `OutputMaths`
@@ -141,6 +144,8 @@ export interface MaterialMaths {
   /** GH-1167 S5: the 3D grass field's maths (`terrain/grass-field.node.ts`): the foliage slot's, the flutter, the width floor. Not a
    *  twin: the field has no legacy material, so it has no `MaterialKit` slot; `RenderBackend.grassField` builds it. */
   readonly grassField: GrassFieldMaths;
+  /** GH-1225 slice 3 (L7): the holes and the roof cut (`units/building-cut.node.ts`). */
+  readonly building: BuildingCutMaths;
 }
 
 /**

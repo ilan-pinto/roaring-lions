@@ -458,6 +458,14 @@ export interface RendererOptions {
    */
   decalShowcase?: { readonly x: number; readonly y: number };
   /**
+   * GH-1197 P5: stamp the settled-rubble showcase around this tile once the terrain is built: two finished collapses
+   * (a 3x3 limestone house and a 2x2 dust shed), each its rubble decal and its chunks AT REST, on the decal showcase's
+   * own road and flat sites (anchored clear of the force the same way). Dated sim time 0, so a capture before the 90 s
+   * fade sees them identically every run. Three-only and sandbox-only, under `&rubble`, never on a mission: the
+   * witness of the gated `rubble` scenario.
+   */
+  rubbleShowcase?: { readonly x: number; readonly y: number };
+  /**
    * Pass C2/C4 (P5): the player's reduced-motion preference, asked live (a
    * settings change mid-mission takes effect at once). Absent reads as
    * "full motion". Today it gates one thing: a suppressed or pinned

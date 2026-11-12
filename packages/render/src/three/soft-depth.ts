@@ -235,9 +235,13 @@ export class NodeSoftDepthCopy implements SoftDepthSource {
     });
   }
 
-  /** As `SoftDepthSnapshot.sync`: the sentinel draws only while a consumer does, so an idle frame copies nothing. */
+  /**
+   * As `SoftDepthSnapshot.sync`, through the same `consumerDraws`: the sentinel draws only while a consumer does, so an idle frame
+   * copies nothing. Visibility alone is not enough: an `InstancedMesh` at `count` 0 is visible and draws nothing (GH-1227, the
+   * Metal read of 11 Nov: the idle dust tier made this copy run every frame).
+   */
   sync(consumers: readonly THREE.Object3D[]): void {
-    this.sentinel.visible = consumers.some((c) => c.visible);
+    this.sentinel.visible = consumers.some(consumerDraws);
   }
 
   /** Copies the scene pass's depth if the bound target is the scene pass's own. Returns whether it copied. */
