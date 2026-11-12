@@ -23,8 +23,8 @@
  * Every other look field (map, colour, roughness, metalness, emissive, side, ...) is the legacy clone's own, copied once at adoption:
  * a clone is minted per building and band and never edited (a band change mints a new clone, and so a new twin).
  *
- * Not ported: the node AO pre-pass draws through an override material, which carries a `positionNode` and no mask, so on the node
- * backend AO still sees a cut building whole (the legacy AO mask, `userData.rlCutAo`, has no node reader).
+ * - **AO (GH-1248):** the node AO pre-pass draws a cut mesh through a mask material built over this same `maskNode`
+ *   (`post-chain.node.ts`, `NodeAoStage.cutAoFor`), so the G-buffer discards with the colour, as the legacy `userData.rlCutAo`.
  *
  * ADDON-FREE: `three/webgpu` and `three/tsl` arrive injected, the maths as values. Presentation only.
  */

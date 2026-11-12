@@ -63,8 +63,8 @@ describe('withAoOccludersOnly: the AO-exempt filter', () => {
     expect(w.sun.shadow.autoUpdate).toBe(true);
   });
 
-  // GH-1225 slice 2: the legacy pass swaps a cut building's mask on; the node path (no cut yet) leaves such a mesh out instead,
-  // and a mesh with no mask is drawn as before. Falsify: drop `cutAo ||` from `withAoOccludersOnly` and `cut` reads true.
+  // GH-1225 slice 2: with no node mask on offer (no `cutAoFor`; GH-1248's swap is pinned in `post-chain.node.ao-cut.test.ts`) a
+  // mesh carrying the legacy cut mask is left out, and a mesh with no mask is drawn as before. Falsify: drop `cutAo ||` from `withAoOccludersOnly` and `cut` reads true.
   it('leaves a mesh carrying the legacy cut mask out of the G-buffer, and the terrain in', () => {
     const w = world();
     const cut = new THREE.Mesh(w.terrain.geometry, new THREE.MeshStandardMaterial());
