@@ -179,7 +179,7 @@ function batchOriginLocal(T: FoliageTsl, matrices: THREE.DataTexture): N {
  * The record's disturbance as nodes. The slot arrays are `uniformArray`s whose elements are overwritten from the record's flat arrays
  * in the render update (`rec.a.value` is read each time: `ThreeRenderer` points it at the field's array after the record exists).
  */
-function disturbNodes(deps: NodeFoliageDeps, rec: DisturbUniformSet, bind: (r: { readonly value: unknown }) => N): DisturbBindings {
+export function disturbNodes(deps: NodeFoliageDeps, rec: DisturbUniformSet, bind: (r: { readonly value: unknown }) => N): DisturbBindings {
   const known = DISTURB_BY_RECORD.get(rec);
   if (known !== undefined) return known;
   const { W, maths } = deps;
@@ -209,8 +209,11 @@ function disturbNodes(deps: NodeFoliageDeps, rec: DisturbUniformSet, bind: (r: {
 /**
  * The disturbers as a `FoliageTerm` (the legacy `disturbVertexChunk`): the early-outs, the slot loop and the bend. `slots` is the
  * loop bound (the preset's budget); the loop also breaks at `uDisturbN`, as the legacy one does.
+ *
+ * Exported with `disturbNodes` for the 3D grass field (`grass-field.node.ts`, GH-1167 S4), which reads the same record through the
+ * same shared nodes: one set per record, whichever material asks first.
  */
-function disturbTerm(deps: NodeFoliageDeps, d: DisturbBindings, slots: number): FoliageTerm {
+export function disturbTerm(deps: NodeFoliageDeps, d: DisturbBindings, slots: number): FoliageTerm {
   const T = deps.TSL as unknown as FoliageTsl;
   const o = tslOps(deps.TSL as unknown as Tsl);
   const { maths } = deps;

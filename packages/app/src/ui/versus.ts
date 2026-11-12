@@ -39,9 +39,9 @@
  * DOM through `textContent` only, never through markup (the lobby chat is
  * `NetChat`, which keeps to that too).
  */
-import { flagBlockOf, maps, units, versusModes } from '@lions/data';
+import { flagBlockOf, units, versusModes } from '@lions/data';
 import { labelsOf, nameFrom, seatLabel, type SeatLabel } from '../net/seat-label';
-import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, flagSetupFor, flagSetupRoom, specialRefusal, versusMapAllowed, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
+import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, flagSetupFor, flagSetupRoom, specialRefusal, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
 import { pointsExplainer } from './points-explainer';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
@@ -80,16 +80,7 @@ export function filterCode(raw: string): string {
   return [...raw.toUpperCase()].filter((ch) => CODE_ALPHABET.includes(ch)).join('').slice(0, CODE_LENGTH);
 }
 
-/** The maps a room can be hosted on (R-B9): the free-play picker's maps that
- *  the lead opened for versus (GH-561, 2026-10-14) -- the ones measured close
- *  to even, `VERSUS_FAIR_MAPS` -- by their own names. The tile studies and the
- *  tutorial ground are not among them, and neither is a map nobody has
- *  measured; the Worker refuses those too (`versusMapAllowed`). */
-export function versusMaps(catalogue: Record<string, { name: string }> = maps): { id: string; label: string }[] {
-  return Object.keys(catalogue)
-    .filter(versusMapAllowed)
-    .map((id) => ({ id, label: catalogue[id].name }));
-}
+export { versusMaps } from './versus-maps';
 
 export interface VersusDeps {
   /** Creates or joins; resolves to the code, the seat, an OPEN, not-yet-started

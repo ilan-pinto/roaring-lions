@@ -32,6 +32,16 @@ export async function memberRecord(db: D1Like, memberId: string): Promise<Member
 
 /** The member behind the request's cookie, or null: accounts unbound, no cookie, or no live session. */
 export async function seatMemberOf(req: Request, env: Env, now: number): Promise<{ member: SeatMemberInfo; setCookie: string | null } | null> {
+  // A failing accounts database must never fail a room: the seat is a guest's, and the error is logged once.
+  try {
+    return await readSeatMember(req, env, now);
+  } catch (e) {
+    console.error('seatMemberOf: accounts database failed, seating a guest', e instanceof Error ? e.message : String(e));
+    return null;
+  }
+}
+
+async function readSeatMember(req: Request, env: Env, now: number): Promise<{ member: SeatMemberInfo; setCookie: string | null } | null> {
   const db = env.ACCOUNTS;
   if (db === undefined) return null;
   const got = await resolveSession(req, db, now);

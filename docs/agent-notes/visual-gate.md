@@ -361,3 +361,17 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
 - Its one check, `debris`, is PENDING: infinite floors (`baseline.test.ts`'s `PENDING` set, which demands them) until the
   first three CI readings are written into `MEASURED` and the floors derived from them. **No baseline yet**: CI's `visual` job
   is red until the post-merge bless, after the lead has looked. Do not capture or bless it from the branch.
+
+## The `ragdoll` scenario (GH-1223 slice 1)
+
+- **`ragdoll`** (`RAGDOLL_SCENARIO`) is `qarn_hadid` under `&ragdoll` (NOT `&decals`, so `aftermath` does not move):
+  `RendererOptions.ragdollShowcase` stands two renderer-only `inf_squad` teams (no sim entity, no sim kill) on the
+  decal showcase's flat site, a tile either side of its centre. One dies at sim time 0 (frozen long before the
+  capture), one at tick 292 (handed over at 296, so 0.2 s into its fall at tick 300). The mid-fall team is the
+  determinism witness: physics on the frame clock would move it per process. Camera (38.5, 36.5) (`ragdoll.test.ts`
+  recomputes it from the site picker), zoom 2.2, tick 300. Ceilings 40 px / 0.004, `aftermath`'s.
+- Its one check, `ragdolls`, is PENDING: infinite floors (`baseline.test.ts`'s `PENDING` set, which demands them) until
+  the first three CI readings are written into `MEASURED`. **No baseline yet**: CI's `visual` job is red until the
+  post-merge bless, after the lead has looked. Do not capture or bless it from the branch.
+- The showcase waits for Rapier and a warm `inf_squad` template; because every incident is dated on the sim clock,
+  WHEN it is stamped does not change what tick 300 shows (a late stamp catches its steps up).

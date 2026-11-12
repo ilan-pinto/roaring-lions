@@ -270,3 +270,16 @@ export function swappableHarness(now: number, clock?: { t: number }) {
   });
   return { h, use: (d: D1Like | null) => { over = d; } };
 }
+
+/** A D1Like that remembers every value bound to any statement, in order (tests only: the privacy tests search it). */
+export function recordingD1(inner: D1Like): { db: D1Like; bound: unknown[] } {
+  const bound: unknown[] = [];
+  const wrap = (sql: string): ReturnType<D1Like['prepare']> => {
+    const mk = (args: unknown[]): ReturnType<D1Like['prepare']> => {
+      const real = inner.prepare(sql).bind(...args);
+      return { bind: (...v) => { bound.push(...v); return mk(v); }, run: () => real.run(), all: <T>() => real.all<T>(), first: <T>() => real.first<T>() };
+    };
+    return mk([]);
+  };
+  return { db: { prepare: wrap, batch: (ss) => inner.batch(ss) }, bound };
+}

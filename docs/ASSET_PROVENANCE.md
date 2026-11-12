@@ -448,6 +448,7 @@ one directory, `**` crosses directories).
 | `assets/draco/draco_decoder.wasm`<br>`assets/draco/draco_wasm_wrapper.js`<br>`assets/draco/README.md` | Draco mesh decoder (three.js bundle) | Vendored Google Draco decoder (wasm and wrapper), self-hosted on 2026-09-08; the README is three.js's own `examples/jsm/libs/draco` README | None (third-party binary) | No | Apache-2.0; the README links the licence and no copy of the text ships (item 8) | `assets/draco/README.md` |
 | `assets/_headers` | Cloudflare static-asset headers (Content-Security-Policy and the rest) | Written for the project in the server-side security review (commit d78d900e, 13 Oct 2026) | Hand-written text | No | ARR, project original | the file's own header comment |
 | `assets/sw.js` | Service worker | Written for the project | Hand-written JavaScript | No | ARR, project original | none needed |
+| `assets/licenses/rapier-Apache-2.0.txt` | Licence text of Rapier (`@dimforge/rapier3d-deterministic-compat` 0.21.0, the ragdoll physics engine, GH-1223) | Apache License 2.0 text as distributed by Dimforge (github.com/dimforge/rapier.js, https://www.apache.org/licenses/LICENSE-2.0) | None (third-party licence text) | No | Apache-2.0; text kept beside the dependency it covers | `packages/render/package.json` |
 
 <!-- register:end -->
 
