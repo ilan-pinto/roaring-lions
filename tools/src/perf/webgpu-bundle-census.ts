@@ -68,6 +68,7 @@ lines.push(`material-maths.ts (app-side material values) in: ${f.materialMathsCh
 // Report-only: they import nothing, so wherever the bundler puts them they drag no chunk in (the G9 source spec is the gate).
 const holders = (marker: string): string => chunks.filter((c) => c.code.includes(marker)).map((c) => c.file).join(', ') || '(NOWHERE)';
 lines.push(`twin-identity.ts (rlLegacyBase) in: ${holders('rlLegacyBase')}; material-names.ts (rl-backdrop-fade) in: ${holders('rl-backdrop-fade')}`);
+lines.push(`3D grass field (rl-grass-field, S4) in: ${f.grassFieldChunks.join(', ') || '(none yet)'}`);
 lines.push(`entry static closure: ${f.entryStaticClosure.join(', ') || '(none)'}`);
 lines.push(f.failures.length === 0 ? 'FINDINGS: none (core shared, webgpu lazy, main chunk clean, node post chain only in the node backend chunk, no postprocessing addons in it, material values off the node load, twins only in the node backend chunk)' : `FINDINGS:\n  ${f.failures.join('\n  ')}`);
 console.log(lines.join('\n'));

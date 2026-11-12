@@ -92,7 +92,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MATCHUPS, factionsOfMatchup, flagSetupFor, matchCapTicksOf, matchupAllowed, versusMapAllowed, winModeRequest, type CapConfig, type MatchConfig, type Matchup, type TransportStatus, type WinMode } from '@lions/net';
+import { BOT_MODELS, MATCHUPS, cleanCallsign, factionsOfMatchup, flagSetupFor, matchCapTicksOf, matchupAllowed, versusMapAllowed, winModeRequest, type BotModel, type CapConfig, type MatchConfig, type Matchup, type TransportStatus, type WinMode } from '@lions/net';
 import { goalsOf, productionOf, type MatchResult, type OutcomeGoals, type OutcomeProduction, type OutcomeSimAt } from '../../../packages/app/src/net/outcome';
 import { scoreOf, type MatchScore } from '../../../packages/app/src/net/scoreboard';
 import { AgentClient } from './agent-client';
@@ -380,16 +380,29 @@ async function post(relay: LocalRelay, path: string, body: unknown): Promise<Res
 }
 
 /** A paced versus room with two bot seats, through the relay's own routes. */
-async function openRoom(relay: LocalRelay, a: ArenaArgs, build: string, names: [string, string]): Promise<{ code: string; tickets: [string, string] }> {
+async function openRoom(relay: LocalRelay, a: ArenaArgs, build: string, names: [string, string], models: [BotModel, BotModel]): Promise<{ code: string; tickets: [string, string] }> {
   const pace = { kind: 'paced', roundTicks: a.pace, roundWallMs: a.roundWallMs };
-  const created = await post(relay, '/api/match', { player: randomUUID(), callsign: names[0].slice(0, 16), build, map: a.map, mode: 'versus', matchup: a.matchup, kind: 'bot', pace, ...(a.winMode === undefined ? {} : { winMode: a.winMode }) });
+  const created = await post(relay, '/api/match', { player: randomUUID(), callsign: names[0].slice(0, 16), build, map: a.map, mode: 'versus', matchup: a.matchup, kind: 'bot', botModel: models[0], pace, ...(a.winMode === undefined ? {} : { winMode: a.winMode }) });
   if (created.status !== 201) throw new Error(`the room refused to open: HTTP ${created.status} ${await created.text()}`);
   const { code, ticket } = (await created.json()) as { code: string; ticket: string };
-  const joined = await post(relay, `/api/match/${code}/join`, { player: randomUUID(), callsign: names[1].slice(0, 16), kind: 'bot' });
+  const joined = await post(relay, `/api/match/${code}/join`, { player: randomUUID(), callsign: names[1].slice(0, 16), kind: 'bot', botModel: models[1] });
   if (joined.status !== 200) throw new Error(`the room refused the second seat: HTTP ${joined.status}`);
   const j = (await joined.json()) as { seat: unknown; ticket: string };
   if (j.seat !== 1) throw new Error(`the join answered seat ${String(j.seat)}, not 1`);
   return { code, tickets: [ticket, j.ticket] };
+}
+
+/**
+ * The model a seat DECLARES to the room (GH-1075 A3, §0.16): a scripted player is `scripted`; a preset whose id is a
+ * listed model is that id; any other player is `other` named by its label (`cleanCallsign` trims a long one to 24).
+ * A label, never identity: the room stores it only on a bot seat with no session.
+ */
+export function declaredModelOf(spec: string, label: string): BotModel {
+  if (spec === 'passive' || spec === 'rush') return { id: 'scripted' };
+  const id = presetIdOf(spec);
+  const listed = id === null ? undefined : BOT_MODELS.find((m) => m === id);
+  if (listed !== undefined) return { id: listed } as BotModel;
+  return { id: 'other', name: cleanCallsign(label) || 'Player' };
 }
 
 /** The seat whose side a result names. */
@@ -483,6 +496,8 @@ interface GameSpec {
   seed: number;
   players: [ArenaPlayer, ArenaPlayer];
   names: [string, string];
+  /** What each seat declares to the room (GH-1075 A3). */
+  models: [BotModel, BotModel];
   /** `<out>/<game>`: the prefix of each seat's `-seat<n>.log`. */
   logBase: string;
 }
@@ -593,7 +608,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, promptDigest: 
   const running: RunningPlayer[] = [];
   let observer: (RunningPlayer & { client: AgentClient }) | null = null;
   try {
-    const { code, tickets } = await openRoom(relay, a, build, g.names);
+    const { code, tickets } = await openRoom(relay, a, build, g.names, g.models);
     for (const seat of [0, 1] as const) {
       const r = await g.players[seat].start({ server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build, capTicks: a.capTicks, winMode: a.winMode ?? null, logFile: `${g.logBase}-seat${seat}.log`, keepFrames: true });
       running.push(r);
@@ -763,6 +778,8 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
   // spec (or anything that is not id-shaped) is `Player A` / `Player B`. A scripted name and a preset's id stand as they are.
   const [nameA, nameB] = [displayName(nameOf(a.a)) ?? 'Player A', displayName(nameOf(a.b)) ?? 'Player B'];
   const names: [string, string] = a.a === a.b ? [`${nameA}#a`, `${nameB}#b`] : [nameA, nameB];
+  const modelA = declaredModelOf(a.a, presets?.byId.get(nameOf(a.a))?.label ?? nameA);
+  const modelB = declaredModelOf(a.b, presets?.byId.get(nameOf(a.b))?.label ?? nameB);
   let A: ArenaPlayer;
   let B: ArenaPlayer;
   try {
@@ -826,8 +843,8 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
       const seed = seedOf(a.firstSeed + n);
       // Game 1: A on seat 0. Game 2: the same seed with the seats swapped.
       const orders: GameSpec[] = [
-        { n: 2 * n + 1, of: 2 * a.seeds, seed, players: [A, B], names: [names[0], names[1]], logBase: join(dir, `${base}-game${2 * n + 1}`) },
-        { n: 2 * n + 2, of: 2 * a.seeds, seed, players: [B, A], names: [names[1], names[0]], logBase: join(dir, `${base}-game${2 * n + 2}`) },
+        { n: 2 * n + 1, of: 2 * a.seeds, seed, players: [A, B], names: [names[0], names[1]], models: [modelA, modelB], logBase: join(dir, `${base}-game${2 * n + 1}`) },
+        { n: 2 * n + 2, of: 2 * a.seeds, seed, players: [B, A], names: [names[1], names[0]], models: [modelB, modelA], logBase: join(dir, `${base}-game${2 * n + 2}`) },
       ];
       for (const g of orders) {
         // A signal's cleanup has begun: no new relay, no new seat.

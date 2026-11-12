@@ -337,6 +337,25 @@ describe('createPostChain', () => {
     pass.dispose();
   });
 
+  // GH-1225 slice 2: GTAO draws its G-buffer through `scene.overrideMaterial`, which never reads a depth material, so a cut
+  // building's mask reaches AO by a swap: its mesh draws the cut's mask normal material (`allowOverride` false) for the G-buffer
+  // render, and its own material again after. Falsify: drop the swap in `WorldGTAOPass.render` and the first expect goes red.
+  it('a cut building occludes AO through its mask material during the G-buffer render, and gets its own back', () => {
+    const { scene, pass, world } = aoOverScene();
+    const own = world.material;
+    const mask = new THREE.MeshNormalMaterial();
+    mask.allowOverride = false;
+    world.userData.rlCutAo = mask;
+    const seen: THREE.Material[] = [];
+    const renderer = fakeRendererWithShadows(scene, () => seen.push(world.material as THREE.Material));
+    const target = new THREE.WebGLRenderTarget(8, 6);
+    pass.render(renderer, target, target, 0, false);
+    expect(seen).toEqual([mask]);
+    expect(world.material).toBe(own);
+    target.dispose();
+    pass.dispose();
+  });
+
   it('renders its G-buffer with the shadow map switched off, and hands it back', () => {
     // The pre-pass is a full `renderer.render(scene, camera)`, and a shadow
     // pass runs on every one of those -- so without this, the sun's 4096 map

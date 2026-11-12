@@ -1,10 +1,11 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { TWINS } from '../../webgpu_ratchet.mjs';
-import { EXEMPTIONS, hunksOutsideShader, runTwinCheck, shaderLines, twinRows, twinVerdict, type TwinIo } from './twin-check';
+import { EXEMPTIONS, hunksOutsideShader, realIo, runTwinCheck, shaderLines, twinRows, twinVerdict, type TwinIo } from './twin-check';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FOG = 'packages/render/src/three/fog-pass.ts';
@@ -17,7 +18,7 @@ function fixtureIo(withTwin: boolean): TwinIo & { out: string[] } {
   writeFileSync(path.join(root, FOG), '');
   if (withTwin) writeFileSync(path.join(root, FOG_NODE), '');
   const out: string[] = [];
-  return { root, out, log: (l) => out.push(l), err: (l) => out.push(l), changedSince: () => [], outsideShader: () => false };
+  return { root, out, log: (l) => out.push(l), err: (l) => out.push(l), mergeBase: (b) => b, changedSince: () => [], outsideShader: () => false };
 }
 
 describe('twin-check (the same-PR rule)', () => {
@@ -50,6 +51,15 @@ describe('twin-check (the same-PR rule)', () => {
   const THREE = 'packages/render/src/three/';
   const SHARED_RECIPES: Readonly<Record<string, readonly string[]>> = {
     [`${THREE}units/rim-fade.node.ts`]: [`${THREE}units/smoke-plume.ts`, `${THREE}units/collapse-shroud.ts`],
+    // GH-1225 slice 3 (L7): ONE twin for the roof cut and the P4 holes, which have no name-paired twins of their own.
+    [`${THREE}units/building-cut.node.ts`]: [
+      `${THREE}units/cut-material.ts`,
+      `${THREE}units/holed-material.ts`,
+      `${THREE}units/building-cutaway.ts`,
+      `${THREE}units/building-holes.ts`,
+      `${THREE}units/building-cut-maths.ts`,
+      `${THREE}units/building-mask.ts`,
+    ],
   };
   it('the shipped TWINS table is a legacy -> .node.ts map over existing legacy files', () => {
     const rows = twinRows(TWINS);
@@ -120,5 +130,58 @@ describe('twin-check exemption (change verified outside the shader program)', ()
     writeFileSync(path.join(io.root, FX), '');
     writeFileSync(path.join(io.root, FX_NODE), '');
     expect(runTwinCheck([`--files=${FX}`], { ...io, outsideShader: () => true })).toBe(1);
+  });
+});
+
+// The base moves a twin file AFTER the branch was cut (GH-1235 vs PRs 1241, 1242): the PR's own change is measured from the fork point.
+describe('twin-check diffs against the merge-base, not the base tip', () => {
+  function repo(): { root: string; git: (...a: string[]) => string } {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'twin-check-git-'));
+    const git = (...a: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a], { cwd: root, encoding: 'utf8' });
+    git('init', '-q', '-b', 'main');
+    mkdirSync(path.join(root, 'packages/render/src/three'), { recursive: true });
+    writeFileSync(path.join(root, FOG), 'a\n');
+    writeFileSync(path.join(root, FOG_NODE), 'a\n');
+    writeFileSync(path.join(root, 'other.txt'), 'a\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'base');
+    return { root, git };
+  }
+  const run = (root: string): { code: number; out: string[] } => {
+    const out: string[] = [];
+    const code = runTwinCheck(['--base=main'], { ...realIo, root, log: (l) => out.push(l), err: (l) => out.push(l) });
+    return { code, out };
+  };
+  it('PASSES when main changed the legacy file after the branch point and the branch did not', () => {
+    const { root, git } = repo();
+    git('checkout', '-q', '-b', 'pr');
+    writeFileSync(path.join(root, 'other.txt'), 'b\n');
+    git('commit', '-q', '-am', 'branch work');
+    git('checkout', '-q', 'main');
+    writeFileSync(path.join(root, FOG), 'moved on main\n'); // main moves the legacy file, no twin
+    git('commit', '-q', '-am', 'main moves a twin file');
+    git('checkout', '-q', 'pr');
+    const r = run(root);
+    expect(r.out.join('\n')).toContain('1 changed file(s)');
+    expect(r.code).toBe(0);
+  });
+  it('still FAILS a branch that itself changes only the legacy file, even after main moved', () => {
+    const { root, git } = repo();
+    git('checkout', '-q', '-b', 'pr');
+    writeFileSync(path.join(root, FOG), 'branch edit\n');
+    git('commit', '-q', '-am', 'branch edits legacy only');
+    git('checkout', '-q', 'main');
+    writeFileSync(path.join(root, 'other.txt'), 'main\n');
+    git('commit', '-q', '-am', 'main moves on');
+    git('checkout', '-q', 'pr');
+    const r = run(root);
+    expect(r.out.join('\n')).toContain('VIOLATION');
+    expect(r.code).toBe(1);
+  });
+  it('exits 2, never a pass, when no merge-base is reachable', () => {
+    const { root, git } = repo();
+    git('checkout', '-q', '--orphan', 'island');
+    git('commit', '-q', '--allow-empty', '-m', 'unrelated history');
+    expect(run(root).code).toBe(2);
   });
 });

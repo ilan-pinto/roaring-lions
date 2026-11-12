@@ -208,8 +208,13 @@ export function cleanCommand(v: unknown): Command | null {
       return out as Command;
     }
     case 'halt':
-    case 'unload':
       return ids === null ? null : { kind, ids };
+    case 'unload':
+      // GH-698 unload-at-point: `x` and `y` (Q16.16) ride together or not at all; one without the
+      // other, or a non-integer, voids the order rather than becoming a plain unload on one machine.
+      if (ids === null) return null;
+      if (c.x === undefined && c.y === undefined) return { kind, ids };
+      return isInt(c.x) && isInt(c.y) ? { kind, ids, x: c.x, y: c.y } : null;
     case 'demolish':
       return ids === null || !isInt(c.structure) ? null : { kind, ids, structure: c.structure };
     case 'garrison':
