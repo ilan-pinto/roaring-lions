@@ -1414,6 +1414,49 @@ describe('recordOf (GH-1075 A3, the agreed-result rule)', () => {
     expect(recordOf(fresh)).toMatchObject({ agreed: true });
   });
 
+  describe('an early over (before the first hash checkpoint)', () => {
+    const early = (): RoomState => {
+      const st = versusAt400(-1);
+      st.tick = 10;
+      return st;
+    };
+    const rep = (st: RoomState, seat: 0 | 1): void => { seatMessage(st, seat, { t: 'over', tick: 5, result: WIN1 }, 5000, mintV); };
+
+    it('matching_reports_with_no_compared_hash_record_nothing', () => {
+      const st = early();
+      rep(st, 0); rep(st, 1);
+      closeOver(st);
+      expect(st.status).toBe('ended');
+      expect(recordOf(st)).toBeNull();
+    });
+
+    it('matching_reports_after_a_compared_hash_are_agreed', () => {
+      const st = early();
+      seatMessage(st, 0, { t: 'hash', tick: 4, h: 7 }, 4000, mintV);
+      seatMessage(st, 1, { t: 'hash', tick: 4, h: 7 }, 4000, mintV);
+      expect(st.lastHashTick).toBe(4);
+      rep(st, 0); rep(st, 1);
+      closeOver(st);
+      expect(recordOf(st)).toMatchObject({ agreed: true, ticks: 5, winnerSeat: 1 });
+    });
+
+    it('mismatching_hashes_void_the_match_and_record_nothing', () => {
+      const st = early();
+      seatMessage(st, 0, { t: 'hash', tick: 4, h: 7 }, 4000, mintV);
+      seatMessage(st, 1, { t: 'hash', tick: 4, h: 8 }, 4000, mintV);
+      expect(st.endedReason).toBe('void');
+      expect(recordOf(st)).toBeNull();
+    });
+
+    it('a_lone_early_report_stays_unconfirmed', () => {
+      const st = early();
+      rep(st, 0);
+      seatGone(st, 1, 5100);
+      closeIfDue(st, 5200 + OVER_CLOSE_MS + 60_000);
+      expect(recordOf(st)).toMatchObject({ agreed: false, winnerSeat: 1, ticks: 5 });
+    });
+  });
+
   it('a_lone_report_is_unconfirmed', () => {
     const st = versusAt400();
     report(st, 0, WIN1);

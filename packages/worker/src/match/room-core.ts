@@ -693,7 +693,9 @@ export function recordOf(st: RoomState): RecordDraft | null {
     const [t0, t1] = [st.over[0], st.over[1]];
     const [r0, r1] = [st.overResults[0], st.overResults[1]];
     if (t0 !== t1 || !sameResult(r0, r1) || r0 === null) return null;
-    if (st.lastHashTick < t0 - st.config.hashEveryTicks) return null;
+    // No compared hash at all (lastHashTick -1) is never fresh: an `over` before the first checkpoint
+    // would otherwise pass the window below with nothing to check it against (GH-1075 A3, spec §A3 rule).
+    if (st.lastHashTick < 0 || st.lastHashTick < t0 - st.config.hashEveryTicks) return null;
     return { startedAt, endedAt, reason: r0.by, winnerSeat: r0.winner, ticks: t0, agreed: true };
   }
   const reason = st.endedReason;
