@@ -82,4 +82,5 @@ export * from './chunks';
 export * from './incremental';
 export * from './crown';
 export * from './grass-field-place';
+export * from './height-blend-field';
 export * from './grass-field-cells';
