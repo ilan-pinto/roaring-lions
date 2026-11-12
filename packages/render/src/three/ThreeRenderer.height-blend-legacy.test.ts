@@ -144,9 +144,12 @@ describe('L3: a legacy boot on qarn_hadid\'s elevation draws and computes no hei
     const ground = (r as unknown as { groundMat: GroundMaterial }).groundMat;
     // The BOOTED material compiles to the same literals the bare class does (L2): a define, a uniform or an anchor added at boot is red.
     expect(programOf(ground)).toEqual((LEGACY_GROUND[pinName] as (typeof LEGACY_GROUND)[string]).pin);
-    expect(Object.keys(ground.defines ?? {}).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
+    // Every own key and symbol, enumerable or not, on the material AND on the records it holds: the design keeps the blend's record under a
+    // NON-enumerable key, which `Object.keys` cannot see.
+    expect(ownNames(ground.defines ?? {}).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
     expect(ownNames(ground).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
-    expect(Object.keys(ground.uniforms).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
+    expect(ownNames(ground.uniforms).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
+    expect(ownNames(ground.userData).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
     expect(ownNames(r).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
     expect(seen.reads, 'something read tones.heightBlend or a field-module export on a legacy boot').toEqual([]);
     expect(seen.loads.slice(before), 'a legacy boot imported a height-blend module').toEqual([]);

@@ -69,9 +69,9 @@ describe('L4: the legacy decal program is main\'s', () => {
       uniforms: digestOf(Object.keys(m.uniforms).sort().join(',')),
     }).toEqual(DECAL_PINS[name]);
   });
-  it('the exported shader constants are the ones the material compiles (the digests above are over the shipped text)', () => {
-    expect(createDecalMaterial(DECAL_PALETTE).fragmentShader).toBe(DECAL_FRAGMENT_SHADER);
-    expect(DECAL_FRAGMENT_SHADER_WET.length).toBeGreaterThan(DECAL_FRAGMENT_SHADER.length);
+  it('the exported shader constants are main\'s, each pinned to its own literal digest (the material takes them directly, so comparing the two would be true whatever they say)', () => {
+    expect(digestOf(DECAL_FRAGMENT_SHADER)).toBe(DECAL_PINS.dry.fragment);
+    expect(digestOf(DECAL_FRAGMENT_SHADER_WET)).toBe(DECAL_PINS.wet.fragment);
   });
 });
 
