@@ -49,7 +49,7 @@ OUT = os.path.join(REPO, "packages", "render", "src", "three", "units", "insigni
 BEGIN = "// BEGIN rl-insignia-frames (strict JSON; tools/validate_mesh_assets.py reads it)"
 END = "// END rl-insignia-frames"
 
-#: The lead-approved placements (spec section 6, decisions 10-14). S1: the Lavi pilot alone.
+#: The lead-approved placements (spec section 6, decisions 10-14). S1: the Lavi pilot; S2: the rest of the ground fleet.
 #:
 #: `mbt_lavi`: the forward skirt panel of the hull flank (x 0.5..1.4 between the panel seams), 0.60 m, measured. The host
 #: flank stands at |z| 1.693..1.707 under the disc and the tier-2 skirt plate (`kit_armour_2_hull_hull`) at |z| 1.888, so the
@@ -57,6 +57,22 @@ END = "// END rl-insignia-frames"
 #: disc and slab (no rubber, metal or plate face; `tools/src/insignia.test.ts`).
 FRAMES = {
     "mbt_lavi": dict(centre=[0.95, 1.00, 1.70], d=0.60, slab=[1.60, 1.95], min_n=0.60),
+    # S2 (the rest of the ground fleet). D is decision 10's, never larger. Each centre was placed by a probe of the VISIBLE
+    # surface (the front-most face of every live part at each point of the disc, at L0 and at every kit tier of every track,
+    # near and far LOD) and the bake's local contrast under it; the spec's section 6.1 starting numbers that landed on a track,
+    # a wheel, a hatch or a step are moved (the PR lists each). The slab is the visible flank's |z| (and any outer plate's),
+    # padded by a few centimetres: it is the only guard against an interior face, which passes the |n.z| test.
+    "officer_armour": dict(centre=[0.95, 1.00, 1.70], d=0.60, slab=[1.60, 1.80], min_n=0.60),  # the Lavi's hull, no kit
+    "apc_kipod": dict(centre=[-1.80, 2.35, 1.40], d=0.60, slab=[1.30, 1.55], min_n=0.60),  # aft upper panel, clear of the door
+    "demo_tzav": dict(centre=[-0.38, 2.27, 1.83], d=0.60, slab=[1.70, 1.95], min_n=0.60),  # hull flank (the spec's centre)
+    "aa_remetz": dict(centre=[-0.35, 2.95, 1.20], d=0.55, slab=[1.00, 1.40], min_n=0.60),  # upper body between the windows
+    "dozer_d9": dict(centre=[0.90, 2.20, 0.97], d=0.50, slab=[0.88, 1.06], min_n=0.60),  # engine-compartment side, above the tracks
+    "spg_long_range": dict(centre=[0.20, 2.20, 1.00], d=0.50, slab=[0.82, 1.20], min_n=0.60),  # turret flank: turns with it
+    "spg_cluster": dict(centre=[0.20, 2.20, 1.00], d=0.50, slab=[0.82, 1.20], min_n=0.60),  # the same turret, the same place
+    "apc_eitan": dict(centre=[-0.70, 2.35, 1.10], d=0.50, slab=[0.92, 1.30], min_n=0.60),  # upper flank, above the tier-3 cage
+    "jeep_shoded": dict(centre=[0.40, 0.90, 0.98], d=0.50, slab=[0.90, 1.06], min_n=0.60),  # the front door, below the tier-3 armour
+    "ifv_namer": dict(centre=[2.90, 2.10, 1.65], d=0.45, slab=[1.50, 1.80], min_n=0.60),  # forward flank, ahead of the tier-2 band
+    "scout_shachaf": dict(centre=[-0.70, 1.08, 0.60], d=0.40, slab=[0.50, 1.34], min_n=0.60),  # lower flank under the tier-3 cage; the tier-2 plate at tiers 2-3
 }
 
 #: Points per metre when the disc is sampled (a 1 cm grid).
@@ -99,11 +115,22 @@ def bake_luma(glb):
 
 
 def surfaces(glb, names):
+    """Each host mesh's triangles. A host with no TEXCOORD_0 (the Remetz's radar turret body) still occludes, so it stays in the
+    front-face ranking, but it carries no bake to read: its points are dropped from `luma` (`uv` None)."""
     out = []
     for name in names:
-        pos, nrm, uv, tri = glb.primitive(name)
+        nd = next(n for n in glb.js["nodes"] if n.get("name") == name)
+        has_uv = "TEXCOORD_0" in glb.js["meshes"][nd["mesh"]]["primitives"][0]["attributes"]
+        if has_uv:
+            pos, nrm, uv, tri = glb.primitive(name)
+        else:
+            at = glb.js["meshes"][nd["mesh"]]["primitives"][0]
+            pos = glb.accessor(at["attributes"]["POSITION"]).astype(np.float64)
+            nrm = glb.accessor(at["attributes"]["NORMAL"]).astype(np.float64)
+            tri = glb.accessor(at["indices"]).reshape(-1, 3).astype(np.int64)
+            uv = np.zeros((len(pos), 2))
         pos = pos + glb.node_translation(name)
-        out.append(dict(name=name, T=pos[tri], N=nrm[tri], U=uv[tri]))
+        out.append(dict(name=name, T=pos[tri], N=nrm[tri], U=uv[tri], has_uv=has_uv))
     return out
 
 
@@ -140,7 +167,7 @@ def front_faces(parts, frame, side):
                 i = idx[k]
                 w = np.array([l1[i], l2[i], l3[i]])
                 nn = w @ p["N"][i]
-                uv = w @ p["U"][i]
+                uv = w @ p["U"][i] if p["has_uv"] else None
                 best = (float(z[k]), abs(float(nn[2])) / max(float(np.linalg.norm(nn)), 1e-12), uv)
             if best is not None:
                 out.append((abs(best[0]), best[1], best[2]))
@@ -158,7 +185,7 @@ def measure(vehicle):
     lumas, flank = [], {}
     for side in (1, -1):
         faces = front_faces(parts, frame, side)
-        good = [f for f in faces if frame["slab"][0] <= f[0] <= frame["slab"][1] and f[1] >= frame["min_n"]]
+        good = [f for f in faces if frame["slab"][0] <= f[0] <= frame["slab"][1] and f[1] >= frame["min_n"] and f[2] is not None]
         flank["+z" if side > 0 else "-z"] = dict(points=len(faces), painted=len(good))
         for _z, _n, uv in good:
             x = min(w - 1, max(0, int(uv[0] * w)))

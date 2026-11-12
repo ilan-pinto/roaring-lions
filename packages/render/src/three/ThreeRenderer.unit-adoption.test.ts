@@ -41,6 +41,7 @@ import { parseFixture } from './units/mesh-fixture';
 import { parseRunningGear } from './units/running-gear';
 import { runningGearBinding } from './units/running-gear-binding';
 import { insigniaHookOf, teamHookOf } from './units/team-mask';
+import { INSIGNIA_FRAMES } from './units/insignia-frames';
 import type { DyingVehicle } from './units/mesh-vehicle-death';
 import type { DyingMeshUnit } from './units/mesh-death';
 import { MESH_DEATH_SECONDS } from './units/mesh-death';
@@ -531,6 +532,31 @@ describe('GH-1096 S1: a living Lavi built by the renderer wears the insignia; a 
     const camoHull = legacyOf(other.material as THREE.Material, other);
     expect(teamHookOf(camoHull)).toBeDefined();
     expect(insigniaHookOf(camoHull)).toBeUndefined();
+    r.dispose();
+  });
+});
+
+describe('GH-1096 S2: every framed type id, built by the renderer, wears ITS OWN frame', () => {
+  /** The ground fleet (decision 1), a literal: the frame lookup is by TYPE id, so each id is a separate wiring to witness. */
+  const FLEET = ['aa_remetz', 'apc_eitan', 'apc_kipod', 'demo_tzav', 'dozer_d9', 'ifv_namer', 'jeep_shoded', 'mbt_lavi', 'officer_armour', 'scout_shachaf', 'spg_cluster', 'spg_long_range'];
+  it('each hull variant carries the insignia half of the hook, with that type\'s frame in its uniforms', async () => {
+    seam.kit = stubKit();
+    const sim = new Sim({ seed: 1, width: 32, height: 32, capacity: 16 });
+    // The mock hands every load the Lavi's fixture hull; only the TYPE id differs, which is all the frame lookup reads.
+    const units = FLEET.map((id, i) => ({ id, e: sim.spawn(sim.addUnitType({ ...LAVI, id }), 0, fx.from(3.5 + 6 * (i % 4)), fx.from(3.5 + 8 * Math.floor(i / 4))) }));
+    const r = new ThreeRenderer(sim, makeOpts('webgl2'));
+    const priv = r as unknown as Private;
+    await r.init(HOST);
+    for (const { id } of units) await r.loadVehicleMesh(id, `${id}.glb`);
+    r.frame(1, 16);
+    for (const { id, e } of units) {
+      const hull = hullOf(priv.vehicleMeshEntities.get(e) as VehicleMeshEntity);
+      const m = legacyOf(hull.material as THREE.Material, hull);
+      const ins = insigniaHookOf(m);
+      expect(ins, id).toBeDefined();
+      const f = INSIGNIA_FRAMES[id]!;
+      expect(ins!.frame.value.toArray(), id).toEqual([f.centre[0], f.centre[1], f.d, f.min_n]);
+    }
     r.dispose();
   });
 });

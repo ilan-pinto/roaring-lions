@@ -10,6 +10,62 @@ import type { InsigniaFrame } from './insignia';
 
 // BEGIN rl-insignia-frames (strict JSON; tools/validate_mesh_assets.py reads it)
 const FRAMES: Readonly<Record<string, InsigniaFrame>> = {
+  "aa_remetz": {
+    "centre": [-0.35, 2.95, 1.2],
+    "d": 0.55,
+    "host_sha256": "c6e8e83a0213128fe972d44f536ee0503fcdf00340c06231263ccca27f0704c1",
+    "luma": 0.1788,
+    "min_n": 0.6,
+    "slab": [1.0, 1.4]
+  },
+  "apc_eitan": {
+    "centre": [-0.7, 2.35, 1.1],
+    "d": 0.5,
+    "host_sha256": "1a8ddc6a1d814502669cb39e52bd897881c64ebd4afbb60f43032d420fbf4b14",
+    "luma": 0.10612,
+    "min_n": 0.6,
+    "slab": [0.92, 1.3]
+  },
+  "apc_kipod": {
+    "centre": [-1.8, 2.35, 1.4],
+    "d": 0.6,
+    "host_sha256": "4c303271471611c818c1b5c7b187f5c06767dc00ecd43c4b5f8d7663b7b95f0c",
+    "luma": 0.09175,
+    "min_n": 0.6,
+    "slab": [1.3, 1.55]
+  },
+  "demo_tzav": {
+    "centre": [-0.38, 2.27, 1.83],
+    "d": 0.6,
+    "host_sha256": "b510a26411e1d6b6bd1de7cb5ddf9893f931d5c8367a54e99201852c4c6f45f0",
+    "luma": 0.06813,
+    "min_n": 0.6,
+    "slab": [1.7, 1.95]
+  },
+  "dozer_d9": {
+    "centre": [0.9, 2.2, 0.97],
+    "d": 0.5,
+    "host_sha256": "348d53e4f0db88e27b6f5e8f185ce7c9ef9f73a2dda8c5488c224016dbed0dd6",
+    "luma": 0.06718,
+    "min_n": 0.6,
+    "slab": [0.88, 1.06]
+  },
+  "ifv_namer": {
+    "centre": [2.9, 2.1, 1.65],
+    "d": 0.45,
+    "host_sha256": "7c8199dc70dcc5404c1e9b8ce4ba5830e6efb22bc34dc9cb5516a8e31be4778b",
+    "luma": 0.215,
+    "min_n": 0.6,
+    "slab": [1.5, 1.8]
+  },
+  "jeep_shoded": {
+    "centre": [0.4, 0.9, 0.98],
+    "d": 0.5,
+    "host_sha256": "de2aa2ed958c34baf15747976bc91c358e89f256754f85dce8f6094534edbf27",
+    "luma": 0.0698,
+    "min_n": 0.6,
+    "slab": [0.9, 1.06]
+  },
   "mbt_lavi": {
     "centre": [0.95, 1.0, 1.7],
     "d": 0.6,
@@ -17,6 +73,38 @@ const FRAMES: Readonly<Record<string, InsigniaFrame>> = {
     "luma": 0.12277,
     "min_n": 0.6,
     "slab": [1.6, 1.95]
+  },
+  "officer_armour": {
+    "centre": [0.95, 1.0, 1.7],
+    "d": 0.6,
+    "host_sha256": "eec3f798e17ffe90507d3b858e2ee8382d7d6ea1986aad1fce352b1a052a6cab",
+    "luma": 0.12277,
+    "min_n": 0.6,
+    "slab": [1.6, 1.8]
+  },
+  "scout_shachaf": {
+    "centre": [-0.7, 1.08, 0.6],
+    "d": 0.4,
+    "host_sha256": "310d135435e57cf2efdba5d304bfe231ab36f4e57fb3e68429742ba544e12beb",
+    "luma": 0.09362,
+    "min_n": 0.6,
+    "slab": [0.5, 1.34]
+  },
+  "spg_cluster": {
+    "centre": [0.2, 2.2, 1.0],
+    "d": 0.5,
+    "host_sha256": "6b8131f650a802a2868973f6d5c44cdbb4252153c23134f93a03bb865f99593d",
+    "luma": 0.09614,
+    "min_n": 0.6,
+    "slab": [0.82, 1.2]
+  },
+  "spg_long_range": {
+    "centre": [0.2, 2.2, 1.0],
+    "d": 0.5,
+    "host_sha256": "df86617383af59e3585972c3220cc9103dc065f55544395f5220cb0bb507499d",
+    "luma": 0.09614,
+    "min_n": 0.6,
+    "slab": [0.82, 1.2]
   }
 };
 // END rl-insignia-frames
