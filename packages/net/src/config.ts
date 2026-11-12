@@ -128,18 +128,19 @@ export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = 
   //   | wadi_tarfan_l | 46 / 43 | 52% / 48% | 19% / 11% / 70% | 7% | 0 |
   //   | milh_flats_l | 50 / 44 | 53% / 52% | 29% / 21% / 50% | 2% | 0 |
   //
-  // 12 Nov DELIST (GH-976, the lead's ruling): `milh_flats` and `milh_flats_l` are OFF the flag list (and off `FLAG_SETUP_MAPS`; the two
-  // change together). The evidence is the probe's set-up room (`versus:probe --mode=flag`, PR 1306, comment 6831169313; mirror, 288 seeds
+  // 12 Nov DELIST (GH-976, the lead's ruling, amended by his latest LEAD RULING): `milh_flats` is OFF the flag list (and off `FLAG_SETUP_MAPS`;
+  // the two change together); `milh_flats_l` STAYS ON. The evidence is the probe's set-up room (`versus:probe --mode=flag`, PR 1306, comment 6831169313; mirror, 288 seeds
   // a map from 4000, a plain attack-move bot, Ready at 20 s): on milh_flats 141 of 288 games (49%) were won by the flag within 2 minutes of
-  // the bell, median 83 s (the GH-1139 rush; the bar is 5%); on milh_flats_l the west seat won 65.6% (189 / 98). The audit's table above
-  // read both maps clean with a strong attacker that masses before it moves, which is a different bot. They stay offered for every other
-  // mode they keep (camp on milh_flats, points on both). They come back per cell, only once the strong attacker is re-run on that exact
-  // set-up room and the cell passes G1 and G4. wadi_tarfan, rujm_sawda and wadi_tarfan_l stay offered.
+  // the bell, median 83 s (the GH-1139 rush; the bar is 5%); on milh_flats_l the plain bot's west seat won 65.6% (189 / 98). The audit's table above
+  // read both maps clean with a strong attacker that masses before it moves, which is a different bot. The lead kept milh_flats_l on the
+  // strong-attacker numbers: leader 50-54%, 0 rushes on seeds 4000-4287 and 38000-38287. milh_flats stays offered for every other mode it
+  // keeps (camp, points) and comes back only once the strong attacker is re-run on that exact set-up room and the cell passes G1 and G4.
+  // wadi_tarfan, rujm_sawda, wadi_tarfan_l and milh_flats_l stay offered.
   //
   // Caveats, from the audit: one scripted attacker that masses before it moves (a bot that attack-moves from the bell may still win
   // early, GH-1139's 0:55); each leader share carries 5-6 points of standard error; wadi_tarfan is a poor balance test (1% by the flag,
   // 26% draws).
-  flag: ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l'],
+  flag: ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
 };
 
 /** The KDF-v-Sarim cells each win mode has been read fair on (GH-976 P4): per mode, per map, the HOSTS (the matchup is the
@@ -368,11 +369,11 @@ export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum', 'wadi_tarfa
  *  `tools/src/validate_versus_rules.test.ts` holds this table to every rules file, both ways. */
 export const MAP_CAP_MINUTES: Readonly<Record<string, number>> = { rujm_sawda: 35, wadi_tarfan_l: 35, milh_flats_l: 35 };
 
-/** GH-976 v2: the maps a FLAG room plays the set-up rules on: the three `WIN_MODE_FAIR_MAPS.flag` lists (the lead's rulings of
- *  12 Nov: relisted five, then milh_flats and milh_flats_l delisted; change both together). milh_flats and milh_flats_l keep a staged
- *  `flag_setup` block on disk but are not offered. Read at CALL time (`flagSetupFor`), so a
+/** GH-976 v2: the maps a FLAG room plays the set-up rules on: the four `WIN_MODE_FAIR_MAPS.flag` lists (the lead's rulings of
+ *  12 Nov: relisted five, then milh_flats delisted; change both together). milh_flats keeps a staged
+ *  `flag_setup` block on disk but is not offered. Read at CALL time (`flagSetupFor`), so a
  *  test may stand a map in it. */
-export const FLAG_SETUP_MAPS: readonly string[] = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l'];
+export const FLAG_SETUP_MAPS: readonly string[] = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
 
 /** The flag match cap, in minutes, of a set-up room on every map, set-up included. A TWIN of `FLAG_SETUP_CAP_MINUTES` in
  *  @lions/data (the Worker imports net and not data), held to it by `tools/src/validate_versus_modes.test.ts`. */

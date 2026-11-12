@@ -1671,8 +1671,8 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
       [{ winMode: 'rally' }, 400], [{ winMode: 'camp' }, 200], [{ winMode: 'camp', map: 'wadi_tarfan_l' }, 200], [{ winMode: 'camp', map: 'tel_marum' }, 400],
       // GH-976 P4: tel_marum plays the points race and the flag raid in the mirror now; KDF against Sarim plays no mode anywhere
       // (the review removed the one cell), and the room asks the same question the route does.
-      // GH-976 relist (12 Nov): flag is offered on wadi_tarfan, rujm_sawda and wadi_tarfan_l in the mirror (milh_flats and milh_flats_l delisted 12 Nov), and the room refuses it on those two, tel_marum and in every faction pairing.
-      [{ winMode: 'points', map: 'tel_marum' }, 200], [{ winMode: 'flag', map: 'milh_flats_l' }, 400], [{ winMode: 'flag', map: 'milh_flats' }, 400], [{ winMode: 'points', map: 'milh_flats_l' }, 200], [{ winMode: 'flag', map: 'wadi_tarfan_l' }, 200],
+      // GH-976 relist (12 Nov): flag is offered on wadi_tarfan, rujm_sawda, wadi_tarfan_l and milh_flats_l in the mirror (milh_flats delisted 12 Nov), and the room refuses it on that one, tel_marum and in every faction pairing.
+      [{ winMode: 'points', map: 'tel_marum' }, 200], [{ winMode: 'flag', map: 'milh_flats_l' }, 200], [{ winMode: 'flag', map: 'milh_flats' }, 400], [{ winMode: 'points', map: 'milh_flats_l' }, 200], [{ winMode: 'flag', map: 'wadi_tarfan_l' }, 200],
       [{ winMode: 'flag', map: 'tel_marum' }, 400], [{ winMode: 'flag', map: 'beit_sahwan_outskirts' }, 400],
       [{ winMode: 'points', matchup: 'sarim' }, 400], [{ winMode: 'points', matchup: 'kdf' }, 400], [{ winMode: 'flag', matchup: 'kdf' }, 400],
       [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'kdf' }, 400], [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'sarim' }, 400],
@@ -1707,7 +1707,7 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
 
 describe('capture the flag v2 (GH-976 WP4): the room mints flagSetup from FLAG_SETUP_MAPS and its own winMode, never from a client', () => {
   const FLAG = { mode: 'versus', map: 'wadi_tarfan', winMode: 'flag' };
-  const FIVE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l'];   // three since the 12 Nov delist of milh_flats and milh_flats_l
+  const FIVE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];   // four since the 12 Nov delist of milh_flats
   /** Takes `wadi_tarfan` out of FLAG_SETUP_MAPS for one test (the list is a const array, read at call time) to prove the minting follows it. */
   const unlisted = async (fn: () => Promise<void>): Promise<void> => {
     const list = FLAG_SETUP_MAPS as string[];
@@ -1716,7 +1716,7 @@ describe('capture the flag v2 (GH-976 WP4): the room mints flagSetup from FLAG_S
     try { await fn(); } finally { list.splice(0, list.length, ...before); }
   };
   const listed = async (fn: () => Promise<void>): Promise<void> => fn();
-  it('the three offered maps are offered the flag and minted flagSetup; the minting follows FLAG_SETUP_MAPS and not the lobby list', async () => {
+  it('the four offered maps are offered the flag and minted flagSetup; the minting follows FLAG_SETUP_MAPS and not the lobby list', async () => {
     expect(FLAG_SETUP_MAPS).toEqual(FIVE);
     expect(WIN_MODE_FAIR_MAPS.flag).toEqual(FIVE);
     for (const map of FIVE) {

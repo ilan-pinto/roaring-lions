@@ -114,8 +114,8 @@ describe('/api/match', () => {
       expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'points' })), env, NOW)).status, map).toBe(201);
     }
     expect(createBodies.map((b) => b.winMode)).toEqual(SEVEN.map(() => 'points'));
-    // GH-976 relist (12 Nov): the flag is a 201 on the three offered maps (mirror) and a 400 on the other four, milh_flats and milh_flats_l included (12 Nov delist), and no room is made for those.
-    const FLAG_THREE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l'];   // milh_flats and milh_flats_l delisted 12 Nov (GH-976): 400 for flag, 201 for points above
+    // GH-976 relist (12 Nov): the flag is a 201 on the four offered maps (mirror) and a 400 on the other three, milh_flats included (12 Nov delist), and no room is made for those.
+    const FLAG_THREE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];   // milh_flats delisted 12 Nov (GH-976): 400 for flag, 201 for points above
     for (const map of SEVEN) {
       const res = await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'flag' })), env, NOW);
       if (FLAG_THREE.includes(map)) { expect(res.status, map).toBe(201); continue; }

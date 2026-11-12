@@ -213,8 +213,8 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
   // The oracle is a literal, not a read of the tables under test (GH-976 P4): the seven open maps, and what each plays in each pairing.
   const CAMP_MAPS = ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'];
   const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
-  const FLAG_MAPS = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l'];
-  it('offers points on all seven open maps in the mirror (GH-976 P4), the camp on wadi_tarfan, milh_flats and wadi_tarfan_l, the flag on wadi_tarfan, rujm_sawda and wadi_tarfan_l (12 Nov relist, then milh_flats and milh_flats_l delisted), and nothing else anywhere', () => {
+  const FLAG_MAPS = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+  it('offers points on all seven open maps in the mirror (GH-976 P4), the camp on wadi_tarfan, milh_flats and wadi_tarfan_l, the flag on wadi_tarfan, rujm_sawda, wadi_tarfan_l and milh_flats_l (12 Nov relist, then milh_flats delisted), and nothing else anywhere', () => {
     for (const map of SEVEN) expect(winModesOffered(map), map).toEqual([...(CAMP_MAPS.includes(map) ? ['camp'] : []), 'points', ...(FLAG_MAPS.includes(map) ? ['flag'] : [])]);
     // camp failed the passive-seat bar at its first camps; moved forward it passes on milh_flats (GH-976) and, with wipe after_camp, on wadi_tarfan and wadi_tarfan_l (5 Nov; config.ts); milh_flats_l, rujm_sawda and tel_marum stay out; a map that is not open has no mode file
     for (const map of ['qarn_hadid', 'tel_marum_1', 'tutorial_ground', 'nowhere', '']) expect(winModesOffered(map), map).toEqual([]);
@@ -248,8 +248,8 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
     });
     expect(winModesOffered('wadi_tarfan_l', 'kdf')).toEqual([]);   // and it is out again
   });
-  it('GH-976 relist (12 Nov): flag is offered on exactly wadi_tarfan, rujm_sawda and wadi_tarfan_l in the mirror, with the set-up rules, and nowhere else; milh_flats and milh_flats_l are delisted (12 Nov)', () => {
-    const FIVE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l'];   // literals, not the table (the name is historical: three since 12 Nov)
+  it('GH-976 relist (12 Nov): flag is offered on exactly wadi_tarfan, rujm_sawda, wadi_tarfan_l and milh_flats_l in the mirror, with the set-up rules, and nowhere else; milh_flats is delisted (12 Nov)', () => {
+    const FIVE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];   // literals, not the table (the name is historical: four since 12 Nov)
     expect(WIN_MODE_FAIR_MAPS.flag).toEqual(FIVE);
     expect(FLAG_SETUP_MAPS).toEqual(FIVE);   // the two lists change together (GH-1139)
     for (const map of FIVE) {
@@ -257,15 +257,15 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
       expect(winModeRequest('flag', versus(map))).toEqual({ mode: 'flag' });
       expect(flagSetupFor(map, 'flag'), map).toBe(true);
     }
-    // Delisted 12 Nov (GH-976): refused for the flag, still offered for the modes they keep.
-    for (const map of ['milh_flats', 'milh_flats_l']) {
+    // Delisted 12 Nov (GH-976): refused for the flag, still offered for the modes it keeps.
+    for (const map of ['milh_flats']) {
       expect(winModesOffered(map), map).not.toContain('flag');
       expect(winModeAllowed('flag', map), map).toBe(false);
       expect(winModeRequest('flag', versus(map)).refused, map).toBe('win mode not offered on this map');
       expect(winModeRequest('points', versus(map)), map).toEqual({ mode: 'points' });
     }
     expect(winModesOffered('milh_flats')).toEqual(['camp', 'points']);
-    expect(winModesOffered('milh_flats_l')).toEqual(['points']);
+    expect(winModesOffered('milh_flats_l')).toEqual(['points', 'flag']);   // kept on (lead, 12 Nov)
     // Still refused: the two staged-less open maps and the non-lobby maps in the mirror...
     for (const map of ['beit_sahwan_outskirts', 'tel_marum', 'qarn_hadid', 'tel_marum_1']) {
       expect(winModesOffered(map), map).not.toContain('flag');
@@ -290,7 +290,8 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
     for (const none of [undefined, null, 'annihilation']) expect(winModeRequest(none, versus('tel_marum', 'kdf'))).toEqual({ mode: undefined });
     expect(winModeRequest('points', versus('milh_flats'))).toEqual({ mode: 'points' });
     expect(winModeRequest('points', versus('tel_marum'))).toEqual({ mode: 'points' });
-    for (const out of ['milh_flats', 'milh_flats_l']) expect(winModeRequest('flag', versus(out)).refused, out).toBe('win mode not offered on this map');   // delisted 12 Nov (GH-976)
+    expect(winModeRequest('flag', versus('milh_flats_l'))).toEqual({ mode: 'flag' });   // kept on (lead, 12 Nov)
+    expect(winModeRequest('flag', versus('milh_flats')).refused).toBe('win mode not offered on this map');   // delisted 12 Nov (GH-976)
     expect(winModeRequest('flag', versus('tel_marum')).refused).toBe('win mode not offered on this map');
     expect(winModeRequest('rally', versus('milh_flats')).refused).toBe('unknown win mode');
     expect(winModeRequest('', versus('milh_flats')).refused).toBe('unknown win mode');
@@ -320,10 +321,10 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
 
 describe('capture the flag v2: flagSetup, FLAG_SETUP_MAPS and the cap twin (GH-976 WP4, R0.8, R0.25)', () => {
   const flagRoom = (extra: Record<string, unknown> = {}, map = 'rujm_sawda') => ({ ...CONFIG, mode: 'versus', map, winMode: 'flag', ...extra });
-  it('FLAG_SETUP_MAPS is the three offered maps: a flag room there is minted flagSetup, another mode or another map is not', () => {
-    expect(FLAG_SETUP_MAPS).toEqual(['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l']);
+  it('FLAG_SETUP_MAPS is the four offered maps: a flag room there is minted flagSetup, another mode or another map is not', () => {
+    expect(FLAG_SETUP_MAPS).toEqual(['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']);
     expect(flagSetupFor('milh_flats', 'flag')).toBeUndefined();   // delisted 12 Nov (GH-976): no set-up minted
-    expect(flagSetupFor('milh_flats_l', 'flag')).toBeUndefined();
+    expect(flagSetupFor('milh_flats_l', 'flag')).toBe(true);   // kept on
     expect(flagSetupFor('rujm_sawda', 'flag')).toBe(true);
     expect(flagSetupFor('rujm_sawda', 'points')).toBeUndefined();
     expect(flagSetupFor('tel_marum', 'flag')).toBeUndefined();
