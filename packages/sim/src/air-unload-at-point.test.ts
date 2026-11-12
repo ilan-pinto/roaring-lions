@@ -433,6 +433,76 @@ describe('unload at a chosen point (GH-698)', () => {
     expect(tileOf(sim, other)).toEqual([30, 30]);
     expect(sim.state.carriedBy[rider]).toBe(heli); // the rider is still aboard
   });
+
+  // The test above cancels an AIRBORNE point order, whose want is plain UNLOAD (orderLand). This one
+  // cancels the UNLOAD_AT want, which only a LANDED or LIFTING carrier holds (PR 1252 review, item 3).
+  it('an attack order while lifting to a chosen point cancels UNLOAD_AT: it never lands there', () => {
+    const sim = new Sim({ seed: 0x6980_0699, width: 40, height: 40, capacity: 64 });
+    const inf = sim.addUnitType(RIFLES);
+    const armed = sim.addUnitType({
+      ...HELI,
+      id: 'up_heli_gun',
+      weapons: [{
+        id: 'up_door_gun', type: 'hmg', range_tiles: 8, effective_range_tiles: 6, accuracy: 0.4,
+        penetration: 20, damage: 30, suppression: 40, rof_per_min: 120, can_target: ['ground'],
+      }],
+    });
+    const heli = sim.spawn(armed, 0, at(10.5), at(10.5));
+    const rider = sim.spawn(inf, 0, at(10.5), at(10.5));
+    expect(sim.embarkAtSpawn(heli, rider)).toBe(true);
+    expect(sim.settleOnGround(heli)).toBe(true);
+    const foe = sim.spawn(inf, 1, at(10.5), at(14.5));
+    sim.queueCommand({ kind: 'reveal', side: 0, x: at(10.5), y: at(14.5) });
+    sim.queueCommand({ kind: 'unload', ids: [heli], x: at(30.5), y: at(30.5) });
+    run(sim, 1);
+    expect(sim.state.airState[heli]).toBe(AIR_LIFTING);
+    expect(sim.state.airWant[heli]).toBe(AIR_WANT_UNLOAD_AT);
+    sim.queueCommand({ kind: 'attack', ids: [heli], target: foe });
+    sim.tick();
+    expect(sim.state.focusTarget[heli]).toBe(foe);
+    expect(sim.state.airWant[heli]).toBe(AIR_WANT_NONE);
+    // Past the lift's end (AIR_LIFT_TICKS), where an UNLOAD_AT left behind would re-run orderLand.
+    for (let k = 0; k < AIR_LIFT_TICKS + 200; k++) {
+      sim.tick();
+      expect(sim.state.airState[heli]).not.toBe(AIR_LANDING);
+      expect(sim.state.airState[heli]).not.toBe(AIR_LANDED);
+    }
+    expect(sim.state.carriedBy[rider]).toBe(heli);
+  });
+
+  // The other side's carrier denies in each of its three ground states, not only LANDED.
+  it('an ENEMY carrier still LANDING on the footprint occupies it', () => {
+    const w = loaded(10.5, 10.5, 2);
+    const e = w.sim.spawn(w.sim.state.typeIdx[w.heli], 1, at(25.5), at(25.5));
+    expect(w.sim.embarkAtSpawn(e, w.sim.spawn(w.inf, 1, at(25.5), at(25.5)))).toBe(true);
+    w.sim.queueCommand({ kind: 'unload', ids: [e], x: at(25.5), y: at(25.5) });
+    run(w.sim, 3); // arrives tick 1, LANDING tick 2 (AIR_LAND_TICKS 40)
+    expect(w.sim.state.airState[e]).toBe(AIR_LANDING);
+    w.sim.queueCommand({ kind: 'unload', ids: [w.heli], x: at(25.5), y: at(25.5) });
+    w.sim.tick();
+    expect(w.sim.state.airState[e]).toBe(AIR_LANDING); // the order was read against a LANDING enemy
+    run(w.sim, 320);
+    expect(w.sim.state.airState[w.heli]).toBe(AIR_LANDED);
+    const [ax, ay] = tileOf(w.sim, w.heli);
+    expect(Math.max(Math.abs(ax - 25), Math.abs(ay - 25))).toBeGreaterThan(2);
+  });
+
+  it('an ENEMY carrier LIFTING off the footprint still occupies it while it lifts', () => {
+    const w = loaded(10.5, 10.5, 2);
+    const e = w.sim.spawn(w.sim.state.typeIdx[w.heli], 1, at(25.5), at(25.5));
+    expect(w.sim.settleOnGround(e)).toBe(true);
+    w.sim.queueCommand({ kind: 'move', ids: [e], x: at(38.5), y: at(38.5) });
+    run(w.sim, 1);
+    expect(w.sim.state.airState[e]).toBe(AIR_LIFTING);
+    w.sim.queueCommand({ kind: 'unload', ids: [w.heli], x: at(25.5), y: at(25.5) });
+    w.sim.tick();
+    expect(w.sim.state.airState[e]).toBe(AIR_LIFTING); // the order was read against a LIFTING enemy
+    expect(tileOf(w.sim, e)).toEqual([25, 25]);
+    run(w.sim, 320);
+    expect(w.sim.state.airState[w.heli]).toBe(AIR_LANDED);
+    const [ax, ay] = tileOf(w.sim, w.heli);
+    expect(Math.max(Math.abs(ax - 25), Math.abs(ay - 25))).toBeGreaterThan(2);
+  });
 });
 
 /**

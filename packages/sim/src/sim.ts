@@ -11037,7 +11037,12 @@ export class Sim {
   /** R2: another living air carrier (id order) holds a footprint within Chebyshev 2 of (cx, cy).
    *  Same side: LANDING or LANDED there, flying to land for a load or an unload, or lifting to land at a
    *  chosen point (GH-698 UNLOAD_AT: its goal is that LZ). Other side (GH-698, by side): only a carrier
-   *  physically on the ground there (LANDING, LANDED, LIFTING, at its position); never its reservation. */
+   *  physically on the ground there (LANDING, LANDED, LIFTING, at its position); never its reservation.
+   *  The two rules differ on LIFTING. A LIFTING enemy denies the ground it is leaving, read at its
+   *  position. A LIFTING carrier of one's own side denies only by its goal, and only while it is bound to
+   *  land (an UNLOAD_AT lift, or a load or unload taken up after the lift); one lifting with want NONE or
+   *  DEPART does not deny at all. Read at ORDER time only: nothing re-checks the footprint when a carrier
+   *  arrives (stepAirCarriers, AIRBORNE to LANDING). */
   private lzTaken(cx: number, cy: number, self: number): boolean {
     const mySide = self >= 0 ? this.side[self] : -1;
     for (let j = 0; j < this.count; j++) {
@@ -11173,7 +11178,12 @@ export class Sim {
    * - LIFTING: the goal becomes the LZ and the want UNLOAD_AT, taken up at the lift's end.
    * UNLOAD_AT is its own want so that a plain `unload` (lands where it lifted) writes exactly what it
    * wrote before this order existed: a world that never sends a point hashes byte-identical.
-   * The fog plays no part: the ground is known to both sides, only units hide. No rng, no allocation.
+   * The choice does not consult fog. The ground is known to both sides, and the other side's PLAN
+   * (its reservation) is never read (`lzTaken`). But an other-side carrier physically on the ground
+   * (LANDING, LANDED or LIFTING) is read where it sits, whether this side can see it or not: an
+   * occupied pad is a physical fact. So a diverted LZ, or a `landRefused`, can tell a player that a
+   * hidden enemy carrier is down nearby. Whether that stands in versus is a lead call before the
+   * Yanshuf opens there (it is held today, VERSUS_HELD_UNITS). No rng, no allocation.
    */
   private airUnloadAtOrder(car: number, x: Fx, y: Fx): void {
     if (this.alive[car] === 0 || this.passengers[car] === 0) return;
