@@ -112,15 +112,21 @@ describe('the range ring of a selected garrisoned unit (GH-34 acceptance 3)', ()
     const open = w.radii(w.c);
     const house = w.radii(w.a);
     const block = w.radii(w.b);
-    // The ring is linear in tiles (to Q16.16 precision), so the ratios are the tile ratios: 6.4 -> 7.4 -> 8.4 effective and 8 -> 9 -> 10 maximum.
-    expect(house.effective / open.effective).toBeCloseTo(7.4 / 6.4, 4);
-    expect(house.max / open.max).toBeCloseTo(9 / 8, 4);
-    expect(block.effective / open.effective).toBeCloseTo(8.4 / 6.4, 4);
-    expect(block.max / open.max).toBeCloseTo(10 / 8, 4);
+    // Absolute pixel radii, from independent literals: a tile is 64 / sqrt(2) = 45.2548 px along view X at zoom 1 (TILE_W 64 and the
+    // isometric 1/sqrt(2), written here rather than imported). Ratios against the open ring would pass if every radius were mis-scaled.
+    const px = (tiles: number): number => tiles * (64 / Math.SQRT2);
+    expect(open.effective).toBeCloseTo(px(6.4), 2);
+    expect(open.max).toBeCloseTo(px(8), 2);
+    expect(house.effective).toBeCloseTo(px(7.4), 2);
+    expect(house.max).toBeCloseTo(px(9), 2);
+    expect(block.effective).toBeCloseTo(px(8.4), 2);
+    expect(block.max).toBeCloseTo(px(10), 2);
   });
   it('a unit in the open draws today\'s ring: the 8 tile hoop over the 6.4 tile arc', () => {
     const w = setUp();
     const open = w.radii(w.c);
+    expect(open.effective).toBeCloseTo(6.4 * (64 / Math.SQRT2), 2);
+    expect(open.max).toBeCloseTo(8 * (64 / Math.SQRT2), 2);
     expect(open.max / open.effective).toBeCloseTo(8 / 6.4, 4);
   });
 });
