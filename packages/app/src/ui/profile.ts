@@ -6,14 +6,15 @@
  * and a late promise (`me()`, a PATCH, an export) is ignored once `disposed` is set.
  */
 import type { StorageLike } from '../brigade-account';
-import { SAVE_VERSION } from '@lions/economy';
+import { SAVE_VERSION, type MatchOpponent, type MatchView } from '@lions/economy';
+import { maps } from '@lions/data';
 import { clearBinding, clearDeviceId, readBinding } from '../account/binding';
 import { claimQuietly, hasGuestProgress, readClaiming, runClaim, type ClaimOutcome } from '../account/claim';
 import type { LedgerStore } from '../ledger-store';
 import { exportSlot, readActive } from '../profile';
 import { readReturnCode, type AccountClient, type AccountError, type IdentityView, type MeResult } from '../account/client';
 import { resolveSignedIn, type SignedInResult } from '../account/signed-in';
-import { t } from '../i18n/t';
+import { hasKey, t } from '../i18n/t';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import { confirmDialog, type ConfirmHandle } from './confirm';
@@ -51,6 +52,37 @@ type SignedInMe = Extract<MeResult, { kind: 'signedIn' }>;
 
 function isError(x: unknown): x is AccountError {
   return typeof x === 'object' && x !== null && 'error' in x && 'status' in x;
+}
+
+const mapNames: Readonly<Record<string, { name: string }>> = maps;
+
+/** The outcome is read off the winning seat against the member's own; an unconfirmed row says so beside it. */
+function outcomeKey(m: MatchView): 'won' | 'lost' | 'drawn' {
+  return m.winnerSeat === null ? 'drawn' : m.winnerSeat === m.seat ? 'won' : 'lost';
+}
+
+/**
+ * The opponent, as text. A member shows `name · publicId`; a guest is only the Guest word (nothing else of a guest is
+ * ever read, A3-4); a bot is the Bot word plus its declared model. A listed model is chrome (`t()`), a typed one is
+ * data: it is set as text, never through `t()` and never as HTML.
+ */
+function opponentText(o: MatchOpponent): string {
+  switch (o.kind) {
+    case 'member':
+      return `${o.name} · ${o.publicId}`;
+    case 'guest':
+      return t('profile.history.guest');
+    case 'deleted':
+      return t('profile.history.deleted');
+    case 'bot': {
+      const bot = t('profile.history.bot');
+      const m = o.model;
+      if (m === null) return bot;
+      if (m.id === 'other') return 'name' in m ? `${bot} · ${m.name}` : bot;
+      const key = `bot.model.${m.id}`;
+      return hasKey(key) ? `${bot} · ${t(key)}` : bot;
+    }
+  }
 }
 
 export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
@@ -173,6 +205,71 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     return li;
   };
 
+  /** The record, the "Show my record" toggle and the history list (GH-1075 A3). The W-L is the server's count, never recounted here. */
+  const historyBlock = (me: SignedInMe): HTMLElement => {
+    const box = document.createElement('div');
+    box.className = 'rl-profile__history';
+    const recordLine = line('rl-profile__record', '');
+    recordLine.hidden = true;
+
+    const toggle = document.createElement('label');
+    toggle.className = 'rl-profile__show-record';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = me.showRecord;
+    cb.addEventListener('change', () => {
+      const want = cb.checked;
+      void deps.client.patchProfile({ showRecord: want }).then((r) => {
+        if (disposed) return;
+        if (isError(r)) {
+          cb.checked = !want;
+          say(failText(r), true);
+        } else say('');
+      });
+    });
+    toggle.append(cb, document.createTextNode(t('profile.showRecord.label')));
+
+    const list = document.createElement('ul');
+    list.className = 'rl-profile__matches';
+    const more = button(t('profile.history.more'), () => void page(next), 'rl-btn rl-profile__more');
+    more.hidden = true;
+    const empty = line('rl-profile__history-empty', t('profile.history.empty'));
+    empty.hidden = true;
+    let next: string | undefined;
+
+    const row = (m: MatchView): HTMLElement => {
+      const li = document.createElement('li');
+      li.className = 'rl-profile__match';
+      const when = new Date(m.startedAt).toLocaleDateString();
+      const map = mapNames[m.map]?.name ?? m.map;
+      const parts = [when, map, t(`profile.history.${outcomeKey(m)}`)];
+      if (!m.agreed) parts.push(t('profile.history.unconfirmed'));
+      parts.push(opponentText(m.opponent));
+      li.textContent = parts.join(' · ');
+      return li;
+    };
+    const page = async (before: string | undefined): Promise<void> => {
+      more.disabled = true;
+      const r = await deps.client.matches(before);
+      if (disposed) return;
+      more.disabled = false;
+      if (!r.ok) {
+        say(t('profile.error'), true);
+        return;
+      }
+      const a = r.body;
+      recordLine.textContent = t('profile.record', { won: a.record.won, lost: a.record.lost, drawn: a.record.drawn });
+      recordLine.hidden = false;
+      for (const m of a.matches) list.appendChild(row(m));
+      empty.hidden = list.childElementCount > 0;
+      next = a.next ?? undefined;
+      more.hidden = a.next === null;
+    };
+    void page(undefined);
+    box.append(line('rl-profile__history-title', t('profile.history.title')), recordLine, toggle, line('rl-profile__show-record-hint', t('profile.showRecord.hint')), empty, list, more);
+    return box;
+  };
+
   const signedInBlock = (me: SignedInMe, reload: () => void): HTMLElement => {
     const box = document.createElement('div');
     box.className = 'rl-profile__signed';
@@ -206,7 +303,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     ids.className = 'rl-profile__identities';
     for (const id of me.identities) ids.appendChild(identityRow(me, id, reload));
 
-    box.append(form, line('rl-profile__public-id', t('profile.publicId', { id: me.publicId })), ids);
+    box.append(form, line('rl-profile__public-id', t('profile.publicId', { id: me.publicId })), historyBlock(me), ids);
     if (me.identities.length <= 1) box.appendChild(line('rl-profile__last', t('profile.identity.last')));
 
     const verbs = document.createElement('div');

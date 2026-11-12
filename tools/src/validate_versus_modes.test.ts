@@ -105,7 +105,12 @@ describe('the shipped win-mode files', () => {
     for (const s of shipped) {
       const p = s.doc.modes.points!;
       expect(p.per_value_destroyed, s.doc.map).toBeLessThanOrEqual(2);
-      expect(p.target, s.doc.map).toBeGreaterThanOrEqual(350);
+      expect(p.target, s.doc.map).toBeGreaterThanOrEqual(250);
+    }
+    // GH-976, 12 Nov: the two cells relisted after PR 1050 (finite APS) carry the re-fitted MARGIN targets, literals from the probes machine's re-fit
+    // (beit_sahwan_outskirts 600 -> 300, rujm_sawda 350 -> 250); at the old targets half and a sixth of their games ended by annihilation first.
+    for (const [map, target] of [['beit_sahwan_outskirts', 300], ['rujm_sawda', 250]] as const) {
+      expect(shipped.find((s) => s.doc.map === map)!.doc.modes.points, map).toMatchObject({ target });
     }
     expect(shipped.find((s) => s.doc.map === 'wadi_tarfan_l')!.doc.modes.points).toMatchObject({ per_value_destroyed: 1, target: 600 });
   });

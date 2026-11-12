@@ -10104,6 +10104,30 @@ fieldset.rl-versus__maps {
   align-items: center;
   gap: var(--s2);
 }
+.rl-profile__history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-profile__history-title,
+.rl-profile__record {
+  margin: 0;
+  color: var(--ink);
+}
+.rl-profile__show-record {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--ink);
+}
+.rl-profile__show-record-hint {
+  margin: 0;
+}
+.rl-profile__matches {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .rl-profile__telemetry {
   display: flex;
   align-items: center;
