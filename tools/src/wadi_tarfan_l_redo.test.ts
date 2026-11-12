@@ -66,10 +66,10 @@ describe('the generator', () => {
     }
   });
 
-  it('the symbols, by a Python count of the staged rows: 7,198 open, 942 scrub, 518 scree, 176 wall, 94 road, 90 acacia, 56 knoll, 42 cover-2, 68 rock, 16 shed, 8 pump, 8 house', () => {
+  it('the symbols, by a Python count of the staged rows: 7,208 open, 934 scrub, 518 scree, 176 wall, 94 road, 90 acacia, 56 knoll, 40 cover-2, 68 rock, 16 shed, 8 pump, 8 house', () => {
     const n: Record<string, number> = {};
     for (const r of rowsOf) for (const c of r) n[c] = (n[c] ?? 0) + 1;
-    expect(n).toEqual({ '.': 7198, '1': 942, b: 518, '=': 176, r: 94, o: 90, n: 56, '2': 42, '^': 68, s: 16, p: 8, h: 8 }); // the 68 rock: four crowns of 8 and four road-gate outcrops of 9
+    expect(n).toEqual({ '.': 7208, '1': 934, b: 518, '=': 176, r: 94, o: 90, n: 56, '2': 40, '^': 68, s: 16, p: 8, h: 8 }); // the 68 rock: four crowns of 8 and four road-gate outcrops of 9
     expect(n.d).toBeUndefined(); // no ditch: a ditch segment is 38,240 triangles a tile (the shipped map has 104)
     expect(n['#']).toBeUndefined(); // no concrete block
     expect(n['3']).toBeUndefined(); // never cover 3: it cannot be told from cover 2 in a duel
@@ -328,8 +328,9 @@ describe('Tarfan: four walled yards at the centre ford, and the farms and folds'
     const n: Record<string, number> = {};
     for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) if ('hsp'.includes(rowsOf[y][x])) n[rowsOf[y][x]] = (n[rowsOf[y][x]] ?? 0) + 1;
     expect(n).toEqual({ h: 8, s: 8, p: 8 });
-    expect(rowsOf.slice(38, 40).map((r) => r.slice(48, 50))).toEqual(['hh', 'hh']);
-    expect(rowsOf.slice(56, 58).map((r) => r.slice(46, 48))).toEqual(['hh', 'hh']);
+    // GH-974 (the compounds round): yard A stands at (47,36), two tiles nearer the bed than the B4 build's (45,35), so its house is at (50,39)
+    expect(rowsOf.slice(39, 41).map((r) => r.slice(50, 52))).toEqual(['hh', 'hh']);
+    expect(rowsOf.slice(55, 57).map((r) => r.slice(44, 46))).toEqual(['hh', 'hh']);
     // no house anywhere else: the farms keep one-floor sheds (the shipped farms' two houses read 90% visible against the 92% scoring cap)
     expect(rowsOf.join('').split('h').length - 1).toBe(8);
   });
@@ -367,7 +368,8 @@ describe('Tarfan: four walled yards at the centre ford, and the farms and folds'
   });
 
   it('four sheepfolds, 12 wall tiles each (a five-by-four ring, a gap in each long side), two a flank; with the yards and farms that is all 176 walls', () => {
-    expect(FOLDS).toEqual([[46, 22, 5, 4, [[48, 22], [48, 25]]], [22, 46, 4, 5, [[22, 48], [25, 48]]]]);
+    // GH-974 (the compounds round): the north fold stands at (46,16), six rows north of the B4 build's (46,22), off the armour's line to the NE ford
+    expect(FOLDS).toEqual([[46, 16, 5, 4, [[48, 16], [48, 19]]], [22, 46, 4, 5, [[22, 48], [25, 48]]]]);
     for (const [x0, y0, w, h, gaps] of FOLDS) {
       for (const [fx, fy] of [[x0, y0], [96 - x0 - w, 96 - y0 - h]]) expect(walls(fx, fy, w, h), `fold ${fx},${fy}`).toBe(12);
       for (const [gx, gy] of gaps) expect(rowsOf[gy][gx]).toBe('.');
@@ -392,7 +394,7 @@ describe('Tarfan: four walled yards at the centre ford, and the farms and folds'
     expect([core, fringe]).toEqual([72, 30]);
   });
 
-  it('the cover: belts on a jittered lattice, none in the armour lane (|x - y| under 11 between the two shelves) but the ford scrub, 12.3% of the map and never cover 3', () => {
+  it('the cover: belts on a jittered lattice, none in the armour lane (|x - y| under 11 between the two shelves) but the ford scrub, 12.2% of the map and never cover 3', () => {
     expect([BELTS.stepX, BELTS.stepY, LANE_HALF]).toEqual([8, 8, 11]);
     let scrubInLane = 0;
     for (let y = 0; y < 96; y++) {
@@ -408,8 +410,8 @@ describe('Tarfan: four walled yards at the centre ford, and the farms and folds'
     expect(scrubInLane).toBe(22);
     let cover = 0;
     for (const r of rowsOf) for (const c of r) if ('123on'.includes(c)) cover++;
-    expect(cover).toBe(1130); // Python count: 942 + 42 + 90 + 56 (the belts' 920 and the ford scrub's 22)
-    expect(cover / 9216).toBeCloseTo(0.1226, 4);
+    expect(cover).toBe(1120); // Python count: 934 + 40 + 90 + 56 (the belts' 1,098 and the ford scrub's 22)
+    expect(cover / 9216).toBeCloseTo(0.1215, 4);
   });
 
   it('the ford scrub: 22 tiles of cover 1 in the lane, nine diagonals short of each bank\'s bed (x + y 84-92 and 98-106), 11 a bank, on open ground', () => {
@@ -515,7 +517,7 @@ describe('the verifier on it: every B2 check and the versus visibility gate, run
     expect(rep.facts.thick_wall_blocks).toBe(0);
     expect(rep.facts.buildings).toBe(12); // 2 houses, 8 sheds (4 farm sheds and 4 yard sheds), 2 pump houses
     expect(Number(rep.facts.built_share)).toBeCloseTo(32 / 9216, 4); // 32 building tiles
-    expect(Number(rep.facts.cover_share)).toBeCloseTo(1130 / 9216, 4);
+    expect(Number(rep.facts.cover_share)).toBeCloseTo(1120 / 9216, 4);
     expect(Number(rep.facts.cover_share)).toBeGreaterThanOrEqual(0.1);
     expect(Number(rep.facts.cover_share)).toBeLessThanOrEqual(0.14);
   });
@@ -536,7 +538,7 @@ describe('the verifier on it: every B2 check and the versus visibility gate, run
     expect(v.facts.building_tiles).toBe(32);
   });
 
-  it('RED: caps just over the map\'s own readings turn the town red twice over: its visible share (98.6%) and its built share (3.6%)', async () => {
+  it('RED: caps just over the map\'s own readings turn the town red twice over: its visible share (98.4%) and its built share (3.6%)', async () => {
     const { json, rules: r, spec: s } = staged('wadi_tarfan_l_redo');
     const tight = await verifyVersusVisibility(json, r, s, { town: 0.99, maxTownBuiltShare: 0.03 });
     expect(tight.failures.some((f) => f.includes('of the town town is visible, under 99%'))).toBe(true);
@@ -562,25 +564,25 @@ describe('the triangle bill: it fits the render budget from the start', () => {
     expect(b.frame).toBe(2_081_364);
   });
 
-  it('the centre 48x48 draws 506,602 a pass and the densest 48x48 525,124 (at 35,18), against the control\'s 694,926 in its whole map', () => {
-    expect(centreBill(ms, 96, 48).perPass).toBe(506_602);
+  it('the centre 48x48 draws 469,558 a pass and the densest 48x48 506,602 (at 35,18), against the control\'s 694,926 in its whole map', () => {
+    expect(centreBill(ms, 96, 48).perPass).toBe(469_558);
     const d = densestWindow(ms, 96, 48);
-    expect(d.bill.perPass).toBe(525_124);
+    expect(d.bill.perPass).toBe(506_602);
     expect([d.x0, d.y0]).toEqual([35, 18]);
     const control = billOf(meshesOf(maps.milh_flats as unknown as MapJson));
     expect(control.perPass).toBe(694_926);
     expect(d.bill.perPass).toBeLessThan(control.perPass);
   });
 
-  it('the verifier reads the same numbers, and the predicted cost against the control is NEGATIVE at the centre (-0.37 ms) and in the densest window (-0.33 ms)', () => {
+  it('the verifier reads the same numbers, and the predicted cost against the control is NEGATIVE at the centre (-0.44 ms) and in the densest window (-0.37 ms)', () => {
     const rep = verifyLargeMap(large, rules, spec());
     expect(rep.facts.triangles_control_per_pass).toBe(694_926);
     expect(rep.facts.triangles_whole_per_pass).toBe(693_788);
-    expect(rep.facts.triangles_centre_per_pass).toBe(506_602);
-    expect(rep.facts.triangles_densest_per_pass).toBe(525_124);
+    expect(rep.facts.triangles_centre_per_pass).toBe(469_558);
+    expect(rep.facts.triangles_densest_per_pass).toBe(506_602);
     expect(rep.facts.triangles_densest_at).toBe('35,18');
-    expect(rep.facts.triangles_centre_vs_control_ms).toBe(-0.37);
-    expect(rep.facts.triangles_densest_vs_control_ms).toBe(-0.33);
+    expect(rep.facts.triangles_centre_vs_control_ms).toBe(-0.44);
+    expect(rep.facts.triangles_densest_vs_control_ms).toBe(-0.37);
   });
 
   it('against the SHIPPED Wadi Tarfan (large) the redo draws 3.6 M fewer a pass over the map and 2.0 M fewer at the centre: the shipped 104 ditch tiles are 3.98 M of its 4.29 M', () => {
@@ -590,7 +592,7 @@ describe('the triangle bill: it fits the render budget from the start', () => {
     expect(centreBill(was, 96, 48).perPass).toBe(2_515_458);
     expect(densestWindow(was, 96, 48).bill.perPass).toBe(2_783_138);
     expect(billOf(ms).perPass - billOf(was).perPass).toBe(-3_596_150);
-    expect(centreBill(ms, 96, 48).perPass - centreBill(was, 96, 48).perPass).toBe(-2_008_856);
+    expect(centreBill(ms, 96, 48).perPass - centreBill(was, 96, 48).perPass).toBe(-2_045_900);
   });
 
   it('RED: eight more houses in the centre window take it over the control (the centre check); six in the north take only the densest window over it', () => {
@@ -602,12 +604,12 @@ describe('the triangle bill: it fits the render budget from the start', () => {
     expect(outA.some((f) => f.includes('triangles: the densest 48x48'))).toBe(true);
     // rows 16-17 are above the centre window (y >= 24) and their half-turns (rows 78-79) below it
     const b = clone();
-    for (const x of [26, 30, 34, 38, 42, 46]) house(b.rows as string[], x, 16);
+    for (const x of [24, 28, 32, 36, 40, 44]) house(b.rows as string[], x, 16); // west of the north fold (46-50, 16-19), which a house must not overwrite
     const outB = failuresOf(b);
     expect(outB.some((f) => f.includes('triangles: the densest 48x48'))).toBe(true);
     expect(outB.some((f) => f.includes('triangles: the centre 48x48'))).toBe(false);
     const rep = verifyLargeMap(b, rules, spec());
-    expect(rep.facts.triangles_centre_per_pass).toBe(506_602); // unchanged: none of the six stands in it
+    expect(rep.facts.triangles_centre_per_pass).toBe(469_558); // unchanged: none of the six stands in it
   });
 
   it('the sim holds 256 structures and every wall tile is one: the redo stands 188 (176 walls, 12 buildings), 68 under the cap', () => {
