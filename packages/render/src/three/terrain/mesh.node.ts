@@ -128,12 +128,12 @@ interface GroundTsl extends Omit<Tsl, 'texture'> {
 /** The legacy uniform record, as the twin reads it. */
 type Rec = Record<string, { value: unknown }>;
 
-/** The twin and the nodes it re-binds every render, by legacy uniform name (the record gate reads both). */
+/** The twin and the nodes it re-binds every render, by uniform name: the legacy names, plus `uHeightBlend*` from the height-blend record (not legacy uniforms). */
 export interface NodeGround {
   readonly material: THREE.Material;
-  /** Every number and vector uniform, re-bound from the record each render. */
+  /** Every number and vector uniform, re-bound each render from the legacy record (or, for `uHeightBlend*`, the height-blend record). */
   readonly numbers: Readonly<Record<string, N>>;
-  /** Every texture tap, by legacy uniform name, re-bound from the record each render (on the uniform it rides with). */
+  /** Every texture tap, by uniform name (`uHeightBlendField` is the height-blend record's), re-bound each render (on the uniform it rides with). */
   readonly textures: Readonly<Record<string, readonly N[]>>;
 }
 
@@ -261,6 +261,7 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
     const vec = { luma: (rgb: N): N => TSL.dot(rgb, luma), one3: ones };
     let stage: GroundStage<N> | undefined;
     if (record !== undefined) {
+      const opts = record.options;
       const fx = fieldTap(record, ctlUv);
       stage = maths.heightBlend.stage(
         o,
@@ -269,15 +270,15 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
         {
           rockTone: recUni('uHeightBlendRockTone', () => record.rockTone),
           // Joints compiled out (low, arid): the stage never reads these two, so no uniform is made (it would leave the update list unread).
-          jointTone: record.options.joints ? recUni('uHeightBlendJointTone', () => record.jointTone) : ones,
+          jointTone: opts.joints ? recUni('uHeightBlendJointTone', () => record.jointTone ?? record.rockTone) : ones,
           hollowTone: recUni('uHeightBlendHollowTone', () => record.hollowTone),
           rockAmp: recUni('uHeightBlendAR', () => record.aR),
-          jointAmp: record.options.joints ? recUni('uHeightBlendAJ', () => record.aJ) : o.lit(0),
+          jointAmp: opts.joints ? recUni('uHeightBlendAJ', () => record.aJ ?? 0) : o.lit(0),
           hollowAmp: recUni('uHeightBlendAH', () => record.aH),
           soften: recUni('uHeightBlendKH', () => record.kH),
           amp: recUni('uHeightBlendAmp', () => record.amp),
         },
-        record.options
+        opts
       );
     }
     const blend = maths.groundBlend(

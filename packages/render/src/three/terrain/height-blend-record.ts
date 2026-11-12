@@ -26,11 +26,12 @@ export interface HeightBlendRecord {
   field: THREE.Texture;
   /** LINEAR rgb. Mutated or replaced; the twin re-reads the reference each render. */
   rockTone: THREE.Color;
-  jointTone: THREE.Color;
+  /** Absent exactly when `options.joints` is false (arid): `installHeightBlend` throws on `joints: true` without both this and `aJ`. */
+  jointTone?: THREE.Color;
   hollowTone: THREE.Color;
   /** `aR`, `aJ`, `aH`, `kH` (design 2.2). */
   aR: number;
-  aJ: number;
+  aJ?: number;
   aH: number;
   kH: number;
   /** 1 shipped, 0 hides the layer (the `height-blend` debug layer). */
@@ -56,6 +57,9 @@ function hidden(target: HasUserData, key: string, value: unknown): void {
 export function installHeightBlend(owner: HasUserData, record: HeightBlendRecord): void {
   if (owner.userData[HEIGHT_BLEND_BUILT_KEY] === true) {
     throw new Error('height blend: the node ground twin is already built, so a record installed now would be silently ignored; install before the first adoption');
+  }
+  if (record.options.joints && (record.jointTone === undefined || record.aJ === undefined)) {
+    throw new Error('height blend: options.joints is true but the record has no jointTone / aJ; joints compiled with aJ 0 would mix toward pure rock tone');
   }
   hidden(owner, HEIGHT_BLEND_KEY, record);
 }

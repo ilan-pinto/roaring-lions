@@ -316,6 +316,23 @@ describe('the record on its owner', () => {
   });
 });
 
+describe('an arid record (no joint tone) and the misconfiguration that cannot be installed', () => {
+  it('joints off with no jointTone / aJ installs; joints on without either throws', () => {
+    const arid = makeRecord({ jointTone: undefined, aJ: undefined, options: { textureEdge: true, joints: false } });
+    expect(() => installHeightBlend(new GroundMaterial(), arid)).not.toThrow();
+    for (const bad of [makeRecord({ jointTone: undefined }), makeRecord({ aJ: undefined })]) {
+      expect(() => installHeightBlend(new GroundMaterial(), bad)).toThrow(/jointTone \/ aJ/);
+    }
+  });
+
+  it('an arid record compiles on both builders with no joint uniform', async () => {
+    for (const kind of KINDS) {
+      const { owner } = withRecord(makeRecord({ jointTone: undefined, aJ: undefined, options: { textureEdge: true, joints: false } }));
+      expect(Object.keys((await compile(kind, owner)).ground.numbers).filter((k) => /Joint|AJ$/.test(k))).toEqual([]);
+    }
+  });
+});
+
 describe('the height-blend debug layer', () => {
   it('hide, hide again, show: 1, 0, 1, and amp follows', () => {
     const { owner, rec } = withRecord(makeRecord({ amp: 0.8 }));
