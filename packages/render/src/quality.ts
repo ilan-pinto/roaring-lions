@@ -18,6 +18,10 @@
  * property the visual gate checked: the golden baselines were captured at
  * `high` and did not need re-blessing for that change alone. The bloom
  * (below) is the one knob added since that is not a no-op at `high`.
+ *
+ * `high` at DPR 2 is best-effort on the Wadi Halam maps (GH-829, the lead's ruling of 12 Nov 2026): 16.1-19.2 ms against the
+ * 16.7 ms frame budget, so it may run just under 60 fps there. The look is not cut to buy it back (no pixel-ratio cap, no SMAA
+ * change, no decor LOD); revisit only if holding 60 fps at `high` on Retina becomes a goal. Numbers: `docs/PERFORMANCE.md`.
  */
 export interface RenderQuality {
   /**
