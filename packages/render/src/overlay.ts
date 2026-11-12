@@ -33,8 +33,8 @@ function fmt(v: number, digits = 1): string {
 
 /**
  * GH-34 acceptance 2: how many tiles the building a shooter stands in adds to `weaponId`'s reach, for the roll feed's factor
- * line ("inside +1.0 tiles"), or null when nothing is added: the shooter is in the open, the weapon is indirect (it gets none),
- * the weapon does not fire from a building, or the shooter or weapon is unknown. Read from the structure type's own
+ * line ("inside +1.0 tiles"), or null when nothing is added: the shooter is in the open, the weapon does not fire from a
+ * building (`fires_from_building: false`, which shipped data sets on mortars and rockets), or the shooter or weapon is unknown. Read from the structure type's own
  * `garrisonRangeBonus` (the same field the sim's reach uses), so it needs no sim change and moves no byte of the `fire` event.
  * A field work's aura bonus is not included: the sim keeps it private.
  */
@@ -43,12 +43,13 @@ export function garrisonRangeTerm(
   shooter: number,
   weaponId: string,
 ): number | null {
-  // An id outside the typed array (a shot at a building carries shooter -1 for nothing here, but a stale id can happen)
-  // reads `undefined`: that is "not garrisoned", not a crash.
+  // Like the sim's `reachSq`/`effSq`, this adds the bonus to EVERY weapon, indirect or not: only `fires_from_building: false`
+  // keeps a weapon from firing inside. An id outside the typed array (a shooter of -1, or a stale id) reads `undefined`:
+  // that is "not garrisoned", not a crash.
   const s = sim.state.garrisonedIn[shooter];
   if (!(s >= 0)) return null;
   const w = sim.unitTypes[sim.state.typeIdx[shooter]]?.weapons.find((x) => x.id === weaponId);
-  if (w === undefined || w.isIndirect || !w.firesFromBuilding) return null;
+  if (w === undefined || !w.firesFromBuilding) return null;
   return sim.structureTypes[sim.structures.typeIdx[s]].garrisonRangeBonus;
 }
 

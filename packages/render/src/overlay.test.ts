@@ -102,14 +102,20 @@ describe('DebugOverlay roll feed: the garrison term (GH-34)', () => {
     expect(tiles(sim, 0, 'rifles')).toBe(1);
     expect(tiles(sim, 1, 'rifles')).toBe(2);
   });
-  it('is nothing in the open, for an indirect weapon, for a weapon that does not fire from a building, or for an unknown shooter or weapon', () => {
+  it('is nothing in the open, for a weapon that does not fire from a building, or for an unknown shooter or weapon', () => {
     const sim = world();
     expect(tiles(sim, 2, 'rifles')).toBeNull();
-    expect(tiles(sim, 1, 'lobber')).toBeNull();
     expect(tiles(sim, 1, 'sealed')).toBeNull();
     expect(tiles(sim, 1, 'nope')).toBeNull();
     expect(tiles(sim, -1, 'rifles')).toBeNull();
     expect(tiles(sim, 99, 'rifles')).toBeNull();
+  });
+
+  it('adds the bonus to an indirect weapon too, as the sim does, unless it is marked fires_from_building: false', () => {
+    const sim = world();
+    expect(tiles(sim, 1, 'lobber')).toBe(2);
+    expect(tiles(sim, 0, 'lobber')).toBe(1);
+    expect(tiles(sim, 1, 'sealed')).toBeNull();
   });
 
   const fire = (shooter: number, weaponId: string): SimEvent =>
@@ -128,6 +134,7 @@ describe('DebugOverlay roll feed: the garrison term (GH-34)', () => {
     expect(feedText(sim, fire(0, 'rifles'))).toContain('supp 100% · inside +1.0 tiles');
     expect(feedText(sim, fire(1, 'rifles'))).toContain('supp 100% · inside +2.0 tiles');
     expect(feedText(sim, fire(2, 'rifles'))).not.toContain('inside');
-    expect(feedText(sim, fire(1, 'lobber'))).not.toContain('inside');
+    expect(feedText(sim, fire(1, 'lobber'))).toContain('inside +2.0 tiles');
+    expect(feedText(sim, fire(1, 'sealed'))).not.toContain('inside');
   });
 });
