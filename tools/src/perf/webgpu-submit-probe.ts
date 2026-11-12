@@ -311,10 +311,12 @@ try {
               return m.submitUploadCensus();
             }, MODULE(ROOT))) as UploadRow[];
             const sum = (k: string): string => `${up.filter((u) => u.kind.endsWith(k)).reduce((n, u) => n + u.calls, 0)} calls, ${(up.filter((u) => u.kind.endsWith(k)).reduce((n, u) => n + u.bytes, 0) / 1024).toFixed(0)} KiB`;
+            const draws = up.filter((u) => u.kind === 'draws');
+            md.push('', `draw calls in the census frame: ${draws.map((u) => `${u.what} ${u.bytes}`).join(', ')}`);
             const hidden = up.filter((u) => u.kind === 'hidden');
             md.push('', `hidden meshes: ${hidden.reduce((n, u) => n + u.calls, 0)} (${hidden.map((u) => `${u.what} x${u.calls}`).join('; ')})`);
             md.push('', `uploads in one frame: buffers/attributes ${arm === 'L' ? sum('buffer') : sum('attribute')}; textures ${sum('texture')}`, '', '| kind | what | calls | KiB |', '|---|---|---|---|');
-            for (const u of up.filter((x) => x.kind !== 'hidden').slice(0, 40)) md.push(`| ${u.kind} | \`${u.what}\` | ${u.calls} | ${(u.bytes / 1024).toFixed(1)} |`);
+            for (const u of up.filter((x) => x.kind !== 'hidden' && x.kind !== 'draws').slice(0, 40)) md.push(`| ${u.kind} | \`${u.what}\` | ${u.calls} | ${(u.bytes / 1024).toFixed(1)} |`);
             await closePage(o);
           }
         }

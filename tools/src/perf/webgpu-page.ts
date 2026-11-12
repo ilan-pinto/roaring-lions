@@ -749,7 +749,7 @@ async function timedOnly(s: SubmitState, frames: number): Promise<{ cpuRenderMs:
 
 /** One row of the upload census: what was uploaded, by whom, how often and how many bytes in the frame. */
 export interface UploadRow {
-  readonly kind: 'attribute' | 'texture' | 'gl-buffer' | 'gl-texture' | 'app-bump' | 'hidden';
+  readonly kind: 'attribute' | 'texture' | 'gl-buffer' | 'gl-texture' | 'app-bump' | 'hidden' | 'draws';
   readonly what: string;
   readonly calls: number;
   readonly bytes: number;
@@ -873,7 +873,19 @@ export async function submitUploadCensus(): Promise<UploadRow[]> {
   }
   try {
     await tick();
-    r.frame(1, 0);
+    if (!node) {
+      const info = (r as unknown as { renderer: { info: { autoReset: boolean; reset(): void; render: { calls: number } } } }).renderer.info;
+      info.autoReset = false;
+      info.reset();
+      r.frame(1, 0);
+      add('draws', 'all passes', info.render.calls);
+      info.autoReset = true;
+    } else {
+      r.frame(1, 0);
+      // Before any await: the next animation tick resets the node renderer's info.
+      const pp = node.stats().perPass;
+      if (pp !== undefined) for (const [k, v] of Object.entries(pp)) add('draws', k, (v as { calls: number }).calls);
+    }
   } finally {
     for (const f of restores.reverse()) f();
   }
