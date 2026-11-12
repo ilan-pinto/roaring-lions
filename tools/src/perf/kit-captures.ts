@@ -155,8 +155,9 @@ const VEHICLES = [
 type VehicleId = (typeof VEHICLES)[number];
 /** GH-1096 S2: the KDF vehicles that carry the Roaring Lion insignia but no kit. They have a garage card like every KDF unit, so
  *  `--garage --only=<id>` photographs their bay (the lead's close-up of the emblem); the kit sheets, the toggle and the merge
- *  measure do not apply to them, and refuse them. */
-const GARAGE_ONLY = ['officer_armour', 'demo_tzav', 'aa_remetz', 'spg_long_range', 'spg_cluster'] as const;
+ *  measure do not apply to them, and refuse them. `officer_armour` is framed too but is not here: it is a HELD mesh
+ *  (`mesh-catalogue.ts`, GH-298 Stage 5) with no unit type yet, so it has no card to click. */
+const GARAGE_ONLY = ['demo_tzav', 'aa_remetz', 'spg_long_range', 'spg_cluster'] as const;
 const LEVELS = [0, 1, 2, 3] as const;
 const ZOOMS = [1.0, 2.5] as const;
 
