@@ -348,9 +348,16 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     },
     configure: (config) => build(config),
     softDepthOn: (quality) => nodeSoftDepthOn(quality, softDepthCopyable),
-    setPixelRatio: (r) => renderer.setPixelRatio(r),
+    setPixelRatio: (r) => {
+      renderer.setPixelRatio(r);
+      chain?.resize();
+    },
     getPixelRatio: () => renderer.getPixelRatio(),
-    setSize: (w, h) => renderer.setSize(w, h),
+    setSize: (w, h) => {
+      renderer.setSize(w, h);
+      // GH-1270: SMAA's targets follow the drawing buffer here, between frames, not inside `SMAANode.updateBefore` mid-frame.
+      chain?.resize();
+    },
     async prepare(scene, camera) {
       runCensus(scene);
       await renderer.compileAsync(scene, camera);
