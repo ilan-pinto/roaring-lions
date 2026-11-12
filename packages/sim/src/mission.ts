@@ -226,8 +226,8 @@ export interface ObjectiveJson {
    *  `starting_force` placement). Absent on every other type; the schema's description is the authority. */
   zone?: string;
   /** `no_collateral_above` only: the most Conduct (ROE score points) this mission may lose, a whole number 0 to 100.
-   *  The objective fails the tick `100 - roeScore` is above it. The schema types it as a plain number for every type;
-   *  the constructor holds the rule. */
+   *  The objective fails the tick `100 - roeScore` is above it. The schema types it as an integer 0..100, required on this type and
+   *  forbidden on every other; the constructor throws on the same faults at load. */
   threshold?: number;
   count?: number;
   seconds?: number;
