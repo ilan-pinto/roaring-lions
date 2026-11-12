@@ -6,7 +6,7 @@ import type { MapId } from '@lions/data';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
 import { economyRoom } from '@lions/net';
 import {
-  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, RAZE_MEAN_MAX_S_48, RAZE_MEAN_MAX_S_96, contestedShare, holdsBalanced, razeLimitS, razeOk, razeVerdict, withCampOverride, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, describeTiming, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
+  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, RAZE_MEAN_MAX_S_48, RAZE_MEAN_MAX_S_96, contestedShare, holdsBalanced, razeLimitS, razeOk, razeVerdict, withCampOverride, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, describeTiming, g4Verdict, massedFlagOrder, rallyTile, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
   type ModePlayFn, type ModePlayed,
 } from './versus-modes';
 import { main as probeMain, seedOf } from './versus-probe';
@@ -710,5 +710,89 @@ describe('the flag arm plays the lobby\'s set-up room (flagSetupFor), and --flag
     const fake: ModePlayFn = (_m, _mode, _s, o) => { seen.push(o?.flagSetup); return { winner: o?.cutEnd === 1 ? 0 : 1, by: 'objective', ticks: 2400 }; };
     modeSelfCheck('wadi_tarfan', 'flag', fake, undefined, { flagSetup: true });
     expect(seen).toEqual([true, true, true, true]);
+  });
+});
+
+describe('the massed flag script (a reduced stand-in for the audit\'s strong attacker) and the G4 line', () => {
+  const FLAG_MAPS = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'] as const;
+  const worldOf = (map: MapId) => buildMatchWorld(modeConfig(map, 'flag', seedOf(0), undefined, true));
+  /** The commands `massedFlagOrder` queues, read off the sim by spying on its queue. */
+  const issued = (map: MapId, nowTick: number, idle = new Set<number>()) => {
+    const w = worldOf(map);
+    const cmds: { kind: string; ids: number[]; x: number; y: number }[] = [];
+    const spy = vi.spyOn(w.sim, 'queueCommand').mockImplementation((c) => { cmds.push(c as never); });
+    const parties = new Map<number, readonly number[]>([[0, raidParty(w, 0)], [1, raidParty(w, 1)]]);
+    massedFlagOrder(w, map, parties, idle, nowTick, 30);
+    spy.mockRestore();
+    return { w, cmds, parties };
+  };
+  const centre = (map: MapId, end: 'friendly' | 'hostile') => { const f = versusModes[map].flag_setup!.flags[end]; return [(f.at[0] + f.size[0] / 2) * 65536, (f.at[1] + f.size[1] / 2) * 65536]; };
+
+  it('the rally tile lies inside the seat\'s own set-up region on every listed map, for both seats', () => {
+    for (const map of FLAG_MAPS) {
+      const w = worldOf(map);
+      for (const side of [0, 1] as const) {
+        const [x, y] = rallyTile(w, side);
+        expect(w.sim.setupRegionAt(x, y), `${map} side ${side} rally ${x},${y}`).toBe(side);
+      }
+    }
+  });
+
+  it('before bell + 30 s the body moves to the rally tile and two defenders attack-move onto the OWN flag; nobody is sent at the enemy flag', () => {
+    const { w, cmds, parties } = issued('milh_flats', 0);
+    for (const side of [0, 1] as const) {
+      const mine = cmds.filter((c) => c.ids.some((id) => w.sim.state.side[id] === side));
+      const post = mine.find((c) => c.kind === 'attackMove')!;
+      expect(post.ids.slice().sort()).toEqual([...parties.get(side)!].sort());
+      expect([post.x, post.y]).toEqual(centre('milh_flats', w.endOfSide[side]));
+      const body = mine.find((c) => c.kind === 'move')!;
+      expect([body.x, body.y]).toEqual(rallyTile(w, side).map((v) => v * 65536));
+      expect(mine.some((c) => c.kind === 'attackMove' && [c.x, c.y].join() === centre('milh_flats', w.endOfSide[side === 0 ? 1 : 0]).join())).toBe(false);
+    }
+  });
+
+  it('from bell + 30 s the whole body attack-moves on the ENEMY flag and the defenders stay', () => {
+    const bell = worldOf('milh_flats').sim.setupBellTick;
+    const { w, cmds, parties } = issued('milh_flats', bell + 600);
+    for (const side of [0, 1] as const) {
+      const mine = cmds.filter((c) => c.ids.some((id) => w.sim.state.side[id] === side));
+      expect(mine.some((c) => c.kind === 'move')).toBe(false);
+      const enemy = mine.find((c) => [c.x, c.y].join() === centre('milh_flats', w.endOfSide[side === 0 ? 1 : 0]).join())!;
+      expect(enemy.ids.some((id) => parties.get(side)!.includes(id))).toBe(false);
+      expect(enemy.ids.length).toBeGreaterThan(5);
+    }
+    // one tick short of the gate it is still gathering
+    expect(issued('milh_flats', bell + 599).cmds.some((c) => c.kind === 'move')).toBe(true);
+  });
+
+  it('an idle side takes no order', () => {
+    const { w, cmds } = issued('milh_flats', 0, new Set([1]));
+    expect(cmds.every((c) => c.ids.every((id) => w.sim.state.side[id] === 0))).toBe(true);
+  });
+
+  it('the massed script is a flag script: any other mode is refused', () => {
+    expect(() => playMode('wadi_tarfan', 'camp', seedOf(0), { script: 'massed' })).toThrow(/flag script/);
+  });
+
+  it('the CLI passes --script and --mass-s, and refuses a bad script, a bad mass time, or massed outside --mode=flag', () => {
+    const seen: { script?: string; massS?: number }[] = [];
+    const fake: ModePlayFn = (_m, _mode, _s, o) => { seen.push({ script: o?.script, massS: o?.massS }); return { winner: 0, by: 'objective', ticks: 2400 }; };
+    const quiet = <T>(fn: () => T): T => { const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined); try { return fn(); } finally { spy.mockRestore(); } };
+    quiet(() => modeMain(['--mode=flag', '--maps=milh_flats', '--seeds=1', '--no-self-check', '--passive=off', '--script=massed', '--mass-s=45'], fake));
+    expect(seen).toEqual([{ script: 'massed', massS: 45 }]);
+    seen.length = 0;
+    quiet(() => modeMain(['--mode=flag', '--maps=milh_flats', '--seeds=1', '--no-self-check', '--passive=off'], fake));
+    expect(seen).toEqual([{ script: undefined, massS: undefined }]);
+    expect(() => modeMain(['--mode=flag', '--script=feint'], fake)).toThrow(/--script/);
+    expect(() => modeMain(['--mode=flag', '--script=massed', '--mass-s=500'], fake)).toThrow(/--mass-s/);
+    expect(() => modeMain(['--mode=all', '--script=massed'], fake)).toThrow(/--mode=flag/);
+  });
+
+  it('g4Verdict counts flag wins within 120 s of the bell against the 5% bar', () => {
+    const win = (sec: number): ModePlayed => ({ winner: 0, by: 'objective', ticks: 500 + sec * 20, bellTick: 500 });
+    const wipe: ModePlayed = { winner: 1, by: 'annihilation', ticks: 1500, bellTick: 500 };
+    const games = [win(119), win(121), ...Array.from({ length: 38 }, () => wipe)];
+    expect(g4Verdict(games)).toBe('G4 flag wins within 120 s of the bell: 1 of 40 (2.5%) ok');
+    expect(g4Verdict([win(10), win(20), ...Array.from({ length: 18 }, () => wipe)])).toBe('G4 flag wins within 120 s of the bell: 2 of 20 (10.0%) OVER 5%');
   });
 });

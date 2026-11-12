@@ -124,7 +124,23 @@ export interface ModePlayOptions {
   /** With `flagSetup`: the second at which each seat that takes orders presses Ready (the bell then rings `SETUP_BELL_DELAY_TICKS`
    *  later: 20 s gives the bell at 25 s, the 11 and 12 Nov audits' early Ready). A passive or cut seat never presses it. */
   readyS?: number;
+  /** The flag arm's order script. `attack-move` (the default, every earlier read): two raid squads on the enemy flag, the rest
+   *  attack-moving on the enemy's centroid. `massed` (GH-976, a reduced stand-in for the 11 Nov audit's strong attacker, whose harness
+   *  is not in this repo): every unit gathers at a rally point inside its own set-up region, two infantry squads stand on the own
+   *  flag as defenders, and `massS` seconds after the bell the whole body attack-moves on the enemy flag together. No feint, no
+   *  smoke, no re-target, no kit. */
+  script?: FlagScript;
+  /** With `script: 'massed'`: seconds after the bell the body leaves the rally point. */
+  massS?: number;
 }
+
+export type FlagScript = 'attack-move' | 'massed';
+export const FLAG_SCRIPTS: readonly FlagScript[] = ['attack-move', 'massed'];
+/** Seconds after the bell the massed body sets off. */
+export const MASS_S_DEFAULT = 30;
+/** How far along the line from its own anchor to the enemy's the massed body gathers: inside the own set-up region on every listed map. */
+export const RALLY_NUM = 3;
+export const RALLY_DEN = 10;
 
 /** The second a seat presses Ready by default: the audits' early Ready (the bell at 25 s). */
 export const READY_S_DEFAULT = 20;
@@ -224,6 +240,39 @@ const inRect = (sim: Sim, id: number, r: readonly number[]): boolean => {
   return tx >= r[0] && tx < r[0] + r[2] && ty >= r[1] && ty < r[1] + r[3];
 };
 
+/** Per-side latches of the massed script: the two defenders, taken once before the first order. */
+export type MassedState = ReadonlyMap<number, readonly number[]>;
+
+/** The rally tile of `side`: `RALLY_NUM / RALLY_DEN` of the way from its own anchor to the other's (tile units, rounded). */
+export function rallyTile(w: MatchWorld, side: 0 | 1): [number, number] {
+  const [ax, ay] = w.anchors[w.endOfSide[side]];
+  const [bx, by] = w.anchors[w.endOfSide[side === 0 ? 1 : 0]];
+  return [Math.round(ax + ((bx - ax) * RALLY_NUM) / RALLY_DEN), Math.round(ay + ((by - ay) * RALLY_NUM) / RALLY_DEN)];
+}
+
+/** The `massed` script's order for every side that is not idle, at `nowTick`: before `bell + massS` the body (every living unit but
+ *  the two defenders) moves to the rally tile and the defenders attack-move onto the OWN flag; from then on the body attack-moves
+ *  on the ENEMY flag together, the defenders stay. Orders are re-issued each call, as the other scripts do. */
+export function massedFlagOrder(w: MatchWorld, mapId: string, defenders: MassedState, idleSides: ReadonlySet<number>, nowTick: number, massS: number): void {
+  const go = nowTick >= w.sim.setupBellTick + massS * 20;
+  for (const side of [0, 1] as const) {
+    if (idleSides.has(side)) continue;
+    const mine = livingOf(w.sim, side);
+    const post = (defenders.get(side) ?? []).filter((id) => w.sim.state.alive[id] === 1);
+    const body = mine.filter((id) => !post.includes(id));
+    const own = flagTile(mapId, w.endOfSide[side], w.setup !== null);
+    if (post.length > 0) w.sim.queueCommand({ kind: 'attackMove', ids: post, x: own[0], y: own[1] });
+    if (body.length === 0) continue;
+    if (go) {
+      const enemy = flagTile(mapId, w.endOfSide[side === 0 ? 1 : 0], w.setup !== null);
+      w.sim.queueCommand({ kind: 'attackMove', ids: body, x: enemy[0], y: enemy[1] });
+    } else {
+      const [rx, ry] = rallyTile(w, side);
+      w.sim.queueCommand({ kind: 'move', ids: body, x: fx.from(rx), y: fx.from(ry) });
+    }
+  }
+}
+
 /** How many unheld zones the points mode splits a force over. */
 export const POINTS_SPLIT = 3;
 
@@ -291,6 +340,8 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
   const idleSides = idleSidesFor(mode, passiveSide, opts.cutEnd === undefined ? -1 : sideOfEnd[opts.cutEnd]);
   const parties = new Map<number, readonly number[]>();
   if (mode === 'flag') for (const side of [0, 1] as const) parties.set(side, raidParty(w, side));
+  const massed = opts.script === 'massed';
+  if (massed && mode !== 'flag') throw new Error('versus modes: the massed script is a flag script');
   // A set-up room's cap is its own (30 minutes), and it is decided on the earlier of that and the bell + 12 minutes (`effectiveCapTicks`),
   // the one function the room reads. A room with no set-up reads `matchCapTicksOf` of the same config, which is the map's cap as before.
   const cap = matchCapTicksOf(config);
@@ -321,7 +372,7 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
   for (let t = 0; t < cap; t++) {
     if (t % ORDER_EVERY_TICKS === 0) {
       if (mode === 'camp') campOrder(w, mapId, passiveSide, defendSide);
-      else if (mode === 'flag') flagOrder(w, mapId, parties, idleSides, sideOfEnd);
+      else if (mode === 'flag') (massed ? massedFlagOrder(w, mapId, parties, idleSides, w.sim.tickCount, opts.massS ?? MASS_S_DEFAULT) : flagOrder(w, mapId, parties, idleSides, sideOfEnd));
       else pointsOrder(w, zoneNames, passiveSide);
     }
     // The set-up phase (a flag set-up room only): each seat that takes orders presses Ready once, as a player would.
@@ -341,6 +392,15 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
 
 /** A raid or a rush that ends a match before this many seconds is a rush win (report only; GH-976, 6 Nov). */
 export const RUSH_S = 120;
+
+/** G4, the lead's bar for the flag: the share of games won by the flag inside `RUSH_S` of the bell (or of tick 0 in a room with no
+ *  set-up) must not pass `G4_MAX_PERCENT`. Report-only, like every line here. */
+export const G4_MAX_PERCENT = 5;
+export function g4Verdict(games: readonly ModePlayed[]): string {
+  const rush = games.filter((g) => g.by === 'objective' && (g.ticks - (g.bellTick ?? 0)) / 20 < RUSH_S).length;
+  const share = games.length === 0 ? 0 : (100 * rush) / games.length;
+  return `G4 flag wins within ${RUSH_S} s${games.some((g) => g.bellTick !== undefined) ? ' of the bell' : ''}: ${rush} of ${games.length} (${share.toFixed(1)}%) ${share <= G4_MAX_PERCENT ? 'ok' : 'OVER ' + G4_MAX_PERCENT + '%'}`;
+}
 
 /** Report-only timing of the games the goal decided: the median seconds to win, and how many ended before `RUSH_S`. */
 export function describeTiming(games: readonly ModePlayed[]): string {
@@ -451,7 +511,7 @@ export function describeTally(t: ModeTally, arr: Arrangement = MIRROR): string {
 export type ModePlayFn = typeof playMode;
 
 /** The controls on one map and mode; each failure is a sentence. Empty means the arm can tell its sides apart. */
-export function modeSelfCheck(mapId: MapId, mode: WinModeId, playFn: ModePlayFn = playMode, arr: Arrangement = MIRROR, room: Pick<ModePlayOptions, 'flagSetup' | 'readyS'> = {}): string[] {
+export function modeSelfCheck(mapId: MapId, mode: WinModeId, playFn: ModePlayFn = playMode, arr: Arrangement = MIRROR, room: Pick<ModePlayOptions, 'flagSetup' | 'readyS' | 'script' | 'massS'> = {}): string[] {
   const failures: string[] = [];
   const seed = seedOf(0);
   const cell = arr[0] === arr[1] ? `${mapId} ${mode}` : `${mapId} ${mode} ${arr.join('/')}`;
@@ -650,8 +710,15 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
   const readyArg = flag(args, 'ready-s');
   const readyS = readyArg === undefined ? READY_S_DEFAULT : Number(readyArg);
   if (!Number.isInteger(readyS) || readyS < 0 || readyS > 170) throw new Error('--ready-s must be a whole number of seconds, 0 to 170 (the set-up lasts 180)');
-  const room: Pick<ModePlayOptions, 'flagSetup' | 'readyS'> = flagSetupArg === 'on' ? { flagSetup: true, readyS } : {};
+  const scriptArg = flag(args, 'script') ?? 'attack-move';
+  if (!(FLAG_SCRIPTS as readonly string[]).includes(scriptArg)) throw new Error(`--script must be ${FLAG_SCRIPTS.join(' or ')}`);
+  const massArg = flag(args, 'mass-s');
+  const massS = massArg === undefined ? MASS_S_DEFAULT : Number(massArg);
+  if (!Number.isInteger(massS) || massS < 0 || massS > 120) throw new Error('--mass-s must be a whole number of seconds, 0 to 120');
+  if (scriptArg === 'massed' && !modes.every((m) => m === 'flag')) throw new Error('--script=massed is a flag script: it needs --mode=flag');
+  const room: Pick<ModePlayOptions, 'flagSetup' | 'readyS' | 'script' | 'massS'> = { ...(flagSetupArg === 'on' ? { flagSetup: true, readyS } : {}), ...(scriptArg === 'massed' ? { script: 'massed' as const, massS } : {}) };
   if (modes.includes('flag')) console.log(flagSetupArg === 'on' ? `flag room: the set-up phase on the maps FLAG_SETUP_MAPS lists, each seat that orders presses Ready at ${readyS} s (the bell ${readyS + 5} s in); timing is read from the bell` : 'flag room: --flag-setup=off, the v1 read (no set-up phase; every flag win is an opening rush)');
+  if (modes.includes('flag')) console.log(scriptArg === 'massed' ? `flag script: massed (the body gathers at ${RALLY_NUM}/${RALLY_DEN} of the way to the enemy anchor, two infantry squads defend the own flag, the body sets off ${massS} s after the bell; no feint, smoke, re-target or kit): a reduced stand-in for the audits' strong attacker` : 'flag script: attack-move (two raid squads on the enemy flag, the rest on the enemy centroid)');
   const flagsArg = flag(args, 'flags');
   const holdArg = flag(args, 'hold');
   const flagOverride: FlagOverride = {
@@ -691,6 +758,7 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
       const active = tallyModes(activeRows);
       console.log(`${cell} active:   ${describeTally(active, arr)}`);
       console.log(`${cell} timing:   ${describeTiming(activeRows)}`);
+      if (mode === 'flag') console.log(`${cell} ${g4Verdict(activeRows)}`);
       const verdicts = [
         `fair ${fairWithin(active) ? 'within' : 'OUTSIDE'} (${pct(Math.max(...active.wins), active.seeds)}%)`,
         `decisive ${fairWithinDecisive(active) ? 'within' : 'OUTSIDE'} (${pct(Math.max(...active.wins), active.wins[0] + active.wins[1])}% of ${active.wins[0] + active.wins[1]})`,
