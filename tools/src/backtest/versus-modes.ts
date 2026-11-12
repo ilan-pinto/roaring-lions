@@ -372,7 +372,10 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
   for (let t = 0; t < cap; t++) {
     if (t % ORDER_EVERY_TICKS === 0) {
       if (mode === 'camp') campOrder(w, mapId, passiveSide, defendSide);
-      else if (mode === 'flag') (massed ? massedFlagOrder(w, mapId, parties, idleSides, w.sim.tickCount, opts.massS ?? MASS_S_DEFAULT) : flagOrder(w, mapId, parties, idleSides, sideOfEnd));
+      else if (mode === 'flag') {
+        if (massed) massedFlagOrder(w, mapId, parties, idleSides, w.sim.tickCount, opts.massS ?? MASS_S_DEFAULT);
+        else flagOrder(w, mapId, parties, idleSides, sideOfEnd);
+      }
       else pointsOrder(w, zoneNames, passiveSide);
     }
     // The set-up phase (a flag set-up room only): each seat that takes orders presses Ready once, as a player would.
