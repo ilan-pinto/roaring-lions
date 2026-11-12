@@ -12,7 +12,8 @@ import * as THREE from 'three';
 import { GroundMaterial } from './mesh';
 import { MATERIAL_MATHS } from '../material-maths';
 import { buildNodeGround, type NodeGround } from './mesh.node';
-import { HEIGHT_BLEND_FULL, type HeightBlendOptions } from './height-blend';
+import type { HeightBlendOptions } from './height-blend';
+import { adoptMaterials, createTwinCache, NULL_P3_SLOTS } from '../node-material-adoption';
 import {
   HEIGHT_BLEND_BUILT_KEY,
   HEIGHT_BLEND_KEY,
@@ -54,7 +55,11 @@ type Maths = typeof MATERIAL_MATHS.ground;
 async function compile(kind: Kind, owner: GroundMaterial, maths: Maths = MATERIAL_MATHS.ground): Promise<Built> {
   const W = await import('three/webgpu');
   const TSL = await import('three/tsl');
-  const ground = buildNodeGround({ W, TSL, maths }, owner);
+  return compileTwin(kind, buildNodeGround({ W, TSL, maths }, owner));
+}
+
+async function compileTwin(kind: Kind, ground: NodeGround): Promise<Built> {
+  const W = await import('three/webgpu');
   const mesh = new THREE.Mesh(groundGeometry(), ground.material);
   const r = new W.WebGPURenderer({ forceWebGL: kind === 'glsl' });
   if (kind === 'wgsl') {
@@ -103,7 +108,7 @@ function makeRecord(over: Partial<HeightBlendRecord> = {}): HeightBlendRecord {
     aH: 0.45,
     kH: 0.4,
     amp: 1,
-    options: HEIGHT_BLEND_FULL,
+    options: { textureEdge: true, joints: true },
     ...over,
   };
 }
@@ -118,12 +123,35 @@ const KINDS: Kind[] = ['glsl', 'wgsl'];
 const samplerCount = (b: Built): number => new Set(b.used.filter((x) => (x.node.value as THREE.Texture | null)?.isTexture === true).map((x) => x.name)).size;
 
 describe.each(KINDS)('the node ground with a height-blend record, on %s', (kind) => {
-  it('draws a different program from the same owner with no record, and a twin of its own', async () => {
-    const plain = await compile(kind, new GroundMaterial());
-    const { owner } = withRecord();
-    const blended = await compile(kind, owner);
-    expect(blended.frag).not.toBe(plain.frag);
-    expect(blended.ground.material).not.toBe(plain.ground.material);
+  it('a record owner and a plain owner adopted through ONE twin cache get two twins and two different programs', async () => {
+    const W = await import('three/webgpu');
+    const TSL = await import('three/tsl');
+    const grounds = new Map<THREE.Material, NodeGround>();
+    const kit = {
+      ...NULL_P3_SLOTS,
+      foliage: null,
+      ring: null,
+      ground: (legacy: THREE.Material) => {
+        const g = buildNodeGround({ W, TSL, maths: MATERIAL_MATHS.ground }, legacy as GroundMaterial);
+        grounds.set(g.material, g);
+        return g.material;
+      },
+    };
+    const cache = createTwinCache();
+    const { owner: blendedOwner } = withRecord();
+    const plainOwner = new GroundMaterial();
+    const a = new THREE.Mesh(groundGeometry(), blendedOwner);
+    const b = new THREE.Mesh(groundGeometry(), plainOwner);
+    const root = new THREE.Group().add(a, b);
+    expect(adoptMaterials(root, kit, cache)).toBe(2);
+    const [ta, tb] = [a.material as THREE.Material, b.material as THREE.Material];
+    expect(ta).not.toBe(tb);
+    expect(adoptMaterials(root, kit, cache), 'a second adoption swaps nothing: the twins are cached per owner').toBe(0);
+    expect([a.material, b.material]).toEqual([ta, tb]);
+    const fa = (await compileTwin(kind, grounds.get(ta) as NodeGround)).frag;
+    const fb = (await compileTwin(kind, grounds.get(tb) as NodeGround)).frag;
+    expect(fa).not.toBe(fb);
+    expect(fa.length).toBeGreaterThan(fb.length);
   });
 
   it('adds exactly one filtered sampler: nine, as a literal (eight without a record)', async () => {
@@ -233,7 +261,7 @@ describe('the stage wiring and the graph choice (a spy stage, so the options and
   });
 
   it.each([
-    ['high / medium: the full graph', HEIGHT_BLEND_FULL],
+    ['high / medium: the full graph', { textureEdge: true, joints: true }],
     ['low: no texture edge and no joints', { textureEdge: false, joints: false }],
     ['arid: no joints', { textureEdge: true, joints: false }],
   ] as const)('%s', async (_n, options) => {
@@ -241,6 +269,12 @@ describe('the stage wiring and the graph choice (a spy stage, so the options and
     const { maths, seen } = spied();
     await compile('glsl', owner, maths);
     expect(seen().options).toEqual(options);
+  });
+
+  it('with joints compiled out no joint uniform exists (an unread one would leave the update list and go stale)', async () => {
+    const { ground } = await compile('glsl', withRecord(makeRecord({ options: { textureEdge: false, joints: false } })).owner);
+    expect(Object.keys(ground.numbers).filter((k) => /Joint|AJ$/.test(k))).toEqual([]);
+    expect(Object.keys((await compile('glsl', withRecord().owner)).ground.numbers).filter((k) => /Joint|AJ$/.test(k)).sort()).toEqual(['uHeightBlendAJ', 'uHeightBlendJointTone']);
   });
 
   it('low and arid compile smaller programs than the full graph, on both builders', async () => {

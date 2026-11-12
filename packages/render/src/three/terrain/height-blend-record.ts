@@ -35,7 +35,11 @@ export interface HeightBlendRecord {
   kH: number;
   /** 1 shipped, 0 hides the layer (the `height-blend` debug layer). */
   amp: number;
-  /** The graph choice, read ONCE at twin build. */
+  /**
+   * The graph choice, read ONCE at twin build: `low` sets both false (no texture edge, no joints). A theme with NO joint tone (arid) MUST set
+   * `joints: false` too: with joints compiled and `aJ` 0 the stage still mixes toward PURE rock tone at the joint weight, which is not an
+   * identity. With joints off the twin makes no joint uniforms at all.
+   */
   readonly options: HeightBlendOptions;
 }
 

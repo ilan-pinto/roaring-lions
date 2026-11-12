@@ -268,10 +268,11 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
         [fx.r, fx.g, fx.b],
         {
           rockTone: recUni('uHeightBlendRockTone', () => record.rockTone),
-          jointTone: recUni('uHeightBlendJointTone', () => record.jointTone),
+          // Joints compiled out (low, arid): the stage never reads these two, so no uniform is made (it would leave the update list unread).
+          jointTone: record.options.joints ? recUni('uHeightBlendJointTone', () => record.jointTone) : ones,
           hollowTone: recUni('uHeightBlendHollowTone', () => record.hollowTone),
           rockAmp: recUni('uHeightBlendAR', () => record.aR),
-          jointAmp: recUni('uHeightBlendAJ', () => record.aJ),
+          jointAmp: record.options.joints ? recUni('uHeightBlendAJ', () => record.aJ) : o.lit(0),
           hollowAmp: recUni('uHeightBlendAH', () => record.aH),
           soften: recUni('uHeightBlendKH', () => record.kH),
           amp: recUni('uHeightBlendAmp', () => record.amp),
