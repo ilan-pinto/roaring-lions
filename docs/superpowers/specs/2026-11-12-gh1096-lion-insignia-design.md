@@ -553,7 +553,8 @@ Each item has my recommendation. "Yes" approves it as written.
 2. **Too small to mark.** `attack_drone`, `recon_drone` and `ugv_recon_dog` get no insignia (0.10 to 0.20 m
    surfaces, never visible). *Recommend: yes.*
 3. **Deliberately unmarked.** The Ambush Tank (under a net), the Pered ambulance and the Nachlieli medevac (medical
-   marking). *Recommend: yes.*
+   marking). The armed Nemala medic team would still wear the shoulder patch in S4 (section 6.4).
+   *Recommend: yes.*
 4. **The emblem.** A front-facing roaring lion's head in an 18-lock maned roundel, bilaterally symmetric, as in the
    mock. Hand-DRAWN with the Meshy relief as reference only, so it is project-original with no Meshy inheritance.
    Not the favicon (provenance unrecorded), not a profile lion. *Recommend: yes, drawn, not traced.*
