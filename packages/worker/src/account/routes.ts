@@ -8,6 +8,7 @@ import { deleteAccount, gone } from './delete';
 import { exportAccount } from './export';
 import { claim } from './claim';
 import { getState, putCampaign } from './campaign';
+import { matches } from './matches';
 import { me, patchProfile } from './profile';
 import { deleteSlot, getSlot, putSlot } from './slots';
 import { coupon, resetFreeRoute, spend } from './spend';
@@ -52,6 +53,7 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
   },
   { method: 'GET', pattern: 'me', handler: me },
   { method: 'GET', pattern: 'state', handler: getState },
+  { method: 'GET', pattern: 'matches', handler: matches },
   { method: 'GET', pattern: 'slots/:id', handler: getSlot },
   { method: 'PUT', pattern: 'campaign', handler: putCampaign },
   { method: 'PUT', pattern: 'slots/:id', handler: putSlot },
