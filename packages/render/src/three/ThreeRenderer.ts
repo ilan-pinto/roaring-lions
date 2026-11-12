@@ -15983,7 +15983,7 @@ export class ThreeRenderer implements Renderer {
    * record, and a collapse splices the changed region in place (`spliceHeightBlendField`, byte-identical to a full bake) and re-uploads
    * the same texture. A bake that was waiting on the import reads `state.surface`, the latest, never the surface it was asked about.
    */
-  private syncGroundBlend(surface: TerrainSurface, dirty: Uint8Array | null): void {
+  private syncGroundBlend(surface: TerrainSurface): void {
     const state = this.groundBlendState;
     if (state === null) return;
     state.surface = surface;
@@ -15991,30 +15991,39 @@ export class ThreeRenderer implements Renderer {
     if (lib === null) {
       if (state.loading) return;
       state.loading = true;
+      const failed = (what: string, err: unknown): void => {
+        // The placeholder stays bound, so the stage adds nothing and the ground is today's; the next rebuild tries again.
+        state.loading = false;
+        console.error(`height blend: ${what}; the ground draws without the blend`, err);
+      };
       void import('./terrain/height-blend-texture').then(
         (loaded) => {
-          state.lib = loaded;
-          if (this.disposed || state.surface === null) return;
-          this.bakeGroundBlend(state, loaded, state.surface, null);
+          try {
+            state.lib = loaded;
+            if (this.disposed || state.surface === null) return;
+            this.bakeGroundBlend(state, loaded, state.surface);
+          } catch (err) {
+            // Never an unhandled rejection: a throw in the bake leaves the placeholder, and the next rebuild bakes again.
+            state.lib = null;
+            failed('the bake failed', err);
+          }
         },
-        (err: unknown) => {
-          // The placeholder stays bound, so the stage adds nothing and the ground is today's.
-          state.loading = false;
-          console.error('height blend: the field module failed to load; the ground draws without the blend', err);
-        }
+        (err: unknown) => failed('the field module failed to load', err)
       );
       return;
     }
-    this.bakeGroundBlend(state, lib, surface, dirty);
+    this.bakeGroundBlend(state, lib, surface);
   }
 
   private bakeGroundBlend(
     state: GroundBlendState,
     lib: NonNullable<GroundBlendState['lib']>,
-    surface: TerrainSurface,
-    dirty: Uint8Array | null
+    surface: TerrainSurface
   ): void {
-    if (dirty !== null && state.data !== null && state.texture !== null) {
+    // With a field standing, splice first whatever the build was: the splice diffs the surface against the copy the field kept, so a
+    // rebuild that moved nothing (a late asset load) writes nothing, swaps nothing and uploads nothing; `null` (a different size or
+    // flatness) bakes whole.
+    if (state.data !== null && state.texture !== null) {
       const written = lib.spliceHeightBlendField(state.data, surface);
       if (written !== null) {
         if (written > 0) state.texture.needsUpdate = true;
@@ -16262,7 +16271,7 @@ export class ThreeRenderer implements Renderer {
     // GH-1167 S5: the field, from the very input and surface the ground was just built from. Spliced on a collapse.
     this.syncGrassField(grassTones, composed.input, build.state.surface, build.dirtyTiles);
     // GH-1226 S5: the height-blend field, from the very surface the ground was just built from. Spliced on a collapse.
-    this.syncGroundBlend(build.state.surface, build.dirtyTiles);
+    this.syncGroundBlend(build.state.surface);
 
     // The textured half of the same placement list. `buildDecorMesh` above
     // and this partition it by family rather than competing for it -- a

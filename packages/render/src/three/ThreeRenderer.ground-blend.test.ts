@@ -56,13 +56,28 @@ const seam = vi.hoisted(() => ({
   kit: null as MaterialKit | null,
   bakes: 0,
   splices: 0,
+  /** Failures to inject: the texture module's load (the chunk fetch), and the bake itself (a throw inside the success callback). */
+  failLoads: 0,
+  throwBakes: 0,
 }));
+
+vi.mock('./terrain/height-blend-texture', async (importOriginal) => {
+  if (seam.failLoads > 0) {
+    seam.failLoads--;
+    throw new Error('spec: the chunk failed to load');
+  }
+  return importOriginal();
+});
 
 vi.mock('./terrain/height-blend-field', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./terrain/height-blend-field')>();
   return {
     ...actual,
     bakeHeightBlendField: (...a: Parameters<typeof actual.bakeHeightBlendField>) => {
+      if (seam.throwBakes > 0) {
+        seam.throwBakes--;
+        throw new Error('spec: the bake threw');
+      }
       seam.bakes++;
       return actual.bakeHeightBlendField(...a);
     },
@@ -169,7 +184,9 @@ interface Booted {
   readonly seenByFactory: { record: HeightBlendRecord | undefined; calls: number };
 }
 
-async function boot(t: TerrainTones, quality = QUALITY_PRESETS.high): Promise<Booted> {
+const RELIEF = Uint8Array.from({ length: SIZE * SIZE }, (_, i) => Math.min(4, Math.floor((i % SIZE) / 6)));
+
+async function boot(t: TerrainTones, quality = QUALITY_PRESETS.high, relief = true, inject?: () => void): Promise<Booted> {
   const W = await import('three/webgpu');
   const TSL = await import('three/tsl');
   const seenByFactory = { record: undefined as HeightBlendRecord | undefined, calls: 0 };
@@ -185,6 +202,9 @@ async function boot(t: TerrainTones, quality = QUALITY_PRESETS.high): Promise<Bo
   };
   seam.bakes = 0;
   seam.splices = 0;
+  seam.failLoads = 0;
+  seam.throwBakes = 0;
+  inject?.();
   const sim = new Sim({ seed: 1, width: SIZE, height: SIZE, capacity: 4 });
   // A 2x2 shanty on the staircase below (tiles 15..16), so felling it changes the terrace set inside relief.
   const type = sim.addStructureType({ id: 'shanty', hp_per_tile: 50, height_px: 11, color: 'dust.1' });
@@ -193,7 +213,7 @@ async function boot(t: TerrainTones, quality = QUALITY_PRESETS.high): Promise<Bo
   const priv = r as unknown as Private;
   await r.init(HOST);
   // Relief: a staircase rising one level every 6 tiles, so the baked field is not the neutral 1x1 bytes.
-  r.setElevation(Uint8Array.from({ length: SIZE * SIZE }, (_, i) => Math.min(4, Math.floor((i % SIZE) / 6))));
+  if (relief) r.setElevation(RELIEF);
   r.camera.x = SIZE / 2;
   r.camera.y = SIZE / 2;
   r.camera.zoom = 1;
@@ -204,8 +224,8 @@ async function boot(t: TerrainTones, quality = QUALITY_PRESETS.high): Promise<Bo
 }
 
 let live: ThreeRenderer[] = [];
-async function booted(t: TerrainTones, quality = QUALITY_PRESETS.high): Promise<Booted> {
-  const b = await boot(t, quality);
+async function booted(t: TerrainTones, quality = QUALITY_PRESETS.high, relief = true, inject?: () => void): Promise<Booted> {
+  const b = await boot(t, quality, relief, inject);
   live.push(b.r);
   return b;
 }
@@ -225,6 +245,25 @@ afterEach(() => {
 });
 
 describe('GH-1226 S5: the node ground bakes and installs the height blend', () => {
+  // FIRST in the file on purpose: the module registry caches the texture module after its first successful load, and this test needs
+  // that first load to fail.
+  it('a failed chunk load keeps the placeholder, logs, and the next rebuild tries again', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const b = await booted(tones(TONES_HIGHLAND), QUALITY_PRESETS.high, true, () => {
+      seam.failLoads = 1;
+    });
+    const record = heightBlendOf(b.priv.groundMat) as HeightBlendRecord;
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(String(err.mock.calls[0]?.[0])).toMatch(/module failed to load/);
+    expect((record.field as THREE.DataTexture).image.width).toBe(1);
+    expect((b.priv.groundBlendState as { loading: boolean }).loading).toBe(false);
+    b.r.setElevation(RELIEF.slice());
+    b.r.frame(1, 0);
+    await vi.dynamicImportSettled();
+    expect((record.field as THREE.DataTexture).image.width).toBe(SIZE * 4);
+    expect(seam.bakes).toBe(1);
+  });
+
   it('installs the record BEFORE the ground twin is built, with the tones as linear literals and the full graph', async () => {
     const { priv, seenByFactory } = await booted(tones(TONES_HIGHLAND));
     const record = heightBlendOf(priv.groundMat);
@@ -316,5 +355,55 @@ describe('GH-1226 S5: the node ground bakes and installs the height blend', () =
     r.dispose();
     expect([...new Set(released)].sort()).toEqual(['field', 'placeholder']);
     expect(priv.groundBlendState).toBeNull();
+  });
+
+  it('a second FULL build that changes the ground swaps in a new texture and releases the old one', async () => {
+    const { r, priv } = await booted(tones(TONES_HIGHLAND), QUALITY_PRESETS.high, false);
+    const record = heightBlendOf(priv.groundMat) as HeightBlendRecord;
+    const first = record.field as THREE.DataTexture;
+    expect(first.name).toBe(HEIGHT_BLEND_FIELD_MARKER);
+    const released: string[] = [];
+    first.addEventListener('dispose', () => released.push('first'));
+    expect(seam.bakes).toBe(1);
+    // Flat to relief: a different flatness, which the splice cannot compare, so the field is baked whole again.
+    r.setElevation(RELIEF);
+    r.frame(1, 0);
+    await vi.dynamicImportSettled();
+    r.frame(1, 0);
+    const second = record.field as THREE.DataTexture;
+    expect(second, 'the second build kept the first texture').not.toBe(first);
+    expect(seam.bakes).toBe(2);
+    const actual = await vi.importActual<typeof import('./terrain/height-blend-field')>('./terrain/height-blend-field');
+    const s = priv.terrainState.surface;
+    expect(Buffer.from(second.image.data as Uint8Array).equals(Buffer.from(actual.bakeHeightBlendField(s, s.width, s.height).data))).toBe(true);
+    expect(Buffer.from(second.image.data as Uint8Array).equals(Buffer.from(first.image.data as Uint8Array))).toBe(false);
+    expect(released, 'the replaced texture was not released after the next draw').toEqual(['first']);
+  });
+
+  it('a rebuild that moved nothing (a late asset load) re-bakes nothing, swaps nothing and uploads nothing', async () => {
+    const { r, priv } = await booted(tones(TONES_HIGHLAND));
+    const record = heightBlendOf(priv.groundMat) as HeightBlendRecord;
+    const tex = record.field as THREE.DataTexture;
+    const version = tex.version;
+    r.setElevation(RELIEF.slice());
+    r.frame(1, 0);
+    await vi.dynamicImportSettled();
+    expect(seam.bakes).toBe(1);
+    expect(record.field).toBe(tex);
+    expect(tex.version).toBe(version);
+  });
+
+  it('a throw inside the success callback is logged, not an unhandled rejection; the placeholder stays and the next rebuild bakes', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const b = await booted(tones(TONES_HIGHLAND), QUALITY_PRESETS.high, true, () => {
+      seam.throwBakes = 1;
+    });
+    const record = heightBlendOf(b.priv.groundMat) as HeightBlendRecord;
+    expect(String(err.mock.calls[0]?.[0])).toMatch(/bake failed/);
+    expect((record.field as THREE.DataTexture).image.width).toBe(1);
+    b.r.setElevation(RELIEF.slice());
+    b.r.frame(1, 0);
+    await vi.dynamicImportSettled();
+    expect((record.field as THREE.DataTexture).image.width).toBe(SIZE * 4);
   });
 });

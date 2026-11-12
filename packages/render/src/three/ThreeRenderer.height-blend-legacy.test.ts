@@ -150,7 +150,10 @@ describe('L3: a legacy boot on qarn_hadid\'s elevation draws and computes no hei
     expect(ownNames(ground).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
     expect(ownNames(ground.uniforms).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
     expect(ownNames(ground.userData).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
-    expect(ownNames(r).filter((n) => HEIGHT_BLEND_NAME.test(n))).toEqual([]);
+    // STATE, not names: no own property of the renderer that mentions the blend holds anything on a legacy boot.
+    expect(
+      Reflect.ownKeys(r).filter((k) => /(height|ground).?blend/i.test(typeof k === 'symbol' ? (k.description ?? '') : k) && (r as unknown as Record<string | symbol, unknown>)[k] != null).map(String)
+    ).toEqual([]);
     expect(seen.reads, 'something read tones.heightBlend or a field-module export on a legacy boot').toEqual([]);
     expect(seen.loads.slice(before), 'a legacy boot imported a height-blend module').toEqual([]);
     r.dispose();
