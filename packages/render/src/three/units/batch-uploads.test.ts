@@ -96,9 +96,10 @@ describe('the batches', () => {
     node.update([], ['#FFFFFF', '#FFFFFF'], null, 0, 0, 0);
     expect(versions(node.mesh.geometry)).toEqual([0, 0, 0]);
     node.update(shells, ['#FFFFFF', '#FFFFFF'], null, 0, 0, 0);
-    const quads = node.mesh.geometry.drawRange.count / 6;
-    expect(quads).toBeGreaterThan(0);
-    expect(ranges(node.mesh.geometry)).toEqual([[{ start: 0, count: quads * 12 }], [{ start: 0, count: quads * 12 }], [{ start: 0, count: quads * 4 }]]);
+    // One mortar shell is SHELL_TRAIL_SEGMENTS = 6 quads: 36 indices, 72 position and colour floats, 24 alphas. Literals, not read back
+    // from the draw range the batch itself wrote, so a trail that shrinks in both the draw and the upload cannot pass.
+    expect(node.mesh.geometry.drawRange.count).toBe(36);
+    expect(ranges(node.mesh.geometry)).toEqual([[{ start: 0, count: 72 }], [{ start: 0, count: 72 }], [{ start: 0, count: 24 }]]);
 
     const legacy = new ShellBatch(8);
     legacy.update(shells, ['#FFFFFF', '#FFFFFF'], null, 0, 0, 0);
