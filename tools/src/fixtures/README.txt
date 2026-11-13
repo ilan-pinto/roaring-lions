@@ -18,5 +18,8 @@ with a skinned Meshy body. Check it with
 
 It is the RIGID Combat Engineers: two cut Meshy figures with open claws, `demo_a` unarmed, a kit carbine on `demo_b`.
 `mesh_work.test.ts` runs `motion/work.ts` on it to hold the free-armed `work` (the forearm pump) every rigid team still
-gets, now that the shipped team works with its fists fused to its carbine. A byte copy, not new art: its .blend source
+gets, now that the shipped team works with its fists fused to its carbine. Since 13 Nov it is also the constructed
+failing input of the gates whose red case was this team's own claws: `mesh_hands.test.ts` (a Meshy claw is red),
+`mesh_grip.test.ts` (input 1: the firing hand 0.1 m from the grip), `mesh_armed.test.ts` (the unarmed engineer) and
+`mesh_fragments.test.ts` (the "third hand at the hip", 358 cm2 a man). A byte copy, not new art: its .blend source
 is the one in history at that commit. The frozen rigid GLB is number 8 of the lead's approval of 12 Nov 2026 (GH-826).

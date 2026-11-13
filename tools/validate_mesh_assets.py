@@ -2239,7 +2239,10 @@ GLOVE_SLEEVE_REACH_M = 0.06
 #: glove is DARK BROWN, sRGB (70, 48, 32), Lab about (22, 8, 14). Its L* floor is 20 (every other team keeps 30), and its
 #: hue (atan2(b*, a*), degrees) must sit in 40-75: round 4's (34, 12, 3) read hue 5 and rendered mauve-pink, and a black
 #: glove is held by the floor. Like the sleeve floor, only for a file whose `rl_hands.source` is "meshy".
-GLOVE_BAKED_TONE = {"inf_squad": {"L_floor": 20.0, "hue": (40.0, 75.0)}}
+#: GH-826 unit 1 (13 Nov 2026): the Combat Engineers are the same kind of figure through the same importer, and their gloves
+#: are retinted to the SAME dark brown (`RETINT["glove"]`, one target for every skinned team): read L* 21.7-22.6, hue 61,
+#: 19.0 dE from the nearest neighbour. The same row, for the same colour; every other team keeps 30.
+GLOVE_BAKED_TONE = {"inf_squad": {"L_floor": 20.0, "hue": (40.0, 75.0)}, "demo_squad": {"L_floor": 20.0, "hue": (40.0, 75.0)}}
 #: B3 (the review of 9 Nov): no glove-coloured sample where the hand weight, interpolated across the face, is under
 #: GLOVE_SPILL_HW and which lies more than GLOVE_SPILL_M proximal of the wrist (up the sleeve). Round 4 painted whole cuff triangles by their hand vertices and ran glove-coloured wedges 8-10 cm up the
 #: support sleeve; the gate, sampling vertex UVs only, could not see a triangle's inside. Read inside every face with any

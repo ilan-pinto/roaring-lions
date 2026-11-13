@@ -15,7 +15,7 @@
  * the half-way frame, and nothing that read keys saw it).
  *
  * Constructed failing inputs, each run and watched red before it was written down:
- *   1. a Meshy claw (demo_squad, shipped): the firing hand reads 0.11 m from the grip by the review's own definition;
+ *   1. a Meshy claw (the rigid demo_squad, frozen as a fixture): the firing hand reads 0.11 m from the grip by the review's own definition;
  *   2. the shipped bytes with the firing... support hand's rotation turned 40 degrees in `fire` (the orientation solve
  *      skipped): the axis limit goes red;
  *   3. the shipped bytes with the weapon bone moved 4 cm rearward in `fire` (the support station put back at the
@@ -207,8 +207,9 @@ describe('the Rifle Squad holds the carbine in every clip', () => {
 });
 
 describe('a Meshy claw is red (constructed failing input 1)', () => {
-  it('demo_squad shipped: the firing hand reads 0.1 m or more from the grip by the review definition', () => {
-    const r = measureGrip(`${MESHES}demo_squad.glb`, 'fire', 'demo_b', { fallbackWristT: { L: 0.13, R: 0.13 } });
+  it('the rigid demo_squad (frozen, fixtures/README.txt): the firing hand reads 0.1 m or more from the grip by the review definition', () => {
+    // the shipped Combat Engineers are a skinned Meshy body with both fists on the carbine since GH-826 unit 1 (13 Nov 2026)
+    const r = measureGrip(fileURLToPath(new URL('./fixtures/demo_squad_rigid_422df13dd.glb', import.meta.url)), 'fire', 'demo_b', { fallbackWristT: { L: 0.13, R: 0.13 } });
     expect(r.fire.stationGapM).toBeNull();                         // no hand bones to read a station from
     expect(r.fire.reviewGapM).toBeGreaterThan(0.1);
     expect(r.fire.reviewGapM).toBeGreaterThan(REVIEW_FIRE_MAX_M * 2);

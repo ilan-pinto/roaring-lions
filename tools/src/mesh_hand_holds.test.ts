@@ -37,6 +37,26 @@ const CLIPS = ['idle', 'move', 'fire', 'moveFire', 'kneel', 'kneelIn', 'kneelOut
  */
 const HOLDS: Readonly<Record<string, { figures: readonly string[]; object: 'weapon' }>> = {
   inf_squad: { figures: ['f0', 'f1', 'f2'], object: 'weapon' },
+  // GH-826 unit 1 (13 Nov 2026): one skinned Meshy body in two scalings, both fists closed on Meshy's own carbine
+  demo_squad: { figures: ['demo_a', 'demo_b'], object: 'weapon' },
+};
+
+/**
+ * NAMED ITEM (the pilot's "support-fist fold", accepted for the Rifle Squad on 10 Nov 2026, back on the Combat Engineers as
+ * the lead's approval of 12 Nov expected: "the pilot's named items are expected, each with a ratchet"). In the aimed clips
+ * the hold rolls the SUPPORT fist round the handguard, and on this body the rolled fist keeps less of its palm within 8 mm of
+ * the gun than the floor asks: 16-18 % on demo_a, 9 % on demo_b (the same fist on a body 8 % wider, so the same gap is
+ * 8 % longer against a fixed 8 mm). The firing fist passes everywhere (39-51 %), and so does the support fist at the low
+ * ready (22-30 %). The floor does not move: these rows are held to what they shipped with, and may not get worse. Keyed
+ * `team` -> `<figure> <clip>` -> the support contact it may not go below. A row that reaches CONTACT_MIN must be deleted
+ * (the demotion assertion in its own test).
+ */
+const SUPPORT_FOLD_NAMED: Readonly<Record<string, Readonly<Record<string, number>>>> = {
+  demo_squad: {
+    'demo_a fire': 0.18, 'demo_a moveFire': 0.18, 'demo_a kneel': 0.18, 'demo_a kneelIn': 0.16, 'demo_a kneelOut': 0.15, 'demo_a pinned': 0.18,
+    // falsified 13 Nov: with `demo_b fire` at 0.10 its row goes red ("got worse than it shipped: 0.091 >= 0.1"); put back
+    'demo_b fire': 0.09, 'demo_b moveFire': 0.09, 'demo_b kneel': 0.09, 'demo_b kneelIn': 0.09, 'demo_b kneelOut': 0.09, 'demo_b pinned': 0.09,
+  },
 };
 
 const HOLD_EXEMPT: Readonly<Record<string, string>> = Object.fromEntries(
@@ -46,7 +66,6 @@ const HOLD_EXEMPT: Readonly<Record<string, string>> = Object.fromEntries(
     ['atgm_cell', 'one claw per man; atgm_crew1 holds nothing'],
     ['breach_team', 'one separable claw, empty in every clip; the support hand is behind the shield'],
     ['charge_squad', 'open claws; chg0 holds no charge'],
-    ['demo_squad', 'open orange claws; demo_a holds nothing in any clip (work included), demo_b one-handed on a palette rifle'],
     ['digger_crew', 'arm fused into the torso: the pick is in no separable hand'],
     ['inf_grenadier', 'open tan claws on the launchers, the firing claw hidden'],
     ['inf_medic_squad', 'block hands; empty in treat'],
@@ -88,10 +107,16 @@ describe('G3: each hand closed on its object', () => {
     const glb = readGlb(`${MESHES}${team}.glb`);
     for (const fig of h.figures) {
       for (const clip of CLIPS) {
-        it(`${team} ${fig} ${clip}: both hands closed on the ${h.object}, at least ${CONTACT_MIN * 100}% of the palm within 8 mm`, () => {
+        const named = SUPPORT_FOLD_NAMED[team]?.[`${fig} ${clip}`];
+        it(`${team} ${fig} ${clip}: both hands closed on the ${h.object}, at least ${CONTACT_MIN * 100}% of the palm within 8 mm${named === undefined ? '' : ` (support fold NAMED: floor ${named})`}`, () => {
           const c = lowestContact(glb, clip, fig);
           expect(c.fire, 'firing hand contact').toBeGreaterThanOrEqual(CONTACT_MIN);
-          expect(c.support, 'support hand contact').toBeGreaterThanOrEqual(CONTACT_MIN);
+          if (named === undefined) {
+            expect(c.support, 'support hand contact').toBeGreaterThanOrEqual(CONTACT_MIN);
+          } else {
+            expect(c.support, 'the named support fold reached the floor: delete its SUPPORT_FOLD_NAMED row').toBeLessThan(CONTACT_MIN);
+            expect(c.support, 'the named support fold got worse than it shipped').toBeGreaterThanOrEqual(named);
+          }
         }, 120_000);
       }
     }

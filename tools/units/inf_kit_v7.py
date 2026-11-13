@@ -326,20 +326,39 @@ def groin_fit(f, V0=None):
     near = (np.abs(BV[:, 1] - yb) < 0.125) & (BV[:, 2] > top - float(-src[:, 2].min()))
     x_front = float(BV[near, 0].max())
     inner = src[:, 0] < 0.004
-    last = None
-    for drop in (GROIN_DROP, 0.006, 0.010, 0.015, 0.020):     # a little lower under the buckle's top if the belt makes the plate stand out
-        V = km.place(src, np.array([x_front + GROIN_BELT_GAP, yb, top - drop]), FORWARD, UP)
-        shift = 0.0
-        while overlap_pairs(V + FORWARD * shift, T, [bb, cb]) and shift < 0.05:    # the curved plate's centre can sit on the buckle: out until clear
-            shift += 0.0005
-        V = V + FORWARD * shift
-        try:
-            gap, pb, pc_ = assert_groin_contact("groin", f, V, T, bb, cb)
-            break
-        except ValueError as e:
-            last = e
-    else:
+    def hang(face):
+        last = None
+        for drop in (GROIN_DROP, 0.006, 0.010, 0.015, 0.020):     # a little lower under the buckle's top if the belt makes the plate stand out
+            V = km.place(src, np.array([x_front + GROIN_BELT_GAP, yb, top - drop]), face, UP)
+            shift = 0.0
+            while overlap_pairs(V + FORWARD * shift, T, [bb, cb]) and shift < 0.05:    # the curved plate's centre can sit on the buckle: out until clear
+                shift += 0.0005
+            V = V + FORWARD * shift
+            try:
+                return (V,) + assert_groin_contact("groin", f, V, T, bb, cb)
+            except ValueError as e:
+                last = e
         raise last
+
+    V, gap, pb, pc_ = hang(FORWARD)
+    yaw = None
+    if kp.TEAM.groin_wrap and V0 is None:
+        # The apron faces the way the BELT's front faces under it. The Combat Engineers' body stands with its hips turned
+        # (Meshy's low ready, the firing-side foot back), so its belt's front is not square to the figure's +X: hung square,
+        # the apron touched the belt at one edge and stood 33-43 mm off it at the other (a median 21.2 mm, over the 20 mm
+        # bar; two clusters, which is a turn and not a curvature). The turn is read off the hung apron itself: the slope of
+        # its inner face's gap to the belt across y, top 6 cm (rays, not the belt's sparse vertices). Turned once and hung
+        # again. The Rifle Squad's flag is off: its apron is placed as it shipped.
+        g0 = km.outer_gap([bb], V, FORWARD)
+        m0 = inner & ~np.isnan(g0) & (V[:, 2] > top - 0.06)
+        if int(m0.sum()) < 12:
+            raise ValueError(f"{f.prefix}: {int(m0.sum())} rays from the apron's inner face reach the belt: its turn is not measured")
+        slope = float(np.polyfit(V[m0, 1] - yb, g0[m0], 1)[0])
+        yaw = math.degrees(math.atan(slope))
+        if abs(yaw) > 20.0:
+            raise ValueError(f"{f.prefix}: the belt's front reads {yaw:.1f} degrees off the figure's front: not a turn of the hips")
+        t_ = math.radians(yaw)
+        V, gap, pb, pc_ = hang(np.array([math.cos(t_), math.sin(t_), 0.0]))
     tilt, h = assert_hangs("groin", f, V, GROIN_MIN_HEIGHT)
     g = km.outer_gap([bb], V, FORWARD)
     band = inner & ~np.isnan(g) & (V[:, 2] > 0.86) & (V[:, 2] < 0.96)
@@ -351,10 +370,13 @@ def groin_fit(f, V0=None):
     edge_med = km.masked_median(g, edge, "the groin's outer edge set (over 90 mm from the buckle, top 6 cm)", f.prefix)
     if edge_med > GROIN_EDGE_GAP_LIMIT:
         raise ValueError(f"{f.prefix}: groin outer edges stand a median {1000 * edge_med:.1f} mm off the belt (limit {1000 * GROIN_EDGE_GAP_LIMIT:.0f}): "
-                         f"a flat board on a curving belt, not an apron")
+                         f"a flat board on a curving belt, not an apron"
+                         + ("" if yaw is None else f" (turned {yaw:.1f} deg to the belt's front; edge gaps mm "
+                            f"{np.round(1000 * np.sort(g[edge]), 1).tolist()[::max(1, int(edge.sum()) // 12)]})"))
     band_med = km.masked_median(g, band, "the groin's inner-face band (0.86-0.96 m, buckle side)", f.prefix)
     _stats(f, name="groin", top_edge_gap_mm=round(1000 * gap, 2), inner_face_band_median_mm=round(1000 * band_med, 1), outer_edge_gap_mm=round(1000 * edge_med, 1),
-           belt_pairs=pb, carrier_pairs=pc_, thin_axis_deg=round(tilt, 1), z_span_mm=round(1000 * h, 1))
+           belt_pairs=pb, carrier_pairs=pc_, thin_axis_deg=round(tilt, 1), z_span_mm=round(1000 * h, 1),
+           **({} if yaw is None else dict(belt_front_yaw_deg=round(yaw, 1))))
     if V0 is None:
         c["groin"] = (V, T)
     return V, T

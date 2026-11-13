@@ -163,6 +163,7 @@ class Team:
     pack_box: bool = False             # the T3 radio pack is a flat-sided box with a lid, not a pad conformed to the back
     baked_mount: bool = False    # the helmet already carries an NVG shroud and mount: the tubes ride it, `nvg_mount` is not built
     dense_keys: bool = False     # sample every keyframe of a short clip and the clip's last frame (not a stride alone)
+    groin_wrap: bool = False     # a v7 groin apron is turned to face the way the belt's front faces under it (a body whose hips stand turned)
     v7: bool = False             # the approved v7 mesh parts (art/parts/inf_kit/v7, `inf_kit_v7.py`) stand in for the procedural builders
     part_tris: dict = field(default_factory=dict)   # this team's own per-NODE triangle rows (the graft's 1.10x limit); a part not named reads the shared table in kit-contract.ts
     notes: str = ""
@@ -206,26 +207,30 @@ TEAMS = {
                       v7=True, part_tris=V7_PART_TRIS),
                       # (no `torso_vest_lum`: since 9 Nov the bake's vest is retinted to the carrier's coyote, so it is no
                       # longer the near-black texels the wraps used to find it by; the wraps fit the whole spine zone)
-    # Demolition squad (GH-826, seven-teams spec 4.3). Two standing figures on the standard rig:
-    # demo_a is unarmed (he works the charge), demo_b carries the carbines. The helmets carry a baked NVG
-    # shroud and mount, so `nvg_mount` is not added twice. The weapon primitive has no UVs (palette), so
-    # devices ride `uniform`. The cable spool (`metal`, on demo_b's spine) and the charge (`prop`) are body.
+    # Combat Engineers (GH-826; infantry upgrade unit 1, the lead's approval of 12 Nov 2026). Since 13 Nov the team is ONE
+    # skinned Meshy body in two scalings (`import_meshy_skinned_team.py`), both men armed with Meshy's own carbine, on a
+    # 2048 x 2048 bake retinted as the Rifle Squad's: the approved v7 kit set is re-fitted to it exactly as it was fitted
+    # to the Rifle Squad (the same flags), at 0 credits. Firepower goes on BOTH men now that demo_a carries a gun. What is
+    # this team's own: the cable spool (`metal`, on demo_b's spine) and the charge (`charge`, on `prop`) are body the
+    # wraps and the census see, the charge is left out of the stage stills, and `work` is a living clip.
+    # Texels re-found 13 Nov by `tools/inf_kit_texels.py demo_squad` on the final atlas (after the shoulder and carrier retints).
     "demo_squad": Team(
-        "demo_squad", ("demo_a", "demo_b"), ("demo_b",), ("demo_b",), (1024, 1024),
-        {   # 5 x 5 blocks of demo_squad.glb's own atlas; dE76 0.84 / 0.10 / 0.09 / 1.35 / 0.12
-            "coyote": (673, 743),          # dust.5   #806032  130, 96, 50
-            "coyote_shade": (805, 792),    # dust.6   #6B4F29  107, 79, 41
-            "olive": (464, 537),           # olive.2  #4E5433  78, 84, 51
-            "olive_dark": (453, 730),      # olive.3  #333821  51, 55, 34
-            "glass": (452, 218),           # shadow.0 #23241F  35, 36, 31
+        "demo_squad", ("demo_a", "demo_b"), ("demo_b",), ("demo_a", "demo_b"), (2048, 2048),
+        {
+            "coyote": (225, 1656),         # dust.5   #806032  dE 0.03
+            "coyote_shade": (994, 699),    # dust.6   #6B4F29  dE 3.10 (inside the 6.0 cap; the Rifle Squad's is 3.33)
+            "olive": (1969, 992),          # olive.2  #4E5433  dE 0.48
+            "olive_dark": (1177, 1297),    # olive.3  #333821  dE 0.38
+            "glass": (1045, 983),          # shadow.0 #23241F  dE 0.52
         },
-        device_role="uniform", drop=("nvg_mount", "deltoid", "sleeve"),   # the lead (30 Oct): no shoulder or sleeve armour on this figure
-        carrier_back_plate=True, pack_box=True, helmet_front_trim=60.0, yoke_rmax=0.19, yoke_slack=0.0,
+        # dropped as on the Rifle Squad (the plan, section 2): the NVG mount (baked), deltoids, sleeves and the EUD
+        drop=("nvg_mount", "deltoid", "sleeve", "eud"), baked_mount=True, helmet_front_trim=60.0, torso_ring_cap=True,
         prims=("uniform", "boot", "face", "weapon", "metal", "charge"),
         bank_prims=("uniform", "weapon", "metal", "charge"),
         clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),
         bank_clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),
-        baked_mount=True, torso_vest_lum=0.15, torso_ellipse=(0.27, 0.26), stage_hide=("charge",), yoke_cols=6, clear_pouches=True, flip_deg=120.0, nvg_lift=0.0, bridge_back=0.04, weapon_by_surface=True, torso_ring_cap=True, dense_keys=True),
+        stage_hide=("charge",), clear_pouches=True, dense_keys=True, flip_deg=120.0,
+        v7=True, part_tris=V7_PART_TRIS, groin_wrap=True),
 }
 
 TEAM = TEAMS["inf_squad"]

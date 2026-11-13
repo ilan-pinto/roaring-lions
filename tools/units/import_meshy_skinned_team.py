@@ -152,6 +152,11 @@ SOURCES = {
             # lies 6-9 cm off the bone, past the pilot's 6.2 cm (66 khaki vertices fell to the spine)
             # (11.5 cm; its core, 0.45 of that, then holds the gloves' black wrist straps, 4.4-5 cm off the bone)
             ARM_CAPSULE_R={"upper": 0.075, "fore": 0.115},
+            # NO shrink: Meshy sculpted this body's fists at real size. The pilot's were 0.157-0.183 m long and went to
+            # x0.80 / x0.86; with those factors these read 0.098-0.111 m long on the hand gate (`mesh_hands.ts`, band
+            # 0.115-0.16) and 0.059-0.066 across the palm: a child's fist on a man's forearm (13 Nov, stage C's first run of
+            # the fused-hand rows). As sculpted they are 0.116-0.129 long.
+            FIST_SCALE={"R": 1.0, "L": 1.0},
         ),
         #: The aimed butt pocket (`hold.ts` REST_CARRY_RIFLE_POCKET, the pilot's (0.03, 0.02, 0.05): forward of, above and
         #: in from the humeral head), stamped as `rl_hands.pocket`. This figure's face stands 0.193 above its shoulder
@@ -181,6 +186,13 @@ SOURCES = {
         #: the import refuses this team outside 0.670-0.690. The global GUN_LEN_BAND stays for every other team, and
         #: `tools/src/mesh_gun_length.test.ts` reads each man's length off the shipped bytes.
         gun_len_band=(0.670, 0.690),
+        #: Meshy also sculpted a sight unit on the receiver (e 0.225-0.385 from the Meshy butt, its top 52 mm over the rail)
+        #: and a fixed front sight (e 0.49-0.545, 31 mm over the handguard). The kit's optics seat on the HIGHEST gun surface
+        #: under them, so on this carbine the tier-1 red dot stood on the baked sight and the tier-2 scope and the laser
+        #: rode 5 cm and 3 cm over the rail (rendered 13 Nov: a scope floating over a second sight). Both are folded flat:
+        #: every gun vertex over the rail in those spans keeps `keep` of its height over it (the unit an 8 mm folded sight,
+        #: the post 5 mm). No topology changes. (span e0, e1, the rail's height over the bore there), the base body's metres.
+        flat_top=dict(spans=((0.225, 0.385, 0.036), (0.490, 0.545, 0.025)), keep=0.15, half_w=0.05),
         #: The same ruling, item 3: Meshy baked a dark patch with a round emblem on the left upper arm (and its pair, a
         #: dark-blue patch with a yellow chevron, on the right) against the prompt's "no insignia". Every texel of an
         #: upper arm that is not the sleeve's own khaki goes to the sleeve's olive (`RETINT["sleeve_patch"]`).
@@ -379,6 +391,25 @@ def _graft_stock(part, prefix, g0, row, uv_at, sz, sxy, dx, dy):
             l[uvl].uv = (float(uv_at[0]), float(uv_at[1]))
     bm.to_mesh(me); bm.free(); me.update()
     return len(T)
+
+
+def _flatten_gun_top(part, g0, row, sz, sxy, dx, dy):
+    """A row's `flat_top`: the weapon mesh's vertices over the rail in each span keep `keep` of their height over it.
+    Read in the base body's bore frame (the part is the figure's: scaled and at its slot). Returns the vertices moved."""
+    ft = row["flat_top"]
+    b, ax, up = g0["butt"], g0["axis"], g0["up"]; side = np.cross(ax, up)
+    k = np.array([sxy, sxy, sz]); shift = np.array([dx, dy, 0.0])
+    me = part.data
+    co = np.empty(len(me.vertices) * 3); me.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
+    base = (co - shift) / k
+    r = base - b; e = r @ ax; u = r @ up; s_ = r @ side
+    moved = 0
+    for e0, e1, rail in ft["spans"]:
+        m = (e >= e0) & (e <= e1) & (np.abs(s_) < ft["half_w"]) & (u > rail)
+        base[m] -= np.outer((u[m] - rail) * (1.0 - ft["keep"]), up)
+        moved += int(m.sum())
+    me.vertices.foreach_set("co", (base * k + shift).reshape(-1)); me.update()
+    return moved
 
 
 def _stock_texel(co, cls, lab, uv, g, row):
@@ -1840,6 +1871,7 @@ RETINT = {
     # carrier over it can never show black through a gap. Texture only, as the glove's; the vest's own pouches and straps
     # keep part of their variation.
     "vest": dict(target=None, rgb=(0x80, 0x60, 0x32), keep=0.35, orange_only=False),
+    "vest_stray": dict(target=None, rgb=(0x80, 0x60, 0x32), keep=0.35, orange_only=False),   # a row's `sleeve_patch`: the carrier's faces off its islands
 }
 SLEEVE_BLEED_M = 0.30         # the forearm's sleeve: uniform within this of a wrist
 VEST_L_MAX, VEST_C_MAX = 14.0, 8.0   # a vest texel: near-black and neutral (the bake's carrier, its pouches and straps)
@@ -1857,6 +1889,7 @@ RETINT_PAD_PX = 4             # the bake's island padding is re-tinted with its 
 
 
 SLEEVE_PATCH_R_M = 0.085      # the outer half of an upper arm's sleeve: within this of the shoulder-to-elbow line
+SHOULDER_PATCH_R_M = 0.10     # the shoulder caps and the whole upper arm, less the carrier's islands
 SLEEVE_PATCH_GROW_PX = 2      # the patch's soft edge on the 2048 atlas
 
 
@@ -2167,6 +2200,9 @@ def build_team(team_id, out_path=None):
             # ...and the upper arms' own, for a row's sleeve patch
             arm_w_f1 = np.maximum(W[:, gi_[f"{p}_upperarm_L"]], W[:, gi_[f"{p}_upperarm_R"]])
         ps = _split_roles(shell, p, cls0_fig, roles, co)
+        if "flat_top" in cfg:
+            n_flat = _flatten_gun_top(next(o for o in ps if o["rl_role"] == "weapon"), J0["gun"], cfg, sz, sxy, spec["x"], spec["y"])
+            log(f"{p}: the baked sight unit and front sight folded flat: {n_flat} weapon vertices lowered onto the rail")
         if "stock" in cfg:
             added = _graft_stock(next(o for o in ps if o["rl_role"] == "weapon"), p, J0["gun"], cfg, stock_uv, sz, sxy, spec["x"], spec["y"])
             log(f"{p}: stock grafted behind the Meshy butt: {added} triangles, the carbine {Js[p]['gun']['length']:.3f} -> {Jship[p]['gun']['length']:.3f} m")
@@ -2257,9 +2293,33 @@ def build_team(team_id, out_path=None):
                 off_ = co0 - a_ - np.outer(t_, d_)
                 outer |= (np.linalg.norm(off_, axis=1) < SLEEVE_PATCH_R_M) & (sgn_ * off_[:, 1] > -0.01)
             patch_tex, arm_khaki_tex, zone_n = _sleeve_patch_texels(src_for_uv.data, uv, ((arm_w_f1[:n0] >= 0.5) | outer) & ~glove & ~skin & ~gun_mask_f1[:n0], image)
+            # ...and the SHOULDERS, whatever owns them: within SHOULDER_PATCH_R_M of a shoulder joint or of the whole upper
+            # arm's line, less the carrier's own islands. The bake left blue-grey shards with khaki triangles on the shoulder
+            # caps and behind the firing arm (strap ends and the back of the right patch, weighted to the spine); in the
+            # aimed clips the arm's web stretches them across the whole shoulder.
+            carrier_tex = _carrier_texels(src_for_uv.data, uv, vest & ~glove, image.size[0], image.size[1])
+            cap = np.zeros(n0, bool)
+            for side_ in ("R", "L"):
+                a_, b_ = J0["shoulder"][side_], J0["elbow"][side_]
+                d_ = b_ - a_; L_ = float(np.linalg.norm(d_)); d_ = d_ / L_
+                t_ = np.clip((co0 - a_) @ d_, 0.0, L_)
+                cap |= np.linalg.norm(co0 - a_ - np.outer(t_, d_), axis=1) < SHOULDER_PATCH_R_M
+            cap_tex, cap_khaki_tex, cap_n = _sleeve_patch_texels(src_for_uv.data, uv, cap & ~glove & ~skin & ~gun_mask_f1[:n0], image)
+            patch_tex |= cap_tex & ~carrier_tex
+            arm_khaki_tex |= cap_khaki_tex & ~carrier_tex
             patch_tex &= ~glove_tex
-            log(f"sleeve patch: {int(patch_tex.sum())} of the upper arms' {zone_n} texels are not the sleeve's khaki")
+            log(f"sleeve patch: {int(patch_tex.sum())} of the upper arms' {zone_n} and the shoulders' {cap_n} texels are not the sleeve's khaki")
             patch = {"sleeve_patch": patch_tex}
+            # the carrier's stray faces: a face most of whose vertices are carrier, on no carrier island (a strap's end on a
+            # shirt island, the yoke between the straps), still the bake's blue-grey after the islands' retint
+            W_, H_ = image.size
+            px_ = np.empty(W_ * H_ * 4, np.float32); image.pixels.foreach_get(px_); px_ = px_.reshape(H_, W_, 4)
+            lab_ = _lab(px_[..., :3].astype(np.float64))
+            dark_ = (lab_[..., 0] <= VEST_L_MAX) & (np.hypot(lab_[..., 1], lab_[..., 2]) < VEST_C_MAX)
+            stray = _face_mask(src_for_uv.data, uv, vest & ~glove, W_, H_) & dark_ & ~carrier_tex & ~patch_tex & ~glove_tex
+            log(f"vest: {int(stray.sum())} blue-grey texels on carrier faces outside the carrier's islands")
+            if stray.any():
+                patch["vest_stray"] = stray
         uniform_v = cls0["khaki"][:n0] & ~glove & ~skin & (co0[:, 2] > BOOT_Z_MAX)
         if patch:
             # the uniform as `_retint` would raster it, and the upper arms' khaki texels it would have missed

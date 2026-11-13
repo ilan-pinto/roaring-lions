@@ -25,7 +25,7 @@
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { readGlb, type GlbFile } from './mesh_gait';
+import type { GlbFile } from './mesh_gait';
 import { figureBuilds, infantryTeams, owns, readRoleMeshes } from './mesh_figures';
 import { handsSource } from './mesh_hand_gates';
 
