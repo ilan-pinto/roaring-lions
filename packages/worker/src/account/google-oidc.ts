@@ -1,5 +1,9 @@
 /** Google ID-token verifier (GH-1075 G2, spec §1.5 and §1.6). Pure: no route, no wiring, no logging.
- *  Returns the `sub` and nothing else: any other claim is dropped unread. */
+ *  Returns the `sub` and nothing else: any other claim is dropped unread.
+ *
+ *  LIFETIME: create ONE verifier per isolate (module scope in G4), never per request. The JWKS cache,
+ *  the in-flight load and the refetch throttles live inside it; a verifier per request would fetch the
+ *  JWKS on every sign-in and defeat every limit below. */
 import type { AccountDeps } from './routes';
 
 export const GOOGLE_JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
@@ -9,6 +13,8 @@ const SKEW_S = 60;
 const REFETCH_MIN_MS = 60_000;
 const MAX_TTL_MS = 24 * 3_600_000;
 const DEFAULT_TTL_MS = 300_000;
+const MAX_TOKEN = 8 * 1024;
+const MIN_MODULUS_BITS = 2048;
 const JWKS_CAP = 64 * 1024;
 const B64URL = /^[A-Za-z0-9_-]+$/;
 const SUB = /^[0-9]{1,255}$/;
@@ -47,8 +53,20 @@ const jsonObject = (part: string): Record<string, unknown> | null => {
 
 const maxAgeMs = (cacheControl: string | null): number => {
   const m = /max-age=(\d{1,9})/i.exec(cacheControl ?? '');
-  return m === null ? DEFAULT_TTL_MS : Math.min(Number(m[1]) * 1000, MAX_TTL_MS);
+  // Floored at the refetch interval: max-age=0 must not mean one fetch per verify.
+  return m === null ? DEFAULT_TTL_MS : Math.min(Math.max(Number(m[1]) * 1000, REFETCH_MIN_MS), MAX_TTL_MS);
 };
+
+/** A signing key only: `use` is sig (or absent), `alg` is RS256 (or absent), the modulus is at least 2048 bits. */
+function usableJwk(j: Record<string, unknown>): boolean {
+  if (j.use !== undefined && j.use !== 'sig') return false;
+  if (j.alg !== undefined && j.alg !== 'RS256') return false;
+  const n = typeof j.n === 'string' ? b64urlBytes(j.n) : null;
+  if (n === null) return false;
+  let start = 0;
+  while (start < n.length && n[start] === 0) start++;
+  return (n.length - start) * 8 >= MIN_MODULUS_BITS;
+}
 
 async function readCappedText(res: Response, max: number): Promise<string | null> {
   if (!res.body) return '';
@@ -81,12 +99,29 @@ export function createGoogleVerifier(o: {
   fetch: AccountDeps['fetch'];
   clock?: () => number;
 }): GoogleVerifier {
+  if (o.clientId === '') throw new Error('createGoogleVerifier: empty clientId');
   const clock = o.clock ?? ((): number => Date.now());
   let keys: Keys | null = null;
   let expiresAt = 0;
   let lastFetch = Number.NEGATIVE_INFINITY;
+  let failedUntil = Number.NEGATIVE_INFINITY;
+  let inflight: Promise<boolean> | null = null;
 
-  async function load(): Promise<boolean> {
+  /** One load at a time (concurrent callers share it), and a failed load is not retried for a minute. */
+  function load(): Promise<boolean> {
+    if (inflight !== null) return inflight;
+    if (clock() < failedUntil) return Promise.resolve(false);
+    const p = doLoad().then((ok) => {
+      if (!ok) failedUntil = clock() + REFETCH_MIN_MS;
+      return ok;
+    }).finally(() => {
+      inflight = null;
+    });
+    inflight = p;
+    return p;
+  }
+
+  async function doLoad(): Promise<boolean> {
     lastFetch = clock();
     try {
       const res = await o.fetch(GOOGLE_JWKS_URL, {
@@ -102,14 +137,17 @@ export function createGoogleVerifier(o: {
       const list = (doc as { keys?: unknown } | null)?.keys;
       if (!Array.isArray(list)) return false;
       const next: Keys = new Map();
-      for (const jwk of list as Record<string, unknown>[]) {
-        if (typeof jwk.kid !== 'string' || jwk.kty !== 'RSA') continue;
+      for (const jwk of list as unknown[]) {
+        if (typeof jwk !== 'object' || jwk === null) continue;
+        if (!usableJwk(jwk as Record<string, unknown>)) continue;
+        const j = jwk as Record<string, unknown>;
+        if (typeof j.kid !== 'string' || j.kty !== 'RSA') continue;
         try {
           next.set(
-            jwk.kid,
+            j.kid,
             await crypto.subtle.importKey(
               'jwk',
-              { kty: 'RSA', n: String(jwk.n), e: String(jwk.e), alg: 'RS256', ext: true },
+              { kty: 'RSA', n: String(j.n), e: String(j.e), alg: 'RS256', ext: true },
               { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
               false,
               ['verify'],
@@ -143,6 +181,8 @@ export function createGoogleVerifier(o: {
   return {
     async verify(idToken, expect) {
       const invalid = { refused: 'invalid' } as const;
+      if (typeof idToken !== 'string' || idToken.length > MAX_TOKEN) return invalid;
+      if (typeof expect.nonce !== 'string' || expect.nonce === '') return invalid;
       const parts = idToken.split('.');
       if (parts.length !== 3) return invalid;
       const [h, p, s] = parts as [string, string, string];
@@ -153,6 +193,7 @@ export function createGoogleVerifier(o: {
 
       // 1. alg is RS256 and nothing else
       if (header.alg !== 'RS256') return invalid;
+      if ('crit' in header) return invalid;
       // 2. kid names a key in the JWKS
       if (typeof header.kid !== 'string') return invalid;
       const key = await keyFor(header.kid);
@@ -175,9 +216,9 @@ export function createGoogleVerifier(o: {
       if ('azp' in payload && payload.azp !== o.clientId) return invalid;
       const nowS = Math.floor(clock() / 1000);
       // 7. exp is later than now minus the skew
-      if (typeof payload.exp !== 'number' || !(payload.exp > nowS - SKEW_S)) return invalid;
+      if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp) || !(payload.exp > nowS - SKEW_S)) return invalid;
       // 8. iat is no later than now plus the skew
-      if (typeof payload.iat !== 'number' || !(payload.iat <= nowS + SKEW_S)) return invalid;
+      if (typeof payload.iat !== 'number' || !Number.isFinite(payload.iat) || !(payload.iat <= nowS + SKEW_S)) return invalid;
       // 9. nonce
       if (typeof payload.nonce !== 'string' || payload.nonce !== expect.nonce) return invalid;
       // 10. sub: 1 to 255 ASCII digits

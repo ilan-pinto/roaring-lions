@@ -204,6 +204,102 @@ describe('ID-token verifier: claims kept, parsing, the JWKS', () => {
     }
   });
 
+  it('issuer: look-alikes, http and a trailing slash are refused', async () => {
+    const { v } = rig();
+    for (const iss of ['https://accounts.google.com.evil.example', 'http://accounts.google.com', 'https://accounts.google.com/', 'accounts.google.com/', 'evil.accounts.google.com']) {
+      expect(await v.verify(await token({ iss }), { nonce: NONCE })).toEqual(refused('invalid'));
+    }
+  });
+
+  it('exp exactly at now minus 60 s is refused; string and non-finite exp/iat are refused', async () => {
+    const { v } = rig();
+    expect(await v.verify(await token({ exp: NOW_S - 60 }), { nonce: NONCE })).toEqual(refused('invalid'));
+    expect(await v.verify(await token({ exp: String(NOW_S + 3000) }), { nonce: NONCE })).toEqual(refused('invalid'));
+    expect(await v.verify(await token({ iat: String(NOW_S - 10) }), { nonce: NONCE })).toEqual(refused('invalid'));
+    // JSON.parse('1e999') is Infinity: exp passes a bare `> now`, and iat -Infinity passes `<= now`
+    for (const raw of [{ exp: '1e999' }, { iat: '-1e999' }]) {
+      const h = enc({ alg: 'RS256', kid: good.kid });
+      const base = JSON.stringify(claims(raw as Record<string, unknown>)).replace(/"(1e999|-1e999)"/, '$1');
+      const p = enc(base);
+      const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', good.priv, new TextEncoder().encode(`${h}.${p}`));
+      expect(await v.verify(`${h}.${p}.${Buffer.from(sig).toString('base64url')}`, { nonce: NONCE })).toEqual(refused('invalid'));
+    }
+  });
+
+  it('alg none with a non-empty signature reaches check 1 and is refused (JWKS never needed for it)', async () => {
+    const { v } = rig();
+    const none = `${enc({ alg: 'none', kid: good.kid })}.${enc(claims())}.${Buffer.from('x'.repeat(256)).toString('base64url')}`;
+    expect(await v.verify(none, { nonce: NONCE })).toEqual(refused('invalid'));
+  });
+
+  it('a crit header, an oversized token, a non-string token and an empty nonce are refused', async () => {
+    const { v } = rig();
+    expect(await v.verify(await token({}, { header: { crit: ['exp'] } }), { nonce: NONCE })).toEqual(refused('invalid'));
+    expect(await v.verify(await token({ pad: 'x'.repeat(9000) }), { nonce: NONCE })).toEqual(refused('invalid'));
+    for (const bad of [undefined, null, 5, {}, ['a.b.c']]) {
+      expect(await v.verify(bad as unknown as string, { nonce: NONCE })).toEqual(refused('invalid'));
+    }
+    expect(await v.verify(await token({ nonce: '' }), { nonce: '' })).toEqual(refused('invalid'));
+  });
+
+  it('createGoogleVerifier throws on an empty clientId', () => {
+    expect(() => createGoogleVerifier({ clientId: '', fetch: async () => new Response('') })).toThrow();
+  });
+
+  it('a null or non-object entry in keys is skipped, not fatal', async () => {
+    const { v } = rig(() => new Response(JSON.stringify({ keys: [null, 7, 'x', [], good.jwk] }), { status: 200 }));
+    expect(await v.verify(await token(), { nonce: NONCE })).toEqual({ sub: '110169484474386276334' });
+  });
+
+  it('JWK import refuses use other than sig, alg other than RS256, and a modulus under 2048 bits', async () => {
+    const small = await crypto.subtle.generateKey({ ...ALG, modulusLength: 1024 }, true, ['sign', 'verify']);
+    const smallJwk = { ...(await crypto.subtle.exportKey('jwk', small.publicKey)), kid: 'k1', alg: 'RS256' };
+    const variants: Array<[JsonWebKey, CryptoKey]> = [[{ ...good.jwk, use: 'enc' }, good.priv], [{ ...good.jwk, alg: 'RS512' }, good.priv], [smallJwk, small.privateKey]];
+    for (const [jwk, signer] of variants) {
+      const { v } = rig(() => new Response(JSON.stringify({ keys: [jwk] }), { status: 200 }));
+      expect(await v.verify(await token({}, { key: signer }), { nonce: NONCE })).toEqual(refused('invalid'));
+    }
+    const { v } = rig(() => new Response(JSON.stringify({ keys: [{ ...good.jwk, use: undefined, alg: undefined }] }), { status: 200 }));
+    expect(await v.verify(await token(), { nonce: NONCE })).toEqual({ sub: '110169484474386276334' });
+  });
+
+  it('10 concurrent cold verifies make one JWKS fetch', async () => {
+    const { v, urls } = rig();
+    const t = await token();
+    const all = await Promise.all(Array.from({ length: 10 }, () => v.verify(t, { nonce: NONCE })));
+    expect(all.every((r) => 'sub' in r)).toBe(true);
+    expect(urls).toHaveLength(1);
+  });
+
+  it('a failed JWKS load is not retried inside a minute, and is again after it', async () => {
+    const { v, urls, advance } = rig(() => new Response('', { status: 500 }));
+    const t = await token();
+    for (let i = 0; i < 5; i++) expect(await v.verify(t, { nonce: NONCE })).toEqual(refused('google'));
+    expect(urls).toHaveLength(1);
+    advance(60_001);
+    await v.verify(t, { nonce: NONCE });
+    expect(urls).toHaveLength(2);
+  });
+
+  it('max-age=0 is floored: it does not mean one fetch per verify', async () => {
+    const { v, urls } = rig(() => new Response(JSON.stringify({ keys: [good.jwk] }), { status: 200, headers: { 'cache-control': 'max-age=0' } }));
+    for (let i = 0; i < 4; i++) await v.verify(await token(), { nonce: NONCE });
+    expect(urls).toHaveLength(1);
+  });
+
+  it('the 64 KiB cap holds against a never-ending body', async () => {
+    let pulls = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(c) {
+        pulls++;
+        c.enqueue(new Uint8Array(8192).fill(32));
+      },
+    });
+    const { v } = rig(() => new Response(endless, { status: 200 }));
+    expect(await v.verify(await token(), { nonce: NONCE })).toEqual(refused('google'));
+    expect(pulls).toBeLessThan(20);
+  });
+
   it('logs nothing, not even on refusal', async () => {
     const seen: unknown[][] = [];
     const orig = { log: console.log, warn: console.warn, error: console.error, info: console.info };
