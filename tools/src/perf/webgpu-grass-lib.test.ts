@@ -7,6 +7,10 @@ import {
   GRASS_NAME_PREFIX,
   GRASS_ZOOMS,
   HIDE_GRASS_SCRIPT,
+  flatFrameRefusal,
+  identicalPairRefusal,
+  settleField,
+  sheetBootRefusals,
   countGrassMeshes,
   grassColumnRefusals,
   grassCondition,
@@ -167,5 +171,54 @@ describe('the instruments name the grass (design 5.3, decision 12)', () => {
     }
     expect(src('webgpu-submit-probe.ts')).toContain("info.grass.mode !== 'hidden'");
     expect(src('webgpu-abba-run.ts')).toContain("grassCondition('hidden')");
+  });
+});
+
+describe('GH-1167 S7/S8 follow-up: the sheet refusals and the settled wait', () => {
+  const flat = (v: number, n = 4 * 97 * 4): Uint8Array => new Uint8Array(n).fill(v);
+  it('flatFrameRefusal: a flat frame refuses, a frame with a 40-level spread passes', () => {
+    expect(flatFrameRefusal('f', flat(90))).toMatch(/blank or flat \(range 90\.\.90\)/);
+    const varied = flat(90);
+    varied[4 * 97 * 2] = 130;
+    varied[4 * 97 * 2 + 1] = 130;
+    varied[4 * 97 * 2 + 2] = 130;
+    expect(flatFrameRefusal('f', varied)).toBeNull();
+    // a spread of 11 is still flat, 12 is not (the literal floor)
+    const edge = flat(100);
+    for (const k of [0, 1, 2]) edge[4 * 97 + k] = 111;
+    expect(flatFrameRefusal('f', edge)).not.toBeNull();
+    for (const k of [0, 1, 2]) edge[4 * 97 + k] = 112;
+    expect(flatFrameRefusal('f', edge)).toBeNull();
+  });
+  it('identicalPairRefusal: identical bytes refuse, one differing byte passes, different lengths pass', () => {
+    expect(identicalPairRefusal('p', new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 3]))).toMatch(/byte-identical/);
+    expect(identicalPairRefusal('p', new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 4]))).toBeNull();
+    expect(identicalPairRefusal('p', new Uint8Array([1, 2]), new Uint8Array([1, 2, 3]))).toBeNull();
+  });
+  it('sheetBootRefusals: each of the three faults is named, a clean boot has none', () => {
+    expect(sheetBootRefusals('node-webgpu', 'apple / metal-3', 108)).toEqual([]);
+    expect(sheetBootRefusals('node-webgl2', 'apple / metal-3', 108)).toHaveLength(1);
+    expect(sheetBootRefusals('node-webgpu', 'google / swiftshader', 108)[0]).toMatch(/not hardware Metal/);
+    expect(sheetBootRefusals('node-webgpu', 'nvidia', 108)[0]).toMatch(/not hardware Metal/);
+    expect(sheetBootRefusals('node-webgpu', 'metal-3 via swiftshader', 108)[0]).toMatch(/not hardware Metal/);
+    expect(sheetBootRefusals('node-webgpu', 'apple / metal-3', 0)[0]).toMatch(/no visible rl-grass-field mesh/);
+    expect(sheetBootRefusals('legacy-gl', 'x', 0)).toHaveLength(3);
+  });
+  it('settleField: waits through zeros, needs the same non-zero count twice, throws when it never arrives', async () => {
+    const reads = [0, 0, 7, 108, 108];
+    let i = 0;
+    let polls = 0;
+    const got = await settleField(
+      () => reads[Math.min(i, reads.length - 1)] as number,
+      async () => {
+        polls++;
+        i++;
+      }
+    );
+    expect(got).toBe(108); // not the first non-zero (7): the count moved
+    expect(polls).toBe(4);
+    await expect(settleField(() => 0, async () => {}, 2, 5)).rejects.toThrow(/did not hold a stable non-zero/);
+    let flip = 0;
+    await expect(settleField(() => (flip++ % 2 === 0 ? 3 : 4), async () => {}, 2, 20)).rejects.toThrow(/did not hold/);
   });
 });

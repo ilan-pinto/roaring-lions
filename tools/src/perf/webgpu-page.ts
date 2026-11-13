@@ -17,7 +17,7 @@ import { censusUnported } from '../../../packages/render/src/three/backend/unpor
 import { resolveNodeDraw, type NodeDrawOptions } from '../../../packages/render/src/three/backend/node-draw-options';
 import type { ArmId } from './webgpu-refusals';
 import { TERRAIN_THEMES } from '../../../packages/app/src/terrain-themes';
-import { GRASS_LAYER, countGrassMeshes, type GrassMode, type GrassNodeLike, type GrassReading, type GrassState } from './webgpu-grass-lib';
+import { GRASS_LAYER, GRASS_NAME_PREFIX, countGrassMeshes, settleField, type GrassMode, type GrassNodeLike, type GrassReading, type GrassState } from './webgpu-grass-lib';
 import { drawTypeOf, emptyByType, medianOrNull, type DrawObjectLike, type DrawType, type FullReason, type PerPass, type RenderPassId, type SubmitReading, type Uploads, type VariantId } from './webgpu-submit-probe-lib';
 
 interface BatchedLike {
@@ -298,10 +298,62 @@ function grassBootTones(mode: GrassMode): { terrainTones?: (typeof TERRAIN_THEME
 }
 
 /** Applies the mode after `init` and reports what the page now draws (visible grass meshes), so the driver prints the page's word. */
-function applyGrassMode(renderer: unknown, mode: GrassMode): GrassState {
+function applyGrassMode(renderer: unknown, mode: GrassMode, depthWrite = false, singlePass = false): GrassState {
   const r = renderer as { setDebugLayerVisible(name: string, visible: boolean): number; scene: GrassNodeLike };
   r.setDebugLayerVisible(GRASS_LAYER, mode === 'on');
+  if (depthWrite) setGrassMaterial(r.scene as unknown as MaterialWalk, { depthWrite: true });
+  if (singlePass) setGrassMaterial(r.scene as unknown as MaterialWalk, { forceSinglePass: true });
   return { mode, meshes: countGrassMeshes(r.scene) };
+}
+
+/**
+ * GH-1167 S8: the field arrives AFTER `init` (the node chunk's dynamic import, then the build on a frame), so `applyGrassMode` right after
+ * `init` counted 0 visible grass meshes on every `on` page and the abba grass column refused at the very end of a full Metal run (S6 never ran
+ * it on Metal; the probe hid this behind its 61 warm-up frames). Waits, with the layer shown, until the field has meshes (30 s, then throws),
+ * then applies the mode. `hidden` has no field to wait for.
+ */
+async function applyGrassModeSettled(renderer: unknown, mode: GrassMode, depthWrite = false, singlePass = false): Promise<GrassState> {
+  if (mode === 'hidden') return applyGrassMode(renderer, mode, depthWrite, singlePass);
+  const r = renderer as { setDebugLayerVisible(name: string, visible: boolean): number; scene: GrassNodeLike; frame?: (n: number, dt: number) => void };
+  r.setDebugLayerVisible(GRASS_LAYER, true);
+  await settleField(
+    () => countGrassMeshes(r.scene),
+    async () => {
+      r.frame?.(1, 0);
+      await new Promise((res) => setTimeout(res, 50));
+    }
+  );
+  return applyGrassMode(renderer, mode, depthWrite, singlePass);
+}
+
+interface MaterialWalk {
+  readonly name: string;
+  readonly isMesh?: boolean;
+  readonly material?: { depthWrite: boolean; forceSinglePass: boolean; needsUpdate: boolean };
+  readonly children: readonly MaterialWalk[];
+}
+
+/**
+ * GH-1167 S8, the DEPTH-WRITING ARM (design 7.3, decision 5): flips ONLY `depthWrite` to true on the field's material, in the harness
+ * page. Nothing else changes: the material stays in the transparent queue at opacity 1 in `GRASS_RENDER_ORDER`, the cell order is still
+ * back to front, so this is the worst case for early-z (the order that makes depth rejection least useful) and a lower bound on what a
+ * proper opaque, front-to-back, depth-writing field would cost. Throws if no grass material is found, so an arm cannot be vacuous.
+ */
+function setGrassMaterial(root: MaterialWalk, patch: { depthWrite?: true; forceSinglePass?: true }): void {
+  let n = 0;
+  const seen = new Set<unknown>();
+  const walk = (o: MaterialWalk): void => {
+    if (o.isMesh === true && o.name.startsWith(GRASS_NAME_PREFIX) && o.material !== undefined && !seen.has(o.material)) {
+      seen.add(o.material);
+      if (patch.depthWrite === true) o.material.depthWrite = true;
+      if (patch.forceSinglePass === true) o.material.forceSinglePass = true;
+      o.material.needsUpdate = true;
+      n++;
+    }
+    for (const c of o.children) walk(c);
+  };
+  walk(root);
+  if (n === 0) throw new Error('setGrassMaterial: no grass material in the scene (the depth-writing arm would measure the plain field)');
 }
 
 /** One arm of the figure curve: a private Sim + ThreeRenderer on `mapId`, the all-mesh roster, the sim held still. */
@@ -316,6 +368,10 @@ export async function runArm(o: {
   nodeDraw?: NodeDrawOptions;
   /** GH-1167 S6: the grass mode (default `hidden`). */
   grass?: GrassMode;
+  /** GH-1167 S8: the depth-writing arm (`setGrassDepthWrite`): the field's material writes depth. Only meaningful with a field (`on` / `off`). */
+  grassDepthWrite?: boolean;
+  /** GH-1167 S8: the single-pass arm: `forceSinglePass` on the field's material (three draws a transparent DoubleSide material in two passes, back then front, unless this is true). */
+  grassSinglePass?: boolean;
   /** GH-1167 S6: the zooms of the view probes (default z1 and z2.5; the grass column reads z1, z1.5 and z2.5 beside the z0.5 points). */
   viewZooms?: number[];
 }): Promise<ArmRun> {
@@ -334,7 +390,8 @@ export async function runArm(o: {
   await loadAllMeshes(renderer, map);
   const r = renderer as unknown as RendererLike;
   await loadDecorAndProps(r, map);
-  const grass = applyGrassMode(renderer, grassMode);
+  if ((o.grassDepthWrite === true || o.grassSinglePass === true) && grassMode === 'hidden') throw new Error('runArm: the grass material arms need a field (grass on or off), not hidden');
+  const grass = await applyGrassModeSettled(renderer, grassMode, o.grassDepthWrite === true, o.grassSinglePass === true);
   const info = r.backendInfo();
   const anchors = computeAnchors(map);
   const spawner = createSpawner(sim as Sim, typeOf, anchors.friendly, anchors.hostile);
