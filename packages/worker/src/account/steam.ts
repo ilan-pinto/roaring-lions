@@ -27,6 +27,20 @@ const C_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 const preAttrs = 'Secure; HttpOnly; SameSite=Lax; Path=/';
 const preCookie = (c: string, value: string, maxAge: number): string => `${preCookieName(c)}=${value}; ${preAttrs}; Max-Age=${maxAge}`;
 
+/** One diagnostic line per refusal: a status, a Location HOST, an error NAME and a duration. Never a param, id, cookie or IP. */
+function warnSteam(f: { status?: number; location?: string; error?: string; ms: number }): void {
+  console.warn('account: steam verify failed', f);
+}
+
+function hostOf(location: string | null): string | undefined {
+  if (location === null) return undefined;
+  try {
+    return new URL(location, STEAM_OP).host;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Steam's own word for the response is checked, never trusted: five-and-more checks, then the server round trip. */
 export async function verifyOpenId(
   params: URLSearchParams,
@@ -62,17 +76,22 @@ export async function verifyOpenId(
   }
   body.set('openid.mode', 'check_authentication');
   let text: string;
+  const t0 = Date.now();
   try {
     const res = await fetch(STEAM_OP, {
       method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'roaring-lions-worker', accept: 'text/plain' },
       body: body.toString(),
       signal: AbortSignal.timeout(8000),
       redirect: 'manual', // workerd does not implement 'error'; any 3xx is refused by the status check below
     });
-    if (res.status !== 200) return { refused: 'steam' };
+    if (res.status !== 200) {
+      warnSteam({ status: res.status, location: hostOf(res.headers.get('location')), ms: Date.now() - t0 });
+      return { refused: 'steam' };
+    }
     text = await res.text();
-  } catch {
+  } catch (err) {
+    warnSteam({ error: err instanceof Error ? err.name : typeof err, ms: Date.now() - t0 });
     return { refused: 'steam' };
   }
   if (!text.split('\n').some((line) => line.trim() === 'is_valid:true')) return invalid;
@@ -144,8 +163,9 @@ export async function steamReturn(ctx: AccountCtx): Promise<Response> {
       .first<{ purpose: SteamPurpose; member_id: string | null; pre_hash: string | null }>();
     if (ch === null) return done('expired');
     return await finishReturn(ctx, db, url, c, ch, done);
-  } catch {
+  } catch (err) {
     // Ruling 12: a top-level navigation never gets a bare error page. No SteamID is logged.
+    console.warn('account: steam return failed', { error: err instanceof Error ? err.name : typeof err });
     return done('steam');
   }
 }
