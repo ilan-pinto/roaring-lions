@@ -67,6 +67,9 @@ interface RlHandsExtras {
   readonly part: { readonly butt_x: number; readonly triangles: number };
   /** A fused figure's own aimed butt pocket, metres forward of, above and in from the shoulder joint (`hold.ts`, `HoldFigure.pocket`). */
   readonly pocket?: [number, number, number];
+  /** A fused figure's support fist goes this far (metres) toward the bore as it rolls round the handguard at full aim
+   *  (`hold.ts`, `HoldFigure.supportInset`): the importer's row, for a body whose rolled fist leaves the handguard. */
+  readonly support_inset?: number;
 }
 
 export function rlHands(rig: Rig): RlHandsExtras | undefined {

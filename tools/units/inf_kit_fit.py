@@ -178,7 +178,20 @@ class Fit:
             arms |= wz(b, 0.5)
         self.zone_arms = zone(arms)
         armw = sum(w(b) for b in ("upperarm_L", "upperarm_R", "forearm_L", "forearm_R"))
-        self.zone_lower = zone((~arms if self.skinned else (armw < 0.3)) & (z < 1.02), "lower")
+        # the belt line: the Rifle Squad's 0.9125 m about the root, or (`Team.belt_from_spine`) this figure's own
+        self.belt_dz = 0.0
+        self.belt_c = (0.0, 0.0)          # plain floats: added to `self.O`'s own, they change neither its value nor its type
+        if kp.TEAM.belt_from_spine is not None:
+            self.belt_dz = float(bones[f"{pf}_spine"].head_local.z) - kp.TEAM.belt_from_spine - 0.9125
+        self.zone_lower = zone((~arms if self.skinned else (armw < 0.3)) & (z < 1.02 + self.belt_dz), "lower")
+        if kp.TEAM.belt_from_spine is not None:
+            # ...and the ring's centre: the middle of the hips' own section at the belt line (its bounding box, so a dense
+            # pouch on one side does not pull it), not the root (the ankles' mean)
+            P_ = self.pts["lower"]
+            band = P_[np.abs(P_[:, 2] - (0.9125 + self.belt_dz)) < 0.03]
+            if len(band) < 30:
+                raise ValueError(f"{pf}: {len(band)} points of the lower zone at the belt line z {0.9125 + self.belt_dz:.3f}: not measured")
+            self.belt_c = tuple(float(x) for x in (band[:, :2].min(0) + band[:, :2].max(0)) / 2.0 - self.O[:2])
         # arm vertex cloud (any weight >= 0.5 on either arm / forearm) for clearance queries
         self.arm_any_idx = np.nonzero(arms & mine)[0]
 
@@ -257,13 +270,16 @@ class Fit:
         if kp.TEAM.weapon_by_surface:
             me = Wm.data
             names = {vg.index: vg.name for vg in Wm.vertex_groups}
-            dom = [names[max(vv.groups, key=lambda g: g.weight).group] for vv in me.vertices]
+            # (names of their own: `dom` and `tris` are the figure's, and `self.wz` and `zone` above close over them. Rebound
+            # here to the gun's, every later `f.wz(...)` compared a list with a bone's name and read an empty zone: on the
+            # Combat Engineers the carrier's fit went from 19 / 58 vertices inside the ring to 182 / 263, 13 Nov 2026)
+            gun_dom = [names[max(vv.groups, key=lambda g: g.weight).group] for vv in me.vertices]
             loc_v = []
             for i, vv in enumerate(me.vertices):
                 dd = np.array(vv.co[:]) - muz
                 loc_v.append(Vector((dd @ np.array(u), dd @ np.array(wvec), dd @ np.array(v))))
-            tris = [tuple(pg.vertices) for pg in me.polygons if all(dom[i] == f"{pf}_weapon" for i in pg.vertices)]
-            self.wbvh = BVHTree.FromPolygons(loc_v, tris)
+            gun_tris = [tuple(pg.vertices) for pg in me.polygons if all(gun_dom[i] == f"{pf}_weapon" for i in pg.vertices)]
+            self.wbvh = BVHTree.FromPolygons(loc_v, gun_tris)
 
     def _surface_station(self, back):
         """(top, bottom, w_lo, w_hi) at `back` metres behind the muzzle, from vertical and sideways rays on the gun's faces."""

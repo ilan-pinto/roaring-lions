@@ -164,7 +164,17 @@ SOURCES = {
         #: pocket the cheek weld had to drop the eye 10.5 cm on a 13 cm lever that starts vertical: 73 deg of neck, the
         #: helmet's crown toward the target (rendered, 12 Nov). At 0.09 above the joint -- the tube's end on the top of
         #: the collarbone, the bore beside the jaw -- the weld asks the 37 deg it asks of the pilot.
-        pocket=(0.03, 0.09, 0.05),
+        #: Round 2 (13 Nov, with the grafted stock; the Opus review: the head stood off the stock, the face's centroid 141 /
+        #: 161 mm beside the bore against the Rifle Squad's 106-121, and the plate 8 / 21 mm off the shoulder): the butt 1 cm
+        #: further in toward the neck, 0.06. Read on five trials (`_coord/infantry-upgrade/demo-squad/fitV2/tune*.log`):
+        #: the face 129-130 / 148-149 mm beside the bore, the plate 2-4 mm from the shoulder. Further in (0.065-0.075) the
+        #: stock goes into the neck (weapon samples inside the body 115 -> 370-690); higher (0.095) demo_b's cheek weld
+        #: throws his head back.
+        pocket=(0.03, 0.09, 0.06),
+        #: The lead's ruling of 13 Nov: the fists stay real size, and the support hand's target goes up into the handguard
+        #: as it rolls round it in the aim (`hold.ts`, `supportInset`). 20 mm: the rolled support palm within 8 mm of the
+        #: gun goes from 9-18 % to 25-26 % (the floor is 20).
+        support_inset=0.02,
         #: The lead's ruling of 13 Nov 2026 (GH-826, unit 1): Meshy sculpted this carbine with a BARE buffer tube (no
         #: stock: 0.625 m cap to muzzle, under the 0.72 floor). A collapsed stock is grafted onto the tube here, in code
         #: (`_graft_stock`): 0 credits, every fit already made on the Meshy bytes kept (the bore, the stations and the
@@ -175,12 +185,18 @@ SOURCES = {
         #: sleeve lies against the tube's underside from e +0.02 forward, so the stock's toe drops only BEHIND the cap;
         #: behind the cap the nearest body (the deltoid's front) is 67 mm off the extended bore as far back as e -0.18.
         #: A collapsed M4-class stock stands 3-5 cm behind its tube and its plate is about 12 cm high: +55 mm here.
+        #: Round 2 (the Opus review of 13 Nov: "boxy"): a real collapsed stock's side profile -- a straight comb over the
+        #: tube, the underside falling from the latch to the toe, an upright pad -- on a section that narrows under the tube
+        #: (the tube's own width over it, 34 mm under it) with every corner cut: twelve points a ring, seven rings, 164
+        #: triangles. A section is (e, top, bottom, half width at the tube, half width under it, corner cut).
         stock=dict(centre=(-0.004, -0.002),
-                   sections=((0.085, 0.031, -0.031, 0.031, 0.010),
-                             (0.010, 0.036, -0.036, 0.033, 0.010),
-                             (-0.018, 0.036, -0.074, 0.030, 0.010),
-                             (-0.045, 0.032, -0.092, 0.027, 0.008),
-                             (-0.055, 0.026, -0.086, 0.023, 0.008))),
+                   sections=((0.098, 0.029, -0.029, 0.029, 0.027, 0.011),
+                             (0.088, 0.034, -0.033, 0.031, 0.027, 0.011),
+                             (0.050, 0.035, -0.038, 0.031, 0.020, 0.011),
+                             (0.012, 0.035, -0.058, 0.031, 0.017, 0.010),
+                             (-0.018, 0.035, -0.080, 0.029, 0.017, 0.009),
+                             (-0.045, 0.033, -0.095, 0.026, 0.017, 0.008),
+                             (-0.055, 0.027, -0.090, 0.021, 0.013, 0.007))),
         #: ...and the team's OWN gun-length band, a ratchet at the grafted length (the same ruling: "a real engineer's
         #: short carbine"; a Mk18-class carbine is 0.68-0.72 m collapsed). The base body's grafted carbine is 0.680 m;
         #: the import refuses this team outside 0.670-0.690. The global GUN_LEN_BAND stays for every other team, and
@@ -189,14 +205,29 @@ SOURCES = {
         #: Meshy also sculpted a sight unit on the receiver (e 0.225-0.385 from the Meshy butt, its top 52 mm over the rail)
         #: and a fixed front sight (e 0.49-0.545, 31 mm over the handguard). The kit's optics seat on the HIGHEST gun surface
         #: under them, so on this carbine the tier-1 red dot stood on the baked sight and the tier-2 scope and the laser
-        #: rode 5 cm and 3 cm over the rail (rendered 13 Nov: a scope floating over a second sight). Both are folded flat:
-        #: every gun vertex over the rail in those spans keeps `keep` of its height over it (the unit an 8 mm folded sight,
-        #: the post 5 mm). No topology changes. (span e0, e1, the rail's height over the bore there), the base body's metres.
-        flat_top=dict(spans=((0.225, 0.385, 0.036), (0.490, 0.545, 0.025)), keep=0.15, half_w=0.05),
+        #: rode 5 cm and 3 cm over the rail. The lead's ruling of 13 Nov: tier 0 is a clean flat-top. Both are DELETED
+        #: (`_flatten_gun_top`: round 1 folded them to 15 % of their height, which read as crumpled foil): every gun vertex
+        #: over the rail in a span goes down to it, the faces that leaves flat on the rail are removed, and a plain rail
+        #: plate closes the top. (span e0, e1, the rail's height over the bore there), the base body's metres.
+        flat_top=dict(spans=((0.225, 0.385, 0.036), (0.490, 0.545, 0.025)), half_w=0.05, plate=0.0015),
+        #: The skirt faces that go to the weapon mesh with the gun are the VEST's only (the Opus review of 13 Nov, B3): a
+        #: face with one gun vertex and its others on a sleeve, a cuff or a glove carried the sleeve's olive and the glove's
+        #: brown onto the `weapon` mesh (17 faces, 74-82 cm2 a man), and stood by the firing fist as a pale blade in every
+        #: aimed clip, where the hands are 8-9 cm from where they were sculpted. They stay on the uniform alone.
+        gun_skirt_vest_only=True,
+        #: A man's head does not widen with his girth: demo_b's face came out 0.183 m wide against 0.166 (x1.08). Above the
+        #: chin the xy scale is 1 about the head's own centre, blended in over the neck.
+        head_keeps_width=True,
         #: The same ruling, item 3: Meshy baked a dark patch with a round emblem on the left upper arm (and its pair, a
         #: dark-blue patch with a yellow chevron, on the right) against the prompt's "no insignia". Every texel of an
         #: upper arm that is not the sleeve's own khaki goes to the sleeve's olive (`RETINT["sleeve_patch"]`).
         sleeve_patch=True,
+        #: ...and what was still left of the bake at tier 0 (the review, major 3): blue-slate triangles on the straps and the
+        #: collar, coyote shards on the shoulder caps, the ghost of the right-arm patch. A last pass over the FINISHED atlas
+        #: (`_sweep_bake_leftovers`): above the belt, off the gun, the gloves, the skin and the boots, a texel that is still
+        #: the bake's blue-slate goes to the olive on the arms, the shoulders and the collar and to the carrier's coyote on
+        #: the trunk; and a coyote texel on an arm or a shoulder cap goes to the olive.
+        sweep_leftovers=True,
     ),
 }
 
@@ -345,25 +376,28 @@ def _stock_extension(row):
 
 def _stock_mesh(g, row):
     """The grafted stock of `row` on the base body: (vertices (N, 3), triangles (T, 3)) in the normalised frame, from the
-    measured bore `g` (butt, axis, up). Each section is a rectangle with its corners cut (8 points); the sections are
-    lofted front to rear and capped at both ends. Every triangle is wound outward (checked against the loft's own centre
-    line, not assumed)."""
+    measured bore `g` (butt, axis, up). Each section is a twelve-point ring: the tube's width over the tube, a narrower web
+    under it, every corner cut; the sections are lofted front to rear and capped at both ends. Every triangle is wound
+    outward (checked against the loft's own centre line, not assumed)."""
     b, ax, up = g["butt"], g["axis"], g["up"]; side = np.cross(ax, up)
     cu, cs = row["stock"]["centre"]
     rings, mids = [], []
-    for e, top, bot, hw, ch in row["stock"]["sections"]:
-        pts = [(top, -hw + ch), (top, hw - ch), (top - ch, hw), (bot + ch, hw), (bot, hw - ch), (bot, -hw + ch), (bot + ch, -hw), (top - ch, -hw)]
+    for e, top, bot, hw, hwb, ch in row["stock"]["sections"]:
+        neck = max(min(-0.030, top - 2 * ch - 0.012), bot + ch + 0.004)     # where the section narrows, under the tube
+        right = [(top, hw - ch), (top - ch, hw), (neck, hw), (max(neck - 0.006, bot + ch + 0.001), hwb), (bot + ch, hwb), (bot, hwb - ch)]
+        pts = right + [(u_, -s_) for u_, s_ in reversed(right)]             # twelve points, down the right side and up the left
         rings.append([b + ax * e + up * (cu + u_) + side * (cs + s_) for u_, s_ in pts])
         mids.append(b + ax * e + up * (cu + (top + bot) / 2) + side * cs)
-    V = np.array(rings).reshape(-1, 3); n = 8; R = len(rings)
+    n = len(rings[0]); R = len(rings)
+    V = np.array(rings).reshape(-1, 3)
     tris, ref = [], []
     for r in range(R - 1):
         for k in range(n):
             a_, b_, c_, d_ = r * n + k, r * n + (k + 1) % n, (r + 1) * n + (k + 1) % n, (r + 1) * n + k
             tris += [(a_, b_, c_), (a_, c_, d_)]; ref += [(mids[r] + mids[r + 1]) / 2] * 2
-    for r, toward in ((0, mids[0] - (mids[0] - mids[1])), (R - 1, mids[R - 1] - (mids[R - 1] - mids[R - 2]))):
+    for r, inside in ((0, mids[1]), (R - 1, mids[R - 2])):
         for k in range(1, n - 1):
-            tris.append((r * n, r * n + k, r * n + k + 1)); ref.append(toward)
+            tris.append((r * n, r * n + k, r * n + k + 1)); ref.append(inside)
     T = np.array(tris)
     nrm = np.cross(V[T[:, 1]] - V[T[:, 0]], V[T[:, 2]] - V[T[:, 0]])
     out = V[T].mean(1) - np.array(ref)
@@ -393,33 +427,63 @@ def _graft_stock(part, prefix, g0, row, uv_at, sz, sxy, dx, dy):
     return len(T)
 
 
-def _flatten_gun_top(part, g0, row, sz, sxy, dx, dy):
-    """A row's `flat_top`: the weapon mesh's vertices over the rail in each span keep `keep` of their height over it.
-    Read in the base body's bore frame (the part is the figure's: scaled and at its slot). Returns the vertices moved."""
+def _flatten_gun_top(part, g0, row, uv_at, prefix, sz, sxy, dx, dy):
+    """A row's `flat_top`: the sights sculpted on the gun's rail are removed. Every weapon vertex over the rail in a span
+    goes down to the rail; a face whose three vertices all went down lies flat on it (the sight's own top and sides,
+    folded) and is deleted; the faces that joined the sight to the receiver stay, now ending at the rail; and a plain plate
+    `plate` metres over the rail, as long and as wide as the sight's footprint, closes the top (two triangles, the row's
+    stock texel, on the gun's bone). Read in the base body's bore frame (the part is the figure's: scaled and at its
+    slot). Returns (vertices lowered, faces deleted)."""
     ft = row["flat_top"]
     b, ax, up = g0["butt"], g0["axis"], g0["up"]; side = np.cross(ax, up)
     k = np.array([sxy, sxy, sz]); shift = np.array([dx, dy, 0.0])
     me = part.data
-    co = np.empty(len(me.vertices) * 3); me.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
+    gi = part.vertex_groups[f"{prefix}_forearm_R"].index
+    bm = bmesh.new(); bm.from_mesh(me); bm.verts.ensure_lookup_table()
+    uvl = bm.loops.layers.uv.verify(); dl = bm.verts.layers.deform.verify()
+    co = np.array([v.co[:] for v in bm.verts])
     base = (co - shift) / k
     r = base - b; e = r @ ax; u = r @ up; s_ = r @ side
-    moved = 0
+    lowered = np.zeros(len(co), bool)
+    plates = []
     for e0, e1, rail in ft["spans"]:
         m = (e >= e0) & (e <= e1) & (np.abs(s_) < ft["half_w"]) & (u > rail)
-        base[m] -= np.outer((u[m] - rail) * (1.0 - ft["keep"]), up)
-        moved += int(m.sum())
-    me.vertices.foreach_set("co", (base * k + shift).reshape(-1)); me.update()
-    return moved
+        if not m.any():
+            raise SystemExit(f"{prefix}: no gun vertex over the rail in the span e {e0}-{e1}: the sight is not where the row says")
+        plates.append((float(e[m].min()), float(e[m].max()), float(s_[m].min()), float(s_[m].max()), rail))
+        base[m] -= np.outer(u[m] - rail, up)
+        lowered |= m
+    new = base * k + shift
+    for v in bm.verts:
+        if lowered[v.index]:
+            v.co = new[v.index].tolist()
+    dead = [f for f in bm.faces if all(lowered[v.index] for v in f.verts)]
+    n_dead = len(dead)
+    bmesh.ops.delete(bm, geom=dead, context="FACES")
+    for e0, e1, s0, s1, rail in plates:
+        quad = [b + ax * ee + up * (rail + ft["plate"]) + side * ss for ee, ss in ((e0, s0), (e1, s0), (e1, s1), (e0, s1))]
+        vs = []
+        for p_ in quad:
+            v = bm.verts.new((np.asarray(p_) * k + shift).tolist()); v[dl][gi] = 1.0; vs.append(v)
+        for tri in ((0, 1, 2), (0, 2, 3)):
+            f = bm.faces.new([vs[i] for i in tri]); f.smooth = False; f.normal_update()
+            if f.normal.dot(Vector(up.tolist())) < 0:
+                f.normal_flip()
+            for l in f.loops:
+                l[uvl].uv = (float(uv_at[0]), float(uv_at[1]))
+    bm.to_mesh(me); bm.free(); me.update()
+    return int(lowered.sum()), n_dead
 
 
 def _stock_texel(co, cls, lab, uv, g, row):
-    """The uv the grafted stock is painted with: the buffer tube vertex whose baked colour is nearest the tube's own
-    median (the stock is the tube's polymer; one texel, so it is one flat tone and no bake detail is stretched over it)."""
+    """The uv the grafted stock is painted with: the RECEIVER vertex whose baked colour is nearest the receiver's own
+    median (round 2: the tube's own tone, L* 21, read lighter than the gun beside it under the sun; the receiver is
+    L* 16). One texel, so it is one flat tone and no bake detail is stretched over it."""
     b, ax, up = g["butt"], g["axis"], g["up"]; side = np.cross(ax, up); cu, cs = row["stock"]["centre"]
     r = co - b; e = r @ ax; rad = np.hypot(r @ up - cu, r @ side - cs)
-    tube = cls["gun"] & (e > 0.0) & (e < 0.15) & (rad < 0.035)
+    tube = cls["gun"] & (e > 0.165) & (e < 0.235) & (rad < 0.045)
     if tube.sum() < 20:
-        raise SystemExit(f"the buffer tube reads {int(tube.sum())} vertices: no texel to paint the stock with")
+        raise SystemExit(f"the receiver reads {int(tube.sum())} vertices: no texel to paint the stock with")
     med = np.median(lab[tube], 0)
     idx = np.nonzero(tube)[0]
     i = idx[int(np.argmin(np.linalg.norm(lab[idx] - med, axis=1)))]
@@ -682,11 +746,31 @@ def _load(team_id):
     return ob, base, co
 
 
-def _figure_shell(src, prefix, sz, sxy, dx, dy):
+HEAD_R_M, HEAD_R_BLEND_M = 0.135, 0.03   # the neck's reach about the head's centre line under the chin, and the blend past it
+
+
+def _figure_shell(src, prefix, sz, sxy, dx, dy, head=None):
     ob = src.copy(); ob.data = src.data.copy(); ob.name = f"{prefix}_shell"
     bpy.context.collection.objects.link(ob)
     me = ob.data
     co = np.empty(len(me.vertices) * 3); me.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
+    if head is not None:
+        # a row's `head_keeps_width`: (head centre xy, neck z, chin z) on the base body. Above the chin a vertex keeps its
+        # own distance from the head's centre (xy scale 1 about it); the blend runs over the neck
+        (hx, hy), z0, z1 = head
+        t = np.clip((co[:, 2] - z0) / (z1 - z0), 0.0, 1.0); t = t * t * (3 - 2 * t)
+        c = np.array([hx, hy])
+        # ...and under the chin only the neck itself: the tops of the shoulders and the carrier's straps stand as high as
+        # the neck's base, 0.17-0.24 from the head's centre (183 vertices), and they are the body's (HEAD_R_M, blended over
+        # HEAD_R_BLEND_M). Above the chin everything is the head's, the helmet's rails and shroud included.
+        r_ = np.linalg.norm(co[:, :2] - c, axis=1)
+        t = t * np.where(co[:, 2] >= z1, 1.0, np.clip((HEAD_R_M + HEAD_R_BLEND_M - r_) / HEAD_R_BLEND_M, 0.0, 1.0))
+        kxy = sxy + (1.0 - sxy) * t
+        co[:, :2] = c * sxy + (co[:, :2] - c) * kxy[:, None]
+        co[:, 2] *= sz
+        co += np.array([dx, dy, 0.0])
+        me.vertices.foreach_set("co", co.reshape(-1)); me.update()
+        return ob, co
     co = co * np.array([sxy, sxy, sz]) + np.array([dx, dy, 0.0])
     me.vertices.foreach_set("co", co.reshape(-1)); me.update()
     return ob, co
@@ -1211,7 +1295,7 @@ def _cut_seams(ob, prefix, J, roles, co, uv_src, cls):
     return cap_idx, np.array(new_class, np.int8)
 
 
-def _split_roles(ob, prefix, cls, roles, co):
+def _split_roles(ob, prefix, cls, roles, co, vest_skirt_only=False):
     """One object per role: `weapon` (the gun), `boot`, `face`, `uniform` (everything else, the hands included).
 
     The gun is fused to the vest and the fists, so the faces along that line (one gun vertex, one not) belong to both
@@ -1267,8 +1351,14 @@ def _split_roles(ob, prefix, cls, roles, co):
     if loose.any():
         log(f"{prefix}: {int(loose.sum())} vertices of {len(np.unique(comp[loose]))} loose islands (over {DEBRIS_GAP_M * 100:.0f} cm from the body at rest) deleted")
     live = ~loose[polys].any(1)          # loose debris goes to no role: deleted
+    weapon_faces = any_gun
+    if vest_skirt_only:
+        # a row's `gun_skirt_vest_only`: a skirt face with a sleeve, cuff, glove or skin vertex is not the weapon's
+        cloth = cls["khaki"] | cls["brown"] | cls["glove"] | cls["skin"] | hand_any_
+        weapon_faces = all_gun | (any_gun & ~cloth[polys].any(1))
+        log(f"{prefix}: {int((any_gun & ~weapon_faces & live).sum())} skirt faces with a sleeve, glove or skin vertex kept off the weapon mesh")
     sets = {
-        "weapon": np.nonzero(any_gun & live)[0],
+        "weapon": np.nonzero(weapon_faces & live)[0],
         "boot": np.nonzero(~all_gun & live & (body_major == 1))[0],
         "face": np.nonzero(~all_gun & live & (body_major == 2))[0],
         "uniform": np.nonzero(~all_gun & live & (body_major == 3))[0],
@@ -1671,6 +1761,8 @@ def _stamp_extras(path, team_id, figures, gun_tris, hand_tris):
     )
     if "pocket" in SOURCES[team_id]:
         ex["rl_hands"]["pocket"] = [float(x) for x in SOURCES[team_id]["pocket"]]
+    if "support_inset" in SOURCES[team_id]:
+        ex["rl_hands"]["support_inset"] = float(SOURCES[team_id]["support_inset"])
     ex["rl_skinned"] = dict(version=1, figures=sorted(figures), task=SOURCES[team_id]["task"], binding="smooth")
     review = next(iter(figures.values())).get("gun_len_review")
     if review:
@@ -1913,6 +2005,19 @@ def _sleeve_patch_texels(me, uv, zone, image):
     return patch, region & khaki & ~patch, int(region.sum())
 
 
+def _repaint(image, mask, target, keep, what):
+    """Texels of `mask` (H, W) to `target` (Lab), each keeping `keep` of its own offset from their mean. Logged."""
+    if not mask.any():
+        log(f"sweep {what}: no texels")
+        return
+    W_, H_ = image.size
+    px = np.empty(W_ * H_ * 4, np.float32); image.pixels.foreach_get(px); px = px.reshape(H_, W_, 4)
+    lab = _lab(px[mask][:, :3].astype(np.float64)); mean = lab.mean(0)
+    px[mask, :3] = _lab_to_rgb(np.array(target) + keep * (lab - mean)).astype(np.float32)
+    image.pixels.foreach_set(px.reshape(-1)); image.update()
+    log(f"sweep {what}: {int(mask.sum())} texels, mean Lab {np.round(mean, 1)} -> {np.round(np.array(target), 1)}")
+
+
 def _dilate(mask, r):
     """`mask` grown by `r` texels (a square), clipped at the atlas edge."""
     out = mask.copy()
@@ -2113,7 +2218,7 @@ def build_team(team_id, out_path=None):
     J0ship = dict(J0, gun=dict(J0["gun"], butt=J0["gun"]["butt"] - J0["gun"]["axis"] * _stock_extension(cfg)))
     if "stock" in cfg:
         stock_uv, stock_lab, tube_lab = _stock_texel(co0, cls0, lab, uv, J0["gun"], cfg)
-        log(f"{team_id}: the stock's texel uv {np.round(stock_uv, 4)}, Lab {np.round(stock_lab, 1)} (the tube's median {np.round(tube_lab, 1)}); "
+        log(f"{team_id}: the stock's texel uv {np.round(stock_uv, 4)}, Lab {np.round(stock_lab, 1)} (the receiver's median {np.round(tube_lab, 1)}); "
             f"the carbine {J0['gun']['length']:.3f} -> {J0['gun']['length'] + _stock_extension(cfg):.3f} m on the base body")
     for spec in figures:
         p = spec["prefix"]; sz, sxy = cfg["bodies"][p]
@@ -2156,7 +2261,8 @@ def build_team(team_id, out_path=None):
     hand_tris = {}
     for spec in figures:
         p = spec["prefix"]; sz, sxy = cfg["bodies"][p]
-        shell, co = _figure_shell(src, p, sz, sxy, spec["x"], spec["y"])
+        head = (tuple(J0["head_xy"]), J0["neck"] - 0.03, J0["chin"]) if cfg.get("head_keeps_width") else None
+        shell, co = _figure_shell(src, p, sz, sxy, spec["x"], spec["y"], head)
         J = Js[p]
         Jt = dict(J)   # joints at the figure's slot
         shift = np.array([spec["x"], spec["y"], 0.0])
@@ -2199,10 +2305,10 @@ def build_team(team_id, out_path=None):
             glove_blob_f1 = roles["glove"]["R"] | roles["glove"]["L"]
             # ...and the upper arms' own, for a row's sleeve patch
             arm_w_f1 = np.maximum(W[:, gi_[f"{p}_upperarm_L"]], W[:, gi_[f"{p}_upperarm_R"]])
-        ps = _split_roles(shell, p, cls0_fig, roles, co)
+        ps = _split_roles(shell, p, cls0_fig, roles, co, vest_skirt_only=bool(cfg.get("gun_skirt_vest_only")))
         if "flat_top" in cfg:
-            n_flat = _flatten_gun_top(next(o for o in ps if o["rl_role"] == "weapon"), J0["gun"], cfg, sz, sxy, spec["x"], spec["y"])
-            log(f"{p}: the baked sight unit and front sight folded flat: {n_flat} weapon vertices lowered onto the rail")
+            n_flat, n_dead = _flatten_gun_top(next(o for o in ps if o["rl_role"] == "weapon"), J0["gun"], cfg, stock_uv, p, sz, sxy, spec["x"], spec["y"])
+            log(f"{p}: the baked sight unit and front sight deleted: {n_flat} weapon vertices lowered onto the rail, {n_dead} faces removed, two rail plates")
         if "stock" in cfg:
             added = _graft_stock(next(o for o in ps if o["rl_role"] == "weapon"), p, J0["gun"], cfg, stock_uv, sz, sxy, spec["x"], spec["y"])
             log(f"{p}: stock grafted behind the Meshy butt: {added} triangles, the carbine {Js[p]['gun']['length']:.3f} -> {Jship[p]['gun']['length']:.3f} m")
@@ -2308,6 +2414,8 @@ def build_team(team_id, out_path=None):
             patch_tex |= cap_tex & ~carrier_tex
             arm_khaki_tex |= cap_khaki_tex & ~carrier_tex
             patch_tex &= ~glove_tex
+            # ...and never a texel under a face with a gun vertex (the gun's own island, which a skirt face rasters over)
+            patch_tex &= ~_dilate(_face_mask(src_for_uv.data, uv, gun_mask_f1[:n0], image.size[0], image.size[1], min_verts=1), 2)
             log(f"sleeve patch: {int(patch_tex.sum())} of the upper arms' {zone_n} and the shoulders' {cap_n} texels are not the sleeve's khaki")
             patch = {"sleeve_patch": patch_tex}
             # the carrier's stray faces: a face most of whose vertices are carrier, on no carrier island (a strap's end on a
@@ -2337,6 +2445,68 @@ def build_team(team_id, out_path=None):
             # last, so nothing paints over the glove
             "glove": glove_tex,
         })
+        if cfg.get("sweep_leftovers"):
+            # on the atlas as the retints left it: what is still the bake's blue-slate above the belt, and coyote off the carrier
+            W_, H_ = image.size
+            px_ = np.empty(W_ * H_ * 4, np.float32); image.pixels.foreach_get(px_); px_ = px_.reshape(H_, W_, 4)
+            lab_ = _lab(px_[..., :3].astype(np.float64))
+            L_, a_c, b_c = lab_[..., 0], lab_[..., 1], lab_[..., 2]
+            # blue-slate, not the web belt's dark green (a* under -2) nor a shadowed olive (b* over 3)
+            slate = (L_ < 34.0) & (np.hypot(a_c, b_c) < 16.0) & (b_c < 3.0) & (a_c > -2.0)
+            coyote = (L_ > 28.0) & (a_c > 2.5) & (b_c > 20.0)
+            # the bake's own khaki, never shifted (a face of the patch's or a strap's dark vertices): lighter and less red
+            # than the carrier's coyote (L* 43, a* 7), yellower than the olive
+            khaki_left = (L_ > 47.0) & (b_c > 21.0) & (a_c > -1.0) & (a_c < 4.5)
+            me_ = src_for_uv.data
+            keep_out = glove | skin | gun_mask_f1[:n0] | cls0["boot"][:n0]
+            trunk_v = (co0[:, 2] > J0["belt"] - 0.06) & (co0[:, 2] < J0["chin"]) & ~keep_out
+            collar_v = (co0[:, 2] > SHOULDER_Z + 0.03) & (co0[:, 2] < J0["chin"]) & (np.hypot(co0[:, 0] - hx, co0[:, 1] - hy) < 0.14)
+            arm_v = ((arm_w_f1[:n0] >= 0.25) | outer | cap) & ~keep_out
+            olive_tex = _face_mask(me_, uv, (arm_v | collar_v) & trunk_v | (arm_v & ~keep_out), W_, H_) & ~carrier_tex & ~glove_tex
+            trunk_tex = _face_mask(me_, uv, trunk_v, W_, H_, min_verts=3) & ~glove_tex
+            # never the gun's own texels: a skirt face (one gun vertex, two on a sleeve) rasters over the gun's island, the
+            # gun IS blue-slate, and the first sweep painted the receiver's rear olive, the stock's texel with it (13 Nov)
+            gun_tex = _dilate(_face_mask(me_, uv, gun_mask_f1[:n0], W_, H_, min_verts=1), 2)
+            olive_tex &= ~gun_tex; trunk_tex &= ~gun_tex
+            _repaint(image, slate & olive_tex, RETINT["sleeve_patch"]["target"], 0.1, "blue-slate on the arms, shoulders and collar -> olive")
+            _repaint(image, slate & trunk_tex & ~olive_tex, _lab(np.array([RETINT["vest"]["rgb"]], np.float64) / 255.0)[0], 0.3,
+                     "blue-slate on the trunk -> the carrier's coyote")
+            _repaint(image, (coyote | khaki_left) & olive_tex, RETINT["sleeve_patch"]["target"], 0.1, "coyote and unshifted khaki on the arms and shoulder caps -> olive")
+            _repaint(image, khaki_left & trunk_tex & ~olive_tex, _lab(np.array([RETINT["vest"]["rgb"]], np.float64) / 255.0)[0], 0.3,
+                     "unshifted khaki on the trunk -> the carrier's coyote")
+    if "stock" in cfg:
+        # The texel the stock and the rail plates are painted with, re-pinned on the FINISHED atlas: the middle of a solid
+        # 7 x 7 block of the gun's own island nearest the receiver's tone. The vertex texel they were built with sat on a
+        # thin island of the 8k bake; at 2048 its neighbours are a sleeve's, and the stock rendered grey-green (13 Nov).
+        W_, H_ = image.size
+        px_ = np.empty(W_ * H_ * 4, np.float32); image.pixels.foreach_get(px_); px_ = px_.reshape(H_, W_, 4)
+        own = _face_mask(src_for_uv.data, uv, gun_mask_f1[: len(uv)], W_, H_, min_verts=3)
+        k_ = 3
+        def box(a_):
+            c_ = np.cumsum(np.cumsum(np.pad(a_, ((1, 0), (1, 0))), 0), 1)
+            out_ = np.zeros_like(a_, dtype=np.float64)
+            out_[k_:H_ - k_, k_:W_ - k_] = (c_[2 * k_ + 1:, 2 * k_ + 1:] - c_[:-2 * k_ - 1, 2 * k_ + 1:] - c_[2 * k_ + 1:, :-2 * k_ - 1] + c_[:-2 * k_ - 1, :-2 * k_ - 1])
+            return out_ / (2 * k_ + 1) ** 2
+        solid = box(own.astype(np.float64)) > 0.999
+        lab_ = _lab(px_[..., :3].astype(np.float64))
+        mean_ = np.stack([box(lab_[..., i]) for i in range(3)], -1)
+        var_ = sum(box(lab_[..., i] ** 2) - mean_[..., i] ** 2 for i in range(3))
+        de_ = np.linalg.norm(mean_ - tube_lab, axis=-1) + np.sqrt(np.maximum(var_, 0.0))
+        de_[~solid] = np.inf
+        ty, tx = np.unravel_index(int(np.argmin(de_)), de_.shape)
+        if not np.isfinite(de_[ty, tx]) or de_[ty, tx] > 6.0:
+            raise SystemExit(f"{team_id}: no solid block of the gun's island near the receiver's tone (best {de_[ty, tx]:.1f}): the stock has no texel")
+        new_uv = ((tx + 0.5) / W_, (ty + 0.5) / H_)
+        wme = merged["weapon"].data
+        uvl_ = wme.uv_layers.active.data
+        n_re = 0
+        for l_ in uvl_:
+            if abs(l_.uv[0] - stock_uv[0]) < 1e-6 and abs(l_.uv[1] - stock_uv[1]) < 1e-6:
+                l_.uv = new_uv; n_re += 1
+        log(f"{team_id}: the stock's texel re-pinned on the finished atlas: uv {np.round(new_uv, 4)}, Lab {np.round(mean_[ty, tx], 1)} "
+            f"(the receiver's median {np.round(tube_lab, 1)}), block sd {math.sqrt(max(var_[ty, tx], 0.0)):.2f}; {n_re} corners moved")
+        if n_re == 0:
+            raise SystemExit(f"{team_id}: no corner of the weapon mesh carries the stock's texel: nothing to re-pin")
     bpy.data.objects.remove(src_for_uv, do_unlink=True)
     rig.export_glb(arm_obj, path, materials=True, jpeg_quality=JPEG_QUALITY)
     _stamp_extras(path, team_id, {s["prefix"]: dict(Js[s["prefix"]], gun=dict(Jship[s["prefix"]]["gun"],

@@ -1703,12 +1703,12 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       // wider on it. Their head joint is the chin measured on the sculpt and the face stands almost over it: the leader
       // (the body 8 % wider, 1.74 m) reads under the floor in every aimed clip, and both men in the run. Not a pass:
       // these six heads' facing is unread.
-      'demo_squad.glb fire demo_b_head 0.0249',
-      'demo_squad.glb move demo_a_head 0.0044',
-      'demo_squad.glb move demo_b_head 0.0066',
-      'demo_squad.glb moveFire demo_b_head 0.0215',
-      'demo_squad.glb kneel demo_b_head 0.0231',
-      'demo_squad.glb work demo_b_head 0.0231',
+      'demo_squad.glb fire demo_b_head 0.0243',
+      'demo_squad.glb move demo_a_head 0.0048',
+      'demo_squad.glb move demo_b_head 0.0050',
+      'demo_squad.glb moveFire demo_b_head 0.0202',
+      'demo_squad.glb kneel demo_b_head 0.0228',
+      'demo_squad.glb work demo_b_head 0.0228',
       'rpg_team.glb pinned rpg_load_head 0.0227',
       // GH-746 Meshy pilot (9 Nov): the skinned Rifle Squad's head joint was measured on the sculpt (the chin, 1.448 m on
       // f1) and the run leans the head forward over it, so the face's centroid sits 1-3 cm from the joint in the ground

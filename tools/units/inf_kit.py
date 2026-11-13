@@ -802,7 +802,7 @@ def build_radio_pack(f, side=None):
 
 def _belt_wrap(f, rows, ncols=16, span=None):
     cols = [i * 360.0 / ncols for i in range(ncols)] if span is None else span
-    return Wrap(f.zone_lower, (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
+    return Wrap(f.zone_lower, (f.O[0] + f.belt_c[0], f.O[1] + f.belt_c[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
                 centre_fn=lambda t: Vector((0.0, 0.0, 0.0)), r_out=0.45, col_span=None if span is None else True,
                 fill_rows=lambda j: True, default_r=0.18, rlim=(0.12, 0.26))
 
@@ -924,6 +924,13 @@ def build_red_dot(f, side=None):
 def build_foregrip(f, side=None):
     top, bot, wlo, whi = f.station(0.17)
     wc = (wlo + whi) / 2
+    if f.wbvh is not None:
+        # the handguard's underside OVER the grip, by a ray up its own axis: the station's lowest point is the lowest thing
+        # across the gun's whole width there, and a grip seated on that hangs under the handguard (15 mm on demo_a, 13 Nov)
+        hit = f.wbvh.ray_cast(Vector((-0.17, wc, -1.0)), Vector((0, 0, 1)))
+        if hit[0] is None:
+            raise ValueError(f"{f.prefix}: no gun surface over the foregrip's station (0.17 behind the muzzle, {wc:+.3f} across)")
+        bot = float(hit[0].z)
     pc = Piece(f.wpn())
     geo.lathe(pc, (-0.17, wc, bot + 0.002), (0, 0, -1), (1, 0, 0), [(0.0, 0.016), (0.09, 0.0145), (0.10, 0.0)], 8, "coyote",
               cap0="coyote")

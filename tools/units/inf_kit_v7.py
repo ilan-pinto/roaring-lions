@@ -154,14 +154,14 @@ def belt_fit(f):
     c = _cache(f)
     if "belt" in c:
         return c["belt"]
-    wr = ik._belt_wrap(f, [0.885, 0.9125, 0.94], 16)
+    wr = ik._belt_wrap(f, [0.885 + f.belt_dz, 0.9125 + f.belt_dz, 0.94 + f.belt_dz], 16)
     wr.sample()
     rf, rb, rl, rr = _median_radii(wr, (0, 1, 2), (0, 8, 4, 12), clamp=(0.12, 0.26))
     V0, T = km.source("battle_belt")
     nx, ny, _nz = BELT_NATIVE
     sx = (rf + rb + 2 * BELT_THICK) / nx
     sy = (rl + rr + 2 * BELT_THICK) / ny
-    origin = np.array([f.O[0] + (rf - rb) / 2.0, f.O[1] + (rl - rr) / 2.0, BELT_Z])
+    origin = np.array([f.O[0] + f.belt_c[0] + (rf - rb) / 2.0, f.O[1] + f.belt_c[1] + (rl - rr) / 2.0, BELT_Z + f.belt_dz])
     V = km.place(V0, origin, (1, 0, 0), UP, (sx, sy, 1.0))
     V, st = km.ring_fit(wr, V, T, BELT_CLEAR)
     bvh = geo.bvh_from(V, T)
@@ -361,7 +361,7 @@ def groin_fit(f, V0=None):
         V, gap, pb, pc_ = hang(np.array([math.cos(t_), math.sin(t_), 0.0]))
     tilt, h = assert_hangs("groin", f, V, GROIN_MIN_HEIGHT)
     g = km.outer_gap([bb], V, FORWARD)
-    band = inner & ~np.isnan(g) & (V[:, 2] > 0.86) & (V[:, 2] < 0.96)
+    band = inner & ~np.isnan(g) & (V[:, 2] > 0.86 + f.belt_dz) & (V[:, 2] < 0.96 + f.belt_dz)
     # The bar is the OUTER EDGES' gap to the belt (lateral offset over 90 mm from the buckle), where a flattened plate stands off a
     # curving belt: 35-37 mm for wave 4's unbent apron, 9-15 mm for the approved curvature (the earlier band-median gate, 25 mm, sat
     # 1.2 mm above the measured maximum and the flattened apron passed it). Both selections REFUSE an empty set rather than read 0.0
@@ -398,6 +398,7 @@ def v7_groin(f, side=None):
 # ------------------------------------------------------------ belt pouches
 
 def _belt_pouches(f, src, degs, size, z, z_top, tex):
+    z, z_top = z + f.belt_dz, z_top + f.belt_dz      # the figure's own belt line (`Team.belt_from_spine`; 0 otherwise)
     pc = Piece(f.world())
     V0, T = km.source(src)
     _bv, _bt, bb = belt_fit(f)
@@ -405,7 +406,7 @@ def _belt_pouches(f, src, degs, size, z, z_top, tex):
     for deg in ik._clear_pouches(f, degs, size, z):
         th = math.radians(deg)
         d = np.array([math.cos(th), math.sin(th), 0.0])
-        origin = np.array([f.O[0], f.O[1], z_top]) + d * 0.13
+        origin = np.array([f.O[0] + f.belt_c[0], f.O[1] + f.belt_c[1], z_top]) + d * 0.13
         V = km.place(V0, origin, d, UP)
         shift, _g = km.clear_shift([bb, f.zone_lower], V, d, gap=GAP, mask=V0[:, 0] < 0.004)
         V = V + d * shift

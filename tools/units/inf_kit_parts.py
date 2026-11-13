@@ -163,6 +163,7 @@ class Team:
     pack_box: bool = False             # the T3 radio pack is a flat-sided box with a lid, not a pad conformed to the back
     baked_mount: bool = False    # the helmet already carries an NVG shroud and mount: the tubes ride it, `nvg_mount` is not built
     dense_keys: bool = False     # sample every keyframe of a short clip and the clip's last frame (not a stride alone)
+    belt_from_spine: float = None   # the belt line this far under each figure's own spine joint, its ring centred on the hips (not 0.9125 m about the root)
     groin_wrap: bool = False     # a v7 groin apron is turned to face the way the belt's front faces under it (a body whose hips stand turned)
     v7: bool = False             # the approved v7 mesh parts (art/parts/inf_kit/v7, `inf_kit_v7.py`) stand in for the procedural builders
     part_tris: dict = field(default_factory=dict)   # this team's own per-NODE triangle rows (the graft's 1.10x limit); a part not named reads the shared table in kit-contract.ts
@@ -218,7 +219,7 @@ TEAMS = {
         "demo_squad", ("demo_a", "demo_b"), ("demo_b",), ("demo_a", "demo_b"), (2048, 2048),
         {
             "coyote": (225, 1656),         # dust.5   #806032  dE 0.03
-            "coyote_shade": (994, 699),    # dust.6   #6B4F29  dE 3.10 (inside the 6.0 cap; the Rifle Squad's is 3.33)
+            "coyote_shade": (998, 700),    # dust.6   #6B4F29  dE 3.02 (inside the 6.0 cap; the Rifle Squad's is 3.33)
             "olive": (1969, 992),          # olive.2  #4E5433  dE 0.48
             "olive_dark": (1177, 1297),    # olive.3  #333821  dE 0.38
             "glass": (1045, 983),          # shadow.0 #23241F  dE 0.52
@@ -230,7 +231,18 @@ TEAMS = {
         clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),
         bank_clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),
         stage_hide=("charge",), clear_pouches=True, dense_keys=True, flip_deg=120.0,
-        v7=True, part_tris=V7_PART_TRIS, groin_wrap=True),
+        v7=True, part_tris=V7_PART_TRIS, groin_wrap=True,
+        # The belt line. The kit's belt heights are the Rifle Squad's metres (the belt ring at 0.9125, the pouches at 0.905 and
+        # 0.855), about each figure's ROOT. This body's hip joints stand higher (0.52 of the stature against 0.49: demo_a's at
+        # 0.956) and its hips stand 10 cm behind its ankles, so at 0.9125 about the root the ring read the tops of the thighs
+        # from a centre in front of them: demo_a's battle belt stood a median 93 mm off the body (p90 180) and his groin apron
+        # 186 mm, against the Rifle Squad's 29-34 and 67-106 (the Opus review of 13 Nov; `tools/inf_kit_standoff.py`). The
+        # baked web belt is 65 mm under the spine joint on both men (z 1.025 on demo_a, 0.965 on demo_b), and the ring is
+        # centred on the hips' own section there.
+        belt_from_spine=0.065,
+        # the gun's stations are read off its SURFACE (rays), not its vertices within 2.5 cm: the handguard's lowest vertex
+        # near the foregrip's station is 11-15 mm under the surface over the grip, and the grip hung in the air by that much
+        weapon_by_surface=True),
 }
 
 TEAM = TEAMS["inf_squad"]

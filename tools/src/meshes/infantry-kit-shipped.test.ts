@@ -50,10 +50,10 @@ const TEAMS: Readonly<
   inf_squad: { figures: ['f0', 'f1', 'f2'], hosts: ['uniform', 'weapon'], leader: 'f1', preKitEncodedBytes: 1_961_376, growthKiB: 128 },
   // GH-826 unit 1 (13 Nov 2026): the Combat Engineers are a skinned Meshy body with a textured carbine, so their devices ride
   // `weapon` as the Rifle Squad's do, and their kit is the same v7 set (demo_a 6,735 and demo_b 6,931 triangles drawn). Pre-kit
-  // encode 1,561,740 (the shipped file with its kit stripped by `stripKit`, through the encode pass's draco()); with the kit
-  // 1,640,960: +79,220 bytes, 77.4 KiB, for two men where the Rifle Squad's three cost 107.5. The budget is the measured
-  // growth rounded up to 80 KiB, not the Rifle Squad's 128.
-  demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform', 'weapon'], leader: 'demo_b', preKitEncodedBytes: 1_561_740, growthKiB: 80 },
+  // encode 1,559,820 (the shipped file with its kit stripped by `stripKit`, through the encode pass's draco()); with the kit
+  // 1,639,412: +79,592 bytes, 77.7 KiB, for two men where the Rifle Squad's three cost 107.5. The budget is the measured
+  // growth rounded up to 80 KiB, this team's own row (the lead's ruling of 13 Nov 2026: per team, never global).
+  demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform', 'weapon'], leader: 'demo_b', preKitEncodedBytes: 1_559_820, growthKiB: 80 },
 };
 // 9 Nov 2026 (the v7 set, GH-746, lead-approved 7,200 triangles a figure): the Rifle Squad's encoded kit now adds 110,104 bytes
 // (107.5 KiB) to its pre-kit file, so ITS budget is 128 KiB (`growthKiB` above) and at 64 KiB this test goes red on the shipped
