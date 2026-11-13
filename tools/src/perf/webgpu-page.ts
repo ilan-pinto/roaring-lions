@@ -17,7 +17,7 @@ import { censusUnported } from '../../../packages/render/src/three/backend/unpor
 import { resolveNodeDraw, type NodeDrawOptions } from '../../../packages/render/src/three/backend/node-draw-options';
 import type { ArmId } from './webgpu-refusals';
 import { TERRAIN_THEMES } from '../../../packages/app/src/terrain-themes';
-import { GRASS_LAYER, GRASS_NAME_PREFIX, countGrassMeshes, type GrassMode, type GrassNodeLike, type GrassReading, type GrassState } from './webgpu-grass-lib';
+import { GRASS_LAYER, GRASS_NAME_PREFIX, countGrassMeshes, settleField, type GrassMode, type GrassNodeLike, type GrassReading, type GrassState } from './webgpu-grass-lib';
 import { drawTypeOf, emptyByType, medianOrNull, type DrawObjectLike, type DrawType, type FullReason, type PerPass, type RenderPassId, type SubmitReading, type Uploads, type VariantId } from './webgpu-submit-probe-lib';
 
 interface BatchedLike {
@@ -316,12 +316,13 @@ async function applyGrassModeSettled(renderer: unknown, mode: GrassMode, depthWr
   if (mode === 'hidden') return applyGrassMode(renderer, mode, depthWrite, singlePass);
   const r = renderer as { setDebugLayerVisible(name: string, visible: boolean): number; scene: GrassNodeLike; frame?: (n: number, dt: number) => void };
   r.setDebugLayerVisible(GRASS_LAYER, true);
-  const until = Date.now() + 30_000;
-  while (countGrassMeshes(r.scene) === 0) {
-    if (Date.now() > until) throw new Error('applyGrassModeSettled: the 3D grass field had no visible mesh 30 s after init (no field was built)');
-    r.frame?.(1, 0);
-    await new Promise((res) => setTimeout(res, 50));
-  }
+  await settleField(
+    () => countGrassMeshes(r.scene),
+    async () => {
+      r.frame?.(1, 0);
+      await new Promise((res) => setTimeout(res, 50));
+    }
+  );
   return applyGrassMode(renderer, mode, depthWrite, singlePass);
 }
 

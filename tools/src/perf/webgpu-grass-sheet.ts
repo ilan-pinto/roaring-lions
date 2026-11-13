@@ -30,6 +30,7 @@ import { gpuLaunchArgs } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPort } from '../ui-review/port';
 import { loadRefusal, MAX_LOADAVG_1M } from './webgpu-abba';
+import { flatFrameRefusal, identicalPairRefusal, settleField, sheetBootRefusals } from './webgpu-grass-lib';
 import { deltaE2000, linearHex } from '../delta-e2000';
 import palette from '../../../data/palette.json';
 
@@ -201,14 +202,8 @@ const shaOf = (b: Buffer): string => createHash('sha1').update(b).digest('hex').
 
 function checkFrame(file: string, png: Buffer): void {
   const p = PNG.sync.read(png);
-  let lo = 255;
-  let hi = 0;
-  for (let i = 0; i < p.data.length; i += 4 * 97) {
-    const v = (p.data[i] as number) + (p.data[i + 1] as number) + (p.data[i + 2] as number);
-    lo = Math.min(lo, v / 3);
-    hi = Math.max(hi, v / 3);
-  }
-  if (hi - lo < 12) refuse(`${file}: the frame is blank or flat (range ${lo.toFixed(0)}..${hi.toFixed(0)})`);
+  const r = flatFrameRefusal(file, p.data);
+  if (r !== null) refuse(r);
 }
 
 async function shoot(page: Page, name: string, cw: number, ch: number): Promise<Buffer> {
@@ -226,7 +221,8 @@ async function pair(page: Page, name: string, cw: number, ch: number, note: stri
   await call(page, 'layer', 'grass-field', false);
   const off = await shoot(page, `${name}-off`, cw, ch);
   await call(page, 'layer', 'grass-field', true);
-  if (on.equals(off)) refuse(`${name}: the grass-on and grass-off frames are byte-identical: the layer toggled nothing`);
+  const same = identicalPairRefusal(name, on, off);
+  if (same !== null) refuse(same);
   files.push({ name: `${name}-on`, file: `${name}-on.png`, note }, { name: `${name}-off`, file: `${name}-off.png`, note });
   return [on, off];
 }
@@ -350,10 +346,21 @@ async function main(): Promise<void> {
     })) as string;
     adapter = info.adapter;
     kind = info.kind;
-    if (kind !== 'node-webgpu') refuse(`backendInfo().kind is "${kind}", expected "node-webgpu" (a fallback is evidence about the fallback)`);
-    if (!/metal/i.test(adapter) || /swiftshader/i.test(adapter)) refuse(`the adapter is "${adapter}", not hardware Metal`);
-    const nMeshes = (await page.evaluate('window.__gs.meshes().length')) as number;
-    if (nMeshes === 0) refuse('no visible rl-grass-field mesh after boot: the field was not built (a fallback photographs the OLD grass)');
+    const countMeshes = async (): Promise<number> => (await page.evaluate('window.__gs.meshes().length')) as number;
+    let nMeshes = await countMeshes();
+    // The field arrives after boot (the S6 lesson): wait for a non-zero count that holds across two polls before judging it.
+    nMeshes = await settleField(
+      () => nMeshes,
+      async () => {
+        await page.evaluate('window.__lions.renderer.frame(1, 0)');
+        await page.waitForTimeout(50);
+        nMeshes = await countMeshes();
+      },
+      2,
+      200
+    ).catch(() => 0);
+    const bootRefusals = sheetBootRefusals(kind, adapter, nMeshes);
+    if (bootRefusals.length > 0) refuse(bootRefusals.join('; '));
     startTick = await call<number>(page, 'tick');
     say(`backend ${kind} on "${adapter}" (WebGL probe: ${glRenderer}); ${nMeshes} visible grass meshes; start tick ${startTick}`);
     const spots = await call<Spots>(page, 'spots', 5);

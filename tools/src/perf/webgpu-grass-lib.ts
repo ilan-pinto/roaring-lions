@@ -188,3 +188,56 @@ export async function hideGrassOnPage(page: { evaluate(script: string): Promise<
   if (refusal !== null) throw new Error(refusal);
   return got;
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// GH-1167 S7/S8 follow-up: the sheet's refusals and the settled wait, as pure functions so each can be driven red (`webgpu-grass-lib.test.ts`).
+// ---------------------------------------------------------------------------------------------------------------------------
+
+/** The least spread of a frame's sampled brightness (0-255) a real frame has; below it the frame is blank or flat. */
+export const FLAT_FRAME_RANGE = 12;
+
+/** A blank or flat RGBA frame (every 97th pixel sampled): the range of its mean channel is below `FLAT_FRAME_RANGE`. */
+export function flatFrameRefusal(label: string, rgba: ArrayLike<number>): string | null {
+  let lo = 255;
+  let hi = 0;
+  for (let i = 0; i + 2 < rgba.length; i += 4 * 97) {
+    const v = ((rgba[i] as number) + (rgba[i + 1] as number) + (rgba[i + 2] as number)) / 3;
+    lo = Math.min(lo, v);
+    hi = Math.max(hi, v);
+  }
+  return hi - lo < FLAT_FRAME_RANGE ? `${label}: the frame is blank or flat (range ${lo.toFixed(0)}..${hi.toFixed(0)})` : null;
+}
+
+/** An on/off pair of byte-identical frames: the layer toggled nothing. */
+export function identicalPairRefusal(name: string, on: Uint8Array, off: Uint8Array): string | null {
+  if (on.length !== off.length) return null;
+  for (let i = 0; i < on.length; i++) if (on[i] !== off[i]) return null;
+  return `${name}: the grass-on and grass-off frames are byte-identical: the layer toggled nothing`;
+}
+
+/** What the sheet boots on: node-webgpu, hardware Metal, and a field with visible meshes. */
+export function sheetBootRefusals(kind: string, adapter: string, grassMeshes: number): string[] {
+  const out: string[] = [];
+  if (kind !== 'node-webgpu') out.push(`backendInfo().kind is "${kind}", expected "node-webgpu" (a fallback is evidence about the fallback)`);
+  if (!/metal/i.test(adapter) || /swiftshader/i.test(adapter)) out.push(`the adapter is "${adapter}", not hardware Metal`);
+  if (grassMeshes === 0) out.push('no visible rl-grass-field mesh after boot: the field was not built (a fallback photographs the OLD grass)');
+  return out;
+}
+
+/**
+ * Waits for the field to exist AND hold still: the visible grass-mesh count must read the same non-zero value on `stable` consecutive polls
+ * (the field arrives after `init`, and a count read mid-build is not the field). Throws after `maxPolls` polls without that. Returns the count.
+ */
+export async function settleField(count: () => number, poll: () => Promise<void>, stable = 2, maxPolls = 600): Promise<number> {
+  let last = 0;
+  let run = 0;
+  for (let i = 0; i < maxPolls; i++) {
+    const c = count();
+    if (c > 0 && c === last) run++;
+    else run = c > 0 ? 1 : 0;
+    last = c;
+    if (run >= stable) return c;
+    await poll();
+  }
+  throw new Error(`settleField: the grass field did not hold a stable non-zero mesh count in ${maxPolls} polls (last ${last}): no field was built, or it never settled`);
+}

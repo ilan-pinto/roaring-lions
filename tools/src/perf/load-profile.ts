@@ -48,6 +48,7 @@ import path from 'node:path';
 import { chromium, type CDPSession } from 'playwright';
 import { driveBoot, startPreview } from './boot';
 import { ensureDevServer, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
+import { parseRendererFlag, type RendererFlag } from './renderer-flag';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPort } from '../ui-review/port';
 import { gpuLaunchArgs, resolveGpuBackend, type GpuBackend } from '../ui-review/gpu';
@@ -72,7 +73,7 @@ type Args = {
   cpu: number;
   gpu: GpuBackend;
   /** GH-1167 S8: `--renderer=webgpu|webgl2|legacy` is the app's `&gpu=` (which renderer draws), NOT `--gpu` (which ANGLE backend Chromium launches with). Absent = the app's default. */
-  renderer: string | null;
+  renderer: RendererFlag | null;
   /** GH-1167 S8: `--quality=high|medium|low`, the quality preset the page boots with (`low` builds no 3D grass field). Absent = the game's own default. */
   quality: 'high' | 'medium' | 'low' | null;
   viewport: { width: number; height: number };
@@ -104,7 +105,7 @@ function parseArgs(argv: string[]): Args {
     cpu: Number(get('cpu') ?? 1),
     // 'darwin' pins the default to Metal, which this tool has always used.
     gpu: resolveGpuBackend(argv, 'darwin'),
-    renderer: get('renderer') ?? null,
+    renderer: parseRendererFlag(get('renderer')),
     quality: ((): Args['quality'] => {
       const q = get('quality');
       if (q === undefined) return null;
