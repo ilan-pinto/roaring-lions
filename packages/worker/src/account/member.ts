@@ -11,6 +11,32 @@ export async function accountsOpen(db: D1Like): Promise<boolean> {
   return row !== null && row.value === 'open';
 }
 
+/** True only for `flags.<name>` = 'open'. A missing row, or any other value, is CLOSED (like `accounts`). */
+async function flagOpen(db: D1Like, name: string): Promise<boolean> {
+  const row = await db.prepare('SELECT value FROM flags WHERE name = ?1').bind(name).first<{ value: string }>();
+  return row !== null && row.value === 'open';
+}
+
+/** True only for `flags.steam` = 'open'. Steam's relay cannot finish a sign-in (GH-1075 U3), so it is off until the lead opens it. */
+export const steamOpen = (db: D1Like): Promise<boolean> => flagOpen(db, 'steam');
+
+/**
+ * The providers `GET open` lists, i.e. what the app may draw buttons for (spec U1).
+ *
+ * Flag semantics, on purpose: `flags.google` governs THIS LIST ONLY. `google/start` and `google/return` check the
+ * secrets and nothing else, so with the secrets set but the flag closed, `/profile?google` (G6) still works for the
+ * lead's test before the flag opens, and an existing Google identity can still sign in by a direct API call. Only
+ * member CREATION is gated (`accountsOpen` and the new-account budgets). Steam is stricter: `steam/start` also checks
+ * its flag, because that flow can never finish and a stale tab would spend the sign-in budget on it.
+ */
+export async function openProviders(db: D1Like, env: { GOOGLE_CLIENT_ID?: string; GOOGLE_CLIENT_SECRET?: string }): Promise<('google' | 'steam')[]> {
+  const out: ('google' | 'steam')[] = [];
+  const secrets = (env.GOOGLE_CLIENT_ID ?? '').trim() !== '' && (env.GOOGLE_CLIENT_SECRET ?? '') !== '';
+  if (secrets && (await flagOpen(db, 'google'))) out.push('google');
+  if (await steamOpen(db)) out.push('steam');
+  return out;
+}
+
 /** The member behind an active identity, or null. A hit also stamps the identity's `last_used_day`. */
 export async function memberForIdentity(db: D1Like, provider: string, subject: string, now: number = Date.now(), stamp = true): Promise<string | null> {
   const row = await db

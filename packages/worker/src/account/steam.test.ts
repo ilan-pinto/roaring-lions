@@ -59,7 +59,9 @@ const count = async (h: H, table: string): Promise<number> =>
 function harness(opts: { valid?: boolean; down?: boolean; open?: boolean } = {}) {
   const stub = steamStub({ valid: opts.valid, down: opts.down });
   const h = accountHarness({ now: T0, deps: stub });
-  return { h, stub, ready: opts.open === false ? Promise.resolve() : h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0)`).run().then(() => undefined) };
+  // `flags.steam` is always open here (G5): steam/start answers 503 without it. `accounts` follows `opts.open`.
+  const steamFlag = h.db.prepare(`INSERT INTO flags VALUES ('steam','open',0)`).run();
+  return { h, stub, ready: steamFlag.then(() => (opts.open === false ? undefined : h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0)`).run().then(() => undefined))) };
 }
 
 async function seedMember(h: H, id: string, steam?: string): Promise<void> {
@@ -222,7 +224,7 @@ describe('Steam sign-in', () => {
   it('a Steam check answering 503 is r=steam', async () => {
     const stub = steamStub({ status: 503 });
     const h = accountHarness({ now: T0, deps: stub });
-    await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0)`).run();
+    await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0),('steam','open',0)`).run();
     const s = await start(h, 'steam-login');
     expect(back(await ret(h, returnParams(s.c, S1), s.cookie)).code).toBe('steam');
     expect(await count(h, 'session')).toBe(0);
@@ -294,6 +296,7 @@ describe('Steam sign-in', () => {
   it('a link whose member vanished is not "taken" (M7)', async () => {
     const stub = steamStub();
     const h = accountHarness({ now: T0, deps: stub, foreignKeys: true });
+    await h.db.prepare(`INSERT INTO flags VALUES ('steam','open',0)`).run();
     await seedMember(h, 'm1');
     const s = await start(h, 'steam-link', await freshCookie(h, 'm1'));
     await h.db.prepare('DELETE FROM member WHERE id = ?1').bind('m1').run();
@@ -480,7 +483,7 @@ describe('verifyOpenId hardening (I3)', () => {
     const inits: RequestInit[] = [];
     const deps = { fetch: async (_u: string, init: RequestInit) => (inits.push(init), new Response('is_valid:true\n', { status: 200 })) };
     const h = accountHarness({ now: T0, deps });
-    await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0)`).run();
+    await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0),('steam','open',0)`).run();
     const s = await start(h, 'steam-login');
     expect(back(await ret(h, returnParams(s.c, S1), s.cookie)).code).toBe('ok');
     expect(inits.length).toBe(1);
@@ -490,7 +493,7 @@ describe('verifyOpenId hardening (I3)', () => {
   it('a 302 from the check endpoint is r=steam, never a sign-in', async () => {
     const deps = { fetch: async () => new Response('is_valid:true\n', { status: 302, headers: { location: 'https://evil.example/' } }) };
     const h = accountHarness({ now: T0, deps });
-    await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0)`).run();
+    await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0),('steam','open',0)`).run();
     const s = await start(h, 'steam-login');
     expect(back(await ret(h, returnParams(s.c, S1), s.cookie)).code).toBe('steam');
     expect(await count(h, 'member')).toBe(0);
@@ -502,7 +505,7 @@ describe('steam verify diagnostics (GH-1075)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
       const h = accountHarness({ now: T0, deps: { fetch } });
-      await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0)`).run();
+      await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0),('steam','open',0)`).run();
       const s = await start(h, 'steam-login');
       const code = back(await ret(h, returnParams(s.c, S1), s.cookie)).code;
       return { code, calls: warn.mock.calls.map((c) => [...c]) };

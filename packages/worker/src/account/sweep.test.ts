@@ -103,6 +103,7 @@ describe('sweepAccounts', () => {
   it('a sign-in after the sweep selected the member wins', async () => {
     const stub = steamStub();
     const h = accountHarness({ now: NOW, deps: stub });
+    await h.db.prepare(`INSERT INTO flags VALUES ('steam','open',0)`).run();
     await member(h, 'm1', CUTOFF, STEAM);
     const start = await h.call('POST', '/api/account/steam/start', { body: { purpose: 'steam-login' } });
     expect(start.status).toBe(200);

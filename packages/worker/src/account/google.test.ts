@@ -145,6 +145,7 @@ describe('google/start (G3)', () => {
 
   it('shares the start day budget with Steam: the 51st from one address is 429', async () => {
     const { h } = harness();
+    await h.db.prepare(`INSERT INTO flags VALUES ('steam','open',0)`).run();
     h.env.TICKET_SECRET = 'secret';
     const from = () => h.call('POST', '/api/account/google/start', { body: { purpose: 'google-login' }, headers: { 'cf-connecting-ip': '198.51.100.7' } });
     for (let i = 0; i < 50; i++) expect((await from()).status).toBe(200);
@@ -154,6 +155,7 @@ describe('google/start (G3)', () => {
 
   it('the start day budget is shared with Steam: 25 steam + 25 google starts, then 429 either way', async () => {
     const { h } = harness();
+    await h.db.prepare(`INSERT INTO flags VALUES ('steam','open',0)`).run();
     h.env.TICKET_SECRET = 'secret';
     const ip = { 'cf-connecting-ip': '198.51.100.7' };
     const go = (path: string, purpose: string) => h.call('POST', `/api/account/${path}/start`, { body: { purpose }, headers: ip });
