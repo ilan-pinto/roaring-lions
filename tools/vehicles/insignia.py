@@ -23,6 +23,9 @@ The frame's fields (`insignia-frames.ts`'s `InsigniaFrame`):
   d                     the roundel's diameter (decision 10: 0.60 m standard)
   slab    [zlo, zhi]    the |z| range a painted fragment must be in: the host flank AND the outermost flat kit plate
                         standing over it (decision 14), nothing behind
+  hide_from_tier        optional: the ARMOUR track tier from which the renderer draws NO insignia on this type (the Shachaf: its
+                        tier-2 plate stands 0.6 m off the host and the lion would show over its top edge). Data, read by
+                        `insigniaHiddenAt`; absent means never hidden
   min_n                 flank faces only: |n.z| above this. NOT sign(z) * n.z: the Lavi's -z flank is mirrored geometry on a
                         double-sided material, so its normals point +z (inward), mean n.z 0.984 under the disc
 
@@ -72,7 +75,7 @@ FRAMES = {
     "apc_eitan": dict(centre=[-0.70, 2.35, 1.10], d=0.50, slab=[0.92, 1.30], min_n=0.60),  # upper flank, above the tier-3 cage
     "jeep_shoded": dict(centre=[0.40, 0.90, 0.98], d=0.50, slab=[0.90, 1.06], min_n=0.60),  # the front door, below the tier-3 armour
     "ifv_namer": dict(centre=[2.90, 2.10, 1.65], d=0.45, slab=[1.50, 1.80], min_n=0.60),  # forward flank, ahead of the tier-2 band
-    "scout_shachaf": dict(centre=[-0.70, 1.08, 0.60], d=0.40, slab=[0.50, 1.34], min_n=0.60),  # lower flank under the tier-3 cage; the tier-2 plate at tiers 2-3
+    "scout_shachaf": dict(centre=[-0.70, 1.08, 0.60], d=0.40, slab=[0.50, 0.80], min_n=0.60, hide_from_tier=2),  # HULL ONLY (lead, 13 Nov): the host flank, shown at armour tiers 0-1 and none once the tier-2 plate is fitted
 }
 
 #: Points per metre when the disc is sampled (a 1 cm grid).
@@ -207,6 +210,8 @@ def measure(vehicle):
         luma=round(float(lumas.mean()), 5),
         host_sha256=host_position_sha256(glb),
     )
+    if "hide_from_tier" in frame:
+        entry["hide_from_tier"] = frame["hide_from_tier"]
     report = dict(hosts=hosts, flanks=flank, luma_std=round(float(lumas.std()), 5), kit_pin_luma=pin_luma)
     return entry, report
 

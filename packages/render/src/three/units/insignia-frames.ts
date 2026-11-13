@@ -85,10 +85,11 @@ const FRAMES: Readonly<Record<string, InsigniaFrame>> = {
   "scout_shachaf": {
     "centre": [-0.7, 1.08, 0.6],
     "d": 0.4,
+    "hide_from_tier": 2,
     "host_sha256": "310d135435e57cf2efdba5d304bfe231ab36f4e57fb3e68429742ba544e12beb",
-    "luma": 0.09362,
+    "luma": 0.0934,
     "min_n": 0.6,
-    "slab": [0.5, 1.34]
+    "slab": [0.5, 0.8]
   },
   "spg_cluster": {
     "centre": [0.2, 2.2, 1.0],

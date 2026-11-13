@@ -887,6 +887,8 @@ detail band moved from 11-15 px to 15-20 px).
 
 ## GH-1096 S2: the insignia on the rest of the ground fleet
 
+**`hide_from_tier` and the oblique gate (13 Nov rulings).** A frame may carry `hide_from_tier` (the ARMOUR track tier from which the type draws NO insignia; `insigniaHiddenAt` in `units/insignia.ts`; set in `FRAMES` in `insignia.py`). The renderer (`vehicleTeamFor`) and the garage (`stageVehicle`) read it against the kit tiers the template is built with and take the unframed path. Only `scout_shachaf` has it (2): its tier-2 plate stands 0.6 m off the host, and a host lion shows over the plate's top edge at every ordinary camera (0.30 of the disc at el 30), however the slab is cut. `obliqueRecess` in `tools/src/insignia.test.ts` walks 60 cameras (el 18 and 30, az every 10 degrees, minus edge-on) over every kit configuration: a painted point visible from a camera but hidden broadside must stay under 0.02 of the disc. `mbt_lavi` has a NAMED ceiling of 0.023 (measured 0.0227: host paint 7 cm behind its skirt), with a ratchet that goes red if it improves.
+
 Twelve frames now (`INSIGNIA_REQUIRED`): the Lavi, `officer_armour`, `apc_kipod`, `demo_tzav`, `aa_remetz`, `dozer_d9`, both Te'o
 (`spg_long_range`, `spg_cluster`, on the TURRET flank, so the emblem turns with it), `apc_eitan`, `jeep_shoded`, `ifv_namer` and
 `scout_shachaf`. Diameters are decision 10's, never larger. The section 6.1 starting centres were geometry-only: several sat on a track, a

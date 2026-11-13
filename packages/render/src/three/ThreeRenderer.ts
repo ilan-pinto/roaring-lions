@@ -723,7 +723,7 @@ import {
   vehicleTakesDamageStates,
 } from './units/vehicle-damage';
 import { TeamMaskSlots, VehicleTeamMaterials, setInsigniaPass, setTeamMaskPass } from './units/team-mask';
-import { InsigniaShared } from './units/insignia';
+import { InsigniaShared, insigniaHiddenAt } from './units/insignia';
 import { insigniaFrameOf } from './units/insignia-frames';
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
@@ -12227,13 +12227,18 @@ export class ThreeRenderer implements Renderer {
    * A minted variant goes to the environment registry under the class its surface clone was tagged with.
    *
    * GH-1096 S1: the insignia frame is looked up by the unit TYPE id, never the template key (a versus seat's `typeId#s1` is the
-   * same vehicle), and EXACTLY: `mbt_lavi_camo` and `officer_armour` share the Lavi's hull and have no frame of their own.
+   * same vehicle), and EXACTLY: `mbt_lavi_camo` shares the Lavi's hull and has no frame of its own. `officer_armour` has its own
+   * (GH-1096 S2), so it is looked up by its own id like the rest.
    */
   private vehicleTeamFor(templateKey: string, typeId: string): VehicleTeamMaterials {
     let team = this.vehicleTeamMaterials.get(templateKey);
     if (!team) {
       if (!this.teamMaskSlots) this.teamMaskSlots = new TeamMaskSlots(this.opts.teamColors);
-      const frame = insigniaFrameOf(typeId);
+      const found = insigniaFrameOf(typeId);
+      // The kit the TEMPLATE was built with (a versus seat's `#s1` key is side 1's): a frame with `hide_from_tier` draws nothing from
+      // that armour tier up, so the type takes the same no-insignia path as an unframed one.
+      const tiers = templateKitTiers(typeId, templateKey === typeId ? 0 : 1, this.opts.unitKitTiers, this.opts.unitKitTiersBySide);
+      const frame = found !== null && !insigniaHiddenAt(found, tiers) ? found : null;
       team = new VehicleTeamMaterials(
         this.teamMaskSlots,
         (m) => this.adoptEnvironment([m], 'unitDielectric'),

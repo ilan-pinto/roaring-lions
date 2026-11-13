@@ -571,6 +571,33 @@ describe('GH-1096 S2: every framed type id, built by the renderer, wears ITS OWN
   });
 });
 
+describe('GH-1096 S2: a frame with hide_from_tier draws no insignia from that armour tier up (the Shachaf)', () => {
+  async function hookAt(armour: number | undefined, id = 'scout_shachaf'): Promise<unknown> {
+    seam.kit = stubKit();
+    const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
+    const e = sim.spawn(sim.addUnitType({ ...LAVI, id }), 0, fx.from(6.5), fx.from(6.5));
+    const kit = armour === undefined ? {} : { unitKitTiers: { [id]: { armour } } };
+    const r = new ThreeRenderer(sim, { ...makeOpts('webgl2'), ...kit });
+    const priv = r as unknown as Private;
+    await r.init(HOST);
+    await r.loadVehicleMesh(id, `${id}.glb`);
+    r.frame(1, 16);
+    const hull = hullOf(priv.vehicleMeshEntities.get(e) as VehicleMeshEntity);
+    const ins = insigniaHookOf(legacyOf(hull.material as THREE.Material, hull));
+    r.dispose();
+    return ins;
+  }
+  it('tiers 0 and 1 carry the hook; tiers 2 and 3 carry none', async () => {
+    expect(await hookAt(undefined), 'no kit').toBeDefined();
+    expect(await hookAt(1), 'armour 1').toBeDefined();
+    expect(await hookAt(2), 'armour 2').toBeUndefined();
+    expect(await hookAt(3), 'armour 3').toBeUndefined();
+  });
+  it('a frame without the rule is never hidden: the Lavi at armour 3 still wears it', async () => {
+    expect(await hookAt(3, 'mbt_lavi')).toBeDefined();
+  });
+});
+
 describe('GH-1096 S1: the insignia field is fetched only for a roster holding a framed type', () => {
   const URL_SDF = '/t/textures/insignia/roaring_lion_sdf.png';
   async function fetchesFor(types: readonly UnitTypeJson[]): Promise<number> {

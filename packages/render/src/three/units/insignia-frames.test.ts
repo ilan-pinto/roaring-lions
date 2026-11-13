@@ -6,6 +6,7 @@
  * 15 of section 6 with the aircraft. Falsify: delete any entry (or the whole table body), and this goes red.
  */
 import { describe, expect, it } from 'vitest';
+import { insigniaHiddenAt } from './insignia';
 import { INSIGNIA_FRAMES, insigniaFrameOf } from './insignia-frames';
 
 /**
@@ -71,5 +72,16 @@ describe('gate 1: the insignia table holds the approved scope', () => {
     for (const id of ['attack_drone', 'recon_drone', 'ugv_recon_dog', 'mbt_lavi_camo', 'veh_ambulance', 'air_medevac_heli']) {
       expect(insigniaFrameOf(id), id).toBeNull();
     }
+  });
+
+  it('hide_from_tier: only the Shachaf carries it (2), and insigniaHiddenAt reads the ARMOUR track only', () => {
+    expect(Object.keys(INSIGNIA_FRAMES).filter((id) => INSIGNIA_FRAMES[id]!.hide_from_tier !== undefined)).toEqual(['scout_shachaf']);
+    const f = insigniaFrameOf('scout_shachaf')!;
+    expect(insigniaHiddenAt(f, undefined)).toBe(false);
+    expect(insigniaHiddenAt(f, { armour: 1 })).toBe(false);
+    expect(insigniaHiddenAt(f, { armour: 2 })).toBe(true);
+    expect(insigniaHiddenAt(f, { armour: 3 })).toBe(true);
+    expect(insigniaHiddenAt(f, { sensors: 3, firepower: 3 })).toBe(false);
+    expect(insigniaHiddenAt(insigniaFrameOf('mbt_lavi')!, { armour: 3 })).toBe(false);
   });
 });

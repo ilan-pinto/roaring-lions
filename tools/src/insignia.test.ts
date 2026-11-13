@@ -44,7 +44,7 @@ import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import jpeg from 'jpeg-js';
 import { afterAll, describe, expect, it } from 'vitest';
 import { INSIGNIA_FRAMES } from '../../packages/render/src/three/units/insignia-frames';
-import type { InsigniaFrame } from '../../packages/render/src/three/units/insignia';
+import { INSIGNIA_NORMAL_SOFT, type InsigniaFrame } from '../../packages/render/src/three/units/insignia';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const VEHICLES = path.join(REPO, 'art', 'meshes', 'vehicles');
@@ -143,7 +143,10 @@ function* subCentroids(tris: readonly Tri[]): Generator<{ c: V3; n: V3; areaXY: 
 
 const inDisc = (f: InsigniaFrame, c: V3): boolean => Math.hypot(c[0] - f.centre[0], c[1] - f.centre[1]) <= f.d / 2;
 const inSlab = (f: InsigniaFrame, c: V3): boolean => Math.abs(c[2]) >= f.slab[0] && Math.abs(c[2]) <= f.slab[1];
-const flankFacing = (f: InsigniaFrame, n: V3): boolean => Math.abs(n[2]) / Math.hypot(n[0], n[1], n[2]) >= f.min_n;
+/** Half the shader's soft band on the normal test, as a LITERAL (a test pins it to `INSIGNIA_NORMAL_SOFT`): the shader's smoothstep
+ *  starts painting at min_n - 0.04 (0.56 for the 0.60 frames), so that is where the gates' normal test starts too. */
+const NORMAL_SOFT = 0.04;
+const flankFacing = (f: InsigniaFrame, n: V3): boolean => Math.abs(n[2]) / Math.hypot(n[0], n[1], n[2]) >= f.min_n - NORMAL_SOFT;
 
 async function nodesOf(id: string): Promise<GNode[]> {
   return (await load(id)).getRoot().listNodes().filter(isLive);
@@ -292,14 +295,32 @@ interface KitTag {
 }
 const kitOf = (n: GNode): KitTag | undefined => extrasOf(n).rl_kit as KitTag | undefined;
 
+/** One drawn configuration: its name, the ARMOUR-track tier it wears, and which nodes it draws. */
+interface Config {
+  name: string;
+  armour: number;
+  keep: (n: GNode) => boolean;
+}
+
+/**
+ * The types whose insignia the renderer switches OFF from an armour tier (`hide_from_tier`), as a LITERAL: the table is pinned to
+ * it, so a mutated rule goes red here and not only in the table. A type absent here is never hidden.
+ */
+const HIDE_FROM_TIER: Readonly<Record<string, number>> = { scout_shachaf: 2 };
+/** True when `id` draws no insignia in `cfg`: the renderer's rule (`insigniaHiddenAt`) over the SHIPPED table (a test pins the table to the literal above). */
+const hiddenIn = (id: string, cfg: Config): boolean => {
+  const from = INSIGNIA_FRAMES[id]?.hide_from_tier;
+  return from !== undefined && cfg.armour >= from;
+};
+
 /**
  * Every configuration a living vehicle can draw (`vehicle-kit.ts`): no kit (L0); each track at each of its tiers (cumulative within
  * a track), with the near LOD and with the far; and every track at its top tier, near and far.
  */
-function kitConfigs(nodes: readonly GNode[]): Array<{ name: string; keep: (n: GNode) => boolean }> {
+function kitConfigs(nodes: readonly GNode[]): Config[] {
   const kits = nodes.map(kitOf).filter((k): k is KitTag => k !== undefined);
   const tracks = [...new Set(kits.map((k) => k.track))].sort();
-  const out: Array<{ name: string; keep: (n: GNode) => boolean }> = [{ name: 'L0', keep: (n) => kitOf(n) === undefined }];
+  const out: Config[] = [{ name: 'L0', armour: 0, keep: (n) => kitOf(n) === undefined }];
   const drawn = (lod: 'near' | 'far', pick: (k: KitTag) => boolean) => (n: GNode): boolean => {
     const k = kitOf(n);
     return k === undefined || (pick(k) && (k.lod === undefined || k.lod === lod));
@@ -307,10 +328,10 @@ function kitConfigs(nodes: readonly GNode[]): Array<{ name: string; keep: (n: GN
   for (const lod of ['near', 'far'] as const) {
     for (const track of tracks) {
       for (const tier of [...new Set(kits.filter((k) => k.track === track).map((k) => k.tier))].sort()) {
-        out.push({ name: `${track} ${tier} (${lod})`, keep: drawn(lod, (k) => k.track === track && k.tier <= tier) });
+        out.push({ name: `${track} ${tier} (${lod})`, armour: track === 'armour' ? tier : 0, keep: drawn(lod, (k) => k.track === track && k.tier <= tier) });
       }
     }
-    out.push({ name: `every track at its top tier (${lod})`, keep: drawn(lod, () => true) });
+    out.push({ name: `every track at its top tier (${lod})`, armour: Math.max(0, ...kits.filter((k) => k.track === 'armour').map((k) => k.tier)), keep: drawn(lod, () => true) });
   }
   return out;
 }
@@ -321,7 +342,10 @@ function kitConfigs(nodes: readonly GNode[]): Array<{ name: string; keep: (n: GN
  * above (host faces only, any depth) cannot see that. The point counts as painted when that face is a hull-role mesh (the host, or a
  * kit part the graft merges into it), inside the slab, passing the normal test. Returns the worst flank share and where it was.
  */
-async function visibleCoverage(id: string, f: InsigniaFrame): Promise<{ worst: number; at: string; configs: number }> {
+async function visibleCoverage(
+  id: string,
+  f: InsigniaFrame
+): Promise<{ worst: number; at: string; configs: number; byConfig: Array<{ name: string; share: number; hidden: boolean }> }> {
   const nodes = await nodesOf(id);
   const centre = [f.centre[0], f.centre[1]] as const;
   const points = discGrid(centre, f.d).filter((g) => g.inside);
@@ -346,8 +370,10 @@ async function visibleCoverage(id: string, f: InsigniaFrame): Promise<{ worst: n
   let worst = 1;
   let at = '';
   const configs = kitConfigs(nodes);
+  const byConfig: Array<{ name: string; share: number; hidden: boolean }> = [];
   for (const cfg of configs) {
     const drawn = nodes.filter(cfg.keep);
+    let cfgWorst = 1;
     for (const side of [1, -1]) {
       let painted = 0;
       points.forEach((_g, i) => {
@@ -358,13 +384,15 @@ async function visibleCoverage(id: string, f: InsigniaFrame): Promise<{ worst: n
         }
         if (best?.painted) painted++;
       });
-      if (painted / points.length < worst) {
+      cfgWorst = Math.min(cfgWorst, painted / points.length);
+      if (!hiddenIn(id, cfg) && painted / points.length < worst) {
         worst = painted / points.length;
         at = `${cfg.name}, ${side > 0 ? '+z' : '-z'} flank`;
       }
     }
+    byConfig.push({ name: cfg.name, share: cfgWorst, hidden: hiddenIn(id, cfg) });
   }
-  return { worst, at, configs: configs.length };
+  return { worst, at, configs: configs.length, byConfig };
 }
 
 /** True when `node` hangs off `turret_pivot`, so it turns with the turret. */
@@ -383,6 +411,162 @@ async function paintedByBody(id: string, f: InsigniaFrame): Promise<{ hull: numb
   return out;
 }
 
+// ---- gate: the oblique views (GH-1096 S2, lead ruling 13 Nov) ------------------------------------------------------------------
+// The fragment shader paints every fragment that is in the frame's box and passes the normal test, WHATEVER stands in front of it. Seen
+// broadside the part in front hides the paint; seen from a camera above the flank (the game's elevation is 30 degrees) a point
+// that is recessed behind a plate, or the inward face of that plate, can show through the channel. So: for every drawn configuration
+// and every camera (elevation 18 and 30, azimuth every 10 degrees, minus the edge-on ones), a painted point that is VISIBLE from that
+// camera must also be visible broadside from its own flank. The share that is not, over the disc's area, must stay under a ceiling.
+
+/** Camera elevations the game can frame a vehicle at, and the azimuth step, in degrees. */
+const OBLIQUE_ELEVATIONS = [18, 30] as const;
+const OBLIQUE_AZIMUTH_STEP = 10;
+/** A camera whose horizontal direction is within this of the flank plane sees the flank edge-on: not walked. |v.z| below it. */
+const EDGE_ON = 0.17;
+/** A point is the front-most when its depth is within this of the nearest drawn face (m); a thin plate's inward face is further. */
+const DEPTH_EPS = 0.005;
+/** The most the recessed share of the disc may read. The shipped fleet reads under 0.5%; the Shachaf's old two-surface slab read 34-59%. */
+const OBLIQUE_CEILING = 0.02;
+/** Lead-approved, named, measured exceptions (13 Nov): the Lavi's host lion shows 7 cm past its tier-2/3 skirt at glancing cameras (0.0227). */
+const NAMED_OBLIQUE_CEILING: Readonly<Record<string, number>> = { mbt_lavi: 0.023 };
+const MAX_POINTS = 1500;
+/** Cameras walked: 2 elevations x 36 azimuths, less those within EDGE_ON of the flank plane (az 0, 10, 170, 180, 190, 350, so 30 each). A literal. */
+const OBLIQUE_VIEWS = 60;
+
+interface PaintPt {
+  node: GNode;
+  c: V3;
+  /** The unit surface normal at the point. */
+  n: V3;
+  w: number;
+}
+
+const unit = (a: V3): V3 => {
+  const l = Math.hypot(a[0], a[1], a[2]);
+  return [a[0] / l, a[1] / l, a[2] / l];
+};
+const dot3 = (a: V3, b: V3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+function viewBasis(v: V3): { a: V3; b: V3 } {
+  // a = normalize(up x v), b = v x a: an orthonormal screen frame for a camera looking back along v
+  const ax = v[2];
+  const az = -v[0];
+  const l = Math.hypot(ax, az);
+  const a: V3 = [ax / l, 0, az / l];
+  const b: V3 = [v[1] * a[2] - v[2] * a[1], v[2] * a[0] - v[0] * a[2], v[0] * a[1] - v[1] * a[0]];
+  return { a, b };
+}
+
+/** Per node, per point: the greatest depth (toward the camera `v`) of any triangle of `tris` that covers the point on screen, else -Infinity. */
+function depthsAlong(tris: readonly Tri[], pts: readonly PaintPt[], v: V3): Float64Array {
+  const { a, b } = viewBasis(v);
+  const n = pts.length;
+  const pu = new Float64Array(n);
+  const pv = new Float64Array(n);
+  const pd = new Float64Array(n);
+  let u0 = Infinity;
+  let u1 = -Infinity;
+  let v0 = Infinity;
+  let v1 = -Infinity;
+  pts.forEach((p, i) => {
+    pu[i] = dot3(p.c, a);
+    pv[i] = dot3(p.c, b);
+    pd[i] = dot3(p.c, v);
+    u0 = Math.min(u0, pu[i]!);
+    u1 = Math.max(u1, pu[i]!);
+    v0 = Math.min(v0, pv[i]!);
+    v1 = Math.max(v1, pv[i]!);
+  });
+  const out = new Float64Array(n).fill(-Infinity);
+  for (const t of tris) {
+    const ua = dot3(t.P[0], a), ub = dot3(t.P[1], a), uc = dot3(t.P[2], a);
+    if (Math.max(ua, ub, uc) < u0 || Math.min(ua, ub, uc) > u1) continue;
+    const va = dot3(t.P[0], b), vb = dot3(t.P[1], b), vc = dot3(t.P[2], b);
+    if (Math.max(va, vb, vc) < v0 || Math.min(va, vb, vc) > v1) continue;
+    const da = dot3(t.P[0], v), db = dot3(t.P[1], v), dc = dot3(t.P[2], v);
+    const den = (vb - vc) * (ua - uc) + (uc - ub) * (va - vc);
+    if (Math.abs(den) < 1e-12) continue;
+    for (let i = 0; i < n; i++) {
+      const l1 = ((vb - vc) * (pu[i]! - uc) + (uc - ub) * (pv[i]! - vc)) / den;
+      const l2 = ((vc - va) * (pu[i]! - uc) + (ua - uc) * (pv[i]! - vc)) / den;
+      const l3 = 1 - l1 - l2;
+      if (l1 < -1e-9 || l2 < -1e-9 || l3 < -1e-9) continue;
+      const d = l1 * da + l2 * db + l3 * dc;
+      if (d > out[i]!) out[i] = d;
+    }
+  }
+  return out;
+}
+
+/**
+ * The share of the disc (per flank) that is painted, visible from a camera, and NOT visible broadside from its own flank, worst over
+ * every configuration, flank and camera. `painted` is exactly the shader's test: a hull-role face in the box, past the soft start of
+ * the normal test. Visibility is two-sided (the Lavi's -z flank is a mirrored double-sided mesh), by depth at the point's own screen position.
+ */
+async function obliqueRecess(
+  id: string,
+  f: InsigniaFrame,
+  honourHide = true
+): Promise<{ worst: number; at: string; views: number; configs: number; painted: number }> {
+  const nodes = await nodesOf(id);
+  const tris = new Map<GNode, Tri[]>(nodes.map((n) => [n, trianglesOf(n)]));
+  let pts: PaintPt[] = [];
+  for (const node of nodes.filter((n) => extrasOf(n).rl_role === 'hull')) {
+    for (const s of subCentroids(tris.get(node)!)) if (inDisc(f, s.c) && inSlab(f, s.c) && flankFacing(f, s.n)) pts.push({ node, c: s.c, n: unit(s.n), w: s.areaXY });
+  }
+  const stride = Math.max(1, Math.ceil(pts.length / MAX_POINTS));
+  pts = pts.filter((_p, i) => i % stride === 0).map((p) => ({ ...p, w: p.w * stride }));
+  const disc = Math.PI * (f.d / 2) ** 2;
+  const views: V3[] = [];
+  for (const el of OBLIQUE_ELEVATIONS) {
+    for (let az = 0; az < 360; az += OBLIQUE_AZIMUTH_STEP) {
+      const e = (el * Math.PI) / 180;
+      const v: V3 = [Math.cos(e) * Math.cos((az * Math.PI) / 180), Math.sin(e), Math.cos(e) * Math.sin((az * Math.PI) / 180)];
+      if (Math.abs(v[2]) >= EDGE_ON) views.push(v);
+    }
+  }
+  const broad: Record<string, V3> = { '1': [0, 0, 1], '-1': [0, 0, -1] };
+  // depth of each node at each point, per view (the configuration is then a max over its drawn nodes)
+  const depthOf = (v: V3): Map<GNode, Float64Array> => new Map(nodes.map((n) => [n, depthsAlong(tris.get(n)!, pts, v)]));
+  const broadDepth = new Map<number, Map<GNode, Float64Array>>([[1, depthOf(broad['1']!)], [-1, depthOf(broad['-1']!)]]);
+  const configs = kitConfigs(nodes);
+  const visibleIn = (cfg: { keep: (n: GNode) => boolean }, perNode: Map<GNode, Float64Array>, v: V3): boolean[] => {
+    const best = new Float64Array(pts.length).fill(-Infinity);
+    for (const n of nodes) {
+      if (!cfg.keep(n)) continue;
+      const d = perNode.get(n)!;
+      for (let i = 0; i < pts.length; i++) if (d[i]! > best[i]!) best[i] = d[i]!;
+    }
+    return pts.map((p, i) => cfg.keep(p.node) && dot3(p.c, v) >= best[i]! - DEPTH_EPS);
+  };
+  const broadVisible = new Map<number, Map<string, boolean[]>>();
+  for (const side of [1, -1]) {
+    broadVisible.set(side, new Map(configs.map((c) => [c.name, visibleIn(c, broadDepth.get(side)!, broad[String(side)]!)])));
+  }
+  let worst = 0;
+  let at = '';
+  for (const v of views) {
+    const perNode = depthOf(v);
+    for (const cfg of configs) {
+      if (honourHide && hiddenIn(id, cfg)) continue; // the renderer draws no insignia here: nothing is painted to recess
+      const seen = visibleIn(cfg, perNode, v);
+      for (const side of [1, -1]) {
+        const bv = broadVisible.get(side)!.get(cfg.name)!;
+        let bad = 0;
+        pts.forEach((p, i) => {
+          if (Math.sign(p.c[2]) === side && seen[i] && !bv[i]) {
+            bad += p.w * Math.min(1, Math.abs(dot3(p.n, v)));
+          }
+        });
+        if (bad / disc > worst) {
+          worst = bad / disc;
+          at = `${cfg.name}, ${side > 0 ? '+z' : '-z'} flank, camera (${v.map((x) => x.toFixed(2)).join(', ')})`;
+        }
+      }
+    }
+  }
+  return { worst, at, views: views.length, configs: configs.length, painted: pts.length };
+}
+
 interface TeamMarkBoxes {
   roof: { x: [number, number]; y: [number, number] };
   band: { x: [number, number]; y: [number, number] };
@@ -390,7 +574,7 @@ interface TeamMarkBoxes {
 
 const FRAMED = Object.keys(INSIGNIA_FRAMES).sort();
 /** The frames whose box holds an outer kit plate the lion paints at tiers (decision 14). A literal, never derived. */
-const PLATE_IN_BOX: readonly string[] = ['mbt_lavi', 'scout_shachaf'];
+const PLATE_IN_BOX: readonly string[] = ['mbt_lavi'];
 
 describe('gate 2: each frame stands on its hull (independent, subdivided)', () => {
   it('measures something: the table is not empty', () => {
@@ -441,8 +625,8 @@ describe('gate 2: each frame stands on its hull (independent, subdivided)', () =
       }
     }
     expect(bent.slice(0, 5)).toEqual([]);
-    // Decision 14 in force: exactly these frames have an outer kit plate standing in the box (the Lavi's tier-2 skirt, the
-    // Shachaf's tier-2 side plate), so this checked something on them; every other frame keeps clear of its kit.
+    // Decision 14 in force: exactly these frames have an outer kit plate standing in the box (the Lavi's tier-2 skirt; the
+    // Shachaf's plate is outside its hull-only box and the type draws no insignia at tiers 2-3), so this checked something on them; every other frame keeps clear of its kit.
     if (PLATE_IN_BOX.includes(id)) expect(seen, 'the plate is in the box').toBeGreaterThan(100);
     else expect(seen, 'no kit face in the box').toBe(0);
   }, 60_000);
@@ -496,7 +680,39 @@ describe('gate 2: each frame stands on its hull (independent, subdivided)', () =
     const v = await visibleCoverage(id, INSIGNIA_FRAMES[id]!);
     expect(v.configs, `${id}: kit configurations walked`).toBe(KIT_CONFIGS[id]);
     expect(v.worst, `worst at ${v.at}`).toBeGreaterThanOrEqual(AREA_FLOOR);
+    // Per configuration: a configuration the rule HIDES must be one where the lion would not be seen broadside anyway (the plate
+    // covers it: nothing is lost), and one it does not hide must show it. A mutated rule moves a configuration across this line.
+    for (const c of v.byConfig) {
+      if (c.hidden) expect(c.share, `${id}, ${c.name}: hidden, so the lion must not be visible there anyway`).toBeLessThan(AREA_FLOOR);
+      else expect(c.share, `${id}, ${c.name}: shown, so it must be visible`).toBeGreaterThanOrEqual(AREA_FLOOR);
+    }
   }, 120_000);
+
+  it('the frames\' hide_from_tier is exactly the literal HIDE_FROM_TIER (a mutated rule goes red here)', () => {
+    for (const id of FRAMED) expect(INSIGNIA_FRAMES[id]!.hide_from_tier, id).toBe(HIDE_FROM_TIER[id]);
+  });
+
+  it('the gates\' soft normal start is the shader\'s (min_n - INSIGNIA_NORMAL_SOFT), pinned as a literal', () => {
+    expect(INSIGNIA_NORMAL_SOFT).toBe(NORMAL_SOFT);
+    expect(flankFacing({ ...INSIGNIA_FRAMES.mbt_lavi!, min_n: 0.6 }, [Math.sqrt(1 - 0.57 ** 2), 0, 0.57])).toBe(true);
+    expect(flankFacing({ ...INSIGNIA_FRAMES.mbt_lavi!, min_n: 0.6 }, [Math.sqrt(1 - 0.55 ** 2), 0, 0.55])).toBe(false);
+  });
+
+  it.each(FRAMED)('%s: from the oblique cameras (elevation 18 and 30, every azimuth not edge-on) no recessed or hidden painted point shows', async (id) => {
+    const r = await obliqueRecess(id, INSIGNIA_FRAMES[id]!);
+    expect(r.configs, 'kit configurations walked').toBe(KIT_CONFIGS[id]);
+    expect(r.views, 'cameras walked').toBe(OBLIQUE_VIEWS);
+    expect(r.painted, 'painted points measured').toBeGreaterThan(50);
+    const named = NAMED_OBLIQUE_CEILING[id];
+    expect(r.worst, `worst: ${r.at}`).toBeLessThan(named ?? OBLIQUE_CEILING);
+    // The ratchet: a named ceiling is the measurement plus a rounding margin and may only fall. If the vehicle improves, lower it.
+    if (named !== undefined) expect(r.worst, `${id}'s named ceiling ${named} is stale: lower it to the measurement`).toBeGreaterThan(named - 0.0015);
+  }, 300_000);
+
+  it('the witness: the Shachaf with its hide rule IGNORED (a lion on the host behind the tier-2 plate) reads far OVER the oblique ceiling, so the gate can fail', async () => {
+    const r = await obliqueRecess('scout_shachaf', INSIGNIA_FRAMES.scout_shachaf!, false);
+    expect(r.worst, `worst: ${r.at}`).toBeGreaterThan(0.2);
+  }, 300_000);
 
   it.each(FRAMED)('%s: the frame paints ONE body: the hull or the turret, never both (it must not tear when the turret turns)', async (id) => {
     const b = await paintedByBody(id, INSIGNIA_FRAMES[id]!);
