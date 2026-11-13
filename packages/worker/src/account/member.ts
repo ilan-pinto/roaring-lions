@@ -39,7 +39,7 @@ export async function sessionFor(db: D1Like, memberId: string, now: number): Pro
 export async function createMember(
   db: D1Like,
   now: number,
-  identity: { provider: 'steam'; subject: string },
+  identity: { provider: 'steam' | 'google'; subject: string },
 ): Promise<{ memberId: string; publicId: string; setCookie: string }> {
   const earn = JSON.stringify(emptyRoar().earn);
   const entitlements = JSON.stringify(emptyRoar().entitlements);
