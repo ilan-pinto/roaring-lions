@@ -277,3 +277,10 @@ art/meshy/inf-squad-f1-20261101-01a197a3/texture_*
 art/meshy/sarim-rifles-body-20261113-01a1d3e9/model.*
 art/meshy/sarim-rifles-body-20261113-01a1d3f4/model.*
 art/meshy/sarim-rifles-body-20261113-01a1d40c/model.*
+# ... and the body bought from re-roll 2 (lead, 13 Nov): the 8k refine's downloads (fbx/glb/obj/stl/usdz, its base colour)
+# and the 10,000-triangle remesh (97 MB, 8k bake embedded) with its loose maps. Backed up, never committed. The tracked
+# source of record is the remesh's source_2k.glb (every map at 2048), with task.json and the thumbnails.
+art/meshy/sarim-rifles-body-20261113-01a1d41f/model.*
+art/meshy/sarim-rifles-body-20261113-01a1d41f/texture_*
+art/meshy/sarim-rifles-body-20261113-01a1d421/model.*
+art/meshy/sarim-rifles-body-20261113-01a1d421/texture_*
