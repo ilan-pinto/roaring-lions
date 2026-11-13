@@ -437,6 +437,8 @@ export function build() {
     width: SIZE,
     height: SIZE,
     terrain: 'arid',
+    // GH-1226: the node renderer's ground blend draws limestone, and the Black Desert is basalt (decision 2). Presentation only.
+    ground_blend: false,
     markers: sortedByKey(markers),
     zones: sortedByKey(zones),
     rows: t.map((r) => r.join('')),

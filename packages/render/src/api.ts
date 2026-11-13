@@ -168,6 +168,22 @@ export interface TerrainTones {
    * path never reads it (pin P4, `tools/src/grass_legacy_scene.test.ts`). Absent: no field.
    */
   grassField?: GrassFieldTones;
+  /**
+   * GH-1226: the height and slope ground blend a NODE boot keys on (design 2026-11-12, section 3.3): only `highland` and `arid` set
+   * it, and a map with `ground_blend: false` is handed the theme without it. The legacy path never reads it (pin L3). Absent: today's ground.
+   */
+  heightBlend?: HeightBlendTones;
+}
+
+/** `TerrainTones.heightBlend`: resolved hexes and the amplitudes (design 2026-11-12, section 2.2). `joint` and `aJ` are absent together: arid has no joints. */
+export interface HeightBlendTones {
+  readonly rock: string;
+  readonly joint?: string;
+  readonly hollow: string;
+  readonly aR: number;
+  readonly aJ?: number;
+  readonly aH: number;
+  readonly kH: number;
 }
 
 /** `TerrainTones.grassField`: design 2026-11-11, section 2.1, Colour keys (the shape of `terrain/grass-blade.ts`'s `GrassColours`). */

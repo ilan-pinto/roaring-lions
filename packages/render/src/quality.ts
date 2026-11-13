@@ -140,6 +140,12 @@ export interface RenderQuality {
    * `high`'s (`grassQualityOf`). The legacy path never reads it.
    */
   grass?: 'full' | 'coarse' | 'off';
+  /**
+   * GH-1226 S5: the node ground's height and slope blend (design 2026-11-12, section 3.5 and decision 9). `'full'` compiles the whole
+   * stage; `'tone'` compiles it without the texture edge and the joints (a graph choice made once, at the next boot). Absent means
+   * `high`'s (`groundBlendQualityOf`). The legacy path never reads it.
+   */
+  groundBlend?: 'full' | 'tone';
 }
 
 /** `RenderQuality.debris`: see there. */
@@ -173,8 +179,8 @@ export type WetGroundTier = 'full' | 'lite' | 'minimal';
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
   // Was drops 900 (and 1500 before it): the P4 final-tip cost run read NET (total wet) 0.5 / 0.5 / 0.4 ms against low's +0.4 budget (z1 / z1.6 / z2.5) at load 3-5 (GH-871).
   // The first step, 1500 -> 900, followed 0.7 and 0.9 ms at zoom 2.5, twice.
-  low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, debris: { pool: 0, shadows: false }, grass: 'off', physics: { ragdolls: 0 } },
-  medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, debris: { pool: 512, shadows: false }, grass: 'coarse', physics: { ragdolls: 0 } },
+  low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, debris: { pool: 0, shadows: false }, grass: 'off', groundBlend: 'tone', physics: { ragdolls: 0 } },
+  medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, debris: { pool: 512, shadows: false }, grass: 'coarse', groundBlend: 'full', physics: { ragdolls: 0 } },
   high: {
     grade: true,
     ao: true,
@@ -190,6 +196,7 @@ export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQ
     physics: { ragdolls: 0 },
     debris: { pool: 1024, shadows: true },
     grass: 'full',
+    groundBlend: 'full',
   },
 };
 
@@ -201,4 +208,9 @@ export function grassQualityOf(q: RenderQuality | undefined): 'full' | 'coarse' 
 /** A preset's debris pool, `high`'s when it names none. */
 export function debrisQualityOf(q: RenderQuality | undefined): DebrisQuality {
   return q?.debris ?? (QUALITY_PRESETS.high.debris as DebrisQuality);
+}
+
+/** A preset's ground blend, `high`'s when it names none (GH-1226 S5). */
+export function groundBlendQualityOf(q: RenderQuality | undefined): 'full' | 'tone' {
+  return q?.groundBlend ?? (QUALITY_PRESETS.high.groundBlend as 'full');
 }

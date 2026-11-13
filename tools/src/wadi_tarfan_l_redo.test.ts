@@ -86,12 +86,22 @@ describe('the map is a plan: Wadi Tarfan (large), redone', () => {
     expect([m.versus_0, m.versus_1]).toEqual([[20, 20], [75, 75]]);
     expect(Math.hypot(m.versus_1[0] - m.versus_0[0], m.versus_1[1] - m.versus_0[1])).toBeCloseTo(77.78, 1);
     expect(rules.ends).toEqual(shippedRules.ends);
-    expect(rules.tunnels).toEqual(shippedRules.tunnels);
+    // the shipped routes, but the north vent one tile back (GH-974): (45,43) to (44,42), its half-turn (50,52) to (51,53); the tunnels cell read Sarim 70.3 / 65.6% before, KDF 53.6 / 54.2% after
+    const vent: Record<string, Pt> = { wtl_f_north: [44, 42], wtl_h_north: [51, 53] };
+    const ventBack = (rs: readonly { id: string; points: readonly Pt[] }[] = []) =>
+      rs.map((r) => ({ ...r, points: r.points.map((p, i) => (i === 2 && vent[r.id] ? vent[r.id] : p)) }));
+    const moved = { friendly: ventBack(shippedRules.tunnels?.friendly), hostile: ventBack(shippedRules.tunnels?.hostile) };
+    expect(rules.tunnels).toEqual(moved);
+    // The vent tile itself, as literals and read directly (the mapping above changes nothing on a route with no third point, so it
+    // could compare two routes that both lost it): shipped (45,43) and (50,52), redone (44,42) and (51,53).
+    const thirdOf = (r: VersusRulesJson, side: 'friendly' | 'hostile', id: string) => r.tunnels?.[side]?.find((x) => x.id === id)?.points[2];
+    expect([thirdOf(shippedRules, 'friendly', 'wtl_f_north'), thirdOf(shippedRules, 'hostile', 'wtl_h_north')]).toEqual([[45, 43], [50, 52]]);
+    expect([thirdOf(rules, 'friendly', 'wtl_f_north'), thirdOf(rules, 'hostile', 'wtl_h_north')]).toEqual([[44, 42], [51, 53]]);
     expect((rules.tunnels?.friendly ?? []).map((r) => [r.id, r.capacity])).toEqual([['wtl_f_north', 3], ['wtl_f_west', 3]]);
     expect([rules.capacity, rules.cap_minutes, rules.id, rules.map]).toEqual([512, 35, 'wadi_tarfan_l', 'wadi_tarfan_l']);
     expect(matchCapMinutes('wadi_tarfan_l')).toBe(35);
     expect(MAP_CAP_MINUTES.wadi_tarfan_l).toBe(35);
-    const withoutIncome = (r: VersusRulesJson) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'income_zones'));
+    const withoutIncome = (r: VersusRulesJson) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'income_zones' && k !== 'tunnels'));
     expect(withoutIncome(rules)).toEqual(withoutIncome(shippedRules));
     expect(rules.income_zones.map((z) => z.zone).sort()).toEqual(shippedRules.income_zones.map((z) => z.zone).sort());
   });

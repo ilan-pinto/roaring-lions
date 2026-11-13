@@ -114,16 +114,16 @@ describe('/api/match', () => {
       expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'points' })), env, NOW)).status, map).toBe(201);
     }
     expect(createBodies.map((b) => b.winMode)).toEqual(SEVEN.map(() => 'points'));
-    // GH-976 relist (12 Nov): the flag is a 201 on the five staged maps (mirror) and a 400 on the other two, and no room is made for those.
-    const FLAG_FIVE = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+    // GH-976 relist (12 Nov): the flag is a 201 on the four offered maps (mirror) and a 400 on the other three, milh_flats included (12 Nov delist), and no room is made for those.
+    const FLAG_THREE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];   // milh_flats delisted 12 Nov (GH-976): 400 for flag, 201 for points above
     for (const map of SEVEN) {
       const res = await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'flag' })), env, NOW);
-      if (FLAG_FIVE.includes(map)) { expect(res.status, map).toBe(201); continue; }
+      if (FLAG_THREE.includes(map)) { expect(res.status, map).toBe(201); continue; }
       expect(res.status, map).toBe(400);
       expect(await res.text(), map).toBe('win mode not offered on this map');
     }
-    expect(createBodies.slice(SEVEN.length).map((b) => b.map)).toEqual(FLAG_FIVE);
-    expect(createBodies.length).toBe(SEVEN.length + FLAG_FIVE.length);
+    expect(createBodies.slice(SEVEN.length).map((b) => b.map)).toEqual(FLAG_THREE);
+    expect(createBodies.length).toBe(SEVEN.length + FLAG_THREE.length);
     createBodies.splice(0, createBodies.length);
     // GH-976 P4 review: no KDF-v-Sarim cell passed, so every faction pairing is a 400 below, whoever hosts.
     // Annihilation by any of its spellings is no mode: the room is told nothing, as every room before.

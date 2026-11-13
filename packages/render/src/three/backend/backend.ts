@@ -20,7 +20,7 @@ import type { PostChainLike, PostQuality } from '../post-chain-shared';
 import type { UnportedHook } from './unported';
 import type { PerPass } from './pass-counter';
 import type { RefreshMode } from './refresh-policy';
-import type { MatrixWalk as MatrixWalkMode, UploadsMode } from './node-draw-options';
+import type { BatchUploadsMode, MatrixWalk as MatrixWalkMode, UploadsMode } from './node-draw-options';
 import type { FogUniformTable } from '../fog-spec';
 import type { FogMaths } from '../fog-pass.node';
 import type { OutputMaths } from '../post-chain.node';
@@ -260,6 +260,13 @@ export interface RenderBackend {
    * their counts since the last `takeCounts`. Optional: only the node backend has them (the test doubles leave them out).
    */
   readonly drawSwitches?: DrawSwitches;
+  /**
+   * GH-1152 (12 Nov): the resolved `nodeDraw.batchUploads` (`units/batch-uploads.ts`), which `ThreeRenderer.init` hands to its
+   * fixed-capacity batches. Resolved HERE, in the node chunk: `ThreeRenderer` value-importing `node-draw-options.ts` hoisted it into
+   * the ThreeRenderer chunk and made the node backend import that chunk (the `webgpu:bundle` census). Absent (the test doubles) is
+   * `'capacity'`, the legacy behaviour.
+   */
+  readonly batchUploads?: BatchUploadsMode;
   /**
    * GH-1167 S5: the 3D grass field's builder (`terrain/grass-field.node.ts`), the only maker of a grass scene object, so that file is
    * reached only through this chunk (bundle pin P1). `ThreeRenderer.rebuildTerrain` calls it on a node boot of a map whose tones

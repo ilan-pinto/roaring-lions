@@ -41,6 +41,13 @@ const OUT = arg('out', '');
 // GH-1167 S6: `--grass` adds the grass COLUMN: G with the 3D grass field on against G with it off, in ABBA order on fresh pages. Without it every
 // L-vs-G reading hides the grass (`grass: hidden`), so the like-for-like comparison, and the GH-1152 ratio, are unchanged.
 const GRASS = args.includes('--grass');
+// GH-1167 S8: `--grass-depth-write` makes the field's material write depth on the grass column's pages (both on and off, so the off page is identical); the
+// conditions line says so. The depth-writing arm is this run's on-minus-off against a plain `--grass` run's.
+const GRASS_DEPTH_WRITE = args.includes('--grass-depth-write');
+if (GRASS_DEPTH_WRITE && !GRASS) refuse('--grass-depth-write needs --grass');
+// GH-1167 S8: `--grass-single-pass` sets `forceSinglePass` on the field's material (it is transparent and DoubleSide, so three draws every mesh twice, back faces then front).
+const GRASS_SINGLE_PASS = args.includes('--grass-single-pass');
+if (GRASS_SINGLE_PASS && !GRASS) refuse('--grass-single-pass needs --grass');
 /** The grass budget's zooms (design 5.1): z0.5 is the figure points, these are the view probes. */
 const GRASS_VIEW_ZOOMS = [1, 1.5, 2.5];
 const ARMS = arg('arms', 'F,G').split(',') as ('F' | 'G')[];
@@ -109,11 +116,11 @@ async function runOne(arm: ArmId, grass: GrassMode = 'hidden', viewZooms: number
     return ext ? String(gl?.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : 'unknown';
   });
   const run = (await page.evaluate(
-    async ({ mod, arm, mapId, counts, frames, legacyScene, nodeDraw, grass, viewZooms }) => {
+    async ({ mod, arm, mapId, counts, frames, legacyScene, nodeDraw, grass, viewZooms, dw, sp }) => {
       const m = (await import(/* @vite-ignore */ mod)) as typeof import('./webgpu-page');
-      return m.runArm({ mapId: mapId as never, arm, counts, frames, viewFrames: 40, legacyScene, grass, ...(viewZooms === null ? {} : { viewZooms }), ...(arm === 'L' || nodeDraw === null ? {} : { nodeDraw }) });
+      return m.runArm({ mapId: mapId as never, arm, counts, frames, viewFrames: 40, legacyScene, grass, ...(dw && grass !== 'hidden' ? { grassDepthWrite: true } : {}), ...(sp && grass !== 'hidden' ? { grassSinglePass: true } : {}), ...(viewZooms === null ? {} : { viewZooms }), ...(arm === 'L' || nodeDraw === null ? {} : { nodeDraw }) });
     },
-    { mod: MODULE, arm, mapId: MAP, counts: COUNTS, frames: FRAMES, legacyScene: LEGACY, nodeDraw: Object.keys(NODE_DRAW).length === 0 ? null : NODE_DRAW, grass, viewZooms }
+    { mod: MODULE, arm, mapId: MAP, counts: COUNTS, frames: FRAMES, legacyScene: LEGACY, nodeDraw: Object.keys(NODE_DRAW).length === 0 ? null : NODE_DRAW, grass, viewZooms, dw: GRASS_DEPTH_WRITE, sp: GRASS_SINGLE_PASS }
   )) as ArmRun;
   const hr = hiddenRefusal(`arm ${arm}`, grass === 'hidden' ? run.grass.meshes : 0);
   if (run.grass.mode !== grass) refuse(`arm ${arm}: asked for ${grassCondition(grass)}, the page booted with ${grassCondition(run.grass.mode)}`);
@@ -240,7 +247,7 @@ const refusals = harnessRefusals(
 if (refusals.length > 0) refuse(`\n  ${refusals.join('\n  ')}`);
 
 const out: string[] = [];
-out.push(`conditions: map=${MAP} 1280x720 DPR 2, z0.5, quality high, ${FRAMES} frames/point, ${ROUNDS} ABBA rounds, L ${LEGACY === 'matched' ? 'MATCHED to the node scene (the node census hidden set hidden, AO ON since P1 T7; fog/bloom/SMAA/grade still on L)' : 'shipped'}, music off, node draw ${JSON.stringify(resolveNodeDraw(NODE_DRAW))}, ${grassCondition('hidden')} on the L-vs-G rows${GRASS ? ' (the grass column is G on against G off below)' : ''}, max-load ${MAX_LOAD}, loadavg per page ${Math.min(...loads.map((l) => l.load1m)).toFixed(2)}-${Math.max(...loads.map((l) => l.load1m)).toFixed(2)}, at end ${os.loadavg()[0]?.toFixed(2)}`);
+out.push(`conditions: map=${MAP} 1280x720 DPR 2, z0.5, quality high, ${FRAMES} frames/point, ${ROUNDS} ABBA rounds, L ${LEGACY === 'matched' ? 'MATCHED to the node scene (the node census hidden set hidden, AO ON since P1 T7; fog/bloom/SMAA/grade still on L)' : 'shipped'}, music off, node draw ${JSON.stringify(resolveNodeDraw(NODE_DRAW))}, ${grassCondition('hidden')} on the L-vs-G rows${GRASS ? ` (the grass column is G on against G off below${GRASS_DEPTH_WRITE ? ', the field material WRITES DEPTH (depthWrite true only; still the transparent queue, back to front)' : ''}${GRASS_SINGLE_PASS ? ', the field material is forceSinglePass' : ''})` : ''}, max-load ${MAX_LOAD}, loadavg per page ${Math.min(...loads.map((l) => l.load1m)).toFixed(2)}-${Math.max(...loads.map((l) => l.load1m)).toFixed(2)}, at end ${os.loadavg()[0]?.toFixed(2)}`);
 out.push(`  gpu: ${[...new Set(readings.map((r) => `${r.arm}=${r.gpu}`))].join('; ')}`);
 for (const arm of ['L', ...ARMS] as ArmId[])
   out.push(

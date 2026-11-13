@@ -50,4 +50,17 @@ describe('node backend wiring (P3 T14)', () => {
     expect(src.indexOf('walk.dispose();', d)).toBeLessThan(src.indexOf('passes.dispose();', d));
     expect(src.indexOf('refresh.dispose();', d)).toBeGreaterThan(d);
   });
+
+  // GH-1152 (12 Nov): the batch upload switch is resolved in THIS chunk and handed to ThreeRenderer on the backend. ThreeRenderer
+  // value-importing `node-draw-options.ts` hoisted `resolveNodeDraw` into the ThreeRenderer chunk, and the node backend then loaded that
+  // chunk (the legacy composer, `material-maths.ts`): `webgpu:bundle` FINDINGS on PR 1292. Falsification (run by hand, in the commit
+  // message): put `import { resolveNodeDraw } from './backend/node-draw-options';` back in ThreeRenderer.ts: the second spec goes red.
+  it('the backend hands ThreeRenderer the resolved batchUploads', () => {
+    expect(at('batchUploads: draw.batchUploads,')).toBeGreaterThan(at('const draw = resolveNodeDraw(opts.nodeDraw);'));
+  });
+  it('ThreeRenderer never value-imports node-draw-options (it would pull the ThreeRenderer chunk into a node boot)', () => {
+    const tr = readFileSync(new URL('../ThreeRenderer.ts', import.meta.url), 'utf8');
+    const valueImports = [...tr.matchAll(/^import\s+(?!type\b)[^;]*from\s+'\.\/backend\/node-draw-options';/gm)].map((m) => m[0]);
+    expect(valueImports).toEqual([]);
+  });
 });

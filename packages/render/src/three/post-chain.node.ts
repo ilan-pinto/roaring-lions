@@ -172,6 +172,9 @@ export function createNodePostChain(
 
   const pipeline = new W.RenderPipeline(renderer, colour);
   pipeline.outputColorTransform = false;
+  // The size SMAA's targets were last brought to. 0 x 0 = never: a fresh node's targets are 1x1, so the first `resize()` is a real change.
+  let sizedW = 0;
+  let sizedH = 0;
 
   return {
     scenePass,
@@ -180,6 +183,11 @@ export function createNodePostChain(
     resize() {
       if (smaaNode === null) return;
       const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      // GH-1270 follow-up: only a real change of the drawing buffer costs anything. `needsUpdate` rebuilds ~5 node materials, and a live
+      // window drag calls this on every ResizeObserver callback (about once a frame) with the size often unchanged.
+      if (size.width === sizedW && size.height === sizedH) return;
+      sizedW = size.width;
+      sizedH = size.height;
       smaaNode.setSize(size.width, size.height);
       // `Bindings._update` re-reads a sampled texture's `generation` only when the node binding reports a change of texture
       // OBJECT, and the blend target is the same object before and after `RenderTarget.setSize`: the output quad would keep the
@@ -200,6 +208,17 @@ export function createNodePostChain(
       depthTexture.dispose();
     },
   };
+}
+
+/**
+ * `createNodePostChain`, then `resize()`: a fresh chain's SMAA targets are 1x1, so size them now, between frames, not inside the first
+ * frame that renders (GH-1270). The backend's `build` calls this; `createNodePostChain` stays pure of renderer reads for its callers
+ * that hand it a stub.
+ */
+export function createSizedNodePostChain(...args: Parameters<typeof createNodePostChain>): NodePostChain {
+  const chain = createNodePostChain(...args);
+  chain.resize();
+  return chain;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------

@@ -48,6 +48,7 @@ import path from 'node:path';
 import { chromium, type CDPSession } from 'playwright';
 import { driveBoot, startPreview } from './boot';
 import { ensureDevServer, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
+import { parseRendererFlag, type RendererFlag } from './renderer-flag';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPort } from '../ui-review/port';
 import { gpuLaunchArgs, resolveGpuBackend, type GpuBackend } from '../ui-review/gpu';
@@ -71,6 +72,10 @@ type Args = {
   /** CDP CPU throttling rate; 1 is none. */
   cpu: number;
   gpu: GpuBackend;
+  /** GH-1167 S8: `--renderer=webgpu|webgl2|legacy` is the app's `&gpu=` (which renderer draws), NOT `--gpu` (which ANGLE backend Chromium launches with). Absent = the app's default. */
+  renderer: RendererFlag | null;
+  /** GH-1167 S8: `--quality=high|medium|low`, the quality preset the page boots with (`low` builds no 3D grass field). Absent = the game's own default. */
+  quality: 'high' | 'medium' | 'low' | null;
   viewport: { width: number; height: number };
 };
 
@@ -100,6 +105,13 @@ function parseArgs(argv: string[]): Args {
     cpu: Number(get('cpu') ?? 1),
     // 'darwin' pins the default to Metal, which this tool has always used.
     gpu: resolveGpuBackend(argv, 'darwin'),
+    renderer: parseRendererFlag(get('renderer')),
+    quality: ((): Args['quality'] => {
+      const q = get('quality');
+      if (q === undefined) return null;
+      if (q !== 'high' && q !== 'medium' && q !== 'low') throw new Error(`--quality must be high, medium or low, got ${q}`);
+      return q;
+    })(),
     viewport: parseViewport(get('viewport') ?? '1400x900'),
   };
 }
@@ -196,7 +208,7 @@ async function main(): Promise<void> {
   const port = await claimPort(TAG, 'PERF_LOAD_PORT', args.port);
   const server: ChildProcess | null =
     args.serve === 'preview' ? await startPreview(port, REPO_ROOT, TAG) : await ensureDevServer(port, REPO_ROOT, TAG);
-  const query = args.mission ? `?mission=${args.mission}` : `?sandbox=${args.sandbox}`;
+  const query = (args.mission ? `?mission=${args.mission}` : `?sandbox=${args.sandbox}`) + (args.renderer === null ? '' : `&gpu=${args.renderer}`);
   const url = `http://localhost:${port}/${query}`;
   console.log(
     `[${TAG}] ${url}  serve=${args.serve}  ` +
@@ -225,7 +237,7 @@ async function main(): Promise<void> {
   // (`golden-diff/browser.ts`'s `launchCaptureBrowser`).
   const browser = await chromium.launch({
     headless: true,
-    args: gpuLaunchArgs(args.gpu),
+    args: args.renderer === 'webgpu' ? [...gpuLaunchArgs(args.gpu), '--enable-unsafe-webgpu'] : gpuLaunchArgs(args.gpu),
   });
   try {
     // Read, never assumed -- the same probe the visual gate keys its baselines
@@ -234,13 +246,25 @@ async function main(): Promise<void> {
     console.log(`[${TAG}] renderer: ${await readUnmaskedRenderer(browser)}`);
     for (let run = 1; run <= args.runs; run++) {
       const context = await browser.newContext({ viewport: args.viewport, deviceScaleFactor: 1 });
-      await context.addInitScript(musicOffInitScript());
+      await context.addInitScript(args.quality === null ? musicOffInitScript() : musicOffInitScript({}, { quality: args.quality }));
       const page = await context.newPage();
       const cdp = await context.newCDPSession(page);
       if (args.cpu !== 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: args.cpu });
       const requests = await attachNetwork(cdp, args.warm, args.mbps);
       const m = await driveBoot(page, url, args.timeoutMs);
       if (args.tailMs > 0 && m.firstFrame !== null) await page.waitForTimeout(args.tailMs);
+      // GH-1167 S8: say which renderer actually drew (a requested webgpu that fell back would otherwise print as a webgpu run).
+      const drew = await page
+        .evaluate(() => {
+          const R = (window as unknown as { __lions?: { renderer?: { backendInfo?: () => { kind: string; adapter: string } } } }).__lions?.renderer;
+          return R?.backendInfo?.() ?? null;
+        })
+        .catch(() => null);
+      console.log(`[${TAG}] backend that drew: ${drew === null ? 'unknown (no __lions.renderer.backendInfo)' : `${drew.kind} on ${drew.adapter}`}${args.quality === null ? '' : `, quality ${args.quality}`}`);
+      if (args.renderer === 'webgpu' && drew?.kind !== 'node-webgpu') {
+        console.error(`[${TAG}] run ${run}: --renderer=webgpu was asked for and the page drew on ${drew?.kind ?? 'unknown'}: a fallback is evidence about the fallback`);
+        process.exitCode = 2;
+      }
       const reqs = requests();
       await context.close();
 

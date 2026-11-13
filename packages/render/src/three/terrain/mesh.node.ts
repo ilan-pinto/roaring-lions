@@ -37,7 +37,9 @@
 import * as THREE from 'three';
 import type { GroundMaterial, GroundSlot, slotUniforms } from './mesh';
 import type { ROAD_DISTANCE_RANGE_TILES } from './control-map';
-import type { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './ground-maths';
+import type { GroundStage, groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './ground-maths';
+import type { heightBlendStage } from './height-blend';
+import type { HeightBlendRecord } from './height-blend-record';
 import type {
   RELIEF_CONTOUR_STRENGTH,
   RELIEF_CONTOUR_WIDTH_PX,
@@ -82,6 +84,15 @@ export interface GroundMaths {
   };
   /** The whole dry composition after the taps (T3 fix round): the graph's wiring, testable on numbers. */
   readonly groundBlend: typeof groundBlend;
+  /**
+   * GH-1226 S4: the height blend, as VALUES (`height-blend.ts` and `height-blend-record.ts` are also imported by the legacy chunk): the
+   * stage, and the two `userData` keys (the record is read from the owner; the build seals the owner against a later install).
+   */
+  readonly heightBlend: {
+    readonly stage: typeof heightBlendStage;
+    readonly recordKey: string;
+    readonly builtKey: string;
+  };
 }
 
 export interface NodeGroundDeps {
@@ -117,12 +128,12 @@ interface GroundTsl extends Omit<Tsl, 'texture'> {
 /** The legacy uniform record, as the twin reads it. */
 type Rec = Record<string, { value: unknown }>;
 
-/** The twin and the nodes it re-binds every render, by legacy uniform name (the record gate reads both). */
+/** The twin and the nodes it re-binds every render, by uniform name: the legacy names, plus `uHeightBlend*` from the height-blend record (not legacy uniforms). */
 export interface NodeGround {
   readonly material: THREE.Material;
-  /** Every number and vector uniform, re-bound from the record each render. */
+  /** Every number and vector uniform, re-bound each render from the legacy record (or, for `uHeightBlend*`, the height-blend record). */
   readonly numbers: Readonly<Record<string, N>>;
-  /** Every texture tap, by legacy uniform name, re-bound from the record each render (on the uniform it rides with). */
+  /** Every texture tap, by uniform name (`uHeightBlendField` is the height-blend record's), re-bound each render (on the uniform it rides with). */
   readonly textures: Readonly<Record<string, readonly N[]>>;
 }
 
@@ -198,6 +209,31 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
   const levelY = uni('uReliefLevelY');
   const relief = maths.relief;
 
+  // GH-1226 S4: the height blend. With NO record on the owner nothing below is created, and the graph is today's, node for node (pin N1).
+  // The owner is sealed either way: a record installed after this build would be silently ignored, so `installHeightBlend` throws.
+  const record = owner.userData[maths.heightBlend.recordKey] as HeightBlendRecord | undefined;
+  Object.defineProperty(owner.userData, maths.heightBlend.builtKey, { value: true, enumerable: false, configurable: true, writable: true });
+  /** A record value as a uniform, re-read from the record EVERY render (by reference: a tone is bound, never copied). */
+  const recUni = (name: string, read: () => unknown): N => {
+    const n = TSL.uniform(read());
+    numbers[name] = n;
+    n.onRenderUpdate(() => {
+      n.value = read();
+    });
+    return n;
+  };
+  /** The field tap: `record.field` at `uv`, re-read each render through the carrier `uMapSize` (a texture node's own update does not survive setup). */
+  const fieldTap = (rec: HeightBlendRecord, uv: N): GN => {
+    const t = TSL.texture(rec.field, uv) as GN;
+    (textures.uHeightBlendField ??= []).push(t);
+    const list = carried.get('uMapSize') ?? [];
+    list.push(() => {
+      t.value = rec.field;
+    });
+    carried.set('uMapSize', list);
+    return t;
+  };
+
   const colour = TSL.Fn(() => {
     // 1. Attributes and the world position. The road grain's derivatives FIRST, as statements (an `assign` is emitted where it is
     //    called; a bare expression is emitted where it is first read), so they run in uniform control flow before any tap or select.
@@ -222,9 +258,32 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
     const ctlUv = worldXZ.div(mapSize);
     const ctlA = tap('uControlA', 'uMapSize', ctlUv);
     const ctlB = tap('uControlB', 'uMapSize', ctlUv);
+    const vec = { luma: (rgb: N): N => TSL.dot(rgb, luma), one3: ones };
+    let stage: GroundStage<N> | undefined;
+    if (record !== undefined) {
+      const opts = record.options;
+      const fx = fieldTap(record, ctlUv);
+      stage = maths.heightBlend.stage(
+        o,
+        vec,
+        [fx.r, fx.g, fx.b],
+        {
+          rockTone: recUni('uHeightBlendRockTone', () => record.rockTone),
+          // Joints compiled out (low, arid): the stage never reads these two, so no uniform is made (it would leave the update list unread).
+          jointTone: opts.joints ? recUni('uHeightBlendJointTone', () => record.jointTone ?? record.rockTone) : ones,
+          hollowTone: recUni('uHeightBlendHollowTone', () => record.hollowTone),
+          rockAmp: recUni('uHeightBlendAR', () => record.aR),
+          jointAmp: opts.joints ? recUni('uHeightBlendAJ', () => record.aJ ?? 0) : o.lit(0),
+          hollowAmp: recUni('uHeightBlendAH', () => record.aH),
+          soften: recUni('uHeightBlendKH', () => record.kH),
+          amp: recUni('uHeightBlendAmp', () => record.amp),
+        },
+        opts
+      );
+    }
     const blend = maths.groundBlend(
       o,
-      { luma: (rgb) => TSL.dot(rgb, luma), one3: ones },
+      vec,
       maths.roadDistanceRangeTiles,
       {
         vertexTone,
@@ -247,7 +306,8 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
         macroAmp,
         macroBright,
         macroDark,
-      }
+      },
+      stage
     );
 
     // 7. The relief read, on tops only (`blend.top`): a contour line at every half level, and a tint by height against the map's median.

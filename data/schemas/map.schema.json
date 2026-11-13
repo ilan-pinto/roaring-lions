@@ -50,6 +50,11 @@
       "enum": ["olive", "desert", "cedar"],
       "description": "Which tree species this map's 'o' grove tiles draw, overriding the terrain theme's own (arid: desert, green: olive, highland: cedar). Presentation only. Absent means the theme's species. Umm Zeitoun sets 'olive': its groves are its olive terraces by name, while the rest of the highland around them grows cedar."
     },
+    "ground_blend": {
+      "type": "boolean",
+      "description": "Whether the node renderer's height and slope ground blend (GH-1226) draws on this map. Presentation only: the app reads it into the terrain tones, the sim never does, and the legacy renderer ignores the blend altogether. Absent means true (the theme's own blend, where its theme has one). Rujm Sawda sets false: the blend draws limestone, and the Black Desert is basalt, which waits for its own look.",
+      "default": true
+    },
     "wind": {
       "type": "object",
       "additionalProperties": false,

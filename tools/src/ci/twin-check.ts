@@ -11,8 +11,9 @@
 // The ONE narrow exemption (`EXEMPTIONS`, GH-1227 lead ruling): a change to a legacy file's NON-shader code (lifecycle such as `dispose` or
 // `onBeforeRender` chaining) that the node twin has no equivalent of. It is VERIFIED, not declared: the checker diffs the file against
 // `--base` at line level and honours the exemption only when no changed line (old side or new side) lies inside a GLSL template literal
-// (`/* glsl */` backtick strings) or the shader-building span (`const SOFT_ANCHORS` .. `export const FLIPBOOK_SHADERS`). It fails CLOSED:
-// with `--files` (no base to diff), an unfindable region marker, or any touched shader line, the same-PR rule applies in full.
+// (`/* glsl */` backtick strings) or, for an exemption that declares one (`Exemption.span`), its shader-building span (flipbook-fx.ts:
+// `const SOFT_ANCHORS` .. `export const FLIPBOOK_SHADERS`). It fails CLOSED: with `--files` (no base to diff), a file with no GLSL
+// literal, a declared span whose markers cannot be found, or any touched shader line, the same-PR rule applies in full.
 //
 // The base is resolved to `git merge-base <ref> HEAD` first. Diffing HEAD against the base TIP is wrong the moment the base moves a twin file
 // after the branch was cut: every older branch then "changes" that file and fails. If no merge-base is reachable (a history too shallow to
@@ -34,23 +35,44 @@ export function twinRows(table: Readonly<Record<string, string>> = TWINS): TwinR
   return Object.entries(table).map(([legacy, twin]) => ({ legacy, twin }));
 }
 
+/** A file's shader-building code outside its GLSL literals: from the first line matching `from` to the first matching `to`. */
+export interface ShaderSpan {
+  readonly from: RegExp;
+  readonly to: RegExp;
+}
+
+/** flipbook-fx.ts splices its programs in TS between these two declarations (GH-1227). */
+export const FLIPBOOK_SPAN: ShaderSpan = { from: /^const SOFT_ANCHORS\b/, to: /^export const FLIPBOOK_SHADERS\b/ };
+
 export interface Exemption {
   readonly file: string;
   readonly reason: string;
   /** The only scope the checker can verify: every changed line lies outside the file's shader program. */
   readonly scope: 'outside-shader';
+  /** Extra shader-building lines beyond the GLSL literals; when declared and not found, the file fails closed. */
+  readonly span?: ShaderSpan;
 }
+
+const UPLOAD_REASON = "buffer-upload calls for the node path's drawn-prefix uploads (GH-1152); no shader line; the node twins build from the record";
 
 export const EXEMPTIONS: readonly Exemption[] = [
   {
     file: 'packages/render/src/three/units/flipbook-fx.ts',
     reason: 'TS lifecycle (dispose, onBeforeRender chaining) has no node-twin equivalent; the twin builds from the record, not from the mesh hooks',
     scope: 'outside-shader',
+    span: FLIPBOOK_SPAN,
   },
+  // Lead ruling, 12 Nov (PR 1292): the same verified scope; these two build their programs only in `/* glsl */` literals, so no span.
+  { file: 'packages/render/src/three/units/fx.ts', reason: UPLOAD_REASON, scope: 'outside-shader' },
+  { file: 'packages/render/src/three/units/overlays.ts', reason: UPLOAD_REASON, scope: 'outside-shader' },
 ];
 
-/** 1-based line numbers of `src` that belong to the shader program, or null when the markers cannot be found (fail closed). */
-export function shaderLines(src: string): Set<number> | null {
+/**
+ * 1-based line numbers of `src` that belong to the shader program: every GLSL template literal (the glsl-tagged backtick strings),
+ * plus `span` when given. Null (fail closed) when the file has no GLSL literal, or when `span` is given and its markers cannot be
+ * found in order.
+ */
+export function shaderLines(src: string, span?: ShaderSpan): Set<number> | null {
   const lines = src.split('\n');
   const out = new Set<number>();
   let literals = 0;
@@ -66,17 +88,19 @@ export function shaderLines(src: string): Set<number> | null {
     for (let k = i; k <= Math.min(j, lines.length - 1); k++) out.add(k + 1);
     i = j;
   }
-  const a = lines.findIndex((l) => /^const SOFT_ANCHORS\b/.test(l));
-  const b = lines.findIndex((l) => /^export const FLIPBOOK_SHADERS\b/.test(l));
-  if (literals === 0 || a < 0 || b < a) return null;
+  if (literals === 0) return null;
+  if (span === undefined) return out;
+  const a = lines.findIndex((l) => span.from.test(l));
+  const b = lines.findIndex((l) => span.to.test(l));
+  if (a < 0 || b < a) return null;
   for (let k = a; k <= b; k++) out.add(k + 1);
   return out;
 }
 
 /** Pure. True iff every hunk (`git diff -U0` text) touches only lines outside the shader on both sides. */
-export function hunksOutsideShader(diffU0: string, oldSrc: string, newSrc: string): boolean {
-  const oldShader = shaderLines(oldSrc);
-  const newShader = shaderLines(newSrc);
+export function hunksOutsideShader(diffU0: string, oldSrc: string, newSrc: string, span?: ShaderSpan): boolean {
+  const oldShader = shaderLines(oldSrc, span);
+  const newShader = shaderLines(newSrc, span);
   if (oldShader === null || newShader === null) return false;
   let hunks = 0;
   for (const m of diffU0.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
@@ -141,7 +165,7 @@ export interface TwinIo {
   /** Files changed since `base`; throws when `base` cannot be read. */
   readonly changedSince: (base: string, root: string) => string[];
   /** True iff `file`'s diff against `base` touches no shader line (see `hunksOutsideShader`); throws when it cannot tell. */
-  readonly outsideShader: (base: string, file: string, root: string) => boolean;
+  readonly outsideShader: (base: string, file: string, root: string, span?: ShaderSpan) => boolean;
 }
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -156,9 +180,9 @@ export const realIo: TwinIo = {
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l.length > 0),
-  outsideShader: (base, file, root) => {
+  outsideShader: (base, file, root, span) => {
     const git = (args: string[]): string => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-    return hunksOutsideShader(git(['diff', '-U0', base, 'HEAD', '--', file]), git(['show', `${base}:${file}`]), git(['show', `HEAD:${file}`]));
+    return hunksOutsideShader(git(['diff', '-U0', base, 'HEAD', '--', file]), git(['show', `${base}:${file}`]), git(['show', `HEAD:${file}`]), span);
   },
 };
 
@@ -189,7 +213,7 @@ export function runTwinCheck(argv: readonly string[], io: TwinIo = realIo, table
   const outside = (file: string): boolean => {
     if (base === undefined) return false; // --files: nothing to diff, so the exemption cannot be verified
     try {
-      return io.outsideShader(base, file, io.root);
+      return io.outsideShader(base, file, io.root, EXEMPTIONS.find((e) => e.file === file)?.span);
     } catch {
       return false;
     }

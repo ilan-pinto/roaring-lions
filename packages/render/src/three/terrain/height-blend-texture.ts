@@ -8,6 +8,13 @@
 import * as THREE from 'three';
 import { HEIGHT_BLEND_FIELD_MARKER, type HeightBlendFieldData } from './height-blend-field';
 
+/**
+ * The ONE lazy entry of the field (S5): `ThreeRenderer`'s node branch imports this module and nothing else of the field, so the bake
+ * and the texture land in one chunk (two dynamic entries would split the shared field into a chunk this one imports statically,
+ * which pin L1 refuses).
+ */
+export { bakeHeightBlendField, spliceHeightBlendField } from './height-blend-field';
+
 export function heightBlendTexture(field: HeightBlendFieldData): THREE.DataTexture {
   const buffer = field.data.buffer;
   const data = buffer instanceof ArrayBuffer ? new Uint8Array(buffer, field.data.byteOffset, field.data.length) : new Uint8Array(field.data);

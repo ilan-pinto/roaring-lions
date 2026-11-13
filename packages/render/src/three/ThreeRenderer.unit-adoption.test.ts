@@ -46,6 +46,7 @@ import type { DyingMeshUnit } from './units/mesh-death';
 import { MESH_DEATH_SECONDS } from './units/mesh-death';
 import type { BackdropSpec, LoadedBackdropKit } from './terrain/backdrop';
 import { readKitFixture } from './terrain/backdrop-kit-fixture';
+import { webGpuFormats } from './units/webgpu-vertex-format.test-support';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -137,6 +138,9 @@ const RG_SPEC = parseRunningGear(
   'fixture'
 );
 
+/** Every `_rl_wheel` attribute `laviTemplate` made, in order (GH-1319: a legacy boot must draw exactly these objects). */
+const fixtureWheels: THREE.InterleavedBufferAttribute[] = [];
+
 /** The Lavi fixture: one hull, an `idle` and a `wreck` clip, its material team-marked and its geometry wheel-tagged. */
 async function laviTemplate(): Promise<VehicleMeshTemplate> {
   const built = buildVehicleMeshTemplate(
@@ -153,7 +157,13 @@ async function laviTemplate(): Promise<VehicleMeshTemplate> {
       m.map = new THREE.Texture();
       m.userData = { ...(m.userData as Record<string, unknown>), rl_team_mark: MARK };
       const n = mesh.geometry.getAttribute('position').count;
-      mesh.geometry.setAttribute('_rl_wheel', new THREE.BufferAttribute(new Uint8Array(n).fill(1), 1));
+      // GH-1319: the SHIPPED shape. `DRACOLoader` pads the 1-byte `_RL_WHEEL` scalar to a 4-byte stride and hands it over
+      // interleaved (a plain `BufferAttribute(Uint8Array)`, which three widens itself, hid the WebGPU crash).
+      const wheelBytes = new Uint8Array(n * 4);
+      for (let v = 0; v < n; v++) wheelBytes[v * 4] = 1;
+      const wheel = new THREE.InterleavedBufferAttribute(new THREE.InterleavedBuffer(wheelBytes, 4), 1, 0);
+      fixtureWheels.push(wheel);
+      mesh.geometry.setAttribute('_rl_wheel', wheel);
       mesh.geometry.setAttribute('_rl_track', new THREE.BufferAttribute(new Float32Array(n).fill(-1), 1));
     });
   }
@@ -579,6 +589,45 @@ describe('G8: a legacy boot never calls the kit and never queues', () => {
       const m = (o as THREE.Mesh).material;
       if (m && !Array.isArray(m)) expect(isTwin(m)).toBe(false);
     });
+    r.dispose();
+  });
+});
+
+describe('GH-1319: a moving vehicle draws only attributes WebGPU can lay out', () => {
+  it('node boot: after the running-gear bind, every attribute of the moving hull has a vertex format in three\'s WebGPU backend', async () => {
+    seam.kit = stubKit();
+    const { r, priv, a } = await boot('webgl2');
+    r.frame(1, 16);
+    priv.runningGear.moved[a] = 1;
+    r.frame(1, 16);
+    const entity = priv.vehicleMeshEntities.get(a) as VehicleMeshEntity;
+    expect(runningGearBinding(entity)).toBeDefined();
+    const hull = hullOf(entity);
+    const wheel = hull.geometry.getAttribute('_rl_wheel');
+    // The values the wheel term reads are kept (the fixture tags every vertex wheel 1).
+    // Non-empty first, against the position count (an independent number): over zero vertices the `.every` below holds for any values.
+    const vertices = hull.geometry.getAttribute('position').count;
+    expect(vertices).toBeGreaterThan(0);
+    expect(wheel.count, 'one wheel value per vertex').toBe(vertices);
+    expect(Array.from({ length: wheel.count }, (_, i) => wheel.getX(i)).every((v) => v === 1)).toBe(true);
+    const names = Object.keys(hull.geometry.attributes);
+    const formats = await webGpuFormats(names.map((n) => hull.geometry.getAttribute(n) as THREE.BufferAttribute));
+    expect(formats).toHaveLength(names.length);
+    expect(names.filter((_, i) => formats[i] === undefined)).toEqual([]);
+    r.dispose();
+  });
+
+  it('legacy boot: the hull keeps the very `_rl_wheel` object the loader made, interleaved 8-bit, moved or not', async () => {
+    const { r, priv, a } = await boot(undefined);
+    r.frame(1, 16);
+    priv.runningGear.moved[a] = 1;
+    r.frame(1, 16);
+    const entity = priv.vehicleMeshEntities.get(a) as VehicleMeshEntity;
+    expect(runningGearBinding(entity)).toBeDefined();
+    const wheel = hullOf(entity).geometry.getAttribute('_rl_wheel') as THREE.InterleavedBufferAttribute;
+    expect(fixtureWheels).toContain(wheel);
+    expect(wheel.isInterleavedBufferAttribute).toBe(true);
+    expect(wheel.array).toBeInstanceOf(Uint8Array);
     r.dispose();
   });
 });

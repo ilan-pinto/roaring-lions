@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
 import { createPostChain, POST_CHAIN_ORDER } from './post-chain';
-import { createNodePostChain, NODE_POST_MARKER, type NodePostChain, type NodePostDeps } from './post-chain.node';
+import { createNodePostChain, createSizedNodePostChain, NODE_POST_MARKER, type NodePostChain, type NodePostDeps } from './post-chain.node';
 import type { PostKit } from './backend/backend';
 import { QUALITY_PRESETS } from '../quality';
 import { bloomPassFor } from './bloom';
@@ -127,14 +127,28 @@ describe('the node scene pass and the SMAA input', () => {
     chain.resize();
     for (const rt of [smaa._renderTargetBlend, smaa._renderTargetEdges]) expect([rt.width, rt.height]).toEqual([2000, 1200]);
     expect(chain.pipeline.needsUpdate).toBe(true);
-    // A second resize to the SAME size must not touch the targets again (the node's own per-frame call is then a no-op).
+    // A second resize to the SAME size must touch nothing: no target dispose, and no `needsUpdate` (~5 node-material rebuilds, paid once
+    // per ResizeObserver callback in a window drag). Falsify: drop the `sizedW/sizedH` early return in `resize()`.
     let disposed = 0;
     smaa._renderTargetBlend.addEventListener('dispose', () => disposed++);
+    chain.pipeline.needsUpdate = false;
     chain.resize();
     expect(disposed).toBe(0);
+    expect(chain.pipeline.needsUpdate).toBe(false);
+    // A real change still rebuilds the quad's bindings (the destroyed-texture fix). Falsify: set needsUpdate only on the first call.
     buffer.width = 1280;
     chain.resize();
     expect(smaa._renderTargetBlend.width).toBe(1280);
+    expect(chain.pipeline.needsUpdate).toBe(true);
+    chain.dispose();
+  });
+
+  it('GH-1270: a chain built through createSizedNodePostChain has SMAA at the drawing buffer before any frame', async () => {
+    // Falsify: drop the `chain.resize()` in `createSizedNodePostChain` (the targets stay 1x1 until the first frame resizes them mid-frame).
+    const renderer = { getDrawingBufferSize: (v: THREE.Vector2) => v.set(2000, 1200) } as never;
+    const chain = createSizedNodePostChain(await deps(), renderer, new THREE.Scene(), new THREE.PerspectiveCamera(), QUALITY_PRESETS.high, fullKit());
+    const smaa = chain.pipeline.outputNode as unknown as { _renderTargetBlend: THREE.RenderTarget; _renderTargetEdges: THREE.RenderTarget };
+    for (const rt of [smaa._renderTargetBlend, smaa._renderTargetEdges]) expect([rt.width, rt.height]).toEqual([2000, 1200]);
     chain.dispose();
   });
 

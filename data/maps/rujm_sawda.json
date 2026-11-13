@@ -4,6 +4,7 @@
   "width": 80,
   "height": 80,
   "terrain": "arid",
+  "ground_blend": false,
   "markers": {
     "bir_sawda": [35, 35],
     "bir_sawda_1": [44, 44],
