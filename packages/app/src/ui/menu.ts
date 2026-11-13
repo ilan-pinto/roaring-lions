@@ -90,7 +90,7 @@ export interface MenuOptions {
   feedbackAvailable?: Promise<boolean>;
   /** The account chip (GH-1075 A1): drawn only when `enabled`. `name` resolves to the signed-in display name, or
    *  null for a guest; until it does the chip reads as a guest's. */
-  account?: { enabled: boolean; name?: Promise<string | null> };
+  account?: { enabled: boolean; name?: Promise<string | null>; /** `GET open`: a closed switch removes the chip and the privacy link, unless `name` says someone is signed in (they still need export and delete). */ open?: Promise<boolean> };
   /** A claimed device with no cache whose `GET state` timed out (GH-1075 A2, §0.11): the campaign cannot be read, so its
    *  entries (Continue, the tutorial, Campaign, Brigade) are off, and the column says `account.unreachable`. */
   unreachable?: boolean;
@@ -272,8 +272,18 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     chip.textContent = t('menu.profile.guest');
     aside.appendChild(chip);
     addAside(t('menu.aside.privacy'), routes.privacy());
+    const privacyLink = aside.lastElementChild;
+    let signedInName: string | null = null;
     void opts.account.name?.then((name) => {
+      signedInName = name;
       if (name !== null) chip.textContent = name;
+    });
+    void opts.account.open?.then(async (open) => {
+      if (open) return;
+      await opts.account?.name?.catch(() => null);
+      if (signedInName !== null) return;
+      chip.remove();
+      privacyLink?.remove();
     });
   }
   // Last, deliberately: people, libraries, fonts and the licence split are

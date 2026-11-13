@@ -294,7 +294,9 @@ import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy,
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { accountsEnabled } from './account/enabled';
-// The account client and the profile screen load only (GH-1075 A1), never with the entry chunk.
+import { readBinding } from './account/binding';
+import { menuAccount } from './account/menu-account';
+// Type-only: the account client and the profile screen load by dynamic import (GH-1075 A1), never with the entry chunk.
 import type { AccountClient, AccountError } from './account/client';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
@@ -441,6 +443,8 @@ let savePromptShownOnPage = false;
 let savePromptUnpersisted = false;
 /** Accounts are on for this page (set once by `main()`): the save prompt and the held list exist only then. */
 let accountsOnPage = false;
+/** `GET open` said the server switch is open (set after the lazy client loads; false until then and on any failure): the save prompt waits for it. */
+let accountOpenOnPage = false;
 
 /** The app's one door to the campaign ledger, the brigade account and the save
  *  slots (`ledger-store.ts`). One per page, because it is a handle on the
@@ -920,6 +924,8 @@ async function main(): Promise<void> {
         throw err;
       }
     ));
+  // The kill switch (D1 `flags`) and the member's name: `account/menu-account.ts`.
+  const menuAcct = menuAccount({ on: accountsOn, hasBinding: readBinding(safeStorage()) !== null, loadClient: accountClient, onOpen: (v) => (accountOpenOnPage = v) });
   const lang = resolveLang(q.get('lang'), settings.language);
   const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
   const cat = await loadLocale(activeLocale, BASE);
@@ -1037,11 +1043,8 @@ async function main(): Promise<void> {
       account: {
         enabled: accountsOn,
         // A client module that will not load reads as signed out, as an unreachable server does (`me()` answers `off`).
-        name: accountsOn
-          ? accountClient()
-              .then((c) => c.me())
-              .then((m) => (m.kind === 'signedIn' ? m.displayName : null), () => null)
-          : undefined,
+        open: menuAcct.open,
+        name: menuAcct.name,
       },
       feedback: menuFeedback.shown && !feedbackClosed()
         ? () => {
@@ -6459,7 +6462,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 promptDue({
                   storage: safeStorage(),
                   enabled: accountsOnPage,
-                  open: accountsOnPage,
+                  open: accountOpenOnPage,
                   signedIn: isAccountStore(ledgerStore),
                   moment,
                   tutorial: mission.ledger.produces.length === 0,
