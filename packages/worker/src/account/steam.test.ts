@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ACCOUNT_RETURN_PATH, SESSION_COOKIE, STEAM_OP, preCookieName } from './config';
 import { memberForIdentity } from './member';
 import { createSession } from './session';
@@ -494,5 +494,66 @@ describe('verifyOpenId hardening (I3)', () => {
     const s = await start(h, 'steam-login');
     expect(back(await ret(h, returnParams(s.c, S1), s.cookie)).code).toBe('steam');
     expect(await count(h, 'member')).toBe(0);
+  });
+});
+
+describe('steam verify diagnostics (GH-1075)', () => {
+  const refused = async (fetch: (u: string, init: RequestInit) => Promise<Response>) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const h = accountHarness({ now: T0, deps: { fetch } });
+      await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0)`).run();
+      const s = await start(h, 'steam-login');
+      const code = back(await ret(h, returnParams(s.c, S1), s.cookie)).code;
+      return { code, calls: warn.mock.calls.map((c) => [...c]) };
+    } finally {
+      warn.mockRestore();
+    }
+  };
+  const fields = (calls: unknown[][]) => {
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.[0]).toBe('account: steam verify failed');
+    const f = calls[0]?.[1] as Record<string, unknown>;
+    expect(typeof f.ms).toBe('number');
+    const dump = JSON.stringify(f);
+    for (const v of ['openid', S1, 'is_valid', 'steamcommunity.com/openid']) expect(dump).not.toContain(v);
+    return f;
+  };
+
+  it('a 403 logs its status only', async () => {
+    const r = await refused(async () => new Response('no', { status: 403 }));
+    expect(r.code).toBe('steam');
+    const f = fields(r.calls);
+    expect(f.status).toBe(403);
+    expect(f.location).toBeUndefined();
+    expect(f.error).toBeUndefined();
+  });
+
+  it('a 302 logs the Location host and nothing of its path or query', async () => {
+    const r = await refused(async () => new Response(null, { status: 302, headers: { location: 'https://redirect.example/secret/path?x=1' } }));
+    expect(r.code).toBe('steam');
+    const f = fields(r.calls);
+    expect(f.status).toBe(302);
+    expect(f.location).toBe('redirect.example');
+    expect(JSON.stringify(f)).not.toContain('secret');
+  });
+
+  it('a TimeoutError logs its name only, not its message', async () => {
+    const r = await refused(async () => {
+      throw new DOMException('timed out for openid.sig=abc', 'TimeoutError');
+    });
+    expect(r.code).toBe('steam');
+    const f = fields(r.calls);
+    expect(f.error).toBe('TimeoutError');
+    expect(f.status).toBeUndefined();
+    expect(JSON.stringify(f)).not.toContain('abc');
+  });
+
+  it('the check POST sends the generic User-Agent and Accept', async () => {
+    const inits: RequestInit[] = [];
+    await refused(async (_u, init) => (inits.push(init), new Response('x', { status: 403 })));
+    const h = new Headers(inits[0]?.headers);
+    expect(h.get('user-agent')).toBe('roaring-lions-worker');
+    expect(h.get('accept')).toBe('text/plain');
   });
 });
