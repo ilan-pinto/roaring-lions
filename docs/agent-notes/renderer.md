@@ -71,8 +71,8 @@ yours; each one records what the next phase inherits.
 - **The colour pipeline is the standard one since Phase 0 (2026-09-14).**
   `renderer.outputColorSpace = SRGBColorSpace`, ACES tone mapping at exposure
   1.0 applied in the composer's `OutputPass`, and every world material a
-  `MeshStandardMaterial` (`units/world-materials.ts`, and `terrain/mesh.ts`'s
-  `GroundMaterial`/`GroveMaterial`). One sun plus one hemisphere bounce in
+  `MeshStandardMaterial` (`world-materials.ts`, and `terrain/mesh.ts`'s
+  `GroundMaterial`). One sun plus one hemisphere bounce in
   `lighting.ts`, with a 4096² orthographic shadow box that **follows the
   camera** (GH-705, `shadow-fit.ts`, `shadowFit: 'view'` on every preset): refit
   each frame to the view's receivers, its SIZE a function of zoom alone and its
@@ -102,7 +102,7 @@ yours; each one records what the next phase inherits.
   not a pass: it is the last statement of `OutputPass`'s shader (`vignette-pass.ts`, GH-829),
   pixel-identical to the pass it replaced only because it rounds through half float first. Fog of war is
   `shroud-texture.ts` + `fog-pass.ts` — a depth-reading post pass, not
-  geometry. A muzzle flash is a pooled `PointLight` (`units/flash-light.ts`),
+  geometry. A muzzle flash is a pooled `PointLight` (`flash-light.ts`),
   not a ramp-index shift. `applyPalettePipeline`, `paletteColorNoConvert`, the
   toon ramp materials, the blob shadows and the black fog quads are all
   deleted. Ground decals (`decal-pool.ts`) are albedo RATIOS: each decal's
