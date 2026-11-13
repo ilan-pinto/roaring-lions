@@ -89,6 +89,8 @@ export interface MapJson {
   terrain?: string;
   /** Grove species override (GH-322). Absent means the theme's own species. */
   grove?: string;
+  /** GH-1226: false opts the map out of the node renderer's ground blend. Presentation only. Absent means true. */
+  ground_blend?: boolean;
   /** PROTOTYPE: valley walls beyond the edge. Presentation only. */
   backdrop?: MapBackdropJson;
   /** The wind this map blows (GH-984 N1). Presentation only; every field is optional and an absent one
@@ -223,6 +225,8 @@ export interface ParsedMap {
   /** The `o` tiles' species when the map overrides its theme's; null when it
    *  does not. Presentation only -- never given to Sim. */
   grove: GroveSpecies | null;
+  /** GH-1226: false when the map opts out of the node renderer's ground blend (`ground_blend: false`). Presentation only -- never given to Sim. */
+  groundBlend: boolean;
   /** 1 = impassable to everything on the ground, row-major width*height.
    *  Buildings and `^` ridges. This is the mask infantry path on. */
   blocked: Uint8Array;
@@ -541,7 +545,7 @@ export function parseMap(json: MapJson): ParsedMap {
       structures.push({ type: typeId, tiles });
     }
   }
-  return { id: json.id, width, height, terrain: terrain as TerrainTheme, grove: grove as GroveSpecies | null, backdrop: parseBackdrop(json), wind: parseWind(json), blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
+  return { id: json.id, width, height, terrain: terrain as TerrainTheme, grove: grove as GroveSpecies | null, groundBlend: json.ground_blend !== false, backdrop: parseBackdrop(json), wind: parseWind(json), blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
 }
 
 /**
