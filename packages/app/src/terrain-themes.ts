@@ -88,6 +88,10 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     groveFamily: 'desert_tree',
     // N-18: the haze is dust, not fog -- the desert's own lightest dust.
     haze: paletteColor('dust.0'),
+    // GH-1226: the node ground's height and slope blend (design 2026-11-12, section 2.2, decision 4): pale limestone (karst.0 at
+    // 0.7) on slopes and crests, loess (limestone.4 at 0.6) in the hollows, and no joints: terra rossa is not this ground.
+    // `ground_blend: false` (Rujm Sawda) drops it (`terrainTonesFor`). Pinned against the render side's table by `height-blend-tones.test.ts`.
+    heightBlend: { rock: paletteColor('karst.0'), hollow: paletteColor('limestone.4'), aR: 0.7, aH: 0.6, kH: 0.5 },
     decorColors: FOLIAGE_DECOR_COLORS,
   },
   green: {
@@ -184,6 +188,17 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     groveFamily: 'cedar',
     // A cool pale-stone haze instead of the desert's dust.
     haze: paletteColor('karst.0'),
+    // GH-1226 (decision 3): grey limestone (karst.1 at 0.75) on slopes and crests, terra rossa (terracotta.1) in the joints at
+    // 0.6 over the rock and in the hollows at 0.45, with the open chips softened 40%.
+    heightBlend: {
+      rock: paletteColor('karst.1'),
+      joint: paletteColor('terracotta.1'),
+      hollow: paletteColor('terracotta.1'),
+      aR: 0.75,
+      aJ: 0.6,
+      aH: 0.45,
+      kH: 0.4,
+    },
     // `karst` is `theme_only` in palette.json: only a theme that names it
     // quantises onto it, which is what keeps every other map unmoved.
     paletteRamps: ['karst'],
@@ -326,11 +341,19 @@ export const GROVE_SPECIES_FAMILY: Record<GroveSpecies, GroveFamily> = {
  * theme's bundle BY IDENTITY, so every map before the override existed is
  * handed exactly the object it always was.
  */
-export function terrainTonesFor(map: Pick<ParsedMap, 'terrain' | 'grove'>): TerrainTones {
-  const theme = TERRAIN_THEMES[map.terrain];
+export function terrainTonesFor(map: Pick<ParsedMap, 'terrain' | 'grove'> & Partial<Pick<ParsedMap, 'groundBlend'>>): TerrainTones {
+  const base = TERRAIN_THEMES[map.terrain];
+  // GH-1226: a map that opts out of the ground blend is handed its theme without it (presentation only; the sim never sees it).
+  const theme: TerrainTones = map.groundBlend === false && base.heightBlend !== undefined ? withoutHeightBlend(base) : base;
   if (map.grove === null) return theme;
   const groveFamily = GROVE_SPECIES_FAMILY[map.grove];
   return groveFamily === theme.groveFamily ? theme : { ...theme, groveFamily };
+}
+
+function withoutHeightBlend(t: TerrainTones): TerrainTones {
+  const rest: TerrainTones = { ...t };
+  delete rest.heightBlend;
+  return rest;
 }
 
 /**

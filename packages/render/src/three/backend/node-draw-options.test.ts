@@ -9,14 +9,15 @@ import { NODE_DRAW_DEFAULTS, parseNodeDraw, resolveNodeDraw } from './node-draw-
 
 describe('node draw switches', () => {
   it('D3: F2 parked, F8 once and the 1205 uploads on by default', () => {
-    expect(NODE_DRAW_DEFAULTS).toEqual({ refreshPolicy: 'parked', matrixWalk: 'once', uploads: 'versioned' });
+    expect(NODE_DRAW_DEFAULTS).toEqual({ refreshPolicy: 'parked', matrixWalk: 'once', uploads: 'versioned', batchUploads: 'drawn' });
     expect(resolveNodeDraw(undefined)).toEqual(NODE_DRAW_DEFAULTS);
-    expect(resolveNodeDraw({ matrixWalk: 'every-pass' })).toEqual({ refreshPolicy: 'parked', matrixWalk: 'every-pass', uploads: 'versioned' });
+    expect(resolveNodeDraw({ matrixWalk: 'every-pass' })).toEqual({ refreshPolicy: 'parked', matrixWalk: 'every-pass', uploads: 'versioned', batchUploads: 'drawn' });
   });
   it('parses the R3 arms', () => {
     expect(parseNodeDraw('')).toEqual({});
     expect(parseNodeDraw('refreshPolicy=three,matrixWalk=every-pass')).toEqual({ refreshPolicy: 'three', matrixWalk: 'every-pass' });
     expect(parseNodeDraw('refreshPolicy=three,matrixWalk=every-pass,uploads=three')).toEqual({ refreshPolicy: 'three', matrixWalk: 'every-pass', uploads: 'three' });
+    expect(parseNodeDraw('batchUploads=capacity')).toEqual({ batchUploads: 'capacity' });
   });
   it('refuses an unknown key, an unknown value, a key twice and a malformed pair', () => {
     expect(() => parseNodeDraw('refreshpolicy=three')).toThrow(/unknown key/);

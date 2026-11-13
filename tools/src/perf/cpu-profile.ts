@@ -50,6 +50,49 @@ export function profileSelf(p: CpuProfile): { totalMs: number; byFunction: Profi
   };
 }
 
+export interface ProfileTotalRow {
+  readonly key: string;
+  readonly fn: string;
+  readonly file: string;
+  /** Inclusive time: every sample with this function anywhere on its stack (counted once per sample, so recursion is not doubled). */
+  readonly totalMs: number;
+  readonly selfMs: number;
+}
+
+const keyOf = (n: ProfileNode): { key: string; fn: string; file: string } => {
+  const f = n.callFrame.url.replace(/^https?:\/\/[^/]+/, '').replace(/\?.*$/, '') || '(native)';
+  const file = f.split('/').slice(-2).join('/');
+  const fn = n.callFrame.functionName || '(anonymous)';
+  return { key: `${fn}  ${file}:${n.callFrame.lineNumber + 1}`, fn, file };
+};
+
+/** GH-1152 (12 Nov): inclusive and self time per function key, largest inclusive first. Same keys as `profileSelf`. */
+export function profileTotal(p: CpuProfile): ProfileTotalRow[] {
+  const parent = new Map<number, number>();
+  for (const n of p.nodes) for (const c of n.children ?? []) parent.set(c, n.id);
+  const keys = new Map<number, ReturnType<typeof keyOf>>();
+  for (const n of p.nodes) keys.set(n.id, keyOf(n));
+  const acc = new Map<string, { fn: string; file: string; total: number; self: number }>();
+  const seen = new Set<string>();
+  for (let i = 0; i < p.samples.length; i++) {
+    const leaf = p.samples[i] as number;
+    const us = p.timeDeltas[i] ?? 0;
+    seen.clear();
+    for (let id: number | undefined = leaf; id !== undefined; id = parent.get(id)) {
+      const k = keys.get(id);
+      if (k === undefined) break;
+      const cur = acc.get(k.key) ?? { fn: k.fn, file: k.file, total: 0, self: 0 };
+      if (id === leaf) cur.self += us;
+      if (!seen.has(k.key)) {
+        cur.total += us;
+        seen.add(k.key);
+      }
+      acc.set(k.key, cur);
+    }
+  }
+  return [...acc.entries()].sort((a, b) => b[1].total - a[1].total).map(([key, v]) => ({ key, fn: v.fn, file: v.file, totalMs: v.total / 1000, selfMs: v.self / 1000 }));
+}
+
 /** Self time per function and per file, as a share of the window's wall
  *  time. `(program)`/`(idle)`/`(garbage collector)` are kept: under a
  *  throttled CPU the GC line is one of the answers. */

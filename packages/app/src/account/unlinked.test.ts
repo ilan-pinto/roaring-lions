@@ -10,6 +10,7 @@ import type { MissionEvent } from '@lions/sim';
 import type { TelemetryEvent } from '@lions/data/telemetry';
 import { collectContext, type ContextInput } from '../feedback/context';
 import { connectMatch, openRoom } from '../net/connect';
+import { labelsOf } from '../net/seat-label';
 import { createTelemetry, type RuntimeView, type TelemetryDeps } from '../telemetry';
 import { resolveIdentity } from '../telemetry/identity';
 import { memoryLedgerStore } from '../ledger-store';
@@ -227,5 +228,43 @@ describe('with the account store active, telemetry and feedback still carry neit
     expect(bodies.length).toBeGreaterThan(5);
     for (const body of bodies) for (const s of [A2_PUBLIC_ID, A2_DEVICE_ID]) expect(body, `carries ${s}`).not.toContain(s);
     sync.stop();
+  });
+});
+
+// A3 (A1-10 extended, the app half): a versus lobby hands the app the opponent's public id and display name (spec
+// §5.3 shows both on purpose) and a bot's typed model name. The app keeps them for the HUD; no telemetry builder, no
+// feedback context and no match body may carry them. The token and SteamID never reach the app at all.
+describe('with a member opponent in the lobby, telemetry, feedback and match bodies still carry none of the labels (A1-10, A3)', () => {
+  it('the labels are held, and no outgoing body contains them', async () => {
+    const OPP = { name: 'OppSentinelName', publicId: 'OPPSNTL1' };
+    const MODEL = 'ZZ-BOT-MODEL-SENTINEL';
+    const labels = labelsOf([
+      { seat: 0, callsign: 'Me', connected: true, ready: true, kind: 'human', member: OPP },
+      { seat: 1, callsign: 'B', connected: true, ready: true, kind: 'bot', botModel: { id: 'other', name: MODEL } },
+    ]);
+    // The app really holds them: the HUD text carries the sentinels, so the search below is not vacuous.
+    expect(labels[0]?.text).toContain(OPP.name);
+    expect(labels[0]?.text).toContain(OPP.publicId);
+    expect(labels[1]?.model).toBe(MODEL);
+
+    const { bodies } = await corpus();
+    const sent: TelemetryEvent[] = [];
+    const tel = createTelemetry({
+      identity: resolveIdentity(memStore(), new URLSearchParams(), () => '0f8fad5b-d9cb-469f-a165-70867728950e'),
+      newSession: () => '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+      build: '0.0.0', dev: false, now: () => 1000, viewport: () => [1440, 900], visible: () => true,
+      setInterval: () => 0, clearInterval: () => {}, onPagehide: () => {}, sink: { push: (e) => void sent.push(e), flush: () => {} },
+    });
+    tel.sessionStart('other', 'three');
+    const state: RuntimeView = { tick: 100, result: 'victory', defeatCause: undefined, roe: 100, fielded: 5, lost: 0, objectives: [{ id: 'hold', type: 'hold_for', primary: true, status: 'active' }] };
+    const m = tel.missionStarted('m1', false, () => state);
+    m.onEvent({ kind: 'missionEnd', tick: 100, result: 'victory', roeRating: 90, survivors: [], ledger: {} } as MissionEvent);
+    m.end();
+    const context = JSON.stringify(
+      collectContext({ renderer: 'three', viewport: [1920, 1080], dpr: 2, locale: 'en', ua: 'ua', route: '/versus', settings: { uiScale: 'auto', textSize: 1, motion: 'system', colorVision: 'default' }, errors: [] }),
+    );
+    const out = [...sent.map((e) => JSON.stringify(e)), context, ...bodies.create, ...bodies.join, ...bodies.connect];
+    expect(out.length).toBeGreaterThan(5);
+    for (const body of out) for (const s of [OPP.name, OPP.publicId, MODEL]) expect(body, `carries ${s}`).not.toContain(s);
   });
 });

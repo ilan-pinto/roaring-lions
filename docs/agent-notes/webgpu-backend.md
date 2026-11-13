@@ -81,3 +81,57 @@ The instrument: `RenderBackend.stats().perPass` (`backend/pass-counter.ts`: the 
 Profile (CDP, 60 frames at n600): G's top self time is `writeBuffer` (3.8 ms a frame), `_renderObjectDirect`, `_projectObject`, `_needsRenderUpdate`, `_updateBindings`; L's is `readPixels` (the sync) and the matrix updates both arms share. **The lever for T14: the per-object FULL refresh (H2), in both the scene and the shadow pass (H3), that every unit mesh with a node twin now takes (`NodeMaterialObserver.needsRefresh` returns FULL whenever the material `hasNode`).** Expected saving: up to the P3 addition H6 measured, about 2.1 ms per 300 units (3.9 ms at n600), for the non-skinned share (a `SkinnedMesh` is FULL on `hasAnimation` whatever its material).
 
 Caveats, each measured: the submit page called `snapshot()` before every reading and the drawn scene grew with the calls (n300: 435 skinned draws at the 1st and 2nd call, 708 at the 3rd, 1295 at the 4th, byte-identical on L and G and across runs, no sim tick between them), so H3 and H4 read a bigger scene than their base and the page's own n600 base (G 35.58 ms) is not `runArm`'s (19.82 ms): the H1 delta (read at the 2nd call, before the growth) and H6 (`runArm`, one snapshot per count) are clean; H3's G-over-L ratio is the robust part. The page now snapshots once per spawn. Why repeated snapshots change the drawn set is open. `gpuMs` read 73-112 ms per frame on Metal, above the frame's own wall time: reported, not used.
+
+
+## The 3D grass field: the sheet and the frame cost (GH-1167 S7/S8)
+
+Design `docs/superpowers/specs/2026-11-11-wadi-halam-3d-grass-design.md` (budget in 5.1, instruments in 5.2). The field is node-path only (`terrain/grass-field*.ts`, built from the node chunk, keyed on `TerrainTones.grassField`, which only the `green` theme sets).
+
+**Result: the budget is NOT met, at any zoom.** Metal hold 2026-11-13: Apple M3 Pro, G on `apple / metal-3` (the ANGLE probe string: Apple M3 Pro, ANGLE Metal), `wadi_halam_4`, 1280x720 DPR 2, quality high, music off, reduced motion on the harness page, 3 ABBA rounds of 4 fresh pages (off,on,on,off / on,off,off,on), 80 timed frames a reading, `webgpu:abba --arms=G --grass`. Each run's own conditions line: 1-minute load per page 2.94-3.99 (r1), 3.62-3.98 (r2), 2.32-3.95 (r3), 2.96-4.00 (r4), against the runner's bar of 4 (it waits for the bar before every page; the load at the end of a run was 3.5-4.3). Tree: origin/main `68938665c` plus this branch's tool edits. A Chrome renderer that is not ours held about 130% of a core throughout. Medians of the round medians, ms, grass ON minus OFF (the `grass-field` layer; "spread" is each arm's):
+
+| run | zoom (LOD) | n | ON | OFF | delta median (budget +1.0) | delta p95 (budget +1.5) | spread |
+|---|---|---|---|---|---|---|---|
+| r1 | 0.5 (2) | 0 | 15.20 | 10.15 | +5.05 | +3.70 | 0.80 / 1.55 |
+| r1 | 0.5 (2) | 300 | 33.95 | 27.90 | +6.05 | +5.95 | 0.55 / 1.40 |
+| r1 | 1 (1) | 0 | 14.50 | 9.90 | +4.60 | +4.25 | 0.75 / 1.10 |
+| r1 | 1.5 (1) | 0 | 13.90 | 9.50 | +4.40 | +5.00 | 2.00 / 1.45 |
+| r1 | 2.5 (0) | 0 | 13.35 | 9.45 | +3.90 | +3.60 | 1.60 / 1.00 |
+| r2 | 0.5 (2) | 0 | 15.05 | 9.65 | +5.40 | +5.20 | 0.85 / 0.95 |
+| r2 | 1 (1) | 0 | 13.95 | 9.05 | +4.90 | +3.05 | 0.95 / 1.25 |
+| r2 | 1.5 (1) | 0 | 13.00 | 10.15 | +2.85 | +1.85 | 1.70 / 1.90 |
+| r2 | 2.5 (0) | 0 | 12.20 | 10.00 | +2.20 | +2.00 | 1.70 / 1.25 |
+
+**What the rows are.** r1 is `--counts=0,300`, r2 is `--counts=0`. The view zooms (z1, z1.5, z2.5) are probed at the FIRST count of a run, so they are n0 in both (the abba output's "last count" label is wrong; the triangle counts of r1 and r2 are identical, which is how this showed): r1 and r2 are two readings of the same n0 scene and differ by 0.3 to 1.7 ms, which is the noise of the hold. **n300 at z1, z1.5 and z2.5 was not measured**; only z0.5 has an n300 point. The LOD column is the one the ABBA and probe pages drew (they climb 0.5 -> 1 -> 1.5 -> 2.5 and the band edge at 1.5 has +/-0.05 hysteresis, so z1.5 climbing is LOD1; coming down from z2.5, as the sheet does, it is LOD0).
+
+**Why it is twice what it should be: the material is drawn in two passes.** The field's material is `transparent` and `DoubleSide`, and three's renderer (r186, `renderers/common/Renderer.js`, `material.forceSinglePass === false`) draws such a material as back faces and then front faces, so every mesh is two draw calls and two sets of triangles. That is the 216 calls for 108 meshes in the probe, and it means the design's 108-draw budget is crossed (216), and the probe's triangle figures below are doubled. The single-pass arm (r4, `--grass-single-pass`: `forceSinglePass = true` on the field's material, nothing else, n0, same hold) halves the cost:
+
+| zoom (LOD) | plain median / p95 | single pass median / p95 | single pass ON / OFF | spread |
+|---|---|---|---|---|
+| 0.5 (2) | +5.05 / +3.70 (r1), +5.40 / +5.20 (r2) | +2.80 / +2.35 | 13.25 / 10.45 | 1.15 / 1.20 |
+| 1 (1) | +4.60 / +4.25, +4.90 / +3.05 | +2.20 / +1.40 | 12.10 / 9.90 | 0.35 / 2.35 |
+| 1.5 (1) | +4.40 / +5.00, +2.85 / +1.85 | +0.50 / -0.30 | 11.30 / 10.80 | 1.40 / 2.30 |
+| 2.5 (0) | +3.90 / +3.60, +2.20 / +2.00 | +0.80 / -0.40 | 10.90 / 10.10 | 1.20 / 1.85 |
+
+Single pass is within budget at z1.5 and z2.5 (inside their spreads) and still over at z0.5 (+2.80) and z1 (+2.20). It is a one-line change in `grass-field.node.ts` that was NOT made here (render code, the lead's call). The design's shed ladder (coarser LOD bands, fewer blades) was NOT run: it needs render-code edits, and LOD2 is already the cheapest geometry at z0.5, the widest-zoom cost. Whether any rung changes what draws below z0.9 was not checked.
+
+**The depth-writing arm** (design 7.3, decision 5; r3, `--grass-depth-write`): ONLY `depthWrite` true on the field's material (`setGrassMaterial` in `tools/src/perf/webgpu-page.ts`); the material stays in the transparent queue in `GRASS_RENDER_ORDER`, cells back to front, so this is the worst order for early-z, a lower bound on a front-to-back opaque field's saving. Same hold; z0.5 at n0 and n300, the view zooms at n0:
+
+| zoom | n | delta median, depth write | delta median, plain (r1 / r2) | delta p95, depth write | spread (on / off) |
+|---|---|---|---|---|---|
+| 0.5 | 0 | +6.00 | +5.05 / +5.40 | +5.55 | 2.85 / 1.55 |
+| 0.5 | 300 | +6.75 | +6.05 | +7.35 | 1.60 / 0.55 |
+| 1 | 0 | +3.00 | +4.60 / +4.90 | +3.75 | 2.45 / 2.05 |
+| 1.5 | 0 | +1.45 | +4.40 / +2.85 | -0.30 | 1.05 / 2.05 |
+| 2.5 | 0 | +0.90 | +3.90 / +2.20 | -1.25 | 1.25 / 1.10 |
+
+Reading, with the noise in view (the plain column itself moved 1.5 to 1.7 ms between r1 and r2): depth write saves roughly 1.3 to 3.0 ms at z2.5, 1.4 to 3.0 at z1.5 and 1.6 to 1.9 at z1, and nothing at z0.5. It is no better than the single-pass arm, which is also cheaper to ship (no change to rings or the outline). HYPOTHESIS, not measured: the z0.5 cost left after single pass is the whole map's 108 meshes drawing (none culled) through the wind, flutter and disturber vertex program. The shadow-casting arm (design 5.2) was NOT run.
+
+**Counts (SwiftShader, DPR 1, n0, `webgpu-grass-probe --counts=0`, counts only; CI's `probe=grass` reads the same)**: grass calls (scene on - off) 216 / 174 / 120 / 104 and triangles on - off 0.17 M / 1.14 M / 0.78 M / 1.53 M at z0.5 / 1 / 1.5 / 2.5 (all doubled by the two passes: about 0.09 / 0.57 / 0.39 / 0.76 M of geometry; the single-pass Metal page counts 0.57 M at z1, 0.39 M at z1.5 and 0.76 M at z2.5, the same halves); shadow and AO calls +0 and +0 at every zoom. The design's 2.3 estimate (91 k / 398 k / 396 k / 143 k) holds at z0.5 and z1.5 and is low at z1 (0.57 M) and z2.5 (0.76 M, five times it): the field is culled by 8x8 cells, so a view takes whole cells. (PR 1318's body quotes these same doubled two-pass figures.) Single pass, the triangle budget (0.6 M) is crossed at z2.5 (0.76 M) only.
+
+**Boot (`pnpm perf:load -- --sandbox=wadi_halam_4 --renderer=webgpu --quality=<q> --runs=3`, dev server, cold, Metal, 1400x900)**: the tool now takes `--renderer=` (the app's `&gpu=` plus `--enable-unsafe-webgpu`; before it there was no pass-through, and a fallback would have printed as a webgpu run) and `--quality=`, and prints the backend that drew. Bytes: 78.68 MiB over 1087 requests at quality high, 78.68 MiB over 1085 at low (low builds no field): +0 B, the two extra requests being the field's modules. First-frame ms, high 7186 / 6613 / 6494 against low 2943 / 2359 / 2327. **The +4 s is not the field's**: `low` also drops shadows, AO and the heavier shaders, so this pair bounds nothing, and the design's "<= +20 ms to first-frame" has no clean reading (no switch builds a node boot without the field and nothing else).
+
+**An instrument bug this hold found and fixed**: `runArm` counted the field's meshes right after `init`, but the field arrives later (the node chunk's dynamic import, then a build on a frame), so every grass-on page counted 0 and `webgpu:abba --grass` REFUSED at the end of a full run (nobody had run the column on Metal; the probe hid it behind 61 warm-up frames). `applyGrassModeSettled` waits for the field (`settleField`: the mesh count must read the same non-zero value on two polls, else it throws after 600 polls); the sheet's boot check settles the same way. Watched red then green: exit 2 on the first full run, exit 0 on the second.
+
+**The probe's falsification, watched**: `webgpu-grass-probe --counts=0` exits 0 with the field; `--falsify=no-field` exits 2 with "the grass-on arm has 0 visible grass meshes (no field was built, or its layer is hidden): it drew 0 grass calls" and "hiding the grass layer reported 0 changed: there is no field to toggle" at every zoom. SwiftShader (the probe hard-codes it), `--counts=0` because the default `0,300` timed out at 580 s there.
+
+**The sheet (S7)**: `tools/src/perf/webgpu-grass-sheet.ts` (`pnpm --filter @lions/tools exec tsx src/perf/webgpu-grass-sheet.ts --out-dir=<dir> --port=<n>` (no package script, on purpose: a `tools/package.json` change makes Snyk re-test every project)), the real app at `?sandbox=wadi_halam_basin&gpu=webgpu`, report-only; its refusals (not node-webgpu, not Metal, no grass mesh, identical on/off frames, blank frame) and `setGrassMaterial`'s throw were not watched red. Every picture is an ON/OFF pair at one sim tick (OFF is the node boot with the field hidden: bare ground, not today's grass). The fog layer is hidden for the whole sheet. The wind clip has three rows at the same ticks: full motion, `prefers-reduced-motion: reduce`, and the `wind` layer hidden; the flutter alone has no switch. Squads and the helicopter are spawned with `sim.spawn` and driven by the sim's own commands; under fire two squads went `pinned` (read off `sim.state.pinned`), kneel is not identified in the frames. **A defect it found, not the grass's: a Lavi that begins to move throws on node-webgpu.** `createRenderPipeline ... GPUVertexAttribute 'format' Required member is undefined`. Ran: the sandbox force's own `mbt_lavi` renders at the start and 20 ticks later, then `move` and `step(10)` throws (the grass layer hidden gave the same throw on an earlier, spawned Lavi). Candidate: the first moving frame's material clone (running gear); not isolated, not tried on a non-green map. So the sheet has no moving-Lavi clip. The crash is reported separately.

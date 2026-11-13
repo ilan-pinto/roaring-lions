@@ -8,6 +8,10 @@
  *    render and the AO pre-pass; `'every-pass'` is three's own behaviour.
  *  - `uploads` (PR 1205, `attribute-uploads.ts` and `bone-texture.ts`): `'versioned'` installs both; `'three'` installs neither, so
  *    the main before 1205 is a switch, not a source revert (N2).
+ *  - `batchUploads` (GH-1152, 12 Nov, `../units/batch-uploads.ts`): `'drawn'` has the fixed-capacity per-frame batches (the overlay
+ *    batch, the tracer, shell and bolt batches) mark only the vertices they drew for upload, and nothing on a frame that drew none;
+ *    `'capacity'` is the legacy behaviour (the whole buffer every frame). A legacy boot never reads it and always uploads capacity.
+ *    Under `uploads: 'three'` it stays correct (three re-uploads a dynamic attribute in full on every later pass), it just saves less.
  *
  * The probe page's H7 ceiling (`'unsafe-shared'`) is a fourth refresh value it sets at RUN time only, never a boot option: it
  * downgrades with no key check, so it can draw a stale uniform, and is used for timing alone.
@@ -15,20 +19,23 @@
 export type RefreshPolicy = 'three' | 'parked';
 export type MatrixWalk = 'every-pass' | 'once';
 export type UploadsMode = 'three' | 'versioned';
+export type BatchUploadsMode = 'capacity' | 'drawn';
 
 export interface NodeDrawOptions {
   readonly refreshPolicy?: RefreshPolicy;
   readonly matrixWalk?: MatrixWalk;
   readonly uploads?: UploadsMode;
+  readonly batchUploads?: BatchUploadsMode;
 }
 export type ResolvedNodeDraw = Required<NodeDrawOptions>;
 
-export const NODE_DRAW_DEFAULTS: ResolvedNodeDraw = Object.freeze({ refreshPolicy: 'parked', matrixWalk: 'once', uploads: 'versioned' });
+export const NODE_DRAW_DEFAULTS: ResolvedNodeDraw = Object.freeze({ refreshPolicy: 'parked', matrixWalk: 'once', uploads: 'versioned', batchUploads: 'drawn' });
 
 const VALUES: { readonly [K in keyof ResolvedNodeDraw]: readonly ResolvedNodeDraw[K][] } = {
   refreshPolicy: ['three', 'parked'],
   matrixWalk: ['every-pass', 'once'],
   uploads: ['three', 'versioned'],
+  batchUploads: ['capacity', 'drawn'],
 };
 
 /** The options with every absent field at its default. */
