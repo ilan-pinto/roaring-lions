@@ -294,7 +294,7 @@ import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy,
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { accountsEnabled } from './account/enabled';
-// The account client and the profile screen load only behind `?accounts` (GH-1075 A1), never with the entry chunk.
+// The account client and the profile screen load only (GH-1075 A1), never with the entry chunk.
 import type { AccountClient, AccountError } from './account/client';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
@@ -439,7 +439,7 @@ function safeStorage(): Storage | null {
 let savePromptShownOnPage = false;
 /** `markShown` could not keep the count (a refused write): the page alone limits the prompt. */
 let savePromptUnpersisted = false;
-/** `?accounts` is on for this page (set once by `main()`): the save prompt and the held list exist only then. */
+/** Accounts are on for this page (set once by `main()`): the save prompt and the held list exist only then. */
 let accountsOnPage = false;
 
 /** The app's one door to the campaign ledger, the brigade account and the save
@@ -901,7 +901,7 @@ async function main(): Promise<void> {
   // so `unknownParams` does not report either as a typo, and neither is in
   // `router.start`'s own `drop` list below, so a reload keeps carrying them.
   const q = new URLSearchParams(window.location.search);
-  // GH-1075 A1: the one account client of this page. Disabled (no `?accounts`, or `?fresh`) it is never even loaded, so it
+  // GH-1075 A1: the one account client of this page. Disabled (`?fresh`, or a dev/CI page with no `?accounts`) it is never even loaded, so it
   // never calls `fetch`; enabled, its module is fetched on first use and the one client is shared by every caller.
   const accountsOn = accountsEnabled(q);
   accountsOnPage = accountsOn;
@@ -932,7 +932,7 @@ async function main(): Promise<void> {
   }
 
   // GH-1075 A2 (§0.11, Task 2.12): a signed-in device waits (5 s) for its first `GET state` when it has no cache, then the sync loop
-  // and the spend flow start around the account store. Behind `?accounts` only: a guest never reaches this network call.
+  // and the spend flow start around the account store. Only for a claimed binding: a guest never reaches this network call.
   let accountUnreachable = false;
   if (selectedStore.signedIn && accountsOn) {
     const { bootAccountLazy } = await importWithRetry(() => import('./account/boot'));
@@ -1587,7 +1587,7 @@ async function main(): Promise<void> {
         pattern: '/profile',
         mount: (host, req) => {
           if (!accountsOn) {
-            // No `?accounts`: this screen does not exist. Leave softly once the router has finished mounting.
+            // Accounts off (`?fresh`, or dev/CI): this screen does not exist. Leave softly once the router has finished mounting.
             queueMicrotask(() => void router.navigate(routes.menu(), { replace: true }));
             return () => {};
           }
@@ -1595,7 +1595,7 @@ async function main(): Promise<void> {
           // The sync module rides along only when the server-backed store is up (it is already loaded then: boot imported it).
           const syncMod = syncHandle !== null && isAccountStore(ledgerStore) ? importWithRetry(() => import('./account/sync')) : Promise.resolve(null);
           return Promise.all([importWithRetry(() => import('./ui/profile')), accountClient(), syncMod]).then(([{ showProfile }, client, syncApi]) => {
-            // C2: every hard reload here keeps the sticky query keys (`?accounts` above all), or the device lands on the guest store.
+            // C2: every hard reload here keeps the sticky query keys, or the device lands on the guest store.
             const reloadHere = (): void => window.location.assign(reloadMenuHref(window.location.search));
             const sync = syncHandle;
             const acct = isAccountStore(ledgerStore) ? ledgerStore : null;

@@ -247,7 +247,7 @@ credit Buy), 1120 (the panel), 1122 (Stores tier-row credit Buy). PR 1123 (the n
 
 ## Accounts A2: claim and sync (GH-1075)
 
-Behind `?accounts`. Sources: `packages/app/src/account/` (`account-store.ts`, `outbox.ts`, `sync.ts`, `claim.ts`,
+On by default (13 Nov): `account/enabled.ts`'s `accountsEnabled(query, host)` is true on a production build on a real host (the telemetry rule, `telemetry/enabled.ts`'s `LOCAL`), false under `?fresh` everywhere, and false on `pnpm dev`, tests and CI unless `?accounts` opts in, so no dev or CI page ever calls the account routes. `?accounts` is accepted and a no-op on a real host. Sources: `packages/app/src/account/` (`account-store.ts`, `outbox.ts`, `sync.ts`, `claim.ts`,
 `local-held.ts`); rulings in `docs/superpowers/plans/2026-11-09-accounts-a2.md` section 0. A2 adds no migration and no
 binding.
 
@@ -307,7 +307,7 @@ Sources: `packages/worker/src/account/`, `packages/worker/migrations-accounts/`,
   - **Open** (lead only, after the PR is merged and deployed and `GET https://roaring-lions.pint12.workers.dev/privacy` answers 200):
     `npx wrangler d1 execute roaring-lions-accounts --remote --command "INSERT INTO flags (name, value, updated_at) VALUES ('accounts', 'open', unixepoch() * 1000) ON CONFLICT (name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"`
   - **Close:** the same command with `'closed'` in place of `'open'`. No deploy is needed either way.
-  - Players sign up from `/?accounts`.
+  - Players sign up from `/` (the menu chip); `?fresh` hides it. `GET open` still reports the switch, so closing it needs no deploy.
 - **Before the first merge:** `npx wrangler d1 migrations apply roaring-lions-accounts --remote`. Merging deploys to
   production from `main`, and a Worker bound to an unmigrated database fails.
 - **Tombstones** are KV keys `tomb:<sha256(public_id)>` in `ACCOUNT_TOMBSTONES`, value `{deletedAt, lastSeenDay}`, TTL 90 days
