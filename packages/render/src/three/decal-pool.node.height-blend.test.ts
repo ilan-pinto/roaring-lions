@@ -273,6 +273,8 @@ describe('the decal soil is the ground stage\'s soil', () => {
     ['a grove floor', [0, 0, 0, 1], [0, 0, 0, 0]],
     ['a pad of scrub and rock', [0.1, 0.4, 0.5, 0], [0, 0, 0, 0]],
   ];
+  /** The soil weight of each `ctl` case, worked by hand as open + knoll + half of scrub (control A's R, B's R, A's B): 1; 0.3 + 0.35 + 0.125; 0; 0.1 + 0 + 0.25. */
+  const SOIL = [1, 0.775, 0, 0.35];
   it.each(ctl)('with strengths 0 (no height bias, rescale = identity on a unit sum) the stage\'s weights give the decal\'s soil to the bit: %s', (_n, a, b) => {
     const k = { strengths: [0, 0, 0, 0, 0], means: [1, 1, 1, 1, 1], grainMean: 1, roadOn: 0, grainGain: 0, roadTone: 1, shoulderTone: 1, rutTone: 1, macroAmp: 0, macroBright: 1, macroDark: 1 };
     const taps = { vertexTone: 0.5, wall: -1, slotTexels: [1, 1, 1, 1, 1], controlA: a as [number, number, number, number], controlB: b as [number, number, number, number], grainTexel: 1, macroTexel: 0.5 };
@@ -287,13 +289,15 @@ describe('the decal soil is the ground stage\'s soil', () => {
     expect(MATERIAL_MATHS.decal.heightBlend.soil(NUMBER_OPS, a[0] as number, b[0] as number, a[2] as number)).toBe(groundSoilValue);
     expect(groundSoilValue, 'non-vacuous: not NaN').not.toBeNaN();
   });
-  it.each(ctl)('through the real stage: its vertexTone on a 22-degree bank bit-equals heightBlendTone at the decal\'s soil: %s', (_n, a, b) => {
+  it.each(ctl.map((c, i) => [...c, SOIL[i] as number] as const))('through the real stage: its vertexTone on a 22-degree bank bit-equals heightBlendTone at the decal\'s soil: %s', (_n, a, b, expectedSoil) => {
     const k = { rockTone: 0.1, jointTone: 1, hollowTone: 0.7, rockAmp: 0.75, jointAmp: 0, hollowAmp: 0.45, soften: 0.4, amp: 1 };
     const f: [number, number, number] = [0.35, 128 / 255, 0.5];
     const stage = heightBlendStage(NUMBER_OPS, BV, f, k, { textureEdge: false, joints: false });
     const out = stage({ weights: [a[0], a[1], a[2], a[3], b[0]] as number[], factors: [1, 1, 1, 1, 1], vertexTone: 0.5 });
     const soil = MATERIAL_MATHS.decal.heightBlend.soil(NUMBER_OPS, a[0] as number, b[0] as number, a[2] as number);
-    expect(out.vertexTone).toBe(heightBlendTone(NUMBER_OPS, 0.5, f, soil, k));
+    // The soil itself against the hand-worked literal: the stage calls the same `groundSoil`, so a wrong weight would move both sides of the next line.
+    expect(soil).toBeCloseTo(expectedSoil, 12);
+    expect(out.vertexTone).toBeCloseTo(heightBlendTone(NUMBER_OPS, 0.5, f, expectedSoil, k), 12);
     if (soil > 0) expect(out.vertexTone, 'non-vacuous: a soil weight moved the tone').not.toBe(0.5);
   });
   it('the grove floor is the case soil 1 got wrong: soil 0, so the tone is the base tone', () => {
