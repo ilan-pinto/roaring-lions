@@ -317,6 +317,73 @@ Sources: `packages/worker/src/account/`, `packages/worker/migrations-accounts/`,
   deleted since the restore point, and their tombstones in KV then say they are gone. Re-apply the deletions (the
   tombstone re-apply script, built in A4) and only then reopen. Until A4 builds it, do not restore without closing.
 
+## Accounts G: Google sign-in and the provider flags (GH-1075)
+
+Sources: `packages/worker/src/account/google.ts` (start and return), `google-oidc.ts` (the ID-token verifier),
+`member.ts` (`openProviders`, `steamOpen`), `routes.ts`, `steam.ts` (the gate), `packages/worker/migrations-accounts/0002_google.sql`,
+`packages/app/src/account/client.ts`. Spec: `docs/superpowers/specs/2026-11-13-google-sign-in-design.md` (its section 6 is the lead's
+setup). The agent never runs `wrangler` and never writes a secret value; the lead does. Slices G1 to G5 are merged; G6 (the profile
+screen) and G7 (the privacy page) were open PRs when this was written, so what the screen draws is theirs, not stated here.
+
+- **Providers.** `google` and `steam`, both in `member_identity.provider` (migration `0002_google.sql`; at most one Google identity per
+  member, so a member can hold Google and Steam together). `GET /api/account/open` answers `{open, providers}`, and the app draws buttons
+  from `providers` (`client.ts` `providers()`, which drops names outside `PROVIDERS`), never from a constant.
+- **Flags** are `flags` rows in the ACCOUNTS database. Every one is CLOSED unless it reads `'open'`; a missing row is closed (`member.ts`
+  `flagOpen`).
+  - `accounts`: the switch described under "Accounts A1" above. It alone gates making a NEW member, for either provider (`accountsOpen`
+    plus the new-account budget). Closed, an existing Google identity still signs in.
+  - `google`: governs ONLY the `providers` list. `openProviders` lists `google` when `GOOGLE_CLIENT_ID` (non-blank) and
+    `GOOGLE_CLIENT_SECRET` are both set AND `flags.google` is `'open'`. `google/start` and `google/return` check the secrets and nothing
+    else (`google.ts`), so with the secrets set and the flag closed an existing Google identity can still sign in by a direct API call,
+    and `/profile?google` (G6) can draw the buttons for the lead's test before the flag opens.
+  - `steam`: lists `steam` in `providers`, and is stricter: `steamStart` answers 503 `{error: 'provider_off'}` while it is not open,
+    before `perMinute`, the session read and `startBudget`, so a stale tab writes no challenge and spends no budget. `steam/return` is
+    untouched.
+- **Secrets** (`Env` in the Worker): `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Either missing or blank: `google/start` answers 503
+  `{error: 'provider_off'}` before any limiter, row or fetch, `google/return` answers a 303 with `r=google` and makes no fetch, and
+  `providers` omits Google. With no secret set (CI, tests, `pnpm dev`) nothing ever calls Google; tests inject `AccountDeps.fetch`.
+- **Shape of the flow.** OpenID Connect code flow with PKCE (S256), `state`, `nonce`, scope `openid` only, `prompt=select_account`, a
+  confidential client (`client_secret_post`). The only thing kept from Google is the ID token's `sub`; no token is stored. The PKCE
+  verifier is the pre cookie's value and the nonce is `googleNonce(pre)`, so neither is stored. `redirect_uri` is
+  `<origin>/api/account/google/return` with no query, built from an origin in `accountOrigins`. Return codes appended to the profile path:
+  `r=<code>&p=google` (`RETURN_CODES` and `readReturnProvider` in `client.ts`, `google` and `already` are the new codes).
+- **The lead's runbook.** Order matters; each flag command needs no deploy.
+  1. **Migration, before the Google code merges** (merging deploys): `npx wrangler d1 migrations apply roaring-lions-accounts --remote`.
+  2. **Google Cloud OAuth client** (spec section 6.1): type Web application, no JavaScript origins, no logo, authorized redirect URI exactly
+     `https://roaring-lions.pint12.workers.dev/api/account/google/return`, authorized domain `pint12.workers.dev`. Copy the secret at
+     creation; Google shows it once.
+  3. **Set the secrets** (names only; the values come from step 2, and are typed at the prompt, never into a file or a command line):
+     `npx wrangler secret put GOOGLE_CLIENT_ID` and `npx wrangler secret put GOOGLE_CLIENT_SECRET`.
+  4. **Close the rows explicitly** (a missing row already means closed; the rows make the state readable). Run the command below with
+     `'closed'` for `google`, and again for `steam`.
+  5. **The live test** at `https://roaring-lions.pint12.workers.dev/profile?google` (G6; after PR 1336 and PR 1335 are merged and the
+     privacy page answers 200): sign up with a Google account, check the consent screen asks only for basic sign-in, check the profile
+     says "Signed in" and lists "Google", check Workers Logs show no `account: google ... failed` line, download the export and check
+     `google_sub` is there with no email.
+  6. **Open Google for players:** the command with `'google'` and `'open'`. **Close:** the same with `'closed'`.
+
+     `npx wrangler d1 execute roaring-lions-accounts --remote --command "INSERT INTO flags (name, value, updated_at) VALUES ('google', 'open', unixepoch() * 1000) ON CONFLICT (name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"`
+
+     For Steam, replace `'google'` with `'steam'` in the same command. `accounts` must also be `'open'` for a new member to be made.
+- **Why Steam is off.** Steam's `check_authentication` POST answers HTTP 403 to the Worker from Cloudflare's egress (and 200 to the same
+  request from a home machine), and Steam's OpenID refuses associations, so the server round trip cannot be skipped: every Steam sign-in
+  in production failed at `verifyOpenId`. The routes, the `steam` provider and the `steam-link` purpose stay, so a relay can turn Steam
+  back on with `flags.steam` and no migration. Do not open `steam` until a sign-in has finished once in production.
+- **Known limits.**
+  - **S1 rarely fires (open lead decision F2).** On a Google login the return drops the device's previous session when it belongs to a
+    different member, but the session cookie is `SameSite=Strict` (`session.ts`), so Google's cross-site redirect usually does not carry it
+    and the previous session stays. Left as is until the lead rules on F2. A link never reads a session cookie: it rests on the challenge
+    row's `member_id`.
+  - **The JWKS Cache API layer is likely inert on `*.workers.dev`.** `cacheJwksStore` (`google.ts`) is wired to `caches.default` when it
+    exists, but Cloudflare documents functional cache operations for custom domains only, so on `workers.dev` every read is probably a
+    miss. Nothing depends on it: the verifier's own isolate cache (`google-oidc.ts`, max-age capped at 24 h, a key-miss refetch at most
+    once a minute) still works. Treat a cold isolate as one extra JWKS fetch (8 s timeout, 64 KiB cap).
+  - A failed JWKS or token fetch refuses with `r=google`; a bad token, nonce, audience, issuer or expiry refuses with `r=invalid`.
+    The Worker logs one `account: google exchange failed` line (a status, a Location host, an error name, a duration, never a code,
+    token or `sub`).
+  - A deleted member's `google-link` challenge rows do not cascade (`auth_challenge.member_id` has no foreign key); account deletion
+    clears them in `tables.ts`.
+
 ## Accounts A3: versus records (GH-1075)
 
 A versus match a member plays is recorded on the member's account, but only a result the server can stand behind.
