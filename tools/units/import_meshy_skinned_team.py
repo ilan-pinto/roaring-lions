@@ -160,6 +160,31 @@ SOURCES = {
         #: helmet's crown toward the target (rendered, 12 Nov). At 0.09 above the joint -- the tube's end on the top of
         #: the collarbone, the bore beside the jaw -- the weld asks the 37 deg it asks of the pilot.
         pocket=(0.03, 0.09, 0.05),
+        #: The lead's ruling of 13 Nov 2026 (GH-826, unit 1): Meshy sculpted this carbine with a BARE buffer tube (no
+        #: stock: 0.625 m cap to muzzle, under the 0.72 floor). A collapsed stock is grafted onto the tube here, in code
+        #: (`_graft_stock`): 0 credits, every fit already made on the Meshy bytes kept (the bore, the stations and the
+        #: gun's classes are measured BEFORE the graft and do not see it). The sections are in the bore's own frame on the
+        #: base body: (e along the bore from the Meshy butt, negative behind it; top and bottom about the tube's centre
+        #: line; half width; corner cut), metres, front to rear. Measured on the remesh: the tube's rear cap is at e 0,
+        #: its centre 4 mm under and 2 mm beside the bore, its radius 27 mm, the receiver's rear at e +0.16; the firing
+        #: sleeve lies against the tube's underside from e +0.02 forward, so the stock's toe drops only BEHIND the cap;
+        #: behind the cap the nearest body (the deltoid's front) is 67 mm off the extended bore as far back as e -0.18.
+        #: A collapsed M4-class stock stands 3-5 cm behind its tube and its plate is about 12 cm high: +55 mm here.
+        stock=dict(centre=(-0.004, -0.002),
+                   sections=((0.085, 0.031, -0.031, 0.031, 0.010),
+                             (0.010, 0.036, -0.036, 0.033, 0.010),
+                             (-0.018, 0.036, -0.074, 0.030, 0.010),
+                             (-0.045, 0.032, -0.092, 0.027, 0.008),
+                             (-0.055, 0.026, -0.086, 0.023, 0.008))),
+        #: ...and the team's OWN gun-length band, a ratchet at the grafted length (the same ruling: "a real engineer's
+        #: short carbine"; a Mk18-class carbine is 0.68-0.72 m collapsed). The base body's grafted carbine is 0.680 m;
+        #: the import refuses this team outside 0.670-0.690. The global GUN_LEN_BAND stays for every other team, and
+        #: `tools/src/mesh_gun_length.test.ts` reads each man's length off the shipped bytes.
+        gun_len_band=(0.670, 0.690),
+        #: The same ruling, item 3: Meshy baked a dark patch with a round emblem on the left upper arm (and its pair, a
+        #: dark-blue patch with a yellow chevron, on the right) against the prompt's "no insignia". Every texel of an
+        #: upper arm that is not the sleeve's own khaki goes to the sleeve's olive (`RETINT["sleeve_patch"]`).
+        sleeve_patch=True,
     ),
 }
 
@@ -301,6 +326,75 @@ def _classes(co, lab):
 GUN_LEN_REVIEW_ENV = "SKINNED_GUN_LEN_REVIEW"
 
 
+def _stock_extension(row):
+    """How far a row's grafted stock stands behind the Meshy butt, metres on the base body (0 with no graft)."""
+    return -min(sec[0] for sec in row["stock"]["sections"]) if "stock" in row else 0.0
+
+
+def _stock_mesh(g, row):
+    """The grafted stock of `row` on the base body: (vertices (N, 3), triangles (T, 3)) in the normalised frame, from the
+    measured bore `g` (butt, axis, up). Each section is a rectangle with its corners cut (8 points); the sections are
+    lofted front to rear and capped at both ends. Every triangle is wound outward (checked against the loft's own centre
+    line, not assumed)."""
+    b, ax, up = g["butt"], g["axis"], g["up"]; side = np.cross(ax, up)
+    cu, cs = row["stock"]["centre"]
+    rings, mids = [], []
+    for e, top, bot, hw, ch in row["stock"]["sections"]:
+        pts = [(top, -hw + ch), (top, hw - ch), (top - ch, hw), (bot + ch, hw), (bot, hw - ch), (bot, -hw + ch), (bot + ch, -hw), (top - ch, -hw)]
+        rings.append([b + ax * e + up * (cu + u_) + side * (cs + s_) for u_, s_ in pts])
+        mids.append(b + ax * e + up * (cu + (top + bot) / 2) + side * cs)
+    V = np.array(rings).reshape(-1, 3); n = 8; R = len(rings)
+    tris, ref = [], []
+    for r in range(R - 1):
+        for k in range(n):
+            a_, b_, c_, d_ = r * n + k, r * n + (k + 1) % n, (r + 1) * n + (k + 1) % n, (r + 1) * n + k
+            tris += [(a_, b_, c_), (a_, c_, d_)]; ref += [(mids[r] + mids[r + 1]) / 2] * 2
+    for r, toward in ((0, mids[0] - (mids[0] - mids[1])), (R - 1, mids[R - 1] - (mids[R - 1] - mids[R - 2]))):
+        for k in range(1, n - 1):
+            tris.append((r * n, r * n + k, r * n + k + 1)); ref.append(toward)
+    T = np.array(tris)
+    nrm = np.cross(V[T[:, 1]] - V[T[:, 0]], V[T[:, 2]] - V[T[:, 0]])
+    out = V[T].mean(1) - np.array(ref)
+    flip = (nrm * out).sum(1) < 0
+    T[flip] = T[flip][:, [0, 2, 1]]
+    return V, T
+
+
+def _graft_stock(part, prefix, g0, row, uv_at, sz, sxy, dx, dy):
+    """The row's stock, added to a figure's `weapon` mesh: scaled and placed as the figure's shell was, every vertex on
+    the gun's own bone at weight 1 (the carbine is rigid, its stock with it), every uv on one texel of the tube it stands
+    on (`uv_at`), flat-shaded. Returns the triangles added."""
+    V, T = _stock_mesh(g0, row)
+    V = V * np.array([sxy, sxy, sz]) + np.array([dx, dy, 0.0])
+    me = part.data
+    gi = part.vertex_groups[f"{prefix}_forearm_R"].index
+    bm = bmesh.new(); bm.from_mesh(me)
+    uvl = bm.loops.layers.uv.verify(); dl = bm.verts.layers.deform.verify()
+    vs = []
+    for p_ in V:
+        v = bm.verts.new(p_.tolist()); v[dl][gi] = 1.0; vs.append(v)
+    for t in T:
+        f = bm.faces.new([vs[int(i)] for i in t]); f.smooth = False; f.material_index = 0
+        for l in f.loops:
+            l[uvl].uv = (float(uv_at[0]), float(uv_at[1]))
+    bm.to_mesh(me); bm.free(); me.update()
+    return len(T)
+
+
+def _stock_texel(co, cls, lab, uv, g, row):
+    """The uv the grafted stock is painted with: the buffer tube vertex whose baked colour is nearest the tube's own
+    median (the stock is the tube's polymer; one texel, so it is one flat tone and no bake detail is stretched over it)."""
+    b, ax, up = g["butt"], g["axis"], g["up"]; side = np.cross(ax, up); cu, cs = row["stock"]["centre"]
+    r = co - b; e = r @ ax; rad = np.hypot(r @ up - cu, r @ side - cs)
+    tube = cls["gun"] & (e > 0.0) & (e < 0.15) & (rad < 0.035)
+    if tube.sum() < 20:
+        raise SystemExit(f"the buffer tube reads {int(tube.sum())} vertices: no texel to paint the stock with")
+    med = np.median(lab[tube], 0)
+    idx = np.nonzero(tube)[0]
+    i = idx[int(np.argmin(np.linalg.norm(lab[idx] - med, axis=1)))]
+    return uv[i].copy(), lab[i].copy(), med
+
+
 def _measure(co, cls, S, seeds, team_id=None):
     z = co[:, 2]
     J = {"S": S, "sxy": 1.0, "sz": 1.0}
@@ -340,12 +434,18 @@ def _measure(co, cls, S, seeds, team_id=None):
         a2 = a2 if a2 @ ax > 0 else -a2
         e2 = (P - c) @ a2; b = c + a2 * e2.min(); mz = c + a2 * e2.max()
     length = float(np.linalg.norm(mz - b))
-    if not (GUN_LEN_BAND[0] <= length <= GUN_LEN_BAND[1]):
+    # the length that ships: the Meshy gun, plus the stock grafted behind its butt for a team whose row has one. A team
+    # with a band of its own (a lead's ruling, in its row) is held to that; every other team to GUN_LEN_BAND.
+    row = SOURCES.get(team_id, {})
+    graft = _stock_extension(row)
+    band = row.get("gun_len_band", GUN_LEN_BAND)
+    if not (band[0] <= length + graft <= band[1]):
+        what = f"the Meshy gun measures {length:.3f} m" + (f" and {length + graft:.3f} m with its grafted stock" if graft else "")
         if team_id is None or os.environ.get(GUN_LEN_REVIEW_ENV) != team_id:
-            raise SystemExit(f"the Meshy gun measures {length:.3f} m, outside {GUN_LEN_BAND} (0.85 m +-15 %): refused")
-        log(f"{team_id}: REVIEW BUILD -- the Meshy gun measures {length:.3f} m, outside {GUN_LEN_BAND}; built only because "
+            raise SystemExit(f"{what}, outside {band}" + (" (0.85 m +-15 %)" if band is GUN_LEN_BAND else f" ({team_id}'s own band)") + ": refused")
+        log(f"{team_id}: REVIEW BUILD -- {what}, outside {band}; built only because "
             f"{GUN_LEN_REVIEW_ENV}={team_id} is set, stamped rl_skinned.gun_len_review, and refused by validate:meshes")
-        J["gun_len_review"] = dict(length=round(length, 4), band=list(GUN_LEN_BAND))
+        J["gun_len_review"] = dict(length=round(length + graft, 4), band=list(band))
     up = np.array([0.0, 0.0, 1.0]); up = up - a2 * (up @ a2); up /= np.linalg.norm(up)
     J["gun"] = dict(butt=b, muzzle=mz, axis=a2, up=up, length=length, centre=(b + mz) / 2, n=int(m.sum()))
     # shoulders: the shoulder band's outer surface, SHOULDER_IN inside it, at the deltoid's own x
@@ -1731,6 +1831,8 @@ RETINT = {
     # the CUFFS (the lead's ruling, round 3): the sleeve within CUFF_RETINT_M of a wrist, where Meshy bled the glove's
     # orange, goes to the sleeve's olive, every texel -- so the dark-brown glove reads against an olive sleeve
     "cuff": dict(target=(38.0, -6.0, 14.0), keep=0.3, orange_only=False),
+    # a team's baked sleeve insignia (a row's `sleeve_patch`): the uniform's olive, the emblem's own contrast nearly gone
+    "sleeve_patch": dict(target=(36.0, -6.0, 14.0), keep=0.06, orange_only=False),
     # ...and the glove's orange Meshy bled further up the sleeves, ORANGE texels only, to the olive: the salmon streaks
     # along the forearms (review, 9 Nov), 6-8 cm bands once the fists were real size
     "sleeve_bleed": dict(target=(36.0, -6.0, 14.0), keep=0.5, orange_only=True),
@@ -1752,6 +1854,30 @@ GLOVE_L_CLAMP = (21.0, 30.0)   # about the dark brown's L* 22 (the gate's floor 
 
 
 RETINT_PAD_PX = 4             # the bake's island padding is re-tinted with its island: a vertex's texel sits on it
+
+
+SLEEVE_PATCH_R_M = 0.085      # the outer half of an upper arm's sleeve: within this of the shoulder-to-elbow line
+SLEEVE_PATCH_GROW_PX = 2      # the patch's soft edge on the 2048 atlas
+
+
+def _sleeve_patch_texels(me, uv, zone, image):
+    """A baked sleeve insignia, by TEXEL: under the faces most of whose vertices are `zone` (the vertices an upper-arm
+    bone owns, less the gun, the gloves and the skin), every texel that is not the sleeve's khaki (the KHAKI_* class, read
+    on the bake as it is before any retint). By WEIGHT, not by colour or place: the dark patch reads as carrier by both
+    (the same blue-grey, inside the chest's width), and the carrier's shoulder straps lie within a hand of the joint; the
+    weights already know which is which (`_fix_weights` clears the torso of arm weight)."""
+    W_, H_ = image.size
+    region = _face_mask(me, uv, zone, W_, H_)
+    px = np.empty(W_ * H_ * 4, np.float32); image.pixels.foreach_get(px); px = px.reshape(H_, W_, 4)
+    lab = _lab(px[..., :3].astype(np.float64))
+    C_ = np.hypot(lab[..., 1], lab[..., 2]); hue_ = np.degrees(np.arctan2(lab[..., 2], lab[..., 1]))
+    khaki = ((lab[..., 0] >= KHAKI_L[0]) & (lab[..., 0] <= KHAKI_L[1]) & (C_ >= KHAKI_C[0]) & (C_ <= KHAKI_C[1])
+             & (hue_ >= KHAKI_HUE[0]) & (hue_ <= KHAKI_HUE[1]))
+    patch = region & ~khaki
+    patch = _dilate(patch, SLEEVE_PATCH_GROW_PX) & _dilate(region, SLEEVE_PATCH_GROW_PX)
+    # ...and the khaki INSIDE a patch (its chevron, its emblem's field: the sleeve's own khaki, on faces whose vertices
+    # are the patch's dark ones, so the uniform's vertex mask never reached them and they stood out yellow on the olive)
+    return patch, region & khaki & ~patch, int(region.sum())
 
 
 def _dilate(mask, r):
@@ -1947,9 +2073,19 @@ def build_team(team_id, out_path=None):
 
     figures = rig.TEAM_FIGURES[team_id]
     bones, parts, Js = [], [], {}
+    # The gun as it SHIPS (`Jship`, what `rl_hands` is stamped from: the weapon's frame, its butt, its length): the Meshy
+    # gun with the row's stock behind its butt. `Js` stays the Meshy gun: the weights, the seams and the classes are
+    # fitted to the bytes Meshy made, and a stock that entered them would move the bore and every station on it.
+    Jship = {}
+    J0ship = dict(J0, gun=dict(J0["gun"], butt=J0["gun"]["butt"] - J0["gun"]["axis"] * _stock_extension(cfg)))
+    if "stock" in cfg:
+        stock_uv, stock_lab, tube_lab = _stock_texel(co0, cls0, lab, uv, J0["gun"], cfg)
+        log(f"{team_id}: the stock's texel uv {np.round(stock_uv, 4)}, Lab {np.round(stock_lab, 1)} (the tube's median {np.round(tube_lab, 1)}); "
+            f"the carbine {J0['gun']['length']:.3f} -> {J0['gun']['length'] + _stock_extension(cfg):.3f} m on the base body")
     for spec in figures:
         p = spec["prefix"]; sz, sxy = cfg["bodies"][p]
         Js[p] = _scale_joints(J0, sz, sxy)
+        Jship[p] = _scale_joints(J0ship, sz, sxy) if "stock" in cfg else Js[p]
         bones += _bone_table(p, Js[p], spec["x"], spec["y"])
     # the team's own props (demo_squad's charge and spool): rigid kit parts on bones of their own or a figure's
     extra_parts, extra_bones, extra_forced = _team_extras(team_id, figures, Js, co0)
@@ -2028,7 +2164,12 @@ def build_team(team_id, out_path=None):
             # B3: the hand weight itself, per vertex, for the glove's texels (`_glove_texels`)
             hand_w_f1 = np.maximum(W[:, gi_[f"{p}_hand_L"]], W[:, gi_[f"{p}_hand_R"]])
             glove_blob_f1 = roles["glove"]["R"] | roles["glove"]["L"]
+            # ...and the upper arms' own, for a row's sleeve patch
+            arm_w_f1 = np.maximum(W[:, gi_[f"{p}_upperarm_L"]], W[:, gi_[f"{p}_upperarm_R"]])
         ps = _split_roles(shell, p, cls0_fig, roles, co)
+        if "stock" in cfg:
+            added = _graft_stock(next(o for o in ps if o["rl_role"] == "weapon"), p, J0["gun"], cfg, stock_uv, sz, sxy, spec["x"], spec["y"])
+            log(f"{p}: stock grafted behind the Meshy butt: {added} triangles, the carbine {Js[p]['gun']['length']:.3f} -> {Jship[p]['gun']['length']:.3f} m")
         gun_tris = max(gun_tris, next(len(o.data.polygons) for o in ps if o["rl_role"] == "weapon"))
         parts += ps
     GLOVE_TEXEL[team_id] = glove_texel
@@ -2104,11 +2245,33 @@ def build_team(team_id, out_path=None):
         cuff_tex = (cuff_raster | (_dilate(cuff_raster, RETINT_PAD_PX) & ~covered_)) & ~glove_tex
         log(f"glove: {int(glove_tex.sum())} texels by interpolated hand weight (cut {GLOVE_CUT_M * 100:.0f} cm proximal), "
             f"cuff {int(cuff_tex.sum())} texels")
+        patch = {}
+        if cfg.get("sleeve_patch"):
+            # the upper arms: what their bones own, and the OUTER half of each arm's capsule whatever owns it (the firing
+            # arm hangs against the carrier's side, and the half of its patch nearest the chest is weighted to the spine)
+            outer = np.zeros(n0, bool)
+            for side_, sgn_ in (("R", -1.0), ("L", 1.0)):
+                a_, b_ = J0["shoulder"][side_], J0["elbow"][side_]
+                d_ = b_ - a_; L_ = float(np.linalg.norm(d_)); d_ = d_ / L_
+                t_ = np.clip((co0 - a_) @ d_, 0.1 * L_, L_)
+                off_ = co0 - a_ - np.outer(t_, d_)
+                outer |= (np.linalg.norm(off_, axis=1) < SLEEVE_PATCH_R_M) & (sgn_ * off_[:, 1] > -0.01)
+            patch_tex, arm_khaki_tex, zone_n = _sleeve_patch_texels(src_for_uv.data, uv, ((arm_w_f1[:n0] >= 0.5) | outer) & ~glove & ~skin & ~gun_mask_f1[:n0], image)
+            patch_tex &= ~glove_tex
+            log(f"sleeve patch: {int(patch_tex.sum())} of the upper arms' {zone_n} texels are not the sleeve's khaki")
+            patch = {"sleeve_patch": patch_tex}
+        uniform_v = cls0["khaki"][:n0] & ~glove & ~skin & (co0[:, 2] > BOOT_Z_MAX)
+        if patch:
+            # the uniform as `_retint` would raster it, and the upper arms' khaki texels it would have missed
+            uniform_v = _dilate(_face_mask(src_for_uv.data, uv, uniform_v, image.size[0], image.size[1]), RETINT_PAD_PX) | (arm_khaki_tex & ~glove_tex)
         _retint(image, src_for_uv, uv, {
             "boot": cls0["boot"][:n0] & ~glove & ~skin,
-            "uniform": cls0["khaki"][:n0] & ~glove & ~skin & (co0[:, 2] > BOOT_Z_MAX),
+            "uniform": uniform_v,
             # the carrier's islands, less the glove's own faces (a fist sculpted against the vest can share its island)
             "vest": _carrier_texels(src_for_uv.data, uv, vest & ~glove, image.size[0], image.size[1]) & ~glove_tex,
+            # after the uniform (whose grown mask shifts a patch's rim with the khaki round it) and the carrier (whose
+            # islands took the patch's chevron for their own), before the cuffs
+            **patch,
             "cuff": cuff_tex,
             "sleeve_bleed": sleeve,
             # last, so nothing paints over the glove
@@ -2116,8 +2279,8 @@ def build_team(team_id, out_path=None):
         })
     bpy.data.objects.remove(src_for_uv, do_unlink=True)
     rig.export_glb(arm_obj, path, materials=True, jpeg_quality=JPEG_QUALITY)
-    _stamp_extras(path, team_id, {s["prefix"]: dict(Js[s["prefix"]], gun=dict(Js[s["prefix"]]["gun"],
-                  centre=Js[s["prefix"]]["gun"]["centre"] + np.array([s["x"], s["y"], 0.0])), slot=(s["x"], s["y"], 0.0)) for s in figures}, gun_tris, hand_tris)
+    _stamp_extras(path, team_id, {s["prefix"]: dict(Js[s["prefix"]], gun=dict(Jship[s["prefix"]]["gun"],
+                  centre=Jship[s["prefix"]]["gun"]["centre"] + np.array([s["x"], s["y"], 0.0])), slot=(s["x"], s["y"], 0.0)) for s in figures}, gun_tris, hand_tris)
     blend_out = os.environ.get("SKINNED_BLEND_OUT")
     if blend_out:
         # The source beside the GLB carries the atlas the GLB carries: the retinted 2048 buffer, not the 8k bake the
