@@ -13,6 +13,8 @@ const ORIGIN = 'https://roaring-lions.pint12.workers.dev';
 const b64u = (buf: Buffer): string => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const sha = (s: string): Buffer => createHash('sha256').update(s).digest();
 
+const OAUTH_ENDPOINTS = /accounts\.google\.com\/o\/oauth2|oauth2\.googleapis\.com\/token/;
+
 type H = ReturnType<typeof accountHarness>;
 const count = async (h: H, table: string): Promise<number> =>
   (await h.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>())?.n ?? -1;
@@ -82,7 +84,7 @@ describe('google/start (G3)', () => {
   });
 
   it('with no secrets: 503 provider_off, zero rows, zero fetches, no cookie', async () => {
-    for (const set of [{}, { GOOGLE_CLIENT_ID: 'id' }, { GOOGLE_CLIENT_SECRET: 's' }, { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '' }]) {
+    for (const set of [{}, { GOOGLE_CLIENT_ID: 'id' }, { GOOGLE_CLIENT_SECRET: 's' }, { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '' }, { GOOGLE_CLIENT_ID: '  \n', GOOGLE_CLIENT_SECRET: 's' }]) {
       const { h, fetched } = harness(false);
       Object.assign(h.env, set);
       const res = await startLogin(h);
@@ -150,7 +152,40 @@ describe('google/start (G3)', () => {
     expect(await count(h, 'auth_challenge')).toBe(50);
   });
 
-  it('google.ts is the only source file that names Google hosts', () => {
+  it('the start day budget is shared with Steam: 25 steam + 25 google starts, then 429 either way', async () => {
+    const { h } = harness();
+    h.env.TICKET_SECRET = 'secret';
+    const ip = { 'cf-connecting-ip': '198.51.100.7' };
+    const go = (path: string, purpose: string) => h.call('POST', `/api/account/${path}/start`, { body: { purpose }, headers: ip });
+    for (let i = 0; i < 25; i++) expect((await go('steam', 'steam-login')).status).toBe(200);
+    for (let i = 0; i < 25; i++) expect((await go('google', 'google-login')).status).toBe(200);
+    expect((await go('google', 'google-login')).status).toBe(429);
+    expect((await go('steam', 'steam-login')).status).toBe(429);
+    expect(await count(h, 'auth_challenge')).toBe(50);
+  });
+
+  it('the pre value is only in the cookie: never in the URL or the body', async () => {
+    const { h } = harness();
+    const res = await startLogin(h);
+    const text = await res.text();
+    const pre = (res.headers.get('set-cookie') ?? '').split(';')[0]?.split('=')[1] ?? '';
+    expect(pre).toHaveLength(43);
+    expect(text).not.toContain(pre);
+    expect(decodeURIComponent(text)).not.toContain(pre);
+  });
+
+  it('a link start sets two cookies: the pre cookie and the session slide', async () => {
+    const { h } = harness();
+    const cookie = await freshCookie(h, 'm1');
+    await h.db.prepare('UPDATE session SET last_seen_day = 0').run(); // a new day, so the session slides
+    const res = await h.call('POST', '/api/account/google/start', { body: { purpose: 'google-link' }, cookie });
+    const set = res.headers.getSetCookie();
+    expect(set).toHaveLength(2);
+    expect(set[0]?.startsWith('__Host-rl_pre_')).toBe(true);
+    expect(set[1]?.startsWith(SESSION_COOKIE + '=')).toBe(true);
+  });
+
+  it('google.ts is the only source file that names the OAuth endpoints', () => {
     const dir = fileURLToPath(new URL('../', import.meta.url));
     const files: string[] = [];
     const walk = (d: string): void => {
@@ -160,7 +195,7 @@ describe('google/start (G3)', () => {
       }
     };
     walk(dir);
-    const naming = files.filter((f) => /accounts\.google\.com|oauth2\.googleapis\.com/.test(readFileSync(f, 'utf8')));
+    const naming = files.filter((f) => OAUTH_ENDPOINTS.test(readFileSync(f, 'utf8')));
     expect(naming.map((f) => f.slice(dir.length))).toEqual(['account/google.ts']);
   });
 });

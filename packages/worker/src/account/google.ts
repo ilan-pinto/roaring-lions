@@ -6,7 +6,7 @@ import { perMinute, startBudget } from './limits';
 import type { AccountCtx } from './routes';
 import { requireSession } from './session';
 
-/** The only place that names Google's hosts (a source test pins it). */
+/** The only file that names Google's OAuth endpoints (a source test pins it). */
 export const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 
 export type GooglePurpose = 'google-login' | 'google-link';
@@ -23,7 +23,7 @@ export async function googleStart(ctx: AccountCtx): Promise<Response> {
   const origin = new URL(ctx.req.url).origin;
   if (!accountOrigins(ctx.env).includes(origin)) return accountJson(403, { error: 'forbidden' });
   // Fail closed, before any limiter, session read, row or fetch: a missing secret writes nothing (§5.9).
-  const clientId = ctx.env.GOOGLE_CLIENT_ID ?? '';
+  const clientId = (ctx.env.GOOGLE_CLIENT_ID ?? '').trim();
   if (clientId === '' || (ctx.env.GOOGLE_CLIENT_SECRET ?? '') === '') return accountJson(503, { error: 'provider_off' });
   if (await perMinute(ctx.req, ctx.env.ACCOUNT_LIMIT)) return accountJson(429, { error: 'limit' });
   const body = await readAccountBody<{ purpose?: unknown }>(ctx.req);
@@ -57,7 +57,7 @@ export async function googleStart(ctx: AccountCtx): Promise<Response> {
     prompt: 'select_account',
   });
   const headers = new Headers();
-  headers.append('set-cookie', `${preCookieName(c)}=${pre}; ${preAttrs}; Max-Age=300`);
+  headers.append('set-cookie', `${preCookieName(c)}=${pre}; ${preAttrs}; Max-Age=${CHALLENGE_MS / 1000}`);
   if (slide !== null) headers.append('set-cookie', slide);
   return accountJson(200, { url: `${GOOGLE_AUTH}?${q.toString()}` }, headers);
 }
