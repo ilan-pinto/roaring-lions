@@ -2,7 +2,7 @@
  * GH-1167 S1: the census of the five Wadi Halam maps. Lives in `packages/app` for the reason `scatter-density.test.ts`
  * gives: `packages/render` may not import `@lions/data`, which is what turns a shipped map into a `TerrainInput`.
  *
- * Spec §6 S1: clumps per open tile in 8.4 +/- 0.8 on every map, open `.` tiles only; none on a road, cover, grove,
+ * Spec §6 S1: clumps per open tile in 12 +/- 1.1 (13 Nov: was 8.4 +/- 0.8) on every map, open `.` tiles only; none on a road, cover, grove,
  * boulder or building.
  */
 import { describe, expect, it } from 'vitest';
@@ -62,10 +62,10 @@ describe.each(HALAM)('grass field census on %s', (id) => {
     expect(open).toBeGreaterThan(1500);
   });
 
-  it('carries 8.4 +/- 0.8 clumps an open tile', () => {
+  it('carries 12 +/- 1.1 clumps an open tile', () => {
     const perTile = clumps.count / open;
-    expect(perTile).toBeGreaterThan(8.4 - 0.8);
-    expect(perTile).toBeLessThan(8.4 + 0.8);
+    expect(perTile).toBeGreaterThan(12 - 1.1);
+    expect(perTile).toBeLessThan(12 + 1.1);
   });
 
   it('puts every clump on an open `.` tile and clear of the road', () => {

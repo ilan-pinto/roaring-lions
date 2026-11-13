@@ -384,7 +384,7 @@ import {
 import { makeDisturbUniforms, type DisturbUniformSet } from './terrain/disturb-uniforms';
 import type { TerrainInput, MeshData } from './terrain/types';
 import { buildGrassClump, type GrassGeometry, type GrassLod, type GrassVariant } from './terrain/grass-blade';
-import { grassCellMeshes, grassLodFor, grassLodScaleOf, grassSpliceCells, planGrassField } from './terrain/grass-field-cells';
+import { grassCellMeshes, grassLodFor, grassLodScaleOf, grassRungFor, grassSpliceCells, planGrassField } from './terrain/grass-field-cells';
 import type { GrassFieldHandle } from './terrain/grass-field.node';
 import {
   buildDecorMesh,
@@ -15930,6 +15930,7 @@ export class ThreeRenderer implements Renderer {
       geometries,
       meshes: plan.meshes,
       lod: grassLodFor(this.camera.zoom, null, scale),
+      rung: grassRungFor(this.camera.zoom, null, scale),
     });
     field.root.visible = !this.grassDebugHidden;
     this.scene.add(field.root);
@@ -15955,7 +15956,9 @@ export class ThreeRenderer implements Renderer {
     if (field === null) return;
     this.grassView.zoom.value = this.camera.zoom;
     this.grassView.dpr.value = this.pixelRatio;
-    field.setLod(grassLodFor(this.camera.zoom, field.lod(), grassLodScaleOf(this.opts.quality) ?? 1));
+    const bandScale = grassLodScaleOf(this.opts.quality) ?? 1;
+    field.setLod(grassLodFor(this.camera.zoom, field.lod(), bandScale));
+    field.setRung(grassRungFor(this.camera.zoom, field.rung(), bandScale));
     field.root.visible = !this.grassDebugHidden;
   }
 

@@ -33,10 +33,10 @@ export const GRASS_LOD1_SEGMENTS = 3;
 
 export const GRASS_BLADE_BASE_WIDTH = 0.012;
 export const GRASS_LOD2_BASE_WIDTH = 0.018;
-export const GRASS_HEIGHT_MIN = 0.05;
-export const GRASS_HEIGHT_MAX = 0.12;
-/** N-4: no tip passes this after the clump's scale. */
-export const GRASS_TIP_CAP = 0.12;
+export const GRASS_HEIGHT_MIN = 0.065;
+export const GRASS_HEIGHT_MAX = 0.16;
+/** N-4, raised from 0.12 by the lead on 13 Nov: no tip passes this after the clump's scale. */
+export const GRASS_TIP_CAP = 0.16;
 export const GRASS_SCALE_MIN = 0.85;
 export const GRASS_SCALE_MAX = 1.15;
 /** Clump footprint radius (0.17 tile across). */
