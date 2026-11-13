@@ -1,7 +1,7 @@
 /** The /api/account/* dispatcher (GH-1075 A1). */
 import type { Env } from '../d1';
 import { accountGuard, accountJson } from './http';
-import { accountsOpen } from './member';
+import { accountsOpen, openProviders } from './member';
 import { perMinute } from './limits';
 import { deleteIdentity } from './identity';
 import { deleteAccount, gone } from './delete';
@@ -49,7 +49,8 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
     pattern: 'open',
     handler: async (ctx) => {
       const db = ctx.env.ACCOUNTS;
-      return accountJson(200, { open: db !== undefined && (await accountsOpen(db)) });
+      if (db === undefined) return accountJson(200, { open: false, providers: [] });
+      return accountJson(200, { open: await accountsOpen(db), providers: await openProviders(db, ctx.env) });
     },
   },
   { method: 'GET', pattern: 'me', handler: me },

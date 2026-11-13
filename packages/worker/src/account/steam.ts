@@ -5,7 +5,7 @@ import { ACCOUNT_RETURN_PATH, CHALLENGE_MS, STEAM_OP, accountOrigins, preCookieN
 import { randomB64url, sha256Hex } from './crypto';
 import { accountJson, readAccountBody } from './http';
 import { newAccountBudget, perMinute, startBudget } from './limits';
-import { accountsOpen, createMember, memberForIdentity, sessionFor } from './member';
+import { accountsOpen, createMember, memberForIdentity, sessionFor, steamOpen } from './member';
 import type { AccountCtx, AccountDeps } from './routes';
 import { dayOf } from '../rate-day';
 import { requireSession } from './session';
@@ -104,6 +104,9 @@ export async function steamStart(ctx: AccountCtx): Promise<Response> {
   if (db === undefined) return accountJson(503, { error: 'accounts are not configured' });
   const origin = new URL(ctx.req.url).origin;
   if (!accountOrigins(ctx.env).includes(origin)) return accountJson(403, { error: 'forbidden' });
+  // GH-1075 G5: Steam's relay cannot finish a sign-in, so while `flags.steam` is not 'open' this answers 503 before any
+  // limiter, session read or row: a stale tab spends no `startBudget` and writes no challenge. (steam/return is untouched.)
+  if (!(await steamOpen(db))) return accountJson(503, { error: 'provider_off' });
   if (await perMinute(ctx.req, ctx.env.ACCOUNT_LIMIT)) return accountJson(429, { error: 'limit' });
   const body = await readAccountBody<{ purpose?: unknown }>(ctx.req);
   const purpose = body !== null && body !== 'too_large' ? body.purpose : undefined;
