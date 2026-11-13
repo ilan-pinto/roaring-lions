@@ -55,9 +55,10 @@ export const MEMBER_TABLES: readonly MemberTable[] = [
   },
   {
     table: 'member_identity', key: 'member_id', deleteSql: del('member_identity'),
-    // Metadata only: a SteamID in full (the player's own), never key bytes or a code hash (§6.2).
+    // Metadata only: a SteamID or Google sub in full (the player's own), never key bytes or a code hash (§6.2).
     exportSql: `SELECT provider, label, created_at, last_used_day, backed_up, state,
-  CASE WHEN provider = 'steam' THEN subject END AS steam_id
+  CASE WHEN provider = 'steam' THEN subject END AS steam_id,
+  CASE WHEN provider = 'google' THEN subject END AS google_sub
 FROM member_identity WHERE member_id = ?1 ORDER BY created_at`,
   },
   {
