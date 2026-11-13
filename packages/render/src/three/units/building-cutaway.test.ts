@@ -109,6 +109,10 @@ describe('the ragged top (rim B): tileHash of the 0.25 t brick cell, +-j', () =>
   it('one cell is flat across its width and does not move between calls (no per-fragment noise)', () => {
     expect(top(10.02)).toBe(top(10.2));
     expect(top(10.1)).toBe(top(10.1));
+    // And the heights themselves, as frozen literals (the scan steps 0.002, so two digits): a change to the hash, the cell size or the
+    // mapping moves them, while the +-j bound and the "cells differ" checks above would still hold.
+    const pinned: Array<[number, number]> = [[10.1, 0.298], [9.1, 0.402], [9.35, 0.364], [9.6, 0.288]];
+    for (const [x, want] of pinned) expect(top(x), `cell at x ${x}`).toBeCloseTo(want, 2);
   });
   it('j 0 is the straight cut', () => {
     expect(cutawayOps(NUMBER_OPS, NUMBER_INT_OPS, 10.1, 0.41, 20, { ...V, j: 0 }).cut).toBe(1);

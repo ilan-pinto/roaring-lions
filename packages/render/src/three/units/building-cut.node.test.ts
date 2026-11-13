@@ -253,15 +253,20 @@ describe('G1: the fragment maths on numbers equals the legacy GLSL (literals)', 
 
   it('the ragged top: each 0.25 t brick cell keeps its own height within +-0.12 t of the cut height, the same every call', () => {
     const tops = new Set<number>();
+    const topsByCell: number[] = [];
     for (let x = 7.0; x < 8.75; x += 0.25) {
       // The highest kept y on this cell's wall (inside R, so the slope is flat): a fine vertical scan.
       let top = 0;
       for (let y = 0.2; y <= 0.7; y += 0.005) if (ops([x + 0.1, y, 6.1], true, CUT_RAGGED, null).keep === 1) top = y;
       expect(top).toBeGreaterThanOrEqual(0.4 - 0.12 - 0.011);
       expect(top).toBeLessThanOrEqual(0.4 + 0.12 + 0.011);
-      expect(top).toBe((() => { let t = 0; for (let y = 0.2; y <= 0.7; y += 0.005) if (ops([x + 0.1, y, 6.1], true, CUT_RAGGED, null).keep === 1) t = y; return t; })());
       tops.add(Math.round(top * 100));
+      topsByCell.push(top);
     }
+    // The seven cells' heights as frozen literals (the scan steps 0.005, so two digits): not a second run of the same scan.
+    const WANT = [0.465, 0.34, 0.42, 0.335, 0.39, 0.285, 0.415];
+    expect(topsByCell.length, 'seven brick cells scanned').toBe(WANT.length);
+    WANT.forEach((want, i) => expect(topsByCell[i], `cell ${i}`).toBeCloseTo(want, 2));
     // A vacuous hash (a constant) gives ONE height: the rim must really differ cell to cell.
     expect(tops.size).toBeGreaterThanOrEqual(4);
   });

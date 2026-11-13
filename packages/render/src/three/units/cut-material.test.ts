@@ -82,8 +82,10 @@ describe('BuildingCutMaterials', () => {
 
 describe('the cut colours', () => {
   it('the cap is the wall ramp lightest key taken halfway to the interior, the interior its darkest 0.6 toward gunmetal.2, both LINEAR', () => {
-    expect(cutColorKeys('limestone.3')).toEqual({ cap: 'limestone.0', interior: expect.stringMatching(/^limestone\.\d+$/) });
-    const keys = cutColorKeys('limestone.3');
+    // The limestone ramp has nine keys (data/palette.json: #F2E8D5 .. #5E4E3A), so its darkest is index 8: a literal, not whatever the code picks.
+    expect(cutColorKeys('limestone.3')).toEqual({ cap: 'limestone.0', interior: 'limestone.8' });
+    expect(paletteHex('limestone.8')).toBe('#5E4E3A');
+    const keys = { cap: 'limestone.0', interior: 'limestone.8' };
     const c = cutColorsFor('limestone.3');
     const [r, g, b] = hexToLinear(paletteHex(keys.cap));
     const dark = hexToLinear(paletteHex(keys.interior));

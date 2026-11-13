@@ -42,7 +42,9 @@ describe('lowestSlabBottom: the lowest horizontal deck that spans the footprint'
 
 describe('keptWallHeight: min(0.9 t, lowest slab - margin)', () => {
   it('the margin covers the ragged top and a hand', () => {
-    expect(CUT_RIM_MARGIN_TILES).toBeCloseTo(CUT_RIM_JITTER_TILES + 0.04, 12);
+    // The numbers, as literals: the jitter is 0.12 t and the margin 0.16 t (the jitter plus a hand's 0.04), not read back from the constants.
+    expect(CUT_RIM_JITTER_TILES).toBe(0.12);
+    expect(CUT_RIM_MARGIN_TILES).toBeCloseTo(0.16, 12);
     expect(CUT_RIM_WALL_TILES).toBe(0.9);
   });
   it('never over 0.9 t, and a slab keeps the rim and its ragged top under it', () => {
