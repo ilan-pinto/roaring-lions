@@ -390,6 +390,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
       const ms = (await renderer.resolveTimestampsAsync('render')) as number | undefined;
       return typeof ms === 'number' ? ms : null;
     },
+    batchUploads: draw.batchUploads,
     drawSwitches: {
       get: () => ({ refreshPolicy: refresh.mode(), matrixWalk: walk.once() ? 'once' : 'every-pass', uploads: draw.uploads }),
       setRefresh: (m) => refresh.setMode(m),
