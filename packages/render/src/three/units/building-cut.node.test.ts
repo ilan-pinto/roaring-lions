@@ -38,7 +38,7 @@ import {
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // The oracle: the legacy GLSL (`CUT_PARS_GLSL`, `CUT_COLOUR_GLSL`, `HOLES_PARS_GLSL`, `HOLES_COLOUR_GLSL`) on numbers, every constant a
-// LITERAL read off that text and `building-holes.ts`: 8 volumes, the 0.03 t section; 6 holes, depth 0.6, edge 0.85 + 0.30 e, 4 octaves
+// LITERAL read off that text and `building-holes.ts`: 8 volumes, the 0.06 t section, the 0.25 t rim cells; 6 holes, depth 0.6, edge 0.85 + 0.30 e, 4 octaves
 // from 4 cells, 6 cracks of 0.05..0.10 t at 2.6 deg, alpha 0.9, the 0.03 t lip, the 0.15 t halo at 0.7, salts 64 and 80.
 // ---------------------------------------------------------------------------------------------------------------------------------
 
@@ -142,9 +142,10 @@ function glslCut(p: V3, c: OracleCut): { section: boolean } | null {
     const b = c.v.slice(8 * i + 4, 8 * i + 8);
     const rho = Math.hypot(p[0] - a[0], p[2] - a[1]);
     if (rho >= a[2] + a[3]) continue;
-    const h = b[0] + (b[1] - b[0]) * Math.min(1, Math.max(0, (rho - a[2]) / a[3]));
+    const yc = b[0] + b[2] * (glslHash(Math.floor(p[0] * 4), Math.floor(p[2] * 4)) * 2 - 1);
+    const h = yc + (b[1] - yc) * Math.min(1, Math.max(0, (rho - a[2]) / a[3]));
     if (p[1] > h) return null;
-    if (p[1] > h - 0.03) section = true;
+    if (p[1] > h - 0.06) section = true;
   }
   return { section };
 }
@@ -172,6 +173,8 @@ function glslFragment(p: V3, front: boolean, base: V3, cut: OracleCut | null, ho
 // house's east wall (x = 7), one through the corner of the cut.
 // ---------------------------------------------------------------------------------------------------------------------------------
 
+/** The same volume with the ragged top on (`j` 0.12 in slot 6): every height test above stays on `CUT`, whose `j` is 0. */
+const CUT_RAGGED_J = 0.12;
 const CUT: OracleCut = {
   v: [8, 6, 1.25, 0.5, 0.4, 2, 0, 0, /* past the count: */ 6, 6, 3, 0.5, 0, 2, 0, 0, ...new Array<number>(48).fill(0)],
   n: 1,
@@ -204,11 +207,15 @@ function grid(): V3[] {
   return out;
 }
 
+const CUT_RAGGED: OracleCut = { ...CUT, v: CUT.v.map((x, i) => (i === 6 ? CUT_RAGGED_J : x)) };
+
 describe('G1: the fragment maths on numbers equals the legacy GLSL (literals)', () => {
   for (const [label, cut, holes] of [
     ['cut alone', CUT, null],
     ['holes alone', null, HOLES],
     ['holed AND cut', CUT, HOLES],
+    ['ragged cut alone', CUT_RAGGED, null],
+    ['ragged holed AND cut', CUT_RAGGED, HOLES],
   ] as const) {
     it(`${label}: the same fragments discard, and the kept ones take the same colour, front and back`, () => {
       let discarded = 0;
@@ -232,7 +239,7 @@ describe('G1: the fragment maths on numbers equals the legacy GLSL (literals)', 
     });
   }
 
-  it('the cut: above the cut height inside R is discarded, the 0.03 t band under it is the cap, outside R + W is untouched', () => {
+  it('the cut: above the cut height inside R is discarded, the 0.06 t band under it is the cap, outside R + W is untouched', () => {
     expect(ops([8, 0.5, 6], true, CUT, null).keep).toBe(0);
     expect(ops([8, 0.38, 6], true, CUT, null).rgb).toEqual(CUT.cap);
     expect(ops([8, 0.3, 6], true, CUT, null).rgb).toEqual(BASE);
@@ -242,6 +249,21 @@ describe('G1: the fragment maths on numbers equals the legacy GLSL (literals)', 
     // In the band, the cut height slopes up: 1.5 t out it is 0.4 + 1.6 * 0.5 = 1.2.
     expect(ops([9.5, 1.15, 6], true, CUT, null).keep).toBe(1);
     expect(ops([9.5, 1.25, 6], true, CUT, null).keep).toBe(0);
+  });
+
+  it('the ragged top: each 0.25 t brick cell keeps its own height within +-0.12 t of the cut height, the same every call', () => {
+    const tops = new Set<number>();
+    for (let x = 7.0; x < 8.75; x += 0.25) {
+      // The highest kept y on this cell's wall (inside R, so the slope is flat): a fine vertical scan.
+      let top = 0;
+      for (let y = 0.2; y <= 0.7; y += 0.005) if (ops([x + 0.1, y, 6.1], true, CUT_RAGGED, null).keep === 1) top = y;
+      expect(top).toBeGreaterThanOrEqual(0.4 - 0.12 - 0.011);
+      expect(top).toBeLessThanOrEqual(0.4 + 0.12 + 0.011);
+      expect(top).toBe((() => { let t = 0; for (let y = 0.2; y <= 0.7; y += 0.005) if (ops([x + 0.1, y, 6.1], true, CUT_RAGGED, null).keep === 1) t = y; return t; })());
+      tops.add(Math.round(top * 100));
+    }
+    // A vacuous hash (a constant) gives ONE height: the rim must really differ cell to cell.
+    expect(tops.size).toBeGreaterThanOrEqual(4);
   });
 
   it('the count gates: the second volume (centred 6, 6, R 3) cuts nothing at n = 1 and cuts at n = 2', () => {
@@ -519,7 +541,9 @@ describe('G5: the seam and the census', () => {
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // No trigger, no change: the legacy programs and the node program of an uncut building, byte for byte, as they were on the base
-// (2886772e0) before this slice. LITERALS: sha256 prefixes printed there from the same calls.
+// (2886772e0) before this slice. LITERALS: sha256 prefixes printed there from the same calls. GH-1225 rim: the five FRAGMENTS that
+// carry the cut (the cut colour clone, holed+cut, the cut's depth and normal masks, the holed+cut mask) were re-printed for the ragged
+// top (the hash and `yc`); every vertex text and the holes-only programs are the base's, unchanged.
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex').slice(0, 16);
@@ -536,13 +560,13 @@ describe('G6: no trigger, no change (literals from the base)', () => {
     const cm = cutMaskHook(dep.vertexShader, dep.fragmentShader);
     const cn = cutMaskHook(nor.vertexShader, nor.fragmentShader);
     const hm = maskHook(dep.vertexShader, dep.fragmentShader, [HOLES_MASK_TERM, CUT_MASK_TERM]);
-    expect([sha(c.vertex), sha(c.fragment)]).toEqual(['a491ed32c0d86939', '1169349daac71f87']);
+    expect([sha(c.vertex), sha(c.fragment)]).toEqual(['a491ed32c0d86939', '682bafdb1160be02']);
     expect([sha(ho.vertex), sha(ho.fragment)]).toEqual(['d1d12eaa05a146bb', '58694b70b6ce7aaf']);
-    expect([sha(hc.vertex), sha(hc.fragment)]).toEqual(['83023021a7ee79e8', 'b9b6e597751c3d53']);
+    expect([sha(hc.vertex), sha(hc.fragment)]).toEqual(['83023021a7ee79e8', '790414076bbb59a3']);
     expect([sha(hd.vertex), sha(hd.fragment)]).toEqual(['0c7bb01a4204f180', '0bba5c33e4f7d137']);
-    expect([sha(cm.vertex), sha(cm.fragment)]).toEqual(['b8d81dc534a98db5', '81e2a3e4cfb41dc7']);
-    expect([sha(cn.vertex), sha(cn.fragment)]).toEqual(['fb88b6d8e2fd43e6', 'b5cb8353cb0cdd2b']);
-    expect([sha(hm.vertex), sha(hm.fragment)]).toEqual(['80fb6b527505868f', '0308ef8c3c809275']);
+    expect([sha(cm.vertex), sha(cm.fragment)]).toEqual(['b8d81dc534a98db5', '64c6d08ad774cbf5']);
+    expect([sha(cn.vertex), sha(cn.fragment)]).toEqual(['fb88b6d8e2fd43e6', 'ff1c4db3f6c29c6f']);
+    expect([sha(hm.vertex), sha(hm.fragment)]).toEqual(['80fb6b527505868f', 'a32caa3774c4a18a']);
   });
 
   it('an uncut, unholed band material is adopted by nothing and compiles to the node program it compiled to before', async () => {

@@ -3,13 +3,16 @@
  * `2026-11-11-roof-cutaway-design.md`, "Gates and falsifiers").
  */
 import { describe, expect, it } from 'vitest';
-import { NUMBER_OPS } from '../fog-ops';
+import { NUMBER_INT_OPS, NUMBER_OPS } from '../fog-ops';
 import {
   CUT_BAND_TILES,
   CUT_CLOSE_MS,
   CUT_HEIGHT_TILES,
   CUT_HOLD_MS,
   CUT_OPEN_MS,
+  CUT_RIM_CELLS_PER_TILE,
+  CUT_RIM_JITTER_TILES,
+  CUT_RIM_WALL_TILES,
   CUT_SECTION_TILES,
   CUT_SELECT_RADIUS_TILES,
   CUT_VOLUME_CAP,
@@ -30,11 +33,14 @@ import {
 
 /** The design's numbers, as literals: a change to any constant is a change to the design. */
 describe('the cutaway constants (the design table, L2-L4, L8)', () => {
-  it('cuts at ground + 0.4 t, R 1.25 t, band 0.5 t, a 0.03 t cap, 8 volumes; opens 250 ms, holds 1.0 s, closes 400 ms', () => {
+  it('cuts at ground + 0.4 t, R 1.25 t, band 0.5 t, a 0.06 t cap, 8 volumes; opens 250 ms, holds 1.0 s, closes 400 ms', () => {
     expect(CUT_HEIGHT_TILES).toBe(0.4);
     expect(CUT_SELECT_RADIUS_TILES).toBe(1.25);
     expect(CUT_BAND_TILES).toBe(0.5);
-    expect(CUT_SECTION_TILES).toBe(0.03);
+    expect(CUT_SECTION_TILES).toBe(0.06);
+    expect(CUT_RIM_WALL_TILES).toBe(0.9);
+    expect(CUT_RIM_JITTER_TILES).toBe(0.12);
+    expect(CUT_RIM_CELLS_PER_TILE).toBe(4);
     expect(CUT_VOLUME_CAP).toBe(8);
     expect(CUT_OPEN_MS).toBe(250);
     expect(CUT_HOLD_MS).toBe(1000);
@@ -43,8 +49,8 @@ describe('the cutaway constants (the design table, L2-L4, L8)', () => {
 });
 
 // A house's cut: centre (10, 20), R 1.25, W 0.5, ground 0 so the cut is at 0.4, the roof at 2.4.
-const V: CutVolume = { cx: 10, cz: 20, r: 1.25, w: 0.5, yCut: 0.4, yTop: 2.4 };
-const at = (x: number, y: number, z: number): { cut: number; section: number } => cutawayOps(NUMBER_OPS, x, y, z, V);
+const V: CutVolume = { cx: 10, cz: 20, r: 1.25, w: 0.5, yCut: 0.4, yTop: 2.4, j: 0 };
+const at = (x: number, y: number, z: number): { cut: number; section: number } => cutawayOps(NUMBER_OPS, NUMBER_INT_OPS, x, y, z, V);
 
 describe('cutawayOps: the cut height, the slope, the section cap', () => {
   it('the cut height is yCut inside R, slopes linearly up to the roof over the band, and is the roof beyond it', () => {
@@ -75,11 +81,38 @@ describe('cutawayOps: the cut height, the slope, the section cap', () => {
     expect(at(10, 5, 22)).toEqual({ cut: 0, section: 0 });
   });
 
-  it('the section cap is the 0.03 t under the cut, inside and on the band', () => {
+  it('the section cap is the 0.06 t under the cut, inside and on the band', () => {
     expect(at(10, 0.38, 20)).toEqual({ cut: 0, section: 1 });
-    expect(at(10, 0.36, 20)).toEqual({ cut: 0, section: 0 });
+    expect(at(10, 0.32, 20)).toEqual({ cut: 0, section: 0 });
     expect(at(11.5, 1.38, 20)).toEqual({ cut: 0, section: 1 });
-    expect(at(11.5, 1.36, 20)).toEqual({ cut: 0, section: 0 });
+    expect(at(11.5, 1.32, 20)).toEqual({ cut: 0, section: 0 });
+  });
+});
+
+describe('the ragged top (rim B): tileHash of the 0.25 t brick cell, +-j', () => {
+  const R = { ...V, j: 0.12 };
+  const top = (x: number): number => {
+    let t = -1;
+    for (let y = 0; y <= 1; y += 0.002) if (cutawayOps(NUMBER_OPS, NUMBER_INT_OPS, x, y, 20, R).cut === 0) t = y;
+    return t;
+  };
+  it('every cell keeps within +-j of the cut height, and the cells differ', () => {
+    const tops = new Set<number>();
+    for (let c = 0; c < 6; c++) {
+      const t = top(9.1 + c * 0.25 + 0.1);
+      expect(t).toBeGreaterThanOrEqual(0.4 - 0.12 - 0.003);
+      expect(t).toBeLessThanOrEqual(0.4 + 0.12 + 0.003);
+      tops.add(Math.round(t * 50));
+    }
+    expect(tops.size).toBeGreaterThanOrEqual(4);
+  });
+  it('one cell is flat across its width and does not move between calls (no per-fragment noise)', () => {
+    expect(top(10.02)).toBe(top(10.2));
+    expect(top(10.1)).toBe(top(10.1));
+  });
+  it('j 0 is the straight cut', () => {
+    expect(cutawayOps(NUMBER_OPS, NUMBER_INT_OPS, 10.1, 0.41, 20, { ...V, j: 0 }).cut).toBe(1);
+    expect(cutawayOps(NUMBER_OPS, NUMBER_INT_OPS, 10.1, 0.39, 20, { ...V, j: 0 }).cut).toBe(0);
   });
 });
 
@@ -169,7 +202,7 @@ describe('CutawayTable: the volume cap and the order', () => {
     t.step([trigger(1, 1)], 0);
     expect(t.volumes([])).toEqual([]);
     t.step([trigger(1, 1)], 300);
-    expect(t.volumes([])).toEqual([{ cx: 1, cz: 0, r: 1.25, w: 0.5, yCut: 0.4, yTop: 2.4 }]);
+    expect(t.volumes([])).toEqual([{ cx: 1, cz: 0, r: 1.25, w: 0.5, yCut: 0.4, yTop: 2.4, j: CUT_RIM_JITTER_TILES }]);
   });
 
   it('a volume holds where its trigger last stood, and closes 1.4 s after it ends', () => {
@@ -185,7 +218,7 @@ describe('CutawayTable: the volume cap and the order', () => {
 });
 
 describe('writeCutVolumes and footprintDistance', () => {
-  it('two vec4 a volume: (cx, cz, r, w), (yCut, yTop, 0, 0)', () => {
+  it('two vec4 a volume: (cx, cz, r, w), (yCut, yTop, j, 0)', () => {
     const block = new Float32Array(64).fill(9);
     expect(writeCutVolumes([V], block)).toBe(1);
     expect(Array.from(block.slice(0, 8))).toEqual([10, 20, 1.25, 0.5, Math.fround(0.4), Math.fround(2.4), 0, 0]);

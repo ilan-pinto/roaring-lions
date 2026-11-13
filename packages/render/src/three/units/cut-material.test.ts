@@ -81,17 +81,19 @@ describe('BuildingCutMaterials', () => {
 });
 
 describe('the cut colours', () => {
-  it('the cap is the wall ramp lightest key, the interior its darkest 0.6 toward gunmetal.2, both LINEAR', () => {
+  it('the cap is the wall ramp lightest key taken halfway to the interior, the interior its darkest 0.6 toward gunmetal.2, both LINEAR', () => {
     expect(cutColorKeys('limestone.3')).toEqual({ cap: 'limestone.0', interior: expect.stringMatching(/^limestone\.\d+$/) });
     const keys = cutColorKeys('limestone.3');
     const c = cutColorsFor('limestone.3');
     const [r, g, b] = hexToLinear(paletteHex(keys.cap));
-    expect(c.cap.r).toBeCloseTo(r, 6);
-    expect(c.cap.g).toBeCloseTo(g, 6);
-    expect(c.cap.b).toBeCloseTo(b, 6);
     const dark = hexToLinear(paletteHex(keys.interior));
     const char = hexToLinear(paletteHex('gunmetal.2'));
-    expect(c.interior.r).toBeCloseTo(dark[0] + (char[0] - dark[0]) * 0.6, 6);
+    const interior = [0, 1, 2].map((i) => dark[i] + (char[i] - dark[i]) * 0.6);
+    expect(c.interior.r).toBeCloseTo(interior[0], 6);
+    // Rim B: the cap sits HALFWAY from the lightest key to the interior (a literal 0.5, not CUT_CAP_TONE).
+    expect(c.cap.r).toBeCloseTo(r + (interior[0] - r) * 0.5, 6);
+    expect(c.cap.g).toBeCloseTo(g + (interior[1] - g) * 0.5, 6);
+    expect(c.cap.b).toBeCloseTo(b + (interior[2] - b) * 0.5, 6);
   });
 });
 
@@ -109,8 +111,8 @@ describe('the hook', () => {
   });
 
   // The GLSL is the copy that DRAWS; `cutawayOps` is the copy the tests run. Pinned line for line, so neither moves alone:
-  // `a` is (cx, cz, r, w), `b` is (yCut, yTop); `h` is `cutHeightOps`, `rho >= r + w` the reach, `y > h` the cut and
-  // `y > h - 0.03` the section cap. Falsify: change `0.03` (CUT_SECTION_TILES) in the GLSL alone and this goes red.
+  // `a` is (cx, cz, r, w), `b` is (yCut, yTop, j); `h` is `cutHeightOps`, `rho >= r + w` the reach, `y > h` the cut and
+  // `y > h - 0.06` the section cap, `yc` the ragged kept height. Falsify: change `0.06` (CUT_SECTION_TILES) in the GLSL alone and this goes red.
   it('the GLSL cut is cutawayOps: pinned line for line', () => {
     const lines = CUT_PARS_GLSL.trim().split('\n').map((l) => l.trim());
     expect(lines).toEqual([
@@ -120,6 +122,12 @@ describe('the hook', () => {
       'uniform vec3 uRlCutInterior;',
       'varying vec3 vRlCutW;',
       'float rlCutSection;',
+      'float rlCutHash(int xi, int yi) {',
+      'uint h = uint(xi) * 374761393u + uint(yi) * 668265263u;',
+      'h = (h ^ (h >> 13u)) * 1274126177u;',
+      'h = h ^ (h >> 16u);',
+      'return float(h >> 8u) / 16777216.0;',
+      '}',
       'void rlCutApply() {',
       'rlCutSection = 0.0;',
       'for (int i = 0; i < 8; i++) {',
@@ -128,9 +136,10 @@ describe('the hook', () => {
       'vec4 b = uRlCutV[2 * i + 1];',
       'float rho = length(vRlCutW.xz - a.xy);',
       'if (rho >= a.z + a.w) continue;',
-      'float h = b.x + (b.y - b.x) * clamp((rho - a.z) / a.w, 0.0, 1.0);',
+      'float yc = b.x + b.z * (rlCutHash(int(floor(vRlCutW.x * 4.0)), int(floor(vRlCutW.z * 4.0))) * 2.0 - 1.0);',
+      'float h = yc + (b.y - yc) * clamp((rho - a.z) / a.w, 0.0, 1.0);',
       'if (vRlCutW.y > h) discard;',
-      'if (vRlCutW.y > h - 0.03) rlCutSection = 1.0;',
+      'if (vRlCutW.y > h - 0.06) rlCutSection = 1.0;',
       '}',
       '}',
     ]);

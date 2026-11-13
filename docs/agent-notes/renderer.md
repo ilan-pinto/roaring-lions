@@ -724,6 +724,19 @@ with P4's `rl-holes` hook, and the TSL twin are later slices.
 - **The capture precondition:** a `mission=` scenario (only the report-only `combat`) drops the `cutawayCount` clause
   (`capturePreconditionFor`): a mission's visible garrison is its own picture. Every gated (sandbox) scenario keeps it.
 
+## Roof cutaway, the rim (GH-1225, lead ruling 13 Nov 2026, variant B)
+
+A cut keeps a wall, so a cut building still reads as a house with people inside (the 0.4 t rim read as a fence).
+- **Height:** `kept = min(0.9 t, lowest slab - 0.16 t)` per structure, measured once from its drawn clone (`ThreeRenderer.keptWallOf`,
+  `units/cut-rim.ts` `lowestSlabBottom`: horizontal triangles, up or down, spanning at least 20% of the footprint, over 0.5 t). A floor
+  slab left standing hides the garrison below it (the house's ceiling is 1.28 t; a 1.37 t cut showed a floor over the men), and a roof that is
+  one up-facing plane (the hall's, 0.87 t) must be cut too. The memo is per STRUCTURE, never per type: `buildingFitScale` shrinks a plot's
+  clone, and the slab with it (house 5 is 1.28 t, a full-size house 1.6 t). A selected unit takes the lowest kept height among the buildings in reach.
+- **Ragged top:** `tileHash` of the 0.25 t brick cell (`CUT_RIM_CELLS_PER_TILE`), +-0.12 t, in `cutawayOps` through `IntOps` (the holes' body),
+  amplitude in slot 6 of the volume block (iris-scaled). No sin hash, no per-fragment noise: a cell is flat and never moves.
+- **Cap:** 0.06 t, its colour halfway from the ramp's lightest key to the interior (`CUT_CAP_TONE`, CPU side, so both backends match).
+- `tools/src/cut_rim_heights.test.ts` prints every shipped clone-drawn type's full-size kept height from its GLB and pins that no rim reaches a slab.
+
 ## The debris pool (GH-1197 P2)
 
 - **What throws it:** every landing that draws a P1 ring (`spawnReachFx` in `ThreeRenderer.ts`), with clods and chunks from
