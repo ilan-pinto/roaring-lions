@@ -2,8 +2,8 @@
  * @vitest-environment jsdom
  *
  * GH-1226 S6, gate G6 for the node decal twin's height blend (design 2026-11-12-gh1226-height-blend-design.md sections 3.2, 3.4 and 6):
- * with a record on the decal material the twin divides by `heightBlendTone(aGround, field(worldXZ), record)`, the SAME function the ground's
- * stage is built from, over the same field and record, bound by reference; with none the graph is today's (the legacy program is pin L4,
+ * with a record on the decal material the twin divides by `heightBlendTone(aGround, field(worldXZ), record)`, a function the ground's
+ * stage re-implements inline (the two are pinned to bit equality at soil 1, Lr 1), over the same field and record, bound by reference; with none the graph is today's (the legacy program is pin L4,
  * `terrain/height-blend-pins.test.ts`). Compiled by three's own `GLSLNodeBuilder` and `WGSLNodeBuilder`. Each check's one-line
  * falsification is in the commit message.
  */
