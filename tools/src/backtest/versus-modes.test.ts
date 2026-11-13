@@ -705,6 +705,45 @@ describe('the flag arm plays the lobby\'s set-up room (flagSetupFor), and --flag
     expect(() => modeMain(['--mode=flag', '--ready-s=200'], fake)).toThrow(/--ready-s/);
   });
 
+  it('--include-delisted (GH-976): a map with a staged flag_setup that is OFF FLAG_SETUP_MAPS (milh_flats) plays the set-up room only when asked; a map with no staged block never does', () => {
+    // Literals: milh_flats left the list on 12 Nov and keeps its block on disk; tel_marum never had one.
+    expect(FLAG_SETUP_MAPS).not.toContain('milh_flats');
+    expect(versusModes.milh_flats.flag_setup).toBeDefined();
+    expect(versusModes.tel_marum.flag_setup).toBeUndefined();
+    expect(modeConfig('milh_flats', 'flag', seedOf(0), undefined, true).flagSetup).toBeUndefined();
+    expect(modeConfig('milh_flats', 'flag', seedOf(0), undefined, true, true).flagSetup).toBe(true);
+    expect(modeConfig('tel_marum', 'flag', seedOf(0), undefined, true, true).flagSetup).toBeUndefined();
+    // Never for another mode, and never without the set-up asked for.
+    expect(modeConfig('milh_flats', 'camp', seedOf(0), undefined, true, true).flagSetup).toBeUndefined();
+    expect(modeConfig('milh_flats', 'flag', seedOf(0), undefined, false, true).flagSetup).toBeUndefined();
+    const plain = playMode('milh_flats', 'flag', seedOf(0), { flagSetup: true });
+    expect(plain.bellTick).toBeUndefined(); // the v1 room, silently, as before the flag
+    const played = playMode('milh_flats', 'flag', seedOf(0), { flagSetup: true, includeDelisted: true });
+    expect(played.bellTick).toBe(500); // Ready at 20 s rings the bell at tick 500: the lobby's room
+    expect(buildMatchWorld(modeConfig('milh_flats', 'flag', seedOf(0), undefined, true, true)).setup).not.toBeNull();
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('the CLI: --include-delisted reaches the game and is named in the run; without it the run says the delisted map plays v1; it is refused where it means nothing', () => {
+    const seen: (boolean | undefined)[] = [];
+    const fake: ModePlayFn = (_m, _mode, _s, o) => { seen.push(o?.includeDelisted); return { winner: 0, by: 'objective', ticks: 2400 }; };
+    const out = (argv: string[]): string => {
+      const lines: string[] = [];
+      const spy = vi.spyOn(console, 'log').mockImplementation((l?: unknown) => { lines.push(String(l)); });
+      try { modeMain(argv, fake); } finally { spy.mockRestore(); }
+      return lines.join('\n');
+    };
+    const base = ['--mode=flag', '--maps=milh_flats', '--seeds=1', '--no-self-check', '--passive=off'];
+    expect(out([...base, '--include-delisted'])).toContain('--include-delisted plays the staged set-up room on milh_flats');
+    expect(seen).toEqual([true]);
+    seen.length = 0;
+    const without = out(base);
+    expect(without).toContain('milh_flats is not in FLAG_SETUP_MAPS and plays the v1 room, no set-up (milh_flats has a staged set-up: --include-delisted plays it)');
+    expect(seen).toEqual([undefined]);
+    expect(out(['--mode=flag', '--maps=wadi_tarfan', '--seeds=1', '--no-self-check', '--passive=off'])).not.toContain('not in FLAG_SETUP_MAPS');
+    expect(() => modeMain(['--mode=camp', '--maps=milh_flats', '--include-delisted'], fake)).toThrow(/needs --mode=flag/);
+    expect(() => modeMain([...base, '--include-delisted', '--flag-setup=off'], fake)).toThrow(/needs the set-up on/);
+  });
+
   it('the self-check plays the same room the sweep plays', () => {
     const seen: unknown[] = [];
     const fake: ModePlayFn = (_m, _mode, _s, o) => { seen.push(o?.flagSetup); return { winner: o?.cutEnd === 1 ? 0 : 1, by: 'objective', ticks: 2400 }; };
