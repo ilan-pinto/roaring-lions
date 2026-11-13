@@ -12,7 +12,7 @@ import { clearBinding, clearDeviceId, readBinding } from '../account/binding';
 import { claimQuietly, hasGuestProgress, readClaiming, runClaim, type ClaimOutcome } from '../account/claim';
 import type { LedgerStore } from '../ledger-store';
 import { exportSlot, readActive } from '../profile';
-import { readReturnCode, type AccountClient, type AccountError, type IdentityView, type MeResult } from '../account/client';
+import { PROVIDERS, readReturnCode, readReturnProvider, type AccountClient, type AccountError, type IdentityView, type MeResult, type Provider, type ReturnCode } from '../account/client';
 import { resolveSignedIn, type SignedInResult } from '../account/signed-in';
 import { hasKey, t } from '../i18n/t';
 import { routes } from '../shell/links';
@@ -43,6 +43,27 @@ export interface ProfileDeps {
    * device's own store, `download` saves a file, `onClaimed` re-enters the app so the server-backed store is chosen.
    */
   claim?: { guest: LedgerStore; download: (name: string, json: string) => void; onClaimed: () => void; now?: () => number };
+}
+
+/** Google's unaltered mark (GH-1075 U4): `assets/brand/google-g.svg`, served at /brand/, drawn by an <img> so it keeps its own four colours. */
+const GOOGLE_G_SRC = '/brand/google-g.svg';
+
+/** What `GET open` reported: whether new accounts may be made, and which providers work. */
+interface SignInInfo {
+  open: boolean;
+  providers: readonly Provider[];
+}
+
+/**
+ * The result line. `p` (which provider the return was about) selects WORDING only: a code with a per-provider variant takes it, else the
+ * neutral text. It never decides what the screen does. The `taken` text names no owner (the server says only that the account is another player's).
+ */
+function resultText(code: ReturnCode, provider: Provider | null): string {
+  if (provider !== null) {
+    const key = `profile.result.${code}.${provider}`;
+    if (hasKey(key)) return t(key);
+  }
+  return t(`profile.result.${code}`);
 }
 
 const NAME_MIN = 3;
@@ -130,11 +151,48 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     return t('profile.error');
   };
 
-  const signIn = async (): Promise<void> => {
-    const r = await deps.client.steamStart('steam-login');
+  /** `GET open`, read once at mount. A failed read is "closed, nothing listed". `?google` lists Google for the lead's test before the flag opens (presentation only: the routes work whenever the secrets are set). */
+  const info: Promise<SignInInfo> = (async () => {
+    let open = false;
+    let listed: readonly Provider[] = [];
+    try {
+      open = await deps.client.open();
+    } catch {
+      /* unreachable: closed */
+    }
+    try {
+      listed = await deps.client.providers();
+    } catch {
+      /* unreachable: nothing listed */
+    }
+    const want = deps.query.has('google') ? [...listed, 'google' as const] : listed;
+    return { open, providers: PROVIDERS.filter((x) => want.includes(x)) };
+  })();
+
+  /** Starts a provider's flow and leaves for its URL. `reauth` is the server saying the session is stale (a link or a removal needs a fresh sign-in). */
+  const start = async (provider: Provider, mode: 'login' | 'link', onReauth?: () => void): Promise<void> => {
+    const r = provider === 'google' ? await deps.client.googleStart(mode === 'login' ? 'google-login' : 'google-link') : await deps.client.steamStart(mode === 'login' ? 'steam-login' : 'steam-link');
     if (disposed) return;
-    if (isError(r)) say(r.error === 'network' || r.status === 0 ? t('profile.result.steam') : failText(r), true);
-    else deps.navigate(r.url);
+    if (isError(r)) {
+      if (r.error === 'reauth' && onReauth !== undefined) onReauth();
+      else say(r.error === 'network' || r.status === 0 ? t(`profile.result.${provider}`) : failText(r), true);
+    } else deps.navigate(r.url);
+  };
+  const gMark = (): HTMLImageElement => {
+    const img = document.createElement('img');
+    img.className = 'rl-profile__g';
+    img.src = GOOGLE_G_SRC;
+    img.alt = '';
+    img.width = 18;
+    img.height = 18;
+    return img;
+  };
+  /** A provider's sign-in or sign-up button. Steam keeps the plain keys; Google's carries its mark and its own wording. */
+  const providerButton = (provider: Provider, kind: 'signIn' | 'signUp'): HTMLButtonElement => {
+    const cls = `rl-btn rl-profile__${kind === 'signIn' ? 'signin' : 'signup'} rl-profile__${provider}`;
+    const b = button(provider === 'google' ? t(`profile.google.${kind}`) : t(`profile.${kind}`), () => void start(provider, 'login'), cls);
+    if (provider === 'google') b.prepend(gMark());
+    return b;
   };
   const privacyLink = (): HTMLAnchorElement => {
     const a = document.createElement('a');
@@ -146,19 +204,19 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
   const guestBlock = (): HTMLElement => {
     const box = document.createElement('div');
     box.className = 'rl-profile__guest';
-    const signInBtn = button(t('profile.signIn'), () => void signIn(), 'rl-btn rl-profile__signin');
-    const note = line('rl-profile__signup-note', '');
-    box.append(signInBtn, note, line('rl-profile__privacy', t('profile.privacy')), privacyLink());
-    // Sign up is the same Steam flow as sign in (the first sign-in creates the member while the switch is open); it is only offered while `GET open` says so.
-    void deps.client.open().then(
-      (open) => open,
-      () => false,
-    ).then((open) => {
+    // Nothing is drawn until the server has said which providers work; a provider it does not list never gets a button (a button that fails every time spends the sign-in budget on nothing).
+    void info.then(({ open, providers }) => {
       if (disposed) return;
-      if (open) {
-        note.textContent = t('profile.signUpHint');
-        box.insertBefore(button(t('profile.signUp'), () => void signIn(), 'rl-btn rl-profile__signup'), signInBtn);
-      } else note.textContent = t('profile.signUpClosed');
+      if (providers.length === 0) {
+        box.replaceChildren(line('rl-profile__closed', t('profile.signInClosed')));
+        return;
+      }
+      for (const provider of providers) {
+        // Sign up is the same flow as sign in (the first sign-in creates the member while the switch is open); it is only offered while `GET open` says so.
+        if (open) box.appendChild(providerButton(provider, 'signUp'));
+        box.appendChild(providerButton(provider, 'signIn'));
+      }
+      box.append(line('rl-profile__signup-note', open ? t('profile.signUpHint') : t('profile.signUpClosed')), line('rl-profile__privacy', t('profile.privacy')), privacyLink());
     });
     return box;
   };
@@ -201,16 +259,41 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     deps.reload(); // the keys are cleared: reload even when the player has left the profile, or the in-memory account store keeps writing (NB4)
   };
 
+  /** The stale-session answer: say so and offer a fresh sign-in through the first listed provider the member holds (Google first). */
+  const showReauth = (me: SignedInMe): void => {
+    say(t('profile.reauth'), true);
+    if (content.querySelector('.rl-profile__reauth') !== null) return;
+    content.appendChild(
+      button(
+        t('profile.reauth.action'),
+        () => {
+          void info.then(({ providers }) => {
+            if (disposed) return;
+            const held = me.identities.map((i) => i.provider);
+            const pick = PROVIDERS.find((x) => held.includes(x) && providers.includes(x)) ?? PROVIDERS.find((x) => held.includes(x));
+            if (pick === undefined) say(t('profile.error'), true);
+            else void start(pick, 'login');
+          });
+        },
+        'rl-btn rl-profile__reauth'
+      )
+    );
+  };
+
   const identityRow = (me: SignedInMe, id: IdentityView, reload: () => void): HTMLElement => {
     const li = document.createElement('li');
     li.className = 'rl-profile__identity';
-    const label = id.provider === 'steam' && id.steamId !== undefined ? t('profile.identity.steam', { id: id.steamId }) : (id.label ?? t('profile.identity.other'));
+    // A Google row names no identifier: the app is never given one, and nothing here reads one off the row.
+    const label =
+      id.provider === 'steam' && id.steamId !== undefined ? t('profile.identity.steam', { id: id.steamId }) : id.provider === 'google' ? t('profile.identity.google') : (id.label ?? t('profile.identity.other'));
     const only = me.identities.length <= 1;
     const rm = button(t('profile.identity.remove'), () => {
       void deps.client.deleteIdentity(id.id).then((r) => {
         if (disposed) return;
-        if (isError(r)) say(r.error === 'reauth' ? t('profile.reauth') : r.error === 'last_identity' ? t('profile.identity.last') : failText(r), true);
-        else reload();
+        if (isError(r)) {
+          if (r.error === 'reauth') showReauth(me);
+          else say(r.error === 'last_identity' ? t('profile.identity.last') : failText(r), true);
+        } else reload();
       });
     });
     rm.disabled = only;
@@ -316,7 +399,21 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     ids.className = 'rl-profile__identities';
     for (const id of me.identities) ids.appendChild(identityRow(me, id, reload));
 
-    box.append(form, line('rl-profile__public-id', t('profile.publicId', { id: me.publicId })), historyBlock(me), ids);
+    // "Link Google" / "Link Steam": only for a provider the server lists and the member does not hold yet. A stale session asks for the fresh sign-in first.
+    const links = document.createElement('div');
+    links.className = 'rl-profile__links';
+    void info.then(({ providers }) => {
+      if (disposed) return;
+      const held = me.identities.map((i) => i.provider);
+      for (const provider of providers) {
+        if (held.includes(provider)) continue;
+        const b = button(t(`profile.link.${provider}`), () => (me.fresh ? void start(provider, 'link', () => showReauth(me)) : showReauth(me)), `rl-btn rl-profile__link rl-profile__link--${provider}`);
+        if (provider === 'google') b.prepend(gMark());
+        links.appendChild(b);
+      }
+    });
+
+    box.append(form, line('rl-profile__public-id', t('profile.publicId', { id: me.publicId })), historyBlock(me), ids, links);
     if (me.identities.length <= 1) box.appendChild(line('rl-profile__last', t('profile.identity.last')));
 
     const verbs = document.createElement('div');
@@ -360,8 +457,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
           say('');
           deps.reload();
         } else if (r.error === 'reauth') {
-          say(t('profile.reauth'), true);
-          if (!content.querySelector('.rl-profile__reauth')) content.appendChild(button(t('profile.signIn'), () => void signIn(), 'rl-btn rl-profile__reauth'));
+          showReauth(me);
         } else {
           say(failText(r), true);
         }
@@ -435,6 +531,10 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     content.replaceChildren();
     if (res.kind === 'signedIn' && res.me.kind === 'signedIn') {
       const me = res.me;
+      if (!switchNoted && code === 'ok' && previousId !== null && me.publicId !== previousId) {
+        switchNoted = true;
+        say(t('profile.result.switched', { name: me.displayName }));
+      }
       content.appendChild(signedInBlock(me, load));
       void mountClaim();
     } else if (res.kind === 'deleted') {
@@ -452,7 +552,11 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
   }
 
   const code = readReturnCode(deps.query);
-  if (code !== null) say(t(`profile.result.${code}`), code !== 'ok' && code !== 'linked');
+  const returnProvider = readReturnProvider(deps.query);
+  // The member this device knew before the provider's page: if the sign-in lands on another one (a different Google account), say so.
+  const previousId = readBinding(deps.store)?.publicId ?? null;
+  let switchNoted = false;
+  if (code !== null) say(resultText(code, returnProvider), code !== 'ok' && code !== 'linked');
   load();
 
   return () => {

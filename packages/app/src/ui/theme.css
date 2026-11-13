@@ -10084,6 +10084,26 @@ fieldset.rl-versus__maps {
   flex-direction: column;
   gap: var(--s3);
 }
+.rl-profile__google,
+.rl-profile__link--google {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+}
+.rl-profile__g {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: none;
+}
+.rl-profile__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.rl-profile__links:empty {
+  display: none;
+}
 .rl-profile__privacy,
 .rl-profile__last {
   margin: 0;

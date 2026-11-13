@@ -635,3 +635,165 @@ describe('the history and the record (GH-1075 A3)', () => {
     expect(stage.querySelector<HTMLButtonElement>('.rl-profile__more')?.hidden).toBe(true);
   });
 });
+
+// GH-1075 G6: the profile screen follows the server's provider list.
+describe('showProfile: Google sign-in (GH-1075 G6)', () => {
+  const googleRow: IdentityView = { id: 'ident-g', provider: 'google', label: null, createdAt: 1, lastUsedDay: null };
+  const buttons = (stage: HTMLElement): string[] => [...stage.querySelectorAll('button')].map((b) => b.textContent ?? '');
+  const signedInWith = (identities: IdentityView[], fresh = true): MeResult => ({ ...(signedIn(identities) as Extract<MeResult, { kind: 'signedIn' }>), fresh });
+
+  it('with providers [] a guest sees the closed line and no sign-in or sign-up button', async () => {
+    const { stage } = mount(stub({ providers: async () => [] }));
+    await flush();
+    expect(stage.textContent).toContain(t('profile.signInClosed'));
+    expect(stage.querySelectorAll('button')).toHaveLength(0);
+    expect(stage.textContent).not.toContain(t('profile.signUpHint'));
+  });
+
+  it('with [google] a guest sees the Google buttons and no Steam button or Steam hint', async () => {
+    const { stage } = mount(stub({ providers: async () => ['google'] }));
+    await flush();
+    expect(buttons(stage)).toEqual([t('profile.google.signUp'), t('profile.google.signIn')]);
+    expect(buttons(stage).join(' ')).not.toContain('Steam');
+    expect(stage.textContent).not.toContain(t('profile.signIn'));
+    expect(stage.textContent).not.toContain(t('profile.signUp'));
+    expect(stage.querySelector('img.rl-profile__g')?.getAttribute('src')).toBe('/brand/google-g.svg');
+  });
+
+  it('Google sign-up hides while the switch is closed; sign-in stays, with the closed line', async () => {
+    const { stage } = mount(stub({ providers: async () => ['google'], open: async () => false }));
+    await flush();
+    expect(buttons(stage)).toEqual([t('profile.google.signIn')]);
+    expect(stage.textContent).toContain(t('profile.signUpClosed'));
+  });
+
+  it('both buttons start google-login and navigate to the returned url', async () => {
+    const starts: string[] = [];
+    const { stage, navigated } = mount(stub({ providers: async () => ['google'], googleStart: async (p) => (starts.push(p), { url: 'https://accounts.example/x' }) }));
+    await flush();
+    btn(stage, t('profile.google.signUp')).click();
+    await flush();
+    btn(stage, t('profile.google.signIn')).click();
+    await flush();
+    expect(starts).toEqual(['google-login', 'google-login']);
+    expect(navigated).toEqual(['https://accounts.example/x', 'https://accounts.example/x']);
+  });
+
+  it('a Google network failure says Google did not answer', async () => {
+    const { stage } = mount(stub({ providers: async () => ['google'], googleStart: async () => ({ error: 'network', status: 0 }) }));
+    await flush();
+    btn(stage, t('profile.google.signIn')).click();
+    await flush();
+    expect(stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.result.google'));
+  });
+
+  it('?google shows the Google buttons with the flag closed (providers [])', async () => {
+    const { stage } = mount(stub({ providers: async () => [] }), { query: new URLSearchParams('google') });
+    await flush();
+    expect(buttons(stage)).toEqual([t('profile.google.signUp'), t('profile.google.signIn')]);
+    expect(stage.textContent).not.toContain(t('profile.signInClosed'));
+  });
+
+  it('a signed-in member without Google gets Link Google (google-link); with Google they do not', async () => {
+    const starts: string[] = [];
+    const c = stub({ providers: async () => ['google'], me: async () => signedIn(), googleStart: async (p) => (starts.push(p), { url: 'https://accounts.example/l' }) });
+    const { stage, navigated } = mount(c);
+    await flush();
+    btn(stage, t('profile.link.google')).click();
+    await flush();
+    expect(starts).toEqual(['google-link']);
+    expect(navigated).toEqual(['https://accounts.example/l']);
+    const held = mount(stub({ providers: async () => ['google'], me: async () => signedInWith([googleRow]) }));
+    await flush();
+    expect(buttons(held.stage)).not.toContain(t('profile.link.google'));
+    expect(held.stage.textContent).toContain(t('profile.identity.google'));
+  });
+
+  it('Link Steam shows only when steam is listed', async () => {
+    const off = mount(stub({ providers: async () => ['google'], me: async () => signedInWith([googleRow]) }));
+    await flush();
+    expect(buttons(off.stage)).not.toContain(t('profile.link.steam'));
+    const on = mount(stub({ providers: async () => ['google', 'steam'], me: async () => signedInWith([googleRow]) }));
+    await flush();
+    expect(buttons(on.stage)).toContain(t('profile.link.steam'));
+  });
+
+  it('a stale session asks for the fresh sign-in before linking, and the button uses the held provider (Google first)', async () => {
+    const starts: string[] = [];
+    const stale = mount(stub({ providers: async () => ['google'], me: async () => signedInWith([steam], false), googleStart: async (p) => (starts.push('nolink:' + p), { url: 'x' }) }));
+    await flush();
+    btn(stale.stage, t('profile.link.google')).click();
+    await flush();
+    expect(starts).toEqual([]); // no google-link was started on a stale session
+    expect(stale.stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.reauth'));
+    // Remove on a stale session: the server's reauth shows the line and the button.
+    const two = mount(stub({ providers: async () => ['google', 'steam'], me: async () => signedInWith([steam, googleRow]), deleteIdentity: async () => ({ error: 'reauth', status: 403 }), googleStart: async (p) => (starts.push(p), { url: 'https://accounts.example/r' }) }));
+    await flush();
+    [...two.stage.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === t('profile.identity.remove'))?.click();
+    await flush();
+    btn(two.stage, t('profile.reauth.action')).click();
+    await flush();
+    expect(starts).toEqual(['google-login']);
+  });
+
+  it('the server answering reauth to google-link shows the reauth line and button', async () => {
+    const c = stub({ providers: async () => ['google'], me: async () => signedIn(), googleStart: async () => ({ error: 'reauth', status: 403 }) });
+    const { stage } = mount(c);
+    await flush();
+    btn(stage, t('profile.link.google')).click();
+    await flush();
+    expect(stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.reauth'));
+    expect(stage.querySelector('.rl-profile__reauth')).not.toBeNull();
+  });
+
+  it('p selects wording only: linked and taken, and an unknown p falls back to neutral text', async () => {
+    const say = async (q: string): Promise<string> => {
+      const { stage, dispose } = mount(stub(), { query: new URLSearchParams(q) });
+      await flush();
+      const text = stage.querySelector('.rl-profile__status')?.textContent ?? '';
+      dispose();
+      return text;
+    };
+    expect(await say('r=linked&p=google')).toBe('Google is linked.');
+    expect(await say('r=linked&p=steam')).toBe('Steam is linked.');
+    expect(await say('r=linked&p=bogus')).toBe(t('profile.result.linked'));
+    expect(await say('r=linked')).toBe(t('profile.result.linked'));
+    expect(await say('r=taken&p=google')).toBe(t('profile.result.taken.google'));
+    expect(await say('r=google&p=google')).toBe(t('profile.result.google'));
+    expect(await say('r=already&p=google')).toBe(t('profile.result.already'));
+    // The same screen either way: p changed no button.
+    const a = mount(stub({ providers: async () => ['google'] }), { query: new URLSearchParams('r=taken&p=google') });
+    const b = mount(stub({ providers: async () => ['google'] }), { query: new URLSearchParams('r=taken&p=steam') });
+    await flush();
+    expect(buttons(a.stage)).toEqual(buttons(b.stage));
+  });
+
+  it('the taken text names no owner', () => {
+    for (const key of ['profile.result.taken', 'profile.result.taken.google', 'profile.result.taken.steam']) {
+      expect(t(key)).not.toContain('{');
+      expect(t(key)).toMatch(/another player\.$/);
+    }
+  });
+
+  it('a sub sentinel never reaches the page (A1-10): a Google row, a stray field, and the return query', async () => {
+    const SENTINEL = '118273645500991234567';
+    const leaky = { ...googleRow, steamId: SENTINEL, subject: SENTINEL, sub: SENTINEL } as IdentityView;
+    const { stage } = mount(stub({ providers: async () => ['google'], me: async () => signedInWith([leaky, steam]) }), { query: new URLSearchParams(`r=taken&p=google&sub=${SENTINEL}&subject=${SENTINEL}`) });
+    await flush();
+    expect(stage.textContent).toContain(t('profile.identity.google'));
+    expect(stage.innerHTML).not.toContain(SENTINEL);
+  });
+
+  it('an account switch after sign-in is made visible; the same account is not', async () => {
+    const bound = (publicId: string) => memStore({ [ACCOUNT_BINDING_KEY]: JSON.stringify({ version: 1, publicId }) });
+    const other = mount(stub({ me: async () => signedIn() }), { query: new URLSearchParams('r=ok&p=google') }, bound('ZZZZ9999'));
+    await flush();
+    expect(other.stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.result.switched', { name: 'Ilan' }));
+    const same = mount(stub({ me: async () => signedIn() }), { query: new URLSearchParams('r=ok&p=google') }, bound('ABCD2345'));
+    await flush();
+    expect(same.stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.result.ok'));
+    const fresh = mount(stub({ me: async () => signedIn() }), { query: new URLSearchParams('r=ok&p=google') }, memStore());
+    await flush();
+    expect(fresh.stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.result.ok'));
+  });
+});
