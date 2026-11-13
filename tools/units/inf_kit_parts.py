@@ -164,6 +164,7 @@ class Team:
     baked_mount: bool = False    # the helmet already carries an NVG shroud and mount: the tubes ride it, `nvg_mount` is not built
     dense_keys: bool = False     # sample every keyframe of a short clip and the clip's last frame (not a stride alone)
     belt_from_spine: float = None   # the belt line this far under each figure's own spine joint, its ring centred on the hips (not 0.9125 m about the root)
+    pouch_turn_max: float = None    # the furthest (degrees) `clear_pouches` may turn a pair of belt pouches off its nominal angles (None: the search's own 120)
     groin_wrap: bool = False     # a v7 groin apron is turned to face the way the belt's front faces under it (a body whose hips stand turned)
     v7: bool = False             # the approved v7 mesh parts (art/parts/inf_kit/v7, `inf_kit_v7.py`) stand in for the procedural builders
     part_tris: dict = field(default_factory=dict)   # this team's own per-NODE triangle rows (the graft's 1.10x limit); a part not named reads the shared table in kit-contract.ts
@@ -242,7 +243,11 @@ TEAMS = {
         belt_from_spine=0.065,
         # the gun's stations are read off its SURFACE (rays), not its vertices within 2.5 cm: the handguard's lowest vertex
         # near the foregrip's station is 11-15 mm under the surface over the grip, and the grip hung in the air by that much
-        weapon_by_surface=True),
+        weapon_by_surface=True,
+        # the belt pouches keep to their own quarter: with the belt at the waist the grenade pouches (right rear, 120 / 150
+        # degrees) found no clear angle in every clip and the search took its least-bad one, +100 degrees: onto the magazine
+        # pouches at 240 / 270 (the second look at sheet v2, 13 Nov)
+        pouch_turn_max=40.0),
 }
 
 TEAM = TEAMS["inf_squad"]

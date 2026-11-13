@@ -1305,7 +1305,8 @@ const FACING_OPEN_DEFECT: Readonly<Record<string, string>> = {
   // GH-746 Meshy pilot: the four inf_squad rows that stood here (fire 30.1-34.1 deg, the 22 deg cheek tilt; f2's 26.0 deg
   // kneelOut sweep) left on 9 Nov with the tilt back to 12 deg and the pocket at 0.05: fire reads 20.2-22.7, kneelOut inside.
   // GH-826 unit 1 (13 Nov 2026), the same class on the Combat Engineers' tall man: his cheek weld turns the face 27.1 deg
-  // off the line of fire (the bar is 25; the pilot's rows read 30-34 before their fix). Named, with its reading.
+  // off the line of fire (the bar is 25; the pilot's rows read 30-34 before their fix). Named, with its reading (re-read
+  // on the round-2 bytes, the pocket at 0.06: 27.1 still).
   'demo_squad.glb fire demo_a_head': 'the cheek weld on the grafted stock turns demo_a\'s face 27.1 deg off his line of fire in `fire`',
 };
 

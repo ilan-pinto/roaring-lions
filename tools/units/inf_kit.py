@@ -872,18 +872,23 @@ def _clear_pouches(f, degs, size, z, off=0.03, ok=0.002):
     pts, _who = f.bank.blockers(f.prefix, "pelvis", lo, hi)
     pts = np.array(pts)
     best = None
+    tried = {}
     for k in range(0, 25):
         turn = 0 if k == 0 else (10 * ((k + 1) // 2)) * (1 if k % 2 else -1)
+        if kp.TEAM.pouch_turn_max is not None and abs(turn) > kp.TEAM.pouch_turn_max:
+            continue          # a pouch stays on its own quarter of the belt: turned further it lands on the next pair
         worst = 0.0
         for dg in degs:
             c, R = _pouch_centre(f, dg + turn, size, z, off)
             worst = max(worst, _pouch_clash(pts, c, R, size))
+        tried[turn] = round(1000 * worst, 1)
         if best is None or worst < best[0] - 1e-9:
             best = (worst, turn)
         if worst <= ok:
             break
     worst, turn = best
-    REPORT.append({"part": "pouch angles", "figure": f.prefix, "nominal": list(degs), "turn_deg": turn, "residual_mm": round(1000 * worst, 2)})
+    REPORT.append({"part": "pouch angles", "figure": f.prefix, "nominal": list(degs), "turn_deg": turn, "residual_mm": round(1000 * worst, 2),
+                   **({} if kp.TEAM.pouch_turn_max is None else {"tried_mm": tried})})
     return [dg + turn for dg in degs]
 
 

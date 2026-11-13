@@ -48,11 +48,12 @@ const HOLDS: Readonly<Record<string, { figures: readonly string[]; object: 'weap
  * weapon mesh as a rigid skirt. Where those faces ran onto a glove they were copies of the FIST'S OWN surface, bound to the
  * gun: a palm measured against the weapon mesh was measured, in part, against itself. The Opus review of 13 Nov had the
  * cloth taken off the Combat Engineers' weapon mesh (`gun_skirt_vest_only`, `mesh_weapon_texels.test.ts`), and their
- * reading at rest fell from 51 % / 30 % (firing / support) to 15 % / 10 %, with not one vertex of the hands moved: under a
- * fused fist Meshy sculpted no gun (the pistol grip and the handguard end at the fist's edge and are capped there), so
- * there is little gun surface within 8 mm of the palm to find. The Rifle Squad still passes the floor on its skirt (253-318
- * cloth faces on its weapon mesh, a ratchet in `mesh_weapon_texels.test.ts`): on a fused figure this instrument is weak
- * both ways, and a pass is not evidence of a grip.
+ * reading at rest fell from 51 % / 30 % (firing / support) to 15 % / 10 %, with not one vertex of the hands moved (measured
+ * on two builds that differ by that flag alone: demo_a 51 / 30 -> 15 / 10, demo_b 39 / 22 -> 15 / 12): under a fused fist
+ * Meshy sculpted no gun (the pistol grip and the handguard end at the fist's edge and are capped there), so there is little
+ * gun surface within 8 mm of the palm to find. The Rifle Squad's weapon mesh carries 253-318 such cloth faces (a ratchet in
+ * `mesh_weapon_texels.test.ts`); that its pass leans on them is an INFERENCE from this team's reading, not measured on it.
+ * On a fused figure this instrument is weak, and a pass is not by itself evidence of a grip.
  *
  * So the floor does not move, and these rows are named: `team` -> `<figure> <clip>` -> the contact each hand may not go
  * below. A hand with no entry is held to CONTACT_MIN. In the aimed clips the SUPPORT fist passes the floor (25-26 %) since
@@ -62,6 +63,7 @@ const HOLDS: Readonly<Record<string, { figures: readonly string[]; object: 'weap
 type Floors = { readonly fire?: number; readonly support?: number };
 const CONTACT_NAMED: Readonly<Record<string, Readonly<Record<string, Floors>>>> = {
   demo_squad: {
+    // falsified 13 Nov: with `demo_a idle`'s firing floor at 0.16 its row goes red ("reads worse than it shipped: 0.151 >= 0.16"); put back
     'demo_a idle': { fire: 0.14, support: 0.09 }, 'demo_a move': { fire: 0.14, support: 0.09 },
     'demo_a fire': { fire: 0.14 }, 'demo_a moveFire': { fire: 0.14 }, 'demo_a kneel': { fire: 0.14 }, 'demo_a pinned': { fire: 0.14 },
     'demo_a kneelIn': { fire: 0.14, support: 0.09 }, 'demo_a kneelOut': { fire: 0.14, support: 0.09 },
