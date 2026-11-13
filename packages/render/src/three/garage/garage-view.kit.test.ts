@@ -304,8 +304,8 @@ describe('mountGarageView: the insignia field is fetched only for a framed vehic
     const lavi = await mount(undefined, false, { insigniaSdfUrl: url });
     expect(load.mock.calls.filter((c) => c[0] === url)).toHaveLength(1);
     lavi.view.dispose();
-    const jeep = await mount(undefined, false, { typeId: 'jeep_shoded', insigniaSdfUrl: url });
+    const ambulance = await mount(undefined, false, { typeId: 'veh_ambulance', insigniaSdfUrl: url }); // decision 3: never marked
     expect(load.mock.calls.filter((c) => c[0] === url)).toHaveLength(1);
-    jeep.view.dispose();
+    ambulance.view.dispose();
   });
 });

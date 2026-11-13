@@ -85,7 +85,7 @@ import {
 } from '../units/mesh-vehicle';
 import type { VehicleKitTiers } from '../units/vehicle-kit';
 import { TeamMaskSlots, VehicleTeamMaterials } from '../units/team-mask';
-import { InsigniaShared } from '../units/insignia';
+import { InsigniaShared, insigniaHiddenAt } from '../units/insignia';
 import { insigniaFrameOf } from '../units/insignia-frames';
 import type { MeshFaction } from '../units/mesh-role';
 import { TEXTURED_INFANTRY_TYPES } from '../units/textured-infantry';
@@ -566,7 +566,8 @@ function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationCli
     // GH-1096 S1: the variant set is built WHATEVER the team colour, so the insignia never depends on it: an absent team colour
     // means no team term, not no materials (the lead's close-up is a bay with no team colour).
     const teamHex = opts.colors.team;
-    const frame = insigniaFrameOf(opts.typeId);
+    const found = insigniaFrameOf(opts.typeId);
+    const frame = found !== null && !insigniaHiddenAt(found, tiers) ? found : null;
     const teamMats = new VehicleTeamMaterials(
       teamHex ? new TeamMaskSlots([teamHex, teamHex, teamHex]) : null,
       undefined,

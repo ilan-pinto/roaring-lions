@@ -870,8 +870,8 @@ detail band moved from 11-15 px to 15-20 px).
   refreshes a parked hull).
 - **Frames by TYPE id, generated.** `units/insignia-frames.ts` is written by `python3 tools/vehicles/insignia.py --write` from its
   `FRAMES` (the approved numbers); it measures `luma` and records `host_sha256`, the hash of the host hull POSITION accessors. Looked up
-  EXACTLY by unit type id (never the template key: a versus seat's `typeId#s1` is the same vehicle); `mbt_lavi_camo` and
-  `officer_armour` share the hull and have no frame.
+  EXACTLY by unit type id (never the template key: a versus seat's `typeId#s1` is the same vehicle); `mbt_lavi_camo` shares the hull
+  and has no frame (decision 3), and `officer_armour`, which shares it too, has its own (S2).
 - **The normal test is `|n.z|`, not the spec's `sign(z) * n.z`.** The Lavi's -z flank is mirrored geometry on a double-sided material: its
   vertex and winding normals point +z (mean n.z 0.984 under the disc), so the signed test painted one flank only. The slab keeps the far
   side and the interior out, as on the team band.
@@ -884,3 +884,28 @@ detail band moved from 11-15 px to 15-20 px).
   `team-mask.test.ts`, `tools/src/insignia.test.ts` (an independent subdivided placement measurement and a third hash), and
   `check_insignia_frames` in `validate:meshes` (`INSIGNIA_REQUIRED`). The `insignia` debug layer writes the insignia's OWN strength
   (never the team mark's, so the gated `team-mask` check is unmoved). No gated `insignia` layer check yet: it waits for the lead's look.
+
+## GH-1096 S2: the insignia on the rest of the ground fleet
+
+**`hide_from_tier` and the oblique gate (13 Nov rulings).** A frame may carry `hide_from_tier` (the ARMOUR track tier from which the type draws NO insignia; `insigniaHiddenAt` in `units/insignia.ts`; set in `FRAMES` in `insignia.py`). The renderer (`vehicleTeamFor`) and the garage (`stageVehicle`) read it against the kit tiers the template is built with and take the unframed path. Only `scout_shachaf` has it (2): its tier-2 plate stands 0.6 m off the host, and a host lion shows over the plate's top edge at every ordinary camera (0.30 of the disc at el 30), however the slab is cut. `obliqueRecess` in `tools/src/insignia.test.ts` walks 60 cameras (el 18 and 30, az every 10 degrees, minus edge-on) over every kit configuration: a painted point visible from a camera but hidden broadside must stay under 0.02 of the disc. `mbt_lavi` has a NAMED ceiling of 0.023 (measured 0.0227: host paint 7 cm behind its skirt), with a ratchet that goes red if it improves.
+
+Twelve frames now (`INSIGNIA_REQUIRED`): the Lavi, `officer_armour`, `apc_kipod`, `demo_tzav`, `aa_remetz`, `dozer_d9`, both Te'o
+(`spg_long_range`, `spg_cluster`, on the TURRET flank, so the emblem turns with it), `apc_eitan`, `jeep_shoded`, `ifv_namer` and
+`scout_shachaf`. Diameters are decision 10's, never larger. The section 6.1 starting centres were geometry-only: several sat on a track, a
+wheel, a door, a step or a plate seam, so every centre was re-placed against what is actually SEEN.
+
+- **What the S1 gates could not see, and the four checks S2 added** (`tools/src/insignia.test.ts`):
+  - a part standing OUTBOARD of the slab over the disc (a track, a wheel, a slat cage, a plate the slab leaves out) hides the lion and
+    passes every host-area check. "Visible coverage" takes the front-most face of every drawn part, of any role, at L0 and at every kit tier
+    of every track, near and far LOD, and requires 90% painted per flank;
+  - the absolute luma std cannot fail on a dark hull (the D9's cab windows read 0.029, the Namer's vision block 0.035, both under 0.045).
+    The LOCAL contrast (RMS of luma minus its 9 x 9 cm box mean, over the flank mean) reads them at 0.19 and 0.22; the ceiling is 0.10,
+    the shipped discs read 0.006-0.050;
+  - a frame must paint ONE body (hull or turret), or the emblem tears when the turret turns;
+  - the team-marked framed ids are a literal (`apc_eitan`, `apc_kipod`, `ifv_namer`, `mbt_lavi`, `officer_armour`) that gate 5 builds its
+    team + insignia cases from; the other seven ship insignia-only.
+- **Interpolated normals near a plate edge fail the normal test.** The Shachaf's tier-2 plate has a bevelled top edge, and its slat cage's
+  bottom bar sits between the host and the plate in |z|, inside any slab that holds both: the disc sits below the bar (y 1.08, top 1.28 against
+  the bar at 1.32).
+- **A host with no TEXCOORD_0** (the Remetz's radar turret body) still occludes in `insignia.py`'s front-face ranking but carries no bake.
+- **Close-ups:** `pnpm kit:capture -- --garage --only=<id>` also takes the five framed vehicles with no kit (`GARAGE_ONLY`).
