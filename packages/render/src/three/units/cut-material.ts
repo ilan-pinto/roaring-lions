@@ -29,7 +29,7 @@ import * as THREE from 'three';
 import paletteJson from '../../../../../data/palette.json';
 import { paletteHex } from '../palette-hex';
 import { hexToLinear } from '../terrain/shared';
-import { CUT_FLOATS_PER_VOLUME, CUT_VOLUME_CAP } from './building-cutaway';
+import { CUT_FLOATS_PER_VOLUME, CUT_SECTION_TILES, CUT_VOLUME_CAP } from './building-cutaway';
 import { createMaskMaterials, maskHook, type MaskMaterials, type MaskTerm } from './building-mask';
 import { HOLES_MASK_TERM, type BuildingHoleMaterials } from './holed-material';
 
@@ -38,19 +38,16 @@ export const CUT_PROGRAM_KEY = 'rl-cut';
 export const CUT_INTERIOR_TOWARD_CHAR = 0.6;
 export const CUT_INTERIOR_CHAR_KEY = 'gunmetal.2';
 
+const f = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v));
+
 /** The hook's declarations and functions. Line for line `cutawayOps`: the reach, the sloped cut height, the cut, the cap. */
 export const CUT_PARS_GLSL = /* glsl */ `
 uniform vec4 uRlCutV[${CUT_VOLUME_CAP * 2}];
 uniform int uRlCutN;
-uniform float uRlCutTone;
 uniform vec3 uRlCutCap;
 uniform vec3 uRlCutInterior;
 varying vec3 vRlCutW;
 float rlCutSection;
-float rlRimHash(vec2 p) {
-  vec2 c = floor(p * 4.0);
-  return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);
-}
 void rlCutApply() {
   rlCutSection = 0.0;
   for (int i = 0; i < ${CUT_VOLUME_CAP}; i++) {
@@ -59,10 +56,9 @@ void rlCutApply() {
     vec4 b = uRlCutV[2 * i + 1];
     float rho = length(vRlCutW.xz - a.xy);
     if (rho >= a.z + a.w) continue;
-    float yc = b.x + b.z * (rlRimHash(vRlCutW.xz) * 2.0 - 1.0);
-    float h = yc + (b.y - yc) * clamp((rho - a.z) / a.w, 0.0, 1.0);
+    float h = b.x + (b.y - b.x) * clamp((rho - a.z) / a.w, 0.0, 1.0);
     if (vRlCutW.y > h) discard;
-    if (vRlCutW.y > h - b.w) rlCutSection = 1.0;
+    if (vRlCutW.y > h - ${f(CUT_SECTION_TILES)}) rlCutSection = 1.0;
   }
 }
 `;
@@ -70,7 +66,7 @@ void rlCutApply() {
 /** The colour splice after the base colour is known: the interior on a back face, the section cap on a front one. */
 export const CUT_COLOUR_GLSL = /* glsl */ `
   if (!gl_FrontFacing) diffuseColor.rgb = uRlCutInterior;
-  else if (rlCutSection > 0.5) diffuseColor.rgb = mix(uRlCutCap, uRlCutInterior, uRlCutTone);
+  else if (rlCutSection > 0.5) diffuseColor.rgb = uRlCutCap;
 `;
 
 /** The hook as a pure function of a program's text (vertex, fragment). */
@@ -123,11 +119,10 @@ export function createCutMaskMaterials(shared: CutUniforms): CutMaskMaterials {
 export interface CutUniforms {
   readonly uRlCutV: { value: Float32Array };
   readonly uRlCutN: { value: number };
-  readonly uRlCutTone: { value: number };
 }
 
 export function createCutUniforms(): CutUniforms {
-  return { uRlCutV: { value: new Float32Array(CUT_VOLUME_CAP * CUT_FLOATS_PER_VOLUME) }, uRlCutN: { value: 0 }, uRlCutTone: { value: 0 } };
+  return { uRlCutV: { value: new Float32Array(CUT_VOLUME_CAP * CUT_FLOATS_PER_VOLUME) }, uRlCutN: { value: 0 } };
 }
 
 /** A cut building's LINEAR section-cap and interior colours. */
@@ -190,7 +185,6 @@ export class BuildingCutMaterials {
     this.uniforms = {
       uRlCutV: shared.uRlCutV,
       uRlCutN: shared.uRlCutN,
-      uRlCutTone: shared.uRlCutTone,
       uRlCutCap: { value: colors.cap.clone() },
       uRlCutInterior: { value: colors.interior.clone() },
     };
