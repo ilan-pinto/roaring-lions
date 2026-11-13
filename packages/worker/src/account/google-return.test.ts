@@ -38,9 +38,9 @@ async function sign(claims: Record<string, unknown>): Promise<string> {
 }
 
 interface Issued { challenge: string; nonce: string; redirectUri: string; sub: string; used: boolean }
-interface Call { url: string; method: string; body: string }
+interface Call { url: string; method: string; body: string; init: RequestInit }
 
-function googleStub(opts: { tokenStatus?: number; tokenBody?: string; throwOnToken?: Error } = {}) {
+function googleStub(opts: { tokenStatus?: number; tokenBody?: string; throwOnToken?: Error; hang?: boolean; onCancel?: () => void } = {}) {
   const calls: Call[] = [];
   const codes = new Map<string, Issued>();
   const idTokens: string[] = [];
@@ -60,12 +60,19 @@ function googleStub(opts: { tokenStatus?: number; tokenBody?: string; throwOnTok
     },
     fetch: async (url: string, init: RequestInit): Promise<Response> => {
       const body = typeof init.body === 'string' ? init.body : '';
-      calls.push({ url, method: init.method ?? 'GET', body });
+      calls.push({ url, method: init.method ?? 'GET', body, init });
       if (url === 'https://www.googleapis.com/oauth2/v3/certs') {
         return new Response(JSON.stringify({ keys: [pubJwk] }), { status: 200, headers: { 'cache-control': 'public, max-age=3600' } });
       }
       if (url !== 'https://oauth2.googleapis.com/token') throw new Error('unexpected host ' + url);
       if (opts.throwOnToken !== undefined) throw opts.throwOnToken;
+      if (opts.hang === true) {
+        return new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(new DOMException('timed out', 'TimeoutError'))));
+      }
+      if (opts.onCancel !== undefined) {
+        const body = new ReadableStream({ pull: (c) => c.enqueue(new Uint8Array([1])), cancel: () => opts.onCancel?.() });
+        return new Response(body, { status: 403 });
+      }
       if (opts.tokenStatus !== undefined) return new Response(opts.tokenBody ?? '{}', { status: opts.tokenStatus, headers: { location: 'https://consent.example/x' } });
       if (opts.tokenBody !== undefined) return new Response(opts.tokenBody, { status: 200 });
       const f = new URLSearchParams(body);
@@ -164,6 +171,8 @@ describe('google/return (G4)', () => {
     expect(Object.fromEntries(new URLSearchParams(t[0]?.body))).toEqual({
       grant_type: 'authorization_code', code, client_id: CLIENT, client_secret: SECRET, redirect_uri: `${ORIGIN}/api/account/google/return`, code_verifier: s.pre,
     });
+    expect(t[0]?.init.redirect).toBe('manual');
+    expect(t[0]?.init.signal).toBeInstanceOf(AbortSignal);
     expect(b64u(sha(s.pre))).toBe(new URL(s.url).searchParams.get('code_challenge'));
     expect(stub.calls.map((c) => new URL(c.url).host).sort()).toEqual(['oauth2.googleapis.com', 'www.googleapis.com']);
   });
@@ -318,6 +327,47 @@ describe('google/return (G4)', () => {
     expect(back(res).code).toBe('google');
     expect(await count(h, 'member')).toBe(0);
     expect(warn).toHaveBeenCalledWith('account: google exchange failed', { status: 403, location: 'consent.example', ms: expect.any(Number) });
+  });
+
+  it('the token call times out at 8 s: a never-answering Google is google, not a hung request', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const ctl = new AbortController();
+    const spy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => ctl.signal);
+    const stub = googleStub({ hang: true });
+    const { h } = await harness({ stub });
+    const s = await start(h, 'google-login');
+    const code = stub.authorize(s.url, SUB_A);
+    const pending = ret(h, { state: s.c, code }, [s.preCookie]);
+    await vi.waitFor(() => expect(stub.tokens()).toHaveLength(1));
+    ctl.abort();
+    expect(back(await pending).code).toBe('google');
+    expect(spy).toHaveBeenCalledWith(8000);
+    expect(await count(h, 'member')).toBe(0);
+  });
+
+  it('a non-200 token response has its body cancelled', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let cancelled = false;
+    const stub = googleStub({ onCancel: () => { cancelled = true; } });
+    const { h } = await harness({ stub });
+    expect(back((await flow(h, stub, 'google-login', SUB_A)).res).code).toBe('google');
+    expect(cancelled).toBe(true);
+  });
+
+  it('a failure dropping the previous session still delivers the new member\'s session', async () => {
+    const { h, stub } = await harness();
+    await seedMember(h, 'mA', SUB_A);
+    const aCookie = await sessionOf(h, 'mA');
+    const real = h.db.prepare.bind(h.db);
+    h.db.prepare = (sql: string) => {
+      if (/^DELETE FROM session WHERE token_hash = \?1 AND member_id <>/.test(sql)) throw new Error('d1 hiccup');
+      return real(sql);
+    };
+    const { res } = await flow(h, stub, 'google-login', SUB_B, undefined, [aCookie]);
+    h.db.prepare = real;
+    expect(back(res).code).toBe('ok');
+    expect(sessionCookieOf(res)).toBeDefined();
+    expect(await count(h, 'member')).toBe(2);
   });
 
   it('a 3xx, a thrown fetch, a non-JSON 200, a 200 with no id_token, and a body over 16 KiB are all google', async () => {

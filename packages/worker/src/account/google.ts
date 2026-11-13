@@ -4,7 +4,7 @@ import type { D1Like } from '../d1';
 import { dayOf } from '../rate-day';
 import { ACCOUNT_RETURN_PATH, CHALLENGE_MS, SESSION_COOKIE, accountOrigins, preCookieName } from './config';
 import { randomB64url, sha256B64url, sha256Hex } from './crypto';
-import { createGoogleVerifier, readCappedText, type GoogleVerifier, type JwksStore } from './google-oidc';
+import { GOOGLE_JWKS_URL, createGoogleVerifier, readCappedText, type GoogleVerifier, type JwksStore } from './google-oidc';
 import { accountJson, readAccountBody } from './http';
 import { newAccountBudget, perMinute, startBudget } from './limits';
 import { accountsOpen, createMember, memberForIdentity } from './member';
@@ -17,7 +17,6 @@ export const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 
 /** The token endpoint (a POST); named here and nowhere else. */
 export const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
-const JWKS_CACHE_KEY = 'https://www.googleapis.com/oauth2/v3/certs';
 const TOKEN_CAP = 16 * 1024;
 const C_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 const CODE_SHAPE = /^[\x21-\x7e]{1,2048}$/;
@@ -86,11 +85,13 @@ export interface CacheLike {
 }
 
 /** The JWKS in the Cache API: shared by every isolate in the colo, so a cold isolate does not refetch Google's keys.
+ *  Cloudflare documents functional cache operations for custom domains only, so on *.workers.dev this layer is likely
+ *  inert (a miss every time); the isolate's own cache in the verifier still works, and nothing depends on this one.
  *  The entry carries its own expiry, because `match` does not report how much life a cached response has left. */
 export function cacheJwksStore(cache: CacheLike, clock: () => number = Date.now): JwksStore {
   return {
     async get() {
-      const hit = await cache.match(JWKS_CACHE_KEY);
+      const hit = await cache.match(GOOGLE_JWKS_URL);
       if (hit === undefined) return null;
       const until = Number(hit.headers.get('x-rl-expires'));
       const ttlMs = until - clock();
@@ -100,7 +101,7 @@ export function cacheJwksStore(cache: CacheLike, clock: () => number = Date.now)
     },
     async put(text, ttlMs) {
       const headers = { 'content-type': 'application/json', 'cache-control': `max-age=${Math.floor(ttlMs / 1000)}`, 'x-rl-expires': String(clock() + ttlMs) };
-      await cache.put(JWKS_CACHE_KEY, new Response(text, { headers }));
+      await cache.put(GOOGLE_JWKS_URL, new Response(text, { headers }));
     },
   };
 }
@@ -206,7 +207,8 @@ async function finishReturn(
   if ('refused' in verdict) return done(verdict.refused);
   const sub = verdict.sub;
   const existing = await memberForIdentity(db, 'google', sub, ctx.now, ch.purpose === 'google-login');
-  // The device's previous session, if the browser sent one (it is SameSite=Strict, so usually not): dropped when it
+  // The device's previous session, if the browser sent one. The session cookie is SameSite=Strict, so Google's cross-site
+  // redirect usually does NOT carry it and S1 rarely fires (a lead decision, left as is): dropped when it
   // belongs to a DIFFERENT member (decision S1). Never read for a link: the link rests on the row's member_id.
   const previous = readCookie(ctx.req, SESSION_COOKIE);
 
@@ -215,7 +217,12 @@ async function finishReturn(
     if (!(await accountsOpen(db))) return done('closed');
     if (!(await newAccountBudget(db, ctx.env, ctx.req, ctx.now))) return done('limit');
     const made = await createMember(db, ctx.now, { provider: 'google', subject: sub });
-    await dropPrevious(db, previous, made.memberId);
+    // Best effort: the new session is delivered even if dropping the old one fails.
+    try {
+      await dropPrevious(db, previous, made.memberId);
+    } catch {
+      /* the sign-in stands */
+    }
     return done('ok', [made.setCookie]);
   }
 
@@ -282,6 +289,7 @@ async function exchange(
       redirect: 'manual',
     });
     if (res.status !== 200) {
+      await res.body?.cancel().catch(() => undefined);
       warnGoogle({ status: res.status, location: hostOf(res.headers.get('location')), ms: Date.now() - t0 });
       return null;
     }
