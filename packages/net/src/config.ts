@@ -104,7 +104,10 @@ export type WinMode = (typeof WIN_MODES)[number];
  *    are unchanged. */
 export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
   camp: ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'],
-  points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
+  // 13 Nov DELIST (GH-976, awaiting the lead's go): `milh_flats` is off the points list. Confirmation read on main 68938665c, mirror, 768 seeds
+  // (38000-38383 plus 52000-52383, `--passive=on`): the west seat leads 63.2% (485 / 283, z +1.8 over 60); per range 62.2% and 64.1%, and 60.4% on 4000.
+  // Its staged points block stays on disk; the map stays offered for camp. It returns when a fresh read is inside 60/40.
+  points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
   // GH-976 (the lead's ruling of 12 Nov, relisting what GH-1139 pulled on 8 Nov): flag is offered on the five maps with a staged
   // `flag_setup` block, in the MIRROR only (KDF v KDF), and always with the set-up rules: these five are also `FLAG_SETUP_MAPS`, and the
   // two lists change together (a listed map missing from `FLAG_SETUP_MAPS` would offer the v1 raid GH-1139 pulled, which an opening
@@ -140,7 +143,10 @@ export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = 
   // Caveats, from the audit: one scripted attacker that masses before it moves (a bot that attack-moves from the bell may still win
   // early, GH-1139's 0:55); each leader share carries 5-6 points of standard error; wadi_tarfan is a poor balance test (1% by the flag,
   // 26% draws).
-  flag: ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
+  // 13 Nov DELIST (GH-976, awaiting the lead's go): `milh_flats_l` is off the flag list and off `FLAG_SETUP_MAPS` (the two change together). Confirmation read
+  // on main 68938665c, the set-up room, 768 seeds: the west seat leads 66.9% under the plain bot (514 / 254) and 65.4% under `--script=massed` (502 / 266),
+  // z +4.1 and +3.1 over 60, west in all six reads (three ranges, two scripts). Its staged `flag_setup` block stays on disk; the map stays offered for points.
+  flag: ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l'],
 };
 
 /** The KDF-v-Sarim cells each win mode has been read fair on (GH-976 P4): per mode, per map, the HOSTS (the matchup is the
@@ -369,11 +375,11 @@ export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum', 'wadi_tarfa
  *  `tools/src/validate_versus_rules.test.ts` holds this table to every rules file, both ways. */
 export const MAP_CAP_MINUTES: Readonly<Record<string, number>> = { rujm_sawda: 35, wadi_tarfan_l: 35, milh_flats_l: 35 };
 
-/** GH-976 v2: the maps a FLAG room plays the set-up rules on: the four `WIN_MODE_FAIR_MAPS.flag` lists (the lead's rulings of
- *  12 Nov: relisted five, then milh_flats delisted; change both together). milh_flats keeps a staged
- *  `flag_setup` block on disk but is not offered. Read at CALL time (`flagSetupFor`), so a
+/** GH-976 v2: the maps a FLAG room plays the set-up rules on: the three `WIN_MODE_FAIR_MAPS.flag` lists (the lead's rulings of
+ *  12 Nov: relisted five, then milh_flats delisted; milh_flats_l delisted 13 Nov; change both together). milh_flats and milh_flats_l keep a staged
+ *  `flag_setup` block on disk but are not offered. Read at CALL time (`flagSetupFor`), so a
  *  test may stand a map in it. */
-export const FLAG_SETUP_MAPS: readonly string[] = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+export const FLAG_SETUP_MAPS: readonly string[] = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l'];
 
 /** The flag match cap, in minutes, of a set-up room on every map, set-up included. A TWIN of `FLAG_SETUP_CAP_MINUTES` in
  *  @lions/data (the Worker imports net and not data), held to it by `tools/src/validate_versus_modes.test.ts`. */

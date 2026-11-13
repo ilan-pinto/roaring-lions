@@ -77,11 +77,11 @@ describe('the shipped win-mode files', () => {
     }
     // The literals (GH-976 P4): each of the seven open maps carries both modes, each read fair in the mirror, in a fixed order.
     const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
-    expect(WIN_MODE_FAIR_MAPS.points).toEqual(SEVEN); // wadi_tarfan 56.3%, milh_flats 57.3% (P1); the other five 51-55% on 4000-4287: see config.ts
+    expect(WIN_MODE_FAIR_MAPS.points).toEqual(SEVEN.filter((m) => m !== 'milh_flats'));   // milh_flats points delisted 13 Nov (GH-976); its block stays on disk (the loop below); // wadi_tarfan 56.3%, milh_flats 57.3% (P1); the other five 51-55% on 4000-4287: see config.ts
     // The v1 raid read fair on all seven (P3, P4) and is still in every mode file below; the lead pulled it from the lobby
     // (GH-1139) and relisted it on 12 Nov (GH-976) on the five maps with a staged `flag_setup` block, the mirror only.
-    expect(WIN_MODE_FAIR_MAPS.flag).toEqual(['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']);   // milh_flats delisted 12 Nov (GH-976); milh_flats_l kept
-    expect(winModeAllowed('flag', 'milh_flats')).toBe(false); expect(winModeAllowed('points', 'milh_flats')).toBe(true); expect(winModeAllowed('flag', 'milh_flats_l')).toBe(true);   // milh_flats refused for the flag, still offered for what it keeps
+    expect(WIN_MODE_FAIR_MAPS.flag).toEqual(['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l']);   // milh_flats delisted 12 Nov, milh_flats_l 13 Nov (GH-976)
+    expect(winModeAllowed('flag', 'milh_flats')).toBe(false); expect(winModeAllowed('flag', 'milh_flats_l')).toBe(false); expect(winModeAllowed('points', 'milh_flats')).toBe(false); expect(winModeAllowed('points', 'milh_flats_l')).toBe(true);   // milh_flats refused for the flag, still offered for what it keeps
     expect(FLAG_SETUP_MAPS).toEqual(WIN_MODE_FAIR_MAPS.flag);
     expect(WIN_MODE_FAIR_MAPS.camp).toEqual(['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l']); // forward camps; milh_flats (15,39)/(31,7): 52.4%, 96.5% by the goal; wadi_tarfan (13,18)/(33,28) and wadi_tarfan_l (26,30)/(68,64) with wipe after_camp (GH-976, 5 Nov); the others stay out: see config.ts
     expect([...VERSUS_FAIR_MAPS].sort()).toEqual([...SEVEN].sort());
