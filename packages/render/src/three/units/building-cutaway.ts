@@ -268,6 +268,18 @@ function byFocus(a: CutTrigger, b: CutTrigger): number {
   return a.focusDist2 - b.focusDist2 || a.key - b.key;
 }
 
+/** TEMPORARY (GH-1225 rim A/B, never shipped): the variant knobs. `wall` is the kept wall height in tiles above the ground (house: ground storey 0.08..1.28, floor slab above); < 0 keeps today's fixed 0.4. */
+export const RIM_DEBUG = { name: 'off', wall: -1, jitter: 0, section: CUT_SECTION_TILES, tone: 0 };
+export const RIM_VARIANTS: Record<string, { wall: number; jitter: number; section: number; tone: number }> = {
+  off: { wall: -1, jitter: 0, section: CUT_SECTION_TILES, tone: 0 },
+  // A: 0.7 t straight brick course, a bright cap thick enough to read.
+  a: { wall: 0.7, jitter: 0, section: 0.1, tone: 0 },
+  // B: 0.9 t, a broken (ragged) top by 0.25 t brick cells, mid-tone cap.
+  b: { wall: 0.9, jitter: 0.12, section: 0.06, tone: 0.5 },
+  // C: 1.1 t straight parapet, darker brick-edge tone.
+  c: { wall: 1.1, jitter: 0, section: 0.08, tone: 0.35 },
+};
+
 /** Floats per volume in the shared block: two `vec4`s, (cx, cz, r, w) and (yCut, yTop, 0, 0). */
 export const CUT_FLOATS_PER_VOLUME = 8;
 
@@ -284,8 +296,8 @@ export function writeCutVolumes(volumes: readonly CutVolume[], out: Float32Array
     out[o + 3] = v.w;
     out[o + 4] = v.yCut;
     out[o + 5] = v.yTop;
-    out[o + 6] = 0;
-    out[o + 7] = 0;
+    out[o + 6] = RIM_DEBUG.jitter;
+    out[o + 7] = RIM_DEBUG.section;
   }
   return n;
 }

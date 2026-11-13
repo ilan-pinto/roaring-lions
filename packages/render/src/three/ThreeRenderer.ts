@@ -574,6 +574,8 @@ import { footprintCentre } from './units/footprint';
 import {
   CUT_BAND_TILES,
   CUT_HEIGHT_TILES,
+  RIM_DEBUG,
+  RIM_VARIANTS,
   CUT_ROOF_FALLBACK_TILES,
   CUT_SELECT_RADIUS_TILES,
   CutawayTable,
@@ -12415,9 +12417,10 @@ export class ThreeRenderer implements Renderer {
       if (root === undefined) continue;
       const cx = (ss.minX[b.s] + ss.maxX[b.s] + 1) / 2;
       const cz = (ss.minY[b.s] + ss.maxY[b.s] + 1) / 2;
-      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cz) + CUT_HEIGHT_TILES;
+      let yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cz) + CUT_HEIGHT_TILES;
       const yTop = this.roofYOf(b.s, root);
       if (yTop <= yCut) continue;
+      yCut = this.rimCutHeight(yCut - CUT_HEIGHT_TILES, yTop, yCut);
       const r = garrisonCutRadius(ss.minX[b.s], ss.minY[b.s], ss.maxX[b.s], ss.maxY[b.s]);
       out.push({ key: garrisonCutKey(b.s), r, garrison: true, x: cx, z: cz, yCut, yTop, focusDist2: 0 });
     }
@@ -12468,7 +12471,7 @@ export class ThreeRenderer implements Renderer {
       const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
       if (!isOwnSide(st.side[i], this.fogViewer) && !this.isVisible(x, z)) continue;
-      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z) + CUT_HEIGHT_TILES;
+      let yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z) + CUT_HEIGHT_TILES;
       let near = false;
       let yTop = -Infinity;
       for (const [s, root] of this.buildingMeshIdleEntities) {
@@ -12482,10 +12485,25 @@ export class ThreeRenderer implements Renderer {
         if (roof > yTop) yTop = roof;
       }
       if (!near) continue;
+      yCut = this.rimCutHeight(yCut - CUT_HEIGHT_TILES, yTop, yCut);
       const dx = x - this.camera.x;
       const dz = z - this.camera.y;
       out.push({ key: i, r: CUT_SELECT_RADIUS_TILES, garrison: false, x, z, yCut, yTop, focusDist2: dx * dx + dz * dz });
     }
+  }
+
+  /** TEMPORARY (GH-1225 rim A/B): selects a rim variant by name (off|a|b|c). Never shipped. */
+  setCutRim(name: string): void {
+    const v = RIM_VARIANTS[name];
+    if (v === undefined) throw new Error(`unknown rim ${name}`);
+    Object.assign(RIM_DEBUG, v, { name });
+    if (this.cutUniforms !== null) this.cutUniforms.uRlCutTone.value = v.tone;
+  }
+
+  /** TEMPORARY: the cut height of a rim variant, the variant's wall height above the ground; else today's fixed one. */
+  private rimCutHeight(ground: number, roof: number, fallback: number): number {
+    if (this.cutUniforms !== null) this.cutUniforms.uRlCutTone.value = RIM_DEBUG.tone;
+    return RIM_DEBUG.wall < 0 ? fallback : ground + Math.min(RIM_DEBUG.wall, roof - ground);
   }
 
   /** Building `s`'s drawn roof, world Y: its clone's bounds, read once (a standing building never moves). */
