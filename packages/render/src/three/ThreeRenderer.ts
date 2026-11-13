@@ -571,9 +571,11 @@ import {
 import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
 import { footprintCentre } from './units/footprint';
+import { keptWallHeight, lowestSlabBottom } from './units/cut-rim';
 import {
   CUT_BAND_TILES,
   CUT_HEIGHT_TILES,
+  CUT_RIM_WALL_TILES,
   CUT_ROOF_FALLBACK_TILES,
   CUT_SELECT_RADIUS_TILES,
   CutawayTable,
@@ -2876,6 +2878,8 @@ export class ThreeRenderer implements Renderer {
   private readonly buildingCuts = new Map<number, { root: THREE.Object3D; mats: BuildingCutMaterials }>();
   /** Each standing clone's drawn roof, world Y (tiles), read once from its frozen bounds: a standing building never moves. */
   private readonly buildingRoofY = new Map<number, { root: THREE.Object3D; y: number }>();
+  /** GH-1225 rim: the wall a cut keeps, per STRUCTURE (its plot's fit scales the clone and its slab), measured once (`keptWallOf`). */
+  private readonly keptWallByStructure = new Map<number, { root: THREE.Object3D; kept: number }>();
   private readonly cutTriggers: CutTrigger[] = [];
   private readonly cutVolumes: CutVolume[] = [];
   /** GH-1225 slice 2: the shared shadow and AO mask materials, minted with the first cut, never before. */
@@ -4579,6 +4583,7 @@ export class ThreeRenderer implements Renderer {
     for (const cut of this.buildingCuts.values()) cut.mats.dispose();
     this.buildingCuts.clear();
     this.buildingRoofY.clear();
+    this.keptWallByStructure.clear();
     this.cutaway.clear();
     this.garrisonStationAt.clear();
     this.garrisonCutTriggers = [];
@@ -12420,7 +12425,7 @@ export class ThreeRenderer implements Renderer {
       if (root === undefined) continue;
       const cx = (ss.minX[b.s] + ss.maxX[b.s] + 1) / 2;
       const cz = (ss.minY[b.s] + ss.maxY[b.s] + 1) / 2;
-      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cz) + CUT_HEIGHT_TILES;
+      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cz) + this.keptWallOf(b.s, root);
       const yTop = this.roofYOf(b.s, root);
       if (yTop <= yCut) continue;
       const r = garrisonCutRadius(ss.minX[b.s], ss.minY[b.s], ss.maxX[b.s], ss.maxY[b.s]);
@@ -12473,7 +12478,9 @@ export class ThreeRenderer implements Renderer {
       const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
       if (!isOwnSide(st.side[i], this.fogViewer) && !this.isVisible(x, z)) continue;
-      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z) + CUT_HEIGHT_TILES;
+      const ground = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z);
+      // The rim is the LOWEST kept wall among the buildings in reach, so no reached building keeps a slab standing.
+      let kept = CUT_RIM_WALL_TILES;
       let near = false;
       let yTop = -Infinity;
       for (const [s, root] of this.buildingMeshIdleEntities) {
@@ -12481,16 +12488,48 @@ export class ThreeRenderer implements Renderer {
         const d = footprintDistance(ss.minX[s], ss.minY[s], ss.maxX[s], ss.maxY[s], x, z);
         if (d >= reach) continue;
         const roof = this.roofYOf(s, root);
+        const keep = this.keptWallOf(s, root);
         // A structure no taller than the cut (a sandbag line) has nothing to take away.
-        if (roof <= yCut) continue;
+        if (roof <= ground + keep) continue;
         if (d <= CUT_SELECT_RADIUS_TILES) near = true;
         if (roof > yTop) yTop = roof;
+        if (keep < kept) kept = keep;
       }
       if (!near) continue;
+      const yCut = ground + kept;
       const dx = x - this.camera.x;
       const dz = z - this.camera.y;
       out.push({ key: i, r: CUT_SELECT_RADIUS_TILES, garrison: false, x, z, yCut, yTop, focusDist2: dx * dx + dz * dz });
     }
+  }
+
+  /**
+   * GH-1225 rim: the wall a cut keeps on building `s`: `keptWallHeight` of the lowest slab in its drawn clone, measured once per
+   * structure (not per type: `buildingFitScale` shrinks a clone to its plot, and its slab with it) and read back from the memo.
+   */
+  private keptWallOf(s: number, root: THREE.Object3D): number {
+    const known = this.keptWallByStructure.get(s);
+    if (known !== undefined && known.root === root) return known.kept;
+    root.updateWorldMatrix(true, true);
+    const chunks: number[] = [];
+    const tri: number[] = [];
+    const v = new THREE.Vector3();
+    root.traverse((m) => {
+      const mesh = m as THREE.Mesh;
+      const pos = mesh.isMesh ? mesh.geometry.getAttribute('position') : undefined;
+      if (pos === undefined) return;
+      const idx = mesh.geometry.getIndex();
+      const base = chunks.length / 3;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+        chunks.push(v.x, v.y, v.z);
+      }
+      if (idx !== null) for (let i = 0; i < idx.count; i++) tri.push(base + idx.getX(i));
+      else for (let i = 0; i < pos.count; i++) tri.push(base + i);
+    });
+    const kept = keptWallHeight(lowestSlabBottom(chunks, tri, root.position.y));
+    this.keptWallByStructure.set(s, { root, kept });
+    return kept;
   }
 
   /** Building `s`'s drawn roof, world Y: its clone's bounds, read once (a standing building never moves). */

@@ -20,7 +20,8 @@
  *
  * Presentation only: reads sim state, writes none (invariant 4). Import-free but for the `Ops` type.
  */
-import type { Ops } from '../fog-ops';
+import type { IntOps, Ops } from '../fog-ops';
+import { tileHashOps } from '../../tile-hash';
 
 /** At most this many volumes at once: the hook's fixed loop. Garrisons first, then selected units nearest the
  *  camera focus. */
@@ -31,8 +32,16 @@ export const CUT_HEIGHT_TILES = 0.4;
 export const CUT_SELECT_RADIUS_TILES = 1.25;
 /** The edge band W over which the cut height slopes back up to the roof, tiles. */
 export const CUT_BAND_TILES = 0.5;
-/** The section cap: the band just under the cut that the hook paints light, tiles. */
-export const CUT_SECTION_TILES = 0.03;
+/** The section cap: the band just under the cut that the hook paints (the cap tone), tiles. GH-1225 rim: 0.06, so the brick
+ *  course reads at zoom 1.0. */
+export const CUT_SECTION_TILES = 0.06;
+/** GH-1225 rim (lead ruling 13 Nov, variant B): the wall a cut KEEPS above the ground, tiles, capped per structure type by
+ *  `keptWallHeight` (`cut-rim.ts`) so no upper-floor slab ever stands. Replaces the fixed `CUT_HEIGHT_TILES` as the cut height. */
+export const CUT_RIM_WALL_TILES = 0.9;
+/** The ragged top: the kept height varies by +-this over each brick cell, tiles (scaled by the iris like R and W). */
+export const CUT_RIM_JITTER_TILES = 0.12;
+/** Brick cells per tile along x and z: a cell is 0.25 t, and its jitter is `tileHash` of the cell, so a rim never shimmers. */
+export const CUT_RIM_CELLS_PER_TILE = 4;
 /** The iris opens over this, ease-out, ms. */
 export const CUT_OPEN_MS = 250;
 /** A cut holds this long after its trigger ends, ms (stops flicker when a selection changes). */
@@ -101,6 +110,8 @@ export interface CutVolume {
   readonly w: number;
   readonly yCut: number;
   readonly yTop: number;
+  /** The ragged top's amplitude, tiles (`CUT_RIM_JITTER_TILES` scaled by the iris). */
+  readonly j: number;
 }
 
 /** The cut height at horizontal distance `rho` from the centre: `yCut` inside `r`, sloping linearly up to `yTop` over `w`. */
@@ -114,16 +125,22 @@ export function cutHeightOps<T>(o: Ops<T>, rho: T, r: T, w: T, yCut: T, yTop: T)
  */
 export function cutawayOps<T>(
   o: Ops<T>,
+  io: IntOps<T>,
   x: T,
   y: T,
   z: T,
-  v: { readonly cx: T; readonly cz: T; readonly r: T; readonly w: T; readonly yCut: T; readonly yTop: T }
+  v: { readonly cx: T; readonly cz: T; readonly r: T; readonly w: T; readonly yCut: T; readonly yTop: T; readonly j: T }
 ): { readonly cut: T; readonly section: T } {
   const one = o.lit(1);
   const zero = o.lit(0);
   const rho = o.length2(o.sub(x, v.cx), o.sub(z, v.cz));
   const inReach = o.selectLt(rho, o.add(v.r, v.w), one, zero);
-  const h = cutHeightOps(o, rho, v.r, v.w, v.yCut, v.yTop);
+  // The ragged top: the kept height moves by +-j with `tileHash` of the 0.25 t brick cell the fragment stands in (the holes' hash
+  // body, `io.toFloat01`), so it is the same on every frame and on both backends.
+  const cell = o.lit(CUT_RIM_CELLS_PER_TILE);
+  const hash = io.toFloat01(tileHashOps(io, o.floor(o.mul(x, cell)), o.floor(o.mul(z, cell))));
+  const yc = o.add(v.yCut, o.mul(v.j, o.sub(o.mul(hash, o.lit(2)), one)));
+  const h = cutHeightOps(o, rho, v.r, v.w, yc, v.yTop);
   const above = o.selectLt(h, y, one, zero);
   const inSection = o.selectLt(o.sub(h, o.lit(CUT_SECTION_TILES)), y, one, zero);
   return { cut: o.mul(inReach, above), section: o.mul(inReach, o.mul(inSection, o.sub(one, above))) };
@@ -251,7 +268,7 @@ export class CutawayTable {
     for (const e of this.entries.values()) {
       const k = e.iris.k;
       if (k <= 0) continue;
-      out.push({ cx: e.x, cz: e.z, r: k * e.r, w: k * CUT_BAND_TILES, yCut: e.yCut, yTop: e.yTop });
+      out.push({ cx: e.x, cz: e.z, r: k * e.r, w: k * CUT_BAND_TILES, yCut: e.yCut, yTop: e.yTop, j: k * CUT_RIM_JITTER_TILES });
     }
     return out;
   }
@@ -268,7 +285,7 @@ function byFocus(a: CutTrigger, b: CutTrigger): number {
   return a.focusDist2 - b.focusDist2 || a.key - b.key;
 }
 
-/** Floats per volume in the shared block: two `vec4`s, (cx, cz, r, w) and (yCut, yTop, 0, 0). */
+/** Floats per volume in the shared block: two `vec4`s, (cx, cz, r, w) and (yCut, yTop, j, 0). */
 export const CUT_FLOATS_PER_VOLUME = 8;
 
 /** Writes up to `CUT_VOLUME_CAP` volumes into the block `out` (`CUT_VOLUME_CAP * CUT_FLOATS_PER_VOLUME` floats); returns how
@@ -284,7 +301,7 @@ export function writeCutVolumes(volumes: readonly CutVolume[], out: Float32Array
     out[o + 3] = v.w;
     out[o + 4] = v.yCut;
     out[o + 5] = v.yTop;
-    out[o + 6] = 0;
+    out[o + 6] = v.j;
     out[o + 7] = 0;
   }
   return n;
