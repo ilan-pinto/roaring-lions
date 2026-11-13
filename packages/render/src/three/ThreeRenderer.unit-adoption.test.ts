@@ -605,6 +605,10 @@ describe('GH-1319: a moving vehicle draws only attributes WebGPU can lay out', (
     const hull = hullOf(entity);
     const wheel = hull.geometry.getAttribute('_rl_wheel');
     // The values the wheel term reads are kept (the fixture tags every vertex wheel 1).
+    // Non-empty first, against the position count (an independent number): over zero vertices the `.every` below holds for any values.
+    const vertices = hull.geometry.getAttribute('position').count;
+    expect(vertices).toBeGreaterThan(0);
+    expect(wheel.count, 'one wheel value per vertex').toBe(vertices);
     expect(Array.from({ length: wheel.count }, (_, i) => wheel.getX(i)).every((v) => v === 1)).toBe(true);
     const names = Object.keys(hull.geometry.attributes);
     const formats = await webGpuFormats(names.map((n) => hull.geometry.getAttribute(n) as THREE.BufferAttribute));
