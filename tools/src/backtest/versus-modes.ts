@@ -61,10 +61,13 @@
 //          --flags=<x,y,w,h/x,y,w,h>  --hold=<s>   fit the flag raid in memory (friendly then hostile ground; never written to disk)
 //          --flag-setup=<on|off>  --ready-s=<s>   the flag arm plays the lobby's room: the set-up phase on the maps FLAG_SETUP_MAPS lists, each seat that
 //                 orders pressing Ready at --ready-s (default 20: the bell at 25 s, the audits' early Ready), no kit placed; off is the v1 read
+//          --include-delisted   (with --mode=flag and the set-up on) play the staged set-up room on a map that has a `flag_setup` block but is OFF
+//                 FLAG_SETUP_MAPS (milh_flats since 12 Nov), so a delisted map can be read on the exact room the lobby would play if it were
+//                 listed; without it such a map plays the v1 room, silently, as before, and the run now prints a line saying so
 
 import { fileURLToPath } from 'node:url';
 import { flagBlockOf, versusModes, type MapId, type WinModeId } from '@lions/data';
-import { WIN_MODES, flagSetupFor, matchCapTicksOf, validateConfig, type MatchConfig } from '@lions/net';
+import { FLAG_SETUP_MAPS, WIN_MODES, flagSetupFor, matchCapTicksOf, validateConfig, type MatchConfig } from '@lions/net';
 import { armedStanding, effectiveCapTicks, goalsOf, outcomeOf, unitCost, type MatchResult } from '../../../packages/app/src/net/outcome';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, DECIDE_EVERY_TICKS, SEEDS_DEFAULT, livingOf, loneSurvivorOf, order, parseArrangements, roomConfig, seedOf, type Arrangement } from './versus-probe';
@@ -121,6 +124,9 @@ export interface ModePlayOptions {
    *  `FLAG_SETUP_MAPS` map, absent for any other), so the set-up phase runs: weapons held and the region clamp until the bell. Off by
    *  default here, so `FLAG_V1_GAME_PIN` and every earlier read stay byte for byte; the CLI turns it on (`--flag-setup=off` to undo). */
   flagSetup?: boolean;
+  /** With `flagSetup`: also mint the set-up for a map that has a staged `flag_setup` block but is not in `FLAG_SETUP_MAPS` (a DELISTED
+   *  map, GH-976). Off by default, so a delisted map still plays the v1 room unless asked; a map with no staged block still plays none. */
+  includeDelisted?: boolean;
   /** With `flagSetup`: the second at which each seat that takes orders presses Ready (the bell then rings `SETUP_BELL_DELAY_TICKS`
    *  later: 20 s gives the bell at 25 s, the 11 and 12 Nov audits' early Ready). A passive or cut seat never presses it. */
   readyS?: number;
@@ -149,9 +155,10 @@ export const READY_S_DEFAULT = 20;
 export const MIRROR: Arrangement = ['kdf', 'kdf'];
 
 /** A mode room's config: the probe cell's (the mirror unless `arr` says two factions), with the mode set. */
-export function modeConfig(mapId: MapId, mode: WinModeId, seed: number, arr: Arrangement = MIRROR, flagSetup = false): MatchConfig {
-  // The Worker mints `flagSetup` through `flagSetupFor`; so does this, when asked (`undefined` -> no key at all).
-  const setup = flagSetup ? flagSetupFor(mapId, mode) : undefined;
+export function modeConfig(mapId: MapId, mode: WinModeId, seed: number, arr: Arrangement = MIRROR, flagSetup = false, includeDelisted = false): MatchConfig {
+  // The Worker mints `flagSetup` through `flagSetupFor`; so does this, when asked (`undefined` -> no key at all). `includeDelisted` adds the
+  // maps that carry a staged `flag_setup` block but are off the list, and only those: a map with no block has no set-up to play.
+  const setup = flagSetup ? (includeDelisted && mode === 'flag' && versusModes[mapId].flag_setup !== undefined ? true : flagSetupFor(mapId, mode)) : undefined;
   const c = validateConfig({ ...roomConfig(mapId, arr, seed), winMode: mode, ...(setup === undefined ? {} : { flagSetup: setup }) });
   if (c === null) throw new Error(`versus modes: no valid ${mode} room config for ${mapId} ${arr.join('/')}`);
   return c;
@@ -322,7 +329,7 @@ export function pointsOrder(w: MatchWorld, zoneNames: readonly string[], passive
 
 /** One game on `mapId` under `mode`. */
 export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: ModePlayOptions = {}): ModePlayed {
-  const config = modeConfig(mapId, mode, seed, opts.arr, opts.flagSetup === true);
+  const config = modeConfig(mapId, mode, seed, opts.arr, opts.flagSetup === true, opts.includeDelisted === true);
   const w = buildMatchWorld(config);
   const runtime = w.runtime;
   if (runtime === null) throw new Error(`versus modes: ${mapId} ${mode} built no runtime`);
@@ -514,7 +521,7 @@ export function describeTally(t: ModeTally, arr: Arrangement = MIRROR): string {
 export type ModePlayFn = typeof playMode;
 
 /** The controls on one map and mode; each failure is a sentence. Empty means the arm can tell its sides apart. */
-export function modeSelfCheck(mapId: MapId, mode: WinModeId, playFn: ModePlayFn = playMode, arr: Arrangement = MIRROR, room: Pick<ModePlayOptions, 'flagSetup' | 'readyS' | 'script' | 'massS'> = {}): string[] {
+export function modeSelfCheck(mapId: MapId, mode: WinModeId, playFn: ModePlayFn = playMode, arr: Arrangement = MIRROR, room: Pick<ModePlayOptions, 'flagSetup' | 'readyS' | 'script' | 'massS' | 'includeDelisted'> = {}): string[] {
   const failures: string[] = [];
   const seed = seedOf(0);
   const cell = arr[0] === arr[1] ? `${mapId} ${mode}` : `${mapId} ${mode} ${arr.join('/')}`;
@@ -719,8 +726,18 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
   const massS = massArg === undefined ? MASS_S_DEFAULT : Number(massArg);
   if (!Number.isInteger(massS) || massS < 0 || massS > 120) throw new Error('--mass-s must be a whole number of seconds, 0 to 120');
   if (scriptArg === 'massed' && !modes.every((m) => m === 'flag')) throw new Error('--script=massed is a flag script: it needs --mode=flag');
-  const room: Pick<ModePlayOptions, 'flagSetup' | 'readyS' | 'script' | 'massS'> = { ...(flagSetupArg === 'on' ? { flagSetup: true, readyS } : {}), ...(scriptArg === 'massed' ? { script: 'massed' as const, massS } : {}) };
+  const includeDelisted = args.includes('--include-delisted');
+  if (includeDelisted && !modes.includes('flag')) throw new Error('--include-delisted plays a delisted map\'s flag set-up room: it needs --mode=flag (or all)');
+  if (includeDelisted && flagSetupArg !== 'on') throw new Error('--include-delisted needs the set-up on (the default); --flag-setup=off is the v1 read, which has no set-up to include');
+  const room: Pick<ModePlayOptions, 'flagSetup' | 'readyS' | 'script' | 'massS' | 'includeDelisted'> = { ...(flagSetupArg === 'on' ? { flagSetup: true, readyS, ...(includeDelisted ? { includeDelisted: true } : {}) } : {}), ...(scriptArg === 'massed' ? { script: 'massed' as const, massS } : {}) };
   if (modes.includes('flag')) console.log(flagSetupArg === 'on' ? `flag room: the set-up phase on the maps FLAG_SETUP_MAPS lists, each seat that orders presses Ready at ${readyS} s (the bell ${readyS + 5} s in); timing is read from the bell` : 'flag room: --flag-setup=off, the v1 read (no set-up phase; every flag win is an opening rush)');
+  if (modes.includes('flag') && flagSetupArg === 'on') {
+    // A flag map that is off FLAG_SETUP_MAPS plays the v1 room (no set-up) unless `--include-delisted` asks for its staged set-up: say which.
+    const unlisted = mapIds.filter((id) => !FLAG_SETUP_MAPS.includes(id));
+    const withBlock = unlisted.filter((id) => versusModes[id].flag_setup !== undefined);
+    if (includeDelisted && withBlock.length > 0) console.log(`flag room: --include-delisted plays the staged set-up room on ${withBlock.join(', ')} (off FLAG_SETUP_MAPS: the lobby does not offer it)`);
+    else if (unlisted.length > 0) console.log(`flag room: ${unlisted.join(', ')} ${unlisted.length === 1 ? 'is' : 'are'} not in FLAG_SETUP_MAPS and play${unlisted.length === 1 ? 's' : ''} the v1 room, no set-up${withBlock.length > 0 ? ` (${withBlock.join(', ')} ${withBlock.length === 1 ? 'has' : 'have'} a staged set-up: --include-delisted plays it)` : ''}`);
+  }
   if (modes.includes('flag')) console.log(scriptArg === 'massed' ? `flag script: massed (the body gathers at ${RALLY_NUM}/${RALLY_DEN} of the way to the enemy anchor, two infantry squads defend the own flag, the body sets off ${massS} s after the bell; no feint, smoke, re-target or kit): a reduced stand-in for the audits' strong attacker` : 'flag script: attack-move (two raid squads on the enemy flag, the rest on the enemy centroid)');
   const flagsArg = flag(args, 'flags');
   const holdArg = flag(args, 'hold');
