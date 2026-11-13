@@ -43,7 +43,6 @@
     "noise-check": "tsx src/ci/noise-check.ts",
     "webgpu:bundle": "tsx src/perf/webgpu-bundle-census.ts",
     "webgpu:abba": "tsx src/perf/webgpu-abba-run.ts",
-    "webgpu:grass-sheet": "tsx src/perf/webgpu-grass-sheet.ts",
     "webgpu:grass": "tsx src/perf/webgpu-grass-probe.ts",
     "webgpu:raf": "tsx src/perf/webgpu-raf-hypothesis.ts",
     "golden-baseline:bless": "tsx src/ci/three-baseline-gate.ts --bless",
