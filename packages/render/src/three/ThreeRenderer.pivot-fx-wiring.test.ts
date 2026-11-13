@@ -275,6 +275,14 @@ describe('pivot dust through the frame-side wiring (GH-1207)', () => {
     expect(w.priv.entitySpeed[w.id]).toBe(0);
     const turning = w.frames.filter((f) => f.length > 0);
     expect(turning.length, 'the dust is emitted on many frames, not one burst').toBeGreaterThanOrEqual(10);
+    // "Every frame": once the yaw-rate ramp has crossed its threshold (the first emitting frame, after the 8 parked ticks' 24 frames and
+    // at most 4 warm-up ticks), NO frame is skipped. A count of emitting frames alone passes an emitter that fires on one frame in six.
+    const firstEmitting = w.frames.findIndex((f) => f.length > 0);
+    expect(firstEmitting, 'dust starts after the parked frames and within the warm-up').toBeGreaterThanOrEqual(24);
+    expect(firstEmitting).toBeLessThanOrEqual(36);
+    const afterWarmUp = w.frames.slice(firstEmitting);
+    expect(afterWarmUp.length, 'a long run of pivot frames to check').toBeGreaterThanOrEqual(60);
+    expect(afterWarmUp.filter((f) => f.length === 0).length, 'a frame after the warm-up that threw no dust').toBe(0);
 
     // Both track ends, a gauge apart on either side of the hull's centreline:
     // the geometry the issue asks for, as literals rather than a recomputation.
