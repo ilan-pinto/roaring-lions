@@ -219,7 +219,7 @@ describe('showMenu account chip', () => {
     showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account: { enabled: true, name: Promise.resolve('Ilan') } });
     const chip = stage.querySelector<HTMLAnchorElement>('[data-act="profile"]');
     expect(chip?.getAttribute('href')).toBe('/profile');
-    expect(chip?.textContent).toBe('Sign in with Steam');
+    expect(chip?.textContent).toBe('Sign in / Sign up');
     await Promise.resolve();
     await Promise.resolve();
     expect(chip?.textContent).toBe('Ilan');

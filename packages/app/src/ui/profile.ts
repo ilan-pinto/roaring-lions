@@ -146,7 +146,20 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
   const guestBlock = (): HTMLElement => {
     const box = document.createElement('div');
     box.className = 'rl-profile__guest';
-    box.append(button(t('profile.signIn'), () => void signIn(), 'rl-btn rl-profile__signin'), line('rl-profile__privacy', t('profile.privacy')), privacyLink());
+    const signInBtn = button(t('profile.signIn'), () => void signIn(), 'rl-btn rl-profile__signin');
+    const note = line('rl-profile__signup-note', '');
+    box.append(signInBtn, note, line('rl-profile__privacy', t('profile.privacy')), privacyLink());
+    // Sign up is the same Steam flow as sign in (the first sign-in creates the member while the switch is open); it is only offered while `GET open` says so.
+    void deps.client.open().then(
+      (open) => open,
+      () => false,
+    ).then((open) => {
+      if (disposed) return;
+      if (open) {
+        note.textContent = t('profile.signUpHint');
+        box.insertBefore(button(t('profile.signUp'), () => void signIn(), 'rl-btn rl-profile__signup'), signInBtn);
+      } else note.textContent = t('profile.signUpClosed');
+    });
     return box;
   };
 
