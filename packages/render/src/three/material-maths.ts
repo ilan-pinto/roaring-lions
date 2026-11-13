@@ -22,7 +22,7 @@ import {
   reliefTiltOps,
   reliefTintRampOps,
 } from './terrain/relief-read';
-import { heightBlendStage } from './terrain/height-blend';
+import { heightBlendStage, heightBlendTone } from './terrain/height-blend';
 import { HEIGHT_BLEND_BUILT_KEY, HEIGHT_BLEND_KEY } from './terrain/height-blend-record';
 import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './terrain/ground-maths';
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
@@ -140,6 +140,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
     paletteSize: DECAL_PALETTE_ORDER.length,
     wetDefine: DECAL_WET_DEFINE,
     lightsKey: DECAL_LIGHTS_KEY,
+    // GH-1226 S6: the tone half the node decal twin divides by.
+    heightBlend: { tone: heightBlendTone, recordKey: HEIGHT_BLEND_KEY, builtKey: HEIGHT_BLEND_BUILT_KEY },
   },
   overlay: null,
   // T8: the zone band's hatch (`units/zone-band.node.ts`) and the supply route's dash and alpha (`supply-route.node.ts`).
