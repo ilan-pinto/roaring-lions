@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { GOOGLE_JWKS_URL, createGoogleVerifier } from './google-oidc';
+import { createGoogleVerifier } from './google-oidc';
 
 // GH-1075 G2: every token here is signed by a key generated in this file; no secret, no real network.
 const CLIENT = 'test-client.apps.googleusercontent.com';
@@ -58,7 +58,8 @@ describe('ID-token verifier: P4 checks (each one a mutation in G2)', () => {
   it('accepts a good token and returns exactly the sub', async () => {
     const { v, urls } = rig();
     expect(await v.verify(await token(), { nonce: NONCE })).toEqual({ sub: '110169484474386276334' });
-    expect(urls).toEqual([GOOGLE_JWKS_URL]);
+    // The literal trusted URL (spec 1.5), not the constant the fetch itself reads: a wrong constant would otherwise satisfy this.
+    expect(urls).toEqual(['https://www.googleapis.com/oauth2/v3/certs']);
   });
 
   it('accepts the bare issuer and a one-member aud array', async () => {
@@ -196,12 +197,16 @@ describe('ID-token verifier: claims kept, parsing, the JWKS', () => {
       () => new Response('', { status: 302, headers: { location: 'https://evil.example' } }),
       () => new Response('not json', { status: 200 }),
       () => new Response('{"keys":3}', { status: 200 }),
-      () => new Response(' '.repeat(64 * 1024 + 1), { status: 200 }),
+      // VALID JSON over the cap (a JWKS with a good key and a long padding field): only the cap can refuse it.
+      () => new Response(JSON.stringify({ keys: [good.jwk], pad: 'x'.repeat(64 * 1024) }), { status: 200 }),
     ];
     for (const c of cases) {
       const { v } = rig(c);
       expect(await v.verify(t, { nonce: NONCE })).toEqual(refused('google'));
     }
+    // The control: the same padded JWKS under the cap verifies, so the cap is what refused the case above.
+    const { v: small } = rig(() => new Response(JSON.stringify({ keys: [good.jwk], pad: 'x'.repeat(1000) }), { status: 200 }));
+    expect(await small.verify(t, { nonce: NONCE })).toEqual({ sub: '110169484474386276334' });
   });
 
   it('issuer: look-alikes, http and a trailing slash are refused', async () => {
@@ -227,9 +232,11 @@ describe('ID-token verifier: claims kept, parsing, the JWKS', () => {
   });
 
   it('alg none with a non-empty signature reaches check 1 and is refused (JWKS never needed for it)', async () => {
-    const { v } = rig();
+    const { v, urls } = rig();
     const none = `${enc({ alg: 'none', kid: good.kid })}.${enc(claims())}.${Buffer.from('x'.repeat(256)).toString('base64url')}`;
     expect(await v.verify(none, { nonce: NONCE })).toEqual(refused('invalid'));
+    // Refused before any fetch: with check 1 gone the fabricated signature would still fail, but only after the JWKS was loaded.
+    expect(urls, 'no JWKS fetch for an alg none token').toEqual([]);
   });
 
   it('a crit header, an oversized token, a non-string token and an empty nonce are refused', async () => {
