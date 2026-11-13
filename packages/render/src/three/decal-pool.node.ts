@@ -61,7 +61,7 @@ import type {
   V3,
 } from './decal-maths';
 import type { Ops, IntOps } from './fog-ops';
-import type { heightBlendTone } from './terrain/height-blend';
+import type { groundSoil, heightBlendTone } from './terrain/height-blend';
 import type { HeightBlendRecord } from './terrain/height-blend-record';
 import { tslIntOps, tslOps, type N, type Tsl } from './fog-pass.node';
 import { copyRenderState } from './twin-identity';
@@ -97,6 +97,8 @@ export interface DecalMaths {
    */
   readonly heightBlend: {
     readonly tone: typeof heightBlendTone;
+    /** The soil weight (`groundSoil`, the ground stage's own): the decal feeds it control A's open and scrub and control B's knoll. */
+    readonly soil: typeof groundSoil;
     readonly recordKey: string;
     readonly builtKey: string;
   };
@@ -167,6 +169,8 @@ export interface NodeDecal {
   readonly colours: N;
   /** The control B tap (its `value` re-bound on `uMapSize`'s update). */
   readonly controlB: N;
+  /** GH-1226 soil: the control A tap of the height blend (null with no record), at the same uv node as control B, on the record's `controlA`. */
+  readonly controlA: N | null;
   /** GH-1226 S6: the height-blend field tap (null with no record on the legacy material: the graph is then today's, node for node). */
   readonly heightField: N | null;
   /** The light colours (each its light's colour times intensity, re-read every render) and the two view-space directions. */
@@ -305,6 +309,7 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
     return n;
   };
   let heightField: DN | null = null;
+  let controlA: DN | null = null;
   let blendKnobs: Parameters<typeof maths.heightBlend.tone<N>>[4] | null = null;
   if (hb !== undefined) {
     // Re-bound each render through the carrier `uMapSize`, as the ground's field tap and control B are (a texture node's own update does not survive setup).
@@ -312,6 +317,12 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
     heightField = field;
     carried.get('uMapSize')?.push(() => {
       field.value = hb.field;
+    });
+    // Control A, for the soil weight: the record carries the ground's own uniform object, so a rebuilt control A is seen on the next render.
+    const ctlATap = TSL.texture(hb.controlA.value, mapUv);
+    controlA = ctlATap;
+    carried.get('uMapSize')?.push(() => {
+      ctlATap.value = hb.controlA.value;
     });
     const ones = TSL.vec3(1, 1, 1);
     // The tone half reads neither joint input (no texture edge, no joints: design 3.4), so none is bound.
@@ -344,6 +355,11 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
     ctlB.assign(controlB);
     const fx = TSL.vec4(0, 0, 0, 0).toVar() as DN;
     if (heightField !== null) fx.assign(heightField);
+    let ctlA: DN | null = null;
+    if (controlA !== null) {
+      ctlA = TSL.vec4(0, 0, 0, 0).toVar() as DN;
+      ctlA.assign(controlA);
+    }
     // Nothing hangs past the map edge over the skirt.
     TSL.Discard(
       worldXZ.x.lessThan(0).or(worldXZ.y.lessThan(0)).or(worldXZ.x.greaterThan(mapSize.x)).or(worldXZ.y.greaterThan(mapSize.y))
@@ -361,9 +377,12 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
     // The colour and the ground tone are whole vec3 nodes (the maths is per component); the albedo ratio is a statement, so the
     // rim's select below reads it once.
     const colour = colours.element(TSL.int(sample.colour));
-    // The blended ground tone is the divisor (the ground's stage runs BEFORE its road block, so the road mixes over it here too). The decal has
-    // no control A, so the soil weight is 1: a pad, a grove floor or a `^` top, where the ground's soil weight is lower, is a known approximation.
-    const blended = blendKnobs === null ? ground : maths.heightBlend.tone(o, ground, [fx.r, fx.g, fx.b], o.lit(1), blendKnobs);
+    // The blended ground tone is the divisor (the ground's stage runs BEFORE its road block, so the road mixes over it here too). The soil weight is
+    // the ground stage's own `groundSoil`, fed control A's open and scrub and control B's knoll (the raw weights: the ground's rescale is the identity wherever they sum to 1).
+    const blended =
+      blendKnobs === null || ctlA === null
+        ? ground
+        : maths.heightBlend.tone(o, ground, [fx.r, fx.g, fx.b], maths.heightBlend.soil(o, ctlA.r, ctlB.r, ctlA.b), blendKnobs);
     const tone = maths.groundToneOps(o, blended, roadTone, shoulderTone, ctlB.g, ctlB.a, roadOn, maths.roadRangeTiles);
     const base = TSL.vec3(1, 1, 1).toVar();
     base.assign(maths.multiplierOps(o, colour, tone, a));
@@ -396,6 +415,7 @@ export function buildNodeDecal(deps: DecalTwinDeps, legacy: DecalLegacy): NodeDe
     numbers,
     colours,
     controlB,
+    controlA,
     heightField,
     lights: { ambient: ambientColour, sunColor, sunDir, hemiSky, hemiGround, hemiDir },
     shadow: shadowNode,

@@ -15976,6 +15976,7 @@ export class ThreeRenderer implements Renderer {
     const placeholder = heightBlendPlaceholder();
     const record: HeightBlendRecord = {
       field: placeholder,
+      controlA: this.groundMat.uniforms.uControlA,
       rockTone: tone(tones.rock),
       ...(joints && tones.joint !== undefined && tones.aJ !== undefined ? { jointTone: tone(tones.joint), aJ: tones.aJ } : {}),
       hollowTone: tone(tones.hollow),
