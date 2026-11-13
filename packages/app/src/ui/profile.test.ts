@@ -88,6 +88,12 @@ describe('showProfile', () => {
     expect(stage.textContent).toContain(t('profile.privacy'));
   });
 
+  it('G7: the privacy line is provider-neutral and the sign-up hint states the age', () => {
+    expect(t('profile.signUpHint')).toContain('You must be 16 or older');
+    expect(t('profile.privacy')).toContain('account number from Google');
+    expect(t('profile.privacy')).toContain('SteamID if you link Steam');
+  });
+
   it('offers Create an account and Sign in as two buttons that both start steam-login (switch open)', async () => {
     const starts: string[] = [];
     const { stage } = mount(stub({ steamStart: async (p) => (starts.push(p), { url: 'https://steam.example/x' }) }));
