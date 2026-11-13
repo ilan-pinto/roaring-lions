@@ -22,6 +22,13 @@ const SUB = /^[0-9]{1,255}$/;
 export type GoogleRefusal = 'invalid' | 'google';
 export type GoogleVerdict = { sub: string } | { refused: GoogleRefusal };
 
+/** A second, longer-lived home for the JWKS than the isolate's memory (the Cache API in production, GH-1075 G4).
+ *  `get` returns the stored document with the lifetime it has LEFT; both may reject, and a rejection is ignored. */
+export interface JwksStore {
+  get(): Promise<{ text: string; ttlMs: number } | null>;
+  put(text: string, ttlMs: number): Promise<void>;
+}
+
 export interface GoogleVerifier {
   verify(idToken: string, expect: { nonce: string }): Promise<GoogleVerdict>;
 }
@@ -68,7 +75,7 @@ function usableJwk(j: Record<string, unknown>): boolean {
   return (n.length - start) * 8 >= MIN_MODULUS_BITS;
 }
 
-async function readCappedText(res: Response, max: number): Promise<string | null> {
+export async function readCappedText(res: Response, max: number): Promise<string | null> {
   if (!res.body) return '';
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -98,6 +105,8 @@ export function createGoogleVerifier(o: {
   clientId: string;
   fetch: AccountDeps['fetch'];
   clock?: () => number;
+  /** Read before a scheduled (expiry) load, written after any successful fetch. A key-miss refetch never reads it. */
+  store?: JwksStore;
 }): GoogleVerifier {
   if (o.clientId === '') throw new Error('createGoogleVerifier: empty clientId');
   const clock = o.clock ?? ((): number => Date.now());
@@ -108,10 +117,10 @@ export function createGoogleVerifier(o: {
   let inflight: Promise<boolean> | null = null;
 
   /** One load at a time (concurrent callers share it), and a failed load is not retried for a minute. */
-  function load(): Promise<boolean> {
+  function load(useStore: boolean): Promise<boolean> {
     if (inflight !== null) return inflight;
     if (clock() < failedUntil) return Promise.resolve(false);
-    const p = doLoad().then((ok) => {
+    const p = doLoad(useStore).then((ok) => {
       if (!ok) failedUntil = clock() + REFETCH_MIN_MS;
       return ok;
     }).finally(() => {
@@ -121,7 +130,49 @@ export function createGoogleVerifier(o: {
     return p;
   }
 
-  async function doLoad(): Promise<boolean> {
+  /** Parses a JWKS document into `keys`; false (and `keys` untouched) when it is not one. */
+  async function ingest(text: string, ttlMs: number): Promise<boolean> {
+    const doc: unknown = JSON.parse(text);
+    const list = (doc as { keys?: unknown } | null)?.keys;
+    if (!Array.isArray(list)) return false;
+    const next: Keys = new Map();
+    for (const jwk of list as unknown[]) {
+      if (typeof jwk !== 'object' || jwk === null) continue;
+      if (!usableJwk(jwk as Record<string, unknown>)) continue;
+      const j = jwk as Record<string, unknown>;
+      if (typeof j.kid !== 'string' || j.kty !== 'RSA') continue;
+      try {
+        next.set(
+          j.kid,
+          await crypto.subtle.importKey(
+            'jwk',
+            { kty: 'RSA', n: String(j.n), e: String(j.e), alg: 'RS256', ext: true },
+            { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+            false,
+            ['verify'],
+          ),
+        );
+      } catch {
+        // one unusable key must not hide the rest
+      }
+    }
+    keys = next;
+    expiresAt = clock() + ttlMs;
+    return true;
+  }
+
+  async function fromStore(): Promise<boolean> {
+    try {
+      const hit = (await o.store?.get()) ?? null;
+      if (hit === null || hit.text.length > JWKS_CAP || !(hit.ttlMs > 0)) return false;
+      return await ingest(hit.text, Math.min(hit.ttlMs, MAX_TTL_MS));
+    } catch {
+      return false; // a broken store is a miss, never a failed sign-in
+    }
+  }
+
+  async function doLoad(useStore: boolean): Promise<boolean> {
+    if (useStore && o.store !== undefined && (await fromStore())) return true;
     lastFetch = clock();
     try {
       const res = await o.fetch(GOOGLE_JWKS_URL, {
@@ -133,32 +184,9 @@ export function createGoogleVerifier(o: {
       if (res.status !== 200) return false;
       const text = await readCappedText(res, JWKS_CAP);
       if (text === null) return false;
-      const doc: unknown = JSON.parse(text);
-      const list = (doc as { keys?: unknown } | null)?.keys;
-      if (!Array.isArray(list)) return false;
-      const next: Keys = new Map();
-      for (const jwk of list as unknown[]) {
-        if (typeof jwk !== 'object' || jwk === null) continue;
-        if (!usableJwk(jwk as Record<string, unknown>)) continue;
-        const j = jwk as Record<string, unknown>;
-        if (typeof j.kid !== 'string' || j.kty !== 'RSA') continue;
-        try {
-          next.set(
-            j.kid,
-            await crypto.subtle.importKey(
-              'jwk',
-              { kty: 'RSA', n: String(j.n), e: String(j.e), alg: 'RS256', ext: true },
-              { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-              false,
-              ['verify'],
-            ),
-          );
-        } catch {
-          // one unusable key must not hide the rest
-        }
-      }
-      keys = next;
-      expiresAt = clock() + maxAgeMs(res.headers.get('cache-control'));
+      const ttl = maxAgeMs(res.headers.get('cache-control'));
+      if (!(await ingest(text, ttl))) return false;
+      await o.store?.put(text, ttl).catch(() => undefined);
       return true;
     } catch {
       return false;
@@ -168,12 +196,12 @@ export function createGoogleVerifier(o: {
   /** The key for `kid`; a miss refetches once, and at most once a minute. null: no such key. 'google': the fetch failed. */
   async function keyFor(kid: string): Promise<CryptoKey | null | 'google'> {
     if (keys === null || clock() >= expiresAt) {
-      if (!(await load())) return 'google';
+      if (!(await load(true))) return 'google';
     }
     const hit = keys?.get(kid);
     if (hit !== undefined) return hit;
     if (clock() - lastFetch >= REFETCH_MIN_MS) {
-      if (!(await load())) return 'google';
+      if (!(await load(false))) return 'google';
     }
     return keys?.get(kid) ?? null;
   }

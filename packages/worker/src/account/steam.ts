@@ -11,7 +11,7 @@ import { dayOf } from '../rate-day';
 import { requireSession } from './session';
 
 export type SteamPurpose = 'steam-login' | 'steam-link';
-export type ReturnCode = 'ok' | 'linked' | 'cancelled' | 'expired' | 'nocookie' | 'invalid' | 'steam' | 'closed' | 'limit' | 'taken';
+export type ReturnCode = 'ok' | 'linked' | 'cancelled' | 'expired' | 'nocookie' | 'invalid' | 'steam' | 'closed' | 'limit' | 'taken' | 'google' | 'already';
 
 const OPENID_NS = 'http://specs.openid.net/auth/2.0';
 const SELECT = 'http://specs.openid.net/auth/2.0/identifier_select';
