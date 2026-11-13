@@ -28,6 +28,9 @@ type AnyAttribute = THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
 
 /** True for an attribute three 0.186.1's WebGPU backend gives no vertex format (see the header). */
 export function lacksWebGpuVertexFormat(a: AnyAttribute): boolean {
+  // Item size 1 only: that is the one hole. At item size 2 or 3, `_getVertexFormat` pads an 8/16-bit element to 4 bytes and
+  // names a format (`uint8x4`, `uint16x4`, ...), so it is never undefined there (none ships today); reading the pad bytes is a
+  // separate question this file does not answer.
   if (a.itemSize !== 1) return false;
   const interleaved = (a as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute === true;
   if ((a as THREE.InstancedBufferAttribute).isInstancedBufferAttribute === true) return false;
