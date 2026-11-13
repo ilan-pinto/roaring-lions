@@ -219,10 +219,13 @@ describe('showMenu account chip', () => {
     showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account: { enabled: true, name: Promise.resolve('Ilan') } });
     const chip = stage.querySelector<HTMLAnchorElement>('[data-act="profile"]');
     expect(chip?.getAttribute('href')).toBe('/profile');
-    expect(chip?.textContent).toBe('Sign in / Sign up');
+    expect(chip?.textContent).toBe('Sign in');
+    expect(chip?.querySelector('svg path[fill="currentColor"]')).not.toBeNull();
+    expect(chip?.parentElement?.firstElementChild).toBe(chip);
     await Promise.resolve();
     await Promise.resolve();
     expect(chip?.textContent).toBe('Ilan');
+    expect(chip?.querySelector('svg')).not.toBeNull();
   });
 
   it('links to /privacy only with an enabled account client', () => {

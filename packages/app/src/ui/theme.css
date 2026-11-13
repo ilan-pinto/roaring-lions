@@ -4492,6 +4492,37 @@ body[data-outcome-beat] .rl-aar {
   color: var(--accent);
   border-color: var(--accent);
 }
+/* GH-1075: the account entry, the first row of the column, right-aligned. In flow (not absolute) so it never
+   overlaps the wordmark; the name truncates rather than widening the column. */
+.rl-menu__acct {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s2);
+  margin: 0 0 var(--s2) auto;
+  max-width: 100%;
+  width: fit-content;
+  padding: var(--s1) var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-m);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  text-decoration: none;
+}
+.rl-menu__acct:hover,
+.rl-menu__acct:focus-visible {
+  color: var(--accent);
+}
+.rl-menu__acct-icon {
+  flex: none;
+}
+.rl-menu__acct-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* The utilities: a 2-column grid; one column on a very narrow phone. */
 .rl-menu__nav--grid {
   display: grid;
