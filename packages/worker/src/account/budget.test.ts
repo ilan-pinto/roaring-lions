@@ -96,7 +96,7 @@ const BUDGETED: BudgetRow[] = [
   { key: 'POST reset-free', call: (h, cookie) => h.call('POST', '/api/account/reset-free', { cookie, body: { op_id: op(56) } }) },
 ];
 // Not budgeted, by name. `DELETE identity/:id` is NOT here: it is budgeted (plan §0.48), so it is in the table above.
-const EXEMPT = new Set(['POST delete', 'POST gone', 'POST logout', 'POST logout-all', 'POST steam/start']);
+const EXEMPT = new Set(['POST delete', 'POST gone', 'POST logout', 'POST logout-all', 'POST steam/start', 'POST google/start']);
 
 describe('every write route refuses over budget (A2-25)', () => {
   for (const row of BUDGETED) {

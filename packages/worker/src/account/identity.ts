@@ -6,13 +6,17 @@ import type { AccountCtx } from './routes';
 import { requireSession, sessionJson } from './session';
 import type { D1Like } from '../d1';
 
-/** Ways a member can still sign in: a passkey, a SteamID, or an ACTIVE recovery code. A pending code does not count. */
+/** The providers that count as a way in (a recovery code counts only while ACTIVE). Both SQL strings below interpolate it. */
+export const SIGN_IN_PROVIDERS = ['passkey', 'steam', 'google'] as const;
+const SIGN_IN_LIST = SIGN_IN_PROVIDERS.map((p) => `'${p}'`).join(', ');
+
+/** Ways a member can still sign in: a passkey, a SteamID, a Google account, or an ACTIVE recovery code. A pending code does not count. */
 export async function canSignInCount(db: D1Like, memberId: string, excludingId?: string): Promise<number> {
   const row = await db
     .prepare(
       `SELECT COUNT(*) AS n FROM member_identity
        WHERE member_id = ?1 AND (?2 IS NULL OR id <> ?2)
-         AND (provider IN ('passkey', 'steam') OR (provider = 'recovery' AND state = 'active'))`,
+         AND (provider IN (${SIGN_IN_LIST}) OR (provider = 'recovery' AND state = 'active'))`,
     )
     .bind(memberId, excludingId ?? null)
     .first<{ n: number }>();
@@ -43,7 +47,7 @@ export async function deleteIdentity(ctx: AccountCtx): Promise<Response> {
           .prepare(
             `DELETE FROM member_identity WHERE id = ?1 AND member_id = ?2 AND (
                SELECT COUNT(*) FROM member_identity WHERE member_id = ?2 AND id <> ?1
-                 AND (provider IN ('passkey', 'steam') OR (provider = 'recovery' AND state = 'active'))) > 0`,
+                 AND (provider IN (${SIGN_IN_LIST}) OR (provider = 'recovery' AND state = 'active'))) > 0`,
           )
           .bind(id, session.memberId),
       ],

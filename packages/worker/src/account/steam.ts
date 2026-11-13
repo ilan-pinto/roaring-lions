@@ -5,13 +5,13 @@ import { ACCOUNT_RETURN_PATH, CHALLENGE_MS, STEAM_OP, accountOrigins, preCookieN
 import { randomB64url, sha256Hex } from './crypto';
 import { accountJson, readAccountBody } from './http';
 import { newAccountBudget, perMinute, startBudget } from './limits';
-import { accountsOpen, createMember, memberForIdentity, sessionFor } from './member';
+import { accountsOpen, createMember, memberForIdentity, sessionFor, steamOpen } from './member';
 import type { AccountCtx, AccountDeps } from './routes';
 import { dayOf } from '../rate-day';
 import { requireSession } from './session';
 
 export type SteamPurpose = 'steam-login' | 'steam-link';
-export type ReturnCode = 'ok' | 'linked' | 'cancelled' | 'expired' | 'nocookie' | 'invalid' | 'steam' | 'closed' | 'limit' | 'taken';
+export type ReturnCode = 'ok' | 'linked' | 'cancelled' | 'expired' | 'nocookie' | 'invalid' | 'steam' | 'closed' | 'limit' | 'taken' | 'google' | 'already';
 
 const OPENID_NS = 'http://specs.openid.net/auth/2.0';
 const SELECT = 'http://specs.openid.net/auth/2.0/identifier_select';
@@ -26,6 +26,20 @@ const C_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 
 const preAttrs = 'Secure; HttpOnly; SameSite=Lax; Path=/';
 const preCookie = (c: string, value: string, maxAge: number): string => `${preCookieName(c)}=${value}; ${preAttrs}; Max-Age=${maxAge}`;
+
+/** One diagnostic line per refusal: a status, a Location HOST, an error NAME and a duration. Never a param, id, cookie or IP. */
+function warnSteam(f: { status?: number; location?: string; error?: string; ms: number }): void {
+  console.warn('account: steam verify failed', f);
+}
+
+function hostOf(location: string | null): string | undefined {
+  if (location === null) return undefined;
+  try {
+    return new URL(location, STEAM_OP).host;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Steam's own word for the response is checked, never trusted: five-and-more checks, then the server round trip. */
 export async function verifyOpenId(
@@ -62,17 +76,22 @@ export async function verifyOpenId(
   }
   body.set('openid.mode', 'check_authentication');
   let text: string;
+  const t0 = Date.now();
   try {
     const res = await fetch(STEAM_OP, {
       method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'roaring-lions-worker', accept: 'text/plain' },
       body: body.toString(),
       signal: AbortSignal.timeout(8000),
       redirect: 'manual', // workerd does not implement 'error'; any 3xx is refused by the status check below
     });
-    if (res.status !== 200) return { refused: 'steam' };
+    if (res.status !== 200) {
+      warnSteam({ status: res.status, location: hostOf(res.headers.get('location')), ms: Date.now() - t0 });
+      return { refused: 'steam' };
+    }
     text = await res.text();
-  } catch {
+  } catch (err) {
+    warnSteam({ error: err instanceof Error ? err.name : typeof err, ms: Date.now() - t0 });
     return { refused: 'steam' };
   }
   if (!text.split('\n').some((line) => line.trim() === 'is_valid:true')) return invalid;
@@ -85,6 +104,9 @@ export async function steamStart(ctx: AccountCtx): Promise<Response> {
   if (db === undefined) return accountJson(503, { error: 'accounts are not configured' });
   const origin = new URL(ctx.req.url).origin;
   if (!accountOrigins(ctx.env).includes(origin)) return accountJson(403, { error: 'forbidden' });
+  // GH-1075 G5: Steam's relay cannot finish a sign-in, so while `flags.steam` is not 'open' this answers 503 before any
+  // limiter, session read or row: a stale tab spends no `startBudget` and writes no challenge. (steam/return is untouched.)
+  if (!(await steamOpen(db))) return accountJson(503, { error: 'provider_off' });
   if (await perMinute(ctx.req, ctx.env.ACCOUNT_LIMIT)) return accountJson(429, { error: 'limit' });
   const body = await readAccountBody<{ purpose?: unknown }>(ctx.req);
   const purpose = body !== null && body !== 'too_large' ? body.purpose : undefined;
@@ -144,8 +166,9 @@ export async function steamReturn(ctx: AccountCtx): Promise<Response> {
       .first<{ purpose: SteamPurpose; member_id: string | null; pre_hash: string | null }>();
     if (ch === null) return done('expired');
     return await finishReturn(ctx, db, url, c, ch, done);
-  } catch {
+  } catch (err) {
     // Ruling 12: a top-level navigation never gets a bare error page. No SteamID is logged.
+    console.warn('account: steam return failed', { error: err instanceof Error ? err.name : typeof err });
     return done('steam');
   }
 }

@@ -82,6 +82,9 @@ export interface InsigniaFrame {
   readonly min_n: number;
   /** Mean LINEAR luminance of the bake under the disc (the grime normaliser). */
   readonly luma: number;
+  /** From this ARMOUR-track kit tier up the type draws no insignia at all (an outer plate stands off the host and would let the
+   *  lion show over its edge). Absent: never hidden. Read by `insigniaHiddenAt`. */
+  readonly hide_from_tier?: number;
   /** sha256 of the host hull POSITION accessors this frame was measured on (`validate:meshes` re-hashes them). */
   readonly host_sha256: string;
 }
@@ -89,6 +92,11 @@ export interface InsigniaFrame {
 type V2<T> = readonly [T, T];
 type V3<T> = readonly [T, T, T];
 type V4<T> = readonly [T, T, T, T];
+
+/** True when `frame` is switched off for a vehicle bought to these kit tiers (`{ armour: 2 }`; undefined is tier 0). Pure data. */
+export function insigniaHiddenAt(frame: InsigniaFrame, tiers: Readonly<Record<string, number>> | undefined): boolean {
+  return frame.hide_from_tier !== undefined && (tiers?.armour ?? 0) >= frame.hide_from_tier;
+}
 
 /** The emblem coordinate `e` and the texture coordinate `st` of an object-space position. `frame` is `uInsFrame`: cx, cy, D, min_n. */
 export function insigniaCoordOps<T>(o: Ops<T>, p: V3<T>, frame: V4<T>): { e: [T, T]; st: [T, T] } {

@@ -13,7 +13,7 @@ function fake(me: MeResult, gone: 'deleted' | 'unknown', seen: string[] = []): A
   const never = (): never => {
     throw new Error('unused');
   };
-  return { enabled: true, me: () => Promise.resolve(me), gone: (h) => (seen.push(h), Promise.resolve(gone)), open: never, steamStart: never, logout: never, logoutAll: never, patchProfile: never, deleteIdentity: never, exportData: never, deleteAccount: never, ...unusedA2Client };
+  return { enabled: true, me: () => Promise.resolve(me), gone: (h) => (seen.push(h), Promise.resolve(gone)), open: never, providers: never, steamStart: never, googleStart: never, logout: never, logoutAll: never, patchProfile: never, deleteIdentity: never, exportData: never, deleteAccount: never, ...unusedA2Client };
 }
 const IN: MeResult = { kind: 'signedIn', publicId: 'pub1', displayName: 'Abc', showRecord: false, fresh: true, identities: [] };
 

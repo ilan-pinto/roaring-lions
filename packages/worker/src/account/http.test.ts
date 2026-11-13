@@ -83,11 +83,11 @@ describe('the account door', () => {
 
   it('closed means closed: a missing row reads closed (A1-13 first half)', async () => {
     const h = accountHarness();
-    expect(await (await h.call('GET', '/api/account/open')).json()).toEqual({ open: false });
+    expect(await (await h.call('GET', '/api/account/open')).json()).toEqual({ open: false, providers: [] });
     await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0)`).run();
-    expect(await (await h.call('GET', '/api/account/open')).json()).toEqual({ open: true });
+    expect(await (await h.call('GET', '/api/account/open')).json()).toEqual({ open: true, providers: [] });
     await h.db.prepare(`UPDATE flags SET value = 'closed' WHERE name = 'accounts'`).run();
-    expect(await (await h.call('GET', '/api/account/open')).json()).toEqual({ open: false });
+    expect(await (await h.call('GET', '/api/account/open')).json()).toEqual({ open: false, providers: [] });
   });
 
   it('unbound answers 503', async () => {

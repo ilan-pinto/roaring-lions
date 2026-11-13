@@ -1,20 +1,38 @@
 /**
- * GH-1096 S1, gate 1 (presence): the generated insignia table holds exactly the approved scope.
+ * GH-1096 S1 and S2, gate 1 (presence): the generated insignia table holds exactly the approved scope.
  *
  * The scope is a LITERAL list here, never imported from the table it checks, and its count is pinned, so an empty table cannot
- * pass vacuously. S1 is the Lavi pilot alone; S2 and S3 grow this list to the 15 ids of the spec's section 6, one entry at a time,
- * each approved on its own garage sheet. Falsify: delete `mbt_lavi`'s entry (or the whole table body), and this goes red.
+ * pass vacuously. S1 was the Lavi pilot; S2 adds the rest of the ground fleet (spec section 6.1, 12 ids in all); S3 grows it to the
+ * 15 of section 6 with the aircraft. Falsify: delete any entry (or the whole table body), and this goes red.
  */
 import { describe, expect, it } from 'vitest';
+import { insigniaHiddenAt } from './insignia';
 import { INSIGNIA_FRAMES, insigniaFrameOf } from './insignia-frames';
 
-/** The approved scope (GH-1096 S1): the pilot. */
-const SCOPE = ['mbt_lavi'] as const;
+/**
+ * The approved scope (GH-1096 decision 1, S1 + S2: the ground fleet) and each id's diameter, decision 10's numbers, never larger:
+ * 0.60 standard, the Remetz 0.55, the D9, both Te'o, the Eitan and the jeep 0.50, the Namer 0.45, the Shachaf 0.40.
+ */
+const SIZES: Readonly<Record<string, number>> = {
+  mbt_lavi: 0.6,
+  officer_armour: 0.6,
+  apc_kipod: 0.6,
+  demo_tzav: 0.6,
+  aa_remetz: 0.55,
+  dozer_d9: 0.5,
+  spg_long_range: 0.5,
+  spg_cluster: 0.5,
+  apc_eitan: 0.5,
+  jeep_shoded: 0.5,
+  ifv_namer: 0.45,
+  scout_shachaf: 0.4,
+};
+const SCOPE = Object.keys(SIZES);
 
 describe('gate 1: the insignia table holds the approved scope', () => {
   it('one frame per scoped id, and nothing else: the count is pinned', () => {
     expect(Object.keys(INSIGNIA_FRAMES).sort()).toEqual([...SCOPE].sort());
-    expect(Object.keys(INSIGNIA_FRAMES)).toHaveLength(1);
+    expect(Object.keys(INSIGNIA_FRAMES)).toHaveLength(12);
   });
 
   it('each frame is a real placement: a 0.30-0.60 m disc, a non-empty slab, a flank normal test, a positive luma, a hash', () => {
@@ -34,15 +52,36 @@ describe('gate 1: the insignia table holds the approved scope', () => {
     }
   });
 
+  it('each diameter is decision 10\'s, exactly', () => {
+    for (const id of SCOPE) expect(insigniaFrameOf(id)?.d, id).toBe(SIZES[id]);
+  });
+
   it('the Lavi\'s approved numbers (spec section 6.1): 0.60 m at (0.95, 1.00) on the forward skirt panel', () => {
     const f = insigniaFrameOf('mbt_lavi');
     expect(f?.d).toBe(0.6);
     expect(f?.centre.slice(0, 2)).toEqual([0.95, 1.0]);
   });
 
-  it('is looked up EXACTLY: the variants that share the Lavi\'s hull, a seat-keyed template and a stranger get none', () => {
-    for (const id of ['mbt_lavi_camo', 'officer_armour', 'mbt_lavi#s1', 'MBT_LAVI', 'toString', '__proto__', 'jeep_shoded']) {
+  it('is looked up EXACTLY: the Ambush Tank (same hull), a seat-keyed template and a stranger get none', () => {
+    for (const id of ['mbt_lavi_camo', 'mbt_lavi#s1', 'jeep_shoded#s1', 'MBT_LAVI', 'toString', '__proto__']) {
       expect(insigniaFrameOf(id), id).toBeNull();
     }
+  });
+
+  it('decisions 2 and 3: the drones, the UGV, the Ambush Tank and the two medical vehicles are never marked', () => {
+    for (const id of ['attack_drone', 'recon_drone', 'ugv_recon_dog', 'mbt_lavi_camo', 'veh_ambulance', 'air_medevac_heli']) {
+      expect(insigniaFrameOf(id), id).toBeNull();
+    }
+  });
+
+  it('hide_from_tier: only the Shachaf carries it (2), and insigniaHiddenAt reads the ARMOUR track only', () => {
+    expect(Object.keys(INSIGNIA_FRAMES).filter((id) => INSIGNIA_FRAMES[id]!.hide_from_tier !== undefined)).toEqual(['scout_shachaf']);
+    const f = insigniaFrameOf('scout_shachaf')!;
+    expect(insigniaHiddenAt(f, undefined)).toBe(false);
+    expect(insigniaHiddenAt(f, { armour: 1 })).toBe(false);
+    expect(insigniaHiddenAt(f, { armour: 2 })).toBe(true);
+    expect(insigniaHiddenAt(f, { armour: 3 })).toBe(true);
+    expect(insigniaHiddenAt(f, { sensors: 3, firepower: 3 })).toBe(false);
+    expect(insigniaHiddenAt(insigniaFrameOf('mbt_lavi')!, { armour: 3 })).toBe(false);
   });
 });

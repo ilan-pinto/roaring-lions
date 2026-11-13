@@ -1,5 +1,5 @@
 /**
- * The profile screen (GH-1075 A1, `/profile`, behind `?accounts`). A guest sees the sign-in button and the privacy
+ * The profile screen (GH-1075 A1, `/profile`, with accounts on). A guest sees the sign-in button and the privacy
  * line; a signed-in player sees the name, the public id, the linked identities and the account verbs.
  *
  * Disposer contract: everything is mounted inside `stage` except the delete confirm, which this screen closes itself,
@@ -29,7 +29,7 @@ export interface ProfileDeps {
   telemetryPlayer: () => string | null;
   /** Leaves the page for `href`: Steam's login URL is another origin, so main.ts passes a real page load. */
   navigate: (href: string) => void;
-  /** A HARD reload of the app (`shell/links.ts`'s `reloadMenuHref`: the menu plus the sticky query keys, `?accounts` among them), so the next boot chooses its store afresh. */
+  /** A HARD reload of the app (`shell/links.ts`'s `reloadMenuHref`: the menu plus the sticky query keys), so the next boot chooses its store afresh. */
   reload: () => void;
   /**
    * Signed in with the server-backed store (§0.46): flush, file what is left, send `logout`, clear the cache, the outboxes, `claimedAt` and
@@ -39,7 +39,7 @@ export interface ProfileDeps {
   /** After the account was deleted here: stop the sync loop and clear the cache and every outbox and tab key of that member. */
   wipeDeleted?: () => void;
   /**
-   * The guest-to-account claim (GH-1075 A2). Given only on a guest boot (`?accounts`, no claimed binding): `guest` is the
+   * The guest-to-account claim (GH-1075 A2). Given only on a guest boot (accounts on, no claimed binding): `guest` is the
    * device's own store, `download` saves a file, `onClaimed` re-enters the app so the server-backed store is chosen.
    */
   claim?: { guest: LedgerStore; download: (name: string, json: string) => void; onClaimed: () => void; now?: () => number };
@@ -146,7 +146,20 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
   const guestBlock = (): HTMLElement => {
     const box = document.createElement('div');
     box.className = 'rl-profile__guest';
-    box.append(button(t('profile.signIn'), () => void signIn(), 'rl-btn rl-profile__signin'), line('rl-profile__privacy', t('profile.privacy')), privacyLink());
+    const signInBtn = button(t('profile.signIn'), () => void signIn(), 'rl-btn rl-profile__signin');
+    const note = line('rl-profile__signup-note', '');
+    box.append(signInBtn, note, line('rl-profile__privacy', t('profile.privacy')), privacyLink());
+    // Sign up is the same Steam flow as sign in (the first sign-in creates the member while the switch is open); it is only offered while `GET open` says so.
+    void deps.client.open().then(
+      (open) => open,
+      () => false,
+    ).then((open) => {
+      if (disposed) return;
+      if (open) {
+        note.textContent = t('profile.signUpHint');
+        box.insertBefore(button(t('profile.signUp'), () => void signIn(), 'rl-btn rl-profile__signup'), signInBtn);
+      } else note.textContent = t('profile.signUpClosed');
+    });
     return box;
   };
 

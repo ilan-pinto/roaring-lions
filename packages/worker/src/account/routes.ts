@@ -1,7 +1,7 @@
 /** The /api/account/* dispatcher (GH-1075 A1). */
 import type { Env } from '../d1';
 import { accountGuard, accountJson } from './http';
-import { accountsOpen } from './member';
+import { accountsOpen, openProviders } from './member';
 import { perMinute } from './limits';
 import { deleteIdentity } from './identity';
 import { deleteAccount, gone } from './delete';
@@ -13,6 +13,7 @@ import { me, patchProfile } from './profile';
 import { deleteSlot, getSlot, putSlot } from './slots';
 import { coupon, resetFreeRoute, spend } from './spend';
 import { missionStart, victory } from './victory';
+import { googleReturn, googleStart } from './google';
 import { steamReturn, steamStart } from './steam';
 import { clearedSessionCookie, requireSession, sessionJson } from './session';
 
@@ -48,7 +49,8 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
     pattern: 'open',
     handler: async (ctx) => {
       const db = ctx.env.ACCOUNTS;
-      return accountJson(200, { open: db !== undefined && (await accountsOpen(db)) });
+      if (db === undefined) return accountJson(200, { open: false, providers: [] });
+      return accountJson(200, { open: await accountsOpen(db), providers: await openProviders(db, ctx.env) });
     },
   },
   { method: 'GET', pattern: 'me', handler: me },
@@ -71,6 +73,8 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
   { method: 'POST', pattern: 'reset-free', handler: resetFreeRoute },
   { method: 'POST', pattern: 'steam/start', handler: steamStart },
   { method: 'GET', pattern: 'steam/return', handler: steamReturn },
+  { method: 'POST', pattern: 'google/start', handler: googleStart },
+  { method: 'GET', pattern: 'google/return', handler: googleReturn },
   {
     method: 'POST',
     pattern: 'logout',
@@ -113,8 +117,11 @@ export function matchPath(pattern: string, path: string): Record<string, string>
   return params;
 }
 
-/** Routes that do not take the signed-in limiter: `steam/*` and `gone` take ACCOUNT_LIMIT themselves. */
-const UNLIMITED_HERE: ReadonlySet<string> = new Set(['steam/start', 'steam/return', 'gone']);
+/** Routes that do not take the signed-in limiter: `steam/*`, `google/*` and `gone` take ACCOUNT_LIMIT themselves. */
+const UNLIMITED_HERE: ReadonlySet<string> = new Set(['steam/start', 'steam/return', 'google/start', 'google/return', 'gone']);
+
+/** One object for the isolate's life: the Google verifier is keyed on this fetch, so a per-request closure would rebuild it every time. */
+const DEFAULT_DEPS: AccountDeps = { fetch: (url, init) => globalThis.fetch(url, init) };
 
 export async function handleAccount(req: Request, env: Env, now: number, deps?: AccountDeps): Promise<Response> {
   if (env.ACCOUNTS === undefined) return accountJson(503, { error: 'accounts are not configured' });
@@ -130,7 +137,7 @@ export async function handleAccount(req: Request, env: Env, now: number, deps?: 
     if (params === null) continue;
     // The signed-in class (everything but the sign-in class, which limits itself) shares ACCOUNT_OP_LIMIT.
     if (!UNLIMITED_HERE.has(route.pattern) && (await perMinute(req, env.ACCOUNT_OP_LIMIT))) return accountJson(429, { error: 'limit' });
-    return route.handler({ req, env, now, deps: deps ?? { fetch: (url, init) => globalThis.fetch(url, init) }, path, params });
+    return route.handler({ req, env, now, deps: deps ?? DEFAULT_DEPS, path, params });
   }
   return accountJson(404, { error: 'not_found' });
 }

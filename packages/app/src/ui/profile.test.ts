@@ -43,6 +43,8 @@ function stub(over: Partial<AccountClient> = {}): AccountClient & { calls: strin
     open: async () => true,
     me: async () => ({ kind: 'signedOut' }),
     steamStart: async () => ({ url: 'https://steam.example/login' }),
+    providers: async () => ["steam"],
+    googleStart: async () => ({ url: "https://google.example/login" }),
     logout: async () => (calls.push('logout'), 'ok'),
     logoutAll: async () => (calls.push('logoutAll'), 'ok'),
     patchProfile: async (p) => (calls.push('patch:' + JSON.stringify(p)), 'ok'),
@@ -86,6 +88,32 @@ describe('showProfile', () => {
     await flush();
     expect(btn(stage, t('profile.signIn'))).toBeTruthy();
     expect(stage.textContent).toContain(t('profile.privacy'));
+  });
+
+  it('offers Create an account and Sign in as two buttons that both start steam-login (switch open)', async () => {
+    const starts: string[] = [];
+    const { stage } = mount(stub({ steamStart: async (p) => (starts.push(p), { url: 'https://steam.example/x' }) }));
+    await flush();
+    expect(btn(stage, t('profile.signUp'))).toBeTruthy();
+    expect(btn(stage, t('profile.signIn'))).toBeTruthy();
+    expect(stage.textContent).toContain(t('profile.signUpHint'));
+    expect(stage.textContent).not.toContain(t('profile.signUpClosed'));
+    btn(stage, t('profile.signUp')).click();
+    await flush();
+    btn(stage, t('profile.signIn')).click();
+    await flush();
+    expect(starts).toEqual(['steam-login', 'steam-login']);
+  });
+
+  it('hides sign-up and says so when the switch is closed or unreachable; sign-in stays', async () => {
+    for (const open of [async () => false, async () => Promise.reject(new Error('x'))]) {
+      const { stage, dispose } = mount(stub({ open }));
+      await flush();
+      expect(Array.from(stage.querySelectorAll('button')).some((b) => b.textContent === t('profile.signUp'))).toBe(false);
+      expect(btn(stage, t('profile.signIn'))).toBeTruthy();
+      expect(stage.textContent).toContain(t('profile.signUpClosed'));
+      dispose();
+    }
   });
 
   it('links to /privacy, as a guest and when signed in', async () => {

@@ -158,6 +158,15 @@ function decodeField<T>(o: Ops<T>, field: HeightBlendField<T>): { s: T; t: T; n:
 }
 
 /**
+ * The soil weight: open + knoll + half of scrub. The ground's stage passes its rescaled weights; the node decal twin (which has no stage)
+ * passes control A's open and scrub and control B's knoll, so the two are the SAME operation tree and bit-equal wherever the rescale
+ * is the identity. Written once.
+ */
+export function groundSoil<T>(o: Ops<T>, wOpen: T, wKnoll: T, wScrub: T): T {
+  return o.add(o.add(wOpen, wKnoll), o.mul(o.lit(SCRUB_SOIL_SHARE), wScrub));
+}
+
+/**
  * The tone half: the vertex tone mixed toward the hollow tone and the rock tone, with no texture edge and no joints (`lr` = 1).
  * It is what the node decal twin divides by (design 3.4), so a crater's lip keeps the colour the ground drew. `soil` is the
  * caller's soil weight at that point (after the rescale, before the road): the decal twin has the controls, this function does not.
@@ -198,7 +207,7 @@ export function heightBlendStage<T>(
     const { s, t, n } = decodeField(o, field);
     const m = heightBlendMasks(o, s, t, n, v.luma(factors[1] as T), options);
     const scrubHalf = o.lit(SCRUB_SOIL_SHARE);
-    const soil = o.add(o.add(wOpen, wKnoll), o.mul(scrubHalf, wScrub));
+    const soil = groundSoil(o, wOpen, wKnoll, wScrub);
     const ae = o.mul(k.amp, m.exposure);
     const mE = o.mul(ae, soil);
     const mH = o.mul(o.mul(k.amp, m.hollow), soil);

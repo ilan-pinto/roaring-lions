@@ -88,7 +88,7 @@ describe('startBudget (M1)', () => {
 
 describe('the dispatcher fails closed without its limiters (L2)', () => {
   const paths: [string, string][] = [
-    ['GET', '/api/account/open'], ['GET', '/api/account/me'], ['POST', '/api/account/steam/start'],
+    ['GET', '/api/account/open'], ['GET', '/api/account/me'], ['POST', '/api/account/steam/start'], ['POST', '/api/account/google/start'],
     ['GET', '/api/account/steam/return'], ['POST', '/api/account/gone'],
   ];
   for (const drop of ['ACCOUNT_LIMIT', 'ACCOUNT_OP_LIMIT'] as const) {

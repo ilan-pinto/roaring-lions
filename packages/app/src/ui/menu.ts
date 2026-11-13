@@ -90,7 +90,7 @@ export interface MenuOptions {
   feedbackAvailable?: Promise<boolean>;
   /** The account chip (GH-1075 A1): drawn only when `enabled`. `name` resolves to the signed-in display name, or
    *  null for a guest; until it does the chip reads as a guest's. */
-  account?: { enabled: boolean; name?: Promise<string | null> };
+  account?: { enabled: boolean; name?: Promise<string | null>; /** `GET open`: a closed switch removes the chip and the privacy link, unless `name` says someone is signed in (they still need export and delete). */ open?: Promise<boolean> };
   /** A claimed device with no cache whose `GET state` timed out (GH-1075 A2, §0.11): the campaign cannot be read, so its
    *  entries (Continue, the tutorial, Campaign, Brigade) are off, and the column says `account.unreachable`. */
   unreachable?: boolean;
@@ -265,15 +265,28 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   }
   if (opts.account?.enabled) {
     const chip = document.createElement('a');
-    chip.className = 'rl-btn rl-menu__item';
-    chip.dataset.kind = 'aside';
+    chip.className = 'rl-menu__acct';
     chip.dataset.act = 'profile';
     chip.href = routes.profile();
-    chip.textContent = t('menu.profile.guest');
-    aside.appendChild(chip);
+    const chipText = document.createElement('span');
+    chipText.className = 'rl-menu__acct-name';
+    chipText.textContent = t('menu.profile.guest');
+    chip.append(personMark(), chipText);
+    // Top of the column, above the wordmark, right-aligned: in flow, so it can never overlap the lockup at any width.
+    wrap.insertBefore(chip, wrap.firstChild);
     addAside(t('menu.aside.privacy'), routes.privacy());
+    const privacyLink = aside.lastElementChild;
+    let signedInName: string | null = null;
     void opts.account.name?.then((name) => {
-      if (name !== null) chip.textContent = name;
+      signedInName = name;
+      if (name !== null) chipText.textContent = name;
+    });
+    void opts.account.open?.then(async (open) => {
+      if (open) return;
+      await opts.account?.name?.catch(() => null);
+      if (signedInName !== null) return;
+      chip.remove();
+      privacyLink?.remove();
     });
   }
   // Last, deliberately: people, libraries, fonts and the licence split are
@@ -289,6 +302,20 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     disposeBackdrop?.();
     wrap.remove();
   };
+}
+
+/** A person silhouette (head and shoulders), filled with `currentColor` so the theme owns its colour. Decorative: the label beside it names the entry. */
+function personMark(): SVGSVGElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'rl-sym rl-menu__acct-icon');
+  svg.setAttribute('aria-hidden', 'true');
+  const p = document.createElementNS(ns, 'path');
+  p.setAttribute('fill', 'currentColor');
+  p.setAttribute('d', 'M12 3a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9Z M3.5 21c0-4.7 3.8-8 8.5-8s8.5 3.3 8.5 8Z');
+  svg.appendChild(p);
+  return svg;
 }
 
 /**
