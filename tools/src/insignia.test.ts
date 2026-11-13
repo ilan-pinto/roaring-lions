@@ -84,6 +84,11 @@ interface Extras {
 const extrasOf = (n: GNode): Extras => n.getExtras() as Extras;
 const isHost = (n: GNode): boolean => extrasOf(n).rl_role === 'hull' && extrasOf(n).rl_kit === undefined && extrasOf(n).rl_wreck !== true;
 const isLive = (n: GNode): boolean => n.getMesh() !== null && extrasOf(n).rl_wreck !== true && !n.getName().startsWith('WRECK_');
+/**
+ * True when the renderer can paint the node: `VehicleTeamMaterials.materialFor` installs the insignia hook only on a MeshStandardMaterial
+ * with a base-colour map and returns any other material unchanged. A hull face without one still OCCLUDES, but it paints nothing.
+ */
+const paintEligible = (n: GNode): boolean => n.getMesh()?.listPrimitives()[0]?.getMaterial()?.getBaseColorTexture() != null;
 
 /** A mesh's triangles in its OWN attribute space (what the shader reads), with normals and uvs. The node chain must net to the
  *  identity (the turret: pivot +T, mesh -T), or the attribute space is not the vehicle's frame and this says so. */
@@ -361,7 +366,7 @@ async function visibleCoverage(
           const hit = near.length > 0 ? frontAt(near, g.x, g.y, side) : null;
           if (hit === null) return null;
           const n = [0, 1, 2].map((a) => hit.w[0] * hit.t.N[0][a] + hit.w[1] * hit.t.N[1][a] + hit.w[2] * hit.t.N[2][a]) as V3;
-          return { z: hit.z, painted: extrasOf(node).rl_role === 'hull' && inSlab(f, [0, 0, hit.z]) && flankFacing(f, n) };
+          return { z: hit.z, painted: extrasOf(node).rl_role === 'hull' && paintEligible(node) && inSlab(f, [0, 0, hit.z]) && flankFacing(f, n) };
         })
       );
     }
@@ -404,7 +409,7 @@ function onTurret(node: GNode): boolean {
 /** Projected area of hull-role faces (every tier of kit included) that the frame would paint, split by the body they ride on. */
 async function paintedByBody(id: string, f: InsigniaFrame): Promise<{ hull: number; turret: number }> {
   const out = { hull: 0, turret: 0 };
-  for (const node of (await nodesOf(id)).filter((n) => extrasOf(n).rl_role === 'hull')) {
+  for (const node of (await nodesOf(id)).filter((n) => extrasOf(n).rl_role === 'hull' && paintEligible(n))) {
     const body = onTurret(node) ? 'turret' : 'hull';
     for (const s of subCentroids(trianglesOf(node))) if (inDisc(f, s.c) && inSlab(f, s.c) && flankFacing(f, s.n)) out[body] += s.areaXY;
   }
@@ -510,7 +515,7 @@ async function obliqueRecess(
   const nodes = await nodesOf(id);
   const tris = new Map<GNode, Tri[]>(nodes.map((n) => [n, trianglesOf(n)]));
   let pts: PaintPt[] = [];
-  for (const node of nodes.filter((n) => extrasOf(n).rl_role === 'hull')) {
+  for (const node of nodes.filter((n) => extrasOf(n).rl_role === 'hull' && paintEligible(n))) {
     for (const s of subCentroids(tris.get(node)!)) if (inDisc(f, s.c) && inSlab(f, s.c) && flankFacing(f, s.n)) pts.push({ node, c: s.c, n: unit(s.n), w: s.areaXY });
   }
   const stride = Math.max(1, Math.ceil(pts.length / MAX_POINTS));
