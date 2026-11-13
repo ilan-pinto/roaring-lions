@@ -16,6 +16,8 @@ import { DECOR_LOD1, DECOR_MESHES, PROP_MESHES, meshPlanFor } from '../../../pac
 import { censusUnported } from '../../../packages/render/src/three/backend/unported';
 import { resolveNodeDraw, type NodeDrawOptions } from '../../../packages/render/src/three/backend/node-draw-options';
 import type { ArmId } from './webgpu-refusals';
+import { TERRAIN_THEMES } from '../../../packages/app/src/terrain-themes';
+import { GRASS_LAYER, GRASS_NAME_PREFIX, countGrassMeshes, settleField, type GrassMode, type GrassNodeLike, type GrassReading, type GrassState } from './webgpu-grass-lib';
 import { drawTypeOf, emptyByType, medianOrNull, type DrawObjectLike, type DrawType, type FullReason, type PerPass, type RenderPassId, type SubmitReading, type Uploads, type VariantId } from './webgpu-submit-probe-lib';
 
 interface BatchedLike {
@@ -245,6 +247,8 @@ export interface ProbeView {
   triangles: number;
   frameTriangles: number;
   syncedMs: number;
+  /** GH-1167 S6: the p95 of the same synced frames (the grass budget reads G p95 at every zoom). */
+  syncedP95Ms: number;
   cpuFrameMs: number;
   entriesCullOn: number;
   entriesCullOff: number;
@@ -263,7 +267,7 @@ export async function probeViews(r: RendererLike, zooms: number[], frames: numbe
     await r.whenGpuIdle();
     const entriesCullOff = entriesNow(r);
     for (const b of bs) b.perObjectFrustumCulled = true;
-    out.push({ zoom: z, cpuRenderMs: on.cpuRender.med, triangles: on.triangles, frameTriangles: on.frameTriangles, syncedMs: on.synced.med, cpuFrameMs: on.cpuFrame.med, entriesCullOn: on.entries, entriesCullOff });
+    out.push({ zoom: z, cpuRenderMs: on.cpuRender.med, triangles: on.triangles, frameTriangles: on.frameTriangles, syncedMs: on.synced.med, syncedP95Ms: on.synced.p95, cpuFrameMs: on.cpuFrame.med, entriesCullOn: on.entries, entriesCullOff });
   }
   return out;
 }
@@ -277,9 +281,80 @@ export interface ArmRun {
   unportedCount: number;
   points: { target: number; living: number; row: Row }[];
   views: ProbeView[];
+  /** GH-1167 S6: the grass mode the page booted with and the visible grass meshes it then drew. */
+  grass: GrassState;
 }
 
 const GPU_OF: Record<ArmId, 'legacy' | 'webgl2' | 'webgpu'> = { L: 'legacy', F: 'webgl2', G: 'webgpu' };
+
+/**
+ * GH-1167 S6: the 3D grass field's mode on a harness page. `hidden` (the default, every L-vs-G reading): the harness's own arid tones
+ * carry no `grassField`, so no field is built, AND the layer is hidden after boot, so a later change to the tones cannot put grass on G
+ * alone. `on` / `off` (the G-on-against-G-off column): the green theme's tones, which build the field on a node boot, then the layer
+ * shown or hidden. L never draws a field (a legacy boot reads no `grassField`), so the mode is only ever `on`/`off` on a G arm.
+ */
+function grassBootTones(mode: GrassMode): { terrainTones?: (typeof TERRAIN_THEMES)['green'] } {
+  return mode === 'hidden' ? {} : { terrainTones: TERRAIN_THEMES.green };
+}
+
+/** Applies the mode after `init` and reports what the page now draws (visible grass meshes), so the driver prints the page's word. */
+function applyGrassMode(renderer: unknown, mode: GrassMode, depthWrite = false, singlePass = false): GrassState {
+  const r = renderer as { setDebugLayerVisible(name: string, visible: boolean): number; scene: GrassNodeLike };
+  r.setDebugLayerVisible(GRASS_LAYER, mode === 'on');
+  if (depthWrite) setGrassMaterial(r.scene as unknown as MaterialWalk, { depthWrite: true });
+  if (singlePass) setGrassMaterial(r.scene as unknown as MaterialWalk, { forceSinglePass: true });
+  return { mode, meshes: countGrassMeshes(r.scene) };
+}
+
+/**
+ * GH-1167 S8: the field arrives AFTER `init` (the node chunk's dynamic import, then the build on a frame), so `applyGrassMode` right after
+ * `init` counted 0 visible grass meshes on every `on` page and the abba grass column refused at the very end of a full Metal run (S6 never ran
+ * it on Metal; the probe hid this behind its 61 warm-up frames). Waits, with the layer shown, until the field has meshes (30 s, then throws),
+ * then applies the mode. `hidden` has no field to wait for.
+ */
+async function applyGrassModeSettled(renderer: unknown, mode: GrassMode, depthWrite = false, singlePass = false): Promise<GrassState> {
+  if (mode === 'hidden') return applyGrassMode(renderer, mode, depthWrite, singlePass);
+  const r = renderer as { setDebugLayerVisible(name: string, visible: boolean): number; scene: GrassNodeLike; frame?: (n: number, dt: number) => void };
+  r.setDebugLayerVisible(GRASS_LAYER, true);
+  await settleField(
+    () => countGrassMeshes(r.scene),
+    async () => {
+      r.frame?.(1, 0);
+      await new Promise((res) => setTimeout(res, 50));
+    }
+  );
+  return applyGrassMode(renderer, mode, depthWrite, singlePass);
+}
+
+interface MaterialWalk {
+  readonly name: string;
+  readonly isMesh?: boolean;
+  readonly material?: { depthWrite: boolean; forceSinglePass: boolean; needsUpdate: boolean };
+  readonly children: readonly MaterialWalk[];
+}
+
+/**
+ * GH-1167 S8, the DEPTH-WRITING ARM (design 7.3, decision 5): flips ONLY `depthWrite` to true on the field's material, in the harness
+ * page. Nothing else changes: the material stays in the transparent queue at opacity 1 in `GRASS_RENDER_ORDER`, the cell order is still
+ * back to front, so this is the worst case for early-z (the order that makes depth rejection least useful) and a lower bound on what a
+ * proper opaque, front-to-back, depth-writing field would cost. Throws if no grass material is found, so an arm cannot be vacuous.
+ */
+function setGrassMaterial(root: MaterialWalk, patch: { depthWrite?: true; forceSinglePass?: true }): void {
+  let n = 0;
+  const seen = new Set<unknown>();
+  const walk = (o: MaterialWalk): void => {
+    if (o.isMesh === true && o.name.startsWith(GRASS_NAME_PREFIX) && o.material !== undefined && !seen.has(o.material)) {
+      seen.add(o.material);
+      if (patch.depthWrite === true) o.material.depthWrite = true;
+      if (patch.forceSinglePass === true) o.material.forceSinglePass = true;
+      o.material.needsUpdate = true;
+      n++;
+    }
+    for (const c of o.children) walk(c);
+  };
+  walk(root);
+  if (n === 0) throw new Error('setGrassMaterial: no grass material in the scene (the depth-writing arm would measure the plain field)');
+}
 
 /** One arm of the figure curve: a private Sim + ThreeRenderer on `mapId`, the all-mesh roster, the sim held still. */
 export async function runArm(o: {
@@ -291,12 +366,21 @@ export async function runArm(o: {
   legacyScene?: LegacyScene;
   /** GH-943 P3 T14b: the node draw switches for a node arm (`--node-opts=`); never passed on L. */
   nodeDraw?: NodeDrawOptions;
+  /** GH-1167 S6: the grass mode (default `hidden`). */
+  grass?: GrassMode;
+  /** GH-1167 S8: the depth-writing arm (`setGrassDepthWrite`): the field's material writes depth. Only meaningful with a field (`on` / `off`). */
+  grassDepthWrite?: boolean;
+  /** GH-1167 S8: the single-pass arm: `forceSinglePass` on the field's material (three draws a transparent DoubleSide material in two passes, back then front, unless this is true). */
+  grassSinglePass?: boolean;
+  /** GH-1167 S6: the zooms of the view probes (default z1 and z2.5; the grass column reads z1, z1.5 and z2.5 beside the z0.5 points). */
+  viewZooms?: number[];
 }): Promise<ArmRun> {
   const legacyScene = o.legacyScene ?? 'matched';
   const capacity = Math.max(...o.counts) + 50;
   const { sim, map, typeOf } = buildWorld(capacity, o.mapId);
   // `environmentLight: false` on every arm: the L1 sky is a legacy PMREM the node backend does not draw until P1.
-  const opts = { ...buildRendererOptions(), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.nodeDraw !== undefined && o.arm !== 'L' ? { nodeDraw: o.nodeDraw } : {}) };
+  const grassMode = o.grass ?? 'hidden';
+  const opts = { ...buildRendererOptions(), ...grassBootTones(grassMode), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.nodeDraw !== undefined && o.arm !== 'L' ? { nodeDraw: o.nodeDraw } : {}) };
   const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
   const renderer = new ThreeRenderer(sim, opts);
   renderer.setDecor(map.decor);
@@ -306,6 +390,8 @@ export async function runArm(o: {
   await loadAllMeshes(renderer, map);
   const r = renderer as unknown as RendererLike;
   await loadDecorAndProps(r, map);
+  if ((o.grassDepthWrite === true || o.grassSinglePass === true) && grassMode === 'hidden') throw new Error('runArm: the grass material arms need a field (grass on or off), not hidden');
+  const grass = await applyGrassModeSettled(renderer, grassMode, o.grassDepthWrite === true, o.grassSinglePass === true);
   const info = r.backendInfo();
   const anchors = computeAnchors(map);
   const spawner = createSpawner(sim as Sim, typeOf, anchors.friendly, anchors.hostile);
@@ -322,7 +408,7 @@ export async function runArm(o: {
     r.camera.zoom = 0.5;
     const row = await timeFrames(r, o.frames, beforeMeasure);
     points.push({ target, living: livingCount(sim), row });
-    if (views.length === 0) views = await probeViews(r, [1, 2.5], o.viewFrames, beforeMeasure);
+    if (views.length === 0) views = await probeViews(r, o.viewZooms ?? [1, 2.5], o.viewFrames, beforeMeasure);
   }
   const result: ArmRun = {
     arm: o.arm,
@@ -333,6 +419,7 @@ export async function runArm(o: {
     unportedCount: r.unportedHooks().length,
     points,
     views,
+    grass,
   };
   renderer.dispose();
   host.remove();
@@ -397,9 +484,11 @@ const submitState = (): SubmitState => {
 const REFRESH_FULL = 2;
 
 /** One world on this page: the arm's ThreeRenderer, the all-mesh roster, decor and props, the camera on the line, z0.5. */
-export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; capacity: number; timestamps: boolean; nodeDraw?: NodeDrawOptions }): Promise<{ backendKind: string; adapter: string; rafSource: string; unported: number; drawSwitches: string }> {
+export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; capacity: number; timestamps: boolean; nodeDraw?: NodeDrawOptions; grass?: GrassMode; noField?: boolean }): Promise<{ backendKind: string; adapter: string; rafSource: string; unported: number; drawSwitches: string; grass: GrassState }> {
   const { sim, map, typeOf } = buildWorld(o.capacity, o.mapId);
-  const opts = { ...buildRendererOptions(), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.timestamps ? { timestamps: true } : {}), ...(o.nodeDraw !== undefined && o.arm !== 'L' ? { nodeDraw: o.nodeDraw } : {}) };
+  const grassMode = o.grass ?? 'hidden';
+  // `noField`: the probe's falsification (`--falsify=no-field`): the arid tones, so NO field is built, with the layer toggled as if there were.
+  const opts = { ...buildRendererOptions(), ...grassBootTones(o.noField === true ? 'hidden' : grassMode), environmentLight: false, gpu: GPU_OF[o.arm], ...(o.timestamps ? { timestamps: true } : {}), ...(o.nodeDraw !== undefined && o.arm !== 'L' ? { nodeDraw: o.nodeDraw } : {}) };
   const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
   const renderer = new ThreeRenderer(sim, opts);
   renderer.setDecor(map.decor);
@@ -409,6 +498,7 @@ export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; cap
   await loadAllMeshes(renderer, map);
   const r = renderer as unknown as SubmitRendererLike;
   await loadDecorAndProps(r, map);
+  const grass = applyGrassMode(renderer, grassMode);
   const anchors = computeAnchors(map);
   const spawner = createSpawner(sim as Sim, typeOf, anchors.friendly, anchors.hostile);
   r.camera.x = (anchors.friendly[0] + anchors.hostile[0]) / 2;
@@ -420,7 +510,7 @@ export async function submitSetup(o: { mapId: keyof typeof maps; arm: ArmId; cap
   (window as unknown as Record<string, SubmitState>)[SUBMIT_KEY] = { r, sim: sim as Sim, spawner, arm: o.arm, host, unitRoots, boot: { refreshPolicy: draw.refreshPolicy, matrixWalk: draw.matrixWalk } };
   const info = r.backendInfo();
   const sw = (r as unknown as RendererLike).nodeBackend?.drawSwitches?.get();
-  return { backendKind: info.kind, adapter: info.adapter, rafSource: String(window.requestAnimationFrame), unported: r.unportedHooks().length, drawSwitches: sw === undefined ? 'n/a' : `refreshPolicy=${sw.refreshPolicy},matrixWalk=${sw.matrixWalk},uploads=${sw.uploads}` };
+  return { backendKind: info.kind, adapter: info.adapter, rafSource: String(window.requestAnimationFrame), unported: r.unportedHooks().length, drawSwitches: sw === undefined ? 'n/a' : `refreshPolicy=${sw.refreshPolicy},matrixWalk=${sw.matrixWalk},uploads=${sw.uploads}`, grass };
 }
 
 /** Applies a variant (on = the toggle in force) and returns what it changed; `off` puts back exactly what `on` changed. */
@@ -747,10 +837,192 @@ async function timedOnly(s: SubmitState, frames: number): Promise<{ cpuRenderMs:
   return { cpuRenderMs: stats(excl).med, cpuRenderInclCensusMs: stats(incl).med, censusMs: frames > 0 ? census / frames : 0 };
 }
 
+/** One row of the upload census: what was uploaded, by whom, how often and how many bytes in the frame. */
+export interface UploadRow {
+  readonly kind: 'attribute' | 'texture' | 'gl-buffer' | 'gl-texture' | 'app-bump' | 'hidden' | 'draws';
+  readonly what: string;
+  readonly calls: number;
+  readonly bytes: number;
+}
+
+/**
+ * GH-1152 (12 Nov): ONE frame of the current state, every GPU upload named. Node arms: `backend.updateAttribute` (attributed to the
+ * object whose geometry `_geometries.updateForRender` is updating, and its attribute name) and `backend.updateTexture` (by texture
+ * name, class and size). L: the WebGL2 context's `bufferSubData` / `bufferData` / `texSubImage2D` / `texImage2D`, by call only.
+ */
+export async function submitUploadCensus(): Promise<UploadRow[]> {
+  const s = submitState();
+  const { r } = s;
+  const node = r.nodeBackend;
+  const rows = new Map<string, { kind: UploadRow['kind']; what: string; calls: number; bytes: number }>();
+  const add = (kind: UploadRow['kind'], what: string, bytes: number): void => {
+    const k = `${kind}|${what}`;
+    const cur = rows.get(k) ?? { kind, what, calls: 0, bytes: 0 };
+    cur.calls++;
+    cur.bytes += bytes;
+    rows.set(k, cur);
+  };
+  const restores: (() => void)[] = [];
+  const wrap = <O extends object>(o: O, k: string, f: (orig: (...a: unknown[]) => unknown) => (...a: unknown[]) => unknown): void => {
+    const rec = o as unknown as Record<string, (...a: unknown[]) => unknown>;
+    const own = Object.prototype.hasOwnProperty.call(o, k);
+    const orig = rec[k] as (...a: unknown[]) => unknown;
+    rec[k] = f(orig);
+    restores.push(() => {
+      if (own) rec[k] = orig;
+      else delete rec[k];
+    });
+  };
+  type Attr = { array?: ArrayLike<number> & { byteLength?: number }; isInterleavedBufferAttribute?: boolean; data?: { array?: { byteLength?: number } }; name?: string };
+  type Obj = {
+    type?: string;
+    name?: string;
+    visible?: boolean;
+    material?: { name?: string; type?: string } | unknown[];
+    geometry?: { attributes?: Record<string, unknown>; index?: unknown; drawRange?: { count: number } };
+    instanceMatrix?: unknown;
+    instanceColor?: unknown;
+    parent?: Obj | null;
+  };
+  const label = (o: Obj | null): string => {
+    if (o === null) return '(no object)';
+    let named: Obj | null | undefined = o;
+    for (let i = 0; i < 4 && named && (named.name ?? '') === ''; i++) named = named.parent;
+    const m = Array.isArray(o.material) ? undefined : (o.material as { name?: string; type?: string } | undefined);
+    return `${o.type ?? '?'}:${(named?.name ?? '') || '?'} [${m?.name || m?.type || '?'}]`;
+  };
+  // Arm-agnostic: which attributes the APP bumped this frame (version delta over the frame), whoever draws them.
+  type VAttr = { version?: number; count?: number; usage?: number; updateRanges?: unknown[]; array?: { byteLength?: number } };
+  const versions = new Map<VAttr, { at: number; what: string }>();
+  (r.scene as unknown as { traverse(f: (o: Obj) => void): void }).traverse((o) => {
+    for (const [k, v] of Object.entries(o.geometry?.attributes ?? {})) versions.set(v as VAttr, { at: (v as VAttr).version ?? 0, what: `${label(o)} .${k}` });
+    if (o.instanceMatrix !== undefined) versions.set(o.instanceMatrix as VAttr, { at: (o.instanceMatrix as VAttr).version ?? 0, what: `${label(o)} .instanceMatrix` });
+  });
+  if (node) {
+    const nr = node.post?.pipeline?.renderer as unknown as { backend: object; _geometries: object } | undefined;
+    if (nr === undefined) throw new Error('upload census: the node post chain is not built');
+    let cur: Obj | null = null;
+    wrap(nr._geometries, 'updateForRender', (orig) =>
+      function (this: unknown, ...a: unknown[]) {
+        const prev = cur;
+        cur = ((a[0] as { object?: Obj }).object ?? null) as Obj | null;
+        try {
+          return orig.apply(this, a);
+        } finally {
+          cur = prev;
+        }
+      }
+    );
+    wrap(nr.backend, 'updateAttribute', (orig) =>
+      function (this: unknown, ...a: unknown[]) {
+        const at = a[0] as Attr;
+        let name = '?';
+        if (cur !== null) {
+          if (cur.instanceMatrix === at) name = 'instanceMatrix';
+          else if (cur.instanceColor === at) name = 'instanceColor';
+          else if (cur.geometry?.index === at) name = 'index';
+          else for (const [k, v] of Object.entries(cur.geometry?.attributes ?? {})) if (v === at) name = k;
+        }
+        const bytes = (at.isInterleavedBufferAttribute === true ? at.data?.array?.byteLength : at.array?.byteLength) ?? 0;
+        const ranges = (at as { updateRanges?: { count: number }[] }).updateRanges ?? [];
+        const ranged = ranges.reduce((n, g) => n + g.count * ((at.array as { BYTES_PER_ELEMENT?: number } | undefined)?.BYTES_PER_ELEMENT ?? 4), 0);
+        add('attribute', `${label(cur)} .${name} (drawRange ${cur?.geometry?.drawRange?.count ?? '?'}, ${ranges.length} update ranges)`, ranges.length > 0 ? ranged : bytes);
+        return orig.apply(this, a);
+      }
+    );
+    wrap(nr.backend, 'updateTexture', (orig) =>
+      function (this: unknown, ...a: unknown[]) {
+        const t = a[0] as { name?: string; constructor: { name: string }; image?: { width?: number; height?: number; data?: { byteLength?: number } } };
+        add('texture', `${t.constructor.name}:${t.name ?? ''} ${t.image?.width ?? '?'}x${t.image?.height ?? '?'}`, t.image?.data?.byteLength ?? 0);
+        return orig.apply(this, a);
+      }
+    );
+  } else {
+    const gl = r.canvas.getContext('webgl2') as WebGL2RenderingContext | null;
+    if (gl === null) throw new Error('upload census: no webgl2 context on L');
+    const g = gl as unknown as object;
+    for (const k of ['bufferSubData', 'bufferData'] as const)
+      wrap(g, k, (orig) =>
+        function (this: unknown, ...a: unknown[]) {
+          // bufferData(target, srcData | size, usage); bufferSubData(target, dstByteOffset, srcData, srcOffset?, length?) (elements).
+          const src = (k === 'bufferData' ? a[1] : a[2]) as { byteLength?: number; BYTES_PER_ELEMENT?: number } | number;
+          const bpe = typeof src === 'number' ? 1 : (src?.BYTES_PER_ELEMENT ?? 1);
+          const bytes = typeof src === 'number' ? src : typeof a[4] === 'number' ? a[4] * bpe : (src?.byteLength ?? 0) - (typeof a[3] === 'number' ? a[3] * bpe : 0);
+          add('gl-buffer', k, bytes);
+          return orig.apply(this, a);
+        }
+      );
+    for (const k of ['texSubImage2D', 'texImage2D'] as const)
+      wrap(g, k, (orig) =>
+        function (this: unknown, ...a: unknown[]) {
+          const w = typeof a[4] === 'number' ? `${a[4]}x${String(a[5])}` : '?';
+          add('gl-texture', `${k} ${w}`, 0);
+          return orig.apply(this, a);
+        }
+      );
+  }
+  try {
+    await tick();
+    if (!node) {
+      const info = (r as unknown as { renderer: { info: { autoReset: boolean; reset(): void; render: { calls: number } } } }).renderer.info;
+      info.autoReset = false;
+      info.reset();
+      r.frame(1, 0);
+      add('draws', 'all passes', info.render.calls);
+      info.autoReset = true;
+    } else {
+      r.frame(1, 0);
+      // Before any await: the next animation tick resets the node renderer's info.
+      const pp = node.stats().perPass;
+      if (pp !== undefined) for (const [k, v] of Object.entries(pp)) add('draws', k, (v as { calls: number }).calls);
+    }
+  } finally {
+    for (const f of restores.reverse()) f();
+  }
+  // What this arm leaves hidden (a mesh with `visible` false), by material: L's `matchNodeScene` hides every legacy ShaderMaterial,
+  // while G draws a node twin of many, so the two drawn sets can differ.
+  (r.scene as unknown as { traverse(f: (o: Obj & { isMesh?: boolean }) => void): void }).traverse((o) => {
+    if (o.isMesh === true && o.visible === false) add('hidden', label(o), 0);
+  });
+  for (const [a, v] of versions) {
+    if ((a.version ?? 0) === v.at) continue;
+    const ranges = a.updateRanges?.length ?? 0;
+    add('app-bump', `${v.what} (+${(a.version ?? 0) - v.at}, usage ${a.usage}, ${ranges} update ranges)`, a.array?.byteLength ?? 0);
+  }
+  return [...rows.values()].sort((a, b) => b.bytes - a.bytes || b.calls - a.calls);
+}
+
 /** Takes the page's world down. */
 export function submitDispose(): void {
   const s = submitState();
   s.r.dispose();
   s.host.remove();
   delete (window as unknown as Record<string, SubmitState | undefined>)[SUBMIT_KEY];
+}
+
+/**
+ * GH-1167 S6: one stats frame of the G arm with the grass layer shown (`on`) or hidden (`off`) at `zoom` and `n` figures, after the scene
+ * settles. The page must have been set up with `submitSetup({ grass: 'on' })` (the green tones, so a field exists). COUNTS ONLY: the
+ * per-pass calls of the frame, the whole frame's triangles, and how many grass meshes were visible when it drew.
+ */
+export async function grassRead(o: { zoom: number; grass: 'on' | 'off'; n: number; warmFrames: number }): Promise<GrassReading> {
+  const s = submitState();
+  const { r } = s;
+  const node = r.nodeBackend;
+  if (node === null) throw new Error('grass probe: this arm has no node backend (the field is node-native)');
+  if (o.n > livingCount(s.sim)) {
+    spawnUpTo(s.sim, s.spawner, o.n);
+    r.snapshot();
+  }
+  const layerChanged = r.setDebugLayerVisible(GRASS_LAYER, o.grass === 'on');
+  r.camera.zoom = o.zoom;
+  const settled = await settleScene(s, o.warmFrames, () => r.whenGpuIdle());
+  if (!settled.ok) throw new Error(`grass probe: the scene did not settle in ${settled.frames} frames at z${o.zoom} n${o.n}`);
+  await tick();
+  r.frame(1, 0);
+  const st = node.stats();
+  if (st.perPass === undefined) throw new Error('grass probe: the node backend has no per-pass counter (an older tree)');
+  const grassMeshes = countGrassMeshes((r as unknown as { scene: GrassNodeLike }).scene);
+  await r.whenGpuIdle();
+  return { zoom: o.zoom, grass: o.grass, perPass: st.perPass, triangles: st.triangles, grassMeshes, layerChanged };
 }

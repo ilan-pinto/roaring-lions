@@ -91,7 +91,8 @@
  * view is timed -- `--hide=bloom` is the bloom off half of an A/B. A layer
  * the tree does not know throws, BY DESIGN of that method, so a run against
  * `main` with `--hide=bloom` fails rather than timing the wrong thing.
- * `--stress` adds two rows at view (26,22) zoom 1.6: the same view frozen
+ * `--soft=on|off` (GH-1227 slice 2) adds or removes `&soft` on the query and prints whether the depth snapshot is live;
+ * the G-cost read is `--stress --soft=off` then `--stress --soft=on`, on the same `--quality`. `--stress` adds two rows at view (26,22) zoom 1.6: the same view frozen
  * (`frame(1, 0)`, zero elapsed time), then the same after 24 Grad landings
  * (`spawnShellLandingAt('rocket', ...)`, the body `shellHasLanded` calls)
  * aged 250 ms of FX time (hit-stop frames do not count), frozen there. The
@@ -119,6 +120,7 @@ import { fileURLToPath } from 'node:url';
 import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPortOrAttach, refuseRetiredBaseUrl } from '../ui-review/port';
+import { parseSoftArg, withSoftQuery } from './soft-arg';
 
 const TAG = 'render-frame-cost';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -132,7 +134,10 @@ if (quality !== undefined && !['high', 'medium', 'low'].includes(quality)) throw
 const hidden = (flag('hide') ?? '').split(',').filter((s) => s.length > 0);
 const load = (): string => os.loadavg().map((n) => n.toFixed(2)).join(' ');
 console.log(`load average at start: ${load()}`);
-const [query = '?sandbox=beit_sahwan_outskirts&sur&civ', size = '1440x900'] = args.filter((a) => !a.startsWith('--'));
+const [typedQuery = '?sandbox=beit_sahwan_outskirts&sur&civ', size = '1440x900'] = args.filter((a) => !a.startsWith('--'));
+// `--soft=on|off` (GH-1227 slice 2): the same URL with `&soft` added or removed, so the G-cost read is one command per side.
+const softArg = parseSoftArg(flag('soft'));
+const query = withSoftQuery(typedQuery, softArg);
 const [viewportWidth, viewportHeight] = size.split('x').map(Number);
 if (!Number.isFinite(viewportWidth) || !Number.isFinite(viewportHeight)) {
   throw new Error(`second argument must be WIDTHxHEIGHT, got ${JSON.stringify(size)}`);
@@ -181,6 +186,12 @@ const qualityRead = await page.evaluate(() => {
   const raw = localStorage.getItem('lions.settings');
   return raw ? (JSON.parse(raw) as { video?: { quality?: string } }).video?.quality ?? 'none' : 'none';
 });
+const softLive = await page.evaluate(() => {
+  const r = (window as unknown as { __lions: { renderer: { softDepth?: unknown } } }).__lions.renderer;
+  return r.softDepth !== null && r.softDepth !== undefined;
+});
+console.log(`soft particles: ${softLive ? 'on' : 'off'}${softArg ? ` (asked ${softArg})` : ''}`);
+if (softArg === 'on' && !softLive) console.warn('--soft=on asked but no depth snapshot is live (the node backend is inert until slice 3)');
 console.log(`quality: ${qualityRead}${quality ? ` (asked ${quality})` : ''}`);
 for (const name of hidden) {
   await page.evaluate((n) => {

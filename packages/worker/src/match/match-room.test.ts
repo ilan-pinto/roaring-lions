@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FLAG_SETUP_MAPS, OVER_CLOSE_MS, WIN_MODE_FAIR_MAPS, sha256Hex, validateConfig, type AdvisorMsg, type AdvisorScope, type ServerMsg, type Seat } from '@lions/net';
 import type { D1Like, Env } from '../d1';
 import { openTestD1 } from '../test-d1';
+import { ACCOUNTS_MIGRATIONS, recordingD1, seedWalletMember } from '../account/test-kit';
+import { memberRecord } from '../account/seat-member';
 import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
 import { ADVISOR_MIN_GAP_MS, BATCH_TICKS, HELLO_TIMEOUT_MS, MAX_ROOM_SOCKETS, MAX_WATCHERS, MatchRoom, PURGE_AFTER_MS, SOCKET_BUDGET, TICK_MS, WATCHDOG_MS } from './match-room';
 import { ROOM_TTL_MS } from './room-core';
@@ -36,17 +38,17 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { map?: string; winMode?: unknown; flagSetup?: unknown; mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown; specials?: unknown; joinSpecials?: unknown }
+interface CreateOpts { map?: string; winMode?: unknown; flagSetup?: unknown; mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown; specials?: unknown; joinSpecials?: unknown; accounts?: D1Like; member?: unknown; joinMember?: unknown; joinPlayer?: string; joinCallsign?: string; joinBotModel?: unknown }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
-  const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env, opts.snapshotEveryTicks === undefined ? YIELD : { ...YIELD, snapshotEveryTicks: opts.snapshotEveryTicks });
+  const room = new MatchRoom(state, { ...env, ...(opts.db ? { DB: opts.db } : {}), ...(opts.accounts ? { ACCOUNTS: opts.accounts } : {}) } as Env, opts.snapshotEveryTicks === undefined ? YIELD : { ...YIELD, snapshotEveryTicks: opts.snapshotEveryTicks });
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
-    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: opts.map ?? 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.winMode !== undefined ? { winMode: opts.winMode } : {}), ...(opts.flagSetup !== undefined ? { flagSetup: opts.flagSetup } : {}), ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}), ...(opts.specials !== undefined ? { specials: opts.specials } : {}) }),
+    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: opts.map ?? 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.winMode !== undefined ? { winMode: opts.winMode } : {}), ...(opts.flagSetup !== undefined ? { flagSetup: opts.flagSetup } : {}), ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}), ...(opts.specials !== undefined ? { specials: opts.specials } : {}), ...(opts.member !== undefined ? { member: opts.member } : {}) }),
   }));
   expect(res.status).toBe(200);
   if (opts.join !== false) {
-    const join = await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', callsign: 'Guest', ...(opts.joinKind ? { kind: opts.joinKind } : {}), ...(opts.joinTiers !== undefined ? { tiers: opts.joinTiers } : {}), ...(opts.joinSpecials !== undefined ? { specials: opts.joinSpecials } : {}) }) }));
+    const join = await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: opts.joinPlayer ?? 'p-guest', callsign: opts.joinCallsign ?? 'Guest', ...(opts.joinMember !== undefined ? { member: opts.joinMember } : {}), ...(opts.joinKind ? { kind: opts.joinKind } : {}), ...(opts.joinBotModel !== undefined ? { botModel: opts.joinBotModel } : {}), ...(opts.joinTiers !== undefined ? { tiers: opts.joinTiers } : {}), ...(opts.joinSpecials !== undefined ? { specials: opts.joinSpecials } : {}) }) }));
     expect(join.status).toBe(200);
   }
   return { state, room };
@@ -93,9 +95,9 @@ describe('MatchRoom', () => {
   it('a hello with a valid ticket joins the lobby, and each socket is told its own seat', async () => {
     const { room } = await created();
     const ws0 = await hello(room, 0);
-    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false }], you: 0, map: 'tel_marum', factions: ['kdf', 'kdf'] });
+    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false, kind: 'human' }], you: 0, map: 'tel_marum', factions: ['kdf', 'kdf'] });
     const ws1 = await hello(room, 1);
-    const seats = [{ seat: 0, callsign: 'Host', connected: true, ready: false }, { seat: 1, callsign: 'Guest', connected: true, ready: false }];
+    const seats = [{ seat: 0, callsign: 'Host', connected: true, ready: false, kind: 'human' }, { seat: 1, callsign: 'Guest', connected: true, ready: false, kind: 'human' }];
     expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats, you: 0, map: 'tel_marum', factions: ['kdf', 'kdf'] });
     expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1, map: 'tel_marum', factions: ['kdf', 'kdf'] });
   });
@@ -475,7 +477,7 @@ describe('MatchRoom', () => {
     const { room } = await created(new FakeState(), { mode: 'versus' });
     await hello(room, 1);
     const again = await hello(room, 1, await ticket(1, CODE, 'p-guest-other-tab'));
-    expect(ofType(again, 'lobby').at(-1)?.seats).toEqual([{ seat: 1, callsign: 'Guest', connected: true, ready: false }]);
+    expect(ofType(again, 'lobby').at(-1)?.seats).toEqual([{ seat: 1, callsign: 'Guest', connected: true, ready: false, kind: 'human' }]);
   });
 
   it('a callsign handed to the room directly is cleaned too: the lobby and the config never carry a control or bidi character', async () => {
@@ -1191,11 +1193,11 @@ describe('MatchRoom', () => {
 
 describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () => {
   /** A hash tick early in the match: the frames up to it are minted within 0.3 s. */
-  const RESULT_TICK = 5;
+  const RESULT_TICK = 19;
   /** Both seats report the same result tick at the current time, once the room
    *  has minted it (a report of an unminted tick is ignored); returns the deadline. */
   async function bothOver(room: MatchRoom, ws0: FakeSocket, ws1: FakeSocket, tick = RESULT_TICK): Promise<number> {
-    await vi.advanceTimersByTimeAsync((tick + 1) * TICK_MS);
+    await vi.advanceTimersByTimeAsync((tick + 2) * TICK_MS);
     await say(room, ws0, { t: 'over', tick });
     await say(room, ws1, { t: 'over', tick });
     return Date.now() + OVER_CLOSE_MS;
@@ -1267,8 +1269,8 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
 
   it('#559 L-1: an early over from one seat and a one-second blip of the other end nothing', async () => {
     const { room, ws0, ws1 } = await running();
-    await vi.advanceTimersByTimeAsync(TICK_MS * 5);
-    await say(room, ws1, { t: 'over', tick: 1 });
+    await vi.advanceTimersByTimeAsync(TICK_MS * 25);
+    await say(room, ws1, { t: 'over', tick: 19 });
     await deliverClose(room, ws0);
     const back = await hello(room, 0);
     await vi.advanceTimersByTimeAsync(121_000);
@@ -1278,7 +1280,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
 
   it('two different ticks never close the room', async () => {
     const { state, room, ws0, ws1 } = await running();
-    await vi.advanceTimersByTimeAsync(30 * TICK_MS);
+    await vi.advanceTimersByTimeAsync(45 * TICK_MS);
     await say(room, ws0, { t: 'over', tick: RESULT_TICK });
     await say(room, ws1, { t: 'over', tick: RESULT_TICK + 20 });
     await vi.advanceTimersByTimeAsync(2 * OVER_CLOSE_MS);
@@ -1559,9 +1561,9 @@ describe('advisor sockets (N4a task 7)', () => {
   it('when the room closes itself after the result, the advisor is told and closed with the seats; its late close writes nothing', async () => {
     const { state, room, ws0, ws1 } = await running({ mode: 'versus' });
     const adv = await advisorHello(room, 1, 'assist');
-    await vi.advanceTimersByTimeAsync(10 * TICK_MS);
-    await say(room, ws0, { t: 'over', tick: 5 });
-    await say(room, ws1, { t: 'over', tick: 5 });
+    await vi.advanceTimersByTimeAsync(25 * TICK_MS);
+    await say(room, ws0, { t: 'over', tick: 19 });
+    await say(room, ws1, { t: 'over', tick: 19 });
     await vi.advanceTimersByTimeAsync(OVER_CLOSE_MS + TICK_MS);
     expect(last(adv)).toEqual({ t: 'ended', reason: 'over' });
     expect(adv.closed).toEqual({ code: 1000, reason: 'ended' });
@@ -1669,8 +1671,9 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
       [{ winMode: 'rally' }, 400], [{ winMode: 'camp' }, 200], [{ winMode: 'camp', map: 'wadi_tarfan_l' }, 200], [{ winMode: 'camp', map: 'tel_marum' }, 400],
       // GH-976 P4: tel_marum plays the points race and the flag raid in the mirror now; KDF against Sarim plays no mode anywhere
       // (the review removed the one cell), and the room asks the same question the route does.
-      // GH-1139: flag is out of every lobby until CTF v2 lands (WP9), so the room refuses it on a map it once offered.
-      [{ winMode: 'points', map: 'tel_marum' }, 200], [{ winMode: 'flag', map: 'milh_flats_l' }, 400], [{ winMode: 'flag', map: 'wadi_tarfan_l' }, 400],
+      // GH-976 relist (12 Nov): flag is offered on wadi_tarfan, rujm_sawda, wadi_tarfan_l and milh_flats_l in the mirror (milh_flats delisted 12 Nov), and the room refuses it on that one, tel_marum and in every faction pairing.
+      [{ winMode: 'points', map: 'tel_marum' }, 200], [{ winMode: 'flag', map: 'milh_flats_l' }, 200], [{ winMode: 'flag', map: 'milh_flats' }, 400], [{ winMode: 'points', map: 'milh_flats_l' }, 200], [{ winMode: 'flag', map: 'wadi_tarfan_l' }, 200],
+      [{ winMode: 'flag', map: 'tel_marum' }, 400], [{ winMode: 'flag', map: 'beit_sahwan_outskirts' }, 400],
       [{ winMode: 'points', matchup: 'sarim' }, 400], [{ winMode: 'points', matchup: 'kdf' }, 400], [{ winMode: 'flag', matchup: 'kdf' }, 400],
       [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'kdf' }, 400], [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'sarim' }, 400],
       [{ winMode: 'flag', map: 'wadi_tarfan_l', matchup: 'kdf' }, 400], [{ winMode: 'flag', map: 'wadi_tarfan_l', matchup: 'sarim' }, 400],
@@ -1704,24 +1707,28 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
 
 describe('capture the flag v2 (GH-976 WP4): the room mints flagSetup from FLAG_SETUP_MAPS and its own winMode, never from a client', () => {
   const FLAG = { mode: 'versus', map: 'wadi_tarfan', winMode: 'flag' };
-  // GH-1139: flag is out of the lobby until WP9 relists it; these tests of the minting stand the two maps they open back in.
-  const flagList = WIN_MODE_FAIR_MAPS.flag as string[];
-  const SHIPPED = [...flagList];
-  beforeEach(() => { flagList.push('wadi_tarfan', 'milh_flats'); });
-  afterEach(() => { flagList.splice(0, flagList.length, ...SHIPPED); });
-  /** Stands `wadi_tarfan` in the list for one test (the list is a const array, read at call time). */
-  const listed = async (fn: () => Promise<void>): Promise<void> => {
+  const FIVE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];   // four since the 12 Nov delist of milh_flats
+  /** Takes `wadi_tarfan` out of FLAG_SETUP_MAPS for one test (the list is a const array, read at call time) to prove the minting follows it. */
+  const unlisted = async (fn: () => Promise<void>): Promise<void> => {
     const list = FLAG_SETUP_MAPS as string[];
-    const before = [...list]; // restored below, never cleared
-    list.push('wadi_tarfan');
+    const before = [...list]; // restored below
+    list.splice(list.indexOf('wadi_tarfan'), 1);
     try { await fn(); } finally { list.splice(0, list.length, ...before); }
   };
-  it('a flag room on wadi_tarfan carries no flagSetup while the list is empty', async () => {
-    expect(FLAG_SETUP_MAPS).toEqual([]);
-    const { ws0, ws1 } = await running(FLAG);
-    expect('flagSetup' in ofType(ws0, 'start')[0].config).toBe(false);
-    expect('flagSetup' in ofType(ws1, 'start')[0].config).toBe(false);
-    expect(ofType(ws0, 'start')[0].config.winMode).toBe('flag');
+  const listed = async (fn: () => Promise<void>): Promise<void> => fn();
+  it('the four offered maps are offered the flag and minted flagSetup; the minting follows FLAG_SETUP_MAPS and not the lobby list', async () => {
+    expect(FLAG_SETUP_MAPS).toEqual(FIVE);
+    expect(WIN_MODE_FAIR_MAPS.flag).toEqual(FIVE);
+    for (const map of FIVE) {
+      const { ws0 } = await running({ ...FLAG, map });
+      expect(ofType(ws0, 'start')[0].config.flagSetup, map).toBe(true);
+    }
+    await unlisted(async () => {
+      const { ws0, ws1 } = await running(FLAG);
+      expect('flagSetup' in ofType(ws0, 'start')[0].config).toBe(false);
+      expect('flagSetup' in ofType(ws1, 'start')[0].config).toBe(false);
+      expect(ofType(ws0, 'start')[0].config.winMode).toBe('flag');
+    });
   });
   it('with the map listed, the room mints flagSetup: true into both seats\' configs, and the config validates', async () => {
     await listed(async () => {
@@ -1740,13 +1747,17 @@ describe('capture the flag v2 (GH-976 WP4): the room mints flagSetup from FLAG_S
       }
     });
   });
-  it('a create body that sends flagSetup changes nothing, listed or not', async () => {
+  it('a create body that sends flagSetup decides nothing: unlisted, the room still mints none', async () => {
     const lie = { ...FLAG, flagSetup: true };
-    const { ws0 } = await running(lie);
-    expect('flagSetup' in ofType(ws0, 'start')[0].config).toBe(false);
-    // And with the list empty on a map no one listed, the body still decides nothing.
-    const other = await running({ ...lie, map: 'milh_flats' });
-    expect('flagSetup' in ofType(other.ws0, 'start')[0].config).toBe(false);
+    await unlisted(async () => {
+      const { ws0 } = await running(lie);
+      expect('flagSetup' in ofType(ws0, 'start')[0].config).toBe(false);
+    });
+    // Listed, it is the room's own minting, not the body's: the same config as the honest body.
+    const honest = (await running(FLAG)).ws0;
+    const liar = (await running(lie)).ws0;
+    expect(ofType(liar, 'start')[0].config.flagSetup).toBe(true);
+    expect(ofType(honest, 'start')[0].config.flagSetup).toBe(true);
   });
 });
 
@@ -2039,7 +2050,7 @@ describe('hello.from (D6, snapshot S3)', () => {
     expect(framesOf(adv)).toEqual(all.filter((f) => f.tick >= 38));
     expect(logOf(adv).every((l) => l.from === 38)).toBe(true);
     // The ended-room replay: both seats report the same result tick, the room closes itself.
-    const tick = 40;
+    const tick = 39;
     await say(room, ws0, { t: 'over', tick });
     await say(room, ws1, { t: 'over', tick });
     await vi.advanceTimersByTimeAsync(OVER_CLOSE_MS + TICK_MS);
@@ -3023,5 +3034,317 @@ describe('watch sockets (GH-954 W1)', () => {
     const w = await watchHello(room);
     await say(room, ws0, { t: 'surrender' });
     expect(ofType(w, 'ended')).toEqual([{ t: 'ended', reason: 'surrender', seat: 0 }]);
+  });
+
+describe('a room keeps its members (GH-1075 A3 Task 3.3)', () => {
+  const A = { memberId: 'mA', publicId: 'PUBA', name: 'Alpha', showRecord: true, record: { won: 1, lost: 2, drawn: 3 } };
+  it('a_room_keeps_its_members', async () => {
+    const state = new FakeState();
+    const room = new MatchRoom(state, env, YIELD);
+    const mk = (path: string, body: unknown) => room.fetch(new Request(`https://room/${path}`, { method: 'POST', body: JSON.stringify(body) }));
+    expect((await mk('create', { code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', member: A })).status).toBe(200);
+    expect((await mk('join', { player: 'p-guest', callsign: 'Guest', member: null })).status).toBe(200);
+    expect((state.storage.kv.get('meta') as { members: unknown }).members).toEqual([A, null]);
+
+    const state2 = new FakeState();
+    const room2 = new MatchRoom(state2, env, YIELD);
+    await room2.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host' }) }));
+    await room2.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', member: { memberId: 7 } }) }));
+    expect((state2.storage.kv.get('meta') as { members: unknown }).members).toEqual([null, null]);
+  });
+
+  it('a bot model is kept for a bot seat with no member only', async () => {
+    const state = new FakeState();
+    const room = new MatchRoom(state, env, YIELD);
+    const mk = (path: string, body: unknown) => room.fetch(new Request(`https://room/${path}`, { method: 'POST', body: JSON.stringify(body) }));
+    await mk('create', { code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', kind: 'human', botModel: { id: 'scripted' } });
+    await mk('join', { player: 'p-guest', kind: 'bot', botModel: { id: 'other', name: 'MyNet v3' } });
+    expect((state.storage.kv.get('meta') as { botModels: unknown }).botModels).toEqual([null, { id: 'other', name: 'MyNet v3' }]);
+  });
+});
+
+describe('member labels in the lobby (GH-1075 A3 Task 3.5)', () => {
+  const MA = { memberId: 'INTERNAL-ID-AAA', publicId: '7K3M9Q2X', name: 'Alpha', showRecord: false, record: { won: 3, lost: 1, drawn: 0 } };
+  const MB = { memberId: 'INTERNAL-ID-BBB', publicId: 'H4J8N5R6', name: 'Bravo', showRecord: true, record: { won: 2, lost: 0, drawn: 0 } };
+  async function seated(host: unknown, guest: unknown, guestExtra: Record<string, unknown> = {}): Promise<{ room: MatchRoom; ws0: FakeSocket; ws1: FakeSocket }> {
+    const room = new MatchRoom(new FakeState(), env, YIELD);
+    const mk = (path: string, body: unknown) => room.fetch(new Request(`https://room/${path}`, { method: 'POST', body: JSON.stringify(body) }));
+    await mk('create', { code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus', member: host });
+    await mk('join', { player: 'p-guest', callsign: 'Guest', member: guest, ...guestExtra });
+    const ws0 = await hello(room, 0);
+    const ws1 = await hello(room, 1);
+    return { room, ws0, ws1 };
+  }
+
+  it('show_record_off_hides_the_record', async () => {
+    const { ws0, ws1 } = await seated(MA, MB);
+    for (const ws of [ws0, ws1]) {
+      const seats = ofType(ws, 'lobby').at(-1)?.seats ?? [];
+      expect(seats[0]?.member).toEqual({ name: 'Alpha', publicId: '7K3M9Q2X' });
+      expect(seats[1]?.member).toEqual({ name: 'Bravo', publicId: 'H4J8N5R6', record: { won: 2, lost: 0, drawn: 0 } });
+    }
+  });
+
+  it('the_internal_id_never_leaves', async () => {
+    const { room, ws0, ws1 } = await seated(MA, MB);
+    await say(room, ws0, { t: 'ready' });
+    await say(room, ws1, { t: 'ready' });
+    const all = JSON.stringify([...ws0.messages(), ...ws1.messages()]);
+    expect(all).toContain('Alpha');
+    expect(all).not.toContain('INTERNAL-ID');
+    const start = ofType(ws0, 'start')[0];
+    expect(start).toBeDefined();
+    const cfg = JSON.stringify(start?.config);
+    for (const needle of ['INTERNAL-ID', '7K3M9Q2X', 'H4J8N5R6', 'Alpha', 'Bravo']) expect(cfg).not.toContain(needle);
+  });
+
+  it('a_guest_seat_has_no_member', async () => {
+    const { ws0 } = await seated(MA, null);
+    const seats = ofType(ws0, 'lobby').at(-1)?.seats ?? [];
+    expect(seats[0]).toHaveProperty('member');
+    expect(seats[1]).not.toHaveProperty('member');
+    expect(seats.map((x) => x.kind)).toEqual(['human', 'human']);
+  });
+
+  it('the_bot_model_is_in_the_lobby_not_the_config', async () => {
+    const { room, ws0, ws1 } = await seated(null, null, { kind: 'bot', botModel: { id: 'other', name: 'ZZ-SENTINEL-MODEL' } });
+    const seats = ofType(ws0, 'lobby').at(-1)?.seats ?? [];
+    expect(seats[1]?.kind).toBe('bot');
+    expect(seats[1]?.botModel).toEqual({ id: 'other', name: 'ZZ-SENTINEL-MODEL' });
+    expect(seats[0]).not.toHaveProperty('botModel');
+    await say(room, ws0, { t: 'ready' });
+    await say(room, ws1, { t: 'ready' });
+    const start = ofType(ws0, 'start')[0];
+    expect(start).toBeDefined();
+    expect(JSON.stringify(start?.config)).not.toContain('ZZ-SENTINEL-MODEL');
+  });
+});
+
+});
+
+describe('the room writes the record (GH-1075 A3 Task 3.4)', () => {
+  const info = (id: string) => ({ memberId: id, publicId: `PUB${id}`, name: id, showRecord: true, record: { won: 0, lost: 0, drawn: 0 } });
+  const RESULT = 19;   // the real cadence: the first hash-window tick (hashEveryTicks 20)
+  async function accounts() {
+    const db = openTestD1({ dir: ACCOUNTS_MIGRATIONS, foreignKeys: true });
+    await seedWalletMember(db, 'A', NOW);
+    await seedWalletMember(db, 'B', NOW);
+    return db;
+  }
+  const rowsOf = (db: ReturnType<typeof openTestD1>, table: string): Record<string, unknown>[] => db.raw.prepare(`SELECT * FROM ${table}`).all() as Record<string, unknown>[];
+  const acctAll = (db: ReturnType<typeof openTestD1>): number => (db.raw.prepare("SELECT COALESCE(SUM(n), 0) AS n FROM rate_day WHERE scope = 'acct-all'").get() as { n: number }).n;
+  /** A versus room with the given seats, both ready. */
+  async function start(db: D1Like, opts: CreateOpts = {}, guestPlayer = 'p-guest') {
+    const { state, room } = await created(new FakeState(), { mode: 'versus', matchup: 'sarim', accounts: db, joinPlayer: guestPlayer, ...opts });
+    const code = opts.code ?? CODE;
+    const ws0 = await hello(room, 0, await ticket(0, code));
+    const ws1 = await hello(room, 1, await ticket(1, code, guestPlayer));
+    await say(room, ws0, { t: 'ready' });
+    await say(room, ws1, { t: 'ready' });
+    return { state, room, ws0, ws1 };
+  }
+  const report = async (r: { room: MatchRoom; ws0: FakeSocket; ws1: FakeSocket }, w0: Seat | null, w1: Seat | null = w0): Promise<void> => {
+    await vi.advanceTimersByTimeAsync((RESULT + 2) * TICK_MS);
+    await say(r.room, r.ws0, { t: 'hash', tick: RESULT, h: 1 });
+    await say(r.room, r.ws1, { t: 'hash', tick: RESULT, h: 1 });
+    await say(r.room, r.ws0, { t: 'over', tick: RESULT, result: { winner: w0, by: 'annihilation' } });
+    await say(r.room, r.ws1, { t: 'over', tick: RESULT, result: { winner: w1, by: 'annihilation' } });
+  };
+  const close = async (): Promise<void> => { await vi.advanceTimersByTimeAsync(OVER_CLOSE_MS + TICK_MS); };
+
+  it('the_room_records_once: an agreed member-v-guest room writes one record, and a revived room writes no second', async () => {
+    const db = await accounts();
+    const r = await start(db, { member: info('A') });
+    await report(r, 0);
+    await close();
+    expect(rowsOf(db, 'match_record')).toHaveLength(1);
+    expect(rowsOf(db, 'match_seat')).toHaveLength(2);
+    expect(acctAll(db)).toBe(4);
+    expect((await persisted(r.state)).recorded).toBe(true);
+    evict();
+    const revived = new MatchRoom(r.state, { ...env, ACCOUNTS: db } as Env, YIELD);
+    await deliverAlarm(revived, r.state.storage);
+    await hello(revived, 0);
+    expect(rowsOf(db, 'match_record')).toHaveLength(1);
+    expect(acctAll(db)).toBe(4);
+    expect(await memberRecord(db, 'A')).toEqual({ won: 1, lost: 0, drawn: 0 });
+  });
+
+  it('a_disagreed_or_void_room_never_counts (ruling 1), and an agreed win over a guest does', async () => {
+    const db = await accounts();
+    // both report, different winners
+    const d = await start(db, { member: info('A'), code: 'DDDDDD' });
+    await report(d, 0, 1);
+    await close();
+    expect((await persisted(d.state)).status).toBe('ended');
+    // a desync voids the room
+    const v = await start(db, { member: info('A'), code: 'VVVVVV' });
+    await vi.advanceTimersByTimeAsync(20 * TICK_MS);
+    await say(v.room, v.ws0, { t: 'hash', tick: 19, h: 111 });
+    await say(v.room, v.ws1, { t: 'hash', tick: 19, h: 222 });
+    await close();
+    expect((await persisted(v.state)).endedReason).toBe('void');
+    expect(rowsOf(db, 'match_record')).toEqual([]);
+    expect(await memberRecord(db, 'A')).toEqual({ won: 0, lost: 0, drawn: 0 });
+    // an agreed win over a guest
+    const g = await start(db, { member: info('A'), code: 'GGGGGG' });
+    await report(g, 0);
+    await close();
+    expect(await memberRecord(db, 'A')).toEqual({ won: 1, lost: 0, drawn: 0 });
+  });
+
+  it('nothing_identifies_a_guest (A3-3): the callsign, the player id and the token reach no bound value and no row', async () => {
+    const raw = await accounts();
+    const { db, bound } = recordingD1(raw);
+    const CALL = 'ZZ-SENTINEL-CALL';
+    const PLAYER = '00000000-feed-4bad-beef-000000000001';
+    const r = await start(db, { member: info('A'), joinCallsign: CALL }, PLAYER);
+    const token = ((await r.state.storage.get<{ tokens: string[] }>('meta')) as { tokens: string[] }).tokens[1];
+    expect(token).toMatch(/^[0-9a-f]{16}$/);
+    await report(r, 0);
+    await close();
+    expect(rowsOf(raw, 'match_record')).toHaveLength(1);
+    const dump = JSON.stringify([bound, rowsOf(raw, 'match_record'), rowsOf(raw, 'match_seat')]);
+    expect(bound.length).toBeGreaterThan(8);
+    for (const secret of [CALL, PLAYER, token, 'abcdef0123456789']) expect(dump).not.toContain(secret);
+    expect(rowsOf(raw, 'match_seat')[1]).toEqual({ code: CODE, started_at: expect.any(Number), seat: 1, member_id: null, kind: 'guest', side: 'kdf', bot_label: null });
+  });
+
+  it('the_declared_bot_model_is_recorded_on_the_bot_seat only', async () => {
+    const db = await accounts();
+    const r = await start(db, { member: info('A'), joinKind: 'bot' });
+    await report(r, 0);
+    await close();
+    const rows = rowsOf(db, 'match_seat');
+    expect(rows[1]).toMatchObject({ kind: 'bot', bot_label: null });
+    expect(rows[0]).toMatchObject({ kind: 'member', member_id: 'A', bot_label: null });
+  });
+
+  it('the_declared_bot_model_reaches_the_written_row (room wiring): other + typed name, and a listed id', async () => {
+    for (const [declared, label, code] of [
+      [{ id: 'other', name: 'MyNet v3' }, 'other:MyNet v3', 'BMODL1'],
+      [{ id: 'claude-opus-5-5' }, 'id:claude-opus-5-5', 'BMODL2'],
+    ] as const) {
+      const db = await accounts();
+      const r = await start(db, { member: info('A'), joinKind: 'bot', joinBotModel: declared, code });
+      await report(r, 0);
+      await close();
+      const rows = rowsOf(db, 'match_seat');
+      expect(rows[1]).toMatchObject({ kind: 'bot', bot_label: label });
+      expect(rows[0]).toMatchObject({ kind: 'member', bot_label: null });
+    }
+  });
+
+  it('versus_pays_nothing (A3-7, the data half): an agreed member win writes a record and moves no coin', async () => {
+    const db = openTestD1({ dir: ACCOUNTS_MIGRATIONS, foreignKeys: true });
+    await seedWalletMember(db, 'A', NOW, { free: 50 });
+    await seedWalletMember(db, 'B', NOW);
+    const snap = () => ({ journal: rowsOf(db, 'coin_journal'), wallet: rowsOf(db, 'wallet') });
+    const before = snap();
+    expect(before.journal).toHaveLength(1);
+    expect(before.wallet.find((w) => w.member_id === 'A')).toMatchObject({ free: 50 });
+    const r = await start(db, { member: info('A') });
+    await report(r, 0);
+    await close();
+    expect(await memberRecord(db, 'A')).toEqual({ won: 1, lost: 0, drawn: 0 });
+    expect(rowsOf(db, 'match_record')).toHaveLength(1);
+    expect(snap()).toEqual(before);
+  });
+
+  it('a_failing_record_never_breaks_the_room', async () => {
+    const real = await accounts();
+    const broken: D1Like = { prepare: real.prepare, batch: () => Promise.reject(new Error('D1 refused')) };
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const r = await start(broken, { member: info('A') });
+      await report(r, 0);
+      await close();
+      for (const ws of [r.ws0, r.ws1]) {
+        expect(last(ws)).toEqual({ t: 'ended', reason: 'over' });
+        expect(ws.closed).toEqual({ code: 1000, reason: 'ended' });
+      }
+      const logged = err.mock.calls.filter((c) => String(c[0]).includes('record write failed'));
+      expect(logged).toHaveLength(1);
+      expect(rowsOf(real, 'match_record')).toEqual([]);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it('a room with no accounts database, or no member, writes nothing and still ends', async () => {
+    const db = await accounts();
+    const r = await start(db);   // two guests
+    await report(r, 0);
+    await close();
+    expect(rowsOf(db, 'match_record')).toEqual([]);
+    const bare = await start(undefined as unknown as D1Like, { member: info('A') });
+    await report(bare, 0);
+    await close();
+    expect(last(bare.ws0)).toEqual({ t: 'ended', reason: 'over' });
+  });
+
+  // A1-10, extended for A3 (§0.15): member A plays member B; the room ends agreed, and a second room desyncs.
+  // The lobby SHOWS A's public id and name to B (spec §5.3); it must never show A's token, SteamID or internal id.
+  // The match rows hold none of A's four sentinels, and neither do the desync row, the `start` config or a replay
+  // header built from that config. A bot's typed model name is held to the same corpus.
+  it('A1-10 (extended): a member match leaves no account identifier in a row, a config, a desync log or a replay header', async () => {
+    const A = { pub: 'ZZZZ9999', name: 'SentinelName', steam: '76561197960287930', token: 'tok-sentinel', internal: 'ZZ-INTERNAL-A' };
+    const MODEL = 'ZZ-MODEL-SENTINEL';
+    const seed = async (): Promise<ReturnType<typeof openTestD1>> => {
+      const db = openTestD1({ dir: ACCOUNTS_MIGRATIONS, foreignKeys: true });
+      await seedWalletMember(db, A.internal, NOW);
+      await seedWalletMember(db, 'B-INTERNAL', NOW);
+      db.raw.prepare('UPDATE member SET public_id = ? WHERE id = ?').run(A.pub, A.internal);
+      db.raw.prepare('UPDATE profile SET display_name = ? WHERE member_id = ?').run(A.name, A.internal);
+      return db;
+    };
+    // The extra fields prove the room's own copy drops what it was not given a field for.
+    const aInfo = { memberId: A.internal, publicId: A.pub, name: A.name, showRecord: true, record: { won: 0, lost: 0, drawn: 0 }, steamId: A.steam, token: A.token };
+    const bInfo = { memberId: 'B-INTERNAL', publicId: 'BBBB2222', name: 'Bravo', showRecord: false, record: { won: 0, lost: 0, drawn: 0 } };
+    const dump = (v: unknown): string => JSON.stringify(v);
+    const four = [A.pub, A.name, A.steam, A.token];
+
+    // Run 1: agreed, with member B on seat 1.
+    const db = await seed();
+    const r = await start(db, { member: aInfo, joinMember: bInfo, code: 'UNLNK1' });
+    await report(r, 0);
+    await close();
+    expect(rowsOf(db, 'match_record')).toHaveLength(1);
+    const seatRows = rowsOf(db, 'match_seat');
+    expect(seatRows.map((x) => x.member_id)).toEqual([A.internal, 'B-INTERNAL']);   // the internal id is the FK, by design
+    for (const needle of four) {
+      expect(dump(rowsOf(db, 'match_record')), `match_record carries ${needle}`).not.toContain(needle);
+      expect(dump(seatRows), `match_seat carries ${needle}`).not.toContain(needle);
+    }
+    // B's lobby: A's public id and name are SHOWN; A's token, SteamID and internal id never.
+    const lobbyForB = dump(ofType(r.ws1, 'lobby'));
+    expect(lobbyForB).toContain(A.pub);
+    expect(lobbyForB).toContain(A.name);
+    for (const needle of [A.token, A.steam, A.internal]) expect(lobbyForB, `B's lobby carries ${needle}`).not.toContain(needle);
+    const start1 = ofType(r.ws1, 'start')[0];
+    expect(start1).toBeDefined();
+    for (const needle of [...four, A.internal]) expect(dump(start1?.config), `start config carries ${needle}`).not.toContain(needle);
+
+    // Run 2: a bot with a typed model name, and a desync that writes the log.
+    const telemetry = openTestD1();
+    const db2 = await seed();
+    const d = await start(db2, { member: aInfo, joinKind: 'bot', joinBotModel: { id: 'other', name: MODEL }, db: telemetry, code: 'UNLNK2' });
+    await vi.advanceTimersByTimeAsync(20 * TICK_MS);
+    await say(d.room, d.ws0, { t: 'hash', tick: 19, h: 111 });
+    await say(d.room, d.ws1, { t: 'hash', tick: 19, h: 222 });
+    await settle();
+    const desync = telemetry.raw.prepare('SELECT config, frames FROM match_desync').all() as { config: string; frames: string }[];
+    expect(desync).toHaveLength(1);
+    const start2 = ofType(d.ws0, 'start')[0];
+    expect(start2).toBeDefined();
+    // The replay header's shape (`replay-file.ts`, `arena-frames.ts`): the room's config under two display labels.
+    const replayHeader = { kind: 'header', v: 1, build: BUILD, labels: ['Host', 'Guest'], config: start2?.config };
+    expect(dump(replayHeader)).toContain('UNLNK2');                          // the header really holds the room's config
+    expect(dump(ofType(d.ws0, 'lobby'))).toContain(MODEL);                    // the lobby is where the model is allowed
+    const corpus: Record<string, string> = { desync: dump(desync), start: dump(start2?.config), replay: dump(replayHeader) };
+    for (const [source, text] of Object.entries(corpus)) {
+      expect(text.length, `${source} is empty`).toBeGreaterThan(20);
+      for (const needle of [...four, A.internal, MODEL]) expect(text, `${source} carries ${needle}`).not.toContain(needle);
+    }
   });
 });

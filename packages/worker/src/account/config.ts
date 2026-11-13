@@ -25,6 +25,8 @@ export const START_PER_IP = 50;
 export const START_ALL = 5000;
 export const OPS_PER_MEMBER = 400;
 export const OPS_ALL = 20_000;
+/** Rows one versus record writes: the record, two seats and the `acct-all` bump (GH-1075 A3). */
+export const RECORD_ROWS = 4;
 
 export const ACCOUNT_BODY_MAX_BYTES = 4096;
 
@@ -54,3 +56,8 @@ export function accountOrigins(env: Env): string[] {
   const extra = (env.ACCOUNT_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   return [...PINNED_ORIGINS, ...extra];
 }
+
+// GH-1075 A3.
+/** `GET matches`: the largest `limit`; the default page is `MATCHES_PAGE_DEFAULT`. */
+export const MATCHES_PAGE_MAX = 50;
+export const MATCHES_PAGE_DEFAULT = 20;

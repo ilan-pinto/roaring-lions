@@ -17,7 +17,7 @@ export { TERRAIN_DECOR } from './decor';
 // GH-943 P0: the backend vocabulary and the probe, three-free, so the app names them without loading three.
 export { GPU_REQUESTS, backendKeyTerm, backendLogLine, planBackend, probeWebGpu, wantsNodeBackend } from './gpu';
 export type { BackendInfo, BackendKind, BackendPlan, GpuNavigatorLike, GpuRequest, WebGpuProbe } from './gpu';
-export type { RendererOptions, TerrainTones, TerrainScatter, OpenScatter, GroveFamily, AimFootprint, PlacementPreview, AuraRingView, SupplyRouteView, RallyMarkView, ObjectiveZoneView, TimeOfDay, LightOverride, BuildingFit, BackdropSpec } from './api';
+export type { RendererOptions, TerrainTones, HeightBlendTones, TerrainScatter, OpenScatter, GroveFamily, AimFootprint, PlacementPreview, AuraRingView, SupplyRouteView, RallyMarkView, ObjectiveZoneView, TimeOfDay, LightOverride, BuildingFit, BackdropSpec } from './api';
 // L2 (GH-943): the grade file's type, three-free, so the app can name what it hands the renderer.
 export type { GradeJson } from './three/grade-maths';
 // Backend-neutral by construction (no three import -- see the file's own
@@ -25,7 +25,7 @@ export type { GradeJson } from './three/grade-maths';
 // rather than joining a lazy entry point. `main.ts` reads `QUALITY_PRESETS`
 // to translate `Settings.video.quality` into `RendererOptions.quality`
 // before the renderer's chunk has loaded.
-export { QUALITY_PRESETS, type RenderQuality } from './quality';
+export { QUALITY_PRESETS, RAGDOLL_SHOWCASE_CAP, type RenderQuality } from './quality';
 // Per-seat kit (Task 6): which vehicle template a (type, side) draws from.
 // Pure and three-free, so it stays on the barrel; the app's room-kit test
 // holds it against `buildMatchWorld`, which decides "side 1 gets its own

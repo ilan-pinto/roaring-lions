@@ -430,6 +430,13 @@
  *                 frame, so a bare write would hold only until the gate's
  *                 repaint. Hides the streaks and their splashes, not the wet
  *                 ground. 0 on a map that does not rain.
+ * - `ragdolls`    every figure the presentation-only physics holds (GH-1223): the
+ *                 ragdolls in flight, the showcase teams waiting for their death,
+ *                 and the corpses they froze into. A FLAG
+ *                 (`ThreeRenderer.ragdollLayerHidden`) re-applied after the
+ *                 corpses' fog reveal each frame, so a repaint cannot undo it.
+ *                 Voted by the gated `ragdoll` scenario (PENDING its first CI
+ *                 readings); 0 wherever no ragdoll stands (every shipped preset).
  *
  * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
  * follow-up 2): the large dark diagonal a first attempt at the plate read as
@@ -489,6 +496,9 @@ export const DEBUG_LAYERS = [
   'supply-route',
   'slope-light',
   'height-contours',
+  // GH-1226 S4: the node ground's height and slope blend (`terrain/height-blend-record.ts`): `amp` to 0 and back. A no-op on legacy,
+  // which has no record, so a legacy layer check can name it. A uniform write nothing per frame re-asserts, the `macro` standard.
+  'height-blend',
   'crown',
   'crater-rims',
   // GH-748: the aircraft over a fire-support call, and the support impacts'
@@ -539,6 +549,10 @@ export const DEBUG_LAYERS = [
   // material shares to 0 and back (`units/team-mask.ts`): a uniform write nothing per-frame re-asserts. Witnessed
   // by the gated `vehicle` scenario's layer check.
   'team-mask',
+  // GH-1096 S1: the Roaring Lion insignia painted on a KDF hull (the Lavi in S1). Writes the insignia's OWN shared strength to 0
+  // and back (`units/insignia.ts`, never the team mark's): a uniform write nothing per-frame re-asserts. No gated layer check yet:
+  // it lands on `vehicle` and `kitted` after the lead's look at the S1 close-up.
+  'insignia',
   // GH-984 N2: the vehicles' disturbance of the grass and bushes (`terrain/disturb.ts`). `uDisturbAmp` to 0 and back,
   // the `wind` shape: the frame writes the slot count and the arrays, never the amplitude, and skips its own work
   // while the amplitude is 0, so a repaint cannot undo it. Witnessed by the gated `vehicle` scenario's layer check.
@@ -547,6 +561,10 @@ export const DEBUG_LAYERS = [
   // disturber build reads every frame (a helicopter takes no slot while hidden), so a repaint cannot undo it, and the vehicles'
   // `disturb` bend stays. The dust ring is not this layer's. Witnessed by the gated `vehicle` scenario's layer check.
   'wash',
+  // GH-1167 S5: the 3D grass field (`terrain/grass-field.node.ts`), node boots of a `grassField` theme only (0 everywhere else). A FLAG
+  // `ThreeRenderer.stepGrassField` consults every frame (the `unitsDebugHidden` lesson: the LOD swap rewrites the meshes). The A/B for
+  // the field's cost reading and for the probes (design 2026-11-11, section 3.4); no gated golden scenario frames a green map.
+  'grass-field',
   // GH-943 P3 (T5): the occlusion outline (the three team silhouette materials) and the smoke outline (its two materials), on both
   // paths: their `Material.visible`, which nothing per-frame re-asserts, composed with the `overlays` layer's own hide (each shows only
   // while BOTH layers do; `ThreeRenderer.writeSilhouetteVisibility`). The hit flash's outline is not in it. Witnessed by the T5
@@ -572,6 +590,8 @@ export const DEBUG_LAYERS = [
   'muzzle-burst',
   'smoke-plume',
   'collapse-shroud',
+  // GH-1223 slice 1: the ragdolls. See the doc entry.
+  'ragdolls',
 ] as const;
 
 /** The layers `ThreeRenderer.writeFxLayerVisibility` holds hidden every frame. */

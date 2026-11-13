@@ -69,10 +69,39 @@ export interface NodePostChain extends PostChainLike {
   readonly pipeline: RenderPipeline;
   /** The HalfFloat render-to-texture SMAA reads (null when the preset has no SMAA). */
   readonly smaaInput: { readonly renderTarget: THREE.RenderTarget } | null;
+  /**
+   * GH-1270: bring SMAA's three render targets to the renderer's drawing-buffer size NOW. Call it right after the renderer's
+   * `setSize` / `setPixelRatio`, between frames. `SMAANode.updateBefore` otherwise does it itself, in the middle of the frame that
+   * first sees the new size: `RenderTarget.setSize` disposes the target, the blend texture is destroyed under the frame's
+   * already-recorded work, and the queue submit raises "Destroyed texture SMAANode.blend used in a submit" once per resize.
+   * With the targets already at size, the node's own call is a no-op. A no-op for a preset with no SMAA.
+   */
+  resize(): void;
 }
 
-function depthStencilTexture(): THREE.DepthTexture {
-  const t = new THREE.DepthTexture(1, 1, THREE.UnsignedInt248Type);
+/**
+ * GH-1227 slice 3 (the soft-particles design, section 5, W1): the WebGPU feature that makes the scene pass's depth aspect copyable.
+ * three requests every feature the adapter has, so `renderer.hasFeature` says whether the device carries it (Apple GPUs do).
+ */
+export const SOFT_DEPTH_FEATURE = 'depth32float-stencil8';
+
+/**
+ * The ONE predicate for the node soft-particle copy: the preset asks for soft particles AND the backend can copy the depth (a
+ * WebGPU device with `SOFT_DEPTH_FEATURE`). The node backend reads it to pick the scene pass's depth type, and `ThreeRenderer.init`
+ * (through `RenderBackend.softDepthOn`) to build the copy, so the two can never disagree. Off: today's pass, no copy.
+ */
+export function nodeSoftDepthOn(quality: PostQuality, copyable: boolean): boolean {
+  return quality.softParticles === true && copyable;
+}
+
+/** The scene pass's depth type: `UnsignedInt248Type` (depth24plus-stencil8, today's) unless the soft copy is on, then `FloatType`
+ *  (depth32float-stencil8, whose depth aspect a texture copy may read; `soft-depth.ts`'s `NodeSoftDepthCopy` matches it). */
+export function nodeSceneDepthType(softDepth: boolean): THREE.TextureDataType {
+  return softDepth ? THREE.FloatType : THREE.UnsignedInt248Type;
+}
+
+function depthStencilTexture(type: THREE.TextureDataType): THREE.DepthTexture {
+  const t = new THREE.DepthTexture(1, 1, type);
   t.format = THREE.DepthStencilFormat;
   return t;
 }
@@ -83,14 +112,16 @@ export function createNodePostChain(
   scene: THREE.Scene,
   camera: THREE.Camera,
   quality: PostQuality,
-  kit: PostKit
+  kit: PostKit,
+  softDepthCopyable = false
 ): NodePostChain {
   const { W, TSL } = deps;
   const names: PostStageName[] = [];
   const owned: Array<{ dispose(): void }> = [];
 
   // 1. The scene pass: HalfFloat colour, single-sampled, depth24plus-stencil8 (a DepthStencilFormat / UnsignedInt248 depth texture).
-  const depthTexture = depthStencilTexture();
+  // GH-1227 slice 3: depth32float-stencil8 instead (FloatType) only while the soft-particle copy is on (`nodeSoftDepthOn`).
+  const depthTexture = depthStencilTexture(nodeSceneDepthType(nodeSoftDepthOn(quality, softDepthCopyable)));
   const scenePass = TSL.pass(scene, camera, {
     type: THREE.HalfFloatType,
     depthBuffer: true,
@@ -129,21 +160,40 @@ export function createNodePostChain(
 
   // 6. SMAA, last, on display-referred colour. Its input is a HalfFloat render-to-texture.
   let smaaInput: NodePostChain['smaaInput'] = null;
+  let smaaNode: { setSize(w: number, h: number): void } | null = null;
   if (quality.smaa) {
     const input = TSL.rtt(colour, null, null, { type: THREE.HalfFloatType });
     smaaInput = input as unknown as NodePostChain['smaaInput'];
     colour = deps.smaa(input);
+    smaaNode = colour as unknown as { setSize(w: number, h: number): void };
     owned.push({ dispose: () => (colour as unknown as { dispose?: () => void }).dispose?.() });
     names.push('SMAAPass');
   }
 
   const pipeline = new W.RenderPipeline(renderer, colour);
   pipeline.outputColorTransform = false;
+  // The size SMAA's targets were last brought to. 0 x 0 = never: a fresh node's targets are 1x1, so the first `resize()` is a real change.
+  let sizedW = 0;
+  let sizedH = 0;
 
   return {
     scenePass,
     pipeline,
     smaaInput,
+    resize() {
+      if (smaaNode === null) return;
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      // GH-1270 follow-up: only a real change of the drawing buffer costs anything. `needsUpdate` rebuilds ~5 node materials, and a live
+      // window drag calls this on every ResizeObserver callback (about once a frame) with the size often unchanged.
+      if (size.width === sizedW && size.height === sizedH) return;
+      sizedW = size.width;
+      sizedH = size.height;
+      smaaNode.setSize(size.width, size.height);
+      // `Bindings._update` re-reads a sampled texture's `generation` only when the node binding reports a change of texture
+      // OBJECT, and the blend target is the same object before and after `RenderTarget.setSize`: the output quad would keep the
+      // bind group that holds the destroyed GPU texture. A fresh quad program state builds a fresh bind group.
+      pipeline.needsUpdate = true;
+    },
     grade,
     vignette,
     passNames: names,
@@ -160,6 +210,17 @@ export function createNodePostChain(
   };
 }
 
+/**
+ * `createNodePostChain`, then `resize()`: a fresh chain's SMAA targets are 1x1, so size them now, between frames, not inside the first
+ * frame that renders (GH-1270). The backend's `build` calls this; `createNodePostChain` stays pure of renderer reads for its callers
+ * that hand it a stub.
+ */
+export function createSizedNodePostChain(...args: Parameters<typeof createNodePostChain>): NodePostChain {
+  const chain = createNodePostChain(...args);
+  chain.resize();
+  return chain;
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------------
 // GH-943 P1 (T7): ambient occlusion. Mirrors `WorldGTAOPass` (post-chain.ts): the opaque world re-drawn into a normal + depth
 // pre-pass at a fraction of the frame, GTAO over it, a Poisson denoise, then a MULTIPLY onto the chain's colour.
@@ -167,6 +228,8 @@ export function createNodePostChain(
 
 /** Names only this module carries, for the bundle census and the tests. */
 export const NODE_AO_PREPASS_NAME = 'rl-node-ao-prepass';
+/** GH-1248: the name of a cut building's AO mask material (one per TSL twin, `createNodeAoStage`'s `cutAoFor`). */
+export const NODE_AO_CUT_MATERIAL_NAME = 'rl-node-ao-normal-cut';
 
 /**
  * Runs `draw` with only the AO occluders visible and the sun's shadow map frozen, then puts everything back (in `finally`: a throw in
@@ -177,14 +240,33 @@ export const NODE_AO_PREPASS_NAME = 'rl-node-ao-prepass';
  *    its LIGHT's `shadow.autoUpdate` or `needsUpdate` is set, at most once per camera per frame). So the freeze here is on each
  *    light's `shadow.autoUpdate`, which is the flag the node path consults;
  *  - only the meshes THIS call hid are restored, so a mesh that was already invisible (the unported-GLSL census hides some) stays so.
+ *
+ * GH-1248, the legacy pass's cut swap (`post-chain.ts`, `userData.rlCutAo`) on the node backend: a cut building's mesh occludes
+ * through `cutAoFor(mesh)`, its TSL twin's AO mask material (`createNodeAoStage`), put back in `finally` like the hidden set. A
+ * mesh carrying the legacy mask with no node mask yet (its twin is adopted on the next frame) is left out of the G-buffer rather
+ * than drawn whole over the units inside, as before. Off the cut path no mesh carries `rlCutAo`: unchanged.
  */
-export function withAoOccludersOnly<T>(scene: THREE.Scene, isOccluder: AoMaths['isOccluder'], draw: () => T): T {
+export function withAoOccludersOnly<T>(
+  scene: THREE.Scene,
+  isOccluder: AoMaths['isOccluder'],
+  draw: () => T,
+  cutAoFor?: (mesh: THREE.Mesh) => THREE.Material | undefined
+): T {
   const hidden: THREE.Object3D[] = [];
+  const swapped: [THREE.Mesh, THREE.Material | THREE.Material[]][] = [];
   const frozen: THREE.LightShadow[] = [];
   scene.traverse((object) => {
-    if (object.visible && !isOccluder(object)) {
-      object.visible = false;
-      hidden.push(object);
+    const cutAo = (object.userData as { rlCutAo?: unknown }).rlCutAo !== undefined;
+    if (object.visible) {
+      const mesh = object as THREE.Mesh;
+      const mask = cutAo && cutAoFor !== undefined && mesh.isMesh && isOccluder(object) ? cutAoFor(mesh) : undefined;
+      if (mask !== undefined) {
+        swapped.push([mesh, mesh.material]);
+        mesh.material = mask;
+      } else if (cutAo || !isOccluder(object)) {
+        object.visible = false;
+        hidden.push(object);
+      }
     }
     const shadow = (object as { shadow?: THREE.LightShadow }).shadow;
     if (shadow !== undefined && shadow.autoUpdate) {
@@ -196,6 +278,7 @@ export function withAoOccludersOnly<T>(scene: THREE.Scene, isOccluder: AoMaths['
     return draw();
   } finally {
     for (const object of hidden) object.visible = true;
+    for (const [mesh, material] of swapped) mesh.material = material;
     for (const shadow of frozen) shadow.autoUpdate = true;
   }
 }
@@ -243,19 +326,26 @@ export interface NodeAoStage {
   readonly control: AoControl;
   /** What the multiply reads: 0 when the layer is off, else the zoom-fade weight. */
   readonly blendUniform: { readonly value: number };
+  /**
+   * GH-1248: the AO mask material a cut mesh draws the pre-pass through (`withAoOccludersOnly`), or undefined when its material
+   * carries no node mask. One per twin, minted on first use and disposed with it: the normal material's output behind a discard on
+   * the twin's own `maskNode`, the very node its colour and shadow discard on (so the maths is `MATERIAL_MATHS.building` and the
+   * uniforms are the legacy records, by reference). Double-sided, no blending and `allowOverride` false, as the legacy mask.
+   */
+  readonly cutAoFor: (mesh: THREE.Mesh) => THREE.Material | undefined;
   /** The pieces of the LAST chain the factory built (null before any), for the tests that pin their settings. */
   parts(): { readonly prePass: PassNode; readonly gtao: GtaoNodeLike; readonly denoise: DenoiseNodeLike } | null;
 }
 
 /** The PassNode subclass: skips its scene render while the gate says the AO contributes nothing, and draws only the occluders. */
-function aoPrePassClass(W: NodeAoDeps['W'], isOccluder: AoMaths['isOccluder']) {
+function aoPrePassClass(W: NodeAoDeps['W'], isOccluder: AoMaths['isOccluder'], cutAoFor: NodeAoStage['cutAoFor']) {
   return class AoPrePass extends W.PassNode {
     /** True while the AO is in the picture (blend above 0 and the layer on). */
     gate: () => boolean = () => true;
 
     override updateBefore(frame: Parameters<PassNode['updateBefore']>[0]): boolean | undefined {
       if (!this.gate()) return undefined;
-      return withAoOccludersOnly(this.scene as THREE.Scene, isOccluder, () => super.updateBefore(frame));
+      return withAoOccludersOnly(this.scene as THREE.Scene, isOccluder, () => super.updateBefore(frame), cutAoFor);
     }
   };
 }
@@ -270,7 +360,6 @@ function aoPrePassClass(W: NodeAoDeps['W'], isOccluder: AoMaths['isOccluder']) {
  */
 export function createNodeAoStage(deps: NodeAoDeps): NodeAoStage {
   const { W, TSL } = deps;
-  const AoPrePass = aoPrePassClass(W, deps.maths.isOccluder);
   const blendUniform = TSL.uniform(1);
   let weight = 1;
   let on = true;
@@ -299,9 +388,39 @@ export function createNodeAoStage(deps: NodeAoDeps): NodeAoStage {
   // of the object it replaces come through `setupPosition`.
   const normalMaterial = new W.NodeMaterial();
   normalMaterial.name = 'rl-node-ao-normal';
-  normalMaterial.fragmentNode = TSL.vec4(TSL.normalView, 1);
+  const normalOut = TSL.vec4(TSL.normalView, 1);
+  normalMaterial.fragmentNode = normalOut;
   normalMaterial.fog = false;
   normalMaterial.toneMapped = false;
+
+  // GH-1248: a cut building's AO mask (see `NodeAoStage.cutAoFor`). A `fragmentNode` material skips `maskNode` (r186's
+  // `NodeMaterial.setup` runs the mask only in `setupDiffuseColor`), so the discard is written into the fragment itself.
+  const cutMasks = new WeakMap<THREE.Material, THREE.Material>();
+  const cutAoFor = (mesh: THREE.Mesh): THREE.Material | undefined => {
+    const twin = mesh.material;
+    if (Array.isArray(twin)) return undefined;
+    const keep = (twin as { maskNode?: TslNode | null }).maskNode;
+    if (keep === undefined || keep === null) return undefined;
+    let mask = cutMasks.get(twin);
+    if (mask === undefined) {
+      const m = new W.NodeMaterial();
+      m.name = NODE_AO_CUT_MATERIAL_NAME;
+      m.fragmentNode = TSL.Fn(() => {
+        TSL.bool(keep as never).not().discard();
+        return normalOut;
+      })() as never;
+      m.fog = false;
+      m.toneMapped = false;
+      m.side = THREE.DoubleSide;
+      m.blending = THREE.NoBlending;
+      m.allowOverride = false;
+      twin.addEventListener('dispose', () => m.dispose());
+      cutMasks.set(twin, m);
+      mask = m;
+    }
+    return mask;
+  };
+  const AoPrePass = aoPrePassClass(W, deps.maths.isOccluder, cutAoFor);
 
   let last: ReturnType<NodeAoStage['parts']> = null;
   const factory: PostStageFactory = (ctx) => {
@@ -357,5 +476,5 @@ export function createNodeAoStage(deps: NodeAoDeps): NodeAoStage {
       },
     };
   };
-  return { factory, control, blendUniform, parts: () => last };
+  return { factory, control, blendUniform, cutAoFor, parts: () => last };
 }

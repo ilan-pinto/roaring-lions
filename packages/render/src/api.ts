@@ -162,6 +162,41 @@ export interface TerrainTones {
    * draws on the ground. Absent: the shared ground tone, unchanged.
    */
   marsh?: string;
+  /**
+   * GH-1167: the 3D grass field's colour keys, resolved to hex by the app (`paletteColor`, as `decorColors`). Its presence is what
+   * a NODE boot keys the field on (design 2026-11-11, section 3.1): only the `green` theme sets it, never a map id. The legacy
+   * path never reads it (pin P4, `tools/src/grass_legacy_scene.test.ts`). Absent: no field.
+   */
+  grassField?: GrassFieldTones;
+  /**
+   * GH-1226: the height and slope ground blend a NODE boot keys on (design 2026-11-12, section 3.3): only `highland` and `arid` set
+   * it, and a map with `ground_blend: false` is handed the theme without it. The legacy path never reads it (pin L3). Absent: today's ground.
+   */
+  heightBlend?: HeightBlendTones;
+}
+
+/** `TerrainTones.heightBlend`: resolved hexes and the amplitudes (design 2026-11-12, section 2.2). `joint` and `aJ` are absent together: arid has no joints. */
+export interface HeightBlendTones {
+  readonly rock: string;
+  readonly joint?: string;
+  readonly hollow: string;
+  readonly aR: number;
+  readonly aJ?: number;
+  readonly aH: number;
+  readonly kH: number;
+}
+
+/** `TerrainTones.grassField`: design 2026-11-11, section 2.1, Colour keys (the shape of `terrain/grass-blade.ts`'s `GrassColours`). */
+export interface GrassFieldTones {
+  /** Root and lower blade, `grass.4`. */
+  readonly root: string;
+  /** The three tips: `grass.3`, `grass.2`, `grass.1`. */
+  readonly tip3: string;
+  readonly tip2: string;
+  readonly tip1: string;
+  /** Last year's straw: root `dust.3`, tip `limestone.3`. */
+  readonly strawRoot: string;
+  readonly strawTip: string;
 }
 
 /**
@@ -372,6 +407,12 @@ export interface RendererOptions {
   flipbookFireUrl?: string;
   flipbookSmokeUrl?: string;
   /**
+   * GH-1096 S1: URL of the Roaring Lion insignia's distance field -- `assets/textures/insignia/roaring_lion_sdf.png` (data, loaded
+   * `NoColorSpace`). Three-only, fetched once in `init()`, optional and fail-soft: without it (or if it fails, with a
+   * `console.error` naming the file) a KDF hull draws exactly as it did, with no insignia.
+   */
+  insigniaSdfUrl?: string;
+  /**
    * Directory the Draco decoder is fetched from -- `${BASE}draco/`, ending in
    * a slash. Three-only, read once at construction and handed to
    * `three/units/gltf-loader.ts`.
@@ -438,6 +479,23 @@ export interface RendererOptions {
    * a tick sees them identically every run.
    */
   decalShowcase?: { readonly x: number; readonly y: number };
+  /**
+   * GH-1197 P5: stamp the settled-rubble showcase around this tile once the terrain is built: two finished collapses
+   * (a 3x3 limestone house and a 2x2 dust shed), each its rubble decal and its chunks AT REST, on the decal showcase's
+   * own road and flat sites (anchored clear of the force the same way). Dated sim time 0, so a capture before the 90 s
+   * fade sees them identically every run. Three-only and sandbox-only, under `&rubble`, never on a mission: the
+   * witness of the gated `rubble` scenario.
+   */
+  rubbleShowcase?: { readonly x: number; readonly y: number };
+  /**
+   * GH-1223 slice 1: the ragdoll showcase around this tile, the witness of the gated `ragdoll` scenario. Two
+   * `inf_squad` teams on the decal showcase's flat site (anchored clear of the force the same way), killed by no sim
+   * event at all -- renderer-only figures dying at sim time 0 (settled by tick 300) and at 14.6 s (mid-fall at tick
+   * 300, 15 s). Every input is hashed or dated on the sim clock, so a capture at a tick sees them identically every
+   * run. Three-only and sandbox-only, under `&ragdoll` (which also raises the ragdoll cap to
+   * `RAGDOLL_SHOWCASE_CAP`), never on a mission.
+   */
+  ragdollShowcase?: { readonly x: number; readonly y: number };
   /**
    * Pass C2/C4 (P5): the player's reduced-motion preference, asked live (a
    * settings change mid-mission takes effect at once). Absent reads as

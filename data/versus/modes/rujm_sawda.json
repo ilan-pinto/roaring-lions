@@ -24,7 +24,7 @@
         { "zone": "well_e_1", "per_min": 30 }
       ],
       "per_value_destroyed": 1,
-      "target": 350
+      "target": 250
     }
   }
 }

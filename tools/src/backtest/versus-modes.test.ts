@@ -1,12 +1,12 @@
 // The versus probe's win-mode arm (GH-976 P1): the instrument has to tell its sides apart, play both ends the same
 // way, and read its own bars the way the header says. Each test is seen red under a one-line mutation of
 // versus-modes.ts; the commit message lists them.
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MapId } from '@lions/data';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
-import { economyRoom } from '@lions/net';
+import { FLAG_SETUP_MAPS, economyRoom } from '@lions/net';
 import {
-  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, RAZE_MEAN_MAX_S_48, RAZE_MEAN_MAX_S_96, contestedShare, holdsBalanced, razeLimitS, razeOk, razeVerdict, withCampOverride, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, describeTiming, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
+  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, RAZE_MEAN_MAX_S_48, RAZE_MEAN_MAX_S_96, contestedShare, holdsBalanced, razeLimitS, razeOk, razeVerdict, withCampOverride, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, describeTiming, g4Verdict, massedFlagOrder, rallyTile, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
   type ModePlayFn, type ModePlayed,
 } from './versus-modes';
 import { main as probeMain, seedOf } from './versus-probe';
@@ -640,4 +640,223 @@ describe('GH-976 v2: FLAG_V1_GAME_PIN (R0.19): a v1 flag game stays byte for byt
     expect(g.probe).toBeUndefined();
     expect({ winner: g.winner, by: g.by, ticks: g.ticks }).toEqual(FLAG_V1_GAME_PIN.wadi_tarfan.result);
   }, FULL_GAMES_TIMEOUT_MS);
+});
+
+describe('the flag arm plays the lobby\'s set-up room (flagSetupFor), and --flag-setup=off is the v1 read', () => {
+  // Oracles are literals: Ready at 20 s is tick 400, the bell rings 100 ticks (SETUP_BELL_DELAY_TICKS) after both are Ready, the
+  // set-up lasts 180 s (3,600 ticks) without that, and the backstop is 12 minutes (14,400 ticks) after the bell.
+  const quiet = <T>(fn: () => T): T => { const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined); try { return fn(); } finally { spy.mockRestore(); } };
+
+  it('a map FLAG_SETUP_MAPS lists runs the set-up: the bell rings at 500, nothing is decided before it, the room is a set-up room', () => {
+    const g = playMode('wadi_tarfan', 'flag', seedOf(0), { flagSetup: true });
+    expect(g.bellTick).toBe(500);
+    expect(g.ticks).toBeGreaterThanOrEqual(500);
+    expect(buildMatchWorld(modeConfig('wadi_tarfan', 'flag', seedOf(0), undefined, true)).setup).not.toBeNull();
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('--ready-s moves the bell: Ready at 40 s rings it at tick 900', () => {
+    expect(playMode('wadi_tarfan', 'flag', seedOf(0), { flagSetup: true, readyS: 40 }).bellTick).toBe(900);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('a seat that takes no order never presses Ready: against a passive seat the bell waits the full 180 s (tick 3600)', () => {
+    const g = playMode('wadi_tarfan', 'flag', seedOf(0), { flagSetup: true, passive: 1 });
+    expect(g.bellTick).toBe(3600);
+    expect(g.winner).toBe(0); // the attacking end wins, by the flag or by the wipe (both are clean wins), never by the cap
+    expect(['objective', 'annihilation']).toContain(g.by);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('a flag map that is NOT listed plays no set-up even when asked (tel_marum has a v1 flag and no flag_setup)', () => {
+    const asked = playMode('tel_marum', 'flag', seedOf(0), { flagSetup: true });
+    expect(asked.bellTick).toBeUndefined();
+    expect(buildMatchWorld(modeConfig('tel_marum', 'flag', seedOf(0), undefined, true)).setup).toBeNull();
+    expect(asked).toEqual(playMode('tel_marum', 'flag', seedOf(0)));
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('a listed map with the set-up off is the v1 game, byte for byte: no bell, the FLAG_V1_GAME_PIN result', () => {
+    const g = playMode('wadi_tarfan', 'flag', seedOf(35000), { flagSetup: false });
+    expect(g.bellTick).toBeUndefined();
+    expect({ winner: g.winner, by: g.by, ticks: g.ticks }).toEqual({ winner: 1, by: 'objective', ticks: 1240 });
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('the room is decided on the earlier of its cap and the bell + 12 minutes: a game nobody wins by the flag ends at tick 500 + 14,400, not at the 30-minute cap', () => {
+    // wipeEnds:false (the experiment) lets the wiped seat play on, so nothing but the flag or the clock ends the game.
+    const g = playMode('wadi_tarfan', 'flag', seedOf(0), { flagSetup: true, wipeEnds: false });
+    expect(g).toMatchObject({ by: 'cap', ticks: 14900, bellTick: 500 });
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('describeTiming reads a set-up game from its bell (the audits\' "within 120 s of the bell")', () => {
+    const games: ModePlayed[] = [{ winner: 0, by: 'objective', ticks: 2900, bellTick: 500 }, { winner: 1, by: 'objective', ticks: 1700, bellTick: 500 }];
+    expect(describeTiming(games)).toBe('median 90 s to win over 2 goal games, rush wins (before 120 s of the bell) 1');
+    expect(describeTiming([{ winner: 0, by: 'objective', ticks: 2900 }])).toBe('median 145 s to win over 1 goal games, rush wins (before 120 s) 0');
+  });
+
+  it('the CLI plays the set-up room by default and --flag-setup=off plays the v1 room; a bad value is refused', () => {
+    const seen: { flagSetup?: boolean; readyS?: number }[] = [];
+    const fake: ModePlayFn = (_m, _mode, _s, o) => { seen.push({ flagSetup: o?.flagSetup, readyS: o?.readyS }); return { winner: 0, by: 'objective', ticks: 2400 }; };
+    quiet(() => modeMain(['--mode=flag', '--maps=wadi_tarfan', '--seeds=1', '--no-self-check', '--passive=off'], fake));
+    expect(seen).toEqual([{ flagSetup: true, readyS: 20 }]);
+    seen.length = 0;
+    quiet(() => modeMain(['--mode=flag', '--maps=wadi_tarfan', '--seeds=1', '--no-self-check', '--passive=off', '--ready-s=40'], fake));
+    expect(seen).toEqual([{ flagSetup: true, readyS: 40 }]);
+    seen.length = 0;
+    quiet(() => modeMain(['--mode=flag', '--maps=wadi_tarfan', '--seeds=1', '--no-self-check', '--passive=off', '--flag-setup=off'], fake));
+    expect(seen).toEqual([{ flagSetup: undefined, readyS: undefined }]);
+    expect(() => modeMain(['--mode=flag', '--flag-setup=maybe'], fake)).toThrow(/--flag-setup/);
+    expect(() => modeMain(['--mode=flag', '--ready-s=200'], fake)).toThrow(/--ready-s/);
+  });
+
+  it('--include-delisted (GH-976): a map with a staged flag_setup that is OFF FLAG_SETUP_MAPS (milh_flats) plays the set-up room only when asked; a map with no staged block never does', () => {
+    // Literals: milh_flats left the list on 12 Nov and keeps its block on disk; tel_marum never had one.
+    expect(FLAG_SETUP_MAPS).not.toContain('milh_flats');
+    expect(versusModes.milh_flats.flag_setup).toBeDefined();
+    expect(versusModes.tel_marum.flag_setup).toBeUndefined();
+    expect(modeConfig('milh_flats', 'flag', seedOf(0), undefined, true).flagSetup).toBeUndefined();
+    expect(modeConfig('milh_flats', 'flag', seedOf(0), undefined, true, true).flagSetup).toBe(true);
+    expect(modeConfig('tel_marum', 'flag', seedOf(0), undefined, true, true).flagSetup).toBeUndefined();
+    // Never for another mode, and never without the set-up asked for.
+    expect(modeConfig('milh_flats', 'camp', seedOf(0), undefined, true, true).flagSetup).toBeUndefined();
+    expect(modeConfig('milh_flats', 'flag', seedOf(0), undefined, false, true).flagSetup).toBeUndefined();
+    const plain = playMode('milh_flats', 'flag', seedOf(0), { flagSetup: true });
+    expect(plain.bellTick).toBeUndefined(); // the v1 room, silently, as before the flag
+    const played = playMode('milh_flats', 'flag', seedOf(0), { flagSetup: true, includeDelisted: true });
+    expect(played.bellTick).toBe(500); // Ready at 20 s rings the bell at tick 500: the lobby's room
+    expect(buildMatchWorld(modeConfig('milh_flats', 'flag', seedOf(0), undefined, true, true)).setup).not.toBeNull();
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('the CLI: --include-delisted reaches the game and is named in the run; without it the run says the delisted map plays v1; it is refused where it means nothing', () => {
+    const seen: (boolean | undefined)[] = [];
+    const fake: ModePlayFn = (_m, _mode, _s, o) => { seen.push(o?.includeDelisted); return { winner: 0, by: 'objective', ticks: 2400 }; };
+    const out = (argv: string[]): string => {
+      const lines: string[] = [];
+      const spy = vi.spyOn(console, 'log').mockImplementation((l?: unknown) => { lines.push(String(l)); });
+      try { modeMain(argv, fake); } finally { spy.mockRestore(); }
+      return lines.join('\n');
+    };
+    const base = ['--mode=flag', '--maps=milh_flats', '--seeds=1', '--no-self-check', '--passive=off'];
+    expect(out([...base, '--include-delisted'])).toContain('--include-delisted plays the staged set-up room on milh_flats');
+    expect(seen).toEqual([true]);
+    seen.length = 0;
+    const without = out(base);
+    expect(without).toContain('milh_flats is not in FLAG_SETUP_MAPS and plays the v1 room, no set-up (milh_flats has a staged set-up: --include-delisted plays it)');
+    expect(seen).toEqual([undefined]);
+    expect(out(['--mode=flag', '--maps=wadi_tarfan', '--seeds=1', '--no-self-check', '--passive=off'])).not.toContain('not in FLAG_SETUP_MAPS');
+    expect(() => modeMain(['--mode=camp', '--maps=milh_flats', '--include-delisted'], fake)).toThrow(/needs --mode=flag/);
+    expect(() => modeMain([...base, '--include-delisted', '--flag-setup=off'], fake)).toThrow(/needs the set-up on/);
+  });
+
+  it('the self-check plays the same room the sweep plays', () => {
+    const seen: unknown[] = [];
+    const fake: ModePlayFn = (_m, _mode, _s, o) => { seen.push(o?.flagSetup); return { winner: o?.cutEnd === 1 ? 0 : 1, by: 'objective', ticks: 2400 }; };
+    modeSelfCheck('wadi_tarfan', 'flag', fake, undefined, { flagSetup: true });
+    expect(seen).toEqual([true, true, true, true]);
+  });
+});
+
+describe('the massed flag script (a reduced stand-in for the audit\'s strong attacker) and the G4 line', () => {
+  // GH-976: PR 1307 took milh_flats off FLAG_SETUP_MAPS, so a flag room there is no set-up room any more (no bell, no regions, the v1
+  // flags). These tests pin the script on milh_flats' SET-UP room (the rally literals below are its), the room the strong attacker must
+  // be re-run on before milh_flats can come back (`WIN_MODE_FAIR_MAPS.flag` in config.ts). So this describe stands milh_flats back in the
+  // list for its run (`flagSetupFor` reads it at call time, as `arena.test.ts` relies on) and restores the shipped list after each test.
+  const setupList = FLAG_SETUP_MAPS as string[];
+  const SETUP_SHIPPED = [...setupList];
+  beforeEach(() => { if (!setupList.includes('milh_flats')) setupList.push('milh_flats'); });
+  afterEach(() => { setupList.splice(0, setupList.length, ...SETUP_SHIPPED); });
+  const worldOf = (map: MapId) => buildMatchWorld(modeConfig(map, 'flag', seedOf(0), undefined, true));
+  /** The commands `massedFlagOrder` queues, read off the sim by spying on its queue. */
+  const issued = (map: MapId, nowTick: number, idle = new Set<number>()) => {
+    const w = worldOf(map);
+    const cmds: { kind: string; ids: number[]; x: number; y: number }[] = [];
+    const spy = vi.spyOn(w.sim, 'queueCommand').mockImplementation((c) => { cmds.push(c as never); });
+    const parties = new Map<number, readonly number[]>([[0, raidParty(w, 0)], [1, raidParty(w, 1)]]);
+    massedFlagOrder(w, map, parties, idle, nowTick, 30);
+    spy.mockRestore();
+    return { w, cmds, parties };
+  };
+  const MILH_FLATS_RALLY_FIXED = { 0: [18 * 65536, 29 * 65536], 1: [29 * 65536, 18 * 65536] } as const;
+  const centre = (map: MapId, end: 'friendly' | 'hostile') => { const f = versusModes[map].flag_setup!.flags[end]; return [(f.at[0] + f.size[0] / 2) * 65536, (f.at[1] + f.size[1] / 2) * 65536]; };
+
+  it('the rally tile lies inside the seat\'s own set-up region on every set-up map (the shipped list, and milh_flats stood in), for both seats', () => {
+    // Read at run time, so a map delisted or relisted later is covered without editing this test.
+    const maps = [...FLAG_SETUP_MAPS] as MapId[];
+    expect(maps).toContain('milh_flats');
+    expect(maps.length).toBeGreaterThan(1);
+    for (const map of maps) {
+      const w = worldOf(map);
+      // A dead stand-in (or a map with no staged block) would read -2 for every tile below: name it here instead.
+      expect(w.setup, `${map} is not a set-up room`).not.toBeNull();
+      for (const side of [0, 1] as const) {
+        const [x, y] = rallyTile(w, side);
+        expect(w.sim.setupRegionAt(x, y), `${map} side ${side} rally ${x},${y}`).toBe(side);
+      }
+    }
+  });
+
+  it('before bell + 30 s the body moves to the rally tile and two defenders attack-move onto the OWN flag; nobody is sent at the enemy flag', () => {
+    const { w, cmds, parties } = issued('milh_flats', 0);
+    for (const side of [0, 1] as const) {
+      const mine = cmds.filter((c) => c.ids.some((id) => w.sim.state.side[id] === side));
+      const post = mine.find((c) => c.kind === 'attackMove')!;
+      expect(post.ids.slice().sort()).toEqual([...parties.get(side)!].sort());
+      expect([post.x, post.y]).toEqual(centre('milh_flats', w.endOfSide[side]));
+      const body = mine.find((c) => c.kind === 'move')!;
+      // A literal, not `rallyTile` again: milh_flats rallies seat 0 at tile (18, 29) and seat 1 at (29, 18), in 16.16 fixed point.
+      expect([body.x, body.y]).toEqual(MILH_FLATS_RALLY_FIXED[side]);
+      expect(mine.some((c) => c.kind === 'attackMove' && [c.x, c.y].join() === centre('milh_flats', w.endOfSide[side === 0 ? 1 : 0]).join())).toBe(false);
+    }
+  });
+
+  it('from bell + 30 s the whole body attack-moves on the ENEMY flag and the defenders stay', () => {
+    const bell = worldOf('milh_flats').sim.setupBellTick;
+    const { w, cmds, parties } = issued('milh_flats', bell + 600);
+    for (const side of [0, 1] as const) {
+      const mine = cmds.filter((c) => c.ids.some((id) => w.sim.state.side[id] === side));
+      expect(mine.some((c) => c.kind === 'move')).toBe(false);
+      const enemy = mine.find((c) => [c.x, c.y].join() === centre('milh_flats', w.endOfSide[side === 0 ? 1 : 0]).join())!;
+      expect(enemy.ids.some((id) => parties.get(side)!.includes(id))).toBe(false);
+      expect(enemy.ids.length).toBeGreaterThan(5);
+    }
+    // one tick short of the gate it is still gathering
+    expect(issued('milh_flats', bell + 599).cmds.some((c) => c.kind === 'move')).toBe(true);
+  });
+
+  it('an idle side takes no order', () => {
+    const { w, cmds } = issued('milh_flats', 0, new Set([1]));
+    // Before the bell + 30 s side 0 gets exactly two orders (its defenders onto the own flag, its body to the rally tile): an empty list would pass `every`.
+    expect(cmds.map((c) => c.kind)).toEqual(['attackMove', 'move']);
+    expect(cmds.every((c) => c.ids.length > 0)).toBe(true);
+    expect(cmds.every((c) => c.ids.every((id) => w.sim.state.side[id] === 0))).toBe(true);
+  });
+
+  it('the massed script is a flag script: any other mode is refused', () => {
+    expect(() => playMode('wadi_tarfan', 'camp', seedOf(0), { script: 'massed' })).toThrow(/flag script/);
+  });
+
+  it('the CLI passes --script and --mass-s, and refuses a bad script, a bad mass time, or massed outside --mode=flag', () => {
+    const seen: { script?: string; massS?: number }[] = [];
+    const fake: ModePlayFn = (_m, _mode, _s, o) => { seen.push({ script: o?.script, massS: o?.massS }); return { winner: 0, by: 'objective', ticks: 2400 }; };
+    const quiet = <T>(fn: () => T): T => { const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined); try { return fn(); } finally { spy.mockRestore(); } };
+    quiet(() => modeMain(['--mode=flag', '--maps=milh_flats', '--seeds=1', '--no-self-check', '--passive=off', '--script=massed', '--mass-s=45'], fake));
+    expect(seen).toEqual([{ script: 'massed', massS: 45 }]);
+    seen.length = 0;
+    quiet(() => modeMain(['--mode=flag', '--maps=milh_flats', '--seeds=1', '--no-self-check', '--passive=off'], fake));
+    expect(seen).toEqual([{ script: undefined, massS: undefined }]);
+    expect(() => modeMain(['--mode=flag', '--script=feint'], fake)).toThrow(/--script/);
+    expect(() => modeMain(['--mode=flag', '--script=massed', '--mass-s=500'], fake)).toThrow(/--mass-s/);
+    expect(() => modeMain(['--mode=all', '--script=massed'], fake)).toThrow(/--mode=flag/);
+  });
+
+  it('g4Verdict counts flag wins within 120 s of the bell against the 5% bar', () => {
+    const win = (sec: number): ModePlayed => ({ winner: 0, by: 'objective', ticks: 500 + sec * 20, bellTick: 500 });
+    const wipe: ModePlayed = { winner: 1, by: 'annihilation', ticks: 1500, bellTick: 500 };
+    const games = [win(119), win(121), ...Array.from({ length: 38 }, () => wipe)];
+    expect(g4Verdict(games)).toBe('G4 flag wins within 120 s of the bell: 1 of 40 (2.5%) ok');
+    expect(g4Verdict([win(10), win(20), ...Array.from({ length: 18 }, () => wipe)])).toBe('G4 flag wins within 120 s of the bell: 2 of 20 (10.0%) OVER 5%');
+  });
+});
+
+// Runs after the describe above (one file runs its tests in order): its stand-in must not outlive it.
+describe('after the massed describe', () => {
+  it('milh_flats is off FLAG_SETUP_MAPS again (the stand-in was restored)', () => {
+    expect(FLAG_SETUP_MAPS).not.toContain('milh_flats');
+  });
 });

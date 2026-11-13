@@ -7,7 +7,7 @@
  *
  * **The chain order is the legacy one, whatever the key's order.** The legacy splices compose at fixed chunks: the soot replaces
  * the map, the tread multiplies right after it, the mark mixes after the colour chunk, the rim's exposure after the emissive map,
- * the floor on the lit colour. A moving marked hull's key reads `...|rl-team-mark-2|rl-running-gear-1` (the clone appends its own),
+ * the floor on the lit colour. A moving marked hull's key reads `...|rl-unit-mark-3|team|rl-running-gear-1` (the clone appends its own),
  * yet the tread is under the mark. `UNIT_TERM_ORDER` is that order, and the composer applies terms in it.
  *
  * **One twin serves many entities (ruling P3-R3).** Adoption memoises a unit twin by the base legacy material, the segments and the
@@ -38,6 +38,7 @@ import { declareObjectInputs, pushValue } from '../backend/object-inputs';
 import { hookSegments } from '../material-names';
 import { legacyBaseOf, legacyMaterialOf, type HasUserData } from '../twin-identity';
 import { teamMarkTerms, type TeamMarkMaths } from './team-mask.node';
+import { insigniaTerms, type InsigniaMaths } from './insignia.node';
 import { runningGearTerms, type RunningGearMaths } from './running-gear.node';
 import { sootTerms, type SootMaths } from '../world-materials.node';
 import { rimTerms, type RimMaths } from './rain-rim.node';
@@ -46,6 +47,8 @@ import { floorTerms, type FloorMaths } from './wounded-read.node';
 /** The unit twin's shared maths, injected (`material-maths.ts`'s `MATERIAL_MATHS.unit`). */
 export interface UnitMaths {
   readonly team: TeamMarkMaths;
+  /** GH-1096 S1: the insignia, the unit-mark segment's second term. */
+  readonly insignia: InsigniaMaths;
   readonly rg: RunningGearMaths;
   readonly soot: SootMaths;
   readonly rim: RimMaths;
@@ -66,7 +69,7 @@ const NAME_PREFIX = 'rl-node-material-unit';
  * (`unit-material.node.test.ts`): `SOOT_PROGRAM_KEY`, `RG_PROGRAM_KEY`, `TEAM_MASK_PROGRAM_KEY`, `RAIN_RIM_PROGRAM_KEY`,
  * `WOUNDED_FLOOR_PROGRAM_KEY`.
  */
-export const UNIT_TERM_ORDER = ['rl-soot', 'rl-running-gear-1', 'rl-team-mark-2', 'rl-unit-rain-rim', 'rl-wounded-floor'] as const;
+export const UNIT_TERM_ORDER = ['rl-soot', 'rl-running-gear-1', 'rl-unit-mark-3', 'rl-unit-rain-rim', 'rl-wounded-floor'] as const;
 export type UnitSegment = (typeof UNIT_TERM_ORDER)[number];
 
 /** The census term a segment with no node term is named by. */
@@ -103,6 +106,9 @@ export interface UnitTsl {
   uniformArray(v: unknown, type: string): UN;
   attribute(name: string, type: string): UN;
   materialReference(name: string, type: string): UN;
+  /** A sampled texture at `uv` (GH-1096 S1: the insignia's distance field). */
+  texture(value: unknown, uv: N): UN;
+  vec2(...a: Array<N | number>): UN;
   fwidth(a: N): UN;
   abs(a: N): UN;
   max(a: N, b: N): UN;
@@ -147,6 +153,18 @@ export interface UnitTermContext {
   renderUniform(read: () => unknown, name: string): UN;
   /** A uniform array re-read every render from `read()`. */
   renderArray(read: () => readonly unknown[], type: string, name: string): UN;
+  /**
+   * A texture sampled at `uv` whose image is re-read every render from `read()` (a late load swaps it with no rebuild). A texture
+   * node has no render update of its own that survives its setup (three's `TextureNode.setup` rewrites `updateType`: NONE on WGSL,
+   * which has no flipY uniform), so the swap rides on `carrier`, a `renderUniform` the same term READS (an unread uniform leaves the
+   * update list), exactly as the ground's slot images ride on their strengths (`terrain/mesh.node.ts`).
+   */
+  renderTexture(read: () => unknown, uv: N, name: string, carrier: UN): UN;
+  /**
+   * The OBJECT-space position and normal as the varyings `vMarkPos` and `vMarkNrm`, made once per twin: the team mark and the
+   * insignia (one hook segment, two terms) read the same pair, as the legacy hook declares it once.
+   */
+  markVaryings(): { readonly p: UN; readonly n: UN };
   /** A uniform re-read for every drawn OBJECT, from that object's own legacy material (ruling P3-R3); `fallback` when it has none. */
   objectUniform(read: (legacy: Material) => unknown, fallback: unknown, name: string): UN;
   /** A uniform array re-read for every drawn object, likewise. */
@@ -176,7 +194,7 @@ export function unitTermTable(maths: UnitMaths): ReadonlyArray<readonly [UnitSeg
   return [
     ['rl-soot', sootTerms(maths.soot)],
     ['rl-running-gear-1', runningGearTerms(maths.rg)],
-    ['rl-team-mark-2', teamMarkTerms(maths.team)],
+    ['rl-unit-mark-3', [...teamMarkTerms(maths.team), ...insigniaTerms(maths.insignia)]],
     ['rl-unit-rain-rim', rimTerms(maths.rim)],
     ['rl-wounded-floor', floorTerms(maths.floor)],
   ];
@@ -242,7 +260,16 @@ export function createNodeUnitMaterial(deps: NodeUnitDeps, legacy: THREE.MeshSta
     return legacyMaterialOf(obj as unknown as HasUserData & { material: Material & HasUserData });
   };
 
-  const texel = base.map ? T.materialReference('map', 'texture') : null;
+  // GH-1270: three builds a mesh's SHADOW material from `material.colorNode.a` (`Renderer._getShadowNodes`), so this graph is also
+  // compiled with the shadow material as `builder.material`, which has no `map`: a bare `materialReference('map')` there threw
+  // "texture( value ) expects a valid instance of THREE.Texture()" once per textured hull, at boot. A material with no map reads
+  // the neutral 1 (opaque white: exactly the no-map colour); the shadow's own alpha cut-out is three's `reference('map', .., twin)`.
+  const texel = base.map
+    ? T.Fn((builder) => ((builder.material as { map?: unknown } | null)?.map ? T.materialReference('map', 'texture') : T.vec4(1, 1, 1, 1)))()
+    : null;
+  let markVarying: { readonly p: UN; readonly n: UN } | null = null;
+  /** `renderTexture`'s syncs, by the `renderUniform` that carries them (its render update runs them first). */
+  const carried = new Map<UN, Array<() => void>>();
   const ctxBase = {
     W,
     TSL: deps.TSL,
@@ -253,7 +280,24 @@ export function createNodeUnitMaterial(deps: NodeUnitDeps, legacy: THREE.MeshSta
     base,
     renderUniform: (read: () => unknown, name: string): UN => {
       const n = T.uniform(read());
-      n.onRenderUpdate(() => read());
+      carried.set(n, []);
+      n.onRenderUpdate(() => {
+        for (const sync of carried.get(n) ?? []) sync();
+        return read();
+      });
+      declared.push({ node: n, value: () => read() });
+      return named(n, name);
+    },
+    markVaryings: (): { readonly p: UN; readonly n: UN } =>
+      (markVarying ??= { p: T.positionGeometry.toVarying('vMarkPos'), n: T.normalGeometry.toVarying('vMarkNrm') }),
+    renderTexture: (read: () => unknown, uv: N, name: string, carrier: UN): UN => {
+      const n = T.texture(read(), uv);
+      const list = carried.get(carrier);
+      if (list === undefined) throw new Error(`node unit: ${name}'s carrier is not a renderUniform of this twin`);
+      list.push(() => {
+        (n as unknown as { value: unknown }).value = read();
+      });
+      // Still declared: the refresh policy keys the image it will bind, so a late load refreshes a parked hull.
       declared.push({ node: n, value: () => read() });
       return named(n, name);
     },

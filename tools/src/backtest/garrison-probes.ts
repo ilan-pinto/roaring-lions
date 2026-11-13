@@ -6,6 +6,10 @@
 // 2. The §5.7 urban town garrisoned: urbanAssault's three 4x3 blocks as real houses with two
 //    militia_cell inside each, rifle squads at 1:1..4:1 plus one demo_squad per group sent at the
 //    house once its group is within 10 tiles. On main it won 0 of 20 at every ratio.
+// 3. GH-34: reach from inside, by building. One inf_squad garrisoned in each garrisonable structure type,
+//    a dummy walked out along the east side in quarter-tile steps until `projectHit` stops finding a shot.
+//    Reported in tiles beyond the unit's own 8-tile range, against the type's authored `garrison_range_bonus`
+//    (absent = the global 1 tile). Deterministic (no dice), one run per type.
 import { Sim, fx, TICKS_PER_SECOND } from '@lions/sim';
 import { structures } from '@lions/data';
 import { units } from './harness';
@@ -98,15 +102,53 @@ function town(ratio: number, seed: number): { won: boolean; rifleLost: number } 
   return { won: defs.every((d) => sim.state.alive[d] !== 1) && alive >= Math.ceil(attackers * 0.25), rifleLost: attackers - alive };
 }
 
-const r = Array.from({ length: 20 }, (_, i) => raid(101 + i));
-console.log(
-  `#280 raid (2 inf_squad in a 2x2 house vs 8 militia, 20 seeds x 120 s): held ${r.filter((x) => x.held).length}/20, ` +
-    `militia killed ${(r.reduce((a, x) => a + x.killed, 0) / 20).toFixed(2)}, defender shots ${(r.reduce((a, x) => a + x.defShots, 0) / 20).toFixed(0)}`
-);
-for (const ratio of [1, 2, 3, 4]) {
-  const t = Array.from({ length: 20 }, (_, s) => town(ratio, 60000 + ratio * 1000 + s));
+// `--reach` runs probe 3 alone (a second, no dice); with no flag all three run.
+const reachOnly = process.argv.includes('--reach');
+if (!reachOnly) {
+  const r = Array.from({ length: 20 }, (_, i) => raid(101 + i));
   console.log(
-    `garrisoned town ${ratio}:1 (20 seeds): won ${t.filter((x) => x.won).length}/20, ` +
-      `rifle squads lost ${(t.reduce((a, x) => a + x.rifleLost, 0) / 20).toFixed(1)}/${6 * ratio}`
+    `#280 raid (2 inf_squad in a 2x2 house vs 8 militia, 20 seeds x 120 s): held ${r.filter((x) => x.held).length}/20, ` +
+      `militia killed ${(r.reduce((a, x) => a + x.killed, 0) / 20).toFixed(2)}, defender shots ${(r.reduce((a, x) => a + x.defShots, 0) / 20).toFixed(0)}`
+  );
+  for (const ratio of [1, 2, 3, 4]) {
+    const t = Array.from({ length: 20 }, (_, s) => town(ratio, 60000 + ratio * 1000 + s));
+    console.log(
+      `garrisoned town ${ratio}:1 (20 seeds): won ${t.filter((x) => x.won).length}/20, ` +
+        `rifle squads lost ${(t.reduce((a, x) => a + x.rifleLost, 0) / 20).toFixed(1)}/${6 * ratio}`
+    );
+  }
+}
+
+// 3. Reach from inside, by building (GH-34).
+type StructJson = Parameters<Sim['addStructureType']>[0] & { garrison_range_bonus?: number; floors?: number; garrison_slots: number };
+const rifleRange = units.inf_squad.weapons[0].range_tiles;
+function reach(struct: StructJson): number {
+  let best = 0;
+  for (let beyond = 0.25; beyond <= 5; beyond += 0.25) {
+    const sim = new Sim({ seed: 7, width: 64, height: 64, capacity: 16 });
+    const inf = sim.addUnitType(units.inf_squad);
+    const dummy = sim.addUnitType({ ...units.sarim_rifles, weapons: [], hull: { ...units.sarim_rifles.hull, hp: 30000 } });
+    const type = sim.addStructureType(struct);
+    const tiles = [30 * 64 + 20, 30 * 64 + 21, 31 * 64 + 20, 31 * 64 + 21];
+    const s = sim.addStructure(type, tiles);
+    const u = sim.spawn(inf, 0, fx.from(19.5), fx.from(30.5));
+    sim.queueCommand({ kind: 'garrison', ids: [u], structure: s });
+    for (let k = 0; k < 300 && sim.state.garrisonedIn[u] !== s; k++) sim.tick();
+    if (sim.state.garrisonedIn[u] !== s) return -1;
+    // The east window is the footprint tile centre (21.5, 30.5): the target stands `rifleRange + beyond` east of it.
+    const t = sim.spawn(dummy, 1, fx.from(21.5 + rifleRange + beyond), fx.from(30.5), WEST);
+    sim.identifyTo(0, t);
+    if (sim.projectHit(u, t).kind === 'shot') best = beyond;
+    else break;
+  }
+  return best;
+}
+console.log('');
+console.log('#34 reach from inside, one inf_squad (8 tiles in the open) in a 2x2 of each garrisonable type: tiles beyond 8 from the east window');
+for (const [id, st] of Object.entries(structures as Record<string, StructJson>)) {
+  if (st.garrison_slots <= 0) continue;
+  const authored = st.garrison_range_bonus;
+  console.log(
+    `  ${id.padEnd(22)} floors ${String(st.floors ?? 1).padEnd(2)} slots ${st.garrison_slots}  authored ${authored === undefined ? 'none (1)' : authored}  reach +${reach({ ...st, id } as StructJson)}`
   );
 }

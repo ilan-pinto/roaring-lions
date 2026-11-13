@@ -112,6 +112,8 @@ export function rendererOptionsFor(map: ParsedMap, s: RendererSettings, base: st
     // the renderer loads them `NoColorSpace`).
     flipbookFireUrl: `${base}textures/vfx/flipbook_fire.png`,
     flipbookSmokeUrl: `${base}textures/vfx/flipbook_smoke.png`,
+    // GH-1096 S1: the Roaring Lion insignia's distance field (data, like the atlases).
+    insigniaSdfUrl: `${base}textures/insignia/roaring_lion_sdf.png`,
     // Where the Draco decoder is fetched from. Self-hosted in `assets/draco/`
     // like the fonts, never a CDN. Every shipped GLB is Draco-compressed
     // (level load time, step 4), so a mesh renderer without this loads no

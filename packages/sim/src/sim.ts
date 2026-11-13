@@ -199,6 +199,7 @@ import {
   AIR_WANT_LOAD,
   AIR_WANT_UNLOAD,
   AIR_WANT_DEPART,
+  AIR_WANT_UNLOAD_AT,
   MAX_EVAC_POINTS,
   WOUND_MAX_RADIUS_TILES,
   WOUND_MAX_SECONDS,
@@ -1232,8 +1233,13 @@ export type Command =
    *  all (this one included) the riders are shared out across them by free seats (`planLoadSpread`), each
    *  walking to its own. Absent = today's order: everyone boards `carrier`. */
   | { kind: 'load'; ids: number[]; carrier: number; carriers?: number[] }
-  /** Put the passengers down beside the vehicle. */
-  | { kind: 'unload'; ids: number[] }
+  /** Put the passengers down beside the vehicle.
+   *  `x`/`y` (GH-698, unload-at-point; both or neither): an AIR carrier flies to the landing footprint
+   *  nearest that point (`lzFor`, the R2 rules), lands, unloads there and stays landed. Landed or landing
+   *  elsewhere, it lifts first. No footprint within reach: refused with a `landRefused` event and nothing
+   *  changed. A ground carrier ignores the point (today's everyone-out beside the hull). Absent = today's
+   *  order. Q16.16, as every order's point. */
+  | { kind: 'unload'; ids: number[]; x?: Fx; y?: Fx }
   /** Bought with intel: reveal everything hostile around a point. */
   | { kind: 'reveal'; side: number; x: Fx; y: Fx }
   /** Bought with intel: a precision strike, attributed to the caller so
@@ -5403,7 +5409,7 @@ export class Sim {
       if (utype.isAir) {
         if (this.airState[id] === AIR_LANDING) continue;
         const want = this.airWant[id];
-        if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
+        if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD || want === AIR_WANT_UNLOAD_AT) this.airWant[id] = AIR_WANT_NONE;
       }
       const slot = exact ? undefined : slots.get(id);
       // GH-859: a unit the formation leaves out has its plain slot and nothing of the march: it goes straight to it,
@@ -6296,8 +6302,11 @@ export class Sim {
           this.dropPatrol(id); // N3 Task 9: as `smoke`, the one other branch that never resets `stance`
           // GH-698 R4: an air carrier lands, then unloads. A ground carrier
           // keeps unloadAll, the immediate everyone-out.
-          if (id >= 0 && id < this.count && this.unitTypes[this.typeIdx[id]].isAirCarrier) this.airUnloadOrder(id);
-          else this.unloadAll(id);
+          // GH-698: with a point, it lands there instead (both coordinates, or the order is the plain one).
+          if (id >= 0 && id < this.count && this.unitTypes[this.typeIdx[id]].isAirCarrier) {
+            if (cmd.x !== undefined && cmd.y !== undefined) this.airUnloadAtOrder(id, cmd.x, cmd.y);
+            else this.airUnloadOrder(id);
+          } else this.unloadAll(id);
         }
       } else if (cmd.kind === 'demolish') {
         const s = cmd.structure;
@@ -6442,7 +6451,7 @@ export class Sim {
           if (this.unitTypes[this.typeIdx[id]].isAir) {
             if (this.airState[id] === AIR_LANDING) continue;
             const want = this.airWant[id];
-            if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
+            if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD || want === AIR_WANT_UNLOAD_AT) this.airWant[id] = AIR_WANT_NONE;
           }
           this.focusTarget[id] = cmd.target;
           this.focusLost[id] = 0;
@@ -6636,21 +6645,30 @@ export class Sim {
     return a;
   }
 
-  /** Field works: the `aura.garrison.range_bonus` unit `i`'s weapon `w` adds ON TOP of
-   *  GARRISON_RANGE_BONUS. Direct fire only: an indirect weapon (`isIndirect`) gets none (spec §3). */
+  /** Field works: the `aura.garrison.range_bonus` unit `i`'s weapon `w` adds ON TOP of its
+   *  building's own bonus (`garrisonBonus`, GH-34). Direct fire only: an indirect weapon (`isIndirect`) gets none (spec §3). */
   private auraRangeBonus(i: number, w: WeaponStats): Fx {
     if (w.isIndirect) return 0;
     const a = this.garrisonAura(i);
     return a === null ? 0 : a.rangeBonus;
   }
 
-  /** `w`'s maximum range squared for unit `i`: longer from inside (ruling 4),
+  /** GH-34: how many tiles the building unit `i` is garrisoned in adds to its direct-fire reach: the
+   *  structure type's own `garrison_range_bonus`, `GARRISON_RANGE_BONUS` for a type that does not author it
+   *  (so those units take the precomputed `WeaponStats.garrison*` fields and every number is as it was). 0 in the open. */
+  private garrisonBonus(i: number): Fx {
+    const s = this.garrisonedIn[i];
+    return s < 0 ? 0 : this.structureTypes[this.stTypeIdx[s]].garrisonRangeBonus;
+  }
+
+  /** `w`'s maximum range squared for unit `i`: longer from inside (ruling 4) by its building's bonus,
    *  longer again by a field work's range bonus. */
   private reachSq(i: number, w: WeaponStats): Fx {
     if (this.garrisonedIn[i] < 0) return w.rangeSq;
     const b = this.auraRangeBonus(i, w);
-    if (b === 0) return w.garrisonRangeSq;
-    const r = fx.add(fx.add(w.range, GARRISON_RANGE_BONUS), b);
+    const g = this.garrisonBonus(i);
+    if (b === 0 && g === GARRISON_RANGE_BONUS) return w.garrisonRangeSq;
+    const r = fx.add(fx.add(w.range, g), b);
     return fx.mul(r, r);
   }
 
@@ -6658,15 +6676,16 @@ export class Sim {
   private effSq(i: number, w: WeaponStats): Fx {
     if (this.garrisonedIn[i] < 0) return w.effectiveRangeSq;
     const b = this.auraRangeBonus(i, w);
-    if (b === 0) return w.garrisonEffRangeSq;
-    const r = fx.add(w.garrisonEffRange, b);
+    const g = this.garrisonBonus(i);
+    if (b === 0 && g === GARRISON_RANGE_BONUS) return w.garrisonEffRangeSq;
+    const r = fx.add(fx.add(w.effectiveRange, g), b);
     return fx.mul(r, r);
   }
 
   /** `w`'s effective range for unit `i`, the hit-falloff scale. */
   private effRange(i: number, w: WeaponStats): Fx {
     if (this.garrisonedIn[i] < 0) return w.effectiveRange;
-    return fx.add(w.garrisonEffRange, this.auraRangeBonus(i, w));
+    return fx.add(fx.add(w.effectiveRange, this.garrisonBonus(i)), this.auraRangeBonus(i, w));
   }
 
   /** Unit `i`'s sight squared: its type's, plus a field work's `sight_bonus` from inside. */
@@ -10869,6 +10888,34 @@ export class Sim {
         // GH-976 (R0.4): the snap below would carry the hull onto the LZ tile centre. In a set-up an LZ outside the
         // carrier's region is never set down on: it holds its hover.
         if (this.setupActive && !this.setupOwnTile(this.side[i], this.goalX[i] >> 16, this.goalY[i] >> 16)) continue;
+        // GH-698 (PR 1275 review, finding 2): `lzTaken` is read at order time only, so re-check the
+        // footprint physically now. Taken by a carrier of either side on the ground there: re-snap to the
+        // nearest footprint clear of every grounded carrier and keep flying; none within reach: hover,
+        // the want dropped, with a `landRefused`. Ids ascend, so same-tick arrivals resolve in id order.
+        if (this.unitTypes[this.typeIdx[i]].isAirCarrier && this.lzGroundHeld(fx.toInt(this.goalX[i]), fx.toInt(this.goalY[i]), i)) {
+          if (this.lzFor(this.goalX[i], this.goalY[i], i, true)) {
+            this.goalX[i] = fx.add(fx.fromInt(this.snapX), HALF);
+            this.goalY[i] = fx.add(fx.fromInt(this.snapY), HALF);
+            this.fieldRef[i] = this.fieldFor(this.snapX, this.snapY, DOMAIN_AIR);
+            this.wpCount[i] = 0;
+            this.moving[i] = 1;
+            // Riders bound for this carrier were sent to the old pad's field (`sendToCarrier`): point
+            // them at the new one, in id order, or they walk to a pad it no longer uses.
+            for (let r = 0; r < this.count; r++) {
+              if (this.alive[r] === 0 || this.boardGoal[r] !== i || this.carriedBy[r] >= 0) continue;
+              if (this.garrisonGoal[r] >= 0 || this.garrisonedIn[r] >= 0) continue;
+              this.goalX[r] = this.goalX[i];
+              this.goalY[r] = this.goalY[i];
+              this.wpCount[r] = 0;
+              this.fieldRef[r] = this.fieldFor(this.snapX, this.snapY, this.domainOf(r));
+              this.moving[r] = 1;
+            }
+          } else {
+            this.pendingEvents.push({ kind: 'landRefused', tick: this.tickCount, carrier: i, reason: 'no_clear_ground' });
+            this.airWant[i] = AIR_WANT_NONE;
+          }
+          continue;
+        }
         this.airState[i] = AIR_LANDING;
         this.airTimer[i] = AIR_LAND_TICKS;
         // Onto the LZ tile centre exactly (it is within HALF already), so the
@@ -10922,6 +10969,11 @@ export class Sim {
         // An `unload` while lifting: taken up now, at the LZ nearest where it is.
         if (this.passengers[i] > 0 && this.orderLand(i, AIR_WANT_UNLOAD, this.posX[i], this.posY[i])) continue;
         this.airWant[i] = AIR_WANT_NONE;
+      } else if (want === AIR_WANT_UNLOAD_AT) {
+        // GH-698: an unload-at-point while landed, landing or lifting: now to the LZ it chose (the
+        // goal), re-checked by `orderLand` in case another carrier took it during the lift.
+        if (this.passengers[i] > 0 && this.orderLand(i, AIR_WANT_UNLOAD, this.goalX[i], this.goalY[i])) continue;
+        this.airWant[i] = AIR_WANT_NONE;
       } else if (want !== AIR_WANT_LOAD) {
         this.airWant[i] = AIR_WANT_NONE;
       }
@@ -10972,10 +11024,11 @@ export class Sim {
    * not set down on a building, a ridge, a boulder field or a ditch), and no OTHER living air
    * carrier holds a footprint within Chebyshev 2 of it (`lzTaken`). False, with no state touched
    * but `snapX`/`snapY`, when nothing within reach is clear. `self` is the asking carrier (-1: none).
-   * Per order, never per tick; no allocation. `lzTaken` scans the units per candidate tile; it is
+   * Per order, and once per held arrival (the GH-698 re-check in `stepAirCarriers`, bounded: one
+   * search per arrival event, never per tick of flight); no allocation. `lzTaken` scans the units per candidate tile; it is
    * left unhoisted (orders are rare, and the scan order is the contract).
    */
-  private lzFor(x: Fx, y: Fx, self: number): boolean {
+  private lzFor(x: Fx, y: Fx, self: number, physical = false): boolean {
     const w = this.width;
     const h = this.height;
     let tx = fx.toInt(x);
@@ -10987,7 +11040,7 @@ export class Sim {
         const edge = cy === ty - d || cy === ty + d;
         const step = edge || d === 0 ? 1 : 2 * d;
         for (let cx = tx - d; cx <= tx + d; cx += step) {
-          if (!this.footprintClear(cx, cy, self)) continue;
+          if (!this.footprintClear(cx, cy, self, physical)) continue;
           this.snapX = cx;
           this.snapY = cy;
           return true;
@@ -10998,7 +11051,7 @@ export class Sim {
   }
 
   /** R2: the 3x3 around (cx, cy) is in the map and vehicle-open, and no other carrier holds it. */
-  private footprintClear(cx: number, cy: number, self: number): boolean {
+  private footprintClear(cx: number, cy: number, self: number, physical: boolean): boolean {
     const w = this.width;
     if (cx < 1 || cy < 1 || cx >= w - 1 || cy >= this.height - 1) return false;
     const mask = this.maskFor(DOMAIN_VEHICLE);
@@ -11007,17 +11060,52 @@ export class Sim {
         if (mask[(cy + dy) * w + cx + dx] !== 0) return false;
       }
     }
+    if (physical && this.lzGroundHeld(cx, cy, self)) return false;
     return !this.lzTaken(cx, cy, self);
   }
 
-  /** R2: another living air carrier (id order) holds a footprint within Chebyshev 2 of (cx, cy):
-   *  LANDING or LANDED there, or flying to land for a load or an unload. */
-  private lzTaken(cx: number, cy: number, self: number): boolean {
+  /** GH-698 arrival re-check: another living air carrier of EITHER side is physically on the ground
+   *  (LANDING, LANDED or LIFTING, read at its position) within Chebyshev 2 of (cx, cy). Plans are never
+   *  read. Id order; no allocation. */
+  private lzGroundHeld(cx: number, cy: number, self: number): boolean {
     for (let j = 0; j < this.count; j++) {
       if (j === self || this.alive[j] === 0 || !this.unitTypes[this.typeIdx[j]].isAirCarrier) continue;
       const st = this.airState[j];
+      if (st !== AIR_LANDING && st !== AIR_LANDED && st !== AIR_LIFTING) continue;
+      const px = fx.toInt(this.posX[j]) - cx;
+      const py = fx.toInt(this.posY[j]) - cy;
+      if (px >= -2 && px <= 2 && py >= -2 && py <= 2) return true;
+    }
+    return false;
+  }
+
+  /** R2: another living air carrier (id order) holds a footprint within Chebyshev 2 of (cx, cy).
+   *  Same side: LANDING or LANDED there, flying to land for a load or an unload, or lifting to land at a
+   *  chosen point (GH-698 UNLOAD_AT: its goal is that LZ). Other side (GH-698, by side): only a carrier
+   *  physically on the ground there (LANDING, LANDED, LIFTING, at its position); never its reservation.
+   *  The two rules differ on LIFTING. A LIFTING enemy denies the ground it is leaving, read at its
+   *  position. A LIFTING carrier of one's own side denies only by its goal, and only while it is bound to
+   *  land (an UNLOAD_AT lift, or a load or unload taken up after the lift); one lifting with want NONE or
+   *  DEPART does not deny at all. Read at ORDER time; the arrival re-check (stepAirCarriers, AIRBORNE to
+   *  LANDING) is physical, `lzGroundHeld`. */
+  private lzTaken(cx: number, cy: number, self: number): boolean {
+    const mySide = self >= 0 ? this.side[self] : -1;
+    for (let j = 0; j < this.count; j++) {
+      if (j === self || this.alive[j] === 0 || !this.unitTypes[this.typeIdx[j]].isAirCarrier) continue;
+      const st = this.airState[j];
+      if (mySide >= 0 && this.side[j] !== mySide) {
+        // GH-698: the other side's carrier occupies a footprint only PHYSICALLY: it is on the ground
+        // there (LANDING, LANDED or LIFTING, measured at where it sits). Its reservation (flying to
+        // land, a lift bound for a chosen point) is its own plan, and must neither deny my landing nor
+        // tell me where it is going (versus: a plan is hidden information).
+        if (st !== AIR_LANDING && st !== AIR_LANDED && st !== AIR_LIFTING) continue;
+        const px = fx.toInt(this.posX[j]) - cx;
+        const py = fx.toInt(this.posY[j]) - cy;
+        if (px >= -2 && px <= 2 && py >= -2 && py <= 2) return true;
+        continue;
+      }
       const want = this.airWant[j];
-      if (st !== AIR_LANDING && st !== AIR_LANDED && want !== AIR_WANT_LOAD && want !== AIR_WANT_UNLOAD) continue;
+      if (st !== AIR_LANDING && st !== AIR_LANDED && want !== AIR_WANT_LOAD && want !== AIR_WANT_UNLOAD && want !== AIR_WANT_UNLOAD_AT) continue;
       const gx = fx.toInt(this.goalX[j]) - cx;
       const gy = fx.toInt(this.goalY[j]) - cy;
       if (gx >= -2 && gx <= 2 && gy >= -2 && gy <= 2) return true;
@@ -11119,6 +11207,71 @@ export class Sim {
     if (st === AIR_LANDED) this.unloadAir(car);
     else if (st === AIR_AIRBORNE) this.orderLand(car, AIR_WANT_UNLOAD, this.posX[car], this.posY[car]);
     else this.airWant[car] = AIR_WANT_UNLOAD; // LANDING: on landing; LIFTING: after the lift
+  }
+
+  /**
+   * GH-698, unload-at-point: `unload` with a point on an air carrier. Land at the footprint nearest
+   * (x, y) by the R2 rules (`lzFor`: vehicle-open 3x3, in the map, not another carrier's), unload
+   * there, stay landed. Empty: a no-op, as the plain `unload`. No footprint within LZ_SEARCH_TILES of
+   * the point: refused, a `landRefused` event and no state touched. Otherwise, by state:
+   * - AIRBORNE: `orderLand` at the point (a second order in flight replaces the first).
+   * - LANDED or LANDING with the chosen LZ inside its own footprint (Chebyshev 1 of its tile): it
+   *   unloads where it is (LANDED at once, LANDING on landing). So does a hull that cannot lift
+   *   (mobility-killed, or still owed ground time): its riders get out rather than stay shut in.
+   * - LANDED or LANDING elsewhere: it lifts (LANDING waves off), AIR_LIFT_TICKS, and the lift's end
+   *   lands it at the LZ (the LIFTING rule in stepAirCarriers re-runs `orderLand` from the goal).
+   * - LIFTING: the goal becomes the LZ and the want UNLOAD_AT, taken up at the lift's end.
+   * UNLOAD_AT is its own want so that a plain `unload` (lands where it lifted) writes exactly what it
+   * wrote before this order existed: a world that never sends a point hashes byte-identical.
+   * The choice does not consult fog. The ground is known to both sides, and the other side's PLAN
+   * (its reservation) is never read (`lzTaken`). But an other-side carrier physically on the ground
+   * (LANDING, LANDED or LIFTING) is read where it sits, whether this side can see it or not: an
+   * occupied pad is a physical fact. So a diverted LZ, or a `landRefused`, can tell a player that a
+   * hidden enemy carrier is down nearby. Whether that stands in versus is a lead call before the
+   * Yanshuf opens there (it is held today, VERSUS_HELD_UNITS). No rng, no allocation.
+   */
+  private airUnloadAtOrder(car: number, x: Fx, y: Fx): void {
+    if (this.alive[car] === 0 || this.passengers[car] === 0) return;
+    const st = this.airState[car];
+    if (st === AIR_AIRBORNE) {
+      this.orderLand(car, AIR_WANT_UNLOAD, x, y);
+      return;
+    }
+    if (!this.lzFor(x, y, car)) {
+      this.pendingEvents.push({ kind: 'landRefused', tick: this.tickCount, carrier: car, reason: 'no_clear_ground' });
+      return;
+    }
+    const lx = this.snapX;
+    const ly = this.snapY;
+    if (st === AIR_LANDED || st === AIR_LANDING) {
+      const dx = lx - fx.toInt(this.posX[car]);
+      const dy = ly - fx.toInt(this.posY[car]);
+      const here = dx >= -1 && dx <= 1 && dy >= -1 && dy <= 1;
+      if (here || this.mobilityKilled[car] === 1 || (st === AIR_LANDED && this.airTimer[car] > 0)) {
+        if (st === AIR_LANDED) this.unloadAir(car);
+        else this.airWant[car] = AIR_WANT_UNLOAD;
+        return;
+      }
+      // GH-707 Task 4 (D4), as the LANDED lift in stepAirCarriers: a hull leaving the ground takes
+      // its wounded out of the fight. A wave-off never touched the ground, so it has none to take.
+      if (st === AIR_LANDED && this.woundLive) this.evacuateAboard(car);
+      this.airState[car] = AIR_LIFTING;
+      this.airTimer[car] = AIR_LIFT_TICKS;
+      this.moving[car] = 0;
+    }
+    // LIFTING (or just made so): the LZ is the goal, read back at the lift's end. Nothing may chase
+    // in the meantime, so the pursuit columns go as `orderLand` clears them.
+    this.goalX[car] = fx.add(fx.fromInt(lx), HALF);
+    this.goalY[car] = fx.add(fx.fromInt(ly), HALF);
+    this.wpCount[car] = 0;
+    this.fieldRef[car] = -1;
+    this.attackMove[car] = 0;
+    this.sweepOrder[car] = 0;
+    this.engaging[car] = 0;
+    this.stance[car] = 0;
+    this.focusTarget[car] = -1;
+    this.focusLost[car] = 0;
+    this.airWant[car] = AIR_WANT_UNLOAD_AT;
   }
 
   /** `halt` (and a stance, which halts) on an air carrier, after haltUnit.
@@ -11313,6 +11466,7 @@ export class Sim {
   /** Send one unit to walk into structure `s`; the body `garrison` always had. */
   private sendToGarrison(id: number, s: number, spread: boolean): void {
     if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    this.boardGoal[id] = -1; // a garrison order replaces a pending `load`, as move, halt and attack do
     const gx = this.stCx[s];
     const gy = this.stCy[s];
     this.garrisonGoal[id] = s;

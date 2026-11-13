@@ -30,7 +30,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bySeat, judge, parseArgs, refusalOf, resolvePlayer, runArena, untrusted, type SeatSnapshot } from './arena';
+import { bySeat, declaredModelOf, judge, parseArgs, refusalOf, resolvePlayer, runArena, untrusted, type SeatSnapshot } from './arena';
 import { AgentClient } from './agent-client';
 import type { ArenaPlayer } from './players';
 import type { GameRecord } from './arena-score';
@@ -85,6 +85,26 @@ describe('pnpm arena', () => {
     const report = readFileSync(join(out, md ?? ''), 'utf8');
     expect(report).toContain('| rush |');
     expect(report).toContain('| passive |');
+  }, 120_000);
+
+  it('declares each seat\'s model in the create and join bodies: scripted for a scripted player, the preset\'s for a model one', async () => {
+    const real = globalThis.fetch;
+    const bodies: { path: string; body: Record<string, unknown> }[] = [];
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (init?.method === 'POST' && /^\/api\/match(\/[A-Za-z0-9]+\/join)?$/.test(path)) bodies.push({ path, body: JSON.parse(String(init.body)) as Record<string, unknown> });
+      return real(input, init);
+    });
+    try {
+      await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '9', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '200', '--out', outDir()], quiet);
+    } finally { spy.mockRestore(); }
+    expect(bodies.length).toBeGreaterThanOrEqual(2);
+    for (const b of bodies) expect(b.body.botModel).toEqual({ id: 'scripted' });
+    const presets = { opus: 'Claude Opus 5.5 (a long preset label that is over the cap)' };
+    expect(declaredModelOf('preset:claude-opus-5-5', presets.opus)).toEqual({ id: 'claude-opus-5-5' });
+    expect(declaredModelOf('preset:opus-5.5', presets.opus)).toEqual({ id: 'other', name: 'Claude Opus 5.5 (a long pr' .slice(0, 24).trim() });
+    expect(declaredModelOf('cmd:x', 'Player A')).toEqual({ id: 'other', name: 'Player A' });
+    expect(declaredModelOf('rush', 'rush')).toEqual({ id: 'scripted' });
   }, 120_000);
 
   it('refuses a map no room offers (qarn_hadid) with exit 2, before any room', async () => {
@@ -181,9 +201,11 @@ describe('pnpm arena', () => {
     const list = FLAG_SETUP_MAPS as string[];
     const before = [...list]; // restored below, never cleared
     const argv = ['--a', 'rush', '--b', 'passive', '--map', 'rujm_sawda', '--mode', 'flag'];
-    expect(parseArgs(argv)).toMatchObject({ capTicks: 42_000 });
-    list.push('rujm_sawda');
+    expect(parseArgs(argv)).toMatchObject({ capTicks: 36_000 });   // rujm_sawda ships in FLAG_SETUP_MAPS (12 Nov relist)
+    list.splice(list.indexOf('rujm_sawda'), 1);
     try {
+      expect(parseArgs(argv)).toMatchObject({ capTicks: 42_000 });   // unlisted: the map's own cap
+      list.push('rujm_sawda');
       expect(parseArgs(argv)).toMatchObject({ capTicks: 36_000 });
       // The ceiling follows the room too: 40,000 is past 30 minutes.
       expect(parseArgs([...argv, '--cap-ticks', '40000'])).toHaveProperty('error');

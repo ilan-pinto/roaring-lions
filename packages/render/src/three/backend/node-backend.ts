@@ -17,7 +17,7 @@ import type { WebGPURenderer } from 'three/webgpu';
 import type { BackendKind } from '../../gpu';
 import type { AoControl, MaterialKit, MaterialMaths, PostConfig, PostKit, RenderBackend } from './backend';
 import { createOrthoAwareGtao } from '../gtao-ortho.node';
-import { createNodePostChain, createNodeAoStage, type NodePostChain, type OutputMaths, type AoMaths } from '../post-chain.node';
+import { createSizedNodePostChain, createNodeAoStage, nodeSoftDepthOn, SOFT_DEPTH_FEATURE, type NodePostChain, type OutputMaths, type AoMaths } from '../post-chain.node';
 import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
@@ -38,7 +38,9 @@ import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
 import { createNodeBannerMaterial } from '../units/garrison-banner.node';
 import type { GarrisonBannerMaterial } from '../units/garrison-banner';
 import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
+import { createNodeBuildingMaterial } from '../units/building-cut.node';
 import { createNodeUnitMaterial } from '../units/unit-material.node';
+import { createGrassFieldKit } from '../terrain/grass-field.node';
 import { markTwin } from '../twin-identity';
 import { installPassCounter, type PassRendererLike, type RenderPassId } from './pass-counter';
 import { installVersionedUploads, type AttributesLike } from './attribute-uploads';
@@ -187,6 +189,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     rotor: null,
     flipbook: null,
     smokeScreen: null,
+    building: null,
   };
   // T3: the node ground (the dry blend, the macro and the road). P3 (T1): every twin names its legacy material.
   materials.ground = (legacy) => {
@@ -267,6 +270,12 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     markTwin(twin, legacy);
     return twin;
   };
+  // GH-1225 slice 3 (L7): a holed and/or cut building's colour clone. The legacy clone keeps its records (`cutHookOf`, `holesHookOf`).
+  materials.building = (legacy) => {
+    const twin = createNodeBuildingMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.building }, legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
   // GH-943 P3 (T7): the decal pools and the crater rim. The legacy material keeps its record, and carries its scene's light objects.
   materials.decal = (legacy) => {
     const twin = createNodeDecalMaterial({ W, TSL, maths: opts.materialMaths.decal }, legacy);
@@ -293,10 +302,13 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     for (const line of unportedWarnings(found, seen)) warn(line);
   };
 
+  // GH-1227 slice 3: the soft-particle copy needs a copyable depth aspect (`SOFT_DEPTH_FEATURE`), and WebGPU's copy semantics. The
+  // node-WebGL2 arm never copies: soft particles stay inert there, exactly as before this slice.
+  const softDepthCopyable = isGpu && renderer.hasFeature(SOFT_DEPTH_FEATURE);
   const build = (config: PostConfig): void => {
     chain?.dispose();
     if (outputMaths === null) throw new Error('node backend: setOutputMaths must be called before the post chain is built');
-    chain = createNodePostChain({ W, TSL, smaa: smaa as never, outputMaths }, renderer, config.scene, config.camera, config.quality, kit);
+    chain = createSizedNodePostChain({ W, TSL, smaa: smaa as never, outputMaths }, renderer, config.scene, config.camera, config.quality, kit, softDepthCopyable);
     builtFor = config;
   };
 
@@ -323,6 +335,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     domElement: canvas,
     kit,
     materials,
+    // GH-1167 S5: the 3D grass field, built only here (the bundle pin P1 finds its marker in this chunk alone).
+    grassField: createGrassFieldKit({ W, TSL, maths: opts.materialMaths.grassField }),
     bloom: nodeBloom.control,
     pmrem: createNodePmremHost(W.PMREMGenerator as unknown as NodePmremGeneratorCtor, renderer),
     ao: aoControl,
@@ -336,9 +350,17 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
       kit.fog = createFogStageFactory(table, hazeLow, maths);
     },
     configure: (config) => build(config),
-    setPixelRatio: (r) => renderer.setPixelRatio(r),
+    softDepthOn: (quality) => nodeSoftDepthOn(quality, softDepthCopyable),
+    setPixelRatio: (r) => {
+      renderer.setPixelRatio(r);
+      chain?.resize();
+    },
     getPixelRatio: () => renderer.getPixelRatio(),
-    setSize: (w, h) => renderer.setSize(w, h),
+    setSize: (w, h) => {
+      renderer.setSize(w, h);
+      // GH-1270: SMAA's targets follow the drawing buffer here, between frames, not inside `SMAANode.updateBefore` mid-frame.
+      chain?.resize();
+    },
     async prepare(scene, camera) {
       runCensus(scene);
       await renderer.compileAsync(scene, camera);
@@ -368,6 +390,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
       const ms = (await renderer.resolveTimestampsAsync('render')) as number | undefined;
       return typeof ms === 'number' ? ms : null;
     },
+    batchUploads: draw.batchUploads,
     drawSwitches: {
       get: () => ({ refreshPolicy: refresh.mode(), matrixWalk: walk.once() ? 'once' : 'every-pass', uploads: draw.uploads }),
       setRefresh: (m) => refresh.setMode(m),

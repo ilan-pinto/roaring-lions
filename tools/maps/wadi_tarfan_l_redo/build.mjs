@@ -47,6 +47,10 @@
 //      OUTCROPS, four 3x3 blocks of rock that close the main road eleven tiles short of the ford to a pass three tiles wide, so both
 //      columns file through it and the Namers no longer park in the pockets; and FORD_SCRUB, 22 tiles of scrub in the lane short of
 //      the fords (salt 10). Tunnel cell 3, Sarim friendly, is a report cell on this map: it reads Sarim 56-62% over six ranges and the map does not open on it. Both are measured values, not trends: a block one tile over seals the road (94%) or reads 66-80%.
+//   9. THE COMPOUNDS ROUND (GH-974, lead rulings of 12 Nov): with formations open, S4 (b) tripped both placed cells (KDF 70.3 /
+//      67.2% with both ends in Attack) and the lane probe's armour-left seat gap read -17.2. Both are fixed in the map, here: yard A
+//      (and A') moved to (47,36), on the lip over the ford, and the north sheepfold (and its twin) moved off the armour's line to
+//      the outer fords. The measurements are at YARDS and FOLDS.
 //
 // The map is point-symmetric about (47.5, 47.5): every feature is written with its half-turn image (`both`), so symmetry is by
 // construction. tools/src/large_map_verify.ts checks it from the JSON.
@@ -114,12 +118,22 @@ export const OUTCROPS = [[41, 37, 3, 3]];
 
 // --- the town and the farms ----------------------------------------------------------------------------------------------
 /**
- * Tarfan: four walled yards round the centre ford. A and B are seat 0's (A north-east of the road, B south-west, the transpose
- * of A's footprint); A' and B' are their half-turns. Every yard is a six-tile ring with two two-tile gates facing the road. A
- * holds the two-floor house, on the lip over the ford, and a shed; B a shed and a pump house.
+ * Tarfan: four walled yards round the centre ford. A and B are seat 0's (A north-east of the road, B south-west); A' and B' are
+ * their half-turns. Every yard is a six-tile ring with two two-tile gates facing the road. A holds the two-floor house, on the
+ * lip over the ford, and a shed; B a shed and a pump house.
+ *
+ * A stands at (47,36), two tiles east and one south of the B4 build's (45,35), so it is no longer B's transpose (the compounds
+ * round, GH-974, lead ruling of 12 Nov: S4 is fixed in the map). With both ends in the Attack formation the placed KDF v Sarim
+ * cells read KDF 70.3 / 67.2% on the B4 yards (seeds 55000-55191; the Attack seats Sarim's Kornet line 3.6 tiles behind the click,
+ * against ~9 in the plain grid, and it walks past the compounds onto open ground). Erasing A and A' alone, or B and B' alone, takes
+ * the shift away (96 seeds), so the pair is the term. Moved along the same bank, KDF share base -> Attack, KDF friendly | Sarim
+ * friendly: (45,35) 52.1 -> 70.3 | 45.3 -> 67.2; (46,36) 43.8 -> 56.8 | 49.0 -> 65.1; (47,37) 49.0 -> 54.2 | 50.5 -> 68.2;
+ * (48,36) 52.6 -> 57.3 | 50.5 -> 62.5; **(47,36) 44.8 -> 52.6 | 50.0 -> 58.3**. A measured value, not a trend: one tile either
+ * way reads 5-10 points apart. Opening A's road wall or B's, a wall stub either side of the ford mouth, and B one step back off
+ * the lip were each tried and are worse (the base leaves 60/40, or the Attack reads 67-85%).
  */
 export const YARDS = {
-  A: { x0: 45, y0: 35, gates: [[46, 40], [47, 40], [45, 38], [45, 39]], house: [48, 38], sheds: [[46, 36, 2, 1]], pump: null },
+  A: { x0: 47, y0: 36, gates: [[48, 41], [49, 41], [47, 39], [47, 40]], house: [50, 39], sheds: [[48, 37, 2, 1]], pump: null },
   B: { x0: 35, y0: 45, gates: [[40, 46], [40, 47], [38, 45], [39, 45]], house: null, sheds: [[36, 46, 1, 2]], pump: [38, 48] },
 };
 /** The zone the visibility gate holds to a town's share (85%) and a building share (25%): all four yards. */
@@ -137,10 +151,15 @@ export const FARMS = {
 
 /**
  * The sheepfolds of the top half, [x0, y0, w, h, gaps]: a five-by-four ring with a gap in each long side. Low walls (cover 2 for a
- * man hugging one, no sight blocked) on the foot lanes of each flank, ahead of the bluff. The second is the first's transpose.
+ * man hugging one, no sight blocked) on the foot lanes of each flank, ahead of the bluff. The second is the first's transpose in
+ * size, not in place: the first stands at (46,16), six rows north of the B4 build's (46,22), which sat on the armour's straight
+ * line from seat 0 to the NE ford (y 23.5 at x 48) and its half-turn on the line from seat 1 to the SW ford (the compounds round,
+ * GH-974, lead ruling of 12 Nov: the lane probe's seat gap is map work near the fords). With A at (47,36) and the fold there, the
+ * lane probe (seeds 54000-54191) reads armour left west 79.7 / east 72.4 (gap +7.3) and armour right 59.9 / 63.0 (-3.1), inside
+ * the 10-point bar; the B4 build read -17.2 armour left, the fold move alone -15.6 and A's move alone +10.9.
  */
 export const FOLDS = [
-  [46, 22, 5, 4, [[48, 22], [48, 25]]],
+  [46, 16, 5, 4, [[48, 16], [48, 19]]],
   [22, 46, 4, 5, [[22, 48], [25, 48]]],
 ];
 
@@ -165,9 +184,9 @@ const ACACIA = [[22, 42], [66, 6], [84, 36], [31, 52]];
 
 const inFord = (v, r) => WADI.fords.some((f) => Math.abs(v - f) <= r);
 
-/** Seat 0's two tunnel routes (mouth first, vent last); seat 1's are their half-turn images. The shipped map's. */
+/** Seat 0's two tunnel routes (mouth first, vent last); seat 1's are their half-turn images. The shipped map's, but the north vent one tile back, (45,43) to (44,42): the tunnels cell read Sarim 70.3 / 65.6% and now reads KDF 53.6 / 54.2% (GH-974). */
 const ROUTES_FRIENDLY = [
-  { id: 'wtl_f_north', points: [[25, 23], [32, 28], [45, 43]], capacity: 3 },
+  { id: 'wtl_f_north', points: [[25, 23], [32, 28], [44, 42]], capacity: 3 },
   { id: 'wtl_f_west', points: [[23, 25], [26, 31], [42, 45]], capacity: 3 },
 ];
 

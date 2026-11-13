@@ -40,11 +40,13 @@ import { parseRigidFixture } from './units/rigid-mesh-fixture';
 import { parseFixture } from './units/mesh-fixture';
 import { parseRunningGear } from './units/running-gear';
 import { runningGearBinding } from './units/running-gear-binding';
+import { insigniaHookOf, teamHookOf } from './units/team-mask';
 import type { DyingVehicle } from './units/mesh-vehicle-death';
 import type { DyingMeshUnit } from './units/mesh-death';
 import { MESH_DEATH_SECONDS } from './units/mesh-death';
 import type { BackdropSpec, LoadedBackdropKit } from './terrain/backdrop';
 import { readKitFixture } from './terrain/backdrop-kit-fixture';
+import { webGpuFormats } from './units/webgpu-vertex-format.test-support';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -136,6 +138,9 @@ const RG_SPEC = parseRunningGear(
   'fixture'
 );
 
+/** Every `_rl_wheel` attribute `laviTemplate` made, in order (GH-1319: a legacy boot must draw exactly these objects). */
+const fixtureWheels: THREE.InterleavedBufferAttribute[] = [];
+
 /** The Lavi fixture: one hull, an `idle` and a `wreck` clip, its material team-marked and its geometry wheel-tagged. */
 async function laviTemplate(): Promise<VehicleMeshTemplate> {
   const built = buildVehicleMeshTemplate(
@@ -152,7 +157,13 @@ async function laviTemplate(): Promise<VehicleMeshTemplate> {
       m.map = new THREE.Texture();
       m.userData = { ...(m.userData as Record<string, unknown>), rl_team_mark: MARK };
       const n = mesh.geometry.getAttribute('position').count;
-      mesh.geometry.setAttribute('_rl_wheel', new THREE.BufferAttribute(new Uint8Array(n).fill(1), 1));
+      // GH-1319: the SHIPPED shape. `DRACOLoader` pads the 1-byte `_RL_WHEEL` scalar to a 4-byte stride and hands it over
+      // interleaved (a plain `BufferAttribute(Uint8Array)`, which three widens itself, hid the WebGPU crash).
+      const wheelBytes = new Uint8Array(n * 4);
+      for (let v = 0; v < n; v++) wheelBytes[v * 4] = 1;
+      const wheel = new THREE.InterleavedBufferAttribute(new THREE.InterleavedBuffer(wheelBytes, 4), 1, 0);
+      fixtureWheels.push(wheel);
+      mesh.geometry.setAttribute('_rl_wheel', wheel);
       mesh.geometry.setAttribute('_rl_track', new THREE.BufferAttribute(new Float32Array(n).fill(-1), 1));
     });
   }
@@ -337,7 +348,7 @@ describe('G1: every unit swap site adopts, on the frame of the swap', () => {
     const hullA = hullOf(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity);
     // Precondition: the hull really carries a unit hook (the team variant), and draws its twin.
     expect(isTwin(hullA.material as THREE.Material)).toBe(true);
-    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-unit-mark-3']);
     expect(priv.meshUnitEntities.has(squad)).toBe(true);
     // ...and so does the figure: the rain rim, then the wounded floor.
     const figureChains: string[][] = [];
@@ -351,7 +362,7 @@ describe('G1: every unit swap site adopts, on the frame of the swap', () => {
     frame('move (running-gear bind)');
     const bound = runningGearBinding(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity);
     expect(bound).toBeDefined();
-    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-team-mark-2', 'rl-running-gear-1']);
+    expect(hookSegments(legacyOf(hullA.material as THREE.Material, hullA))).toEqual(['rl-unit-mark-3', 'rl-running-gear-1']);
 
     toBand(a, 3);
     frame('damage band');
@@ -393,7 +404,7 @@ describe('G2: clone sites clone the legacy material', () => {
     const hull = hullOf(entity);
     const variant = legacyOf(hull.material as THREE.Material, hull);
     expect(isTwin(variant)).toBe(false);
-    expect(hookSegments(variant)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(variant)).toEqual(['rl-unit-mark-3']);
 
     priv.runningGear.moved[a] = 1;
     r.frame(1, 16);
@@ -403,7 +414,7 @@ describe('G2: clone sites clone the legacy material', () => {
     const rg = binding.materials[0] as THREE.Material;
     expect(isTwin(rg)).toBe(false);
     expect((rg as THREE.MeshStandardMaterial).isMeshStandardMaterial).toBe(true);
-    expect(hookSegments(rg)).toEqual(['rl-team-mark-2', 'rl-running-gear-1']);
+    expect(hookSegments(rg)).toEqual(['rl-unit-mark-3', 'rl-running-gear-1']);
     expect(legacyBaseOf(rg)).toBe(variant);
 
     // The scar on a moved hull is written onto its own (legacy) running-gear clone; on death the bind is released and the scar is
@@ -417,12 +428,12 @@ describe('G2: clone sites clone the legacy material', () => {
     if (!hullSwap) throw new Error('no hull swap');
     const scar = hullSwap.original;
     expect(isTwin(scar)).toBe(false);
-    expect(hookSegments(scar)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(scar)).toEqual(['rl-unit-mark-3']);
     expect(legacyBaseOf(scar)).toBe(variant);
     const fade = hullSwap.fade;
     expect(isTwin(fade)).toBe(false);
     expect(fade.transparent).toBe(true);
-    expect(hookSegments(fade)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(fade)).toEqual(['rl-unit-mark-3']);
     expect(legacyBaseOf(fade)).toBe(variant);
 
     // A clean, never-moved hull dies while it DRAWS its twin (no release, no scar re-apply): the fade is still cut from the legacy.
@@ -436,7 +447,7 @@ describe('G2: clone sites clone the legacy material', () => {
     if (!fadeB) throw new Error('no fade for the clean hull');
     expect(fadeB.original).toBe(variantB);
     expect(isTwin(fadeB.fade)).toBe(false);
-    expect(hookSegments(fadeB.fade)).toEqual(['rl-team-mark-2']);
+    expect(hookSegments(fadeB.fade)).toEqual(['rl-unit-mark-3']);
     expect(legacyBaseOf(fadeB.fade)).toBe(variantB);
     r.dispose();
   });
@@ -509,6 +520,51 @@ describe('G3: no new program per vehicle', () => {
   });
 });
 
+describe('GH-1096 S1: a living Lavi built by the renderer wears the insignia; a type with no frame does not', () => {
+  it('the Lavi\'s hull variant carries both halves of the one hook; the Ambush Tank, same fixture hull, carries the team mark only', async () => {
+    seam.kit = stubKit();
+    const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
+    const a = sim.spawn(sim.addUnitType(LAVI), 0, fx.from(6.5), fx.from(6.5));
+    // A second type on the same fixture hull (the mock hands every load the Lavi's template): framed by TYPE id, so none.
+    const c = sim.spawn(sim.addUnitType({ ...LAVI, id: 'mbt_lavi_camo' }), 0, fx.from(14.5), fx.from(14.5));
+    const r = new ThreeRenderer(sim, makeOpts('webgl2'));
+    const priv = r as unknown as Private;
+    await r.init(HOST);
+    await r.loadVehicleMesh('mbt_lavi', 'mbt_lavi.glb');
+    await r.loadVehicleMesh('mbt_lavi_camo', 'mbt_lavi_camo.glb');
+    r.frame(1, 16);
+    const lavi = legacyOf(hullOf(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity).material as THREE.Material, hullOf(priv.vehicleMeshEntities.get(a) as VehicleMeshEntity));
+    expect(teamHookOf(lavi)).toBeDefined();
+    expect(insigniaHookOf(lavi)).toBeDefined();
+    expect(lavi.customProgramCacheKey().endsWith('|rl-unit-mark-3|team+ins')).toBe(true);
+    const other = hullOf(priv.vehicleMeshEntities.get(c) as VehicleMeshEntity);
+    const camoHull = legacyOf(other.material as THREE.Material, other);
+    expect(teamHookOf(camoHull)).toBeDefined();
+    expect(insigniaHookOf(camoHull)).toBeUndefined();
+    r.dispose();
+  });
+});
+
+describe('GH-1096 S1: the insignia field is fetched only for a roster holding a framed type', () => {
+  const URL_SDF = '/t/textures/insignia/roaring_lion_sdf.png';
+  async function fetchesFor(types: readonly UnitTypeJson[]): Promise<number> {
+    seam.kit = stubKit();
+    const load = vi.spyOn(THREE.TextureLoader.prototype, 'load').mockImplementation(() => new THREE.Texture());
+    const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
+    types.forEach((t, i) => sim.spawn(sim.addUnitType(t), 0, fx.from(4.5 + 4 * i), fx.from(6.5)));
+    const r = new ThreeRenderer(sim, { ...makeOpts('webgl2'), insigniaSdfUrl: URL_SDF });
+    await r.init(HOST);
+    const n = load.mock.calls.filter((c) => c[0] === URL_SDF).length;
+    r.dispose();
+    load.mockRestore();
+    return n;
+  }
+  it('a Lavi in the roster: one fetch; no framed type (a wounded figure, the Ambush Tank): none', async () => {
+    expect(await fetchesFor([LAVI, WOUNDED])).toBe(1);
+    expect(await fetchesFor([WOUNDED, { ...LAVI, id: 'mbt_lavi_camo' }])).toBe(0);
+  });
+});
+
 describe('G8: a legacy boot never calls the kit and never queues', () => {
   it('spawn, move, damage, death fade, reload: no factory call, an empty queue, every material legacy', async () => {
     const kit = stubKit();
@@ -533,6 +589,45 @@ describe('G8: a legacy boot never calls the kit and never queues', () => {
       const m = (o as THREE.Mesh).material;
       if (m && !Array.isArray(m)) expect(isTwin(m)).toBe(false);
     });
+    r.dispose();
+  });
+});
+
+describe('GH-1319: a moving vehicle draws only attributes WebGPU can lay out', () => {
+  it('node boot: after the running-gear bind, every attribute of the moving hull has a vertex format in three\'s WebGPU backend', async () => {
+    seam.kit = stubKit();
+    const { r, priv, a } = await boot('webgl2');
+    r.frame(1, 16);
+    priv.runningGear.moved[a] = 1;
+    r.frame(1, 16);
+    const entity = priv.vehicleMeshEntities.get(a) as VehicleMeshEntity;
+    expect(runningGearBinding(entity)).toBeDefined();
+    const hull = hullOf(entity);
+    const wheel = hull.geometry.getAttribute('_rl_wheel');
+    // The values the wheel term reads are kept (the fixture tags every vertex wheel 1).
+    // Non-empty first, against the position count (an independent number): over zero vertices the `.every` below holds for any values.
+    const vertices = hull.geometry.getAttribute('position').count;
+    expect(vertices).toBeGreaterThan(0);
+    expect(wheel.count, 'one wheel value per vertex').toBe(vertices);
+    expect(Array.from({ length: wheel.count }, (_, i) => wheel.getX(i)).every((v) => v === 1)).toBe(true);
+    const names = Object.keys(hull.geometry.attributes);
+    const formats = await webGpuFormats(names.map((n) => hull.geometry.getAttribute(n) as THREE.BufferAttribute));
+    expect(formats).toHaveLength(names.length);
+    expect(names.filter((_, i) => formats[i] === undefined)).toEqual([]);
+    r.dispose();
+  });
+
+  it('legacy boot: the hull keeps the very `_rl_wheel` object the loader made, interleaved 8-bit, moved or not', async () => {
+    const { r, priv, a } = await boot(undefined);
+    r.frame(1, 16);
+    priv.runningGear.moved[a] = 1;
+    r.frame(1, 16);
+    const entity = priv.vehicleMeshEntities.get(a) as VehicleMeshEntity;
+    expect(runningGearBinding(entity)).toBeDefined();
+    const wheel = hullOf(entity).geometry.getAttribute('_rl_wheel') as THREE.InterleavedBufferAttribute;
+    expect(fixtureWheels).toContain(wheel);
+    expect(wheel.isInterleavedBufferAttribute).toBe(true);
+    expect(wheel.array).toBeInstanceOf(Uint8Array);
     r.dispose();
   });
 });

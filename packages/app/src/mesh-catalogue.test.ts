@@ -675,6 +675,7 @@ describe('mesh catalogue: props (ground plan 2, Task 4)', () => {
     height: 8,
     terrain: 'arid',
     grove: null,
+    groundBlend: true,
     blocked: new Uint8Array(64),
     boulder: new Uint8Array(64),
     boulderCount: 0,

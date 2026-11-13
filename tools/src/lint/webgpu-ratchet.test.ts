@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 import tseslint from 'typescript-eslint';
 import { describe, expect, it } from 'vitest';
-import { BANNED_NAMES, PORTED_FILES, TWINS, portedFilesBlocks } from '../../webgpu_ratchet.mjs';
+import { BANNED_NAMES, NODE_NATIVE_FILES, PORTED_FILES, TWINS, portedFilesBlocks } from '../../webgpu_ratchet.mjs';
 import { RATCHET_BASE } from '../../webgpu_fences.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -42,12 +42,22 @@ describe('webgpu ratchet', () => {
     // (the P7 cutover deletes the whole ratchet, not entries from it).
     for (const f of PORTED_FLOOR) expect(PORTED_FILES, `${f} left PORTED_FILES`).toContain(f);
   });
-  it('every PORTED_FILES entry is an existing .node.ts under packages/render/src/three, and is some TWINS twin', () => {
+  it('every PORTED_FILES entry is an existing .node.ts under packages/render/src/three, and is some TWINS twin or a named node-native file', () => {
     const twins = new Set(Object.values(TWINS));
+    const native = new Set(NODE_NATIVE_FILES);
     for (const f of PORTED_FILES) {
       expect(f, f).toMatch(/^packages\/render\/src\/three\/.+\.node\.ts$/);
       expect(existsSync(path.join(ROOT, f)), `${f} does not exist`).toBe(true);
-      expect(twins.has(f), `${f} is in no TWINS row (add the legacy -> twin pair)`).toBe(true);
+      expect(twins.has(f) || native.has(f), `${f} is in no TWINS row (add the legacy -> twin pair) and is not in NODE_NATIVE_FILES`).toBe(true);
+    }
+  });
+  it('GH-1167 S4: every NODE_NATIVE_FILES entry is ported and twins no legacy file', () => {
+    // Falsify: add a TWINS row pointing at grass-field.node.ts (red), or drop it from PORTED_FILES (red).
+    expect(NODE_NATIVE_FILES).toContain('packages/render/src/three/terrain/grass-field.node.ts');
+    const twins = new Set(Object.values(TWINS));
+    for (const f of NODE_NATIVE_FILES) {
+      expect(PORTED_FILES, `${f} is node-native but not in PORTED_FILES`).toContain(f);
+      expect(twins.has(f), `${f} is node-native but is a TWINS twin`).toBe(false);
     }
   });
   it('an empty list emits no block (a flat-config files: [] is invalid)', () => {

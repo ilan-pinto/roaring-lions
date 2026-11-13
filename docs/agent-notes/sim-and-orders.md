@@ -21,7 +21,14 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   have no `garrison` ability and carry no flag), and it is not required elsewhere
   (`tools/validate_garrison.mjs`, which also refuses a garrison stance on a
   unit without the `garrison` ability -- the runtime would silently skip it). `GARRISON_RANGE_BONUS`
-  (`tuning.ts`, +1 tile) lengthens max and effective range from inside, not sight and not min range. A
+  (`tuning.ts`, +1 tile) lengthens max and effective range from inside, not sight and not min range; **since
+  GH-34 (lead ruling 11 Nov 2026) a structure type's own `garrison_range_bonus` (tiles, `structure.schema.json`)
+  replaces it for units inside that building** (`Sim.garrisonBonus`, read by `reachSq`/`effSq`/`effRange`), so an
+  apartment block (3 floors) reaches 2 tiles further and every other type keeps the one tile; an unauthored type takes
+  the precomputed `WeaponStats.garrison*` fields, which is why a world with no edited JSON is byte-identical. The shipped
+  table is pinned in `tools/src/garrison_range_bonus.test.ts` (`apartment: 2`); `garrison-probes.ts --reach` prints the
+  reach per building. A field work's `aura.garrison.range_bonus` still adds on top. The `fire` breakdown has no garrison
+  term and the range ring still draws the open-ground envelope (GH-34 acceptance 2 and 3, the next slice). A
   dead or removed occupant frees its slot; an overflow unit waits at the door, stopped, and fights.
   **The §5.7 urban target builds no structures, so `pnpm balance` is blind to all of this** --
   `tools/src/backtest/garrison-probes.ts` is the report-only instrument that can see it (the #280 raid
@@ -715,7 +722,7 @@ model. The S4 re-run and the decision to open versus are written up separately.
 A versus room may play a WIN MODE beside annihilation: `MatchConfig.winMode` (`'camp'` | `'points'` | `'flag'`, absent is
 annihilation and every room that has ever been played). Phase 1 was the engine and the instrument; **phase 2 (below) opens
 `points` in the lobby, the bot harness and the scoring**. `camp` was offered nowhere (it failed the passive-seat bar on both
-maps); since GH-976 camp-mode it is offered on `milh_flats` alone (below) and reachable elsewhere from a test and `pnpm versus:probe -- --mode=camp`.
+maps); since GH-976 camp-mode it is offered on `milh_flats`, `wadi_tarfan` and `wadi_tarfan_l` (`WIN_MODE_FAIR_MAPS.camp`; the last two since PR 1066, below) and reachable elsewhere from a test and `pnpm versus:probe -- --mode=camp`.
 
 - **Data.** `data/versus/modes/<map>.json` against `versus_mode.schema.json`, registered in `@lions/data`'s
   `versusModes` (`index.test.ts`-style pin: `tools/src/validate_versus_modes.test.ts`). It carries the map's camps by END
@@ -758,6 +765,7 @@ maps); since GH-976 camp-mode it is offered on `milh_flats` alone (below) and re
   P1 compared frozen scores, so the larger overshoot could beat the side that reached the target FIRST.
 - **`versusModes` is in the content digest** (`content-digest.ts`): a mode file that differs between two clients is a desync on the
   first hash tick, not later through a camp or a score.
+- **Capture the flag is back in the lobby (GH-976, 12 Nov).** `WIN_MODE_FAIR_MAPS.flag` and `FLAG_SETUP_MAPS` list the same five maps (`wadi_tarfan`, `milh_flats`, `rujm_sawda`, `wadi_tarfan_l`, `milh_flats_l`), mirror only, set-up rules on; change the two together. Evidence: the "Flag-mode fairness audit" comment on GH-976 (base e8da511); the v1 raid rows in `config.ts` are not it. KDF v Sarim stays unlisted.
 - **The lobby offers what was read fair.** `winModesOffered(map, matchup)` (`@lions/net`) lists the modes `WIN_MODE_FAIR_MAPS`
   names for the map, **in the mirror only** (the probe read every mode KDF v KDF; a faction pairing plays its economy and is offered
   none). The host's form has a "How to win" group, Annihilation by default, drawn only when something is offered; a pick the next
@@ -826,8 +834,11 @@ maps); since GH-976 camp-mode it is offered on `milh_flats` alone (below) and re
 ### Phase 4 (GH-976 P4): the five other open maps, and KDF against Sarim
 
 - **What moved.** No sim source, no snapshot row, no pin: `data/versus/modes/<map>.json` for `tel_marum`, `beit_sahwan_outskirts`,
-  `rujm_sawda`, `wadi_tarfan_l` and `milh_flats_l`, the probe, and the Worker's allow-list. Both `points` and `flag` are now offered in the
-  mirror on all seven open maps (`WIN_MODE_FAIR_MAPS`); `camp` was still nowhere (see "GH-976 camp-mode" below).
+  `rujm_sawda`, `wadi_tarfan_l` and `milh_flats_l`, the probe, and the Worker's allow-list. Both `points` and `flag` were then offered in the
+  mirror on all seven open maps (`WIN_MODE_FAIR_MAPS`); `camp` was still nowhere (see "GH-976 camp-mode" below). **Today:** `points` is still on
+  those seven (`beit_sahwan_outskirts` and `rujm_sawda` were delisted and relisted on 12 Nov with re-fitted targets, PRs 1287 and 1296, with the finite
+  APS of PR 1050 as the cause); `flag` is on five (`wadi_tarfan`, `milh_flats`, `rujm_sawda`, `wadi_tarfan_l`, `milh_flats_l`) after GH-1139 pulled it
+  on 8 Nov (PR 1141) and PR 1286 relisted it, as the "Capture the flag is back in the lobby" entry above says.
 - **The probe reads a KDF-v-Sarim cell.** `pnpm versus:probe -- --mode=flag --maps=<id> --arr=kdf/sarim,sarim/kdf` (the factions by END,
   friendly first; the default is the mirror). A faction mode room is the two PLACED forces with no production and no tunnels, because
   `economyRoom` is false for any mode room, so the arm plays it with the orders it plays a mirror. The verdict line reads the leader twice:

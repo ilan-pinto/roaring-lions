@@ -17,7 +17,10 @@
 			"/stats",
 			"/stats/*",
 			// GH-954 P3: the public arena results page and its JSON.
-			"/arena-results*"
+			"/arena-results*",
+			// GH-1075 A1: the privacy page. Without this the SPA fallback would
+			// answer it, and the account bindings pin (wrangler-pin.test.ts) fails.
+			"/privacy"
 		]
 	},
 	// Cloudflare's own preview URLs (<hash>.roaring-lions.workers.dev) would be
@@ -30,6 +33,23 @@
 			"database_name": "roaring-lions-telemetry",
 			"database_id": "d23ceb15-6f89-4bcb-bb81-559eeba98e07",
 			"migrations_dir": "packages/worker/migrations"
+		},
+		// GH-1075 A1: the accounts database, a SECOND database. The telemetry
+		// DB above is never joined to it. Apply its migrations BEFORE the merge
+		// deploys: npx wrangler d1 migrations apply roaring-lions-accounts --remote
+		{
+			"binding": "ACCOUNTS",
+			"database_name": "roaring-lions-accounts",
+			"database_id": "ea793ff8-1491-4982-95a4-8b9c36962998",
+			"migrations_dir": "packages/worker/migrations-accounts"
+		}
+	],
+	// GH-1075 A1: deletion tombstones (90 days), so a deleted member's session
+	// answers `gone` and a restored backup cannot resurrect them.
+	"kv_namespaces": [
+		{
+			"binding": "ACCOUNT_TOMBSTONES",
+			"id": "16d307f3f672402f9baae348553948e6"
 		}
 	],
 	// N0 (network design §3.2): one Durable Object per match, SQLite-backed.
@@ -109,10 +129,31 @@
 				"limit": 12,
 				"period": 60
 			}
+		},
+		// GH-1075 A1 (spec section 1.9): the /api/account door, per connecting
+		// IP. Sign-in starts and the other expensive routes.
+		{
+			"name": "ACCOUNT_LIMIT",
+			"namespace_id": "1007",
+			"simple": {
+				"limit": 10,
+				"period": 60
+			}
+		},
+		// GH-1075 A1 (spec section 1.9): the cheap account ops (me, open, sync
+		// writes), per connecting IP.
+		{
+			"name": "ACCOUNT_OP_LIMIT",
+			"namespace_id": "1008",
+			"simple": {
+				"limit": 60,
+				"period": 60
+			}
 		}
 	],
 	// GH-464: daily at 03:17 UTC, purge feedback pictures, replays and
-	// contacts older than 180 days (spec §7, D15).
+	// contacts older than 180 days (spec §7, D15), and the account sweeps and
+	// tombstone reconcile (GH-1075).
 	"triggers": {
 		"crons": ["17 3 * * *"]
 	},

@@ -18,6 +18,10 @@
  * property the visual gate checked: the golden baselines were captured at
  * `high` and did not need re-blessing for that change alone. The bloom
  * (below) is the one knob added since that is not a no-op at `high`.
+ *
+ * `high` at DPR 2 is best-effort on the Wadi Halam maps (GH-829, the lead's ruling of 12 Nov 2026): 16.1-19.2 ms against the
+ * 16.7 ms frame budget, so it may run just under 60 fps there. The look is not cut to buy it back (no pixel-ratio cap, no SMAA
+ * change, no decor LOD); revisit only if holding 60 fps at `high` on Retina becomes a goal. Numbers: `docs/PERFORMANCE.md`.
  */
 export interface RenderQuality {
   /**
@@ -107,6 +111,13 @@ export interface RenderQuality {
    */
   nature?: NatureQuality;
   /**
+   * GH-1223: presentation-only physics (Rapier; `three/physics/`). `ragdolls` is how many dying infantry FIGURES may be
+   * ragdolls at once; past it a death keeps the animated fall. **0 on every preset** (shipped dark, the lead's ruling
+   * L4, 10 Nov 2026) until the lead has seen them: the sandbox flag `&ragdoll` raises it to 16 for a look. At 0 the
+   * WASM is never even fetched, so `low` pays nothing, ever. Absent reads 0.
+   */
+  physics?: PhysicsQuality;
+  /**
    * Soft particles (GH-1227 slice 1; `three/soft-depth.ts`, the design
    * `docs/superpowers/specs/2026-11-11-soft-particles-design.md`): the
    * flipbook's smoke pass fades its alpha by the scene depth where a billow
@@ -122,6 +133,19 @@ export interface RenderQuality {
    * at most 49k triangles, medium +3 draws, low none.
    */
   debris?: DebrisQuality;
+  /**
+   * GH-1167 S5: the 3D grass field on a node boot of a map whose tones carry `grassField` (design 2026-11-11, decision 8).
+   * `'full'` draws the LOD bands as specified (LOD0 at zoom >= 1.5, LOD1 at >= 0.9); `'coarse'` moves both bands one step
+   * coarser (x 1.2); `'off'` builds no field, and the node boot draws today's sward strokes and Meshy tufts. Absent means
+   * `high`'s (`grassQualityOf`). The legacy path never reads it.
+   */
+  grass?: 'full' | 'coarse' | 'off';
+  /**
+   * GH-1226 S5: the node ground's height and slope blend (design 2026-11-12, section 3.5 and decision 9). `'full'` compiles the whole
+   * stage; `'tone'` compiles it without the texture edge and the joints (a graph choice made once, at the next boot). Absent means
+   * `high`'s (`groundBlendQualityOf`). The legacy path never reads it.
+   */
+  groundBlend?: 'full' | 'tone';
 }
 
 /** `RenderQuality.debris`: see there. */
@@ -129,6 +153,14 @@ export interface DebrisQuality {
   readonly pool: number;
   readonly shadows: boolean;
 }
+
+/** `RenderQuality.physics`: see there. `ragdolls` is a rung of the 16/8/4/0 cost ladder. */
+export interface PhysicsQuality {
+  ragdolls: 0 | 4 | 8 | 16;
+}
+
+/** The ragdoll cap the sandbox's `&ragdoll` flag forces (the design's `high` figure). */
+export const RAGDOLL_SHOWCASE_CAP = 16;
 
 /** `RenderQuality.nature`: see there. `slots` is a rung of `DISTURB_LADDER`. */
 export interface NatureQuality {
@@ -147,8 +179,8 @@ export type WetGroundTier = 'full' | 'lite' | 'minimal';
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
   // Was drops 900 (and 1500 before it): the P4 final-tip cost run read NET (total wet) 0.5 / 0.5 / 0.4 ms against low's +0.4 budget (z1 / z1.6 / z2.5) at load 3-5 (GH-871).
   // The first step, 1500 -> 900, followed 0.7 and 0.9 ms at zoom 2.5, twice.
-  low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, debris: { pool: 0, shadows: false } },
-  medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, debris: { pool: 512, shadows: false } },
+  low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' }, nature: { slots: 8, wakes: false, foot: false }, debris: { pool: 0, shadows: false }, grass: 'off', groundBlend: 'tone', physics: { ragdolls: 0 } },
+  medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' }, nature: { slots: 16, wakes: true, foot: false }, debris: { pool: 512, shadows: false }, grass: 'coarse', groundBlend: 'full', physics: { ragdolls: 0 } },
   high: {
     grade: true,
     ao: true,
@@ -161,11 +193,24 @@ export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQ
     smokeBillboardGain: 0.8,
     rain: { drops: 6000, ripples: true, ground: 'full' },
     nature: { slots: 24, wakes: true, foot: true },
+    physics: { ragdolls: 0 },
     debris: { pool: 1024, shadows: true },
+    grass: 'full',
+    groundBlend: 'full',
   },
 };
+
+/** A preset's grass field, `high`'s when it names none (GH-1167 S5). */
+export function grassQualityOf(q: RenderQuality | undefined): 'full' | 'coarse' | 'off' {
+  return q?.grass ?? (QUALITY_PRESETS.high.grass as 'full');
+}
 
 /** A preset's debris pool, `high`'s when it names none. */
 export function debrisQualityOf(q: RenderQuality | undefined): DebrisQuality {
   return q?.debris ?? (QUALITY_PRESETS.high.debris as DebrisQuality);
+}
+
+/** A preset's ground blend, `high`'s when it names none (GH-1226 S5). */
+export function groundBlendQualityOf(q: RenderQuality | undefined): 'full' | 'tone' {
+  return q?.groundBlend ?? (QUALITY_PRESETS.high.groundBlend as 'full');
 }

@@ -356,3 +356,29 @@ as far as is known. The npm package declares Apache-2.0 only.
   - **Digests:** SHA-256 of every body's `Float64` translation and rotation, compared across a rebuild.
   - **Memory:** linear memory was read off the instance's exported memory by wrapping `WebAssembly.instantiate`.
 - **What these are not:** browser numbers. Section 3's bench plan is owed before the flag flips.
+
+## Slice 1 as built (GH-1223, the follow-up PR)
+
+The lead approved L1-L8 as recommended. Where the build differs from the text above, and why:
+
+- **11 bodies, not 10.** Section 4 counted 12 bones less the merged neck and head as 10; it is 11 (pelvis, spine,
+  neck+head, two upper arms, two forearms+hands, two thighs, two shins+feet). The mapping is structural, never by
+  name: a body is a LINK bone (one with a bone child) under a figure root.
+- **Ball joints have limits after all** (+-1.0 rad per angular axis, about the handoff pose). Rapier 0.21's JS
+  `SphericalImpulseJoint` declares per-axis motors but its runtime class has none; the joint set's own entry points
+  (`jointSetLimits`, `jointConfigureMotorPosition`) do both, and the code calls them.
+- **The push is a per-class number** (follow-up, GH-1223): `ragdoll_push` (`horizontal_m_s`, `up_m_s`) on a class row of
+  `data/vfx/munitions.json`, read by the killer's last-fired weapon's class (`ragdollPushForWeapon`). A class with no
+  row, an unmapped weapon (a rifle) and a death with no known killer take the old constant (1.0 / 0.4); the +-30%
+  hashed spread stays in code. Slice 1 shipped it as a constant because that file was not on `main` yet.
+- **The fence is its own eslint rule** (`tools/physics_fence.mjs`), not more `no-restricted-imports` patterns: a later
+  block would replace those, and they do not see `import()`.
+- **The outcome guard** (guard 5) is `ThreeRenderer.ragdoll.test.ts`: the sim's hash, tick by tick, with the ragdolls
+  on and off. **The bundle check** (guard 6) is a finding of the existing bundle census (`tools/src/perf/bundle-census.ts`,
+  `pnpm --filter @lions/tools webgpu:bundle`): Rapier is exactly one chunk, reached only by `import()`, never the entry
+  or its static closure. Read on this branch: `rapier-*.js` 4,262 KiB raw / 1,622 KiB gzip, lazy; the main chunk clean.
+  The census is a manual driver, not a CI job.
+- Measured in Node on the shipped rigs: an `inf_squad` figure falls to a pelvis height of about 0.1 m within 1-2 s;
+  every incident so far reaches the 240-step cap before the quiet rule (jittering contacts). The look is the lead's to
+  judge on `&ragdoll`, which is why the slice ships dark.
+

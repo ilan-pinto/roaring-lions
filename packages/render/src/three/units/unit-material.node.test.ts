@@ -34,6 +34,7 @@ import {
   adoptUnits,
   bindingsOf,
   compile,
+  builderRenderer,
   compileWgsl,
   laviMaterial,
   mainOf,
@@ -73,7 +74,7 @@ describe('G7: a running-gear-plus-team clone composes both terms, the mark AFTER
     const variant = new VehicleTeamMaterials(slotsOf()).materialFor(laviMaterial(), 0) as THREE.MeshStandardMaterial;
     const { material } = runningGearMaterial(variant, SPEC);
     // The key names the mark first: the order is NOT read off the key.
-    expect(material.customProgramCacheKey().endsWith(`|${TEAM_MASK_PROGRAM_KEY}|${RG_PROGRAM_KEY}`)).toBe(true);
+    expect(material.customProgramCacheKey().endsWith(`|${TEAM_MASK_PROGRAM_KEY}|team|${RG_PROGRAM_KEY}`)).toBe(true);
     const twin = unitFactory(d)(material as THREE.MeshStandardMaterial);
     expect(bindingsOf(twin).applied).toEqual([RG_PROGRAM_KEY, TEAM_MASK_PROGRAM_KEY]);
     const frag = mainOf(compile(d, new THREE.Mesh(taggedGeometry(1, 0.5), twin), twin).fragment);
@@ -216,6 +217,30 @@ describe('G9: a texture that lands after adoption is the image the twin samples'
   });
 });
 
+describe('GH-1270: a textured twin compiles as three\'s SHADOW material, which has no map', () => {
+  it('the shadow nodes three derives from the twin\'s colorNode build without the "texture( value )" throw, and the twin\'s own draw still samples its map', async () => {
+    const d = await unitDeps();
+    const map = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+    map.needsUpdate = true;
+    const variant = new VehicleTeamMaterials(slotsOf()).materialFor(laviMaterial(map), 0) as THREE.MeshStandardMaterial;
+    const scene = new THREE.Scene().add(new THREE.Group().add(new THREE.Mesh(taggedGeometry(0), variant)));
+    adoptUnits(d, scene);
+    const mesh = (scene.children[0] as THREE.Group).children[0] as THREE.Mesh;
+    const twin = mesh.material as THREE.MeshStandardMaterial;
+    expect(twin.map).toBe(map);
+    // Exactly what `Renderer._getShadowNodes` hands the shadow pass: colorNode = vec4(0, 0, 0, twin.colorNode.a), on a map-less material.
+    const nodes = (builderRenderer(d) as unknown as { _getShadowNodes(m: unknown): { colorNode: unknown } })._getShadowNodes(twin);
+    expect(nodes.colorNode).not.toBeNull();
+    const shadow = new d.W.MeshBasicNodeMaterial();
+    shadow.colorNode = nodes.colorNode as never;
+    expect(shadow.map).toBeNull();
+    expect(() => compile(d, mesh, shadow)).not.toThrow();
+    // The real draw is unchanged: the twin's own program still has a texture tap on the twin's map.
+    const built = compile(d, mesh, twin);
+    expect([...built.usedFragment].some((n) => (n as { isTextureNode?: boolean }).isTextureNode === true)).toBe(true);
+  });
+});
+
 describe('every unit segment is drawn, so a unit twin names nothing as unported', () => {
   it('a fully ported twin (team + running gear) has no unported term, and the node census names nothing for it', async () => {
     const d = await unitDeps();
@@ -225,7 +250,7 @@ describe('every unit segment is drawn, so a unit twin names nothing as unported'
     adoptAll(d, [mesh]);
     const twin = mesh.material as THREE.Material;
     expect((twin.userData as Record<string, unknown>)[UNPORTED_TERMS_KEY]).toEqual([]);
-    expect(twin.name).toBe('rl-node-material-unit:team-mark-2+running-gear-1');
+    expect(twin.name).toBe('rl-node-material-unit:unit-mark-3+running-gear-1');
     expect(censusUnported(mesh.parent as THREE.Object3D)).toEqual([]);
   });
 });

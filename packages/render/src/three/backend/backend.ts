@@ -20,7 +20,7 @@ import type { PostChainLike, PostQuality } from '../post-chain-shared';
 import type { UnportedHook } from './unported';
 import type { PerPass } from './pass-counter';
 import type { RefreshMode } from './refresh-policy';
-import type { MatrixWalk as MatrixWalkMode, UploadsMode } from './node-draw-options';
+import type { BatchUploadsMode, MatrixWalk as MatrixWalkMode, UploadsMode } from './node-draw-options';
 import type { FogUniformTable } from '../fog-spec';
 import type { FogMaths } from '../fog-pass.node';
 import type { OutputMaths } from '../post-chain.node';
@@ -45,6 +45,8 @@ import type { ZoneBandMaths } from '../units/zone-band.node';
 import type { SupplyRouteMaths } from '../supply-route.node';
 import type { XrayMaths } from '../tunnel-xray.node';
 import type { DecalMaths } from '../decal-pool.node';
+import type { GrassFieldKit, GrassFieldMaths } from '../terrain/grass-field.node';
+import type { BuildingCutMaths } from '../units/building-cut.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -93,6 +95,8 @@ export interface MaterialKit {
   /** The flipbook smoke and fire, and the smoke screen (T12). */
   flipbook: MaterialTwinFactory<THREE.ShaderMaterial> | null;
   smokeScreen: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+  /** GH-1225 slice 3 (L7): a clone-drawn building's holed and/or cut colour clone, `rl-holes` / `rl-cut`. */
+  building: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
 }
 /**
  * GH-943 P2 (T1): the values bundle the material twins receive (`../material-maths.ts`'s `MATERIAL_MATHS`, the `OutputMaths`
@@ -137,6 +141,11 @@ export interface MaterialMaths {
   /** T12: the flipbook's motion, cover and shade (`units/flipbook-fx.node.ts`), and the smoke screen's (`smoke-mesh.node.ts`). */
   readonly flipbook: FlipbookMaths;
   readonly smokeScreen: SmokeScreenMaths;
+  /** GH-1167 S5: the 3D grass field's maths (`terrain/grass-field.node.ts`): the foliage slot's, the flutter, the width floor. Not a
+   *  twin: the field has no legacy material, so it has no `MaterialKit` slot; `RenderBackend.grassField` builds it. */
+  readonly grassField: GrassFieldMaths;
+  /** GH-1225 slice 3 (L7): the holes and the roof cut (`units/building-cut.node.ts`). */
+  readonly building: BuildingCutMaths;
 }
 
 /**
@@ -215,6 +224,12 @@ export interface RenderBackend {
   configure(config: PostConfig): void;
   /** The node post chain (null before `configure`). Same `PostChainLike` the legacy `PostChain` extends. */
   readonly post: PostChainLike | null;
+  /**
+   * GH-1227 slice 3: whether this backend builds the soft-particle depth copy for `quality` (`post-chain.node.ts`'s
+   * `nodeSoftDepthOn`: the flag AND a WebGPU device with `depth32float-stencil8`). The SAME predicate picks the scene pass's depth
+   * format, so the copy and the format cannot disagree. Absent reads as false (soft particles inert on that backend).
+   */
+  softDepthOn?(quality: PostQuality): boolean;
   /** Compiles every program the scene needs now (`compileAsync`), so the first photographed frame is not a cold one. */
   prepare(scene: THREE.Scene, camera: THREE.Camera): Promise<void>;
   /** Draws one frame. Synchronous, like `WebGLRenderer.render`; never installs an animation loop of its own. */
@@ -245,6 +260,19 @@ export interface RenderBackend {
    * their counts since the last `takeCounts`. Optional: only the node backend has them (the test doubles leave them out).
    */
   readonly drawSwitches?: DrawSwitches;
+  /**
+   * GH-1152 (12 Nov): the resolved `nodeDraw.batchUploads` (`units/batch-uploads.ts`), which `ThreeRenderer.init` hands to its
+   * fixed-capacity batches. Resolved HERE, in the node chunk: `ThreeRenderer` value-importing `node-draw-options.ts` hoisted it into
+   * the ThreeRenderer chunk and made the node backend import that chunk (the `webgpu:bundle` census). Absent (the test doubles) is
+   * `'capacity'`, the legacy behaviour.
+   */
+  readonly batchUploads?: BatchUploadsMode;
+  /**
+   * GH-1167 S5: the 3D grass field's builder (`terrain/grass-field.node.ts`), the only maker of a grass scene object, so that file is
+   * reached only through this chunk (bundle pin P1). `ThreeRenderer.rebuildTerrain` calls it on a node boot of a map whose tones
+   * carry `grassField`. Optional: the test doubles leave it out, and then no field is built.
+   */
+  readonly grassField?: GrassFieldKit;
   dispose(): void;
 }
 

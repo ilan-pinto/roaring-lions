@@ -39,8 +39,9 @@
  * DOM through `textContent` only, never through markup (the lobby chat is
  * `NetChat`, which keeps to that too).
  */
-import { flagBlockOf, maps, units, versusModes } from '@lions/data';
-import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, flagSetupFor, flagSetupRoom, specialRefusal, versusMapAllowed, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
+import { flagBlockOf, units, versusModes } from '@lions/data';
+import { labelsOf, nameFrom, seatLabel, type SeatLabel } from '../net/seat-label';
+import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, flagSetupFor, flagSetupRoom, specialRefusal, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
 import { pointsExplainer } from './points-explainer';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
@@ -79,16 +80,7 @@ export function filterCode(raw: string): string {
   return [...raw.toUpperCase()].filter((ch) => CODE_ALPHABET.includes(ch)).join('').slice(0, CODE_LENGTH);
 }
 
-/** The maps a room can be hosted on (R-B9): the free-play picker's maps that
- *  the lead opened for versus (GH-561, 2026-10-14) -- the ones measured close
- *  to even, `VERSUS_FAIR_MAPS` -- by their own names. The tile studies and the
- *  tutorial ground are not among them, and neither is a map nobody has
- *  measured; the Worker refuses those too (`versusMapAllowed`). */
-export function versusMaps(catalogue: Record<string, { name: string }> = maps): { id: string; label: string }[] {
-  return Object.keys(catalogue)
-    .filter(versusMapAllowed)
-    .map((id) => ({ id, label: catalogue[id].name }));
-}
+export { versusMaps } from './versus-maps';
 
 export interface VersusDeps {
   /** Creates or joins; resolves to the code, the seat, an OPEN, not-yet-started
@@ -179,6 +171,8 @@ interface Room {
   chat: NetChat | null;
   /** The advisor each seat has seated, as the room last said (N4a). */
   advisors: [AdvisorScope | null, AdvisorScope | null];
+  /** Each seat's label as the lobby last said it (GH-1075 A3), handed to the battlefield at the start. */
+  labels: [SeatLabel | null, SeatLabel | null];
 }
 
 /** Opened on `/versus`, waiting for its lobby to mount: the lobby takes it
@@ -229,11 +223,12 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
   const room: Room = {
     code: o.code, seat: o.seat, transport: o.transport,
     seats: o.lobby.seats, map: o.lobby.map, factions: o.lobby.factions, kit: o.lobby.kit, winMode: o.lobby.winMode ?? null,
-    phase: 'lobby', error: null, repaint: null, chat: null, advisors: [null, null],
+    phase: 'lobby', error: null, repaint: null, chat: null, advisors: [null, null], labels: labelsOf(o.lobby.seats),
   };
   o.transport.setHooks({
     onLobby: (seats, _you, map, factions, kit, winMode) => {
       room.seats = seats;
+      room.labels = labelsOf(seats);
       room.map = map;
       if (factions !== undefined) room.factions = factions;
       // The room names the rule only when it is `brigade`; silence is matched.
@@ -247,7 +242,7 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
       room.phase = 'started';
       // The battlefield's `connectMatch` takes this for the URL's code: no
       // second socket, and the room's `start` is not missed.
-      handOver(room.code, { transport: room.transport, seat: room.seat, config });
+      handOver(room.code, { transport: room.transport, seat: room.seat, config, labels: room.labels });
       deps.navigate(`${routes.sandbox(config.map)}?net=${room.code}`, { replace: true });
     },
     onEnded: () => {
@@ -1075,7 +1070,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     r.chat?.dispose();
     r.chat = new NetChat(chat, {
       send: (text) => r.transport.chat(text),
-      nameOf: (seat) => r.seats.find((x) => x.seat === seat)?.callsign ?? '',
+      nameOf: (seat) => nameFrom(r.labels, seat, r.seats.find((x) => x.seat === seat)?.callsign ?? ''),
     }, { docked: true });
 
     // Built once: only this seat's card ever holds it, and a repaint moves it.
@@ -1115,8 +1110,29 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       dot.dataset.connected = s.connected ? '1' : '0';
       const name = document.createElement('span');
       name.className = 'rl-versus__name';
-      name.textContent = s.callsign;
+      const label = r.labels[n] ?? seatLabel(s, s.kind ?? 'human');
+      name.textContent = label.text;
       who.append(dot, name);
+      if (label.tag !== null) {
+        const tag = document.createElement('span');
+        tag.className = 'rl-versus__tag';
+        tag.dataset.tag = label.tag;
+        tag.textContent = t(`versus.seat.${label.tag}`);
+        who.appendChild(tag);
+      }
+      if (label.record !== null) {
+        const rec = document.createElement('span');
+        rec.className = 'rl-versus__record';
+        rec.textContent = label.record;
+        who.appendChild(rec);
+      }
+      if (label.model !== null) {
+        const model = document.createElement('span');
+        model.className = 'rl-versus__model';
+        // A typed model name is data: a text node, never markup.
+        model.textContent = label.model;
+        who.appendChild(model);
+      }
       if (n === r.seat) {
         const you = document.createElement('span');
         you.className = 'rl-versus__you';

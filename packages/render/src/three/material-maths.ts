@@ -22,6 +22,8 @@ import {
   reliefTiltOps,
   reliefTintRampOps,
 } from './terrain/relief-read';
+import { heightBlendStage, heightBlendTone } from './terrain/height-blend';
+import { HEIGHT_BLEND_BUILT_KEY, HEIGHT_BLEND_KEY } from './terrain/height-blend-record';
 import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './terrain/ground-maths';
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
 import { disturbBendOps, disturbSlotPushOps, DISTURB_MAX } from './terrain/disturb';
@@ -47,13 +49,14 @@ import { rimFadeOps, SMOKE_PLUME_DENSITY, SMOKE_PLUME_EDGE_SOFTNESS, SMOKE_PLUME
 import { COLLAPSE_SHROUD_DENSITY, COLLAPSE_SHROUD_EDGE_SOFTNESS, COLLAPSE_SHROUD_SHADE_BREAKS } from './units/collapse-shroud';
 import { beamShapeOps } from './units/beam-batch';
 import { rotorBlurOps, rotorSpinOps } from './units/swarm-batch';
-import { teamHookOf, teamMarkOps } from './units/team-mask';
+import { insigniaHookOf, teamHookOf, teamMarkOps, unitMarkHookOf } from './units/team-mask';
+import { insigniaCoordOps, insigniaOps } from './units/insignia';
 import { RG_MAX_WHEELS, rgBarOps, rgNormalOps, rgPhaseOps, rgVertexOps } from './units/running-gear';
 import { RG_TRACK_GEOMETRY_ATTR, RG_WHEEL_GEOMETRY_ATTR, runningGearUniformsOf } from './units/running-gear-material';
 import { sootOps } from './world-materials';
 import { rimOps, rimUniforms } from './units/rain-rim';
 import { floorOps, woundedUniforms } from './units/wounded-read';
-import { outlineExpandOps, SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY, SILHOUETTE_EXPAND_ATTRIBUTE, SILHOUETTE_OUTLINE_UNIFORM_KEY } from './units/silhouette';
+import { outlineExpandOps, SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY, SILHOUETTE_EXPAND_ATTRIBUTE, SILHOUETTE_OUTLINE_UNIFORM_KEY, SILHOUETTE_PX_PER_WORLD_UNIT } from './units/silhouette';
 import { zoneHatchOps } from './units/zone-band';
 import { dashOps } from './supply-route-maths';
 import { flipbookAliveOps, flipbookCoverOps, flipbookMotionOps, flipbookShadeOps } from './units/flipbook-fx';
@@ -61,12 +64,21 @@ import { softParticleFadeOps } from './soft-depth';
 import { smokeScreenCoverOps, smokeScreenPuffOps, smokeScreenShadeOps } from './smoke-mesh';
 import { vfxBillboardOps } from './units/vfx-noise';
 import { SUPPLY_ROUTE_ALPHA } from './supply-route';
+import { GRASS_WIDTH_ATTRIBUTE } from './terrain/grass-blade';
+import { grassFlutterOps, grassWidthFloorOps } from './terrain/grass-sway';
+import { buildingFragmentOps } from './units/building-cut-maths';
+import { cutHookOf } from './units/cut-material';
+import { holesHookOf } from './units/holed-material';
+import { CUT_FLOATS_PER_VOLUME, CUT_VOLUME_CAP } from './units/building-cutaway';
+import { HOLE_CAP } from './units/building-holes';
 import { xrayBeamOps, xrayCollarOps, xrayFigureOps, xrayRevealOps, xrayScanOps, xrayTubeOps } from './tunnel-xray';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
   // T3: the node ground (`terrain/mesh.node.ts`).
   ground: { slots: GROUND_SLOTS, slotUniforms, roadDistanceRangeTiles: ROAD_DISTANCE_RANGE_TILES, roadBands, heightBiased, rescaleWeights, macroDecode, macroFactor, groundBlend,
+    // GH-1226 S4: the height blend's stage and the keys of its record and seal.
+    heightBlend: { stage: heightBlendStage, recordKey: HEIGHT_BLEND_KEY, builtKey: HEIGHT_BLEND_BUILT_KEY },
     // T4: the relief read.
     relief: {
       tilt: reliefTiltOps,
@@ -91,7 +103,9 @@ export const MATERIAL_MATHS: MaterialMaths = {
   // GH-943 P3 (T3): the vehicle hooks of the unit twin (`units/unit-material.node.ts`): the team mark, the running gear and the soot.
   // T4: the rain rim (exposure, contrast, rim) and the wounded floor.
   unit: {
-    team: { teamMarkOps, teamHookOf },
+    team: { teamMarkOps, teamHookOf, unitMarkHookOf },
+    // GH-1096 S1: the insignia, the unit-mark segment's second term (`units/insignia.node.ts`).
+    insignia: { insigniaOps, insigniaCoordOps, insigniaHookOf },
     rg: {
       rgVertexOps,
       rgNormalOps,
@@ -126,6 +140,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
     paletteSize: DECAL_PALETTE_ORDER.length,
     wetDefine: DECAL_WET_DEFINE,
     lightsKey: DECAL_LIGHTS_KEY,
+    // GH-1226 S6: the tone half the node decal twin divides by.
+    heightBlend: { tone: heightBlendTone, recordKey: HEIGHT_BLEND_KEY, builtKey: HEIGHT_BLEND_BUILT_KEY },
   },
   overlay: null,
   // T8: the zone band's hatch (`units/zone-band.node.ts`) and the supply route's dash and alpha (`supply-route.node.ts`).
@@ -135,7 +151,7 @@ export const MATERIAL_MATHS: MaterialMaths = {
   // T9: the tunnel x-ray's tube, collar, figure and beam (`tunnel-xray.node.ts`).
   xray: { revealOps: xrayRevealOps, scanOps: xrayScanOps, tubeOps: xrayTubeOps, collarOps: xrayCollarOps, figureOps: xrayFigureOps, beamOps: xrayBeamOps },
   // T11: the simple FX families. The tracer and the flat-colour FX mesh need no maths.
-  particle: { softOps: softParticleOps, sparksGain: HDR_GAINS.sparks },
+  particle: { softOps: softParticleOps, sparksGain: HDR_GAINS.sparks, depthFadeOps: softParticleFadeOps },
   tracer: null,
   vfxMesh: null,
   rimFade: {
@@ -148,4 +164,15 @@ export const MATERIAL_MATHS: MaterialMaths = {
   // T12: the flipbook and the smoke screen (their shared billow noise is `units/vfx-noise.ts`, reached through these bodies).
   flipbook: { motionOps: flipbookMotionOps, aliveOps: flipbookAliveOps, coverOps: flipbookCoverOps, shadeOps: flipbookShadeOps, billboardOps: vfxBillboardOps, softOps: softParticleFadeOps },
   smokeScreen: { coverOps: smokeScreenCoverOps, shadeOps: smokeScreenShadeOps, puffOps: smokeScreenPuffOps, billboardOps: vfxBillboardOps },
+  // GH-1167 S5: the 3D grass field (`terrain/grass-field.node.ts`): the foliage slot's wind and disturbers, the per-blade flutter,
+  // the width floor, its attribute and the camera's CSS px per world unit at zoom 1.
+  grassField: {
+    foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE, disturbSlotPushOps, disturbBendOps, disturbMax: DISTURB_MAX },
+    flutterOps: grassFlutterOps,
+    widthFloorOps: grassWidthFloorOps,
+    widthAttribute: GRASS_WIDTH_ATTRIBUTE,
+    pxPerUnit: SILHOUETTE_PX_PER_WORLD_UNIT,
+  },
+  // GH-1225 slice 3 (L7): the holes and the roof cut, one fragment body (`units/building-cut.node.ts`).
+  building: { fragmentOps: buildingFragmentOps, cutHookOf, holesHookOf, cutBlockFloats: CUT_VOLUME_CAP * CUT_FLOATS_PER_VOLUME, holeCap: HOLE_CAP },
 };

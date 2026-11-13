@@ -566,6 +566,9 @@ export const AIR_WANT_NONE = 0;
 export const AIR_WANT_LOAD = 1;
 export const AIR_WANT_UNLOAD = 2;
 export const AIR_WANT_DEPART = 3;
+/** GH-698 unload-at-point: LIFTING to land at its goal (the LZ an `unload` with a point chose) and
+ *  unload there. Lives only while LIFTING; the lift's end turns it into UNLOAD at that LZ. */
+export const AIR_WANT_UNLOAD_AT = 4;
 
 // --- wounded and rescue (GH-707, P1 engine) ---------------------------------
 // Engine only until P3 (lead rulings, 22 Oct): nothing shipped carries `hull.wounds`, so none

@@ -854,3 +854,33 @@ Spec `docs/superpowers/specs/2026-11-01-look-uplift-design.md` section 4; the le
   `validate:meshes`; `mark-pass.test.ts` (an independent triangle-centroid measurement of the boxes, 95% of the area on `turret_hull` (80% on the Ambush Tank, whose net drapes beside the ring), every kit UV
   inside a pin); and the per-class texture budget (vehicle 80 MiB / 2560 px, building 64 / 2048, infantry 32 / 3072, a ratchet) with a
   report-only roster census. `validate:meshes` requires a mark on `mbt_lavi`, `mbt_lavi_camo`, `officer_armour`, `ifv_namer`, `apc_eitan` and `apc_kipod` (`MARK_REQUIRED`, pinned to `MARK_RECIPES`). The rest of the fleet has none yet.
+
+## GH-1096 S1: the Roaring Lion insignia on the Lavi
+
+Spec `docs/superpowers/specs/2026-11-12-gh1096-lion-insignia-design.md`; the lead's rulings of 12 Nov are on GH-1096 (all defaults, and the
+detail band moved from 11-15 px to 15-20 px).
+
+- **What it is.** Paint, not a mesh and not a texture in any GLB: one shared 256 x 256 RG distance field
+  (`assets/textures/insignia/roaring_lion_sdf.png`, S0), sampled on a planar flank-pair frame in the vehicle's mesh-local space inside the
+  SAME hook as the team mark (`units/insignia.ts`, spliced by `units/team-mask.ts`). +0 draw calls, +0 GLB bytes; a wreck takes none.
+- **One hook, one key.** The program-key segment is `rl-unit-mark-3` (was `rl-team-mark-2`), followed by what it patched: `|team`, `|ins`
+  or `|team+ins`. A team-only material compiles L3's program unchanged. `carryTeamMark` carries the whole record, so the three clone sites
+  (scar, running gear, death fade) still have one call each. On node the segment has two terms (`team-mask.node.ts`, `insignia.node.ts`)
+  sharing ONE pair of `vMarkPos`/`vMarkNrm` varyings (`ctx.markVaryings()`); the field is a `renderTexture` (declared, so a late load
+  refreshes a parked hull).
+- **Frames by TYPE id, generated.** `units/insignia-frames.ts` is written by `python3 tools/vehicles/insignia.py --write` from its
+  `FRAMES` (the approved numbers); it measures `luma` and records `host_sha256`, the hash of the host hull POSITION accessors. Looked up
+  EXACTLY by unit type id (never the template key: a versus seat's `typeId#s1` is the same vehicle); `mbt_lavi_camo` and
+  `officer_armour` share the hull and have no frame.
+- **The normal test is `|n.z|`, not the spec's `sign(z) * n.z`.** The Lavi's -z flank is mirrored geometry on a double-sided material: its
+  vertex and winding normals point +z (mean n.z 0.984 under the disc), so the signed test painted one flank only. The slab keeps the far
+  side and the interior out, as on the team band.
+- **The placeholder must be FILTERED.** Until the PNG lands a 1 x 1 "outside" texture is bound; a `DataTexture` defaults to nearest, and
+  WGSL builds a nearest/nearest texture as an unfiltered `textureLoad` that the late real field would inherit (no filtering, no mips).
+- **The garage** builds the variant set whatever the team colour (`VehicleTeamMaterials(null, ...)` is "no team term", not "no
+  materials") and owns its own `InsigniaShared`, loaded beside the GLB.
+- **Gates.** `insignia-frames.test.ts` (scope a literal list, count pinned), `insignia.test.ts` (the maths on `NUMBER_OPS` with a CPU
+  bilinear sample of the committed PNG, an upright-lion pin, the colour key), `insignia.node.test.ts`, the clone and wreck cases in
+  `team-mask.test.ts`, `tools/src/insignia.test.ts` (an independent subdivided placement measurement and a third hash), and
+  `check_insignia_frames` in `validate:meshes` (`INSIGNIA_REQUIRED`). The `insignia` debug layer writes the insignia's OWN strength
+  (never the team mark's, so the gated `team-mask` check is unmoved). No gated `insignia` layer check yet: it waits for the lead's look.

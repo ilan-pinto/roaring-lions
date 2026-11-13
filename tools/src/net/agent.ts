@@ -45,7 +45,7 @@ import { leaveStatsIfAbsent } from './match-score';
 import { createContext, SCOPES, toolsFor, type Scope } from './mcp-tools';
 import { nodeSocket } from './node-socket';
 import { MODE_FLAG_VALUES, modeFlag } from './win-rule';
-import type { WinMode } from '@lions/net';
+import type { BotModel, WinMode } from '@lions/net';
 
 export interface AgentArgs {
   server: string;
@@ -232,12 +232,12 @@ export class JoinRefused extends Error {
  * 412 naming the build it runs (`JoinRefused.roomBuild`): a retry on the right
  * checkout still finds the seat free.
  */
-export async function joinRoom(server: string, code: string, callsign: string, origin: string, fetchFn: typeof fetch = fetch, build?: string): Promise<{ seat: 0 | 1; ticket: string }> {
+export async function joinRoom(server: string, code: string, callsign: string, origin: string, fetchFn: typeof fetch = fetch, build?: string, botModel?: BotModel): Promise<{ seat: 0 | 1; ticket: string }> {
   const base = new URL(server).origin;
   const res = await fetchFn(`${base}/api/match/${encodeURIComponent(code)}/join`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin },
-    body: JSON.stringify({ player: randomUUID(), callsign, kind: 'bot', ...(build === undefined ? {} : { build }) }),
+    body: JSON.stringify({ player: randomUUID(), callsign, kind: 'bot', ...(build === undefined ? {} : { build }), ...(botModel === undefined ? {} : { botModel }) }),
   });
   if (res.status === 412) {
     let theirs: string | null = null;
