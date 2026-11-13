@@ -13,6 +13,7 @@ import { me, patchProfile } from './profile';
 import { deleteSlot, getSlot, putSlot } from './slots';
 import { coupon, resetFreeRoute, spend } from './spend';
 import { missionStart, victory } from './victory';
+import { googleStart } from './google';
 import { steamReturn, steamStart } from './steam';
 import { clearedSessionCookie, requireSession, sessionJson } from './session';
 
@@ -71,6 +72,7 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
   { method: 'POST', pattern: 'reset-free', handler: resetFreeRoute },
   { method: 'POST', pattern: 'steam/start', handler: steamStart },
   { method: 'GET', pattern: 'steam/return', handler: steamReturn },
+  { method: 'POST', pattern: 'google/start', handler: googleStart },
   {
     method: 'POST',
     pattern: 'logout',
@@ -113,8 +115,8 @@ export function matchPath(pattern: string, path: string): Record<string, string>
   return params;
 }
 
-/** Routes that do not take the signed-in limiter: `steam/*` and `gone` take ACCOUNT_LIMIT themselves. */
-const UNLIMITED_HERE: ReadonlySet<string> = new Set(['steam/start', 'steam/return', 'gone']);
+/** Routes that do not take the signed-in limiter: `steam/*`, `google/start` and `gone` take ACCOUNT_LIMIT themselves. */
+const UNLIMITED_HERE: ReadonlySet<string> = new Set(['steam/start', 'steam/return', 'google/start', 'gone']);
 
 export async function handleAccount(req: Request, env: Env, now: number, deps?: AccountDeps): Promise<Response> {
   if (env.ACCOUNTS === undefined) return accountJson(503, { error: 'accounts are not configured' });

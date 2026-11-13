@@ -68,4 +68,8 @@ export interface Env {
   ACCOUNT_OP_LIMIT?: RateLimiter;
   /** GH-1075: comma-separated extra origins for WebAuthn client data and the Steam realm. A local relay needs this and ALLOWED_ORIGINS both set. */
   ACCOUNT_ORIGINS?: string;
+  /** GH-1075 G3: Google OAuth client id, a Worker secret. Unset (or empty) with the secret below: `google/start` answers 503 `provider_off`. */
+  GOOGLE_CLIENT_ID?: string;
+  /** GH-1075 G3: Google OAuth client secret, a Worker secret. Never logged, never in a response. */
+  GOOGLE_CLIENT_SECRET?: string;
 }
