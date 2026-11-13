@@ -732,6 +732,7 @@ A cut keeps a wall, so a cut building still reads as a house with people inside 
   slab left standing hides the garrison below it (the house's ceiling is 1.28 t; a 1.37 t cut showed a floor over the men), and a roof that is
   one up-facing plane (the hall's, 0.87 t) must be cut too. The memo is per STRUCTURE, never per type: `buildingFitScale` shrinks a plot's
   clone, and the slab with it (house 5 is 1.28 t, a full-size house 1.6 t). A selected unit takes the lowest kept height among the buildings in reach.
+- **The one type that keeps LESS wall than before:** `kdf_outpost` keeps 0.36 t (its lowest deck is at 0.52 t), below the old fixed 0.4 t. Every other shipped clone-drawn type keeps 0.64 t or more (table in `tools/src/cut_rim_heights.test.ts`).
 - **Ragged top:** `tileHash` of the 0.25 t brick cell (`CUT_RIM_CELLS_PER_TILE`), +-0.12 t, in `cutawayOps` through `IntOps` (the holes' body),
   amplitude in slot 6 of the volume block (iris-scaled). No sin hash, no per-fragment noise: a cell is flat and never moves.
 - **Cap:** 0.06 t, its colour halfway from the ramp's lightest key to the interior (`CUT_CAP_TONE`, CPU side, so both backends match).
