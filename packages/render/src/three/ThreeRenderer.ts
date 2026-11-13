@@ -883,6 +883,7 @@ import {
 import { bleedFractionOf, liftWoundedTemplate, setWoundedLift, type BleedRead } from './units/wounded-read';
 import { SelectionRingBatch } from './units/selection-ring';
 import { capTextureSize } from './units/texture-cap';
+import { widenTreeForWebGpu } from './units/webgpu-vertex-format';
 import { buildInventory, type MemoryInventory } from './memory-inventory';
 import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, contactTriangles } from './units/contact-marks';
 
@@ -8924,6 +8925,9 @@ export class ThreeRenderer implements Renderer {
     }
     this.adoptEnvironment(template.materials, 'unitDielectric');
     if (this.opts.maxTextureSize !== undefined) await capTextureSize(template.root, this.opts.maxTextureSize);
+    // GH-1319: node only (`queueNodeAdoption`'s guard), before any entity clones the template: `_rl_wheel` arrives as an
+    // interleaved 8-bit scalar, which three's WebGPU backend gives no vertex format, and a moving vehicle's pipeline reads it.
+    if (this.nodeWanted && this.glRenderer === null) widenTreeForWebGpu(template.root);
     // GH-943 P3 (T1): after the cap, which writes the template's own (legacy) materials.
     this.queueNodeAdoption(template.root);
     return template;
