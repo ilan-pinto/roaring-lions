@@ -9,7 +9,7 @@ export interface SwitchEnv {
   optedOut: boolean;
 }
 
-const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\]|.*\.local)$/;
+export const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\]|.*\.local)$/;
 
 /** The off switch (spec §2). Airtight on purpose: `pnpm ui:routes` fails on any
  *  console error, and a request to a missing /api/events on the Vite dev server

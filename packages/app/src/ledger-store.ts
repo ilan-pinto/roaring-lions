@@ -393,7 +393,7 @@ export function blockedLedgerStore(): LedgerStore {
 
 /** The shipping store. The app builds exactly one, in `main.ts`. */
 export function browserLedgerStore(backfill?: RoarBackfill, opts: { refuseWhileClaiming?: boolean } = {}): LedgerStore {
-  // M2: a claim marker locks the guest store only where a claim can run (`?accounts`); with accounts off or under `?fresh` it is inert.
+  // M2: a claim marker locks the guest store only where a claim can run (accounts on); with accounts off or under `?fresh` it is inert.
   return overStorage(safeStorage(), backfill, opts.refuseWhileClaiming ?? true);
 }
 

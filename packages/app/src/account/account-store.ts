@@ -2,7 +2,7 @@
  * `accountLedgerStore` (GH-1075 A2): the app's synchronous `LedgerStore` over the device's copy of the server's
  * answer. Reads come from `viewOf(confirmed, outbox)`, so a write is visible at once; a write appends to this tab's
  * outbox and tells the sync loop (`onChange`). Coins are the server's (§0.9): the wallet is read here and never
- * written. It is chosen only for a claimed, signed-in binding behind `?accounts` (`select-store.ts`); a guest never
+ * written. It is chosen only for a claimed, signed-in binding with accounts on (`select-store.ts`); a guest never
  * reaches it.
  */
 import { canonicalSlot, emptyAccount, parseSlot } from '@lions/economy';

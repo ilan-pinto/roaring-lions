@@ -247,7 +247,7 @@ credit Buy), 1120 (the panel), 1122 (Stores tier-row credit Buy). PR 1123 (the n
 
 ## Accounts A2: claim and sync (GH-1075)
 
-Behind `?accounts`. Sources: `packages/app/src/account/` (`account-store.ts`, `outbox.ts`, `sync.ts`, `claim.ts`,
+On by default (13 Nov): `account/enabled.ts`'s `accountsEnabled(query, host)` is true on a production build on a real host (the telemetry rule, `telemetry/enabled.ts`'s `LOCAL`), false under `?fresh` everywhere, and false on `pnpm dev`, tests and CI unless `?accounts` opts in, so no dev or CI page ever calls the account routes. `?accounts` is accepted and a no-op on a real host. Sources: `packages/app/src/account/` (`account-store.ts`, `outbox.ts`, `sync.ts`, `claim.ts`,
 `local-held.ts`); rulings in `docs/superpowers/plans/2026-11-09-accounts-a2.md` section 0. A2 adds no migration and no
 binding.
 
@@ -273,7 +273,7 @@ binding.
 - **The claim.** `runClaim` mints or reuses the binding's `deviceId`, writes the `lions.account.claiming` marker
   (`{deviceId, digests, at}`) and the guest store refuses writes until it resolves. `finishClaim` writes in this order:
   the held items, the cache, the binding's `claimedAt`, then `removeGuestProgress`; a digest mismatch removes nothing and
-  retries. The guest store refuses writes only under `?accounts` (without `?fresh`): with accounts off the marker is
+  retries. The guest store refuses writes only with accounts on (not under `?fresh`, not in dev or CI): with accounts off the marker is
   inert. At boot `finishInterruptedClaim` removes leftover guest keys only when the marker is present with the binding's
   `deviceId` (`finishClaim` takes the marker last): guest keys beside a claimed binding and no marker are the player's own
   play and stay. A device with no guest progress sets `claimedAt` and makes no claim request.
@@ -282,7 +282,7 @@ binding.
   everywhere", passed in), then clears the cache, every outbox and heartbeat key of that member, `claimedAt` and
   `deviceId` (A2-30). Deletion stops the loop and runs `wipeMember` (the same filing and clearing), then `clearBinding`.
   Both then HARD-reload through `shell/links.ts`'s `reloadMenuHref`, which keeps the sticky query keys (`?accounts`, `lang`,
-  `pseudo`): a reload without `?accounts` lands the device on the guest store. `main.ts` hands the profile these
+  `pseudo`): on a dev server a reload without `?accounts` lands the device on the guest store. `main.ts` hands the profile these
   dependencies only when the sync handle and the account store exist; on an unclaimed binding the profile logs out and
   clears the device id itself.
 - **The sync loop starts unverified** (I1): one `GET me` must name the cache's member before the first refresh or send.
@@ -307,7 +307,7 @@ Sources: `packages/worker/src/account/`, `packages/worker/migrations-accounts/`,
   - **Open** (lead only, after the PR is merged and deployed and `GET https://roaring-lions.pint12.workers.dev/privacy` answers 200):
     `npx wrangler d1 execute roaring-lions-accounts --remote --command "INSERT INTO flags (name, value, updated_at) VALUES ('accounts', 'open', unixepoch() * 1000) ON CONFLICT (name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"`
   - **Close:** the same command with `'closed'` in place of `'open'`. No deploy is needed either way.
-  - Players sign up from `/?accounts`.
+  - Players sign up from `/` (the menu chip); `?fresh` hides it. The page asks `GET open` once, after the lazy client loads (`main.ts`'s `accountOpenP`): closed or unreachable hides the menu chip and the privacy link (unless a member is signed in on the device, who still needs export and delete) and keeps the save prompt away. Closing needs no deploy. A guest menu (no binding) never calls `GET me`.
 - **Before the first merge:** `npx wrangler d1 migrations apply roaring-lions-accounts --remote`. Merging deploys to
   production from `main`, and a Worker bound to an unmigrated database fails.
 - **Tombstones** are KV keys `tomb:<sha256(public_id)>` in `ACCOUNT_TOMBSTONES`, value `{deletedAt, lastSeenDay}`, TTL 90 days

@@ -1,7 +1,7 @@
 /**
  * Boot for a signed-in device (GH-1075 A2, §0.11, Task 2.12): wait for the first `GET state` when a claimed binding has no
- * cache (5 s), then start the sync loop and the spend flow around the account store. A guest, `?fresh`, or a boot without
- * `?accounts` never reaches the network from here: `selected.signedIn` is false and nothing is built.
+ * cache (5 s), then start the sync loop and the spend flow around the account store. A guest, `?fresh`, or a boot with
+ * accounts off (dev, CI) never reaches the network from here: `selected.signedIn` is false and nothing is built.
  *
  * Failure is stated, not hidden: a claimed device with no cache whose state does not arrive keeps the blocked store
  * (the claim removed the guest keys) and reports `unreachable`, which the menu says and which disables the campaign entry.

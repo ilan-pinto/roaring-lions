@@ -77,7 +77,7 @@ export const routes = {
 /**
  * The menu href for a HARD reload (GH-1075 A2): `routes.menu()` plus the sticky keys copied from `search` (the current
  * `location.search`). A router navigation carries them itself; a `location.assign` does not, and a reload that loses
- * `?accounts` lands a signed-in device on the guest store.
+ * `?accounts` lands a signed-in dev-server device on the guest store (on a real host accounts are on without it).
  */
 export function reloadMenuHref(search: string): string {
   const here = new URLSearchParams(search);
