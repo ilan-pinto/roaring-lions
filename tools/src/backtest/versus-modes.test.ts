@@ -6,7 +6,7 @@ import type { MapId } from '@lions/data';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
 import { FLAG_SETUP_MAPS, economyRoom } from '@lions/net';
 import {
-  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, RAZE_MEAN_MAX_S_48, RAZE_MEAN_MAX_S_96, contestedShare, holdsBalanced, razeLimitS, razeOk, razeVerdict, withCampOverride, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, describeTiming, g4Verdict, massedFlagOrder, rallyTile, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
+  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, RAZE_MEAN_MAX_S_48, RAZE_MEAN_MAX_S_96, contestedShare, holdsBalanced, razeLimitS, razeOk, razeVerdict, withCampOverride, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, describeTiming, g4Verdict, massedFlagOrder, rallyPoint, rallyTile, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
   type ModePlayFn, type ModePlayed,
 } from './versus-modes';
 import { main as probeMain, seedOf } from './versus-probe';
@@ -772,7 +772,7 @@ describe('the massed flag script (a reduced stand-in for the audit\'s strong att
     spy.mockRestore();
     return { w, cmds, parties };
   };
-  const MILH_FLATS_RALLY_FIXED = { 0: [18 * 65536, 29 * 65536], 1: [29 * 65536, 18 * 65536] } as const;
+  const MILH_FLATS_RALLY_FIXED = { 0: [18.5 * 65536, 29.5 * 65536], 1: [29.5 * 65536, 18.5 * 65536] } as const;
   const centre = (map: MapId, end: 'friendly' | 'hostile') => { const f = versusModes[map].flag_setup!.flags[end]; return [(f.at[0] + f.size[0] / 2) * 65536, (f.at[1] + f.size[1] / 2) * 65536]; };
 
   it('the rally tile lies inside the seat\'s own set-up region on every set-up map (the shipped list, and milh_flats stood in), for both seats', () => {
@@ -788,6 +788,19 @@ describe('the massed flag script (a reduced stand-in for the audit\'s strong att
         const [x, y] = rallyTile(w, side);
         expect(w.sim.setupRegionAt(x, y), `${map} side ${side} rally ${x},${y}`).toBe(side);
       }
+    }
+  });
+
+  it('the two seats\' massed rally points are exact half-turn images of each other, in tile centres, on every map the probe offers (GH-976)', () => {
+    const maps = [...FLAG_SETUP_MAPS] as MapId[];
+    expect(maps).toContain('milh_flats');
+    for (const map of maps) {
+      const w = worldOf(map);
+      const [x0, y0] = rallyPoint(w, 0);
+      const [x1, y1] = rallyPoint(w, 1);
+      // a tile CENTRE sits half a tile past a whole tile
+      for (const v of [x0, y0, x1, y1]) expect(v % 65536, `${map} rally is not a tile centre`).toBe(32768);
+      expect([x0 + x1, y0 + y1], `${map} rally points are not a half-turn`).toEqual([w.map.width * 65536, w.map.height * 65536]);
     }
   });
 
