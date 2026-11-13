@@ -271,8 +271,9 @@ packages/app/dist-bundle-census/
 # clips) is the tracked source beside the GLB: art/src/units/inf_squad.blend. task.json and the thumbnail are tracked.
 art/meshy/inf-squad-f1-20261101-01a197a3/model.glb
 art/meshy/inf-squad-f1-20261101-01a197a3/texture_*
-# GH-826 infantry upgrade unit 2 (13 Nov): the Sarim Rifles' two Meshy previews (8 MB each, about 470,000 triangles),
-# both failed the preview gate; no refine or remesh was bought (systematic stop, the lead's call). Kept on disk and backed
+# GH-826 infantry upgrade unit 2 (13 Nov): the Sarim Rifles' three Meshy previews (8 MB each, about 470,000 triangles),
+# all three failed the preview gate; no refine or remesh was bought (stopped for the lead). Kept on disk and backed
 # up in ~/dev/roaring-lions-art-backup/meshy/, never committed. task.json and the thumbnails are tracked.
 art/meshy/sarim-rifles-body-20261113-01a1d3e9/model.*
 art/meshy/sarim-rifles-body-20261113-01a1d3f4/model.*
+art/meshy/sarim-rifles-body-20261113-01a1d40c/model.*
