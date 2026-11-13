@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single game-ready infantry rifleman of a fictional army in full-sleeved sand field clothes, a worn tan chest rig, worn brown boots, dark brown gloves and a plain sand-coloured keffiyeh over his head and lower face. His assault rifle has a curved magazine and dark stock and handguard. He holds the rifle in BOTH hands at low ready, a hand's width out in front of his chest: butt at the front of his right shoulder, right hand closed round the pistol grip, left hand closed under the handguard ahead of the magazine, barrel pointing forward, muzzle down at the ground ahead. Both hands gripping the one gun, fingers closed, in clear view. Standing still and upright, both feet flat, side by side, head level. Real-world scale, 1.75 m tall. Even lighting, no base, one figure. No insignia or text.",
+    "negative_prompt": "one-handed, hand on hip, open hand, spread fingers, extra hand, extra arm, extra fingers, arms touching torso, rifle pressed against chest, hidden hand, vertical foregrip, rifle sling, pistol, rolled sleeves, bare forearms, kneeling, aiming down sights, base, ground, text, insignia, flag, backpack, holster, explosives, walking, striding, running, helmet, olive, camouflage, hand on chest, hand on vest",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a1d3f4-d696-7323-9a47-6d6edf072c0e",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 932222144,
+    "prompt": "A single game-ready infantry rifleman of a fictional army in full-sleeved sand field clothes, a worn tan chest rig, worn brown boots, dark brown gloves and a plain sand-coloured keffiyeh over his head and lower face. His assault rifle has a curved magazine and dark stock and handguard. He holds the rifle in BOTH hands at low ready, a hand's width out in front of his chest: butt at the front of his right shoulder, right hand closed round the pistol grip, left hand closed under the handguard ahead of the magazine, barrel pointing forward, muzzle down at the ground ahead. Both hands gripping the one gun, fingers closed, in clear view. Standing still and upright, both feet flat, side by side, head level. Real-world scale, 1.75 m tall. Even lighting, no base, one figure. No insignia or text.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1794557405417,
+    "progress": 100,
+    "started_at": 1794557474766,
+    "finished_at": 1794557553678,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1d3f4-d696-7323-9a47-6d6edf072c0e/output/model.glb?Expires=4948128000&Signature=krzyDFela~AZtzeae9lIX6hM19UkpgZYcazDz7zePELy9TmzURuHjfW5SUjLyXE9VD9dqvBzeAkgZ9vkNY~8JENn~2gKS4SqhwH9tMIotgXQ2Fz3TV4AT-ue5v4JIBkTbmjv1RUY6JflY-l6cqMRPiDybRXBKjKVaJTPIBJnojl9Hy1hNzZF44Ktr8x52WCsHJnOGjwU-YcPfIrVWrzo0YjC4Id-U99eJixMAR5fgZJfVi1p1hzCmHWS82uT2wHzhAJE9NRd0VvbWFi1Ol31gqsLaAG3rO2RBC8CVB0EpZRIaKg1oh6i6B09ffIblUoYz1LgVtHK2ps-28hiYahtlA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1d3f4-d696-7323-9a47-6d6edf072c0e/output/preview.png?Expires=4948128000&Signature=ibTMWaqtGzfw~yD8kp5n37FWrbVh8uR0QaK0wq00yHBcpffxCyiMI9mqgowsMnJIFNhs0q6kdXtqM7mSdyVxHvZyky7Y55IlgYT5mnpZ9kheVthx~h-AGsGFFB46rfsyrF86Ilm8H8tFVSe-KoxuYuqcLiy0tzJ8aM6KuqsxcaPmQoVIiIogAY0Y89s3tC848~5m3LlSBmyqmK0Tmym1tLVOkbj7-6JALTkqj62UJEimSahM6jFJYIgrXtotskl6g2baw6miL~p7wkPB5ehNFTTdHgr7rfENHK41pMNaeld826zPzszYEbSWPWtlNEYgtFUO0w5UC3pj0oqtR8sJrQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1794557405417,
+    "started_at": 1794557474766,
+    "finished_at": 1794557553678
+  },
+  "usd_estimated": 0.4
+}

@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single game-ready infantry rifleman of a fictional army in full-sleeved sand field clothes, a worn tan chest rig, worn brown boots, dark brown gloves and a plain sand-coloured keffiyeh over his head and lower face. His assault rifle has a curved magazine and dark stock and handguard. He holds the rifle in BOTH hands at low ready, a hand's width out in front of his chest: butt at the front of his right shoulder, right hand closed round the pistol grip, left hand closed under the handguard ahead of the magazine, barrel pointing forward, muzzle down at the ground ahead. Both hands on the gun, in clear view. Standing still and upright, both feet flat, side by side, head level. Real-world scale, 1.75 m tall. Even lighting, no ground, no base, one figure, facing forward. No insignia or text.",
+    "negative_prompt": "one-handed, hand on hip, open hand, spread fingers, extra hand, extra arm, extra fingers, arms touching torso, rifle pressed against chest, hidden hand, vertical foregrip, rifle sling, pistol, rolled sleeves, bare forearms, kneeling, aiming down sights, base, ground, text, insignia, flag, backpack, holster, explosives, walking, striding, running, helmet, olive, camouflage",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a1d3e9-2fdb-7333-9a36-7869fcd70cb8",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3221503241,
+    "prompt": "A single game-ready infantry rifleman of a fictional army in full-sleeved sand field clothes, a worn tan chest rig, worn brown boots, dark brown gloves and a plain sand-coloured keffiyeh over his head and lower face. His assault rifle has a curved magazine and dark stock and handguard. He holds the rifle in BOTH hands at low ready, a hand's width out in front of his chest: butt at the front of his right shoulder, right hand closed round the pistol grip, left hand closed under the handguard ahead of the magazine, barrel pointing forward, muzzle down at the ground ahead. Both hands on the gun, in clear view. Standing still and upright, both feet flat, side by side, head level. Real-world scale, 1.75 m tall. Even lighting, no ground, no base, one figure, facing forward. No insignia or text.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1794556639395,
+    "progress": 100,
+    "started_at": 1794556639409,
+    "finished_at": 1794556769568,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1d3e9-2fdb-7333-9a36-7869fcd70cb8/output/model.glb?Expires=4948128000&Signature=XfRWALu6phQvaLvMz7COReZdBSkZkJzteXtk8FoEL3ZZNmcI9uQRPX80fTbCv--Sx3FrRAMQOEpukMOIH4dFSdmsfTz-k9eJYthueUWZ4IPwSAA7DRBaZ64uewmBM1tio8J8E8HkES5vdaitJGTJ5EMMSkzULlTKG4oUZ5cRPMaM5msVeGz4qG6mWL7I9ltkMPqlGkhWX0Rb9aZFvxUo5FgMmPXTpcMeO~EJXMQlXEeILtmeucr-wcLPp8Aj0tfQYS6XKVVsk95Kejc2wGb6VV9ebypyQnItRJKKGOusVhheDDjBfNfrh-V~GBQ2ymQMqUu0quVmWn-xQL-JLiFhWA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1d3e9-2fdb-7333-9a36-7869fcd70cb8/output/preview.png?Expires=4948128000&Signature=PRor9LykBbjjxOhcznIFMSQhmkGNMdfZf~ddyNljH6PU7coBZX3UFt~GcY3uR-HvLJX-1ZEraADcFJ0zcij3SK0Fl1of5KP8omszbWprt2HVEKaFhyfeR29Km1ZQ5067TuDAAdD3hfXJU9LU9Ju8-sPtQ99p8BCATdHcNYKjjW6KEfPMc10MhvMHrZMXgvjA8rfbM2HvX0IrPoBC0z40766QUDQcmu3BK2rBWhMo467EuYSrPY4LVBwuYC65BTRcFueeVGRl-92oPrKS2veiMH-CCmPytJXkoi7oAPUodDgx51sPAs6niTvef3vpQYUx8v-EByUnv9VqpNDQSfrHyg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1794556639395,
+    "started_at": 1794556639409,
+    "finished_at": 1794556769568
+  },
+  "usd_estimated": 0.4
+}
