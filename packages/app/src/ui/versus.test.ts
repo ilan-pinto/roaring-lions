@@ -709,11 +709,11 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
 
   it('picking Points race says its target and the create carries it', async () => {
     const { open, stage } = mount();
-    pick(mapRadio(stage, 'milh_flats'));
+    pick(mapRadio(stage, 'wadi_tarfan'));   // not milh_flats: its points race was delisted 13 Nov (GH-976)
     pick(winRadios(stage).find((r) => r.value === 'points')!);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('points');
-    expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('First to 600. Hold a zone alone to earn its points every minute (10 to 50 a minute)');
-    expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'milh_flats', matchup: 'mirror', winMode: 'points' });
+    expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('First to 600. Hold a zone alone to earn its points every minute (10 to 30 a minute)');
+    expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan', matchup: 'mirror', winMode: 'points' });
   });
 
   it('GH-976 P3: picking Capture the flag says its hold and the create carries it', async () => {
@@ -798,7 +798,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     }
   }));
 
-  it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: Destroy the camp on wadi_tarfan, milh_flats and wadi_tarfan_l, and Capture the flag on wadi_tarfan and wadi_tarfan_l (the lobby here shows these maps), never on milh_flats (delisted 12 Nov; milh_flats_l kept), tel_marum or beit_sahwan_outskirts (GH-976)', () => {
+  it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: Destroy the camp on wadi_tarfan, milh_flats and wadi_tarfan_l, and Capture the flag on wadi_tarfan and wadi_tarfan_l (the lobby here shows these maps), never on milh_flats (delisted 12 Nov), tel_marum or beit_sahwan_outskirts, and no points race on milh_flats (delisted 13 Nov) (GH-976)', () => {
     asShipped();   // the table as it ships
     const stage = mountPick(deps({ maps: [...MAPS, WADI_TARFAN_L] }));
     const offered: Record<string, string[]> = {};
@@ -807,7 +807,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       offered[m.id] = winRadios(stage).map((r) => r.value);
     }
     expect(offered).toEqual({
-      beit_sahwan_outskirts: ['annihilation', 'points'], milh_flats: ['annihilation', 'camp', 'points'], tel_marum: ['annihilation', 'points'],
+      beit_sahwan_outskirts: ['annihilation', 'points'], milh_flats: ['annihilation', 'camp'], tel_marum: ['annihilation', 'points'],
       wadi_tarfan: ['annihilation', 'camp', 'points', 'flag'], wadi_tarfan_l: ['annihilation', 'camp', 'points', 'flag'],
     });
   });

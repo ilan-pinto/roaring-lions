@@ -354,14 +354,14 @@ describe('pnpm arena --mode', () => {
   });
   it('refuses, as the lobby would not offer it, a mode unfair on the map or off the mirror (exit 2, before any room)', () => {
     expect(refusalOf('wadi_tarfan', 'mirror', 'points')).toBeNull();
-    expect(refusalOf('milh_flats', 'mirror', 'points')).toBeNull();
+    expect(refusalOf('milh_flats', 'mirror', 'points')).toMatch(/not offered on this map/);   // delisted 13 Nov (GH-976)
     expect(refusalOf('tel_marum', 'mirror', 'points')).toBeNull();   // GH-976 P4: the five other open maps
     expect(refusalOf('wadi_tarfan', 'mirror', 'camp')).toBeNull();   // GH-976, 5 Nov: forward camps with wipe after_camp
     expect(refusalOf('wadi_tarfan_l', 'mirror', 'camp')).toBeNull();
     expect(refusalOf('rujm_sawda', 'mirror', 'camp')).toMatch(/not offered on this map/);
     // GH-976 relist (12 Nov): flag is offered on wadi_tarfan, rujm_sawda, wadi_tarfan_l and milh_flats_l in the mirror and refused elsewhere (milh_flats delisted 12 Nov), as the Worker would.
-    for (const map of ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']) expect(refusalOf(map, 'mirror', 'flag'), map).toBeNull();
-    for (const map of ['milh_flats', 'tel_marum', 'beit_sahwan_outskirts']) expect(refusalOf(map, 'mirror', 'flag'), map).toMatch(/not offered on this map/);
+    for (const map of ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l']) expect(refusalOf(map, 'mirror', 'flag'), map).toBeNull();
+    for (const map of ['milh_flats', 'milh_flats_l', 'tel_marum', 'beit_sahwan_outskirts']) expect(refusalOf(map, 'mirror', 'flag'), map).toMatch(/not offered on this map/);
     expect(refusalOf('tel_marum', 'mirror', 'camp')).toMatch(/not offered on this map/);
     // GH-976 P4 review: no KDF-against-Sarim cell passed, so every faction pairing is refused for every mode.
     expect(refusalOf('wadi_tarfan_l', 'kdf', 'points')).toMatch(/not offered on this map for this matchup/);

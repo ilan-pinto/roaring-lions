@@ -110,20 +110,21 @@ describe('/api/match', () => {
     const body = (over: Record<string, unknown>) => ({ player: 'id-1', build: 'b1', mode: 'versus', map: 'wadi_tarfan', ...over });
     // The oracle is a literal (GH-976 P4): the seven open maps, each read fair for the points race in the mirror (the flag too on five of them since the 12 Nov relist).
     const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+    const POINTS_SIX = SEVEN.filter((m) => m !== 'milh_flats');   // milh_flats points delisted 13 Nov (GH-976): 400, no room
     for (const map of SEVEN) {
-      expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'points' })), env, NOW)).status, map).toBe(201);
+      expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'points' })), env, NOW)).status, map).toBe(POINTS_SIX.includes(map) ? 201 : 400);
     }
-    expect(createBodies.map((b) => b.winMode)).toEqual(SEVEN.map(() => 'points'));
-    // GH-976 relist (12 Nov): the flag is a 201 on the four offered maps (mirror) and a 400 on the other three, milh_flats included (12 Nov delist), and no room is made for those.
-    const FLAG_THREE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];   // milh_flats delisted 12 Nov (GH-976): 400 for flag, 201 for points above
+    expect(createBodies.map((b) => b.winMode)).toEqual(POINTS_SIX.map(() => 'points'));
+    // GH-976 relist (12 Nov): the flag is a 201 on the three offered maps (mirror) and a 400 on the other four, milh_flats and milh_flats_l included (12 and 13 Nov delists), and no room is made for those.
+    const FLAG_THREE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l'];   // milh_flats (12 Nov) and milh_flats_l (13 Nov) delisted (GH-976): 400 for flag
     for (const map of SEVEN) {
       const res = await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'flag' })), env, NOW);
       if (FLAG_THREE.includes(map)) { expect(res.status, map).toBe(201); continue; }
       expect(res.status, map).toBe(400);
       expect(await res.text(), map).toBe('win mode not offered on this map');
     }
-    expect(createBodies.slice(SEVEN.length).map((b) => b.map)).toEqual(FLAG_THREE);
-    expect(createBodies.length).toBe(SEVEN.length + FLAG_THREE.length);
+    expect(createBodies.slice(POINTS_SIX.length).map((b) => b.map)).toEqual(FLAG_THREE);
+    expect(createBodies.length).toBe(POINTS_SIX.length + FLAG_THREE.length);
     createBodies.splice(0, createBodies.length);
     // GH-976 P4 review: no KDF-v-Sarim cell passed, so every faction pairing is a 400 below, whoever hosts.
     // Annihilation by any of its spellings is no mode: the room is told nothing, as every room before.
