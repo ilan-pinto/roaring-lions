@@ -383,6 +383,10 @@ export const versusModes: Readonly<Record<string, VersusModeFileJson>> = {
  *  unregistered file would be silently unorderable. The sim's `addFormationType` compiles each. */
 export const formations = [formationAmbush, formationAttack, formationColumn] as const;
 
+// Avatar presets (GH-1075 P1): the catalogue, the frozen default pool, the shared default rule.
+export { avatarPresets, defaultAvatarPool, defaultAvatar, resolveAvatar, isAvatarPreset, fnv1a32, LAST_RESORT_AVATAR } from './avatar';
+export type { AvatarPreset, AvatarView, AvatarInput } from './avatar';
+
 /** Colour grades (look uplift L2, GH-943): data/grades/*.json against grade.schema.json, in sorted
  *  directory order. Hand-kept, so `index.test.ts` pins it to the directory: an unregistered file
  *  would be silently inert. The renderer bakes the one the app picks (`gradeOf`) into a 32^3 LUT. */
