@@ -5,6 +5,7 @@ import { STATS_HTML } from './stats-page';
 import { loginPageHtml } from './login-page';
 import { FEEDBACK_HTML, FEEDBACK_PAGE_CSP } from './feedback-page';
 import { handleFeedbackApi } from './feedback-triage';
+import { handleAdminApi } from './admin/api';
 import { SESSION_COOKIE, readCookie, verifySession, sessionCookieHeader, clearedSessionCookieHeader, passwordsMatch } from './auth';
 import { cleanCallsign } from '@lions/net';
 import type { TelemetryOrderVerb } from '@lions/data/telemetry';
@@ -436,6 +437,7 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
     if (!authed) return json(UNAUTHORIZED_JSON, 401);
     if (path === '/stats/api/feedback' || path.startsWith('/stats/api/feedback/')) return handleFeedbackApi(req, env, url, now);
     if (path === '/stats/api/members/blank') return handleBlank(req, env, 'member');
+    if (path === '/stats/api/members' || path.startsWith('/stats/api/members/')) return handleAdminApi(req, env, url, now); // GH-695
     if (path === '/stats/api/bots/blank') return handleBlank(req, env, 'bot');
     const f = parseFilter(url, now);
     switch (path) {
