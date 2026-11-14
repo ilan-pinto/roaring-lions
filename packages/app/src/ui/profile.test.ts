@@ -803,3 +803,46 @@ describe('showProfile: Google sign-in (GH-1075 G6)', () => {
     expect(fresh.stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.result.ok'));
   });
 });
+
+// GH-1075 P6: the avatar sheet is mounted on document.body, so the screen's disposer owns it.
+describe('showProfile: the avatar sheet (GH-1075 P6)', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+  const openSheet = async (c: ReturnType<typeof stub>) => {
+    const m = mount(c);
+    await flush();
+    btn(m.stage, t('profile.avatar.change')).click();
+    await vi.waitFor(() => expect(document.body.querySelector('.rl-avatar-picker')).not.toBeNull());
+    return m;
+  };
+
+  it('Change avatar opens the sheet once; Save sends {avatar} through PATCH profile and redraws the avatar', async () => {
+    const c = stub({ me: async () => signedIn() });
+    const m = await openSheet(c);
+    btn(m.stage, t('profile.avatar.change')).click(); // a second click opens nothing more
+    await flush();
+    expect(document.body.querySelectorAll('.rl-avatar-picker')).toHaveLength(1);
+    (document.body.querySelector('[data-preset="crest-wave"]') as HTMLButtonElement).click();
+    (document.body.querySelector('.rl-avatar-picker__save') as HTMLButtonElement).click();
+    await flush();
+    expect(c.calls.filter((x) => x.startsWith('patch:'))).toEqual(['patch:{"avatar":"crest-wave"}']);
+    expect(document.body.querySelector('.rl-avatar-picker')).toBeNull();
+    expect(m.stage.querySelector('.rl-profile__avatar .rl-avatar')?.getAttribute('data-avatar')).toBe('crest-wave');
+  });
+
+  it('disposing the screen with the sheet open removes it from the body', async () => {
+    const m = await openSheet(stub({ me: async () => signedIn() }));
+    m.dispose();
+    expect(document.body.querySelector('.rl-avatar-picker')).toBeNull();
+  });
+
+  it('a click that is still loading the sheet when the screen is disposed opens nothing', async () => {
+    const m = mount(stub({ me: async () => signedIn() }));
+    await flush();
+    btn(m.stage, t('profile.avatar.change')).click();
+    m.dispose();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.body.querySelector('.rl-avatar-picker')).toBeNull();
+  });
+});

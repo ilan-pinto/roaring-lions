@@ -1311,6 +1311,112 @@ body {
   color: var(--bad-text);
 }
 
+/* The avatar picker sheet (GH-1075 P6, ui/avatar-picker.ts): a .rl-confirm-family modal. The 12 crests are 4.5rem
+   tiles in a radiogroup; the selection wears the --avatar-ring-selected ring. Motion is one --dur-fast fade, collapsed
+   by the sheet's global reduced-motion rules. The focus ring is the one global --accent ring (VR-28). */
+.rl-avatar-picker__panel {
+  width: min(34rem, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+}
+.rl-avatar-picker__preview {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+.rl-avatar-picker__name {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: var(--t-read);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+}
+.rl-avatar-picker__groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.rl-avatar-picker__heading {
+  margin: 0 0 var(--s1);
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-avatar-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr));
+  gap: var(--s2);
+}
+.rl-avatar-picker__tile {
+  position: relative;
+  display: inline-flex;
+  justify-content: center;
+  padding: var(--s1);
+  background: transparent;
+  border: 2px solid transparent; /* px-ok */
+  border-radius: 50%;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.rl-avatar-picker__tile:hover {
+  border-color: var(--panel-frame);
+}
+.rl-avatar-picker__tile[data-checked='1'] {
+  border-color: var(--avatar-ring-selected);
+}
+.rl-avatar-picker__tile[data-checked='1']::after {
+  content: '';
+  position: absolute;
+  right: 0.2rem;
+  top: 0.2rem;
+  width: 0.6rem;
+  height: 0.35rem;
+  border-left: 2px solid var(--avatar-ring-selected); /* px-ok */
+  border-bottom: 2px solid var(--avatar-ring-selected); /* px-ok */
+  transform: rotate(-45deg);
+  background: var(--panel-bg-solid);
+}
+.rl-avatar-picker__tag {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 var(--s1);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-size: var(--t-xs);
+  color: var(--ink-label);
+}
+.rl-avatar-picker__status {
+  margin: var(--s3) 0 0;
+  min-height: 1.5em;
+}
+.rl-avatar-picker__status.rl-bad {
+  color: var(--bad-text);
+}
+.rl-avatar-picker__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+
+.rl-avatar-picker {
+  animation: rl-avatar-fade var(--dur-fast) var(--ease);
+}
+@keyframes rl-avatar-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* ====================================================================== */
 /* Intro cinematic (ui/intro-overlay.ts) — full screen, first launch       */
 /* ====================================================================== */

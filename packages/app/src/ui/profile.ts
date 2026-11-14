@@ -17,6 +17,9 @@ import { resolveSignedIn, type SignedInResult } from '../account/signed-in';
 import { hasKey, t } from '../i18n/t';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
+import type { AvatarView } from '@lions/data';
+import { defaultAvatar } from '@lions/data';
+import { avatarElement } from './avatar';
 import { confirmDialog, type ConfirmHandle } from './confirm';
 import { footBack, screenFoot } from './foot';
 import { panel } from './panel';
@@ -109,6 +112,8 @@ function opponentText(o: MatchOpponent): string {
 export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
   let disposed = false;
   let confirm: ConfirmHandle | null = null;
+  /** The avatar sheet (GH-1075 P6): mounted on `document.body`, so the disposer below closes it. */
+  let picker: { close: () => void } | null = null;
 
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu rl-menu--profile';
@@ -370,6 +375,31 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     const box = document.createElement('div');
     box.className = 'rl-profile__signed';
 
+    let avatar: AvatarView = me.avatar;
+    const avatarSlot = document.createElement('div');
+    avatarSlot.className = 'rl-profile__avatar';
+    const paintAvatar = (): void => avatarSlot.replaceChildren(avatarElement(avatar, me.publicId, 'head'));
+    paintAvatar();
+    const changeAvatar = button(t('profile.avatar.change'), () => {
+      if (picker !== null) return;
+      // The sheet is a lazy chunk: it loads on the click, so the profile's own chunk stays small.
+      void import('./avatar-picker').then(({ avatarPicker }) => {
+        if (disposed || picker !== null) return;
+        picker = avatarPicker(document.body, {
+          current: avatar,
+          publicId: me.publicId,
+          save: (id) => deps.client.patchProfile({ avatar: id }),
+          onSaved: (id) => {
+            avatar = id === null ? { kind: 'preset', id: defaultAvatar(me.publicId), chosen: false } : { kind: 'preset', id, chosen: true };
+            paintAvatar();
+          },
+          onClose: () => {
+            picker = null;
+          },
+        });
+      });
+    }, 'rl-btn rl-profile__avatar-change');
+
     const form = document.createElement('div');
     form.className = 'rl-profile__name';
     const labelEl = document.createElement('label');
@@ -413,7 +443,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
       }
     });
 
-    box.append(form, line('rl-profile__public-id', t('profile.publicId', { id: me.publicId })), historyBlock(me), ids, links);
+    box.append(avatarSlot, changeAvatar, form, line('rl-profile__public-id', t('profile.publicId', { id: me.publicId })), historyBlock(me), ids, links);
     if (me.identities.length <= 1) box.appendChild(line('rl-profile__last', t('profile.identity.last')));
 
     const verbs = document.createElement('div');
@@ -563,6 +593,8 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     disposed = true;
     confirm?.close();
     confirm = null;
+    picker?.close();
+    picker = null;
     wrap.remove();
   };
 }
