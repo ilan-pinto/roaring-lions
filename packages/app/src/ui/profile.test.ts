@@ -597,7 +597,11 @@ describe('the history and the record (GH-1075 A3)', () => {
   it('history_record_counts_everything', async () => {
     const { stage } = mount(withMatches(answer([view({ opponent: { kind: 'guest' } })], { record: { won: 7, lost: 3, drawn: 2 } })));
     await flush();
-    expect(stage.querySelector('.rl-profile__record')?.textContent).toBe(t('profile.record', { won: 7, lost: 3, drawn: 2 }));
+    const rec = stage.querySelector('.rl-profile__record');
+    expect(rec?.getAttribute('aria-label')).toBe(t('profile.record', { won: 7, lost: 3, drawn: 2 }));
+    expect([...(rec?.querySelectorAll('.rl-profile__tile-n') ?? [])].map((x) => x.textContent)).toEqual(['7', '3', '2']);
+    expect([...(rec?.querySelectorAll('.rl-profile__tile-label') ?? [])].map((x) => x.textContent)).toEqual([t('profile.history.won'), t('profile.history.lost'), t('profile.history.drawn')]);
+    expect(rec?.hasAttribute('hidden')).toBe(false);
   });
 
   it('show_record_toggle', async () => {
@@ -844,5 +848,109 @@ describe('showProfile: the avatar sheet (GH-1075 P6)', () => {
     m.dispose();
     await new Promise((r) => setTimeout(r, 50));
     expect(document.body.querySelector('.rl-avatar-picker')).toBeNull();
+  });
+});
+
+// GH-1075 P7: the redesigned layout, two columns of cards.
+describe('showProfile: the redesigned layout (GH-1075 P7)', () => {
+  const titles = (root: ParentNode): string[] => [...root.querySelectorAll('.rl-profile__card-title')].map((x) => x.textContent ?? '');
+  const named = (c: ReturnType<typeof stub>) => mount(c);
+
+  it('signed in: header, record, history on the left; sign-in, data and the danger zone on the right, in that order', async () => {
+    const { stage } = named(stub({ me: async () => signedIn() }));
+    await flush();
+    const main = stage.querySelector('.rl-profile__col--main') as HTMLElement;
+    const side = stage.querySelector('.rl-profile__col--side') as HTMLElement;
+    expect([...main.children].map((x) => x.className.replace('rl-profile__card ', ''))).toEqual(['rl-profile__card--head', 'rl-profile__card--record', 'rl-profile__card--history']);
+    expect(titles(main)).toEqual([t('profile.section.record'), t('profile.history.title')]);
+    expect(titles(side)).toEqual([t('profile.section.signIn'), t('profile.section.data'), t('profile.section.danger')]);
+    expect(main.nextElementSibling).toBe(side);
+  });
+
+  it('the header card shows the avatar, the name, the Player ID and the month the member joined', async () => {
+    const me = { ...(signedIn() as Extract<MeResult, { kind: 'signedIn' }>), createdDay: 20_000 }; // 4 Oct 2024
+    const { stage } = named(stub({ me: async () => me }));
+    await flush();
+    const head = stage.querySelector('.rl-profile__card--head') as HTMLElement;
+    expect(head.querySelector('img.rl-avatar__img')?.getAttribute('src')).toBe('/ui/avatars/crests/crest-chevrons.svg');
+    expect(head.querySelector<HTMLInputElement>('input[type=text]')?.value).toBe('Ilan');
+    expect(head.querySelector('.rl-profile__public-id')?.textContent).toBe(t('profile.publicId', { id: 'ABCD2345' }));
+    expect(head.querySelector('.rl-profile__since')?.textContent).toBe(t('profile.memberSince', { date: 'October 2024' }));
+  });
+
+  it('Copy writes the Player ID to the clipboard and says Copied', async () => {
+    const written: string[] = [];
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (s: string) => void written.push(s) } });
+    const { stage } = named(stub({ me: async () => signedIn() }));
+    await flush();
+    btn(stage, t('profile.copyId')).click();
+    await flush();
+    expect(written).toEqual(['ABCD2345']);
+    expect(btn(stage, t('profile.copied'))).toBeTruthy();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+  });
+
+  it('has exactly ONE Download button, and it is in the Your data card, not the danger zone', async () => {
+    const { stage } = named(stub({ me: async () => signedIn() }));
+    await flush();
+    const downloads = [...stage.querySelectorAll('button')].filter((b) => b.textContent === t('profile.export'));
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0]?.closest('.rl-profile__card--data')).not.toBeNull();
+    expect(stage.querySelector('.rl-profile__card--danger')?.querySelector('button')?.textContent).toBe(t('profile.delete'));
+    expect(stage.querySelector('.rl-profile__card--danger')?.contains(downloads[0] ?? null)).toBe(false);
+  });
+
+  it('each way to sign in shows its state: Linked, or Paused when the server has switched that provider off', async () => {
+    const google: IdentityView = { id: 'ident-g', provider: 'google', label: null, createdAt: 1, lastUsedDay: null };
+    const { stage } = named(stub({ me: async () => signedIn([steam, google]), providers: async () => ['google'] }));
+    await flush();
+    const states = [...stage.querySelectorAll('.rl-profile__identity')].map((li) => li.querySelector('.rl-profile__identity-state')?.textContent);
+    expect(states).toEqual([t('profile.identity.paused'), t('profile.identity.linked')]);
+  });
+
+  it('the guest card: the mark, the headline, three perks and the sign-in buttons', async () => {
+    const { stage } = named(stub({ providers: async () => ['google'] }));
+    await flush();
+    const g = stage.querySelector('.rl-profile__guest') as HTMLElement;
+    expect(g.querySelector('[data-avatar="guest"]')).not.toBeNull();
+    expect(g.querySelector('.rl-profile__guest-headline')?.textContent).toBe(t('profile.guest.headline'));
+    expect(g.querySelectorAll('.rl-profile__perks li')).toHaveLength(3);
+    expect(stage.querySelector('.rl-profile__cols')).toBeNull();
+  });
+
+  it('closed, signed-out and deleted states keep the guest card; the line sits above it', async () => {
+    const closed = named(stub({ providers: async () => [] }));
+    await flush();
+    expect(closed.stage.querySelector('.rl-profile__guest .rl-profile__closed')?.textContent).toBe(t('profile.signInClosed'));
+    expect(closed.stage.querySelector('.rl-profile__guest-headline')).not.toBeNull();
+    for (const [gone, text] of [['unknown', 'profile.signedOut'], ['deleted', 'profile.deleted']] as const) {
+      const store = memStore({ [ACCOUNT_BINDING_KEY]: JSON.stringify({ version: 1, publicId: 'ABCD2345' }) });
+      const m = mount(stub({ gone: async () => gone }), {}, store);
+      await vi.waitFor(() => expect(m.stage.textContent).toContain(t(text)));
+      const card = m.stage.querySelector('.rl-profile__guest');
+      expect(card).not.toBeNull();
+      expect(card?.previousElementSibling?.textContent).toBe(t(text));
+    }
+  });
+
+  it('?pseudo=1 brackets every chrome label on both the signed-in page and the guest card', async () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const a = named(stub({ me: async () => signedIn() }));
+      await flush();
+      const g = named(stub({ providers: async () => ['google'] }));
+      await flush();
+      for (const root of [a.stage, g.stage]) {
+        const chrome = [
+          ...root.querySelectorAll('button'),
+          ...root.querySelectorAll('.rl-profile__card-title, .rl-profile__guest-headline, .rl-profile__perks li, .rl-profile__tile-label, .rl-profile__identity-state, .rl-profile__since, .rl-profile__show-record, label'),
+        ].map((x) => x.textContent ?? '');
+        expect(chrome.length).toBeGreaterThan(5);
+        // The display name and the Player ID are data and never go through t(); everything else is bracketed.
+        for (const text of chrome) expect(text, text).toMatch(/^⟦.*⟧$|^$/);
+      }
+    } finally {
+      setCatalogue('en', en);
+    }
   });
 });

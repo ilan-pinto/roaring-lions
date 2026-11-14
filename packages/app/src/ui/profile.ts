@@ -19,7 +19,7 @@ import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import type { AvatarView } from '@lions/data';
 import { defaultAvatar } from '@lions/data';
-import { avatarElement } from './avatar';
+import { avatarElement, guestMark } from './avatar';
 import { confirmDialog, type ConfirmHandle } from './confirm';
 import { footBack, screenFoot } from './foot';
 import { panel } from './panel';
@@ -114,6 +114,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
   let confirm: ConfirmHandle | null = null;
   /** The avatar sheet (GH-1075 P6): mounted on `document.body`, so the disposer below closes it. */
   let picker: { close: () => void } | null = null;
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu rl-menu--profile';
@@ -199,6 +200,21 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     if (provider === 'google') b.prepend(gMark());
     return b;
   };
+  /** One card of the page (GH-1075 P7): a hairline frame with a small uppercase title. The title is chrome, so it goes through `t()` at build. */
+  const card = (cls: string, title: string | null): { el: HTMLElement; body: HTMLElement } => {
+    const el = document.createElement('section');
+    el.className = `rl-profile__card ${cls}`;
+    if (title !== null) {
+      const h = document.createElement('h2');
+      h.className = 'rl-profile__card-title';
+      h.textContent = title;
+      el.appendChild(h);
+    }
+    const body = document.createElement('div');
+    body.className = 'rl-profile__card-body';
+    el.appendChild(body);
+    return { el, body };
+  };
   const privacyLink = (): HTMLAnchorElement => {
     const a = document.createElement('a');
     a.className = 'rl-profile__privacy-link';
@@ -207,23 +223,36 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     return a;
   };
   const guestBlock = (): HTMLElement => {
-    const box = document.createElement('div');
-    box.className = 'rl-profile__guest';
+    const c = card('rl-profile__guest', null);
+    const box = c.body;
+    const headline = document.createElement('h2');
+    headline.className = 'rl-profile__guest-headline';
+    headline.textContent = t('profile.guest.headline');
+    const perks = document.createElement('ul');
+    perks.className = 'rl-profile__perks';
+    for (const key of ['profile.guest.perk.avatar', 'profile.guest.perk.sync', 'profile.guest.perk.record']) {
+      const li = document.createElement('li');
+      li.textContent = t(key);
+      perks.appendChild(li);
+    }
+    const slot = document.createElement('div');
+    slot.className = 'rl-profile__guest-actions';
+    box.append(guestMark('head'), headline, perks, slot);
     // Nothing is drawn until the server has said which providers work; a provider it does not list never gets a button (a button that fails every time spends the sign-in budget on nothing).
     void info.then(({ open, providers }) => {
       if (disposed) return;
       if (providers.length === 0) {
-        box.replaceChildren(line('rl-profile__closed', t('profile.signInClosed')));
+        slot.replaceChildren(line('rl-profile__closed', t('profile.signInClosed')));
         return;
       }
       for (const provider of providers) {
         // Sign up is the same flow as sign in (the first sign-in creates the member while the switch is open); it is only offered while `GET open` says so.
-        if (open) box.appendChild(providerButton(provider, 'signUp'));
-        box.appendChild(providerButton(provider, 'signIn'));
+        if (open) slot.appendChild(providerButton(provider, 'signUp'));
+        slot.appendChild(providerButton(provider, 'signIn'));
       }
-      box.append(line('rl-profile__signup-note', open ? t('profile.signUpHint') : t('profile.signUpClosed')), line('rl-profile__privacy', t('profile.privacy')), privacyLink());
+      slot.append(line('rl-profile__signup-note', open ? t('profile.signUpHint') : t('profile.signUpClosed')), line('rl-profile__privacy', t('profile.privacy')), privacyLink());
     });
-    return box;
+    return c.el;
   };
 
   const download = async (): Promise<void> => {
@@ -302,16 +331,49 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
       });
     });
     rm.disabled = only;
-    li.append(line('rl-profile__identity-label', label), rm);
+    // The state: Linked while the server lists the provider, Paused when it is a provider the server has switched off.
+    const state = document.createElement('span');
+    state.className = 'rl-profile__identity-state';
+    state.textContent = t('profile.identity.linked');
+    void info.then(({ providers }) => {
+      if (disposed) return;
+      const known = PROVIDERS.find((x) => x === id.provider);
+      const paused = known !== undefined && !providers.includes(known);
+      state.textContent = paused ? t('profile.identity.paused') : t('profile.identity.linked');
+      state.dataset.state = paused ? 'paused' : 'linked';
+    });
+    const main = document.createElement('div');
+    main.className = 'rl-profile__identity-main';
+    if (id.provider === 'google') main.appendChild(gMark());
+    main.append(line('rl-profile__identity-label', label), state);
+    li.append(main, rm);
     return li;
   };
 
-  /** The record, the "Show my record" toggle and the history list (GH-1075 A3). The W-L is the server's count, never recounted here. */
-  const historyBlock = (me: SignedInMe): HTMLElement => {
-    const box = document.createElement('div');
-    box.className = 'rl-profile__history';
-    const recordLine = line('rl-profile__record', '');
+  /**
+   * The record card and the history card (GH-1075 A3, P7). The W-L is the server's count, never recounted here: the
+   * three tiles are Won, Lost and Drawn as the server reported them, and the whole record is also the tile row's
+   * accessible name. One `matches` read feeds both cards.
+   */
+  const historyCards = (me: SignedInMe): { record: HTMLElement; history: HTMLElement } => {
+    const rec = card('rl-profile__card--record', t('profile.section.record'));
+    const his = card('rl-profile__card--history', t('profile.history.title'));
+    const recordLine = document.createElement('div');
+    recordLine.className = 'rl-profile__record';
+    recordLine.setAttribute('role', 'group');
     recordLine.hidden = true;
+    const tiles = (['won', 'lost', 'drawn'] as const).map((k) => {
+      const tile = document.createElement('div');
+      tile.className = `rl-profile__tile rl-profile__tile--${k}`;
+      const n = document.createElement('span');
+      n.className = 'rl-profile__tile-n';
+      const label = document.createElement('span');
+      label.className = 'rl-profile__tile-label';
+      label.textContent = t(`profile.history.${k}`);
+      tile.append(n, label);
+      return { k, n, tile };
+    });
+    recordLine.append(...tiles.map((x) => x.tile));
 
     const toggle = document.createElement('label');
     toggle.className = 'rl-profile__show-record';
@@ -338,15 +400,18 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     empty.hidden = true;
     let next: string | undefined;
 
+    /** The row's text stays one line of " · "-joined parts (the tests and a screen reader read it so); the result is a chip inside it. */
     const row = (m: MatchView): HTMLElement => {
       const li = document.createElement('li');
       li.className = 'rl-profile__match';
       const when = new Date(m.startedAt).toLocaleDateString();
       const map = mapNames[m.map]?.name ?? m.map;
-      const parts = [when, map, t(`profile.history.${outcomeKey(m)}`)];
-      if (!m.agreed) parts.push(t('profile.history.unconfirmed'));
-      parts.push(opponentText(m.opponent));
-      li.textContent = parts.join(' · ');
+      const kind = outcomeKey(m);
+      const chip = document.createElement('span');
+      chip.className = `rl-profile__result rl-profile__result--${kind}`;
+      chip.textContent = t(`profile.history.${kind}`);
+      const tail = [...(m.agreed ? [] : [t('profile.history.unconfirmed')]), opponentText(m.opponent)];
+      li.append(document.createTextNode(`${when} · ${map} · `), chip, document.createTextNode(` · ${tail.join(' · ')}`));
       return li;
     };
     const page = async (before: string | undefined): Promise<void> => {
@@ -359,7 +424,8 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
         return;
       }
       const a = r.body;
-      recordLine.textContent = t('profile.record', { won: a.record.won, lost: a.record.lost, drawn: a.record.drawn });
+      recordLine.setAttribute('aria-label', t('profile.record', { won: a.record.won, lost: a.record.lost, drawn: a.record.drawn }));
+      for (const x of tiles) x.n.textContent = String(a.record[x.k]);
       recordLine.hidden = false;
       for (const m of a.matches) list.appendChild(row(m));
       empty.hidden = list.childElementCount > 0;
@@ -367,14 +433,26 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
       more.hidden = a.next === null;
     };
     void page(undefined);
-    box.append(line('rl-profile__history-title', t('profile.history.title')), recordLine, toggle, line('rl-profile__show-record-hint', t('profile.showRecord.hint')), empty, list, more);
-    return box;
+    rec.body.append(recordLine, toggle, line('rl-profile__show-record-hint', t('profile.showRecord.hint')));
+    his.body.append(empty, list, more);
+    return { record: rec.el, history: his.el };
   };
 
   const signedInBlock = (me: SignedInMe, reload: () => void): HTMLElement => {
     const box = document.createElement('div');
     box.className = 'rl-profile__signed';
+    const cols = document.createElement('div');
+    cols.className = 'rl-profile__cols';
+    const main = document.createElement('div');
+    main.className = 'rl-profile__col rl-profile__col--main';
+    const side = document.createElement('div');
+    side.className = 'rl-profile__col rl-profile__col--side';
+    cols.append(main, side);
+    box.appendChild(cols);
 
+    // ---- Header card: avatar, name, Player ID, member since.
+    const head = card('rl-profile__card--head', null);
+    head.body.classList.add('rl-profile__head');
     let avatar: AvatarView = me.avatar;
     const avatarSlot = document.createElement('div');
     avatarSlot.className = 'rl-profile__avatar';
@@ -399,6 +477,9 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
         });
       });
     }, 'rl-btn rl-profile__avatar-change');
+    const avatarCol = document.createElement('div');
+    avatarCol.className = 'rl-profile__avatar-col';
+    avatarCol.append(avatarSlot, changeAvatar);
 
     const form = document.createElement('div');
     form.className = 'rl-profile__name';
@@ -425,10 +506,41 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     });
     form.append(labelEl, save);
 
+    const idRow = document.createElement('div');
+    idRow.className = 'rl-profile__idrow';
+    const copy = button(t('profile.copyId'), () => {
+      const write = navigator.clipboard?.writeText(me.publicId);
+      void write?.then(
+        () => {
+          if (disposed) return;
+          copy.textContent = t('profile.copied');
+          if (copiedTimer !== undefined) clearTimeout(copiedTimer);
+          copiedTimer = setTimeout(() => {
+            copy.textContent = t('profile.copyId');
+          }, 2000);
+        },
+        () => undefined
+      );
+    }, 'rl-btn rl-profile__copy');
+    idRow.append(line('rl-profile__public-id', t('profile.publicId', { id: me.publicId })), copy);
+
+    const who = document.createElement('div');
+    who.className = 'rl-profile__who';
+    who.append(form, idRow);
+    // Month and year only, from the day the member was created (UTC, as the server counts days).
+    const since = new Date(me.createdDay * 86_400_000).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    who.appendChild(line('rl-profile__since', t('profile.memberSince', { date: since })));
+    head.body.append(avatarCol, who);
+
+    // ---- Record and history.
+    const { record, history } = historyCards(me);
+    main.append(head.el, record, history);
+
+    // ---- Ways to sign in.
+    const sign = card('rl-profile__card--signin', t('profile.section.signIn'));
     const ids = document.createElement('ul');
     ids.className = 'rl-profile__identities';
     for (const id of me.identities) ids.appendChild(identityRow(me, id, reload));
-
     // "Link Google" / "Link Steam": only for a provider the server lists and the member does not hold yet. A stale session asks for the fresh sign-in first.
     const links = document.createElement('div');
     links.className = 'rl-profile__links';
@@ -442,21 +554,22 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
         links.appendChild(b);
       }
     });
+    sign.body.append(ids, links);
+    if (me.identities.length <= 1) sign.body.appendChild(line('rl-profile__last', t('profile.identity.last')));
 
-    box.append(avatarSlot, changeAvatar, form, line('rl-profile__public-id', t('profile.publicId', { id: me.publicId })), historyBlock(me), ids, links);
-    if (me.identities.length <= 1) box.appendChild(line('rl-profile__last', t('profile.identity.last')));
-
+    // ---- Your data: ONE download, the privacy link, the two sign-outs.
+    const data = card('rl-profile__card--data', t('profile.section.data'));
     const verbs = document.createElement('div');
     verbs.className = 'rl-profile__verbs';
     verbs.append(
+      button(t('profile.export'), () => void download()),
       button(t('profile.signOut'), () => void signOutWith(() => deps.client.logout())),
-      button(t('profile.signOutAll'), () => void signOutWith(() => deps.client.logoutAll())),
-      button(t('profile.export'), () => void download())
+      button(t('profile.signOutAll'), () => void signOutWith(() => deps.client.logoutAll()))
     );
-    box.appendChild(verbs);
-    box.appendChild(privacyLink());
+    data.body.append(verbs, privacyLink());
 
-    // Delete: the choices sit beside the button, the confirm is the last word.
+    // ---- Danger zone: the choices sit beside the button, the confirm is the last word.
+    const dz = card('rl-profile__card--danger', t('profile.section.danger'));
     const danger = document.createElement('div');
     danger.className = 'rl-profile__danger';
     const tel = document.createElement('label');
@@ -493,8 +606,10 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
         }
       });
     }, 'rl-btn rl-profile__delete');
-    danger.append(button(t('profile.export'), () => void download()), tel, del);
-    box.appendChild(danger);
+    danger.append(tel, del);
+    dz.body.appendChild(danger);
+
+    side.append(sign.el, data.el, dz.el);
     return box;
   };
 
@@ -595,6 +710,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     confirm = null;
     picker?.close();
     picker = null;
+    if (copiedTimer !== undefined) clearTimeout(copiedTimer);
     wrap.remove();
   };
 }

@@ -10207,6 +10207,13 @@ fieldset.rl-versus__maps {
 /* Profile (ui/profile.ts)                                                */
 /* ---------------------------------------------------------------------- */
 
+/* GH-1075 P7: the page is two columns of cards (a wide one, a narrow one) in the one inspect panel, widened to
+   min(64rem, 94vw). Below 56rem it is one column in source order: header, record, history, sign-in, data, danger.
+   Everything is rem and tokens, so --ui-scale (1.15 from 1,900 px, 1.4 from 2,400 px) and --text-size scale the
+   layout rather than reflow it. */
+.rl-menu--profile {
+  width: min(64rem, 94vw);
+}
 .rl-menu--profile .rl-panel {
   text-align: left;
 }
@@ -10220,11 +10227,145 @@ fieldset.rl-versus__maps {
 .rl-profile__status.rl-bad {
   color: var(--bad-text);
 }
-.rl-profile__guest,
-.rl-profile__signed {
+.rl-profile__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 38fr) minmax(0, 24fr);
+  gap: var(--s3);
+  align-items: start;
+}
+.rl-profile__col {
   display: flex;
   flex-direction: column;
   gap: var(--s3);
+  min-width: 0;
+}
+@media (max-width: 56rem) {
+  .rl-profile__cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.rl-profile__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s4);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  min-width: 0;
+}
+.rl-profile__card-title {
+  margin: 0;
+  padding-bottom: var(--s1);
+  border-bottom: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  font-weight: normal;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-profile__card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+/* The header card: the avatar over "Change avatar" on the left, the name, Player ID and member-since beside it. */
+.rl-profile__head {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s4);
+}
+.rl-profile__avatar-col {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-profile__who {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+.rl-profile__idrow {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+.rl-profile__public-id {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+.rl-profile__since {
+  margin: 0;
+  color: var(--ink-mute);
+}
+@media (max-width: 30rem) {
+  .rl-profile__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+/* The claim banner: the one thing on the page that asks for action, full width above both columns. */
+.rl-profile__claim {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+  padding: var(--s3) var(--s4);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  border-left: 0.25rem solid var(--band-mission);
+}
+.rl-profile__claim-lead,
+.rl-profile__claim-state {
+  margin: 0;
+}
+.rl-profile__claim-verbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+/* The guest card: one centred card. */
+.rl-profile__guest {
+  align-items: center;
+  max-width: 34rem;
+  margin: 0 auto;
+  text-align: center;
+}
+.rl-profile__guest .rl-profile__card-body {
+  align-items: center;
+  gap: var(--s3);
+}
+.rl-profile__guest-headline {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-read);
+  font-weight: normal;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+}
+.rl-profile__perks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-mute);
+}
+.rl-profile__guest-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  align-items: stretch;
+  width: 100%;
 }
 .rl-profile__google,
 .rl-profile__link--google {
@@ -10247,7 +10388,8 @@ fieldset.rl-versus__maps {
   display: none;
 }
 .rl-profile__privacy,
-.rl-profile__last {
+.rl-profile__last,
+.rl-profile__signup-note {
   margin: 0;
   color: var(--ink-mute);
 }
@@ -10261,9 +10403,11 @@ fieldset.rl-versus__maps {
   flex: 1;
   flex-direction: column;
   gap: var(--s1);
+  min-width: 0;
   color: var(--ink);
 }
 .rl-profile__name input[type='text'] {
+  min-width: 0;
   background: var(--panel-bg-solid);
   color: var(--ink);
   border: 1px solid var(--panel-frame); /* px-ok */
@@ -10277,7 +10421,7 @@ fieldset.rl-versus__maps {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--s1);
+  gap: var(--s2);
 }
 .rl-profile__identity {
   display: flex;
@@ -10285,10 +10429,31 @@ fieldset.rl-versus__maps {
   justify-content: space-between;
   gap: var(--s2);
 }
-.rl-profile__identity-label,
-.rl-profile__public-id {
+.rl-profile__identity-main {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+.rl-profile__identity-label {
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--ink);
+}
+.rl-profile__identity-state {
+  flex: none;
+  padding: 0 var(--s1);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-size: var(--t-xs);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--good);
+}
+.rl-profile__identity-state[data-state='paused'] {
+  color: var(--ink-mute);
 }
 .rl-profile__verbs,
 .rl-profile__danger {
@@ -10297,15 +10462,33 @@ fieldset.rl-versus__maps {
   align-items: center;
   gap: var(--s2);
 }
-.rl-profile__history {
+/* The record: three tiles. */
+.rl-profile__record {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s2);
+}
+.rl-profile__record[hidden] {
+  display: none;
+}
+.rl-profile__tile {
   display: flex;
   flex-direction: column;
-  gap: var(--s1);
+  align-items: center;
+  padding: var(--s2);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
 }
-.rl-profile__history-title,
-.rl-profile__record {
-  margin: 0;
+.rl-profile__tile-n {
+  font-family: var(--font-display);
+  font-size: var(--t-read);
   color: var(--ink);
+}
+.rl-profile__tile-label {
+  font-size: var(--t-xs);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink-label);
 }
 .rl-profile__show-record {
   display: flex;
@@ -10315,17 +10498,57 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__show-record-hint {
   margin: 0;
+  color: var(--ink-mute);
 }
+/* The history: a table-like list, one row each. */
 .rl-profile__matches {
+  display: flex;
+  flex-direction: column;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.rl-profile__match {
+  padding: var(--s1) 0;
+  border-bottom: 1px solid var(--panel-frame); /* px-ok */
+  overflow-wrap: anywhere;
+}
+.rl-profile__match:last-child {
+  border-bottom: 0;
+}
+.rl-profile__history-empty {
+  margin: 0;
+  color: var(--ink-mute);
+}
+.rl-profile__result {
+  padding: 0 var(--s1);
+  border: 1px solid currentColor; /* px-ok */
+  font-size: var(--t-xs);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+}
+.rl-profile__result--won {
+  color: var(--good);
+}
+.rl-profile__result--lost {
+  color: var(--bad-text);
+}
+.rl-profile__result--drawn {
+  color: var(--ink-mute);
 }
 .rl-profile__telemetry {
   display: flex;
   align-items: center;
   gap: var(--s1);
   color: var(--ink);
+}
+/* The danger zone: a --danger-frame hairline, apart from everything else. */
+.rl-profile__card--danger {
+  border-color: var(--danger-frame);
+}
+.rl-profile__card--danger .rl-profile__card-title {
+  border-bottom-color: var(--danger-frame);
+  color: var(--bad-text);
 }
 .rl-profile__delete {
   border-color: var(--bad);
