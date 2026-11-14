@@ -416,7 +416,7 @@ describe('the economy arm (N3 Task 7)', () => {
   });
   it('the economy self-check passes on each map with a rules file', () => {
     for (const map of Object.keys(versusRules)) expect(economySelfCheck(map as MapId), map).toEqual([]);
-  }120_000); // steady 30 s of the 60 s (GH-1079, 14 Nov): 50% headroom was thin under load
+  }, 120_000); // steady 30 s of the 60 s (GH-1079, 14 Nov): 50% headroom was thin under load
   it('goes red when the plan never queues: no side fields a built unit (the no-queue mutation)', () => {
     const noQueue: PlayFn = (m, a, s, o) => play(m, a, s, { ...o, plan: false });
     const failed = economySelfCheck('tel_marum', noQueue);
