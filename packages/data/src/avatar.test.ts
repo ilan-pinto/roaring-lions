@@ -74,10 +74,10 @@ describe('the default avatar (GH-1075 section 4.1)', () => {
 });
 
 describe('the catalogue', () => {
-  it('has 12 crests and 12 unit busts, unique ids, and every label in en.json', () => {
+  it('has 12 crests and no unit busts (the lead dropped them from this release), unique ids, and every label in en.json', () => {
     expect(avatarPresets.filter((p) => p.family === 'crest')).toHaveLength(12);
-    expect(avatarPresets.filter((p) => p.family === 'unit')).toHaveLength(12);
-    expect(new Set(avatarPresets.map((p) => p.id)).size).toBe(24);
+    expect(avatarPresets.filter((p) => p.family === 'unit')).toHaveLength(0);
+    expect(new Set(avatarPresets.map((p) => p.id)).size).toBe(12);
     for (const p of avatarPresets) expect(en[p.label], p.label).toBeTruthy();
   });
   it('a unit preset id is "unit-" plus its unit id', () => {
@@ -88,7 +88,7 @@ describe('the catalogue', () => {
 describe('resolveAvatar', () => {
   const publicId = LITERALS[4]?.[0] ?? '';
   it('an upload wins and carries the chosen preset (or the default) as its fallback', () => {
-    expect(resolveAvatar({ publicId, preset: 'unit-mbt_lavi', uploadRev: 3 })).toEqual({ kind: 'upload', rev: 3, fallback: 'unit-mbt_lavi' });
+    expect(resolveAvatar({ publicId, preset: 'crest-wave', uploadRev: 3 })).toEqual({ kind: 'upload', rev: 3, fallback: 'crest-wave' });
     expect(resolveAvatar({ publicId, uploadRev: 1 })).toEqual({ kind: 'upload', rev: 1, fallback: 'crest-star' });
   });
   it('a chosen preset is chosen; none is the default, unchosen', () => {
@@ -97,6 +97,7 @@ describe('resolveAvatar', () => {
   });
   it('an id the catalogue does not hold is no choice, and the result is never empty', () => {
     expect(isAvatarPreset('crest-nope')).toBe(false);
+    expect(isAvatarPreset('unit-mbt_lavi')).toBe(false); // busts are not in the catalogue for now
     expect(resolveAvatar({ publicId, preset: 'crest-nope' })).toEqual({ kind: 'preset', id: 'crest-star', chosen: false });
     expect(resolveAvatar({ publicId: '' }).kind).toBe('preset');
   });
