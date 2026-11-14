@@ -46,6 +46,25 @@ const PALETTE = 'data/palette.json';
 const ROOTS = ['packages/app/src', 'assets/campaign'];
 const EXTRA = ['packages/app/index.html', 'packages/render/src/overlay.ts'];
 const EXTS = ['.ts', '.css', '.html', '.svg'];
+// A third party's brand mark has fixed colours that must not be altered or redrawn from our palette (GH-1075 U4). They live in
+// `assets/brand/` (served at /brand/, drawn by an <img>), which is NOT in ROOTS, and this named list is the exemption: a file in
+// that directory that is not named here is a defect, so the exemption cannot widen by dropping a file in. The licence is the
+// owner's brand terms, not ours (docs/ credits it).
+export const BRAND_DIR = 'assets/brand';
+export const BRAND_MARKS = ['assets/brand/google-g.svg'];
+
+/** Every file under `assets/brand/` must be named in BRAND_MARKS, and every named mark must exist. `present` is repo-relative paths. */
+export function brandMarkFailures(present, marks = BRAND_MARKS) {
+  const out = [];
+  for (const f of present) {
+    if (!marks.includes(f)) out.push(`${f}  not in BRAND_MARKS -- a brand mark is a named exemption (tools/validate_ui_palette.mjs), add it there with its owner's terms`);
+  }
+  for (const m of marks) {
+    if (!present.includes(m)) out.push(`${m}  named in BRAND_MARKS but missing`);
+  }
+  return out;
+}
+
 // EXTS never reads .json, and that blind spot is how a retired dingbat hid in
 // a catalogue string -- the dingbat sweep below reads this directory itself.
 const I18N_DIR = 'packages/app/src/i18n';
@@ -244,6 +263,14 @@ function main() {
       failures.push(`${rel}  unknown custom property ${name} — not declared in ${THEME} or ${PALETTE}`);
     }
   }
+
+  let brandFiles = [];
+  try {
+    brandFiles = readdirSync(join(ROOT, BRAND_DIR)).map((f) => `${BRAND_DIR}/${f}`);
+  } catch {
+    /* no directory: the missing-mark check below says so */
+  }
+  failures.push(...brandMarkFailures(brandFiles));
 
   // The retired-dingbat sweep also reads the catalogue: en.json is where a
   // star gate hid, past EXTS's blind spot for .json.

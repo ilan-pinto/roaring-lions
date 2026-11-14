@@ -114,6 +114,7 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   { name: 'brigade', blurb: 'the brigade — every KDF unit and what opens it' },
   { name: 'fresh', blurb: 'ignore the saved ledger (and switch accounts off)' },
   { name: 'accounts', blurb: 'accepted; accounts are on by default on a real host, and this opts a dev server in' },
+  { name: 'google', blurb: 'on /profile, show the Google sign-in buttons while the server has not yet opened Google to players' },
   { name: 'tutorial', blurb: 'replay the tutorial' },
   { name: 'net', blurb: 'new | <room code> — N0: run this sandbox in a two-seat lockstep room (both seats order the KDF force)' },
   { name: 'seat', blurb: '0 | 1 — written by the app after ?net=new; informational' },

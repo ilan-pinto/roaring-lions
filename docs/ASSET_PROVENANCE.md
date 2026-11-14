@@ -450,6 +450,7 @@ one directory, `**` crosses directories).
 | `assets/_headers` | Cloudflare static-asset headers (Content-Security-Policy and the rest) | Written for the project in the server-side security review (commit d78d900e, 13 Oct 2026) | Hand-written text | No | ARR, project original | the file's own header comment |
 | `assets/sw.js` | Service worker | Written for the project | Hand-written JavaScript | No | ARR, project original | none needed |
 | `assets/licenses/rapier-Apache-2.0.txt` | Licence text of Rapier (`@dimforge/rapier3d-deterministic-compat` 0.21.0, the ragdoll physics engine, GH-1223) | Apache License 2.0 text as distributed by Dimforge (github.com/dimforge/rapier.js, https://www.apache.org/licenses/LICENSE-2.0) | None (third-party licence text) | No | Apache-2.0; text kept beside the dependency it covers | `packages/render/package.json` |
+| `assets/brand/google-g.svg` | Google's multicolour "G" mark for the Sign in / Sign up with Google buttons on the profile screen (GH-1075 G6) | Drawn from Google's published sign-in branding guidelines (the standard four-colour G), kept unaltered and drawn by an `<img>` so its fixed colours are not ours; the lead should compare it with Google's own download | Hand-copied SVG | No | Google's brand terms (https://developers.google.com/identity/branding-guidelines), NOT the project licence; named in `BRAND_MARKS` (`tools/validate_ui_palette.mjs`), the only file allowed in `assets/brand/` | `tools/validate_ui_palette.mjs` |
 
 <!-- register:end -->
 
