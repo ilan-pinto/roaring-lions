@@ -32,7 +32,7 @@ It builds on the accounts work in GH-1075 (spec `2026-11-07-accounts-profiles-de
   the delta, the balance before and after, the reason and the op id. It is written atomically with the balance change,
   in one D1 batch, under a revision guard and an idempotency key.
 - **Seven slices of 1 to 2 hours each** (section 6). The coin path (S1 to S5) deploys inert until the lead applies
-  migration `0003`, adds his member row and opens the flag. Credits (S6) wait for the lead's ruling on D8. No new secret
+  migration `0004_admin.sql`, adds his member row and opens the flag. Credits (S6) wait for the lead's ruling on D8. No new secret
   is needed.
 
 ---
@@ -270,7 +270,7 @@ Nothing on the device has to change.
 
 ### D9. Integrity: the audit table and the batch
 
-**Migration `0003_admin.sql`** (the lead applies it before merge):
+**Migration `0004_admin.sql`** (the lead applies it before merge):
 - **`coin_journal`** is rebuilt to add `'admin'` to its `kind` CHECK. SQLite cannot widen a CHECK in place, so this is the
   0002 pattern: `defer_foreign_keys`, copy every row with its `id`, then drop, rename and re-index. The only readers that
   branch on `kind` are `claim.ts:242` and `spend.ts:130`, and both select `claim` and `backfill` only, so a new kind
@@ -441,7 +441,7 @@ Each slice lands with its tests AND the mutation that turns each one red, record
 
 | # | Slice | Depends on | Deploys |
 |---|---|---|---|
-| S1 | Migration `0003_admin.sql` (`coin_journal` rebuild, `admin_member`, `admin_action`), `JournalKind` gains `admin`, `MEMBER_TABLES` and the export, A1-8 extended. No route. | none | nothing visible; the **lead applies the migration BEFORE this merges** |
+| S1 | Migration `0004_admin.sql` (`coin_journal` rebuild, `admin_member`, `admin_action`), `JournalKind` gains `admin`, `MEMBER_TABLES` and the export, A1-8 extended. No route. | none | nothing visible; the **lead applies the migration BEFORE this merges** |
 | S2 | `adminGuard`: the stats session, the member session, `admin_member`, `flags.admin`, Origin, the header, content-type and body cap; `whoami`; the switch (close only) | S1 | `whoami` answers `admin: false` until the lead's row exists |
 | S3 | Read API: `find` (id, name prefix, `me`), the card, the journal (coin plus admin, paged), `view` logging, day caps for reads | S2 | read-only lookups for a password session |
 | S4 | Coin write route: modes, reason, range, per-action and day caps, expected revision, `walletWrite` plus `admin_action` plus `withOp` in one batch, CAS retry | S3 | coin writes, once the lead's row exists and `flags.admin` is open |
