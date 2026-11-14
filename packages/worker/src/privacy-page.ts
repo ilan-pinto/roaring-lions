@@ -13,7 +13,7 @@ export const PRIVACY_CONTACT: string | null =
 /** The lead's minimum age (an integer 13 to 18). `null` until the lead decides it. */
 export const PRIVACY_MIN_AGE: number | null = 16;
 /** The date this text last changed. Set at merge. */
-export const PRIVACY_UPDATED = '2026-11-12';
+export const PRIVACY_UPDATED = '2026-11-14';
 
 /** PAGE_CSP with its inline-script allowance removed: this page has no script, so it may run none. */
 export const PRIVACY_PAGE_CSP = PAGE_CSP.replace("script-src 'unsafe-inline'", "script-src 'none'");
@@ -46,11 +46,12 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <body>
 <main>
 <h1>How your data is kept</h1>
-<p>Playing as a guest creates no account and stores no personal details on our server, unless you choose to send feedback with contact details. Anonymous play statistics and rate limiting are described below. This page is mainly about what happens if you choose to sign in.</p>
+<p>Playing as a guest creates no account and stores no personal details on our server, unless you choose to send feedback with contact details. Anonymous play statistics and rate limiting are described below. This page is mainly about what happens if you choose to sign in, with Google or with Steam.</p>
 
 <h2>What is stored for a signed-in player</h2>
 <ul>
-<li>Your SteamID64, which links to your public Steam profile.</li>
+<li>If you sign in with Google: Google's account number for you (its "sub"), and nothing else from Google. We do not ask Google for your email, name or picture.</li>
+<li>If you link Steam: your SteamID64, which links to your public Steam profile.</li>
 <li>The display name you choose, and a random Player ID shown beside it.</li>
 <li>The day the account was created and the day you last signed in (the 36-month rule below uses it).</li>
 <li>A hash of each sign-in session, with the day it was made and the day it was last used.</li>
@@ -67,15 +68,27 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <li>Email, phone number and real name.</li>
 <li>IP address and user agent.</li>
 <li>Location.</li>
+<li>Your Google email address, name and profile picture, and any Google sign-in token.</li>
 <li>Your Steam persona name, avatar and friends list.</li>
 <li>The session cookie itself (only a hash of it).</li>
 </ul>
+
+<h2>Signing in with Google</h2>
+<ul>
+<li>Google handles the sign-in under its own privacy policy, and learns that you signed in to Roaring Lions.</li>
+<li>We ask Google for the "openid" scope only. That is why it sends us an account number and nothing about who you are.</li>
+<li>You can remove Roaring Lions from your Google account's third-party access page at any time.</li>
+<li>We hold no Google token, so there is nothing for us to revoke.</li>
+</ul>
+
+<h2>Signing in with Steam</h2>
+<p>Sign-in through Steam is paused for now. If you already linked a Steam account, what is kept about it is listed above.</p>
 
 <h2>What rate limiting keeps</h2>
 <p>A daily keyed hash of the connecting address, which cannot be turned back into the address. It is deleted after two days.</p>
 
 <h2>What Cloudflare keeps</h2>
-<p>The game runs on Cloudflare. Its request logs record the address of each request, including the Steam sign-in return, which carries your SteamID. Cloudflare keeps them for its own log retention period.</p>
+<p>The game runs on Cloudflare. Its request logs record the address of each request. Google's return carries a one-time code and no identifier about you. A Steam return, when Steam sign-in is on, carries your SteamID. Cloudflare keeps the logs for its own log retention period.</p>
 
 <h2>Why</h2>
 <p>The lawful basis is providing the service you asked for: keeping your progress on our server.</p>

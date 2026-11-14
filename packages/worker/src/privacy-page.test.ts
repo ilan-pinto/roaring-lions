@@ -1,7 +1,7 @@
 /** GH-1075 A1 task 1.10: the privacy page for what accounts store. */
 import { describe, expect, it } from 'vitest';
 import worker from './index';
-import { PRIVACY_CONTACT, PRIVACY_MIN_AGE, handlePrivacy, privacyValues, renderPrivacy } from './privacy-page';
+import { PRIVACY_CONTACT, PRIVACY_MIN_AGE, PRIVACY_UPDATED, handlePrivacy, privacyValues, renderPrivacy } from './privacy-page';
 import type { Env } from './d1';
 
 const GET = (): Request => new Request('https://game.example.workers.dev/privacy');
@@ -40,6 +40,14 @@ describe('the privacy page', () => {
     expect(html).not.toContain('email address we store');
     const never = html.split('What is never stored')[1]?.split('</ul>')[0] ?? '';
     expect(never).toContain('IP address');
+  });
+
+  it('G7 names Google, what is not asked, and the third-party-access line', () => {
+    const html = renderPrivacy(fixtureValues);
+    for (const m of ['Google', 'do not ask Google for your email', "third-party access page", 'We hold no Google token', '"openid" scope only', 'SteamID', 'Sign-in through Steam is paused']) expect(html, m).toContain(m);
+    const never = html.split('What is never stored')[1]?.split('</ul>')[0] ?? '';
+    expect(never).toContain('Google email address, name and profile picture');
+    expect(PRIVACY_UPDATED).toBe('2026-11-14');
   });
 
   it('escapes the contact', () => {
