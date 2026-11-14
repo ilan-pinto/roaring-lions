@@ -43,6 +43,8 @@ const me = {
   publicId: 'ZZZZ9999',
   displayName: 'SentinelName',
   showRecord: true,
+  avatar: { kind: 'preset' as const, id: 'crest-chevrons', chosen: false },
+  createdDay: 0,
   fresh: true,
   identities: [{ id: 'tok-sentinel', provider: 'steam', label: null, createdAt: 1, lastUsedDay: null, steamId: '76561197960287930' }],
 };
@@ -169,7 +171,7 @@ describe('with the account store active, telemetry and feedback still carry neit
     guest.map.set(LEDGER_KEY, JSON.stringify({ 'campaign.completed_missions': ['m1'] }));
     const claimsSeen: string[] = [];
     const server = new FakeServer();
-    const base = clientFor(server, { me: () => ({ kind: 'signedIn', publicId: A2_PUBLIC_ID, displayName: 'D', showRecord: false, fresh: false, identities: [] }) }); // the loop starts unverified (I1): it asks who is signed in
+    const base = clientFor(server, { me: () => ({ kind: 'signedIn', publicId: A2_PUBLIC_ID, displayName: 'D', showRecord: false, avatar: { kind: 'preset', id: 'crest-chevrons', chosen: false }, createdDay: 0, fresh: false, identities: [] }) }); // the loop starts unverified (I1): it asks who is signed in
     const client: AccountClient = {
       ...base,
       claim: async (body: ClaimBody) => {

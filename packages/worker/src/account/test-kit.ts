@@ -194,8 +194,8 @@ export async function seedFullMember(db: D1Like, now: number): Promise<{ memberI
   await run("INSERT INTO member_identity (id, member_id, provider, subject, created_at, public_key, sign_count) VALUES ('i2','m1','passkey','cred-1',?1, x'0A0B0C0D', 3)", now);
   await run("INSERT INTO member_identity (id, member_id, provider, subject, state, created_at) VALUES ('i3','m1','recovery','code-hash','pending',?1)", now);
   await run("INSERT INTO member_identity (id, member_id, provider, subject, created_at) VALUES ('i4','n1','steam','76561197960287931',?1)", now);
-  await run("INSERT INTO profile VALUES ('m1','Callsign One',1,?1)", now);
-  await run("INSERT INTO profile VALUES ('n1','Callsign Two',0,?1)", now);
+  await run("INSERT INTO profile (member_id, display_name, show_record, updated_at, avatar, avatar_rev) VALUES ('m1','Callsign One',1,?1,'p:crest-claw',2)", now);
+  await run("INSERT INTO profile (member_id, display_name, show_record, updated_at) VALUES ('n1','Callsign Two',0,?1)", now);
   await run("INSERT INTO wallet (member_id, free, earn, earn_lifetime, entitlements, updated_at) VALUES ('m1', 5, ?1, '{}', '{}', ?2)", SEED_EARN, now);
   await run("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES ('m1', ?1, 'earn', 5, '{}', 'o1')", now);
   await run("INSERT INTO coupon_use VALUES ('m1','c1',?1)", now);
