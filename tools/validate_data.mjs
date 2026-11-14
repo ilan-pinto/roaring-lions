@@ -214,6 +214,7 @@ const schemas = {
   formation: loadJson(join(ROOT, 'data/schemas/formation.schema.json')),
   grade: loadJson(join(ROOT, 'data/schemas/grade.schema.json')),
   coupons: loadJson(join(ROOT, 'data/schemas/coupons.schema.json')),
+  avatarPresets: loadJson(join(ROOT, 'data/schemas/avatar_presets.schema.json')),
   minWin: loadJson(join(ROOT, 'data/schemas/min_win_seconds.schema.json')),
   arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
   arenaPlayers: loadJson(join(ROOT, 'data/schemas/arena-public-players.schema.json')),
@@ -223,7 +224,7 @@ let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.minWin && schemas.arenaResults && schemas.arenaPlayers
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.arenaResults && schemas.arenaPlayers
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -245,6 +246,7 @@ if (
     formation: ajv.compile(schemas.formation),
     grade: ajv.compile(schemas.grade),
     coupons: ajv.compile(schemas.coupons),
+    avatarPresets: ajv.compile(schemas.avatarPresets),
     minWin: ajv.compile(schemas.minWin),
     arenaResults: ajv.compile(schemas.arenaResults),
     arenaPlayers: ajv.compile(schemas.arenaPlayers),
@@ -271,6 +273,7 @@ if (
   checked += validateFile(join(ROOT, 'data/hints/first_use.json'), validators.hints, 'first_use_hints.schema');
   checked += validateFile(join(ROOT, 'data/structures.json'), validators.structure, 'structure.schema');
   checked += validateFile(join(ROOT, 'data/coupons.json'), validators.coupons, 'coupons.schema');
+  checked += validateFile(join(ROOT, 'data/avatars/presets.json'), validators.avatarPresets, 'avatar_presets.schema');
   checked += validateFile(join(ROOT, 'data/accounts/min_win_seconds.json'), validators.minWin, 'min_win_seconds.schema');
   // GH-954 public-arena P2: the publisher's allow-list is always there; results.json exists only once the lead has
   // published (P4), and when it does it must pass its closed schema, its deny scan and its digest (G2, G3, G14).
