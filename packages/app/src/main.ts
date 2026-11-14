@@ -295,7 +295,7 @@ import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { accountsEnabled } from './account/enabled';
 import { readBinding } from './account/binding';
-import { menuAccount } from './account/menu-account';
+import { menuAccountSource } from './account/menu-account';
 // Type-only: the account client and the profile screen load by dynamic import (GH-1075 A1), never with the entry chunk.
 import type { AccountClient, AccountError } from './account/client';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
@@ -925,7 +925,7 @@ async function main(): Promise<void> {
       }
     ));
   // The kill switch (D1 `flags`) and the member's name: `account/menu-account.ts`.
-  const menuAcct = menuAccount({ on: accountsOn, hasBinding: readBinding(safeStorage()) !== null, loadClient: accountClient, onOpen: (v) => (accountOpenOnPage = v) });
+  const menuAcctFor = menuAccountSource({ on: accountsOn, hasBinding: () => readBinding(safeStorage()) !== null, loadClient: accountClient, onOpen: (v) => (accountOpenOnPage = v) });
   const lang = resolveLang(q.get('lang'), settings.language);
   const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
   const cat = await loadLocale(activeLocale, BASE);
@@ -994,6 +994,8 @@ async function main(): Promise<void> {
     // menu MOUNT now rather than once per page load, so a store whose property
     // access throws would have thrown on every return to the menu.
     const tutorialIsDone = ledgerStore.tutorialDone();
+    // GH-1075: the binding is read per mount (the profile flow writes it after boot); `GET open` is asked once per page.
+    const menuAcct = menuAcctFor();
     // GH-464: whether this menu offers feedback, asked per mount.
     const menuFeedback = browserFeedbackSession();
     // The feedback dialog's late-load guards (see `feedback:` below).
@@ -1045,6 +1047,7 @@ async function main(): Promise<void> {
         // A client module that will not load reads as signed out, as an unreachable server does (`me()` answers `off`).
         open: menuAcct.open,
         name: menuAcct.name,
+        hasAccount: menuAcct.hasAccount,
       },
       feedback: menuFeedback.shown && !feedbackClosed()
         ? () => {

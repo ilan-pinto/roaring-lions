@@ -90,7 +90,7 @@ export interface MenuOptions {
   feedbackAvailable?: Promise<boolean>;
   /** The account chip (GH-1075 A1): drawn only when `enabled`. `name` resolves to the signed-in display name, or
    *  null for a guest; until it does the chip reads as a guest's. */
-  account?: { enabled: boolean; name?: Promise<string | null>; /** `GET open`: a closed switch removes the chip and the privacy link, unless `name` says someone is signed in (they still need export and delete). */ open?: Promise<boolean> };
+  account?: { enabled: boolean; /** The device has an account binding: the chip says Sign in; without one, Sign up. */ hasAccount?: boolean; name?: Promise<string | null>; /** `GET open`: a closed switch removes the chip and the privacy link, unless `name` says someone is signed in (they still need export and delete). */ open?: Promise<boolean> };
   /** A claimed device with no cache whose `GET state` timed out (GH-1075 A2, §0.11): the campaign cannot be read, so its
    *  entries (Continue, the tutorial, Campaign, Brigade) are off, and the column says `account.unreachable`. */
   unreachable?: boolean;
@@ -270,7 +270,7 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     chip.href = routes.profile();
     const chipText = document.createElement('span');
     chipText.className = 'rl-menu__acct-name';
-    chipText.textContent = t('menu.profile.guest');
+    chipText.textContent = opts.account.hasAccount === true ? t('menu.profile.guest') : t('menu.profile.signUp');
     chip.append(personMark(), chipText);
     // Top of the column, above the wordmark, right-aligned: in flow, so it can never overlap the lockup at any width.
     wrap.insertBefore(chip, wrap.firstChild);

@@ -216,7 +216,7 @@ describe('showMenu account chip', () => {
 
   it('links to /profile with an enabled client, guest label first and the display name once known', async () => {
     const stage = document.createElement('div');
-    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account: { enabled: true, name: Promise.resolve('Ilan') } });
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account: { enabled: true, hasAccount: true, name: Promise.resolve('Ilan') } });
     const chip = stage.querySelector<HTMLAnchorElement>('[data-act="profile"]');
     expect(chip?.getAttribute('href')).toBe('/profile');
     expect(chip?.textContent).toBe('Sign in');
