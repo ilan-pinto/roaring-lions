@@ -1804,6 +1804,7 @@
   "tutorial.beit_sahwan_0.what_a_shot_costs.nudge": "Select the mortar on the road and press H. Do not walk it in: within four tiles of a target it cannot fire at all.",
   "menu.profile.guest": "Sign in",
   "menu.profile.signUp": "Sign up",
+  "menu.profile.avatar": "{name}, your account",
   "profile.title": "Your account",
   "profile.signIn": "Sign in with Steam",
   "profile.signUp": "Create an account with Steam",

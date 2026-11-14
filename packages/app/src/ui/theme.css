@@ -70,6 +70,10 @@
   --panel-bg: color-mix(in srgb, var(--rl-shadow-1) 92%, transparent);
   --panel-bg-solid: var(--rl-shadow-1);
   --panel-frame: var(--rl-gunmetal-3);
+  /* Avatars and the profile cards (GH-1075 P5-P7). */
+  --avatar-ring: var(--panel-frame);
+  --avatar-ring-selected: var(--accent);
+  --danger-frame: var(--bad);
   --panel-rule: color-mix(in srgb, var(--rl-gunmetal-3) 70%, transparent);
   --well: var(--rl-shadow-1);
   /* The dimming laid over the whole screen behind a modal (`.rl-confirm`,
@@ -4514,8 +4518,40 @@ body[data-outcome-beat] .rl-aar {
 .rl-menu__acct:focus-visible {
   color: var(--accent);
 }
-.rl-menu__acct-icon {
+/* The avatar roundel (GH-1075 P5): a crest <img>, or the fixed guest silhouette. Ground and rim are tokens; the
+   crest files carry their own palette colours. Sizes are rem, so --ui-scale and --text-size apply. */
+.rl-avatar {
+  display: inline-flex;
   flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--avatar-ring); /* px-ok */
+  color: var(--ink-dim);
+}
+.rl-avatar--chip {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+.rl-avatar--head {
+  width: var(--cmd-face);
+  height: var(--cmd-face);
+}
+.rl-avatar--tile {
+  width: 4.5rem;
+  height: 4.5rem;
+}
+.rl-avatar__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.rl-avatar__glyph {
+  width: 62%;
+  height: 62%;
 }
 .rl-menu__acct-name {
   min-width: 0;
