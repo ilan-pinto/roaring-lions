@@ -42,7 +42,7 @@ export const MEMBER_TABLES: readonly MemberTable[] = [
   },
   {
     table: 'profile', key: 'member_id', deleteSql: del('profile'),
-    exportSql: 'SELECT display_name, show_record, updated_at FROM profile WHERE member_id = ?1',
+    exportSql: 'SELECT display_name, show_record, avatar, avatar_rev, updated_at FROM profile WHERE member_id = ?1',
   },
   // A challenge lives five minutes and is never exported; member_id is nullable, so a row can have none.
   {

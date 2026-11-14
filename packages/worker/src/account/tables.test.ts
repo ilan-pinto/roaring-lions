@@ -16,6 +16,20 @@ describe('the accounts table map', () => {
     expect(found).toEqual(new Set(MEMBER_TABLES.map((t) => t.table)));
   });
 
+  // A1-8 sees a missing TABLE, not a missing COLUMN (the design review). A column added to profile that the export does not
+  // select goes red here; member_id is the key and is excluded by name.
+  it('the profile export selects every profile column the migrations create (column-level A1-8)', async () => {
+    const h = accountHarness();
+    const cols = (await h.db.prepare("SELECT name FROM pragma_table_info('profile')").all<{ name: string }>()).results.map((r) => r.name);
+    expect(cols).toContain('avatar');
+    expect(cols).toContain('avatar_rev');
+    await h.db.prepare("INSERT INTO member VALUES ('m1','PUB12345','h1','u1',1,1)").run();
+    await h.db.prepare("INSERT INTO profile (member_id, display_name, updated_at) VALUES ('m1','x',1)").run();
+    const sql = MEMBER_TABLES.find((t) => t.table === 'profile')?.exportSql ?? '';
+    const row = (await h.db.prepare(sql).bind('m1').first<Record<string, unknown>>()) ?? {};
+    expect(Object.keys(row).sort()).toEqual(cols.filter((c) => c !== 'member_id').sort());
+  });
+
   it('deletes child-first with member last and sweeps match records after the seats', () => {
     expect(MEMBER_TABLES[MEMBER_TABLES.length - 1]?.table).toBe('member');
     const sql = deleteStatements().map((s) => s.sql);
@@ -45,7 +59,7 @@ describe('the accounts table map', () => {
 describe('the harness (A1-9)', () => {
   it('foreignKeys false really is off, and true really is on', async () => {
     const orphan = (fk: boolean) =>
-      accountHarness({ foreignKeys: fk }).db.prepare("INSERT INTO profile VALUES ('nobody','x',0,1)").run();
+      accountHarness({ foreignKeys: fk }).db.prepare("INSERT INTO profile (member_id, display_name, show_record, updated_at) VALUES ('nobody','x',0,1)").run();
     await orphan(false);
     await expect(orphan(true)).rejects.toThrow();
   });

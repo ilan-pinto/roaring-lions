@@ -67,7 +67,7 @@ describe('Google in the sign-in list (G1)', () => {
   const T = 1_000;
   async function member(h: ReturnType<typeof accountHarness>): Promise<void> {
     await h.db.prepare("INSERT INTO member VALUES ('m1','PUB1','h1','u1',1,0)").run();
-    await h.db.prepare("INSERT INTO profile VALUES ('m1','Callsign',0,1)").run();
+    await h.db.prepare("INSERT INTO profile (member_id, display_name, show_record, updated_at) VALUES ('m1','Callsign',0,1)").run();
   }
   const ident = (h: ReturnType<typeof accountHarness>, id: string, provider: string, subject: string) =>
     h.db.prepare('INSERT INTO member_identity (id, member_id, provider, subject, created_at) VALUES (?1,\'m1\',?2,?3,?4)').bind(id, provider, subject, T).run();
