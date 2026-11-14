@@ -19,6 +19,8 @@ import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { stagger } from './motion';
 import { wordmark } from './mark';
+import { avatarElement, guestMark } from './avatar';
+import type { MenuWho } from '../account/menu-account';
 import { worldMap } from './worldmap';
 import { worldMap3d } from './worldmap3d';
 import { markConfirm } from './confirm-cue';
@@ -88,9 +90,9 @@ export interface MenuOptions {
   /** The server's switch (`GET /api/feedback`, asked once a boot): when it
    *  resolves false after this menu mounted, the button comes down. */
   feedbackAvailable?: Promise<boolean>;
-  /** The account chip (GH-1075 A1): drawn only when `enabled`. `name` resolves to the signed-in display name, or
-   *  null for a guest; until it does the chip reads as a guest's. */
-  account?: { enabled: boolean; /** The device has an account binding: the chip says Sign in; without one, Sign up. */ hasAccount?: boolean; name?: Promise<string | null>; /** `GET open`: a closed switch removes the chip and the privacy link, unless `name` says someone is signed in (they still need export and delete). */ open?: Promise<boolean> };
+  /** The account chip (GH-1075 A1): drawn only when `enabled`. `who` resolves to the signed-in member (name and
+   *  resolved avatar), or null for a guest; until it does the chip reads as a guest's. */
+  account?: { enabled: boolean; /** The device has an account binding: the chip says Sign in; without one, Sign up. */ hasAccount?: boolean; who?: Promise<MenuWho | null>; /** `GET open`: a closed switch removes the chip and the privacy link, unless `name` says someone is signed in (they still need export and delete). */ open?: Promise<boolean> };
   /** A claimed device with no cache whose `GET state` timed out (GH-1075 A2, §0.11): the campaign cannot be read, so its
    *  entries (Continue, the tutorial, Campaign, Brigade) are off, and the column says `account.unreachable`. */
   unreachable?: boolean;
@@ -271,19 +273,22 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     const chipText = document.createElement('span');
     chipText.className = 'rl-menu__acct-name';
     chipText.textContent = opts.account.hasAccount === true ? t('menu.profile.guest') : t('menu.profile.signUp');
-    chip.append(personMark(), chipText);
+    chip.append(guestMark('chip'), chipText);
     // Top of the column, above the wordmark, right-aligned: in flow, so it can never overlap the lockup at any width.
     wrap.insertBefore(chip, wrap.firstChild);
     addAside(t('menu.aside.privacy'), routes.privacy());
     const privacyLink = aside.lastElementChild;
     let signedInName: string | null = null;
-    void opts.account.name?.then((name) => {
-      signedInName = name;
-      if (name !== null) chipText.textContent = name;
+    void opts.account.who?.then((who) => {
+      signedInName = who?.name ?? null;
+      if (who === null) return;
+      chipText.textContent = who.name;
+      chip.setAttribute('aria-label', t('menu.profile.avatar', { name: who.name }));
+      chip.firstElementChild?.replaceWith(avatarElement(who.avatar, who.publicId, 'chip'));
     });
     void opts.account.open?.then(async (open) => {
       if (open) return;
-      await opts.account?.name?.catch(() => null);
+      await opts.account?.who?.catch(() => null);
       if (signedInName !== null) return;
       chip.remove();
       privacyLink?.remove();
@@ -302,20 +307,6 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     disposeBackdrop?.();
     wrap.remove();
   };
-}
-
-/** A person silhouette (head and shoulders), filled with `currentColor` so the theme owns its colour. Decorative: the label beside it names the entry. */
-function personMark(): SVGSVGElement {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('class', 'rl-sym rl-menu__acct-icon');
-  svg.setAttribute('aria-hidden', 'true');
-  const p = document.createElementNS(ns, 'path');
-  p.setAttribute('fill', 'currentColor');
-  p.setAttribute('d', 'M12 3a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9Z M3.5 21c0-4.7 3.8-8 8.5-8s8.5 3.3 8.5 8Z');
-  svg.appendChild(p);
-  return svg;
 }
 
 /**

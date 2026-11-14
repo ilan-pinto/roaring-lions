@@ -1,3 +1,4 @@
+import type { AvatarView } from '@lions/data';
 import type { AccountClient } from './client';
 
 export interface MenuAccountDeps {
@@ -11,13 +12,20 @@ export interface MenuAccountDeps {
   cachedOpen?: Promise<boolean>;
 }
 
+/** The signed-in member as the chip draws them (GH-1075 P5): the name and the RESOLVED avatar, from the one `me` call. */
+export interface MenuWho {
+  name: string;
+  publicId: string;
+  avatar: AvatarView;
+}
+
 /**
  * What the menu and the save prompt ask of the account server (GH-1075). `open` is `GET open` once the lazy client has
- * loaded; any failure reads as closed, silently. `name` is `GET me`, asked only when the device has a binding: a guest's
+ * loaded; any failure reads as closed, silently. `who` is `GET me`, asked only when the device has a binding: a guest's
  * cookie-less call would answer 401 (a console line) and spend the shared per-IP budget for nothing.
  */
-export function menuAccount(d: MenuAccountDeps): { open: Promise<boolean>; name: Promise<string | null> | undefined } {
-  if (!d.on) return { open: Promise.resolve(false), name: undefined };
+export function menuAccount(d: MenuAccountDeps): { open: Promise<boolean>; who: Promise<MenuWho | null> | undefined } {
+  if (!d.on) return { open: Promise.resolve(false), who: undefined };
   const open =
     d.cachedOpen ??
     d
@@ -28,13 +36,13 @@ export function menuAccount(d: MenuAccountDeps): { open: Promise<boolean>; name:
         d.onOpen(v);
         return v;
       });
-  const name = d.hasBinding
+  const who = d.hasBinding
     ? d
         .loadClient()
         .then((c) => c.me())
-        .then((m) => (m.kind === 'signedIn' ? m.displayName : null), () => null)
+        .then((m): MenuWho | null => (m.kind === 'signedIn' ? { name: m.displayName, publicId: m.publicId, avatar: m.avatar } : null), () => null)
     : undefined;
-  return { open, name };
+  return { open, who };
 }
 
 export interface MenuAccountSourceDeps extends Omit<MenuAccountDeps, 'hasBinding'> {
