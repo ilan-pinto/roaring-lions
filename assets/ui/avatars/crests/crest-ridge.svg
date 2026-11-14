@@ -1,0 +1,1 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"><circle id="ground" cx="128" cy="128" r="120" fill="#5C625F"/><circle id="rim" cx="128" cy="128" r="120" fill="none" stroke="#363B39" stroke-width="8"/><g id="charge"><path fill="#F2E8D5" d="M56,168L88,92L108,92L124,140L142,56L166,56L200,168Z"/></g></svg>
