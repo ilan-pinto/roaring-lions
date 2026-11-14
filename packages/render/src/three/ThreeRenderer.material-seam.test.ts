@@ -217,7 +217,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('a legacy boot never touches the kit', () => {
+// Per-describe timeout: measured 1.1-4.3 s per test under CPU load (5 s default flaked); 15 s = 3x the worst.
+describe('a legacy boot never touches the kit', { timeout: 15_000 }, () => {
   it('init, the first build, a collapse splice: no factory is called, every material stays legacy', async () => {
     const kit = stubKit();
     seam.kit = kit;
@@ -240,7 +241,7 @@ describe('a legacy boot never touches the kit', () => {
   });
 });
 
-describe('a node boot adopts before the first census', () => {
+describe('a node boot adopts before the first census', { timeout: 15_000 }, () => {
   it('right after init: the rings are twins, none is hidden, and the census names no adopted legacy key', async () => {
     const kit = stubKit();
     seam.kit = kit;
@@ -289,7 +290,7 @@ describe('a node boot adopts before the first census', () => {
   });
 });
 
-describe('adoption survives a rebuild', () => {
+describe('adoption survives a rebuild', { timeout: 15_000 }, () => {
   it('a collapse splice on a chunked map re-slices chunks and rebuilds the decor, and the census still reads no adopted legacy key', async () => {
     const kit = stubKit();
     seam.kit = kit;
@@ -323,7 +324,7 @@ describe('adoption survives a rebuild', () => {
  *  - deleting the per-object restore line: the census-hidden overlay batch is shown again;
  *  - reading the layer state from `overlayBatch.mesh.visible` with the per-object line kept: the layer flag reads hidden.
  */
-describe('a ground photograph on a node boot keeps every overlay as it was', () => {
+describe('a ground photograph on a node boot keeps every overlay as it was', { timeout: 15_000 }, () => {
   interface Overlays {
     overlayBatch: { mesh: THREE.Mesh };
     selectionRingGroup: THREE.Group;
