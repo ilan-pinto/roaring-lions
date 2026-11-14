@@ -66,8 +66,10 @@ These facts constrain the design. Each was read, not assumed.
   only, never in `MatchConfig` (A3, section 0.14). Test A1-10 searches telemetry, feedback and seats for member data.
 - **Art that already ships:** 51 unit portraits at 192 px (`assets/ui/portraits/units/`, 19 single-figure `lead/`
   variants). Their 512 px masters are tracked (`art/portraits/masters/`, 136 files). The brand mark (`ui/mark.ts`) is
-  three chevrons, and its comment rules that "the lion is implied, never illustrated". The GH-1096 lion insignia is a
-  design still awaiting the lead's approval (`docs/art/mocks/gh1096-*`).
+  three chevrons, and its comment rules that "the lion is implied, never illustrated". **The GH-1096 Roaring Lion
+  insignia has since been approved (12 Nov) and shipped** (S0 PR 1284, S1 PR 1295, S2 PR 1308). Its source is the
+  hand-authored stencil `art/src/insignia/roaring_lion.svg` (right halves plus a mirror, `silhouette` minus `cutouts`),
+  and its legibility was measured: the roundel reads from 5 px and the face cuts in from 11 to 15 px.
 - **CSP for the game** (`assets/_headers`) has `img-src 'self' data: blob:`. A blob URL is therefore allowed; another
   origin is not.
 
@@ -107,8 +109,9 @@ offers a free side pick (decision 3 asks the lead).
 - **(b) Crests only, 16.** The cheapest, and fully consistent, but the set is less personal.
 - **(c) Busts only, from the existing portraits.** Zero new art, but they read poorly on the chip, and the default
   would be a unit.
-- **(d) Lion insignia variants.** This waits on GH-1096's approval, and it cuts against `mark.ts`'s "implied, never
-  illustrated". It is open question 2.
+- **(d) Lion insignia variants only** (the approved GH-1096 stencil on 12 grounds). It is consistent and already
+  approved, but monotonous. The recommendation takes ONE lion crest (`crest-lion`, below) and keeps the other eleven
+  motifs. Open question 2 asks whether the lead wants more lion variants.
 - **(e) New Blender busts at a portrait angle**, framed head and shoulders. This needs a render budget and approval.
   Use it only if the crops in 3.3 fail the lead's look.
 
@@ -120,20 +123,27 @@ offers a free side pick (decision 3 asks the lead).
 - a rim 8 units wide in the RIM colour, at radius 116 to 124;
 - one CHARGE (the motif) inside radius 96.
 
-**Legibility floor.** At the 28 px chip, 1 unit is 0.11 px. So no stroke or gap may be under 18 units (2 px at the
-chip). The generator refuses a shape that breaks this; its unit test measures each path's thinnest gap with an
-erosion check on a 256 px raster (numpy).
+**Legibility floor.** At the 28 px chip, 1 unit is 0.11 px. So no stroke or gap IN A CHARGE may be under 18 units
+(2 px at the chip). The generator refuses a charge that breaks this; its unit test measures each charge path's
+thinnest gap with an erosion check on a 256 px raster (numpy). Two named exemptions, each pinned by name in that
+test:
+- **The rim** is an 8-unit hairline by intent. It may vanish at the chip, where the CSS `--avatar-ring` draws the
+  edge anyway.
+- **`crest-lion`** is the approved GH-1096 stencil, copied, not redrawn. Its legibility was measured in that design
+  (face from 11 to 15 px). At the chip the lion spans about 21 px, so it reads.
 
-**Colour.** At most 3 palette entries per crest (ground, rim, charge). The charge-on-ground contrast must be at least
-3:1 (WCAG non-text), and a test checks it from the palette hexes.
+**Colour.** One ground and one rim, plus at most 3 charge tones; every crest but `crest-chevrons` uses one charge
+tone. `crest-chevrons` uses three, `dust.0` / `dust.2` / `dust.4`, because that is the brand mark's own
+`--mark-1..3`. Every charge tone must reach at least 3:1 against the ground (WCAG non-text), and a test checks it from
+the palette hexes.
 
 **Size.** ≤ 3 KiB per file, with no `<image>`, no `<script>`, no `<style>` and no external reference (checked).
 
 | # | id | Charge (motif) | Ground | Rim | Charge colour |
 |---|---|---|---|---|---|
-| 1 | `crest-chevrons` | The brand's three chevrons (`mark.ts` geometry, scaled) | `shadow.1` | `dust.4` | `dust.0` |
+| 1 | `crest-chevrons` | The brand's three chevrons (`mark.ts` geometry, scaled) | `shadow.1` | `dust.4` | `dust.0`, `dust.2`, `dust.4` |
 | 2 | `crest-claw` | Three parallel claw slashes, 30° lean | `terracotta.1` | `terracotta.2` | `limestone.0` |
-| 3 | `crest-mane` | A 36-point sunburst ring (the GH-1096 mane outline, with no face) | `olive.2` | `olive.3` | `dust.0` |
+| 3 | `crest-lion` | The approved GH-1096 Roaring Lion stencil (`art/src/insignia/roaring_lion.svg`, silhouette minus cutouts, mirrored), scaled to radius 96 | `olive.2` | `olive.3` | `dust.0` |
 | 4 | `crest-tower` | A crenellated masonry tower | `gunmetal.3` | `shadow.0` | `limestone.1` |
 | 5 | `crest-star` | A five-point rank star | `olive.3` | `olive.1` | `dust.0` |
 | 6 | `crest-wing` | One swept wing (aviation) | `water.1` | `gunmetal.3` | `limestone.0` |
@@ -175,7 +185,7 @@ registered in `@lions/data`:
 
 ```json
 { "version": 1,
-  "defaultPool": ["crest-chevrons", "crest-claw", "crest-mane", "crest-tower", "crest-star", "crest-wing",
+  "defaultPool": ["crest-chevrons", "crest-claw", "crest-lion", "crest-tower", "crest-star", "crest-wing",
                   "crest-track", "crest-sprig", "crest-ridge", "crest-wave", "crest-dune", "crest-reticle"],
   "presets": [ { "id": "crest-chevrons", "family": "crest", "label": "avatar.preset.crest-chevrons" },
                { "id": "unit-mbt_lavi", "family": "unit", "side": "kdf", "unit": "mbt_lavi", "label": "avatar.preset.unit-mbt_lavi" } ] }
@@ -235,10 +245,13 @@ The guest chip keeps today's person silhouette, now inside the same 28 px rounde
 - That is small beside what the same database already holds by design: `campaign_state` up to 256 KiB a member, and
   12 slots of up to 256 KiB each.
 - **The budgets**, counted in `rate_day` like the account budgets:
-  - per member, 5 uploads a day (scope `acct-avatar`);
-  - overall, 8 MiB of avatar bytes a day (`acct-avatar-bytes`);
-  - a running total of 100 MiB (`SUM(size)` of `avatar_image`, read before each insert). Past it, uploads answer 507
-    and presets still work.
+  - per member, 5 uploads a day (`rate_day` scope `acct-avatar`, keyed by the internal member id, like `acct-ops`).
+    **`RATE_DAY_SQL` in `tables.ts` must add `'acct-avatar'`**, or a deleted member's row would outlive them until
+    the daily sweep;
+  - overall, 8 MiB of avatar bytes a day: `SUM(size) FROM avatar_image WHERE updated_at >= <start of today>`, read
+    before the insert. `rate-day.ts`'s `bump` only adds 1, so bytes are summed from the table, as the feedback
+    budget does;
+  - a running total of 100 MiB (`SUM(size)` of `avatar_image`). Past it, uploads answer 507 and presets still work.
 - **To verify against Cloudflare's current limits page before U2** (the repo does not state them): the largest D1
   BLOB or row (believed 2 MB, far above 48 KiB), the accounts database's size ceiling on the current plan (the feedback
   code assumes 500 MB on Free), and Time Travel's retention on the current plan.
@@ -476,8 +489,11 @@ uses none.
 No literal colour appears anywhere (`validate:ui`).
 
 **Resolutions** (the three `ui:shots` sizes, run in CI only):
-- At 1400 × 900, the two columns are 38rem and 24rem, and the header card shows above the fold.
-- At 1920 × 1080 and 2560 × 1440, `--ui-scale` already enlarges the rem, so the layout is the same, scaled.
+- At 1400 × 900, the 64rem panel is 1,024 px wide, the two columns are 38rem and 24rem, and the header card shows
+  above the fold.
+- At 1920 × 1080 and 2560 × 1440, the automatic `--ui-scale` steps (`theme.css`: 1.15 from 1,900 px wide, 1.4 from
+  2,400 px; a player's own setting overrides both) enlarge every rem. The panel is then 1,178 px and 1,434 px, the
+  same layout, scaled.
 - Below 56rem (a narrow window or a phone), one column; the record tiles wrap to three across; the picker grid wraps
   to four across.
 - `ui:shots`' overflow report is the check. It is a report, not a gate.
@@ -535,8 +551,8 @@ picture could not be saved. Try again in a minute." · `avatar.upload.zoom` "Zoo
 1. **What ships first. Recommended: presets and the guaranteed default now (P slices). Uploads are designed here and
    built second (U slices), behind `flags.avatars-upload`, closed.** Alternative: both together. That doubles the
    first PR's review surface and needs the privacy text and the lead's flag before anything lands.
-2. **The preset set. Recommended: 24 = 12 generated crests + 12 cropped unit busts (section 3).** Alternatives: 16
-   crests only; busts only; lion variants (after GH-1096); new Blender busts.
+2. **The preset set. Recommended: 24 = 12 generated crests (one of them the approved GH-1096 lion) + 12 cropped unit
+   busts (section 3).** Alternatives: 16 crests only; busts only; lion variants only; new Blender busts.
 3. **Sarim busts. Recommended: yes, 6 of the 12**, because versus has a free side pick. Alternative: 12 KDF busts.
 4. **Who sees an upload. Recommended: the owner only, until a moderation design exists.** Others see the member's
    `fallback` preset. Alternative: opponents too, which needs reports, a queue and a hold first.
@@ -577,7 +593,7 @@ Slices marked **LEAD** need the lead before they merge.
 |---|---|---|---|---|
 | P0 | Approve the numbers in 3.2 and 3.3 and decisions 1 to 6 | (none) | (none) | **LEAD**: art numbers |
 | P1 | `@lions/data`: `presets.json`, its schema, `defaultAvatar`, `resolveAvatar` | Literal public ids map to literal crest ids (written as literals at authoring); 10,000 random ids put every crest between 5% and 12%; every pool id is a crest preset | Change the FNV offset basis; swap two pool entries; point a pool id at a unit preset. Three mutations, three reds | |
-| P2 | Crests: `tools/avatars/build_crests.mjs` writes `assets/ui/avatars/crests/*.svg` | Every fill and stroke is a palette hex and no reserved band; ≤ 3 KiB; no `image`/`script`/`style`/external href; contrast ≥ 3:1; thinnest gap ≥ 18 units; a re-run is byte-identical (`git status --porcelain -uall` is empty) | A non-palette hex in one crest; `team.kedem` as a ground; a 10-unit stroke | **LEAD**: views the crest sheet before merge; the PR discloses the AI-authored geometry |
+| P2 | Crests: `tools/avatars/build_crests.mjs` writes `assets/ui/avatars/crests/*.svg` (`crest-lion` read from `art/src/insignia/roaring_lion.svg`, never redrawn) | Every fill and stroke is a palette hex and no reserved band; ≤ 3 KiB (the lion ≤ 8 KiB); no `image`/`script`/`style`/external href; contrast ≥ 3:1 per charge tone; thinnest charge gap ≥ 18 units, with only the two named exemptions; a re-run is byte-identical (`git status --porcelain -uall` is empty) | A non-palette hex in one crest; `team.kedem` as a ground; a 10-unit stroke in a charge; a third exemption name | **LEAD**: views the crest sheet before merge; the PR discloses the AI-authored geometry |
 | P3 | Busts: `tools/avatars/crop_busts.py` writes `assets/ui/avatars/units/*.webp` | 256 × 256; ≤ 24 KiB; the catalogue and the files match both ways; a re-run is byte-identical | Drop one file; raise one to 30 KiB; crop at 255 px | **LEAD**: views the contact sheet before merge |
 | P4 | Worker: `0003_avatars.sql`; `PATCH profile` accepts `avatar`; `me` returns the resolved `avatar` and `createdDay`; export includes the columns | An unknown id gives 400; null resets; `me` is never without `avatar`; the export holds `avatar`/`avatar_rev`; the A1-8 table list still matches | Accept any id; return `avatar: null` for a default; drop `avatar` from `profile.exportSql` (the column-level proof A1-8 cannot give) | **LEAD**: applies the migration before merge; the privacy text (P8) lands with it |
 | P5 | App: `ui/avatar.ts` (element + `onerror` chain), the client copies `avatar`, the menu chip shows it | A signed-in chip renders the preset `<img>`; a guest renders the guest mark; a dispatched `error` steps to the default, then to chevrons; the client keeps `avatar` | Remove the `onerror` step; drop `avatar` in `client.ts`; derive the guest mark from the telemetry id (A1-10 goes red) | |
@@ -585,7 +601,7 @@ Slices marked **LEAD** need the lead before they merge.
 | P7 | App: the redesigned layout and CSS (cards, columns, guest card, danger zone, a single Download) | `profile.test.ts` holds the section order, ONE `profile.export` button, and the guest, closed, signed-out and deleted states; `validate:ui` is clean; `?pseudo=1` brackets every new key | Re-add the second Download; hard-code one label; one hex in `theme.css` outside the token block | |
 | P8 | Privacy text for the preset line; `PRIVACY_UPDATED` | `privacy-page.test.ts` pins the line | Delete the line | **LEAD**: wording |
 | U1 | Worker: the WebP and JPEG structural validators | Fixtures: a canvas WebP and JPEG pass; refused are EXIF, XMP and ICCP chunks, an `ANIM` flag, 257 px, a trailer after `EOI`, `APP1`, `COM`, a RIFF size off by one, a format that disagrees with the magic | Allow one extra chunk type; skip the dimension check; ignore the VP8X flags. Each turns a fixture red | |
-| U2 | Worker: `0004_avatar_image.sql`, `PUT`/`GET`/`DELETE avatar`, the budgets, the flag, a `MEMBER_TABLES` row, hex export, delete | Closed flag gives 404; 413 over the body cap; 429 past the member budget; 507 past the total; the export's hex decodes to the stored bytes; delete leaves no row; `GET` is `no-store` and `nosniff`; a preset PATCH deletes the image | Leave the row out of `MEMBER_TABLES` (A1-8 red); `cache-control: private`; forget the image delete in the preset PATCH | **LEAD**: applies the migration; verifies the D1 limits (5.1) |
+| U2 | Worker: `0004_avatar_image.sql`, `PUT`/`GET`/`DELETE avatar`, the budgets, the flag, a `MEMBER_TABLES` row, hex export, delete, `'acct-avatar'` in `RATE_DAY_SQL` | Closed flag gives 404; 413 over the body cap; 429 past the member budget; 507 past the total; the export's hex decodes to the stored bytes; delete leaves no `avatar_image` and no `acct-avatar` row; `GET` is `no-store` and `nosniff`; a preset PATCH deletes the image | Leave the row out of `MEMBER_TABLES` (A1-8 red); drop `'acct-avatar'` from `RATE_DAY_SQL`; `cache-control: private`; forget the image delete in the preset PATCH | **LEAD**: applies the migration; verifies the D1 limits (5.1) |
 | U3 | App: `avatar-encode.ts` (magic, header pre-check, decode, crop, encode ladder, JPEG fallback) | A stub encoder returning PNG gets the JPEG ladder; 6,001 px refused before decode; output ≤ 48 KiB; the type by magic bytes, not `file.type` | Trust `file.type`; skip the pre-check; keep the first over-cap blob | |
 | U4 | App: the upload tile and frame step in the sheet | The tile hidden while the flag is closed; zoom and drag clamp to the image; the replace note shows when a preset would delete an upload | Show the tile with the flag closed; let the crop leave the image | |
 | U5 | `/stats` "Clear avatar"; the upload privacy text; open the flag | The stats action deletes the row and sets NULL; the privacy page pins the upload lines | Clear `avatar` but leave the bytes | **LEAD**: wording; opens `flags.avatars-upload` |
@@ -609,8 +625,10 @@ Each has a recommended default.
 1. **The default pool must never change.** A future edit to `defaultPool` would silently change every member's
    avatar. *Default:* the P1 literal-pin test, plus a comment in the JSON. A change needs a `defaultPoolV2` and a
    ruling.
-2. **The lion.** Should a crest show the lion itself? *Default:* no, until GH-1096 is approved. `crest-mane` carries
-   the mane silhouette with no face, which matches `mark.ts`'s "implied, never illustrated".
+2. **The lion.** GH-1096 is approved and shipped, so `crest-lion` reuses its stencil as is. That departs from
+   `mark.ts`'s older "implied, never illustrated", which the lead's GH-1096 approval superseded for the insignia.
+   *Default:* one lion crest among twelve. The lead may want lion variants (the stencil on several grounds) instead of
+   some motifs; that is a table edit before P2, never after (the default pool freezes at P1).
 3. **Sarim faces as avatars.** These are fictional militants. *Default:* include them (decision 3). The lead may
    prefer vehicles only for Sarim (`technical`, `rocket_battery`, `gun_truck`, `moto_rpg`, plus two crests).
 4. **Crop quality.** A 256 px native crop of a 512 px master is chest-up, not a close portrait. *Default:* accept it if
