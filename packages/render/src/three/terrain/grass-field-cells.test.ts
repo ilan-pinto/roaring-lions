@@ -3,12 +3,12 @@
  * The five-map cell census and the collapse splice against a full plan live in `packages/app/src/grass-field-cells.test.ts`.
  *
  * Falsified by (run red, then put back; in the commit message): the hysteresis dropped (`GRASS_LOD_HYSTERESIS` 0); `coarse`
- * reading 1 instead of 1.2; the matrix's sine sign flipped; `grassSpliceCells` ignoring `extra`.
+ * reading 1 instead of 1.2; the rung's off edge 1.15 -> 1.05 (hysteresis gone); the matrix's sine sign flipped; `grassSpliceCells` ignoring `extra`.
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { QUALITY_PRESETS } from '../../quality';
-import { grassCellGrid, grassClumpMatrix, grassLodFor, grassLodScaleOf, grassSpliceCells } from './grass-field-cells';
+import { grassCellGrid, grassClumpMatrix, grassLodFor, grassLodScaleOf, grassRungFor, grassSpliceCells } from './grass-field-cells';
 
 describe('grassLodFor: bands by zoom alone, with a 0.05 hysteresis', () => {
   it('lands in the plain band on the first frame (high: LOD0 >= 1.5, LOD1 >= 0.9)', () => {
@@ -34,6 +34,23 @@ describe('grassLodFor: bands by zoom alone, with a 0.05 hysteresis', () => {
     expect(grassLodScaleOf(QUALITY_PRESETS.low)).toBeNull();
     expect(grassLodScaleOf(undefined)).toBe(1);
     expect([1.8, 1.79, 1.08, 1.07].map((z) => grassLodFor(z, null, 1.2))).toEqual([0, 1, 1, 2]);
+  });
+});
+
+describe('grassRungFor: on below 1.05, off from 1.15, x the band scale', () => {
+  it('z1 is rung-on whichever way it is reached; z1.5 and z2.5 are off', () => {
+    expect([0.5, 1.0, 1.04].map((z) => grassRungFor(z, null, 1))).toEqual([true, true, true]);
+    expect([1.05, 1.5, 2.5].map((z) => grassRungFor(z, null, 1))).toEqual([false, false, false]);
+    expect(grassRungFor(1.0, true, 1)).toBe(true); // climbing from z0.5
+    expect(grassRungFor(1.0, false, 1)).toBe(true); // descending from z2.5
+  });
+  it('holds between 1.05 and 1.15 (hysteresis 0.1), and scales with the band scale', () => {
+    expect(grassRungFor(1.1, true, 1)).toBe(true);
+    expect(grassRungFor(1.1, false, 1)).toBe(false);
+    expect(grassRungFor(1.149, true, 1)).toBe(true);
+    expect(grassRungFor(1.15, true, 1)).toBe(false);
+    expect(grassRungFor(1.25, null, 1.2)).toBe(true);
+    expect(grassRungFor(1.26, null, 1.2)).toBe(false);
   });
 });
 

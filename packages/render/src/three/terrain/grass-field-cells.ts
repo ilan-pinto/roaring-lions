@@ -29,6 +29,15 @@ export const GRASS_CELL_TILES = 8;
 /** The LOD band edges at `'full'` (design 2.1): LOD0 at zoom >= 1.5, LOD1 at 0.9 <= zoom < 1.5, LOD2 below. */
 export const GRASS_LOD0_MIN_ZOOM = 1.5;
 export const GRASS_LOD1_MIN_ZOOM = 0.9;
+/**
+ * The zoom rung (GH-1167, lead ruling 13 Nov): at a wide zoom only a stable `GRASS_RUNG_KEEP` share of the clumps draws (those whose
+ * `thin` roll is under it), compacted into as few parts as it fits. ON below `GRASS_RUNG_ON_ZOOM`, OFF again at or above
+ * `GRASS_RUNG_OFF_ZOOM` (the band scale applies, as it does to the LOD edges). The edges straddle 1.0 by more than the ABBA ladder's
+ * z1 stop and the sheet's z1, so z1 is rung-on whichever way it is reached.
+ */
+export const GRASS_RUNG_KEEP = 0.5;
+export const GRASS_RUNG_ON_ZOOM = 1.05;
+export const GRASS_RUNG_OFF_ZOOM = 1.15;
 /** The hysteresis either side of a band edge. */
 export const GRASS_LOD_HYSTERESIS = 0.05;
 /** `'coarse'` (medium) multiplies both band edges by this (decision 8). */
@@ -48,6 +57,12 @@ export interface GrassCellMesh {
   readonly count: number;
   /** 16 floats per clump, column-major (three's `Matrix4.elements`): translate, turn about +y by `yaw` turns, uniform scale. */
   readonly matrices: Float32Array;
+  /**
+   * The rung's content for THIS part index: the (cell, variant)'s clumps under `GRASS_RUNG_KEEP`, in the same back-to-front order,
+   * chunked by `maxPerMesh` (so part p holds the p-th chunk; `count` 0 when the thinned list needs fewer parts). Never more than
+   * `count`, so it fits the part's own instance buffer.
+   */
+  readonly thin: { readonly count: number; readonly matrices: Float32Array };
 }
 
 /** The whole field as data: every mesh of every cell. */
@@ -80,6 +95,12 @@ export function grassLodFor(zoom: number, prev: GrassLod | null, scale: number):
   while (lod < 2 && zoom < bandFloor(lod as 0 | 1, scale) - GRASS_LOD_HYSTERESIS) lod = (lod + 1) as GrassLod;
   while (lod > 0 && zoom >= bandFloor((lod - 1) as 0 | 1, scale) + GRASS_LOD_HYSTERESIS) lod = (lod - 1) as GrassLod;
   return lod;
+}
+
+/** Whether the rung is on at `zoom`. `prev` is last frame's state (null on the first frame). */
+export function grassRungFor(zoom: number, prev: boolean | null, scale: number): boolean {
+  if (prev === null) return zoom < GRASS_RUNG_ON_ZOOM * scale;
+  return prev ? zoom < GRASS_RUNG_OFF_ZOOM * scale : zoom < GRASS_RUNG_ON_ZOOM * scale;
 }
 
 /** Writes one clump's matrix at `out[o..o+16)`, column-major: `T(x, y, z) * Ry(yaw turns) * S(s)`. */
@@ -158,11 +179,16 @@ export function grassCellMeshes(
   for (let v = 0; v < GRASS_VARIANTS; v++) {
     const variant = v as GrassVariant;
     const mine = clumps.filter((c) => c.variant === v);
-    for (let part = 0, start = 0; start < mine.length; part++, start += maxPerMesh) {
-      const slice = mine.slice(start, start + maxPerMesh);
+    const kept = mine.filter((c) => c.thin < GRASS_RUNG_KEEP);
+    const write = (list: Seated[], start: number): { count: number; matrices: Float32Array } => {
+      const slice = list.slice(start, start + maxPerMesh);
       const matrices = new Float32Array(slice.length * 16);
       slice.forEach((c, i) => grassClumpMatrix(c.x, c.y, c.z, c.yaw, clampGrassScale(variant, c.scale), matrices, i * 16));
-      out.push({ cell, variant, part, count: slice.length, matrices });
+      return { count: slice.length, matrices };
+    };
+    for (let part = 0, start = 0; start < mine.length; part++, start += maxPerMesh) {
+      const full = write(mine, start);
+      out.push({ cell, variant, part, count: full.count, matrices: full.matrices, thin: write(kept, start) });
     }
   }
   return out;

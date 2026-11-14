@@ -2,7 +2,7 @@
  * GH-1167 S5: the 3D grass field's node-branch build in `ThreeRenderer` (design 2026-11-11, sections 3.1-3.5, slice S5). A NODE
  * renderer (the backend mocked, as in `ThreeRenderer.foliage-twin-clock.test.ts`) whose backend carries the REAL builder
  * (`createGrassFieldKit`), on a 48x48 open map whose tones carry `grassField`:
- *  - the field is built: one `rl-grass-field` root, at most 108 instanced meshes and none casting a shadow, all in
+ *  - the field is built: one `rl-grass-field` root, at most 160 instanced meshes (108 groups and the splits 12 a tile forces) and none casting a shadow, all in
  *    `GRASS_RENDER_ORDER`, holding every clump `planGrassField` placed;
  *  - the sward strokes and the Meshy tufts are gone on that boot (`swardMarks: false`, the `grass` filter), and nothing else moved;
  *  - `low` builds no field and draws today's sward and tufts; `medium` draws the LOD bands x 1.2 coarser;
@@ -206,7 +206,7 @@ async function booted(quality: RenderQuality, opts?: { grassKit?: boolean }): Pr
 }
 
 describe('GH-1167 S5: the 3D grass field on a node boot', () => {
-  it('builds one rl-grass-field root of at most 108 instanced meshes, none casting a shadow, holding every placed clump', async () => {
+  it('builds one rl-grass-field root of at most 160 instanced meshes (108 groups and the splits 12 a tile forces), none casting a shadow, holding every placed clump', async () => {
     const { priv, sim } = await booted(QUALITY_PRESETS.high);
     const field = priv.grassField;
     expect(field).not.toBeNull();
@@ -215,7 +215,7 @@ describe('GH-1167 S5: the 3D grass field on a node boot', () => {
     expect(priv.scene.children.filter((o) => o.name === 'rl-grass-field')).toHaveLength(1);
     const meshes = field.root.children as THREE.InstancedMesh[];
     expect(meshes.length).toBeGreaterThan(80);
-    expect(meshes.length).toBeLessThanOrEqual(108);
+    expect(meshes.length).toBeLessThanOrEqual(160);
     let casters = 0;
     let clumps = 0;
     field.root.traverse((o) => {
@@ -227,7 +227,7 @@ describe('GH-1167 S5: the 3D grass field on a node boot', () => {
       expect(m.renderOrder).toBe(GRASS_RENDER_ORDER);
       expect(m.receiveShadow).toBe(true);
       expect(m.material).toBe(field.material);
-      clumps += m.count;
+      clumps += m.instanceMatrix.count; // the capacity: the rung (zoom 1 here) thins `count`, not the buffer
     }
     expect(casters).toBe(0);
     // Every clump the headless plan places for this world (the renderer's draw mask: the shanty is blocked).
@@ -285,6 +285,37 @@ describe('GH-1167 S5: the 3D grass field on a node boot', () => {
     med.r.camera.zoom = 1.7;
     med.r.frame(1, 0);
     expect(mf.lod()).toBe(1);
+  });
+
+  it('the zoom rung thins the instance counts below 1.05 and restores the full matrices from 1.15, in place (no new buffer)', async () => {
+    const { r, priv } = await booted(QUALITY_PRESETS.high);
+    const field = priv.grassField as GrassFieldHandle;
+    const meshes = field.meshes();
+    const total = (): number => meshes.reduce((n, m) => n + (m.visible ? m.count : 0), 0);
+    const buffers = meshes.map((m) => m.instanceMatrix);
+    const zoomTo = (z: number): void => {
+      r.camera.zoom = z;
+      r.frame(1, 0);
+    };
+    zoomTo(2);
+    expect(field.rung()).toBe(false);
+    const full = total();
+    const firstFull = Float32Array.from((meshes[0] as THREE.InstancedMesh).instanceMatrix.array as Float32Array);
+    expect(full).toBeGreaterThan(1000);
+    zoomTo(1);
+    expect(field.rung()).toBe(true);
+    expect(total() / full).toBeGreaterThan(0.4);
+    expect(total() / full).toBeLessThan(0.6);
+    zoomTo(1.1);
+    expect(field.rung()).toBe(true); // the hysteresis
+    zoomTo(1.16);
+    expect(field.rung()).toBe(false);
+    expect(total()).toBe(full);
+    expect(meshes.every((m) => m.visible)).toBe(true);
+    expect(Array.from((meshes[0] as THREE.InstancedMesh).instanceMatrix.array as Float32Array)).toEqual(Array.from(firstFull));
+    expect(meshes.map((m) => m.instanceMatrix)).toEqual(buffers);
+    zoomTo(0.5);
+    expect(field.rung()).toBe(true);
   });
 
   it('the grass-field layer is a flag the frame consults: a repaint does not undo it', async () => {

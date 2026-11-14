@@ -79,7 +79,7 @@ describe("triangles per LOD (design 2.1)", () => {
 });
 
 describe("height cap and ground (N-4)", () => {
-  it("no tip passes 0.12 tile after any legal clump scale, and nothing is below y 0", () => {
+  it("no tip passes 0.16 tile after any legal clump scale, and nothing is below y 0", () => {
     for (const lod of LODS)
       for (const v of VARIANTS) {
         const g = buildGrassClump(v, lod, COLOURS);
@@ -92,7 +92,7 @@ describe("height cap and ground (N-4)", () => {
             top = Math.max(top, g.positions[i] * k);
           }
           // A real blade stands up: top 0 (a flattened clump) must not pass the cap check.
-          expect(top).toBeGreaterThan(0.06);
+          expect(top).toBeGreaterThan(0.08);
           expect(top).toBeLessThanOrEqual(GRASS_TIP_CAP + 1e-6);
         }
       }
@@ -103,13 +103,15 @@ describe("height cap and ground (N-4)", () => {
       expect(clampGrassScale(v, 0.9)).toBe(0.9);
     }
   });
-  it("blade heights stay inside 0.05-0.12", () => {
+  it("blade heights stay inside 0.065-0.16", () => {
     for (const v of VARIANTS) {
       expect(grassBlades(v).length).toBe([12, 16, 20][v]);
       for (const b of grassBlades(v)) {
-        expect(b.height).toBeGreaterThanOrEqual(0.05);
-        expect(b.height).toBeLessThanOrEqual(0.12);
+        expect(b.height).toBeGreaterThanOrEqual(0.065);
+        expect(b.height).toBeLessThanOrEqual(0.16);
       }
+      // The taller look is real: the heart blade stands past 0.135 of the 0.16 ceiling (an upper bound alone passes a shorter field).
+      expect(Math.max(...grassBlades(v).map((b) => b.height))).toBeGreaterThan(0.135);
     }
   });
   it("the footprint is 0.17 tile across", () => {
