@@ -90,9 +90,11 @@ describe('CSRF and transport (S2, D2)', () => {
     await k.flag('open');
     expect((await post(k, { headers: { 'content-type': 'text/plain' } })).status).toBe(415);
     expect((await post(k, { headers: { 'content-type': 'application/x-www-form-urlencoded' } })).status).toBe(415);
+    expect((await post(k, { headers: { 'content-type': 'application/jsonx' } })).status).toBe(415);
     expect((await post(k, { header: false })).status).toBe(403);
     expect((await post(k, { headers: { 'x-rl-admin': '0' } })).status).toBe(403);
     expect(await k.flagValue()).toBe('open');
+    expect((await post(k, { headers: { 'content-type': 'application/json; charset=utf-8' } })).status).toBe(200);
   });
 
   it('is POST only, OPTIONS included, and the body is capped at 2 KiB', async () => {

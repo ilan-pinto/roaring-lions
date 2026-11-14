@@ -12,6 +12,9 @@ import { bump } from '../rate-day';
 import { readCapped } from '../read-capped';
 import { ADMIN_BODY_MAX_BYTES, ADMIN_WRITES_PER_DAY } from './config';
 
+/** `application/json`, optionally `; charset=...`, and nothing else (no `application/jsonx`). */
+const JSON_TYPE = /^application\/json\s*(;\s*charset="?[\w-]+"?\s*)?$/i;
+
 /** True only for `flags.admin` = 'open'. A missing row, or any other value, is CLOSED (D3). */
 export async function adminOpen(db: D1Like): Promise<boolean> {
   const row = await db.prepare(`SELECT value FROM flags WHERE name = 'admin'`).first<{ value: string }>();
@@ -57,7 +60,7 @@ export async function adminWriteGate(
 ): Promise<AdminWriter | Response> {
   if (req.method !== 'POST') return accountJson(405, { error: 'method_not_allowed' }, { allow: 'POST' });
   if (req.headers.get('origin') !== new URL(req.url).origin) return accountJson(403, { error: 'origin' });
-  if (!(req.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) return accountJson(415, { error: 'content-type' });
+  if (!JSON_TYPE.test(req.headers.get('content-type') ?? '')) return accountJson(415, { error: 'content-type' });
   if (req.headers.get('x-rl-admin') !== '1') return accountJson(403, { error: 'forbidden' });
   const db = await adminDb(req, env);
   if (db instanceof Response) return db;

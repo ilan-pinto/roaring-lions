@@ -56,6 +56,22 @@ describe('find (S3, D5)', () => {
     expect(raven[19]).toBe('Raven 5');
   });
 
+  it('a long or non-ASCII name query answers an empty list, never a 500, and NFKC forms find their name', async () => {
+    const k = await seeded();
+    const members = async (q: string) => {
+      const res = await k.get(`/stats/api/members/find?q=${encodeURIComponent(q)}`);
+      expect(res.status, q).toBe(200);
+      return ((await res.json()) as { members: unknown[] }).members;
+    };
+    // D1 refuses a LIKE pattern over 50 bytes (a 500), which node:sqlite does not: the cap is proved by a name it WOULD find.
+    await addMember(k.db, { id: 'em', publicId: 'EMQ00001', name: '\u{1F981}'.repeat(15) });
+    expect(await members('\u{1F981}'.repeat(15))).toEqual([]); // 60 bytes: past the limit, so nothing is asked of D1
+    expect(await members('\u{1F981}'.repeat(5))).toHaveLength(1); // 20 bytes: fine
+    expect(await members('é'.repeat(20))).toEqual([]);
+    await addMember(k.db, { id: 'fw', publicId: 'FWQ00001', name: 'Ranger' });
+    expect(await members('\uFF32\uFF41\uFF4E')).toHaveLength(1); // fullwidth "Ran"
+  });
+
   it('"me" is the member behind this browser\'s game session, and needs one', async () => {
     const k = await seeded();
     const mine = (await (await k.get('/stats/api/members/find?q=me', k.m1)).json()) as { members: { publicId: string }[] };
@@ -133,6 +149,12 @@ describe('the member card (S3, D6) and its access log (D14)', () => {
     ]);
     await k.get('/stats/api/members/ZZZZ9999'); // a card that does not exist logs nothing
     expect(await views(k.db)).toHaveLength(3);
+    // A journal-only read leaves a trace on its first page, and a later page (a cursor) adds none.
+    await k.get('/stats/api/members/K7Q2ABCD/journal', k.admin);
+    expect(await views(k.db)).toHaveLength(4);
+    expect((await views(k.db))[3]).toEqual({ admin_id: 'adm', member_id: 'm1', action: 'view' });
+    await k.get('/stats/api/members/K7Q2ABCD/journal?before=1.c.1', k.admin);
+    expect(await views(k.db)).toHaveLength(4);
   });
 });
 

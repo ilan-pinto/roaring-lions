@@ -16,6 +16,7 @@ import { adminDb, adminOpen, adminWriteGate, gameSession, isAdmin, readAdminBody
 const PREFIX = '/stats/api/members/';
 const PUBLIC_ID = /^[0-9A-HJKMNP-TV-Z]{8}$/;
 const DAY_MS = 86_400_000;
+const MAX_LIKE_BYTES = 48;
 
 const notAllowed = (allow: string): Response => accountJson(405, { error: 'method_not_allowed' }, { allow });
 const isoDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
@@ -91,7 +92,8 @@ async function find(req: Request, env: Env, url: URL, now: number): Promise<Resp
   if (req.method !== 'GET') return notAllowed('GET');
   const db = await adminDb(req, env);
   if (db instanceof Response) return db;
-  const q = (url.searchParams.get('q') ?? '').trim();
+  // NFKC, as stored names are cleaned (cleanCallsign), so a compatibility form finds its name.
+  const q = (url.searchParams.get('q') ?? '').normalize('NFKC').trim();
   if (q === '') return accountJson(400, { error: 'q' });
   const chars = [...q];
   const isMe = q.toLowerCase() === 'me';
@@ -110,10 +112,12 @@ async function find(req: Request, env: Env, url: URL, now: number): Promise<Resp
     const exact = await db.prepare(`${FIND_SELECT} WHERE m.public_id = ?1`).bind(upper).all<FindRow>();
     if (exact.results.length > 0) return accountJson(200, { members: await summaries(db, exact.results) });
   }
-  if (chars.length > FIND_NAME_MAX) return accountJson(200, { members: [] }); // longer than any display name
+  const pattern = escapeLike(q) + '%';
+  // Longer than any display name, or a LIKE pattern past D1's 50-byte limit (which would be a 500): nothing can match.
+  if (chars.length > FIND_NAME_MAX || new TextEncoder().encode(pattern).length > MAX_LIKE_BYTES) return accountJson(200, { members: [] });
   const rows = await db
     .prepare(`${FIND_SELECT} WHERE p.display_name LIKE ?1 ESCAPE '\\' ORDER BY m.last_seen_day DESC, m.created_at DESC, m.public_id LIMIT ?2`)
-    .bind(escapeLike(q) + '%', FIND_MAX)
+    .bind(pattern, FIND_MAX)
     .all<FindRow>();
   return accountJson(200, { members: await summaries(db, rows.results) });
 }
@@ -131,6 +135,14 @@ async function memberByPublicId(db: D1Like, publicId: string): Promise<MemberRow
     .prepare('SELECT m.id AS id, m.public_id AS public_id, p.display_name AS display_name, m.created_at AS created_at, m.last_seen_day AS last_seen_day FROM member m JOIN profile p ON p.member_id = m.id WHERE m.public_id = ?1')
     .bind(publicId)
     .first<MemberRow>();
+}
+
+/** Logs one 'view' of a member, with the viewer's admin id when the browser holds an admin's game session. Returns the session. */
+async function logView(req: Request, db: D1Like, memberId: string, now: number) {
+  const viewer = await gameSession(req, db, now);
+  const adminId = viewer !== null && (await isAdmin(db, viewer.session.memberId)) ? viewer.session.memberId : null;
+  await adminActionInsert(db, { at: now, adminId, memberId, action: 'view' }).run();
+  return viewer;
 }
 
 async function card(req: Request, env: Env, publicId: string, now: number): Promise<Response> {
@@ -168,9 +180,7 @@ async function card(req: Request, env: Env, publicId: string, now: number): Prom
     };
   }
   // D14.2: every card opened is logged. A view from a browser with no admin game session is logged with no admin.
-  const viewer = await gameSession(req, db, now);
-  const adminId = viewer !== null && (await isAdmin(db, viewer.session.memberId)) ? viewer.session.memberId : null;
-  await adminActionInsert(db, { at: now, adminId, memberId: m.id, action: 'view' }).run();
+  const viewer = await logView(req, db, m.id, now);
   const [summary] = (await summaries(db, [{ ...m, coins: wallet?.free ?? null, credits: null }])) as { kinds: string[] }[];
   return sessionJson(
     200,
@@ -201,6 +211,8 @@ async function journal(req: Request, env: Env, url: URL, publicId: string, now: 
   if (over !== null) return over;
   const m = await memberByPublicId(db, publicId);
   if (m === null) return accountJson(404, { error: 'not_found' });
+  // D14.2: the first page of a journal is an access too (a journal-only read must leave a trace); later pages are not.
+  if (cur === null) await logView(req, db, m.id, now);
   const rows = await db
     .prepare(
       `SELECT * FROM (
