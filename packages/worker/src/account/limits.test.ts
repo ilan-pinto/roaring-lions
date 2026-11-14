@@ -51,7 +51,11 @@ describe('account limits', () => {
 
   it('opBudget refuses the 20,001st write overall, across members (acct-all)', async () => {
     const h = accountHarness();
-    for (let i = 0; i < 20_000; i++) expect(await opBudget(h.db, `m${i}`, NOW)).toBe(true);
+    // Seed the overall counter to 10 short of the cap (a literal 20,000, not OPS_ALL) instead of making 20,000
+    // real writes (~5.5 s under CPU load, over the 5 s default timeout). The last 10 go through opBudget for
+    // real, across distinct members, and the one after them is refused.
+    h.db.raw.prepare("INSERT INTO rate_day (scope, key, day, n) VALUES ('acct-all', '', ?, ?)").run(Math.floor(NOW / 86_400_000), 20_000 - 10);
+    for (let i = 0; i < 10; i++) expect(await opBudget(h.db, `m${i}`, NOW)).toBe(true);
     expect(await opBudget(h.db, 'm-next', NOW)).toBe(false);
     // Read first: the refused member's own row was not bumped.
     expect(await h.db.prepare("SELECT n FROM rate_day WHERE scope = 'acct-ops' AND key = 'm-next'").first()).toBeNull();

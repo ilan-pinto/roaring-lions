@@ -205,7 +205,8 @@ async function booted(quality: RenderQuality, opts?: { grassKit?: boolean }): Pr
   return b;
 }
 
-describe('GH-1167 S5: the 3D grass field on a node boot', () => {
+// Per-describe timeout: measured 1.1-4.3 s per test under CPU load (5 s default flaked); 15 s = 3x the worst.
+describe('GH-1167 S5: the 3D grass field on a node boot', { timeout: 15_000 }, () => {
   it('builds one rl-grass-field root of at most 160 instanced meshes (108 groups and the splits 12 a tile forces), none casting a shadow, holding every placed clump', async () => {
     const { priv, sim } = await booted(QUALITY_PRESETS.high);
     const field = priv.grassField;

@@ -105,7 +105,8 @@ function setUpWithDecor(size: number): { r: ThreeRenderer; priv: Private } {
   return { r, priv };
 }
 
-describe('rebuildTerrain chunks the ditch of a map above 48 x 48, and nothing else of the decor', () => {
+// Per-describe timeout: measured 1.1-4.3 s per test under CPU load (5 s default flaked); 15 s = 3x the worst.
+describe('rebuildTerrain chunks the ditch of a map above 48 x 48, and nothing else of the decor', { timeout: 15_000 }, () => {
   it('48 x 48: one batch per role, one ditch mesh', () => {
     const { r, priv } = setUpWithDecor(48);
     const batches = (priv.decorGroup as THREE.Group).children as THREE.BatchedMesh[];
@@ -133,7 +134,7 @@ describe('rebuildTerrain chunks the ditch of a map above 48 x 48, and nothing el
   });
 });
 
-describe('rebuildTerrain chunks a map above 48 x 48', () => {
+describe('rebuildTerrain chunks a map above 48 x 48', { timeout: 15_000 }, () => {
   it('a 48 x 48 map keeps ONE ground mesh and ONE scatter mesh, as before', () => {
     const { r, priv } = setUp(48, 20, 20);
     expect(meshes(priv.terrainMesh).length).toBe(1);
