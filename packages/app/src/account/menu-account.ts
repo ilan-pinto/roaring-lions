@@ -7,6 +7,8 @@ export interface MenuAccountDeps {
   loadClient: () => Promise<AccountClient>;
   /** Told the answer of `GET open` (the save prompt reads it). */
   onOpen: (open: boolean) => void;
+  /** The switch's answer from an earlier mount of this page: reused, so a menu mount asks `GET open` only once. */
+  cachedOpen?: Promise<boolean>;
 }
 
 /**
@@ -16,14 +18,16 @@ export interface MenuAccountDeps {
  */
 export function menuAccount(d: MenuAccountDeps): { open: Promise<boolean>; name: Promise<string | null> | undefined } {
   if (!d.on) return { open: Promise.resolve(false), name: undefined };
-  const open = d
-    .loadClient()
-    .then((c) => c.open())
-    .catch(() => false)
-    .then((v) => {
-      d.onOpen(v);
-      return v;
-    });
+  const open =
+    d.cachedOpen ??
+    d
+      .loadClient()
+      .then((c) => c.open())
+      .catch(() => false)
+      .then((v) => {
+        d.onOpen(v);
+        return v;
+      });
   const name = d.hasBinding
     ? d
         .loadClient()
@@ -31,4 +35,24 @@ export function menuAccount(d: MenuAccountDeps): { open: Promise<boolean>; name:
         .then((m) => (m.kind === 'signedIn' ? m.displayName : null), () => null)
     : undefined;
   return { open, name };
+}
+
+export interface MenuAccountSourceDeps extends Omit<MenuAccountDeps, 'hasBinding'> {
+  /** Read afresh on EVERY menu mount: the profile and claim flows write the binding after the page booted. */
+  hasBinding: () => boolean;
+}
+
+/**
+ * The per-mount form of `menuAccount` (GH-1075). The switch (`GET open`) is asked once per page and shared; the binding is
+ * read at each mount, so a sign-in made on the profile screen shows on the menu without a reload. `hasAccount` is the
+ * chip's label signal (Sign up for a device that never had an account), read from the binding with no network call.
+ */
+export function menuAccountSource(d: MenuAccountSourceDeps): () => ReturnType<typeof menuAccount> & { hasAccount: boolean } {
+  let openP: Promise<boolean> | undefined;
+  return () => {
+    const hasAccount = d.hasBinding();
+    const r = menuAccount({ ...d, hasBinding: hasAccount, ...(openP ? { cachedOpen: openP } : {}) });
+    openP ??= r.open;
+    return { ...r, hasAccount };
+  };
 }
