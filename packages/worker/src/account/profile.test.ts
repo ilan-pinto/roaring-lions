@@ -85,7 +85,7 @@ describe('PATCH profile', () => {
     const h = accountHarness({ now: T0 });
     const ck = await seed(h);
     const res = await patch(h, ck, { op_id: op(20), showRecord: true });
-    expect(await res.json()).toEqual({ displayName: 'Callsign', showRecord: true });
+    expect(await res.json()).toEqual({ displayName: 'Callsign', showRecord: true, avatar: { kind: 'preset', id: 'crest-reticle', chosen: false } });
     expect((await patch(h, ck, { op_id: op(21), showRecord: 'yes' })).status).toBe(400);
     expect((await patch(h, ck, { op_id: op(22) })).status).toBe(400);
     expect((await patch(h, ck, { op_id: op(23), displayName: 42 })).status).toBe(400);
@@ -101,5 +101,87 @@ describe('PATCH profile', () => {
     await h.db.prepare("INSERT INTO rate_day (scope, key, day, n) VALUES ('acct-ops', 'm1', ?1, 400)").bind(Math.floor(T0 / DAY)).run();
     expect((await patch(h, ck, { op_id: op(31), displayName: 'Alpha' })).status).toBe(429);
     expect(await nameOf(h)).toBe('Callsign');
+  });
+});
+
+describe('avatars (GH-1075 P4)', () => {
+  const me = async (h: H, ck: string): Promise<Record<string, unknown>> =>
+    (await h.call('GET', '/api/account/me', { cookie: ck })).json() as Promise<Record<string, unknown>>;
+  const stored = async (h: H): Promise<string | null> =>
+    ((await h.db.prepare("SELECT avatar FROM profile WHERE member_id = 'm1'").first<{ avatar: string | null }>()) ?? { avatar: 'ROW MISSING' }).avatar;
+
+  it('me is never without an avatar: a member who never chose gets the derived default (literal: PUB1 -> crest-reticle)', async () => {
+    const h = accountHarness({ now: T0 });
+    const ck = await seed(h);
+    const j = await me(h, ck);
+    expect(j.avatar).toEqual({ kind: 'preset', id: 'crest-reticle', chosen: false });
+    expect(await stored(h)).toBeNull();
+  });
+
+  it('me carries createdDay, the day the member was created', async () => {
+    const h = accountHarness({ now: T0 });
+    const ck = await seed(h);
+    expect((await me(h, ck)).createdDay).toBe(20_000);
+  });
+
+  it('a known preset is stored as p:<id> and me reports it as chosen', async () => {
+    const h = accountHarness({ now: T0 });
+    const ck = await seed(h);
+    const res = await patch(h, ck, { op_id: op(40), avatar: 'crest-lion' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ displayName: 'Callsign', showRecord: false, avatar: { kind: 'preset', id: 'crest-lion', chosen: true } });
+    expect(await stored(h)).toBe('p:crest-lion');
+    expect((await me(h, ck)).avatar).toEqual({ kind: 'preset', id: 'crest-lion', chosen: true });
+    expect(await nameOf(h)).toBe('Callsign');
+  });
+
+  it('null resets to the derived default', async () => {
+    const h = accountHarness({ now: T0 });
+    const ck = await seed(h);
+    await patch(h, ck, { op_id: op(41), avatar: 'crest-lion' });
+    const res = await patch(h, ck, { op_id: op(42), avatar: null });
+    expect(res.status).toBe(200);
+    expect(await stored(h)).toBeNull();
+    expect((await me(h, ck)).avatar).toEqual({ kind: 'preset', id: 'crest-reticle', chosen: false });
+  });
+
+  it('an unknown id, a non-string, the upload marker and a unit bust all answer 400 and change nothing', async () => {
+    const h = accountHarness({ now: T0 });
+    const ck = await seed(h);
+    await patch(h, ck, { op_id: op(43), avatar: 'crest-lion' });
+    let n = 44;
+    for (const bad of ['crest-nope', 'p:crest-lion', 'u', '', 42, true, {}, 'unit-mbt_lavi']) {
+      const res = await patch(h, ck, { op_id: op(n++), avatar: bad });
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+      expect(await res.json()).toEqual({ error: 'avatar' });
+    }
+    expect(await stored(h)).toBe('p:crest-lion');
+  });
+
+  it('a name change alone leaves the avatar, and an avatar alone leaves the name', async () => {
+    const h = accountHarness({ now: T0 });
+    const ck = await seed(h);
+    await patch(h, ck, { op_id: op(60), avatar: 'crest-wave' });
+    await patch(h, ck, { op_id: op(61), displayName: 'Bravo' });
+    expect(await stored(h)).toBe('p:crest-wave');
+    await patch(h, ck, { op_id: op(62), avatar: 'crest-dune' });
+    expect(await nameOf(h)).toBe('Bravo');
+  });
+
+  it('a stored id the catalogue no longer holds still resolves to a crest, never to nothing', async () => {
+    const h = accountHarness({ now: T0 });
+    const ck = await seed(h);
+    await h.db.prepare("UPDATE profile SET avatar = 'p:crest-retired' WHERE member_id = 'm1'").run();
+    expect((await me(h, ck)).avatar).toEqual({ kind: 'preset', id: 'crest-reticle', chosen: false });
+  });
+
+  it('the column fence: only NULL, u or p:<=40 chars', async () => {
+    const h = accountHarness({ now: T0 });
+    await seed(h);
+    const set = (v: string) => h.db.prepare('UPDATE profile SET avatar = ?1 WHERE member_id = \'m1\'').bind(v).run();
+    await set('p:crest-claw');
+    await set('u');
+    await expect(set('crest-claw')).rejects.toThrow();
+    await expect(set('p:' + 'x'.repeat(41))).rejects.toThrow();
   });
 });

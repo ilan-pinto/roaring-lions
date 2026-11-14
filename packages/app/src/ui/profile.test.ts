@@ -34,7 +34,7 @@ function memStore(initial: Record<string, string> = {}) {
 }
 
 const steam = { id: 'ident-1', provider: 'steam', label: null, createdAt: 1, lastUsedDay: null, steamId: '76561197960287930' };
-const signedIn = (identities: IdentityView[] = [steam]): MeResult => ({ kind: 'signedIn', publicId: 'ABCD2345', displayName: 'Ilan', showRecord: false, fresh: true, identities });
+const signedIn = (identities: IdentityView[] = [steam]): MeResult => ({ kind: 'signedIn', publicId: 'ABCD2345', displayName: 'Ilan', showRecord: false, avatar: { kind: 'preset', id: 'crest-chevrons', chosen: false }, createdDay: 0, fresh: true, identities });
 
 function stub(over: Partial<AccountClient> = {}): AccountClient & { calls: string[] } {
   const calls: string[] = [];
@@ -436,7 +436,7 @@ describe('C1: sign-out and deletion go through the sync module over the account 
     writeBinding(storage, { version: 1, publicId: 'pub1', deviceId: DEV, claimedAt: 5 });
     const cache = cacheOf(server.snapshot());
     writeCache(storage, cache);
-    const client = { ...clientFor(server, { me: () => ({ kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, fresh: false, identities: [steam] }) }), logoutAll: async () => (server.calls.push({ name: 'logoutAll' }), 'ok' as const), deleteAccount: async () => 'ok' as const };
+    const client = { ...clientFor(server, { me: () => ({ kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, avatar: { kind: 'preset', id: 'crest-chevrons', chosen: false }, createdDay: 0, fresh: false, identities: [steam] }) }), logoutAll: async () => (server.calls.push({ name: 'logoutAll' }), 'ok' as const), deleteAccount: async () => 'ok' as const };
     const store = accountLedgerStore({ storage, cache, world, onChange: () => {}, newOpId: opIds(), tabId: 'T1' });
     const sync = startSync({ store, client, storage, now: sched.now, schedule: sched.schedule });
     store.sync.setOps([{ kind: 'campaign', opId: 'A', campaign: { ledger: {}, brigade: store.readAccount(), tutorialDone: false } }]);

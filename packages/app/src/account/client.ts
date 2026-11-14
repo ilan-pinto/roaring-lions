@@ -2,6 +2,7 @@
  * The ONLY file under packages/app/src that names the account API (a source scan pins that). With the client
  * disabled no method calls `fetch` (GH-1075 A1, A1-11).
  */
+import type { AvatarView } from '@lions/data';
 import type { CampaignView, ClaimBody, ClaimResult, CoinAskWire, ConflictAnswer, EarnAward, MatchesView, SaveSlot, ServerState, SlotMetaView, WalletView } from '@lions/economy';
 import type { OutboxOp } from './outbox';
 
@@ -20,7 +21,7 @@ export interface AccountError {
 }
 
 export type MeResult =
-  | { kind: 'signedIn'; publicId: string; displayName: string; showRecord: boolean; fresh: boolean; identities: IdentityView[] }
+  | { kind: 'signedIn'; publicId: string; displayName: string; showRecord: boolean; avatar: AvatarView; createdDay: number; fresh: boolean; identities: IdentityView[] }
   | { kind: 'signedOut' }
   | { kind: 'off' };
 
@@ -61,7 +62,7 @@ export interface AccountClient {
   googleStart(purpose: 'google-login' | 'google-link'): Promise<{ url: string } | AccountError>;
   logout(): Promise<'ok' | AccountError>;
   logoutAll(): Promise<'ok' | AccountError>;
-  patchProfile(p: { displayName?: string; showRecord?: boolean }): Promise<'ok' | AccountError>;
+  patchProfile(p: { displayName?: string; showRecord?: boolean; avatar?: string | null }): Promise<'ok' | AccountError>;
   deleteIdentity(id: string): Promise<'ok' | AccountError>;
   exportData(): Promise<Blob | AccountError>;
   deleteAccount(o: { telemetryPlayer?: string }): Promise<'ok' | AccountError>;
@@ -195,7 +196,7 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
         if (res.status === 401) return { kind: 'signedOut' };
         if (!res.ok) return { kind: 'off' };
         const j = (await res.json()) as Omit<Extract<MeResult, { kind: 'signedIn' }>, 'kind'>;
-        return { kind: 'signedIn', publicId: j.publicId, displayName: j.displayName, showRecord: j.showRecord, fresh: j.fresh, identities: j.identities };
+        return { kind: 'signedIn', publicId: j.publicId, displayName: j.displayName, showRecord: j.showRecord, avatar: j.avatar, createdDay: j.createdDay, fresh: j.fresh, identities: j.identities };
       } catch {
         return { kind: 'off' };
       }

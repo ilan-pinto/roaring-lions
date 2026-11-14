@@ -21,6 +21,13 @@ describe('GET export', () => {
     expect(body.tables.match_seat?.length).toBe(2);
   });
 
+  it('the profile export carries the avatar columns (GH-1075 P4)', async () => {
+    const h = accountHarness({ now: NOW });
+    const { cookie } = await seedFullMember(h.db, NOW);
+    const body = (await (await h.call('GET', '/api/account/export', { cookie })).json()) as { tables: Record<string, Record<string, unknown>[]> };
+    expect(body.tables.profile?.[0]).toMatchObject({ avatar: 'p:crest-claw', avatar_rev: 2 });
+  });
+
   it('names no secret', async () => {
     const h = accountHarness({ now: NOW });
     const { cookie } = await seedFullMember(h.db, NOW);

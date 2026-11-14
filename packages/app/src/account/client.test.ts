@@ -65,6 +65,30 @@ describe('off means no request (A1-11)', () => {
   });
 });
 
+describe('me copies the profile fields by name (GH-1075 P4)', () => {
+  const WIRE = {
+    publicId: 'ABCD2345',
+    displayName: 'Ilan',
+    showRecord: true,
+    avatar: { kind: 'preset', id: 'crest-lion', chosen: true },
+    createdDay: 20_000,
+    fresh: true,
+    identities: [],
+  };
+  it('avatar and createdDay survive the copy', async () => {
+    const { client } = make('?accounts', () => json(200, WIRE));
+    expect(await client.me()).toEqual({ kind: 'signedIn', ...WIRE });
+  });
+  it('patchProfile sends the avatar id, and null to reset', async () => {
+    const { client, spy } = make('?accounts', () => json(200, {}));
+    await client.patchProfile({ avatar: 'crest-claw' });
+    await client.patchProfile({ avatar: null });
+    const bodies = spy.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    expect(bodies[0]).toMatchObject({ avatar: 'crest-claw' });
+    expect(bodies[1]).toMatchObject({ avatar: null });
+  });
+});
+
 describe('sign out reports its result (A1 follow-up 1)', () => {
   it('a server failure is an error, a 401 (already signed out) is ok', async () => {
     expect(await make('?accounts', () => json(500, { error: 'boom' })).client.logout()).toEqual({ error: 'boom', status: 500 });
