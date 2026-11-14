@@ -128,7 +128,9 @@ describe('refusals write nothing and spend no day count (S4, D7, D10)', () => {
     const big = await k.post({ mode: 'set', amount: 100_501 });
     expect(big.status).toBe(400);
     expect(((await big.json()) as { error: string }).error).toBe('amount');
-    expect((await k.post({ mode: 'set', amount: 1_000_001 })).status).toBe(400);
+    const past = await k.post({ mode: 'set', amount: 1_000_001 });
+    expect(past.status).toBe(409);
+    expect(await past.json()).toEqual({ error: 'range' });
     expect((await k.post({ mode: 'set', amount: 100_500 })).status).toBe(200); // delta exactly 100,000
     expect((await k.post({ mode: 'set', amount: 0, revision: 5 })).status).toBe(400); // delta -100,500
   });
@@ -178,12 +180,20 @@ describe('idempotency (S4, D9.3)', () => {
     expect(await k.state()).toMatchObject({ actions: 1, ops: 1, wallet: { free: 600, revision: 5 }, day: [{ scope: 'admin-coins', n: 100 }, { scope: 'admin-writes', n: 1 }] });
   });
 
-  it('a replay spends no day count, and the op is keyed on the TARGET member', async () => {
+  it('a replay at the writes cap returns the stored 200 and spends nothing; the op row belongs to the TARGET', async () => {
     const k = await seeded(500);
-    await k.db.prepare("INSERT INTO rate_day VALUES ('admin-writes', '', ?1, 50)").bind(Math.floor(NOW / 86_400_000)).run();
-    const op = await k.one<{ n: number }>('SELECT COUNT(*) AS n FROM account_op');
-    expect(op.n).toBe(0);
-    expect((await k.post({})).status).toBe(429);
+    const body = { op_id: OP(78), mode: 'grant', amount: 100, reason: REASON, revision: 4 };
+    const url = '/stats/api/members/K7Q2ABCD/coins';
+    const first = await k.call('POST', url, { body, game: k.admin });
+    expect(first.status).toBe(200);
+    expect((await k.one<{ member_id: string }>('SELECT member_id FROM account_op')).member_id).toBe('m1');
+    await k.db.prepare("UPDATE rate_day SET n = 50 WHERE scope = 'admin-writes'").run();
+    const before = (await k.state()).day;
+    const again = await k.call('POST', url, { body, game: k.admin });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual(await first.json());
+    expect((await k.state()).day).toEqual(before);
+    expect((await k.post({ amount: 1, revision: 5 })).status).toBe(429); // a NEW op is refused at the cap
   });
 });
 
@@ -210,6 +220,34 @@ describe('the day caps (S4, D10)', () => {
     const res = await k.post({ mode: 'deduct', amount: 1, revision: 5 });
     expect(res.status).toBe(429);
     expect((await k.state()).day.find((d) => d.scope === 'admin-writes')?.n).toBe(50);
+  });
+});
+
+describe('the day caps hold inside the batch (S4, D10)', () => {
+  const day = Math.floor(NOW / 86_400_000);
+  async function racing(scope: string, seed: number, lands: number, body: Record<string, unknown>) {
+    const k = await seeded(500);
+    await k.db.prepare('INSERT INTO rate_day VALUES (?1, \'\', ?2, ?3)').bind(scope, day, seed).run();
+    const real = k.env.ACCOUNTS.batch.bind(k.env.ACCOUNTS);
+    k.env.ACCOUNTS.batch = async (stmts) => {
+      // A write to ANOTHER member commits between this request's pre-check and its batch.
+      await k.db.prepare("UPDATE rate_day SET n = n + ?2 WHERE scope = ?1").bind(scope, lands).run();
+      return real(stmts);
+    };
+    return { k, res: await k.post(body) };
+  }
+  it('coins: a racing grant that passed the pre-check is refused 429 and writes nothing', async () => {
+    const { k, res } = await racing('admin-coins', 249_900, 100, { amount: 100 });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: 'limit' });
+    expect(await k.state()).toMatchObject({ actions: 0, ops: 0, journal: 1, wallet: { free: 500, revision: 4 } });
+    expect((await k.state()).day).toEqual([{ scope: 'admin-coins', n: 250_000 }]);
+  });
+  it('writes: a racing write at the 50th is refused 429 and writes nothing', async () => {
+    const { k, res } = await racing('admin-writes', 49, 1, { mode: 'deduct', amount: 1 });
+    expect(res.status).toBe(429);
+    expect(await k.state()).toMatchObject({ actions: 0, ops: 0, wallet: { free: 500, revision: 4 } });
+    expect((await k.state()).day).toEqual([{ scope: 'admin-writes', n: 50 }]);
   });
 });
 

@@ -6,7 +6,7 @@
  */
 import { MAX_COINS } from '@lions/economy';
 import type { D1Like, D1Stmt, Env } from '../d1';
-import { asRoar, isCasFailure, readWallet, walletWrite, type JournalEntry, type WalletRow } from '../account/coin';
+import { asRoar, isCapFailure, isCasFailure, readWallet, walletWrite, type JournalEntry, type WalletRow } from '../account/coin';
 import { CAS_TRIES } from '../account/config';
 import { OpReject, validOpId, withOp } from '../account/op';
 import { sessionJson } from '../account/session';
@@ -30,6 +30,19 @@ export function cleanReason(raw: string): string {
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 
+/**
+ * D10 inside the batch: run AFTER the day-counter upserts, it nulls a NOT NULL column (`member.last_seen_day`, which
+ * `isCapFailure` reads, never a CHECK) when a counter now stands above its cap, so the whole batch rolls back, the
+ * counter's own add included. The pre-checks in `build` only save a write; this is what makes the caps exact when
+ * two writes to different members race.
+ */
+function dayGuard(db: D1Like, memberId: string, now: number, caps: [scope: string, cap: number][]): D1Stmt {
+  const over = caps.map(() => '').map((_, i) => `COALESCE((SELECT n FROM rate_day WHERE scope = ?${2 + i * 2} AND key = '' AND day = ?${2 + caps.length * 2}), 0) > ?${3 + i * 2}`).join(' OR ');
+  return db
+    .prepare(`UPDATE member SET last_seen_day = CASE WHEN (${over}) THEN NULL ELSE last_seen_day END WHERE id = ?1`)
+    .bind(memberId, ...caps.flatMap(([scope, cap]) => [scope, cap]), dayOf(now));
+}
+
 /** An upsert that adds `by` to a day counter, in the same batch as the write it counts (so a rolled-back write counts nothing). */
 function dayAdd(db: D1Like, scope: string, now: number, by: number): D1Stmt {
   return db
@@ -52,7 +65,7 @@ export async function coinsRoute(req: Request, env: Env, publicId: string, now: 
   const { op_id: opId, mode, amount, reason: rawReason, revision } = body;
   if (!validOpId(opId)) return bad('op_id');
   if (typeof mode !== 'string' || !MODES.includes(mode)) return bad('mode');
-  if (!isInt(amount) || amount < 0 || amount > MAX_COINS) return bad('amount');
+  if (!isInt(amount) || amount < 0) return bad('amount'); // a `set` past MAX_COINS is a 409 range, below
   if (mode !== 'set' && (amount < 1 || amount > ADMIN_COINS_PER_ACTION)) return bad('amount');
   if (!isInt(revision) || revision < 0) return bad('revision');
   if (typeof rawReason !== 'string') return bad('reason');
@@ -90,7 +103,12 @@ export async function coinsRoute(req: Request, env: Env, publicId: string, now: 
       adminActionInsert(db, { at: now, adminId, memberId: m.id, action: 'coins', mode: m0, delta, before: wallet.free, after, reason, opId }),
       dayAdd(db, 'admin-writes', now, 1),
     ];
-    if (delta > 0) statements.push(dayAdd(db, 'admin-coins', now, delta));
+    const caps: [string, number][] = [['admin-writes', ADMIN_WRITES_PER_DAY]];
+    if (delta > 0) {
+      statements.push(dayAdd(db, 'admin-coins', now, delta));
+      caps.push(['admin-coins', ADMIN_COINS_GRANTED_PER_DAY]);
+    }
+    statements.push(dayGuard(db, m.id, now, caps));
     return { statements, status: 200, response: { wallet: { free: after, revision: wallet.revision + 1, updatedAt: now }, before: wallet.free, after, delta } };
   };
 
@@ -101,6 +119,7 @@ export async function coinsRoute(req: Request, env: Env, publicId: string, now: 
     } catch (err) {
       if (err instanceof OpReject) return sessionJson(err.status, err.body, setCookie);
       // A lost race: the next attempt re-reads, and the revision check answers 'moved' if the wallet changed.
+      if (isCapFailure(err)) return sessionJson(429, { error: 'limit' }, setCookie); // a day cap tripped inside the batch; nothing was written
       if (!isCasFailure(err)) throw err;
     }
   }
