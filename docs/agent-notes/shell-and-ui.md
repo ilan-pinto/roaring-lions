@@ -307,7 +307,7 @@ Sources: `packages/worker/src/account/`, `packages/worker/migrations-accounts/`,
   - **Open** (lead only, after the PR is merged and deployed and `GET https://roaring-lions.pint12.workers.dev/privacy` answers 200):
     `npx wrangler d1 execute roaring-lions-accounts --remote --command "INSERT INTO flags (name, value, updated_at) VALUES ('accounts', 'open', unixepoch() * 1000) ON CONFLICT (name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"`
   - **Close:** the same command with `'closed'` in place of `'open'`. No deploy is needed either way.
-  - Players sign up from `/` (the menu chip); `?fresh` hides it. The page asks `GET open` once, after the lazy client loads (`main.ts`'s `accountOpenP`): closed or unreachable hides the menu chip and the privacy link (unless a member is signed in on the device, who still needs export and delete) and keeps the save prompt away. Closing needs no deploy. A guest menu (no binding) never calls `GET me`.
+  - Players sign up from `/` (the menu chip); `?fresh` hides it. The page asks `GET open` once, after the lazy client loads (`account/menu-account.ts`'s `menuAccountSource`, shared by every menu mount; `main.ts` keeps the answer in `accountOpenOnPage` for the save prompt): closed or unreachable hides the menu chip and the privacy link (unless a member is signed in on the device, who still needs export and delete) and keeps the save prompt away. Closing needs no deploy. A guest menu (no binding) never calls `GET me`.
 - **Before the first merge:** `npx wrangler d1 migrations apply roaring-lions-accounts --remote`. Merging deploys to
   production from `main`, and a Worker bound to an unmigrated database fails.
 - **Tombstones** are KV keys `tomb:<sha256(public_id)>` in `ACCOUNT_TOMBSTONES`, value `{deletedAt, lastSeenDay}`, TTL 90 days
@@ -322,8 +322,8 @@ Sources: `packages/worker/src/account/`, `packages/worker/migrations-accounts/`,
 Sources: `packages/worker/src/account/google.ts` (start and return), `google-oidc.ts` (the ID-token verifier),
 `member.ts` (`openProviders`, `steamOpen`), `routes.ts`, `steam.ts` (the gate), `packages/worker/migrations-accounts/0002_google.sql`,
 `packages/app/src/account/client.ts`. Spec: `docs/superpowers/specs/2026-11-13-google-sign-in-design.md` (its section 6 is the lead's
-setup). The agent never runs `wrangler` and never writes a secret value; the lead does. Slices G1 to G5 are merged; G6 (the profile
-screen) and G7 (the privacy page) were open PRs when this was written, so what the screen draws is theirs, not stated here.
+setup). The agent never runs `wrangler` and never writes a secret value; the lead does. Slices G1 to G7 are merged (G6, the profile screen, PR 1336; G7, the privacy page, PR 1335; G8, this runbook, PR 1337). The profile screen
+draws a provider's button from `providers`, and `/profile?google` adds Google to the list when `providers` does not have it yet (`ui/profile.ts`).
 
 - **Providers.** `google` and `steam`, both in `member_identity.provider` (migration `0002_google.sql`; at most one Google identity per
   member, so a member can hold Google and Steam together). `GET /api/account/open` answers `{open, providers}`, and the app draws buttons
@@ -356,7 +356,7 @@ screen) and G7 (the privacy page) were open PRs when this was written, so what t
      `npx wrangler secret put GOOGLE_CLIENT_ID` and `npx wrangler secret put GOOGLE_CLIENT_SECRET`.
   4. **Close the rows explicitly** (a missing row already means closed; the rows make the state readable). Run the command below with
      `'closed'` for `google`, and again for `steam`.
-  5. **The live test** at `https://roaring-lions.pint12.workers.dev/profile?google` (G6; after PR 1336 and PR 1335 are merged and the
+  5. **The live test** at `https://roaring-lions.pint12.workers.dev/profile?google` (G6; PR 1336 and PR 1335 are merged, so check that the
      privacy page answers 200): sign up with a Google account, check the consent screen asks only for basic sign-in, check the profile
      says "Signed in" and lists "Google", check Workers Logs show no `account: google ... failed` line, download the export and check
      `google_sub` is there with no email.
