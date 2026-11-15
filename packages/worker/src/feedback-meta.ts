@@ -80,7 +80,7 @@ export const utf8Bytes = (s: string): number => new TextEncoder().encode(s).leng
 export function feedbackMetaProblem(x: unknown): string | null {
   if (typeof x !== 'object' || x === null || Array.isArray(x)) return 'meta is not an object';
   const e = x as Rec;
-  for (const k of Object.keys(e)) if (!KEYS.has(k)) return `unknown field ${k}`;
+  for (const k of Object.keys(e)) if (!KEYS.has(k)) return 'unknown field';
   if (e.v !== FEEDBACK_VERSION) return 'v';
   if (!isInt(e.t, 0, Number.MAX_SAFE_INTEGER)) return 't';
   if (!(FEEDBACK_SOURCES as readonly unknown[]).includes(e.source)) return 'source';
@@ -112,4 +112,5 @@ export function feedbackMetaProblem(x: unknown): string | null {
 export const isFeedbackMeta = (x: unknown): x is FeedbackMeta => feedbackMetaProblem(x) === null;
 
 /** `FB-0042`. Four digits at least; it grows past 9999 rather than wrapping. */
+
 export const feedbackRef = (id: number): string => `FB-${String(id).padStart(4, '0')}`;
