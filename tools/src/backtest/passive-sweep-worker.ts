@@ -12,7 +12,7 @@ export interface SweepJob {
   control: number;
   id: string;
   label: string;
-  expect: 'defeat' | 'ongoing' | 'withdrawn';
+  expect: 'defeat' | 'ongoing' | 'withdrawn' | 'victory';
   ledger: LedgerData;
   seed: number;
   /** Absent = the no-orders control. */

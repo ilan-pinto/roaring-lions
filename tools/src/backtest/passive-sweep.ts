@@ -26,7 +26,9 @@ import { controlPlan, type ControlPlan } from './passive-plans';
 /** The seeds a swept control runs on: the pinned 424242 first, then 1..29 (PR #533's set). */
 export const SWEEP_SEEDS: readonly number[] = [424242, ...Array.from({ length: 29 }, (_, k) => k + 1)];
 
-type Expect = 'defeat' | 'ongoing' | 'withdrawn';
+/** `victory` is for ONE documented case only (GH-1385): a mission a player wins by giving no orders. It is a pin, not a wish: the day a seed
+ *  stops winning, the summary says so and the control is flipped to `defeat`. */
+type Expect = 'defeat' | 'ongoing' | 'withdrawn' | 'victory';
 
 interface Control {
   /** The mission the control runs, which is the id its winning plan is labelled with. */
@@ -165,5 +167,8 @@ export async function drainPassiveSweeps(): Promise<void> {
         (missed.length ? ` -- missed on ${missed.map((s) => `${s} (${missLabel(c.got.get(s))})`).join(', ')}` : '')
     );
     if (missed.length) process.exitCode = 1;
+    if (missed.length && c.expect === 'victory') {
+      console.error(`${c.label}: FAILED — ${c.id} no longer wins with no orders on every seed: flip this control to DEFEAT and delete the known-passive-win exemption (GH-1385)`);
+    }
   }
 }

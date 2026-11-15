@@ -52,3 +52,13 @@ export function bankedOver(b: Banking, percent: number): boolean {
 export function bankingLine(id: string, kind: string, b: Banking): string {
   return `banking ${id} (${kind}): earned ${b.earned} (zones ${b.zoneEarned}), spent ${spentOf(b)}, banked ${b.held} (${bankedPercent(b)})`;
 }
+
+/** GH-1385: the banking gate, as an UPPER BOUND on the winning plans that bank more than 30% of what they had. It used to be
+ *  an equality (`over30 !== 15`), which failed on an improvement as readily as on a regression and so had to be edited to
+ *  accept either; a bound goes red only when MORE plans bank, and passes when fewer do. A gate over no winning plan at all
+ *  cannot fail, so zero winners is itself a failure. Returns the sentence `playtest.ts` prints, or null when the gate holds. */
+export function bankingBoundFailure(over30: number, winners: number, max: number): string | null {
+  if (winners <= 0) return `no winning plan reported banking, so the bound on plans that bank over 30% read nothing`;
+  if (over30 > max) return `${over30} of ${winners} winning plans bank over 30%, expected at most ${max}`;
+  return null;
+}
