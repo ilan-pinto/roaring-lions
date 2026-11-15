@@ -34,7 +34,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { FORMATION_CLASSES, MissionRuntime, Sim, TICKS_PER_SECOND, fx, type Command, type UnitType, type UnitTypeJson } from '@lions/sim';
-import { applyTerrain, maps, missions, parseMap, units, type MapId } from '@lions/data';
+import { applyTerrain, maps, missions, parseMap, roadMaskOf, units, type MapId } from '@lions/data';
 import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, type Faction } from '@lions/net';
 import { missionStage } from '../mission-harness';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
@@ -335,14 +335,14 @@ export interface Start {
 
 /** The mission's starting force, as `MissionRuntime.start()` fields it (seed 424242, empty ledger, upgrades unresolved), with the garrison orders it queues recorded. */
 export function missionStart(id: string, seed = 424242): Start {
-  const { mission, sim, context } = missionStage(id, seed);
+  const { mission, map, sim, context } = missionStage(id, seed);
   const garrisonIds = new Set<number>();
   const queue = sim.queueCommand.bind(sim);
   (sim as unknown as { queueCommand: (c: Command) => void }).queueCommand = (cmd: Command): void => {
     if (cmd.kind === 'garrison') for (const g of cmd.ids) garrisonIds.add(g);
     queue(cmd);
   };
-  new MissionRuntime(sim, mission, context({})).start();
+  new MissionRuntime(sim, mission, { ...context({}), roadMask: roadMaskOf(map) }).start();
   delete (sim as unknown as { queueCommand?: unknown }).queueCommand; // back to the prototype method
   return { name: id, group: 'mission', sim, garrisonIds };
 }
