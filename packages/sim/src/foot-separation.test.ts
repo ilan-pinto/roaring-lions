@@ -152,6 +152,60 @@ describe('the circle fast path, two circles (GH-1360 §3.3 item 1)', () => {
   });
 });
 
+describe('the circle fast path, steering and B+ (GH-1360 §3.3 item 1)', () => {
+  it('an off-axis walker meeting a parked team steers to the far side, away from it', () => {
+    // The walker runs east on y = 10.3, 0.2 tile NORTH (y down) of the parked team's centre line: going round it on
+    // the north is the side away from it. The steer is read off the sign of the closest-point vector (walker minus
+    // parked); turned the wrong way, both candidates point into the team, are refused, and the walker stands. (Past
+    // the first steer the flow field pulls it back each tick and it reaches the valve in the end, GH-421's livelock
+    // at a small body's pace; that is S5a-2's and S5c's to measure, not this spec's.)
+    const sim = new Sim({ seed: 3, width: 32, height: 32, capacity: 8 });
+    const t = sim.addUnitType(team('fs5_r45', 0.45));
+    const parked = sim.spawn(t, 0, f(15.5), f(10.5), EAST);
+    const walker = sim.spawn(t, 0, f(8.5), f(10.3), EAST);
+    go(sim, walker, 22.5, 10.3);
+    let firstSteer: Fx | null = null; // the y step of the first tick the walker was blocked
+    let northmost = sim.state.posY[walker];
+    for (let tick = 1; tick <= 400; tick++) {
+      const y0 = sim.state.posY[walker];
+      sim.tick();
+      if (firstSteer === null && raw(sim).sepLast[walker] === 1) firstSteer = sim.state.posY[walker] - y0;
+      if (sim.state.posY[walker] < northmost) northmost = sim.state.posY[walker];
+    }
+    expect(firstSteer).not.toBeNull();
+    expect(firstSteer ?? 0).toBeLessThan(0); // north, the far side: a step, not a stand
+    expect(northmost).toBeLessThan(f(10.3));
+    expect(dist(sim, walker, parked)).toBeGreaterThan(f(5));
+    expect(sim.state.moving[walker]).toBe(0);
+  });
+
+  it('B+: a team sent exact to a point a stationary team covers ends its leg at contact, not inside it', () => {
+    // The first team stands at (15.5, 10.5). The second is sent from the east to (16.2, 10.5): 0.7 tile from the
+    // first, inside contact (0.9), and in ANOTHER tile, so B+'s same-goal-tile rule does not decide it and the body
+    // compare (the circle's squared one) must. It stops where it meets the first: about 0.9 out, never at 0.7.
+    const sim = new Sim({ seed: 3, width: 32, height: 32, capacity: 8 });
+    const t = sim.addUnitType(team('fs5_r45', 0.45));
+    const first = sim.spawn(t, 0, f(10.5), f(10.5), EAST);
+    const second = sim.spawn(t, 0, f(22.5), f(10.5), EAST);
+    go(sim, first, 15.5, 10.5);
+    sim.sepDiag.on = true;
+    for (let tick = 1; tick <= 120; tick++) sim.tick(); // 5 tiles at 0.05 a tick: there on tick 100
+    expect([sim.state.posX[first], sim.state.moving[first]]).toEqual([f(15.5), 0]);
+    go(sim, second, 16.2, 10.5);
+    let stoppedAt = -1;
+    for (let tick = 1; tick <= 300 && stoppedAt < 0; tick++) {
+      sim.tick();
+      if (sim.state.moving[second] === 0) stoppedAt = tick;
+    }
+    // 22.5 to contact at 15.5 + 0.9 = 16.4 is 6.1 tiles: 122 ticks at 0.05.
+    expect(stoppedAt).toBe(122);
+    expect(sim.sepDiag.arrive).toBe(1);
+    expect(dist(sim, first, second)).toBeGreaterThanOrEqual(f(0.85));
+    expect(dist(sim, first, second)).toBeLessThan(f(0.95));
+    expect(raw(sim).sepWait[second]).toBe(0);
+  });
+});
+
 describe('the circle fast path, a circle against a hull (GH-1360 §3.3 item 1)', () => {
   // The hull at (10, 10) facing east: segment x 9.5..10.5 on y = 10 (half length 1.0 less half width 0.5), radius
   // 0.5. A circle of r 0.5 is in contact with it at 1.0 tile from the segment.
@@ -235,6 +289,15 @@ describe('the foot grid (GH-1360 §4)', () => {
     const sim = new Sim({ seed: 3, width: 32, height: 32, capacity: 4 });
     expect(() => sim.addUnitType(team('fs5_r80', 0.8))).toThrow(/foot separation grid/);
     expect(() => sim.addUnitType(team('fs5_r75', 0.75))).not.toThrow();
+  });
+
+  it('a half length below the half width is refused: a circle declares them equal (the radius is read one way)', () => {
+    const sim = new Sim({ seed: 3, width: 32, height: 32, capacity: 4 });
+    const fat = (len: number, wid: number): UnitTypeJson => ({ ...team(`fs5_fat_${len}_${wid}`, wid), mobility: { speed_tiles_s: 1, footprint: { half_length_tiles: len, half_width_tiles: wid } } });
+    expect(() => sim.addUnitType(fat(0.3, 0.45))).toThrow(/half length below its half width/);
+    expect(() => sim.addUnitType(fat(0, 0.45))).toThrow(/half length below its half width/);
+    expect(() => sim.addUnitType(fat(0.45, 0.45))).not.toThrow();
+    expect(() => sim.addUnitType(fat(1.0, 0.5))).not.toThrow();
   });
 
   it('a world of hulls alone leaves the foot grid empty', () => {
@@ -408,13 +471,13 @@ describe('the new scratch is written before it is read (GH-1360 S5a-1, the snaps
       expect(v.encodingEqualAtEnd, `${label} (${v.firstDifference ?? ''})`).toBe(true);
     }
   });
-  it('the crowd really is in contact: circles meet circles and the hull', () => {
+  it('the crowd is not vacuous: its teams (circles) are blocked on some ticks', () => {
     const w = build();
     let held = 0;
     for (let t = 0; t < 140; t++) {
       drive(w, t);
       w.sim.tick();
-      for (let k = 0; k <= MAN_ID; k++) if (raw(w.sim).sepLast[k] === 1) held++;
+      for (let k = 0; k < TEAMS; k++) if (raw(w.sim).sepLast[k] === 1) held++;
     }
     expect(held).toBeGreaterThan(0);
   });

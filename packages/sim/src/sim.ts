@@ -2898,6 +2898,12 @@ export class Sim {
       if (seg > 0 && seg < SEP_MIN_SEGMENT) {
         throw new Error(`unit type ${type.id}: footprint is a segment shorter than 1/64 tile`);
       }
+      // GH-1360: a body is a circle when its half length equals its half width. A half length BELOW the half width
+      // would make the narrow phase read the radius as the half width while `sepBound` (the broad phase and the
+      // bounds below) reads the half length, an understated reach: refused.
+      if (type.sepHalfLen < type.sepHalfWid) {
+        throw new Error(`unit type ${type.id}: footprint half length below its half width (a circle declares them equal)`);
+      }
       // GH-1360 §4: a circle is bucketed in the foot grid, whose circle-to-circle visit reaches
       // SEP_FOOT_CELL_TILES x SEP_FOOT_VISIT_CIRCLE tiles; two circles' broad-phase reach must fit inside.
       if (
@@ -4620,7 +4626,7 @@ export class Sim {
   tick(): SimEvent[] {
     // GH-1360: only a rider put down during THIS tick is exempt; one put down between ticks (an outside call), or
     // after last tick's movement, is not.
-    this.sepOff.fill(0);
+    if (this.sepLive) this.sepOff.fill(0); // read only by sepBlockedBy, which runs only when sepLive
     // GH-976: the bell rings on the tick whose count IS the set-up clock, before this tick's commands, so an order given
     // on the bell tick is already unclamped (setupActive is false from here).
     if (this.setupLive && this.tickCount === this.setupUntil) {
