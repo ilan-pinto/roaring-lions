@@ -1,0 +1,50 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import { menuUsesPlate, ShotLog, SHOT_TIMEOUT_MS } from './shot-policy';
+
+describe('shot policy (GH-1409)', () => {
+  it('the menu is shot on the plate path under software rendering, and live under Metal', () => {
+    expect(menuUsesPlate('swiftshader')).toBe(true);
+    expect(menuUsesPlate('metal')).toBe(false);
+  });
+
+  it('the screenshot backstop is well past the 30 s that failed on CI', () => {
+    expect(SHOT_TIMEOUT_MS).toBeGreaterThanOrEqual(120_000);
+  });
+
+  it('records a failed shot with the first line of why, in order, and says how many are missing', () => {
+    const log = new ShotLog();
+    log.record('01-menu', new Error('page.screenshot: Timeout 30000ms exceeded.\nCall log:\n  - taking page screenshot'));
+    log.record('02-campaign', 'plain string');
+    expect(log.failed).toEqual([
+      { name: '01-menu', reason: 'page.screenshot: Timeout 30000ms exceeded.' },
+      { name: '02-campaign', reason: 'plain string' },
+    ]);
+    expect(log.summary()).toEqual([
+      '  FAILED 01-menu: page.screenshot: Timeout 30000ms exceeded.',
+      '  FAILED 02-campaign: plain string',
+      'screenshots: 2 shot(s) FAILED and are missing from the output',
+    ]);
+  });
+
+  it('a clean run says so, so silence is never the answer', () => {
+    expect(new ShotLog().summary()).toEqual(['screenshots: every shot above was taken']);
+  });
+});
+
+describe('shoot.ts uses the policy (a source guard: shoot.ts runs its whole walk at import, so it cannot be loaded here)', () => {
+  const src = readFileSync(new URL('./shoot.ts', import.meta.url), 'utf8');
+
+  it('gives every shot() the backstop timeout, records a failure instead of throwing, and shoots the menu on the plate path when told to', () => {
+    expect(src).toContain('timeout: SHOT_TIMEOUT_MS });');
+    expect(src).toContain('SHOTS.record(name, err);');
+    expect(src).toContain("const platePath = menuUsesPlate(gpu);");
+    expect(src).toContain("await page.emulateMedia({ reducedMotion: 'reduce' });");
+    expect(src).toContain("await page.emulateMedia({ reducedMotion: 'no-preference' });");
+  });
+
+  it('prints the failures at the end and exits non-zero when any shot is missing', () => {
+    expect(src).toContain('for (const line of SHOTS.summary()) console.log(line);');
+    expect(src).toContain('if (SHOTS.failed.length > 0) process.exitCode = 1;');
+  });
+});

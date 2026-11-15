@@ -97,6 +97,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { FREEZE_FOR_SCREENSHOT_SCRIPT, RESTORE_AFTER_SCREENSHOT_SCRIPT } from './frame-freeze';
 import { claimGpuBackend, gpuLaunchArgs } from './gpu';
+import { menuUsesPlate, SHOT_TIMEOUT_MS, ShotLog } from './shot-policy';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -161,6 +162,9 @@ const RESOLUTIONS = arg('res', '1400x900,1920x1080,2560x1440')
 /** Counted across the whole run and printed at the end -- a per-shot line is
  *  easy to scroll past in 51 frames' worth of output. */
 let OVERFLOW_TOTAL = 0;
+
+/** Shots that did not come out (GH-1409, `shot-policy.ts`): recorded, the walk goes on, the run exits non-zero. */
+const SHOTS = new ShotLog();
 
 interface LionsWindow extends Window {
   __lions?: {
@@ -230,7 +234,13 @@ async function overflows(page: Page): Promise<string[]> {
 
 async function shot(page: Page, dir: string, name: string, opts: { fullPage?: boolean } = {}): Promise<void> {
   await page.waitForTimeout(400);
-  await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: opts.fullPage ?? false });
+  try {
+    await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: opts.fullPage ?? false, timeout: SHOT_TIMEOUT_MS });
+  } catch (err) {
+    SHOTS.record(name, err);
+    console.log(`  ${name}  [SCREENSHOT FAILED] ${SHOTS.failed[SHOTS.failed.length - 1].reason}`);
+    return;
+  }
   const over = await overflows(page);
   console.log(`  ${name}${over.length > 0 ? `  [overflow x${over.length}]` : ''}`);
   for (const line of over) console.log(`      ! ${line}`);
@@ -773,9 +783,17 @@ try {
     // read by a garage look task, and every one of these states is already
     // covered by the normal (non-`--only`) run.
     if (ONLY !== 'garage') {
+      // GH-1409: under SwiftShader the live scene host cannot paint inside the screenshot timeout (the first CI run died here), so the
+      // menu is shot on the reduced-motion plate path -- the page's media is switched for this one visit and put back after it.
+      const platePath = menuUsesPlate(gpu);
+      if (platePath) {
+        console.log(`  01-menu: shot on the plate path (${gpu} cannot paint the live scene host in time); the live host is not captured here`);
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+      }
       await page.goto(url('/'), { waitUntil: 'load' });
       await settleMenuHost(page);
       await shot(page, dir, '01-menu');
+      if (platePath) await page.emulateMedia({ reducedMotion: 'no-preference' });
 
       // Task 8: the reduced-motion plate path (spec §3.4), on its OWN context
       // so `reducedMotion: 'reduce'` never leaks onto `page` above, which keeps
@@ -1287,3 +1305,5 @@ console.log(`\ndone -> ${OUT}`);
 // up on a hit -- the failure mode CLAUDE.md names for every check that can
 // return an empty answer in zero milliseconds.
 console.log(`overflow probe: ${OVERFLOW_TOTAL} element(s) wider than their own box, across every shot above`);
+for (const line of SHOTS.summary()) console.log(line);
+if (SHOTS.failed.length > 0) process.exitCode = 1;
