@@ -24,6 +24,8 @@
     "s4:gate": "pnpm --filter @lions/tools s4:gate",
     "formations:probe": "pnpm --filter @lions/tools formations:probe",
     "formations:playtest": "pnpm --filter @lions/tools formations:playtest",
+    "spacing:census": "pnpm --filter @lions/tools spacing:census",
+    "spacing:sheet": "pnpm --filter @lions/tools spacing:sheet",
     "vehicle-health:probe": "pnpm --filter @lions/tools vehicle-health:probe",
     "snapshot:witness": "pnpm --filter @lions/tools snapshot:witness",
     "versus:breach": "pnpm --filter @lions/tools versus:breach",
