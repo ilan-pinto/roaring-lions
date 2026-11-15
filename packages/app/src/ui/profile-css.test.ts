@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const css = readFileSync(new URL('./theme.css', import.meta.url), 'utf8');
+// Comments are stripped first: a selector named only in a comment is not a rule.
+const css = readFileSync(new URL('./theme.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 const ts = (f: string): string => readFileSync(new URL(f, import.meta.url), 'utf8');
 
 /** Hooks the markup sets for tests and structure that deliberately have no rule of their own. */
@@ -30,6 +31,24 @@ const NO_RULE_BY_DESIGN = new Set([
   'rl-avatar-picker__save',
 ]);
 
+/** Each templated class stub in the TS, with every expansion it can produce and whether theme.css must rule it. */
+const TEMPLATED: Record<string, { name: string; ruled: boolean }[]> = {
+  'rl-profile__tile--': [
+    { name: 'won', ruled: true },
+    { name: 'lost', ruled: true },
+    { name: 'drawn', ruled: false }, // keeps the plain digit colour
+  ],
+  'rl-profile__result--': [
+    { name: 'won', ruled: true },
+    { name: 'lost', ruled: true },
+    { name: 'drawn', ruled: true },
+  ],
+  'rl-profile__link--': [
+    { name: 'google', ruled: true },
+    { name: 'steam', ruled: false }, // the plain button
+  ],
+};
+
 function hasRule(cls: string): boolean {
   return new RegExp(`\\.${cls}(?![\\w-])`).test(css);
 }
@@ -47,7 +66,9 @@ describe('profile and avatar-picker classes have a rule in theme.css', () => {
   ])('%s', (file, prefix) => {
     const used = [...new Set(ts(file).match(new RegExp(`${prefix}[a-z0-9-]*(?:--[a-z0-9-]+)?`, 'g')) ?? [])];
     expect(used.length).toBeGreaterThan(3);
-    // A name ending in `-` is a template stub (`tile--${k}`): the loop below covers its expansions.
+    // A name ending in `-` is a template stub (`tile--${k}`); it must be named in TEMPLATED, never skipped.
+    const stubs = used.filter((c) => c.endsWith('-') && c !== 'rl-profile__');
+    expect(stubs.filter((c) => !(c in TEMPLATED))).toEqual([]);
     const missing = used.filter((c) => !c.endsWith('-') && !hasRule(c) && !NO_RULE_BY_DESIGN.has(c));
     expect(missing).toEqual([]);
   });
@@ -57,11 +78,9 @@ describe('profile and avatar-picker classes have a rule in theme.css', () => {
   });
 });
 
-describe('the templated state classes have a rule each', () => {
-  it.each(['won', 'lost', 'drawn'])('%s', (k) => {
-    // Drawn keeps the plain digit colour, so it has no tile rule.
-    if (k !== 'drawn') expect(hasRule(`rl-profile__tile--${k}`)).toBe(true);
-    expect(hasRule(`rl-profile__result--${k}`)).toBe(true);
+describe('the templated classes have a rule each', () => {
+  it.each(Object.entries(TEMPLATED).flatMap(([stub, xs]) => xs.map((x) => [stub + x.name, x.ruled] as const)))('%s', (cls, ruled) => {
+    expect(hasRule(cls)).toBe(ruled);
   });
 });
 
@@ -72,9 +91,20 @@ describe('the account page accents (GH-1367 S1)', () => {
     expect(body('.rl-profile__show-record input,\n.rl-profile__telemetry input')).toContain('accent-color: var(--accent)');
   });
   it('rules the header card in gold and backs the chips solid', () => {
-    expect(body('.rl-profile__card--head')).toContain('var(--accent)');
+    expect(body('.rl-profile__card--head')).toContain('border-left: 0.1875rem solid var(--accent)');
     expect(body('.rl-profile__result')).toContain('var(--panel-bg-solid)');
     expect(body('.rl-profile__identity-state')).toContain('var(--panel-bg-solid)');
+  });
+  it('pins the lifted card, the rim, the link, the tag, the status and the perk marker', () => {
+    expect(css).toMatch(/--card-bg: color-mix\(in srgb, var\(--rl-shadow-0\) 70%, transparent\)/);
+    expect(body('.rl-profile__card')).toContain('background: var(--card-bg)');
+    expect(body('.rl-profile__avatar .rl-avatar')).toContain('border-width: 2px');
+    expect(body('.rl-profile__privacy-link')).toContain('color: var(--ink-dim)');
+    expect(body('.rl-avatar-picker__tag')).toContain('background: var(--band-mission)');
+    expect(body('.rl-profile__status')).toContain('color: var(--good)');
+    const perk = body('.rl-profile__perks li::before');
+    expect(perk).toContain("content: '\\203A\\00a0'");
+    expect(perk).toContain('color: var(--accent)');
   });
   it('out-ranks the 1em symbol rule for the avatar glyph', () => {
     expect(css).toContain('.rl-avatar .rl-avatar__glyph.rl-sym {');
