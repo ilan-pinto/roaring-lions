@@ -174,9 +174,9 @@ describe('the generator', () => {
 
 describe('assertLegible, the build-time gate (falsification audit, GH-1075)', () => {
   it('refuses a crest with a 10-unit stroke and one with a 12-unit gap, and passes every shipped crest', () => {
-    const thin = { id: 'crest-thin', ground: 'olive.2', rim: 'olive.4', charge: () => [{ d: 'M60,60L230,60L230,70L60,70Z' }] };
+    const thin = { id: 'crest-thin', ground: 'olive.2', rim: 'olive.4', charge: () => [{ fill: 'olive.4', d: 'M60,60L230,60L230,70L60,70Z' }] };
     expect(() => assertLegible(thin)).toThrow(/keeps/);
-    const gap = { id: 'crest-gap', ground: 'olive.2', rim: 'olive.4', charge: () => [{ d: 'M60,100L230,100L230,140L60,140Z' }, { d: 'M60,152L230,152L230,192L60,192Z' }] };
+    const gap = { id: 'crest-gap', ground: 'olive.2', rim: 'olive.4', charge: () => [{ fill: 'olive.4', d: 'M60,100L230,100L230,140L60,140Z' }, { fill: 'olive.4', d: 'M60,152L230,152L230,192L60,192Z' }] };
     expect(() => assertLegible(gap)).toThrow(/closing adds/);
     for (const c of CRESTS) expect(() => assertLegible(c), c.id).not.toThrow();
   });
