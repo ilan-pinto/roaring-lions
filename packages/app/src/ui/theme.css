@@ -10220,6 +10220,33 @@ fieldset.rl-versus__maps {
 .rl-menu--profile {
   width: min(64rem, 94vw);
 }
+/* GH-1367 S2: a warm ground behind the account page, and one frame. The ground is the limestone and dust ramps
+   (index 0 is the lightest, so 6 is the dark end), under a dust glow top left and an olive shade bottom right. It
+   is scoped by :has() to the stage that holds the profile column, so no other screen moves, and the router empties
+   #stage on leave, so nothing outlives the page. Static: nothing animates. */
+:root {
+  --profile-ground: linear-gradient(var(--rl-limestone-6), var(--rl-dust-6));
+  --profile-ground-glow: color-mix(in srgb, var(--rl-dust-3) 40%, transparent);
+  --profile-ground-shade: color-mix(in srgb, var(--rl-olive-2) 55%, transparent);
+}
+#stage:has(> .rl-menu--profile) {
+  background:
+    radial-gradient(ellipse at 18% 8%, var(--profile-ground-glow), transparent 60%),
+    radial-gradient(ellipse at 82% 92%, var(--profile-ground-shade), transparent 55%),
+    var(--profile-ground);
+}
+/* One frame: the column stops drawing a second box around the panel (Saves and Credits keep theirs). */
+.rl-menu--profile {
+  background: transparent;
+  border-color: transparent;
+}
+.rl-menu--profile > .rl-panel {
+  background: var(--panel-bg);
+}
+.rl-menu--profile .rl-foot .rl-btn,
+.rl-menu--profile .rl-foot a {
+  background: var(--panel-bg-solid);
+}
 .rl-menu--profile .rl-panel {
   text-align: left;
 }

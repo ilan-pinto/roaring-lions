@@ -80,3 +80,18 @@ describe('the account page accents (GH-1367 S1)', () => {
     expect(css).toContain('.rl-avatar .rl-avatar__glyph.rl-sym {');
   });
 });
+
+describe('the warm ground (GH-1367 S2)', () => {
+  it('is painted only on a stage that holds the profile column', () => {
+    const rules = [...css.matchAll(/([^{}]*)\{[^{}]*var\(--profile-ground\)[^{}]*\}/g)];
+    expect(rules.length).toBe(1);
+    expect(rules[0]?.[1]?.trim()).toBe('#stage:has(> .rl-menu--profile)');
+  });
+  it('drops the menu column\'s own box on the profile screen only', () => {
+    expect(css).toMatch(/\n\.rl-menu--profile \{\n {2}background: transparent;\n {2}border-color: transparent;/);
+    expect(css).not.toMatch(/\n\.rl-menu \{[^}]*transparent/);
+  });
+  it('never animates', () => {
+    expect(body('#stage:has(> .rl-menu--profile)')).not.toMatch(/animation|transition/);
+  });
+});
