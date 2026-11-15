@@ -48,13 +48,16 @@ A row that rides a runtime path no shipped mission has exercised says so in its 
 | 6 | `commit` / `withdraw_to` on a garrisoned unit | `sim.ts` `move` and `attackMove` call `leaveStructure` | a garrisoned group does leave its post. QL IV's `firing_line` order is real |
 | 7 | what `casualties_pct` divides by | `mission.ts` `enemyAtStart` is every side-1 body spawned from `enemy.garrison`, **buried stock and the digger included**; waves and trigger spawns are excluded; a body is dead when `alive` is 0 and `removed` is not 1 | the counts are in F-2 |
 | 8 | what contests a hold | `enemyNear`: a living, **surfaced** enemy **inside the zone** within 6 tiles (`CONTEST_RADIUS_SQ` 36) of a player unit inside it | an enemy 1.5 tiles outside `ring_north` does not contest it |
-| 9 | spawn spread | `spawnPlacement` offsets body k by `(k mod 3) * 1.25` east and `floor(k / 3) * 1.25` south; `assertGroundClear` throws on a blocked body of any non-garrison, non-buried placement and of every wave marker | checked for every placement here (§11); three design positions would have thrown and two more were re-seated (F-3) |
+| 9 | spawn spread | `spawnPlacement` offsets body k by `(k mod 3) * 1.25` east and `floor(k / 3) * 1.25` south; `assertGroundClear` throws on a blocked body of any non-garrison, non-buried placement and of every wave marker | checked for every placement here (§11); five design positions would have thrown at load and two more were re-seated (F-3) |
 | 10 | the shepherd rule | `civilians.ts`: a **ground** player unit within 4.0 tiles (`SHEPHERD_RADIUS_SQ`), only in a mission with an `evacuate_before`; suppression above 0.3 also sends a civilian; a free-slot transport boards them | an `apc_eitan` beside the people can carry them |
 | 11 | when a stray bills | `mission.ts` `nearMiss`: `collateralRisk >= STRUCTURAL_COLLATERAL` (19661). `sim.ts` stores `fx.from(collateral_risk)`, and 0.3 × 65536 = 19660.8 rounds to 19661 (arithmetic checked; `fx.from` read, not executed, because the worktree has no `node_modules`) | **`at_team`'s Spike (0.30) bills.** It is a knife-edge: pinned as a literal in §8 |
 | 12 | trigger-keyed waves | `stepWaves` reads `w.trigger` against a completed objective; the schema still requires `at_seconds` | no shipped wave uses `trigger`. QL V is the first. `world-walk` |
 | 13 | `town` enum | schema `properties.town` | has no `qasr_liwan`: G-10, `sim-guard`. The scratch run in §11 uses a stand-in |
 | 14 | range | `sim.ts` `rangeSq` is plain centre to centre | no tolerance. A 0.3 margin is a margin of 0.3 |
 | 15 | carried tags | `spawnPlacement`: a tag in `intel.marked_positions` spawns **every** placement carrying it identified, and a `locate` on it is complete at t=0 | see F-8 |
+| 16 | the `camp_exit` marker | grep of `packages/`, `tools/` and `data/` finds no reader; `sim.ts` `exitTile(structure)` derives the exit from the camp's own footprint, and `wadi_halam_3_counterraid` (an economy mission) declares no such marker | the four `camp_exit` markers in the design are **inert**. Keep or drop them; what matters is that the tile `exitTile` picks beside each camp is passable on the foot mask (`world-walk`) |
+| 17 | strike billing (design §5.1 asked) | `callStrike` queues every round with `by` = the calling player unit; `stepStrikes` passes it to `damageStructure`, so `structureDestroyed.by` is a side-0 entity and `stepRoe` bills `roe_penalty × structure_penalty_mult`. A strike landing in a flagged zone also bills 5 (once per zone per 10 s), and 3 within 2 tiles of a civilian | **a called barrage's structure kills are billed to the player.** QL I's "one barrage is survivable, a second or a house is not" holds as written. The caller must be alive and on the surface |
+| 18 | how a route is found | `markerSeeingRoute`: a living `mark_tunnel` unit with a clear line to **any tile of the authored route** inside its sight; spoil and dig progress are not read. `chargeTunnel` also uses route geometry | `ql5_deep_cut` is identifiable and chargeable whether or not its digger lives (QL V ask 3) |
 
 ---
 
@@ -76,7 +79,7 @@ A row that rides a runtime path no shipped mission has exercised says so in its 
 |---|---|---|---|
 | **F-1** | **QL III's `hold_for staging` banks during the pause.** The sheet and design say only "the 150 s before the pause ends are free". `hold_for` accumulates from the first uncontested tick, `staging` is 15 tiles from the start line, and no enemy is within 12 tiles of it until 240 s. A force on it from about 20 s has about 220 s banked when the pause ends and needs about 80 more, so the objective is spent mostly on the quiet, not under the waves | `stepObjectivePass` `hold_for`: `holdTicks` only increments; QL-A7 distances | **Not changed.** The 300 s and its text ("five minutes") are approved, and difficulty is measured, not estimated. The one-field fix is `seconds: 360` with the objective text `Hold the forward ground for six minutes` (39 characters; `narrative-designer` owns it). `playtest` decides (§5.3, ask 1) |
 | **F-2** | **`casualties_pct` denominators** include buried stock | finding 7 above | bodies at start: **QL I 8, QL II 14, QL III 11, QL IV 12, QL V 13**. QL II's 50% is **7** deaths of 14; QL IV's is **6** of 12; QL III's 5% is **1** of 11. A collapse that kills a buried stock counts (QL IV: `ql4_yard` holds 3 bodies, so bringing the shaft down is 3 of the 6) |
-| **F-3** | **Three positions would have thrown at load, and two more were re-seated** | finding 9, run on the design's grids | QL III `city_west` (6,20) to **(5,21)** (the second body of a count-2 lands on the wall at (7,20)); QL V `vent_shallow_n` (6,24) to **(3,24)** (bodies at 6, 7, 9 hit the wall at (7,24)); QL IV forecourt groups (32,26) and (33,27) to **(30,26) and (30,27)** (a count-3 at 32 puts a body on the east wall at (35,26)); QL III's four taken from (12,37) to **(11,37)** so no body stands in `water_point` at x=15 (no throw, a cosmetic re-seat). QL II's residents move one row north, y 38 to **37**, so they stand inside the flagged `south_quarter` (its rows are 34 to 37); their step walks stay 13, 11 and 12 |
+| **F-3** | **Five placements would have thrown at load, and two more were re-seated** | finding 9, run on the design's grids | QL III `city_west` (6,20) to **(5,21)** (the second body of a count-2 lands on the wall at (7,20)); QL V `vent_shallow_n` (6,24) to **(3,24)** (bodies at 6, 7, 9 hit the wall at (7,24)); QL IV forecourt groups (32,26) and (33,27) to **(30,26) and (30,27)** (a count-3 at 32 puts a body on the east wall at (35,26)); QL III's four taken from (12,37) to **(11,37)** so no body stands in `water_point` at x=15 (no throw, a cosmetic re-seat). QL II's residents move one row north, y 38 to **37**, so they stand inside the flagged `south_quarter` (its rows are 34 to 37), and the third group from x 37 to **35** so its third body (x 38) stays inside the zone; the first bodies' step walks stay 13, 11 and 12. **The camp footprint is blocked ground before any force spawns**, which the design's grids do not show: QL III's `inf_squad` ×3 at (42,44) puts a body at (45,44) on the camp at (44,44), so it moves to **(42.5,43.5)**; QL V's `inf_squad` ×3 at (24,45) puts a body at (27,45) on the camp at (26,45), and the whole QL V start line was re-laid (the squad to (22.5,45.5), the two `yahalom_squad` to (23.5,44.5) and (25.5,44.5), the rest nearby) |
 | **F-4** | **A drone can hold QL V's `pump_yard` alone** once the two `pump_guard` are dead (`hold_for` calls `livingIn(zone, 0)` with no ground filter) | `mission.ts` `stepObjectivePass` | the hold completes, the flush waves spawn, and nobody is at the yard for them. Fragments are unchanged. design §5.7 item 6 measures it. **Fallback, expressible today:** delete the `recon_drone` placement from QL V's `starting_force`. The `ugv_recon_dog` (sight 12) and the two `yahalom_squad` (`mark_tunnel`) still map. Proper fix: `ground_only` on `hold_for` (G-QL5) |
 | **F-5** | **QL II's last two waves fire only if the holds are delayed.** Both holds can finish by about 300 s, which also ends the evacuation clock | holds accumulate; 120 + 180 + 270 s waves come first | kept as insurance for a force that is contested, not as pressure on a good run. Said so in §4.3 |
 | **F-6** | **T-QL3a as designed does nothing.** The fourth of the taken at (10,36) is within 4 tiles of anyone standing within 4 of the other three, so one soldier shepherds all four | `SHEPHERD_RADIUS_SQ` | the working form puts the fourth at least 8.1 tiles away from the three: §5.5 |
@@ -162,8 +165,7 @@ to the extract, 22 tiles from it. It loses at 300 s to its own clock, not to the
 (2) No `first_contact` trigger exists. (3) The guard locate is finishable from the lane without entering `ql_house_yard`.
 (4) Conduct lost by a plan that never buys fire support is 0, and a plan that buys one barrage and drops it on `ql_lane`
 loses 5 (a strike into a flagged zone) plus 6 per house, which the ceiling of 10 makes survivable once and only once.
-**Whether a called barrage's structure kills bill the player was not read** (design §5.1): `playtest` or `sim-guard`
-confirms `structureDestroyed`'s `by` for a strike. (5) A replay with the tags already in the ledger (F-8).
+A called barrage's structure kills **are** billed to the player (§0.2 row 17), so those figures hold. (5) A replay with the tags already in the ledger (F-8).
 
 ### 3.4 Map requirements (`qasr_liwan`)
 
@@ -188,7 +190,7 @@ Every twist is classified. The baseline fragments adopt **none**; each delta bel
 
 | twist | what turns | class | delta | read by the player | recommendation |
 |---|---|---|---|---|---|
-| **T-QL1a** "The guard was relieved" | the primary `locate` is not where Idit said | **expressible today** | move the `ql_house_guard` placement from (19.5,5.5) to (12.5,6.5), 6 tiles west on the lane beside `ql_lane_rpg`; swap `find_the_gate_guard`'s `say` for N§8's. **The objective text "Identify the guard on the courtyard gate" becomes false.** It needs `Identify the guard who watches the gate` (38) from `narrative-designer` | Idit says so at the moment of identification | adopt only with the text change. Raises the cost of the approach: the guard now sees the gate from 6 tiles and sits beside the RPG |
+| **T-QL1a** "The guard was relieved" | the primary `locate` is not where Idit said | **expressible today** | move the `ql_house_guard` placement from (19.5,5.5) to (14.5,5.5), 4.1 tiles west of the gate on the open lane north of the courtyard wall and 2 from `ql_lane_rpg` (the design's (12,6) is a house tile); swap `find_the_gate_guard`'s `say` for N§8's. **The objective text "Identify the guard on the courtyard gate" becomes false.** It needs `Identify the guard who watches the gate` (39) from `narrative-designer` | Idit says so at the moment of identification | adopt only with the text change. Raises the cost of the approach: the guard now sees the gate from 4 tiles and sits beside the RPG |
 | **T-QL1c** "The street waits at the gate" | the street stops in the lane, so the walk out is the fight | **expressible today** | `to` of both street triggers `the_house` to `house_gate` | the lane fills before the player sees it | **not adopted** (D-3) |
 | **T-QL1d** "The riders come from the wrong side" | the 210 s riders spawn between the start line and the extract | **expressible today** | wave 210: `from` `tower_knoll`, `to` `ql_extract_point`; the wave `say` ("coming east along the north road") becomes false and needs a new line | Idit's radio line, which must say they come from the east | not adopted: it makes the retreat lane the fight and cannot be read from the map. Measure before use |
 
@@ -634,7 +636,7 @@ The map has the water point's cistern (rows 1, 38 to 42) and **no** seam berm (r
 
 | twist | class | delta | recommendation |
 |---|---|---|---|
-| **T-QL3a (working form)** "One of them is not walking" | **expressible today** | `civilians.groups`: three at (11.5,37.5) and **one at (2.5,38.5)**, 9.1 tiles from the three (the design's (10,36) is within 4 of the same soldier: F-6). Swap the `the_handover_party_steps_back` `say` for N§8's. The fourth's walk is 10 steps (12.9 length) | **adopt**, then measure: it forces the player to split two soldiers inside the quiet, and the briefing's "bring all four" already carries it. The fourth stands 13.3 tiles from the nearest line |
+| **T-QL3a (working form)** "One of them is not walking" | **expressible today** | `civilians.groups`: three at (11.5,37.5) and **one at (2.5,38.5)**, 9.1 tiles from the three (the design's (10,36) is within 4 of the same soldier: F-6). Swap the `the_handover_party_steps_back` `say` for N§8's. The fourth's walk is 10 steps (12.9 length) | **adopt**, then measure: it forces the player to split two soldiers inside the quiet, and the briefing's "bring all four" already carries it. The fourth stands 13.3 tiles from the nearest line and 9.8 from the handover party, outside its rifles' 7, so a player can collect that one **before** 90 s while the other three still wait: a decision, not a defect |
 | **T-QL3b** "They stood closer" | expressible today at nine times the cost | `withdraw_to` per line needs one group per line, then three triggers per break (D-1) | **rejected** |
 | **T-QL3c** "The pause ends early, and nobody fired" | expressible today (a `timer_s 200` commit) | one trigger | **rejected**, on design §5.3's ground: it teaches that restraint is not rewarded |
 | **T-QL3d** "The fourth arrives late" | **engine** | needs `do: spawn` on side 2 (G-QL3) so a civilian can appear at 150 s | owner `sim-guard`; not for this pass |
@@ -656,7 +658,7 @@ The map has the water point's cistern (rows 1, 38 to 42) and **no** seam berm (r
 
 ```json ql3.starting_force
 [
-  {"unit": "inf_squad", "count": 3, "at": [42.5, 44.5], "from_ledger": true},
+  {"unit": "inf_squad", "count": 3, "at": [42.5, 43.5], "from_ledger": true},
   {"unit": "at_team", "count": 1, "at": [43.5, 46.5], "from_ledger": true},
   {"unit": "mortar_team", "count": 1, "at": [41.5, 46.5], "from_ledger": true},
   {"unit": "apc_eitan", "count": 1, "at": [40.5, 45.5]},
@@ -1043,10 +1045,10 @@ depot is never attacked by the director: its danger is player fire at the crew t
    complete? If yes, take the fallback (delete the drone) or land G-QL5.
 2. **QL-A6.** From a tile outside `relief_depot`, can `ugv_recon_dog` (sight 12) identify `ql5_deep_depot`? `world-walk`
    with real `losRay`.
-3. **The undug route.** Is `ql5_deep_cut` identifiable from its spoil while it is being dug, and is it chargeable if the
-   digger dies before the dig completes? `sim.ts` charges route geometry, not spoil (`nearestRouteTileDistSq`), but
-   identification of a non-`pre_dug` route needs the spoil trail. If the digger is killed at 10 s, the route may never be
-   identifiable: `collapse` would then be unwinnable, and the mission with it. `mission-author` runs this.
+3. **The undug route.** Read, not assumed (§0.2 row 18): `markerSeeingRoute` finds a route by line of sight to any tile of
+   its authored geometry, and a charge works on that geometry, so `ql5_deep_cut` is identifiable and chargeable whether
+   or not `ql_deep_crew` lives. Killing the digger early stops the apron crew surfacing and does not make the collapse
+   unwinnable. `mission-author` confirms with a `walk_mission` run once the map exists.
 4. **Conduct.** The depot is 12 and fails alone, a house 24, a shanty and a pump house 8, a firing position 0. Two strays
    (10) pass. Print the loss.
 5. **Passive control**: defeat at 360 s by `the_deep_routes`; the apron crew arrives at about 54 s.
@@ -1286,7 +1288,11 @@ The rule: every `ql_mortar` position is at least 16.5 from every point of `ql_ex
    file (four markers moved or added). Run `map_visibility.ts --draw=<id>` on each: **none of the five maps has been
    measured against the 84% gate**.
 3. Paste each mission's fragments; add `name`, `briefing`, `debrief`, `hostages_place`, `dispatch`, `aftermath` from the
-   narrative sheet, and the `ledger` blocks (§11 lists the ones this rig assumed).
+   narrative sheet, and the `ledger` blocks. The rig assumed these (design §4): I requires R, produces R M C X I H; II
+   requires R I, produces R M C X E; III requires R, produces R M C X I H; IV requires R I, produces R M C X I E; V
+   requires R I, produces R M C X I. (R `roster.surviving_units`, M `roe.mission_ratings`, C
+   `campaign.completed_missions`, X `campaign.mission_results`, I `intel.marked_positions`, E
+   `civ.settlements_evacuated`, H `civ.hostages_recovered`.) The four `camp_exit` markers are inert (§0.2 row 16).
 4. Run `pnpm validate:data`, `walk_placements.ts` and `walk_mission.ts` on each. Of the things in §11, only these were
    **not run**, because they read `data/maps/`: `validate:data` in full, `walk_placements`, `walk_mission`, FlowField
    lengths, `map_visibility`, QL-A6, and the identify-then-charge chains.
@@ -1345,10 +1351,13 @@ assembles five scratch missions.
 | every placement body, every wave marker's bodies (spread included), every civilian body stands on a passable tile of its map; garrison and buried `at` tiles are passable; each `garrison.building` is an `F` | pass, after the moves in F-3 |
 | each `evacuate_before` refuge marker lies in its zone | pass |
 | every `label`, `text` and `say.text` is byte-identical to a string in `narrative.md` | pass |
+| mission-raised structure footprints (the camps) are treated as blocked ground, as `MissionRuntime.start` raises them before any force spawns | pass after two corrections (F-3); added on review, because the design's grids do not show the camps |
+| every wave spawn marker reaches its `to`, and every committed or withdrawn group's start tile reaches its destination (8-connected steps) | pass |
+| the seven expressible-today twist deltas (T-QL1a, T-QL1d, T-QL2a, T-QL2b, T-QL3a working form, T-QL4b, T-QL5b) applied to the extracted fragments and run through the same checks | **7 of 7 stay green.** T-QL4a changes map data, T-QL3b, c, d, e and T-QL5a, c, d are rejected, held or engine, so none is a variant |
 | mutations, each run and each watched go red | see below |
 
 **Mutations.** Each was applied to the fragments extracted from this file, the whole rig re-run, and the result read.
-**15 of 15 went red**, and the unmutated run is clean (so the checks are not vacuous). The three spread-check rows are the design's own coordinates, run through the runtime's own rule, and now guard the moves in F-3.
+**18 of 18 went red**, and the unmutated run is clean (so the checks are not vacuous). The three spread-check rows are the design's own coordinates, run through the runtime's own rule, and now guard the moves in F-3.
 
 | mutation | caught by |
 |---|---|
@@ -1367,6 +1376,9 @@ assembles five scratch missions.
 | a trigger with its `label` deleted | the rig; `triggerLabelFailures` |
 | `digger_crew` given a garrison stance | `garrisonStanceFailures` |
 | an income zone the map does not declare | `incomeFailures` |
+| QL III's `inf_squad` back at (42.5,44.5) (a body on the camp at (45,44)) | the footprint mask |
+| QL V's `inf_squad` back at the design's (24.5,45.5) (a body on the camp at (27,45)) | the footprint mask |
+| QL I's courtyard gate (18,7) walled, so the street cannot reach `the_house` | the reachability check |
 
 **Not run, and why.** `pnpm validate:data`, `walk_placements.ts`, `walk_mission.ts`, FlowField lengths, `map_visibility`,
 `pnpm playtest`: they read `data/maps/` and `data/missions/`, which do not exist for this town. Nothing here was
