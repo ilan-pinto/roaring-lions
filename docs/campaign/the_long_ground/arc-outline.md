@@ -18,7 +18,7 @@ the taken walk back across it.*
 
 - **Keep** the twelve shipped Marj missions, Shai Hammai, Idit Zohar and Nadir Sahim's end
   at Beit Sahwan IV.
-- **Add 19 missions in four new towns, plus one mission in Khan Rafid.**
+- **Add 19 missions: 18 in four new towns, and a fourth Khan Rafid mission.**
   - Act I's first winter (real phases 1 to 3) gains **Qasr Liwan** (5 missions), **Khan Rafid IV**
     and **Bir Tarsha** (5).
   - A new **Act IV, the return** (real phases 4 and 5), after Naharin, holds **Jurf Nadi** (4)
@@ -42,9 +42,9 @@ the taken walk back across it.*
 | | **Plot A: *The Long Ground*** (RECOMMENDED) | **Plot B: *One Winter*** | **Plot C: *The Return Only*** |
 |---|---|---|---|
 | shape | Act I extended (phases 1 to 3); Acts II and III unchanged; new Act IV (phases 4 and 5) | every phase in Act I, before Sur, compressed | Act I unchanged except re-briefs; all new content after Naharin |
-| new missions | 19 | 11: Qasr Liwan ×4, KR IV, Bir Tarsha ×4, and Jurf Nadi and Mina Sahil folded into two missions at the end of Bir Tarsha | 13: Bir Tarsha, Jurf Nadi, Mina Sahil |
-| the record's order | kept: entry, the south, the border, then the return and the line | the return becomes a single beat: the siege and the line are two missions | broken: the ring, the pause and the clinic yard happen after the other fronts |
-| rank (`commander.json`) | L-3: Captain through Qasr Liwan, then **Major** from Khan Rafid to Umm Zeitoun, Lt Col in Naharin, and **Colonel through Act IV**. Act IV is the brigade he is handed | Captain for about 23 missions in a row. The ladder is untouched, and the act runs very long | the ladder is untouched; Colonel through the return |
+| new missions | 19 | 12: Qasr Liwan ×4, KR IV, Bir Tarsha ×4, and Jurf Nadi and Mina Sahil folded into one three-mission town (the siege, the city, the Line) after Bir Tarsha, before Sur | 18: all four new towns, Qasr Liwan included, after Naharin; KR IV dropped |
+| the record's order | kept: entry, the south, the border, then the return and the line | kept, compressed: the siege, the city and the line are one town | broken: the city's ring, pause and clinic yard (Qasr Liwan) come after the other fronts |
+| rank (`commander.json`) | L-3 default: Captain through the extended Act I (the Captain entry's `until_mission` moves from `deir_amun_3_subterranean` to `bir_tarsha_5_subterranean`), Major in Sur, Lt Col in Naharin, and **Colonel through Act IV**: Act IV is the brigade he is handed. Promotions stay at act boundaries | Captain for about 26 missions in a row, tutorial included. The ladder's structure is untouched, and the act runs very long | the ladder is untouched; Colonel through the return |
 | `world.json` chain | Marj towns: Beit Sahwan, **Qasr Liwan**, Khan Rafid, Deir Amun, **Bir Tarsha**. Sur unlocks after `bir_tarsha_5_subterranean` (was `deir_amun_3_subterranean`). Naharin is unchanged. **Act IV needs a region that returns to the Marj: G-14** | Sur's unlock moves to the last Bir Tarsha mission | Act IV as in A |
 | the ending | moves from `wadi_halam_5_depot` to `mina_sahil_4_clearance` (L-6) | stays on `wadi_halam_5_depot` | moves, as in A |
 | what it costs that is landed | the GDD §11 "end of the war is said once" beat moves; Wadi Halam V's aftermath is re-written; `commander.json` ranks move | the least | the clinic, ring and pause beats lose their chronology |
@@ -53,6 +53,12 @@ the taken walk back across it.*
 for in the order it happened. Its one structural cost, a return to a region (G-14), is
 app work and not a redesign. Plot B is the fallback if the lead wants the ending untouched;
 Plot C is listed for completeness, and I recommend against it.
+
+**On the act count.** Under Plot A the war has four acts: I the Marj (extended), II Sur,
+III Naharin, and IV the return. L-3 offers the alternative of splitting Act I in two, with a
+Major promotion between Qasr Liwan and Khan Rafid. That makes five acts, renumbers Sur,
+Naharin and the return, and re-briefs every rank line in `storyline.md` §2.1. The default
+keeps four acts.
 
 ---
 
@@ -73,19 +79,19 @@ never stall (README rule 4).
 | # | id · name | phase | min | primaries | secondaries | requires / produces | econ | beat |
 |---|---|---|---|---|---|---|---|---|
 | | `beit_sahwan_*` ×6 (shipped) | | | | | as shipped | | P0, P1-a, P1-b |
-| 1 | `qasr_liwan_1_recon` · *The Lookout* | recon | 6 | `locate` · `ql_house_guard`; **`evacuate_before` · `ql_extract` (count 1, `hostages`, 300 s)** | `locate` · `ql_ring_posts` (carries) | R / R M C X I H | n | R1 |
+| 1 | `qasr_liwan_1_recon` · *One House* | recon | 6 | `locate` · `ql_house_guard`; **`evacuate_before` · `ql_extract` (count 1, `hostages`, 300 s)**; **`no_collateral_above` 10** | `locate` · `ql_ring_posts` (carries) | R / R M C X I H | n | R1 |
 | 2 | `qasr_liwan_2_foothold` · *The Ring* | foothold | 7 | `hold_for` · `ring_north` 240; `hold_for` · `the_cut` 240; **`evacuate_before` · `cut_refuge` (residents, 300 s)** | `capture` · `coast_road` 15 | R I / R M C X E | y | P1-c, P1-d |
 | 3 | `qasr_liwan_3_buildup` · *The Pause* | buildup | 7 | **`evacuate_before` · `handover` → `pause_refuge` (`hostages`, 330 s)**; `hold_for` · `staging` 300; **`no_collateral_above` 10** | `capture` · `water_point` 15 | R / R M C X H | y | P1-f |
-| 4 | `qasr_liwan_4_clearance` · *The Clinic Yard* | clearance | 7 | `capture` · `clinic_yard` 15; **`evacuate_before` · `clinic_refuge` (300 s)**; **`collapse` · `clinic_yard` 360** | `eliminate_hvt` · `ql_yard_commander` | R I / R M C X E | n | P1-e |
-| 5 | `qasr_liwan_5_subterranean` · *The Pumps* | subterranean | 7 | `hold_for` · `pump_yard` 180; **`collapse` · `shore_grid` 360** | `locate` · `ql_deep_crew` (carries); `survive_until` 300 | R I / R M C X I | y | T3, T4, P1-g, P1-i |
+| 4 | `qasr_liwan_4_clearance` · *The Clinic Yard* | clearance | 7 | `capture` · `clinic_yard` 15; **`evacuate_before` · `clinic_refuge` (300 s)**; **`collapse` · `clinic_yard` 360**; **`no_collateral_above` 10** | `eliminate_hvt` · `ql_yard_commander` | R I / R M C X E | n | P1-e |
+| 5 | `qasr_liwan_5_subterranean` · *The Pumps* | subterranean | 7 | `hold_for` · `pump_yard` 180; **`collapse` · `shore_grid` 360**; **`no_collateral_above` 10** (the relief depot) | `locate` · `ql_deep_crew` (carries); `survive_until` 300 | R I / R M C X I | y | T3, T4, P1-g, P1-i |
 | | `khan_rafid_1..3` (shipped; KR I re-briefed) | | | | | as shipped | | P2-a, P2-b |
-| 6 | `khan_rafid_4_clearance` · *Second Floor* | clearance | 6 | `eliminate_hvt` · `kr4_guard`; **`evacuate_before` · `kr4_extract` (count 3, `hostages`, 300 s)** | `capture` · `souk_corner` 15 | R I / R M C X H | n | R2 |
+| 6 | `khan_rafid_4_clearance` · *Second Floor* | clearance | 6 | `eliminate_hvt` · `kr4_guard`; **`evacuate_before` · `kr4_extract` (count 3, `hostages`, 300 s)**; **`no_collateral_above` 12** | `capture` · `souk_corner` 15 | R I / R M C X H | n | R2 |
 | | `deir_amun_1..3` (shipped; DA III aftermath re-written) | | | | | as shipped | | P2-c, P2-d, T5 |
-| 7 | `bir_tarsha_1_recon` · *The Gate Road* | recon | 6 | `locate` · `bt_gate_watch`; **`evacuate_before` · `gate_refuge` (residents, 300 s)** | `locate` · `bt_fence_works` (carries) | R / R M C X I E | n | P3-a |
+| 7 | `bir_tarsha_1_recon` · *The Gate Road* | recon | 6 | `locate` · `bt_gate_watch`; **`evacuate_before` · `gate_refuge` (residents, 300 s)** | `locate` · `bt_works_crew` (carries) | R / R M C X I E | n | P3-a |
 | 8 | `bir_tarsha_2_foothold` · *The Gate* | foothold | 7 | `hold_for` · `the_gate` 240; **`evacuate_before` · `safe_quarter` (residents, 300 s)** | `capture` · `terminal_roof` 15 | R I / R M C X E | y | P3-a |
 | 9 | `bir_tarsha_3_clearance` · *Two Houses* | clearance | 6 | `eliminate_hvt` · `bt3_guard_east`; `eliminate_hvt` · `bt3_guard_west`; **`evacuate_before` · `bt3_extract` (count 5, `hostages`, 300 s)**; **`no_collateral_above` 15** | none | R I / R M C X H | n | R3 |
 | 10 | **`bir_tarsha_4_clearance` · *The Blade Line* (THE DOZER ESCORT)** | clearance | 7 | **`escort` · `blades` → `far_gate`**; **`raze` · `fence_works` 390**; **`collapse` · `fence_works` 390**; **`no_collateral_above` 12** | `capture` · `berm_crest` 15 | R I / R M C X | y | P3-b, T6, T7, T8 |
-| 11 | `bir_tarsha_5_subterranean` · *Under the Fence* | subterranean | 7 | **`collapse` · `fence_road` 390** | **`evacuate_before` · `chamber_refuge` (count 1, `hostages`, 330 s)** (carries); `eliminate_hvt` · `bt5_block_commander` | R I / R M C X I H | y | P3-c, P1-h, R4, P3-e |
+| 11 | `bir_tarsha_5_subterranean` · *Under the Fence* | subterranean | 7 | **`collapse` · `fence_road` 390**; **`no_collateral_above` 10** | **`evacuate_before` · `chamber_refuge` (count 1, `hostages`, 330 s)** (carries); `eliminate_hvt` · `bt5_block_commander` | R I / R M C X I H | y | P3-c, P1-h, R4, P3-e |
 
 Phases ascend in every town: Qasr Liwan 2, 3, 4, 5, 6; Khan Rafid 2, 3, 5, 5; Bir Tarsha 2,
 3, 5, 5, 6. Bir Tarsha V's rescue is a **secondary**, so the mission's only failable
@@ -96,17 +102,31 @@ decision (§3, mission 11).
 
 | # | id · name | phase | min | primaries | secondaries | requires / produces | econ | beat |
 |---|---|---|---|---|---|---|---|---|
-| 12 | `jurf_nadi_1_recon` · *Ground Taken Twice* | recon | 6 | `locate` · `jn_cells` (count 4); **`evacuate_before` · `order_route` (residents, 300 s)** | `locate` · `jn_workshop` (carries) | R / R M C X I E | n | P4-a, P4-b |
+| 12 | `jurf_nadi_1_recon` · *Ground Taken Twice* | recon | 6 | `locate` · `jn_cells` (count 4); **`evacuate_before` · `order_route` (residents, 300 s)** | `locate` · `jn_rigging_crew` (carries) | R / R M C X I E | n | P4-a, P4-b |
 | 13 | `jurf_nadi_2_foothold` · *The Checkpoint* | foothold | 7 | `hold_for` · `checkpoint` 240; **`evacuate_before` · `south_refuge` (residents, 300 s)** | `capture` · `orchard_edge` 15 | R I / R M C X E | y | P4-b, P4-c |
-| 14 | `jurf_nadi_3_clearance` · *Rigged Streets* | clearance | 7 | `capture` · `camp_square` 20; **`raze` · `jn_workshop` 330** | `eliminate_hvt` · `jn_charge_chief` | R I / R M C X | n | P4-c |
-| 15 | `jurf_nadi_4_subterranean` · *The Complex* | subterranean | 7 | **`collapse` · `fence_hamlet` 360**; **`raze` · `complex_yard` 360** | `survive_until` 300 | R I / R M C X I | y | P4-d, P4-e |
-| 16 | `mina_sahil_1_buildup` · *Held Ground* | buildup | 7 | `hold_for` · `held_east` 240; `hold_for` · `held_south` 240; **`raze` · `firing_line` 390** | `capture` · `water_tower` 15 | R I / R M C X | y (income zones) | P5-a, I-1 |
+| 14 | `jurf_nadi_3_clearance` · *Rigged Streets* | clearance | 7 | `capture` · `camp_square` 20; **`raze` · `jn_workshop` 330**; **`no_collateral_above` 10** | `eliminate_hvt` · `jn_charge_chief` | R I / R M C X | n | P4-c |
+| 15 | `jurf_nadi_4_subterranean` · *The Complex* | subterranean | 7 | **`collapse` · `fence_routes` 360**; **`raze` · `complex_yard` 360** | `survive_until` 300 | R I / R M C X I | y | P4-d, P4-e |
+| 16 | `mina_sahil_1_buildup` · *Held Ground* | buildup | 7 | `hold_for` · `held_east` 240; `hold_for` · `held_south` 240; **`raze` · `firing_line` 390**; **`no_collateral_above` 12** | `capture` · `water_tower` 15 | R I / R M C X | y (income zones) | P5-a, I-1 |
 | 17 | `mina_sahil_2_clearance` · *The City Edge* | clearance | 7 | `capture` · `ring_road` 20; **`evacuate_before` · `cut_refuge` (residents, 330 s)** | `eliminate_hvt` · `ms_observer` | R / R M C X E | n | P5-b |
-| 18 | `mina_sahil_3_clearance` · *The Harbour* | clearance | 7 | `capture` · `harbour_square` 20; **`raze` · `harbour_works` 360** | `locate` · `ms_last_cell` | R / R M C X I | y | P5-b |
+| 18 | `mina_sahil_3_clearance` · *The Harbour* | clearance | 7 | `capture` · `harbour_square` 20; **`raze` · `harbour_works` 360**; **`no_collateral_above` 10** | `locate` · `ms_last_cell` | R / R M C X I | y | P5-b |
 | 19 | `mina_sahil_4_clearance` · *The Line* | clearance | 6 | **`escort` · `forward_force` → `behind_line`**; `survive_until` 330; **`evacuate_before` · `handover` → `line_refuge` (`hostages`, 330 s)**; **`no_collateral_above` 10** | none | R I / R M C X H | n | P5-c |
 
 Phases ascend: Jurf Nadi 2, 3, 5, 6; Mina Sahil 4, 5, 5, 5. The second pause (I-1) is told in
 Jurf Nadi IV's `aftermath` and Mina Sahil I's `dispatch`. It is not played (L-14).
+
+### Two rules that bind every row
+
+- **Civilians are always scored.** Every mission that places civilians, or flags an
+  inhabited zone, carries a scored and achievable protection objective: a resident
+  `evacuate_before`, a `hostages` evacuation, or a `no_collateral_above` ceiling, and usually
+  two of them. Every ceiling sits on a mission that has another primary, as the schema
+  requires. **No mission's win needs civilian harm.**
+- **Every `raze` zone holds enemy works only.** The rule in §4.2 binds every `raze` in the
+  arc (QL none; BT IV; JN III and IV; MS I and III): `militia_firing_position`,
+  `militia_observation_post`, `militia_weapons_workshop`, berms (`hesco`, `sandbag_wall`,
+  `t_wall`) and `concrete` placed with `owner: 1`. There is no `house`, `apartment`, `shanty`,
+  `clinic`, `hall`, `pump_house` or `militia_field_clinic` in the zone or within 2 tiles of
+  its edge, because a halted dozer or sapper levels such a structure on its own (§4.2).
 
 ---
 
@@ -118,9 +138,10 @@ one.
 
 ### Qasr Liwan: the city (real phase 1)
 
-**1 · The Lookout (recon, night).** Beit Sahwan is held, and the brigade's next ground is
+**1 · One House (recon, night).** Beit Sahwan is held, and the brigade's next ground is
 the Marj's city, up the coast road. Idit has one thing nobody else has: a house, and a
-reason to believe one of the lookouts taken from the outpost at First Light is in it. The
+reason to believe one of the people taken at First Light is in it. Who it is stays unsaid
+(L-16). The
 mission is a night approach through the city's northern edge. Find the guard post, take the
 house quietly, and walk one person out to the extraction point before the street wakes.
 Whatever else the recon finds (`ql_ring_posts`) is what the ring is built on. **Decision:**
@@ -168,7 +189,8 @@ middle (Khan Rafid I to III, re-briefed only). Idit has two of the taken on the 
 of a block in the souk. The guards are a garrison in the block. The extraction needs covering
 fire, and covering fire is the air strike (250 Intel). **Where the player drops it is the
 mission:** the block's neighbours are flagged. Strike the street behind the extraction and
-the walk out is safe and expensive. Strike nothing and the walk out is a firefight. The
+the walk out is safe and expensive. Strike nothing and the walk out is a firefight. The ceiling (12) is two houses' worth of
+slack. The
 count (3) is set because `evacuate_before` counts every civilian, so at least one of the two
 taken must come out.
 
@@ -180,8 +202,8 @@ home in the spring, and one battalion stays on the Cut (dossier P2-d).
 **7 · The Gate Road (recon).** The last stronghold is at the Marj's southern end, on the
 fence with the **Kharat Badlands**: neutral ground across a fence that nobody fires
 across. The `dispatch` says most of the brigade went home and came back. The recon reads
-the gate's defence and the works along **the Fence Road** (`bt_fence_works`, which carries
-into IV), while residents on the gate road are walked out ahead of the fighting.
+the gate's defence and the works along **the Fence Road**. The crew that mans them (`bt_works_crew`, a
+garrison tag) carries into IV, while residents on the gate road are walked out ahead of the fighting.
 **Conduct:** a flagged zone along the fence. A round that lands across it is the
 costliest mistake in the arc.
 
@@ -226,8 +248,8 @@ south. The residents come through it, and so, Idit warns, might the cells. Hold 
 harassment from the orchard edge. `charge_squad` placements are the IEDs.
 
 **14 · Rigged Streets (clearance).** Into the camp square. The houses on the main lane are
-rigged, and the workshop that rigs them (`jn_workshop`, carried from I) must come down on
-a clock. **Conduct:** the rigged houses are inhabited ground. The player clears the
+rigged, and the workshop that rigs them (`jn_workshop`, a zone) must come down on a
+clock. Its crew (`jn_rigging_crew`, a garrison tag found in I) is already marked. **Conduct:** the rigged houses are inhabited ground. The player clears the
 workshop and the square without levelling the lane.
 
 **15 · The Complex (subterranean).** The last of the northern routes run from the fence
@@ -291,9 +313,9 @@ sites and berms on emptied ground along the Fence Road. It is never homes.**
 |---|---|---|
 | the dozers | 4 × `dozer_d9`, all tagged `blades` (L-7). All four are on loan behind their Conduct gate, which the issued force allows (README) | "numerous". Tagging all four makes every one a defeat condition: G-1 |
 | the escort | 2 × `ifv_namer`, 2 × `mbt_lavi`, 4 × `inf_squad`, 1 × `sniper_team`, 1 × `mortar_team`, 1 × `ugv_recon_dog`, 1 × `yahalom_squad`, plus `from_ledger` survivors | a battalion-sized column. The tunnel engineers are needed because a dozer cannot set a tunnel charge (`tunnel_charge` is on `yahalom_squad` only: G-3) |
-| `fence_works`, the raze and collapse zone | a band about 30 × 6 tiles along the Fence Road. It holds 6 × `militia_firing_position`, 3 × `militia_observation_post`, 2 × `militia_weapons_workshop` (all `owner: 1`, `roe_penalty` 0), runs of `hesco` and `sandbag_wall`, one `t_wall` barrier line across the strip, and 3 route **mouths** | the enemy's works and nothing else. **No `house`, `apartment`, `shanty`, `clinic`, `hall`, `pump_house` or `militia_field_clinic` may stand in the zone or within 2 tiles of its edge** |
-| `far_gate`, the escort destination | the strip's far end, **beyond the `t_wall` barrier line** | the latch (§4.1) means "arrive" must sit behind the work. The barrier blocks the strip to anything wheeled until it is cut, so the column cannot arrive without razing through it |
-| the inhabited edge | the fence hamlet north of the strip: `house` tiles in a **flagged** zone, inhabited, with at least 3 tiles of open ground between it and the band | `stepDemolition`'s automatic branch (`packages/sim/src/sim.ts`, around line 11935) levels the nearest structure under `PROTECTED_ROE` (20) that a **halted** dozer stands within 2 tiles of, **with no order**. A house is 6. The shortest road east runs past the hamlet, so a dozer parked there to wait for its escort brings a house down by itself. That is the mission's Conduct bait (Wadi Halam V's, shipped), and **the win never needs it**: the band is reachable without that road |
+| `fence_works`, the raze and collapse zone | a band about 30 × 6 tiles along the Fence Road. It holds 6 × `militia_firing_position`, 3 × `militia_observation_post`, 2 × `militia_weapons_workshop` (owner 1 by type, `roe_penalty` 0), runs of `hesco` and `sandbag_wall`, one `t_wall` barrier line across the strip, and 3 route **mouths**. The berms and the barrier are neutral by type (`owner` unset in `data/structures.json`), so each is placed with `owner: 1` (`structures[].owner`, `mission.schema.json`) to read as the enemy's works. The automatic branch skips only a demolisher's *own* side's works, so neutral or enemy-owned barriers are cut unordered either way | the enemy's works and nothing else. **No `house`, `apartment`, `shanty`, `clinic`, `hall`, `pump_house` or `militia_field_clinic` may stand in the zone or within 2 tiles of its edge** |
+| `far_gate`, the escort destination | the strip's far end, **beyond the `t_wall` barrier line** | the latch (§4.1) means "arrive" must sit behind the work. Every structure's footprint is blocked to foot and vehicle alike (`Sim.addStructure` sets `blocked` on each tile), so a solid barrier also stops the infantry. Leave one tile of boulder field (`b`: open on foot, a wall to anything wheeled) as a foot gap. The dozers then cannot arrive without razing through, and the escort's infantry can still go ahead of them |
+| the inhabited edge | the border hamlet north of the strip: `house` tiles in a **flagged** zone, inhabited, with at least 3 tiles of open ground between it and the band | `stepDemolition`'s automatic branch (`packages/sim/src/sim.ts`, around line 11935) levels the nearest structure under `PROTECTED_ROE` (20) that a **halted** dozer stands within 2 tiles of, **with no order**. A house is 6. The shortest road east runs past the hamlet, so a dozer parked there to wait for its escort brings a house down by itself. That is the mission's Conduct bait (Wadi Halam V's, shipped), and **the win never needs it**: the band is reachable without that road |
 | low-profile works | `hesco` and `sandbag_wall` are `low_profile`, and the automatic branch skips them | they come down only on an explicit `demolish` order. This is the mission's micro-management, and it is honest: cutting a berm is an order |
 | the enemy | `atgm_cell` and `rpg_team` in `ambush` on the hamlet side and the far side; `mortar_crew` behind the barrier; `charge_squad` in the band; `in_tunnel` garrisons on the three routes, venting on `zone_entered` | the dozers' hull is 2400 hp with a 240 front, and the HP model ends a vehicle by penetrations (GH-560). The escort's job is the ATGM teams |
 | ceiling | `no_collateral_above` 12 | at most one house of slack (a house costs 6) |
@@ -373,7 +395,7 @@ version the lead actually asked for, and it is recommended as the first engine i
 | P5-a capture and hold, stage I | MS I |
 | P5-b encircle and enter the city, stage II | MS II, MS III |
 | P5-c a ceasefire along a fixed line | MS IV |
-| **R1** night rescue of a taken lookout in the first ground days | QL I |
+| **R1** night rescue of one of the taken in the first ground days | QL I |
 | **R2** night raid, second-storey apartment, covering fire | KR IV |
 | **R3** daytime raid on two apartment buildings under heavy fire | BT III |
 | **R4** a captive found alone in an underground chamber | BT V |
@@ -402,8 +424,10 @@ I-1, and the manner of P3-e), and each is listed in `transposition.md` §7 with 
   (`mission.schema.json`).
 - **Carrying secondaries for the third star** (README): QL I `ql_ring_posts` → QL II's
   pre-identified posts; QL V `ql_deep_crew` → nothing in the Marj until Act IV, so check it
-  survives `pnpm playtest`; BT I `bt_fence_works` → BT IV; BT V the chamber rescue
-  (it carries through H); JN I `jn_workshop` → JN III. Every one must be proved by
+  survives `pnpm playtest`; BT I `bt_works_crew` → BT IV; BT V the chamber rescue
+  (it carries through H); JN I `jn_rigging_crew` → JN III. A carrying `locate` names a
+  **garrison tag**, and the same tag reappears on enemy placements in the later mission,
+  which then requires I: carries work on unit tags, never on structures or zones. Every one must be proved by
   `playtest` to be read later, never flagged on hope (Beit Sahwan III's lesson, README).
 - **Across the act gap.** Act IV's first mission requires R from the end of Naharin. The
   brigade that comes back is the one that fought there (`ROSTER_CAP` 150 applies).
@@ -493,7 +517,7 @@ Each gap is classified per README rule 5: **today** (expressible now) / **schema
 **PO-4, where the dozers work.**
 - (a) **RECOMMENDED.** Bir Tarsha IV: fortifications along the border strip.
 - (b) Mina Sahil I: the held ground's firing line.
-- (c) Jurf Nadi IV: the fence hamlet's complex.
+- (c) Jurf Nadi IV: the complex by the fence.
 
 (b) and (c) carry the real buffer-clearing beat closer to inhabited ground. That is harder to
 keep honest, so (a) is preferred.
@@ -505,8 +529,8 @@ keep honest, so (a) is preferred.
 | # | decision | default |
 |---|---|---|
 | **L-1** | Placement | **Plot A, *The Long Ground*:** Act I extended, Act IV the return (§1) |
-| **L-2** | New names: **Qasr Liwan**, **Mina Sahil**, **Bir Tarsha**, **Jurf Nadi**; the **Kharat Badlands** as the neutral neighbour; the features *the Cut*, *the Gate*, *the Fence Road* and *the Line* | **Accept**, after a second screening by the native speaker who reviews voice lines. Each was web-searched once on 2026-11-15 with no exact match; *Ras Ghadir* failed and was dropped |
-| **L-3** | Rank ladder under Plot A | Captain through Qasr Liwan; **Major** from Khan Rafid to Umm Zeitoun (the move south is the wider map); Lt Col in Naharin; Colonel at the end of Wadi Halam V and through Act IV. The act boundary sits at the end of Qasr Liwan |
+| **L-2** | New names: **Qasr Liwan**, **Mina Sahil**, **Bir Tarsha**, **Jurf Nadi**; the **Kharat Badlands** as the neutral neighbour; the features *the Cut*, *the Gate*, *the Fence Road* and *the Line* | **Accept**, after a second screening by the native speaker who reviews voice lines. Each was web-searched once on 2026-11-15 with no exact match; one further candidate failed screening and was dropped (`dossier.md` §9) |
+| **L-3** | Rank ladder under Plot A | **Keep four acts and promotions at act boundaries:** Captain through the extended Act I (`until_mission` → `bir_tarsha_5_subterranean`), Major in Sur, Lt Col in Naharin, Colonel from the end of Wadi Halam V and through Act IV. The alternative is to split Act I at Qasr Liwan's end with a Major promotion, which gives five acts and renumbers the rest (§1) |
 | **L-4** | The front's commander | **PO-2 (a):** Sahim stays taken. Only the structural hinge of P3-e is carried, never its manner |
 | **L-5** | An adversary for Act IV | **Job titles only** (the remnant's commander, the charge chief), the Khan Rafid precedent. A new named villain needs a screened name, a portrait and a `commander.json` entry (G-17) |
 | **L-6** | The ending | **PO-3 (a), *The Line*;** "Ari Actual" moves to Act IV's start |
@@ -519,6 +543,7 @@ keep honest, so (a) is preferred.
 | **L-13** | Engine order | **G-2 first** (the dozer escort the lead asked for), then G-6, G-4 and G-14. Author BT IV today on the latching semantics, documented |
 | **L-14** | The second pause (I-1) | **Told only:** QL III already plays a pause |
 | **L-15** | Authoring order | **Qasr Liwan → Bir Tarsha → KR IV → Jurf Nadi → Mina Sahil.** Act I first, in campaign order, as O8 did; the dozer mission lands with its town |
+| **L-16** | Who is freed in QL I (R1) | **Leave it unsaid:** "one of the people taken at First Light", with no role, rank or unit. Giving the person a role or a post risks mirroring the real record, which goes beyond operational shape |
 
 ---
 
