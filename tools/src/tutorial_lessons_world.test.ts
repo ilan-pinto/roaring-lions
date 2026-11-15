@@ -20,6 +20,7 @@
 // its own 4-tile minimum range for the rest of the mission. Both are pinned
 // here as the controls.
 import { describe, expect, it } from 'vitest';
+import { START_LAYOUT } from './mission-harness';
 import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, tutorials, units } from '@lions/data';
 import { fx } from '../../packages/sim/src/fixed';
 import { Sim, TICKS_PER_SECOND, type SimEvent } from '../../packages/sim/src/sim';
@@ -64,6 +65,7 @@ function world(edit?: (m: MissionJson) => void, seed = 424242): World {
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as Parameters<typeof sim.addUnitType>[0]));
   const rt = new MissionRuntime(sim, mission, {
+    startLayout: START_LAYOUT, // GH-1360 S3b: the shipped missions start in the assembly layout
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
