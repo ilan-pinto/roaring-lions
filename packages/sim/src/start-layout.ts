@@ -1,8 +1,8 @@
 // GH-1360 S3a: the starting layout (design 2026-11-15-unit-spacing-design.md, section 3.2). A pure function over
 // `assignTemplate`: it takes a starting force at its authored positions and returns where each body stands and which
 // way it faces, in the same order, on the same ids. It spawns nothing, writes no sim state, never registers a
-// formation and draws no random number, so ids, spawn order and every per-entity RNG stream are untouched. Nothing
-// calls it yet (S3b wires `start()`).
+// formation and draws no random number, so ids, spawn order and every per-entity RNG stream are untouched. Its caller
+// is `MissionRuntime.start()` (S3b), for a mission that declares `start_layout`.
 //
 // The compiled template is an ARGUMENT: the sim imports nothing, so the layout file (`data/layouts/assembly.json`,
 // loaded by `@lions/data`) is compiled by the caller with `compileFormation`.
@@ -66,6 +66,12 @@ export function frontToward(fromX: number, fromY: number, toX: number, toY: numb
   const ay = dy < 0 ? -dy : dy;
   if (ax >= ay) return dx < 0 ? 'W' : 'E';
   return dy < 0 ? 'N' : 'S';
+}
+
+/** The facing (sim angle units, an eighth-turn) of a body that faces `front`: what every placement `startLayout` returns carries. */
+export function startFaceOf(front: StartFront): number {
+  const [fx0, fy0] = frontVector(front);
+  return eighthToward(fx0, fy0);
 }
 
 function frontVector(front: StartFront): [number, number] {
