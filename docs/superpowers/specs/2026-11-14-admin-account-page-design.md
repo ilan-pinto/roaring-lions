@@ -1,6 +1,9 @@
 # Admin account page: credits and Roar coins (GH-695): design
 
-**Status:** draft for the lead, 14 Nov 2026. Docs only; no code ships with this spec.
+**Status:** designed 14 Nov 2026 (this spec itself shipped docs only). **Built, 15 Nov 2026: S1 to S5 and S7**, i.e. the migration, the guard and
+the switch, the read API, the coin write route, the page `/stats/members`, the privacy lines, the 180-day `view` sweep and the docs
+(PRs 1348, 1353, 1356 and 1354). **Not built: S6, the credits write route (D8)**, which waits on the lead's ruling on D8 and is next.
+Until S6 ships the card shows credits read-only and nothing writes them.
 **Ask (lead, 14 Nov):** "design admin account page, it should allow me to control my credits and roaring lion coins."
 **Issue:** GH-695 (the lead's 18 Oct "admin website: store credit allocation, user management"), the first slice of it.
 It builds on the accounts work in GH-1075 (spec `2026-11-07-accounts-profiles-design.md`, plans `2026-11-08-accounts-a0-a1.md`,
