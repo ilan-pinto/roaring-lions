@@ -1,7 +1,7 @@
 # data/locales/
 
-Mission TEXT in another language — `name`, `briefing`, an objective's `text`,
-a trigger's `label`. Nothing else: the chrome catalogue (menus, the HUD, the
+Mission TEXT in another language — everything `applyMissionLocale` can replace: `name`, `briefing` and its `sections`, `dispatch`,
+`aftermath`, `hostages_place`, the two `debrief` lines, an objective's `text`, a trigger's `label` and every radio line (`say`). Nothing else: the chrome catalogue (menus, the HUD, the
 brigade screen, every string that goes through `packages/app/src/i18n/t.ts`'s
 `t()`) lives under `packages/app/src/i18n/` and is a separate mechanism with
 its own fetch path — this directory is mission DATA, the thing CLAUDE.md
@@ -15,13 +15,12 @@ of that source at the point `@lions/app` resolves a mission, never a fork of it.
 
 **`data/locales/en/missions.json` exists, and it is generated** (GH-1406 part 2): `pnpm locales:en -- --write` builds it from the
 mission files and `pnpm locales:en` checks it. It is a **translator's template**: one entry per mission with every string the
-overlay can replace (`name`, `briefing`, each objective's `text`, each labelled trigger's `label`), in the mission file's own order.
+overlay can replace (every field in the shape below), in the mission file's own order.
 A translator copies it to `data/locales/<lang>/missions.json` and translates the values; the keys are exactly the ids the overlay
 validator accepts. **Nobody edits it by hand and the game never fetches it** (`main.ts`'s `loadMissionOverlay` returns before any
 request for `en`). `pnpm validate:data` fails on a mission, objective or trigger it lacks, on an entry for something that is gone,
 and on text that has drifted from the mission file, so editing a briefing means running `pnpm locales:en -- --write` in the same
-commit. It does not cover `dispatch`, `aftermath`, `debrief`, a `say`, `hostages_place` or `briefing_sections`: the overlay does
-not replace those today, so a template row for one would promise what the loader does not do.
+commit.
 
 ## Shape
 
@@ -51,11 +50,27 @@ validated against `@lions/data`'s `MissionLocaleOverlay` shape
   "<mission id>": {
     "name": "…",
     "briefing": "…",
+    "sections": { "situation": "…", "mission": "…" },
+    "dispatch": "…",
+    "aftermath": "…",
+    "hostages_place": "…",
+    "debrief": { "victory": "…", "defeat": "…" },
     "objectives": { "<objective id>": "…" },
-    "triggers": { "<trigger id>": "…" }
+    "objective_say": { "<objective id>": "…" },
+    "objective_say_on_fail": { "<objective id>": "…" },
+    "triggers": { "<trigger id>": "…" },
+    "trigger_say": { "<trigger id>": "…" },
+    "wave_say": { "<index in enemy.waves>": "…" }
   }
 }
 ```
+
+Every field is optional and falls back to `en` per field. A `say` is replaced by its TEXT only: the speaker (`shai`, `idit`,
+`net`, `enemy`) and a section's `image` are never translated. `wave_say` is keyed by the wave's index in `enemy.waves` as a string
+(a wave has no id). Caps held on a translation: a trigger label 48, a radio line, `dispatch` and `aftermath` 240, `hostages_place` 40.
+`sections` is all or none, must be accompanied by a `briefing`, and joined with one space must spell it exactly (the rule the
+deploy screen already falls back on). `en/missions.json` carries every one of these fields for every mission that has them, so
+copying it gives a translator the full list.
 
 Every top-level key is a real mission id from `data/missions/`; every key
 under `objectives`/`triggers` is a real objective/trigger id on THAT

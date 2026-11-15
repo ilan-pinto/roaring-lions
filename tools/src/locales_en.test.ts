@@ -9,7 +9,15 @@ import { applyMissionLocale, type MissionLocaleOverlay } from '@lions/data';
 import { buildEnglishCatalogue, englishCatalogueFailures, englishMissionText } from '../validate_narrative.mjs';
 
 const ROOT = join(__dirname, '..', '..');
-interface M { id: string; name?: string; briefing?: string; objectives?: { id: string; text?: string }[]; triggers?: { id?: string; label?: string }[] }
+interface Say { speaker: string; text: string }
+interface M {
+  id: string; name?: string; briefing?: string; dispatch?: string; aftermath?: string; hostages_place?: string;
+  debrief?: { victory?: Say; defeat?: Say };
+  briefing_sections?: { id: string; text: string }[];
+  objectives?: { id: string; text?: string; say?: Say; say_on_fail?: Say }[];
+  triggers?: { id?: string; label?: string; say?: Say }[];
+  enemy?: { waves?: { say?: Say }[] };
+}
 const missions: M[] = readdirSync(join(ROOT, 'data/missions')).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(ROOT, 'data/missions', f), 'utf8')) as M);
 const fileText = readFileSync(join(ROOT, 'data/locales/en/missions.json'), 'utf8');
 const catalogue = JSON.parse(fileText) as MissionLocaleOverlay;
@@ -28,7 +36,38 @@ describe('the English mission catalogue (GH-1406 part 2)', () => {
       expect(e.briefing, `${m.id} briefing`).toBe(m.briefing);
       for (const o of m.objectives ?? []) if (o.text !== undefined) expect(e.objectives?.[o.id], `${m.id} objective ${o.id}`).toBe(o.text);
       for (const t of m.triggers ?? []) if (t.id !== undefined && t.label !== undefined) expect(e.triggers?.[t.id], `${m.id} trigger ${t.id}`).toBe(t.label);
+      // GH-1406 part 3: the rest of the player-facing text, each read off the mission file by hand.
+      expect(e.dispatch, `${m.id} dispatch`).toBe(m.dispatch);
+      expect(e.aftermath, `${m.id} aftermath`).toBe(m.aftermath);
+      expect(e.hostages_place, `${m.id} hostages_place`).toBe(m.hostages_place);
+      expect(e.debrief?.victory, `${m.id} debrief victory`).toBe(m.debrief?.victory?.text);
+      expect(e.debrief?.defeat, `${m.id} debrief defeat`).toBe(m.debrief?.defeat?.text);
+      for (const sec of m.briefing_sections ?? []) expect((e.sections as Record<string, string> | undefined)?.[sec.id], `${m.id} section ${sec.id}`).toBe(sec.text);
+      for (const o of m.objectives ?? []) {
+        expect(e.objective_say?.[o.id], `${m.id} objective ${o.id} say`).toBe(o.say?.text);
+        expect(e.objective_say_on_fail?.[o.id], `${m.id} objective ${o.id} say_on_fail`).toBe(o.say_on_fail?.text);
+      }
+      for (const t of m.triggers ?? []) if (t.id !== undefined) expect(e.trigger_say?.[t.id], `${m.id} trigger ${t.id} say`).toBe(t.say?.text);
+      (m.enemy?.waves ?? []).forEach((w, i) => expect(e.wave_say?.[String(i)], `${m.id} wave ${i} say`).toBe(w.say?.text));
     }
+  });
+
+  it('holds exactly the census of radio lines, sections and plain strings (no silent drop, none invented)', () => {
+    const count = (f: (m: M) => number): number => missions.reduce((n, m) => n + f(m), 0);
+    const have = Object.values(catalogue);
+    const sum = (key: 'objective_say' | 'objective_say_on_fail' | 'trigger_say' | 'wave_say' | 'sections'): number => have.reduce((n, e) => n + Object.keys(e[key] ?? {}).length, 0);
+    expect(sum('objective_say')).toBe(count((m) => (m.objectives ?? []).filter((o) => o.say !== undefined).length));
+    expect(sum('objective_say_on_fail')).toBe(count((m) => (m.objectives ?? []).filter((o) => o.say_on_fail !== undefined).length));
+    expect(sum('trigger_say')).toBe(count((m) => (m.triggers ?? []).filter((t) => t.id !== undefined && t.say !== undefined).length));
+    expect(sum('wave_say')).toBe(count((m) => (m.enemy?.waves ?? []).filter((w) => w.say !== undefined).length));
+    expect(sum('sections')).toBe(count((m) => (m.briefing_sections ?? []).length));
+    expect(have.filter((e) => e.dispatch !== undefined)).toHaveLength(missions.filter((m) => m.dispatch !== undefined).length);
+    expect(have.filter((e) => e.aftermath !== undefined)).toHaveLength(missions.filter((m) => m.aftermath !== undefined).length);
+    expect(have.filter((e) => e.debrief?.victory !== undefined)).toHaveLength(missions.filter((m) => m.debrief?.victory !== undefined).length);
+    // and they are not zero: a census that found nothing would pass the equalities above vacuously
+    expect(sum('objective_say')).toBeGreaterThan(20);
+    expect(sum('wave_say')).toBeGreaterThan(10);
+    expect(sum('sections')).toBeGreaterThan(20);
   });
 
   it('holds exactly the counts a census of the mission files gives (no silent drop, no extra)', () => {
@@ -79,10 +118,31 @@ describe('the English mission catalogue (GH-1406 part 2)', () => {
     it('a trigger label that differs, and a key the overlay does not read', () => {
       const withTrigger = missions.find((m) => (m.triggers ?? []).some((t) => t.id && t.label)) as M;
       const c = clone(); const trs = c[withTrigger.id].triggers ?? {}; const k = Object.keys(trs)[0]; trs[k] += '!';
-      (c[withTrigger.id] as Record<string, unknown>).dispatch = 'x';
+      (c[withTrigger.id] as Record<string, unknown>).dispach = 'x';
       const out = check(c).join('\n');
       expect(out).toContain(`triggers "${k}" differs`);
-      expect(out).toContain('carries "dispatch"');
+      expect(out).toContain('carries "dispach"');
+    });
+    it('a missing dispatch, a differing debrief line, a missing wave index and a missing section (part 3)', () => {
+      const withAll = missions.find((m) => m.dispatch !== undefined && m.debrief?.victory !== undefined && (m.enemy?.waves ?? []).some((w) => w.say) && (m.briefing_sections ?? []).length > 0) as M;
+      const c = clone();
+      const e = c[withAll.id];
+      delete e.dispatch;
+      if (e.debrief) e.debrief.victory += '!';
+      const waveKey = Object.keys(e.wave_say ?? {})[0];
+      delete (e.wave_say as Record<string, string>)[waveKey];
+      delete (e.sections as Record<string, string>)[Object.keys(e.sections ?? {})[0]];
+      const out = check(c).join('\n');
+      expect(out).toContain(`mission "${withAll.id}" dispatch is missing`);
+      expect(out).toContain('debrief "victory" differs');
+      expect(out).toContain(`wave_say "${waveKey}" is missing`);
+      expect(out).toMatch(/sections "[a-z]+" is missing/);
+    });
+    it('a stale radio line: a line the mission no longer has', () => {
+      const c = clone();
+      const e = c[first.id];
+      (e.objective_say ??= {}).ghost_objective = 'x';
+      expect(check(c).join('\n')).toContain('objective_say "ghost_objective" is not in the mission file (stale)');
     });
     it('a changed mission file makes the committed catalogue stale', () => {
       const edited = missions.map((m, i) => (i === 0 ? { ...m, name: `${m.name} (edited)` } : m));

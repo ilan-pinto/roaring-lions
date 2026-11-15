@@ -127,8 +127,8 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   garage's three upgrade-track headings both shipped in English. Its own header
   names the three defect classes it cannot see; a clean run is not proof that
   nothing was missed. The pseudo capture pass is the instrument that finds them.
-  **Mission TEXT is data, not chrome**: `name`, `briefing`, objective `text` and
-  trigger `label` are overlaid per locale from
+  **Mission TEXT is data, not chrome**: `name`, `briefing` and its sections, `dispatch`, `aftermath`,
+  `hostages_place`, the debrief lines, objective `text`, trigger `label` and every radio line are overlaid per locale from
   `data/locales/<lang>/missions.json` (`applyMissionLocale`), gated by
   `pnpm validate:data`, and deliberately do NOT go through the pseudo transform.
   `data/locales/en/missions.json` is the GENERATED translator's template (`pnpm
