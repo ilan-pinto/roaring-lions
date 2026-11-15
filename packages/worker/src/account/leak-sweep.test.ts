@@ -14,15 +14,24 @@ import { ACCOUNT_ROUTES } from './routes';
 import { accountHarness, seedFullMember } from './test-kit';
 
 const IP = '198.51.100.77';
-const SAMPLE_ID = 'sample-id';
+const REQ = 'SENTINEL-REQ-VALUE';
+/** The path id is a sentinel too: a 404 that echoes `:id` back is caught by REQ. */
+const SAMPLE_ID = `${REQ}-id`;
 const NOW = 1_790_000_000_000;
-/** Another member's data, which no answer to M may carry. */
-const OTHER = ['uh2', 'code-hash', '76561197960287931'];
+/** Data that is not M's own, which no answer to M may carry: the opponent's handle and SteamID, M's own recovery
+ *  subject (kept out of every answer), and a THIRD member who shares no match with M, so none of it is legitimately
+ *  visible anywhere (n1 is M's opponent in SHARED, so `/matches` rightly shows n1's callsign: it cannot go here). */
+const THIRD = { callsign: 'Callsign Three', publicId: 'PPPP3333', handle: 'uh3', steam: '76561197960287932', google: 'google-sub-p1' };
+const OTHER = ['uh2', 'code-hash', '76561197960287931', ...Object.values(THIRD)];
+/** The two sign-in return routes read their query string, so the sweep gives them one carrying sentinels. */
+const QUERY: Record<string, string> = {
+  'steam/return': `?c=${REQ}-c&openid.mode=${REQ}-mode&openid.claimed_id=${REQ}-claimed&openid.sig=${REQ}-sig`,
+  'google/return': `?code=${REQ}-code&state=${REQ}-state&error=${REQ}-error`,
+};
 const FAILURE_WORDS = /SQLITE|constraint failed|no such (table|column)|node_modules|\bat \S+ \(|TypeError|ReferenceError|stack/i;
 
 const pathOf = (pattern: string): string => '/api/account/' + pattern.replace(/:\w+/g, SAMPLE_ID);
 
-const REQ = 'SENTINEL-REQ-VALUE';
 const OP = '0f8fad5b-d9cb-469f-a165-70867728950e';
 
 describe('the account door leaks nothing (GH-1075 review)', () => {
@@ -39,6 +48,11 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
     it(`${sc.label}: no body or header of any route holds a token, an address, another member, a request value or a failure trace`, async () => {
       const h = accountHarness({ now: NOW + sc.later, denyLimiter: sc.deny ? ['ACCOUNT_OP_LIMIT'] : [] });
       const { cookie } = await seedFullMember(h.db, NOW);
+      const run = (sql: string, ...v: unknown[]) => h.db.prepare(sql).bind(...v).run();
+      await run('INSERT INTO member VALUES (?1, ?2, ?3, ?4, ?5, ?6)', 'p1', THIRD.publicId, await sha256Hex(THIRD.publicId), THIRD.handle, NOW, 0);
+      await run('INSERT INTO profile (member_id, display_name, show_record, updated_at) VALUES (?1, ?2, 0, ?3)', 'p1', THIRD.callsign, NOW);
+      await run("INSERT INTO member_identity (id, member_id, provider, subject, created_at) VALUES ('i5','p1','steam',?1,?2)", THIRD.steam, NOW);
+      await run("INSERT INTO member_identity (id, member_id, provider, subject, created_at) VALUES ('i6','p1','google',?1,?2)", THIRD.google, NOW);
       const token = cookie.slice(cookie.indexOf('=') + 1);
       const tokenHash = await sha256Hex(token);
       expect(token.length).toBeGreaterThan(20);
@@ -54,7 +68,7 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
         { name: 'array', init: { body: [1, 2, 3] } },
         { name: 'over the cap', init: { rawBody: JSON.stringify({ pad: 'x'.repeat(2_000_000), note: REQ }) } },
       ];
-      const paths = [...ACCOUNT_ROUTES.map((r) => ({ method: r.method, path: pathOf(r.pattern) })), { method: 'GET', path: `/api/account/no/such/${REQ}` }];
+      const paths = [...ACCOUNT_ROUTES.map((r) => ({ method: r.method, path: pathOf(r.pattern) + (QUERY[r.pattern] ?? '') })), { method: 'GET', path: `/api/account/no/such/${REQ}` }];
 
       let answered = 0;
       let expected = 0;
@@ -72,7 +86,11 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
             expect(FAILURE_WORDS.test(hay), `${where}: ${what} reads like a failure trace`).toBe(false);
           }
           // A cookie is only ever set to a live session's own or cleared; never to anything of the request's.
-          for (const c of res.headers.getSetCookie()) expect(c.startsWith(`${SESSION_COOKIE}=`) || c.startsWith('__Host-rl_pre_'), where).toBe(true);
+          for (const c of res.headers.getSetCookie()) {
+            expect(c.startsWith(`${SESSION_COOKIE}=`) || c.startsWith('__Host-rl_pre_'), where).toBe(true);
+            // ...and its value is not request data, an address or another member's.
+            for (const secret of [IP, REQ, ...OTHER]) expect(c.includes(secret), `${where}: set-cookie holds ${secret.slice(0, 8)}...`).toBe(false);
+          }
           // A refusal is JSON with an `error` that is a short code, not a sentence built from input.
           if (res.status >= 400) {
             const err = (JSON.parse(text) as { error?: unknown }).error;

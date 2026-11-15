@@ -242,16 +242,18 @@ describe('POST /api/feedback: validation', () => {
     expect(h.attachments()).toBe(0);
   });
 
-  it('does not echo a client-chosen name back at its own length in a 400 (GH-1075 review)', async () => {
+  it('never reflects a client-chosen part or field name in a 400 (GH-1075 review)', async () => {
     const h = setup();
-    const longPart = await errorOf(await h.post({ extra: [['k'.repeat(300_000), 'x']] }));
-    expect(longPart.error).toMatch(/^unknown part /);
-    expect((longPart.error ?? '').length).toBeLessThan(80);
-    const longField = await errorOf(await h.post({ meta: { ...META, ['f'.repeat(20_000)]: 1 } }));
-    expect(longField.error).toMatch(/^unknown field /);
-    expect((longField.error ?? '').length).toBeLessThan(80);
-    // A short name is still named, so the 400 stays useful to the page's own developer.
-    expect((await errorOf(await h.post({ extra: [['note', 'x']] }))).error).toBe('unknown part note');
+    // Short sentinels as well as long names: a fixed string means no length of name comes back.
+    for (const name of ['SENTINEL-PART-NAME', 'k'.repeat(300_000)]) {
+      const part = await errorOf(await h.post({ extra: [[name, 'x']] }));
+      expect(part).toEqual({ error: 'unknown part' });
+    }
+    for (const name of ['SENTINEL-FIELD-NAME', 'f'.repeat(20_000)]) {
+      const field = await errorOf(await h.post({ meta: { ...META, [name]: 1 } }));
+      expect(field).toEqual({ error: 'unknown field' });
+    }
+    expect(h.rows()).toHaveLength(0);
   });
 
   it('an unknown part, a duplicated part, a missing meta, bad JSON, an unknown field and a rating outside the debrief are 400', async () => {

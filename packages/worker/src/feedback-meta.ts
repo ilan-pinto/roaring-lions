@@ -80,7 +80,7 @@ export const utf8Bytes = (s: string): number => new TextEncoder().encode(s).leng
 export function feedbackMetaProblem(x: unknown): string | null {
   if (typeof x !== 'object' || x === null || Array.isArray(x)) return 'meta is not an object';
   const e = x as Rec;
-  for (const k of Object.keys(e)) if (!KEYS.has(k)) return `unknown field ${named(k)}`;
+  for (const k of Object.keys(e)) if (!KEYS.has(k)) return 'unknown field';
   if (e.v !== FEEDBACK_VERSION) return 'v';
   if (!isInt(e.t, 0, Number.MAX_SAFE_INTEGER)) return 't';
   if (!(FEEDBACK_SOURCES as readonly unknown[]).includes(e.source)) return 'source';
@@ -112,8 +112,5 @@ export function feedbackMetaProblem(x: unknown): string | null {
 export const isFeedbackMeta = (x: unknown): x is FeedbackMeta => feedbackMetaProblem(x) === null;
 
 /** `FB-0042`. Four digits at least; it grows past 9999 rather than wrapping. */
-/** A client-chosen name as it may appear in an error body: at most 32 characters, so a 300 KB part name is not
- *  reflected back at its own length. Short names pass unchanged. */
-export const named = (k: string): string => (k.length > 32 ? `${k.slice(0, 32)}…` : k);
 
 export const feedbackRef = (id: number): string => `FB-${String(id).padStart(4, '0')}`;
