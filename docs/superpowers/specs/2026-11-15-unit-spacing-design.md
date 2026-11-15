@@ -359,7 +359,7 @@ says how much is left.
 
 ### 3.4 The free spot: one deterministic placement helper
 
-`freeSpotNear(x, y, typeIdx, side, reach)` is a pure method on `Sim`, used by every place a unit appears:
+`freeSpotNear(x, y, typeIdx, side, reach, facing = 0)` is a pure method on `Sim`, used by every place a unit appears:
 
 - the starting layout's overflow;
 - the enemy and civilian spread;
@@ -375,6 +375,8 @@ lattice outward, each ring visited clockwise from north. A candidate is taken wh
 
 - its tile is open on the unit's own mask;
 - it is reachable (same component as the requested point; the walk is cached per call);
+  When the request's own tile is shut, the walk is seeded at the first open ring point in visit order.
+  The unit's body is placed at `facing` (a hull is a capsule); the default is 0.
 - its body clears every living participant within reach by the pair distance.
 
 The first candidate that passes wins. Reach is 6 tiles for a soft (mid-mission) spawn and 12 for a start.
