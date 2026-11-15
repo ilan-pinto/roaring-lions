@@ -389,6 +389,7 @@ import type { VersusDeps } from './ui/versus';
 import { LOCALES, applyLocale, loadLocale, resolveLang } from './i18n/locales';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo } from './i18n/pseudo';
+import { KillCauseTracker, causeText, parseKillCause, type KillCause } from './kill-cause';
 import { loadUnitOverlay, localizedUnit, setUnitOverlay, unitName as textUnitName } from './unit-text';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
@@ -2247,6 +2248,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  zone they name, objective outcomes, the hostile kill count. Read off
    *  events and sim state; never written back. */
   const missionLog: MissionLog = newMissionLog();
+  // GH-1380: why a unit died, derived from the events the sim already emits (read-only, invariant 4). A side-0 death's cause waits here
+  // between its `destroyed` SimEvent and the `unitLost` MissionEvent of the same tick, and is taken by the log and the memorial record.
+  const killCauses = new KillCauseTracker({
+    typeIdOf: (id) => sim.unitTypes[sim.state.typeIdx[id]]?.id,
+    isKamikaze: (id) => sim.unitTypes[sim.state.typeIdx[id]]?.isKamikaze === true,
+  });
+  const causeOfLost = new Map<number, KillCause>();
   /**
    * `&civ`: where the crowd is walked to, and the ground that counts as out.
    *
@@ -3725,9 +3733,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     predecessorOf: (slot) => {
       const record = predecessorOf(ledger['roster.lost'] ?? [], slot);
       if (record === undefined) return undefined;
+      const why = parseKillCause(record.cause); // a save is untrusted: a malformed cause is dropped, not worded
       return {
         ...(record.name !== undefined ? { name: record.name } : {}),
         type: textUnitName(record.type),
+        // GH-1380: why the one before it fell, worded now in the active language from the structured record.
+        ...(why !== undefined ? { cause: causeText(why, textUnitName) } : {}),
       };
     },
     setSelection: (ids) => {
@@ -6049,7 +6060,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       announceAlerts(alertsForTick(alertState, events, missionEvents, alertWorld, sim.tickCount));
 
       for (const e of events) {
-        if (e.kind === 'destroyed') logDestroyed(missionLog, sim.state.side[e.entity]);
+        const cause = killCauses.observe(e);
+        if (e.kind === 'destroyed') {
+          if (cause !== undefined && runtime && isOwnSide(sim.state.side[e.entity], me)) causeOfLost.set(e.entity, cause);
+          logDestroyed(missionLog, sim.state.side[e.entity]);
+        }
         else if (e.kind === 'woundEvacuated') logWoundEvacuated(missionLog, sim.state.side[e.entity], me);
       }
       for (const mev of missionEvents) {
@@ -6058,6 +6073,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // Sim positions are tile CENTRES; the log keeps the tile.
           positionOf: (id) => ({ x: Math.floor(fx.toNumber(sim.state.posX[id])), y: Math.floor(fx.toNumber(sim.state.posY[id])) }),
           rosterOf: (id) => runtime?.rosterEntryOf(id),
+          causeOf: (id) => causeOfLost.get(id),
           zone: (id) => map.zones[id],
         });
         if (tut) tut = advance(tut, { kind: 'mission', event: mev }, performance.now());
@@ -6069,8 +6085,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // dead unit's ledger entry is still readable here -- which is the whole reason
         // this can be a read at the event rather than a diff after checkEnd.
         if (mev.kind === 'unitLost' && runtime) {
-          const record = lostRecordFor(runtime.rosterEntryOf(mev.entity), mev.unit, mission.id, mev.tick);
+          const record = lostRecordFor(runtime.rosterEntryOf(mev.entity), mev.unit, mission.id, mev.tick, causeOfLost.get(mev.entity));
           if (record) lostThisMission.push(record);
+          causeOfLost.delete(mev.entity);
         }
         const described = describeMissionEvent(mev, mission, narratedRoeReasons, placeNames, structureName);
         if (described) hud.note(described[0], described[1], { tier: missionEventTier(mev) ?? undefined });
