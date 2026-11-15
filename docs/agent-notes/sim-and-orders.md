@@ -1018,3 +1018,11 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   their caps and the sim's golden hash did not move. Measured as WP5e (GH-976, seeds 53000..53095, three maps, a scripted attacker): it decides 59-68% of games
   and picks the side that went on to win in 93-94% of the games play would have decided later. `tools/src/net/cap.ts`'s `capOutcome` is unchanged and still reads
   the room's own cap: a harness that settles a set-up room on the cap tick instead of through `hashTickOutcome` does not see the backstop.
+
+## The match recorder (GH-1398, slice 1)
+
+`packages/app/src/net/match-recorder.ts` keeps what a versus or skirmish match ran, as the arena's frames file (`replay-file.ts`, v1: one format, not two). `MatchRecorder.record` has the shape of `FrameStep.beforeFrame`, so a client wires `beforeFrame: recorder.record`; `finish({ digest: { tick: sim.tickCount, hash: sim.hash() }, outcome, by })` closes it. `tools/src/net/replay-verify.ts`'s `verifyRecording(text, { build })` parses (refusing another build or version first), runs `replayToEnd` and compares the tick and hash: `ok`, `refused` or `desync`. No UI yet.
+- **Everything that changes the sim must come through a frame.** The recorder sees frames, not calls: an order a test makes straight on the runtime (`rt.requestBuild(...)` between ticks, as one block of `two-client.test.ts` does) is NOT in the log, and the replay will not reproduce it. The economy stream (`economy-stream.test-helper.ts`) sends every order as a frame, which is why it is the recorder's oracle.
+- **The log is the pre-ownership frame.** It is recorded before `applyFrame` drops anything, so a forged order is in the file and the replay drops it the same way (`match-recorder.test.ts` holds it).
+- **No person or room in the file.** `scrubbedConfig` replaces `matchId`, `code`, each seat's `player` and `callsign` (none reaches the sim); the labels are the factions. A tampered command, drop, move to another tick, seed or end hash is a `desync` in the same test.
+- **What the hash covers.** `sim.hash()` only, as the arena's `end` line does. The room's out-of-sim runtime digest is not a column in the file; its effects reach the sim hash through production, and the economy-room test shows a build order moves it.
