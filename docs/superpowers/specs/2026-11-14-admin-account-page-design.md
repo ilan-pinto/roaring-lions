@@ -220,6 +220,8 @@ a balance it computed. The rules:
 5. **The write** is `walletWrite(db, before, after, [entry])` with `kind: 'admin'`, `receipt: null`, and
    `detail: { mode, reason, before, after, by: <admin public id> }`. It runs in ONE batch with the `admin_action` insert
    and the `account_op` insert. `wallet.free = SUM(free_delta)` holds by construction.
+   *Amended by GH-1370 C2:* for new rows the reason lives only in `admin_action`, and `detail` carries the optional note
+   (`{ mode, before, after, by: 'admin', note? }`).
 6. **`earn`, `earn_lifetime` and `entitlements` are left as they are.** An admin grant is not an earned coin, and does not
    change what the earn table will still pay.
 7. **No receipt** (`receipt: null`, as `reset` has). The player's Stores history therefore does not list the grant; the

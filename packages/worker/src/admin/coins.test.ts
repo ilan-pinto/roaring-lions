@@ -343,4 +343,14 @@ describe('the note to the player (GH-1370 C2, D2)', () => {
     const rows = (JSON.parse(text) as CoinsView).rows.filter((r) => r.what.kind === 'team');
     expect(rows.map((r) => r.what)).toEqual([{ kind: 'team' }, { kind: 'team', note: NOTE }]);
   });
+
+  it('the admin journal row carries the note, and none for a row without one', async () => {
+    const k = await seeded();
+    expect((await k.post({ note: NOTE })).status).toBe(200);
+    expect((await k.post({ revision: 5, amount: 10 })).status).toBe(200);
+    const res = await k.call('GET', '/stats/api/members/K7Q2ABCD/journal', { game: k.admin });
+    const rows = ((await res.json()) as { rows: { kind: string; note: string | null; delta: number }[] }).rows.filter((r) => r.kind === 'admin');
+    expect(rows.map((r) => [r.delta, r.note])).toEqual([[10, null], [100, NOTE]]);
+  });
 });
+

@@ -132,8 +132,8 @@ function plan(){
 function paintForm(){
   for(const b of document.querySelectorAll('#modes button'))b.setAttribute('aria-pressed',String(b.dataset.mode===S.mode));
   const reason=$('why').value;
-  $('count').textContent=[...reason].length+' / '+REASON_MAX+' · at least '+REASON_MIN;
-  $('note-count').textContent=[...$('note').value].length+' / '+NOTE_MAX;
+  $('count').textContent=[...clean(reason)].length+' / '+REASON_MAX+' · at least '+REASON_MIN;
+  $('note-count').textContent=[...clean($('note').value)].length+' / '+NOTE_MAX;
   const p=plan();
   const pv=$('preview');
   pv.replaceChildren();
@@ -164,7 +164,7 @@ function review(){
   row('Member',el('td',null,d.displayName+' ',el('span',{class:'mono',text:d.publicId})));
   row('Coins',el('td',{class:'mono'},fmt(p.before)+' → ',el('strong',{class:p.delta<0?'minus':'plus',text:fmt(p.after)}),' ('+sgn(p.delta)+')'));
   row('Reason',el('td',{text:p.reason}));
-  row('Note to the player',el('td',{class:p.note?'':'muted',text:p.note||'none'}));
+  row('Player sees',el('td',{class:p.note?'':'muted',text:(p.delta<0?'Corrected by the team':'From the team')+(p.note?': \u201c'+p.note+'\u201d':'')}));
   row('Wallet rev.',el('td',{class:'mono',text:d.coins.revision+' (refused if it has moved)'}));
   const needType=S.mode!=='grant';
   $('typed').value='';
@@ -212,7 +212,7 @@ function jrow(r,isNew){
   return el('tr',{class:isNew?'new':''},el('td',{class:'mono',text:stamp(r.at)}),el('td',{text:r.currency}),el('td',null,kindTag(r)),
     el('td',{class:'n '+sign,text:r.delta==null?'—':sgn(r.delta)+(r.kind==='admin'?' '+(r.mode||''):'')}),
     el('td',{class:'n',text:r.before==null?'—':fmt(r.before)+' → '+fmt(r.after)}),
-    el('td',{class:r.reason?'':'muted',text:r.reason||''}),el('td',{class:r.by==='player'?'muted':'ref',text:r.by}),el('td',{class:'ref',text:op}));
+    el('td',{class:r.reason?'':'muted',text:r.reason||''},...(r.note?[el('div',{class:'muted',text:'Player sees: '+r.note})]:[])),el('td',{class:r.by==='player'?'muted':'ref',text:r.by}),el('td',{class:'ref',text:op}));
 }
 function renderJournal(){
   const body=$('journal-body');
