@@ -1,5 +1,5 @@
 /** Test harness for the accounts routes (GH-1075). Tests only: nothing in the Worker imports this file. */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { D1Like, D1Stmt, Env, RateLimiter } from '../d1';
 import { openTestD1 } from '../test-d1';
@@ -170,12 +170,16 @@ export function failingD1<T extends D1Like>(db: T, match: RegExp): T {
 /** Every table whose CREATE body declares a member_id column, plus `member`, read from the migration itself
  *  (an oracle that does not import MEMBER_TABLES). */
 export function memberTablesInMigration(): Set<string> {
-  const sql = readFileSync(ACCOUNTS_MIGRATIONS + '0001_members.sql', 'utf8');
   const out = new Set<string>(['member']);
-  // A statement runs to its semicolon; comments are stripped first so a `;` in prose cannot cut one short.
-  const bare = sql.replace(/--.*$/gm, '');
-  for (const m of bare.matchAll(/CREATE TABLE (\w+)\s*\(([^;]*);/g)) {
-    if (/(^|[(,])\s*member_id\s+\w/.test(m[2] ?? '')) out.add(m[1] ?? '');
+  // Every migration, so a table a later one adds (admin_*) is seen. A rebuild's `<name>_new` is skipped: it is renamed to a
+  // table an earlier migration already names.
+  for (const f of readdirSync(ACCOUNTS_MIGRATIONS).filter((n) => n.endsWith('.sql')).sort()) {
+    // A statement runs to its semicolon; comments are stripped first so a `;` in prose cannot cut one short.
+    const bare = readFileSync(ACCOUNTS_MIGRATIONS + f, 'utf8').replace(/--.*$/gm, '');
+    for (const m of bare.matchAll(/CREATE TABLE (\w+)\s*\(([^;]*);/g)) {
+      const name = m[1] ?? '';
+      if (/(^|[(,])\s*member_id\s+\w/.test(m[2] ?? '') && !name.endsWith('_new')) out.add(name);
+    }
   }
   return out;
 }
@@ -198,6 +202,8 @@ export async function seedFullMember(db: D1Like, now: number): Promise<{ memberI
   await run("INSERT INTO profile (member_id, display_name, show_record, updated_at) VALUES ('n1','Callsign Two',0,?1)", now);
   await run("INSERT INTO wallet (member_id, free, earn, earn_lifetime, entitlements, updated_at) VALUES ('m1', 5, ?1, '{}', '{}', ?2)", SEED_EARN, now);
   await run("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES ('m1', ?1, 'earn', 5, '{}', 'o1')", now);
+  await run("INSERT INTO admin_member VALUES ('m1', ?1)", now);
+  await run("INSERT INTO admin_action (at, admin_id, member_id, action, mode, delta, before, after, reason, op_id) VALUES (?1, 'n1', 'm1', 'coins', 'grant', 5, 0, 5, 'seeded for the table map', 'o2')", now);
   await run("INSERT INTO coupon_use VALUES ('m1','c1',?1)", now);
   await run("INSERT INTO campaign_state (member_id, ledger, brigade, bytes, updated_at) VALUES ('m1','{}','{}',4,?1)", now);
   await run("INSERT INTO save_slot (member_id, slot_id, name, saved_at, build, body, bytes) VALUES ('m1','s1','Slot',?1,'b','{}',2)", now);

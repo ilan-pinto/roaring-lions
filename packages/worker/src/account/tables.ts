@@ -16,6 +16,18 @@ export const MEMBER_TABLES: readonly MemberTable[] = [
   {
     table: 'account_op', key: 'member_id', exportSql: null, deleteSql: del('account_op'),
   },
+  // GH-695: who may write from /stats/members. Never exported: it says nothing the member did or was told.
+  {
+    table: 'admin_member', key: 'member_id', exportSql: null, deleteSql: del('admin_member'),
+  },
+  {
+    // What an admin changed for this member, with the reason. `by` is the word "admin", never the admin's id; the
+    // access log ('view') is the lead's, not part of the member's data. (`admin_id` of rows ABOUT other members that
+    // this member made as an admin goes NULL through the foreign key.)
+    table: 'admin_action', key: 'member_id', deleteSql: del('admin_action'),
+    exportSql: `SELECT at, action, mode, delta, "before", "after", reason, 'admin' AS "by", op_id
+FROM admin_action WHERE member_id = ?1 AND action IN ('coins', 'credits') ORDER BY id`,
+  },
   {
     table: 'device_claim', key: 'member_id', deleteSql: del('device_claim'),
     exportSql: 'SELECT device_id, at, result FROM device_claim WHERE member_id = ?1 ORDER BY at',

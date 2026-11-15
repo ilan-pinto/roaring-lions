@@ -16,7 +16,7 @@ import {
 import type { D1Like, D1Stmt } from '../d1';
 
 /** The kinds `coin_journal`'s CHECK allows. */
-export type JournalKind = 'earn' | 'backfill' | 'claim' | 'coupon' | 'unit' | 'tier' | 'reset';
+export type JournalKind = 'earn' | 'backfill' | 'claim' | 'coupon' | 'unit' | 'tier' | 'reset' | 'admin';
 
 export interface WalletRow {
   memberId: string;
