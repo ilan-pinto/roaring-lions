@@ -884,6 +884,12 @@ export interface MissionLocaleEntry {
   objective_say_on_fail?: Record<string, string>;
   trigger_say?: Record<string, string>;
   wave_say?: Record<string, string>;
+  /**
+   * The stale-translation guard (GH-1406 part 5): `{ "<path of a translated string>": "<8 hex of its English source>" }`, written by
+   * the English generator and checked by `validate:data`. NOT text, and never read at runtime; it is declared so a typed overlay file
+   * may carry it.
+   */
+  src?: Record<string, string>;
 }
 
 /**
@@ -1021,7 +1027,7 @@ export function applyMissionLocale<T extends MissionJson>(
 
 /** One locale's unit text, keyed by unit id. A field the overlay does not carry keeps the `en` text, per field. */
 export interface UnitLocaleOverlay {
-  [unitId: string]: { name?: string; blurb?: string };
+  [unitId: string]: { name?: string; blurb?: string; src?: { name?: string; blurb?: string } };
 }
 
 /**

@@ -21,6 +21,12 @@ describe('applyUnitLocale', () => {
     expect(applyUnitLocale(squad, { inf_squad: {} })).toBe(squad);
   });
 
+  it('reads nothing from src (GH-1406 part 5): the hashes ride beside the text and change nothing', () => {
+    const src = { name: 'ab12cd34', blurb: 'ab12cd34' };
+    expect(applyUnitLocale(squad, { inf_squad: { name: 'Fusiliers', src } })).toEqual({ ...squad, name: 'Fusiliers' });
+    expect(applyUnitLocale(squad, { inf_squad: { src } })).toBe(squad);
+  });
+
   it('never adds a blurb to a unit that has none', () => {
     const bare = { id: 'x', name: 'X' };
     expect(applyUnitLocale(bare, { x: { name: 'Y', blurb: 'Z' } })).toEqual({ id: 'x', name: 'Y' });

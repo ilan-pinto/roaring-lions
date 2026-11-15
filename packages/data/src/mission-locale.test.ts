@@ -180,4 +180,12 @@ describe('applyMissionLocale: dispatch, aftermath, hostages_place, debrief, sect
   it('an empty entry changes no text anywhere', () => {
     expect(applyMissionLocale(rich(), { m1: {} })).toEqual(rich());
   });
+
+  it('reads nothing from src (GH-1406 part 5): the same text applies the same with or without the hash block', () => {
+    const entry = { dispatch: 'D2', wave_say: { '0': 'W2' }, objective_say: { o1: 'S2' } };
+    const src = { dispatch: 'ab12cd34', 'wave_say.0': 'ab12cd34', 'objective_say.o1': 'ab12cd34' };
+    expect(applyMissionLocale(rich(), { m1: { ...entry, src } })).toEqual(applyMissionLocale(rich(), { m1: entry }));
+    // a src with no text beside it is an empty entry
+    expect(applyMissionLocale(rich(), { m1: { src } })).toEqual(rich());
+  });
 });
