@@ -15,8 +15,9 @@ from one another."*
 1. **Start.** Every starting force is laid out by the real GH-859 template engine (`assignTemplate`) in a new
    `assembly` shape. Vehicles form the front rank, infantry the second, support weapons, medics and drones the
    third. Each class has its own spacing. The force faces a front the mission names, and is laid out on each
-   unit's own mask, so a wheeled unit never lands on a boulder. Across 32 shipped starts the sheet's census
-   goes from **99 overlapping body pairs to 0**, with the centroid moving at most 3.6 tiles.
+   unit's own mask, so a wheeled unit never lands on a boulder. Across 36 starts (30 missions and 6 versus ends) the
+   sheet's census goes from **99 overlapping body pairs to 0**. Bodies move a mean of 3.3 tiles in a mission
+   (at most 10.1), because the force is re-ordered into class rows.
 2. **Always.** Foot units join GH-421's never-push machinery as circles: a mover may not deepen an overlap;
    it follows, steers or stops at contact, and a 1 s valve guarantees nothing deadlocks. A free-spot pick
    covers every place a unit *appears* (camp exit, unload, leaving a building, a tunnel vent, a reinforcement).
@@ -52,7 +53,8 @@ The clump has three causes, each visible on the sheet:
 - **`placeOnOpen` (`packages/app/src/sandbox-place.ts`), the versus and free-play placer, spirals to the
   nearest open tile with no occupancy test,** so offsets that fall in rock all land on the same tile. That
   produces Tel Marum's stacks of five and three. It also tests `sim.blocked` only, never the vehicle mask.
-  The cloud census found **13 free-play vehicles standing on boulder tiles**. `assertGroundClear` has the
+  The cloud census found **13 free-play vehicles on vehicle-blocked tiles**; on the two maps it inspected, every
+  one was a boulder tile. `assertGroundClear` has the
   same blind spot for mission spawns: it checks `blocked`, never `blockedVehicle`.
 - **Nothing reads facing or class at spawn.** The free-play and versus tables are offsets that were drawn
   by hand for one map and then translated onto every other.
@@ -71,9 +73,9 @@ The clump has three causes, each visible on the sheet:
 So **the in-play defect is foot on foot**, which GH-421 deliberately left alone (V-R1: "infantry stacking
 stays a formation concern"). At 0.3 tile (0.9 m) two teams' figures are inside each other. Vehicle stacking
 is now rare, though not zero, because GH-421 is live. The census also reports 20 foot bodies whose start tile
-is blocked, all in missions with enemy garrison-stance placements. Those are almost certainly the bodies
-`assertGroundClear` exempts on purpose (a squad posted at a door walks in on the first ticks). S0 confirms
-this before anything relies on it.
+is blocked. **Checked:** the 8 missions' enemy garrison-stance bodies number exactly 5, 3, 3, 2, 2, 2, 2 and 1,
+the census's per-mission counts. They are the bodies `assertGroundClear` exempts on purpose (a squad posted
+at a door walks in on the first ticks), not a defect.
 
 **Per-tick cost.** The cloud cost probe had not reported when this was written. Its number goes in §4,
 in the row marked **[cloud]**.
@@ -150,6 +152,9 @@ registered with `addFormationType` and listed in the HUD picker (`ui/formation-m
 would become an orderable formation. A layout is never registered with the sim, never calls `fmJoin` and
 never sets `fmLive`, so no formation column folds into `hash()`.
 
+Abridged: the compiled file also carries `label`, `blurb`, `factions`, `march` (`legs: false`, `pace: none`)
+and `contact` (`drill: none`), which `compileFormation` requires and the layout never reads.
+
 ```json
 { "id": "assembly", "verb": "move", "min_members": 2,
   "elements": [
@@ -191,7 +196,9 @@ facings only**. Spawn order, and with it entity ids and every per-entity RNG str
 **Anchor.**
 
 - Placements are grouped into assemblies by single-link distance: authored `at`s within 6 tiles of each
-  other belong to one. The tutorial's two bodies, 27.5 apart, stay two.
+  other belong to one. The tutorial's two bodies, 27.5 apart, stay two. **A one-body assembly keeps its
+  authored position** (de-overlapped by the free spot) and only turns to the front: `compileFormation` refuses
+  `min_members` below 2, and a lone unit has no rows to stand in. Measured: every other start is one assembly.
 - Each assembly is laid out at its own anchor.
 - The anchor is the bodies' authored centroid, **summed in Fx and floored once** (the P1c lesson: a floored
   sum of floored tiles is chiral), then moved forward by half the layout's depth so that the formation is
@@ -201,18 +208,33 @@ facings only**. Spawn order, and with it entity ids and every per-entity RNG str
   starts sit 2–5 tiles from an edge (y ≈ 44 of 48), so this is the normal case, not an edge case.
 - The anchor then snaps to open ground per domain, as a click does.
 
-On the sheet's four rows the centroid moves 0.5–1.5 tiles; across all 32 starts the largest move is 3.6.
+**How far bodies move.** The layout keeps the force where the author put it (the centroid moves 0.5–1.5 tiles
+on the sheet's four rows, at most 3.6 over all 36 starts), but it re-orders the force into class rows, so
+individual bodies travel further. That is the number `pnpm playtest` will feel:
+
+| starts | mean body move | largest body move |
+|---|---|---|
+| 30 missions | 3.3 tiles (per-mission means 1.8–5.0) | 10.1 (`deir_amun_3_subterranean`) |
+| 6 versus ends | 3.9–7.9 | 16.5 (`tel_marum` Sarim end, a 26-body line re-folded into a 9-wide block) |
+
+A **matched seating** refinement was prototyped. Within each element and domain, bodies take the slots in the
+order of their authored lateral position (GH-798's trick for plain orders). It cut the mission mean to 2.6 and
+the maximum to 9.2, but it left one overlapping pair in `umm_zeitoun_1_recon` and lengthened one versus
+end's moves to 18.0. It is not in the recommendation; S3a can add it if the lead wants smaller moves (D13).
 
 **When there is no room.** `assignTemplate` already walks each domain's own mask (`blocked` for foot,
 `blockedVehicle` for wheeled, which includes boulders) and only takes slots reachable from the anchor. A
 member it cannot seat comes back in `overflow`, and the chain continues:
 
 1. **The free spot** (§3.4) from the anchor outward, on the member's own mask, clear of every body already
-   placed. Measured: 2 bodies of 415, the drone and medic of `umm_zeitoun_1_recon`, both seated clear.
+   placed. The free spot was not prototyped. In the scratch run, 2 bodies of 415 (the drone and medic of
+   `umm_zeitoun_1_recon`) overflowed, and `assignTemplate`'s own overflow seat put both clear of everyone. S2
+   and S3a are where the free spot's share is measured.
 2. **The member's authored position.** This is today's behaviour, and only reached if no spot exists within
    12 tiles. For a start-time placement it is an authoring error. `tools/src/start_layout.test.ts` walks every
-   shipped mission and fails on any body that reaches this step, on any overlapping pair, and on any body off
-   its own mask.
+   shipped mission and fails on any body that reaches this step, on any overlapping pair, on any body off
+   its own mask, and on any body that moves more than 11 tiles (the measured 10.1 plus one: a ratchet that a
+   layout change which scatters the force fails).
 
 **Upgrades and the ledger.** The layout runs inside `start()` **after** `resolveUpgrades` and the ledger draw,
 because both change counts and classes. A sparse roster lays out fewer bodies; it does not leave holes.
@@ -234,9 +256,11 @@ anchored on the end's anchor and fronted at the other end. `placeOnOpen` remains
 and civilians in free play, fixed as S1 describes.
 
 **Enemy and civilian placements.** These get no assembly, because authored garrisons and ambush lines are
-content. The 1.25-tile `SPREAD` of a count-N placement is replaced by the free spot, so the bodies of one
-placement, and of neighbouring placements, never stand inside each other. Garrison-stance and buried
-placements stay exempt, as they are from `assertGroundClear`.
+content. Body k of a count-N placement still *asks* for today's `SPREAD` offset, and the free spot answers
+from there, so the bodies of one placement, and of neighbouring placements, never stand inside each other.
+Garrison-stance and buried placements stay exempt, as they are from `assertGroundClear`. The free spot runs
+only in a mission that declares `start_layout`, so the sim's fixture missions keep `SPREAD` byte for byte. A
+type with no footprint has a clearance of 0, so its requested point is always taken.
 
 ### 3.3 Minimum spacing at all times
 
@@ -254,8 +278,9 @@ by reading the GH-421 code against foot crowds:
 2. **A held formation member is stationary.** `sepMoves(j)` reads `moving[j] === 1`, but `fmMarchHold` holds
    a member at an unreleased checkpoint *with `moving` 1*. Others would therefore try to follow a member who
    is not going anywhere, and would read it one step ahead along its facing. Add `fmDuty[j] !== FM_DUTY_WAIT`
-   to `sepMoves`. A dressed checkpoint line is then something to steer round. This is behaviour-neutral in
-   every world without a formation order.
+   to `sepMoves`. A dressed checkpoint line is then something to steer round. It changes nothing in a world
+   without a formation order. **It does change today's vehicles inside a formation order,** which already
+   participate, so it ships in S5a-2 with its own before/after table, not as a neutral refactor.
 3. **Pair exemptions,** checked at the top of the narrow phase:
    - a boarder and the carrier it is boarding (`boardGoal[i] === j`, and the reverse). Otherwise a team
      reaching a Namer from behind contacts it at 1.22 + 0.45 = 1.67 tiles, outside `LOAD_RANGE` (1.5), and
@@ -265,7 +290,8 @@ by reading the GH-421 code against foot crowds:
    - a rider for the tick it unloads.
 4. **At a held goal, B+ runs before the valve.** Today a unit whose valve opened while it queued will ghost
    into a goal another unit holds, and end at rest inside it. Move the `sepAtContact` test ahead of the
-   `wait >= SEP_VALVE_TICKS` branch when the step is the final leg.
+   `wait >= SEP_VALVE_TICKS` branch when the step is the final leg. Like item 2, this changes today's vehicle
+   behaviour, so it ships in S5a-2 with a before/after table.
 
 **Who is not a participant:**
 
@@ -397,13 +423,18 @@ spawn event, and nothing per tick.
   - Blocked extra: 300 × 0.3 × 5 × 0.135 µs ≈ 0.06 ms.
 - **Foot against hulls.** Assume the circle-capsule test costs a third of GH-421's capsule-capsule; this adds
   ≈ 0.3 ms.
-- **On top of GH-421's measured +1.3 ms** (300 units, 100 vehicles ordered, `qarn_hadid`), **the estimate is
-  +0.3 to +1.0 ms**: 0.6–2% of the 50 ms budget. The tick at 300 units is about 2 ms today
-  (`docs/PERFORMANCE.md`), owned by detection and combat.
+- **The bottom-up estimate is +0.3 to +1.0 ms** on top of GH-421's cost: 0.6–2% of the 50 ms budget. The
+  tick at 300 units is about 2 ms today (`docs/PERFORMANCE.md`), owned by detection and combat.
+- **The anchored upper bound is worse, and is the honest number to plan against.** The one measured figure
+  is PR 809's: +1.3 ms for 100 moving hulls (300 units, `qarn_hadid`), about 13 µs per mover, far above
+  nanoseconds per test. 300 foot movers at that rate would be **+3.9 ms, above this design's own STOP bar**.
+  The reasons to expect much less are the circle fast path (no `fx.sqrt`, no `fx.div`, against GH-421's
+  closest-segment maths with both), the 2-tile foot grid, and the fact that most foot pairs fail the integer
+  box test. Until S0 measures it, the bound stands.
 
 | scene (400 units: 300 foot, 100 vehicles) | `stepMovement` today | proposed |
 |---|---|---|
-| all ordered to converge, `qarn_hadid` | **[cloud]** | **[cloud]** (estimate +0.3 to +1.0 ms) |
+| all ordered to converge, `qarn_hadid` | **[cloud]** | **[cloud]** (estimate +0.3 to +1.0 ms; bound +3.9 ms) |
 | idle (no movers) | ~0 | grid build only, O(count), < 0.02 ms |
 
 **How it is measured.**
@@ -455,20 +486,24 @@ Pins at the worktree base `fc6d72c7c`:
 The sim package's pinned worlds use fixture types and missions **with no footprint and no `start_layout`**,
 so the opt-in-by-data rule keeps them still unless a slice changes shared code.
 
-| what | S1 placer | S3 layout | S4 versus and free play | S5a hash-neutral sim | S5b infantry gap | S5c foot footprints on | S6 free spot |
-|---|---|---|---|---|---|---|---|
-| golden flat / relief | — | — | — | **must not move** (the proof) | — | — (fixtures declare none) | — |
-| golden orders | — | — | — | must not move | **moves** if it issues mixed group orders (re-pin, say why) | — | — |
-| economy / runtime-digest | — | — (no `start_layout` in the fixture) | — | must not move | re-read | re-read | moves if its camp builds (exit free spot) |
-| `WOUNDED_WORLD_PIN` (reads shipped unit JSON) | — | — | — | must not move | — | **moves** | re-read |
-| `FORMATION_WORLD_PIN` | — | — | — | re-read (the `sepMoves` WAIT clause, with no foot participants, should be neutral) | moves if its plain orders mix classes | re-read | — |
-| `pnpm playtest` (30 seeds) | — | **moves** (positions) | — | — | moves | **moves** | moves (camp builds) |
-| `LADDER_CREDITS`, `ROSTER_MAX` | — | re-read | — | — | re-read | re-read | re-read |
-| `pnpm balance` (§5.7) | — | — (builds its own forces) | — | — | — | **likely moves**: infantry now part in the urban fights | — |
-| `pnpm versus:probe` (60/40, report-only) | moves (Tel Marum) | — | **moves** | — | — | moves | — |
-| versus literals (`versus-force`, `match-world`, net arena) | moves | — | moves | — | — | moves | — |
-| golden visual | expect none | — | **`quiet`, `vehicle`, `kitted` move** | — | — | — | — |
-| `vehicle-overlap:probe` | — | — | — | **identical** (the proof) | — | report | — |
+The golden flat, relief and orders worlds declare no footprint, so they **cannot see any separation change**
+and prove nothing about one. The neutrality proof for separation code is `vehicle-overlap:probe` and
+`pnpm playtest` byte-identical, because both run shipped vehicles that already participate.
+
+| what | S1 placer | S3 layout | S4 versus and free play | S5a-1 neutral sim | S5a-2 two rule changes | S5b infantry gap | S5c foot footprints on | S6 free spot |
+|---|---|---|---|---|---|---|---|---|
+| golden flat / relief | — | — | — | — (blind) | — (blind) | — | — (fixtures declare none) | — |
+| golden orders | — | — | — | — (blind) | — (blind) | **moves** if it issues mixed group orders (re-pin, say why) | — | — |
+| economy / runtime-digest | — | — (no `start_layout` in the fixture) | — | — | — | re-read | re-read | — (no `start_layout`, so no free spot) |
+| `WOUNDED_WORLD_PIN` (reads shipped unit JSON) | — | — | — | must not move | re-read | — | **moves** | re-read |
+| `FORMATION_WORLD_PIN` | — | — | — | — | re-read (moves only if its vehicles declare footprints) | moves if its plain orders mix classes | re-read | — |
+| `vehicle-overlap:probe` | — | — | — | **identical** (the proof) | **moves**: before/after table | — | report | — |
+| `pnpm playtest` (30 seeds) | — | **moves** (positions) | — | **identical** (the proof) | moves (vehicles in formation orders and at held goals) | moves | **moves** | moves (camp builds) |
+| `LADDER_CREDITS`, `ROSTER_MAX` | — | re-read | — | identical | re-read | re-read | re-read | re-read |
+| `pnpm balance` (§5.7) | — | — (builds its own forces) | — | identical | re-read | — | **likely moves**: infantry now part in the urban fights | — |
+| `pnpm versus:probe` (60/40, report-only) | moves (Tel Marum) | — | **moves** | — | re-read | — | moves | — |
+| versus literals (`versus-force`, `match-world`, net arena) | moves | — | moves | — | re-read | — | moves | — |
+| golden visual | expect none | — | **`quiet`, `vehicle`, `kitted` move** | — | — | — | — | — |
 
 **Reporting rule, without reopening balance (lead, 13 Nov).** This is a correctness and presentation change,
 so:
@@ -500,12 +535,13 @@ Every gate arrives with its falsification run, red, in the commit message. That 
 | **S1** | Placer fixes (app) | `placeOnOpen` tests the unit's own mask (`blockedVehicle` for a wheeled type) and refuses an occupied tile. `assertGroundClear` adds the vehicle mask for wheeled bodies. | Every versus cell and every free-play map: no two bodies on one tile, no wheeled body on its mask. | Revert the mask line → `beit_sahwan_4` goes red (5 vehicles on boulders). Revert the occupancy line → the `tel_marum` Sarim end goes red (5 on one tile). |
 | **S2** | `freeSpotNear` (sim, pure) | §3.4 | Order of candidates, mask, reachability, clearance by pair distance, the fallback to the requested point; determinism (two runs, same bytes). | (1) The lattice ring order reversed → the order test goes red; (2) the vehicle mask swapped for foot → the boulder case goes red; (3) clearance using the radius not the sum → the stack case goes red. |
 | **S3a** | Layout function (sim, pure) | `startLayout(force, masks, anchor rule, front)` over `assignTemplate`, plus `data/layouts/assembly.json` and its loader (validated against `formation.schema.json`, never registered). | A golden table of slots for 3 literal forces on open ground; the edge pull-back; overflow to the free spot; ids and order unchanged. | (1) The anchor not pulled back → the edge case goes red (rear off the map); (2) the front read from the wrong axis → the facing test goes red; (3) the centroid floored per body (the P1c bug) → the chirality test goes red (a mirrored force, mirrored slots). |
-| **S3b** | Missions on | `start()` calls it after `resolveUpgrades` and the draw. Schema fields `start_layout` and `start_front`; `validate:data` requires `start_layout` on shipped missions; 30 missions authored. | `tools/src/start_layout.test.ts`: every shipped mission has 0 overlapping pairs, 0 bodies off their mask, 0 at the authored fallback, and a centroid move ≤ 4 tiles. `pnpm playtest` re-read and reported. | (1) One mission's `start_layout` removed → validate goes red; (2) the layout skipped → the start test goes red with 72 pairs; (3) one body forced onto a boulder → the off-mask count goes red. |
+| **S3b** | Missions on | `start()` calls it after `resolveUpgrades` and the draw. Schema fields `start_layout` and `start_front`; `validate:data` requires `start_layout` on shipped missions; 30 missions authored. | `tools/src/start_layout.test.ts`: every shipped mission has 0 overlapping pairs, 0 bodies off their mask, 0 at the authored fallback, and no body moved more than 11 tiles. `pnpm playtest` re-read and reported. | (1) One mission's `start_layout` removed → validate goes red; (2) the layout skipped → the start test goes red with 72 pairs; (3) one body forced onto a boulder → the off-mask count goes red; (4) the anchor's half-depth shift doubled → the 11-tile move bound goes red. |
 | **S4** | Versus and free play | `sandboxSpawns` and `versusSpawns` call `startLayout`. The tables keep membership and order. | Versus literals re-derived; free play: every map with 0 pairs; mesh roster unchanged. Bless `quiet`, `vehicle` and `kitted` **from CI**. | Swap the two ends' fronts → the facing test goes red; drop the order-preservation line → the id-order test goes red. |
-| **S5a** | Sim, hash-neutral | Circle fast path, foot grid, `sepMoves` WAIT clause, pair exemptions, B+ before the valve at a held goal. | 26 GH-421 specs plus new ones, each on a literal world: two circles, a circle and a capsule, a boarder vs its carrier, a held checkpoint, the valve at a held goal. **Proof: golden flat, relief and orders and `vehicle-overlap:probe` byte-identical.** | (1) The fast path's `<` made `<=`; (2) the deepen test dropped; (3) the WAIT clause inverted; (4) the boarder exemption keyed on the wrong id; (5) B+ left after the valve → each goes red. |
+| **S5a-1** | Sim, neutral | Circle fast path, foot grid, pair exemptions (a boarder and its carrier, a medic and its casualty, an unloading rider). With no foot participant yet, none of these pairs can occur. | 26 GH-421 specs plus new ones, each on a literal world with a test-only foot footprint: two circles, a circle and a capsule, a boarder vs its carrier. **Proof: `vehicle-overlap:probe` and `pnpm playtest` byte-identical.** | (1) The fast path's `<` made `<=`; (2) the deepen test dropped; (3) the boarder exemption keyed on the wrong id → each goes red. |
+| **S5a-2** | Sim, two rule changes | The `sepMoves` WAIT clause (§3.3 item 2) and B+ before the valve at a held goal (item 4). Both change today's vehicles. | A held checkpoint is steered round, not followed; the valve at a held goal ends the leg at contact. Before/after table: `vehicle-overlap:probe`, `pnpm playtest`, `FORMATION_WORLD_PIN`. | (1) The WAIT clause inverted → the checkpoint spec goes red; (2) B+ left after the valve → the held-goal spec goes red. |
 | **S5b** | Infantry gap | `VEHICLE_TO_INFANTRY_GAP` 1 → 2 (§3.1). | `formation.test.ts` and `formation_walk.test.ts` re-derived, not loosened; a new spec checks that every shipped hull clears r 0.45 at the first infantry rank. | Put back 1 → the clearance spec goes red on `ifv_namer`. |
 | **S5c** | Foot footprints on | 25 foot types declare circles (§3.1). Schema text no longer says "vehicles only". A validate rule: every ground type declares a footprint unless named, and foot r ≤ `INFANTRY_SPACING` / 2; a test pins the r table to `unit-footprints.ts`'s measurement. | `separation.test.ts` foot cases on shipped types; S0's census before and after (the target: foot-foot under 0.3 tile from 13.0% to under 1%); the choke probe passes, with no deadlock. | (1) One foot type's footprint deleted → validate goes red; (2) an r of 0.55 → the slot-pitch rule goes red; (3) the measurement table edited → the pin goes red. |
-| **S6** | Emergence | `freeSpotNear` at the camp exit, unload, leaving a building, vent surfacing, `reinforce` and waves. The enemy and civilian count-N spread replaces `SPREAD`. | Ten builds from one camp with no rally: 0 overlapping pairs at rest; unloading a full Namer: 0; a five-man garrison leaving: 0; a vent with three surfacing: 0. | Point the exit back at `structureExit` → the camp spec goes red with 45 pairs. |
+| **S6** | Emergence | `freeSpotNear` at the camp exit, unload, leaving a building, vent surfacing, `reinforce` and waves. In a mission that declares `start_layout`, body k of an enemy or civilian count-N placement asks for its `SPREAD` offset and takes the free spot from there. | Ten builds from one camp with no rally: 0 overlapping pairs at rest; unloading a full Namer: 0; a five-man garrison leaving: 0; a vent with three surfacing: 0. | Point the exit back at `structureExit` → the camp spec goes red with 45 pairs. |
 | **S7** | Render, conditional | The walk-hold and facing slerp from §5, only if S0's counts call for them. | Unit tests on `resolveClip`'s hold (pure). | Hold length 0 → the flicker spec goes red. |
 | **S8** | Report and notes | The final before/after tables on GH-1360; `CLAUDE.md` and `docs/agent-notes/sim-and-orders.md` brought in line (V-R1's "infantry never" and the schema text retire). | — | — |
 
@@ -514,8 +550,9 @@ The order is load-bearing:
 - S0 must exist before any change is measured.
 - S1 is an independent bug fix and can land first.
 - S2 is needed by S3 and S6.
-- S5a must prove itself byte-identical before S5c changes behaviour, so that a moved pin in S5c is
-  attributable to foot participation alone.
+- S5a-1 must prove itself byte-identical, and S5a-2's two rule changes must be measured on today's vehicles
+  alone, before S5c turns foot on. A number that moves in S5c is then attributable to foot participation
+  alone.
 - S3 and S5 can run in parallel streams after S2. They meet only in `pnpm playtest`, so S5c re-reads it
   after S3b.
 
@@ -537,6 +574,7 @@ The order is load-bearing:
 | **D10** | **`VEHICLE_TO_INFANTRY_GAP` 1 → 2.** Required for foot to clear a hull in a plain group order; it makes every mixed group one row deeper. | **Yes** (S5b). |
 | **D11** | **Offer the assembly shape as a fourth orderable formation?** | **No.** It lives in `data/layouts/`, never in the HUD picker. |
 | **D12** | **How moved numbers are reported under the park.** | Before/after tables on GH-1360, plan fixes only, no `tuning.ts`; a seed no plan fix closes, or a balance row that fails, is a STOP to the lead; versus cells outside 60/40 are logged and not chased (§6). |
+| **D13** | **Matched seating** (bodies take their element's slots in order of their authored lateral position). | **Not now.** It cut the mission mean move from 3.3 to 2.6 tiles, but left one overlapping pair and lengthened a versus end's moves. It can be revisited in S3a if `pnpm playtest` moves more than the lead wants. |
 
 **Open, not a decision yet.** The Ambush ring hands out ring tiles one apart regardless of class, so a hull
 beside a team is a contested slot. GH-421 already stops the arriving hull at contact there. If S0 shows the
@@ -550,7 +588,8 @@ its own small slice.
 The scratch exporter builds each world through `missionWorld` (`tools/src/mission-harness.ts`, seed 424242,
 empty ledger), or through `standMapStructures` plus `versusSpawns` for the versus rows. It reads
 `sim.state`, and runs the real `assignTemplate` (with `templateOffsets` for the depth) on the real
-`sim.blocked` and `sim.blockedVehicle` masks with the `assembly` shape in §3.2. It writes JSON, and a
+`sim.blocked` and `sim.blockedVehicle` masks with the `assembly` shape in §3.2, after the 6-tile clustering
+and the one-body rule. It writes JSON, and a
 matplotlib script draws it: tiles (blocked, boulder, cover), bodies by class, overlapping bodies outlined in
 red, a facing tick on each body, and a front arrow. S0 commits the exporter as
 `tools/src/backtest/spacing-sheet.ts` so the picture can be regenerated after every slice. Until then the
