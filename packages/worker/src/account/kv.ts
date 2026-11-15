@@ -4,7 +4,7 @@ export interface KVLike {
   get(key: string): Promise<string | null>;
   put(key: string, value: string, o?: { expirationTtl?: number }): Promise<void>;
   delete(key: string): Promise<void>;
-  list(o: { prefix: string; cursor?: string }): Promise<{ keys: { name: string }[]; list_complete: boolean; cursor?: string }>;
+  list(o: { prefix: string; cursor?: string; limit?: number }): Promise<{ keys: { name: string }[]; list_complete: boolean; cursor?: string }>;
 }
 
 /** An in-memory KV for tests. `failPut` makes every put reject, to prove a tombstone failure aborts a delete.
@@ -21,9 +21,9 @@ export function memoryKV(opts: { failPut?: boolean; pageSize?: number } = {}): K
       store.delete(key);
     },
     // Pages of `pageSize` keys (default: all), the cursor being the last name returned, as Workers KV pages.
-    list: async ({ prefix, cursor }) => {
+    list: async ({ prefix, cursor, limit }) => {
       const all = [...store.keys()].filter((k) => k.startsWith(prefix)).sort().filter((k) => cursor === undefined || k > cursor);
-      const size = opts.pageSize ?? all.length;
+      const size = Math.min(opts.pageSize ?? all.length, limit ?? all.length);
       const page = all.slice(0, size);
       const done = all.length <= size;
       return { keys: page.map((name) => ({ name })), list_complete: done, cursor: done ? undefined : page[page.length - 1] };
