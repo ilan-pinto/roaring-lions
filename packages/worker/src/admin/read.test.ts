@@ -276,7 +276,8 @@ describe('the audit table is append-only (S3, D9.5)', () => {
       const rel = f.slice(SRC.length + 1);
       if (rel !== 'admin/admin-write.ts') expect(text, rel).not.toMatch(/INSERT\s+(OR\s+\w+\s+)?INTO\s+admin_action/i);
       expect(text, rel).not.toMatch(/UPDATE\s+admin_action/i);
-      if (rel !== 'account/tables.ts') expect(text, rel).not.toMatch(/DELETE\s+FROM\s+admin_action/i);
+      if (rel === 'admin/view-sweep.ts') expect(text, rel).toMatch(/DELETE FROM admin_action WHERE action = 'view'/); // the sweep may delete view rows and nothing else
+      else if (rel !== 'account/tables.ts') expect(text, rel).not.toMatch(/DELETE\s+FROM\s+admin_action/i);
     }
     // The scan can see the writer: a vacuous pass would read zero files.
     expect(readFileSync(SRC + '/admin/admin-write.ts', 'utf8')).toMatch(/INSERT INTO admin_action/);

@@ -586,7 +586,7 @@ the table's lifetime ceiling:
 - 5 for each of 87 stars;
 - 100 for completing the campaign.
 
-That is **925 coins**, plus coupons. It is the same ceiling an honest player reaches by finishing
+That is **925 coins**, plus coupons and plus admin grants, journaled (GH-695: the admin page writes a `coin_journal` row of kind `admin` for every change). It is the same ceiling an honest player reaches by finishing
 the campaign with every star. Three things keep that ceiling a ceiling:
 
 1. **No transfer between members, ever.** There is no gifting, no trading and no merging of two
@@ -789,7 +789,7 @@ Before the claim, the screen offers "Download a copy first", which uses the exis
    claim record, so the server keeps one of its own.
 
    **The bound this keeps.** Since a member's last reset, the free coins credited never exceed
-   925 plus coupons, the earn table's ceiling (§2.4), however many devices claim. `earn_lifetime`
+   925 plus coupons (and admin grants, journaled), the earn table's ceiling (§2.4), however many devices claim. `earn_lifetime`
    is never below `earn`, so a claim pays at most what raising `earn` to the evidence is worth.
    A victory after a reset still pays against the emptied `earn`, exactly as it does locally:
    replaying a mission after a reset earns again, which is the point of a reset. A claim never
