@@ -7881,6 +7881,42 @@ button.rl-menu__item[data-kind='aside'] {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Roar coins on the account page (ui/profile.ts, GH-1370)                */
+/* ---------------------------------------------------------------------- */
+
+.rl-profile__card--coins {
+  min-width: 0;
+}
+.rl-profile__coins-balance {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-profile__coins-img {
+  flex: none;
+}
+.rl-profile__coins-n {
+  font-family: var(--font-mono);
+  font-size: var(--t-head);
+  font-weight: 600;
+  color: var(--roar);
+}
+.rl-profile__coins-word {
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-profile__coins-where {
+  margin: 0;
+  color: var(--ink-mute);
+}
+.rl-profile__coins-note {
+  margin: 0;
+  color: var(--ink-dim);
+}
+
+/* ---------------------------------------------------------------------- */
 /* Settings (ui/settings-panel.ts)                                        */
 /* ---------------------------------------------------------------------- */
 

@@ -192,7 +192,7 @@ import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
-import { initTelemetry, telemetry, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
+import { initTelemetry, telemetry, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
 import { startLoadout } from './telemetry/loadout';
 import { screenFor } from './telemetry/events';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
@@ -878,6 +878,8 @@ async function main(): Promise<void> {
           controls: { ...settings.controls, bindings: overridesOf(next) },
         }),
     }),
+    // GH-1410: reports are sent unless the stored opt-out (`?notrack`, or this switch) says no.
+    reports: reportsSwitch,
     build: __APP_BUILD__,
     commit: __APP_COMMIT__,
   };
@@ -1624,6 +1626,7 @@ async function main(): Promise<void> {
                     },
                   }
                 : {}),
+              coins: { read: () => ledgerStore.readRoar(), onAccount: acct !== null, available: ledgerStore.available, coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png` },
               // A guest boot only: a claimed device has the server-backed store and nothing to claim.
               claim: selectedStore.signedIn ? undefined : { guest: ledgerStore, download: downloadFile, onClaimed: reloadHere },
             });
@@ -1695,7 +1698,19 @@ async function main(): Promise<void> {
   const telemetryScreen = screenFor(landingPath, '/', 'beit_sahwan_0_tutorial');
   // `renderer` is always 'three' since WP-A3.3: the field stays so old D1
   // rows and `packages/worker/QUERIES.sql` group the same way.
-  initTelemetry({ dev: telemetryScreen === 'sandbox' }).sessionStart(telemetryScreen, 'three');
+  initTelemetry({
+    dev: telemetryScreen === 'sandbox',
+    // GH-1410: what the field-signal events say about the machine. A mission always draws through the legacy WebGL2 renderer (`&gpu=` is
+    // sandbox-only until the cutover, `gpu-flag.ts`), so the backend is 'webgpu' only on a sandbox page that asked for it.
+    gear: () => ({
+      preset: settingsDeps.get().video.quality,
+      backend: telemetryScreen === 'sandbox' && new URLSearchParams(location.search).get('gpu') === 'webgpu' ? 'webgpu' : 'webgl2',
+      gpu: gpuName(), // RAW here; the telemetry façade reduces it to a family before any event is built (`createTelemetry`'s `gear`)
+    }),
+  }).sessionStart(telemetryScreen, 'three');
+  // GH-1410: time to the first drawn frame, from navigation start (`performance.now()` counts from it). Two frames, because the first
+  // callback runs BEFORE the first paint it requests.
+  requestAnimationFrame(() => requestAnimationFrame(() => telemetry().boot(performance.now())));
   // GH-464 (spec §12.2): ask the server's switch once a boot, so the lead can
   // close feedback without an app deploy. Cached for the session; every entry
   // point checks `isClosed()` when it is built, and the menu takes its button
@@ -7383,6 +7398,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** The room's status as the last frame saw it: what `pauseEndClosesMenu`
    *  compares this frame's with. */
   let roomStatusSeen: TransportStatus = room?.status() ?? { kind: 'local' };
+  let telFrameAt = 0;
   const loop = (): void => {
     rafId = requestAnimationFrame(loop);
     // GH-943 P0: the harness's frame-loop freeze (`frame-freeze.ts`). The loop keeps re-arming through the NATIVE rAF, runs no
@@ -7403,6 +7419,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // eases the PRESENTATION clock alone; the sim is neither slowed nor
     // ticked by it.
     const now = performance.now();
+    // GH-1410: the frame's wall time, for the `perf_sample` event. Presentation only; the sim never sees it.
+    if (telFrameAt !== 0) missionTelemetry?.onFrame(now - telFrameAt);
+    telFrameAt = now;
     const pose = beat ? beatPose(now - beat.t0, beat.reduced) : null;
     // H3: the intro holds it too, until the camera lands (ruling 2).
     const { ticks, frameMs } = advanceClock(clock, now, gameSpeed, paused || beat !== null || intro !== null, MS_PER_TICK);

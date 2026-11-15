@@ -56,6 +56,17 @@ export function readOptOut(storage: StorageLike | null, query: URLSearchParams):
   return query.has('notrack') || storage?.getItem(OPTOUT_KEY) === '1';
 }
 
+/** The Settings toggle (GH-1410): turns the opt-out on or off, and says what the key now reads. `?notrack` writes the same key, so the two
+ *  agree. `null` storage (site data blocked) cannot persist anything: the answer is then whatever the caller keeps for the session. */
+export function setOptOut(storage: StorageLike | null, optedOut: boolean): void {
+  storage?.setItem(OPTOUT_KEY, optedOut ? '1' : '0');
+}
+
+/** The stored opt-out alone, no query: what the live gate reads before every send. */
+export function storedOptOut(storage: StorageLike | null): boolean {
+  return storage?.getItem(OPTOUT_KEY) === '1';
+}
+
 export function resolveIdentity(storage: StorageLike | null, query: URLSearchParams, newId: () => string): Identity {
   const optedOut = readOptOut(storage, query);
 

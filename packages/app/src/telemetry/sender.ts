@@ -28,6 +28,11 @@ export class Sender {
     return this.queue.length;
   }
 
+  /** Drops everything queued (an opt-out arriving mid-session: nothing already waiting may leave). */
+  clear(): void {
+    this.queue.length = 0;
+  }
+
   push(e: TelemetryEvent): void {
     this.queue.push(e);
     if (this.queue.length > this.maxQueue) this.queue.splice(0, this.queue.length - this.maxQueue);
