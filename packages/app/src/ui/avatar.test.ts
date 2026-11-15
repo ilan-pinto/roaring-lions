@@ -60,4 +60,9 @@ describe('the avatar element (GH-1075 P5)', () => {
     expect(after).not.toContain('0f8fad5b');
     expect(after).not.toContain('PUBSENTINEL77');
   });
+
+  it('the guest mark and a member\'s avatar are decorative: aria-hidden, so the name beside them is the label (falsification audit)', () => {
+    expect(guestMark('chip').getAttribute('aria-hidden')).toBe('true');
+    expect(avatarElement(chosen('crest-lion'), 'ABCD2345', 'chip').getAttribute('aria-hidden')).toBe('true');
+  });
 });

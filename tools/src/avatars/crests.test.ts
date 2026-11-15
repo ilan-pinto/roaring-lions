@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { avatarPresets, defaultAvatarPool } from '../../../packages/data/src/avatar';
 import {
-  CRESTS, FLOOR_EXEMPT_CRESTS, FLOOR_EXEMPT_PARTS, MAX_CLOSING_GAIN, MIN_RETENTION, buildAll, measureCharge, paletteHex, parsePath, readLion,
+  CRESTS, FLOOR_EXEMPT_CRESTS, FLOOR_EXEMPT_PARTS, MAX_CLOSING_GAIN, MIN_RETENTION, assertLegible, buildAll, measureCharge, paletteHex, parsePath, readLion,
 } from '../../avatars/crest_geometry.mjs';
 
 const ROOT = join(__dirname, '..', '..', '..');
@@ -169,5 +169,15 @@ describe('the generator', () => {
   });
   it('has its output directory under assets/ui/avatars', () => {
     expect(existsSync(DIR)).toBe(true);
+  });
+});
+
+describe('assertLegible, the build-time gate (falsification audit, GH-1075)', () => {
+  it('refuses a crest with a 10-unit stroke and one with a 12-unit gap, and passes every shipped crest', () => {
+    const thin = { id: 'crest-thin', ground: 'olive.2', rim: 'olive.4', charge: () => [{ d: 'M60,60L230,60L230,70L60,70Z' }] };
+    expect(() => assertLegible(thin)).toThrow(/keeps/);
+    const gap = { id: 'crest-gap', ground: 'olive.2', rim: 'olive.4', charge: () => [{ d: 'M60,100L230,100L230,140L60,140Z' }, { d: 'M60,152L230,152L230,192L60,192Z' }] };
+    expect(() => assertLegible(gap)).toThrow(/closing adds/);
+    for (const c of CRESTS) expect(() => assertLegible(c), c.id).not.toThrow();
   });
 });

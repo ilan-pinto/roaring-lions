@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { defaultAvatar } from '@lions/data';
 import type { AccountClient, AccountError, IdentityView, MeResult } from '../account/client';
 import { ACCOUNT_BINDING_KEY, readBinding } from '../account/binding';
 import { canonicalCampaign } from '@lions/economy';
@@ -839,6 +840,48 @@ describe('showProfile: the avatar sheet (GH-1075 P6)', () => {
     const m = await openSheet(stub({ me: async () => signedIn() }));
     m.dispose();
     expect(document.body.querySelector('.rl-avatar-picker')).toBeNull();
+  });
+
+  // Falsification audit (GH-1075): the "second click opens nothing more" line above waits only six microtasks, which a
+  // lazy import() has not finished by, so it cannot see a second sheet that opens later. These wait on a timer.
+  const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 40));
+
+  it('a second Change avatar click while the sheet is open opens no second sheet, even after the lazy import settles', async () => {
+    const m = await openSheet(stub({ me: async () => signedIn() }));
+    btn(m.stage, t('profile.avatar.change')).click();
+    await settle();
+    expect(document.body.querySelectorAll('.rl-avatar-picker')).toHaveLength(1);
+  });
+
+  it('the sheet can be opened again after it was closed', async () => {
+    const m = await openSheet(stub({ me: async () => signedIn() }));
+    (document.body.querySelector('.rl-avatar-picker__cancel') as HTMLButtonElement).click();
+    expect(document.body.querySelector('.rl-avatar-picker')).toBeNull();
+    btn(m.stage, t('profile.avatar.change')).click();
+    await vi.waitFor(() => expect(document.body.querySelector('.rl-avatar-picker')).not.toBeNull());
+    expect(document.body.querySelectorAll('.rl-avatar-picker')).toHaveLength(1);
+  });
+
+  it('Use my default, then Save, redraws the member\'s derived default crest as not chosen', async () => {
+    const c = stub({ me: async () => signedIn() });
+    const m = await openSheet(c);
+    (document.body.querySelector('[data-preset="crest-wave"]') as HTMLButtonElement).click();
+    (document.body.querySelector('.rl-avatar-picker__save') as HTMLButtonElement).click();
+    await flush();
+    expect(m.stage.querySelector('.rl-profile__avatar .rl-avatar')?.getAttribute('data-avatar')).toBe('crest-wave');
+    btn(m.stage, t('profile.avatar.change')).click();
+    await vi.waitFor(() => expect(document.body.querySelector('.rl-avatar-picker')).not.toBeNull());
+    (document.body.querySelector('.rl-avatar-picker__default') as HTMLButtonElement).click();
+    (document.body.querySelector('.rl-avatar-picker__save') as HTMLButtonElement).click();
+    await flush();
+    expect(c.calls.filter((x) => x.startsWith('patch:'))).toEqual(['patch:{"avatar":"crest-wave"}', 'patch:{"avatar":null}']);
+    expect(m.stage.querySelector('.rl-profile__avatar .rl-avatar')?.getAttribute('data-avatar')).toBe(defaultAvatar('ABCD2345'));
+    // still "not chosen": opening the sheet again and saving untouched sends null, not the default crest's id
+    btn(m.stage, t('profile.avatar.change')).click();
+    await vi.waitFor(() => expect(document.body.querySelector('.rl-avatar-picker')).not.toBeNull());
+    (document.body.querySelector('.rl-avatar-picker__save') as HTMLButtonElement).click();
+    await flush();
+    expect(c.calls.filter((x) => x.startsWith('patch:')).pop()).toBe('patch:{"avatar":null}');
   });
 
   it('a click that is still loading the sheet when the screen is disposed opens nothing', async () => {
