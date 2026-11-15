@@ -1711,7 +1711,7 @@ async function main(): Promise<void> {
         },
         store: settingsStore,
       });
-    });
+    }).catch((err: unknown) => console.error('[quality-hint] the card failed to load', err));
   }
   // `fresh` has done its work above and is not a route parameter, so it comes
   // off the URL -- except on the way into a mission, where it still means "run
