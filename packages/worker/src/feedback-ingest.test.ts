@@ -242,6 +242,18 @@ describe('POST /api/feedback: validation', () => {
     expect(h.attachments()).toBe(0);
   });
 
+  it('does not echo a client-chosen name back at its own length in a 400 (GH-1075 review)', async () => {
+    const h = setup();
+    const longPart = await errorOf(await h.post({ extra: [['k'.repeat(300_000), 'x']] }));
+    expect(longPart.error).toMatch(/^unknown part /);
+    expect((longPart.error ?? '').length).toBeLessThan(80);
+    const longField = await errorOf(await h.post({ meta: { ...META, ['f'.repeat(20_000)]: 1 } }));
+    expect(longField.error).toMatch(/^unknown field /);
+    expect((longField.error ?? '').length).toBeLessThan(80);
+    // A short name is still named, so the 400 stays useful to the page's own developer.
+    expect((await errorOf(await h.post({ extra: [['note', 'x']] }))).error).toBe('unknown part note');
+  });
+
   it('an unknown part, a duplicated part, a missing meta, bad JSON, an unknown field and a rating outside the debrief are 400', async () => {
     const h = setup();
     expect((await h.post({ extra: [['note', 'x']] })).status).toBe(400);

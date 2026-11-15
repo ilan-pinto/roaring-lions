@@ -36,6 +36,7 @@ import {
   SHOT_MAX_BYTES,
   feedbackMetaProblem,
   feedbackRef,
+  named,
   type FeedbackMeta,
 } from './feedback-meta';
 
@@ -129,7 +130,7 @@ const partBytes = async (v: FormDataEntryValue): Promise<Uint8Array> =>
 /** Either the parsed parts or the Response that refuses them. */
 async function parseParts(form: FormData): Promise<Parts | Response> {
   for (const k of new Set(form.keys())) {
-    if (k !== 'meta' && k !== 'shot' && k !== 'replay') return bad(`unknown part ${k}`);
+    if (k !== 'meta' && k !== 'shot' && k !== 'replay') return bad(`unknown part ${named(k)}`);
     if (form.getAll(k).length !== 1) return bad(`more than one ${k}`);
   }
   const rawMeta = form.get('meta');

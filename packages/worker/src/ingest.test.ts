@@ -28,6 +28,32 @@ function setup(limiter?: RateLimiter) {
 }
 
 describe('POST /api/events', () => {
+  it('stops reading a body that has no Content-Length once it is over the cap (GH-1075 review)', async () => {
+    // A chunked upload declares no length, so the header check cannot refuse it:
+    // the reader itself must stop. Counting the chunks pulled is the witness.
+    const h = setup();
+    let pulled = 0;
+    const chunk = new TextEncoder().encode('x'.repeat(16 * 1024));
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        pulled++;
+        if (pulled > 4096) c.close(); // 64 MiB offered at most
+        else c.enqueue(chunk);
+      },
+    });
+    const req = new Request('https://game.example.workers.dev/api/events', {
+      method: 'POST',
+      body,
+      // @ts-expect-error undici needs `duplex` for a stream body
+      duplex: 'half',
+      headers: { origin: 'https://game.example.workers.dev', 'cf-connecting-ip': '203.0.113.9' },
+    });
+    expect(req.headers.get('content-length')).toBeNull();
+    expect((await handleIngest(req, { DB: h.db, ASSETS: { fetch: async () => new Response('asset') } }, 1_790_000_001_000)).status).toBe(204);
+    // 64 KiB cap = 4 chunks; a reader that stops at the cap pulls a handful, not thousands.
+    expect(pulled).toBeLessThan(16);
+  });
+
   it('stores valid events, drops invalid ones, and always answers 204', async () => {
     const h = setup();
     const res = await h.post({ events: [hb(1), { ...hb(2), email: 'x@y.z' }, hb(3)] });

@@ -1,6 +1,7 @@
 import { isTelemetryEvent, type TelemetryEvent } from '@lions/data/telemetry';
 import type { D1Like, D1Stmt, Env } from './d1';
 import { bump, ipKey, ipSecret } from './rate-day';
+import { readCapped } from './read-capped';
 
 const MAX_BODY = 64 * 1024;
 const MAX_EVENTS = 50;
@@ -39,11 +40,13 @@ export async function handleIngest(req: Request, env: Env, now: number): Promise
     }
     // M5: reject on the declared size before reading the body at all, so an
     // oversized request never gets buffered into memory just to be dropped.
-    // The header can be absent or lie, so `text.length` below still guards.
+    // The header can be absent (a chunked upload) or lie, so the read itself
+    // stops at the cap: `req.text()` would buffer the whole body first.
     const contentLength = req.headers.get('content-length');
     if (contentLength !== null && Number(contentLength) > MAX_BODY) return NO_CONTENT();
-    const text = await req.text();
-    if (text.length > MAX_BODY) return NO_CONTENT();
+    const bytes = await readCapped(req, MAX_BODY);
+    if (bytes === null) return NO_CONTENT();
+    const text = new TextDecoder().decode(bytes);
     const body = JSON.parse(text) as { events?: unknown };
     if (!Array.isArray(body.events) || body.events.length > MAX_EVENTS) return NO_CONTENT();
     // One request speaks for one player (#559 M-3): the game only ever sends
