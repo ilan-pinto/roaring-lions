@@ -31,6 +31,7 @@ describe('the normal arm is the room', () => {
     // tel_marum re-pinned 2026-10-22 for its versus seat 0 at (24,46). Was 1260439781.
     // Re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774). Was 280818962.
     // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): the spawn moved. Was 52130380.
+    // Was 2541694446 (helper and room) before GH-1360 S1 (placeOnOpen refuses occupied tiles; tel_marum spawn moved).
     expect(pinWindow('tel_marum', 'helper').hash).toBe(2673683950);
     expect(pinWindow('tel_marum', 'room').hash).toBe(2673683950);
     for (const map of ['beit_sahwan_outskirts', 'tel_marum'] as const) {

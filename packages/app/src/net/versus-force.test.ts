@@ -131,6 +131,7 @@ describe('KDF vs Sarim (2026-10-14)', () => {
     // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): the spawn moved. Was 52130380.
     // beit re-pinned 28 Oct 2026 for its seat 0 at (4,22) (GH-560 Task 7B): the spawn moved and nothing else. Was 695551139.
     // Re-pinned for GH-884 (5 Nov 2026): mbt_lavi gained hull.aps.reserve, so a room that registers the KDF roster turns apsStockLive on and folds its marker word and two columns; with that fold disabled the old values read back (watched). Was 4158212441 (beit) and 682632360 (tel).
+    // tel_marum was 2541694446 before GH-1360 S1 (placeOnOpen refuses occupied tiles; tel_marum spawn moved).
     const want: Record<string, number> = { beit_sahwan_outskirts: 3497186305, tel_marum: 2673683950 };
     for (const mapId of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const factions of [undefined, ['kdf', 'kdf'] as const]) {
