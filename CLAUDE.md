@@ -77,6 +77,8 @@ pnpm backdrop:layout -- --map=<id> [--write]   # a map's `backdrop` piece list f
 pnpm backdrop:test    # the kit build tools' unit tests (numpy only, ~2 min; not in CI)
 pnpm balance          # headless battle sim, prints win rates
 pnpm versus:probe     # report-only: who wins a versus map when both seats attack-move (west/east, KDF/Sarim); the bar for opening a map (GH-561)
+pnpm spacing:census   # report-only (GH-1360): overlap by BODIES at tick 0, in play (`-- --play`), the choke probe; the baseline every spacing slice compares
+pnpm spacing:sheet -- --out=<json> [--png=<png>] [--layout=<json>]   # the top-down per-class layout sheet, today against a layout (needs python3 + matplotlib)
 ```
 
 `pnpm test:determinism` must pass before any commit touching `@lions/sim`. It is the canary for invariants 2 and 3.
