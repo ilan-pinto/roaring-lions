@@ -28,7 +28,13 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   turning it back on applies after a reload. The opt-out is also held in MEMORY for the page (`optedOutNow`), so with site data blocked, or a write that
   throws, "off" still holds; and `Telemetry.ids()` answers null once it is set, so a feedback note then carries no id. `/stats` shows the result as "Field health" (`/stats/api/health`,
   `worker/src/field-health.ts`): the crash-free session rate, the commonest crashes by hash, frame percentiles by GPU family
-  (`gpuFamily`) and the median start-up. The privacy page's lines for these are a DRAFT the lead decides (the PR for GH-1410).
+  (`gpuFamily`) and the median start-up. The privacy page's lines for these were approved by the lead on 15 Nov. **Retention (the lead's ruling):**
+  everything held about an ID is deleted about 180 days after it was last SEEN. The daily cron (`scheduled` in `index.ts`) runs
+  `purgeEvents` (raw `event_batch` rows by `received_at`: three slices of `INGEST_DAY.global` = 5,000, so a run clears more than a
+  full day of ingest; the old 2,000 a day fell behind), `purgePlayers` (a `players` row by `last_seen`, with its `accounts` row in the
+  same batch, plus any orphan `accounts` row by its own `t`; strict `<`, so a row at exactly 180 days is kept) and `purgeRateDays`.
+  Each is a few big `DELETE ... LIMIT` statements, never a loop of small ones: the Free plan allows 50 D1 queries per invocation and
+  `purge.test.ts` counts them.
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the

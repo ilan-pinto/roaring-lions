@@ -23,7 +23,7 @@ describe('the privacy page', () => {
     expect(html).not.toContain('An empty coin wallet');
   });
 
-  // GH-1410 DRAFT (held for the lead): the lines for client_error, perf_sample and boot, as the privacy review of 15 Nov corrected them.
+  // GH-1410 (approved by the lead, 15 Nov): the lines for client_error, perf_sample and boot, as the privacy review corrected them and the ruling set the retention.
   it('names the anonymous usage, crash and performance reports: what is sent, what is not, the ID, the tester label, retention, and how to turn it off', () => {
     const html = renderPrivacy(fixtureValues);
     const section = html.split('Anonymous usage, crash and performance reports')[1]?.split('<h2>')[0] ?? '';
@@ -35,7 +35,7 @@ describe('the privacy page', () => {
       'frame times', 'family of your graphics card', 'how long the game took to start',
       'No email, IP address or browser user agent',
       'can hold fragments of what the game was handling', // crash text is heuristic
-      'about 180 days', 'not aged out', // raw events are purged; the per-ID summary is not
+      'deleted about 180 days after it was last seen', 'after about 180 days without play', // reports AND the per-ID summary, from the last time the ID was seen
       'Settings, under Privacy', '?notrack', 'Do Not Track', 'Global Privacy Control', '?telemetry',
     ]) {
       expect(section, m).toContain(m);
@@ -44,6 +44,7 @@ describe('the privacy page', () => {
     expect(section).not.toContain('no name');
     expect(section).not.toContain('stays in this browser.');
     expect(section).not.toContain('kept for 180 days.');
+    expect(section).not.toContain('not aged out'); // the summaries ARE aged out now (`purgePlayers`)
   });
 
   it('the older Play statistics section lists the Settings switch among the opt-outs', () => {
