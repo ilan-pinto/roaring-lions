@@ -19,7 +19,7 @@ import type { MissionEvent } from '@lions/sim';
 import * as ev from './events';
 import type { AccountExtra, AccountLike, Loadout, RuntimeView } from './events';
 import type { PlayerIntent } from '../input/intents';
-import { resolveIdentity, readOptOut, safeStorage, setOptOut, storedOptOut, type Identity, type StorageLike } from './identity';
+import { resolveIdentity, readOptOut, safeStorage, setOptOut, storedOptOut, storedPlayerId, type Identity, type StorageLike } from './identity';
 import { gpuFamily } from '@lions/data/telemetry';
 import { installErrorHandlers, type DescribedError } from './errors';
 import { FrameSampler } from './perf';
@@ -65,6 +65,9 @@ export interface Telemetry {
   /** Who this session is, for a feedback note (GH-464): null while telemetry
    *  is off (dev, tests, an opt-out), so a note from there carries no ids. */
   ids(): { player: string; session: string; tester?: string } | null;
+  /** GH-1431: this session's player id even after an opt-out, for an account deletion that also deletes the reports. Reads memory only;
+   *  sends and stores nothing. Null when telemetry never ran this page load. */
+  knownPlayer(): string | null;
 }
 
 const NOOP_MISSION: MissionTelemetry = {
@@ -83,6 +86,7 @@ export const NOOP_TELEMETRY: Telemetry = {
   boot: () => undefined,
   clientError: () => undefined,
   ids: () => null,
+  knownPlayer: () => null,
 };
 
 export interface TelemetryDeps {
@@ -156,6 +160,7 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
   );
 
   return {
+    knownPlayer: () => d.identity.player,
     ids: () =>
       d.optedOut?.() === true
         ? null
@@ -277,6 +282,15 @@ let instance: Telemetry = NOOP_TELEMETRY;
 /** The accessor every hook uses. NOOP until `initTelemetry()` runs. */
 export function telemetry(): Telemetry {
   return instance;
+}
+
+/**
+ * GH-1431: the telemetry player id an account deletion should name when the player ticks "also delete my reports". `ids()` answers null after
+ * an opt-out (so a feedback note carries no id), which left those rows behind until they aged out at 180 days. This reads the id instead: the
+ * running session's, else the one this browser stored. It sends no event, mints no id and writes nothing.
+ */
+export function telemetryPlayerForDeletion(storage: StorageLike | null = safeStorage(() => window.localStorage)): string | null {
+  return instance.knownPlayer() ?? storedPlayerId(storage);
 }
 
 /**
