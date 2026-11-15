@@ -133,7 +133,7 @@ The defeat holds for the residents' clock, a Conduct collapse and the time limit
 | mission start | `brief` | Idit / Shai | briefing, beats 1 to 6 | deploy screen, then the commander bar | live |
 | `zone_entered(gate_approach)` → `bt1_works_stir` (`commit` the crew → `gate_road_south`) | `toast` | system | `The east works are stirring` | trigger `label` | live |
 | same trigger | `radio` | **Idit** | "Movement on the east works. Whoever is on them has heard the gate, and from here on they are looking west." | `triggers[].say` | live |
-| `objective(identify_the_gate, complete)` | `radio` | **Idit** | "That is the garrison: two blocks and a missile team on the road. Nothing at the gate is waiting for us in particular, and nothing is asleep." | `objectives[].say` | live |
+| `objective(identify_the_gate, complete)` | `radio` | **Idit** | "That is the garrison on the road: a rifle cell, a missile team and a rocket team. The blocks behind them hold more, and I cannot read what." | `objectives[].say` | live |
 | `objective(find_the_crew, complete)` | `radio` | **Idit** | "Marked. That is the crew on the east works, and the next time we come down this road I can tell you which posts are theirs." | `objectives[].say`. The carry into IV, said when it is bought | live |
 | `evacuated` (a resident reaches the refuge) | `toast` | system | `clear (1)` | `notice.evacuated` | live |
 | `objective(six_out, complete)` | `radio` | **Shai** | "Six out. The west quarter is quiet, and it has one less reason to be a target." | `objectives[].say` | live |
@@ -177,7 +177,7 @@ None. The first town-1 mid-town dispatch is already a deviation (Qasr Liwan §0.
 
 - Beat 1 carries the two-wave shape (`timer_s` 150 and 270) as a forecast. It says *I expect*, so a changed cadence never makes it false.
 - Beat 2 is the economy order the design asks the briefing to give (`camp`, Logistics, `inf_squad` and `mbt_lavi`).
-- Beat 3 is the evacuation set-up. **The design (§5.2) says the ten start in `safe_quarter` and also that seven must get out of it; an evacuation needs them to start outside the destination. The sheet assumes they start on the cross road and walk into the quarter.** Open point D-BN1.
+- Beat 3 is the evacuation set-up. The design (§5.2) said the ten start in `safe_quarter` and also that seven must get out of it, which an evacuation cannot do. **Resolved in the level script (§1, D-BN1): they start on the cross road, outside the quarter, and walk in.**
 - Beat 4 gives the count (7 of 10) and the clock (300 s) and names the restraint as a cost.
 - Beat 5 is the mortar's position and the flagged line. It does not say what the round would hit.
 - Beat 6 is the secondary (`capture terminal_roof`, 15 s) as a price.
@@ -197,7 +197,7 @@ Objective ids are proposals; `mission-author` and `level-scripter` own them. Eac
 | `take_the_roof` | `capture` · `terminal_roof`, 15 s · secondary | Hold the terminal's roof for fifteen seconds | OBJECTIVE COMPLETE — Hold the terminal's roof for fifteen seconds | live |
 
 - `hold_the_gate` is the design's own phrase. As a toast it reads *OBJECTIVE COMPLETE — Hold the gate for four minutes*, which is true.
-- `seven_in` is written for the reading in beat 3. If the design keeps the ten *inside* the destination, the text becomes *Keep seven residents in the safe quarter*, and `level-scripter` rules.
+- `seven_in` is written for the reading in beat 3, and the level script settled it: the residents start outside the quarter and walk in, so the text stays *Walk seven residents into the safe quarter*.
 
 ### 2.5 `debrief`
 
@@ -248,22 +248,22 @@ None. The outline asks for none, and a mid-town `dispatch` is a deviation the le
 | beat | speaker | line | chars |
 |---|---|---|---|
 | 1 | **Idit** | Two apartment blocks stand ten tiles apart in the camp quarter, with two of the people taken at First Light in each. I can place both doors and the guard on each, and nothing inside. | 182 |
-| 2 | **Shai** | Take out the guard on each door, and bring three of the four to the extraction on the north edge. You are not bringing out fewer than three. | 140 |
-| 3 | **Idit** | The first shot at either block warns the other inside twenty seconds, and their firing positions cover the lane between. A missile team on each roof looks into any yard you cross. | 179 |
+| 2 | **Shai** | Take out the guard on each door, and bring three of the four to the extraction on the north edge inside six minutes. Fewer than three is a loss. | 144 |
+| 3 | **Idit** | Anyone on the ground round either block warns the other inside twenty seconds, and their firing positions cover the lane between. A missile team on each roof looks into any yard you cross. | 188 |
 | 4 | **Shai** | So split and go in together, or take one and fight for the second. The second is slower, louder and dearer. | 107 |
 | 5 | **Idit** | Both blocks are lived in, and the one that holds the taken holds the neighbours as well. A cannon round into either is fourteen Conduct. | 136 |
 | 6 | **Shai** | Fifteen is the line. One hit on a block is fourteen, and a second hit ends the mission. | 87 |
 
 - Beat 1 follows L-16's rule for the taken: *"two of the people taken at First Light"*, no role, no rank, no sex, no pronoun. The two blocks are *apartment blocks*, not a place.
-- Beat 2 is `count 3` and the extraction (`bt3_extract`). It does not call the guards *hostage-takers*; they are guards.
-- Beat 3 is the design's hard requirement: the blocks warn each other, the firing positions cover the lane, and a roof team sits on each block. The warning is a player unit entering the other block's zone, which comes before the first shot; the twenty seconds is the walk across the lane (about 11 s for the 10 steps between the doors), because a trigger has no delay field (level script F-2).
+- Beat 2 is `count 3`, the extraction (`bt3_extract`) and the clock: 360 s, said as *six minutes*, so the player reads it on the deploy screen and not only on the objective panel. It does not call the guards *hostage-takers*; they are guards.
+- Beat 3 is the design's hard requirement: the blocks warn each other, the firing positions cover the lane, and a roof team sits on each block. The warning is the trigger's own condition, a player unit in the other block's zone (`bt3_block_w`, `bt3_block_e`: the ground round the building and its yard), which comes before the first shot, so the line says *on the ground round either block* and not *the first shot*. The twenty seconds is the walk across the lane (about 11 s for the 10 steps between the doors), because a trigger has no delay field (level script F-2).
 - Beat 4 is the decision, said as a price and not a verdict.
 - Beat 5 is the apartment's `roe_penalty` 14. It says *lived in* and does not describe who lives there.
 - Beat 6 is the ceiling (15): 14 is under, a second hit is over. Strictly above the threshold fails.
 
-**The JSON string, to be pasted whole (836 characters, splits into 6 beats by a port of `briefingBeats`):**
+**The JSON string, to be pasted whole (849 characters, splits into 6 beats by a port of `briefingBeats`):**
 
-> Two apartment blocks stand ten tiles apart in the camp quarter, with two of the people taken at First Light in each. I can place both doors and the guard on each, and nothing inside. Take out the guard on each door, and bring three of the four to the extraction on the north edge. You are not bringing out fewer than three. The first shot at either block warns the other inside twenty seconds, and their firing positions cover the lane between. A missile team on each roof looks into any yard you cross. So split and go in together, or take one and fight for the second. The second is slower, louder and dearer. Both blocks are lived in, and the one that holds the taken holds the neighbours as well. A cannon round into either is fourteen Conduct. Fifteen is the line. One hit on a block is fourteen, and a second hit ends the mission.
+> Two apartment blocks stand ten tiles apart in the camp quarter, with two of the people taken at First Light in each. I can place both doors and the guard on each, and nothing inside. Take out the guard on each door, and bring three of the four to the extraction on the north edge inside six minutes. Fewer than three is a loss. Anyone on the ground round either block warns the other inside twenty seconds, and their firing positions cover the lane between. A missile team on each roof looks into any yard you cross. So split and go in together, or take one and fight for the second. The second is slower, louder and dearer. Both blocks are lived in, and the one that holds the taken holds the neighbours as well. A cannon round into either is fourteen Conduct. Fifteen is the line. One hit on a block is fourteen, and a second hit ends the mission.
 
 ### 3.4 Objectives
 
@@ -276,7 +276,7 @@ Objective ids are proposals; `mission-author` and `level-scripter` own them. Eac
 | `guard_east` | `eliminate_hvt` · `bt3_guard_east` · primary | Take out the guard on the east block | OBJECTIVE COMPLETE — Take out the guard on the east block | live |
 | `keep_the_blocks` | `no_collateral_above` 15 · **primary, failable** | Lose no more than 15 Conduct | OBJECTIVE COMPLETE — Lose no more than 15 Conduct | live |
 
-- **One evacuation objective, not two.** The design's ladder lists `evacuate_before` ×2, but G-8 (`evacuate_before` counts every civilian, not only a block's) makes a second identical objective redundant: both would complete on the same three. The sheet writes one; open point D-BN2 for `level-scripter`.
+- **One evacuation objective, not two.** The design's ladder listed `evacuate_before` ×2, but G-8 (`evacuate_before` counts every civilian, not only a block's) makes a second identical objective redundant: both would complete on the same three. **Resolved in the level script (§1, D-BN2): one objective, count 3, 360 s.**
 - `guard_west` and `guard_east` name the guard on a door, not a person. The text never says *kill*; the mission's verb is the objective type.
 
 `hostages_place`: `the north of the camp quarter` (29 characters, live).
@@ -325,7 +325,7 @@ The victory line holds for 3 or 4 out. The defeat line holds for the clock, the 
 
 ## 4. `bir_tarsha_4_clearance`: Bir Tarsha IV · The Blade Line
 
-`clearance` · day · **Captain** · requires **R I** · produces **R M C X** · `target_minutes` 7 · economy: **yes**: a camp at the corral; Logistics buys replacement infantry only · **Decision:** Which end of the belt to open first, what to do about the berms, and how to answer the fire that comes out of the hamlet's lee.
+`clearance` · day · **Captain** · requires **R I** · produces **R M C X** · `target_minutes` 7 · economy: **yes**: a camp at the corral and Logistics, for replacement infantry (intent only: the camp's menu is not limited to infantry by any field, so `playtest` reads what a player buys) · **Decision:** Which end of the belt to open first, what to do about the berms, and how to answer the fire that comes out of the hamlet's lee.
 
 ### 4.1 `name`
 
@@ -343,7 +343,7 @@ None. The lead's dozer mission has no story hook the orders voice cannot carry.
 |---|---|---|---|
 | 1 | **Idit** | Between the Fence and the hamlet is a belt of works thirty tiles long: firing positions, posts, workshops and berms. If you found the east works crew I can say which are theirs, and if you did not, all of them are. | 214 |
 | 2 | **Shai** | Four D9s are yours for this, and the battalion goes with them. Level every work in the belt and bring the blades through to the far gate, and lose two blades and the work is over. | 179 |
-| 3 | **Idit** | A hamlet stands north of the belt, eight tiles from the nearest post, and it is lived in. I expect fire out of its lee as soon as the first blade stops, and it is meant to be answered into a house. | 197 |
+| 3 | **Idit** | A hamlet stands north of the belt, eight tiles from the nearest post, and it is lived in. I expect fire out of its lee as soon as anything of ours enters the belt, and it is meant to be answered into a house. | 208 |
 | 4 | **Shai** | Do not answer into a house. A house is six Conduct, two are twelve, and a third is the mission. | 95 |
 | 5 | **Idit** | A T-wall closes the road at the east end, and a D9 will cut it where wheels cannot cross it. Until it is down the far gate is out of reach, and three shafts in the belt vent behind whoever is looking at the wall. | 212 |
 | 6 | **Shai** | Berms are low and a blade will not take one by passing it, so each is an order. Shafts down, works level, blades through. | 121 |
@@ -355,9 +355,9 @@ None. The lead's dozer mission has no story hook the orders voice cannot carry.
 - Beat 5 is the T-wall and the shafts. *Cut where wheels cannot cross* is `far_gate` unreachable wheeled until the `T` tiles fall (MDD §3.3).
 - Beat 6 is the berm rule (`low_profile` tiles need an explicit `demolish`, G-BT1, 13 tiles) and the three objectives as a closing sequence.
 
-**The JSON string, to be pasted whole (1023 characters, splits into 6 beats by a port of `briefingBeats`):**
+**The JSON string, to be pasted whole (1034 characters, splits into 6 beats by a port of `briefingBeats`):**
 
-> Between the Fence and the hamlet is a belt of works thirty tiles long: firing positions, posts, workshops and berms. If you found the east works crew I can say which are theirs, and if you did not, all of them are. Four D9s are yours for this, and the battalion goes with them. Level every work in the belt and bring the blades through to the far gate, and lose two blades and the work is over. A hamlet stands north of the belt, eight tiles from the nearest post, and it is lived in. I expect fire out of its lee as soon as the first blade stops, and it is meant to be answered into a house. Do not answer into a house. A house is six Conduct, two are twelve, and a third is the mission. A T-wall closes the road at the east end, and a D9 will cut it where wheels cannot cross it. Until it is down the far gate is out of reach, and three shafts in the belt vent behind whoever is looking at the wall. Berms are low and a blade will not take one by passing it, so each is an order. Shafts down, works level, blades through.
+> Between the Fence and the hamlet is a belt of works thirty tiles long: firing positions, posts, workshops and berms. If you found the east works crew I can say which are theirs, and if you did not, all of them are. Four D9s are yours for this, and the battalion goes with them. Level every work in the belt and bring the blades through to the far gate, and lose two blades and the work is over. A hamlet stands north of the belt, eight tiles from the nearest post, and it is lived in. I expect fire out of its lee as soon as anything of ours enters the belt, and it is meant to be answered into a house. Do not answer into a house. A house is six Conduct, two are twelve, and a third is the mission. A T-wall closes the road at the east end, and a D9 will cut it where wheels cannot cross it. Until it is down the far gate is out of reach, and three shafts in the belt vent behind whoever is looking at the wall. Berms are low and a blade will not take one by passing it, so each is an order. Shafts down, works level, blades through.
 
 ### 4.4 Objectives
 
@@ -365,7 +365,7 @@ Objective ids are proposals; `mission-author` and `level-scripter` own them. Eac
 
 | id | type · target | as an order | as a toast | status |
 |---|---|---|---|---|
-| `blades` | `escort` · `blades` → `far_gate`, `fail_after_losses` 2, `until` [`clear_works`, `drop_shafts`] · **primary, failable** | Bring the four blades through to the far gate | OBJECTIVE COMPLETE — Bring the four blades through to the far gate | live |
+| `blades` | `escort` · `blades` → `far_gate`, `fail_after_losses` 2, `until` [`clear_works`, `drop_shafts`] · **primary, failable** (fields: engine, GH-1439) | Bring the four blades through to the far gate | OBJECTIVE COMPLETE — Bring the four blades through to the far gate | live |
 | `clear_works` | `raze` · `fence_works`, 390 s · **primary, failable** | Level the works along the Fence Road in six and a half minutes | OBJECTIVE COMPLETE — Level the works along the Fence Road in six and a half minutes | live |
 | `drop_shafts` | `collapse` · `fence_works`, 390 s · **primary, failable** | Bring down the three shafts in the works | OBJECTIVE COMPLETE — Bring down the three shafts in the works | live |
 | `keep_the_hamlet` | `no_collateral_above` 12 · **primary, failable** | Lose no more than 12 Conduct | OBJECTIVE COMPLETE — Lose no more than 12 Conduct | live |
@@ -430,19 +430,19 @@ None. V is the act's last mission and carries an `aftermath` instead.
 | 2 | **Shai** | Bring all five down inside six and a half minutes. The engineers take the charges, and the rest of you keep them alive until they are set. | 138 |
 | 3 | **Idit** | The engineers' survey found a concrete chamber at the head of the east route, with one person inside, alone. It is on the surface and it is not on the clock. | 157 |
 | 4 | **Shai** | Walk that person out before the last charge goes, because the mission ends the moment the routes are down. The charges are the order; the person is yours to choose. | 164 |
-| 5 | **Idit** | A block commander holds the post east of the ridge. If he is pressed he walks north, and whatever is left of the Marj's cells walks with him. | 141 |
+| 5 | **Idit** | A block commander holds the post east of the ridge. Once a third of the cells on this strip are down he walks north, and whatever is left of the Marj's cells walks with him. | 173 |
 | 6 | **Shai** | The light goes in ten minutes and the houses on the surface are lived in. More than ten Conduct lost ends it. | 109 |
 
 - Beat 1 is G-13: the wide route is told and nothing in the sim changes. It says *as far east as they could take it* so the line is true wherever `bt5_wide`'s mouth ends up, and it gives no map reference.
 - Beat 2 is the primary (`collapse fence_road`, 390 s) and `yahalom_squad` as *the engineers*, per L-10 (no new line uses the unit's real display name).
 - Beat 3 is the third-star secondary, described as the design does: a surface structure (the G-5 stand-in), one person, alone. The person is never characterised (L-16 applies). It does not say whose the chamber is.
 - Beat 4 states the ordering rule the mission is built on: the mission ends when the primaries do, so the person has to come out first. It is a cost, not a verdict.
-- Beat 5 is the hinge the outline keeps (`bt5_block_commander`): he withdraws north when pressed. *The remnant of the Marj* is the fiction's hinge for Sur; no real death is described (L-4, dossier D-1).
+- Beat 5 is the hinge the outline keeps (`bt5_block_commander`): he withdraws north on `casualties_pct` 33, which is 3 of the strip's 9 starting bodies **anywhere on the map**, not only at his post, so the line says *a third of the cells on this strip* and not *if he is pressed*. *The remnant of the Marj* is the fiction's hinge for Sur; no real death is described (L-4, dossier D-1).
 - Beat 6 is the ceiling (10) and the light, as consequence only.
 
-**The JSON string, to be pasted whole (882 characters, splits into 6 beats by a port of `briefingBeats`):**
+**The JSON string, to be pasted whole (914 characters, splits into 6 beats by a port of `briefingBeats`):**
 
-> Five routes run under the Fence Road toward the border. One was dug wide enough for a truck, which is the one that matters, and it is as far east as they could take it. Bring all five down inside six and a half minutes. The engineers take the charges, and the rest of you keep them alive until they are set. The engineers' survey found a concrete chamber at the head of the east route, with one person inside, alone. It is on the surface and it is not on the clock. Walk that person out before the last charge goes, because the mission ends the moment the routes are down. The charges are the order; the person is yours to choose. A block commander holds the post east of the ridge. If he is pressed he walks north, and whatever is left of the Marj's cells walks with him. The light goes in ten minutes and the houses on the surface are lived in. More than ten Conduct lost ends it.
+> Five routes run under the Fence Road toward the border. One was dug wide enough for a truck, which is the one that matters, and it is as far east as they could take it. Bring all five down inside six and a half minutes. The engineers take the charges, and the rest of you keep them alive until they are set. The engineers' survey found a concrete chamber at the head of the east route, with one person inside, alone. It is on the surface and it is not on the clock. Walk that person out before the last charge goes, because the mission ends the moment the routes are down. The charges are the order; the person is yours to choose. A block commander holds the post east of the ridge. Once a third of the cells on this strip are down he walks north, and whatever is left of the Marj's cells walks with him. The light goes in ten minutes and the houses on the surface are lived in. More than ten Conduct lost ends it.
 
 ### 5.4 Objectives
 
@@ -510,7 +510,7 @@ Each is a `radio` line on a say-only trigger. A trigger needs a `do`, and a say-
 | place | event | speaker | line | needs | status |
 |---|---|---|---|---|---|
 | the safe quarter | `zone_entered(safe_quarter)` the first time a ground unit enters it (II) | **Idit** | "Three lanes, no firing positions and no flag on any roof. It is the one place in Bir Tarsha nobody has claimed, and it should stay that way." | a say-only trigger (a trigger needs a `do`) | engine |
-| the gate terminal roof | `zone_entered(terminal_roof)` | **Idit** | "From the roof you can see the whole of the Fence Road to the east, and the whole of the Badlands to the south. Look at one and not the other." | same | engine |
+| the gate terminal roof | `zone_entered(terminal_roof)` | **Idit** | "From the roof you can see the whole of the Fence Road to the east, and the whole of the Badlands to the south. One view costs you the other." | same | engine |
 | the hamlet | `zone_entered(hamlet)` (IV) | **Shai** | "Houses. Nothing in them is ours to hit and nothing in them is the target." | same | engine |
 | the east works | `zone_entered(works_east)` (I) | **Idit** | "The Fence Road ends in a ring of posts. Whoever drew it did not draw it to be walked into." | same | engine |
 
@@ -567,7 +567,7 @@ The Qasr Liwan sheet (§9) flagged this line and left it to this town: it promot
 
 ## 11. Verification
 
-- **Every beat** is at most two sentences and 240 characters, and each briefing splits into exactly the beats written, checked with a port of `briefingBeats` (`packages/app/src/ui/loading.ts`) in a script, not by eye. Briefing lengths: 893, 904, 836, 1023, 882 characters, all inside the shipped 385 to 1,225.
+- **Every beat** is at most two sentences and 240 characters, and each briefing splits into exactly the beats written, checked with a port of `briefingBeats` (`packages/app/src/ui/loading.ts`) in a script, not by eye. Briefing lengths: 893, 904, 849, 1034, 914 characters, all inside the shipped 385 to 1,225.
 - **Every trigger `label`** is at most 48 characters with no full stop (script).
 - **Every `say`, `dispatch`, `aftermath` and `debrief` line** is at most 240 characters (script).
 - **Status counts:** 61 `live` rows, 9 `engine` rows (the 5 trigger-table ones and the 4 in §6), 0 `schema`.
