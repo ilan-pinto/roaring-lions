@@ -26,7 +26,7 @@ import { buildWorld } from "./net/versus-world.test-helper";
 const ALL = { tunnel: true, sur: true, civ: true, works: false };
 
 /** Every body that is not buried or garrisoned must stand alone, on ground its own domain can stand on. */
-function audit(sim: Sim, label: string): void {
+function audit(sim: Sim, label: string): number {
   const seen = new Map<number, number>();
   for (let i = 0; i < sim.entityCount; i++) {
     if (sim.state.alive[i] !== 1) continue;
@@ -46,9 +46,16 @@ function audit(sim: Sim, label: string): void {
       `${label}: body ${i} (${wheeled ? "wheeled" : "foot"}) stands on a blocked tile ${tile % sim.width},${Math.floor(tile / sim.width)}`,
     ).toBe(0);
   }
+  // A spawner that produced nothing would pass the loop above with no assertion at all.
+  expect(seen.size, `${label}: no living body was audited`).toBeGreaterThan(0);
+  return seen.size;
 }
 
 describe("placeOnOpen (GH-1360 S1)", () => {
+  it("the audit refuses a world that spawned nobody", () => {
+    const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 8 });
+    expect(() => audit(sim, "empty")).toThrow(/no living body was audited/);
+  });
   for (const mapId of Object.keys(maps) as MapId[]) {
     it(`free-play ${mapId}: no two bodies on one tile, no wheeled body on its blocked mask`, () => {
       const parsed = parseMap(maps[mapId]);
