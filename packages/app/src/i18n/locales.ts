@@ -12,6 +12,7 @@
  */
 import type { Catalogue } from './t';
 import en from './en.json';
+import { fetchLocaleJson } from './overlay-fetch';
 
 export interface Locale {
   id: string;
@@ -60,13 +61,7 @@ export function applyLocale(root: HTMLElement, id: string): void {
  *  back to `en` rather than booting the shell with an empty catalogue. */
 export async function loadLocale(id: string, base: string): Promise<Catalogue> {
   if (id === 'en' || isPseudo(id)) return ENGLISH;
-  try {
-    const res = await fetch(`${base}locales/${id}.json`);
-    if (!res.ok) return ENGLISH;
-    return (await res.json()) as Catalogue;
-  } catch {
-    return ENGLISH;
-  }
+  return (await fetchLocaleJson<Catalogue>(id, `${base}locales/${id}.json`, 'chrome catalogue')) ?? ENGLISH;
 }
 
 /**

@@ -5,6 +5,7 @@ import { execSync } from 'node:child_process';
 import { palettePlugin } from './vite-plugin-palette.ts';
 import { cursorsPlugin } from './vite-plugin-cursors.ts';
 import { assetWatchPlugin } from './vite-plugin-asset-watch.ts';
+import { localesPlugin } from './vite-plugin-locales.ts';
 
 // The version shown in the menu and the HUD. Root package.json is the single
 // source of truth; only major.minor is displayed, so a patch bump is invisible.
@@ -48,6 +49,9 @@ export default defineConfig({
     // into a GLTFLoader `<!doctype` error (GH-147). See the plugin's own
     // header; the `touch packages/app/src/main.ts` workaround is retired.
     assetWatchPlugin(),
+    // GH-1406 part 4: `data/locales/<lang>/{missions,units}.json` served at `/locales/<lang>/...`, where the overlay loaders fetch them
+    // (the publicDir is `assets/`, which holds no locales). Dev middleware and build assets; the set is derived from the directory.
+    localesPlugin(new URL('../../data/locales/', import.meta.url)),
   ],
   // Build-time constant: no runtime fetch, and it works the same on Pages.
   define: {

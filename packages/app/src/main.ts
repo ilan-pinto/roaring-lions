@@ -387,7 +387,8 @@ import type { SavesDeps } from './ui/saves';
 import type { CreditsDeps } from './ui/credits';
 import { versusMaps } from './ui/versus-maps';
 import type { VersusDeps } from './ui/versus';
-import { LOCALES, PSEUDO_RTL, applyLocale, isPseudo, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
+import { LOCALES, PSEUDO_RTL, applyLocale, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
+import { fetchLocaleJson } from './i18n/overlay-fetch';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo, pseudoRtl } from './i18n/pseudo';
 import { loadUnitOverlay, localizedUnit, setUnitOverlay, unitName as textUnitName } from './unit-text';
@@ -653,14 +654,8 @@ async function fetchLicenceText(url: string): Promise<string> {
  * going missing must degrade to English, not break the mission.
  */
 async function loadMissionOverlay(lang: string, base: string): Promise<MissionLocaleOverlay | null> {
-  if (lang === 'en' || isPseudo(lang)) return null;
-  try {
-    const res = await fetch(`${base}locales/${lang}/missions.json`);
-    if (!res.ok) return null;
-    return (await res.json()) as MissionLocaleOverlay;
-  } catch {
-    return null;
-  }
+  // `en` and the pseudo-locales have no file (never fetched, never warned about); any other id that does not arrive warns, naming the URL.
+  return fetchLocaleJson<MissionLocaleOverlay>(lang, `${base}locales/${lang}/missions.json`, 'mission text');
 }
 
 /**
