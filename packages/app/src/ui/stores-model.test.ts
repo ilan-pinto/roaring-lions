@@ -8,11 +8,15 @@ import {
   buyEnabled,
   buyWithCoins,
   CAMPAIGN_CREDITS,
+  LADDER_MISSIONS,
+  PLAY_MAX_CONDUCT,
+  PLAY_MAX_STARS,
   PREVIEW_WALLET,
   coinCost,
   coinPrice,
   meanPay,
   packBonusPercent,
+  reachableByPlay,
   storeItems,
   tierItem,
   unitItem,
@@ -289,5 +293,56 @@ describe('special units are bought with coins (single-player)', () => {
     }
     expect(wallet.coins.free).toBeGreaterThan(0);
     expect(wallet.receipts[0].kind).toBe('coupon');
+  });
+});
+
+// GH-1385. G1 ("reachable by play") had no predicate: `unitItem` never returned `offSale`, so the G1 test above ("stays on the
+// shelf") could not fail whatever the catalogue said. These inputs are constructed to make it fail: a gate no play can open.
+describe('G1 can fail: an item play cannot reach goes off sale (GH-1385)', () => {
+  const gated = (unlock: UnlockGate): StoreUnit => ({ id: 'ghost_unit', name: 'Ghost', unlock });
+  const one = (unlock: UnlockGate, credits = 99999) => unitItem(gated(unlock), input({ units: [gated(unlock)], credits }));
+  it('the bounds are what play can reach: conduct tops out at 100, a mission grades to 3 stars', () => {
+    expect(PLAY_MAX_CONDUCT).toBe(100);
+    expect(LADDER_MISSIONS).toBe(29);
+    expect(PLAY_MAX_STARS).toBe(87);
+  });
+  it('a Conduct floor above 100 is off sale, and 100 is not', () => {
+    const off = one({ roeMin: 101, price: 500 });
+    expect(off.state).toBe('offSale');
+    expect(off.honest).toEqual({ kind: 'unreachable', lifetime: CAMPAIGN_CREDITS });
+    expect(one({ roeMin: 100, price: 500 }).state).toBe('affordable');
+  });
+  it('a star floor above 3 a mission over the ladder is off sale, and the ceiling itself is not', () => {
+    expect(one({ starsMin: 88, price: 500 }).state).toBe('offSale');
+    expect(one({ starsMin: 87, price: 500 }).state).toBe('affordable');
+  });
+  it('a price that no number of campaigns can pay is off sale', () => {
+    expect(one({ roeMin: 50, price: Number.POSITIVE_INFINITY }).state).toBe('offSale');
+    expect(one({ roeMin: 50, price: Number.NaN }).state).toBe('offSale');
+  });
+  it('an off-sale item cannot be bought with coins, and the screen offers no Buy for it', () => {
+    const unit = gated({ roeMin: 101, price: 500 });
+    const inp = input({ units: [unit] });
+    const funded = grantCouponCoins(emptyRoar(), 100000, ['lead_roar_coins_100k'], 1);
+    const item = unitItem(unit, inp);
+    expect(coinCost(item)).toBeNull();
+    expect(buyEnabled(item, { live: true, coins: 100000 } as never)).toBe(false);
+    expect(buyWithCoins(inp, funded, { kind: 'unit', unitId: 'ghost_unit' }, 1).ok).toBe(false);
+  });
+  it('reachableByPlay is the predicate itself: an open gate, and each way to be unreachable', () => {
+    expect(reachableByPlay({ roeMin: 90, starsMin: 44, price: 4250 })).toBe(true);
+    expect(reachableByPlay({ price: 8000 })).toBe(true); // past one campaign of pay, still finite
+    expect(reachableByPlay({ roeMin: 101 })).toBe(false);
+    expect(reachableByPlay({ starsMin: 88 })).toBe(false);
+    expect(reachableByPlay({ price: -1 })).toBe(false);
+  });
+  it('every shipped priced KDF unit is on sale (26 of them), so the predicate is read against the real catalogue', () => {
+    const priced = kdfUnits().filter((u) => u.unlock?.price !== undefined);
+    expect(priced.length).toBe(26); // a count, so an empty catalogue cannot pass
+    for (const u of priced) {
+      const item = unitItem(u, input());
+      expect(item.state, u.id).not.toBe('offSale');
+    }
+    expect(storeItems(input()).units.filter((x) => x.state === 'offSale')).toEqual([]);
   });
 });

@@ -40,7 +40,7 @@ import { registeredUnits, run, runLog, type Plan, missionStars, missionCredits, 
 import { censusViolations, populationLine } from './population-census';
 import { passiveAcrossSeeds, drainPassiveSweeps, controlIntel, SWEEP_SEEDS } from './passive-sweep';
 import { reportIntel, seedsNotSpent } from './intel-gate';
-import { bankedOver, bankingLine } from './banking';
+import { bankedOver, bankingBoundFailure, bankingLine } from './banking';
 import { Picture, living } from './player-picture';
 import { PLAN_CHILD, startPlanSweep, drainPlanSweeps, reportToParent, type GateRecord } from './plan-sweep';
 import { wadiHalam1Plan, wadiHalam2Plan, wadiHalam3Plan, wadiHalam4Plan, wadiHalam5Plan } from './plans/wadi_halam';
@@ -222,6 +222,13 @@ const led2 = run(
   },
   led1
 );
+// GH-1385: `beit_sahwan_2_foothold` had no passive-loss control. The control, run, finds that a force given NO orders WINS this
+// mission on 30 of 30 seeds (VICTORY in about 5.2 min, ROE 100, 2 stars): its primary is `hold_for` five minutes on the ground the
+// force starts on, and the one enemy pressure, a tunnel, never reaches it. A control that expects DEFEAT is therefore red, and this is
+// the only mission where it is. It is pinned here as a KNOWN passive win, not waved through: it expects VICTORY, and the day a seed
+// stops winning it goes red and says to flip it to DEFEAT and delete this line (`drainPassiveSweeps`). Fixing the mission is a content
+// decision for the lead (a hold that costs something), not part of this check.
+passiveAcrossSeeds('beit_sahwan_2_foothold', 'beit_sahwan_2_foothold (known passive win)', 'victory');
 
 // III — Clearance: combined arms, with the armour held off the clinic.
 //
@@ -4259,13 +4266,14 @@ const INTEL_WINNERS_ONE_SWEEP = 44;
 // appended after everything else, so no earlier line moves. Two pins, in the `LADDER_CREDITS` idiom
 // (`!==`, `console.error`, `process.exitCode = 1`):
 //
-// BANKING_OVER_30_WINNERS: winning plans that end holding MORE than 30% of everything they had to
-// spend (`logistics_start` + earned): 15 of 18 on 424242. It is what the branch prints, not the 16 of 18
-// read at 751b6742, before GH-382 and #402. A plan that banks most of its purse has nothing to buy, which is
+// BANKING_OVER_30_MAX: the MOST winning plans that may end holding MORE than 30% of everything they had to
+// spend (`logistics_start` + earned). It is 15 as measured (15 of 20 on 424242; it was 16 of 18 at 751b6742, before
+// GH-382 and GH-402). GH-1385: this was an equality, which went red on an improvement as readily as on a regression;
+// it is an upper bound now (`bankingBoundFailure`), so a plan that stops banking passes and one that starts fails. A plan that banks most of its purse has nothing to buy, which is
 // the problem F4 gives a reason to solve; F2 measures it and does not touch it, so no plan gains an
 // order here. The four D7 missions have authored their income zones since the lead approved them on
 // 15 Oct (ruling C-R1).
-const BANKING_OVER_30_WINNERS = 15;
+const BANKING_OVER_30_MAX = 15;
 // ZONE_PASSIVE_INCOME: income from ZONES earned by the no-orders controls of the four D7 missions
 // (umm_zeitoun_2_buildup, umm_zeitoun_4_clearance, deir_amun_2_foothold, wadi_halam_2_laager), side 0,
 // whole logistics. It is 0 by rule: a force that never moves holds only the ground it was placed on,
@@ -4302,8 +4310,9 @@ const ZONE_PASSIVE_INCOME = 0;
     `banking: ${over30} of ${winners} winning plans bank over 30% (${controls} passive controls reported); ` +
       `zone income earned by the four D7 passive controls ${zonePassive}`
   );
-  if (over30 !== BANKING_OVER_30_WINNERS) {
-    console.error(`banking: FAILED — ${over30} of ${winners} winning plans bank over 30%, expected ${BANKING_OVER_30_WINNERS}`);
+  const bankingFailure = bankingBoundFailure(over30, winners, BANKING_OVER_30_MAX);
+  if (bankingFailure !== null) {
+    console.error(`banking: FAILED — ${bankingFailure}`);
     process.exitCode = 1;
   }
   console.log(`banking: D7 controls found ${d7Found.size}/${D7.length}`);

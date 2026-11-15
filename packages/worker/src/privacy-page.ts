@@ -70,6 +70,15 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <li>A log of views is kept for 180 days. A log of changes is kept while your account is.</li>
 </ul>
 
+<h2>Anonymous usage, crash and performance reports</h2>
+<ul>
+<li>When you play on the live site, the game sends reports tied to a random ID. The ID is kept in this browser and is sent with every report. It is not linked to an account. If you were given a tester label (?tester=), that label is sent with every report too.</li>
+<li>A report holds: the size of your window, the game build, the time of each event and which graphics backend draws; which screens and missions you reach, the kinds of orders you give and how many, your brigade credits, purchases and upgrades, and how each mission ended; for a crash, its type, a short error text and a hash of where it happened; and frame times (median, 95th and 99th percentile), the number of units on the map, your graphics quality setting, the family of your graphics card, and how long the game took to start.</li>
+<li>No email, IP address or browser user agent is sent or stored. Crash text is short, and links, file paths, IP addresses, quoted text and long numbers are removed from it by rule. It is still error text from the game, and it can hold fragments of what the game was handling.</li>
+<li>Everything held about an ID is deleted about 180 days after it was last seen, by a daily clean-up: its reports, and the summary kept for it (when it was first and last seen, time played, missions won, the tester label and the brigade credits). In other words, after about 180 days without play.</li>
+<li>Turn the reports off in Settings, under Privacy, or add ?notrack to the address. Your browser's Do Not Track and Global Privacy Control signals also turn them off. Nothing is sent from a local or development build unless the address has ?telemetry.</li>
+</ul>
+
 <h2>What is never stored</h2>
 <ul>
 <li>Email, phone number and real name.</li>
@@ -111,7 +120,7 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <p>Use "Download my data" and "Delete my account" on the profile screen. Both work at any time. Deletion cannot be undone.</p>
 
 <h2>Play statistics</h2>
-<p>Play statistics stay anonymous and are never linked to an account. Opt out with ?notrack, Global Privacy Control or Do Not Track.</p>
+<p>Play statistics stay anonymous and are never linked to an account. Opt out in Settings, under Privacy, or with ?notrack, Global Privacy Control or Do Not Track.</p>
 
 <h2>Contact and minimum age</h2>
 <p>Questions or requests about your data: ${esc(v.contact)}</p>
