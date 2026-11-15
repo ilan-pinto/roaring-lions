@@ -164,6 +164,8 @@ describe('the type register: theme.css', () => {
       '.rl-world__stars',
       '.rl-garage__wallet-n',
       '.rl-menu--garage .rl-stores__wallet-n',
+      '.rl-profile__coins-n', // the account page's coin balance (GH-1370 C3): the same numeral as the Stores' wallet
+      '.rl-profile__coin-amount', // the coin history's signed amounts (GH-1370 C4): numerals, aligned right
       '.rl-menu--garage .rl-stores__pack-price',
       '.rl-menu--garage .rl-stores__coin-n',
       '.rl-menu--garage .rl-stores__credits',

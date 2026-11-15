@@ -89,12 +89,32 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Was 7007: first_contact means the two combat sides meeting (2026-11-08), Beit Sahwan Breach 190 -> 180 (-10); reasons beside `LADDER_CREDITS`.
 // Was 6997: a side no longer cuts a structure it owns (2026-11-08, GH-1183), Wadi Halam V 220 -> 200 (-20); reasons beside `LADDER_CREDITS`.
 // Was 6977: Khan Rafid III gets a real first contact (2026-11-09, GH-1173), Khan Rafid III 260 -> 238 (-22); reasons beside `LADDER_CREDITS`.
-export const CAMPAIGN_CREDITS = 6955;
+// Was 6955: GH-1360 S3b (2026-11-15), the shipped missions start in the assembly layout, -32 over sixteen missions; reasons beside `LADDER_CREDITS`.
+export const CAMPAIGN_CREDITS = 6923;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 // Was 26: GH-912 (2026-10-31), the ladder is over 29 missions now (`pnpm playtest` prints "credit ladder: 7007 over 29
 // missions"); left at 26 the mean pay would read 267 where the ladder's own mean is 239.
 export const LADDER_MISSIONS = 29;
+
+/** The most a Conduct floor can ask: the rating is out of 100, so a floor of 101 is a gate no play opens. */
+export const PLAY_MAX_CONDUCT = 100;
+/** The most stars a campaign can ever hold: a mission grades to at most 3, over the ladder's `LADDER_MISSIONS`. */
+export const PLAY_MAX_STARS = 3 * LADDER_MISSIONS;
+
+/**
+ * G1 (spec §1.7), the predicate: can play reach this item? An item is sold for coins only while it can. Since GH-330 a new
+ * campaign pays again, so every FINITE credit price is reachable in some number of campaigns; what play cannot reach is a gate
+ * that asks for more than play can hold (a Conduct floor over 100, more stars than the ladder grades) or a price that is not a
+ * finite number of credits. GH-1385: this used to be a comment, and `unitItem` never returned `offSale`, so the G1 test could not
+ * fail. The mission gate (`afterMission`) is not checked here: the store does not carry the world, and the catalogue validator owns it.
+ */
+export function reachableByPlay(gate: UnlockGate): boolean {
+  if (gate.roeMin !== undefined && !(gate.roeMin <= PLAY_MAX_CONDUCT)) return false;
+  if (gate.starsMin !== undefined && !(gate.starsMin <= PLAY_MAX_STARS)) return false;
+  if (gate.price !== undefined && !(Number.isFinite(gate.price) && gate.price >= 0)) return false;
+  return true;
+}
 
 /** What the screen and the derivation both read. Every field is the account
  *  or the ledger as it stands; nothing is a fixture. */
@@ -260,10 +280,10 @@ export function unitItem(u: StoreUnit, input: StoreInput): UnitItem {
     return { ...base, state: 'earned', honest: { kind: 'earnedCredits' } };
   }
   if (coin?.coinUnits.has(u.id) === true) return { ...base, state: 'coins', honest: { kind: 'coins' } };
-  // G1: only an item play cannot reach goes off sale. Since GH-330 a new
-  // campaign pays again, so every credit price is reachable and no credit item
-  // is off sale; a bought-only unit above one campaign's pay reads the same
-  // "about N missions of pay" line as any other.
+  // G1: only an item play cannot reach goes off sale (`reachableByPlay`). Since GH-330 a new
+  // campaign pays again, so every finite credit price is reachable; a bought-only unit above one campaign's pay
+  // reads the same "about N missions of pay" line as any other.
+  if (!reachableByPlay(gate)) return { ...base, state: 'offSale', honest: { kind: 'unreachable', lifetime: CAMPAIGN_CREDITS } };
   const affordable = price !== undefined && input.credits !== undefined && input.credits >= price;
   return { ...base, state: affordable ? 'affordable' : 'locked', honest: gateLine(gate, input, mean) };
 }

@@ -394,29 +394,32 @@ export async function handleFeedbackApi(req: Request, env: Env, url: URL, now: n
   }
 }
 
-/** Retention (spec §7, D15): 180 days after receipt the picture, the replay
- *  and the contact go; the note and context stay, like telemetry events.
+/** Retention (spec §7, D15; GH-1410): 180 days after receipt the picture, the replay,
+ *  the contact and the ids that tie the note to a person (player, session, tester) go;
+ *  the note and context stay.
  *  Run daily by the Cron Trigger in wrangler.jsonc. Returns rows purged. */
 export const RETENTION_MS = 180 * 86_400_000;
-export async function purgeExpired(env: Env, now: number, batch = 100, maxBatches = 10): Promise<number> {
+/** Slices of 100 notes a run: 1,000 notes a day at one D1 query each (GH-1432). */
+export const PURGE_EXPIRED_BATCHES = 10;
+/** One slice is ONE D1 query (a `batch()`), so a run costs at most `maxBatches` of the Free plan's 50 per invocation (GH-1432).
+ *  Every statement names the same oldest-first slice of expired rows, and the batch is one transaction: the attachments go first
+ *  while the note still matches the slice, the note's own columns last, and that last statement's change count is the slice size. */
+export async function purgeExpired(env: Env, now: number, batch = 100, maxBatches = PURGE_EXPIRED_BATCHES): Promise<number> {
   let purged = 0;
+  const slice = `SELECT id FROM feedback WHERE received_at < ?1
+       AND (shot_bytes IS NOT NULL OR replay_bytes IS NOT NULL OR contact IS NOT NULL
+            OR player IS NOT NULL OR session IS NOT NULL OR tester IS NOT NULL) ORDER BY id LIMIT ?2`;
   for (let i = 0; i < maxBatches; i++) {
-    const rows = await env.DB.prepare(
-      `SELECT id FROM feedback WHERE received_at < ?
-       AND (shot_bytes IS NOT NULL OR replay_bytes IS NOT NULL OR contact IS NOT NULL) ORDER BY id LIMIT ?`
-    )
-      .bind(now - RETENTION_MS, batch)
-      .all<{ id: number }>();
-    if (rows.results.length === 0) break;
-    await env.DB.batch(
-      rows.results.flatMap((r) => [
-        env.DB.prepare('DELETE FROM feedback_picture WHERE feedback_id = ?').bind(r.id),
-        env.DB.prepare('DELETE FROM feedback_replay WHERE feedback_id = ?').bind(r.id),
-        env.DB.prepare('UPDATE feedback SET shot_bytes = NULL, replay_bytes = NULL, contact = NULL WHERE id = ?').bind(r.id),
-      ])
-    );
-    purged += rows.results.length;
-    if (rows.results.length < batch) break;
+    const out = await env.DB.batch([
+      env.DB.prepare(`DELETE FROM feedback_picture WHERE feedback_id IN (${slice})`).bind(now - RETENTION_MS, batch),
+      env.DB.prepare(`DELETE FROM feedback_replay WHERE feedback_id IN (${slice})`).bind(now - RETENTION_MS, batch),
+      env.DB.prepare(`UPDATE feedback SET shot_bytes = NULL, replay_bytes = NULL, contact = NULL, player = NULL, session = NULL, tester = NULL WHERE id IN (${slice})`).bind(now - RETENTION_MS, batch),
+    ]);
+    // D1's batch result carries `meta.changes`; the node:sqlite test double's `run()` result carries `changes`.
+    const last = out[2] as { meta?: { changes?: number }; changes?: number | bigint } | undefined;
+    const n = Number(last?.meta?.changes ?? last?.changes ?? 0);
+    purged += n;
+    if (n < batch) break;
   }
   return purged;
 }

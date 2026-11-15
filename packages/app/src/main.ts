@@ -45,6 +45,8 @@ import {
   creditInputFrom,
   MAX_PATROL_WAYPOINTS,
   unitTypeFromJson,
+  compileFormation,
+  type FormationJson,
   type MissionEvent,
   type MissionJson,
   type SimEvent,
@@ -94,6 +96,7 @@ import {
   videoManifest,
   coupons,
   formations,
+  assemblyLayout,
   grades,
   versusModes,
   flagBlockOf,
@@ -138,7 +141,7 @@ import { browserFeedbackSession, type FeedbackSession, type SessionNote } from '
 import { collectContext, type ContextInput } from './feedback/context';
 import { installErrorRing, recentErrors } from './feedback/errors';
 import { holdDraft, readDraft } from './feedback/draft';
-import { isClosed as feedbackClosed } from './feedback/gate';
+import { isClosed as feedbackClosed, feedbackSends } from './feedback/gate';
 import { gpuName } from './feedback/gpu';
 import { takePicture } from './feedback/picture';
 import { withGroundPhoto } from './ui/ground-photo';
@@ -192,7 +195,7 @@ import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
-import { initTelemetry, telemetry, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
+import { initTelemetry, telemetry, telemetryPlayerForDeletion, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
 import { startLoadout } from './telemetry/loadout';
 import { screenFor } from './telemetry/events';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
@@ -878,6 +881,8 @@ async function main(): Promise<void> {
           controls: { ...settings.controls, bindings: overridesOf(next) },
         }),
     }),
+    // GH-1410: reports are sent unless the stored opt-out (`?notrack`, or this switch) says no.
+    reports: reportsSwitch,
     build: __APP_BUILD__,
     commit: __APP_COMMIT__,
   };
@@ -1611,7 +1616,7 @@ async function main(): Promise<void> {
               client,
               store: storage,
               query: req.query,
-              telemetryPlayer: () => telemetry().ids()?.player ?? null,
+              telemetryPlayer: () => telemetryPlayerForDeletion(),
               navigate: (href) => window.location.assign(href),
               reload: reloadHere,
               // C1 (§0.46): with the server-backed store, sign-out and deletion go through the sync module.
@@ -1624,6 +1629,17 @@ async function main(): Promise<void> {
                     },
                   }
                 : {}),
+              coins: {
+                read: () => ledgerStore.readRoar(),
+                onAccount: acct !== null,
+                available: ledgerStore.available,
+                coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png`,
+                // The history rows name a mission or a unit the way the Stores do; an id this build does not know words generically.
+                names: {
+                  mission: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+                  unit: (id) => (units as Record<string, { name?: string } | undefined>)[id]?.name,
+                },
+              },
               // A guest boot only: a claimed device has the server-backed store and nothing to claim.
               claim: selectedStore.signedIn ? undefined : { guest: ledgerStore, download: downloadFile, onClaimed: reloadHere },
             });
@@ -1685,6 +1701,31 @@ async function main(): Promise<void> {
     env: { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) },
     renderer: gpuName,
   });
+  // The slow-frames suggestion (GH-1413): after the notice above on purpose (it never shows for a software renderer, which that
+  // notice owns). Gated like it; it measures the first seconds of frames on a shell screen and, if they run slow, ASKS once
+  // whether to switch to Low. `settingsDeps.set` is the only write, and only the card's accept button calls it; the preset applies
+  // at the next mission's boot.
+  // The gate is read HERE and the card's code (quality-hint, frame-probe) loaded only past it (`qualityHintAllowed`'s own test),
+  // so a harness origin (CI, `pnpm dev`, every test) never carries the module on the board's heap (board budget, GH-1413).
+  const qualityEnv = { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) };
+  if (feedbackSends(qualityEnv) || qualityEnv.query.has('qualityhint')) {
+    void import('./ui/quality-hint').then(({ watchQualityHint }) => {
+      watchQualityHint({
+        env: qualityEnv,
+        renderer: gpuName,
+        quality: () => settings.video.quality,
+        setQuality: (q) => settingsDeps.set({ ...settings, video: { ...settings.video, quality: q } }),
+        inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? ''),
+        frames: {
+          raf: (cb) => requestAnimationFrame(cb),
+          cancel: (id) => cancelAnimationFrame(id),
+          now: () => performance.now(),
+          visible: () => document.visibilityState === 'visible',
+        },
+        store: settingsStore,
+      });
+    }).catch((err: unknown) => console.error('[quality-hint] the card failed to load', err));
+  }
   // `fresh` has done its work above and is not a route parameter, so it comes
   // off the URL -- except on the way into a mission, where it still means "run
   // this one against an empty ledger" and `bootBattlefield` reads it back off
@@ -1695,7 +1736,19 @@ async function main(): Promise<void> {
   const telemetryScreen = screenFor(landingPath, '/', 'beit_sahwan_0_tutorial');
   // `renderer` is always 'three' since WP-A3.3: the field stays so old D1
   // rows and `packages/worker/QUERIES.sql` group the same way.
-  initTelemetry({ dev: telemetryScreen === 'sandbox' }).sessionStart(telemetryScreen, 'three');
+  initTelemetry({
+    dev: telemetryScreen === 'sandbox',
+    // GH-1410: what the field-signal events say about the machine. A mission always draws through the legacy WebGL2 renderer (`&gpu=` is
+    // sandbox-only until the cutover, `gpu-flag.ts`), so the backend is 'webgpu' only on a sandbox page that asked for it.
+    gear: () => ({
+      preset: settingsDeps.get().video.quality,
+      backend: telemetryScreen === 'sandbox' && new URLSearchParams(location.search).get('gpu') === 'webgpu' ? 'webgpu' : 'webgl2',
+      gpu: gpuName(), // RAW here; the telemetry façade reduces it to a family before any event is built (`createTelemetry`'s `gear`)
+    }),
+  }).sessionStart(telemetryScreen, 'three');
+  // GH-1410: time to the first drawn frame, from navigation start (`performance.now()` counts from it). Two frames, because the first
+  // callback runs BEFORE the first paint it requests.
+  requestAnimationFrame(() => requestAnimationFrame(() => telemetry().boot(performance.now())));
   // GH-464 (spec §12.2): ask the server's switch once a boot, so the lead can
   // close feedback without an app deploy. Cached for the session; every entry
   // point checks `isClosed()` when it is built, and the menu takes its button
@@ -3037,6 +3090,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // the spawner drew from.
       const sentLedger = deployedLedger(ledger, deploySelection);
       runtime = startMission(sim, resolvedMission, {
+        // GH-1360 S3b: a shipped mission's starting force stands in the assembly layout (`start_layout`).
+        startLayout: compileFormation(assemblyLayout as unknown as FormationJson),
         typeIdOf: (id) => {
           const t = typeOf.get(id);
           if (t === undefined) throw new Error(`mission references unknown unit ${id}`);
@@ -7383,6 +7438,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** The room's status as the last frame saw it: what `pauseEndClosesMenu`
    *  compares this frame's with. */
   let roomStatusSeen: TransportStatus = room?.status() ?? { kind: 'local' };
+  let telFrameAt = 0;
   const loop = (): void => {
     rafId = requestAnimationFrame(loop);
     // GH-943 P0: the harness's frame-loop freeze (`frame-freeze.ts`). The loop keeps re-arming through the NATIVE rAF, runs no
@@ -7403,6 +7459,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // eases the PRESENTATION clock alone; the sim is neither slowed nor
     // ticked by it.
     const now = performance.now();
+    // GH-1410: the frame's wall time, for the `perf_sample` event. Presentation only; the sim never sees it.
+    if (telFrameAt !== 0) missionTelemetry?.onFrame(now - telFrameAt);
+    telFrameAt = now;
     const pose = beat ? beatPose(now - beat.t0, beat.reduced) : null;
     // H3: the intro holds it too, until the camera lands (ruling 2).
     const { ticks, frameMs } = advanceClock(clock, now, gameSpeed, paused || beat !== null || intro !== null, MS_PER_TICK);

@@ -401,6 +401,13 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'stKit', cls: 'state', kind: typed('Int8Array', { fixed: 256 }) },
   { name: 'kitStructType', cls: 'config', kind: typed('Int16Array', { fixed: 3 }) },
   { name: 'kitBans', cls: 'config', kind: obj('array') },
+  // GH-1360 S5a-1 (foot separation groundwork), APPENDED. The foot grid and its count are rebuilt with the hull grid
+  // at the top of every stepMovement before any read; its column count is a function of the map width fixed at
+  // construction. The rider marks are zeroed at the top of every tick before anything sets or reads them.
+  { name: 'sepFootHead', cls: 'scratch', kind: typed('Int32Array', 'any') },
+  { name: 'sepFootCols', cls: 'config', kind: SCALAR },
+  { name: 'sepFootN', cls: 'scratch', kind: SCALAR },
+  { name: 'sepOff', cls: 'scratch', kind: typed('Uint8Array', 'capacity') },
 ];
 
 /** `Rng`'s only own property: one mulberry32 word per entity slot. */

@@ -174,7 +174,7 @@ the team ("test grant, GH-1234 repro"). The form has no way to say "the player m
 - **Why not a "show the reason" checkbox?** The reason must be at least 8 characters and is written for the audit. A
   player-facing sentence is a different text with a different reader. Two fields also make a slip impossible: ticking a
   box cannot publish an internal reason.
-- **Said plainly.** `GET export` already gives the member `detail` verbatim, reason included (admin spec D14.4). The
+- **Said plainly.** `GET export` already gives the member `detail` verbatim, reason included (admin spec D14.4). *Amended by C2:* for new rows the reason lives only in `admin_action`, and `detail` carries the optional note; the export still carries the member's own `admin_action` rows. The
   note is about what the PAGE shows, not about secrecy. Reasons should still be written knowing the member can download
   them.
 

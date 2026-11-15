@@ -5,6 +5,7 @@
   "phase": "breach",
   "target_minutes": 5,
   "time_limit_s": 600,
+  "start_layout": "authored",
   "debrief": {
     "defeat": {
       "speaker": "idit",
