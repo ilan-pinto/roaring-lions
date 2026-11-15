@@ -13,7 +13,7 @@ import { STATS_STYLE_HEAD } from './stats-page';
  */
 const SCRIPT = String.raw`
 const $=(id)=>document.getElementById(id);
-const MAX_COINS=1000000,PER_ACTION=100000,REASON_MIN=8,REASON_MAX=200;
+const MAX_COINS=1000000,PER_ACTION=100000,REASON_MIN=8,REASON_MAX=200,NOTE_MAX=80;
 const ERR={signed_out:'Sign in to the game in this browser first.',not_admin:'This game account is not an admin.',closed:'Admin writes are closed.',
   moved:'The balance changed since the card was drawn.',range:'That would leave the balance outside 0 to 1,000,000.',limit:'A daily limit was reached.',
   forbidden:'Refused.',origin:'Refused (origin).',unauthorized:'Your stats session ended. Reload the page to sign in again.',not_found:'No such member.',
@@ -111,7 +111,8 @@ function plan(){
   const raw=$('amt').value.trim();
   const amount=/^\d{1,9}$/.test(raw)?Number(raw):NaN;
   const reason=clean($('why').value);
-  const out={ok:false,hint:'',amount,reason,before:c?c.free:0,after:0,delta:0};
+  const note=clean($('note').value);
+  const out={ok:false,hint:'',amount,reason,note,before:c?c.free:0,after:0,delta:0};
   if(!S.admin){out.hint='Only a signed-in admin can change a balance.';return out}
   if(!S.open){out.hint='Admin writes are closed. Opening them is a wrangler step.';return out}
   if(!c){out.hint='This member has no wallet.';return out}
@@ -124,6 +125,7 @@ function plan(){
   if(Math.abs(out.delta)>PER_ACTION){out.hint='At most 100,000 coins in one change.';return out}
   if([...reason].length<REASON_MIN){out.hint='Give a reason of at least 8 characters.';return out}
   if([...reason].length>REASON_MAX){out.hint='The reason is at most 200 characters.';return out}
+  if([...note].length>NOTE_MAX){out.hint='The note is at most 80 characters.';return out}
   out.ok=true;
   return out;
 }
@@ -131,6 +133,7 @@ function paintForm(){
   for(const b of document.querySelectorAll('#modes button'))b.setAttribute('aria-pressed',String(b.dataset.mode===S.mode));
   const reason=$('why').value;
   $('count').textContent=[...reason].length+' / '+REASON_MAX+' · at least '+REASON_MIN;
+  $('note-count').textContent=[...$('note').value].length+' / '+NOTE_MAX;
   const p=plan();
   const pv=$('preview');
   pv.replaceChildren();
@@ -161,6 +164,7 @@ function review(){
   row('Member',el('td',null,d.displayName+' ',el('span',{class:'mono',text:d.publicId})));
   row('Coins',el('td',{class:'mono'},fmt(p.before)+' → ',el('strong',{class:p.delta<0?'minus':'plus',text:fmt(p.after)}),' ('+sgn(p.delta)+')'));
   row('Reason',el('td',{text:p.reason}));
+  row('Note to the player',el('td',{class:p.note?'':'muted',text:p.note||'none'}));
   row('Wallet rev.',el('td',{class:'mono',text:d.coins.revision+' (refused if it has moved)'}));
   const needType=S.mode!=='grant';
   $('typed').value='';
@@ -179,11 +183,11 @@ async function confirmWrite(){
   const p=S.plan,d=S.cur;
   S.busy=true;$('d-go').disabled=true;$('d-cancel').disabled=true;
   try{
-    const r=await post(d.publicId+'/coins',{op_id:S.op,mode:S.mode,amount:p.amount,reason:p.reason,revision:d.coins.revision});
+    const r=await post(d.publicId+'/coins',{op_id:S.op,mode:S.mode,amount:p.amount,reason:p.reason,...(p.note?{note:p.note}:{}),revision:d.coins.revision});
     d.coins={...d.coins,free:r.wallet.free,revision:r.wallet.revision,updatedAt:r.wallet.updatedAt,lastChange:{at:r.wallet.updatedAt,kind:'admin',delta:r.delta}};
     S.busy=false;
     closeDialog();
-    $('why').value='';$('amt').value='';
+    $('why').value='';$('note').value='';$('amt').value='';
     paintCard();
     say(WORD[S.mode]+' done: '+fmt(r.before)+' → '+fmt(r.after)+' coins ('+sgn(r.delta)+').');
     S.mark=S.op;
@@ -260,6 +264,7 @@ $('filters').addEventListener('click',(e)=>{
 $('older').addEventListener('click',()=>loadJournal(false));
 $('amt').addEventListener('input',paintForm);
 $('why').addEventListener('input',paintForm);
+$('note').addEventListener('input',paintForm);
 $('change').addEventListener('submit',(e)=>{e.preventDefault();review()});
 $('typed').addEventListener('input',()=>{$('d-go').disabled=S.busy||!typedOk()});
 $('d-go').addEventListener('click',confirmWrite);
@@ -373,6 +378,8 @@ dialog .row{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-w
 <div><input id="amt" type="number" min="0" max="1000000" step="1" inputmode="numeric"> <span class="muted note">at most 100,000 in one change</span></div>
 <label for="why">Reason <span aria-hidden="true">*</span></label>
 <div><textarea id="why" required aria-required="true" maxlength="200"></textarea><div class="count" id="count"></div></div>
+<label for="note">Note to the player (optional, shown on their account page)</label>
+<div><textarea id="note" maxlength="80"></textarea><div class="count" id="note-count"></div></div>
 <span class="lbl">Result</span><div class="preview" id="preview"></div>
 <span></span><div><button class="btn primary" id="review" type="submit" disabled>Review change&hellip;</button> <span class="muted note" id="hint" aria-live="polite"></span></div>
 </form>
