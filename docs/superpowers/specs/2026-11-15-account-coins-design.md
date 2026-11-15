@@ -24,7 +24,7 @@ the colour pass (`2026-11-15-profile-colour-design.md`, GH-1367 option C, PR 136
 - **The unclaimed-device hint.** A signed-in device that has not moved its guest progress shows its own coins. The card
   says so, labels the number "On this device", and calls the existing claim action. The Stores show the same line, with a
   link to the account page's claim banner.
-- **Six slices** of 1–2 hours each (§5). The two Worker slices touch nothing GH-1367 touches and can merge first. The app
+- **Seven slices** of 1–2 hours each (§5). The two Worker slices touch nothing GH-1367 touches and can merge first. The app
   slices merge after GH-1367 S1 (PR 1371) and keep their CSS in a block of their own.
 
 ## 1. How the mock was made
@@ -53,7 +53,8 @@ the colour pass (`2026-11-15-profile-colour-design.md`, GH-1367 option C, PR 136
   2. Desktop 1440, unclaimed.
   3. Narrow 400, claimed.
   4. Narrow 400, unclaimed.
-  5. Three card states at 400: empty, a Buy still in flight, offline.
+  5. Three card states at 400: empty, a pending reward, and offline. The middle card's wording and numbers are stale
+     and illustrative only (§2.3, "Pending").
   6. The Stores head with the hint.
 
 ## 2. The coin card
@@ -126,9 +127,19 @@ Notes on the table:
   disabled. A late answer after the disposer has run is ignored (`disposed`, as `page()` does today).
 - **Empty.** No rows and `next` is `null`: "No coins yet. Win a campaign mission to earn your first Roar coins." The
   welcome issue is paid on the first victory, so a new member sees this (frame 5).
-- **Pending.** A coin Buy is a barrier op, never queued. While `pendingSpends.size > 0` on the account store, the card
-  shows a line above the rows: "{n, plural, one {One purchase is} other {# purchases are}} still being sent. It will show
-  here once it lands." (frame 5). When the Buy lands, the next card mount reads the new balance and the new row.
+- **Pending.** The number can run ahead of the rows in one case only: a **queued victory**. `viewOf`
+  (`account/replay.ts`) pays a queued `victory` op into the wallet view with `roarEarn`, so `readRoar()` already counts
+  the reward while the server's journal has no row yet. A coin Buy cannot cause this: it is a barrier op, never queued,
+  so `readRoar()` and the journal both move only when the server answers.
+  - **The signal** is the count of `victory` ops in this tab's outbox (`store.sync.ops()`), not `pendingSpends`.
+  - **The line**, shown above the rows while that count is above 0: "{n, plural, one {A mission reward is} other {#
+    mission rewards are}} still being saved. {n, plural, one {It} other {They}} will show here once saved."
+  - **When it lands,** the next card mount reads the confirmed balance and the new rows.
+  - **Withheld coins.** If the server withholds a reward (the start nonce or the win floor, accounts spec §2.4), the
+    optimistic number drops back when the sync lands. The card says nothing about it, as the debrief says nothing.
+  - **The mock is stale here.** Frame 5's middle card was drawn before this was checked. It shows "One purchase is still
+    being sent" with the balance below the rows, which the store cannot produce. The intended state is the reverse: the
+    balance ahead of the rows, with the line above.
 - **Offline or failed.** The balance still draws, because it is the store's cached copy and needs no network. The
   history shows "Your coin history needs a connection." and a "Try again" button that re-asks the same page (frame 5).
 - **429.** The page's existing `profile.result.limit` line, with "Try again".
@@ -152,7 +163,9 @@ the team ("test grant, GH-1234 repro"). The form has no way to say "the player m
   team" alone when the note is empty.
 - **The route** (`admin/coins.ts`).
   - `note` is optional. It is cleaned with the same `cleanReason`.
-  - Empty after cleaning means absent. More than 80 code points is 400 `{ error: 'note' }`, with nothing written.
+  - Empty after cleaning means absent. More than `COINS_NOTE_MAX` (80) code points is 400 `{ error: 'note' }`, with
+    nothing written. The member route drops an over-long note on read as well (§3.2), so neither side relies on the
+    other.
   - It is stored as `detail.note`. `detail` is JSON, so there is **no migration**.
   - `admin_action` is unchanged. The admin journal (`api.ts`) shows the note by reading `coin_journal.detail` on
     `(member_id, op_id)`.
@@ -198,7 +211,7 @@ matching hairline. The colour is the coin's own.
   card carries its title word and the coin glyph. Nothing on the card re-points under `data-cvd`, and nothing needs to:
   no meaning is carried by hue.
 - **Without option C.** If GH-1367 stops after S1 or S2, the card keeps the plain F-level title (`--ink-label` with a
-  rule) and only the `--roar` numeral. Slice C5 is then not built.
+  rule) and only the `--roar` numeral. Slice C6 is then not built.
 
 ## 3. The member route
 
@@ -253,9 +266,17 @@ export interface CoinsView { rows: CoinRowView[]; next: string | null }
   index. The query fetches `limit + 1` rows. `next` is the last returned row's id, as a string, only when the extra row
   exists, so an exact multiple of the page size gives no false "More". The journal's id is its order (append-only, and
   `ORDER BY id` is already the wallet invariant's order). A row id is not returned per row.
-- **The cap.** At most 50 rows. A row is at most about 220 bytes of JSON: a 64-character id, an 80-code-point note
-  (320 bytes at worst in UTF-8) and keys. **The body is bounded at 32 KiB** (`COINS_BODY_MAX`), and a test proves the
-  worst case fits.
+- **The cap is enforced by this route, not by the admin form.**
+  - At most 50 rows.
+  - The mapper drops any value over its own bound before it enters the wire object:
+    - a note over `COINS_NOTE_MAX` (80 code points, in `account/config.ts`; `admin/coins.ts` imports the same
+      constant);
+    - an id over 64 characters;
+    - a track over 32 characters.
+  - So a row is at most about 500 bytes of JSON: about 150 bytes of keys, the timestamp, the delta and a 64-character
+    unit id, plus a note of up to 320 bytes in UTF-8.
+  - **The body is therefore bounded at 32 KiB** (`COINS_BODY_MAX`). T12 proves the worst case fits, using rows written
+    straight into the table, so the proof does not depend on the admin route.
 
 ### 3.3 The query
 
@@ -296,7 +317,7 @@ Worker, in `packages/worker/src/account/coin-history.test.ts`:
 | T9 | No cookie: 401 | skip `requireSession` |
 | T10 | The limiter: with `ACCOUNT_OP_LIMIT` denying, `GET coins` is 429 (this route, asserted by name) | add `'coins'` to `UNLIMITED_HERE` |
 | T11 | A GET writes nothing: row counts of every member table (`DELETE_MAP`) and `rate_day` match before and after | wrap the handler in `budgetedOp` |
-| T12 | The cap: 50 admin rows, each with an 80-code-point four-byte note, give a body at most `COINS_BODY_MAX` | raise the note cap in `admin/coins.ts` to 800 (the T12 fixture is built from that constant) |
+| T12 | The cap: 50 rows inserted directly, each with a 200-code-point four-byte note and a 64-character unit id, give a body at most `COINS_BODY_MAX`, with every over-long note dropped | remove the mapper's `COINS_NOTE_MAX` check (the body passes 32 KiB) |
 | T13 | A row whose `detail` is not JSON (hand-inserted) still answers 200; the row comes back with its kind and no extracted fields, never a 500 | drop the `json_valid` guard |
 
 **Leak sweep** (`leak-sweep.test.ts`). The generic loop picks the route up from `ACCOUNT_ROUTES` with no edit, but
@@ -324,7 +345,8 @@ App:
 | A4 | Paging: `client.coins` is called with `next`. "More" hides on `null`. A late answer after dispose touches nothing | drop the `disposed` check |
 | A5 | Offline: a `network` answer keeps the balance, shows the offline line, and "Try again" re-asks the same cursor | clear the balance on error |
 | A6 | Unclaimed: a binding without `claimedAt` gives "On this device", the hint and the shared claim button. A claimed binding gives neither | show the hint on `binding !== null` |
-| A7 | Stores hint: shown only with accounts on, a binding, and no `claimedAt`; it links to `routes.profile()` | drop the `claimedAt` check |
+| A7 | Stores hint: shown only with accounts on, a binding, no `claimedAt` and `who` resolving to a member; it links to `routes.profile()` | drop the `claimedAt` check |
+| A7b | Signed out: a binding with no `claimedAt` and `who` resolving `null` (the state `signOut` leaves) gives no Stores hint | drop the `who` gate |
 | A8 | `?pseudo=1`: every new chrome string is bracketed; `__lionsI18n.missingKeys()` is empty | a literal string in `profile.ts` |
 
 `pnpm validate:ui` (no colour literals, no bare chrome strings) runs on each app slice. CI's `tsc` catches every fake
@@ -332,8 +354,22 @@ App:
 
 ## 4. The unclaimed-device hint
 
-**When it shows.** Accounts on, `readBinding()` present, and `claimedAt` undefined. That is the same test
-`selectLedgerStore` uses to hand the device the guest store, so the hint shows exactly when the number is the device's.
+**When it shows.** All three of these must hold:
+
+1. accounts are on;
+2. `readBinding()` is present with `claimedAt` undefined, which is `selectLedgerStore`'s guest-store test, so the
+   number on screen is the device's;
+3. **a member is signed in on this device now.**
+
+The binding test alone is not enough. Sign-out (`account/sync.ts`'s `signOut`, or the unclaimed path in `profile.ts`)
+clears `claimedAt` and `deviceId` but **keeps the binding**; only deletion calls `clearBinding`. So a signed-out device
+also has a binding with no `claimedAt`, and without condition 3 it would be told to "move your progress" to a page that
+has no claim banner for it.
+
+- **On the account page**, condition 3 is free: the card exists only in the `signedIn` render.
+- **In the Stores**, it is the page's existing `GET me` answer: `menuAccountSource`'s `who`, which the menu already asks
+  for whenever a binding exists. The box is appended when `who` resolves to a member, and not at all on `null`, an
+  error, or a disposed screen.
 
 **It stays true through every claim outcome.** `runClaim` sets `claimedAt` only on `moved`, after which the page
 hard-reloads onto the account store. `kept`, `retry`, `blocked` and `failed` leave it unset, so the device is still
@@ -364,8 +400,8 @@ account's."
   copy first" live.
 - Running the claim inside the Stores would skip that choice, and the Stores would redraw under a wallet that changes
   mid-render (D4).
-- `GarageStoresOptions` gains `deviceHint?: { href: string }`, set by `main.ts` from `accountsOn` and the binding. The
-  Stores read no storage themselves.
+- `GarageStoresOptions` gains `deviceHint?: { href: string; when: Promise<boolean> }`. `main.ts` sets it from
+  `accountsOn`, the binding, and `who` mapped to `m !== null`. The Stores read no storage and ask no route themselves.
 
 ## 5. Slices
 
@@ -373,30 +409,40 @@ Each slice is 1–2 hours, one PR, and tests-first (the mutation in §3.4 is run
 
 | # | What | Files | Overlap with GH-1367 |
 |---|---|---|---|
-| C1 | **The member route**: `coin-history.ts` (named apart from `admin/coins.ts`), the `routes.ts` entry, `COINS_PAGE_*` and `COINS_BODY_MAX` in `config.ts`, the wire types, T1–T11 and T13, the leak-sweep additions, the accounts-spec §2.5 row and a `shell-and-ui.md` line | `packages/worker/src/account/*`, `packages/economy/src/account-wire.ts`, docs | none |
-| C2 | **The admin note**: `note` in `admin/coins.ts`, the form field and dialog line in `members-page.ts`, the note in the admin journal, T12, and the `members-page.test.ts` "renders as text" scan extended to the note | `packages/worker/src/admin/*`, `members-page.ts` | none |
-| C3 | **The card and history** (frame 1): `client.coins()`, `ProfileDeps.coins` (`read`, `names`, `pending`), the card in `profile.ts`, en.json keys, A1–A5 and A8, and a coin CSS block placed AFTER the profile block in `theme.css`, using only F-level tokens | `packages/app/src/account/client.ts`, `fixtures.ts`, `ui/profile.ts`, `main.ts`, `i18n/en.json`, `theme.css` | `theme.css` and `profile.ts` |
-| C4 | **The hint** (frames 2, 4 and 6): the `claimControl` extraction in `profile.ts`, the Stores box, `GarageStoresOptions.deviceHint`, A6 and A7 | `ui/profile.ts`, `ui/stores.ts`, `ui/brigade.ts`, `main.ts`, `en.json`, `theme.css` | `profile.ts` and `theme.css` |
-| C5 | **The colour role** (§2.5): `--card-head-coins` and the hairline, added to S3's token group, and the §2.5 pairs added to S3's contrast test. *Mutation:* `terracotta.2` to `terracotta.1` on the head, which takes it to 4.78:1 and fails a pinned 6.5 floor | `theme.css`, S3's contrast test | rides on GH-1367 S3 |
-| C6 | **Docs close-out**: the issue checklist, `HANDOVER.md` row, and the privacy page left unchanged (D14.1's line already covers admin changes appearing in the export) | docs | none |
+| C1 | **The member route**: `coin-history.ts` (named apart from `admin/coins.ts`), the `routes.ts` entry, `COINS_PAGE_*`, `COINS_NOTE_MAX` and `COINS_BODY_MAX` in `config.ts`, the wire types, T1–T13, the leak-sweep additions, the accounts-spec §2.5 row and a `shell-and-ui.md` line | `packages/worker/src/account/*`, `packages/economy/src/account-wire.ts`, docs | none |
+| C2 | **The admin note**: `note` in `admin/coins.ts` (importing `COINS_NOTE_MAX`), the form field and dialog line in `members-page.ts`, the note in the admin journal, the 400 `note` test, and the `members-page.test.ts` "renders as text" scan extended to the note | `packages/worker/src/admin/*`, `members-page.ts` | none |
+| C3 | **The balance card** (frame 1, without the history): `ProfileDeps.coins` (`read`, `names`, `pendingRewards`), the card with the coin, number and "On your account" line in `profile.ts`, en.json keys, A1 and A8, and the CSS section (anchored below). It needs no route, so it can merge before C1 | `ui/profile.ts`, `main.ts`, `i18n/en.json`, `theme.css` | `profile.ts` (CSS-only on their side) |
+| C4 | **The history** in the card: `client.coins()` and `unusedA2Client.coins`, the table, paging, empty, pending, offline and 429 states, A2–A5. Needs C1 | `account/client.ts`, `account/fixtures.ts`, `ui/profile.ts`, `en.json`, `theme.css` | as C3 |
+| C5 | **The hint** (frames 2, 4 and 6): the `claimControl` extraction in `profile.ts`, the Stores box, `GarageStoresOptions.deviceHint`, A6, A7 and A7b | `ui/profile.ts`, `ui/stores.ts`, `ui/brigade.ts`, `main.ts`, `en.json`, `theme.css` | as C3 |
+| C6 | **The colour role** (§2.5): `--card-head-coins` and the hairline, declared in GH-1367's token group at the top of `theme.css` (S1 edits that group, near line 68), and the §2.5 pairs added to S3's contrast test. *Mutation:* `terracotta.2` to `terracotta.1` on the head, which takes it to 4.78:1 and fails a pinned 6.5 floor | `theme.css`, S3's contrast test | rides on GH-1367 S3 |
+| C7 | **Docs close-out**: the issue checklist and the `HANDOVER.md` row. The privacy page is unchanged: D14.1's line already covers admin changes appearing in the export | docs | none |
 
-**Order and conflicts.**
+**Where the CSS goes.** GH-1367 S1 (PR 1371) edits `theme.css` in five places:
+
+- the `:root` token group (about line 68);
+- the avatar picker (about 1389);
+- the avatar glyph (about 4638 and 4655);
+- the profile block, which is the LAST section of the file (10207 to the end).
+
+S2–S4 will most likely append to that profile block too. So the coin CSS does **not** go after the profile block's last
+rule. It is a new section, `/* Roar coins on the account page (ui/profile.ts, GH-1370) */`, placed directly after the
+garage and Stores section, immediately before the `/* Settings (ui/settings-panel.ts) */` banner (about line 7876).
+That is where the `.rl-stores__wallet` rules it echoes already live, and no GH-1367 slice touches it. Only C6's two
+token lines join GH-1367's group, and C6 is sequenced after S3 for that reason.
+
+**Order.**
 
 1. **C1 and C2 merge first, in either order.** They touch only `packages/worker` and `@lions/economy`, which no GH-1367
-   slice touches. C2 can land before C1: nothing reads `detail.note` until C1, and nothing writes it until C2.
-2. **C3 merges after GH-1367 S1 (PR 1371).** S1's `theme.css` hunks sit inside the profile block (lines 10219–10580 at
-   `a566042e7`), and it adds `profile-css.test.ts`.
-   - C3 adds no line inside that block. Its CSS is one new contiguous block, headed `/* Profile: Roar coins (GH-1370) */`,
-     placed after the profile block's last rule.
-   - C3's `profile.ts` edits add a `coinCard()` builder beside `historyCards()` and one line in `signedInBlock`. The
-     GH-1367 slices are CSS-only (S4's crest keys read `data-avatar`, so it adds no TypeScript). The two cannot meet in a
-     hunk.
-   - If S1 is still open when C3 is ready, C3 rebases over S1 rather than the other way round. S1 is the bug fix and
-     goes first.
-3. **C4 follows C3** (it edits the card C3 adds). It is independent of S2–S4.
-4. **C5 lands with or after GH-1367 S3**, because it joins S3's token group and contrast test. If S3 is merged, C5 is
-   its own small PR. If S3 is in review, the two lines go into S3. S4 (crest) does not touch the coin card.
-5. **C6** comes last.
+   slice touches. Nothing reads `detail.note` until C1, and nothing writes it until C2.
+2. **C3 can merge any time after GH-1367 S1.**
+   - S1 is the bug fix and goes first. If both are open, C3 rebases over S1.
+   - C3's `profile.ts` edits are a `coinCard()` builder beside `historyCards()` and one line in `signedInBlock`. The
+     GH-1367 slices are CSS-only (S4's crest keys read `data-avatar`, so S4 adds no TypeScript), so they cannot meet in
+     a hunk.
+3. **C4 follows C1 and C3. C5 follows C3.** Both are independent of S2–S4.
+4. **C6 lands with or after GH-1367 S3**, because it joins S3's token group and contrast test. If S3 is merged, C6 is
+   its own small PR. If S3 is in review, its two lines go into S3. S4 (crest) does not touch the coin card.
+5. **C7** comes last.
 
 ## 6. Lead decisions (each with the recommended default)
 
