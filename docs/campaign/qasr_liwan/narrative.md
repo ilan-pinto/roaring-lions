@@ -61,6 +61,11 @@ Checked against this worktree, not recalled:
 
 **`schema` is 0 in this sheet.** Every row is `live` or `engine`. The count is §12.
 
+**No `engine` line here can ride a tutorial step.** The step machine
+(`data/schemas/tutorial.schema.json`, `tutorial/runtime.ts`) is the only condition-gated
+mid-mission text engine, and the README gates it to the tutorial mission, so it is not
+available to these five.
+
 ### 0.2 The two voices
 
 The deploy screen and the commander bar show one speaker at a time, and `briefing` is one
@@ -248,7 +253,7 @@ read once as an order on the deploy screen and once as a toast, `OBJECTIVE COMPL
 | mission start | `dispatch` | narrator | §1.2 | title card | live |
 | mission start | `brief` | Idit / Shai | §1.3, beats 1 to 7 | deploy screen, then the commander bar | live |
 | `zone_entered(ql_house_yard)` → `the_street_heard_the_courtyard` (`commit street` → `the_house`) | `toast` | system | `The street heard the courtyard` | trigger `label` | live |
-| same trigger | `radio` | **Idit** | "The street west of you is up and moving on the house. The mortar on the edge is laid on that courtyard, so nobody stands in it longer than the walk takes." | `triggers[].say`. **T-QL1b folded in**: the mortar warning lands at the one moment it matters | live |
+| same trigger | `radio` | **Idit** | "The street west of you is up and moving on the house. The mortar on the edge is laid on that courtyard, and every second in it is a second under that tube." | `triggers[].say`. **T-QL1b folded in**: the mortar warning lands at the one moment it matters | live |
 | `timer_s(180)` → `the_street_wakes` (`commit street` → `the_house`) | `toast` | system | `The street west of the house is waking` | trigger `label`. If the courtyard trigger fired first, this label still reads true: the commit is repeated, and the street is still coming | live |
 | same trigger | `radio` | **Idit** | "Three minutes. The street to the west is up and walking to the house." | `triggers[].say` | live |
 | wave t=210 s (`moto_rpg` ×2, `north_road_w` → `ql_extract_point`) | `toast` | system | `enemy reinforcements — 2 units inbound · <place>` | alert layer, hard-coded | live |
@@ -272,8 +277,7 @@ read once as an order on the deploy screen and once as a toast, `OBJECTIVE COMPL
 | `the_street_heard_the_courtyard` | `zone_entered(ql_house_yard)` → `commit street` | `The street heard the courtyard` | 30 |
 | `the_street_wakes` | `timer_s(180)` → `commit street` | `The street west of the house is waking` | 38 |
 
-The two labels differ because both triggers can fire in one mission (advisor note,
-recorded). No `first_contact` trigger exists, by design (`design.md` §5.1).
+The two labels differ because both triggers can fire in one mission. No `first_contact` trigger exists, by design (`design.md` §5.1).
 
 ---
 
@@ -495,7 +499,7 @@ three ways, each needing a label. They all commit to `staging_point`. **Make the
 | wave t=300 s (`technical`, `moto_rpg` ×2, `city_east` → `staging_point`) | `radio` | **Idit** | "Wheels from the east end of the city, a technical and two bikes, for the forward ground." | `enemy.waves[].say` | live |
 | wave t=390 s | `toast` | system | `enemy reinforcements — 3 units inbound · <place>` | alert layer | live |
 | `evacuated` ×4 | `toast` | system | `clear (1)` | `notice.evacuated` | live |
-| `objective(bring_four_across, complete)` | `radio` | **Shai** | "Four across. Now the forward ground." | `objectives[].say` | live |
+| `objective(bring_four_across, complete)` | `radio` | **Shai** | "Four across. Whatever happens on the forward ground now, that part is done." | `objectives[].say`. Holds if the forward ground was already held | live |
 | `objective(bring_four_across, failed)` | `radio` | **Shai** | "Not all four are across, and that ground will not be quiet again. There is no second handover." | `objectives[].say_on_fail`. Holds whether the clock ran out or the count became unreachable | live |
 | `objective(keep_the_pause, failed)` | `radio` | **Shai** | "That is more than five Conduct, and five was all the pause had to give." | `objectives[].say_on_fail` | live |
 | `objective(hold_the_forward_ground, complete)` | `radio` | **net** | "Forward ground held. The checkpoint has a line in front of it again." | `objectives[].say` | live |
@@ -601,10 +605,10 @@ is where the player will find him.
 | wave t=150 s (`militia_cell` ×2 → `yard_point`) | `toast` | system | `enemy reinforcements — 2 units inbound · <place>` | alert layer | live |
 | wave t=270 s (`technical`, `rpg_team` → `south_gate`) | `radio` | **Idit** | "A technical and a rocket team coming round to the south gate, the gate the walk goes through." | `enemy.waves[].say`. Holds whether or not anyone is still walking | live |
 | `evacuated` ×N | `toast` | system | `clear (1)` | `notice.evacuated` | live |
-| `objective(take_the_yard, complete)` | `radio` | **Idit** | "The yard is yours. Keep eyes on the mouth; the engineers can only charge what someone is watching." | `objectives[].say`. A mechanic, not a claim about where the mouth is, so T-QL4a cannot falsify it | live |
+| `objective(take_the_yard, complete)` | `radio` | **Idit** | "The yard is yours. The engineers can only charge the mouth while someone is watching it." | `objectives[].say`. A mechanic, not a claim about where the mouth is, so T-QL4a cannot falsify it. Idit states it; she does not order it | live |
 | `objective(bring_the_shaft_down, complete)` | `radio` | **Shai** | "The shaft is down and the clinic is standing. That is the job, both halves." | `objectives[].say`. True at the tick: a lost clinic would already have failed the mission | live |
 | `objective(bring_the_shaft_down, failed)` | `radio` | **Idit** | "Six minutes, and the yard is still open underneath. Whatever comes up there next comes up beside that clinic." | `objectives[].say_on_fail` | live |
-| `objective(walk_the_forecourt_out, complete)` | `radio` | **Shai** | "Five out and past the checkpoint. Now the yard." | `objectives[].say` | live |
+| `objective(walk_the_forecourt_out, complete)` | `radio` | **Shai** | "Five out of the forecourt and at the refuge. Whatever is left in that compound is the fight." | `objectives[].say`. Holds whichever half was done first | live |
 | `objective(walk_the_forecourt_out, failed)` | `radio` | **Shai** | "The clock is out on the forecourt. Anybody still in it is still beside the fight." | `objectives[].say_on_fail` | live |
 | `objective(keep_the_clinic, failed)` | `radio` | **Shai** | "That is past ten beside a clinic. Nothing in that yard was worth it." | `objectives[].say_on_fail` | live |
 | `objective(the_yard_commander, complete)` | `radio` | **Idit** | "The yard commander is down at the north gate. He ran that firing line from outside his own yard." | `objectives[].say` | live |
@@ -636,16 +640,16 @@ engineers stand while the water drives the shallow crews up.**
 
 | beat | speaker | line | chars |
 |---|---|---|---|
-| 1 | **Idit** | Map it before you go into it. Three deep routes run under the shore quarter, and a route counts only while something of ours is watching it: look away and it goes cold. | 168 |
+| 1 | **Idit** | This ground gets mapped before anybody goes into it. Three deep routes run under the shore quarter, and a route counts only while something of ours is watching it: look away and it goes cold. | 191 |
 | 2 | **Shai** | Hold the pump yard on the west edge for three minutes and the water goes into the shallow tier. When it does, those crews come up at the yard's two ends, into whoever is standing there. | 185 |
 | 3 | **Idit** | The water does not reach the deep tier. Those three are found and charged by hand inside six minutes, and one of them is still being dug toward the Cut. | 152 |
 | 4 | **Shai** | Two engineer squads, three routes and the pump yard all want the same minute, so choose the order before you start. A third engineer squad is on the camp's list if the brigade's Conduct has earned it. | 200 |
-| 5 | **Idit** | One deep route comes up inside the relief depot's walled yard. The depot is not the target: read that route and charge it from outside the wall. | 144 |
+| 5 | **Idit** | One deep route comes up inside the relief depot's walled yard. The depot is not the target, and that route can be read and charged from outside its wall. | 153 |
 | 6 | **Shai** | The depot is flagged, and bringing it down loses the mission; so does any house on this shore. Rifles answer what comes up beside it, and nothing heavier does. | 159 |
 | 7 | **Shai** | Map first and charge second: an engineer beside a route nobody is watching is a man standing in the open for nothing. | 117 |
 
 - **Beat 1's first sentence is mapping**, the design's hook: the brigade maps first and
-  enters second. *Goes cold* is the shipped *"unwatched contact decays"*.
+  enters second. Idit states it as a fact about the ground; she gives no order. *Goes cold* is the shipped *"unwatched contact decays"*.
 - **Beat 2** is the fiction of the pumps (G-4). The `hold_for` completes, then two waves
   spawn on the shallow vent markers at the yard's north and south edges.
 - **Beat 3.** The deep tier does not flood (T4, carried honestly). `collapse` at 360 s.
@@ -653,16 +657,17 @@ engineers stand while the water drives the shallow crews up.**
 - **Beat 4** names the reward for restraint, as the design asks. A third `yahalom_squad`
   is buyable only once the campaign's Conduct has opened its 75 gate.
 - **Beat 5 is the L-12 line.** It names the depot, says where the route surfaces, and says
-  in so many words that the depot is not the target. QL-A6 holds the route readable from
+  in so many words that the depot is not the target. *Can be read and charged* is Idit's
+  picture, not an order. QL-A6 holds the route readable from
   outside `relief_depot`.
 - **Beat 6.** At multiplier 4 the depot (3) costs 12 and a house (6) costs 24. Each fails
   the ceiling alone; a shanty (8) does not, so the line says *house*. The rifles are 0.10.
   The Namer's cannon (0.35) and the Spike (0.30) bill a stray.
 - **Beat 7** closes on the cost. It is the mechanic of beat 1, paid in a man.
 
-**The JSON string, to be pasted whole (1,131 characters):**
+**The JSON string, to be pasted whole (1,163 characters):**
 
-> Map it before you go into it. Three deep routes run under the shore quarter, and a route counts only while something of ours is watching it: look away and it goes cold. Hold the pump yard on the west edge for three minutes and the water goes into the shallow tier. When it does, those crews come up at the yard's two ends, into whoever is standing there. The water does not reach the deep tier. Those three are found and charged by hand inside six minutes, and one of them is still being dug toward the Cut. Two engineer squads, three routes and the pump yard all want the same minute, so choose the order before you start. A third engineer squad is on the camp's list if the brigade's Conduct has earned it. One deep route comes up inside the relief depot's walled yard. The depot is not the target: read that route and charge it from outside the wall. The depot is flagged, and bringing it down loses the mission; so does any house on this shore. Rifles answer what comes up beside it, and nothing heavier does. Map first and charge second: an engineer beside a route nobody is watching is a man standing in the open for nothing.
+> This ground gets mapped before anybody goes into it. Three deep routes run under the shore quarter, and a route counts only while something of ours is watching it: look away and it goes cold. Hold the pump yard on the west edge for three minutes and the water goes into the shallow tier. When it does, those crews come up at the yard's two ends, into whoever is standing there. The water does not reach the deep tier. Those three are found and charged by hand inside six minutes, and one of them is still being dug toward the Cut. Two engineer squads, three routes and the pump yard all want the same minute, so choose the order before you start. A third engineer squad is on the camp's list if the brigade's Conduct has earned it. One deep route comes up inside the relief depot's walled yard. The depot is not the target, and that route can be read and charged from outside its wall. The depot is flagged, and bringing it down loses the mission; so does any house on this shore. Rifles answer what comes up beside it, and nothing heavier does. Map first and charge second: an engineer beside a route nobody is watching is a man standing in the open for nothing.
 
 ### 5.3 Objectives
 
@@ -705,7 +710,7 @@ is the town's lesson, *map first*, stated as what happened. Status `live`.
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Qasr Liwan V — The Pumps` · *3 primary objectives* | `hud.announce` | live |
 | mission start | `brief` | Idit / Shai | §5.2, beats 1 to 7 | deploy screen, commander bar | live |
-| `objective(run_the_pumps, complete)` | `radio` | **Shai** | "Pumps are running. The shallow crews are coming up into the yard; keep it." | `objectives[].say` | live |
+| `objective(run_the_pumps, complete)` | `toast` | system | OBJECTIVE COMPLETE — Hold the pump yard for three minutes | **no `say`, deliberately**: the two waves keyed on this objective fire on the same tick, and `hud.say` replaces the bar's line rather than queuing it (`ui/hud.ts` `say()`), so one line is written, on the first wave | live |
 | wave on `run_the_pumps` (`militia_cell` ×3, `vent_shallow_n` → `pump_point`) | `radio` | **Idit** | "The water is in. Crews coming up at both ends of the pump yard, north and south." | `enemy.waves[].say` on the first of the two waves only | live |
 | second wave on `run_the_pumps` | `toast` | system | `enemy reinforcements — 3 units inbound · <place>` | alert layer | live |
 | wave t=240 s (`technical`, `north_muster` → `pump_point`) | `radio` | **Idit** | "A technical down the coast road from the north edge, for the pump yard." | `enemy.waves[].say` | live |
@@ -956,7 +961,7 @@ eye. The script and its last run are described here; it is not committed.
   - QL II: 1,019 in 6.
   - QL III: 1,161 in 6.
   - QL IV: 991 in 6.
-  - QL V: 1,131 in 7.
+  - QL V: 1,163 in 7.
   - All five are inside the shipped 385 to 1,225 band. No beat is over 240 characters or
     two sentences, and no single sentence is over 240.
 - **Limits.**
@@ -965,7 +970,8 @@ eye. The script and its last run are described here; it is not committed.
   - Every trigger label and objective text is 48 or fewer, with no full stop.
   - Both `hostages_place` values are 40 or fewer.
 - **Status.** Every row of every table that has a status column carries `live`, `schema` or
-  `engine`. **`engine`: 21 rows.** `schema`: 0.
+  `engine`. **`engine`: 21 rows, 20 distinct lines** (T-QL5a is a row in §5.6 and again in
+  §8). `schema`: 0.
 - **Falsified.** The checker was fed five mutated copies: a 241-character radio line, a label
   ending in a full stop, a JSON string one sentence longer than its beat table, a row whose
   status is not one of the three words, and a 56-character objective text. It exited 1 on
