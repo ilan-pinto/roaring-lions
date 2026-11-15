@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Challenge star: mock</title>
+<!--
+  Doc mock for GH-1395 (spec: 2026-11-15-challenge-star-design.md). NOT UI source: `pnpm validate:ui` scans
+  packages/app/src and assets/campaign only. The only hex values are in the --rl-* block, which reproduces what the
+  Vite palette plugin publishes from data/palette.json; everything after it uses semantic tokens as theme.css does.
+  The mission, numbers and names are illustrative. The one PROPOSED token is --challenge (§5.3 of the spec).
+-->
+<style>
+:root {
+  --rl-limestone-0: #F2E8D5; --rl-limestone-4: #B8A182; --rl-dust-0: #E0B87A;
+  --rl-terracotta-0: #C1663F; --rl-olive-2: #4E5433;
+  --rl-gunmetal-0: #C3C7C4; --rl-gunmetal-1: #8E9491; --rl-gunmetal-3: #363B39;
+  --rl-shadow-0: #23241F; --rl-shadow-1: #14150F; --rl-shadow-2: #0A0A08; --rl-scrub-0: #6B8A4A;
+
+  --panel-bg: color-mix(in srgb, var(--rl-shadow-1) 92%, transparent);
+  --panel-frame: var(--rl-gunmetal-3);
+  --panel-rule: color-mix(in srgb, var(--rl-gunmetal-3) 70%, transparent);
+  --well: var(--rl-shadow-1); --scrim: var(--rl-shadow-2); --tile-bg: var(--rl-shadow-0);
+  --ink: var(--rl-limestone-0); --ink-mute: var(--rl-limestone-4); --ink-dim: var(--rl-gunmetal-1); --ink-label: var(--rl-gunmetal-0);
+  --good: var(--rl-scrub-0); --commend: var(--rl-dust-0); --band-mission: var(--rl-olive-2); --bad: var(--rl-terracotta-0);
+  /* PROPOSED: a cool silver, deliberately not the gold of credits or the terracotta of coins, so a mark of skill never reads as money */
+  --challenge: var(--rl-gunmetal-0);
+  --font-display: 'Big Shoulders Display', 'Oswald', 'Haettenschweiler', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-body: 'Barlow', system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 16px 48px; background: var(--scrim); color: var(--ink); font: 14px/1.5 var(--font-body); }
+main { max-width: 1180px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--font-display); text-transform: uppercase; letter-spacing: .06em; margin: 0; }
+h1 { font-size: 26px; } h2 { font-size: 17px; color: var(--ink-label); margin: 0 0 8px; }
+.lede { color: var(--ink-mute); max-width: 74ch; margin: 6px 0 20px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
+.panel { background: var(--panel-bg); border: 1px solid var(--panel-frame); padding: 14px; }
+.cap { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 10px; }
+.mission { font: 800 20px var(--font-display); text-transform: uppercase; letter-spacing: .05em; }
+.sub { color: var(--ink-mute); font-size: 12px; }
+.rows { display: grid; gap: 8px; margin-top: 12px; }
+.mod { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; background: var(--tile-bg); border: 1px solid var(--panel-frame); padding: 10px; }
+.mod[data-on="true"] { border-color: var(--challenge); }
+.box { width: 16px; height: 16px; border: 1px solid var(--ink-mute); margin-top: 2px; }
+.mod[data-on="true"] .box { background: var(--challenge); border-color: var(--challenge); }
+.mod b { font: 800 15px var(--font-display); text-transform: uppercase; letter-spacing: .04em; }
+.eff { font-family: var(--font-mono); font-size: 12px; color: var(--ink-mute); white-space: nowrap; }
+.chal { margin-top: 12px; border: 1px solid var(--challenge); padding: 10px; background: var(--tile-bg); }
+.chal .g { color: var(--challenge); font-size: 16px; }
+.pay { margin-top: 12px; font-size: 12px; color: var(--ink-mute); border-top: 1px solid var(--panel-rule); padding-top: 8px; }
+.ladder { display: grid; gap: 6px; margin-top: 10px; }
+.rung { display: grid; grid-template-columns: 56px 1fr auto; gap: 8px; align-items: baseline; padding: 6px 8px; border: 1px solid var(--panel-rule); }
+.rung .s { font-family: var(--font-mono); color: var(--commend); }
+.rung.met { border-color: var(--good); }
+.rung.met .t { color: var(--ink); } .rung .t { color: var(--ink-mute); }
+.rung.chal-r .s { color: var(--challenge); } .rung.chal-r.met { border-color: var(--challenge); }
+.ok { color: var(--good); font-size: 12px; } .no { color: var(--ink-dim); font-size: 12px; }
+.town { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--panel-frame); padding-bottom: 8px; }
+.town .n { font: 800 18px var(--font-display); text-transform: uppercase; letter-spacing: .05em; }
+.town .c { font-family: var(--font-mono); font-size: 13px; }
+.town .c .st { color: var(--commend); } .town .c .ch { color: var(--challenge); margin-left: 10px; }
+.card { margin-top: 10px; background: var(--tile-bg); border: 1px solid var(--panel-frame); padding: 10px; }
+.card .l { display: grid; grid-template-columns: 64px 1fr; gap: 4px 8px; margin-top: 6px; font-size: 13px; }
+.card .l .k { font-family: var(--font-mono); color: var(--commend); } .card .l .k.c { color: var(--challenge); }
+.card .l .v.done { color: var(--ink-dim); text-decoration: line-through; }
+.foot { margin-top: 20px; color: var(--ink-dim); font-size: 12px; max-width: 80ch; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Challenge star: mock</h1>
+  <p class="lede">Three places the player meets it: the deploy screen (choose amendments to the orders), the after-action ladder (a fourth rung that is not a star), and the campaign board (what is left to earn). Illustrative mission and numbers.</p>
+  <div class="grid">
+    <section class="panel" aria-label="Deploy screen">
+      <div class="cap">1 · Deploy screen, below the briefing</div>
+      <div class="mission">Beit Sahwan II · The Souk</div>
+      <div class="sub">Amendments to the orders. Optional, and a win with them still grades normally.</div>
+      <div class="rows">
+        <div class="mod" data-on="true"><i class="box"></i><div><b>Tight clock</b><div class="sub">Brigade wants it done sooner.</div></div><span class="eff">12:00 → 9:00</span></div>
+        <div class="mod" data-on="true"><i class="box"></i><div><b>Clean hands</b><div class="sub">The Conduct floor for the second star rises by ten.</div></div><span class="eff">floor 50 → 60</span></div>
+        <div class="mod" data-on="false"><i class="box"></i><div><b>Light order</b><div class="sub">One rifle squad stays at brigade.</div></div><span class="eff">−1 squad</span></div>
+      </div>
+      <div class="chal"><span class="g">◆</span> <b>Challenge: Quiet Souk</b>
+        <div class="sub">Tight clock and Clean hands on, a win with every starting unit home. Both amendments above are on: the challenge is live.</div></div>
+      <div class="pay">Credits for the win are worked out exactly as without amendments. The challenge pays no credits and no coins.</div>
+    </section>
+
+    <section class="panel" aria-label="After-action report">
+      <div class="cap">2 · After-action report, the grade ladder</div>
+      <div class="mission">Mission accomplished</div>
+      <div class="sub">Amendments: Tight clock, Clean hands</div>
+      <div class="ladder">
+        <div class="rung met"><span class="s">★</span><span class="t">Entered in the log</span><span class="ok">won</span></div>
+        <div class="rung met"><span class="s">★★</span><span class="t">Named in brigade orders · Conduct 78, floor 60</span><span class="ok">met</span></div>
+        <div class="rung met"><span class="s">★★★</span><span class="t">Ari'im citation · 2 of 2 carried</span><span class="ok">met</span></div>
+        <div class="rung chal-r met"><span class="s">◆</span><span class="t">Quiet Souk · 0 lost, 7:42 of 9:00</span><span class="ok">earned</span></div>
+      </div>
+      <div class="pay">Credits +190 (same as unamended) · Coins 0 from the challenge</div>
+    </section>
+
+    <section class="panel" aria-label="Campaign board">
+      <div class="cap">3 · Campaign board, a town and one mission card</div>
+      <div class="town"><span class="n">Beit Sahwan</span><span class="c"><span class="st">9/12★</span><span class="ch">1/4◆</span></span></div>
+      <div class="card">
+        <div class="mission" style="font-size:16px">II · The Souk</div>
+        <div class="l">
+          <span class="k">★</span><span class="v done">Won</span>
+          <span class="k">★★</span><span class="v done">Conduct above 70</span>
+          <span class="k">★★★</span><span class="v">One carried secondary left: locate the cache</span>
+          <span class="k c">◆</span><span class="v">Quiet Souk: tight clock, clean hands, nobody lost</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="mission" style="font-size:16px">III · The Lip</div>
+        <div class="l"><span class="k">★★★</span><span class="v done">All earned</span><span class="k c">◆</span><span class="v done">Night Lanes · earned</span></div>
+      </div>
+    </section>
+  </div>
+  <p class="foot">The diamond is not a fourth star: it is a separate mark, never summed into the star total that opens units (<span class="mono">starsEarned</span>), and cool silver on purpose, not the gold of credits or the terracotta of coins.</p>
+</main>
+</body>
+</html>
