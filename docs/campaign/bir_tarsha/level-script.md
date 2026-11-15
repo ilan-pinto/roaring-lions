@@ -2,7 +2,7 @@
 
 **Act I · The Marj Strip · *The Long Ground*, town 2 of 4 new. Five missions, Option B *Gate and Strip*.**
 
-**Date:** 2026-11-15 · **Author:** `level-scripter` · **Status:** proposal for `mission-author`. Nothing here was written into `data/`. The lead approved the arc (PR 1438), this town's design and all seven rulings (PR 1453), and the narrative sheet (PR 1456) on 15 Nov 2026. The escort rows lean on the proposal in PR 1454 (GH-1439), which is **not built**: every row that depends on its two fields says `engine: GH-1439`.
+**Date:** 2026-11-15 · **Author:** `level-scripter` · **Status:** proposal for `mission-author`. Nothing here was written into `data/`. The lead approved the arc (PR 1438) and this town's design with all seven rulings (PR 1453) on 15 Nov 2026. **The narrative sheet (PR 1456) has no lead approval yet**; this script is written against it as a proposal. The escort rows lean on the proposal in PR 1454 (GH-1439), which is **not built**: every row that depends on its two fields says `engine: GH-1439`.
 
 **Stacked on** PR 1456's branch (`claude/bir-tarsha-narrative`), which sits on PR 1453's. **Format model:** the Qasr Liwan level script (PR 1450, `docs/campaign/qasr_liwan/level-script.md`).
 
@@ -223,7 +223,7 @@ Field names are the schema's. `at` values are tile centres. The `town` and the m
 
 ```json bt1.objectives
 [
-  {"id": "identify_the_gate", "type": "locate", "primary": true, "target": "bt_gate_garrison", "text": "Identify the garrison at the gate", "say": {"speaker": "idit", "text": "That is the garrison: two blocks and a missile team on the road. Nothing at the gate is waiting for us in particular, and nothing is asleep."}},
+  {"id": "identify_the_gate", "type": "locate", "primary": true, "target": "bt_gate_garrison", "text": "Identify the garrison at the gate", "say": {"speaker": "idit", "text": "That is the garrison on the road: a rifle cell, a missile team and a rocket team. The blocks behind them hold more, and I cannot read what."}},
   {"id": "six_out", "type": "evacuate_before", "primary": true, "target": "gate_refuge", "count": 6, "seconds": 300, "text": "Walk six residents out to the refuge", "say": {"speaker": "shai", "text": "Six out. The west quarter is quiet, and it has one less reason to be a target."}, "say_on_fail": {"speaker": "idit", "text": "The quarter is closed to us now. There is no second morning for a walk like that, and the people in it know it."}},
   {"id": "find_the_crew", "type": "locate", "primary": false, "target": "bt_works_crew", "carries": true, "text": "Identify the crew on the east works", "say": {"speaker": "idit", "text": "Marked. That is the crew on the east works, and the next time we come down this road I can tell you which posts are theirs."}}
 ]
@@ -704,6 +704,7 @@ Grid: the design's §3 (flat, `arid`, 48 × 48). Markers and zones below are new
 | **GH-1439**: `fail_after_losses` and `until` on `escort` | PR 1454, option A | `sim-guard` | **blocks IV** |
 | BT-G1: 13 `low_profile` tiles need one `demolish` each | none; the design cost | — | player orders |
 | BT-G2: a `move` to an unreachable goal for a wheeled unit behind `T` | check `walk_mission.ts` that the group does not stall | `mission-author` | world-walk |
+| the design's “Logistics buys replacement infantry only” is intent, not data: a camp's menu is the whole unlocked menu (`lineTakes`: only a production work's line is restricted by role) | none needed; `playtest` reads what a player buys | `playtest` | IV |
 
 **Playtest asks.**
 - **Cannot run until GH-1439 lands.** With today's escort (fails on the first loss, completes at arrival) the mission can be scratch-played only.
@@ -988,7 +989,7 @@ Every literal is from the script run in §11, on the design's grids. Each pin is
 |---|---|---|---|
 | **BT-A1** | I: the three resident groups walk to `gate_refuge_point` in 21, 21 and 25 steps, and none starts inside `gate_refuge` | 21 / 21 / 25 | move a group to (6.5,10.5) |
 | **BT-A2** | II: the three resident groups start outside `safe_quarter` and walk 13, 12 and 16 steps to `safe_point` | 13 / 12 / 16 | put a group at (10.5,26.5) |
-| **BT-A3** | II: the mortar at (31.5,31.5) reaches all three resident groups and does not reach `safe_point` or the start | first bodies 15.0, 14.9, 13.0 ≤ 16; 21.6 and 22.8 > 16 | move the mortar to (31.5,38.5) |
+| **BT-A3** | II: the mortar at (31.5,31.5) reaches all three resident groups and does not reach `safe_point` or the start | 15.0, 14.9, 13.0 ≤ 16; 21.6 and 22.8 > 16 | move the mortar to (31.5,38.5) |
 | **BT-A4** | III: the two doors are 10 steps apart; the taken are 17 and 19 steps from the extraction | 10; 17; 19 | wall the lane at (36,17) |
 | **BT-A5** | IV: `far_gate_point` is unreachable for a wheeled body from the corral while every `T` tile stands, and 36 steps away once they fall; on foot it is 36 steps through the `b` gap | none; 36; 36 | open (36,24) to `.` |
 | **BT-A6** | IV: no house, shanty or clinic within 8 open tiles of `fence_works` (Chebyshev distance 9) | 9 | add an `h` at (20,16) |
@@ -1005,10 +1006,26 @@ Every literal is from the script run in §11, on the design's grids. Each pin is
 
 ## 9. Order of work and hand-off for `mission-author`
 
+### 9.0 Precedence: where the design and this script disagree, this script wins
+
+The MDD (PR 1453) was written before the engine reads in this script. Where a statement below conflicts with one in the MDD, **this script is the one `mission-author` builds from**. The superseded MDD statements:
+
+| MDD statement | superseded by | why |
+|---|---|---|
+| §3.4, §3.5: the vents and the missile teams sit in the hamlet's **dead ground** | F-5 | a flat map has no dead ground; the bait works by overshoot and by sight range |
+| §3.3: hesco, sandbag and T-wall are **placed `owner: 1`** | F-7 | neutral works need no owner; the map letters carry them |
+| §3.4: four route rows and a fifth row that is the chamber | F-8 | five routes: `bt5_d` added |
+| §3.4, §5.5: the zone `chamber_refuge` | F-9 | split into `chamber_reach` and `rescue_refuge` |
+| §5.2: II's residents are **in** `safe_quarter` | D-BN1 | they start on the cross road |
+| §4: III's `evacuate_before` ×2 | D-BN2 | one objective, count 3, 360 s |
+| §4: the id `bir_tarsha_3_buildup` | lead ruling 6 | the id is `bir_tarsha_3_clearance` |
+| §5.1: the crew commits "only if the gate garrison is engaged" | F-1 | `first_contact` is global; a zone trigger instead |
+| §5.3: the warning comes after 20 s | F-2 | no trigger delay; the walk supplies it |
+
 ### 9.1 Order
 
 1. **Schema and world.** `mission.schema.json` `town` enum gains `bir_tarsha` (G-10). `data/campaign/world.json`: the town in the `marj` region, and `sur`'s `unlock.after_mission` moves from `deir_amun_3_subterranean` to `bir_tarsha_5_subterranean`. `data/campaign/commander.json`: `ranks[0].until_mission` moves from `deir_amun_3_subterranean` to `bir_tarsha_5_subterranean` (the Major promotion then fires on the first Sur mission, ruling 5).
-2. **Five maps** from the design's grids, flat, `arid`, with the markers, zones and tunnels of §3 to §7. Run `map_visibility.test.ts` (84%); a map that fails goes back to `campaign-designer`, not to this document.
+2. **Five maps from two bases:** `bir_tarsha` (the gate base) with its variants `bir_tarsha_2` and `bir_tarsha_3`, and `bir_tarsha_4` (the strip base) with its variant `bir_tarsha_5`. From the design's grids, flat, `arid`, with the markers, zones and tunnels of §3 to §7. Run `map_visibility.test.ts` (84%); a map that fails goes back to `campaign-designer`, not to this document.
 3. **BT I, II, III**, then **BT V**, assembling §3 to §7. Each is complete without GH-1439.
 4. **BT IV last, and only when GH-1439 has landed.** Its objective list needs the two escort fields. Until then author it as a scratch file outside `data/missions/` with the keys removed.
 5. **`tools/src/bir_tarsha_doctrine.test.ts`** with the §8 pins.
@@ -1026,6 +1043,19 @@ Not mine to edit (`mission-author`'s fields); the exact text is here so it is no
 > New (185): *Six routes under the junction, and by morning none of them went anywhere. The brigades went home in the spring, and one battalion stayed on the Cut. The Marj was quiet until the autumn.*
 
 **`data/campaign/commander.json`**: `ranks[0].until_mission` → `bir_tarsha_5_subterranean` (step 1 above). Its Major `promotion_line` is already in the file and needs no edit.
+
+**`data/campaign/world.json`, spelled out.** A new town in the `marj` region, after `deir_amun`:
+
+```json bt.world.town
+{"id": "bir_tarsha", "name": "Bir Tarsha", "at": [345.0, 470.0], "unlock": {"after_mission": "deir_amun_3_subterranean"},
+ "missions": ["bir_tarsha_1_recon", "bir_tarsha_2_foothold", "bir_tarsha_3_clearance", "bir_tarsha_4_clearance", "bir_tarsha_5_subterranean"]}
+```
+
+- `at` is a **placeholder**: `mission-author` places it against `campaign/world_map.png` so the marker clears Deir Amun's (281.4,480.9) and the `sur` region's edge.
+- The town's own `unlock` is `deir_amun_3_subterranean`, as Ein Qasab's is `wadi_halam_3_counterraid`: it opens when the Marj's fourth town is done.
+- **Separate edit:** the `sur` region's `unlock.after_mission` moves from `deir_amun_3_subterranean` to `bir_tarsha_5_subterranean`. Do not confuse the two.
+- **`world.taken`** (19) is the board's total of the taken, read against `civ.hostages_recovered` (`campaign.ts`, the function that returns `{ taken, recovered }`). This town adds **5** (four in III, one in V); Qasr Liwan adds its own. Not read further than that function's head.
+- **`commander.json`:** only `ranks[0].until_mission` moves, to `bir_tarsha_5_subterranean`. The Major rank's own `until_mission` (`umm_zeitoun_4_clearance`) and its `promotion_line` stay untouched.
 
 **Also for this town:** two `hostages_place` values (`the north of the camp quarter`, `the Fence Road`); a locale overlay under `data/locales/<lang>/missions.json` for the five missions; briefing images; the five `name`s, briefings and objective texts from the narrative sheet.
 
