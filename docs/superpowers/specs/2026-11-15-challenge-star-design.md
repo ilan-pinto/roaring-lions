@@ -46,7 +46,7 @@ harder or leave it alone, never easier (rule A1, §4).
 
 | lever | field (verified) | amendment it makes | sim change? |
 |---|---|---|---|
-| the clock | `time_limit_s` (`mission.ts` `timedOut`); the house floor is `validate_time_limit.mjs` | **Tight clock**: scale the limit down | none, but bounded: at least `2 × target_minutes` and 60 s past every primary deadline, or `validate:data` refuses it |
+| the clock | `time_limit_s` (`mission.ts` `timedOut`); the house floor is `validate_time_limit.mjs` | **Tight clock**: scale the limit down | none, **but see the correction below: as written it cannot pass today.** The floor is: at least `2 × target_minutes` and 60 s past every primary deadline, or `validate:data` refuses it |
 | Conduct | `roe.fail_below`; the star-2 floor is `failBelow + 20` (`starRoeFloor`) | **Clean hands**: raise `fail_below` | none |
 | a ceiling | a `no_collateral_above` objective (needs ROE on and another primary) | **Clean hands, hard**: lower its `threshold`, or add one | none |
 | the force | `starting_force[].count`, `from_ledger` | **Light order**: remove a squad. **Fresh crews**: `from_ledger: false` throughout (veterancy lost) | none |
@@ -122,7 +122,7 @@ means a recorded replay must carry the amendment ids (§7, D10).
 | **A1** | **An amendment never makes a mission easier.** Time shrinks, floors rise, forces and purses shrink, enemies and asks grow | the closed operation set; the playtest check C6 (sensible win rate with an amendment on is no higher than without, over 30 seeds) |
 | **A2** | **No amendment raises what the credit formula reads.** It adds no starting unit, no `carries: true` secondary, and never lowers `fail_below` | check C3, a bound over `creditsFor`'s inputs |
 | **A3** | An amendment never touches an objective's id, type or target (`level-scripter`'s and `mission-author`'s fields), and never a tagged unit | `remove_starting` refuses a placement carrying a `tag` (the escort's `blades`, an `eliminate_hvt`'s target) |
-| **A4** | Every modified mission still passes `validate:data`, including the clock floor and every spawn-clear rule | check C4 and C5 |
+| **A4** | Every modified mission still passes `validate:data`, including the clock floor (under the D13 rule below) and every spawn-clear rule | check C4 and C5 |
 | **A5** | An amendment is chosen before deploy and never changes mid-mission | the deploy screen is the only place it is set |
 
 ## 5. Scoring and showing the challenge
@@ -199,7 +199,7 @@ win**, or "the challenge is harder" holds vacuously.
 | C2 | every op in the catalogue is in the closed set, and a path outside the allowlist is refused | add an op `set_objective_type` |
 | C3 | **credit bound:** for every shipped mission and every subset of its offers, the credit inputs (`fielded`, carrying count, `fail_below`) are no better than the unamended ones, so the bound `100 + 40·carry + 10·fielded` is no higher | add `inf_squad` to `starting_force` in an op; or mark an added secondary `carries: true` |
 | C4 | every (mission, amendment set) builds a `MissionRuntime` without throwing (spawn-clear, unknown group, unknown marker) | place an `add_garrison` body on a wall |
-| C5 | every modified mission passes `mission.schema.json` and `validate_objectives`, `validate_time_limit` | `scale_time_limit` 1/2 |
+| C5 | every modified mission passes `mission.schema.json` and `validate_objectives`, `validate_time_limit` (under D13) | `scale_time_limit` below the D13 floor |
 | C6 | **never easier:** over 30 seeds the sensible plan's win rate with each amendment on is no higher than without; a **passive plan loses** the challenge | an amendment that adds `logistics_start` |
 | C7 | the predicate equals a hand computation on the stored row: `lost_at_most 0` is met by `lost = 0` and not by `lost = 1`; `ticks_at_most_target` at the boundary tick | `<` for `<=`; off-by-one on `target_minutes × 1200` |
 | C8 | **independence:** `starsEarned` of a ledger with and without the challenge key is the same literal; `roarEarn` pays 0 for a challenge win; `creditsFor` is called with the same inputs | have `starsEarned` sum the key; add an `EARN` row |
@@ -241,6 +241,19 @@ passive plan must lose it. `pnpm playtest` fails if a challenge has no winning p
 | **D10** | a save or a replay of an amended run | **It stores the amendment ids** (a mid-mission save, PR 1443, and a recorded replay both need them, or they reload the plain mission) | refuse to save an amended run |
 | **D11** | the in-fiction word | **"Amendments to the orders"** (brigade paperwork, matching "Entered in the log" and "Named in brigade orders") | "modifiers", "mutators" |
 | **D12** | an earned reward | **None in this feature**; a later earned-only crest from the cosmetics shelf (GH-1416) | a unit skin, which is power-adjacent and so needs the ST8 test |
+
+## 11a. Correction (added after the GH-1394 design, same day)
+
+A census for GH-1394 found that **every shipped mission's `time_limit_s` is exactly twice its `target_minutes`: 30 of 30**,
+which is the floor in `tools/validate_time_limit.mjs`. So the *Tight clock* amendment in this design (limit × 3/4, and the
+mock's *12:00 → 9:00*) is **below the floor on every mission** and would fail its own check C5. The floor has two reasons: a
+*sizing* rule (2 × the target) and a *clearance* rule (60 s past every primary deadline, so a mission losing on its own clock
+loses on that clock). Only the clearance rule is load-bearing.
+
+**D13 (new): the clock floor for an overlaid mission.** Recommended: the validator applies the **clearance rule and a floor
+of 1 × the target** to an overlaid mission (an authored mission keeps 2 ×), and *Tight clock* scales to no lower than that.
+Alternative: keep 2 ×, which forbids any tighter amendment and drops *Tight clock* from the library. The same decision is
+D6 in `2026-11-15-difficulty-settings-design.md`; rule it once. The mock's example numbers stay illustrative.
 
 ## 11. What this document does not claim
 
