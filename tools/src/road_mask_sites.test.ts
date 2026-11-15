@@ -40,7 +40,7 @@ describe('the road mask reaches every mission runtime (C-R4)', () => {
     .map((p) => relative(ROOT, p))
     .sort();
 
-  it('the fourteen sites are the ones on the tree', () => {
+  it('the fifteen sites are the ones on the tree', () => {
     expect(sites).toEqual([
       'packages/app/src/mission-start.ts',
       // N3 Task 3: a KDF-v-Sarim room's economy runtime.
@@ -55,6 +55,8 @@ describe('the road mask reaches every mission runtime (C-R4)', () => {
       'tools/src/backtest/fl_ladder.ts',
       'tools/src/backtest/playtest-run.ts',
       'tools/src/backtest/saddle-price.ts',
+      // GH-1360 S0: the spacing census's mission starts (a garrison-order recorder around start()).
+      'tools/src/backtest/spacing-census.ts',
       'tools/src/backtest/special-units-probes.ts',
       'tools/src/backtest/wh_pacing.ts',
       'tools/src/mission-harness.ts',

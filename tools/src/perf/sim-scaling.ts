@@ -45,8 +45,19 @@
 //   npx tsx tools/src/perf/sim-scaling.ts
 //   npx tsx tools/src/perf/sim-scaling.ts --checkpoints=150,300,600,1000,1500
 //   npx tsx tools/src/perf/sim-scaling.ts --ticks=60 --warmup=10
+//   npx tsx tools/src/perf/sim-scaling.ts --checkpoints=300,400,600 --scene=converge --runs=3 --map=qarn_hadid
+//
+// --scene=converge (GH-1360 S0, spec section 4) is the GH-421 stress scene: every living ground unit is ordered to ONE
+// point (`exact`: no formation slots, the worst case for the separation rule) and timed over --ticks after --warmup.
+// It runs on FRESH worlds, one per --runs, built to each checkpoint's unit count, so the runs are replicates and
+// stepMovement's min and median over them is the number the spacing slices compare. Both sides are ordered and the
+// roster is the harness's (not 300 foot and 100 vehicles): the table prints what was ordered, by class. --map=<id> picks the world's map (default
+// beit_sahwan_outskirts, which is what docs/PERFORMANCE.md's curve used; qarn_hadid is the spec's).
 
-import { FlowField, type TunnelRouteJson } from '@lions/sim';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+import { FlowField, fx, type Sim, type TunnelRouteJson } from '@lions/sim';
+import type { maps } from '@lions/data';
 import {
   buildWorld,
   computeAnchors,
@@ -61,7 +72,7 @@ import {
 // CLI args
 // ============================================================================
 
-function parseArgs(argv: readonly string[]): { checkpoints: number[]; ticks: number; warmup: number; maxRoutes: boolean } {
+function parseArgs(argv: readonly string[]): { checkpoints: number[]; ticks: number; warmup: number; maxRoutes: boolean; scene: 'none' | 'converge'; runs: number; map: string | undefined } {
   const flags = new Map(
     argv
       .filter((a) => a.startsWith('--'))
@@ -77,7 +88,11 @@ function parseArgs(argv: readonly string[]): { checkpoints: number[]; ticks: num
   const ticks = Number.parseInt(flags.get('ticks') ?? '40', 10);
   const warmup = Number.parseInt(flags.get('warmup') ?? '5', 10);
   const maxRoutes = flags.has('stress-routes');
-  return { checkpoints, ticks, warmup, maxRoutes };
+  const sceneArg = flags.get('scene') ?? 'none';
+  if (sceneArg !== 'none' && sceneArg !== 'converge') throw new Error(`--scene must be converge (or absent), got ${sceneArg}`);
+  const runs = Number.parseInt(flags.get('runs') ?? '1', 10);
+  if (!(runs >= 1)) throw new Error(`--runs must be 1 or more, got ${flags.get('runs')}`);
+  return { checkpoints, ticks, warmup, maxRoutes, scene: sceneArg, runs, map: flags.get('map') };
 }
 
 // ============================================================================
@@ -178,11 +193,59 @@ interface CheckpointReport {
   flowFieldComputeCalls: number;
 }
 
+interface ConvergeReport {
+  target: number;
+  living: number;
+  /** Ground units the converge order named, by class (wheeled = vehicle). */
+  ordered: { foot: number; vehicle: number };
+  /** stepMovement's average ms per tick, one entry per fresh-world run. */
+  movementRunsMs: number[];
+}
+
+/** The GH-421 stress scene: every living ground unit ordered to the open tile nearest the centre of the map, with no formation slots. */
+export function orderConverge(sim: Sim): { foot: number; vehicle: number } {
+  const ids: number[] = [];
+  const n = { foot: 0, vehicle: 0 };
+  for (let i = 0; i < sim.entityCount; i++) {
+    if (sim.state.alive[i] !== 1) continue;
+    const t = sim.unitTypes[sim.state.typeIdx[i]];
+    if (t.isAir) continue;
+    ids.push(i);
+    n[t.wheeled ? 'vehicle' : 'foot']++;
+  }
+  // The nearest open tile to the point, scanning outward ring by ring.
+  const cx = sim.width >> 1;
+  const cy = sim.height >> 1;
+  let gx = cx;
+  let gy = cy;
+  search: for (let r = 0; r < Math.max(sim.width, sim.height); r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x < 0 || y < 0 || x >= sim.width || y >= sim.height) continue;
+        if (sim.blockedVehicle[y * sim.width + x] !== 0) continue;
+        gx = x;
+        gy = y;
+        break search;
+      }
+    }
+  }
+  if (ids.length > 0) sim.queueCommand({ kind: 'move', ids, x: fx.from(gx + 0.5), y: fx.from(gy + 0.5), exact: true });
+  return n;
+}
+
+const median = (xs: readonly number[]): number => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length % 2 === 1 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+};
+
 async function main(): Promise<void> {
-  const { checkpoints, ticks: timedTicks, warmup, maxRoutes } = parseArgs(process.argv.slice(2));
+  const { checkpoints, ticks: timedTicks, warmup, maxRoutes, scene, runs, map: mapArg } = parseArgs(process.argv.slice(2));
   const capacity = checkpoints[checkpoints.length - 1] + 100;
 
-  const world = buildWorld(capacity);
+  const world = mapArg === undefined ? buildWorld(capacity) : buildWorld(capacity, mapArg as keyof typeof maps);
   const { sim, map, typeOf } = world;
 
   // Register the map's own authored tunnels -- see the file-header comment
@@ -291,6 +354,30 @@ async function main(): Promise<void> {
     });
   }
 
+  // --scene=converge: the replicates are FRESH worlds (the cumulative sim above has fought on between checkpoints), each
+  // built to the checkpoint's unit count, ordered the same way and timed over the same window.
+  const converge: ConvergeReport[] = [];
+  if (scene === 'converge') {
+    for (const target of checkpoints) {
+      const each: number[] = [];
+      let ordered = { foot: 0, vehicle: 0 };
+      let living = 0;
+      for (let run = 0; run < runs; run++) {
+        const w = mapArg === undefined ? buildWorld(capacity) : buildWorld(capacity, mapArg as keyof typeof maps);
+        for (let i = 0; i < tunnelRoutes.length; i++) w.sim.addTunnel(tunnelRoutes[i]);
+        const a = computeAnchors(w.map);
+        spawnUpTo(w.sim, createSpawner(w.sim, w.typeOf, a.friendly, a.hostile), target);
+        living = livingCount(w.sim);
+        ordered = orderConverge(w.sim);
+        for (let i = 0; i < warmup; i++) w.sim.tick();
+        for (const t of phaseInstr.totals.keys()) phaseInstr.totals.set(t, 0);
+        for (let i = 0; i < timedTicks; i++) w.sim.tick();
+        each.push((phaseInstr.totals.get('stepMovement') ?? 0) / timedTicks);
+      }
+      converge.push({ target, living, ordered, movementRunsMs: each });
+    }
+  }
+
   phaseInstr.restore();
   subscanInstr.restore();
   flowFieldInstr.restore();
@@ -315,6 +402,16 @@ async function main(): Promise<void> {
       `| ${r.target} | ${r.living} | ${r.tick.avgMs.toFixed(2)} | ${r.tick.p95Ms.toFixed(2)} | ${r.tick.maxMs.toFixed(2)} | ${r.detectionPairwiseAvgMs.toFixed(3)} | ${r.trailStrengthAvgMs.toFixed(3)} | ${r.markerSeeingRouteAvgMs.toFixed(3)} | ${combat.avgMs.toFixed(3)} | ${movement.avgMs.toFixed(3)} | ${projectiles.avgMs.toFixed(3)} | ${r.flowFieldComputeAvgMs.toFixed(3)} (${r.flowFieldComputeCalls}) |${crossed}`
     );
   }
+  if (scene === 'converge') {
+    console.log('');
+    console.log(`--scene=converge: stepMovement, ms per tick, over ${runs} fresh worlds per checkpoint (every living ground unit of both sides ordered to one point; ${warmup} warmup + ${timedTicks} timed ticks):`);
+    console.log('| target | living | ordered foot / vehicle | stepMovement each run | min | median |');
+    console.log('|---|---|---|---|---|---|');
+    for (const r of converge) {
+      const m = r.movementRunsMs;
+      console.log(`| ${r.target} | ${r.living} | ${r.ordered.foot} / ${r.ordered.vehicle} | ${m.map((v) => v.toFixed(3)).join(', ')} | ${Math.min(...m).toFixed(3)} | ${median(m).toFixed(3)} |`);
+    }
+  }
   console.log('');
   console.log('Full phase breakdown per checkpoint (avg ms/tick, share of total tick):');
   for (const r of reports) {
@@ -331,7 +428,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err: unknown) => {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((err: unknown) => {
   console.error(err);
   process.exitCode = 1;
 });
