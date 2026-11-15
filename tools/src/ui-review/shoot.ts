@@ -232,19 +232,21 @@ async function overflows(page: Page): Promise<string[]> {
   });
 }
 
-async function shot(page: Page, dir: string, name: string, opts: { fullPage?: boolean } = {}): Promise<void> {
+/** True when the PNG was written; false when the screenshot failed (recorded in `SHOTS`). Callers that check the page AFTER the shot ask this first. */
+async function shot(page: Page, dir: string, name: string, opts: { fullPage?: boolean } = {}): Promise<boolean> {
   await page.waitForTimeout(400);
   try {
     await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: opts.fullPage ?? false, timeout: SHOT_TIMEOUT_MS });
   } catch (err) {
     SHOTS.record(name, err);
     console.log(`  ${name}  [SCREENSHOT FAILED] ${SHOTS.failed[SHOTS.failed.length - 1].reason}`);
-    return;
+    return false;
   }
   const over = await overflows(page);
   console.log(`  ${name}${over.length > 0 ? `  [overflow x${over.length}]` : ''}`);
   for (const line of over) console.log(`      ! ${line}`);
   OVERFLOW_TOTAL += over.length;
+  return true;
 }
 
 async function settle(page: Page, ms: number): Promise<void> {
@@ -1150,7 +1152,7 @@ try {
     // `.rl-aar` wait that follows needs Playwright's own
     // polling working again.
     await page.evaluate(FREEZE_FOR_SCREENSHOT_SCRIPT);
-    await shot(page, dir, '25-outcome-defeat');
+    const defeatShot = await shot(page, dir, '25-outcome-defeat');
     await page.evaluate(RESTORE_AFTER_SCREENSHOT_SCRIPT);
     // Fix round 1 (Task 6 review): `shot()` alone never checked that the
     // moment was STILL the thing on screen by the time its pixels were
@@ -1163,11 +1165,15 @@ try {
     // check, and its absence here means the PNG just taken is mislabelled.
     // `.count()` is a plain, non-waiting query, so it is unaffected by
     // whether the loop is frozen or restored at the point it runs.
-    assertOutcomeStillPresent(
-      (await page.locator('.rl-outcome[data-outcome="defeat"]').count()) > 0,
-      '25-outcome-defeat'
-    );
-    await page.click('.rl-outcome__skip');
+    // GH-1409: only a PNG that was actually taken can be mislabelled. After a failed capture the moment's own 2600 ms hold may have
+    // elapsed while the screenshot waited, so its absence is not a defect to throw on; the skip is clicked only if it is still there.
+    if (defeatShot) {
+      assertOutcomeStillPresent(
+        (await page.locator('.rl-outcome[data-outcome="defeat"]').count()) > 0,
+        '25-outcome-defeat'
+      );
+    }
+    if (defeatShot || (await page.locator('.rl-outcome__skip').count()) > 0) await page.click('.rl-outcome__skip');
     // GH-417 (L-7): the moment hands over straight to the after-action
     // report, which absorbed the old end panel -- so `16-end-defeat` and
     // `17-debrief` are one screen now. The name `17-debrief` is kept for the
@@ -1279,7 +1285,7 @@ try {
           '24-outcome-victory: the scripted plan did not reach victory (.rl-outcome[data-outcome="victory"] absent immediately after the plan\'s own step() calls) -- see the freeze comment above for the tick-drift failure mode this replaced'
         );
       }
-      await shot(winPage, dir, '24-outcome-victory');
+      const victoryShot = await shot(winPage, dir, '24-outcome-victory');
       // `winCtx` closes right after this block, so nothing later on
       // `winPage` needs the loop restored -- unlike the defeat capture,
       // which freezes only briefly and restores before continuing the same
@@ -1288,10 +1294,12 @@ try {
       // -- see its comment and `outcome-guard.ts`'s header for the failure
       // this closes. `.count()` is a plain, non-waiting query, unaffected by
       // the loop being frozen.
-      assertOutcomeStillPresent(
-        (await winPage.locator('.rl-outcome[data-outcome="victory"]').count()) > 0,
-        '24-outcome-victory'
-      );
+      if (victoryShot) {
+        assertOutcomeStillPresent(
+          (await winPage.locator('.rl-outcome[data-outcome="victory"]').count()) > 0,
+          '24-outcome-victory'
+        );
+      }
       await winCtx.close();
     }
   }

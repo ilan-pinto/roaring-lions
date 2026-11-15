@@ -43,6 +43,16 @@ describe('shoot.ts uses the policy (a source guard: shoot.ts runs its whole walk
     expect(src).toContain("await page.emulateMedia({ reducedMotion: 'no-preference' });");
   });
 
+  it('asks shot() whether the PNG was taken before it asserts the outcome moment is still up, at both call sites', () => {
+    expect(src).toContain('opts: { fullPage?: boolean } = {}): Promise<boolean> {');
+    expect(src).toMatch(/\[SCREENSHOT FAILED\][^\n]*\n\s*return false;/);
+    expect(src).toContain('const defeatShot = await shot(page, dir, \'25-outcome-defeat\');');
+    expect(src).toContain('if (defeatShot) {');
+    expect(src).toContain('const victoryShot = await shot(winPage, dir, \'24-outcome-victory\');');
+    expect(src).toContain('if (victoryShot) {');
+    expect(src).toContain("if (defeatShot || (await page.locator('.rl-outcome__skip').count()) > 0) await page.click('.rl-outcome__skip');");
+  });
+
   it('prints the failures at the end and exits non-zero when any shot is missing', () => {
     expect(src).toContain('for (const line of SHOTS.summary()) console.log(line);');
     expect(src).toContain('if (SHOTS.failed.length > 0) process.exitCode = 1;');
