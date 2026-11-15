@@ -393,6 +393,27 @@ describe('retention: the daily purge', () => {
     expect(await purgeExpired(h.env, NOW)).toBe(0);
   });
 
+  it('also nulls the ids that tie a note to a person (player, session, tester) at 180 days; a fresh note keeps them', async () => {
+    const h = await setup();
+    const old = await h.send(META);
+    const fresh = await h.send(META);
+    h.db.raw.prepare('UPDATE feedback SET received_at = ? WHERE id = ?').run(NOW - RETENTION_MS - 1, old);
+    await purgeExpired(h.env, NOW);
+    expect(h.db.raw.prepare('SELECT player, session, tester, text FROM feedback WHERE id = ?').get(old)).toEqual({
+      player: null, session: null, tester: null, text: META.text,
+    });
+    expect(h.db.raw.prepare('SELECT player, session, tester FROM feedback WHERE id = ?').get(fresh)).toEqual({ player: P, session: S, tester: 'dana' });
+  });
+
+  it('catches up a note whose media were already purged but whose ids remain, then reports nothing left', async () => {
+    const h = await setup();
+    const old = await h.send(META, false); // no picture, no replay, no contact: only the ids to clear
+    h.db.raw.prepare('UPDATE feedback SET received_at = ? WHERE id = ?').run(NOW - RETENTION_MS - 1, old);
+    expect(await purgeExpired(h.env, NOW)).toBe(1);
+    expect(h.db.raw.prepare('SELECT player, session, tester FROM feedback WHERE id = ?').get(old)).toEqual({ player: null, session: null, tester: null });
+    expect(await purgeExpired(h.env, NOW)).toBe(0);
+  });
+
   it('a row at exactly 180 days is kept', async () => {
     const h = await setup();
     const id = await h.send(META);

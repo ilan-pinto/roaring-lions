@@ -12,6 +12,29 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   `?telemetry` -- never from `pnpm dev`, tests or CI, because `pnpm ui:routes` fails on any
   console error. `?tester=<name>` labels a tester, `?notrack` opts out (persisted). Results
   are read from the terminal with `packages/worker/QUERIES.sql` (`npx wrangler d1 execute roaring-lions-telemetry --remote --file ...`), still available as an alternative; `/stats` is behind a password set with `npx wrangler secret put STATS_PASSWORD` -- make it long and random (e.g. `openssl rand -base64 24`), not a memorised phrase, since a captured session cookie hands over the signing key too -- and answers 403 until that secret is set. Spec: `docs/superpowers/specs/2026-09-24-telemetry-design.md`.
+- **Field signal (GH-1410): `client_error`, `perf_sample`, `boot`.** Three more event types on the SAME sender, schema
+  (`data/schemas/telemetry_event.schema.json` and its twin `packages/data/src/telemetry.ts`, pinned by `telemetry.test.ts`)
+  and switch, so they leave only where the others do and stop wherever the others stop (dev, tests, CI, GPC, DNT,
+  `?notrack`). `telemetry/errors.ts` describes an error as its class name, a SCRUBBED one-line message (URLs, emails, quoted
+  literals, query strings, IPv4/IPv6 addresses, paths with or without a drive letter, dotted and long tokens, phone-like and long numbers
+  replaced; printable ASCII; 120 characters; heuristic, so crash text can still hold fragments of game data) and an FNV-1a hash of the stack's FUNCTION NAMES; the
+  listeners are installed in `initTelemetry` only past the off switch, observe only, and are capped per session (10) and per
+  crash (3). `perf_sample` closes every 120 s of a visible mission with at least 300 frames (`telemetry/perf.ts`: p50, p95, p99
+  of the rAF interval, a stall over 1 s dropped) with the unit count, the preset, the backend and the GPU name
+  (`feedback/gpu.ts`, read lazily) reduced to its FAMILY by `gpuFamily` (`@lions/data`) inside `createTelemetry`, so a raw renderer string, with its PCI id and driver build, never reaches an event. `boot` is the time from navigation start to the second animation frame after
+  `initTelemetry`, once a page load. No event stores an IP, an email or a user agent. The Settings > Privacy checkbox
+  (`reportsSwitch`) is the stored opt-out (`lions.telemetry.optout`, the key `?notrack` writes) inverted, and the sink
+  (`gatedSink`) reads it before every push and flush and empties the queue when it is set: turning it off applies at once,
+  turning it back on applies after a reload. The opt-out is also held in MEMORY for the page (`optedOutNow`), so with site data blocked, or a write that
+  throws, "off" still holds; and `Telemetry.ids()` answers null once it is set, so a feedback note then carries no id. `/stats` shows the result as "Field health" (`/stats/api/health`,
+  `worker/src/field-health.ts`): the crash-free session rate, the commonest crashes by hash, frame percentiles by GPU family
+  (`gpuFamily`) and the median start-up. The privacy page's lines for these were approved by the lead on 15 Nov. **Retention (the lead's ruling):**
+  everything held about an ID is deleted about 180 days after it was last SEEN. The daily cron (`scheduled` in `index.ts`) runs
+  `purgeEvents` (raw `event_batch` rows by `received_at`: three slices of `INGEST_DAY.global` = 5,000, so a run clears more than a
+  full day of ingest; the old 2,000 a day fell behind), `purgePlayers` (a `players` row by `last_seen`, with its `accounts` row in the
+  same batch, plus any orphan `accounts` row by its own `t`; strict `<`, so a row at exactly 180 days is kept) and `purgeRateDays`.
+  Each is a few big `DELETE ... LIMIT` statements, never a loop of small ones: the Free plan allows 50 D1 queries per invocation and
+  `purge.test.ts` counts them.
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the

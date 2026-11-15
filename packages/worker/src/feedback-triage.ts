@@ -394,8 +394,9 @@ export async function handleFeedbackApi(req: Request, env: Env, url: URL, now: n
   }
 }
 
-/** Retention (spec §7, D15): 180 days after receipt the picture, the replay
- *  and the contact go; the note and context stay, like telemetry events.
+/** Retention (spec §7, D15; GH-1410): 180 days after receipt the picture, the replay,
+ *  the contact and the ids that tie the note to a person (player, session, tester) go;
+ *  the note and context stay.
  *  Run daily by the Cron Trigger in wrangler.jsonc. Returns rows purged. */
 export const RETENTION_MS = 180 * 86_400_000;
 export async function purgeExpired(env: Env, now: number, batch = 100, maxBatches = 10): Promise<number> {
@@ -403,7 +404,8 @@ export async function purgeExpired(env: Env, now: number, batch = 100, maxBatche
   for (let i = 0; i < maxBatches; i++) {
     const rows = await env.DB.prepare(
       `SELECT id FROM feedback WHERE received_at < ?
-       AND (shot_bytes IS NOT NULL OR replay_bytes IS NOT NULL OR contact IS NOT NULL) ORDER BY id LIMIT ?`
+       AND (shot_bytes IS NOT NULL OR replay_bytes IS NOT NULL OR contact IS NOT NULL
+            OR player IS NOT NULL OR session IS NOT NULL OR tester IS NOT NULL) ORDER BY id LIMIT ?`
     )
       .bind(now - RETENTION_MS, batch)
       .all<{ id: number }>();
@@ -412,7 +414,7 @@ export async function purgeExpired(env: Env, now: number, batch = 100, maxBatche
       rows.results.flatMap((r) => [
         env.DB.prepare('DELETE FROM feedback_picture WHERE feedback_id = ?').bind(r.id),
         env.DB.prepare('DELETE FROM feedback_replay WHERE feedback_id = ?').bind(r.id),
-        env.DB.prepare('UPDATE feedback SET shot_bytes = NULL, replay_bytes = NULL, contact = NULL WHERE id = ?').bind(r.id),
+        env.DB.prepare('UPDATE feedback SET shot_bytes = NULL, replay_bytes = NULL, contact = NULL, player = NULL, session = NULL, tester = NULL WHERE id = ?').bind(r.id),
       ])
     );
     purged += rows.results.length;

@@ -40,6 +40,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Every `initTelemetry` in this file puts error listeners on the SAME jsdom window (GH-1410); take them off after each test so one test's instance cannot answer the next one's error.
+const added: [string, EventListenerOrEventListenerObject][] = [];
+const realAdd = window.addEventListener.bind(window);
+beforeEach(() => {
+  window.addEventListener = ((t: string, f: EventListenerOrEventListenerObject, o?: unknown) => {
+    if (t === 'error' || t === 'unhandledrejection') added.push([t, f]);
+    realAdd(t, f, o as never);
+  }) as typeof window.addEventListener;
+});
+afterEach(() => {
+  for (const [t, f] of added.splice(0)) window.removeEventListener(t, f);
+  window.addEventListener = realAdd;
+});
+
 describe('initTelemetry (F2: opt-out gate runs before identity is minted)', () => {
   it('a dev/CI session (off by default on localhost) stores no player or tester id', async () => {
     const storage = installStorage();
@@ -87,3 +101,148 @@ describe('initTelemetry (F2: opt-out gate runs before identity is minted)', () =
     expect(() => tel.sessionStart('menu', 'three')).not.toThrow();
   });
 });
+
+// GH-1410: crashes are listened for only where telemetry is on.
+describe('initTelemetry (GH-1410: client errors)', () => {
+
+  it('a dev/CI session (off on localhost) adds no error listener and sends nothing for an error', async () => {
+    installStorage();
+    const add = vi.spyOn(window, 'addEventListener');
+    const initTelemetry = await freshInitTelemetry();
+    initTelemetry({ dev: false });
+    expect(add.mock.calls.filter(([t]) => t === 'error' || t === 'unhandledrejection')).toEqual([]);
+    add.mockRestore();
+  });
+
+  it.each([
+    ['an opt-out', () => installStorage({ [OPTOUT_KEY]: '1' }), () => undefined],
+    ['DNT', () => installStorage(), () => Object.defineProperty(navigator, 'doNotTrack', { value: '1', configurable: true })],
+    ['GPC', () => installStorage(), () => Object.defineProperty(navigator, 'globalPrivacyControl', { value: true, configurable: true })],
+  ])('%s adds no error listener even with ?telemetry', async (_why, store, signal) => {
+    store();
+    signal();
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
+    const add = vi.spyOn(window, 'addEventListener');
+    const initTelemetry = await freshInitTelemetry();
+    initTelemetry({ dev: false });
+    expect(add.mock.calls.filter(([t]) => t === 'error' || t === 'unhandledrejection')).toEqual([]);
+    add.mockRestore();
+  });
+
+  it('the enabled path listens for both, and an uncaught error reaches the sender as a client_error', async () => {
+    installStorage();
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: { body: string }) => { bodies.push(init.body); return new Response(null, { status: 204 }); }));
+    const add = vi.spyOn(window, 'addEventListener');
+    const initTelemetry = await freshInitTelemetry();
+    initTelemetry({ dev: false });
+    expect(add.mock.calls.filter(([t]) => t === 'error' || t === 'unhandledrejection').map(([t]) => t).sort()).toEqual(['error', 'unhandledrejection']);
+    window.dispatchEvent(new ErrorEvent('error', { error: new RangeError('boom at /Users/dana/x/y'), message: 'boom' }));
+    await Promise.resolve();
+    const sent = bodies.flatMap((b) => (JSON.parse(b) as { events: { type: string; message?: string }[] }).events);
+    expect(sent.find((e) => e.type === 'client_error')).toMatchObject({ message: 'boom at <path>' });
+    add.mockRestore();
+  });
+
+  it('the Settings opt-out, set mid-session, stops the next event leaving', async () => {
+    installStorage();
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: { body: string }) => { bodies.push(init.body); return new Response(null, { status: 204 }); }));
+    vi.resetModules();
+    const mod = await import('./index');
+    const tel = mod.initTelemetry({ dev: false });
+    window.dispatchEvent(new ErrorEvent('error', { error: new Error('first'), message: 'first' }));
+    expect(bodies).toHaveLength(1);
+    mod.telemetryOptOut.set(true);
+    expect(mod.telemetryOptOut.get()).toBe(true);
+    window.dispatchEvent(new ErrorEvent('error', { error: new TypeError('second'), message: 'second' }));
+    tel.boot(100);
+    expect(bodies).toHaveLength(1);
+    mod.telemetryOptOut.set(false);
+    expect(mod.telemetryOptOut.get()).toBe(false);
+  });
+
+  it('the Settings checkbox is the opt-out inverted: ON while reports are sent, and unchecking it opts out', async () => {
+    const storage = installStorage();
+    vi.resetModules();
+    const mod = await import('./index');
+    expect(mod.reportsSwitch.get()).toBe(true);
+    mod.reportsSwitch.set(false);
+    expect(storage.getItem(OPTOUT_KEY)).toBe('1');
+    expect(mod.reportsSwitch.get()).toBe(false);
+    mod.reportsSwitch.set(true);
+    expect(storage.getItem(OPTOUT_KEY)).toBe('0');
+    expect(mod.reportsSwitch.get()).toBe(true);
+  });
+
+  it('?notrack and the Settings switch are one setting: ?notrack leaves the checkbox OFF', async () => {
+    installStorage();
+    window.history.pushState({}, '', 'http://localhost:3000/?notrack');
+    const initTelemetry = await freshInitTelemetry();
+    initTelemetry({ dev: false });
+    vi.resetModules();
+    const mod = await import('./index');
+    expect(mod.reportsSwitch.get()).toBe(false);
+  });
+
+  // The privacy review of GH-1410, REQUIRED: with site data blocked the stored opt-out cannot hold "off", so the switch must hold it in memory.
+  function stubFetch(): string[] {
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: { body: string }) => { bodies.push(init.body); return new Response(null, { status: 204 }); }));
+    return bodies;
+  }
+  const crashEvent = (msg: string) => new ErrorEvent('error', { error: new Error(msg), message: msg });
+  const sentTypes = (bodies: string[]) => bodies.flatMap((b) => (JSON.parse(b) as { events: { type: string }[] }).events.map((e) => e.type));
+
+  it('storage whose ACCESS throws (site data blocked): the switch turns off and STAYS off, and no client_error reaches fetch', async () => {
+    Object.defineProperty(window, 'localStorage', { get() { throw new Error('SecurityError: access denied'); }, configurable: true });
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
+    const bodies = stubFetch();
+    vi.resetModules();
+    const mod = await import('./index');
+    const tel = mod.initTelemetry({ dev: false });
+    window.dispatchEvent(crashEvent('first'));
+    expect(sentTypes(bodies)).toEqual(['client_error']);
+    expect(mod.reportsSwitch.get()).toBe(true);
+    mod.reportsSwitch.set(false);
+    expect(mod.reportsSwitch.get()).toBe(false); // the old code read ON again here
+    window.dispatchEvent(crashEvent('second'));
+    tel.boot(100);
+    expect(sentTypes(bodies)).toEqual(['client_error']); // nothing more left
+    mod.reportsSwitch.set(true);
+    expect(mod.reportsSwitch.get()).toBe(true);
+  });
+
+  it('storage whose WRITE throws (quota, private mode): the switch still turns off and nothing more is sent', async () => {
+    const store = installStorage();
+    store.setItem = () => { throw new Error('QuotaExceededError'); };
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
+    const bodies = stubFetch();
+    vi.resetModules();
+    const mod = await import('./index');
+    mod.initTelemetry({ dev: false });
+    window.dispatchEvent(crashEvent('first'));
+    expect(sentTypes(bodies)).toHaveLength(1);
+    mod.reportsSwitch.set(false);
+    expect(mod.reportsSwitch.get()).toBe(false);
+    window.dispatchEvent(crashEvent('second'));
+    expect(sentTypes(bodies)).toHaveLength(1);
+  });
+
+  it('a feedback note after a mid-session opt-out carries no ids: ids() is null once the switch is off', async () => {
+    installStorage();
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry&tester=dani');
+    stubFetch();
+    vi.resetModules();
+    const mod = await import('./index');
+    const tel = mod.initTelemetry({ dev: false });
+    expect(tel.ids()).toMatchObject({ tester: 'dani' });
+    mod.reportsSwitch.set(false);
+    expect(tel.ids()).toBeNull();
+    mod.reportsSwitch.set(true);
+    expect(tel.ids()).toMatchObject({ tester: 'dani' });
+  });
+});
+
