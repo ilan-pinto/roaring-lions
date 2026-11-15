@@ -4555,6 +4555,27 @@ export class Sim {
     this.braceClock[id] = 0;
   }
 
+  /**
+   * GH-1360 S3b: stand a spawned body where the starting layout put it, facing `facing`, before the
+   * first tick. Its riders move with it (`embarkAtSpawn` snapped them onto the hull). Spawn order, ids
+   * and every per-entity RNG stream are untouched: this writes a position and a facing, nothing else.
+   * Refused once the sim has ticked, because a mid-mission move is an order, never a placement.
+   */
+  placeAtStart(id: number, x: Fx, y: Fx, facing: Fx): void {
+    if (this.tickCount !== 0) throw new Error('placeAtStart: only before the first tick');
+    if (id < 0 || id >= this.count) throw new Error(`placeAtStart: no entity ${id}`);
+    this.posX[id] = x;
+    this.posY[id] = y;
+    this.facing[id] = facing & 0xffff;
+    if (this.passengers[id] > 0) {
+      for (let i = 0; i < this.count; i++) {
+        if (this.carriedBy[i] !== id) continue;
+        this.posX[i] = x;
+        this.posY[i] = y;
+      }
+    }
+  }
+
   /** Dev/test hook: place a unit somewhere directly (sandbox tooling). */
   teleport(id: number, x: Fx, y: Fx): void {
     this.posX[id] = x;
@@ -4995,8 +5016,12 @@ export class Sim {
    *
    * With no passing candidate, the requested point comes back: never a refusal, never a throw.
    * Integer / Q16.16 throughout. Cost: O(participants in reach + candidates x those), per call.
+   *
+   * `skip` (GH-1360 S3b), per entity: a body with `skip[j] !== 0` is not a participant. The starting
+   * layout runs on a force that is already spawned at its authored positions, so the bodies it has
+   * not laid out yet (and the asking body itself) must not block the spots it hands out.
    */
-  freeSpotNear(x: Fx, y: Fx, typeIdx: number, side: number, reach: number, facing: Fx = 0): [Fx, Fx] {
+  freeSpotNear(x: Fx, y: Fx, typeIdx: number, side: number, reach: number, facing: Fx = 0, skip?: Uint8Array): [Fx, Fx] {
     const type = this.unitTypes[typeIdx];
     if (type === undefined) throw new Error(`no unit type ${typeIdx}`);
     if (type.isAir) return [x, y];
@@ -5011,6 +5036,7 @@ export class Sim {
     const part: number[] = [];
     for (let j = 0; j < this.count; j++) {
       if (this.alive[j] === 0 || this.carriedBy[j] >= 0 || this.garrisonedIn[j] >= 0 || this.tunnelIn[j] >= 0) continue;
+      if (skip !== undefined && skip[j] !== 0) continue;
       const tj = this.unitTypes[this.typeIdx[j]];
       if (tj.isAir || tj.sepHalfWid <= 0) continue;
       const lim = fx.add(fx.add(reachFx, type.sepBound), tj.sepBound);

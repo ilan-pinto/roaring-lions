@@ -30,6 +30,8 @@ export {
   type WorksRefusal,
   worksRefund,
   NOT_ON_LINE,
+  startFrontDerivations,
+  type StartFrontDerivations,
 } from './mission';
 export type { FortifyRefusal, PlacementRefusal } from './sim';
 export { DOMAIN_AIR, DOMAIN_FOOT, DOMAIN_VEHICLE } from './sim';
@@ -175,5 +177,5 @@ export {
   type UnitClassJson,
 } from './formation-template';
 export { MAX_FORMATION_GROUPS_PER_SIDE, FORMATION_WALK_CAP } from './tuning';
-// GH-1360 S3a: the starting layout (pure; nothing calls it until S3b).
-export { startLayout, frontToward, START_FREE_SPOT_REACH, type StartBody, type StartFront, type StartLayoutInput, type StartPlacement } from './start-layout';
+// GH-1360 S3a: the starting layout (pure). S3b: `MissionRuntime.start()` calls it for a mission with `start_layout`.
+export { startLayout, frontToward, startFaceOf, START_FREE_SPOT_REACH, type StartBody, type StartFront, type StartLayoutInput, type StartPlacement } from './start-layout';
