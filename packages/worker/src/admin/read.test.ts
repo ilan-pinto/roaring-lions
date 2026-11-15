@@ -278,7 +278,7 @@ describe('the audit table is append-only (S3, D9.5)', () => {
       expect(text, rel).not.toMatch(/UPDATE\s+admin_action/i);
       if (rel === 'admin/view-sweep.ts') {
         // The sweep may delete view rows and nothing else: strip the one guarded statement, and no other DELETE may remain.
-        const guarded = /DELETE FROM admin_action WHERE action = 'view'/;
+        const guarded = /DELETE FROM admin_action WHERE action = 'view' AND at < \?1(?=")/; // the whole statement, through the closing quote: a trailing `OR at = 0` is no longer the guarded one
         expect(text, rel).toMatch(guarded);
         const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
         expect(code.replace(guarded, ''), rel).not.toMatch(/DELETE\s+FROM\s+admin_action/i);
