@@ -200,9 +200,32 @@ describe('card colour roles (GH-1367 S3)', () => {
     expect(token('--steam-fill')).toBe('color-mix(in srgb, var(--rl-water-1) 75%, var(--rl-shadow-1))');
     expect(body('.rl-profile__steam,\n.rl-profile__link--steam')).toContain('background: var(--steam-fill)');
     const g = body('.rl-profile__google,\n.rl-profile__link--google');
-    expect(g).toContain('background: var(--panel-bg-solid)');
+    expect(g).toContain('background: var(--google-fill)');
     expect(g).toContain('border-color: var(--google-stroke)');
-    expect(token('--google-stroke')).toBe('var(--rl-gunmetal-1)');
+    expect(g).toContain('color: var(--google-text)');
+    expect(token('--google-fill')).toBe('var(--rl-brand-google-fill)');
+    expect(token('--google-stroke')).toBe('var(--rl-brand-google-stroke)');
+    expect(token('--google-text')).toBe('var(--rl-brand-google-text)');
+  });
+  it("sets Google's dark button by its guidelines: palette brand colours, 40px, 12/10/12 padding, 14/20 type", () => {
+    const brand = (palette as { brand: { google: { colors: Record<string, string> } } }).brand.google.colors;
+    expect(brand).toEqual({ fill: '#131314', stroke: '#8E918F', text: '#E3E3E3' });
+    const g = body('.rl-profile__google,\n.rl-profile__link--google');
+    for (const d of ['height: 2.5rem', 'padding: 0 var(--s3)', 'gap: var(--s2h)', 'font-size: 0.875rem', 'line-height: 1.25rem']) expect(g).toContain(d);
+    expect(body('.rl-profile__g')).toContain('width: 1.25rem');
+    expect(ts('profile.ts')).toContain('img.width = 20;');
+  });
+  it('keeps the 12 and 10 px rungs the Google padding rides on', () => {
+    expect(token('--s3')).toBe('0.75rem');
+    expect(token('--s2h')).toBe('0.625rem');
+  });
+  it('pins the tokens the contrast pairs assume to the literals they use', () => {
+    expect(token('--ink')).toBe('var(--rl-limestone-0)');
+    expect(token('--ink-mute')).toBe('var(--rl-limestone-4)');
+    expect(token('--band-ink')).toBe('var(--rl-limestone-0)');
+    expect(token('--good')).toBe('var(--rl-scrub-0)');
+    expect(token('--title-accent')).toBe('var(--rl-dust-0)');
+    expect(token('--panel-bg-solid')).toMatch(/shadow-1/);
   });
   it('never uses terracotta, which is the Roar coin', () => {
     const profileRules = [...css.matchAll(/([^{}]*\.rl-profile__[^{}]*)\{([^{}]*)\}/g)].map((m) => m[2] ?? '');

@@ -10267,7 +10267,10 @@ fieldset.rl-versus__maps {
   --tile-drawn: var(--rl-gunmetal-3);
   --tile-ink: var(--rl-limestone-0);
   --steam-fill: color-mix(in srgb, var(--rl-water-1) 75%, var(--rl-shadow-1));
-  --google-stroke: var(--rl-gunmetal-1);
+  /* Google's dark button, from data/palette.json brand.google (https://developers.google.com/identity/branding-guidelines). */
+  --google-fill: var(--rl-brand-google-fill);
+  --google-stroke: var(--rl-brand-google-stroke);
+  --google-text: var(--rl-brand-google-text);
 }
 .rl-profile__status {
   margin: 0 0 var(--s2);
@@ -10456,10 +10459,29 @@ fieldset.rl-versus__maps {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--s2);
-  /* Google's "dark" button: near-black fill, light grey stroke, light text. Not recoloured to match the page. */
-  background: var(--panel-bg-solid);
+  /* Google's "dark" button, by its guidelines: fill, stroke and text from brand.google; 2.5rem tall, --s3 (0.75rem) either
+     side of the content and --s2h (0.625rem) between the mark and the label; 0.875rem type on 1.25rem lines. Google Sans is
+     not licensed here, so the label is Barlow 600 (the body face, closest to Medium). Those rem sizes are Google's
+     numbers (40, 12, 10, 14 and 20) at 16 to the rem and --ui-scale 1. */
+  box-sizing: border-box;
+  height: 2.5rem;
+  padding: 0 var(--s3);
+  gap: var(--s2h);
+  background: var(--google-fill);
   border-color: var(--google-stroke);
+  color: var(--google-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+}
+/* The hover state is Google's 8% state layer, not the house gold. */
+.rl-btn.rl-profile__google:hover,
+.rl-btn.rl-profile__google:focus-visible,
+.rl-btn.rl-profile__link--google:hover,
+.rl-btn.rl-profile__link--google:focus-visible {
+  background: color-mix(in srgb, var(--google-text) 8%, var(--google-fill));
+  border-color: var(--google-stroke);
+  color: var(--google-text);
 }
 /* The guest roundel wears the KDF olive: a rim and a glyph. */
 .rl-profile__guest .rl-avatar {
@@ -10486,8 +10508,8 @@ fieldset.rl-versus__maps {
   color: var(--band-ink);
 }
 .rl-profile__g {
-  width: 1.125rem;
-  height: 1.125rem;
+  width: 1.25rem;
+  height: 1.25rem;
   flex: none;
 }
 .rl-profile__links {

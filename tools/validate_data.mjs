@@ -1565,6 +1565,12 @@ if (palette) {
       count += Object.keys(colors ?? {}).length;
     }
   }
+  // `brand` (a third party's fixed colours) is outside total_colors and outside every palette_ref: it only has to be well-formed.
+  for (const [owner, spec] of Object.entries(palette.brand ?? {})) {
+    for (const [name, hex] of Object.entries(spec.colors ?? {})) {
+      if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) failures.push(`${rel(palettePath)}: brand.${owner}.${name} is not a #RRGGBB hex`);
+    }
+  }
   if (count !== palette.total_colors) {
     failures.push(
       `${rel(palettePath)}: declares total_colors=${palette.total_colors} but defines ${count}`
