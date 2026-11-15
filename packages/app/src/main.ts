@@ -203,6 +203,7 @@ import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
 import { watchSmallScreen } from './ui/small-screen';
 import { watchNoGpu } from './ui/no-gpu';
+import { watchQualityHint } from './ui/quality-hint';
 import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
 import { gpuOf } from './gpu-flag';
@@ -1684,6 +1685,24 @@ async function main(): Promise<void> {
   watchNoGpu({
     env: { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) },
     renderer: gpuName,
+  });
+  // The slow-frames suggestion (GH-1413): after the notice above on purpose (it never shows for a software renderer, which that
+  // notice owns). Gated like it; it measures the first seconds of frames on a shell screen and, if they run slow, ASKS once
+  // whether to switch to Low. `settingsDeps.set` is the only write, and only the card's accept button calls it; the preset applies
+  // at the next mission's boot.
+  watchQualityHint({
+    env: { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) },
+    renderer: gpuName,
+    quality: () => settings.video.quality,
+    setQuality: (q) => settingsDeps.set({ ...settings, video: { ...settings.video, quality: q } }),
+    inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? ''),
+    frames: {
+      raf: (cb) => requestAnimationFrame(cb),
+      cancel: (id) => cancelAnimationFrame(id),
+      now: () => performance.now(),
+      visible: () => document.visibilityState === 'visible',
+    },
+    store: settingsStore,
   });
   // `fresh` has done its work above and is not a route parameter, so it comes
   // off the URL -- except on the way into a mission, where it still means "run

@@ -39,6 +39,11 @@
   "noGpu.body": "Your browser is drawing without graphics acceleration, so the game will be very slow.",
   "noGpu.next": "To fix it, open your browser settings, turn on \"Use hardware acceleration\", then restart the browser. You can also carry on as it is.",
   "noGpu.keep": "Carry on anyway",
+  "qualityHint.title": "The game is running slowly",
+  "qualityHint.body": "Frames are coming slowly on this computer. The Low quality setting draws fewer effects and runs faster.",
+  "qualityHint.next": "Switching changes nothing now: it takes effect from the next mission you start, and you can change it back in Settings, under Video.",
+  "qualityHint.accept": "Switch to Low quality",
+  "qualityHint.keep": "Keep my setting",
 
   "settings.title": "Settings",
   "settings.video": "Video",
