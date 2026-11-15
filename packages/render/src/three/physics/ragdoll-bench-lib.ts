@@ -138,7 +138,8 @@ export function groundPatch(size = 48, cells = 24): { vertices: Float32Array; in
 export function burstSchedule(figures: number, perEntity: number, ticks: number): { tick: number; figures: number }[] {
   const out: { tick: number; figures: number }[] = [];
   let left = figures;
-  for (let e = 0; left > 0; e++) {
+  // Bounded by the figure count (an entity holds at least one), so a wrong step can fail a test and not hang it.
+  for (let e = 0; left > 0 && e < figures; e++) {
     const f = Math.min(perEntity, left);
     out.push({ tick: e % ticks, figures: f });
     left -= f;

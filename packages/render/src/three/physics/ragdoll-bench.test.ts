@@ -32,6 +32,9 @@ import { loadRapier } from './rapier';
 
 const ON = process.env.RAGDOLL_BENCH === '1';
 const OUT = process.env.RAGDOLL_BENCH_OUT;
+/** `RAGDOLL_BENCH_ONLY=init|step|burst|memory` runs one block in a fresh process: the memory block is only a clean growth curve when nothing else has raised the WASM high-water first. */
+const ONLY = process.env.RAGDOLL_BENCH_ONLY;
+const want = (name: string): boolean => ONLY === undefined || ONLY === '' || ONLY === name;
 const REPEATS = Number(process.env.RAGDOLL_BENCH_REPEATS ?? 20);
 const WARMUP = 3;
 const FRAME_MS = 1000 / 60;
@@ -48,7 +51,10 @@ const ground = groundPatch();
 
 /** WebAssembly.Memory of the Rapier instance, captured at instantiation: the only honest read of its linear memory. */
 let wasmMemory: WebAssembly.Memory | null = null;
+let patched = false;
 function captureWasmMemory(): void {
+  if (patched) return;
+  patched = true;
   const orig = WebAssembly.instantiate.bind(WebAssembly);
   (WebAssembly as unknown as { instantiate: unknown }).instantiate = async (...a: unknown[]) => {
     const r = (await (orig as (...x: unknown[]) => Promise<unknown>)(...a)) as { instance?: WebAssembly.Instance } & WebAssembly.Instance;
@@ -150,7 +156,7 @@ describe.skipIf(!ON)('the ragdoll CPU bench (GH-1400 Q1)', () => {
     log(`MACHINE ${JSON.stringify(report.machine)}`);
   });
 
-  it('init cost: a cold process, import then R.init(), seven times', () => {
+  it.runIf(want('init'))('init cost: a cold process, import then R.init(), seven times', () => {
     const code = `
       const t0 = performance.now();
       const m = await import('@dimforge/rapier3d-deterministic-compat');
@@ -167,7 +173,7 @@ describe.skipIf(!ON)('the ragdoll CPU bench (GH-1400 Q1)', () => {
     log(`INIT (cold child process, n=7)\n${HEAD}\n${row('import', s.import)}\n${row('R.init()', s.init)}\n${row('total', s.total)}`);
   }, 120_000);
 
-  it('per-step and construction cost by figures in one world', async () => {
+  it.runIf(want('step'))('per-step and construction cost by figures in one world', async () => {
     captureWasmMemory();
     const R = await loadRapier();
     const table: string[] = [];
@@ -194,7 +200,8 @@ describe.skipIf(!ON)('the ragdoll CPU bench (GH-1400 Q1)', () => {
     log(`PER-STEP and BUILD, one world, ${REPEATS} repeats after ${WARMUP} warm-ups\n${HEAD}\n${table.join('\n')}`);
   }, 600_000);
 
-  it('a scripted burst: 16 figures (a mortar barrage) over four ticks, at the preset caps, 60 fps frames', async () => {
+  it.runIf(want('burst'))('a scripted burst: 16 figures (a mortar barrage) over four ticks, at the preset caps, 60 fps frames', async () => {
+    captureWasmMemory();
     const R = await loadRapier();
     const rows: string[] = [];
     const res: Record<string, unknown> = {};
@@ -232,11 +239,12 @@ describe.skipIf(!ON)('the ragdoll CPU bench (GH-1400 Q1)', () => {
     log(`BURST, the physics a 60 fps frame owes (frame budget ${fmt(FRAME_MS, 2)} ms), ${REPEATS} bursts after ${WARMUP} warm-ups\n${HEAD}\n${rows.join('\n')}`);
   }, 900_000);
 
-  it('memory: WASM linear memory and the JS heap over 200 create-run-free bursts of 16 figures', async () => {
+  it.runIf(want('memory'))('memory: WASM linear memory and the JS heap over 200 create-run-free bursts of 16 figures', async () => {
+    captureWasmMemory();
     const R = await loadRapier();
     const wasm = (): number => (wasmMemory ? wasmMemory.buffer.byteLength / MiB : NaN);
     forceGc();
-    const base = { wasmMiB: wasm(), heapMiB: process.memoryUsage().heapUsed / MiB, rssMiB: process.memoryUsage().rss / MiB };
+    const base = { isolatedRun: ONLY === 'memory', wasmMiB: wasm(), heapMiB: process.memoryUsage().heapUsed / MiB, rssMiB: process.memoryUsage().rss / MiB };
     const samples: { burst: number; wasmMiB: number; heapMiB: number; rssMiB: number }[] = [];
     for (let b = 1; b <= 200; b++) {
       burst(R, 16, { ticks: 4, speed: 1 });
@@ -252,7 +260,7 @@ describe.skipIf(!ON)('the ragdoll CPU bench (GH-1400 Q1)', () => {
     const lateGrowthHeap = last.heapMiB - first.heapMiB;
     report.memory = { base, samples, wasmGrowthAfterBurst5MiB: lateGrowthWasm, heapGrowthAfterBurst5MiB: lateGrowthHeap, headroomMiB: 5 };
     log(
-      `MEMORY (16 figures, 176 bodies a burst, forced GC at each sample)\nbaseline after init: wasm ${fmt(base.wasmMiB, 2)} MiB, heap ${fmt(base.heapMiB, 2)} MiB, rss ${fmt(base.rssMiB, 1)} MiB\n` +
+      `MEMORY (16 figures, 176 bodies a burst, forced GC at each sample; baseline is right after init only when RAGDOLL_BENCH_ONLY=memory, which was ${base.isolatedRun})\nbaseline after init: wasm ${fmt(base.wasmMiB, 2)} MiB, heap ${fmt(base.heapMiB, 2)} MiB, rss ${fmt(base.rssMiB, 1)} MiB\n` +
         '| burst | wasm MiB | heap MiB | rss MiB |\n|---|---|---|---|\n' +
         samples.map((s) => `| ${s.burst} | ${fmt(s.wasmMiB, 2)} | ${fmt(s.heapMiB, 2)} | ${fmt(s.rssMiB, 1)} |`).join('\n') +
         `\nWASM growth burst 5 to 200: ${fmt(lateGrowthWasm, 2)} MiB; heap growth burst 5 to 200: ${fmt(lateGrowthHeap, 2)} MiB; headroom in the perf:memory leak check: about 5 MiB`

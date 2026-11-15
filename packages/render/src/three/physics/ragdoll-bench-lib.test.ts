@@ -65,6 +65,13 @@ describe('the synthetic figure matches the rig.py topology `ragdoll-rig.ts` buil
       expect(b.capsule.centre[1] - b.capsule.halfHeight - b.capsule.radius).toBeGreaterThanOrEqual(-1e-9);
     }
   });
+  it('stands on the ground: the lowest point of the figure, and of each shin, is the shin end 6 cm up where the foot leaf rides (nothing floats, nothing sinks)', () => {
+    const lowest = (b: (typeof fig.bodies)[number]): number => b.capsule.centre[1] - b.capsule.halfHeight - b.capsule.radius;
+    expect(Math.min(...fig.bodies.map(lowest))).toBeCloseTo(0.06, 6);
+    const shins = fig.bodies.filter((b) => b.hinge !== null && b.capsule.centre[1] < 0.5);
+    expect(shins).toHaveLength(2);
+    for (const shin of shins) expect(lowest(shin)).toBeCloseTo(0.06, 6);
+  });
   it('a squad of n has n figures 0.8 m apart', () => {
     const s = squad(7);
     expect(s).toHaveLength(7);
