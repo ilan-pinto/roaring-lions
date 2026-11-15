@@ -46,6 +46,7 @@ import { PLAN_CHILD, startPlanSweep, drainPlanSweeps, reportToParent, type GateR
 import { wadiHalam1Plan, wadiHalam2Plan, wadiHalam3Plan, wadiHalam4Plan, wadiHalam5Plan } from './plans/wadi_halam';
 import { firstLightPlan } from './plans/beit_sahwan';
 import { EIN_QASAB_PLANS } from './plans/ein_qasab';
+import { QASR_LIWAN_PLANS } from './plans/qasr_liwan';
 import { playOrderOf } from './play-order';
 import { telMarum3Plan } from './plans/tel_marum';
 import { uz2Plan } from './plans/umm_zeitoun';
@@ -523,6 +524,35 @@ void eq3;
   }
   process.exitCode = before;
 }
+
+// --- Marj: Qasr Liwan, The Long Ground town 1 (GH-1438) -------------------------------------------------------
+//
+// Five missions, one ledger, run on the app's persistent merge (each mission's output spread over the ones before). Plans:
+// `plans/qasr_liwan.ts`. The Marj's second town starts on a bare `{}`, as Khan Rafid does.
+//
+// - I: a failable primary (`walk_one_out`, 300 s) and a ceiling (10). The passive control loses by `withdrawn`, not on the 300 s clock:
+//   with no order given the person still reaches the extraction on their own at about 271 s on seed 424242: the street, committed to
+//   `the_house` at 180 s, arrives at about 200 s and from 250 s its rifles fire at the courtyard's structures, which suppresses the
+//   person past the flee threshold (0.54 at 262 s) and sends them to the refuge. So `walk_one_out` completes with nobody there, and the
+//   open `find_the_gate_guard` ends it at the 720 s limit.
+// - II: `residents_through` (300 s) is the failable one; the control has two holds nobody takes, nine residents nobody moves.
+// - III: `bring_four_across` (330 s) and a ceiling of 5. The hold is banked from the first tick (F-1).
+// - IV: `walk_the_forecourt_out` (300 s), `bring_the_shaft_down` (360 s) and a ceiling of 10 at `structure_penalty_mult` 2.
+// - V: `the_deep_routes` (360 s) and a ceiling of 10 at `structure_penalty_mult` 4; the first shipped `trigger`-keyed waves.
+const ql1 = run('qasr_liwan_1_recon', QASR_LIWAN_PLANS.qasr_liwan_1_recon, {}, 'victory', 'qasr_liwan_1_recon', 3);
+passiveAcrossSeeds('qasr_liwan_1_recon', 'qasr_liwan_1_recon (no orders)', 'withdrawn');
+const qlLed1 = { ...ql1 };
+const ql2 = run('qasr_liwan_2_foothold', QASR_LIWAN_PLANS.qasr_liwan_2_foothold, qlLed1, 'victory', 'qasr_liwan_2_foothold');
+passiveAcrossSeeds('qasr_liwan_2_foothold', 'qasr_liwan_2_foothold (no orders)', 'defeat', qlLed1);
+const qlLed2 = { ...qlLed1, ...ql2 };
+const ql3 = run('qasr_liwan_3_buildup', QASR_LIWAN_PLANS.qasr_liwan_3_buildup, qlLed2, 'victory', 'qasr_liwan_3_buildup', 3);
+passiveAcrossSeeds('qasr_liwan_3_buildup', 'qasr_liwan_3_buildup (no orders)', 'defeat', qlLed2);
+const qlLed3 = { ...qlLed2, ...ql3 };
+const ql4 = run('qasr_liwan_4_clearance', QASR_LIWAN_PLANS.qasr_liwan_4_clearance, qlLed3, 'victory', 'qasr_liwan_4_clearance');
+passiveAcrossSeeds('qasr_liwan_4_clearance', 'qasr_liwan_4_clearance (no orders)', 'defeat', qlLed3);
+const qlLed4 = { ...qlLed3, ...ql4 };
+run('qasr_liwan_5_subterranean', QASR_LIWAN_PLANS.qasr_liwan_5_subterranean, qlLed4, 'victory', 'qasr_liwan_5_subterranean');
+passiveAcrossSeeds('qasr_liwan_5_subterranean', 'qasr_liwan_5_subterranean (no orders)', 'defeat', qlLed4);
 
 // --- Beit Sahwan IV: Subterranean --------------------------------------------
 
@@ -3914,7 +3944,10 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // because of the old rule and was held there by a 0.1 s timer (GH-1170); the trigger is `first_contact` again, which now fires at tick 176 (the
 // plan's drone identifies the souk's militia cell). Unchanged, the plan read 1 star (ROE 66, 3.4 min) on 424242 and 2 stars on every other seed (200 of
 // 200 on seeds 1..200). The one placed change is the east-lane rocket team, one tile, (34, 15) -> (35, 14). See docs/agent-notes/mission-findings.md.
-const LADDER_CREDITS = 6955;
+// 2026-11-15, GH-1438 (Qasr Liwan, The Long Ground town 1): 6955 -> 8115, +1160, read off the printed per-mission credits. Was 6955. Five new missions and
+// nothing else: Qasr Liwan I 240, II 220, III 240, IV 230, V 230. Every other mission's credits line is byte-identical to the run before it
+// (diffed line by line), and no existing star moved. The credit ladder is over 34 missions now (was 29).
+const LADDER_CREDITS = 8115;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3928,7 +3961,8 @@ if (ladderCredits !== LADDER_CREDITS) {
 // that moved a star, and re-run `roar_earn.test.ts`.
 let ladderStars = 0;
 for (const missionId of missionOrder) ladderStars += missionStars.get(missionId) ?? 0;
-const LADDER_STARS = 68;
+// 2026-11-15, GH-1438 (Qasr Liwan): 68 -> 80, +12. Was 68. Qasr Liwan I and III reach three stars (their carrying secondaries), II, IV and V two.
+const LADDER_STARS = 80;
 console.log(`star ladder: ${ladderStars} over ${missionOrder.length} missions`);
 if (ladderStars !== LADDER_STARS) {
   console.error(`star ladder: FAILED — expected ${LADDER_STARS}, got ${ladderStars}`);
@@ -4183,7 +4217,9 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // 2026-11-05, GH-277: 41 -> 42. Was 41. The Umm Zeitoun IV run with a forward camp is a winning plan and earns its sweep (316 intel).
 // 2026-11-09, GH-868: 42 -> 44. Was 42. The bought Peten (Wadi Halam III, 304 intel) and the bought Remetz (Wadi Halam V, 382 intel) meet technicals
 // in winning runs too, and each earns its sweep. The one short plan is still `beit_sahwan_2_foothold`, so "44 of 45".
-const INTEL_WINNERS_ONE_SWEEP = 44;
+// 2026-11-15, GH-1438 (Qasr Liwan, The Long Ground town 1): 44 -> 49. Was 44. Five more winning runs, one per mission, and each earns a sweep (Qasr Liwan I
+// 184, II 232, III 304, IV 256, V 256 intel on seed 424242). The one short plan is still `beit_sahwan_2_foothold`, so "49 of 50".
+const INTEL_WINNERS_ONE_SWEEP = 49;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend

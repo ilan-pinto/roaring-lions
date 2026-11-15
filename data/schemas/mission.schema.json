@@ -56,6 +56,7 @@
     "town": {
       "enum": [
         "beit_sahwan",
+        "qasr_liwan",
         "khan_rafid",
         "deir_amun",
         "tel_marum",

@@ -89,12 +89,14 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Was 7007: first_contact means the two combat sides meeting (2026-11-08), Beit Sahwan Breach 190 -> 180 (-10); reasons beside `LADDER_CREDITS`.
 // Was 6997: a side no longer cuts a structure it owns (2026-11-08, GH-1183), Wadi Halam V 220 -> 200 (-20); reasons beside `LADDER_CREDITS`.
 // Was 6977: Khan Rafid III gets a real first contact (2026-11-09, GH-1173), Khan Rafid III 260 -> 238 (-22); reasons beside `LADDER_CREDITS`.
-export const CAMPAIGN_CREDITS = 6955;
+// Was 6955: Qasr Liwan (2026-11-15, GH-1438), the five new missions, +1160 (240 + 220 + 240 + 230 + 230); reasons beside `LADDER_CREDITS`.
+export const CAMPAIGN_CREDITS = 8115;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 // Was 26: GH-912 (2026-10-31), the ladder is over 29 missions now (`pnpm playtest` prints "credit ladder: 7007 over 29
 // missions"); left at 26 the mean pay would read 267 where the ladder's own mean is 239.
-export const LADDER_MISSIONS = 29;
+// Was 29: Qasr Liwan (2026-11-15, GH-1438), the ladder is over 34 missions (`pnpm playtest` prints "credit ladder: 8115 over 34 missions").
+export const LADDER_MISSIONS = 34;
 
 /** The most a Conduct floor can ask: the rating is out of 100, so a floor of 101 is a gate no play opens. */
 export const PLAY_MAX_CONDUCT = 100;

@@ -1,0 +1,362 @@
+{
+  "id": "qasr_liwan_5_subterranean",
+  "name": "Qasr Liwan V — The Pumps",
+  "town": "qasr_liwan",
+  "phase": "subterranean",
+  "target_minutes": 7,
+  "time_limit_s": 840,
+  "map": {
+    "file": "qasr_liwan_5",
+    "player_start": [
+      24,
+      44
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results",
+      "intel.marked_positions"
+    ]
+  },
+  "briefing": "This ground gets mapped before anybody goes into it. Three deep routes run under the shore quarter, and a route counts only while something of ours is watching it: look away and it goes cold. Hold the pump yard on the west edge for three minutes and the water goes into the shallow tier. When it does, those crews come up at the yard's two ends, into whoever is standing there. The water does not reach the deep tier. Those three are found and charged by hand inside six minutes, and one of them is still being dug toward the Cut. Two engineer squads, three routes and the pump yard all want the same minute, so choose the order before you start. A third engineer squad is on the camp's list if the brigade's Conduct has earned it. One deep route comes up inside the relief depot's walled yard. The depot is not the target, and that route can be read and charged from outside its wall. The depot is flagged, and bringing it down loses the mission; so does any house on this shore. Rifles answer what comes up beside it, and nothing heavier does. Map first and charge second: an engineer beside a route nobody is watching is a man standing in the open for nothing.",
+  "aftermath": "The pumps ran for a day and the shallow routes under the shore filled. The deep ones did not: the brigade brought those down by hand, one engineer and one watched route at a time.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "The city is ringed and cut off from the south, and what is under its shore is ours. Qasr Liwan is still standing, and so is everybody we walked out of it."
+    },
+    "defeat": {
+      "speaker": "idit",
+      "text": "We came off the shore with the grid still the city's. A ring on the map is only as good as what is underneath it."
+    }
+  },
+  "starting_force": [
+    {
+      "unit": "yahalom_squad",
+      "count": 1,
+      "at": [
+        23.5,
+        44.5
+      ]
+    },
+    {
+      "unit": "yahalom_squad",
+      "count": 1,
+      "at": [
+        25.5,
+        44.5
+      ]
+    },
+    {
+      "unit": "ugv_recon_dog",
+      "count": 1,
+      "at": [
+        24.5,
+        43.5
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 3,
+      "at": [
+        22.5,
+        45.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        20.5,
+        45.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        27.5,
+        43.5
+      ]
+    },
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        19.5,
+        44.5
+      ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        21.5,
+        46.5
+      ]
+    }
+  ],
+  "resources": {
+    "logistics_start": 500,
+    "logistics_rate_per_min": 90
+  },
+  "structures": [
+    {
+      "type": "camp",
+      "at": [
+        26,
+        45
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        12,
+        30
+      ],
+      "size": [
+        2,
+        2
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "run_the_pumps",
+      "type": "hold_for",
+      "primary": true,
+      "target": "pump_yard",
+      "seconds": 180,
+      "text": "Hold the pump yard for three minutes"
+    },
+    {
+      "id": "the_deep_routes",
+      "type": "collapse",
+      "primary": true,
+      "target": "shore_grid",
+      "seconds": 360,
+      "text": "Collapse the deep routes under the shore",
+      "say": {
+        "speaker": "idit",
+        "text": "The deep routes are down. The shore is ours above and below, as far as anything we can see."
+      },
+      "say_on_fail": {
+        "speaker": "idit",
+        "text": "Six minutes, and there is still a deep route open under the shore. The water never reached it, and neither did we."
+      }
+    },
+    {
+      "id": "keep_the_depot",
+      "type": "no_collateral_above",
+      "primary": true,
+      "threshold": 10,
+      "text": "Lose no more than 10 Conduct",
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "That is past ten Conduct on an empty shore. Nothing that came up there was worth it."
+      }
+    },
+    {
+      "id": "the_grid_chief",
+      "type": "eliminate_hvt",
+      "primary": false,
+      "target": "ql_grid_chief",
+      "text": "Kill the grid chief at the deep shaft head",
+      "say": {
+        "speaker": "idit",
+        "text": "The grid chief is down at his own shaft head. He was running that grid to a plan drawn before the war."
+      }
+    },
+    {
+      "id": "find_the_deep_crew",
+      "type": "locate",
+      "primary": false,
+      "target": "ql_deep_crew",
+      "text": "Find the crew digging toward the Cut",
+      "say": {
+        "speaker": "idit",
+        "text": "That is the crew digging toward the Cut, on the south edge of the shore. He is not on any plan I have; he is making one."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "relief_depot"
+    ],
+    "structure_penalty_mult": 4
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          15.5,
+          24.5
+        ],
+        "in_tunnel": "ql5_shallow_n"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          19.5,
+          34.5
+        ],
+        "in_tunnel": "ql5_shallow_s"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          11.5,
+          29.5
+        ],
+        "in_tunnel": "ql5_deep_depot"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          11.5,
+          29.5
+        ],
+        "in_tunnel": "ql5_deep_depot"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          9.5,
+          34.5
+        ],
+        "in_tunnel": "ql5_deep_quay"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          15.5,
+          35.5
+        ],
+        "in_tunnel": "ql5_deep_cut"
+      },
+      {
+        "unit": "digger_crew",
+        "count": 1,
+        "at": [
+          15.5,
+          35.5
+        ],
+        "digs": "ql5_deep_cut",
+        "tag": "ql_deep_crew"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          14.5,
+          32.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            12,
+            30
+          ]
+        },
+        "tag": "ql_grid_chief"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          6.5,
+          25.5
+        ],
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "ql_shore_watch"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          5.5,
+          29.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "pump_guard"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 180,
+        "trigger": "run_the_pumps",
+        "to": "pump_point",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 3,
+            "from": "vent_shallow_n"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "The water is in. Crews coming up at both ends of the pump yard, north and south."
+        }
+      },
+      {
+        "at_seconds": 180,
+        "trigger": "run_the_pumps",
+        "to": "pump_point",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "vent_shallow_s"
+          },
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "from": "vent_shallow_s"
+          }
+        ]
+      },
+      {
+        "at_seconds": 240,
+        "to": "pump_point",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "north_muster"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "A technical down the coast road from the north edge, for the pump yard."
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,463 @@
+{
+  "id": "qasr_liwan_2_foothold",
+  "name": "Qasr Liwan II — The Ring",
+  "town": "qasr_liwan",
+  "phase": "foothold",
+  "target_minutes": 7,
+  "time_limit_s": 840,
+  "map": {
+    "file": "qasr_liwan_2",
+    "player_start": [
+      44,
+      24
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results",
+      "civ.settlements_evacuated"
+    ]
+  },
+  "briefing": "The ring round Qasr Liwan closes in two places. In the north it is the seam, where the north road meets the coast, and whatever the house raid saw on it is already on your map. In the south it is the Cut, the checkpoint at the foot of the city, and both are held for four minutes. They are forty tiles apart and you cannot stand on both, so the camp is there to buy the second force. Both are dug under. Crews come up inside the seam and beside the coast road, and any hold with one of them standing in it stops counting. The seam's trouble comes on wheels down the coast road, so it wants the AT team and a jeep; the Cut is one-tile lanes, and it wants rifles. Buy for that. Nine residents are in the south quarter's lanes. They walk once one of ours is within four tiles of them, and their way to the refuge goes through the checkpoint's lane. Six of them through inside five minutes, or the checkpoint is a wall. The mortar, the AT missile and the Namer's cannon are billed near those houses, and the rifles are not.",
+  "dispatch": "The brigade is closing a ring round Qasr Liwan. South of the city it is opening a road across the enclave, and the road has a name before it has a checkpoint: the Cut. It will divide the Marj for the rest of the war.",
+  "debrief": {
+    "victory": {
+      "speaker": "idit",
+      "text": "The ring is shut and the Cut is open, and the first people through the checkpoint were the people who live behind it. Everything after this crosses that road."
+    },
+    "defeat": {
+      "speaker": "shai",
+      "text": "Qasr Liwan is not ringed tonight. Both ends of it are a day older, and so is everybody still in those lanes."
+    }
+  },
+  "starting_force": [
+    {
+      "unit": "inf_squad",
+      "count": 3,
+      "at": [
+        44.5,
+        23.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        45.5,
+        24.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "mortar_team",
+      "count": 1,
+      "at": [
+        45.5,
+        22.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "apc_eitan",
+      "count": 2,
+      "at": [
+        43.5,
+        25.5
+      ]
+    },
+    {
+      "unit": "jeep_shoded",
+      "count": 1,
+      "at": [
+        43.5,
+        22.5
+      ]
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        45.5,
+        26.5
+      ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        42.5,
+        24.5
+      ]
+    }
+  ],
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 120,
+    "income_zones": [
+      {
+        "zone": "coast_road",
+        "rate_per_min": 28
+      },
+      {
+        "zone": "the_cut",
+        "rate_per_min": 20
+      }
+    ]
+  },
+  "structures": [
+    {
+      "type": "camp",
+      "at": [
+        44,
+        27
+      ],
+      "size": [
+        2,
+        2
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "hold_the_seam",
+      "type": "hold_for",
+      "primary": true,
+      "target": "ring_north",
+      "seconds": 240,
+      "text": "Hold the seam for four minutes",
+      "say": {
+        "speaker": "shai",
+        "text": "The seam is shut. Leave enough on it that it stays that way."
+      }
+    },
+    {
+      "id": "hold_the_cut",
+      "type": "hold_for",
+      "primary": true,
+      "target": "the_cut",
+      "seconds": 240,
+      "text": "Hold the Cut checkpoint for four minutes",
+      "say": {
+        "speaker": "shai",
+        "text": "The Cut is ours. From here on it does not get given back."
+      }
+    },
+    {
+      "id": "residents_through",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "cut_refuge",
+      "count": 6,
+      "seconds": 300,
+      "text": "Get six residents south of the Cut",
+      "say": {
+        "speaker": "idit",
+        "text": "Six through the checkpoint and south of the Cut. The rest of the quarter has watched it be done."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "Five minutes, and they are still in the lanes. A checkpoint nobody can walk through is a wall."
+      }
+    },
+    {
+      "id": "take_the_coast_road",
+      "type": "capture",
+      "primary": false,
+      "target": "coast_road",
+      "seconds": 15,
+      "text": "Take the coast road where it meets the Cut",
+      "say": {
+        "speaker": "net",
+        "text": "Coast road junction held. Supply is running along the Cut."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "south_quarter"
+    ]
+  },
+  "civilians": {
+    "refuge": "refuge_point",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          15.5,
+          37.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          19.5,
+          37.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          35.5,
+          37.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          7.5,
+          2.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "ql_post_seam"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          3.5,
+          13.5
+        ],
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        },
+        "tag": "ql_post_coast"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          32.5,
+          5.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "ql_post_tower"
+      },
+      {
+        "unit": "mortar_crew",
+        "count": 1,
+        "at": [
+          8.5,
+          15.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "ql_mortar"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          10.5,
+          7.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "seam_reserve"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          12.5,
+          7.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "seam_reserve"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          18.5,
+          31.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "lanes"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          23.5,
+          34.5
+        ],
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "ql_lanes_rpg"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          12.5,
+          12.5
+        ],
+        "in_tunnel": "ql2_vent_north"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          14.5,
+          31.5
+        ],
+        "in_tunnel": "ql2_vent_south"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          14.5,
+          31.5
+        ],
+        "in_tunnel": "ql2_vent_south"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 120,
+        "to": "seam_point",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "north_muster"
+          }
+        ]
+      },
+      {
+        "at_seconds": 180,
+        "to": "cut_gate",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "lanes_muster"
+          },
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "from": "lanes_muster"
+          }
+        ]
+      },
+      {
+        "at_seconds": 270,
+        "to": "coast_point",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "coast_north"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "A technical coming down the coast road from the north, past the seam and on to the Cut."
+        }
+      },
+      {
+        "at_seconds": 330,
+        "to": "seam_point",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 3,
+            "from": "north_muster"
+          }
+        ]
+      },
+      {
+        "at_seconds": 390,
+        "to": "cut_gate",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "lanes_muster"
+          }
+        ]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "the_seam_reserve_comes_up",
+      "label": "The seam's reserve is coming out of the houses",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "ring_north"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "seam_reserve",
+        "to": "seam_point"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "Three more out of the houses at the seam's back. They were waiting for somebody to stand on it."
+      }
+    },
+    {
+      "id": "the_lanes_move_on_the_checkpoint",
+      "label": "The lanes are moving on the checkpoint",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "the_cut"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "lanes",
+        "to": "cut_gate"
+      },
+      "say": {
+        "speaker": "net",
+        "text": "Two moving south out of the lanes onto the checkpoint."
+      }
+    },
+    {
+      "id": "the_seam_reserve_falls_back",
+      "label": "What is left of the seam reserve falls back",
+      "on": {
+        "kind": "casualties_pct",
+        "value": 50
+      },
+      "do": {
+        "kind": "withdraw_to",
+        "group": "seam_reserve",
+        "to": "north_muster"
+      }
+    }
+  ]
+}

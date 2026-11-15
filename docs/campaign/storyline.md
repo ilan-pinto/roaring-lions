@@ -291,9 +291,12 @@ Ledger keys, verbatim from the JSON: **R** `roster.surviving_units` · **M**
 **R** / **R M C I**. `_2_foothold` **R** / **R M C**. `_3_clearance` **R I** /
 **R M C**. `_4_subterranean` **R I** / **R M C I**.
 
-**Act I's shape is a story fact worth keeping.** Beit Sahwan runs phases 1, 2, 3,
-5, 6 — **no build-up**. True rather than absent: the brigade got no breathing room
-in the Marj. §4(b) puts that at risk and says so.
+**Act I's shape is a story fact, and *The Long Ground* changed it.** Beit Sahwan runs
+phases 1, 2, 3, 5, 6 with **no build-up**: the brigade got no breathing room taking
+the perimeter. The Marj's one build-up is Qasr Liwan III, *The Pause*, and it is not
+rest. It is a pause agreed with the other side, four of the taken handed back at the
+Cut, and the waves the moment it ends. The brigade's breathing room in the Marj was
+spent receiving people. (O-QL5, the lead, 15 Nov 2026.)
 
 ### 3.2 Act II — Sur · Sarim Brigades · Tel Marum · Shai: **Major**
 
@@ -420,7 +423,8 @@ produce `E`.
 **The cost the lead must accept.** Mission 5 is a foothold, not a build-up,
 because a Marj build-up steals a line: the 2026-08-21 spec wrote the Marj's
 *missing* build-up as meaningful and made `wadi_halam_3_counterraid` "the only
-breathing room the brigade ever gets." **Keep it a foothold** — the Marj having
+breathing room the brigade ever gets" (superseded: Qasr Liwan III is the Marj's
+build-up; O-QL5). **Keep it a foothold** — the Marj having
 no rest is a better fact than a sixth mission having a build-up. If the lead
 prefers the build-up, the Cattle Track's line is rewritten in the same commit.
 
