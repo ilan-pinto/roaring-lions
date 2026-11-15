@@ -3,15 +3,16 @@
 // failure this exists to prevent.
 import { createServer as createHttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build, createServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { LOCALE_FILE, localeFiles, localesPlugin } from './vite-plugin-locales';
+import { CHROME_FILE, LOCALE_FILE, chromeFiles, insideDir, localeFiles, localesPlugin, servedFiles } from './vite-plugin-locales';
 
 let tmp: string;
 let locales: string;
+let chrome: string;
 let app: string;
 
 function write(path: string, text: string): void {
@@ -29,10 +30,23 @@ beforeAll(() => {
   write(join(locales, 'README.md'), '# not a locale file');
   write(join(locales, 'fr', 'notes.json'), '{"not":"a locale file"}');
   write(join(locales, 'fr', 'deeper', 'missions.json'), '{"not":"two levels down"}');
-  // Files a traversal could actually reach: `..` as the language, one level above the directory. They match the filename rule, so only the
-  // path guard stands between a request and them.
+  // Files one level ABOVE the directory, for the traversal tests. A request for `../missions.json` does not match the filename rule (a language
+  // starts with a letter), so these are rejected by the rule first; the path guard is tested on its own below (`insideDir`).
   write(join(tmp, 'missions.json'), '{"outside":true}');
   write(join(tmp, 'units.json'), '{"outside":true}');
+  // Symlinks are not followed (dev and build alike): a symlinked file and a symlinked locale directory, both pointing at real content.
+  symlinkSync(join(tmp, 'missions.json'), join(locales, 'fr', 'linked.json'));
+  mkdirSync(join(locales, 'xx'), { recursive: true });
+  symlinkSync(join(tmp, 'missions.json'), join(locales, 'xx', 'missions.json'));
+  symlinkSync(join(locales, 'fr'), join(locales, 'yy'));
+  // The chrome catalogues: flat `<id>.json` beside `en.json`.
+  chrome = join(tmp, 'i18n');
+  write(join(chrome, 'en.json'), '{"the":"bundled source, never served"}');
+  write(join(chrome, 'fr.json'), '{"menu.play":"Jouer"}');
+  write(join(chrome, 'pt-br.json'), '{"menu.play":"Jogar"}');
+  write(join(chrome, 'notes.txt'), 'not json');
+  write(join(chrome, 'nested', 'de.json'), '{"not":"a flat file"}');
+  symlinkSync(join(tmp, 'missions.json'), join(chrome, 'linked.json'));
   app = join(tmp, 'app');
   write(join(app, 'index.html'), '<!doctype html><script type="module" src="/main.js"></script>');
   write(join(app, 'main.js'), 'console.log("hi");');
@@ -46,8 +60,25 @@ describe('which files are locale files', () => {
       expect(LOCALE_FILE.test(no), no).toBe(false);
     }
   });
-  it('is DERIVED from the directory: the fixture yields exactly the three files and nothing else', () => {
+  it('is DERIVED from the directory: the fixture yields exactly the three files and nothing else (a symlinked file or directory is not one)', () => {
     expect(localeFiles(locales)).toEqual(['fr/missions.json', 'fr/units.json', 'he/units.json']);
+  });
+  it('the chrome catalogue is a flat `<id>.json` but `en.json`, and DERIVED the same way', () => {
+    for (const ok of ['fr.json', 'pt-br.json', 'he.json']) expect(CHROME_FILE.test(ok), ok).toBe(true);
+    for (const no of ['en.json', 'notes.txt', 'fr/de.json', '../fr.json', 'fr.json.bak', '.json']) expect(CHROME_FILE.test(no), no).toBe(false);
+    expect(chromeFiles(chrome)).toEqual(['fr.json', 'pt-br.json']);
+    expect(chromeFiles(join(tmp, 'nope'))).toEqual([]);
+    // today only en.json lives there, so nothing is served
+    expect(chromeFiles(join(__dirname, 'src', 'i18n'))).toEqual([]);
+    expect(servedFiles(locales, chrome).map((x) => x.rel)).toEqual(['fr/missions.json', 'fr/units.json', 'he/units.json', 'fr.json', 'pt-br.json']);
+  });
+  it('the path guard is its own layer: a file outside the directory is refused whatever the filename rule would say', () => {
+    expect(insideDir(locales, join(locales, 'fr', 'missions.json'))).toBe(true);
+    expect(insideDir(locales, join(locales, '..', 'missions.json'))).toBe(false);
+    expect(insideDir(locales, join(locales, '..', 'data-locales-evil', 'missions.json'))).toBe(false);
+    expect(insideDir(locales, locales)).toBe(false);
+    // and the filename rule is its own layer: `..` as a language never matches it, so the guard is not what stops this one
+    expect(LOCALE_FILE.test('../missions.json')).toBe(false);
   });
   it('is empty for a directory that is missing, and for the shipped one today (only the en template)', () => {
     expect(localeFiles(join(tmp, 'nope'))).toEqual([]);
@@ -56,9 +87,12 @@ describe('which files are locale files', () => {
 });
 
 describe('the build emits them at locales/<lang>/<file>', () => {
-  async function run(dir: string, extra: { publicDir?: string | false } = {}): Promise<string> {
+  async function run(dir: string, extra: { publicDir?: string | false; chromeDir?: string; base?: string } = {}): Promise<string> {
     const outDir = mkdtempSync(join(tmp, 'out-'));
-    await build({ root: app, configFile: false, logLevel: 'silent', publicDir: extra.publicDir ?? false, plugins: [localesPlugin(dir)], build: { outDir, emptyOutDir: true } });
+    await build({
+      root: app, configFile: false, logLevel: 'silent', publicDir: extra.publicDir ?? false, base: extra.base ?? '/',
+      plugins: [localesPlugin(dir, extra.chromeDir)], build: { outDir, emptyOutDir: true },
+    });
     return outDir;
   }
   const all = (dir: string, prefix = ''): string[] =>
@@ -72,18 +106,42 @@ describe('the build emits them at locales/<lang>/<file>', () => {
       expect(readFileSync(join(out, 'locales', rel), 'utf8')).toBe(readFileSync(join(locales, rel), 'utf8'));
     }
     expect(existsSync(join(out, 'locales', 'en'))).toBe(false);
+    // symlinks are skipped: the linked file, the linked locale directory and the one inside xx never reach the output
+    expect(existsSync(join(out, 'locales', 'fr', 'linked.json'))).toBe(false);
+    expect(existsSync(join(out, 'locales', 'yy'))).toBe(false);
+    expect(existsSync(join(out, 'locales', 'xx'))).toBe(false);
+  }, 60_000);
+
+  it('emits the chrome catalogues flat at locales/<id>.json, and not en.json, the notes, the nested file or the symlink', async () => {
+    const out = await run(locales, { chromeDir: chrome });
+    expect(all(out).filter((f) => f.startsWith('locales/')).sort()).toEqual([
+      'locales/fr.json', 'locales/fr/missions.json', 'locales/fr/units.json', 'locales/he/units.json', 'locales/pt-br.json',
+    ]);
+    expect(readFileSync(join(out, 'locales', 'fr.json'), 'utf8')).toBe(readFileSync(join(chrome, 'fr.json'), 'utf8'));
+  }, 60_000);
+
+  it('a non-root base changes nothing about the output paths (the app prefixes the URL, the files stay at locales/...)', async () => {
+    const out = await run(locales, { chromeDir: chrome, base: '/game/' });
+    expect(all(out).filter((f) => f.startsWith('locales/')).sort()).toEqual([
+      'locales/fr.json', 'locales/fr/missions.json', 'locales/fr/units.json', 'locales/he/units.json', 'locales/pt-br.json',
+    ]);
   }, 60_000);
 
   it('a file in both the data directory and the publicDir is a build error (one URL, two sources)', async () => {
     const pub = join(tmp, 'public');
     write(join(pub, 'locales', 'fr', 'missions.json'), '{}');
-    await expect(run(locales, { publicDir: pub })).rejects.toThrow(/in both data\/locales and the publicDir/);
+    write(join(pub, 'locales', 'fr.json'), '{}');
+    await expect(run(locales, { publicDir: pub })).rejects.toThrow(/in both its source folder and the publicDir/);
   }, 60_000);
 });
 
 describe('the dev server serves them at /locales/<lang>/<file>', () => {
-  async function withServer(fn: (base: string) => Promise<void>): Promise<void> {
-    const vite = await createServer({ root: app, configFile: false, logLevel: 'silent', appType: 'custom', server: { middlewareMode: true }, plugins: [localesPlugin(locales)] });
+  // `hmr: false`: with HMR on, middleware mode opens a WebSocket on the FIXED port 24678, which collides when specs run in parallel.
+  async function withServer(fn: (base: string) => Promise<void>, appBase = '/'): Promise<void> {
+    const vite = await createServer({
+      root: app, configFile: false, logLevel: 'silent', appType: 'custom', base: appBase,
+      server: { middlewareMode: true, hmr: false }, plugins: [localesPlugin(locales, chrome)],
+    });
     const http = createHttpServer((req, res) =>
       vite.middlewares(req, res, () => {
         res.statusCode = 404;
@@ -113,7 +171,7 @@ describe('the dev server serves them at /locales/<lang>/<file>', () => {
     });
   }, 60_000);
 
-  it('does not read outside the directory: a traversal falls through', async () => {
+  it('does not read outside the directory: a traversal falls through (the filename rule and the file list stop these; the guard has its own test above)', async () => {
     await withServer(async (base) => {
       for (const evil of ['/locales/..%2Fmissions.json', '/locales/%2e%2e/units.json', '/locales/..%2F..%2Fapp%2Findex.html', '/locales/fr%2F..%2F..%2Fapp%2Fmain.js']) {
         const r = await fetch(`${base}${evil}`);
@@ -122,12 +180,53 @@ describe('the dev server serves them at /locales/<lang>/<file>', () => {
       }
     });
   }, 60_000);
+
+  it('does not follow a symlink: the linked file, the file inside a linked directory and the linked directory itself all fall through', async () => {
+    await withServer(async (base) => {
+      for (const linked of ['/locales/fr/linked.json', '/locales/xx/missions.json', '/locales/yy/missions.json', '/locales/linked.json']) {
+        const r = await fetch(`${base}${linked}`);
+        expect(r.status, linked).toBe(404);
+        expect(await r.text(), linked).toBe('fell through');
+      }
+    });
+  }, 60_000);
+
+  it('serves the chrome catalogue flat at /locales/<id>.json, and not en.json, a nested file or the notes', async () => {
+    await withServer(async (base) => {
+      const res = await fetch(`${base}/locales/fr.json`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('application/json');
+      expect(await res.text()).toBe(readFileSync(join(chrome, 'fr.json'), 'utf8'));
+      expect(await (await fetch(`${base}/locales/pt-br.json`)).text()).toBe(readFileSync(join(chrome, 'pt-br.json'), 'utf8'));
+      for (const no of ['/locales/en.json', '/locales/notes.txt', '/locales/de.json', '/locales/nested/de.json']) {
+        const r = await fetch(`${base}${no}`);
+        expect(r.status, no).toBe(404);
+        expect(await r.text(), no).toBe('fell through');
+      }
+    });
+  }, 60_000);
+
+  it('under a non-root base (/game/) the loaders URL, base included, is served, for a mission file and for the chrome catalogue', async () => {
+    await withServer(async (base) => {
+      // `${base}locales/<lang>/missions.json` is exactly what the app fetches
+      const mission = await fetch(`${base}/game/locales/fr/missions.json`);
+      expect(mission.status).toBe(200);
+      expect(await mission.text()).toBe(readFileSync(join(locales, 'fr', 'missions.json'), 'utf8'));
+      const flat = await fetch(`${base}/game/locales/fr.json?t=2`);
+      expect(flat.status).toBe(200);
+      expect(await flat.text()).toBe(readFileSync(join(chrome, 'fr.json'), 'utf8'));
+      for (const no of ['/game/locales/en/missions.json', '/game/locales/en.json', '/game/locales/xx/missions.json']) {
+        const r = await fetch(`${base}${no}`);
+        expect(r.status, no).toBe(404);
+      }
+    }, '/game/');
+  }, 60_000);
 });
 
 describe('the real config registers it', () => {
   it('apps/vite.config.ts lists localesPlugin over the data/locales directory (source guard)', () => {
     const cfg = readFileSync(join(__dirname, 'vite.config.ts'), 'utf8');
     expect(cfg).toContain("import { localesPlugin } from './vite-plugin-locales.ts';");
-    expect(cfg).toContain("localesPlugin(new URL('../../data/locales/', import.meta.url)),");
+    expect(cfg).toContain("localesPlugin(new URL('../../data/locales/', import.meta.url), new URL('./src/i18n/', import.meta.url)),");
   });
 });
