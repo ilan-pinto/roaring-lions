@@ -2171,9 +2171,10 @@ const ledUZ1 = run(
     at(133, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(4, 6) }));
     // GH-1360 S3b: the drone is down and a post is still to find: buy the look (a drone sweep, 150 intel, identifies
     // everything hostile round the point) before anyone walks. Sweep seed 13 lost the drone at 30.9 s and the ground
-    // force below died walking post to post (the east horn never found, withdrawn at 12 min): 29 of 30. It is the
-    // seed's draw, not this mission's layout (the same seed loses with this mission's start_layout removed, on the
-    // ledger the assembly-layout chain hands it). The sweep goes to the first missing post, in the walk's own order.
+    // force below died walking post to post (the east horn never found, withdrawn at 12 min): 29 of 30. Measured on
+    // that seed with this sweep disabled: this mission's start_layout removed, the walk wins (3.5 min, 2 stars); in the
+    // assembly layout it loses, so the re-laid force is the cause. The sweep goes to the first missing post, in the
+    // walk's own order. A sweep win is fast (the 30-seed sweep's fastest win here is now 49 s), so this mission's min_win_seconds floor drops 28 -> 12.
     let swept = false;
     for (let when = 20; when <= 1190; when += 2)
       at(when, () => {
