@@ -138,7 +138,7 @@ import { browserFeedbackSession, type FeedbackSession, type SessionNote } from '
 import { collectContext, type ContextInput } from './feedback/context';
 import { installErrorRing, recentErrors } from './feedback/errors';
 import { holdDraft, readDraft } from './feedback/draft';
-import { isClosed as feedbackClosed } from './feedback/gate';
+import { isClosed as feedbackClosed, feedbackSends } from './feedback/gate';
 import { gpuName } from './feedback/gpu';
 import { takePicture } from './feedback/picture';
 import { withGroundPhoto } from './ui/ground-photo';
@@ -203,7 +203,6 @@ import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
 import { watchSmallScreen } from './ui/small-screen';
 import { watchNoGpu } from './ui/no-gpu';
-import { watchQualityHint } from './ui/quality-hint';
 import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
 import { gpuOf } from './gpu-flag';
@@ -1693,20 +1692,27 @@ async function main(): Promise<void> {
   // notice owns). Gated like it; it measures the first seconds of frames on a shell screen and, if they run slow, ASKS once
   // whether to switch to Low. `settingsDeps.set` is the only write, and only the card's accept button calls it; the preset applies
   // at the next mission's boot.
-  watchQualityHint({
-    env: { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) },
-    renderer: gpuName,
-    quality: () => settings.video.quality,
-    setQuality: (q) => settingsDeps.set({ ...settings, video: { ...settings.video, quality: q } }),
-    inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? ''),
-    frames: {
-      raf: (cb) => requestAnimationFrame(cb),
-      cancel: (id) => cancelAnimationFrame(id),
-      now: () => performance.now(),
-      visible: () => document.visibilityState === 'visible',
-    },
-    store: settingsStore,
-  });
+  // The gate is read HERE and the card's code (quality-hint, frame-probe) loaded only past it (`qualityHintAllowed`'s own test),
+  // so a harness origin (CI, `pnpm dev`, every test) never carries the module on the board's heap (board budget, GH-1413).
+  const qualityEnv = { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) };
+  if (feedbackSends(qualityEnv) || qualityEnv.query.has('qualityhint')) {
+    void import('./ui/quality-hint').then(({ watchQualityHint }) => {
+      watchQualityHint({
+        env: qualityEnv,
+        renderer: gpuName,
+        quality: () => settings.video.quality,
+        setQuality: (q) => settingsDeps.set({ ...settings, video: { ...settings.video, quality: q } }),
+        inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? ''),
+        frames: {
+          raf: (cb) => requestAnimationFrame(cb),
+          cancel: (id) => cancelAnimationFrame(id),
+          now: () => performance.now(),
+          visible: () => document.visibilityState === 'visible',
+        },
+        store: settingsStore,
+      });
+    }).catch((err: unknown) => console.error('[quality-hint] the card failed to load', err));
+  }
   // `fresh` has done its work above and is not a route parameter, so it comes
   // off the URL -- except on the way into a mission, where it still means "run
   // this one against an empty ledger" and `bootBattlefield` reads it back off
