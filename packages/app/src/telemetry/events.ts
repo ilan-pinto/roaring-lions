@@ -7,8 +7,10 @@ import {
   type AccountReason,
   type CountMap,
   type TelemetryEnvelope,
+  type TelemetryBackend,
   type TelemetryEvent,
   type TelemetryOrderVerb,
+  type TelemetryPreset,
   type TelemetryScreen,
 } from '@lions/data/telemetry';
 import type { DefeatCause } from '@lions/sim';
@@ -25,6 +27,8 @@ export interface RuntimeView {
   fielded: number;
   lost: number;
   objectives: readonly { id: string; type: string; primary: boolean; status: 'active' | 'complete' | 'failed' }[];
+  /** Living units of both sides (GH-1410 `perf_sample`). Optional: the callers that predate it omit it, and the sample then reads `fielded - lost`. */
+  living?: number;
 }
 
 const int = (n: number): number => Math.max(0, Math.round(n));
@@ -276,3 +280,57 @@ export function missionEnd(
 export const campaignProgress = (env: TelemetryEnvelope, mission: string, missionsWon: number): TelemetryEvent => ({
   ...env, type: 'campaign_progress', mission, missionsWon: int(missionsWon),
 });
+
+/** GH-1410. The three field-signal events. Each is built from already-clean values: `errors.ts` scrubs a message, `perf.ts` rounds a percentile. */
+export function clientError(
+  env: TelemetryEnvelope,
+  e: { name: string; message: string; hash: string },
+  where: { screen?: TelemetryScreen; mission?: string } = {}
+): TelemetryEvent {
+  return {
+    ...env,
+    type: 'client_error',
+    name: e.name,
+    message: e.message,
+    hash: e.hash,
+    ...(where.screen === undefined ? {} : { screen: where.screen }),
+    ...(where.mission === undefined ? {} : { mission: where.mission }),
+  };
+}
+
+export function perfSample(
+  env: TelemetryEnvelope,
+  mission: string,
+  units: number,
+  gear: { preset: TelemetryPreset; backend: TelemetryBackend; gpu: string | null },
+  p: { frames: number; p50: number; p95: number; p99: number }
+): TelemetryEvent {
+  return {
+    ...env,
+    type: 'perf_sample',
+    mission,
+    units: int(units),
+    preset: gear.preset,
+    backend: gear.backend,
+    ...(gear.gpu === null ? {} : { gpu: gear.gpu }),
+    frames: p.frames,
+    p50: p.p50,
+    p95: p.p95,
+    p99: p.p99,
+  };
+}
+
+export function bootEvent(
+  env: TelemetryEnvelope,
+  ttffMs: number,
+  gear: { preset: TelemetryPreset; backend: TelemetryBackend; gpu: string | null }
+): TelemetryEvent {
+  return {
+    ...env,
+    type: 'boot',
+    ttffMs: Math.min(600_000, int(ttffMs)),
+    backend: gear.backend,
+    preset: gear.preset,
+    ...(gear.gpu === null ? {} : { gpu: gear.gpu }),
+  };
+}
