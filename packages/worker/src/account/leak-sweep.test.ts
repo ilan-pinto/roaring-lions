@@ -71,11 +71,9 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
       const paths = [...ACCOUNT_ROUTES.map((r) => ({ method: r.method, path: pathOf(r.pattern) + (QUERY[r.pattern] ?? '') })), { method: 'GET', path: `/api/account/no/such/${REQ}` }];
 
       let answered = 0;
-      let expected = 0;
       const errors = new Set<string>();
       for (const { method, path } of paths) {
         for (const b of method === 'GET' ? bodies.slice(0, 1) : bodies) {
-          expected++;
           const where = `${sc.label}: ${method} ${path} / ${b.name}`;
           const res = await h.call(method, path, { ...(method === 'GET' ? {} : b.init), cookie: sc.signedIn ? cookie : undefined, headers: { 'cf-connecting-ip': IP } });
           answered++;
@@ -91,6 +89,9 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
             // ...and its value is not request data, an address or another member's.
             for (const secret of [IP, REQ, ...OTHER]) expect(c.includes(secret), `${where}: set-cookie holds ${secret.slice(0, 8)}...`).toBe(false);
           }
+          // An error body carries nothing the request supplied, the path's id and the op id included (the 40-character length check below
+          // lets a UUID through).
+          if (res.status >= 400) for (const v of [SAMPLE_ID, OP]) expect(text.includes(v), `${where}: the error body holds the request's ${v.slice(0, 8)}...`).toBe(false);
           // A refusal is JSON with an `error` that is a short code, not a sentence built from input.
           if (res.status >= 400) {
             const err = (JSON.parse(text) as { error?: unknown }).error;
@@ -100,7 +101,10 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
           }
         }
       }
-      expect(answered).toBe(expected);
+      // The inventory as literals (25 routes and the unknown path = 26 paths; 9 GETs once, 17 others across 7 bodies = 9 + 119), not the
+      // loop's own counters, which fall together when an iteration or a route is dropped.
+      expect(paths, 'the paths driven').toHaveLength(26);
+      expect(answered, 'requests answered in this scenario').toBe(128);
       // The scenario reached the path it exists for, or it proved nothing.
       if (sc.deny) expect(errors.has('limit')).toBe(true);
       if (sc.later > 0) expect(errors.has('reauth')).toBe(true);

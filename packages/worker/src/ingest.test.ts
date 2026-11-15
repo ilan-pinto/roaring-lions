@@ -133,6 +133,11 @@ describe('POST /api/events', () => {
         bodyRead = true;
         return JSON.stringify({ events: [hb(1)] });
       },
+      // The handler reads the body through `readCapped(req)`, i.e. `req.body`, not `text()`: observe that access too.
+      get body() {
+        bodyRead = true;
+        return new Response(JSON.stringify({ events: [hb(1)] })).body;
+      },
     } as unknown as Request;
     const res = await handleIngest(req, env, 1_790_000_001_000);
     expect(res.status).toBe(204);
