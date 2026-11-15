@@ -11,6 +11,7 @@ import { sessionJson } from '../account/session';
 import { bump } from '../rate-day';
 import { ADMIN_READS_PER_DAY, FIND_MAX, FIND_NAME_MAX, FIND_NAME_MIN, JOURNAL_PAGE } from './config';
 import { adminActionInsert } from './admin-write';
+import { coinsRoute } from './coins';
 import { adminDb, adminOpen, adminWriteGate, gameSession, isAdmin, readAdminBody } from './gate';
 
 const PREFIX = '/stats/api/members/';
@@ -263,10 +264,11 @@ export async function handleAdminApi(req: Request, env: Env, url: URL, now: numb
   if (rest === 'whoami') return whoami(req, env, now);
   if (rest === 'find') return find(req, env, url, now);
   if (rest === 'switch') return closeSwitch(req, env, now);
-  const m = /^([^/]+)(\/journal)?$/.exec(rest);
+  const m = /^([^/]+)(\/journal|\/coins)?$/.exec(rest);
   if (m !== null) {
     const publicId = (m[1] ?? '').toUpperCase();
     if (!PUBLIC_ID.test(publicId)) return accountJson(400, { error: 'bad_request' });
+    if (m[2] === '/coins') return coinsRoute(req, env, publicId, now);
     return m[2] === undefined ? card(req, env, publicId, now) : journal(req, env, url, publicId, now);
   }
   return accountJson(404, { error: 'not_found' });
