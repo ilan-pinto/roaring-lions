@@ -54,6 +54,8 @@
 // roster is the harness's (not 300 foot and 100 vehicles): the table prints what was ordered, by class. --map=<id> picks the world's map (default
 // beit_sahwan_outskirts, which is what docs/PERFORMANCE.md's curve used; qarn_hadid is the spec's).
 
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { FlowField, fx, type Sim, type TunnelRouteJson } from '@lions/sim';
 import type { maps } from '@lions/data';
 import {
@@ -426,7 +428,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err: unknown) => {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((err: unknown) => {
   console.error(err);
   process.exitCode = 1;
 });

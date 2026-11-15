@@ -1,5 +1,5 @@
 // Unit spacing, measured by BODIES (GH-1360, slice S0). REPORT-ONLY: it asserts no level.
-// Run: pnpm spacing:census            (tick 0 + the choke probe, about a minute)
+// Run: pnpm spacing:census            (tick 0 + the choke probe, a few seconds)
 //      pnpm spacing:census -- --play  (also the in-play reading: the sensible plan of every mission, minutes)
 //      pnpm spacing:census -- --json=out.json
 //
@@ -338,12 +338,12 @@ export function missionStart(id: string, seed = 424242): Start {
   const { mission, sim, context } = missionStage(id, seed);
   const garrisonIds = new Set<number>();
   const queue = sim.queueCommand.bind(sim);
-  sim.queueCommand = (cmd: Command): void => {
+  (sim as unknown as { queueCommand: (c: Command) => void }).queueCommand = (cmd: Command): void => {
     if (cmd.kind === 'garrison') for (const g of cmd.ids) garrisonIds.add(g);
     queue(cmd);
   };
   new MissionRuntime(sim, mission, context({})).start();
-  sim.queueCommand = queue;
+  delete (sim as unknown as { queueCommand?: unknown }).queueCommand; // back to the prototype method
   return { name: id, group: 'mission', sim, garrisonIds };
 }
 
@@ -428,8 +428,8 @@ export function readStart(st: Start): StartReading {
     deepest: os.reduce((m, o) => Math.max(m, o.depth), 0),
     classPairs: Object.fromEntries(classPairCounts(es, os)),
     blocked: {
-      foot: es.filter((e) => e.onBlocked && e.kind === 'foot').length,
-      vehicle: es.filter((e) => e.onBlocked && e.kind === 'vehicle').length,
+      foot: es.filter((e) => e.onBlocked && !e.wheeled).length,
+      vehicle: es.filter((e) => e.onBlocked && e.wheeled).length,
       garrison: split.garrison.length,
       other: split.other.length,
       otherUnits: split.other.map((e) => `${e.unit}#${e.id}@(${e.body.x.toFixed(2)},${e.body.y.toFixed(2)})`),
@@ -748,7 +748,7 @@ export function startsTable(rs: readonly StartReading[]): string[] {
   const ms = rs.filter((r) => r.group === 'mission');
   if (ms.length > 0) {
     const p0 = sumTallies(ms.map((r) => r.pairsSide0));
-    lines.push(`| shipped missions, side 0 only, ground bodies (the spec's 292 bodies counts aircraft; its 72 pairs is all sides) | ${ms.reduce((n, r) => n + r.bodiesSide0, 0)} | ${tallyStr(p0)} | ${ms.filter((r) => tallyTotal(r.pairsSide0) > 0).length} | |`);
+    lines.push(`| shipped missions, side 0 only, ground bodies (the spec's 292 bodies counts aircraft; its 15/28/29 split is unreproduced, cause unknown) | ${ms.reduce((n, r) => n + r.bodiesSide0, 0)} | ${tallyStr(p0)} | ${ms.filter((r) => tallyTotal(r.pairsSide0) > 0).length} | |`);
   }
   const all = sumTallies(rs.map((r) => r.pairs));
   lines.push(`| TOTAL | ${rs.reduce((n, r) => n + r.bodies, 0)} | ${tallyStr(all)} | ${rs.filter((r) => tallyTotal(r.pairs) > 0).length} | |`);

@@ -20,6 +20,7 @@ import {
   newPlayAcc,
   overlaps,
   PlayState,
+  segmentDistance,
   sampleTick,
   runChoke,
   chokeTwelve,
@@ -412,5 +413,34 @@ describe('sampleTick (the in-play sampler) on a literal world', () => {
     }
     expect(acc.zeroRuns).toBe(1);
     expect(acc.reversals).toBe(1);
+  });
+});
+
+describe('segmentDistance and capsule-capsule: oblique, crossing, collinear and T cases (hand-worked)', () => {
+  it('a T: the stem ends 1 above the bar, either way round', () => {
+    // bar (0,0)-(4,0); stem (2,1)-(2,5) closes at its start, (2,5)-(2,1) at its END (the t > 1 branch: s 0.5, t 1.25 unclamped).
+    // mutation: the t > 1 branch's `(bb - c) / aa` -> `(bb + c) / aa` reads sqrt 5 for the second
+    expect(segmentDistance([0, 0, 4, 0], [2, 1, 2, 5])).toBeCloseTo(1, 9);
+    expect(segmentDistance([0, 0, 4, 0], [2, 5, 2, 1])).toBeCloseTo(1, 9);
+  });
+  it('an oblique pair that closes at one end: (0,0)-(4,0) and (1,2)-(3,1) are 1 apart, at (3,0) and (3,1)', () => {
+    // unclamped s 1.25, t 1.6. mutation: the same `bb + c` reads sqrt 5
+    expect(segmentDistance([0, 0, 4, 0], [1, 2, 3, 1])).toBeCloseTo(1, 9);
+  });
+  it('two diagonals crossing at their middles are 0 apart', () => {
+    // s = t = 0.5. mutation: the non-parallel denominator replaced by a constant clamps s to 1 and reads 2.83
+    expect(segmentDistance([0, 0, 4, 4], [0, 4, 4, 0])).toBeCloseTo(0, 9);
+  });
+  it('collinear end to end: (0,0)-(2,0) and (3,0)-(5,0) are 1 apart; overlapping collinear are 0', () => {
+    expect(segmentDistance([0, 0, 2, 0], [3, 0, 5, 0])).toBeCloseTo(1, 9);
+    expect(segmentDistance([0, 0, 3, 0], [2, 0, 5, 0])).toBeCloseTo(0, 9);
+  });
+  it('two Lavis nose to tail: axes x 9.32..10.24 and 11.22..12.14 leave 0.98, against 1.14 of half-widths: 0.16 deep; 2.5 further on is clear by 0.44', () => {
+    expect(bodyDepth(lavi(10, 10), lavi(11.9, 10))).toBeCloseTo(0.16, 9);
+    expect(bodyDepth(lavi(10, 10), lavi(12.5, 10))).toBeCloseTo(-0.44, 9);
+  });
+  it('two Lavis crossing at right angles, one east and one south, through each other: 1.14 deep', () => {
+    // axis of the first y=10, x 9.32..10.24; the second at (10, 10) facing south has its axis x=10, y 9.32..10.24: they cross
+    expect(bodyDepth(lavi(10, 10), lavi(10, 10, SOUTH))).toBeCloseTo(1.14, 9);
   });
 });
