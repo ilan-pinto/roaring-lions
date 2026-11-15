@@ -218,10 +218,12 @@ async function journal(req: Request, env: Env, url: URL, publicId: string, now: 
     .prepare(
       `SELECT * FROM (
          SELECT 'c' AS src, j.id AS id, j.at AS at, 'coins' AS currency, j.kind AS kind, NULL AS mode, j.free_delta AS delta,
-                NULL AS "before", NULL AS "after", NULL AS reason, 'player' AS "by", j.op_id AS op_id
+                NULL AS "before", NULL AS "after", NULL AS reason, 'player' AS "by", j.op_id AS op_id, NULL AS note
          FROM coin_journal j WHERE j.member_id = ?1 AND j.kind != 'admin'
          UNION ALL
-         SELECT 'a', a.id, a.at, a.action, 'admin', a.mode, a.delta, a."before", a."after", a.reason, COALESCE(x.public_id, 'admin'), a.op_id
+         SELECT 'a', a.id, a.at, a.action, 'admin', a.mode, a.delta, a."before", a."after", a.reason, COALESCE(x.public_id, 'admin'), a.op_id,
+                (SELECT CASE WHEN json_valid(c.detail) AND json_type(c.detail, '$.note') = 'text' THEN json_extract(c.detail, '$.note') END
+                 FROM coin_journal c WHERE c.member_id = a.member_id AND c.op_id = a.op_id AND c.kind = 'admin' AND a.action = 'coins')
          FROM admin_action a LEFT JOIN member x ON x.id = a.admin_id
          WHERE a.member_id = ?1 AND a.action IN ('coins', 'credits')
        )
@@ -230,11 +232,11 @@ async function journal(req: Request, env: Env, url: URL, publicId: string, now: 
        ORDER BY at DESC, src ASC, id DESC LIMIT ?6`,
     )
     .bind(m.id, currency, cur === null ? null : Number(cur[1]), cur === null ? null : cur[2], cur === null ? null : Number(cur[3]), JOURNAL_PAGE + 1)
-    .all<{ src: string; id: number; at: number; currency: string; kind: string; mode: string | null; delta: number; before: number | null; after: number | null; reason: string | null; by: string; op_id: string | null }>();
+    .all<{ src: string; id: number; at: number; currency: string; kind: string; mode: string | null; delta: number; before: number | null; after: number | null; reason: string | null; by: string; op_id: string | null; note: string | null }>();
   const page = rows.results.slice(0, JOURNAL_PAGE);
   const last = page[page.length - 1];
   return accountJson(200, {
-    rows: page.map((r) => ({ at: r.at, currency: r.currency, kind: r.kind, mode: r.mode, delta: r.delta, before: r.before, after: r.after, reason: r.reason, by: r.by, opId: r.op_id })),
+    rows: page.map((r) => ({ at: r.at, currency: r.currency, kind: r.kind, mode: r.mode, delta: r.delta, before: r.before, after: r.after, reason: r.reason, note: r.note, by: r.by, opId: r.op_id })),
     next: rows.results.length > JOURNAL_PAGE && last !== undefined ? `${last.at}.${last.src}.${last.id}` : null,
   });
 }
