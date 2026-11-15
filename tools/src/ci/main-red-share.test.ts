@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FILTERED_QUERY_CAP, RED_SHARE_TARGET, fetchRuns, ledgerLine, parseArgs, redShare, utcDays, type WorkflowRun } from './main-red-share';
+import { FILTERED_QUERY_CAP, RED_SHARE_TARGET, fetchRuns, ledgerLine, parseArgs, parseIso, redShare, utcDays, type WorkflowRun } from './main-red-share';
 
 const NOW = Date.parse('2026-11-15T12:00:00Z');
 const ago = (days: number): string => new Date(NOW - days * 86_400_000).toISOString();
@@ -77,7 +77,12 @@ describe('fetchRuns', () => {
     });
     expect(got).toHaveLength(6);
     expect(calls).toHaveLength(3);
-    expect(calls.map((c) => /created=(\S+)/.exec(c)?.[1])).toEqual(['2026-11-13', '2026-11-14', '2026-11-15']);
+    expect(calls.map((c) => /created=(\S+)/.exec(c)?.[1])).toEqual([
+      '2026-11-13T00:00:00Z..2026-11-13T23:59:59Z',
+      '2026-11-14T00:00:00Z..2026-11-14T23:59:59Z',
+      // The last day ends at `untilMs`, not at midnight: a run created after the report started is outside the range.
+      '2026-11-15T00:00:00Z..2026-11-15T12:00:00Z',
+    ]);
     for (const c of calls) {
       expect(c).toContain('repos/o/r/actions/workflows/ci.yml/runs');
       expect(c).toContain('branch=main');
@@ -119,6 +124,46 @@ describe('fetchRuns', () => {
   });
 });
 
+describe('fetchRuns: a run seen twice is counted once', () => {
+  it('drops a repeated id (a new run shifting the offsets between two pages)', () => {
+    const page = (ids: number[]): string => JSON.stringify({ total_count: 150, workflow_runs: ids.map((id) => ({ ...run({}), id })) });
+    const first = Array.from({ length: 100 }, (_, i) => i + 1);
+    const second = [100, ...Array.from({ length: 49 }, (_, i) => 101 + i)]; // 100 again, then 49 new: 149 distinct
+    const replies = [page(first), page(second)];
+    let n = 0;
+    const got = fetchRuns('o/r', Date.parse('2026-11-15T00:00:00Z'), Date.parse('2026-11-15T12:00:00Z'), () => replies[n++] as string);
+    expect(got).toHaveLength(149);
+    expect(new Set(got.map((r) => r.id)).size).toBe(149);
+  });
+});
+
+describe('parseIso', () => {
+  it('accepts ISO dates and date-times, with Z or an offset, and returns epoch ms', () => {
+    expect(parseIso('2026-11-15T12:00:00Z')).toBe(Date.UTC(2026, 10, 15, 12));
+    expect(parseIso('2026-11-15T12:00Z')).toBe(Date.UTC(2026, 10, 15, 12));
+    expect(parseIso('2026-11-15T14:00:00+02:00')).toBe(Date.UTC(2026, 10, 15, 12));
+    expect(parseIso('2026-11-15T12:00:00.250Z')).toBe(Date.UTC(2026, 10, 15, 12, 0, 0, 250));
+    expect(parseIso('2026-11-15')).toBe(Date.UTC(2026, 10, 15));
+    expect(parseIso('2028-02-29')).toBe(Date.UTC(2028, 1, 29)); // a real leap day
+  });
+
+  it.each([
+    ['an RFC 2822 date Date.parse accepts', 'Sun, 15 Nov 2026 12:00:00 GMT'],
+    ['a word', 'yesterday'],
+    ['an impossible date', '2026-02-30'],
+    ['a non-leap 29 February', '2027-02-29'],
+    ['month 13', '2026-13-01'],
+    ['hour 25', '2026-11-15T25:00:00Z'],
+    ['minute 61', '2026-11-15T12:61:00Z'],
+    ['no zone on a time', '2026-11-15T12:00:00'],
+    ['a slash date', '2026/11/15'],
+    ['trailing text', '2026-11-15T12:00:00Z later'],
+  ])('rejects %s', (_why, s) => {
+    expect(parseIso(s)).toBeNull();
+    expect(typeof parseArgs([`--now=${s}`])).toBe('string');
+  });
+});
+
 describe('parseArgs', () => {
   it('defaults only when an option is absent', () => {
     expect(parseArgs([])).toEqual({ days: 7, now: undefined, repo: undefined });
@@ -134,6 +179,6 @@ describe('parseArgs', () => {
 
   it('refuses a days value out of range or not whole, and a now that is not a date', () => {
     for (const bad of ['--days=0', '--days=91', '--days=1.5', '--days=abc']) expect(typeof parseArgs([bad]), bad).toBe('string');
-    expect(parseArgs(['--now=yesterday'])).toBe('--now is not a date');
+    expect(typeof parseArgs(['--now=yesterday'])).toBe('string');
   });
 });

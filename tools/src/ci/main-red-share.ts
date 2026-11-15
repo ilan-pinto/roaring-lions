@@ -16,6 +16,8 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export interface WorkflowRun {
+  /** The run's id: a run seen twice (a new run shifting a page's offsets) is counted once. */
+  readonly id?: number;
   readonly status: string | null;
   readonly conclusion: string | null;
   /** ISO 8601. */
@@ -89,20 +91,31 @@ export function utcDays(sinceMs: number, untilMs: number): string[] {
  */
 export function fetchRuns(repo: string, sinceMs: number, untilMs: number, run: (args: readonly string[]) => string = gh): WorkflowRun[] {
   const out: WorkflowRun[] = [];
+  const seen = new Set<number>();
   for (const day of utcDays(sinceMs, untilMs)) {
+    // Each day's range ends at the earlier of the day's last second and `untilMs`, so a run created while the report is running is outside
+    // it and cannot shift a page's offsets; the id set below is the second lock.
+    const dayEnd = Date.parse(`${day}T23:59:59Z`);
+    const range = `${day}T00:00:00Z..${new Date(Math.min(dayEnd, untilMs)).toISOString().slice(0, 19)}Z`;
     // A day under the cap fits in 10 pages of 100; the 11th is the guard against a source that never returns a short page.
     for (let page = 1; page <= FILTERED_QUERY_CAP / 100 + 1; page++) {
       const body = run([
         'api', '-X', 'GET', `repos/${repo}/actions/workflows/ci.yml/runs`,
-        '-f', 'branch=main', '-f', 'event=push', '-f', `created=${day}`, '-f', 'per_page=100', '-f', `page=${page}`,
-        '--jq', '{total_count, workflow_runs: [.workflow_runs[] | {status, conclusion, created_at, head_branch, event}]}',
+        '-f', 'branch=main', '-f', 'event=push', '-f', `created=${range}`, '-f', 'per_page=100', '-f', `page=${page}`,
+        '--jq', '{total_count, workflow_runs: [.workflow_runs[] | {id, status, conclusion, created_at, head_branch, event}]}',
       ]);
       const parsed = JSON.parse(body) as { total_count?: number; workflow_runs?: WorkflowRun[] };
       if (page === 1 && (parsed.total_count ?? 0) > FILTERED_QUERY_CAP) {
         throw new Error(`${day}: ${parsed.total_count} runs, over GitHub's ${FILTERED_QUERY_CAP}-result cap for a filtered query; the share cannot be computed from part of a day`);
       }
       const runs = parsed.workflow_runs ?? [];
-      out.push(...runs);
+      for (const r of runs) {
+        if (r.id !== undefined) {
+          if (seen.has(r.id)) continue;
+          seen.add(r.id);
+        }
+        out.push(r);
+      }
       if (runs.length < 100) break;
     }
   }
@@ -116,6 +129,19 @@ function repoFromRemote(): string {
   const m = /github\.com[:/]([^/]+\/[^/.]+)(?:\.git)?$/.exec(url);
   if (!m?.[1]) throw new Error(`cannot read owner/name from the origin URL "${url}"; pass --repo=owner/name`);
   return m[1];
+}
+
+const ISO = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2}))?$/;
+
+/** An ISO 8601 date or date-time to epoch ms, or null: the grammar must match AND the calendar date and clock must exist (no 2026-02-30, no hour 25). `Date.parse` alone also takes "Sun, 15 Nov 2026" and rolls impossible dates. */
+export function parseIso(s: string): number | null {
+  const m = ISO.exec(s);
+  if (m === null) return null;
+  const mo = Number(m[2]);
+  // A day past the month's end (30 February) or a month 13 rolls into another month, so the month no longer reads back; `Date.parse` rejects an hour, minute or second out of range itself.
+  if (new Date(Date.UTC(Number(m[1]), mo - 1, Number(m[3]))).getUTCMonth() !== mo - 1) return null;
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : null;
 }
 
 export interface Options {
@@ -134,7 +160,7 @@ export function parseArgs(argv: readonly string[]): Options | string {
   }
   const days = Number(seen.days ?? '7');
   if (!Number.isInteger(days) || days < 1 || days > 90) return '--days must be a whole number from 1 to 90';
-  if (seen.now !== undefined && !Number.isFinite(Date.parse(seen.now))) return '--now is not a date';
+  if (seen.now !== undefined && parseIso(seen.now) === null) return '--now is not an ISO 8601 date-time (2026-11-15T12:00:00Z)';
   return { days, now: seen.now, repo: seen.repo };
 }
 
@@ -145,7 +171,7 @@ function main(argv: readonly string[]): number {
     return 2;
   }
   const { days } = opts;
-  const nowMs = opts.now === undefined ? Date.now() : Date.parse(opts.now);
+  const nowMs = opts.now === undefined ? Date.now() : (parseIso(opts.now) as number);
   try {
     const repo = opts.repo ?? repoFromRemote();
     const runs = fetchRuns(repo, nowMs - days * DAY_MS, nowMs);
