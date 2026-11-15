@@ -11,7 +11,27 @@
 > load numbers for the retirement itself are in "Retiring the sprite sheets"
 > at the end of this file.
 
-**Last measured:** 2026-08-30, this branch's HEAD (`15bd819` + this session's
+## The 300-unit frame cost: which reading is current (reconciled 2026-11-15)
+
+The file holds several readings of "about 300 units" that look like they contradict each other. They do not measure the same thing: they differ in roster, pixel count, renderer path and statistic. **No new measurement was taken for this table** (docs only; no GPU run). Every reading is one Apple M3 Pro on ANGLE/Metal.
+
+| Date | Reading | Conditions | Status |
+|---|---|---|---|
+| 15 Sep ("The 300-unit acceptance, measured") | 6.50-6.70 ms render p95, 266 living | `measureThreeMesh`, **five roster types drawn as meshes**, the rest as billboards; 1280x720 at DPR 1; lit chain on | **Superseded.** That roster is not the shipped one. Its verdict ("the 300-unit acceptance holds") rests on it. |
+| 27 Sep (ground plan 2, "300-figure curve" and "`perf:units` at 300 figures") | 6.90-7.60 ms p95, 266 living | same harness, same partial roster, 1280x720 DPR 1 | Superseded for the same reason. |
+| 4 Oct ("Retiring the sprite sheets", "The all-mesh backend curve") | **30.0 ms render p95 at 266 living** (10.8 / 17.8 / 30.0 / 39.7 at 65 / 143 / 266 / 320; tick p95 0.30 / 1.20 / 2.20 / 3.40) | `backend-curve-gate.ts --only=three-mesh`, **all 20 roster types drawing their real GLB**, same machine, 1280x720 DPR 1 | **The latest full 266-living curve on the legacy path in this file, and the one that matches the shipped roster.** It is over the 16.7 ms budget. It predates the look uplift (L1, 2 Nov) and everything after it. |
+| 26 Oct (GH-829) | 19.1 / 18.4 / 16.4 ms (`wadi_halam_4`), 21.0 / 18.1 / 17.0 (basin) at z1 / z1.6 / z2.5 | `high`, DPR 2 (2880x1800), readPixels-synced, **29-32 entities, parked** | Not a 300-unit reading: a small force at four times the pixels; GPU-bound. |
+| 10-13 Nov (`docs/agent-notes/webgpu-backend.md`, GH-1152) | legacy path 18.10 ms at 600 units; WebGPU path 9.15 to 10.95 ms at 300 units and 15.95 to 19.82 at 600 | a different instrument (`webgpu:abba`, ABBA rounds, `wadi_halam_4`, 1280x720 at DPR 2, z0.5, `high`, parked), a different statistic, and the WebGPU path | A comparison of two backends, not a replacement for the 4 Oct curve; read that file for its conditions. |
+
+**Reading the contradiction:** the 15 Sep 6.5 ms and the 4 Oct 30.0 ms are the same harness on the same machine with a different roster (five mesh types against all twenty, including the skinned infantry). The 4 Oct file calls it "a new number, not a regression". The 15 Sep acceptance verdict should not be quoted for the shipped game.
+
+**Still to be measured on real hardware** (none of it was run here):
+- the all-mesh 266-living curve (`backend-curve-gate.ts --only=three-mesh`) on the current build, at DPR 1 and at DPR 2, on the shipped `high`, `medium` and `low` presets (the last one was taken on 4 Oct, before L1 to L5, the 3D grass, ragdolls and the insignia);
+- a live fight (every 300-unit figure above is parked or held still);
+- any GPU other than this one Apple M3 Pro: a Windows or Linux machine, an integrated GPU, a discrete one. CI reads SwiftShader only, which is not a frame-time instrument;
+- tick cost on the same run (the 4 Oct tick p95 of 2.20 ms at 266 living is the last).
+
+**Last measured:** each section below is dated on its own; the first pass is 2026-08-30, this branch's HEAD (`15bd819` + this session's
 uncommitted `tools/src/perf/` changes). **Re-run before quoting these numbers
 again if either backend, the mesh contract, or vehicle FX has changed since.**
 A second pass the same day (this session) added the "Sim tick cost" section
@@ -856,6 +876,8 @@ which is the only thing the A/B is for, is unaffected.
 
 ### The 300-unit acceptance, measured (2026-09-15)
 
+> **Superseded (see "The 300-unit frame cost: which reading is current" at the top).** This roster drew five mesh types and the rest as billboards. The same harness with all 20 types drawing meshes read 30.0 ms p95 at 266 living on 4 Oct.
+
 **Spec §11's acceptance holds, and the number is 6.50–6.70 ms p95 against a
 16.7 ms budget.** It had never actually been run: everything above this
 subsection measures one fixed sandbox roster, and the caveat below used to say
@@ -1485,7 +1507,7 @@ until their GLB lands, with a "deploying" chip on the dock tile. So
 time-to-deploy is unchanged by this work, and the cost of the alternative was
 not measured.
 
-**The all-mesh backend curve** (`backend-curve-gate.ts --only=three-mesh`, same
+**The all-mesh backend curve** (**the current legacy-path curve in this file**, see the table at the top; `backend-curve-gate.ts --only=three-mesh`, same
 machine, ANGLE/Metal): with every one of the 20 roster types drawing its real
 GLB -- where the old "three, meshes" curve swapped a quarter of the roster over
 a billboard majority -- render p95 is 10.8 / 17.8 / 30.0 / 39.7 ms at 65 / 143
