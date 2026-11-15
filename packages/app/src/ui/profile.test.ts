@@ -57,6 +57,7 @@ function stub(over: Partial<AccountClient> = {}): AccountClient & { calls: strin
     gone: async () => 'unknown',
     ...unusedA2Client,
     matches: async () => ({ ok: true, status: 200, body: { matches: [], next: null, record: { won: 0, lost: 0, drawn: 0 } } }),
+    coins: async () => ({ ok: true, status: 200, body: { rows: [], next: null } }),
     ...over,
   };
   return Object.assign(c, { calls });
@@ -1059,6 +1060,22 @@ describe('the Roar coins card (GH-1370 C3)', () => {
     expect(card(b.stage)?.textContent).toContain(t('profile.coins.account'));
   });
 
+  it('draws the account history in the card (C4): rows from client.coins, headed on an unclaimed device', async () => {
+    const asked: (string | undefined)[] = [];
+    const client = stub({
+      me: async () => signedIn(),
+      coins: async (b) => (asked.push(b), { ok: true as const, status: 200 as const, body: { rows: [{ at: 1_700_000_000_000, delta: 10, what: { kind: 'earn' as const, source: 'welcome' } }], next: null } }),
+    });
+    const a = mount(client, { coins: coinsDep(walletOf(10, 0), false) });
+    await flush();
+    expect(asked).toEqual([undefined]);
+    expect(card(a.stage)?.querySelector('.rl-profile__coin-main')?.textContent).toBe(t('profile.coins.row.welcome'));
+    expect(card(a.stage)?.textContent).toContain(t('profile.coins.history'));
+    const b = mount(client, { coins: coinsDep(walletOf(10, 0), true) });
+    await flush();
+    expect(card(b.stage)?.textContent).not.toContain(t('profile.coins.history'));
+  });
+
   it('says what to do at a zero balance, and that the wallet is unavailable when it is', async () => {
     const zero = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(walletOf(0, 0), true) });
     await flush();
@@ -1066,6 +1083,6 @@ describe('the Roar coins card (GH-1370 C3)', () => {
     const off = mount(stub({ me: async () => signedIn() }), { coins: { ...coinsDep(walletOf(0, 0), false), available: false } });
     await flush();
     expect(card(off.stage)?.textContent).toContain(t('profile.coins.offline'));
-    expect(card(off.stage)?.textContent).not.toContain(t('profile.coins.empty'));
+    expect(card(off.stage)?.querySelector('.rl-profile__coins-note')?.textContent).toBe(t('profile.coins.offline'));
   });
 });
