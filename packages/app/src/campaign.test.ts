@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import en from './i18n/en.json';
+import { pseudo } from './i18n/pseudo';
+import { setCatalogue } from './i18n/t';
 
 import { missions } from '@lions/data';
 
@@ -586,6 +589,32 @@ describe('the account of the taken', () => {
       'Seventeen still out. Two came back at the shaft head.'
     );
     expect(hostagesLine({ taken: 19, recovered: 19 })).toBe('Nobody still out.');
+    expect(hostagesLine({ taken: 40, recovered: 0 })).toBe('40 still out.');
+  });
+  describe('goes through the catalogue (i18n variable sink, GH-1079)', () => {
+    afterEach(() => setCatalogue('en', en));
+    it('every word of the line is bracketed under the pseudo-locale', () => {
+      setCatalogue('pseudo', en, pseudo);
+      const line = hostagesLine({ taken: 19, recovered: 2 }, { count: 2, place: 'the shaft head' });
+      // An unbracketed sentence never went through t().
+      expect(line).toContain('⟦');
+      expect(line).not.toContain('Seventeen still out.');
+      expect(line).not.toContain('came back at the');
+      expect(hostagesLine({ taken: 3, recovered: 3 })).not.toBe('Nobody still out.');
+    });
+    it('reads each piece from its own catalogue key (sentinel messages, no transform to hide behind)', () => {
+      setCatalogue('xx', {
+        ...en,
+        'world.hostages.none': 'NONE-S',
+        'world.hostages.out': '{count} OUT-S',
+        'world.hostages.back': '{head} / {count} BACK-S @ {place}',
+        'world.hostages.n17': 'W17-S',
+        'world.hostages.n2': 'W2-S',
+      });
+      expect(hostagesLine({ taken: 5, recovered: 5 })).toBe('NONE-S');
+      expect(hostagesLine({ taken: 19, recovered: 2 })).toBe('W17-S OUT-S');
+      expect(hostagesLine({ taken: 19, recovered: 2 }, { count: 2, place: 'P' })).toBe('W17-S OUT-S / W2-S BACK-S @ P');
+    });
   });
 });
 

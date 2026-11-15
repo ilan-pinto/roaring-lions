@@ -10,6 +10,7 @@
  * digit keys are refused as bindings for that reason.
  */
 import type { SupportKind } from '@lions/sim';
+import { t } from '../i18n/t';
 
 export type Action =
   | 'halt' | 'move' | 'patrol' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
@@ -409,23 +410,21 @@ export function overridesOf(b: Bindings): Record<string, string> {
   return out;
 }
 
-// Keyed by the NORMALISED spelling: `keyLabel` calls `norm` first, so the `' '`
-// entry this table used to carry became unreachable the moment `norm` started
-// mapping the space bar to `'space'`, and it is replaced rather than joined.
+// Keyed by the NORMALISED spelling: `keyLabel` calls `norm` first.
 //
-// Disclosed because it was measured rather than assumed: the `space` entry is
-// belt-and-braces and NO test can separate it from the fallback below, which
-// capitalises any multi-character key and so returns `'Space'` for `'space'`
-// by itself. Swapping the key back to `' '` leaves every keymap spec green.
-// It stays because a table that names its own keycaps is the thing a reader
-// checks, and because the fallback is not a promise -- a future `keyLabel`
-// that stopped capitalising would take this label with it, silently.
-const LABELS: Readonly<Record<string, string>> = {
-  space: 'Space', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→',
-  escape: 'Esc', tab: 'Tab', enter: 'Enter', backspace: '⌫', delete: 'Del',
+// Glyph keycaps are symbols and stay literal; the WORD keycaps are chrome and
+// go through `t()` (`keymap.key.*`), resolved per call and never at module load.
+const GLYPHS: Readonly<Record<string, string>> = {
+  arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→', backspace: '⌫',
+};
+const WORD_KEYS: Readonly<Record<string, string>> = {
+  space: 'keymap.key.space', escape: 'keymap.key.escape', tab: 'keymap.key.tab',
+  enter: 'keymap.key.enter', delete: 'keymap.key.delete',
 };
 
 export function keyLabel(key: string): string {
   const k = norm(key);
-  return LABELS[k] ?? (k.length === 1 ? k.toUpperCase() : k.charAt(0).toUpperCase() + k.slice(1));
+  if (GLYPHS[k] !== undefined) return GLYPHS[k];
+  if (WORD_KEYS[k] !== undefined) return t(WORD_KEYS[k]);
+  return (k.length === 1 ? k.toUpperCase() : k.charAt(0).toUpperCase() + k.slice(1));
 }
