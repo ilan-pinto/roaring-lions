@@ -264,6 +264,8 @@
   /* The brand wordmark's rule. Olive like the mission band, but its own name
      (VR-24): a band colour ranks a panel and is not decoration. */
   --wordmark-rule: var(--rl-olive-2);
+  /* The picker's DEFAULT tag: olive, a ground and not a band rank (VR-24 keeps --band-* for bands). */
+  --avatar-tag-ground: var(--rl-olive-2);
 
   /* --- the mark ------------------------------------------------------- */
   /* Three chevrons sweeping darker: depth at menu size, one readable shape at
@@ -1391,8 +1393,8 @@ body {
   left: 50%;
   transform: translateX(-50%);
   padding: 0 var(--s1);
-  background: var(--band-mission);
-  border: 1px solid var(--band-mission); /* px-ok */
+  background: var(--avatar-tag-ground);
+  border: 1px solid var(--avatar-tag-ground); /* px-ok */
   font-size: var(--t-xs);
   color: var(--ink);
 }
@@ -10286,9 +10288,9 @@ fieldset.rl-versus__maps {
   border: 1px solid var(--panel-frame); /* px-ok */
   min-width: 0;
 }
-/* The header card: a gold rule on its left edge. */
+/* The header card: a gold rule on its left edge. --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
 .rl-profile__card--head {
-  border-left: 0.1875rem solid var(--accent);
+  border-left: 0.1875rem solid var(--title-accent);
 }
 .rl-profile__card-title {
   margin: 0;
@@ -10399,8 +10401,8 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__perks li::before {
   content: '\203A\00a0';
-  color: var(--accent);
-  font-weight: 700;
+  color: var(--title-accent);
+  font-weight: 600;
 }
 .rl-profile__guest-actions {
   display: flex;
@@ -10552,7 +10554,7 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__show-record input,
 .rl-profile__telemetry input {
-  accent-color: var(--accent);
+  accent-color: var(--selected);
 }
 .rl-profile__show-record-hint {
   margin: 0;

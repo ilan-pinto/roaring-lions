@@ -88,10 +88,10 @@ describe('the account page accents (GH-1367 S1)', () => {
   it('colours the record digits and the checkboxes', () => {
     expect(body('.rl-profile__tile--won .rl-profile__tile-n')).toContain('var(--good)');
     expect(body('.rl-profile__tile--lost .rl-profile__tile-n')).toContain('var(--bad-text)');
-    expect(body('.rl-profile__show-record input,\n.rl-profile__telemetry input')).toContain('accent-color: var(--accent)');
+    expect(body('.rl-profile__show-record input,\n.rl-profile__telemetry input')).toContain('accent-color: var(--selected)');
   });
   it('rules the header card in gold and backs the chips solid', () => {
-    expect(body('.rl-profile__card--head')).toContain('border-left: 0.1875rem solid var(--accent)');
+    expect(body('.rl-profile__card--head')).toContain('border-left: 0.1875rem solid var(--title-accent)');
     expect(body('.rl-profile__result')).toContain('var(--panel-bg-solid)');
     expect(body('.rl-profile__identity-state')).toContain('var(--panel-bg-solid)');
   });
@@ -100,11 +100,12 @@ describe('the account page accents (GH-1367 S1)', () => {
     expect(body('.rl-profile__card')).toContain('background: var(--card-bg)');
     expect(body('.rl-profile__avatar .rl-avatar')).toContain('border-width: 2px');
     expect(body('.rl-profile__privacy-link')).toContain('color: var(--ink-dim)');
-    expect(body('.rl-avatar-picker__tag')).toContain('background: var(--band-mission)');
+    expect(body('.rl-avatar-picker__tag')).toContain('background: var(--avatar-tag-ground)');
     expect(body('.rl-profile__status')).toContain('color: var(--good)');
     const perk = body('.rl-profile__perks li::before');
     expect(perk).toContain("content: '\\203A\\00a0'");
-    expect(perk).toContain('color: var(--accent)');
+    expect(perk).toContain('color: var(--title-accent)');
+    expect(perk).toContain('font-weight: 600');
   });
   it('out-ranks the 1em symbol rule for the avatar glyph', () => {
     expect(css).toContain('.rl-avatar .rl-avatar__glyph.rl-sym {');
