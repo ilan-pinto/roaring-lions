@@ -90,7 +90,8 @@ describe('the ambush arms are three different games, on the same tiles', () => {
     });
   });
 
-  it('fire together: A opens with far more of the ring inside a second than B or C, over three seeds', () => {
+  // 2.8 s unloaded, 4.3 s+ under CPU load: over the 5 s default once another suite runs. 15 s = 3x the worst.
+  it('fire together: A opens with far more of the ring inside a second than B or C, over three seeds', { timeout: 15_000 }, () => {
     const games = (arm: 'A' | 'B' | 'C') => [0, 1, 2].map((n) => playAmbush(arm, seedOf(n), 'head'));
     const [a, b, c] = (['A', 'B', 'C'] as const).map((arm) => read(games(arm)));
     expect(TOGETHER_TICKS).toBe(20);

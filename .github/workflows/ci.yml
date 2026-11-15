@@ -80,15 +80,53 @@ jobs:
       # Version pinned to match the Blender.app used for local dev (CLAUDE.md,
       # "Blender 5.2.0 LTS"), same reasoning render_rig.py's rig-lock comment
       # gives for every other CI-vs-local mismatch risk in this pipeline.
+      # The archive is cached (key = exact version + checksum, so a version bump
+      # is a new key) and the download retries, then falls back to two mirrors of
+      # the same file. Every path ends in the same SHA-256 check, so a cached or
+      # mirrored file that is not byte-identical is rejected. 14 Nov: three PRs
+      # red on `curl: (22) ... 403` from download.blender.org, no code at fault.
+      - name: Cache Blender archive (mesh gate)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/blender-cache
+          key: blender-5.2.0-linux-x64-96f6c181a30f
       - name: Install Blender (mesh gate)
         run: |
-          curl -fsSL -o /tmp/blender.tar.xz \
-            https://download.blender.org/release/Blender5.2/blender-5.2.0-linux-x64.tar.xz
+          set -u
+          ARCHIVE="$HOME/blender-cache/blender-5.2.0-linux-x64.tar.xz"
           # SHA-256 as published at
           # https://download.blender.org/release/Blender5.2/blender-5.2.0.sha256
-          echo "96f6c181a30f4950607839dc84d42a354b250d8a0231b098b59b7bc69c351c48  /tmp/blender.tar.xz" | sha256sum -c -
-          mkdir -p /opt/blender
-          tar -xf /tmp/blender.tar.xz -C /opt/blender --strip-components=1
+          SUM="96f6c181a30f4950607839dc84d42a354b250d8a0231b098b59b7bc69c351c48"
+          PATH_PART="release/Blender5.2/blender-5.2.0-linux-x64.tar.xz"
+          mkdir -p "$HOME/blender-cache"
+          if [ -f "$ARCHIVE" ] && ! echo "$SUM  $ARCHIVE" | sha256sum -c - >/dev/null 2>&1; then
+            echo "cached archive fails its checksum; discarding it"
+            rm -f "$ARCHIVE"
+          fi
+          if [ ! -f "$ARCHIVE" ]; then
+            ok=0
+            for round in 1 2 3; do
+              for base in https://download.blender.org https://mirrors.ocf.berkeley.edu/blender https://ftp.nluug.nl/pub/graphics/blender; do
+                echo "downloading from $base (round $round)"
+                if curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --max-time 600 \
+                     -o "$ARCHIVE.part" "$base/$PATH_PART" \
+                   && echo "$SUM  $ARCHIVE.part" | sha256sum -c -; then
+                  mv "$ARCHIVE.part" "$ARCHIVE"
+                  ok=1
+                  break 2
+                fi
+                rm -f "$ARCHIVE.part"
+              done
+              sleep 30
+            done
+            if [ "$ok" != 1 ]; then
+              echo "::error::Blender 5.2.0 could not be downloaded and verified from any source"
+              exit 1
+            fi
+          fi
+          echo "$SUM  $ARCHIVE" | sha256sum -c -
+          sudo mkdir -p /opt/blender
+          sudo tar -xf "$ARCHIVE" -C /opt/blender --strip-components=1
           echo "/opt/blender" >> "$GITHUB_PATH"
       - run: pnpm validate:meshes
       - run: pnpm validate:ui
