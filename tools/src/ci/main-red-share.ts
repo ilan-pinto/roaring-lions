@@ -2,7 +2,7 @@
 //
 //   npx tsx tools/src/ci/main-red-share.ts [--days=7] [--repo=owner/name] [--now=2026-11-15T12:00:00Z]
 //
-// Reads the workflow's runs through `gh api` (REST; GraphQL is not used), counts the runs that FINISHED on main, and prints one line:
+// Reads the workflow's runs through `gh api` (REST; GraphQL is not used), one query per UTC day (a filtered query is capped at 1,000 results), counts the runs that FINISHED on main, and prints one line:
 //
 //   CI red share on main, 7 days to 2026-11-15: 2 of 31 finished `ci` runs red (6.5%; target under 3%).
 //
@@ -72,20 +72,39 @@ function gh(args: readonly string[]): string {
   return execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 });
 }
 
-/** Every `ci.yml` push run on main created on or after `sinceMs`, newest first, a page of 100 at a time. */
-export function fetchRuns(repo: string, sinceMs: number, run: (args: readonly string[]) => string = gh): WorkflowRun[] {
-  const since = new Date(sinceMs).toISOString().slice(0, 10);
+/** GitHub answers at most this many results for a filtered query (`branch`, `event`, `created` are filters), however many pages are asked for. */
+export const FILTERED_QUERY_CAP = 1000;
+
+/** The UTC dates from the day of `sinceMs` to the day of `untilMs`, inclusive. */
+export function utcDays(sinceMs: number, untilMs: number): string[] {
+  const days: string[] = [];
+  for (let t = Date.parse(new Date(sinceMs).toISOString().slice(0, 10)); t <= untilMs; t += DAY_MS) days.push(new Date(t).toISOString().slice(0, 10));
+  return days;
+}
+
+/**
+ * Every `ci.yml` push run on main created from the day of `sinceMs` to the day of `untilMs`. One query per UTC DAY, a page of 100 at a time:
+ * a filtered query returns at most 1,000 results (`FILTERED_QUERY_CAP`) and more pages cannot reach past it, so a wide window in one query
+ * would silently count only its newest runs. A day whose `total_count` is over the cap throws, so a share is never computed from part of a day.
+ */
+export function fetchRuns(repo: string, sinceMs: number, untilMs: number, run: (args: readonly string[]) => string = gh): WorkflowRun[] {
   const out: WorkflowRun[] = [];
-  for (let page = 1; page <= 20; page++) {
-    const body = run([
-      'api', '-X', 'GET', `repos/${repo}/actions/workflows/ci.yml/runs`,
-      '-f', 'branch=main', '-f', 'event=push', '-f', `created=>=${since}`, '-f', 'per_page=100', '-f', `page=${page}`,
-      '--jq', '{workflow_runs: [.workflow_runs[] | {status, conclusion, created_at, head_branch, event}]}',
-    ]);
-    const parsed = JSON.parse(body) as { workflow_runs?: WorkflowRun[] };
-    const runs = parsed.workflow_runs ?? [];
-    out.push(...runs);
-    if (runs.length < 100) break;
+  for (const day of utcDays(sinceMs, untilMs)) {
+    // A day under the cap fits in 10 pages of 100; the 11th is the guard against a source that never returns a short page.
+    for (let page = 1; page <= FILTERED_QUERY_CAP / 100 + 1; page++) {
+      const body = run([
+        'api', '-X', 'GET', `repos/${repo}/actions/workflows/ci.yml/runs`,
+        '-f', 'branch=main', '-f', 'event=push', '-f', `created=${day}`, '-f', 'per_page=100', '-f', `page=${page}`,
+        '--jq', '{total_count, workflow_runs: [.workflow_runs[] | {status, conclusion, created_at, head_branch, event}]}',
+      ]);
+      const parsed = JSON.parse(body) as { total_count?: number; workflow_runs?: WorkflowRun[] };
+      if (page === 1 && (parsed.total_count ?? 0) > FILTERED_QUERY_CAP) {
+        throw new Error(`${day}: ${parsed.total_count} runs, over GitHub's ${FILTERED_QUERY_CAP}-result cap for a filtered query; the share cannot be computed from part of a day`);
+      }
+      const runs = parsed.workflow_runs ?? [];
+      out.push(...runs);
+      if (runs.length < 100) break;
+    }
   }
   return out;
 }
@@ -99,21 +118,37 @@ function repoFromRemote(): string {
   return m[1];
 }
 
+export interface Options {
+  readonly days: number;
+  readonly now: string | undefined;
+  readonly repo: string | undefined;
+}
+
+/** `--days=N`, `--now=ISO`, `--repo=owner/name`: each needs `=value`. Anything else (a bare `--now`, `--days 30`, an unknown flag) is refused, never defaulted. */
+export function parseArgs(argv: readonly string[]): Options | string {
+  const seen: Record<string, string> = {};
+  for (const a of argv) {
+    const m = /^--(days|now|repo)=(.+)$/.exec(a);
+    if (m?.[1] === undefined || m[2] === undefined) return `unknown or incomplete option "${a}" (use --days=N, --now=ISO, --repo=owner/name)`;
+    seen[m[1]] = m[2];
+  }
+  const days = Number(seen.days ?? '7');
+  if (!Number.isInteger(days) || days < 1 || days > 90) return '--days must be a whole number from 1 to 90';
+  if (seen.now !== undefined && !Number.isFinite(Date.parse(seen.now))) return '--now is not a date';
+  return { days, now: seen.now, repo: seen.repo };
+}
+
 function main(argv: readonly string[]): number {
-  const value = (name: string): string | undefined => argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
-  const days = Number(value('days') ?? '7');
-  if (!Number.isInteger(days) || days < 1 || days > 90) {
-    console.error('[main-red-share] --days must be a whole number from 1 to 90');
+  const opts = parseArgs(argv);
+  if (typeof opts === 'string') {
+    console.error(`[main-red-share] ${opts}`);
     return 2;
   }
-  const nowMs = value('now') === undefined ? Date.now() : Date.parse(value('now') as string);
-  if (!Number.isFinite(nowMs)) {
-    console.error('[main-red-share] --now is not a date');
-    return 2;
-  }
+  const { days } = opts;
+  const nowMs = opts.now === undefined ? Date.now() : Date.parse(opts.now);
   try {
-    const repo = value('repo') ?? repoFromRemote();
-    const runs = fetchRuns(repo, nowMs - days * DAY_MS);
+    const repo = opts.repo ?? repoFromRemote();
+    const runs = fetchRuns(repo, nowMs - days * DAY_MS, nowMs);
     console.log(ledgerLine(redShare(runs, nowMs, days), nowMs, days));
     return 0;
   } catch (e) {

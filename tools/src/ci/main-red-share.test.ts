@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RED_SHARE_TARGET, fetchRuns, ledgerLine, redShare, type WorkflowRun } from './main-red-share';
+import { FILTERED_QUERY_CAP, RED_SHARE_TARGET, fetchRuns, ledgerLine, parseArgs, redShare, utcDays, type WorkflowRun } from './main-red-share';
 
 const NOW = Date.parse('2026-11-15T12:00:00Z');
 const ago = (days: number): string => new Date(NOW - days * 86_400_000).toISOString();
@@ -57,23 +57,83 @@ describe('ledgerLine', () => {
   });
 });
 
+describe('utcDays', () => {
+  it('lists each UTC date from the first day to the last, inclusive', () => {
+    expect(utcDays(Date.parse('2026-11-08T23:59:00Z'), Date.parse('2026-11-10T00:01:00Z'))).toEqual(['2026-11-08', '2026-11-09', '2026-11-10']);
+    expect(utcDays(Date.parse('2026-11-15T00:00:00Z'), Date.parse('2026-11-15T12:00:00Z'))).toEqual(['2026-11-15']);
+    // A window that ends exactly at midnight still includes that day: a run created at 00:00:00 is inside it.
+    expect(utcDays(Date.parse('2026-11-13T05:00:00Z'), Date.parse('2026-11-15T00:00:00Z'))).toEqual(['2026-11-13', '2026-11-14', '2026-11-15']);
+  });
+});
+
 describe('fetchRuns', () => {
-  it('asks for ci.yml pushes to main since the day, and pages until a short page', () => {
-    const calls: string[][] = [];
-    const page = (n: number): string => JSON.stringify({ workflow_runs: Array.from({ length: n }, () => run({})) });
-    const replies = [page(100), page(100), page(3)];
-    const got = fetchRuns('o/r', NOW - 7 * 86_400_000, (args) => {
-      calls.push([...args]);
+  const reply = (n: number, total = n): string => JSON.stringify({ total_count: total, workflow_runs: Array.from({ length: n }, () => run({})) });
+
+  it('asks for ci.yml pushes to main ONE DAY at a time, with total_count in the projection', () => {
+    const calls: string[] = [];
+    const got = fetchRuns('o/r', Date.parse('2026-11-13T05:00:00Z'), Date.parse('2026-11-15T12:00:00Z'), (args) => {
+      calls.push(args.join(' '));
+      return reply(2);
+    });
+    expect(got).toHaveLength(6);
+    expect(calls).toHaveLength(3);
+    expect(calls.map((c) => /created=(\S+)/.exec(c)?.[1])).toEqual(['2026-11-13', '2026-11-14', '2026-11-15']);
+    for (const c of calls) {
+      expect(c).toContain('repos/o/r/actions/workflows/ci.yml/runs');
+      expect(c).toContain('branch=main');
+      expect(c).toContain('event=push');
+      expect(c).toContain('total_count');
+    }
+  });
+
+  it('pages within a day until a short page', () => {
+    const replies = [reply(100, 203), reply(100, 203), reply(3, 203)];
+    const calls: string[] = [];
+    const got = fetchRuns('o/r', Date.parse('2026-11-15T00:00:00Z'), Date.parse('2026-11-15T12:00:00Z'), (args) => {
+      calls.push(args.join(' '));
       return replies[calls.length - 1] as string;
     });
     expect(got).toHaveLength(203);
     expect(calls).toHaveLength(3);
-    const first = calls[0].join(' ');
-    expect(first).toContain('repos/o/r/actions/workflows/ci.yml/runs');
-    expect(first).toContain('branch=main');
-    expect(first).toContain('event=push');
-    expect(first).toContain('created=>=2026-11-08');
-    expect(first).toContain('--jq');
-    expect(calls[2].join(' ')).toContain('page=3');
+    expect(calls[2]).toContain('page=3');
+  });
+
+  it('a day AT the cap is read whole: ten full pages, then the empty one that ends it', () => {
+    let n = 0;
+    const got = fetchRuns('o/r', Date.parse('2026-11-15T00:00:00Z'), Date.parse('2026-11-15T12:00:00Z'), () => (++n <= 10 ? reply(100, FILTERED_QUERY_CAP) : reply(0, FILTERED_QUERY_CAP)));
+    expect(got).toHaveLength(FILTERED_QUERY_CAP);
+    expect(n).toBe(11);
+  });
+
+  it('a source that never returns a short page cannot loop forever: paging stops after the 11th', () => {
+    let n = 0;
+    const got = fetchRuns('o/r', Date.parse('2026-11-15T00:00:00Z'), Date.parse('2026-11-15T12:00:00Z'), () => (++n, reply(100, FILTERED_QUERY_CAP)));
+    expect(n).toBe(11);
+    expect(got).toHaveLength(1100);
+  });
+
+  it(`refuses a day over GitHub's ${FILTERED_QUERY_CAP}-result cap rather than count part of it`, () => {
+    expect(() => fetchRuns('o/r', Date.parse('2026-11-15T00:00:00Z'), Date.parse('2026-11-15T12:00:00Z'), () => reply(100, FILTERED_QUERY_CAP + 1))).toThrow(/2026-11-15: 1001 runs, over GitHub's 1000-result cap/);
+    // Exactly at the cap is complete and is allowed.
+    expect(() => fetchRuns('o/r', Date.parse('2026-11-15T00:00:00Z'), Date.parse('2026-11-15T12:00:00Z'), () => reply(2, FILTERED_QUERY_CAP))).not.toThrow();
+  });
+});
+
+describe('parseArgs', () => {
+  it('defaults only when an option is absent', () => {
+    expect(parseArgs([])).toEqual({ days: 7, now: undefined, repo: undefined });
+    expect(parseArgs(['--days=30', '--now=2026-11-15T12:00:00Z', '--repo=o/r'])).toEqual({ days: 30, now: '2026-11-15T12:00:00Z', repo: 'o/r' });
+  });
+
+  it.each([['a separated operand', ['--days', '30']], ['a bare --now', ['--now']], ['a bare --repo', ['--repo']], ['a bare --days', ['--days']], ['an empty operand', ['--days=']], ['an unknown flag', ['--week=1']], ['a stray word', ['30']]])(
+    'refuses %s instead of defaulting',
+    (_why, argv) => {
+      expect(typeof parseArgs(argv)).toBe('string');
+    }
+  );
+
+  it('refuses a days value out of range or not whole, and a now that is not a date', () => {
+    for (const bad of ['--days=0', '--days=91', '--days=1.5', '--days=abc']) expect(typeof parseArgs([bad]), bad).toBe('string');
+    expect(parseArgs(['--now=yesterday'])).toBe('--now is not a date');
   });
 });
