@@ -51,7 +51,8 @@ export default defineConfig({
     assetWatchPlugin(),
     // GH-1406 part 4: `data/locales/<lang>/{missions,units}.json` served at `/locales/<lang>/...`, where the overlay loaders fetch them
     // (the publicDir is `assets/`, which holds no locales). Dev middleware and build assets; the set is derived from the directory.
-    localesPlugin(new URL('../../data/locales/', import.meta.url)),
+    // ...and the chrome catalogue `loadLocale` fetches at `/locales/<id>.json`, a sibling of `src/i18n/en.json` (none ships yet).
+    localesPlugin(new URL('../../data/locales/', import.meta.url), new URL('./src/i18n/', import.meta.url)),
   ],
   // Build-time constant: no runtime fetch, and it works the same on Pages.
   define: {

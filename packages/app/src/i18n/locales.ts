@@ -8,7 +8,10 @@
  *
  * Only `en` ships today -- `loadLocale` for anything else fetches a JSON file
  * under `${base}locales/` that does not exist yet and falls back to the
- * bundled `en` catalogue rather than leaving a screen with raw keys.
+ * bundled `en` catalogue rather than leaving a screen with raw keys. That file
+ * is `packages/app/src/i18n/<id>.json`, beside `en.json`:
+ * `vite-plugin-locales.ts` serves it at `locales/<id>.json` in dev and emits it
+ * in the build.
  */
 import type { Catalogue } from './t';
 import en from './en.json';
