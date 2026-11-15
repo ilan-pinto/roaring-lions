@@ -37,7 +37,7 @@ Hebrew and Arabic: the survey excerpts I found carry no figure for either, so I 
 | Company of Heroes 3 (Relic) | 15 per SteamDB, including French, Italian, German, Spanish, Czech, Korean, Polish, with Japanese, Russian, Brazilian Portuguese, both Chinese and Turkish on other listings | English only | SteamDB `ufs`, Steam community thread (listings disagree) |
 | Broken Arrow (Steel Balalaika / Slitherine) | 13 | English full; others interface and subtitles, audio unclear | SteamDB `ufs`, press release names English, Russian, French, Italian, German, Spanish |
 
-The pattern: **text-only localisation, English voice**, and a core of French, German, Spanish, Russian plus Simplified Chinese. WARNO, the nearest in scale and in being a modern-combat RTS, ships exactly that six. None of the three lists Hebrew or Arabic.
+The pattern: **text-only localisation, English the only fully voiced language**, and a core of French, German, Spanish, Russian plus Simplified Chinese. WARNO, the nearest in scale and in being a modern-combat RTS, ships exactly that six. None of the three lists Hebrew or Arabic.
 
 ## 3. What there is to translate today
 
@@ -50,7 +50,7 @@ Counted from the generated files on this branch (`packages/app/src/i18n/en.json`
 | Units (50 units: name, blurb) | 83 | 650 | |
 | **Total** | **2,663** | **31,962** | about 32,000 words |
 
-Two honest adjustments. The briefing sections (5,252 words) are the same sentences as the briefing (5,860 words) split into labelled parts, and the validator requires the translated sections to join to the translated briefing exactly, so a translator translates the sections once and the briefing is their join: **real new words are about 26,700**, and a vendor should be briefed to translate the sections only. And not in these numbers: the Steam store page (roughly 1,000 to 2,000 words, not drafted), the credits, anything in `data/campaign/` or other data files that is not overlaid yet (a sweep has not been done; the three catalogues are what the overlay system can carry today), and voice (there is none to translate).
+Two honest adjustments. The briefing sections (5,252 words) are the same sentences as the briefing (5,860 words) split into labelled parts, and the validator requires the translated sections to join to the translated briefing exactly, so a translator translates the sections once and the briefing is their join: **real new words are about 26,700**, and a vendor should be briefed to translate the sections only. And not in these numbers: the Steam store page (roughly 1,000 to 2,000 words, not drafted), the credits, anything in `data/campaign/` or other data files that is not overlaid yet (a sweep has not been done; the three catalogues are what the overlay system can carry today), and voice. Voice is not a translation task here: `data/audio.json` `voices` is organised by faction language, not by player language (KDF `he`, the three enemy doctrines `ar`), 52 line slots of which 24 files exist on disk under `assets/audio/voice/he`, none yet for `ar`. These are the in-world languages of the setting and play the same under every UI language; what localises is their caption (an `i18n` key), which is chrome. Whether recorded Hebrew and Arabic barks sit comfortably under a Simplified Chinese UI is a design question for the lead, not a cost line.
 
 The tooling is ready for this: the overlay loads per locale, the generated English templates carry a source-hash per string (GH-1406 part 5, so an English edit after translation goes red), and caps are enforced (trigger label 48 characters, radio line, dispatch and aftermath 240, hostage place 40). German and Russian often run longer than English, so the caps will bite; the validator tells the translator which line.
 
@@ -107,7 +107,7 @@ Per shipped language, in this order:
 | # | Decision | Recommended default |
 |---|---|---|
 | D1 | The launch set | **Five: Simplified Chinese, Russian, German, French, Spanish (Spain).** This is WARNO's set minus English and keeps the three cheapest-to-render Latin languages (de, fr, es) beside the two biggest by share. Add Brazilian Portuguese (4%, shares a pipeline with Spanish) as the first post-launch language. Japanese, Polish and Turkish follow on wishlist data. |
-| D2 | Depth | **Text only, English voice**, as WARNO, Company of Heroes 3 and Broken Arrow ship. |
+| D2 | Depth | **Text only**: no recorded voice per player language (the faction barks stay Hebrew and Arabic, captioned in the UI language), as WARNO, Company of Heroes 3 and Broken Arrow ship English-only audio. |
 | D3 | Method | **Human translation plus proofreading for mission text; machine plus post-edit allowed for chrome and units.** No community translation for launch. |
 | D4 | Store page | **Translate the five store pages first**, before the game text: cheapest, and Steam ranks by supported language. |
 | D5 | RTL (Hebrew, Arabic) | **Not in the first wave.** Keep `?pseudo=rtl` and the logical-properties guard as the groundwork; revisit with the lead and lawyer (section 5), and decide whether the GDD's "English and Hebrew" line still stands. |
@@ -129,7 +129,7 @@ Per shipped language, in this order:
 - Localisation priority guides (vendor, indicative): [uhiyama-lab, Steam priority guide](https://uhiyama-lab.com/en/blog/gamedev/steam-game-localization-language/), [Steam Page Analyzer](https://www.steampageanalyzer.com/blog/steam-localization-languages), [GameDiscoverCo case study](https://www.gamedeveloper.com/game-platforms/case-study-how-localization-amps-up-game-discovery).
 - Comparable titles: [WARNO on SteamDB](https://steamdb.info/app/1611600), [Company of Heroes 3 on SteamDB](https://steamdb.info/app/1677280/ufs), [Broken Arrow on SteamDB](https://steamdb.info/app/1604270/ufs), [Broken Arrow press release](https://www.gamedeveloper.com/press-release/broken-arrow-everything-we-know-so-far).
 - Rates: [Allcorrect pricing](https://allcorrectgames.com/localization-pricing/), [LocalizeDirect: which languages](https://localizedirect.com/posts/which-languages), [Pangea: game localization cost](https://www.pangea.global/blog/game-localization-cost-budget-planning-and-roi-for-studios/), [Game Developer: how much does localisation cost](https://www.gamedeveloper.com/programming/how-much-does-game-localization-cost-), [Centus](https://centus.com/blog/localization-costs).
-- This repository: `docs/GDD.md` sections 2 and 10; `data/locales/README.md`; `packages/app/src/i18n/locales.ts`; `assets/fonts/`; `docs/agent-notes/shell-and-ui.md` (ui:shots, pseudo-RTL).
+- This repository: `docs/GDD.md` sections 2 and 10; `data/audio.json` `voices`; `data/locales/README.md`; `packages/app/src/i18n/locales.ts`; `assets/fonts/`; `docs/agent-notes/shell-and-ui.md` (ui:shots, pseudo-RTL).
 
 ---
 
