@@ -10,6 +10,7 @@ import { factionsBySide, versusSpawns } from './versus-force';
 import { versusRoster } from './versus-roster';
 import { seatSpecials, spawnSpecials, STORE_SPECIAL_IDS } from './versus-specials';
 import { unitCost } from './outcome';
+import { localizedUnit } from '../unit-text';
 
 /** One unit of the shipped roster, as the prepass takes and returns it. */
 export type RosterUnit = (typeof units)[keyof typeof units];
@@ -136,7 +137,7 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
     upgradePrepass(walked, seatKitTiers(seats[1], walked)),
   ] as const;
   const typeOf = new Map<string, number>();
-  for (let k = 0; k < roster.length; k++) typeOf.set(roster[k].id, sim.addUnitType(kitBySide[0].registered[k]));
+  for (let k = 0; k < roster.length; k++) typeOf.set(roster[k].id, sim.addUnitType(localizedUnit(kitBySide[0].registered[k])));
   const typeOf1 = new Map(typeOf);
   // Side 1's copy of the type at `walked[k]`, where its kit differs from side 0's.
   const copyForSide1 = (k: number): void => {
@@ -147,11 +148,11 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
     // so it never draws one kit on an id whose two sim types differ, nor loads
     // a second template for an id whose two sim types are one.
     if (sameTrackTiers(kitBySide[0].unitKitTiers[u.id], kitBySide[1].unitKitTiers[u.id])) return;
-    typeOf1.set(u.id, sim.addUnitType(kitBySide[1].registered[k]));
+    typeOf1.set(u.id, sim.addUnitType(localizedUnit(kitBySide[1].registered[k])));
   };
   for (let k = 0; k < roster.length; k++) copyForSide1(k);
   for (let k = roster.length; k < walked.length; k++) {
-    const t = sim.addUnitType(kitBySide[0].registered[k]);
+    const t = sim.addUnitType(localizedUnit(kitBySide[0].registered[k]));
     typeOf.set(walked[k].id, t);
     typeOf1.set(walked[k].id, t);
   }

@@ -389,6 +389,7 @@ import type { VersusDeps } from './ui/versus';
 import { LOCALES, applyLocale, loadLocale, resolveLang } from './i18n/locales';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo } from './i18n/pseudo';
+import { loadUnitOverlay, localizedUnit, setUnitOverlay, unitName as textUnitName } from './unit-text';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -930,6 +931,8 @@ async function main(): Promise<void> {
   const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
   const cat = await loadLocale(activeLocale, BASE);
   setCatalogue(activeLocale, cat, q.has('pseudo') ? pseudo : undefined);
+  // GH-1406: unit names and blurbs, from data/locales/<lang>/units.json. Mission text is data and is not pseudo-transformed; neither is this.
+  setUnitOverlay(await loadUnitOverlay(lang, BASE));
   applyLocale(document.documentElement, lang);
   // Dev-only: which keys a screen walk asked for and never got, without
   // scraping console output for `[i18n] missing key: …` lines.
@@ -1184,7 +1187,7 @@ async function main(): Promise<void> {
         .filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
         .map((u) => ({
           id: u.id,
-          name: u.name,
+          name: localizedUnit(u).name,
           role: u.role,
           unlock: kdfUnlockGate(u, bought),
           ...kdfBrigadeTraits(u),
@@ -2218,7 +2221,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // patched copy, because cost is not patchable.
   if (versusWorld === null) {
     for (const registered of prepass.registered) {
-      typeOf.set(registered.id, sim.addUnitType(registered));
+      typeOf.set(registered.id, sim.addUnitType(localizedUnit(registered)));
     }
     // GH-859 P1a: the combat formations, after the unit types and in `formations`' own order (a group row's type is
     // an INDEX into this table). Config, not state: it moves no hash until a formation is ordered. A versus room's
@@ -2765,7 +2768,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // reaches that call, so its briefing must not promise a secondary pays
   // credits when nothing will pay them.
   const paysCredits = mission !== undefined && mission.ledger.produces.length > 0;
-  const unitName = (id: string): string => units[id as keyof typeof units]?.name ?? id;
+  const unitName = (id: string): string => textUnitName(id);
   // Deploy as a decision (spec Decision 4; plan R-3). The view reads
   // `resolvedMission` for the same reason `broughtFor` does: `upgrades_to` and
   // `gate_only` change which placements draw from the ledger (pre-flight P3).
@@ -3724,7 +3727,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (record === undefined) return undefined;
       return {
         ...(record.name !== undefined ? { name: record.name } : {}),
-        type: units[record.type as keyof typeof units]?.name ?? record.type,
+        type: textUnitName(record.type),
       };
     },
     setSelection: (ids) => {
@@ -4557,7 +4560,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           const bucket = simType === undefined ? ('soft' as const) : roleBucket(simType);
           return {
             id: u.id,
-            name: u.name,
+            name: localizedUnit(u).name,
             logistics: u.cost.logistics,
             // The runtime's own default when a unit declares none, so the
             // tooltip's `· 30s` and the bar it fills are one number.
@@ -4571,7 +4574,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // The same one read the chips and the card make.
             kit: kitLevelOf(u.id),
             tags: doctrineTags(bucket, abilities),
-            blurb: 'blurb' in u ? (u.blurb as string) : undefined,
+            blurb: 'blurb' in u ? localizedUnit(u as { id: string; blurb?: string }).blurb : undefined,
             // What it takes of the population cap (schema default 1, a drone 0) --
             // the same read `unitInfo` above hands the runtime. Only words the
             // capped tile's "needs N" line; the cap itself is the runtime's call.
@@ -5343,6 +5346,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission: resolvedMission ?? null,
     map,
     units: units as Readonly<Record<string, { name?: string } | undefined>>,
+    unitName: textUnitName,
     placeOf: (x, y) => placeOnScreen(renderer.worldToScreen(x, y), canvas.clientWidth, canvas.clientHeight),
     viewer: me,
   });
@@ -6111,7 +6115,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   // The same lookup `alertWorld.unitName` uses (spec §4.7's own
                   // convention), so a feed line, a briefing line and a debrief row
                   // all name a unit the same way.
-                  displayName: (typeId) => units[typeId as keyof typeof units]?.name ?? typeId,
+                  displayName: (typeId) => textUnitName(typeId),
                 })
               : null;
           const updatedLedger: CampaignLedger = carryover ? carryover.ledger : { ...ledger, ...mev.ledger };
@@ -6221,7 +6225,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               .filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
               .map((u) => ({
                 id: u.id,
-                name: u.name ?? u.id,
+                name: localizedUnit(u).name ?? u.id,
                 unlock: kdfUnlockGate(u, boughtUnits),
               }));
             const tier = tierLine(runtime.stars);
@@ -6275,7 +6279,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                       : { name: u.name, why: t('aar.unlock.conduct', { was, now }) };
                   })
                 : [];
-            const typeName = (id: string): string => units[id as keyof typeof units]?.name ?? id;
+            const typeName = (id: string): string => textUnitName(id);
             // GH-417 (H5): the after-action report. Its words are
             // `after-action.ts`'s; the log is what this run remembered.
             const report = afterAction({

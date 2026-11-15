@@ -39,7 +39,7 @@
  * DOM through `textContent` only, never through markup (the lobby chat is
  * `NetChat`, which keeps to that too).
  */
-import { flagBlockOf, units, versusModes } from '@lions/data';
+import { flagBlockOf, versusModes } from '@lions/data';
 import { labelsOf, nameFrom, seatLabel, type SeatLabel } from '../net/seat-label';
 import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, flagSetupFor, flagSetupRoom, specialRefusal, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
@@ -55,6 +55,7 @@ import { footBack, screenFoot } from './foot';
 import { stagger } from './motion';
 import { NetChat } from './net-chat';
 import { symbolLabel } from './symbol';
+import { unitName } from '../unit-text';
 import { factionArt, factionBlurb, factionName, friendSide, hostSide, matchupLabel } from './versus-faction';
 import { mapCard, mapPicture, pairsBoth, splitMapLabel } from './versus-ground';
 
@@ -119,7 +120,7 @@ export function advisorCommand(origin: string, code: string, scope: AdvisorScope
 }
 
 /** A unit's name, as its JSON gives it (data, like the Garage's names); the id when it has none. */
-const unitNameOf = (id: string): string => (units as Readonly<Record<string, { name?: string } | undefined>>)[id]?.name ?? id;
+const unitNameOf = (id: string): string => unitName(id);
 
 /**
  * GH-1102: the line-up one seat brings into a brigade room, as the room said (`SeatState.specials`):
