@@ -13,6 +13,7 @@
  */
 import { unlockReason, type LedgerData, type MissionJson, type MissionResult, type UnlockGate } from '@lions/sim';
 import { gateRequirement, gateSentence } from './gate-sentence';
+import { t } from './i18n/t';
 import { parseWorld, townProgress, type ParsedWorld, type WorldRegion, type WorldTown } from '@lions/economy';
 
 // The world's types and parser live in the economy package (GH-1075 A0); every name stays importable from here.
@@ -594,10 +595,11 @@ export function hostagesAccount(
   return { taken: world.taken, recovered };
 }
 
-const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
-  'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
-const asWords = (n: number): string => (n >= 0 && n < WORDS.length ? WORDS[n] : String(n));
-const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+// Count words 0..20 come from the catalogue (`world.hostages.n0` .. `n20`,
+// capitalised: every use starts a sentence); past twenty, the digits. Resolved
+// per call, never at module load, so a locale switch is honoured.
+const asWords = (n: number): string =>
+  Number.isInteger(n) && n >= 0 && n <= 20 ? t(`world.hostages.n${n}`) : String(n);
 
 /**
  * The menu's Continue/Start target (Task 7): the tutorial while it is still
@@ -643,7 +645,7 @@ export function hostagesLine(
   last?: { count: number; place: string }
 ): string {
   const out = account.taken - account.recovered;
-  const head = out <= 0 ? 'Nobody still out.' : `${cap(asWords(out))} still out.`;
+  const head = out <= 0 ? t('world.hostages.none') : t('world.hostages.out', { count: asWords(out) });
   if (!last || last.count <= 0) return head;
-  return `${head} ${cap(asWords(last.count))} came back at ${last.place}.`;
+  return t('world.hostages.back', { head, count: asWords(last.count), place: last.place });
 }

@@ -4,6 +4,9 @@
 // DOM. Everything else in this file is pure and does not care.
 
 import { describe, expect, it } from 'vitest';
+import en from '../i18n/en.json';
+import { pseudo } from '../i18n/pseudo';
+import { setCatalogue } from '../i18n/t';
 import { ACTIONS, PLAYER_ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, rebind, resolveKey, shouldYieldSpace, supportKeyTarget, unloadPress } from './keymap';
 import { SUPPORT, SUPPORT_KINDS } from '../ui/support-kinds';
 
@@ -71,6 +74,18 @@ describe('keymap', () => {
     expect(keyLabel(' ')).toBe('Space');
     expect(keyLabel('escape')).toBe('Esc');
     expect(keyLabel('tab')).toBe('Tab');
+    expect(keyLabel('enter')).toBe('Enter');
+    expect(keyLabel('delete')).toBe('Del');
+  });
+  it('word keycaps go through the catalogue and glyph keycaps stay glyphs (GH-1079)', () => {
+    try {
+      setCatalogue('pseudo', en, pseudo);
+      for (const k of ['space', ' ', 'escape', 'tab', 'enter', 'delete']) expect(keyLabel(k)).toContain('⟦');
+      expect(keyLabel('arrowup')).toBe('↑');
+      expect(keyLabel('h')).toBe('H');
+    } finally {
+      setCatalogue('en', en);
+    }
   });
   it('every action in ACTIONS has a distinct default key within its modifier class', () => {
     const plain = ACTIONS.filter((a) => a.modifier === undefined).map((a) => a.key);
