@@ -42,10 +42,7 @@ export interface ProfileDeps {
   signOut?: (logout: () => Promise<'ok' | AccountError>) => Promise<void>;
   /** After the account was deleted here: stop the sync loop and clear the cache and every outbox and tab key of that member. */
   wipeDeleted?: () => void;
-  /**
-   * The guest-to-account claim (GH-1075 A2). Given only on a guest boot (accounts on, no claimed binding): `guest` is the
-   * device's own store, `download` saves a file, `onClaimed` re-enters the app so the server-backed store is chosen.
-   */
+  /** The Roar coins card (GH-1370 C3). Absent: no card. */
   coins?: {
     /** `() => ledgerStore.readRoar()`: the closure the Stores' wallet reads, so the card and the Stores cannot disagree. */
     read: () => RoarWallet;
@@ -55,6 +52,10 @@ export interface ProfileDeps {
     available: boolean;
     coinSrc: (size: 48) => string;
   };
+  /**
+   * The guest-to-account claim (GH-1075 A2). Given only on a guest boot (accounts on, no claimed binding): `guest` is the
+   * device's own store, `download` saves a file, `onClaimed` re-enters the app so the server-backed store is chosen.
+   */
   claim?: { guest: LedgerStore; download: (name: string, json: string) => void; onClaimed: () => void; now?: () => number };
 }
 
