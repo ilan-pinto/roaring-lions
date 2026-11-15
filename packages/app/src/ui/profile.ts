@@ -200,8 +200,8 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     img.className = 'rl-profile__g';
     img.src = GOOGLE_G_SRC;
     img.alt = '';
-    img.width = 18;
-    img.height = 18;
+    img.width = 20;
+    img.height = 20;
     return img;
   };
   /** A provider's sign-in or sign-up button. Steam keeps the plain keys; Google's carries its mark and its own wording. */
