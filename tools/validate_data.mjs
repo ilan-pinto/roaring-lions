@@ -60,6 +60,7 @@ import {
   commanderRankFailures,
   narrativeTextFailures,
   overlayFailures,
+  unitOverlayFailures,
   removeTriggerFailures,
   triggerLabelFailures,
 } from './validate_narrative.mjs';
@@ -1204,6 +1205,23 @@ const garrisonableSymbols = new Set(
     const overlay = loadJson(file);
     if (!overlay) continue;
     failures.push(...overlayFailures(rel(file), overlay, missionsById));
+    checked += 1;
+  }
+}
+
+// --- unit-text locale overlays (GH-1406) ------------------------------------
+// data/locales/<lang>/units.json: `name` and `blurb` per unit id, every id a real unit (`unitOverlayFailures`).
+{
+  const unitIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.id) unitIds.add(u.id);
+  }
+  for (const file of jsonFilesIn(join(ROOT, 'data/locales'))) {
+    if (!file.endsWith('units.json')) continue;
+    const overlay = loadJson(file);
+    if (!overlay) continue;
+    failures.push(...unitOverlayFailures(rel(file), overlay, unitIds));
     checked += 1;
   }
 }
