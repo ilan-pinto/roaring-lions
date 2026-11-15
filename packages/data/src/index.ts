@@ -98,6 +98,8 @@ import wadiTarfanModes from '../../../data/versus/modes/wadi_tarfan.json';
 import formationAmbush from '../../../data/formations/ambush.json';
 import formationAttack from '../../../data/formations/attack.json';
 import formationColumn from '../../../data/formations/column.json';
+// GH-1360 S3a: starting layouts live in data/layouts/, a different directory, and are NEVER in `formations` (the HUD picker).
+import layoutAssembly from '../../../data/layouts/assembly.json';
 // Look uplift L2 (GH-943): the colour grades, one file per shipped time of day. Day is the identity and has no file.
 import gradeDawn from '../../../data/grades/dawn.json';
 import gradeDusk from '../../../data/grades/dusk.json';
@@ -382,6 +384,14 @@ export const versusModes: Readonly<Record<string, VersusModeFileJson>> = {
  *  sorted directory order. Hand-kept, so `index.test.ts` pins it to the directory: an
  *  unregistered file would be silently unorderable. The sim's `addFormationType` compiles each. */
 export const formations = [formationAmbush, formationAttack, formationColumn] as const;
+
+/** The starting-force layouts (GH-1360 S3a): data/layouts/*.json, written in formation.schema.json's vocabulary and compiled
+ *  by the sim's `compileFormation`, but never registered with the sim (`addFormationType`) and never in `formations`, so
+ *  they never reach the HUD picker. `index.test.ts` pins this array to its directory. */
+export const layouts = [layoutAssembly] as const;
+
+/** The assembly layout: vehicles in the front rank, infantry behind, support weapons, medics and drones at the rear. */
+export const assemblyLayout = layoutAssembly;
 
 // Avatar presets (GH-1075 P1): the catalogue, the frozen default pool, the shared default rule.
 export { avatarPresets, defaultAvatarPool, defaultAvatar, resolveAvatar, isAvatarPreset, fnv1a32, LAST_RESORT_AVATAR } from './avatar';

@@ -5,6 +5,7 @@ import { STATS_HTML } from './stats-page';
 import { loginPageHtml } from './login-page';
 import { FEEDBACK_HTML, FEEDBACK_PAGE_CSP } from './feedback-page';
 import { MEMBERS_HTML } from './members-page';
+import { fieldHealth } from './field-health';
 import { handleFeedbackApi } from './feedback-triage';
 import { handleAdminApi } from './admin/api';
 import { SESSION_COOKIE, readCookie, verifySession, sessionCookieHeader, clearedSessionCookieHeader, passwordsMatch } from './auth';
@@ -458,6 +459,8 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
         return json(await accounts(env.DB, f));
       case '/stats/api/loadouts':
         return json(await loadouts(env.DB, f));
+      case '/stats/api/health':
+        return json(await fieldHealth(env.DB, f)); // GH-1410
       default:
         return new Response('Not found', { status: 404, headers: NO_STORE });
     }

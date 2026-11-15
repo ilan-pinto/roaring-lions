@@ -12,6 +12,29 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   `?telemetry` -- never from `pnpm dev`, tests or CI, because `pnpm ui:routes` fails on any
   console error. `?tester=<name>` labels a tester, `?notrack` opts out (persisted). Results
   are read from the terminal with `packages/worker/QUERIES.sql` (`npx wrangler d1 execute roaring-lions-telemetry --remote --file ...`), still available as an alternative; `/stats` is behind a password set with `npx wrangler secret put STATS_PASSWORD` -- make it long and random (e.g. `openssl rand -base64 24`), not a memorised phrase, since a captured session cookie hands over the signing key too -- and answers 403 until that secret is set. Spec: `docs/superpowers/specs/2026-09-24-telemetry-design.md`.
+- **Field signal (GH-1410): `client_error`, `perf_sample`, `boot`.** Three more event types on the SAME sender, schema
+  (`data/schemas/telemetry_event.schema.json` and its twin `packages/data/src/telemetry.ts`, pinned by `telemetry.test.ts`)
+  and switch, so they leave only where the others do and stop wherever the others stop (dev, tests, CI, GPC, DNT,
+  `?notrack`). `telemetry/errors.ts` describes an error as its class name, a SCRUBBED one-line message (URLs, emails, quoted
+  literals, query strings, IPv4/IPv6 addresses, paths with or without a drive letter, dotted and long tokens, phone-like and long numbers
+  replaced; printable ASCII; 120 characters; heuristic, so crash text can still hold fragments of game data) and an FNV-1a hash of the stack's FUNCTION NAMES; the
+  listeners are installed in `initTelemetry` only past the off switch, observe only, and are capped per session (10) and per
+  crash (3). `perf_sample` closes every 120 s of a visible mission with at least 300 frames (`telemetry/perf.ts`: p50, p95, p99
+  of the rAF interval, a stall over 1 s dropped) with the unit count, the preset, the backend and the GPU name
+  (`feedback/gpu.ts`, read lazily) reduced to its FAMILY by `gpuFamily` (`@lions/data`) inside `createTelemetry`, so a raw renderer string, with its PCI id and driver build, never reaches an event. `boot` is the time from navigation start to the second animation frame after
+  `initTelemetry`, once a page load. No event stores an IP, an email or a user agent. The Settings > Privacy checkbox
+  (`reportsSwitch`) is the stored opt-out (`lions.telemetry.optout`, the key `?notrack` writes) inverted, and the sink
+  (`gatedSink`) reads it before every push and flush and empties the queue when it is set: turning it off applies at once,
+  turning it back on applies after a reload. The opt-out is also held in MEMORY for the page (`optedOutNow`), so with site data blocked, or a write that
+  throws, "off" still holds; and `Telemetry.ids()` answers null once it is set, so a feedback note then carries no id. `/stats` shows the result as "Field health" (`/stats/api/health`,
+  `worker/src/field-health.ts`): the crash-free session rate, the commonest crashes by hash, frame percentiles by GPU family
+  (`gpuFamily`) and the median start-up. The privacy page's lines for these were approved by the lead on 15 Nov. **Retention (the lead's ruling):**
+  everything held about an ID is deleted about 180 days after it was last SEEN. The daily cron (`scheduled` in `index.ts`) runs
+  `purgeEvents` (raw `event_batch` rows by `received_at`: three slices of `INGEST_DAY.global` = 5,000, so a run clears more than a
+  full day of ingest; the old 2,000 a day fell behind), `purgePlayers` (a `players` row by `last_seen`, with its `accounts` row in the
+  same batch, plus any orphan `accounts` row by its own `t`; strict `<`, so a row at exactly 180 days is kept) and `purgeRateDays`.
+  Each is a few big `DELETE ... LIMIT` statements, never a loop of small ones: the Free plan allows 50 D1 queries per invocation and
+  `purge.test.ts` counts them.
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the
@@ -431,6 +454,14 @@ export, delete and orphan sweep.
   review):** `next` and `before` are a STRING cursor `<started_at>.<code>`, the pair the query orders by, so two matches
   with one start time can straddle a page boundary without a skip. A malformed cursor is 400 `query`. The "Show my
   record" toggle rides `PATCH profile` `showRecord`.
+- **The coin history** (GH-1370 C1) is `GET /api/account/coins?before=<journal id>&limit=<n>` (`account/coin-history.ts`):
+  the caller's own `coin_journal` rows, newest first, `limit + 1` fetched so `next` is `null` on an exact multiple.
+  The SELECT is an allow-list (`json_extract` of seven keys, behind `json_valid`) and never reads `detail` whole or
+  touches `admin_action`/`member`, so an audit `reason` or an admin's id cannot reach the wire; the mapper drops any
+  value over `COINS_NOTE_MAX` (80 code points) or its id/track bound, which is what keeps the body under
+  `COINS_BODY_MAX` (32 KiB). Same session, header and `ACCOUNT_OP_LIMIT` as `matches`; writes nothing. Wording is the
+  app's (C4). The leak sweep drives it twice: once with a bad query (400) and once with none (200), because a route
+  that only ever 400s proves nothing, and the 200 call must run before `logout-all` ends the session.
 - **The breaker** (section 0.21). Each record reads `acct-all` first and skips the write, logged, when the day is spent;
   a record bumps `acct-all` by `RECORD_ROWS` (4) and no member's `acct-ops`. The lead stops every record with no deploy:
   `npx wrangler d1 execute roaring-lions-accounts --remote --command "INSERT INTO flags (name, value, updated_at) VALUES ('records', 'closed', unixepoch() * 1000) ON CONFLICT (name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"`.
@@ -446,6 +477,11 @@ export, delete and orphan sweep.
 Spec: `docs/superpowers/specs/2026-11-14-admin-account-page-design.md`. The page is `/stats/members`; its routes sit under
 `/stats/api/members/*` and are handled by `packages/worker/src/admin/api.ts`, reached from `stats.ts`.
 
+- **What shipped (15 Nov 2026).** S1 to S5 and S7 of the spec (PRs 1348, 1353, 1356, 1354): the lookup, the member card, the
+  merged journal, coin grant/deduct/set, the Close button, the privacy lines and the view sweep. **S6, the credits write
+  route, is not built** (D8, waiting on the lead's ruling) and is next. Until then credits appear on the card and in the
+  journal's currency filter READ-ONLY, and no route writes them: the page corrects coins only.
+
 - **Two locks.** The `/stats` password (`STATS_PASSWORD`) AND a game session whose member has a row in `admin_member`
   (`admin/gate.ts`). Rotating the password signs every admin out. The lead adds himself with one `wrangler d1 execute`;
   no agent runs it.
@@ -457,7 +493,10 @@ Spec: `docs/superpowers/specs/2026-11-14-admin-account-page-design.md`. The page
 - **Append-only audit.** Only `admin/admin-write.ts` contains `INSERT INTO admin_action`. Nothing updates one. The only
   deletes are the member tables list (`account/tables.ts`, a member's own deletion) and `admin/view-sweep.ts`, which is
   held to `WHERE action = 'view'`. `read.test.ts` ("the audit table is append-only") enforces all three.
-- **View logging and its sweep.** Opening a card writes an `admin_action` row of action `view`. The daily cron
+- **View logging and its sweep.** Opening a card writes an `admin_action` row of action `view`, and so does the journal's FIRST
+  page (`admin/api.ts`: `card` calls `logView`, and `journal` does when it has no cursor; later pages do not). The page loads the
+  card and then that first page (`members-page.ts`: `openMember` then `loadJournal(true)`), so **opening one member card logs two
+  `view` rows**. It is the current behaviour, left as built (a journal-only read must still leave a trace), not a bug fix. The daily cron
   (`scheduled` in `index.ts`, with both `ACCOUNTS` and `ACCOUNT_TOMBSTONES` bound, as the accounts chain needs) deletes view rows older than 180 days, the feedback retention.
   Change rows stay while the member does. `view-sweep.test.ts` pins the 180-day edge as a literal; one-line mutations
   (drop the `action = 'view'` guard, `<` to `<=`, unwire it from `scheduled`) each turn it red.
@@ -465,4 +504,15 @@ Spec: `docs/superpowers/specs/2026-11-14-admin-account-page-design.md`. The page
   admin changes with `by: "admin"` and no admin id.
 - **Privacy.** `/privacy` has a "What the team can see" section (D14.1), pinned by `privacy-page.test.ts`. Change that
   text and `PRIVACY_UPDATED` together.
+  The text already says the team "can correct your coin or credit balance" (D14.1, written for the finished page); until S6
+  ships only coins can be corrected. It also says a log of views is kept for 180 days (the sweep) and a log of changes while
+  the account is.
 - **The coin ceiling.** Accounts spec section 2.4's 925 now reads "plus coupons and plus admin grants, journaled".
+
+## The slow-frames suggestion (GH-1413)
+
+`ui/frame-probe.ts` measures, `ui/quality-hint.ts` asks, `settingsDeps.set` is the only write. After the no-graphics notice (`ui/no-gpu.ts`, which owns software renderers) `main.ts` mounts `watchQualityHint`. On a shell screen (menu, campaign, brigade, free-play) it drops 30 frames, measures 90 intervals, and calls frames slow when the **median** interval is at or over 33.4 ms (more than half the frames slow). It then shows one card, "Switch to Low quality" or "Keep my setting", and a preset applies at the NEXT mission's boot (`packages/render/src/quality.ts`), never to a running one.
+- **Nothing automatic (lead, 10 Oct).** Showing the card changes no setting; declining, Escape and a disposed card do not either. `setQuality` is called from the accept button's handler and nowhere else. `quality-hint-wiring.test.ts` pins that `main.ts` writes only through `settingsDeps.set` and only the `quality` field.
+- **Why the median.** The declined auto step-down (PERFORMANCE.md) called an opening slow at 5% of intervals over 33.4 ms and would have fired on the reference M3 Pro Retina (11-18% at `high`). Half the frames over the line is above that reading and under the worst throttled cell (64.8%). The constants are those doc readings; no browser measured them for this change (the cloud has none), and the hardware sweep under GH-1413 is what confirms them. Retune in `frame-probe.ts`, with `frame-probe.test.ts`'s Retina and throttled series as the oracle.
+- **Voided, never guessed.** A hidden tab, a 2 s stall, leaving the shell for a mission and 12 s without a full sample all void the sample; a short sample is never slow.
+- **When it may show.** Production build on a real host (`feedbackSends`) or `?qualityhint`; never for a software renderer, a saved Low preset, a player who has answered (browser store key `lions.qualityHint.answered`, set by either button; asked once, ever) or over another dialog. The scrim class `rl-quality-hint` is in `isDialogOpen`'s list.

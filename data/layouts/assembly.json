@@ -1,0 +1,16 @@
+{
+  "id": "assembly",
+  "label": "formation.assembly.name",
+  "blurb": "formation.assembly.blurb",
+  "factions": ["kdf", "sarim"],
+  "verb": "move",
+  "min_members": 2,
+  "elements": [
+    { "classes": ["armour", "light_vehicle", "recon"], "shape": { "kind": "rank", "spacing": 3, "max_lateral": 6, "rank_depth": 3 } },
+    { "classes": ["infantry"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 8, "rank_depth": 2 }, "gap": 1 },
+    { "classes": ["support_weapon", "medic", "aircraft"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 8, "rank_depth": 2 }, "gap": 1 }
+  ],
+  "march": { "legs": false, "leg_tiles": 8, "pace": "none", "dress_s": 3 },
+  "arrival": { "face": "front", "stance": "none" },
+  "contact": { "drill": "none", "call_radius_tiles": 12, "quiet_s": 10 }
+}
