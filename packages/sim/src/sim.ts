@@ -13118,11 +13118,7 @@ export class Sim {
           // blocked one.
           if (wait > 0 && last === 0) this.sepWait[i] = wait - 1;
           this.sepLast[i] = 0;
-        } else if (wait >= SEP_VALVE_TICKS) {
-          // Ghost: today's step, while the valve is open (it closes once the count decays).
-          this.sepLast[i] = 1;
         } else {
-          this.sepLast[i] = 1;
           const jStill = this.sepHitStationary;
           // A leg that ends in a range test (demolish, focus, garrison, board, charge) is not finished
           // by the goal being taken: the hull keeps trying, and the valve frees it in the end.
@@ -13132,7 +13128,17 @@ export class Sim {
             this.garrisonGoal[i] >= 0 ||
             this.boardGoal[i] >= 0 ||
             this.chargeOrder[i] >= 0;
-          if (!rangeGoal && this.sepAtContact(i, bj, jStill)) {
+          // GH-1360 S5a-2 (§3.3 item 4): B+ runs BEFORE the valve when this is the final leg (nothing queued), so a
+          // unit whose valve opened while it queued ends at contact with the goal another holds, and does not ghost
+          // into it and rest inside. On a leg with more to come the valve still goes first.
+          const atContact =
+            !rangeGoal && (wait < SEP_VALVE_TICKS || this.wpCount[i] === 0) && this.sepAtContact(i, bj, jStill);
+          if (wait >= SEP_VALVE_TICKS && !atContact) {
+            // Ghost: today's step, while the valve is open (it closes once the count decays).
+            this.sepLast[i] = 1;
+          } else {
+          this.sepLast[i] = 1;
+          if (atContact) {
             nx = px;
             ny = py;
             finishHere = true;
@@ -13236,6 +13242,7 @@ export class Sim {
                 if (wait < SEP_VALVE_TICKS && this.sepWait[i] >= SEP_VALVE_TICKS && this.sepDiag.on) this.sepNote(i, 1, bj);
               }
             }
+          }
           }
         }
       }
@@ -13341,6 +13348,8 @@ export class Sim {
   private sepMoves(j: number): boolean {
     return (
       this.moving[j] === 1 &&
+      // GH-1360 S5a-2 (§3.3 item 2): a member held at a formation checkpoint keeps `moving` 1 but goes nowhere.
+      this.fmDuty[j] !== FM_DUTY_WAIT &&
       this.mobilityKilled[j] === 0 &&
       this.brace[j] === BRACE_NONE &&
       !(this.attackMove[j] === 1 && this.engaging[j] === 1) &&

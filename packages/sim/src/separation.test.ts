@@ -629,3 +629,64 @@ describe('a footprint whose segment is a sliver is refused at registration (GH-4
     expect(() => sim.addUnitType(foot(0.52, 0.5))).not.toThrow(); // 0.02 tile = 1311 raw
   });
 });
+
+
+/** The private columns S5a-2's specs force, reached through a cast (the pattern the other specs use). */
+interface HeldColumns {
+  fmDuty: Uint8Array;
+}
+const FM_DUTY_WAIT_LITERAL = 1; // sim.ts FM_DUTY_WAIT: the member is held at a formation checkpoint
+
+describe("a member held at a formation checkpoint is stationary (GH-1360 S5a-2, section 3.3 item 2)", () => {
+  it("a same-way hull behind a held one steers round and reaches its goal; it does not follow and queue behind", () => {
+    const { sim, tank } = world();
+    // m (the lower id, so it is processed while h is still `moving` 1) drives east along y 20.5 toward (34.5, 20.5)
+    // through h. h is parked at its own goal, forced into the state `fmMarchHold` leaves a member in: moving 1,
+    // duty WAIT. A mover ahead on the same heading is FOLLOWED (waited for, nose to tail); a stationary body is
+    // STEERED ROUND. h never moves in this world, so only the clause can tell the two apart.
+    const m = sim.spawn(tank, 0, fx.from(8.5), fx.from(20.5), EAST);
+    const h = sim.spawn(tank, 0, fx.from(20.5), fx.from(20.5), EAST);
+    go(sim, m, 34.5, 20.5);
+    go(sim, h, 20.5, 20.5);
+    const cols = sim as unknown as HeldColumns;
+    let worst = 0;
+    let valve = 0;
+    for (let t = 1; t <= 400; t++) {
+      sim.state.moving[h] = 1;
+      cols.fmDuty[h] = FM_DUTY_WAIT_LITERAL;
+      sim.tick();
+      worst = Math.max(worst, overlap(sim, m, h));
+      valve = Math.max(valve, sim.state.sepWait[m]);
+    }
+    // 8.5 to 34.5 is 26 tiles, 3 tiles/s: 174 ticks straight, steering round a 2 x 1 hull adds a few. Followed
+    // behind h, m would sit at x 18.4 (nose to tail, 2.1 back) for ever.
+    expect(Math.abs(fx.toNumber(sim.state.posX[m]) - 34.5)).toBeLessThanOrEqual(
+      0.2,
+    );
+    expect(sim.state.posX[h]).toBe(fx.from(20.5));
+    // Steered round: never inside h on any tick (its count peaks at 25), and the valve stays shut. Taken for a
+    // mover, h is queued behind until the valve opens at 40 and m ghosts through it (overlap 65536 raw, one whole tile).
+    expect(worst).toBeLessThanOrEqual(0);
+    expect(valve).toBeLessThan(SEP_VALVE_TICKS);
+  });
+});
+
+describe("B+ runs before the valve at a held goal (GH-1360 S5a-2, section 3.3 item 4)", () => {
+  it("a hull whose valve is open on its last leg stops in contact with the hull on its goal, instead of ghosting into it", () => {
+    const { sim, tank } = world();
+    const h = sim.spawn(tank, 0, fx.from(30.5), fx.from(20.5), EAST); // parked on the goal
+    const a = sim.spawn(tank, 0, fx.from(24.0), fx.from(20.5), EAST);
+    go(sim, a, 30.5, 20.5);
+    sim.tick();
+    sim.state.sepWait[a] = 250; // the valve opened while it queued, and decays one a free tick: still open at contact
+    sim.state.sepLast[a] = 1;
+    for (let t = 1; t <= 200; t++) sim.tick();
+    // Contact: nose to tail, 2.0 apart plus the 0.1 gap, so a rests near x 28.4. Ghosting through leaves it on 30.5.
+    expect(sim.state.moving[a]).toBe(0);
+    expect(overlap(sim, a, h)).toBeLessThanOrEqual(0);
+    expect(Math.abs(fx.toNumber(sim.state.posX[a]) - 28.4)).toBeLessThanOrEqual(
+      0.2,
+    );
+    expect(sim.state.posX[h]).toBe(fx.from(30.5));
+  });
+});
