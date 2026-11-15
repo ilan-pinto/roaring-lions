@@ -97,6 +97,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { FREEZE_FOR_SCREENSHOT_SCRIPT, RESTORE_AFTER_SCREENSHOT_SCRIPT } from './frame-freeze';
 import { claimGpuBackend, gpuLaunchArgs } from './gpu';
+import { menuUsesPlate, SHOT_TIMEOUT_MS, ShotLog } from './shot-policy';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -108,7 +109,7 @@ import {
   waitForHostCrossfade,
 } from '../golden-diff/browser';
 import { garageSeedScript } from './garage-seed';
-import { assertOutcomeStillPresent } from './outcome-guard';
+import { assertOutcomeStillPresent, OutcomeMomentDismissedError } from './outcome-guard';
 import { claimPort } from './port';
 import { musicOffInitScript } from './music-off';
 
@@ -161,6 +162,9 @@ const RESOLUTIONS = arg('res', '1400x900,1920x1080,2560x1440')
 /** Counted across the whole run and printed at the end -- a per-shot line is
  *  easy to scroll past in 51 frames' worth of output. */
 let OVERFLOW_TOTAL = 0;
+
+/** Shots that did not come out (GH-1409, `shot-policy.ts`): recorded, the walk goes on, the run exits non-zero. */
+const SHOTS = new ShotLog();
 
 interface LionsWindow extends Window {
   __lions?: {
@@ -228,13 +232,41 @@ async function overflows(page: Page): Promise<string[]> {
   });
 }
 
-async function shot(page: Page, dir: string, name: string, opts: { fullPage?: boolean } = {}): Promise<void> {
+/** True when the PNG was written; false when the screenshot failed (recorded in `SHOTS`). Callers that check the page AFTER the shot ask this first. */
+async function shot(page: Page, dir: string, name: string, opts: { fullPage?: boolean } = {}): Promise<boolean> {
   await page.waitForTimeout(400);
-  await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: opts.fullPage ?? false });
+  try {
+    await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: opts.fullPage ?? false, timeout: SHOT_TIMEOUT_MS });
+  } catch (err) {
+    SHOTS.record(name, err);
+    console.log(`  ${name}  [SCREENSHOT FAILED] ${SHOTS.failed[SHOTS.failed.length - 1].reason}`);
+    return false;
+  }
   const over = await overflows(page);
   console.log(`  ${name}${over.length > 0 ? `  [overflow x${over.length}]` : ''}`);
   for (const line of over) console.log(`      ! ${line}`);
   OVERFLOW_TOTAL += over.length;
+  return true;
+}
+
+/**
+ * `assertOutcomeStillPresent` for a REPORT-ONLY tool (GH-1409). The guard is right that the PNG is mislabelled when the outcome moment was
+ * gone before the photograph, and under SwiftShader that happens: the first CI run took `25-outcome-defeat` after the moment's 2600 ms hold
+ * had elapsed. Throwing there ended the whole walk at the first resolution. Here the mislabelled PNG is deleted, the shot is recorded as
+ * failed (so the run still exits non-zero and says so), and the walk goes on. Returns true when the moment was dismissed. Any other error is
+ * rethrown.
+ */
+function outcomeDismissed(present: boolean, label: string, dir: string): boolean {
+  try {
+    assertOutcomeStillPresent(present, label);
+    return false;
+  } catch (err) {
+    if (!(err instanceof OutcomeMomentDismissedError)) throw err;
+    SHOTS.record(label, err);
+    fs.rmSync(path.join(dir, `${label}.png`), { force: true });
+    console.log(`  ${label}  [DISMISSED BEFORE ITS PHOTOGRAPH] the PNG was removed, not mislabelled`);
+    return true;
+  }
 }
 
 async function settle(page: Page, ms: number): Promise<void> {
@@ -773,9 +805,17 @@ try {
     // read by a garage look task, and every one of these states is already
     // covered by the normal (non-`--only`) run.
     if (ONLY !== 'garage') {
+      // GH-1409: under SwiftShader the live scene host cannot paint inside the screenshot timeout (the first CI run died here), so the
+      // menu is shot on the reduced-motion plate path -- the page's media is switched for this one visit and put back after it.
+      const platePath = menuUsesPlate(gpu);
+      if (platePath) {
+        console.log(`  01-menu: shot on the plate path (${gpu} cannot paint the live scene host in time); the live host is not captured here`);
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+      }
       await page.goto(url('/'), { waitUntil: 'load' });
       await settleMenuHost(page);
       await shot(page, dir, '01-menu');
+      if (platePath) await page.emulateMedia({ reducedMotion: 'no-preference' });
 
       // Task 8: the reduced-motion plate path (spec §3.4), on its OWN context
       // so `reducedMotion: 'reduce'` never leaks onto `page` above, which keeps
@@ -1132,7 +1172,7 @@ try {
     // `.rl-aar` wait that follows needs Playwright's own
     // polling working again.
     await page.evaluate(FREEZE_FOR_SCREENSHOT_SCRIPT);
-    await shot(page, dir, '25-outcome-defeat');
+    let defeatShot = await shot(page, dir, '25-outcome-defeat');
     await page.evaluate(RESTORE_AFTER_SCREENSHOT_SCRIPT);
     // Fix round 1 (Task 6 review): `shot()` alone never checked that the
     // moment was STILL the thing on screen by the time its pixels were
@@ -1145,11 +1185,19 @@ try {
     // check, and its absence here means the PNG just taken is mislabelled.
     // `.count()` is a plain, non-waiting query, so it is unaffected by
     // whether the loop is frozen or restored at the point it runs.
-    assertOutcomeStillPresent(
-      (await page.locator('.rl-outcome[data-outcome="defeat"]').count()) > 0,
-      '25-outcome-defeat'
-    );
-    await page.click('.rl-outcome__skip');
+    // GH-1409: only a PNG that was actually taken can be mislabelled. After a failed capture the moment's own 2600 ms hold may have
+    // elapsed while the screenshot waited, so its absence is not a defect to throw on; the skip is clicked only if it is still there.
+    if (defeatShot) {
+      defeatShot = !outcomeDismissed(
+        (await page.locator('.rl-outcome[data-outcome="defeat"]').count()) > 0,
+        '25-outcome-defeat',
+        dir
+      );
+    }
+    // A taken, still-present moment is clicked as before. After a lost one, presence and click are ONE page-context step: a count() followed
+    // by page.click() can lose the race with the moment's own dismissal and wait out Playwright's timeout (CodeRabbit, GH-1409).
+    if (defeatShot) await page.click('.rl-outcome__skip');
+    else await page.evaluate(() => (document.querySelector('.rl-outcome__skip') as HTMLElement | null)?.click());
     // GH-417 (L-7): the moment hands over straight to the after-action
     // report, which absorbed the old end panel -- so `16-end-defeat` and
     // `17-debrief` are one screen now. The name `17-debrief` is kept for the
@@ -1261,7 +1309,7 @@ try {
           '24-outcome-victory: the scripted plan did not reach victory (.rl-outcome[data-outcome="victory"] absent immediately after the plan\'s own step() calls) -- see the freeze comment above for the tick-drift failure mode this replaced'
         );
       }
-      await shot(winPage, dir, '24-outcome-victory');
+      let victoryShot = await shot(winPage, dir, '24-outcome-victory');
       // `winCtx` closes right after this block, so nothing later on
       // `winPage` needs the loop restored -- unlike the defeat capture,
       // which freezes only briefly and restores before continuing the same
@@ -1270,10 +1318,13 @@ try {
       // -- see its comment and `outcome-guard.ts`'s header for the failure
       // this closes. `.count()` is a plain, non-waiting query, unaffected by
       // the loop being frozen.
-      assertOutcomeStillPresent(
-        (await winPage.locator('.rl-outcome[data-outcome="victory"]').count()) > 0,
-        '24-outcome-victory'
-      );
+      if (victoryShot) {
+        victoryShot = !outcomeDismissed(
+          (await winPage.locator('.rl-outcome[data-outcome="victory"]').count()) > 0,
+          '24-outcome-victory',
+          dir
+        );
+      }
       await winCtx.close();
     }
   }
@@ -1287,3 +1338,5 @@ console.log(`\ndone -> ${OUT}`);
 // up on a hit -- the failure mode CLAUDE.md names for every check that can
 // return an empty answer in zero milliseconds.
 console.log(`overflow probe: ${OVERFLOW_TOTAL} element(s) wider than their own box, across every shot above`);
+for (const line of SHOTS.summary()) console.log(line);
+if (SHOTS.failed.length > 0) process.exitCode = 1;

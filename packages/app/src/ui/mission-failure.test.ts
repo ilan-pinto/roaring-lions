@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MissionRuntime, Sim, TICKS_PER_SECOND, type MissionJson } from '@lions/sim';
-import { applyTerrain, maps, missions, parseMap, units } from '@lions/data';
+import { MissionRuntime, Sim, TICKS_PER_SECOND, compileFormation, type FormationJson, type MissionJson } from '@lions/sim';
+import { applyTerrain, assemblyLayout, maps, missions, parseMap, units } from '@lions/data';
 import { standMapStructures } from '../map-sim';
 import {
   DEADLINE_WARN_TICKS,
@@ -92,6 +92,7 @@ describe('1. failureReason: a lost mission names the primary that lost it, and w
     const typeOf = new Map<string, number>();
     for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as never));
     const rt = new MissionRuntime(sim, mission, {
+      startLayout: compileFormation(assemblyLayout as unknown as FormationJson), // GH-1360 S3b: the shipped missions start in the assembly layout
       typeIdOf: (u) => typeOf.get(u) as number,
       markers: map.markers,
       zones: map.zones,
@@ -183,6 +184,7 @@ describe('4. the time limit warns once, a minute out (GH-540)', () => {
     const typeOf = new Map<string, number>();
     for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as never));
     const rt = new MissionRuntime(sim, mission, {
+      startLayout: compileFormation(assemblyLayout as unknown as FormationJson), // GH-1360 S3b: the shipped missions start in the assembly layout
       typeIdOf: (u) => typeOf.get(u) as number,
       markers: map.markers,
       zones: map.zones,

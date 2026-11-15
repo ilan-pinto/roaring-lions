@@ -57,8 +57,11 @@ export async function countToday(db: D1Like, scope: string, key: string, now: nu
   return row?.n ?? 0;
 }
 
+/** The statement the daily cron runs, bound to `dayOf(now) - 1`: counters older than yesterday go. `sweepAccounts` batches it. */
+export const RATE_DAY_PURGE_SQL = 'DELETE FROM rate_day WHERE day < ?';
+
 /** The daily cron: counters older than yesterday go. Returns the rows deleted. */
 export async function purgeRateDays(db: D1Like, now: number): Promise<number> {
-  const gone = await db.prepare('DELETE FROM rate_day WHERE day < ? RETURNING scope').bind(dayOf(now) - 1).all<{ scope: string }>();
+  const gone = await db.prepare(`${RATE_DAY_PURGE_SQL} RETURNING scope`).bind(dayOf(now) - 1).all<{ scope: string }>();
   return gone.results.length;
 }

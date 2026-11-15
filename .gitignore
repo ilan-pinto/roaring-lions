@@ -82,6 +82,8 @@ art/blend/
 # upload it as an artifact; it is captures and diffs, never a baseline (those
 # live in tools/golden-baselines/ and are committed deliberately by a bless).
 /visual-baseline-output/
+# GH-1409: `ui:shots --out=ui-shots-output` in the CI `visual` job (uploaded as the `ui-shots` artifact).
+/ui-shots-output/
 
 # Wrangler's local state (dev D1 shadow copy, cached auth, etc, WP-T1). Never
 # wanted in git, and it accumulates just from running `wrangler dev`.
