@@ -30,7 +30,7 @@ const TANK: UnitTypeJson = {
   mobility: { speed_tiles_s: 1, footprint: { half_length_tiles: 1.0, half_width_tiles: 0.5 } },
   sensors: SENSORS,
 };
-const HELO: UnitTypeJson = { id: 'fs_helo', role: 'apc', hull: HULL, mobility: { speed_tiles_s: 3, domain: 'air' }, sensors: SENSORS };
+const HELO: UnitTypeJson = { id: 'fs_helo', role: 'apc', hull: HULL, mobility: { speed_tiles_s: 3, domain: 'air', footprint: { half_length_tiles: 1, half_width_tiles: 1 } }, sensors: SENSORS };
 
 interface World {
   readonly sim: Sim;
@@ -201,11 +201,40 @@ describe('freeSpotNear: clearance by pair distance (GH-1360 S2)', () => {
     expect(sim.freeSpotNear(...P(10.5, 10.5), tank, 0, 6, 0x4000)).toEqual(P(11.5, 9.5));
   });
 
-  it('the dead and the airborne are not bodies', () => {
-    const { sim, rifle, helo } = world();
+  it('the dead are not bodies', () => {
+    const { sim, rifle } = world();
     const a = sim.spawn(rifle, 0, ...P(10.5, 10.5));
-    sim.spawn(helo, 0, ...P(10.5, 10.5));
     sim.debugKill(a);
+    expect(sim.freeSpotNear(...P(10.5, 10.5), rifle, 0, 6)).toEqual(P(10.5, 10.5));
+  });
+
+  it('an aircraft with a footprint (r 1.0) on the request is not a body to a rifle team', () => {
+    const { sim, rifle, helo } = world();
+    sim.spawn(helo, 0, ...P(10.5, 10.5)); // were it a body, a team would need 1.45 from it, not the request
+    expect(sim.freeSpotNear(...P(10.5, 10.5), rifle, 0, 6)).toEqual(P(10.5, 10.5));
+  });
+
+  // The three "off the surface" states are read straight from the state arrays the filter reads: a unit aboard a
+  // carrier, inside a building, inside a tunnel route stands where it was last seen but occupies no ground.
+  it('a unit aboard a carrier is not a body', () => {
+    const { sim, rifle } = world();
+    const a = sim.spawn(rifle, 0, ...P(10.5, 10.5));
+    const jeepLike = sim.spawn(rifle, 0, ...P(20.5, 20.5)); // any other unit's id will do for the seat
+    sim.state.carriedBy[a] = jeepLike;
+    expect(sim.freeSpotNear(...P(10.5, 10.5), rifle, 0, 6)).toEqual(P(10.5, 10.5));
+  });
+
+  it('a unit garrisoned in a building is not a body', () => {
+    const { sim, rifle } = world();
+    const a = sim.spawn(rifle, 0, ...P(10.5, 10.5));
+    sim.state.garrisonedIn[a] = 0; // structure index 0
+    expect(sim.freeSpotNear(...P(10.5, 10.5), rifle, 0, 6)).toEqual(P(10.5, 10.5));
+  });
+
+  it('a unit inside a tunnel route is not a body', () => {
+    const { sim, rifle } = world();
+    const a = sim.spawn(rifle, 0, ...P(10.5, 10.5));
+    sim.state.tunnelIn[a] = 0; // route index 0
     expect(sim.freeSpotNear(...P(10.5, 10.5), rifle, 0, 6)).toEqual(P(10.5, 10.5));
   });
 
