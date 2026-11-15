@@ -68,6 +68,8 @@
   /* color-mix rather than rgba(): translucency without a numeric literal,
      which is what lets the palette gate run with an empty allowlist. */
   --panel-bg: color-mix(in srgb, var(--rl-shadow-1) 92%, transparent);
+  /* A card sits one step above the panel it stands on. */
+  --card-bg: color-mix(in srgb, var(--rl-shadow-0) 70%, transparent);
   --panel-bg-solid: var(--rl-shadow-1);
   --panel-frame: var(--rl-gunmetal-3);
   /* Avatars and the profile cards (GH-1075 P5-P7). */
@@ -262,6 +264,8 @@
   /* The brand wordmark's rule. Olive like the mission band, but its own name
      (VR-24): a band colour ranks a panel and is not decoration. */
   --wordmark-rule: var(--rl-olive-2);
+  /* The picker's DEFAULT tag: olive, a ground and not a band rank (VR-24 keeps --band-* for bands). */
+  --avatar-tag-ground: var(--rl-olive-2);
 
   /* --- the mark ------------------------------------------------------- */
   /* Three chevrons sweeping darker: depth at menu size, one readable shape at
@@ -1389,10 +1393,10 @@ body {
   left: 50%;
   transform: translateX(-50%);
   padding: 0 var(--s1);
-  background: var(--panel-bg-solid);
-  border: 1px solid var(--panel-frame); /* px-ok */
+  background: var(--avatar-tag-ground);
+  border: 1px solid var(--avatar-tag-ground); /* px-ok */
   font-size: var(--t-xs);
-  color: var(--ink-label);
+  color: var(--ink);
 }
 .rl-avatar-picker__status {
   margin: var(--s3) 0 0;
@@ -4638,6 +4642,9 @@ body[data-outcome-beat] .rl-aar {
   border: 1px solid var(--avatar-ring); /* px-ok */
   color: var(--ink-dim);
 }
+.rl-profile__avatar .rl-avatar {
+  border-width: 2px; /* px-ok */
+}
 .rl-avatar--chip {
   width: 1.75rem;
   height: 1.75rem;
@@ -4655,7 +4662,8 @@ body[data-outcome-beat] .rl-aar {
   width: 100%;
   height: 100%;
 }
-.rl-avatar__glyph {
+/* Two classes plus the element out-rank `.rl-sym:not(.rl-badge)`'s 1em (the guest mark carries both). */
+.rl-avatar .rl-avatar__glyph.rl-sym {
   width: 62%;
   height: 62%;
 }
@@ -10219,7 +10227,7 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__status {
   margin: 0 0 var(--s2);
-  color: var(--ink);
+  color: var(--good);
 }
 .rl-profile__status:empty {
   display: none;
@@ -10249,9 +10257,13 @@ fieldset.rl-versus__maps {
   flex-direction: column;
   gap: var(--s2);
   padding: var(--s4);
-  background: var(--panel-bg);
+  background: var(--card-bg);
   border: 1px solid var(--panel-frame); /* px-ok */
   min-width: 0;
+}
+/* The header card: a gold rule on its left edge. --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
+.rl-profile__card--head {
+  border-left: 0.1875rem solid var(--title-accent);
 }
 .rl-profile__card-title {
   margin: 0;
@@ -10358,7 +10370,12 @@ fieldset.rl-versus__maps {
   margin: 0;
   padding: 0;
   list-style: none;
-  color: var(--ink-mute);
+  color: var(--ink);
+}
+.rl-profile__perks li::before {
+  content: '\203A\00a0';
+  color: var(--title-accent);
+  font-weight: 600;
 }
 .rl-profile__guest-actions {
   display: flex;
@@ -10446,7 +10463,9 @@ fieldset.rl-versus__maps {
 .rl-profile__identity-state {
   flex: none;
   padding: 0 var(--s1);
-  border: 1px solid var(--panel-frame); /* px-ok */
+  border: 1px solid currentColor; /* px-ok */
+  /* The lifted card ground takes --good small text under AA; a solid backing keeps it at 4.69:1. */
+  background: var(--panel-bg-solid);
   font-size: var(--t-xs);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
@@ -10473,28 +10492,42 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__tile {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: var(--s2);
-  background: var(--panel-bg-solid);
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: transparent;
   border: 1px solid var(--panel-frame); /* px-ok */
 }
 .rl-profile__tile-n {
   font-family: var(--font-display);
-  font-size: var(--t-read);
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
   color: var(--ink);
 }
+.rl-profile__tile--won .rl-profile__tile-n {
+  color: var(--good);
+}
+.rl-profile__tile--lost .rl-profile__tile-n {
+  color: var(--bad-text);
+}
 .rl-profile__tile-label {
+  font-family: var(--font-display);
   font-size: var(--t-xs);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
-  color: var(--ink-label);
+  color: var(--ink-mute);
 }
 .rl-profile__show-record {
   display: flex;
   align-items: center;
   gap: var(--s1);
   color: var(--ink);
+}
+.rl-profile__show-record input,
+.rl-profile__telemetry input {
+  accent-color: var(--selected);
 }
 .rl-profile__show-record-hint {
   margin: 0;
@@ -10522,6 +10555,7 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__result {
   padding: 0 var(--s1);
+  background: var(--panel-bg-solid);
   border: 1px solid currentColor; /* px-ok */
   font-size: var(--t-xs);
   letter-spacing: var(--track-title);
@@ -10541,6 +10575,13 @@ fieldset.rl-versus__maps {
   align-items: center;
   gap: var(--s1);
   color: var(--ink);
+}
+.rl-profile__privacy-link {
+  color: var(--ink-dim);
+}
+.rl-profile__privacy-link:hover,
+.rl-profile__privacy-link:focus-visible {
+  color: var(--accent);
 }
 /* The danger zone: a --danger-frame hairline, apart from everything else. */
 .rl-profile__card--danger {

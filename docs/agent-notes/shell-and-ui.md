@@ -454,6 +454,11 @@ export, delete and orphan sweep.
 Spec: `docs/superpowers/specs/2026-11-14-admin-account-page-design.md`. The page is `/stats/members`; its routes sit under
 `/stats/api/members/*` and are handled by `packages/worker/src/admin/api.ts`, reached from `stats.ts`.
 
+- **What shipped (15 Nov 2026).** S1 to S5 and S7 of the spec (PRs 1348, 1353, 1356, 1354): the lookup, the member card, the
+  merged journal, coin grant/deduct/set, the Close button, the privacy lines and the view sweep. **S6, the credits write
+  route, is not built** (D8, waiting on the lead's ruling) and is next. Until then credits appear on the card and in the
+  journal's currency filter READ-ONLY, and no route writes them: the page corrects coins only.
+
 - **Two locks.** The `/stats` password (`STATS_PASSWORD`) AND a game session whose member has a row in `admin_member`
   (`admin/gate.ts`). Rotating the password signs every admin out. The lead adds himself with one `wrangler d1 execute`;
   no agent runs it.
@@ -465,7 +470,10 @@ Spec: `docs/superpowers/specs/2026-11-14-admin-account-page-design.md`. The page
 - **Append-only audit.** Only `admin/admin-write.ts` contains `INSERT INTO admin_action`. Nothing updates one. The only
   deletes are the member tables list (`account/tables.ts`, a member's own deletion) and `admin/view-sweep.ts`, which is
   held to `WHERE action = 'view'`. `read.test.ts` ("the audit table is append-only") enforces all three.
-- **View logging and its sweep.** Opening a card writes an `admin_action` row of action `view`. The daily cron
+- **View logging and its sweep.** Opening a card writes an `admin_action` row of action `view`, and so does the journal's FIRST
+  page (`admin/api.ts`: `card` calls `logView`, and `journal` does when it has no cursor; later pages do not). The page loads the
+  card and then that first page (`members-page.ts`: `openMember` then `loadJournal(true)`), so **opening one member card logs two
+  `view` rows**. It is the current behaviour, left as built (a journal-only read must still leave a trace), not a bug fix. The daily cron
   (`scheduled` in `index.ts`, with both `ACCOUNTS` and `ACCOUNT_TOMBSTONES` bound, as the accounts chain needs) deletes view rows older than 180 days, the feedback retention.
   Change rows stay while the member does. `view-sweep.test.ts` pins the 180-day edge as a literal; one-line mutations
   (drop the `action = 'view'` guard, `<` to `<=`, unwire it from `scheduled`) each turn it red.
@@ -473,4 +481,7 @@ Spec: `docs/superpowers/specs/2026-11-14-admin-account-page-design.md`. The page
   admin changes with `by: "admin"` and no admin id.
 - **Privacy.** `/privacy` has a "What the team can see" section (D14.1), pinned by `privacy-page.test.ts`. Change that
   text and `PRIVACY_UPDATED` together.
+  The text already says the team "can correct your coin or credit balance" (D14.1, written for the finished page); until S6
+  ships only coins can be corrected. It also says a log of views is kept for 180 days (the sweep) and a log of changes while
+  the account is.
 - **The coin ceiling.** Accounts spec section 2.4's 925 now reads "plus coupons and plus admin grants, journaled".
