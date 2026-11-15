@@ -67,6 +67,15 @@ export function storedOptOut(storage: StorageLike | null): boolean {
   return storage?.getItem(OPTOUT_KEY) === '1';
 }
 
+/** GH-1431: the player id this browser already holds, read and nothing else. It mints no id, writes nothing and sends nothing, so it is safe
+ *  after an opt-out: an account deletion that ticks "also delete my reports" needs the id the rows were stored under, and a player who
+ *  switched reports off has `ids()` answering null. Null when none was ever stored (a GPC/DNT/`?notrack` browser never got one) or the
+ *  stored text is not a player id. */
+export function storedPlayerId(storage: StorageLike | null): string | null {
+  const stored = storage?.getItem(PLAYER_KEY) ?? null;
+  return stored !== null && ID_PATTERN.test(stored) ? stored : null;
+}
+
 export function resolveIdentity(storage: StorageLike | null, query: URLSearchParams, newId: () => string): Identity {
   const optedOut = readOptOut(storage, query);
 

@@ -1,6 +1,9 @@
 /** GH-695 S4: the coin write. Every guard here has a named one-line mutation that turns it red (see the commit). */
 import { describe, expect, it } from 'vitest';
 import { exportMember } from '../account/export';
+import { handleAccount } from '../account/routes';
+import { COINS_NOTE_MAX } from '../account/config';
+import type { CoinsView } from '@lions/economy';
 import { NOW, adminKit, addMember, gameCookie } from './kit';
 
 const ADMIN = { id: 'adm', publicId: 'ADMQ0001', name: 'The Lead' };
@@ -48,7 +51,7 @@ describe('the three modes (S4, D7)', () => {
     expect(rows[0]).toEqual({ mode: 'grant', delta: 100, before: 500, after: 600, reason: REASON, admin_id: 'adm', member_id: 'm1' });
     const j = await k.one<{ kind: string; free_delta: number; paid_delta: number; detail: string }>("SELECT kind, free_delta, paid_delta, detail FROM coin_journal WHERE kind = 'admin' ORDER BY id LIMIT 1");
     expect(j).toMatchObject({ kind: 'admin', free_delta: 100, paid_delta: 0 });
-    expect(JSON.parse(j.detail)).toEqual({ mode: 'grant', reason: REASON, before: 500, after: 600, by: 'admin', receipt: null });
+    expect(JSON.parse(j.detail)).toEqual({ mode: 'grant', before: 500, after: 600, by: 'admin', receipt: null }); // no reason, no note key
   });
 
   it('a set to the same balance is a 400 and writes nothing', async () => {
@@ -280,9 +283,74 @@ describe("the member's export never carries the admin's id (S4, MUST)", () => {
     const out = JSON.stringify(await exportMember(k.db, 'm1'));
     expect(out).toContain('"kind":"admin"'); // the journal row IS there
     expect(out).toContain('\\"by\\":\\"admin\\"');
-    expect(out).toContain(REASON);
+    expect(out).toContain(REASON); // via the member's own admin_action rows; C2 keeps it out of the journal detail (below)
     expect(out).not.toContain(ADMIN.publicId);
     expect(out).not.toMatch(/\badm\b/); // the internal id
     expect(out).not.toContain(ADMIN.name);
   });
 });
+
+describe('the note to the player (GH-1370 C2, D2)', () => {
+  const NOTE = 'Sorry about the lost match';
+  const detailOf = async (k: Awaited<ReturnType<typeof seeded>>) =>
+    JSON.parse((await k.one<{ detail: string }>("SELECT detail FROM coin_journal WHERE kind = 'admin' ORDER BY id DESC LIMIT 1")).detail) as Record<string, unknown>;
+
+  it('is stored as detail.note, cleaned, and an empty note leaves the key out', async () => {
+    const k = await seeded();
+    expect((await k.post({ note: `  ${NOTE}\n\u200b ` })).status).toBe(200);
+    expect(await detailOf(k)).toEqual({ mode: 'grant', before: 500, after: 600, by: 'admin', receipt: null, note: NOTE });
+    expect((await k.post({ note: ' \u200b ', revision: 5 })).status).toBe(200);
+    expect(Object.keys(await detailOf(k))).not.toContain('note');
+  });
+
+  it('the cap is 80 code points AFTER the clean, and a bad note writes nothing', async () => {
+    const k = await seeded();
+    expect(COINS_NOTE_MAX).toBe(80);
+    expect((await k.post({ note: 'é'.repeat(80) + '\u200b\u200b' })).status).toBe(200); // 80 once cleaned
+    const over = await k.post({ note: 'é'.repeat(81), revision: 5 });
+    expect(over.status).toBe(400);
+    expect(await over.json()).toEqual({ error: 'note' });
+    expect((await k.post({ note: 7, revision: 5 })).status).toBe(400);
+    expect((await k.post({ note: null, revision: 5 })).status).toBe(400);
+    expect(await k.state()).toMatchObject({ actions: 1, ops: 1 });
+  });
+
+  it('the audit reason never reaches detail, and the export carries the note and not the reason', async () => {
+    const k = await seeded();
+    const SECRET = 'SENTINEL-AUDIT-REASON';
+    expect((await k.post({ reason: SECRET, note: NOTE })).status).toBe(200);
+    const raw = (await k.one<{ detail: string }>("SELECT detail FROM coin_journal WHERE kind = 'admin' ORDER BY id DESC LIMIT 1")).detail;
+    expect(raw).not.toContain(SECRET);
+    expect(raw).not.toContain('reason');
+    expect((await k.one<{ reason: string }>("SELECT reason FROM admin_action WHERE action = 'coins'")).reason).toBe(SECRET);
+    // The export also carries the member's own admin_action rows (the reason is there, by design), so judge the journal table.
+    const tables = (await exportMember(k.db, 'm1')) as unknown as { tables: Record<string, unknown[]> };
+    const journal = JSON.stringify(tables.tables.coin_journal);
+    expect(journal).toContain(NOTE);
+    expect(journal).not.toContain(SECRET);
+  });
+
+  it('the member route shows the note, and never the reason', async () => {
+    const k = await seeded();
+    expect((await k.post({ reason: 'SENTINEL-AUDIT-REASON', note: NOTE })).status).toBe(200);
+    expect((await k.post({ revision: 5, amount: 10 })).status).toBe(200); // no note
+    const cookie = await gameCookie(k.db, 'm1');
+    const req = new Request('https://roaring-lions.pint12.workers.dev/api/account/coins', { headers: { 'x-rl-account': '1', cookie } });
+    const res = await handleAccount(req, k.env, NOW);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain('SENTINEL-AUDIT-REASON');
+    const rows = (JSON.parse(text) as CoinsView).rows.filter((r) => r.what.kind === 'team');
+    expect(rows.map((r) => r.what)).toEqual([{ kind: 'team' }, { kind: 'team', note: NOTE }]);
+  });
+
+  it('the admin journal row carries the note, and none for a row without one', async () => {
+    const k = await seeded();
+    expect((await k.post({ note: NOTE })).status).toBe(200);
+    expect((await k.post({ revision: 5, amount: 10 })).status).toBe(200);
+    const res = await k.call('GET', '/stats/api/members/K7Q2ABCD/journal', { game: k.admin });
+    const rows = ((await res.json()) as { rows: { kind: string; note: string | null; delta: number }[] }).rows.filter((r) => r.kind === 'admin');
+    expect(rows.map((r) => [r.delta, r.note])).toEqual([[10, null], [100, NOTE]]);
+  });
+});
+
