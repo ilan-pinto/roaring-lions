@@ -70,6 +70,14 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <li>A log of views is kept for 180 days. A log of changes is kept while your account is.</li>
 </ul>
 
+<h2>Anonymous usage, crash and performance reports</h2>
+<ul>
+<li>When you play on the live site, the game sends anonymous reports: which screens and missions you reach and how you do, the type of a crash with a one-line message and a hash of where it happened, frame times (median, 95th and 99th percentile), the number of units on the map, your graphics quality setting, the name of your graphics card, and how long the game took to start.</li>
+<li>They carry a random ID that stays in this browser. They carry no name, email, IP address or browser user agent, and a crash message has file paths, links and long numbers removed before it is sent.</li>
+<li>Reports are kept for 180 days.</li>
+<li>Turn them off in Settings, under Privacy, or add ?notrack to the address. Your browser's Do Not Track and Global Privacy Control signals also turn them off. Nothing is sent from a local or development build.</li>
+</ul>
+
 <h2>What is never stored</h2>
 <ul>
 <li>Email, phone number and real name.</li>

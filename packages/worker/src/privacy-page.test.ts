@@ -23,6 +23,15 @@ describe('the privacy page', () => {
     expect(html).not.toContain('An empty coin wallet');
   });
 
+  // GH-1410 DRAFT (held for the lead): the lines for client_error, perf_sample and boot.
+  it('names the anonymous usage, crash and performance reports: what is sent, what is not, 180 days, and how to turn it off', () => {
+    const html = renderPrivacy(fixtureValues);
+    const section = html.split('Anonymous usage, crash and performance reports')[1]?.split('<h2>')[0] ?? '';
+    for (const m of ['frame times', 'graphics card', 'no name, email, IP address or browser user agent', 'removed before it is sent', 'kept for 180 days', 'Settings', 'Do Not Track', 'Global Privacy Control', '?notrack', 'development build']) {
+      expect(section, m).toContain(m);
+    }
+  });
+
   it('A3-9 names_the_a3_data: versus records, a guest opponent never stored, the declared bot model', () => {
     const html = renderPrivacy(fixtureValues);
     for (const m of ['versus', 'guest', 'never stored', 'declared']) expect(html.toLowerCase(), m).toContain(m);
