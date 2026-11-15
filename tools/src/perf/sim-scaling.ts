@@ -45,8 +45,16 @@
 //   npx tsx tools/src/perf/sim-scaling.ts
 //   npx tsx tools/src/perf/sim-scaling.ts --checkpoints=150,300,600,1000,1500
 //   npx tsx tools/src/perf/sim-scaling.ts --ticks=60 --warmup=10
+//   npx tsx tools/src/perf/sim-scaling.ts --checkpoints=300,400,600 --scene=converge --runs=3 --map=qarn_hadid
+//
+// --scene=converge (GH-1360 S0, spec section 4) is the GH-421 stress scene: before each timed run every living ground
+// unit is ordered to ONE point (`exact`: no formation slots, the worst case for the separation rule), re-issued before
+// every run so the units are still converging. --runs=N repeats the timed segment and reports stepMovement's min and
+// median over the runs, which is the number the spacing slices compare. --map=<id> picks the world's map (default
+// beit_sahwan_outskirts, which is what docs/PERFORMANCE.md's curve used; qarn_hadid is the spec's).
 
-import { FlowField, type TunnelRouteJson } from '@lions/sim';
+import { FlowField, fx, type Sim, type TunnelRouteJson } from '@lions/sim';
+import type { maps } from '@lions/data';
 import {
   buildWorld,
   computeAnchors,
@@ -61,7 +69,7 @@ import {
 // CLI args
 // ============================================================================
 
-function parseArgs(argv: readonly string[]): { checkpoints: number[]; ticks: number; warmup: number; maxRoutes: boolean } {
+function parseArgs(argv: readonly string[]): { checkpoints: number[]; ticks: number; warmup: number; maxRoutes: boolean; scene: 'none' | 'converge'; runs: number; map: string | undefined } {
   const flags = new Map(
     argv
       .filter((a) => a.startsWith('--'))
@@ -77,7 +85,11 @@ function parseArgs(argv: readonly string[]): { checkpoints: number[]; ticks: num
   const ticks = Number.parseInt(flags.get('ticks') ?? '40', 10);
   const warmup = Number.parseInt(flags.get('warmup') ?? '5', 10);
   const maxRoutes = flags.has('stress-routes');
-  return { checkpoints, ticks, warmup, maxRoutes };
+  const sceneArg = flags.get('scene') ?? 'none';
+  if (sceneArg !== 'none' && sceneArg !== 'converge') throw new Error(`--scene must be converge (or absent), got ${sceneArg}`);
+  const runs = Number.parseInt(flags.get('runs') ?? '1', 10);
+  if (!(runs >= 1)) throw new Error(`--runs must be 1 or more, got ${flags.get('runs')}`);
+  return { checkpoints, ticks, warmup, maxRoutes, scene: sceneArg, runs, map: flags.get('map') };
 }
 
 // ============================================================================
@@ -176,13 +188,57 @@ interface CheckpointReport {
   markerSeeingRouteAvgMs: number;
   flowFieldComputeAvgMs: number;
   flowFieldComputeCalls: number;
+  /** stepMovement's average ms per tick, one entry per timed run (--runs). */
+  movementRunsMs: number[];
+  /** Ground units ordered to converge before the first run (0 without --scene=converge). */
+  converged: number;
 }
 
+/**
+ * The GH-421 stress scene: every living ground unit ordered to one open tile, with no formation slots. `leg` picks the
+ * point: even legs the centre of the map, odd legs the point three quarters across and down, so successive runs keep
+ * the whole force marching (a force that has arrived is idle and costs nothing to separate).
+ */
+export function orderConverge(sim: Sim, leg = 0): number {
+  const ids: number[] = [];
+  for (let i = 0; i < sim.entityCount; i++) {
+    if (sim.state.alive[i] !== 1) continue;
+    if (sim.unitTypes[sim.state.typeIdx[i]].isAir) continue;
+    ids.push(i);
+  }
+  // The nearest open tile to the point, scanning outward ring by ring.
+  const cx = leg % 2 === 0 ? sim.width >> 1 : (sim.width * 3) >> 2;
+  const cy = leg % 2 === 0 ? sim.height >> 1 : (sim.height * 3) >> 2;
+  let gx = cx;
+  let gy = cy;
+  search: for (let r = 0; r < Math.max(sim.width, sim.height); r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x < 0 || y < 0 || x >= sim.width || y >= sim.height) continue;
+        if (sim.blockedVehicle[y * sim.width + x] !== 0) continue;
+        gx = x;
+        gy = y;
+        break search;
+      }
+    }
+  }
+  if (ids.length > 0) sim.queueCommand({ kind: 'move', ids, x: fx.from(gx + 0.5), y: fx.from(gy + 0.5), exact: true });
+  return ids.length;
+}
+
+const median = (xs: readonly number[]): number => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length % 2 === 1 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+};
+
 async function main(): Promise<void> {
-  const { checkpoints, ticks: timedTicks, warmup, maxRoutes } = parseArgs(process.argv.slice(2));
+  const { checkpoints, ticks: timedTicks, warmup, maxRoutes, scene, runs, map: mapArg } = parseArgs(process.argv.slice(2));
   const capacity = checkpoints[checkpoints.length - 1] + 100;
 
-  const world = buildWorld(capacity);
+  const world = mapArg === undefined ? buildWorld(capacity) : buildWorld(capacity, mapArg as keyof typeof maps);
   const { sim, map, typeOf } = world;
 
   // Register the map's own authored tunnels -- see the file-header comment
@@ -251,6 +307,8 @@ async function main(): Promise<void> {
     spawnUpTo(sim, spawner, target);
     const living = livingCount(sim);
 
+    const converged = scene === 'converge' ? orderConverge(sim) : 0;
+
     // Warmup: let combat reach steady state (target selection, movement
     // orders) before timing -- unchanged rationale from three-units.ts's
     // own WARMUP_TICKS. Not timed, and its phase cost is discarded.
@@ -278,7 +336,10 @@ async function main(): Promise<void> {
     const detectionTotal = phaseInstr.totals.get('stepDetection') ?? 0;
     const flowFieldTotal = flowFieldInstr.totals.get('compute') ?? 0;
 
-    reports.push({
+    const movementRunsMs = [(phaseInstr.totals.get('stepMovement') ?? 0) / timedTicks];
+    const report: CheckpointReport = {
+      movementRunsMs,
+      converged,
       target,
       living,
       tick: tickStats,
@@ -288,7 +349,16 @@ async function main(): Promise<void> {
       markerSeeingRouteAvgMs: markerTotal / timedTicks,
       flowFieldComputeAvgMs: flowFieldTotal / timedTicks,
       flowFieldComputeCalls: flowFieldCalls.count,
-    });
+    };
+    reports.push(report);
+
+    // --runs: repeat the timed segment (re-issuing the converge order) and keep stepMovement's average each time.
+    for (let run = 1; run < runs; run++) {
+      if (scene === 'converge') orderConverge(sim, run);
+      for (const t of phaseInstr.totals.keys()) phaseInstr.totals.set(t, 0);
+      for (let i = 0; i < timedTicks; i++) sim.tick();
+      movementRunsMs.push((phaseInstr.totals.get('stepMovement') ?? 0) / timedTicks);
+    }
   }
 
   phaseInstr.restore();
@@ -314,6 +384,16 @@ async function main(): Promise<void> {
     console.log(
       `| ${r.target} | ${r.living} | ${r.tick.avgMs.toFixed(2)} | ${r.tick.p95Ms.toFixed(2)} | ${r.tick.maxMs.toFixed(2)} | ${r.detectionPairwiseAvgMs.toFixed(3)} | ${r.trailStrengthAvgMs.toFixed(3)} | ${r.markerSeeingRouteAvgMs.toFixed(3)} | ${combat.avgMs.toFixed(3)} | ${movement.avgMs.toFixed(3)} | ${projectiles.avgMs.toFixed(3)} | ${r.flowFieldComputeAvgMs.toFixed(3)} (${r.flowFieldComputeCalls}) |${crossed}`
     );
+  }
+  if (scene === 'converge' || runs > 1) {
+    console.log('');
+    console.log(`stepMovement per run${scene === 'converge' ? ' (--scene=converge: every living ground unit ordered to one point, re-issued before each run)' : ''}, ms per tick:`);
+    console.log('| target | living | ground units ordered | runs | stepMovement each run | min | median |');
+    console.log('|---|---|---|---|---|---|---|');
+    for (const r of reports) {
+      const m = r.movementRunsMs;
+      console.log(`| ${r.target} | ${r.living} | ${r.converged} | ${m.length} | ${m.map((v) => v.toFixed(3)).join(', ')} | ${Math.min(...m).toFixed(3)} | ${median(m).toFixed(3)} |`);
+    }
   }
   console.log('');
   console.log('Full phase breakdown per checkpoint (avg ms/tick, share of total tick):');
