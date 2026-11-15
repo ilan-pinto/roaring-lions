@@ -1624,6 +1624,7 @@ async function main(): Promise<void> {
                     },
                   }
                 : {}),
+              coins: { read: () => ledgerStore.readRoar(), onAccount: acct !== null, available: ledgerStore.available, coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png` },
               // A guest boot only: a claimed device has the server-backed store and nothing to claim.
               claim: selectedStore.signedIn ? undefined : { guest: ledgerStore, download: downloadFile, onClaimed: reloadHere },
             });

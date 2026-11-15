@@ -16,6 +16,8 @@ import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
 import type { MatchView, MatchesView } from '@lions/economy';
 import { showProfile, type ProfileDeps } from './profile';
+import { showStores } from './stores';
+import { spendable } from '../roar-wallet';
 import { accountLedgerStore } from '../account/account-store';
 import { ACCOUNT_CACHE_KEY, writeCache } from '../account/cache';
 import { writeBinding } from '../account/binding';
@@ -997,5 +999,73 @@ describe('showProfile: the redesigned layout (GH-1075 P7)', () => {
     } finally {
       setCatalogue('en', en);
     }
+  });
+});
+
+describe('the Roar coins card (GH-1370 C3)', () => {
+  const coinSrc = (size: number): string => `/ui/roar_coin/roar_coin_${size}.png`;
+  const walletOf = (free: number, paid: number) => {
+    const store = memoryLedgerStore();
+    const w = store.readRoar();
+    store.writeRoar({ ...w, coins: { free, paid } });
+    return store;
+  };
+  const coinsDep = (store: ReturnType<typeof memoryLedgerStore>, onAccount: boolean): NonNullable<ProfileDeps['coins']> => ({
+    read: () => store.readRoar(),
+    onAccount,
+    available: true,
+    coinSrc,
+  });
+  const card = (stage: HTMLElement): HTMLElement | null => stage.querySelector('.rl-profile__card--coins');
+
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it('shows the same number as the Stores for the same store state', async () => {
+    const store = walletOf(300, 0);
+    const { stage } = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(store, true) });
+    await flush();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    showStores(host, { units: [], ledger: {}, credits: 0, owned: {}, coinSrc, missionName: () => undefined, wallet: { coins: spendable(store.readRoar()), receipts: [] } });
+    const stores = host.querySelector('.rl-stores__wallet-n')?.textContent;
+    expect(stores).toBe('300');
+    expect(card(stage)?.querySelector('.rl-profile__coins-n')?.textContent).toBe(stores);
+  });
+
+  it('is the second card of the main column, under the header', async () => {
+    const { stage } = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(walletOf(5, 0), true) });
+    await flush();
+    const kids = [...(stage.querySelector('.rl-profile__col--main')?.children ?? [])];
+    expect(kids[0]?.classList.contains('rl-profile__card--head')).toBe(true);
+    expect(kids[1]).toBe(card(stage));
+  });
+
+  it('is not drawn for a signed-out guest', async () => {
+    const { stage } = mount(stub(), { coins: coinsDep(walletOf(340, 0), false) });
+    await flush();
+    expect(card(stage)).toBeNull();
+    expect(stage.querySelector('.rl-profile__coins-n')).toBeNull();
+  });
+
+  it('reads "On this device" when the store is not the account store, "On your account" when it is', async () => {
+    const a = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(walletOf(10, 0), false) });
+    await flush();
+    expect(card(a.stage)?.textContent).toContain(t('profile.coins.device'));
+    expect(card(a.stage)?.textContent).not.toContain(t('profile.coins.account'));
+    const b = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(walletOf(10, 0), true) });
+    await flush();
+    expect(card(b.stage)?.textContent).toContain(t('profile.coins.account'));
+  });
+
+  it('says what to do at a zero balance, and that the wallet is unavailable when it is', async () => {
+    const zero = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(walletOf(0, 0), true) });
+    await flush();
+    expect(card(zero.stage)?.textContent).toContain(t('profile.coins.empty'));
+    const off = mount(stub({ me: async () => signedIn() }), { coins: { ...coinsDep(walletOf(0, 0), false), available: false } });
+    await flush();
+    expect(card(off.stage)?.textContent).toContain(t('profile.coins.offline'));
+    expect(card(off.stage)?.textContent).not.toContain(t('profile.coins.empty'));
   });
 });
