@@ -4280,13 +4280,15 @@ body[data-outcome-beat] .rl-aar {
    keeps a gutter either side and a tighter pad and title than the full-width
    failure card (the approved mock's measurements). */
 .rl-small-screen .rl-boot-error,
-.rl-no-gpu .rl-boot-error {
+.rl-no-gpu .rl-boot-error,
+.rl-quality-hint .rl-boot-error {
   box-sizing: border-box;
   width: min(40rem, calc(100vw - 2 * var(--s3)));
   padding: var(--s4);
 }
 .rl-small-screen .rl-boot-error__title,
-.rl-no-gpu .rl-boot-error__title {
+.rl-no-gpu .rl-boot-error__title,
+.rl-quality-hint .rl-boot-error__title {
   font-size: var(--t-l);
 }
 .rl-boot-error__title {
