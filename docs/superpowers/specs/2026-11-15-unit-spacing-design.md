@@ -206,7 +206,13 @@ facings only**. Spawn order, and with it entity ids and every per-entity RNG str
 - The depth comes from `templateOffsets`, which needs no ground.
 - If the rear row would be under 1 tile from the map edge, the anchor slides inward until it is not. Most
   starts sit 2–5 tiles from an edge (y ≈ 44 of 48), so this is the normal case, not an edge case.
-- The anchor then snaps to open ground per domain, as a click does.
+- The anchor then snaps to open ground **once, on the union of the foot and vehicle masks** (a tile is open only if both
+  domains can stand on it), as a click does, and the edge pull-back runs again after the snap, which can move the click
+  back toward the edge. *Why once:* snapping each domain on its own (as `assignTemplate`'s callers do for a click) moves a
+  vehicle origin off the foot click whenever a boulder sits there, and `assignTemplate` then anchors the vehicle-only front
+  rank on a second track whose rank depth restarts at the click, so the infantry end up level with or ahead of the vehicles
+  (found in S3a by the boulder test). A body kept at its authored position (no free spot) reserves that tile, so a later
+  assembly cannot seat a body on it, and a free-spot answer equal to the request is "no spot".
 
 **How far bodies move.** The layout keeps the force where the author put it (the centroid moves 0.5–1.5 tiles
 on the sheet's four rows, at most 3.6 over all 36 starts), but it re-orders the force into class rows, so
@@ -359,7 +365,7 @@ says how much is left.
 
 ### 3.4 The free spot: one deterministic placement helper
 
-`freeSpotNear(x, y, typeIdx, side, reach)` is a pure method on `Sim`, used by every place a unit appears:
+`freeSpotNear(x, y, typeIdx, side, reach, facing = 0)` is a pure method on `Sim`, used by every place a unit appears:
 
 - the starting layout's overflow;
 - the enemy and civilian spread;
@@ -375,6 +381,8 @@ lattice outward, each ring visited clockwise from north. A candidate is taken wh
 
 - its tile is open on the unit's own mask;
 - it is reachable (same component as the requested point; the walk is cached per call);
+  When the request's own tile is shut, the walk is seeded at the first open ring point in visit order.
+  The unit's body is placed at `facing` (a hull is a capsule); the default is 0.
 - its body clears every living participant within reach by the pair distance.
 
 The first candidate that passes wins. Reach is 6 tiles for a soft (mid-mission) spawn and 12 for a start.

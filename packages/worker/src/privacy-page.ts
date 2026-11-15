@@ -13,7 +13,7 @@ export const PRIVACY_CONTACT: string | null =
 /** The lead's minimum age (an integer 13 to 18). `null` until the lead decides it. */
 export const PRIVACY_MIN_AGE: number | null = 16;
 /** The date this text last changed. Set at merge. */
-export const PRIVACY_UPDATED = '2026-11-14';
+export const PRIVACY_UPDATED = '2026-11-15';
 
 /** PAGE_CSP with its inline-script allowance removed: this page has no script, so it may run none. */
 export const PRIVACY_PAGE_CSP = PAGE_CSP.replace("script-src 'unsafe-inline'", "script-src 'none'");
@@ -61,6 +61,13 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <li>For each device you moved progress from, a random device id, the day, and what was moved.</li>
 <li>For 30 days, a log of recent requests that makes retries safe, including when each mission was started.</li>
 <li>Versus matches you play while signed in: the map, the sides, the result, when it was played, and whether your opponent was a member, a guest or a bot (with the model the bot's operator declared). A guest opponent's name is never stored. Kept while either player keeps an account.</li>
+</ul>
+
+<h2>What the team can see</h2>
+<ul>
+<li>The Roaring Lions team can view your display name, Player ID, balances and their history, and can correct your coin or credit balance. Every view and every change is logged with the reason, and the change appears in your export.</li>
+<li>What the team sees never includes your Google or Steam account number.</li>
+<li>A log of views is kept for 180 days. A log of changes is kept while your account is.</li>
 </ul>
 
 <h2>What is never stored</h2>

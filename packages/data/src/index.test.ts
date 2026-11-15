@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   formations,
+  layouts,
   grades,
   maps,
   missions,
@@ -129,6 +130,24 @@ describe('formations is pinned to the directory it comes from', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual([...ids].sort());
     expect(ids).toEqual(['ambush', 'attack', 'column']);
+  });
+});
+
+describe('layouts is pinned to its own directory, apart from formations (GH-1360 S3a)', () => {
+  const layoutsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data/layouts');
+
+  it('carries every layout file on disk, by id', () => {
+    const onDisk = readdirSync(layoutsDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => JSON.parse(readFileSync(path.join(layoutsDir, f), 'utf8')).id as string)
+      .sort();
+    expect(onDisk).toEqual(['assembly']);
+    expect(layouts.map((l) => l.id).sort()).toEqual(onDisk);
+  });
+
+  it('never appears among the orderable formations', () => {
+    expect(formations.map((f) => f.id)).not.toContain('assembly');
+    expect(layouts.map((l) => l.id).filter((id) => formations.some((f) => f.id === id))).toEqual([]);
   });
 });
 
