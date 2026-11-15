@@ -172,6 +172,20 @@ describe('startLayout: the edge pull-back keeps the rear rank on the map (GH-136
   });
 });
 
+describe('startLayout: the pull-back runs after the snap (GH-1360 S3a review)', () => {
+  it('west edge with a blocked tile at the click: the snap moves the click back to x 4, and it is pulled in again', () => {
+    // The edge force: click (5,20) after the first pull-back, rear rank x 1. Tile (5,20) is a wall for foot and wheels, so
+    // the snap takes the first open tile of ring 1, row-major: (4,19). The rear rank would be x 0; the second pull-back makes
+    // the click x 5 again, so (5,19). Tanks (5,19), (5,22); infantry (3,19), (3,21); support (1,19).
+    const wall = open();
+    wall[20 * W + 5] = 1;
+    const force = [body(0, ARMOUR, 2.5, 20.5), body(1, ARMOUR, 3.5, 21.5), body(2, INFANTRY, 2.5, 19.5), body(3, INFANTRY, 1.5, 20.5), body(4, SUPPORT, 1.5, 21.5)];
+    const out = tiles(lay(force, 'E', W, H, [wall, wall]));
+    expect(out).toEqual([[0, 5, 19], [1, 5, 22], [2, 3, 19], [3, 3, 21], [4, 1, 19]]);
+    expect(Math.min(...out.map(([, x]) => x))).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe('startLayout: overflow goes to the free spot, then to the authored position (GH-1360 S3a)', () => {
   const HULL = { hp: 100, armor: { front: 1, side: 1, rear: 1 } };
   const SENSORS = { optics: 1, sight_tiles: 2, signature: 1 };
@@ -212,6 +226,26 @@ describe('startLayout: overflow goes to the free spot, then to the authored posi
     expect(out[1].x).toBe(fx.from(19.5));
     expect(out[1].y).toBe(fx.from(10.5));
     expect(out[1].face).toBe(E);
+  });
+
+  it('the real freeSpotNear through a bare wrapper: its echo of the request is "no spot"', () => {
+    const { sim, tank, masks } = pocket();
+    const spawned = new Set<number>();
+    const bare = (_id: number, x: Fx, y: Fx, others: readonly StartPlacement[]): [Fx, Fx] => {
+      for (const o of others) {
+        if (spawned.has(o.id)) continue;
+        spawned.add(o.id);
+        sim.spawn(tank, 0, o.x, o.y);
+      }
+      return sim.freeSpotNear(x, y, tank, 0, 12);
+    };
+    // three tanks, the pocket holds two: tank 0 the click, tank 1 the free spot 19.5, tank 2 finds nothing and freeSpotNear
+    // hands the request (21.5, 10.5) back, on top of tank 0. That is not a spot: tank 2 keeps its authored 22.5.
+    const force = [body(0, ARMOUR, 19.5, 10.5), body(1, ARMOUR, 21.5, 10.5), body(2, ARMOUR, 22.5, 10.5)];
+    const out = lay(force, 'E', RW, RH, masks, bare);
+    expect(out.map((p) => p.how)).toEqual(['slot', 'free', 'authored']);
+    expect(out[1].x).toBe(fx.from(19.5));
+    expect(out[2].x).toBe(fx.from(22.5));
   });
 
   it('no free spot keeps the authored position and says so', () => {
@@ -259,6 +293,49 @@ describe('startLayout: each body on its own mask, and assemblies do not share a 
     expect(seen.size).toBe(12);
     // the first assembly is what it would be alone
     expect(tiles(out).slice(0, 6)).toEqual(tiles(lay(mk(0, 20.5), 'E')));
+  });
+});
+
+describe('startLayout: the authored fallback tile is reserved (GH-1360 S3a review)', () => {
+  it('a later assembly does not seat a body on the tile an earlier body kept', () => {
+    // A: two tanks, ids 0 and 1, at (21.5,10.5)... y sum 25.0 / 2 -> click (21,12), a one-tile cell: its eight neighbours are
+    // walls, so tank 1 has no slot and (no free spot) keeps its authored tile (21,14). B: nine rifle teams at y 22.5, x 17.5..25.5
+    // (8 tiles from A, so a separate assembly), click (21,22), depth 0: lateral 0, +2, -2, +4, -4, +6, -6, +8, -8 -> y 22, 24,
+    // 20, 26, 18, 28, 16, 30, 14. The last, (21,14), is tank 1's tile.
+    const wall = open();
+    for (let y = 11; y <= 13; y++) for (let x = 20; x <= 22; x++) if (!(x === 21 && y === 12)) wall[y * W + x] = 1;
+    const a = [body(0, ARMOUR, 21.5, 10.5), body(1, ARMOUR, 21.5, 14.5)];
+    const b = Array.from({ length: 9 }, (_, i) => body(2 + i, INFANTRY, 17.5 + i, 22.5));
+    const out = lay([...a, ...b], 'E', W, H, [wall, wall], () => null);
+    expect(out.slice(0, 2).map((p) => p.how)).toEqual(['slot', 'authored']);
+    expect(tiles(out)[1]).toEqual([1, 21, 14]);
+    const seen = new Set<string>();
+    for (const [, x, y] of tiles(out)) {
+      expect(seen.has(`${x},${y}`)).toBe(false);
+      seen.add(`${x},${y}`);
+    }
+    expect(seen.size).toBe(11);
+  });
+});
+
+describe('startLayout: lateral overrun at a side edge (GH-1360 S3a review)', () => {
+  it('a crowd at the west side edge facing S overflows past the map to the free spot, and stays on the map', () => {
+    // 30 rifle teams in a 3 x 10 block at the west edge. Facing S the lateral axis is -x, so a rank has only the slots on the
+    // map side of the click: about 5 of the 9 the depth estimate assumed. The ranks run out of map behind the click, and the
+    // bodies with no slot ask the free spot at the click.
+    const force = Array.from({ length: 30 }, (_, i) => body(i, INFANTRY, 0.5 + (i % 3), 0.5 + ((i - (i % 3)) / 3)));
+    const asked: number[] = [];
+    const out = lay(force, 'S', W, H, undefined, (id, x, y) => {
+      asked.push(id);
+      return [fx.add(x, fx.from(1)), y];
+    });
+    expect(asked.length).toBe(5); // measured: 25 of 30 find a slot
+    expect(out.filter((p) => p.how === 'free').length).toBe(asked.length);
+    for (const p of out.filter((q) => q.how === 'slot')) {
+      expect(fx.toInt(p.x)).toBeGreaterThanOrEqual(0);
+      expect(fx.toInt(p.y)).toBeGreaterThanOrEqual(0);
+    }
+    expect(out.filter((p) => p.how === 'slot').length + asked.length).toBe(30);
   });
 });
 

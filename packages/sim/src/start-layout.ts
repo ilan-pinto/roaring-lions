@@ -159,6 +159,12 @@ export function startLayout(input: StartLayoutInput, tpl: CompiledFormation): St
     return out;
   };
   const reserved = new Uint8Array(w * h);
+  // `Sim.freeSpotNear` echoes the requested point when it finds nothing. An echo is "no spot", whatever the wrapper does.
+  const askSpot = (id: number, x: Fx, y: Fx): readonly [Fx, Fx] | null => {
+    if (input.freeSpot === undefined) return null;
+    const spot = input.freeSpot(id, x, y, laidOut());
+    return spot === null || (spot[0] === x && spot[1] === y) ? null : spot;
+  };
   // A tile is open to the anchor only if it is open to foot and to wheels.
   const both = new Uint8Array(w * h);
   for (let t = 0; t < both.length; t++) both[t] = input.masks[DOMAIN_FOOT][t] | input.masks[DOMAIN_VEHICLE][t];
@@ -196,15 +202,22 @@ export function startLayout(input: StartLayoutInput, tpl: CompiledFormation): St
     ay += fwdY * half;
     ax = ax < 0 ? 0 : ax >= w ? w - 1 : ax;
     ay = ay < 0 ? 0 : ay >= h ? h - 1 : ay;
-    // The edge pull-back: the rear row (depth behind the click) stays EDGE_MARGIN inside.
-    if (fwdX > 0 && ax - depth < EDGE_MARGIN) ax = EDGE_MARGIN + depth;
-    else if (fwdX < 0 && ax + depth > w - 1 - EDGE_MARGIN) ax = w - 1 - EDGE_MARGIN - depth;
-    if (fwdY > 0 && ay - depth < EDGE_MARGIN) ay = EDGE_MARGIN + depth;
-    else if (fwdY < 0 && ay + depth > h - 1 - EDGE_MARGIN) ay = h - 1 - EDGE_MARGIN - depth;
+    // The edge pull-back: the rear row (depth behind the click) stays EDGE_MARGIN inside. Run again after the snap,
+    // which can move the click back toward the edge.
+    const pull = (): void => {
+      if (fwdX > 0 && ax - depth < EDGE_MARGIN) ax = EDGE_MARGIN + depth;
+      else if (fwdX < 0 && ax + depth > w - 1 - EDGE_MARGIN) ax = w - 1 - EDGE_MARGIN - depth;
+      if (fwdY > 0 && ay - depth < EDGE_MARGIN) ay = EDGE_MARGIN + depth;
+      else if (fwdY < 0 && ay + depth > h - 1 - EDGE_MARGIN) ay = h - 1 - EDGE_MARGIN - depth;
+    };
+    pull();
 
     // One anchor, open to BOTH domains. Two separate snaps would put a vehicle-only element on `assignTemplate`'s second
     // track, whose rank depth restarts at the click, and the infantry would stand level with, or ahead of, the vehicles.
-    const [fox, foy] = snapOpen(both, w, h, ax, ay);
+    [ax, ay] = snapOpen(both, w, h, ax, ay);
+    pull();
+    const fox = ax;
+    const foy = ay;
     const [vox, voy] = [fox, foy];
     const res = assignTemplate(
       {
@@ -242,11 +255,15 @@ export function startLayout(input: StartLayoutInput, tpl: CompiledFormation): St
       if (result[i] !== null) continue;
       const b = bodies[i];
       const [ox, oy] = b.vehicle ? [vox, voy] : [fox, foy];
-      const spot = input.freeSpot === undefined ? null : input.freeSpot(b.id, centreOf(ox), centreOf(oy), laidOut());
+      const spot = askSpot(b.id, centreOf(ox), centreOf(oy));
       if (spot !== null) {
         reserved[fx.toInt(spot[1]) * w + fx.toInt(spot[0])] = 1;
         result[i] = { id: b.id, x: spot[0], y: spot[1], face: faceFront, how: 'free' };
       } else {
+        // The authored tile is taken: a later assembly must not seat a body on it.
+        const ax0 = fx.toInt(b.x);
+        const ay0 = fx.toInt(b.y);
+        if (ax0 >= 0 && ay0 >= 0 && ax0 < w && ay0 < h) reserved[ay0 * w + ax0] = 1;
         result[i] = { id: b.id, x: b.x, y: b.y, face: faceFront, how: 'authored' };
       }
     }
@@ -255,7 +272,7 @@ export function startLayout(input: StartLayoutInput, tpl: CompiledFormation): St
   // A lone body keeps where the author put it, de-overlapped, and turns to the front.
   for (const i of lone) {
     const b = bodies[i];
-    const spot = input.freeSpot === undefined ? null : input.freeSpot(b.id, b.x, b.y, laidOut());
+    const spot = askSpot(b.id, b.x, b.y);
     result[i] =
       spot === null
         ? { id: b.id, x: b.x, y: b.y, face: faceFront, how: 'authored' }
