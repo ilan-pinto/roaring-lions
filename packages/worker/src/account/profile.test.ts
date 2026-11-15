@@ -192,6 +192,8 @@ describe('avatars (GH-1075 P4)', () => {
     expect((await me(h, ck)).avatar).toEqual({ kind: 'upload', rev: 3, fallback: 'crest-reticle' });
     const res = await patch(h, ck, { op_id: op(80), displayName: 'Renamed' });
     expect(res.status).toBe(200);
+    // The rename really happened, or "a rename leaves the upload alone" proves nothing.
+    expect(await nameOf(h)).toBe('Renamed');
     expect(await stored(h)).toBe('u');
     expect((await me(h, ck)).avatar).toEqual({ kind: 'upload', rev: 3, fallback: 'crest-reticle' });
   });

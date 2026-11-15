@@ -881,7 +881,9 @@ describe('showProfile: the avatar sheet (GH-1075 P6)', () => {
     await vi.waitFor(() => expect(document.body.querySelector('.rl-avatar-picker')).not.toBeNull());
     (document.body.querySelector('.rl-avatar-picker__save') as HTMLButtonElement).click();
     await flush();
-    expect(c.calls.filter((x) => x.startsWith('patch:')).pop()).toBe('patch:{"avatar":null}');
+    // The whole sequence, not the last element: the earlier null is already the last one before this Save, so `.pop()` alone passes
+    // when this Save sends nothing.
+    expect(c.calls.filter((x) => x.startsWith('patch:'))).toEqual(['patch:{"avatar":"crest-wave"}', 'patch:{"avatar":null}', 'patch:{"avatar":null}']);
   });
 
   it('a click that is still loading the sheet when the screen is disposed opens nothing', async () => {
