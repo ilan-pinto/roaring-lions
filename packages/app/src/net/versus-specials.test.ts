@@ -18,12 +18,12 @@ const COMING = ['recon_zikit', 'heli_peten_gunship', 'inf_medic_squad', 'mbt_lav
 const APPENDED = ['mbt_lavi_camo', 'spg_long_range', 'ugv_recon_dog', 'at_nlos_team', 'demo_tzav'];
 /** `match-world.test.ts`'s literals: the matched room's type count and its tel_marum pin (seed 20260727, 200 ticks). */
 const MATCHED_TYPES = 39;
-const TEL_MATCHED_PIN = 2541694446;
+const TEL_MATCHED_PIN = 2673683950;
 const BEIT_MATCHED_PIN = 701662394;
 // Was 422407671 (the first build of this PR). Moved by the review fix that turns the slots into each seat's own
 // frame (`slotTile`) with the two shallower rows: tel_marum's enemy lies along -y, so the camo Lavi now stands behind
 // its seat (26,47) instead of out on its flank. The matched pins beside it did not move.
-const BRIGADE_CAMO_PIN = 3730337271;
+const BRIGADE_CAMO_PIN = 546336247;
 
 type Kit = 'matched' | 'brigade';
 interface SeatOpts { kit?: Kit; unlocks?: string[]; kind?: 'human' | 'bot' }

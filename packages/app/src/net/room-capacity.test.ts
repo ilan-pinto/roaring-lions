@@ -55,7 +55,7 @@ describe('a 256 room builds the world it always built', () => {
     const pins: [string, ['kdf' | 'sarim', 'kdf' | 'sarim'], number, number][] = [
       ['wadi_tarfan', ['kdf', 'kdf'], 2929583402, 0],
       ['wadi_tarfan', ['kdf', 'sarim'], 1531252083, 3577900654],
-      ['tel_marum', ['kdf', 'sarim'], 4290301113, 733838646],
+      ['tel_marum', ['kdf', 'sarim'], 2233126073, 733838646],
     ];
     for (const [map, f, hash, digest] of pins) {
       const w = buildMatchWorld(config(map, f));

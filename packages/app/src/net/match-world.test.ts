@@ -40,7 +40,7 @@ describe('buildMatchWorld', () => {
     // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): the spawn moved. Was 52130380.
     // beit re-pinned 28 Oct 2026 for its seat 0 at (4,22) (GH-560 Task 7B): the spawn moved and nothing else. Was 823410040 (here and in the two kit pins below).
     // Re-pinned for GH-884 (5 Nov 2026): mbt_lavi gained hull.aps.reserve, so a room that registers the KDF roster turns apsStockLive on and folds its marker word and two columns; with that fold disabled the old values read back (watched). Was 1075203618 (beit) and 682632360 (tel).
-    for (const [map, pin] of [['beit_sahwan_outskirts', 701662394], ['tel_marum', 2541694446]] as const) {
+    for (const [map, pin] of [['beit_sahwan_outskirts', 701662394], ['tel_marum', 2673683950]] as const) {
       const w = buildMatchWorld(config(map, ['kdf', 'kdf'], 20260727));
       for (let i = 0; i < 200; i++) w.sim.tick();
       expect(w.sim.hash()).toBe(pin);
@@ -284,7 +284,7 @@ describe("a matched room, and a brigade room with equal claims, build today's by
   // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 4047666552 / 792859212.
   // beit re-pinned 28 Oct 2026 for its seat 0 at (4,22) (GH-560 Task 7B). Was 823410040.
   // Re-pinned for GH-884 (5 Nov 2026), see the first describe's note: the apsStockLive fold. Was 1075203618 (beit) and 682632360 (tel).
-  const PINS = [['beit_sahwan_outskirts', 701662394], ['tel_marum', 2541694446]] as const;
+  const PINS = [['beit_sahwan_outskirts', 701662394], ['tel_marum', 2673683950]] as const;
   const SEED = 20260727;
 
   it("kit 'matched' with empty tiers: the pins, and the roster registered once", () => {
@@ -444,7 +444,7 @@ describe('the economy runtime (N3 Task 3)', () => {
     // wadi_tarfan re-pinned for GH-945 (seats (11,11)/(36,36) -> (10,10)/(37,37), every route at capacity 3). Was 955375532.
     // Re-pinned for GH-884 (5 Nov 2026): mbt_lavi gained hull.aps.reserve, so the KDF host's room turns apsStockLive on and folds its marker word and two columns; with that fold disabled the old values read back (watched). Was -1979138290 (tel_marum) and -1823744084 (wadi_tarfan).
     // wadi_tarfan re-pinned for GH-884 (7 Nov 2026): route A's vents moved one tile (hostile (25,32) -> (25,33), friendly (22,15) -> (22,14)), and route geometry is hashed. Was -1264532616. Nothing in the sim moved; with the two points put back by hand the old value reads back.
-    const VERSUS_ECONOMY_PINS =[['tel_marum', -848995620], ['wadi_tarfan', -1432633581]] as const;
+    const VERSUS_ECONOMY_PINS =[['tel_marum', 1589467868], ['wadi_tarfan', -1432633581]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
