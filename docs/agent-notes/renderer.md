@@ -642,6 +642,12 @@ slot of kind `DISTURB_KIND_AIR` in N2's array. +0 draw calls, +0 programs; the c
   death clip (`fall`/`fallAlt`, else `idle` with the topple's spin) at the sim's position and facing -- never read off
   the frame-clock screen -- and the screen blends into the ragdoll over 100 ms. Freeze at 30 quiet steps or 240 steps;
   the entity is then a `MeshWreck` (fog-revealed as usual).
+- **The push per killer (GH-1223).** The push is read off the killer's last act (`ragdollPushForKill`): a weapon id, or a
+  latch key for a strike (`SUPPORT_LATCH`, one per `SupportMunitionKind`, an exhaustive `Record`) or a placed charge. A
+  strike profile the table does not know (`supportKindForProfile`) latches nothing and logs a `console.error`: it never
+  reads as an air strike. Known limit: a strike or charge names every kill its caller makes in the same event batch (one
+  tick). A `strike` event is raised on the tick the call RESOLVES, after its delay, not when it was called, so a round the
+  caller fires in that same tick takes the strike's push. Rare, accepted.
 - **The `ragdolls` debug layer** hides every root the ragdolls hold or froze (a flag re-applied after the wreck reveal).
 - Tests: `physics/ragdoll-world.test.ts` (a committed digest, so CI's Linux and a developer's macOS must agree),
   `physics/ragdoll-rig.test.ts` (the shipped GLBs), `ThreeRenderer.ragdoll*.test.ts` (wiring, the sim hash with physics
