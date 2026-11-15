@@ -458,7 +458,7 @@ Spec: `docs/superpowers/specs/2026-11-14-admin-account-page-design.md`. The page
   deletes are the member tables list (`account/tables.ts`, a member's own deletion) and `admin/view-sweep.ts`, which is
   held to `WHERE action = 'view'`. `read.test.ts` ("the audit table is append-only") enforces all three.
 - **View logging and its sweep.** Opening a card writes an `admin_action` row of action `view`. The daily cron
-  (`scheduled` in `index.ts`, with `ACCOUNTS` bound) deletes view rows older than 180 days, the feedback retention.
+  (`scheduled` in `index.ts`, with both `ACCOUNTS` and `ACCOUNT_TOMBSTONES` bound, as the accounts chain needs) deletes view rows older than 180 days, the feedback retention.
   Change rows stay while the member does. `view-sweep.test.ts` pins the 180-day edge as a literal; one-line mutations
   (drop the `action = 'view'` guard, `<` to `<=`, unwire it from `scheduled`) each turn it red.
 - **Minimum display.** No identity subject, no internal id, no session, no slot, no ledger. The member's export carries the

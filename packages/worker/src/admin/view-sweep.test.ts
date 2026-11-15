@@ -33,7 +33,7 @@ describe('sweepAdminViews', () => {
     expect((await left(h)).length).toBe(5);
   });
 
-  it("runs on the Worker's daily cron, with ACCOUNTS bound", async () => {
+  it("runs on the Worker's daily cron, with ACCOUNTS and ACCOUNT_TOMBSTONES bound", async () => {
     const h = accountHarness({ now: NOW });
     await seed(h);
     const realNow = Date.now;
