@@ -6,7 +6,7 @@
  */
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
-import { FEEDBACK_HTML, FEEDBACK_PAGE_CSP } from './feedback-page';
+import { FEEDBACK_HTML } from './feedback-page';
 import { MEMBERS_HTML, MEMBERS_SCRIPT } from './members-page';
 import { STATS_HTML } from './stats-page';
 import { handleStats } from './stats';
@@ -24,7 +24,7 @@ interface Sent {
   body: unknown;
 }
 
-async function boot(opts: { admin?: boolean; open?: boolean; game?: 'admin' | 'player' | 'none'; loseReply?: (s: Sent) => boolean } = {}) {
+async function boot(opts: { admin?: boolean; open?: boolean; game?: 'admin' | 'player' | 'none'; loseReply?: (s: Sent) => boolean; slow?: (s: Sent, n: number) => number } = {}) {
   const k = adminKit();
   await addMember(k.db, ADMIN);
   await addMember(k.db, { id: 'm1', publicId: 'K7Q2ABCD', name: HOSTILE, free: 500, walletRevision: 4, brigade: { version: 1, balance: 3180, earned_total: 3180, grants: [{ source: 'earned', amount: 3180, missionId: 'x', at: 1 }] }, campaignRevision: 7, identities: [['google', 'SECRET-GOOGLE-SUB-777']] });
@@ -45,6 +45,8 @@ async function boot(opts: { admin?: boolean; open?: boolean; game?: 'admin' | 'p
     sent.push(rec);
     const res = await handleStats(new Request(TEST_ORIGIN + url, { method, headers, body: init.body }), env, NOW);
     if (opts.loseReply?.(rec) === true) throw new TypeError('network lost the reply');
+    const ms = opts.slow?.(rec, sent.length) ?? 0;
+    if (ms > 0) await new Promise((r) => setTimeout(r, ms));
     return res;
   };
   const dom = new JSDOM(MEMBERS_HTML, {
@@ -86,7 +88,9 @@ describe('the route and the links (S5, D4)', () => {
     const k = adminKit();
     const ok = await k.call('GET', '/stats/members');
     expect(ok.status).toBe(200);
-    expect(ok.headers.get('content-security-policy')).toBe(FEEDBACK_PAGE_CSP);
+    expect(ok.headers.get('content-security-policy')).toBe(
+      "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    );
     expect(ok.headers.get('cache-control')).toContain('no-store');
     expect(await ok.text()).toBe(MEMBERS_HTML);
     const anon = await k.call('GET', '/stats/members', { stats: false });
@@ -186,10 +190,13 @@ describe('look up, the card and the journal (S5, D5, D6)', () => {
     await t.waitFor(() => t.$('journal-body').children.length === 55, 'page two');
     expect(t.$('older').hidden).toBe(true);
     expect(new Set([...t.$('journal-body').children].map((r) => r.children[7]?.textContent)).size).toBe(55);
+    const fetches = t.sent.length;
     t.click(t.w.document.querySelector('#filters button[data-filter="credits"]')!);
-    await t.waitFor(() => t.sent.some((s) => s.path.includes('currency=credits')), 'credits filter');
-    await t.waitFor(() => t.$('journal-body').children.length === 0, 'empty credits journal');
+    expect(t.$('journal-body').children.length).toBe(0);
     expect(t.$('journal-empty').hidden).toBe(false);
+    t.click(t.w.document.querySelector('#filters button[data-filter="coins"]')!);
+    expect(t.$('journal-body').children.length).toBe(55);
+    expect(t.sent.length).toBe(fetches); // a filter click is client-side: no fetch, no view row, no read spent
   });
 });
 
@@ -309,5 +316,89 @@ describe('Close admin writes (S5, D3)', () => {
     expect(t.$('sw-close').hidden).toBe(true);
     expect(await t.dbOne<{ value: string }>("SELECT value FROM flags WHERE name = 'admin'")).toEqual({ value: 'closed' });
     expect(t.w.document.querySelector('button#sw-open')).toBeNull();
+  });
+});
+
+describe('audit noise, races and the highlight (S5 review)', () => {
+  const journalFetches = (t: Awaited<ReturnType<typeof boot>>) => t.sent.filter((s) => s.path.includes('/journal')).length;
+
+  it('opening a card fetches the journal exactly once, and logs the views that implies', async () => {
+    const t = await boot();
+    await t.openCard();
+    expect(journalFetches(t)).toBe(1);
+    expect(t.sent.filter((s) => s.path === '/stats/api/members/K7Q2ABCD').length).toBe(1);
+  });
+
+  it('a slower, earlier journal response cannot overwrite a newer one', async () => {
+    let seen = 0;
+    const t = await boot({ slow: (s) => (s.path.includes('/journal') && seen++ === 0 ? 150 : 0) });
+    t.type('q', 'K7Q2ABCD');
+    t.$('find-form').dispatchEvent(new t.w.Event('submit', { bubbles: true, cancelable: true }));
+    await t.waitFor(() => t.w.document.querySelector('#results-body button') !== null, 'results');
+    const btn = t.w.document.querySelector('#results-body button')!;
+    t.click(btn);
+    await t.waitFor(() => journalFetches(t) === 1, 'first journal request');
+    await t.k.db.prepare("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES ('m1', ?1, 'earn', 0, '{}', 'late-row')").bind(NOW + 1).run();
+    t.click(t.w.document.querySelector('#results-body button')!);
+    await t.waitFor(() => t.$('journal-body').children.length === 2, 'newer response drawn');
+    await new Promise((r) => setTimeout(r, 300));
+    expect(t.$('journal-body').children.length).toBe(2);
+  });
+
+  it('highlights the row whose op id is the write just made, not the first row', async () => {
+    const t = await boot();
+    await t.k.db.prepare("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES ('m1', ?1, 'earn', 0, '{}', 'newer-earn-0001')").bind(NOW + 5000).run();
+    await t.openCard();
+    t.type('amt', '100');
+    t.type('why', 'Compensation: lost a won mission');
+    t.click(t.$('review'));
+    t.click(t.$('d-go'));
+    await t.waitFor(() => t.w.document.querySelector('#journal-body tr.new') !== null, 'highlight');
+    const opId = (t.sent.find((s) => s.method === 'POST')!.body as { op_id: string }).op_id;
+    const marked = [...t.w.document.querySelectorAll('#journal-body tr.new')];
+    expect(marked.length).toBe(1);
+    expect(marked[0]!.textContent).toContain(opId.slice(0, 4) + '\u2026' + opId.slice(-4));
+    expect(t.$('journal-body').children[0]!.className).not.toBe('new');
+  });
+
+  it('a set, driven through the dialog, writes the target balance and keeps wallet = sum of journal', async () => {
+    const t = await boot();
+    await t.openCard();
+    t.click(t.w.document.querySelector('#modes button[data-mode="set"]')!);
+    t.type('amt', '900');
+    t.type('why', 'Correcting the 12 Nov sync bug');
+    expect(t.$('preview').textContent).toBe('500 \u2192 900 (+400 set)');
+    t.click(t.$('review'));
+    expect(t.$('d-title').textContent).toBe('Set Roar coins to 900?');
+    t.type('typed', 'K7Q2ABCD');
+    t.click(t.$('d-go'));
+    await t.waitFor(() => t.$('msg').textContent?.startsWith('Set done') === true, 'set');
+    expect(t.sent.find((s) => s.method === 'POST')!.body).toMatchObject({ mode: 'set', amount: 900, revision: 4 });
+    expect(await t.dbOne<{ free: number }>("SELECT free FROM wallet WHERE member_id = 'm1'")).toEqual({ free: 900 });
+    expect(await t.dbOne<{ s: number }>("SELECT SUM(free_delta) AS s FROM coin_journal WHERE member_id = 'm1'")).toEqual({ s: 900 });
+  });
+
+  it('a second confirm while the write is in flight sends nothing more (a programmatic click reaches the busy guard)', async () => {
+    const t = await boot({ slow: (s) => (s.method === 'POST' ? 100 : 0) });
+    await t.openCard();
+    t.type('amt', '100');
+    t.type('why', 'Compensation: lost a won mission');
+    t.click(t.$('review'));
+    t.click(t.$('d-go'));
+    t.click(t.$('d-go'));
+    t.click(t.$('d-cancel'));
+    await t.waitFor(() => t.$('msg').textContent?.startsWith('Grant done') === true, 'grant');
+    expect(t.sent.filter((s) => s.method === 'POST').length).toBe(1);
+  });
+
+  it('counts the reason as the server does: format characters do not add length', async () => {
+    const t = await boot();
+    await t.openCard();
+    t.type('amt', '100');
+    t.type('why', 'sevench\u200b\u200b\u200b');
+    expect(t.$('review').disabled).toBe(true);
+    expect(t.$('hint').textContent).toContain('at least 8');
+    t.type('why', 'eightchr\u200b');
+    expect(t.$('review').disabled).toBe(false);
   });
 });

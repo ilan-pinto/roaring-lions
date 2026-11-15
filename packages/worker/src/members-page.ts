@@ -21,6 +21,7 @@ const ERR={signed_out:'Sign in to the game in this browser first.',not_admin:'Th
   busy:'The balance is busy. Try again.',q:'Type a Player ID, or at least 3 letters of a name.'};
 const say=(m)=>{$('msg').textContent=m;$('err').textContent=''};
 const fail=(e)=>{$('err').textContent=ERR[e.message]||('Failed: '+e.message);$('msg').textContent=''};
+const clean=(s)=>{const f=(x)=>x.replace(/[\p{Cc}\u2028\u2029]/gu,' ').replace(/[\p{Cf}\p{Co}\p{Cs}]/gu,'');return f(f(s).normalize('NFKC')).replace(/\s+/gu,' ').trim()};
 const fmt=(n)=>Number(n).toLocaleString('en-US');
 const day=(t)=>new Date(t).toISOString().slice(0,10);
 const stamp=(t)=>new Date(t).toISOString().slice(0,16).replace('T',' ');
@@ -41,7 +42,7 @@ async function call(path,opt){
 }
 const get=(p)=>call(p);
 const post=(p,body)=>call(p,{method:'POST',headers:{'content-type':'application/json','x-rl-admin':'1'},body:JSON.stringify(body)});
-const S={admin:false,open:false,me:null,cur:null,mode:'grant',op:null,filter:'all',next:null,busy:false,fresh:false};
+const S={admin:false,open:false,me:null,cur:null,mode:'grant',op:null,filter:'all',next:null,busy:false,rows:[],tok:0,mark:null};
 
 function paintSwitch(){
   const chip=$('sw-chip');
@@ -109,7 +110,7 @@ function plan(){
   const c=S.cur&&S.cur.coins;
   const raw=$('amt').value.trim();
   const amount=/^\d{1,9}$/.test(raw)?Number(raw):NaN;
-  const reason=$('why').value.replace(/\s+/g,' ').trim();
+  const reason=clean($('why').value);
   const out={ok:false,hint:'',amount,reason,before:c?c.free:0,after:0,delta:0};
   if(!S.admin){out.hint='Only a signed-in admin can change a balance.';return out}
   if(!S.open){out.hint='Admin writes are closed. Opening them is a wrangler step.';return out}
@@ -185,7 +186,8 @@ async function confirmWrite(){
     $('why').value='';$('amt').value='';
     paintCard();
     say(WORD[S.mode]+' done: '+fmt(r.before)+' → '+fmt(r.after)+' coins ('+sgn(r.delta)+').');
-    await loadJournal(true,true);
+    S.mark=S.op;
+    await loadJournal(true);
   }catch(e){
     S.busy=false;
     if(e.message==='moved'&&e.body&&e.body.wallet){
@@ -208,22 +210,25 @@ function jrow(r,isNew){
     el('td',{class:'n',text:r.before==null?'—':fmt(r.before)+' → '+fmt(r.after)}),
     el('td',{class:r.reason?'':'muted',text:r.reason||''}),el('td',{class:r.by==='player'?'muted':'ref',text:r.by}),el('td',{class:'ref',text:op}));
 }
-async function loadJournal(reset,mark){
+function renderJournal(){
+  const body=$('journal-body');
+  body.replaceChildren();
+  const rows=S.rows.filter((r)=>S.filter==='all'||r.currency===S.filter);
+  for(const r of rows)body.append(jrow(r,S.mark!==null&&r.opId===S.mark));
+  $('journal-empty').hidden=rows.length>0;
+  $('older').hidden=S.next===null;
+}
+async function loadJournal(reset){
   if(S.cur===null)return;
-  const id=S.cur.publicId;
-  const q=[];
-  if(S.filter!=='all')q.push('currency='+S.filter);
-  if(!reset&&S.next)q.push('before='+encodeURIComponent(S.next));
+  const id=S.cur.publicId,tok=++S.tok;
+  const q=(!reset&&S.next)?'?before='+encodeURIComponent(S.next):'';
   try{
-    const j=await get(id+'/journal'+(q.length?'?'+q.join('&'):''));
-    if(S.cur===null||S.cur.publicId!==id)return;
-    const body=$('journal-body');
-    if(reset)body.replaceChildren();
-    j.rows.forEach((r,i)=>body.append(jrow(r,mark===true&&i===0)));
+    const j=await get(id+'/journal'+q);
+    if(S.cur===null||S.cur.publicId!==id||tok!==S.tok)return;
+    S.rows=reset?j.rows:S.rows.concat(j.rows);
     S.next=j.next;
-    $('older').hidden=j.next===null;
-    $('journal-empty').hidden=body.children.length>0;
-  }catch(e){fail(e)}
+    renderJournal();
+  }catch(e){if(tok===S.tok)fail(e)}
 }
 
 async function openMember(publicId){
@@ -231,10 +236,11 @@ async function openMember(publicId){
   try{
     const d=await get(publicId);
     S.cur={publicId:d.member.publicId,displayName:d.member.displayName,kinds:d.member.kinds,created:d.member.created,lastSeen:d.member.lastSeen,coins:d.coins,credits:d.credits};
-    S.filter='all';S.next=null;
+    S.filter='all';S.next=null;S.rows=[];S.mark=null;
     for(const b of document.querySelectorAll('#filters button'))b.setAttribute('aria-pressed',String(b.dataset.filter==='all'));
     for(const tr of document.querySelectorAll('#results-body tr'))tr.setAttribute('aria-selected',String(tr.dataset.id===publicId));
     paintCard();
+    renderJournal();
     await loadJournal(true);
   }catch(e){fail(e)}
 }
@@ -247,9 +253,9 @@ $('me').addEventListener('click',async()=>{
 $('modes').addEventListener('click',(e)=>{const b=e.target.closest('button[data-mode]');if(b){S.mode=b.dataset.mode;paintForm()}});
 $('filters').addEventListener('click',(e)=>{
   const b=e.target.closest('button[data-filter]');if(!b)return;
-  S.filter=b.dataset.filter;S.next=null;
+  S.filter=b.dataset.filter;
   for(const x of document.querySelectorAll('#filters button'))x.setAttribute('aria-pressed',String(x===b));
-  loadJournal(true);
+  renderJournal();
 });
 $('older').addEventListener('click',()=>loadJournal(false));
 $('amt').addEventListener('input',paintForm);
