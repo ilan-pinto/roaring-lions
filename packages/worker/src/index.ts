@@ -1,5 +1,5 @@
 import type { Env } from './d1';
-import { handleIngest, purgeEvents } from './ingest';
+import { handleIngest, purgeEvents, purgePlayers } from './ingest';
 import { purgeRateDays } from './rate-day';
 import { withSecurityHeaders } from './security-headers';
 import { handleStats } from './stats';
@@ -46,7 +46,7 @@ export default {
     const accounts = accountDb !== undefined && tombs !== undefined
       ? [(async () => { try { await sweepAccounts(accountDb, now, tombs); } finally { await reconcileTombstones(accountDb, tombs); } })(), sweepAdminViews(accountDb, now)]
       : [];
-    const runs = await Promise.allSettled([purgeExpired(env, now), purgeDesyncs(env.DB, now), purgeSnapMismatches(env.DB, now), purgeEvents(env.DB, now), purgeRateDays(env.DB, now), ...accounts]);
+    const runs = await Promise.allSettled([purgeExpired(env, now), purgeDesyncs(env.DB, now), purgeSnapMismatches(env.DB, now), purgeEvents(env.DB, now), purgePlayers(env.DB, now), purgeRateDays(env.DB, now), ...accounts]);
     for (const r of runs) if (r.status === 'rejected') throw r.reason;
   },
 };

@@ -55,6 +55,8 @@ export interface SettingsDeps {
   /** `main.ts` passes `keymapRows(...)`; `null` renders no Controls section
    *  at all, which is what a test that does not exercise the row wants. */
   keymap: KeymapDeps | null;
+  /** GH-1410: the anonymous usage-and-crash-report switch. `get()` is true while reports are SENT (the stored opt-out, inverted). Absent or null: no Privacy section. */
+  reports?: { get(): boolean; set(on: boolean): void } | null;
   /** `__APP_BUILD__`, printed at the foot of the table. */
   build: string;
   /** `__APP_COMMIT__` (the full hex commit, or '' when the build had none).
@@ -424,6 +426,17 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
       t('settings.zoomToCursor.hint')
     );
     keymap.mount(table);
+  }
+
+  if (deps.reports) {
+    const reports = deps.reports;
+    section(table, t('settings.privacy'));
+    row(
+      table,
+      t('settings.reports'),
+      checkbox('reports', reports.get(), (v) => reports.set(v)),
+      t('settings.reports.hint')
+    );
   }
 
   section(table, t('settings.language'));

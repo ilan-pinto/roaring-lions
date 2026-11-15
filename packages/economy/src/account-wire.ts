@@ -80,3 +80,24 @@ export interface MatchesView {
   next: string | null;
   record: { won: number; lost: number; drawn: number };
 }
+
+// GH-1370 C1: `GET /api/account/coins`. The member's own coin journal, picked field by field; wording is the app's.
+export type CoinWhat =
+  | { kind: 'earn'; source: string; missionId?: string }
+  | { kind: 'move' }
+  | { kind: 'unit'; unitId: string; moved: boolean }
+  | { kind: 'tier'; unitId: string; track: string; tier: number; moved: boolean }
+  | { kind: 'coupon' }
+  | { kind: 'reset' }
+  | { kind: 'team'; note?: string }
+  | { kind: 'other' };
+export interface CoinRowView {
+  at: number;
+  delta: number;
+  what: CoinWhat;
+}
+export interface CoinsView {
+  rows: CoinRowView[];
+  /** The `before` of the next page (the last row's journal id), or null on the last. */
+  next: string | null;
+}

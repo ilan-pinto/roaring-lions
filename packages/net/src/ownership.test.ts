@@ -365,3 +365,48 @@ describe('validateCommand: the set-up commands (GH-976 v2, R0.9)', () => {
     }
   });
 });
+
+// GH-1385. The audit's ownership mutation: `cmd.ids.every(own)` turned into `.some(own)` (or the `ids.length > 0` guard
+// dropped) on a move, a smoke, an unload, a tunnel order, a load or a vent left every test in this package green, because
+// the mixed-ownership order was only ever tried on `halt`, `setStance` and `garrison`. Only `tools/src/net` caught it.
+// This table gives EVERY command kind that names a group of units the same four inputs, as literals: the seat's own ids
+// (passes), one foreign id last, one foreign id first, and an empty group (each dropped). Ids 0..9 are side 0, 10..19 side 1.
+describe('validateCommand: every group order names only the seat\'s own units, and at least one (GH-1385)', () => {
+  type Case = readonly [kind: string, build: (ids: number[]) => Command, seat: 0 | 1];
+  const CASES: readonly Case[] = [
+    ['move', (ids) => ({ kind: 'move', ids, x: 5 * F, y: 5 * F }), 0],
+    ['attackMove', (ids) => ({ kind: 'attackMove', ids, x: 5 * F, y: 5 * F }), 0],
+    ['smoke', (ids) => ({ kind: 'smoke', ids, x: 5 * F, y: 5 * F }), 0],
+    ['halt', (ids) => ({ kind: 'halt', ids }), 0],
+    ['unload', (ids) => ({ kind: 'unload', ids }), 0],
+    ['setStance', (ids) => ({ kind: 'setStance', ids, stance: 'hold' }), 0],
+    ['garrison', (ids) => ({ kind: 'garrison', ids, structure: 3 }), 0],
+    ['demolish', (ids) => ({ kind: 'demolish', ids, structure: 3 }), 0],
+    ['chargeTunnel', (ids) => ({ kind: 'chargeTunnel', ids, tunnel: 0 }), 0],
+    ['load', (ids) => ({ kind: 'load', ids, carrier: 2 }), 0],
+    ['attack', (ids) => ({ kind: 'attack', ids, target: 15 }), 0],
+    ['rescue', (ids) => ({ kind: 'rescue', ids, target: 3 }), 0],
+    ['enterTunnel', (ids) => ({ kind: 'enterTunnel', ids, tunnel: 0 }), 1],
+    ['vent', (ids) => ({ kind: 'vent', ids, mode: 'exit' }), 1],
+  ];
+  it('the table is not empty and names each kind once', () => {
+    expect(CASES.length).toBe(14);
+    expect(new Set(CASES.map((c) => c[0])).size).toBe(14);
+  });
+  for (const [kind, build, seat] of CASES) {
+    const mine = seat === 0 ? [1, 2] : [11, 12];
+    const foreign = seat === 0 ? 15 : 5;
+    it(`${kind}: own ids pass; a foreign id in either place, or no ids at all, drops it`, () => {
+      expect(validateCommand(build(mine), seat, world)).toBe(true);
+      expect(validateCommand(build([mine[0], foreign]), seat, world)).toBe(false);
+      expect(validateCommand(build([foreign, mine[0]]), seat, world)).toBe(false);
+      expect(validateCommand(build([]), seat, world)).toBe(false);
+    });
+  }
+  it('a group load\'s carriers are held to the same rule (one foreign carrier in either place drops it)', () => {
+    const load = (carriers: number[]): Command => ({ kind: 'load', ids: [1], carrier: 2, carriers });
+    expect(validateCommand(load([2, 3]), 0, world)).toBe(true);
+    expect(validateCommand(load([2, 15]), 0, world)).toBe(false);
+    expect(validateCommand(load([15, 2]), 0, world)).toBe(false);
+  });
+});

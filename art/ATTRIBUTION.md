@@ -12,20 +12,23 @@ processed in Blender.
 > Licensed under CC BY 4.0: <https://creativecommons.org/licenses/by/4.0/>.
 > Credit: Meshy, <https://www.meshy.ai>.
 
-This credit is given under Meshy's **published free-plan terms**, which ask for
-a CC BY 4.0 credit to Meshy. It is given now, in the repository, as a matter of
-care.
+This credit is kept as a **courtesy**. The Meshy account was on a **paid plan
+for every generation** (about 29 Aug 2026 to 15 Nov 2026, the lead's
+confirmation), and under Meshy's Terms of Service (Last Updated 19 Sep 2026)
+§3.2 customers on a paid plan own their Customer Output. The CC BY 4.0 credit
+is what Meshy's free-plan terms would ask for; it costs nothing to give and is
+given as a matter of care.
 
 ## What this file does not say
 
-- It makes no claim about who owns the output. Whether the output of the
-  free plan is owned by the user or by Meshy has been **asked of Meshy and is
-  pending**. Until Meshy answers, this file records the credit and nothing more.
+- It is not a licence grant to anyone, and it is not the source of the project's
+  rights: those are ownership of the output under a paid plan (Terms §3.2),
+  recorded in `docs/ASSET_PROVENANCE.md`, "Commercial rights".
 - It does not change the repository's own licence. Art and data remain "all
   rights reserved" (`CONTRIBUTING.md`, `data/LICENSE.md`); this file is a credit
   to the tool's maker, not a grant to anyone.
-- It does not say which plan any single asset was generated under. The Meshy
-  ledger recorded no plan before 1 Nov 2026. See "Plan per asset" below.
+- It does not record the plan per ledger row. The ledger recorded no plan before
+  1 Nov 2026; the lead's word covers the whole window. See "Plan per asset" below.
 
 ## Asset groups credited
 
@@ -56,10 +59,13 @@ video, and files built by code with no generative tool.
 
 From **1 Nov 2026** every new Meshy spend records the plan tier it ran under in
 its ledger row, in a `plan` field. Rows written before that date carry no
-field and are not edited. Details: `docs/ART_PIPELINE.md`, section 7 (Meshy).
+field and are not edited; for those, the register relies on the lead's
+confirmation that the plan was paid throughout. Details: `docs/ART_PIPELINE.md`,
+section 7 (Meshy).
 
 ## Open
 
-The pending question to Meshy (ownership of free-plan output) is tracked in
-GH-933 and in `docs/ASSET_PROVENANCE.md`, "Meshy plan tier for commercial use".
-The lead decides whether anything is regenerated only after Meshy answers.
+Ownership is closed (GH-933, 15 Nov 2026): no question to Meshy is pending and no
+regeneration is needed for rights. One follow-up stays open, the Terms §2.4
+AI-identifier question, in `docs/ASSET_PROVENANCE.md`, "Meshy terms of 19 Sep
+2026, and the §2.4 AI-identifier census".

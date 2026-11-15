@@ -73,10 +73,11 @@ export interface ConfirmOptions {
  * opening the pause menu under it.
  *
  * `.rl-no-gpu` (the no-graphics-acceleration notice, `ui/no-gpu.ts`) is the
- * same card with the same guard, so it joined for the same reason.
+ * same card with the same guard, so it joined for the same reason. `.rl-quality-hint` (the slow-frames suggestion, GH-1413) wears
+ * the same card and joined likewise.
  */
 export function isDialogOpen(doc: Document = document): boolean {
-  return doc.querySelector('.rl-confirm, .rl-pause, .rl-keys, .rl-outcome, .rl-small-screen, .rl-no-gpu') !== null;
+  return doc.querySelector('.rl-confirm, .rl-pause, .rl-keys, .rl-outcome, .rl-small-screen, .rl-no-gpu, .rl-quality-hint') !== null;
 }
 
 /** What `confirmDialog` hands back: the player's answer, and a way to take the
