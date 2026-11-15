@@ -8,8 +8,12 @@
  * disagreement, so a change to one without the other cannot pass.
  *
  * Event types: session_start, heartbeat, tutorial_step, mission_start, objective,
- * mission_end, campaign_progress, account. `account` and the loadout counts on
- * mission_start/mission_end are GH-254 (the /stats account plan).
+ * mission_end, campaign_progress, account, client_error, perf_sample, boot. `account`
+ * and the loadout counts on mission_start/mission_end are GH-254 (the /stats account
+ * plan). The last three are the field signal (GH-1410): a crash, a frame-time sample
+ * and a boot. They carry no IP, email or user agent; the GPU string is the graphics
+ * card's own name (`WEBGL_debug_renderer_info`), and an error message is scrubbed on the
+ * client before it is sent (`app/src/telemetry/errors.ts`).
  */
 
 export const TELEMETRY_VERSION = 1;
@@ -23,6 +27,9 @@ export const TELEMETRY_EVENT_TYPES = [
   'mission_end',
   'campaign_progress',
   'account',
+  'client_error',
+  'perf_sample',
+  'boot',
 ] as const;
 export type TelemetryEventType = (typeof TELEMETRY_EVENT_TYPES)[number];
 
@@ -52,6 +59,19 @@ export const UNIT_ID_PATTERN = /^[a-z0-9_]{1,32}$/;
 export const TIER_PATTERN = /^[a-z0-9_]{1,32}\.[a-z0-9_]{1,32}\.[1-9]$/;
 
 export type CountMap = Record<string, number>;
+
+/** GH-1410. An error's class name (`TypeError`), never its text. */
+export const ERROR_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
+/** A scrubbed, truncated message: printable ASCII only, 120 characters at most (`app/src/telemetry/errors.ts` does the scrubbing). */
+export const ERROR_MESSAGE_PATTERN = /^[\x20-\x7e]{0,120}$/;
+/** A 32-bit hash of the normalised stack, 8 lower-case hex digits. */
+export const STACK_HASH_PATTERN = /^[0-9a-f]{8}$/;
+/** The graphics card's own name, printable ASCII, e.g. `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)`. */
+export const GPU_PATTERN = /^[\x20-\x7e]{1,120}$/;
+export const TELEMETRY_PRESETS = ['high', 'medium', 'low'] as const;
+export const TELEMETRY_BACKENDS = ['webgl2', 'webgpu'] as const;
+export type TelemetryPreset = (typeof TELEMETRY_PRESETS)[number];
+export type TelemetryBackend = (typeof TELEMETRY_BACKENDS)[number];
 
 export const TELEMETRY_SCREENS = ['menu', 'campaign', 'brigade', 'mission', 'tutorial', 'sandbox', 'other'] as const;
 export type TelemetryScreen = (typeof TELEMETRY_SCREENS)[number];
@@ -123,6 +143,23 @@ export type TelemetryEvent = TelemetryEnvelope &
         price?: number;
         paid?: number;
       }
+    | { type: 'client_error'; name: string; message: string; hash: string; screen?: TelemetryScreen; mission?: string }
+    | {
+        type: 'perf_sample';
+        mission: string;
+        /** Living units of both sides when the sample closed. */
+        units: number;
+        preset: TelemetryPreset;
+        backend: TelemetryBackend;
+        gpu?: string;
+        /** Frames in the sample. */
+        frames: number;
+        /** Frame time percentiles, milliseconds, to 0.1. */
+        p50: number;
+        p95: number;
+        p99: number;
+      }
+    | { type: 'boot'; ttffMs: number; backend: TelemetryBackend; preset: TelemetryPreset; gpu?: string }
   );
 
 type Rec = Record<string, unknown>;
@@ -148,6 +185,9 @@ const BODY_KEYS: Record<TelemetryEventType, readonly string[]> = {
   ],
   campaign_progress: ['mission', 'missionsWon'],
   account: ['reason', 'mission', 'credits', 'earned', 'unlocks', 'tiers', 'item', 'price', 'paid'],
+  client_error: ['name', 'message', 'hash', 'screen', 'mission'],
+  perf_sample: ['mission', 'units', 'preset', 'backend', 'gpu', 'frames', 'p50', 'p95', 'p99'],
+  boot: ['ttffMs', 'backend', 'preset', 'gpu'],
 };
 
 const OPTIONAL_KEYS: Record<TelemetryEventType, readonly string[]> = {
@@ -159,6 +199,9 @@ const OPTIONAL_KEYS: Record<TelemetryEventType, readonly string[]> = {
   mission_start: ['deployed', 'fromRoster'],
   mission_end: ['cause', 'bought', 'orders'],
   account: ['mission', 'item', 'price', 'paid'],
+  client_error: ['screen', 'mission'],
+  perf_sample: ['gpu'],
+  boot: ['gpu'],
 };
 
 const isInt = (x: unknown, min: number, max: number): boolean =>
@@ -166,6 +209,7 @@ const isInt = (x: unknown, min: number, max: number): boolean =>
 const matches = (x: unknown, re: RegExp): boolean => typeof x === 'string' && re.test(x);
 const isBool = (x: unknown): boolean => typeof x === 'boolean';
 const TICK_MAX = 1_000_000_000;
+const isMs = (x: unknown): boolean => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= 10_000;
 const COUNT_MAX = 100_000;
 
 const isCountMap = (x: unknown, keyOk: (k: string) => boolean, maxKeys: number): boolean => {
@@ -245,6 +289,33 @@ function bodyValid(e: Rec, type: TelemetryEventType): boolean {
         optional(e, 'item', (v) => matches(v, ITEM_PATTERN)) &&
         optional(e, 'price', (v) => isInt(v, 0, COUNT_MAX)) &&
         optional(e, 'paid', (v) => isInt(v, 0, COUNT_MAX))
+      );
+    case 'client_error':
+      return (
+        matches(e.name, ERROR_NAME_PATTERN) &&
+        matches(e.message, ERROR_MESSAGE_PATTERN) &&
+        matches(e.hash, STACK_HASH_PATTERN) &&
+        optional(e, 'screen', (v) => (TELEMETRY_SCREENS as readonly unknown[]).includes(v)) &&
+        optional(e, 'mission', (v) => matches(v, MISSION_PATTERN))
+      );
+    case 'perf_sample':
+      return (
+        matches(e.mission, MISSION_PATTERN) &&
+        isInt(e.units, 0, COUNT_MAX) &&
+        (TELEMETRY_PRESETS as readonly unknown[]).includes(e.preset) &&
+        (TELEMETRY_BACKENDS as readonly unknown[]).includes(e.backend) &&
+        optional(e, 'gpu', (v) => matches(v, GPU_PATTERN)) &&
+        isInt(e.frames, 1, COUNT_MAX) &&
+        isMs(e.p50) &&
+        isMs(e.p95) &&
+        isMs(e.p99)
+      );
+    case 'boot':
+      return (
+        isInt(e.ttffMs, 0, 600_000) &&
+        (TELEMETRY_BACKENDS as readonly unknown[]).includes(e.backend) &&
+        (TELEMETRY_PRESETS as readonly unknown[]).includes(e.preset) &&
+        optional(e, 'gpu', (v) => matches(v, GPU_PATTERN))
       );
   }
 }

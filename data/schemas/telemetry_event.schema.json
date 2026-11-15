@@ -7,7 +7,7 @@
   "required": ["v", "type", "player", "session", "build", "t"],
   "properties": {
     "v": { "const": 1 },
-    "type": { "enum": ["session_start", "heartbeat", "tutorial_step", "mission_start", "objective", "mission_end", "campaign_progress", "account"] },
+    "type": { "enum": ["session_start", "heartbeat", "tutorial_step", "mission_start", "objective", "mission_end", "campaign_progress", "account", "client_error", "perf_sample", "boot"] },
     "player": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
     "session": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
     "tester": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,32}$" },
@@ -105,11 +105,51 @@
         "paid": { "$ref": "#/$defs/count" }
       },
       "required": ["reason", "credits", "earned", "unlocks", "tiers"]
+    },
+    {
+      "properties": {
+        "type": { "const": "client_error" },
+        "name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,31}$" },
+        "message": { "type": "string", "pattern": "^[ -~]{0,120}$" },
+        "hash": { "type": "string", "pattern": "^[0-9a-f]{8}$" },
+        "screen": { "enum": ["menu", "campaign", "brigade", "mission", "tutorial", "sandbox", "other"] },
+        "mission": { "$ref": "#/$defs/mission" }
+      },
+      "required": ["name", "message", "hash"]
+    },
+    {
+      "properties": {
+        "type": { "const": "perf_sample" },
+        "mission": { "$ref": "#/$defs/mission" },
+        "units": { "$ref": "#/$defs/count" },
+        "preset": { "$ref": "#/$defs/preset" },
+        "backend": { "$ref": "#/$defs/backend" },
+        "gpu": { "$ref": "#/$defs/gpu" },
+        "frames": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "p50": { "$ref": "#/$defs/ms" },
+        "p95": { "$ref": "#/$defs/ms" },
+        "p99": { "$ref": "#/$defs/ms" }
+      },
+      "required": ["mission", "units", "preset", "backend", "frames", "p50", "p95", "p99"]
+    },
+    {
+      "properties": {
+        "type": { "const": "boot" },
+        "ttffMs": { "type": "integer", "minimum": 0, "maximum": 600000 },
+        "backend": { "$ref": "#/$defs/backend" },
+        "preset": { "$ref": "#/$defs/preset" },
+        "gpu": { "$ref": "#/$defs/gpu" }
+      },
+      "required": ["ttffMs", "backend", "preset"]
     }
   ],
   "unevaluatedProperties": false,
   "$defs": {
     "mission": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
+    "preset": { "enum": ["high", "medium", "low"] },
+    "backend": { "enum": ["webgl2", "webgpu"] },
+    "gpu": { "type": "string", "pattern": "^[ -~]{1,120}$", "description": "The graphics card's own name (WEBGL_debug_renderer_info), printable ASCII." },
+    "ms": { "type": "number", "minimum": 0, "maximum": 10000 },
     "tick": { "type": "integer", "minimum": 0, "maximum": 1000000000 },
     "count": { "type": "integer", "minimum": 0, "maximum": 100000 },
     "unitId": { "type": "string", "pattern": "^[a-z0-9_]{1,32}$" },

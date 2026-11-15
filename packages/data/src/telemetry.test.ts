@@ -41,6 +41,12 @@ const VALID: Record<string, unknown>[] = [
   { ...ENV, type: 'account', reason: 'purchase', credits: 225, earned: 900, unlocks: [], tiers: ['inf_squad.armour.1'], item: 'inf_squad.armour.1', price: 115 },
   { ...ENV, type: 'account', reason: 'purchase', credits: 0, earned: 900, unlocks: ['mbt_lavi'], tiers: [], item: 'mbt_lavi', price: 900 },
   { ...ENV, type: 'account', reason: 'reset', credits: 0, earned: 0, unlocks: [], tiers: [] },
+  { ...ENV, type: 'client_error', name: 'TypeError', message: "Cannot read properties of undefined (reading 'x')", hash: '1a2b3c4d' },
+  { ...ENV, type: 'client_error', name: 'RangeError', message: '', hash: '00000000', screen: 'mission', mission: 'tel_marum_3_clearance' },
+  { ...ENV, type: 'perf_sample', mission: 'tel_marum_3_clearance', units: 266, preset: 'high', backend: 'webgl2', gpu: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)', frames: 3600, p50: 11.2, p95: 17.4, p99: 24 },
+  { ...ENV, type: 'perf_sample', mission: 'beit_sahwan_breach', units: 0, preset: 'low', backend: 'webgpu', frames: 1, p50: 0, p95: 0, p99: 10000 },
+  { ...ENV, type: 'boot', ttffMs: 2310, backend: 'webgl2', preset: 'medium', gpu: 'Mali-G78' },
+  { ...ENV, type: 'boot', ttffMs: 0, backend: 'webgpu', preset: 'high' },
 ];
 
 const INVALID: [string, Record<string, unknown>][] = [
@@ -73,6 +79,25 @@ const INVALID: [string, Record<string, unknown>][] = [
   ['uppercase unit key in bought', { ...ENV, type: 'mission_end', mission: 'a', result: 'victory', tick: 1, roe: 1, fielded: 1, lost: 0, objectivesDone: 1, objectivesTotal: 1, bought: { INF: 1 } }],
   ['orders on mission_start', { ...ENV, type: 'mission_start', mission: 'a', replay: false, orders: { move: 1 } }],
   ['item on mission_start', { ...ENV, type: 'mission_start', mission: 'a', replay: false, item: 'mbt_lavi' }],
+  ['error message over 120 characters', { ...ENV, type: 'client_error', name: 'Error', message: 'x'.repeat(121), hash: '1a2b3c4d' }],
+  ['error message with a non-ASCII character', { ...ENV, type: 'client_error', name: 'Error', message: 'caf\u00e9', hash: '1a2b3c4d' }],
+  ['error message with a newline', { ...ENV, type: 'client_error', name: 'Error', message: 'a\nat https://x', hash: '1a2b3c4d' }],
+  ['error name with a space', { ...ENV, type: 'client_error', name: 'Type Error', message: 'm', hash: '1a2b3c4d' }],
+  ['stack hash in upper case', { ...ENV, type: 'client_error', name: 'Error', message: 'm', hash: '1A2B3C4D' }],
+  ['stack hash too long', { ...ENV, type: 'client_error', name: 'Error', message: 'm', hash: '1a2b3c4d5' }],
+  ['client_error with a stack field', { ...ENV, type: 'client_error', name: 'Error', message: 'm', hash: '1a2b3c4d', stack: 'at x' }],
+  ['client_error with a user agent', { ...ENV, type: 'client_error', name: 'Error', message: 'm', hash: '1a2b3c4d', ua: 'Mozilla/5.0' }],
+  ['perf_sample with an unknown preset', { ...ENV, type: 'perf_sample', mission: 'a', units: 1, preset: 'ultra', backend: 'webgl2', frames: 1, p50: 1, p95: 1, p99: 1 }],
+  ['perf_sample with an unknown backend', { ...ENV, type: 'perf_sample', mission: 'a', units: 1, preset: 'high', backend: 'canvas', frames: 1, p50: 1, p95: 1, p99: 1 }],
+  ['perf_sample with a negative percentile', { ...ENV, type: 'perf_sample', mission: 'a', units: 1, preset: 'high', backend: 'webgl2', frames: 1, p50: -1, p95: 1, p99: 1 }],
+  ['perf_sample with a percentile past 10 s', { ...ENV, type: 'perf_sample', mission: 'a', units: 1, preset: 'high', backend: 'webgl2', frames: 1, p50: 1, p95: 1, p99: 10001 }],
+  ['perf_sample with zero frames', { ...ENV, type: 'perf_sample', mission: 'a', units: 1, preset: 'high', backend: 'webgl2', frames: 0, p50: 1, p95: 1, p99: 1 }],
+  ['perf_sample missing p99', { ...ENV, type: 'perf_sample', mission: 'a', units: 1, preset: 'high', backend: 'webgl2', frames: 1, p50: 1, p95: 1 }],
+  ['perf_sample with a gpu that is empty', { ...ENV, type: 'perf_sample', mission: 'a', units: 1, preset: 'high', backend: 'webgl2', gpu: '', frames: 1, p50: 1, p95: 1, p99: 1 }],
+  ['boot with a negative time to first frame', { ...ENV, type: 'boot', ttffMs: -1, backend: 'webgl2', preset: 'high' }],
+  ['boot with a fractional time to first frame', { ...ENV, type: 'boot', ttffMs: 10.5, backend: 'webgl2', preset: 'high' }],
+  ['boot with an ip', { ...ENV, type: 'boot', ttffMs: 10, backend: 'webgl2', preset: 'high', ip: '203.0.113.9' }],
+  ['perf field on a boot', { ...ENV, type: 'boot', ttffMs: 10, backend: 'webgl2', preset: 'high', p50: 3 }],
 ];
 
 describe('telemetry event contract', () => {
