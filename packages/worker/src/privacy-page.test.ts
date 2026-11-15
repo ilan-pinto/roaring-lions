@@ -47,7 +47,13 @@ describe('the privacy page', () => {
     for (const m of ['Google', 'do not ask Google for your email', "third-party access page", 'We hold no Google token', '"openid" scope only', 'SteamID', 'Sign-in through Steam is paused']) expect(html, m).toContain(m);
     const never = html.split('What is never stored')[1]?.split('</ul>')[0] ?? '';
     expect(never).toContain('Google email address, name and profile picture');
-    expect(PRIVACY_UPDATED).toBe('2026-11-14');
+    expect(PRIVACY_UPDATED).toBe('2026-11-15');
+  });
+
+  it('GH-695 D14 names_the_admin_view: what the team sees, the logging, the export, and no provider number', () => {
+    const html = renderPrivacy(fixtureValues);
+    const team = html.split('What the team can see')[1]?.split('<h2>')[0] ?? '';
+    for (const m of ['can view your display name, Player ID, balances and their history', 'can correct your coin or credit balance', 'Every view and every change is logged with the reason', 'the change appears in your export', 'never includes your Google or Steam account number', 'A log of views is kept for 180 days']) expect(team, m).toContain(m);
   });
 
   it('escapes the contact', () => {
