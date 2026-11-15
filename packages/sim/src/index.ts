@@ -3,6 +3,7 @@
 // This package imports NOTHING (enforced by lint).
 
 export const SIM_VERSION = 1;
+export { SIM_EPOCH, SIM_EPOCH_RECORD } from './sim-epoch';
 
 export { fx, ONE, HALF, HALF_TURN, QUARTER_TURN, FX_MAX, FX_MIN, type Fx } from './fixed';
 export { Rng } from './rng';
