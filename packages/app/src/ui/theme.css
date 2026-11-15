@@ -10326,9 +10326,9 @@ fieldset.rl-versus__maps {
   border: 1px solid var(--panel-frame); /* px-ok */
   min-width: 0;
 }
-/* The header card: a gold rule on its left edge. --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
+/* The header card: a gold rule on its start edge (left in LTR). --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
 .rl-profile__card--head {
-  border-left: 0.1875rem solid var(--title-accent);
+  border-inline-start: 0.1875rem solid var(--title-accent);
 }
 .rl-profile__card-title {
   margin: 0;
