@@ -81,10 +81,11 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
         { name: 'over the cap', init: { rawBody: JSON.stringify({ pad: 'x'.repeat(2_000_000), note: REQ }) } },
       ];
       // QUERY gives `coins` its 400 below; this entry is the same route answering 200, where a leak would be. It runs
-      // FIRST: logout-all later in the list ends the session.
+      // FIRST: `logout` later in the list ends the session.
       const paths = [{ method: 'GET', path: '/api/account/coins' }, ...ACCOUNT_ROUTES.map((r) => ({ method: r.method, path: pathOf(r.pattern) + (QUERY[r.pattern] ?? '') })), { method: 'GET', path: `/api/account/no/such/${REQ}` }];
 
       let answered = 0;
+      let coins200 = 0;
       let expected = 0;
       const errors = new Set<string>();
       for (const { method, path } of paths) {
@@ -94,6 +95,11 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
           const res = await h.call(method, path, { ...(method === 'GET' ? {} : b.init), cookie: sc.signedIn ? cookie : undefined, headers: { 'cf-connecting-ip': IP } });
           answered++;
           const text = await res.text();
+          // The 200 call must really answer 200, or it proves nothing (a reorder behind `logout` would 401).
+          if (sc.signedIn && !sc.deny && path === '/api/account/coins') {
+            expect(res.status, where).toBe(200);
+            coins200++;
+          }
           const headers = [...res.headers].filter(([k]) => k !== 'set-cookie').map(([k, v]) => `${k}: ${v}`).join('\n');
           for (const [what, hay] of [['body', text], ['headers', headers]] as const) {
             for (const secret of [token, tokenHash, IP, REQ, ...OTHER]) expect(hay.includes(secret), `${where}: ${what} holds ${secret.slice(0, 8)}...`).toBe(false);
@@ -115,6 +121,7 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
         }
       }
       expect(answered).toBe(expected);
+      expect(coins200).toBe(sc.signedIn && !sc.deny ? 1 : 0);
       // The scenario reached the path it exists for, or it proved nothing.
       if (sc.deny) expect(errors.has('limit')).toBe(true);
       if (sc.later > 0) expect(errors.has('reauth')).toBe(true);

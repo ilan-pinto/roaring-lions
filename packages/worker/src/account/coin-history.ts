@@ -26,8 +26,10 @@ const LIMIT = /^\d{1,2}$/;
 const ID_MAX = 64;
 const TRACK_MAX = 32;
 
-/** A string within `max` characters, else undefined (the row then words generically). */
-const str = (v: unknown, max: number): string | undefined => (typeof v === 'string' && v.length > 0 && v.length <= max ? v : undefined);
+/** Catalogue ids are slugs: one byte a character, no control characters, so a row's size is bounded in BYTES (a
+ *  control character would escape to six). Anything else is dropped and the row words generically. */
+const SLUG = /^[A-Za-z0-9_.-]+$/;
+const str = (v: unknown, max: number): string | undefined => (typeof v === 'string' && v.length > 0 && v.length <= max && SLUG.test(v) ? v : undefined);
 /** An admin's note: text within COINS_NOTE_MAX code points. An over-long one is dropped, not cut. */
 const note = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 && [...v].length <= COINS_NOTE_MAX ? v : undefined);
 
@@ -76,12 +78,12 @@ export async function coins(ctx: AccountCtx): Promise<Response> {
   const found = await db
     .prepare(
       `SELECT j.id AS id, j.at AS at, j.kind AS kind, j.free_delta AS free_delta,
-         CASE WHEN json_valid(j.detail) THEN json_extract(j.detail, '$.source')    END AS source,
-         CASE WHEN json_valid(j.detail) THEN json_extract(j.detail, '$.missionId') END AS mission_id,
-         CASE WHEN json_valid(j.detail) THEN json_extract(j.detail, '$.unitId')    END AS unit_id,
-         CASE WHEN json_valid(j.detail) THEN json_extract(j.detail, '$.track')     END AS track,
-         CASE WHEN json_valid(j.detail) THEN json_extract(j.detail, '$.tier')      END AS tier,
-         CASE WHEN json_valid(j.detail) AND j.kind = 'admin' THEN json_extract(j.detail, '$.note') END AS note,
+         CASE WHEN json_valid(j.detail) AND json_type(j.detail, '$.source') = 'text' THEN json_extract(j.detail, '$.source')    END AS source,
+         CASE WHEN json_valid(j.detail) AND json_type(j.detail, '$.missionId') = 'text' THEN json_extract(j.detail, '$.missionId') END AS mission_id,
+         CASE WHEN json_valid(j.detail) AND json_type(j.detail, '$.unitId') = 'text' THEN json_extract(j.detail, '$.unitId')    END AS unit_id,
+         CASE WHEN json_valid(j.detail) AND json_type(j.detail, '$.track') = 'text' THEN json_extract(j.detail, '$.track')     END AS track,
+         CASE WHEN json_valid(j.detail) AND json_type(j.detail, '$.tier') = 'integer' THEN json_extract(j.detail, '$.tier')      END AS tier,
+         CASE WHEN json_valid(j.detail) AND j.kind = 'admin' AND json_type(j.detail, '$.note') = 'text' THEN json_extract(j.detail, '$.note') END AS note,
          EXISTS (SELECT 1 FROM coin_journal c
                  WHERE c.member_id = j.member_id AND c.op_id = j.op_id AND c.kind IN ('claim', 'backfill')) AS moved
        FROM coin_journal j

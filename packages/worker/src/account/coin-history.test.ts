@@ -189,4 +189,37 @@ describe('GET coins (GH-1370 C1)', () => {
     expect(text).not.toContain('SENTINEL');
     expect((JSON.parse(text) as CoinsView).rows.map((r) => r.what)).toEqual([{ kind: 'earn', source: '' }, { kind: 'unit', unitId: '', moved: false }]);
   });
+
+  it('Note A: a nested object or array in a text field is dropped, not stringified', async () => {
+    const { h, m } = await setup();
+    await jrow(h.db, 'M', 'admin', 5, { note: { reason: 'SENTINEL-X' } });
+    await jrow(h.db, 'M', 'earn', 5, { source: ['SENTINEL-S'], missionId: ['SENTINEL-Y'] });
+    await jrow(h.db, 'M', 'tier', -5, { unitId: { by: 'SENTINEL-Z' }, track: { a: 1 }, tier: '2' });
+    const text = await (await get(h, m.cookie)).text();
+    expect(text).not.toContain('SENTINEL');
+    expect((JSON.parse(text) as CoinsView).rows.map((r) => r.what)).toEqual([
+      { kind: 'tier', unitId: '', track: '', tier: 0, moved: false },
+      { kind: 'earn', source: '' },
+      { kind: 'team' },
+    ]);
+  });
+
+  it('T12b the cap holds for control-character ids: they are dropped, and every kind at its worst fits', async () => {
+    const { h, m } = await setup();
+    const ctl = '\u0001'.repeat(64);
+    for (let i = 0; i < COINS_PAGE_MAX; i++) await jrow(h.db, 'M', 'earn', 1, { source: ctl, missionId: ctl });
+    const text = await (await get(h, m.cookie, `?limit=${COINS_PAGE_MAX}`)).text();
+    expect(text).not.toContain('\\u0001');
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(COINS_BODY_MAX);
+    // The worst legitimate row of each kind (slug ids at their bound, a note of control characters at its bound).
+    const slug = 'a'.repeat(64);
+    const worst = { earn: { source: slug, missionId: slug }, tier: { unitId: slug, track: 'b'.repeat(32), tier: 99 }, admin: { note: '\u0001'.repeat(COINS_NOTE_MAX) } } as const;
+    for (const kind of ['earn', 'tier', 'admin'] as const) {
+      const w = await setup();
+      for (let i = 0; i < COINS_PAGE_MAX; i++) await jrow(w.h.db, 'M', kind, -999_999, worst[kind]);
+      const t = await (await get(w.h, w.m.cookie, `?limit=${COINS_PAGE_MAX}`)).text();
+      expect((JSON.parse(t) as CoinsView).rows).toHaveLength(COINS_PAGE_MAX);
+      expect(new TextEncoder().encode(t).length, kind).toBeLessThanOrEqual(COINS_BODY_MAX);
+    }
+  });
 });

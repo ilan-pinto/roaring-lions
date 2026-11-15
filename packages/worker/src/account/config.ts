@@ -68,5 +68,5 @@ export const COINS_PAGE_MAX = 50;
 export const COINS_PAGE_DEFAULT = 20;
 /** The admin's note to the player (`detail.note`), in code points. `admin/coins.ts` imports the same constant (C2). */
 export const COINS_NOTE_MAX = 80;
-/** The most a `GET coins` body may hold: 50 rows of about 500 bytes each, which the mapper's own bounds guarantee. */
+/** The most a `GET coins` body may hold: 50 rows of about 500 bytes each, which holds because ids are slugs (`coin-history.ts`) and a note is at most 80 code points: the worst page is about 28 KB (T12). */
 export const COINS_BODY_MAX = 32_768;
