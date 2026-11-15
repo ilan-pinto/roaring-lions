@@ -612,6 +612,8 @@ export function sampleTick(sim: Sim, acc: PlayAcc, ps: PlayState): void {
 export interface ChokeOpts {
   /** Unit ids and where each starts and goes. Positions are tile centres. */
   groups: readonly { unit: string; x: number; y: number; goalX: number; goalY: number; exact?: boolean }[];
+  /** One plain `move` for EVERY unit to this point, as a player's group order (formation slots), instead of each unit's own goal. */
+  groupGoal?: { x: number; y: number };
   /** Extra unit types to register (a clone with a footprint, say). */
   extraTypes?: readonly UnitTypeJson[];
   /** Give up after this many seconds. */
@@ -654,8 +656,9 @@ export function chokeWorld(opts: ChokeOpts): { sim: Sim; ids: number[] } {
     const facing = g.goalX < g.x ? TURN / 2 : 0;
     const id = sim.spawn(t, 0, fx.from(g.x), fx.from(g.y), facing);
     ids.push(id);
-    sim.queueCommand({ kind: 'move', ids: [id], x: fx.from(g.goalX), y: fx.from(g.goalY), ...(g.exact === true ? { exact: true } : {}) });
+    if (opts.groupGoal === undefined) sim.queueCommand({ kind: 'move', ids: [id], x: fx.from(g.goalX), y: fx.from(g.goalY), ...(g.exact === true ? { exact: true } : {}) });
   }
+  if (opts.groupGoal !== undefined) sim.queueCommand({ kind: 'move', ids: [...ids], x: fx.from(opts.groupGoal.x), y: fx.from(opts.groupGoal.y) });
   return { sim, ids };
 }
 
@@ -700,13 +703,13 @@ export function footCircleType(r: number, id = 'inf_squad_circle'): UnitTypeJson
   return base;
 }
 
-/** The spec's probe: 12 teams, three files of four, through the 1-tile gap, ordered as a player's group move would be. */
+/** The spec's probe: 12 teams, three files of four, through the 1-tile door, ONE group move (formation slots) to the far side. */
 export function chokeTwelve(unit: string, extraTypes: readonly UnitTypeJson[] = []): ChokeReading {
   const groups: ChokeOpts['groups'][number][] = [];
   for (let c = 0; c < 3; c++) {
-    for (let r = 0; r < 4; r++) groups.push({ unit, x: 5.5 + c, y: 3.5 + r, goalX: 22.5 + c, goalY: 3.5 + r });
+    for (let r = 0; r < 4; r++) groups.push({ unit, x: 5.5 + c, y: 3.5 + r, goalX: 23.5, goalY: GAP_Y + 0.5 });
   }
-  return runChoke({ groups, extraTypes });
+  return runChoke({ groups, extraTypes, groupGoal: { x: 23.5, y: GAP_Y + 0.5 } });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -732,7 +735,7 @@ export function startsTable(rs: readonly StartReading[]): string[] {
   lines.push('|---|---|---|---|---|');
   const groups: [string, (r: StartReading) => boolean][] = [
     ['shipped missions', (r) => r.group === 'mission'],
-    ['versus cells', (r) => r.group === 'versus'],
+    ['versus cells (every fair map as a mirror, both spawn orders where KDF v Sarim is offered: camps repeat across cells, so this is NOT the spec\'s 6-end row)', (r) => r.group === 'versus'],
     ['free play (41 maps)', (r) => r.group === 'freeplay'],
   ];
   for (const [label, pick] of groups) {
@@ -745,7 +748,7 @@ export function startsTable(rs: readonly StartReading[]): string[] {
   const ms = rs.filter((r) => r.group === 'mission');
   if (ms.length > 0) {
     const p0 = sumTallies(ms.map((r) => r.pairsSide0));
-    lines.push(`| shipped missions, SIDE 0 only (the spec's basis) | ${ms.reduce((n, r) => n + r.bodiesSide0, 0)} | ${tallyStr(p0)} | ${ms.filter((r) => tallyTotal(r.pairsSide0) > 0).length} | |`);
+    lines.push(`| shipped missions, side 0 only, ground bodies (the spec's 292 bodies counts aircraft; its 72 pairs is all sides) | ${ms.reduce((n, r) => n + r.bodiesSide0, 0)} | ${tallyStr(p0)} | ${ms.filter((r) => tallyTotal(r.pairsSide0) > 0).length} | |`);
   }
   const all = sumTallies(rs.map((r) => r.pairs));
   lines.push(`| TOTAL | ${rs.reduce((n, r) => n + r.bodies, 0)} | ${tallyStr(all)} | ${rs.filter((r) => tallyTotal(r.pairs) > 0).length} | |`);
@@ -818,7 +821,7 @@ export function playTable(accs: readonly PlayAcc[]): string[] {
 }
 
 export function chokeTable(rows: readonly { arm: string; r: ChokeReading }[]): string[] {
-  const lines = ['THE CHOKE: 12 teams, three files of four, through a 1-tile gap (wall x=15, gap y=5), an ordinary group move 17 tiles on.', ''];
+  const lines = ['THE CHOKE. Rows 1-2: 12 teams, three files of four, through a 1-tile door in a wall (x=15, gap y=5), one group move to the far side. Rows 3-5: two bodies meeting head-on in a 6-long one-tile corridor.', ''];
   lines.push('| arm | through | cleared in | valve opens | legs ended at contact | overlapping pair-ticks |');
   lines.push('|---|---|---|---|---|---|');
   for (const { arm, r } of rows) {
@@ -884,11 +887,26 @@ export interface CensusJson {
   play?: PlayAcc[];
 }
 
+export function headOn(unit: string, extraTypes: readonly UnitTypeJson[] = []): ChokeReading {
+  return runChoke({
+    wallLen: 6,
+    seconds: 60,
+    extraTypes,
+    groups: [
+      { unit, x: 11.5, y: 5.5, goalX: 24.5, goalY: 5.5, exact: true },
+      { unit, x: 24.5, y: 5.5, goalX: 11.5, goalY: 5.5, exact: true },
+    ],
+  });
+}
+
 export function chokeArms(): { arm: string; r: ChokeReading }[] {
   const circle = footCircleType(0.45);
   return [
-    { arm: 'today: no foot footprint (nobody avoids anybody)', r: chokeTwelve('inf_squad') },
-    { arm: 'circles r 0.45 (S5c participants)', r: chokeTwelve('inf_squad_circle', [circle]) },
+    { arm: '12 teams, today: no foot footprint', r: chokeTwelve('inf_squad') },
+    { arm: '12 teams, circles r 0.45 (S5c participants)', r: chokeTwelve('inf_squad_circle', [circle]) },
+    { arm: 'head-on pair, two Lavis (1.14 wide: cannot pass)', r: headOn('mbt_lavi') },
+    { arm: 'head-on pair, two jeeps (0.78 wide: slide past)', r: headOn('jeep_shoded') },
+    { arm: 'head-on pair, two circle teams r 0.45', r: headOn('inf_squad_circle', [circle]) },
   ];
 }
 

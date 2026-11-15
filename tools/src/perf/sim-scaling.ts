@@ -47,10 +47,11 @@
 //   npx tsx tools/src/perf/sim-scaling.ts --ticks=60 --warmup=10
 //   npx tsx tools/src/perf/sim-scaling.ts --checkpoints=300,400,600 --scene=converge --runs=3 --map=qarn_hadid
 //
-// --scene=converge (GH-1360 S0, spec section 4) is the GH-421 stress scene: before each timed run every living ground
-// unit is ordered to ONE point (`exact`: no formation slots, the worst case for the separation rule), re-issued before
-// every run so the units are still converging. --runs=N repeats the timed segment and reports stepMovement's min and
-// median over the runs, which is the number the spacing slices compare. --map=<id> picks the world's map (default
+// --scene=converge (GH-1360 S0, spec section 4) is the GH-421 stress scene: every living ground unit is ordered to ONE
+// point (`exact`: no formation slots, the worst case for the separation rule) and timed over --ticks after --warmup.
+// It runs on FRESH worlds, one per --runs, built to each checkpoint's unit count, so the runs are replicates and
+// stepMovement's min and median over them is the number the spacing slices compare. Both sides are ordered and the
+// roster is the harness's (not 300 foot and 100 vehicles): the table prints what was ordered, by class. --map=<id> picks the world's map (default
 // beit_sahwan_outskirts, which is what docs/PERFORMANCE.md's curve used; qarn_hadid is the spec's).
 
 import { FlowField, fx, type Sim, type TunnelRouteJson } from '@lions/sim';
@@ -188,27 +189,31 @@ interface CheckpointReport {
   markerSeeingRouteAvgMs: number;
   flowFieldComputeAvgMs: number;
   flowFieldComputeCalls: number;
-  /** stepMovement's average ms per tick, one entry per timed run (--runs). */
-  movementRunsMs: number[];
-  /** Ground units ordered to converge before the first run (0 without --scene=converge). */
-  converged: number;
 }
 
-/**
- * The GH-421 stress scene: every living ground unit ordered to one open tile, with no formation slots. `leg` picks the
- * point: even legs the centre of the map, odd legs the point three quarters across and down, so successive runs keep
- * the whole force marching (a force that has arrived is idle and costs nothing to separate).
- */
-export function orderConverge(sim: Sim, leg = 0): number {
+interface ConvergeReport {
+  target: number;
+  living: number;
+  /** Ground units the converge order named, by class (wheeled = vehicle). */
+  ordered: { foot: number; vehicle: number };
+  /** stepMovement's average ms per tick, one entry per fresh-world run. */
+  movementRunsMs: number[];
+}
+
+/** The GH-421 stress scene: every living ground unit ordered to the open tile nearest the centre of the map, with no formation slots. */
+export function orderConverge(sim: Sim): { foot: number; vehicle: number } {
   const ids: number[] = [];
+  const n = { foot: 0, vehicle: 0 };
   for (let i = 0; i < sim.entityCount; i++) {
     if (sim.state.alive[i] !== 1) continue;
-    if (sim.unitTypes[sim.state.typeIdx[i]].isAir) continue;
+    const t = sim.unitTypes[sim.state.typeIdx[i]];
+    if (t.isAir) continue;
     ids.push(i);
+    n[t.wheeled ? 'vehicle' : 'foot']++;
   }
   // The nearest open tile to the point, scanning outward ring by ring.
-  const cx = leg % 2 === 0 ? sim.width >> 1 : (sim.width * 3) >> 2;
-  const cy = leg % 2 === 0 ? sim.height >> 1 : (sim.height * 3) >> 2;
+  const cx = sim.width >> 1;
+  const cy = sim.height >> 1;
   let gx = cx;
   let gy = cy;
   search: for (let r = 0; r < Math.max(sim.width, sim.height); r++) {
@@ -226,7 +231,7 @@ export function orderConverge(sim: Sim, leg = 0): number {
     }
   }
   if (ids.length > 0) sim.queueCommand({ kind: 'move', ids, x: fx.from(gx + 0.5), y: fx.from(gy + 0.5), exact: true });
-  return ids.length;
+  return n;
 }
 
 const median = (xs: readonly number[]): number => {
@@ -307,8 +312,6 @@ async function main(): Promise<void> {
     spawnUpTo(sim, spawner, target);
     const living = livingCount(sim);
 
-    const converged = scene === 'converge' ? orderConverge(sim) : 0;
-
     // Warmup: let combat reach steady state (target selection, movement
     // orders) before timing -- unchanged rationale from three-units.ts's
     // own WARMUP_TICKS. Not timed, and its phase cost is discarded.
@@ -336,10 +339,7 @@ async function main(): Promise<void> {
     const detectionTotal = phaseInstr.totals.get('stepDetection') ?? 0;
     const flowFieldTotal = flowFieldInstr.totals.get('compute') ?? 0;
 
-    const movementRunsMs = [(phaseInstr.totals.get('stepMovement') ?? 0) / timedTicks];
-    const report: CheckpointReport = {
-      movementRunsMs,
-      converged,
+    reports.push({
       target,
       living,
       tick: tickStats,
@@ -349,15 +349,30 @@ async function main(): Promise<void> {
       markerSeeingRouteAvgMs: markerTotal / timedTicks,
       flowFieldComputeAvgMs: flowFieldTotal / timedTicks,
       flowFieldComputeCalls: flowFieldCalls.count,
-    };
-    reports.push(report);
+    });
+  }
 
-    // --runs: repeat the timed segment (re-issuing the converge order) and keep stepMovement's average each time.
-    for (let run = 1; run < runs; run++) {
-      if (scene === 'converge') orderConverge(sim, run);
-      for (const t of phaseInstr.totals.keys()) phaseInstr.totals.set(t, 0);
-      for (let i = 0; i < timedTicks; i++) sim.tick();
-      movementRunsMs.push((phaseInstr.totals.get('stepMovement') ?? 0) / timedTicks);
+  // --scene=converge: the replicates are FRESH worlds (the cumulative sim above has fought on between checkpoints), each
+  // built to the checkpoint's unit count, ordered the same way and timed over the same window.
+  const converge: ConvergeReport[] = [];
+  if (scene === 'converge') {
+    for (const target of checkpoints) {
+      const each: number[] = [];
+      let ordered = { foot: 0, vehicle: 0 };
+      let living = 0;
+      for (let run = 0; run < runs; run++) {
+        const w = mapArg === undefined ? buildWorld(capacity) : buildWorld(capacity, mapArg as keyof typeof maps);
+        for (let i = 0; i < tunnelRoutes.length; i++) w.sim.addTunnel(tunnelRoutes[i]);
+        const a = computeAnchors(w.map);
+        spawnUpTo(w.sim, createSpawner(w.sim, w.typeOf, a.friendly, a.hostile), target);
+        living = livingCount(w.sim);
+        ordered = orderConverge(w.sim);
+        for (let i = 0; i < warmup; i++) w.sim.tick();
+        for (const t of phaseInstr.totals.keys()) phaseInstr.totals.set(t, 0);
+        for (let i = 0; i < timedTicks; i++) w.sim.tick();
+        each.push((phaseInstr.totals.get('stepMovement') ?? 0) / timedTicks);
+      }
+      converge.push({ target, living, ordered, movementRunsMs: each });
     }
   }
 
@@ -385,14 +400,14 @@ async function main(): Promise<void> {
       `| ${r.target} | ${r.living} | ${r.tick.avgMs.toFixed(2)} | ${r.tick.p95Ms.toFixed(2)} | ${r.tick.maxMs.toFixed(2)} | ${r.detectionPairwiseAvgMs.toFixed(3)} | ${r.trailStrengthAvgMs.toFixed(3)} | ${r.markerSeeingRouteAvgMs.toFixed(3)} | ${combat.avgMs.toFixed(3)} | ${movement.avgMs.toFixed(3)} | ${projectiles.avgMs.toFixed(3)} | ${r.flowFieldComputeAvgMs.toFixed(3)} (${r.flowFieldComputeCalls}) |${crossed}`
     );
   }
-  if (scene === 'converge' || runs > 1) {
+  if (scene === 'converge') {
     console.log('');
-    console.log(`stepMovement per run${scene === 'converge' ? ' (--scene=converge: every living ground unit ordered to one point, re-issued before each run)' : ''}, ms per tick:`);
-    console.log('| target | living | ground units ordered | runs | stepMovement each run | min | median |');
-    console.log('|---|---|---|---|---|---|---|');
-    for (const r of reports) {
+    console.log(`--scene=converge: stepMovement, ms per tick, over ${runs} fresh worlds per checkpoint (every living ground unit of both sides ordered to one point; ${warmup} warmup + ${timedTicks} timed ticks):`);
+    console.log('| target | living | ordered foot / vehicle | stepMovement each run | min | median |');
+    console.log('|---|---|---|---|---|---|');
+    for (const r of converge) {
       const m = r.movementRunsMs;
-      console.log(`| ${r.target} | ${r.living} | ${r.converged} | ${m.length} | ${m.map((v) => v.toFixed(3)).join(', ')} | ${Math.min(...m).toFixed(3)} | ${median(m).toFixed(3)} |`);
+      console.log(`| ${r.target} | ${r.living} | ${r.ordered.foot} / ${r.ordered.vehicle} | ${m.map((v) => v.toFixed(3)).join(', ')} | ${Math.min(...m).toFixed(3)} | ${median(m).toFixed(3)} |`);
     }
   }
   console.log('');

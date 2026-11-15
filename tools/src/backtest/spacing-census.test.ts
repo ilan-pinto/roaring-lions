@@ -17,7 +17,10 @@ import {
   footCircleType,
   footRadius,
   missionStart,
+  newPlayAcc,
   overlaps,
+  PlayState,
+  sampleTick,
   runChoke,
   chokeTwelve,
   splitBlocked,
@@ -313,5 +316,101 @@ describe('the choke', () => {
     });
     expect(r.through).toBe(2);
     expect(r.valve).toBe(0);
+  });
+});
+
+describe('sampleTick (the in-play sampler) on a literal world', () => {
+  const N = 5;
+  const world = (extra?: (sim: Sim, typeOf: Map<string, number>) => void) => {
+    const sim = new Sim({ seed: 1, width: 40, height: 24, capacity: 16 });
+    const typeOf = new Map<string, number>();
+    for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as unknown as UnitTypeJson));
+    const squad = typeOf.get('inf_squad') as number;
+    sim.spawn(squad, 0, fx.from(5.5), fx.from(5.5), 0);
+    sim.spawn(squad, 0, fx.from(5.5), fx.from(5.5), 0); // stacked on the first
+    sim.spawn(squad, 0, fx.from(30.5), fx.from(15.5), 0); // alone
+    extra?.(sim, typeOf);
+    return sim;
+  };
+  const play = (sim: Sim, ticks: number) => {
+    const acc = newPlayAcc('literal');
+    const ps = new PlayState(sim.capacity);
+    for (let t = 0; t < ticks; t++) {
+      sim.tick();
+      sampleTick(sim, acc, ps);
+    }
+    return acc;
+  };
+
+  it('two stacked teams and one alone, for 5 ticks: 15 foot unit-ticks, 10 with a foot neighbour by body and by centre, 5 foot-foot pair-ticks', () => {
+    // mutations: `acc.unitTicks[e.kind]++` dropped; `acc.pairTicks[o.pair]++` dropped; the body `flag(...)` dropped
+    const a = play(world(), N);
+    expect(a.ticks).toBe(N);
+    expect(a.unitTicks).toEqual({ foot: 3 * N, vehicle: 0 });
+    expect(a.unitTicksWheeled).toEqual({ foot: 3 * N, vehicle: 0 });
+    expect(a.near.body).toEqual({ foot: 2 * N, vehicle: 0, cross: 0, any: 2 * N });
+    expect(a.near.centre).toEqual({ foot: 2 * N, vehicle: 0, cross: 0, any: 2 * N });
+    expect(a.pairTicks).toEqual({ 'foot-foot': N, 'foot-vehicle': 0, 'vehicle-vehicle': 0 });
+  });
+
+  it('a Lavi stacked on one team adds a foot-vehicle pair every tick and "cross" for both, and the lone team stays clear', () => {
+    // mutation: the cross tally dropped
+    const a = play(
+      world((sim, typeOf) => {
+        sim.spawn(typeOf.get('mbt_lavi') as number, 0, fx.from(30.5), fx.from(15.5), 0);
+      }),
+      N,
+    );
+    expect(a.unitTicks).toEqual({ foot: 3 * N, vehicle: N });
+    expect(a.pairTicks).toEqual({ 'foot-foot': N, 'foot-vehicle': N, 'vehicle-vehicle': 0 });
+    expect(a.near.body.cross).toBe(2 * N);
+    expect(a.near.body.vehicle).toBe(0);
+  });
+
+  it('a team under a move order is counted as moving every tick, and a straight march has no stall and no reversal', () => {
+    // mutation: `if (moving) acc.footMoving++` dropped
+    const sim = world();
+    sim.queueCommand({ kind: 'move', ids: [2], x: fx.from(38.5), y: fx.from(15.5), exact: true });
+    const a = play(sim, 20);
+    expect(a.footMoving).toBe(20);
+    expect(a.zeroRuns).toBe(0);
+    expect(a.reversals).toBe(0);
+  });
+
+  it('two samples are not a reversal: the history is not yet full, and its unset entries are not facings', () => {
+    // mutation: `ps.histN[i] === 4 &&` dropped in sampleTick reads the unset zero as a sample and finds a swing and a return
+    const sim = world();
+    sim.queueCommand({ kind: 'move', ids: [2], x: fx.from(38.5), y: fx.from(15.5), exact: true });
+    sim.tick();
+    const acc = newPlayAcc('literal');
+    const ps = new PlayState(sim.capacity);
+    for (const f of [6000, 0]) {
+      sim.state.facing[2] = f;
+      sampleTick(sim, acc, ps);
+    }
+    expect(acc.reversals).toBe(0);
+  });
+
+  it('feeds a stall and a reversal through the same plumbing (state written by the test, the sampler only reads)', () => {
+    // The sim cannot be made to stall a foot team for 1-2 ticks or to swing its facing 33 degrees out and back inside 3
+    // ticks without footprints, so the test writes the position and facing arrays between samples. It pins the sampler's
+    // history and `moving` wiring; facingReversal and ZeroRunTracker are pinned on their own above.
+    // mutations: `if (z.step(moved, moving)) acc.zeroRuns++` dropped; `acc.reversals++` dropped
+    const sim = world();
+    sim.queueCommand({ kind: 'move', ids: [2], x: fx.from(38.5), y: fx.from(15.5), exact: true });
+    sim.tick(); // the order is taken: moving is 1
+    const acc = newPlayAcc('literal');
+    const ps = new PlayState(sim.capacity);
+    const x0 = sim.state.posX[2];
+    const step = fx.from(0.05);
+    const xs = [x0, x0 + step, x0 + step, x0 + 2 * step]; // moved, then one stalled tick, then moved again
+    const faces = [0, 0, 6000, 0]; // 32.96 degrees out and back
+    for (let k = 0; k < 4; k++) {
+      sim.state.posX[2] = xs[k];
+      sim.state.facing[2] = faces[k];
+      sampleTick(sim, acc, ps);
+    }
+    expect(acc.zeroRuns).toBe(1);
+    expect(acc.reversals).toBe(1);
   });
 });
