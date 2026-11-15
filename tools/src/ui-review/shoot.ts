@@ -1194,7 +1194,10 @@ try {
         dir
       );
     }
-    if (defeatShot || (await page.locator('.rl-outcome__skip').count()) > 0) await page.click('.rl-outcome__skip');
+    // A taken, still-present moment is clicked as before. After a lost one, presence and click are ONE page-context step: a count() followed
+    // by page.click() can lose the race with the moment's own dismissal and wait out Playwright's timeout (CodeRabbit, GH-1409).
+    if (defeatShot) await page.click('.rl-outcome__skip');
+    else await page.evaluate(() => (document.querySelector('.rl-outcome__skip') as HTMLElement | null)?.click());
     // GH-417 (L-7): the moment hands over straight to the after-action
     // report, which absorbed the old end panel -- so `16-end-defeat` and
     // `17-debrief` are one screen now. The name `17-debrief` is kept for the

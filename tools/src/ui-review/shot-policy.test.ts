@@ -52,7 +52,8 @@ describe('shoot.ts uses the policy (a source guard: shoot.ts runs its whole walk
     expect(src).toContain('victoryShot = !outcomeDismissed(');
     expect(src).toContain('let victoryShot = await shot(winPage, dir, \'24-outcome-victory\');');
     expect(src).toContain('if (victoryShot) {');
-    expect(src).toContain("if (defeatShot || (await page.locator('.rl-outcome__skip').count()) > 0) await page.click('.rl-outcome__skip');");
+    expect(src).toContain("if (defeatShot) await page.click('.rl-outcome__skip');");
+    expect(src).toContain("else await page.evaluate(() => (document.querySelector('.rl-outcome__skip') as HTMLElement | null)?.click());");
   });
 
   it('turns a dismissed outcome moment into a recorded failure and a removed PNG, rethrowing anything else (the first CI run died here)', () => {
