@@ -7,7 +7,7 @@
 import { MAX_COINS } from '@lions/economy';
 import type { D1Like, D1Stmt, Env } from '../d1';
 import { asRoar, isCapFailure, isCasFailure, readWallet, walletWrite, type JournalEntry, type WalletRow } from '../account/coin';
-import { CAS_TRIES } from '../account/config';
+import { CAS_TRIES, COINS_NOTE_MAX } from '../account/config';
 import { OpReject, validOpId, withOp } from '../account/op';
 import { sessionJson } from '../account/session';
 import { countToday, dayOf } from '../rate-day';
@@ -72,6 +72,13 @@ export async function coinsRoute(req: Request, env: Env, publicId: string, now: 
   const reason = cleanReason(rawReason);
   const chars = [...reason].length;
   if (chars < REASON_MIN || chars > REASON_MAX) return bad('reason');
+  // GH-1370 C2: the optional note to the player, cleaned like the reason and judged after the clean. Empty means absent.
+  let note = '';
+  if (body.note !== undefined) {
+    if (typeof body.note !== 'string') return bad('note');
+    note = cleanReason(body.note);
+    if ([...note].length > COINS_NOTE_MAX) return bad('note');
+  }
 
   const m = await db.prepare('SELECT id FROM member WHERE public_id = ?1').bind(publicId).first<{ id: string }>();
   if (m === null) return sessionJson(404, { error: 'not_found' }, setCookie);
@@ -95,8 +102,11 @@ export async function coinsRoute(req: Request, env: Env, publicId: string, now: 
     // D10: the day caps (global). A write costs one; coins count only when granted.
     if ((await countToday(db, 'admin-writes', '', now)) >= ADMIN_WRITES_PER_DAY) throw new OpReject(429, { error: 'limit' });
     if (delta > 0 && (await countToday(db, 'admin-coins', '', now)) + delta > ADMIN_COINS_GRANTED_PER_DAY) throw new OpReject(429, { error: 'limit' });
-    // `by` is the word "admin", never the admin's public id: a member's export copies `detail` verbatim.
-    const entry: JournalEntry = { kind: 'admin', delta, receipt: null, detail: { mode: m0, reason, before: wallet.free, after, by: 'admin' }, opId, at: now };
+    // `by` is the word "admin", never the admin's public id: a member's export copies `detail` verbatim. The audit
+    // `reason` stays in `admin_action`; only the note, which is the player's to read, goes in `detail` (GH-1370 C2).
+    const detail: Record<string, unknown> = { mode: m0, before: wallet.free, after, by: 'admin' };
+    if (note !== '') detail.note = note;
+    const entry: JournalEntry = { kind: 'admin', delta, receipt: null, detail, opId, at: now };
     const roar = asRoar(wallet, []);
     const statements: D1Stmt[] = [
       ...walletWrite(db, wallet, { roar: { ...roar, coins: { free: after, paid: 0 } }, earnLifetime: wallet.earnLifetime }, [entry]),

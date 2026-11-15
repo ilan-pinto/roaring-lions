@@ -314,4 +314,47 @@ describe('settingsPanel', () => {
     off();
     expect(stage.children.length).toBe(0);
   });
+
+  // GH-1410: the reports switch.
+  it('has no Privacy section when the deps carry no reports switch', () => {
+    const { d } = deps();
+    const { el } = settingsPanel(document.body, d);
+    expect(el.querySelector('input[name="reports"]')).toBeNull();
+    expect(el.textContent).not.toContain('Anonymous usage and crash reports');
+  });
+
+  it('shows the reports switch ON while reports are sent, OFF when the player opted out, and writes the choice through reports.set', () => {
+    const set = vi.fn();
+    let sending = true;
+    const { d } = deps({ reports: { get: () => sending, set: (on: boolean) => { sending = on; set(on); } } });
+    const { el } = settingsPanel(document.body, d);
+    const cb = el.querySelector<HTMLInputElement>('input[name="reports"]');
+    if (!cb) throw new Error('no reports control');
+    expect(cb.type).toBe('checkbox');
+    expect(cb.checked).toBe(true);
+    expect(el.textContent).toContain('Anonymous usage and crash reports');
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(set).toHaveBeenLastCalledWith(false);
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(set).toHaveBeenLastCalledWith(true);
+  });
+
+  it('a player who opted out sees the switch OFF', () => {
+    const { d } = deps({ reports: { get: () => false, set: () => {} } });
+    const { el } = settingsPanel(document.body, d);
+    expect(el.querySelector<HTMLInputElement>('input[name="reports"]')?.checked).toBe(false);
+  });
+
+  it('the reports hint tells the truth the privacy review asked for: a tester label is sent, there is no "no name" claim, and Off means nothing is sent', () => {
+    const { d } = deps({ reports: { get: () => true, set: () => {} } });
+    const { el } = settingsPanel(document.body, d);
+    const hint = el.querySelector('input[name="reports"]')?.closest('.rl-settings__row')?.querySelector('.rl-settings__hint')?.textContent ?? '';
+    expect(hint).toContain('your tester label if you were given one');
+    expect(hint).toContain('no email, IP address or browser user agent');
+    expect(hint).toContain('Off, nothing is sent');
+    expect(hint).not.toMatch(/no name/i);
+  });
 });
+

@@ -15,7 +15,7 @@ const all: stats.StatsFilter = { since: 0, testersOnly: false, includeDev: false
 async function seeded() {
   const db = openTestD1();
   const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') } };
-  const send = (events: unknown[]) => handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
+  const send = (events: unknown[]) => handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0 + 1000); // received just after the client stamped them (ingest caps client time at receipt)
   // Player 1 (dani): two breach runs with the new fields.
   await send([
     base(1, T0, { tester: 'dani', type: 'account', reason: 'mission_start', mission: 'beit_sahwan_breach', credits: 300, earned: 300, unlocks: [], tiers: [] }),
@@ -70,7 +70,7 @@ describe('loadouts (GH-254)', () => {
   it('a mission whose runs are all old-client yields units [], orders {}, and no NaN/Infinity anywhere', async () => {
     const db = openTestD1();
     const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') } };
-    const send = (events: unknown[]) => handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
+    const send = (events: unknown[]) => handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0 + 1000); // received just after the client stamped them (ingest caps client time at receipt)
     // Two old-client runs of a different mission: no `deployed`, no `orders`. One request per player (#559 M-3).
     await send([
       base(9, T0, { type: 'mission_start', mission: 'wadi_halam_1_fords', replay: false }),

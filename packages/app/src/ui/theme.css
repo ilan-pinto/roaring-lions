@@ -4280,13 +4280,15 @@ body[data-outcome-beat] .rl-aar {
    keeps a gutter either side and a tighter pad and title than the full-width
    failure card (the approved mock's measurements). */
 .rl-small-screen .rl-boot-error,
-.rl-no-gpu .rl-boot-error {
+.rl-no-gpu .rl-boot-error,
+.rl-quality-hint .rl-boot-error {
   box-sizing: border-box;
   width: min(40rem, calc(100vw - 2 * var(--s3)));
   padding: var(--s4);
 }
 .rl-small-screen .rl-boot-error__title,
-.rl-no-gpu .rl-boot-error__title {
+.rl-no-gpu .rl-boot-error__title,
+.rl-quality-hint .rl-boot-error__title {
   font-size: var(--t-l);
 }
 .rl-boot-error__title {
@@ -7881,6 +7883,42 @@ button.rl-menu__item[data-kind='aside'] {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Roar coins on the account page (ui/profile.ts, GH-1370)                */
+/* ---------------------------------------------------------------------- */
+
+.rl-profile__card--coins {
+  min-width: 0;
+}
+.rl-profile__coins-balance {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-profile__coins-img {
+  flex: none;
+}
+.rl-profile__coins-n {
+  font-family: var(--font-mono);
+  font-size: var(--t-head);
+  font-weight: 600;
+  color: var(--roar);
+}
+.rl-profile__coins-word {
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-profile__coins-where {
+  margin: 0;
+  color: var(--ink-mute);
+}
+.rl-profile__coins-note {
+  margin: 0;
+  color: var(--ink-dim);
+}
+
+/* ---------------------------------------------------------------------- */
 /* Settings (ui/settings-panel.ts)                                        */
 /* ---------------------------------------------------------------------- */
 
@@ -10221,6 +10259,33 @@ fieldset.rl-versus__maps {
    layout rather than reflow it. */
 .rl-menu--profile {
   width: min(64rem, 94vw);
+}
+/* GH-1367 S2: a warm ground behind the account page, and one frame. The ground is the limestone and dust ramps
+   (index 0 is the lightest, so 6 is the dark end), under a dust glow top left and an olive shade bottom right. It
+   is scoped by :has() to the stage that holds the profile column, so no other screen moves, and the router empties
+   #stage on leave, so nothing outlives the page. Static: nothing animates. */
+:root {
+  --profile-ground: linear-gradient(var(--rl-limestone-6), var(--rl-dust-6));
+  --profile-ground-glow: color-mix(in srgb, var(--rl-dust-3) 40%, transparent);
+  --profile-ground-shade: color-mix(in srgb, var(--rl-olive-2) 55%, transparent);
+}
+#stage:has(> .rl-menu--profile) {
+  background:
+    radial-gradient(ellipse at 18% 8%, var(--profile-ground-glow), transparent 60%),
+    radial-gradient(ellipse at 82% 92%, var(--profile-ground-shade), transparent 55%),
+    var(--profile-ground);
+}
+/* One frame: the column stops drawing a second box around the panel (Saves and Credits keep theirs). */
+.rl-menu--profile {
+  background: transparent;
+  border-color: transparent;
+}
+.rl-menu--profile > .rl-panel {
+  background: var(--panel-bg);
+}
+.rl-menu--profile .rl-foot .rl-btn,
+.rl-menu--profile .rl-foot a {
+  background: var(--panel-bg-solid);
 }
 .rl-menu--profile .rl-panel {
   text-align: left;
