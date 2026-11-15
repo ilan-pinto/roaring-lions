@@ -10,9 +10,9 @@
  *
  * Cadence is the arena's realtime player (`runInProcess`): one decision every `REALTIME_EVERY_TICKS` (100 ticks, 5 s), the first at tick
  * 100, in the frame of that tick. The script is `rush`, untouched: it sends every idle unit still at home to attack-move on what it can
- * see, else on the enemy camp. It issues no build, so this opponent fights with the force it starts with.
+ * see, else on the enemy camp, and the seat's own sweep (`sweepStragglers`) sends any idle unit the script left behind. It issues no build, so this opponent fights with the force it starts with.
  */
-import type { Command } from '@lions/sim';
+import { fx, type Command } from '@lions/sim';
 import type { Seat, Stamped } from '@lions/net';
 import type { MatchWorld } from '../match-world';
 import { FogTracker } from './fog-tracker';
@@ -30,6 +30,42 @@ export interface ComputerSeatOptions {
   policy?: SyncPolicy;
   /** Ticks between decisions; default `REALTIME_EVERY_TICKS`. */
   every?: number;
+}
+
+/** The room's cap on ids in one command (GH-566), as `rush` keeps it. */
+const MAX_IDS_PER_COMMAND = 256;
+
+/**
+ * GH-1388, the stalemate sweep: `rush` orders only units that are idle AND within `RUSH_HOME_TILES` of home, so a unit that stops away
+ * from home is never ordered again and a passive human is never found. Every OWN idle unit that the script did not order, and that can
+ * still act (not disarmed, immobile or routed), gets one attack-move: on the contact nearest the group, else on the enemy camp. A
+ * contact is only what this seat's own fog shows (`view.contacts`), the camp is what a human reads off the map. Commands only, a pure
+ * function of the view: no clock, no randomness. `rush` itself is untouched (the arena and the probes play it as it is).
+ */
+export function sweepStragglers(view: SideView, ordered: readonly Command[]): Command[] {
+  const taken = new Set<number>();
+  for (const c of ordered) if ('ids' in c) for (const id of c.ids) taken.add(id);
+  const strays = view.units.filter((u) => u.flags.includes('idle') && !taken.has(u.id)
+    && !u.flags.some((f) => f === 'disarmed' || f === 'immobile' || f === 'routed'));
+  if (strays.length === 0) return [];
+  let cx = 0;
+  let cy = 0;
+  for (const u of strays) { cx += u.tile[0]; cy += u.tile[1]; }
+  cx /= strays.length;
+  cy /= strays.length;
+  let tx = view.enemyCamp[0];
+  let ty = view.enemyCamp[1];
+  let best = Infinity;
+  for (const c of view.contacts) {
+    const d = (c.tile[0] - cx) ** 2 + (c.tile[1] - cy) ** 2;
+    if (d < best) { best = d; tx = c.tile[0]; ty = c.tile[1]; }
+  }
+  const ids = strays.map((u) => u.id);
+  const out: Command[] = [];
+  for (let i = 0; i < ids.length; i += MAX_IDS_PER_COMMAND) {
+    out.push({ kind: 'attackMove', ids: ids.slice(i, i + MAX_IDS_PER_COMMAND), x: fx.from(tx + 0.5), y: fx.from(ty + 0.5), sweep: true });
+  }
+  return out;
 }
 
 export class ComputerSeat {
@@ -77,7 +113,9 @@ export class ComputerSeat {
     if (this.decidesAt(tick)) {
       this.decisions++;
       const view = sideView(world, this.o.side, fog, null);
-      for (const cmd of this.policy(view)) this.desk.submit(cmd, tick);
+      const ordered = this.policy(view);
+      for (const cmd of ordered) this.desk.submit(cmd, tick);
+      for (const cmd of sweepStragglers(view, ordered)) this.desk.submit(cmd, tick);
     }
     this.desk.onTick(tick);
     return this.out.splice(0).map((cmd) => ({ seat: this.o.seat, seq: this.seq++, cmd }));

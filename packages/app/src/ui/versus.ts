@@ -795,9 +795,10 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   body.appendChild(act);
 
   // --- GH-1388: a basic computer opponent, offline ---------------------------
-  // The arena's `rush` script as a seat. It needs no room, so it is offered whatever the side and the map; the plain description says what
+  // The arena's `rush` script as a seat. It needs no room, so it is offered whatever the map, on the mirror pairing only (it builds nothing); the plain description says what
   // it is, because nothing here may claim more than it does (it attacks with the force it starts with and builds nothing).
   let cpuBtn: HTMLButtonElement | null = null;
+  let cpuSection: HTMLElement | null = null;
   const cpuMsg = messageLine('rl-versus__cpu-msg');
   if (deps.playComputer !== undefined) {
     const cpu = document.createElement('section');
@@ -815,6 +816,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
     cpuBtn.setAttribute('aria-describedby', cpuNote.id);
     cpu.append(cpuLead, cpuNote, cpuBtn, cpuMsg);
     body.appendChild(cpu);
+    cpuSection = cpu;
   }
 
   /** A side narrows the ground: a mirror-only map greys out with its reason,
@@ -830,6 +832,8 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       else delete tile.label.dataset.off;
       tile.sub.textContent = off ? t('versus.lobby.map.offReason') : t('versus.lobby.map.pairing', { both: String(pairsBoth(tile.id)) });
     }
+    // The computer does not build, so it is offered on the mirror pairing only (an economy pairing could never end).
+    if (cpuSection !== null) cpuSection.hidden = narrowed;
     sideNote.hidden = !narrowed;
     matchupNote.hidden = !narrowed;
     paintCard(youCard, hostSide(side), youName);
@@ -933,7 +937,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   openBtn.addEventListener('click', () => start({ kind: 'create', map, matchup: side, kit: kit ? 'brigade' : 'matched', ...(winMode === null ? {} : { winMode }), callsign: callsignOrDefault(callsign.input.value) }, false));
   const playComputer = deps.playComputer;
   cpuBtn?.addEventListener('click', () => {
-    if (busy || playComputer === undefined) return;
+    if (busy || playComputer === undefined || side !== 'mirror') return;
     busy = true;
     sync();
     cpuMsg.textContent = '';

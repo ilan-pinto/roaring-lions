@@ -1607,17 +1607,35 @@ describe('the computer seat in the lobby', () => {
     const playComputer = vi.fn().mockResolvedValue('OFFLINE');
     const d = deps({ playComputer });
     const stage = mountPick(d);
-    stage.querySelector<HTMLInputElement>('.rl-versus__side-radio[value="kdf"]')!.click();
-    stage.querySelector<HTMLInputElement>('.rl-versus__side-radio[value="kdf"]')!.dispatchEvent(new Event('change'));
     cpuButton(stage)!.click();
     await flush();
     expect(playComputer).toHaveBeenCalledTimes(1);
     const arg = playComputer.mock.calls[0]![0] as { map: string; matchup: string; callsign: string };
-    expect(arg.matchup).toBe('kdf');
+    expect(arg.matchup).toBe('mirror');
     expect(arg.callsign).toBe('Ari');
     expect(MAPS.some((m) => m.id === arg.map)).toBe(true);
     expect(d.navigated).toEqual([[`/free-play/${arg.map}?net=OFFLINE`, undefined]]);
     expect(d.open).not.toHaveBeenCalled();
+  });
+
+  it('an economy pairing hides the computer seat (it builds nothing, so the match could never end), and the mirror brings it back', async () => {
+    const playComputer = vi.fn().mockResolvedValue('OFFLINE');
+    const stage = mountPick(deps({ playComputer }));
+    const section = stage.querySelector<HTMLElement>('.rl-versus__cpu')!;
+    expect(section.hidden).toBe(false);
+    for (const m of ['kdf', 'sarim'] as const) {
+      const r = stage.querySelector<HTMLInputElement>(`.rl-versus__side-radio[value="${m}"]`)!;
+      r.click();
+      r.dispatchEvent(new Event('change'));
+      expect(section.hidden, m).toBe(true);
+      cpuButton(stage)!.click();
+      await flush();
+      expect(playComputer, m).not.toHaveBeenCalled();
+    }
+    const back = stage.querySelector<HTMLInputElement>('.rl-versus__side-radio[value="mirror"]')!;
+    back.click();
+    back.dispatchEvent(new Event('change'));
+    expect(section.hidden).toBe(false);
   });
 
   it('a failure to arm says so on its own line, re-enables the button, and navigates nowhere', async () => {

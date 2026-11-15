@@ -73,6 +73,9 @@ export interface OfflineRequest {
 
 /** The match both sides run: annihilation, matched kits, real time, the human at the host end. */
 export function offlineConfig(r: OfflineRequest): MatchConfig {
+  // The computer does not build, so a skirmish-economy pairing (kdf, sarim) can never end: the human's untouched purse keeps them
+  // "standing" (`outcomeOf`) until the time cap. Economy pairings wait for a computer that builds (GH-1388).
+  if (r.matchup !== 'mirror') throw new Error(`offline match: the computer seat plays the mirror pairing only, not ${r.matchup}`);
   const factions = factionsOfMatchup(r.matchup);
   const sides = sidesOfFactions(factions);
   const seat = (s: Seat, kind: 'human' | 'bot', name: string) => ({

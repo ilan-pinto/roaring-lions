@@ -19,7 +19,7 @@ import { REALTIME_EVERY_TICKS, passive, rush } from './policy';
 import { DESK_FLUSH_TICKS } from './order-desk';
 import en from '../../i18n/en.json';
 
-const REQ: OfflineRequest = { map: 'tel_marum', matchup: 'kdf', callsign: 'Ari', computerName: 'Basic computer', build: 'test+0', seed: 1234 };
+const REQ: OfflineRequest = { map: 'tel_marum', matchup: 'mirror', callsign: 'Ari', computerName: 'Basic computer', build: 'test+0', seed: 1234 };
 
 /** Every way the page could reach a network: all of them count, none answers. */
 function networkSpies() {
@@ -83,14 +83,20 @@ describe('a match against the computer seat runs to a result with no network at 
     expect(run.humanOrders).toBe(0);
   }, 300_000);
 
-  it('the Sarim side too, and the mirror: the seat is offered whatever the pairing', () => {
-    const net = networkSpies();
-    for (const matchup of ['sarim', 'mirror'] as const) {
-      const run = play({ ...REQ, matchup }, { maxTicks: 1500 });
-      expect(run.computerOrders, matchup).toBeGreaterThan(0);
+  it('an economy pairing is refused: the computer builds nothing, so kdf and sarim could never end (GH-1388)', () => {
+    for (const matchup of ['kdf', 'sarim'] as const) {
+      expect(() => offlineConfig({ ...REQ, matchup }), matchup).toThrow(/mirror/);
+      expect(() => offlineMatch({ ...REQ, matchup }), matchup).toThrow(/mirror/);
     }
-    expect(net.calls()).toBe(0);
-  }, 300_000);
+    expect(() => offlineConfig(REQ)).not.toThrow();
+  });
+
+  it('a passive human on milh_flats (the worst cell) is found: the match reaches a result inside 20 sim-minutes, seeds 1001-1003', () => {
+    for (const seed of [1001, 1002, 1003]) {
+      const run = play({ ...REQ, map: 'milh_flats', seed }, { maxTicks: 24_000 });
+      expect(run.result, `seed ${seed}: no result after ${run.ticks} ticks`).not.toBeNull();
+    }
+  }, 600_000);
 
   it('the opening: no order before the first decision at tick 100, then the script commits what is idle at home', () => {
     const run = play(REQ, { maxTicks: REALTIME_EVERY_TICKS + 30 });
@@ -278,7 +284,6 @@ describe('the label', () => {
   it('the config both sides run is annihilation, matched kits and real time, with the human at the host end', () => {
     const c = offlineConfig(REQ);
     expect([c.mode, c.pace.kind, c.winMode, c.seats[0].kit, c.seats[1].kit, c.seats[0].seat]).toEqual(['versus', 'realtime', undefined, 'matched', 'matched', 0]);
-    expect(c.seats.map((s) => s.faction)).toEqual(['kdf', 'sarim']);
-    expect(offlineConfig({ ...REQ, matchup: 'sarim' }).seats.map((s) => [s.faction, s.side])).toEqual([['sarim', 1], ['kdf', 0]]);
+    expect(c.seats.map((s) => s.faction)).toEqual(['kdf', 'kdf']);
   });
 });
