@@ -61,3 +61,12 @@ export function accountOrigins(env: Env): string[] {
 /** `GET matches`: the largest `limit`; the default page is `MATCHES_PAGE_DEFAULT`. */
 export const MATCHES_PAGE_MAX = 50;
 export const MATCHES_PAGE_DEFAULT = 20;
+
+// GH-1370 C1. `GET coins`: the member's own coin history.
+/** The largest `limit`; the default page is `COINS_PAGE_DEFAULT`. */
+export const COINS_PAGE_MAX = 50;
+export const COINS_PAGE_DEFAULT = 20;
+/** The admin's note to the player (`detail.note`), in code points. `admin/coins.ts` imports the same constant (C2). */
+export const COINS_NOTE_MAX = 80;
+/** The most a `GET coins` body may hold: 50 rows of about 500 bytes each, which the mapper's own bounds guarantee. */
+export const COINS_BODY_MAX = 32_768;

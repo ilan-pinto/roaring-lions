@@ -431,6 +431,14 @@ export, delete and orphan sweep.
   review):** `next` and `before` are a STRING cursor `<started_at>.<code>`, the pair the query orders by, so two matches
   with one start time can straddle a page boundary without a skip. A malformed cursor is 400 `query`. The "Show my
   record" toggle rides `PATCH profile` `showRecord`.
+- **The coin history** (GH-1370 C1) is `GET /api/account/coins?before=<journal id>&limit=<n>` (`account/coin-history.ts`):
+  the caller's own `coin_journal` rows, newest first, `limit + 1` fetched so `next` is `null` on an exact multiple.
+  The SELECT is an allow-list (`json_extract` of seven keys, behind `json_valid`) and never reads `detail` whole or
+  touches `admin_action`/`member`, so an audit `reason` or an admin's id cannot reach the wire; the mapper drops any
+  value over `COINS_NOTE_MAX` (80 code points) or its id/track bound, which is what keeps the body under
+  `COINS_BODY_MAX` (32 KiB). Same session, header and `ACCOUNT_OP_LIMIT` as `matches`; writes nothing. Wording is the
+  app's (C4). The leak sweep drives it twice: once with a bad query (400) and once with none (200), because a route
+  that only ever 400s proves nothing, and the 200 call must run before `logout-all` ends the session.
 - **The breaker** (section 0.21). Each record reads `acct-all` first and skips the write, logged, when the day is spent;
   a record bumps `acct-all` by `RECORD_ROWS` (4) and no member's `acct-ops`. The lead stops every record with no deploy:
   `npx wrangler d1 execute roaring-lions-accounts --remote --command "INSERT INTO flags (name, value, updated_at) VALUES ('records', 'closed', unixepoch() * 1000) ON CONFLICT (name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"`.
