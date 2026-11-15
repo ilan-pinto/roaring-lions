@@ -4643,7 +4643,9 @@ body[data-outcome-beat] .rl-aar {
   color: var(--ink-dim);
 }
 .rl-profile__avatar .rl-avatar {
-  border-width: 2px; /* px-ok */
+  width: 7rem;
+  height: 7rem;
+  border: 0.1875rem solid var(--crest-rim, var(--avatar-ring));
 }
 .rl-avatar--chip {
   width: 1.75rem;
@@ -10345,8 +10347,68 @@ fieldset.rl-versus__maps {
   min-width: 0;
 }
 /* The header card: a gold rule on its left edge. --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
+/* The crest echo (GH-1367 S4): the card is washed in the member's own crest, read off the avatar's data-avatar. Ground
+   is the crest's ground and rim its brightest charge tone, from tools/avatars/crest_geometry.mjs; crest-card.test.ts
+   pins every pair to that table. Five are named substitutes: a near-black or near-white ground would wash the card
+   black or white. --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
 .rl-profile__card--head {
-  border-left: 0.1875rem solid var(--title-accent);
+  --crest-ground: var(--rl-olive-2);
+  --crest-rim: var(--title-accent);
+  border-left: 0.1875rem solid var(--crest-rim);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--crest-ground) 85%, transparent) 0,
+    color-mix(in srgb, var(--crest-ground) 35%, var(--rl-shadow-1)) 45%,
+    var(--card-bg) 80%
+  );
+}
+.rl-profile__card--head:has([data-avatar='crest-chevrons']) {
+  --crest-ground: var(--rl-dust-5);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-claw']) {
+  --crest-ground: var(--rl-terracotta-1);
+  --crest-rim: var(--rl-terracotta-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-lion']) {
+  --crest-ground: var(--rl-olive-2);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-tower']) {
+  --crest-ground: var(--rl-gunmetal-3);
+  --crest-rim: var(--rl-limestone-1);
+}
+.rl-profile__card--head:has([data-avatar='crest-star']) {
+  --crest-ground: var(--rl-olive-3);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-wing']) {
+  --crest-ground: var(--rl-water-1);
+  --crest-rim: var(--rl-limestone-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-track']) {
+  --crest-ground: var(--rl-gunmetal-3);
+  --crest-rim: var(--rl-limestone-2);
+}
+.rl-profile__card--head:has([data-avatar='crest-sprig']) {
+  --crest-ground: var(--rl-scrub-1);
+  --crest-rim: var(--rl-limestone-1);
+}
+.rl-profile__card--head:has([data-avatar='crest-ridge']) {
+  --crest-ground: var(--rl-gunmetal-2);
+  --crest-rim: var(--rl-limestone-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-wave']) {
+  --crest-ground: var(--rl-water-1);
+  --crest-rim: var(--rl-water-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-dune']) {
+  --crest-ground: var(--rl-dust-5);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-reticle']) {
+  --crest-ground: var(--rl-terracotta-2);
+  --crest-rim: var(--rl-dust-0);
 }
 .rl-profile__card-title {
   /* A strip across the top of the card: cancel the card's padding on three sides. */
@@ -10424,7 +10486,7 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__since {
   margin: 0;
-  color: var(--ink-mute);
+  color: var(--ink);
 }
 @media (max-width: 30rem) {
   .rl-profile__head {
@@ -10597,6 +10659,9 @@ fieldset.rl-versus__maps {
   align-items: center;
   justify-content: space-between;
   gap: var(--s2);
+  padding: var(--s1) var(--s2);
+  background: var(--well);
+  border-left: 0.1875rem solid var(--good);
 }
 .rl-profile__identity-main {
   display: flex;

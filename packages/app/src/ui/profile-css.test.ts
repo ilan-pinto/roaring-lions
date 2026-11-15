@@ -86,12 +86,15 @@ describe('the account page accents (GH-1367 S1)', () => {
     expect(body('.rl-profile__show-record input,\n.rl-profile__telemetry input')).toContain('accent-color: var(--selected)');
   });
   it('rules the header card in gold', () => {
-    expect(body('.rl-profile__card--head')).toContain('border-left: 0.1875rem solid var(--title-accent)');
+    // S4: the rule takes the crest's rim, and --crest-rim falls back to the same gold when no crest is read.
+    const head = body('.rl-profile__card--head');
+    expect(head).toContain('--crest-rim: var(--title-accent)');
+    expect(head).toContain('border-left: 0.1875rem solid var(--crest-rim)');
   });
   it('pins the lifted card, the rim, the link, the tag, the status and the perk marker', () => {
     expect(css).toMatch(/--card-bg: color-mix\(in srgb, var\(--rl-shadow-0\) 70%, transparent\)/);
     expect(body('.rl-profile__card')).toContain('background: var(--card-bg)');
-    expect(body('.rl-profile__avatar .rl-avatar')).toContain('border-width: 2px');
+    expect(body('.rl-profile__avatar .rl-avatar')).toContain('border: 0.1875rem solid var(--crest-rim');
     expect(body('.rl-profile__privacy-link')).toContain('color: var(--ink-dim)');
     expect(body('.rl-avatar-picker__tag')).toContain('background: var(--avatar-tag-ground)');
     expect(body('.rl-profile__status')).toContain('color: var(--good)');
@@ -228,7 +231,10 @@ describe('card colour roles (GH-1367 S3)', () => {
     expect(token('--panel-bg-solid')).toMatch(/shadow-1/);
   });
   it('never uses terracotta, which is the Roar coin', () => {
-    const profileRules = [...css.matchAll(/([^{}]*\.rl-profile__[^{}]*)\{([^{}]*)\}/g)].map((m) => m[2] ?? '');
+    // The member's own crest may be terracotta (claw, reticle: GH-1367 S4); that is their crest, not the coin.
+    const profileRules = [...css.matchAll(/([^{}]*\.rl-profile__[^{}]*)\{([^{}]*)\}/g)]
+      .filter((m) => !/data-avatar=|rl-profile__coins-n/.test(m[1] ?? '')) // the coin count is the one rightful --roar
+      .map((m) => m[2] ?? '');
     expect(profileRules.length).toBeGreaterThan(40);
     expect(profileRules.filter((b) => /terracotta|--roar/.test(b))).toEqual([]);
     for (const t of ['--card-head-danger', '--tile-lost']) expect(token(t)).not.toMatch(/terracotta|roar/);
