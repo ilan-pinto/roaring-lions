@@ -233,7 +233,7 @@ describe('card colour roles (GH-1367 S3)', () => {
   it('never uses terracotta, which is the Roar coin', () => {
     // The member's own crest may be terracotta (claw, reticle: GH-1367 S4); that is their crest, not the coin.
     const profileRules = [...css.matchAll(/([^{}]*\.rl-profile__[^{}]*)\{([^{}]*)\}/g)]
-      .filter((m) => !/data-avatar=|rl-profile__coins-n/.test(m[1] ?? '')) // the coin count is the one rightful --roar
+      .filter((m) => !/data-avatar=/.test(m[1] ?? '') && (m[1] ?? '').trim() !== '.rl-profile__coins-n') // the coin count is the one rightful --roar
       .map((m) => m[2] ?? '');
     expect(profileRules.length).toBeGreaterThan(40);
     expect(profileRules.filter((b) => /terracotta|--roar/.test(b))).toEqual([]);
