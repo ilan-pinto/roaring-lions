@@ -11,6 +11,7 @@ import { maps } from '@lions/data';
 import { clearBinding, clearDeviceId, readBinding } from '../account/binding';
 import { claimQuietly, hasGuestProgress, readClaiming, runClaim, type ClaimOutcome } from '../account/claim';
 import type { LedgerStore } from '../ledger-store';
+import { spendable, type RoarWallet } from '../roar-wallet';
 import { exportSlot, readActive } from '../profile';
 import { PROVIDERS, readReturnCode, readReturnProvider, type AccountClient, type AccountError, type IdentityView, type MeResult, type Provider, type ReturnCode } from '../account/client';
 import { resolveSignedIn, type SignedInResult } from '../account/signed-in';
@@ -28,7 +29,7 @@ export interface ProfileDeps {
   client: AccountClient;
   store: StorageLike | null;
   query: URLSearchParams;
-  /** This browser's anonymous telemetry player id, or null while telemetry is off. */
+  /** This browser's anonymous telemetry player id, or null when it never held one. Still answers after the player switched reports off (GH-1431), so "also delete my reports" can name it. */
   telemetryPlayer: () => string | null;
   /** Leaves the page for `href`: Steam's login URL is another origin, so main.ts passes a real page load. */
   navigate: (href: string) => void;
@@ -41,6 +42,16 @@ export interface ProfileDeps {
   signOut?: (logout: () => Promise<'ok' | AccountError>) => Promise<void>;
   /** After the account was deleted here: stop the sync loop and clear the cache and every outbox and tab key of that member. */
   wipeDeleted?: () => void;
+  /** The Roar coins card (GH-1370 C3). Absent: no card. */
+  coins?: {
+    /** `() => ledgerStore.readRoar()`: the closure the Stores' wallet reads, so the card and the Stores cannot disagree. */
+    read: () => RoarWallet;
+    /** True for the server-backed store ("On your account"), false for this device's own store ("On this device"). */
+    onAccount: boolean;
+    /** False when the browser keeps no wallet at all (a private window): the card says so instead of showing a bare 0. */
+    available: boolean;
+    coinSrc: (size: 48) => string;
+  };
   /**
    * The guest-to-account claim (GH-1075 A2). Given only on a guest boot (accounts on, no claimed binding): `guest` is the
    * device's own store, `download` saves a file, `onClaimed` re-enters the app so the server-backed store is chosen.
@@ -438,6 +449,32 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     return { record: rec.el, history: his.el };
   };
 
+  /** The Roar coins card (GH-1370 C3): the balance only. The number is `spendable()` of the same store read the Stores use; the history is C4. */
+  const coinCard = (coins: NonNullable<ProfileDeps['coins']>): HTMLElement => {
+    const c = card('rl-profile__card--coins', t('profile.section.coins'));
+    const n = spendable(coins.read());
+    const img = document.createElement('img');
+    img.className = 'rl-profile__coins-img';
+    img.src = coins.coinSrc(48);
+    img.alt = '';
+    img.width = 48;
+    img.height = 48;
+    const num = document.createElement('span');
+    num.className = 'rl-profile__coins-n';
+    num.textContent = String(n);
+    num.dataset.value = String(n);
+    const word = document.createElement('span');
+    word.className = 'rl-profile__coins-word';
+    word.textContent = t('stores.wallet.word', { n });
+    const balance = document.createElement('div');
+    balance.className = 'rl-profile__coins-balance';
+    balance.append(img, num, word);
+    c.body.append(balance, line('rl-profile__coins-where', t(coins.onAccount ? 'profile.coins.account' : 'profile.coins.device')));
+    if (!coins.available) c.body.appendChild(line('rl-profile__coins-note', t('profile.coins.offline')));
+    else if (n === 0) c.body.appendChild(line('rl-profile__coins-note', t('profile.coins.empty')));
+    return c.el;
+  };
+
   const signedInBlock = (me: SignedInMe, reload: () => void): HTMLElement => {
     const box = document.createElement('div');
     box.className = 'rl-profile__signed';
@@ -534,7 +571,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
 
     // ---- Record and history.
     const { record, history } = historyCards(me);
-    main.append(head.el, record, history);
+    main.append(...(deps.coins === undefined ? [head.el] : [head.el, coinCard(deps.coins)]), record, history);
 
     // ---- Ways to sign in.
     const sign = card('rl-profile__card--signin', t('profile.section.signIn'));

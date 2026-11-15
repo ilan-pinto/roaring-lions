@@ -22,11 +22,16 @@ const NOW = 1_790_000_000_000;
  *  subject (kept out of every answer), and a THIRD member who shares no match with M, so none of it is legitimately
  *  visible anywhere (n1 is M's opponent in SHARED, so `/matches` rightly shows n1's callsign: it cannot go here). */
 const THIRD = { callsign: 'Callsign Three', publicId: 'PPPP3333', handle: 'uh3', steam: '76561197960287932', google: 'google-sub-p1' };
-const OTHER = ['uh2', 'code-hash', '76561197960287931', ...Object.values(THIRD)];
+/** GH-1370 C1: THIRD's coin journal and an admin's public id, none of which `GET coins` may show M. */
+const THIRD_COINS = { mission: 'SENTINEL-THIRD-MISSION', reason: 'SENTINEL-THIRD-REASON', note: 'SENTINEL-THIRD-NOTE' };
+const ADMIN_PUBLIC_ID = 'ADMN4444';
+const OTHER = ['uh2', 'code-hash', '76561197960287931', ...Object.values(THIRD), ...Object.values(THIRD_COINS), ADMIN_PUBLIC_ID];
 /** The two sign-in return routes read their query string, so the sweep gives them one carrying sentinels. */
 const QUERY: Record<string, string> = {
   'steam/return': `?c=${REQ}-c&openid.mode=${REQ}-mode&openid.claimed_id=${REQ}-claimed&openid.sig=${REQ}-sig`,
   'google/return': `?code=${REQ}-code&state=${REQ}-state&error=${REQ}-error`,
+  // A 400 that echoed the query would hold REQ.
+  coins: `?before=${REQ}-b&limit=${REQ}-l`,
 };
 const FAILURE_WORDS = /SQLITE|constraint failed|no such (table|column)|node_modules|\bat \S+ \(|TypeError|ReferenceError|stack/i;
 
@@ -53,6 +58,13 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
       await run('INSERT INTO profile (member_id, display_name, show_record, updated_at) VALUES (?1, ?2, 0, ?3)', 'p1', THIRD.callsign, NOW);
       await run("INSERT INTO member_identity (id, member_id, provider, subject, created_at) VALUES ('i5','p1','steam',?1,?2)", THIRD.steam, NOW);
       await run("INSERT INTO member_identity (id, member_id, provider, subject, created_at) VALUES ('i6','p1','google',?1,?2)", THIRD.google, NOW);
+      await run('INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)', 'p1', NOW, 'earn', 10, JSON.stringify({ source: 'first_win', missionId: THIRD_COINS.mission }), 'third-1');
+      await run('INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)', 'p1', NOW, 'admin', 5, JSON.stringify({ mode: 'grant', reason: THIRD_COINS.reason, note: THIRD_COINS.note }), 'third-2');
+      // An admin (p2) who changed M's coins: M's own admin row is legitimate, the admin's identity is not.
+      await run('INSERT INTO member VALUES (?1, ?2, ?3, ?4, ?5, ?6)', 'p2', ADMIN_PUBLIC_ID, await sha256Hex(ADMIN_PUBLIC_ID), 'uh4', NOW, 0);
+      await run('INSERT INTO admin_member VALUES (?1, ?2)', 'p2', NOW);
+      await run("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES ('m1', ?1, 'admin', 7, '{\"mode\":\"grant\",\"by\":\"p2\"}', 'adm-m1')", NOW);
+      await run("INSERT INTO admin_action (at, admin_id, member_id, action, mode, delta, before, after, reason, op_id) VALUES (?1, 'p2', 'm1', 'coins', 'grant', 7, 5, 12, 'seeded', 'adm-m1')", NOW);
       const token = cookie.slice(cookie.indexOf('=') + 1);
       const tokenHash = await sha256Hex(token);
       expect(token.length).toBeGreaterThan(20);
@@ -68,9 +80,12 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
         { name: 'array', init: { body: [1, 2, 3] } },
         { name: 'over the cap', init: { rawBody: JSON.stringify({ pad: 'x'.repeat(2_000_000), note: REQ }) } },
       ];
-      const paths = [...ACCOUNT_ROUTES.map((r) => ({ method: r.method, path: pathOf(r.pattern) + (QUERY[r.pattern] ?? '') })), { method: 'GET', path: `/api/account/no/such/${REQ}` }];
+      // QUERY gives `coins` its 400 below; this entry is the same route answering 200, where a leak would be. It runs
+      // FIRST: `logout` later in the list ends the session.
+      const paths = [{ method: 'GET', path: '/api/account/coins' }, ...ACCOUNT_ROUTES.map((r) => ({ method: r.method, path: pathOf(r.pattern) + (QUERY[r.pattern] ?? '') })), { method: 'GET', path: `/api/account/no/such/${REQ}` }];
 
       let answered = 0;
+      let coins200 = 0;
       let expected = 0;
       const errors = new Set<string>();
       for (const { method, path } of paths) {
@@ -80,6 +95,11 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
           const res = await h.call(method, path, { ...(method === 'GET' ? {} : b.init), cookie: sc.signedIn ? cookie : undefined, headers: { 'cf-connecting-ip': IP } });
           answered++;
           const text = await res.text();
+          // The 200 call must really answer 200, or it proves nothing (a reorder behind `logout` would 401).
+          if (sc.signedIn && !sc.deny && path === '/api/account/coins') {
+            expect(res.status, where).toBe(200);
+            coins200++;
+          }
           const headers = [...res.headers].filter(([k]) => k !== 'set-cookie').map(([k, v]) => `${k}: ${v}`).join('\n');
           for (const [what, hay] of [['body', text], ['headers', headers]] as const) {
             for (const secret of [token, tokenHash, IP, REQ, ...OTHER]) expect(hay.includes(secret), `${where}: ${what} holds ${secret.slice(0, 8)}...`).toBe(false);
@@ -101,9 +121,23 @@ describe('the account door leaks nothing (GH-1075 review)', () => {
         }
       }
       expect(answered).toBe(expected);
+      expect(coins200).toBe(sc.signedIn && !sc.deny ? 1 : 0);
       // The scenario reached the path it exists for, or it proved nothing.
       if (sc.deny) expect(errors.has('limit')).toBe(true);
       if (sc.later > 0) expect(errors.has('reauth')).toBe(true);
     });
   }
+
+  it('GET coins is not vacuous: a signed-in member sees their own rows', async () => {
+    const h = accountHarness({ now: NOW });
+    const { cookie } = await seedFullMember(h.db, NOW);
+    const run = (sql: string, ...v: unknown[]) => h.db.prepare(sql).bind(...v).run();
+    await run("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES ('m1', ?1, 'unit', -3, '{\"unitId\":\"at_team\"}', 'sp1')", NOW);
+    const res = await h.call('GET', '/api/account/coins', { cookie });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { rows: { delta: number; what: { kind: string } }[]; next: string | null };
+    expect(body.rows.map((r) => r.what.kind)).toEqual(['unit', 'earn']);
+    expect(body.rows.map((r) => r.delta)).toEqual([-3, 5]);
+    expect(body.next).toBeNull();
+  });
 });

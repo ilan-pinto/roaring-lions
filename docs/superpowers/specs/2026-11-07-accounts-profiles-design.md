@@ -650,6 +650,7 @@ The JSON shapes are given here in outline; the A1 and A2 plans give them in full
 | `PUT slots/:id`, `DELETE slots/:id` | session | 1 | 12 player slots and 4 system slots, each counted at write (§2.7). |
 | `PATCH profile` | session | 1 | Display name, `show_record`. |
 | `GET matches` | session | 0 | The member's own history, paged. |
+| `GET coins` | session | 0 | The member's own coin history, paged by journal id (GH-1370 C1). An allow-list of fields, never `detail`; no balance. |
 | `GET export` | session | 0 | §6.2. |
 | `POST delete` | fresh session | many, plus 1 KV write | §6.4: the KV tombstone first, then one batch. **Works while closed.** |
 | `POST gone` | none | 0 | `{idHash}` against the KV tombstones: 410 `{deleted: true}` or 404 (§6.4 step 5). **Works while closed.** |

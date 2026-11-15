@@ -55,6 +55,11 @@ th{font:600 12px 'IBM Plex Mono',monospace;text-transform:uppercase;color:var(--
 <h2>Missions</h2><div class="wrap"><table id="missions"></table></div>
 <h2>Brigade accounts</h2><div class="wrap"><table id="accounts"></table></div>
 <h2>Loadouts</h2><div class="wrap"><table id="loadout-units"></table></div><div class="wrap"><table id="loadout-orders"></table></div>
+<h2>Field health</h2>
+<p class="muted">From the crash, frame-time and start-up events (GH-1410). A session is crash-free when it sent no error. Percentiles are the median of the samples' own, grouped by graphics-card family.</p>
+<div class="stats" id="health"></div>
+<div class="wrap"><table id="health-errors"></table></div>
+<div class="wrap"><table id="health-frames"></table></div>
 <h2>Testers</h2>
 <div class="controls">
 <input id="share-name" placeholder="tester name" maxlength="32" autocomplete="off">
@@ -86,7 +91,7 @@ function accountRow(a){
   return '<tr>'+'<td>'+esc(a.player)+'</td>'+'<td>'+esc(a.tester??'—')+'</td>'+'<td class="n">'+fmt(a.credits,0)+'</td>'+'<td class="n">'+fmt(a.earned,0)+'</td>'+'<td class="n" title="'+esc(a.unlocks.join(', '))+'">'+fmt(a.unlocks.length,0)+'</td>'+'<td>'+esc(a.tiers.map((t)=>t.replace(/\\./g,' ')).join(', '))+'</td>'+'<td>'+esc(new Date(a.lastSeen).toISOString().slice(0,16).replace('T',' '))+'</td>'+'</tr>';
 }
 async function load(){
-  const [s,days,fun,mis,tes,acc,loads]=await Promise.all([get('summary'),get('per-day'),get('funnel'),get('missions'),get('testers'),getOr('accounts',[]),getOr('loadouts',[])]);
+  const [s,days,fun,mis,tes,acc,loads,hl]=await Promise.all([get('summary'),get('per-day'),get('funnel'),get('missions'),get('testers'),getOr('accounts',[]),getOr('loadouts',[]),getOr('health',null)]);
   $('summary').innerHTML=[['Players',s.players,0],['Sessions',s.sessions,0],['Hours played',s.hoursPlayed,1],['Median min / player',s.medianMinutesPerPlayer,0],['Came back another day',s.returnedDay2,0,' ('+Math.round(100*s.returnRate)+'%)']]
     .map(([l,v,d,suffix])=>'<div class="stat"><b>'+fmt(v,d)+(suffix||'')+'</b>'+l+'</div>').join('');
   const maxDay=Math.max(1,...days.map((d)=>d.new+d.returning));
@@ -107,6 +112,15 @@ async function load(){
   table($('loadout-units'),['Mission','Unit','Deployed / run','From roster / run','Bought / run','Runs'],unitRows);
   table($('loadout-orders'),['Mission',...VERBS],loads.map((m)=>'<tr>'+'<td>'+esc(m.mission)+'</td>'+VERBS.map((v)=>'<td class="n">'+fmt(m.orders[v])+'</td>').join('')+'</tr>'));
   /*/gh254*/
+  /*gh1410*/
+  if(hl){
+    const cf=hl.crashFreeRate==null?'—':(100*hl.crashFreeRate).toFixed(1)+'%';
+    $('health').innerHTML=[['Crash-free sessions',cf,hl.crashedSessions+' of '+hl.sessions+' sessions had an error'],['Median time to first frame',hl.boot.medianMs==null?'—':fmt(hl.boot.medianMs,0)+' ms',hl.boot.n+' boots'],['95th percentile start-up',hl.boot.p95Ms==null?'—':fmt(hl.boot.p95Ms,0)+' ms','']]
+      .map(([l,v,note])=>'<div class="stat"><b>'+esc(v)+'</b>'+l+(note?' <span class="muted">('+esc(note)+')</span>':'')+'</div>').join('')+(hl.capped?'<p class="muted">Showing the first 20,000 rows of a kind.</p>':'');
+    table($('health-errors'),['Crash','Error','Message','Sessions','Times'],hl.topErrors.map((e)=>'<tr><td class="mono">'+esc(e.hash)+'</td><td>'+esc(e.name)+'</td><td>'+esc(e.message)+'</td><td class="n">'+fmt(e.sessions,0)+'</td><td class="n">'+fmt(e.count,0)+'</td></tr>'));
+    table($('health-frames'),['GPU family','Samples','Sessions','p50 ms','p95 ms','p99 ms','Median units'],hl.frames.map((r)=>'<tr><td>'+esc(r.family)+'</td><td class="n">'+fmt(r.samples,0)+'</td><td class="n">'+fmt(r.sessions,0)+'</td><td class="n">'+fmt(r.p50)+'</td><td class="n">'+fmt(r.p95)+'</td><td class="n">'+fmt(r.p99)+'</td><td class="n">'+fmt(r.medianUnits,0)+'</td></tr>'));
+  }
+  /*/gh1410*/
 }
 async function showTimeline(name){
   const rows=await get('timeline',new URLSearchParams({tester:name}));
