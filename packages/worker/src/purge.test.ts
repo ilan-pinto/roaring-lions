@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import worker from './index';
-import { EVENTS_RETENTION_MS, INGEST_DAY, PURGE_BATCH_SLICE, PURGE_BATCH_SLICES, purgeEvents, purgePlayers } from './ingest';
+import { EVENTS_RETENTION_MS, INGEST_DAY, PURGE_BATCH_SLICE, PURGE_BATCH_SLICES, handleIngest, purgeEvents, purgePlayers } from './ingest';
 import { openTestD1 } from './test-d1';
 import type { D1Like, Env } from './d1';
 
@@ -87,6 +87,63 @@ describe('the summaries are aged out 180 days after the ID was last seen', () =>
     expect(h.n('SELECT MAX(last_seen) AS n FROM players')).toBe(NOW - EVENTS_RETENTION_MS - 1000);
     expect(await purgePlayers(h.db, NOW)).toBe(7);
     expect(h.n('SELECT COUNT(*) AS n FROM players')).toBe(0);
+  });
+});
+
+describe('a client clock cannot keep an ID past its retention (final privacy review)', () => {
+  const TEN_YEARS = 10 * 365 * DAY;
+  const base = { v: 1, player: id(7), session: id(8), build: '0.78.0' };
+  const post = (h: ReturnType<typeof setup>, events: unknown[]) =>
+    handleIngest(
+      new Request('https://game.example.workers.dev/api/events', {
+        method: 'POST',
+        body: JSON.stringify({ events }),
+        headers: { origin: 'https://game.example.workers.dev', 'cf-connecting-ip': '203.0.113.9' },
+      }),
+      { DB: h.db, ASSETS: { fetch: async () => new Response('') } } as Env,
+      NOW
+    );
+  const fast = NOW + TEN_YEARS;
+  const events = [
+    { ...base, t: fast, type: 'heartbeat', mission: 'm1', tick: 1 },
+    { ...base, t: fast, type: 'account', reason: 'purchase', credits: 1, earned: 1, unlocks: [], tiers: [] },
+  ];
+
+  it('a heartbeat and an account snapshot from a clock ten years fast are stored at the server time, and the ID ages out 181 days later', async () => {
+    const h = setup();
+    expect((await post(h, events)).status).toBe(204);
+    expect(h.db.raw.prepare('SELECT first_seen, last_seen FROM players').get()).toEqual({ first_seen: NOW, last_seen: NOW });
+    expect(h.db.raw.prepare('SELECT t FROM accounts').get()).toEqual({ t: NOW });
+    expect(await purgePlayers(h.db, NOW + 181 * DAY)).toBe(1);
+    expect(h.n('SELECT COUNT(*) AS n FROM players')).toBe(0);
+    expect(h.n('SELECT COUNT(*) AS n FROM accounts')).toBe(0);
+  });
+
+  it('a later honest report cannot be held back by an earlier future one: last_seen stays at the server time', async () => {
+    const h = setup();
+    await post(h, events);
+    await post(h, [{ ...base, t: NOW - 5_000, type: 'heartbeat', mission: 'm1', tick: 2 }]);
+    expect(h.db.raw.prepare('SELECT last_seen FROM players').get()).toEqual({ last_seen: NOW });
+  });
+
+  it('rows already written with a future time are healed by the purge, then age out', async () => {
+    const h = setup();
+    h.player(1, NOW + TEN_YEARS);
+    h.account(1, NOW + TEN_YEARS);
+    expect(await purgePlayers(h.db, NOW)).toBe(0);
+    expect(h.db.raw.prepare('SELECT last_seen FROM players').get()).toEqual({ last_seen: NOW });
+    expect(h.db.raw.prepare('SELECT t FROM accounts').get()).toEqual({ t: NOW });
+    expect(await purgePlayers(h.db, NOW + 181 * DAY)).toBe(1);
+    expect(h.has('accounts', 1)).toBe(false);
+  });
+
+  it('an orphan account with a future time is healed too and then goes on its own clock', async () => {
+    const h = setup();
+    h.account(2, NOW + TEN_YEARS);
+    await purgePlayers(h.db, NOW);
+    expect(h.db.raw.prepare('SELECT t FROM accounts').get()).toEqual({ t: NOW });
+    await purgePlayers(h.db, NOW + 181 * DAY);
+    expect(h.has('accounts', 2)).toBe(false);
   });
 });
 

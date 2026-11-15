@@ -60,7 +60,7 @@ export async function handleIngest(req: Request, env: Env, now: number): Promise
     // One row for the whole request: the events as a JSON array (`events_all` expands it).
     const stmts: D1Stmt[] = [
       env.DB.prepare('INSERT INTO event_batch (received_at, player, events) VALUES (?, ?, ?)').bind(now, player, JSON.stringify(events)),
-      upsertPlayer(env, player, events),
+      upsertPlayer(env, player, events, now),
     ];
     await env.DB.batch(stmts);
   } catch {
@@ -71,7 +71,7 @@ export async function handleIngest(req: Request, env: Env, now: number): Promise
   // events above have already committed, and QUERIES.sql rebuilds it.
   try {
     const latest = latestAccountByPlayer(events);
-    if (latest.length > 0) await env.DB.batch(latest.map((e) => upsertAccount(env, e)));
+    if (latest.length > 0) await env.DB.batch(latest.map((e) => upsertAccount(env, e, now)));
   } catch {
     /* summary only */
   }
@@ -132,6 +132,11 @@ export async function purgeEvents(db: D1Like, now: number): Promise<number> {
  */
 export async function purgePlayers(db: D1Like, now: number): Promise<number> {
   const cutoff = now - EVENTS_RETENTION_MS;
+  // Heal rows written before ingest capped client time: a `last_seen` or `t` in the future would never age out. One batch is one D1 query.
+  await db.batch([
+    db.prepare('UPDATE players SET last_seen = ?1 WHERE last_seen > ?1').bind(now),
+    db.prepare('UPDATE accounts SET t = ?1 WHERE t > ?1').bind(now),
+  ]);
   let deleted = 0;
   for (let i = 0; i < PURGE_PLAYER_SLICES; i++) {
     // Both deletes name the same oldest-first slice of stale players; one batch is one transaction, so the account row never outlives its player.
@@ -163,7 +168,8 @@ function latestAccountByPlayer(events: TelemetryEvent[]): AccountEvent[] {
   return [...byPlayer.values()];
 }
 
-function upsertAccount(env: Env, e: AccountEvent): D1Stmt {
+/** `t` is the client's clock; the server's `now` caps it, so a clock set years ahead cannot keep a row past its retention. */
+function upsertAccount(env: Env, e: AccountEvent, now: number): D1Stmt {
   return env.DB.prepare(
     `INSERT INTO accounts (player, t, credits, earned, unlocks, tiers, tester, dev)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -173,12 +179,13 @@ function upsertAccount(env: Env, e: AccountEvent): D1Stmt {
        tester = COALESCE(excluded.tester, accounts.tester),
        dev = MAX(accounts.dev, excluded.dev)
      WHERE excluded.t >= accounts.t`
-  ).bind(e.player, e.t, e.credits, e.earned, JSON.stringify(e.unlocks), JSON.stringify(e.tiers), e.tester ?? null, e.dev ? 1 : 0);
+  ).bind(e.player, Math.min(e.t, now), e.credits, e.earned, JSON.stringify(e.unlocks), JSON.stringify(e.tiers), e.tester ?? null, e.dev ? 1 : 0);
 }
 
-function upsertPlayer(env: Env, player: string, events: TelemetryEvent[]): D1Stmt {
-  const first = Math.min(...events.map((e) => e.t));
-  const last = Math.max(...events.map((e) => e.t));
+/** `first_seen` and `last_seen` come from the client's clock, capped at the server's receive time `now`: retention is judged on `last_seen`, and a clock set years ahead would otherwise keep an ID forever (`MAX(last_seen, …)` makes a future value stick). */
+function upsertPlayer(env: Env, player: string, events: TelemetryEvent[], now: number): D1Stmt {
+  const first = Math.min(now, ...events.map((e) => e.t));
+  const last = Math.min(now, Math.max(...events.map((e) => e.t)));
   const seconds = HEARTBEAT_SECONDS * events.filter((e) => e.type === 'heartbeat').length;
   const progress = events.filter((e) => e.type === 'campaign_progress').at(-1);
   const won = progress?.type === 'campaign_progress' ? progress.missionsWon : null;
