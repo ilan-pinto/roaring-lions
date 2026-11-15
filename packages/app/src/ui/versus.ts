@@ -100,6 +100,11 @@ export interface VersusDeps {
   /** Trades this tab's seat ticket for an advisor ticket (`inviteAdvisor`,
    *  `net/connect.ts`). Rejects with an `AdvisorRefused` when the room says no. */
   advisorTicket(code: string, scope: AdvisorScope): Promise<string>;
+  /** GH-1388: arms an OFFLINE match against the computer seat for the map and side picked here, and resolves to the `?net=` value that
+   *  opens it. No room and no request. Absent: the lobby offers no computer seat. */
+  playComputer?(req: { map: string; matchup: Matchup; callsign: string }): Promise<string>;
+  /** Drops a match `playComputer` armed that nobody took (this screen was left while it armed). */
+  discardComputer?(): void;
   /** The menu's still plate (`${BASE}${menuDiorama.plate}`), drawn behind
    *  both screens; absent, the screens draw on the plain ground. */
   plateUrl?: string;
@@ -789,6 +794,29 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   act.append(kitRow, openCol);
   body.appendChild(act);
 
+  // --- GH-1388: a basic computer opponent, offline ---------------------------
+  // The arena's `rush` script as a seat. It needs no room, so it is offered whatever the side and the map; the plain description says what
+  // it is, because nothing here may claim more than it does (it attacks with the force it starts with and builds nothing).
+  let cpuBtn: HTMLButtonElement | null = null;
+  const cpuMsg = messageLine('rl-versus__cpu-msg');
+  if (deps.playComputer !== undefined) {
+    const cpu = document.createElement('section');
+    cpu.className = 'rl-versus__cpu';
+    const cpuLead = document.createElement('h3');
+    cpuLead.className = 'rl-versus__join-lead';
+    cpuLead.id = nextId('cpu');
+    cpuLead.textContent = t('versus.cpu.lead');
+    cpu.setAttribute('aria-labelledby', cpuLead.id);
+    const cpuNote = document.createElement('p');
+    cpuNote.className = 'rl-versus__cpu-note';
+    cpuNote.id = nextId('cpu-note');
+    cpuNote.textContent = t('versus.cpu.note');
+    cpuBtn = button(t('versus.cpu.start'), 'rl-versus__cpu-start');
+    cpuBtn.setAttribute('aria-describedby', cpuNote.id);
+    cpu.append(cpuLead, cpuNote, cpuBtn, cpuMsg);
+    body.appendChild(cpu);
+  }
+
   /** A side narrows the ground: a mirror-only map greys out with its reason,
    *  and a pick on one moves to the first map the pairing plays. */
   function syncSide(): void {
@@ -856,6 +884,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   let busy = false;
   const sync = (): void => {
     openBtn.disabled = busy || deps.maps.length === 0;
+    if (cpuBtn !== null) cpuBtn.disabled = busy || deps.maps.length === 0;
     goBtn.disabled = busy || code.value.length !== CODE_LENGTH;
     cellEls.forEach((c, i) => {
       c.textContent = code.value[i] ?? '';
@@ -902,6 +931,29 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
     );
   };
   openBtn.addEventListener('click', () => start({ kind: 'create', map, matchup: side, kit: kit ? 'brigade' : 'matched', ...(winMode === null ? {} : { winMode }), callsign: callsignOrDefault(callsign.input.value) }, false));
+  const playComputer = deps.playComputer;
+  cpuBtn?.addEventListener('click', () => {
+    if (busy || playComputer === undefined) return;
+    busy = true;
+    sync();
+    cpuMsg.textContent = '';
+    delete cpuMsg.dataset.tone;
+    const picked = map;
+    playComputer({ map: picked, matchup: side, callsign: callsignOrDefault(callsign.input.value) }).then(
+      (net) => {
+        // Left while it armed: nobody will take it, so it is dropped here (the disposer contract).
+        if (disposed) { deps.discardComputer?.(); return; }
+        deps.navigate(`${routes.sandbox(picked)}?net=${encodeURIComponent(net)}`);
+      },
+      () => {
+        if (disposed) return;
+        busy = false;
+        sync();
+        cpuMsg.dataset.tone = 'bad';
+        cpuMsg.textContent = t('versus.cpu.failed');
+      },
+    );
+  });
   const join = (): void => {
     if (code.value.length !== CODE_LENGTH) return;
     start({ kind: 'join', code: code.value, callsign: callsignOrDefault(callsign.input.value) }, true);

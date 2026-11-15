@@ -1566,3 +1566,92 @@ describe('members, guests and bots (GH-1075 A3, Task 3.7)', () => {
     expect(handed?.labels?.[0]?.text).toBe('Ari');
   });
 });
+
+// GH-1388: the basic computer opponent, offered in the lobby with no flag and no URL parameter.
+describe('the computer seat in the lobby', () => {
+  const cpuButton = (stage: ParentNode): HTMLButtonElement | null => stage.querySelector<HTMLButtonElement>('.rl-versus__cpu-start');
+
+  it('is offered when the build can arm one, labelled plainly as a basic opponent, with a note that says only what the script does', () => {
+    const stage = mountPick(deps({ playComputer: vi.fn().mockResolvedValue('OFFLINE') }));
+    const b = cpuButton(stage);
+    expect(b?.textContent).toBe(en['versus.cpu.start']);
+    expect(b?.textContent).toMatch(/basic/i);
+    expect(describedBy(b!)).toBe(en['versus.cpu.note']);
+    expect(missingKeys()).toEqual([]);
+  });
+
+  it('?pseudo=1: the heading, the note, the button and the failure line are bracketed, so none bypassed t()', async () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const stage = mountPick(deps({ playComputer: vi.fn().mockRejectedValue(new Error('x')) }));
+      cpuButton(stage)!.click();
+      await flush();
+      const shown = [
+        stage.querySelector('.rl-versus__cpu .rl-versus__join-lead'),
+        stage.querySelector('.rl-versus__cpu-note'),
+        cpuButton(stage),
+        stage.querySelector('.rl-versus__cpu-msg'),
+      ].map((e) => e?.textContent ?? '');
+      expect(shown.length).toBe(4);
+      for (const text of shown) expect(text, text).toMatch(/^⟦[\s\S]*⟧$/);
+    } finally {
+      setCatalogue('en', en);
+    }
+  });
+
+  it('is not drawn when the build cannot arm one', () => {
+    expect(cpuButton(mountPick(deps()))).toBeNull();
+  });
+
+  it('a click arms the match for the picked map, side and callsign and opens the battlefield on the offline code, with no room opened', async () => {
+    const playComputer = vi.fn().mockResolvedValue('OFFLINE');
+    const d = deps({ playComputer });
+    const stage = mountPick(d);
+    stage.querySelector<HTMLInputElement>('.rl-versus__side-radio[value="kdf"]')!.click();
+    stage.querySelector<HTMLInputElement>('.rl-versus__side-radio[value="kdf"]')!.dispatchEvent(new Event('change'));
+    cpuButton(stage)!.click();
+    await flush();
+    expect(playComputer).toHaveBeenCalledTimes(1);
+    const arg = playComputer.mock.calls[0]![0] as { map: string; matchup: string; callsign: string };
+    expect(arg.matchup).toBe('kdf');
+    expect(arg.callsign).toBe('Ari');
+    expect(MAPS.some((m) => m.id === arg.map)).toBe(true);
+    expect(d.navigated).toEqual([[`/free-play/${arg.map}?net=OFFLINE`, undefined]]);
+    expect(d.open).not.toHaveBeenCalled();
+  });
+
+  it('a failure to arm says so on its own line, re-enables the button, and navigates nowhere', async () => {
+    const d = deps({ playComputer: vi.fn().mockRejectedValue(new Error('chunk')) });
+    const stage = mountPick(d);
+    cpuButton(stage)!.click();
+    await flush();
+    expect(stage.querySelector('.rl-versus__cpu-msg')?.textContent).toBe(en['versus.cpu.failed']);
+    expect(cpuButton(stage)!.disabled).toBe(false);
+    expect(d.navigated).toEqual([]);
+  });
+
+  it('the screen left while the match arms: nothing is opened, and the armed match is dropped (the disposer contract)', async () => {
+    let release: (v: string) => void = () => {};
+    const discardComputer = vi.fn();
+    const d = deps({ playComputer: vi.fn(() => new Promise<string>((r) => { release = r; })), discardComputer });
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    const leave = showVersus(stage, d);
+    cpuButton(stage)!.click();
+    leave();
+    release('OFFLINE');
+    await flush();
+    expect(discardComputer).toHaveBeenCalledTimes(1);
+    expect(d.navigated).toEqual([]);
+  });
+
+  it('a second click while it arms is ignored', async () => {
+    const playComputer = vi.fn(() => new Promise<string>(() => {}));
+    const stage = mountPick(deps({ playComputer }));
+    const b = cpuButton(stage)!;
+    b.click();
+    b.click();
+    expect(playComputer).toHaveBeenCalledTimes(1);
+    expect(b.disabled).toBe(true);
+  });
+});

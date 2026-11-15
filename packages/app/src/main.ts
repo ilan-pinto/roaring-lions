@@ -288,6 +288,7 @@ import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { withSoftParticles } from './soft-flag';
 import { PAUSES_PER_SEAT, WsTransport, flagSetupRoom, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
+import { OfflineMatchGone, dropOffline, isOfflineTransport } from './net/offline-slot';
 import { nameFrom } from './net/seat-label';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
@@ -1400,6 +1401,17 @@ async function main(): Promise<void> {
         specials: () => ownedStoreSpecials(accountState().boughtUnits),
         ...(signal ? { signal } : {}),
       }),
+    // GH-1388: a match against the computer seat, offline. The script, its view and its fog load only now.
+    playComputer: async (req) => {
+      const { armOfflineMatch } = await importWithRetry(() => import('./net/offline-match'));
+      return armOfflineMatch({
+        ...req,
+        computerName: t('versus.cpu.callsign'),
+        build: `${__APP_BUILD__}+${__APP_COMMIT__}`,
+        seed: crypto.getRandomValues(new Uint32Array(1))[0]! & 0x7fffffff,
+      });
+    },
+    discardComputer: () => dropOffline(),
     maps: versusMaps(),
     callsign: {
       get: () => versusStore?.getItem(VERSUS_CALLSIGN_KEY) ?? '',
@@ -2085,6 +2097,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       req.navigate(routes.versusRoom(err.code), { replace: true });
       return teardown;
     }
+    // GH-1388: an offline match lives in the realm that armed it; a reload or a stray link has none to open, so the lobby it came from.
+    if (err instanceof OfflineMatchGone) {
+      req.navigate(routes.versus(), { replace: true });
+      return teardown;
+    }
     throw err;
   }
   const transport = match.transport;
@@ -2161,6 +2178,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const settled = netConfig !== null && room !== null ? settleRejoin(netConfig, match.rejoin, room) : null;
   if (settled?.rejoin) logRejoin(settled.rejoin, console);
   const versusWorld = versusRoom && netConfig !== null ? settled?.world ?? buildMatchWorld(netConfig) : null;
+  // GH-1388: the computer seat of an offline match reads this world through the public view only, from its first decision on.
+  if (versusWorld !== null && isOfflineTransport(transport)) transport.attach(versusWorld);
   /** The runtime of an ECONOMY room (purse, production, rally, dock): a win-mode room has a runtime too (GH-976), but
    *  it runs goals only -- no purse, no camp line -- so nothing that treats a room's runtime as an economy may see it. */
   const economyRt = versusWorld !== null && versusWorld.winMode === null ? versusWorld.runtime : null;
@@ -7459,7 +7478,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // behind-stalled. The cap is never below the normal one, so a 'behind'
     // stall's own seat goes on running the frames it holds to ack (R31).
     if (transport.local) {
-      if (stepFrames(ticks) > 0) lastTickAt = now;
+      // GH-1388: an offline match against the computer seat is a versus match on local pacing: it ends on the sim's own result, as a
+      // room's does, and stops stepping once it is over. Single-player and the sandbox are never `versusRoom`, so nothing changes for them.
+      if (netEnd === null) {
+        if (stepFrames(ticks) > 0) lastTickAt = now;
+        if (versusRoom) {
+          const result = matchResult(matchDecided?.result ?? null, null, false);
+          if (result !== null) showMatchEnd(result);
+        }
+      }
     } else if (netEnd === null) {
       const t0 = performance.now();
       // A spectated game stops at the arena's cap tick, as the arena's own players do.
