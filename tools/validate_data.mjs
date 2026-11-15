@@ -261,6 +261,8 @@ if (
   checked += validateDir(join(ROOT, 'data/versus'), validators.versus, 'versus_rules.schema', ['modes']);
   checked += validateDir(join(ROOT, 'data/versus/modes'), validators.versusMode, 'versus_mode.schema');
   checked += validateDir(join(ROOT, 'data/formations'), validators.formation, 'formation.schema');
+  // GH-1360 S3a: starting layouts share the schema; their cross-file rules (HUD keys, picker ids) do not apply, they are never registered.
+  checked += validateDir(join(ROOT, 'data/layouts'), validators.formation, 'formation.schema');
   checked += validateDir(join(ROOT, 'data/grades'), validators.grade, 'grade.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
