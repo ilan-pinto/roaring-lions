@@ -2,7 +2,7 @@
 
 **Act I · The Marj Strip · Ashwar Front · *The Long Ground*, town 2 of 4 new and the Marj's fifth and last town in campaign order. Shai Hammai is a Captain in all five missions and is not promoted here (L-3). The Major promotion lives in Sur's briefing (lead ruling 5).**
 
-**Date:** 2026-11-15 · **Author:** `narrative-designer` · **Status:** authored text, written against an approved design. The lead approved the arc (PR 1438) and this town's Mission Design Document (PR 1453: Option B *Gate and Strip*, and all seven rulings at the recommendations) on 15 Nov 2026. The escort design it leans on (PR 1454, GH-1439) is a **proposal**; nothing in this sheet's text depends on its field shapes.
+**Date:** 2026-11-15 · **Author:** `narrative-designer` · **Status:** authored text, written against an approved design. The lead approved the arc (PR 1438) and this town's Mission Design Document (PR 1453: Option B *Gate and Strip*, and all seven rulings at the recommendations) on 15 Nov 2026. The escort design it leans on (PR 1454, GH-1439) is a **proposal**; nothing in this sheet's text depends on its field shapes. **Revised 15 Nov 2026** to apply the eight deltas the level script (PR 1458, §9.3) found: four Idit lines that gave an order, II's pushes as waves, IV's shaft and lee triggers, V's zone rename, and the crew, warning and commander triggers' real conditions.
 
 **Nothing in this pass was applied to any data file.** None of the five `data/missions/bir_tarsha_*.json` files exists, no `bir_tarsha` map exists, and the town is not yet in `world.json` or in `mission.schema.json`'s `town` enum (MDD G-10). There is no `name`, `briefing` or `objectives[].text` to edit, so `pnpm validate:data` has nothing of this sheet's to check. `mission-author` pastes every string below when the files land. The re-brief in §8 is exact text, also unapplied, for the reason given there.
 
@@ -10,7 +10,7 @@
 
 **Downstream:**
 - `mission-author`: five `name`s, five briefings, 18 objective texts, one `dispatch`, one held and one live `aftermath`, ten `debrief` lines, every `say`, two `hostages_place`s; the Deir Amun III `aftermath` re-brief (§8).
-- `level-scripter`: trigger ids, labels and bindings, and the two points the design leaves open (D-BN1, D-BN2, §10).
+- `level-scripter`: trigger ids, labels and bindings, and the two points the design left open (D-BN1, D-BN2, §10), both resolved in the level script.
 - `sim-guard`: the say-only trigger the ambient lore needs.
 - `render-vfx`: nothing new.
 
@@ -114,7 +114,7 @@ Objective ids are proposals; `mission-author` and `level-scripter` own them. Eac
 | `find_the_crew` | `locate` · `bt_works_crew` · secondary, `carries` → IV | Identify the crew on the east works | OBJECTIVE COMPLETE — Identify the crew on the east works | live |
 
 - `six_out` says *walk*, because `CivilianFlight` walks a resident once a ground unit is within four tiles. It names the refuge, the one piece of ground the player can find.
-- `find_the_crew` is the only carrying secondary. A crew that came out because the gate was assaulted first (`first_contact` commits it) is not a located group, so a rushed recon cannot get it.
+- `find_the_crew` is the only carrying secondary. A crew pulled to the gate (`zone_entered(gate_approach)` commits it) is fought where it arrives, so a rushed recon meets it at the gate and does not lose the carry.
 
 ### 1.5 `debrief`
 
@@ -131,7 +131,7 @@ The defeat holds for the residents' clock, a Conduct collapse and the time limit
 | mission start | `title` | system | `Bir Tarsha I — The Gate Road` · *2 primary objectives* | `hud.announce` | live |
 | mission start | `dispatch` | narrator | §1 dispatch | title card | live |
 | mission start | `brief` | Idit / Shai | briefing, beats 1 to 6 | deploy screen, then the commander bar | live |
-| `first_contact` at the gate → `bt1_works_stir` (`commit` the works crew) | `toast` | system | `The east works are stirring` | trigger `label` | live |
+| `zone_entered(gate_approach)` → `bt1_works_stir` (`commit` the crew → `gate_road_south`) | `toast` | system | `The east works are stirring` | trigger `label` | live |
 | same trigger | `radio` | **Idit** | "Movement on the east works. Whoever is on them has heard the gate, and from here on they are looking west." | `triggers[].say` | live |
 | `objective(identify_the_gate, complete)` | `radio` | **Idit** | "That is the garrison: two blocks and a missile team on the road. Nothing at the gate is waiting for us in particular, and nothing is asleep." | `objectives[].say` | live |
 | `objective(find_the_crew, complete)` | `radio` | **Idit** | "Marked. That is the crew on the east works, and the next time we come down this road I can tell you which posts are theirs." | `objectives[].say`. The carry into IV, said when it is bought | live |
@@ -146,7 +146,7 @@ The defeat holds for the residents' clock, a Conduct collapse and the time limit
 
 | trigger id | on → do | label | chars |
 |---|---|---|---|
-| `bt1_works_stir` | `first_contact` (gate) → `commit` crew | `The east works are stirring` | 27 |
+| `bt1_works_stir` | `zone_entered(gate_approach)` → `commit` crew | `The east works are stirring` | 27 |
 
 ---
 
@@ -213,23 +213,19 @@ Neither line claims the roof or the count. The defeat covers the gate falling, t
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Bir Tarsha II — The Gate` · *2 primary objectives* | `hud.announce` | live |
 | mission start | `brief` | Idit / Shai | briefing, beats 1 to 6 | deploy screen, then the commander bar | live |
-| `timer_s` 150 → `bt2_first_push` (`spawn` wave 1) | `toast` | system | `A push is coming from the fence road` | trigger `label` | live |
-| same wave | `radio` | **Idit** | "First push, from the east end of the Fence Road. It is the lighter of two, and it is meant to show us where the weight goes." | `enemy.waves[].say` | live |
+| wave 1 at 150 s (`fence_east` → `gate_point`) | `radio` | **Idit** | "First push, from the east end of the Fence Road. It is the lighter of two, and it is meant to show us where the weight goes." | `enemy.waves[].say` | live |
 | wave 1 spawns | `toast` | system | `enemy reinforcements — 4 units inbound · <place>` | alert layer, hard-coded | live |
-| `timer_s` 270 → `bt2_second_push` (`spawn` wave 2) | `toast` | system | `The second push is on the road` | trigger `label` | live |
-| same wave | `radio` | **Idit** | "Second push. A charge squad is walking with it, and it is walking at the terminal, not at you." | `enemy.waves[].say` | live |
+| wave 2 at 270 s (`fence_east` → `terminal_point`) | `radio` | **Idit** | "Second push. A charge squad is walking with it, and it is walking at the terminal, not at you." | `enemy.waves[].say` | live |
+| wave 2 spawns | `toast` | system | `enemy reinforcements — 4 units inbound · <place>` | alert layer, hard-coded | live |
 | `objective(take_the_roof, complete)` | `radio` | **Shai** | "The roof is ours. Every window on the Fence Road is now looking at us from our own side." | `objectives[].say` | live |
 | `evacuated` (a resident reaches the safe quarter) | `toast` | system | `clear (1)` | `notice.evacuated` | live |
 | `objective(seven_in, failed)` | `radio` | **Idit** | "The quarter is not open. A gate with nobody behind it is a wall, and there is nothing left in this town for us to hold it for." | `objectives[].say_on_fail` | live |
-| `SimEvent` mortar fires on the cross road | `radio` | **Idit** | "The cross road is under the tube. Count the seconds between rounds and move the residents inside them." | a line on a `SimEvent` | engine |
+| `SimEvent` mortar fires on the cross road | `radio` | **Idit** | "The cross road is under the tube. The gaps between rounds are the only safe time on it." | a line on a `SimEvent` | engine |
 | `missionEnd` | `debrief` | Idit (victory) / Shai (defeat) | §2 debrief | end screen | live |
 
 **Trigger labels, for `validate:data`:**
 
-| trigger id | on → do | label | chars |
-|---|---|---|---|
-| `bt2_first_push` | `timer_s` 150 → `spawn` | `A push is coming from the fence road` | 36 |
-| `bt2_second_push` | `timer_s` 270 → `spawn` | `The second push is on the road` | 30 |
+None. This mission has no trigger: its two pushes are waves (`enemy.waves[]`), which carry a `say` and no `label`, and the feed prints the alert layer's line.
 
 ---
 
@@ -260,7 +256,7 @@ None. The outline asks for none, and a mid-town `dispatch` is a deviation the le
 
 - Beat 1 follows L-16's rule for the taken: *"two of the people taken at First Light"*, no role, no rank, no sex, no pronoun. The two blocks are *apartment blocks*, not a place.
 - Beat 2 is `count 3` and the extraction (`bt3_extract`). It does not call the guards *hostage-takers*; they are guards.
-- Beat 3 is the design's hard requirement: the blocks warn each other (20 s), the firing positions cover the lane, and a roof team sits on each block.
+- Beat 3 is the design's hard requirement: the blocks warn each other, the firing positions cover the lane, and a roof team sits on each block. The warning is a player unit entering the other block's zone, which comes before the first shot; the twenty seconds is the walk across the lane (about 11 s for the 10 steps between the doors), because a trigger has no delay field (level script F-2).
 - Beat 4 is the decision, said as a price and not a verdict.
 - Beat 5 is the apartment's `roe_penalty` 14. It says *lived in* and does not describe who lives there.
 - Beat 6 is the ceiling (15): 14 is under, a second hit is over. Strictly above the threshold fails.
@@ -305,14 +301,14 @@ The victory line holds for 3 or 4 out. The defeat line holds for the clock, the 
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Bir Tarsha III — Two Houses` · *4 primary objectives* | `hud.announce` | live |
 | mission start | `brief` | Idit / Shai | briefing, beats 1 to 6 | deploy screen, then the commander bar | live |
-| `first_contact` on the west block → `bt3_west_warns_east` (`commit` the east guard after 20 s) | `toast` | system | `The east block has been warned` | trigger `label` | live |
+| `zone_entered(bt3_block_w)` → `bt3_west_warns_east` (`commit` the east block → `yard_w_point`) | `toast` | system | `The east block has been warned` | trigger `label` | live |
 | same trigger | `radio` | **Idit** | "Shots at the west block. The east block heard them, and it is moving a team to its yard." | `triggers[].say` | live |
-| `first_contact` on the east block → `bt3_east_warns_west` | `toast` | system | `The west block has been warned` | trigger `label` | live |
-| same trigger | `radio` | **Idit** | "The west block is up. Count twenty seconds from that last shot." | `triggers[].say` | live |
+| `zone_entered(bt3_block_e)` → `bt3_east_warns_west` (`commit` the west block → `yard_e_point`) | `toast` | system | `The west block has been warned` | trigger `label` | live |
+| same trigger | `radio` | **Idit** | "The west block heard that. Twenty seconds is what the lane gives them to cross it." | `triggers[].say` | live |
 | `objective(guard_west, complete)` | `radio` | **Shai** | "West door is open. Do not stop in the yard." | `objectives[].say` | live |
 | `objective(guard_east, complete)` | `radio` | **Shai** | "East door is open. The lane is the dangerous half." | `objectives[].say` | live |
 | `evacuated` (one of the taken reaches the extraction) | `toast` | system | `clear (1)` | `notice.evacuated` | live |
-| `objective(bring_three_out, complete)` | `radio` | **Idit** | "Three on the north edge. Count them again when you are clear of the lane." | `objectives[].say` | live |
+| `objective(bring_three_out, complete)` | `radio` | **Idit** | "Three on the north edge. I will count them again when you are clear of the lane." | `objectives[].say` | live |
 | `objective(bring_three_out, failed)` | `radio` | **Idit** | "There are not three to bring any more. Whatever this was, it was not a count we could afford to be wrong about." | `objectives[].say_on_fail` | live |
 | `objective(keep_the_blocks, failed)` | `radio` | **Shai** | "That is past fifteen. A block with a cannon round in it is not the thing we came to carry out." | `objectives[].say_on_fail` | live |
 | `SimEvent identified` on a roof missile team | `radio` | **Idit** | "Missile team on the roof. It sees into the yard and nowhere else." | a line on a `SimEvent` | engine |
@@ -322,8 +318,8 @@ The victory line holds for 3 or 4 out. The defeat line holds for the clock, the 
 
 | trigger id | on → do | label | chars |
 |---|---|---|---|
-| `bt3_west_warns_east` | `first_contact` (west) → `commit` east | `The east block has been warned` | 30 |
-| `bt3_east_warns_west` | `first_contact` (east) → `commit` west | `The west block has been warned` | 30 |
+| `bt3_west_warns_east` | `zone_entered(bt3_block_w)` → `commit` east | `The east block has been warned` | 30 |
+| `bt3_east_warns_west` | `zone_entered(bt3_block_e)` → `commit` west | `The west block has been warned` | 30 |
 
 ---
 
@@ -391,10 +387,10 @@ Neither line claims how many blades survived: the win allows one lost, the defea
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Bir Tarsha IV — The Blade Line` · *4 primary objectives* | `hud.announce` | live |
 | mission start | `brief` | Idit / Shai | briefing, beats 1 to 6 | deploy screen, then the commander bar | live |
-| `first_contact` (the first blade halts) → `bt4_lee_opens` (`commit` the missile teams) | `toast` | system | `Fire is coming from the hamlet's lee` | trigger `label` | live |
-| same trigger | `radio` | **Idit** | "Missile teams out of the hamlet's lee, on the lane. Do not answer toward the houses. Put the escort between the blades and them." | `triggers[].say` | live |
-| `timer_s` 240 → `bt4_vent_opens` (`dismount` the shaft militia) | `toast` | system | `A shaft has opened behind the escort` | trigger `label` | live |
-| same trigger | `radio` | **Idit** | "A shaft vented behind you. It is in the dead ground south of the hamlet, and it has been waiting for the blades to pass." | `triggers[].say` | live |
+| `zone_entered(fence_works)` → `bt4_lee_opens` (`spawn` 2 `atgm_cell` at `bait_lee`) | `toast` | system | `Fire is coming from the hamlet's lee` | trigger `label` | live |
+| same trigger | `radio` | **Idit** | "Missile teams out of the hamlet's lee, on the lane. The houses stand behind them, and that is where they want the answer to go." | `triggers[].say` | live |
+| `timer_s` 240 → `bt4_vent_opens` (`spawn` 2 `militia_cell` at `vent_w`) | `toast` | system | `A shaft has opened behind the escort` | trigger `label` | live |
+| same trigger | `radio` | **Idit** | "A shaft vented behind you, south of the hamlet. It has been waiting for the blades to pass." | `triggers[].say` | live |
 | `objective(clear_works, complete)` | `radio` | **Shai** | "The belt is level. Everything on that strip is flat except the wall." | `objectives[].say` | live |
 | `objective(drop_shafts, complete)` | `radio` | **Idit** | "Three shafts down. Nothing in the belt runs under the road any more." | `objectives[].say` | live |
 | `objective(blades, complete)` | `radio` | **Shai** | "Blades through the fence line. Count them on the far side." | `objectives[].say` | live |
@@ -407,8 +403,8 @@ Neither line claims how many blades survived: the win allows one lost, the defea
 
 | trigger id | on → do | label | chars |
 |---|---|---|---|
-| `bt4_lee_opens` | `first_contact` → `commit` missile teams | `Fire is coming from the hamlet's lee` | 36 |
-| `bt4_vent_opens` | `timer_s` 240 → `dismount` | `A shaft has opened behind the escort` | 36 |
+| `bt4_lee_opens` | `zone_entered(fence_works)` → `spawn` missile teams | `Fire is coming from the hamlet's lee` | 36 |
+| `bt4_vent_opens` | `timer_s` 240 → `spawn` | `A shaft has opened behind the escort` | 36 |
 
 ---
 
@@ -456,7 +452,7 @@ Objective ids are proposals; `mission-author` and `level-scripter` own them. Eac
 |---|---|---|---|---|
 | `all_five` | `collapse` · `fence_road`, 390 s · **primary, failable** | Bring down the five routes under the Fence Road in six and a half minutes | OBJECTIVE COMPLETE — Bring down the five routes under the Fence Road in six and a half minutes | live |
 | `keep_the_surface` | `no_collateral_above` 10 · **primary, failable** | Lose no more than 10 Conduct | OBJECTIVE COMPLETE — Lose no more than 10 Conduct | live |
-| `walk_the_person_out` | `evacuate_before` · `chamber_refuge`, `hostages`, count 1, 330 s · secondary, `carries` | Walk the person in the chamber out to the refuge | OBJECTIVE COMPLETE — Walk the person in the chamber out to the refuge | live |
+| `walk_the_person_out` | `evacuate_before` · `rescue_refuge`, `hostages`, count 1, 330 s · secondary, `carries` | Walk the person in the chamber out to the refuge | OBJECTIVE COMPLETE — Walk the person in the chamber out to the refuge | live |
 | `take_the_commander` | `eliminate_hvt` · `bt5_block_commander` · secondary | Take the block commander | OBJECTIVE COMPLETE — Take the block commander | live |
 
 - `walk_the_person_out` is the line the design hangs the third star on, so its text names the act and nothing about the person (L-16).
@@ -484,9 +480,9 @@ Closes the town and Act I: the Marj is behind the brigade, which is what the out
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Bir Tarsha V — Under the Fence` · *2 primary objectives* | `hud.announce` | live |
 | mission start | `brief` | Idit / Shai | briefing, beats 1 to 6 | deploy screen, then the commander bar | live |
-| `casualties_pct` on the command post → `bt5_commander_moves` (`withdraw_to` north) | `toast` | system | `The block commander is pulling north` | trigger `label` | live |
+| `casualties_pct` 33 (3 of 9 bodies) → `bt5_commander_moves` (`withdraw_to` `post` → `north_exit`) | `toast` | system | `The block commander is pulling north` | trigger `label` | live |
 | same trigger | `radio` | **Idit** | "The post east of the ridge is emptying north. Whoever left it carries the remnant with him, and he is not coming back." | `triggers[].say` | live |
-| `zone_entered(chamber_refuge)` → `bt5_chamber_reached` | `toast` | system | `The chamber is in reach` | trigger `label` | live |
+| `zone_entered(chamber_reach)` → `bt5_chamber_reached` | `toast` | system | `The chamber is in reach` | trigger `label` | live |
 | same trigger | `radio` | **Shai** | "You are at the chamber. Walk that one person out before you touch the last route." | `triggers[].say` | live |
 | `evacuated` (the person reaches the refuge) | `toast` | system | `clear (1)` | `notice.evacuated` | live |
 | `objective(walk_the_person_out, complete)` | `radio` | **Idit** | "One out and walking. That is the one that counts, and it is not on any clock." | `objectives[].say` | live |
@@ -503,7 +499,7 @@ Closes the town and Act I: the Marj is behind the brigade, which is what the out
 | trigger id | on → do | label | chars |
 |---|---|---|---|
 | `bt5_commander_moves` | `casualties_pct` → `withdraw_to` | `The block commander is pulling north` | 36 |
-| `bt5_chamber_reached` | `zone_entered(chamber_refuge)` | `The chamber is in reach` | 23 |
+| `bt5_chamber_reached` | `zone_entered(chamber_reach)` | `The chamber is in reach` | 23 |
 
 ---
 
@@ -562,8 +558,8 @@ The Qasr Liwan sheet (§9) flagged this line and left it to this town: it promot
 
 | id | where | what | owner |
 |---|---|---|---|
-| D-BN1 | MDD §5.2 | II says the ten residents start in `safe_quarter` and that seven must get out of it. An evacuation needs them to start outside its destination. The sheet writes them on the cross road, walking in. | `level-scripter` |
-| D-BN2 | MDD §4 | III lists `evacuate_before` ×2; G-8 makes a second one redundant (both would complete on the same count). The sheet writes one and flags it. | `level-scripter` |
+| D-BN1 | MDD §5.2 | II says the ten residents start in `safe_quarter` and that seven must get out of it. An evacuation needs them to start outside its destination. **Resolved** (level script §1): the residents start on the cross road, outside `safe_quarter`, and walk in. | closed |
+| D-BN2 | MDD §4 | III lists `evacuate_before` ×2; G-8 makes a second one redundant (both would complete on the same count). **Resolved** (level script §1): one objective, count 3, 360 s. | closed |
 | D-BN3 | `deir_amun_3_subterranean.json` | the shipped `aftermath` promotes Shai a town early and says the Marj is quiet (§8.1). | `mission-author` |
 | D-BN4 | MDD §3.3 | the T-wall continues the ridge at one `b` foot gap; IV's beat 5 says *a D9 will cut it where wheels cannot cross it*. If the lead re-rules the barrier, the line goes with it. | `level-scripter` |
 
@@ -574,6 +570,6 @@ The Qasr Liwan sheet (§9) flagged this line and left it to this town: it promot
 - **Every beat** is at most two sentences and 240 characters, and each briefing splits into exactly the beats written, checked with a port of `briefingBeats` (`packages/app/src/ui/loading.ts`) in a script, not by eye. Briefing lengths: 893, 904, 836, 1023, 882 characters, all inside the shipped 385 to 1,225.
 - **Every trigger `label`** is at most 48 characters with no full stop (script).
 - **Every `say`, `dispatch`, `aftermath` and `debrief` line** is at most 240 characters (script).
-- **Status counts:** 62 `live` rows, 9 `engine` rows (the 5 trigger-table ones and the 4 in §6), 0 `schema`.
+- **Status counts:** 61 `live` rows, 9 `engine` rows (the 5 trigger-table ones and the 4 in §6), 0 `schema`.
 - **Read aloud, in beat order:** Idit's picture, Shai's plan, alternating, in all five.
 - **Not run:** `pnpm validate:data` and `pnpm test`, because no data file changed. A docs-only change.
