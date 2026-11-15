@@ -373,7 +373,8 @@ describe('a fire-support round draws by its profile (F-Q8)', () => {
     const tuning = readFileSync(new URL('../../../sim/src/tuning.ts', import.meta.url), 'utf8');
     const num = (name: string): number => Number(new RegExp(`export const ${name} = (\\d+)`).exec(tuning)?.[1]);
     const src = readFileSync(new URL('./ThreeRenderer.ts', import.meta.url), 'utf8');
-    expect(src).toContain(`const FS_MORTAR_BARRAGE = ${num('FS_MORTAR_BARRAGE')};`);
+    // The profile index is no longer a literal here: it is `SUPPORT_PROFILE.mortar_barrage`, pinned against tuning.ts in munitions.test.ts.
+    expect(src).toContain('const FS_MORTAR_BARRAGE = SUPPORT_PROFILE.mortar_barrage;');
     expect(src).toContain(`const CARRIER_SMOKE_RANGE_SQ_TILES = ${num('SMOKE_RANGE_SQ')} / 65536;`);
   });
 });

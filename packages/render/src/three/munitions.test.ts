@@ -295,6 +295,20 @@ describe('the ragdoll push per class (GH-1223)', () => {
       err.mockRestore();
     }
   });
+  it('an unknown strike profile logs once per profile per reporting set, however many events and batches (GH-1223)', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const reported = new Set<number>();
+      for (let batch = 0; batch < 2; batch++) for (let ev = 0; ev < 2; ev++) expect(supportKindForProfile(7, reported)).toBeNull();
+      expect(err).toHaveBeenCalledTimes(1);
+      supportKindForProfile(8, reported);
+      expect(err).toHaveBeenCalledTimes(2);
+      supportKindForProfile(7, new Set<number>());
+      expect(err).toHaveBeenCalledTimes(3);
+    } finally {
+      err.mockRestore();
+    }
+  });
   it('every support kind has its own latch and profile, and the profile copy matches tuning.ts', () => {
     expect(SUPPORT_PROFILE.air_strike).toBe(FS_AIR_STRIKE);
     expect(SUPPORT_PROFILE.mortar_barrage).toBe(FS_MORTAR_BARRAGE);

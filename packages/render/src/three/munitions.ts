@@ -111,8 +111,13 @@ export const SUPPORT_PROFILE: Record<SupportMunitionKind, number> = {
 /** The support kind a `strike` event's profile is, or null for a profile this table does not know (a smoke round raises
  *  no `strike` event; a future HE profile must be added to `SUPPORT_PROFILE`, so it is refused here, loudly, not read as
  *  an air strike). */
-export function supportKindForProfile(profile: number): SupportMunitionKind | null {
+export function supportKindForProfile(profile: number, reported?: Set<number>): SupportMunitionKind | null {
   for (const k of Object.keys(SUPPORT_PROFILE) as SupportMunitionKind[]) if (SUPPORT_PROFILE[k] === profile) return k;
+  // `reported` is the caller's (a renderer instance's) set: one line per profile value, not per event. No set, no dedupe.
+  if (reported !== undefined) {
+    if (reported.has(profile)) return null;
+    reported.add(profile);
+  }
   console.error(`munitions: strike profile ${profile} has no support munition kind; its kills take the default push`);
   return null;
 }
