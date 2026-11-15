@@ -440,3 +440,29 @@ export, delete and orphan sweep.
   opponent's kind, the declared bot model, and that a guest opponent's name is never stored.
 - **Gate still to come.** A3 deploys inert while `ACCOUNTS` is unbound (A1 Task 1.11). The lead's friend match, two
   members through Steam, is played after 1.11; A3 counts as done only then.
+
+## Admin members page (GH-695)
+
+Spec: `docs/superpowers/specs/2026-11-14-admin-account-page-design.md`. The page is `/stats/members`; its routes sit under
+`/stats/api/members/*` and are handled by `packages/worker/src/admin/api.ts`, reached from `stats.ts`.
+
+- **Two locks.** The `/stats` password (`STATS_PASSWORD`) AND a game session whose member has a row in `admin_member`
+  (`admin/gate.ts`). Rotating the password signs every admin out. The lead adds himself with one `wrangler d1 execute`;
+  no agent runs it.
+- **Writes are off until the flag opens.** The D1 `flags` row `admin` must be `open`; the page's Close button sets it to
+  `closed`, and a stolen session cannot reopen it. A missing row means closed.
+- **One batch per change** (`admin/coins.ts`): the wallet write, the `coin_journal` row (kind `admin`, coins only), the
+  `admin_action` row and the `account_op` row commit together. The target-keyed op id makes a double click or reload
+  return the stored answer. The admin's expected revision is checked before any retry.
+- **Append-only audit.** Only `admin/admin-write.ts` contains `INSERT INTO admin_action`. Nothing updates one. The only
+  deletes are the member tables list (`account/tables.ts`, a member's own deletion) and `admin/view-sweep.ts`, which is
+  held to `WHERE action = 'view'`. `read.test.ts` ("the audit table is append-only") enforces all three.
+- **View logging and its sweep.** Opening a card writes an `admin_action` row of action `view`. The daily cron
+  (`scheduled` in `index.ts`, with both `ACCOUNTS` and `ACCOUNT_TOMBSTONES` bound, as the accounts chain needs) deletes view rows older than 180 days, the feedback retention.
+  Change rows stay while the member does. `view-sweep.test.ts` pins the 180-day edge as a literal; one-line mutations
+  (drop the `action = 'view'` guard, `<` to `<=`, unwire it from `scheduled`) each turn it red.
+- **Minimum display.** No identity subject, no internal id, no session, no slot, no ledger. The member's export carries the
+  admin changes with `by: "admin"` and no admin id.
+- **Privacy.** `/privacy` has a "What the team can see" section (D14.1), pinned by `privacy-page.test.ts`. Change that
+  text and `PRIVACY_UPDATED` together.
+- **The coin ceiling.** Accounts spec section 2.4's 925 now reads "plus coupons and plus admin grants, journaled".

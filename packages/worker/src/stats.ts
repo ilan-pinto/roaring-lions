@@ -4,6 +4,7 @@ import { labelTutorialRows } from './tutorial-funnel';
 import { STATS_HTML } from './stats-page';
 import { loginPageHtml } from './login-page';
 import { FEEDBACK_HTML, FEEDBACK_PAGE_CSP } from './feedback-page';
+import { MEMBERS_HTML } from './members-page';
 import { handleFeedbackApi } from './feedback-triage';
 import { handleAdminApi } from './admin/api';
 import { SESSION_COOKIE, readCookie, verifySession, sessionCookieHeader, clearedSessionCookieHeader, passwordsMatch } from './auth';
@@ -470,6 +471,14 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
   if (path === '/stats/feedback' || /^\/stats\/feedback\/\d{1,9}$/.test(path)) {
     if (!authed) return html(loginPageHtml());
     const res = html(FEEDBACK_HTML);
+    res.headers.set('content-security-policy', FEEDBACK_PAGE_CSP);
+    return res;
+  }
+
+  // GH-695 S5: the members page. Seeing it needs the /stats session; its writes check the game session themselves.
+  if (path === '/stats/members') {
+    if (!authed) return html(loginPageHtml());
+    const res = html(MEMBERS_HTML);
     res.headers.set('content-security-policy', FEEDBACK_PAGE_CSP);
     return res;
   }

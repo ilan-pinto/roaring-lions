@@ -56,7 +56,7 @@ pre.issue{background:var(--surface);border:1px solid var(--rule);padding:12px;wh
 #fb-msg:empty{display:none}#fb-msg{border-left:3px solid var(--bad);padding:4px 8px;background:var(--surface)}
 </style></head><body><main>
 <div class="hdr"><h1>Roaring Lions Stats</h1>
-<nav><a href="/stats">Players</a><a href="/stats/feedback" aria-current="page">Feedback<span class="badge" id="fb-new"></span></a><form method="post" action="/stats/logout" class="logout"><button type="submit">Sign out</button></form></nav></div>
+<nav><a href="/stats">Players</a><a href="/stats/feedback" aria-current="page">Feedback<span class="badge" id="fb-new"></span></a><a href="/stats/members">Members</a><form method="post" action="/stats/logout" class="logout"><button type="submit">Sign out</button></form></nav></div>
 <p class="muted">Notes players sent from inside the game. Nothing here is public until you file it.</p>
 <p id="fb-switch" class="controls"></p>
 <p id="fb-msg" role="status" aria-live="polite"></p>
