@@ -2579,6 +2579,11 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   // pickets died at 2534 ticks and not at 920, and the porters were not out in 240 s. A player sees a
   // tank that has stopped short and drives it on: a Lavi still south of y 16 that has gained under 0.3
   // tile in the last 5 s is sent to (33,15) with a plain move, from where the pickets are 3-4 tiles off.
+  // GH-1360 S3b: on to the yard, (33,8), not (33,15). In the assembly layout the pair stopped at (33,15) and shelled the
+  // pickets round the porters at (33.75,7.5) and (35,7.5) from there: eleven heavy-ordnance-danger-close deductions
+  // between 80 s and 121 s, Conduct 97 -> 67 on 424242, and the porters never cleared. Driven on to (33,8), the tanks
+  // stand within four tiles of the porters, who walk out (the plan's own t=1 order says why), and nothing is aimed
+  // into them: Conduct 100, `get_the_porters_clear` complete, credits 192 -> 225 on 424242.
   const laviLast = new Map<number, number>();
   for (let when = 15; when <= 150; when += 5)
     at(when, () => {
@@ -2587,7 +2592,7 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
         const y = fx.toNumber(sim.state.posY[u]);
         const before = laviLast.get(u);
         laviLast.set(u, y);
-        if (before !== undefined && y > 16 && before - y < 0.3 && !holding) sim.queueCommand({ kind: 'move', ids: [u], ...M(33, 15) });
+        if (before !== undefined && y > 16 && before - y < 0.3 && !holding) sim.queueCommand({ kind: 'move', ids: [u], ...M(33, 8) });
       }
     });
   // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
@@ -3938,14 +3943,15 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // because of the old rule and was held there by a 0.1 s timer (GH-1170); the trigger is `first_contact` again, which now fires at tick 176 (the
 // plan's drone identifies the souk's militia cell). Unchanged, the plan read 1 star (ROE 66, 3.4 min) on 424242 and 2 stars on every other seed (200 of
 // 200 on seeds 1..200). The one placed change is the east-lane rocket team, one tile, (34, 15) -> (35, 14). See docs/agent-notes/mission-findings.md.
-// 2026-11-15, GH-1360 S3b, every shipped mission's starting force in the assembly layout (Beit Sahwan Breach `authored`): 6955 -> 6890,
-// -65, read off the printed per-mission credits of a playtest on the S3b tree against its base. Was 6955. Sixteen missions moved, none lost
-// a seed (45 of 45 plans win on all 30 sweep seeds, after three plan fixes: Wadi Halam I's jeep drives the families into the refuge,
+// 2026-11-15, GH-1360 S3b, every shipped mission's starting force in the assembly layout (Beit Sahwan Breach `authored`): 6955 -> 6923,
+// -32 (6890 before the Umm Zeitoun IV plan fix below; was 6955), read off the printed per-mission credits of a playtest on the S3b tree against its base. Sixteen missions moved, none lost
+// a seed (45 of 45 plans win on all 30 sweep seeds, after four plan fixes (the fourth, Umm Zeitoun IV's Lavis driven on to the yard,
+// for Conduct, not a lost seed): Wadi Halam I's jeep drives the families into the refuge,
 // Deir Amun I's drone takes a second look for the crew, Umm Zeitoun I buys a sweep when its drone is down): Beit Sahwan III 290 -> 280,
 // IV 210 -> 230; Deir Amun II 237 -> 247, III 250 -> 255; Ein Qasab III 195 -> 160; Khan Rafid I 310 -> 320, III 238 -> 255; Qarn Hadid
-// II 210 -> 220, III 229 -> 237; Umm Zeitoun I 238 -> 248, III 300 -> 280, IV 262 -> 192 (ROE 97 -> 67, still 2 stars); Wadi Halam I
+// II 210 -> 220, III 229 -> 237; Umm Zeitoun I 238 -> 248, III 300 -> 280, IV 262 -> 225 (192 at ROE 67 before its plan fix; now ROE 100); Wadi Halam I
 // 190 -> 180, II 180 -> 200, III 190 -> 170, V 200 -> 190. The star ladder (68) and every gate held.
-const LADDER_CREDITS = 6890;
+const LADDER_CREDITS = 6923;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -4131,8 +4137,8 @@ for (const [label, got, want] of [
 // dies at the crest at 247 s (the re-rolled streams), one body fewer than the 31 the chain carried out before. Umm Zeitoun IV's
 // credit is 259 as before, because its medic comes home and pays for the sniper. Seeds 100-129 still win 30 of 30 there.
 // 2026-11-15, GH-1360 S3b (the assembly starting layout): 30 -> 26, same mission. Was 30. Umm Zeitoun IV's roster out reads 30 -> 26 on
-// 424242 (ROE 97 -> 67, credits 262 -> 192, still a 2-star VICTORY, 30 of 30 sweep seeds): the force starts re-laid in class rows and
-// loses four more bodies on the way in. Reported, not tuned (the balance park).
+// 424242 (still a 2-star VICTORY, 30 of 30 sweep seeds; ROE 100 and credits 225 after its plan fix): the force starts re-laid in class
+// rows and loses four more bodies on the way in. Reported, not tuned (the balance park).
 const ROSTER_MAX = 26;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {

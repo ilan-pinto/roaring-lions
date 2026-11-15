@@ -38,6 +38,9 @@ const OVERLAP_EXEMPT: Readonly<Record<string, readonly [string, string]>> = {
   umm_zeitoun_1_recon: ['jeep_shoded', 'inf_medic_squad'],
 };
 
+/** The exempt pair's measured depth, tiles. */
+const OVERLAP_EXEMPT_DEPTH: Readonly<Record<string, number>> = { umm_zeitoun_1_recon: 0.332 };
+
 interface Reading {
   id: string;
   mission: MissionJson;
@@ -147,8 +150,12 @@ describe('the starting layout on every shipped mission (GH-1360 S3b)', () => {
     for (const [id, ex] of Object.entries(OVERLAP_EXEMPT)) {
       const r = byId.get(id);
       if (r === undefined) throw new Error(`exempt mission ${id} is not shipped`);
-      const pairs = overlaps(r.after).map((o) => [r.after[o.a].unit, r.after[o.b].unit].sort().join('+'));
+      const os = overlaps(r.after);
+      const pairs = os.map((o) => [r.after[o.a].unit, r.after[o.b].unit].sort().join('+'));
       expect(pairs, id).toEqual([[...ex].sort().join('+')]);
+      // And it may not deepen unnoticed: measured 0.33 tile (the medic 0.71 from the jeep's centre, r 0.45 against the
+      // jeep's capsule). Any change to the free spot or the layout that moves this pair moves this number.
+      expect(os[0].depth, `${id}: depth`).toBeCloseTo(OVERLAP_EXEMPT_DEPTH[id], 3);
     }
   });
 

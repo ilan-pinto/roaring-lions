@@ -22,12 +22,15 @@ const TANK: UnitTypeJson = { id: 'slr_tank', role: 'mbt', hull: HULL, mobility: 
 /** No footprint: a point to the free spot, as every shipped foot type is until S5c. */
 const RIFLE: UnitTypeJson = { id: 'slr_rifle', role: 'infantry', hull: HULL, mobility: { speed_tiles_s: 1 }, sensors: SENSORS };
 
+/** Two seats, wheeled by role. Riders are spawned aboard by a placement's `passengers` (`embarkAtSpawn`). */
+const CARRIER: UnitTypeJson = { id: 'slr_carrier', role: 'technical', hull: { hp: 500, armor: { front: 1, side: 1, rear: 1 }, transport_slots: 2 }, mobility: { speed_tiles_s: 2, footprint: { half_length_tiles: 0.6, half_width_tiles: 0.4 } }, sensors: SENSORS };
+
 /** North is -y: `startFaceOf('N')` is three quarters of a turn. East is 0. */
 const NORTH = 49152;
 
-function world(w = 32, h = 32): { sim: Sim; tank: number; rifle: number } {
+function world(w = 32, h = 32): { sim: Sim; tank: number; rifle: number; carrier: number } {
   const sim = new Sim({ seed: 1360, width: w, height: h, capacity: 32 });
-  return { sim, tank: sim.addUnitType(TANK), rifle: sim.addUnitType(RIFLE) };
+  return { sim, tank: sim.addUnitType(TANK), rifle: sim.addUnitType(RIFLE), carrier: sim.addUnitType(CARRIER) };
 }
 
 function mission(force: PlacementJson[], extra: Partial<MissionJson> = {}): MissionJson {
@@ -41,10 +44,10 @@ function mission(force: PlacementJson[], extra: Partial<MissionJson> = {}): Miss
   };
 }
 
-function start(sim: Sim, tank: number, rifle: number, m: MissionJson, withTemplate = true): StartPlacement[] {
+function start(sim: Sim, tank: number, rifle: number, m: MissionJson, withTemplate = true, carrier = -1): StartPlacement[] {
   let got: StartPlacement[] = [];
   const rt = new MissionRuntime(sim, m, {
-    typeIdOf: (u) => (u === TANK.id ? tank : u === RIFLE.id ? rifle : -1),
+    typeIdOf: (u) => (u === TANK.id ? tank : u === RIFLE.id ? rifle : u === CARRIER.id ? carrier : -1),
     markers: {},
     zones: {},
     ...(withTemplate ? { startLayout: ASSEMBLY } : {}),
@@ -132,6 +135,21 @@ describe('MissionRuntime.start() and the starting layout (GH-1360 S3b)', () => {
     const out = start(sim, tank, rifle, mission([{ unit: TANK.id, count: 1, at: [9.5, 10.5] }, { unit: TANK.id, count: 1, at: [10.5, 10.5] }, { unit: TANK.id, count: 1, at: [11.5, 10.5] }], { start_layout: 'assembly', start_front: 'E' }));
     expect(out.map((p) => p.how)).toEqual(['slot', 'authored', 'authored']);
     expect([at(sim, 1), at(sim, 2)]).toEqual([[10.5, 10.5], [11.5, 10.5]]);
+  });
+
+  it('a carrier\'s riders stand where the layout puts the carrier, not where it was authored', () => {
+    const { sim, tank, rifle, carrier } = world();
+    // Entity 0 the carrier, 1 and 2 its riders (spawned aboard by the placement), 3 a tank.
+    const out = start(sim, tank, rifle, mission([{ unit: CARRIER.id, count: 1, at: [10.5, 20.5], passengers: [{ unit: RIFLE.id, count: 2 }] }, { unit: TANK.id, count: 1, at: [12.5, 20.5] }], { start_layout: 'assembly', start_front: 'N' }), true, carrier);
+    // The riders are carried, so the layout lays out the two hulls only.
+    expect(out.map((p) => p.id)).toEqual([0, 3]);
+    expect([sim.state.carriedBy[1], sim.state.carriedBy[2]]).toEqual([0, 0]);
+    // Centroid (11.5, 20.5) -> tile (11, 20); depth 0 (one vehicle rank), so the click is (11, 20). The tank takes the
+    // centre slot and the carrier the next one, 3 tiles east: it moves off its authored (10.5, 20.5) to (14.5, 20.5), and
+    // both riders with it.
+    expect(at(sim, 3)).toEqual([11.5, 20.5]);
+    expect(at(sim, 0)).toEqual([14.5, 20.5]);
+    expect([at(sim, 1), at(sim, 2)]).toEqual([[14.5, 20.5], [14.5, 20.5]]);
   });
 
   it('placeAtStart writes a position and a facing, and is refused once the sim has ticked', () => {
