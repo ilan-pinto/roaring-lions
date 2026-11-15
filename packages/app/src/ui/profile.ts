@@ -30,7 +30,7 @@ export interface ProfileDeps {
   client: AccountClient;
   store: StorageLike | null;
   query: URLSearchParams;
-  /** This browser's anonymous telemetry player id, or null while telemetry is off. */
+  /** This browser's anonymous telemetry player id, or null when it never held one. Still answers after the player switched reports off (GH-1431), so "also delete my reports" can name it. */
   telemetryPlayer: () => string | null;
   /** Leaves the page for `href`: Steam's login URL is another origin, so main.ts passes a real page load. */
   navigate: (href: string) => void;
