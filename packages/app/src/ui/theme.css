@@ -1444,7 +1444,7 @@ body {
 }
 .rl-intro__skip {
   position: absolute;
-  right: var(--s4);
+  inset-inline-end: var(--s4);
   bottom: var(--s4);
 }
 
@@ -3030,7 +3030,7 @@ body[data-outcome-beat] .rl-aar {
 .rl-loan--tab {
   position: absolute;
   top: 0;
-  right: var(--s2);
+  inset-inline-end: var(--s2);
   transform: translateY(-50%);
   background: var(--panel-bg);
 }
@@ -9609,7 +9609,7 @@ fieldset.rl-versus__maps {
 .rl-force__bench {
   position: absolute;
   bottom: calc(100% + var(--s2));
-  left: 12rem;
+  inset-inline-start: 12rem;
   z-index: 4;
   width: min(26rem, 90vw);
   max-height: 55vh;

@@ -1,0 +1,423 @@
+{
+  "beit_sahwan_0_tutorial": {
+    "name": "Working Up",
+    "briefing": "Nothing here is contested yet. The battalion has given you a corner of the training area, one rifle squad, and a drone over the far side of the range to spot for you. The rest arrives a piece at a time as you get to it. Learn what each of them is for. Nothing you lose here comes off the roster, and nothing you learn here is free later. Work through it at your own pace; nothing out here is trying to beat the clock.",
+    "objectives": {
+      "work_up": "Work through the training area",
+      "bring_them_in": "Bring the two civilians to the refuge"
+    },
+    "triggers": {
+      "contact_east": "Contact east, in the open",
+      "contacts_ahead": "Four contacts on the range",
+      "deliver_second_squad": "Second rifle squad arrives",
+      "enter_rocks": "Jeep arrives on the road",
+      "deliver_mortar": "Mortar team arrives",
+      "contact_by_the_clinic": "Enemy digging by the clinic",
+      "digger_at_the_camp": "Someone digging by the camp"
+    }
+  },
+  "beit_sahwan_1_recon": {
+    "name": "Beit Sahwan I — Recon",
+    "briefing": "Before anything moves on Beit Sahwan, Idit needs the picture: six garrison positions, and the ATGM pair that overlooks the east road. An identification takes eyes held on a position, not a glance. The battalion has attached one of everything it owns — armor, an IFV, mortars, scouts and a drone — so use this approach to learn your tools. Push the drone east, keep the heavy metal back as a screen, and do not get decisively engaged. The mortar does not care who is under it. What you find and who you bring home is what the brigade fights with next week.",
+    "objectives": {
+      "picture": "Identify six garrison positions",
+      "hvt_seen": "Identify the ATGM pair overlooking the east road",
+      "find_the_column": "Identify the track north of the road"
+    },
+    "triggers": {
+      "hunt_the_scouts": "Enemy scouts hunt the drone"
+    }
+  },
+  "beit_sahwan_2_foothold": {
+    "name": "Beit Sahwan II — Foothold",
+    "briefing": "The battalion has its foothold on the western terraces and Ashwar knows it. Idit is reading spoil in the dry channel below the line — disturbed earth creeping toward you, which means a crew is cutting a shaft out of town right now. Hold the western approach for five minutes while the engineers dig in behind you. The corridor delivers reinforcements — spend them well; what survives tonight clears the town tomorrow. You hold the top terrace and everything they send has to climb out of the channel to reach you. Ashwar dug this ground for years before the war reached it, and a route that comes up in the channel bed under your wall is worth more to them than every man they will spend in front of it. Keep the Yahalom engineers alive; they are the only team that can bring a tunnel down.",
+    "objectives": {
+      "hold_west": "Hold the western approach for five minutes",
+      "collapse_tunnel": "Collapse the tunnel Ashwar is digging under the approach"
+    },
+    "triggers": {
+      "flank_delivery_rolls": "Technical rolls up the north lane",
+      "flank_delivery_drops": "RPG team dismounts short of the line"
+    }
+  },
+  "beit_sahwan_3_clearance": {
+    "name": "Beit Sahwan III — Clearance",
+    "briefing": "Idit's picture comes with you: at least one AT position dug in along the western approach, and the ATGM cell overlooking the eastern road. The fire plan is Nadir Sahim's; her section files him as SPADE. A company minus probes the old town. Identify the garrison before committing armour, destroy that cell before the follow-on convoy can move, then take the town centre and hold it. Hold means no enemy inside the town centre within six tiles of your people there. A cell you stay six tiles clear of does not stop the clock, and you will not be asked to dig it out. The district is not empty: residents shelter among the buildings and the clinic on the southern block is protected. Sahim knows it: he holds a position inside the clinic block itself, on the doorstep of the town centre you have to take. The old town is blocks of masonry with rubble in every alley. Only infantry can use those lanes, so armour lives on the two boulevards and nothing sees further than three to five tiles. Heavy ordnance near either will be judged: rifles and the Eitan's remote gun may work in there. Autocannon and tank fire may not — bring them near it and you will be billed for every second they can see it. Engineers are attached: they can bring a held building down around its defenders, but they must stand beside it long enough to set the charges. The militia hold the houses themselves: rounds will not reach them through masonry, so each building must come down or be cleared. Mind what you level — the civic hall is not a target.",
+    "objectives": {
+      "picture": "Build the picture: identify four garrison positions",
+      "kill_atgm": "Destroy the ATGM cell overlooking the east road",
+      "take_town": "Take the town centre and hold it for 20 seconds"
+    },
+    "triggers": {
+      "reserve_counterattack": "Southern reserve commits to town centre"
+    }
+  },
+  "beit_sahwan_4_subterranean": {
+    "name": "Beit Sahwan IV — Subterranean",
+    "briefing": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head on the floor of the old limestone quarry, with four people beside him who have been out of reach since the first morning. The collection point is three tiles from your start line, and they are counted the moment they reach it. Four minutes for the people and five for the routes; the second does not wait for the first. Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Rubble stops the Namer and the Eitan everywhere but the main road, the scree down the quarry's south side is foot-only, and the haul ramp in its east wall is the only way in for wheels. The pit cannot see up over its own rim, and you can see down into it. Disturbed earth is something any soldier can read. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have. Get the people out, take the ground he stands on, then bring all four down.",
+    "objectives": {
+      "bring_it_down": "Collapse every route under the district",
+      "read_the_ground": "Find the crew reopening Sahim's western route",
+      "get_them_out": "Get five people out to the collection point before the routes come down",
+      "take_the_shaft_head": "Hold the shaft head until Sahim is out of it",
+      "find_spade": "Find Nadir Sahim at the shaft head"
+    }
+  },
+  "beit_sahwan_breach": {
+    "name": "Beit Sahwan — First Light",
+    "briefing": "They came at dawn, out of the Marj, across every approach at once. What is left of the company is inside the compound on the Beit Sahwan road: two gates, both on the road, and two blind faces they will cut straight through rather than walk round. Two things matter this morning. Hold the yard until the relief column reaches us, five minutes out. And the villages are outside the wire: the families in them have nowhere else to go, so get at least two inside before the ring closes, because nobody is coming back for them afterwards. Take something fast: a family runs for the compound once one of ours is within four tiles, or under fire. The Nemala Medic Team is on loan: a wounded man has a minute, and it treats him and carries him to the rear of the yard.",
+    "objectives": {
+      "survive_relief": "Hold until the relief column arrives",
+      "evac_settlements": "Get two families inside the wire before the ring closes"
+    },
+    "triggers": {
+      "villages_rise": "North-east village rises",
+      "they_take_the_south_village": "South-east village rises",
+      "they_come_for_the_west_families": "West corner moves on the families",
+      "the_last_village_goes": "Last village corner rises"
+    }
+  },
+  "deir_amun_1_recon": {
+    "name": "Deir Amun I — Read the Ground",
+    "briefing": "Deir Amun is nine houses and a pump yard on the lip of a dry watercourse, and nobody lives in any of it now. What is left is the junction: every route in this district joins the road east under that village. A crew is working the western route this morning. Find them, find where it runs, and put it down inside four minutes. I have his routes on paper and paper is not identification. A route is on the board only while somebody with a detector is looking at it, and it goes back to a rumour the moment they stop. This one is being dug now, so it is throwing spoil along the gully floor, and disturbed earth is something any soldier can read. The ones he finished before the war throw nothing at all. Two ways west and they are not the same road. The bed is twenty-seven tiles on foot and nothing on the terrace can see into it; the shoulder is thirty-seven for anything on wheels. The engineers set a charge standing still in the open, two tiles from the route, for eight seconds. Get them there with something that can shoot, and bring the west route down.",
+    "objectives": {
+      "find_the_crew": "Find the crew working the western route",
+      "bring_down_the_west": "Collapse the western route inside four minutes",
+      "find_the_chief": "Find the digging chief on the spoil field",
+      "find_the_gap_gun": "Identify the rocket team over the west gap",
+      "screen_out": "Stay in the field for five minutes"
+    },
+    "triggers": {
+      "the_crew_stops_digging_and_turns_round": "Digging crew turns to fight",
+      "the_bed_is_a_road_and_it_is_theirs": "Militia appears in the wadi bed"
+    }
+  },
+  "deir_amun_2_foothold": {
+    "name": "Deir Amun II — Set the Charges",
+    "briefing": "The pump yard is a walled compound on a spur inside an S-bend of the wadi, with one gate, on the south side, and a route runs up into it. The bed runs round three sides of the spur. The mouth is inside the wall, so the ground you are being told to hold is a door. Hold the yard for four minutes and bring that route down in the same four minutes. Neither clock waits for the other. It is stocked, and whoever is in it comes up in the wadi bed behind you rather than through your gate, and the rest of them come up the bed from the west and the east. They will do it while your engineers are kneeling on the mouth. Two Yahalom teams, and the charge is eight seconds of standing still that resets the moment they move. Send both and the yard is thin; send one and he works under contest, which is the same as not working. The camp is on the spur's east bank, four tiles from the centre ford, and nothing but that ford stands between it and the east bed. Not everything that comes south is coming for the yard. Hold the gate, put the route down, and keep something between them and the camp.",
+    "objectives": {
+      "hold_the_yard": "Hold the pump yard for four minutes",
+      "shut_the_door": "Collapse the route under the pump yard inside four minutes",
+      "take_the_store_yard": "Take the store compound and hold it for 15 seconds",
+      "kill_the_gap_gun": "Kill the rocket team over the west ravine"
+    },
+    "triggers": {
+      "the_village_comes_down_to_the_yard": "Village comes down to the yard",
+      "the_yard_party_falls_back_up_the_lane": "Yard party falls back up the lane",
+      "a_charge_squad_comes_down_the_lane": "Charge squad comes down the lane"
+    }
+  },
+  "deir_amun_3_subterranean": {
+    "name": "Deir Amun III — All Four",
+    "briefing": "There are four routes under this village and every one was finished before the war, so none of them throws spoil. The only thing that can find them is a man with a detector and a clear line to the ground they run under. You cannot hold all four at once. Contact goes cold about sixteen seconds after the last eye leaves it, and the drone is a pointer rather than a scout, blind behind a building exactly like a rifleman. Work them in an order and mean it. Bringing one down kills whoever is stocked in it, so what you drop first decides which of the rest comes up behind you. One of them surfaces on your own road east. Whatever you leave standing there is standing under your armour. The village sits on the lip below the plateau and you come down at it through two ravines, so the chief is behind it for once: on the spoil field south of the village, a level above the ground around it, on ground his own crews raised. He does not go underground and he will not leave it. The Lavi's gun and the mortar are billed by the ten seconds in that village and there is nothing in it worth the money. Rifles and the Eitan's fifty are free. Bring all four down inside five minutes, and take the chief off that spoil.",
+    "objectives": {
+      "all_four": "Collapse all four routes under the village inside five minutes",
+      "kill_the_chief": "Kill the digging chief on the spoil field",
+      "clear_the_ground": "Bonus: clear every Ashwar unit above ground before the last primary falls",
+      "screen_out": "Stay in the field for five minutes"
+    },
+    "triggers": {
+      "the_village_comes_out_of_its_houses": "Village empties into the lanes",
+      "he_falls_back_onto_his_own_spoil": "Chief falls back onto the spoil",
+      "a_charge_squad_comes_for_the_engineers": "Charge squad targets the engineers"
+    }
+  },
+  "ein_qasab_1_recon": {
+    "name": "Ein Qasab I — The Causeways",
+    "briefing": "With the fords under water, the corridor's traffic has come down to this marsh: two causeways over the reeds, and nothing else here a wheel can use. A truck on a causeway cannot leave it, so for one week the Rif cannot scatter. Put the sniper on the west ridge and build the picture: four of the positions covering the causeways. Keep the drone off the east crest, where a gun truck owns the sky out to eleven tiles. Four carriers are out there, two loaded on the south causeway and two in the hamlet yard waiting for theirs. Every load on that road tonight is a family. Get three of them to the refuge before the next load moves. The Eitan reaches them fastest and drives past whatever is lying in the reeds to do it; on foot it is slower, in cover, and it spends men the picture needs. Whatever you mark beside these causeways tonight stays marked. Meet it again this week and it does not get the first shot. Every round you put into those reeds is billed where it lands, and the carriers are standing beside them.",
+    "objectives": {
+      "picture": "Identify four positions covering the causeways",
+      "get_the_carriers_home": "Get three carriers to the refuge before the next load moves",
+      "find_the_reed_cell": "Find the cell lying up in the reeds by the south causeway"
+    },
+    "triggers": {
+      "the_track_patrol_turns_for_the_hamlet": "Track patrol turns for the hamlet",
+      "the_riders_pull_back_along_the_south_causeway": "Wheels on the south causeway turn back"
+    }
+  },
+  "ein_qasab_2_foothold": {
+    "name": "Ein Qasab II — Dead Ground",
+    "briefing": "The farm in this hollow is the winter road's staging post, and his drone crates sit in its barn waiting for the rain to stop. The crests either side stand four levels over it, and nothing off the north downs is in sight until it tops them. Hold the hollow for five minutes and burn the barn inside the same five. The engineers' charges are clean and slow under fire; the mortar and the Namer are quick, and every round near that yard is billed. A family is in the yard between the house and the barn, two tiles from the cell inside it. There is a truck in the north saddle, and identified today it is a known gun over the causeway head, not a first shot. You have the logistics for one outpost. Dig it into the hollow and it sees nothing; put it on the crest and it sees them coming, from outside the ground you have to hold. Every wheel from the east comes through one two-tile gap in the dyke. From the north it is the saddle for wheels and the crest for feet. The barn is the order; the house and the family beside it are on the rating.",
+    "objectives": {
+      "hold_the_hollow": "Hold the farm hollow for five minutes",
+      "burn_the_barn": "Burn the barn and the crates inside five minutes",
+      "mark_the_saddle_truck": "Identify the truck in the north saddle"
+    },
+    "triggers": {
+      "the_saddle_truck_comes_down_to_the_farm": "Saddle truck comes down to the farm",
+      "riders_come_through_the_dyke_gap": "Riders come through the dyke gap"
+    }
+  },
+  "ein_qasab_3_buildup": {
+    "name": "Ein Qasab III — One Road",
+    "briefing": "Below the hamlet the fen is two reed channels with one causeway over them, and every vehicle you own crosses on it. Hallaq's man on the winter road is in the yard at the causeway head, with the stock barn beside him. Burn the stock, hold the causeway head for four minutes, and kill or capture him. The camp builds what you pay for, and anything on wheels it builds goes up that one road in single file, under the terrace. The moment you set foot on the north end of the mill islet he runs for the north road, and it goes up through the hamlet. You came with the Intel for one smoke screen; a sweep of the dead ground behind the lip costs half as much again. Buy feet. A squad wades where a Namer cannot, and an AT team sent early across the west island reaches the lip before he does. Reed cells will wade out for the camp's door and the supply road; while one stands at the door, the camp builds nothing. What you marked on the causeways and at the saddle this week comes back with its ambush spent. Stop him beyond the hamlet, or chase him through it and pay for every shot.",
+    "objectives": {
+      "kill_hallaqs_man": "Kill or capture Hallaq's man on the winter road",
+      "hold_the_head": "Hold the causeway head for four minutes",
+      "burn_the_stock": "Burn the stock barn inside five and a half minutes",
+      "take_the_mill": "Take the mill islet and hold it for 15 seconds"
+    },
+    "triggers": {
+      "the_reserve_comes_over_the_lip": "Reserve comes down over the lip",
+      "hallaqs_man_runs_for_the_north_road": "Hallaq's man runs for the north road"
+    }
+  },
+  "khan_rafid_1_recon": {
+    "name": "Khan Rafid I — House Numbers",
+    "briefing": "Khan Rafid has house numbers, a market day, a clinic and a civic hall, and every one of those is why he chose it. The man who chose it is answering questions at brigade, and none of his answers say who is holding the town this week. Push the drone up the centre and identify the posts in the two Old Town alleys. It can have both in one sortie; nothing on the ground can, because an alley one tile wide sees along its own axis and nowhere else. The third post is a missile cell nineteen tiles east on Main Street, and Main Street is the only road across this town. It runs the full width, it is straight, and there is no cover on it. Four people are stopped in the Old Town alleys, thirty tiles out and past both the road and the ward. Get two of them back inside the ward inside four minutes. The jeep and the Eitan carry two each, and nothing boards until a soldier is within four tiles of it. The walk back from there is nine tiles and the walk out is thirty, which is the whole of this clock. Bring back the posts, and do not cross that street twice for a picture you already have.",
+    "objectives": {
+      "find_the_watch": "Identify the three posts covering the ward crossing",
+      "get_two_in": "Get two families into the ward inside four minutes",
+      "find_the_west_lane": "Identify the rocket team in the west lane",
+      "find_the_east_lane": "Identify the rocket team in the east lane",
+      "find_the_block_commander": "Find the man giving the orders in this block",
+      "screen_out": "Stay in the field for five minutes"
+    },
+    "triggers": {
+      "the_compound_was_never_empty": "Militia enters through the north gate",
+      "he_gives_up_the_crossing": "Ward party falls back to the souk"
+    }
+  },
+  "khan_rafid_2_foothold": {
+    "name": "Khan Rafid II — The Ward",
+    "briefing": "The ward is nine tiles by seven with four gates and a low wall, and it stands on a mound inside a ring road. The wall stops men and not bullets, and nothing on the mound hides from the road: a cell in the souk can fire into that compound over the wall, you can fire back, and only one of you is billed for it. There is nothing in that ward worth taking and you are going to hold it for four minutes anyway. The clock is cumulative and it stops the moment anything hostile is standing inside the wall with you. Six people in three groups: two groups north of the ward in the Old Town and one on the plain south of the ring road. Four have to be inside that wall in five minutes; the wall will hold all six. Rifles and the Eitan's fifty are free inside the compound. The Namer's cannon is not: it is billed for every ten seconds it fires in there, and this mission is lost under forty-five. So the infantry and the Eitan clear the ward and the Namer holds the ring road outside it. At a hundred and twenty a minute the camp buys you three rifle sections or one more gun you may not use inside the wire. He will walk into that compound the moment it is yours, because it is the one place you will not shoot.",
+    "objectives": {
+      "hold_the_ward": "Hold the ward for four minutes",
+      "get_four_in": "Get four families into the ward inside five minutes",
+      "take_the_market": "Take the market and hold it for 15 seconds",
+      "kill_the_west_lane": "Kill the rocket team in the west lane"
+    },
+    "triggers": {
+      "they_walk_into_the_ward": "Enemy pushes into the ward",
+      "the_block_pulls_back_into_the_souk": "Block pulls back into the souk",
+      "a_charge_squad_comes_for_the_gate": "Charge squad comes for the gate"
+    }
+  },
+  "khan_rafid_3_clearance": {
+    "name": "Khan Rafid III — What You Keep",
+    "briefing": "The man running this block is inside the civic hall in the ward, and the hall is the one building here that nothing of ours will fire on by itself. It is not shot at, not breached and not brought down by anybody acting on his own. You have nobody with you who can level it, and that is deliberate. Hurt his people hard enough and he leaves it on his own feet, which is the only way he comes out. It is the same cells in a different quarter: the east side of town, where the souk spills into walled orchards. What you identified last week comes back with its ambush spent; whatever you did not gets its first shot. Take the souk and hold it twenty seconds without a break. Hold means no enemy inside the souk within six tiles of your people there. A cell you stay six tiles clear of does not stop the clock, and you will not be asked to dig it out. Eight families are in that quarter, three of the four groups shut inside walled orchards with one gap in each wall, and six of them have to be inside the ward in five minutes. The carriers hold eleven between them, so the clock is the only thing standing between you and all eight. Nothing boards until a soldier is inside four tiles of it. Every structure you bring down here is billed at twice the usual, and eight houses is this mission. The floor is fifty and there is no getting a house back. Take the souk, get them in, and be able to say what is still standing.",
+    "objectives": {
+      "take_the_souk": "Take the souk and hold it for 20 seconds",
+      "get_six_in": "Get six families into the ward inside five minutes",
+      "kill_the_block_commander": "Kill the block commander if you can make him leave the hall",
+      "take_the_store": "Take the walled store on the north edge and hold it for 15 seconds"
+    },
+    "triggers": {
+      "the_souk_empties_into_its_own_alleys": "Souk garrison forms in the alleys",
+      "he_walks_out_of_the_hall": "Hall party withdraws into the souk",
+      "a_rocket_team_moves_into_the_east_lane": "RPG team moves into the east lane"
+    }
+  },
+  "qarn_hadid_1_recon": {
+    "name": "Qarn Hadid I — Both Gates",
+    "briefing": "The wall across this pass has two ways through it: a shoulder at the crest, and a notch at plain level with the road in it. Somebody has cut an anti-tank ditch across the notch, so your men go low and your vehicles go high. Push the drone through the notch and identify the post over each gate. It can have both in one sortie; nothing on the ground can, because neither gate sees the other from any range on this map. What the drone cannot buy is the eastern pocket. A missile team on the scree covers it out to thirteen tiles, air only, and the battery it protects sits in a bowl nothing here can see into. Four families are stopped on the pass road east of the staging ground, inside that battery's arc. Get two of them back to the staging ground inside four minutes. The jeep and the Eitan carry two each, and the same men are the only ones who can reach anything east. Driving is how you beat that clock; walking is how you lose it. Bring back both gate posts, and do not buy the pocket with the drone.",
+    "objectives": {
+      "find_the_high_gate_post": "Identify the post over the high gate",
+      "find_the_low_gate_post": "Identify the post over the low gate",
+      "get_the_road_party_clear": "Get two families off the pass road inside four minutes",
+      "find_the_tube": "Find the rocket battery in the hollow behind the start line",
+      "find_the_bench_post": "Identify the observer on the boulder bench",
+      "find_the_ditch_gun": "Identify the ATGM pair over the west ditch end",
+      "screen_out": "Stay in the field for five minutes"
+    },
+    "triggers": {
+      "something_is_living_in_the_scree": "Riflemen rise from the scree",
+      "he_will_not_leave_the_tube": "Mortar tube falls back to the square"
+    }
+  },
+  "qarn_hadid_2_foothold": {
+    "name": "Qarn Hadid II — The Shoulder",
+    "briefing": "The high gate is shut. Four tiles of poured concrete across the crest of the shoulder — the drone brought back men, not masonry, so it was never on the board. The road to it is three legs of switchback cut into the rock, each leg walled off from the next, and nothing on one leg can see the next. The infantry crosses low, then, and it crosses alone. The notch is a straight cutting sixteen tiles through the wall, open on foot from the first second and covered from its north mouth end to end, so they are seen the whole way through. That concrete was poured before the brigade was in Sur. He did not garrison this pass — he priced it, and he set a different price for men and for vehicles. Engineers take the revetment down inside five minutes or this is over. Until it comes down nothing on wheels or tracks goes north of the wall at all, and the camp behind you is the only place anything new comes from. Buy accordingly: a Namer bought at two minutes cannot use a road the engineers have not opened yet. Then hold both gates for three minutes. Nothing crossing the notch can be supported from the shoulder, or the other way round. Send them anyway, and know how long they are alone.",
+    "objectives": {
+      "open_the_shoulder": "Raze the revetment on the high gate inside five minutes",
+      "hold_the_gates": "Hold both gates for three minutes",
+      "take_the_hollow": "Take the hollow behind the start line and hold it for 15 seconds",
+      "kill_the_bench_post": "Kill the observer on the boulder bench"
+    },
+    "triggers": {
+      "the_shoulder_garrison_walks_to_the_notch": "Shoulder garrison shifts to the notch",
+      "he_takes_the_tube_into_the_village": "Battery displaces onto the square"
+    }
+  },
+  "qarn_hadid_3_clearance": {
+    "name": "Qarn Hadid III — The Village Road",
+    "briefing": "There is a second ditch and it is not at the gates. He cut an anti-tank line across the fields on the village's own approach, with the town beyond it and two narrow ways round the ends. Two roads into that town and you take one. Seventeen tiles round the west end, twenty-three round the east through the thorn grove, and there is an eye in the grove. The west end runs under the terraced knoll; a post on its east shoulder sees four of its seven tiles, and the Kornet below the post sees all seven. Whatever you identified here last week comes back with its ambush spent; whatever you did not gets its first shot. Take the knoll first with foot and the armour walks in behind you. Take it second and it walks in under a Kornet. The mast up there sees the shoulder gate and the last bend of its own road, and nothing else on this map — not the village, not the junction. It watches little; it tells the basin what the eyes here saw. Take the village and hold it, and kill the relay crew on the knoll. Hold means no enemy inside the village within six tiles of your people there. A post you stay six tiles clear of does not stop the clock, and you will not be asked to dig it out. Three families are in it and the yard they walk to is the clinic's own. That yard is flagged: heavy ordnance into it is billed by the round, and they are inside it for five minutes. Open the road — everything this brigade does after this town is on the other side of it.",
+    "objectives": {
+      "take_the_village": "Take the village and hold it for 20 seconds",
+      "kill_the_relay": "Kill the relay crew on the terraced knoll",
+      "get_the_families_clear": "Get three families out of the village to the clinic yard inside five minutes",
+      "take_the_terraces": "Take the terraces and hold them for 15 seconds",
+      "find_the_grove_post": "Identify the post in the thorn grove"
+    },
+    "triggers": {
+      "they_come_out_of_the_square": "Garrison forms on the square",
+      "the_town_falls_back_onto_the_hill": "Town falls back onto the hill"
+    }
+  },
+  "tel_marum_1_recon": {
+    "name": "Tel Marum I — The Gateway",
+    "briefing": "Sur begins at the pass, and the pass is watched. Rockets have been falling on the north for a week and nobody can say from where, so tonight you find out. Push the drone up the valley and build the picture — two ATGM pockets on the flank spurs, a Grad section behind the rock at the head of the valley, and whoever is feeding them targets. Keep the metal in the hollow behind the knoll line: the valley floor south of it is out of the battery's reach, and everything north of it is not. Herders are grazing that floor north of the hollow — get them south to the muster ground inside five minutes, before the battery finds the range. Bring back the picture, not casualties.",
+    "objectives": {
+      "find_pocket_east": "Identify the eastern ATGM pocket",
+      "find_pocket_west": "Identify the western ATGM pocket",
+      "find_spotter": "Identify whoever is spotting for the battery",
+      "find_battery": "Find the Grad section behind the wall",
+      "screen_out": "Stay in the field for four minutes",
+      "clear_the_valley_floor": "Get the herders off the valley floor before the battery finds the range"
+    }
+  },
+  "tel_marum_2_foothold": {
+    "name": "Tel Marum II — The Start Line",
+    "briefing": "The picture says the Grad cannot see past the wall — it doesn't have to. It fires wherever the Sarim line can see, and the best eyes on that ground belong to the man on the west shelf. Take the approach and hold it for four minutes while the engineers mark the start line behind you. Kill him and the shelling slackens — he is not the only pair of eyes on that ground, so do not expect it to stop. The pockets on the wall shoot from an ammunition cache in the draw below it: burn it inside five minutes, or they fight the whole night on what it holds. The slope climbs in three terraces, and each riser hides the ground at its foot from the one above it: not every tile of the approach is watched. Pick your ground before you are made to.",
+    "objectives": {
+      "hold_approach": "Hold the approach for four minutes",
+      "kill_spotter": "Kill the observer on the west shelf — the shelling will ease, not stop",
+      "burn_the_ammo_point": "Burn the ammunition cache in the draw below the wall"
+    }
+  },
+  "tel_marum_3_clearance": {
+    "name": "Tel Marum III — The Pass",
+    "briefing": "Two ways through the wall and neither is free. The wide saddle lies under both Kornet pockets and will cost you vehicles. The narrow one is ten tiles longer and no missile reaches it — the Grad's rockets do, at seventeen. Its northern mouth is watched, and a second rifle team comes down to it early. Halfway up, in rocks no wheel reaches, a rifle team keeps the relay that carries corrections to the battery. What you cannot do is send everything that way: the corridor is choked with fallen rock, passable on foot and to nothing on wheels or tracks. Armour goes through the pass or it does not go. Mind the town block behind the pass: it stands two tiles from the battery you are ordered to destroy, which is the one place heavy ordnance is guaranteed to land. Three families still live in it — get them out to the approach inside five minutes, before the fighting reaches them. The relay is worth the climb if you can pay for it in infantry. Take the pass, and put the battery out of the war.",
+    "objectives": {
+      "take_pass": "Take the pass and hold it for 20 seconds",
+      "kill_battery": "Destroy the Grad section",
+      "get_the_block_out": "Get three families out of the town block before the fighting reaches it",
+      "cut_the_relay": "Cut the battery's relay in the narrow saddle"
+    },
+    "triggers": {
+      "the_yanshuf_comes_up": "Yanshuf comes up to the start line"
+    }
+  },
+  "umm_zeitoun_1_recon": {
+    "name": "Umm Zeitoun I — Cold Ground",
+    "briefing": "Umm Zeitoun is a basin: no wall across it, no gate to force, crossable anywhere on its width. Idit counts four hills over the floor and each one sees a different piece of it. Identify all four posts before the brigade puts anything on this ground. Push the drone up the middle and take the cheap looks first. Two missile teams cover the northern half, air only, out to thirteen tiles. The crest cannot be identified from outside that envelope, so the drone buys you the near hills for nothing and that one for its life. Three families are at the wells on the west flank, nine tiles from the wadi on foot. You have four minutes before somebody else moves them. The jeep is the only thing you have that can screen the drone and the only thing that can carry a family off that flank. It will not do both.",
+    "objectives": {
+      "find_the_crest": "Identify the post on the northern crest",
+      "find_the_west_horn": "Identify the post on the western horn",
+      "find_the_east_horn": "Identify the post on the eastern horn",
+      "find_the_stone_knoll": "Identify the post above the stone knoll",
+      "get_the_wells_clear": "Get two families from the wells into the wadi inside four minutes",
+      "find_the_missile_team": "Identify the missile team covering the basin",
+      "screen_out": "Stay in the field for four minutes"
+    }
+  },
+  "umm_zeitoun_2_buildup": {
+    "name": "Umm Zeitoun II — The Long Look",
+    "briefing": "Sur has more than one tube: this one is south of the basin, and from there it reaches the crest line at twelve tiles. Idit has an observer marked on the stone knoll, eight tiles forward of that same line. Hold the crest line for four minutes while the engineers work behind you. It is the highest ground on this half of the basin and the one piece of it he can both see and shell; everything in front of it falls away downhill, and seeing him means standing on the skyline. The camp ground in the bowl, below the olive terraces on the reverse slope, is dead to every position on this map — the crest stands between it and anything up there that can see. What they can see is the line. Supply comes in off the west rim, on a long road to your rear. Let him stand on that road with nobody of ours near him and it arrives at half the rate, so keep it clear and spend it as it arrives. Level the post on the knoll inside five minutes, with charges or with fire while the observer is still inside the shed. Break a third of what is in front of you and the tube pulls north, out of reach of the line entirely. Rifles barely touch his drones. A Remetz burns them down, but only standing still ON the crest with open sky; behind it, it is blind. Everything else you buy to make that happen is not standing on the crest while it happens.",
+    "objectives": {
+      "hold_the_crest_line": "Hold the crest line for four minutes",
+      "level_the_stone_post": "Level the post on the stone knoll inside five minutes",
+      "kill_the_knoll_eye": "Kill the observer in the shed on the stone knoll",
+      "take_the_stone_knoll": "Take the stone knoll and hold it for 15 seconds"
+    },
+    "triggers": {
+      "the_tube_moves_north": "Battery displaces north"
+    }
+  },
+  "umm_zeitoun_3_clearance": {
+    "name": "Umm Zeitoun III — Blinding",
+    "briefing": "Both horns sit eighteen tiles from the crest and they are not the same job: the western is scree, and nothing on wheels or tracks gets up it. The eastern is a bare glacis with a Kornet team lying on it at ten tiles. Kill both posts. You have one force, it will not take the western horn in vehicles, and you decide which half of it walks before anything moves. Six families are in the hamlet on the floor between them, eleven tiles from the wadi. Nobody inside that block can see out of it and nothing outside it can see in — the houses do that in both directions. Get four of them to the wadi inside five minutes. The block is flagged: rifles, the remote gun and the sniper's rifle work in there, and autocannon, tank fire or anything from the tubes is billed against a floor of forty-five. His battery is west of the basin and reaches neither the hamlet nor the road out of it from there. Press him off that ground and it goes south, and the eye on the stone knoll can hand it both. You will not be billed for a rocket he fires. You will lose this all the same if four of them do not reach the wadi.",
+    "objectives": {
+      "kill_the_west_horn": "Kill the post on the western horn",
+      "kill_the_east_horn": "Kill the post on the eastern horn",
+      "get_the_hamlet_out": "Get four families out of the hamlet to the wadi inside five minutes",
+      "find_adhal": "Find the man the posts are reporting to",
+      "kill_the_knoll_eye": "Kill the eye on the stone knoll that overlooks the wadi road"
+    },
+    "triggers": {
+      "he_brings_the_tube_south": "Battery displaces south",
+      "the_house_was_the_section": "Garrison moves into the street"
+    }
+  },
+  "umm_zeitoun_4_clearance": {
+    "name": "Umm Zeitoun IV — The Stockpile",
+    "briefing": "The depot is three buildings on the high northern shelf, seven and a half thousand between them. One ramp climbs to it from the south, and there is an eye on the spur beside the ramp that sees the yard at five tiles. What that eye sees, the tube shells. Bring all of it down inside five minutes. There is no dozer in Sur — that is two demolition parties, five seconds of charges at a time, standing still within two tiles of what they are dropping. The man every post in this basin has been reporting to is on the summit across the ravine, sixteen tiles the other way, and the ground falls away between you and him: a track climbs to him on the west side, and nothing wheeled crosses the ravine from the depot. Idit has had his voice for two towns and never once his ground. You cannot do both of those slowly. Buy a third party with the logistics if you want the depot and the crest inside the same seven minutes. Four porters are on the depot ground and the shelf behind it is five tiles from them. Charges do not care who is beside the wall: set one within two tiles of them and you are billed for it, and the party will level whatever else it halts beside.",
+    "objectives": {
+      "raze_the_stockpile": "Raze the stockpile inside five minutes",
+      "kill_adhal": "Kill Karim Adhal on the northern crest",
+      "kill_the_battery": "Destroy the rocket battery north of the depot",
+      "get_the_porters_clear": "Get three porters off the depot ground to the northern shelf",
+      "bring_the_relay_down": "Bring the relay hut on the crest down"
+    },
+    "triggers": {
+      "the_tube_goes_west": "Battery displaces west",
+      "he_goes_over_the_back": "Spotter goes over the crest"
+    }
+  },
+  "wadi_halam_1_fords": {
+    "name": "Wadi Halam I — The Fords",
+    "briefing": "Naharin opens at the wadi. Two fords cross it, and the Rif who work this corridor disperse the moment they are seen — so the job tonight is to see them first. Push a screen across the tree line, build the picture, and hold the ford watch for four minutes while the column crosses behind you — riders will keep coming at the crossing out of the east the whole time you sit on it. Four of them are carrying for him at the south ford tonight and cannot get off it on their own. Do not chase what runs.",
+    "objectives": {
+      "picture": "Identify four dispersal sites",
+      "take_ford": "Hold the ford watch for four minutes",
+      "screen_out": "Stay in the field for the first three minutes twenty",
+      "get_the_carriers_out": "Get three carriers off the south ford to the refuge"
+    },
+    "triggers": {
+      "the_bank_patrol_turns_for_the_ford": "Bank patrols turn for the ford"
+    }
+  },
+  "wadi_halam_2_laager": {
+    "name": "Wadi Halam II — Grazing Ground",
+    "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. It is open grazing, crossed by long earth bunds in bands — real cover if you hold it, and the Rif know the ground as well as you do. Technicals and motorcycles will come at the pump house off the north, south and east edges in waves, and a short tree line in the north-west corner is the only ford; keep a watch on it. Accumulate five minutes of uncontested pasture and the corridor is yours. There is a shed on the pasture's western edge and it is his forward store — it comes down inside the same five minutes, and the pump house with it.",
+    "objectives": {
+      "hold_pasture": "Hold the pasture for five minutes",
+      "keep_ford": "Keep the ford watch clear",
+      "burn_store": "Burn the forward store and the pump house inside five minutes"
+    },
+    "triggers": {
+      "riders_out_of_the_north": "Technicals raid from the north",
+      "fighters_off_the_north_hide": "Fighters work down from the north hide",
+      "riders_out_of_the_south": "Riders raid from the south",
+      "rpgs_along_the_south_bunds": "RPG teams creep up the south bunds",
+      "riders_back_from_the_north": "Riders come back off the north",
+      "fighters_up_from_the_well": "Fighters come up from the well",
+      "technicals_up_from_the_south": "Technicals come up from the south",
+      "technicals_off_the_east_track": "Technicals raid from the east",
+      "the_last_of_the_motorcycles": "Motorcycles raid from the south",
+      "rpgs_off_the_north_hide": "RPG teams close from the north hide",
+      "riders_round_from_the_east": "Riders swing round from the east",
+      "fighters_again_from_the_well": "More fighters up from the well",
+      "the_raiders_break_off_east": "Raiders break off to the east"
+    }
+  },
+  "wadi_halam_3_counterraid": {
+    "name": "Wadi Halam III — The Cattle Track",
+    "briefing": "The pasture is ours; now we raid back. Intel puts the local commander at the north hide — Jubran Hallaq's man on this ground, riding a technical he will not hesitate to run in if he has to. A second position dug in to the south covers the cattle track. Kill the commander, get eyes on the southern hide, and hold the bunds for five minutes. What is left of the local cell will not wait for him to fall — they come back at the bunds a truck or two at a time, every half minute or so, for as long as you sit on them. Catching the commander himself is a mobility problem, not a firepower one. Hallaq has been running drones up this corridor by the crate, so expect swarms with the counter-raid. A laser carrier burns them down standing still; smoke or a wall in its way and it is blind.",
+    "objectives": {
+      "kill_amir": "Kill or capture Hallaq's local commander",
+      "hold_bunds": "Hold the bunds for five minutes while the counter-raid comes in",
+      "mark_hides": "Get eyes on the southern hide",
+      "get_the_herders_out": "Get three herders off the cattle track to the refuge"
+    },
+    "triggers": {
+      "the_commander_runs_for_the_east_track": "Commander runs for the east track"
+    }
+  },
+  "wadi_halam_4_village": {
+    "name": "Wadi Halam IV — Wadi Halam",
+    "briefing": "The village is inhabited and the civic hall is under protection — heavy ordnance reaches further across open ground than it does between walls, so mind what you call in. Seven houses are held: four militia cells and three RPG teams, and one of those teams is the cache guard. The village steps down a slope to a stony stream with a single ford, and a pair of technicals waiting at the south hide, beyond it, will run for the village the moment you make contact — across the ford, not down a road. Take and hold the village. Hold means no enemy inside the village within six tiles of your people there. A cell you stay six tiles clear of does not stop the clock, and you will not be asked to dig it out. Kill or capture whoever is guarding the cache, and get the families out to the refuge on the road west before the fighting closes it.",
+    "objectives": {
+      "take_village": "Take and hold the village for 20 seconds",
+      "kill_cache_guard": "Kill or capture the quartermaster holding Hallaq's cache",
+      "evac_families": "Shepherd the families to the refuge before the road closes"
+    },
+    "triggers": {
+      "the_technicals_at_the_south_hide_run_for_the_village": "Technicals run for the village"
+    }
+  },
+  "wadi_halam_5_depot": {
+    "name": "Wadi Halam V — Break the Depot",
+    "briefing": "Eight structures inside Hallaq's depot, one unarmed bulldozer, and a choice of route. Mind which one you take. The straight line north-east runs through the village, and a D9 levels whatever it halts beside — the houses will come down one at a time with nobody ordering it, and each one is judged. The civic hall is not a target at any price. The depot stands on an embankment with one ramp, and the river road along the bed to the south, which comes up that ramp, costs you a little time and nothing else. The D9 cannot defend itself and it is the slowest thing on the map — escort it, do not race it. An RPG team holds the gate at the head of the ramp and three gun trucks sit inside the wire; a second RPG team is dug in dead centre of the depot. The gun trucks cannot scratch the D9's armour, but either RPG team will put a rocket straight through its blade if it works unescorted. Motorcycles are staged to the east and will come down on the column the moment you push that way, and more will keep arriving from the east and south the whole time the charges are going in. Levelling the depot is not the end of it — the Rif want the ground back, and the column has to hold the rubble for four minutes against everything still coming. Raze the depot, kill or capture whoever is holding the gate, hold what is left, and keep the column intact.",
+    "objectives": {
+      "raze_depot": "Raze the depot inside five minutes",
+      "kill_gate_rpg": "Kill or capture whoever is holding the gate",
+      "hold_depot": "Hold the depot yard for four minutes",
+      "no_bleed": "Stay in the field for the first five minutes"
+    },
+    "triggers": {
+      "the_motorcycles_come_down_on_the_column": "Motorcycles harass the column",
+      "the_second_engineer_team_comes_up": "Second engineer team comes up the road"
+    }
+  }
+}
