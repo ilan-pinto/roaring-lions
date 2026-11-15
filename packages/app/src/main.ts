@@ -45,6 +45,8 @@ import {
   creditInputFrom,
   MAX_PATROL_WAYPOINTS,
   unitTypeFromJson,
+  compileFormation,
+  type FormationJson,
   type MissionEvent,
   type MissionJson,
   type SimEvent,
@@ -94,6 +96,7 @@ import {
   videoManifest,
   coupons,
   formations,
+  assemblyLayout,
   grades,
   versusModes,
   flagBlockOf,
@@ -3037,6 +3040,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // the spawner drew from.
       const sentLedger = deployedLedger(ledger, deploySelection);
       runtime = startMission(sim, resolvedMission, {
+        // GH-1360 S3b: a shipped mission's starting force stands in the assembly layout (`start_layout`).
+        startLayout: compileFormation(assemblyLayout as unknown as FormationJson),
         typeIdOf: (id) => {
           const t = typeOf.get(id);
           if (t === undefined) throw new Error(`mission references unknown unit ${id}`);
