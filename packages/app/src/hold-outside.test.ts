@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MissionRuntime, Sim, TICKS_PER_SECOND, fx, type MissionJson } from '@lions/sim';
-import { applyTerrain, maps, missions, parseMap, units } from '@lions/data';
+import { MissionRuntime, Sim, TICKS_PER_SECOND, compileFormation, fx, type FormationJson, type MissionJson } from '@lions/sim';
+import { applyTerrain, assemblyLayout, maps, missions, parseMap, units } from '@lions/data';
 import { standMapStructures } from './map-sim';
 import { JUST_OUTSIDE_TILES, unitsJustOutside, withOutsideCounts } from './hold-outside';
 import { holdClock, type ObjectiveView } from './ui/hud-model';
@@ -100,7 +100,7 @@ describe('holdClock, with units just outside', () => {
 });
 
 /** Umm Zeitoun II's runtime with the screenshot's force (both APCs, three
- *  rifle squads) walked one per tile along row `row`, 40 s in. */
+ *  rifle squads) walked two tiles apart along row `row`, 40 s in. */
 function parkedOn(row: number) {
   const mission = missions.umm_zeitoun_2_buildup as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
@@ -110,6 +110,7 @@ function parkedOn(row: number) {
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as never));
   const rt = new MissionRuntime(sim, mission, {
+    startLayout: compileFormation(assemblyLayout as unknown as FormationJson), // GH-1360 S3b: the shipped missions start in the assembly layout
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
@@ -124,8 +125,11 @@ function parkedOn(row: number) {
     if (sim.state.side[i] === 0 && (id === 'apc_eitan' || id === 'inf_squad')) parked.push(i);
   }
   expect(parked.length).toBe(5);
+  // Two tiles apart, not one (GH-1360 S3b): two Eitan hulls a tile apart overlap (GH-421 stops the second at contact),
+  // so a one-per-tile park reached its row only in the arrival order of the authored start. In the assembly layout the
+  // order changed and one hull stopped a row short. x 19..27 is still inside the line's 18..30.
   parked.forEach((id, k) =>
-    sim.queueCommand({ kind: 'move', ids: [id], x: fx.fromInt(19 + k) + (1 << 15), y: fx.fromInt(row) + (1 << 15) })
+    sim.queueCommand({ kind: 'move', ids: [id], x: fx.fromInt(19 + 2 * k) + (1 << 15), y: fx.fromInt(row) + (1 << 15) })
   );
   for (let t = 0; t < 40 * TICKS_PER_SECOND; t++) rt.step(sim.tick());
   const rowsStood = parked.map((id) => sim.state.posY[id] >> 16);

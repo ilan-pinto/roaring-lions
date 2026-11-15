@@ -26,6 +26,7 @@
 import { Sim, fx, TICKS_PER_SECOND, MissionRuntime, type MissionJson, type TunnelRouteJson } from '@lions/sim';
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
 import { firstLightPlan } from './plans/beit_sahwan';
+import { START_LAYOUT } from '../mission-harness';
 
 type Tier = 'passive' | 'naive' | 'sensible' | 'optimal';
 const ID = 'beit_sahwan_breach';
@@ -61,6 +62,7 @@ export function runFirstLight(tier: Tier, seed: number, mission: MissionJson = m
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
   const rt = new MissionRuntime(sim, mission, {
+    startLayout: START_LAYOUT, // GH-1360 S3b: shipped missions start in the assembly layout
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
