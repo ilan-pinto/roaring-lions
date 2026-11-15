@@ -49,7 +49,7 @@ import {
   type TemplateSlot,
   type TemplateUnit,
 } from './formation-template';
-import { hullCapsule, capsuleOverlap } from './separation';
+import { hullCapsule, capsuleOverlap, closestSegmentPoints } from './separation';
 import { overmatchShift, penetrationHpCost } from './vehicle-health';
 import {
   structureTypeFromJson,
@@ -1641,6 +1641,9 @@ const MAX_STRUCTURES = 256;
 /** Queued path points per unit. Enough for a route around a block; a cap
  *  keeps the storage flat and the hash cheap. */
 const MAX_WAYPOINTS = 8;
+/** freeSpotNear's fill: the eight neighbours, orthogonals first (a diagonal needs both companions open). */
+const FS_DX = [1, -1, 0, 0, 1, 1, -1, -1];
+const FS_DY = [0, 0, 1, -1, 1, -1, 1, -1];
 /** `stance` values: 0 none, 1 ambush, 2 a `setStance{patrol}` beat (N3 Task 9). */
 const STANCE_PATROL = 2;
 /**
@@ -4968,6 +4971,133 @@ export class Sim {
         this.wpY[wi] = fx.add(fx.fromInt(this.snapY), HALF);
       }
     }
+  }
+
+  /**
+   * GH-1360 S2, the free spot (design 2026-11-15-unit-spacing-design.md, section 3.4). Where a unit of
+   * `typeIdx` and `side` that APPEARS at (x, y) should stand so that its body clears every living
+   * body within `reach` tiles. A pure read: it writes no sim state and draws no RNG, so calling it
+   * (or not) moves no hash byte. Nothing in the sim calls it yet.
+   *
+   * Candidates are tried in a fixed order, the first that passes wins: the requested point, then
+   * rings k = 1, 2, ... on a 0.5-tile lattice around it (Chebyshev ring k holds 8k points), each
+   * ring walked clockwise from north (screen up, -y). A candidate passes when:
+   *  - its tile is on the map and open on the unit's OWN mask (`maskFor(pathDomain)`: `blocked |
+   *    boulder` for a wheeled type), and, inside a set-up, in `side`'s region;
+   *  - it is reachable: 8-connected over that mask with no corner cutting (a flow field's rule),
+   *    from the requested point's tile (or, when that tile is shut, from the first open candidate
+   *    tile), inside the (reach + 1)-tile window round the request. One bounded fill per call;
+   *  - its body clears every participant by the PAIR distance: the closest points of the two
+   *    capsules are at least r_a + r_b apart (sum of radii, not either alone). The unit's capsule
+   *    is placed at `facing`. A type with no footprint is a point.
+   * Participants: alive, on the surface (not carried, garrisoned or underground), not air, with a
+   * footprint. An aircraft has no body and no ground: it gets the requested point back.
+   *
+   * With no passing candidate, the requested point comes back: never a refusal, never a throw.
+   * Integer / Q16.16 throughout. Cost: O(participants in reach + candidates x those), per call.
+   */
+  freeSpotNear(x: Fx, y: Fx, typeIdx: number, side: number, reach: number, facing: Fx = 0): [Fx, Fx] {
+    const type = this.unitTypes[typeIdx];
+    if (type === undefined) throw new Error(`no unit type ${typeIdx}`);
+    if (type.isAir) return [x, y];
+    const w = this.width;
+    const h = this.height;
+    const mask = this.maskFor(type.pathDomain);
+    const reachFx = fx.fromInt(reach < 0 ? 0 : reach);
+    // Two capsules (10) and the closest points (4): local, because an own property would need a snapshot-schema row.
+    const cap = new Int32Array(10);
+    const out = new Int32Array(4);
+    // Participants within reach of the request, in id order.
+    const part: number[] = [];
+    for (let j = 0; j < this.count; j++) {
+      if (this.alive[j] === 0 || this.carriedBy[j] >= 0 || this.garrisonedIn[j] >= 0 || this.tunnelIn[j] >= 0) continue;
+      const tj = this.unitTypes[this.typeIdx[j]];
+      if (tj.isAir || tj.sepHalfWid <= 0) continue;
+      const lim = fx.add(fx.add(reachFx, type.sepBound), tj.sepBound);
+      const dx = fx.sub(this.posX[j], x);
+      const dy = fx.sub(this.posY[j], y);
+      if (dx > lim || dx < -lim || dy > lim || dy < -lim) continue;
+      part.push(j);
+    }
+    const win = reach < 0 ? 1 : reach + 1;
+    const cx = fx.toInt(x);
+    const cy = fx.toInt(y);
+    const x0 = cx - win < 0 ? 0 : cx - win;
+    const x1 = cx + win >= w ? w - 1 : cx + win;
+    const y0 = cy - win < 0 ? 0 : cy - win;
+    const y1 = cy + win >= h ? h - 1 : cy + win;
+    const ww = x1 - x0 + 1;
+    let seen: Uint8Array | null = null; // the fill, made on the first open candidate
+    const maxK = reach < 0 ? 0 : 2 * reach; // rings of HALF: 2 per tile
+    for (let k = 0; k <= maxK; k++) {
+      const n = k === 0 ? 1 : 8 * k;
+      for (let i = 0; i < n; i++) {
+        let ox = 0;
+        let oy = 0;
+        if (k > 0) {
+          const m = (i + k) % n; // m = 0 is the north-west corner; i = 0 is due north
+          const pos = m % (2 * k);
+          const sd = (m - pos) / (2 * k);
+          if (sd === 0) { ox = -k + pos; oy = -k; }
+          else if (sd === 1) { ox = k; oy = -k + pos; }
+          else if (sd === 2) { ox = k - pos; oy = k; }
+          else { ox = -k; oy = k - pos; }
+        }
+        const px = fx.add(x, ox * HALF);
+        const py = fx.add(y, oy * HALF);
+        if (px < 0 || py < 0) continue;
+        const tx = fx.toInt(px);
+        const ty = fx.toInt(py);
+        if (tx >= w || ty >= h || mask[ty * w + tx] !== 0) continue;
+        if (this.setupActive && !this.setupOwnTile(side, tx, ty)) continue;
+        if (tx < x0 || tx > x1 || ty < y0 || ty > y1) continue;
+        if (seen === null) {
+          // The component the request lies in: seeded at its own tile if open, else at this first open tile.
+          seen = new Uint8Array(ww * (y1 - y0 + 1));
+          const reqOpen = cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1 && mask[cy * w + cx] === 0;
+          const sx = reqOpen ? cx : tx;
+          const sy = reqOpen ? cy : ty;
+          const queue = new Int32Array(seen.length);
+          let qh = 0;
+          let qt = 0;
+          seen[(sy - y0) * ww + (sx - x0)] = 1;
+          queue[qt++] = sy * w + sx;
+          while (qh < qt) {
+            const t = queue[qh++];
+            const vx = t % w;
+            const vy = (t - vx) / w;
+            for (let d = 0; d < 8; d++) {
+              const ddx = FS_DX[d];
+              const ddy = FS_DY[d];
+              const nx = vx + ddx;
+              const ny = vy + ddy;
+              if (nx < x0 || nx > x1 || ny < y0 || ny > y1 || mask[ny * w + nx] !== 0) continue;
+              if (ddx !== 0 && ddy !== 0 && (mask[vy * w + nx] !== 0 || mask[ny * w + vx] !== 0)) continue;
+              const si = (ny - y0) * ww + (nx - x0);
+              if (seen[si] !== 0) continue;
+              seen[si] = 1;
+              queue[qt++] = ny * w + nx;
+            }
+          }
+        }
+        if (seen[(ty - y0) * ww + (tx - x0)] === 0) continue;
+        // Clearance by pair distance: |closest points| >= r_a + r_b, against every participant.
+        hullCapsule(px, py, facing, type.sepHalfLen, type.sepHalfWid, type.sepCentre, cap, 0);
+        let clear = true;
+        for (let q = 0; q < part.length && clear; q++) {
+          const j = part[q];
+          const tj = this.unitTypes[this.typeIdx[j]];
+          hullCapsule(this.posX[j], this.posY[j], this.facing[j], tj.sepHalfLen, tj.sepHalfWid, tj.sepCentre, cap, 5);
+          closestSegmentPoints(cap, 0, 5, out);
+          const ex = fx.sub(out[0], out[2]);
+          const ey = fx.sub(out[1], out[3]);
+          const pair = fx.add(cap[4], cap[9]);
+          if (fx.add(fx.mul(ex, ex), fx.mul(ey, ey)) < fx.mul(pair, pair)) clear = false;
+        }
+        if (clear) return [px, py];
+      }
+    }
+    return [x, y];
   }
 
   /** nearestOpenTile's answer, from the last `snapOpenTile` call. Scratch,
