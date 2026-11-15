@@ -206,7 +206,13 @@ facings only**. Spawn order, and with it entity ids and every per-entity RNG str
 - The depth comes from `templateOffsets`, which needs no ground.
 - If the rear row would be under 1 tile from the map edge, the anchor slides inward until it is not. Most
   starts sit 2–5 tiles from an edge (y ≈ 44 of 48), so this is the normal case, not an edge case.
-- The anchor then snaps to open ground per domain, as a click does.
+- The anchor then snaps to open ground **once, on the union of the foot and vehicle masks** (a tile is open only if both
+  domains can stand on it), as a click does, and the edge pull-back runs again after the snap, which can move the click
+  back toward the edge. *Why once:* snapping each domain on its own (as `assignTemplate`'s callers do for a click) moves a
+  vehicle origin off the foot click whenever a boulder sits there, and `assignTemplate` then anchors the vehicle-only front
+  rank on a second track whose rank depth restarts at the click, so the infantry end up level with or ahead of the vehicles
+  (found in S3a by the boulder test). A body kept at its authored position (no free spot) reserves that tile, so a later
+  assembly cannot seat a body on it, and a free-spot answer equal to the request is "no spot".
 
 **How far bodies move.** The layout keeps the force where the author put it (the centroid moves 0.5–1.5 tiles
 on the sheet's four rows, at most 3.6 over all 36 starts), but it re-orders the force into class rows, so

@@ -174,3 +174,5 @@ export {
   type UnitClassJson,
 } from './formation-template';
 export { MAX_FORMATION_GROUPS_PER_SIDE, FORMATION_WALK_CAP } from './tuning';
+// GH-1360 S3a: the starting layout (pure; nothing calls it until S3b).
+export { startLayout, frontToward, START_FREE_SPOT_REACH, type StartBody, type StartFront, type StartLayoutInput, type StartPlacement } from './start-layout';
