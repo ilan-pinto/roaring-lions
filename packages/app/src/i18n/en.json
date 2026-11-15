@@ -88,7 +88,7 @@
   "settings.zoomToCursor.hint": "Zoom in and out around the pointer instead of the screen centre.",
   "settings.privacy": "Privacy",
   "settings.reports": "Anonymous usage and crash reports",
-  "settings.reports.hint": "Which missions you play, crashes and frame times, with no name, email or IP address. Off, nothing is sent. Turning it off applies at once; turning it back on applies after a reload.",
+  "settings.reports.hint": "Which missions you play and how you do, crashes (a short scrubbed error text), frame times, the family of your graphics card and start-up time. They carry a random code kept in this browser, and your tester label if you were given one; no email, IP address or browser user agent. Off, nothing is sent. Turning it off applies at once; turning it back on applies after a reload.",
   "settings.language": "Language",
   "settings.language.hint": "More languages are coming. A change takes effect after a reload.",
   "settings.keymap.change": "Change",

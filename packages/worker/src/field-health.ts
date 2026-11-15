@@ -3,7 +3,7 @@
  *
  *  - crash-free session rate: of the sessions that sent anything in the window, the share that sent no `client_error`;
  *  - the commonest crashes, by stack hash;
- *  - frame-time percentiles by GPU family: the median of the samples' own p50 / p95 / p99, grouped by `gpuFamily`;
+ *  - frame-time percentiles by GPU family: the median of the samples' own p50 / p95 / p99, grouped by the family the client sent;
  *  - the median time to first frame.
  *
  * Reads `events_all` through the same filter every other panel uses (`StatsFilter`: the window, the tester, dev traffic out). It stores
@@ -11,37 +11,6 @@
  */
 import type { D1Like } from './d1';
 import type { StatsFilter } from './stats';
-
-/** A GPU string reduced to a family, so one card's many driver spellings are one row. Anything it does not recognise is `Other`. */
-export function gpuFamily(gpu: string | null | undefined): string {
-  if (gpu === null || gpu === undefined || gpu.trim() === '') return 'Unknown';
-  const g = gpu;
-  if (/swiftshader|llvmpipe|software|softpipe|microsoft basic render/i.test(g)) return 'Software (no GPU)';
-  const apple = /Apple (M\d+|A\d+)/i.exec(g);
-  if (apple?.[1]) return `Apple ${apple[1].toUpperCase()}`;
-  if (/Apple/i.test(g)) return 'Apple (other)';
-  const nv = /(RTX|GTX)\s*(\d{2})\d{2}/i.exec(g);
-  if (nv?.[1] && nv[2]) return `NVIDIA ${nv[1].toUpperCase()} ${nv[2]}-series`;
-  if (/NVIDIA|GeForce|Quadro/i.test(g)) return 'NVIDIA (other)';
-  const amd = /Radeon\s*(RX|Pro|Vega|HD)?\s*(\d)?/i.exec(g);
-  if (/AMD|Radeon/i.test(g)) {
-    if (amd?.[1]?.toUpperCase() === 'RX' && amd[2]) return `AMD Radeon RX ${amd[2]}000-series`;
-    return 'AMD (other)';
-  }
-  if (/Intel/i.test(g)) {
-    if (/Arc/i.test(g)) return 'Intel Arc';
-    if (/Iris(?:\(R\))?\s*Xe/i.test(g)) return 'Intel Iris Xe';
-    if (/Iris/i.test(g)) return 'Intel Iris';
-    if (/UHD/i.test(g)) return 'Intel UHD';
-    if (/HD Graphics/i.test(g)) return 'Intel HD';
-    return 'Intel (other)';
-  }
-  const adreno = /Adreno.*?(\d)\d{2}/i.exec(g);
-  if (adreno?.[1]) return `Qualcomm Adreno ${adreno[1]}xx`;
-  if (/Adreno/i.test(g)) return 'Qualcomm Adreno (other)';
-  if (/Mali/i.test(g)) return 'ARM Mali';
-  return 'Other';
-}
 
 const median = (xs: number[]): number | null => {
   if (xs.length === 0) return null;
@@ -121,7 +90,8 @@ export async function fieldHealth(db: D1Like, f: StatsFilter) {
   for (const r of perfRows.results) {
     const p = parse(r);
     if (p === null || typeof p.p50 !== 'number' || typeof p.p95 !== 'number' || typeof p.p99 !== 'number') continue;
-    const key = gpuFamily(typeof p.gpu === 'string' ? p.gpu : null);
+    // The client sends the FAMILY (`gpuFamily`, `@lions/data`); an event without one is Unknown.
+    const key = typeof p.gpu === 'string' && p.gpu !== '' ? p.gpu : 'Unknown';
     let a = fam.get(key);
     if (!a) {
       a = { p50: [], p95: [], p99: [], units: [], sessions: new Set() };

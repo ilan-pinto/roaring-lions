@@ -148,7 +148,7 @@
     "mission": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
     "preset": { "enum": ["high", "medium", "low"] },
     "backend": { "enum": ["webgl2", "webgpu"] },
-    "gpu": { "type": "string", "pattern": "^[ -~]{1,120}$", "description": "The graphics card's own name (WEBGL_debug_renderer_info), printable ASCII." },
+    "gpu": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9 ().+-]{0,39}$", "description": "The graphics card's FAMILY (gpuFamily in packages/data/src/telemetry.ts), never the raw WEBGL_debug_renderer_info string." },
     "ms": { "type": "number", "minimum": 0, "maximum": 10000 },
     "tick": { "type": "integer", "minimum": 0, "maximum": 1000000000 },
     "count": { "type": "integer", "minimum": 0, "maximum": 100000 },

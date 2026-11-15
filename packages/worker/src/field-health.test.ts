@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { handleIngest } from './ingest';
-import { fieldHealth, gpuFamily, HEALTH_ROW_CAP } from './field-health';
+import { fieldHealth, HEALTH_ROW_CAP } from './field-health';
 import { handleStats } from './stats';
 import { STATS_HTML } from './stats-page';
 import { openTestD1 } from './test-d1';
@@ -11,8 +11,9 @@ const T0 = Date.UTC(2026, 10, 15);
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ALL: StatsFilter = { since: 0, testersOnly: false, includeDev: false };
 const env0 = (p: number, s: number, t: number, extra: Record<string, unknown> = {}) => ({ v: 1, player: id(p), session: id(1000 + s), build: '1.0.0', t, ...extra });
-const M3 = 'ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)';
-const RTX = 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)';
+// The client sends the FAMILY (`gpuFamily`, `@lions/data`), never the raw renderer string.
+const M3 = 'Apple M3';
+const RTX = 'NVIDIA RTX 30-series';
 
 async function setup() {
   const db = openTestD1();
@@ -25,37 +26,6 @@ async function setup() {
   };
   return { db, env, post };
 }
-
-describe('gpuFamily', () => {
-  it.each([
-    [M3, 'Apple M3'],
-    ['ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)', 'Apple M1'],
-    ['Apple GPU', 'Apple (other)'],
-    [RTX, 'NVIDIA RTX 30-series'],
-    ['ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)', 'NVIDIA GTX 16-series'],
-    ['NVIDIA Quadro P400', 'NVIDIA (other)'],
-    ['ANGLE (AMD, AMD Radeon RX 6700 XT Direct3D11 vs_5_0 ps_5_0, D3D11)', 'AMD Radeon RX 6000-series'],
-    ['AMD Radeon(TM) Graphics', 'AMD (other)'],
-    ['ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)', 'Intel Iris Xe'],
-    ['ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)', 'Intel UHD'],
-    ['ANGLE (Intel, Intel(R) HD Graphics 4000 Direct3D11 vs_5_0 ps_5_0, D3D11)', 'Intel HD'],
-    ['Intel(R) Arc(TM) A750 Graphics', 'Intel Arc'],
-    ['Adreno (TM) 740', 'Qualcomm Adreno 7xx'],
-    ['Mali-G78', 'ARM Mali'],
-    ['ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)', 'Software (no GPU)'],
-    ['llvmpipe (LLVM 15.0.7, 256 bits)', 'Software (no GPU)'],
-    ['Something Entirely New 9000', 'Other'],
-    ['', 'Unknown'],
-    [null, 'Unknown'],
-  ])('%s -> %s', (gpu, want) => {
-    expect(gpuFamily(gpu)).toBe(want);
-  });
-
-  it('two different cards of one family are one row', () => {
-    expect(gpuFamily('NVIDIA GeForce RTX 3060')).toBe(gpuFamily('NVIDIA GeForce RTX 3090 Ti'));
-    expect(gpuFamily('NVIDIA GeForce RTX 3060')).not.toBe(gpuFamily('NVIDIA GeForce RTX 4060'));
-  });
-});
 
 describe('fieldHealth', () => {
   it('crash-free rate: the share of sessions with no client_error, counted over every session that sent anything', async () => {

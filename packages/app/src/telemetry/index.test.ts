@@ -246,7 +246,8 @@ describe('Telemetry', () => {
 });
 
 // GH-1410: the field signal.
-const GEAR = { preset: 'medium' as const, backend: 'webgl2' as const, gpu: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)' };
+const RAW_GPU = 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002487) Direct3D11 vs_5_0 ps_5_0, D3D11-31.0.15.3623)';
+const GEAR = { preset: 'medium' as const, backend: 'webgl2' as const, gpu: RAW_GPU };
 const crash = (n: number) => ({ name: 'TypeError', message: `m${n}`, hash: String(n).padStart(8, '0') });
 
 describe('Telemetry: boot', () => {
@@ -256,7 +257,9 @@ describe('Telemetry: boot', () => {
     h.tel.boot(9999);
     const boots = h.sent.filter((e) => e.type === 'boot');
     expect(boots).toHaveLength(1);
-    expect(boots[0]).toMatchObject({ ttffMs: 2310, backend: 'webgl2', preset: 'medium', gpu: GEAR.gpu });
+    expect(boots[0]).toMatchObject({ ttffMs: 2310, backend: 'webgl2', preset: 'medium', gpu: 'NVIDIA RTX 30-series' });
+    // The raw renderer string, its PCI id and its driver build never reach the event.
+    expect(JSON.stringify(boots[0])).not.toMatch(/0x00002487|D3D11|31\.0\.15|ANGLE/);
     expect(isTelemetryEvent(boots[0])).toBe(true);
   });
 
@@ -321,8 +324,9 @@ describe('Telemetry: perf_sample', () => {
     h.advance(PERF_SAMPLE_MS);
     m.onFrame(50);
     const p = h.sent.find((e) => e.type === 'perf_sample');
-    expect(p).toMatchObject({ mission: 'm1', units: 266, preset: 'medium', backend: 'webgl2', gpu: GEAR.gpu, frames: PERF_MIN_FRAMES + 1, p50: 16.7, p95: 16.7 });
+    expect(p).toMatchObject({ mission: 'm1', units: 266, preset: 'medium', backend: 'webgl2', gpu: 'NVIDIA RTX 30-series', frames: PERF_MIN_FRAMES + 1, p50: 16.7, p95: 16.7 });
     expect(isTelemetryEvent(p)).toBe(true);
+    expect(JSON.stringify(p)).not.toMatch(/0x00002487|D3D11|ANGLE/);
   });
 
   it('units fall back to fielded - lost when the view carries no living count', () => {
@@ -366,6 +370,16 @@ describe('Telemetry: perf_sample', () => {
     h.advance(PERF_SAMPLE_MS);
     m.onFrame(16);
     expect(h.sent.filter((e) => e.type === 'perf_sample')).toHaveLength(0);
+  });
+});
+
+describe('Telemetry: ids() respects a live opt-out', () => {
+  it('answers the ids while reports are on and null once the opt-out is set', () => {
+    let out = false;
+    const h = harness({ optedOut: () => out });
+    expect(h.tel.ids()).toEqual({ player: '0f8fad5b-d9cb-469f-a165-70867728950e', session: '7c9e6679-7425-40de-944b-e07fc1f90ae7' });
+    out = true;
+    expect(h.tel.ids()).toBeNull();
   });
 });
 

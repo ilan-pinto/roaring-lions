@@ -15,16 +15,18 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
 - **Field signal (GH-1410): `client_error`, `perf_sample`, `boot`.** Three more event types on the SAME sender, schema
   (`data/schemas/telemetry_event.schema.json` and its twin `packages/data/src/telemetry.ts`, pinned by `telemetry.test.ts`)
   and switch, so they leave only where the others do and stop wherever the others stop (dev, tests, CI, GPC, DNT,
-  `?notrack`). `telemetry/errors.ts` describes an error as its class name, a SCRUBBED one-line message (URLs, emails, paths,
-  long numbers and tokens replaced, printable ASCII, 120 characters) and an FNV-1a hash of the stack's FUNCTION NAMES; the
+  `?notrack`). `telemetry/errors.ts` describes an error as its class name, a SCRUBBED one-line message (URLs, emails, quoted
+  literals, query strings, IPv4/IPv6 addresses, paths with or without a drive letter, dotted and long tokens, phone-like and long numbers
+  replaced; printable ASCII; 120 characters; heuristic, so crash text can still hold fragments of game data) and an FNV-1a hash of the stack's FUNCTION NAMES; the
   listeners are installed in `initTelemetry` only past the off switch, observe only, and are capped per session (10) and per
   crash (3). `perf_sample` closes every 120 s of a visible mission with at least 300 frames (`telemetry/perf.ts`: p50, p95, p99
   of the rAF interval, a stall over 1 s dropped) with the unit count, the preset, the backend and the GPU name
-  (`feedback/gpu.ts`, read lazily). `boot` is the time from navigation start to the second animation frame after
+  (`feedback/gpu.ts`, read lazily) reduced to its FAMILY by `gpuFamily` (`@lions/data`) inside `createTelemetry`, so a raw renderer string, with its PCI id and driver build, never reaches an event. `boot` is the time from navigation start to the second animation frame after
   `initTelemetry`, once a page load. No event stores an IP, an email or a user agent. The Settings > Privacy checkbox
   (`reportsSwitch`) is the stored opt-out (`lions.telemetry.optout`, the key `?notrack` writes) inverted, and the sink
   (`gatedSink`) reads it before every push and flush and empties the queue when it is set: turning it off applies at once,
-  turning it back on applies after a reload. `/stats` shows the result as "Field health" (`/stats/api/health`,
+  turning it back on applies after a reload. The opt-out is also held in MEMORY for the page (`optedOutNow`), so with site data blocked, or a write that
+  throws, "off" still holds; and `Telemetry.ids()` answers null once it is set, so a feedback note then carries no id. `/stats` shows the result as "Field health" (`/stats/api/health`,
   `worker/src/field-health.ts`): the crash-free session rate, the commonest crashes by hash, frame percentiles by GPU family
   (`gpuFamily`) and the median start-up. The privacy page's lines for these are a DRAFT the lead decides (the PR for GH-1410).
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;

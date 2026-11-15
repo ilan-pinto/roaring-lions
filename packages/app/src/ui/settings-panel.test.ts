@@ -346,4 +346,15 @@ describe('settingsPanel', () => {
     const { el } = settingsPanel(document.body, d);
     expect(el.querySelector<HTMLInputElement>('input[name="reports"]')?.checked).toBe(false);
   });
+
+  it('the reports hint tells the truth the privacy review asked for: a tester label is sent, there is no "no name" claim, and Off means nothing is sent', () => {
+    const { d } = deps({ reports: { get: () => true, set: () => {} } });
+    const { el } = settingsPanel(document.body, d);
+    const hint = el.querySelector('input[name="reports"]')?.closest('.rl-settings__row')?.querySelector('.rl-settings__hint')?.textContent ?? '';
+    expect(hint).toContain('your tester label if you were given one');
+    expect(hint).toContain('no email, IP address or browser user agent');
+    expect(hint).toContain('Off, nothing is sent');
+    expect(hint).not.toMatch(/no name/i);
+  });
 });
+

@@ -186,5 +186,63 @@ describe('initTelemetry (GH-1410: client errors)', () => {
     const mod = await import('./index');
     expect(mod.reportsSwitch.get()).toBe(false);
   });
+
+  // The privacy review of GH-1410, REQUIRED: with site data blocked the stored opt-out cannot hold "off", so the switch must hold it in memory.
+  function stubFetch(): string[] {
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: { body: string }) => { bodies.push(init.body); return new Response(null, { status: 204 }); }));
+    return bodies;
+  }
+  const crashEvent = (msg: string) => new ErrorEvent('error', { error: new Error(msg), message: msg });
+  const sentTypes = (bodies: string[]) => bodies.flatMap((b) => (JSON.parse(b) as { events: { type: string }[] }).events.map((e) => e.type));
+
+  it('storage whose ACCESS throws (site data blocked): the switch turns off and STAYS off, and no client_error reaches fetch', async () => {
+    Object.defineProperty(window, 'localStorage', { get() { throw new Error('SecurityError: access denied'); }, configurable: true });
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
+    const bodies = stubFetch();
+    vi.resetModules();
+    const mod = await import('./index');
+    const tel = mod.initTelemetry({ dev: false });
+    window.dispatchEvent(crashEvent('first'));
+    expect(sentTypes(bodies)).toEqual(['client_error']);
+    expect(mod.reportsSwitch.get()).toBe(true);
+    mod.reportsSwitch.set(false);
+    expect(mod.reportsSwitch.get()).toBe(false); // the old code read ON again here
+    window.dispatchEvent(crashEvent('second'));
+    tel.boot(100);
+    expect(sentTypes(bodies)).toEqual(['client_error']); // nothing more left
+    mod.reportsSwitch.set(true);
+    expect(mod.reportsSwitch.get()).toBe(true);
+  });
+
+  it('storage whose WRITE throws (quota, private mode): the switch still turns off and nothing more is sent', async () => {
+    const store = installStorage();
+    store.setItem = () => { throw new Error('QuotaExceededError'); };
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
+    const bodies = stubFetch();
+    vi.resetModules();
+    const mod = await import('./index');
+    mod.initTelemetry({ dev: false });
+    window.dispatchEvent(crashEvent('first'));
+    expect(sentTypes(bodies)).toHaveLength(1);
+    mod.reportsSwitch.set(false);
+    expect(mod.reportsSwitch.get()).toBe(false);
+    window.dispatchEvent(crashEvent('second'));
+    expect(sentTypes(bodies)).toHaveLength(1);
+  });
+
+  it('a feedback note after a mid-session opt-out carries no ids: ids() is null once the switch is off', async () => {
+    installStorage();
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry&tester=dani');
+    stubFetch();
+    vi.resetModules();
+    const mod = await import('./index');
+    const tel = mod.initTelemetry({ dev: false });
+    expect(tel.ids()).toMatchObject({ tester: 'dani' });
+    mod.reportsSwitch.set(false);
+    expect(tel.ids()).toBeNull();
+    mod.reportsSwitch.set(true);
+    expect(tel.ids()).toMatchObject({ tester: 'dani' });
+  });
 });
 

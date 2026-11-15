@@ -66,8 +66,11 @@ export const ERROR_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
 export const ERROR_MESSAGE_PATTERN = /^[\x20-\x7e]{0,120}$/;
 /** A 32-bit hash of the normalised stack, 8 lower-case hex digits. */
 export const STACK_HASH_PATTERN = /^[0-9a-f]{8}$/;
-/** The graphics card's own name, printable ASCII, e.g. `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)`. */
-export const GPU_PATTERN = /^[\x20-\x7e]{1,120}$/;
+/**
+ * The graphics card's FAMILY, as `gpuFamily` returns it (`Apple M3`, `NVIDIA RTX 30-series`, `Intel UHD`): letters, digits, spaces and ( ) . + -,
+ * 40 characters at most. NEVER the raw `WEBGL_debug_renderer_info` string, which on Windows and Linux carries PCI device ids and driver versions.
+ */
+export const GPU_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 ().+-]{0,39}$/;
 export const TELEMETRY_PRESETS = ['high', 'medium', 'low'] as const;
 export const TELEMETRY_BACKENDS = ['webgl2', 'webgpu'] as const;
 export type TelemetryPreset = (typeof TELEMETRY_PRESETS)[number];
@@ -161,6 +164,41 @@ export type TelemetryEvent = TelemetryEnvelope &
       }
     | { type: 'boot'; ttffMs: number; backend: TelemetryBackend; preset: TelemetryPreset; gpu?: string }
   );
+
+
+/**
+ * A raw graphics-card string reduced to a family, so one card's many driver spellings are one row and no device id or driver version leaves the
+ * browser. Anything it does not recognise is `Other`, never the raw text. Every result satisfies `GPU_PATTERN`.
+ */
+export function gpuFamily(gpu: string | null | undefined): string {
+  if (gpu === null || gpu === undefined || gpu.trim() === '') return 'Unknown';
+  const g = gpu;
+  if (/swiftshader|llvmpipe|software|softpipe|microsoft basic render/i.test(g)) return 'Software (no GPU)';
+  const apple = /Apple (M\d+|A\d+)/i.exec(g);
+  if (apple?.[1]) return `Apple ${apple[1].toUpperCase()}`;
+  if (/Apple/i.test(g)) return 'Apple (other)';
+  const nv = /(RTX|GTX)\s*(\d{2})\d{2}/i.exec(g);
+  if (nv?.[1] && nv[2]) return `NVIDIA ${nv[1].toUpperCase()} ${nv[2]}-series`;
+  if (/NVIDIA|GeForce|Quadro/i.test(g)) return 'NVIDIA (other)';
+  const amd = /Radeon\s*(RX|Pro|Vega|HD)?\s*(\d)?/i.exec(g);
+  if (/AMD|Radeon/i.test(g)) {
+    if (amd?.[1]?.toUpperCase() === 'RX' && amd[2]) return `AMD Radeon RX ${amd[2]}000-series`;
+    return 'AMD (other)';
+  }
+  if (/Intel/i.test(g)) {
+    if (/Arc/i.test(g)) return 'Intel Arc';
+    if (/Iris(?:\(R\))?\s*Xe/i.test(g)) return 'Intel Iris Xe';
+    if (/Iris/i.test(g)) return 'Intel Iris';
+    if (/UHD/i.test(g)) return 'Intel UHD';
+    if (/HD Graphics/i.test(g)) return 'Intel HD';
+    return 'Intel (other)';
+  }
+  const adreno = /Adreno.*?(\d)\d{2}/i.exec(g);
+  if (adreno?.[1]) return `Qualcomm Adreno ${adreno[1]}xx`;
+  if (/Adreno/i.test(g)) return 'Qualcomm Adreno (other)';
+  if (/Mali/i.test(g)) return 'ARM Mali';
+  return 'Other';
+}
 
 type Rec = Record<string, unknown>;
 const ENVELOPE_KEYS = ['v', 'type', 'player', 'session', 'tester', 'build', 't', 'dev'];

@@ -6,8 +6,8 @@
  * message, and a 32-bit hash of the stack's FUNCTION NAMES alone. The wire contract (`@lions/data/telemetry`: `ERROR_NAME_PATTERN`,
  * `ERROR_MESSAGE_PATTERN`, `STACK_HASH_PATTERN`) is the second lock: printable ASCII, 120 characters, no stack.
  *
- * The scrub is deliberately blunt. It replaces what looks like a URL, an email, a path, a long number or a long token with a
- * placeholder, drops every non-printable-ASCII character, and takes the first line only. A false positive costs a less readable
+ * The scrub is deliberately blunt. It replaces what looks like a URL, an email, a quoted literal, a query string, an IP address, a path, a
+ * dotted or long token, or a phone-like or long number with a placeholder, drops every non-printable-ASCII character, and takes the first line only. A false positive costs a less readable
  * message; a false negative would ship a path, so the rules err toward removing.
  */
 
@@ -16,8 +16,23 @@ export const MESSAGE_MAX = 120;
 
 const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/\S+/gi;
 const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
-/** A Windows or POSIX path: a drive letter, or at least two path segments. */
-const PATH_RE = /(?:[A-Za-z]:\\[^\s]*|(?:\/[^\s/]+){2,})/g;
+/** A quoted literal of two or more characters: V8's `JSON.parse` and `Unexpected token` messages quote the INPUT (a save-slot name, storage contents). */
+const DOUBLE_QUOTED_RE = /"[^"]{2,}"/g;
+const SINGLE_QUOTED_RE = /'[^']{3,}'/g;
+const BACKTICKED_RE = /`[^`]{2,}`/g;
+/** Any query run (`?tester=dana_k`, `&x=1`, a bare `?token`): the label and every other parameter ride in it. */
+const QUERY_RE = /[?&][^\s]+/g;
+const IPV4_RE = /\b\d{1,3}(?:\.\d{1,3}){3}\b/g;
+/** IPv6 and its forms (`fe80::1`, `2001:db8::ff00:42`, `::1`): a run of hex groups with at least two colons, not part of a longer word. */
+const IPV6_RE = /(?<![\w:])[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?![\w:])/gi;
+/** A Windows path with a drive letter or a UNC share, or a POSIX path of at least two segments. */
+const PATH_RE = /(?:[A-Za-z]:\\[^\s]*|\\\\[^\s]+|(?:\/[^\s/]+){2,})/g;
+/** A Windows path with NO drive letter (`Users\Dana\x`): word segments joined by backslashes. */
+const BACKSLASH_PATH_RE = /[\w.-]+(?:\\[\w.-]+)+/g;
+/** A dotted token whose segments are each short but long together (a JWT: `header.payload.signature`). */
+const DOTTED_TOKEN_RE = /[\w-]{8,}(?:\.[\w-]{8,})+/g;
+/** A phone number or id in groups: `054-123-4567`, `+972 54 123 4567`. */
+const GROUPED_NUMBER_RE = /\+?\d{1,4}(?:[-\s.]\d{2,4}){2,}\b/g;
 const LONG_NUMBER_RE = /\d{5,}/g;
 const LONG_TOKEN_RE = /[A-Za-z0-9_-]{24,}/g;
 
@@ -26,8 +41,17 @@ export function scrubMessage(raw: string): string {
   const scrubbed = firstLine
     .replace(URL_RE, '<url>')
     .replace(EMAIL_RE, '<email>')
+    .replace(DOUBLE_QUOTED_RE, '<str>')
+    .replace(SINGLE_QUOTED_RE, '<str>')
+    .replace(BACKTICKED_RE, '<str>')
+    .replace(QUERY_RE, '<q>')
+    .replace(IPV4_RE, '<ip>')
+    .replace(IPV6_RE, '<ip>')
     .replace(PATH_RE, '<path>')
+    .replace(BACKSLASH_PATH_RE, '<path>')
+    .replace(DOTTED_TOKEN_RE, '<id>')
     .replace(LONG_TOKEN_RE, '<id>')
+    .replace(GROUPED_NUMBER_RE, '<n>')
     .replace(LONG_NUMBER_RE, '<n>')
     .replace(/[^\x20-\x7e]/g, '?')
     .replace(/\s+/g, ' ')

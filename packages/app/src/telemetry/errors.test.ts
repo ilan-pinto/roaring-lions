@@ -15,6 +15,44 @@ describe('scrubMessage: nothing personal survives', () => {
     expect(scrubMessage(raw)).toBe(want);
   });
 
+  // The review of GH-1410: each of these came out of the first scrubber UNCHANGED.
+  it.each([
+    ['a ?tester= label in a path', 'Cannot load /campaign?tester=dana_k', 'Cannot load /campaign<q>'],
+    ['a bare query string with two parameters', 'bad query ?tester=dana_k&x=1', 'bad query <q>'],
+    ['a query with no value', 'flag ?notrack was set', 'flag <q> was set'],
+    ['an IPv4 address', 'IP 192.168.1.23 failed', 'IP <ip> failed'],
+    ['an IPv6 address', 'peer 2001:db8::ff00:42:8329 refused', 'peer <ip> refused'],
+    ['the IPv6 loopback and a link-local address', 'from ::1 and fe80::1 failed', 'from <ip> and <ip> failed'],
+    ['a double-quoted JSON.parse literal (a save-slot name)', `Unexpected token 'd', "dana's save slot" is not valid JSON`, `Unexpected token 'd', <str> is not valid JSON`],
+    ['a single-quoted literal', "Cannot read properties of undefined (reading 'dana_slot')", 'Cannot read properties of undefined (reading <str>)'],
+    ['a backticked literal', 'bad value `dana k` here', 'bad value <str> here'],
+    ['a dashed phone number', 'phone 054-123-4567 failed', 'phone <n> failed'],
+    ['an international spaced phone number', 'call +972 54 123 4567 now', 'call <n> now'],
+    ['a short dotted JWT', 'bad jwt eyJhbGci.eyJzdWIi.SflKxwRJ here', 'bad jwt <id> here'],
+    ['a Windows path with no drive letter', 'open Users\\Dana\\saves\\a.json failed', 'open <path> failed'],
+    ['a UNC share', 'open \\\\fileserver\\dana\\a.json failed', 'open <path> failed'],
+  ])('closes the gap: %s', (_what, raw, want) => {
+    expect(scrubMessage(raw)).toBe(want);
+  });
+
+  it('what the review named is gone from the output: no label, address, slot name, phone, token or user name', () => {
+    const out = [
+      'Cannot load /campaign?tester=dana_k',
+      'IP 192.168.1.23 failed',
+      `Unexpected token 'd', "dana's save slot" is not valid JSON`,
+      'phone 054-123-4567',
+      'jwt eyJhbGci.eyJzdWIi.SflKxwRJ',
+      'Users\\Dana\\x',
+    ].map(scrubMessage).join(' | ');
+    for (const needle of ['dana', 'Dana', '192.168', '054', '4567', 'eyJ', 'tester']) expect(out, needle).not.toContain(needle);
+  });
+
+  it('plain text and short code identifiers still read: a TypeError about a function survives', () => {
+    expect(scrubMessage('stepMovement is not a function')).toBe('stepMovement is not a function');
+    expect(scrubMessage('Maximum call stack size exceeded')).toBe('Maximum call stack size exceeded');
+    expect(scrubMessage("Cannot read properties of undefined (reading 'x')")).toBe("Cannot read properties of undefined (reading 'x')");
+  });
+
   it('keeps the first line only, collapses whitespace and replaces non-ASCII', () => {
     expect(scrubMessage('first  line\nsecond line with /etc/passwd/x')).toBe('first line');
     expect(scrubMessage('caf\u00e9 \u0000 ok')).toBe('caf? ? ok');

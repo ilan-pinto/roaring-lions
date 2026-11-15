@@ -19,7 +19,8 @@ import type { MissionEvent } from '@lions/sim';
 import * as ev from './events';
 import type { AccountExtra, AccountLike, Loadout, RuntimeView } from './events';
 import type { PlayerIntent } from '../input/intents';
-import { resolveIdentity, readOptOut, safeStorage, setOptOut, storedOptOut, type Identity } from './identity';
+import { resolveIdentity, readOptOut, safeStorage, setOptOut, storedOptOut, type Identity, type StorageLike } from './identity';
+import { gpuFamily } from '@lions/data/telemetry';
 import { installErrorHandlers, type DescribedError } from './errors';
 import { FrameSampler } from './perf';
 import { telemetryEnabled } from './enabled';
@@ -43,7 +44,7 @@ export interface MissionTelemetry {
   onFrame(frameMs: number): void;
 }
 
-/** What the field-signal events say about the machine (GH-1410). `gpu` is the graphics card's name, null when the browser will not say. */
+/** What the field-signal events say about the machine (GH-1410). `gpu` is the graphics card's RAW name here (null when the browser will not say); an event carries only its family. */
 export interface Gear {
   preset: TelemetryPreset;
   backend: TelemetryBackend;
@@ -97,6 +98,8 @@ export interface TelemetryDeps {
   onPagehide: (fn: () => void) => void;
   /** GH-1410: the machine, read when an event is built (the GPU name is asked of the browser lazily, once). */
   gear?: () => Gear;
+  /** GH-1410: the live opt-out. True once the player has switched reports off this session: `ids()` then answers null, so a feedback note carries no id. */
+  optedOut?: () => boolean;
   sink: { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void };
 }
 
@@ -123,7 +126,12 @@ const DEFAULT_GEAR: Gear = { preset: 'high', backend: 'webgl2', gpu: null };
 
 export function createTelemetry(d: TelemetryDeps): Telemetry {
   const session = d.newSession();
-  const gear = (): Gear => d.gear?.() ?? DEFAULT_GEAR;
+  // The ONE place the graphics card is named in an event, and it is the FAMILY: the raw `WEBGL_debug_renderer_info` string carries PCI device ids
+  // and driver versions. Nothing past here sees the raw text, so no caller can send it by mistake.
+  const gear = (): Gear => {
+    const g = d.gear?.() ?? DEFAULT_GEAR;
+    return { ...g, gpu: g.gpu === null ? null : gpuFamily(g.gpu) };
+  };
   const envelope = (): TelemetryEnvelope => ({
     v: 1,
     player: d.identity.player,
@@ -149,9 +157,11 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
 
   return {
     ids: () =>
-      d.identity.tester === undefined
-        ? { player: d.identity.player, session }
-        : { player: d.identity.player, session, tester: d.identity.tester },
+      d.optedOut?.() === true
+        ? null
+        : d.identity.tester === undefined
+          ? { player: d.identity.player, session }
+          : { player: d.identity.player, session, tester: d.identity.tester },
     sessionStart: safe((screen, renderer) => {
       d.sink.push(ev.sessionStart(envelope(), screen, renderer, d.viewport(), d.identity.returning));
     }),
@@ -290,12 +300,25 @@ export function gatedSink(
   };
 }
 
-/** The Settings toggle's door (GH-1410): reads and writes the stored opt-out the live gate reads. Works whether or not telemetry is running. */
+/**
+ * The opt-out the Settings switch set in THIS page load, held in memory as well as in storage. With site data blocked (or a write that throws)
+ * storage cannot hold it, and a switch that only wrote storage would read ON again and the gate would never close. Memory is the floor:
+ * "off" is off for the rest of the page whatever storage does, and storage carries it to the next load where it can.
+ */
+let sessionOptOut = false;
+
+/** Whether the player has opted out right now: this page's switch, or the stored opt-out (`?notrack`, or the switch on an earlier visit). */
+export function optedOutNow(storage: StorageLike | null): boolean {
+  return sessionOptOut || storedOptOut(storage);
+}
+
+/** The Settings toggle's door (GH-1410): reads and writes the opt-out the live gate reads. Works whether or not telemetry is running. */
 export const telemetryOptOut = {
   get(): boolean {
-    return storedOptOut(safeStorage(() => window.localStorage));
+    return optedOutNow(safeStorage(() => window.localStorage));
   },
   set(on: boolean): void {
+    sessionOptOut = on;
     setOptOut(safeStorage(() => window.localStorage), on);
   },
 };
@@ -328,7 +351,7 @@ export function initTelemetry(opts: { dev: boolean; gear?: () => Gear }): Teleme
     if (!on) return (instance = NOOP_TELEMETRY);
     const identity = resolveIdentity(storage, query, () => crypto.randomUUID());
     const sender = new Sender(browserTransport(new URL('api/events', location.origin + import.meta.env.BASE_URL).href));
-    const sink = gatedSink(sender, () => storedOptOut(storage));
+    const sink = gatedSink(sender, () => optedOutNow(storage));
     window.setInterval(safe(() => sink.flush()), FLUSH_MS);
     instance = createTelemetry({
       identity,
@@ -342,6 +365,7 @@ export function initTelemetry(opts: { dev: boolean; gear?: () => Gear }): Teleme
       clearInterval: (h) => window.clearInterval(h as number),
       onPagehide: (fn) => window.addEventListener('pagehide', fn),
       gear: opts.gear ?? (() => DEFAULT_GEAR),
+      optedOut: () => optedOutNow(storage),
       sink,
     });
     // GH-1410: crashes. Only here, past the off switch above: with telemetry off (dev, tests, CI, GPC, DNT, an opt-out) nothing is listened to.

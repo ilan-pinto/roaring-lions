@@ -1704,7 +1704,7 @@ async function main(): Promise<void> {
     gear: () => ({
       preset: settingsDeps.get().video.quality,
       backend: telemetryScreen === 'sandbox' && new URLSearchParams(location.search).get('gpu') === 'webgpu' ? 'webgpu' : 'webgl2',
-      gpu: gpuName(),
+      gpu: gpuName(), // RAW here; the telemetry façade reduces it to a family before any event is built (`createTelemetry`'s `gear`)
     }),
   }).sessionStart(telemetryScreen, 'three');
   // GH-1410: time to the first drawn frame, from navigation start (`performance.now()` counts from it). Two frames, because the first
