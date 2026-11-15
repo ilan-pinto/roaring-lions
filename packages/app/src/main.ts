@@ -1626,7 +1626,17 @@ async function main(): Promise<void> {
                     },
                   }
                 : {}),
-              coins: { read: () => ledgerStore.readRoar(), onAccount: acct !== null, available: ledgerStore.available, coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png` },
+              coins: {
+                read: () => ledgerStore.readRoar(),
+                onAccount: acct !== null,
+                available: ledgerStore.available,
+                coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png`,
+                // The history rows name a mission or a unit the way the Stores do; an id this build does not know words generically.
+                names: {
+                  mission: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+                  unit: (id) => (units as Record<string, { name?: string } | undefined>)[id]?.name,
+                },
+              },
               // A guest boot only: a claimed device has the server-backed store and nothing to claim.
               claim: selectedStore.signedIn ? undefined : { guest: ledgerStore, download: downloadFile, onClaimed: reloadHere },
             });

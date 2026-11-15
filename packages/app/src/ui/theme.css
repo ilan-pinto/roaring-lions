@@ -7917,6 +7917,63 @@ button.rl-menu__item[data-kind='aside'] {
   margin: 0;
   color: var(--ink-dim);
 }
+.rl-profile__coin-heading {
+  margin: var(--s2) 0 0;
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-profile__coin-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.rl-profile__coin-status {
+  margin: 0;
+  color: var(--ink-dim);
+}
+.rl-profile__coin-status:empty {
+  display: none;
+}
+.rl-profile__coin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-band);
+}
+.rl-profile__coin-table td {
+  border-bottom: 1px solid var(--panel-rule);
+  padding: var(--s1) var(--s2);
+  vertical-align: top;
+}
+.rl-profile__coin-when {
+  color: var(--ink-mute);
+}
+/* The time wraps under the date at narrow widths. */
+.rl-profile__coin-date,
+.rl-profile__coin-time {
+  display: inline-block;
+}
+.rl-profile__coin-main,
+.rl-profile__coin-note {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.rl-profile__coin-note {
+  color: var(--ink-dim);
+}
+.rl-profile__coin-amount {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rl-profile__coin-amount--in {
+  color: var(--roar);
+}
+.rl-profile__coin-amount--out {
+  color: var(--ink);
+}
 
 /* ---------------------------------------------------------------------- */
 /* Settings (ui/settings-panel.ts)                                        */
