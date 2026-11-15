@@ -1046,7 +1046,7 @@ async function main(): Promise<void> {
         enabled: accountsOn,
         // A client module that will not load reads as signed out, as an unreachable server does (`me()` answers `off`).
         open: menuAcct.open,
-        name: menuAcct.name,
+        who: menuAcct.who,
         hasAccount: menuAcct.hasAccount,
       },
       feedback: menuFeedback.shown && !feedbackClosed()

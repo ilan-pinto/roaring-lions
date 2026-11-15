@@ -216,16 +216,18 @@ describe('showMenu account chip', () => {
 
   it('links to /profile with an enabled client, guest label first and the display name once known', async () => {
     const stage = document.createElement('div');
-    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account: { enabled: true, hasAccount: true, name: Promise.resolve('Ilan') } });
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account: { enabled: true, hasAccount: true, who: Promise.resolve({ name: 'Ilan', publicId: 'ABCD2345', avatar: { kind: 'preset', id: 'crest-lion', chosen: true } }) } });
     const chip = stage.querySelector<HTMLAnchorElement>('[data-act="profile"]');
     expect(chip?.getAttribute('href')).toBe('/profile');
     expect(chip?.textContent).toBe('Sign in');
-    expect(chip?.querySelector('svg path[fill="currentColor"]')).not.toBeNull();
+    expect(chip?.querySelector('[data-avatar="guest"] svg path[fill="currentColor"]')).not.toBeNull();
     expect(chip?.parentElement?.firstElementChild).toBe(chip);
     await Promise.resolve();
     await Promise.resolve();
     expect(chip?.textContent).toBe('Ilan');
-    expect(chip?.querySelector('svg')).not.toBeNull();
+    expect(chip?.querySelector('img.rl-avatar__img')?.getAttribute('src')).toBe('/ui/avatars/crests/crest-lion.svg');
+    expect(chip?.querySelector('[data-avatar="guest"]')).toBeNull();
+    expect(chip?.getAttribute('aria-label')).toBe('Ilan, your account');
   });
 
   it('links to /privacy only with an enabled account client', () => {
