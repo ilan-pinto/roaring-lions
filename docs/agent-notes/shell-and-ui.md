@@ -34,7 +34,13 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   full day of ingest; the old 2,000 a day fell behind), `purgePlayers` (a `players` row by `last_seen`, with its `accounts` row in the
   same batch, plus any orphan `accounts` row by its own `t`; strict `<`, so a row at exactly 180 days is kept) and `purgeRateDays`.
   Each is a few big `DELETE ... LIMIT` statements, never a loop of small ones: the Free plan allows 50 D1 queries per invocation and
-  `purge.test.ts` counts them.
+  `purge.test.ts` counts them. **The whole run is held under the 50 (GH-1432):** `cron-budget.test.ts` meters BOTH databases (a `batch()` is
+  one query), seeds a worst-case backlog for every sweep and runs `scheduled()` until nothing is left, none of the runs reaching 50 (the
+  first costs 42; a quiet day is pinned at exactly 12). The shares: `purgeExpired` 10 (one batch per 100 notes), events 4, players 4, desync,
+  snapshot and rate-day 3, admin views 1, `sweepAccounts` 2 plus a member budget of 10, `reconcileTombstones` 12 = 46. The member loops
+  spend from a budget (`SWEEP_MEMBER_QUERIES`, `RECONCILE_D1_QUERIES`; a member is 1 query, 2 when a guard held, 3 with the cancelled
+  tombstone) and what is left waits a day; the tombstone scan is resumable through a KV cursor (`RECONCILE_CURSOR_KEY`), because dead
+  tombstones cost a query a page and find nothing. **Add a sweep and you add its share to that sum, or the test reads red.**
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the
