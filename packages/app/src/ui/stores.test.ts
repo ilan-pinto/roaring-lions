@@ -114,9 +114,9 @@ describe('the Stores preview: no Buy is ever enabled', () => {
     // campaign's pay) is a card like any other and nothing is off sale.
     expect(host.querySelector('[data-item="heli_peten_gunship"]')?.getAttribute('data-state')).toBe('locked');
     expect(host.querySelector('.rl-stores__offsale-count')).toBeNull();
-    // The single-player-only rule is said once, in the shelf's intro, and names the one network mode that exists.
+    // The room rule is said once, in the shelf's intro, and names the one network mode that exists.
     expect(host.querySelectorAll('.rl-stores__lede')).toHaveLength(1);
-    expect((host.textContent ?? '').match(/when you play with a friend/g)).toHaveLength(1);
+    expect((host.textContent ?? '').match(/room with a friend/g)).toHaveLength(1);
     // No mode the build does not have (it has no co-op and no skirmish against an AI).
     expect(host.textContent ?? '').not.toMatch(/co-op|skirmish/i);
     dispose();
