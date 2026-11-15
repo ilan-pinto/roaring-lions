@@ -184,4 +184,17 @@ describe('avatars (GH-1075 P4)', () => {
     await expect(set('crest-claw')).rejects.toThrow();
     await expect(set('p:' + 'x'.repeat(41))).rejects.toThrow();
   });
+
+  it('an upload row reports itself with its revision and the derived default as the fallback, and a name change leaves it (falsification audit, GH-1075)', async () => {
+    const h = accountHarness({ now: T0 });
+    const ck = await seed(h);
+    await h.db.prepare("UPDATE profile SET avatar = 'u', avatar_rev = 3 WHERE member_id = 'm1'").run();
+    expect((await me(h, ck)).avatar).toEqual({ kind: 'upload', rev: 3, fallback: 'crest-reticle' });
+    const res = await patch(h, ck, { op_id: op(80), displayName: 'Renamed' });
+    expect(res.status).toBe(200);
+    // The rename really happened, or "a rename leaves the upload alone" proves nothing.
+    expect(await nameOf(h)).toBe('Renamed');
+    expect(await stored(h)).toBe('u');
+    expect((await me(h, ck)).avatar).toEqual({ kind: 'upload', rev: 3, fallback: 'crest-reticle' });
+  });
 });

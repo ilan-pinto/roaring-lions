@@ -243,3 +243,23 @@ describe('format and size', () => {
     expect(verdict('webp', riff([vp8x(0), ['ALPH', new Uint8Array(AVATAR_BYTES_MAX)], LOSSY]))).toBe('too_big');
   });
 });
+
+describe('refusals the first suite never made (falsification audit, GH-1075)', () => {
+  it('a VP8 frame that is not a key frame (tag bit 0 set) is a bitstream problem', () => {
+    const frame = LOSSY[1].slice();
+    frame[0] = (frame[0] ?? 0) | 1;
+    expect(verdict('webp', riff([['VP8 ', frame]]))).toBe('bitstream');
+  });
+
+  it('a JFIF APP0 that is not the first segment after SOI is out of order', () => {
+    const j = cat(REAL_JPEG.slice(0, 2), seg(0xdd, be16(0)), REAL_JPEG.slice(2)); // SOI, DRI, APP0, ...
+    expect(verdict('jpeg', j)).toBe('segment_order');
+  });
+
+  it('an SOF segment longer than its three components is refused: no spare bytes to carry anything', () => {
+    const lenAt = SOF_AT + 2;
+    const len = ((REAL_JPEG[lenAt] ?? 0) << 8) | (REAL_JPEG[lenAt + 1] ?? 0);
+    const j = cat(REAL_JPEG.slice(0, lenAt), be16(len + 1), REAL_JPEG.slice(lenAt + 2, lenAt + len), Uint8Array.of(0), REAL_JPEG.slice(lenAt + len));
+    expect(verdict('jpeg', j)).toBe('segment_size');
+  });
+});

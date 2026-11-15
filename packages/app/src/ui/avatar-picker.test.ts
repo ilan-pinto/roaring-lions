@@ -147,4 +147,42 @@ describe('the avatar picker sheet (GH-1075 P6)', () => {
     window.removeEventListener('keydown', seen);
     expect(seen).not.toHaveBeenCalled();
   });
+
+  // ---- falsification audit (GH-1075): behaviours no earlier test pinned ----
+
+  it('exactly one tile is in the tab order (roving tabindex), and it follows the selection', () => {
+    open();
+    const tabbable = (): string[] => tiles().filter((x) => x.tabIndex === 0).map((x) => x.dataset.preset ?? '');
+    expect(tabbable()).toEqual(['crest-lion']);
+    key(document.activeElement as Element, 'ArrowRight');
+    expect(tabbable()).toHaveLength(1);
+    expect(tabbable()[0]).toBe(checked());
+  });
+
+  it('only the member\'s default crest carries the Default tag', () => {
+    open();
+    const tagged = tiles().filter((x) => x.querySelector('.rl-avatar-picker__tag') !== null).map((x) => x.dataset.preset);
+    expect(tagged).toEqual([defaultAvatar(PUBLIC_ID)]);
+    expect(tiles().find((x) => x.dataset.preset === defaultAvatar(PUBLIC_ID))?.querySelector('.rl-avatar-picker__tag')?.textContent).toBe('Default');
+  });
+
+  it('closing returns focus to the control that opened the sheet', () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    const { handle } = open();
+    expect(document.activeElement).not.toBe(opener);
+    handle.close();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('closing takes the capture-phase key guard off the window: a game key reaches a window listener again', () => {
+    const { handle } = open();
+    handle.close();
+    const seen = vi.fn();
+    window.addEventListener('keydown', seen);
+    key(document.body, 'h');
+    window.removeEventListener('keydown', seen);
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
 });
