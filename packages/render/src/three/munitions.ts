@@ -96,11 +96,33 @@ export const LATCH_AIR_STRIKE = 'support:air_strike';
 export const LATCH_MORTAR_BARRAGE = 'support:mortar_barrage';
 export const LATCH_PLACED_CHARGE = 'charge:placed_charge';
 
+/** Per support kind: the latch key its kills are stored under, and the sim's `callStrike.profile` index (COPIED from
+ *  tuning.ts `FS_*`; a test pins the copy). Typed `Record<SupportMunitionKind, ...>`, so a new kind does not compile
+ *  until it names both: it cannot silently fall through to another kind's push. */
+export const SUPPORT_LATCH: Record<SupportMunitionKind, string> = {
+  air_strike: LATCH_AIR_STRIKE,
+  mortar_barrage: LATCH_MORTAR_BARRAGE,
+};
+export const SUPPORT_PROFILE: Record<SupportMunitionKind, number> = {
+  air_strike: 0,
+  mortar_barrage: 1,
+};
+
+/** The support kind a `strike` event's profile is, or null for a profile this table does not know (a smoke round raises
+ *  no `strike` event; a future HE profile must be added to `SUPPORT_PROFILE`, so it is refused here, loudly, not read as
+ *  an air strike). */
+export function supportKindForProfile(profile: number): SupportMunitionKind | null {
+  for (const k of Object.keys(SUPPORT_PROFILE) as SupportMunitionKind[]) if (SUPPORT_PROFILE[k] === profile) return k;
+  console.error(`munitions: strike profile ${profile} has no support munition kind; its kills take the default push`);
+  return null;
+}
+
 /** The push for a latched killer key: a weapon id, or a support call / placed charge (whose kill `by` is the caller,
- *  not a weapon in the weapons table). An unknown key takes the default. */
+ *  not a weapon in the weapons table). An unknown key takes the default: it never reads another kind's row. */
 export function ragdollPushForKill(key: string | undefined, t: MunitionsTable = MUNITIONS): RagdollPush {
-  if (key === LATCH_AIR_STRIKE) return ragdollPushFor(t.support.air_strike ?? null, t);
-  if (key === LATCH_MORTAR_BARRAGE) return ragdollPushFor(t.support.mortar_barrage ?? null, t);
+  for (const k of Object.keys(SUPPORT_LATCH) as SupportMunitionKind[]) {
+    if (key === SUPPORT_LATCH[k]) return ragdollPushFor(t.support[k] ?? null, t);
+  }
   if (key === LATCH_PLACED_CHARGE) return ragdollPushFor(t.charge.placed_charge ?? null, t);
   return ragdollPushForWeapon(key, t);
 }

@@ -308,9 +308,9 @@ import {
   munitionRow,
   munitionScorchTiles,
   ragdollPushForKill,
-  LATCH_AIR_STRIKE,
-  LATCH_MORTAR_BARRAGE,
   LATCH_PLACED_CHARGE,
+  SUPPORT_LATCH,
+  supportKindForProfile,
   ringSpecFor,
   type Munition,
 } from './munitions';
@@ -921,9 +921,10 @@ const HIT_FACE_CLASSES: ReadonlySet<number> = new Set([
 /** GH-1197: a loaded weapon's munition, its reach read off the weapon the sim built from the unit JSON
  *  (`splash_tiles`, or the bomblets' for a cluster round). Null for no weapon or one the table does not map. */
 /** GH-1223: the killer latch key for a support call (by its profile: a barrage is the mortar class) or a charge. */
-function batchActKey(e: { kind: 'strike'; profile: number } | { kind: 'chargeDetonated' }): string {
+function batchActKey(e: { kind: 'strike'; profile: number } | { kind: 'chargeDetonated' }): string | null {
   if (e.kind === 'chargeDetonated') return LATCH_PLACED_CHARGE;
-  return e.profile === FS_MORTAR_BARRAGE ? LATCH_MORTAR_BARRAGE : LATCH_AIR_STRIKE;
+  const kind = supportKindForProfile(e.profile);
+  return kind === null ? null : SUPPORT_LATCH[kind];
 }
 
 function weaponMunition(wp: WeaponStats | undefined): Munition | null {
@@ -6660,12 +6661,16 @@ export class ThreeRenderer implements Renderer {
     const st = this.sim.state;
     // A catch-up tick: the next swarm frame must see it (`main.ts` has cleared `setQuiet` by then).
     if (this.quiet) this.swarmCaughtUp = true;
-    // GH-1223: a strike or a charge in THIS batch names its caller's kills in this batch, wherever the kill sits:
+    // GH-1223: a strike or a charge in THIS batch (one tick's events; a `strike` event is raised on the tick the call
+    // RESOLVES, after its delay, not the tick it was called) names its caller's kills in this batch, wherever the kill sits:
     // the sim's `stepCharges` kills a garrison (`destroyStructure`) BEFORE it pushes `chargeDetonated`, so an
     // in-order latch would hand those men a stale act. A fire is NOT pre-latched: it never reaches back.
     this.batchAct.clear();
     for (const e of events) {
-      if (e.kind === 'strike' || e.kind === 'chargeDetonated') this.batchAct.set(e.by, batchActKey(e));
+      if (e.kind === 'strike' || e.kind === 'chargeDetonated') {
+        const key = batchActKey(e);
+        if (key !== null) this.batchAct.set(e.by, key);
+      }
     }
     for (const e of events) {
       // A tick far behind the live edge (`setQuiet`) throws no burst: the
@@ -6676,7 +6681,10 @@ export class ThreeRenderer implements Renderer {
       // `fire`, `strike` and `chargeDetonated` events still say what the killer last did. In batch order, so a
       // later act (a fire after a strike) wins for the NEXT batch, and a fire never reaches back onto an earlier kill.
       if (e.kind === 'fire') this.latchKiller(e.shooter, e.weaponId);
-      else if (e.kind === 'strike' || e.kind === 'chargeDetonated') this.latchKiller(e.by, batchActKey(e));
+      else if (e.kind === 'strike' || e.kind === 'chargeDetonated') {
+        const key = batchActKey(e);
+        if (key !== null) this.latchKiller(e.by, key);
+      }
       if (this.quiet && isBurstOnlyEvent(e.kind)) continue;
       if (e.kind === 'fire') {
         this.onFire(e);
