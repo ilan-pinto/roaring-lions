@@ -39,6 +39,7 @@ import { Sim, MissionRuntime, resolveUpgrades, TICKS_PER_SECOND, type MissionJso
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
 import { SWEEP_SEEDS } from './passive-sweep';
 import { telMarum3Plan } from './plans/tel_marum';
+import { START_LAYOUT } from '../mission-harness';
 
 const ID = 'tel_marum_3_clearance' as const;
 const CAMP_TILE: [number, number] = [27, 7];
@@ -80,6 +81,7 @@ function runOne(job: Job): Reply {
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as Parameters<typeof sim.addUnitType>[0]));
   const data = units as unknown as Record<string, { faction: string; cost: { logistics: number; build_time_s?: number; population?: number } } | undefined>;
   const rt = new MissionRuntime(sim, resolveUpgrades(mission, {}, () => undefined), {
+    startLayout: START_LAYOUT, // GH-1360 S3b: shipped missions start in the assembly layout
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,

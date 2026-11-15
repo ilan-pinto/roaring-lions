@@ -155,6 +155,8 @@ const CONFIG = [
   'setupRegion',
   // GH-976 WP3: the kit's structure types and ban rects (setSetupKit rebuilds them; hashed behind setupLive).
   'kitStructType', 'kitBans',
+  // GH-1360 S5a-1: the foot grid's column count.
+  'sepFootCols',
 ];
 const DERIVED = ['fields'];
 const SCRATCH = [
@@ -164,6 +166,8 @@ const SCRATCH = [
   'spreadTiles', 'sepHead', 'sepNext', 'sepCap', 'sepOut', 'sepHitStationary',
   // GH-972: the group-order ledger, rebuilt by garrisonLedger before every read.
   'ledReserved', 'ledHeld',
+  // GH-1360 S5a-1: the foot grid and its count, and the per-tick rider marks.
+  'sepFootHead', 'sepFootN', 'sepOff',
 ];
 
 describe('snapshot schema: completeness', () => {
