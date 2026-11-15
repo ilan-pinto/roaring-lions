@@ -72,6 +72,20 @@ describe('versusSpawns', () => {
       const openAt = (x: number, y: number): boolean =>
         x >= 0 && y >= 0 && x < sim.width && y < sim.height && sim.blocked[y * sim.width + x] === 0;
       let checked = 0;
+      // GH-1360 S1: the placer refuses an occupied tile, so a placement is on its mirrored tile unless ANOTHER body
+      // holds it. A body may be absent from its tile only when the body standing there is on ITS OWN mirrored tile:
+      // two bodies that merely exchanged tiles justify nothing (the first spawned always gets its tile when open).
+      const wantOf = new Map<number, [number, number]>();
+      const standing = new Map<string, number>();
+      for (const ids of force.bySide) for (const i of ids) standing.set(tileOf(i).join(','), i);
+      const lands = (id: number, want: [number, number]): void => {
+        wantOf.set(id, want);
+        checked++;
+      };
+      const settle = (): void => {
+        const unjustified = displacedWithoutCause(wantOf, standing, tileOf);
+        expect(unjustified, 'bodies off their mirrored tile with no body of the right to be there').toEqual([]);
+      };
       VERSUS_KDF.forEach(([, dx, dy], k) => {
         const want0: [number, number] = [Math.round(anchors.friendly[0] + dx), Math.round(anchors.friendly[1] + dy)];
         const want1: [number, number] = [Math.round(anchors.hostile[0] - dx), Math.round(anchors.hostile[1] - dy)];
@@ -79,11 +93,11 @@ describe('versusSpawns', () => {
         // by the shared placer; only a placement that needs no such shift
         // pins the mirror to the tile.
         if (!openAt(...want0) || !openAt(...want1)) return;
-        expect(tileOf(force.bySide[0][k])).toEqual(want0);
-        expect(tileOf(force.bySide[1][k])).toEqual(want1);
-        checked++;
+        lands(force.bySide[0][k], want0);
+        lands(force.bySide[1][k], want1);
       });
-      expect(checked).toBeGreaterThan(VERSUS_KDF.length / 3);
+      settle();
+      expect(checked).toBeGreaterThan(VERSUS_KDF.length / 3); // 2 per placement, so this is a sixth of the placements
     });
   }
 
@@ -121,7 +135,8 @@ describe('KDF vs Sarim (2026-10-14)', () => {
     // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): the spawn moved. Was 52130380.
     // beit re-pinned 28 Oct 2026 for its seat 0 at (4,22) (GH-560 Task 7B): the spawn moved and nothing else. Was 695551139.
     // Re-pinned for GH-884 (5 Nov 2026): mbt_lavi gained hull.aps.reserve, so a room that registers the KDF roster turns apsStockLive on and folds its marker word and two columns; with that fold disabled the old values read back (watched). Was 4158212441 (beit) and 682632360 (tel).
-    const want: Record<string, number> = { beit_sahwan_outskirts: 3497186305, tel_marum: 2541694446 };
+    // tel_marum was 2541694446 before GH-1360 S1 (placeOnOpen refuses occupied tiles; tel_marum spawn moved).
+    const want: Record<string, number> = { beit_sahwan_outskirts: 3497186305, tel_marum: 2673683950 };
     for (const mapId of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const factions of [undefined, ['kdf', 'kdf'] as const]) {
         const { sim, typeOf, map } = buildWorld(mapId);
@@ -223,5 +238,60 @@ describe('LD1 (N3 Task 2): the spawn end follows the seat, the side follows the 
   it('refuses two sides on one end', () => {
     const { sim, typeOf, map } = buildWorld('tel_marum');
     expect(() => versusSpawns(sim, typeOf, versusAnchors(map), ['kdf', 'sarim'], ['friendly', 'friendly'])).toThrow(/two ends/);
+  });
+});
+
+/** Ids whose body is off its wanted tile although no chain of holders ends at a body on its own wanted tile. */
+function displacedWithoutCause(
+  wantOf: ReadonlyMap<number, readonly [number, number]>,
+  standing: ReadonlyMap<string, number>,
+  tileOf: (i: number) => readonly [number, number],
+): number[] {
+  const bad: number[] = [];
+  for (const [id, want] of wantOf) {
+    if (tileOf(id).join(',') === want.join(',')) continue;
+    // Follow the chain of who holds whose tile: it must end at a body on its OWN tile, never loop back or run out.
+    const seen = new Set<number>([id]);
+    let cur = id;
+    let ok = false;
+    for (;;) {
+      const holder = standing.get((wantOf.get(cur) as readonly [number, number]).join(','));
+      if (holder === undefined || seen.has(holder)) break;
+      const hw = wantOf.get(holder);
+      // A holder with no recorded want had its own mirrored tile in rock or off the grid: it stands where the
+      // shared placer's spiral put it, which is a legitimate reason to hold this tile.
+      if (hw === undefined || tileOf(holder).join(',') === hw.join(',')) { ok = true; break; }
+      seen.add(holder);
+      cur = holder;
+    }
+    if (!ok) bad.push(id);
+  }
+  return bad;
+}
+
+describe('displacedWithoutCause (the mirror check can fail)', () => {
+  const at = (m: Record<number, [number, number]>) => (i: number) => m[i];
+  const stand = (m: Record<number, [number, number]>) => new Map(Object.entries(m).map(([i, t]) => [t.join(','), Number(i)] as const));
+  it('accepts a body bumped by a body standing on its own tile', () => {
+    const pos = { 1: [3, 3], 2: [3, 4] } as Record<number, [number, number]>; // 2 wanted [3,3], 1 holds it
+    expect(displacedWithoutCause(new Map([[1, [3, 3]], [2, [3, 3]]]), stand(pos), at(pos))).toEqual([]);
+  });
+  it('refuses two bodies that exchanged tiles', () => {
+    const pos = { 1: [5, 5], 2: [4, 4] } as Record<number, [number, number]>; // 1 wanted [4,4], 2 wanted [5,5]
+    expect(displacedWithoutCause(new Map([[1, [4, 4]], [2, [5, 5]]]), stand(pos), at(pos))).toEqual([1, 2]);
+  });
+  it('accepts a chain of bumps that ends at a body on its own tile', () => {
+    // 1 wants [2,2] (held by 2), 2 wants [3,3] (held by 3), 3 wants [4,4] (held by 4, which stands on its own tile).
+    const pos = { 1: [1, 1], 2: [2, 2], 3: [3, 3], 4: [4, 4] } as Record<number, [number, number]>;
+    const want = new Map<number, [number, number]>([[1, [2, 2]], [2, [3, 3]], [3, [4, 4]], [4, [4, 4]]]);
+    expect(displacedWithoutCause(want, stand(pos), at(pos))).toEqual([]);
+  });
+  it('accepts a body bumped by one whose own mirrored tile was rock (no recorded want)', () => {
+    const pos = { 1: [3, 3], 2: [3, 4] } as Record<number, [number, number]>;
+    expect(displacedWithoutCause(new Map([[2, [3, 3]]]), stand(pos), at(pos))).toEqual([]);
+  });
+  it('refuses a body off its tile with the tile empty', () => {
+    const pos = { 1: [9, 9] } as Record<number, [number, number]>;
+    expect(displacedWithoutCause(new Map([[1, [4, 4]]]), stand(pos), at(pos))).toEqual([1]);
   });
 });

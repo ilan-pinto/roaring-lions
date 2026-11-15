@@ -25,7 +25,7 @@ import {
 import { fx, HALF, ONE, type Fx } from './fixed';
 import { HASH_SEED, hashWord } from './hash';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
-import { TICKS_PER_SECOND, type PlacementRefusal, type Sim, type SimEvent } from './sim';
+import { DOMAIN_VEHICLE, TICKS_PER_SECOND, type PlacementRefusal, type Sim, type SimEvent } from './sim';
 import { advance, cancel, enqueue, lineContested, spendDown, type LineItem, type ProductionLine } from './production';
 import { highGroundRises } from './intel-earn';
 import {
@@ -3354,6 +3354,10 @@ export class MissionRuntime {
    * and nothing checks that the tile it waits on is passable.
    */
   private assertGroundClear(unitId: string, bx: Fx, by: Fx, count: number): void {
+    // GH-1360 S1: a wheeled or tracked body is also refused a boulder tile (`blocked | boulder`), the wall it
+    // would otherwise be born inside. Air flies over a boulder, so only the vehicle move domain reads that mask.
+    const own = this.sim.unitTypes[this.ctx.typeIdOf(unitId)];
+    const mask = own !== undefined && own.moveDomain === DOMAIN_VEHICLE ? this.sim.blockedVehicle : this.sim.blocked;
     for (let k = 0; k < count; k++) {
       const tx = fx.add(bx, (k % 3) * SPREAD) >> 16;
       const ty = fx.add(by, ((k - (k % 3)) / 3) * SPREAD) >> 16;
@@ -3363,7 +3367,7 @@ export class MissionRuntime {
             `(${tx},${ty}), off the ${this.sim.width}x${this.sim.height} map`
         );
       }
-      if (this.sim.blocked[ty * this.sim.width + tx] === 1) {
+      if (mask[ty * this.sim.width + tx] !== 0) {
         throw new Error(
           `mission ${this.mission.id}: ${unitId} body ${k + 1} of ${count} spawns at ` +
             `(${tx},${ty}), which is blocked. A placement spreads its bodies 1.25 tiles ` +
