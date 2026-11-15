@@ -74,6 +74,7 @@ for the lead to strike.
 | QL IV | ceiling 10 | 10, **with `structure_penalty_mult: 2`** | a `clinic` is `roe_penalty` 6. At multiplier 1 its loss alone does not cross 10, so "the clinic must stand" would be false. At 2 it costs 12 and fails the mission by itself |
 | QL IV | produces R M C X E | adds **I** (`ql_shore_watch`, read by QL V) | a clearance that sees the shore quarter's watcher hands QL V a pre-identified post |
 | QL V | ceiling 10 | 10, **with `structure_penalty_mult: 4`** | a `warehouse` is `roe_penalty` 3. At 4 the relief depot costs 12 and fails the mission alone. G-QL1 is the proper fix |
+| QL II | (the outline names no force) | **no drone issued**, against the house habit of a drone in every recon-heavy force | a drone can hold a `hold_for` zone alone (G-QL5) |
 | QL V | secondaries `locate · ql_deep_crew` (carries), `survive_until 300` | `eliminate_hvt · ql_grid_chief`; `locate · ql_deep_crew` **without** `carries` until a reader exists (O-QL3) | a `survive_until` secondary is a clock the passive control also completes (README, third star). A `carries` flag with no reader is the Beit Sahwan III failure the README records |
 
 ---
@@ -233,7 +234,7 @@ only build-up and its second handover. L-8 has ruled, so this is recorded only.
 | `qasr_liwan` | QL I | is the base (it includes the seam berm on row 1) |
 | `qasr_liwan_2` | QL II | the Cut's checkpoint (rows 39, 40, 42); two `tunnels` |
 | `qasr_liwan_3` | QL III | the checkpoint stands; the seam berm is gone, so the ring is closed; the water point's cistern (rows 1, 38 to 42) |
-| `qasr_liwan_4` | QL IV | III's ground plus three enemy firing positions round the compound and the yard commander's sandbags (rows 18 to 25, 30, 31); one `tunnels` route |
+| `qasr_liwan_4` | QL IV | III's ground plus three enemy firing positions round the compound and a sandbag run in the yard (cover for whoever holds it) (rows 18 to 25, 30, 31); one `tunnels` route |
 | `qasr_liwan_5` | QL V | III's ground plus the deep shaft head's firing position, which replaces a shanty (rows 30, 31); five `tunnels` routes |
 
 ### Why flat, and why no domain split
@@ -422,10 +423,21 @@ passable tile (checked).
 | | `clinic` | [30,21,5,8] | 28 | the clinic and its forecourt, where its people stand. **Flagged** |
 | | `compound` | [24,19,12,11] | 80 | the whole walled compound; trigger zone |
 | | `clinic_refuge` | [25,37,8,3] | 24 | holds `clinic_refuge_point (29,38)` |
-| `qasr_liwan_5` | `pump_yard` | [0,26,7,7] | 45 | hold zone |
+| `qasr_liwan_5` | `pump_yard` | [0,26,7,7] | 45 | hold zone. The issued drone can hold it alone once it is cleared (G-QL5). Militia rifles can hit aircraft (`can_target` includes `air`), so every flush crew contests it and shoots the drone, and `playtest` checks a drone-only hold (§5.7) |
 | | `shore_grid` | [8,26,9,11] | 71 | collapse zone: the three **deep** mouths and none of the shallow ones |
 | | `relief_depot` | [7,18,8,8] | 26 | the depot and its walled yard. **Flagged** |
-| | `shore_quarter` | [3,17,18,21] | 282 | the inhabited shore (6 houses, 5 shanties, 2 warehouses). **Flagged** |
+| | `shore_quarter` | [3,17,18,21] | 282 | the inhabited shore (6 houses, 5 shanties, 2 warehouses). Reference only: **not** flagged (§5.5) |
+
+Markers. All of them were checked on a passable tile. `north_muster` is a different
+tile on each map that names it.
+
+| map | markers |
+|---|---|
+| `qasr_liwan` | `ql_start` (44,2) · `ql_extract_point` (22,1) · `the_house` (18,9) · `house_gate` (18,6) · `street_muster` (6,11) · `north_road_w` (6,3) · `tower_knoll` (32,5) · `mortar_lot` (10,15) |
+| `qasr_liwan_2` | `ql_start` (44,24) · `camp_exit` (43,27) · `refuge_point` (28,45) · `seam_point` (6,3) · `cut_gate` (28,41) · `north_muster` (10,7) · `lanes_muster` (18,31) · `west_vent_mk` (6,38) · `coast_north` (2,0) · `coast_point` (3,40) |
+| `qasr_liwan_3` | `ql_start` (42,45) · `camp_exit` (41,43) · `handover_point` (12,38) · `pause_refuge_point` (12,45) · `handover_withdraw` (17,25) · `city_north` (21,18) · `city_west` (6,20) · `city_east` (39,18) · `staging_point` (28,38) · `water_mk` (17,38) |
+| `qasr_liwan_4` | `ql_start` (28,44) · `clinic_refuge_point` (29,38) · `yard_point` (27,24) · `north_muster` (21,8) · `east_muster` (40,12) · `south_gate` (29,30) |
+| `qasr_liwan_5` | `ql_start` (24,44) · `camp_exit` (28,44) · `vent_shallow_n` (6,24) · `vent_shallow_s` (6,34) · `pump_point` (3,29) · `north_muster` (6,8) · `chief_post` (14,32) |
 
 ### 3.5 Tunnels (drafts)
 
@@ -514,11 +526,18 @@ done that work. The routes are 2D map data and there is no depth in the sim.
     crews surface there.
   - If the losRay to a tile under a building fails, move the waypoint off the depot wall.
 - **QL-A7 (the pause).** In `qasr_liwan_3`, no enemy `hold_position` placement is within
-  **8 tiles** (rifle and sight range plus one) of any tile of `staging` or `handover`.
-  Drafts:
-  - the west line is 9.5 from the handover;
-  - the centre line is 10.2 from staging;
-  - the east line is 10.8 from staging.
+  **11 tiles** of the **nearest tile** of `staging`, `handover` or `water_point`. That is the
+  longest ground sight in the issued force plus one: `apc_eitan` and `jeep_shoded` see 10.
+  - The one exception is `handover_party` **before 90 s** (it stands 2 tiles from the handover).
+  - Its withdrawal marker is held to the same 11.
+  - Drafts, nearest unit to nearest zone tile:
+    - the west line, 11.4 to the handover;
+    - the centre line, 12.0 to staging;
+    - the east line, 12.5 to staging;
+    - the mortar, 12.4 to the handover;
+    - the withdrawn party, 11.4 to the handover.
+  - Measure it through the real `losRay`, not the circle: a house between the two
+    lengthens it, and nothing shortens it.
 - **QL-A8 (QL I's mortar).** `ql_mortar` at (10,15) has range 16: it reaches the house
   (about 10) and **not** `ql_extract` (about 18.4). This is pinned because the rescue's
   whole risk model depends on it.
@@ -624,7 +643,9 @@ afterwards (README; `loanedPlacements`). The gates are read from
 edge wakes up.
 
 **Triggers.**
-- `zone_entered(ql_house_yard)` → `commit street` → `the_house` [18,9].
+- `zone_entered(ql_house_yard)` → `commit street` → `the_house` [18,9]. `zone_entered`
+  counts aircraft (G-QL5), so **a drone flown over the courtyard wakes the street**. The
+  house is looked at from the lane, not from above it, and the briefing says so.
 - `timer_s(180)` → `commit street` → `the_house`. The street wakes on its own.
 - Labels for `narrative-designer`, each under 48 characters, for example "The street is
   waking".
@@ -654,7 +675,9 @@ edge wakes up.
 - A barrage on the lane when the street wakes costs:
   - one strike into the flagged zone (5);
   - plus 3 if it is aimed within 2 tiles of the person;
-  - and 6 for each house it brings down.
+  - and 6 for each house it brings down. Whether a called barrage's structure kills are
+    charged to the player was **not read** this session: `level-scripter` confirms
+    `structureDestroyed`'s `by` for a strike.
 - So **one barrage dropped on the lane is survivable, and a second, or one that takes a
   house, is not.** That is the temptation the street exists to create.
 
@@ -704,8 +727,12 @@ edge wakes up.
 | `apc_eitan` | 2 | — | [43,25] |
 | `jeep_shoded` | 1 | — | [43,22] |
 | `ifv_namer` | 1 | on loan | [45,26] |
-| `recon_drone` | 1 | on loan | [44,21] |
 | `inf_medic_squad` | 1 | on loan unless bought | [42,24] |
+
+**No drone is issued**, deliberately. `hold_for` counts any living side-0 unit in its
+zone, aircraft included (G-QL5), so a drone parked over a cleared seam would hold it
+alone. That would make "doing both splits the force" false. The seam's posts arrive
+pre-identified from I, and that is the recon this mission reads.
 
 **What to spend Logistics on (the briefing says it).** The camp buys a **second force**
 for the second seam. The ungated menu is `inf_squad` (292), `at_team` (236),
@@ -745,7 +772,7 @@ to fire does contest, so the vents pause both holds while they are up.
 |---|---|---|---|
 | 120 s | `militia_cell` ×2 | `north_muster` [10,7] | `seam_point` [6,3] |
 | 180 s | `militia_cell` ×2, `rpg_team` ×1 | `lanes_muster` [18,31] | `cut_gate` [28,41] |
-| 270 s | `technical` ×1 | `north_road_w` [6,3] (a new marker on this map) | `coast_point` [3,40] (new) |
+| 270 s | `technical` ×1 | `coast_north` [2,0] | `coast_point` [3,40] |
 | 330 s | `militia_cell` ×3 | `north_muster` | `seam_point` |
 | 390 s | `moto_rpg` ×2 | `lanes_muster` | `cut_gate` |
 
@@ -830,19 +857,22 @@ Lavi gun 12 and sight 12), and either would break the pause on its own (below).
 
 **The pause, as the runtime can express it today** (G-6 is the proper form).
 1. **The handover party.** Group `handover_party`, `militia_cell` ×2 at [11,34] and
-   [13,34], `hold_position`, 3 tiles from the taken. `timer_s(90)` → `withdraw_to
-   handover_withdraw` [14,28], about 10 tiles back. Before 90 s, a soldier who walks up
-   to the taken is in their rifles' range.
-2. **The lines.** The enemy holds just beyond the player's eyes:
-   - group `west_line`, `militia_cell` ×2 at [9,29] and [11,29], 9.5 tiles from the
-     handover;
-   - group `centre_line`, `militia_cell` ×2 and `rpg_team` ×1 at [22,26], [23,27] and
-     [22,27], 10.2 from staging;
-   - group `east_line`, `militia_cell` ×2 at [39,27] and [39,28], 10.8 from staging;
-   - `mortar_crew` ×1 at [17,24], 13.9 from staging's corner and 14.9 from the handover.
+   [13,34], `hold_position`, 3 tiles from the taken and 3.6 from the water point.
+   `timer_s(90)` → `withdraw_to handover_withdraw` [17,25], 11.4 tiles from the handover.
+   Before 90 s, a soldier who walks up to the taken, or onto the water point, is in their
+   rifles' range.
+2. **The lines.** The enemy holds just beyond the player's eyes. Distances are from the
+   nearest unit to the nearest zone tile (QL-A7):
+   - group `west_line`, `militia_cell` ×2 at [5,25] and [6,25], 11.4 from the handover;
+   - group `centre_line`, `militia_cell` ×2 and `rpg_team` ×1 at [22,24], [23,24] and
+     [22,23], 12.0 from staging;
+   - group `east_line`, `militia_cell` ×2 at [39,24] and [39,25], 12.5 from staging;
+   - `mortar_crew` ×1 at [17,24]: 12.4 from the handover and 13.9 from staging, inside its
+     own range (16) of both.
 
-   Militia sight and rifle range are 7, and the player's infantry see 8 (QL-A7). **Nobody
-   fires unless somebody moves.**
+   Militia sight and rifle range are 7. The issued force's longest ground sight is 10
+   (`apc_eitan`, `jeep_shoded`), so a vehicle parked on staging's north edge sees nothing.
+   **Nobody fires unless somebody moves.**
 3. **The end.** `timer_s(240)` → `commit` each line group → `staging_point` [28,38].
 4. **The pause can be broken early, by either side's act:**
    - `zone_entered(pause_line)` → `commit` the lines. The player crossed the south street.
@@ -857,8 +887,13 @@ Lavi gun 12 and sight 12), and either would break the pause on its own (below).
 **Enemy stance (also).**
 - `ql_yard_watch`, `rpg_team` ×1 at [27,22] inside the clinic yard, `hold_position`.
 - It is 14 tiles from staging, and the **carrying secondary** is to find it.
-- Finding it means flying the drone over the compound during the pause, with the mortar
-  and AT team on `ambush`, or the first identification brings the pause down.
+- **The look is taken from south of the south street.** `zone_entered` counts any living
+  side-0 unit, aircraft included (`livingIn` has no ground filter: G-QL5). So a drone that
+  crosses `pause_line` breaks the pause as surely as a squad does.
+  - From [27,34] the drone (sight 16) is 12 tiles from the watcher and 9 or more from
+    every line.
+  - The mortar and AT team must be on `ambush` first, or the first identification brings
+    the pause down.
 
 **Waves** (the end of the pause, on the clock):
 
@@ -946,7 +981,7 @@ not, and that is the mission's thesis (`khan_rafid/design.md` §3.1).
 | tag / group | unit | at | stance | note |
 |---|---|---|---|---|
 | `ql_yard_watch` | `rpg_team` ×1 | [23,24] | `ambush(3)` | outside the west gate. **Read from III**: pre-identified and its ambush forfeit if III found it |
-| `ql_yard_commander` | `militia_cell` ×1 | [27,24] | `hold_position` | in the yard behind the sandbags. **Secondary** |
+| `ql_yard_commander` | `militia_cell` ×1 | [27,18] | `hold_position` | at the yard's north gate, **outside** `clinic_yard`. An enemy standing inside the zone contests it (`contestedIn`), which would make the secondary the primary's price. **Secondary** |
 | group `firing_line` | `militia_cell` ×1 | `garrison` F [22,18] | `garrison` | north-west of the compound, on the clinic street |
 | group `firing_line` | `militia_cell` ×1, `rpg_team` ×1 | `garrison` F [37,23] | `garrison` | east, **three tiles from the clinic's wall**: the bait (below) |
 | group `firing_line` | `militia_cell` ×1 | `garrison` F [22,30] | `garrison` | south-west, covering the south gate and the walk out |
@@ -1085,13 +1120,16 @@ shore's houses are protected by the flagged zones and the ceiling.
   must not hit.
 
 **Conduct.**
-- `roe.flagged_zones: ["relief_depot", "shore_quarter"]`, `structure_penalty_mult` **4**,
+- `roe.flagged_zones: ["relief_depot"]`, `structure_penalty_mult` **4**,
   `no_collateral_above` 10.
+  - Only the depot is flagged. The multiplier already prices every house on the shore,
+    and flagging the whole quarter would bill strays across nearly the whole fight,
+    the `technical`'s target included.
 - **The depot costs 12 and fails alone.** A house costs 24, a shanty 8, a pump house 8,
   and a firing position 0.
 - Two strays (10) pass and a third fails.
-- The Namer's cannon (0.35) is the only issued weapon at or above 0.3 besides fire
-  support. The rifles answer the depot's crews for free.
+- The issued weapons at or above 0.3 are the Namer's cannon (0.35) and the AT team's
+  spike (0.30), plus fire support. The rifles answer the depot's crews for free.
 
 **Passive-player loss.**
 - `collapse` **fails at 360 s**.
@@ -1145,7 +1183,10 @@ shore's houses are protected by the flagged zones and the ceiling.
    `ql_yard_watch`. `pnpm playtest`'s star assertion holds I and III at three stars.
 5. **Time in band.** Each winning plan inside its own limit with the README's margins
    (120 s and 20% over the slowest 30-seed win).
-6. **First shipped `no_collateral_above`.** The harness drives three missions that carry
+6. **A drone cannot hold a zone alone.** In QL V, a plan that parks only the drone in
+   `pump_yard` after clearing it must not complete the hold before the flush. If it does,
+   the drone leaves the force or G-QL5 lands first.
+7. **First shipped `no_collateral_above`.** The harness drives three missions that carry
    one (G-16). Confirm the plan ladder reports a ceiling failure as a defeat with an
    objective cause.
 
@@ -1159,7 +1200,7 @@ Censused in this worktree on 2026-11-15 (appendix). No row is without a path or 
 
 | unit | path | used in |
 |---|---|---|
-| `recon_drone` | `data/units/kdf/recon_drone.json`, `art/meshes/vehicles/recon_drone.glb` | I, II, III, V |
+| `recon_drone` | `data/units/kdf/recon_drone.json`, `art/meshes/vehicles/recon_drone.glb` | I, III, V |
 | `sniper_team` | `data/units/kdf/sniper_team.json`, `art/meshes/sniper_team.glb` | I |
 | `inf_squad` | `data/units/kdf/inf_squad.json`, `art/meshes/inf_squad.glb` | all |
 | `inf_medic_squad` | `data/units/kdf/inf_medic_squad.json`, `art/meshes/inf_medic_squad.glb` | all |
@@ -1244,6 +1285,7 @@ and the tile folders) holds nothing this town needs that is not already exported
 | **G-QL2** | no trigger condition on an objective completing, nor on a route opening | QL V | schema + engine | `on.kind: "objective_complete"` with `objective`, and `"route_open"` with `route`. With them, a `remove` on the shallow stocks can say "the water got there", and a `say` can mark the deep crew breaking through. Waves already take `trigger: <objective id>` | `sim-guard` |
 | **G-QL3** | civilians exist from t=0 only; nothing can spawn side 2 | QL III | engine | `spawn` with a `side: 2` placement. The taken could then **arrive** at the handover instead of standing there behind a guard who steps back | `sim-guard` |
 | **G-QL4** | nothing checks a `capture` or `hold_for` zone for enough passable tiles (Khan Rafid's G9) | all | validator | the doctrine test's QL-A1 asserts it per map. The general rule belongs in `validate_data.mjs` | `content-validator` |
+| **G-QL5** | `zone_entered` and `hold_for` count aircraft. Both call `livingIn(zone, 0)` with no ground filter (`mission.ts` `stepTriggers`, `stepObjectivePass`); only `capture` has a `ground_only` path, and the schema does not expose it | QL I, II, III, V | schema + engine | `ground_only: true` on a `zone_entered` condition and on `hold_for`, reusing `capture`'s `skipsGround`. Today: no drone in II; the QL I and III looks are taken from outside the trigger zones; `playtest` checks a drone-only hold in V | `sim-guard`, `level-scripter` |
 
 ### 7.3 Content changes this town requires
 
