@@ -109,7 +109,7 @@ import {
   waitForHostCrossfade,
 } from '../golden-diff/browser';
 import { garageSeedScript } from './garage-seed';
-import { assertOutcomeStillPresent } from './outcome-guard';
+import { assertOutcomeStillPresent, OutcomeMomentDismissedError } from './outcome-guard';
 import { claimPort } from './port';
 import { musicOffInitScript } from './music-off';
 
@@ -247,6 +247,26 @@ async function shot(page: Page, dir: string, name: string, opts: { fullPage?: bo
   for (const line of over) console.log(`      ! ${line}`);
   OVERFLOW_TOTAL += over.length;
   return true;
+}
+
+/**
+ * `assertOutcomeStillPresent` for a REPORT-ONLY tool (GH-1409). The guard is right that the PNG is mislabelled when the outcome moment was
+ * gone before the photograph, and under SwiftShader that happens: the first CI run took `25-outcome-defeat` after the moment's 2600 ms hold
+ * had elapsed. Throwing there ended the whole walk at the first resolution. Here the mislabelled PNG is deleted, the shot is recorded as
+ * failed (so the run still exits non-zero and says so), and the walk goes on. Returns true when the moment was dismissed. Any other error is
+ * rethrown.
+ */
+function outcomeDismissed(present: boolean, label: string, dir: string): boolean {
+  try {
+    assertOutcomeStillPresent(present, label);
+    return false;
+  } catch (err) {
+    if (!(err instanceof OutcomeMomentDismissedError)) throw err;
+    SHOTS.record(label, err);
+    fs.rmSync(path.join(dir, `${label}.png`), { force: true });
+    console.log(`  ${label}  [DISMISSED BEFORE ITS PHOTOGRAPH] the PNG was removed, not mislabelled`);
+    return true;
+  }
 }
 
 async function settle(page: Page, ms: number): Promise<void> {
@@ -1152,7 +1172,7 @@ try {
     // `.rl-aar` wait that follows needs Playwright's own
     // polling working again.
     await page.evaluate(FREEZE_FOR_SCREENSHOT_SCRIPT);
-    const defeatShot = await shot(page, dir, '25-outcome-defeat');
+    let defeatShot = await shot(page, dir, '25-outcome-defeat');
     await page.evaluate(RESTORE_AFTER_SCREENSHOT_SCRIPT);
     // Fix round 1 (Task 6 review): `shot()` alone never checked that the
     // moment was STILL the thing on screen by the time its pixels were
@@ -1168,9 +1188,10 @@ try {
     // GH-1409: only a PNG that was actually taken can be mislabelled. After a failed capture the moment's own 2600 ms hold may have
     // elapsed while the screenshot waited, so its absence is not a defect to throw on; the skip is clicked only if it is still there.
     if (defeatShot) {
-      assertOutcomeStillPresent(
+      defeatShot = !outcomeDismissed(
         (await page.locator('.rl-outcome[data-outcome="defeat"]').count()) > 0,
-        '25-outcome-defeat'
+        '25-outcome-defeat',
+        dir
       );
     }
     if (defeatShot || (await page.locator('.rl-outcome__skip').count()) > 0) await page.click('.rl-outcome__skip');
@@ -1285,7 +1306,7 @@ try {
           '24-outcome-victory: the scripted plan did not reach victory (.rl-outcome[data-outcome="victory"] absent immediately after the plan\'s own step() calls) -- see the freeze comment above for the tick-drift failure mode this replaced'
         );
       }
-      const victoryShot = await shot(winPage, dir, '24-outcome-victory');
+      let victoryShot = await shot(winPage, dir, '24-outcome-victory');
       // `winCtx` closes right after this block, so nothing later on
       // `winPage` needs the loop restored -- unlike the defeat capture,
       // which freezes only briefly and restores before continuing the same
@@ -1295,9 +1316,10 @@ try {
       // this closes. `.count()` is a plain, non-waiting query, unaffected by
       // the loop being frozen.
       if (victoryShot) {
-        assertOutcomeStillPresent(
+        victoryShot = !outcomeDismissed(
           (await winPage.locator('.rl-outcome[data-outcome="victory"]').count()) > 0,
-          '24-outcome-victory'
+          '24-outcome-victory',
+          dir
         );
       }
       await winCtx.close();
