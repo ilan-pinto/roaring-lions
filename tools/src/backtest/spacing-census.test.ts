@@ -63,6 +63,15 @@ describe('the foot radius table', () => {
       const b = bodyOfType(t);
       if (b !== null && b.kind === 'foot') expect(b.unlisted, `${t.id} has no radius`).toBe(false);
     }
+    // The loop above is vacuous if bodyOfType classifies nothing as foot: pin an independent, literal set that must.
+    expect(Object.keys(FOOT_RADIUS).length).toBeGreaterThan(0);
+    for (const id of ['inf_squad', 'civilians', 'breach_team', 'manpad_team', 'rpg_team']) {
+      const t = sim.unitTypes.find((x) => x.id === id);
+      expect(t, `${id} is a shipped unit`).toBeDefined();
+      const b = t === undefined ? null : bodyOfType(t);
+      expect(b?.kind, `${id} is a ground foot body`).toBe('foot');
+      expect(b?.unlisted, `${id} has a listed radius`).toBe(false);
+    }
   });
 });
 
@@ -205,6 +214,8 @@ describe('the garrison exemption', () => {
     const c = { ...entry('foot', 0, circle(3, 3), 9), onBlocked: false };
     const s = splitBlocked([a, b, c], new Set([7, 9]));
     expect(s.total).toBe(2);
+    // The ids that come out are exactly the blocked ids that went in (a dropped body leaves total and the sum in step).
+    expect([...s.garrison, ...s.other].map((e) => e.id).sort((p, q) => p - q)).toEqual([7, 8]);
     expect(s.garrison.map((e) => e.id)).toEqual([7]);
     expect(s.other.map((e) => e.id)).toEqual([8]);
   });
@@ -215,7 +226,11 @@ describe('the garrison exemption', () => {
     for (const id of st.garrisonIds) expect(id).toBeLessThan(st.sim.entityCount);
     // The split is exhaustive: every blocked-tile body is one or the other.
     const s = splitBlocked(entriesOf(st.sim), st.garrisonIds);
-    expect(s.garrison.length + s.other.length).toBe(s.total);
+    // Against the input, not against the helper's own sum: the blocked bodies in, the same ids out.
+    const blockedIds = entriesOf(st.sim).filter((e) => e.onBlocked).map((e) => e.id).sort((p, q) => p - q);
+    expect(blockedIds.length).toBeGreaterThan(0);
+    expect([...s.garrison, ...s.other].map((e) => e.id).sort((p, q) => p - q)).toEqual(blockedIds);
+    expect(s.total).toBe(blockedIds.length);
     expect(s.garrison.length).toBeGreaterThan(0);
   });
 });
