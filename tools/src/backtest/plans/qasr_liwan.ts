@@ -80,7 +80,7 @@ export const ql1Plan: Plan = (sim, rt, ids, at) => {
 // first build parked the Eitan beside the people and never delivered them: 28 of 32 seeds lost `residents_through`); the
 // squads stand off the Cut's two-tile lane, which civilians walk through; the Spike and the 60 mm stay home, because a
 // stray beside `south_quarter` bills 5 each (six of them took Conduct to the 70 floor). The camp buys rifle squads. 30 of 30
-// sweep seeds win (slowest 6.0 min), two stars, Conduct 100.
+// sweep seeds win (slowest 5.8 min), two stars, Conduct 100.
 export const ql2Plan: Plan = (sim, rt, ids, at) => {
   const apcs = ids('apc_eitan');
   const north = [...apcs.slice(0, 1), ...ids('ifv_namer')];
@@ -135,9 +135,9 @@ export const ql2Plan: Plan = (sim, rt, ids, at) => {
 // III — The Pause. The rescue squad and the jeep wait out of the handover party's sight until it steps back at 90 s,
 // then walk up to the four and home; the rest of the force takes the forward ground and keeps buying rifle squads.
 // Measured (F-1): the forward ground is stood on from about 6 s, `hold_for` banks from the first uncontested tick, so 234 s of the
-// 300 are banked when the pause ends at 240 s, and the hold completes at 306 s on every seed: the waves never contest it
-// once the force is dug in. The 300 s was left as authored. The mortar and the Spike must not be in reach of the lines before
-// 240 s (a mortar that fired at a line from the forward ground broke the pause at 25 s). 30 of 30 sweep seeds win at 5.1 min,
+// 300 were banked when the pause ended at 240 s, and the 300 s hold completed at 306 s on every seed: the waves never contest it
+// once the force is dug in. The lead ruled the hold 360 s (GH-1452), so 234 of 360 are banked at 240 s and it completes at about 366 s. The mortar and the Spike must not be in reach of the lines before
+// 240 s (a mortar that fired at a line from the forward ground broke the pause at 25 s). 30 of 30 sweep seeds win (slowest 6.2 min),
 // three stars (the drone identifies the yard watch from (27.5,34.5)), Conduct 100.
 export const ql3Plan: Plan = (sim, rt, ids, at) => {
   const squads = ids('inf_squad');
@@ -173,7 +173,7 @@ export const ql3Plan: Plan = (sim, rt, ids, at) => {
 // IV — The Clinic Yard. The squads walk the forecourt out through the south gate (it is one tile wide: armour parked in it
 // strands the people, so the armour waits outside until `walk_the_forecourt_out` is done); the armour then takes the yard from
 // the gate with the Lavi, the Namer and the Eitan, none of which bills while its target is west of the clinic, and the
-// engineers charge the shaft once the dog has found it. 30 of 30 sweep seeds win (slowest 4.2 min), two stars, Conduct 100.
+// engineers charge the shaft once the dog has found it. 30 of 30 sweep seeds win (slowest 4.3 min), two stars, Conduct 100.
 export const ql4Plan: Plan = (sim, rt, ids, at) => {
   const squads = ids('inf_squad');
   const feet = [...squads, ...ids('inf_medic_squad')];
@@ -209,7 +209,7 @@ export const ql4Plan: Plan = (sim, rt, ids, at) => {
 // V — The Pumps. No drone is issued in the shipped force (level-script F-4: a drone alone can hold `pump_yard`). The Namer opens
 // the grid chief's firing position from the lane south of it (rifles cannot dislodge a garrison in cover 3, and the chief
 // killed both Yahalom teams on the first build); the rest of the force waits out of his range at the apron until he is down, then a pump party
-// holds the yard and the engineers take the three deep routes, nearest first. 30 of 30 sweep seeds win (slowest 5.9 min), two stars,
+// holds the yard and the engineers take the three deep routes, nearest first. 30 of 30 sweep seeds win (slowest 6.2 min), two stars,
 // Conduct 100. `run_the_pumps` completes last, on the same tick as the win, so the two trigger-keyed flush waves never play
 // in this plan; a variant that held the routes back until the pumps were done (run once, not kept) spawned both at 333.7 s,
 // one tick after `run_the_pumps`, which is the first shipped use of a wave `trigger`.

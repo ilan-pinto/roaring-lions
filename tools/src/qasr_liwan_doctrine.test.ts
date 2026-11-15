@@ -75,14 +75,14 @@ describe('QL-A1: every capture, hold and collapse zone has room to stand in', ()
   const FLOOR = 12;
   // [mission, zone, passable tiles]. Both domains read the same on these maps: they carry no b, d or ^.
   const TABLE: readonly (readonly [string, string, number])[] = [
-    [QL2, 'ring_north', 40],
+    [QL2, 'ring_north', 44],
     [QL2, 'the_cut', 34],
     [QL2, 'coast_road', 42],
-    [QL3, 'staging', 34],
+    [QL3, 'staging', 40],
     [QL3, 'water_point', 15],
     [QL4, 'clinic_yard', 43],
     [QL5, 'pump_yard', 45],
-    [QL5, 'shore_grid', 71],
+    [QL5, 'shore_grid', 95],
   ];
   for (const [id, name, n] of TABLE) {
     it(`${id} ${name}: ${n} tiles, on foot and by wheel, above the floor of ${FLOOR}`, () => {
@@ -155,7 +155,7 @@ function walk(id: string, from: Pt, to: Pt): [number, number] | null {
 const body = (at: Pt, k: number): Pt => [Math.floor(at[0] + (k % 3) * 1.25), Math.floor(at[1] + Math.floor(k / 3) * 1.25)];
 
 describe('QL-A3: the civilians', () => {
-  // [mission, group at, per body: steps, weighted length]. The design said "14 or fewer" and meant STEPS (8-connected
+  // [mission, group at, per body: steps, weighted length]. The design said "14 or fewer" and meant STEPS; re-measured on the 15 Nov 2026 maps (GH-1452), where only QL IV's lengths moved (8-connected
   // moves); the weighted lengths run 15 to 20 percent longer (level-script F-9), and both are pinned.
   const WALKS: readonly (readonly [string, Pt, readonly (readonly [number, number])[]])[] = [
     [QL1, [18.5, 9.5], [[8, 9.7]]],
@@ -163,8 +163,8 @@ describe('QL-A3: the civilians', () => {
     [QL2, [19.5, 37.5], [[11, 13.5], [11, 13.1], [11, 12.2]]],
     [QL2, [35.5, 37.5], [[12, 13.2], [12, 13.7], [12, 14.5]]],
     [QL3, [11.5, 37.5], [[8, 8.4], [8, 8.0], [8, 8.8], [7, 7.4]]],
-    [QL4, [30.5, 26.5], [[12, 13.2], [12, 13.7], [14, 15.7]]],
-    [QL4, [30.5, 27.5], [[11, 12.2], [12, 13.2], [14, 15.2]]],
+    [QL4, [30.5, 26.5], [[12, 12.4], [12, 12.8], [14, 14.8]]],
+    [QL4, [30.5, 27.5], [[11, 11.4], [12, 12.4], [14, 14.4]]],
   ];
   for (const [id, at, expected] of WALKS) {
     it(`${id} group at ${at}: every body walks to the refuge in the pinned steps, none over 14`, () => {

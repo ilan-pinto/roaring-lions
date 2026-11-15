@@ -3945,7 +3945,7 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // plan's drone identifies the souk's militia cell). Unchanged, the plan read 1 star (ROE 66, 3.4 min) on 424242 and 2 stars on every other seed (200 of
 // 200 on seeds 1..200). The one placed change is the east-lane rocket team, one tile, (34, 15) -> (35, 14). See docs/agent-notes/mission-findings.md.
 // 2026-11-15, GH-1438 (Qasr Liwan, The Long Ground town 1): 6955 -> 8115, +1160, read off the printed per-mission credits. Was 6955. Five new missions and
-// nothing else: Qasr Liwan I 240, II 220, III 240, IV 230, V 230. Every other mission's credits line is byte-identical to the run before it
+// nothing else: Qasr Liwan I 240, II 220, III 250, IV 220, V 230 (the maps were re-laid distinct on 15 Nov, GH-1452: the same 8,115, a different split). Every other mission's credits line is byte-identical to the run before it
 // (diffed line by line), and no existing star moved. The credit ladder is over 34 missions now (was 29).
 const LADDER_CREDITS = 8115;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
@@ -4133,7 +4133,9 @@ for (const [label, got, want] of [
 // 2026-10-30, GH-707, the last seven: 31 -> 30, same mission. With the medic team in the force Umm Zeitoun IV's sniper team
 // dies at the crest at 247 s (the re-rolled streams), one body fewer than the 31 the chain carried out before. Umm Zeitoun IV's
 // credit is 259 as before, because its medic comes home and pays for the sniper. Seeds 100-129 still win 30 of 30 there.
-const ROSTER_MAX = 30;
+// 2026-11-15, GH-1438 (Qasr Liwan, the maps re-laid distinct on the lead's ruling, GH-1452): 30 -> 31. Was 30. Qasr Liwan V's chain carries 31 out
+// (it bought squads and lost none); the cap is 150, margin 4.8x.
+const ROSTER_MAX = 31;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
@@ -4218,7 +4220,7 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // 2026-11-09, GH-868: 42 -> 44. Was 42. The bought Peten (Wadi Halam III, 304 intel) and the bought Remetz (Wadi Halam V, 382 intel) meet technicals
 // in winning runs too, and each earns its sweep. The one short plan is still `beit_sahwan_2_foothold`, so "44 of 45".
 // 2026-11-15, GH-1438 (Qasr Liwan, The Long Ground town 1): 44 -> 49. Was 44. Five more winning runs, one per mission, and each earns a sweep (Qasr Liwan I
-// 184, II 232, III 304, IV 256, V 256 intel on seed 424242). The one short plan is still `beit_sahwan_2_foothold`, so "49 of 50".
+// 184, II 232, III 312, IV 248, V 256 intel on seed 424242). The one short plan is still `beit_sahwan_2_foothold`, so "49 of 50".
 const INTEL_WINNERS_ONE_SWEEP = 49;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own

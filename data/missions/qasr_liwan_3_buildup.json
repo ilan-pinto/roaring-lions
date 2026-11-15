@@ -148,8 +148,8 @@
       "type": "hold_for",
       "primary": true,
       "target": "staging",
-      "seconds": 300,
-      "text": "Hold the forward ground for five minutes",
+      "seconds": 360,
+      "text": "Hold the forward ground for six minutes",
       "say": {
         "speaker": "net",
         "text": "Forward ground held. The checkpoint has a line in front of it again."
