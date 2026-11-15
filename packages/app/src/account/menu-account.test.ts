@@ -18,7 +18,7 @@ function fake(open: boolean | 'throw', me: 'signedOut' | 'signedIn' = 'signedOut
     },
     me: async () => {
       calls.push('me');
-      return me === 'signedIn' ? { kind: 'signedIn', displayName: 'Ilan' } : { kind: 'signedOut' };
+      return me === 'signedIn' ? { kind: 'signedIn', displayName: 'Ilan', publicId: 'ABCD2345', avatar: { kind: 'preset', id: 'crest-claw', chosen: true } } : { kind: 'signedOut' };
     },
   } as unknown as AccountClient;
   return { calls, loadClient: () => Promise.resolve(client) };
@@ -30,7 +30,7 @@ async function menuWith(f: ReturnType<typeof fake>, hasBinding: boolean) {
   const stage = document.createElement('div');
   showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account: { enabled: true, ...acct } });
   await acct.open;
-  await acct.name;
+  await acct.who;
   await new Promise((r) => setTimeout(r, 0));
   return { stage, seen: seen as boolean | null };
 }
@@ -84,7 +84,7 @@ describe('the chip follows the device binding on every mount (GH-1075)', () => {
     const stage = document.createElement('div');
     const dispose = showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account: { enabled: true, ...acct } });
     await acct.open;
-    await acct.name;
+    await acct.who;
     await new Promise((r) => setTimeout(r, 0));
     void dispose;
     return stage;
@@ -106,9 +106,9 @@ describe('the chip follows the device binding on every mount (GH-1075)', () => {
   it('a bound device that is signed out reads Sign in', async () => {
     expect(chipLabel(await mount(source(fake(true, 'signedOut'), { v: true })))).toBe('Sign in');
   });
-  it('a signed-in member reads their name and keeps the person icon', async () => {
+  it('a signed-in member reads their name and shows their avatar', async () => {
     const stage = await mount(source(fake(true, 'signedIn'), { v: true }));
     expect(chipLabel(stage)).toBe('Ilan');
-    expect(stage.querySelector('.rl-menu__acct-icon')).not.toBeNull();
+    expect(stage.querySelector('.rl-menu__acct img.rl-avatar__img')?.getAttribute('src')).toBe('/ui/avatars/crests/crest-claw.svg');
   });
 });

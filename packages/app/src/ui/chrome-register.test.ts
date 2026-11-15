@@ -202,6 +202,8 @@ describe('the chrome register: theme.css', () => {
         '.rl-cmd__track > i',
         // the briefing screen's loading bar
         '.rl-loading__fill',
+        // the profile's claim banner (GH-1075 P7): the one thing on that page that asks for action
+        '.rl-profile__claim',
         // the mission stamp
         '.rl-loading__deploy',
         '.rl-loading__deploy:hover',
