@@ -33,7 +33,7 @@ import { parseWorld } from '../../../packages/app/src/campaign';
 import { fastestWins, limitHeadroom, MIN_WIN_DIVISOR, type WinTime } from './time-limit';
 import { POSTURE_SEEDS, SWEEP_SEEDS } from './passive-sweep';
 import type { PostureId } from '@lions/data';
-import { LADDER_POSTURES, monotoneFailure, postureClockFailures, postureLimit, type Rate } from './posture-ladder';
+import { LADDER_VARIANTS, monotoneFailure, postureClockFailures, postureLimit, readingOf, wrongWay, type Rate, type Variant } from './posture-ladder';
 
 /** True inside a seed's child process. */
 export const PLAN_CHILD = process.env.PT_PLAN_CHILD === '1';
@@ -49,8 +49,9 @@ export interface GateRecord {
 
 interface ChildReply {
   seed: number;
-  /** GH-1394: the posture the child played (`PT_POSTURE`). */
+  /** GH-1394: the posture the child played (`PT_POSTURE`), and whether its plans used the relief (`PT_RELIEF_JOIN`). */
   posture: PostureId;
+  relief: boolean;
   runs: RunRecord[];
   gates: GateRecord[];
 }
@@ -59,6 +60,7 @@ interface ChildReply {
 interface Job {
   seed: number;
   posture: PostureId;
+  relief: boolean;
 }
 
 const replies = new Map<number, ChildReply>();
@@ -66,7 +68,8 @@ const failedSeeds = new Map<number, string>();
 /** GH-1394: the posture children's replies and failures, keyed `posture:seed`. Standard's stay in the two above. */
 const postureReplies = new Map<string, ChildReply>();
 const postureFailed = new Map<string, string>();
-const jobKey = (j: Job): string => `${j.posture}:${j.seed}`;
+const variantKey = (posture: PostureId, relief: boolean): string => `${posture}${relief ? '+relief' : ''}`;
+const jobKey = (j: Job): string => `${variantKey(j.posture, j.relief)}:${j.seed}`;
 let pending = 0;
 let onIdle: (() => void) | undefined;
 
@@ -77,13 +80,13 @@ function poolSize(): number {
 }
 
 function launch(job: Job, queue: Job[]): void {
-  const { seed, posture } = job;
+  const { seed, posture, relief } = job;
   const path = fileURLToPath(new URL('./playtest.ts', import.meta.url));
   // `silent`: a child's own lines (run lines, the pinned 424242 numbers it does not meet) are not
   // this report. What it ran comes back as a message; its stderr is kept for a crash.
   const child: ChildProcess = fork(path, [], {
     execArgv: process.execArgv,
-    env: { ...process.env, PT_SEED: String(seed), PT_PLAN_CHILD: '1', PT_SWEEP_WORKERS: '0', PT_POSTURE: posture },
+    env: { ...process.env, PT_SEED: String(seed), PT_PLAN_CHILD: '1', PT_SWEEP_WORKERS: '0', PT_POSTURE: posture, PT_RELIEF_JOIN: relief ? '1' : '0' },
     serialization: 'advanced',
     silent: true,
   });
@@ -120,8 +123,8 @@ export function startPlanSweep(seeds: readonly number[] = SWEEP_SEEDS): void {
   // GH-1394: Easier and Harder run as children too, on every posture seed (424242 included: this process plays
   // Standard), after the Standard seeds in the queue.
   const queue: Job[] = [
-    ...seeds.slice(1).map((seed) => ({ seed, posture: 'standard' as const })),
-    ...LADDER_POSTURES.flatMap((posture) => POSTURE_SEEDS.map((seed) => ({ seed, posture }))),
+    ...seeds.slice(1).map((seed) => ({ seed, posture: 'standard' as const, relief: false })),
+    ...LADDER_VARIANTS.flatMap((v) => POSTURE_SEEDS.map((seed) => ({ seed, posture: v.posture, relief: v.relief }))),
   ];
   for (let w = 0; w < poolSize() && queue.length > 0; w++) {
     const job = queue.shift() as Job;
@@ -134,7 +137,7 @@ export function startPlanSweep(seeds: readonly number[] = SWEEP_SEEDS): void {
 export function reportToParent(gates: GateRecord[]): void {
   if (!PLAN_CHILD || !process.send) return;
   const posture = (process.env.PT_POSTURE || 'standard') as PostureId;
-  process.send({ seed: Number(process.env.PT_SEED), posture, runs: runLog, gates } satisfies ChildReply);
+  process.send({ seed: Number(process.env.PT_SEED), posture, relief: process.env.PT_RELIEF_JOIN === '1', runs: runLog, gates } satisfies ChildReply);
 }
 
 /** #540: one line per mission with a winning plan, and exit 1 if a limit sits too close to a win. */
@@ -273,8 +276,10 @@ export async function drainPlanSweeps(
 
 /**
  * GH-1394 (design §8, D13): the ladder at Easier and Harder. Every winning plan must win on every posture seed with the
- * #540 margin to the posture's own limit, its win rate must be monotone (Easier >= Standard >= Harder), and the clock
- * validator must be clean at every posture. The passive half is `passive-sweep.ts`'s (`... (no orders, easier)`).
+ * #540 margin to the posture's own limit, at Easier both with the relief left standing and with the plans using it
+ * (`LADDER_VARIANTS`); its win rate must be monotone (each Easier reading >= Standard >= Harder); and the clock
+ * validator must be clean at every posture. Report-only: each reading against Standard on the same seeds, per mission
+ * (`wrongWay`). The passive half is `passive-sweep.ts`'s (`... (no orders, easier)`).
  */
 function reportPostures(seeds: readonly number[], bySeed: ReadonlyMap<number, readonly RunRecord[]>, labels: readonly string[]): void {
   const clock = postureClockFailures();
@@ -285,28 +290,25 @@ function reportPostures(seeds: readonly number[], bySeed: ReadonlyMap<number, re
     console.log('posture ladder: off (PT_POSTURE_SEEDS=0)');
     return;
   }
-  const rates = new Map<string, Record<PostureId, Rate>>();
-  const rateOf = (label: string): Record<PostureId, Rate> => {
-    let r = rates.get(label);
-    if (!r) rates.set(label, (r = { easier: { wins: 0, seeds: 0 }, standard: { wins: 0, seeds: 0 }, harder: { wins: 0, seeds: 0 } }));
+  const stdRate = (label: string): Rate => {
+    const r = { wins: 0, seeds: 0 };
+    for (const seed of seeds) {
+      r.seeds++;
+      if (bySeed.get(seed)?.find((x) => x.label === label)?.result === 'victory') r.wins++;
+    }
     return r;
   };
-  for (const label of labels) {
-    const r = rateOf(label);
-    for (const seed of seeds) {
-      r.standard.seeds++;
-      if (bySeed.get(seed)?.find((x) => x.label === label)?.result === 'victory') r.standard.wins++;
-    }
-  }
-  for (const posture of LADDER_POSTURES) {
+  const rates = new Map<string, Rate>(); // `${variant.key}|${label}`
+  for (const v of LADDER_VARIANTS) {
     let held = 0;
     const wins: WinTime[] = [];
     for (const label of labels) {
       const missed: string[] = [];
       let slowest = 0;
-      const r = rateOf(label)[posture];
+      const r: Rate = { wins: 0, seeds: 0 };
+      rates.set(`${v.key}|${label}`, r);
       for (const seed of POSTURE_SEEDS) {
-        const key = `${posture}:${seed}`;
+        const key = `${v.key}:${seed}`;
         const run = postureReplies.get(key)?.runs.find((x) => x.label === label);
         r.seeds++;
         if (!run) {
@@ -319,30 +321,59 @@ function reportPostures(seeds: readonly number[], bySeed: ReadonlyMap<number, re
         }
         r.wins++;
         slowest = Math.max(slowest, run.minutes);
-        wins.push({ id: run.id, label: `${run.label}, ${posture}, seed ${seed}`, seconds: run.minutes * 60 });
+        wins.push({ id: run.id, label: `${run.label}, ${v.key}, seed ${seed}`, seconds: run.minutes * 60 });
       }
       if (missed.length === 0) held++;
       else process.exitCode = 1;
       console.log(
-        `${label} [${posture}]: VICTORY on ${POSTURE_SEEDS.length - missed.length}/${POSTURE_SEEDS.length} seeds, slowest ${slowest.toFixed(1)} min` +
+        `${label} [${v.key}]: VICTORY on ${POSTURE_SEEDS.length - missed.length}/${POSTURE_SEEDS.length} seeds, slowest ${slowest.toFixed(1)} min` +
           (missed.length ? ` -- missed on ${missed.join(', ')}` : '')
       );
-      if (missed.length) console.error(`${label} [${posture}]: FAILED — the plan does not win on every ${posture} seed`);
+      if (missed.length) console.error(`${label} [${v.key}]: FAILED — the plan does not win on every ${v.key} seed`);
     }
-    console.log(`posture ${posture}: ${held} of ${labels.length} winning plans win on all ${POSTURE_SEEDS.length} seeds`);
-    const { lines, failures } = limitHeadroom(wins, (id) => postureLimit(id, posture));
-    for (const l of lines) console.log(`[${posture}] ${l}`);
-    for (const f of failures) console.error(`[${posture}] ${f}`);
+    console.log(`posture ${v.key}: ${held} of ${labels.length} winning plans win on all ${POSTURE_SEEDS.length} seeds`);
+    const { lines, failures } = limitHeadroom(wins, (id) => postureLimit(id, v.posture));
+    for (const l of lines) console.log(`[${v.key}] ${l}`);
+    for (const f of failures) console.error(`[${v.key}] ${f}`);
     if (failures.length > 0) process.exitCode = 1;
   }
   let monotone = 0;
+  const easiers = LADDER_VARIANTS.filter((v) => v.posture === 'easier');
+  const harder = LADDER_VARIANTS.find((v) => v.posture === 'harder') as Variant;
   for (const label of labels) {
-    const f = monotoneFailure(label, rateOf(label));
-    if (f === undefined) monotone++;
-    else {
-      console.error(f);
-      process.exitCode = 1;
+    let ok = true;
+    for (const e of easiers) {
+      const f = monotoneFailure(`${label} [${e.key}]`, {
+        easier: rates.get(`${e.key}|${label}`) as Rate,
+        standard: stdRate(label),
+        harder: rates.get(`${harder.key}|${label}`) as Rate,
+      });
+      if (f !== undefined) {
+        ok = false;
+        console.error(f);
+        process.exitCode = 1;
+      }
+    }
+    if (ok) monotone++;
+  }
+  console.log(`posture monotone: ${monotone} of ${labels.length} winning plans win no less often at Easier (both readings) than Standard, nor at Standard than Harder`);
+  // REPORT-ONLY: each reading against Standard on the same seeds, for the mission itself.
+  let flagged = 0;
+  for (const label of labels) {
+    const std = readingOf(
+      POSTURE_SEEDS.flatMap((seed) => bySeed.get(seed)?.filter((x) => x.label === label) ?? []),
+      POSTURE_SEEDS.length
+    );
+    for (const v of LADDER_VARIANTS) {
+      const p = readingOf(
+        POSTURE_SEEDS.flatMap((seed) => postureReplies.get(`${v.key}:${seed}`)?.runs.filter((x) => x.label === label) ?? []),
+        POSTURE_SEEDS.length
+      );
+      const why = wrongWay(v.posture, p, std);
+      const fmt = (r: typeof p) => `${r.wins}/${r.seeds} wins, median ${Number.isFinite(r.medianMin) ? r.medianMin.toFixed(2) : '-'} min, lost ${Number.isFinite(r.meanLost) ? r.meanLost.toFixed(1) : '-'}`;
+      console.log(`posture vs standard ${label} [${v.key}]: ${fmt(p)} | standard ${fmt(std)}${why ? ` -- ${v.posture === 'easier' ? 'HARDER' : 'EASIER'} than Standard here: ${why} (report only)` : ''}`);
+      if (why) flagged++;
     }
   }
-  console.log(`posture monotone: ${monotone} of ${labels.length} winning plans win no less often at Easier than Standard, nor at Standard than Harder`);
+  console.log(`posture vs standard: ${flagged} reading(s) point the wrong way for the mission itself (report only; same ${POSTURE_SEEDS.length} seeds)`);
 }

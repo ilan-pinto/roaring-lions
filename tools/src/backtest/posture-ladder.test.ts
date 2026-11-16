@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { monotoneFailure, parsePosture, passiveLost, postureClockFailures, postureLimit, postureSeedCount } from './posture-ladder';
+import { LADDER_VARIANTS, monotoneFailure, parsePosture, passiveLost, postureClockFailures, postureLimit, postureSeedCount, readingOf, wrongWay } from './posture-ladder';
 
 describe('the posture ladder judgements (GH-1394)', () => {
   const r = (e: [number, number], s: [number, number], h: [number, number]) => ({
@@ -48,5 +48,36 @@ describe('the posture ladder judgements (GH-1394)', () => {
 
   it('the clock validator is clean at every posture (S8)', () => {
     expect(postureClockFailures()).toEqual([]);
+  });
+
+  it('the ladder reads Easier with and without the relief, and Harder', () => {
+    expect(LADDER_VARIANTS.map((v) => v.key)).toEqual(['easier', 'easier+relief', 'harder']);
+  });
+
+  it('readingOf: wins, median winning time, mean starting losses', () => {
+    const r = readingOf(
+      [
+        { result: 'victory', minutes: 4, lost: 1 },
+        { result: 'victory', minutes: 2, lost: 0 },
+        { result: 'defeat', minutes: 5, lost: 5 },
+        { result: 'victory', minutes: 3, lost: 2 },
+      ],
+      4
+    );
+    expect(r).toEqual({ wins: 3, seeds: 4, medianMin: 3, meanLost: 2 });
+    expect(readingOf([{ result: 'victory', minutes: 2, lost: 0 }, { result: 'victory', minutes: 4, lost: 0 }], 2).medianMin).toBe(3);
+    expect(Number.isNaN(readingOf([], 8).medianMin)).toBe(true);
+  });
+
+  it('wrongWay flags an Easier reading that is harder than Standard, and a Harder one that is easier, and nothing else', () => {
+    const std = { wins: 8, seeds: 8, medianMin: 4, meanLost: 1 };
+    expect(wrongWay('easier', std, std)).toBeUndefined();
+    expect(wrongWay('easier', { ...std, meanLost: 0.5, medianMin: 3.5 }, std)).toBeUndefined();
+    expect(wrongWay('easier', { ...std, wins: 7 }, std)).toMatch(/wins 7\/8/);
+    expect(wrongWay('easier', { ...std, medianMin: 4.3 }, std)).toMatch(/median win/);
+    expect(wrongWay('easier', { ...std, medianMin: 4.1 }, std)).toBeUndefined(); // inside 5%
+    expect(wrongWay('easier', { ...std, meanLost: 2 }, std)).toMatch(/starting losses 2.0 against 1.0/);
+    expect(wrongWay('harder', { ...std, meanLost: 0.5 }, std)).toMatch(/starting losses/);
+    expect(wrongWay('harder', { ...std, meanLost: 2, medianMin: 5 }, std)).toBeUndefined();
   });
 });

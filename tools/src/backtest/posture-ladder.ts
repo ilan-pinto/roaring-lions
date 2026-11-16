@@ -20,6 +20,55 @@ import { timeLimitFailures } from '../../validate_time_limit.mjs';
 /** The two postures the ladder adds; Standard is the existing ladder. */
 export const LADDER_POSTURES: readonly PostureId[] = ['easier', 'harder'];
 
+/** One reading of the plan sweep at a posture. `relief`: the winning plans use the Easier relief when it arrives
+ *  (`PT_RELIEF_JOIN`, `playtest-run.ts`); without it the scripted plans leave it standing, so both are read. */
+export interface Variant {
+  key: string;
+  posture: PostureId;
+  relief: boolean;
+}
+export const LADDER_VARIANTS: readonly Variant[] = [
+  { key: 'easier', posture: 'easier', relief: false },
+  { key: 'easier+relief', posture: 'easier', relief: true },
+  { key: 'harder', posture: 'harder', relief: false },
+];
+
+/** One mission's plan at a posture, against Standard on the SAME seeds. */
+export interface PlanReading {
+  wins: number;
+  seeds: number;
+  /** Median winning time, minutes; NaN with no win. */
+  medianMin: number;
+  /** Starting-force bodies lost, mean over the seeds that ran. */
+  meanLost: number;
+}
+
+export function readingOf(runs: readonly { result: string; minutes: number; lost: number }[], seeds: number): PlanReading {
+  const winMin = runs.filter((r) => r.result === 'victory').map((r) => r.minutes).sort((a, b) => a - b);
+  const mid = winMin.length === 0 ? NaN : winMin.length % 2 === 1 ? winMin[(winMin.length - 1) / 2] : (winMin[winMin.length / 2 - 1] + winMin[winMin.length / 2]) / 2;
+  const meanLost = runs.length === 0 ? NaN : runs.reduce((n, r) => n + r.lost, 0) / runs.length;
+  return { wins: winMin.length, seeds, medianMin: mid, meanLost };
+}
+
+/**
+ * REPORT-ONLY (PM, 16 Nov): does a posture point the wrong way for this mission ITSELF? An Easier reading is flagged when,
+ * against Standard on the same seeds, it wins less often, wins more than 5% slower, or loses more of the starting force
+ * (Tel Marum III: Easier's +30 s wave lands on the defile foot as they arrive). A Harder reading is flagged the other
+ * way round. Chained ledgers differ between postures, so a mission that reads another's roster also carries its
+ * predecessors' effects; the line says so by naming both numbers, not by judging.
+ */
+export function wrongWay(posture: PostureId, p: PlanReading, std: PlanReading): string | undefined {
+  const rate = (r: PlanReading) => (r.seeds === 0 ? 0 : r.wins / r.seeds);
+  const why: string[] = [];
+  const easierWay = posture === 'easier';
+  if (easierWay ? rate(p) < rate(std) : rate(p) > rate(std)) why.push(`wins ${p.wins}/${p.seeds} against ${std.wins}/${std.seeds}`);
+  if (Number.isFinite(p.medianMin) && Number.isFinite(std.medianMin)) {
+    if (easierWay ? p.medianMin > std.medianMin * 1.05 : p.medianMin < std.medianMin * 0.95) why.push(`median win ${p.medianMin.toFixed(2)} min against ${std.medianMin.toFixed(2)}`);
+  }
+  if (easierWay ? p.meanLost > std.meanLost : p.meanLost < std.meanLost) why.push(`starting losses ${p.meanLost.toFixed(1)} against ${std.meanLost.toFixed(1)}`);
+  return why.length === 0 ? undefined : why.join(', ');
+}
+
 /** How many seeds a posture run uses: `PT_POSTURE_SEEDS`, else 8 (D13: 8 in CI, 30 in the nightly). 0 turns the
  *  posture ladder off. Throws on anything that is not a whole number from 0 to `max`. */
 export function postureSeedCount(env: string | undefined, max: number): number {

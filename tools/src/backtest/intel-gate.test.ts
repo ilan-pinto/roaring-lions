@@ -7,6 +7,7 @@ const win = (id: string, label: string, r: IntelRun, expectation: RunRecord['exp
   id,
   label,
   posture: 'standard',
+  lost: 0,
   expect: expectation,
   result: 'victory',
   stuck: false,
