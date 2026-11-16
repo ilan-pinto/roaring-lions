@@ -10,7 +10,7 @@
 
 | Fact | Where |
 |---|---|
-| Chat is **between the two seats of one room**: in the lobby (a docked log) and in the match (Enter opens an input; lines go to the HUD feed). A spectator gets no chat. | `packages/app/src/ui/net-chat.ts` header; `packages/app/src/net/spectator.ts` ("no pause, no surrender and no chat") |
+| Chat is **between the two seats of one room**: in the lobby (a docked log) and in the match (Enter opens an input; lines go to the HUD feed). A spectator client has no chat input and hooks no chat line, so it draws none; **but the Worker does relay chat to spectator sockets** (`match-room.ts`'s `send` broadcasts every non-lobby, non-advisor message to the watchers), so a modified spectator client could read it. | `packages/app/src/ui/net-chat.ts` header; `packages/app/src/net/spectator.ts` ("no pause, no surrender and no chat") |
 | A line is cleaned by the room (control and bidi characters removed, NFKC, whitespace collapsed, 280 characters), rate-limited to one per seat per 500 ms, and **echoed to both seats**. Nothing is stored; the room keeps only each seat's last-chat time. | `packages/net/src/callsign.ts` `cleanChat`; `packages/worker/src/match/room-core.ts` (`CHAT_MIN_GAP_MS`, `lastChatMs`) |
 | Chat is **outside the lockstep**: it travels as its own message (`t: 'chat'`), not in a frame, so it cannot change a match or a hash. | `packages/net/src/protocol.ts` (`ClientMsg`, `ServerMsg`) |
 | There are **two places a received line reaches the screen**: the lobby log (`NetChat.receive`, `ui/versus.ts`) and the HUD feed (`chatFeedLine`, `main.ts`). Both escape the text; neither can drop a line. | `ui/versus.ts` (`onChat`), `main.ts` (`room.setHooks({ onChat ... })`), `ui/net-chat.ts` |
@@ -147,7 +147,7 @@ S1 and S4 are independent and cheap; S2 and S3 carry the work; none touches the 
 | D8 | Kill-switch mechanism | **D1 `flags` row plus env, like feedback**, with a stats-page button. |
 | D9 | Sanctions | **Out of scope.** The lead reads reports; there is no automated action. A member suspension needs a policy and a mechanism, to be designed with the lawyer. |
 | D10 | Public rooms | **Do not open public listing or matchmaking until S1 to S4 ship**; until then a posted code is the only public surface. |
-| D11 | Spectators | **No chat** (as now); a spectator cannot report a chat they do not see. |
+| D11 | Spectators | **No chat shown** (as now). **Also stop the Worker relaying chat and quick chat to spectator sockets** (a one-line change in `match-room.ts`'s `send`), so a seat's chat is private to the two seats whatever a client does; a spectator cannot report a chat it does not see. |
 | D12 | Quick chat | **Design it with S1** if D1 is accepted, since it is the one control that removes free-text risk in public rooms. |
 
 ---
