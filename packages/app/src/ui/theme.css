@@ -4312,6 +4312,34 @@ body[data-outcome-beat] .rl-aar {
   flex-wrap: wrap;
   gap: var(--s2);
 }
+/* GH-1413 G1: the software-rendering line (`ui/software-hint.ts`). One status
+   line at the foot of a shell screen, not a dialog: below the scrims (50) and
+   the end panel (30), so a modal card covers it rather than fighting it. */
+.rl-software-hint {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s3);
+  transform: translateX(-50%);
+  z-index: 25;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--s3));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  padding: var(--s2) var(--s3);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  color: var(--ink);
+}
+.rl-software-hint[hidden] {
+  display: none;
+}
+.rl-software-hint__text {
+  margin: 0;
+  flex: 1 1 20rem;
+}
 
 /* Route transitions (shell/router.ts): the stage fades out under the old
    screen and in under the new. The blanket reduced-motion rule collapses both
