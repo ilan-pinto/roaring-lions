@@ -65,6 +65,9 @@ const KEYS = new Set([
   'player', 'session', 'tester', 'mission', 'map', 'tick', 'dev', 'context',
 ]);
 
+/** Fields a `privacy` request may not carry; `context` must also be `{}`. The schema says the same. */
+export const PRIVACY_FORBIDDEN = ['player', 'session', 'tester', 'mission', 'map', 'tick', 'commit', 'dev'] as const;
+
 const codePoints = (s: string): number => [...s].length;
 /** C0 controls and DEL. Text may keep \t \n \r; a one-line field keeps none. */
 // eslint-disable-next-line no-control-regex -- matching control characters is the point
@@ -92,6 +95,8 @@ export function feedbackMetaProblem(x: unknown): string | null {
   // The debrief prompt sends ratings and nothing else; the forms never do. The privacy form sends privacy and nothing else.
   if (isRating !== (e.source === 'debrief')) return 'category does not match source';
   if (isPrivacy !== (e.source === 'privacy')) return 'category does not match source';
+  // A privacy request names no player, session or tester and carries no game context (GH-1417): nothing ties it to a person but what they write.
+  if (isPrivacy) for (const k of PRIVACY_FORBIDDEN) if (e[k] !== undefined) return k;
   if (typeof e.text !== 'string' || TEXT_BAD.test(e.text)) return 'text';
   const n = codePoints(e.text);
   if (isRating ? n > LINE_MAX || LINE_BAD.test(e.text) : n < 1 || n > TEXT_MAX || e.text.trim() === '') return 'text';
@@ -109,6 +114,7 @@ export function feedbackMetaProblem(x: unknown): string | null {
   const c = e.context;
   if (typeof c !== 'object' || c === null || Array.isArray(c)) return 'context';
   if (Object.keys(c).length > 64) return 'context';
+  if (isPrivacy && Object.keys(c).length > 0) return 'context';
   if (utf8Bytes(JSON.stringify(c)) > CONTEXT_MAX_BYTES) return 'context over 8 KB';
   return null;
 }

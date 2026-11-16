@@ -178,7 +178,7 @@ $('fb-detail').addEventListener('change',async(e)=>{
 $('fb-switch').addEventListener('click',async(e)=>{
   const b=e.target.closest('#fb-toggle');if(!b)return;
   const open=b.dataset.open==='1';
-  if(!open&&!confirm('Close feedback for every player? The game will hide its entry.'))return;
+  if(!open&&!confirm('Close feedback for every player? The game will hide its entry, and the private privacy-request form at /privacy/request closes too.'))return;
   try{await post('/switch',{open});await loadList()}catch(err){say('Not switched: '+err.message)}
 });
 addEventListener('popstate',refresh);

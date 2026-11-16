@@ -1,4 +1,5 @@
--- GH-1417 C2: a private "privacy" category (and a "privacy" source) for POST /api/feedback.
+-- GH-1417 C2 (+ the chat-safety design's future `report` category and `match` source, PR 1476, widened here ONCE so
+-- there is no second rebuild; nothing writes them yet): a private "privacy" category (and a "privacy" source) for POST /api/feedback.
 -- Widens the CHECKs of 0003. SQLite cannot alter a CHECK, so `feedback` is rebuilt, and because
 -- DROP TABLE on a parent runs an implicit DELETE that would CASCADE into the attachments, the two
 -- child tables are copied aside first and rebuilt after. Every row, id, index and blob survives.
@@ -24,8 +25,8 @@ CREATE TABLE feedback (
   player TEXT, session TEXT,
   tester TEXT,
   build TEXT NOT NULL, "commit" TEXT,
-  source TEXT NOT NULL CHECK (source IN ('pause','debrief','menu','privacy')),
-  category TEXT NOT NULL CHECK (category IN ('bug','balance','confusing','idea','praise','rating','privacy')),
+  source TEXT NOT NULL CHECK (source IN ('pause','debrief','menu','privacy','match')),
+  category TEXT NOT NULL CHECK (category IN ('bug','balance','confusing','idea','praise','rating','privacy','report')),
   rating INTEGER CHECK (rating BETWEEN 1 AND 5),
   text TEXT NOT NULL DEFAULT '',
   contact TEXT,

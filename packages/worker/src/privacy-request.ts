@@ -37,9 +37,10 @@ button { font: inherit; margin-top: 1.25rem; padding: .5rem 1.25rem; }
 <body>
 <main>
 <h1>Send a privacy request</h1>
-<p>Use this form to ask for a copy of your data, an export, a deletion or a correction. It is private: only the Roaring Lions team can read it, and it is never posted to GitHub. If you are signed in, "Download my data" and "Delete my account" on the profile screen do the same at once. See <a href="/privacy">how your data is kept</a>.</p>
+<p>Use this form to ask for a copy of your data, an export, a deletion or a correction. It is private: only the person who runs Roaring Lions can read it, and it is never posted to GitHub. If you have an account, "Download my data" and "Delete my account" on the profile screen are also available. See <a href="/privacy">how your data is kept</a>.</p>
 <noscript><p><strong>This form needs JavaScript to send.</strong></p></noscript>
 <form id="f" novalidate>
+<fieldset id="fs" style="border:0;padding:0;margin:0">
 <label for="kind">What do you ask for?</label>
 <select id="kind" required>
 <option value="access">A copy of the data held about me (access)</option>
@@ -54,12 +55,13 @@ button { font: inherit; margin-top: 1.25rem; padding: .5rem 1.25rem; }
 <label for="contact">How to reach you <span class="hint">(optional; without it we cannot reply)</span></label>
 <input id="contact" maxlength="120" autocomplete="off">
 <button type="submit" id="go">Send</button>
+</fieldset>
 </form>
 <p id="msg" role="status" aria-live="polite"></p>
 </main>
 <script>
 (function () {
-  var f = document.getElementById('f'), msg = document.getElementById('msg'), go = document.getElementById('go');
+  var f = document.getElementById('f'), msg = document.getElementById('msg'), fs = document.getElementById('fs');
   var clean = function (s) { return s.replace(/[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]/g, ' '); };
   var line = function (s) { return clean(s).replace(/[\\r\\n\\t]+/g, ' ').trim(); };
   var say = function (t) { msg.textContent = t; };
@@ -73,7 +75,7 @@ button { font: inherit; margin-top: 1.25rem; padding: .5rem 1.25rem; }
     if (contact) meta.contact = contact;
     var body = new FormData();
     body.set('meta', JSON.stringify(meta));
-    go.disabled = true; say('Sending...');
+    fs.disabled = true; say('Sending...');
     fetch('/api/feedback', { method: 'POST', body: body }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         if (r.status === 201) { f.reset(); say('Sent. Your reference is ' + j.ref + '.'); }
@@ -81,7 +83,7 @@ button { font: inherit; margin-top: 1.25rem; padding: .5rem 1.25rem; }
         else if (r.status === 429) say('Too many requests from here today. Please try again later.');
         else say('It could not be sent (' + r.status + '). Please try again later.');
       });
-    }).catch(function () { say('It could not be sent. Please check your connection and try again.'); }).then(function () { go.disabled = false; });
+    }).catch(function () { say('It could not be sent. Please check your connection and try again.'); }).then(function () { fs.disabled = false; });
   });
 })();
 </script>

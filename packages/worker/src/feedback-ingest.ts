@@ -57,6 +57,9 @@ export const FEEDBACK_LIMITS = {
  *  with a daily salt (`rate-day.ts`): an address is never stored. Inventing
  *  fresh player and session ids no longer buys a flood its own budget. */
 export const FEEDBACK_IP_PER_DAY = 10;
+/** GH-1417 L3: privacy requests count in their OWN daily bucket, and are left out of the anonymous and global ones above,
+ *  so neither a flood of them starves feedback nor a feedback flood blocks a person asking for their data. */
+export const PRIVACY_PER_DAY = 30;
 
 /** What attachments may add to D1, which is also the telemetry store (free
  *  tier 500 MB). Past either budget a note still lands, without its
@@ -89,14 +92,16 @@ export type DropReason = 'too_large' | 'storage_full';
 
 /** The Nth-newest row inside a window, or null when under the limit. `anonymous`
  *  counts only the notes that named neither a player nor a session. */
-async function limitedFor(env: Env, column: 'session' | 'player' | 'anonymous' | null, value: string | undefined, max: number, windowMs: number, now: number): Promise<number | null> {
+async function limitedFor(env: Env, column: 'session' | 'player' | 'anonymous' | 'privacy' | null, value: string | undefined, max: number, windowMs: number, now: number): Promise<number | null> {
   if ((column === 'session' || column === 'player') && value === undefined) return null;
   const sql = column === null
-    ? 'SELECT received_at FROM feedback WHERE received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?'
+    ? "SELECT received_at FROM feedback WHERE category != 'privacy' AND received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?"
     : column === 'anonymous'
-      ? 'SELECT received_at FROM feedback WHERE player IS NULL AND session IS NULL AND received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?'
-      : `SELECT received_at FROM feedback WHERE ${column} = ? AND received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?`;
-  const args = column === null || column === 'anonymous' ? [now - windowMs, max - 1] : [value, now - windowMs, max - 1];
+      ? "SELECT received_at FROM feedback WHERE category != 'privacy' AND player IS NULL AND session IS NULL AND received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?"
+      : column === 'privacy'
+        ? "SELECT received_at FROM feedback WHERE category = 'privacy' AND received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?"
+        : `SELECT received_at FROM feedback WHERE ${column} = ? AND received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?`;
+  const args = column === null || column === 'anonymous' || column === 'privacy' ? [now - windowMs, max - 1] : [value, now - windowMs, max - 1];
   const row = await env.DB.prepare(sql).bind(...args).first<{ received_at: number }>();
   if (!row) return null;
   return Math.max(1, Math.ceil((row.received_at + windowMs - now) / 1000));
@@ -222,8 +227,9 @@ export async function handleFeedback(req: Request, env: Env, now: number): Promi
   try {
     const L = FEEDBACK_LIMITS;
     const anonymous = meta.player === undefined && meta.session === undefined;
-    const wait =
-      (await limitedFor(env, 'session', meta.session, L.session.max, L.session.windowMs, now)) ??
+    const wait = meta.category === 'privacy'
+      ? await limitedFor(env, 'privacy', undefined, PRIVACY_PER_DAY, DAY, now)
+      : (await limitedFor(env, 'session', meta.session, L.session.max, L.session.windowMs, now)) ??
       (await limitedFor(env, 'player', meta.player, L.player.max, L.player.windowMs, now)) ??
       (anonymous ? await limitedFor(env, 'anonymous', undefined, L.anonymous.max, L.anonymous.windowMs, now) : null) ??
       (await limitedFor(env, null, undefined, L.global.max, L.global.windowMs, now));

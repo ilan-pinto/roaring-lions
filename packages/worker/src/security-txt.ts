@@ -3,11 +3,11 @@
  * repository, the same channel SECURITY.md names. No D1, no cookie.
  *
  * `Expires` is required by the RFC and must be renewed before it passes: bump it (and SECURITY.md's date, if any)
- * whenever this file is touched, and at the latest a year on.
+ * whenever this file is touched, and at the latest by the date below; security-txt's test goes red 30 days before it lapses.
  */
 export const SECURITY_REPORT_URL = 'https://github.com/ilan-pinto/roaring-lions/security/advisories/new';
 export const SECURITY_POLICY_URL = 'https://github.com/ilan-pinto/roaring-lions/blob/main/SECURITY.md';
-export const SECURITY_EXPIRES = '2027-11-16T00:00:00.000Z';
+export const SECURITY_EXPIRES = '2027-10-31T00:00:00.000Z';
 
 export const SECURITY_TXT = `Contact: ${SECURITY_REPORT_URL}
 Expires: ${SECURITY_EXPIRES}

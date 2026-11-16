@@ -46,7 +46,10 @@
     },
     {
       "if": { "properties": { "category": { "const": "privacy" } }, "required": ["category"] },
-      "then": { "properties": { "source": { "const": "privacy" } } },
+      "then": {
+        "properties": { "source": { "const": "privacy" }, "context": { "maxProperties": 0 } },
+        "not": { "anyOf": [{ "required": ["player"] }, { "required": ["session"] }, { "required": ["tester"] }, { "required": ["mission"] }, { "required": ["map"] }, { "required": ["tick"] }, { "required": ["commit"] }, { "required": ["dev"] }] }
+      },
       "else": { "properties": { "source": { "enum": ["pause", "debrief", "menu"] } } }
     },
     {
