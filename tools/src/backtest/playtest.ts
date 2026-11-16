@@ -3948,7 +3948,11 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // 2026-11-15, GH-1438 (Qasr Liwan, The Long Ground town 1): 6955 -> 8115, +1160, read off the printed per-mission credits. Was 6955. Five new missions and
 // nothing else: Qasr Liwan I 240, II 220, III 250, IV 220, V 230 (the maps were re-laid distinct on 15 Nov, GH-1452: the same 8,115, a different split). Every other mission's credits line is byte-identical to the run before it
 // (diffed line by line), and no existing star moved. The credit ladder is over 34 missions now (was 29).
-const LADDER_CREDITS = 8115;
+// 2026-11-16, GH-1360 S3b on the five Qasr Liwan missions (`start_layout` "assembly" on all five): 8115 -> 8060. Was 8115. 8115 was stale before this change:
+// the branch read 8050 (main's own S3b re-pin, 6955 -> 6923, was not carried through the merge, and Umm Zeitoun IV / Wadi Halam III read differently on the branch
+// than on main, 6890 for the 29 older missions against main's 6923; neither is this change's). The layout moved exactly one credits line: Qasr Liwan IV 220 -> 230
+// (3.9 -> 4.0 min, stars 2 unchanged). I 240, II 220, III 250, V 230 are byte-identical; 8050 + 10 = 8060. Every non-Qasr line is byte-identical to the run before it.
+const LADDER_CREDITS = 8060;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

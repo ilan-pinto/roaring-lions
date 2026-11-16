@@ -5,6 +5,8 @@
   "phase": "foothold",
   "target_minutes": 7,
   "time_limit_s": 840,
+  "start_layout": "assembly",
+  "start_front": "W",
   "map": {
     "file": "qasr_liwan_2",
     "player_start": [
