@@ -18,6 +18,12 @@ const SOFTWARE = [
   'Microsoft Basic Render Driver',
   'Mesa/X.org softpipe',
   'Software Rasterizer',
+  // GH-1413: more recorded strings, ANGLE-wrapped Mesa and the old Windows software GL.
+  'ANGLE (Mesa, llvmpipe (LLVM 15.0.7 256 bits), OpenGL 4.5)',
+  'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)',
+  'Mesa Gallium llvmpipe (LLVM 14.0.0, 128 bits)',
+  'GDI Generic',
+  'Microsoft Corporation GDI Generic',
 ];
 const HARDWARE = [
   'ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)',
@@ -31,7 +37,20 @@ const HARDWARE = [
   'Mali-G78',
   'Adreno (TM) 640',
   'ANGLE (Qualcomm, Adreno (TM) 740, OpenGL ES 3.2)',
+  // GH-1413: Safari's masked name, an integrated Intel on Mesa, and a paravirtual GPU (hardware-backed, not a CPU rasteriser).
+  'Apple GPU',
+  'ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6)',
+  'ANGLE (VMware, VMware SVGA 3D (0x00000405) Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'WebKit WebGL',
 ];
+
+describe('isSoftwareRenderer: the tables are not empty', () => {
+  // `it.each` over an empty table passes without running anything; counts make that a failure (GH-1413).
+  it('15 software strings and 15 hardware strings', () => {
+    expect(SOFTWARE).toHaveLength(15);
+    expect(HARDWARE).toHaveLength(15);
+  });
+});
 
 describe('isSoftwareRenderer: real strings', () => {
   it.each(SOFTWARE)('software: %s', (s) => expect(isSoftwareRenderer(s)).toBe(true));

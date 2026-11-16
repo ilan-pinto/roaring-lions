@@ -58,4 +58,5 @@ export const unusedA2Client = {
   deleteSlot: unexpected('deleteSlot'),
   claim: unexpected('claim'),
   matches: unexpected('matches'),
+  coins: unexpected('coins'),
 };

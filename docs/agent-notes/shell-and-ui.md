@@ -34,7 +34,13 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   full day of ingest; the old 2,000 a day fell behind), `purgePlayers` (a `players` row by `last_seen`, with its `accounts` row in the
   same batch, plus any orphan `accounts` row by its own `t`; strict `<`, so a row at exactly 180 days is kept) and `purgeRateDays`.
   Each is a few big `DELETE ... LIMIT` statements, never a loop of small ones: the Free plan allows 50 D1 queries per invocation and
-  `purge.test.ts` counts them.
+  `purge.test.ts` counts them. **The whole run is held under the 50 (GH-1432):** `cron-budget.test.ts` meters BOTH databases (a `batch()` is
+  one query), seeds a worst-case backlog for every sweep and runs `scheduled()` until nothing is left, none of the runs reaching 50 (the
+  first costs 42; a quiet day is pinned at exactly 12). The shares: `purgeExpired` 10 (one batch per 100 notes), events 4, players 4, desync,
+  snapshot and rate-day 3, admin views 1, `sweepAccounts` 2 plus a member budget of 10, `reconcileTombstones` 12 = 46. The member loops
+  spend from a budget (`SWEEP_MEMBER_QUERIES`, `RECONCILE_D1_QUERIES`; a member is 1 query, 2 when a guard held, 3 with the cancelled
+  tombstone) and what is left waits a day; the tombstone scan is resumable through a KV cursor (`RECONCILE_CURSOR_KEY`), because dead
+  tombstones cost a query a page and find nothing. **Add a sweep and you add its share to that sum, or the test reads red.**
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the
@@ -508,3 +514,11 @@ Spec: `docs/superpowers/specs/2026-11-14-admin-account-page-design.md`. The page
   ships only coins can be corrected. It also says a log of views is kept for 180 days (the sweep) and a log of changes while
   the account is.
 - **The coin ceiling.** Accounts spec section 2.4's 925 now reads "plus coupons and plus admin grants, journaled".
+
+## The slow-frames suggestion (GH-1413)
+
+`ui/frame-probe.ts` measures, `ui/quality-hint.ts` asks, `settingsDeps.set` is the only write. After the no-graphics notice (`ui/no-gpu.ts`, which owns software renderers) `main.ts` mounts `watchQualityHint`. On a shell screen (menu, campaign, brigade, free-play) it drops 30 frames, measures 90 intervals, and calls frames slow when the **median** interval is at or over 33.4 ms (more than half the frames slow). It then shows one card, "Switch to Low quality" or "Keep my setting", and a preset applies at the NEXT mission's boot (`packages/render/src/quality.ts`), never to a running one.
+- **Nothing automatic (lead, 10 Oct).** Showing the card changes no setting; declining, Escape and a disposed card do not either. `setQuality` is called from the accept button's handler and nowhere else. `quality-hint-wiring.test.ts` pins that `main.ts` writes only through `settingsDeps.set` and only the `quality` field.
+- **Why the median.** The declined auto step-down (PERFORMANCE.md) called an opening slow at 5% of intervals over 33.4 ms and would have fired on the reference M3 Pro Retina (11-18% at `high`). Half the frames over the line is above that reading and under the worst throttled cell (64.8%). The constants are those doc readings; no browser measured them for this change (the cloud has none), and the hardware sweep under GH-1413 is what confirms them. Retune in `frame-probe.ts`, with `frame-probe.test.ts`'s Retina and throttled series as the oracle.
+- **Voided, never guessed.** A hidden tab, a 2 s stall, leaving the shell for a mission and 12 s without a full sample all void the sample; a short sample is never slow.
+- **When it may show.** Production build on a real host (`feedbackSends`) or `?qualityhint`; never for a software renderer, a saved Low preset, a player who has answered (browser store key `lions.qualityHint.answered`, set by either button; asked once, ever) or over another dialog. The scrim class `rl-quality-hint` is in `isDialogOpen`'s list.

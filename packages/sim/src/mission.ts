@@ -52,6 +52,8 @@ import {
   WOUND_STABILISED,
 } from './tuning';
 import type { TunnelRouteJson } from './tunnels';
+import type { CompiledFormation } from './formation-template';
+import { frontToward, startFaceOf, startLayout, START_FREE_SPOT_REACH, type StartBody, type StartFront, type StartPlacement } from './start-layout';
 import { reinforceKey, unlockReason, type UnlockGate } from './unlock';
 
 // ---------------------------------------------------------------------------
@@ -301,6 +303,15 @@ export interface MissionJson {
    *  mission.schema.json and tools/validate_time_limit.mjs. */
   time_limit_s?: number;
   map: { file: string; player_start?: readonly number[] };
+  /** GH-1360 S3b: how the starting force stands at tick zero. `assembly`: laid out by `startLayout` in the
+   *  `data/layouts/assembly.json` shape (vehicles, then infantry, then support), facing `start_front`.
+   *  `authored`: every `at` kept, only de-overlapped by the free spot. ABSENT: today's `SPREAD`, byte for
+   *  byte (every sim fixture). `validate:data` requires it on every shipped mission. A plain string because
+   *  a JSON module types it so; `start()` refuses any other value. */
+  start_layout?: string;
+  /** GH-1360 S3b: the axis the starting force faces, `N`, `E`, `S` or `W`. Absent: derived (the centroid of
+   *  side 1's placements, else of the primary objectives' zones, else the map centre). */
+  start_front?: string;
   ledger: { requires: readonly string[]; produces: readonly string[] };
   objectives: readonly ObjectiveJson[];
   starting_force?: readonly PlacementJson[];
@@ -399,6 +410,10 @@ export interface MissionJson {
 
 export interface MissionContext {
   typeIdOf: (unitId: string) => number;
+  /** GH-1360 S3b: the compiled starting layout (`compileFormation(assemblyLayout)`, `@lions/data`), which the
+   *  sim cannot import. Required by a mission whose `start_layout` is `assembly`: `start()` throws without it,
+   *  so no harness can play a shipped mission in a layout the game does not ship. */
+  startLayout?: CompiledFormation;
   markers: Record<string, readonly number[]>;
   zones: Record<string, readonly number[]>;
   /** Authored tunnel routes, in the order they were registered with
@@ -839,6 +854,85 @@ export function zoneContains(
 ): boolean {
   if (!zone) return false;
   return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
+}
+
+/** GH-1360 S3b: the three derived fronts, each from the starting force's authored centroid (design section 3.2). */
+export interface StartFrontDerivations {
+  /** Toward the centroid of side 1's start placements, buried bodies excluded; null with no such body. */
+  enemy: StartFront | null;
+  /** Toward the centroid of the primary objectives' zone centres; null with no zoned primary. */
+  objectives: StartFront | null;
+  /** Toward the map centre. */
+  centre: StartFront;
+  /** The first of the three that exists: the runtime's fallback for a mission with no `start_front`. */
+  chosen: StartFront;
+}
+
+/** Floored mean of Fx values, summed in Fx and floored once (the P1c lesson). */
+function fxMean(sum: number, n: number): number {
+  return (sum - (sum % n)) / n;
+}
+
+/**
+ * GH-1360 S3b: the fronts a mission's starting force would face if it declared no `start_front`. `force` is the force's
+ * bodies at their authored positions. Pure: integer and Q16.16 only. Exported so `tools/src/start_layout.test.ts` can
+ * list the missions whose three derivations disagree (the ones a `mission-author` reviews).
+ */
+export function startFrontDerivations(
+  mission: MissionJson,
+  ctx: Pick<MissionContext, 'markers' | 'zones'>,
+  width: number,
+  height: number,
+  force: readonly (readonly [Fx, Fx])[],
+): StartFrontDerivations {
+  let fsx = 0;
+  let fsy = 0;
+  for (const [x, y] of force) {
+    fsx += x;
+    fsy += y;
+  }
+  const n = force.length;
+  const cx = n > 0 ? fxMean(fsx, n) : fx.fromInt(width) / 2;
+  const cy = n > 0 ? fxMean(fsy, n) : fx.fromInt(height) / 2;
+  // Side 1's bodies where `spawnPlacement` puts them: the base, then SPREAD east and south per body.
+  let esx = 0;
+  let esy = 0;
+  let en = 0;
+  for (const p of mission.enemy?.garrison ?? []) {
+    if (p.in_tunnel !== undefined) continue;
+    let bx: Fx;
+    let by: Fx;
+    if (p.marker !== undefined) {
+      const m = ctx.markers[p.marker];
+      if (m === undefined) continue;
+      bx = fx.add(fx.fromInt(m[0]), HALF);
+      by = fx.add(fx.fromInt(m[1]), HALF);
+    } else if (p.at !== undefined) {
+      bx = fx.from(p.at[0]);
+      by = fx.from(p.at[1]);
+    } else continue;
+    for (let k = 0; k < p.count; k++) {
+      esx += fx.add(bx, (k % 3) * SPREAD);
+      esy += fx.add(by, ((k - (k % 3)) / 3) * SPREAD);
+      en++;
+    }
+  }
+  const enemy = en > 0 ? frontToward(cx, cy, fxMean(esx, en), fxMean(esy, en)) : null;
+  let zsx = 0;
+  let zsy = 0;
+  let zn = 0;
+  for (const o of mission.objectives) {
+    if (!o.primary) continue;
+    const name = o.type === 'escort' ? o.zone : o.type === 'capture' || o.type === 'hold_for' || o.type === 'raze' || o.type === 'collapse' || o.type === 'evacuate_before' ? o.target : undefined;
+    const z = name !== undefined ? ctx.zones[name] : undefined;
+    if (z === undefined) continue;
+    zsx += fx.fromInt(z[0]) + z[2] * HALF;
+    zsy += fx.fromInt(z[1]) + z[3] * HALF;
+    zn++;
+  }
+  const objectives = zn > 0 ? frontToward(cx, cy, fxMean(zsx, zn), fxMean(zsy, zn)) : null;
+  const centre = frontToward(cx, cy, width * HALF, height * HALF);
+  return { enemy, objectives, centre, chosen: enemy ?? objectives ?? centre };
 }
 
 export class MissionRuntime {
@@ -2604,8 +2698,10 @@ export class MissionRuntime {
     });
   }
 
-  /** Spawn everything the mission declares. Call once before the first tick. */
-  start(): void {
+  /** Spawn everything the mission declares. Call once before the first tick.
+   *  `onLayout` (GH-1360 S3b, tests and tools): told where the starting layout stood each body and how (`slot`,
+   *  `free` or `authored`), in spawn order. Not called for a mission with no `start_layout`. */
+  start(onLayout?: (placements: readonly StartPlacement[]) => void): void {
     // Mission-placed buildings go up BEFORE any force spawns, so a placement
     // can never land inside one.
     this.raiseMissionStructures();
@@ -2634,9 +2730,19 @@ export class MissionRuntime {
     }
     const loaned = new Set(this.ctx.loaned ?? []);
     const force = this.mission.starting_force ?? [];
+    // GH-1360 S3b: the bodies the starting layout may move, in spawn order. A rider goes with its carrier, a
+    // buried body is under the route and a garrisoning one is walking into its building: none of them stands.
+    const laid: number[] = [];
     for (let i = 0; i < force.length; i++) {
       const ids = this.spawnPlacement(force[i], 0);
       if (loaned.has(i)) for (const id of ids) this.onLoan.add(id);
+      if (force[i].in_tunnel === undefined && force[i].stance?.kind !== 'garrison') laid.push(...ids);
+    }
+    // After the ledger draw (inside spawnPlacement) and after `resolveUpgrades` (the caller's): both change
+    // counts and classes. Before the enemy spawns, so a later appearance sees where the force stands.
+    if (this.mission.start_layout !== undefined) {
+      const placements = this.layStartingForce(laid);
+      onLayout?.(placements);
     }
     for (const p of this.mission.enemy?.garrison ?? []) this.spawnPlacement(p, 1);
     for (const p of this.mission.civilians?.groups ?? []) this.spawnPlacement(p, 2);
@@ -3375,6 +3481,92 @@ export class MissionRuntime {
         );
       }
     }
+  }
+
+  /**
+   * GH-1360 S3b: stand the starting force in its layout (design 2026-11-15-unit-spacing-design.md, section 3.2). The
+   * bodies are already spawned at their authored positions; this moves them (`placeAtStart`) and nothing else, so
+   * spawn order, ids and every per-entity RNG stream are unchanged.
+   *
+   * `assembly`: `startLayout` over the compiled template. `authored`: every body keeps its `at` unless it overlaps a
+   * body before it, when it takes the free spot from there. Either way the free spot is `Sim.freeSpotNear` at the
+   * start reach, with every body this call has not placed yet skipped (it still stands where the author put it, and
+   * must not block the spots handed out), and an answer equal to the request read as "no spot".
+   */
+  private layStartingForce(ids: readonly number[]): readonly StartPlacement[] {
+    const mode = this.mission.start_layout;
+    if (mode !== 'assembly' && mode !== 'authored') {
+      throw new Error(`mission ${this.mission.id}: start_layout "${String(mode)}" is not "assembly" or "authored"`);
+    }
+    const sim = this.sim;
+    const st = sim.state;
+    const skip = new Uint8Array(sim.capacity);
+    for (const id of ids) skip[id] = 1;
+    const placed = (o: StartPlacement): void => {
+      if (skip[o.id] === 0) return;
+      sim.placeAtStart(o.id, o.x, o.y, o.face);
+      skip[o.id] = 0;
+    };
+    const freeSpot = (id: number, x: Fx, y: Fx, others: readonly StartPlacement[], face: number): readonly [Fx, Fx] | null => {
+      for (const o of others) placed(o);
+      const spot = sim.freeSpotNear(x, y, st.typeIdx[id], 0, START_FREE_SPOT_REACH, face, skip);
+      // `freeSpotNear` echoes the request when nothing passes: that is "no spot", never a spot.
+      return spot[0] === x && spot[1] === y ? null : spot;
+    };
+    if (mode === 'authored') {
+      const report: StartPlacement[] = [];
+      for (const id of ids) {
+        const x = st.posX[id];
+        const y = st.posY[id];
+        const face = st.facing[id];
+        // Only the bodies before this one stand where they will stay; it and every later one are skipped.
+        const spot = freeSpot(id, x, y, [], face);
+        skip[id] = 0;
+        if (spot !== null) sim.placeAtStart(id, spot[0], spot[1], face);
+        report.push({ id, x: st.posX[id], y: st.posY[id], face, how: spot === null ? 'authored' : 'free' });
+      }
+      return report;
+    }
+    const tpl = this.ctx.startLayout;
+    if (tpl === undefined) {
+      throw new Error(`mission ${this.mission.id}: start_layout "assembly" needs ctx.startLayout (the compiled data/layouts/assembly.json)`);
+    }
+    const bodies: StartBody[] = ids.map((id) => {
+      const t = sim.unitTypes[st.typeIdx[id]];
+      const vehicle = !t.isAir && t.moveDomain === DOMAIN_VEHICLE;
+      return { id, domain: vehicle ? 1 : 0, cls: t.fmClass, vehicle, air: t.isAir, x: st.posX[id], y: st.posY[id] };
+    });
+    const front = this.startFront(ids);
+    // A free spot is placed facing the front, as `startLayout` faces it.
+    const faceFront = startFaceOf(front);
+    const out = startLayout(
+      {
+        width: sim.width,
+        height: sim.height,
+        masks: [sim.blocked, sim.blockedVehicle],
+        cover: sim.cover,
+        front,
+        bodies,
+        freeSpot: (id, x, y, others) => freeSpot(id, x, y, others, faceFront),
+      },
+      tpl,
+    );
+    for (const o of out) sim.placeAtStart(o.id, o.x, o.y, o.face);
+    return out;
+  }
+
+  /** The axis the starting force faces: the authored `start_front`, else derived (`startFrontDerivations`). */
+  private startFront(ids: readonly number[]): StartFront {
+    const f = this.mission.start_front;
+    if (f !== undefined) {
+      if (f !== 'N' && f !== 'E' && f !== 'S' && f !== 'W') {
+        throw new Error(`mission ${this.mission.id}: start_front "${f}" is not N, E, S or W`);
+      }
+      return f;
+    }
+    const st = this.sim.state;
+    const pts: [Fx, Fx][] = ids.map((id) => [st.posX[id], st.posY[id]]);
+    return startFrontDerivations(this.mission, this.ctx, this.sim.width, this.sim.height, pts).chosen;
   }
 
   private markerPos(name: string): [Fx, Fx] {
