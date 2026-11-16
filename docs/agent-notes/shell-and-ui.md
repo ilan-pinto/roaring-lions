@@ -152,6 +152,13 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   toggle and, when chat is off, a line saying so instead of the input. `chat-inbox-guard.test.ts` reads the source and fails when a
   third place hooks `onChat` or a sink stops going through `.deliver(`. Not in this slice, waiting for the lead: word filter,
   persistent block, report, kill switch.
+- **Settings wears the account page (GH-1510).** `ui/settings-panel.ts` draws each section as one of the profile's
+  cards (`ui/page-card.ts`, which `ui/profile.ts` uses too; the classes keep their `rl-profile__` names so the
+  profile's pins and crest echo do not move). Wide column: Video, Audio; narrow: Accessibility, Privacy, Chat, Language;
+  Controls full width under both. The pause menu's Settings tab mounts the same panel, so the drop to one column is a
+  container query on `.rl-settings__content` (48rem), not a media query. A new row goes into its section's card body
+  (`row(table, ...)` after that section's `table = section(...)`); a new section needs a `SectionKey` and a title strip
+  in `theme.css` (`settings-css.test.ts` fails without one). Presentation only: no setting, field or default moved.
 - **Two more `localStorage` keys, beside the ledger/account pair below.**
   `lions.settings` (`packages/app/src/settings.ts`, the only reader and writer)
   holds video/audio/controls/accessibility/language and is the only thing that

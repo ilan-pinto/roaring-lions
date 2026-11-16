@@ -7984,28 +7984,82 @@ button.rl-menu__item[data-kind='aside'] {
 /* A fixed-position `.rl-panel` rather than a `.rl-menu` column, since this
    screen is also mounted inside the pause overlay (Task 6), which has no
    `.rl-menu` frame to sit in. (The brigade screen this used to point at for
-   the shape is the garage now, and a full-width grid.) */
+   the shape is the garage now, and a full-width grid.)
+
+   GH-1510: the screen follows the account page (GH-1075 P7, GH-1367). Its
+   sections are the profile's own cards and columns (`ui/page-card.ts`, the
+   `.rl-profile__card*` and `.rl-profile__cols` rules below, never copied):
+   the same 64rem width, the wide and narrow columns, the title strips in the
+   profile's role colours, and the warm ground behind it. The Controls card
+   runs full width under both columns. The columns fall to one when the PANEL
+   is narrow, not only the window: a container query, because the pause
+   menu's Settings tab mounts this same panel in a 40rem modal on a wide
+   screen. */
 .rl-settings {
   top: 6%;
   left: 50%;
   transform: translateX(-50%);
-  width: min(32rem, 94vw);
+  width: min(64rem, 94vw);
   max-height: 88vh;
   overflow: auto;
+  text-align: start;
 }
-.rl-settings__table {
+.rl-settings__content {
+  container: rl-settings / inline-size;
   display: flex;
   flex-direction: column;
+  gap: var(--s3);
 }
-.rl-settings__section {
-  margin: var(--s4) 0 var(--s1);
-  font-family: var(--font-display);
-  font-size: var(--t-card);
-  letter-spacing: var(--track-title);
-  color: var(--ink);
+/* Two class names: `.rl-profile__cols` comes later in this file, and its
+   media query too, so a single class here would lose to it by order. */
+@container rl-settings (max-width: 48rem) {
+  .rl-profile__cols.rl-settings__cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
-.rl-settings__section:first-child {
-  margin-top: 0;
+/* The rows carry their own padding and hairline, so the card body adds no
+   gap of its own between them. */
+.rl-settings__card .rl-profile__card-body {
+  gap: 0;
+}
+/* The key table is long: on a wide panel its rows run in two columns. */
+@container rl-settings (min-width: 48rem) {
+  .rl-settings__card--controls .rl-profile__card-body {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--s5);
+    align-items: start;
+  }
+}
+/* Each card's title strip and frame, in the account page's role colours
+   (GH-1367 S3): the same token pairs, so the same 4.5:1 checks in
+   profile-css.test.ts hold here. Privacy is the profile's "Your data". */
+.rl-settings__card--video .rl-profile__card-title,
+.rl-settings__card--controls .rl-profile__card-title,
+.rl-settings__card--language .rl-profile__card-title {
+  background: var(--card-head-history);
+}
+.rl-settings__card--audio .rl-profile__card-title,
+.rl-settings__card--chat .rl-profile__card-title {
+  background: var(--card-head-record);
+}
+.rl-settings__card--accessibility .rl-profile__card-title {
+  background: var(--card-head-signin);
+  color: var(--card-head-signin-ink);
+}
+.rl-settings__card--privacy .rl-profile__card-title {
+  background: var(--card-head-data);
+}
+/* Two class names again: `.rl-profile__card`'s own `border` comes later. */
+.rl-profile__card.rl-settings__card--audio,
+.rl-profile__card.rl-settings__card--chat {
+  border-color: var(--card-head-record);
+}
+.rl-profile__card.rl-settings__card--accessibility {
+  border-color: color-mix(in srgb, var(--card-head-signin) 45%, transparent);
+}
+.rl-profile__card.rl-settings__card--privacy {
+  border-color: color-mix(in srgb, var(--rl-water-1) 50%, transparent);
 }
 .rl-settings__row {
   display: grid;
@@ -10373,13 +10427,16 @@ fieldset.rl-versus__maps {
 /* GH-1367 S2: a warm ground behind the account page, and one frame. The ground is the limestone and dust ramps
    (index 0 is the lightest, so 6 is the dark end), under a dust glow top left and an olive shade bottom right. It
    is scoped by :has() to the stage that holds the profile column, so no other screen moves, and the router empties
-   #stage on leave, so nothing outlives the page. Static: nothing animates. */
+   #stage on leave, so nothing outlives the page. Static: nothing animates. GH-1510: the Settings screen, which follows
+   the account page's design, stands on the same ground; the pause menu's Settings tab is not a child of #stage, so a
+   mission never takes it. */
 :root {
   --profile-ground: linear-gradient(var(--rl-limestone-6), var(--rl-dust-6));
   --profile-ground-glow: color-mix(in srgb, var(--rl-dust-3) 40%, transparent);
   --profile-ground-shade: color-mix(in srgb, var(--rl-olive-2) 55%, transparent);
 }
-#stage:has(> .rl-menu--profile) {
+#stage:has(> .rl-menu--profile),
+#stage:has(> .rl-settings) {
   background:
     radial-gradient(ellipse at 18% 8%, var(--profile-ground-glow), transparent 60%),
     radial-gradient(ellipse at 82% 92%, var(--profile-ground-shade), transparent 55%),
