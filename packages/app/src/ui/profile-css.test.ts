@@ -89,7 +89,7 @@ describe('the account page accents (GH-1367 S1)', () => {
     // S4: the rule takes the crest's rim, and --crest-rim falls back to the same gold when no crest is read.
     const head = body('.rl-profile__card--head');
     expect(head).toContain('--crest-rim: var(--title-accent)');
-    expect(head).toContain('border-left: 0.1875rem solid var(--crest-rim)');
+    expect(head).toContain('border-inline-start: 0.1875rem solid var(--crest-rim)');
   });
   it('pins the lifted card, the rim, the link, the tag, the status and the perk marker', () => {
     expect(css).toMatch(/--card-bg: color-mix\(in srgb, var\(--rl-shadow-0\) 70%, transparent\)/);
