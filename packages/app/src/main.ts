@@ -1195,7 +1195,7 @@ async function main(): Promise<void> {
       // make a WebGL context for a player who has already gone.
       signal: req.signal,
       // GH-1393: the saved mission, if there is one: a Resume row above the footer. The store is read again after a discard.
-      ...(kit === null ? {} : { resume: {
+      ...(kit === null ? {} : { resume: () => kit.resumeRow({
         read: () => {
           const r = kit.readSuspended(kit.openSuspendStore(() => window.localStorage));
           if (r.state === 'refused') return { state: 'refused', reason: r.reason };
@@ -1212,7 +1212,7 @@ async function main(): Promise<void> {
           return ok;
         },
         now: () => Date.now(),
-      } }),
+      }) }),
     });
   }
 
