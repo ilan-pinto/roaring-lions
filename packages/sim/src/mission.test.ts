@@ -977,6 +977,43 @@ describe('escort through the work (GH-1439)', () => {
     expect(w.runtime.defeatCause).toEqual({ objective: 'vip' });
   });
 
+  it('taken counts as lost: two escorted units removed by trigger fail a tolerance of 2, and one does not', () => {
+    const force: PlacementJson[] = [
+      { unit: 'm_squad', count: 1, at: [3, 5], tag: 'vip', group: 'g1' },
+      { unit: 'm_squad', count: 1, at: [3, 7], tag: 'vip', group: 'g2' },
+      { unit: 'm_squad', count: 2, at: [3, 9], tag: 'vip' },
+    ];
+    const w = makeWorld(
+      baseMission({
+        starting_force: force,
+        objectives: [escort({ fail_after_losses: 2, until: ['work'] }), work(120)],
+        triggers: [
+          { id: 'take_one', on: { kind: 'timer_s', value: 1 }, do: { kind: 'remove', group: 'g1' } },
+          { id: 'take_two', on: { kind: 'timer_s', value: 3 }, do: { kind: 'remove', group: 'g2' } },
+        ],
+      }),
+      { zones: DEST },
+    );
+    w.step(2 * TICKS_PER_SECOND);
+    expect(w.sim.state.alive[0]).toBe(0); // taken, not killed
+    expect(status(w)).toBe('active');
+    expect(w.runtime.result).toBe('ongoing');
+    w.step(2 * TICKS_PER_SECOND);
+    expect(w.sim.state.alive[1]).toBe(0);
+    expect(status(w)).toBe('failed');
+    expect(w.runtime.result).toBe('defeat');
+  });
+
+  it('ceiling runs after the escort pass', () => {
+    const cap: ObjectiveJson = { id: 'cap', type: 'no_collateral_above', primary: true, threshold: 30 };
+    const w = makeWorld(baseMission({ starting_force: FOUR, objectives: [cap, escort({ until: ['work'] }), work(10)], roe: { enabled: true, civilian_casualty_penalty: 15 } }), { zones: DEST });
+    put(w, [0, 1, 2, 3], IN);
+    const ev = marks(w, 12 * TICKS_PER_SECOND);
+    const t = (id: string) => ev.find((m) => m.startsWith(`${id}:complete@`))?.split('@')[1];
+    expect(t('vip')).toBeDefined();
+    expect(t('cap')).toBe(t('vip'));
+  });
+
   it('survivors are what arrive: one dead (left where it fell, outside the zone), three standing in the zone, the work done', () => {
     const w = world([escort({ fail_after_losses: 2, until: ['work'] }), work(10)]);
     w.step(2);
@@ -1100,7 +1137,8 @@ describe('escort through the work (GH-1439)', () => {
       expect(() => load([escort({ until: ['work'] }), work(30, { primary: false }), { id: 'hold', type: 'survive_until', primary: true, seconds: 600 }])).toThrow(/until waits on a secondary \("work"\)/);
     });
     it('R6: no until id is another escort, a ceiling or a score', () => {
-      expect(() => load([escort({ until: ['other'] }), { id: 'other', type: 'escort', primary: true, target: 'vip', zone: 'dest' }, work(30)])).toThrow(/waits on a type that waits on it \("other" is a escort\)/);
+      expect(() => load([escort({ until: ['other'] }), { id: 'other', type: 'escort', primary: true, target: 'vip', zone: 'dest' }, work(30)])).toThrow(/waits on a type that waits on it \("other" is an escort\)/);
+      expect(() => load([escort({ until: ['sc'] }), { id: 'sc', type: 'score', primary: true, side: 0 }, work(30)])).toThrow(/waits on a type that waits on it \("sc" is a score\)/);
       expect(() => load([escort({ until: ['cap'] }), { id: 'cap', type: 'no_collateral_above', primary: true, threshold: 30 }, work(30)])).toThrow(/waits on a type that waits on it \("cap" is a no_collateral_above\)/);
     });
     it('R7: the starts-inside fault applies only to an escort with no until (a protect-in-place escort is legal)', () => {

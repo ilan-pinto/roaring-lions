@@ -424,7 +424,7 @@
           "fail_after_losses": {
             "type": "integer",
             "minimum": 1,
-            "description": "escort only (GH-1439): the escort fails the tick this many of its tagged units are dead or taken, from 1 up to the number of units the tag names (the runtime refuses more). Absent is 1: the first loss fails it, as an escort always did. Once the escort completes it is never evaluated again, so the count matters only until then. Any other type refuses it."
+            "description": "escort only (GH-1439): the escort fails the tick this many of its tagged units are dead or taken, from 1 up to the number of units the tag names (the runtime refuses more; validate:data refuses a value above 1 when the tag is carried by a from_ledger placement, whose unit count depends on the player's roster). Absent is 1: the first loss fails it, as an escort always did. Once the escort completes it is never evaluated again, so the count matters only until then. Any other type refuses it."
           },
           "until": {
             "type": "array",

@@ -1270,7 +1270,7 @@ export class MissionRuntime {
           if (waits === undefined) throw new Error(`mission ${mission.id}: escort "${def.id}" until names unknown objective "${String(u)}"`);
           if (!waits.primary) throw new Error(`mission ${mission.id}: escort "${def.id}" until waits on a secondary ("${u}"), which could fail and leave the escort active for ever`);
           if (waits.type === 'escort' || waits.type === 'no_collateral_above' || waits.type === 'score') {
-            throw new Error(`mission ${mission.id}: escort "${def.id}" until waits on a type that waits on it ("${u}" is a ${waits.type})`);
+            throw new Error(`mission ${mission.id}: escort "${def.id}" until waits on a type that waits on it ("${u}" is ${waits.type === 'escort' ? 'an' : 'a'} ${waits.type})`);
           }
         }
       }

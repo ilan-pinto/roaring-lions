@@ -75,6 +75,18 @@ describe('escort through the work (GH-1439): R1 to R7, the same literals the run
     expect(run(escort({ fail_after_losses: 3 }), [hold], carried)).toEqual([]);
     expect(run(escort({ fail_after_losses: 4 }), [hold], carried)).toEqual(['fx.json: escort "vip" fail_after_losses 4 cannot exceed the 3 units tagged "vip"']);
   });
+  it('R3: every carrier of a placement gets the whole declared load (2 carriers x 2 riders + 2 carriers = 6)', () => {
+    const two = { starting_force: force({ unit: 'c', count: 2, at: [3, 5], tag: 'vip', passengers: [{ unit: 'r', count: 2, tag: 'vip' }] }) };
+    expect(run(escort({ fail_after_losses: 6 }), [hold], two)).toEqual([]);
+    expect(run(escort({ fail_after_losses: 7 }), [hold], two)).toEqual(['fx.json: escort "vip" fail_after_losses 7 cannot exceed the 6 units tagged "vip"']);
+  });
+  it('R3: a tolerance above 1 is refused when the tag is carried by a from_ledger placement, and 1 or absent is not', () => {
+    const led = { starting_force: force({ unit: 'u', count: 4, at: [3, 5], tag: 'vip', from_ledger: true }) };
+    expect(run(escort({ fail_after_losses: 2 }), [hold], led)).toEqual([expect.stringContaining('tag "vip" is carried by a from_ledger placement')]);
+    expect(run(escort({ fail_after_losses: 2 }), [hold], led)[0]).toContain('fx.json: escort "vip"');
+    expect(run(escort({ fail_after_losses: 1 }), [hold], led)).toEqual([]);
+    expect(run(escort(), [hold], led)).toEqual([]);
+  });
   it('R4: until is a non-empty list of distinct ids of objectives of this mission, never the escort itself', () => {
     expect(run(escort({ until: [] }), [work])).toEqual(['fx.json: escort "vip" needs an until of one or more distinct objective ids']);
     expect(run(escort({ until: ['work', 'work'] }), [work])).toEqual(['fx.json: escort "vip" needs an until of one or more distinct objective ids']);
@@ -89,7 +101,7 @@ describe('escort through the work (GH-1439): R1 to R7, the same literals the run
     const cap = { id: 'cap', type: 'no_collateral_above', primary: true, threshold: 30 };
     const score = { id: 'sc', type: 'score', primary: true };
     for (const w of [other, cap, score]) {
-      expect(run(escort({ until: [w.id] }), [w, work])[0], w.type).toContain(`until waits on a type that waits on it ("${w.id}" is a ${w.type})`);
+      expect(run(escort({ until: [w.id] }), [w, work])[0], w.type).toContain(`until waits on a type that waits on it ("${w.id}" is ${w.type === 'escort' ? 'an' : 'a'} ${w.type})`);
     }
   });
   it('R7: a protect-in-place escort (an until, and the units already in the zone) is legal; without the until it is still refused', () => {

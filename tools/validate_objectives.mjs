@@ -25,11 +25,17 @@ export function objectiveFailures(o, mi, map, file) {
     if (!o.target || tagged.length === 0) {
       out.push(`${file}: escort "${o.id}" needs a tag on a starting_force placement, not "${o.target}"`);
     }
-    // GH-1439 R3: a loss tolerance past the number of tagged units could never be reached. The count is the placements' `count`
-    // (and any passengers carrying the tag); the runtime reads the bodies and refuses the same.
+    // GH-1439 R3: a loss tolerance past the number of tagged units could never be reached. The runtime gives EACH carrier the whole
+    // declared load, so a placement of `count` carriers fields count x (passengers' counts) tagged riders on top of its own count
+    // when it is tagged itself; the runtime reads the bodies and refuses the same.
     if (o.fail_after_losses !== undefined && Number.isInteger(o.fail_after_losses) && o.fail_after_losses >= 1 && tagged.length > 0) {
+      // A `from_ledger` placement's body count depends on the player's roster, so the runtime check could throw for one player and
+      // not another: refused at authoring time for a tolerance above 1.
+      if (o.fail_after_losses > 1 && tagged.some((p) => p.from_ledger === true)) {
+        out.push(`${file}: escort "${o.id}" fail_after_losses ${o.fail_after_losses} is refused: tag "${o.target}" is carried by a from_ledger placement, whose unit count depends on the player's roster`);
+      }
       const total = (mi.starting_force ?? []).reduce(
-        (n, p) => n + (p.tag === o.target ? (p.count ?? 1) : 0) + (p.passengers ?? []).reduce((m, q) => m + (q.tag === o.target ? (q.count ?? 1) : 0), 0),
+        (n, p) => n + (p.tag === o.target ? (p.count ?? 1) : 0) + (p.count ?? 1) * (p.passengers ?? []).reduce((m, q) => m + (q.tag === o.target ? (q.count ?? 1) : 0), 0),
         0,
       );
       if (total > 0 && o.fail_after_losses > total) {
@@ -81,7 +87,7 @@ export function objectiveFailures(o, mi, map, file) {
           if (waits === undefined) out.push(`${file}: escort "${o.id}" until names unknown objective "${u}"`);
           else if (!waits.primary) out.push(`${file}: escort "${o.id}" until waits on a secondary ("${u}"), which could fail and leave the escort active for ever`);
           else if (waits.type === 'escort' || waits.type === 'no_collateral_above' || waits.type === 'score') {
-            out.push(`${file}: escort "${o.id}" until waits on a type that waits on it ("${u}" is a ${waits.type})`);
+            out.push(`${file}: escort "${o.id}" until waits on a type that waits on it ("${u}" is ${waits.type === 'escort' ? 'an' : 'a'} ${waits.type})`);
           }
         }
       }
