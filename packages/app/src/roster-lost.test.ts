@@ -15,6 +15,14 @@ describe('lostRecordFor', () => {
     });
   });
 
+  // GH-1380. Falsified: leaving `cause` off the record loses the card's "why" the next mission.
+  it('carries the cause when given one, and adds no key when not', () => {
+    const entry = e({ type: 'inf_squad', name: 'Barkai', slot: 7 });
+    const cause = { kind: 'beam' as const, attacker: 'aa_gachelet', weapon: 'beam', suppressed: true };
+    expect(lostRecordFor(entry, 'inf_squad', 'm', 1, cause)?.cause).toEqual(cause);
+    expect('cause' in (lostRecordFor(entry, 'inf_squad', 'm', 1) as object)).toBe(false);
+  });
+
   // R-11. A fresh remnant spawned and killed inside one mission never reached the
   // roster and has no place to leave vacant. `lostByType()` still counts it, which
   // is why the debrief keeps its aggregate beside the named list.

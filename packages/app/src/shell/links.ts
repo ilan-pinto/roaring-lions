@@ -43,8 +43,9 @@ export const routes = {
   freePlay: (): string => href('/free-play'),
   sandbox: (map: string, on?: Partial<Record<SandboxFlagName, boolean>>): string =>
     `${href(`/free-play/${encodeURIComponent(map)}`)}${flagQuery(on)}`,
-  mission: (id: string, opts: { tutorial?: boolean; fresh?: boolean } = {}): string => {
+  mission: (id: string, opts: { tutorial?: boolean; fresh?: boolean; resume?: boolean } = {}): string => {
     const q = new URLSearchParams();
+    if (opts.resume) q.set('resume', '1');
     if (opts.tutorial) q.set('tutorial', '1');
     if (opts.fresh) q.set('fresh', '1');
     return href(`/mission/${encodeURIComponent(id)}`, q);

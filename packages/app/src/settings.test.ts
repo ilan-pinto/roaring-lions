@@ -115,6 +115,21 @@ describe('parseSettings', () => {
       motion: 'reduce', colorVision: 'default', captions: true,
     });
   });
+  it('chat is ON by default (GH-1417 S1), off persists through the one writer, a bad or missing value reads as on, and a save from before it loses nothing', () => {
+    expect(DEFAULT_SETTINGS.chat.enabled).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { radio: false } })).chat).toEqual({ enabled: true });
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { radio: false } })).audio.radio).toBe(false);
+    expect(parseSettings(JSON.stringify({ version: 1, chat: { enabled: false } })).chat.enabled).toBe(false);
+    expect(parseSettings(JSON.stringify({ version: 1, chat: { enabled: 'no' } })).chat.enabled).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, chat: 7 })).chat.enabled).toBe(true);
+    // Round trip through saveSettings and a blocked store: the write is swallowed, the read is the default.
+    const store = memStore();
+    saveSettings(store, { ...structuredClone(DEFAULT_SETTINGS), chat: { enabled: false } });
+    expect(loadSettings(store).chat.enabled).toBe(false);
+    const blocked = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); }, removeItem: () => undefined };
+    expect(() => saveSettings(blocked, structuredClone(DEFAULT_SETTINGS))).not.toThrow();
+    expect(loadSettings(blocked).chat.enabled).toBe(true);
+  });
 });
 
 describe('applySettings', () => {

@@ -9162,7 +9162,37 @@ fieldset.rl-versus__maps {
 .rl-chat__line {
   overflow-wrap: anywhere;
 }
+.rl-chat__entry {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+}
+/* GH-1417 S1: the line shown in place of the chat while Settings has it off. */
+.rl-chat__off {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+/* The mute toggle beside the input; aria-pressed carries the state, the label names the action. */
+.rl-chat__mute {
+  flex: none;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+  cursor: pointer;
+}
+.rl-chat__mute[aria-pressed='true'] {
+  color: var(--ink);
+  background: var(--selected-fill);
+  border-color: var(--selected);
+}
 .rl-chat__input {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   box-sizing: border-box;
   background: var(--panel-bg-solid);
@@ -10892,4 +10922,45 @@ fieldset.rl-versus__maps {
 .rl-profile__delete {
   border-color: var(--bad);
   color: var(--bad-text);
+}
+
+/* GH-1393: the saved mission, on the campaign board's footer, and the pause menu's save line. */
+.rl-resume {
+  display: grid;
+  gap: var(--s2);
+  justify-items: start;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+}
+.rl-resume__lead {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-resume__line,
+.rl-resume__msg,
+.rl-pause__save-msg {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  line-height: var(--lh-body);
+  color: var(--ink);
+}
+.rl-resume__msg,
+.rl-pause__save-msg {
+  min-height: calc(var(--lh-body) * 1em);
+  color: var(--ink-mute);
+}
+.rl-resume__msg[data-tone='bad'],
+.rl-pause__save-msg[data-tone='bad'] {
+  color: var(--bad-text);
+}
+.rl-resume__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
 }
