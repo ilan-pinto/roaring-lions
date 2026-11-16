@@ -55,3 +55,41 @@ describe('createFeedbackSession', () => {
     expect('player' in m || 'session' in m || 'tester' in m).toBe(false);
   });
 });
+
+// GH-1417 S3: a report is sent as the session alone, whoever the player is.
+describe('sendReport', () => {
+  const report = { seat: 0 as const, reportedSeat: 1 as const, reason: 'abuse' as const, note: '', lines: [{ seat: 1 as const, text: 'rude' }], reportedPublicId: 'ABCDEFG1' };
+
+  it('sends a TESTER as the session id alone: no tester label, no player id', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ref: 'FB-0009' }), { status: 201 }));
+    const s = createFeedbackSession(deps({ storage: store({ [TESTER_KEY]: 'dana' }), ids: () => ({ player: PLAYER, session: SESSION, tester: 'dana' }), fetch }));
+    expect((await s.sendReport(report)).kind).toBe('sent');
+    const m = await metaOf(fetch);
+    expect(m).toMatchObject({ source: 'match', category: 'report', session: SESSION });
+    for (const k of ['tester', 'player', 'contact']) expect(k in m, k).toBe(false);
+  });
+
+  it('sends an opt-out with no id at all, and an untagged player with the session alone', async () => {
+    const out = vi.fn(async () => new Response(JSON.stringify({ ref: 'FB-0010' }), { status: 201 }));
+    await createFeedbackSession(deps({ optedOut: true, fetch: out })).sendReport(report);
+    expect('session' in (await metaOf(out))).toBe(false);
+    const anon = vi.fn(async () => new Response(JSON.stringify({ ref: 'FB-0011' }), { status: 201 }));
+    await createFeedbackSession(deps({ fetch: anon })).sendReport(report);
+    expect((await metaOf(anon)).session).toBe(SESSION);
+  });
+
+  it('is a dry run where feedback does not send, with no request', async () => {
+    const fetch = vi.fn();
+    const s = createFeedbackSession({ ...deps({ fetch }), env: { prod: false, hostname: 'localhost', query: new URLSearchParams(), storage: store() } });
+    expect((await s.sendReport(report)).kind).toBe('dry-run');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('never makes a request for a report that cannot be built (nothing to point at)', async () => {
+    const fetch = vi.fn();
+    const s = createFeedbackSession(deps({ fetch }));
+    expect(await s.sendReport({ ...report, lines: [] })).toEqual({ kind: 'failed', status: null });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+

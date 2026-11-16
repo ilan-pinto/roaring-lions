@@ -216,7 +216,8 @@ export async function feedbackDetail(env: Env, id: number, origin: string) {
   const r = await getRow(env.DB, id);
   if (!r) return null;
   const context = parseContext(r.context);
-  const issue: IssueLink = buildIssueLink(
+  // GH-1417 S3: a report holds the other player's chat lines, and the repository is public: it is never turned into an issue link.
+  const issue: IssueLink = r.category === 'report' ? { url: '', title: '', body: '', truncated: false } : buildIssueLink(
     {
       id: r.id, category: r.category, rating: r.rating, text: r.text, mission: r.mission, tick: r.tick, build: r.build,
       commit: r.commit, context, hasReplay: r.replay_bytes !== null, tester: r.tester, contact: r.contact, player: r.player, session: r.session,
@@ -283,6 +284,7 @@ export async function applyFeedbackAction(env: Env, id: number, body: Record<str
   let to: FeedbackStatus;
   let issue = r.issue;
   if (action === 'issue' || action === 'file') {
+    if (r.category === 'report') return { ok: false, code: 409, error: 'a report is never filed as a GitHub issue' };
     const n = body.issue;
     if (action === 'issue' || n !== undefined) {
       if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > ISSUE_MAX) return { ok: false, code: 400, error: 'issue' };

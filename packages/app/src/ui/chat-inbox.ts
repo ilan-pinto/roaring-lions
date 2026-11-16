@@ -14,16 +14,33 @@
  *     match are one room and share one transport, so the inbox lives with the transport (`inboxOf`) and a mute made in the lobby holds
  *     in the match. A guest cannot be recognised in a later room by design (per-match seat tokens), so nothing here is stored.
  *
+ *  3. **A blocked member** (S3, D5): a member the player blocked on this device (`chat/block-list.ts`, by public id) is hidden in this room
+ *     and every later one. A guest has no id to block, so a guest is only ever muted.
+ *
+ * The inbox also keeps the reporter's own copy of the last ten lines received (S3, D6), which is all a report carries as evidence.
+ *
  * Presentation only: nothing here touches a command, a frame or the sim (invariant 4), and the room still relays and rate-limits every
- * line. The word filter, the persistent block and reporting are later slices and wait for the lead's decisions.
+ * line. The word filter is a later slice and waits for the lead's decisions.
  */
 import type { Seat } from '@lions/net';
+import type { BlockList } from '../chat/block-list';
+import { REPORT_LINES_MAX, type ReportLine } from '../feedback/report';
 
-export type ChatVerdict = 'show' | 'off' | 'muted';
+export type ChatVerdict = 'show' | 'off' | 'blocked' | 'muted';
+
+/** Who a seat is, for the persistent block (GH-1417 S3): the lists to consult and each seat's member public id (null for a guest or bot). */
+export interface InboxWho {
+  blocks: BlockList;
+  publicIdOf(seat: Seat): string | null;
+}
 
 export class ChatInbox {
   private readonly muted = new Set<Seat>();
   private readonly listeners = new Set<() => void>();
+  /** The reporter's own copy of the room's recent lines, oldest first (D6: the evidence of a report is this, labelled unverified). */
+  private readonly ring: ReportLine[] = [];
+  private who: InboxWho | null = null;
+  private unwatchBlocks: (() => void) | null = null;
 
   /** `enabled` is read at every line, so a setting changed over a running match applies to the next line. */
   constructor(private enabled: () => boolean) {}
@@ -33,18 +50,83 @@ export class ChatInbox {
     this.enabled = enabled;
   }
 
+  /** The block list and the seats' public ids, replaced by whichever screen asks last (the lobby, then the battlefield). */
+  useWho(who: InboxWho): void {
+    if (this.who?.blocks !== who.blocks) {
+      this.unwatchBlocks?.();
+      this.unwatchBlocks = who.blocks.onChange(() => this.notify());
+    }
+    this.who = who;
+  }
+
   isEnabled(): boolean {
     return this.enabled();
   }
 
+  /** The member public id of this seat, or null (a guest, a bot, or no identity known yet). */
+  publicIdOf(seat: Seat): string | null {
+    return this.who?.publicIdOf(seat) ?? null;
+  }
+
+  /** True when the player has blocked the member sitting in this seat. Never true for a guest: there is nothing to recognise. */
+  isBlocked(seat: Seat): boolean {
+    const id = this.publicIdOf(seat);
+    return id !== null && this.who !== null && this.who.blocks.has(id);
+  }
+
+  /** Whether this seat can be blocked at all: only a member has a public id (D5). */
+  canBlock(seat: Seat): boolean {
+    return this.publicIdOf(seat) !== null;
+  }
+
   verdict(seat: Seat): ChatVerdict {
     if (!this.enabled()) return 'off';
+    if (this.isBlocked(seat)) return 'blocked';
     return this.muted.has(seat) ? 'muted' : 'show';
   }
 
   /** Hands `text` to `show` if, and only if, this seat's line may be drawn. The only way a sink learns a received line. */
   deliver(seat: Seat, text: string, show: (text: string) => void): void {
+    // While chat is on, the line goes in the reporter's copy even when this seat is muted or blocked: muting someone and then
+    // reporting them is the ordinary order. With chat off nothing is kept, because nothing was shown.
+    if (this.enabled()) this.record(seat, text);
     if (this.verdict(seat) === 'show') show(text);
+  }
+
+  private record(seat: Seat, text: string): void {
+    const first = !this.ring.some((l) => l.seat === seat);
+    this.ring.push({ seat, text });
+    while (this.ring.length > REPORT_LINES_MAX) this.ring.shift();
+    // The Report control appears once the other seat has said something; tell the chat when that first happens.
+    if (first) this.notify();
+  }
+
+  /** The last lines received, oldest first, as the reporter saw the room (at most `REPORT_LINES_MAX`). */
+  recent(): ReportLine[] {
+    return this.ring.map((l) => ({ ...l }));
+  }
+
+  /** Whether `seat` has said anything in this room: a report needs something to point at. */
+  hasHeard(seat: Seat): boolean {
+    return this.ring.some((l) => l.seat === seat);
+  }
+
+  /** Blocks (or unblocks) the member in `seat` on this device. False when the seat is not a member. */
+  setBlocked(seat: Seat, on: boolean): boolean {
+    const id = this.publicIdOf(seat);
+    if (id === null || this.who === null) return false;
+    if (on) return this.who.blocks.add(id);
+    this.who.blocks.remove(id);
+    return true;
+  }
+
+  toggleBlocked(seat: Seat): boolean {
+    this.setBlocked(seat, !this.isBlocked(seat));
+    return this.isBlocked(seat);
+  }
+
+  private notify(): void {
+    for (const fn of [...this.listeners]) fn();
   }
 
   isMuted(seat: Seat): boolean {
@@ -55,7 +137,7 @@ export class ChatInbox {
     if (on === this.muted.has(seat)) return;
     if (on) this.muted.add(seat);
     else this.muted.delete(seat);
-    for (const fn of [...this.listeners]) fn();
+    this.notify();
   }
 
   toggleMuted(seat: Seat): boolean {
@@ -76,11 +158,12 @@ const INBOXES = new WeakMap<object, ChatInbox>();
  * The inbox of one room, keyed by its transport: the lobby screen and the battlefield are different modules holding the same transport
  * (`handOver`), so both get the same inbox and a mute carries from one to the other. A transport that is gone takes its inbox with it.
  */
-export function inboxOf(transport: object, enabled: () => boolean): ChatInbox {
+export function inboxOf(transport: object, enabled: () => boolean, who?: InboxWho): ChatInbox {
   let inbox = INBOXES.get(transport);
   if (inbox === undefined) {
     inbox = new ChatInbox(enabled);
     INBOXES.set(transport, inbox);
   } else inbox.useEnabled(enabled);
+  if (who !== undefined) inbox.useWho(who);
   return inbox;
 }

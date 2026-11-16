@@ -108,7 +108,7 @@ function timelineRow(e){return '<tr><td>'+when(e.t)+'</td><td>'+esc(e.type)+'</t
 function detailHtml(d){
   const can=(s)=>d.transitions.includes(s);
   const acts=[];
-  if(can('filed')||d.status==='filed')acts.push('<button class="primary" data-act="file">File as GitHub issue</button>');
+  if(d.issue.url!==''&&(can('filed')||d.status==='filed'))acts.push('<button class="primary" data-act="file">File as GitHub issue</button>');
   if(can('triaged'))acts.push('<button data-act="triage">Mark triaged</button>');
   if(can('dismissed'))acts.push('<button data-act="dismiss">Dismiss</button>');
   if(can('new'))acts.push('<button data-act="reopen">Reopen as new</button>');
@@ -121,8 +121,8 @@ function detailHtml(d){
     +'<div class="actions">'+acts.join('')+'</div>'
     +'<div class="actions"><input id="fb-issue-no" type="number" min="1" placeholder="Filed as issue #" aria-label="Filed as issue number" value="'+esc(d.issueNumber??'')+'">'
     +'<input id="fb-note" maxlength="2000" placeholder="Triage note (private)" aria-label="Triage note (private)" value="'+esc(d.note??'')+'" style="flex:1"></div>'
-    +'<p class="muted">File opens github.com/ilan-pinto/roaring-lions/issues/new with this title and body filled in. You read and edit it there; nothing is posted until you press Submit. The tester\\'s name and contact never go into the issue.'+(d.issue.truncated?' The note is cut to fit the link.':'')+'</p>'
-    +'<pre class="issue">'+esc(d.issue.title)+'\\n\\n'+esc(d.issue.body)+'</pre></div>'
+    +(d.issue.url===''?'<p class="muted">A report of a player\\'s chat, as the reporter saw it (never checked). It holds other players\\' words, so it is never turned into a GitHub issue link; read it here and act yourself. Nothing is done automatically.</p></div>':'<p class="muted">File opens github.com/ilan-pinto/roaring-lions/issues/new with this title and body filled in. You read and edit it there; nothing is posted until you press Submit. The tester\\'s name and contact never go into the issue.'+(d.issue.truncated?' The note is cut to fit the link.':'')+'</p>'
+    +'<pre class="issue">'+esc(d.issue.title)+'\\n\\n'+esc(d.issue.body)+'</pre></div>')
     +'<div><table class="kv">'+contextRows(d)+'</table>'
     +'<h3 id="fb-timeline">Session timeline</h3>'
     +(d.timeline.length?'<div class="wrap"><table><tr><th>When (UTC)</th><th>Event</th><th>Mission</th><th>Result</th></tr>'+d.timeline.map(timelineRow).join('')+'</table></div>':'<p class="muted">No session id was sent with this note, so there is nothing to join.</p>')

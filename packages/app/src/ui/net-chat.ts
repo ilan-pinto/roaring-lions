@@ -40,6 +40,9 @@ export interface ChatDeps {
    *  only through the inbox (`chat-inbox.ts`); this class never decides what is shown. */
   inbox?: ChatInbox;
   peer?: Seat;
+  /** GH-1417 S3: opens the report dialog for the OTHER seat. Absent (a build that does not send, or a spectator): no Report button.
+   *  The button shows once that seat has said something, because a report needs something to point at. */
+  report?: () => void;
 }
 
 export interface ChatOptions {
@@ -57,6 +60,9 @@ export class NetChat {
   private readonly docked: boolean;
   private readonly off: HTMLElement;
   private readonly muteBtn: HTMLButtonElement | null = null;
+  /** GH-1417 S3: persistent block (a member only, by public id) and report (once the other seat has spoken). */
+  private readonly blockBtn: HTMLButtonElement | null = null;
+  private readonly reportBtn: HTMLButtonElement | null = null;
   private readonly unsub: (() => void) | null = null;
 
   constructor(parent: HTMLElement, private readonly deps: ChatDeps, opts: ChatOptions = {}) {
@@ -87,15 +93,31 @@ export class NetChat {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'rl-chat__mute';
-      // A click must not take focus from the input first: that blur would close the match's input before the click lands.
-      btn.addEventListener('mousedown', (ev) => ev.preventDefault());
       btn.addEventListener('click', () => {
         inbox.toggleMuted(peer);
       });
-      btn.addEventListener('keydown', this.onMuteKey);
-      if (!this.docked) btn.addEventListener('blur', this.onMuteBlur);
-      this.muteBtn = btn;
+      this.muteBtn = this.wireAction(btn);
       this.entry.appendChild(btn);
+      const block = document.createElement('button');
+      block.type = 'button';
+      block.className = 'rl-chat__block';
+      block.addEventListener('click', () => {
+        inbox.toggleBlocked(peer);
+      });
+      this.blockBtn = this.wireAction(block);
+      this.entry.appendChild(block);
+      if (deps.report !== undefined) {
+        const rep = document.createElement('button');
+        rep.type = 'button';
+        rep.className = 'rl-chat__report';
+        rep.addEventListener('click', () => {
+          // In the match the chat closes first, so the modal owns the keys; the lobby's docked input keeps what was typed.
+          if (!this.docked) this.close();
+          deps.report?.();
+        });
+        this.reportBtn = this.wireAction(rep);
+        this.entry.appendChild(rep);
+      }
       this.unsub = inbox.onChange(() => this.paintMute());
       this.paintMute();
     }
@@ -121,12 +143,38 @@ export class NetChat {
     else if (this.docked) this.entry.hidden = false;
   }
 
+  /** A button beside the input: it never takes focus from the input on a mouse press, keeps the game's keys out, and (in the match)
+   *  closes the chat when focus leaves the row. */
+  private wireAction(btn: HTMLButtonElement): HTMLButtonElement {
+    // A click must not take focus from the input first: that blur would close the match's input before the click lands.
+    btn.addEventListener('mousedown', (ev) => ev.preventDefault());
+    btn.addEventListener('keydown', this.onMuteKey);
+    if (!this.docked) btn.addEventListener('blur', this.onMuteBlur);
+    return btn;
+  }
+
+  private get actions(): HTMLButtonElement[] {
+    return [this.muteBtn, this.blockBtn, this.reportBtn].filter((b): b is HTMLButtonElement => b !== null);
+  }
+
   private paintMute(): void {
     const { inbox, peer } = this.deps;
     if (this.muteBtn === null || inbox === undefined || peer === undefined) return;
+    const name = this.deps.nameOf(peer);
     const muted = inbox.isMuted(peer);
-    this.muteBtn.textContent = t(muted ? 'net.chat.unmute' : 'net.chat.mute', { name: this.deps.nameOf(peer) });
+    this.muteBtn.textContent = t(muted ? 'net.chat.unmute' : 'net.chat.mute', { name });
     this.muteBtn.setAttribute('aria-pressed', String(muted));
+    if (this.blockBtn !== null) {
+      // Only a member can be blocked (D5): a guest has no id to recognise next match, so a guest is muted, not blocked.
+      const blocked = inbox.isBlocked(peer);
+      this.blockBtn.hidden = !inbox.canBlock(peer);
+      this.blockBtn.textContent = t(blocked ? 'net.chat.unblock' : 'net.chat.block', { name });
+      this.blockBtn.setAttribute('aria-pressed', String(blocked));
+    }
+    if (this.reportBtn !== null) {
+      this.reportBtn.hidden = !inbox.hasHeard(peer);
+      this.reportBtn.textContent = t('net.chat.report', { name });
+    }
   }
 
   /** True while the input is shown and has focus. */
@@ -147,7 +195,8 @@ export class NetChat {
   close(): void {
     this.input.value = '';
     if (!this.docked) this.entry.hidden = true;
-    if (document.activeElement === this.input || document.activeElement === this.muteBtn) (document.activeElement as HTMLElement).blur();
+    const active = document.activeElement;
+    if (active === this.input || this.actions.some((b) => b === active)) (active as HTMLElement).blur();
   }
 
   /** Appends one line to this chat's own log (the lobby's). */
@@ -163,8 +212,10 @@ export class NetChat {
   dispose(): void {
     this.input.removeEventListener('keydown', this.onKey);
     this.input.removeEventListener('blur', this.onBlur);
-    this.muteBtn?.removeEventListener('keydown', this.onMuteKey);
-    this.muteBtn?.removeEventListener('blur', this.onMuteBlur);
+    for (const b of this.actions) {
+      b.removeEventListener('keydown', this.onMuteKey);
+      b.removeEventListener('blur', this.onMuteBlur);
+    }
     this.unsub?.();
     this.root.remove();
   }
@@ -196,13 +247,13 @@ export class NetChat {
 
   /** Focus leaving the mute button for anywhere but the input closes the match's chat, as leaving the input does. */
   private readonly onMuteBlur = (ev: FocusEvent): void => {
-    if (ev.relatedTarget === this.input) return;
+    if (ev.relatedTarget === this.input || this.actions.some((b) => b === ev.relatedTarget)) return;
     if (!this.entry.hidden) this.close();
   };
 
   private readonly onBlur = (ev: FocusEvent): void => {
-    // Focus moving to the mute button, in the same row, is still the chat.
-    if (this.muteBtn !== null && ev.relatedTarget === this.muteBtn) return;
+    // Focus moving to one of the row's buttons is still the chat.
+    if (this.actions.some((b) => b === ev.relatedTarget)) return;
     if (!this.entry.hidden) this.close();
   };
 }

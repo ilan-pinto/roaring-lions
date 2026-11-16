@@ -151,7 +151,23 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   a muted seat's lines (per room, never stored: a guest cannot be recognised next room by design). `NetChat` shows the "Mute <name>"
   toggle and, when chat is off, a line saying so instead of the input. `chat-inbox-guard.test.ts` reads the source and fails when a
   third place hooks `onChat` or a sink stops going through `.deliver(`. Not in this slice, waiting for the lead: word filter,
-  persistent block, report, kill switch.
+  kill switch.
+- **Block and Report (GH-1417 S3; the lead's D5, D6, D7, D9 on PR 1476).** *Block* is for MEMBERS only and persists on this device:
+  `chat/block-list.ts` is the only module that names `lions.chat.blocked` (a list of 8-character public ids, capped at 200, junk in
+  storage dropped on read, `safeStorage` so blocked site data cannot throw). The inbox learns who sits in a seat through `inboxOf(...,
+  who)` (`InboxWho`: the list and each seat's `SeatLabel.publicId`, which is null for a guest or a bot), so a block made in the lobby holds
+  in the match and in every later room; a guest has no id, the Block button is hidden for them and they are muted per room instead.
+  *Report* posts to the existing `POST /api/feedback` with category `report`, source `match` (Worker twin `feedback-meta.ts`, schema
+  `feedback.schema.json`, limits in `feedback-ingest.ts`: 5 reports per session per 10 minutes, a session-less ceiling of 20; a report
+  is never filed as a GitHub issue). Its evidence is the reporter's OWN copy: `ChatInbox.recent()` keeps the last ten lines received
+  (muted and blocked lines included, chat-off lines not) and the dialog (`ui/chat-report.ts`) shows exactly those lines before they are
+  sent. It is sent as the session id alone (`FeedbackSession.sendReport`): never the tester label, a contact, the player id, the room
+  code or a seat token, and a guest is named by seat only. The stats page labels the lines unverified because nothing proves the other
+  seat said them (server-held lines are the v2 if forgery appears). No automated action follows a report (D9); the dialog says so. The
+  Report button appears once the other seat has spoken and only where feedback is offered (`ChatReportPort.offered`). The D1 CHECKs for
+  the new values arrive with migration 0007 (PR 1481); `packages/worker/src/test-d1-reports.ts` builds the test database from the real
+  migrations when they accept reports and from a copy of 0007 (`test-fixtures/widen-feedback-checks.sql`) until then. The privacy
+  page's wording for chat and reports belongs to PR 1481.
 - **Two more `localStorage` keys, beside the ledger/account pair below.**
   `lions.settings` (`packages/app/src/settings.ts`, the only reader and writer)
   holds video/audio/controls/accessibility/language and is the only thing that

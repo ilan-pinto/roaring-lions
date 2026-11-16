@@ -292,6 +292,9 @@ describe('the three campaign keys have one door', () => {
 
   it('nothing outside the door mentions localStorage, bar the person-and-device keys', () => {
     expect(naming('localStorage')).toEqual([
+      // GH-1417 S3: the chat block list is a fact about the person and the device (members blocked on this browser), behind the
+      // same `safeStorage` guard, and it is the only module that names `lions.chat.blocked`.
+      'chat/block-list.ts',
       // GH-464: feedback's gate reads `?feedback`'s persisted flag and the
       // tester label, behind the same `safeStorage` guard, and hands the store
       // to the draft and the debrief prompt's frequency record.

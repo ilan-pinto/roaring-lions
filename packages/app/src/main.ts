@@ -326,6 +326,8 @@ import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 import { inboxOf } from './ui/chat-inbox';
+import { openChatReport } from './ui/chat-report';
+import { browserBlockList } from './chat/block-list';
 import { showNetEnd } from './ui/net-end';
 import { NetPoints, payZoneOf } from './ui/net-points';
 import { NetFlags } from './ui/net-flags';
@@ -1425,8 +1427,14 @@ async function main(): Promise<void> {
   // start (`net/handoff.ts`). Same build string as the battlefield's, so the
   // room compares like with like (R8).
   const versusStore = safeStorageLike(() => window.localStorage);
+  // GH-1417 S3: the lobby offers a report only where feedback is offered (a production build on a real host, not closed by the switch).
+  const versusReportFeedback = browserFeedbackSession();
   const versusDeps: VersusDeps = {
     chatEnabled: () => settingsDeps.get().chat.enabled,
+    chatReport: {
+      offered: () => versusReportFeedback.shown && !feedbackClosed(),
+      send: (r, o) => versusReportFeedback.sendReport(r, o),
+    },
     open: (req, signal) =>
       openRoom(req, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
         fetch: window.fetch.bind(window),
@@ -3984,10 +3992,36 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
    *  which escapes them. */
   const chatInbox = room !== null && netConfig !== null && !spectating
-    ? inboxOf(room, () => req.settings.get().chat.enabled)
+    ? inboxOf(room, () => req.settings.get().chat.enabled, {
+        blocks: browserBlockList(),
+        // The match's labels are the lobby's, handed over with the config: a member's public id, else null.
+        publicIdOf: (seat) => match.labels?.[seat]?.publicId ?? null,
+      })
     : null;
+  const reportFeedback = browserFeedbackSession();
   const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
-    ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
+    ? new NetChat(document.body, {
+        send: (text) => room.chat(text),
+        nameOf: (seat) => seatName(seat),
+        inbox: chatInbox,
+        peer: netSeat === 0 ? 1 : 0,
+        // GH-1417 S3: Report, once the other seat has spoken, where this build offers feedback (a closed switch answers in the dialog).
+        ...(reportFeedback.shown
+          ? {
+              report: () => {
+                openChatReport({
+                  host: document.body,
+                  port: { offered: () => true, send: (r, o) => reportFeedback.sendReport(r, o) },
+                  inbox: chatInbox,
+                  seat: netSeat,
+                  peer: netSeat === 0 ? 1 : 0,
+                  nameOf: (seat) => seatName(seat),
+                  map: netConfig.map,
+                });
+              },
+            }
+          : {}),
+      })
     : null;
   if (netChat !== null) onDispose(() => netChat.dispose());
   if (room !== null && netConfig !== null && !spectating && chatInbox !== null) {

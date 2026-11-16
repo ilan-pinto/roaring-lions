@@ -17,6 +17,7 @@ import { feedbackOpen, sendFeedback, type SendResult } from './client';
 import type { FeedbackContext } from './context';
 import { browserFeedbackEnv, feedbackSends, feedbackShown, testerLabel, type FeedbackEnv } from './gate';
 import { buildMeta, type FeedbackCategory, type FeedbackSource, type SenderIds } from './meta';
+import { buildReportMeta, type ReportInput } from './report';
 
 export interface FeedbackSession {
   shown: boolean;
@@ -28,6 +29,10 @@ export interface FeedbackSession {
   /** Resolves false when the server's switch is off (asked once a session). */
   open(): Promise<boolean>;
   send(note: SessionNote, opts?: { signal?: AbortSignal; keepalive?: boolean }): Promise<SendResult>;
+  /** GH-1417 S3: a report of the other player's chat. Sent as the session alone (never the tester, a contact or the player id), through
+   *  the same gate, endpoint and result as a note. `null` from the builder (nothing to report) is `{ kind: 'failed', status: null }`
+   *  without a request. */
+  sendReport(report: Omit<ReportInput, 'session' | 'build' | 'commit' | 'now'>, opts?: { signal?: AbortSignal }): Promise<SendResult>;
 }
 
 export interface SessionNote {
@@ -71,6 +76,11 @@ export function createFeedbackSession(d: SessionDeps): FeedbackSession {
     who: tester !== undefined ? { tester, anonymous: false } : { anonymous: true },
     ids,
     open: () => feedbackOpen({ sends, url: d.url, fetch: d.fetch }),
+    sendReport: (r, opts) => {
+      const meta = buildReportMeta({ ...r, session: ids().session, build: d.build, commit: d.commit, now: d.now() });
+      if (meta === null) return Promise.resolve({ kind: 'failed', status: null } as const);
+      return sendFeedback({ meta }, { sends, url: d.url, fetch: d.fetch, signal: opts?.signal });
+    },
     send: (n, opts) =>
       sendFeedback(
         {
