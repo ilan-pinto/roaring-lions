@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/overlay_ops.schema.json",
   "title": "Mission overlay operations",
-  "description": "The CLOSED set of operations a mission overlay may apply to a mission's JSON before the runtime is built (GH-1394 difficulty postures, GH-1395 challenge amendments: one applier, `applyOverlays` in packages/data/src/overlays.ts). There is no generic 'set any path': every operation names the one field it moves, and none touches tuning, a primary objective's seconds, Conduct scoring, an objective's id, type or target, or a tag. `fail_below` is reached by one operation only, GH-1395's `raise_fail_below`, and only upward. A new operation is a change to this schema AND to the applier's exhaustive switch, made once. Integers and keys only.",
+  "description": "The CLOSED set of operations a mission overlay may apply to a mission's JSON before the runtime is built (GH-1394 difficulty postures, GH-1395 challenge amendments: one applier, `applyOverlays` in packages/data/src/overlays.ts). There is no generic 'set any path': every operation names the one field it moves, and none touches tuning, a primary objective's seconds, Conduct scoring, an objective's id, type or target, or a tag. The POSTURES (data/difficulty/postures.json) never touch `roe.fail_below`, `starting_force` or `resources`. The AMENDMENTS (data/challenges/) may, through `raise_fail_below`, `remove_starting`, `scale_resources` and `set_intel_start`, and only in the restricting direction: tools/validate_challenges.mjs (`restrictionFailure`) refuses any amendment operation that points the other way, for every operation in this set. A new operation is a change to this schema AND to the applier's exhaustive switch, made once. Integers and keys only.",
   "$defs": {
     "ratio": {
       "type": "integer",
@@ -82,10 +82,10 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["op", "wave"],
-          "description": "A per-mission amendment (GH-1395 `own`): appends one enemy wave, in mission.schema.json's wave shape (validated there once applied). Amendments run AFTER the posture, so an added wave is never thinned by Easier.",
+          "description": "A per-mission amendment (GH-1395 `own`): appends one enemy wave, in mission.schema.json's wave shape (`$ref` to it here, and the overlaid mission is validated against mission.schema.json again by tools/src/challenges.test.ts). Amendments run AFTER the posture, so an added wave is never thinned by Easier.",
           "properties": {
             "op": { "const": "add_wave" },
-            "wave": { "type": "object" }
+            "wave": { "$ref": "mission.schema.json#/properties/enemy/properties/waves/items" }
           }
         },
         {

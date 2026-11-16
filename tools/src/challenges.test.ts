@@ -107,6 +107,20 @@ describe('A1: what an amendment moves, it moves the restricting way, and nothing
   });
 });
 
+describe('every shipped mission at every posture passes the mission schema (PM review of PR 1504, hand-off 3)', () => {
+  // Nothing else validates a mission AFTER the overlays: validate:data sees the authored files only.
+  const all = Object.keys(missions);
+  it('covers the 30 shipped missions', () => expect(all.length).toBe(30));
+  it.each(POSTURE_IDS.flatMap((p) => all.map((id) => [`${id} at ${p}`, id, p] as const)))('%s', (_, id, p) => {
+    const m = applyOverlays(raw(id), { posture: p });
+    expect(validateMission(m), JSON.stringify(validateMission.errors)).toBe(true);
+  });
+  it('the check can fail: an overlaid wave with no at_seconds is refused', () => {
+    const m = applyOverlays(raw('beit_sahwan_2_foothold'), { amendments: [[{ op: 'add_wave', wave: { units: [{ unit: 'sarim_rifles', count: 1 }] } as never }]] });
+    expect(validateMission(m)).toBe(false);
+  });
+});
+
 describe('C5: every amended mission passes the mission schema and the overlaid clock rule (D13)', () => {
   it.each(cases.map((c) => [c.label, c] as const))('%s', (_, c) => {
     const m = play(c.id, c.posture, c.on);

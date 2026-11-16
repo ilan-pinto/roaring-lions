@@ -2,10 +2,9 @@
 // cannot see. Its own module for the reason every validate_*.mjs is one: validate_data.mjs runs its whole sweep at
 // import time and exits, so a test cannot import it.
 //
-//   - amendment ids are unique; every amendment is a RESTRICTION (rule A1): a `scale_*` ratio is below 1, and no
-//     amendment uses an operation that can only add (`reinforce_player`, `add_wave` are the posture's and the
-//     per-mission `own` list's, never the generic library's; `uncarry` takes the third star away, which a challenge
-//     must not do because an amended win grades normally, D6);
+//   - amendment ids are unique; every operation of every amendment, in the library and in a mission's `own`, points
+//     the RESTRICTING way (rule A1, `restrictionFailure` below: a check per operation of the closed set, because the
+//     schema's `ratio` allows 1..16 for both terms and would take a x16/1 clock or a x1/16 wave);
 //   - each per-mission file is named for its `mission`, which is a shipped CAMPAIGN mission (it produces a ledger
 //     key: the tutorial pays nothing and has no challenge);
 //   - its three offers are library ids or its own (D8's mission-specific amendment: the same restricting operations,
@@ -18,8 +17,41 @@
 // What it cannot do without the TypeScript applier (applying the ops, the overlaid clock floor, building a runtime)
 // is tools/src/challenges.test.ts (checks C1 to C5).
 
-/** Operations the generic library may use: each moves one field the restricting way. */
-const LIBRARY_OPS = new Set(['scale_time_limit', 'raise_fail_below', 'remove_starting', 'scale_resources', 'set_intel_start']);
+/**
+ * Why an AMENDMENT operation would make a mission easier (or change how it grades), or null when it restricts. One
+ * case per operation of overlay_ops.schema.json's closed set; an operation this does not know is refused, so a new
+ * operation cannot reach an amendment until its direction is written here.
+ *   time limit and purse shrink (num < den); waves grow (num > den) and come sooner (seconds < 0); the Conduct floor
+ *   rises (by > 0); bodies are removed (count > 0); intel only goes down (min); an added enemy wave has bodies.
+ *   `reinforce_player` adds player bodies, and `uncarry` takes the third star away, which an amended win must keep (D6).
+ * @param {any} op
+ * @returns {string | null}
+ */
+export function restrictionFailure(op) {
+  switch (op?.op) {
+    case 'scale_time_limit':
+    case 'scale_resources':
+      return op.num < op.den ? null : `${op.op} ${op.num}/${op.den} is not below 1`;
+    case 'scale_waves':
+      return op.num > op.den ? null : `scale_waves ${op.num}/${op.den} is not above 1`;
+    case 'shift_waves':
+      return op.seconds < 0 ? null : `shift_waves ${op.seconds} s does not bring the waves sooner`;
+    case 'raise_fail_below':
+      return op.by > 0 ? null : `raise_fail_below by ${op.by} does not raise the floor`;
+    case 'remove_starting':
+      return op.count > 0 ? null : `remove_starting ${op.count} removes nothing`;
+    case 'set_intel_start':
+      return Number.isInteger(op.value) && op.value >= 0 ? null : `set_intel_start ${op.value} is not a whole number`;
+    case 'add_wave':
+      return (op.wave?.units ?? []).some((u) => u.count > 0) ? null : 'add_wave brings no enemy';
+    case 'reinforce_player':
+      return 'reinforce_player adds player bodies';
+    case 'uncarry':
+      return 'uncarry changes how an amended win grades (D6)';
+    default:
+      return `"${op?.op}" is an operation with no written direction`;
+  }
+}
 
 /**
  * @param {{ library: any, files: { file: string, doc: any }[], missions: Record<string, any>, en: Record<string, string> }} a
@@ -32,10 +64,8 @@ export function challengeFailures({ library, files, missions, en }) {
   const amendmentRules = (a, where) => {
     for (const k of [a.label_key, a.blurb_key]) if (typeof en[k] !== 'string') out.push(`${where}: ${a.id}: "${k}" is not an en.json key`);
     for (const op of a.ops ?? []) {
-      if (!LIBRARY_OPS.has(op.op)) out.push(`${where}: ${a.id}: "${op.op}" is not a restricting operation (rule A1)`);
-      if ((op.op === 'scale_time_limit' || op.op === 'scale_resources') && !(op.num < op.den)) {
-        out.push(`${where}: ${a.id}: ${op.op} ${op.num}/${op.den} is not below 1 (rule A1: an amendment never makes a mission easier)`);
-      }
+      const why = restrictionFailure(op);
+      if (why !== null) out.push(`${where}: ${a.id}: ${why}, so it is not a restriction (rule A1: an amendment never makes a mission easier)`);
     }
   };
   for (const a of library?.amendments ?? []) {
