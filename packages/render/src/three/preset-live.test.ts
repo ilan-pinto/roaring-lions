@@ -132,4 +132,22 @@ describe('GH-1400: the lead caps, with the switches ON', () => {
     for (const t of TIERS) expect(presetTierOf(QUALITY_PRESETS[t]), t).toBe(t);
     expect(presetTierOf({ ...QUALITY_PRESETS.medium, softParticles: true })).toBe('medium');
   });
+
+  it('presetTierOf: changing ANY one field of a preset makes it no preset, except the two the overlay owns', () => {
+    // The overlay's own fields, as a LITERAL (never read from preset-live.ts): the two `liveQuality` and `&ragdoll`/`&soft` write.
+    // Falsify: add 'grade' (or any other field) to LIVE_KEYS in preset-live.ts; that field's copy then still reads as the preset.
+    const OVERLAY_OWNS: readonly string[] = ['physics', 'softParticles'];
+    let checked = 0;
+    for (const t of TIERS) {
+      const preset = QUALITY_PRESETS[t];
+      for (const k of new Set([...Object.keys(preset), ...OVERLAY_OWNS])) {
+        // A fresh object is no preset's value by reference, whatever the field's type.
+        const changed = { ...preset, [k]: { changed: k } } as unknown as RenderQuality;
+        expect(presetTierOf(changed), `${t}.${k}`).toBe(OVERLAY_OWNS.includes(k) ? t : null);
+        checked++;
+      }
+    }
+    // Not vacuous: every field of all three presets as main shipped them (MAIN), plus `softParticles`, which none sets.
+    expect(checked).toBe(TIERS.reduce((n, t) => n + Object.keys(MAIN[t]).length + 1, 0));
+  });
 });

@@ -10,6 +10,7 @@ import { Sim } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { QUALITY_PRESETS, type RenderQuality } from '../quality';
 import { ThreeRenderer } from './ThreeRenderer';
+import { paletteHex } from './palette-hex';
 
 const loads = vi.hoisted(() => ({ n: 0 }));
 const switches = vi.hoisted(() => ({ ragdolls: false, softParticles: false }));
@@ -43,28 +44,34 @@ vi.mock('three', async (importOriginal) => {
   return { ...actual, WebGLRenderer: FakeWebGLRenderer };
 });
 
+/** Every fixture colour is a palette key (`paletteHex` reads `data/palette.json`), never a hex literal. */
+const p = paletteHex;
+
 const TONES: TerrainTones = {
-  open: '#C8B494', cover: ['#8F9464', '#6E7449', '#4E5433'],
-  blocked: '#3A3C33', underBuilding: '#23241F', road: '#E6D8BE', rut: '#4E5433',
-  rock: '#8E9491', rockLit: '#F2E8D5', earth: '#6E7449', low: '#8F9464',
-  trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
-  leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
-  crownRatio: 0.52, scatter: 'stone', groveFamily: 'desert_tree', haze: '#E0B87A',
+  open: p('limestone.3'), cover: [p('olive.0'), p('olive.1'), p('olive.2')],
+  blocked: p('gunmetal.3'), underBuilding: p('shadow.0'), road: p('limestone.1'), rut: p('olive.2'),
+  rock: p('gunmetal.1'), rockLit: p('limestone.0'), earth: p('olive.1'), low: p('olive.0'),
+  trunk: p('olive.2'), trunkLit: p('olive.0'), leafDark: p('olive.3'), leafMid: p('olive.2'),
+  leafLit: p('olive.1'), bladeLit: p('olive.0'), bladeShade: p('olive.2'), spoil: p('olive.1'),
+  crownRatio: 0.52, scatter: 'stone', groveFamily: 'desert_tree', haze: p('dust.0'),
 };
 
 function opts(quality: RenderQuality | undefined): RendererOptions {
   return {
-    background: '#14150F',
-    teamColors: ['#C8B494', '#6E7449', '#8E9491'],
-    hullColors: ['#8F9464', '#6E7449', '#4E5433'],
-    infantryColors: ['#8F9464', '#6E7449', '#4E5433'],
-    groupColors: ['#C8B494', '#6E7449', '#8E9491', '#3A3C33', '#E6D8BE', '#4E5433', '#8E9491', '#F2E8D5', '#6E7449'],
+    background: p('shadow.1'),
+    teamColors: [p('limestone.3'), p('olive.1'), p('gunmetal.1')],
+    hullColors: [p('olive.0'), p('olive.1'), p('olive.2')],
+    infantryColors: [p('olive.0'), p('olive.1'), p('olive.2')],
+    groupColors: [
+      p('limestone.3'), p('olive.1'), p('gunmetal.1'), p('gunmetal.3'), p('limestone.1'),
+      p('olive.2'), p('gunmetal.1'), p('limestone.0'), p('olive.1'),
+    ],
     terrainTones: TONES,
-    tracerColors: ['#F2E8D5', '#E6D8BE'],
-    shellColors: ['#FFB43C', '#E8541E'],
-    flashColor: '#F2E8D5',
-    nearMissColor: '#6E7449',
-    interceptColor: '#8E9491',
+    tracerColors: [p('limestone.0'), p('limestone.1')],
+    shellColors: [p('vfx.fire'), p('vfx.ember')],
+    flashColor: p('limestone.0'),
+    nearMissColor: p('olive.1'),
+    interceptColor: p('gunmetal.1'),
     ...(quality ? { quality } : {}),
   };
 }
