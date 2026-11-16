@@ -17,8 +17,9 @@ const BUILD = '0.133.10+0123456789abcdef';
 
 /** One client plays the stream with a recorder on its `beforeFrame`; the recording closes on that client's own sim. */
 function recordStream(config = economyStreamConfig()): { text: string; file: ReplayFile; simHash: number; ticks: number } {
-  const rec = new MatchRecorder({ build: BUILD, config });
-  const r = runEconomyClient(economyStreamFrames(), { onFrame: rec.record });
+  let world: { sim: { hash(): number } } | null = null;
+  const rec = new MatchRecorder({ build: BUILD, config, sim: { hash: () => { if (world === null) throw new Error('no world yet'); return world.sim.hash(); } } });
+  const r = runEconomyClient(economyStreamFrames(), { onFrame: rec.record, afterFrame: rec.afterFrame, onWorld: (w) => { world = w; } });
   const file = rec.finish({ digest: { tick: r.ticks, hash: r.simHash }, outcome: 'unfinished', by: 'cap' });
   return { text: serializeReplay(file), file, simHash: r.simHash, ticks: r.ticks };
 }
@@ -53,8 +54,8 @@ function recordSkirmish(): { text: string; file: ReplayFile; simHash: number } {
   ]);
   const frames: Frame[] = [];
   for (let t = 0; t < SKIRMISH_TICKS; t++) frames.push({ tick: t, cmds: canonicalOrder(byTick.get(t) ?? []) });
-  const rec = new MatchRecorder({ build: BUILD, config });
-  const step = { transport: new Feed(frames), sim: w.sim, seatWorld: seatWorldFor(config, w.sim), config: null, runTick: () => { matchTick(w); }, beforeFrame: rec.record };
+  const rec = new MatchRecorder({ build: BUILD, config, sim: w.sim });
+  const step = { transport: new Feed(frames), sim: w.sim, seatWorld: seatWorldFor(config, w.sim), config: null, runTick: () => { matchTick(w); }, beforeFrame: rec.record, afterFrame: rec.afterFrame };
   expect(runFrames(step, SKIRMISH_TICKS).ran).toBe(SKIRMISH_TICKS);
   const file = rec.finish({ digest: { tick: w.sim.tickCount, hash: w.sim.hash() }, outcome: 'unfinished', by: 'cap' });
   return { text: serializeReplay(file), file, simHash: w.sim.hash() };
@@ -75,7 +76,7 @@ describe('a recorded economy room re-sims to the same tick and hash', () => {
 
   it('the header says what was played: build, seed, map, sides, cap and the one-game series', () => {
     const h = rec.file.header;
-    expect(h.v).toBe(1);
+    expect(h.v).toBe(2);
     expect(h.build).toBe(BUILD);
     expect(h.game).toEqual({ n: 1, of: 1, seed: 1234, map: 'wadi_tarfan', matchup: 'sarim v kdf', capTicks: matchCapTicksOf(economyStreamConfig()), pace: 1, roundWallMs: 0 });
     expect(h.config.seats.map((s) => [s.side, s.faction])).toEqual([[1, 'sarim'], [0, 'kdf']]);
@@ -224,10 +225,13 @@ describe('a recording from another build or version is refused, never replayed',
     if (v.kind === 'refused') expect(v.code).toBe('build_mismatch');
     expect(() => parseReplay(rec.text, { build: '0.134.0+fedcba9876543210' })).toThrow(ReplayRefused);
   });
-  it('another format version is refused as a bad file', () => {
-    const v = verifyRecording(rec.text.replace('"v":1', '"v":2'), { build: BUILD });
+  it('another format version is refused as a bad file, naming the versions this build reads', () => {
+    const v = verifyRecording(rec.text.replace('"v":2', '"v":3'), { build: BUILD });
     expect(v.kind).toBe('refused');
-    if (v.kind === 'refused') expect(v.code).toBe('bad_file');
+    if (v.kind === 'refused') {
+      expect(v.code).toBe('bad_file');
+      expect(v.why).toMatch(/format version 3, this build reads 1 to 2/);
+    }
   });
   it('a recording cut off before its end line is refused as incomplete', () => {
     const lines = rec.text.trimEnd().split('\n');
