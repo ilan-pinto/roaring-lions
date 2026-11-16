@@ -31,6 +31,11 @@ describe('walletWrite', () => {
     expect((await readWallet(h.db, 'm1')).revision).toBe(1);
     expect(() => walletWrite(h.db, ok.before, { roar: { ...asRoar(ok.before, []), coins: { free: 135, paid: 0 } }, earnLifetime: ok.before.earnLifetime }, [entry(100), entry(30)])).toThrow(/sums to 130/);
     expect(() => walletWrite(h.db, ok.before, { roar: { ...asRoar(ok.before, []), coins: { free: 135, paid: 0 } }, earnLifetime: ok.before.earnLifetime }, [])).toThrow();
+    // GH-1385: a fractional balance is refused even when the journal sums to it, so only the integer guard can stop it
+    // (the sum check passes, and nothing else in walletWrite reads the value).
+    expect(() => walletWrite(h.db, ok.before, { roar: { ...asRoar(ok.before, []), coins: { free: 135.5, paid: 0 } }, earnLifetime: ok.before.earnLifetime }, [entry(100), entry(35.5)])).toThrow(/not an integer/);
+    // ...and a paid coin is refused while purchases are closed (G-M1), whatever else is right about the write.
+    expect(() => walletWrite(h.db, ok.before, { roar: { ...asRoar(ok.before, []), coins: { free: ok.before.free, paid: 5 } }, earnLifetime: ok.before.earnLifetime }, [])).toThrow(/paid must stay 0/);
     // Unmoved with no entries is a plain update (an entitlement-only change would be one).
     const still = await readWallet(h.db, 'm1');
     expect(() => walletWrite(h.db, still, { roar: asRoar(still, []), earnLifetime: still.earnLifetime }, [])).not.toThrow();
@@ -49,6 +54,25 @@ describe('walletWrite', () => {
     expect(view.receipts.map((x) => x.id)).toEqual(['r1', 'r2']);
     expect((await receiptsOf(h.db, 'm1')).length).toBe(2);
     expect(view.revision).toBe(2);
+    expect(view.paid).toBe(0); // GH-1385: the view's paid half is 0 while purchases are closed
+  });
+
+  it('walletWrite puts the earn record and the lifetime record each in its own column (GH-1385)', async () => {
+    const h = accountHarness({ now: T0 });
+    await seedWalletMember(h.db, 'm1', T0);
+    const before = await readWallet(h.db, 'm1');
+    const roar = asRoar(before, []);
+    roar.earn = { ...roar.earn, welcomed: true };
+    const lifetime = { ...before.earnLifetime, campaignDone: true };
+    await h.db.batch(walletWrite(h.db, before, { roar, earnLifetime: lifetime }, []));
+    const after = await readWallet(h.db, 'm1');
+    expect([after.earn.welcomed, after.earn.campaignDone]).toEqual([true, false]);
+    expect([after.earnLifetime.welcomed, after.earnLifetime.campaignDone]).toEqual([false, true]);
+  });
+
+  it('reading a member with no wallet row throws rather than inventing one (GH-1385)', async () => {
+    const h = accountHarness({ now: T0 });
+    await expect(readWallet(h.db, 'nobody')).rejects.toThrow(/no wallet/);
   });
 
   it('a stale wallet write fails whole (A2-24 core)', async () => {
