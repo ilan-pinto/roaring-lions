@@ -18,6 +18,8 @@ import type { Plugin } from 'vite';
 interface Palette {
   ramps: Record<string, { colors: string[] }>;
   reserved: Record<string, { colors: Record<string, string>; variants?: Record<string, Record<string, string>> }>;
+  /** A third party's fixed brand colours (Google's sign-in button): published, but outside `reserved` and `total_colors`. */
+  brand?: Record<string, { colors: Record<string, string> }>;
 }
 
 /** `limestone` + index 2 → `--rl-limestone-2`; `vfx` + `white_hot` → `--rl-vfx-white-hot`. */
@@ -44,6 +46,9 @@ export function paletteDeclarations(palette: Palette): string[] {
         out.push(`${varName(`${band}-${variant}`, name)}: ${hex};`);
       }
     }
+  }
+  for (const [owner, group] of Object.entries(palette.brand ?? {})) {
+    for (const [name, hex] of Object.entries(group.colors)) out.push(`${varName(`brand-${owner}`, name)}: ${hex};`);
   }
   return out;
 }

@@ -458,7 +458,12 @@ describe('snapshot format pin', () => {
     // stKit Int8Array x 256) and two `config` rows (kitStructType Int16Array x 3, kitBans, an array), present even when no world
     // sets a kit. With those five rows cut from snapshot-schema.ts the same run reads 1873871182 again (watched), so the move is
     // exactly the new rows. 3026783768 is read off a fresh run. The golden hash did not move: nothing folds the kit until `beginSetup`.
-    expect(h >>> 0).toBe(3026783768);
+    // Was 3026783768. GH-1360 S5a-1 (foot separation groundwork) appended four rows, three `scratch` (sepFootHead,
+    // sepFootN, sepOff) and one `config` (sepFootCols), and no `state` row; the header's schema digest covers every
+    // row, so only those digest bytes move. With the four rows cut from snapshot-schema.ts the same run reads
+    // 3026783768 again (watched), so the move is exactly the new rows. 3165750916 is read off a fresh run. The golden
+    // hash did not move: nothing new folds into hash().
+    expect(h >>> 0).toBe(3165750916);
   });
 });
 

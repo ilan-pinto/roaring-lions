@@ -45,6 +45,8 @@ import {
   creditInputFrom,
   MAX_PATROL_WAYPOINTS,
   unitTypeFromJson,
+  compileFormation,
+  type FormationJson,
   type MissionEvent,
   type MissionJson,
   type SimEvent,
@@ -94,6 +96,7 @@ import {
   videoManifest,
   coupons,
   formations,
+  assemblyLayout,
   grades,
   versusModes,
   flagBlockOf,
@@ -1638,7 +1641,17 @@ async function main(): Promise<void> {
                     },
                   }
                 : {}),
-              coins: { read: () => ledgerStore.readRoar(), onAccount: acct !== null, available: ledgerStore.available, coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png` },
+              coins: {
+                read: () => ledgerStore.readRoar(),
+                onAccount: acct !== null,
+                available: ledgerStore.available,
+                coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png`,
+                // The history rows name a mission or a unit the way the Stores do; an id this build does not know words generically.
+                names: {
+                  mission: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+                  unit: (id) => (units as Record<string, { name?: string } | undefined>)[id]?.name,
+                },
+              },
               // A guest boot only: a claimed device has the server-backed store and nothing to claim.
               claim: selectedStore.signedIn ? undefined : { guest: ledgerStore, download: downloadFile, onClaimed: reloadHere },
             });
@@ -3096,6 +3109,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // the spawner drew from.
       const sentLedger = deployedLedger(ledger, deploySelection);
       runtime = startMission(sim, resolvedMission, {
+        // GH-1360 S3b: a shipped mission's starting force stands in the assembly layout (`start_layout`).
+        startLayout: compileFormation(assemblyLayout as unknown as FormationJson),
         typeIdOf: (id) => {
           const t = typeOf.get(id);
           if (t === undefined) throw new Error(`mission references unknown unit ${id}`);

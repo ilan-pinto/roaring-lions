@@ -45,6 +45,7 @@ import {
 import { SWEEP_SEEDS } from './passive-sweep';
 import { telMarum3ArmourPlan } from './plans/tel_marum';
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
+import { START_LAYOUT } from '../mission-harness';
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 const MISSION = 'tel_marum_3_clearance';
@@ -101,6 +102,7 @@ function walk(seed: number, foot: 'pass' | 'defile', perfectEyes: boolean, footK
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
   const rt = new MissionRuntime(sim, mission, {
+    startLayout: START_LAYOUT, // GH-1360 S3b: shipped missions start in the assembly layout
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers, zones: map.zones, roadMask: roadMaskOf(map), tunnels: tunnelRoutes, ledger: {},
     unitInfo: (u) => {
