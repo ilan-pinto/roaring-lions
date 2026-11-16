@@ -1,11 +1,13 @@
 /**
  * GH-1432: one `scheduled()` run stays under the Workers Free plan's 50 D1 queries per invocation, whatever the backlogs.
  *
- * COUNTED PER STATEMENT. Whether a `batch()` is one query or one per statement it carries could not be read from Cloudflare's D1 limits
- * page (https://developers.cloudflare.com/d1/platform/limits/, "Queries per Worker invocation") in the session that wrote this, so the
- * meter counts conservatively: every statement of a batch is a query, and so is every `run`/`all`/`first`. Calls are tallied too (`calls`,
- * a batch as one), which is the other reading. Both databases are metered into ONE count (the telemetry D1 and the accounts D1 share the
- * invocation's 50), and the 51st query THROWS, as the platform would refuse it, so a run past the limit cannot pass quietly.
+ * COUNTED PER STATEMENT, AS A POLICY. This is a deliberate conservative rule of this repository, not a statement of how the platform
+ * counts: whether Cloudflare's D1 limits page (https://developers.cloudflare.com/d1/platform/limits/, "Queries per Worker invocation")
+ * charges a `batch()` as one query or one per statement is open for the lead's reading (PR 1518, HOLD FOR LEAD item 1). Until then the
+ * meter charges every statement of a batch as a query, and every `run`/`all`/`first` as one. Calls are tallied too (`calls`, a batch as
+ * one), which is the looser reading. Both databases are metered into ONE count (the telemetry D1 and the accounts D1 share the
+ * invocation's 50), and the 51st statement THROWS, so a run past the policy cannot pass quietly. If the lead rules that a batch is one
+ * query, the limit moves onto `calls` in one line and the statement total stays pinned on its own.
  *
  * The seeds are the worst case each sweep can face: more expired feedback than a run clears, more raw events and stale players than the
  * slices clear, idle members past the member cap, a KV listing of dead tombstones that costs a query a page and finds nothing, live

@@ -8,7 +8,6 @@ import { memoryKV } from './kv';
 import { RECONCILE_PER_RUN, reconcileTombstones } from './sweep';
 import { accountHarness, memberTablesInMigration, seedFullMember, SEED_PUBLIC_ID } from './test-kit';
 import { DUE_MEMBERS_MAX, deleteDueStatements, deleteMember, deleteTelemetryFor } from './delete';
-import { deleteStatements } from './tables';
 
 const DAY = 86_400_000;
 const NOW = 20_000 * DAY + 3_600_000;
@@ -358,7 +357,7 @@ describe('the cron\'s one delete batch for many members (GH-1432)', () => {
     // tombstone would hold it.
     const seen = (await h.db.prepare("SELECT last_seen_day AS d FROM member WHERE id = 'm1'").first<{ d: number }>())?.d ?? -9;
     const statements = deleteDueStatements(h.db, [{ id: 'm1', day: seen }, { id: 'n1', day: -1 }]);
-    expect(statements.length).toBe(deleteStatements().length);
+    expect(statements.length).toBe(17); // a literal: `deleteDueStatements` maps `deleteStatements()`, so its length is no oracle
     await h.db.batch(statements);
     const gone = await rowsOf(h.db, 'm1');
     expect(gone).toEqual(Object.fromEntries(Object.keys(gone).map((k) => [k, 0])));
@@ -371,6 +370,6 @@ describe('the cron\'s one delete batch for many members (GH-1432)', () => {
     const h = accountHarness({ now: NOW });
     expect(() => deleteDueStatements(h.db, [])).toThrow();
     expect(() => deleteDueStatements(h.db, Array.from({ length: DUE_MEMBERS_MAX + 1 }, (_, i) => ({ id: 'x' + i, day: 1 })))).toThrow();
-    expect(deleteDueStatements(h.db, Array.from({ length: DUE_MEMBERS_MAX }, (_, i) => ({ id: 'x' + i, day: 1 }))).length).toBe(deleteStatements().length);
+    expect(deleteDueStatements(h.db, Array.from({ length: DUE_MEMBERS_MAX }, (_, i) => ({ id: 'x' + i, day: 1 }))).length).toBe(17);
   });
 });

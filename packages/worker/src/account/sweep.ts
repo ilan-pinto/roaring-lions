@@ -8,8 +8,8 @@ import { deleteStatements } from './tables';
 
 /**
  * GH-1432: what one run may cost, counted PER STATEMENT. The Free plan allows 50 D1 queries per Worker invocation, and every sweep
- * `scheduled()` runs shares them (the sum is pinned by `cron-budget.test.ts`). Whether a `batch()` is one query or one per statement
- * could not be confirmed from Cloudflare's limits page in the session that wrote this, so each statement is counted: a member's delete
+ * `scheduled()` runs shares them (the sum is pinned by `cron-budget.test.ts`). Counting each statement is a conservative POLICY pending
+ * the lead's reading of whether D1 charges a `batch()` as one query (PR 1518, HOLD FOR LEAD item 1), not platform behaviour: a member's delete
  * is 17 statements, and the cron therefore deletes every member of a run in ONE guarded batch (`deleteDueStatements`), whoever found it.
  *
  * The account share of a run, at worst: the expiry batch, the idle select, `RECONCILE_PAGES` page selects, the one delete batch, and one
@@ -130,7 +130,20 @@ async function deleteDue(db: D1Like, kv: KVLike, due: readonly Due[]): Promise<n
     .all<{ id: string; last_seen_day: number }>();
   for (const m of left.results) {
     const d = due.find((x) => x.id === m.id);
-    if (d !== undefined && m.last_seen_day > d.day) await kv.delete('tomb:' + d.idHash);
+    if (d === undefined) continue;
+    // Judge the tombstone as it is STORED now, not by the day this run queued: a delete request made since (`deleteAccount`) rewrites it
+    // with a newer `lastSeenDay` (today, the member's own last sign-in), and that one must survive here whether its own batch failed or
+    // committed meanwhile. A missing or unparsable tombstone is left alone. KV has no conditional delete, so a sub-millisecond gap remains
+    // between this get and the delete below, as at the scan's prune.
+    const raw = await kv.get('tomb:' + d.idHash);
+    if (raw === null) continue;
+    let stored: unknown;
+    try {
+      stored = (JSON.parse(raw) as { lastSeenDay?: unknown }).lastSeenDay;
+    } catch {
+      continue;
+    }
+    if (typeof stored === 'number' && stored < m.last_seen_day) await kv.delete('tomb:' + d.idHash);
   }
   return due.length - left.results.length;
 }
@@ -165,7 +178,7 @@ export async function accountCron(db: D1Like, now: number, kv: KVLike): Promise<
   return done;
 }
 
-/** Expiries and idle members only (one delete batch). */
+/** Expiries and idle members only (one delete batch). No production caller since `accountCron` (GH-1432); kept for the unit tests. */
 export async function sweepAccounts(db: D1Like, now: number, kv: KVLike): Promise<void> {
   let failure: unknown;
   const due = await expireAndFindIdle(db, now, kv, (err) => { failure ??= err; });
@@ -174,7 +187,8 @@ export async function sweepAccounts(db: D1Like, now: number, kv: KVLike): Promis
 }
 
 /** Finishes every deletion a tombstone records, and prunes a tombstone whose deletion a later sign-in cancelled. Only a key whose member
- *  still exists is acted on. Returns how many members it deleted; a failure on one key does not stop the others and is rethrown. */
+ *  still exists is acted on. Returns how many members it deleted; a failure on one key does not stop the others and is rethrown.
+ *  No production caller since `accountCron` (GH-1432); kept for the unit tests. */
 export async function reconcileTombstones(db: D1Like, kv: KVLike): Promise<number> {
   let failure: unknown;
   const scan = await scanTombstones(db, kv, DUE_MEMBERS_MAX, new Set(), (err) => { failure ??= err; });
