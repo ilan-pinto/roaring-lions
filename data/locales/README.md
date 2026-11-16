@@ -67,8 +67,12 @@ against one brief (register: military, terse, neutral; KDF/Sarim, place names an
 places, people, operations or faiths) with one shared glossary, and merged back into the English structure with the `src` hashes
 carried over untouched, so `pnpm validate:data` proves no entry is stale, missing or over a cap (trigger label 48, radio line,
 dispatch and aftermath 240, hostages place 40). The chrome catalogue is checked by `tools/validate_chrome_catalogue.mjs`: exactly
-`en.json`'s keys, and the same `{placeholders}` and ICU `plural`/`select` shape in every value. **Chrome strings carry no source
-hash**, so an English chrome edit after translation is a text-freeze matter, not something the gate sees (the languages brief's D7).
+`en.json`'s keys, and the same `{placeholders}` and ICU `plural`/`select` shape in every value. **Chrome strings carry their source hash in a
+sidecar**, `data/locales/<id>/chrome.src.json` (`{ "<key>": "<8 hex of the English it was translated from>" }`, the same `sourceHash` the
+mission and unit overlays use): an English chrome edit after translation goes red in `validate:data` with both hashes, until the string is
+re-translated and the hash set. The sidecar is never served or read at runtime. `pnpm locales:chrome-src -- <lang>` lists what is missing or
+stale; `--write` adds hashes for keys that have none (a new language runs it once, from the English it read) and keeps a stale entry stale on
+purpose; `--rebless=key,key` refreshes named keys and is for use AFTER re-translating them.
 
 Terms the glossary fixed, for a proofreader: Conduct is "Verhalten", a mission is an "Einsatz", a map tile is a "Feld", a squad or team
 is a "Trupp", the Store is the "Depot", a garrisoned building is "besetzt".
