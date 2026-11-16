@@ -54,11 +54,11 @@ describe('settingsPanel', () => {
     expect(foot.querySelector('.rl-foot__start')?.firstElementChild).toBe(stage.querySelector('[data-kind="back"]'));
   });
 
-  it('renders one table with the four sections and the build id', () => {
+  it('renders one table with the five sections and the build id', () => {
     const { d } = deps();
     const { el } = settingsPanel(document.body, d);
     const heads = [...el.querySelectorAll('h3')].map((h) => h.textContent);
-    expect(heads).toEqual(['Video', 'Audio', 'Accessibility', 'Language']);
+    expect(heads).toEqual(['Video', 'Audio', 'Accessibility', 'Chat', 'Language']);
     expect(el.textContent).toContain('0.68.0');
   });
   // The foot names the build AND its short commit, so a `pnpm bot` checkout can
@@ -270,6 +270,18 @@ describe('settingsPanel', () => {
     cb.checked = false;
     cb.dispatchEvent(new Event('change', { bubbles: true }));
     expect(set.mock.calls[0][0].accessibility.captions).toBe(false);
+  });
+  it('Chat is ON by default (GH-1417 S1), has its own section, and turning it off goes through the one setter', () => {
+    const { d, set } = deps();
+    const { el } = settingsPanel(document.body, d);
+    const cb = el.querySelector<HTMLInputElement>('input[name="chat"]');
+    if (!cb) throw new Error('no chat box');
+    expect(cb.checked).toBe(true);
+    expect(el.textContent).toContain('Show chat from other players');
+    expect(el.textContent).toContain('The other player is not told');
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(set.mock.calls[0][0].chat.enabled).toBe(false);
   });
   describe('Replay intro', () => {
     it('draws no row when no intro ships (today): the panel is as it was', () => {

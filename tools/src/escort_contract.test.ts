@@ -92,6 +92,59 @@ describe('the escort data contract (GH-2)', () => {
     expect(validate(numeric)).toBe(false);
   });
 
+  describe('the loss tolerance and the wait (GH-1439)', () => {
+    /** The engineers, two of them 8 tiles out, and a work objective the escort waits on; both new fields on the escort. */
+    function withFields(): Fixture {
+      const m = mission();
+      m.starting_force = [
+        { unit: 'ec_squad', count: 2, at: [12, 5], tag: 'vip' },
+        { unit: 'ec_squad', count: 1, at: [3, 9] },
+      ];
+      m.objectives = [
+        { id: 'vip', type: 'escort', primary: true, target: 'vip', zone: 'pump', fail_after_losses: 2, until: ['work'], text: 'Bring the engineers to the pump house' },
+        { id: 'work', type: 'survive_until', primary: true, seconds: 10 },
+      ];
+      return m;
+    }
+    it('passes the schema', () => {
+      const ok = validate(withFields());
+      expect(validate.errors ?? []).toEqual([]);
+      expect(ok).toBe(true);
+    });
+    it('and the very same object plays: the escort waits for the work, then completes with the engineers in the zone', () => {
+      const m = withFields();
+      expect(validate(m)).toBe(true);
+      const { sim, runtime } = runtimeFor(m);
+      sim.queueCommand({ kind: 'move', ids: [0, 1], x: fx.from(21.5), y: fx.from(5.5) });
+      const done: string[] = [];
+      for (let t = 0; t < 90 * TICKS_PER_SECOND && runtime.result === 'ongoing'; t++) {
+        for (const e of runtime.step(sim.tick())) if (e.kind === 'objective') done.push(`${e.id}:${e.status}`);
+      }
+      expect(done).toEqual(['work:complete', 'vip:complete']); // the work first, the escort on the same tick, never before
+      expect(runtime.result).toBe('victory');
+    });
+    it('the schema still bites: until [], fail_after_losses 0 or 1.5, until not a list of strings, a repeated id', () => {
+      const bad = (patch: Record<string, unknown>): boolean => {
+        const m = withFields();
+        Object.assign(m.objectives[0], patch);
+        return validate(m) as boolean;
+      };
+      expect(bad({ until: [] })).toBe(false);
+      expect(bad({ fail_after_losses: 0 })).toBe(false);
+      expect(bad({ fail_after_losses: 1.5 })).toBe(false);
+      expect(bad({ until: 'work' })).toBe(false);
+      expect(bad({ until: ['work', 'work'] })).toBe(false);
+      expect(bad({})).toBe(true);
+    });
+    it('and either field on any other type is refused', () => {
+      for (const patch of [{ fail_after_losses: 1 }, { until: ['vip'] }]) {
+        const m = withFields();
+        Object.assign(m.objectives[1], patch);
+        expect(validate(m), JSON.stringify(patch)).toBe(false);
+      }
+    });
+  });
+
   it('a zone is typed as a string on any objective', () => {
     const m = mission();
     m.objectives[0].zone = 5;

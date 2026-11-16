@@ -75,11 +75,13 @@ export interface IntroFacts {
   /** A mission a tutorial teaches: its steps run from the first frame. */
   readonly tutorial: boolean;
   readonly reduced: boolean;
+  /** GH-1393: a mission being RESUMED from a save has been briefed, deployed and introduced already: it lands paused on the field, with no camera ease. */
+  readonly resumed?: boolean;
 }
 
 /** Who gets an intro, and which. Null is today's cut, exactly. */
 export function introPlan(f: IntroFacts): IntroPlan | null {
-  if (f.sandbox || f.room || f.tutorial || !f.hasBriefing) return null;
+  if (f.sandbox || f.room || f.tutorial || f.resumed === true || !f.hasBriefing) return null;
   if (f.reduced) {
     const ms = INTRO_MS.reducedFade;
     return { reduced: true, hudAtMs: ms, landMs: ms, cameraMs: 0, holdMs: ms };
