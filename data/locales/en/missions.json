@@ -254,6 +254,78 @@
       "the_town_falls_back_onto_the_hill": "Town falls back onto the hill"
     }
   },
+  "qasr_liwan_1_recon": {
+    "name": "Qasr Liwan I — One House",
+    "briefing": "One house on the north edge of Qasr Liwan, walled, with a single gate onto the lane, and one of the people taken at First Light is inside it. That is the whole of what I have, and I have had it for six hours. Find the guard on that gate, then walk that one person out through it and across the north road to the extraction, eight tiles from the courtyard. You have five minutes. The street twelve tiles west of the house is asleep, and anything of ours over that courtyard wakes it, the drone included. It wakes on its own in three minutes regardless. So the house is looked at from the lane, never from above it. Spend the drone on the rest of the edge. A mortar on the edge is laid on that courtyard and cannot reach the extraction, so the walk out is the dangerous half. There are posts on both approaches I cannot place, and each one you find is one the next fight does not have to. The houses round that gate are lived in. Nothing you brought is heavy enough to cost you there, a called barrage is, and more than ten Conduct lost tonight ends it. One person out of one gate; the street is not the objective, so do not make it one.",
+    "objectives": {
+      "find_the_gate_guard": "Identify the guard on the courtyard gate",
+      "walk_one_out": "Walk one person out to the north road",
+      "keep_the_street": "Lose no more than 10 Conduct",
+      "find_the_seam_post": "Identify the sandbag post at the coast junction"
+    },
+    "triggers": {
+      "the_street_heard_the_courtyard": "The street heard the courtyard",
+      "the_street_wakes": "The street west of the house is waking"
+    }
+  },
+  "qasr_liwan_2_foothold": {
+    "name": "Qasr Liwan II — The Ring",
+    "briefing": "The ring round Qasr Liwan closes in two places. In the north it is the seam, where the north road meets the coast, and whatever the house raid saw on it is already on your map. In the south it is the Cut, the checkpoint at the foot of the city, and both are held for four minutes. They are forty tiles apart and you cannot stand on both, so the camp is there to buy the second force. Both are dug under. Crews come up inside the seam and beside the coast road, and any hold with one of them standing in it stops counting. The seam's trouble comes on wheels down the coast road, so it wants the AT team and a jeep; the Cut is one-tile lanes, and it wants rifles. Buy for that. Nine residents are in the south quarter's lanes. They walk once one of ours is within four tiles of them, and their way to the refuge goes through the checkpoint's lane. Six of them through inside five minutes, or the checkpoint is a wall. The mortar, the AT missile and the Namer's cannon are billed near those houses, and the rifles are not.",
+    "objectives": {
+      "hold_the_seam": "Hold the seam for four minutes",
+      "hold_the_cut": "Hold the Cut checkpoint for four minutes",
+      "residents_through": "Get six residents south of the Cut",
+      "take_the_coast_road": "Take the coast road where it meets the Cut"
+    },
+    "triggers": {
+      "the_seam_reserve_comes_up": "The seam's reserve is coming out of the houses",
+      "the_lanes_move_on_the_checkpoint": "The lanes are moving on the checkpoint",
+      "the_seam_reserve_falls_back": "What is left of the seam reserve falls back"
+    }
+  },
+  "qasr_liwan_3_buildup": {
+    "name": "Qasr Liwan III — The Pause",
+    "briefing": "The pause holds for four minutes from the time you step off. Their lines are back just past the edge of what we can see, and they stay there unless one of theirs dies or something of ours crosses the south street. Four of the taken are being walked to the open ground west of the checkpoint. At ninety seconds the party with them steps back; go to them then and not before, and bring all four south across the Cut. From south of that street I can see into the clinic yard, and from nowhere closer. Crossing it to look, with a squad or with the drone, ends the pause for everyone on that ground. Put the mortar and the AT team on ambush before anything identifies anything, because a tube left to its own judgement is how a pause ends. The handover ground is flagged, and Conduct has five points to give today. When it ends it ends on the forward ground north of the checkpoint, from three sides, with wheels a minute later. The water point west of it pays eighty a minute to whoever holds it. Spend the quiet on what holds that ground at four minutes: AT for the wheels, rifles for the rest. The four come first, because there is no buying them back under fire.",
+    "objectives": {
+      "bring_four_across": "Bring all four of the taken south of the Cut",
+      "hold_the_forward_ground": "Hold the forward ground for six minutes",
+      "keep_the_pause": "Lose no more than 5 Conduct",
+      "take_the_water_point": "Take the water point west of the checkpoint",
+      "find_the_yard_watch": "Identify the watch in the clinic yard"
+    },
+    "triggers": {
+      "the_handover_party_steps_back": "The party at the handover steps back",
+      "the_pause_ends": "The pause is over",
+      "ours_over_the_south_street": "Our units are over the south street",
+      "the_first_of_theirs_down": "One of theirs is down and their lines move"
+    }
+  },
+  "qasr_liwan_4_clearance": {
+    "name": "Qasr Liwan IV — The Clinic Yard",
+    "briefing": "The shaft mouth is in the clinic yard, the open ground inside the compound's west wall. That is what I have, and it is all of what I have. Take the yard and hold it fifteen seconds with nothing of theirs in it, then stand the engineers beside the route and bring it down. Six minutes for the shaft. Six people are in the forecourt south of the clinic, and they walk out through the south gate once one of ours is within four tiles. A firing position covers that gate from the south-west. Walk five of them to the refuge by the checkpoint inside five minutes. People first or yard first is yours to choose; the yard first stops the crews coming up under you. Their east position is three tiles off the clinic's wall. Every heavy round that misses it lands beside the clinic and is billed. The rifles and the Lavi's coax are free beside that wall; its gun, the Namer's cannon and the AT missile are not. Lose the clinic and you have spent more than ten Conduct in one go, which is the mission.",
+    "objectives": {
+      "take_the_yard": "Take and hold the clinic yard",
+      "walk_the_forecourt_out": "Walk five people out of the clinic forecourt",
+      "bring_the_shaft_down": "Bring down the shaft in the clinic yard",
+      "keep_the_clinic": "Lose no more than 10 Conduct",
+      "the_yard_commander": "Kill the commander at the yard's north gate"
+    },
+    "triggers": {
+      "the_shore_lane_moves_on_the_yard": "The shore-quarter lane moves on the yard",
+      "the_firing_line_leaves": "Their firing line leaves the compound"
+    }
+  },
+  "qasr_liwan_5_subterranean": {
+    "name": "Qasr Liwan V — The Pumps",
+    "briefing": "This ground gets mapped before anybody goes into it. Three deep routes run under the shore quarter, and a route counts only while something of ours is watching it: look away and it goes cold. Hold the pump yard on the west edge for three minutes and the water goes into the shallow tier. When it does, those crews come up at the yard's two ends, into whoever is standing there. The water does not reach the deep tier. Those three are found and charged by hand inside six minutes, and one of them is still being dug toward the Cut. Two engineer squads, three routes and the pump yard all want the same minute, so choose the order before you start. A third engineer squad is on the camp's list if the brigade's Conduct has earned it. One deep route comes up inside the relief depot's walled yard. The depot is not the target, and that route can be read and charged from outside its wall. The depot is flagged, and bringing it down loses the mission; so does any house on this shore. Rifles answer what comes up beside it, and nothing heavier does. Map first and charge second: an engineer beside a route nobody is watching is a man standing in the open for nothing.",
+    "objectives": {
+      "run_the_pumps": "Hold the pump yard for three minutes",
+      "the_deep_routes": "Collapse the deep routes under the shore",
+      "keep_the_depot": "Lose no more than 10 Conduct",
+      "the_grid_chief": "Kill the grid chief at the deep shaft head",
+      "find_the_deep_crew": "Find the crew digging toward the Cut"
+    }
+  },
   "tel_marum_1_recon": {
     "name": "Tel Marum I — The Gateway",
     "briefing": "Sur begins at the pass, and the pass is watched. Rockets have been falling on the north for a week and nobody can say from where, so tonight you find out. Push the drone up the valley and build the picture — two ATGM pockets on the flank spurs, a Grad section behind the rock at the head of the valley, and whoever is feeding them targets. Keep the metal in the hollow behind the knoll line: the valley floor south of it is out of the battery's reach, and everything north of it is not. Herders are grazing that floor north of the hollow — get them south to the muster ground inside five minutes, before the battery finds the range. Bring back the picture, not casualties.",
