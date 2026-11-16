@@ -41,7 +41,7 @@ The pattern: **text-only localisation, English the only fully voiced language**,
 
 ## 3. What there is to translate today
 
-Counted from the generated files on this branch (`packages/app/src/i18n/en.json`, `data/locales/en/missions.json`, `data/locales/en/units.json`), words split on whitespace:
+Counted from the generated files (`data/locales/en/*.json`, which arrive with the GH-1406 stack, PRs 1467 and 1468, not yet on `main` when this brief was written) (`packages/app/src/i18n/en.json`, `data/locales/en/missions.json`, `data/locales/en/units.json`), words split on whitespace:
 
 | Catalogue | Strings | Words | Notes |
 |---|---|---|---|
