@@ -220,16 +220,22 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
     for (const map of ['qarn_hadid', 'tel_marum_1', 'tutorial_ground', 'nowhere', '']) expect(winModesOffered(map), map).toEqual([]);
     for (const map of SEVEN) expect(winModeAllowed('camp', map), map).toBe(CAMP_MAPS.includes(map));
   });
-  /** Runs `fn` with one faction cell added to the table, and takes it out again, also on a throw. The table is empty today
-   *  (GH-976 P4 review), so the mechanism is exercised with a cell the test adds. */
+  /** Runs `fn` with one faction cell added to the table, and takes it out again, also on a throw. The points and flag
+   *  tables are empty today (GH-976 P4 review; only the camp has cells, GH-1381), so the mechanism is exercised with a cell the test adds. */
   const withCell = <T,>(mode: 'points' | 'flag', map: string, hosts: ('kdf' | 'sarim')[], fn: () => T): T => {
     const cells = WIN_MODE_FAIR_FACTION_CELLS[mode] as Record<string, readonly ('kdf' | 'sarim')[]>;
     cells[map] = hosts;
     try { return fn(); } finally { delete cells[map]; }
   };
-  it('GH-976 P4: KDF against Sarim is offered nothing on any map today: no cell passed the review', () => {
-    expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: {}, points: {}, flag: {} });
-    for (const map of SEVEN) for (const matchup of ['kdf', 'sarim'] as const) expect(winModesOffered(map, matchup), `${map} ${matchup}`).toEqual([]);
+  it('GH-1381 (GH-1378 Q11): KDF against Sarim is offered the camp on wadi_tarfan and wadi_tarfan_l from either host, and nothing else on any map', () => {
+    expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: { wadi_tarfan: ['kdf', 'sarim'], wadi_tarfan_l: ['kdf', 'sarim'] }, points: {}, flag: {} });
+    const FACTION_CAMP_MAPS = ['wadi_tarfan', 'wadi_tarfan_l'];   // read on 4000-4287, every camp gate, both hosts (config.ts)
+    for (const map of SEVEN) for (const matchup of ['kdf', 'sarim'] as const) expect(winModesOffered(map, matchup), `${map} ${matchup}`).toEqual(FACTION_CAMP_MAPS.includes(map) ? ['camp'] : []);
+    for (const matchup of ['kdf', 'sarim'] as const) {
+      expect(winModeRequest('camp', versus('wadi_tarfan', matchup)), matchup).toEqual({ mode: 'camp' });
+      expect(winModeRequest('camp', versus('wadi_tarfan_l', matchup)), matchup).toEqual({ mode: 'camp' });
+      expect(winModeRequest('camp', versus('milh_flats', matchup)).refused, matchup).toBe('win mode not offered on this map for this matchup');   // the camp's mirror-only map
+    }
     // A key that merely exists on every object is not a map: the faction table is read as own data.
     for (const map of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
       expect(winModeAllowed('points', map, 'kdf'), map).toBe(false);
@@ -238,15 +244,15 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
   });
   it('GH-976 P4: a cell in the faction table is offered to the hosts it names and to no one else', () => {
     withCell('points', 'wadi_tarfan_l', ['kdf'], () => {
-      expect(winModesOffered('wadi_tarfan_l', 'kdf')).toEqual(['points']);
-      expect(winModesOffered('wadi_tarfan_l', 'sarim')).toEqual([]);
-      expect(winModesOffered('wadi_tarfan', 'kdf')).toEqual([]);
+      expect(winModesOffered('wadi_tarfan_l', 'kdf')).toEqual(['camp', 'points']);
+      expect(winModesOffered('wadi_tarfan_l', 'sarim')).toEqual(['camp']);
+      expect(winModesOffered('wadi_tarfan', 'kdf')).toEqual(['camp']);
       expect(winModeAllowed('flag', 'wadi_tarfan_l', 'kdf')).toBe(false);
       expect(winModeAllowed('points', 'wadi_tarfan_l')).toBe(true);   // the mirror table is its own
       expect(winModeRequest('points', versus('wadi_tarfan_l', 'kdf'))).toEqual({ mode: 'points' });
       expect(winModeRequest('points', versus('wadi_tarfan_l', 'sarim')).refused).toBe('win mode not offered on this map for this matchup');
     });
-    expect(winModesOffered('wadi_tarfan_l', 'kdf')).toEqual([]);   // and it is out again
+    expect(winModesOffered('wadi_tarfan_l', 'kdf')).toEqual(['camp']);   // and it is out again (the camp cell is the shipped one, GH-1381)
   });
   it('GH-976 relist (12 Nov): flag is offered on exactly wadi_tarfan, rujm_sawda, wadi_tarfan_l and milh_flats_l in the mirror, with the set-up rules, and nowhere else; milh_flats is delisted (12 Nov)', () => {
     const FIVE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];   // literals, not the table (the name is historical: four since 12 Nov)
@@ -302,11 +308,16 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
     expect(winModeRequest('points', versus('qarn_hadid')).refused).toBe('win mode not offered on this map');
     expect(winModeRequest('points', { ...versus('wadi_tarfan'), mode: 'sandbox' }).refused).toBe('win mode is for versus rooms');
   });
-  it('GH-976 P4: the Worker\'s question for a KDF-v-Sarim room is the faction table: every one of the 42 cells is refused today', () => {
+  it('GH-976 P4, GH-1381: the Worker\'s question for a KDF-v-Sarim room is the faction table: 4 of the 42 cells are offered (the camp on the two Wadi Tarfans, both hosts), every other is refused', () => {
     const why = 'win mode not offered on this map for this matchup';
+    const OPEN = ['camp wadi_tarfan kdf', 'camp wadi_tarfan sarim', 'camp wadi_tarfan_l kdf', 'camp wadi_tarfan_l sarim'];
+    const accepted: string[] = [];
     for (const map of SEVEN) for (const matchup of ['kdf', 'sarim'] as const) for (const mode of ['camp', 'points', 'flag']) {
-      expect(winModeRequest(mode, versus(map, matchup)).refused, `${mode} ${map} ${matchup}`).toBe(why);
+      const cell = `${mode} ${map} ${matchup}`;
+      const r = winModeRequest(mode, versus(map, matchup));
+      if (OPEN.includes(cell)) { expect(r, cell).toEqual({ mode }); accepted.push(cell); } else expect(r.refused, cell).toBe(why);
     }
+    expect(accepted).toEqual(OPEN);
     // The reasons the mirror and a sandbox give are unchanged.
     expect(winModeRequest('flag', versus('qarn_hadid')).refused).toBe('win mode not offered on this map');
     expect(winModeRequest('points', { ...versus('wadi_tarfan_l', 'kdf'), mode: 'sandbox' }).refused).toBe('win mode is for versus rooms');
