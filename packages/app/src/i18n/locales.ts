@@ -21,6 +21,21 @@ export interface Locale {
 
 export const LOCALES: readonly Locale[] = [{ id: 'en', name: 'English', dir: 'ltr' }];
 
+/** The mirrored pseudo-locale's id (`?pseudo=rtl`). Not a shipped catalogue and never a `?lang=` value: it is `en` run through
+ *  `pseudo.ts`'s `pseudoRtl`, with `dir="rtl"` and the standard mirrored pseudo-locale tag `qps-plocm`. */
+export const PSEUDO_RTL = 'pseudo-rtl';
+
+/** Whether `id` is one of the two pseudo-locales (`en` through a transform, no file of its own). */
+export function isPseudo(id: string): boolean {
+  return id === 'pseudo' || id === PSEUDO_RTL;
+}
+
+/** What `?pseudo=<value>` asks for: `rtl` is the mirrored one, any other present value (`1`, empty) the plain one, absent is neither. */
+export function pseudoModeOf(value: string | null): 'pseudo' | typeof PSEUDO_RTL | null {
+  if (value === null) return null;
+  return value === 'rtl' ? PSEUDO_RTL : 'pseudo';
+}
+
 const ENGLISH: Catalogue = en;
 
 /** `lang` on `<html>` always reflects what was actually asked for, even an id
@@ -30,6 +45,11 @@ const ENGLISH: Catalogue = en;
  *  catalogue (itself `ltr`) whenever it cannot find the one that was asked
  *  for. */
 export function applyLocale(root: HTMLElement, id: string): void {
+  if (id === PSEUDO_RTL) {
+    root.setAttribute('lang', 'qps-plocm');
+    root.dir = 'rtl';
+    return;
+  }
   root.setAttribute('lang', id);
   root.dir = LOCALES.find((l) => l.id === id)?.dir ?? 'ltr';
 }
@@ -39,7 +59,7 @@ export function applyLocale(root: HTMLElement, id: string): void {
  *  bundle; anything else is fetched, and a missing or unreadable file falls
  *  back to `en` rather than booting the shell with an empty catalogue. */
 export async function loadLocale(id: string, base: string): Promise<Catalogue> {
-  if (id === 'en' || id === 'pseudo') return ENGLISH;
+  if (id === 'en' || isPseudo(id)) return ENGLISH;
   try {
     const res = await fetch(`${base}locales/${id}.json`);
     if (!res.ok) return ENGLISH;
