@@ -59,7 +59,7 @@ export function missingKeys(): readonly string[] {
  *  English even while its glyphs do not, so `Intl.PluralRules` gets `en`
  *  under `'pseudo'` rather than a tag it was never given rules for. */
 function pluralLocale(locale: string): string {
-  return locale === 'pseudo' ? 'en' : locale;
+  return locale === 'pseudo' || locale === 'pseudo-rtl' ? 'en' : locale;
 }
 
 export function t(key: string, params?: Params): string {

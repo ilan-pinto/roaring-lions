@@ -117,7 +117,11 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   than scraping the console. `?lang=<id>` picks a locale for the session only and
   is never written to settings; `?pseudo=1` swaps the catalogue for the
   bracketed, accented pseudo-locale, so **a plain unbracketed word in a pseudo
-  capture is a string that never went through `t()`**. Two things follow that are
+  capture is a string that never went through `t()`**. `?pseudo=rtl` (GH-1406 part 2) is
+  the same transform forced right-to-left by a bidi override, with `dir="rtl"` and the
+  mirrored pseudo tag `qps-plocm` on `<html>` (`locales.ts`'s `applyLocale`): it shows a screen
+  what a right-to-left language would do, with no real script in it. It is never a `?lang=`
+  value. Two things follow that are
   easy to get wrong. **A table resolved at MODULE LOAD freezes in whatever locale
   was active before `main.ts`'s boot calls `setCatalogue`** — which is never the
   player's — so a label table uses getters or accessor functions
@@ -133,8 +137,10 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   trigger `label` are overlaid per locale from
   `data/locales/<lang>/missions.json` (`applyMissionLocale`), gated by
   `pnpm validate:data`, and deliberately do NOT go through the pseudo transform.
-  Unit names, roles and blurbs have no overlay yet and read English in every
-  locale.
+  `data/locales/en/missions.json` is the GENERATED translator's template (`pnpm
+  locales:en -- --write`, checked by `validate:data`; never edited, never fetched).
+  Unit names and blurbs are overlaid from `data/locales/<lang>/units.json`
+  (`unit-text.ts`); roles are chrome.
 
 <!-- CLAUDE.md lines 322-338, section "Dev instruments" -->
 

@@ -395,9 +395,9 @@ import type { SavesDeps } from './ui/saves';
 import type { CreditsDeps } from './ui/credits';
 import { versusMaps } from './ui/versus-maps';
 import type { VersusDeps } from './ui/versus';
-import { LOCALES, applyLocale, loadLocale, resolveLang } from './i18n/locales';
+import { LOCALES, PSEUDO_RTL, applyLocale, isPseudo, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
-import { pseudo } from './i18n/pseudo';
+import { pseudo, pseudoRtl } from './i18n/pseudo';
 import { loadUnitOverlay, localizedUnit, setUnitOverlay, unitName as textUnitName } from './unit-text';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
@@ -661,7 +661,7 @@ async function fetchLicenceText(url: string): Promise<string> {
  * going missing must degrade to English, not break the mission.
  */
 async function loadMissionOverlay(lang: string, base: string): Promise<MissionLocaleOverlay | null> {
-  if (lang === 'en') return null;
+  if (lang === 'en' || isPseudo(lang)) return null;
   try {
     const res = await fetch(`${base}locales/${lang}/missions.json`);
     if (!res.ok) return null;
@@ -946,12 +946,14 @@ async function main(): Promise<void> {
   // The kill switch (D1 `flags`) and the member's name: `account/menu-account.ts`.
   const menuAcctFor = menuAccountSource({ on: accountsOn, hasBinding: () => readBinding(safeStorage()) !== null, loadClient: accountClient, onOpen: (v) => (accountOpenOnPage = v) });
   const lang = resolveLang(q.get('lang'), settings.language);
-  const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
+  // `?pseudo=1` is the accented, padded, bracketed `en`; `?pseudo=rtl` (GH-1406 part 2) is the same forced right-to-left with `dir="rtl"`.
+  const pseudoMode = pseudoModeOf(q.get('pseudo'));
+  const activeLocale = pseudoMode ?? lang;
   const cat = await loadLocale(activeLocale, BASE);
-  setCatalogue(activeLocale, cat, q.has('pseudo') ? pseudo : undefined);
+  setCatalogue(activeLocale, cat, pseudoMode === PSEUDO_RTL ? pseudoRtl : pseudoMode === 'pseudo' ? pseudo : undefined);
   // GH-1406: unit names and blurbs, from data/locales/<lang>/units.json. Mission text is data and is not pseudo-transformed; neither is this.
   setUnitOverlay(await loadUnitOverlay(lang, BASE));
-  applyLocale(document.documentElement, lang);
+  applyLocale(document.documentElement, pseudoMode === PSEUDO_RTL ? PSEUDO_RTL : lang);
   // Dev-only: which keys a screen walk asked for and never got, without
   // scraping console output for `[i18n] missing key: …` lines.
   if (import.meta.env.DEV) {

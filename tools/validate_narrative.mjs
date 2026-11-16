@@ -287,6 +287,74 @@ export function overlayFailures(file, overlay, missions) {
 }
 
 /**
+ * The English mission-text catalogue (GH-1406 part 2): `data/locales/en/missions.json`, GENERATED from `data/missions/*.json` and never
+ * authored. It is a translator's template, not an overlay the game loads (`main.ts`'s `loadMissionOverlay` short-circuits `en`): one
+ * entry per mission with every string `applyMissionLocale` can replace, so a translator copies the file, translates the values, and sees
+ * at once what is missing. Order is the mission file's own (objectives and triggers in file order), missions by id, so the output is
+ * stable and `locales:en --check` is a plain comparison.
+ *
+ * Covers exactly what the overlay covers: `name`, `briefing`, an objective's `text`, a trigger's `label`. Not `dispatch`, `aftermath`,
+ * `debrief`, a `say`, `hostages_place` or `briefing_sections`: `applyMissionLocale` does not replace them, so a template row for one
+ * would be a promise the loader does not keep.
+ */
+export function englishMissionText(mission) {
+  const entry = {};
+  if (typeof mission.name === 'string') entry.name = mission.name;
+  if (typeof mission.briefing === 'string') entry.briefing = mission.briefing;
+  const objectives = {};
+  for (const ob of mission.objectives ?? []) if (typeof ob.id === 'string' && typeof ob.text === 'string') objectives[ob.id] = ob.text;
+  if (Object.keys(objectives).length > 0) entry.objectives = objectives;
+  const triggers = {};
+  for (const t of mission.triggers ?? []) if (typeof t.id === 'string' && typeof t.label === 'string') triggers[t.id] = t.label;
+  if (Object.keys(triggers).length > 0) entry.triggers = triggers;
+  return entry;
+}
+
+/** The whole catalogue for a list of missions: ids sorted, each through `englishMissionText`. */
+export function buildEnglishCatalogue(missions) {
+  const out = {};
+  for (const m of [...missions].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) out[m.id] = englishMissionText(m);
+  return out;
+}
+
+/**
+ * Checks `data/locales/en/missions.json` against the missions it was generated from: an entry for every mission, every string present and
+ * equal to the source, nothing left over (a deleted mission, a renamed objective, a removed trigger). `catalogue` may be null or not an
+ * object (a missing or unreadable file), which is one failure and not a pass.
+ */
+export function englishCatalogueFailures(file, catalogue, missions) {
+  if (catalogue === null || typeof catalogue !== 'object' || Array.isArray(catalogue)) {
+    return [`${file}: is missing or is not a JSON object -- run \`pnpm locales:en\``];
+  }
+  const out = [];
+  const want = buildEnglishCatalogue(missions);
+  for (const id of Object.keys(catalogue)) {
+    if (!(id in want)) out.push(`${file}: has an entry for "${id}", which is not a mission in data/missions (stale)`);
+  }
+  for (const [id, w] of Object.entries(want)) {
+    const have = catalogue[id];
+    if (have === undefined) {
+      out.push(`${file}: no entry for mission "${id}"`);
+      continue;
+    }
+    for (const key of ['name', 'briefing']) {
+      if (w[key] !== have[key]) out.push(`${file}: mission "${id}" ${key} ${have[key] === undefined ? 'is missing' : 'differs from the mission file'}`);
+    }
+    for (const group of ['objectives', 'triggers']) {
+      const wantG = w[group] ?? {};
+      const haveG = have[group] ?? {};
+      for (const [k, text] of Object.entries(wantG)) {
+        if (haveG[k] === undefined) out.push(`${file}: mission "${id}" ${group} "${k}" is missing`);
+        else if (haveG[k] !== text) out.push(`${file}: mission "${id}" ${group} "${k}" differs from the mission file`);
+      }
+      for (const k of Object.keys(haveG)) if (!(k in wantG)) out.push(`${file}: mission "${id}" ${group} "${k}" is not in the mission file (stale)`);
+    }
+    for (const k of Object.keys(have)) if (!['name', 'briefing', 'objectives', 'triggers'].includes(k)) out.push(`${file}: mission "${id}" carries "${k}", which the overlay does not read`);
+  }
+  return out;
+}
+
+/**
  * Cross-checks one unit-text locale overlay (`data/locales/<lang>/units.json`, `@lions/data`'s `UnitLocaleOverlay` shape) against the real
  * units: every id it names must be a unit in data/units, it may carry only `name` and `blurb`, and both must be non-empty strings.
  * `applyUnitLocale` silently no-ops an unknown id at runtime, so a translator's typo would otherwise ship invisibly, doing nothing, forever.

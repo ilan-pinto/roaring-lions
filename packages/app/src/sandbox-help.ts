@@ -213,7 +213,7 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     // Wraps the `en` catalogue in the pseudo-locale transform (i18n/pseudo.ts)
     // instead of loading a real one -- the fake-translation pass a screen
     // walk uses to catch a string that never went through `t()` at all.
-    blurb: 'run every screen through the pseudo-locale (accents, padding, brackets) instead of a real language',
+    blurb: 'run every screen through the pseudo-locale (accents, padding, brackets) instead of a real language; =rtl also mirrors the layout (dir=rtl) and forces the text right to left',
   },
   {
     name: 'voicetick',

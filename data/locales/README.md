@@ -7,15 +7,21 @@ brigade screen, every string that goes through `packages/app/src/i18n/t.ts`'s
 its own fetch path — this directory is mission DATA, the thing CLAUDE.md
 means by "Data text stays data."
 
-## `en` is the source, never an overlay
+## `en` is the source; its file here is a generated template, never an overlay
 
-Every file under `data/missions/` is authored in `en` already, and `en` is
-never a subdirectory here — there is no `data/locales/en/missions.json` to
-maintain in parallel with the mission files it would duplicate.
-`mission-author` and `narrative-designer` write and edit the `en` text in
-place, on the mission JSON itself, exactly as they do today. A locale
-overlay is a translator's *addition* layered on top of that source at the
-point `@lions/app` resolves a mission, never a fork of it.
+Every file under `data/missions/` is authored in `en` already. `mission-author` and `narrative-designer` write and edit the `en`
+text in place, on the mission JSON itself, exactly as they do today. A locale overlay is a translator's *addition* layered on top
+of that source at the point `@lions/app` resolves a mission, never a fork of it.
+
+**`data/locales/en/missions.json` exists, and it is generated** (GH-1406 part 2): `pnpm locales:en -- --write` builds it from the
+mission files and `pnpm locales:en` checks it. It is a **translator's template**: one entry per mission with every string the
+overlay can replace (`name`, `briefing`, each objective's `text`, each labelled trigger's `label`), in the mission file's own order.
+A translator copies it to `data/locales/<lang>/missions.json` and translates the values; the keys are exactly the ids the overlay
+validator accepts. **Nobody edits it by hand and the game never fetches it** (`main.ts`'s `loadMissionOverlay` returns before any
+request for `en`). `pnpm validate:data` fails on a mission, objective or trigger it lacks, on an entry for something that is gone,
+and on text that has drifted from the mission file, so editing a briefing means running `pnpm locales:en -- --write` in the same
+commit. It does not cover `dispatch`, `aftermath`, `debrief`, a `say`, `hostages_place` or `briefing_sections`: the overlay does
+not replace those today, so a template row for one would promise what the loader does not do.
 
 ## Shape
 

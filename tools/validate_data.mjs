@@ -59,6 +59,7 @@ import {
 import {
   commanderRankFailures,
   narrativeTextFailures,
+  englishCatalogueFailures,
   overlayFailures,
   unitOverlayFailures,
   removeTriggerFailures,
@@ -1201,8 +1202,8 @@ const garrisonableSymbols = new Set(
 // shape; `en` is the source and never ships one of these) may only point at
 // mission, objective and trigger ids that are real, and a translated
 // trigger label may not overflow the same 48-character cap the source label
-// is held to above. None ship yet -- `overlayFailures`'s own test proves the
-// rule against a fixture rather than against nothing.
+// is held to above. `en` is the exception that proves the rule: its file is the
+// GENERATED template (GH-1406 part 2, `pnpm locales:en`), checked for exact parity below.
 {
   const missionsById = new Map();
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
@@ -1214,6 +1215,29 @@ const garrisonableSymbols = new Set(
     const overlay = loadJson(file);
     if (!overlay) continue;
     failures.push(...overlayFailures(rel(file), overlay, missionsById));
+    // GH-1406 part 2: the `en` file is the GENERATED template, so it must match the mission files exactly.
+    if (basename(dirname(file)) === 'en') failures.push(...englishCatalogueFailures(rel(file), overlay, [...missionsById.values()]));
+    checked += 1;
+  }
+  // ...and it must exist: a deleted file is one failure, not a silent pass.
+  if (!existsSync(join(ROOT, 'data/locales/en/missions.json'))) {
+    failures.push(...englishCatalogueFailures('data/locales/en/missions.json', null, []));
+  }
+}
+
+// --- unit-text locale overlays (GH-1406) ------------------------------------
+// data/locales/<lang>/units.json: `name` and `blurb` per unit id, every id a real unit (`unitOverlayFailures`).
+{
+  const unitIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.id) unitIds.add(u.id);
+  }
+  for (const file of jsonFilesIn(join(ROOT, 'data/locales'))) {
+    if (!file.endsWith('units.json')) continue;
+    const overlay = loadJson(file);
+    if (!overlay) continue;
+    failures.push(...unitOverlayFailures(rel(file), overlay, unitIds));
     checked += 1;
   }
 }
