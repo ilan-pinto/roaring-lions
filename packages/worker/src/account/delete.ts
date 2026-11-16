@@ -1,6 +1,6 @@
 /** Deleting an account (GH-1075 A1, spec §6.4). Every step is retryable while the session still exists. */
 import { ID_PATTERN } from '@lions/data/telemetry';
-import type { D1Like } from '../d1';
+import type { D1Like, D1Stmt } from '../d1';
 import { ACCOUNT_BODY_MAX_BYTES, TOMB_TTL_S } from './config';
 import { accountJson, readAccountBody } from './http';
 import { perMinute } from './limits';
@@ -16,8 +16,8 @@ import { deleteStatements } from './tables';
 const GUARD = ' AND EXISTS (SELECT 1 FROM member WHERE id = ?1 AND last_seen_day <= ?2)';
 
 /** One guarded batch over every member table. `gone` is true when the member row is gone afterwards; `queries` is what it cost:
- *  ONE D1 query when this batch deleted it, two when it deleted nothing (a guard held, or the row was already gone). GH-1432: the
- *  cron spends from a per-run query budget and needs the exact figure. */
+ *  ONE D1 query when this batch deleted it, two when it deleted nothing (a guard held, or the row was already gone). The route deletes
+ *  one member this way; the cron deletes many in one batch (`deleteDueStatements`, GH-1432). */
 export async function deleteMemberCounted(db: D1Like, memberId: string, guard: { lastSeenAtMost: number }): Promise<{ gone: boolean; queries: number }> {
   const statements = deleteStatements().map((s) =>
     s.bindsMember ? db.prepare(s.sql + GUARD).bind(memberId, guard.lastSeenAtMost) : db.prepare(s.sql),
@@ -33,6 +33,28 @@ export async function deleteMemberCounted(db: D1Like, memberId: string, guard: {
 
 export async function deleteMember(db: D1Like, memberId: string, guard: { lastSeenAtMost: number }): Promise<boolean> {
   return (await deleteMemberCounted(db, memberId, guard)).gone;
+}
+
+/** A member the cron deletes, guarded by its own day: deleted only if `last_seen_day <= day` still holds inside the batch. */
+export interface DueMember { id: string; day: number }
+
+/** D1 binds at most 100 values a statement; a due member binds two (its id and its day). */
+export const DUE_MEMBERS_MAX = 40;
+
+/** GH-1432: the cron's ONE delete batch for many members at once, the same statements as `deleteMemberCounted` in the same order, each
+ *  naming the members through a `due` CTE instead of `= ?1`. A row goes only if its member is still eligible (the guard, per row, inside
+ *  the one transaction), so a sign-in racing the batch spares that member whole and nobody else. It costs `deleteStatements().length`
+ *  statements however many members it carries: counted per statement, as `cron-budget.test.ts` counts, that is the reason it exists. */
+export function deleteDueStatements(db: D1Like, due: readonly DueMember[]): D1Stmt[] {
+  if (due.length === 0 || due.length > DUE_MEMBERS_MAX) throw new Error(`a due batch carries 1 to ${DUE_MEMBERS_MAX} members, not ${due.length}`);
+  const cte = `WITH due(id, day) AS (VALUES ${due.map((_, i) => `(?${2 * i + 1}, ?${2 * i + 2})`).join(', ')}) `;
+  const eligible = 'SELECT m.id FROM member m JOIN due ON due.id = m.id WHERE m.last_seen_day <= due.day';
+  const args = due.flatMap((d) => [d.id, d.day]);
+  return deleteStatements().map((s) => {
+    if (!s.bindsMember) return db.prepare(s.sql);
+    if (!s.sql.endsWith(' = ?1')) throw new Error(`a member statement must end in "= ?1": ${s.sql}`);
+    return db.prepare(`${cte}${s.sql.slice(0, -' = ?1'.length)} IN (${eligible})`).bind(...args);
+  });
 }
 
 /** The telemetry database's rows for one player, in one batch. Idempotent; touches no account row. */
