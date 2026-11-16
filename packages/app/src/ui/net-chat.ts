@@ -25,6 +25,7 @@
 import type { Seat } from '@lions/net';
 import { t } from '../i18n/t';
 import { escapeHtml } from './escape-html';
+import type { ChatInbox } from './chat-inbox';
 
 /** The room's own cap (`room-core.ts`'s `CHAT_MAX_CHARS`). */
 export const CHAT_MAX_CHARS = 280;
@@ -34,6 +35,11 @@ export const CHAT_LOG_LINES = 50;
 export interface ChatDeps {
   send(text: string): void;
   nameOf(seat: Seat): string;
+  /** GH-1417 S1: the room's inbox and the OTHER seat. With both, the chat shows a button that mutes that seat for the rest of the room,
+   *  and when the inbox says chat is off the chat shows a line saying so and offers no input. The lines themselves reach `receive`
+   *  only through the inbox (`chat-inbox.ts`); this class never decides what is shown. */
+  inbox?: ChatInbox;
+  peer?: Seat;
 }
 
 export interface ChatOptions {
@@ -49,6 +55,9 @@ export class NetChat {
   private readonly entry: HTMLElement;
   private readonly input: HTMLInputElement;
   private readonly docked: boolean;
+  private readonly off: HTMLElement;
+  private readonly muteBtn: HTMLButtonElement | null = null;
+  private readonly unsub: (() => void) | null = null;
 
   constructor(parent: HTMLElement, private readonly deps: ChatDeps, opts: ChatOptions = {}) {
     this.docked = opts.docked === true;
@@ -69,11 +78,55 @@ export class NetChat {
     this.input.placeholder = t('net.chat.placeholder');
     this.input.setAttribute('aria-label', t('net.chat.placeholder'));
     this.entry.appendChild(this.input);
+    this.off = document.createElement('p');
+    this.off.className = 'rl-chat__off';
+    this.off.textContent = t('net.chat.off');
+    this.off.hidden = true;
+    const { inbox, peer } = deps;
+    if (inbox !== undefined && peer !== undefined) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'rl-chat__mute';
+      // A click must not take focus from the input first: that blur would close the match's input before the click lands.
+      btn.addEventListener('mousedown', (ev) => ev.preventDefault());
+      btn.addEventListener('click', () => {
+        inbox.toggleMuted(peer);
+      });
+      btn.addEventListener('keydown', this.onMuteKey);
+      if (!this.docked) btn.addEventListener('blur', this.onMuteBlur);
+      this.muteBtn = btn;
+      this.entry.appendChild(btn);
+      this.unsub = inbox.onChange(() => this.paintMute());
+      this.paintMute();
+    }
     this.entry.hidden = !this.docked;
-    this.root.append(this.log, this.entry);
+    this.root.append(this.off, this.log, this.entry);
+    this.applyEnabled();
     this.input.addEventListener('keydown', this.onKey);
     if (!this.docked) this.input.addEventListener('blur', this.onBlur);
     parent.appendChild(this.root);
+  }
+
+  /** Whether the inbox lets chat show; true when this chat has no inbox. */
+  private get on(): boolean {
+    return this.deps.inbox?.isEnabled() ?? true;
+  }
+
+  /** Shows or hides the input, the log and the "chat is off" line to match the setting, read now. */
+  private applyEnabled(): void {
+    const on = this.on;
+    this.off.hidden = on;
+    this.log.hidden = !on;
+    if (!on) this.entry.hidden = true;
+    else if (this.docked) this.entry.hidden = false;
+  }
+
+  private paintMute(): void {
+    const { inbox, peer } = this.deps;
+    if (this.muteBtn === null || inbox === undefined || peer === undefined) return;
+    const muted = inbox.isMuted(peer);
+    this.muteBtn.textContent = t(muted ? 'net.chat.unmute' : 'net.chat.mute', { name: this.deps.nameOf(peer) });
+    this.muteBtn.setAttribute('aria-pressed', String(muted));
   }
 
   /** True while the input is shown and has focus. */
@@ -83,7 +136,10 @@ export class NetChat {
 
   /** Shows the input and focuses it. */
   open(): void {
+    this.applyEnabled();
+    if (!this.on) return;
     this.entry.hidden = false;
+    this.paintMute();
     this.input.focus();
   }
 
@@ -91,7 +147,7 @@ export class NetChat {
   close(): void {
     this.input.value = '';
     if (!this.docked) this.entry.hidden = true;
-    if (document.activeElement === this.input) this.input.blur();
+    if (document.activeElement === this.input || document.activeElement === this.muteBtn) (document.activeElement as HTMLElement).blur();
   }
 
   /** Appends one line to this chat's own log (the lobby's). */
@@ -107,8 +163,20 @@ export class NetChat {
   dispose(): void {
     this.input.removeEventListener('keydown', this.onKey);
     this.input.removeEventListener('blur', this.onBlur);
+    this.muteBtn?.removeEventListener('keydown', this.onMuteKey);
+    this.muteBtn?.removeEventListener('blur', this.onMuteBlur);
+    this.unsub?.();
     this.root.remove();
   }
+
+  /** The mute button, like the input, keeps the game's keys out (it may hold focus while the match runs) and lets Escape close the chat. */
+  private readonly onMuteKey = (ev: KeyboardEvent): void => {
+    ev.stopPropagation();
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      this.close();
+    }
+  };
 
   private readonly onKey = (ev: KeyboardEvent): void => {
     ev.stopPropagation();
@@ -126,7 +194,15 @@ export class NetChat {
     }
   };
 
-  private readonly onBlur = (): void => {
+  /** Focus leaving the mute button for anywhere but the input closes the match's chat, as leaving the input does. */
+  private readonly onMuteBlur = (ev: FocusEvent): void => {
+    if (ev.relatedTarget === this.input) return;
+    if (!this.entry.hidden) this.close();
+  };
+
+  private readonly onBlur = (ev: FocusEvent): void => {
+    // Focus moving to the mute button, in the same row, is still the chat.
+    if (this.muteBtn !== null && ev.relatedTarget === this.muteBtn) return;
     if (!this.entry.hidden) this.close();
   };
 }

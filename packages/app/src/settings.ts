@@ -58,6 +58,9 @@ export interface Settings {
    *  intro ships, since an absent file is never played. Added without a
    *  `version` bump: parsing is field by field, so an old blob loses nothing. */
   intro: { seen: boolean };
+  /** Other players' chat in a versus room (GH-1417 S1). `enabled: false` hides every received line and the input; the room is told
+   *  nothing. On by default. Added without a `version` bump: parsing is field by field. */
+  chat: { enabled: boolean };
   language: string;
 }
 
@@ -82,6 +85,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze<Settings>({
   controls: { cameraSpeed: 1, bindings: {}, edgePan: false, zoomToCursor: true },
   accessibility: { motion: 'system', colorVision: 'default', captions: true },
   intro: { seen: false },
+  chat: { enabled: true },
   language: 'en',
 });
 
@@ -112,6 +116,7 @@ export function parseSettings(raw: string | null): Settings {
   const controls = isRecord(v.controls) ? v.controls : {};
   const acc = isRecord(v.accessibility) ? v.accessibility : {};
   const intro = isRecord(v.intro) ? v.intro : {};
+  const chat = isRecord(v.chat) ? v.chat : {};
   return {
     version: 1,
     video: {
@@ -139,6 +144,7 @@ export function parseSettings(raw: string | null): Settings {
       captions: bool(acc.captions, d.accessibility.captions),
     },
     intro: { seen: bool(intro.seen, d.intro.seen) },
+    chat: { enabled: bool(chat.enabled, d.chat.enabled) },
     language: typeof v.language === 'string' && LOCALES.some((l) => l.id === v.language) ? v.language : 'en',
   };
 }
