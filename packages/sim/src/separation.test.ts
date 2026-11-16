@@ -690,3 +690,26 @@ describe("B+ runs before the valve at a held goal (GH-1360 S5a-2, section 3.3 it
     expect(sim.state.posX[h]).toBe(fx.from(30.5));
   });
 });
+
+describe('B+ before the valve is for the FINAL leg only (GH-1360 S5a-2)', () => {
+  it('with a waypoint queued and the valve open, a hull ghosts on through the held intermediate goal and does not end its leg at contact', () => {
+    const { sim, tank } = world();
+    const h = sim.spawn(tank, 0, fx.from(30.5), fx.from(20.5), EAST); // parked on the first goal
+    const a = sim.spawn(tank, 0, fx.from(24.0), fx.from(20.5), EAST);
+    go(sim, a, 30.5, 20.5);
+    sim.queueCommand({ kind: 'move', ids: [a], x: fx.from(30.5), y: fx.from(30.5), exact: true, append: true });
+    sim.tick();
+    sim.state.sepWait[a] = 250;
+    sim.state.sepLast[a] = 1;
+    let worst = 0;
+    for (let t = 1; t <= 300; t++) {
+      sim.tick();
+      worst = Math.max(worst, overlap(sim, a, h));
+    }
+    // The valve goes first on a leg with more to come: a drives into h's hull on its way (a whole tile of overlap
+    // is what the unmutated rule gives), and ends on the second goal. Ending the first leg at contact never overlaps.
+    expect(worst).toBeGreaterThan(0);
+    expect(sim.state.moving[a]).toBe(0);
+    expect(near(sim, a, 30.5, 30.5, 0.3)).toBe(true);
+  });
+});
