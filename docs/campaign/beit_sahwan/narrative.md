@@ -406,7 +406,7 @@ parenthetical moved into the briefing (§3.2). `picture` unchanged.
 | beat | speaker | line | chars |
 |---|---|---|---|
 | 1 | **Idit** | The battalion has its foothold west of town and Ashwar knows it. Idit is reading spoil west of the line — disturbed earth creeping toward you, which means a crew is cutting a shaft out of town right now. | 203 |
-| 2 | **Shai** | Hold the western approach for five minutes while the engineers dig in behind you. The corridor delivers reinforcements — spend them well; what survives tonight clears the town tomorrow. | 185 |
+| 2 | **Shai** | Take the crest of the top terrace and hold it for five minutes while the engineers dig in behind you. The corridor delivers reinforcements — spend them well; what survives tonight clears the town tomorrow. | 185 |
 | 3 | **Idit** | Ashwar dug this ground for years before the war reached it, and a route that comes up behind your line is worth more to them than every man they will spend in front of it. | 171 |
 | 4 | **Shai** | Keep the Yahalom engineers alive; they are the only team that can bring a tunnel down. | 86 |
 
@@ -436,7 +436,7 @@ has met his work is a villain the player has been told about rather than shown.
 
 | id | as an order | as a toast |
 |---|---|---|
-| `hold_west` | Hold the western approach for five minutes | `OBJECTIVE COMPLETE — Hold the western approach for five minutes` |
+| `hold_west` | Hold the crest of the top terrace for five minutes | `OBJECTIVE COMPLETE — Hold the crest of the top terrace for five minutes` |
 | `collapse_tunnel` | Collapse the tunnel Ashwar is digging under the approach | `OBJECTIVE COMPLETE — Collapse the tunnel Ashwar is digging under the approach` |
 
 Both **unchanged.** `collapse_tunnel` declares no `seconds`, so it cannot fail
@@ -462,7 +462,7 @@ Both **unchanged.** `collapse_tunnel` declares no `seconds`, so it cannot fail
 | `SimEvent tunnelCollapsed` | `eva` | brigade net | "Route collapsed." | shared set, §8 | engine |
 | `objective(collapse_tunnel, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Collapse the tunnel Ashwar is digging under the approach` | applied | live |
 | `objective(collapse_tunnel, complete)` | `radio` | Shai | "That is one route they will not have back this year." | | live |
-| `objective(hold_west, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Hold the western approach for five minutes` | applied | live |
+| `objective(hold_west, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Hold the crest of the top terrace for five minutes` | applied | live |
 | `built` (a reinforcement is produced at the camp) | `toast` | system | `reinforcement deployed — <unit id>` | hard-coded and prints the **raw unit id**; §11 G-D | live |
 | `missionEnd(victory)` | `debrief` | Idit | "They spent a night's men on a line they did not want, to buy a day on a shaft they did." | | live |
 
