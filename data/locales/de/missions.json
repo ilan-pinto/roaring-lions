@@ -453,7 +453,7 @@
     },
     "aftermath": "Sechs Routen unter der Kreuzung, und bis zum Morgen führte keine mehr irgendwohin. Die Brigade setzte einen dritten Stern auf den Zettel und sagte sonst nichts dazu. Der Marj ist ruhig. Sur nicht.",
     "debrief": {
-      "victory": "Alle vier, und die Akte zu dieser Gegend wird heute Nacht geschlossen. Den Mann zu fassen hat nie etwas davon gestoppt – der Boden war, was er war, und davon ist hier unten nichts mehr übrig.",
+      "victory": "Alle vier, und die Akte zu dieser Gegend wird heute Nacht geschlossen. Den Mann zu fassen hat nie etwas davon gestoppt — der Boden war, was er war, und davon ist hier unten nichts mehr übrig.",
       "defeat": "Das Dorf steht auf vier offenen Routen, und wir rücken ab. Diese Gegend arbeitet morgen genau so wie gestern."
     },
     "objectives": {
@@ -684,7 +684,7 @@
     },
     "dispatch": "Der Mann, der den Marj vorbereitete, beantwortet seit einer Woche Fragen bei der Brigade. Sieben Kilometer die Küstenstraße hinauf hält die Stadt, die er dafür baute, noch; seit seiner Festnahme gab es dort keinen neuen Befehl.",
     "debrief": {
-      "victory": "Zwei im Bezirk und zwei noch in der Gasse. Vier Plätze, eine Straße und dreißig Felder – diese Rechnung wird nicht besser, wenn man tapferer ist.",
+      "victory": "Zwei im Bezirk und zwei noch in der Gasse. Vier Plätze, eine Straße und dreißig Felder — diese Rechnung wird nicht besser, wenn man tapferer ist.",
       "defeat": "Niemand am Boden erreichte die Gassen rechtzeitig, und die Drohne führt niemanden hinaus. Das Bild, das wir mitbrachten, zeigt eine Stadt, in der noch Menschen leben."
     },
     "objectives": {
@@ -710,7 +710,7 @@
       "he_gives_up_the_crossing": "Bezirkstrupp weicht zum Souk zurück"
     },
     "trigger_say": {
-      "the_compound_was_never_empty": "Eine Gruppe kommt durch das Nordtor herein. Die Anlage war nie leer – er schleust seit vor unserer Überquerung des Perimeters Männer hindurch.",
+      "the_compound_was_never_empty": "Eine Gruppe kommt durch das Nordtor herein. Die Anlage war nie leer — er schleust seit vor unserer Überquerung des Perimeters Männer hindurch.",
       "he_gives_up_the_crossing": "Der Trupp vor dem Bezirk weicht in den Souk zurück. Die Querung ist frei.",
       "they_move_the_families_off": "Die Gasse ist leer. Niemand kämpfte um sie; sie wurden fortgeführt, während die Drohne über dem Souk war."
     },
@@ -781,7 +781,7 @@
       "a_charge_squad_comes_for_the_gate": "Sprengtrupp rückt aufs Tor vor"
     },
     "trigger_say": {
-      "they_walk_into_the_ward": "Sie marschieren in den Bezirk. Nicht drum herum und nicht auf die Tore – hinein, denn es ist das einzige Stück Boden auf dieser Karte, auf dem deine Waffen die sind, die dich etwas kosten.",
+      "they_walk_into_the_ward": "Sie marschieren in den Bezirk. Nicht drum herum und nicht auf die Tore — hinein, denn es ist das einzige Stück Boden auf dieser Karte, auf dem deine Waffen die sind, die dich etwas kosten.",
       "the_block_pulls_back_into_the_souk": "Der Trupp vor der Anlage ist in den Souk zurückgegangen. Sie sind nicht erledigt; sie verkürzen die Linie.",
       "a_charge_squad_comes_for_the_gate": "Ein Sprengtrupp aus dem Souk, auf dem Weg zum Tor. Er ist das Einzige auf dieser Karte, das eine Familie innerhalb der Mauer töten kann, und ihm ist gleich, auf welcher Seite er stirbt."
     },
@@ -965,10 +965,10 @@
   },
   "qarn_hadid_2_foothold": {
     "name": "Qarn Hadid II — Die Schulter",
-    "briefing": "Das hohe Tor ist zu. Vier Felder gegossener Beton quer über den Kamm der Schulter — die Drohne brachte Männer zurück, kein Mauerwerk, also stand es nie auf dem Plan. Der Weg dorthin sind drei Schenkel Serpentinen im Fels, jeder vom nächsten abgemauert, und nichts auf einem Schenkel sieht den nächsten. Die Infanterie quert also tief, und sie quert allein. Die Scharte ist ein gerader Einschnitt von sechzehn Feldern durch die Mauer, zu Fuß vom ersten Augenblick offen und vom Nordende aus auf ganzer Länge beherrscht, sie werden also den ganzen Weg gesehen. Dieser Beton wurde gegossen, bevor die Brigade in Sur war. Er hat diesen Pass nicht besetzt — er hat ihn mit einem Preis belegt, und für Männer und Fahrzeuge einen anderen angesetzt. Pioniere legen die Betonsperre binnen fünf Minuten nieder, sonst ist dies vorbei. Bis sie fällt, fährt nichts auf Rädern oder Ketten nördlich der Mauer, und das Lager hinter euch ist der einzige Ort, aus dem Neues kommt. Entsprechend einkaufen: Ein Namer, nach zwei Minuten gekauft, kann keine Straße nutzen, die die Pioniere noch nicht geöffnet haben. Danach beide Tore drei Minuten halten. Was die Scharte quert, kann nicht von der Schulter aus unterstützt werden, und umgekehrt. Trotzdem schicken, und wissen, wie lange sie allein sind.",
+    "briefing": "Das hohe Tor ist zu. Vier Felder gegossener Beton quer über den Kamm der Schulter — die Drohne brachte Männer zurück, kein Mauerwerk, also stand es nie auf dem Plan. Der Weg dorthin sind drei Schenkel Serpentinen im Fels, jeder vom nächsten abgemauert, und nichts auf einem Schenkel sieht den nächsten. Die Infanterie quert also tief, und sie quert allein. Die Scharte ist ein gerader Einschnitt von sechzehn Feldern durch die Mauer, zu Fuß vom ersten Augenblick offen und vom Nordende aus auf ganzer Länge beherrscht, sie werden also den ganzen Weg gesehen. Dieser Beton wurde gegossen, bevor die Brigade in Sur war. Er hat diesen Pass nicht besetzt — er hat ihn mit einem Preis belegt, und für Männer und Fahrzeuge einen anderen angesetzt. Pioniere legen das Sperrwerk binnen fünf Minuten nieder, sonst ist dies vorbei. Bis sie fällt, fährt nichts auf Rädern oder Ketten nördlich der Mauer, und das Lager hinter euch ist der einzige Ort, aus dem Neues kommt. Entsprechend einkaufen: Ein Namer, nach zwei Minuten gekauft, kann keine Straße nutzen, die die Pioniere noch nicht geöffnet haben. Danach beide Tore drei Minuten halten. Was die Scharte quert, kann nicht von der Schulter aus unterstützt werden, und umgekehrt. Trotzdem schicken, und wissen, wie lange sie allein sind.",
     "sections": {
       "situation": "Das hohe Tor ist zu. Vier Felder gegossener Beton quer über den Kamm der Schulter — die Drohne brachte Männer zurück, kein Mauerwerk, also stand es nie auf dem Plan. Der Weg dorthin sind drei Schenkel Serpentinen im Fels, jeder vom nächsten abgemauert, und nichts auf einem Schenkel sieht den nächsten. Die Infanterie quert also tief, und sie quert allein. Die Scharte ist ein gerader Einschnitt von sechzehn Feldern durch die Mauer, zu Fuß vom ersten Augenblick offen und vom Nordende aus auf ganzer Länge beherrscht, sie werden also den ganzen Weg gesehen. Dieser Beton wurde gegossen, bevor die Brigade in Sur war. Er hat diesen Pass nicht besetzt — er hat ihn mit einem Preis belegt, und für Männer und Fahrzeuge einen anderen angesetzt.",
-      "mission": "Pioniere legen die Betonsperre binnen fünf Minuten nieder, sonst ist dies vorbei.",
+      "mission": "Pioniere legen das Sperrwerk binnen fünf Minuten nieder, sonst ist dies vorbei.",
       "execution": "Bis sie fällt, fährt nichts auf Rädern oder Ketten nördlich der Mauer, und das Lager hinter euch ist der einzige Ort, aus dem Neues kommt. Entsprechend einkaufen: Ein Namer, nach zwei Minuten gekauft, kann keine Straße nutzen, die die Pioniere noch nicht geöffnet haben. Danach beide Tore drei Minuten halten. Was die Scharte quert, kann nicht von der Schulter aus unterstützt werden, und umgekehrt.",
       "notes": "Trotzdem schicken, und wissen, wie lange sie allein sind."
     },
@@ -977,13 +977,13 @@
       "defeat": "Der Beton steht noch quer über der Schulter. Alles, was wir durch das tiefe Tor geschickt haben, ist auf der falschen Seite einer Mauer, die wir nie geöffnet haben."
     },
     "objectives": {
-      "open_the_shoulder": "Betonsperre am hohen Tor binnen fünf Minuten niederlegen",
+      "open_the_shoulder": "Sperrwerk am hohen Tor binnen fünf Minuten niederlegen",
       "hold_the_gates": "Beide Tore drei Minuten halten",
       "take_the_hollow": "Mulde hinter der Startlinie einnehmen und 15 Sekunden halten",
       "kill_the_bench_post": "Beobachter auf der Felsbank töten"
     },
     "objective_say": {
-      "open_the_shoulder": "Betonsperre gefallen, der Kamm ist eine Straße. Seit wir an diesem Pass sind, hatte nichts auf Ketten eine.",
+      "open_the_shoulder": "Sperrwerk gefallen, der Kamm ist eine Straße. Seit wir an diesem Pass sind, hatte nichts auf Ketten eine.",
       "hold_the_gates": "Beide Tore gehalten. Heute Nacht kam nichts über diese Mauer, was wir nicht selbst hindurchgelassen haben.",
       "take_the_hollow": "Die Senke ist leer. Er hat das Rohr durch ein Tor nach Norden gebracht, das ihr noch nicht geöffnet habt, und solange ihr in diesem steht, kann er es nicht zurückholen.",
       "kill_the_bench_post": "Die Bank ist frei. Die Batterie hat noch ihre Feuerkarte und niemanden mehr, der sie vorliest."
@@ -996,7 +996,7 @@
       "he_takes_the_tube_into_the_village": "Batterie verlegt auf den Platz"
     },
     "trigger_say": {
-      "the_shoulder_garrison_walks_to_the_notch": "Die Gruppe in der Betonsperre hat sie verlassen und ist nach Osten zur Scharte gezogen. Ihr seid seit fünf Minuten dabei, ein Tor zu öffnen, das sie nicht mehr verteidigen.",
+      "the_shoulder_garrison_walks_to_the_notch": "Die Gruppe im Sperrwerk hat sie verlassen und ist nach Osten zur Scharte gezogen. Ihr seid seit fünf Minuten dabei, ein Tor zu öffnen, das sie nicht mehr verteidigen.",
       "he_takes_the_tube_into_the_village": "Die Batterie verlegt auf den Dorfplatz. Sie ist nicht dort, wo die Drohne sie zuletzt hatte, und erreicht trotzdem beide Tore."
     },
     "wave_say": {
@@ -1150,11 +1150,11 @@
     }
   },
   "tel_marum_2_foothold": {
-    "name": "Tel Marum II – Die Startlinie",
-    "briefing": "Das Bild sagt, die Grad kann nicht über die Mauer sehen – muss sie auch nicht. Sie schießt, wohin die Sarim-Linie sieht, und die besten Augen auf diesem Gelände gehören dem Mann auf dem Westabsatz. Nimm den Zugang und halte ihn vier Minuten, während die Pioniere hinter dir die Startlinie markieren. Schalte ihn aus, und der Beschuss lässt nach – er ist nicht das einzige Augenpaar auf diesem Gelände, rechne also nicht damit, dass er endet. Die Nester an der Mauer feuern aus einem Munitionsdepot in der Mulde darunter: Brenn es binnen fünf Minuten nieder, sonst kämpfen sie die ganze Nacht von dem, was darin lagert. Der Hang steigt in drei Terrassen an, und jede Stufe verbirgt das Gelände an ihrem Fuß vor der Terrasse darüber: Nicht jedes Feld des Zugangs wird beobachtet. Wähle dein Gelände, bevor man es dir aufzwingt.",
+    "name": "Tel Marum II — Die Startlinie",
+    "briefing": "Das Bild sagt, die Grad kann nicht über die Mauer sehen — muss sie auch nicht. Sie schießt, wohin die Sarim-Linie sieht, und die besten Augen auf diesem Gelände gehören dem Mann auf dem Westabsatz. Nimm den Zugang und halte ihn vier Minuten, während die Pioniere hinter dir die Startlinie markieren. Schalte ihn aus, und der Beschuss lässt nach — er ist nicht das einzige Augenpaar auf diesem Gelände, rechne also nicht damit, dass er endet. Die Nester an der Mauer feuern aus einem Munitionsdepot in der Mulde darunter: Brenn es binnen fünf Minuten nieder, sonst kämpfen sie die ganze Nacht von dem, was darin lagert. Der Hang steigt in drei Terrassen an, und jede Stufe verbirgt das Gelände an ihrem Fuß vor der Terrasse darüber: Nicht jedes Feld des Zugangs wird beobachtet. Wähle dein Gelände, bevor man es dir aufzwingt.",
     "sections": {
-      "situation": "Das Bild sagt, die Grad kann nicht über die Mauer sehen – muss sie auch nicht. Sie schießt, wohin die Sarim-Linie sieht, und die besten Augen auf diesem Gelände gehören dem Mann auf dem Westabsatz.",
-      "mission": "Nimm den Zugang und halte ihn vier Minuten, während die Pioniere hinter dir die Startlinie markieren. Schalte ihn aus, und der Beschuss lässt nach – er ist nicht das einzige Augenpaar auf diesem Gelände, rechne also nicht damit, dass er endet. Die Nester an der Mauer feuern aus einem Munitionsdepot in der Mulde darunter: Brenn es binnen fünf Minuten nieder, sonst kämpfen sie die ganze Nacht von dem, was darin lagert.",
+      "situation": "Das Bild sagt, die Grad kann nicht über die Mauer sehen — muss sie auch nicht. Sie schießt, wohin die Sarim-Linie sieht, und die besten Augen auf diesem Gelände gehören dem Mann auf dem Westabsatz.",
+      "mission": "Nimm den Zugang und halte ihn vier Minuten, während die Pioniere hinter dir die Startlinie markieren. Schalte ihn aus, und der Beschuss lässt nach — er ist nicht das einzige Augenpaar auf diesem Gelände, rechne also nicht damit, dass er endet. Die Nester an der Mauer feuern aus einem Munitionsdepot in der Mulde darunter: Brenn es binnen fünf Minuten nieder, sonst kämpfen sie die ganze Nacht von dem, was darin lagert.",
       "execution": "Der Hang steigt in drei Terrassen an, und jede Stufe verbirgt das Gelände an ihrem Fuß vor der Terrasse darüber: Nicht jedes Feld des Zugangs wird beobachtet. Wähle dein Gelände, bevor man es dir aufzwingt."
     },
     "debrief": {
@@ -1163,19 +1163,19 @@
     },
     "objectives": {
       "hold_approach": "Zugang vier Minuten halten",
-      "kill_spotter": "Beobachter auf dem Westabsatz töten – der Beschuss lässt nach, endet aber nicht",
+      "kill_spotter": "Beobachter auf dem Westabsatz töten — der Beschuss lässt nach, endet aber nicht",
       "burn_the_ammo_point": "Munitionsdepot in der Mulde unter der Mauer niederbrennen"
     },
     "objective_say": {
       "hold_approach": "Zugang gehalten. Startlinie ist markiert, die Pioniere sind vom Gelände.",
-      "kill_spotter": "Auge von der Kante. Zähl die nächsten dreißig Sekunden – was dann noch einschlägt, korrigiert ein anderer.",
+      "kill_spotter": "Auge von der Kante. Zähl die nächsten dreißig Sekunden — was dann noch einschlägt, korrigiert ein anderer.",
       "burn_the_ammo_point": "Das Depot hat die Nester an der Mauer gespeist. Jetzt kämpfen sie von dem, was in ihren Taschen bleibt."
     },
     "objective_say_on_fail": {
       "burn_the_ammo_point": "Das Depot steht noch, und alles, was es speiste. Wir haben ihnen eine weitere Nacht Feuer erkauft."
     },
     "wave_say": {
-      "1": "Ein Trupp mit rückstoßfreiem Geschütz kommt zum breiten Sattel herunter. Er verstärkt nicht das Nest – er taxiert die Straße hinter dir."
+      "1": "Ein Trupp mit rückstoßfreiem Geschütz kommt zum breiten Sattel herunter. Er verstärkt nicht das Nest — er taxiert die Straße hinter dir."
     },
     "src": {
       "name": "ce75f33d",
@@ -1196,12 +1196,12 @@
     }
   },
   "tel_marum_3_clearance": {
-    "name": "Tel Marum III – Der Pass",
-    "briefing": "Zwei Wege durch die Mauer, keiner ist frei. Der breite Sattel liegt unter beiden Kornet-Nestern und kostet Fahrzeuge. Der schmale ist zehn Felder länger, und keine Rakete erreicht ihn – die Raketen der Grad schon, auf siebzehn. Seine nördliche Mündung wird beobachtet, und ein zweiter Schützentrupp kommt früh zu ihr herunter. Auf halber Höhe, in Felsen, die kein Rad erreicht, hält ein Schützentrupp das Relais, das die Korrekturen zur Batterie trägt. Du kannst aber nicht alles dorthin schicken: Der Korridor ist von herabgestürztem Fels verstopft, zu Fuß passierbar, für nichts auf Rädern oder Ketten. Panzerung kommt durch den Pass oder gar nicht. Achte auf den Stadtblock hinter dem Pass: Er liegt zwei Felder von der Batterie, die du zerstören sollst – genau dort schlägt schwere Munition garantiert ein. Drei Familien leben noch darin – bring sie binnen fünf Minuten zum Zugang, bevor die Kämpfe sie erreichen. Das Relais ist den Aufstieg wert, wenn du ihn mit Infanterie bezahlen kannst. Nimm den Pass und nimm die Batterie aus dem Krieg.",
+    "name": "Tel Marum III — Der Pass",
+    "briefing": "Zwei Wege durch die Mauer, keiner ist frei. Der breite Sattel liegt unter beiden Kornet-Nestern und kostet Fahrzeuge. Der schmale ist zehn Felder länger, und keine Rakete erreicht ihn — die Raketen der Grad schon, auf siebzehn. Seine nördliche Mündung wird beobachtet, und ein zweiter Schützentrupp kommt früh zu ihr herunter. Auf halber Höhe, in Felsen, die kein Rad erreicht, hält ein Schützentrupp das Relais, das die Korrekturen zur Batterie trägt. Du kannst aber nicht alles dorthin schicken: Der Korridor ist von herabgestürztem Fels verstopft, zu Fuß passierbar, für nichts auf Rädern oder Ketten. Panzerung kommt durch den Pass oder gar nicht. Achte auf den Stadtblock hinter dem Pass: Er liegt zwei Felder von der Batterie, die du zerstören sollst — genau dort schlägt schwere Munition garantiert ein. Drei Familien leben noch darin — bring sie binnen fünf Minuten zum Zugang, bevor die Kämpfe sie erreichen. Das Relais ist den Aufstieg wert, wenn du ihn mit Infanterie bezahlen kannst. Nimm den Pass und nimm die Batterie aus dem Krieg.",
     "sections": {
-      "situation": "Zwei Wege durch die Mauer, keiner ist frei. Der breite Sattel liegt unter beiden Kornet-Nestern und kostet Fahrzeuge. Der schmale ist zehn Felder länger, und keine Rakete erreicht ihn – die Raketen der Grad schon, auf siebzehn. Seine nördliche Mündung wird beobachtet, und ein zweiter Schützentrupp kommt früh zu ihr herunter. Auf halber Höhe, in Felsen, die kein Rad erreicht, hält ein Schützentrupp das Relais, das die Korrekturen zur Batterie trägt.",
-      "execution": "Du kannst aber nicht alles dorthin schicken: Der Korridor ist von herabgestürztem Fels verstopft, zu Fuß passierbar, für nichts auf Rädern oder Ketten. Panzerung kommt durch den Pass oder gar nicht. Achte auf den Stadtblock hinter dem Pass: Er liegt zwei Felder von der Batterie, die du zerstören sollst – genau dort schlägt schwere Munition garantiert ein.",
-      "notes": "Drei Familien leben noch darin – bring sie binnen fünf Minuten zum Zugang, bevor die Kämpfe sie erreichen. Das Relais ist den Aufstieg wert, wenn du ihn mit Infanterie bezahlen kannst. Nimm den Pass und nimm die Batterie aus dem Krieg."
+      "situation": "Zwei Wege durch die Mauer, keiner ist frei. Der breite Sattel liegt unter beiden Kornet-Nestern und kostet Fahrzeuge. Der schmale ist zehn Felder länger, und keine Rakete erreicht ihn — die Raketen der Grad schon, auf siebzehn. Seine nördliche Mündung wird beobachtet, und ein zweiter Schützentrupp kommt früh zu ihr herunter. Auf halber Höhe, in Felsen, die kein Rad erreicht, hält ein Schützentrupp das Relais, das die Korrekturen zur Batterie trägt.",
+      "execution": "Du kannst aber nicht alles dorthin schicken: Der Korridor ist von herabgestürztem Fels verstopft, zu Fuß passierbar, für nichts auf Rädern oder Ketten. Panzerung kommt durch den Pass oder gar nicht. Achte auf den Stadtblock hinter dem Pass: Er liegt zwei Felder von der Batterie, die du zerstören sollst — genau dort schlägt schwere Munition garantiert ein.",
+      "notes": "Drei Familien leben noch darin — bring sie binnen fünf Minuten zum Zugang, bevor die Kämpfe sie erreichen. Das Relais ist den Aufstieg wert, wenn du ihn mit Infanterie bezahlen kannst. Nimm den Pass und nimm die Batterie aus dem Krieg."
     },
     "debrief": {
       "victory": "Der Pass ist jetzt eine Straße. Der Block dahinter steht noch, und nur danach werde ich gefragt werden.",
@@ -1215,7 +1215,7 @@
     },
     "objective_say": {
       "take_pass": "Pass gehalten. Nichts auf Rädern kommt auf anderem Weg nördlich der Mauer durch.",
-      "kill_battery": "Das Rohr ist erledigt, der Norden kann heute Nacht schlafen. Wer ihm sagte, wohin es feuern soll, war nie auf diesem Gelände – die Akte nennt ihn LANTERN.",
+      "kill_battery": "Das Rohr ist erledigt, der Norden kann heute Nacht schlafen. Wer ihm sagte, wohin es feuern soll, war nie auf diesem Gelände — die Akte nennt ihn LANTERN.",
       "get_the_block_out": "Block ist frei. Drei Familien am Zugang und aus der Schusslinie.",
       "cut_the_relay": "Das Relais in den Felsen ist abgeschaltet. Wer von anderswo für diese Mauer aufklärte, spricht jetzt mit niemandem mehr darauf."
     },
@@ -1246,7 +1246,7 @@
     }
   },
   "umm_zeitoun_1_recon": {
-    "name": "Umm Zeitoun I – Kalter Boden",
+    "name": "Umm Zeitoun I — Kalter Boden",
     "briefing": "Umm Zeitoun ist ein Becken: keine Mauer quer, kein Tor zum Aufbrechen, auf ganzer Breite überall zu queren. Idit zählt vier Hügel über der Sohle, und jeder überblickt ein anderes Stück davon. Kläre alle vier Posten auf, bevor die Brigade etwas auf dieses Gelände setzt. Schick die Drohne die Mitte hinauf und nimm zuerst die billigen Blicke. Zwei Raketentrupps decken die nördliche Hälfte, nur gegen Luftziele, bis dreizehn Felder. Der Kamm lässt sich von außerhalb dieser Hülle nicht aufklären, die Drohne verschafft dir also die nahen Hügel umsonst und jenen um den Preis ihres Lebens. Drei Familien sind an den Brunnen auf der Westflanke, neun Felder zu Fuß vom Wadi. Du hast vier Minuten, bevor jemand anderes sie wegschafft. Der Jeep ist das Einzige, was die Drohne abschirmen kann, und das Einzige, was eine Familie von dieser Flanke wegbringen kann. Beides schafft er nicht.",
     "sections": {
       "situation": "Umm Zeitoun ist ein Becken: keine Mauer quer, kein Tor zum Aufbrechen, auf ganzer Breite überall zu queren. Idit zählt vier Hügel über der Sohle, und jeder überblickt ein anderes Stück davon.",
@@ -1273,7 +1273,7 @@
       "find_the_east_horn": "Osthorn ebenso, quer über das Becken. Zwischen den beiden gibt es keine Linie über diese Sohle, die niemand sieht.",
       "find_the_stone_knoll": "Der nahe liegt im Schuppen auf der Steinkuppe, vier Felder von der Wadistraße. Das ist das Auge, das für die Familien zählt, nicht für uns.",
       "get_the_wells_clear": "Zwei Familien im Wadi. Lass den Rest der Flanke in Ruhe; dort draußen ist nichts mehr den Jeep wert.",
-      "find_the_missile_team": "Raketentrupp auf dem Nordabsatz. Nur Luft, dreizehn Felder – die Drohne quert diese Linie nur einmal."
+      "find_the_missile_team": "Raketentrupp auf dem Nordabsatz. Nur Luft, dreizehn Felder — die Drohne quert diese Linie nur einmal."
     },
     "objective_say_on_fail": {
       "get_the_wells_clear": "Vier Minuten. Was noch an den Brunnen ist, können wir nicht mehr bewegen."
@@ -1312,12 +1312,12 @@
     }
   },
   "umm_zeitoun_2_buildup": {
-    "name": "Umm Zeitoun II – Der lange Blick",
-    "briefing": "Sur hat mehr als ein Rohr: Dieses steht südlich des Beckens und erreicht von dort die Kammlinie auf zwölf Felder. Idit hat einen Beobachter auf der Steinkuppe markiert, acht Felder vor eben dieser Linie. Halte die Kammlinie vier Minuten, während die Pioniere hinter dir arbeiten. Sie ist das höchste Gelände dieser Beckenhälfte und das eine Stück davon, das er sehen und beschießen kann; alles davor fällt bergab ab, und ihn zu sehen heißt, auf der Horizontlinie zu stehen. Der Lagerplatz in der Mulde, unterhalb der Oliventerrassen am Gegenhang, ist für jede Stellung dieser Karte tot – der Kamm steht zwischen ihm und allem dort oben, was sehen kann. Sehen können sie die Linie. Der Nachschub kommt über den Westrand, auf einer langen Straße in deinem Rücken. Lässt du ihn auf dieser Straße stehen, ohne dass jemand von uns in der Nähe ist, kommt er nur mit halber Rate an; halte sie also frei und gib ihn aus, wie er eintrifft. Mach den Posten auf der Kuppe binnen fünf Minuten dem Erdboden gleich, mit Ladungen oder mit Feuer, solange der Beobachter noch im Schuppen ist. Zerschlag ein Drittel dessen, was vor dir liegt, und das Rohr zieht nach Norden ab, ganz außer Reichweite der Linie. Gewehre kratzen seine Drohnen kaum. Ein Remetz brennt sie nieder, aber nur stehend AUF dem Kamm bei freiem Himmel; dahinter ist er blind. Alles andere, was du dafür kaufst, steht nicht auf dem Kamm, während es geschieht.",
+    "name": "Umm Zeitoun II — Der lange Blick",
+    "briefing": "Sur hat mehr als ein Rohr: Dieses steht südlich des Beckens und erreicht von dort die Kammlinie auf zwölf Felder. Idit hat einen Beobachter auf der Steinkuppe markiert, acht Felder vor eben dieser Linie. Halte die Kammlinie vier Minuten, während die Pioniere hinter dir arbeiten. Sie ist das höchste Gelände dieser Beckenhälfte und das eine Stück davon, das er sehen und beschießen kann; alles davor fällt bergab ab, und ihn zu sehen heißt, auf der Horizontlinie zu stehen. Der Lagerplatz in der Mulde, unterhalb der Oliventerrassen am Gegenhang, ist für jede Stellung dieser Karte tot — der Kamm steht zwischen ihm und allem dort oben, was sehen kann. Sehen können sie die Linie. Der Nachschub kommt über den Westrand, auf einer langen Straße in deinem Rücken. Lässt du ihn auf dieser Straße stehen, ohne dass jemand von uns in der Nähe ist, kommt er nur mit halber Rate an; halte sie also frei und gib ihn aus, wie er eintrifft. Mach den Posten auf der Kuppe binnen fünf Minuten dem Erdboden gleich, mit Ladungen oder mit Feuer, solange der Beobachter noch im Schuppen ist. Zerschlag ein Drittel dessen, was vor dir liegt, und das Rohr zieht nach Norden ab, ganz außer Reichweite der Linie. Gewehre kratzen seine Drohnen kaum. Ein Remetz brennt sie nieder, aber nur stehend AUF dem Kamm bei freiem Himmel; dahinter ist er blind. Alles andere, was du dafür kaufst, steht nicht auf dem Kamm, während es geschieht.",
     "sections": {
       "situation": "Sur hat mehr als ein Rohr: Dieses steht südlich des Beckens und erreicht von dort die Kammlinie auf zwölf Felder. Idit hat einen Beobachter auf der Steinkuppe markiert, acht Felder vor eben dieser Linie.",
       "mission": "Halte die Kammlinie vier Minuten, während die Pioniere hinter dir arbeiten.",
-      "execution": "Sie ist das höchste Gelände dieser Beckenhälfte und das eine Stück davon, das er sehen und beschießen kann; alles davor fällt bergab ab, und ihn zu sehen heißt, auf der Horizontlinie zu stehen. Der Lagerplatz in der Mulde, unterhalb der Oliventerrassen am Gegenhang, ist für jede Stellung dieser Karte tot – der Kamm steht zwischen ihm und allem dort oben, was sehen kann. Sehen können sie die Linie. Der Nachschub kommt über den Westrand, auf einer langen Straße in deinem Rücken. Lässt du ihn auf dieser Straße stehen, ohne dass jemand von uns in der Nähe ist, kommt er nur mit halber Rate an; halte sie also frei und gib ihn aus, wie er eintrifft. Mach den Posten auf der Kuppe binnen fünf Minuten dem Erdboden gleich, mit Ladungen oder mit Feuer, solange der Beobachter noch im Schuppen ist. Zerschlag ein Drittel dessen, was vor dir liegt, und das Rohr zieht nach Norden ab, ganz außer Reichweite der Linie.",
+      "execution": "Sie ist das höchste Gelände dieser Beckenhälfte und das eine Stück davon, das er sehen und beschießen kann; alles davor fällt bergab ab, und ihn zu sehen heißt, auf der Horizontlinie zu stehen. Der Lagerplatz in der Mulde, unterhalb der Oliventerrassen am Gegenhang, ist für jede Stellung dieser Karte tot — der Kamm steht zwischen ihm und allem dort oben, was sehen kann. Sehen können sie die Linie. Der Nachschub kommt über den Westrand, auf einer langen Straße in deinem Rücken. Lässt du ihn auf dieser Straße stehen, ohne dass jemand von uns in der Nähe ist, kommt er nur mit halber Rate an; halte sie also frei und gib ihn aus, wie er eintrifft. Mach den Posten auf der Kuppe binnen fünf Minuten dem Erdboden gleich, mit Ladungen oder mit Feuer, solange der Beobachter noch im Schuppen ist. Zerschlag ein Drittel dessen, was vor dir liegt, und das Rohr zieht nach Norden ab, ganz außer Reichweite der Linie.",
       "notes": "Gewehre kratzen seine Drohnen kaum. Ein Remetz brennt sie nieder, aber nur stehend AUF dem Kamm bei freiem Himmel; dahinter ist er blind. Alles andere, was du dafür kaufst, steht nicht auf dem Kamm, während es geschieht."
     },
     "debrief": {
@@ -1332,7 +1332,7 @@
     },
     "objective_say": {
       "hold_the_crest_line": "Kammlinie vier Minuten gehalten. Die Pioniere sind runter.",
-      "level_the_stone_post": "Posten ist erledigt. Keiner ersetzt einen Beobachter auf einem Blockhaufen – man ersetzt ihn auf dem nächsten Hügel.",
+      "level_the_stone_post": "Posten ist erledigt. Keiner ersetzt einen Beobachter auf einem Blockhaufen — man ersetzt ihn auf dem nächsten Hügel.",
       "kill_the_knoll_eye": "Posten auf der Kuppe erledigt. Die Wadistraße ist unbeobachtet, zum ersten Mal, seit wir in dieses Becken kamen."
     },
     "objective_say_on_fail": {
@@ -1342,7 +1342,7 @@
       "the_tube_moves_north": "Batterie verlegt nach Norden"
     },
     "trigger_say": {
-      "the_tube_moves_north": "Batterie verlegt nach Norden. Von dort sind es 28 Felder bis zur Kammlinie – das kauft es, ihm ein Drittel davon zu nehmen."
+      "the_tube_moves_north": "Batterie verlegt nach Norden. Von dort sind es 28 Felder bis zur Kammlinie — das kauft es, ihm ein Drittel davon zu nehmen."
     },
     "wave_say": {
       "2": "Ein Schwarm vom Nordrand, tief und gestreut, auf die Linie zu. Gewehre kratzen sie kaum. Ein Remetz brennt sie nieder, aber nur bei freiem Himmel: auf dem Kamm, nicht dahinter, und der Kamm liegt in Reichweite des Rohrs."
@@ -1370,17 +1370,17 @@
     }
   },
   "umm_zeitoun_3_clearance": {
-    "name": "Umm Zeitoun III – Blenden",
-    "briefing": "Beide Hörner liegen achtzehn Felder vom Kamm, und sie sind nicht dieselbe Aufgabe: Das westliche ist Geröll, und nichts auf Rädern oder Ketten kommt hinauf. Das östliche ist ein kahles Glacis, auf dem ein Kornet-Trupp mit zehn Feldern Reichweite liegt. Töte beide Posten. Du hast eine Kraft, sie nimmt das Westhorn nicht mit Fahrzeugen, und du entscheidest, welche Hälfte zu Fuß geht, bevor sich etwas bewegt. Sechs Familien sind im Weiler auf der Sohle zwischen ihnen, elf Felder vom Wadi. Niemand in diesem Block kann hinaussehen, und nichts außerhalb kann hineinsehen – die Häuser wirken in beide Richtungen. Bring vier von ihnen binnen fünf Minuten ins Wadi. Der Block ist markiert: Gewehre, das ferngesteuerte Geschütz und das Scharfschützengewehr sind dort erlaubt, Bordkanone, Panzerfeuer oder alles aus den Rohren wird gegen eine Untergrenze von 45 angerechnet. Seine Batterie liegt westlich des Beckens und erreicht von dort weder den Weiler noch die Straße hinaus. Dräng ihn von diesem Gelände, und sie geht nach Süden, und das Auge auf der Steinkuppe kann ihr beides zeigen. Eine Rakete, die er feuert, wird dir nicht angerechnet. Du verlierst das hier trotzdem, wenn nicht vier von ihnen das Wadi erreichen.",
+    "name": "Umm Zeitoun III — Blenden",
+    "briefing": "Beide Hörner liegen achtzehn Felder vom Kamm, und sie sind nicht dieselbe Aufgabe: Das westliche ist Geröll, und nichts auf Rädern oder Ketten kommt hinauf. Das östliche ist ein kahles Glacis, auf dem ein Kornet-Trupp mit zehn Feldern Reichweite liegt. Töte beide Posten. Du hast eine Kraft, sie nimmt das Westhorn nicht mit Fahrzeugen, und du entscheidest, welche Hälfte zu Fuß geht, bevor sich etwas bewegt. Sechs Familien sind im Weiler auf der Sohle zwischen ihnen, elf Felder vom Wadi. Niemand in diesem Block kann hinaussehen, und nichts außerhalb kann hineinsehen — die Häuser wirken in beide Richtungen. Bring vier von ihnen binnen fünf Minuten ins Wadi. Der Block ist markiert: Gewehre, das ferngesteuerte Geschütz und das Scharfschützengewehr sind dort erlaubt, Bordkanone, Panzerfeuer oder alles aus den Rohren wird gegen eine Untergrenze von 45 angerechnet. Seine Batterie liegt westlich des Beckens und erreicht von dort weder den Weiler noch die Straße hinaus. Dräng ihn von diesem Gelände, und sie geht nach Süden, und das Auge auf der Steinkuppe kann ihr beides zeigen. Eine Rakete, die er feuert, wird dir nicht angerechnet. Du verlierst das hier trotzdem, wenn nicht vier von ihnen das Wadi erreichen.",
     "sections": {
       "situation": "Beide Hörner liegen achtzehn Felder vom Kamm, und sie sind nicht dieselbe Aufgabe: Das westliche ist Geröll, und nichts auf Rädern oder Ketten kommt hinauf. Das östliche ist ein kahles Glacis, auf dem ein Kornet-Trupp mit zehn Feldern Reichweite liegt.",
       "mission": "Töte beide Posten.",
-      "execution": "Du hast eine Kraft, sie nimmt das Westhorn nicht mit Fahrzeugen, und du entscheidest, welche Hälfte zu Fuß geht, bevor sich etwas bewegt. Sechs Familien sind im Weiler auf der Sohle zwischen ihnen, elf Felder vom Wadi. Niemand in diesem Block kann hinaussehen, und nichts außerhalb kann hineinsehen – die Häuser wirken in beide Richtungen. Bring vier von ihnen binnen fünf Minuten ins Wadi. Der Block ist markiert: Gewehre, das ferngesteuerte Geschütz und das Scharfschützengewehr sind dort erlaubt, Bordkanone, Panzerfeuer oder alles aus den Rohren wird gegen eine Untergrenze von 45 angerechnet. Seine Batterie liegt westlich des Beckens und erreicht von dort weder den Weiler noch die Straße hinaus. Dräng ihn von diesem Gelände, und sie geht nach Süden, und das Auge auf der Steinkuppe kann ihr beides zeigen. Eine Rakete, die er feuert, wird dir nicht angerechnet.",
+      "execution": "Du hast eine Kraft, sie nimmt das Westhorn nicht mit Fahrzeugen, und du entscheidest, welche Hälfte zu Fuß geht, bevor sich etwas bewegt. Sechs Familien sind im Weiler auf der Sohle zwischen ihnen, elf Felder vom Wadi. Niemand in diesem Block kann hinaussehen, und nichts außerhalb kann hineinsehen — die Häuser wirken in beide Richtungen. Bring vier von ihnen binnen fünf Minuten ins Wadi. Der Block ist markiert: Gewehre, das ferngesteuerte Geschütz und das Scharfschützengewehr sind dort erlaubt, Bordkanone, Panzerfeuer oder alles aus den Rohren wird gegen eine Untergrenze von 45 angerechnet. Seine Batterie liegt westlich des Beckens und erreicht von dort weder den Weiler noch die Straße hinaus. Dräng ihn von diesem Gelände, und sie geht nach Süden, und das Auge auf der Steinkuppe kann ihr beides zeigen. Eine Rakete, die er feuert, wird dir nicht angerechnet.",
       "notes": "Du verlierst das hier trotzdem, wenn nicht vier von ihnen das Wadi erreichen."
     },
     "debrief": {
       "victory": "Beide Hörner erledigt und vier aus dem Block, und wir nahmen ihn mit Gewehren, denn Verhalten ist die Ausrüstung.",
-      "defeat": "Verhalten fiel im Block unter 45. Er musste nicht darin sein – er musste ihn nur erreichen können."
+      "defeat": "Verhalten fiel im Block unter 45. Er musste nicht darin sein — er musste ihn nur erreichen können."
     },
     "objectives": {
       "kill_the_west_horn": "Posten auf dem Westhorn töten",
@@ -1405,7 +1405,7 @@
     },
     "trigger_say": {
       "he_brings_the_tube_south": "Batterie kommt nach Süden. Von dort erreicht sie den Weiler auf sieben Felder und die Wadistraße auf zehn, und jede ihrer Granaten geht auf sein Konto.",
-      "the_house_was_the_section": "Sie sind aus den Häusern auf die Straße gezogen. Aus den Häusern heraus werden sie nicht gegen dich kämpfen – das hatten sie nie vor."
+      "the_house_was_the_section": "Sie sind aus den Häusern auf die Straße gezogen. Aus den Häusern heraus werden sie nicht gegen dich kämpfen — das hatten sie nie vor."
     },
     "wave_say": {
       "2": "Er setzt Gewehre auf den Platz, während die Familien noch hinausgehen."
@@ -1438,12 +1438,12 @@
     }
   },
   "umm_zeitoun_4_clearance": {
-    "name": "Umm Zeitoun IV – Das Vorratslager",
-    "briefing": "Das Depot besteht aus drei Gebäuden auf dem hohen Nordabsatz, zusammen siebeneinhalbtausend. Eine Rampe führt von Süden hinauf, und auf dem Sporn neben der Rampe sitzt ein Auge, das den Hof auf fünf Felder einsieht. Was dieses Auge sieht, beschießt das Rohr. Bring alles davon binnen fünf Minuten zu Fall. Sur hat keinen Dozer – es sind zwei Sprengtrupps, je fünf Sekunden Ladungen, ruhig stehend innerhalb von zwei Feldern von dem, was sie fällen. Der Mann, dem jeder Posten in diesem Becken meldet, sitzt auf dem Gipfel jenseits der Schlucht, sechzehn Felder in der anderen Richtung, und das Gelände fällt zwischen dir und ihm ab: Ein Pfad führt auf der Westseite zu ihm hinauf, und nichts auf Rädern quert die Schlucht vom Depot aus. Idit hatte zwei Städte lang seine Stimme und nie sein Gelände. Beides lässt sich nicht langsam tun. Kauf mit der Logistik einen dritten Trupp, wenn du Depot und Kamm in denselben sieben Minuten willst. Vier Träger sind auf dem Depotgelände, und der Absatz dahinter ist fünf Felder von ihnen entfernt. Ladungen kümmert nicht, wer an der Mauer steht: Setzt du eine innerhalb von zwei Feldern von ihnen, wird sie dir angerechnet, und der Trupp legt alles um, neben dem er Halt macht.",
+    "name": "Umm Zeitoun IV — Das Vorratslager",
+    "briefing": "Das Depot besteht aus drei Gebäuden auf dem hohen Nordabsatz, zusammen siebeneinhalbtausend. Eine Rampe führt von Süden hinauf, und auf dem Sporn neben der Rampe sitzt ein Auge, das den Hof auf fünf Felder einsieht. Was dieses Auge sieht, beschießt das Rohr. Bring alles davon binnen fünf Minuten zu Fall. Sur hat keinen Dozer — es sind zwei Sprengtrupps, je fünf Sekunden Ladungen, ruhig stehend innerhalb von zwei Feldern von dem, was sie fällen. Der Mann, dem jeder Posten in diesem Becken meldet, sitzt auf dem Gipfel jenseits der Schlucht, sechzehn Felder in der anderen Richtung, und das Gelände fällt zwischen dir und ihm ab: Ein Pfad führt auf der Westseite zu ihm hinauf, und nichts auf Rädern quert die Schlucht vom Depot aus. Idit hatte zwei Städte lang seine Stimme und nie sein Gelände. Beides lässt sich nicht langsam tun. Kauf mit der Logistik einen dritten Trupp, wenn du Depot und Kamm in denselben sieben Minuten willst. Vier Träger sind auf dem Depotgelände, und der Absatz dahinter ist fünf Felder von ihnen entfernt. Ladungen kümmert nicht, wer an der Mauer steht: Setzt du eine innerhalb von zwei Feldern von ihnen, wird sie dir angerechnet, und der Trupp legt alles um, neben dem er Halt macht.",
     "sections": {
       "situation": "Das Depot besteht aus drei Gebäuden auf dem hohen Nordabsatz, zusammen siebeneinhalbtausend. Eine Rampe führt von Süden hinauf, und auf dem Sporn neben der Rampe sitzt ein Auge, das den Hof auf fünf Felder einsieht. Was dieses Auge sieht, beschießt das Rohr.",
       "mission": "Bring alles davon binnen fünf Minuten zu Fall.",
-      "execution": "Sur hat keinen Dozer – es sind zwei Sprengtrupps, je fünf Sekunden Ladungen, ruhig stehend innerhalb von zwei Feldern von dem, was sie fällen. Der Mann, dem jeder Posten in diesem Becken meldet, sitzt auf dem Gipfel jenseits der Schlucht, sechzehn Felder in der anderen Richtung, und das Gelände fällt zwischen dir und ihm ab: Ein Pfad führt auf der Westseite zu ihm hinauf, und nichts auf Rädern quert die Schlucht vom Depot aus. Idit hatte zwei Städte lang seine Stimme und nie sein Gelände. Beides lässt sich nicht langsam tun. Kauf mit der Logistik einen dritten Trupp, wenn du Depot und Kamm in denselben sieben Minuten willst. Vier Träger sind auf dem Depotgelände, und der Absatz dahinter ist fünf Felder von ihnen entfernt.",
+      "execution": "Sur hat keinen Dozer — es sind zwei Sprengtrupps, je fünf Sekunden Ladungen, ruhig stehend innerhalb von zwei Feldern von dem, was sie fällen. Der Mann, dem jeder Posten in diesem Becken meldet, sitzt auf dem Gipfel jenseits der Schlucht, sechzehn Felder in der anderen Richtung, und das Gelände fällt zwischen dir und ihm ab: Ein Pfad führt auf der Westseite zu ihm hinauf, und nichts auf Rädern quert die Schlucht vom Depot aus. Idit hatte zwei Städte lang seine Stimme und nie sein Gelände. Beides lässt sich nicht langsam tun. Kauf mit der Logistik einen dritten Trupp, wenn du Depot und Kamm in denselben sieben Minuten willst. Vier Träger sind auf dem Depotgelände, und der Absatz dahinter ist fünf Felder von ihnen entfernt.",
       "notes": "Ladungen kümmert nicht, wer an der Mauer steht: Setzt du eine innerhalb von zwei Feldern von ihnen, wird sie dir angerechnet, und der Trupp legt alles um, neben dem er Halt macht."
     },
     "aftermath": "Auf den Norden fiel an jenem Morgen nichts, am nächsten auch nicht. Adhal wurde vom Kamm geholt, das Becken noch vor ihm. Die Brigade setzte einen vierten Stern auf den Beleg. Die Rohre kamen über eine Straße, die nicht in Sur liegt.",
@@ -1474,7 +1474,7 @@
       "he_goes_over_the_back": "Beobachter geht über den Kamm"
     },
     "trigger_say": {
-      "the_tube_goes_west": "Verlegt sie nach Westen. Das Rohr musste nie sehen – das sitzt seit lange vor der ersten Rakete auf dem Hügel, und es schließt sich nicht.",
+      "the_tube_goes_west": "Verlegt sie nach Westen. Das Rohr musste nie sehen — das sitzt seit lange vor der ersten Rakete auf dem Hügel, und es schließt sich nicht.",
       "he_goes_over_the_back": "Er ist hinter den Kamm gegangen und aus der Sicht des Beckens. Wer ihn will, muss steigen."
     },
     "wave_say": {
@@ -1510,11 +1510,11 @@
     }
   },
   "wadi_halam_1_fords": {
-    "name": "Wadi Halam I – Die Furten",
-    "briefing": "Naharin beginnt am Wadi. Zwei Furten queren es, und die Rif, die diesen Korridor betreiben, zerstreuen sich, sobald man sie sieht – die Aufgabe heute Nacht ist also, sie zuerst zu sehen. Schieb einen Schirm über die Baumlinie, baue das Bild auf und halte die Furtwache vier Minuten, während die Kolonne hinter dir quert – Reiter kommen die ganze Zeit aus dem Osten auf die Querung zu, solange du dort sitzt. Vier von ihnen schleppen heute Nacht an der Südfurt für ihn und kommen von dort nicht aus eigener Kraft weg. Jage nicht, was flieht.",
+    "name": "Wadi Halam I — Die Furten",
+    "briefing": "Naharin beginnt am Wadi. Zwei Furten queren es, und die Rif, die diesen Korridor betreiben, zerstreuen sich, sobald man sie sieht — die Aufgabe heute Nacht ist also, sie zuerst zu sehen. Schieb einen Schirm über die Baumlinie, baue das Bild auf und halte die Furtwache vier Minuten, während die Kolonne hinter dir quert — Reiter kommen die ganze Zeit aus dem Osten auf die Querung zu, solange du dort sitzt. Vier von ihnen schleppen heute Nacht an der Südfurt für ihn und kommen von dort nicht aus eigener Kraft weg. Jage nicht, was flieht.",
     "sections": {
-      "situation": "Naharin beginnt am Wadi. Zwei Furten queren es, und die Rif, die diesen Korridor betreiben, zerstreuen sich, sobald man sie sieht – die Aufgabe heute Nacht ist also, sie zuerst zu sehen.",
-      "mission": "Schieb einen Schirm über die Baumlinie, baue das Bild auf und halte die Furtwache vier Minuten, während die Kolonne hinter dir quert – Reiter kommen die ganze Zeit aus dem Osten auf die Querung zu, solange du dort sitzt.",
+      "situation": "Naharin beginnt am Wadi. Zwei Furten queren es, und die Rif, die diesen Korridor betreiben, zerstreuen sich, sobald man sie sieht — die Aufgabe heute Nacht ist also, sie zuerst zu sehen.",
+      "mission": "Schieb einen Schirm über die Baumlinie, baue das Bild auf und halte die Furtwache vier Minuten, während die Kolonne hinter dir quert — Reiter kommen die ganze Zeit aus dem Osten auf die Querung zu, solange du dort sitzt.",
       "execution": "Vier von ihnen schleppen heute Nacht an der Südfurt für ihn und kommen von dort nicht aus eigener Kraft weg.",
       "notes": "Jage nicht, was flieht."
     },
@@ -1530,7 +1530,7 @@
       "get_the_carriers_out": "Drei Träger von der Südfurt zur Zuflucht bringen"
     },
     "objective_say": {
-      "picture": "Vier Orte, und keiner davon ist eine Stellung. Keiner gräbt sich an einer Straße ein, die er weiter nutzen will – das ist eine Nachschubroute mit Waffen am Rand.",
+      "picture": "Vier Orte, und keiner davon ist eine Stellung. Keiner gräbt sich an einer Straße ein, die er weiter nutzen will — das ist eine Nachschubroute mit Waffen am Rand.",
       "take_ford": "Furtwache gehalten. Die Kolonne ist über dem Wadi.",
       "get_the_carriers_out": "Vier von der Furt und aus dem Korridor. Sie waren auf seiner Straße, weil sie jemand daraufsetzte; heute Nacht nicht mehr."
     },
@@ -1544,8 +1544,8 @@
       "the_bank_patrol_turns_for_the_ford": "Beide Uferpatrouillen haben zur Nordfurt abgedreht. Sie warteten keinen Befehl ab und bleiben nicht, um bekämpft zu werden."
     },
     "wave_say": {
-      "0": "Motorräder von der Südspur. Neunzig Sekunden Ruhe, dann alle halbe Minute ein, zwei Fahrer – das ist der Takt, und er ändert sich nicht.",
-      "4": "Jetzt beide Furten zugleich. Sie wollen die Querung nicht halten – sie taxieren die vier Minuten, die du zugesagt hast, dort zu sitzen."
+      "0": "Motorräder von der Südspur. Neunzig Sekunden Ruhe, dann alle halbe Minute ein, zwei Fahrer — das ist der Takt, und er ändert sich nicht.",
+      "4": "Jetzt beide Furten zugleich. Sie wollen die Querung nicht halten — sie taxieren die vier Minuten, die du zugesagt hast, dort zu sitzen."
     },
     "src": {
       "name": "a4e5ee18",
