@@ -3,6 +3,8 @@
  *  to storage. Exercises `initTelemetry` end to end -- unlike index.test.ts,
  *  which drives `createTelemetry` directly with a fake `identity` already
  *  resolved -- because the bug was in the ordering initTelemetry itself does. */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PLAYER_KEY, TESTER_KEY, OPTOUT_KEY } from './identity';
 
@@ -246,3 +248,94 @@ describe('initTelemetry (GH-1410: client errors)', () => {
   });
 });
 
+
+// GH-1431: "also delete my reports" at account deletion needs the browser's player id, and a player who switched reports off has `ids()` answering null.
+describe('telemetryPlayerForDeletion: the id survives an opt-out, and reading it sends and stores nothing', () => {
+  const PLAYER = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  function watch(): { bodies: string[]; fetch: ReturnType<typeof vi.fn> } {
+    const bodies: string[] = [];
+    const fetch = vi.fn(async (_u: string, init: { body: string }) => { bodies.push(init.body); return new Response(null, { status: 204 }); });
+    vi.stubGlobal('fetch', fetch);
+    return { bodies, fetch };
+  }
+  /** A storage that counts its writes, to prove a read stores nothing. */
+  function counting(init: Record<string, string>): { store: Storage; writes: string[] } {
+    const base = memoryStorage(init);
+    const writes: string[] = [];
+    const store = { ...base, getItem: base.getItem, setItem: (k: string, v: string) => { writes.push(k); base.setItem(k, v); } } as Storage;
+    Object.defineProperty(window, 'localStorage', { value: store, configurable: true });
+    return { store, writes };
+  }
+
+  it('opted out on an earlier visit: telemetry is off from boot, ids() is null, and the stored id is still named', async () => {
+    const { writes } = counting({ [PLAYER_KEY]: PLAYER, [OPTOUT_KEY]: '1' });
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
+    const { fetch } = watch();
+    vi.resetModules();
+    const mod = await import('./index');
+    const tel = mod.initTelemetry({ dev: false });
+    expect(tel.ids()).toBeNull(); // today's source of the deletion id
+    expect(mod.telemetryPlayerForDeletion()).toBe(PLAYER);
+    expect(writes).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('switched off in this very session: ids() goes null, the id is still named, and nothing more leaves the page', async () => {
+    counting({});
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
+    const { bodies } = watch();
+    vi.resetModules();
+    const mod = await import('./index');
+    const tel = mod.initTelemetry({ dev: false });
+    const player = tel.ids()?.player;
+    expect(player).toMatch(/^[0-9a-f-]{36}$/);
+    mod.reportsSwitch.set(false);
+    expect(tel.ids()).toBeNull();
+    const sentBefore = bodies.length;
+    expect(mod.telemetryPlayerForDeletion()).toBe(player);
+    tel.boot(100);
+    expect(bodies.length).toBe(sentBefore);
+  });
+
+  it('site data blocked and switched off mid-session: the id the page minted in memory is still named', async () => {
+    Object.defineProperty(window, 'localStorage', { get() { throw new Error('SecurityError: access denied'); }, configurable: true });
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
+    watch();
+    vi.resetModules();
+    const mod = await import('./index');
+    const tel = mod.initTelemetry({ dev: false });
+    const player = tel.ids()?.player;
+    mod.reportsSwitch.set(false);
+    expect(tel.ids()).toBeNull();
+    expect(mod.telemetryPlayerForDeletion()).toBe(player);
+  });
+
+  it('a browser that never held an id (GPC) names none, and the read mints and stores nothing', async () => {
+    const { writes } = counting({});
+    Object.defineProperty(navigator, 'globalPrivacyControl', { value: true, configurable: true });
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
+    watch();
+    vi.resetModules();
+    const mod = await import('./index');
+    mod.initTelemetry({ dev: false });
+    expect(mod.telemetryPlayerForDeletion()).toBeNull();
+    expect(writes).toEqual([]);
+  });
+
+  it('a stored value that is not a player id is not sent', async () => {
+    counting({ [PLAYER_KEY]: 'not-an-id; DROP TABLE', [OPTOUT_KEY]: '1' });
+    watch();
+    vi.resetModules();
+    const mod = await import('./index');
+    mod.initTelemetry({ dev: false });
+    expect(mod.telemetryPlayerForDeletion()).toBeNull();
+  });
+});
+
+describe('the profile screen is wired to it (GH-1431)', () => {
+  it('main.ts hands the profile screen telemetryPlayerForDeletion, not ids(), which is null after an opt-out', () => {
+    const main = readFileSync(join(__dirname, '..', 'main.ts'), 'utf8');
+    expect(main).toMatch(/telemetryPlayer:\s*\(\)\s*=>\s*telemetryPlayerForDeletion\(\)/);
+    expect(main).not.toMatch(/telemetryPlayer:[^\n]*ids\(\)/);
+  });
+});

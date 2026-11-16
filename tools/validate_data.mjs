@@ -60,6 +60,7 @@ import {
   commanderRankFailures,
   narrativeTextFailures,
   overlayFailures,
+  unitOverlayFailures,
   removeTriggerFailures,
   triggerLabelFailures,
 } from './validate_narrative.mjs';
@@ -425,6 +426,13 @@ const garrisonableSymbols = new Set(
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
     const mi = loadJson(file);
     if (!mi) continue;
+    // GH-1360 S3b: every shipped mission says how its starting force stands (D1), and an assembly says which way
+    // it faces (D2). The schema leaves both optional so the sim's fixtures keep today's spread byte for byte.
+    if (mi.start_layout === undefined) {
+      failures.push(`${rel(file)}: no start_layout -- a shipped mission declares "assembly" or "authored" (GH-1360)`);
+    } else if (mi.start_layout === 'assembly' && mi.start_front === undefined) {
+      failures.push(`${rel(file)}: start_layout "assembly" with no start_front -- an assembly faces an authored front (GH-1360 D2)`);
+    }
     const map = mapsById.get(mi.map?.file);
     if (!map) {
       failures.push(`${rel(file)}: map.file "${mi.map?.file}" is not a map in data/maps`);
@@ -1210,6 +1218,23 @@ const garrisonableSymbols = new Set(
   }
 }
 
+// --- unit-text locale overlays (GH-1406) ------------------------------------
+// data/locales/<lang>/units.json: `name` and `blurb` per unit id, every id a real unit (`unitOverlayFailures`).
+{
+  const unitIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.id) unitIds.add(u.id);
+  }
+  for (const file of jsonFilesIn(join(ROOT, 'data/locales'))) {
+    if (!file.endsWith('units.json')) continue;
+    const overlay = loadJson(file);
+    if (!overlay) continue;
+    failures.push(...unitOverlayFailures(rel(file), overlay, unitIds));
+    checked += 1;
+  }
+}
+
 // --- the campaign world -----------------------------------------------------
 // JSON Schema validates world.json's shape; these four checks are the cross-file
 // facts it cannot see. Each one is a failure that would otherwise be invisible:
@@ -1565,6 +1590,12 @@ if (palette) {
     for (const [variant, colors] of Object.entries(spec.variants ?? {})) {
       Object.keys(colors ?? {}).forEach((name) => paletteKeys.add(`${band}.variants.${variant}.${name}`));
       count += Object.keys(colors ?? {}).length;
+    }
+  }
+  // `brand` (a third party's fixed colours) is outside total_colors and outside every palette_ref: it only has to be well-formed.
+  for (const [owner, spec] of Object.entries(palette.brand ?? {})) {
+    for (const [name, hex] of Object.entries(spec.colors ?? {})) {
+      if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) failures.push(`${rel(palettePath)}: brand.${owner}.${name} is not a #RRGGBB hex`);
     }
   }
   if (count !== palette.total_colors) {

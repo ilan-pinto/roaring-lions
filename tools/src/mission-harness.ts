@@ -35,18 +35,25 @@
 // First Light's passive control is seed-sensitive (see
 // `first_light_fence.test.ts`) and 424242 is the seed its verdict is pinned at.
 
-import { applyTerrain, maps, missions, parseMap, roadMaskOf, structures as structureCatalogue, units } from '@lions/data';
+import { applyTerrain, assemblyLayout, maps, missions, parseMap, roadMaskOf, structures as structureCatalogue, units } from '@lions/data';
 import type { ParsedMap } from '@lions/data';
 import {
+  compileFormation,
   MissionRuntime,
   Sim,
   TICKS_PER_SECOND,
+  type CompiledFormation,
+  type FormationJson,
   type LedgerData,
   type MissionContext,
   type MissionEvent,
   type MissionJson,
   type TunnelRouteJson,
 } from '@lions/sim';
+
+/** GH-1360 S3b: the compiled starting layout every shipped mission (`start_layout: "assembly"`) needs in its
+ *  `MissionContext`. One compile, shared by every tool that runs a shipped mission. */
+export const START_LAYOUT: CompiledFormation = compileFormation(assemblyLayout as unknown as FormationJson);
 
 /** `playtest.ts`'s seed, and the one First Light's passive verdict is pinned at. */
 export const HARNESS_SEED = 424242;
@@ -145,6 +152,7 @@ export function missionStage(
     tunnels: tunnelRoutes,
     ledger,
     unitInfo: () => null,
+    startLayout: START_LAYOUT,
   });
   return { mission, map, sim, context };
 }
