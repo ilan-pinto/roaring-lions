@@ -21,11 +21,21 @@ point `@lions/app` resolves a mission, never a fork of it.
 
 One directory per shipped locale other than `en`, id-matched to
 `packages/app/src/i18n/locales.ts`'s `LOCALES` table (`fr`, `he`, …), each
-holding exactly one file:
+holding up to two files:
 
 ```
 data/locales/<lang>/missions.json
+data/locales/<lang>/units.json
 ```
+
+`units.json` (GH-1406) is unit display text: a unit id to `{ "name"?, "blurb"? }`, nothing else. Every key must be a real unit
+id from `data/units/`, and a value must be a non-empty string; `tools/validate_data.mjs` runs each file through
+`tools/validate_narrative.mjs`'s `unitOverlayFailures`. A unit or field the file does not mention keeps its `en` text. It is applied
+by `@lions/data`'s `applyUnitLocale` through `packages/app/src/unit-text.ts` (`unitName`, `unitBlurb`, `localizedUnit`), set once at
+boot next to the chrome catalogue, and read at call time. Unit JSON in `@lions/data` is never edited: the net content digest hashes it,
+name included, so a peer on another language must still compute the same digest. Roles and the rest of the chrome stay in `en.json`.
+
+The rest of this page describes `missions.json`.
 
 validated against `@lions/data`'s `MissionLocaleOverlay` shape
 (`packages/data/src/index.ts`):

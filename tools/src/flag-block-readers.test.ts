@@ -66,9 +66,9 @@ describe('GH-976 R0.22: every reader of the flag block goes through flagBlockOf'
     const files = new Set(tracked());
     for (const f of [
       'packages/app/src/main.ts', 'packages/app/src/ui/versus.ts', 'packages/app/src/ui/arena-setup.ts', 'packages/app/src/net/flag-view.ts',
-      'packages/app/src/net/match-world.ts', 'tools/src/net/view.ts', 'tools/src/backtest/versus-modes.ts',
+      'packages/app/src/net/match-world.ts', 'packages/app/src/net/computer/view.ts', 'tools/src/backtest/versus-modes.ts',
     ]) expect(files.has(f), f).toBe(true);
-    for (const f of ['packages/app/src/main.ts', 'packages/app/src/ui/versus.ts', 'packages/app/src/ui/arena-setup.ts', 'packages/app/src/net/match-world.ts', 'tools/src/net/view.ts', 'tools/src/backtest/versus-modes.ts']) {
+    for (const f of ['packages/app/src/main.ts', 'packages/app/src/ui/versus.ts', 'packages/app/src/ui/arena-setup.ts', 'packages/app/src/net/match-world.ts', 'packages/app/src/net/computer/view.ts', 'tools/src/backtest/versus-modes.ts']) {
       expect(readFileSync(join(ROOT, f), 'utf8'), f).toMatch(/flagBlockOf\(/);
     }
   });
