@@ -66,6 +66,7 @@ import {
   removeTriggerFailures,
   triggerLabelFailures,
 } from './validate_narrative.mjs';
+import { chromeCatalogueFailures } from './validate_chrome_catalogue.mjs';
 
 const Ajv2020 = AjvModule.default ?? AjvModule;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -1245,6 +1246,24 @@ const garrisonableSymbols = new Set(
   }
   if (!existsSync(join(ROOT, 'data/locales/en/units.json'))) {
     failures.push(...englishUnitFailures('data/locales/en/units.json', null, []));
+  }
+}
+
+// --- chrome catalogues (GH-1406) --------------------------------------------
+// packages/app/src/i18n/<id>.json beside en.json: every key of en.json and nothing else, the same {placeholders} and ICU shape in every
+// value (`chromeCatalogueFailures`). A locale with no file ships none and plays in English.
+{
+  const i18nDir = join(ROOT, 'packages/app/src/i18n');
+  const en = loadJson(join(i18nDir, 'en.json'));
+  if (en) {
+    for (const entry of readdirSync(i18nDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.json') || entry.name === 'en.json') continue;
+      const file = join(i18nDir, entry.name);
+      const tr = loadJson(file);
+      if (!tr) continue;
+      failures.push(...chromeCatalogueFailures(rel(file), en, tr));
+      checked += 1;
+    }
   }
 }
 
