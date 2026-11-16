@@ -6,8 +6,12 @@
  * minimap, banners), a centring `left: 50%` paired with `translateX(-50%)` (mirroring it would push the box off centre), a pixel position the
  * code computes (`--tip-x`), and a knob whose on-state is a physical `translateX`. Mirroring the HUD itself is a design decision, not a
  * stylesheet pass.
+ *
+ * GH-1406 part 2 converted three more (`.rl-intro__skip`, `.rl-loan--tab`, `.rl-force__bench`: each placed against its OWN panel or
+ * screen, whose content mirrors with it), so 27 physical offsets became 24, and added the second guard below for inline styles
+ * written from TypeScript, which the stylesheet test cannot see.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -19,13 +23,11 @@ const lines = css.split('\n');
 const PHYSICAL_OFFSET_OK = new Set([
   '.rl-world__town::before',
   '.rl-avatar-picker__tag',
-  '.rl-intro__skip',
   '.rl-obj-panel--tracker',
   '.rl-clock',
   '.rl-cmd',
   '.rl-minimap',
   '.rl-group-bar',
-  '.rl-loan--tab',
   '.rl-invoice',
   '.rl-bigbanner',
   '.rl-titlecard',
@@ -37,7 +39,6 @@ const PHYSICAL_OFFSET_OK = new Set([
   '.rl-settings',
   '.rl-versus__knob::after',
   '.rl-chat--float',
-  '.rl-force__bench',
   '.rl-net-status',
   '.rl-advisor',
   '.rl-below',
@@ -83,5 +84,48 @@ describe('theme.css uses logical properties on the inline axis', () => {
     });
     const stale = [...PHYSICAL_OFFSET_OK].filter((s) => !used.has(s));
     expect(stale).toEqual([]);
+  });
+});
+
+// --- inline styles written from TypeScript (GH-1406 part 2) -----------------------------------------------------------------------------
+// `el.style.left = ...` and its kin set a PHYSICAL side that no stylesheet pass reaches. Every site today is a screen coordinate (a pixel
+// projected from the world or the pointer, or a percentage of a map picture, which is geography and is never mirrored), so mirroring it
+// would put the box on the wrong side of the thing it labels. The list names each file, how many sites it has and why; a new site fails
+// until someone writes its reason here, and an entry whose sites are gone fails too (a stale entry would hide the next regression).
+const STYLE_SITE = /\.style\.(left|right|marginLeft|marginRight|paddingLeft|paddingRight|textAlign|borderLeft|borderRight)\s*=/;
+const PHYSICAL_STYLE_OK: Readonly<Record<string, { sites: number; why: string }>> = {
+  'main.ts': { sites: 1, why: 'the drag-select box, from pointer client coordinates' },
+  'ui/hud.ts': { sites: 3, why: 'the fire marker, the held-order marker and the works tip, each beside a world position projected to screen pixels' },
+  'ui/versus-ground.ts': { sites: 1, why: 'a dot at a percentage of the ground picture: map geography, never mirrored' },
+  'ui/worldmap.ts': { sites: 1, why: 'a town marker at a percentage of the campaign map art: geography, never mirrored' },
+  'ui/worldmap3d.ts': { sites: 1, why: 'a town pin at the pixel the 3D board projects it to' },
+};
+
+function sourceFiles(dir: string, base = dir): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) return name === 'node_modules' ? [] : sourceFiles(full, base);
+    return /\.ts$/.test(name) && !/\.test\.ts$/.test(name) ? [full.slice(base.length + 1).split('\\').join('/')] : [];
+  });
+}
+
+describe('inline physical styles written from TypeScript are named', () => {
+  const found: Record<string, number> = {};
+  for (const file of sourceFiles(join(__dirname, '..'))) {
+    const n = readFileSync(join(__dirname, '..', file), 'utf8')
+      .split('\n')
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l) && STYLE_SITE.test(l)).length;
+    if (n > 0) found[file] = n;
+  }
+  it('every file with a physical inline style is on the list with the right count', () => {
+    const offenders = Object.entries(found).flatMap(([f, n]) => (PHYSICAL_STYLE_OK[f]?.sites === n ? [] : [`${f}: ${n} site(s), listed ${PHYSICAL_STYLE_OK[f]?.sites ?? 'none'}`]));
+    expect(offenders).toEqual([]);
+  });
+  it('no list entry is stale', () => {
+    const stale = Object.keys(PHYSICAL_STYLE_OK).filter((f) => found[f] === undefined);
+    expect(stale).toEqual([]);
+  });
+  it('the scan really sees the sites (it is not an empty walk)', () => {
+    expect(Object.values(found).reduce((a, b) => a + b, 0)).toBe(7);
   });
 });
