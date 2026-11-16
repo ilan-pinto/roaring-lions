@@ -4230,20 +4230,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const saveAndQuit = async (): Promise<SaveOutcome> => {
     const kit = await saveKit().catch(() => null);
     if (kit === null) return t('save.err.encode_failed');
-    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan } = kit;
+    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
     if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
     // The slot holds ONE save. Replacing another mission's is the player's decision, asked before anything is cut or written.
     const other = savedMissionOtherThan(openSuspendStore(() => window.localStorage), resolvedMission.id);
-    if (other !== null) {
-      const name = (missions as Record<string, MissionJson | undefined>)[other]?.name ?? other;
-      const replace = await confirmDialog(document.body, {
-        title: t('pause.save.replace.title'),
-        body: t('pause.save.replace.body', { name }),
-        confirm: t('pause.save.replace.action'),
-        danger: true,
-      }).answer;
-      if (!replace) return { declined: true };
-    }
+    if (!(await confirmReplaceOther(other, (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name))) return { declined: true };
     const cut = cutMission({
       sim,
       runtime,

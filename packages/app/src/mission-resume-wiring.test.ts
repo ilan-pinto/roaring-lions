@@ -85,7 +85,8 @@ describe('the save is dropped when its mission is over, and only then', () => {
     const ask = body.indexOf('savedMissionOtherThan(');
     expect(ask).toBeGreaterThan(0);
     expect(ask).toBeLessThan(body.indexOf('cutMission('));
-    expect(body).toMatch(/if \(!replace\) return \{ declined: true \};/);
+    expect(body.indexOf('confirmReplaceOther(')).toBeLessThan(body.indexOf('cutMission('));
+    expect(body).toMatch(/if \(!\(await confirmReplaceOther\(other, [^\n]*\)\) return \{ declined: true \};/);
     expect(body.indexOf('return { declined: true }')).toBeLessThan(body.indexOf('writeSuspended('));
   });
 
