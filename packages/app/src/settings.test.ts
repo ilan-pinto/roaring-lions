@@ -117,18 +117,31 @@ describe('parseSettings', () => {
   });
   it('chat is ON by default (GH-1417 S1), off persists through the one writer, a bad or missing value reads as on, and a save from before it loses nothing', () => {
     expect(DEFAULT_SETTINGS.chat.enabled).toBe(true);
-    expect(parseSettings(JSON.stringify({ version: 1, audio: { radio: false } })).chat).toEqual({ enabled: true });
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { radio: false } })).chat).toEqual({ enabled: true, mask: true });
     expect(parseSettings(JSON.stringify({ version: 1, audio: { radio: false } })).audio.radio).toBe(false);
     expect(parseSettings(JSON.stringify({ version: 1, chat: { enabled: false } })).chat.enabled).toBe(false);
     expect(parseSettings(JSON.stringify({ version: 1, chat: { enabled: 'no' } })).chat.enabled).toBe(true);
     expect(parseSettings(JSON.stringify({ version: 1, chat: 7 })).chat.enabled).toBe(true);
     // Round trip through saveSettings and a blocked store: the write is swallowed, the read is the default.
     const store = memStore();
-    saveSettings(store, { ...structuredClone(DEFAULT_SETTINGS), chat: { enabled: false } });
+    saveSettings(store, { ...structuredClone(DEFAULT_SETTINGS), chat: { enabled: false, mask: true } });
     expect(loadSettings(store).chat.enabled).toBe(false);
     const blocked = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); }, removeItem: () => undefined };
     expect(() => saveSettings(blocked, structuredClone(DEFAULT_SETTINGS))).not.toThrow();
     expect(loadSettings(blocked).chat.enabled).toBe(true);
+  });
+  it('the filter\'s mask tier is ON by default (GH-1417 S2), off persists, a bad value reads as on, and no setting exists for the hide tier (D2)', () => {
+    expect(DEFAULT_SETTINGS.chat.mask).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, chat: { enabled: true } })).chat.mask).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, chat: { mask: false } })).chat).toEqual({ enabled: true, mask: false });
+    expect(parseSettings(JSON.stringify({ version: 1, chat: { mask: 0 } })).chat.mask).toBe(true);
+    const store = memStore();
+    saveSettings(store, { ...structuredClone(DEFAULT_SETTINGS), chat: { enabled: true, mask: false } });
+    expect(loadSettings(store).chat.mask).toBe(false);
+    // A stored `hide: false` (a hand-edited blob, or a future build's) is dropped: the hide tier has no switch to reach.
+    const smuggled = parseSettings(JSON.stringify({ version: 1, chat: { enabled: true, mask: false, hide: false, filter: false } }));
+    expect(Object.keys(smuggled.chat).sort()).toEqual(['enabled', 'mask']);
+    expect(Object.keys(DEFAULT_SETTINGS.chat).sort()).toEqual(['enabled', 'mask']);
   });
 });
 

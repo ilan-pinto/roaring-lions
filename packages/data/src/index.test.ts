@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  chatFilters,
   formations,
   layouts,
   grades,
@@ -171,6 +172,33 @@ describe('grades is pinned to the directory it comes from', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual([...ids].sort());
     expect(ids).toEqual(['dawn', 'dusk']);
+  });
+});
+
+describe('chatFilters is pinned to the directory it comes from (GH-1417 S2)', () => {
+  // The same shape as the grades pin above. data/chat/filter.*.json is read by nobody but this hand-kept array, so a file that
+  // ships without an import line is a language whose chat is never filtered, with a green validate:data.
+  const chatDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data/chat');
+
+  it('carries every filter file on disk, by lang, and each lang is its file name', () => {
+    const onDisk = readdirSync(chatDir)
+      .filter((f) => f.startsWith('filter.') && f.endsWith('.json'))
+      .map((f) => {
+        const lang = JSON.parse(readFileSync(path.join(chatDir, f), 'utf8')).lang as string;
+        expect(f).toBe(`filter.${lang}.json`);
+        return lang;
+      })
+      .sort();
+    expect(onDisk).toContain('en');
+    expect(chatFilters.map((c) => c.lang).sort()).toEqual(onDisk);
+  });
+
+  it('registers each exactly once, in sorted order, with English and no Chinese (held out, proposal W4)', () => {
+    const langs = chatFilters.map((c) => c.lang);
+    expect(new Set(langs).size).toBe(langs.length);
+    expect(langs).toEqual([...langs].sort());
+    expect(langs).toEqual(['de', 'en', 'es-ES', 'fr', 'ru']);
+    expect(langs.some((l) => l.startsWith('zh'))).toBe(false);
   });
 });
 

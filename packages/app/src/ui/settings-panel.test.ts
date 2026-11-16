@@ -283,6 +283,20 @@ describe('settingsPanel', () => {
     cb.dispatchEvent(new Event('change', { bubbles: true }));
     expect(set.mock.calls[0][0].chat.enabled).toBe(false);
   });
+  it('the mask row is ON by default (GH-1417 S2), turning it off goes through the one setter, and nothing offers to turn the hide tier off', () => {
+    const { d, set } = deps();
+    const { el } = settingsPanel(document.body, d);
+    const cb = el.querySelector<HTMLInputElement>('input[name="chatMask"]');
+    if (!cb) throw new Error('no mask box');
+    expect(cb.checked).toBe(true);
+    expect(el.textContent).toContain('Mask swear words');
+    expect(el.textContent).toContain('always hidden');
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(set.mock.calls[0][0].chat.mask).toBe(false);
+    expect(set.mock.calls[0][0].chat.enabled).toBe(true);
+    expect(el.querySelectorAll('input[name^="chat"]').length).toBe(2);
+  });
   describe('Replay intro', () => {
     it('draws no row when no intro ships (today): the panel is as it was', () => {
       const { d } = deps();

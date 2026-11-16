@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/chat_filter.schema.json",
+  "title": "Chat word filter",
+  "description": "One language's word list for the versus chat filter (GH-1417 S2, docs/superpowers/specs/2026-11-16-versus-chat-safety-design.md section 3.3). The file is data/chat/filter.<lang>.json and is registered in @lions/data's `chatFilters`. Every entry is a plain word or phrase, NEVER a pattern: the app matches whole words (and, for a long `hide` entry, a word that contains it), after its own normalisation (case, NFKC, marks, zero-width, look-alikes, repeated letters, spaced-out letters). A `hide` entry hides the whole line, whatever the player's settings; a `mask` entry replaces only the word with ***, and Settings can turn that tier off. `allow` names innocent words that contain a long `hide` entry. The upstream list is kept pristine at `source.file` (under data/chat/) and `pnpm validate:data` checks that hide, mask and dropped, minus in_house, are exactly its entries. Cross-file rules are in tools/validate_chat_filters.mjs.",
+  "type": "object",
+  "required": ["version", "lang", "review", "source", "hide", "mask", "allow", "dropped", "in_house"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "lang": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-[A-Z][a-z]{3}|-[A-Z]{2})?$",
+      "description": "A UI language id, as in packages/app/src/i18n/locales.ts. Also the filename."
+    },
+    "review": {
+      "enum": ["none", "in_house", "native"],
+      "description": "Who sorted the upstream list into tiers. `none`: nobody yet, so `hide` must be empty and every entry sits in `mask` or `dropped` (the lead's ruling for the launch languages until a native reader has reviewed them)."
+    },
+    "comment": { "type": "string", "maxLength": 600 },
+    "source": {
+      "type": "object",
+      "required": ["name", "url", "commit", "file", "sha256", "licence"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "pattern": "^https://" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "file": { "type": "string", "pattern": "^third_party/[a-z0-9_-]+/[A-Za-z0-9_.-]+$", "description": "The pristine upstream file, relative to data/chat/." },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "licence": { "enum": ["CC-BY-4.0"], "description": "Only a licence the lead ruled on (D3): an attribution-only open licence with redistribution rights recorded in data/chat/LICENSES.md." }
+      }
+    },
+    "hide": { "$ref": "#/$defs/entries" },
+    "mask": { "$ref": "#/$defs/entries" },
+    "allow": { "$ref": "#/$defs/entries" },
+    "dropped": { "$ref": "#/$defs/entries", "description": "Upstream entries removed on review (an ordinary word in an RTS chat). Kept so that every upstream entry is accounted for." },
+    "in_house": { "$ref": "#/$defs/entries", "description": "Entries of our own, not in the upstream list. Every one is also in hide or mask." }
+  },
+  "$defs": {
+    "entries": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/entry" } },
+    "entry": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\s*?+()\\[\\]{}|\\\\^$.](?:[^*?+()\\[\\]{}|\\\\^$.\\s]| (?=[^\\s]))*$",
+      "description": "A plain word or phrase: no pattern characters (* ? + ( ) [ ] { } | \\ ^ $ .), no leading, trailing or doubled space."
+    }
+  }
+}

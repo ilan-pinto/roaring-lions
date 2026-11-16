@@ -1,6 +1,7 @@
 // GH-1417 S1: the one door a received chat line goes through.
 import { describe, expect, it, vi } from 'vitest';
 import { ChatInbox, inboxOf } from './chat-inbox';
+import { compileFilter } from './chat-filter';
 
 const lines = (inbox: ChatInbox, feed: [0 | 1, string][]): string[] => {
   const shown: string[] = [];
@@ -77,3 +78,48 @@ describe('inboxOf', () => {
     expect(inbox.isEnabled()).toBe(false);
   });
 });
+
+describe('ChatInbox and the word filter (GH-1417 S2)', () => {
+  // Invented words, so the oracle is the literal fixture and not the shipped list.
+  const fixture = compileFilter([{ lang: 'en', hide: ['zorgon'], mask: ['blarg'], allow: [] }], () => true);
+
+  it('hides a hide-word line from every sink, masks a mask word, and passes a clean line untouched', () => {
+    const inbox = new ChatInbox(() => true, () => true, () => fixture);
+    expect(lines(inbox, [[1, 'you zorgon'], [1, 'you blarg'], [0, 'gg']])).toEqual(['1:you ***', '0:gg']);
+  });
+
+  it('mask off shows the mask word as typed, and NEVER the hide word; the setting is read at every line', () => {
+    let mask = true;
+    const inbox = new ChatInbox(() => true, () => mask, () => fixture);
+    expect(lines(inbox, [[1, 'blarg']])).toEqual(['1:***']);
+    mask = false;
+    expect(lines(inbox, [[1, 'blarg'], [1, 'zorgon'], [1, 'Z O R G O N']])).toEqual(['1:blarg']);
+  });
+
+  it('the filter runs after chat-off and mute: a muted seat\'s clean line stays hidden', () => {
+    const inbox = new ChatInbox(() => true, () => true, () => fixture);
+    inbox.setMuted(1, true);
+    expect(lines(inbox, [[1, 'gg']])).toEqual([]);
+  });
+
+  it('refuses (the input\'s nudge) only a line the filter would hide, mask setting or not', () => {
+    const inbox = new ChatInbox(() => true, () => false, () => fixture);
+    expect(inbox.refuses('ok zorgon')).toBe(true);
+    expect(inbox.refuses('ok blarg')).toBe(false);
+    expect(inbox.refuses('ok')).toBe(false);
+  });
+
+  it('inboxOf carries the mask source, and the battlefield\'s replaces the lobby\'s', () => {
+    const transport = {};
+    const inbox = inboxOf(transport, () => true, () => true);
+    expect(lines(inbox, [[1, 'well shit']])).toEqual(['1:well ***']);
+    inboxOf(transport, () => true, () => false);
+    expect(lines(inbox, [[1, 'well shit']])).toEqual(['1:well shit']);
+  });
+
+  it('with no filter handed in, the shipped English list applies', () => {
+    const inbox = new ChatInbox(() => true);
+    expect(lines(inbox, [[1, 'oh shit'], [1, 'hold the parapet']])).toEqual(['1:oh ***', '1:hold the parapet']);
+  });
+});
+

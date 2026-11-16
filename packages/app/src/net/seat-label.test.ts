@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { seatLabel } from './seat-label';
+import { chatFilters } from '@lions/data';
+import { DEFAULT_CALLSIGN } from '@lions/net';
+import { labelsOf, nameFrom, seatLabel } from './seat-label';
 import { setCatalogue } from '../i18n/t';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
@@ -36,5 +38,30 @@ describe('seatLabel (GH-1075 A3)', () => {
   });
   it('a human seat carrying a stray botModel shows none', () => {
     expect(seatLabel({ callsign: 'H', botModel: { id: 'other', name: 'Zed-9' } }, 'human').model).toBeNull();
+  });
+});
+
+describe('every typed seat name passes the chat word filter (GH-1417 S2)', () => {
+  // The words come from the shipped English list, so this test writes no slur of its own.
+  const enList = chatFilters.find((c) => c.lang === 'en');
+  if (enList === undefined) throw new Error('no English list');
+  const slur = enList.hide[0];
+  it('a guest callsign, a bot callsign and a typed model name with a hide or mask word read as the fallback name', () => {
+    setCatalogue('en', en);
+    expect(seatLabel({ callsign: `big${slur}99` }, 'human').text).toBe(DEFAULT_CALLSIGN);
+    expect(seatLabel({ callsign: `xx ${slur}` }, 'human').text).toBe(DEFAULT_CALLSIGN);
+    expect(seatLabel({ callsign: 'Shit Lord' }, 'bot').text).toBe(DEFAULT_CALLSIGN);
+    expect(seatLabel({ callsign: 'B', botModel: { id: 'other', name: `${slur} bot` } }, 'bot').model).toBe(DEFAULT_CALLSIGN);
+    expect(seatLabel({ callsign: 'Desert Fox' }, 'human').text).toBe('Desert Fox');
+  });
+  it('a member keeps their public id beside the fallback name', () => {
+    expect(seatLabel({ callsign: 'x', member: { name: `${slur}`, publicId: 'K7Q2M4XA' } }, 'human').text).toBe(`${DEFAULT_CALLSIGN} · K7Q2M4XA`);
+  });
+  it('the config callsign a seat falls back to without a lobby label is filtered as well, and labelsOf carries the filtered text', () => {
+    expect(nameFrom(undefined, 1, `the ${slur}`)).toBe(DEFAULT_CALLSIGN);
+    expect(nameFrom(undefined, 1, 'Desert Fox')).toBe('Desert Fox');
+    const labels = labelsOf([{ seat: 1, callsign: `a ${slur}`, connected: true, ready: false }]);
+    expect(labels[1]?.text).toBe(DEFAULT_CALLSIGN);
+    expect(nameFrom(labels, 1, 'unused')).toBe(DEFAULT_CALLSIGN);
   });
 });

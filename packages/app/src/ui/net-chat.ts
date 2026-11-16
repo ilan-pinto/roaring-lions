@@ -56,6 +56,8 @@ export class NetChat {
   private readonly input: HTMLInputElement;
   private readonly docked: boolean;
   private readonly off: HTMLElement;
+  /** GH-1417 S2: why the last line was not sent (the filter would hide it on the other screen). Cleared by the next key. */
+  private readonly refused: HTMLElement;
   private readonly muteBtn: HTMLButtonElement | null = null;
   private readonly unsub: (() => void) | null = null;
 
@@ -82,6 +84,11 @@ export class NetChat {
     this.off.className = 'rl-chat__off';
     this.off.textContent = t('net.chat.off');
     this.off.hidden = true;
+    this.refused = document.createElement('p');
+    this.refused.className = 'rl-chat__refused';
+    this.refused.setAttribute('role', 'status');
+    this.refused.textContent = t('net.chat.refused');
+    this.refused.hidden = true;
     const { inbox, peer } = deps;
     if (inbox !== undefined && peer !== undefined) {
       const btn = document.createElement('button');
@@ -100,7 +107,7 @@ export class NetChat {
       this.paintMute();
     }
     this.entry.hidden = !this.docked;
-    this.root.append(this.off, this.log, this.entry);
+    this.root.append(this.off, this.log, this.refused, this.entry);
     this.applyEnabled();
     this.input.addEventListener('keydown', this.onKey);
     if (!this.docked) this.input.addEventListener('blur', this.onBlur);
@@ -146,6 +153,7 @@ export class NetChat {
   /** Hides the input (the docked one stays) and gives the keys back to the game. */
   close(): void {
     this.input.value = '';
+    this.refused.hidden = true;
     if (!this.docked) this.entry.hidden = true;
     if (document.activeElement === this.input || document.activeElement === this.muteBtn) (document.activeElement as HTMLElement).blur();
   }
@@ -185,6 +193,13 @@ export class NetChat {
     if (ev.key === 'Enter') {
       ev.preventDefault();
       const text = this.input.value.trim();
+      // The nudge (design 3.3): a line the filter would hide is not sent, and the text stays so the player can change it. The
+      // control is still the receiver's inbox; this only spares a well-meaning player a line that would vanish.
+      if (text !== '' && this.deps.inbox?.refuses(text) === true) {
+        this.refused.hidden = false;
+        return;
+      }
+      this.refused.hidden = true;
       if (text !== '') this.deps.send(text);
       this.input.value = '';
       if (!this.docked) this.close();

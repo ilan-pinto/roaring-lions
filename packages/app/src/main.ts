@@ -1427,6 +1427,7 @@ async function main(): Promise<void> {
   const versusStore = safeStorageLike(() => window.localStorage);
   const versusDeps: VersusDeps = {
     chatEnabled: () => settingsDeps.get().chat.enabled,
+    chatMask: () => settingsDeps.get().chat.mask,
     open: (req, signal) =>
       openRoom(req, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
         fetch: window.fetch.bind(window),
@@ -3984,7 +3985,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
    *  which escapes them. */
   const chatInbox = room !== null && netConfig !== null && !spectating
-    ? inboxOf(room, () => req.settings.get().chat.enabled)
+    ? inboxOf(room, () => req.settings.get().chat.enabled, () => req.settings.get().chat.mask)
     : null;
   const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
     ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
