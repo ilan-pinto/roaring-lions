@@ -7963,7 +7963,7 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink-dim);
 }
 .rl-profile__coin-amount {
-  text-align: right;
+  text-align: end;
   font-family: var(--font-mono);
   font-weight: 600;
   white-space: nowrap;
