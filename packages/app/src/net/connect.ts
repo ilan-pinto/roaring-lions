@@ -31,6 +31,7 @@
  */
 import { playerId } from './player-id';
 import { takeHanded } from './handoff';
+import { OfflineMatchGone, isOfflineCode, takeOffline } from './offline-slot';
 import type { SeatLabel } from './seat-label';
 import { forgetSeat, loadSeat, saveSeat } from './ticket-store';
 import { shippedContentDigest } from './content-digest';
@@ -97,6 +98,17 @@ const linkFor = (code: string, ticket: string, deps: ConnectDeps): SnapshotLink 
 export async function connectMatch(query: URLSearchParams, mapId: string, build: string, deps: ConnectDeps): Promise<Connected> {
   const net = query.get('net');
   if (net === null) return { transport: new LocalTransport(), seat: null, config: null };
+  // GH-1388: an OFFLINE match against the computer seat. The lobby armed it in this realm; nothing is asked of any server. A page that
+  // is reloaded or opened afresh finds nothing armed and says so (`OfflineMatchGone`) instead of looking for a room that never existed.
+  if (isOfflineCode(net)) {
+    const armed = takeOffline();
+    if (deps.signal?.aborted) {
+      armed?.transport.close();
+      throw aborted();
+    }
+    if (armed === null) throw new OfflineMatchGone();
+    return armed;
+  }
   const creating = net === 'new';
   // Room codes are upper case; a code typed or pasted in lower case is the same room.
   const joinCode = net.toUpperCase();

@@ -401,4 +401,64 @@ describe('audit noise, races and the highlight (S5 review)', () => {
     t.type('why', 'eightchr\u200b');
     expect(t.$('review').disabled).toBe(false);
   });
+
+  it('sends the note only when there is one, cleaned and counted like the reason, and shows it in the dialog', async () => {
+    const t = await boot();
+    await t.openCard();
+    t.type('amt', '100');
+    t.type('why', 'Compensation: lost a won mission');
+    t.type('note', ' Sorry about the match\u200b ');
+    expect(t.$('note-count').textContent).toBe('21 / 80');
+    t.click(t.$('review'));
+    expect(t.$('d-table').textContent).toContain('Player sees');
+    expect(t.$('d-table').textContent).toContain('Sorry about the match');
+    t.click(t.$('d-go'));
+    await t.waitFor(() => t.$('msg').textContent?.startsWith('Grant done') === true, 'success');
+    const post = t.sent.find((s) => s.method === 'POST')!;
+    expect(Object.keys(post.body as object).sort()).toEqual(['amount', 'mode', 'note', 'op_id', 'reason', 'revision']);
+    expect(post.body).toMatchObject({ note: 'Sorry about the match' });
+    expect(t.$('note').value).toBe('');
+  });
+
+  it('a note of 81 characters after the clean cannot be reviewed', async () => {
+    const t = await boot();
+    await t.openCard();
+    t.type('amt', '100');
+    t.type('why', 'Compensation: lost a won mission');
+    t.type('note', 'n'.repeat(81));
+    expect(t.$('review').disabled).toBe(true);
+    expect(t.$('hint').textContent).toContain('at most 80');
+    t.type('note', 'n'.repeat(80) + '\u200b\u200b');
+    expect(t.$('review').disabled).toBe(false);
+  });
+
+  it('counts the note and the reason by their cleaned length, and the dialog says what the player sees', async () => {
+    const t = await boot();
+    await t.openCard();
+    t.type('amt', '100');
+    t.type('why', 'eightchr\u200b\u200b\u200b');
+    expect(t.$('count').textContent).toBe('8 / 200 · at least 8');
+    t.type('note', 'hi\u200b\u200b   there');
+    expect(t.$('note-count').textContent).toBe('8 / 80');
+    t.click(t.$('review'));
+    expect(t.$('d-table').textContent).toContain('Player sees');
+    expect(t.$('d-table').textContent).toContain('From the team: \u201chi there\u201d');
+  });
+
+  it('shows a hostile note in the admin journal row as text, never markup', async () => {
+    const t = await boot();
+    const HOSTILE_NOTE = '<img src=x onerror=alert(1)>';
+    await t.openCard();
+    t.type('amt', '100');
+    t.type('why', 'Compensation: lost a won mission');
+    t.type('note', HOSTILE_NOTE);
+    t.click(t.$('review'));
+    t.click(t.$('d-go'));
+    await t.waitFor(() => t.w.document.querySelector('#journal-body tr.new') !== null, 'highlighted row');
+    const row = t.w.document.querySelector('#journal-body tr.new')!;
+    expect(row.textContent).toContain('Player sees: ' + HOSTILE_NOTE);
+    expect(t.w.document.querySelector('#journal-body img')).toBeNull();
+    expect(row.textContent).not.toContain('null');
+  });
 });
+

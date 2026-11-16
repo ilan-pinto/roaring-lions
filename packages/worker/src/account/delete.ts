@@ -15,14 +15,24 @@ import { deleteStatements } from './tables';
  *  (the identity is gone and the sign-in resolves no member). `member` goes last, so the guard holds throughout. */
 const GUARD = ' AND EXISTS (SELECT 1 FROM member WHERE id = ?1 AND last_seen_day <= ?2)';
 
-/** One guarded batch over every member table. True when the member row is gone afterwards. */
-export async function deleteMember(db: D1Like, memberId: string, guard: { lastSeenAtMost: number }): Promise<boolean> {
+/** One guarded batch over every member table. `gone` is true when the member row is gone afterwards; `queries` is what it cost:
+ *  ONE D1 query when this batch deleted it, two when it deleted nothing (a guard held, or the row was already gone). GH-1432: the
+ *  cron spends from a per-run query budget and needs the exact figure. */
+export async function deleteMemberCounted(db: D1Like, memberId: string, guard: { lastSeenAtMost: number }): Promise<{ gone: boolean; queries: number }> {
   const statements = deleteStatements().map((s) =>
     s.bindsMember ? db.prepare(s.sql + GUARD).bind(memberId, guard.lastSeenAtMost) : db.prepare(s.sql),
   );
-  await db.batch(statements);
+  const out = await db.batch(statements);
+  // `member` is the last statement and carries the guard, so a change there is the proof the row is gone.
+  // D1's batch result carries `meta.changes`; the node:sqlite test double's `run()` result carries `changes`.
+  const last = out[out.length - 1] as { meta?: { changes?: number }; changes?: number | bigint } | undefined;
+  if (Number(last?.meta?.changes ?? last?.changes ?? 0) > 0) return { gone: true, queries: 1 };
   const left = await db.prepare('SELECT 1 AS one FROM member WHERE id = ?1').bind(memberId).first<{ one: number }>();
-  return left === null;
+  return { gone: left === null, queries: 2 };
+}
+
+export async function deleteMember(db: D1Like, memberId: string, guard: { lastSeenAtMost: number }): Promise<boolean> {
+  return (await deleteMemberCounted(db, memberId, guard)).gone;
 }
 
 /** The telemetry database's rows for one player, in one batch. Idempotent; touches no account row. */

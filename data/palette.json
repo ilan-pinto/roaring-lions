@@ -210,6 +210,16 @@
       }
     }
   },
+  "brand": {
+    "google": {
+      "note": "Google's 'dark' sign-in button, https://developers.google.com/identity/branding-guidelines: fill #131314, stroke #8E918F, text #E3E3E3. A third party's fixed colours, never recoloured to the house palette and never used by art or VFX, so they are not counted in total_colors. Published to CSS as --rl-brand-google-*.",
+      "colors": {
+        "fill": "#131314",
+        "stroke": "#8E918F",
+        "text": "#E3E3E3"
+      }
+    }
+  },
   "mask_key": "#FF00FF",
   "total_colors": 89
 }

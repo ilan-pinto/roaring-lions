@@ -21,6 +21,7 @@
 // on its 120 s clock -- the lesson is missed, nothing stalls. The same happens
 // if anyone walks into z_muster before beat 9 and spawns him early.
 import { describe, expect, it } from 'vitest';
+import { START_LAYOUT } from './mission-harness';
 import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, units } from '@lions/data';
 import { tutorials } from '@lions/data';
 import { fx, type Fx } from '../../packages/sim/src/fixed';
@@ -66,6 +67,7 @@ function world(edit?: (m: MissionJson) => void, seed = 424242): World {
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as Parameters<typeof sim.addUnitType>[0]));
   const rt = new MissionRuntime(sim, mission, {
+    startLayout: START_LAYOUT, // GH-1360 S3b: the shipped missions start in the assembly layout
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,

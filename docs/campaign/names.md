@@ -75,8 +75,11 @@ this is that rule with the per-kind register written down.
   shared aviation one. The block words here are the instruments of looking and the
   parts of a flown thing: Eye, Kite, Lens, Gimbal, Aperture, Spool.
 - **Civilians are never named.** Spec §4.7.
-- Never a real place, a faith, an ethnicity, a nationality, a real insignia, a real
-  force's unit or platform, or a real public figure. Never a given name plus a surname.
+- Never a real place, a faith, an ethnicity, a nationality, a real insignia, or a real
+  public figure. Never the name of a real operation. Never a given name plus a surname.
+- A real force's equipment and unit names (vehicles, aircraft, weapons, units) **are admitted**
+  (the lead, 15 Nov 2026, GH-1440; `storyline.md` §2.4 rule 6). This bullet used to bar "a real
+  force's unit or platform"; it now bars the operation's name only.
 
 ---
 
@@ -104,7 +107,7 @@ A candidate was **rejected** on any of four grounds:
 | ground | example rejection |
 |---|---|
 | (a) a real person's common single-word name | **Geder** → Antônio Géder, footballer, known as Géder · **Kav** → three musicians and an activist · **Chevel** → Chevel Shepherd · **Chavit** → Chavit Singson, Filipino governor · **Kotev** → Bulgarian sportsmen |
-| (b) a real force's unit, formation, operation, platform or system | **Kilshon** → Operation Kilshon, 1948 · **Avak** → Operation Avak, 1948 · **Halyard** → Operation Halyard, WWII · **Plada** → the 162nd Division's own name · **Egrof** → the 146th Division's own name · **Saf** → Singapore/Sudanese Armed Forces, and the FAMAE SAF rifle · **Bedil** → a real class of early firearms · **Spar** → SPARS, the US Coast Guard Women's Reserve |
+| (b) the name of a real operation (until 2026-11-15 also a real force's unit, formation, platform or system; admitted since, GH-1440, and the rejections below stay on the record) | **Kilshon** → Operation Kilshon, 1948 · **Avak** → Operation Avak, 1948 · **Halyard** → Operation Halyard, WWII · **Plada** → the 162nd Division's own name · **Egrof** → the 146th Division's own name · **Saf** → Singapore/Sudanese Armed Forces, and the FAMAE SAF rifle · **Bedil** → a real class of early firearms · **Spar** → SPARS, the US Coast Guard Women's Reserve |
 | (c) the exact-title article is a real settlement, region or feature | **Sulam** → a village in Israel · **Maslul**, **Otzem** → moshavim · **Kalkar** → a German municipality · **Melach** → a river in Tyrol · **Dofen** → a volcano in Ethiopia · **Tikra** → an archaeological site in Peru · **Gir** → Gir National Park · **Girit** → Crete · **Melben** → Melbourne · **Kerach** → a village in Iran · **Barad** → a village in Syria |
 | (d) a religious term, object, text or figure | **Galgal** → the *galgalim* of Ezekiel's vision · **Makosh** → a Slavic goddess · **Mafteach** → a rabbinic index · **Migrefa** → the Temple *magrefa* · **Nechoshet** → the *Nechushtan* · **Chomer** → Talmudic *kal va-chomer* · **Sargel** → the Torah scribe's ruling tool · **Petek** → the Breslov *Petek* · **Tzeror** → biblical hits only |
 

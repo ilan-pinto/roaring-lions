@@ -2,9 +2,9 @@
  * The arena's frames file (GH-954 W3, decision D-W9): what one game's referee ran, kept so the game can be run
  * again. `<game>.frames.jsonl`, one JSON value a line:
  *
- *     {"kind":"header","v":1,"build":"0.129.30+<sha>","game":{...},"labels":["rush","passive"],"config":{...}}
+ *     {"kind":"header","v":1|2,"build":"0.129.30+<sha>","game":{...},"labels":["rush","passive"],"config":{...}}
  *     {"t":0,"c":[{"seat":0,"seq":0,"cmd":{...}}]}      one line for each tick that carried a command, ascending
- *     {"kind":"end","ticks":1200,"referee":{"tick":1200,"hash":123},"watcher":{...}|null,"outcome":"seat0","by":"annihilation"}
+ *     {"kind":"end","ticks":1200,"referee":{"tick":1200,"hash":123},"watcher":{...}|null,"outcome":"seat0","by":"annihilation"[,"checks":{"every":20,"hashes":[...]}]}
  *
  * A tick with no command has no line: the `end` line's `ticks` is how many frames there were, so a replay
  * rebuilds the empty ones. The whole file is what the REFEREE's sim ran (the frames it applied, in order, up to the
@@ -24,7 +24,10 @@
  */
 import { validateConfig, type Frame, type MatchConfig, type Stamped } from '@lions/net';
 
-export const REPLAY_FILE_VERSION = 1;
+/** The version this build WRITES (the match recorder). v2 adds `end.checks`, the sim's hash every N ticks (GH-1398 slice 2). */
+export const REPLAY_FILE_VERSION = 2;
+/** The oldest version this build still READS: the arena writes v1 and its files have no `checks`. */
+export const REPLAY_FILE_MIN_VERSION = 1;
 /** The longest game a file may claim: the longest cap (35 minutes at 20 Hz) is 42,000. */
 export const REPLAY_MAX_TICKS = 100_000;
 
@@ -33,7 +36,8 @@ export interface ReplayDigest { tick: number; hash: number }
 
 export interface ReplayHeader {
   kind: 'header';
-  v: typeof REPLAY_FILE_VERSION;
+  /** 1: the arena's files; 2: the recorder's, which may carry `end.checks`. */
+  v: 1 | 2;
   /** The arena's `buildId()` when the game was played. */
   build: string;
   game: { n: number; of: number; seed: number; map: string; matchup: string; capTicks: number; pace: number; roundWallMs: number };
@@ -41,6 +45,13 @@ export interface ReplayHeader {
   labels: [string, string];
   config: MatchConfig;
 }
+
+/**
+ * Periodic hashes of the recorded sim (v2): `hashes[i]` is `sim.hash()` after `(i + 1) * every` ticks have run, for every multiple of
+ * `every` strictly before `end.ticks` (the last state is `end.referee`). A verifier that finds the first that differs knows the replay
+ * left the recording somewhere in the `every` ticks before it.
+ */
+export interface ReplayChecks { every: number; hashes: number[] }
 
 export interface ReplayEnd {
   kind: 'end';
@@ -50,7 +61,12 @@ export interface ReplayEnd {
   watcher: ReplayDigest | null;
   outcome: string;
   by: string;
+  /** v2 only; absent in every v1 file and in a recording made with no sim to hash. */
+  checks?: ReplayChecks;
 }
+
+/** How many checkpoints a game of `ticks` ticks holds at one per `every`: the multiples of `every` strictly before the end. */
+export const checkCount = (ticks: number, every: number): number => (ticks <= 0 ? 0 : Math.floor((ticks - 1) / every));
 
 /** A tick that carried commands. */
 export interface SparseFrame { t: number; c: Stamped[] }
@@ -87,7 +103,10 @@ function parseLine(line: string, at: number): unknown {
 
 /** The header alone: enough to refuse a file for its build without reading the rest. */
 function headerOf(v: unknown, build: string): ReplayHeader {
-  if (!isRec(v) || v.kind !== 'header' || v.v !== REPLAY_FILE_VERSION || !isStr(v.build)) throw bad('the first line is not a frames header of this version');
+  if (!isRec(v) || v.kind !== 'header' || !isInt(v.v) || !isStr(v.build)) throw bad('the first line is not a frames header');
+  const version = v.v;
+  // Another format is refused BEFORE the build is compared: a v3 file is not read as if it were v2 even when the build matches.
+  if (version < REPLAY_FILE_MIN_VERSION || version > REPLAY_FILE_VERSION) throw bad(`the file is format version ${version}, this build reads ${REPLAY_FILE_MIN_VERSION} to ${REPLAY_FILE_VERSION}`);
   // The build comes before everything else: a file written by other code is not read as if it were this code's.
   if (v.build !== build) throw new ReplayRefused('build_mismatch', `the file was recorded on build "${v.build}", this is "${build}"`, { fileBuild: v.build });
   const g = v.game;
@@ -96,7 +115,7 @@ function headerOf(v: unknown, build: string): ReplayHeader {
   if (!Array.isArray(labels) || labels.length !== 2 || !isStr(labels[0]) || !isStr(labels[1])) throw bad('the header names no players');
   const config = validateConfig(v.config);
   if (config === null) throw bad('the header holds no match config');
-  return { kind: 'header', v: REPLAY_FILE_VERSION, build: v.build, game: { n: g.n, of: g.of, seed: g.seed, map: g.map, matchup: g.matchup, capTicks: g.capTicks, pace: g.pace, roundWallMs: g.roundWallMs }, labels: [labels[0], labels[1]], config };
+  return { kind: 'header', v: version === 1 ? 1 : 2, build: v.build, game: { n: g.n, of: g.of, seed: g.seed, map: g.map, matchup: g.matchup, capTicks: g.capTicks, pace: g.pace, roundWallMs: g.roundWallMs }, labels: [labels[0], labels[1]], config };
 }
 
 /** A frames file's text as a value. Throws `ReplayRefused`: `build_mismatch` when its build is not `build`,
@@ -113,6 +132,13 @@ export function parseReplay(text: string, o: { build: string }): ReplayFile {
     watcher: last.watcher === null || last.watcher === undefined ? null : digestOf(last.watcher, 'the watcher digest'),
     outcome: last.outcome, by: last.by,
   };
+  if (last.checks !== undefined) {
+    const c = last.checks;
+    if (header.v < 2) throw bad('a version 1 file cannot carry checks');
+    if (!isRec(c) || !isInt(c.every) || c.every < 1 || c.every > REPLAY_MAX_TICKS || !Array.isArray(c.hashes) || !c.hashes.every(isInt)) throw bad('the checks are malformed');
+    if (c.hashes.length !== checkCount(end.ticks, c.every)) throw bad(`the checks hold ${c.hashes.length} hashes, ${checkCount(end.ticks, c.every)} expected for ${end.ticks} ticks every ${c.every}`);
+    end.checks = { every: c.every, hashes: c.hashes as number[] };
+  }
   const frames: SparseFrame[] = [];
   let prev = -1;
   for (let i = 1; i < lines.length - 1; i++) {
@@ -133,6 +159,8 @@ export function serializeReplay(file: ReplayFile): string {
     if (!isTick(f.t) || f.t <= prev || f.t >= file.end.ticks || f.c.length === 0) throw new Error(`serializeReplay: a frame out of order or empty at tick ${f.t}`);
     prev = f.t;
   }
+  const c = file.end.checks;
+  if (c !== undefined && (file.header.v < 2 || c.every < 1 || c.hashes.length !== checkCount(file.end.ticks, c.every))) throw new Error('serializeReplay: the checks do not fit a version 2 file of this length');
   return [file.header, ...file.frames, file.end].map((v) => JSON.stringify(v)).join('\n') + '\n';
 }
 
