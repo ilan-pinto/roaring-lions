@@ -22,6 +22,16 @@ import type { rgBarOps, rgNormalOps, rgPhaseOps, rgVertexOps } from './running-g
 import type { runningGearUniformsOf, RunningGearUniforms } from './running-gear-material';
 import type { UnitTerm, UnitTermContext } from './unit-material.node';
 import type { Material } from 'three';
+import { SUN_GLINT_SEGMENT, UNIT_SEGMENTS_WITHOUT_NODE_TERM } from '../material-names';
+
+/**
+ * GH-1361 slice 1: `running-gear-material.ts` now also carries the sun glint across its clone (`carrySunGlint`), so a moving glass or
+ * gunmetal part's program key reads `...|rl-running-gear-1|rl-sun-glint`. The node twin composes the running gear exactly as before and
+ * the glint segment has NO node term (`UNIT_SEGMENTS_WITHOUT_NODE_TERM`): a node clone draws without it and the census names it
+ * (`rl-unit: rl-sun-glint`). This is the decision, as code: porting the glint means removing the segment from that set, which turns the
+ * check below (and `running-gear.node.test.ts`) red until this file composes it.
+ */
+export const GLINT_SEGMENT_HAS_NO_NODE_TERM: boolean = UNIT_SEGMENTS_WITHOUT_NODE_TERM.has(SUN_GLINT_SEGMENT);
 
 /** The running gear's shared maths, injected (`MATERIAL_MATHS.unit.rg`). */
 export interface RunningGearMaths {
