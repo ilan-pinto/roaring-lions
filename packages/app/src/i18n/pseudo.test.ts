@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { escapeHtml } from '../ui/escape-html';
 import en from './en.json';
-import { pseudo } from './pseudo';
+import { PDF, RLO, pseudo, pseudoRtl } from './pseudo';
 import { setCatalogue, t } from './t';
 
 describe('pseudo', () => {
@@ -63,5 +63,24 @@ describe('pseudo', () => {
     } finally {
       setCatalogue('en', en);
     }
+  });
+});
+
+describe('pseudoRtl (GH-1406 part 2)', () => {
+  it('is pseudo() inside a right-to-left override, and nothing else', () => {
+    const p = pseudoRtl('Deploy now');
+    expect(p.startsWith(RLO) && p.endsWith(PDF)).toBe(true);
+    expect(p.slice(1, -1)).toBe(pseudo('Deploy now'));
+  });
+  it('keeps placeholders, tags and entities exactly as pseudo() does (it inherits them)', () => {
+    const p = pseudoRtl('<b>{n}</b> &amp; more');
+    expect(p).toContain('<b>');
+    expect(p).toContain('{n}');
+    expect(p).toContain('&amp;');
+  });
+  it('puts no letter of any other script in the text: only Latin, the bracket pair, padding and the two controls', () => {
+    const p = pseudoRtl('Campaign: the whole alphabet, Quickly Jumped.');
+    expect(p).toMatch(/^[\u202E\u202C\u27E6\u27E7\u00B7\p{Script=Latin}\p{P}\p{Z}\p{N}]*$/u);
+    expect(/\p{Script=Arabic}|\p{Script=Hebrew}/u.test(p)).toBe(false);
   });
 });

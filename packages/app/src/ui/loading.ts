@@ -380,6 +380,12 @@ export interface LoadingScreen {
    */
   done(opts?: { keep?: boolean }): Promise<void>;
   /**
+   * GH-1393: answer the deploy as if the button had been pressed. A mission being RESUMED from a save was briefed and deployed before it
+   * was saved, so nothing is asked of the player: the screen stays up as the loading screen while the art settles, then `done()` resolves.
+   * The same path as a click that lands before `done()` is called (PA-27), so it is honoured whenever `done()` is. A no-op once disposed.
+   */
+  deployNow(): void;
+  /**
    * H3: with `keep`, a deploy resolves `done()` and leaves the screen up, so
    * the briefing -> battlefield transition (`mission-intro-run.ts`) can take
    * it down over the first world frames. `leave` starts that: `fold` folds the
@@ -1129,6 +1135,14 @@ export function showLoading(
     },
     remove(): void {
       wrap.remove();
+    },
+    deployNow(): void {
+      if (disposed) return;
+      if (settleDeploy) settleDeploy();
+      else if (!deployQueued) {
+        deployQueued = true;
+        showPressed(deploy);
+      }
     },
     done(opts?: { keep?: boolean }): Promise<void> {
       const keep = opts?.keep === true;

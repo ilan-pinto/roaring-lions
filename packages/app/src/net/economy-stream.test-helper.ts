@@ -179,6 +179,9 @@ export interface EconomyStreamResult {
    *  ground and arrived at the vent on the tick before the raid (a stream whose units never
    *  went under proves nothing). */
   tunnel: { surfaced: number; below: number };
+  /** The sim's tick count and `sim.hash()` after the last tick (GH-1398: what a recording of this run must end in). */
+  ticks: number;
+  simHash: number;
   /** The runtime's own digest after the last tick. */
   runtimeDigest: number;
   /** Each side's purse after the last tick, `[side 0, side 1]` (`logisticsOf`). */
@@ -191,11 +194,15 @@ export interface EconomyStreamResult {
  * `frames` is played in the order given: a test may hand it a stream with a
  * frame out of place or a command missing, as a faulty transport would.
  */
-export function runEconomyClient(frames: readonly Frame[]): EconomyStreamResult {
+export function runEconomyClient(
+  frames: readonly Frame[],
+  o: { onFrame?: (f: Frame) => void; afterFrame?: (tick: number) => void; onWorld?: (w: MatchWorld) => void } = {},
+): EconomyStreamResult {
   const config = economyStreamConfig();
   const w = buildMatchWorld(config);
   const rt = w.runtime;
   if (rt === null) throw new Error('economy stream: a kdf-v-sarim room must have a runtime');
+  o.onWorld?.(w);
   const feed = new Feed(frames);
   const built: [number, number] = [0, 0];
   const droppedTicks: number[] = [];
@@ -206,7 +213,7 @@ export function runEconomyClient(frames: readonly Frame[]): EconomyStreamResult 
   const tunnel = { surfaced: 0, below: 0 };
   const step = {
     transport: feed, sim: w.sim, seatWorld: seatWorldFor(config, w.sim), config,
-    beforeFrame: (f: Frame) => { tick = f.tick; },
+    beforeFrame: (f: Frame) => { tick = f.tick; o.onFrame?.(f); },
     runTick: () => {
       // The runtime's own drain, asked first so its count can be read; `matchTick`
       // (the browser's body) then drains an empty queue and ticks, exactly as
@@ -220,6 +227,7 @@ export function runEconomyClient(frames: readonly Frame[]): EconomyStreamResult 
       }
     },
     runtimeDigest: () => rt.digest(),
+    afterFrame: (tick: number) => { o.afterFrame?.(tick); },
   };
   // One frame at a time, so a drop is charged to its own frame's tick.
   for (;;) {
@@ -227,5 +235,5 @@ export function runEconomyClient(frames: readonly Frame[]): EconomyStreamResult 
     if (r.ran === 0) break;
     for (let i = 0; i < r.dropped; i++) droppedTicks.push(tick);
   }
-  return { digests: [...feed.digests], built, droppedTicks, accepted, tunnel, runtimeDigest: rt.digest(), purse: [rt.logisticsOf(0), rt.logisticsOf(1)] };
+  return { digests: [...feed.digests], built, droppedTicks, accepted, tunnel, ticks: w.sim.tickCount, simHash: w.sim.hash(), runtimeDigest: rt.digest(), purse: [rt.logisticsOf(0), rt.logisticsOf(1)] };
 }

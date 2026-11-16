@@ -21,6 +21,7 @@ import type { Disposer } from '../shell/router';
 import type { AvatarView } from '@lions/data';
 import { defaultAvatar } from '@lions/data';
 import { avatarElement, guestMark } from './avatar';
+import { coinHistory, type CoinNames } from './coin-history';
 import { confirmDialog, type ConfirmHandle } from './confirm';
 import { footBack, screenFoot } from './foot';
 import { panel } from './panel';
@@ -29,7 +30,7 @@ export interface ProfileDeps {
   client: AccountClient;
   store: StorageLike | null;
   query: URLSearchParams;
-  /** This browser's anonymous telemetry player id, or null while telemetry is off. */
+  /** This browser's anonymous telemetry player id, or null when it never held one. Still answers after the player switched reports off (GH-1431), so "also delete my reports" can name it. */
   telemetryPlayer: () => string | null;
   /** Leaves the page for `href`: Steam's login URL is another origin, so main.ts passes a real page load. */
   navigate: (href: string) => void;
@@ -51,6 +52,8 @@ export interface ProfileDeps {
     /** False when the browser keeps no wallet at all (a private window): the card says so instead of showing a bare 0. */
     available: boolean;
     coinSrc: (size: 48) => string;
+    /** The catalogue lookups for the history rows (GH-1370 C4); absent, a row words generically. */
+    names?: CoinNames;
   };
   /**
    * The guest-to-account claim (GH-1075 A2). Given only on a guest boot (accounts on, no claimed binding): `guest` is the
@@ -200,8 +203,8 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     img.className = 'rl-profile__g';
     img.src = GOOGLE_G_SRC;
     img.alt = '';
-    img.width = 18;
-    img.height = 18;
+    img.width = 20;
+    img.height = 20;
     return img;
   };
   /** A provider's sign-in or sign-up button. Steam keeps the plain keys; Google's carries its mark and its own wording. */
@@ -449,10 +452,9 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     return { record: rec.el, history: his.el };
   };
 
-  /** The Roar coins card (GH-1370 C3): the balance only. The number is `spendable()` of the same store read the Stores use; the history is C4. */
+  /** The Roar coins card (GH-1370 C3, C4): the balance, then the account's coin history. The number is `spendable()` of the same store read the Stores use; it is read again as each history page lands. */
   const coinCard = (coins: NonNullable<ProfileDeps['coins']>): HTMLElement => {
     const c = card('rl-profile__card--coins', t('profile.section.coins'));
-    const n = spendable(coins.read());
     const img = document.createElement('img');
     img.className = 'rl-profile__coins-img';
     img.src = coins.coinSrc(48);
@@ -461,17 +463,28 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     img.height = 48;
     const num = document.createElement('span');
     num.className = 'rl-profile__coins-n';
-    num.textContent = String(n);
-    num.dataset.value = String(n);
     const word = document.createElement('span');
     word.className = 'rl-profile__coins-word';
-    word.textContent = t('stores.wallet.word', { n });
+    const paint = (): void => {
+      const n = spendable(coins.read());
+      num.textContent = String(n);
+      num.dataset.value = String(n);
+      word.textContent = t('stores.wallet.word', { n });
+    };
+    paint();
     const balance = document.createElement('div');
     balance.className = 'rl-profile__coins-balance';
     balance.append(img, num, word);
     c.body.append(balance, line('rl-profile__coins-where', t(coins.onAccount ? 'profile.coins.account' : 'profile.coins.device')));
     if (!coins.available) c.body.appendChild(line('rl-profile__coins-note', t('profile.coins.offline')));
-    else if (n === 0) c.body.appendChild(line('rl-profile__coins-note', t('profile.coins.empty')));
+    // An unclaimed device shows the ACCOUNT's history under the device's balance, so it is headed (D3).
+    if (!coins.onAccount) {
+      const h = document.createElement('h3');
+      h.className = 'rl-profile__coin-heading';
+      h.textContent = t('profile.coins.history');
+      c.body.appendChild(h);
+    }
+    c.body.appendChild(coinHistory({ load: (before) => deps.client.coins(before), names: coins.names ?? { mission: () => undefined, unit: () => undefined }, isDisposed: () => disposed, onPage: paint }));
     return c.el;
   };
 

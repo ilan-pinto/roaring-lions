@@ -111,6 +111,14 @@ export const wadiHalam1Plan: Plan = (sim, rt, ids, at) => {
   at(60, () => sim.queueCommand({ kind: 'attackMove', ids: screen.filter((i) => sim.state.alive[i] === 1), ...M(9, 31) }));
   // Jeep's second leg: closes on carrier group B ([16.5,33.5]).
   at(60, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(17, 34) }));
+  // GH-1360 S3b: third leg, the families aboard into the refuge (zone [19,34,8,6], marker [22,36]). A family a ground
+  // transport reaches BOARDS it (`CivilianFlight`), and a rider is counted only where the hull stands: without this
+  // leg the jeep carried both groups to the ford-watch anchor at 120 s and `get_the_carriers_out` failed at 300 s.
+  // Traced on seed 424242 with the layout off: the jeep died at 8.9 s, before anyone boarded, and the families walked
+  // out on their own (evacuated at 22 s). In the assembly layout the jeep starts in the front rank, 3.5 tiles further
+  // east, the bank patrol's trigger fires at 0.65 s instead of 2.45 s, the jeep lives, both groups board it, and 16
+  // of the 30 sweep seeds were lost on this objective. With this leg: 30 of 30 (the GH-1360 S3b PR).
+  at(80, () => sim.queueCommand({ kind: 'move', ids: jeep.filter((i) => sim.state.alive[i] === 1), ...M(22, 36) }));
   // GH-421 (vehicle separation): 110 s -> 140 s. The screen's first fight on the south gallery is the
   // 100 s raid (riders killed at 101-103 s); at 110 s it left for the ford while the next riders were
   // still coming, and with hulls no longer sharing space the Eitan, which spawns inside the jeep, is a

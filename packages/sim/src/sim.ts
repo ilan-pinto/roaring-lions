@@ -49,7 +49,7 @@ import {
   type TemplateSlot,
   type TemplateUnit,
 } from './formation-template';
-import { hullCapsule, capsuleOverlap, closestSegmentPoints } from './separation';
+import { hullCapsule, capsuleOverlap, closestSegmentPoints, bodyGapSq, pointBody } from './separation';
 import { overmatchShift, penetrationHpCost } from './vehicle-health';
 import {
   structureTypeFromJson,
@@ -1747,6 +1747,16 @@ const SEP_VISIT = 1;
 /** The shortest hull segment (halfLen - halfWid) that is not a point: 1/64 tile. */
 const SEP_MIN_SEGMENT = 1024;
 const SEP_CELL_SHIFT_RAW = 16 + SEP_CELL_SHIFT_TILES;
+/** GH-1360 §4, the foot grid: participants whose body is a circle (half length not above half width) are bucketed
+ *  apart, in 2-tile cells, so a crowd of teams at one a tile does not put 16 candidates in every cell of the hull
+ *  grid. A circle mover visits it 3 x 3 (reach 2 tiles, which covers two circles' bounds plus HALF, checked at
+ *  registration); a hull mover visits it 5 x 5 (reach 4, which covers a hull's bound plus a circle's plus HALF). Both
+ *  visit the hull grid 3 x 3 as before. With no circle participant the foot grid is empty and never walked. */
+const SEP_FOOT_CELL_TILES = 2;
+const SEP_FOOT_CELL_SHIFT_TILES = 1;
+const SEP_FOOT_VISIT_CIRCLE = 1;
+const SEP_FOOT_VISIT_HULL = 2;
+const SEP_FOOT_CELL_SHIFT_RAW = 16 + SEP_FOOT_CELL_SHIFT_TILES;
 
 function distSqFx(dx: Fx, dy: Fx): Fx {
   const x = dx >> 8;
@@ -1978,6 +1988,17 @@ export class Sim {
   private readonly sepHead: Int32Array;
   private readonly sepNext: Int32Array;
   private readonly sepCols: number;
+  /** GH-1360 §4: the foot grid, the same chain (`sepNext`) over this tick's CIRCLE participants, in 2-tile cells
+   *  (`sepFootCols` across). Rebuilt with `sepHead`; scratch, never hashed. */
+  private readonly sepFootHead: Int32Array;
+  private readonly sepFootCols: number;
+  /** Circle participants in the foot grid this tick (0: no visit walks it). Scratch, written by `buildSepGrid`
+   *  before any read. */
+  private sepFootN = 0;
+  /** GH-1360 §3.3 item 3: 1 for a rider that came out of a carrier THIS tick, exempt from separation against every
+   *  body for that tick (it is put down beside, or on, the hull). Zeroed at the top of every tick, set by
+   *  `disembark`, read by `stepMovement`: scratch, never hashed, never encoded. */
+  private readonly sepOff: Uint8Array;
   private readonly sepCap = new Int32Array(15);
   private readonly sepOut = new Int32Array(4);
   /** True once any separating type is registered; with none, stepMovement pays nothing. */
@@ -2657,6 +2678,11 @@ export class Sim {
     this.sepCols = (config.width + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES;
     this.sepHead = new Int32Array(this.sepCols * ((config.height + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES));
     this.sepNext = new Int32Array(n);
+    this.sepFootCols = (config.width + SEP_FOOT_CELL_TILES - 1) >> SEP_FOOT_CELL_SHIFT_TILES;
+    this.sepFootHead = new Int32Array(
+      this.sepFootCols * ((config.height + SEP_FOOT_CELL_TILES - 1) >> SEP_FOOT_CELL_SHIFT_TILES)
+    ).fill(-1);
+    this.sepOff = new Uint8Array(n);
     this.aimTurned = new Uint8Array(n);
     this.aimDesired = new Int32Array(n);
     this.aimFrom = new Int32Array(n);
@@ -2871,6 +2897,20 @@ export class Sim {
       const seg = fx.sub(type.sepHalfLen, type.sepHalfWid);
       if (seg > 0 && seg < SEP_MIN_SEGMENT) {
         throw new Error(`unit type ${type.id}: footprint is a segment shorter than 1/64 tile`);
+      }
+      // GH-1360: a body is a circle when its half length equals its half width. A half length BELOW the half width
+      // would make the narrow phase read the radius as the half width while `sepBound` (the broad phase and the
+      // bounds below) reads the half length, an understated reach: refused.
+      if (type.sepHalfLen < type.sepHalfWid) {
+        throw new Error(`unit type ${type.id}: footprint half length below its half width (a circle declares them equal)`);
+      }
+      // GH-1360 §4: a circle is bucketed in the foot grid, whose circle-to-circle visit reaches
+      // SEP_FOOT_CELL_TILES x SEP_FOOT_VISIT_CIRCLE tiles; two circles' broad-phase reach must fit inside.
+      if (
+        type.sepHalfLen <= type.sepHalfWid &&
+        fx.add(fx.add(type.sepBound, type.sepBound), HALF) > SEP_FOOT_CELL_TILES * SEP_FOOT_VISIT_CIRCLE * ONE
+      ) {
+        throw new Error(`unit type ${type.id}: circle footprint too wide for the foot separation grid`);
       }
       this.sepLive = true;
     }
@@ -4555,6 +4595,27 @@ export class Sim {
     this.braceClock[id] = 0;
   }
 
+  /**
+   * GH-1360 S3b: stand a spawned body where the starting layout put it, facing `facing`, before the
+   * first tick. Its riders move with it (`embarkAtSpawn` snapped them onto the hull). Spawn order, ids
+   * and every per-entity RNG stream are untouched: this writes a position and a facing, nothing else.
+   * Refused once the sim has ticked, because a mid-mission move is an order, never a placement.
+   */
+  placeAtStart(id: number, x: Fx, y: Fx, facing: Fx): void {
+    if (this.tickCount !== 0) throw new Error('placeAtStart: only before the first tick');
+    if (id < 0 || id >= this.count) throw new Error(`placeAtStart: no entity ${id}`);
+    this.posX[id] = x;
+    this.posY[id] = y;
+    this.facing[id] = facing & 0xffff;
+    if (this.passengers[id] > 0) {
+      for (let i = 0; i < this.count; i++) {
+        if (this.carriedBy[i] !== id) continue;
+        this.posX[i] = x;
+        this.posY[i] = y;
+      }
+    }
+  }
+
   /** Dev/test hook: place a unit somewhere directly (sandbox tooling). */
   teleport(id: number, x: Fx, y: Fx): void {
     this.posX[id] = x;
@@ -4584,6 +4645,9 @@ export class Sim {
 
   /** Advance exactly one 20 Hz tick. Returns the events it produced. */
   tick(): SimEvent[] {
+    // GH-1360: only a rider put down during THIS tick is exempt; one put down between ticks (an outside call), or
+    // after last tick's movement, is not.
+    if (this.sepLive) this.sepOff.fill(0); // read only by sepBlockedBy, which runs only when sepLive
     // GH-976: the bell rings on the tick whose count IS the set-up clock, before this tick's commands, so an order given
     // on the bell tick is already unclamped (setupActive is false from here).
     if (this.setupLive && this.tickCount === this.setupUntil) {
@@ -4995,8 +5059,12 @@ export class Sim {
    *
    * With no passing candidate, the requested point comes back: never a refusal, never a throw.
    * Integer / Q16.16 throughout. Cost: O(participants in reach + candidates x those), per call.
+   *
+   * `skip` (GH-1360 S3b), per entity: a body with `skip[j] !== 0` is not a participant. The starting
+   * layout runs on a force that is already spawned at its authored positions, so the bodies it has
+   * not laid out yet (and the asking body itself) must not block the spots it hands out.
    */
-  freeSpotNear(x: Fx, y: Fx, typeIdx: number, side: number, reach: number, facing: Fx = 0): [Fx, Fx] {
+  freeSpotNear(x: Fx, y: Fx, typeIdx: number, side: number, reach: number, facing: Fx = 0, skip?: Uint8Array): [Fx, Fx] {
     const type = this.unitTypes[typeIdx];
     if (type === undefined) throw new Error(`no unit type ${typeIdx}`);
     if (type.isAir) return [x, y];
@@ -5011,6 +5079,7 @@ export class Sim {
     const part: number[] = [];
     for (let j = 0; j < this.count; j++) {
       if (this.alive[j] === 0 || this.carriedBy[j] >= 0 || this.garrisonedIn[j] >= 0 || this.tunnelIn[j] >= 0) continue;
+      if (skip !== undefined && skip[j] !== 0) continue;
       const tj = this.unitTypes[this.typeIdx[j]];
       if (tj.isAir || tj.sepHalfWid <= 0) continue;
       const lim = fx.add(fx.add(reachFx, type.sepBound), tj.sepBound);
@@ -10760,6 +10829,7 @@ export class Sim {
     if (this.woundLive) this.refreshSpeedMul(car);
     this.posX[id] = px;
     this.posY[id] = py;
+    this.sepOff[id] = 1; // GH-1360 §3.3 item 3: exempt from separation for the tick it came out
     this.moving[id] = 0;
     this.fieldRef[id] = -1;
     // GH-707 Task 4: a wounded rider is put down where the hull died, alive and in the state
@@ -13048,11 +13118,7 @@ export class Sim {
           // blocked one.
           if (wait > 0 && last === 0) this.sepWait[i] = wait - 1;
           this.sepLast[i] = 0;
-        } else if (wait >= SEP_VALVE_TICKS) {
-          // Ghost: today's step, while the valve is open (it closes once the count decays).
-          this.sepLast[i] = 1;
         } else {
-          this.sepLast[i] = 1;
           const jStill = this.sepHitStationary;
           // A leg that ends in a range test (demolish, focus, garrison, board, charge) is not finished
           // by the goal being taken: the hull keeps trying, and the valve frees it in the end.
@@ -13062,94 +13128,119 @@ export class Sim {
             this.garrisonGoal[i] >= 0 ||
             this.boardGoal[i] >= 0 ||
             this.chargeOrder[i] >= 0;
-          if (!rangeGoal && this.sepAtContact(i, bj, jStill)) {
-            nx = px;
-            ny = py;
-            finishHere = true;
-            this.sepWait[i] = 0;
-            if (this.sepDiag.on) this.sepNote(i, 2, bj);
+          // GH-1360 S5a-2 (§3.3 item 4): B+ runs BEFORE the valve when this is the final leg (nothing queued), so a
+          // unit whose valve opened while it queued ends at contact with the goal another holds, and does not ghost
+          // into it and rest inside. On a leg with more to come the valve still goes first.
+          const atContact =
+            !rangeGoal && (wait < SEP_VALVE_TICKS || this.wpCount[i] === 0) && this.sepAtContact(i, bj, jStill);
+          if (wait >= SEP_VALVE_TICKS && !atContact) {
+            // Ghost: today's step, while the valve is open (it closes once the count decays).
+            this.sepLast[i] = 1;
           } else {
-            const mx = fx.sub(nx, px);
-            const my = fx.sub(ny, py);
-            const headOn = !jStill && fx.cos(fx.sub(this.facing[i], this.facing[bj]) & 0xffff) < 0;
-            // A same-way mover AHEAD is waited for (follow). Beside or behind, or ahead but also
-            // regarding i as ahead (two hulls converging on one lane), the pair must not both wait:
-            // i steers unless it is the higher id, which yields (the lower id has right of way).
-            let notAhead = false;
-            if (!jStill && !headOn) {
-              const ahead = fx.add(fx.mul(mx, fx.sub(this.posX[bj], px)), fx.mul(my, fx.sub(this.posY[bj], py))) > 0;
-              if (!ahead) {
-                notAhead = true;
-              } else if (i < bj) {
-                const jAhead =
-                  fx.add(
-                    fx.mul(fx.cos(this.facing[bj]), fx.sub(px, this.posX[bj])),
-                    fx.mul(fx.sin(this.facing[bj]), fx.sub(py, this.posY[bj]))
-                  ) > 0;
-                notAhead = jAhead;
-              }
-            }
-            let steered = false;
-            let followed = false;
-            if (!jStill && !headOn && !notAhead) {
-              // Following a same-way mover ahead: close up to contact with it, no further. The largest
-              // fraction of the step (to 1/32, five halvings) that is not blocked; a tick that gains
-              // ground is following, not standing, and costs the valve nothing.
-              let lo = 0;
-              let hi = ONE;
-              for (let k = 0; k < SEP_FOLLOW_HALVINGS; k++) {
-                const mid = (lo + hi) >> 1;
-                if (this.sepBlockedBy(i, px, py, fx.add(px, fx.mul(mx, mid)), fx.add(py, fx.mul(my, mid))) < 0) lo = mid;
-                else hi = mid;
-              }
-              const fxn = fx.add(px, fx.mul(mx, lo));
-              const fyn = fx.add(py, fx.mul(my, lo));
-              if (lo > 0 && (fxn !== px || fyn !== py)) {
-                nx = fxn;
-                ny = fyn;
-                followed = true;
-              }
-            }
-            if (jStill || headOn || notAhead) {
-              // Turn the step toward the normal that leads away from j's hull (from j's closest point to i's),
-              // not away from j's centre: a step aimed past j's bearing would otherwise flip the side every
-              // tick and the hull would creep along j's flank instead of going round it.
-              const ti = this.unitTypes[this.typeIdx[i]];
-              const tj = this.unitTypes[this.typeIdx[bj]];
-              const cap = this.sepCap;
-              hullCapsule(px, py, this.facing[i], ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 0);
-              hullCapsule(this.posX[bj], this.posY[bj], this.facing[bj], tj.sepHalfLen, tj.sepHalfWid, tj.sepCentre, cap, 10);
-              capsuleOverlap(cap, 0, 10, this.sepOut);
-              let cross = fx.sub(fx.mul(mx, this.sepOut[1]), fx.mul(my, this.sepOut[0]));
-              if (cross === 0) cross = fx.sub(fx.mul(my, fx.sub(this.posX[bj], px)), fx.mul(mx, fx.sub(this.posY[bj], py)));
-              const away = cross > 0 ? 1 : -1;
-              for (let k = 0; k < 2 && !steered; k++) {
-                const c = k === 0 ? SEP_COS_45 : 0;
-                const sn = (k === 0 ? SEP_COS_45 : ONE) * away;
-                const cx = this.clampX(fx.add(px, fx.sub(fx.mul(mx, c), fx.mul(my, sn))));
-                const cy = this.clampY(fx.add(py, fx.add(fx.mul(mx, sn), fx.mul(my, c))));
-                const ctx = cx >> 16;
-                const cty = cy >> 16;
-                if (clip[cty * w + ctx] !== 0 || clip[tileY * w + ctx] !== 0 || clip[cty * w + tileX] !== 0) continue;
-                if (this.sepBlockedBy(i, px, py, cx, cy) >= 0) continue;
-                nx = cx;
-                ny = cy;
-                steered = true;
-                // Going round is progress, not waiting: a tick spent standing costs two, a tick spent
-                // steering one (a pass of a parked hull takes thirty-odd blocked ticks at full speed).
-                this.sepWait[i] = wait + 1;
-              }
-            }
-            if (followed) {
-              // Closing up on its leader: a free tick for the valve (it decays after a free tick, as above).
-              if (wait > 0 && last === 0) this.sepWait[i] = wait - 1;
-              this.sepLast[i] = 0;
+            this.sepLast[i] = 1;
+            if (atContact) {
+              nx = px;
+              ny = py;
+              finishHere = true;
+              this.sepWait[i] = 0;
+              if (this.sepDiag.on) this.sepNote(i, 2, bj);
             } else {
-              if (!steered) {
-                nx = px;
-                ny = py;
-                this.sepWait[i] = wait + 2 > 255 ? 255 : wait + 2;
-                if (wait < SEP_VALVE_TICKS && this.sepWait[i] >= SEP_VALVE_TICKS && this.sepDiag.on) this.sepNote(i, 1, bj);
+              const mx = fx.sub(nx, px);
+              const my = fx.sub(ny, py);
+              const headOn = !jStill && fx.cos(fx.sub(this.facing[i], this.facing[bj]) & 0xffff) < 0;
+              // A same-way mover AHEAD is waited for (follow). Beside or behind, or ahead but also
+              // regarding i as ahead (two hulls converging on one lane), the pair must not both wait:
+              // i steers unless it is the higher id, which yields (the lower id has right of way).
+              let notAhead = false;
+              if (!jStill && !headOn) {
+                const ahead = fx.add(fx.mul(mx, fx.sub(this.posX[bj], px)), fx.mul(my, fx.sub(this.posY[bj], py))) > 0;
+                if (!ahead) {
+                  notAhead = true;
+                } else if (i < bj) {
+                  const jAhead =
+                    fx.add(
+                      fx.mul(fx.cos(this.facing[bj]), fx.sub(px, this.posX[bj])),
+                      fx.mul(fx.sin(this.facing[bj]), fx.sub(py, this.posY[bj]))
+                    ) > 0;
+                  notAhead = jAhead;
+                }
+              }
+              let steered = false;
+              let followed = false;
+              if (!jStill && !headOn && !notAhead) {
+                // Following a same-way mover ahead: close up to contact with it, no further. The largest
+                // fraction of the step (to 1/32, five halvings) that is not blocked; a tick that gains
+                // ground is following, not standing, and costs the valve nothing.
+                let lo = 0;
+                let hi = ONE;
+                for (let k = 0; k < SEP_FOLLOW_HALVINGS; k++) {
+                  const mid = (lo + hi) >> 1;
+                  if (this.sepBlockedBy(i, px, py, fx.add(px, fx.mul(mx, mid)), fx.add(py, fx.mul(my, mid))) < 0) lo = mid;
+                  else hi = mid;
+                }
+                const fxn = fx.add(px, fx.mul(mx, lo));
+                const fyn = fx.add(py, fx.mul(my, lo));
+                if (lo > 0 && (fxn !== px || fyn !== py)) {
+                  nx = fxn;
+                  ny = fyn;
+                  followed = true;
+                }
+              }
+              if (jStill || headOn || notAhead) {
+                // Turn the step toward the normal that leads away from j's hull (from j's closest point to i's),
+                // not away from j's centre: a step aimed past j's bearing would otherwise flip the side every
+                // tick and the hull would creep along j's flank instead of going round it.
+                const ti = this.unitTypes[this.typeIdx[i]];
+                const tj = this.unitTypes[this.typeIdx[bj]];
+                const cap = this.sepCap;
+                let nX: Fx;
+                let nY: Fx;
+                if (ti.sepHalfLen <= ti.sepHalfWid || tj.sepHalfLen <= tj.sepHalfWid) {
+                  // GH-1360 §3.3 item 1: with a circle in the pair only the SIGN of the cross product is read, so the
+                  // un-normalised vector between the closest points will do: no fx.sqrt, no fx.div for the normal.
+                  this.sepPlace(px, py, this.facing[i], ti, 0);
+                  this.sepPlace(this.posX[bj], this.posY[bj], this.facing[bj], tj, 10);
+                  closestSegmentPoints(cap, 0, 10, this.sepOut);
+                  nX = fx.sub(this.sepOut[0], this.sepOut[2]);
+                  nY = fx.sub(this.sepOut[1], this.sepOut[3]);
+                } else {
+                  hullCapsule(px, py, this.facing[i], ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 0);
+                  hullCapsule(this.posX[bj], this.posY[bj], this.facing[bj], tj.sepHalfLen, tj.sepHalfWid, tj.sepCentre, cap, 10);
+                  capsuleOverlap(cap, 0, 10, this.sepOut);
+                  nX = this.sepOut[0];
+                  nY = this.sepOut[1];
+                }
+                let cross = fx.sub(fx.mul(mx, nY), fx.mul(my, nX));
+                if (cross === 0) cross = fx.sub(fx.mul(my, fx.sub(this.posX[bj], px)), fx.mul(mx, fx.sub(this.posY[bj], py)));
+                const away = cross > 0 ? 1 : -1;
+                for (let k = 0; k < 2 && !steered; k++) {
+                  const c = k === 0 ? SEP_COS_45 : 0;
+                  const sn = (k === 0 ? SEP_COS_45 : ONE) * away;
+                  const cx = this.clampX(fx.add(px, fx.sub(fx.mul(mx, c), fx.mul(my, sn))));
+                  const cy = this.clampY(fx.add(py, fx.add(fx.mul(mx, sn), fx.mul(my, c))));
+                  const ctx = cx >> 16;
+                  const cty = cy >> 16;
+                  if (clip[cty * w + ctx] !== 0 || clip[tileY * w + ctx] !== 0 || clip[cty * w + tileX] !== 0) continue;
+                  if (this.sepBlockedBy(i, px, py, cx, cy) >= 0) continue;
+                  nx = cx;
+                  ny = cy;
+                  steered = true;
+                  // Going round is progress, not waiting: a tick spent standing costs two, a tick spent
+                  // steering one (a pass of a parked hull takes thirty-odd blocked ticks at full speed).
+                  this.sepWait[i] = wait + 1;
+                }
+              }
+              if (followed) {
+                // Closing up on its leader: a free tick for the valve (it decays after a free tick, as above).
+                if (wait > 0 && last === 0) this.sepWait[i] = wait - 1;
+                this.sepLast[i] = 0;
+              } else {
+                if (!steered) {
+                  nx = px;
+                  ny = py;
+                  this.sepWait[i] = wait + 2 > 255 ? 255 : wait + 2;
+                  if (wait < SEP_VALVE_TICKS && this.sepWait[i] >= SEP_VALVE_TICKS && this.sepDiag.on) this.sepNote(i, 1, bj);
+                }
               }
             }
           }
@@ -13206,21 +13297,59 @@ export class Sim {
     );
   }
 
-  /** Rebuild the bucket grid from this tick's participants, ascending id. */
+  /** Rebuild the bucket grids from this tick's participants, ascending id: hulls in `sepHead`, circles in
+   *  `sepFootHead` (GH-1360 §4), one pass. Both grids and the circle count are written before any read. */
   private buildSepGrid(): void {
     this.sepHead.fill(-1);
+    this.sepFootHead.fill(-1);
+    this.sepFootN = 0;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || !this.sepParticipates(i)) continue;
+      const t = this.unitTypes[this.typeIdx[i]];
+      if (t.sepHalfLen <= t.sepHalfWid) {
+        const cell = (this.posY[i] >> SEP_FOOT_CELL_SHIFT_RAW) * this.sepFootCols + (this.posX[i] >> SEP_FOOT_CELL_SHIFT_RAW);
+        this.sepNext[i] = this.sepFootHead[cell];
+        this.sepFootHead[cell] = i;
+        this.sepFootN++;
+        continue;
+      }
       const cell = (this.posY[i] >> SEP_CELL_SHIFT_RAW) * this.sepCols + (this.posX[i] >> SEP_CELL_SHIFT_RAW);
       this.sepNext[i] = this.sepHead[cell];
       this.sepHead[cell] = i;
     }
   }
 
+  /** A participant's body into the capsule scratch at o: a centred circle as a point (`pointBody`, no sine or
+   *  cosine), anything else as `hullCapsule` writes it. The two are the same numbers for a centred circle. */
+  private sepPlace(x: Fx, y: Fx, facing: Fx, t: UnitType, o: number): void {
+    if (t.sepHalfLen <= t.sepHalfWid && t.sepCentre === 0) pointBody(x, y, t.sepHalfWid, this.sepCap, o);
+    else hullCapsule(x, y, facing, t.sepHalfLen, t.sepHalfWid, t.sepCentre, this.sepCap, o);
+  }
+
+  /**
+   * GH-1360 §3.3 item 3, the pair exemptions, checked at the top of the narrow phase: a boarder and the carrier it
+   * is boarding (either way round), a medic and the casualty it is working on (either way round), and a rider for
+   * the tick it came out of a carrier (against every body). None of these can be a pair of participants until a
+   * foot type declares a footprint: no shipped type with one can embark, none is a medic, and none is a casualty.
+   */
+  private sepExempt(i: number, j: number): boolean {
+    return (
+      this.boardGoal[i] === j ||
+      this.boardGoal[j] === i ||
+      this.medTarget[i] === j ||
+      this.medTarget[j] === i ||
+      this.sepOff[i] === 1 ||
+      this.sepOff[j] === 1
+    );
+  }
+
+
   /** Whether j is going somewhere this tick (the stepMovement skip list, as a predicate). */
   private sepMoves(j: number): boolean {
     return (
       this.moving[j] === 1 &&
+      // GH-1360 S5a-2 (§3.3 item 2): a member held at a formation checkpoint keeps `moving` 1 but goes nowhere.
+      this.fmDuty[j] !== FM_DUTY_WAIT &&
       this.mobilityKilled[j] === 0 &&
       this.brace[j] === BRACE_NONE &&
       !(this.attackMove[j] === 1 && this.engaging[j] === 1) &&
@@ -13243,15 +13372,23 @@ export class Sim {
    * and deepens the overlap i already had, so hulls spawned inside each other can still part.
    * j < i is read where it now stands; a moving j > i one nominal step ahead along its facing.
    * A stationary blocker wins over a moving one; sepHitStationary says which was returned.
-   * Reads only; allocates nothing.
+   * The hull grid is walked first, exactly as GH-421 walks it, then the foot grid (GH-1360 §4) when it holds
+   * anyone. Reads only; allocates nothing.
    */
   private sepBlockedBy(i: number, px: Fx, py: Fx, nx: Fx, ny: Fx): number {
     const ti = this.unitTypes[this.typeIdx[i]];
-    const cap = this.sepCap;
-    hullCapsule(px, py, this.facing[i], ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 0);
-    // The hull turns toward its heading as it steps, so the candidate is tested at the facing it
-    // will have, not the one it leaves with (a hull rotating past a neighbour is a step too).
-    hullCapsule(nx, ny, this.sepFacingAfter(i, fx.sub(nx, px), fx.sub(ny, py)), ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 5);
+    const circI = ti.sepHalfLen <= ti.sepHalfWid;
+    if (circI && ti.sepCentre === 0) {
+      // A centred circle has no facing to turn: two points, no sine, cosine or atan2.
+      pointBody(px, py, ti.sepHalfWid, this.sepCap, 0);
+      pointBody(nx, ny, ti.sepHalfWid, this.sepCap, 5);
+    } else {
+      const cap = this.sepCap;
+      hullCapsule(px, py, this.facing[i], ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 0);
+      // The hull turns toward its heading as it steps, so the candidate is tested at the facing it
+      // will have, not the one it leaves with (a hull rotating past a neighbour is a step too).
+      hullCapsule(nx, ny, this.sepFacingAfter(i, fx.sub(nx, px), fx.sub(ny, py)), ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 5);
+    }
     const cx = nx >> SEP_CELL_SHIFT_RAW;
     const cy = ny >> SEP_CELL_SHIFT_RAW;
     const rows = this.sepHead.length / this.sepCols;
@@ -13262,25 +13399,9 @@ export class Sim {
       for (let gx = cx - SEP_VISIT; gx <= cx + SEP_VISIT; gx++) {
         if (gx < 0 || gx >= this.sepCols) continue;
         for (let j = this.sepHead[gy * this.sepCols + gx]; j >= 0; j = this.sepNext[j]) {
-          if (j === i || this.alive[j] === 0) continue;
-          if (this.carriedBy[j] >= 0 || this.garrisonedIn[j] >= 0 || this.tunnelIn[j] >= 0) continue;
-          const tj = this.unitTypes[this.typeIdx[j]];
-          let jx = this.posX[j];
-          let jy = this.posY[j];
-          const reach = fx.add(fx.add(ti.sepBound, tj.sepBound), HALF);
-          const dx = jx - nx;
-          const dy = jy - ny;
-          if (dx > reach || dx < -reach || dy > reach || dy < -reach) continue;
-          const mover = this.sepMoves(j);
-          if (j > i && mover) {
-            jx = fx.add(jx, fx.mul(fx.cos(this.facing[j]), tj.stepPerTick));
-            jy = fx.add(jy, fx.mul(fx.sin(this.facing[j]), tj.stepPerTick));
-          }
-          hullCapsule(jx, jy, this.facing[j], tj.sepHalfLen, tj.sepHalfWid, tj.sepCentre, cap, 10);
-          const ovNew = capsuleOverlap(cap, 5, 10, this.sepOut);
-          if (ovNew <= 0) continue;
-          if (ovNew <= capsuleOverlap(cap, 0, 10, this.sepOut)) continue;
-          if (!mover) {
+          const v = this.sepPairBlocks(i, ti, circI, j, nx, ny);
+          if (v === 0) continue;
+          if (v === 2) {
             this.sepHitStationary = true;
             return j;
           }
@@ -13288,7 +13409,79 @@ export class Sim {
         }
       }
     }
+    if (this.sepFootN > 0) {
+      const visit = circI ? SEP_FOOT_VISIT_CIRCLE : SEP_FOOT_VISIT_HULL;
+      const fcx = nx >> SEP_FOOT_CELL_SHIFT_RAW;
+      const fcy = ny >> SEP_FOOT_CELL_SHIFT_RAW;
+      const cols = this.sepFootCols;
+      const frows = this.sepFootHead.length / cols;
+      for (let gy = fcy - visit; gy <= fcy + visit; gy++) {
+        if (gy < 0 || gy >= frows) continue;
+        for (let gx = fcx - visit; gx <= fcx + visit; gx++) {
+          if (gx < 0 || gx >= cols) continue;
+          for (let j = this.sepFootHead[gy * cols + gx]; j >= 0; j = this.sepNext[j]) {
+            const v = this.sepPairBlocks(i, ti, circI, j, nx, ny);
+            if (v === 0) continue;
+            if (v === 2) {
+              this.sepHitStationary = true;
+              return j;
+            }
+            if (found < 0) found = j;
+          }
+        }
+      }
+    }
     return found;
+  }
+
+  /**
+   * One candidate j of `sepBlockedBy`, i's bodies already in the scratch at 0 (before) and 5 (after): 0 when j
+   * does not block the step, 1 when it does and is moving, 2 when it does and is stationary. Hull against hull
+   * is GH-421's capsule overlap, unchanged. A pair with a circle in it takes the fast path (GH-1360 §3.3 item 1):
+   * squared distances, so no `fx.sqrt` and, between two circles, no `fx.div` either.
+   */
+  private sepPairBlocks(i: number, ti: UnitType, circI: boolean, j: number, nx: Fx, ny: Fx): number {
+    if (j === i || this.alive[j] === 0) return 0;
+    if (this.carriedBy[j] >= 0 || this.garrisonedIn[j] >= 0 || this.tunnelIn[j] >= 0) return 0;
+    const tj = this.unitTypes[this.typeIdx[j]];
+    let jx = this.posX[j];
+    let jy = this.posY[j];
+    const reach = fx.add(fx.add(ti.sepBound, tj.sepBound), HALF);
+    const dx = jx - nx;
+    const dy = jy - ny;
+    if (dx > reach || dx < -reach || dy > reach || dy < -reach) return 0;
+    if (this.sepExempt(i, j)) return 0;
+    const mover = this.sepMoves(j);
+    if (j > i && mover) {
+      jx = fx.add(jx, fx.mul(fx.cos(this.facing[j]), tj.stepPerTick));
+      jy = fx.add(jy, fx.mul(fx.sin(this.facing[j]), tj.stepPerTick));
+    }
+    const cap = this.sepCap;
+    if (circI || tj.sepHalfLen <= tj.sepHalfWid) {
+      this.sepPlace(jx, jy, this.facing[j], tj, 10);
+      // Blocked when the step ends strictly inside contact AND nearer than it began: touching is apart, and a
+      // step that is no deeper is never refused, so bodies that start inside each other can part.
+      const rs = fx.add(cap[9], cap[14]);
+      const newSq = bodyGapSq(cap, 5, 10, this.sepOut);
+      if (newSq < fx.mul(rs, rs) && newSq < bodyGapSq(cap, 0, 10, this.sepOut)) return mover ? 1 : 2;
+      return 0;
+    }
+    hullCapsule(jx, jy, this.facing[j], tj.sepHalfLen, tj.sepHalfWid, tj.sepCentre, cap, 10);
+    const ovNew = capsuleOverlap(cap, 5, 10, this.sepOut);
+    if (ovNew <= 0) return 0;
+    if (ovNew <= capsuleOverlap(cap, 0, 10, this.sepOut)) return 0;
+    return mover ? 1 : 2;
+  }
+
+  /** Whether the bodies in the capsule scratch at 0 and 10 overlap (> 0 inside contact): GH-421's capsule overlap
+   *  for two hulls, the squared compare when either is a circle (GH-1360 §3.3 item 1). */
+  private sepCapOverlaps(circle: boolean): boolean {
+    const cap = this.sepCap;
+    if (circle) {
+      const rs = fx.add(cap[4], cap[14]);
+      return bodyGapSq(cap, 0, 10, this.sepOut) < fx.mul(rs, rs);
+    }
+    return capsuleOverlap(cap, 0, 10, this.sepOut) > 0;
   }
 
   /**
@@ -13305,10 +13498,9 @@ export class Sim {
       if (sameGoal && dJ < dI) return true;
       const ti = this.unitTypes[this.typeIdx[i]];
       const tj = this.unitTypes[this.typeIdx[j]];
-      const cap = this.sepCap;
-      hullCapsule(this.goalX[i], this.goalY[i], this.facing[i], ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 0);
-      hullCapsule(this.posX[j], this.posY[j], this.facing[j], tj.sepHalfLen, tj.sepHalfWid, tj.sepCentre, cap, 10);
-      return capsuleOverlap(cap, 0, 10, this.sepOut) > 0;
+      this.sepPlace(this.goalX[i], this.goalY[i], this.facing[i], ti, 0);
+      this.sepPlace(this.posX[j], this.posY[j], this.facing[j], tj, 10);
+      return this.sepCapOverlaps(ti.sepHalfLen <= ti.sepHalfWid || tj.sepHalfLen <= tj.sepHalfWid);
     }
     if (this.moving[j] === 0 || !sameGoal) return false;
     // A mover bound for the same goal tile and nearer to it -- but only AT the goal: a hull blocked

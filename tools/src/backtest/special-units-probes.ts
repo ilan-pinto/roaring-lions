@@ -34,6 +34,7 @@ import {
 } from '@lions/sim';
 import { runBattle, units } from './harness';
 import { applyUpgrades, maxTiers, type UpgradableUnit } from '@lions/data';
+import { START_LAYOUT } from '../mission-harness';
 
 const WEST = 32768;
 /** First simulation seed of probe 12's drills; the other probes keep their own fixed seeds. 0 unless a held-out read sets SU_SEED0. */
@@ -581,6 +582,7 @@ export function nlosConduct(shooterJson: UnitTypeJson, dist: number, seed: numbe
     roe: { enabled: true, flagged_zones: ['clinic'], flagged_structure_penalty: 5, disproportionate_ordnance_penalty: 3 },
   };
   const runtime = new MissionRuntime(sim, mission, {
+    startLayout: START_LAYOUT, // GH-1360 S3b: shipped missions start in the assembly layout
     typeIdOf: (u) => {
       const t = ids.get(u);
       if (t === undefined) throw new Error(`unknown unit ${u}`);
@@ -789,6 +791,7 @@ export function clusterConduct(gunJson: UnitTypeJson, seed: number): { rounds: n
     roe: { enabled: true, civilian_casualty_penalty: 0, disproportionate_ordnance_penalty: 3 },
   };
   const runtime = new MissionRuntime(sim, mission, {
+    startLayout: START_LAYOUT, // GH-1360 S3b: shipped missions start in the assembly layout
     typeIdOf: (u) => {
       const t = ids.get(u);
       if (t === undefined) throw new Error(`unknown unit ${u}`);

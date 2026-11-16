@@ -39,7 +39,7 @@
  * DOM through `textContent` only, never through markup (the lobby chat is
  * `NetChat`, which keeps to that too).
  */
-import { flagBlockOf, units, versusModes } from '@lions/data';
+import { flagBlockOf, versusModes } from '@lions/data';
 import { labelsOf, nameFrom, seatLabel, type SeatLabel } from '../net/seat-label';
 import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, flagSetupFor, flagSetupRoom, specialRefusal, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
@@ -54,7 +54,9 @@ import { markConfirm } from './confirm-cue';
 import { footBack, screenFoot } from './foot';
 import { stagger } from './motion';
 import { NetChat } from './net-chat';
+import { inboxOf } from './chat-inbox';
 import { symbolLabel } from './symbol';
+import { unitName } from '../unit-text';
 import { factionArt, factionBlurb, factionName, friendSide, hostSide, matchupLabel } from './versus-faction';
 import { mapCard, mapPicture, pairsBoth, splitMapLabel } from './versus-ground';
 
@@ -100,11 +102,18 @@ export interface VersusDeps {
   /** Trades this tab's seat ticket for an advisor ticket (`inviteAdvisor`,
    *  `net/connect.ts`). Rejects with an `AdvisorRefused` when the room says no. */
   advisorTicket(code: string, scope: AdvisorScope): Promise<string>;
+  /** GH-1388: arms an OFFLINE match against the computer seat for the map and side picked here, and resolves to the `?net=` value that
+   *  opens it. No room and no request. Absent: the lobby offers no computer seat. */
+  playComputer?(req: { map: string; matchup: Matchup; callsign: string }): Promise<string>;
+  /** Drops a match `playComputer` armed that nobody took (this screen was left while it armed). */
+  discardComputer?(): void;
   /** The menu's still plate (`${BASE}${menuDiorama.plate}`), drawn behind
    *  both screens; absent, the screens draw on the plain ground. */
   plateUrl?: string;
   /** The browser asked to spend less data: the plate is not fetched. */
   saveData?: () => boolean;
+  /** Whether the player has chat on (Settings, Chat; GH-1417 S1), read at every line. Absent is on. */
+  chatEnabled?: () => boolean;
 }
 
 /** Where the lobby tells a player to save the copied advisor ticket: a private
@@ -119,7 +128,7 @@ export function advisorCommand(origin: string, code: string, scope: AdvisorScope
 }
 
 /** A unit's name, as its JSON gives it (data, like the Garage's names); the id when it has none. */
-const unitNameOf = (id: string): string => (units as Readonly<Record<string, { name?: string } | undefined>>)[id]?.name ?? id;
+const unitNameOf = (id: string): string => unitName(id);
 
 /**
  * GH-1102: the line-up one seat brings into a brigade room, as the room said (`SeatState.specials`):
@@ -258,8 +267,9 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
       room.error = code === 'build_mismatch' ? 'versus.error.build' : null;
       room.repaint?.();
     },
-    // The room echoes every line to both seats, this one's own included.
-    onChat: (seat, text) => room.chat?.receive(seat, text),
+    // The room echoes every line to both seats, this one's own included. A line reaches the log only through the room's inbox
+    // (`chat-inbox.ts`): what is off or muted is never drawn, here or in the match's feed.
+    onChat: (seat, text) => inboxOf(room.transport, deps.chatEnabled ?? (() => true)).deliver(seat, text, (shown) => room.chat?.receive(seat, shown)),
     // The badges: the transport clears them on a reconnect, before the room's next say.
     onAdvisors: (present) => {
       room.advisors = present;
@@ -789,6 +799,31 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   act.append(kitRow, openCol);
   body.appendChild(act);
 
+  // --- GH-1388: a basic computer opponent, offline ---------------------------
+  // The arena's `rush` script as a seat. It needs no room, so it is offered whatever the map, on the mirror pairing only (it builds nothing); the plain description says what
+  // it is, because nothing here may claim more than it does (it attacks with the force it starts with and builds nothing).
+  let cpuBtn: HTMLButtonElement | null = null;
+  let cpuSection: HTMLElement | null = null;
+  const cpuMsg = messageLine('rl-versus__cpu-msg');
+  if (deps.playComputer !== undefined) {
+    const cpu = document.createElement('section');
+    cpu.className = 'rl-versus__cpu';
+    const cpuLead = document.createElement('h3');
+    cpuLead.className = 'rl-versus__join-lead';
+    cpuLead.id = nextId('cpu');
+    cpuLead.textContent = t('versus.cpu.lead');
+    cpu.setAttribute('aria-labelledby', cpuLead.id);
+    const cpuNote = document.createElement('p');
+    cpuNote.className = 'rl-versus__cpu-note';
+    cpuNote.id = nextId('cpu-note');
+    cpuNote.textContent = t('versus.cpu.note');
+    cpuBtn = button(t('versus.cpu.start'), 'rl-versus__cpu-start');
+    cpuBtn.setAttribute('aria-describedby', cpuNote.id);
+    cpu.append(cpuLead, cpuNote, cpuBtn, cpuMsg);
+    body.appendChild(cpu);
+    cpuSection = cpu;
+  }
+
   /** A side narrows the ground: a mirror-only map greys out with its reason,
    *  and a pick on one moves to the first map the pairing plays. */
   function syncSide(): void {
@@ -802,6 +837,8 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       else delete tile.label.dataset.off;
       tile.sub.textContent = off ? t('versus.lobby.map.offReason') : t('versus.lobby.map.pairing', { both: String(pairsBoth(tile.id)) });
     }
+    // The computer does not build, so it is offered on the mirror pairing only (an economy pairing could never end).
+    if (cpuSection !== null) cpuSection.hidden = narrowed;
     sideNote.hidden = !narrowed;
     matchupNote.hidden = !narrowed;
     paintCard(youCard, hostSide(side), youName);
@@ -856,6 +893,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   let busy = false;
   const sync = (): void => {
     openBtn.disabled = busy || deps.maps.length === 0;
+    if (cpuBtn !== null) cpuBtn.disabled = busy || deps.maps.length === 0;
     goBtn.disabled = busy || code.value.length !== CODE_LENGTH;
     cellEls.forEach((c, i) => {
       c.textContent = code.value[i] ?? '';
@@ -902,6 +940,29 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
     );
   };
   openBtn.addEventListener('click', () => start({ kind: 'create', map, matchup: side, kit: kit ? 'brigade' : 'matched', ...(winMode === null ? {} : { winMode }), callsign: callsignOrDefault(callsign.input.value) }, false));
+  const playComputer = deps.playComputer;
+  cpuBtn?.addEventListener('click', () => {
+    if (busy || playComputer === undefined || side !== 'mirror') return;
+    busy = true;
+    sync();
+    cpuMsg.textContent = '';
+    delete cpuMsg.dataset.tone;
+    const picked = map;
+    playComputer({ map: picked, matchup: side, callsign: callsignOrDefault(callsign.input.value) }).then(
+      (net) => {
+        // Left while it armed: nobody will take it, so it is dropped here (the disposer contract).
+        if (disposed) { deps.discardComputer?.(); return; }
+        deps.navigate(`${routes.sandbox(picked)}?net=${encodeURIComponent(net)}`);
+      },
+      () => {
+        if (disposed) return;
+        busy = false;
+        sync();
+        cpuMsg.dataset.tone = 'bad';
+        cpuMsg.textContent = t('versus.cpu.failed');
+      },
+    );
+  });
   const join = (): void => {
     if (code.value.length !== CODE_LENGTH) return;
     start({ kind: 'join', code: code.value, callsign: callsignOrDefault(callsign.input.value) }, true);
@@ -1071,6 +1132,8 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     r.chat = new NetChat(chat, {
       send: (text) => r.transport.chat(text),
       nameOf: (seat) => nameFrom(r.labels, seat, r.seats.find((x) => x.seat === seat)?.callsign ?? ''),
+      inbox: inboxOf(r.transport, deps.chatEnabled ?? (() => true)),
+      peer: r.seat === 0 ? 1 : 0,
     }, { docked: true });
 
     // Built once: only this seat's card ever holds it, and a repaint moves it.

@@ -238,7 +238,11 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
     // (menu after leaving umm_zeitoun_4 / khan_rafid_3; locally 67.4-67.7, SwiftShader); the first menu stays at 65
     // lead ruling 10 Nov: GH-1197 P1 blast ring and munitions table, measured 70.1 on CI. Was 70.
     menuAfterJsTotalMiB: 72,
-    board: { jsTotalMiB: 26, gpuMiB: 159, processMiB: 810, bitmapsMiB: 16 },
+    // lead ruling 15 Nov 2026: board JS 26 -> 27. No leak: every main run through 9e9b10e read 25.9 MiB, and the
+    // eager app code merged 15 Nov (telemetry client_error/perf/boot, PR 1427; the quality hint, PR 1430) added
+    // ~44 KB of board heap, reading 26.0 on CI (runs 43719869311, 43717382552). PR 1449 lazy-loads the hint (-19 KB).
+    // Was 26.
+    board: { jsTotalMiB: 27, gpuMiB: 159, processMiB: 810, bitmapsMiB: 16 },
     mission: { jsTotalMiB: 154, gpuMiB: 1015, processMiB: 2511, bitmapsMiB: 161 },
     leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
   },

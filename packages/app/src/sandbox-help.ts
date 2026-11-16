@@ -116,6 +116,7 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   { name: 'accounts', blurb: 'accepted; accounts are on by default on a real host, and this opts a dev server in' },
   { name: 'google', blurb: 'on /profile, show the Google sign-in buttons while the server has not yet opened Google to players' },
   { name: 'tutorial', blurb: 'replay the tutorial' },
+  { name: 'resume', blurb: 'on /mission/<id>, resume the mission saved with Save and quit (the campaign board writes it)' },
   { name: 'net', blurb: 'new | <room code> — N0: run this sandbox in a two-seat lockstep room (both seats order the KDF force)' },
   { name: 'seat', blurb: '0 | 1 — written by the app after ?net=new; informational' },
   { name: 'callsign', blurb: '<name> — the lobby name a room shows for this seat' },
@@ -212,7 +213,7 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     // Wraps the `en` catalogue in the pseudo-locale transform (i18n/pseudo.ts)
     // instead of loading a real one -- the fake-translation pass a screen
     // walk uses to catch a string that never went through `t()` at all.
-    blurb: 'run every screen through the pseudo-locale (accents, padding, brackets) instead of a real language',
+    blurb: 'run every screen through the pseudo-locale (accents, padding, brackets) instead of a real language; =rtl also mirrors the layout (dir=rtl) and forces the text right to left',
   },
   {
     name: 'voicetick',

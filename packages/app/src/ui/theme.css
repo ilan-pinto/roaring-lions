@@ -858,7 +858,7 @@ body {
 /* The leader's horizontal anchor for THIS board -- beside the pin, not
    centred on it, so the generic rule's 50% is wrong here. Every other leader
    property comes from the generic `.rl-world__town::before` rule above. */
-.rl-world--3d .rl-world__town::before { left: 0.4375rem; }
+.rl-world--3d .rl-world__town::before { inset-inline-start: 0.4375rem; }
 .rl-world--3d .rl-world__town::after {
   /* The pin itself: a small ring on the marker's exact point, with the label
      beside it. Without this the text floats with nothing tying it to ground.
@@ -866,7 +866,7 @@ body {
      slot on this element, and the two never need to be the same one. */
   content: '';
   position: absolute;
-  left: -0.8125rem;
+  inset-inline-start: -0.8125rem;
   top: 50%;
   width: 0.4375rem;
   height: 0.4375rem;
@@ -892,7 +892,7 @@ body {
    part of the frame. */
 .rl-world__spin {
   position: absolute;
-  right: var(--s2);
+  inset-inline-end: var(--s2);
   bottom: var(--s2);
   display: flex;
   align-items: stretch;
@@ -934,11 +934,11 @@ body {
 .rl-world__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(13.75rem, 1fr)); gap: var(--s2); }
 .rl-world__card {
   border: 1px solid var(--panel-frame);
-  border-left: 0.25rem solid var(--map-spent);
+  border-inline-start: 0.25rem solid var(--map-spent);
   padding: var(--s2);
 }
-.rl-world__card[data-status='live'] { border-left-color: var(--map-live); }
-.rl-world__card[data-status='locked'] { border-left-color: var(--map-locked); opacity: var(--disabled-opacity); }
+.rl-world__card[data-status='live'] { border-inline-start-color: var(--map-live); }
+.rl-world__card[data-status='locked'] { border-inline-start-color: var(--map-locked); opacity: var(--disabled-opacity); }
 .rl-world__badge { font-size: var(--t-body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
 
 .rl-world__stars { color: var(--commend); font-family: var(--font-mono); }
@@ -1005,7 +1005,7 @@ body {
 /* Right-aligned slot in the band: mission code, unit count, whatever the panel
    wants to stamp beside its name. */
 .rl-panel__tag {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: var(--t-xs);
   font-weight: 600;
   letter-spacing: var(--track-label);
@@ -1131,7 +1131,7 @@ body {
   gap: var(--s2);
 }
 .rl-foot__end {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .rl-foot .rl-btn {
   display: inline-flex;
@@ -1378,11 +1378,11 @@ body {
 .rl-avatar-picker__tile[data-checked='1']::after {
   content: '';
   position: absolute;
-  right: 0.2rem;
+  inset-inline-end: 0.2rem;
   top: 0.2rem;
   width: 0.6rem;
   height: 0.35rem;
-  border-left: 2px solid var(--avatar-ring-selected); /* px-ok */
+  border-inline-start: 2px solid var(--avatar-ring-selected); /* px-ok */
   border-bottom: 2px solid var(--avatar-ring-selected); /* px-ok */
   transform: rotate(-45deg);
   background: var(--panel-bg-solid);
@@ -1444,7 +1444,7 @@ body {
 }
 .rl-intro__skip {
   position: absolute;
-  right: var(--s4);
+  inset-inline-end: var(--s4);
   bottom: var(--s4);
 }
 
@@ -1476,8 +1476,8 @@ body {
 }
 .rl-outcome__bar {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   background: var(--panel-bg-solid);
   pointer-events: auto;
 }
@@ -1860,7 +1860,7 @@ body[data-outcome-beat] .rl-aar {
   flex-wrap: wrap;
 }
 .rl-feedback__hint {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: var(--ink-mute);
   font: var(--t-s) var(--font-mono);
 }
@@ -1926,7 +1926,7 @@ body[data-outcome-beat] .rl-aar {
   border-bottom: 1px solid var(--panel-rule);
 }
 .rl-rate__q {
-  margin-right: var(--s2);
+  margin-inline-end: var(--s2);
   font: 600 var(--t-band) var(--font-display);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
@@ -2231,7 +2231,7 @@ body[data-outcome-beat] .rl-aar {
   text-transform: uppercase;
 }
 .rl-score__r {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 .rl-card__head {
@@ -2287,8 +2287,8 @@ body[data-outcome-beat] .rl-aar {
 
 .rl-strip {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   top: 0;
   height: var(--hud-strip-h);
   box-sizing: border-box;
@@ -2335,8 +2335,8 @@ body[data-outcome-beat] .rl-aar {
    limit's last minute (GH-540). */
 .rl-strip__deadline,
 .rl-strip__limit {
-  border-left: 1px solid var(--panel-frame);
-  padding-left: var(--s3);
+  border-inline-start: 1px solid var(--panel-frame);
+  padding-inline-start: var(--s3);
 }
 /* The countdown is a fixed stamp, not text to elide: it shares the
    `.rl-strip__obj` class for its type, but "Time le..." tells the player
@@ -2366,7 +2366,7 @@ body[data-outcome-beat] .rl-aar {
    what the force has on the right -- and the gap between them is what makes
    that legible without a rule or a divider. */
 .rl-strip__gap {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .rl-strip__right {
   display: flex;
@@ -2600,7 +2600,7 @@ body[data-outcome-beat] .rl-aar {
   flex: 1;
   min-width: 0;
   background: var(--panel-bg);
-  border-left: 2px solid var(--band-mission);
+  border-inline-start: 2px solid var(--band-mission);
   padding: var(--s1h) var(--s2h);
   pointer-events: auto;
 }
@@ -2621,7 +2621,7 @@ body[data-outcome-beat] .rl-aar {
   color: var(--ink-dim);
 }
 .rl-cmd__page {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: flex;
   gap: var(--s1);
 }
@@ -2706,7 +2706,7 @@ body[data-outcome-beat] .rl-aar {
 }
 /* The merge count ("×4"): the same line said again, not a new line. */
 .rl-notice__count {
-  margin-left: 0.5em;
+  margin-inline-start: 0.5em;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--ink);
@@ -2890,12 +2890,12 @@ body[data-outcome-beat] .rl-aar {
    puts the centre of the remaining box back on --hud-centre exactly. */
 .rl-sel {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   bottom: var(--s2);
   box-sizing: border-box;
-  padding-left: calc(2 * var(--hud-centre-offset) + var(--s2));
-  padding-right: var(--s2);
+  padding-inline-start: calc(2 * var(--hud-centre-offset) + var(--s2));
+  padding-inline-end: var(--s2);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2963,7 +2963,7 @@ body[data-outcome-beat] .rl-aar {
   align-items: center;
 }
 .rl-orders__tag {
-  margin-right: var(--s1);
+  margin-inline-end: var(--s1);
   align-self: stretch;
   display: flex;
   align-items: center;
@@ -3030,7 +3030,7 @@ body[data-outcome-beat] .rl-aar {
 .rl-loan--tab {
   position: absolute;
   top: 0;
-  right: var(--s2);
+  inset-inline-end: var(--s2);
   transform: translateY(-50%);
   background: var(--panel-bg);
 }
@@ -3227,7 +3227,7 @@ body[data-outcome-beat] .rl-aar {
    picture inside changes size from one unit type to the next. */
 .rl-card__badge {
   position: absolute;
-  left: 3px;
+  inset-inline-start: 3px;
   top: 3px;
   color: var(--ink-label);
   line-height: 0;
@@ -3292,7 +3292,7 @@ body[data-outcome-beat] .rl-aar {
 .rl-card__why { font-size: var(--t-s); color: var(--ink-mute); }
 /* GH-698: a carrier's seats and an air carrier's flight state (hud.ts, the carry line). */
 .rl-card__carry { font-size: var(--t-s); }
-.rl-card__carry svg { vertical-align: middle; margin-right: 2px; }
+.rl-card__carry svg { vertical-align: middle; margin-inline-end: 2px; }
 .rl-supp {
   display: flex;
   align-items: center;
@@ -3300,7 +3300,7 @@ body[data-outcome-beat] .rl-aar {
   margin-top: 3px;
   max-width: 16rem;
 }
-.rl-supp > .rl-label { margin-right: var(--s1); }
+.rl-supp > .rl-label { margin-inline-end: var(--s1); }
 .rl-supp__cell {
   flex: 1;
   height: 0.375rem;
@@ -3309,7 +3309,7 @@ body[data-outcome-beat] .rl-aar {
   overflow: hidden;
 }
 .rl-supp__cell > i { display: block; height: 100%; background: var(--hot); }
-.rl-supp__pin { line-height: 0; color: var(--panel-frame); margin-left: 2px; }
+.rl-supp__pin { line-height: 0; color: var(--panel-frame); margin-inline-start: 2px; }
 .rl-supp__pin[data-on='1'] { color: var(--hot); }
 /* GH-707 P2: the unit card's bleed ring for a down wounded (ui/bleed.ts). The ring empties
    clockwise as he bleeds; held (stabilised or carried) it turns to the info tone. */
@@ -3346,7 +3346,7 @@ body[data-outcome-beat] .rl-aar {
   flex: none;
 }
 .rl-card__hp {
-  margin-left: auto;
+  margin-inline-start: auto;
   white-space: nowrap;
 }
 /* The kit (WP-S3g §3.4, D2): three tracks' pips beside the veterancy stars --
@@ -3360,7 +3360,7 @@ body[data-outcome-beat] .rl-aar {
    with a hairline gap make the column 17 pixels, centred on the line; the
    card is the same height either way (`ui:routes` measures it). Scoped to
    the card -- the garage's own pips are unchanged. */
-.rl-card__kit { display: inline-flex; align-self: center; margin-left: var(--s1); }
+.rl-card__kit { display: inline-flex; align-self: center; margin-inline-start: var(--s1); }
 .rl-card__kit .rl-kit-pips,
 .rl-card__kit .rl-kit-pips__col {
   gap: 1px; /* px-ok */
@@ -3414,17 +3414,17 @@ body[data-outcome-beat] .rl-aar {
   transform: translateX(-100%);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
-  border-left: 3px solid var(--panel-frame);
+  border-inline-start: 3px solid var(--panel-frame);
   padding: var(--s1) var(--s2);
   white-space: nowrap;
   pointer-events: none;
   z-index: 5;
 }
 .rl-held[data-side='own'] {
-  border-left-color: var(--friendly);
+  border-inline-start-color: var(--friendly);
 }
 .rl-held[data-side='hostile'] {
-  border-left-color: var(--bad);
+  border-inline-start-color: var(--bad);
 }
 /* Field works (GH-277): the placement tooltip beside the cursor while a work is armed. */
 .rl-works-tip {
@@ -3645,7 +3645,7 @@ body[data-outcome-beat] .rl-aar {
    attribute; no author `display` rule here would beat it, so the `[hidden]`
    rule below is defensive (it keeps a later `display` on this class honest). */
 .rl-dock__pop {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: var(--t-strip);
   text-shadow: var(--halo);
 }
@@ -3803,7 +3803,7 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-line__left {
   position: absolute;
-  left: 2px;
+  inset-inline-start: 2px;
   top: 0;
   font-size: var(--t-xs);
   color: var(--live);
@@ -3811,7 +3811,7 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-line__bar {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
   height: 3px;
   background: var(--live);
@@ -3838,7 +3838,7 @@ body[data-outcome-beat] .rl-aar {
   white-space: nowrap;
 }
 .rl-line__rally {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 /* --- one tile --------------------------------------------------------- */
@@ -3910,7 +3910,7 @@ body[data-outcome-beat] .rl-aar {
 
 .rl-tile__cost {
   position: absolute;
-  right: 3px;
+  inset-inline-end: 3px;
   bottom: 1px;
   font-size: var(--t-s);
   font-weight: 600;
@@ -3927,7 +3927,7 @@ body[data-outcome-beat] .rl-aar {
 
 .rl-tile__left {
   position: absolute;
-  left: 3px;
+  inset-inline-start: 3px;
   top: 1px;
   font-size: var(--t-s);
   color: var(--live);
@@ -3935,7 +3935,7 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-tile__bar {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
   height: 3px;
   background: var(--live);
@@ -3958,8 +3958,8 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-tile__lock {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   bottom: 2px;
   text-align: center;
   font-size: var(--t-s);
@@ -3973,8 +3973,8 @@ body[data-outcome-beat] .rl-aar {
    countdown sits, because it is the same kind of fact: something on its way. */
 .rl-tile__deploying {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   top: 1px;
   text-align: center;
   font-size: var(--t-s);
@@ -4058,7 +4058,7 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-tile__charge {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
   height: 3px;
   width: 0;
@@ -4097,7 +4097,7 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-tile__worksleft {
   position: absolute;
-  left: 3px;
+  inset-inline-start: 3px;
   top: 1px;
   font-size: var(--t-s);
   color: var(--ink);
@@ -4193,7 +4193,7 @@ body[data-outcome-beat] .rl-aar {
   text-transform: uppercase;
 }
 .rl-tip__cost {
-  margin-left: auto;
+  margin-inline-start: auto;
   white-space: nowrap;
   color: var(--info);
 }
@@ -4581,7 +4581,7 @@ body[data-outcome-beat] .rl-aar {
   font-weight: 600;
   letter-spacing: var(--track-title);
   text-transform: uppercase;
-  text-align: left;
+  text-align: start;
 }
 /* The sandbox and the ledger reset are instruments, not missions — they should
    not read as the fourth and fifth chapters of the campaign. */
@@ -4645,7 +4645,9 @@ body[data-outcome-beat] .rl-aar {
   color: var(--ink-dim);
 }
 .rl-profile__avatar .rl-avatar {
-  border-width: 2px; /* px-ok */
+  width: 7rem;
+  height: 7rem;
+  border: 0.1875rem solid var(--crest-rim, var(--avatar-ring));
 }
 .rl-avatar--chip {
   width: 1.75rem;
@@ -4763,14 +4765,14 @@ button.rl-menu__item[data-kind='aside'] {
   margin: var(--s1) auto var(--s2);
   padding: var(--s2) var(--s3);
   border: 1px solid var(--panel-frame);
-  text-align: left;
+  text-align: start;
 }
 /* WP-P2: the extras sit behind a closed disclosure, so the picker opens on
    the maps. The summary is a quiet line, not a button competing with them. */
 .rl-sandbox__dev {
   max-width: var(--menu-col);
   margin: var(--s3) auto var(--s2);
-  text-align: left;
+  text-align: start;
 }
 .rl-sandbox__dev-summary {
   cursor: pointer;
@@ -4968,7 +4970,7 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s4);
   padding: var(--s4) var(--s5);
-  text-align: left;
+  text-align: start;
 }
 .rl-aar__verdict {
   display: flex;
@@ -4997,7 +4999,7 @@ button.rl-menu__item[data-kind='aside'] {
   list-style: none;
   margin: 0;
   padding: 0;
-  text-align: right;
+  text-align: end;
   font: var(--t-m) / 1.5 var(--font-body);
   color: var(--ink-mute);
 }
@@ -5006,7 +5008,7 @@ button.rl-menu__item[data-kind='aside'] {
   display: none;
 }
 .rl-aar[data-result='defeat'] .rl-aar__reason {
-  text-align: left;
+  text-align: start;
   font: 600 var(--t-read) / 1.4 var(--font-body);
   color: var(--bad-text);
 }
@@ -5025,9 +5027,9 @@ button.rl-menu__item[data-kind='aside'] {
   align-items: baseline;
   padding: var(--s2) var(--s3);
   font: var(--t-m) / 1.4 var(--font-body);
-  border-right: 1px solid var(--panel-rule);
+  border-inline-end: 1px solid var(--panel-rule);
 }
-.rl-aar__rung:last-child { border-right: 0; }
+.rl-aar__rung:last-child { border-inline-end: 0; }
 .rl-aar__rung--met { color: var(--good); }
 .rl-aar__rung--missed { color: var(--ink-dim); }
 .rl-aar__rung-stars { flex: none; letter-spacing: 1px; }
@@ -5457,7 +5459,7 @@ button.rl-menu__item[data-kind='aside'] {
    rather than a ragged centre. */
 .rl-loading__box--brief {
   width: min(42.5rem, 88vw);
-  text-align: left;
+  text-align: start;
 }
 /* The rank/plate line and, beside it, the same photo `.rl-cmd__face` shows
    for Shai -- 200x250, `2026-08-21-commander-brief-design.md`'s own
@@ -5567,7 +5569,7 @@ button.rl-menu__item[data-kind='aside'] {
   max-height: min(42vh, 27.5rem); /* the vh half is the binding one on a 45rem-tall screen (48vh measured Deploy 1.8125rem below the fold there); the px half lets a tall screen show more of the eight 1.25rem beats than the old 340 did. */
   overflow-y: auto;
   /* Scrolled text needs a margin to breathe against the scrollbar. */
-  padding-right: var(--s2);
+  padding-inline-end: var(--s2);
 }
 /* GH-417 B-03: with orders to read, the beats do NOT scroll inside their own
    box any more. That nested box cut its text off flush against the
@@ -5580,7 +5582,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-loading__box--brief:not(.rl-loading__box--video) .rl-loading__brief {
   max-height: none;
   overflow-y: visible;
-  padding-right: 0;
+  padding-inline-end: 0;
 }
 /* One beat, one paragraph, with air between them -- the "wall of text"
    complaint was as much about the missing paragraph breaks as the size.
@@ -5632,7 +5634,7 @@ button.rl-menu__item[data-kind='aside'] {
 /* A section's picture: a small framed thumbnail the prose wraps beside, so a
    picture never costs the orders their reading measure. */
 .rl-loading__section-img {
-  float: right;
+  float: inline-end;
   width: 5.5rem;
   height: 6.875rem;
   margin: 0 0 var(--s2) var(--s3);
@@ -5664,9 +5666,9 @@ button.rl-menu__item[data-kind='aside'] {
    Deploy -- never a beat itself. The left rule borrows `--commend`, the same
    token the world-map star line uses, so a carry-over reads as an earned
    thing rather than as another paragraph of prose. */
-.rl-loading__brought { margin: var(--s2h) 0 0; padding: var(--s2) var(--s2h); border-left: 2px solid var(--commend); color: var(--ink); }
+.rl-loading__brought { margin: var(--s2h) 0 0; padding: var(--s2) var(--s2h); border-inline-start: 2px solid var(--commend); color: var(--ink); }
 .rl-loading__brought-head { color: var(--ink-dim); font-size: var(--t-s); text-transform: uppercase; letter-spacing: 1px; }
-.rl-loading__brought ul { margin: var(--s1) 0; padding-left: 1.1em; }
+.rl-loading__brought ul { margin: var(--s1) 0; padding-inline-start: 1.1em; }
 .rl-loading__brought-line { margin: var(--s1) 0 0; color: var(--ink-mute); }
 /* Survivors this mission does not field -- a count, under the roster, in the
    same muted ink the panel's own prose uses rather than the roster's. */
@@ -5771,7 +5773,7 @@ button.rl-menu__item[data-kind='aside'] {
   min-width: 0;
   padding: var(--s2) var(--s3);
   border: 0;
-  border-left: 2px solid var(--commend);
+  border-inline-start: 2px solid var(--commend);
 }
 .rl-deploy__title,
 .rl-deploy__map figcaption {
@@ -5803,7 +5805,7 @@ button.rl-menu__item[data-kind='aside'] {
   padding: var(--s2) var(--s3);
   font-family: var(--font-body);
   font-size: var(--t-band);
-  text-align: left;
+  text-align: start;
   overflow-wrap: anywhere;
   color: var(--ink-mute);
   background: transparent;
@@ -5861,7 +5863,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-force__why {
   max-width: 24rem;
-  text-align: right;
+  text-align: end;
 }
 .rl-deploy__map {
   margin: 0;
@@ -6120,7 +6122,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-kit-icon {
   position: absolute;
   top: 0;
-  right: 0;
+  inset-inline-end: 0;
   line-height: 0;
   pointer-events: none;
   filter: drop-shadow(0 0 1px var(--kit-edge));
@@ -6151,7 +6153,7 @@ button.rl-menu__item[data-kind='aside'] {
 /* The card frame and the dock tile are already positioned; the sign steps in
    by the margin that surface's own corner mark uses -- the role badge's 3 px,
    the art's 2 px. */
-.rl-card__frame > .rl-kit-icon { top: 0.1875rem; right: 0.1875rem; }
+.rl-card__frame > .rl-kit-icon { top: 0.1875rem; inset-inline-end: 0.1875rem; }
 
 /* The pinned status mark on a unit's ICON (GH-262, candidate A "pressed
    flat", G-PIN 28 Sep): bottom-left, the corner the kit sign (top-right) and
@@ -6185,11 +6187,11 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-pin-mark[data-mark='slowed'] { color: var(--bad-text); }
 /* GH-706: slowed is the immobilised mark at half ink (symbol.ts HALF_INK_CLASS). */
 .rl-sym--half { opacity: 0.5; }
-.rl-kit-host > .rl-pin-mark { left: 1px; bottom: 1px; }
+.rl-kit-host > .rl-pin-mark { inset-inline-start: 1px; bottom: 1px; }
 .rl-kit-host > .rl-pin-mark svg { width: 0.75rem; height: 0.75rem; }
-.rl-card__frame > .rl-pin-mark { left: 0.1875rem; bottom: 0.1875rem; }
+.rl-card__frame > .rl-pin-mark { inset-inline-start: 0.1875rem; bottom: 0.1875rem; }
 .rl-card__frame > .rl-pin-mark svg { width: 1rem; height: 1rem; }
-.rl-tile > .rl-kit-icon { top: 0.125rem; right: 0.125rem; }
+.rl-tile > .rl-kit-icon { top: 0.125rem; inset-inline-end: 0.125rem; }
 /* A locked tile asks what to earn next, and its art is already drained (plan
    2b R-8). Hidden, not removed: it is back the moment the lock lifts. */
 .rl-tile[data-locked='1'] > .rl-kit-icon { display: none; }
@@ -6247,7 +6249,7 @@ button.rl-menu__item[data-kind='aside'] {
   overflow: hidden;
   /* `.rl-menu`'s own centred, monospaced column is right for a list of four
      buttons and wrong for a screen that is read. */
-  text-align: left;
+  text-align: start;
   font-family: var(--font-body);
   font-size: var(--t-body);
 }
@@ -6395,14 +6397,14 @@ button.rl-menu__item[data-kind='aside'] {
   gap: var(--s1);
   min-height: 0;
   overflow-y: auto;
-  padding-right: var(--s1);
+  padding-inline-end: var(--s1);
 }
 .rl-garage__card {
   display: flex;
   align-items: center;
   gap: var(--s2);
   padding: var(--s2);
-  text-align: left;
+  text-align: start;
   color: var(--ink);
   background: var(--well);
   border: 1px solid var(--panel-frame);
@@ -6494,7 +6496,7 @@ button.rl-menu__item[data-kind='aside'] {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s2);
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .rl-menu--garage .rl-stores__packs-h {
   font-family: var(--font-display);
@@ -6530,7 +6532,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-menu--garage .rl-stores__notice {
   margin: 0;
   padding: var(--s1) var(--s3);
-  border-left: 3px solid var(--roar);
+  border-inline-start: 3px solid var(--roar);
   font-size: var(--t-band);
   color: var(--ink-mute);
 }
@@ -6879,7 +6881,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-stores__adds-stat-v,
 .rl-stores__adds-stat-d {
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: end;
 }
 .rl-menu--garage .rl-stores__adds-more {
   align-self: flex-start;
@@ -6900,7 +6902,7 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-band);
 }
 .rl-stores__receipts th {
-  text-align: left;
+  text-align: start;
   color: var(--ink-label);
   font-weight: 600;
   letter-spacing: var(--track-label);
@@ -6975,11 +6977,11 @@ button.rl-menu__item[data-kind='aside'] {
 /* The kit, where a type has any, sits at the card's far edge; a kitted card
    also takes a steel edge (§3.1) so the rail reads "kitted" at a glance. */
 .rl-garage__card-kit {
-  margin-left: auto;
+  margin-inline-start: auto;
   flex: none;
 }
 .rl-garage__card:not([data-kit='0']) {
-  border-left-color: var(--kit);
+  border-inline-start-color: var(--kit);
 }
 
 /* --- the bay ------------------------------------------------------------ */
@@ -7080,8 +7082,8 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__plate[data-model='pending']::before {
   content: '';
   position: absolute;
-  left: 22%;
-  right: 22%;
+  inset-inline-start: 22%;
+  inset-inline-end: 22%;
   top: 62%;
   bottom: 14%;
   border-radius: 50%;
@@ -7125,7 +7127,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__model-hint {
   position: absolute;
-  left: var(--s2);
+  inset-inline-start: var(--s2);
   bottom: var(--s2);
   font-family: var(--font-display);
   font-size: var(--t-body);
@@ -7210,7 +7212,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__plate-kit {
   position: absolute;
   top: var(--s2);
-  left: var(--s2);
+  inset-inline-start: var(--s2);
   display: flex;
   align-items: center;
   gap: var(--s2);
@@ -7245,7 +7247,7 @@ button.rl-menu__item[data-kind='aside'] {
    pips and levels this plate already carries. */
 .rl-garage__plate-maxed {
   position: absolute;
-  right: var(--s2);
+  inset-inline-end: var(--s2);
   bottom: var(--s2);
   font-family: var(--font-display);
   font-size: var(--t-card);
@@ -7639,7 +7641,7 @@ button.rl-menu__item[data-kind='aside'] {
   position: absolute;
   top: -2px;
   bottom: -2px;
-  left: 0;
+  inset-inline-start: 0;
   box-sizing: border-box;
   pointer-events: none;
 }
@@ -7657,7 +7659,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__stat-n {
   font-family: var(--font-mono);
   color: var(--ink);
-  text-align: right;
+  text-align: end;
   white-space: nowrap;
 }
 /* The kit line: what the kit added, in its own steel colour, right after the
@@ -7669,7 +7671,7 @@ button.rl-menu__item[data-kind='aside'] {
   grid-row: 1;
   font-size: var(--t-band);
   color: var(--kit);
-  text-align: right;
+  text-align: end;
   white-space: nowrap;
 }
 
@@ -7687,15 +7689,15 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s1);
   padding: var(--s1) var(--s2);
-  border-left: 2px solid var(--panel-frame); /* px-ok */
+  border-inline-start: 2px solid var(--panel-frame); /* px-ok */
 }
 .rl-garage__rung:hover,
 .rl-garage__rung:focus-visible {
-  border-left-color: var(--accent);
+  border-inline-start-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .rl-garage__rung[data-state='owned'] {
-  border-left-color: var(--friendly);
+  border-inline-start-color: var(--friendly);
   background: color-mix(in srgb, var(--friendly) 12%, transparent);
 }
 /* The rung a purchase just bought (§3.5) sweeps out of the kit's steel into
@@ -7788,7 +7790,7 @@ button.rl-menu__item[data-kind='aside'] {
      the board column it wraps. Allowed: it reads as two balanced lines, left-aligned, inside the button's own
      padding, rather than one line breaking at the box edge. */
   max-width: 100%;
-  text-align: left;
+  text-align: start;
   text-wrap: balance;
   line-height: 1.3;
 }
@@ -7917,6 +7919,63 @@ button.rl-menu__item[data-kind='aside'] {
   margin: 0;
   color: var(--ink-dim);
 }
+.rl-profile__coin-heading {
+  margin: var(--s2) 0 0;
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-profile__coin-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.rl-profile__coin-status {
+  margin: 0;
+  color: var(--ink-dim);
+}
+.rl-profile__coin-status:empty {
+  display: none;
+}
+.rl-profile__coin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-band);
+}
+.rl-profile__coin-table td {
+  border-bottom: 1px solid var(--panel-rule);
+  padding: var(--s1) var(--s2);
+  vertical-align: top;
+}
+.rl-profile__coin-when {
+  color: var(--ink-mute);
+}
+/* The time wraps under the date at narrow widths. */
+.rl-profile__coin-date,
+.rl-profile__coin-time {
+  display: inline-block;
+}
+.rl-profile__coin-main,
+.rl-profile__coin-note {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.rl-profile__coin-note {
+  color: var(--ink-dim);
+}
+.rl-profile__coin-amount {
+  text-align: end;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rl-profile__coin-amount--in {
+  color: var(--roar);
+}
+.rl-profile__coin-amount--out {
+  color: var(--ink);
+}
 
 /* ---------------------------------------------------------------------- */
 /* Settings (ui/settings-panel.ts)                                        */
@@ -7987,7 +8046,7 @@ button.rl-menu__item[data-kind='aside'] {
   align-items: center;
   justify-content: flex-end;
   gap: var(--s1) var(--s2);
-  text-align: right;
+  text-align: end;
   /* Part of I6: the grid track can now shrink, so the contents must be
      allowed to as well -- a flex item's default `min-width: auto` would
      otherwise refuse and put the overflow back. */
@@ -8042,7 +8101,7 @@ button.rl-menu__item[data-kind='aside'] {
    Left-aligned rather than `.rl-menu`'s own centred text: a row of name,
    date and three buttons reads as a list, not a headline. */
 .rl-menu--saves .rl-panel {
-  text-align: left;
+  text-align: start;
 }
 /* GH-223: its own scroll region, capped well under the column's 96vh, so a
    long list scrolls internally instead of pushing the name field, the Save
@@ -8171,7 +8230,7 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s3);
   padding: var(--s5) var(--s6) var(--s4);
-  text-align: left;
+  text-align: start;
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame); /* px-ok */
 }
@@ -8272,7 +8331,7 @@ fieldset.rl-versus__maps {
   gap: var(--s1);
 }
 .rl-versus__sides > .rl-versus__label {
-  float: left;
+  float: inline-start;
   margin: 0 var(--s2) 0 0;
 }
 /* A card or a segment is a label around a real radio, so arrows, Space and
@@ -8347,7 +8406,7 @@ fieldset.rl-versus__maps {
   text-align: center;
   color: var(--ink-mute);
 }
-.rl-versus__side-note { text-align: left; grid-column: 1 / -1; }
+.rl-versus__side-note { text-align: start; grid-column: 1 / -1; }
 /* GH-976 P2: the win-mode group is the side group's twin; its options sit in a span that dissolves into the flex row. */
 .rl-versus__win-options {
   display: contents;
@@ -8414,7 +8473,7 @@ fieldset.rl-versus__maps {
   font-weight: 700;
   letter-spacing: var(--track-label);
   text-transform: uppercase;
-  text-align: left;
+  text-align: start;
   color: var(--ink-dim);
   overflow-wrap: anywhere;
 }
@@ -8433,7 +8492,7 @@ fieldset.rl-versus__maps {
   width: auto;
   object-fit: contain;
 }
-.rl-versus__art-img[data-n='1'] { margin-left: -1.5rem; }
+.rl-versus__art-img[data-n='1'] { margin-inline-start: -1.5rem; }
 /* Your friend's figures face yours. */
 .rl-versus__fcard[data-who='friend'] .rl-versus__art--big { transform: scaleX(-1); }
 .rl-versus__fcard-name {
@@ -8586,7 +8645,7 @@ fieldset.rl-versus__maps {
   display: inline-block;
   width: 0.6rem;
   height: 0.6rem;
-  margin-right: var(--s1);
+  margin-inline-end: var(--s1);
   vertical-align: middle;
   border-radius: 50%;
   border: 1px solid var(--mark-edge); /* px-ok */
@@ -8756,7 +8815,28 @@ fieldset.rl-versus__maps {
   font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--ink-mute);
-  text-align: right;
+  text-align: end;
+}
+/* GH-1388: the basic computer opponent, under the room controls. */
+.rl-versus__cpu {
+  display: grid;
+  gap: var(--s2);
+  justify-items: start;
+  margin-top: var(--s4);
+}
+.rl-versus__cpu-note,
+.rl-versus__cpu-msg {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  line-height: var(--lh-body);
+  color: var(--ink-mute);
+}
+.rl-versus__cpu-msg {
+  min-height: calc(var(--lh-body) * 1em);
+}
+.rl-versus__cpu-msg[data-tone='bad'] {
+  color: var(--bad-text);
 }
 .rl-versus__open-col {
   display: flex;
@@ -8962,7 +9042,7 @@ fieldset.rl-versus__maps {
   min-width: 0;
   margin-top: var(--s2);
   padding-top: var(--s2);
-  text-align: left;
+  text-align: start;
   border-top: 1px solid var(--panel-frame); /* px-ok */
 }
 .rl-versus__advisor-scope {
@@ -9031,7 +9111,7 @@ fieldset.rl-versus__maps {
     align-items: stretch;
   }
   .rl-versus__open-col { align-items: stretch; }
-  .rl-versus__open-msg { text-align: left; }
+  .rl-versus__open-msg { text-align: start; }
 }
 
 /* Reduced motion: the colour and knob transitions stop (the entrance
@@ -9082,7 +9162,37 @@ fieldset.rl-versus__maps {
 .rl-chat__line {
   overflow-wrap: anywhere;
 }
+.rl-chat__entry {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+}
+/* GH-1417 S1: the line shown in place of the chat while Settings has it off. */
+.rl-chat__off {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+/* The mute toggle beside the input; aria-pressed carries the state, the label names the action. */
+.rl-chat__mute {
+  flex: none;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+  cursor: pointer;
+}
+.rl-chat__mute[aria-pressed='true'] {
+  color: var(--ink);
+  background: var(--selected-fill);
+  border-color: var(--selected);
+}
 .rl-chat__input {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   box-sizing: border-box;
   background: var(--panel-bg-solid);
@@ -9100,7 +9210,7 @@ fieldset.rl-versus__maps {
 /* A `.rl-menu` column like Saves -- a list of sections reads left-aligned,
    not centred the way `.rl-menu`'s plain nav links do. */
 .rl-menu--credits .rl-panel {
-  text-align: left;
+  text-align: start;
 }
 .rl-credits__section {
   margin: var(--s4) 0 var(--s1);
@@ -9312,7 +9422,7 @@ fieldset.rl-versus__maps {
   display: inline-block;
   width: 0.875rem;
   height: 0.1875rem;
-  margin-right: var(--s1);
+  margin-inline-end: var(--s1);
   vertical-align: 0.2em;
   background: var(--ink-mute);
 }
@@ -9343,7 +9453,7 @@ fieldset.rl-versus__maps {
   column-gap: var(--s6);
   row-gap: var(--s4);
   align-items: start;
-  text-align: left;
+  text-align: start;
   padding-top: var(--s4);
 }
 .rl-field__head {
@@ -9522,7 +9632,7 @@ fieldset.rl-versus__maps {
   display: flex;
   flex-direction: column;
   padding: 0;
-  text-align: left;
+  text-align: start;
   font: inherit;
   color: var(--ink);
   background: var(--tile-bg);
@@ -9586,7 +9696,7 @@ fieldset.rl-versus__maps {
 .rl-force__swap {
   position: absolute;
   top: var(--s1);
-  right: var(--s1);
+  inset-inline-end: var(--s1);
   padding: 0 var(--s1);
   font: 600 var(--t-xs) var(--font-body);
   color: var(--ink);
@@ -9609,7 +9719,7 @@ fieldset.rl-versus__maps {
 .rl-force__bench {
   position: absolute;
   bottom: calc(100% + var(--s2));
-  left: 12rem;
+  inset-inline-start: 12rem;
   z-index: 4;
   width: min(26rem, 90vw);
   max-height: 55vh;
@@ -9639,7 +9749,7 @@ fieldset.rl-versus__maps {
   padding: var(--s1) var(--s2);
   font: var(--t-m) var(--font-body);
   color: var(--ink);
-  text-align: left;
+  text-align: start;
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--panel-rule);
@@ -9669,13 +9779,13 @@ fieldset.rl-versus__maps {
   font-weight: 600;
 }
 .rl-force__bench-rec {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: var(--ink-mute);
   font-size: var(--t-body);
 }
 .rl-force__bench-state {
   width: 3.5rem;
-  text-align: right;
+  text-align: end;
   font: 600 var(--t-xs) var(--font-body);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
@@ -9720,7 +9830,7 @@ fieldset.rl-versus__maps {
 /* N1b task 11: a desync's Report, beside the line. The line itself stays
    click-through; `.rl-btn` takes pointer events back for the button alone. */
 .rl-net-status__report {
-  margin-left: var(--s3);
+  margin-inline-start: var(--s3);
   font-size: var(--t-s);
 }
 
@@ -9788,7 +9898,7 @@ fieldset.rl-versus__maps {
   color: var(--ink-mute);
 }
 .rl-advisor__count {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .rl-advisor__input {
   width: 100%;
@@ -9852,7 +9962,7 @@ fieldset.rl-versus__maps {
   color: var(--ink);
   border: 1px solid var(--panel-frame); /* px-ok */
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 .rl-below__chip[aria-pressed='true'] {
@@ -10008,7 +10118,7 @@ fieldset.rl-versus__maps {
   background: var(--bad);
 }
 .rl-net-points__n {
-  text-align: right;
+  text-align: end;
 }
 .rl-net-points__rate {
   color: var(--ink-dim);
@@ -10023,7 +10133,7 @@ fieldset.rl-versus__maps {
 .rl-net-board th,
 .rl-net-board td {
   padding: var(--s1) var(--s2);
-  text-align: right;
+  text-align: end;
   white-space: nowrap;
 }
 .rl-net-board thead th {
@@ -10033,7 +10143,7 @@ fieldset.rl-versus__maps {
   letter-spacing: 0.06em;
 }
 .rl-net-board tbody th {
-  text-align: left;
+  text-align: start;
   max-width: 10rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -10201,7 +10311,7 @@ fieldset.rl-versus__maps {
 .rl-arena-setup__table td {
   padding: var(--s1) var(--s2);
   border-bottom: 1px solid var(--panel-rule);
-  text-align: left;
+  text-align: start;
 }
 
 /* GH-954 W3: the arena results list and the replay controls (dev-only routes). */
@@ -10226,7 +10336,7 @@ fieldset.rl-versus__maps {
 }
 .rl-arena-results__criteria ul {
   margin: var(--s1) 0 0;
-  padding-left: var(--s4);
+  padding-inline-start: var(--s4);
 }
 .rl-arena-replay {
   display: inline-flex;
@@ -10288,7 +10398,27 @@ fieldset.rl-versus__maps {
   background: var(--panel-bg-solid);
 }
 .rl-menu--profile .rl-panel {
-  text-align: left;
+  text-align: start;
+}
+/* GH-1367 S3: each card says what it is in colour. Heads are filled strips; the record tiles and result chips are
+   filled blocks. Lost and danger use --bad (it re-points under every data-cvd variant), never terracotta, which is
+   the Roar coin's colour (--roar). Small text on each fill is checked at 4.5:1 or better in profile-css.test.ts. */
+:root {
+  --card-head-record: var(--rl-olive-2);
+  --card-head-history: var(--rl-gunmetal-2);
+  --card-head-signin: var(--rl-limestone-5);
+  --card-head-signin-ink: var(--rl-shadow-1);
+  --card-head-data: color-mix(in srgb, var(--rl-water-1) 80%, var(--rl-shadow-1));
+  --card-head-danger: color-mix(in srgb, var(--bad) 55%, var(--rl-shadow-1));
+  --tile-won: color-mix(in srgb, var(--good) 55%, var(--rl-shadow-1));
+  --tile-lost: color-mix(in srgb, var(--bad) 50%, var(--rl-shadow-1));
+  --tile-drawn: var(--rl-gunmetal-3);
+  --tile-ink: var(--rl-limestone-0);
+  --steam-fill: color-mix(in srgb, var(--rl-water-1) 75%, var(--rl-shadow-1));
+  /* Google's dark button, from data/palette.json brand.google (https://developers.google.com/identity/branding-guidelines). */
+  --google-fill: var(--rl-brand-google-fill);
+  --google-stroke: var(--rl-brand-google-stroke);
+  --google-text: var(--rl-brand-google-text);
 }
 .rl-profile__status {
   margin: 0 0 var(--s2);
@@ -10326,20 +10456,101 @@ fieldset.rl-versus__maps {
   border: 1px solid var(--panel-frame); /* px-ok */
   min-width: 0;
 }
-/* The header card: a gold rule on its left edge. --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
+/* The crest echo (GH-1367 S4): the card is washed in the member's own crest, read off the avatar's data-avatar. Ground
+   is the crest's ground and rim its brightest charge tone, from tools/avatars/crest_geometry.mjs; crest-card.test.ts
+   pins every pair to that table. Five are named substitutes: a near-black or near-white ground would wash the card
+   black or white. --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
 .rl-profile__card--head {
-  border-left: 0.1875rem solid var(--title-accent);
+  --crest-ground: var(--rl-olive-2);
+  --crest-rim: var(--title-accent);
+  border-inline-start: 0.1875rem solid var(--crest-rim);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--crest-ground) 85%, transparent) 0,
+    color-mix(in srgb, var(--crest-ground) 35%, var(--rl-shadow-1)) 45%,
+    var(--card-bg) 80%
+  );
+}
+.rl-profile__card--head:has([data-avatar='crest-chevrons']) {
+  --crest-ground: var(--rl-dust-5);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-claw']) {
+  --crest-ground: var(--rl-terracotta-1);
+  --crest-rim: var(--rl-terracotta-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-lion']) {
+  --crest-ground: var(--rl-olive-2);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-tower']) {
+  --crest-ground: var(--rl-gunmetal-3);
+  --crest-rim: var(--rl-limestone-1);
+}
+.rl-profile__card--head:has([data-avatar='crest-star']) {
+  --crest-ground: var(--rl-olive-3);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-wing']) {
+  --crest-ground: var(--rl-water-1);
+  --crest-rim: var(--rl-limestone-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-track']) {
+  --crest-ground: var(--rl-gunmetal-3);
+  --crest-rim: var(--rl-limestone-2);
+}
+.rl-profile__card--head:has([data-avatar='crest-sprig']) {
+  --crest-ground: var(--rl-scrub-1);
+  --crest-rim: var(--rl-limestone-1);
+}
+.rl-profile__card--head:has([data-avatar='crest-ridge']) {
+  --crest-ground: var(--rl-gunmetal-2);
+  --crest-rim: var(--rl-limestone-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-wave']) {
+  --crest-ground: var(--rl-water-1);
+  --crest-rim: var(--rl-water-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-dune']) {
+  --crest-ground: var(--rl-dust-5);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-reticle']) {
+  --crest-ground: var(--rl-terracotta-2);
+  --crest-rim: var(--rl-dust-0);
 }
 .rl-profile__card-title {
-  margin: 0;
-  padding-bottom: var(--s1);
-  border-bottom: 1px solid var(--panel-frame); /* px-ok */
+  /* A strip across the top of the card: cancel the card's padding on three sides. */
+  margin: calc(-1 * var(--s4)) calc(-1 * var(--s4)) 0;
+  padding: var(--s1) var(--s4);
   font-family: var(--font-display);
   font-size: var(--t-s);
   font-weight: normal;
   letter-spacing: var(--track-title);
   text-transform: uppercase;
-  color: var(--ink-label);
+  color: var(--band-ink);
+}
+.rl-profile__card--record .rl-profile__card-title {
+  background: var(--card-head-record);
+}
+.rl-profile__card--history .rl-profile__card-title {
+  background: var(--card-head-history);
+}
+.rl-profile__card--signin .rl-profile__card-title {
+  background: var(--card-head-signin);
+  color: var(--card-head-signin-ink);
+}
+.rl-profile__card--data .rl-profile__card-title {
+  background: var(--card-head-data);
+}
+.rl-profile__card--record {
+  border-color: var(--card-head-record);
+}
+.rl-profile__card--signin {
+  border-color: color-mix(in srgb, var(--card-head-signin) 45%, transparent);
+}
+.rl-profile__card--data {
+  border-color: color-mix(in srgb, var(--rl-water-1) 50%, transparent);
 }
 .rl-profile__card-body {
   display: flex;
@@ -10384,7 +10595,7 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__since {
   margin: 0;
-  color: var(--ink-mute);
+  color: var(--ink);
 }
 @media (max-width: 30rem) {
   .rl-profile__head {
@@ -10401,7 +10612,7 @@ fieldset.rl-versus__maps {
   padding: var(--s3) var(--s4);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame); /* px-ok */
-  border-left: 0.25rem solid var(--band-mission);
+  border-inline-start: 0.25rem solid var(--band-mission);
 }
 .rl-profile__claim-lead,
 .rl-profile__claim-state {
@@ -10426,8 +10637,9 @@ fieldset.rl-versus__maps {
 .rl-profile__guest-headline {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--t-read);
+  font-size: var(--t-head);
   font-weight: normal;
+  color: var(--title-accent);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
 }
@@ -10454,11 +10666,57 @@ fieldset.rl-versus__maps {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--s2);
+  /* Google's "dark" button, by its guidelines: fill, stroke and text from brand.google; 2.5rem tall, --s3 (0.75rem) either
+     side of the content and --s2h (0.625rem) between the mark and the label; 0.875rem type on 1.25rem lines. Google Sans is
+     not licensed here, so the label is Barlow 600 (the body face, closest to Medium). Those rem sizes are Google's
+     numbers (40, 12, 10, 14 and 20) at 16 to the rem and --ui-scale 1. */
+  box-sizing: border-box;
+  height: 2.5rem;
+  padding: 0 var(--s3);
+  gap: var(--s2h);
+  background: var(--google-fill);
+  border-color: var(--google-stroke);
+  color: var(--google-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+}
+/* The hover state is Google's 8% state layer, not the house gold. */
+.rl-btn.rl-profile__google:hover,
+.rl-btn.rl-profile__google:focus-visible,
+.rl-btn.rl-profile__link--google:hover,
+.rl-btn.rl-profile__link--google:focus-visible {
+  background: color-mix(in srgb, var(--google-text) 8%, var(--google-fill));
+  border-color: var(--google-stroke);
+  color: var(--google-text);
+}
+/* The guest roundel wears the KDF olive: a rim and a glyph. */
+.rl-profile__guest .rl-avatar {
+  border-width: 2px; /* px-ok */
+  border-color: var(--rl-olive-1);
+  color: var(--rl-olive-0);
+}
+/* Sign up: a gold frame and gold text (--title-accent, since --accent is for hover and focus). Steam, below, wins. */
+.rl-profile__signup {
+  border-color: var(--title-accent);
+  color: var(--title-accent);
+}
+.rl-profile__steam,
+.rl-profile__link--steam {
+  background: var(--steam-fill);
+  border-color: var(--steam-fill);
+  color: var(--band-ink);
+}
+.rl-btn.rl-profile__steam:hover,
+.rl-btn.rl-profile__steam:focus-visible,
+.rl-btn.rl-profile__link--steam:hover,
+.rl-btn.rl-profile__link--steam:focus-visible {
+  border-color: var(--accent);
+  color: var(--band-ink);
 }
 .rl-profile__g {
-  width: 1.125rem;
-  height: 1.125rem;
+  width: 1.25rem;
+  height: 1.25rem;
   flex: none;
 }
 .rl-profile__links {
@@ -10510,6 +10768,9 @@ fieldset.rl-versus__maps {
   align-items: center;
   justify-content: space-between;
   gap: var(--s2);
+  padding: var(--s1) var(--s2);
+  background: var(--well);
+  border-inline-start: 0.1875rem solid var(--good);
 }
 .rl-profile__identity-main {
   display: flex;
@@ -10527,16 +10788,16 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__identity-state {
   flex: none;
-  padding: 0 var(--s1);
-  border: 1px solid currentColor; /* px-ok */
-  /* The lifted card ground takes --good small text under AA; a solid backing keeps it at 4.69:1. */
-  background: var(--panel-bg-solid);
+  padding: var(--s0) var(--s1);
+  border: 0;
+  background: var(--tile-won);
   font-size: var(--t-xs);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
-  color: var(--good);
+  color: var(--tile-ink);
 }
 .rl-profile__identity-state[data-state='paused'] {
+  background: var(--tile-drawn);
   color: var(--ink-mute);
 }
 .rl-profile__verbs,
@@ -10557,32 +10818,34 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__tile {
   display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: var(--s2);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s1);
   padding: var(--s2) var(--s3);
-  background: transparent;
-  border: 1px solid var(--panel-frame); /* px-ok */
+  border: 0;
+}
+.rl-profile__tile--won {
+  background: var(--tile-won);
+}
+.rl-profile__tile--lost {
+  background: var(--tile-lost);
+}
+.rl-profile__tile--drawn {
+  background: var(--tile-drawn);
 }
 .rl-profile__tile-n {
   font-family: var(--font-display);
-  font-size: 2rem;
+  font-size: 2.25rem;
   font-weight: 800;
   line-height: 1;
-  color: var(--ink);
-}
-.rl-profile__tile--won .rl-profile__tile-n {
-  color: var(--good);
-}
-.rl-profile__tile--lost .rl-profile__tile-n {
-  color: var(--bad-text);
+  color: var(--tile-ink);
 }
 .rl-profile__tile-label {
   font-family: var(--font-display);
   font-size: var(--t-xs);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
-  color: var(--ink-mute);
+  color: var(--tile-ink);
 }
 .rl-profile__show-record {
   display: flex;
@@ -10619,21 +10882,21 @@ fieldset.rl-versus__maps {
   color: var(--ink-mute);
 }
 .rl-profile__result {
-  padding: 0 var(--s1);
-  background: var(--panel-bg-solid);
-  border: 1px solid currentColor; /* px-ok */
+  padding: var(--s0) var(--s1);
+  border: 0;
+  color: var(--tile-ink);
   font-size: var(--t-xs);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
 }
 .rl-profile__result--won {
-  color: var(--good);
+  background: var(--tile-won);
 }
 .rl-profile__result--lost {
-  color: var(--bad-text);
+  background: var(--tile-lost);
 }
 .rl-profile__result--drawn {
-  color: var(--ink-mute);
+  background: var(--tile-drawn);
 }
 .rl-profile__telemetry {
   display: flex;
@@ -10653,10 +10916,51 @@ fieldset.rl-versus__maps {
   border-color: var(--danger-frame);
 }
 .rl-profile__card--danger .rl-profile__card-title {
-  border-bottom-color: var(--danger-frame);
-  color: var(--bad-text);
+  background: var(--card-head-danger);
+  color: var(--band-ink);
 }
 .rl-profile__delete {
   border-color: var(--bad);
   color: var(--bad-text);
+}
+
+/* GH-1393: the saved mission, on the campaign board's footer, and the pause menu's save line. */
+.rl-resume {
+  display: grid;
+  gap: var(--s2);
+  justify-items: start;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+}
+.rl-resume__lead {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-resume__line,
+.rl-resume__msg,
+.rl-pause__save-msg {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  line-height: var(--lh-body);
+  color: var(--ink);
+}
+.rl-resume__msg,
+.rl-pause__save-msg {
+  min-height: calc(var(--lh-body) * 1em);
+  color: var(--ink-mute);
+}
+.rl-resume__msg[data-tone='bad'],
+.rl-pause__save-msg[data-tone='bad'] {
+  color: var(--bad-text);
+}
+.rl-resume__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
 }

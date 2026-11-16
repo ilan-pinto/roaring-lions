@@ -11,6 +11,7 @@ import {
   commanderRankFailures,
   narrativeTextFailures,
   overlayFailures,
+  unitOverlayFailures,
   removeTriggerFailures,
   triggerLabelFailures,
 } from '../validate_narrative.mjs';
@@ -339,5 +340,37 @@ describe('overlayFailures', () => {
 
   it('is silent on an empty overlay', () => {
     expect(overlayFailures('fr/missions.json', {}, missions())).toEqual([]);
+  });
+});
+
+describe('unitOverlayFailures (GH-1406)', () => {
+  const ids = new Set(['inf_squad', 'mbt_lavi']);
+
+  it('passes a well-formed overlay, an empty one, and a null one', () => {
+    expect(unitOverlayFailures('fr/units.json', { inf_squad: { name: 'Escouade', blurb: 'Fantassins.' }, mbt_lavi: { name: 'Lavi' } }, ids)).toEqual([]);
+    expect(unitOverlayFailures('fr/units.json', {}, ids)).toEqual([]);
+    expect(unitOverlayFailures('fr/units.json', null, ids)).toEqual([]);
+  });
+
+  it('refuses a unit id that is not in data/units (a typo would otherwise do nothing forever)', () => {
+    const out = unitOverlayFailures('fr/units.json', { inf_sqaud: { name: 'x' } }, ids);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatch(/inf_sqaud.*not a unit/);
+  });
+
+  it('refuses any key but name and blurb: an overlay is text, never stats', () => {
+    const out = unitOverlayFailures('fr/units.json', { inf_squad: { name: 'x', cost: 5 } }, ids);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatch(/"cost".*only name and blurb/);
+  });
+
+  it('refuses an empty, blank or non-string value', () => {
+    expect(unitOverlayFailures('f', { inf_squad: { name: '' } }, ids)).toHaveLength(1);
+    expect(unitOverlayFailures('f', { inf_squad: { blurb: '   ' } }, ids)).toHaveLength(1);
+    expect(unitOverlayFailures('f', { inf_squad: { name: 7 } }, ids)).toHaveLength(1);
+  });
+
+  it('reports every failure, not the first', () => {
+    expect(unitOverlayFailures('f', { nope: { name: 'x' }, inf_squad: { name: '', wat: 1 } }, ids)).toHaveLength(3);
   });
 });

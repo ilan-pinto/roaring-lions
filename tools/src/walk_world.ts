@@ -19,6 +19,7 @@ import { applyTerrain, parseMap, roadMaskOf, structures as structureCatalogue } 
 import { MissionRuntime, type LedgerData } from '../../packages/sim/src/mission';
 import { Sim } from '../../packages/sim/src/sim';
 import type { TunnelRouteJson } from '../../packages/sim/src/tunnels';
+import { START_LAYOUT } from './mission-harness';
 
 export const ROOT = join(import.meta.dirname, '..', '..');
 export const read = (p: string) => JSON.parse(readFileSync(p, 'utf8'));
@@ -107,6 +108,7 @@ export function makeWorld(
   const nameOf = new Map<number, string>([...typeIds].map(([id, t]) => [t, id]));
 
   const runtime = new MissionRuntime(sim, mission as never, {
+    startLayout: START_LAYOUT, // GH-1360 S3b: shipped missions start in the assembly layout
     typeIdOf: (u: string) => {
       const t = typeIds.get(u);
       if (t === undefined) throw new Error(`unknown unit ${u}`);

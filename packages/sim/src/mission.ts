@@ -52,6 +52,8 @@ import {
   WOUND_STABILISED,
 } from './tuning';
 import type { TunnelRouteJson } from './tunnels';
+import type { CompiledFormation } from './formation-template';
+import { frontToward, startFaceOf, startLayout, START_FREE_SPOT_REACH, type StartBody, type StartFront, type StartPlacement } from './start-layout';
 import { reinforceKey, unlockReason, type UnlockGate } from './unlock';
 
 // ---------------------------------------------------------------------------
@@ -225,6 +227,13 @@ export interface ObjectiveJson {
   /** `escort` only: the destination zone, a name in the map's zones. `target` names the escorted units (a tag on a
    *  `starting_force` placement). Absent on every other type; the schema's description is the authority. */
   zone?: string;
+  /** `escort` only (GH-1439): the escort fails the tick this many of its tagged units are dead or taken, a whole number from 1 to the
+   *  number of tagged units. Absent is 1, the escort as it always was: the first loss fails it. */
+  fail_after_losses?: number;
+  /** `escort` only (GH-1439): ids of PRIMARY objectives the escort waits on. It cannot complete until every one is complete, and arrival
+   *  is read each tick (no latch): it completes the first tick they are all complete and every surviving escorted unit stands in `zone`.
+   *  Never another escort, a `no_collateral_above` or a `score`, and never itself. Absent is today's escort, byte for byte. */
+  until?: string[];
   /** `no_collateral_above` only: the most Conduct (ROE score points) this mission may lose, a whole number 0 to 100.
    *  The objective fails the tick `100 - roeScore` is above it. The schema types it as an integer 0..100, required on this type and
    *  forbidden on every other; the constructor throws on the same faults at load. */
@@ -301,6 +310,15 @@ export interface MissionJson {
    *  mission.schema.json and tools/validate_time_limit.mjs. */
   time_limit_s?: number;
   map: { file: string; player_start?: readonly number[] };
+  /** GH-1360 S3b: how the starting force stands at tick zero. `assembly`: laid out by `startLayout` in the
+   *  `data/layouts/assembly.json` shape (vehicles, then infantry, then support), facing `start_front`.
+   *  `authored`: every `at` kept, only de-overlapped by the free spot. ABSENT: today's `SPREAD`, byte for
+   *  byte (every sim fixture). `validate:data` requires it on every shipped mission. A plain string because
+   *  a JSON module types it so; `start()` refuses any other value. */
+  start_layout?: string;
+  /** GH-1360 S3b: the axis the starting force faces, `N`, `E`, `S` or `W`. Absent: derived (the centroid of
+   *  side 1's placements, else of the primary objectives' zones, else the map centre). */
+  start_front?: string;
   ledger: { requires: readonly string[]; produces: readonly string[] };
   objectives: readonly ObjectiveJson[];
   starting_force?: readonly PlacementJson[];
@@ -399,6 +417,10 @@ export interface MissionJson {
 
 export interface MissionContext {
   typeIdOf: (unitId: string) => number;
+  /** GH-1360 S3b: the compiled starting layout (`compileFormation(assemblyLayout)`, `@lions/data`), which the
+   *  sim cannot import. Required by a mission whose `start_layout` is `assembly`: `start()` throws without it,
+   *  so no harness can play a shipped mission in a layout the game does not ship. */
+  startLayout?: CompiledFormation;
   markers: Record<string, readonly number[]>;
   zones: Record<string, readonly number[]>;
   /** Authored tunnel routes, in the order they were registered with
@@ -841,6 +863,92 @@ export function zoneContains(
   return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
 }
 
+/** GH-1360 S3b: the three derived fronts, each from the starting force's authored centroid (design section 3.2). */
+export interface StartFrontDerivations {
+  /** Toward the centroid of side 1's start placements, buried bodies excluded; null with no such body. */
+  enemy: StartFront | null;
+  /** Toward the centroid of the primary objectives' zone centres; null with no zoned primary. */
+  objectives: StartFront | null;
+  /** Toward the map centre. */
+  centre: StartFront;
+  /** The first of the three that exists: the runtime's fallback for a mission with no `start_front`. */
+  chosen: StartFront;
+}
+
+/** Floored mean of Fx values, summed in Fx and floored once (the P1c lesson). */
+function fxMean(sum: number, n: number): number {
+  return (sum - (sum % n)) / n;
+}
+
+/**
+ * GH-1360 S3b: the fronts a mission's starting force would face if it declared no `start_front`. `force` is the force's
+ * bodies at their authored positions. Pure: integer and Q16.16 only. Exported so `tools/src/start_layout.test.ts` can
+ * list the missions whose three derivations disagree (the ones a `mission-author` reviews).
+ */
+export function startFrontDerivations(
+  mission: MissionJson,
+  ctx: Pick<MissionContext, 'markers' | 'zones'>,
+  width: number,
+  height: number,
+  force: readonly (readonly [Fx, Fx])[],
+): StartFrontDerivations {
+  let fsx = 0;
+  let fsy = 0;
+  for (const [x, y] of force) {
+    fsx += x;
+    fsy += y;
+  }
+  const n = force.length;
+  const cx = n > 0 ? fxMean(fsx, n) : fx.fromInt(width) / 2;
+  const cy = n > 0 ? fxMean(fsy, n) : fx.fromInt(height) / 2;
+  // Side 1's bodies where `spawnPlacement` puts them: the base, then SPREAD east and south per body.
+  let esx = 0;
+  let esy = 0;
+  let en = 0;
+  for (const p of mission.enemy?.garrison ?? []) {
+    if (p.in_tunnel !== undefined) continue;
+    let bx: Fx;
+    let by: Fx;
+    if (p.marker !== undefined) {
+      const m = ctx.markers[p.marker];
+      if (m === undefined) continue;
+      bx = fx.add(fx.fromInt(m[0]), HALF);
+      by = fx.add(fx.fromInt(m[1]), HALF);
+    } else if (p.at !== undefined) {
+      bx = fx.from(p.at[0]);
+      by = fx.from(p.at[1]);
+    } else continue;
+    for (let k = 0; k < p.count; k++) {
+      esx += fx.add(bx, (k % 3) * SPREAD);
+      esy += fx.add(by, ((k - (k % 3)) / 3) * SPREAD);
+      en++;
+    }
+  }
+  const enemy = en > 0 ? frontToward(cx, cy, fxMean(esx, en), fxMean(esy, en)) : null;
+  let zsx = 0;
+  let zsy = 0;
+  let zn = 0;
+  for (const o of mission.objectives) {
+    if (!o.primary) continue;
+    const name = o.type === 'escort' ? o.zone : o.type === 'capture' || o.type === 'hold_for' || o.type === 'raze' || o.type === 'collapse' || o.type === 'evacuate_before' ? o.target : undefined;
+    const z = name !== undefined ? ctx.zones[name] : undefined;
+    if (z === undefined) continue;
+    zsx += fx.fromInt(z[0]) + z[2] * HALF;
+    zsy += fx.fromInt(z[1]) + z[3] * HALF;
+    zn++;
+  }
+  const objectives = zn > 0 ? frontToward(cx, cy, fxMean(zsx, zn), fxMean(zsy, zn)) : null;
+  const centre = frontToward(cx, cy, width * HALF, height * HALF);
+  return { enemy, objectives, centre, chosen: enemy ?? objectives ?? centre };
+}
+
+/** Which of `stepObjectives`' three passes an objective runs in (GH-1439): 1 for an escort that waits on other objectives, 2 for a
+ *  `no_collateral_above`, 0 for everything else. A function of the definition alone. */
+function objectivePass(d: ObjectiveJson): 0 | 1 | 2 {
+  if (d.type === 'no_collateral_above') return 2;
+  return d.type === 'escort' && d.until !== undefined ? 1 : 0;
+}
+
 export class MissionRuntime {
   private readonly sim: Sim;
   private readonly mission: MissionJson;
@@ -1140,6 +1248,31 @@ export class MissionRuntime {
       }
       if (def.zone !== undefined && def.type !== 'escort') {
         throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no zone (only escort does)`);
+      }
+      // GH-1439: `fail_after_losses` and `until` belong to escort alone, like `zone`. The tagged-unit total (R3) and the
+      // protect-in-place rule (R7) need the bodies and are checked in `start()`.
+      if (def.fail_after_losses !== undefined && def.type !== 'escort') {
+        throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no fail_after_losses (only escort does)`);
+      }
+      if (def.until !== undefined && def.type !== 'escort') {
+        throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no until (only escort does)`);
+      }
+      if (def.fail_after_losses !== undefined && (!Number.isInteger(def.fail_after_losses) || def.fail_after_losses < 1)) {
+        throw new Error(`mission ${mission.id}: escort "${def.id}" needs a whole fail_after_losses of at least 1, not ${String(def.fail_after_losses)}`);
+      }
+      if (def.until !== undefined) {
+        if (!Array.isArray(def.until) || def.until.length === 0 || new Set(def.until).size !== def.until.length) {
+          throw new Error(`mission ${mission.id}: escort "${def.id}" needs an until of one or more distinct objective ids`);
+        }
+        for (const u of def.until) {
+          if (u === def.id) throw new Error(`mission ${mission.id}: escort "${def.id}" until names itself`);
+          const waits = mission.objectives.find((x) => x.id === u);
+          if (waits === undefined) throw new Error(`mission ${mission.id}: escort "${def.id}" until names unknown objective "${String(u)}"`);
+          if (!waits.primary) throw new Error(`mission ${mission.id}: escort "${def.id}" until waits on a secondary ("${u}"), which could fail and leave the escort active for ever`);
+          if (waits.type === 'escort' || waits.type === 'no_collateral_above' || waits.type === 'score') {
+            throw new Error(`mission ${mission.id}: escort "${def.id}" until waits on a type that waits on it ("${u}" is ${waits.type === 'escort' ? 'an' : 'a'} ${waits.type})`);
+          }
+        }
       }
       if (def.side !== undefined) {
         if (!SIDED.has(def.type)) {
@@ -2604,8 +2737,10 @@ export class MissionRuntime {
     });
   }
 
-  /** Spawn everything the mission declares. Call once before the first tick. */
-  start(): void {
+  /** Spawn everything the mission declares. Call once before the first tick.
+   *  `onLayout` (GH-1360 S3b, tests and tools): told where the starting layout stood each body and how (`slot`,
+   *  `free` or `authored`), in spawn order. Not called for a mission with no `start_layout`. */
+  start(onLayout?: (placements: readonly StartPlacement[]) => void): void {
     // Mission-placed buildings go up BEFORE any force spawns, so a placement
     // can never land inside one.
     this.raiseMissionStructures();
@@ -2634,9 +2769,19 @@ export class MissionRuntime {
     }
     const loaned = new Set(this.ctx.loaned ?? []);
     const force = this.mission.starting_force ?? [];
+    // GH-1360 S3b: the bodies the starting layout may move, in spawn order. A rider goes with its carrier, a
+    // buried body is under the route and a garrisoning one is walking into its building: none of them stands.
+    const laid: number[] = [];
     for (let i = 0; i < force.length; i++) {
       const ids = this.spawnPlacement(force[i], 0);
       if (loaned.has(i)) for (const id of ids) this.onLoan.add(id);
+      if (force[i].in_tunnel === undefined && force[i].stance?.kind !== 'garrison') laid.push(...ids);
+    }
+    // After the ledger draw (inside spawnPlacement) and after `resolveUpgrades` (the caller's): both change
+    // counts and classes. Before the enemy spawns, so a later appearance sees where the force stands.
+    if (this.mission.start_layout !== undefined) {
+      const placements = this.layStartingForce(laid);
+      onLayout?.(placements);
     }
     for (const p of this.mission.enemy?.garrison ?? []) this.spawnPlacement(p, 1);
     for (const p of this.mission.civilians?.groups ?? []) this.spawnPlacement(p, 2);
@@ -2678,9 +2823,13 @@ export class MissionRuntime {
         if (!dest) {
           throw new Error(`mission ${this.mission.id}: escort "${o.def.id}" needs a valid zone`);
         }
+        // GH-1439 R3: a loss tolerance past the units tagged could never be reached, so the escort could never fail.
+        if (o.def.fail_after_losses !== undefined && o.def.fail_after_losses > ids.length) {
+          throw new Error(`mission ${this.mission.id}: escort "${o.def.id}" fail_after_losses ${o.def.fail_after_losses} cannot exceed the ${ids.length} units tagged "${o.def.target}"`);
+        }
         // Already there at tick zero would complete on the first tick, the same authoring error as a raze zone with
-        // nothing in it.
-        if (ids.every((id) => this.standsIn(id, dest))) {
+        // nothing in it. With an `until` it would not (the work is still to do), so a protect-in-place escort is legal (GH-1439 R7).
+        if (o.def.until === undefined && ids.every((id) => this.standsIn(id, dest))) {
           throw new Error(`mission ${this.mission.id}: escort "${o.def.id}" starts inside zone "${o.def.zone}", so it would complete on the first tick`);
         }
       }
@@ -3375,6 +3524,92 @@ export class MissionRuntime {
         );
       }
     }
+  }
+
+  /**
+   * GH-1360 S3b: stand the starting force in its layout (design 2026-11-15-unit-spacing-design.md, section 3.2). The
+   * bodies are already spawned at their authored positions; this moves them (`placeAtStart`) and nothing else, so
+   * spawn order, ids and every per-entity RNG stream are unchanged.
+   *
+   * `assembly`: `startLayout` over the compiled template. `authored`: every body keeps its `at` unless it overlaps a
+   * body before it, when it takes the free spot from there. Either way the free spot is `Sim.freeSpotNear` at the
+   * start reach, with every body this call has not placed yet skipped (it still stands where the author put it, and
+   * must not block the spots handed out), and an answer equal to the request read as "no spot".
+   */
+  private layStartingForce(ids: readonly number[]): readonly StartPlacement[] {
+    const mode = this.mission.start_layout;
+    if (mode !== 'assembly' && mode !== 'authored') {
+      throw new Error(`mission ${this.mission.id}: start_layout "${String(mode)}" is not "assembly" or "authored"`);
+    }
+    const sim = this.sim;
+    const st = sim.state;
+    const skip = new Uint8Array(sim.capacity);
+    for (const id of ids) skip[id] = 1;
+    const placed = (o: StartPlacement): void => {
+      if (skip[o.id] === 0) return;
+      sim.placeAtStart(o.id, o.x, o.y, o.face);
+      skip[o.id] = 0;
+    };
+    const freeSpot = (id: number, x: Fx, y: Fx, others: readonly StartPlacement[], face: number): readonly [Fx, Fx] | null => {
+      for (const o of others) placed(o);
+      const spot = sim.freeSpotNear(x, y, st.typeIdx[id], 0, START_FREE_SPOT_REACH, face, skip);
+      // `freeSpotNear` echoes the request when nothing passes: that is "no spot", never a spot.
+      return spot[0] === x && spot[1] === y ? null : spot;
+    };
+    if (mode === 'authored') {
+      const report: StartPlacement[] = [];
+      for (const id of ids) {
+        const x = st.posX[id];
+        const y = st.posY[id];
+        const face = st.facing[id];
+        // Only the bodies before this one stand where they will stay; it and every later one are skipped.
+        const spot = freeSpot(id, x, y, [], face);
+        skip[id] = 0;
+        if (spot !== null) sim.placeAtStart(id, spot[0], spot[1], face);
+        report.push({ id, x: st.posX[id], y: st.posY[id], face, how: spot === null ? 'authored' : 'free' });
+      }
+      return report;
+    }
+    const tpl = this.ctx.startLayout;
+    if (tpl === undefined) {
+      throw new Error(`mission ${this.mission.id}: start_layout "assembly" needs ctx.startLayout (the compiled data/layouts/assembly.json)`);
+    }
+    const bodies: StartBody[] = ids.map((id) => {
+      const t = sim.unitTypes[st.typeIdx[id]];
+      const vehicle = !t.isAir && t.moveDomain === DOMAIN_VEHICLE;
+      return { id, domain: vehicle ? 1 : 0, cls: t.fmClass, vehicle, air: t.isAir, x: st.posX[id], y: st.posY[id] };
+    });
+    const front = this.startFront(ids);
+    // A free spot is placed facing the front, as `startLayout` faces it.
+    const faceFront = startFaceOf(front);
+    const out = startLayout(
+      {
+        width: sim.width,
+        height: sim.height,
+        masks: [sim.blocked, sim.blockedVehicle],
+        cover: sim.cover,
+        front,
+        bodies,
+        freeSpot: (id, x, y, others) => freeSpot(id, x, y, others, faceFront),
+      },
+      tpl,
+    );
+    for (const o of out) sim.placeAtStart(o.id, o.x, o.y, o.face);
+    return out;
+  }
+
+  /** The axis the starting force faces: the authored `start_front`, else derived (`startFrontDerivations`). */
+  private startFront(ids: readonly number[]): StartFront {
+    const f = this.mission.start_front;
+    if (f !== undefined) {
+      if (f !== 'N' && f !== 'E' && f !== 'S' && f !== 'W') {
+        throw new Error(`mission ${this.mission.id}: start_front "${f}" is not N, E, S or W`);
+      }
+      return f;
+    }
+    const st = this.sim.state;
+    const pts: [Fx, Fx][] = ids.map((id) => [st.posX[id], st.posY[id]]);
+    return startFrontDerivations(this.mission, this.ctx, this.sim.width, this.sim.height, pts).chosen;
   }
 
   private markerPos(name: string): [Fx, Fx] {
@@ -4454,18 +4689,20 @@ export class MissionRuntime {
   }
 
   private stepObjectives(tick: number, out: MissionEvent[]): void {
-    // Two passes, no stored order (the runtime snapshot has a row for every field): every objective in authored order,
-    // then each `no_collateral_above`, so on the tick the other primaries complete the ceiling sees them complete and
-    // finishes with them. A mission ends the same tick, and would otherwise end with it still active. With none
-    // authored the second pass skips every row.
-    this.stepObjectivePass(tick, out, false);
-    this.stepObjectivePass(tick, out, true);
+    // Three passes, no stored order (the runtime snapshot has a row for every field; the pass of an objective is a function of its
+    // definition): every objective but the two kinds below in authored order, then each `escort` with an `until` (GH-1439), then each
+    // `no_collateral_above`. An escort that waits on work must see that work complete on the tick it completes, whatever order the
+    // mission authored them in; and a ceiling completes when every primary is, the escort included, so it runs last. A mission with
+    // neither kind has an empty second and third pass, and its events and digest are what they always were.
+    this.stepObjectivePass(tick, out, 0);
+    this.stepObjectivePass(tick, out, 1);
+    this.stepObjectivePass(tick, out, 2);
   }
 
-  private stepObjectivePass(tick: number, out: MissionEvent[], ceilings: boolean): void {
+  private stepObjectivePass(tick: number, out: MissionEvent[], pass: 0 | 1 | 2): void {
     for (const o of this.objectives) {
       if (o.status !== 'active') continue;
-      if ((o.def.type === 'no_collateral_above') !== ceilings) continue;
+      if (objectivePass(o.def) !== pass) continue;
       const d = o.def;
       let complete = false;
       let failed = false;
@@ -4514,14 +4751,32 @@ export class MissionRuntime {
             !x.def.primary || (x.def.type === 'no_collateral_above' ? x.status !== 'failed' : x.status === 'complete'),
           );
       } else if (d.type === 'escort') {
-        // Lost: any escorted unit is dead or taken (`remove` clears `alive` too). Arrived: EVERY escorted unit stands
-        // in the zone at once (`standsIn` needs it alive, so a dead unit can never count as arrived and the two
-        // verdicts cannot both hold). `start()` guarantees the tag is non-empty and the zone exists. Stateless on
-        // purpose: the verdict is a function of this tick's bodies, so it adds no column and no hash word.
+        // Lost: `fail_after_losses` of the escorted units (default 1) are dead or taken (`remove` clears `alive` too). Arrived: EVERY
+        // SURVIVING escorted unit stands in the zone at once (`standsIn` needs it alive), and every objective in `until` is complete.
+        // Read each tick, never latched, and the dead cannot block the arrival once the tolerance lets the escort outlive them; with the
+        // default limit of 1 a death has already failed it, so "surviving" and "all" are the same set. A loss is permanent (`alive`
+        // never returns to 1), so the count needs no history. Failure wins a tie: the escort cannot be reported complete on the tick it
+        // crosses its limit. `start()` guarantees the tag is non-empty and the zone exists. Stateless on purpose: the verdict is a
+        // function of this tick's bodies and objective statuses, so it adds no column and no hash word.
         const ids = this.tags.get(d.target ?? '') ?? [];
         const dest = this.zone(d.zone);
-        failed = ids.some((id) => this.sim.state.alive[id] === 0);
-        complete = dest !== undefined && ids.every((id) => this.standsIn(id, dest));
+        let lost = 0;
+        let present = 0;
+        let arrived = 0;
+        for (const id of ids) {
+          if (this.sim.state.alive[id] === 0) lost++;
+          else {
+            present++;
+            if (dest !== undefined && this.standsIn(id, dest)) arrived++;
+          }
+        }
+        failed = lost >= (d.fail_after_losses ?? 1);
+        complete =
+          !failed &&
+          dest !== undefined &&
+          present > 0 &&
+          arrived === present &&
+          (d.until === undefined || d.until.every((u) => this.objectives.some((x) => x.def.id === u && x.status === 'complete')));
       } else if (d.type === 'eliminate_hvt') {
         const ids = this.tags.get(d.target ?? '') ?? [];
         // Eliminated means KILLED. A `remove` trigger (the enemy's act: an escape, an
