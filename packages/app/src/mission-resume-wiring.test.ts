@@ -88,7 +88,7 @@ describe('the save is dropped when its mission is over', () => {
 
 describe('the lazy boundary (main red since PR 1478: the entry chunk went over its guard)', () => {
   // `pnpm --filter @lions/tools webgpu:bundle` is the byte gate; this is the cheap one that names the cause.
-  const LAZY = ['mission-save', 'mission-save-store', 'mission-shell', 'mission-resume', 'ui/resume-copy', 'mission-save-kit'];
+  const LAZY = ['ui/resume-row', 'mission-save', 'mission-save-store', 'mission-shell', 'mission-resume', 'ui/resume-copy', 'mission-save-kit'];
   it('main.ts imports none of the save modules except as a type, and reaches them through one dynamic import of the kit', () => {
     for (const mod of LAZY) {
       const staticValue = new RegExp(`^import (?!type )[^;]*from '\\./${mod}';`, 'm');
@@ -100,8 +100,16 @@ describe('the lazy boundary (main red since PR 1478: the entry chunk went over i
 
   it('a chunk that will not load costs the Resume row or the Save button, never the board or the mission', () => {
     expect(main).toMatch(/const kit = await saveKit\(\)\.catch\(\(\) => null\);\s*if \(req\.signal\.aborted\) return \(\) => undefined;/);
-    expect(main).toMatch(/\.\.\.\(kit === null \? \{\} : \{ resume: \{/);
+    expect(main).toMatch(/\.\.\.\(kit === null \? \{\} : \{ resume: \(\) => kit\.resumeRow\(\{/);
     expect(main).toMatch(/const sk: typeof SaveKit \| null = resumeKit \?\? \(resolvedMission \? await saveKit\(\)\.catch\(\(\) => null\) : null\);/);
+  });
+
+  it('menu.ts takes only the TYPE of the Resume row and is handed a builder; the kit carries the row', () => {
+    const menu = readFileSync(join(__dirname, 'ui', 'menu.ts'), 'utf8');
+    expect(menu).not.toMatch(/^import (?!type )[^;]*from '\.\/resume-row';/m);
+    expect(menu).toMatch(/opts\.resume\(\)/);
+    expect(readFileSync(join(__dirname, 'mission-save-kit.ts'), 'utf8')).toContain("export { resumeRow } from './ui/resume-row';");
+    expect(main).toMatch(/resume: \(\) => kit\.resumeRow\(/);
   });
 
   it('the kit re-exports everything main.ts uses', () => {
