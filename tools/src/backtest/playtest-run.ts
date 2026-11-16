@@ -32,7 +32,11 @@ import {
   roadMaskOf,
   applyUpgrades,
   maxTiers,
+  applyOverlays,
+  type PostureId,
 } from '@lions/data';
+import { withReliefOnLoan } from '../../../packages/app/src/posture';
+import { parsePosture } from './posture-ladder';
 import { PopulationCensus } from './population-census';
 import type { Banking } from './banking';
 import { START_LAYOUT } from '../mission-harness';
@@ -187,6 +191,8 @@ export interface RunRecord extends IntelRun {
   /** F4 Task 10 (R-F4-4): the most items side 0's production lines held at once over the run, the one
    *  in progress plus those waiting, summed across lines. Sampled every tick; report only. */
   maxQueue: number;
+  /** GH-1394: the difficulty posture the run was played at. */
+  posture: PostureId;
   /** GH-277: numbers a plan recorded for this run through `runNotes` (the forward camp's completion second), carried to the
    *  parent of a sweep with the rest of the record. Absent when the plan wrote none. */
   notes?: Record<string, number>;
@@ -217,6 +223,17 @@ export function setSweep(seed: number | undefined, quiet: boolean): void {
  *  order, with the runtime and sim at that tick. Read-only by contract; `run()` prints and records
  *  exactly what it did before. */
 let missionEventTap: ((evs: readonly MissionEvent[], rt: MissionRuntime, sim: Sim) => void) | undefined;
+/** GH-1394: the difficulty posture every `run()` in this process plays: `PT_POSTURE` (a seed child of the posture
+ *  ladder, `plan-sweep.ts`), or `setPosture` for the duration of one swept control (`passive-sweep.ts`). Standard,
+ *  the default, is the identity, so every run that sets neither builds byte for byte the world it always built. */
+let posture: PostureId = parsePosture(process.env.PT_POSTURE);
+export function setPosture(p: PostureId): void {
+  posture = p;
+}
+export function currentPosture(): PostureId {
+  return posture;
+}
+
 export function tapMissionEvents(fn: ((evs: readonly MissionEvent[], rt: MissionRuntime, sim: Sim) => void) | undefined): void {
   missionEventTap = fn;
 }
@@ -291,7 +308,9 @@ export function run(
 ): LedgerData {
   for (const k of Object.keys(runNotes)) delete runNotes[k];
   registeredUnits.clear();
-  const mission = missions[id] as unknown as MissionJson;
+  // GH-1394: the posture is applied to the mission JSON before anything reads it, exactly where the app applies it
+  // (`campaignMission` in main.ts): the runtime, the upgrades, the loans and the credit floor all see the overlaid run.
+  const mission = applyOverlays(missions[id] as unknown as MissionJson, { posture });
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
   // Matches the app. `spawn` never reuses a dead slot, so this is a budget for
   // everyone who ever appears, not for how many stand at once.
@@ -358,7 +377,7 @@ export function run(
   const rt = new MissionRuntime(sim, resolvedMission, {
     startLayout: START_LAYOUT, // GH-1360 S3b: shipped missions start in the assembly layout
     loaned,
-    loanedReinforce: loanedReinforcements(mission, ledger, unlockOf),
+    loanedReinforce: withReliefOnLoan(mission, loanedReinforcements(mission, ledger, unlockOf)),
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
@@ -494,7 +513,7 @@ export function run(
     mission.resources === undefined
       ? undefined
       : { start: mission.resources.logistics_start ?? 0, earned: rt.logisticsEarned(0), zoneEarned: rt.zoneLogisticsEarned(0), held: rt.logistics };
-  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue, ...(Object.keys(runNotes).length > 0 ? { notes: { ...runNotes } } : {}) });
+  runLog.push({ id, label, posture, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue, ...(Object.keys(runNotes).length > 0 ? { notes: { ...runNotes } } : {}) });
   if (rt.stars < expectStar) {
     console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;

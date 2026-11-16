@@ -198,6 +198,7 @@ import { startMission } from './mission-start';
 import { cutMission, sealMission, restoreMission } from './mission-save';
 import { discardSuspended, openSuspendStore, readSuspended, writeSuspended } from './mission-save-store';
 import { captureShell, shellJson } from './mission-shell';
+import { campaignMission, withReliefOnLoan } from './posture';
 import { clearResumeProblem, loadResume, noteResumeProblem, peekResumeProblem, startInputsJson, type ResumeLoaded } from './mission-resume';
 import { saveFailureText } from './ui/resume-copy';
 import { initTelemetry, telemetry, telemetryPlayerForDeletion, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
@@ -2055,6 +2056,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission = applyMissionLocale(rawMission, await loadMissionOverlay(currentLocale(), BASE));
   }
   const ledger: CampaignLedger = params.get('fresh') !== null ? {} : ledgerStore.readLedger();
+  // GH-1394: the campaign difficulty posture, read from the campaign LEDGER only (never a URL flag, so no dev flag
+  // changes a score), applied once to the mission JSON here so every reader below -- briefing, objectives, the
+  // runtime, the debrief, a mid-mission save -- sees the mission the run is played on. Standard, and the tutorial
+  // under any posture, is the mission itself (`campaignMission` returns it by reference).
+  if (mission !== undefined) mission = campaignMission(mission, ledger, t);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -2484,7 +2490,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     resolvedMission = resolveUpgrades(mission, ledger, gateOf);
     loanedForce = loanedPlacements(mission, ledger, gateOf);
     const resolvedForce = resolvedMission.starting_force ?? [];
-    loanedReinforce = loanedReinforcements(mission, ledger, gateOf);
+    // GH-1394: a posture's relief is always on loan (it goes back; it never joins the roster).
+    loanedReinforce = withReliefOnLoan(mission, loanedReinforcements(mission, ledger, gateOf));
     // A reinforced loan, like a starting one, brings no body home to replace an earlier one (R-2).
     const reinforceUnits = new Set<string>();
     (mission.triggers ?? []).forEach((t, i) =>
