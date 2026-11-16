@@ -1,0 +1,11 @@
+{
+  "mission": "beit_sahwan_1_recon",
+  "offers": ["tight_clock", "light_order", "no_medic"],
+  "challenge": {
+    "id": "whole_picture",
+    "label_key": "challenge.beit_sahwan_1_recon.label",
+    "blurb_key": "challenge.beit_sahwan_1_recon.blurb",
+    "amendments": ["tight_clock"],
+    "win": { "carries_all": true, "ticks_at_most_target": true }
+  }
+}

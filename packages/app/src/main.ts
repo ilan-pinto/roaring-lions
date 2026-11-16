@@ -198,7 +198,8 @@ import { startMission } from './mission-start';
 import { cutMission, sealMission, restoreMission } from './mission-save';
 import { discardSuspended, openSuspendStore, readSuspended, writeSuspended } from './mission-save-store';
 import { captureShell, shellJson } from './mission-shell';
-import { campaignMission, withReliefOnLoan } from './posture';
+import { withReliefOnLoan } from './posture';
+import { amendedMission, challengeMarkFor, withChallengeMark } from './challenge';
 import { clearResumeProblem, loadResume, noteResumeProblem, peekResumeProblem, startInputsJson, type ResumeLoaded } from './mission-resume';
 import { saveFailureText } from './ui/resume-copy';
 import { initTelemetry, telemetry, telemetryPlayerForDeletion, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
@@ -1852,6 +1853,10 @@ export interface BattlefieldRequest {
     hooks: SpectateHooks;
     capTicks: number;
   };
+  /** GH-1395: the amendments to the orders this run is played under (ids from `data/challenges/amendments.json`,
+   *  each one the mission offers). Slice 1 has no screen that sets it, so every run today is unamended; the deploy
+   *  toggles (slice 2) are its one writer, and a save and a replay must carry it (D10). */
+  amendments?: readonly string[];
 }
 
 /**
@@ -2060,7 +2065,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // changes a score), applied once to the mission JSON here so every reader below -- briefing, objectives, the
   // runtime, the debrief, a mid-mission save -- sees the mission the run is played on. Standard, and the tutorial
   // under any posture, is the mission itself (`campaignMission` returns it by reference).
-  if (mission !== undefined) mission = campaignMission(mission, ledger, t);
+  // GH-1395: the amendments go on AFTER the posture, in the same one call (`amendedMission`), so the briefing, the
+  // runtime and the debrief all see the run as played; none on is exactly `campaignMission`.
+  const amendmentIds: readonly string[] = req.amendments ?? [];
+  if (mission !== undefined) mission = amendedMission(mission, ledger, amendmentIds, t);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -6350,7 +6358,27 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   displayName: (typeId) => textUnitName(typeId),
                 })
               : null;
-          const updatedLedger: CampaignLedger = carryover ? carryover.ledger : { ...ledger, ...mev.ledger };
+          // GH-1395: the challenge, judged on THIS run's own row (the ledger's `campaign.mission_results` is the best-of),
+          // against the ledger the run BOOTED with (posture, open-at-boot). Not on Easier, not for a mission played by
+          // address, never on a defeat (`challengeMarkFor`). Its mark joins the same all-or-none victory write.
+          const challengeMark =
+            mev.result === 'victory' && missionId && runtime !== null
+              ? challengeMarkFor({
+                  missionId,
+                  result: mev.result,
+                  amendments: amendmentIds,
+                  ledgerAtBoot: ledger,
+                  world: parseWorld(world),
+                  targetMinutes: (mission as { target_minutes?: number }).target_minutes ?? 0,
+                  run: {
+                    roe: mev.roeRating,
+                    ticks: mev.tick,
+                    lost: Object.values(runtime.lostByType()).reduce((n, k) => n + k, 0),
+                    carriesAll: runtime.objectiveList.every((o) => o.primary || o.carries !== true || o.status === 'complete'),
+                  },
+                })
+              : null;
+          const updatedLedger: CampaignLedger = withChallengeMark(carryover ? carryover.ledger : { ...ledger, ...mev.ledger }, mission.id, challengeMark);
           if (mev.result === 'victory')
             telemetry().campaignProgress(mission.id, Object.keys(updatedLedger['campaign.mission_results'] ?? {}).length);
           let payout: ReturnType<typeof payVictory> | null = null;
@@ -6404,7 +6432,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               account: payout ? payout.account : null,
               win:
                 missionId && mission.ledger.produces.length > 0 && ledgerStore.available
-                  ? { missionId, stars: runtime.stars, ledger: updatedLedger }
+                  ? { missionId, stars: runtime.stars, ledger: updatedLedger, ...(challengeMark !== null ? { challenge: true } : {}) }
                   : null,
               world: parseWorld(world),
               at: Date.now(),

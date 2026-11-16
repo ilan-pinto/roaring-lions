@@ -1,0 +1,11 @@
+{
+  "mission": "umm_zeitoun_2_buildup",
+  "offers": ["tight_clock", "thin_purse", "no_eyes"],
+  "challenge": {
+    "id": "blind_build",
+    "label_key": "challenge.umm_zeitoun_2_buildup.label",
+    "blurb_key": "challenge.umm_zeitoun_2_buildup.blurb",
+    "amendments": ["thin_purse", "no_eyes"],
+    "win": { "ticks_at_most_target": true }
+  }
+}

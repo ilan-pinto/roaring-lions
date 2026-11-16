@@ -1,0 +1,19 @@
+{
+  "mission": "beit_sahwan_breach",
+  "offers": ["light_order", "no_medic", "breach_no_jeep"],
+  "own": [
+    {
+      "id": "breach_no_jeep",
+      "label_key": "amend.breach_no_jeep.label",
+      "blurb_key": "amend.breach_no_jeep.blurb",
+      "ops": [{ "op": "remove_starting", "unit": "jeep_shoded", "count": 1 }]
+    }
+  ],
+  "challenge": {
+    "id": "thin_wire",
+    "label_key": "challenge.beit_sahwan_breach.label",
+    "blurb_key": "challenge.beit_sahwan_breach.blurb",
+    "amendments": ["light_order", "no_medic"],
+    "win": { "lost_at_most": 2 }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "mission": "beit_sahwan_3_clearance",
+  "offers": ["tight_clock", "clean_hands", "light_order"],
+  "challenge": {
+    "id": "clean_sweep",
+    "label_key": "challenge.beit_sahwan_3_clearance.label",
+    "blurb_key": "challenge.beit_sahwan_3_clearance.blurb",
+    "amendments": ["clean_hands", "light_order"],
+    "win": { "conduct_at_least": 80 }
+  }
+}

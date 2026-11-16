@@ -107,6 +107,19 @@ describe('accountLedgerStore', () => {
     expect(store.readLedger()).toEqual(ledger);
   });
 
+  it('GH-1395: a beaten challenge rides the victory op, and the provisional view pays its 10 once', () => {
+    const { store, storage } = make();
+    const id = worldMissionIds(world)[0] ?? '';
+    const ledger = { 'campaign.completed_missions': [id] };
+    const r = settleVictory(store, { ledger, account: null, win: { missionId: id, stars: 2, ledger, challenge: true }, world, at: 1, start: 'nonce' });
+    expect(r.total).toBe(130);
+    expect(readOutbox(storage, 'T')[0]).toMatchObject({ kind: 'victory', missionId: id, challenge: true });
+    // A plain win queues no flag at all, so an outbox written before GH-1395 and one written after read the same.
+    const plain = make();
+    settleVictory(plain.store, { ledger, account: null, win: { missionId: id, stars: 2, ledger }, world, at: 1, start: 'nonce' });
+    expect(Object.hasOwn(readOutbox(plain.storage, 'T')[0] ?? {}, 'challenge')).toBe(false);
+  });
+
   it('a tutorial victory (no win) is only a campaign write', () => {
     const { store, storage } = make();
     store.recordVictory({ ledger: { 'campaign.slots_issued': 1 }, account: null, roar: null, win: null, start: null });

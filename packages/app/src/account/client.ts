@@ -224,7 +224,8 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
     state: () => result('GET', 'state'),
     slot: (id) => result('GET', slotPath(id)),
     missionStart: (missionId) => result('POST', 'mission/start', { op_id: o.newOpId(), missionId }),
-    victory: (op, base) => result('POST', 'victory', { op_id: op.opId, missionId: op.missionId, stars: op.stars, start: op.start, base, campaign: op.campaign }),
+    victory: (op, base) =>
+      result('POST', 'victory', { op_id: op.opId, missionId: op.missionId, stars: op.stars, start: op.start, base, campaign: op.campaign, ...(op.challenge === true ? { challenge: true } : {}) }),
     putCampaign: (op, base) => result('PUT', 'campaign', { op_id: op.opId, base, ...op.campaign }),
     spend: (ask) => result('POST', 'spend', { op_id: o.newOpId(), ...ask }),
     coupon: (code) => result('POST', 'coupon', { op_id: o.newOpId(), code }),

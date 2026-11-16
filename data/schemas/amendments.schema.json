@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/amendments.schema.json",
+  "title": "Amendments to the orders (the generic library)",
+  "description": "GH-1395 (design 2026-11-15-challenge-star-design.md §3.1; lead rulings D8, D11 of 16 Nov 2026): the generic amendments, each an id, two en.json keys and a list of operations from the CLOSED set in overlay_ops.schema.json, applied by `applyOverlays` after the difficulty posture. Every amendment is a RESTRICTION (rule A1): tools/validate_challenges.mjs refuses a ratio of 1 or above and any operation that is not a restricting one, and tools/src/challenges.test.ts bounds creditsFor's inputs. A mission offers three (data/challenges/<mission>.json), from this library or from its own `own` list, whose items share this shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["amendments"],
+  "properties": {
+    "amendments": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/amendment" }
+    }
+  },
+  "$defs": {
+    "amendment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label_key", "blurb_key", "ops"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "label_key": { "type": "string", "pattern": "^amend\\.[a-z0-9_]+\\.label$" },
+        "blurb_key": { "type": "string", "pattern": "^amend\\.[a-z0-9_]+\\.blurb$" },
+        "ops": { "type": "array", "minItems": 1, "items": { "$ref": "overlay_ops.schema.json#/$defs/op" } }
+      }
+    }
+  }
+}

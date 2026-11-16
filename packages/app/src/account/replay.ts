@@ -40,7 +40,7 @@ export function viewOf(confirmed: ServerState, outbox: readonly OutboxOp[], worl
         const at = wallet.receipts.reduce((n, r) => Math.max(n, r.at), 0);
         const ledger = campaign?.ledger ?? {};
         // The earn record rides in the wallet, so a second queued win of one mission awards nothing.
-        const earned = roarEarn(walletOf(wallet), { missionId: op.missionId, stars: op.stars, ledger }, world, at);
+        const earned = roarEarn(walletOf(wallet), { missionId: op.missionId, stars: op.stars, ledger, challenge: op.challenge === true }, world, at);
         if (earned.awards.length > 0) wallet = viewOfWallet(earned.wallet, wallet.revision, wallet.paid);
       }
     } else if (op.kind === 'slot.put') {

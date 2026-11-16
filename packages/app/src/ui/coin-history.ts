@@ -35,6 +35,8 @@ export function coinWhatText(what: CoinWhat, delta: number, names: CoinNames = N
           return mission === undefined ? t('profile.coins.row.star.unknown') : t('profile.coins.row.star', { mission });
         case 'campaign':
           return t('profile.coins.row.campaign');
+        case 'challenge':
+          return mission === undefined ? t('profile.coins.row.challenge.unknown') : t('profile.coins.row.challenge', { mission });
         default:
           return t('profile.coins.row.reward');
       }

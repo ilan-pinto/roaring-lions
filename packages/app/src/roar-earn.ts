@@ -7,13 +7,15 @@
  *   first win of a mission 10   the first victory ever on the account, per mission
  *   a new star             5    per star, only when the lifetime best rises
  *   campaign complete     100   once, on the win that finishes the campaign
+ *   a beaten challenge     10   once per account, per mission with one (GH-1395, the lead, 16 Nov 2026)
  *   replays, Conduct points, time, losses, versus: 0
  *
- * That caps a lifetime at 100 + 10 per mission + 5 per star + 100: 830 coins over
- * the 29 missions and the 68 stars the playtest ladder reaches, and one campaign
- * buys the dearest unit in the Stores (800). `roar_earn.test.ts` pins that against
- * the ladder (gate G-E2). Conduct is paid through the second star (the Conduct
- * line), so a Conduct point pays nothing of its own.
+ * That caps a lifetime at 100 + 10 per mission + 5 per star + 100 + 10 per challenge:
+ * 830 coins over the 29 missions and the 68 stars the playtest ladder reaches, 890 with
+ * the six-mission challenge pilot, and one campaign buys the dearest unit in the Stores
+ * (800). `roar_earn.test.ts` pins that against the ladder and the challenge index (gate
+ * G-E2). Conduct is paid through the second star (the Conduct line), so a Conduct point
+ * pays nothing of its own. Whether a run beat its challenge is `challenge.ts`'s call.
  *
  * Coins and credits stay apart (spec guard G3): credits are the wage, paid on every
  * win by `payMission`; coins are a lifetime bonus. Nothing here touches the brigade

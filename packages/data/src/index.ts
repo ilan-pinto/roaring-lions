@@ -330,7 +330,30 @@ export {
   type PostureId,
   type PostureJson,
   type PostureCatalogue,
+  FAIL_BELOW_CEILING,
 } from './overlays';
+
+/** GH-1395: amendments to the orders and the named challenge (slice 1, no UI): the library, the six-mission pilot,
+ *  the challenge index the coin rules share, and the pure predicate. */
+export {
+  amendments,
+  amendmentOps,
+  betterMark,
+  challengeArmed,
+  challengeMet,
+  challengeMissionIds,
+  challengeOf,
+  hasChallenge,
+  missionChallenges,
+  CHALLENGE_LEDGER_KEY,
+  TICKS_PER_TARGET_MINUTE,
+  type AmendmentCatalogue,
+  type AmendmentJson,
+  type ChallengeMark,
+  type ChallengeRun,
+  type ChallengeWin,
+  type MissionChallengeJson,
+} from './challenges';
 
 export {
   versusMissionOf,

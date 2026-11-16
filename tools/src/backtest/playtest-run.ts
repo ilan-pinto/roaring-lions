@@ -33,6 +33,9 @@ import {
   applyUpgrades,
   maxTiers,
   applyOverlays,
+  amendmentOps,
+  challengeMet,
+  challengeOf,
   type PostureId,
 } from '@lions/data';
 import { withReliefOnLoan } from '../../../packages/app/src/posture';
@@ -196,6 +199,8 @@ export interface RunRecord extends IntelRun {
   posture: PostureId;
   /** GH-1394: starting-force bodies lost (`startingCount - startingHome`), for the per-mission posture comparison. */
   lost: number;
+  /** GH-1395: present only in a challenge child, on a mission with a challenge: whether this run beat it. */
+  challenge?: { met: boolean };
   /** GH-277: numbers a plan recorded for this run through `runNotes` (the forward camp's completion second), carried to the
    *  parent of a sweep with the rest of the record. Absent when the plan wrote none. */
   notes?: Record<string, number>;
@@ -235,6 +240,15 @@ export function setPosture(p: PostureId): void {
 }
 export function currentPosture(): PostureId {
   return posture;
+}
+
+/** GH-1395 slice 1: whether this process plays every pilot mission with its CHALLENGE's named amendments on
+ *  (`PT_CHALLENGE=1`, a seed child of the report-only challenge reading in `plan-sweep.ts`). Off, the default, every
+ *  run builds byte for byte the world it always built. The amendments go on after the posture, in `applyOverlays`,
+ *  exactly where the app puts them (`amendedMission`, packages/app/src/challenge.ts). */
+const challengeReading = process.env.PT_CHALLENGE === '1';
+export function challengeReadingOn(): boolean {
+  return challengeReading;
 }
 
 /** GH-1394 (PM, 16 Nov): whether a WINNING plan uses a posture's relief. `PT_RELIEF_JOIN=1` (a seed child of the ladder's
@@ -324,7 +338,9 @@ export function run(
   registeredUnits.clear();
   // GH-1394: the posture is applied to the mission JSON before anything reads it, exactly where the app applies it
   // (`campaignMission` in main.ts): the runtime, the upgrades, the loans and the credit floor all see the overlaid run.
-  const mission = applyOverlays(missions[id] as unknown as MissionJson, { posture });
+  // GH-1395: and, in a challenge child, the mission's challenge amendments after it (none for a mission with no challenge).
+  const challenge = challengeReading ? challengeOf(id) : undefined;
+  const mission = applyOverlays(missions[id] as unknown as MissionJson, { posture, amendments: amendmentOps(challenge?.challenge.amendments ?? [], id) });
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
   // Matches the app. `spawn` never reuses a dead slot, so this is a budget for
   // everyone who ever appears, not for how many stand at once.
@@ -584,7 +600,26 @@ export function run(
     mission.resources === undefined
       ? undefined
       : { start: mission.resources.logistics_start ?? 0, earned: rt.logisticsEarned(0), zoneEarned: rt.zoneLogisticsEarned(0), held: rt.logistics };
-  runLog.push({ id, label, posture, lost: rt.startingCount - rt.startingHome, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue, ...(Object.keys(runNotes).length > 0 ? { notes: { ...runNotes } } : {}) });
+  // GH-1395: the challenge predicate on this run's own row, as the app's `challengeMarkFor` reads it (the posture and
+  // open-at-boot halves are the app's; the reading runs at Standard on the harness's own ledgers).
+  const challengeRow =
+    challenge === undefined
+      ? undefined
+      : {
+          met:
+            rt.result === 'victory' &&
+            challengeMet(
+              challenge.challenge.win,
+              {
+                roe: rt.roeScore,
+                ticks: sim.tickCount,
+                lost: Object.values(rt.lostByType()).reduce((n, k) => n + k, 0),
+                carriesAll: rt.objectiveList.every((o) => o.primary || o.carries !== true || o.status === 'complete'),
+              },
+              (missions[id] as unknown as { target_minutes?: number }).target_minutes ?? 0
+            ),
+        };
+  runLog.push({ id, label, posture, ...(challengeRow !== undefined ? { challenge: challengeRow } : {}), lost: rt.startingCount - rt.startingHome, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue, ...(Object.keys(runNotes).length > 0 ? { notes: { ...runNotes } } : {}) });
   if (rt.stars < expectStar) {
     console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;

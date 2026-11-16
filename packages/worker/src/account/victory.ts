@@ -7,6 +7,12 @@
  * `mission.start.used` in the same batch, so a second victory with the same nonce pays nothing. A victory that is
  * not plausible still records its campaign. Its coin half is a fact, so a stale `base` still pays and stores the
  * body as a `conflict` slot (§0.20). Batch order (R2): wallet, campaign or conflict slot, the start row, the cap guard.
+ *
+ * GH-1395 (lead ruling D1): the body may carry `challenge: true`, a client-reported fact at the same trust as `stars`
+ * (the Worker cannot see the amendments or the posture). It pays 10 coins only on a plausible nonce, only for a
+ * mission in `@lions/data`'s challenge index (`roarEarn` checks it), and only ONCE PER ACCOUNT: refused when the
+ * LIFETIME record (`earn_lifetime`) already holds the flag, so neither a reset of the free half nor a new campaign
+ * reopens it. A replay of the same op answers its stored result; a second victory on the same nonce is not plausible.
  */
 import {
   canonicalCampaign,
@@ -61,6 +67,8 @@ interface VictoryBody {
   start: string | null;
   base: number;
   campaign: CampaignBody | null;
+  /** GH-1395: absent (an older client) is false. */
+  challenge: boolean;
 }
 
 function parseVictory(v: unknown): VictoryBody | 'op_id' | 'body' {
@@ -74,11 +82,20 @@ function parseVictory(v: unknown): VictoryBody | 'op_id' | 'body' {
     !(typeof v.start === 'string' || v.start === null) ||
     !Number.isInteger(v.base) ||
     (v.base as number) < 0 ||
-    !campaignOk
+    !campaignOk ||
+    !(v.challenge === undefined || typeof v.challenge === 'boolean')
   ) {
     return 'body';
   }
-  return { op_id: v.op_id, missionId: v.missionId, stars: v.stars, start: v.start, base: v.base as number, campaign: c as CampaignBody | null };
+  return {
+    op_id: v.op_id,
+    missionId: v.missionId,
+    stars: v.stars,
+    start: v.start,
+    base: v.base as number,
+    campaign: c as CampaignBody | null,
+    challenge: v.challenge === true,
+  };
 }
 
 /** The start row's stored `at`, when the row is a live start for `missionId`; else null. */
@@ -137,7 +154,10 @@ export async function victory(ctx: AccountCtx): Promise<Response> {
     let walletOut: WalletView = { free: wallet.free, paid: 0, entitlements: wallet.entitlements, earn: wallet.earn, receipts, revision: wallet.revision };
     if (plausible) {
       const ledger = sent?.ledger ?? camp?.body.ledger ?? {};
-      const paid = roarEarn(asRoar(wallet, receipts), { missionId: body.missionId, stars: body.stars, ledger }, parsedWorld, ctx.now);
+      // GH-1395 D1: once per account. `roarEarn` already refuses a second payment on `earn`; the lifetime record is
+      // what a reset of the free half leaves standing, so the challenge is also refused when IT holds the flag.
+      const challenge = body.challenge && wallet.earnLifetime.missions[body.missionId]?.challenge !== true;
+      const paid = roarEarn(asRoar(wallet, receipts), { missionId: body.missionId, stars: body.stars, ledger, challenge }, parsedWorld, ctx.now);
       awards = paid.awards;
       if (paid.awards.length > 0) {
         // One journal row per award that moved coins, aligned with the receipts roarEarn appended (the tail).

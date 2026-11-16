@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { units } from '@lions/data';
+import { challengeMissionIds, units } from '@lions/data';
 import type { LedgerData } from '@lions/sim';
 import worldJson from '../../../data/campaign/world.json';
 import { ACCOUNT_KEY, emptyAccount, payMission, type BrigadeAccount } from './brigade-account';
@@ -30,7 +30,8 @@ const total = (w: RoarWallet): number => spendable(w);
 
 describe('the earn table', () => {
   it('constants are the lead\'s numbers', () => {
-    expect(EARN).toEqual({ welcome: 100, firstWin: 10, star: 5, campaign: 100 });
+    // GH-1395 (lead ruling D1, 16 Nov 2026): a beaten challenge pays 10, once per account.
+    expect(EARN).toEqual({ welcome: 100, firstWin: 10, star: 5, campaign: 100, challenge: 10 });
     expect(MAX_STARS).toBe(3);
   });
 
@@ -144,6 +145,27 @@ describe('G-E2: one campaign\'s coins buy the dearest unit in the Stores', () =>
     expect(wallet.earn.campaignDone).toBe(true);
     const last = wallet.receipts.filter((r) => r.kind === 'earn' && r.source === 'campaign');
     expect(last).toHaveLength(1);
+  });
+
+  // GH-1395 (lead ruling D1): the cap rises by 10 for each mission with a challenge. The pin reads the count from the
+  // challenge INDEX, so the day a mission gains a challenge this bound moves with it rather than in the checker's
+  // favour; the literal is the six-mission pilot's, moved here deliberately from 830.
+  it('with every challenge beaten too, a lifetime pays 830 + 10 per mission with a challenge = 890 for the pilot', () => {
+    const ladderStars = pinned('LADDER_STARS');
+    const per = ids.map((_, i) => (i < ladderStars - 2 * ids.length ? 3 : 2));
+    let wallet = emptyRoar();
+    // Every mission claims the challenge; only the indexed ones may pay it. The second walk (every mission again, as a
+    // replay or a new campaign would) pays no challenge twice.
+    for (const pass of [0, 100]) {
+      ids.forEach((_, i) => {
+        wallet = roarEarn(wallet, { ...win(i, per[i]), challenge: true }, world, pass + i + 1).wallet;
+      });
+    }
+    expect(total(wallet)).toBe(830 + EARN.challenge * challengeMissionIds.length);
+    expect(challengeMissionIds.length).toBe(6);
+    expect(total(wallet)).toBe(890);
+    const paid = wallet.receipts.flatMap((r) => (r.kind === 'earn' && r.source === 'challenge' ? [r.missionId] : []));
+    expect(paid.sort()).toEqual([...challengeMissionIds].sort());
   });
 
   it('that is at least the coin price of the dearest unit (the gunship, 8,000 credits = 800 coins)', () => {

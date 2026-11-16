@@ -1,0 +1,11 @@
+{
+  "mission": "beit_sahwan_2_foothold",
+  "offers": ["tight_clock", "thin_purse", "light_order"],
+  "challenge": {
+    "id": "quiet_souk",
+    "label_key": "challenge.beit_sahwan_2_foothold.label",
+    "blurb_key": "challenge.beit_sahwan_2_foothold.blurb",
+    "amendments": ["tight_clock", "light_order"],
+    "win": { "lost_at_most": 0, "ticks_at_most_target": true }
+  }
+}
