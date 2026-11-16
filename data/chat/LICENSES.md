@@ -4,7 +4,8 @@ The versus chat filter (GH-1417 S2, `docs/superpowers/specs/2026-11-16-versus-ch
 `data/chat/filter.<lang>.json`. Each file is **adapted material** from one open-licence source, recorded here. Lead ruling D3
 (16 Nov 2026): start from an existing open-licence word list, with its redistribution rights recorded, extended in-house; nothing
 copied without rights. Not legal advice: the lead's lawyer confirms the attribution wording and the compliance for a commercial
-release.
+release. The sources, the terms and the reasoning were first set out in
+`docs/superpowers/specs/2026-11-16-chat-filter-wordlist-proposal.md` (PR 1484).
 
 **Third-party material in this folder keeps its own licence.** The repository's blanket "all rights reserved" for `data/`
 does **not** apply to it and must not be asserted over it: CC BY 4.0 forbids adding restrictions to the licensed material.
@@ -31,7 +32,8 @@ pristine copy does not match its pinned sha256, or whose entries are not exactly
 | French | `third_party/ldnoobw/fr` | 91 | `79763a705e08256b393952852bb63aa903f4485e0ef02f70735f5e50efff213c` | `filter.fr.json` | not yet: all mask |
 | Russian | `third_party/ldnoobw/ru` | 151 | `2598adabd2b761733d72a68d8ee4fcc1d2c38f2f85b6ff489985c6ce1d93bf75` | `filter.ru.json` | not yet: all mask |
 
-**Not imported:** Chinese (`zh`, 319 entries). It is held out until segmentation is decided (proposal W4): Chinese has no spaces, so
+**Not imported:** Chinese (`zh`, 319 entries, one duplicate; sha256 of the raw upstream file at the pinned commit
+`a1d9aa037c8b039ef3b40148b3364ce2ca62ce4a955b7082a16ad99f6cbd1bc0`, no copy in this folder). It is held out until segmentation is decided (proposal W4): Chinese has no spaces, so
 whole-word matching does not apply and a substring match would hide ordinary lines. `validate:data` refuses a `filter.zh*.json`.
 No other LDNOOBW language is imported.
 
@@ -64,9 +66,51 @@ moved "lolita", "shota", "fucktards", "neonazi" and "swastika" to `hide` and add
 and "heil hitler" (hide) and "kys" (mask) in-house. The four other files are the upstream list unchanged in `mask`, with an empty `hide` until a native reader reviews
 them (lead ruling; proposal W5).
 
-## 2. Considered and not used
+## 2. dsojevic/profanity-list (English, with severity and tags): considered, not used
 
-- **dsojevic/profanity-list** (MIT, English, with severity and tags): proposed for tiering English (PR 1484, W1) but not ruled on, so
-  nothing is taken from it. The English tiers are in-house.
-- `leo-profanity`, `badwords`, `naughty-words` (npm): wrappers around the LDNOOBW lists or code; they add a loader and no list.
-- Lists with no stated licence (an `obscenity` and a `profane-words` repository, a CMU bad-words text): not redistributable, not used.
+Proposed for tiering English (PR 1484, proposal W1) but not ruled on, so **nothing is taken from it** and no copy of it is in this
+folder: the English tiers above are in-house. It is recorded here, at the commit that was read, so a later import starts from
+known terms; its MIT notice must travel with any such import.
+
+- Upstream: <https://github.com/dsojevic/profanity-list>
+- Pinned commit: `c27924319aa9bd6f917e3782b4f4b6604a50b652` (`main`, 16 Nov 2026)
+- Licence: **MIT**, "Copyright (c) 2021 David Sojevic". English only (434 entries); each entry has a `severity` (1 mild to 4
+  severe) and `tags` (`general`, `lgbtq`, `racial`, `religious`, `sexual`, `shock`). `en.json` sha256
+  `bcf8bfc09dd3f7480972cb041a4cba291a6ff16a6fbf29022d5d679e3c39502c`.
+- Its own README warns that most entries "started their life with a Severity Level of 3 (Strong) prior to any solid
+  classification", so the severity is not a trustworthy tier on its own; the proposal would tier by the tags instead.
+- MIT asks that the copyright notice and permission notice be included in copies or substantial portions. The full text,
+  as shipped upstream:
+
+```text
+MIT License
+
+Copyright (c) 2021 David Sojevic
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## 3. Considered and not used
+
+- `leo-profanity` (MIT, read: a code wrapper that bundles the LDNOOBW dictionaries for en, fr and ru), `badwords` (MIT, read: code)
+  and the npm `naughty-words` package (a packaging of the LDNOOBW lists; its own licence was not read): they add a loader we do not
+  need and no list we do not already take directly.
+- Sources whose licence was **not assessed** (an `obscenity` and a `profane-words` repository returned no `LICENSE` at the paths
+  tried; lists linked from `leo-profanity`'s README, such as a CMU bad-words text, state no licence that I read): not used. A
+  list with no stated licence is not redistributable.
