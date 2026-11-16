@@ -393,7 +393,7 @@ import type { SavesDeps } from './ui/saves';
 import type { CreditsDeps } from './ui/credits';
 import { versusMaps } from './ui/versus-maps';
 import type { VersusDeps } from './ui/versus';
-import { LOCALES, PSEUDO_RTL, applyLocale, isPseudo, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
+import { LOCALES, PSEUDO_RTL, applyLocale, isPseudo, loadLocale, pseudoModeOf, resolveLang, sessionLangOverride } from './i18n/locales';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo, pseudoRtl } from './i18n/pseudo';
 import { KillCauseTracker, causeText, parseKillCause, type KillCause } from './kill-cause';
@@ -850,6 +850,8 @@ async function main(): Promise<void> {
   forgetRetiredKeys();
   const settingsStore = safeStorage();
   let settings: Settings = loadSettings(settingsStore);
+  /** This load's `?lang=`/`?pseudo=rtl` locale, set once below beside `applyLocale`: every later `applySettings` keeps it (GH-1413 review F2). */
+  let sessionLang: string | null = null;
   applySettings(settings, document.documentElement);
   audio.setGains(settings.audio);
   audio.setRadioEffect(settings.audio.radio);
@@ -865,7 +867,7 @@ async function main(): Promise<void> {
     set: (next) => {
       settings = next;
       saveSettings(settingsStore, next);
-      applySettings(next, document.documentElement);
+      applySettings(next, document.documentElement, sessionLang);
       audio.setGains(next.audio);
       // Read by the NEXT radio line as it starts (N17); nothing sounding is touched.
       audio.setRadioEffect(next.audio.radio);
@@ -960,6 +962,7 @@ async function main(): Promise<void> {
   // GH-1406: unit names and blurbs, from data/locales/<lang>/units.json. Mission text is data and is not pseudo-transformed; neither is this.
   setUnitOverlay(await loadUnitOverlay(lang, BASE));
   applyLocale(document.documentElement, pseudoMode === PSEUDO_RTL ? PSEUDO_RTL : lang);
+  sessionLang = sessionLangOverride(q.get('lang'), pseudoMode);
   // Dev-only: which keys a screen walk asked for and never got, without
   // scraping console output for `[i18n] missing key: …` lines.
   if (import.meta.env.DEV) {

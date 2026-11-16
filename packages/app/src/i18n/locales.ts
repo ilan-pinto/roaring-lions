@@ -77,6 +77,22 @@ export async function loadLocale(id: string, base: string): Promise<Catalogue> {
  * honoured; anything else is ignored and the saved language stands.
  */
 export function resolveLang(requested: string | null, saved: string): string {
-  if (requested !== null && (requested === 'pseudo' || LOCALES.some((l) => l.id === requested))) return requested;
+  if (requested !== null && isHonouredLang(requested)) return requested;
   return saved;
+}
+
+function isHonouredLang(id: string): boolean {
+  return id === 'pseudo' || LOCALES.some((l) => l.id === id);
+}
+
+/**
+ * The locale THIS load's URL forced on the document, or null when the saved
+ * language stands (GH-1413 review F2): an honoured `?lang=`, or `?pseudo=rtl`,
+ * whose tag and `dir` `applyLocale` writes. `applySettings` is handed it so a
+ * settings change re-applies the session override, not the stored language,
+ * until the page is left. Plain `?pseudo=1` keeps `lang` as it was, so it is no override here.
+ */
+export function sessionLangOverride(requested: string | null, pseudoMode: 'pseudo' | typeof PSEUDO_RTL | null): string | null {
+  if (pseudoMode === PSEUDO_RTL) return PSEUDO_RTL;
+  return requested !== null && isHonouredLang(requested) ? requested : null;
 }

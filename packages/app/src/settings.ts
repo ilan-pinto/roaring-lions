@@ -13,7 +13,7 @@
  * owners (main.ts) from the same object.
  */
 import type { StorageLike } from './brigade-account';
-import { LOCALES } from './i18n/locales';
+import { LOCALES, applyLocale } from './i18n/locales';
 import { isKeyName } from './input/keymap';
 import type { Disposer } from './shell/router';
 
@@ -167,13 +167,16 @@ export function saveSettings(store: StorageLike | null, s: Settings): void {
   }
 }
 
-export function applySettings(s: Settings, root: HTMLElement): void {
+/** `sessionLang` is this load's `?lang=`/`?pseudo=rtl` override (`sessionLangOverride`, i18n/locales.ts): when present it
+ *  wins over the stored `language`, so a settings change never drops a session-only locale (GH-1413 review F2). */
+export function applySettings(s: Settings, root: HTMLElement, sessionLang: string | null = null): void {
   if (s.video.uiScale === 'auto') root.style.removeProperty('--ui-scale');
   else root.style.setProperty('--ui-scale', String(s.video.uiScale));
   root.style.setProperty('--text-size', String(s.video.textSize));
   root.dataset.motion = s.accessibility.motion;
   root.dataset.cvd = s.accessibility.colorVision;
-  root.setAttribute('lang', s.language);
+  if (sessionLang === null) root.setAttribute('lang', s.language);
+  else applyLocale(root, sessionLang);
 }
 
 export interface SettingsBus {
