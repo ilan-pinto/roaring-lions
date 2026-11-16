@@ -348,13 +348,13 @@ describe('the kit sign on a unit icon (plan 2b, G-N2)', () => {
     const sign = ruleBody('.rl-kit-icon');
     expect(sign).toMatch(/position:\s*absolute/);
     expect(sign).toMatch(/top:\s*0/);
-    expect(sign).toMatch(/right:\s*0/);
+    expect(sign).toMatch(/inset-inline-end:\s*0/);
     expect(sign).not.toMatch(/\b(left|bottom):/);
     expect(sign).toMatch(/drop-shadow\([^)]*var\(--kit-edge\)\)/);
     expect(sign).toMatch(/pointer-events:\s*none/);
     expect(ruleBody('.rl-kit-host')).toMatch(/position:\s*relative/);
-    expect(ruleBody('.rl-card__frame > .rl-kit-icon')).toMatch(/top:\s*0\.1875rem;\s*right:\s*0\.1875rem/);
-    expect(ruleBody('.rl-tile > .rl-kit-icon')).toMatch(/top:\s*0\.125rem;\s*right:\s*0\.125rem/);
+    expect(ruleBody('.rl-card__frame > .rl-kit-icon')).toMatch(/top:\s*0\.1875rem;\s*inset-inline-end:\s*0\.1875rem/);
+    expect(ruleBody('.rl-tile > .rl-kit-icon')).toMatch(/top:\s*0\.125rem;\s*inset-inline-end:\s*0\.125rem/);
     expect(ruleBody(".rl-tile[data-locked='1'] > .rl-kit-icon")).toMatch(/display:\s*none/);
   });
 });

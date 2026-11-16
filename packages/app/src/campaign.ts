@@ -14,6 +14,7 @@
 import { unlockReason, type LedgerData, type MissionJson, type MissionResult, type UnlockGate } from '@lions/sim';
 import { gateRequirement, gateSentence } from './gate-sentence';
 import { t } from './i18n/t';
+import { localizedUnit } from './unit-text';
 import { parseWorld, townProgress, type ParsedWorld, type WorldRegion, type WorldTown } from '@lions/economy';
 
 // The world's types and parser live in the economy package (GH-1075 A0); every name stays importable from here.
@@ -489,7 +490,7 @@ export function newlyUnlocked(
     .filter((u) => unlockReason(u.unlock, before) !== null && unlockReason(u.unlock, after) === null)
     .map((u) => ({
       id: u.id,
-      name: u.name,
+      name: localizedUnit(u).name,
       gate:
         u.unlock?.roeMin !== undefined
           ? ('conduct' as const)

@@ -22,6 +22,7 @@ import {
   type WhereLine,
 } from './stores-adds';
 import { unitItem, type StoreInput } from './stores-model';
+import { localizedUnit } from '../unit-text';
 
 const THREATS = threatTable as Readonly<Record<string, readonly string[]>>;
 /** The wounded type is a casualty, not a unit a brigade fields (spec §1.2 input). */
@@ -223,7 +224,7 @@ export function buildAddsPanel(
   const ai = addsInput(unitId, input);
   if (ai === null) return null;
   const a = unitAdds(ai);
-  const name = ai.unit.name ?? ai.unit.id;
+  const name = localizedUnit(ai.unit).name ?? ai.unit.id;
 
   const panel = el('section', 'rl-stores__adds');
   panel.id = id;

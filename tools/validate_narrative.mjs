@@ -285,3 +285,27 @@ export function overlayFailures(file, overlay, missions) {
   }
   return out;
 }
+
+/**
+ * Cross-checks one unit-text locale overlay (`data/locales/<lang>/units.json`, `@lions/data`'s `UnitLocaleOverlay` shape) against the real
+ * units: every id it names must be a unit in data/units, it may carry only `name` and `blurb`, and both must be non-empty strings.
+ * `applyUnitLocale` silently no-ops an unknown id at runtime, so a translator's typo would otherwise ship invisibly, doing nothing, forever.
+ * `unitIds` is a Set of the shipped unit ids.
+ */
+export function unitOverlayFailures(file, overlay, unitIds) {
+  const out = [];
+  for (const [unitId, o] of Object.entries(overlay ?? {})) {
+    if (!unitIds.has(unitId)) {
+      out.push(`${file}: overlay names unit "${unitId}", which is not a unit in data/units`);
+      continue;
+    }
+    for (const [k, v] of Object.entries(o ?? {})) {
+      if (k !== 'name' && k !== 'blurb') {
+        out.push(`${file}: unit "${unitId}" overlay carries "${k}"; a unit overlay may carry only name and blurb`);
+      } else if (typeof v !== 'string' || v.trim() === '') {
+        out.push(`${file}: unit "${unitId}" overlay ${k} must be a non-empty string`);
+      }
+    }
+  }
+  return out;
+}

@@ -28,6 +28,8 @@ export interface AlertWorldDeps {
   map: Pick<MinimapMap, 'zones' | 'markers' | 'width'>;
   /** Display names by unit type id (`@lions/data`'s `units`). */
   units: Readonly<Record<string, { name?: string } | undefined>>;
+  /** GH-1406: the locale-aware lookup (`unit-text.ts`'s `unitName`); when given it wins over `units`, which stays the test seam. */
+  unitName?: (typeId: string) => string;
   /** Where a tile point lies from the camera, right now (`main.ts` asks the
    *  renderer's projection; a test hands in a rule). */
   placeOf: (x: number, y: number) => Place;
@@ -60,7 +62,7 @@ export function alertWorldFor(d: AlertWorldDeps): AlertWorld {
     typeOf,
     // The same lookup the deploy panel's `broughtFor` caller uses, so a feed
     // line and a briefing line name a unit the same way.
-    unitName: (typeId) => d.units[typeId]?.name ?? typeId,
+    unitName: (typeId) => d.unitName?.(typeId) ?? d.units[typeId]?.name ?? typeId,
     // Through `minimap.ts`'s own `objectivePoint`, so the camera lands on the
     // diamond the minimap drew, by construction.
     objectiveAt: (id) => {

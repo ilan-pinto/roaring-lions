@@ -72,6 +72,7 @@ import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } f
 import { showStores, type CoinAsk, type StoresShelf, type StoresWallet } from './stores';
 import { blockText, creditBlock, netText, type SpendGate } from './spend-gate';
 import type { CoinHalf } from './stores-model';
+import { localizedUnit } from '../unit-text';
 
 export interface BrigadeUnit {
   id: string;
@@ -1859,6 +1860,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
  *  the field structurally rather than widening that type with a display
  *  field the data package has no use for. */
 function readBlurb(unit: UpgradableUnit): string | undefined {
-  const v = (unit as unknown as Record<string, unknown>).blurb;
+  const v = localizedUnit(unit as unknown as { id: string; blurb?: string }).blurb;
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }

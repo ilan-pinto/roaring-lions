@@ -86,7 +86,7 @@ describe('the account page accents (GH-1367 S1)', () => {
     expect(body('.rl-profile__show-record input,\n.rl-profile__telemetry input')).toContain('accent-color: var(--selected)');
   });
   it('rules the header card in gold', () => {
-    expect(body('.rl-profile__card--head')).toContain('border-left: 0.1875rem solid var(--title-accent)');
+    expect(body('.rl-profile__card--head')).toContain('border-inline-start: 0.1875rem solid var(--title-accent)');
   });
   it('pins the lifted card, the rim, the link, the tag, the status and the perk marker', () => {
     expect(css).toMatch(/--card-bg: color-mix\(in srgb, var\(--rl-shadow-0\) 70%, transparent\)/);
@@ -228,11 +228,12 @@ describe('card colour roles (GH-1367 S3)', () => {
     expect(token('--panel-bg-solid')).toMatch(/shadow-1/);
   });
   it('never uses terracotta, which is the Roar coin', () => {
-    // The coins card is the one rightful use of the Roar ramp: exactly this selector, anchored, so a sibling
-    // (`.rl-profile__coins-note`) or a longer `coins-n...` name is still scanned.
-    const ROAR_OK = '.rl-profile__coins-n';
+    // The Roar ramp's rightful uses are the coin figures themselves: the coins card's total and a coin
+    // history row's incoming amount (GH-1370, PR 1436). Exactly these selectors, anchored, so a sibling
+    // (`.rl-profile__coins-note`, `.rl-profile__coin-amount--out`) or a longer name is still scanned.
+    const ROAR_OK = new Set(['.rl-profile__coins-n', '.rl-profile__coin-amount--in']);
     const profileRules = [...css.matchAll(/([^{}]*\.rl-profile__[^{}]*)\{([^{}]*)\}/g)]
-      .filter((m) => (m[1] ?? '').trim() !== ROAR_OK)
+      .filter((m) => !ROAR_OK.has((m[1] ?? '').trim()))
       .map((m) => `${(m[1] ?? '').trim()}: ${m[2] ?? ''}`);
     expect(profileRules.length).toBeGreaterThan(40);
     expect(profileRules.filter((b) => /terracotta|--roar/.test(b))).toEqual([]);
