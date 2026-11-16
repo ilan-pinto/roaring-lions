@@ -118,6 +118,29 @@ describe('the lazy boundary (main red since PR 1478: the entry chunk went over i
   });
 });
 
+describe('a boot left after the renderer exists tears it down (main.ts bootBattlefield)', () => {
+  // The router RUNS the disposer a stale mount returns (`seq !== this.seq` in `shell/router.ts`); it does not tear down for it. So from
+  // `new ThreeRenderer` on, an abort answered with a bare `() => undefined` keeps the WebGL context, the canvas, the transport and the
+  // loading screen. PR 1499 shipped exactly that after the lazy save-kit await.
+  const boot = main.slice(at(/^async function bootBattlefield\(/m));
+  const body = boot.slice(0, boot.search(/^\}$/m));
+  const built = body.slice(body.indexOf('const three = new ThreeRenderer('));
+
+  it('every abort check after the renderer is built goes through `abandon`', () => {
+    expect(body.length).toBeGreaterThan(0);
+    expect(built.length).toBeLessThan(body.length);
+    const checks = [...built.matchAll(/if \((?:req\.)?signal\.aborted\)\s*([^\n]*)/g)].map((m) => m[1] ?? '');
+    // Not vacuous: meshes, renderer, ground photo, deploy, save kit.
+    expect(checks.length).toBeGreaterThanOrEqual(5);
+    for (const then of checks) expect(then, then).toMatch(/^abandon\('[^']+'\);$/);
+  });
+
+  it('no early return after the renderer is built hands back a no-op without having run the teardown', () => {
+    const at0 = [...built.matchAll(/return \(\) => undefined;/g)].map((m) => m.index);
+    for (const i of at0) expect(built.slice(Math.max(0, i - 160), i), built.slice(i - 160, i + 25)).toMatch(/teardown\(\);/);
+  });
+});
+
 describe('the board and the URL', () => {
   it('the board reads the one store and opens the saved mission with `resume`', () => {
     expect(main).toMatch(/resume: \(id\) => void router\.navigate\(routes\.mission\(id, \{ resume: true \}\)\)/);
