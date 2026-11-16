@@ -34,7 +34,7 @@ export function resumeRefusalText(reason: ResumeRefusal | 'moved', moved: readon
   }
 }
 
-/** What changed in the campaign since the save, in words ("another mission was completed, a unit was bought"). With nothing named, the plain sentence. */
+/** What changed in the campaign since the save, in words ("your campaign progress has changed, a unit was bought"). With nothing named, the plain sentence. */
 export function movedText(moved: readonly MovedWhat[]): string {
   if (moved.length === 0) return t('resume.refused.moved');
   const part = (m: MovedWhat): string => (m === 'ledger' ? t('resume.moved.ledger') : m === 'units' ? t('resume.moved.units') : t('resume.moved.upgrades'));
