@@ -25,7 +25,26 @@ function bestStars(m: MissionJson): number {
   return starsFor('victory', 100, m.roe?.fail_below, m.objectives.map((o) => ({ primary: o.primary, carries: o.carries, status: 'complete' as const })));
 }
 
+/** `creditsFor`'s inputs a mission JSON fixes, each on its own: a bound over the SUM can hide one input rising under
+ *  another falling (the mutation pass: a relief in the starting force was offset by uncarry on the ten carrying
+ *  missions). */
+function payInputs(m: MissionJson): { fielded: number; carrying: number; failBelow: number | undefined } {
+  return {
+    fielded: (m.starting_force ?? []).reduce((n, p) => n + p.count, 0),
+    carrying: m.objectives.filter((o) => !o.primary && o.carries === true).length,
+    failBelow: m.roe?.fail_below,
+  };
+}
+
 describe('credits: Easier never above Standard, Harder exactly Standard (S3, S4)', () => {
+  it.each(ids)('%s: each input on its own', (id) => {
+    const std = payInputs(at(id, 'standard'));
+    const e = payInputs(at(id, 'easier'));
+    expect(e.fielded).toBeLessThanOrEqual(std.fielded);
+    expect(e.carrying).toBeLessThanOrEqual(std.carrying);
+    expect(e.failBelow).toBe(std.failBelow);
+    expect(payInputs(at(id, 'harder'))).toEqual(std);
+  });
   it.each(ids)('%s', (id) => {
     const std = bestPay(at(id, 'standard'));
     expect(bestPay(at(id, 'easier'))).toBeLessThanOrEqual(std);

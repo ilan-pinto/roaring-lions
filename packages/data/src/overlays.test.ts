@@ -141,6 +141,22 @@ describe('Easier caps the grade at two stars: no secondary carries (D3, S5)', ()
 });
 
 describe('purity', () => {
+  // Each op on its own (the mutation pass found an in-place shift_waves stayed green while the shipped postures
+  // always copied the waves in scale_waves first).
+  const one: OverlayOp[] = [
+    { op: 'scale_time_limit', num: 5, den: 4 },
+    { op: 'scale_waves', num: 5, den: 4, skip_tagged: true },
+    { op: 'shift_waves', seconds: 30 },
+    { op: 'reinforce_player', at_seconds: 90, label_key: 'k', units: [{ unit: 'inf_squad', count: 1 }] },
+    { op: 'uncarry' },
+    { op: 'add_wave', wave: { at_seconds: 1, units: [{ unit: 'sarim_rifles', count: 1 }] } },
+  ];
+  it.each(one.map((o) => o.op))('%s alone never mutates the authored JSON', (name) => {
+    const op = one.find((o) => o.op === name) as OverlayOp;
+    const before = JSON.stringify(missions);
+    for (const m of all) applyOps(m, [op]);
+    expect(JSON.stringify(missions)).toBe(before);
+  });
   it('never mutates the authored JSON, and the same inputs give the same output', () => {
     const before = JSON.stringify(missions);
     const a = all.map((m) => JSON.stringify(at(m, 'easier')) + JSON.stringify(at(m, 'harder')));
