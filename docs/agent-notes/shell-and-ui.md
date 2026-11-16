@@ -34,7 +34,13 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   full day of ingest; the old 2,000 a day fell behind), `purgePlayers` (a `players` row by `last_seen`, with its `accounts` row in the
   same batch, plus any orphan `accounts` row by its own `t`; strict `<`, so a row at exactly 180 days is kept) and `purgeRateDays`.
   Each is a few big `DELETE ... LIMIT` statements, never a loop of small ones: the Free plan allows 50 D1 queries per invocation and
-  `purge.test.ts` counts them.
+  `purge.test.ts` counts them. **The whole run is held under the 50 (GH-1432):** `cron-budget.test.ts` meters BOTH databases (a `batch()` is
+  one query), seeds a worst-case backlog for every sweep and runs `scheduled()` until nothing is left, none of the runs reaching 50 (the
+  first costs 42; a quiet day is pinned at exactly 12). The shares: `purgeExpired` 10 (one batch per 100 notes), events 4, players 4, desync,
+  snapshot and rate-day 3, admin views 1, `sweepAccounts` 2 plus a member budget of 10, `reconcileTombstones` 12 = 46. The member loops
+  spend from a budget (`SWEEP_MEMBER_QUERIES`, `RECONCILE_D1_QUERIES`; a member is 1 query, 2 when a guard held, 3 with the cancelled
+  tombstone) and what is left waits a day; the tombstone scan is resumable through a KV cursor (`RECONCILE_CURSOR_KEY`), because dead
+  tombstones cost a query a page and find nothing. **Add a sweep and you add its share to that sum, or the test reads red.**
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the
@@ -111,7 +117,11 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   than scraping the console. `?lang=<id>` picks a locale for the session only and
   is never written to settings; `?pseudo=1` swaps the catalogue for the
   bracketed, accented pseudo-locale, so **a plain unbracketed word in a pseudo
-  capture is a string that never went through `t()`**. Two things follow that are
+  capture is a string that never went through `t()`**. `?pseudo=rtl` (GH-1406 part 2) is
+  the same transform forced right-to-left by a bidi override, with `dir="rtl"` and the
+  mirrored pseudo tag `qps-plocm` on `<html>` (`locales.ts`'s `applyLocale`): it shows a screen
+  what a right-to-left language would do, with no real script in it. It is never a `?lang=`
+  value. Two things follow that are
   easy to get wrong. **A table resolved at MODULE LOAD freezes in whatever locale
   was active before `main.ts`'s boot calls `setCatalogue`** — which is never the
   player's — so a label table uses getters or accessor functions
@@ -127,11 +137,21 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   trigger `label` are overlaid per locale from
   `data/locales/<lang>/missions.json` (`applyMissionLocale`), gated by
   `pnpm validate:data`, and deliberately do NOT go through the pseudo transform.
-  Unit names, roles and blurbs have no overlay yet and read English in every
-  locale.
+  `data/locales/en/missions.json` is the GENERATED translator's template (`pnpm
+  locales:en -- --write`, checked by `validate:data`; never edited, never fetched).
+  Unit names and blurbs are overlaid from `data/locales/<lang>/units.json`
+  (`unit-text.ts`); roles are chrome.
 
 <!-- CLAUDE.md lines 322-338, section "Dev instruments" -->
 
+- **Versus chat goes through one inbox (GH-1417 S1; design `docs/superpowers/specs/2026-11-16-versus-chat-safety-design.md`).** A received
+  line reaches the screen in two places, the lobby log (`ui/versus.ts`) and the match's HUD feed (`main.ts`), and BOTH call
+  `ChatInbox.deliver` (`ui/chat-inbox.ts`), keyed by the room's transport (`inboxOf`) so a mute made in the lobby holds in the match.
+  The inbox hides everything when `settings.chat.enabled` is false (Settings, Chat; read per line through the one settings reader) and
+  a muted seat's lines (per room, never stored: a guest cannot be recognised next room by design). `NetChat` shows the "Mute <name>"
+  toggle and, when chat is off, a line saying so instead of the input. `chat-inbox-guard.test.ts` reads the source and fails when a
+  third place hooks `onChat` or a sink stops going through `.deliver(`. Not in this slice, waiting for the lead: word filter,
+  persistent block, report, kill switch.
 - **Two more `localStorage` keys, beside the ledger/account pair below.**
   `lions.settings` (`packages/app/src/settings.ts`, the only reader and writer)
   holds video/audio/controls/accessibility/language and is the only thing that
@@ -516,3 +536,5 @@ Spec: `docs/superpowers/specs/2026-11-14-admin-account-page-design.md`. The page
 - **Why the median.** The declined auto step-down (PERFORMANCE.md) called an opening slow at 5% of intervals over 33.4 ms and would have fired on the reference M3 Pro Retina (11-18% at `high`). Half the frames over the line is above that reading and under the worst throttled cell (64.8%). The constants are those doc readings; no browser measured them for this change (the cloud has none), and the hardware sweep under GH-1413 is what confirms them. Retune in `frame-probe.ts`, with `frame-probe.test.ts`'s Retina and throttled series as the oracle.
 - **Voided, never guessed.** A hidden tab, a 2 s stall, leaving the shell for a mission and 12 s without a full sample all void the sample; a short sample is never slow.
 - **When it may show.** Production build on a real host (`feedbackSends`) or `?qualityhint`; never for a software renderer, a saved Low preset, a player who has answered (browser store key `lions.qualityHint.answered`, set by either button; asked once, ever) or over another dialog. The scrim class `rl-quality-hint` is in `isDialogOpen`'s list.
+
+- **The computer seat (GH-1388).** `/versus` offers "Play a basic computer opponent": the arena's `rush` script as seat 1 of an OFFLINE versus match, no flag and no URL parameter typed by the player. The lobby arms the match in `net/offline-slot.ts` (module state, one realm) and navigates to `/free-play/<map>?net=OFFLINE`; `connectMatch` takes it, and a reload or stray link finds nothing armed (`OfflineMatchGone`, back to `/versus`) and asks no server. `OFFLINE` is seven characters, a real room code is six without `-`, so it cannot collide. **The script and its view moved, not copied:** `order-desk`, `view`, `economy-view`, `win-rule`, `fog-tracker` and the policies (`rush`, `passive`) now live in `packages/app/src/net/computer/`; the same names in `tools/src/net/` are one-line re-exports, so the arena plays the very same code (a test pins `players.rush === rush`). `@lions/render` exports `computeFog` for it. `ComputerSeat` reads only `sideView` (this seat's own fog, the harness's observation) and issues `Command`s through the arena's `OrderDesk` (<= 4 a flush, one flush per 20 ticks), first decision at tick 100 and then every 100 (the arena's realtime cadence). `OfflineMatchTransport` is a `LocalTransport` with a second seat (`local` is true, so pacing, pause and speed are single-player's), and a batch never crosses a decision tick. `main.ts` attaches the world to it and, in the local branch, ends a `versusRoom` match on the sim's own result. It builds nothing: `rush` has no build order, so the opponent fights with the force it starts with, and the lobby note says exactly that. **Mirror pairings only (stalemate sweep, 260 headless runs):** the lobby hides the seat on `kdf`/`sarim` and `offlineConfig` throws for them, because `outcomeOf` counts a side standing while `production.canField(side)`, the human's untouched purse keeps them standing, and the computer never builds, so every economy cell ran to the 25-35 minute cap (0 of 120 ended). Economy pairings wait for a computer that builds. **`ComputerSeat.sweepStragglers`:** `rush` orders only units idle AND within `RUSH_HOME_TILES` of home, so a unit that stopped away from home was never ordered again (32 of 70 passive mirror runs never ended). Each decision the seat attack-moves every own idle, armed, mobile, unrouted unit `rush` did not order, on the nearest contact in its OWN fog, else the enemy camp. `rush` is untouched (`players.rush === rush` and the arena/versus probes depend on it). Normal telemetry rules still apply to the page; the match itself makes no request (a fetch/WebSocket/XHR/beacon spy holds zero over a run to a result).

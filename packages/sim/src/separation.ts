@@ -74,3 +74,35 @@ export function capsuleOverlap(cap: Int32Array, a: number, b: number, out: Int32
   out[1] = d === 0 ? 0 : fx.div(dy, d);
   return cap[a + 4] + cap[b + 4] - d;
 }
+
+/**
+ * GH-1360 §3.3 item 1, the circle fast path: the squared distance (Q16.16 tile², `fx.mul` only) between the
+ * closest points of the bodies at offsets a and b. With both bodies points (two circles) there is no division at
+ * all; with one a point and the other a segment (a circle against a hull), `closestSegmentPoints` takes its one
+ * point-to-segment branch, one `fx.div`. No `fx.sqrt` either way: the callers compare squares.
+ */
+export function bodyGapSq(cap: Int32Array, a: number, b: number, out: Int32Array): Fx {
+  let dx: Fx;
+  let dy: Fx;
+  if (cap[a] === cap[a + 2] && cap[a + 1] === cap[a + 3] && cap[b] === cap[b + 2] && cap[b + 1] === cap[b + 3]) {
+    dx = cap[a] - cap[b];
+    dy = cap[a + 1] - cap[b + 1];
+  } else {
+    closestSegmentPoints(cap, a, b, out);
+    dx = out[0] - out[2];
+    dy = out[1] - out[3];
+  }
+  return fx.mul(dx, dx) + fx.mul(dy, dy);
+}
+
+
+/** A circle's body into out[o..o+4], in `hullCapsule`'s layout: a point segment (x, y, x, y) and radius r. It is
+ *  what `hullCapsule` writes for a type whose half length is not above its half width and whose centre is on its
+ *  origin, without the facing's sine and cosine (GH-1360 §3.3 item 1). */
+export function pointBody(x: Fx, y: Fx, r: Fx, out: Int32Array, o: number): void {
+  out[o] = x;
+  out[o + 1] = y;
+  out[o + 2] = x;
+  out[o + 3] = y;
+  out[o + 4] = r;
+}

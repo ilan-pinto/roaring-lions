@@ -88,6 +88,14 @@
       "minimum": 600,
       "description": "#540: seconds of sim time before a mission with a primary still open ends as a defeat whose cause is 'withdrawn' (MissionRuntime.checkEnd). The house rule is 120 x target_minutes, a floor enforced by tools/validate_time_limit.mjs together with a 60 s clearance over every primary deadline; pnpm playtest holds a 120 s and 20% margin over the slowest 30-seed win. 600 is twice the smallest target (5)."
     },
+    "start_layout": {
+      "enum": ["assembly", "authored"],
+      "description": "GH-1360 S3b: how the starting force stands at tick zero. 'assembly' re-lays it in the data/layouts/assembly.json shape (vehicles in the front rank, infantry 2 behind, support weapons, medics and drones at the rear), facing start_front; positions and facings only, so spawn order, entity ids and every RNG stream are unchanged. 'authored' keeps every `at` and only moves a body that overlaps one placed before it, to the free spot. Optional in the schema, so test fixtures keep today's spread byte for byte; validate:data requires it on every shipped mission."
+    },
+    "start_front": {
+      "enum": ["N", "E", "S", "W"],
+      "description": "GH-1360 S3b: the axis the starting force faces (N is screen up). Absent, the runtime derives it from the force's authored centroid: toward side 1's start placements (buried ones excluded), else the primary objectives' zones, else the map centre. validate:data requires it with start_layout 'assembly'."
+    },
     "briefing": {
       "type": "string"
     },

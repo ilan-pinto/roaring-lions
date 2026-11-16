@@ -255,6 +255,13 @@ Binding on every proper noun added downstream.
 
    Language is admitted, and only symmetrically, by GDD §2 **Voice** (WP-AU1 D1, 25 Sep 2026): KDF in Hebrew, the three doctrines in standard military Arabic; faith, dialect, slogan and real call sign stay out, and a native speaker reviews every line before it is recorded.
 
+6. **Real equipment and real unit names are admitted** (the lead, 15 Nov 2026, GH-1440). A vehicle, aircraft,
+   weapon or unit may carry the name it has in the real world: Lavi, Namer, Eitan, Yahalom, Peten, Yanshuf, Shachaf,
+   Spike, Kornet, the brigade's number. Rule 4's example list already did this, and until this rule the text of
+   `names.md` §2 barred it. This admits a **name** and nothing else: rule 5 is unchanged, so a real place, a faith, an
+   ethnicity, a nationality and a real insignia stay out (a unit's name is admitted, its badge, flag or emblem is not),
+   rule 3 still screens every real person, and the name of a real operation stays out (`names.md` §3, ground b).
+
 ---
 
 ## 3. The acts and the mission ladder

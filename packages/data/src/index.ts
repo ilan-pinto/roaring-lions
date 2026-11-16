@@ -943,3 +943,31 @@ export function applyMissionLocale<T extends MissionJson>(
   };
   return out as T;
 }
+
+// --- unit-text locale overlay -----------------------------------------------
+//
+// A unit's `name` and `blurb` are DATA like a mission's text, authored in `en` on every file under `data/units/`. A shipped translation is
+// a separate optional file, `data/locales/<lang>/units.json` (`data/locales/README.md`), layered on at the point `@lions/app` REGISTERS a
+// unit for display. It is never written into `units` itself: the net content digest hashes `units` (names included), so two players in
+// different languages would otherwise disagree about the content and be refused a room. A unit's `role` label is chrome and already goes
+// through `t()` (`ui/role.ts`).
+
+/** One locale's unit text, keyed by unit id. A field the overlay does not carry keeps the `en` text, per field. */
+export interface UnitLocaleOverlay {
+  [unitId: string]: { name?: string; blurb?: string };
+}
+
+/**
+ * Overlays a locale's name and blurb onto a unit's JSON. No entry for the unit, or a null overlay (`en`, or a locale nothing ships a file
+ * for), returns `unit` BY REFERENCE, unchanged. Generic, like `applyMissionLocale`, so a caller holding `@lions/sim`'s own unit type gets
+ * one back with no cast.
+ */
+export function applyUnitLocale<T extends { id: string; name?: string; blurb?: string }>(unit: T, overlay: UnitLocaleOverlay | null): T {
+  const o = overlay?.[unit.id];
+  if (!o || (o.name === undefined && o.blurb === undefined)) return unit;
+  return {
+    ...unit,
+    ...(o.name === undefined ? {} : { name: o.name }),
+    ...(o.blurb === undefined || unit.blurb === undefined ? {} : { blurb: o.blurb }),
+  };
+}

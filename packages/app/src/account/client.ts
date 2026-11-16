@@ -3,7 +3,7 @@
  * disabled no method calls `fetch` (GH-1075 A1, A1-11).
  */
 import type { AvatarView } from '@lions/data';
-import type { CampaignView, ClaimBody, ClaimResult, CoinAskWire, ConflictAnswer, EarnAward, MatchesView, SaveSlot, ServerState, SlotMetaView, WalletView } from '@lions/economy';
+import type { CampaignView, ClaimBody, ClaimResult, CoinAskWire, CoinsView, ConflictAnswer, EarnAward, MatchesView, SaveSlot, ServerState, SlotMetaView, WalletView } from '@lions/economy';
 import type { OutboxOp } from './outbox';
 
 export interface IdentityView {
@@ -81,6 +81,8 @@ export interface AccountClient {
   claim(body: ClaimBody): Promise<CallResult<ClaimResult>>;
   /** The member's match history, newest first (GH-1075 A3): `before` is the previous page's `next`. */
   matches(before?: string): Promise<CallResult<MatchesView>>;
+  /** The member's own coin history, newest first (GH-1370 C1): `before` is the previous page's `next`. */
+  coins(before?: string): Promise<CallResult<CoinsView>>;
 }
 
 /** The `r=` codes the provider returns append to the profile path (plan section 0, ruling 12; `google` and `already` are GH-1075 §3.4). */
@@ -232,6 +234,7 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
     deleteSlot: (op) => result('DELETE', slotPath(op.slotId), { op_id: op.opId }),
     claim: (body) => result('POST', 'claim', body),
     matches: (before) => result('GET', before === undefined ? 'matches' : `matches?before=${encodeURIComponent(before)}`),
+    coins: (before) => result('GET', before === undefined ? 'coins' : `coins?before=${encodeURIComponent(before)}`),
     async gone(idHash) {
       if (!o.enabled) return 'unknown';
       try {

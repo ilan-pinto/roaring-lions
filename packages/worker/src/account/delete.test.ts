@@ -5,7 +5,7 @@ import { sha256Hex } from './crypto';
 import { handleAccount } from './routes';
 import { openTestD1 } from '../test-d1';
 import { memoryKV } from './kv';
-import { RECONCILE_PER_RUN, reconcileTombstones } from './sweep';
+import { RECONCILE_D1_QUERIES, RECONCILE_PER_RUN, reconcileTombstones } from './sweep';
 import { accountHarness, memberTablesInMigration, seedFullMember, SEED_PUBLIC_ID } from './test-kit';
 import { deleteMember, deleteTelemetryFor } from './delete';
 
@@ -319,9 +319,24 @@ describe('reconcileTombstones at scale', () => {
     expect(await n(h.db, 'SELECT 1 FROM member')).toBe(1);
   });
 
-  it('stops after RECONCILE_PER_RUN members', async () => {
+  it('stops after RECONCILE_PER_RUN tombstones acted on: pruning costs no D1 query, so only that cap bounds it', async () => {
     const { h, kv } = await many(RECONCILE_PER_RUN + 3, 1000);
-    expect(await reconcileTombstones(h.db, kv)).toBe(RECONCILE_PER_RUN);
-    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(3);
+    await h.db.prepare('UPDATE member SET last_seen_day = 9').run(); // every sign-in came after its tombstone: all cancelled
+    expect(await reconcileTombstones(h.db, kv)).toBe(0);
+    expect((await kv.list({ prefix: 'tomb:' })).keys.length).toBe(3);
+  });
+
+  it('stops when the run\'s D1 query budget is spent (GH-1432), and the next runs finish what is left', async () => {
+    const { h, kv } = await many(RECONCILE_PER_RUN + 3, 1000);
+    // One select, then one batch per deleted member: the budget of RECONCILE_D1_QUERIES holds the select and ten deletions.
+    expect(await reconcileTombstones(h.db, kv)).toBe(RECONCILE_D1_QUERIES - 2);
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(RECONCILE_PER_RUN + 3 - (RECONCILE_D1_QUERIES - 2));
+    let runs = 1;
+    while ((await n(h.db, 'SELECT 1 FROM member')) > 0 && runs < 10) {
+      await reconcileTombstones(h.db, kv);
+      runs++;
+    }
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(0);
+    expect(runs).toBe(5);
   });
 });
