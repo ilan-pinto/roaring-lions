@@ -21,6 +21,8 @@ import bs3 from '../../../data/challenges/beit_sahwan_3_clearance.json';
 import bs4 from '../../../data/challenges/beit_sahwan_4_subterranean.json';
 import uz2 from '../../../data/challenges/umm_zeitoun_2_buildup.json';
 import type { OverlayOp } from './overlays';
+// The index the coin rules share and the ledger key live apart, so the entry chunk never carries this catalogue.
+export { CHALLENGE_LEDGER_KEY, challengeMissionIds, hasChallenge } from './challenge-ids';
 
 /** One generic amendment (`data/challenges/amendments.json`). */
 export interface AmendmentJson {
@@ -61,17 +63,10 @@ export interface MissionChallengeJson {
 export const amendments: AmendmentCatalogue = amendmentsJson as unknown as AmendmentCatalogue;
 
 /** Every mission's challenge, sorted by mission id. */
-export const missionChallenges: readonly MissionChallengeJson[] = ([bs1, bs2, bs3, bs4, bsBreach, uz2] as unknown as MissionChallengeJson[])
-  .slice()
-  .sort((a, b) => (a.mission < b.mission ? -1 : a.mission > b.mission ? 1 : 0));
-
-/** The challenge index the coin rules share (`roarEarn`, the Worker's victory route, the G-E2 pin): a mission with
- *  no entry here pays no challenge coin, whatever a client reports. */
-export const challengeMissionIds: readonly string[] = missionChallenges.map((c) => c.mission);
-
-/** The campaign-ledger key the challenge MARK lives under (§5.2): best-of per mission, this campaign only, so
- *  "New campaign" clears it. The COINS live on the wallet's lifetime record, never here. */
-export const CHALLENGE_LEDGER_KEY = 'campaign.challenge_results';
+// Written in sorted order rather than sorted at load: a call at module top level is a side effect the bundler must keep,
+// and it kept this whole catalogue on the app's entry chunk through @lions/data's index (webgpu:bundle, +7.4 KB).
+// `challenges.test.ts` pins the order.
+export const missionChallenges: readonly MissionChallengeJson[] = [bs1, bs2, bs3, bs4, bsBreach, uz2] as unknown as MissionChallengeJson[];
 
 /** One mission's challenge mark: the challenge's id and the run's own row. */
 export interface ChallengeMark {
@@ -89,9 +84,6 @@ export function challengeOf(missionId: string): MissionChallengeJson | undefined
   return missionChallenges.find((c) => c.mission === missionId);
 }
 
-export function hasChallenge(missionId: string): boolean {
-  return challengeOf(missionId) !== undefined;
-}
 
 /**
  * The op lists a set of amendment ids applies, in LIBRARY order (then the mission's own) with duplicates dropped, so

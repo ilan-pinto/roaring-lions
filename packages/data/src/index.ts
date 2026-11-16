@@ -341,11 +341,8 @@ export {
   betterMark,
   challengeArmed,
   challengeMet,
-  challengeMissionIds,
   challengeOf,
-  hasChallenge,
   missionChallenges,
-  CHALLENGE_LEDGER_KEY,
   TICKS_PER_TARGET_MINUTE,
   type AmendmentCatalogue,
   type AmendmentJson,
@@ -354,6 +351,9 @@ export {
   type ChallengeWin,
   type MissionChallengeJson,
 } from './challenges';
+// The coin rules' index and the ledger key, from their own module so @lions/economy (on the entry chunk) never pulls
+// the catalogue's JSON in (the posture-ids.ts arrangement).
+export { CHALLENGE_LEDGER_KEY, challengeMissionIds, hasChallenge } from './challenge-ids';
 
 export {
   versusMissionOf,

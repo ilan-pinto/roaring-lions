@@ -47,6 +47,10 @@ describe('the pilot (D9): six missions, one per phase, pinned to the directory',
       .sort();
     expect([...challengeMissionIds].sort()).toEqual(onDisk);
   });
+  it('the coin rules\' index (challenge-ids.ts, kept off the entry chunk) is the catalogue\'s, mission for mission', () => {
+    expect(challengeMissionIds).toEqual(missionChallenges.map((c) => c.mission));
+    for (const c of missionChallenges) expect(hasChallenge(c.mission)).toBe(true);
+  });
   it('one per phase: breach, recon, foothold, buildup, clearance, subterranean', () => {
     const phases = challengeMissionIds.map((id) => (byId(id) as unknown as { phase: string }).phase).sort();
     expect(phases).toEqual(['breach', 'buildup', 'clearance', 'foothold', 'recon', 'subterranean']);
