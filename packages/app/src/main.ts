@@ -2077,7 +2077,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // under any posture, is the mission itself (`campaignMission` returns it by reference).
   // Loaded lazily, as the save kit is: the posture code is the campaign's alone, and the entry chunk and its static
   // imports sit under a byte ceiling (`pnpm --filter @lions/tools webgpu:bundle`), which an eager import crossed by 2.4 KB.
-  const posture = await import('./posture');
+  // A chunk that will not load must not boot the run at another posture: the board, as for a save that will not start.
+  const posture = await importWithRetry(() => import('./posture')).catch(() => null);
+  if (req.signal.aborted) return teardown;
+  if (posture === null) {
+    req.navigate(routes.campaign(), { replace: true });
+    return teardown;
+  }
   if (mission !== undefined) mission = posture.campaignMission(mission, ledger, t);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
