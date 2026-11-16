@@ -18,9 +18,11 @@
 // on the next boot.
 //
 // WHERE. Once, app-wide, appended to `document.body`, and visible only while the player is on a shell screen (`inShell`, polled at
-// SHELL_POLL_MS): a battlefield never shows it. It is a status line, not a dialog: no focus trap, no key swallowed, so it never
-// fights the no-graphics card (`no-gpu.ts`, modal) that may be up over it on the same boot. The disposer takes away the node, both
-// listeners and the poll, and is idempotent (the disposer contract in CLAUDE.md).
+// SHELL_POLL_MS): a battlefield never shows it. The same poll re-reads the settings, and once the preset is Low or the line is
+// answered by any other route (the settings screen, say) it takes itself down through its own disposer. It is a status line, not
+// a dialog: no focus trap, no key swallowed, so it never fights the no-graphics card (`no-gpu.ts`, modal) that may be up over it
+// on the same boot. The disposer takes away the node, both listeners and the poll, and is idempotent (the disposer contract in
+// CLAUDE.md).
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import type { Settings } from '../settings';
@@ -162,7 +164,21 @@ export function mountSoftwareHint(deps: SoftwareHintDeps): Disposer {
   }
   low.addEventListener('click', onLow);
   dismiss.addEventListener('click', onDismiss);
+  /** Still wanted by the CURRENT settings: not on Low and not answered (either can change elsewhere, e.g. the settings screen). */
+  const stillWanted = (): boolean => {
+    let s: Settings;
+    try {
+      s = deps.settings.get();
+    } catch {
+      return true; // nothing new learned: the caller's decision stands
+    }
+    return !s.hints.software && s.video.quality !== SOFTWARE_HINT_QUALITY;
+  };
   const sync = (): void => {
+    if (!stillWanted()) {
+      close(); // the disposer itself: node, listeners and poll go, and the caller's later call is a no-op
+      return;
+    }
     let shell: boolean;
     try {
       shell = deps.inShell();
@@ -171,8 +187,8 @@ export function mountSoftwareHint(deps: SoftwareHintDeps): Disposer {
     }
     line.hidden = !shell;
   };
-  sync();
   doc.body.append(line);
   poll = win.setInterval(sync, SHELL_POLL_MS);
+  sync();
   return close;
 }

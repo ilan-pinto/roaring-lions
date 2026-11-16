@@ -91,7 +91,10 @@ describe('rendererName: the unmasked renderer, and gl.RENDERER when it is masked
   it('falls back to gl.RENDERER when the extension is missing', () => expect(rendererName(fakeGl(null, 'Mesa OffScreen'))).toBe('Mesa OffScreen'));
   it('falls back to gl.RENDERER when the extension is masked (an empty answer)', () => expect(rendererName(fakeGl('', 'llvmpipe'))).toBe('llvmpipe'));
   it('falls back to gl.RENDERER when the extension read throws', () => expect(rendererName(fakeGl('throw', 'llvmpipe'))).toBe('llvmpipe'));
+  it('a whitespace-only unmasked answer is masked too: it falls back to gl.RENDERER', () =>
+    expect(rendererName(fakeGl(' \t\n ', 'llvmpipe'))).toBe('llvmpipe'));
   it('says nothing when neither says anything', () => expect(rendererName(fakeGl('', ''))).toBeNull());
+  it('whitespace on both is nothing, not a name', () => expect(rendererName(fakeGl('   ', '  '))).toBeNull());
   it('a non-string answer is nothing', () => expect(rendererName(fakeGl(null, 7))).toBeNull());
 });
 
@@ -104,6 +107,7 @@ describe('resolveRenderer: the cached name first, a fresh read only when it says
   it.each<[string, () => string | null]>([
     ['null', () => null],
     ['empty', () => ''],
+    ['whitespace only', () => ' \t '],
     [
       'a throw',
       () => {
@@ -219,6 +223,33 @@ describe('the line at boot (through watchQualityHint, as main.ts reaches it)', (
     shell = false;
     vi.advanceTimersByTime(SHELL_POLL_MS);
     expect(line()?.hidden).toBe(true);
+  });
+
+  it('mounted on High, the preset switched to Low elsewhere (the settings screen): the next poll takes the line down', () => {
+    vi.useFakeTimers();
+    const settings = settingsOver(storeWith('high'));
+    const { stop } = boot(settings);
+    expect(line()).not.toBeNull();
+    expect(vi.getTimerCount()).toBe(1);
+    const s = settings.get();
+    settings.set({ ...s, video: { ...s.video, quality: 'low' } }); // through the settings deps, as the settings panel writes
+    vi.advanceTimersByTime(SHELL_POLL_MS);
+    expect(line()).toBeNull();
+    expect(vi.getTimerCount()).toBe(0); // unmounted through the disposer, not merely hidden
+    expect(settings.set).toHaveBeenCalledTimes(1); // the line wrote nothing of its own
+    expect(() => stop()).not.toThrow(); // the caller's disposer is now a no-op
+  });
+
+  it('answered elsewhere (hints.software set by another route): the next poll takes the line down', () => {
+    vi.useFakeTimers();
+    const settings = settingsOver(memStore());
+    boot(settings);
+    expect(line()).not.toBeNull();
+    const s = settings.get();
+    settings.set({ ...s, hints: { ...s.hints, software: true } });
+    vi.advanceTimersByTime(SHELL_POLL_MS);
+    expect(line()).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
