@@ -195,13 +195,8 @@ import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
-import { cutMission, sealMission, restoreMission } from './mission-save';
-import { discardSuspended, openSuspendStore, readSuspended, writeSuspended } from './mission-save-store';
-import { captureShell, shellJson } from './mission-shell';
-import { withReliefOnLoan } from './posture';
-import { amendedMission, challengeMarkFor, withChallengeMark } from './challenge';
-import { clearResumeProblem, loadResume, noteResumeProblem, peekResumeProblem, startInputsJson, type ResumeLoaded } from './mission-resume';
-import { saveFailureText } from './ui/resume-copy';
+import type { ResumeLoaded } from './mission-resume';
+import type * as SaveKit from './mission-save-kit';
 import { initTelemetry, telemetry, telemetryPlayerForDeletion, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
 import { startLoadout } from './telemetry/loadout';
 import { screenFor } from './telemetry/events';
@@ -725,9 +720,16 @@ const voiceNoted = new Set<string>();
  */
 /** GH-1393: a mission that has ended (won, lost, or left on purpose) has no place left to resume. Drops the save if it is THIS mission's. */
 function dropSavedMission(id: string): void {
-  const store = openSuspendStore(() => window.localStorage);
-  const r = readSuspended(store);
-  if (r.state === 'ready' && r.record.missionId === id) discardSuspended(store);
+  void saveKit().then(({ openSuspendStore, readSuspended, discardSuspended }) => {
+    const store = openSuspendStore(() => window.localStorage);
+    const r = readSuspended(store);
+    if (r.state === 'ready' && r.record.missionId === id) discardSuspended(store);
+  }).catch(() => undefined);
+}
+
+/** GH-1393: Save and Resume load on demand (mission-save-kit.ts), keeping them out of the entry chunk. */
+function saveKit(): Promise<typeof SaveKit> {
+  return importWithRetry(() => import('./mission-save-kit'));
 }
 
 function accountState(): {
@@ -1173,7 +1175,10 @@ async function main(): Promise<void> {
   /** The map page. publicDir is the repo-root assets/ dir (vite.config.ts), so
    *  the world render is served rather than bundled; the per-country overlay is
    *  built by worldMap from the generated geometry in countries.json. */
-  function mountCampaign(host: HTMLElement, req: RouteRequest): Disposer {
+  async function mountCampaign(host: HTMLElement, req: RouteRequest): Promise<Disposer> {
+    // GH-1393: the Resume row needs the save library; if its chunk will not load the board still opens, without the row.
+    const kit = await saveKit().catch(() => null);
+    if (req.signal.aborted) return () => undefined;
     return showCampaign(host, {
       base: BASE,
       world: parseWorld(world),
@@ -1190,24 +1195,24 @@ async function main(): Promise<void> {
       // make a WebGL context for a player who has already gone.
       signal: req.signal,
       // GH-1393: the saved mission, if there is one: a Resume row above the footer. The store is read again after a discard.
-      resume: {
+      ...(kit === null ? {} : { resume: {
         read: () => {
-          const r = readSuspended(openSuspendStore(() => window.localStorage));
+          const r = kit.readSuspended(kit.openSuspendStore(() => window.localStorage));
           if (r.state === 'refused') return { state: 'refused', reason: r.reason };
           if (r.state !== 'ready') return { state: 'none' };
-          const p = peekResumeProblem();
+          const p = kit.peekResumeProblem();
           if (p === 'moved') return { state: 'refused', reason: 'moved' };
           return { state: 'ready', missionId: r.record.missionId, savedAt: r.record.savedAt, simTick: r.record.simTick, ...(p === 'failed' ? { note: 'failed' as const } : {}) };
         },
         nameOf: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
         resume: (id) => void router.navigate(routes.mission(id, { resume: true })),
         discard: () => {
-          const ok = discardSuspended(openSuspendStore(() => window.localStorage));
-          if (ok) clearResumeProblem();
+          const ok = kit.discardSuspended(kit.openSuspendStore(() => window.localStorage));
+          if (ok) kit.clearResumeProblem();
           return ok;
         },
         now: () => Date.now(),
-      },
+      } }),
     });
   }
 
@@ -1905,11 +1910,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // why) without a renderer, a sim or a screen having been made. The world is then built exactly as for a new mission, from the live stores,
   // which `loadResume` has just proved are the ones the mission was started from; only the deploy pick, the restore and the shell differ.
   let resumed: ResumeLoaded | null = null;
+  let resumeKit: typeof SaveKit | null = null;
   if (params.has('resume') && req.missionId !== null && !inRoom) {
     const a = accountState();
-    const got = await loadResume({
+    // A chunk that will not load is a save that will not start: the board says so (the save stays).
+    const loadedKit = await saveKit().catch(() => null);
+    if (req.signal.aborted) return () => undefined;
+    if (loadedKit === null) {
+      req.navigate(routes.campaign(), { replace: true });
+      return () => undefined;
+    }
+    resumeKit = loadedKit;
+    const got = await loadedKit.loadResume({
       missionId: req.missionId,
-      store: openSuspendStore(() => window.localStorage),
+      store: loadedKit.openSuspendStore(() => window.localStorage),
       seed: SIM_SEED,
       live: { ledger: ledgerStore.readLedger(), unlocks: a.boughtUnits, tiers: a.ownedTiers },
     });
@@ -2065,10 +2079,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // changes a score), applied once to the mission JSON here so every reader below -- briefing, objectives, the
   // runtime, the debrief, a mid-mission save -- sees the mission the run is played on. Standard, and the tutorial
   // under any posture, is the mission itself (`campaignMission` returns it by reference).
-  // GH-1395: the amendments go on AFTER the posture, in the same one call (`amendedMission`), so the briefing, the
-  // runtime and the debrief all see the run as played; none on is exactly `campaignMission`.
+  // Loaded lazily, as the save kit is: the posture code is the campaign's alone, and the entry chunk and its static
+  // imports sit under a byte ceiling (`pnpm --filter @lions/tools webgpu:bundle`), which an eager import crossed by 2.4 KB.
+  // GH-1395: the amendments go on AFTER the posture, in the same one call (`challenge.amendedMission`), so the briefing,
+  // the runtime and the debrief all see the run as played; none on is exactly `posture.campaignMission`. The challenge
+  // module is campaign-only too, and is loaded the same way.
+  const [posture, challenge] = await Promise.all([import('./posture'), import('./challenge')]);
   const amendmentIds: readonly string[] = req.amendments ?? [];
-  if (mission !== undefined) mission = amendedMission(mission, ledger, amendmentIds, t);
+  if (mission !== undefined) mission = challenge.amendedMission(mission, ledger, amendmentIds, t);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -2499,7 +2517,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     loanedForce = loanedPlacements(mission, ledger, gateOf);
     const resolvedForce = resolvedMission.starting_force ?? [];
     // GH-1394: a posture's relief is always on loan (it goes back; it never joins the roster).
-    loanedReinforce = withReliefOnLoan(mission, loanedReinforcements(mission, ledger, gateOf));
+    loanedReinforce = posture.withReliefOnLoan(mission, loanedReinforcements(mission, ledger, gateOf));
     // A reinforced loan, like a starting one, brings no body home to replace an earlier one (R-2).
     const reinforceUnits = new Set<string>();
     (mission.triggers ?? []).forEach((t, i) =>
@@ -3193,7 +3211,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // start a replay could rebuild.
   const replayLog = new ReplayRecorder();
   // GH-1393: what this mission was started from, kept for Save and quit (`startInputsJson`); set once the mission has started.
-  let startInputs: ReturnType<typeof startInputsJson> | null = null;
+  let startInputs: ReturnType<typeof SaveKit.startInputsJson> | null = null;
+  // The save library, loaded on demand. Without it (a chunk that will not load) the mission plays and Save and quit is not offered.
+  const sk: typeof SaveKit | null = resumeKit ?? (resolvedMission ? await saveKit().catch(() => null) : null);
+  if (req.signal.aborted) return () => undefined;
   if (resolvedMission) {
     try {
       // One ledger for the runtime and the loadout (GH-254), so the roster
@@ -3233,18 +3254,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // cast: TypeScript narrows `deploySelection` to its initial null, since
       // it is assigned only inside the deploy screen's callback.
       const picks = deploySelection as DeploySelection | null;
-      startInputs = startInputsJson({ ledger, tiers: bootKit, unlocks: boughtUnits, deploy: picks === null ? null : picks.chosen });
-      if (resumed !== null) {
+      startInputs = sk?.startInputsJson({ ledger, tiers: bootKit, unlocks: boughtUnits, deploy: picks === null ? null : picks.chosen }) ?? null;
+      if (resumed !== null && sk !== null) {
         // The world stands at tick 0, built as for a new mission. The save is written onto it, proved (sim hash and runtime digest equal
         // the saved ones) before a tick runs, and the renderer is re-seeded from it. A refusal leaves this sim half-written: it is dropped.
-        const r = restoreMission(resumed.prepared, { sim, runtime });
+        const r = sk.restoreMission(resumed.prepared, { sim, runtime });
         if (!r.ok) {
-          noteResumeProblem('failed');
+          sk.noteResumeProblem('failed');
           teardown();
           req.navigate(routes.campaign(), { replace: true });
           return () => undefined;
         }
-        clearResumeProblem();
+        sk.clearResumeProblem();
         renderer.reseed();
         renderer.settleDead?.();
         // The app's own bookkeeping, which no snapshot holds: the debrief and the victory write are built from it.
@@ -4221,6 +4242,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * the mission running and the previous save in place. Returns null once the save is kept (and the player is on their way out).
    */
   const saveAndQuit = async (): Promise<string | null> => {
+    const kit = await saveKit().catch(() => null);
+    if (kit === null) return t('save.err.encode_failed');
+    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell } = kit;
     if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
     const cut = cutMission({
       sim,
@@ -6363,7 +6387,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // address, never on a defeat (`challengeMarkFor`). Its mark joins the same all-or-none victory write.
           const challengeMark =
             mev.result === 'victory' && missionId && runtime !== null
-              ? challengeMarkFor({
+              ? challenge.challengeMarkFor({
                   missionId,
                   result: mev.result,
                   amendments: amendmentIds,
@@ -6378,7 +6402,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   },
                 })
               : null;
-          const updatedLedger: CampaignLedger = withChallengeMark(carryover ? carryover.ledger : { ...ledger, ...mev.ledger }, mission.id, challengeMark);
+          const updatedLedger: CampaignLedger = challenge.withChallengeMark(carryover ? carryover.ledger : { ...ledger, ...mev.ledger }, mission.id, challengeMark);
           if (mev.result === 'victory')
             telemetry().campaignProgress(mission.id, Object.keys(updatedLedger['campaign.mission_results'] ?? {}).length);
           let payout: ReturnType<typeof payVictory> | null = null;

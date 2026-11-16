@@ -84,7 +84,7 @@ describe('what Easier and Harder do, on Beit Sahwan II (literals read off the sh
     expect(m.enemy?.waves?.map((w) => w.at_seconds)).toEqual([45, 150, 260]);
     expect(m.enemy?.waves?.map((w) => w.units.map((u) => u.count))).toEqual([[2], [1, 2], [2, 1]]);
   });
-  it('Easier: limit x5/4, waves x3/4 rounded up (never below 1) and 30 s later, one relief trigger at 90 s', () => {
+  it('Easier: limit x5/4, wave bodies x3/4 with the remainder carried (never below 1 an entry) and 30 s later, one relief trigger at 90 s', () => {
     const e = at(m, 'easier');
     expect(e.time_limit_s).toBe(1050);
     expect(e.enemy?.waves?.map((w) => w.at_seconds)).toEqual([75, 180, 290]);
@@ -96,7 +96,7 @@ describe('what Easier and Harder do, on Beit Sahwan II (literals read off the sh
     ]);
     expect(reliefTriggerIndices(e)).toEqual([(e.triggers ?? []).length - 1]);
   });
-  it('Harder: waves x5/4 rounded up and 15 s sooner; the limit as written', () => {
+  it('Harder: wave bodies x5/4 with the remainder carried and 15 s sooner; the limit as written', () => {
     const h = at(m, 'harder');
     expect(h.time_limit_s).toBe(840);
     expect(h.enemy?.waves?.map((w) => w.at_seconds)).toEqual([30, 135, 245]);
