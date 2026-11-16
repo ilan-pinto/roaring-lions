@@ -8,6 +8,7 @@
 // proved without a battlefield. `main.ts` feeds it from the loop that already
 // handles every event; nothing else writes it.
 
+import type { KillCause } from './kill-cause';
 import { classifyReason } from './ui/conduct-invoice';
 
 export interface LoggedLoss {
@@ -18,6 +19,8 @@ export interface LoggedLoss {
   name?: string;
   x: number;
   y: number;
+  /** Why it died (GH-1380), read from the events of the tick it fell; absent when the world kept no tracker. */
+  cause?: KillCause;
 }
 
 export interface LoggedDeduction {
@@ -56,6 +59,8 @@ export interface LogContext {
   positionOf(entity: number): { x: number; y: number };
   /** The roster entry a player unit was spawned from, if any. */
   rosterOf(entity: number): { name?: string } | undefined;
+  /** The cause the tracker derived for this entity's `destroyed` (GH-1380), if any. */
+  causeOf?(entity: number): KillCause | undefined;
   /** A zone's rect `[x, y, w, h]`, if the map declares it. */
   zone(id: string): readonly number[] | undefined;
 }
@@ -73,6 +78,7 @@ export function logMissionEvent(
   if (ev.kind === 'unitLost' && 'entity' in ev && 'unit' in ev) {
     const p = ctx.positionOf(ev.entity);
     const r = ctx.rosterOf(ev.entity);
+    const cause = ctx.causeOf?.(ev.entity);
     log.losses.push({
       tick: ev.tick,
       entity: ev.entity,
@@ -80,6 +86,7 @@ export function logMissionEvent(
       ...(r?.name !== undefined ? { name: r.name } : {}),
       x: p.x,
       y: p.y,
+      ...(cause !== undefined ? { cause } : {}),
     });
   } else if (ev.kind === 'roe' && 'reason' in ev && 'penalty' in ev) {
     // Only fire INTO protected ground names a zone; a destroyed structure's

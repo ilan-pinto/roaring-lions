@@ -71,6 +71,23 @@ describe('afterAction (GH-417, H4/H5)', () => {
     expect(poor[0]).toMatchObject({ mark: '−10', text: 'Civic hall struck ×2', sub: '2:00, 2:35' });
   });
 
+  // GH-1380. Falsified: ignoring `cause` in lostSub (or the fresh-crew branch) leaves the old line.
+  it('puts the cause in the named loss\'s line and in a lone fresh crew\'s, and says nothing it was not told', () => {
+    const l = log();
+    l.losses[0].cause = { kind: 'gun', attacker: 'at_team', weapon: 'spike_atgm', arc: 'rear', penetrated: true, suppressed: true };
+    l.losses[1].cause = { kind: 'other', attacker: 'inf_squad', suppressed: false };
+    const poor = afterAction(wh5({ log: l })).poor;
+    expect(poor.find((p) => p.person)?.sub).toBe(
+      'Lost at 5:40. Penetrated through the rear by Spike AT Team (Spike anti-tank missile). It was pinned down. Gefen takes the place.'
+    );
+    expect(poor.find((p) => p.text.startsWith('Shoded Jeep'))?.sub).toBe('Destroyed by Rifle Squad.');
+    // Two nameless crews of one type: one sentence cannot be both causes, so none is printed.
+    const two = log();
+    two.losses[1].cause = { kind: 'other', attacker: 'inf_squad', suppressed: false };
+    two.losses.push({ tick: 3000, entity: 10, type: 'jeep_shoded', x: 1, y: 1, cause: { kind: 'other', attacker: 'inf_squad', suppressed: false } });
+    expect(afterAction(wh5({ log: two })).poor.find((p) => p.text.startsWith('Shoded Jeep'))?.sub).toBeUndefined();
+  });
+
   // PA-21: an unlock is something to BUY, not a unit in the next force.
   it('says what changed, in the garage’s words', () => {
     const changed = afterAction(wh5()).changed.map((c) => c.text);
