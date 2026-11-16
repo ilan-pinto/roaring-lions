@@ -105,4 +105,20 @@ describe('the versus kit boundary', () => {
     expect(main).toMatch(/^import \{ tunnelRouteOf \} from '\.\/net\/tunnel-route';/m);
     expect(read(join(SRC, 'net', 'match-world.ts'))).toContain("export { tunnelRouteOf };");
   });
+
+  it('no top-level statement of the boot calls the kit unguarded (a campaign boot has no kit: rk() throws)', () => {
+    // A statement at the boot's own indentation runs on every boot. Each one that reaches rk() or seatName() (which calls it)
+    // must carry a guard before the call: a room/seat/kit null check, an optional chain, the spectator ternary, or an arrow (lazy).
+    const GUARD = /(=>|!== null|\?\.|spectating \?)/;
+    const unguarded = main
+      .split('\n')
+      .map((line, i) => ({ line, n: i + 1 }))
+      .filter(({ line }) => /^ {2}\S/.test(line))
+      .filter(({ line }) => {
+        const at = line.search(/rk\(\)|seatName\(/);
+        return at >= 0 && !GUARD.test(line.slice(0, at));
+      })
+      .map(({ line, n }) => `${n}: ${line.trim()}`);
+    expect(unguarded).toEqual([]);
+  });
 });

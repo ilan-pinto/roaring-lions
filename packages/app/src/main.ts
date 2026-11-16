@@ -7099,7 +7099,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  show the same board. A versus room only: single-player and a sandbox room
    *  mount nothing. */
   const otherSeat = netSeat === 0 ? 1 : 0;
-  const scoreNames = { theirs: seatName(otherSeat) };
+  /** Read in a room only (NetScoreboard, NetPoints, showNetEnd): outside one the kit is not loaded, so `seatName` would throw. */
+  const scoreNames = { theirs: vk !== null ? seatName(otherSeat) : '' };
   const netScore = vk !== null && vk.showsScoreboard(netConfig) && !spectating ? new vk.NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());
   /** The points race (GH-976 P2): both sides' points against the target, from the goals-only runtime. Scores and
