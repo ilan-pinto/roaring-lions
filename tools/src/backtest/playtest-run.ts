@@ -240,7 +240,8 @@ export function currentPosture(): PostureId {
 /** GH-1394 (PM, 16 Nov): whether a WINNING plan uses a posture's relief. `PT_RELIEF_JOIN=1` (a seed child of the ladder's
  *  `easier+relief` reading). The scripted plans were written before the relief existed and never order it, so without
  *  this the ladder measures Easier with two squads standing at the start line. With it, the harness plays the one order a
- *  player would give: the relief attack-moves to the living body of the force when it arrives, and again every 10 s. A
+ *  player would give: the relief attack-moves to the living body of the force (the starting unit nearest its centroid)
+ *  when it arrives, and again every 10 s. A
  *  control (expect !== 'victory') never uses it: a passive player gives no orders. */
 const reliefJoin = process.env.PT_RELIEF_JOIN === '1';
 export function reliefJoinOn(): boolean {
@@ -476,7 +477,28 @@ export function run(
         }
         if (relief.length === 0 || n === 0) return;
         // Integer centroid in Q16.16, as the sim reads it: no float reaches a command.
-        sim.queueCommand({ kind: 'attackMove', ids: relief, x: Math.trunc(sx / n), y: Math.trunc(sy / n) });
+        const cx = Math.trunc(sx / n);
+        const cy = Math.trunc(sy / n);
+        // The relief is sent to the living starting unit nearest that centroid, at its own position: a player joins a
+        // unit of the force, not the empty middle of it. With the force split (Wadi Halam IV: the infantry at the start
+        // line, the armour at the cache), the centroid lies between the two, here in the village between two held
+        // houses, and an attack-move there parked the relief medic 4.9 tiles from a garrison for the rest of the run,
+        // contesting `take_village` every tick (seed 7, Easier: withdrawn at 17.5 min).
+        let tx = cx;
+        let ty = cy;
+        let best = Infinity;
+        for (const i of startedIds) {
+          if (sim.state.alive[i] !== 1 || sim.state.side[i] !== 0) continue;
+          const dx = sim.state.posX[i] - cx;
+          const dy = sim.state.posY[i] - cy;
+          const d = dx * dx + dy * dy; // exact: |dx|, |dy| < 2^23 on any shipped map, so d < 2^47
+          if (d < best) {
+            best = d;
+            tx = sim.state.posX[i];
+            ty = sim.state.posY[i];
+          }
+        }
+        sim.queueCommand({ kind: 'attackMove', ids: relief, x: tx, y: ty });
       };
       for (let s = from; s <= 20 * 60; s += 10) {
         const when = s * TICKS_PER_SECOND;
