@@ -4200,7 +4200,7 @@ const planRunsBySeed = await drainPlanSweeps(SWEEP_SEEDS, gateRecords);
 // as `LADDER_CREDITS` is; `tools/src/backtest/intel-gate.ts` holds the arithmetic.
 //
 // INTEL_PASSIVE_BEATS_WINNER: pairs (a plain winning plan and the no-orders control on its mission;
-// 25 of them, `beit_sahwan_2_foothold` has no control) where the control EARNED more than its
+// 29 of them at seed 424242; `beit_sahwan_2_foothold` has had a control since GH-1378 Q12) where the control EARNED more than its
 // winner, read at the earlier of the two runs' end ticks (F-Q12, ruled 14 Oct). It is 0 by rule: a
 // player who gives no orders must not out-earn the one who wins. Before the trickle went (a scout that
 // stood still paid 5 a minute) `khan_rafid_3_clearance`'s passive run read 189 against the winner's 20.

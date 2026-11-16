@@ -399,7 +399,7 @@ parenthetical moved into the briefing (§3.2). `picture` unchanged.
 
 ### 4.1 `name`
 
-`Beit Sahwan II — Foothold` — **unchanged.**
+`Beit Sahwan II — Foothold` — **unchanged.** (The briefing's mission line and the `hold_west` text changed for GH-1378 Q12.)
 
 ### 4.2 `briefing` — 648 chars, 4 beats — **changed**
 
@@ -439,7 +439,7 @@ has met his work is a villain the player has been told about rather than shown.
 | `hold_west` | Hold the crest of the top terrace for five minutes | `OBJECTIVE COMPLETE — Hold the crest of the top terrace for five minutes` |
 | `collapse_tunnel` | Collapse the tunnel Ashwar is digging under the approach | `OBJECTIVE COMPLETE — Collapse the tunnel Ashwar is digging under the approach` |
 
-Both **unchanged.** `collapse_tunnel` declares no `seconds`, so it cannot fail
+`hold_west` text **changed** (GH-1378 Q12: the hold moved onto the crest); `collapse_tunnel` unchanged. It declares no `seconds`, so it cannot fail
 — there is no `OBJECTIVE FAILED` line to write for it.
 
 ### 4.4 Trigger table
