@@ -2,7 +2,7 @@
 /**
  * The local word filter for versus chat (GH-1417 S2, `docs/superpowers/specs/2026-11-16-versus-chat-safety-design.md` section 3.3).
  *
- * The lists are DATA, `data/chat/filter.<lang>.json` through `@lions/data`'s `chatFilters`, bundled with the game: nothing here asks
+ * The lists are DATA, `data/chat/filter.<lang>.json` through `@lions/data/chat-filters`, bundled with the game but loaded lazily (`preloadChatFilter`; closed until then): nothing here asks
  * a server, so the filter works offline and nothing a player types leaves the browser. Each entry is a plain word or phrase, never a
  * pattern, and this module builds no regular expression from one: matching is token equality and `indexOf`.
  *
@@ -33,7 +33,7 @@
  * Honest limit (design 3.3): a word list is a speed bump, not a guarantee. It misses new slang, other scripts and context.
  * Presentation only: nothing here touches a command, a frame or the sim (invariant 4).
  */
-import { chatFilters, type ChatFilterJson } from '@lions/data';
+import type { ChatFilterJson } from '@lions/data/chat-filters';
 import { DEFAULT_CALLSIGN } from '@lions/net';
 import { currentLocale } from '../i18n/t';
 
@@ -73,6 +73,8 @@ export interface CompiledFilter {
   readonly allow: readonly string[];
   /** `allow` entries of two or more words, indexed like the tiers, for step 10. */
   readonly allowPhrases: ReadonlyMap<string, readonly Term[]>;
+  /** Set only on `CLOSED_FILTER`, the stand-in until the lists have loaded: it hides every line and every name. */
+  readonly closed?: true;
 }
 
 // --- 1-5: folding one code point -------------------------------------------------------------------------------------------------
@@ -298,6 +300,7 @@ function insideHit(words: readonly Token[], f: CompiledFilter): boolean {
  * mask tier only; the hide tier is not an option here, so no setting can reach it.
  */
 export function filterLine(f: CompiledFilter, text: string, opts: { mask: boolean }): LineVerdict {
+  if (f.closed === true) return { kind: 'hide' };
   const words = wordsOf(text);
   // Step 10: a hide hit lying wholly inside a LONGER allow phrase hit is excused.
   const allowed = phraseHits(words, f.allowPhrases);
@@ -341,11 +344,32 @@ export function screenName(f: CompiledFilter, raw: string): string {
 
 const SHIPPED = new Map<string, CompiledFilter>();
 
+/** The lists are ~15 KB of words, so they are a lazy chunk (`@lions/data/chat-filters`), never in the entry chunk's static graph. */
+let lists: readonly ChatFilterJson[] | null = null;
+let loading: Promise<void> | null = null;
+
+/** Fail CLOSED until the lists are here: nothing unfiltered is ever shown, a name reads as the fallback. Never cached. */
+export const CLOSED_FILTER: CompiledFilter = { hide: new Map(), mask: new Map(), inside: [], allow: [], allowPhrases: new Map(), closed: true };
+
+/** Loads the shipped lists (once; a failed load may be retried). Call it where a room or the versus screen is entered. */
+export function preloadChatFilter(): Promise<void> {
+  if (lists !== null) return Promise.resolve();
+  loading ??= import('@lions/data/chat-filters').then(
+    (m) => { lists = m.chatFilters; },
+    (err: unknown) => { loading = null; throw err; },
+  );
+  return loading;
+}
+
 /** The shipped lists for a reader in UI language `lang` (the active catalogue's by default), compiled once per language. */
 export function shippedFilter(lang: string = currentLocale()): CompiledFilter {
+  if (lists === null) {
+    void preloadChatFilter().catch(() => undefined);
+    return CLOSED_FILTER;
+  }
   let f = SHIPPED.get(lang);
   if (f === undefined) {
-    f = compileFilter(chatFilters, (l) => l === 'en' || l === lang);
+    f = compileFilter(lists, (l) => l === 'en' || l === lang);
     SHIPPED.set(lang, f);
   }
   return f;

@@ -2,9 +2,12 @@
 // step is pinned by an input only that step catches (design section 7); the oracle is literal strings, never the module's own output.
 // The second half reads the shipped lists.
 import { describe, expect, it } from 'vitest';
-import { chatFilters } from '@lions/data';
+import { chatFilters } from '@lions/data/chat-filters';
 import { DEFAULT_CALLSIGN } from '@lions/net';
-import { MASK, SUBSTRING_MIN, collapse, compileFilter, filterLine, foldChar, sameWord, screenName, shippedFilter, wordsOf, type FilterList } from './chat-filter';
+import { MASK, SUBSTRING_MIN, collapse, compileFilter, filterLine, foldChar, sameWord, screenName, shippedFilter, wordsOf, type FilterList, preloadChatFilter } from './chat-filter';
+
+// The lists are a lazy chunk; load them before anything is collected (a describe body reads shippedFilter at collection time).
+await preloadChatFilter();
 
 const FIXTURE: FilterList[] = [
   { lang: 'en', hide: ['zorgon', 'grim slogan', 'vex'], mask: ['blarg', 'rude phrase', 'phrase', 'snit', 'sludge', 'mutt'], allow: ['azorgonite', 'zorgon tide'] },

@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { chatFilters } from '@lions/data';
+import { chatFilters } from '@lions/data/chat-filters';
 import { DEFAULT_CALLSIGN } from '@lions/net';
 import { labelsOf, nameFrom, seatLabel } from './seat-label';
 import { setCatalogue } from '../i18n/t';
+import { preloadChatFilter } from '../ui/chat-filter';
+
+// The lists are a lazy chunk; load them before anything is collected (a describe body reads shippedFilter at collection time).
+await preloadChatFilter();
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
 

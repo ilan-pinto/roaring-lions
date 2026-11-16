@@ -1,7 +1,9 @@
 // GH-1417 S1: the one door a received chat line goes through.
 import { describe, expect, it, vi } from 'vitest';
 import { ChatInbox, inboxOf } from './chat-inbox';
-import { compileFilter } from './chat-filter';
+import { compileFilter, preloadChatFilter } from './chat-filter';
+
+await preloadChatFilter();
 
 const lines = (inbox: ChatInbox, feed: [0 | 1, string][]): string[] => {
   const shown: string[] = [];

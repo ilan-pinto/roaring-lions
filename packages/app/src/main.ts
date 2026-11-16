@@ -326,6 +326,7 @@ import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 import { inboxOf } from './ui/chat-inbox';
+import { preloadChatFilter } from './ui/chat-filter';
 import { showNetEnd } from './ui/net-end';
 import { NetPoints, payZoneOf } from './ui/net-points';
 import { NetFlags } from './ui/net-flags';
@@ -726,6 +727,11 @@ function dropSavedMission(id: string): void {
   const store = openSuspendStore(() => window.localStorage);
   const r = readSuspended(store);
   if (r.state === 'ready' && r.record.missionId === id) discardSuspended(store);
+}
+
+/** The chat word lists (a lazy chunk). A load that fails is not fatal: the filter stays closed, so chat is hidden and names read as the fallback. */
+function chatFilterReady(): Promise<void> {
+  return preloadChatFilter().catch(() => undefined);
 }
 
 function accountState(): {
@@ -1716,9 +1722,9 @@ async function main(): Promise<void> {
             } satisfies CreditsDeps),
           ),
       },
-      { name: 'versus', pattern: '/versus', mount: (host) => importWithRetry(() => import('./ui/versus')).then(({ showVersus }) => showVersus(host, versusDeps)) },
+      { name: 'versus', pattern: '/versus', mount: (host) => Promise.all([importWithRetry(() => import('./ui/versus')), chatFilterReady()]).then(([{ showVersus }]) => showVersus(host, versusDeps)) },
       // Room codes are upper case; a link typed in lower case is the same room.
-      { name: 'versus-room', pattern: '/versus/:code', mount: (host, req) => importWithRetry(() => import('./ui/versus')).then(({ showVersusRoom }) => showVersusRoom(host, req.params.code.toUpperCase(), versusDeps)) },
+      { name: 'versus-room', pattern: '/versus/:code', mount: (host, req) => Promise.all([importWithRetry(() => import('./ui/versus')), chatFilterReady()]).then(([{ showVersusRoom }]) => showVersusRoom(host, req.params.code.toUpperCase(), versusDeps)) },
       // Reserved for Phase 1's briefing screen. Until that exists the path is
       // a redirect rather than a 404, so a link written against it today lands
       // the player in the mission rather than on an error card.
@@ -1899,6 +1905,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // will not load, is another mission's, or was started from a campaign that has since moved sends the player back to the board (which says
   // why) without a renderer, a sim or a screen having been made. The world is then built exactly as for a new mission, from the live stores,
   // which `loadResume` has just proved are the ones the mission was started from; only the deploy pick, the restore and the shell differ.
+  // GH-1417: a room's chat and names are screened by the word lists, a lazy chunk; ready before the first line or name is shown.
+  if (inRoom) await chatFilterReady();
   let resumed: ResumeLoaded | null = null;
   if (params.has('resume') && req.missionId !== null && !inRoom) {
     const a = accountState();

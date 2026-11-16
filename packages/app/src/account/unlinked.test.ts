@@ -25,6 +25,10 @@ import { clientFor, FakeServer, makeScheduler, tick } from './sync-kit';
 import type { AccountClient } from './client';
 import { unusedA2Client } from './fixtures';
 import { resolveSignedIn } from './signed-in';
+import { preloadChatFilter } from '../ui/chat-filter';
+
+// The chat word lists are a lazy chunk and the filter is closed (every name reads as the fallback) until they load, as the screens ensure.
+await preloadChatFilter();
 
 const SENTINELS = ['ZZZZ9999', 'SentinelName', '76561197960287930', 'tok-sentinel'] as const;
 
