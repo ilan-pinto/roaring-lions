@@ -3958,12 +3958,12 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // IV 210 -> 230; Deir Amun II 237 -> 247, III 250 -> 255; Ein Qasab III 195 -> 160; Khan Rafid I 310 -> 320, III 238 -> 255; Qarn Hadid
 // II 210 -> 220, III 229 -> 237; Umm Zeitoun I 238 -> 248, III 300 -> 280, IV 262 -> 225 (192 at ROE 67 before its plan fix; now ROE 100); Wadi Halam I
 // 190 -> 180, II 180 -> 200, III 190 -> 170, V 200 -> 190. The star ladder (68) and every gate held.
-// 2026-11-16, GH-1386 batch 2 (beit_sahwan_3, tel_marum_3, umm_zeitoun_3, wadi_halam_5): 6923 -> 6923, +0. Was 6923. The same measurement as batch 1:
+// 2026-11-16, GH-1386 batch 2 (beit_sahwan_3, tel_marum_3, umm_zeitoun_3, wadi_halam_5): unchanged at 6923. The same measurement as batch 1 (docs/campaign/economy/held-ground-census.md, section 9):
 // the printed per-mission credits are byte-identical; umm_zeitoun_3, the one of the four whose plan builds, differs on ONE of 30 seeds (21: a squad is
 // accepted 50 s sooner and the win comes 0.4 s later, with the same stars, ROE and credits).
-// 2026-11-16, GH-1386 batch 1 (held-ground income on khan_rafid_2, qarn_hadid_2, tel_marum_2): 6923 -> 6923, +0. Was 6923. Measured, not assumed:
+// 2026-11-16, GH-1386 batch 1 (held-ground income on khan_rafid_2, qarn_hadid_2, tel_marum_2): unchanged at 6923. Measured, not assumed:
 // zone income reaches credits only through a plan's decisions, and these three plans buy nothing, so on all 30 seeds each plan's result, clock,
-// stars, ROE and credits are identical to the digit (income-numbers/held-ground-census.md section 8); the printed per-mission credits are
+// stars, ROE and credits are identical to the digit (docs/campaign/economy/held-ground-census.md, section 8); the printed per-mission credits are
 // byte-identical to the tree before the change. LADDER_STARS (68) and ROSTER_MAX (26) are unmoved for the same reason.
 const LADDER_CREDITS = 6923;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);

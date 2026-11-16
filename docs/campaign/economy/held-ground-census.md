@@ -283,7 +283,7 @@ other plan and control are byte-identical. `pnpm playtest` exits 0.
 
 | Pin | Was | Now | Where |
 |---|---|---|---|
-| `LADDER_CREDITS` | 6923 | 6923 (unchanged: the plans decide identically) | `playtest.ts`, dated comment added |
+| `LADDER_CREDITS` | 6923 | unchanged (the plans decide identically) | `playtest.ts`, dated comment added |
 | `LADDER_STARS` (and the coin table `roar_earn.test.ts` reads) | 68 | 68 | unchanged |
 | `ROSTER_MAX` | 26 | 26 | unchanged |
 | `BANKING_OVER_30_MAX` | 15 | 15 (all three plans already banked 100%) | unchanged |
@@ -325,7 +325,7 @@ exits 0.
 
 | Pin | Was | Now |
 |---|---|---|
-| `LADDER_CREDITS` | 6923 | 6923 (dated comment: byte-identical per-mission credits) |
+| `LADDER_CREDITS` | 6923 | unchanged (dated comment: byte-identical per-mission credits) |
 | `LADDER_STARS`, `ROSTER_MAX`, `BANKING_OVER_30_MAX` | 68, 26, 15 | unchanged |
 | `ZONE_PASSIVE_INCOME` | 0 over 8 controls | 0 over **12** ("zone-mission controls found 12/12") |
 | `ZONE_MISSIONS` | 8 | 12 |
