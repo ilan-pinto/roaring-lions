@@ -17,8 +17,13 @@ import { censusChunks, heightBlendFieldUsedIn, type Chunk } from './bundle-censu
  * The entry's ceiling, bytes (`code.length`): measured 1,794,107 bytes with P0 on 5 Nov 2026 (origin/main d05cd6da5 + this branch);
  * this is the ratchet, never raised to fit a change. Since 8 Nov 2026 it holds the entry chunk PLUS every chunk the entry statically
  * imports (`entryClosureBytes`), unchanged in value: at origin/main c9a230a23 that sum was 1,857,936 (the entry 1,857,778 + the 158-byte runtime chunk).
+ *
+ * LEAD RULING 16 Nov 2026: raised 1,850,000 -> 1,880,000 (+30,000 bytes, ~1.6 %). Not a leak: the queue (quick chat +2,064,
+ * the chat word filter's synchronous engine ~+5 KB, the i18n overlay +1,224 and its stack) needs ~20 KB the entry chunk cannot
+ * give after the save/resume kit went lazy (PR 1499: 1,848,830; PR 1500: 1,846,134). The lead chose raising the limit over
+ * loading the versus/chat code on demand. Was 1_850_000. Still a ratchet: never raised again without the lead.
  */
-export const MAIN_CHUNK_MAX_BYTES = 1_850_000;
+export const MAIN_CHUNK_MAX_BYTES = 1_880_000;
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const APP = path.join(REPO, 'packages/app');
