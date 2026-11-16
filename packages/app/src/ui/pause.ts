@@ -93,6 +93,13 @@ export interface PauseDeps {
    *  re-navigation would silently open a second room and strand the other
    *  seat. */
   onRestart?: () => void;
+  /**
+   * GH-1393: Save and quit. Present only for a mission that can be saved (a campaign mission with a ledger, not the tutorial, a sandbox or a
+   * match). Resolves to null when the mission was saved AND read back, in which case the caller leaves; otherwise to the line to show: the
+   * menu stays open and the mission is not left, so a refused write costs the player nothing. The words are the caller's (`t()` keys), never a
+   * reason code.
+   */
+  onSave?: () => Promise<string | null>;
   /** The caller confirms before actually leaving. Not offered when
    *  `onSurrender` is: in a room the way out is surrendering. */
   onQuit(): void;
@@ -280,8 +287,16 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   const onSurrender = deps.onSurrender;
   const quitBtn = onSurrender ? null : actionButton(deps.quitLabel ?? t('pause.quit'), 'quit');
   const surrenderBtn = onSurrender ? actionButton(t('pause.surrender'), 'surrender') : null;
-  actions.append(...[resumeBtn, restartBtn, settingsActBtn, quitBtn, surrenderBtn].filter((b) => b !== null));
+  const onSave = deps.onSave;
+  const saveBtn = onSave ? actionButton(t('pause.save'), 'save') : null;
+  actions.append(...[resumeBtn, restartBtn, settingsActBtn, saveBtn, quitBtn, surrenderBtn].filter((b) => b !== null));
   p.body.appendChild(actions);
+  // The save's own line: reserved, polite, and empty until a save is refused.
+  const saveMsg = document.createElement('p');
+  saveMsg.className = 'rl-pause__save-msg';
+  saveMsg.setAttribute('role', 'status');
+  saveMsg.setAttribute('aria-live', 'polite');
+  if (saveBtn) p.body.appendChild(saveMsg);
 
   const foot = document.createElement('p');
   foot.className = 'rl-settings__hint';
@@ -309,6 +324,32 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   if (restartBtn && onRestart) restartBtn.addEventListener('click', () => onRestart());
   settingsActBtn.addEventListener('click', () => showTab('settings'));
   quitBtn?.addEventListener('click', () => deps.onQuit());
+  if (saveBtn && onSave) {
+    let saving = false;
+    saveBtn.addEventListener('click', () => {
+      if (saving) return;
+      saving = true;
+      saveBtn.disabled = true;
+      saveMsg.textContent = t('pause.save.busy');
+      delete saveMsg.dataset.tone;
+      onSave().then(
+        (refusal) => {
+          if (closed) return; // the menu was left while the write was out: the caller's navigation owns what happens next
+          saving = false;
+          saveBtn.disabled = false;
+          saveMsg.textContent = refusal ?? '';
+          if (refusal !== null) saveMsg.dataset.tone = 'bad';
+        },
+        () => {
+          if (closed) return;
+          saving = false;
+          saveBtn.disabled = false;
+          saveMsg.textContent = t('save.err.encode_failed');
+          saveMsg.dataset.tone = 'bad';
+        },
+      );
+    });
+  }
   if (surrenderBtn && onSurrender) surrenderBtn.addEventListener('click', () => onSurrender());
 
   const onKey = (e: KeyboardEvent): void => {
