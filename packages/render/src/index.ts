@@ -51,6 +51,9 @@ export { DebugOverlay } from './overlay';
 // `packages/app` would be x-ray vision the first time the two drifted. So the
 // app calls the same function rather than agreeing with it.
 export { unitIsObserved } from './three/units/observed';
+// GH-1388: the fog a seat sees, computed by the renderer's own function. Three-free (zero imports), so the app's computer seat keeps the
+// fog it is shown to the same rule the renderer and the AI harness use, instead of a copy.
+export { computeFog, isFogVisible, type FogInput } from './three/fog';
 // Who holds a building and whether the viewer may be told (lead ruling
 // 2026-10-14): the banner's rule, three-free, so the minimap's outline and
 // the HUD's "2 / 4 inside" ask the same function the renderer does.
