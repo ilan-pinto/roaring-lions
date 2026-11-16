@@ -52,11 +52,15 @@ export function readingOf(runs: readonly { result: string; minutes: number; lost
 
 /**
  * REPORT-ONLY (PM, 16 Nov): does a posture point the wrong way for this mission ITSELF? An Easier reading is flagged when,
- * against Standard on the same seeds, it wins less often, wins more than 5% slower, or loses more of the starting force
+ * against Standard on the same seeds, it wins less often, wins more than 5% slower, or loses more than half a body a run
+ * more of the starting force
  * (Tel Marum III: Easier's +30 s wave lands on the defile foot as they arrive). A Harder reading is flagged the other
  * way round. Chained ledgers differ between postures, so a mission that reads another's roster also carries its
  * predecessors' effects; the line says so by naming both numbers, not by judging.
  */
+/** Mean starting-force bodies a run by which a posture must differ from Standard before `wrongWay` names it. */
+export const LOSS_NOISE = 0.5;
+
 export function wrongWay(posture: PostureId, p: PlanReading, std: PlanReading): string | undefined {
   const rate = (r: PlanReading) => (r.seeds === 0 ? 0 : r.wins / r.seeds);
   const why: string[] = [];
@@ -65,7 +69,9 @@ export function wrongWay(posture: PostureId, p: PlanReading, std: PlanReading): 
   if (Number.isFinite(p.medianMin) && Number.isFinite(std.medianMin)) {
     if (easierWay ? p.medianMin > std.medianMin * 1.05 : p.medianMin < std.medianMin * 0.95) why.push(`median win ${p.medianMin.toFixed(2)} min against ${std.medianMin.toFixed(2)}`);
   }
-  if (easierWay ? p.meanLost > std.meanLost : p.meanLost < std.meanLost) why.push(`starting losses ${p.meanLost.toFixed(1)} against ${std.meanLost.toFixed(1)}`);
+  // Half a body a run is the noise floor: the first full reading flagged 35 of 135 on differences down to 0.1 a run,
+  // most of them a chained ledger arriving with a different roster rather than the posture acting on the mission.
+  if (easierWay ? p.meanLost > std.meanLost + LOSS_NOISE : p.meanLost < std.meanLost - LOSS_NOISE) why.push(`starting losses ${p.meanLost.toFixed(1)} against ${std.meanLost.toFixed(1)}`);
   return why.length === 0 ? undefined : why.join(', ');
 }
 

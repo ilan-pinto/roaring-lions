@@ -77,7 +77,10 @@ describe('the posture ladder judgements (GH-1394)', () => {
     expect(wrongWay('easier', { ...std, medianMin: 4.3 }, std)).toMatch(/median win/);
     expect(wrongWay('easier', { ...std, medianMin: 4.1 }, std)).toBeUndefined(); // inside 5%
     expect(wrongWay('easier', { ...std, meanLost: 2 }, std)).toMatch(/starting losses 2.0 against 1.0/);
-    expect(wrongWay('harder', { ...std, meanLost: 0.5 }, std)).toMatch(/starting losses/);
+    expect(wrongWay('harder', { ...std, meanLost: 0.4 }, std)).toMatch(/starting losses/);
+    // Inside the noise floor (half a body a run) either way: nothing.
+    expect(wrongWay('easier', { ...std, meanLost: 1.5 }, std)).toBeUndefined();
+    expect(wrongWay('harder', { ...std, meanLost: 0.5 }, std)).toBeUndefined();
     expect(wrongWay('harder', { ...std, meanLost: 2, medianMin: 5 }, std)).toBeUndefined();
   });
 });
