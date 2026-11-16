@@ -192,7 +192,8 @@ describe('the rain rim reaches a KDF figure built with the renderer\'s own table
     expect(t.materials).toHaveLength(3);
     for (const m of t.materials) {
       // The rim hook only under rain; never an emissive (the flat lift is gone).
-      expect(Object.prototype.hasOwnProperty.call(m, 'onBeforeCompile')).toBe(wet);
+      // (GH-1361: the weapon's gunmetal clone also carries the sun-glint hook, so ask the rim's own key.)
+      expect(m.customProgramCacheKey().includes('rl-unit-rain-rim')).toBe(wet);
       expect((m as THREE.MeshStandardMaterial).emissive.toArray()).toEqual([0, 0, 0]);
     }
     for (const m of t.materials) m.dispose();

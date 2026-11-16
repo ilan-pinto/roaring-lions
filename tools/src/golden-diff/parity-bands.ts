@@ -84,7 +84,8 @@ export const PARITY_ROWS: readonly ParityRow[] = [
     (scenario): ParityRow => ({ scenario, layer: 'outline', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T5: the occlusion outline (Step A)' })
   ),
   // GH-943 P1 (T5): bloom adds exactly 0 wherever nothing exceeds linear luminance 1.0 (a ZERO check on every quiet gated scenario).
-  ...['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'].map(
+  // GH-1361: not `vehicle` and `kitted`, where the sun glint is an HDR point; the node backend has no glint term yet either.
+  ...['quiet', 'open-ground', 'fogged', 'graded'].map(
     (scenario): ParityRow => ({ scenario, layer: 'bloom', band: 'zero', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: bloom adds +0 on a frame with nothing over 1.0' })
   ),
 ];

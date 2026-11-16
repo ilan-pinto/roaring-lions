@@ -53,6 +53,7 @@ import { BURN_BAND_MAX, SCAR_BAND_MAX } from './building-damage';
 import { CHARRED_RAMP } from './vehicle-mesh-role';
 import { runningGearBinding } from './running-gear-binding';
 import { carryTeamMark } from './team-mask';
+import { carrySunGlint } from './sun-glint';
 import type { VehicleMeshEntity } from './mesh-vehicle';
 import { legacyOf, recordLegacyBase } from '../twin-identity';
 
@@ -134,6 +135,8 @@ export class VehicleScarMaterials {
       scarred = std.clone();
       // L3: a clone drops `onBeforeCompile`; keep the team mark.
       carryTeamMark(scarred, std);
+      // GH-1361: a scarred glass or gunmetal part keeps its sun glint.
+      carrySunGlint(scarred, std);
       writeScar(scarred, std, mix);
       scarred.needsUpdate = true;
       perBand.set(band, scarred);

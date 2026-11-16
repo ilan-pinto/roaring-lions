@@ -592,6 +592,10 @@ export const DEBUG_LAYERS = [
   'collapse-shroud',
   // GH-1223 slice 1: the ragdolls. See the doc entry.
   'ragdolls',
+  // GH-1361 slice 1: the sun-glint lobe on unit glass and gunmetal (`units/sun-glint.ts`). A FLAG `stepSunGlint` consults on EVERY frame
+  // before it writes the shared gain uniform, so a hide holds across a repaint (the `unitsDebugHidden` standard). Witnessed by the
+  // gated `vehicle` scenario's layer check.
+  'glint',
 ] as const;
 
 /** The layers `ThreeRenderer.writeFxLayerVisibility` holds hidden every frame. */

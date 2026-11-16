@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { buildMeshUnitTemplate } from './mesh-unit';
 import { buildVehicleMeshTemplate } from './mesh-vehicle';
 import { SURFACE_PARAMS, WET_SURFACE_PARAMS, setUnitSurfacePass, surfaceTableFor } from './unit-surface';
+import { patchSunGlint } from './sun-glint';
 import { liftWoundedTemplate } from './wounded-read';
 import { RAIN_KDF_CONTRAST, RAIN_KDF_EXPOSURE, RAIN_KDF_RIM_GAIN, RAIN_KDF_RIM_POWER } from '../weather';
 import { exposureCurve, patchRainRim, rainReadNow, rimFactor, rimUniforms, setRainRead, setRainRimGain, treatedAlbedo } from './rain-rim';
@@ -48,7 +49,16 @@ function sceneOf(parts: { role: string; map?: THREE.Texture; name?: string }[]):
   return { scene, animations: [] };
 }
 
-const hasRim = (m: THREE.Material): boolean => Object.prototype.hasOwnProperty.call(m, 'onBeforeCompile');
+// GH-1361: a gunmetal clone (the weapon) now also carries the sun-glint hook, so "has a hook" no longer means "has the rim": ask the rim's own key.
+const hasRim = (m: THREE.Material): boolean => m.customProgramCacheKey().includes('rl-unit-rain-rim');
+/** The `userData` a material carries apart from the sun glint's mark (which only the glass and gunmetal classes take). */
+const marksOf = (m: THREE.Material): Record<string, unknown> => {
+  const rest = { ...(m.userData as Record<string, unknown>) };
+  delete rest.rlSunGlint;
+  return rest;
+};
+/** A key without the glint segment, which a weapon's clone appends after the rim's. */
+const withoutGlint = (key: string): string => key.replace(/\|rl-sun-glint$/, '');
 const emissiveOf = (m: THREE.Material): number[] => (m as THREE.MeshStandardMaterial).emissive.toArray();
 const PARTS = [{ role: 'uniform' }, { role: 'boot' }, { role: 'weapon' }, { role: 'webbing' }];
 
@@ -65,7 +75,7 @@ describe('which template builds carry the rain rim', () => {
     expect(t.materials).toHaveLength(4);
     for (const m of t.materials) {
       expect(hasRim(m)).toBe(true);
-      expect(m.userData).toEqual({ rlRainRim: true });
+      expect(marksOf(m)).toEqual({ rlRainRim: true });
       // The flat lift is gone: the emissive is the base's own (black).
       expect(emissiveOf(m)).toEqual([0, 0, 0]);
     }
@@ -95,7 +105,7 @@ describe('which template builds carry the rain rim', () => {
       const t = buildMeshUnitTemplate(sceneOf(PARTS), faction, 'x.glb', false, undefined, undefined, WET_SURFACE_PARAMS);
       for (const m of t.materials) {
         expect(hasRim(m)).toBe(false);
-        expect(m.userData).toEqual({});
+        expect(marksOf(m)).toEqual({});
       }
       // ...but they DO take the wet roughness: the table reached them.
       expect((t.materials[0] as THREE.MeshStandardMaterial).roughness).toBe(0.8);
@@ -111,9 +121,10 @@ describe('which template builds carry the rain rim', () => {
         expect(emissiveOf(std)).toEqual([0, 0, 0]);
         expect(std.emissiveIntensity).toBe(1);
         expect(std.emissiveMap).toBeNull();
-        expect(std.userData).toEqual({});
-        // Compiling it changes nothing: the dry source is three's own.
-        expect(compile(std).fragmentShader).toBe(THREE.ShaderChunk.meshphysical_frag);
+        expect(marksOf(std)).toEqual({});
+        // Compiling it changes nothing: the dry source is three's own (a weapon's, three's own plus the sun-glint splice and nothing of the rim).
+        const own = THREE.ShaderChunk.meshphysical_frag;
+        expect(compile(std).fragmentShader).toBe(std.userData.rlSunGlint === true ? patchSunGlint(own) : own);
       }
       const byRole = new Map(t.materials.map((m, i) => [PARTS[i].role, m as THREE.MeshStandardMaterial]));
       // today's literals: cloth 0.92, leather 0.7, gunmetal 0.42 / 0.45, gear 0.8
@@ -163,7 +174,9 @@ describe('the compiled fragment source', () => {
       expect(wet).not.toBe(dry);
       expect(wet).toContain(RIM_LINE);
       expect(wet).toContain(RIM_DECL);
-      expect(wet.replace(`\n${RIM_DECL}`, '').replace(`\n${RIM_LINE}`, '')).toBe(dry);
+      // (A weapon's clone also carries the sun-glint splice, GH-1361: the dry source it strips back to is three's own plus that.)
+      const stripped = wet.replace(`\n${RIM_DECL}`, '').replace(`\n${RIM_LINE}`, '');
+      expect(stripped).toBe(m.userData.rlSunGlint === true ? patchSunGlint(dry) : dry);
       expect(wet).toContain(EXPOSURE_LINES);
       // The rim line sits right after the emissive map chunk and before the lights sum into outgoingLight.
       expect(wet.indexOf(RIM_LINE)).toBeGreaterThan(wet.indexOf('#include <emissivemap_fragment>'));
@@ -181,8 +194,9 @@ describe('the compiled fragment source', () => {
     const plain = buildMeshUnitTemplate(sceneOf(PARTS), 'enemy', 'x.glb', false, undefined, undefined, WET_SURFACE_PARAMS);
     const dry = buildMeshUnitTemplate(sceneOf(PARTS), 'kdf', 'x.glb', false, undefined, undefined, SURFACE_PARAMS);
     const keys = new Set([...rim.materials, ...plain.materials, ...dry.materials].map((m) => m.customProgramCacheKey()));
-    expect(keys.size).toBe(2);
-    for (const m of rim.materials) expect(m.customProgramCacheKey().endsWith('|rl-unit-rain-rim')).toBe(true);
+    // The rim and the plain/dry clones of the three non-gunmetal roles are two keys; the weapon adds its glint variant of each (GH-1361): four.
+    expect(keys.size).toBe(4);
+    for (const m of rim.materials) expect(withoutGlint(m.customProgramCacheKey()).endsWith('|rl-unit-rain-rim')).toBe(true);
   });
 });
 

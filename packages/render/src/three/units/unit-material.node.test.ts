@@ -21,7 +21,7 @@ import { beginMeshDeathFade, setMeshDeathOpacity } from './mesh-death';
 import { RAIN_RIM_PROGRAM_KEY } from './rain-rim';
 import { WOUNDED_FLOOR_PROGRAM_KEY } from './wounded-read';
 import { SOOT_PROGRAM_KEY } from '../world-materials';
-import { UNIT_HOOK_SEGMENTS } from '../material-names';
+import { UNIT_HOOK_SEGMENTS, UNIT_SEGMENTS_WITHOUT_NODE_TERM } from '../material-names';
 import { censusUnported, PORTED_MATERIAL_KEYS, UNPORTED_TERMS_KEY } from '../backend/unported';
 import { hasColdTextures, markColdTexture, warmColdTextures } from './gltf-loader';
 import { bindRunningGear } from './running-gear-binding';
@@ -58,12 +58,13 @@ const slotsOf = (): TeamMaskSlots => new TeamMaskSlots(['#2F6FD9', '#D93A2B', '#
 describe('the term order is the legacy chain order, pinned to the legacy keys', () => {
   it('soot, running gear, team mark, rain rim, wounded floor: every unit hook, each literal its legacy constant', () => {
     expect(UNIT_TERM_ORDER).toEqual([SOOT_PROGRAM_KEY, RG_PROGRAM_KEY, TEAM_MASK_PROGRAM_KEY, RAIN_RIM_PROGRAM_KEY, WOUNDED_FLOOR_PROGRAM_KEY]);
-    expect(new Set(UNIT_TERM_ORDER)).toEqual(UNIT_HOOK_SEGMENTS);
+    // GH-1361: the sun glint is a unit hook with no node term yet (declared in UNIT_SEGMENTS_WITHOUT_NODE_TERM).
+    expect(new Set([...UNIT_TERM_ORDER, ...UNIT_SEGMENTS_WITHOUT_NODE_TERM])).toEqual(UNIT_HOOK_SEGMENTS);
     expect([SOOT_SEGMENT, RUNNING_GEAR_SEGMENT, TEAM_MARK_SEGMENT]).toEqual([SOOT_PROGRAM_KEY, RG_PROGRAM_KEY, TEAM_MASK_PROGRAM_KEY]);
   });
 
   it('every unit segment is on PORTED_MATERIAL_KEYS (read per segment)', () => {
-    for (const k of UNIT_HOOK_SEGMENTS) expect(PORTED_MATERIAL_KEYS.has(k), k).toBe(true);
+    for (const k of UNIT_HOOK_SEGMENTS) expect(PORTED_MATERIAL_KEYS.has(k), k).toBe(!UNIT_SEGMENTS_WITHOUT_NODE_TERM.has(k));
     for (const k of [TEAM_MASK_PROGRAM_KEY, RG_PROGRAM_KEY, SOOT_PROGRAM_KEY, RAIN_RIM_PROGRAM_KEY, WOUNDED_FLOOR_PROGRAM_KEY]) expect(PORTED_MATERIAL_KEYS.has(k), k).toBe(true);
   });
 });

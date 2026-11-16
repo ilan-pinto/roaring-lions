@@ -51,6 +51,7 @@
  */
 import * as THREE from 'three';
 import { applyRainRim, setRainRimPass } from './rain-rim';
+import { applySunGlint, isSunGlintMaterial, surfaceGlints } from './sun-glint';
 import { ENV_CLASS_OF_SURFACE, ENV_METAL_CAP, ENV_USERDATA_KEY } from '../environment-classes';
 
 export interface SurfaceParams {
@@ -331,6 +332,8 @@ export function surfaceMaterialFor(
     ...(rim ? { rim: true } : {}),
   };
   if (rim) applyRainRim(mat);
+  // GH-1361: the glass and gunmetal classes take the sun-glint lobe (`sun-glint.ts`); every other class is untouched.
+  if (surfaceGlints(cls)) applySunGlint(mat);
   entryOf.set(mat, entry);
   track(entry);
   writeSurface(entry, surfacePassOn);
@@ -351,6 +354,16 @@ export function surfaceMaterialFor(
 export function rainRimCloneCount(): number {
   let n = 0;
   for (const ref of registry) if (ref.deref()?.rim) n++;
+  return n;
+}
+
+/** Number of live surface clones carrying the sun-glint lobe (test seam, and what the `glint` layer reports it reached). */
+export function sunGlintCloneCount(): number {
+  let n = 0;
+  for (const ref of registry) {
+    const e = ref.deref();
+    if (e && isSunGlintMaterial(e.mat)) n++;
+  }
   return n;
 }
 

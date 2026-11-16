@@ -448,6 +448,14 @@ const L3_MARK =
   'panel and the turret band (boxes tested on the object-space position, `units/team-mask.ts`) fall back to the bake. Floors are a ' +
   'third of the smallest run, rounded down. ';
 
+/** GH-1361 slice 1, the `glint` layer check: what it was measured with, written once. */
+const GH1361_GLINT =
+  'GH-1361 slice 1 (the sun-glint lobe on unit glass and gunmetal, `units/sun-glint.ts`), measured 16 Nov 2026 with ' +
+  '`tools/src/perf/relief-read-signal.ts --layers=glint,bloom`: the gate\'s own capture, 3 fresh page loads, BIT-IDENTICAL across all three, ' +
+  'repaint control 0 px / 0.0000 on all three, macOS / M3 Pro, headless Chromium, SwiftShader (ANGLE, Vulkan, SwiftShader driver), ' +
+  '1400x900, quality high. Hiding `glint` writes the shared gain to 0 (a flag `stepSunGlint` consults every frame): the HDR point on a ' +
+  'lined-up barrel and its bloom halo fall away. Floors are a third of the smallest run, rounded down. ';
+
 const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
   quiet: {
     // The camera sits on `town_center` while the sandbox force spawns at the
@@ -1145,6 +1153,15 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'most of the signal in this frame is the vehicles, which is the point of the scenario.',
       },
       {
+        layer: 'glint',
+        minDiffPixels: 184,
+        minMeanAbsChannelDelta: 0.0289,
+        rationale:
+          GH1361_GLINT +
+          'The vehicles\' and figures\' gun metal at zoom 1 on `vehicle`: 552 px / 0.0869 x3 (the source of each lit pixel was not traced mesh by mesh). ' +
+          'WATCHED GOING RED: `setSunGlintPass` made a no-op reads 0 px / 0.0000 on this frame, under both floors.',
+      },
+      {
         layer: 'unit-surface',
         minDiffPixels: 0,
         minMeanAbsChannelDelta: 0.0067,
@@ -1305,6 +1322,15 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'geometries and moves 0 px / 0.0000, under both floors. That is the erasure defect this ' +
           'check exists for (the kit never reaching the renderer: a seed that does not arrive, a merge ' +
           'that keeps nothing, `kit_*` nodes dropped at export), not a toggle a later restore undoes.',
+      },
+      {
+        layer: 'glint',
+        minDiffPixels: 39,
+        minMeanAbsChannelDelta: 0.0154,
+        rationale:
+          GH1361_GLINT +
+          'The kitted frame\'s gun metal: 117 px / 0.0463 x3. ' +
+          'WATCHED GOING RED: `setSunGlintPass` made a no-op reads 0 px / 0.0000 on this frame, under both floors.',
       },
       {
         layer: 'unit-surface',
@@ -2093,8 +2119,12 @@ const BLOOM_ZERO_CHECK: LayerCheckSpec = {
 };
 
 /** The scenarios the zero check is declared on: every gated one except `aftermath` (see `BLOOM_ZERO_CHECK`) and `relief`
- * (tick 500: the legacy reading is 167 px / 0.0139, pixels exceed linear 1.0; lead-approved 6 Nov, PR 1061). No threshold moved. */
-const BLOOM_ZERO_SCENARIOS: readonly string[] = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'];
+ * (tick 500: the legacy reading is 167 px / 0.0139, pixels exceed linear 1.0; lead-approved 6 Nov, PR 1061). No threshold moved.
+ * GH-1361 slice 1 (16 Nov 2026) also drops `vehicle` and `kitted`: the sun glint is an HDR point (pre-bloom peak about 4.3) on a lined-up
+ * barrel, so those two frames DO hold pixels over linear 1.0 now and hiding the bloom moves them (485 px / 0.0800 and 55 px / 0.0402, 3
+ * bit-identical fresh loads each, SwiftShader). That is the feature, not a bloom defect, so the premise of the check is false there; `glint`'s
+ * own check (above) is their witness. `quiet`, `fogged` and `graded` still read 0 px / 0.0000 with the glint on (1 load each). */
+const BLOOM_ZERO_SCENARIOS: readonly string[] = ['quiet', 'open-ground', 'fogged', 'graded'];
 
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = Object.fromEntries(
   Object.entries(BASELINES_DECLARED).map(([id, spec]) => [
