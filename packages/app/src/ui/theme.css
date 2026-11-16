@@ -9162,6 +9162,16 @@ fieldset.rl-versus__maps {
   padding: var(--s1) var(--s2);
   cursor: pointer;
 }
+.rl-chat__quick {
+  flex: none;
+  max-width: 11rem;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
 .rl-chat__mute[aria-pressed='true'] {
   color: var(--ink);
   background: var(--selected-fill);

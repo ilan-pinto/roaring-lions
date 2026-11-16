@@ -441,6 +441,14 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       st.surrendered = seat;
       return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'surrender', seat } }];
     }
+    case 'quick': {
+      // GH-1417 S1b: a preset phrase by id. The id was checked against the list by the parser; the room shares the chat rate limit, so
+      // a seat cannot out-talk the 500 ms gap by alternating the two kinds.
+      if (st.status === 'ended') return [];
+      if (st.lastChatMs[seat] >= 0 && nowMs - st.lastChatMs[seat] < CHAT_MIN_GAP_MS) return [];
+      st.lastChatMs[seat] = nowMs;
+      return [{ kind: 'send', to: 'all', msg: { t: 'quick', seat, id: msg.id } }];
+    }
     case 'chat': {
       if (st.status === 'ended') return [];
       // #559 L-3: the callsign rule -- controls to spaces, bidi overrides,
