@@ -421,6 +421,18 @@
             "type": "string",
             "description": "escort only: the destination zone, a name in the map's zones. `target` names the escorted units. Any other type refuses it."
           },
+          "fail_after_losses": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "escort only (GH-1439): the escort fails the tick this many of its tagged units are dead or taken, from 1 up to the number of units the tag names (the runtime refuses more). Absent is 1: the first loss fails it, as an escort always did. Once the escort completes it is never evaluated again, so the count matters only until then. Any other type refuses it."
+          },
+          "until": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string" },
+            "description": "escort only (GH-1439): ids of PRIMARY objectives of this mission (never this escort, another escort, a no_collateral_above or a score) the escort waits on. It cannot complete until every one is complete, so the units hold through the work; arrival is read each tick, not latched, and the dead cannot block it: it completes the first tick all of them are complete and every surviving escorted unit stands in `zone`. Failure wins a tie. With an `until` the units may start inside `zone` (a protect-in-place escort). Absent is today's escort. Any other type refuses it."
+          },
           "count": {
             "type": "integer",
             "minimum": 1
@@ -465,6 +477,10 @@
             "if": { "properties": { "type": { "const": "no_collateral_above" } }, "required": ["type"] },
             "then": { "required": ["threshold"] },
             "else": { "not": { "required": ["threshold"] } }
+          },
+          {
+            "if": { "properties": { "type": { "const": "escort" } }, "required": ["type"] },
+            "else": { "not": { "anyOf": [{ "required": ["fail_after_losses"] }, { "required": ["until"] }] } }
           }
         ]
       }
