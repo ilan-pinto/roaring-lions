@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { chatFilters } from '@lions/data';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { chatFilters } from '@lions/data/chat-filters';
 import { DEFAULT_CALLSIGN } from '@lions/net';
 import { labelsOf, nameFrom, seatLabel } from './seat-label';
+import { loadChatFilter } from '../ui/chat-filter-gate';
 import { setCatalogue } from '../i18n/t';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
@@ -9,6 +10,11 @@ import { pseudo } from '../i18n/pseudo';
 afterEach(() => setCatalogue('en', en));
 
 const member = { name: 'Ilan', publicId: 'K7Q2M4XA' };
+
+// The filter loads on demand (`chat-filter-gate.ts`); before it has, every typed name is the fallback (`chat-filter-gate.test.ts`).
+beforeAll(async () => {
+  expect(await loadChatFilter()).toBe(true);
+});
 
 describe('seatLabel (GH-1075 A3)', () => {
   it('a member reads name · public id, tagged, with its record when shown', () => {

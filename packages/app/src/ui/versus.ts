@@ -55,6 +55,7 @@ import { footBack, screenFoot } from './foot';
 import { stagger } from './motion';
 import { NetChat } from './net-chat';
 import { inboxOf } from './chat-inbox';
+import { chatFilterNow, loadChatFilter } from './chat-filter-gate';
 import { symbolLabel } from './symbol';
 import { unitName } from '../unit-text';
 import { factionArt, factionBlurb, factionName, friendSide, hostSide, matchupLabel } from './versus-faction';
@@ -279,6 +280,15 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
       room.repaint?.();
     },
   });
+  // GH-1417 S2: the word filter loads on demand (`chat-filter-gate.ts`). Until it is in, every typed name reads as the fallback name
+  // and every received line is held by the inbox; once it is, the lobby is relabelled so the names read as typed (or filtered).
+  if (chatFilterNow() === null) {
+    void loadChatFilter().then((ok) => {
+      if (!ok || room.phase !== 'lobby') return;
+      room.labels = labelsOf(room.seats);
+      room.repaint?.();
+    });
+  }
   return room;
 }
 

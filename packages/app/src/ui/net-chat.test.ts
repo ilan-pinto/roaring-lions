@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Seat } from '@lions/net';
 import { NetChat, chatFeedLine, chatOpens, roomEnterAction, type ChatDeps } from './net-chat';
 import { ChatInbox } from './chat-inbox';
-import { compileFilter } from './chat-filter';
+import { compileFilter, viewOf } from './chat-filter';
 
 const NAMES: Record<Seat, string> = { 0: 'A', 1: 'B' };
 
@@ -305,7 +305,7 @@ describe('NetChat with an inbox', () => {
 
 // GH-1417 S2: the nudge. A line the filter would hide on the other screen is not sent, and the player is told why.
 describe('NetChat and the word filter', () => {
-  const fixture = compileFilter([{ lang: 'en', hide: ['zorgon'], mask: ['blarg'], allow: [] }], () => true);
+  const fixture = viewOf(compileFilter([{ lang: 'en', hide: ['zorgon'], mask: ['blarg'], allow: [] }], () => true));
   function mountFiltered(opts?: { docked?: boolean }) {
     const parent = document.createElement('div');
     document.body.appendChild(parent);

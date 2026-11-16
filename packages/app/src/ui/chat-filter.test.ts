@@ -2,7 +2,7 @@
 // step is pinned by an input only that step catches (design section 7); the oracle is literal strings, never the module's own output.
 // The second half reads the shipped lists.
 import { describe, expect, it } from 'vitest';
-import { chatFilters } from '@lions/data';
+import { chatFilters } from '@lions/data/chat-filters';
 import { DEFAULT_CALLSIGN } from '@lions/net';
 import { MASK, SUBSTRING_MIN, collapse, compileFilter, filterLine, foldChar, sameWord, screenName, shippedFilter, wordsOf, type FilterList } from './chat-filter';
 

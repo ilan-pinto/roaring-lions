@@ -2,8 +2,13 @@
 /**
  * The local word filter for versus chat (GH-1417 S2, `docs/superpowers/specs/2026-11-16-versus-chat-safety-design.md` section 3.3).
  *
- * The lists are DATA, `data/chat/filter.<lang>.json` through `@lions/data`'s `chatFilters`, bundled with the game: nothing here asks
- * a server, so the filter works offline and nothing a player types leaves the browser. Each entry is a plain word or phrase, never a
+ * The lists are DATA, `data/chat/filter.<lang>.json` through `@lions/data/chat-filters`, bundled with the game: nothing here asks
+ * a server, so the filter works offline and nothing a player types leaves the browser.
+ *
+ * LAZY (the main-chunk guard, `pnpm --filter @lions/tools webgpu:bundle`): this module and the lists it imports are loaded on demand
+ * by `chat-filter-gate.ts`, the only thing the entry path holds. Never import a value from here outside a test or the gate's dynamic
+ * import; `chat-filter-wiring.test.ts` walks the entry's static imports and fails if they reach this file or a list. Until it has
+ * loaded, the gate shows no received line and no typed name raw (it holds lines, and names read as the fallback name). Each entry is a plain word or phrase, never a
  * pattern, and this module builds no regular expression from one: matching is token equality and `indexOf`.
  *
  * Two tiers. A `hide` entry hides the WHOLE line, whatever the settings (lead ruling D2: a Settings toggle may turn `mask` off, never
@@ -33,7 +38,7 @@
  * Honest limit (design 3.3): a word list is a speed bump, not a guarantee. It misses new slang, other scripts and context.
  * Presentation only: nothing here touches a command, a frame or the sim (invariant 4).
  */
-import { chatFilters, type ChatFilterJson } from '@lions/data';
+import { chatFilters, type ChatFilterJson } from '@lions/data/chat-filters';
 import { DEFAULT_CALLSIGN } from '@lions/net';
 import { currentLocale } from '../i18n/t';
 
@@ -349,4 +354,27 @@ export function shippedFilter(lang: string = currentLocale()): CompiledFilter {
     SHIPPED.set(lang, f);
   }
   return f;
+}
+
+/** What the gate (`chat-filter-gate.ts`) holds once this module has loaded: a compiled filter's two questions, bound. */
+export interface ChatFilterView {
+  line(text: string, opts: { mask: boolean }): LineVerdict;
+  name(raw: string): string;
+}
+
+/** `f`'s two questions, bound, for the gate and for tests that hand the inbox a fixture. */
+export function viewOf(f: CompiledFilter): ChatFilterView {
+  return { line: (text, opts) => filterLine(f, text, opts), name: (raw) => screenName(f, raw) };
+}
+
+const VIEWS = new Map<string, ChatFilterView>();
+
+/** The shipped lists for a reader in UI language `lang`, as a view, compiled once per language. */
+export function shippedView(lang: string = currentLocale()): ChatFilterView {
+  let v = VIEWS.get(lang);
+  if (v === undefined) {
+    v = viewOf(shippedFilter(lang));
+    VIEWS.set(lang, v);
+  }
+  return v;
 }

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chatFilters } from './chat-filters';
 import {
-  chatFilters,
   formations,
   layouts,
   grades,
@@ -177,7 +177,8 @@ describe('grades is pinned to the directory it comes from', () => {
 
 describe('chatFilters is pinned to the directory it comes from (GH-1417 S2)', () => {
   // The same shape as the grades pin above. data/chat/filter.*.json is read by nobody but this hand-kept array, so a file that
-  // ships without an import line is a language whose chat is never filtered, with a green validate:data.
+  // ships without an import line is a language whose chat is never filtered, with a green validate:data. The array lives on the
+  // `@lions/data/chat-filters` subpath (`chat-filters.ts`), off the entry chunk; the index carries its type alone.
   const chatDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data/chat');
 
   it('carries every filter file on disk, by lang, and each lang is its file name', () => {

@@ -9,14 +9,15 @@
  * Every typed name (a callsign, a member's name, a bot's typed model) passes the chat word filter here (GH-1417 S2,
  * `ui/chat-filter.ts`'s `screenName`): one with a filtered word is shown as the room's fallback name, `Lion`. This is
  * the one place a seat's name is made, so the lobby, the chat, the score, the status line and a spectator all see the
- * same filtered name. The filter is the receiver's: the other seat's own screen and the room keep what was typed.
+ * same filtered name. The filter is the receiver's: the other seat's own screen and the room keep what was typed. The filter loads on
+ * demand (`ui/chat-filter-gate.ts`); until it is in, every typed name reads as that fallback name, never as typed.
  */
 import type { BotModel, SeatState } from '@lions/net';
 import { t } from '../i18n/t';
-import { screenName, shippedFilter } from '../ui/chat-filter';
+import { shownName } from '../ui/chat-filter-gate';
 
-/** A typed name as this reader is shown it. */
-const shown = (raw: string): string => screenName(shippedFilter(), raw);
+/** A typed name as this reader is shown it: filtered, or the fallback name while the filter loads. */
+const shown = (raw: string): string => shownName(raw);
 
 /** `PUBLIC_ID_SHOWN`: the whole public id is shown (8 Crockford characters, §0.18). */
 export const PUBLIC_ID_SHOWN = 8;

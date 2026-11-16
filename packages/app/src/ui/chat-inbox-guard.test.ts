@@ -83,7 +83,8 @@ describe('the chat inbox is the only door (GH-1417 S1)', () => {
       .join('\n');
     expect(filter).not.toMatch(/RegExp|\.replace\(|\.match\(|\.matchAll\(|\.test\(|\.search\(|\.split\(/);
     const label = readFileSync(join(SRC, 'net/seat-label.ts'), 'utf8');
-    expect(label).toContain('const shown = (raw: string): string => screenName(shippedFilter(), raw);');
+    expect(label).toContain('const shown = (raw: string): string => shownName(raw);');
+    expect(label).toContain("import { shownName } from '../ui/chat-filter-gate';");
     expect(label.match(/shown\(/g)?.length, 'the model, member, bot, guest and fallback names').toBe(5);
   });
 });

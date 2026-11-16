@@ -323,6 +323,7 @@ import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 import { inboxOf } from './ui/chat-inbox';
+import { loadChatFilter } from './ui/chat-filter-gate';
 import { showNetEnd } from './ui/net-end';
 import { NetPoints, payZoneOf } from './ui/net-points';
 import { NetFlags } from './ui/net-flags';
@@ -2205,6 +2206,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** A seat's name: the lobby's label (a member's name and public id, GH-1075 A3), else the config's callsign. The
    *  config carries no label (§0.14); after a reload nothing was handed over and the callsign stands. */
   const seatName = (seat: number): string => nameFrom(match.labels, seat, netConfig?.seats[seat]?.callsign ?? '');
+  /** GH-1417 S2: the chat word filter, loaded on demand (`ui/chat-filter-gate.ts`) for a room only. Asked for here, awaited before
+   *  the room's chat, score and status line are mounted; until it is in, a typed name reads as the fallback name and a line is held. */
+  const chatFilterLoad: Promise<boolean> | null = netConfig !== null ? loadChatFilter() : null;
   /** This battlefield's room, when it is one seat of a match (N1b task 8):
    *  where Escape's pause, the menu's Resume and Surrender go. Null in
    *  single-player, which keeps its local pause exactly as it was. */
@@ -3199,6 +3203,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // The save library, loaded on demand. Without it (a chunk that will not load) the mission plays and Save and quit is not offered.
   const sk: typeof SaveKit | null = resumeKit ?? (resolvedMission ? await saveKit().catch(() => null) : null);
   if (req.signal.aborted) return () => undefined;
+  // GH-1417 S2: a room waits for its word filter. The load never rejects; a failure is logged by the gate, and the match plays on
+  // with its received lines hidden and its typed names read as the fallback name.
+  if (chatFilterLoad !== null) await chatFilterLoad;
+  if (req.signal.aborted) abandon('left while the chat filter loaded');
   if (resolvedMission) {
     try {
       // One ledger for the runtime and the loadout (GH-254), so the roster
@@ -4012,7 +4020,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (netChat !== null) onDispose(() => netChat.dispose());
   if (room !== null && netConfig !== null && !spectating && chatInbox !== null) {
     // A line reaches the HUD feed only through the room's inbox, the same one the lobby log used (`chat-inbox.ts`).
-    room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => hud.note(chatFeedLine(seatName(seat), shown), 'info')) });
+    room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => { if (!disposed) hud.note(chatFeedLine(seatName(seat), shown), 'info'); }) });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
    *  places that learn of one: the dispatch below (withheld here) and the room

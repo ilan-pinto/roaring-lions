@@ -1,13 +1,20 @@
 // GH-1417 S1: the one door a received chat line goes through.
-import { describe, expect, it, vi } from 'vitest';
-import { ChatInbox, inboxOf } from './chat-inbox';
-import { compileFilter } from './chat-filter';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { ChatInbox, HELD_MAX, inboxOf } from './chat-inbox';
+import { compileFilter, viewOf, type ChatFilterView } from './chat-filter';
+import { loadChatFilter } from './chat-filter-gate';
 
 const lines = (inbox: ChatInbox, feed: [0 | 1, string][]): string[] => {
   const shown: string[] = [];
   for (const [seat, text] of feed) inbox.deliver(seat, text, (t) => shown.push(`${seat}:${t}`));
   return shown;
 };
+
+// The shipped filter loads on demand (`chat-filter-gate.ts`). These suites read lines synchronously, so it is loaded first; the
+// lines that arrive BEFORE it has loaded are the last suite's.
+beforeAll(async () => {
+  expect(await loadChatFilter()).toBe(true);
+});
 
 describe('ChatInbox', () => {
   it('shows every line while chat is on and nothing is muted', () => {
@@ -81,7 +88,7 @@ describe('inboxOf', () => {
 
 describe('ChatInbox and the word filter (GH-1417 S2)', () => {
   // Invented words, so the oracle is the literal fixture and not the shipped list.
-  const fixture = compileFilter([{ lang: 'en', hide: ['zorgon'], mask: ['blarg'], allow: [] }], () => true);
+  const fixture = viewOf(compileFilter([{ lang: 'en', hide: ['zorgon'], mask: ['blarg'], allow: [] }], () => true));
 
   it('hides a hide-word line from every sink, masks a mask word, and passes a clean line untouched', () => {
     const inbox = new ChatInbox(() => true, () => true, () => fixture);
@@ -123,3 +130,81 @@ describe('ChatInbox and the word filter (GH-1417 S2)', () => {
   });
 });
 
+// GH-1417 S2, the safe fallback: the filter is a lazy chunk, and a line that arrives before it is in is HELD, never shown raw.
+describe('ChatInbox before the word filter has loaded', () => {
+  const fixture = viewOf(compileFilter([{ lang: 'en', hide: ['zorgon'], mask: ['blarg'], allow: [] }], () => true));
+  /** A filter that is not in until `settle(true)`, or fails with `settle(false)`. */
+  function pending() {
+    let filter: ChatFilterView | null = null;
+    let settle: (ok: boolean) => void = () => undefined;
+    const load = vi.fn(() => new Promise<boolean>((resolve) => {
+      settle = (ok) => {
+        if (ok) filter = fixture;
+        resolve(ok);
+      };
+    }));
+    return { filter: () => filter, load, settle: (ok: boolean) => settle(ok) };
+  }
+  const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+  it('holds every line, shows none of them raw, and asks for the filter once', () => {
+    const p = pending();
+    const inbox = new ChatInbox(() => true, () => true, p.filter, p.load);
+    expect(lines(inbox, [[1, 'you zorgon'], [1, 'you blarg'], [0, 'gg']])).toEqual([]);
+    expect(inbox.heldCount()).toBe(3);
+    expect(p.load).toHaveBeenCalledTimes(1);
+  });
+
+  it('delivers the held lines, filtered and in order, once the filter is in; chat-off and mutes are read again then', async () => {
+    const p = pending();
+    let on = true;
+    const inbox = new ChatInbox(() => on, () => true, p.filter, p.load);
+    const shown: string[] = [];
+    for (const [seat, text] of [[1, 'you zorgon'], [1, 'you blarg'], [0, 'gg'], [1, 'late']] as [0 | 1, string][]) {
+      inbox.deliver(seat, text, (t) => shown.push(`${seat}:${t}`));
+    }
+    expect(shown).toEqual([]);
+    inbox.setMuted(0, true);
+    p.settle(true);
+    await flush();
+    expect(shown).toEqual(['1:you ***', '1:late']);
+    expect(inbox.heldCount()).toBe(0);
+    on = false;
+    expect(lines(inbox, [[1, 'x']])).toEqual([]);
+  });
+
+  it('a failed load drops the held lines (hidden, never shown), and the next line asks again', async () => {
+    const p = pending();
+    const inbox = new ChatInbox(() => true, () => true, p.filter, p.load);
+    const shown: string[] = [];
+    inbox.deliver(1, 'hello', (t) => shown.push(t));
+    p.settle(false);
+    await flush();
+    expect(shown).toEqual([]);
+    expect(inbox.heldCount()).toBe(0);
+    inbox.deliver(1, 'again', (t) => shown.push(t));
+    expect(p.load).toHaveBeenCalledTimes(2);
+    p.settle(true);
+    await flush();
+    expect(shown).toEqual(['again']);
+  });
+
+  it(`holds at most ${HELD_MAX} lines, dropping the oldest`, async () => {
+    const p = pending();
+    const inbox = new ChatInbox(() => true, () => true, p.filter, p.load);
+    const shown: string[] = [];
+    for (let i = 0; i < HELD_MAX + 5; i++) inbox.deliver(1, `l${i}`, (t) => shown.push(t));
+    expect(inbox.heldCount()).toBe(HELD_MAX);
+    p.settle(true);
+    await flush();
+    expect(shown.length).toBe(HELD_MAX);
+    expect(shown[0]).toBe('l5');
+  });
+
+  it('refuses nothing before the filter is in (the receiver is the control), and asks for it', () => {
+    const p = pending();
+    const inbox = new ChatInbox(() => true, () => true, p.filter, p.load);
+    expect(inbox.refuses('ok zorgon')).toBe(false);
+    expect(p.load).toHaveBeenCalledTimes(1);
+  });
+});
