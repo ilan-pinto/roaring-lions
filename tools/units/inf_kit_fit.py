@@ -183,6 +183,16 @@ class Fit:
         self.belt_c = (0.0, 0.0)          # plain floats: added to `self.O`'s own, they change neither its value nor its type
         if kp.TEAM.belt_from_spine is not None:
             self.belt_dz = float(bones[f"{pf}_spine"].head_local.z) - kp.TEAM.belt_from_spine - 0.9125
+        # the torso's heights: the kit's carrier, yoke and radio rows are the Rifle Squad's metres about the ground (hem 1.055,
+        # collar 1.42). `Team.torso_from_joints` = (under the shoulder joints, under the spine joint) maps them onto THIS
+        # figure's own trunk: a man whose shoulder joints stand at 1.380 wore the shell's collar 4 cm over them (round 3).
+        self._tz = None
+        if kp.TEAM.torso_from_joints is not None:
+            under_sh, under_sp = kp.TEAM.torso_from_joints
+            top = 0.5 * (float(bones[f"{pf}_upperarm_L"].head_local.z) + float(bones[f"{pf}_upperarm_R"].head_local.z)) - under_sh
+            bot = float(bones[f"{pf}_spine"].head_local.z) - under_sp
+            if abs(top - 1.42) > 1e-3 or abs(bot - 1.055) > 1e-3:      # a man the rows already fit keeps them to the bit
+                self._tz = (bot, (top - bot) / (1.42 - 1.055))
         self.zone_lower = zone((~arms if self.skinned else (armw < 0.3)) & (z < 1.02 + self.belt_dz), "lower")
         if kp.TEAM.belt_from_spine is not None:
             # ...and the ring's centre: the middle of the hips' own section at the belt line (its bounding box, so a dense
@@ -280,6 +290,10 @@ class Fit:
                 loc_v.append(Vector((dd @ np.array(u), dd @ np.array(wvec), dd @ np.array(v))))
             gun_tris = [tuple(pg.vertices) for pg in me.polygons if all(gun_dom[i] == f"{pf}_weapon" for i in pg.vertices)]
             self.wbvh = BVHTree.FromPolygons(loc_v, gun_tris)
+
+    def tz(self, z):
+        """A torso height of the kit's tables (the Rifle Squad's metres) on this figure's own trunk (`Team.torso_from_joints`)."""
+        return z if self._tz is None else self._tz[0] + (z - 1.055) * self._tz[1]
 
     def _surface_station(self, back):
         """(top, bottom, w_lo, w_hi) at `back` metres behind the muzzle, from vertical and sideways rays on the gun's faces."""

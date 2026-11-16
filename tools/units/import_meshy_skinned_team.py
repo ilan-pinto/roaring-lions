@@ -209,7 +209,15 @@ SOURCES = {
         #: (`_flatten_gun_top`: round 1 folded them to 15 % of their height, which read as crumpled foil): every gun vertex
         #: over the rail in a span goes down to it, the faces that leaves flat on the rail are removed, and a plain rail
         #: plate closes the top. (span e0, e1, the rail's height over the bore there), the base body's metres.
-        flat_top=dict(spans=((0.225, 0.385, 0.036), (0.490, 0.545, 0.025)), half_w=0.05, plate=0.0015),
+        #: Round 3 (the second Opus review, 13 Nov: "the rail plate's blades / fins"): no plate. The lowered vertices come in
+        #: to the receiver's own width, the hole is filled along its outline, and a Picatinny rail bar stands on it
+        #: (MIL-STD-1913: 21.2 mm wide; 4 mm of it shows over this receiver, its top edges chamfered 1.2 mm).
+        flat_top=dict(spans=((0.225, 0.385, 0.036), (0.490, 0.545, 0.025)), half_w=0.05, plate=0.0015,
+                      rail=dict(width=0.0212, height=0.004, chamfer=0.0012)),
+        #: ...and one triangle of the carbine hung 10 cm under the receiver's rear, joined to nothing: deleted.
+        weapon_scrap_tris=3,
+        #: ...and the flat tab Meshy sculpted on the receiver's side, 25 mm under the rail, comes in to a boss on its wall.
+        gun_side_clamp=((0.305, 0.338, 0.005, 0.022, 0.022), (0.338, 0.350, 0.005, 0.022, 0.036)),   # the receiver's wall, then the handguard's own width where the tab runs onto it
         #: The skirt faces that go to the weapon mesh with the gun are the VEST's only (the Opus review of 13 Nov, B3): a
         #: face with one gun vertex and its others on a sleeve, a cuff or a glove carried the sleeve's olive and the glove's
         #: brown onto the `weapon` mesh (17 faces, 74-82 cm2 a man), and stood by the firing fist as a pale blade in every
@@ -227,7 +235,7 @@ SOURCES = {
         #: (`_sweep_bake_leftovers`): above the belt, off the gun, the gloves, the skin and the boots, a texel that is still
         #: the bake's blue-slate goes to the olive on the arms, the shoulders and the collar and to the carrier's coyote on
         #: the trunk; and a coyote texel on an arm or a shoulder cap goes to the olive.
-        sweep_leftovers=True,
+        sweep_leftovers=True, sweep_navy=True,
     ),
 }
 
@@ -427,14 +435,84 @@ def _graft_stock(part, prefix, g0, row, uv_at, sz, sxy, dx, dy):
     return len(T)
 
 
+def _drop_weapon_scraps(part, max_tris, prefix):
+    """A row's `weapon_scrap_tris`: an island of the weapon mesh (welded by position) of at most this many triangles is
+    deleted. Round 3 (GH-826): one triangle of the Combat Engineers' carbine, 1.0 cm2, hung 10 cm under the receiver's
+    rear, joined to nothing (a skirt face the seam cut left behind). Returns the triangles removed."""
+    me = part.data
+    bm = bmesh.new(); bm.from_mesh(me)
+    key, par = {}, {}
+
+    def find(x):
+        while par[x] != x:
+            par[x] = par[par[x]]; x = par[x]
+        return x
+    rep = {}
+    for v in bm.verts:
+        k = (round(v.co.x, 5), round(v.co.y, 5), round(v.co.z, 5))
+        rep[v.index] = key.setdefault(k, v.index); par.setdefault(rep[v.index], rep[v.index])
+    for f in bm.faces:
+        r = [find(rep[v.index]) for v in f.verts]
+        for q in r[1:]:
+            par[find(q)] = find(r[0])
+    comp = {}
+    for f in bm.faces:
+        comp.setdefault(find(rep[f.verts[0].index]), []).append(f)
+    dead = [f for fs in comp.values() if len(fs) <= max_tris for f in fs]
+    n = len(dead)
+    if n:
+        bmesh.ops.delete(bm, geom=dead, context="FACES")
+        bm.to_mesh(me); me.update()
+    bm.free()
+    if n:
+        log(f"{prefix}: {n} triangle(s) of the weapon mesh in islands of {max_tris} or fewer deleted (scraps joined to nothing)")
+    return n
+
+
+def _clamp_gun_sides(part, g0, row, prefix, sz, sxy, dx, dy):
+    """A row's `gun_side_clamp` = ((e0, e1, u0, u1, half_w), ...): a weapon vertex in a window of the bore frame (e along the
+    bore from the Meshy butt, u over it; the base body's metres) that stands further than `half_w` to either side of the bore
+    is brought in to it. Round 3 (GH-826): Meshy sculpted a flat tab on the Combat Engineers' receiver, 8 mm thick and
+    standing 40 mm out to one side 25 mm under the rail (57 mm off the centre line of a 35 mm receiver): from the rear and
+    from above a fin. Brought in, it is a boss on the receiver's wall. Returns the vertices moved."""
+    b, ax, up = g0["butt"], g0["axis"], g0["up"]; side = np.cross(ax, up)
+    k = np.array([sxy, sxy, sz]); shift = np.array([dx, dy, 0.0])
+    me = part.data
+    co = np.empty(len(me.vertices) * 3); me.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
+    base = (co - shift) / k
+    r = base - b; e = r @ ax; u = r @ up; s_ = r @ side
+    moved = 0
+    for e0, e1, u0, u1, hw in row["gun_side_clamp"]:
+        m = (e >= e0) & (e <= e1) & (u >= u0) & (u <= u1) & (np.abs(s_) > hw)
+        if not m.any():
+            raise SystemExit(f"{prefix}: no gun vertex beyond {1000 * hw:.0f} mm of the bore in the window e {e0}-{e1}, u {u0}-{u1}: the tab is not where the row says")
+        log(f"{prefix}: {int(m.sum())} gun vertices of a side tab (e {e[m].min():.3f}-{e[m].max():.3f}, u {u[m].min():.3f}-{u[m].max():.3f}, "
+            f"{1000 * np.abs(s_[m]).max():.1f} mm off the bore) brought in to {1000 * hw:.0f} mm")
+        base[m] += np.outer(np.clip(s_[m], -hw, hw) - s_[m], side)
+        moved += int(m.sum())
+    me.vertices.foreach_set("co", (base * k + shift).reshape(-1)); me.update()
+    return moved
+
+
 def _flatten_gun_top(part, g0, row, uv_at, prefix, sz, sxy, dx, dy):
     """A row's `flat_top`: the sights sculpted on the gun's rail are removed. Every weapon vertex over the rail in a span
     goes down to the rail; a face whose three vertices all went down lies flat on it (the sight's own top and sides,
-    folded) and is deleted; the faces that joined the sight to the receiver stay, now ending at the rail; and a plain plate
-    `plate` metres over the rail, as long and as wide as the sight's footprint, closes the top (two triangles, the row's
-    stock texel, on the gun's bone). Read in the base body's bore frame (the part is the figure's: scaled and at its
-    slot). Returns (vertices lowered, faces deleted)."""
-    ft = row["flat_top"]
+    folded) and is deleted; the faces that joined the sight to the receiver stay, now ending at the rail.
+
+    Round 2 closed the top with a plain plate `plate` metres over the rail, as long and as wide as the sight's footprint
+    (two triangles): 44 mm wide on a 35 mm receiver and standing proud of it with no thickness, it read from the front,
+    the rear and every quarter as a blade, and the lowered vertices that had been the sight's wings stayed as wide as
+    they were, fins at the rail's height (the second Opus review, 13 Nov). With a row's `flat_top["rail"]` (round 3):
+
+      * a lowered vertex is brought in to the RECEIVER's own width at the rail (the 5th-95th percentile of the gun's
+        vertices in the span within 12 mm under the rail that did not move), so nothing overhangs it;
+      * the hole the deleted faces leave is filled along its own outline, at the rail's height (the receiver's flat top);
+      * and a Picatinny rail stands on it: `width` wide (MIL-STD-1913: 21.2 mm), `height` high, its top edges chamfered
+        by `chamfer`, closed at both ends, centred on the receiver. A solid bar, no thin plate.
+
+    Read in the base body's bore frame (the part is the figure's: scaled and at its slot).
+    Returns (vertices lowered, faces deleted, triangles added)."""
+    ft = row["flat_top"]; rl = ft.get("rail")
     b, ax, up = g0["butt"], g0["axis"], g0["up"]; side = np.cross(ax, up)
     k = np.array([sxy, sxy, sz]); shift = np.array([dx, dy, 0.0])
     me = part.data
@@ -446,11 +524,19 @@ def _flatten_gun_top(part, g0, row, uv_at, prefix, sz, sxy, dx, dy):
     r = base - b; e = r @ ax; u = r @ up; s_ = r @ side
     lowered = np.zeros(len(co), bool)
     plates = []
-    for e0, e1, rail in ft["spans"]:
-        m = (e >= e0) & (e <= e1) & (np.abs(s_) < ft["half_w"]) & (u > rail)
+    over = [(e >= e0) & (e <= e1) & (np.abs(s_) < ft["half_w"]) & (u > rail) for e0, e1, rail in ft["spans"]]
+    any_over = np.any(over, 0)
+    for (e0, e1, rail), m in zip(ft["spans"], over):
         if not m.any():
             raise SystemExit(f"{prefix}: no gun vertex over the rail in the span e {e0}-{e1}: the sight is not where the row says")
-        plates.append((float(e[m].min()), float(e[m].max()), float(s_[m].min()), float(s_[m].max()), rail))
+        s0, s1 = float(s_[m].min()), float(s_[m].max())
+        if rl:
+            wall = (e >= e0) & (e <= e1) & (np.abs(s_) < ft["half_w"]) & (u <= rail) & (u > rail - 0.012) & ~any_over
+            if wall.sum() < 8:
+                raise SystemExit(f"{prefix}: {int(wall.sum())} receiver vertices under the rail in the span e {e0}-{e1}: its width is not measured")
+            s0, s1 = (float(x) for x in np.percentile(s_[wall], [5, 95]))
+            base[m] += np.outer(np.clip(s_[m], s0, s1) - s_[m], side)
+        plates.append((float(e[m].min()), float(e[m].max()), s0, s1, rail))
         base[m] -= np.outer(u[m] - rail, up)
         lowered |= m
     new = base * k + shift
@@ -460,19 +546,59 @@ def _flatten_gun_top(part, g0, row, uv_at, prefix, sz, sxy, dx, dy):
     dead = [f for f in bm.faces if all(lowered[v.index] for v in f.verts)]
     n_dead = len(dead)
     bmesh.ops.delete(bm, geom=dead, context="FACES")
-    for e0, e1, s0, s1, rail in plates:
-        quad = [b + ax * ee + up * (rail + ft["plate"]) + side * ss for ee, ss in ((e0, s0), (e1, s0), (e1, s1), (e0, s1))]
+    n_before = len(bm.faces)
+    upv = Vector(up.tolist())
+
+    def paint(f):
+        f.smooth = False; f.normal_update()
+        for l in f.loops:
+            l[uvl].uv = (float(uv_at[0]), float(uv_at[1]))
+
+    def face(pts, want):
+        """A triangle on the gun's bone at the stock texel, wound to face `want` (a base-frame direction)."""
         vs = []
-        for p_ in quad:
+        for p_ in pts:
             v = bm.verts.new((np.asarray(p_) * k + shift).tolist()); v[dl][gi] = 1.0; vs.append(v)
-        for tri in ((0, 1, 2), (0, 2, 3)):
-            f = bm.faces.new([vs[i] for i in tri]); f.smooth = False; f.normal_update()
-            if f.normal.dot(Vector(up.tolist())) < 0:
-                f.normal_flip()
-            for l in f.loops:
-                l[uvl].uv = (float(uv_at[0]), float(uv_at[1]))
+        f = bm.faces.new(vs); f.normal_update()
+        if f.normal.dot(Vector(np.asarray(want).tolist())) < 0:
+            f.normal_flip()
+        paint(f)
+    if rl:
+        # the receiver's flat top: the hole's own outline, filled
+        low_ids = {v.index for v in bm.verts if v.index < len(lowered) and lowered[v.index]}
+        rim = [ed for ed in bm.edges if len(ed.link_faces) == 1 and ed.verts[0].index in low_ids and ed.verts[1].index in low_ids]
+        if rim:
+            res = bmesh.ops.triangle_fill(bm, use_beauty=True, use_dissolve=False, edges=rim, normal=upv)
+            for f in [g_ for g_ in res["geom"] if isinstance(g_, bmesh.types.BMFace)]:
+                f.normal_update()
+                if f.normal.dot(upv) < 0:
+                    f.normal_flip()
+                paint(f)
+        # degenerate leavings of the pull-in (a face whose vertices now share a line)
+        thin = [f for f in bm.faces if f.calc_area() < 1e-10]
+        if thin:
+            bmesh.ops.delete(bm, geom=thin, context="FACES")
+        for e0, e1, s0, s1, rail in plates:
+            w = min(rl["width"], (s1 - s0) - 0.004); h = rl["height"]; c_ = rl["chamfer"]; sc = 0.5 * (s0 + s1)
+            if w < 0.012:
+                raise SystemExit(f"{prefix}: the receiver is {1000 * (s1 - s0):.1f} mm wide at the rail in the span e {e0:.3f}-{e1:.3f}: no room for a rail")
+            prof = [(-w / 2, -0.0005), (-w / 2, h - c_), (-w / 2 + c_, h), (w / 2 - c_, h), (w / 2, h - c_), (w / 2, -0.0005)]   # (s, u over the rail)
+            P = lambda ee, q: b + ax * ee + side * (sc + q[0]) + up * (rail + q[1])  # noqa: E731
+            for i in range(len(prof) - 1):
+                q0, q1 = prof[i], prof[i + 1]
+                nrm = side * (q1[1] - q0[1]) * -1.0 + up * (q1[0] - q0[0])       # outward of the profile's walk (left wall, top, right wall)
+                face([P(e0, q0), P(e1, q0), P(e1, q1)], nrm); face([P(e0, q0), P(e1, q1), P(e0, q1)], nrm)
+            for ee, nrm in ((e0, -ax), (e1, ax)):
+                for i in range(1, len(prof) - 1):
+                    face([P(ee, prof[0]), P(ee, prof[i]), P(ee, prof[i + 1])], nrm)
+    else:
+        for e0, e1, s0, s1, rail in plates:
+            quad = [b + ax * ee + up * (rail + ft["plate"]) + side * ss for ee, ss in ((e0, s0), (e1, s0), (e1, s1), (e0, s1))]
+            for tri in ((0, 1, 2), (0, 2, 3)):
+                face([quad[i] for i in tri], up)
+    n_added = len(bm.faces) - n_before
     bm.to_mesh(me); bm.free(); me.update()
-    return int(lowered.sum()), n_dead
+    return int(lowered.sum()), n_dead, n_added
 
 
 def _stock_texel(co, cls, lab, uv, g, row):
@@ -2306,9 +2432,14 @@ def build_team(team_id, out_path=None):
             # ...and the upper arms' own, for a row's sleeve patch
             arm_w_f1 = np.maximum(W[:, gi_[f"{p}_upperarm_L"]], W[:, gi_[f"{p}_upperarm_R"]])
         ps = _split_roles(shell, p, cls0_fig, roles, co, vest_skirt_only=bool(cfg.get("gun_skirt_vest_only")))
+        if cfg.get("weapon_scrap_tris"):
+            _drop_weapon_scraps(next(o for o in ps if o["rl_role"] == "weapon"), cfg["weapon_scrap_tris"], p)
+        if cfg.get("gun_side_clamp"):
+            _clamp_gun_sides(next(o for o in ps if o["rl_role"] == "weapon"), J0["gun"], cfg, p, sz, sxy, spec["x"], spec["y"])
         if "flat_top" in cfg:
-            n_flat, n_dead = _flatten_gun_top(next(o for o in ps if o["rl_role"] == "weapon"), J0["gun"], cfg, stock_uv, p, sz, sxy, spec["x"], spec["y"])
-            log(f"{p}: the baked sight unit and front sight deleted: {n_flat} weapon vertices lowered onto the rail, {n_dead} faces removed, two rail plates")
+            n_flat, n_dead, n_add = _flatten_gun_top(next(o for o in ps if o["rl_role"] == "weapon"), J0["gun"], cfg, stock_uv, p, sz, sxy, spec["x"], spec["y"])
+            log(f"{p}: the baked sight unit and front sight deleted: {n_flat} weapon vertices lowered onto the rail, {n_dead} faces removed, {n_add} triangles added"
+                + (" (the receiver's flat top filled along its outline, a rail bar on each span)" if cfg["flat_top"].get("rail") else " (two rail plates)"))
         if "stock" in cfg:
             added = _graft_stock(next(o for o in ps if o["rl_role"] == "weapon"), p, J0["gun"], cfg, stock_uv, sz, sxy, spec["x"], spec["y"])
             log(f"{p}: stock grafted behind the Meshy butt: {added} triangles, the carbine {Js[p]['gun']['length']:.3f} -> {Jship[p]['gun']['length']:.3f} m")
@@ -2474,6 +2605,20 @@ def build_team(team_id, out_path=None):
             _repaint(image, (coyote | khaki_left) & olive_tex, RETINT["sleeve_patch"]["target"], 0.1, "coyote and unshifted khaki on the arms and shoulder caps -> olive")
             _repaint(image, khaki_left & trunk_tex & ~olive_tex, _lab(np.array([RETINT["vest"]["rgb"]], np.float64) / 255.0)[0], 0.3,
                      "unshifted khaki on the trunk -> the carrier's coyote")
+            if cfg.get("sweep_navy"):
+                # Round 3 (the second Opus review's "2 bake shards"): three faces a man the slate rule let through, on the
+                # left shoulder strap behind (5.6 cm2) and at the nape of the collar (5.8 and 9.8 cm2). They are NAVY, not
+                # slate: Lab (14.5..15.7, -4.8..-6.2, -10.5..-14.7), and the slate rule keeps a* over -2 so as not to take
+                # the web belt's dark green. A texel that blue (b* under -8) is no green; it is taken only where every
+                # vertex of its face stands 10 cm or more over the belt (the drop-leg rig on the thigh is navy and stays).
+                # (read on the atlas as the sweeps above left it: what they already took is no longer navy)
+                image.pixels.foreach_get(px_.reshape(-1)); lab_n = _lab(px_[..., :3].astype(np.float64))
+                navy = (lab_n[..., 0] < 34.0) & (lab_n[..., 2] < -8.0)
+                hi_v = trunk_v & (co0[:, 2] > J0["belt"] + 0.10)
+                hi_tex = _face_mask(me_, uv, hi_v, W_, H_, min_verts=3) & ~glove_tex & ~gun_tex
+                _repaint(image, navy & hi_tex & olive_tex, RETINT["sleeve_patch"]["target"], 0.1, "navy on the collar and shoulders -> olive")
+                _repaint(image, navy & hi_tex & ~olive_tex, _lab(np.array([RETINT["vest"]["rgb"]], np.float64) / 255.0)[0], 0.3,
+                         "navy on the trunk's straps -> the carrier's coyote")
     if "stock" in cfg:
         # The texel the stock and the rail plates are painted with, re-pinned on the FINISHED atlas: the middle of a solid
         # 7 x 7 block of the gun's own island nearest the receiver's tone. The vertex texel they were built with sat on a

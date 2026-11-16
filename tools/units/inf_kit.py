@@ -466,7 +466,7 @@ def build_throat(f, side=None):
 
 def build_yoke(f, side=None):
     ncol = kp.TEAM.yoke_cols            # 9 columns on the Rifle Squad; a figure whose spine zone is complete there needs fewer for the same 24 triangles
-    wr = torso_wrap(f, [1.385, 1.415, 1.448], span=[75 + i * (210.0 / (ncol - 1)) for i in range(ncol)], whole=True,
+    wr = torso_wrap(f, [f.tz(1.385), f.tz(1.415), f.tz(1.448)], span=[75 + i * (210.0 / (ncol - 1)) for i in range(ncol)], whole=True,
                     rlim=None if kp.TEAM.yoke_rmax is None else (0.06, kp.TEAM.yoke_rmax))   # above the vest: the whole spine zone
 
     trim = trimmed(f, wr, "spine", 1.2, 1.7)

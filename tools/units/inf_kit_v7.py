@@ -90,7 +90,7 @@ def spine_only_zone(f):
 
 
 def _carrier_ring(f):
-    wr = ik.torso_wrap(f, ik.CARRIER_ROWS, 16, fill_below=1.24, zone=spine_only_zone(f))
+    wr = ik.torso_wrap(f, [f.tz(r) for r in ik.CARRIER_ROWS], 16, fill_below=f.tz(1.24), zone=spine_only_zone(f))
     wr.sample()
     return wr
 
@@ -131,17 +131,99 @@ def carrier_fit(f):
     nx, ny, nz = CARRIER_NATIVE
     sx = (rf + rb + 2 * CARRIER_PLATE) / nx
     sy = (rl + rr + 2 * 0.010) / ny
-    sz = (CARRIER_TOP - CARRIER_BOT) / nz
-    cen = wr.centre(1.24)
-    origin = np.array([cen.x + (rf - rb) / 2.0, cen.y + (rl - rr) / 2.0, CARRIER_TOP])
+    sz = (f.tz(CARRIER_TOP) - f.tz(CARRIER_BOT)) / nz
+    cen = wr.centre(f.tz(1.24))
+    origin = np.array([cen.x + (rf - rb) / 2.0, cen.y + (rl - rr) / 2.0, f.tz(CARRIER_TOP)])
     V = km.place(V0, origin, (1, 0, 0), UP, (sx, sy, sz))
     V, st = km.ring_fit(wr, V, T, BODY_CLEAR)
     bvh = geo.bvh_from(V, T)
     c["carrier_hull"] = (V, T, bvh)          # the uncut shell: what the parts hung on it stand on (a hole is not a surface)
     _stats(f, name="carrier", body_depth_mm=round(1000 * (rf + rb), 1), body_width_mm=round(1000 * (rl + rr), 1),
            scale=[round(sx, 3), round(sy, 3), round(sz, 3)], origin=[round(float(x), 4) for x in origin], **st)
+    if kp.TEAM.carrier_trim:
+        V, T, ts = _carrier_trim(f, V, T, (float(cen.x), float(cen.y)), kp.TEAM.carrier_trim)
+        _stats(f, name="carrier_trim", **ts)
+        bvh = geo.bvh_from(V, T)
     c["carrier"] = (V, T, bvh)
     return c["carrier"]
+
+
+def _carrier_trim(f, V, T, cen, cfg):
+    """A team's `carrier_trim`: the fitted shell is cut to a plate carrier's own outline (round 3, GH-826).
+
+    The v7 shell is a vest: its walls run up to the collar all the way round, and they are scaled per axis to the ring of the
+    trunk's own skin and only ever pushed OUT of it. Where this body is narrower than the scaled part the wall stands in the
+    air: on the Combat Engineers the back's upper corners and the rear lips of both armholes (|y| 0.15-0.17 m off the centre
+    line, from 0.18 m under the collar up) stood 60-96 mm off the body AT REST (the aimed clips add under 20 mm), a hollow wing
+    the hanging arm hides and the raised arm of every aimed clip opens to a camera behind the man; and an upper arm comes
+    within 12 mm of the front's upper corners and of the armholes' lower lips. A real plate carrier is a plate bag front and
+    back, no wider than its plate, on a cummerbund that passes UNDER the arm. So above `drop` under the collar the wall is
+    kept only within `half_w` of the centre line (a SAPI plate is 0.24-0.28 m wide), the inner corner clipped by `corner`:
+    three straight lines a side, the same front and back. A triangle a line crosses is clipped on it, not dropped whole.
+    The cut is left OPEN: the part is a solid (an outer and an inner wall) with T-junctions at its straps, the outline falls
+    into some sixty open chains (two clean loops), and a cap by fill or ear-clipping closed 7-27 triangles of ~440 edges
+    (tried 16 Nov). So the trimmed shell is not a closed volume: `inf_kit_clash.py`'s parity test over-reads its rows.
+    Returns (V', T', stats: the standoff from the man's own skin at rest before and after, and how near an upper arm comes in
+    any sampled key of any living clip). The uncut shell stays what the parts hung on the carrier stand on (`carrier_hull`)."""
+    n = len(V)
+    d0 = np.array([f.zone_all.find_nearest(Vector(p))[3] for p in V])
+    yc = 0.5 * (float(V[:, 1].min()) + float(V[:, 1].max()))
+    zc = float(V[:, 2].max()) - cfg["drop"]
+    a_ = np.abs(V[:, 1] - yc) - cfg["half_w"]; b_ = V[:, 2] - zc
+    s = np.maximum(np.maximum(-a_, -b_), cfg["corner"] - a_ - b_)
+    s = np.where(np.abs(s) < 1e-6, 1e-6, s)
+    cut = s <= 0.0
+
+    def arm_near(P):
+        lo = P.min(0) - 0.05; hi = P.max(0) + 0.05
+        pts, who = f.bank.blockers(f.prefix, "spine", lo, hi)
+        arm = np.array([str(w).startswith("upperarm") for w in who], bool)
+        if not arm.any():
+            return np.full(len(P), 9.0)
+        from mathutils.kdtree import KDTree
+        A = pts[arm]; kd = KDTree(len(A))
+        for i, q in enumerate(A):
+            kd.insert(q, i)
+        kd.balance()
+        return np.array([kd.find(Vector(p))[2] for p in P])
+    da = arm_near(V)
+    Vn = [tuple(p) for p in V]; onedge = {}; newrim = set()
+    # clip every triangle on the outline s = 0
+
+    def mid(i, j):
+        k = (min(i, j), max(i, j))
+        if k not in onedge:
+            t_ = s[i] / (s[i] - s[j])
+            Vn.append(tuple(V[i] + (V[j] - V[i]) * t_)); onedge[k] = len(Vn) - 1; newrim.add(len(Vn) - 1)
+        return onedge[k]
+    Tn = []
+    for t in T:
+        keep = [s[i] > 0 for i in t]
+        if all(keep):
+            Tn.append(tuple(t))
+        elif any(keep):
+            for r in range(3):
+                a_, b_, c_ = t[r], t[(r + 1) % 3], t[(r + 2) % 3]
+                if keep[r] and not keep[(r + 1) % 3] and not keep[(r + 2) % 3]:
+                    Tn.append((a_, mid(a_, b_), mid(a_, c_)))
+                elif keep[r] and keep[(r + 1) % 3] and not keep[(r + 2) % 3]:
+                    mb, ma = mid(b_, c_), mid(a_, c_)
+                    Tn.append((a_, b_, mb)); Tn.append((a_, mb, ma))
+    Vn = np.array(Vn); Tn = np.array(Tn, int)
+    used = np.unique(Tn)
+    remap = np.full(len(Vn), -1); remap[used] = np.arange(len(used))
+    Vn = Vn[used]; Tn = remap[Tn]
+    area = lambda V_, T_: float(0.5 * np.linalg.norm(np.cross(V_[T_[:, 1]] - V_[T_[:, 0]], V_[T_[:, 2]] - V_[T_[:, 0]]), axis=1).sum())  # noqa: E731
+    d1 = np.array([f.zone_all.find_nearest(Vector(p))[3] for p in Vn])
+    da1 = arm_near(Vn)
+    q3 = lambda d: [round(1000 * float(np.median(d)), 1), round(1000 * float(np.percentile(d, 90)), 1), round(1000 * float(d.max()), 1)]  # noqa: E731
+    stats = {"vertices_cut": int(cut.sum()), "triangles": [int(len(T)), int(len(Tn))],
+             "area_cm2": [round(1e4 * area(V, T), 1), round(1e4 * area(Vn, Tn), 1)],
+             "rest_standoff_mm_before": q3(d0), "rest_standoff_mm_after": q3(d1),
+             "over_35mm_before_after": [int((d0 > 0.035).sum()), int((d1 > 0.035).sum())],
+             "upper_arm_within_12mm_before_after": [int((da < 0.012).sum()), int((da1 < 0.012).sum())]}
+    print(f"[inf_kit] R3 {f.prefix}: carrier trim {stats}", flush=True)
+    return Vn, Tn, stats
 
 
 def carrier_hull(f):
@@ -192,7 +274,7 @@ def _front_frame(f, bvhs, y, z, du=0.04, dv=0.04):
 
 
 def _centre_xy(f):
-    cen = _carrier_ring(f).centre(1.24)
+    cen = _carrier_ring(f).centre(f.tz(1.24))
     return float(cen.x), float(cen.y)
 
 
@@ -452,15 +534,15 @@ def _back_piece(f, src, y, z_origin, tex, stand=()):
 
 
 def v7_radio_pouch(f, side=None):
-    return _back_piece(f, "radio_pouch", ik.RADIO_POUCH_Y, 1.17, "olive")
+    return _back_piece(f, "radio_pouch", ik.RADIO_POUCH_Y, f.tz(1.17), "olive")
 
 
 def v7_radio_panel(f, side=None):
-    return _back_piece(f, "radio_panel", 0.0, 1.38, "olive")
+    return _back_piece(f, "radio_panel", 0.0, f.tz(1.38), "olive")
 
 
 def v7_radio_pack(f, side=None):
-    return _back_piece(f, "radio_pack", 0.0, 1.40, "olive")
+    return _back_piece(f, "radio_pack", 0.0, f.tz(1.40), "olive")
 
 
 # ------------------------------------------------------------ the helmet
@@ -521,11 +603,18 @@ def v7_counterweight(f, side=None):
     return pc
 
 
-def v7_headset(f, side):
+def _headset_at(f, side, lift=0.0):
+    """(vertices, triangles) of one ear cup and its rail arm, placed. `lift` raises it (metres)."""
     sg = -1.0 if side == "L" else 1.0
     # the rig's L side is at -y; `headset_l_built` is outboard +y, so the rig's L cup is the `_r_` file
     src = "headset_r_built" if side == "L" else "headset_l_built"
     inner, zc, dx = ik.HEADSET_AT
+    if kp.TEAM.headset_below_rim is not None:
+        # round 3 (GH-826): 1.572 m is the Rifle Squad's ear height about the ground. On a man whose helmet rim stands at
+        # 1.710 the cups hung at his NECK, 9 cm under his ears, their pivot's ray found his collar and not his helmet, and
+        # the head's turn onto the stock swung the firing-side cup into the stock's comb. The ear is under each man's own rim.
+        zc = f.hel_bot - kp.TEAM.headset_below_rim
+    zc += lift
     cx = f.O[0] + f.hel_c.x + dx
     cy = f.O[1] + f.hel_c.y
     V0, T = km.source(src)
@@ -534,7 +623,64 @@ def v7_headset(f, side):
     probe = Vector((cx, cy + sg * 0.5, zp))
     loc, _n = geo.surface_hit(f.zone_all, probe, (0, -sg, 0))
     yp = loc.y if loc is not None else cy + sg * (inner + 0.01)
-    V = km.place(V0, np.array([cx, yp, zp]), (1, 0, 0), UP)
+    return km.place(V0, np.array([cx, yp, zp]), (1, 0, 0), UP), T
+
+
+def _gun_in_head_frame(f):
+    """[(vertices, triangles)] of this man's gun in every sampled key of the pose bank's clips, carried into the HEAD's rest frame
+    (where a part riding the head stands still): what an ear cup must not be crossed by."""
+    c = _cache(f)
+    if "gun_head" not in c:
+        bank = f.bank
+        oi = next(i for i, ob in enumerate(bank.objs) if ob.name == "weapon")
+        ob = bank.objs[oi]
+        mine = np.array([isinstance(d, str) and d.startswith(f.prefix + "_") for d in bank.dom[oi]])
+        tris = np.array([tuple(p.vertices) for p in ob.data.polygons])
+        tris = tris[mine[tris].all(1)]
+        key = f"{f.prefix}_head"
+        out = []
+        for mats, W in bank.poses:
+            M = bank.rest[key] @ np.linalg.inv(mats[key])
+            out.append(W[oi] @ M[:3, :3].T + M[:3, 3])
+        c["gun_head"] = (out, tris)
+    return c["gun_head"]
+
+
+def _headset_lift(f):
+    """How far both cups are raised so that no gun triangle crosses either in any sampled key (a team's `headset_clear_gun`: the
+    most it may be). The cheek weld puts the stock's comb under the firing-side cup; a cup the comb runs through is raised
+    until it rides over it, and its pair with it (one headband). Returns (lift, pairs at 0, pairs at lift)."""
+    c = _cache(f)
+    if "headset_lift" not in c:
+        cap = kp.TEAM.headset_clear_gun
+        if cap is None:
+            c["headset_lift"] = (0.0, None, None)
+        else:
+            poses, tris = _gun_in_head_frame(f)
+            # only the keys that bring the gun near the head at all
+            lo = np.array([f.O[0] + f.hel_c.x - 0.25, f.O[1] + f.hel_c.y - 0.25, f.hel_bot - 0.30]); hi = lo + np.array([0.5, 0.5, 0.6])
+            near = [geo.bvh_from(P, tris) for P in poses if ((P >= lo) & (P <= hi)).all(1).any()]
+
+            def pairs(lift):
+                n_ = 0
+                for side in kp.SIDES:
+                    V, T = _headset_at(f, side, lift)
+                    cup = geo.bvh_from(V, T)
+                    n_ = max(n_, max((len(cup.overlap(g)) for g in near), default=0))
+                return n_
+            p0 = pairs(0.0); lift, p_ = 0.0, p0
+            while p_ and lift < cap - 1e-9:
+                lift += 0.002; p_ = pairs(lift)
+            if not p_ and lift > 0:
+                lift += 0.002          # one step of air over the comb
+            c["headset_lift"] = (lift, p0, p_)
+            _stats(f, name="headset_lift", lift_mm=round(1000 * lift, 1), gun_pairs_at_0=p0, gun_pairs_left=p_, keys_near=len(near))
+            print(f"[inf_kit] R3 {f.prefix}: headset raised {1000 * lift:.0f} mm over the stock (worst key: {p0} gun triangle pairs crossing a cup before, {p_} after; {len(near)} keys bring the gun to the head)", flush=True)
+    return c["headset_lift"][0]
+
+
+def v7_headset(f, side):
+    V, T = _headset_at(f, side, _headset_lift(f))
     pc = Piece(f.world())
     add_mesh(pc, V, T, "olive_dark")
     return pc

@@ -165,6 +165,10 @@ class Team:
     dense_keys: bool = False     # sample every keyframe of a short clip and the clip's last frame (not a stride alone)
     belt_from_spine: float = None   # the belt line this far under each figure's own spine joint, its ring centred on the hips (not 0.9125 m about the root)
     pouch_turn_max: float = None    # the furthest (degrees) `clear_pouches` may turn a pair of belt pouches off its nominal angles (None: the search's own 120)
+    torso_from_joints: tuple = None   # (m under the shoulder joints, m under the spine joint): the carrier's collar and hem, the yoke and the radio rows on each figure's OWN trunk
+    carrier_trim: dict = None    # cut a v7 carrier to a plate carrier's outline: {half_w, drop, corner} (`inf_kit_v7._carrier_trim`)
+    headset_below_rim: float = None   # the ear cup's centre this far under each figure's OWN helmet rim (not 1.572 m, the Rifle Squad's metres)
+    headset_clear_gun: float = None   # ...and both cups raised, in 2 mm steps up to this (plus one step of air), until no gun triangle crosses one in any sampled key
     groin_wrap: bool = False     # a v7 groin apron is turned to face the way the belt's front faces under it (a body whose hips stand turned)
     v7: bool = False             # the approved v7 mesh parts (art/parts/inf_kit/v7, `inf_kit_v7.py`) stand in for the procedural builders
     part_tris: dict = field(default_factory=dict)   # this team's own per-NODE triangle rows (the graft's 1.10x limit); a part not named reads the shared table in kit-contract.ts
@@ -247,7 +251,22 @@ TEAMS = {
         # the belt pouches keep to their own quarter: with the belt at the waist the grenade pouches (right rear, 120 / 150
         # degrees) found no clear angle in every clip and the search took its least-bad one, +100 degrees: onto the magazine
         # pouches at 240 / 270 (the second look at sheet v2, 13 Nov)
-        pouch_turn_max=40.0),
+        pouch_turn_max=40.0,
+        # Round 3 (the second Opus review, 13 Nov; the lead's list): the firing-shoulder cavity in the aimed back views. The
+        # shell's back upper corners and the rear lips of its armholes stood 60-96 mm off the body at rest. The shell is cut
+        # to a plate carrier's outline: above 0.26 m under the collar (the cummerbund's top, under the arm) only the plate
+        # bag stays, 0.13 m either side of the centre line, its inner corners clipped 0.03 m (`inf_kit_v7._carrier_trim`).
+        # (0.20 was tried first: the wall left between 0.20 and 0.26 stood as an open lip under the raised arm in the aimed
+        # clips, seen from behind and above; a lip closing the cut down to the skin was tried too and read as slats.)
+        carrier_trim=dict(half_w=0.13, drop=0.26, corner=0.03),
+        # ...and it is worn where each man's trunk is: the collar 40 mm under his shoulder joints, the hem 35 mm under his
+        # spine joint. Those are demo_a's own (1.460 and 1.090: his rows do not move); demo_b's joints stand at 1.380 and
+        # 1.030, and at the Rifle Squad's 1.42 the shell's collar stood 4 cm OVER his shoulder joints, in the air behind
+        # his neck (the plate bag's top 95 mm off his back at rest). The yoke and the radio rows go with it.
+        torso_from_joints=(0.040, 0.035),
+        # ...and the ear cup the stock ran through: the cups sit at each man's own ears (48 mm under his helmet's rim: the
+        # widest station of both faces is 30-70 mm under it) and ride over the stock's comb at the cheek weld.
+        headset_below_rim=0.048, headset_clear_gun=0.030),
 }
 
 TEAM = TEAMS["inf_squad"]
