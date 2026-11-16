@@ -5,6 +5,8 @@
   "phase": "recon",
   "target_minutes": 6,
   "time_limit_s": 720,
+  "start_layout": "assembly",
+  "start_front": "N",
   "map": { "file": "deir_amun", "time_of_day": "dawn", "player_start": [24, 44] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],

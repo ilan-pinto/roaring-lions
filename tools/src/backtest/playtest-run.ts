@@ -35,6 +35,7 @@ import {
 } from '@lions/data';
 import { PopulationCensus } from './population-census';
 import type { Banking } from './banking';
+import { START_LAYOUT } from '../mission-harness';
 // `tools` importing a pure module out of `packages/app` is the established
 // pattern (`tools/src/meshes/gait-pass.ts` imports `RIGGED_UNIT_MESHES` from
 // `packages/app/src/mesh-catalogue` the same way): `roster-cap.ts` is the one
@@ -355,6 +356,7 @@ export function run(
   // F3 Task 6: who is on loan, from the SAME lookup the line above resolved with (as main.ts does).
   const loaned = loanedPlacements(mission, ledger, unlockOf);
   const rt = new MissionRuntime(sim, resolvedMission, {
+    startLayout: START_LAYOUT, // GH-1360 S3b: shipped missions start in the assembly layout
     loaned,
     loanedReinforce: loanedReinforcements(mission, ledger, unlockOf),
     typeIdOf: (u) => typeOf.get(u) as number,

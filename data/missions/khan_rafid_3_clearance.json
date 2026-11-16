@@ -5,6 +5,8 @@
   "phase": "clearance",
   "target_minutes": 7,
   "time_limit_s": 840,
+  "start_layout": "assembly",
+  "start_front": "N",
   "map": { "file": "khan_rafid_3", "time_of_day": "dusk", "player_start": [24, 45] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],

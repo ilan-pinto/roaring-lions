@@ -472,7 +472,8 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
     expect(kinds(w, 'formationReleased')[0]).toEqual({ kind: 'formationReleased', tick: 215, side: 0, group: 0, leg: 1, legs: 4 });
   });
   it('a hull whose slot lies beyond a waiting hull is steered round it, ghosts through on the valve and is dressed in time', () => {
-    // Ruling 6 keeps a waiting hull `moving` 1, so the separation pass reads it as a mover. Three tanks with a hull
+    // Ruling 6 keeps a waiting hull `moving` 1; since GH-1360 S5a-2 the separation pass reads a WAIT member as stationary
+    // (it is not read one step ahead along its facing), so it is steered round, not followed. Three tanks with a hull
     // footprint (half length 1.0, half width 0.5): the Column's checkpoint 1 is (24, 32) / (26, 33) / (24, 35), and
     // the third tank, spawned ahead at (24, 30), is there at tick 90 and waits. The first tank must cross (24, 35)
     // to reach (24, 32), so it comes up BEHIND the waiting hull. The ten-second dress keeps the wait alive.
@@ -504,7 +505,8 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
     expect(waiterFrom).toBe(90);
     expect(sidestep).toBe(true);
     // not a deadlock: the count peaks at the valve (SEP_VALVE_TICKS 40), the hull ghosts through, and is on its slot
-    expect([peakWait, peakAt]).toEqual([40, 203]);
+    // (203 before S5a-2: the held hull was read a step ahead along its facing, as a mover; read still, the valve peaks a tick later)
+    expect([peakWait, peakAt]).toEqual([40, 204]);
     expect(arrived).toBe(288);
     // all present: the release is the tick after the last arrival, one tick inside the 200-tick clock (90 + 200 = 290)
     expect(kinds(w, 'formationReleased')[0]).toEqual({ kind: 'formationReleased', tick: 289, side: 0, group: 0, leg: 1, legs: 4 });

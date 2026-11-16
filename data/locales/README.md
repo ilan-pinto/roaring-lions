@@ -7,25 +7,41 @@ brigade screen, every string that goes through `packages/app/src/i18n/t.ts`'s
 its own fetch path — this directory is mission DATA, the thing CLAUDE.md
 means by "Data text stays data."
 
-## `en` is the source, never an overlay
+## `en` is the source; its file here is a generated template, never an overlay
 
-Every file under `data/missions/` is authored in `en` already, and `en` is
-never a subdirectory here — there is no `data/locales/en/missions.json` to
-maintain in parallel with the mission files it would duplicate.
-`mission-author` and `narrative-designer` write and edit the `en` text in
-place, on the mission JSON itself, exactly as they do today. A locale
-overlay is a translator's *addition* layered on top of that source at the
-point `@lions/app` resolves a mission, never a fork of it.
+Every file under `data/missions/` is authored in `en` already. `mission-author` and `narrative-designer` write and edit the `en`
+text in place, on the mission JSON itself, exactly as they do today. A locale overlay is a translator's *addition* layered on top
+of that source at the point `@lions/app` resolves a mission, never a fork of it.
+
+**`data/locales/en/missions.json` exists, and it is generated** (GH-1406 part 2): `pnpm locales:en -- --write` builds it from the
+mission files and `pnpm locales:en` checks it. It is a **translator's template**: one entry per mission with every string the
+overlay can replace (`name`, `briefing`, each objective's `text`, each labelled trigger's `label`), in the mission file's own order.
+A translator copies it to `data/locales/<lang>/missions.json` and translates the values; the keys are exactly the ids the overlay
+validator accepts. **Nobody edits it by hand and the game never fetches it** (`main.ts`'s `loadMissionOverlay` returns before any
+request for `en`). `pnpm validate:data` fails on a mission, objective or trigger it lacks, on an entry for something that is gone,
+and on text that has drifted from the mission file, so editing a briefing means running `pnpm locales:en -- --write` in the same
+commit. It does not cover `dispatch`, `aftermath`, `debrief`, a `say`, `hostages_place` or `briefing_sections`: the overlay does
+not replace those today, so a template row for one would promise what the loader does not do.
 
 ## Shape
 
 One directory per shipped locale other than `en`, id-matched to
 `packages/app/src/i18n/locales.ts`'s `LOCALES` table (`fr`, `he`, …), each
-holding exactly one file:
+holding up to two files:
 
 ```
 data/locales/<lang>/missions.json
+data/locales/<lang>/units.json
 ```
+
+`units.json` (GH-1406) is unit display text: a unit id to `{ "name"?, "blurb"? }`, nothing else. Every key must be a real unit
+id from `data/units/`, and a value must be a non-empty string; `tools/validate_data.mjs` runs each file through
+`tools/validate_narrative.mjs`'s `unitOverlayFailures`. A unit or field the file does not mention keeps its `en` text. It is applied
+by `@lions/data`'s `applyUnitLocale` through `packages/app/src/unit-text.ts` (`unitName`, `unitBlurb`, `localizedUnit`), set once at
+boot next to the chrome catalogue, and read at call time. Unit JSON in `@lions/data` is never edited: the net content digest hashes it,
+name included, so a peer on another language must still compute the same digest. Roles and the rest of the chrome stay in `en.json`.
+
+The rest of this page describes `missions.json`.
 
 validated against `@lions/data`'s `MissionLocaleOverlay` shape
 (`packages/data/src/index.ts`):
