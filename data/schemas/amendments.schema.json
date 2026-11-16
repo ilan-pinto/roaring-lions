@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/amendments.schema.json",
   "title": "Amendments to the orders (the generic library)",
-  "description": "GH-1395 (design 2026-11-15-challenge-star-design.md §3.1; lead rulings D8, D11 of 16 Nov 2026): the generic amendments, each an id, two en.json keys and a list of operations from the CLOSED set in overlay_ops.schema.json, applied by `applyOverlays` after the difficulty posture. Every amendment is a RESTRICTION (rule A1): tools/validate_challenges.mjs refuses a ratio of 1 or above and any operation that is not a restricting one, and tools/src/challenges.test.ts bounds creditsFor's inputs. A mission offers three (data/challenges/<mission>.json), from this library or from its own `own` list, whose items share this shape.",
+  "description": "GH-1395 (design 2026-11-15-challenge-star-design.md §3.1; lead rulings D8, D11 of 16 Nov 2026): the generic amendments, each an id, its English label and blurb (data text, like a mission's name and briefing: they ride the lazily loaded challenge chunk, never the entry chunk's en.json) and a list of operations from the CLOSED set in overlay_ops.schema.json, applied by `applyOverlays` after the difficulty posture. Every amendment is a RESTRICTION (rule A1): tools/validate_challenges.mjs refuses, per operation (`restrictionFailure`), anything that does not point the restricting way, and tools/src/challenges.test.ts bounds creditsFor's inputs. A mission offers three (data/challenges/<mission>.json), from this library or from its own `own` list, whose items share this shape.",
   "type": "object",
   "additionalProperties": false,
   "required": ["amendments"],
@@ -17,11 +17,11 @@
     "amendment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "label_key", "blurb_key", "ops"],
+      "required": ["id", "label", "blurb", "ops"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
-        "label_key": { "type": "string", "pattern": "^amend\\.[a-z0-9_]+\\.label$" },
-        "blurb_key": { "type": "string", "pattern": "^amend\\.[a-z0-9_]+\\.blurb$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32, "description": "Player-facing text, English source (data text, like a mission's name: no en.json key, so the copy rides the lazily loaded challenge chunk and never the entry chunk)." },
+        "blurb": { "type": "string", "minLength": 1, "maxLength": 160 },
         "ops": { "type": "array", "minItems": 1, "items": { "$ref": "overlay_ops.schema.json#/$defs/op" } }
       }
     }

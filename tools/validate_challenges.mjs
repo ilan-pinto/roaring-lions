@@ -10,7 +10,8 @@
 //   - its three offers are library ids or its own (D8's mission-specific amendment: the same restricting operations,
 //     an id the library does not use, and offered), and the challenge's amendments are among them;
 //   - challenge ids are unique across the pilot;
-//   - every label and blurb key is in en.json;
+//   - every label and blurb is non-empty English text that never says "withdrawn" (PA-01); it is data text, as a
+//     mission's name is, so the copy rides the lazily loaded challenge chunk and not the entry chunk's en.json;
 //   - an offer that is the identity on its mission is refused: `clean_hands` needs a declared `roe.fail_below`,
 //     `thin_purse` a declared purse, `no_eyes` a non-zero `intel_start`, `remove_starting` enough untagged bodies.
 //
@@ -54,15 +55,23 @@ export function restrictionFailure(op) {
 }
 
 /**
- * @param {{ library: any, files: { file: string, doc: any }[], missions: Record<string, any>, en: Record<string, string> }} a
+ * @param {{ library: any, files: { file: string, doc: any }[], missions: Record<string, any> }} a
  * @returns {string[]} one line per failure
  */
-export function challengeFailures({ library, files, missions, en }) {
+export function challengeFailures({ library, files, missions }) {
   const out = [];
   const lib = new Map();
+  /** Player-facing text: a non-empty label and blurb, and never the internal word for a timed-out defeat (PA-01,
+   *  `player-wording.test.ts` holds en.json to the same rule; this text is data, so that test cannot see it). */
+  const textFailures = (x, where) => {
+    for (const k of ['label', 'blurb']) {
+      if (typeof x[k] !== 'string' || x[k].trim() === '') out.push(`${where}: no ${k} text`);
+      else if (/withdrawn/i.test(x[k])) out.push(`${where}: its ${k} says "withdrawn", an internal id no player-facing string uses (PA-01)`);
+    }
+  };
   /** One amendment's own rules, wherever it is declared. */
   const amendmentRules = (a, where) => {
-    for (const k of [a.label_key, a.blurb_key]) if (typeof en[k] !== 'string') out.push(`${where}: ${a.id}: "${k}" is not an en.json key`);
+    textFailures(a, `${where}: ${a.id}`);
     for (const op of a.ops ?? []) {
       const why = restrictionFailure(op);
       if (why !== null) out.push(`${where}: ${a.id}: ${why}, so it is not a restriction (rule A1: an amendment never makes a mission easier)`);
@@ -107,7 +116,7 @@ export function challengeFailures({ library, files, missions, en }) {
     }
     if (challengeIds.has(c.id)) out.push(`${file}: challenge id "${c.id}" is also ${challengeIds.get(c.id)}'s`);
     challengeIds.set(c.id, file);
-    for (const k of [c.label_key, c.blurb_key]) if (typeof en[k] !== 'string') out.push(`${file}: "${k}" is not an en.json key`);
+    textFailures(c, `${file}: challenge "${c.id}"`);
   }
   return out;
 }

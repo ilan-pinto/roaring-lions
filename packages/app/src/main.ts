@@ -6394,12 +6394,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   ledgerAtBoot: ledger,
                   world: parseWorld(world),
                   targetMinutes: (mission as { target_minutes?: number }).target_minutes ?? 0,
-                  run: {
-                    roe: mev.roeRating,
-                    ticks: mev.tick,
-                    lost: Object.values(runtime.lostByType()).reduce((n, k) => n + k, 0),
-                    carriesAll: runtime.objectiveList.every((o) => o.primary || o.carries !== true || o.status === 'complete'),
-                  },
+                  run: challenge.runRowOf(runtime, mev.roeRating, mev.tick),
                 })
               : null;
           const updatedLedger: CampaignLedger = challenge.withChallengeMark(carryover ? carryover.ledger : { ...ledger, ...mev.ledger }, mission.id, challengeMark);

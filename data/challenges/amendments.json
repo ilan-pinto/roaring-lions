@@ -2,39 +2,51 @@
   "amendments": [
     {
       "id": "tight_clock",
-      "label_key": "amend.tight_clock.label",
-      "blurb_key": "amend.tight_clock.blurb",
-      "ops": [{ "op": "scale_time_limit", "num": 3, "den": 4 }]
+      "label": "Tight clock",
+      "blurb": "A quarter less time on the mission clock before the brigade calls the column back.",
+      "ops": [
+        { "op": "scale_time_limit", "num": 3, "den": 4 }
+      ]
     },
     {
       "id": "clean_hands",
-      "label_key": "amend.clean_hands.label",
-      "blurb_key": "amend.clean_hands.blurb",
-      "ops": [{ "op": "raise_fail_below", "by": 10 }]
+      "label": "Clean hands",
+      "blurb": "The Conduct line rises by ten points.",
+      "ops": [
+        { "op": "raise_fail_below", "by": 10 }
+      ]
     },
     {
       "id": "light_order",
-      "label_key": "amend.light_order.label",
-      "blurb_key": "amend.light_order.blurb",
-      "ops": [{ "op": "remove_starting", "unit": "inf_squad", "count": 1 }]
+      "label": "Light order",
+      "blurb": "One rifle squad fewer in the starting force.",
+      "ops": [
+        { "op": "remove_starting", "unit": "inf_squad", "count": 1 }
+      ]
     },
     {
       "id": "no_medic",
-      "label_key": "amend.no_medic.label",
-      "blurb_key": "amend.no_medic.blurb",
-      "ops": [{ "op": "remove_starting", "unit": "inf_medic_squad", "count": 1 }]
+      "label": "Medics stay back",
+      "blurb": "No medic squad in the starting force.",
+      "ops": [
+        { "op": "remove_starting", "unit": "inf_medic_squad", "count": 1 }
+      ]
     },
     {
       "id": "thin_purse",
-      "label_key": "amend.thin_purse.label",
-      "blurb_key": "amend.thin_purse.blurb",
-      "ops": [{ "op": "scale_resources", "num": 1, "den": 2 }]
+      "label": "Thin purse",
+      "blurb": "Half the starting logistics, and half the rate.",
+      "ops": [
+        { "op": "scale_resources", "num": 1, "den": 2 }
+      ]
     },
     {
       "id": "no_eyes",
-      "label_key": "amend.no_eyes.label",
-      "blurb_key": "amend.no_eyes.blurb",
-      "ops": [{ "op": "set_intel_start", "value": 0 }]
+      "label": "No eyes",
+      "blurb": "No intel at the start: no strike or sweep until it is earned.",
+      "ops": [
+        { "op": "set_intel_start", "value": 0 }
+      ]
     }
   ]
 }

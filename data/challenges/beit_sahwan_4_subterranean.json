@@ -1,11 +1,20 @@
 {
   "mission": "beit_sahwan_4_subterranean",
-  "offers": ["clean_hands", "light_order", "no_medic"],
+  "offers": [
+    "clean_hands",
+    "light_order",
+    "no_medic"
+  ],
   "challenge": {
     "id": "under_the_clinic",
-    "label_key": "challenge.beit_sahwan_4_subterranean.label",
-    "blurb_key": "challenge.beit_sahwan_4_subterranean.blurb",
-    "amendments": ["clean_hands", "no_medic"],
-    "win": { "lost_at_most": 2 }
+    "label": "Under the Clinic",
+    "blurb": "With the Conduct line raised and the medics held back, bring the shaft down and lose no more than two units.",
+    "amendments": [
+      "clean_hands",
+      "no_medic"
+    ],
+    "win": {
+      "lost_at_most": 2
+    }
   }
 }

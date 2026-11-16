@@ -1,11 +1,20 @@
 {
   "mission": "umm_zeitoun_2_buildup",
-  "offers": ["tight_clock", "thin_purse", "no_eyes"],
+  "offers": [
+    "tight_clock",
+    "thin_purse",
+    "no_eyes"
+  ],
   "challenge": {
     "id": "blind_build",
-    "label_key": "challenge.umm_zeitoun_2_buildup.label",
-    "blurb_key": "challenge.umm_zeitoun_2_buildup.blurb",
-    "amendments": ["thin_purse", "no_eyes"],
-    "win": { "ticks_at_most_target": true }
+    "label": "Blind Build",
+    "blurb": "On half the purse and with no intel at the start, take the crest inside the target time.",
+    "amendments": [
+      "thin_purse",
+      "no_eyes"
+    ],
+    "win": {
+      "ticks_at_most_target": true
+    }
   }
 }

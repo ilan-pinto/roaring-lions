@@ -4,5 +4,4 @@ export function challengeFailures(a: {
   library: unknown;
   files: readonly { file: string; doc: unknown }[];
   missions: Readonly<Record<string, unknown>>;
-  en: Readonly<Record<string, string>>;
 }): string[];

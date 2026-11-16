@@ -26,7 +26,7 @@ import {
   type ChallengeRun,
   type OverlayMission,
 } from '@lions/data';
-import type { LedgerData } from '@lions/sim';
+import type { LedgerData, MissionRuntime } from '@lions/sim';
 import { missionOpen, type ParsedWorld } from './campaign';
 
 export { CHALLENGE_LEDGER_KEY };
@@ -57,6 +57,17 @@ export interface ChallengeRunInput {
   /** The authored mission's `target_minutes` (no overlay moves it). */
   targetMinutes: number;
   run: ChallengeRun;
+}
+
+/** The run's own row off a finished runtime, as the victory handler and the playtest harness both read it: `lost` is
+ *  every player unit lost (`lostByType` summed, the ledger's `lost`), `carriesAll` every carrying secondary complete. */
+export function runRowOf(rt: Pick<MissionRuntime, 'lostByType' | 'objectiveList'>, roe: number, ticks: number): ChallengeRun {
+  return {
+    roe,
+    ticks,
+    lost: Object.values(rt.lostByType()).reduce((n, k) => n + k, 0),
+    carriesAll: rt.objectiveList.every((o) => o.primary || o.carries !== true || o.status === 'complete'),
+  };
 }
 
 /** The mark this run earned, or null when it beat no challenge. Pure. */

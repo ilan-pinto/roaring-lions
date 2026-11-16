@@ -28,9 +28,9 @@
  * the RUN's stars, so loading or importing a save slot earns nothing (G-E3).
  */
 import type { LedgerData } from '@lions/sim';
-import { CHALLENGE_LEDGER_KEY, hasChallenge } from '@lions/data';
+import { hasChallenge } from '@lions/data';
 import { campaignComplete } from './campaign-complete';
-import { grantFree, type EarnMission, type EarnRecord, type EarnSource, type RoarWallet } from './wallet';
+import { challengeFlag, grantFree, type EarnMission, type EarnRecord, type EarnSource, type RoarWallet } from './wallet';
 import { worldMissionIds, type ParsedWorld } from './world';
 
 /** What each kind of payout is worth. The Stores' copy and the debrief read these. */
@@ -84,7 +84,7 @@ export function roarEarn(w: RoarWallet, win: VictoryWin, world: ParsedWorld, at:
   if (finishes) awards.push({ source: 'campaign', coins: EARN.campaign });
   if (awards.length === 0) return none;
 
-  const record: EarnMission = { won: true, stars: Math.max(prev.stars, stars), ...(prev.challenge === true || challenge ? { challenge: true as const } : {}) };
+  const record: EarnMission = { won: true, stars: Math.max(prev.stars, stars), ...challengeFlag(prev.challenge === true || challenge) };
   let wallet: RoarWallet = {
     ...w,
     earn: {
@@ -108,21 +108,19 @@ export interface EarnEvidence {
 
 /**
  * The wins a campaign ledger holds: world missions in `campaign.completed_missions`
- * only, each `won: true`, its stars clamped 0 to 3 from `campaign.mission_results`,
- * and `challenge` where `campaign.challenge_results` holds a mark for a mission in the
- * challenge index (GH-1395: the mark is written only for a run that earned the coin).
+ * only, each `won: true`, its stars clamped 0 to 3 from `campaign.mission_results`.
+ * GH-1395: a challenge MARK (`campaign.challenge_results`) is deliberately NOT evidence:
+ * the coin's only record is the wallet's lifetime flag, so a hand-edited ledger or save
+ * slot proves no challenge coin, and a claim or back-payment pays one only from a wallet.
  */
 export function evidenceFromLedger(ledger: LedgerData, world: ParsedWorld): EarnEvidence {
   const doneRaw = ledger['campaign.completed_missions'];
   const done = new Set(Array.isArray(doneRaw) ? doneRaw.filter((m): m is string => typeof m === 'string') : []);
   const results = ledger['campaign.mission_results'];
-  const marksRaw = ledger[CHALLENGE_LEDGER_KEY];
-  const marks = typeof marksRaw === 'object' && marksRaw !== null && !Array.isArray(marksRaw) ? (marksRaw as Record<string, unknown>) : {};
   const missions: Record<string, EarnMission> = {};
   for (const id of worldMissionIds(world)) {
     if (!done.has(id)) continue;
-    const marked = hasChallenge(id) && Object.hasOwn(marks, id) && typeof marks[id] === 'object' && marks[id] !== null;
-    missions[id] = { won: true, stars: clampStars(results?.[id]?.stars ?? 0), ...(marked ? { challenge: true as const } : {}) };
+    missions[id] = { won: true, stars: clampStars(results?.[id]?.stars ?? 0) };
   }
   return { missions, campaignDone: campaignComplete(world, ledger) };
 }
@@ -154,7 +152,7 @@ export function earnDifference(
     // GH-1395: the challenge coin, once, for a mission in the index only.
     const challenge = ev.challenge === true && prev.challenge !== true && hasChallenge(id);
     if (challenge) coins += EARN.challenge;
-    missions[id] = { won: true, stars: Math.max(prev.stars, stars), ...(prev.challenge === true || challenge ? { challenge: true as const } : {}) };
+    missions[id] = { won: true, stars: Math.max(prev.stars, stars), ...challengeFlag(prev.challenge === true || challenge) };
     if (!prev.won || stars > prev.stars || challenge) raisedMissions[id] = missions[id];
   }
   const welcomes = anyWin && !record.welcomed;

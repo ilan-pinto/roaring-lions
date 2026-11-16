@@ -27,8 +27,9 @@ export { CHALLENGE_LEDGER_KEY, challengeMissionIds, hasChallenge } from './chall
 /** One generic amendment (`data/challenges/amendments.json`). */
 export interface AmendmentJson {
   id: string;
-  label_key: string;
-  blurb_key: string;
+  /** English source text (data text, as a mission's name is; not an en.json key). */
+  label: string;
+  blurb: string;
   ops: readonly OverlayOp[];
 }
 
@@ -52,8 +53,8 @@ export interface MissionChallengeJson {
   own?: readonly AmendmentJson[];
   challenge: {
     id: string;
-    label_key: string;
-    blurb_key: string;
+    label: string;
+    blurb: string;
     amendments: readonly string[];
     win: ChallengeWin;
   };

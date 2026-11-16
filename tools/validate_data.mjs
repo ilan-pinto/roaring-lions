@@ -1486,7 +1486,6 @@ const garrisonableSymbols = new Set(
 
 // --- challenges (GH-1395): the rules amendments.schema.json and challenge.schema.json cannot see ---
 {
-  const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
   const missionsById = {};
   for (const f of jsonFilesIn(join(ROOT, 'data/missions'))) {
     const m = loadJson(f);
@@ -1496,7 +1495,7 @@ const garrisonableSymbols = new Set(
     .filter((f) => basename(f) !== 'amendments.json')
     .map((file) => ({ file: rel(file), doc: loadJson(file) }))
     .filter((x) => x.doc !== null);
-  failures.push(...challengeFailures({ library: loadJson(join(ROOT, 'data/challenges/amendments.json')), files, missions: missionsById, en }));
+  failures.push(...challengeFailures({ library: loadJson(join(ROOT, 'data/challenges/amendments.json')), files, missions: missionsById }));
 }
 
 // --- formations (GH-859): the rules formation.schema.json cannot see ---------

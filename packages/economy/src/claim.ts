@@ -3,7 +3,7 @@
  */
 import type { LedgerData } from '@lions/sim';
 import { MAX_STARS, evidenceFromLedger, type EarnEvidence } from './earn';
-import type { EarnMission, EarnRecord, RoarWallet } from './wallet';
+import { challengeFlag, type EarnMission, type EarnRecord, type RoarWallet } from './wallet';
 import { worldMissionIds, type ParsedWorld } from './world';
 
 const clamp = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(MAX_STARS, Math.floor(n))) : 0);
@@ -17,8 +17,8 @@ function mergeMission(missions: Record<string, Mission>, id: string, m: Mission)
   const p = Object.hasOwn(missions, id) ? missions[id] : undefined;
   const challenge = p?.challenge === true || m.challenge === true;
   const value: Mission = p
-    ? { won: p.won || m.won, stars: Math.max(p.stars, m.stars), ...(challenge ? { challenge: true as const } : {}) }
-    : { won: m.won, stars: m.stars, ...(challenge ? { challenge: true as const } : {}) };
+    ? { won: p.won || m.won, stars: Math.max(p.stars, m.stars), ...challengeFlag(challenge) }
+    : { won: m.won, stars: m.stars, ...challengeFlag(challenge) };
   Object.defineProperty(missions, id, { value, enumerable: true, configurable: true, writable: true });
 }
 
@@ -56,7 +56,7 @@ export function claimEvidence(c: { wallet: RoarWallet; ledgers: LedgerData[]; wo
   const take = (id: string, m: Mission): void => {
     const p = missions[id];
     const challenge = p?.challenge === true || m.challenge === true;
-    missions[id] = { won: (p?.won ?? false) || m.won, stars: Math.max(p?.stars ?? 0, clamp(m.stars)), ...(challenge ? { challenge: true as const } : {}) };
+    missions[id] = { won: (p?.won ?? false) || m.won, stars: Math.max(p?.stars ?? 0, clamp(m.stars)), ...challengeFlag(challenge) };
   };
   const ids = worldMissionIds(c.world);
   for (const id of ids) {

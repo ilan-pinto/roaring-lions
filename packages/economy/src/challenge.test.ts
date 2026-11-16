@@ -124,15 +124,15 @@ describe('the ledger mark (C9): evidence, shape, and New campaign', () => {
     'campaign.mission_results': { [PILOT]: { stars: 2, roe: 90, ticks: 8000, lost: 0 }, [PLAIN]: { stars: 1, roe: 70, ticks: 9000, lost: 1 } },
     [CHALLENGE_LEDGER_KEY]: { [PILOT]: mark, [PLAIN]: { ...mark, id: 'none' } },
   };
-  it('a mark is evidence for a mission in the index only', () => {
+  it('a mark is NOT evidence: a hand-edited ledger or save slot proves no challenge coin (only the wallet flag does)', () => {
     const ev = evidenceFromLedger(ledger, world);
-    expect(ev.missions[PILOT]).toEqual({ won: true, stars: 2, challenge: true });
+    expect(ev.missions[PILOT]).toEqual({ won: true, stars: 2 });
     expect(ev.missions[PLAIN]).toEqual({ won: true, stars: 1 });
   });
-  it('the back-payment pays a marked ledger its 10, once', () => {
+  it('the back-payment pays a marked ledger no challenge coin', () => {
     const paid = roarBackfill(emptyRoar(), ledger, world, 1);
     const unmarked = roarBackfill(emptyRoar(), { ...ledger, [CHALLENGE_LEDGER_KEY]: {} }, world, 1);
-    expect(coins(paid) - coins(unmarked)).toBe(10);
+    expect(coins(paid)).toBe(coins(unmarked));
   });
   it('sanitiseLedger keeps a well-formed key by identity and drops a wrong row', () => {
     expect(sanitiseLedger(ledger)).toBe(ledger);

@@ -39,6 +39,7 @@ import {
   type PostureId,
 } from '@lions/data';
 import { withReliefOnLoan } from '../../../packages/app/src/posture';
+import { runRowOf } from '../../../packages/app/src/challenge';
 import { reliefTriggerIndices } from '@lions/data';
 import { parsePosture } from './posture-ladder';
 import { PopulationCensus } from './population-census';
@@ -610,12 +611,7 @@ export function run(
             rt.result === 'victory' &&
             challengeMet(
               challenge.challenge.win,
-              {
-                roe: rt.roeScore,
-                ticks: sim.tickCount,
-                lost: Object.values(rt.lostByType()).reduce((n, k) => n + k, 0),
-                carriesAll: rt.objectiveList.every((o) => o.primary || o.carries !== true || o.status === 'complete'),
-              },
+              runRowOf(rt, rt.roeScore, sim.tickCount),
               (missions[id] as unknown as { target_minutes?: number }).target_minutes ?? 0
             ),
         };

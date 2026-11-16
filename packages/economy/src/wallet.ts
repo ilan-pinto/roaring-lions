@@ -49,6 +49,9 @@ export interface EarnMission {
   challenge?: true;
 }
 
+/** The `challenge` field as a record writes it: present only when true, so a record that never paid one keeps its bytes. */
+export const challengeFlag = (on: boolean): { challenge?: true } => (on ? { challenge: true } : {});
+
 export type RoarReceipt =
   | { kind: 'earn'; id: string; at: number; coins: CoinSplit; source: EarnSource; missionId?: string }
   | { kind: 'coupon'; id: string; at: number; coins: CoinSplit; couponIds: string[]; source?: 'test' }
@@ -159,7 +162,7 @@ export function migrateRoar(raw: unknown): RoarWallet {
   if (isObj(earn.missions)) {
     for (const [id, v] of Object.entries(earn.missions)) {
       if (!isObj(v)) continue;
-      out.earn.missions[id] = { won: v.won === true, stars: isNonNegInt(v.stars) ? Math.min(v.stars, 3) : 0, ...(v.challenge === true ? { challenge: true as const } : {}) };
+      out.earn.missions[id] = { won: v.won === true, stars: isNonNegInt(v.stars) ? Math.min(v.stars, 3) : 0, ...challengeFlag(v.challenge === true) };
     }
   }
   if (Array.isArray(raw.receipts)) {

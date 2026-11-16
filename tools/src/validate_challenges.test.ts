@@ -8,19 +8,18 @@ import { challengeFailures, restrictionFailure } from '../validate_challenges.mj
 
 const ROOT = join(__dirname, '..', '..');
 const readJson = (p: string): unknown => JSON.parse(readFileSync(join(ROOT, p), 'utf8'));
-const en = readJson('packages/app/src/i18n/en.json') as Record<string, string>;
 const library = readJson('data/challenges/amendments.json') as { amendments: { id: string; ops: Record<string, unknown>[] }[] };
 const missions: Record<string, unknown> = {};
 for (const f of readdirSync(join(ROOT, 'data/missions'))) {
   const m = readJson(`data/missions/${f}`) as { id: string };
   missions[m.id] = m;
 }
-type Doc = { mission: string; offers: string[]; own?: { id: string; label_key: string; blurb_key: string; ops: Record<string, unknown>[] }[]; challenge: { id: string; amendments: string[]; label_key: string; blurb_key: string } };
+type Doc = { mission: string; offers: string[]; own?: { id: string; label: string; blurb: string; ops: Record<string, unknown>[] }[]; challenge: { id: string; amendments: string[]; label: string; blurb: string } };
 const shipped = readdirSync(join(ROOT, 'data/challenges'))
   .filter((f) => f !== 'amendments.json')
   .map((f) => ({ file: `data/challenges/${f}`, doc: readJson(`data/challenges/${f}`) as Doc }));
 const bs2 = (): { file: string; doc: Doc } => structuredClone(shipped.find((s) => s.doc.mission === 'beit_sahwan_2_foothold') as { file: string; doc: Doc });
-const run = (o: { lib?: unknown; files?: { file: string; doc: unknown }[] } = {}) => challengeFailures({ library: o.lib ?? library, files: o.files ?? shipped, missions, en });
+const run = (o: { lib?: unknown; files?: { file: string; doc: unknown }[] } = {}) => challengeFailures({ library: o.lib ?? library, files: o.files ?? shipped, missions });
 
 describe('challengeFailures', () => {
   it('the shipped files are clean', () => {
@@ -66,14 +65,17 @@ describe('challengeFailures', () => {
     tut.doc.challenge.amendments = ['tight_clock'];
     expect(run({ files: [tut] }).some((x) => /produces no ledger key/.test(x))).toBe(true);
   });
-  it('refuses a duplicate challenge id and a missing en.json key', () => {
+  it('refuses a duplicate challenge id, an empty label, and the word "withdrawn" (PA-01)', () => {
     const a = bs2();
     const b = structuredClone(shipped.find((s) => s.doc.mission === 'beit_sahwan_3_clearance') as { file: string; doc: Doc });
     b.doc.challenge.id = a.doc.challenge.id;
     expect(run({ files: [a, b] }).some((x) => /is also/.test(x))).toBe(true);
     const k = bs2();
-    k.doc.challenge.label_key = 'challenge.nowhere.label';
-    expect(run({ files: [k] }).some((x) => /not an en.json key/.test(x))).toBe(true);
+    k.doc.challenge.label = ' ';
+    expect(run({ files: [k] }).some((x) => /no label text/.test(x))).toBe(true);
+    const w = bs2();
+    w.doc.challenge.blurb = 'Hold until the column is withdrawn.';
+    expect(run({ files: [w] }).some((x) => /PA-01/.test(x))).toBe(true);
   });
   it('refuses an own amendment that shadows a library id or is not offered', () => {
     const breach = structuredClone(shipped.find((s) => s.doc.mission === 'beit_sahwan_breach') as { file: string; doc: Doc });
