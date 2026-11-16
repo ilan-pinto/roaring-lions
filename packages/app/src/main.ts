@@ -195,7 +195,6 @@ import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
-import { campaignMission, withReliefOnLoan } from './posture';
 import type { ResumeLoaded } from './mission-resume';
 import type * as SaveKit from './mission-save-kit';
 import { initTelemetry, telemetry, telemetryPlayerForDeletion, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
@@ -2076,7 +2075,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // changes a score), applied once to the mission JSON here so every reader below -- briefing, objectives, the
   // runtime, the debrief, a mid-mission save -- sees the mission the run is played on. Standard, and the tutorial
   // under any posture, is the mission itself (`campaignMission` returns it by reference).
-  if (mission !== undefined) mission = campaignMission(mission, ledger, t);
+  // Loaded lazily, as the save kit is: the posture code is the campaign's alone, and the entry chunk and its static
+  // imports sit under a byte ceiling (`pnpm --filter @lions/tools webgpu:bundle`), which an eager import crossed by 2.4 KB.
+  const posture = await import('./posture');
+  if (mission !== undefined) mission = posture.campaignMission(mission, ledger, t);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -2507,7 +2509,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     loanedForce = loanedPlacements(mission, ledger, gateOf);
     const resolvedForce = resolvedMission.starting_force ?? [];
     // GH-1394: a posture's relief is always on loan (it goes back; it never joins the roster).
-    loanedReinforce = withReliefOnLoan(mission, loanedReinforcements(mission, ledger, gateOf));
+    loanedReinforce = posture.withReliefOnLoan(mission, loanedReinforcements(mission, ledger, gateOf));
     // A reinforced loan, like a starting one, brings no body home to replace an earlier one (R-2).
     const reinforceUnits = new Set<string>();
     (mission.triggers ?? []).forEach((t, i) =>

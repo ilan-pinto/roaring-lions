@@ -16,13 +16,8 @@
 
 import posturesJson from '../../../data/difficulty/postures.json';
 
-/** The three postures (lead ruling D1), in picker order. */
-export const POSTURE_IDS = ['easier', 'standard', 'harder'] as const;
-export type PostureId = (typeof POSTURE_IDS)[number];
-
-/** The campaign-ledger key the posture lives under (design §6). Read from the ledger ONLY: no URL
- *  flag reaches it, so no dev flag can change how a campaign mission scores. */
-export const DIFFICULTY_LEDGER_KEY = 'campaign.difficulty';
+import { DIFFICULTY_LEDGER_KEY, POSTURE_IDS, type PostureId } from './posture-ids';
+export { DIFFICULTY_LEDGER_KEY, POSTURE_IDS, type PostureId };
 
 /** The id the `reinforce_player` op gives its trigger, so a caller can lend the relief (`reliefTriggerIndices`). */
 export const RELIEF_TRIGGER_ID = 'posture_relief';
