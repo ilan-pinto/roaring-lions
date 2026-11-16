@@ -7,8 +7,9 @@ copied without rights. Not legal advice: the lead's lawyer confirms the attribut
 release.
 
 **Third-party material in this folder keeps its own licence.** The repository's blanket "all rights reserved" for `data/`
-(`data/LICENSE.md`) does **not** apply to it and must not be asserted over it: CC BY 4.0 forbids adding restrictions to the licensed
-material. The `in_house` entries of each filter file are the project's own.
+does **not** apply to it and must not be asserted over it: CC BY 4.0 forbids adding restrictions to the licensed material.
+`data/LICENSE.md` says so in its exception paragraph (the lead's ruling, 16 Nov 2026). The `in_house` entries of each filter file are
+the project's own and stay all rights reserved.
 
 `pnpm validate:data` (`tools/validate_chat_filters.mjs`) refuses a filter file whose source folder is not named in this file, whose
 pristine copy does not match its pinned sha256, or whose entries are not exactly the upstream entries plus declared `in_house` ones.
@@ -24,7 +25,7 @@ pristine copy does not match its pinned sha256, or whose entries are not exactly
 
 | language | pristine copy | entries | sha256 | filter file | tiered |
 |---|---|---|---|---|---|
-| English | `third_party/ldnoobw/en` | 403 | `af851ecef1d5f212caba17339b12ac39cc2fef7d78c74876f67237644fcee8bd` | `filter.en.json` | in-house: 44 hide, 327 mask, 32 dropped |
+| English | `third_party/ldnoobw/en` | 403 | `af851ecef1d5f212caba17339b12ac39cc2fef7d78c74876f67237644fcee8bd` | `filter.en.json` | in-house: 49 hide, 322 mask, 32 dropped |
 | German | `third_party/ldnoobw/de` | 66 | `ebe44d7772897390e27f7bec412fdcdf0efc294e4db157f8487c4cd8d4fabd55` | `filter.de.json` | not yet: all mask |
 | Spanish (Spain) | `third_party/ldnoobw/es` | 68 | `073334261cc2e7c08339faefd2f19f9623e8240a0ac18fe2a26c368b897496ce` | `filter.es-ES.json` | not yet: all mask |
 | French | `third_party/ldnoobw/fr` | 91 | `79763a705e08256b393952852bb63aa903f4485e0ef02f70735f5e50efff213c` | `filter.fr.json` | not yet: all mask |
@@ -38,6 +39,15 @@ No other LDNOOBW language is imported.
 licence and the disclaimer; **say that the material was modified**; add no restriction on the licensed material and no technical
 measure that stops others exercising the licence. Our tiering, removals and additions make the filter files adapted material.
 
+**Disclaimer of warranties** (CC BY 4.0 section 3(a)(1)(A)(iv) asks us to keep "a notice that refers to the disclaimer of
+warranties" if the licensor supplied one). Checked at the pinned commit on 16 Nov 2026: **upstream supplies no disclaimer notice of
+its own.** Its README carries only the copyright line ("© 2012–2020 Shutterstock, Inc."), the licence badge and the licence notice,
+plus two content caveats ("Obvious warning: These lists contain material that many will find offensive" and "Miscellaneous caveat:
+Clearly, what goes in these lists is subjective"), which are not warranty disclaimers. The only disclaimer is the licence's own,
+Section 5 ("Disclaimer of Warranties and Limitation of Liability": the licensor offers the material as-is and as-available and makes
+no representations or warranties of any kind), which ships unchanged in `third_party/ldnoobw/LICENSE`. We refer to it here: the
+lists are provided as-is, under that Section 5.
+
 **The notice** (shown on the credits screen, `credits-data.ts`, and carried here):
 
 > Word lists adapted from "List of Dirty, Naughty, Obscene, and Otherwise Bad Words", © 2012-2020 Shutterstock, Inc., licensed under
@@ -49,7 +59,9 @@ measure that stops others exercising the licence. Our tiering, removals and addi
 **The changes, per file.** `filter.en.json`: `hide` holds slurs aimed at a group of people, hate slogans, and sexual-violence and
 child-abuse terms; `mask` the rest; `dropped` the upstream entries that are ordinary words in an RTS chat (for example "escort",
 "domination", "tied up"); `in_house` the inflections and common words the list lacks; `allow` innocent words that contain a long
-`hide` entry. The four other files are the upstream list unchanged in `mask`, with an empty `hide` until a native reader reviews
+`hide` entry, and innocent phrases that contain a `hide` word ("chink in the armour", "gypsy moth"). The lead's ruling of 16 Nov
+moved "lolita", "shota", "fucktards", "neonazi" and "swastika" to `hide` and added "chink", "dyke", "dykes", "gypsy", "ching chong"
+and "heil hitler" (hide) and "kys" (mask) in-house. The four other files are the upstream list unchanged in `mask`, with an empty `hide` until a native reader reviews
 them (lead ruling; proposal W5).
 
 ## 2. Considered and not used

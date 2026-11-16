@@ -9,6 +9,8 @@ change stops adding to that set; it cannot undo it. See `docs/ART_PIPELINE.md`
 §8 for the full reasoning — the project lead can reverse this decision, but
 not retroactively.
 
+Exception: third-party material under `data/chat/third_party/` and the word lists `data/chat/filter.*.json`, which are adapted from it, remain under their original licence, Creative Commons Attribution 4.0 International (CC BY 4.0), as recorded in `data/chat/LICENSES.md`. The 'all rights reserved' statement above does not apply to that material. The `in_house` entries of those files and everything else under `data/` stay all rights reserved.
+
 Meshy-generated art is credited to Meshy (CC BY 4.0) in `art/ATTRIBUTION.md`;
 that credit does not change the rights stated here (GH-933).
 

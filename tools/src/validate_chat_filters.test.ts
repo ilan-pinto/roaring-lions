@@ -141,6 +141,12 @@ describe('chatFilterFailures, one fixture per rule', () => {
     expect(run(d).failures.join('\n')).toMatch(/allow "harmless" contains no hide entry/);
   });
 
+  it('refuses an allow entry that is itself a hide entry (it would excuse that entry everywhere)', () => {
+    const d = good();
+    d.allow = ['azorgonite', 'Zorgon'];
+    expect(run(d).failures.join('\n')).toMatch(/allow "Zorgon" is itself a hide entry/);
+  });
+
   it('refuses a missing licence record', () => {
     const bare = mkdtempSync(join(tmpdir(), 'rl-chat-bare-'));
     try {

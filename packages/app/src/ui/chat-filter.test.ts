@@ -7,7 +7,7 @@ import { DEFAULT_CALLSIGN } from '@lions/net';
 import { MASK, SUBSTRING_MIN, collapse, compileFilter, filterLine, foldChar, sameWord, screenName, shippedFilter, wordsOf, type FilterList } from './chat-filter';
 
 const FIXTURE: FilterList[] = [
-  { lang: 'en', hide: ['zorgon', 'grim slogan', 'vex'], mask: ['blarg', 'rude phrase', 'phrase', 'snit', 'sludge', 'mutt'], allow: ['azorgonite'] },
+  { lang: 'en', hide: ['zorgon', 'grim slogan', 'vex'], mask: ['blarg', 'rude phrase', 'phrase', 'snit', 'sludge', 'mutt'], allow: ['azorgonite', 'zorgon tide'] },
   { lang: 'xx', hide: ['quorlax'], mask: ['merdex'], allow: [] },
 ];
 const f = compileFilter(FIXTURE, (l) => l === 'en');
@@ -82,6 +82,17 @@ describe('the matcher, on a fixture list', () => {
     expect(hidden('a piece of azorgonite')).toBe(false);
     // the allow word excuses only the spot it covers: a second, uncovered hit still hides
     expect(hidden('azorgonitezorgon')).toBe(true);
+  });
+
+  it('step 10, allow phrases: a hide word inside a longer allow phrase shows; the bare word, or the words out of order, still hide', () => {
+    expect(hidden('the Zorgon Tide rises')).toBe(false);
+    expect(hidden('the zorgon rises')).toBe(true);
+    expect(hidden('tide zorgon')).toBe(true);
+    // the phrase excuses only the hit it holds: a second zorgon on the same line still hides it
+    expect(hidden('zorgon tide, zorgon')).toBe(true);
+    // an allow phrase no longer than the hit excuses nothing: a hide phrase cannot be allowed by naming itself
+    const self = compileFilter([{ lang: 'en', hide: ['grim slogan'], mask: [], allow: ['grim slogan'] }], () => true);
+    expect(filterLine(self, 'the grim slogan', { mask: true })).toEqual({ kind: 'hide' });
   });
 
   it('phrases: a run of words matches across spaces and punctuation, and a long hide phrase run together is caught', () => {
@@ -162,11 +173,31 @@ describe('the shipped lists', () => {
     }
   });
 
-  it('every allow word excuses something: it holds a hide entry long enough to match inside a word', () => {
+  it('every allow entry excuses something: a word holds a hide entry long enough to match inside it, a phrase holds a hide word', () => {
     for (const a of en.allow) {
-      const folded = wordsOf(a).map((w) => w.norm).join('');
-      expect(shipped.inside.some((t) => folded.includes(t.joined)), a).toBe(true);
+      const words = wordsOf(a).map((w) => w.norm);
+      if (words.length === 1) expect(shipped.inside.some((t) => words[0].includes(t.joined)), a).toBe(true);
+      else expect(words.some((w) => filterLine(shipped, w, { mask: true }).kind === 'hide'), `${a} holds a hide word`).toBe(true);
       expect(filterLine(shipped, a, { mask: true }).kind, a).toBe('show');
+    }
+  });
+
+  it('the lead\'s rulings of 16 Nov: these hide, kys masks, and the ordinary uses next to them still show', () => {
+    // Literal oracle: the ruled words, not read back from the file.
+    for (const w of ['lolita', 'shota', 'fucktards', 'neonazi', 'swastika', 'chink', 'dyke', 'dykes', 'gypsy', 'ching chong', 'heil hitler']) {
+      expect(en.hide, w).toContain(w);
+      expect(en.mask, w).not.toContain(w);
+      expect(filterLine(shipped, `ok ${w} ok`, { mask: false }).kind, w).toBe('hide');
+    }
+    for (const w of ['chink', 'dyke', 'dykes', 'gypsy', 'ching chong', 'heil hitler', 'kys']) expect(en.in_house, w).toContain(w);
+    expect(en.mask).toContain('kys');
+    expect(filterLine(shipped, 'just kys', { mask: true })).toEqual({ kind: 'show', text: `just ${MASK}`, masked: true });
+    expect(filterLine(shipped, 'HEIL   HITLER!!', { mask: true }).kind).toBe('hide');
+    for (const s of [
+      'a chink in the armour', 'found a chink in their armour', 'a chink of light', 'the gypsy moth', 'a chinkara herd',
+      'the Hitler era', 'heil', 'Ching was here', 'keys', 'lolly', 'shot at', 'a nazi bunker',
+    ]) {
+      expect(filterLine(shipped, s, { mask: true }), s).toEqual({ kind: 'show', text: s, masked: false });
     }
   });
 

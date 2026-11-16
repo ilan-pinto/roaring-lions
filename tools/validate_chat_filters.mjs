@@ -12,7 +12,8 @@
 //   - an entry sits in at most one of hide, mask and dropped;
 //   - `review: none` means `hide` is empty (the lead's ruling: the launch languages' hide tier waits for a native reader); such a
 //     language is REPORTED as a warning, so the gate never pretends to full coverage;
-//   - each `allow` entry contains a `hide` entry (case-folded): an allow entry that excuses nothing is dead data.
+//   - each `allow` entry contains a `hide` entry (case-folded): an allow entry that excuses nothing is dead data; and it is not
+//     itself a `hide` entry, which would excuse that entry everywhere.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -78,6 +79,7 @@ export function chatFilterFailures(files, chatDir) {
     for (const a of allow) {
       const fa = a.toLowerCase();
       if (!hideFolded.some((h) => fa.includes(h))) failures.push(`${file}: allow "${a}" contains no hide entry, so it excuses nothing`);
+      if (hideFolded.includes(fa)) failures.push(`${file}: allow "${a}" is itself a hide entry`);
     }
   }
   return { failures, warnings };

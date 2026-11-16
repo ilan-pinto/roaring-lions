@@ -26,7 +26,9 @@
  *     matches "ass", because it is not longer);
  *  8. a phrase matches a run of words;
  *  9. a `hide` entry of `SUBSTRING_MIN` or more letters also matches INSIDE a word ("xslurx"), unless an `allow` word that holds
- *     it covers that spot ("therapist").
+ *     it covers that spot ("therapist");
+ * 10. an `allow` PHRASE excuses a whole-word `hide` hit lying inside it, when the phrase is longer than the hit: an idiom such as
+ *     "chink in the armour" shows, the bare word still hides.
  *
  * Honest limit (design 3.3): a word list is a speed bump, not a guarantee. It misses new slang, other scripts and context.
  * Presentation only: nothing here touches a command, a frame or the sim (invariant 4).
@@ -67,8 +69,10 @@ export interface CompiledFilter {
   readonly mask: ReadonlyMap<string, readonly Term[]>;
   /** `hide` terms long enough to match inside a word. */
   readonly inside: readonly Term[];
-  /** Folded `allow` words. */
+  /** Folded `allow` words (every entry, its words run together), for step 9. */
   readonly allow: readonly string[];
+  /** `allow` entries of two or more words, indexed like the tiers, for step 10. */
+  readonly allowPhrases: ReadonlyMap<string, readonly Term[]>;
 }
 
 // --- 1-5: folding one code point -------------------------------------------------------------------------------------------------
@@ -239,6 +243,7 @@ export function compileFilter(lists: readonly FilterList[], masks: (lang: string
     mask: index(lists.filter((l) => masks(l.lang)).flatMap((l) => l.mask)),
     inside,
     allow: lists.flatMap((l) => l.allow).map((a) => wordsOf(a).map((w) => w.norm).join('')).filter((a) => a !== ''),
+    allowPhrases: index(lists.flatMap((l) => l.allow).filter((a) => wordsOf(a).length >= 2)),
   };
 }
 
@@ -259,12 +264,23 @@ function phraseHits(words: readonly Token[], by: ReadonlyMap<string, readonly Te
   return hits;
 }
 
-/** Step 9: a long `hide` term inside a word, at a spot no `allow` word covers. */
+/**
+ * Step 9: a long `hide` term inside a word, at a spot no `allow` word covers.
+ *
+ * Cost: for each word, each long term, each place it occurs, every allow word is searched again, so the work grows with the square
+ * of a word's length. That is bounded because a line is: the room relays only text through `cleanChat` (`packages/net/src/callsign.ts`,
+ * called by `packages/worker/src/match/room-core.ts` on every chat message), capped at `CHAT_MAX_CHARS`, 280 UTF-16 units
+ * (`packages/net/src/protocol.ts`, also refused above it by the protocol's own parse and kept by the input's `maxLength`); a callsign
+ * is capped at `MAX_CALLSIGN_CHARS`, 24 code points, by `cleanCallsign` in the same file. Lift either cap and this wants an index.
+ */
 function insideHit(words: readonly Token[], f: CompiledFilter): boolean {
   for (const w of words) {
     for (const term of f.inside) {
       for (let at = w.norm.indexOf(term.joined); at >= 0; at = w.norm.indexOf(term.joined, at + 1)) {
         const end = at + term.joined.length;
+        // A one-word term that IS the whole word is not "inside" it: that is step 8's whole-word hit, which an allow phrase may
+        // excuse (step 10). A phrase run together ("grimslogan") has no step-8 hit, so it stays here.
+        if (term.words.length === 1 && at === 0 && end === w.norm.length) continue;
         let excused = false;
         for (const a of f.allow) {
           for (let q = w.norm.indexOf(a); q >= 0 && !excused; q = w.norm.indexOf(a, q + 1)) excused = q <= at && end <= q + a.length;
@@ -283,7 +299,10 @@ function insideHit(words: readonly Token[], f: CompiledFilter): boolean {
  */
 export function filterLine(f: CompiledFilter, text: string, opts: { mask: boolean }): LineVerdict {
   const words = wordsOf(text);
-  if (phraseHits(words, f.hide).length > 0 || insideHit(words, f)) return { kind: 'hide' };
+  // Step 10: a hide hit lying wholly inside a LONGER allow phrase hit is excused.
+  const allowed = phraseHits(words, f.allowPhrases);
+  const excused = ([i, j]: [number, number]): boolean => allowed.some(([a, b]) => a <= i && j <= b && b - a > j - i);
+  if (phraseHits(words, f.hide).some((h) => !excused(h)) || insideHit(words, f)) return { kind: 'hide' };
   if (!opts.mask) return { kind: 'show', text, masked: false };
   const spans = phraseHits(words, f.mask)
     .map(([a, b]): [number, number] => [words[a].start, words[b - 1].end])
