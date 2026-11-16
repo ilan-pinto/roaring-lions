@@ -108,7 +108,7 @@ function timelineRow(e){return '<tr><td>'+when(e.t)+'</td><td>'+esc(e.type)+'</t
 function detailHtml(d){
   const can=(s)=>d.transitions.includes(s);
   const acts=[];
-  if(can('filed')||d.status==='filed')acts.push('<button class="primary" data-act="file">File as GitHub issue</button>');
+  if(d.issue&&(can('filed')||d.status==='filed'))acts.push('<button class="primary" data-act="file">File as GitHub issue</button>');
   if(can('triaged'))acts.push('<button data-act="triage">Mark triaged</button>');
   if(can('dismissed'))acts.push('<button data-act="dismiss">Dismiss</button>');
   if(can('new'))acts.push('<button data-act="reopen">Reopen as new</button>');
@@ -119,10 +119,10 @@ function detailHtml(d){
     +(d.text?'<p class="note">'+esc(d.text)+'</p>':'<p class="muted">No note: a rating only.</p>')
     +(d.shot?'<img class="shot" alt="What the player saw" src="/stats/api/feedback/'+esc(d.id)+'/shot">':'')
     +'<div class="actions">'+acts.join('')+'</div>'
-    +'<div class="actions"><input id="fb-issue-no" type="number" min="1" placeholder="Filed as issue #" aria-label="Filed as issue number" value="'+esc(d.issueNumber??'')+'">'
+    +'<div class="actions">'+(d.issue?'<input id="fb-issue-no" type="number" min="1" placeholder="Filed as issue #" aria-label="Filed as issue number" value="'+esc(d.issueNumber??'')+'">':'')
     +'<input id="fb-note" maxlength="2000" placeholder="Triage note (private)" aria-label="Triage note (private)" value="'+esc(d.note??'')+'" style="flex:1"></div>'
-    +'<p class="muted">File opens github.com/ilan-pinto/roaring-lions/issues/new with this title and body filled in. You read and edit it there; nothing is posted until you press Submit. The tester\\'s name and contact never go into the issue.'+(d.issue.truncated?' The note is cut to fit the link.':'')+'</p>'
-    +'<pre class="issue">'+esc(d.issue.title)+'\\n\\n'+esc(d.issue.body)+'</pre></div>'
+    +(d.issue?'<p class="muted">File opens github.com/ilan-pinto/roaring-lions/issues/new with this title and body filled in. You read and edit it there; nothing is posted until you press Submit. The tester\\'s name and contact never go into the issue.'+(d.issue.truncated?' The note is cut to fit the link.':'')+'</p>'
+      +'<pre class="issue">'+esc(d.issue.title)+'\\n\\n'+esc(d.issue.body)+'</pre>':'<p class="muted">A private privacy request. It is never turned into a GitHub issue link; answer it yourself.</p>')+'</div>'
     +'<div><table class="kv">'+contextRows(d)+'</table>'
     +'<h3 id="fb-timeline">Session timeline</h3>'
     +(d.timeline.length?'<div class="wrap"><table><tr><th>When (UTC)</th><th>Event</th><th>Mission</th><th>Result</th></tr>'+d.timeline.map(timelineRow).join('')+'</table></div>':'<p class="muted">No session id was sent with this note, so there is nothing to join.</p>')
@@ -149,7 +149,7 @@ async function loadDetail(id){
   openId=id;
   const el=$('fb-detail');
   if(id===null){el.hidden=true;el.innerHTML='';return}
-  try{const d=await api('/'+id);el.innerHTML=detailHtml(d);el.hidden=false;el.dataset.url=d.issue.url}
+  try{const d=await api('/'+id);el.innerHTML=detailHtml(d);el.hidden=false;el.dataset.url=d.issue?d.issue.url:''}
   catch(e){el.hidden=false;el.innerHTML='<p class="muted">'+esc(e.message)+'</p>'}
 }
 const idFromPath=()=>{const m=/^\\/stats\\/feedback\\/(\\d+)$/.exec(location.pathname);return m?Number(m[1]):null};

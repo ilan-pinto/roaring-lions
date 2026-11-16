@@ -216,7 +216,8 @@ export async function feedbackDetail(env: Env, id: number, origin: string) {
   const r = await getRow(env.DB, id);
   if (!r) return null;
   const context = parseContext(r.context);
-  const issue: IssueLink = buildIssueLink(
+  // GH-1417 C2: a privacy request is private. No GitHub link is built for it, so no URL can carry it anywhere.
+  const issue: IssueLink | null = r.category === 'privacy' ? null : buildIssueLink(
     {
       id: r.id, category: r.category, rating: r.rating, text: r.text, mission: r.mission, tick: r.tick, build: r.build,
       commit: r.commit, context, hasReplay: r.replay_bytes !== null, tester: r.tester, contact: r.contact, player: r.player, session: r.session,
@@ -264,6 +265,8 @@ export async function applyFeedbackAction(env: Env, id: number, body: Record<str
   const r = await getRow(env.DB, id);
   if (!r) return { ok: false, code: 404, error: 'not found' };
   const action = body.action;
+  // GH-1417 C2: never filed on GitHub, not even by hand-entering an issue number.
+  if (r.category === 'privacy' && (action === 'file' || action === 'issue')) return { ok: false, code: 409, error: 'privacy requests are never filed on GitHub' };
   if (action === 'delete') {
     // Explicit, in one transaction: the ON DELETE CASCADE in 0003 needs
     // foreign keys on, which D1 has and a plain SQLite connection may not.
