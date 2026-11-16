@@ -123,6 +123,12 @@ const FIXTURE = join(__dirname, 'theme-identity.fixture.json');
  * 5e15ed1bdc46), the two together read:
  *      arid, green and highland: df00c776d85c. Was da3e7776707e.
  *      wetland:                  e1842083f7c8. Was 22b183ab7e71.
+ * GH-1361 slice 1 (the sun-glint lobe): the wetland `scene` digest reads the compiled program of the KDF rain-rim clones, and the
+ * weapon and glass clones among them now also carry the glint splice (`rl-sun-glint`):
+ *      wetland:                  16731a96467e. Was e1842083f7c8.
+ *      arid, green and highland: unchanged (df00c776d85c). Their digests record no compiled unit program (only a rim clone is
+ *      compiled into the entry), so the glint is NOT pinned there; its GLSL is pinned line for line in `sun-glint.test.ts` and the
+ *      selection by class in the same file. A program-hash pin for the glint on arid would need a new digest field; not added.
  */
 const UPDATE = process.env.UPDATE_THEME_IDENTITY === '1';
 const HIGH = { colorVision: 'default', quality: 'high' } as const;

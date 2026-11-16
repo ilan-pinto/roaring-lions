@@ -226,6 +226,12 @@ async function aftermathReads(
         await repaint();
         out.push({ fog: 'gate, flash lights hidden (attribution only)', census: await read() });
         r.setDebugLayerVisible('blast-light', true);
+        // GH-1361: the same attribution for the sun glint (a deliberate HDR point on a lined-up barrel). Also never consulted by the
+        // exit code; it says whether a hot pixel is the glint or something else.
+        r.setDebugLayerVisible('glint', false);
+        await repaint();
+        out.push({ fog: 'gate, glint hidden (attribution only)', census: await read() });
+        r.setDebugLayerVisible('glint', true);
         await repaint();
         return out;
       },

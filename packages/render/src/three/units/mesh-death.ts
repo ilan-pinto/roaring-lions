@@ -151,7 +151,7 @@ import { advanceMeshClipFades, applyMeshClip } from './mesh-clip';
 import { disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
 import { reassertHiddenFigures, stopSquadPlayers } from './squad-rig';
 import { carryTeamMark } from './team-mask';
-import { carrySunGlint } from './sun-glint';
+import { carrySunGlint, stripSunGlint } from './sun-glint';
 import { pickDeathClips } from './mesh-anim';
 import { legacyOf, recordLegacyBase } from '../twin-identity';
 
@@ -847,6 +847,8 @@ export function pushMeshWreck(
   scene: THREE.Scene,
   max: number = MAX_MESH_WRECKS
 ): void {
+  // GH-1361: a settled corpse never glints (it can lie on explored-but-unseen ground, where the fog pass dims 0.4 before bloom).
+  stripSunGlint(wreck.root);
   wrecks.push(wreck);
   while (wrecks.length > max) {
     const old = wrecks.shift();

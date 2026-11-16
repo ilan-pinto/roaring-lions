@@ -18,8 +18,14 @@
  *
  * **Which surfaces.** `SUN_GLINT_CLASSES`: the `glass` and `gunmetal` classes of `unit-surface.ts`, applied where
  * `surfaceMaterialFor` cuts the clone. That is every vehicle metal and glass node and every infantry weapon (lead ruling D2). It is
- * NOT applied to `armour`, `plate`, `rubber`, cloth, buildings, props, the swarm drone batch or the support aircraft (those are
- * one `unitDielectric` material each, ruling D7); the main tanks have no glass node, so their optics stay metal (D8).
+ * NOT applied to `armour`, `plate`, `rubber`, cloth, buildings, props or the swarm drone batch (one `unitDielectric` material), nor to
+ * the support helicopter, which `support-aircraft.ts` builds with `SUPPORT_SURFACES`, a table whose clones carry no glint (ruling D7); the
+ * main tanks have no glass node, so their optics stay metal (D8).
+ *
+ * **Corpses do not glint.** A settled wreck keeps its live weapon materials on explored-but-unseen ground, where the fog pass dims only
+ * 0.4 before bloom and a glint of about 4 would still bloom through the shroud. `stripSunGlint` (called by `pushMeshWreck`, the one
+ * entry every settled corpse and ragdoll passes) swaps each glint material for a memoised twin that runs the SAME hook chain (so a
+ * rain rim, a mark, a wounded floor all stay) with its glint gain bound to a constant 0. Living units are drawn only where visible.
  *
  * **The sun.** The unit programs light with the sun as their only `DirectionalLight` (`lighting.ts`; the muzzle-flash lights are point
  * lights), so the term is restricted to the directional loop and, in the shader, to the light whose direction IS
@@ -197,4 +203,41 @@ export function carrySunGlint(clone: THREE.Material, source: THREE.Material): vo
   const std = clone as THREE.MeshStandardMaterial;
   if (!std.isMeshStandardMaterial) return;
   install(std, !std.customProgramCacheKey().includes(SUN_GLINT_PROGRAM_KEY));
+}
+
+/** The constant-zero gain a corpse's twin is bound to. */
+const deadGain: { value: number } = { value: 0 };
+const twinOf = new WeakMap<THREE.Material, THREE.Material>();
+const deadTwins = new WeakSet<THREE.Material>();
+
+/** The material a corpse draws with: `mat`'s twin, whose glint gain is a constant 0 (everything else `mat` does it still does). */
+export function deadSunGlintMaterial(mat: THREE.Material): THREE.Material {
+  if (!isSunGlintMaterial(mat) || deadTwins.has(mat)) return mat;
+  const hit = twinOf.get(mat);
+  if (hit) return hit;
+  const src = mat as THREE.MeshStandardMaterial;
+  const twin = src.clone();
+  twin.customProgramCacheKey = src.customProgramCacheKey.bind(src);
+  twin.onBeforeCompile = (shader, renderer) => {
+    src.onBeforeCompile(shader, renderer);
+    shader.uniforms.uGlintGain = deadGain;
+  };
+  hooked.add(twin);
+  deadTwins.add(twin);
+  twinOf.set(mat, twin);
+  mat.addEventListener('dispose', () => {
+    twinOf.delete(mat);
+    twin.dispose();
+  });
+  return twin;
+}
+
+/** Swaps every glint material under `root` for its corpse twin (see the header). Idempotent: a twin is itself marked, and is returned as is. */
+export function stripSunGlint(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    if (Array.isArray(mesh.material)) mesh.material = mesh.material.map(deadSunGlintMaterial);
+    else mesh.material = deadSunGlintMaterial(mesh.material);
+  });
 }

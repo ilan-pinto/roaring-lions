@@ -49,7 +49,9 @@ export interface RenderQuality {
    * Turning it on at `high` does not move a quiet frame: the threshold is a
    * scene-referred luminance of 1.0 and the census
    * (`tools/src/perf/bloom-census.ts`) holds every shipped map's quiet frame
-   * under 0.9, so the high-pass writes exactly 0 and the additive blend adds
+   * under 0.9 WITH THE SUN GLINT HIDDEN (GH-1361: the glint is a deliberate HDR point on a
+   * lined-up barrel, so a frame with unit metal in the cone does bloom; the gate's bloom zero
+   * check holds the `glint` layer hidden for the same reason), so the high-pass writes exactly 0 and the additive blend adds
    * +0. That is a measured claim with a tool behind it, not a hope. It is a
    * claim about QUIET frames: the gated `aftermath` frame is not one (at its
    * tick 300 the sandbox force is firing, and its pooled muzzle-flash lights

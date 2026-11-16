@@ -906,6 +906,8 @@ describe('BASELINES layerChecks', () => {
         'unit-surface': { px: 43, mean: 0.0202 },
         // GH-1361 slice 1, 16 Nov 2026: relief-read-signal.ts --layers=glint, 3 fresh-page runs, bit-identical (SwiftShader).
         glint: { px: 552, mean: 0.0869 },
+        // GH-1361: the positive bloom floor, hiding bloom with the glint ON; the same tool, 3 fresh-page runs, bit-identical (SwiftShader).
+        bloom: { px: 485, mean: 0.08 },
         // L3 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=team-mask, 3 fresh-page runs, bit-identical.
         'team-mask': { px: 283, mean: 0.0132 },
         // GH-984 N2, 2026-11-03: `nature:capture --phase=signal`, 3 fresh loads, bit-identical, ANGLE Metal (CI re-measures at the bless).
@@ -1302,15 +1304,19 @@ describe('capture keeps the alert feed out of shot (repaint drift since #488)', 
 });
 
 describe('the `bloom` zero check (GH-943 P1 T5)', () => {
-  // GH-1361: `vehicle` and `kitted` left the list, the sun glint is an HDR point there (see `BLOOM_ZERO_SCENARIOS`).
-  const declared = ['quiet', 'open-ground', 'fogged', 'graded'];
+  const declared = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'];
   it('is declared, once and as a ZERO check, on every gated quiet scenario, and on no other', () => {
     for (const id of Object.keys(BASELINES)) {
-      const hits = (BASELINES[id].layerChecks ?? []).filter((c) => c.layer === 'bloom');
+      const all = (BASELINES[id].layerChecks ?? []).filter((c) => c.layer === 'bloom');
+      // GH-1361: `vehicle` also carries a POSITIVE bloom floor (a dead bloom pass passes every zero check).
+      const hits = all.filter((c) => c.kind === 'zero');
       if (declared.includes(id)) {
         expect(hits.length, id).toBe(1);
-        expect(hits[0].kind, id).toBe('zero');
+        // The sun glint is a deliberate HDR point: the zero question is asked with it held hidden.
+        expect(hits[0].holdHidden, id).toEqual(['glint']);
+        expect(all.length, id).toBe(id === 'vehicle' ? 2 : 1);
       } else {
+        expect(all.length, id).toBe(0);
         // aftermath fires muzzle-flash lights past 1.0 on purpose; combat and dusk are not gated.
         expect(hits.length, id).toBe(0);
       }

@@ -391,10 +391,20 @@ async function runSelfChecks(
   for (const check of checks) {
     const region = check.region !== undefined ? check.region : spec.region;
     const hiddenPng = path.join(dir, `layer-${check.layer}-hidden.png`);
+    // `holdHidden` (GH-1361): the check is asked with these layers hidden throughout, and the "shown" reference is re-taken in that
+    // state. They are put back, in reverse order, before anything else runs.
+    const held = check.holdHidden ?? [];
+    let shownRef = shownPng;
+    if (held.length > 0) {
+      for (const layer of held) await page.evaluate(layerToggleScript(layer, false, arm, scriptOpts));
+      shownRef = path.join(dir, `layer-${check.layer}-held-shown.png`);
+      await rephotograph(page, repaintScriptFor(arm), shownRef, captured.rect);
+    }
     await rephotograph(page, layerToggleScript(check.layer, false, arm, scriptOpts), hiddenPng, captured.rect);
     const shownAgain = await page.evaluate(layerToggleScript(check.layer, true, arm, scriptOpts));
+    for (const layer of [...held].reverse()) await page.evaluate(layerToggleScript(layer, true, arm, scriptOpts));
     const objects = (JSON.parse(shownAgain as string) as { objects: number }).objects;
-    const summary = computeDiff(shownPng, hiddenPng, {
+    const summary = computeDiff(shownRef, hiddenPng, {
       outDir: dir,
       diffFileName: `diff-layer-${check.layer}.png`,
       threshold: PIXELMATCH_THRESHOLD,
