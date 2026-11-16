@@ -3,7 +3,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-// @ts-expect-error: a plain .mjs module; its .d.mts is for the type-checked callers.
 import { chromeCatalogueFailures, messageShape } from '../validate_chrome_catalogue.mjs';
 
 const fails = (en: Record<string, string>, tr: unknown): string[] => chromeCatalogueFailures('de.json', en, tr) as string[];
