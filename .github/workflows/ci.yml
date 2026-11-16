@@ -393,6 +393,18 @@ jobs:
       - name: one realm, no reload -- the router's own walk
         if: ${{ success() || failure() }}
         run: pnpm ui:routes
+      # GH-1409: every shell screen at 1400x900, as a build artifact, so the pictures a reviewer reads are from THIS commit and not from
+      # October. ONE resolution on CI: measured on SwiftShader, a single resolution's walk takes about 15 minutes (13:27 to 13:42 on the
+      # first run that got through the menu), so the tool's three resolutions would need about 45 and could not fit `timeout-minutes: 25`.
+      # The other two stay available locally and on a Mac (`--res=`). REPORT-ONLY: `continue-on-error`, so a failed or slow capture can neither fail
+      # the job nor skip the `version` job behind it (the overflow output of `ui:shots` is a report by design), and `timeout-minutes` is
+      # the hang guard (the tool stops its own dev server; see shoot.ts). Its own port, apart from the gate's :5175 and the walk's :5177.
+      # SwiftShader (the Linux default), music off by the tool: compare these only with other CI captures, never with a Mac's.
+      - name: ui:shots -- every shell screen at 1400x900 (report-only)
+        if: ${{ success() || failure() }}
+        continue-on-error: true
+        timeout-minutes: 25
+        run: pnpm ui:shots -- --port=5176 --res=1400x900 --out=ui-shots-output
       # Uploaded on failure AND on success: the diff image is what a triager
       # actually needs, and `combat` is captured but never gated, so its frame
       # is only ever reachable here.
@@ -414,6 +426,18 @@ jobs:
           path: visual-baseline-output
           if-no-files-found: ignore
           retention-days: 3
+      # GH-1409: the shell captures. Same three-day retention and same `continue-on-error` as the upload above, for the same reason (the
+      # private repository's artifact quota); PNGs are already compressed, so the level is 0 rather than spending time re-deflating them.
+      - name: Upload the shell captures
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-shots
+          path: ui-shots-output
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 0
 
   # GH-943 WebGPU-primary migration, P0: the node backends' capture arms. They gate on FRAME CONTENT and nothing else (the lead, 7 Nov).
   #

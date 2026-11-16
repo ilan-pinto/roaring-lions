@@ -23,10 +23,10 @@
 // JSON below, never transcribed), so a pool of three squads makes the choice
 // real. A passive run of it ENDS -- measured: victory at tick 7033 on the
 // harness seed, `hold_west` held with no orders -- so `runToEnd` produces the
-// ledger rather than hitting its ceiling. On that seed every body the ledger
-// fielded dies before the end; that is the passive run's price, not this
-// file's subject, and it is why the "unless its unit died" clause below is
-// exercised on every fielded entry. The survivor half of the round trip --
+// ledger rather than hitting its ceiling. Before the GH-1360 starting layout
+// every body the ledger fielded died before the end on that seed; in the
+// assembly layout they live, so the victory-write test kills them at t=0
+// itself. The survivor half of the round trip --
 // a fielded body that comes home under its own name -- is
 // `roster-carry.test.ts`'s.
 import { describe, expect, it } from 'vitest';
@@ -225,7 +225,11 @@ describe('the deploy choice, against the real spawner', () => {
   // re-slot an already-slotted entry goes red there and not in the first.
   it('after a win, the victory write keeps a benched slotted veteran in its own slot', RUNS_TO_END, () => {
     const before = campaign();
-    const { world } = field(deployedLedger(before, benchErezFieldNachshon(view())));
+    const { world, byName } = field(deployedLedger(before, benchErezFieldNachshon(view())));
+    // GH-1360 S3b: the fielded veterans are killed at t=0 (`debugKill`, the house way to isolate a unit), not left to the
+    // passive run. Before the starting layout every body the ledger fielded died on this seed by itself; in the assembly
+    // layout none does, and this test's subject is the write, not who the passive run happens to lose.
+    for (const id of byName.values()) world.sim.debugKill(id);
     const lost: LostRecord[] = [];
     const produced = world.runToEnd(HARNESS_MAX_TICKS, (me) => {
       if (me.kind !== 'unitLost') return;

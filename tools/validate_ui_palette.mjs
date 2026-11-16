@@ -216,6 +216,10 @@ function paletteVars() {
       }
     }
   }
+  // A third party's brand colours (palette.brand.<owner>.colors): mirrored from vite-plugin-palette.ts.
+  for (const [owner, group] of Object.entries(p.brand ?? {})) {
+    for (const key of Object.keys(group.colors)) names.add(`--rl-brand-${owner}-${key.replace(/_/g, '-')}`);
+  }
   return names;
 }
 
