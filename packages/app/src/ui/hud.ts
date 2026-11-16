@@ -422,7 +422,7 @@ export interface HudDeps {
    *  at mission end. `type` already carries a resolved display name
    *  (the same lookup `units[type]?.name ?? type` the debrief uses) -- never a
    *  raw sim type id -- so `cardHtml`'s own fallback never has to resolve one. */
-  predecessorOf?: (slot: number) => { name?: string; type: string } | undefined;
+  predecessorOf?: (slot: number) => { name?: string; type: string; cause?: string } | undefined;
   /** The kit a KDF type carried INTO this mission (WP-S3g §3.4, D2): three
    *  tracks' pips and the hit points it bought, or null for a type with no
    *  account behind it. Tiers are type-wide and fixed for the mission (brigade
@@ -2881,7 +2881,11 @@ export class Hud {
     const predecessor = entry?.slot !== undefined ? this.deps.predecessorOf?.(entry.slot) : undefined;
     const replaces =
       predecessor !== undefined
-        ? `<div class="rl-card__replaces rl-dim">${t('hud.card.replaces', { predecessor: escapeHtml(predecessor.name ?? predecessor.type) })}</div>`
+        ? `<div class="rl-card__replaces rl-dim">${
+            predecessor.cause === undefined
+              ? t('hud.card.replaces', { predecessor: escapeHtml(predecessor.name ?? predecessor.type) })
+              : t('hud.card.replacesBy', { predecessor: escapeHtml(predecessor.name ?? predecessor.type), cause: escapeHtml(predecessor.cause) })
+          }</div>`
         : '';
 
     // Condition: only what is actually true right now. Since pass C2/C4
