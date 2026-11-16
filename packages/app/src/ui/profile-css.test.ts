@@ -86,7 +86,7 @@ describe('the account page accents (GH-1367 S1)', () => {
     expect(body('.rl-profile__show-record input,\n.rl-profile__telemetry input')).toContain('accent-color: var(--selected)');
   });
   it('rules the header card in gold', () => {
-    expect(body('.rl-profile__card--head')).toContain('border-left: 0.1875rem solid var(--title-accent)');
+    expect(body('.rl-profile__card--head')).toContain('border-inline-start: 0.1875rem solid var(--title-accent)');
   });
   it('pins the lifted card, the rim, the link, the tag, the status and the perk marker', () => {
     expect(css).toMatch(/--card-bg: color-mix\(in srgb, var\(--rl-shadow-0\) 70%, transparent\)/);
