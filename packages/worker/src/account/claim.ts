@@ -37,6 +37,7 @@ import {
   type SaveSlot,
   type SlotMetaView,
 } from '@lions/economy';
+import { challengeDifference, withChallengeFlags } from '@lions/economy/challenge-earn';
 import { coupons, world } from '@lions/data';
 import type { D1Like, D1Stmt } from '../d1';
 import { budgetedOp } from './budget';
@@ -232,8 +233,12 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
       // 2. The earn difference, against the lifetime record.
       const evidence = claimEvidence({ wallet: device, ledgers, world: parsedWorld });
       const d = earnDifference(wallet.earnLifetime, evidence, parsedWorld);
-      const earnLifetime = maxRecord(d.record, wallet.earnLifetime);
-      const earn = raiseBy(wallet.earn, d.raised);
+      // GH-1395: the challenge coins the DEVICE WALLET proves (a ledger or slot proves none) beyond the lifetime record,
+      // once each and for an indexed mission only; the flags join both records, so no later claim or victory pays again.
+      const ch = challengeDifference(maxRecord(d.record, wallet.earnLifetime), device);
+      const earned = d.coins + ch.coins;
+      const earnLifetime = ch.record;
+      const earn = withChallengeFlags(raiseBy(wallet.earn, d.raised), ch.ids);
 
       // 3. Coupons, de-duplicated; an id off the table is ignored and not echoed.
       const used = new Set((await db.prepare('SELECT coupon_id FROM coupon_use WHERE member_id = ?1').bind(memberId).all<{ coupon_id: string }>()).results.map((r) => r.coupon_id));
@@ -268,7 +273,7 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
       }
 
       // 4. Entitlements, charged against this claim's own coins on a scratch wallet.
-      const credits = d.coins + couponCoins;
+      const credits = earned + couponCoins;
       const ledger = sentBody?.ledger ?? serverCamp?.body.ledger ?? {};
       const brigade = sentBody?.brigade ?? serverCamp?.body.brigade ?? emptyAccount();
       let scratch: RoarWallet = { ...asRoar(wallet, []), coins: { free: credits, paid: 0 }, };
@@ -332,7 +337,7 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
           net + charged > 0
             ? { kind: 'earn', id: `${ctx.now}-claim`, at: ctx.now, coins: { free: net + charged, paid: 0 }, source: 'backfill' }
             : null,
-        detail: { earned: d.coins, couponCoins, coupons: couponRows, ceilingCut: credits - charged - net },
+        detail: { earned, couponCoins, coupons: couponRows, ceilingCut: credits - charged - net },
         opId: body.opId,
         at: ctx.now,
       };
@@ -373,7 +378,7 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
 
       const result = {
         coins: net,
-        earned: d.coins,
+        earned,
         coupons: couponRows,
         carried,
         notCarried,

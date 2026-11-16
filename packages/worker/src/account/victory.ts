@@ -26,6 +26,7 @@ import {
   type RoarReceipt,
   type WalletView,
 } from '@lions/economy';
+import { payChallenge } from '@lions/economy/challenge-earn';
 import { minWinSeconds, world } from '@lions/data';
 import type { D1Stmt } from '../d1';
 import { budgetedOp } from './budget';
@@ -154,10 +155,15 @@ export async function victory(ctx: AccountCtx): Promise<Response> {
     let walletOut: WalletView = { free: wallet.free, paid: 0, entitlements: wallet.entitlements, earn: wallet.earn, receipts, revision: wallet.revision };
     if (plausible) {
       const ledger = sent?.ledger ?? camp?.body.ledger ?? {};
-      // GH-1395 D1: once per account. `roarEarn` already refuses a second payment on `earn`; the lifetime record is
+      // GH-1395 D1: once per account. `payChallenge` refuses a second payment on `earn`; the lifetime record is
       // what a reset of the free half leaves standing, so the challenge is also refused when IT holds the flag.
       const challenge = body.challenge && wallet.earnLifetime.missions[body.missionId]?.challenge !== true;
-      const paid = roarEarn(asRoar(wallet, receipts), { missionId: body.missionId, stars: body.stars, ledger, challenge }, parsedWorld, ctx.now);
+      let paid = roarEarn(asRoar(wallet, receipts), { missionId: body.missionId, stars: body.stars, ledger }, parsedWorld, ctx.now);
+      if (challenge) {
+        // After the win's own awards, so its receipt is the tail's last, aligned with its journal row below.
+        const c = payChallenge(paid.wallet, body.missionId, ctx.now);
+        if (c.award !== null) paid = { wallet: c.wallet, awards: [...paid.awards, c.award], total: paid.total + c.award.coins };
+      }
       awards = paid.awards;
       if (paid.awards.length > 0) {
         // One journal row per award that moved coins, aligned with the receipts roarEarn appended (the tail).

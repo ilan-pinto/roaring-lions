@@ -13,7 +13,9 @@ import { parseWorld } from './campaign';
 import { LEDGER_KEY } from './main-keys';
 import { memoryLedgerStore, type CampaignLedger, type LedgerStore } from './ledger-store';
 import { saveSlot, writeActive, readActive, loadSlot } from './profile';
-import { EARN, MAX_STARS, roarBackfill, roarEarn, settleRoarAtBoot, settleVictory, worldMissionIds, type VictoryWin } from './roar-earn';
+import { EARN, MAX_STARS, roarBackfill, roarEarn, settleRoarAtBoot, worldMissionIds, type VictoryWin } from './roar-earn';
+import { settleVictory } from './victory-settle';
+import { CHALLENGE_COINS, payChallenge } from '@lions/economy/challenge-earn';
 import { ROAR_KEY, emptyRoar, spendable, type RoarWallet } from './roar-wallet';
 import { LADDER_MISSIONS, coinPrice } from './ui/stores-model';
 
@@ -30,8 +32,7 @@ const total = (w: RoarWallet): number => spendable(w);
 
 describe('the earn table', () => {
   it('constants are the lead\'s numbers', () => {
-    // GH-1395 (lead ruling D1, 16 Nov 2026): a beaten challenge pays 10, once per account.
-    expect(EARN).toEqual({ welcome: 100, firstWin: 10, star: 5, campaign: 100, challenge: 10 });
+    expect(EARN).toEqual({ welcome: 100, firstWin: 10, star: 5, campaign: 100 });
     expect(MAX_STARS).toBe(3);
   });
 
@@ -158,10 +159,11 @@ describe('G-E2: one campaign\'s coins buy the dearest unit in the Stores', () =>
     // replay or a new campaign would) pays no challenge twice.
     for (const pass of [0, 100]) {
       ids.forEach((_, i) => {
-        wallet = roarEarn(wallet, { ...win(i, per[i]), challenge: true }, world, pass + i + 1).wallet;
+        // As the victory settle pays it: the table, then the challenge (refused off the index, and the second time).
+        wallet = payChallenge(roarEarn(wallet, win(i, per[i]), world, pass + i + 1).wallet, ids[i], pass + i + 1).wallet;
       });
     }
-    expect(total(wallet)).toBe(830 + EARN.challenge * challengeMissionIds.length);
+    expect(total(wallet)).toBe(830 + CHALLENGE_COINS * challengeMissionIds.length);
     expect(challengeMissionIds.length).toBe(6);
     expect(total(wallet)).toBe(890);
     const paid = wallet.receipts.flatMap((r) => (r.kind === 'earn' && r.source === 'challenge' ? [r.missionId] : []));

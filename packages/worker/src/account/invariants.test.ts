@@ -5,7 +5,8 @@
  * the GH-1395 challenge index: 985 for the pilot), and `earn_lifetime` never goes down. A red run prints its seed and op
  * list, so it replays.
  */
-import { EARN, emptyAccount, parseWorld, sha256Hex, worldMissionIds } from '@lions/economy';
+import { emptyAccount, parseWorld, sha256Hex, worldMissionIds } from '@lions/economy';
+import { CHALLENGE_COINS } from '@lions/economy/challenge-earn';
 import { challengeMissionIds, coupons, world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import { handleAccount } from './routes';
@@ -19,7 +20,7 @@ const TABLE = coupons.map((c) => ({ ...c, sha256: sha256Hex(CODE) }));
 const COIN_ID = 'lead_roar_coins_100k';
 // GH-1395: the ceiling rises by the challenge coin for each mission in the index, read from the index so the day a
 // mission gains a challenge this bound moves with it; the literal beside it is the pilot's, moved deliberately.
-const CEILING = 925 + EARN.challenge * challengeMissionIds.length;
+const CEILING = 925 + CHALLENGE_COINS * challengeMissionIds.length;
 const CEILING_PILOT = 985;
 const FLOORS = Object.fromEntries(ids.map((id) => [id, 1]));
 const RICH = { coins: { free: 1_000_000, paid: 0 } };

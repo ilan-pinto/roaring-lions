@@ -3,7 +3,7 @@ import { emptyAccount, emptyRoar, worldMissionIds } from '@lions/economy';
 import { accountLedgerStore, ServerCoinsError } from './account-store';
 import { readOutbox } from './outbox';
 import { deleteSlot, listSlots, loadSlot, saveSlot } from '../profile';
-import { settleVictory } from '../roar-earn';
+import { settleVictory } from '../victory-settle';
 import { cacheOf, confirmedState, memStorage, opIds, slotOf, world } from './fixtures';
 
 function make(over: { confirmed?: ReturnType<typeof confirmedState>; bodies?: Record<string, ReturnType<typeof slotOf>> } = {}) {

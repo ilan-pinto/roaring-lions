@@ -8,10 +8,10 @@ import worldJson from '../../../data/campaign/world.json';
 import { viewOf } from './account/replay';
 import type { OutboxOp } from './account/outbox';
 import { parseWorld } from './campaign';
-import { amendedMission, challengeMarkFor, withChallengeMark, type ChallengeRunInput } from './challenge';
+import { amended, amendedMission, challengeMarkFor, challengeMarksOf, runRowOf, victoryMark, withChallengeMark, type ChallengeRunInput } from './challenge';
 import { memoryLedgerStore, newCampaign, type CampaignLedger } from './ledger-store';
 import { campaignMission } from './posture';
-import { settleVictory } from './roar-earn';
+import { settleVictory } from './victory-settle';
 import { emptyRoar } from './roar-wallet';
 
 const world = parseWorld(worldJson);
@@ -135,16 +135,45 @@ describe('the coins, end to end on the guest store: exactly 10 once', () => {
   });
 });
 
-describe('the signed-in outbox carries the flag, and the local view pays it once', () => {
+describe('the signed-in view is the table alone; the Worker pays the challenge (the entry chunk carries none of it)', () => {
   const op = (n: number, challenge?: boolean): OutboxOp => ({
     kind: 'victory', opId: `op-${n}`, missionId: BS2, stars: 2, start: `start-${n}`, campaign: null, ...(challenge === undefined ? {} : { challenge }),
   });
   const confirmed = { campaign: null, slots: [], wallet: { free: 0, paid: 0 as const, entitlements: emptyRoar().entitlements, earn: emptyRoar().earn, receipts: [], revision: 1 } };
-  it('two queued challenge wins show 10 once', () => {
-    const one = viewOf(confirmed, [op(1, true)], world);
-    const two = viewOf(confirmed, [op(1, true), op(2, true)], world);
-    const plain = viewOf(confirmed, [op(1)], world);
-    expect(one.wallet.free - plain.wallet.free).toBe(10);
-    expect(two.wallet.free).toBe(one.wallet.free);
+  it('a queued challenge win shows what a plain one shows until the server answers', () => {
+    expect(viewOf(confirmed, [op(1, true)], world).wallet.free).toBe(viewOf(confirmed, [op(1)], world).wallet.free);
+  });
+});
+
+describe('the lazy entry points main.ts calls through ./posture', () => {
+  const rt = (lost: Record<string, number>, carries: 'complete' | 'active' = 'complete') => ({
+    lostByType: () => lost,
+    objectiveList: [{ primary: true, carries: undefined, status: 'complete' }, { primary: false, carries: true, status: carries }] as never,
+  });
+  const end = { result: 'victory' as const, roeRating: 95, tick: 8000 };
+  it('victoryMark reads the run off the runtime: lost is lostByType summed', () => {
+    expect(victoryMark(foothold, opened, ['tight_clock', 'light_order'], rt({}), end)).toEqual({ id: 'quiet_souk', roe: 95, ticks: 8000, lost: 0 });
+    expect(victoryMark(foothold, opened, ['tight_clock', 'light_order'], rt({ inf_squad: 1 }), end)).toBeNull();
+    expect(victoryMark(foothold, opened, undefined, rt({}), end)).toBeNull();
+  });
+  it('runRowOf: carriesAll needs every carrying secondary complete', () => {
+    expect(runRowOf(rt({ a: 2, b: 1 }), 50, 7).lost).toBe(3);
+    expect(runRowOf(rt({}, 'active'), 50, 7).carriesAll).toBe(false);
+    expect(runRowOf(rt({}), 50, 7).carriesAll).toBe(true);
+  });
+  it('amended on top of the posture equals the one call, and none on is the mission itself', () => {
+    const easier = { [DIFFICULTY_LEDGER_KEY]: 'easier' };
+    expect(amended(campaignMission(foothold, easier), ['tight_clock'])).toStrictEqual(amendedMission(foothold, easier, ['tight_clock']));
+    expect(amended(foothold, [])).toBe(foothold);
+  });
+  it('C9: challengeMarksOf drops a wrong-shaped row, and withChallengeMark writes only well-shaped ones', () => {
+    const m = { id: 'quiet_souk', roe: 80, ticks: 8000, lost: 0 };
+    const bad = { [CHALLENGE_LEDGER_KEY]: { [BS2]: m, broken: { id: 3, roe: 1, ticks: 1, lost: 0 }, worse: 'x' } } as LedgerData;
+    expect(challengeMarksOf(bad)).toEqual({ [BS2]: m });
+    expect(challengeMarksOf({ [CHALLENGE_LEDGER_KEY]: [1, 2] } as LedgerData)).toEqual({});
+    expect(withChallengeMark(bad, 'beit_sahwan_3_clearance', { ...m, id: 'clean_sweep' })[CHALLENGE_LEDGER_KEY]).toEqual({
+      [BS2]: m,
+      beit_sahwan_3_clearance: { ...m, id: 'clean_sweep' },
+    });
   });
 });

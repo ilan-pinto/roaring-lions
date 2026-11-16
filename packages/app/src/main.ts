@@ -130,7 +130,7 @@ import type { BrigadeUnit, GarageState } from './ui/brigade';
 import { accountView } from './account-view';
 import { kdfUnlockGate } from './kdf-gate';
 import { spendable } from './roar-wallet';
-import { roarBackfill, settleRoarAtBoot, settleVictory, type VictorySettle } from './roar-earn';
+import { roarBackfill, settleRoarAtBoot, type VictorySettle } from './roar-earn';
 import { buyWithCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
@@ -2081,12 +2081,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // under any posture, is the mission itself (`campaignMission` returns it by reference).
   // Loaded lazily, as the save kit is: the posture code is the campaign's alone, and the entry chunk and its static
   // imports sit under a byte ceiling (`pnpm --filter @lions/tools webgpu:bundle`), which an eager import crossed by 2.4 KB.
-  // GH-1395: the amendments go on AFTER the posture, in the same one call (`challenge.amendedMission`), so the briefing,
-  // the runtime and the debrief all see the run as played; none on is exactly `posture.campaignMission`. The challenge
-  // module is campaign-only too, and is loaded the same way.
-  const [posture, challenge] = await Promise.all([import('./posture'), import('./challenge')]);
-  const amendmentIds: readonly string[] = req.amendments ?? [];
-  if (mission !== undefined) mission = challenge.amendedMission(mission, ledger, amendmentIds, t);
+  // A chunk that will not load must not boot the run at another posture: the board, as for a save that will not start.
+  const posture = await importWithRetry(() => import('./posture')).catch(() => null);
+  if (req.signal.aborted) return teardown;
+  if (posture === null) {
+    req.navigate(routes.campaign(), { replace: true });
+    return teardown;
+  }
+  if (mission !== undefined) mission = posture.campaignMission(mission, ledger, t);
+  // GH-1395: the amendments go on AFTER the posture (`./posture` re-exports `./challenge`, so it is one lazy chunk and
+  // nothing campaign-only reaches the entry); with none on, this line does nothing.
+  if (mission !== undefined && req.amendments) mission = posture.amended(mission, req.amendments);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -6384,20 +6389,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               : null;
           // GH-1395: the challenge, judged on THIS run's own row (the ledger's `campaign.mission_results` is the best-of),
           // against the ledger the run BOOTED with (posture, open-at-boot). Not on Easier, not for a mission played by
-          // address, never on a defeat (`challengeMarkFor`). Its mark joins the same all-or-none victory write.
-          const challengeMark =
-            mev.result === 'victory' && missionId && runtime !== null
-              ? challenge.challengeMarkFor({
-                  missionId,
-                  result: mev.result,
-                  amendments: amendmentIds,
-                  ledgerAtBoot: ledger,
-                  world: parseWorld(world),
-                  targetMinutes: (mission as { target_minutes?: number }).target_minutes ?? 0,
-                  run: challenge.runRowOf(runtime, mev.roeRating, mev.tick),
-                })
-              : null;
-          const updatedLedger: CampaignLedger = challenge.withChallengeMark(carryover ? carryover.ledger : { ...ledger, ...mev.ledger }, mission.id, challengeMark);
+          // address, never on a defeat (`victoryMark`, ./challenge via ./posture). Its mark joins the same all-or-none
+          // victory write, and `posture.settleVictory` pays its coin there.
+          const challengeMark = runtime && posture.victoryMark(mission, ledger, req.amendments, runtime, mev);
+          const updatedLedger: CampaignLedger = posture.withChallengeMark(carryover ? carryover.ledger : { ...ledger, ...mev.ledger }, mission.id, challengeMark);
           if (mev.result === 'victory')
             telemetry().campaignProgress(mission.id, Object.keys(updatedLedger['campaign.mission_results'] ?? {}).length);
           let payout: ReturnType<typeof payVictory> | null = null;
@@ -6446,12 +6441,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // mission (the same contract test the credit pay uses: the tutorial pays no
             // coins either) earns by THIS run's stars, never by the ledger's best.
             const opsBefore = isAccountStore(ledgerStore) ? opIdsOf(ledgerStore.sync.ops()) : new Set<string>();
-            coinsSettle = settleVictory(ledgerStore, {
+            coinsSettle = posture.settleVictory(ledgerStore, {
               ledger: updatedLedger,
               account: payout ? payout.account : null,
               win:
                 missionId && mission.ledger.produces.length > 0 && ledgerStore.available
-                  ? { missionId, stars: runtime.stars, ledger: updatedLedger, ...(challengeMark !== null ? { challenge: true } : {}) }
+                  ? { missionId, stars: runtime.stars, ledger: updatedLedger, ...(challengeMark && { challenge: true }) }
                   : null,
               world: parseWorld(world),
               at: Date.now(),

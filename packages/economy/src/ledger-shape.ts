@@ -14,7 +14,7 @@
  * author's future key would be a second validator for one door.
  */
 import type { LedgerData } from '@lions/sim';
-import { CHALLENGE_LEDGER_KEY, DIFFICULTY_LEDGER_KEY, POSTURE_IDS } from '@lions/data';
+import { DIFFICULTY_LEDGER_KEY, POSTURE_IDS } from '@lions/data';
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -75,7 +75,6 @@ const ROSTER_OPTIONAL = { name: isStr, missions: isNum, kills: isNum, slot: isNu
 const LOST_REQUIRED = { slot: isNum, type: isStr, veterancy: isNum, missions: isNum, kills: isNum, missionId: isStr, tick: isNum } as const;
 const LOST_OPTIONAL = { name: isStr, cause: isRec } as const;
 const RESULT_REQUIRED = { stars: isNum, roe: isNum, ticks: isNum, lost: isNum } as const;
-const MARK_REQUIRED = { id: isStr, roe: isNum, ticks: isNum, lost: isNum } as const;
 
 type KeyRule = (v: unknown) => unknown | undefined;
 const stringList: KeyRule = (v) => (Array.isArray(v) ? mapArray(v, (e) => (isStr(e) ? e : undefined)) : undefined);
@@ -100,10 +99,6 @@ const RULES: Readonly<Record<string, KeyRule>> = {
   // GH-1394: the campaign's difficulty posture. Anything but one of the three ids is dropped, and an absent key reads
   // as Standard (`postureOf`), so a hand-edited or newer save can never name a posture this build does not have.
   [DIFFICULTY_LEDGER_KEY]: (v) => (isStr(v) && (POSTURE_IDS as readonly string[]).includes(v) ? v : undefined),
-  // GH-1395: this campaign's challenge marks, best-of per mission (design §5.2). A wrong row is dropped and the rest
-  // kept; "New campaign" removes the whole ledger key, so it clears with it. The COINS are never read from here except
-  // as claim evidence, which `earnDifference` pays against the lifetime record, once.
-  [CHALLENGE_LEDGER_KEY]: (v) => (isRec(v) ? mapRecord(v, (x) => shaped(x, MARK_REQUIRED, {})) : undefined),
 };
 
 /** `ledger` with every known key's elements checked; wrong ones dropped, a wrong

@@ -14,7 +14,7 @@ export const ORPHAN_AFTER_MS = 60_000;
 
 export type OutboxOp =
   | { kind: 'campaign'; opId: string; campaign: CampaignBody }
-  // GH-1395: `challenge` is written only when true, so an outbox from before it reads (and replays) unchanged.
+  // GH-1395: `challenge` rides the op when a run beat its challenge (absent otherwise; JSON drops an undefined one).
   | { kind: 'victory'; opId: string; missionId: string; stars: number; start: string | null; campaign: CampaignBody | null; challenge?: boolean }
   | { kind: 'slot.put'; opId: string; slotId: string; slot: SaveSlot; origin: 'player' | 'conflict' }
   | { kind: 'slot.delete'; opId: string; slotId: string };
@@ -33,7 +33,7 @@ function validOp(v: unknown): v is OutboxOp {
     case 'campaign':
       return isRecord(v.campaign);
     case 'victory':
-      return typeof v.missionId === 'string' && typeof v.stars === 'number' && (v.start === null || typeof v.start === 'string') && (v.campaign === null || isRecord(v.campaign)) && (v.challenge === undefined || typeof v.challenge === 'boolean');
+      return typeof v.missionId === 'string' && typeof v.stars === 'number' && (v.start === null || typeof v.start === 'string') && (v.campaign === null || isRecord(v.campaign));
     case 'slot.put':
       return typeof v.slotId === 'string' && isRecord(v.slot) && (v.origin === 'player' || v.origin === 'conflict');
     case 'slot.delete':

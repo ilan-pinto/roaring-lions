@@ -3,7 +3,10 @@
  */
 import type { LedgerData } from '@lions/sim';
 import { MAX_STARS, evidenceFromLedger, type EarnEvidence } from './earn';
-import { challengeFlag, type EarnMission, type EarnRecord, type RoarWallet } from './wallet';
+/** The `challenge` field as a record writes it (GH-1395): present only when true. A local copy of challenge-earn.ts's, so
+ *  this barrel-exported module never imports that one (the entry chunk would carry it). */
+const challengeFlag = (on: boolean): { challenge?: true } => (on ? { challenge: true } : {});
+import type { EarnMission, EarnRecord, RoarWallet } from './wallet';
 import { worldMissionIds, type ParsedWorld } from './world';
 
 const clamp = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(MAX_STARS, Math.floor(n))) : 0);

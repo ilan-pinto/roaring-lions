@@ -9,7 +9,8 @@ import { ACCOUNT_KEY, emptyAccount } from './brigade-account';
 import { parseWorld } from './campaign';
 import { LEDGER_KEY } from './main-keys';
 import { memoryLedgerStore, type LedgerStore } from './ledger-store';
-import { settleVictory, worldMissionIds } from './roar-earn';
+import { worldMissionIds } from './roar-earn';
+import { settleVictory } from './victory-settle';
 import { ROAR_KEY } from './roar-wallet';
 
 const world = parseWorld(worldJson);
