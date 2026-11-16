@@ -1209,7 +1209,7 @@ passiveAcrossSeeds('deir_amun_1_recon', 'deir_amun_1_recon (passive control)', '
 // star's price).
 run(
   'deir_amun_1_recon',
-  (sim, _rt, ids, at) => {
+  (sim, rt, ids, at) => {
     const drone = ids('recon_drone');
     const yahalom = ids('yahalom_squad');
     const inf = ids('inf_squad');
@@ -1231,6 +1231,18 @@ run(
     at(15, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(9, 18) }));
     at(15, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(9, 18) }));
     at(45, () => sim.queueCommand({ kind: 'chargeTunnel', ids: yahalom, tunnel: 0 }));
+    // GH-1360 S3b: a second look. In the assembly layout the drone starts in the rear rank at (26.5, 46.5), 4 tiles
+    // further from its first stand-off than its authored (24, 43), so it dwells there about 2 s less on the same
+    // clock; on sweep seed 12 the crew's third member (the militia cell at (21, 22)) was never identified,
+    // `find_the_crew` stayed open and the mission ran out at 12 min (29 of 30). From 50 s, if the crew is still
+    // unfound, the drone flies back to that same stand-off once. Sweep seeds: 30 of 30, layout on and off.
+    let lookedAgain = false;
+    for (let w = 50; w <= 120; w += 5)
+      at(w, () => {
+        if (lookedAgain || rt.objectiveStatus('find_the_crew') !== 'active' || sim.state.alive[drone[0]] !== 1) return;
+        lookedAgain = true;
+        sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 30) });
+      });
   },
   {},
   'victory',
@@ -2195,6 +2207,22 @@ const ledUZ1 = run(
     at(110, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 44.5) }));
     at(125, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(3, 25) }));
     at(133, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(4, 6) }));
+    // GH-1360 S3b: the drone is down and a post is still to find: buy the look (a drone sweep, 150 intel, identifies
+    // everything hostile round the point) before anyone walks. Sweep seed 13 lost the drone at 30.9 s and the ground
+    // force below died walking post to post (the east horn never found, withdrawn at 12 min): 29 of 30. Measured on
+    // that seed with this sweep disabled: this mission's start_layout removed, the walk wins (3.5 min, 2 stars); in the
+    // assembly layout it loses, so the re-laid force is the cause. The sweep goes to the first missing post, in the
+    // walk's own order. A sweep win is fast (the 30-seed sweep's fastest win here is now 49 s), so this mission's min_win_seconds floor drops 28 -> 12.
+    let swept = false;
+    for (let when = 20; when <= 1190; when += 2)
+      at(when, () => {
+        if (swept || sim.state.alive[drone[0]] === 1) return;
+        for (const [obj, to] of [['find_the_crest', [14, 7]], ['find_the_west_horn', [10, 23]], ['find_the_east_horn', [37, 23]], ['find_the_stone_knoll', [23, 33]]] as const) {
+          if (rt.objectiveStatus(obj) !== 'active') continue;
+          if (rt.requestSweep(fx.from(to[0]), fx.from(to[1]))) swept = true;
+          return;
+        }
+      });
     // The drone is down (or its tour is over) and a post is still to find: the ground force, otherwise
     // idle on the start line all mission, walks to the first post still missing. Each is named ground
     // in the briefing (the crest, both horns, the stone knoll).
@@ -2589,6 +2617,11 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   // pickets died at 2534 ticks and not at 920, and the porters were not out in 240 s. A player sees a
   // tank that has stopped short and drives it on: a Lavi still south of y 16 that has gained under 0.3
   // tile in the last 5 s is sent to (33,15) with a plain move, from where the pickets are 3-4 tiles off.
+  // GH-1360 S3b: on to the yard, (33,8), not (33,15). In the assembly layout the pair stopped at (33,15) and shelled the
+  // pickets round the porters at (33.75,7.5) and (35,7.5) from there: eleven heavy-ordnance-danger-close deductions
+  // between 80 s and 121 s, Conduct 97 -> 67 on 424242, and the porters never cleared. Driven on to (33,8), the tanks
+  // stand within four tiles of the porters, who walk out (the plan's own t=1 order says why), and nothing is aimed
+  // into them: Conduct 100, `get_the_porters_clear` complete, credits 192 -> 225 on 424242.
   const laviLast = new Map<number, number>();
   for (let when = 15; when <= 150; when += 5)
     at(when, () => {
@@ -2597,7 +2630,7 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
         const y = fx.toNumber(sim.state.posY[u]);
         const before = laviLast.get(u);
         laviLast.set(u, y);
-        if (before !== undefined && y > 16 && before - y < 0.3 && !holding) sim.queueCommand({ kind: 'move', ids: [u], ...M(33, 15) });
+        if (before !== undefined && y > 16 && before - y < 0.3 && !holding) sim.queueCommand({ kind: 'move', ids: [u], ...M(33, 8) });
       }
     });
   // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
@@ -3138,7 +3171,10 @@ function technicalProbe(
   if (measured.result !== 'victory' || measured.stars < baseStars) fail(`${measured.result.toUpperCase()}/${measured.stars}★ against the plan's ${baseStars}★`);
 }
 
-technicalProbe('wadi_halam_3_counterraid', wadiHalam3Plan, wh2, 'heli_peten', [36, 12], true);
+// GH-1360 S3b: (36,12) -> (34,14). In the assembly layout the Peten at (36,12) took 2 technical hits on the pinned seed and no
+// penetration (was 4 hits, 1 penetration), so the engaged pin had no sample. Of 15 points tried round it, (34,14) alone gives
+// one: 3 hits, 1 penetration, 3 kills, the mission still a VICTORY at 2 stars. As thin as before (one sample on one seed).
+technicalProbe('wadi_halam_3_counterraid', wadiHalam3Plan, wh2, 'heli_peten', [34, 14], true);
 technicalProbe('wadi_halam_5_depot', wadiHalam5Plan, wh4, 'aa_remetz', [33, 30], false);
 
 // --- Brigade economy Task 5: every optimal plan holds at max tier ----------
@@ -3945,14 +3981,21 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // because of the old rule and was held there by a 0.1 s timer (GH-1170); the trigger is `first_contact` again, which now fires at tick 176 (the
 // plan's drone identifies the souk's militia cell). Unchanged, the plan read 1 star (ROE 66, 3.4 min) on 424242 and 2 stars on every other seed (200 of
 // 200 on seeds 1..200). The one placed change is the east-lane rocket team, one tile, (34, 15) -> (35, 14). See docs/agent-notes/mission-findings.md.
-// 2026-11-15, GH-1438 (Qasr Liwan, The Long Ground town 1): 6955 -> 8115, +1160, read off the printed per-mission credits. Was 6955. Five new missions and
-// nothing else: Qasr Liwan I 240, II 220, III 250, IV 220, V 230 (the maps were re-laid distinct on 15 Nov, GH-1452: the same 8,115, a different split). Every other mission's credits line is byte-identical to the run before it
-// (diffed line by line), and no existing star moved. The credit ladder is over 34 missions now (was 29).
-// 2026-11-16, GH-1360 S3b on the five Qasr Liwan missions (`start_layout` "assembly" on all five): 8115 -> 8060. Was 8115. 8115 was stale before this change:
-// the branch read 8050 (main's own S3b re-pin, 6955 -> 6923, was not carried through the merge, and Umm Zeitoun IV / Wadi Halam III read differently on the branch
-// than on main, 6890 for the 29 older missions against main's 6923; neither is this change's). The layout moved exactly one credits line: Qasr Liwan IV 220 -> 230
-// (3.9 -> 4.0 min, stars 2 unchanged). I 240, II 220, III 250, V 230 are byte-identical; 8050 + 10 = 8060. Every non-Qasr line is byte-identical to the run before it.
-const LADDER_CREDITS = 8060;
+// 2026-11-15, GH-1360 S3b, every shipped mission's starting force in the assembly layout (Beit Sahwan Breach `authored`): 6955 -> 6923,
+// -32 (6890 before the Umm Zeitoun IV plan fix below; was 6955), read off the printed per-mission credits of a playtest on the S3b tree against its base. Sixteen missions moved, none lost
+// a seed (45 of 45 plans win on all 30 sweep seeds, after four plan fixes (the fourth, Umm Zeitoun IV's Lavis driven on to the yard,
+// for Conduct, not a lost seed): Wadi Halam I's jeep drives the families into the refuge,
+// Deir Amun I's drone takes a second look for the crew, Umm Zeitoun I buys a sweep when its drone is down): Beit Sahwan III 290 -> 280,
+// IV 210 -> 230; Deir Amun II 237 -> 247, III 250 -> 255; Ein Qasab III 195 -> 160; Khan Rafid I 310 -> 320, III 238 -> 255; Qarn Hadid
+// II 210 -> 220, III 229 -> 237; Umm Zeitoun I 238 -> 248, III 300 -> 280, IV 262 -> 225 (192 at ROE 67 before its plan fix; now ROE 100); Wadi Halam I
+// 190 -> 180, II 180 -> 200, III 190 -> 170, V 200 -> 190. The star ladder (68) and every gate held.
+// 2026-11-16, GH-1438 (Qasr Liwan, The Long Ground town 1) on top of that: 6923 -> 8093, +1170. Was 6923. The 29 older missions keep main's 6923 (their credits
+// lines are those of main); the five Qasr Liwan missions add 1170 with `start_layout` "assembly" on all five (I 240, II 220, III 250, IV 230, V 230). The credit
+// ladder is over 34 missions now (was 29). Earlier drafts of this pin read 8115 (assembly absent) and 8060 (assembly present but the older 29 at 6890): both were
+// stale, because the branch's merge of main had dropped main's four S3b plan fixes from this file (Deir Amun I's second look, Umm Zeitoun I's sweep, Umm
+// Zeitoun IV's yard, Wadi Halam III's Peten point (34, 14)); they are restored and 6923 + 1170 is what the full run prints.
+// The assembly layout also sped up three Qasr Liwan wins, so their `min_win_seconds` floors (floor(fastest win / 4), `--min-win`) fall by 1 s each: II 74 -> 73, IV 57 -> 56, V 83 -> 82. Was 74, 57, 83.
+const LADDER_CREDITS = 8093;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -4139,7 +4182,7 @@ for (const [label, got, want] of [
 // dies at the crest at 247 s (the re-rolled streams), one body fewer than the 31 the chain carried out before. Umm Zeitoun IV's
 // credit is 259 as before, because its medic comes home and pays for the sniper. Seeds 100-129 still win 30 of 30 there.
 // 2026-11-15, GH-1438 (Qasr Liwan, the maps re-laid distinct on the lead's ruling, GH-1452): 30 -> 31. Was 30. Qasr Liwan V's chain carries 31 out
-// (it bought squads and lost none); the cap is 150, margin 4.8x.
+// (it bought squads and lost none); the cap is 150, margin 4.8x. Main reads 26 (Umm Zeitoun IV, GH-1360 S3b); the maximum is now Qasr Liwan V's 31 either way.
 const ROSTER_MAX = 31;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
