@@ -228,11 +228,12 @@ describe('card colour roles (GH-1367 S3)', () => {
     expect(token('--panel-bg-solid')).toMatch(/shadow-1/);
   });
   it('never uses terracotta, which is the Roar coin', () => {
-    // The coins card is the one rightful use of the Roar ramp: exactly this selector, anchored, so a sibling
-    // (`.rl-profile__coins-note`) or a longer `coins-n...` name is still scanned.
-    const ROAR_OK = '.rl-profile__coins-n';
+    // The Roar ramp's rightful uses are the coin figures themselves: the coins card's total and a coin
+    // history row's incoming amount (GH-1370, PR 1436). Exactly these selectors, anchored, so a sibling
+    // (`.rl-profile__coins-note`, `.rl-profile__coin-amount--out`) or a longer name is still scanned.
+    const ROAR_OK = new Set(['.rl-profile__coins-n', '.rl-profile__coin-amount--in']);
     const profileRules = [...css.matchAll(/([^{}]*\.rl-profile__[^{}]*)\{([^{}]*)\}/g)]
-      .filter((m) => (m[1] ?? '').trim() !== ROAR_OK)
+      .filter((m) => !ROAR_OK.has((m[1] ?? '').trim()))
       .map((m) => `${(m[1] ?? '').trim()}: ${m[2] ?? ''}`);
     expect(profileRules.length).toBeGreaterThan(40);
     expect(profileRules.filter((b) => /terracotta|--roar/.test(b))).toEqual([]);

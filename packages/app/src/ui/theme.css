@@ -8815,6 +8815,27 @@ fieldset.rl-versus__maps {
   color: var(--ink-mute);
   text-align: end;
 }
+/* GH-1388: the basic computer opponent, under the room controls. */
+.rl-versus__cpu {
+  display: grid;
+  gap: var(--s2);
+  justify-items: start;
+  margin-top: var(--s4);
+}
+.rl-versus__cpu-note,
+.rl-versus__cpu-msg {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  line-height: var(--lh-body);
+  color: var(--ink-mute);
+}
+.rl-versus__cpu-msg {
+  min-height: calc(var(--lh-body) * 1em);
+}
+.rl-versus__cpu-msg[data-tone='bad'] {
+  color: var(--bad-text);
+}
 .rl-versus__open-col {
   display: flex;
   flex-direction: column;
