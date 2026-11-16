@@ -439,6 +439,18 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
     );
   }
 
+  section(table, t('settings.chat'));
+  row(
+    table,
+    t('settings.chat.enabled'),
+    checkbox('chat', s.chat.enabled, (v) =>
+      update((n) => {
+        n.chat.enabled = v;
+      })
+    ),
+    t('settings.chat.hint')
+  );
+
   section(table, t('settings.language'));
   row(
     table,

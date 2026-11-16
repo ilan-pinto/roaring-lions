@@ -9139,7 +9139,37 @@ fieldset.rl-versus__maps {
 .rl-chat__line {
   overflow-wrap: anywhere;
 }
+.rl-chat__entry {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+}
+/* GH-1417 S1: the line shown in place of the chat while Settings has it off. */
+.rl-chat__off {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+/* The mute toggle beside the input; aria-pressed carries the state, the label names the action. */
+.rl-chat__mute {
+  flex: none;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+  cursor: pointer;
+}
+.rl-chat__mute[aria-pressed='true'] {
+  color: var(--ink);
+  background: var(--selected-fill);
+  border-color: var(--selected);
+}
 .rl-chat__input {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   box-sizing: border-box;
   background: var(--panel-bg-solid);

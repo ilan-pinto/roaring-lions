@@ -138,6 +138,14 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
 
 <!-- CLAUDE.md lines 322-338, section "Dev instruments" -->
 
+- **Versus chat goes through one inbox (GH-1417 S1; design `docs/superpowers/specs/2026-11-16-versus-chat-safety-design.md`).** A received
+  line reaches the screen in two places, the lobby log (`ui/versus.ts`) and the match's HUD feed (`main.ts`), and BOTH call
+  `ChatInbox.deliver` (`ui/chat-inbox.ts`), keyed by the room's transport (`inboxOf`) so a mute made in the lobby holds in the match.
+  The inbox hides everything when `settings.chat.enabled` is false (Settings, Chat; read per line through the one settings reader) and
+  a muted seat's lines (per room, never stored: a guest cannot be recognised next room by design). `NetChat` shows the "Mute <name>"
+  toggle and, when chat is off, a line saying so instead of the input. `chat-inbox-guard.test.ts` reads the source and fails when a
+  third place hooks `onChat` or a sink stops going through `.deliver(`. Not in this slice, waiting for the lead: word filter,
+  persistent block, report, kill switch.
 - **Two more `localStorage` keys, beside the ledger/account pair below.**
   `lions.settings` (`packages/app/src/settings.ts`, the only reader and writer)
   holds video/audio/controls/accessibility/language and is the only thing that

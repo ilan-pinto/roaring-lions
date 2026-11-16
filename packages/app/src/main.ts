@@ -319,6 +319,7 @@ import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
+import { inboxOf } from './ui/chat-inbox';
 import { showNetEnd } from './ui/net-end';
 import { NetPoints, payZoneOf } from './ui/net-points';
 import { NetFlags } from './ui/net-flags';
@@ -1387,6 +1388,7 @@ async function main(): Promise<void> {
   // room compares like with like (R8).
   const versusStore = safeStorageLike(() => window.localStorage);
   const versusDeps: VersusDeps = {
+    chatEnabled: () => settingsDeps.get().chat.enabled,
     open: (req, signal) =>
       openRoom(req, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
         fetch: window.fetch.bind(window),
@@ -3859,12 +3861,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  this one's own echoed back -- go to the HUD feed. The feed sets
    *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
    *  which escapes them. */
-  const netChat = room !== null && netConfig !== null && !spectating
-    ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat) })
+  const chatInbox = room !== null && netConfig !== null && !spectating
+    ? inboxOf(room, () => req.settings.get().chat.enabled)
+    : null;
+  const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
+    ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
     : null;
   if (netChat !== null) onDispose(() => netChat.dispose());
-  if (room !== null && netConfig !== null && !spectating) {
-    room.setHooks({ onChat: (seat, text) => hud.note(chatFeedLine(seatName(seat), text), 'info') });
+  if (room !== null && netConfig !== null && !spectating && chatInbox !== null) {
+    // A line reaches the HUD feed only through the room's inbox, the same one the lobby log used (`chat-inbox.ts`).
+    room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => hud.note(chatFeedLine(seatName(seat), shown), 'info')) });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
    *  places that learn of one: the dispatch below (withheld here) and the room
