@@ -66,6 +66,27 @@ describe('the settings screen wears the account page (GH-1510)', () => {
     expect(css.indexOf('.rl-profile__cols {')).toBeGreaterThan(q?.index ?? Infinity);
   });
 
+  // The pause menu's Settings tab is one column on every screen only while the modal it mounts in is narrower than
+  // the query's threshold: both numbers are read here, so moving either one past the other goes red.
+  it('sets the one-column threshold above the pause modal, so the pause tab is always one column', () => {
+    const threshold = Number(/@container rl-settings \(max-width: (\d+(?:\.\d+)?)rem\) \{\s*\.rl-profile__cols\.rl-settings__cols \{/.exec(css)?.[1]);
+    expect(threshold).toBeGreaterThan(0);
+    // Every rule naming `.rl-pause__panel` itself (not a scrollbar pseudo-element) that sets a width. Each must be
+    // bounded in rem (`Nrem`, or a `min()` with a rem term), since a bare vw width has no ceiling to compare.
+    const widths = [...css.matchAll(/([^{}]*)\{([^{}]*)\}/g)]
+      .filter((m) => (m[1] ?? '').split(',').some((s) => s.trim() === '.rl-pause__panel'))
+      .flatMap((m) => [...(m[2] ?? '').matchAll(/(?<![\w-])width:\s*([^;]+);/g)].map((w) => (w[1] ?? '').trim()));
+    expect(widths.length).toBeGreaterThan(0);
+    for (const w of widths) {
+      const rems = [...w.matchAll(/(\d+(?:\.\d+)?)rem/g)].map((x) => Number(x[1]));
+      const bounded = /^\d+(?:\.\d+)?rem$/.test(w) || (w.startsWith('min(') && rems.length > 0);
+      expect(bounded, `.rl-pause__panel width ${w} has no rem ceiling`).toBe(true);
+      expect(Math.min(...rems), `.rl-pause__panel width ${w} against the ${threshold}rem query`).toBeLessThan(threshold);
+    }
+    // And the panel mounted in the tab fills the modal rather than keeping its own stage width.
+    expect(body('.rl-pause__settings .rl-settings')).toContain('width: auto;');
+  });
+
   it('stands on the warm ground only as the stage screen, never in the pause menu', () => {
     expect(css).toContain('#stage:has(> .rl-settings) {');
     expect(css).not.toMatch(/\.rl-pause[^{}]*\{[^{}]*--profile-ground/);
