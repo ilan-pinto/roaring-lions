@@ -12,6 +12,8 @@
 
 Every answer names the file it comes from, as `path` or `path` + a symbol. Citations are to the tree at the commit this folder was written on (15 Nov 2026, branch of `main` v0.133.10). A fact marked **(not verified)** means I looked for evidence and did not find it, which is weaker than finding that it is absent.
 
+One dependency: the questionnaire's word counts and profanity search read the generated English catalogues (`data/locales/en/*.json`), which arrive with the GH-1406 stack (PRs 1467 and 1468) and are not on `main` when this pack was written.
+
 ## What is deliberately left blank
 
 Bracketed fields `[LIKE THIS]` are the lead's or the lawyer's: the legal name of the operator, the governing law, the jurisdiction, the real contact addresses, the age rating a board actually assigns. No placeholder is ever to be committed into the Worker's privacy page: `packages/worker/src/privacy-page.ts` fails closed (it answers 503) until both the contact and the minimum age are real, and its validator rejects text containing `TBD`, `TODO`, `<lead>` or `example`.
