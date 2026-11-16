@@ -61,7 +61,25 @@ FIGURES = {"inf_squad": ("f0", "f1", "f2"), "demo_squad": ("demo_a", "demo_b")}
 #: Round 3 (16 Nov 2026), a team's OWN limits, metres (and a count): see "Round 3" in the header. The Rifle Squad is read and
 #: printed beside them and NOT held (its accepted fit reads over every one of them: a named finding, not this unit's to move).
 TEAM_LIMITS = {
-    "demo_squad": {("carrier", "p90"): 0.040, ("carrier", "max"): 0.075, ("headset", "below_face_mid"): 0.0, ("headset", "gun_pairs"): 0},
+    "demo_squad": {("carrier", "p90"): 0.040, ("headset", "gun_pairs"): 0},
+}
+#: Round 4 (16 Nov 2026), a FIGURE's own rows: a ceiling (one number), or a band (lo, hi) that is red on BOTH sides.
+#:   carrier max: a ratchet at the round-3 reading (the lead's L4: the plate bag's worst point off the firing shoulder blade is
+#:     an accepted, named item; it may not grow). Round 3's ceiling was 75 mm for both men, 5 and 12 mm of air over the readings.
+#:   headset below_face_mid: a band of +-5 mm about the reading (the lead's L3: the cups ride about 2-3 cm above the ear, over
+#:     the stock's comb, an accepted, named item). Round 3's row was a ceiling at 0, which a cup at the crown of the helmet
+#:     passed, and which demo_b's reading had never tripped (-58 on the round-2 bytes).
+#:   lpvo / laser_box min: a ratchet on how far the tier-2 scope and the laser box stand over the gun at rest (readings
+#:     14.2 / 12.6 and 12.9 / 9.9 mm; the ceiling is the reading rounded up to the next half millimetre). Round 3's rail bar is
+#:     2.5 mm higher than round 2's plate and the scope sits on the highest point under it: 11.6 / 10.2 -> 14.2 / 12.6. A named
+#:     item, not a fit: the Rifle Squad's scope reads 3.7-6.7. It may not grow.
+FIGURE_LIMITS = {
+    "demo_squad": {
+        # readings on the round-4 bytes: carrier max 69.7 / 63.1 mm (the ceiling is the reading rounded up to the next half
+        # millimetre: the tool rounds to 0.1 mm and CI's Blender is another build), cups -79.5 / -85.6 mm
+        "demo_a": {("carrier", "max"): 0.0700, ("headset", "below_face_mid"): (-0.0845, -0.0745), ("lpvo", "min"): 0.0145, ("laser_box", "min"): 0.0130},
+        "demo_b": {("carrier", "max"): 0.0635, ("headset", "below_face_mid"): (-0.0906, -0.0806), ("lpvo", "min"): 0.0130, ("laser_box", "min"): 0.0100},
+    },
 }
 
 
@@ -108,6 +126,18 @@ def failures(team, reading):
             elif v > limit:
                 bad.append(f"{team} {fig}: {part} {stat} {v:g}, limit {limit:g}" if stat == "gun_pairs" else
                            f"{team} {fig}: {part} {stat} {1000 * v:.1f} mm, limit {1000 * limit:.0f}")
+        for (part, stat), limit in FIGURE_LIMITS.get(team, {}).get(fig, {}).items():
+            v = row.get(part, {}).get(stat)
+            if v is None:
+                bad.append(f"{team} {fig}: {part} {stat} not read")
+            elif isinstance(limit, tuple):
+                if not limit[0] <= v <= limit[1]:
+                    bad.append(f"{team} {fig}: {part} {stat} {1000 * v:+.1f} mm, outside its band {1000 * limit[0]:+.1f} .. {1000 * limit[1]:+.1f}"
+                               + (" (HIGHER on the head than the band)" if v < limit[0] else " (LOWER on the head than the band)"))
+            elif v > limit:
+                bad.append(f"{team} {fig}: {part} {stat} {1000 * v:.1f} mm, this figure's ceiling {1000 * limit:.1f}")
+        if team in FIGURE_LIMITS and fig not in FIGURE_LIMITS[team]:
+            bad.append(f"{team} {fig}: no row of its own in FIGURE_LIMITS")
         if ("headset", "gun_pairs") in TEAM_LIMITS.get(team, {}) and row.get("headset", {}).get("frames", 0) < 20:
             bad.append(f"{team} {fig}: the headset was read against the gun in {row.get('headset', {}).get('frames', 0)} frames: not a reading")
     return bad
@@ -128,6 +158,9 @@ def main():
         print(f"{team}: " + "; ".join(f"{f} belt {1000 * r['belt']['median']:.0f}/{1000 * r['belt']['p90']:.0f} groin {1000 * r['groin']['median']:.0f} "
                                        f"foregrip {1000 * r['foregrip']['min']:.1f}" for f, r in sorted(reading.items()))
               + " mm (belt median/p90, groin median, foregrip to gun): " + ("FAIL" if bad else "ok"))
+        if team in FIGURE_LIMITS:
+            print(f"{team}: " + "; ".join(f"{f} scope {1000 * r['lpvo']['min']:.1f} laser {1000 * r['laser_box']['min']:.1f}" for f, r in sorted(reading.items()) if "lpvo" in r and "laser_box" in r)
+                  + " mm (the tier-2 scope and the laser box over the gun at rest): " + ("FAIL" if bad else "held"))
         print(f"{team}: " + "; ".join(f"{f} carrier {1000 * r['carrier']['median']:.0f}/{1000 * r['carrier']['p90']:.0f}/{1000 * r['carrier']['max']:.0f} "
                                        + (f"cups {1000 * r['headset']['below_face_mid']:+.0f} gun x cup {r['headset']['gun_pairs']}" if "headset" in r else "no headset")
                                        for f, r in sorted(reading.items()))

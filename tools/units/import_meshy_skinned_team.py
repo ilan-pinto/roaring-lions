@@ -236,6 +236,9 @@ SOURCES = {
         #: the bake's blue-slate goes to the olive on the arms, the shoulders and the collar and to the carrier's coyote on
         #: the trunk; and a coyote texel on an arm or a shoulder cap goes to the olive.
         sweep_leftovers=True, sweep_navy=True,
+        #: Round 4 (the lead's L5, 16 Nov): the yellow sawtooth at the baked vest's hem, seen from behind in `pinned`
+        #: (`_sweep_hem`: a colour sweep, no geometry).
+        sweep_hem=True,
     ),
 }
 
@@ -491,6 +494,19 @@ def _clamp_gun_sides(part, g0, row, prefix, sz, sxy, dx, dy):
         base[m] += np.outer(np.clip(s_[m], -hw, hw) - s_[m], side)
         moved += int(m.sum())
     me.vertices.foreach_set("co", (base * k + shift).reshape(-1)); me.update()
+    # what the clamp leaves (round 4): the widest point per 10 mm station from the first window to 5 cm ahead of the last,
+    # between the windows' own heights over the bore and as far under it (the receiver and the handguard, not the grip or
+    # the magazine). Read here, in the bore frame the windows are written in, so a spur is named in the row's own numbers.
+    r = base - b; e = r @ ax; u = r @ up; s_ = r @ side
+    e_lo = min(w[0] for w in row["gun_side_clamp"]); e_hi = max(w[1] for w in row["gun_side_clamp"]) + 0.05
+    u_hi = max(w[3] for w in row["gun_side_clamp"])
+    st = []
+    for e0 in np.arange(e_lo, e_hi, 0.01):
+        m = (e >= e0) & (e < e0 + 0.01) & (np.abs(u) <= u_hi)
+        if m.any():
+            j = int(np.argmax(np.abs(s_[m])))
+            st.append(f"e {e0:.3f}: {1000 * abs(s_[m][j]):.1f} mm at u {1000 * u[m][j]:+.1f}")
+    log(f"{prefix}: after the side clamp, the gun's widest point off the bore per station (base metres): " + "; ".join(st))
     return moved
 
 
@@ -2144,6 +2160,110 @@ def _repaint(image, mask, target, keep, what):
     log(f"sweep {what}: {int(mask.sum())} texels, mean Lab {np.round(mean, 1)} -> {np.round(np.array(target), 1)}")
 
 
+#: `_sweep_hem` (round 4): a face is YELLOW when the middle texel of seven sampled across it is lighter than L* 38 and yellower
+#: than b* 36. The carrier's coyote reads Lab (42, 7, 31) and its lightest band b* 35.1-35.5; the shards read b* 36.2-41.9.
+HEM_YELLOW_L_MIN, HEM_YELLOW_B_MIN = 38.0, 36.0
+#: ...and RAGGED when, of 28 points across it, 15-85 % read the carrier's coyote and at least 15 % the uniform's olive.
+HEM_RAGGED_COYOTE, HEM_RAGGED_OLIVE_MIN = (0.15, 0.85), 0.15
+
+
+def _sweep_hem(image, me, uv, co, low_v, band_v, never_tex):
+    """A row's `sweep_hem` (round 4, the lead's L5 of 16 Nov 2026): the yellow sawtooth at the bought body's baked vest hem.
+
+    Meshy's bake left some forty faces a man at the vest's hem a yellow the retints did not own: Lab about (45-54, 8, 36-42),
+    with a* over the unshifted-khaki rule's 4.5 and inside the coyote rule, so the leftovers sweep took them for the carrier.
+    At rest the vest's overhang hides them. In `pinned` the trunk folds, the hem faces stretch down over the seat of the
+    trousers, and they stand out from behind as mustard teeth (at tier 0 too; at max kit the kit carrier's lifted hem frames
+    them). No geometry moves: a colour sweep, as `sweep_navy`'s. Region: the faces `sweep_navy` does NOT read, every vertex at
+    most 10 cm over the belt (that sweep's own number), off the arms, the gloves, the skin, the boots and the gun, and with a
+    vertex in the baked vest's own band (`band_v`: from 6 cm under the belt up, the number the vest's class is cut at). The
+    first build had no lower bound and its ragged pass took the trousers' cuffs at the boot tops for a hem (the boots' tan
+    reads as coyote): 8 faces on a shin, 16.8 cm2, repainted olive. Bounded before the sheet was shot.
+    A yellow face takes the colour it lies IN, not one colour for all: its edges are measured against the neighbours across
+    them (welded by position: the remesh is split at every UV seam), olive against coyote by shared length; a tooth hanging
+    over the trousers has its two long edges on olive and goes to the uniform's olive, a fleck inside the vest goes to the
+    carrier's coyote. A yellow face among yellow faces takes what its resolved neighbours took; one that touches neither
+    stays as it is and is counted. Returns (faces to olive, faces to coyote, faces left)."""
+    W_, H_ = image.size
+    px = np.empty(W_ * H_ * 4, np.float32); image.pixels.foreach_get(px); px = px.reshape(H_, W_, 4)
+    polys = np.empty(len(me.polygons) * 3, np.int64); me.polygons.foreach_get("vertices", polys); polys = polys.reshape(-1, 3)
+    t = uv[polys]                                                    # (F, 3, 2)
+    c = t.mean(1, keepdims=True)
+    pts = np.concatenate([c, c * 0.4 + t * 0.6, c * 0.7 + t * 0.3], 1)   # (F, 7, 2): the centre and six points toward the corners
+    xi = np.clip((pts[..., 0] * W_).astype(int), 0, W_ - 1); yi = np.clip((pts[..., 1] * H_).astype(int), 0, H_ - 1)
+    lab = np.median(_lab(px[yi, xi, :3].astype(np.float64)), 1)       # (F, 3)
+    yellow = (lab[:, 0] > HEM_YELLOW_L_MIN) & (lab[:, 2] >= HEM_YELLOW_B_MIN)
+    olive = (lab[:, 1] < -2.0) & (lab[:, 2] < 22.0)
+    coyote = (lab[:, 1] > 2.5) & (lab[:, 2] > 20.0) & ~yellow
+    in_band = low_v[polys].all(1) & band_v[polys].any(1)
+    cand = yellow & in_band
+    key = {}
+    vid = np.array([key.setdefault(tuple(np.round(p, 5)), len(key)) for p in co[: len(uv)]])
+    edges = {}
+    for fi, f in enumerate(polys):
+        for i in range(3):
+            a_, b_ = int(vid[f[i]]), int(vid[f[(i + 1) % 3]])
+            edges.setdefault((min(a_, b_), max(a_, b_)), []).append((fi, float(np.linalg.norm(co[f[i]] - co[f[(i + 1) % 3]]))))
+    nb = {int(fi): [] for fi in np.nonzero(cand)[0]}
+    for fl in edges.values():
+        for fi, ln in fl:
+            if fi in nb:
+                nb[fi] += [(fj, ln) for fj, _ in fl if fj != fi]
+    took = {}                                                        # face -> "olive" | "coyote"
+    lab_tex = _lab(px[..., :3].astype(np.float64))
+    yellow_tex = (lab_tex[..., 0] > HEM_YELLOW_L_MIN) & (lab_tex[..., 2] >= HEM_YELLOW_B_MIN)
+    for _round in range(64):
+        new_ = {}
+        for fi, ns in nb.items():
+            if fi in took:
+                continue
+            ol = sum(ln for fj, ln in ns if (olive[fj] and fj not in nb) or took.get(fj) == "olive")
+            cy = sum(ln for fj, ln in ns if (coyote[fj] and fj not in nb) or took.get(fj) == "coyote")
+            if ol > 0.0 or cy > 0.0:
+                new_[fi] = "olive" if ol > cy else "coyote"
+        if not new_:
+            break
+        took.update(new_)
+    left = [fi for fi in nb if fi not in took]
+    area = lambda fs: float(sum(0.5 * np.linalg.norm(np.cross(co[polys[f][1]] - co[polys[f][0]], co[polys[f][2]] - co[polys[f][0]])) for f in fs)) * 1e4  # noqa: E731
+    for name, target, keep in (("olive", RETINT["sleeve_patch"]["target"], 0.1),
+                               ("coyote", _lab(np.array([RETINT["vest"]["rgb"]], np.float64) / 255.0)[0], 0.3)):
+        fs = sorted(fi for fi, v in took.items() if v == name)
+        if not fs:
+            log(f"sweep hem: no yellow face goes to the {name}")
+            continue
+        mask = _raster(uv[polys[fs]], [np.ones((len(fs), 3), np.float32)], W_, H_)[0] & ~never_tex
+        if name == "coyote":
+            # a fleck inside the vest: only its YELLOW texels move; the face's other texels are the carrier's coyote already
+            mask &= yellow_tex
+        log(f"sweep hem: {len(fs)} yellow faces ({area(fs):.1f} cm2, face Lab mean {np.round(lab[fs].mean(0), 1)}) at the baked vest's hem -> the {name}")
+        _repaint(image, mask, target, keep, f"yellow at the baked vest's hem -> {name}")
+    # ...and the RAGGED faces: a face the baked hem line runs THROUGH (coyote above, the trousers' olive below, in one face).
+    # At rest that is the hem's own edge; in `pinned` the face stretches and its coyote half is a
+    # smeared tooth. Its coyote texels go to the olive, so the hem ends on the edge of the last face that is the vest's all over.
+    g = np.array([(i, j, 6 - i - j) for i in range(7) for j in range(7 - i)], np.float64) / 6.0     # 28 points across the face
+    gp = np.einsum("gk,fkc->fgc", g, t)
+    gx = np.clip((gp[..., 0] * W_).astype(int), 0, W_ - 1); gy = np.clip((gp[..., 1] * H_).astype(int), 0, H_ - 1)
+    image.pixels.foreach_get(px.reshape(-1))
+    gl = _lab(px[gy, gx, :3].astype(np.float64))                    # (F, 28, 3)
+    g_coy = (gl[..., 1] > 2.5) & (gl[..., 2] > 20.0); g_ol = (gl[..., 1] < -2.0) & (gl[..., 2] < 22.0)
+    fc, fo = g_coy.mean(1), g_ol.mean(1)
+    ragged = in_band & (fc >= HEM_RAGGED_COYOTE[0]) & (fc <= HEM_RAGGED_COYOTE[1]) & (fo >= HEM_RAGGED_OLIVE_MIN)
+    n_rag = int(ragged.sum())
+    if n_rag:
+        fs = np.nonzero(ragged)[0]
+        lab_all = _lab(px[..., :3].astype(np.float64))
+        coy_tex = (lab_all[..., 1] > 2.5) & (lab_all[..., 2] > 20.0)
+        mask = _raster(uv[polys[fs]], [np.ones((len(fs), 3), np.float32)], W_, H_)[0] & coy_tex & ~never_tex
+        log(f"sweep hem: {n_rag} ragged faces ({area(fs):.1f} cm2: {HEM_RAGGED_COYOTE[0]:.0%}-{HEM_RAGGED_COYOTE[1]:.0%} coyote, at least {HEM_RAGGED_OLIVE_MIN:.0%} olive) the baked hem line runs through")
+        _repaint(image, mask, RETINT["sleeve_patch"]["target"], 0.1, "the coyote of the hem's ragged faces -> olive")
+    zs = co[np.unique(polys[np.array(sorted(set(np.nonzero(ragged)[0]) | set(nb)), int)])][:, 2] if (n_rag or nb) else np.zeros(1)
+    log(f"sweep hem: every face it read stands between z {zs.min():.3f} and {zs.max():.3f} m on the base body")
+    log(f"sweep hem: {int(cand.sum())} yellow faces at most 10 cm over the belt (of {int(yellow.sum())} yellow faces on the body); "
+        f"{sum(1 for v in took.values() if v == 'olive')} to olive, {sum(1 for v in took.values() if v == 'coyote')} to coyote, {len(left)} left (touching neither)")
+    return sum(1 for v in took.values() if v == "olive"), sum(1 for v in took.values() if v == "coyote"), len(left)
+
+
 def _dilate(mask, r):
     """`mask` grown by `r` texels (a square), clipped at the atlas edge."""
     out = mask.copy()
@@ -2619,6 +2739,9 @@ def build_team(team_id, out_path=None):
                 _repaint(image, navy & hi_tex & olive_tex, RETINT["sleeve_patch"]["target"], 0.1, "navy on the collar and shoulders -> olive")
                 _repaint(image, navy & hi_tex & ~olive_tex, _lab(np.array([RETINT["vest"]["rgb"]], np.float64) / 255.0)[0], 0.3,
                          "navy on the trunk's straps -> the carrier's coyote")
+            if cfg.get("sweep_hem"):
+                _sweep_hem(image, src_for_uv.data, uv, co0, (~keep_out) & ~arm_v & (co0[:, 2] <= J0["belt"] + 0.10),
+                           co0[:, 2] >= J0["belt"] - 0.06, glove_tex | gun_tex)
     if "stock" in cfg:
         # The texel the stock and the rail plates are painted with, re-pinned on the FINISHED atlas: the middle of a solid
         # 7 x 7 block of the gun's own island nearest the receiver's tone. The vertex texel they were built with sat on a

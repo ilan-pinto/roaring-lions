@@ -9,10 +9,16 @@ Per figure:
     mesh, at the first frame of `idle` (the stance the garage shows): median, 90th percentile and maximum, metres;
   * `foregrip`: the smallest distance from a foregrip vertex to that figure's own gun (the `weapon` mesh's triangles on its
     bones), in the rest pose: a grip that hangs under the handguard reads its air gap;
+  * `lpvo`, `laser_box` (round 4): the same reading as the foregrip's for the tier-2 scope and the laser box (their seat's air);
   * `carrier` (round 3): the same reading as the belt's for the carrier's wall, and the count of its vertices over 50 mm off;
   * `headset` (round 3): the ear cups' centroid against the middle of the man's own face (`below_face_mid`, metres: a cup
     at the neck reads its drop), and `gun_pairs`: the most gun triangles crossing headset triangles in any sampled frame
     of the aimed clips (the stock's comb through the firing-side cup at the cheek weld).
+EVERY STANDOFF HERE IS UNSIGNED (round 4, 16 Nov 2026). `BVHTree.find_nearest` returns a distance, not a side: a wall 10 mm
+OUTSIDE the skin and a wall 10 mm INSIDE the body both read 0.010. So `belt`, `groin` and `carrier` say how far a part is
+from the skin and never whether it is over it or sunk in it; a part buried in the body reads SMALL and passes a ceiling. What
+is sunk is another instrument's question (`tools/test_inf_kit_pierce.py`: limb edges crossing the part; a signed reading
+takes the nearest skin face's normal as well, as round 4's probe did). Only `headset.below_face_mid` carries a sign.
 This tool only reads; the limits live in the test. It asks nothing of the fitter (no `inf_kit` import): a figure's parts
 are found by the graft's own tags. No mathutils.noise.
 """
@@ -149,6 +155,12 @@ for f in figures:
         raise SystemExit(f"{f}: {len(ids)} foregrip parts in kit_weapon, {len(tris)} gun triangles")
     vs = [kwco[v] for v, pv in enumerate(vw) if pv == ids[0]]
     res[f]["foregrip"] = dict(n=len(vs), min=round(float(min(gun.find_nearest(v)[3] for v in vs)), 4))
+    # round 4: how the tier-2 scope and the laser box seat, the same reading (their nearest point to the gun at rest)
+    for key in ("lpvo", "laser_box"):
+        ids = [i for i, p in enumerate(pw) if p["figure"] == f and p["part"] == key]
+        if len(ids) == 1:
+            vs = [kwco[v] for v, pv in enumerate(vw) if pv == ids[0]]
+            res[f][key] = dict(n=len(vs), min=round(float(min(gun.find_nearest(v)[3] for v in vs)), 4))
 
 with open(OUT, "w") as fh:
     json.dump(res, fh, indent=1, sort_keys=True)

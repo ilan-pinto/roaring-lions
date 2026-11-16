@@ -224,7 +224,10 @@ TEAMS = {
         "demo_squad", ("demo_a", "demo_b"), ("demo_b",), ("demo_a", "demo_b"), (2048, 2048),
         {
             "coyote": (225, 1656),         # dust.5   #806032  dE 0.03
-            "coyote_shade": (998, 700),    # dust.6   #6B4F29  dE 3.02 (inside the 6.0 cap; the Rifle Squad's is 3.33)
+            # round 4 (16 Nov 2026): re-found by the same tool after `sweep_hem`. The block pinned on 13 Nov, (998, 700), lies
+            # on the baked vest's hem beside faces that sweep repaints; the atlas ships as a JPEG, whose chroma blocks carried
+            # the repaint into it ((118, 84, 47) -> (121, 85, 35)), and `test_inf_kit_parts.py` went red on the pin.
+            "coyote_shade": (995, 704),    # dust.6   #6B4F29  dE 2.97 (inside the 6.0 cap; the Rifle Squad's is 3.33)
             "olive": (1969, 992),          # olive.2  #4E5433  dE 0.48
             "olive_dark": (1177, 1297),    # olive.3  #333821  dE 0.38
             "glass": (1045, 983),          # shadow.0 #23241F  dE 0.52
@@ -264,8 +267,10 @@ TEAMS = {
         # 1.030, and at the Rifle Squad's 1.42 the shell's collar stood 4 cm OVER his shoulder joints, in the air behind
         # his neck (the plate bag's top 95 mm off his back at rest). The yoke and the radio rows go with it.
         torso_from_joints=(0.040, 0.035),
-        # ...and the ear cup the stock ran through: the cups sit at each man's own ears (48 mm under his helmet's rim: the
-        # widest station of both faces is 30-70 mm under it) and ride over the stock's comb at the cheek weld.
+        # ...and the ear cup the stock ran through: the cups are SEATED at each man's own ears (48 mm under his helmet's rim:
+        # the widest station of both faces is 30-70 mm under it) and then RAISED until the stock's comb passes under the
+        # firing-side cup at the cheek weld: 22 mm on demo_a, 32 mm on demo_b. So as shipped the cups' centres stand 26 and
+        # 16 mm under the rim, about 2-3 cm ABOVE the ear, not at it (the lead's L3, 16 Nov 2026: accepted as a named item).
         headset_below_rim=0.048, headset_clear_gun=0.030),
 }
 
