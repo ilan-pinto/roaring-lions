@@ -16,7 +16,7 @@
  * cannot mean "stuck".
  */
 import type { DatabaseSync } from 'node:sqlite';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import worker from './index';
 import { PURGE_BATCH_SLICE, PURGE_BATCH_SLICES, PURGE_PLAYER_SLICE, PURGE_PLAYER_SLICES } from './ingest';
 import { PURGE_EXPIRED_BATCHES, PURGE_EXPIRED_SLICE, PURGE_EXPIRED_STATEMENTS, RETENTION_MS } from './feedback-triage';
@@ -238,12 +238,24 @@ describe('one scheduled() run stays under 50 D1 queries with worst-case backlogs
     expect(w.acc.prepare("SELECT id FROM member WHERE id LIKE 'live%'").all()).toEqual([{ id: 'live0' }]);
     expect(await w.kv.get('tomb:zlive0')).not.toBeNull(); // its deletion is still on record
     expect(await w.tombs('tomb:zlive')).toBe(DUE_MEMBERS_MAX); // the 39 keep theirs too: dead ones, for `gone`
+    // PR 1540 delta review, N1: a week on, the hold is over and live0 is retried alone FROM THE RECORD (its existence check rides the
+    // idle select, so nothing is added): one 17-statement batch where a shared run has one. 38 = a quiet day (20), the alone batch (17)
+    // and one page of the tombstone listing (1); the backlogs that made runs 1 to 4 dearer are drained by now.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(Date.now() + 7 * DAY);
+      await once();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(runs[4]).toMatchObject({ live: 1, shared: 0, alone: 1, union: 1, threw: true });
+    expect(runs[4]?.n).toBe(38);
     // The way out, metered: live0's rows go by another path (the route), and the next run is green and drops the record.
     w.acc.exec('DROP TRIGGER stuck');
     w.acc.exec("DELETE FROM member WHERE id = 'live0'");
     await once();
-    expect(runs[4]).toMatchObject({ live: 0, shared: 0, alone: 0, union: 1, threw: false });
-    expect(runs[4]?.n).toBe(21); // the backlogs are drained by now: a quiet day (20) plus one page of the 40 dead tombstones
+    expect(runs[5]).toMatchObject({ live: 0, shared: 0, alone: 0, union: 1, threw: false });
+    expect(runs[5]?.n).toBe(21); // the backlogs are drained by now: a quiet day (20) plus one page of the 40 dead tombstones
     expect(await w.kv.get('reconcile:failing')).toBeNull();
   });
 

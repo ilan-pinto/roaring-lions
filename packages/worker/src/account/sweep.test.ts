@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { D1Like, D1Stmt } from '../d1';
 import { dayOf } from '../rate-day';
 import { OP_TTL_MS, PENDING_TTL_MS, SESSION_COOKIE, STEAM_OP, TOMB_TTL_S, preCookieName } from './config';
-import { DUE_MEMBERS_MAX, deleteMember } from './delete';
+import { DUE_MEMBERS_MAX, deleteMember, dropCancelled } from './delete';
 import { memoryKV } from './kv';
 import {
   BATCH_FAIL_KEY, BATCH_FAIL_THRESHOLD, FAILING_HOLD_DAYS, FAILING_KEY, MEMBER_IDLE_DAYS, RECONCILE_CURSOR_KEY, accountCron, reconcileTombstones, sweepAccounts,
@@ -493,7 +493,7 @@ describe('accountCron: a stuck deletion stays red until it is finished or no lon
     expect(await h.kv.get('tomb:hashx')).toBeNull(); // the cancelled tombstone is pruned by the scan, as ever
   });
 
-  it('an entry lives under 30 days in what a run acts on: 29 days old it is red, 30 days old it is dropped and the run is green', async () => {
+  it('an entry whose tombstone is missing (nothing confirms the deletion is owed) lives under 30 days: 29 days old it is red, 30 days old it is dropped and the run is green', async () => {
     const h = accountHarness({ now: NOW });
     await member(h, 'x', today); // exists, but nothing queues it: no tombstone
     await h.kv.put(FAILING_KEY, JSON.stringify({ hashx: today - 29 }));
@@ -522,6 +522,156 @@ describe('accountCron: a stuck deletion stays red until it is finished or no lon
     await member(h, 'x', today);
     await h.kv.put(FAILING_KEY, JSON.stringify({ hashx: String(today) }));
     expect(await once(h)).toBe(0);
+  });
+});
+
+describe('accountCron: a recorded member is retried from the record, and an owed entry never ages out (PR 1540 delta review, N1)', () => {
+  const today = dayOf(NOW);
+  const tomb = JSON.stringify({ deletedAt: NOW, lastSeenDay: today });
+  /** Counts the 17-statement member delete batches: a retry of a recorded member is one. */
+  const counting = (h: H, box: { batches: number }): D1Like => ({ ...h.db, batch: async (ss: D1Stmt[]) => { if (ss.length === 17) box.batches++; return h.db.batch(ss); } });
+  /** As a long listing keeps it: the saved cursor is past every tombstone below, so the scan never comes back to them. */
+  const pastTheMembers = (h: H) => h.kv.put(RECONCILE_CURSOR_KEY, 'tomb:hashzz');
+
+  it('the scan never comes back to it: retried every 7 days from the record, red every run past 30 days, and deleted once its rows allow it', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'x', today); // signed in today, never idle: only its tombstone (and now its record) can queue it
+    await h.kv.put('tomb:hashx', tomb);
+    await h.kv.put(FAILING_KEY, JSON.stringify({ hashx: today }));
+    stick(h, 'x');
+    const box = { batches: 0 };
+    const tried: number[] = [];
+    for (let d = 1; d <= 40; d++) {
+      await pastTheMembers(h);
+      const before = box.batches;
+      expect(await once(h, NOW + d * DAY, counting(h, box)), `day ${d}`).toBe('threw');
+      if (box.batches > before) tried.push(d);
+    }
+    expect(tried).toEqual([7, 14, 21, 28, 35]); // the hold, then one alone retry, without the scan finding it
+    expect(JSON.parse((await h.kv.get(FAILING_KEY)) ?? '{}')).toEqual({ hashx: today + 35 });
+    expect(await h.kv.get('tomb:hashx')).toBe(tomb);
+    expect(h.kv.ttl('tomb:hashx')).toBe(TOMB_TTL_S); // re-put on each re-record, so the tombstone outlives the 90 days while it is owed
+    unstick(h, 'x');
+    await pastTheMembers(h);
+    expect(await once(h, NOW + 42 * DAY, counting(h, box))).toBe(1); // the next retry commits
+    expect(await ids(h)).toEqual([]);
+    expect(await h.kv.get(FAILING_KEY)).toBeNull();
+  });
+
+  it('an owed entry past 30 days is kept and retried; two of them take turns, the one recorded longest ago first', async () => {
+    const h = accountHarness({ now: NOW });
+    for (const id of ['x', 'y']) {
+      await member(h, id, today);
+      await h.kv.put('tomb:hash' + id, tomb);
+      stick(h, id);
+    }
+    await h.kv.put(FAILING_KEY, JSON.stringify({ hashy: today - 40, hashx: today - 45 }));
+    await pastTheMembers(h);
+    expect(await once(h)).toBe('threw');
+    expect(JSON.parse((await h.kv.get(FAILING_KEY)) ?? '{}')).toEqual({ hashx: today, hashy: today - 40 }); // x retried; y kept, not aged out
+    await pastTheMembers(h);
+    expect(await once(h, NOW + DAY)).toBe('threw');
+    expect(JSON.parse((await h.kv.get(FAILING_KEY)) ?? '{}')).toEqual({ hashx: today, hashy: today + 1 });
+    expect(await ids(h)).toEqual(['x', 'y']);
+  });
+
+  it('the alone retry is the member recorded longest ago, not the first recorded one queued: an idle recorded member ahead of it waits', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'i', CUTOFF - 1); // idle: queued first, by the idle path
+    await member(h, 'x', today); // tombstone path, not on the pages the scan reads: queued from the record, after i
+    await h.kv.put('tomb:hashx', tomb);
+    for (const id of ['i', 'x']) stick(h, id);
+    await h.kv.put(FAILING_KEY, JSON.stringify({ hashi: today - 8, hashx: today - 20 }));
+    await pastTheMembers(h);
+    expect(await once(h)).toBe('threw');
+    expect(JSON.parse((await h.kv.get(FAILING_KEY)) ?? '{}')).toEqual({ hashi: today - 8, hashx: today });
+  });
+
+  it('a recorded member that is also idle, its hold over, is retried alone as an idle member: its tombstone written once, the record cleared on commit', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'bad', CUTOFF - 1);
+    await h.kv.put('tomb:hashbad', JSON.stringify({ deletedAt: NOW, lastSeenDay: CUTOFF }));
+    await h.kv.put(FAILING_KEY, JSON.stringify({ hashbad: today - FAILING_HOLD_DAYS }));
+    let puts = 0;
+    const kv = { ...h.kv, put: async (k: string, v: string, o?: { expirationTtl?: number }) => { if (k === 'tomb:hashbad') puts++; return h.kv.put(k, v, o); } };
+    expect(await once(h, NOW, h.db, kv)).toBe(1); // retried alone, and it commits
+    expect(puts).toBe(1); // the idle path's own tombstone write, and no re-put
+    expect(await h.kv.get(FAILING_KEY)).toBeNull();
+  });
+});
+
+describe('accountCron: the PR 1540 delta review, N2 to N4', () => {
+  const today = dayOf(NOW);
+  const tomb = JSON.stringify({ deletedAt: NOW, lastSeenDay: today });
+
+  it('N2: the re-put writes only the tombstone the member was queued by; a newer one the route wrote, then dropped as cancelled, is not brought back', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'x', today);
+    await h.kv.put('tomb:hashx', tomb);
+    await h.kv.put(FAILING_KEY, JSON.stringify({ hashx: today - FAILING_HOLD_DAYS }));
+    stick(h, 'x');
+    let armed = false;
+    let raced = 0;
+    const db = beforeMemberDelete(h.db, async () => { armed = true; });
+    const kv = { ...h.kv, get: async (k: string) => {
+      if (!armed || k !== 'tomb:hashx') return h.kv.get(k);
+      armed = false;
+      raced++;
+      // the route, around the cron's re-put get: the member signs in and asks to delete (a newer tombstone), signs in again on another
+      // device, so the route's guard holds and `dropCancelled` removes that tombstone between the cron's get and its put
+      await h.db.prepare("UPDATE member SET last_seen_day = ?1 WHERE id = 'x'").bind(today + 1).run();
+      await h.kv.put('tomb:hashx', JSON.stringify({ deletedAt: NOW, lastSeenDay: today + 1 }));
+      const v = await h.kv.get(k);
+      await h.db.prepare("UPDATE member SET last_seen_day = ?1 WHERE id = 'x'").bind(today + 2).run();
+      await dropCancelled(h.db, h.kv, 'hashx', today + 1);
+      return v;
+    } };
+    expect(await once(h, NOW, db, kv)).toBe('threw'); // retried alone from the record, fails, re-recorded
+    expect(raced).toBe(1);
+    expect(await h.kv.get('tomb:hashx')).toBeNull(); // the cancelled deletion stays cancelled: `gone` does not answer 410
+  });
+
+  it('N3: when the record\'s tombstone read fails, the scan\'s prune of that cancelled tombstone still drops the entry, so the next run is green', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'x', today + 1); // signed in after its tombstone: the deletion is cancelled
+    await h.kv.put('tomb:hashx', tomb);
+    await h.kv.put(FAILING_KEY, JSON.stringify({ hashx: today }));
+    let first = true;
+    const kv = { ...h.kv, get: async (k: string) => {
+      if (k === 'tomb:hashx' && first) {
+        first = false; // the record's read (the first of the run) throws; the scan's own read succeeds
+        throw new Error('kv get failed');
+      }
+      return h.kv.get(k);
+    } };
+    await expect(accountCron(h.db, NOW + DAY, kv)).rejects.toThrow('kv get failed');
+    expect(await h.kv.get('tomb:hashx')).toBeNull(); // pruned by the scan
+    expect(await h.kv.get(FAILING_KEY)).toBeNull(); // and the entry with it, not kept 30 days as a false red
+    expect(await once(h, NOW + 2 * DAY)).toBe(0);
+    expect(await ids(h)).toEqual(['x']);
+  });
+
+  it('N4: the idle rows are re-sorted in JS, so a union that handed them back reversed still deletes the oldest idle member alone', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'a', CUTOFF - 5); // the oldest
+    await member(h, 'b', CUTOFF - 1);
+    await member(h, 'held', today); // recorded today and held: the record is not empty, so the idle select is the UNION ALL
+    await h.kv.put(FAILING_KEY, JSON.stringify({ hashheld: today }));
+    await h.kv.put(BATCH_FAIL_KEY, String(BATCH_FAIL_THRESHOLD));
+    let unions = 0;
+    const reversed = (s: D1Stmt): D1Stmt => ({
+      ...s,
+      bind: (...v: unknown[]) => reversed(s.bind(...v)),
+      all: async <T>() => {
+        unions++;
+        const r = await s.all<T>();
+        return { ...r, results: [...r.results].reverse() };
+      },
+    });
+    const db: D1Like = { ...h.db, prepare: (sql: string) => (sql.includes(' UNION ALL ') ? reversed(h.db.prepare(sql)) : h.db.prepare(sql)) };
+    expect(await once(h, NOW, db)).toBe('threw'); // red for the held record
+    expect(unions).toBe(1);
+    expect(await ids(h)).toEqual(['b', 'held']); // a went alone: both idle members share the guard day, so their order decides
   });
 });
 
