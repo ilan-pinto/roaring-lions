@@ -41,6 +41,20 @@ sys.path.insert(0, HERE)
 RATCHET = os.path.join(HERE, "inf_kit_pierce_ratchet.json")
 GLB = os.environ.get("RL_PIERCE_GLB") or os.path.join(REPO, "art", "meshes", "inf_squad.glb")
 
+#: Every team the ratchet holds: (ratchet file, figures, clips). The Rifle Squad is the pilot (GH-746). The Combat Engineers
+#: (GH-826, infantry upgrade unit 1, 13 Nov 2026) are the same kind of body in the same v7 carrier, so the pilot's named items
+#: came back on them as the lead's approval of 12 Nov expected ("the pilot's named items are expected, each with a ratchet"):
+#: their ceilings are their own file, measured on their own bytes, and `work` is one of their living clips.
+#: `RL_PIERCE_TEAM=<team>` with `RL_PIERCE_GLB=<file>` reads a scratch copy of that team for a falsification.
+#: The Combat Engineers' file was falsified on 13 Nov 2026: with `demo_b|fire|forearm` lowered 124 -> 123 this goes red
+#: ("124 edges cross the carrier, ceiling 123"); put back. Their rows read at or under the Rifle Squad's in most clips
+#: (idle forearm 113-133 against 86-153, fire forearm 54-124 against 179-189); the groin apron's rows are the same named item.
+TEAMS = {
+    "inf_squad": ("inf_kit_pierce_ratchet.json", ("f0", "f1", "f2"), None),
+    "demo_squad": ("inf_kit_pierce_ratchet_demo_squad.json", ("demo_a", "demo_b"),
+                   ("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work")),
+}
+
 
 def blender():
     for cand in (os.environ.get("BLENDER_BIN", ""), "blender", "/Applications/Blender.app/Contents/MacOS/Blender"):
@@ -52,14 +66,15 @@ def blender():
     return None
 
 
-def read(glb):
+def read(glb, figs=None, clips=None):
     exe = blender()
     if exe is None:
         print("FAIL no Blender (BLENDER_BIN)")
         sys.exit(2)
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, "pierce.json")
-        r = subprocess.run([exe, "-b", "--factory-startup", "-P", os.path.join(HERE, "inf_kit_pierce.py"), "--", glb, out],
+        extra = (["--figs", ",".join(figs)] if figs else []) + (["--clips", ",".join(clips)] if clips else [])
+        r = subprocess.run([exe, "-b", "--factory-startup", "-P", os.path.join(HERE, "inf_kit_pierce.py"), "--", glb, out] + extra,
                            capture_output=True, text=True, cwd=REPO)
         if not os.path.exists(out):
             print("FAIL the pierce probe wrote nothing:\n" + r.stdout[-2000:] + r.stderr[-1000:])
@@ -83,14 +98,21 @@ def failures(reading, ratchet):
 
 
 def main():
-    ratchet = json.load(open(RATCHET))
-    reading = read(GLB)
-    bad = failures(reading, ratchet)
-    for b in bad:
-        print("FAIL", b)
-    print(f"{len(ratchet)} ceilings, {len(reading)} figure-clips read from {os.path.relpath(GLB, REPO) if GLB.startswith(REPO) else GLB}: "
-          + ("FAIL" if bad else "ok (the open item has not grown)"))
-    return 1 if bad else 0
+    only = os.environ.get("RL_PIERCE_TEAM") or ("inf_squad" if os.environ.get("RL_PIERCE_GLB") else None)
+    rc = 0
+    for team, (ratchet_file, figs, clips) in TEAMS.items():
+        if only and team != only:
+            continue
+        glb = GLB if os.environ.get("RL_PIERCE_GLB") else os.path.join(REPO, "art", "meshes", f"{team}.glb")
+        ratchet = json.load(open(os.path.join(HERE, ratchet_file)))
+        reading = read(glb, figs, clips)
+        bad = failures(reading, ratchet)
+        for b in bad:
+            print("FAIL", b)
+        print(f"{team}: {len(ratchet)} ceilings, {len(reading)} figure-clips read from {os.path.relpath(glb, REPO) if glb.startswith(REPO) else glb}: "
+              + ("FAIL" if bad else "ok (the open item has not grown)"))
+        rc = rc or (1 if bad else 0)
+    return rc
 
 
 if __name__ == "__main__":
