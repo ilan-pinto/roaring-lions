@@ -13,3 +13,19 @@ describe('sanitiseLedger and the wound counts (GH-707 P2)', () => {
     expect(sanitiseLedger(bad)['roster.surviving_units']).toEqual([{ type: 'inf_squad', veterancy: 1 }, { type: 'at_team', veterancy: 0 }]);
   });
 });
+
+describe('sanitiseLedger and a memorial record\'s cause (GH-1380)', () => {
+  const rec = { slot: 1, type: 'inf_squad', veterancy: 1, missions: 1, kills: 0, missionId: 'm', tick: 5 };
+
+  it('keeps an object cause, byte for byte', () => {
+    const ledger = { 'roster.lost': [{ ...rec, cause: { kind: 'gun', suppressed: false } }] } as unknown as LedgerData;
+    expect(sanitiseLedger(ledger)).toBe(ledger);
+  });
+
+  it('drops a cause that is not an object and keeps the record', () => {
+    for (const cause of ['gun', 7, [1], null]) {
+      const bad = { 'roster.lost': [{ ...rec, cause }] } as unknown as LedgerData;
+      expect(sanitiseLedger(bad)['roster.lost']).toEqual([rec]);
+    }
+  });
+});

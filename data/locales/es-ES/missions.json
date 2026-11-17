@@ -87,10 +87,10 @@
   },
   "beit_sahwan_2_foothold": {
     "name": "Beit Sahwan II — Cabeza de puente",
-    "briefing": "El batallón tiene su posición en las terrazas occidentales y Ashwar lo sabe. Idit lee tierra extraída en el cauce seco bajo la línea: tierra removida que avanza hacia ustedes, lo que significa que una cuadrilla está abriendo ahora mismo un pozo desde el pueblo. Mantenga el acceso occidental cinco minutos mientras los zapadores se atrincheran a su espalda. El corredor entrega refuerzos: gástelos bien; lo que sobreviva esta noche despejará el pueblo mañana. Usted ocupa la terraza alta y todo lo que envíen tiene que trepar fuera del cauce para alcanzarlo. Ashwar cavó este terreno durante años antes de que la guerra llegara, y una ruta que emerja en el lecho del cauce bajo su muro vale más para ellos que todos los hombres que gastarán delante. Mantenga con vida a los zapadores Yahalom; son el único equipo capaz de derribar un túnel.",
+    "briefing": "El batallón tiene su posición en las terrazas occidentales y Ashwar lo sabe. Idit lee tierra extraída en el cauce seco bajo la línea: tierra removida que avanza hacia ustedes, lo que significa que una cuadrilla está abriendo ahora mismo un pozo desde el pueblo. Tome la cresta de la terraza alta y manténgala cinco minutos mientras los zapadores se atrincheran a su espalda. El corredor entrega refuerzos: gástelos bien; lo que sobreviva esta noche despejará el pueblo mañana. Usted ocupa la terraza alta y todo lo que envíen tiene que trepar fuera del cauce para alcanzarlo. Ashwar cavó este terreno durante años antes de que la guerra llegara, y una ruta que emerja en el lecho del cauce bajo su muro vale más para ellos que todos los hombres que gastarán delante. Mantenga con vida a los zapadores Yahalom; son el único equipo capaz de derribar un túnel.",
     "sections": {
       "situation": "El batallón tiene su posición en las terrazas occidentales y Ashwar lo sabe. Idit lee tierra extraída en el cauce seco bajo la línea: tierra removida que avanza hacia ustedes, lo que significa que una cuadrilla está abriendo ahora mismo un pozo desde el pueblo.",
-      "mission": "Mantenga el acceso occidental cinco minutos mientras los zapadores se atrincheran a su espalda.",
+      "mission": "Tome la cresta de la terraza alta y manténgala cinco minutos mientras los zapadores se atrincheran a su espalda.",
       "execution": "El corredor entrega refuerzos: gástelos bien; lo que sobreviva esta noche despejará el pueblo mañana. Usted ocupa la terraza alta y todo lo que envíen tiene que trepar fuera del cauce para alcanzarlo. Ashwar cavó este terreno durante años antes de que la guerra llegara, y una ruta que emerja en el lecho del cauce bajo su muro vale más para ellos que todos los hombres que gastarán delante.",
       "notes": "Mantenga con vida a los zapadores Yahalom; son el único equipo capaz de derribar un túnel."
     },
@@ -98,7 +98,7 @@
       "victory": "Gastaron los hombres de una noche en una línea que no querían, para comprar un día en un pozo que sí querían."
     },
     "objectives": {
-      "hold_west": "Mantener el acceso occidental cinco minutos",
+      "hold_west": "Mantener la cresta de la terraza alta cinco minutos",
       "collapse_tunnel": "Derrumbar el túnel que Ashwar cava bajo el acceso"
     },
     "objective_say": {
@@ -118,14 +118,14 @@
     },
     "src": {
       "name": "1f3d0fae",
-      "briefing": "c0964d11",
-      "objectives.hold_west": "dc2a8b2f",
+      "briefing": "dfd7170c",
+      "objectives.hold_west": "9d60b14f",
       "objectives.collapse_tunnel": "442823a4",
       "triggers.flank_delivery_rolls": "131a11b3",
       "triggers.flank_delivery_drops": "ffa7ef5c",
       "debrief.victory": "87631977",
       "sections.situation": "95d0f0d1",
-      "sections.mission": "a3680b33",
+      "sections.mission": "b003c902",
       "sections.execution": "a66cfd9f",
       "sections.notes": "d320d7fc",
       "objective_say.collapse_tunnel": "537e3e43",

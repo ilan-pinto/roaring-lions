@@ -73,6 +73,9 @@ import { panel } from './panel';
 import { importWithRetry } from '../shell/chunk';
 import type { SettingsDeps } from './settings-panel';
 
+/** What Save and quit came to: null (kept, and on its way out), a refusal line, or `{ declined: true }` (the player would not replace another mission's save). */
+export type SaveOutcome = string | null | { declined: true };
+
 export interface PauseDeps {
   /** `MissionRuntime.objectiveList`'s own shape -- a structural superset of
    *  `ObjectiveRow`, so it is passed straight through with no adapter. Task 6
@@ -93,6 +96,14 @@ export interface PauseDeps {
    *  re-navigation would silently open a second room and strand the other
    *  seat. */
   onRestart?: () => void;
+  /**
+   * GH-1393: Save and quit. Present only for a mission that can be saved (a campaign mission with a ledger, not the tutorial, a sandbox or a
+   * match). Resolves to null when the mission was saved AND read back, in which case the caller leaves; to `{ declined: true }` when another
+   * mission's save was in the slot and the player would not replace it; otherwise to the line to show: the
+   * menu stays open and the mission is not left, so a refused write costs the player nothing. The words are the caller's (`t()` keys), never a
+   * reason code.
+   */
+  onSave?: () => Promise<SaveOutcome>;
   /** The caller confirms before actually leaving. Not offered when
    *  `onSurrender` is: in a room the way out is surrendering. */
   onQuit(): void;
@@ -280,8 +291,16 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   const onSurrender = deps.onSurrender;
   const quitBtn = onSurrender ? null : actionButton(deps.quitLabel ?? t('pause.quit'), 'quit');
   const surrenderBtn = onSurrender ? actionButton(t('pause.surrender'), 'surrender') : null;
-  actions.append(...[resumeBtn, restartBtn, settingsActBtn, quitBtn, surrenderBtn].filter((b) => b !== null));
+  const onSave = deps.onSave;
+  const saveBtn = onSave ? actionButton(t('pause.save'), 'save') : null;
+  actions.append(...[resumeBtn, restartBtn, settingsActBtn, saveBtn, quitBtn, surrenderBtn].filter((b) => b !== null));
   p.body.appendChild(actions);
+  // The save's own line: reserved, polite, and empty until a save is refused.
+  const saveMsg = document.createElement('p');
+  saveMsg.className = 'rl-pause__save-msg';
+  saveMsg.setAttribute('role', 'status');
+  saveMsg.setAttribute('aria-live', 'polite');
+  if (saveBtn) p.body.appendChild(saveMsg);
 
   const foot = document.createElement('p');
   foot.className = 'rl-settings__hint';
@@ -309,6 +328,38 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   if (restartBtn && onRestart) restartBtn.addEventListener('click', () => onRestart());
   settingsActBtn.addEventListener('click', () => showTab('settings'));
   quitBtn?.addEventListener('click', () => deps.onQuit());
+  if (saveBtn && onSave) {
+    let saving = false;
+    saveBtn.addEventListener('click', () => {
+      if (saving) return;
+      saving = true;
+      saveBtn.disabled = true;
+      saveMsg.textContent = t('pause.save.busy');
+      delete saveMsg.dataset.tone;
+      onSave().then(
+        (outcome) => {
+          if (closed) return; // the menu was left while the write was out: the caller's navigation owns what happens next
+          saving = false;
+          saveBtn.disabled = false;
+          if (outcome !== null && typeof outcome === 'object') {
+            // The player was asked whether to replace another mission's save and said no: nothing failed, so it is a plain line.
+            saveMsg.textContent = t('pause.save.replace.declined');
+            delete saveMsg.dataset.tone;
+            return;
+          }
+          saveMsg.textContent = outcome ?? '';
+          if (outcome !== null) saveMsg.dataset.tone = 'bad';
+        },
+        () => {
+          if (closed) return;
+          saving = false;
+          saveBtn.disabled = false;
+          saveMsg.textContent = t('save.err.encode_failed');
+          saveMsg.dataset.tone = 'bad';
+        },
+      );
+    });
+  }
   if (surrenderBtn && onSurrender) surrenderBtn.addEventListener('click', () => onSurrender());
 
   const onKey = (e: KeyboardEvent): void => {

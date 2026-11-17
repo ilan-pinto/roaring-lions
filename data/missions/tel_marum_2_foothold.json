@@ -54,7 +54,11 @@
   },
   "resources": {
     "logistics_start": 400,
-    "logistics_rate_per_min": 120
+    "logistics_rate_per_min": 120,
+    "income_zones": [
+      { "zone": "approach", "rate_per_min": 32 },
+      { "zone": "overwatch_west", "rate_per_min": 16 }
+    ]
   },
   "structures": [{ "type": "shanty", "at": [28, 21], "size": [2, 2] }],
   "objectives": [

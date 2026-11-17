@@ -20,7 +20,7 @@
 //          in the map's own order), charging from the mouth once it stands within two and a half
 //          tiles.
 //
-// A fresh ledger, no purchases, no `upgrades_to` gates open, 12 minute cap.
+// A fresh ledger, no purchases, no `upgrades_to` gates open, 15 minute cap.
 import { fx } from '../../../packages/sim/src/fixed';
 import { TICKS_PER_SECOND } from '../../../packages/sim/src/sim';
 import { readFileSync } from 'node:fs';
@@ -31,7 +31,7 @@ const seedsN = Number(process.argv[2] ?? 12);
 const only = process.argv.slice(3);
 const MISSIONS = only.length > 0 ? only : ['beit_sahwan_2_foothold', 'beit_sahwan_3_clearance', 'beit_sahwan_4_subterranean'];
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
-const CAP_TICKS = 12 * 60 * TICKS_PER_SECOND;
+const CAP_TICKS = 15 * 60 * TICKS_PER_SECOND; // above every shipped time_limit_s (840 s), so a passive run reads withdrawn, not ongoing
 
 function run(id: string, tier: Tier, seed: number): { result: string; mins: number; lost: number; roe: number } {
   const w = makeWorld(id, { seed });
@@ -75,7 +75,7 @@ function run(id: string, tier: Tier, seed: number): { result: string; mins: numb
   const state = new Map<number, { k: number; phase: 'go' | 'charge'; since: number }>();
   let focus: [number, number];
   let routes: { idx: number; mouth: [number, number] }[] = [];
-  if (kind === 'II') focus = zc('west_approach');
+  if (kind === 'II') focus = zc(m.objectives.find((o: any) => o.id === 'hold_west').target);
   else if (kind === 'III') focus = mk('town_center');
   else {
     focus = zc('shaft_head');
@@ -144,7 +144,7 @@ function run(id: string, tier: Tier, seed: number): { result: string; mins: numb
   return { result: runtime.result, mins: t / TICKS_PER_SECOND / 60, lost: start0 - own().length, roe: runtime.roeScore };
 }
 
-console.log(`seeds 1..${seedsN}; tiers passive/naive/sensible; cap 12 min; tree ${ROOT}`);
+console.log(`seeds 1..${seedsN}; tiers passive/naive/sensible; cap 15 min; tree ${ROOT}`);
 for (const id of MISSIONS) {
   for (const tier of (['passive', 'naive', 'sensible'] as Tier[]).filter((x) => !process.env.LADDER_TIER || x === process.env.LADDER_TIER)) {
     const rs = Array.from({ length: seedsN }, (_, k) => run(id, tier, k + 1));

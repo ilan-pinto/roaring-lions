@@ -28,6 +28,13 @@ const FENCED: [string, string][] = [
   ['packages/net/src/index.ts', "import { emptyRoar } from '../../economy/src';\nvoid emptyRoar;\n"],
   ['packages/app/src/net/match-world.ts', "import { emptyRoar } from '../../../economy/src/wallet';\nvoid emptyRoar;\n"],
   ['packages/worker/src/match/routes.ts', "import { emptyRoar } from '../../../app/src/roar-wallet';\nvoid emptyRoar;\n"],
+  // GH-1385: the fence names each module with and without `.ts` and @lions/economy with and without a subpath, and no entry
+  // above used those spellings, so dropping any of the five entries left every test green.
+  ['packages/app/src/net/match-world.ts', "import { emptyRoar } from '../roar-wallet.ts';\nvoid emptyRoar;\n"],
+  ['packages/app/src/net/match-world.ts', "import { roarEarn } from '../roar-earn.ts';\nvoid roarEarn;\n"],
+  ['packages/app/src/net/connect.ts', "import { accountView } from '../account-view.ts';\nvoid accountView;\n"],
+  ['packages/net/src/index.ts', "import { emptyRoar } from '@lions/economy/wallet';\nvoid emptyRoar;\n"],
+  ['packages/sim/src/index.ts', "import { emptyRoar } from '../../economy/src/wallet';\nvoid emptyRoar;\n"],
 ];
 
 describe('G-V2: the wallet is fenced out of versus and the sim', () => {

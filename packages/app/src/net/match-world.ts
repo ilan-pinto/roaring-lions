@@ -10,6 +10,9 @@ import { factionsBySide, versusSpawns } from './versus-force';
 import { versusRoster } from './versus-roster';
 import { seatSpecials, spawnSpecials, STORE_SPECIAL_IDS } from './versus-specials';
 import { unitCost } from './outcome';
+import { tunnelRouteOf } from './tunnel-route';
+
+export { tunnelRouteOf };
 import { localizedUnit } from '../unit-text';
 
 /** One unit of the shipped roster, as the prepass takes and returns it. */
@@ -231,20 +234,6 @@ function beginMatchSetup(
  *  on a map with rules read it too -- the budget is the map's, not the matchup's. */
 export function roomCapacity(mapId: string): number {
   return versusCapacityOf(versusRules[mapId]);
-}
-
-/** A parsed route as the sim's `addTunnel` (and a mission context's `tunnels`) takes it. The one
- *  conversion `main.ts` and `buildMatchWorld` share, so the owner and capacity of a versus route
- *  reach the sim from whichever array they read. */
-export function tunnelRouteOf(t: ParsedMap['tunnels'][number]): TunnelRouteJson {
-  return {
-    id: t.id,
-    points: t.points,
-    dig_tiles_per_s: t.digTilesPerS,
-    pre_dug: t.preDug,
-    ...(t.side !== undefined ? { side: t.side } : {}),
-    ...(t.capacity !== undefined ? { capacity: t.capacity } : {}),
-  };
 }
 
 /** The rules file's routes for the Sarim side's END, as parsed routes (GH-681). `[]` when no side

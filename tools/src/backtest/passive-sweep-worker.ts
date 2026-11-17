@@ -4,7 +4,8 @@
 // line and FAILED line to this process's stdout/stderr, which the parent shares.
 
 import type { LedgerData } from '@lions/sim';
-import { run, lastIntelRun, setSweep, sweepOutcome, type IntelRun } from './playtest-run';
+import type { PostureId } from '@lions/data';
+import { run, lastIntelRun, setPosture, setSweep, sweepOutcome, type IntelRun } from './playtest-run';
 import { controlPlan, type ControlPlan } from './passive-plans';
 
 export interface SweepJob {
@@ -17,6 +18,8 @@ export interface SweepJob {
   seed: number;
   /** Absent = the no-orders control. */
   plan?: ControlPlan;
+  /** GH-1394: the posture the run plays at. Absent = Standard. */
+  posture?: PostureId;
 }
 
 export interface SweepReply {
@@ -30,8 +33,10 @@ if (process.send) {
   process.on('message', (job: SweepJob) => {
     const m = { result: 'ongoing', stars: 0, roeScore: 0, credits: 0 } as NonNullable<Parameters<typeof run>[10]>;
     setSweep(job.seed, true);
+    setPosture(job.posture ?? 'standard');
     run(job.id as Parameters<typeof run>[0], controlPlan(job.plan), job.ledger, job.expect === 'withdrawn' ? 'defeat' : job.expect, job.label, 0, undefined, new Set(), undefined, undefined, m);
     setSweep(undefined, false);
+    setPosture('standard');
     // A miss is the parent's to count and report (`drainPassiveSweeps`); this process's own exit
     // code is kept for a crash, which the parent reports as runs left unanswered.
     process.exitCode = 0;
