@@ -269,3 +269,41 @@ Paired by seed, scout + counter against slice 1, wins gained / lost, two-sided s
 - **The counter does what it says.** Against the soft-heavy Sarim force a KDF commander builds 1.2 infantry a game instead of 0.5 (counter alone) and fewer of the rest; a Sarim commander against KDF armour (5 hulls, 7 soft, at once) sees 5 / 3 and its anti-armour builds fall 3.6 -> 2.9 a game while the infantry builds rise, because the slice 1 mix rule already built the anti-armour units and parity is reached sooner. Wins: 15 -> 15 (KDF), 59 -> 55 (Sarim).
 - **Why the counter cannot be judged here.** The heuristics are right in shape, but whether an infantry squad is a better answer to a squad than a mortar team, or an ATGM team a better answer to an APC than a rifle squad, is a balance question: `pnpm balance` and `tuning.ts` decide it, and the issue holds armour counters until sim balance is unparked. HOLD FOR LEAD.
 - **Instrument limits.** `classOf` rests on thin margins: `scout_shachaf` (front 130) is armour only because the ceiling is 120, set by the Namer's and the Peten's autocannon alike; a unit with a heavier non-anti-armour round moves the class line with no code change. First contact is read at 100-tick decision boundaries.
+
+## 5. Slice 3 of the commander: retreat (GH-1391)
+
+The commander already DEFENDS (slice 1: a contact within `DEFEND_TILES` of the camp sends the idle units at home out on it, and a guard of built units stays to meet it). Slice 3 adds the other half, **RETREAT**, **off unless `CommanderOptions.retreat` is set**: the probe below says it loses games.
+
+- **Engaged group.** Every able unit away from home (beyond `RUSH_HOME_TILES` of the camp) with a contact within `RUSH_HOME_TILES` of it. The scout is never in it.
+- **Losing.** Each side is valued as the sum of `cost x hp` (unit-data cost; hp is the view's percent; a contact at the hp it shows); the foe is the contacts within that radius of any engaged unit. Strictly more foe than group is losing (a tie is not).
+- **Worth walking home** (version 2) only if the group could win once joined: `own + joins > foe`, where `joins` is every other able unit plus whatever the camps are queuing or building (valued at full hp). A group with nothing to join fights on.
+- **Retreat.** The whole engaged group gets a `move` (not an attack-move) to the camp and is kept out of every other task, the straggler sweep included. One that stops idle short of home is given back to the march.
+- **Regroup and re-engage.** At home they are released to the other tasks (so the march sends them out again) when what stands at home is worth at least the foe that beat them, when a contact comes within `DEFEND_TILES` (they defend), or when nothing is queued or building that could add to them (a room with no economy).
+- No new tuned number: the two radii are the script's own `RUSH_HOME_TILES` and slice 1's `DEFEND_TILES`; the rest are strict whole-number comparisons.
+
+### What was measured (the same 992 games; slice 1 is the baseline, the commander with only `retreat` added)
+
+| version | wins / losses | retreat orders (`move`) | notes |
+|---|---|---|---|
+| slice 1 | 665 / 327 | 0 | |
+| retreat, version 1 (no join test) | 598 / 394 | 8787 in 913 games | a walk-back-and-return loop: the group leaves its shots and comes back |
+| retreat, version 2 (must be able to win once joined) | 620 / 372 | 7162 in 848 games | |
+
+Version 2 by group, wins slice 1 -> retreat (gained / lost, two-sided sign test):
+
+| group | vs | games | wins | gained / lost | p |
+|---|---|---|---|---|---|
+| mirror | passive | 336 | 234 -> 202 | 19 / 51 | < 0.01 |
+| mirror | rush | 336 | 197 -> 179 | 42 / 60 | 0.09 |
+| economy, KDF | rush | 80 | 15 -> 26 | 16 / 5 | 0.03 |
+| economy, Sarim | rush | 80 | 59 -> 59 | 19 / 19 | 1.0 |
+| economy, KDF | passive | 80 | 80 -> 79 | 0 / 1 | 1.0 |
+| economy, Sarim | passive | 80 | 80 -> 75 | 0 / 5 | 0.06 |
+
+The literal 60 s stall reading falls 842 -> 661 (a seat that retreats issues orders), the idle-unit reading rises 109 -> 202 (retreated units standing at home), idle-away stays 0; orders a minute 1.06 -> 2.49. Games decided by the clock rise 173 -> 217 and by annihilation fall 428 -> 395.
+
+### Reading it
+
+- **As a heuristic over this view it does not pay.** Net -45 wins of 992. The loss is concentrated in the mirror rooms against a passive opponent (-32): a group that backs away from a defender's guns gives up its shots and the clock decides. The one cell that gains is KDF in an economy room against a rushing Sarim (15 -> 26, p = 0.03), where there is something to regroup with; the matching Sarim cell does not move.
+- **What the heuristic cannot see** from a `SideView`: the terrain between the group and home, the foe's reach and speed (a group on foot cannot outrun a wheeled foe by walking), whether the contacts are the whole of the foe, and which of its own units are the dangerous ones. Whether a retreat should be a stand at a cover tile, a fall back to a garrison, or nothing, is HOLD FOR LEAD together with any retreat-radius or "how long to regroup" number; none is written here.
+- Two versions are reported because the first was measured, found to loop, and changed; neither is tuned to a result.

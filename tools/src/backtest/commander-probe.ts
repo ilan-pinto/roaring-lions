@@ -182,7 +182,7 @@ export interface GameRecord {
 }
 
 /** Plays one game of a cell on one seed. Never throws for a cell: a refusal or an error is a record. */
-export type CommanderKind = 'rush' | 'silent' | 'slice1' | 'slice2';
+export type CommanderKind = 'rush' | 'silent' | 'slice1' | 'slice2' | 'slice3';
 export function playGame(cell: Cell, seed: number, o: { capTicks?: number; commander?: CommanderKind; options?: CommanderOptions } = {}): GameRecord {
   const t0 = Date.now();
   const base: GameRecord = {
@@ -247,7 +247,7 @@ export function playGame(cell: Cell, seed: number, o: { capTicks?: number; comma
     // `silent` is the probe's own self-check: a commander that never orders must read as a stall in every game, or the detector detects nothing.
     const commander: SeatLike = o.commander === 'silent'
       ? new PassiveSeat()
-      : new ComputerSeat({ seat: cell.commanderSeat, side: commanderSide, ...(o.commander === 'slice1' || o.commander === 'slice2' ? { commander: watching(o.commander === 'slice1' ? createCommander({ scout: false, counter: false, ...o.options }) : createCommander({ scout: true, counter: true, ...o.options })) } : {}) });
+      : new ComputerSeat({ seat: cell.commanderSeat, side: commanderSide, ...(o.commander === 'slice1' || o.commander === 'slice2' || o.commander === 'slice3' ? { commander: watching(o.commander === 'slice1' ? createCommander({ scout: false, counter: false, ...o.options }) : o.commander === 'slice2' ? createCommander({ scout: true, counter: true, ...o.options }) : createCommander({ scout: false, counter: false, retreat: true, ...o.options })) } : {}) });
     const other: SeatLike = cell.baseline === 'passive'
       ? new PassiveSeat()
       : new ComputerSeat({ seat: (1 - cell.commanderSeat) as Seat, side: config.seats[1 - cell.commanderSeat].side });
