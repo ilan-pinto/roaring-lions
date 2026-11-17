@@ -47,6 +47,7 @@ import { wadiHalam1Plan, wadiHalam2Plan, wadiHalam3Plan, wadiHalam4Plan, wadiHal
 import { firstLightPlan } from './plans/beit_sahwan';
 import { EIN_QASAB_PLANS } from './plans/ein_qasab';
 import { QASR_LIWAN_PLANS } from './plans/qasr_liwan';
+import { BIR_TARSHA_PLANS } from './plans/bir_tarsha';
 import { playOrderOf } from './play-order';
 import { telMarum3Plan } from './plans/tel_marum';
 import { uz2Plan } from './plans/umm_zeitoun';
@@ -554,6 +555,27 @@ passiveAcrossSeeds('qasr_liwan_4_clearance', 'qasr_liwan_4_clearance (no orders)
 const qlLed4 = { ...qlLed3, ...ql4 };
 run('qasr_liwan_5_subterranean', QASR_LIWAN_PLANS.qasr_liwan_5_subterranean, qlLed4, 'victory', 'qasr_liwan_5_subterranean');
 passiveAcrossSeeds('qasr_liwan_5_subterranean', 'qasr_liwan_5_subterranean (no orders)', 'defeat', qlLed4);
+
+// --- Marj: Bir Tarsha, The Long Ground town 2 (GH-1438) -----------------------------------------------------------
+//
+// Four missions here (IV, the blade line, follows in its own PR), one ledger, run on the app's persistent merge like Qasr Liwan. Plans:
+// `plans/bir_tarsha*.ts`, one file per mission. The town starts on a bare `{}`.
+//
+// - I: a failable primary (`six_out`, 300 s). The passive control loses on that clock (`objective:six_out`), not on the 720 s limit.
+// - II: `seven_in` (300 s) is the failable one; the plan buys a D9 first and digs the terminal's garrison out with it (see the plan).
+// - III: `bring_three_out` (360 s) and a ceiling of 15.
+// - V: the five routes (`all_five`) and a ceiling; three stars.
+const bt1 = run('bir_tarsha_1_recon', BIR_TARSHA_PLANS.bir_tarsha_1_recon, {}, 'victory', 'bir_tarsha_1_recon', 3);
+passiveAcrossSeeds('bir_tarsha_1_recon', 'bir_tarsha_1_recon (no orders)', 'defeat');
+const btLed1 = { ...bt1 };
+const bt2 = run('bir_tarsha_2_foothold', BIR_TARSHA_PLANS.bir_tarsha_2_foothold, btLed1, 'victory', 'bir_tarsha_2_foothold');
+passiveAcrossSeeds('bir_tarsha_2_foothold', 'bir_tarsha_2_foothold (no orders)', 'defeat', btLed1);
+const btLed2 = { ...btLed1, ...bt2 };
+const bt3 = run('bir_tarsha_3_clearance', BIR_TARSHA_PLANS.bir_tarsha_3_clearance, btLed2, 'victory', 'bir_tarsha_3_clearance');
+passiveAcrossSeeds('bir_tarsha_3_clearance', 'bir_tarsha_3_clearance (no orders)', 'defeat', btLed2);
+const btLed3 = { ...btLed2, ...bt3 };
+run('bir_tarsha_5_subterranean', BIR_TARSHA_PLANS.bir_tarsha_5_subterranean, btLed3, 'victory', 'bir_tarsha_5_subterranean', 3);
+passiveAcrossSeeds('bir_tarsha_5_subterranean', 'bir_tarsha_5_subterranean (no orders)', 'defeat', btLed3);
 
 // --- Beit Sahwan IV: Subterranean --------------------------------------------
 
