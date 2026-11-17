@@ -8,6 +8,7 @@ import { handleAccount, type AccountCtx, type AccountDeps } from './routes';
 import { createSession } from './session';
 import { SESSION_COOKIE } from './config';
 import { sha256Hex } from './crypto';
+import { sha256Hex as couponHash } from '@lions/economy';
 
 export const ACCOUNTS_MIGRATIONS = fileURLToPath(new URL('../../migrations-accounts/', import.meta.url));
 
@@ -242,6 +243,18 @@ export async function seedWalletMember(db: D1Like, id: string, now: number, opts
   const s = await createSession(db, id, now);
   await db.batch(s.statements);
   return { memberId: id, cookie: `${SESSION_COOKIE}=${s.token}` };
+}
+
+/** The coupon table the coupon and claim tests inject (GH-1415). The shipped `data/coupons.json` is EMPTY: a hash of a
+ *  code in a public repository is a public grant. One code, two grants under its hash, as the routes' "one code, several
+ *  entries" rule needs: credits only, and coins far above `CLAIM_COUPON_COINS_CAP`. */
+export const TEST_COUPON_CREDIT_ID = 'fx_credits_10k';
+export const TEST_COUPON_COIN_ID = 'fx_coins_100k';
+export function testCouponTable(code: string): { id: string; sha256: string; credits?: number; coins?: number }[] {
+  return [
+    { id: TEST_COUPON_CREDIT_ID, sha256: couponHash(code), credits: 10_000 },
+    { id: TEST_COUPON_COIN_ID, sha256: couponHash(code), coins: 100_000 },
+  ];
 }
 
 /** A `claim` journal row carrying `detail.coupons` (Task 2.7 writes this shape), with the wallet raised to match so
