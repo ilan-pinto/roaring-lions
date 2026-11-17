@@ -52,10 +52,25 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   KV calls only). A member whose own delete fails is recorded in `reconcile:failing` (`{ idHash: day }`), left out of every batch for
   `FAILING_HOLD_DAYS` (7) and then retried alone, never in the shared batch again; the counter clears, so the next run deletes everyone
   else. An alone run that commits sets the counter to one under the threshold, so the shared batch is tried again next run (a transient
-  failure costs one run of one member). Every run that leaves a recorded member out throws, so `scheduled()` stays red while a deletion
-  is stuck. A tombstone that does not parse to a numeric day is skipped, logged and counted by BOTH the scan and the survivor step
-  (the scan used to rethrow for its 90 days). If the lead rules that a batch counts as one query, a degraded run could try every queued
-  member alone in one run; that is a change to `accountCron` and to the pinned cost, not a constant.
+  failure costs one run of one member). Every run throws while `reconcile:failing` holds ANY entry, whether or not that run found the
+  member (a recorded tombstone-path member is settled, so the cursor moves past its page), so `scheduled()` stays red while a deletion
+  is stuck; recording or re-recording a member also re-puts its tombstone with the same value and a fresh `TOMB_TTL_S`, so a deletion
+  that keeps failing is not dropped when its tombstone would expire (an idle member's is skipped: the idle path wrote it that run). An
+  entry leaves the record when its member's delete commits, when its member row is gone (the route deleted it) or signed in after its
+  tombstone (a cancelled deletion), or at 30 days without a re-record; a MISSING or unreadable tombstone keeps it, so a lost deletion
+  stays red. The existence check rides the idle select (a `UNION ALL` over `id_hash IN (...)`, only when the record is not empty), so it
+  adds no D1 statement and the 48 stands. The 30-day age and the 40-entry cap apply when the record is read as well as written. A
+  `db.batch` that resolved counts as committed even if the survivor tidy-up then throws (no counter rise, no record). A tombstone that
+  does not parse to a numeric day is skipped, logged and counted by BOTH the scan and the survivor step; on the scan it also fails the
+  run (its member is live, so the deletion is owed), without pinning the page. **Known limit (GH-1530): isolation can starve.** Oldest
+  first means an idle member always sorts first (its guard day is the cutoff, `today - 1096`, older than any tombstone-path day), so
+  while idle members keep arriving a bad tombstone-path member (a user-requested deletion whose route batch failed) is never tried alone:
+  each cycle is a failed shared batch and one idle member alone, 0.5 deletions a run, and its page keeps the cursor. That cannot happen
+  until members can be 36 months idle (accounts shipped in 2026). And a recorded retry PRE-EMPTS the whole shared batch: each
+  permanently failing member takes one run in every `FAILING_HOLD_DAYS` (7), so about seven of them, staggered, take every run and the
+  shared batch never runs; a failed recorded retry also clears a counter another bad member was building. Every such run is red. A
+  rotating or bisecting choice of the member tried alone is the follow-up. If the lead rules that a batch counts as one query, a degraded
+  run could try every queued member alone in one run; that is a change to `accountCron` and to the pinned cost, not a constant.
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the

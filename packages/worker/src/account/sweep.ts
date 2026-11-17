@@ -20,7 +20,8 @@ import { deleteStatements } from './tables';
  * After `BATCH_FAIL_THRESHOLD` consecutive failed runs (`BATCH_FAIL_KEY`), a run deletes ONE member alone, the oldest. That costs the
  * same 17 statements as the shared batch, so it is all the delete share holds under this meter: one member a degraded run. A member
  * whose own delete fails is recorded (`FAILING_KEY`) and left out of the shared batch, so the next run deletes everyone else. The
- * fallback adds KV reads and writes only, no D1 statement, so `ACCOUNT_CRON_STATEMENTS` is unchanged.
+ * fallback adds KV reads and writes only, no D1 statement (the record's existence check rides the idle select as a `UNION ALL`), so
+ * `ACCOUNT_CRON_STATEMENTS` is unchanged.
  */
 const EXPIRY_STATEMENTS = 5;
 /** A member with no sign-in for this many days is deleted (spec A4-4: "36 months"). */
@@ -36,10 +37,12 @@ const RECONCILE_CURSOR_TTL_S = 7 * 86_400;
 /** GH-1530: consecutive runs whose shared delete batch failed, as a decimal string. Not under `tomb:`, so the scan never lists it. */
 export const BATCH_FAIL_KEY = 'reconcile:batchfail';
 const BATCH_FAIL_TTL_S = 7 * 86_400;
-/** GH-1530: after this many consecutive failed runs, the next run deletes one member alone. Two, not three: the first failure is retried
- *  as it was (a transient D1 error, the realistic cause, clears by the next run), and a member whose rows really do fail then holds the
- *  others for two runs, not three. Entering the fallback by mistake costs little: that run deletes one member, and the next tries the
- *  shared batch again. */
+/** GH-1530: after this many consecutive failed runs, the next run deletes one member alone, the oldest queued. Two, not three: the first
+ *  failure is retried as it was (a transient D1 error, the realistic cause, clears by the next run), and each cycle of the fallback costs
+ *  one run less. When the bad member is the oldest, it holds the others for two runs and is recorded on the third. When it is not, every
+ *  member older than it goes alone first, at about two runs each (a shared failure, then one alone), so the hold is about 2 x (members
+ *  ahead) runs, and it has no bound while older members keep arriving (the known limit, `docs/agent-notes/shell-and-ui.md`). Entering the
+ *  fallback by mistake costs little: that run deletes one member, and the next tries the shared batch again. */
 export const BATCH_FAIL_THRESHOLD = 2;
 /** GH-1530: members whose own delete failed, `{ [idHash]: day recorded }`. Not under `tomb:`. */
 export const FAILING_KEY = 'reconcile:failing';
@@ -221,7 +224,8 @@ async function deleteDue(db: D1Like, kv: KVLike, due: readonly Due[], tally: Tal
     // conditional delete, so there is a gap between this get and the delete below; and KV is EVENTUALLY CONSISTENT, so a tombstone the
     // route wrote from another location in the last ~60 s may not be visible to this get yet, which can then still read this run's
     // older tombstone and delete it. That is seconds, not microseconds: it needs a delete request within a minute of the cron's batch
-    // for a member the cron had already queued. Closing it fully is the route's job (rewrite the tombstone after its batch commits).
+    // for a member the cron had already queued. The route closes it, not this step: GH-1534 (PR 1538) has `deleteAccount` write the same
+    // tombstone again after its batch commits, so a prune that raced it is overwritten. Until that lands, the window above stands.
     const raw = await kv.get('tomb:' + d.idHash);
     if (raw === null) continue;
     const stored = tombDay(raw);
@@ -307,7 +311,10 @@ async function dropSettledRecords(kv: KVLike, failing: Record<string, number>, p
  *  Otherwise, after `BATCH_FAIL_THRESHOLD` consecutive failed shared batches, the run deletes the oldest queued member alone. If that
  *  delete fails, the member is recorded and the counter clears, so the next run's shared batch carries everyone else. If it commits,
  *  the counter drops to one under the threshold: the next run tries the shared batch again, and one more failure brings the next member
- *  alone. A run that finds a recorded member and leaves it out still fails (rethrows), so a deletion stuck in the fallback stays seen. */
+ *  alone. Every run fails (rethrows) while the record holds any entry, whether or not this run found that member, so a deletion stuck
+ *  in the fallback stays seen; recording a member also re-puts its tombstone with a fresh TTL, so the deletion is not dropped when the
+ *  tombstone would have expired. An entry leaves when its member's delete commits, when its member is gone or signed in after its
+ *  tombstone (`dropSettledRecords`, read through the idle select at no extra D1 statement), or after `FAILING_KEEP_DAYS`. */
 export async function accountCron(db: D1Like, now: number, kv: KVLike): Promise<number> {
   let failure: unknown;
   const fail = (err: unknown): void => { failure ??= err; };
