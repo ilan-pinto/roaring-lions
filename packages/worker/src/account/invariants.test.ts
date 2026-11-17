@@ -4,18 +4,18 @@
  * `free_delta`), the free coins credited since the last `reset` never pass the 925 ceiling, and `earn_lifetime` never
  * goes down. A red run prints its seed and op list, so it replays.
  */
-import { emptyAccount, parseWorld, sha256Hex, worldMissionIds } from '@lions/economy';
-import { coupons, world } from '@lions/data';
+import { emptyAccount, parseWorld, worldMissionIds } from '@lions/economy';
+import { world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import { handleAccount } from './routes';
-import { accountHarness, seedWalletMember } from './test-kit';
+import { accountHarness, seedWalletMember, testCouponTable, TEST_COUPON_COIN_ID } from './test-kit';
 
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY + 3_600_000;
 const ids = worldMissionIds(parseWorld(world));
 const CODE = 'TEST-CODE';
-const TABLE = coupons.map((c) => ({ ...c, sha256: sha256Hex(CODE) }));
-const COIN_ID = 'lead_roar_coins_100k';
+const TABLE = testCouponTable(CODE);
+const COIN_ID = TEST_COUPON_COIN_ID;
 const CEILING = 925;
 const FLOORS = Object.fromEntries(ids.map((id) => [id, 1]));
 const RICH = { coins: { free: 1_000_000, paid: 0 } };

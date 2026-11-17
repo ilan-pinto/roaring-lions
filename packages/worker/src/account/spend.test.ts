@@ -1,19 +1,18 @@
-import { emptyAccount, parseWorld, sha256Hex, worldMissionIds } from '@lions/economy';
-import { coupons, world } from '@lions/data';
+import { emptyAccount, parseWorld, worldMissionIds } from '@lions/economy';
+import { world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import type { D1Like, D1Stmt } from '../d1';
 import { handleAccount } from './routes';
-import { accountHarness, racingD1, seedClaimCoupons, seedWalletMember } from './test-kit';
+import { accountHarness, racingD1, seedClaimCoupons, seedWalletMember, testCouponTable, TEST_COUPON_COIN_ID, TEST_COUPON_CREDIT_ID } from './test-kit';
 
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY + 3_600_000;
 const [M1 = ''] = worldMissionIds(parseWorld(world));
 const op = (n: number): string => `${String(n).padStart(8, '0')}-5555-4555-8555-555555555555`;
 const CODE = 'TEST-CODE';
-// The real table's ids and grants under a hash we know the code for: the real code is not in the repository.
-const TABLE = coupons.map((c) => ({ ...c, sha256: sha256Hex(CODE) }));
-const COIN_ID = 'lead_roar_coins_100k';
-const CREDIT_ID = 'lead_special_units_10k';
+const TABLE = testCouponTable(CODE);
+const COIN_ID = TEST_COUPON_COIN_ID;
+const CREDIT_ID = TEST_COUPON_CREDIT_ID;
 
 function setup(opts: { race?: number; beforeFirstBatch?: (db: D1Like) => Promise<void> } = {}) {
   let racing: ReturnType<typeof racingD1> | undefined;
