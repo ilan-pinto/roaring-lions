@@ -511,6 +511,10 @@ CREATE INDEX rating_journal_member ON rating_journal (member_id, id);
 ALTER TABLE match_record ADD COLUMN ranked INTEGER NOT NULL DEFAULT 0 CHECK (ranked IN (0, 1));
 ```
 
+The SQL was checked in a scratch in-memory SQLite on top of `0001` to `0004` with foreign keys on (not committed): it applies; a
+duplicate `(member_id, op_id)` is refused; deleting a `member` row empties both ranked tables for that member and leaves the other
+member's journal; and with foreign keys **off** the same delete leaves the rows behind, which is the input that turns check K2-c red (§8).
+
 `ranked_member.season` references `ranked_season`, so the migration must run before season 1's row exists; the lead's opening
 command inserts the season row first (§4.3). The journal's `season` is a plain integer, not a foreign key, so a season row can never
 be blocked from correction by its history.
@@ -581,6 +585,91 @@ consistent, but a member's `active_code` may name a room that has since ended. R
 | `rate_day` | ranked writes count against `acct-all` (`OPS_ALL` 20,000 a day): `RECORD_ROWS` becomes 8 for a ranked record (§7.1). No new scope |
 
 ## 5. Abuse cases
+
+As in the PM design (§3.3 there), this public document names policies and the tests that hold them, not methods for beating them.
+Each case below has a mitigation and the check that pins it (§8). None of them protects against a client that sees through fog: fog
+is a client-side courtesy in lockstep (network design §1), and the ranked screen says so in one line, as the friend lobby does.
+
+### 5.1 Win trading
+
+Two accounts, or two friends, feeding each other wins.
+
+| Mitigation | How |
+|---|---|
+| Blind, jittered pairing | nobody chooses an opponent: `found` carries no identity, and pairing happens at a random 2 to 6 s alarm among everyone feasible (§3.3) |
+| One network, never paired | two entries with the same `netKey` (the day's keyed hash of the address) are never a feasible pair. A shared household or a carrier NAT is merely never paired with itself; nobody is punished |
+| **Repeat damping** | the n-th rated game between the same two members within 7 days has weight `0.5^(n−1)`: 1, 0.5, 0.25, … The room reads it at record time with one query over `match_seat` ⋈ `match_record` (`ranked = 1`), by the existing `match_seat_member` index. Seven days of trading are worth at most two games of rating |
+| No win from an instant leave | row G: before 3 minutes the leaver loses and the stayer gains nothing |
+| No rematch on demand | the queue does not re-pair the previous opponent unless nobody else has been feasible for 60 s |
+| Concentration review | a member with 8 or more of their last 20 ranked games against one opponent appears on the read-only review list (K6) |
+
+### 5.2 Smurfing
+
+A strong player on a fresh account, to play weaker players.
+
+| Mitigation | How |
+|---|---|
+| A new account starts in the middle, never at the bottom | 1500 / RD 350, never a value from a claim (the PM design's rule). A smurf meets the middle of the pool first |
+| It climbs out in a handful of games | +175 for a first win (§1.3); mean error under 100 after 8 games. The smurf's time among weaker players is short, and their opponents lose little: an established player's rating moves 7 points against a newcomer |
+| An identity that costs something (Q8) | ranked requires a linked Google (or Steam) identity. `UNIQUE (provider, subject)` already makes that one member per Google account. A passkey-only member is free to mint and is not eligible |
+| A day's wait (Q9) | `member.created_at` at least 24 hours before the first ranked join |
+| Minting is already capped | `NEW_PER_IP` 5 and `NEW_ALL` 500 new members a day (A1) |
+| Delete and return | a deleted member who signs up again starts at 1500 / RD 350 like anyone. That is accepted: 1500 is the middle, and carrying a rating across a deletion would mean keeping something about a deleted account (Q10) |
+
+### 5.3 A modified client claiming results (only agreed results count)
+
+| Attempt | What happens | Check |
+|---|---|---|
+| Report a false win | the other seat reports the truth: two reports that differ, row B: **void**, nobody rated | T1 |
+| Report a false hash | the hashes differ: row B: void, the desync row is written | T2 |
+| Withhold its own `over` and leave | row I: the room's own decision, **rated** as a loss | T3 |
+| Withhold its own `over` and stay | row J: **disputed**, void, nobody gains | T4 |
+| Forge an `over` on a non-hash tick, or tick 0 | refused by the room already (A3, PR 1280) | existing |
+| Write a rating directly | there is no route: `ranked_member` and `rating_journal` are written only by the room's record module and the matchmaker. A source scan pins it, in the style of `admin_action`'s append-only test | K2-w |
+
+So a modified client can **void** a match, never win one. What stops it voiding every match it is losing:
+- **Disputes are counted by distinct opponent.** Rows B, I′ and J add a dispute to both seats. An honest player's rare disputes are
+  each with a different cheater; a cheater's are with everyone. **Three disputes against three distinct opponents in 30 days lock the
+  member out of ranked for 72 hours and put them on the review list.** The count is one query over `match_seat` (the no-result ranked
+  records of §4.2 are what make it possible).
+- **The evidence is kept.** A ranked room's dispute or desync writes the existing `match_desync` row with the **whole** order log
+  (`compactLog` with a cap high enough for a 25-minute match; the daily `DESYNC_BUDGET` of 50 rows and 4,000,000 characters already
+  bounds it), and it is purged after 180 days with the rest.
+- **The lead can settle it.** A replay of that row through the sim tells which seat's report or hash was the sim's. That is seconds of
+  CPU, so it runs on the lead's machine through the arena's replay path (GH-954, `tools/src/net/arena-replay.ts`), never in the
+  Worker, whose Free CPU budget is 10 ms. Applying the answer (reversing a void into the right result) is Q18.
+
+### 5.4 Dodging
+
+| Dodge | Mitigation |
+|---|---|
+| Declining an opponent you do not like | impossible to aim: `found` is blind. Declining at all is a dodge, 1 point |
+| Declining a map or side you do not like | the map is shown only at the face-off, after both accepted; leaving there is an early exit, 2 points, no rating change |
+| Leaving in the first minutes once you see the opponent's opening | row G: a loss at full weight, 2 points |
+| Not showing up after accepting | row L: a dodge, 1 point |
+| Queue, cancel, queue again to fish | cancelling before `found` is free and gains nothing, because what you would be fishing for is never shown |
+
+### 5.5 Queue sniping
+
+Joining at a chosen moment to be paired with a particular player: a friend (to trade), a known weak player, or someone streaming.
+
+- **Nothing in the queue names anyone.** `queued` says only `few`, `some` or `many`; no names, no ratings, no "who is searching".
+- **The pairing moment is random** (2 to 6 s after the event that makes a pair feasible), among everyone feasible then.
+- **The pair is blind until both accept**, and the same-network rule, repeat damping and the no-rematch rule bound what a successful
+  snipe is worth.
+- **What cannot be stopped:** in a queue of two, the second joiner gets the first. Repeat damping is what limits the gain.
+
+### 5.6 Rating manipulation through leavers
+
+| Manipulation | Mitigation |
+|---|---|
+| Win trading by instant leaves | row G |
+| Escaping a loss by withholding the result and leaving | row I (the finding of §2.2) |
+| Escaping a loss by stalling silently after the opponent's result | row J: void, a dispute, and the distinct-opponent lock |
+| Escaping a loss by timing your own drop to an outage | the infrastructure window is 5 s and needs **both** seats to go; a player cannot drop the opponent. Game deploys no longer drop rooms at all after the relay cut |
+| Sandbagging: leaving on purpose to sink, then beating weaker players | every leave is a full loss **and** points (a lock from the second); Glicko-2's volatility rises on erratic results, so the sandbagger's next wins move them back up fast; and the review list shows a member whose losses are mostly leaves. A rating floor (the season's best visible rank minus 400) is the extra lever if the first 200 results show it is needed; it is not recommended at the start, because a floor makes the rating wrong by design |
+| Leaving during placement to protect a high early number | an early exit still loses at weight 1, and placement needs 10 rated games, not 10 games survived |
+
 ## 6. What /privacy must say, and retention
 ## 7. Cost against the D1, KV and Durable Object budgets
 ## 8. Slices and falsifiable checks
