@@ -149,6 +149,21 @@ describe('loadResume: every reason a resume does not start, and what it leaves b
     expect(peekResumeProblem()).toBe('failed');
   });
 
+  it('GH-1395 slice 2 (C15): an amended save loads with its ids; a record whose own ids and its inputs\' disagree is failed', async () => {
+    const ids = ['no_medic', 'light_order'];
+    const campaign = startInputsJson({ ledger: LEDGER, tiers: TIERS, unlocks: new Set(['b', 'a']), deploy: new Set([2, 0]), amendments: ids });
+    const amended = { campaign, campaignDigest: digestOf(campaign) };
+    const got = await load(await record({ ...amended, amendments: ids }));
+    expect(got.ok && got.loaded.inputs.amendments).toEqual(ids);
+    // Dropped from the record only, from the inputs only, or a different list: not this build's save.
+    expect(await load(await record({ ...amended }))).toEqual({ ok: false, why: 'failed' });
+    expect(await load(await record({ amendments: ids }))).toEqual({ ok: false, why: 'failed' });
+    expect(await load(await record({ ...amended, amendments: ['light_order'] }))).toEqual({ ok: false, why: 'failed' });
+    // An unamended save (neither carries a list) loads as before, with none.
+    const plain = await load(await record());
+    expect(plain.ok && plain.loaded.inputs.amendments).toBeUndefined();
+  });
+
   it('the key it reads is the store\'s one key', async () => {
     let asked = '';
     const spy: KeyStore = { getItem: (k) => { asked = k; return null; }, setItem: () => undefined, removeItem: () => undefined };
