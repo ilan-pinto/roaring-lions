@@ -671,6 +671,204 @@ Joining at a chosen moment to be paired with a particular player: a friend (to t
 | Leaving during placement to protect a high early number | an early exit still loses at weight 1, and placement needs 10 rated games, not 10 games survived |
 
 ## 6. What /privacy must say, and retention
+
+The page is `packages/worker/src/privacy-page.ts`; its tests (`privacy-page.test.ts`) pin each data item by name, and the text and
+`PRIVACY_UPDATED` change together. The text below is proposed for slice K6 and ships **in the same PR that can first write a ranked
+row**, not before (GH-1399: "the store and lobby copy describe ranked only once it is open"). It follows the page's existing voice:
+short items, plain words, no term of art without its meaning.
+
+### 6.1 The proposed text
+
+**In "What is stored for a signed-in player"**, three new items after the versus item:
+
+> - If you play ranked: your ranked rating, as three numbers (the rating, how sure it is, and how steady your results have been); your
+>   ranked games, wins, losses and games with no result this season; your best rank this season; when you last played ranked; and the
+>   ranked match you are playing now, if any.
+> - If you play ranked: a history of every change to your rating, with the match it came from, how that match ended, your rating
+>   before and after, and your opponent's rating at that moment (a number, never their name or Player ID). For each season you played,
+>   the rating and rank you finished it with.
+> - If you play ranked: when you leave a ranked match in its first three minutes, close it and do not come back within 60 seconds, lose
+>   your connection and do not come back, or decline or miss a match you were offered, a count of points, the time of the latest, and
+>   any wait it put on your ranked queue. The points fade, one every 48 hours and one for each ranked match you finish. Each of these is
+>   also in your rating history.
+
+**The versus item** gains one sentence at its end:
+
+> A ranked match is marked as ranked, and a ranked match that ends without a result is kept too, with the reason.
+
+**A new section, after "What the team can see":**
+
+> **Ranked play**
+> - Ranked play is only for signed-in players who choose to join the ranked queue.
+> - While you wait in the queue, our server holds these in memory and never writes them down: the sides and map you chose, your game
+>   version, the continent Cloudflare places your connection in, and a code made from your connection's address that changes every day
+>   and cannot be turned back into the address. The code is used only so that two players on the same network are not matched with each
+>   other. All of it is gone when you leave the queue.
+> - Ranked results are worked out on our server, from what both players' games agree on. Your rating is never shown to other players.
+>   They see your display name and Player ID during a ranked match, as in any versus match.
+> - If the two players' games disagree about a ranked match, its settings and orders are kept for 180 days, so that the team can replay
+>   it and see which game was right. They hold no name, Player ID or account, but they carry the match's code, which your ranked history
+>   also holds.
+
+**In "What the team can see"**, one item (with slice K6's member-card block):
+
+> - For ranked play, the team can see your rating, its history and your leave points, to look into reports of cheating or of leaving
+>   matches.
+
+**In "For how long"**, two items:
+
+> - Your ranked rating, its history, your season results and your leave points stay while your account does, and are deleted with it.
+> - A disputed ranked match's settings and orders are deleted after 180 days.
+
+### 6.2 The retention periods
+
+| Data | Where | Kept | Removed by |
+|---|---|---|---|
+| `ranked_member` (rating, counters, leave points, lock, live room) | ACCOUNTS | while the account | the member delete (cascade, §4.4); the 36-month idle sweep through the same batch |
+| `rating_journal` (every change, season results, incidents) | ACCOUNTS | while the account | the same |
+| `match_record` / `match_seat` of a ranked match | ACCOUNTS | while either player keeps an account (A3, unchanged) | A1's orphan sweep |
+| Leave points' **effect** | — | fades by one every 48 h and per finished match | computed when read; no write |
+| Dispute and desync evidence (`match_desync`) | telemetry `DB` | 180 days (`RETENTION_MS`) | the existing `purgeDesyncs` in the daily cron, unchanged |
+| A queue entry: sides, maps, build, continent, `netKey`, the internal member id | the matchmaker's socket attachment | the wait | the socket's close; **never** written to storage |
+| The requeue token | the player's browser memory | 10 minutes of use | expiry; it holds no identifier |
+| The matchmaker's daily public-match counter | its own storage | the day | overwritten the next day; no member data |
+| `ranked_season` | ACCOUNTS | indefinitely | no member data |
+
 ## 7. Cost against the D1, KV and Durable Object budgets
+
+### 7.1 D1 (ACCOUNTS)
+
+| Per ranked match | Statements | Rows written (indexes included) | Rows read |
+|---|---|---|---|
+| Two queue joins (eligibility, §3.2) | 2 reads | 0 | about 6 |
+| Mint (`active_code` × 2) | 1 batch of 2 | 2 | 0 |
+| The record (§4.2) | 4 reads + 1 batch of 8 | about 16: the record 1, the seats 2 + index 2, `rate_day` 1, members 2, the journal 2 + its two indexes 4, plus the `ranked` flag counted once | about 30, most of them the damping query's `match_seat_member` range |
+| **Total** | **≈ 7 reads, 2 batches** | **≈ 18** | **≈ 36** |
+
+At the 12-a-day cap that is about **220 rows written a day** against D1's 100,000 (0.2%), and about 430 read against 5,000,000. Inside
+one invocation the record is 12 statements by this repository's per-statement policy, well under 50. `RECORD_ROWS` becomes 8 for a
+ranked record against `OPS_ALL` (20,000 a day), so the accounts breaker sees it.
+
+### 7.2 Durable Objects
+
+| | Per unit | At the expected size (30 members, 2 joins each a day, 12 matches) |
+|---|---|---|
+| **The matchmaker**, per queue entry (the PM design's estimate, plus the jittered pairing alarm) | about 1 Worker request, 2.2 DO requests, 1 to 2 DO rows, 0.0125 GB-s | about 60 Worker requests, 130 DO requests, 120 DO rows, 1 GB-s a day |
+| **The match room**, per ranked match (unchanged by ranked) | 1,440 to 2,640 DO rows for 20 minutes (up to about 3,300 at the 25-minute cap), 150 GB-s | the 12-a-day cap: at most about 40,000 DO rows and 2,300 GB-s |
+| Free allowances (PM design §3.1; re-read the pricing page before K5) | 100,000 DO requests, 13,000 GB-s, 100,000 DO rows, a day, **for the whole account** | |
+
+**The matches are the cost, as the PM design found.** The rating adds about 1% to a match's own writes, and the matchmaker is noise.
+With the relay split the room's rows are written by the relay's script, but the allowances are the account's, so friend rooms and
+ranked rooms still share one ceiling of about 38 busy matches a day; the 12-a-day ranked cap is what keeps two-thirds of it for friend
+play. On Workers Paid (5 USD a month, the lead's choice, not this note's) the cap is a `vars` value and can rise without code.
+
+### 7.3 The cron budget pins
+
+- **Zero statements are added to `scheduled()`.** The season reset, the idle RD term and the leave-point decay are all computed when a
+  row is read (§1.5, §1.6, §2.4), and nothing ranked is swept by the cron: the journal is kept while the account is, and the dispute
+  evidence rides the existing `purgeDesyncs`.
+- **The member delete batch stays 17 statements** with the cascade (§4.4), so `ACCOUNT_CRON_STATEMENTS` stays 27 and the static worst
+  case stays **48 of 50**: `cron-budget.test.ts` does not change. Two explicit deletes would make it 50 and turn that test red, which is
+  why the cascade is recommended rather than chosen for neatness.
+- **If ranked ever needs periodic work** (trimming old incidents, closing a season with a snapshot), it runs in the matchmaker's own
+  alarm, a separate invocation with its own 50, never in the game Worker's `scheduled()`.
+- The relay design's fact 6 holds: the room's D1 writes run in the object's invocation, not in a Worker invocation.
+
+### 7.4 KV and the rest
+
+- **KV: nothing.** No new namespace, no read and no write. Tombstones are unchanged; the requeue token is a MAC, not a stored key; the
+  KV Free allowance (1,000 writes a day) stays for tombstones.
+- **One rate limiter**, `RANKED_LIMIT` (namespace 1009), on the upgrade: a binding, no D1 or KV.
+- **CPU:** a Glicko-2 update is about ten iterations of a root find, microseconds, inside the Free 10 ms with three orders of margin.
+
 ## 8. Slices and falsifiable checks
+
+Every check arrives with the input that turns it red, run once and named in its commit (`falsification-casebook.md`); oracles take
+literals. No slice touches `@lions/sim`, the golden hash or the tuning.
+
+**Before K1:** the lead's rulings here; the lead unparks balance (GH-1399's block); GH-205 lands or Q1 rules it unnecessary for
+versus; the relay cut (GH-1397 P2) is done (Q19).
+
+| Slice | What | Size |
+|---|---|---|
+| K1 | `packages/worker/src/ranked/glicko2.ts`, pure: the update, the weight, the advantage term, the idle term, the visible rank | S |
+| K2 | `0005_ranked.sql` (§4.1), `MEMBER_TABLES` cascade rows, export, the write-site scan | S |
+| K3 | `rankedOutcomeOf` (§2.2) and the incident ladder, pure, in `room-core.ts`; the tamper tests | M |
+| K4 | The room: `create-ranked`, the member-must-match hello, the refusals, the close code, the infrastructure window, the record batch, row L | M |
+| K5 | The `Matchmaker` DO, `/api/ranked/ws`, `QUEUE` binding and `mm-v1` migration, `RANKED_LIMIT`, the `ranked` flag | L |
+| K6 | The shell screen, the profile's band and history, `/privacy` (§6), the `/stats/members` read-only block, `ui:routes` arm (CI only) | M |
+
+| # | Check | The input that must turn it red |
+|---|---|---|
+| K1-a | Glickman's example as literals: 1500/200 beats 1400/30, loses to 1550/100 and 1700/300, τ 0.5 → r′ 1464.05, RD′ 151.52, σ′ 0.05999 | change 173.7178; change τ |
+| K1-b | A game of weight 0 changes nothing; weight 0.5 moves less than 1 and more than 0 | drop the weight from either sum |
+| K1-c | With `a > 0` the favoured side gains less for a win than with `a = 0` | flip the sign of `a` for one side |
+| K1-d | Idle 30 days from RD 50 gives 93 (literal); never above 350 | use hours for days; drop the cap |
+| K2-c | Deleting a `member` (harness with `foreignKeys: true`) leaves no `ranked_member` or `rating_journal` row of that member and keeps the other member's | run the harness with `foreignKeys: false`; delete the `ON DELETE CASCADE` from the test's copy of the migration |
+| K2-p | `cron-budget.test.ts` unchanged: the worst case is still 48 | give a ranked table an explicit `deleteSql`: `toBe(48)` goes red |
+| K2-e | Export returns both tables, without `revision` and `active_code` | drop a table's `exportSql`; select `*` |
+| K2-w | Only the room's record module and the matchmaker contain a write to `ranked_member` or `rating_journal`; no `/api/account/*` route does | add an `UPDATE ranked_member` to `account/profile.ts` |
+| T1 | A seat reporting itself the winner while the other reports the opposite: no rating moves (the issue's tamper test) | rate on the first report |
+| T2 | A false hash: void, no rating moves, the evidence row is written | skip the hash comparison in the ranked path |
+| T3 | Withhold `over` and leave: rated as a loss (row I) | use `recordOf`'s lone rule for ranked |
+| T4 | Stay silent after the opponent's `over` for `OVER_CONFIRM_MS`: a dispute for both, void | treat it as row I |
+| T5 | A leave before 3,600 ticks: the leaver loses at weight 1, the stayer is unchanged | give the stayer weight 1; compare with `>` instead of `>=` at the boundary |
+| T6 | Both seats gone 4 s apart: void; 6 s apart: the first gone forfeits | keep today's same-instant rule only |
+| T7 | Points and locks at the ladder's literal edges; decay after 48 h and per finished match | off-by-one at 48 h; decay on a void |
+| K4-a | A ranked `hello` from another member's session is refused | drop the member comparison |
+| K4-b | A ranked room refuses `/join`, `/advisor` (both scopes), `kit: 'brigade'`, a bot seat, free-text chat | delete each refusal in turn: five reds |
+| K4-c | The record batch writes both members' rows and journal rows, or none (a failing statement rolls all back) | split the batch in two |
+| K5-a | `found` carries only `deadline` | add the opponent's name: a test that lists the message's keys goes red |
+| K5-b | Two entries with one `netKey` are never paired, over 10,000 seeded draws | drop the `netKey` comparison |
+| K5-c | A locked member, a member with a live `active_code`, a guest and (Q8) a passkey-only member get `closed` with the right reason | remove each guard in turn |
+| K5-d | A requeue token restores the wait; a forged or 11-minute-old one does not; the token contains no member id | accept any token; put the member id in it (a scan of the token for the literal id goes red) |
+| K5-e | Repeat damping: the 3rd game between one pair in 7 days has weight 0.25 | remove the damping |
+| K5-f | At most one alarm per pairing; no `setInterval` (fake-DO counters) | a periodic alarm; a 1 s heartbeat |
+| K6-a | `/privacy` names the ranked data (`names_the_ranked_data`), and `PRIVACY_UPDATED` moved | drop one item |
+| K6-b | The lobby shows "Find a ranked match" only while `GET /api/ranked/open` says open | render it unconditionally |
+
+**Gates.** The lead and a friend, both signed in with Google, on two machines and the deployed build: three ranked matches (one won,
+one surrendered after 3 minutes, one left in the first minute), and the expected rating rows and lock read back in the profile; the lead
+closes `ranked` and both see `closed{switch}` with no deploy. Then the first 200 ranked results are read in `/stats` (waits by band
+stage, the gap at pairing, leave and dispute rates) and the §2.4 and §3.3 constants are revisited, not before.
+
 ## 9. Open questions for the lead
+
+The recommendation comes first in each.
+
+1. **The authoritative path.** Is A3's agreed rule (two matching reports with a compared hash, or a room-decided end), extended by §2.2,
+   the "server-authoritative path" GH-1399 asks for? **Recommended: yes.** The Worker cannot run the sim on Free, so an agreed lockstep
+   result is the strongest versus authority available; GH-205's server ledger is about coins and the campaign. *Alternative:* ranked
+   waits for all of GH-205.
+2. **Glicko-2** with §1.2's parameters (an update every game, RD inflated by idle days at c = 14.4). *Alternative:* Elo with a
+   provisional K of 40 for 20 games, then 20.
+3. **Placement and the visible rank:** 10 rated games, then a named band from `r − 2·RD`; the number never shown. About two weeks at
+   the expected pace. *Alternative:* 5 placement games.
+4. **A3's W-L rule.** Leave `recordOf` as it is and add `rankedOutcomeOf` beside it. **Recommended**, then align `recordOf`'s lone-report
+   case (§2.2) in its own small PR. *Alternative:* change `recordOf` now, which moves existing W-L semantics.
+5. **KDF v Sarim.** Season 1 is the mirror only; a faction cell joins with the advantage term once balance is unparked and the lead
+   accepts a starting `a` per cell. *Alternative:* open `tel_marum` and `wadi_tarfan` faction cells at once with probe-based `a`.
+6. **A menu Leave after 3 minutes** is a concession like a surrender: a loss, no incident. *Alternative:* 1 point.
+7. **The early-leave rule:** before 3 minutes the leaver loses and the stayer gains nothing. *Alternative:* the stayer gains at half
+   weight (which reopens a slower form of win trading).
+8. **Ranked requires a linked Google or Steam identity.** *Alternative:* any member, passkey-only included (smurfing then costs nothing).
+9. **A member must be 24 hours old** before their first ranked join. *Alternative:* no age rule.
+10. **Deletion is deletion:** a returning player starts at 1500 / RD 350. *Alternative:* keep a peppered hash of the Google subject for
+    90 days to carry a rating floor across a deletion, which `/privacy` would then have to state as data kept after deletion.
+11. **Cascade deletion** for the two ranked tables, keeping the cron pin at 48. *Alternative:* one explicit statement (49, no room left).
+12. **No leaderboard in season 1**: each player sees only their own band. *Alternative:* an opt-in board by display name, keyed on
+    `profile.show_record` or a new opt-in.
+13. **Seasons:** season 1 open-ended until you set its end; later seasons 12 weeks; the reset keeps `r` and raises RD to 120.
+    *Alternative:* a pull toward 1500 at each reset.
+14. **A fixed "ranked hour"** to concentrate a small pool. **Recommended: not at first**; decide from the first 200 results' waits.
+15. **Season 1 maps and rules:** the four 25-minute fair maps, placed forces, annihilation, matched kit. *Alternative:* add the three
+    35-minute large maps (1.4 times the rows) or a win mode.
+16. **Pauses and chat in a ranked room:** one pause of 60 s a seat, quick chat only. *Alternative:* the friend rules.
+17. **The daily cap:** ranked is the only public queue and uses the PM design's 12 public matches a day. *Alternative:* a higher cap
+    with the paid plan.
+18. **Settling a dispute.** Season 1: lock and review only, no rating correction. *Alternative:* an admin route that reverses a void into
+    the adjudicated result, which needs `'rating'` in `admin_action`'s CHECK (a table rebuild) and its own design.
+19. **Order of opening:** ranked opens only after the relay cut (GH-1397 P2), so that no stranger loses a rated match to a game deploy.
+    **Recommended: yes.**
+20. **Where the matchmaker lives:** the game Worker, minting through `roomsOf(env)` so the `ROOMS_NEW` lever covers ranked rooms.
+    *Alternative:* the relay Worker (fewer queue drops; the lever and the relay's closure rule would both need changing).
