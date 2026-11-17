@@ -7,7 +7,7 @@ issue asks for "a short spec and a mock for the lead before any build"; this is 
 - **Date:** 2026-11-17, written against `origin/main` at `5147ce2`. Revised the same day after a
   design review (CHANGES): every code reference was re-checked against `origin/main` at
   `387d865`, and none of the cited files moved in between. Revised again the same day to the
-  lead's rulings on Q1 to Q11 (§8). The largest is Q3: the data shape, the validator, the
+  lead's rulings on Q1 to Q11, then R12 and R13 (§8). The largest is Q3: the data shape, the validator, the
   migration and the test no longer assume one branched track per unit, though slice 1's content
   still branches only one.
 - **Section numbers.** A bare "§N" is this document. A section of the upgrade-tracks document
@@ -629,8 +629,10 @@ marker state (§4.4).
 
 **Why this rule never takes away value a player paid for:**
 
-- **The price paid can always be recovered,** to the credit or the coin, on the store that paid
-  it, at any time. A player who would rather have the money than a branch gets the money.
+- **The price paid for a LEGACY tier 3 can always be recovered,** to the credit or the coin, on
+  each store that holds the legacy marker, at any time (R12). A legacy owner who would rather
+  have the money than a branch gets the money. A fresh branch buy is final (Q2) and is never
+  refunded; no value is taken from it, since it is the branch the player chose.
 - **No silent zero.** Until the player acts, the unit fields a full tier-3 branch, never tier 2.
   The first visit to `/brigade` after the migration shows one notice naming each affected unit and
   track, with `t()` strings.
@@ -867,19 +869,25 @@ per track.
 **The literal legacy roots** (each a raw store, as an old build wrote it, fed through
 `migrateAccount` / `migrateRoar`; written for `fx_tank`, and again for `fx_ifv`):
 
+These roots are the stores **as an old build left them, before migration**; each case states
+what migration makes of them. Where two stores disagree, the disagreement comes from the old
+stores (a guest strip or a fresh buy on one side), and migration gives the legacy side pick 1
+without touching the fresh side's pick, so the stores may still disagree after migration. That
+is intended: Switch is then withheld (Q11), and Return refunds only the legacy side (R12).
+
 - **L1, account only:** `{ upgrades: { fx_tank: { firepower: 3 } } }`, no `picks`, no `legacy`.
 - **L2, wallet only:** `entitlements.upgrades.fx_tank.firepower = { tier: 3, paidTiers: 0 }`,
   with its `tier` receipt.
 - **L3, both:** L1 and L2 together (the GH-1143 case).
 - **L4, both, disagreeing:** the account at tier 3 with pick `b` and no marker, and the wallet as
   L2 (a guest strip of the wallet alone, §4.4). After migration the wallet takes pick 1.
-- **L7, both, disagreeing, the wallet fresh:** the mirror of L4. The wallet at tier 3 with
-  `branch: b` and `legacy` absent (a fresh coin buy), and the account as L1 (legacy, no pick).
-  After migration the account takes pick 1 with a marker.
 - **L5, the hand-edit:** the account with pick `a` and the wallet with `branch: b`, neither
   legacy.
 - **L6, two branched tracks (`fx_tank` only):** the account at firepower 3 AND armour 3, no
   `picks`, no `legacy`.
+- **L7, both, disagreeing, the wallet fresh:** the mirror of L4. The wallet at tier 3 with
+  `branch: b` and `legacy` absent (a fresh coin buy), and the account as L1 (legacy, no pick).
+  After migration the account takes pick 1 with a marker.
 
 **Cases:**
 
