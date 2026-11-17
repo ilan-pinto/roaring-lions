@@ -250,6 +250,9 @@ partner's units pass to you in…", never as a forfeit.
 - `Seat` becomes `0 | 1 | 2`. GH-691 widens it to `0 | 1 | 2 | 3`; the code should loop over `config.seats`, never spell `[0, 1]` (the
   checklist of two-seat sites is the §1 row; C1 classifies each, as N5 Task 0 did for `mode`).
 - `MatchConfig.seats` becomes `readonly SeatConfig[]` of length 2 or 3, and `MatchConfig.coop?: true`.
+- The wire's `isSeat` accepts 0 to 2 (a frame is parsed before its config is consulted). A seat-2 stamp in a two-seat room is then
+  refused where every bad order is: `sideOfSeat(2)` names no side, so `validateCommand` drops it identically on both clients, and the room
+  never stamps one there in the first place. A test holds both halves.
 - `MatchConfig.coopLevel?: 'easy' | 'medium' | 'hard'`, informational (the lobby's label and a replay's), **never read by the world**: the
   world reads the resolved `withhold` counts on seat 2, as PR 1549 does, so two clients with different `levels.json` still build one world.
 - `validateConfig`, in addition to today's rules, refuses:
@@ -433,7 +436,7 @@ with its falsification in the commit message.
 | **C1** | The three-seat config: `Seat` widened, `seats` of 2 or 3, `coop`, `coopLevel`, validation (§3.5), the by-side readings (`economyRoom`, `roomKindOf`, `factionsBySide`, `endOfSide`), `COMPUTER_LEVELS` twin and its pin | `net`, `app/net` | M |
 | **C2** | N5's seat table, `controls`, `sys` events and the team digest (§2.3, §3.6), shared with N5 | `net`, `app/net` | M (S if N5 landed) |
 | **C3** | The world: `buildMatchWorld` for three seats; split by placement; `typeOfBySeat` per-seat kit; seat 2's `withhold`; the computer at the hostile end | `app/net` | M |
-| **C4** | The room: per-seat arrays of length 3; the computer as a virtual seat (no socket, no stall, no pause, no chat); the runner and `as: 2`; the `commander` message; hashes from human seats; handover; forfeit by side when both humans are gone; `over` agreement from the two humans; mint seat 2 from the level; refuse a co-op `kind: 'bot'`; no record | `worker/match`, `net/protocol` | L |
+| **C4** | The room: per-seat arrays of length 3; the computer as a virtual seat (no socket, no stall, no pause, no chat); the runner and `as: 2`; the `commander` message; hashes from human seats; handover; forfeit by side when both humans are gone; `over` agreement from the two humans; the snapshot pair from the two humans' uploads; mint seat 2 from the level; refuse a co-op `kind: 'bot'`; no record | `worker/match`, `net/protocol` | L |
 | **C5** | The client runner: `RoomComputerRunner` over the room transport, warm standby, handoff on `commander`; the offline path unchanged | `app/net` | M |
 | **C6** | The app: selection, box, groups and order sinks by `controlledByMe`; partner colour (`team.partner`, four CVD variants); seat labels; the handover in the HUD; pings; Surrender as Leave; the lobby entry and the level picker; the snapshot gate for team rooms | `app`, `render`, `data/palette.json` | L |
 | **C7** | Instruments (§9): the three-seat two-client stream, the replay-without-commander check, the snapshot witness arm, the relay end-to-end handoff, the co-op ladder (report), the security review, the run sheet `docs/net/coop-vs-computer.md`; the lead's gate (§9.3) | `tools`, `docs` | M |
