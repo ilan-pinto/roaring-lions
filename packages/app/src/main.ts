@@ -3061,10 +3061,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the pay, and the one place besides the board to change it. A change rewrites the ledger key and starts this briefing again
   // (`req.restart`), so the mission the player deploys is the one the line names. Not on the tutorial (D12), a sandbox or a
   // resumed run (its posture is the save's); read-only under `?fresh`, whose ledger is not the campaign's (`deployPostureDeps`).
+  // Frozen the moment Deploy is answered (`freezePostureLine`, below `loading.done()`): with an intro planned the screen, and
+  // the line, stay up, and a change there would restart a mission that has started, unasked (review finding 2).
+  let freezePostureLine = (): void => undefined;
   if (resumed === null && posture.showsPosture(mission)) {
     const line = posture.posturePicker(posture.deployPostureDeps({ fresh: params.get('fresh') !== null, ledger, store: ledgerStore, restart: () => req.restart() }));
     (stage.querySelector('.rl-loading__orders') ?? stage.querySelector('.rl-loading__box'))?.append(line.el);
     onDispose(line.dispose);
+    freezePostureLine = line.freeze;
   }
   // GH-1393: a resumed mission was briefed and deployed before it was saved: the screen stays up as the loading screen and answers itself.
   if (resumed !== null) loading.deployNow();
@@ -3197,6 +3201,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     teardown();
     throw err;
   }
+  // Deploy is answered: the posture line takes no more changes (GH-1394 slice 2). In the same task as the resolve, so no click
+  // can land between the two.
+  freezePostureLine();
   if (req.signal.aborted) abandon('left before deploy');
 
   // The mission starts HERE, after the player has answered the deploy screen
@@ -3231,7 +3238,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let startInputs: ReturnType<typeof SaveKit.startInputsJson> | null = null;
   // The save library, loaded on demand. Without it (a chunk that will not load) the mission plays and Save and quit is not offered.
   const sk: typeof SaveKit | null = resumeKit ?? (resolvedMission ? await saveKit().catch(() => null) : null);
-  if (req.signal.aborted) return () => undefined;
+  // Torn down, not just left (GH-1394 slice 2 review, finding 2): the renderer and the sim exist by now, and a no-op disposer
+  // returned here would strand them, WebGL context and all.
+  if (req.signal.aborted) abandon('left while the save library was loading');
   if (resolvedMission) {
     try {
       // One ledger for the runtime and the loadout (GH-254), so the roster

@@ -53,6 +53,34 @@ describe('each ruling at its place in main.ts', () => {
     expect(main.search(/posture\.posturePicker\(posture\.deployPostureDeps\(/)).toBeGreaterThan(main.search(/const loading = showLoading\(/));
   });
 
+  it('the deploy line is frozen the moment Deploy is answered (review finding 2)', () => {
+    // The line hands its `freeze` out where it is made, and the default does nothing (no line: the tutorial, a resumed run).
+    expect(main).toMatch(/let freezePostureLine = \(\): void => undefined;\s*if \(resumed === null && posture\.showsPosture\(mission\)\) \{/);
+    expect(main).toMatch(/onDispose\(line\.dispose\);\s*freezePostureLine = line\.freeze;\s*\}/);
+    // The very next statement after `loading.done()` settles, before the abort check and before anything else can yield.
+    expect(main).toMatch(
+      /await loading\.done\(\{ keep: introPlanned !== null \}\);\s*\} catch \(err\) \{\s*teardown\(\);\s*throw err;\s*\}\s*(?:\/\/[^\n]*\n\s*)*freezePostureLine\(\);\s*if \(req\.signal\.aborted\) abandon\('left before deploy'\);/
+    );
+    expect(main.match(/freezePostureLine\(\)/g)?.length).toBe(1);
+  });
+
+  it('an abort after the renderer exists tears the boot down: no exit between the renderer and the intro returns a bare no-op', () => {
+    // The save library's await, after Deploy: the abort there (a posture click in that window, before the freeze existed, or
+    // any navigation) must release the renderer and the sim, as every other abort check below the renderer does.
+    expect(main).toMatch(
+      /const sk: typeof SaveKit \| null = resumeKit \?\? \(resolvedMission \? await saveKit\(\)\.catch\(\(\) => null\) : null\);\s*(?:\/\/[^\n]*\n\s*)*if \(req\.signal\.aborted\) abandon\('[^']+'\);/
+    );
+    const from = main.search(/const \{ ThreeRenderer \} = await import\('@lions\/render\/three'\);/);
+    const to = main.search(/const run = runMissionIntro\(\{/);
+    expect(from).toBeGreaterThan(0);
+    expect(to).toBeGreaterThan(from);
+    const boot = main.slice(from, to);
+    expect(boot).not.toMatch(/if \(req\.signal\.aborted\) return \(\) => undefined;/);
+    // Every remaining bare-no-op exit in that stretch has run `teardown()` just before it.
+    const exits = [...boot.matchAll(/return \(\) => undefined;/g)].map((m) => m.index);
+    for (const at of exits) expect(boot.slice(Math.max(0, at - 160), at), `exit at +${at}`).toMatch(/teardown\(\);/);
+  });
+
   it('the defeat suggestion comes from the posture module and rides the debrief options; nothing else calls it', () => {
     expect(main).toMatch(
       /const suggestion = posture\.defeatSuggestion\(mev\.result, mission, ledger\);\s*const debriefOpts: DebriefOptions = \{[\s\S]{0,120}\.\.\.\(suggestion === null \? \{\} : \{ suggestion \}\),/
