@@ -58,8 +58,95 @@ export function messageShape(msg) {
   return out.sort();
 }
 
-/** Failure strings; `[]` when `tr` has exactly `en`'s keys, each a non-empty string of the same shape. */
-export function chromeCatalogueFailures(file, en, tr) {
+/**
+ * Plural categories a language has BEYOND the `one` and `other` the English messages carry (CLDR; Intl.PluralRules agrees). Russian counts
+ * 1 / 2-4 / 5-20 differently, so its messages say `one`, `few`, `many` and `other`. Every language not listed here keeps the strict rule:
+ * exactly the English option keys. Adding a language with extra categories is one line here, and a test (validate_chrome_catalogue.test.ts)
+ * holds that the table and the platform's plural rules agree.
+ */
+export const EXTRA_PLURAL_CATEGORIES = { ru: ['few', 'many'] };
+
+/** The extra plural categories for a locale id such as `ru` or `es-ES` (matched on the language part). */
+export function pluralExtrasFor(locale) {
+  const lang = String(locale ?? '').split('-')[0].toLowerCase();
+  return EXTRA_PLURAL_CATEGORIES[lang] ?? [];
+}
+
+/** `key {text}` options of the body after `arg, plural,`; the same reading as `messageShape`'s. */
+function optionsOf(rest) {
+  const out = [];
+  let k = 0;
+  while (k < rest.length) {
+    const km = /^\s*([^\s{]+)\s*\{/.exec(rest.slice(k));
+    if (km === null) break;
+    const start = k + km[0].length;
+    let d = 1;
+    let e = start;
+    while (e < rest.length && d > 0) {
+      if (rest[e] === '{') d += 1;
+      else if (rest[e] === '}') d -= 1;
+      e += 1;
+    }
+    out.push([km[1], rest.slice(start, e - 1)]);
+    k = e;
+  }
+  return out;
+}
+
+/**
+ * Takes a translation's extra plural categories OUT of `msg`, so what is left can be compared with the English by the ordinary shape rule.
+ * Every plural argument must carry each of `extras`, and each extra branch must hold the same placeholders (and `#`) as its `other` branch.
+ * Returns the message without the extras and the problems found. With no `extras` it changes nothing.
+ */
+export function withoutExtraPlurals(msg, extras) {
+  const problems = [];
+  if (extras.length === 0) return { text: msg, problems };
+  const walk = (s) => {
+    let out = '';
+    let i = 0;
+    while (i < s.length) {
+      const open = s.indexOf('{', i);
+      if (open < 0) return out + s.slice(i);
+      out += s.slice(i, open);
+      let depth = 1;
+      let j = open + 1;
+      while (j < s.length && depth > 0) {
+        if (s[j] === '{') depth += 1;
+        else if (s[j] === '}') depth -= 1;
+        j += 1;
+      }
+      if (depth !== 0) return out + s.slice(open);
+      const body = s.slice(open + 1, j - 1);
+      const m = /^\s*([A-Za-z0-9_]+)\s*,\s*(plural|select)\s*,([\s\S]*)$/.exec(body);
+      if (m === null) out += `{${body}}`;
+      else {
+        const branches = optionsOf(m[3]).map(([k, t]) => [k, walk(t)]);
+        if (m[2] === 'plural') {
+          const other = branches.find(([k]) => k === 'other');
+          for (const e of extras) {
+            const b = branches.find(([k]) => k === e);
+            if (b === undefined) problems.push(`plural "${m[1]}" has no "${e}" branch`);
+            else if (other !== undefined && (messageShape(b[1]).join(' ') !== messageShape(other[1]).join(' ') || b[1].includes('#') !== other[1].includes('#'))) {
+              problems.push(`plural "${m[1]}" branch "${e}" has different placeholders from "other"`);
+            }
+          }
+          out += `{${m[1]}, plural, ${branches.filter(([k]) => !extras.includes(k)).map(([k, t]) => `${k} {${t}}`).join(' ')}}`;
+        } else out += `{${m[1]}, select, ${branches.map(([k, t]) => `${k} {${t}}`).join(' ')}}`;
+      }
+      i = j;
+    }
+    return out;
+  };
+  return { text: walk(msg), problems };
+}
+
+/**
+ * Failure strings; `[]` when `tr` has exactly `en`'s keys, each a non-empty string of the same shape.
+ * `opts.locale` names the language (`ru`, `es-ES`): a language with extra plural categories (`EXTRA_PLURAL_CATEGORIES`) may, and must, carry
+ * them in every plural; every other language must carry exactly the English option keys.
+ */
+export function chromeCatalogueFailures(file, en, tr, opts = {}) {
+  const extras = pluralExtrasFor(opts.locale);
   const out = [];
   if (tr === null || typeof tr !== 'object' || Array.isArray(tr)) return [`${file}: not a JSON object of key -> text`];
   for (const key of Object.keys(en)) {
@@ -67,7 +154,9 @@ export function chromeCatalogueFailures(file, en, tr) {
     const v = tr[key];
     if (typeof v !== 'string' || v.trim() === '') { out.push(`${file}: "${key}" is not a non-empty string`); continue; }
     const want = messageShape(en[key]).join(' ');
-    const got = messageShape(v).join(' ');
+    const stripped = withoutExtraPlurals(v, extras);
+    for (const p of stripped.problems) out.push(`${file}: "${key}": ${p}`);
+    const got = messageShape(stripped.text).join(' ');
     if (want !== got) out.push(`${file}: "${key}" has the wrong placeholders (English: ${want || 'none'}; here: ${got || 'none'})`);
   }
   for (const key of Object.keys(tr)) if (!(key in en)) out.push(`${file}: "${key}" is not a key of en.json`);

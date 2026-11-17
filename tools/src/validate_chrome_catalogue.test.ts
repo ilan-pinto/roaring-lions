@@ -4,9 +4,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildChromeSource, chromeCatalogueFailures, chromeSourceFailures, messageShape } from '../validate_chrome_catalogue.mjs';
+import { EXTRA_PLURAL_CATEGORIES, buildChromeSource, chromeCatalogueFailures, chromeSourceFailures, messageShape, pluralExtrasFor, withoutExtraPlurals } from '../validate_chrome_catalogue.mjs';
 
-const fails = (en: Record<string, string>, tr: unknown): string[] => chromeCatalogueFailures('de.json', en, tr) as string[];
+const fails = (en: Record<string, string>, tr: unknown, locale?: string): string[] => chromeCatalogueFailures('de.json', en, tr, { locale }) as string[];
 const EN = {
   'a.plain': 'Back',
   'a.name': 'Mute {name}',
@@ -70,7 +70,7 @@ describe('every shipped chrome catalogue beside en.json', () => {
   const others = readdirSync(dir).filter((f) => f.endsWith('.json') && f !== 'en.json');
   for (const f of others) {
     it(`${f} has every key of en.json, the same shapes, and nothing else`, () => {
-      expect(fails(en, JSON.parse(readFileSync(join(dir, f), 'utf8')))).toEqual([]);
+      expect(fails(en, JSON.parse(readFileSync(join(dir, f), 'utf8')), f.slice(0, -'.json'.length))).toEqual([]);
     });
   }
   it('en.json itself is self-consistent under the shape reader (no unparsed or unbalanced message)', () => {
@@ -148,3 +148,54 @@ describe('every shipped chrome catalogue has a current sidecar', () => {
     });
   }
 });
+
+// Russian counts 1 / 2-4 / 5-20 differently, so its plurals carry one, few, many and other. Only languages in EXTRA_PLURAL_CATEGORIES may.
+describe('extra plural categories (ru)', () => {
+  const EN_PL = { k: '{n, plural, one {# unit} other {# units}} at {x}', z: '{n, plural, =0 {none} one {# unit} other {# units}}' };
+  const RU = {
+    k: '{n, plural, one {# единица} few {# единицы} many {# единиц} other {# единицы}} в {x}',
+    z: '{n, plural, =0 {нет} one {# единица} few {# единицы} many {# единиц} other {# единицы}}',
+  };
+  it('accepts four forms for ru, with the English exact branches kept, and the strict two for everyone else', () => {
+    expect(fails(EN_PL, RU, 'ru')).toEqual([]);
+    expect(fails(EN_PL, { ...RU, k: '{n, plural, one {# unit} other {# units}} at {x}' }, 'ru')).toHaveLength(2); // ru without few and many
+    expect(fails(EN_PL, { k: '{n, plural, one {# Einheit} other {# Einheiten}} bei {x}', z: '{n, plural, =0 {keine} one {# Einheit} other {# Einheiten}}' }, 'de')).toEqual([]);
+  });
+  it('refuses few and many for a language that is not listed: the check is not weakened for the others', () => {
+    for (const locale of ['de', 'fr', 'es-ES', 'en', undefined]) expect(fails(EN_PL, RU, locale).length, String(locale)).toBeGreaterThan(0);
+  });
+  it('names a missing few or many, and a form whose placeholders differ from other', () => {
+    const noMany = { ...RU, k: '{n, plural, one {# единица} few {# единицы} other {# единицы}} в {x}' };
+    expect(fails(EN_PL, noMany, 'ru')[0]).toMatch(/no "many" branch/);
+    const noFew = { ...RU, k: '{n, plural, one {# единица} many {# единиц} other {# единицы}} в {x}' };
+    expect(fails(EN_PL, noFew, 'ru')[0]).toMatch(/no "few" branch/);
+    const driftedFew = { ...RU, k: '{n, plural, one {# единица} few {# единицы {x}} many {# единиц} other {# единицы}} в {x}' };
+    expect(fails(EN_PL, driftedFew, 'ru')[0]).toMatch(/branch "few" has different placeholders/);
+    const lostHash = { ...RU, k: '{n, plural, one {# единица} few {единицы} many {# единиц} other {# единицы}} в {x}' };
+    expect(fails(EN_PL, lostHash, 'ru')[0]).toMatch(/branch "few" has different placeholders/);
+  });
+  it('still holds everything else for ru: the option keys of the English, the arguments and the exact branches', () => {
+    expect(fails(EN_PL, { ...RU, z: '{n, plural, one {# единица} few {# единицы} many {# единиц} other {# единицы}}' }, 'ru')[0]).toMatch(/"z"/); // =0 dropped
+    expect(fails(EN_PL, { ...RU, k: '{count, plural, one {# единица} few {# единицы} many {# единиц} other {# единицы}} в {x}' }, 'ru')[0]).toMatch(/"k"/); // renamed argument
+    expect(fails(EN_PL, { ...RU, k: '{n, plural, one {# единица} few {# единицы} many {# единиц} other {# единицы}}' }, 'ru')[0]).toMatch(/"k"/); // {x} lost
+    expect(fails({ s: '{r, select, a {A} other {B}}' }, { s: '{r, select, a {А} few {Б} other {В}}' }, 'ru')[0]).toMatch(/"s"/); // few in a select is not a plural form
+  });
+  it('a plural nested inside a select option is read too', () => {
+    const en = { m: '{r, select, a {{n, plural, one {# man} other {# men}}} other {x}}' };
+    const ok = { m: '{r, select, a {{n, plural, one {# человек} few {# человека} many {# человек} other {# человека}}} other {х}}' };
+    expect(fails(en, ok, 'ru')).toEqual([]);
+    expect(fails(en, { m: '{r, select, a {{n, plural, one {# человек} other {# человека}}} other {х}}' }, 'ru')[0]).toMatch(/no "few" branch/);
+  });
+  it('the table agrees with the platform\'s plural rules: ru has few and many beyond one/other, de/fr/es-ES/en need no more than one/other here', () => {
+    expect(EXTRA_PLURAL_CATEGORIES).toEqual({ ru: ['few', 'many'] });
+    expect(new Intl.PluralRules('ru').resolvedOptions().pluralCategories.sort()).toEqual(['few', 'many', 'one', 'other']);
+    expect(pluralExtrasFor('ru')).toEqual(['few', 'many']);
+    expect(pluralExtrasFor('RU')).toEqual(['few', 'many']);
+    for (const l of ['en', 'de', 'fr', 'es-ES', undefined]) expect(pluralExtrasFor(l as string), String(l)).toEqual([]);
+  });
+  it('withoutExtraPlurals changes nothing when there are no extras', () => {
+    const m = '{n, plural, one {a} few {b} other {c}}';
+    expect(withoutExtraPlurals(m, [])).toEqual({ text: m, problems: [] });
+  });
+});
+

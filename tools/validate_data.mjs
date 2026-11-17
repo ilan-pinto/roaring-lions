@@ -1261,7 +1261,7 @@ const garrisonableSymbols = new Set(
       const file = join(i18nDir, entry.name);
       const tr = loadJson(file);
       if (!tr) continue;
-      failures.push(...chromeCatalogueFailures(rel(file), en, tr));
+      failures.push(...chromeCatalogueFailures(rel(file), en, tr, { locale: entry.name.slice(0, -'.json'.length) }));
       // The stale-translation guard: data/locales/<id>/chrome.src.json carries the hash of the English each string was translated from.
       const id = entry.name.slice(0, -'.json'.length);
       const srcFile = join(ROOT, 'data/locales', id, 'chrome.src.json');
