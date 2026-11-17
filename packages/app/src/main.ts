@@ -3217,7 +3217,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let startInputs: ReturnType<typeof SaveKit.startInputsJson> | null = null;
   // The save library, loaded on demand. Without it (a chunk that will not load) the mission plays and Save and quit is not offered.
   const sk: typeof SaveKit | null = resumeKit ?? (resolvedMission ? await saveKit().catch(() => null) : null);
-  if (req.signal.aborted) return () => undefined;
+  // `abandon`, never a bare `() => undefined`: the renderer, its canvas, the transport and the loading screen all exist by now, and the
+  // router runs the disposer a stale mount returns rather than tearing down for it, so a no-op here kept them all (WebGL context included).
+  if (req.signal.aborted) abandon('left while the save kit loaded');
   if (resolvedMission) {
     try {
       // One ledger for the runtime and the loadout (GH-254), so the roster
