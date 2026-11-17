@@ -117,16 +117,6 @@ export function savedMissionOtherThan(store: KeyStore | null, missionId: string,
 }
 
 /** Removes the record. False when the browser refused, so the caller can say so instead of showing a card that is still there. */
-/**
- * The mission whose save is stored now, when it is NOT `missionId` (GH-1393 follow-up): the one save slot would be replaced by a Save for
- * `missionId`, and the pause menu asks first. Null when the slot is empty, unreadable, unavailable, refused (a save that cannot load is
- * not worth a warning: Discard on the card is its own door) or this mission's own (a re-save is an ordinary checkpoint).
- */
-export function savedMissionOtherThan(store: KeyStore | null, missionId: string, o: ParseOptions = {}): string | null {
-  const r = readSuspended(store, o);
-  return r.state === 'ready' && r.record.missionId !== missionId ? r.record.missionId : null;
-}
-
 export function discardSuspended(store: KeyStore | null): boolean {
   if (store === null) return false;
   try {
