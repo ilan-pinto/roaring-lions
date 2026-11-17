@@ -101,6 +101,7 @@
     "@lions/sim": "workspace:*"
   },
   "devDependencies": {
+    "@electron/packager": "20.3.0",
     "@gltf-transform/core": "^4.5.1",
     "@gltf-transform/extensions": "^4.5.1",
     "@gltf-transform/functions": "^4.5.1",

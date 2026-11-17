@@ -285,3 +285,6 @@ art/meshy/demo-squad-body-20261112-01a1d14f/model.*
 art/meshy/demo-squad-body-20261112-01a1d14f/texture_*
 art/meshy/demo-squad-body-20261112-01a1d151/model.*
 art/meshy/demo-squad-body-20261112-01a1d151/texture_*
+
+# GH-1418 desktop spike (tools/desktop/build-local.mjs): the unsigned local Electron bundle, its staging dir and the Electron zip cache.
+/dist-desktop/
