@@ -76,6 +76,8 @@ export const bt4Plan: Plan = (sim, rt, ids, at) => {
   let through = false;
   let stageX = 20;
   const claimed = new Map<number, number>(); // blade -> structure
+  const claimedAt = new Map<number, number>();
+  const banned = new Map<string, number>();
   const mid = (st: number) => ({ x: (S.minX[st] + S.maxX[st] + 1) / 2, y: (S.minY[st] + S.maxY[st] + 1) / 2 });
   const dist2 = (i: number, st: number) => (px(i) - mid(st).x) ** 2 + (py(i) - mid(st).y) ** 2;
   const tunnelOrdered = new Set<number>();
@@ -115,7 +117,8 @@ export const bt4Plan: Plan = (sim, rt, ids, at) => {
           sim.queueCommand({ kind: 'move', ids: live(lavis).slice(0, 1), ...M(31, 28.5) });
           sim.queueCommand({ kind: 'move', ids: live(lavis).slice(1), ...M(30, 27.5) });
           sim.queueCommand({ kind: 'move', ids: live(snip), ...M(sniperSpot(29.5), 28.5) });
-          sim.queueCommand({ kind: 'move', ids: live(namers), ...M(27, 27.5) });
+          sim.queueCommand({ kind: 'move', ids: live(namers).slice(0, 1), ...M(28, 25.5) });
+          sim.queueCommand({ kind: 'move', ids: live(namers).slice(1), ...M(27, 24.5) });
         } else {
           sim.queueCommand({ kind: 'move', ids: live(lavis).slice(0, 1), ...M(stageX, 26.5) });
           sim.queueCommand({ kind: 'move', ids: live(lavis).slice(1), ...M(stageX - 1, 25.5) });
@@ -124,30 +127,38 @@ export const bt4Plan: Plan = (sim, rt, ids, at) => {
         }
         last = new Map();
       }
-      // the shafts: the Yahalom teams, west and centre first, the east mouth once the near end of the barrier is down
-      // (a team that stands still far from its route is re-sent every few seconds: the first order can be given before the way is open)
-      const MOUTH = [[14, 24, 14, 20], [24, 25, 24, 21], [31, 26, 32, 21]];
+      // the shafts: the Yahalom teams, west and centre first, the east mouth once the near end of the barrier is down. A team ordered onto a route
+      // walks to the NEAREST tile of it, which from the north is the vent (a buried cell comes up there), so it is first walked to the road below
+      // the mouth and ordered from there; a team that stands still short of its mouth is walked again.
+      const MOUTH = [[14, 24, 12.5, 25.5], [24, 25, 22.5, 26.5], [31, 26, 29.5, 27.5]];
       for (const [k, y] of [[0, 0], [1, 1], [2, 0]] as const) {
         if (k === 2 && (westBar.length > 0 || sim.tnAlive[0] + sim.tnAlive[1] > 0)) continue;
         if (sim.tnAlive[k] === 0) continue;
         if (foesIn(sim, [MOUTH[k][0] - 9, 19, 18, 12]).length > 0) continue;
         const team = live(yah)[y] ?? live(yah)[0];
         if (team === undefined) continue;
-        const [mx, my, wx, wy] = MOUTH[k];
-        const near = Math.min(Math.hypot(px(team) - mx, py(team) - my), Math.hypot(px(team) - wx, py(team) - wy));
-        if (!tunnelOrdered.has(k) || (s % 4 === 0 && sim.state.moving[team] === 0 && near > 5)) {
-          tunnelOrdered.add(k);
-          sim.queueCommand({ kind: 'chargeTunnel', ids: [team], tunnel: k });
-        }
+        const [mx, my, sx, sy] = MOUTH[k];
+        const atMouth = Math.hypot(px(team) - mx, py(team) - my) <= 5;
+        const idle = sim.state.moving[team] === 0;
+        if (!tunnelOrdered.has(k)) {
+          if (atMouth) {
+            tunnelOrdered.add(k);
+            sim.queueCommand({ kind: 'chargeTunnel', ids: [team], tunnel: k });
+          } else if (idle || s % 10 === 0) sim.queueCommand({ kind: 'move', ids: [team], ...M(sx, sy) });
+        } else if (s % 4 === 0 && idle && !atMouth) tunnelOrdered.delete(k);
       }
-      // blades: nearest unclaimed work, gated by the barrier
+      // blades: nearest unclaimed work, gated by the barrier. A blade that has not brought its work down in 25 s is jammed (armour on its approach):
+      // it drops that work for 40 s and takes another.
       for (const b of live(blades)) {
         const cur = claimed.get(b);
-        if (cur !== undefined && S.alive[cur] === 1) continue;
+        if (cur !== undefined && S.alive[cur] === 1) {
+          if (s - (claimedAt.get(b) ?? s) < 25) continue;
+          banned.set(`${b}:${cur}`, s + 40);
+        }
         const limit = bar.length === 0 ? 99 : westBar.length === 0 && eastK.length > 0 ? 33 : 26;
-        const cand = works.filter((w) => S.alive[w] === 1 && ![...claimed.entries()].some(([k, v]) => v === w && k !== b && sim.state.alive[k] === 1 && S.alive[v] === 1) && S.minX[w] <= limit);
+        const cand = works.filter((w) => S.alive[w] === 1 && (banned.get(`${b}:${w}`) ?? 0) <= s && ![...claimed.entries()].some(([k, v]) => v === w && k !== b && sim.state.alive[k] === 1 && S.alive[v] === 1) && S.minX[w] <= limit);
         cand.sort((a, c) => dist2(b, a) - dist2(b, c));
-        if (cand.length > 0) { claimed.set(b, cand[0]); sim.queueCommand({ kind: 'demolish', ids: [b], structure: cand[0] }); }
+        if (cand.length > 0) { claimed.set(b, cand[0]); claimedAt.set(b, s); sim.queueCommand({ kind: 'demolish', ids: [b], structure: cand[0] }); }
       }
     }
     if (leeDead && !through && works.every((w) => S.alive[w] === 0)) {
