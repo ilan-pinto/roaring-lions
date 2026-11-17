@@ -168,7 +168,7 @@ describe('item states', () => {
   // GH-330: a new campaign pays again, so a bought-only unit priced past one
   // campaign's pay is reachable across campaigns and is NOT off sale (G1).
   it('G1: a bought-only unit priced past one campaign of pay stays on the shelf', () => {
-    // Qasr Liwan (2026-11-15) lifted one campaign's pay to 8,115, past the gunship's 8,000 (Bir Tarsha took it to 9,232, past the first ghost price of 9,000), so the gunship is no longer the
+    // Qasr Liwan (2026-11-15) lifted one campaign's pay to 8,115, past the gunship's 8,000 (Bir Tarsha took it to 9,242, past the first ghost price of 9,000), so the gunship is no longer the
     // case this spec exists for; a ghost unit priced above one campaign is. The gunship's own lines below still hold.
     const GHOST_PRICE = 10000;
     expect(GHOST_PRICE).toBeGreaterThan(CAMPAIGN_CREDITS);
@@ -339,7 +339,7 @@ describe('G1 can fail: an item play cannot reach goes off sale (GH-1385)', () =>
   });
   it('reachableByPlay is the predicate itself: an open gate, and each way to be unreachable', () => {
     expect(reachableByPlay({ roeMin: 90, starsMin: 44, price: 4250 })).toBe(true);
-    expect(reachableByPlay({ price: 10000 })).toBe(true); // past one campaign of pay (9,232), still finite
+    expect(reachableByPlay({ price: 10000 })).toBe(true); // past one campaign of pay (9,242), still finite
     expect(reachableByPlay({ roeMin: 101 })).toBe(false);
     expect(reachableByPlay({ starsMin: 118 })).toBe(false);
     expect(reachableByPlay({ price: -1 })).toBe(false);

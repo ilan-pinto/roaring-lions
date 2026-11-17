@@ -92,15 +92,15 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Was 6955: GH-1360 S3b (2026-11-15), the shipped missions start in the assembly layout, -32 over sixteen missions; reasons beside `LADDER_CREDITS`.
 // Was 6923: Qasr Liwan (2026-11-16, GH-1438), the five new missions on the assembly layout, +1170 (240 + 220 + 250 + 230 + 230); reasons beside `LADDER_CREDITS`.
 // Was 8093: Bir Tarsha (2026-11-17, GH-1438), the four missions I, II, III and V on the assembly layout, +834 (reasons beside `LADDER_CREDITS`).
-// Was 8927: Bir Tarsha IV (2026-11-17, GH-1438), +305 (IV 295 on seed 424242); reasons beside `LADDER_CREDITS`.
-export const CAMPAIGN_CREDITS = 9232;
+// Was 8927: Bir Tarsha IV (2026-11-17, GH-1438), +315 (IV 305 on seed 424242); reasons beside `LADDER_CREDITS`.
+export const CAMPAIGN_CREDITS = 9242;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 // Was 26: GH-912 (2026-10-31), the ladder is over 29 missions now (`pnpm playtest` prints "credit ladder: 7007 over 29
 // missions"); left at 26 the mean pay would read 267 where the ladder's own mean is 239.
 // Was 29: Qasr Liwan (2026-11-15, GH-1438), the ladder is over 34 missions (`pnpm playtest` prints "credit ladder: 8093 over 34 missions").
 // Was 34: Bir Tarsha (2026-11-17, GH-1438), the ladder is over 38 missions (`pnpm playtest` prints "credit ladder: 8927 over 38 missions").
-// Was 38: Bir Tarsha IV (2026-11-17, GH-1438), the ladder is over 39 missions (`pnpm playtest` prints "credit ladder: 9232 over 39 missions").
+// Was 38: Bir Tarsha IV (2026-11-17, GH-1438), the ladder is over 39 missions (`pnpm playtest` prints "credit ladder: 9242 over 39 missions").
 export const LADDER_MISSIONS = 39;
 
 /** The most a Conduct floor can ask: the rating is out of 100, so a floor of 101 is a gate no play opens. */
