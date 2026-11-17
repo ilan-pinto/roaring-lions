@@ -53,6 +53,10 @@
 // stepMovement's min and median over them is the number the spacing slices compare. Both sides are ordered and the
 // roster is the harness's (not 300 foot and 100 vehicles): the table prints what was ordered, by class. --map=<id> picks the world's map (default
 // beit_sahwan_outskirts, which is what docs/PERFORMANCE.md's curve used; qarn_hadid is the spec's).
+//
+// The output opens with a capture-conditions block (GH-1411, `capture-conditions.ts`): commit, node, CPU model, core
+// count, load average, date and backend (`CPU only`), and closes with the load average at the end. Quote both with
+// any figure taken from it.
 
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -67,6 +71,7 @@ import {
   summarize,
   type SampleStats,
 } from './three-units';
+import { NODE_ENV, conditionsBlock, formatLoad, readConditions, type ConditionsEnv } from './capture-conditions';
 
 // ============================================================================
 // CLI args
@@ -241,7 +246,17 @@ const median = (xs: readonly number[]): number => {
   return s.length % 2 === 1 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
 };
 
+/** This tool runs `sim.tick()` in Node alone: no browser, no renderer, no GPU. */
+export const SIM_SCALING_BACKEND = 'CPU only (Node, no browser, no renderer, no GPU)';
+
+/** The conditions block this tool prints before anything else (GH-1411). */
+export function simScalingConditions(env: ConditionsEnv = NODE_ENV): string[] {
+  return conditionsBlock(readConditions(SIM_SCALING_BACKEND, env));
+}
+
 async function main(): Promise<void> {
+  for (const line of simScalingConditions()) console.log(line);
+  console.log('');
   const { checkpoints, ticks: timedTicks, warmup, maxRoutes, scene, runs, map: mapArg } = parseArgs(process.argv.slice(2));
   const capacity = checkpoints[checkpoints.length - 1] + 100;
 
@@ -426,6 +441,8 @@ async function main(): Promise<void> {
     console.log(`  ${'  markerSeeingRoute'.padEnd(18)} ${r.markerSeeingRouteAvgMs.toFixed(4).padStart(9)}ms`);
     console.log(`  ${'flowField.compute'.padEnd(18)} ${r.flowFieldComputeAvgMs.toFixed(4).padStart(9)}ms  (${r.flowFieldComputeCalls} calls across ${timedTicks} ticks)`);
   }
+  console.log('');
+  console.log(`Load average at the end: ${formatLoad(NODE_ENV)}`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((err: unknown) => {

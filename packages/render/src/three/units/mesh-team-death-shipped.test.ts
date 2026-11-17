@@ -199,6 +199,8 @@ describe('which death path each shipped rig takes', () => {
     yahalom_squad: 'falling',
     // GH-709 phase 3 (22 Oct): the grenadier squad plays inf_squad's captures.
     inf_grenadier: 'falling',
+    // GH-826 unit 1 (13 Nov 2026): the Combat Engineers are a skinned Meshy body on the same captures (`fall` ships).
+    demo_squad: 'falling',
   };
 
   it.each(shippedTeams())('%s', async (team) => {

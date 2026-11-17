@@ -22,6 +22,23 @@
       "deliver_mortar": "Mortar team arrives",
       "contact_by_the_clinic": "Enemy digging by the clinic",
       "digger_at_the_camp": "Someone digging by the camp"
+    },
+    "src": {
+      "name": "09192e96",
+      "briefing": "21004df7",
+      "objectives.work_up": "fadba5cc",
+      "objectives.bring_them_in": "49b6d5ef",
+      "triggers.contact_east": "a42dbd8b",
+      "triggers.contacts_ahead": "8592ff52",
+      "triggers.deliver_second_squad": "b82a6738",
+      "triggers.enter_rocks": "02ed4c51",
+      "triggers.deliver_mortar": "5f150bba",
+      "triggers.contact_by_the_clinic": "42f88625",
+      "triggers.digger_at_the_camp": "6414a27e",
+      "debrief.victory": "84b7cb6b",
+      "sections.situation": "0aeb69b0",
+      "sections.mission": "db2abc87",
+      "sections.notes": "7561fe3b"
     }
   },
   "beit_sahwan_1_recon": {
@@ -50,6 +67,22 @@
     },
     "trigger_say": {
       "hunt_the_scouts": "Both technicals are off the eastern road and running for the assembly area. They are hunting the drone, not you."
+    },
+    "src": {
+      "name": "06bf94d8",
+      "briefing": "a69918cf",
+      "objectives.picture": "d9d3e148",
+      "objectives.hvt_seen": "1b7d3ec3",
+      "objectives.find_the_column": "1a0b4baa",
+      "triggers.hunt_the_scouts": "255b9f64",
+      "debrief.victory": "f9b3eaaa",
+      "sections.situation": "2ced46e8",
+      "sections.mission": "08bda4b5",
+      "sections.execution": "0788c41b",
+      "sections.notes": "e6ef8ccf",
+      "objective_say.picture": "2d3d69cb",
+      "objective_say.hvt_seen": "7b7a64a8",
+      "trigger_say.hunt_the_scouts": "f40723f1"
     }
   },
   "beit_sahwan_2_foothold": {
@@ -82,6 +115,24 @@
     "wave_say": {
       "1": "Second lot out of the town centre, same track as the first.",
       "2": "Technicals off the mortar line. They only have the one road east and they keep using it."
+    },
+    "src": {
+      "name": "1f3d0fae",
+      "briefing": "dfd7170c",
+      "objectives.hold_west": "9d60b14f",
+      "objectives.collapse_tunnel": "442823a4",
+      "triggers.flank_delivery_rolls": "131a11b3",
+      "triggers.flank_delivery_drops": "ffa7ef5c",
+      "debrief.victory": "87631977",
+      "sections.situation": "95d0f0d1",
+      "sections.mission": "b003c902",
+      "sections.execution": "a66cfd9f",
+      "sections.notes": "d320d7fc",
+      "objective_say.collapse_tunnel": "537e3e43",
+      "trigger_say.flank_delivery_rolls": "156a09bc",
+      "trigger_say.flank_delivery_drops": "a18b2fe5",
+      "wave_say.1": "e12c07ba",
+      "wave_say.2": "20d6f67c"
     }
   },
   "beit_sahwan_3_clearance": {
@@ -111,6 +162,23 @@
     },
     "trigger_say": {
       "reserve_counterattack": "The southern cell has left its own block and is running for the town centre. He has decided he can spend it."
+    },
+    "src": {
+      "name": "d4c3847b",
+      "briefing": "535b9893",
+      "objectives.picture": "b16746a0",
+      "objectives.kill_atgm": "9f6c1178",
+      "objectives.take_town": "c15b9f38",
+      "triggers.reserve_counterattack": "d2fe8fa0",
+      "debrief.victory": "5f4863a7",
+      "debrief.defeat": "d465cfe9",
+      "sections.situation": "97cf6655",
+      "sections.mission": "3833b6f6",
+      "sections.execution": "120ac4d3",
+      "sections.notes": "768019bf",
+      "objective_say.kill_atgm": "deba2d94",
+      "objective_say.take_town": "ebaefdfd",
+      "trigger_say.reserve_counterattack": "f6a37ec0"
     }
   },
   "beit_sahwan_4_subterranean": {
@@ -146,6 +214,29 @@
     },
     "wave_say": {
       "1": "Last of what the mortar line can send. After this he is spending the ones underground."
+    },
+    "src": {
+      "name": "c9abe1be",
+      "briefing": "8ce1b9df",
+      "objectives.bring_it_down": "e5bb2d06",
+      "objectives.read_the_ground": "4acfd52d",
+      "objectives.get_them_out": "132b3d66",
+      "objectives.take_the_shaft_head": "a7d2e8b7",
+      "objectives.find_spade": "da8ec255",
+      "aftermath": "f882c5da",
+      "hostages_place": "83b376f3",
+      "debrief.victory": "fc41956d",
+      "debrief.defeat": "84df9ce7",
+      "sections.situation": "9bb63df3",
+      "sections.mission": "3f2accd6",
+      "sections.execution": "d5a8f0e2",
+      "sections.notes": "0dc13301",
+      "objective_say.read_the_ground": "a3cb3dba",
+      "objective_say.get_them_out": "f6fedba3",
+      "objective_say.take_the_shaft_head": "72ea9cfa",
+      "objective_say_on_fail.bring_it_down": "68b7b2f2",
+      "objective_say_on_fail.get_them_out": "232994e9",
+      "wave_say.1": "c220fa50"
     }
   },
   "beit_sahwan_breach": {
@@ -188,6 +279,32 @@
       "0": "Every approach at once. There is no main effort in this — he does not need one.",
       "2": "That is a charge squad walking onto the north-west face. Whatever is out there is out there now.",
       "4": "South-east now. Same face, other corner — he is reading which one you reinforced."
+    },
+    "src": {
+      "name": "db53752d",
+      "briefing": "a792d059",
+      "objectives.survive_relief": "635b361c",
+      "objectives.evac_settlements": "4ea16990",
+      "triggers.villages_rise": "7821028c",
+      "triggers.they_take_the_south_village": "2cad659a",
+      "triggers.they_come_for_the_west_families": "e01eeb04",
+      "triggers.the_last_village_goes": "3849b448",
+      "dispatch": "f457ec60",
+      "debrief.victory": "8953a12a",
+      "debrief.defeat": "369939b9",
+      "sections.situation": "fd262b37",
+      "sections.mission": "b5c071e5",
+      "sections.notes": "90c8cd72",
+      "objective_say.evac_settlements": "f6fdb7cf",
+      "objective_say_on_fail.evac_settlements": "a54ddb42",
+      "trigger_say.villages_rise": "67cfcd43",
+      "trigger_say.they_take_the_south_village": "80097386",
+      "trigger_say.they_come_for_the_west_families": "8531a6cd",
+      "trigger_say.the_last_village_goes": "0f1e1842",
+      "trigger_say.the_ring_closes": "247c685b",
+      "wave_say.0": "c22390a2",
+      "wave_say.2": "1a1f05a7",
+      "wave_say.4": "6a792482"
     }
   },
   "deir_amun_1_recon": {
@@ -230,6 +347,32 @@
     },
     "wave_say": {
       "0": "Two sections down through the west gap for the gully head. They are not defending a village; there is nobody in it. They are defending the work."
+    },
+    "src": {
+      "name": "ed153c67",
+      "briefing": "dcbe8f6e",
+      "objectives.find_the_crew": "e6e4d453",
+      "objectives.bring_down_the_west": "959b7632",
+      "objectives.find_the_chief": "296dabc3",
+      "objectives.find_the_gap_gun": "64ae0561",
+      "objectives.screen_out": "b9e77a97",
+      "triggers.the_crew_stops_digging_and_turns_round": "53f35b44",
+      "triggers.the_bed_is_a_road_and_it_is_theirs": "ddb562ab",
+      "dispatch": "7df96ed9",
+      "debrief.victory": "11e7f75d",
+      "debrief.defeat": "8cc8a97c",
+      "sections.situation": "94c6c7c0",
+      "sections.mission": "b17d2967",
+      "sections.execution": "c0f8efd0",
+      "sections.notes": "e883c5e9",
+      "objective_say.find_the_crew": "aa801827",
+      "objective_say.bring_down_the_west": "78f8064c",
+      "objective_say.find_the_chief": "f03d1528",
+      "objective_say.find_the_gap_gun": "ab646084",
+      "objective_say_on_fail.bring_down_the_west": "fa0328cc",
+      "trigger_say.the_crew_stops_digging_and_turns_round": "bf4e0c2d",
+      "trigger_say.the_bed_is_a_road_and_it_is_theirs": "2f6f7e27",
+      "wave_say.0": "d2fd0523"
     }
   },
   "deir_amun_2_foothold": {
@@ -272,6 +415,32 @@
     },
     "wave_say": {
       "2": "Two sections across the centre ford. They are not going to the yard — they are going to the camp on the bank, and the camp is four tiles from that ford."
+    },
+    "src": {
+      "name": "24460084",
+      "briefing": "2ba86986",
+      "objectives.hold_the_yard": "f4c130b6",
+      "objectives.shut_the_door": "f9255fd1",
+      "objectives.take_the_store_yard": "7bfc6da9",
+      "objectives.kill_the_gap_gun": "ea5b9816",
+      "triggers.the_village_comes_down_to_the_yard": "e2f10393",
+      "triggers.the_yard_party_falls_back_up_the_lane": "6c8178fd",
+      "triggers.a_charge_squad_comes_down_the_lane": "75d841cf",
+      "debrief.victory": "9a5daaea",
+      "debrief.defeat": "dacfcb6a",
+      "sections.situation": "2e1d3aa0",
+      "sections.mission": "22fae957",
+      "sections.execution": "06498404",
+      "sections.notes": "4536fc86",
+      "objective_say.hold_the_yard": "19da2adc",
+      "objective_say.shut_the_door": "bd1a841d",
+      "objective_say.take_the_store_yard": "36809b62",
+      "objective_say.kill_the_gap_gun": "a0e65e76",
+      "objective_say_on_fail.shut_the_door": "ae54ef59",
+      "trigger_say.the_village_comes_down_to_the_yard": "e9cde5c1",
+      "trigger_say.the_yard_party_falls_back_up_the_lane": "d1105aa7",
+      "trigger_say.a_charge_squad_comes_down_the_lane": "85d173ba",
+      "wave_say.2": "6c3c74cc"
     }
   },
   "deir_amun_3_subterranean": {
@@ -313,6 +482,31 @@
     },
     "wave_say": {
       "1": "One rocket team and a technical up the west flank road. That is the last of what the flanks can send; after this he is spending what is underground."
+    },
+    "src": {
+      "name": "04638a31",
+      "briefing": "0344e36c",
+      "objectives.all_four": "7904dd51",
+      "objectives.kill_the_chief": "7902bafd",
+      "objectives.clear_the_ground": "1648fbd1",
+      "objectives.screen_out": "b9e77a97",
+      "triggers.the_village_comes_out_of_its_houses": "637cad50",
+      "triggers.he_falls_back_onto_his_own_spoil": "b152e511",
+      "triggers.a_charge_squad_comes_for_the_engineers": "7f82a4bd",
+      "aftermath": "4a2a183a",
+      "debrief.victory": "5324aabc",
+      "debrief.defeat": "59eda46d",
+      "sections.situation": "848ff873",
+      "sections.execution": "45d2a4db",
+      "sections.notes": "f7899bc0",
+      "objective_say.all_four": "82e2a57c",
+      "objective_say.kill_the_chief": "aa976227",
+      "objective_say.clear_the_ground": "fa257086",
+      "objective_say_on_fail.all_four": "7aab39b1",
+      "trigger_say.the_village_comes_out_of_its_houses": "73b6492d",
+      "trigger_say.he_falls_back_onto_his_own_spoil": "a84adbc5",
+      "trigger_say.a_charge_squad_comes_for_the_engineers": "8dc8b4da",
+      "wave_say.1": "8176c86d"
     }
   },
   "ein_qasab_1_recon": {
@@ -347,6 +541,26 @@
     "wave_say": {
       "0": "Two riders off the north-east, and both have come down onto the north causeway. There is nowhere else here for a wheel to go, and every rider after them will do the same.",
       "2": "Two more off the south-east, and they are going to the hamlet, not to you. They are coming to load the yard."
+    },
+    "src": {
+      "name": "d0b7053a",
+      "briefing": "7e7a64ce",
+      "objectives.picture": "903a39db",
+      "objectives.get_the_carriers_home": "1f43b1fd",
+      "objectives.find_the_reed_cell": "7ca534e6",
+      "triggers.the_track_patrol_turns_for_the_hamlet": "387c7ae7",
+      "triggers.the_riders_pull_back_along_the_south_causeway": "2e988dd6",
+      "dispatch": "ca2a3a86",
+      "debrief.victory": "fc483edd",
+      "debrief.defeat": "c9d026d2",
+      "objective_say.picture": "1f40ddec",
+      "objective_say.get_the_carriers_home": "96909de2",
+      "objective_say.find_the_reed_cell": "14fe9b1d",
+      "objective_say_on_fail.get_the_carriers_home": "6bab0633",
+      "trigger_say.the_track_patrol_turns_for_the_hamlet": "4e0f02fc",
+      "trigger_say.the_riders_pull_back_along_the_south_causeway": "cab48e2c",
+      "wave_say.0": "c75118a0",
+      "wave_say.2": "96e2b100"
     }
   },
   "ein_qasab_2_foothold": {
@@ -380,6 +594,25 @@
     "wave_say": {
       "1": "Two cells walking over the north crest on foot. From the farm they are not there until they are on the skyline.",
       "4": "A swarm off the north downs. Not every crate on this road was in that barn."
+    },
+    "src": {
+      "name": "322a7c7d",
+      "briefing": "49c95d88",
+      "objectives.hold_the_hollow": "0e3318ca",
+      "objectives.burn_the_barn": "a8f3dd66",
+      "objectives.mark_the_saddle_truck": "6f7c3df2",
+      "triggers.the_saddle_truck_comes_down_to_the_farm": "1bd18ecc",
+      "triggers.riders_come_through_the_dyke_gap": "5f26aa67",
+      "debrief.victory": "b2ba2fe4",
+      "debrief.defeat": "32fc814e",
+      "objective_say.hold_the_hollow": "508ceba4",
+      "objective_say.burn_the_barn": "0737ed7e",
+      "objective_say.mark_the_saddle_truck": "3867b98c",
+      "objective_say_on_fail.burn_the_barn": "3031c576",
+      "trigger_say.the_saddle_truck_comes_down_to_the_farm": "632ac6c4",
+      "trigger_say.riders_come_through_the_dyke_gap": "2a865526",
+      "wave_say.1": "acefef7d",
+      "wave_say.4": "ebf45e47"
     }
   },
   "ein_qasab_3_buildup": {
@@ -416,6 +649,28 @@
       "1": "Two cells wading out of the east reeds for the south landing. They are not after the head; they are after your road.",
       "3": "A cell and an RPG team out of the west reeds, walking to the camp's door. While anything of theirs stands at it, the camp builds nothing.",
       "5": "Two cells wading for the mill. If the families are still inside it, that is where this fight is now."
+    },
+    "src": {
+      "name": "e7123f0c",
+      "briefing": "f7318575",
+      "objectives.kill_hallaqs_man": "b76f7429",
+      "objectives.hold_the_head": "9d894ecc",
+      "objectives.burn_the_stock": "3db8c089",
+      "objectives.take_the_mill": "72bf5ea0",
+      "triggers.the_reserve_comes_over_the_lip": "54d852cf",
+      "triggers.hallaqs_man_runs_for_the_north_road": "ebe7b593",
+      "debrief.victory": "1e57089b",
+      "debrief.defeat": "cd314f6c",
+      "objective_say.kill_hallaqs_man": "b3639869",
+      "objective_say.hold_the_head": "2533ffaf",
+      "objective_say.burn_the_stock": "d50e9682",
+      "objective_say.take_the_mill": "be23bc5d",
+      "objective_say_on_fail.burn_the_stock": "7cdbdc52",
+      "trigger_say.the_reserve_comes_over_the_lip": "8e570f09",
+      "trigger_say.hallaqs_man_runs_for_the_north_road": "a1ab7d7c",
+      "wave_say.1": "107bf76b",
+      "wave_say.3": "32c25541",
+      "wave_say.5": "f3aec150"
     }
   },
   "khan_rafid_1_recon": {
@@ -461,6 +716,35 @@
     },
     "wave_say": {
       "0": "Two sections down the north road into the souk alleys. Nobody called for them — that is a standing order arriving on time, from before anybody was on this road to call it off."
+    },
+    "src": {
+      "name": "6c7ae658",
+      "briefing": "c4d8589e",
+      "objectives.find_the_watch": "2d32661f",
+      "objectives.get_two_in": "a5b7d277",
+      "objectives.find_the_west_lane": "709c7017",
+      "objectives.find_the_east_lane": "24668d07",
+      "objectives.find_the_block_commander": "f632fa63",
+      "objectives.screen_out": "b9e77a97",
+      "triggers.the_compound_was_never_empty": "f9350477",
+      "triggers.he_gives_up_the_crossing": "d9826247",
+      "dispatch": "38d9b38d",
+      "debrief.victory": "21907b77",
+      "debrief.defeat": "a087e4df",
+      "sections.situation": "ff59697a",
+      "sections.mission": "818db491",
+      "sections.execution": "90d659c3",
+      "sections.notes": "d3600c42",
+      "objective_say.find_the_watch": "4bf71847",
+      "objective_say.get_two_in": "fd79f9e0",
+      "objective_say.find_the_west_lane": "4eda0da0",
+      "objective_say.find_the_east_lane": "cf5d134c",
+      "objective_say.find_the_block_commander": "6613142c",
+      "objective_say_on_fail.get_two_in": "ebcf0a39",
+      "trigger_say.the_compound_was_never_empty": "88598ed9",
+      "trigger_say.he_gives_up_the_crossing": "3d62378f",
+      "trigger_say.they_move_the_families_off": "96da2d17",
+      "wave_say.0": "19a8a3a6"
     }
   },
   "khan_rafid_2_foothold": {
@@ -504,6 +788,33 @@
     "wave_say": {
       "0": "Two sections down the north road for the gate. Every two minutes, on the clock, whether or not there is anything at the gate to fight.",
       "2": "Two more at the north gate, and the families are still walking to it. He is not aiming at them; he is aiming at the gate, and they are in it."
+    },
+    "src": {
+      "name": "f241f9e5",
+      "briefing": "5eed97d8",
+      "objectives.hold_the_ward": "ecfb4cf1",
+      "objectives.get_four_in": "f4aab7a4",
+      "objectives.take_the_market": "b28a55c6",
+      "objectives.kill_the_west_lane": "452429fb",
+      "triggers.they_walk_into_the_ward": "c435409d",
+      "triggers.the_block_pulls_back_into_the_souk": "7fa1a33f",
+      "triggers.a_charge_squad_comes_for_the_gate": "04457c18",
+      "debrief.victory": "b22c4550",
+      "debrief.defeat": "7c7500f1",
+      "sections.situation": "8b1bd87e",
+      "sections.mission": "3e3af3f3",
+      "sections.execution": "66c9984c",
+      "sections.notes": "6d72c4b5",
+      "objective_say.hold_the_ward": "c8bcc3fa",
+      "objective_say.get_four_in": "d1fc4072",
+      "objective_say.take_the_market": "29c59c82",
+      "objective_say.kill_the_west_lane": "f66ffcd6",
+      "objective_say_on_fail.get_four_in": "826b4e90",
+      "trigger_say.they_walk_into_the_ward": "760c3b8f",
+      "trigger_say.the_block_pulls_back_into_the_souk": "39fa9376",
+      "trigger_say.a_charge_squad_comes_for_the_gate": "9296a6ad",
+      "wave_say.0": "b5bcb928",
+      "wave_say.2": "91a7c780"
     }
   },
   "khan_rafid_3_clearance": {
@@ -546,6 +857,32 @@
     },
     "wave_say": {
       "2": "Two sections at the north gate of the ward, and there are families inside it. He is putting rifles into the one compound on this map you cannot answer with a cannon."
+    },
+    "src": {
+      "name": "5f3d8126",
+      "briefing": "770732b3",
+      "objectives.take_the_souk": "f0441801",
+      "objectives.get_six_in": "98e7ee68",
+      "objectives.kill_the_block_commander": "52d5bf99",
+      "objectives.take_the_store": "63a513f7",
+      "triggers.the_souk_empties_into_its_own_alleys": "da3a3175",
+      "triggers.he_walks_out_of_the_hall": "b46ff5ca",
+      "triggers.a_rocket_team_moves_into_the_east_lane": "ad64bc6f",
+      "debrief.victory": "b6f020f1",
+      "debrief.defeat": "568e268c",
+      "sections.situation": "a42883b8",
+      "sections.mission": "f415ebab",
+      "sections.execution": "a45a7efa",
+      "sections.notes": "cbabc690",
+      "objective_say.take_the_souk": "3a242a46",
+      "objective_say.get_six_in": "6070a956",
+      "objective_say.kill_the_block_commander": "5c23861e",
+      "objective_say.take_the_store": "be6f79b0",
+      "objective_say_on_fail.get_six_in": "00ecb0d7",
+      "trigger_say.the_souk_empties_into_its_own_alleys": "2222ace5",
+      "trigger_say.he_walks_out_of_the_hall": "5e108903",
+      "trigger_say.a_rocket_team_moves_into_the_east_lane": "0aed17ba",
+      "wave_say.2": "2b48cacc"
     }
   },
   "qarn_hadid_1_recon": {
@@ -593,6 +930,37 @@
     },
     "wave_say": {
       "0": "One section walking down to the notch from the junction. They are reinforcing the low gate while you are still photographing it."
+    },
+    "src": {
+      "name": "7a3a54e2",
+      "briefing": "bdc4e830",
+      "objectives.find_the_high_gate_post": "6f64523d",
+      "objectives.find_the_low_gate_post": "b86074b3",
+      "objectives.get_the_road_party_clear": "17c34eda",
+      "objectives.find_the_tube": "3efe67f3",
+      "objectives.find_the_bench_post": "938c3255",
+      "objectives.find_the_ditch_gun": "f53e7ee0",
+      "objectives.screen_out": "b9e77a97",
+      "triggers.something_is_living_in_the_scree": "6be3e275",
+      "triggers.he_will_not_leave_the_tube": "c13f6700",
+      "dispatch": "8562db7e",
+      "debrief.victory": "be5dc6bd",
+      "debrief.defeat": "c651b60d",
+      "sections.situation": "bc3239f7",
+      "sections.mission": "2e9be8f1",
+      "sections.execution": "366561fd",
+      "sections.notes": "0b9326ee",
+      "objective_say.find_the_high_gate_post": "08e4d3fa",
+      "objective_say.find_the_low_gate_post": "4a027513",
+      "objective_say.get_the_road_party_clear": "3982aa52",
+      "objective_say.find_the_tube": "b17c19bb",
+      "objective_say.find_the_bench_post": "605c561e",
+      "objective_say.find_the_ditch_gun": "ca8f022a",
+      "objective_say_on_fail.get_the_road_party_clear": "cf9ecbc4",
+      "trigger_say.something_is_living_in_the_scree": "82429683",
+      "trigger_say.he_will_not_leave_the_tube": "f6cf9612",
+      "trigger_say.they_move_the_road_party_off": "1a2a3f53",
+      "wave_say.0": "4c977b56"
     }
   },
   "qarn_hadid_2_foothold": {
@@ -633,6 +1001,30 @@
     },
     "wave_say": {
       "2": "Two more sections off the square, and they are going to the notch rather than to the shoulder. He is fighting for the gate you did not choose."
+    },
+    "src": {
+      "name": "146d8d1b",
+      "briefing": "d8803b7b",
+      "objectives.open_the_shoulder": "eeffcd2b",
+      "objectives.hold_the_gates": "875abd57",
+      "objectives.take_the_hollow": "0c2a6e44",
+      "objectives.kill_the_bench_post": "c94224d5",
+      "triggers.the_shoulder_garrison_walks_to_the_notch": "f0dcc9b2",
+      "triggers.he_takes_the_tube_into_the_village": "90bfb77c",
+      "debrief.victory": "9dbf9fcb",
+      "debrief.defeat": "c1f21efa",
+      "sections.situation": "eac88bd7",
+      "sections.mission": "127a2a60",
+      "sections.execution": "e3015e58",
+      "sections.notes": "99b2654e",
+      "objective_say.open_the_shoulder": "c71d1c34",
+      "objective_say.hold_the_gates": "02514e17",
+      "objective_say.take_the_hollow": "924b173d",
+      "objective_say.kill_the_bench_post": "bfff50a2",
+      "objective_say_on_fail.open_the_shoulder": "75c4e5c7",
+      "trigger_say.the_shoulder_garrison_walks_to_the_notch": "1b42da77",
+      "trigger_say.he_takes_the_tube_into_the_village": "9341ef93",
+      "wave_say.2": "f16b8903"
     }
   },
   "qarn_hadid_3_clearance": {
@@ -674,6 +1066,31 @@
     },
     "wave_say": {
       "2": "Two sections off the square and they are going to the clinic, not to you. He knows which yard we told those families to walk to."
+    },
+    "src": {
+      "name": "0f2e18fc",
+      "briefing": "6ec4c9ce",
+      "objectives.take_the_village": "e9be3423",
+      "objectives.kill_the_relay": "3be2ec84",
+      "objectives.get_the_families_clear": "d28bea78",
+      "objectives.take_the_terraces": "972d6559",
+      "objectives.find_the_grove_post": "3ca83b45",
+      "triggers.they_come_out_of_the_square": "637ec8b3",
+      "triggers.the_town_falls_back_onto_the_hill": "1de37f56",
+      "debrief.victory": "1c27cbdb",
+      "debrief.defeat": "f79ad87a",
+      "sections.situation": "4ae7272e",
+      "sections.execution": "208c2d79",
+      "sections.notes": "643a1b90",
+      "objective_say.take_the_village": "e6d97b8f",
+      "objective_say.kill_the_relay": "c38f6689",
+      "objective_say.get_the_families_clear": "8ae2bf10",
+      "objective_say.take_the_terraces": "1b1dbd70",
+      "objective_say.find_the_grove_post": "aba90721",
+      "objective_say_on_fail.get_the_families_clear": "eadb6f69",
+      "trigger_say.they_come_out_of_the_square": "a57281af",
+      "trigger_say.the_town_falls_back_onto_the_hill": "38a15d84",
+      "wave_say.2": "aca7ed1c"
     }
   },
   "tel_marum_1_recon": {
@@ -708,6 +1125,28 @@
     },
     "wave_say": {
       "0": "Something came down off the wall and it is walking to the hollow. They know where you would have parked."
+    },
+    "src": {
+      "name": "7701f697",
+      "briefing": "bd7525a4",
+      "objectives.find_pocket_east": "1f62b2d8",
+      "objectives.find_pocket_west": "ce7a3ca6",
+      "objectives.find_spotter": "ad484f95",
+      "objectives.find_battery": "c592ffcf",
+      "objectives.screen_out": "71e40892",
+      "objectives.clear_the_valley_floor": "ab860ab3",
+      "dispatch": "6d65fcf1",
+      "debrief.victory": "91f30124",
+      "debrief.defeat": "11dc8b33",
+      "sections.situation": "8b2c4b8f",
+      "sections.mission": "abe9f3ed",
+      "sections.execution": "679f11e3",
+      "sections.notes": "18bdf677",
+      "objective_say.find_spotter": "c00b4737",
+      "objective_say.find_battery": "8e55c4e6",
+      "objective_say.clear_the_valley_floor": "72adcf4f",
+      "objective_say_on_fail.clear_the_valley_floor": "90be3291",
+      "wave_say.0": "5d9a50d3"
     }
   },
   "tel_marum_2_foothold": {
@@ -737,6 +1176,23 @@
     },
     "wave_say": {
       "1": "Recoilless coming down to the wide saddle. He is not reinforcing the pocket — he is pricing the road behind you."
+    },
+    "src": {
+      "name": "ce75f33d",
+      "briefing": "31d8c50b",
+      "objectives.hold_approach": "6e951946",
+      "objectives.kill_spotter": "e8b002ce",
+      "objectives.burn_the_ammo_point": "b224d930",
+      "debrief.victory": "1a5ad043",
+      "debrief.defeat": "edf9a4f0",
+      "sections.situation": "e3a8d544",
+      "sections.mission": "6c050743",
+      "sections.execution": "20524e40",
+      "objective_say.hold_approach": "a7d343a2",
+      "objective_say.kill_spotter": "a7fb3c8c",
+      "objective_say.burn_the_ammo_point": "fa64fc10",
+      "objective_say_on_fail.burn_the_ammo_point": "31cbc1ed",
+      "wave_say.1": "82232be9"
     }
   },
   "tel_marum_3_clearance": {
@@ -768,6 +1224,25 @@
     },
     "triggers": {
       "the_yanshuf_comes_up": "Yanshuf comes up to the start line"
+    },
+    "src": {
+      "name": "569547cf",
+      "briefing": "61ac0348",
+      "objectives.take_pass": "1a00d2ba",
+      "objectives.kill_battery": "60c4b369",
+      "objectives.get_the_block_out": "8fcba899",
+      "objectives.cut_the_relay": "3b0382e7",
+      "triggers.the_yanshuf_comes_up": "4352f98d",
+      "debrief.victory": "6bec857b",
+      "debrief.defeat": "47254fe2",
+      "sections.situation": "3b930e4f",
+      "sections.execution": "39de052b",
+      "sections.notes": "db7733b5",
+      "objective_say.take_pass": "5cda3071",
+      "objective_say.kill_battery": "afc021c4",
+      "objective_say.get_the_block_out": "0668ca4e",
+      "objective_say.cut_the_relay": "990e977b",
+      "objective_say_on_fail.get_the_block_out": "755fb911"
     }
   },
   "umm_zeitoun_1_recon": {
@@ -808,6 +1283,32 @@
     },
     "wave_say": {
       "0": "One rifle section walking to the wells. He is not coming for you."
+    },
+    "src": {
+      "name": "992e2d0d",
+      "briefing": "c2e1059b",
+      "objectives.find_the_crest": "ea223c39",
+      "objectives.find_the_west_horn": "f7148460",
+      "objectives.find_the_east_horn": "e2ca8245",
+      "objectives.find_the_stone_knoll": "03d0c444",
+      "objectives.get_the_wells_clear": "826dd053",
+      "objectives.find_the_missile_team": "7d7cdab0",
+      "objectives.screen_out": "71e40892",
+      "debrief.victory": "ce126351",
+      "debrief.defeat": "1171e5ff",
+      "sections.situation": "01251766",
+      "sections.mission": "6cce79b2",
+      "sections.execution": "8dfc9c1a",
+      "sections.notes": "64f836f0",
+      "objective_say.find_the_crest": "a5b0679b",
+      "objective_say.find_the_west_horn": "bf36cd76",
+      "objective_say.find_the_east_horn": "d8888765",
+      "objective_say.find_the_stone_knoll": "b6934a4d",
+      "objective_say.get_the_wells_clear": "c12f6d37",
+      "objective_say.find_the_missile_team": "7918bba1",
+      "objective_say_on_fail.get_the_wells_clear": "a6034363",
+      "trigger_say.they_move_the_families_off": "342bbf75",
+      "wave_say.0": "e0cd1d07"
     }
   },
   "umm_zeitoun_2_buildup": {
@@ -845,6 +1346,27 @@
     },
     "wave_say": {
       "2": "A swarm off the north rim, low and spread, coming for the line. Rifles barely touch them. A Remetz burns them down, but only with open sky: on the crest, not behind it, and the crest is inside the tube's reach."
+    },
+    "src": {
+      "name": "2409e459",
+      "briefing": "fbf66c13",
+      "objectives.hold_the_crest_line": "191d54ee",
+      "objectives.level_the_stone_post": "98842810",
+      "objectives.kill_the_knoll_eye": "d4213b55",
+      "objectives.take_the_stone_knoll": "85d8c1e0",
+      "triggers.the_tube_moves_north": "50da4f25",
+      "debrief.victory": "007ddf5d",
+      "debrief.defeat": "6f2d31e3",
+      "sections.situation": "bad0baf7",
+      "sections.mission": "ab034ad9",
+      "sections.execution": "389b21c1",
+      "sections.notes": "919c4e1d",
+      "objective_say.hold_the_crest_line": "4afd90f1",
+      "objective_say.level_the_stone_post": "44c25e27",
+      "objective_say.kill_the_knoll_eye": "4c8a4cf5",
+      "objective_say_on_fail.level_the_stone_post": "67ead3f2",
+      "trigger_say.the_tube_moves_north": "b1ae6cd6",
+      "wave_say.2": "fbeabf78"
     }
   },
   "umm_zeitoun_3_clearance": {
@@ -887,6 +1409,32 @@
     },
     "wave_say": {
       "2": "He is putting rifles into the square while the families are still walking out of it."
+    },
+    "src": {
+      "name": "ccc8bf78",
+      "briefing": "679998fe",
+      "objectives.kill_the_west_horn": "f7a9d450",
+      "objectives.kill_the_east_horn": "d9db7188",
+      "objectives.get_the_hamlet_out": "70a3c7e2",
+      "objectives.find_adhal": "34c4e4fe",
+      "objectives.kill_the_knoll_eye": "7a73719c",
+      "triggers.he_brings_the_tube_south": "d3558fba",
+      "triggers.the_house_was_the_section": "f06c08ee",
+      "debrief.victory": "69e9b8d4",
+      "debrief.defeat": "9d30ef44",
+      "sections.situation": "d8f57e58",
+      "sections.mission": "8e20c38c",
+      "sections.execution": "babd0ae0",
+      "sections.notes": "077685fc",
+      "objective_say.kill_the_west_horn": "5aa00b9a",
+      "objective_say.kill_the_east_horn": "6f7aac45",
+      "objective_say.get_the_hamlet_out": "a329e325",
+      "objective_say.find_adhal": "73b8f928",
+      "objective_say.kill_the_knoll_eye": "77fd0e45",
+      "objective_say_on_fail.get_the_hamlet_out": "dbb07d0f",
+      "trigger_say.he_brings_the_tube_south": "ee941e8a",
+      "trigger_say.the_house_was_the_section": "6d364486",
+      "wave_say.2": "2aa15740"
     }
   },
   "umm_zeitoun_4_clearance": {
@@ -931,6 +1479,34 @@
     },
     "wave_say": {
       "1": "They are reinforcing the crest, not the depot. He is worth more to them than the rockets are."
+    },
+    "src": {
+      "name": "72cf4fdf",
+      "briefing": "a6735295",
+      "objectives.raze_the_stockpile": "b239c4cf",
+      "objectives.kill_adhal": "77907476",
+      "objectives.kill_the_battery": "8d5be3c8",
+      "objectives.get_the_porters_clear": "0c71b529",
+      "objectives.bring_the_relay_down": "cc42e5dd",
+      "triggers.the_tube_goes_west": "4a4b969c",
+      "triggers.he_goes_over_the_back": "6e3f2deb",
+      "aftermath": "91aaff38",
+      "debrief.victory": "f2ec8060",
+      "debrief.defeat": "16c54177",
+      "sections.situation": "6e41ff22",
+      "sections.mission": "a86dad23",
+      "sections.execution": "d23d9c7b",
+      "sections.notes": "9d13de94",
+      "objective_say.raze_the_stockpile": "7d911477",
+      "objective_say.kill_adhal": "067cee97",
+      "objective_say.kill_the_battery": "d5259ea6",
+      "objective_say.get_the_porters_clear": "c09b576d",
+      "objective_say.bring_the_relay_down": "4146595c",
+      "objective_say_on_fail.raze_the_stockpile": "7bde5edf",
+      "objective_say_on_fail.get_the_porters_clear": "ee08d3e3",
+      "trigger_say.the_tube_goes_west": "654c16eb",
+      "trigger_say.he_goes_over_the_back": "8c2c775f",
+      "wave_say.1": "052f6489"
     }
   },
   "wadi_halam_1_fords": {
@@ -970,6 +1546,29 @@
     "wave_say": {
       "0": "Motorcycles off the southern track. Ninety seconds of quiet, then a rider or two every half minute or so — that is the cadence, and it does not change.",
       "4": "Both fords at once now. They are not trying to hold the crossing — they are pricing the four minutes you agreed to sit on it."
+    },
+    "src": {
+      "name": "a4e5ee18",
+      "briefing": "de78a405",
+      "objectives.picture": "a429056e",
+      "objectives.take_ford": "27268eff",
+      "objectives.screen_out": "6e92513d",
+      "objectives.get_the_carriers_out": "c91c245c",
+      "triggers.the_bank_patrol_turns_for_the_ford": "b0d009ed",
+      "dispatch": "44308d00",
+      "debrief.victory": "db9442ce",
+      "debrief.defeat": "aaeda25e",
+      "sections.situation": "42623e0d",
+      "sections.mission": "8909db9f",
+      "sections.execution": "8d4a06f0",
+      "sections.notes": "81c5a8a8",
+      "objective_say.picture": "7c3c8f83",
+      "objective_say.take_ford": "bf78f27c",
+      "objective_say.get_the_carriers_out": "04b2a5b8",
+      "objective_say_on_fail.get_the_carriers_out": "63c70fa1",
+      "trigger_say.the_bank_patrol_turns_for_the_ford": "05fb1035",
+      "wave_say.0": "a8afca11",
+      "wave_say.4": "34e46909"
     }
   },
   "wadi_halam_2_laager": {
@@ -1014,6 +1613,36 @@
     "trigger_say": {
       "technicals_off_the_east_track": "Third compass point in four minutes. There is no direction this pasture is safe from, which is why they gave you a field and not a hill.",
       "the_raiders_break_off_east": "Sixty per cent and they are breaking off east. That is not a rout — mobility is their armour, and they will be back on the same trucks inside a week."
+    },
+    "src": {
+      "name": "3da62788",
+      "briefing": "9b55f604",
+      "objectives.hold_pasture": "f8324418",
+      "objectives.keep_ford": "45dcf0be",
+      "objectives.burn_store": "d92a15ed",
+      "triggers.riders_out_of_the_north": "3f71f3dc",
+      "triggers.fighters_off_the_north_hide": "a96401ab",
+      "triggers.riders_out_of_the_south": "b0960fa1",
+      "triggers.rpgs_along_the_south_bunds": "235b9ed4",
+      "triggers.riders_back_from_the_north": "2772979e",
+      "triggers.fighters_up_from_the_well": "0387c486",
+      "triggers.technicals_up_from_the_south": "27638bbb",
+      "triggers.technicals_off_the_east_track": "fa960e02",
+      "triggers.the_last_of_the_motorcycles": "d16da3cf",
+      "triggers.rpgs_off_the_north_hide": "1091fdeb",
+      "triggers.riders_round_from_the_east": "640409f6",
+      "triggers.fighters_again_from_the_well": "4d898121",
+      "triggers.the_raiders_break_off_east": "f34b84ec",
+      "debrief.victory": "637a8f67",
+      "debrief.defeat": "794a3aaa",
+      "sections.mission": "7e68ec92",
+      "sections.execution": "3da0099b",
+      "sections.notes": "fcac31fe",
+      "objective_say.hold_pasture": "1bdc3ba1",
+      "objective_say.burn_store": "3cc4d92f",
+      "objective_say_on_fail.burn_store": "513a4dc0",
+      "trigger_say.technicals_off_the_east_track": "e1f1cbd7",
+      "trigger_say.the_raiders_break_off_east": "23be1e72"
     }
   },
   "wadi_halam_3_counterraid": {
@@ -1051,6 +1680,27 @@
     },
     "wave_say": {
       "2": "The heaviest party yet is going for the pump house, and two swarms ride in with it off the east track. The party wants the pasture; the swarms take whatever they meet first."
+    },
+    "src": {
+      "name": "9aa2084a",
+      "briefing": "e9c22b15",
+      "objectives.kill_amir": "2652c411",
+      "objectives.hold_bunds": "bb7ee511",
+      "objectives.mark_hides": "d602c45d",
+      "objectives.get_the_herders_out": "127df4db",
+      "triggers.the_commander_runs_for_the_east_track": "3bdd8c22",
+      "debrief.victory": "516cae53",
+      "debrief.defeat": "af79344b",
+      "sections.situation": "66ab1a30",
+      "sections.mission": "e7d902bf",
+      "sections.notes": "d0be643a",
+      "objective_say.kill_amir": "22873f4d",
+      "objective_say.hold_bunds": "b292e34d",
+      "objective_say.mark_hides": "fc1202ba",
+      "objective_say.get_the_herders_out": "ceb6bdc1",
+      "objective_say_on_fail.get_the_herders_out": "d3eebb1e",
+      "trigger_say.the_commander_runs_for_the_east_track": "2171f8ee",
+      "wave_say.2": "1d4aa937"
     }
   },
   "wadi_halam_4_village": {
@@ -1083,6 +1733,24 @@
     },
     "trigger_say": {
       "the_technicals_at_the_south_hide_run_for_the_village": "Two technicals off the south hide, running for the village centre."
+    },
+    "src": {
+      "name": "044b6079",
+      "briefing": "f418dcf9",
+      "objectives.take_village": "9169a611",
+      "objectives.kill_cache_guard": "0f40612e",
+      "objectives.evac_families": "5af188e8",
+      "triggers.the_technicals_at_the_south_hide_run_for_the_village": "3c76e19b",
+      "debrief.victory": "b9e35521",
+      "debrief.defeat": "d96c57f3",
+      "sections.situation": "cbf0c7e4",
+      "sections.mission": "33049c99",
+      "sections.execution": "dbd5b6d8",
+      "objective_say.take_village": "13ef3503",
+      "objective_say.kill_cache_guard": "ad4d3f21",
+      "objective_say.evac_families": "a5c462ea",
+      "objective_say_on_fail.evac_families": "36801331",
+      "trigger_say.the_technicals_at_the_south_hide_run_for_the_village": "880ce51b"
     }
   },
   "wadi_halam_5_depot": {
@@ -1122,6 +1790,29 @@
     },
     "wave_say": {
       "2": "Escalating each time and always at the gate. Four minutes of this and then they stop counting and start arriving."
+    },
+    "src": {
+      "name": "5339b10e",
+      "briefing": "2531b36e",
+      "objectives.raze_depot": "0e781bae",
+      "objectives.kill_gate_rpg": "0884ac1c",
+      "objectives.hold_depot": "b7ec04c2",
+      "objectives.no_bleed": "746c56a0",
+      "triggers.the_motorcycles_come_down_on_the_column": "4cf803cc",
+      "triggers.the_second_engineer_team_comes_up": "db3f0211",
+      "aftermath": "8bf50b8c",
+      "debrief.victory": "69d0b6df",
+      "debrief.defeat": "49ce531c",
+      "sections.situation": "e496ca8e",
+      "sections.mission": "b50acc35",
+      "sections.execution": "c3b9b526",
+      "sections.notes": "5078caff",
+      "objective_say.raze_depot": "49e5b3b6",
+      "objective_say.kill_gate_rpg": "ceeb9f2d",
+      "objective_say.hold_depot": "d344fb0b",
+      "objective_say_on_fail.raze_depot": "5d9219b1",
+      "trigger_say.the_motorcycles_come_down_on_the_column": "90a05dae",
+      "wave_say.2": "65d5795f"
     }
   }
 }

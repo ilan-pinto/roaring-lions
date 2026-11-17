@@ -146,6 +146,10 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   (`unit-text.ts`); roles are chrome. Translators' files are served by `packages/app/vite-plugin-locales.ts`
   (dev middleware and build assets, derived from `data/locales/`, never copied into `assets/`); a
   non-`en` file that does not arrive warns once with its URL (`i18n/overlay-fetch.ts`).
+  Stale translations (GH-1406 part 5): every overlay entry carries `src`, the first 8 hex of the SHA-256 of the English each string was
+  translated from, written into `en/missions.json` and `en/units.json` by `pnpm locales:en -- --write` and checked for every locale by
+  `validate:data` (`sourceHashFailures`, `unitOverlayFailures`), because `wave_say` is keyed by wave INDEX and a reorder or an edit leaves
+  every key valid. The runtime never reads it. Format and translator workflow: `data/locales/README.md`.
 
 <!-- CLAUDE.md lines 322-338, section "Dev instruments" -->
 
@@ -161,8 +165,11 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   (`onQuick` is hooked in the same two places, guarded the same way). Not in this slice, waiting for the lead: word filter, persistent block,
   report, kill switch, and a room mode that allows quick chat only.
 - **Settings wears the account page (GH-1510).** `ui/settings-panel.ts` draws each section as one of the profile's
-  cards (`ui/page-card.ts`, which `ui/profile.ts` uses too; the classes keep their `rl-profile__` names so the
-  profile's pins and crest echo do not move). Wide column: Video, Audio; narrow: Accessibility, Privacy, Chat, Language;
+  cards (`ui/page-card.ts`, which `ui/profile.ts` uses too). The shared classes were renamed to neutral ones in their
+  own change (GH-1510 Q4): `rl-profile__card` -> `rl-page-card`, `__card-title` -> `rl-page-card__title`,
+  `__card-body` -> `rl-page-card__body`, `__cols` -> `rl-page-cols`, `__col` -> `rl-page-cols__col`, `__col--main` /
+  `--side` -> `rl-page-cols__col--main` / `--side`, one class for one class so no specificity moved. The screens'
+  own modifiers stay theirs (`rl-profile__card--head`, the crest echo's hook; `rl-settings__card--video`). Wide column: Video, Audio; narrow: Accessibility, Privacy, Chat, Language;
   Controls full width under both. The pause menu's Settings tab mounts the same panel, so the drop to one column is a
   container query on `.rl-settings__content` (48rem), not a media query. A new row goes into its section's card body
   (`row(table, ...)` after that section's `table = section(...)`); a new section needs a `SectionKey` and a title strip
