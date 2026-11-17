@@ -61,6 +61,9 @@ export interface Settings {
   /** Other players' chat in a versus room (GH-1417 S1). `enabled: false` hides every received line and the input; the room is told
    *  nothing. On by default. Added without a `version` bump: parsing is field by field. */
   chat: { enabled: boolean };
+  /** One-time suggestions the player has answered (GH-1413). `software`: the software-rendering line (`ui/software-hint.ts`) was
+   *  answered, either way, and is never shown again. Added without a `version` bump: parsing is field by field. */
+  hints: { software: boolean };
   language: string;
 }
 
@@ -86,6 +89,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze<Settings>({
   accessibility: { motion: 'system', colorVision: 'default', captions: true },
   intro: { seen: false },
   chat: { enabled: true },
+  hints: { software: false },
   language: 'en',
 });
 
@@ -117,6 +121,7 @@ export function parseSettings(raw: string | null): Settings {
   const acc = isRecord(v.accessibility) ? v.accessibility : {};
   const intro = isRecord(v.intro) ? v.intro : {};
   const chat = isRecord(v.chat) ? v.chat : {};
+  const hints = isRecord(v.hints) ? v.hints : {};
   return {
     version: 1,
     video: {
@@ -145,6 +150,7 @@ export function parseSettings(raw: string | null): Settings {
     },
     intro: { seen: bool(intro.seen, d.intro.seen) },
     chat: { enabled: bool(chat.enabled, d.chat.enabled) },
+    hints: { software: bool(hints.software, d.hints.software) },
     language: typeof v.language === 'string' && LOCALES.some((l) => l.id === v.language) ? v.language : 'en',
   };
 }

@@ -1,6 +1,6 @@
 /** Deleting an account (GH-1075 A1, spec §6.4). Every step is retryable while the session still exists. */
 import { ID_PATTERN } from '@lions/data/telemetry';
-import type { D1Like } from '../d1';
+import type { D1Like, D1Stmt } from '../d1';
 import { ACCOUNT_BODY_MAX_BYTES, TOMB_TTL_S } from './config';
 import { accountJson, readAccountBody } from './http';
 import { perMinute } from './limits';
@@ -16,8 +16,8 @@ import { deleteStatements } from './tables';
 const GUARD = ' AND EXISTS (SELECT 1 FROM member WHERE id = ?1 AND last_seen_day <= ?2)';
 
 /** One guarded batch over every member table. `gone` is true when the member row is gone afterwards; `queries` is what it cost:
- *  ONE D1 query when this batch deleted it, two when it deleted nothing (a guard held, or the row was already gone). GH-1432: the
- *  cron spends from a per-run query budget and needs the exact figure. */
+ *  ONE D1 query when this batch deleted it, two when it deleted nothing (a guard held, or the row was already gone). The route deletes
+ *  one member this way; the cron deletes many in one batch (`deleteDueStatements`, GH-1432). */
 export async function deleteMemberCounted(db: D1Like, memberId: string, guard: { lastSeenAtMost: number }): Promise<{ gone: boolean; queries: number }> {
   const statements = deleteStatements().map((s) =>
     s.bindsMember ? db.prepare(s.sql + GUARD).bind(memberId, guard.lastSeenAtMost) : db.prepare(s.sql),
@@ -33,6 +33,29 @@ export async function deleteMemberCounted(db: D1Like, memberId: string, guard: {
 
 export async function deleteMember(db: D1Like, memberId: string, guard: { lastSeenAtMost: number }): Promise<boolean> {
   return (await deleteMemberCounted(db, memberId, guard)).gone;
+}
+
+/** A member the cron deletes, guarded by its own day: deleted only if `last_seen_day <= day` still holds inside the batch. */
+export interface DueMember { id: string; day: number }
+
+/** D1 binds at most 100 values a statement; a due member binds two (its id and its day). */
+export const DUE_MEMBERS_MAX = 40;
+
+/** GH-1432: the cron's ONE delete batch for many members at once, the same statements as `deleteMemberCounted` in the same order, each
+ *  naming the members through a `due` CTE instead of `= ?1`. A row goes only if its member is still eligible (the guard, per row, inside
+ *  the one transaction), so a sign-in racing the batch spares that member whole and nobody else. It costs `deleteStatements().length`
+ *  statements however many members it carries. The platform counts the whole batch as ONE D1 query; under this repository's stricter
+ *  per-statement meter (`cron-budget.test.ts`) it is 17, and one batch for all is the reason it exists. */
+export function deleteDueStatements(db: D1Like, due: readonly DueMember[]): D1Stmt[] {
+  if (due.length === 0 || due.length > DUE_MEMBERS_MAX) throw new Error(`a due batch carries 1 to ${DUE_MEMBERS_MAX} members, not ${due.length}`);
+  const cte = `WITH due(id, day) AS (VALUES ${due.map((_, i) => `(?${2 * i + 1}, ?${2 * i + 2})`).join(', ')}) `;
+  const eligible = 'SELECT m.id FROM member m JOIN due ON due.id = m.id WHERE m.last_seen_day <= due.day';
+  const args = due.flatMap((d) => [d.id, d.day]);
+  return deleteStatements().map((s) => {
+    if (!s.bindsMember) return db.prepare(s.sql);
+    if (!s.sql.endsWith(' = ?1')) throw new Error(`a member statement must end in "= ?1": ${s.sql}`);
+    return db.prepare(`${cte}${s.sql.slice(0, -' = ?1'.length)} IN (${eligible})`).bind(...args);
+  });
 }
 
 /** The telemetry database's rows for one player, in one batch. Idempotent; touches no account row. */
@@ -51,7 +74,36 @@ export async function deleteTelemetryFor(db: D1Like, player: string): Promise<vo
   await db.batch(sql.map((s) => db.prepare(s).bind(player)));
 }
 
-/** POST delete: a fresh session. Telemetry (if asked), then the tombstone, then the guarded batch. */
+/** Workers KV takes one write a second to a key (a faster one can answer 429), so the route's second write of its tombstone waits this
+ *  long after the first, and again before its one retry: the cron's racing delete of the same key may have just taken that second. */
+export const TOMB_REWRITE_GAP_MS = 1_100;
+
+const timer = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+/** GH-1534: the tombstone written AGAIN, byte for byte, once the batch has committed. The cron's prune of a "cancelled" tombstone
+ *  (`sweep.ts`, the scan and the survivor step) judges the member by a D1 read made BEFORE this batch committed and the tombstone by an
+ *  eventually consistent KV read, which may still show the cron's own older one; its delete can then remove the tombstone written above,
+ *  leaving a deleted account that a Time Travel restore would not re-delete and `gone` would not report. This later write overwrites
+ *  that delete (KV keeps the last write). Two tries, a gap before each. It NEVER rejects (it runs under `waitUntil`, past the response):
+ *  a failure of both is logged as an error, by its name alone, and is then the only evidence; the delete has already answered 200, the
+ *  rows are gone, and the first write stands unless that rare race took it. */
+async function rewriteTomb(kv: KVLike, key: string, value: string, sleep: (ms: number) => Promise<void>): Promise<void> {
+  try {
+    for (let attempt = 0; ; attempt++) {
+      await sleep(TOMB_REWRITE_GAP_MS);
+      try {
+        await kv.put(key, value, { expirationTtl: TOMB_TTL_S });
+        return;
+      } catch (err) {
+        if (attempt === 1) throw err;
+      }
+    }
+  } catch (err) {
+    console.error('account: tombstone rewrite failed', { error: err instanceof Error ? err.name : typeof err });
+  }
+}
+
+/** POST delete: a fresh session. Telemetry (if asked), then the tombstone, then the guarded batch, then the tombstone again (GH-1534). */
 export async function deleteAccount(ctx: AccountCtx): Promise<Response> {
   const got = await requireSession(ctx, { fresh: true });
   if (got instanceof Response) return got;
@@ -77,9 +129,11 @@ export async function deleteAccount(ctx: AccountCtx): Promise<Response> {
     .bind(session.memberId)
     .first<{ id_hash: string; last_seen_day: number }>();
   if (row === null) return accountJson(401, { error: 'signed_out' });
+  const key = 'tomb:' + row.id_hash;
+  const tomb = JSON.stringify({ deletedAt: ctx.now, lastSeenDay: row.last_seen_day });
   try {
     if (typeof player === 'string') await deleteTelemetryFor(ctx.env.DB, player);
-    await kv.put('tomb:' + row.id_hash, JSON.stringify({ deletedAt: ctx.now, lastSeenDay: row.last_seen_day }), { expirationTtl: TOMB_TTL_S });
+    await kv.put(key, tomb, { expirationTtl: TOMB_TTL_S });
     // false: a sign-in raised last_seen_day past `seen` meanwhile, so the guard held the batch back. Retry reads the new day.
     if (!(await deleteMember(db, session.memberId, { lastSeenAtMost: row.last_seen_day }))) {
       await dropCancelled(db, kv, row.id_hash, row.last_seen_day);
@@ -88,6 +142,10 @@ export async function deleteAccount(ctx: AccountCtx): Promise<Response> {
   } catch {
     return sessionJson(503, { error: 'retry' }, setCookie);
   }
+  // Past the response when the Worker gave a `waitUntil`: the client does not wait out the gap, and a disconnect cannot cancel the write.
+  const rewrite = rewriteTomb(kv, key, tomb, ctx.deps.sleep ?? timer);
+  if (ctx.deps.waitUntil !== undefined) ctx.deps.waitUntil(rewrite);
+  else await rewrite;
   return accountJson(200, { deleted: true }, { 'set-cookie': clearedSessionCookie() });
 }
 

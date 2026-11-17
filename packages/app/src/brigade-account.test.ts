@@ -89,6 +89,29 @@ describe('brigade account', () => {
     expect(paid.grants.every((g) => g.source === 'earned')).toBe(true);
   });
 
+  it('drops a grant whose `at` is not a time, even when its amount is good, and bounds the balance by what is left (GH-1385)', () => {
+    // Only the `at` half of the grant check refuses this entry: kept, it would account for the whole 5,000.
+    const raw = { ...emptyAccount(), balance: 5000, grants: [{ source: 'earned', amount: 5000, missionId: 'm1', at: 'yesterday' }] };
+    const migrated = migrateAccount(raw);
+    expect(migrated.grants).toEqual([]);
+    expect(migrated.balance).toBe(0);
+  });
+
+  it('skips a null grant and a null track table rather than throwing, and keeps a granted entry granted (GH-1385)', () => {
+    // `typeof null` is 'object': only the `=== null` half of each check keeps these from being read as records.
+    const raw = {
+      ...emptyAccount(),
+      balance: 30,
+      grants: [null, { source: 'granted', amount: 30, missionId: 'm9', at: 2 }],
+      upgrades: { inf_squad: null, mbt_lavi: { armour: 2 } },
+    };
+    const migrated = migrateAccount(raw);
+    // A granted entry carrying a well-formed missionId keeps both its source and the id.
+    expect(migrated.grants).toEqual([{ source: 'granted', amount: 30, missionId: 'm9', at: 2 }]);
+    expect(migrated.balance).toBe(30);
+    expect(migrated.upgrades).toEqual({ mbt_lavi: { armour: 2 } });
+  });
+
   it('keeps a legitimate balance below the earned sum as is, and bounds earned_total the same way', () => {
     const raw = {
       ...emptyAccount(),
@@ -143,9 +166,16 @@ describe('brigade account', () => {
     expect(buyUnlock(funded, 'mbt_lavi', 600)).toEqual({ account: funded, ok: false });
     const bought = buyUnlock(funded, 'mbt_lavi', 500).account;
     expect(buyUnlock(bought, 'mbt_lavi', 0)).toEqual({ account: bought, ok: false });
+    // GH-1385: the case above is refused by its price (0) and its balance (0) as well, so it could not see the
+    // already-bought guard go. Here only that guard stands between the account and a second charge.
+    const rich = buyUnlock(payMission(emptyAccount(), 'm1', 1000, 1).account, 'mbt_lavi', 500).account;
+    expect(rich.balance).toBe(500);
+    expect(buyUnlock(rich, 'mbt_lavi', 100)).toEqual({ account: rich, ok: false });
     expect(buyUnlock(funded, 'x', 2.5)).toEqual({ account: funded, ok: false });
     expect(buyUnlock(funded, 'x', -1)).toEqual({ account: funded, ok: false });
     expect(buyUnlock(funded, 'x', 0).ok).toBe(false); // schema minimum is 1; price 0 authors nothing
+    // ...and the minimum itself is on sale.
+    expect(buyUnlock(funded, 'x', 1).account.balance).toBe(499);
   });
 
   it('round-trips a bought unlock through storage', () => {
@@ -210,6 +240,8 @@ describe('brigade account', () => {
     expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, [0]).ok).toBe(false);
     expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, [2.5]).ok).toBe(false);
     expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, [-1]).ok).toBe(false);
+    // The schema minimum, 1, is a price.
+    expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, [1]).account.balance).toBe(999);
   });
 
   it('preserves other units and tracks when upgrading one', () => {
@@ -237,6 +269,20 @@ describe('brigade account', () => {
     expect(account.upgrades.spg_long_range?.armour).toBe(3);
     expect(account.grants).toEqual(funded.grants);
     expect(account.earned_total).toBe(1000);
+  });
+
+  it('a run the balance covers exactly is bought, down to 0 (GH-1385)', () => {
+    const funded = payMission(emptyAccount(), 'm1', 740, 1).account;
+    const { account, ok } = buyUpgradeRun(funded, 'spg_long_range', 'armour', 1, 3, [160, 240, 340]);
+    expect(ok).toBe(true);
+    expect(account.balance).toBe(0);
+    expect(account.upgrades.spg_long_range?.armour).toBe(3);
+  });
+
+  it('refuses a run whose end is not a whole tier, and charges nothing (GH-1385)', () => {
+    // `from` is right (1), so only the integer check on `to` stands between this and tier 1.5 at tier 1's price.
+    const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
+    expect(buyUpgradeRun(funded, 'spg_long_range', 'armour', 1, 1.5, [160, 240, 340])).toEqual({ account: funded, ok: false });
   });
 
   it('resetAccount clears upgrades (existing behaviour)', () => {
@@ -442,58 +488,14 @@ describe('coupons', () => {
     expect(startCampaign(withPay).coupons).toEqual(['fixture_a']);
   });
 
-  it('data/coupons.json holds only well-formed hashes and no duplicate ids', () => {
+  // GH-1415: the shipped table is EMPTY. A SHA-256 of a code in a public repository is a public grant (an unsalted hash
+  // of a short code is brute-forced offline, and the id is replayable in a claim), so no shipped code path may hold one.
+  // The mechanism stays: the specs above and the Worker's coupon and claim specs inject their own table. A grant for
+  // testers on the live site belongs server-side, never in this file.
+  it('the shipped coupon table holds no entry, in the file and in what @lions/data exports (GH-1415)', async () => {
     const file = JSON.parse(readFileSync(resolve(__dirname, '../../../data/coupons.json'), 'utf8')) as { coupons: Coupon[] };
-    expect(file.coupons.length).toBeGreaterThan(0);
-    for (const c of file.coupons) {
-      expect(c.sha256).toMatch(/^[0-9a-f]{64}$/);
-      expect((c.credits ?? 0) + (c.coins ?? 0)).toBeGreaterThan(0);
-    }
-    expect(new Set(file.coupons.map((c) => c.id)).size).toBe(file.coupons.length);
-  });
-
-  // The lead's code carries two entries under one hash. `hash` is injected, so this reads the
-  // shipped hash out of the table itself and never needs the code (which is not in the repo).
-  describe('the shipped table: one code, credits and coins', () => {
-    const shippedHash = (): string => {
-      const first = JSON.parse(readFileSync(resolve(__dirname, '../../../data/coupons.json'), 'utf8')) as { coupons: Coupon[] };
-      const h = first.coupons.find((c) => c.id === 'lead_special_units_10k')?.sha256;
-      if (h === undefined) throw new Error('lead_special_units_10k missing');
-      return h;
-    };
-    const table = JSON.parse(readFileSync(resolve(__dirname, '../../../data/coupons.json'), 'utf8')).coupons as Coupon[];
-    const asLead = (a: ReturnType<typeof emptyAccount>) => redeemCoupon(a, 'any text', table, () => shippedHash(), 5);
-
-    it('holds a credits entry and a coins entry under the same hash', () => {
-      const credits = table.find((c) => c.id === 'lead_special_units_10k');
-      const coins = table.find((c) => c.id === 'lead_roar_coins_100k');
-      expect(credits).toMatchObject({ credits: 10000 });
-      expect(coins).toMatchObject({ coins: 100000 });
-      expect(coins?.credits).toBeUndefined();
-      expect(coins?.sha256).toBe(credits?.sha256);
-    });
-
-    it('a first-time redeemer gets both', () => {
-      const r = asLead(emptyAccount());
-      if (!r.ok) throw new Error('refused');
-      expect([r.credits, r.coins]).toEqual([10000, 100000]);
-    });
-
-    it('someone who redeemed before (the 10,000 only) gets the coins only, and then it is used', () => {
-      const prior = { ...emptyAccount(), balance: 10000, coupons: ['lead_special_units_10k'] as string[] };
-      const r = asLead(prior);
-      if (!r.ok) throw new Error('refused');
-      expect([r.credits, r.coins]).toEqual([0, 100000]);
-      expect(r.account.balance).toBe(10000);
-      expect(asLead(r.account)).toMatchObject({ ok: false, reason: 'used' });
-    });
-  });
-
-  // The shipped code is never written in the repo. With COUPON_TEST_CODE set in the
-  // environment the real table is checked against it; without, this is skipped.
-  it.skipIf(!process.env.COUPON_TEST_CODE)('the shipped table grants 10,000 credits and 100,000 coins for the real code', async () => {
+    expect(file.coupons).toEqual([]);
     const { coupons } = await import('@lions/data');
-    const r = redeemCoupon(emptyAccount(), process.env.COUPON_TEST_CODE ?? '', coupons, sha256Hex, 1);
-    expect(r.ok && [r.credits, r.coins]).toEqual([10000, 100000]);
+    expect(coupons).toEqual([]);
   });
 });

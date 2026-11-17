@@ -11,8 +11,8 @@ const NO_RULE_BY_DESIGN = new Set([
   'rl-profile__',
   'rl-profile__avatar-change',
   'rl-profile__closed',
-  'rl-profile__col--main',
-  'rl-profile__col--side',
+  'rl-page-cols__col--main',
+  'rl-page-cols__col--side',
   'rl-profile__content',
   'rl-profile__link',
   'rl-profile__copy',
@@ -60,8 +60,10 @@ describe('profile and avatar-picker classes have a rule in theme.css', () => {
   it.each([
     ['profile.ts', 'rl-profile__'],
     ['avatar-picker.ts', 'rl-avatar-picker__'],
+    ['page-card.ts', 'rl-page-'],
   ])('%s', (file, prefix) => {
-    const used = [...new Set(ts(file).match(new RegExp(`${prefix}[a-z0-9-]*(?:--[a-z0-9-]+)?`, 'g')) ?? [])];
+    // `(?:__…)?` reads a BEM element after a block prefix (`rl-page-` + `card__title`); the two `__` prefixes never have one.
+    const used = [...new Set(ts(file).match(new RegExp(`${prefix}[a-z0-9-]*(?:__[a-z0-9-]+)?(?:--[a-z0-9-]+)?`, 'g')) ?? [])];
     expect(used.length).toBeGreaterThan(3);
     // A name ending in `-` is a template stub (`tile--${k}`); it must be named in TEMPLATED, never skipped.
     const stubs = used.filter((c) => c.endsWith('-') && c !== 'rl-profile__');
@@ -93,7 +95,7 @@ describe('the account page accents (GH-1367 S1)', () => {
   });
   it('pins the lifted card, the rim, the link, the tag, the status and the perk marker', () => {
     expect(css).toMatch(/--card-bg: color-mix\(in srgb, var\(--rl-shadow-0\) 70%, transparent\)/);
-    expect(body('.rl-profile__card')).toContain('background: var(--card-bg)');
+    expect(body('.rl-page-card')).toContain('background: var(--card-bg)');
     expect(body('.rl-profile__avatar .rl-avatar')).toContain('border: 0.1875rem solid var(--crest-rim');
     expect(body('.rl-profile__privacy-link')).toContain('color: var(--ink-dim)');
     expect(body('.rl-avatar-picker__tag')).toContain('background: var(--avatar-tag-ground)');
@@ -109,17 +111,18 @@ describe('the account page accents (GH-1367 S1)', () => {
 });
 
 describe('the warm ground (GH-1367 S2)', () => {
-  it('is painted only on a stage that holds the profile column', () => {
+  // GH-1510: the Settings screen follows the account page and stands on the same ground, in the same one rule.
+  it('is painted only on a stage that holds the profile column or the settings screen', () => {
     const rules = [...css.matchAll(/([^{}]*)\{[^{}]*var\(--profile-ground\)[^{}]*\}/g)];
     expect(rules.length).toBe(1);
-    expect(rules[0]?.[1]?.trim()).toBe('#stage:has(> .rl-menu--profile)');
+    expect(rules[0]?.[1]?.trim()).toBe('#stage:has(> .rl-menu--profile),\n#stage:has(> .rl-settings)');
   });
   it('drops the menu column\'s own box on the profile screen only', () => {
     expect(css).toMatch(/\n\.rl-menu--profile \{\n {2}background: transparent;\n {2}border-color: transparent;/);
     expect(css).not.toMatch(/\n\.rl-menu \{[^}]*transparent/);
   });
   it('never animates', () => {
-    expect(body('#stage:has(> .rl-menu--profile)')).not.toMatch(/animation|transition/);
+    expect(body('#stage:has(> .rl-menu--profile),\n#stage:has(> .rl-settings)')).not.toMatch(/animation|transition/);
   });
 });
 
@@ -172,13 +175,13 @@ describe('card colour roles (GH-1367 S3)', () => {
     expect(token('--card-head-signin-ink')).toBe('var(--rl-shadow-1)');
     expect(token('--card-head-data')).toBe('color-mix(in srgb, var(--rl-water-1) 80%, var(--rl-shadow-1))');
     expect(token('--card-head-danger')).toBe('color-mix(in srgb, var(--bad) 55%, var(--rl-shadow-1))');
-    expect(body('.rl-profile__card--record .rl-profile__card-title')).toContain('background: var(--card-head-record)');
-    expect(body('.rl-profile__card--history .rl-profile__card-title')).toContain('background: var(--card-head-history)');
-    const signin = body('.rl-profile__card--signin .rl-profile__card-title');
+    expect(body('.rl-profile__card--record .rl-page-card__title')).toContain('background: var(--card-head-record)');
+    expect(body('.rl-profile__card--history .rl-page-card__title')).toContain('background: var(--card-head-history)');
+    const signin = body('.rl-profile__card--signin .rl-page-card__title');
     expect(signin).toContain('background: var(--card-head-signin)');
     expect(signin).toContain('color: var(--card-head-signin-ink)');
-    expect(body('.rl-profile__card--data .rl-profile__card-title')).toContain('background: var(--card-head-data)');
-    const danger = body('.rl-profile__card--danger .rl-profile__card-title');
+    expect(body('.rl-profile__card--data .rl-page-card__title')).toContain('background: var(--card-head-data)');
+    const danger = body('.rl-profile__card--danger .rl-page-card__title');
     expect(danger).toContain('background: var(--card-head-danger)');
     expect(danger).toContain('color: var(--band-ink)');
   });

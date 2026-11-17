@@ -76,7 +76,7 @@ def main():
                         bad.append(f"{tid}: texel {name} outside the deviation cap")
     kp.use_team("inf_squad")
     # the Rifle Squad's per-node rows for the v7 parts are the v7 report's own triangle counts (a sided part: one node per side; the
-    # pouches: two in one node), and no other team has any (demo_squad keeps the shared limits)
+    # pouches: two in one node), and demo_squad reads the same table
     import json
     rep = json.load(open(os.path.join(HERE, "..", "art", "parts", "inf_kit", "v7", "kit_parts_report.json")))
     src_of = {"throat": ["throat_protector"], "groin": ["groin_apron"], "mag_pouches": ["mag_pouch"] * 2, "grenade_pouches": ["grenade_pouch"] * 2,
@@ -88,8 +88,9 @@ def main():
             bad.append(f"inf_squad part_tris[{name}] = {rows}, the v7 report's {srcs} gives {want}")
     if {p.name for p in kp.PARTS} - set(kp.TEAMS["inf_squad"].part_tris) != {"helmet_cover", "yoke", "foregrip", "whip_short", "whip_long"}:
         bad.append("inf_squad part_tris: the parts left procedural are not exactly the helmet cover, yoke, foregrip and whips")
-    if kp.TEAMS["demo_squad"].part_tris:
-        bad.append("demo_squad has per-part triangle rows: it must keep the shared limits")
+    # the Combat Engineers fit the same v7 set since 13 Nov 2026 (GH-826 unit 1): the same rows, not a copy that can drift
+    if kp.TEAMS["demo_squad"].part_tris is not kp.TEAMS["inf_squad"].part_tris:
+        bad.append("demo_squad's per-part triangle rows are not the v7 table the Rifle Squad reads")
     # the table is the shipped part files' own counts
     if rep["carrier"]["tris"] != 2299:
         bad.append("kit_parts_report.json: the carrier is not the decimated 2,299")

@@ -266,7 +266,7 @@ def main():
                 bad.append(f"{label}: not red for {expect!r}: {f[:2]}")
         finally:
             shutil.rmtree(d, ignore_errors=True)
-    # 9. the dark-brown floor is inf_squad's alone, and dies with its Meshy source
+    # 9. the dark-brown floor is the named skinned teams' alone (inf_squad, demo_squad), and dies with its Meshy source
     d = tempfile.mkdtemp(prefix="glove_")
     try:
         shutil.copy(SHIPPED, os.path.join(d, "not_inf_squad.glb"))
@@ -296,7 +296,7 @@ def main():
             print("  " + b)
         sys.exit(1)
     print("ok: inf_squad passes; the face's skin, the sleeve texel, the orange claw, Breach's black, a pink glove, a black glove "
-          "and glove paint up the sleeve each go red; the dark-brown L* floor and hue band are inf_squad's alone and die with "
+          "and glove paint up the sleeve each go red; the dark-brown L* floor and hue band are the named skinned teams' alone and die with "
           "its Meshy source")
 
 

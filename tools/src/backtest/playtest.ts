@@ -1803,7 +1803,12 @@ const ledQH2 = run(
     //   nearest its foot;
     // - the mortar backs off out of an identified Kornet's reach;
     // - the engineers wait at the start line while anything they know of stands within reach of
-    //   their road. A Kornet's reach counts as 15 tiles (range 14, plus one); anything else as 9.
+    //   their road AHEAD of them. A Kornet's reach counts as 15 tiles (range 14, plus one); anything
+    //   else as 9. A threat that reaches only the start line itself is no reason to wait: they are
+    //   already under it standing still. (GH-1394, Easier seed 1: TM3 sends one rifle squad and a
+    //   fresh AT team here, the lone foot do not hold the gate group at the bench, and its Kornet,
+    //   seen at (31,32) at 100 s, reaches the start line and nothing else; waiting for it to leave,
+    //   the engineers were killed where they stood at 146 s, by that Kornet at (25,36).)
     // Most of what crosses the valley walks on into the armour parked at the gate and dies there.
     // The raze is quick: about 50 s up the road and 5 s at the wall. The latest start, 200 s,
     // therefore still beats the 300 s deadline.
@@ -1811,9 +1816,9 @@ const ledQH2 = run(
     const ROAD: readonly (readonly [number, number])[] = [[22, 43], [16, 37], [12, 30], [12, 22], [20, 20], [14, 15]];
     const kornets = () => new Set(pic.identified('atgm_cell').map((c) => c.id));
     const reach = (c: { x: number; y: number }, x: number, y: number, r: number) => (c.x - x) ** 2 + (c.y - y) ** 2 <= r * r;
-    const roadThreats = () => {
+    const roadThreats = (road = ROAD) => {
       const k = kornets();
-      return pic.contacts().filter((c) => ROAD.some(([x, y]) => reach(c, x, y, k.has(c.id) ? 15 : 9)));
+      return pic.contacts().filter((c) => road.some(([x, y]) => reach(c, x, y, k.has(c.id) ? 15 : 9)));
     };
     let demoSent = false;
     for (let when = 2; when <= 300; when += 2) at(when, () => pic.update());
@@ -1828,7 +1833,7 @@ const ledQH2 = run(
       });
     for (let when = 100; when <= 200; when += 5)
       at(when, () => {
-        if (demoSent || (when < 200 && roadThreats().length > 0)) return;
+        if (demoSent || (when < 200 && roadThreats(ROAD.slice(1)).length > 0)) return;
         demoSent = true;
         sim.queueCommand({ kind: 'move', ids: demo, ...M(14, 15) });
       });
@@ -3049,7 +3054,14 @@ function technicalProbe(
   unitId: 'heli_peten' | 'aa_remetz',
   target: readonly [number, number],
   /** Whether the unit can answer a technical (a Peten scores a kill); a Remetz cannot and is judged on what the technical costs it. */
-  fires: boolean
+  fires: boolean,
+  /**
+   * The earliest second the purchase is asked for (default 0: as soon as the purse covers it). GH-1386 batch 3: this probe is about a Peten meeting a
+   * technical, not about the economy, but "as soon as affordable" made the purchase a function of the income. Held-ground income on
+   * wadi_halam_3 moved the first affordable second from 141 s to 95 s, the Peten reached the road 46 s sooner, took six penetrations and died with no
+   * kill. The purchase second is pinned to the one the probe was written around instead, so the engagement is the same whatever the purse does.
+   */
+  buyNotBeforeS = 0
 ): void {
   const label = `${id} (bought ${unitId} vs technicals)`;
   const baseStars = missionStars.get(id as string);
@@ -3081,7 +3093,7 @@ function technicalProbe(
     // Asked every second from the first tick until the build is accepted (the Peten waits for the income); the first sighting of the unit sends it.
     for (let when = 0; when <= 300; when++) {
       at(when, () => {
-        if (!seen.accepted) {
+        if (!seen.accepted && when >= buyNotBeforeS) {
           seen.accepted = rt.requestBuild(unitId);
           if (seen.accepted) seen.acceptedAt = when;
         }
@@ -3144,7 +3156,13 @@ function technicalProbe(
 // GH-1360 S3b: (36,12) -> (34,14). In the assembly layout the Peten at (36,12) took 2 technical hits on the pinned seed and no
 // penetration (was 4 hits, 1 penetration), so the engaged pin had no sample. Of 15 points tried round it, (34,14) alone gives
 // one: 3 hits, 1 penetration, 3 kills, the mission still a VICTORY at 2 stars. As thin as before (one sample on one seed).
-technicalProbe('wadi_halam_3_counterraid', wadiHalam3Plan, wh2, 'heli_peten', [34, 14], true);
+// THIS IS A GATE (a failed pin exits 1), not a report. It proves one thing: a bought Peten sent at the technicals' road takes at least 5 penetrations before it dies,
+// none costing more than 25% of its hull, scores a kill, and the mission is still a victory at no fewer stars (GH-868). It is bought at 141 s, the second the purse first covered
+// it before GH-1386 gave the mission held-ground income (Was: as soon as affordable, 141 s then, 95 s with the zone), so that the engagement it pins does not move with the purse.
+// What that pinning hides, said plainly: bought the moment the purse allows (95 s with the zone), the Peten reaches the road 46 s sooner, takes six penetrations and is lost at 199 s with
+// no kill (the mission is still a victory, 2 stars, ROE 100): a player who rushes the helicopter now loses it. Nothing was tuned for that. `PT_PETEN_BUY_AT=0` (any second) prints that run and the gate
+// goes red on it, as it should: `PT_PETEN_BUY_AT=0 npx tsx src/backtest/playtest.ts` from tools/.
+technicalProbe('wadi_halam_3_counterraid', wadiHalam3Plan, wh2, 'heli_peten', [34, 14], true, Number(process.env.PT_PETEN_BUY_AT ?? 141));
 technicalProbe('wadi_halam_5_depot', wadiHalam5Plan, wh4, 'aa_remetz', [33, 30], false);
 
 // --- Brigade economy Task 5: every optimal plan holds at max tier ----------
@@ -3959,6 +3977,16 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // IV 210 -> 230; Deir Amun II 237 -> 247, III 250 -> 255; Ein Qasab III 195 -> 160; Khan Rafid I 310 -> 320, III 238 -> 255; Qarn Hadid
 // II 210 -> 220, III 229 -> 237; Umm Zeitoun I 238 -> 248, III 300 -> 280, IV 262 -> 225 (192 at ROE 67 before its plan fix; now ROE 100); Wadi Halam I
 // 190 -> 180, II 180 -> 200, III 190 -> 170, V 200 -> 190. The star ladder (68) and every gate held.
+// 2026-11-16, GH-1386 batch 3 (beit_sahwan_2, wadi_halam_3, deir_amun_3): unchanged at 6923. Per-mission credits byte-identical, 0 of 30 plan runs differ on all three
+// (docs/campaign/economy/held-ground-census.md, section 10). wadi_halam_3's "bought heli_peten" probe now buys at 141 s instead of "as soon as affordable":
+// the zone income made that 95 s and the probe failed, so its engagement is pinned to the second it was written around.
+// 2026-11-16, GH-1386 batch 2 (beit_sahwan_3, tel_marum_3, umm_zeitoun_3, wadi_halam_5): unchanged at 6923. The same measurement as batch 1 (docs/campaign/economy/held-ground-census.md, section 9):
+// the printed per-mission credits are byte-identical; umm_zeitoun_3, the one of the four whose plan builds, differs on ONE of 30 seeds (21: a squad is
+// accepted 50 s sooner and the win comes 0.4 s later, with the same stars, ROE and credits).
+// 2026-11-16, GH-1386 batch 1 (held-ground income on khan_rafid_2, qarn_hadid_2, tel_marum_2): unchanged at 6923. Measured, not assumed:
+// zone income reaches credits only through a plan's decisions, and these three plans buy nothing, so on all 30 seeds each plan's result, clock,
+// stars, ROE and credits are identical to the digit (docs/campaign/economy/held-ground-census.md, section 8); the printed per-mission credits are
+// byte-identical to the tree before the change. LADDER_STARS (68) and ROSTER_MAX (26) are unmoved for the same reason.
 const LADDER_CREDITS = 6923;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
@@ -4275,17 +4303,32 @@ const INTEL_WINNERS_ONE_SWEEP = 44;
 // order here. The four D7 missions have authored their income zones since the lead approved them on
 // 15 Oct (ruling C-R1).
 const BANKING_OVER_30_MAX = 15;
-// ZONE_PASSIVE_INCOME: income from ZONES earned by the no-orders controls of the four D7 missions
-// (umm_zeitoun_2_buildup, umm_zeitoun_4_clearance, deir_amun_2_foothold, wadi_halam_2_laager), side 0,
-// whole logistics. It is 0 by rule: a force that never moves holds only the ground it was placed on,
+// ZONE_PASSIVE_INCOME: income from ZONES earned by the no-orders controls of EVERY mission that authors income zones
+// (GH-1386: it was a hard-coded list of the four D7 missions, so a zone authored on a starting ground anywhere else paid a force that never
+// moves and passed; it is derived from the mission data now), side 0, whole logistics. It is 0 by rule: a force that never moves holds only the ground it was placed on,
 // and no starting force may pay for standing still. The four D7 missions author their zones (lead-
 // approved 15 Oct, ruling C-R1), and it is 0 because no authored zone covers a starting placement (a
 // `staging` zone that paid would make this positive, and none is authored). A 0 is only evidence if the four controls were RUN: a control
 // renamed or dropped contributes nothing and would read 0 silently, so the gate also requires all four
-// found, prints "D7 controls found 4/4", and fails naming any that is missing (F2 Task 11).
+// found, prints "zone-mission controls found N/N", and fails naming any that is missing (F2 Task 11).
 const ZONE_PASSIVE_INCOME = 0;
+// ZONE_MISSIONS: how many shipped missions author income zones (GH-1386, "held-ground income on at least 15 of 30"). Pinned as a floor that
+// only rises, one batch at a time, so a zone deleted from a mission's data goes red here and in `income-shipped.test.ts`. A probe run
+// (`PT_INCOME`) authors zones in memory, so the pin reads the data and not the probed object.
+// Was 5 (deir_amun_2, ein_qasab_3, umm_zeitoun_2, umm_zeitoun_4, wadi_halam_2); 8 at batch 1 (+ khan_rafid_2, qarn_hadid_2, tel_marum_2);
+// 12 at batch 2 (+ beit_sahwan_3, tel_marum_3, umm_zeitoun_3, wadi_halam_5); 15 at batch 3 (+ beit_sahwan_2, wadi_halam_3, deir_amun_3). Was 12.
+const ZONE_MISSIONS = 15;
 {
-  const D7 = ['umm_zeitoun_2_buildup', 'umm_zeitoun_4_clearance', 'deir_amun_2_foothold', 'wadi_halam_2_laager'];
+  const zoneMissions = Object.values(missions as unknown as Record<string, { id: string; resources?: { income_zones?: unknown[] } }>)
+    .filter((m) => (m.resources?.income_zones?.length ?? 0) > 0)
+    .map((m) => m.id)
+    .sort();
+  const D7 = zoneMissions;
+  console.log(`income census: zones on ${zoneMissions.length} of ${Object.keys(missions).length} missions`);
+  if (process.env.PT_INCOME === undefined && zoneMissions.length < ZONE_MISSIONS) {
+    console.error(`income census: FAILED — zones on ${zoneMissions.length} missions, expected at least ${ZONE_MISSIONS} (${zoneMissions.join(', ')})`);
+    process.exitCode = 1;
+  }
   let over30 = 0;
   let winners = 0;
   for (const r of runLog) {
@@ -4309,21 +4352,21 @@ const ZONE_PASSIVE_INCOME = 0;
   }
   console.log(
     `banking: ${over30} of ${winners} winning plans bank over 30% (${controls} passive controls reported); ` +
-      `zone income earned by the four D7 passive controls ${zonePassive}`
+      `zone income earned by the ${D7.length} zone missions' passive controls ${zonePassive}`
   );
   const bankingFailure = bankingBoundFailure(over30, winners, BANKING_OVER_30_MAX);
   if (bankingFailure !== null) {
     console.error(`banking: FAILED — ${bankingFailure}`);
     process.exitCode = 1;
   }
-  console.log(`banking: D7 controls found ${d7Found.size}/${D7.length}`);
+  console.log(`banking: zone-mission controls found ${d7Found.size}/${D7.length}`);
   const d7Missing = D7.filter((id) => !d7Found.has(id));
   if (d7Missing.length > 0) {
     console.error(`banking: FAILED — no passive control ran for ${d7Missing.join(', ')}: ZONE_PASSIVE_INCOME read nothing there`);
     process.exitCode = 1;
   }
   if (zonePassive !== ZONE_PASSIVE_INCOME) {
-    console.error(`banking: FAILED — the D7 passive controls earned ${zonePassive} from zones, expected ${ZONE_PASSIVE_INCOME}`);
+    console.error(`banking: FAILED — the zone missions' passive controls earned ${zonePassive} from zones, expected ${ZONE_PASSIVE_INCOME}`);
     process.exitCode = 1;
   }
 }

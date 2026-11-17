@@ -473,7 +473,7 @@ not design.
   --card-coins-rule: color-mix(in srgb, var(--roar) 45%, transparent);
 }
 .rl-profile__card--coins { border-color: var(--card-coins-rule); }
-.rl-profile__card--coins .rl-profile__card-title { background: var(--card-head-coins); color: var(--band-ink); }
+.rl-profile__card--coins .rl-page-card__title { background: var(--card-head-coins); color: var(--band-ink); }
 .rl-profile__coins-balance { display: flex; align-items: center; gap: var(--s2); }
 .rl-profile__coins-coin { flex: none; width: 2.5rem; height: 2.5rem; }
 .rl-profile__coins-n { font-family: var(--font-mono); font-size: 2.25rem; font-weight: 600; line-height: 1; color: var(--roar); }
@@ -499,7 +499,7 @@ not design.
 .rl-stores__device-hint { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin: var(--s2) 0 0; padding: var(--s2) var(--s3); background: var(--well); border-left: 0.1875rem solid var(--band-mission); color: var(--ink); }
 .rl-stores__device-hint p { margin: 0; flex: 1 1 18rem; }
 .mock-tag { display: inline-block; margin: 0 0 var(--s1); padding: 0 var(--s1); background: var(--rl-dust-0); color: var(--rl-shadow-1); font: 700 11px/1.6 system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase; }
-.mock-tag + .rl-profile__card-title { margin-top: 0; }
+.mock-tag + .rl-page-card__title { margin-top: 0; }
 ```
 
 A shipped block would drop the two `!important`s (the scratch sheet had to outrank the cell padding shorthand) and use
