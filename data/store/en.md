@@ -31,7 +31,7 @@ You command a Kedem Defence Forces battalion in the fictional land of Kedem, ins
 
 **Your brigade.** Earn credits in the campaign, upgrade your units and look them over in the garage. Brigade credits are earned and never sold.
 
-**Beyond the campaign.** Walk any of the 41 maps in free play with a full task force. Play a friend with a room code, KDF against Sarim, or play the computer.
+**Beyond the campaign.** Walk any of the 38 maps in free play with a full task force. Play a friend with a room code, KDF against Sarim, or play the computer.
 
 **Yours to set up.** Remappable keys, colour-vision modes, adjustable text and interface size, reduced motion, three quality presets, and a save you can resume in the middle of a mission.
 
@@ -44,7 +44,7 @@ You command a Kedem Defence Forces battalion in the fictional land of Kedem, ins
 - Smoke, mortar, drone and precision fire support, garrisons, tunnels, wounded and civilians
 - More than 40 unit types, from rifle squads to tanks and helicopters
 - A persistent brigade with credits, upgrades and a garage
-- Free play on 41 maps, friend matches with a room code, and a match against the computer
+- Free play on 38 maps, friend matches with a room code, and a match against the computer
 - Accessibility options: remappable keys, colour-vision modes, text size, reduced motion
 - Free to play, with cosmetic-only purchases
 
@@ -52,4 +52,4 @@ You command a Kedem Defence Forces battalion in the fictional land of Kedem, ins
 English. [LEAD: add each language here when it ships; the five planned (Simplified Chinese, Russian, German, French, Spanish) are not claimed until then.]
 
 ## System requirements
-[PLACEHOLDER, NOT FINAL. Minimum and recommended hardware are measured on the Steam build, which does not exist yet. Today the game runs in a browser that supports WebGL 2 (WebGPU is used where available), with mouse and keyboard, and has a low quality preset. No figures are claimed here.]
+[PLACEHOLDER, NOT FINAL. Minimum and recommended hardware are measured on the Steam build, which does not exist yet. Today the game runs in a browser that supports WebGL 2, with mouse and keyboard, and has a low quality preset. No figures are claimed here.]

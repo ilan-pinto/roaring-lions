@@ -6,7 +6,7 @@
 # Roaring Lions
 
 ## Short description
-Mantenga el terreno sin perder la contención. Un juego de estrategia en tiempo real realista, de misiones cortas y un modelo de combate que cuenta cada proyectil, cada muro y cada civil. Dirija a las KDF en la tierra ficticia de Kedem, inspirada en los conflictos modernos de Oriente Medio. Gratis.
+Mantenga el terreno sin perder la contención. Un juego de estrategia en tiempo real realista: misiones cortas y un modelo de combate que cuenta cada proyectil, muro y civil. Dirija a las KDF en la tierra ficticia de Kedem, inspirada en los conflictos modernos de Oriente Medio. Gratis para jugar.
 
 ## About this game
 Roaring Lions es un juego de estrategia en tiempo real sobre cumplir la misión sin convertirse uno mismo en el problema.
@@ -27,11 +27,11 @@ Usted manda un batallón de las Kedem Defence Forces en la tierra ficticia de Ke
 
 **Su brigada.** Gane créditos en la campaña, mejore sus unidades y examínelas en el garaje. Los créditos de brigada se ganan y nunca se venden.
 
-**Más allá de la campaña.** Recorra cualquiera de los 41 mapas en partida libre con una fuerza completa. Juegue contra un amigo con un código de sala, KDF contra Sarim, o juegue contra el ordenador.
+**Más allá de la campaña.** Recorra cualquiera de los 38 mapas en partida libre con una fuerza completa. Juegue contra un amigo con un código de sala, KDF contra Sarim, o juegue contra el ordenador.
 
 **A su medida.** Teclas reasignables, modos de visión del color, tamaño de texto e interfaz ajustables, animaciones reducidas, tres niveles de calidad y una partida guardada que se puede reanudar en mitad de la misión.
 
-**Gratis.** Las monedas Roar opcionales solo compran elementos cosméticos. Nunca compran unidades, mejoras ni nada que cambie un combate.
+**Gratis para jugar.** Las monedas Roar opcionales solo compran elementos cosméticos. Nunca compran unidades, mejoras ni nada que cambie un combate.
 
 ## Key features
 - Un modelo de combate realista: orientación del blindaje, cobertura, línea de visión, altura y supresión
@@ -40,12 +40,12 @@ Usted manda un batallón de las Kedem Defence Forces en la tierra ficticia de Ke
 - Apoyo de fuego con humo, mortero, drones y ataques de precisión, edificios guarnecidos, túneles, heridos y civiles
 - Más de 40 tipos de unidad, desde escuadras de fusileros hasta carros de combate y helicópteros
 - Una brigada persistente con créditos, mejoras y garaje
-- Partida libre en 41 mapas, partidas con amigos mediante código de sala y una partida contra el ordenador
+- Partida libre en 38 mapas, partidas con amigos mediante código de sala y una partida contra el ordenador
 - Accesibilidad: teclas reasignables, modos de visión del color, tamaño de texto, animaciones reducidas
-- Gratis, con compras solo cosméticas
+- Gratis para jugar, con compras solo cosméticas
 
 ## Languages
 Inglés. [LEAD: añadir cada idioma aquí cuando se publique; los cinco previstos (chino simplificado, ruso, alemán, francés, español) no se anuncian hasta entonces.]
 
 ## System requirements
-[MARCADOR, NO DEFINITIVO. Los requisitos mínimos y recomendados se medirán con la versión de Steam, que aún no existe. Hoy el juego funciona en un navegador compatible con WebGL 2 (WebGPU cuando está disponible), con ratón y teclado, y tiene un nivel de calidad bajo. Aquí no se afirma ninguna cifra.]
+[MARCADOR, NO DEFINITIVO. Los requisitos mínimos y recomendados se medirán con la versión de Steam, que aún no existe. Hoy el juego funciona en un navegador compatible con WebGL 2, con ratón y teclado, y tiene un nivel de calidad bajo. Aquí no se afirma ninguna cifra.]

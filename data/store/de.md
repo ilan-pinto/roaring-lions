@@ -27,7 +27,7 @@ Du führst ein Bataillon der Kedem Defence Forces im fiktiven Land Kedem, inspir
 
 **Deine Brigade.** Verdiene Credits in der Kampagne, rüste deine Einheiten auf und sieh sie dir in der Garage an. Brigade-Credits werden verdient und nie verkauft.
 
-**Über die Kampagne hinaus.** Geh im freien Spiel mit einer vollen Einsatztruppe über jede der 41 Karten. Spiele mit einem Raumcode gegen einen Freund, KDF gegen Sarim, oder spiele gegen den Computer.
+**Über die Kampagne hinaus.** Geh im freien Spiel mit einer vollen Einsatztruppe über jede der 38 Karten. Spiele mit einem Raumcode gegen einen Freund, KDF gegen Sarim, oder spiele gegen den Computer.
 
 **Nach deinen Wünschen.** Umbelegbare Tasten, Modi für Farbsehen, einstellbare Text- und Oberflächengröße, reduzierte Bewegung, drei Qualitätsstufen und ein Spielstand, den du mitten im Einsatz fortsetzen kannst.
 
@@ -40,7 +40,7 @@ Du führst ein Bataillon der Kedem Defence Forces im fiktiven Land Kedem, inspir
 - Feuerunterstützung mit Rauch, Mörsern, Drohnen und Präzisionsschlägen, dazu Besetzen, Tunnel, Verwundete und Zivilisten
 - Über 40 Einheitentypen, vom Schützentrupp bis zu Panzern und Hubschraubern
 - Eine bleibende Brigade mit Credits, Aufrüstungen und einer Garage
-- Freies Spiel auf 41 Karten, Freundesspiele mit Raumcode und ein Spiel gegen den Computer
+- Freies Spiel auf 38 Karten, Freundesspiele mit Raumcode und ein Spiel gegen den Computer
 - Barrierefreiheit: umbelegbare Tasten, Modi für Farbsehen, Textgröße, reduzierte Bewegung
 - Kostenlos spielbar, mit rein kosmetischen Käufen
 
@@ -48,4 +48,4 @@ Du führst ein Bataillon der Kedem Defence Forces im fiktiven Land Kedem, inspir
 Englisch. [LEAD: jede Sprache hier eintragen, sobald sie ausgeliefert wird; die fünf geplanten (Chinesisch vereinfacht, Russisch, Deutsch, Französisch, Spanisch) werden bis dahin nicht behauptet.]
 
 ## System requirements
-[PLATZHALTER, NICHT FINAL. Mindest- und empfohlene Hardware werden mit dem Steam-Build gemessen, den es noch nicht gibt. Heute läuft das Spiel in einem Browser mit WebGL 2 (WebGPU, wo verfügbar), mit Maus und Tastatur, und hat eine niedrige Qualitätsstufe. Hier werden keine Zahlen behauptet.]
+[PLATZHALTER, NICHT FINAL. Mindest- und empfohlene Hardware werden mit dem Steam-Build gemessen, den es noch nicht gibt. Heute läuft das Spiel in einem Browser mit WebGL 2, mit Maus und Tastatur, und hat eine niedrige Qualitätsstufe. Hier werden keine Zahlen behauptet.]

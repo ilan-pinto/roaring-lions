@@ -6,7 +6,7 @@
 # Roaring Lions
 
 ## Short description
-Tenez le terrain sans perdre votre retenue. Un jeu de stratégie en temps réel réaliste, fait de missions courtes et d'un modèle de combat qui compte chaque obus, chaque mur et chaque civil. Commandez la KDF dans le pays fictif de Kedem, inspiré des conflits modernes au Moyen-Orient. Gratuit.
+Tenez le terrain sans perdre votre retenue. Un jeu de stratégie en temps réel réaliste: missions courtes et modèle de combat qui compte chaque obus, mur et civil. Commandez la KDF dans le pays fictif de Kedem, inspiré des conflits modernes au Moyen-Orient. Jouable gratuitement.
 
 ## About this game
 Roaring Lions est un jeu de stratégie en temps réel sur l'art de faire le travail sans devenir soi-même le problème.
@@ -27,11 +27,11 @@ Vous commandez un bataillon des Kedem Defence Forces dans le pays fictif de Kede
 
 **Votre brigade.** Gagnez des crédits dans la campagne, améliorez vos unités et examinez-les au garage. Les crédits de brigade se gagnent et ne se vendent jamais.
 
-**Au-delà de la campagne.** Parcourez n'importe laquelle des 41 cartes en partie libre avec une force complète. Affrontez un ami avec un code de salle, KDF contre Sarim, ou jouez contre l'ordinateur.
+**Au-delà de la campagne.** Parcourez n'importe laquelle des 38 cartes en partie libre avec une force complète. Affrontez un ami avec un code de salle, KDF contre Sarim, ou jouez contre l'ordinateur.
 
 **À régler comme vous voulez.** Touches reconfigurables, modes pour la vision des couleurs, taille du texte et de l'interface réglable, animations réduites, trois niveaux de qualité, et une sauvegarde que l'on peut reprendre en pleine mission.
 
-**Gratuit.** Les pièces Roar facultatives n'achètent que des éléments cosmétiques. Elles n'achètent jamais d'unités, d'améliorations ni rien qui change un combat.
+**Jouable gratuitement.** Les pièces Roar facultatives n'achètent que des éléments cosmétiques. Elles n'achètent jamais d'unités, d'améliorations ni rien qui change un combat.
 
 ## Key features
 - Un modèle de combat réaliste : orientation du blindage, couvert, ligne de vue, hauteur et neutralisation par le feu
@@ -40,12 +40,12 @@ Vous commandez un bataillon des Kedem Defence Forces dans le pays fictif de Kede
 - Appui-feu par fumée, mortier, drones et frappes de précision, occupation de bâtiments, tunnels, blessés et civils
 - Plus de 40 types d'unités, du groupe de fusiliers aux chars et aux hélicoptères
 - Une brigade qui dure, avec crédits, améliorations et garage
-- Partie libre sur 41 cartes, parties entre amis avec code de salle et partie contre l'ordinateur
+- Partie libre sur 38 cartes, parties entre amis avec code de salle et partie contre l'ordinateur
 - Accessibilité : touches reconfigurables, modes pour la vision des couleurs, taille du texte, animations réduites
-- Gratuit, avec des achats uniquement cosmétiques
+- Jouable gratuitement, avec des achats uniquement cosmétiques
 
 ## Languages
 Anglais. [LEAD : ajouter chaque langue ici quand elle est livrée ; les cinq prévues (chinois simplifié, russe, allemand, français, espagnol) ne sont pas revendiquées d'ici là.]
 
 ## System requirements
-[PLACEHOLDER, NON FINAL. La configuration minimale et recommandée sera mesurée sur la version Steam, qui n'existe pas encore. Aujourd'hui, le jeu tourne dans un navigateur compatible WebGL 2 (WebGPU lorsqu'il est disponible), à la souris et au clavier, avec un niveau de qualité bas. Aucun chiffre n'est avancé ici.]
+[PLACEHOLDER, NON FINAL. La configuration minimale et recommandée sera mesurée sur la version Steam, qui n'existe pas encore. Aujourd'hui, le jeu tourne dans un navigateur compatible WebGL 2, à la souris et au clavier, avec un niveau de qualité bas. Aucun chiffre n'est avancé ici.]
