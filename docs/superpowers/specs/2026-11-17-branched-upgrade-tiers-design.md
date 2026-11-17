@@ -1,12 +1,15 @@
 # Branched upgrade tiers: an either/or choice at tier 3 (GH-1384)
 
-**HOLD FOR LEAD.** Design only. Nothing here is built, and no unit JSON, schema, code or
-`tuning.ts` line changes with this document. Audit dimension D2, size L. The issue asks for
-"a short spec and a mock for the lead before any build"; this is both.
+**RULED BY THE LEAD, 17 Nov 2026** (§8, PR 1539). Design only. Nothing here is built, and no unit
+JSON, schema, code or `tuning.ts` line changes with this document. Audit dimension D2, size L. The
+issue asks for "a short spec and a mock for the lead before any build"; this is both.
 
 - **Date:** 2026-11-17, written against `origin/main` at `5147ce2`. Revised the same day after a
   design review (CHANGES): every code reference was re-checked against `origin/main` at
-  `387d865`, and none of the cited files moved in between.
+  `387d865`, and none of the cited files moved in between. Revised again the same day to the
+  lead's rulings on Q1 to Q11 (§8). The largest is Q3: the data shape, the validator, the
+  migration and the test no longer assume one branched track per unit, though slice 1's content
+  still branches only one.
 - **Section numbers.** A bare "§N" is this document. A section of the upgrade-tracks document
   is always written "`upgrades.md` §N" (`docs/campaign/economy/upgrades.md`).
 - **Issue:** GH-1384, which has no comments yet. Done means: at least ten unit types offer two
@@ -112,6 +115,13 @@ oracles.
 The LAST tier of a track may be **branched**. Instead of one `patch` it carries exactly two
 `branches`, and both branches share the tier's one `price`. Every other tier stays as it is.
 
+**Any track may branch, and a unit may branch more than one track** (the lead, Q3: "allow two
+branched tracks later"). Nothing in the schema, in `applyUpgrades`, in the stores or in the
+carriers assumes one branched track per unit: a pick is always keyed by (unit, track), and every
+rule below is checked per branched track. What holds slice 1 to one branched track per unit is a
+single content cap in the validator (C1, below), not the data shape. Since every track has
+exactly three tiers, the last tier is tier 3.
+
 ```jsonc
 // data/units/kdf/mbt_lavi.json, upgrades.firepower (today: lines 146-169)
 "firepower": {
@@ -146,10 +156,12 @@ shapes. The first is `{ price, patch }`, today's shape, unchanged. The second is
 shared by `$ref`.
 
 **Cross-field rules** (`validate:data`, in a new `tools/validate_branches.mjs` beside
-`validate_formations.mjs`):
+`validate_formations.mjs`). B1 to B7 apply to EACH branched track of a unit on its own, and an
+error names the unit AND the track. The validator walks every branched track (a `filter`, never
+a `find` that stops at the first), so a unit's second branched track is checked exactly as its
+first; mutation M15 (§5.3) proves it.
 
-- **B1.** Only a track's LAST tier may be branched, and a unit may branch at most ONE track
-  (slice 1; see Q3).
+- **B1.** Only a track's LAST tier may be branched.
 - **B2.** The two branch `id`s differ, and both `label` keys exist in `en.json`.
 - **B3.** Both branches patch exactly the set of paths that the tier below patches.
 - **B4. The split rule: the FLOOR.** For every path, the smaller of the two branch values equals
@@ -176,6 +188,15 @@ shared by `$ref`.
     front +3.5 ships as +4, the AT team's optics +0.275 as +0.28) written into the validator.
     The literal table is the smaller change, and it is what this design proposes.
   - Without B7, only the two balance gates (§6) would hold the ceiling.
+
+**The content cap, separate from the shape rules:**
+
+- **C1.** A unit branches at most `BRANCHED_TRACKS_MAX` tracks, a named constant in
+  `tools/validate_branches.mjs`, set to **1** for slice 1. It is the only place the count lives.
+  Raising it to 2 is the content change the lead allowed for later (Q3), and that slice carries
+  the rest of what a second branched track needs (§7, "Later"). The validator's own tests run
+  B1 to B7 on a two-track fixture with the cap raised, so the per-track rules are proved before
+  any shipped unit needs them (§5.2).
 
 `tierRegressions` (`validate_data.mjs:113`) runs per branch against the tier below, so B4's
 "at least" is the existing monotone rule, applied twice.
@@ -205,8 +226,11 @@ Mutations M7 and M8 (§5.3) prove the throw.
 ```ts
 // packages/data/src/upgrades.ts
 export type BranchPick = 1 | 2;
-/** Per track: which branch of the track's branched last tier is owned. */
+/** One unit's picks, keyed by TRACK: which branch of that track's branched last tier is owned.
+ *  It holds one entry per branched track owned at its last tier, however many the unit has. */
 export type BranchPicks = Readonly<Record<string, BranchPick>>;
+/** A store's or a view's picks: keyed by unit, then by track. Never by track alone. */
+export type OwnedPicks = Readonly<Record<string, BranchPicks>>;
 
 export interface UpgradeBranch { id: string; label: string; patch: Record<string, number> }
 export type UpgradeTier =
@@ -221,18 +245,28 @@ export function applyUpgrades<T extends UpgradableUnit>(
 ): T;
 
 export function maxTiers(unit: UpgradableUnit): Record<string, number>;              // unchanged
-export function maxPicks(unit: UpgradableUnit, pick: BranchPick): Record<string, BranchPick>; // new
+/** Every branched track of the unit at `pick`, or per track when `pick` is a map. */
+export function maxPicks(unit: UpgradableUnit, pick: BranchPick | BranchPicks): Record<string, BranchPick>; // new
+export function branchedTracks(unit: UpgradableUnit): readonly string[];             // new, sorted
 export function branchOf(unit: UpgradableUnit, track: string): readonly [UpgradeBranch, UpgradeBranch] | null; // new
 ```
 
 How the walk changes, on the same loop at `upgrades.ts:239-257`:
 
-- For a branched tier `i`, the patch read is `tier.branches[picks[track] - 1].patch`.
+- For a branched tier `i` of track `t`, the patch read is `tier.branches[picks[t] - 1].patch`.
+  The pick is looked up by THAT track, inside the per-track loop, so two branched tracks on one
+  unit resolve independently: a Lavi with firepower branch 1 and (later) armour branch 2 reads
+  exactly that pair, and one track's pick never stands in for another's.
 - **A branched tier with no pick, or with a pick that is not 1 or 2, is not applied, and the
   walk stops below it** (the track resolves as if owned to `i`). So an unpicked tier 3 is never
-  free stats, and never "both".
+  free stats, and never "both". A missing pick on one track does not touch another branched
+  track that has its pick.
 - Nothing else moves. The sum across tracks, the clamp to the track's length and the sorted walk
-  all stay as they are.
+  all stay as they are, so two branched tracks sum as two plain tracks do today.
+
+`maxPicks(unit, 1)` is the uniform vector (every branched track at branch 1) that the balance
+gates run (§6). It takes a per-track map too, for the mixed vectors a unit with two branched
+tracks will have.
 
 The third parameter is required on purpose. 29 files name `applyUpgrades` today
 (`git grep -l applyUpgrades -- packages tools` at `387d865`, tests included). A default of `{}`
@@ -249,18 +283,11 @@ rather than a grep").
   existing carrier unchanged. But it is a convention the type checker cannot see, and `isTiers`
   (`packages/net/src/config.ts:480`) would accept a pick as a tier. A missed carrier would then
   drop the pick with no error. A separate `picks` field fails to compile instead.
-  - **What this rejection did not weigh (review finding 3):** the reserved key SURVIVES an older
-    build. `migrateUpgrades` (`brigade.ts:105-116`) keeps any non-negative integer under any
-    key. `migrateRoar` keeps any track key whose value carries an integer `tier`
-    (`wallet.ts:135-142`), so the wallet could carry the same trick as
-    `"firepower.pick": { tier: 2, paidTiers: 0 }`, though it rebuilds every entitlement as
-    `{ tier, paidTiers }` and would strip a `branch` field beside them. An old build's
-    `kitCounts` and `applyUpgrades` walk the unit's own tracks and ignore an unknown key
-    (`upgrades.ts:178-188`, `:239-243`), so it is inert there; any other old reader of the map
-    is to be checked before this option is chosen. A separate `picks` field is
-    stripped by every older build that writes the store. §4.4 sets out what that costs. The
-    choice is Q9, the lead's; this document keeps the separate field as its proposal, with §4.4's
-    server-side guard.
+  - **Weighed against it:** the reserved key SURVIVES an older build. `migrateUpgrades`
+    (`brigade.ts:105-116`) keeps any non-negative integer under any key, where a separate
+    `picks` field is stripped by every older build that writes the store. §4.4 sets out what
+    that costs. **The lead ruled the separate `picks` field (Q9):** members are guarded on the
+    server (§4.4), and a guest on a stale build can lose a pick.
 - *Branching across tracks* ("armour III or firepower III"). This needs no new stats, but it takes
   a whole tier from every player who owns both today, and it fits the issue's "two branches at
   one tier" less well.
@@ -269,8 +296,8 @@ rather than a grep").
 
 | carrier | today | adds |
 |---|---|---|
-| `BrigadeAccount` (`economy/src/brigade.ts:35`) | `upgrades` | `picks: Record<unit, Record<track, 1\|2>>` and `legacy: Record<unit, Record<track, true>>` (§4). Both migrate to `{}` when absent, as `coupons` did, so `ACCOUNT_VERSION` does not move |
-| `TrackEntitlement` (`economy/src/wallet.ts:36`) | `{ tier, paidTiers }` | `branch?: 1\|2`, `legacy?: true` |
+| `BrigadeAccount` (`economy/src/brigade.ts:35`) | `upgrades` | `picks: OwnedPicks` (unit, then track, leaf 1 or 2) and `legacy: Record<unit, Record<track, true>>` (§4), both with any number of tracks per unit. Both migrate to `{}` when absent, as `coupons` did, so `ACCOUNT_VERSION` does not move |
+| `TrackEntitlement` (`economy/src/wallet.ts:36`) | `{ tier, paidTiers }` | `branch?: 1\|2`, `legacy?: true`. An entitlement is already per (unit, track), so a unit with two branched tracks holds two independent ones |
 | `resetFree` (`wallet.ts:307-313`) | keeps `{ tier: paidTiers, paidTiers }` | keeps `branch` too when `paidTiers` reaches the branched tier; drops it (and any `legacy`) otherwise. While `PURCHASES_OPEN` is false `paidTiers` is 0 and nothing is kept |
 | `singlePlayerView` (`wallet.ts:377-379`) | `ownedTiers` | `ownedPicks` (merge rule in §4.3). This is the view the game AND the versus room claim read (`main.ts:1437`) |
 | `networkView` (`wallet.ts:382-384`) | `ownedTiers` | `ownedPicks`, earned only, for symmetry. It has no production caller today, so it guards nothing on a room path |
@@ -280,10 +307,16 @@ rather than a grep").
 | versus room claim (`app/src/net/connect.ts:344`) | `{ tiers, specials }` unless `kit === 'matched'` | `picks`, from the same `accountState()` view as `tiers`, INSIDE the same `kit === 'matched' ? {} : {...}` ternary |
 | room mint (`worker/src/match/match-room.ts:509`) and world (`app/src/net/match-world.ts:441`, `seatKitTiers`) | a seat's tiers for `brigade` + `kdf` only | a seat's picks under the same condition (`seatKitPicks`), and `{}` otherwise |
 | `SeatConfig` (`net/src/config.ts:17`, `isTiers` `:480`, `isSeatConfig` `:487`) | `tiers` | `picks`, bounded as `tiers` is (`TIERS_MAX_TYPES`, `TIERS_MAX_TRACKS`, leaf 1 or 2). OPTIONAL on read, defaulting to `{}`, so a config stored before this change ("read back from a replay or the room's own storage", `config.ts:463`) still parses; always written |
-| room cleaning (`worker/src/match/kit-tracks.ts:11`, `seatTiersField`) | `KIT_TRACKS` | `KIT_BRANCHES` (unit to its branched track), pinned both ways by `kit-tracks.test.ts` |
+| room cleaning (`worker/src/match/kit-tracks.ts:11`, `seatTiersField`) | `KIT_TRACKS` | `KIT_BRANCHES` (unit to the SET of its branched tracks, one today), pinned both ways by `kit-tracks.test.ts` |
 | coin spend route (`worker/src/account/spend.ts:62-69`, `parseAsk`) | `{ item: 'tier', unitId, track, tier }` | `branch` on the branched tier; recorded in `detail`, whose JSON needs no SQL change |
 | member claim (`worker/src/account/claim.ts`, `askOrder` `:104`) | the device's entitlements, as asks | the device's `branch` rides an ask as the spend route's does. A device's `legacy` is never read: §4.2 |
 | telemetry (`data/schemas/telemetry_event.schema.json`) | `tier` `unit.track.N` (`:156`) and the purchase `item` (`:103`) | `unit.track.3a` / `.3b` in both patterns. Writers: `app/src/telemetry/events.ts:84`, `main.ts:1410`, `app/src/credit-buy.ts:31,35`. The `/stats` readers are `worker/src/stats.ts:223` (parses the array) and `worker/src/stats-page.ts:91` (prints each string with its dots as spaces); neither parses `N` as an integer today, and any reader that does must learn the suffix in the same slice |
+
+**Every carrier is keyed by (unit, track).** No carrier stores "the" pick of a unit, and no
+bound or cleaner assumes one branched track: `SeatConfig.picks` is bounded per track as `tiers`
+is, the room cleaner iterates `KIT_BRANCHES[unit]`, and the telemetry suffix sits on the track's
+own `unit.track.3a` string. A unit that gains a second branched track later needs a data edit
+and the C1 cap raised, never a new carrier field.
 
 **Old replays.** A stored replay's config carries its `build` and `dataDigest`. One recorded
 before this change has no `picks`, which reads as `{}`, so a tier-3 claim on a branched track
@@ -298,6 +331,9 @@ The renderer's `unitKitTiers` needs no pick: §3.3 keeps the world's kit parts p
 
 ## 2. Which units: thirteen, one branched track each
 
+The lead kept all thirteen (Q7). One branched track each is slice 1's content, under the C1 cap
+(§1.1); a second branched track on any of them is a later content slice (§7).
+
 **How the branches were chosen.** Every branch is built from numbers already in the shipped JSON.
 On the branched track, branch 1 takes today's tier-3 value on one path group and today's tier-2
 value on the other; branch 2 takes the reverse. Three things follow:
@@ -307,8 +343,9 @@ value on the other; branch 2 takes the reverse. Three things follow:
 - Neither branch dominates the other (B5).
 - Both branches are monotone over tier 2.
 
-The price of the branched tier is today's tier-3 price, unchanged, since a price moves only by the
-lead's ruling (`upgrades.md:64-65`; see Q1). Tiers 1 and 2 are untouched.
+The price of the branched tier is today's tier-3 price, unchanged: a price moves only by the
+lead's ruling (`upgrades.md:64-65`), and the lead ruled to keep the full price (Q1). Tiers 1 and 2
+are untouched, so no price data changes.
 
 The path groups, and what each choice means in the combat model:
 
@@ -360,11 +397,11 @@ file:line given is the tier-3 `price` line in `data/units/kdf/<id>.json`.
 | `recon_drone` sensors (145, `:82`) | optics | 2.00 | +0.30 | +0.50 | **Stabilised gimbal** +0.50 | **Wide-angle camera** +0.30 |
 | | sight tiles | 16 | +2 | +3 | +2 | +3 |
 
-That is thirteen types, so three can be struck and the issue's ten still met. The mix is six
-firepower, three armour and four sensors. It covers every arm: tank, IFV, two APCs, a jeep, the
-D9, a gunship, a drone, and rifle, sniper, AT and mortar teams.
+That is thirteen types against the issue's ten, all kept (Q7). The mix is six firepower, three
+armour and four sensors. It covers every arm: tank, IFV, two APCs, a jeep, the D9, a gunship, a
+drone, and rifle, sniper, AT and mortar teams.
 
-**Why these splits and not others, unit by unit, for the lead's veto:**
+**Why these splits and not others, unit by unit:**
 
 - The `inf_squad` firepower split leaves its sensors track alone, so `upgrades.md` §4.3's sight cap is not
   touched.
@@ -378,8 +415,8 @@ D9, a gunship, a drone, and rifle, sniper, AT and mortar teams.
 - The two armour vehicles with a team mark and kit parts (`apc_kipod`; the D9 has no mark) keep
   every part. §3.3 explains why parts follow the tier, not the branch.
 
-The names are proposals. Each is an `en.json` key (`garage.branch.<unit>.<id>`), so the lead can
-rename any of them without touching a number.
+Each name is an `en.json` key (`garage.branch.<unit>.<id>`), so any of them can be renamed
+without touching a number.
 
 ### 2.2 What each branch costs in strength, against today's tier 3
 
