@@ -1362,7 +1362,7 @@ async function main(): Promise<void> {
       },
       ...(serverCtl.gate !== undefined ? { gate: serverCtl.gate, pendingTracks: serverCtl.gate.pendingTracks } : {}),
       onReset: ledgerStore.available ? serverCtl.handlers.reset : undefined,
-      // A coupon code (`data/coupons.json`, hashes only). Client-side and trust-based
+      // A coupon code (`data/coupons.json`, hashes only; the shipped table is empty, GH-1415). Client-side and trust-based
       // until the server ledger (GH-205). No telemetry: the attempt carries the code.
       onRedeem: ledgerStore.available ? serverCtl.handlers.redeem : undefined,
       onBuy: ledgerStore.available
