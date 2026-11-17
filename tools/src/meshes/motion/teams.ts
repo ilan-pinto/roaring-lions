@@ -125,9 +125,11 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     hold: true, kneel: true, formation: true, stride: true, ground: true, speedTiles: 0.9,
   },
   // spike-walk (6 Oct): demo_a stands and walks now, and kneels at the
-  // charge on the sim's brace like everyone else.
+  // charge on the sim's brace like everyone else. Infantry upgrade unit 1
+  // (GH-826, 12 Nov): both men carry the skinned Meshy body's own carbine,
+  // so demo_a is a rifleman too; he still sets the charge in `work`.
   demo_squad: {
-    figures: [{ prefix: 'demo_b', weapon: 'rifle', kneels: true }, { prefix: 'demo_a', kneels: true }],
+    figures: [{ prefix: 'demo_b', weapon: 'rifle', kneels: true }, { prefix: 'demo_a', weapon: 'rifle', kneels: true }],
     hold: true, kneel: true, formation: false, stride: true, ground: true, speedTiles: 0.85,
     work: ['demo_a'],
   },

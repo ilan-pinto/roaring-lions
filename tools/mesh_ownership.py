@@ -88,6 +88,25 @@ def require_owner(table, unit_id, table_name):
     return table[unit_id]
 
 
+def assert_script_owns(table, unit_id, table_name, script_file, repo):
+    """Refuse to build `unit_id` from `script_file` when `table` names another script as the owner of its file.
+
+    The importer-side half of the same guard. An importer keeps a source row for a team long after the team has moved
+    to another importer (the row is the old figure's provenance), and its `main()` builds every row when run bare or
+    with `all`: `import_meshy_kdf_team.py` would have rebuilt the rigid Combat Engineers over the skinned Meshy body
+    the day after `rig.TEAM_MESH_OWNER` gave `demo_squad` to `import_meshy_skinned_team.py` (GH-826, 12 Nov 2026; run
+    and watched: the file changed), as `import_meshy_crew_team.py` could the Rifle Squad since GH-746. Called first
+    thing in an importer's `build_team`, before anything is loaded or written.
+    """
+    owner = require_owner(table, unit_id, table_name)
+    rel = os.path.relpath(os.path.abspath(script_file), repo).replace(os.sep, "/")
+    if owner != rel:
+        raise SystemExit(
+            f"{unit_id}: {table_name} names {owner} as the owner of art/meshes/{unit_id}.glb; "
+            f"{rel} no longer builds it and will not write over it"
+        )
+
+
 def assert_kit_owns_path(unit_id, owner, path, owned_path):
     """Refuse to write `path` when `owner` is not this kit AND `path` IS the
     shipped file that owner produces.
