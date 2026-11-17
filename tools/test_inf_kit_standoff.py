@@ -27,20 +27,24 @@ foregrip 10.9 on demo_b: seven reds. The fit that turned them green is `belt_fro
 demo_squad's row (`inf_kit_parts.py`): the first fit is that row without them.
 
 Round 3 (16 Nov 2026, the lead's list after the second Opus review): four rows of the Combat Engineers' OWN
-(`TEAM_LIMITS`), read off the same bytes by the same tool:
-                                               round 2 bytes (44942becd)     round 3      limit
+(`TEAM_LIMITS`), read off the same bytes by the same tool. The limit column is the LIVE one (round 4, the lead's ruling of
+17 Nov 2026); round 3's own limits for the two rows that changed are in the last column, for the record:
+                                               round 2 bytes (44942becd)     round 3      limit (demo_a / demo_b)       round 3's limit
     carrier wall off the body, p90, mm          47.1 / 47.1                   28 / 28      40
-    carrier wall off the body, max, mm          93.2 / 96.2                   70 / 63      75
+    carrier wall off the body, max, mm          93.2 / 96.2                   70 / 63      70.0 / 63.5                   75
     ear cups' centroid under the face's
-      middle, mm (negative: over it)            +27 / -58                     -80 / -86    0
+      middle, mm (negative: over it)            +27 / -58                     -80 / -86    -79.5 +-5 / -85.6 +-5         a ceiling at 0
     gun triangles crossing an ear cup, worst
       sampled frame of the aimed clips          197 / 86                      0 / 0        0
+Round 4 also holds the tier-2 seats per man (`FIGURE_LIMITS`, the comments beside it): the scope over the gun 14.5 / 13.0 mm
+and the laser box 13.0 / 10.0 mm. With the per-man rows the round-2 bytes read EIGHT reds (demo_b's cups, -58, are under
+their band now).
 The carrier's upper back corners and armhole lips stood in the air behind the firing shoulder (the "cavity" of the aimed
 back views); the cups hung at 1.572 m, the Rifle Squad's ear height, on men whose helmet rims stand at 1.71 / 1.63, and
 the stock's comb ran through the firing-side cup at the cheek weld. Falsified on the round-2 bytes
 (`RL_STANDOFF_GLB=<44942becd's art/meshes/demo_squad.glb> RL_STANDOFF_TEAM=demo_squad`): seven reds (carrier p90 and
 max on both men, the gun through a cup on both men, demo_a's cups under his face's middle). demo_b's cup-height row did
-not go red on those bytes (-58): it is held by demo_a's reading only. The Rifle Squad reads over three of the four
+not go red on those bytes (-58) under round 3's ceiling at 0; round 4's band is what holds it. The Rifle Squad reads over three of the four
 (carrier 52-59 / 102-117, the gun through a cup 110 / 8 / 0 triangles) and is printed, not held: its fit is the lead's
 accepted one and not this unit's to move.
 Needs Blender (`BLENDER_BIN`, PATH, or the macOS app); exits 2 without it.
