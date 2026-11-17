@@ -57,6 +57,9 @@ export const CREDITS = {
     { family: 'Big Shoulders Display', licenceFile: 'OFL-BigShouldersDisplay.txt', holder: 'The Big Shoulders Project Authors' },
     { family: 'Barlow', licenceFile: 'OFL-Barlow.txt', holder: 'The Barlow Project Authors' },
     { family: 'IBM Plex Mono', licenceFile: 'OFL-IBMPlexMono.txt', holder: 'IBM Corp.' },
+    // Cyrillic companions for Barlow and Big Shoulders Display (GH-1407; the lead's ruling of 17 Nov 2026, option B).
+    { family: 'Fira Sans', licenceFile: 'OFL-FiraSans.txt', holder: 'The Mozilla Foundation and Telefonica S.A.' },
+    { family: 'Oswald', licenceFile: 'OFL-Oswald.txt', holder: 'The Oswald Project Authors' },
   ],
   // The Namer's old entry (Mutte, CC BY 3.0) was removed on the lead's ruling (audit L4 / PA-29): its sprite sheets were deleted
   // in A3.3. The history stays in the provenance table (docs/ASSET_PROVENANCE.md). A work whose licence requires a credit goes here
