@@ -433,7 +433,9 @@ a player who already paid for the old tier 3 is kept whole.
 ### 3.1 The branched rung
 
 `garage-board.ts` gives each rung a state: `owned`, `next` or `future` (`rungState`, `:46`). Only
-the `next` rung is expanded. The branched rung keeps those three states and draws a fork:
+the `next` rung is expanded. The branched rung keeps those three states and draws a fork. The
+fork belongs to its TRACK's board, so a unit with two branched tracks later draws two forks, one
+per track, each with its own choice:
 
 ```
  FIREPOWER                                    tier 2 of 3 · 1135 spent · 950 to max
@@ -494,25 +496,33 @@ The numbers above are the Lavi's own:
 is drawn SPLIT: a diagonal half-fill, the left half for branch 1 and the right half for branch 2.
 Its `aria-label` names the branch: `kit.pips.trackBranch`,
 "{track}: {n} of {m}, {branch}". `KitSummary` (`kit-sign.ts:168`) gains
-`branch: { track, pick, label } | null`.
+`branches: readonly { track, pick, label }[]`, one entry per branched track owned at its last
+tier, sorted by track and empty when none. It is a list, not a single field, so a second branched
+track needs no change to the type.
 
 ### 3.3 The kit on the unit icon: `kitIconSignHtml`, no world overlay
 
 The sign stays 1 to 3 steel Stars of David, counted exactly as today. A branched tier counts as
-ONE tier toward `kitCounts`, so `kitLevel` does not move for any account. One thing is added:
-when a branch is owned, the CORNER star (the one that holds still, `kitStarsSvg`) is drawn split
-like the pip, with its left half solid for branch 1 or its right half solid for branch 2, and the
-other half outlined in the same `--kit` steel.
+ONE tier toward `kitCounts`, so `kitLevel` does not move for any account. One thing is added, the
+**split corner star** the lead ruled (Q5): when a branch is owned, the CORNER star (the one that
+holds still, `kitStarsSvg`) is drawn split like the pip, with its left half solid for branch 1 or
+its right half solid for branch 2, and the other half outlined in the same `--kit` steel.
 
 ```ts
 // BEFORE: kitIconSignHtml(level: KitLevel): string
-export function kitIconSignHtml(level: KitLevel, branch?: { pick: BranchPick; label: string }): string;
-export function kitIconSignDecorHtml(level: KitLevel, branch?: { pick: BranchPick }): string;
-export function withKitSign(iconHtml: string, level: KitLevel, branch?: { pick: BranchPick; label: string }): string;
+type IconBranch = { track: string; pick: BranchPick; label: string };
+export function kitIconSignHtml(level: KitLevel, branches?: readonly IconBranch[]): string;
+export function kitIconSignDecorHtml(level: KitLevel, branches?: readonly Omit<IconBranch, 'label'>[]): string;
+export function withKitSign(iconHtml: string, level: KitLevel, branches?: readonly IconBranch[]): string;
 ```
 
-- **Accessible name:** `aria-label` becomes `kit.level.branch`, "{level}, {branch}". The decor
-  variant stays `aria-hidden`.
+- **A list, not one branch.** The signatures take every branch owned (from
+  `KitSummary.branches`), so the icon API does not assume one branched track. With one entry,
+  which is all slice 1's content can produce (C1), the corner star is split as above. How the one
+  corner star shows TWO branches is a visual for the lead to see as a mock in the slice that
+  raises C1 (§7, "Later"); until then a second entry is still named in the accessible label.
+- **Accessible name:** `aria-label` becomes `kit.level.branch`, "{level}, {branches}", where
+  `{branches}` lists each owned branch's label. The decor variant stays `aria-hidden`.
 - **Shape, not colour,** carries the branch, so a colour-vision setting changes nothing.
 - **Level 0 is untouched, byte for byte.** A branch implies tier 3 is owned, so the level is at
   least 1. Every gated golden frame boots a fresh account, with one exception: `kitted` boots
@@ -520,16 +530,15 @@ export function withKitSign(iconHtml: string, level: KitLevel, branch?: { pick: 
   With `sandboxKitPicks` choosing branch 1 (§1.3), its world parts do not move, because parts
   follow the tier. Whether a unit icon is in that frame is to be confirmed in slice 3. If the
   frame moves, it is blessed from CI and looked at, never blessed from the branch (CLAUDE.md).
-- **Mock for the lead** (two sizes, `KIT_ICON_SIGN.chip` 10 px and `.small` 8 px): the split star
-  at 8 px is the risk. **Alternatives, if it does not read:**
-  - (b) a 2 px steel tick under the corner star, left or right;
-  - (c) no visual change, with the branch named only in `title` and `aria-label`.
-  - The G-P3 stars are FINAL (the lead, 2026-10-09, `kit-sign.ts:12`), so this is the lead's call
-    (Q5).
+- **Mock capture** (two sizes, `KIT_ICON_SIGN.chip` 10 px and `.small` 8 px), in slice 3. The
+  split star at 8 px is the one risk (R2). The G-P3 stars are FINAL (the lead, 2026-10-09,
+  `kit-sign.ts:12`), and the lead chose the split corner star over a tick under it and over a
+  text-only name (Q5). If the capture shows it does not read at 8 px, that goes back to the lead;
+  no fallback is built in advance.
 - **No world overlay** (CLAUDE.md:313). Kitted vehicles keep grafting their tier's PARTS
   (GH-238): both branches of tier 3 draw today's tier-3 parts, so the world shows exactly what it
-  shows now. Branch-specific parts would be new art, which needs art numbers and a Meshy budget
-  from the lead. That is out of scope here (Q6).
+  shows now (the lead, Q6). Distinct parts per branch would be new art, and they wait for art
+  numbers and a Meshy budget from the lead. That is out of scope here.
 
 ## 4. Save and ledger migration
 
@@ -555,12 +564,14 @@ run on every read: on the client, and on the server, where `campaign_state.briga
 `migrateAccount` (`0001_members.sql:95-103`), the member's wallet row goes through `migrateRoar`
 in `readWallet` (`worker/src/account/coin.ts:57-64`), and a server save slot goes through
 `parseSlot` (§0). It is driven by data: a `BRANCHED` table derived from `@lions/data` (`economy`
-may import `data`). For each (unit, track) whose last tier is branched, a store holding that tier
-with NO pick gets:
+may import `data`), mapping each unit to the SET of its branched tracks. For each (unit, track)
+whose last tier is branched, a store holding that tier with NO pick gets the two writes below.
+Each branched track is migrated on its own: a unit with two branched tracks at tier 3 gets two
+picks and two markers, and a Switch or a Return on one track never touches the other's.
 
-1. **`pick = 1`.** Branch 1 is authored as the one closer to the unit's job (the first column in
-   §2.1). The track stays at tier 3, so the mission runs with a branch and never with the old
-   envelope.
+1. **`pick = 1`** (the lead, Q8: branch 1 is the legacy default). Branch 1 is authored as the one
+   closer to the unit's job (the first column in §2.1). The track stays at tier 3, so the mission
+   runs with a branch and never with the old envelope.
 2. **A `legacy` marker** for that (unit, track): `legacy[u][t] = true` in the account, and
    `legacy: true` on the wallet's `TrackEntitlement`. **The marker carries no number.** The
    account never recorded what a tier cost, so "the price it was bought at" cannot be known, and
@@ -575,21 +586,22 @@ two actions. **The player may take one of the two, once**, because either one cl
 - **Switch, free.** Move to the other branch at no cost. This clears the marker.
 - **Return it.** The track drops to tier 2 and the store that paid is refunded in full:
   - credits: `balance +=` the branched tier's `price`, read from the unit's JSON at that moment
-    (the same `prices` table `buyUpgradeRun` reads). Today that is the tier-3 price the player
-    paid, because a price moves only by the lead's ruling. If the lead rules a new branch price
-    (Q1), the slice that changes it also records the pre-branch price as DATA beside it (a
-    `legacy_price` on the branched tier), and the refund reads that. It is never read from the
-    store;
+    (the same `prices` table `buyUpgradeRun` reads). That is the tier-3 price the player paid,
+    because the lead kept the full price (Q1) and a price moves only by the lead's ruling. Should
+    a branched tier's price ever move, that change must first record the pre-branch price as DATA
+    beside it, for the refund to read. It is never read from the store;
   - coins, for a guest: the newest `tier` receipt for that (unit, track, tier) gives the exact
     `CoinSplit`, or `coinPrice(price)` as free coins if the receipt was pruned past
     `RECEIPT_CAP`;
   - coins, for a member: the server's own journal (`receiptsOf`, `coin.ts:134`), never a
     receipt the device sends; with no `tier` row for it, `coinPrice(price)` as free coins.
 
-  This also clears the marker. The player can then buy either branch fresh at today's price.
+  This also clears the marker. The player can then buy either branch fresh at today's price, and
+  that fresh choice is final (Q2).
 
 The marker has no expiry. No buy can happen in the store that holds it, since its track is at
-its last tier. A buy in the OTHER store does not touch it (§4.3 and Q11). `resetAccount` clears
+its last tier. A buy in the OTHER store never touches it, and never voids its refund (the lead,
+Q11; §4.3). `resetAccount` clears
 the account's markers, and `resetFree` clears the wallet's along with the free tiers it discards.
 
 **The server recomputes; it never carries a device's flags.** On the server, `legacy` and
@@ -633,11 +645,14 @@ an exploit:
 
 **Members (Accounts A2).** Credits sync as `campaign_state.brigade` through the same pure function.
 Coins move only through server routes, so "Return it" on the coin path is a new route, journalled
-as a positive `free_delta` row. The A2-8 invariant (`wallet.free = SUM(free_delta)`) holds. It
-needs either a new `coin_journal.kind` (`refund`, which means a table rebuild like
-`0004_admin.sql`) or a `tier` row carrying `detail.refund: true` (Q4). The wallet row's marker is
-written by the server's own `migrateRoar` on read, and persisted by the next `walletWrite`. Only
-the server writes that row, so an old client cannot strip it.
+as a positive `free_delta` row. The A2-8 invariant (`wallet.free = SUM(free_delta)`) holds. **The
+row is a `tier` row carrying `detail.refund: true`** (the lead, Q4), with the unit, the track and
+the tier in `detail` as a buy's row has them. The closed `kind` CHECK
+(`0004_admin.sql:15`) does not change, so there is no table rebuild, and the route ships in
+slice 2. Any reader that sums `tier` rows as spending (the `/stats/members` journal, the admin
+page) must read `detail.refund` in the same slice. The wallet row's marker is written by the
+server's own `migrateRoar` on read, and persisted by the next `walletWrite`. Only the server
+writes that row, so an old client cannot strip it.
 
 **Rejected rules:**
 
@@ -662,11 +677,14 @@ the server writes that row, so an old client cannot strip it.
     together, all or none, as `settleVictory` already writes the ledger, the account and the
     wallet (`roar-earn.ts:51`). For a member, the wallet and the campaign go in one `budgetedOp`
     batch (`worker/src/account/budget.ts:48`), whose revision guards already serialise two writes.
-  - **Switch is offered only when every store that holds the branched tier holds a marker.** If
-    one store bought its branch fresh (no marker), a Switch would split the picks, so only
-    Return is offered. This is this document's proposal; Q11 asks the lead.
-  - **Return refunds every store that paid**, each in its own currency, and drops the track to
-    tier 2 in each, in the same single write. Whether Return should instead be per store is Q11.
+  - **Switch is withheld on a mix of legacy and fresh** (Q11). Switch is offered only when every
+    store that holds the branched tier holds a marker. If one store bought its branch fresh (no
+    marker), a Switch would split the picks, so only Return is offered.
+  - **Return refunds every store that paid, all at once** (Q11), each in its own currency, and
+    drops the track to tier 2 in each, in the same single write. There is no per-store Return.
+  - **A later buy in one store never voids the other store's refund** (Q11).
+  - All of these act on ONE (unit, track). A unit with two branched tracks has a separate marker
+    set, Switch and Return for each.
 - **`singlePlayerView`:** where both stores hold the branched tier and their picks still disagree
   (a hand-edit, or a strip that the rules above did not repair), the EARNED pick wins. The result
   is still one pick.
@@ -679,14 +697,15 @@ the server writes that row, so an old client cannot strip it.
     `accountState().ownedPicks` beside `ownedTiers`, inside the same
     `kit === 'matched' ? {} : { ... }` ternary at `connect.ts:344`, and the room mint and the
     world read them under the same `brigade` + `kdf` condition as the tiers (§1.3);
-  - so **a coin-bought branch reaches a friends' brigade room**, as a coin-bought tier does today.
-    Whether it should is Q10, the lead's; this document does not decide it;
+  - so **a coin-bought branch reaches a friends' brigade room**, as a coin-bought tier does today
+    under D4. The lead ruled that it should, the same as tiers (Q10);
   - **G-V1 grows to cover picks** (§5.2, case 7): a coin-only account holding a coin-bought
     branch sends no `picks` key in a matched create, and a matched room built from a claim with
     picks is the room built from none.
 - **`networkView`** gains `ownedPicks` (earned only) for symmetry. It has no production caller,
   so it is not a gate, and this document does not lean on it.
-- **No respec in slice 1** beyond the legacy free switch. Whether to sell a paid switch is Q2.
+- **No respec.** The choice is final for a new buyer, and there is no paid switch (the lead, Q2).
+  The one exception is the legacy owner's one-time free Switch or Return (§4.2), which stays.
 
 ### 4.4 An older build can undo the migration
 
@@ -720,18 +739,13 @@ choice is no longer final.
 - **Members' coins.** Only the server writes the wallet row (§4.2), so an old client cannot strip
   it.
 - **Guests (`lions.brigade.account` and `lions.roar` on one device).** There is no server to keep
-  the truth. With a separate `picks` field, nothing exists that an old build cannot strip, so a
-  guest who keeps an old tab open across the deploy can lose their pick and regain a Switch. The
-  guards an old build cannot strip are:
-  - a key it never reads, inside a map it keeps whole: the reserved key in `upgrades` (§1.2,
-    rejected alternatives). `migrateUpgrades` keeps any non-negative integer under any key
-    (`brigade.ts:105-116`), and `isTiers` accepts it;
-  - a new `localStorage` key that the old build never touches. That one is not in a slot
-    snapshot, and it needs its own single reader and writer (CLAUDE.md:271).
-
-  Either costs the compiler check that a separate field buys. This is Q9, the lead's. Until it is
-  decided, the exposure is a guest with an old tab open across one deploy, and the loss is a pick
-  that a free Switch puts back.
+  the truth, and with a separate `picks` field nothing exists that an old build cannot strip. A
+  guest who keeps an old tab open across the deploy can lose their pick and regain a Switch.
+  **The lead accepted that exposure (Q9)**: the pick is a separate `picks` field, for the
+  compiler check it buys, and neither guard that would survive an old build (a reserved key in
+  `upgrades`, or a new `localStorage` key outside the slots) is built. The loss is bounded: one
+  pick, on one device, across one deploy, which the regained free Switch puts back, and no
+  credits are created (the grants bound above).
 
 ### 4.5 A suspended mission (GH-1393)
 
