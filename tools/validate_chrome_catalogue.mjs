@@ -56,12 +56,20 @@ export function messageShape(msg) {
   return out.sort();
 }
 
-/** Failure strings; `[]` when `tr` has exactly `en`'s keys, each a non-empty string of the same shape. */
-export function chromeCatalogueFailures(file, en, tr) {
+/**
+ * Failure strings; `[]` when `tr` has exactly `en`'s keys, each a non-empty string of the same shape.
+ * `opts.staged` (a language not in `LOCALES`, `locale_staging.mjs`): a key en has and the catalogue lacks is LAG, not a failure; it goes to
+ * `opts.lag` (an array the caller passes) instead. Everything else, an extra key, a wrong shape, a non-string, still fails.
+ */
+export function chromeCatalogueFailures(file, en, tr, opts = {}) {
   const out = [];
   if (tr === null || typeof tr !== 'object' || Array.isArray(tr)) return [`${file}: not a JSON object of key -> text`];
   for (const key of Object.keys(en)) {
-    if (!(key in tr)) { out.push(`${file}: missing key "${key}"`); continue; }
+    if (!(key in tr)) {
+      if (opts.staged === true) opts.lag?.push(`${file}: missing key "${key}"`);
+      else out.push(`${file}: missing key "${key}"`);
+      continue;
+    }
     const v = tr[key];
     if (typeof v !== 'string' || v.trim() === '') { out.push(`${file}: "${key}" is not a non-empty string`); continue; }
     const want = messageShape(en[key]).join(' ');
