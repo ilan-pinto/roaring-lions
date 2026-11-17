@@ -161,8 +161,11 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   (`onQuick` is hooked in the same two places, guarded the same way). Not in this slice, waiting for the lead: word filter, persistent block,
   report, kill switch, and a room mode that allows quick chat only.
 - **Settings wears the account page (GH-1510).** `ui/settings-panel.ts` draws each section as one of the profile's
-  cards (`ui/page-card.ts`, which `ui/profile.ts` uses too; the classes keep their `rl-profile__` names so the
-  profile's pins and crest echo do not move). Wide column: Video, Audio; narrow: Accessibility, Privacy, Chat, Language;
+  cards (`ui/page-card.ts`, which `ui/profile.ts` uses too). The shared classes were renamed to neutral ones in their
+  own change (GH-1510 Q4): `rl-profile__card` -> `rl-page-card`, `__card-title` -> `rl-page-card__title`,
+  `__card-body` -> `rl-page-card__body`, `__cols` -> `rl-page-cols`, `__col` -> `rl-page-cols__col`, `__col--main` /
+  `--side` -> `rl-page-cols__col--main` / `--side`, one class for one class so no specificity moved. The screens'
+  own modifiers stay theirs (`rl-profile__card--head`, the crest echo's hook; `rl-settings__card--video`). Wide column: Video, Audio; narrow: Accessibility, Privacy, Chat, Language;
   Controls full width under both. The pause menu's Settings tab mounts the same panel, so the drop to one column is a
   container query on `.rl-settings__content` (48rem), not a media query. A new row goes into its section's card body
   (`row(table, ...)` after that section's `table = section(...)`); a new section needs a `SectionKey` and a title strip
