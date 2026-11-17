@@ -43,7 +43,44 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   the expiry batch 5, the idle select 1, three tombstone pages, ONE guarded delete batch of 17 statements for every member the run
   deletes (up to 40: 20 idle, the rest from tombstones; `deleteDueStatements`, a `due` CTE, so a raced member is spared whole and
   nobody else), and one survivor select when a guard held = 48. The tombstone scan is resumable through a KV cursor
-  (`RECONCILE_CURSOR_KEY`), which moves on only once the delete batch has committed. **Add a sweep and you add its share to that sum, or the test reads red.**
+  (`RECONCILE_CURSOR_KEY`), which moves past a page only once every member queued from it is settled (in a batch that committed, or
+  recorded as failing). **Add a sweep and you add its share to that sum, or the test reads red.** **The one-member fallback (GH-1530):**
+  the one batch is one transaction, so a member whose rows make it fail would hold the other 39, run after run. `reconcile:batchfail`
+  (KV, 7-day TTL, not under `tomb:`) counts consecutive failed shared batches and is deleted when one commits; at
+  `BATCH_FAIL_THRESHOLD` (2) the next run deletes the OLDEST queued member alone. Under the per-statement meter that is all a run can
+  do: one member alone costs the same 17 statements as the shared batch, so the account share and the 48 are unchanged (the fallback is
+  KV calls only). A member whose own delete fails is recorded in `reconcile:failing` (`{ idHash: day }`), left out of every batch for
+  `FAILING_HOLD_DAYS` (7) and then retried alone, never in the shared batch again; the counter clears, so the next run deletes everyone
+  else. The retry is queued FROM THE RECORD (the entry recorded longest ago whose hold is over, one a run, its guard day its tombstone's),
+  so it comes every 7 days whether or not the scan finds the member again; recording settles its page, and on a listing that does not
+  wrap within the hold the scan would not (PR 1540 delta review: above about 8,100 tombstones a wrap takes more than 30 days). An alone run that commits sets the counter to one under the threshold, so the shared batch is tried again next run (a transient
+  failure costs one run of one member). Every run throws while `reconcile:failing` holds ANY entry, whether or not that run found the
+  member (a recorded tombstone-path member is settled, so the cursor moves past its page), so `scheduled()` stays red while a deletion
+  is stuck; recording or re-recording a member also re-puts its tombstone with the same value and a fresh `TOMB_TTL_S`, so a deletion
+  that keeps failing is not dropped when its tombstone would expire (an idle member's is skipped: the idle path wrote it that run). An
+  entry leaves the record when its member's delete commits, when its member row is gone (the route deleted it) or signed in after its
+  tombstone (a cancelled deletion, also when the scan prunes that tombstone in the same run). An entry whose member exists and whose
+  tombstone is readable and not older than its last sign-in is confirmed OWED and never ages out, so a stuck deletion stays red until it
+  is finished or no longer owed; a MISSING or unreadable tombstone keeps the entry red too, but for 30 days only, since nothing then says
+  the deletion is still owed (a cancelled one's tombstone is pruned as well). A KV error reading it keeps the entry and ages nothing. The
+  existence check rides the idle select (a `UNION ALL` over `id_hash IN (...)`, only when the record is not empty), so it adds no D1
+  statement and the 48 stands; the retry it queues replaces that run's shared batch with one 17-statement batch, so it adds none either
+  (metered: 38 in the week-later run of `cron-budget.test.ts`). The 40-entry cap (newest kept) applies when the record is read as well as
+  written; past 40 stuck members the oldest entry leaves the record, its tombstone stays, and the scan finds it again. The re-put writes
+  only the tombstone the member was queued by, so a newer one from the route is never overwritten; KV has no conditional put, so a
+  route `dropCancelled` landing between the re-put's get and put can still bring back a cancelled tombstone until the next scan prunes
+  it, the same class as GH-1534. A
+  `db.batch` that resolved counts as committed even if the survivor tidy-up then throws (no counter rise, no record). A tombstone that
+  does not parse to a numeric day is skipped, logged and counted by BOTH the scan and the survivor step; on the scan it also fails the
+  run (its member is live, so the deletion is owed), without pinning the page. **Known limit (GH-1530): isolation can starve.** Oldest
+  first means an idle member always sorts first (its guard day is the cutoff, `today - 1096`, older than any tombstone-path day), so
+  while idle members keep arriving a bad tombstone-path member (a user-requested deletion whose route batch failed) is never tried alone:
+  each cycle is a failed shared batch and one idle member alone, 0.5 deletions a run, and its page keeps the cursor. That cannot happen
+  until members can be 36 months idle (accounts shipped in 2026). And a recorded retry PRE-EMPTS the whole shared batch: each
+  permanently failing member takes one run in every `FAILING_HOLD_DAYS` (7), so about seven of them, staggered, take every run and the
+  shared batch never runs; a failed recorded retry also clears a counter another bad member was building. Every such run is red. A
+  rotating or bisecting choice of the member tried alone is the follow-up. If the lead rules that a batch counts as one query, a degraded
+  run could try every queued member alone in one run; that is a change to `accountCron` and to the pinned cost, not a constant.
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the
