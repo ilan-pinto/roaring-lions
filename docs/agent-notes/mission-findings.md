@@ -374,3 +374,24 @@ two entries so the gate-open run keeps winning seed 22. The ladder pin is 6977 (
 (mission, seed, shooter, structure) rows over seeds 1-3, up to 4,000 shots: Ein Qasab I-III, Khan Rafid I and III, Umm Zeitoun II-IV, Deir Amun II,
 Beit Sahwan III and IV, Wadi Halam V). The function's own comment says a defender holding his compound never fires on his own fence; the code only
 gates that on `moving`. It is long-standing and every plan was tuned with it, so it is a design call, not a bug fix made here.
+
+## An escort that holds through the work (GH-1439)
+
+`escort` takes two optional fields: `fail_after_losses` and `until` (design `docs/superpowers/specs/2026-11-15-escort-through-work-design.md`,
+the lead's five rulings of 16 Nov at its recommendations). The verdict is still stateless, a function of this tick's bodies and objective
+statuses, so there is no new column and no hash word: a mission that uses neither field has the same `sim.hash()` and `digest()` on every tick
+it had before (pinned by literals recorded on `main` before the change, `mission.test.ts` "escort through the work").
+
+- **Passes.** `stepObjectives` runs three: everything else in authored order, then each escort that has an `until`, then each `no_collateral_above`
+  (`objectivePass`, a function of the definition). An escort that waits on work sees it complete on the tick it completes, whichever order the
+  mission authored them in. An escort without an `until` stays in the first pass, so its events keep authored order.
+- **Arrival is per tick.** Survivors are what arrive; a unit that leaves the zone before the work ends puts the escort back to waiting. Failure wins a
+  tie (the second death and the last piece of work in one step is a defeat).
+- **Load checks** (runtime and `tools/validate_objectives.mjs`, same literals): R1 escort-only, R2 whole and at least 1, R3 not above the tagged
+  total (the validator counts placements and passengers), R4 a non-empty list of distinct ids of this mission and never itself, R5 each a primary,
+  R6 never an escort, a ceiling or a score, R7 the starts-inside fault is for an escort without an `until` only (protect-in-place is legal).
+- **A guard nothing can reach.** `present > 0` in the verdict is the design's backstop: with R3 the limit is at most the tagged total, so an escort whose
+  every unit has died has already failed, and a mutation removing the guard cannot be seen by any loadable mission.
+- **Older gap, not touched here:** the validator's "needs a tag on a starting_force placement" does not accept a tag carried only by a `passengers`
+  entry, which the runtime does.
+
