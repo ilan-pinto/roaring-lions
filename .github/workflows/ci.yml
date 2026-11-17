@@ -63,6 +63,10 @@ jobs:
       # ran by hand and 52 problems built up unseen; a new asset now arrives
       # with its row or this job is red.
       - run: python3 tools/check_provenance_register.py
+      # GH-1415 (c): the commercial asset cut is REPORT ONLY (`pnpm commercial:cut`
+      # lists what a commercial build would leave out and removes nothing); this
+      # is its unit test, fixtures as literals, so the rule cannot drift unseen.
+      - run: python3 tools/test_commercial_asset_cut.py
       # Level load time, step 4: `art/meshes/` is the uncompressed source of
       # record and `assets/meshes/` is the Draco-compressed copy that SHIPS.
       # Every other mesh gate reads the source, so a shipped file that is
