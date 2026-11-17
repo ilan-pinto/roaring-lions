@@ -22,6 +22,8 @@ export interface ChatFilterJson {
   hide: readonly string[];
   mask: readonly string[];
   allow: readonly string[];
+  /** `hide` entries of six or more letters that match whole words only, as a shorter one does: a short entry's plural. */
+  whole_word?: readonly string[];
   dropped: readonly string[];
   in_house: readonly string[];
 }

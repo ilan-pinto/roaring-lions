@@ -4,3 +4,5 @@ export function chatFilterFailures(
   files: readonly { file: string; doc: unknown }[],
   chatDir: string,
 ): { failures: string[]; warnings: string[] };
+/** `SUBSTRING_MIN` in packages/app/src/ui/chat-filter.ts, pinned by tools/src/validate_chat_filters.test.ts. */
+export const WHOLE_WORD_MIN: number;

@@ -32,7 +32,8 @@
  *     matches "ass", because it is not longer);
  *  8. a phrase matches a run of words;
  *  9. a `hide` entry of `SUBSTRING_MIN` or more letters also matches INSIDE a word ("xslurx"), unless an `allow` word that holds
- *     it covers that spot ("therapist");
+ *     it covers that spot ("therapist"), or its list names it in `whole_word`: the plural of a short entry, which must match whole
+ *     words only as its singular does, or a name such as "HeadShotAssassin" would hide;
  * 10. an `allow` PHRASE excuses a whole-word `hide` hit lying inside it, when the phrase is longer than the hit: an idiom such as
  *     "chink in the armour" shows, the bare word still hides.
  *
@@ -50,7 +51,7 @@ export const MASK = '***';
 export const SUBSTRING_MIN = 6;
 
 /** The part of a list file the matcher reads. */
-export type FilterList = Pick<ChatFilterJson, 'lang' | 'hide' | 'mask' | 'allow'>;
+export type FilterList = Pick<ChatFilterJson, 'lang' | 'hide' | 'mask' | 'allow' | 'whole_word'>;
 
 export type LineVerdict = { kind: 'hide' } | { kind: 'show'; text: string; masked: boolean };
 
@@ -73,7 +74,7 @@ export interface CompiledFilter {
   /** Terms by the collapsed form of their first word, so a line looks up only the terms that can start at a word. */
   readonly hide: ReadonlyMap<string, readonly Term[]>;
   readonly mask: ReadonlyMap<string, readonly Term[]>;
-  /** `hide` terms long enough to match inside a word. */
+  /** `hide` terms long enough to match inside a word, less those their list names in `whole_word`. */
   readonly inside: readonly Term[];
   /** Folded `allow` words (every entry, its words run together), for step 9. */
   readonly allow: readonly string[];
@@ -289,12 +290,17 @@ function index(entries: Iterable<string>): Map<string, Term[]> {
 
 /** Builds the matcher: `hide` and `allow` from every list, `mask` from the lists `masks(lang)` names. */
 export function compileFilter(lists: readonly FilterList[], masks: (lang: string) => boolean): CompiledFilter {
-  const hideEntries = lists.flatMap((l) => l.hide);
-  const hide = index(hideEntries);
   const inside: Term[] = [];
-  for (const terms of hide.values()) for (const t of terms) if (cpLength(t.joined) >= SUBSTRING_MIN) inside.push(t);
+  for (const l of lists) {
+    // Exact entries, per list: `whole_word` keeps its own list's entry out of step 9, and nothing else.
+    const whole = new Set(l.whole_word ?? []);
+    for (const e of l.hide) {
+      const t = termOf(e);
+      if (t !== null && cpLength(t.joined) >= SUBSTRING_MIN && !whole.has(e)) inside.push(t);
+    }
+  }
   return {
-    hide,
+    hide: index(lists.flatMap((l) => l.hide)),
     mask: index(lists.filter((l) => masks(l.lang)).flatMap((l) => l.mask)),
     inside,
     allow: lists.flatMap((l) => l.allow).map((a) => wordsOf(a).map((w) => w.norm).join('')).filter((a) => a !== ''),

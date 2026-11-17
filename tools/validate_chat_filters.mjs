@@ -12,11 +12,16 @@
 //   - an entry sits in at most one of hide, mask and dropped;
 //   - `review: none` means `hide` is empty (the lead's ruling: the launch languages' hide tier waits for a native reader); such a
 //     language is REPORTED as a warning, so the gate never pretends to full coverage;
+//   - each `whole_word` entry is a `hide` entry of SUBSTRING_MIN (6) or more letters, spaces aside: shorter, it matches whole words
+//     anyway and the declaration is dead data (tools/src/validate_chat_filters.test.ts pins the 6 against packages/app/src/ui/chat-filter.ts);
 //   - each `allow` entry contains a `hide` entry (case-folded): an allow entry that excuses nothing is dead data; and it is not
 //     itself a `hide` entry, which would excuse that entry everywhere.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
+
+/** `SUBSTRING_MIN` in packages/app/src/ui/chat-filter.ts: the shortest `hide` entry that also matches inside a word. */
+export const WHOLE_WORD_MIN = 6;
 
 /**
  * @param {{ file: string, doc: any }[]} files every parsed data/chat/filter.*.json, `file` repo-relative
@@ -40,6 +45,7 @@ export function chatFilterFailures(files, chatDir) {
     const dropped = doc.dropped ?? [];
     const inHouse = new Set(doc.in_house ?? []);
     const allow = doc.allow ?? [];
+    const wholeWord = doc.whole_word ?? [];
 
     const seen = new Map();
     for (const [tier, list] of [['hide', hide], ['mask', mask], ['dropped', dropped]]) {
@@ -73,6 +79,13 @@ export function chatFilterFailures(files, chatDir) {
     if (doc.review === 'none') {
       if (hide.length > 0) failures.push(`${file}: review is "none", so hide must be empty until a native reader has reviewed the list`);
       warnings.push(`${file}: the hide tier is empty until a native reader reviews the list; only masking applies in ${lang}`);
+    }
+
+    for (const w of wholeWord) {
+      if (!hide.includes(w)) failures.push(`${file}: whole_word "${w}" is not a hide entry`);
+      else if ([...w.replaceAll(' ', '')].length < WHOLE_WORD_MIN) {
+        failures.push(`${file}: whole_word "${w}" is under ${WHOLE_WORD_MIN} letters, so it matches whole words anyway`);
+      }
     }
 
     const hideFolded = hide.map((h) => h.toLowerCase());

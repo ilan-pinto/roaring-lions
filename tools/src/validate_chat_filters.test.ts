@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { afterAll, describe, expect, it } from 'vitest';
-import { chatFilterFailures } from '../validate_chat_filters.mjs';
+import { WHOLE_WORD_MIN, chatFilterFailures } from '../validate_chat_filters.mjs';
 
 const ROOT = join(__dirname, '..', '..');
 const CHAT = join(ROOT, 'data', 'chat');
@@ -145,6 +145,22 @@ describe('chatFilterFailures, one fixture per rule', () => {
     const d = good();
     d.allow = ['azorgonite', 'Zorgon'];
     expect(run(d).failures.join('\n')).toMatch(/allow "Zorgon" is itself a hide entry/);
+  });
+
+  it('takes a whole_word entry that is a long hide entry, and refuses one that is no hide entry or too short to need it', () => {
+    const d = { ...good(), whole_word: ['zorgon'] };
+    expect(run(d)).toEqual({ failures: [], warnings: [] });
+    expect(schema(d)).toBe(true);
+    const out = run({ ...good(), hide: ['zorgon', 'quorlax', 'vex'], in_house: ['quorlax', 'vex'], whole_word: ['blarg', 'vex'] }).failures.join('\n');
+    expect(out).toMatch(/whole_word "blarg" is not a hide entry/);
+    expect(out).toMatch(/whole_word "vex" is under 6 letters/);
+  });
+
+  it('holds WHOLE_WORD_MIN at the matcher\'s SUBSTRING_MIN (read from the source, so the two cannot drift)', () => {
+    const src = readFileSync(join(ROOT, 'packages', 'app', 'src', 'ui', 'chat-filter.ts'), 'utf8');
+    const m = /export const SUBSTRING_MIN = (\d+);/.exec(src);
+    expect(m?.[1]).toBe('6');
+    expect(WHOLE_WORD_MIN).toBe(6);
   });
 
   it('refuses a missing licence record', () => {

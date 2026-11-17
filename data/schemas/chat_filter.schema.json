@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/chat_filter.schema.json",
   "title": "Chat word filter",
-  "description": "One language's word list for the versus chat filter (GH-1417 S2, docs/superpowers/specs/2026-11-16-versus-chat-safety-design.md section 3.3). The file is data/chat/filter.<lang>.json and is registered in @lions/data's `chatFilters`. Every entry is a plain word or phrase, NEVER a pattern: the app matches whole words (and, for a long `hide` entry, a word that contains it), after its own normalisation (case, NFKC, marks, zero-width, look-alikes, repeated letters, spaced-out letters). A `hide` entry hides the whole line, whatever the player's settings; a `mask` entry replaces only the word with ***, and Settings can turn that tier off. `allow` names innocent words that contain a long `hide` entry. The upstream list is kept pristine at `source.file` (under data/chat/) and `pnpm validate:data` checks that hide, mask and dropped, minus in_house, are exactly its entries. Cross-file rules are in tools/validate_chat_filters.mjs.",
+  "description": "One language's word list for the versus chat filter (GH-1417 S2, docs/superpowers/specs/2026-11-16-versus-chat-safety-design.md section 3.3). The file is data/chat/filter.<lang>.json and is registered in @lions/data's `chatFilters`. Every entry is a plain word or phrase, NEVER a pattern: the app matches whole words (and, for a long `hide` entry not in `whole_word`, a word that contains it), after its own normalisation (case, NFKC, marks, zero-width, look-alikes, repeated letters, spaced-out letters). A `hide` entry hides the whole line, whatever the player's settings; a `mask` entry replaces only the word with ***, and Settings can turn that tier off. `allow` names innocent words that contain a long `hide` entry. The upstream list is kept pristine at `source.file` (under data/chat/) and `pnpm validate:data` checks that hide, mask and dropped, minus in_house, are exactly its entries. Cross-file rules are in tools/validate_chat_filters.mjs.",
   "type": "object",
   "required": ["version", "lang", "review", "source", "hide", "mask", "allow", "dropped", "in_house"],
   "additionalProperties": false,
@@ -34,6 +34,10 @@
     "hide": { "$ref": "#/$defs/entries" },
     "mask": { "$ref": "#/$defs/entries" },
     "allow": { "$ref": "#/$defs/entries" },
+    "whole_word": {
+      "$ref": "#/$defs/entries",
+      "description": "Optional. `hide` entries of SUBSTRING_MIN (6, packages/app/src/ui/chat-filter.ts) or more letters that match whole words only, as a shorter entry does, never inside a longer word. For the plural of a short entry: 'x' + 's' would otherwise move into the inside-a-word tier its singular was never in, and hide innocent names that hold it. Each is a `hide` entry (tools/validate_chat_filters.mjs)."
+    },
     "dropped": { "$ref": "#/$defs/entries", "description": "Upstream entries removed on review (an ordinary word in an RTS chat). Kept so that every upstream entry is accounted for." },
     "in_house": { "$ref": "#/$defs/entries", "description": "Entries of our own, not in the upstream list. Every one is also in hide or mask." }
   },

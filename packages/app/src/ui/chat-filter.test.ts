@@ -106,6 +106,17 @@ describe('the matcher, on a fixture list', () => {
     expect(hidden('azorgonitezorgon')).toBe(true);
   });
 
+  it('step 9, whole_word: a long hide entry declared there matches whole words only, like a short one; an undeclared one still matches inside', () => {
+    const g = compileFilter([{ lang: 'en', hide: ['gnarf', 'gnarfs', 'blorpy', 'blorpys'], mask: [], allow: [], whole_word: ['gnarfs'] }], () => true);
+    const hid = (s: string): boolean => filterLine(g, s, { mask: true }).kind === 'hide';
+    expect(hid('the gnarfs')).toBe(true);
+    expect(hid('GNARFS!')).toBe(true);
+    expect(hid('xgnarfsx')).toBe(false);
+    expect(hid('bigGnarfsville')).toBe(false);
+    expect(hid('xblorpysx')).toBe(true);
+    expect(g.inside.map((t) => t.joined)).toEqual(['blorpy', 'blorpys']);
+  });
+
   it('step 10, allow phrases: a hide word inside a longer allow phrase shows; the bare word, or the words out of order, still hide', () => {
     expect(hidden('the Zorgon Tide rises')).toBe(false);
     expect(hidden('the zorgon rises')).toBe(true);
@@ -268,6 +279,47 @@ describe('the shipped lists', () => {
     }
     for (const s of ['found the chinks in their armour', 'chinks in the armor', 'chinks of light through the wall']) {
       expect(filterLine(shipped, s, { mask: true }), s).toEqual({ kind: 'show', text: s, masked: false });
+    }
+  });
+
+  it('review of PR 1492, the plurals: a short entry\'s plural matches as a whole word only, as its singular does (whole_word)', () => {
+    // Literal oracle. Callsigns that showed before the plurals were added, and must still: each holds a plural inside a longer word.
+    for (const s of ['HeadShotAssassin', 'BigShotAsh', 'MoonShotAstro', 'SpikeySam', 'Spikeys', 'Mongoose']) {
+      expect(screenName(shipped, s), s).toBe(s);
+      for (const mask of [true, false]) expect(filterLine(shipped, s, { mask }), `${s} mask ${mask}`).toEqual({ kind: 'show', text: s, masked: false });
+    }
+    // The three plurals of SUBSTRING_MIN letters or more are declared whole-word; the one of five letters needs no declaration.
+    const plurals = ['chinks', 'mongs', 'pikeys', 'shotas'];
+    expect(en.whole_word).toEqual(['chinks', 'pikeys', 'shotas']);
+    // The sweep: never inside a longer word, at the start, the end or the middle, in a name or a line, mask on or off. No affix
+    // repeats a plural's edge letter: "chinkss" is a stretched spelling of the whole word (step 7) and rightly hides.
+    const affixes = ['', 'x', 'o', 'big', 'head', 'am', 'ter', 'ville'];
+    let n = 0;
+    for (const p of plurals) {
+      for (const pre of affixes) {
+        for (const post of affixes) {
+          if (pre === '' && post === '') continue;
+          const w = `${pre}${p}${post}`;
+          expect(screenName(shipped, w), w).toBe(w);
+          for (const mask of [true, false]) expect(filterLine(shipped, `ok ${w} ok`, { mask }).kind, w).toBe('show');
+          n++;
+        }
+      }
+    }
+    expect(n).toBe(plurals.length * (affixes.length * affixes.length - 1));
+    // The declaration takes only those entries out of the inside tier: every other hide entry of SUBSTRING_MIN+ letters stays in it.
+    const long = en.hide.filter((e) => [...e.replaceAll(' ', '')].length >= SUBSTRING_MIN);
+    const inside = new Set(shipped.inside.map((t) => t.joined));
+    for (const e of long) expect(inside.has(e.replaceAll(' ', '')), e).toBe(!['chinks', 'pikeys', 'shotas'].includes(e));
+    expect(long.length).toBeGreaterThan(40);
+  });
+
+  it('a whole_word entry is a hide entry long enough to need it (shorter, the field would be dead data)', () => {
+    for (const c of chatFilters) {
+      for (const e of c.whole_word ?? []) {
+        expect(c.hide, `${c.lang} ${e}`).toContain(e);
+        expect([...wordsOf(e).map((w) => w.norm).join('')].length, `${c.lang} ${e}`).toBeGreaterThanOrEqual(SUBSTRING_MIN);
+      }
     }
   });
 
