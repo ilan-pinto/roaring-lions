@@ -281,7 +281,7 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
     },
     // The room echoes every line to both seats, this one's own included. A line reaches the log only through the room's inbox
     // (`chat-inbox.ts`): what is off or muted is never drawn, here or in the match's feed.
-    onChat: (seat, text) => inboxOf(room.transport, deps.chatEnabled ?? (() => true), whoOf(room, deps)).deliver(seat, text, (shown) => room.chat?.receive(seat, shown)),
+    onChat: (seat, text) => inboxOf(room.transport, deps.chatEnabled ?? (() => true), { who: whoOf(room, deps) }).deliver(seat, text, (shown) => room.chat?.receive(seat, shown)),
     // The badges: the transport clears them on a reconnect, before the room's next say.
     onAdvisors: (present) => {
       room.advisors = present;
@@ -1141,7 +1141,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     chat.setAttribute('role', 'region');
     chat.setAttribute('aria-label', t('versus.room.chat'));
     r.chat?.dispose();
-    const chatInbox = inboxOf(r.transport, deps.chatEnabled ?? (() => true), whoOf(r, deps));
+    const chatInbox = inboxOf(r.transport, deps.chatEnabled ?? (() => true), { who: whoOf(r, deps) });
     const peer: Seat = r.seat === 0 ? 1 : 0;
     const chatName = (seat: Seat): string => nameFrom(r.labels, seat, r.seats.find((x) => x.seat === seat)?.callsign ?? '');
     r.chat = new NetChat(chat, {

@@ -56,7 +56,9 @@ describe('createBlockList', () => {
     const l = createBlockList(store());
     const all = ids(BLOCK_MAX + 5);
     for (const x of all) l.add(x);
-    expect(l.all()).toHaveLength(BLOCK_MAX);
+    // the cap is pinned as a literal: an oracle that imports the constant under test cannot fail
+    expect(BLOCK_MAX).toBe(200);
+    expect(l.all()).toHaveLength(200);
     expect(l.has(all[0]!)).toBe(false);
     expect(l.has(all[all.length - 1]!)).toBe(true);
   });

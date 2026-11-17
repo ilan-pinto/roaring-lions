@@ -165,7 +165,7 @@ describe('ChatInbox block (D5)', () => {
   it('inboxOf wires the identity once and keeps it across the lobby-to-match handover', () => {
     const transport = {};
     const blocks = createBlockList(store());
-    const lobby = inboxOf(transport, () => true, whoWith([null, MEMBER], blocks));
+    const lobby = inboxOf(transport, () => true, { who: whoWith([null, MEMBER], blocks) });
     lobby.setBlocked(1, true);
     const match = inboxOf(transport, () => true);
     expect(match).toBe(lobby);
@@ -215,3 +215,44 @@ describe('ChatInbox reporter\'s copy (D6)', () => {
     expect(inbox.hasHeard(0)).toBe(false);
   });
 });
+
+// GH-1417 S3 review: the options object composes (S2's filter lands beside `who`), and a report dialog takes ONE snapshot.
+describe('inboxOf options', () => {
+  it('takes an options object: who and preview arrive independently and neither drops the other', () => {
+    const transport = {};
+    const blocks = createBlockList(store());
+    const inbox = inboxOf(transport, () => true, { who: whoWith([null, MEMBER], blocks) });
+    inboxOf(transport, () => true, { preview: (t) => (t === 'slur' ? null : t) });
+    inbox.setBlocked(1, true);
+    expect(inbox.verdict(1)).toBe('blocked');
+    inbox.deliver(0, 'slur', () => undefined);
+    expect(inbox.snapshot().shown).toEqual([null]);
+  });
+  it('a bare call keeps every default', () => {
+    const inbox = inboxOf({}, () => true);
+    inbox.deliver(1, 'hi', () => undefined);
+    expect(inbox.snapshot().shown).toEqual(['hi']);
+  });
+});
+
+describe('ChatInbox.snapshot', () => {
+  it('is a copy taken at one instant: later lines and edits do not reach it', () => {
+    const inbox = new ChatInbox(() => true);
+    inbox.deliver(1, 'first', () => undefined);
+    const snap = inbox.snapshot();
+    inbox.deliver(1, 'second', () => undefined);
+    snap.lines[0]!.text = 'forged';
+    expect(snap.lines.map((l) => l.text)).toEqual(['forged']);
+    expect(inbox.recent().map((l) => l.text)).toEqual(['first', 'second']);
+  });
+  it('keeps the RAW line as evidence and shows what the preview allows: a hidden line is null, a masked one is its mask', () => {
+    const inbox = new ChatInbox(() => true);
+    inbox.useOptions({ preview: (t) => (t.includes('hidden') ? null : t.replace('swear', '***')) });
+    inbox.deliver(1, 'a hidden slur', () => undefined);
+    inbox.deliver(1, 'a swear word', () => undefined);
+    const snap = inbox.snapshot();
+    expect(snap.lines.map((l) => l.text)).toEqual(['a hidden slur', 'a swear word']);
+    expect(snap.shown).toEqual([null, 'a *** word']);
+  });
+});
+

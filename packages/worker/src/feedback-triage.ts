@@ -398,7 +398,7 @@ export async function handleFeedbackApi(req: Request, env: Env, url: URL, now: n
 
 /** Retention (spec §7, D15; GH-1410): 180 days after receipt the picture, the replay,
  *  the contact and the ids that tie the note to a person (player, session, tester) go;
- *  the note and context stay.
+ *  the note and context stay. A report of a player's chat is the exception: the whole row goes.
  *  Run daily by the Cron Trigger in wrangler.jsonc. Returns rows purged. */
 export const RETENTION_MS = 180 * 86_400_000;
 /** Slices of 100 notes a run: 1,000 notes a day at one D1 query each (GH-1432). */
@@ -408,20 +408,28 @@ export const PURGE_EXPIRED_BATCHES = 10;
  *  while the note still matches the slice, the note's own columns last, and that last statement's change count is the slice size. */
 export async function purgeExpired(env: Env, now: number, batch = 100, maxBatches = PURGE_EXPIRED_BATCHES): Promise<number> {
   let purged = 0;
-  const slice = `SELECT id FROM feedback WHERE received_at < ?1
+  const slice = `SELECT id FROM feedback WHERE received_at < ?1 AND category <> 'report'
        AND (shot_bytes IS NOT NULL OR replay_bytes IS NOT NULL OR contact IS NOT NULL
             OR player IS NOT NULL OR session IS NOT NULL OR tester IS NOT NULL) ORDER BY id LIMIT ?2`;
   for (let i = 0; i < maxBatches; i++) {
     const out = await env.DB.batch([
+      // A REPORT of another player's chat (GH-1417 S3) holds that player's words and, for a member, their public id in its CONTEXT,
+      // which the statements below keep for an ordinary note. The privacy page says a report is deleted at 180 days, so the WHOLE row
+      // goes, in the same batch (one D1 query, so the quiet-day budget is unchanged).
+      env.DB.prepare(`DELETE FROM feedback WHERE id IN (SELECT id FROM feedback WHERE category = 'report' AND received_at < ?1 ORDER BY id LIMIT ?2)`).bind(now - RETENTION_MS, batch),
       env.DB.prepare(`DELETE FROM feedback_picture WHERE feedback_id IN (${slice})`).bind(now - RETENTION_MS, batch),
       env.DB.prepare(`DELETE FROM feedback_replay WHERE feedback_id IN (${slice})`).bind(now - RETENTION_MS, batch),
       env.DB.prepare(`UPDATE feedback SET shot_bytes = NULL, replay_bytes = NULL, contact = NULL, player = NULL, session = NULL, tester = NULL WHERE id IN (${slice})`).bind(now - RETENTION_MS, batch),
     ]);
     // D1's batch result carries `meta.changes`; the node:sqlite test double's `run()` result carries `changes`.
-    const last = out[2] as { meta?: { changes?: number }; changes?: number | bigint } | undefined;
-    const n = Number(last?.meta?.changes ?? last?.changes ?? 0);
-    purged += n;
-    if (n < batch) break;
+    const changes = (r: unknown): number => {
+      const x = r as { meta?: { changes?: number }; changes?: number | bigint } | undefined;
+      return Number(x?.meta?.changes ?? x?.changes ?? 0);
+    };
+    const reports = changes(out[0]);
+    const n = changes(out[3]);
+    purged += reports + n;
+    if (n < batch && reports < batch) break;
   }
   return purged;
 }

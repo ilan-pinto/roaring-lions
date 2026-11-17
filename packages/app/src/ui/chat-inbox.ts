@@ -28,6 +28,23 @@ import { REPORT_LINES_MAX, type ReportLine } from '../feedback/report';
 
 export type ChatVerdict = 'show' | 'off' | 'blocked' | 'muted';
 
+/** What `inboxOf` is told besides the settings source, as ONE options object so a second slice adds a field instead of a positional argument
+ *  (S2's word filter lands beside `who`): `who` is the persistent block's identity source; `preview` is how a received line may be SHOWN to
+ *  the reporter in the report dialog, `null` when the player's own filter hid it (the dialog then says so; the raw text is still what a
+ *  report carries as evidence). Absent `preview`, a line is shown as it came. */
+export interface InboxOptions {
+  who?: InboxWho;
+  preview?: (text: string) => string | null;
+}
+
+/** The lines a report dialog is opened on, taken ONCE: the dialog shows them and every send and retry sends exactly them. */
+export interface ReportSnapshot {
+  /** The raw lines, oldest first: the evidence. */
+  lines: ReportLine[];
+  /** What each may be shown as to the reporter, same length; null where the player's filter hid the line. */
+  shown: (string | null)[];
+}
+
 /** Who a seat is, for the persistent block (GH-1417 S3): the lists to consult and each seat's member public id (null for a guest or bot). */
 export interface InboxWho {
   blocks: BlockList;
@@ -40,6 +57,7 @@ export class ChatInbox {
   /** The reporter's own copy of the room's recent lines, oldest first (D6: the evidence of a report is this, labelled unverified). */
   private readonly ring: ReportLine[] = [];
   private who: InboxWho | null = null;
+  private preview: (text: string) => string | null = (t) => t;
   private unwatchBlocks: (() => void) | null = null;
 
   /** `enabled` is read at every line, so a setting changed over a running match applies to the next line. */
@@ -50,7 +68,13 @@ export class ChatInbox {
     this.enabled = enabled;
   }
 
-  /** The block list and the seats' public ids, replaced by whichever screen asks last (the lobby, then the battlefield). */
+  /** What the next screen to ask hands over, replacing the last one's (the lobby, then the battlefield). */
+  useOptions(o: InboxOptions): void {
+    if (o.who !== undefined) this.useWho(o.who);
+    if (o.preview !== undefined) this.preview = o.preview;
+  }
+
+  /** The block list and the seats' public ids. */
   useWho(who: InboxWho): void {
     if (this.who?.blocks !== who.blocks) {
       this.unwatchBlocks?.();
@@ -106,6 +130,12 @@ export class ChatInbox {
     return this.ring.map((l) => ({ ...l }));
   }
 
+  /** `recent()` plus how each line may be shown, taken at one instant. A report dialog takes this once and never asks the ring again. */
+  snapshot(): ReportSnapshot {
+    const lines = this.recent();
+    return { lines, shown: lines.map((l) => this.preview(l.text)) };
+  }
+
   /** Whether `seat` has said anything in this room: a report needs something to point at. */
   hasHeard(seat: Seat): boolean {
     return this.ring.some((l) => l.seat === seat);
@@ -158,12 +188,12 @@ const INBOXES = new WeakMap<object, ChatInbox>();
  * The inbox of one room, keyed by its transport: the lobby screen and the battlefield are different modules holding the same transport
  * (`handOver`), so both get the same inbox and a mute carries from one to the other. A transport that is gone takes its inbox with it.
  */
-export function inboxOf(transport: object, enabled: () => boolean, who?: InboxWho): ChatInbox {
+export function inboxOf(transport: object, enabled: () => boolean, opts: InboxOptions = {}): ChatInbox {
   let inbox = INBOXES.get(transport);
   if (inbox === undefined) {
     inbox = new ChatInbox(enabled);
     INBOXES.set(transport, inbox);
   } else inbox.useEnabled(enabled);
-  if (who !== undefined) inbox.useWho(who);
+  inbox.useOptions(opts);
   return inbox;
 }

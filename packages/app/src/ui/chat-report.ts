@@ -16,7 +16,7 @@ import { isTextEntry } from '../input/keymap';
 import type { Disposer } from '../shell/router';
 import type { SendResult } from '../feedback/client';
 import type { FeedbackSession } from '../feedback/session';
-import { REPORT_REASONS, type ReportLine, type ReportReason } from '../feedback/report';
+import { REPORT_REASONS, fitReportLines, type ReportLine, type ReportReason } from '../feedback/report';
 import type { ChatInbox } from './chat-inbox';
 import { markConfirm } from './confirm-cue';
 import { trackOpenDialog } from './confirm';
@@ -29,8 +29,13 @@ export const REPORT_NOTE_MAX = 300;
 export interface ReportDialogDeps {
   /** Who is reported, as the chat names them. Shown as text. */
   reportedName: string;
-  /** The reporter's copy of the lines that will be sent, oldest first, and how to name a seat. */
+  /** The reporter's copy of the lines that will be sent, oldest first, and how to name a seat. These are the snapshot taken when the
+   *  dialog opened: what is shown is exactly what every send and retry carries. */
   lines: readonly ReportLine[];
+  /** How each line may be shown, same length: its text, or null where the player's own filter hid it (the raw line is still sent). */
+  shown?: readonly (string | null)[];
+  /** How many of the oldest lines were left out so the report fits the server's size cap; said in the dialog when above zero. */
+  dropped?: number;
   nameOf(seat: 0 | 1): string;
   submit(reason: ReportReason, note: string, signal: AbortSignal): Promise<SendResult>;
 }
@@ -103,8 +108,13 @@ export function reportDialog(host: HTMLElement, deps: ReportDialogDeps): { close
   sends.appendChild(el('summary', '', t('report.sends.summary', { n: deps.lines.length })));
   const list = el('ol', 'rl-report__lines');
   // Typed by players: text nodes only.
-  for (const l of deps.lines) list.appendChild(el('li', 'rl-report__line', t('net.chat.line', { name: deps.nameOf(l.seat), text: l.text })));
-  sends.append(list, el('p', 'rl-report__fine', t('report.sends.body')));
+  deps.lines.forEach((l, i) => {
+    const shown = deps.shown?.[i] === undefined ? l.text : deps.shown[i];
+    list.appendChild(el('li', 'rl-report__line', shown === null ? t('report.line.hidden', { name: deps.nameOf(l.seat) }) : t('net.chat.line', { name: deps.nameOf(l.seat), text: shown })));
+  });
+  sends.append(list);
+  if ((deps.dropped ?? 0) > 0) sends.appendChild(el('p', 'rl-report__fine rl-report__trimmed', t('report.sends.trimmed', { n: deps.dropped ?? 0 })));
+  sends.appendChild(el('p', 'rl-report__fine', t('report.sends.body')));
   form.appendChild(sends);
 
   const row = el('div', 'rl-report__row');
@@ -233,14 +243,26 @@ export interface OpenChatReport {
 
 /** Opens the dialog for the other seat, sending the inbox's copy of the room's recent lines. A member's public id is named; a guest's never is. */
 export function openChatReport(o: OpenChatReport): { close: Disposer } {
+  // ONE snapshot, taken now. The preview shows it and every send and retry sends it: a line that arrives while the dialog is open is not
+  // in the report, and cannot push out a line the reporter chose to report.
+  const snap = o.inbox.snapshot();
+  const fit = fitReportLines(snap.lines);
+  const reportedPublicId = o.inbox.publicIdOf(o.peer);
   return reportDialog(o.host, {
     reportedName: o.nameOf(o.peer),
-    lines: o.inbox.recent(),
+    lines: fit.lines,
+    shown: snap.shown.slice(snap.shown.length - fit.lines.length),
+    dropped: fit.dropped,
     nameOf: o.nameOf,
-    submit: (reason, note, signal) =>
-      o.port.send(
-        { seat: o.seat, reportedSeat: o.peer, reason, note, lines: o.inbox.recent(), reportedPublicId: o.inbox.publicIdOf(o.peer), map: o.map },
+    submit: async (reason, note, signal) => {
+      const result = await o.port.send(
+        { seat: o.seat, reportedSeat: o.peer, reason, note, lines: fit.lines, reportedPublicId, map: o.map },
         { signal },
-      ),
+      );
+      // The reporter's client stops showing the reported seat for the rest of the room (the design's automatic mute). Only a report the
+      // server stored counts: a dry run, a closed switch and a failure leave the room as it was.
+      if (result.kind === 'sent') o.inbox.setMuted(o.peer, true);
+      return result;
+    },
   });
 }

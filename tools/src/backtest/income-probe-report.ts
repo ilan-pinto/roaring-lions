@@ -9,7 +9,7 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { D7_MISSIONS } from './income-proposal';
+import { D7_MISSIONS, CENSUS_MISSIONS } from './income-proposal';
 
 interface Line {
   table: string;
@@ -56,7 +56,7 @@ const ST: Record<string, string> = { '0': 'kdf', '1': 'sarim', '-1': 'empty', '-
 
 for (const table of [...new Set(lines.map((l) => l.table))].sort()) {
   console.log(`\n=== table ${table} ===`);
-  for (const id of D7_MISSIONS) {
+  for (const id of [...D7_MISSIONS, ...CENSUS_MISSIONS]) {
     const mine = lines.filter((l) => l.table === table && l.id === id);
     if (mine.length === 0) continue;
     console.log(`\n## ${id}`);

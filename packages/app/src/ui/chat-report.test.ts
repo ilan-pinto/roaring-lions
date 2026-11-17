@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SendResult } from '../feedback/client';
 import { closeOpenDialog } from './confirm';
-import { openChatReport, reportDialog, type ReportDialogDeps } from './chat-report';
+import { openChatReport, reportDialog, type ChatReportPort, type ReportDialogDeps } from './chat-report';
 import { ChatInbox } from './chat-inbox';
 import { createBlockList } from '../chat/block-list';
 
@@ -43,7 +43,7 @@ describe('reportDialog', () => {
     const items = [...document.querySelectorAll('.rl-report__line')].map((e) => e.textContent);
     expect(items).toEqual(['Them: <b>rude</b>', 'Me: stop']);
     expect(document.querySelector('.rl-report__line b')).toBeNull();
-    expect(q('.rl-report__sends').textContent).toMatch(/No account, name, contact or room code/);
+    expect(q('.rl-report__sends').textContent).toMatch(/Nothing identifies you but a session id/);
     expect(q('.rl-report__sends summary').textContent).toContain('2 messages');
   });
 
@@ -75,7 +75,7 @@ describe('reportDialog', () => {
       [{ kind: 'dry-run' }, /does not send reports/, false],
       [{ kind: 'closed' }, /Reports are closed/, false],
       [{ kind: 'busy', retryAfter: 42 }, /Try again in 42 s/, true],
-      [{ kind: 'failed', status: 500 }, /server did not answer/, true],
+      [{ kind: 'failed', status: 500 }, /may not have been sent/, true],
     ];
     for (const [result, text, retry] of cases) {
       document.body.replaceChildren();
@@ -102,7 +102,7 @@ describe('reportDialog', () => {
     pick('abuse');
     q<HTMLButtonElement>('.rl-report__send').click();
     await flush();
-    expect(q('.rl-report__result').textContent).toMatch(/server did not answer/);
+    expect(q('.rl-report__result').textContent).toMatch(/may not have been sent/);
   });
 
   it('Escape, Cancel and the scrim close it; closing aborts a send in flight and nothing completes into the DOM afterwards', async () => {
@@ -194,3 +194,116 @@ describe('openChatReport', () => {
     expect(first[0].reportedPublicId).toBeNull();
   });
 });
+
+// Review items 1, 2 and 4, and the design's automatic mute.
+describe('the dialog works on one snapshot (review items 1, 2, 4; design 3.4)', () => {
+  const mk = (preview?: (t: string) => string | null) => {
+    const inbox = new ChatInbox(() => true);
+    inbox.useWho({ blocks: createBlockList(null), publicIdOf: (s) => (s === 1 ? 'ABCDEFG1' : null) });
+    if (preview !== undefined) inbox.useOptions({ preview });
+    return inbox;
+  };
+  const open2 = (inbox: ChatInbox, send: ChatReportPort['send'] | ReturnType<typeof vi.fn>) =>
+    openChatReport({ host: document.body, port: { offered: () => true, send: send as ChatReportPort['send'] }, inbox, seat: 0, peer: 1, nameOf: (s) => NAMES[s], map: 'wadi_tarfan_l' });
+  const sentLines = (send: ReturnType<typeof vi.fn>, call = 0): string[] =>
+    ((send.mock.calls[call] as [{ lines: { text: string }[] }])[0].lines).map((l) => l.text);
+
+  it('a line that arrives while the dialog is open is not sent, and does not push out a line the reporter chose', async () => {
+    const inbox = mk();
+    for (let i = 0; i < 10; i++) inbox.deliver(1, `old ${i}`, () => undefined);
+    const send = vi.fn(async () => ({ kind: 'sent', ref: 'FB-1' }) as SendResult);
+    open2(inbox, send);
+    const shown = [...document.querySelectorAll('.rl-report__line')].map((e) => e.textContent);
+    inbox.deliver(1, 'arrived after open', () => undefined);
+    pick('abuse');
+    q<HTMLButtonElement>('.rl-report__send').click();
+    await flush();
+    expect(sentLines(send)).toEqual(Array.from({ length: 10 }, (_, i) => `old ${i}`));
+    expect(shown).toEqual(Array.from({ length: 10 }, (_, i) => `Them: old ${i}`));
+  });
+
+  it('a retry sends the SAME lines as the first try, not the ring as it is by then', async () => {
+    const inbox = mk();
+    inbox.deliver(1, 'one', () => undefined);
+    const send = vi.fn()
+      .mockResolvedValueOnce({ kind: 'failed', status: 500 } as SendResult)
+      .mockResolvedValueOnce({ kind: 'sent', ref: 'FB-2' } as SendResult);
+    open2(inbox, send);
+    pick('abuse');
+    q<HTMLButtonElement>('.rl-report__send').click();
+    await flush();
+    inbox.deliver(1, 'two', () => undefined);
+    (document.querySelectorAll('.rl-report__result button')[0] as HTMLButtonElement).click();
+    q<HTMLButtonElement>('.rl-report__send').click();
+    await flush();
+    expect(sentLines(send, 0)).toEqual(['one']);
+    expect(sentLines(send, 1)).toEqual(['one']);
+  });
+
+  it('says so, before sending, when the oldest lines are left out to fit the size cap, and shows only what is sent', () => {
+    const inbox = mk();
+    for (let i = 0; i < 10; i++) inbox.deliver(1, `${i}`.repeat(1) + '漢'.repeat(279), () => undefined);
+    open2(inbox, vi.fn());
+    const shown = document.querySelectorAll('.rl-report__line').length;
+    expect(shown).toBeLessThan(10);
+    const note = q('.rl-report__trimmed').textContent ?? '';
+    expect(note).toMatch(new RegExp(`${10 - shown} oldest messages are left out so the report fits|oldest message is left out`));
+    expect(q('.rl-report__sends summary').textContent).toContain(`${shown} messages`);
+  });
+
+  it('shows no notice when nothing was left out', () => {
+    const inbox = mk();
+    inbox.deliver(1, 'short', () => undefined);
+    open2(inbox, vi.fn());
+    expect(document.querySelector('.rl-report__trimmed')).toBeNull();
+  });
+
+  it('does not show a line the player\'s own filter hid, but sends it as evidence and says it is sent', async () => {
+    const inbox = mk((t) => (t.includes('SLUR') ? null : t));
+    inbox.deliver(1, 'a SLUR here', () => undefined);
+    inbox.deliver(1, 'fine', () => undefined);
+    const send = vi.fn(async () => ({ kind: 'sent', ref: 'FB-3' }) as SendResult);
+    open2(inbox, send);
+    const shown = [...document.querySelectorAll('.rl-report__line')].map((e) => e.textContent);
+    expect(shown).toEqual(['Them: [hidden by your word filter; still sent]', 'Them: fine']);
+    expect(document.body.textContent).not.toContain('SLUR');
+    pick('hate');
+    q<HTMLButtonElement>('.rl-report__send').click();
+    await flush();
+    expect(sentLines(send)).toEqual(['a SLUR here', 'fine']);
+  });
+
+  it('a report the server stored mutes the reported seat for the rest of the room; nothing else does', async () => {
+    for (const [result, muted] of [
+      [{ kind: 'sent', ref: 'FB-4' }, true],
+      [{ kind: 'dry-run' }, false],
+      [{ kind: 'closed' }, false],
+      [{ kind: 'busy', retryAfter: 9 }, false],
+      [{ kind: 'failed', status: 500 }, false],
+    ] as [SendResult, boolean][]) {
+      document.body.replaceChildren();
+      closeOpenDialog();
+      const inbox = mk();
+      inbox.deliver(1, 'rude', () => undefined);
+      open2(inbox, vi.fn(async () => result));
+      expect(inbox.isMuted(1)).toBe(false);
+      pick('abuse');
+      q<HTMLButtonElement>('.rl-report__send').click();
+      await flush();
+      expect(inbox.isMuted(1), result.kind).toBe(muted);
+      expect(inbox.isMuted(0), result.kind).toBe(false);
+    }
+  });
+
+  it('keeps each preview with ITS line after the oldest are left out for size (a hidden line stays hidden at its own place)', () => {
+    const inbox = mk((t) => (t.includes('NEWEST') ? null : t));
+    for (let i = 0; i < 9; i++) inbox.deliver(1, `${i}` + '漢'.repeat(279), () => undefined);
+    inbox.deliver(1, 'NEWEST' + '漢'.repeat(274), () => undefined);
+    open2(inbox, vi.fn());
+    const items = [...document.querySelectorAll('.rl-report__line')].map((e) => e.textContent ?? '');
+    expect(items.length).toBeLessThan(10);
+    expect(items[items.length - 1]).toBe('Them: [hidden by your word filter; still sent]');
+    expect(items.slice(0, -1).every((x) => x.includes('漢'))).toBe(true);
+  });
+});
+

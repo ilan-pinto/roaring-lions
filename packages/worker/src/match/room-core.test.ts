@@ -1590,3 +1590,23 @@ describe('recordOf (GH-1075 A3, the agreed-result rule)', () => {
     expect(revived.recorded).toBe(false);
   });
 });
+
+// GH-1417 S3, design acceptance row (privacy): no chat line is stored anywhere outside a report. A room only relays a line; it keeps no
+// text in its state, which is what the Durable Object persists, and the relay answers with sends alone.
+describe('chat is relayed and never kept (design acceptance, privacy)', () => {
+  it('a chat line produces only sends, and the room state holds none of its text', () => {
+    const st = running();
+    const text = 'UNIQUE-CHAT-LINE-7f3a9c';
+    const fx = seatMessage(st, 0, { t: 'chat', text }, 1000, mint);
+    expect(fx.length).toBeGreaterThan(0);
+    expect(fx.every((e) => e.kind === 'send')).toBe(true);
+    expect(JSON.stringify(st)).not.toContain(text);
+  });
+  it('the relay\'s source touches no storage or database: room-core.ts names none', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(__dirname, 'room-core.ts'), 'utf8').split('\n').filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join('\n');
+    for (const bad of ['env.DB', '.prepare(', 'storage.', 'INSERT', 'localStorage']) expect(src.includes(bad), bad).toBe(false);
+  });
+});
+

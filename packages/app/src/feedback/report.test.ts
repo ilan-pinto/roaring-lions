@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { buildReportMeta, reportLine, REPORT_LINES_MAX, type ReportInput } from './report';
+import { buildReportMeta, fitReportLines, reportLine, REPORT_CONTEXT_MAX_BYTES, REPORT_LINES_MAX, type ReportInput } from './report';
 
 const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
 const schema = JSON.parse(readFileSync(fileURLToPath(new URL('../../../../data/schemas/feedback.schema.json', import.meta.url)), 'utf8'));
@@ -93,3 +93,71 @@ describe('buildReportMeta', () => {
     expect(problems(buildReportMeta(input({ note: '' })))).toEqual([]);
   });
 });
+
+// Review item 2: a report always fits the Worker's 8 KB context cap, whatever script or emoji the lines are in.
+const bytes = (s: string): number => new TextEncoder().encode(s).length;
+describe('the byte budget', () => {
+  it('is the Worker\'s own cap, pinned to its source', () => {
+    expect(REPORT_CONTEXT_MAX_BYTES).toBe(8192);
+    const worker = readFileSync(fileURLToPath(new URL('../../../worker/src/feedback-meta.ts', import.meta.url)), 'utf8');
+    expect(worker).toMatch(/export const CONTEXT_MAX_BYTES = 8 \* 1024;/);
+  });
+  it('ten lines of 280 CJK characters (3 bytes each) fit after the OLDEST are dropped, and say how many', () => {
+    const lines = Array.from({ length: 10 }, (_, i) => ({ seat: (i % 2) as 0 | 1, text: `${i}`.repeat(1) + '漢'.repeat(279) }));
+    const fit = fitReportLines(lines);
+    expect(fit.dropped).toBeGreaterThan(0);
+    expect(fit.lines.length + fit.dropped).toBe(10);
+    // the kept lines are the NEWEST ones
+    expect(fit.lines[fit.lines.length - 1]).toEqual(lines[9]);
+    expect(fit.lines[0]).toEqual(lines[10 - fit.lines.length]);
+    const m = buildReportMeta(input({ lines }))!;
+    expect(bytes(JSON.stringify(m.context))).toBeLessThanOrEqual(8192);
+    expect(m.context.lines).toHaveLength(fit.lines.length);
+    expect(problems(m)).toEqual([]);
+  });
+  it('four-byte emoji lines fit the same way', () => {
+    const lines = Array.from({ length: 10 }, () => ({ seat: 1 as const, text: '\u{1F981}'.repeat(280) }));
+    const m = buildReportMeta(input({ lines }))!;
+    expect(bytes(JSON.stringify(m.context))).toBeLessThanOrEqual(8192);
+    expect(m.context.lines.length).toBeLessThan(10);
+    expect(m.context.lines.length).toBeGreaterThan(0);
+  });
+  it('a worst-case line alone still fits, and an ordinary conversation loses nothing', () => {
+    expect(fitReportLines([{ seat: 1, text: '\u{1F981}'.repeat(280) }]).dropped).toBe(0);
+    const talk = Array.from({ length: 10 }, (_, i) => ({ seat: (i % 2) as 0 | 1, text: `line ${i} with some ordinary words in it` }));
+    expect(fitReportLines(talk)).toEqual({ lines: talk, dropped: 0 });
+  });
+  it('is independent of the reason, so the dialog can say what is left out before a reason is picked', () => {
+    const lines = Array.from({ length: 10 }, () => ({ seat: 1 as const, text: '漢'.repeat(280) }));
+    const kept = fitReportLines(lines).lines.length;
+    for (const reason of ['abuse', 'hate', 'sexual', 'threat', 'spam', 'other'] as const) {
+      expect(buildReportMeta(input({ lines, reason }))!.context.lines, reason).toHaveLength(kept);
+    }
+  });
+  it('measures the NEWEST lines it would keep, not the oldest: dropping old long lines lets the short new ones through', () => {
+    const big = (i: number) => ({ seat: 1 as const, text: `${i}` + '\u{1F981}'.repeat(279) });
+    const lines = [...Array.from({ length: 8 }, (_, i) => big(i)), { seat: 1 as const, text: 'new one' }, { seat: 1 as const, text: 'new two' }];
+    const fit = fitReportLines(lines);
+    expect(fit.dropped).toBe(1);
+    expect(fit.lines).toEqual(lines.slice(1));
+  });
+  it('is measured for the longest reason, so a report with ANY reason fits even at the byte boundary', () => {
+    const ctx = (ls: { seat: 0 | 1; text: string }[]): number =>
+      bytes(JSON.stringify({ lines: ls.map((l) => `${l.seat}: ${l.text}`), seat: 0, reported_seat: 1, reason: 'sexual', reported_public_id: 'ZZZZZZZZ' }));
+    // nine full CJK lines, and a first line tuned (3-byte steps, then 1-byte steps) to land the 'sexual' context on exactly cap + 1
+    let found: { seat: 0 | 1; text: string }[] | null = null;
+    for (let n = 0; n <= 280 && found === null; n++) {
+      for (let m = 0; m < 3 && found === null; m++) {
+        const first = { seat: 1 as const, text: '漢'.repeat(n) + 'a'.repeat(m) + 'b' };
+        const ls = [first, ...Array.from({ length: 9 }, () => ({ seat: 1 as const, text: '漢'.repeat(280) }))];
+        if (ctx(ls) === REPORT_CONTEXT_MAX_BYTES + 1) found = ls;
+      }
+    }
+    expect(found, 'a boundary fixture exists').not.toBeNull();
+    for (const reason of ['abuse', 'sexual', 'threat'] as const) {
+      const m = buildReportMeta(input({ lines: found ?? [], reason }))!;
+      expect(bytes(JSON.stringify(m.context)), reason).toBeLessThanOrEqual(REPORT_CONTEXT_MAX_BYTES);
+    }
+  });
+});
+

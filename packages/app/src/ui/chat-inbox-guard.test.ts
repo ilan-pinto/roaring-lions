@@ -72,10 +72,13 @@ describe('the chat inbox is the only door (GH-1417 S1)', () => {
     expect(new Set(hits)).toEqual(new Set(['chat/block-list.ts']));
   });
 
-  it('a report is built from the inbox\'s copy of the room (`inbox.recent()`), never from a line a caller passes in from elsewhere', () => {
-    const hits = scan(/\blines:\s*o\.inbox\.recent\(\)/);
-    expect(hits.length).toBeGreaterThan(0);
-    // and only chat-report.ts hands lines to the dialog or the sender
+  it('a report dialog is opened on ONE snapshot of the inbox and nothing in ui/chat-report.ts asks the ring a second time', () => {
+    const src = readFileSync(join(SRC, 'ui/chat-report.ts'), 'utf8');
+    expect(src).toMatch(/const snap = o\.inbox\.snapshot\(\);/);
+    // the send and the retries use the snapshot's fitted lines, never a fresh read of the ring
+    expect(src.match(/\.recent\(\)/g) ?? []).toEqual([]);
+    expect(src).toMatch(/lines: fit\.lines, reportedPublicId/);
+    // and only the two screens open a report
     expect(new Set(scan(/\bopenChatReport\(/).filter((h) => !/export function/.test(h.text)).map((h) => h.file))).toEqual(new Set(['main.ts', 'ui/versus.ts']));
   });
 
@@ -83,7 +86,7 @@ describe('the chat inbox is the only door (GH-1417 S1)', () => {
     const versus = readFileSync(join(SRC, 'ui/versus.ts'), 'utf8');
     const main = readFileSync(join(SRC, 'main.ts'), 'utf8');
     expect(versus).toMatch(/blocks: deps\.blocks \?\? browserBlockList\(\)/);
-    expect(main).toMatch(/blocks: browserBlockList\(\)/);
+    expect(main).toMatch(/blocks: rk\(\)\.browserBlockList\(\)/);
   });
 });
 

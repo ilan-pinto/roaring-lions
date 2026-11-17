@@ -16,6 +16,10 @@ import { clip, TEXT_MAX } from './meta';
 export const REPORT_REASONS = ['abuse', 'hate', 'sexual', 'threat', 'spam', 'other'] as const;
 export type ReportReason = (typeof REPORT_REASONS)[number];
 export const REPORT_LINES_MAX = 10;
+/** The Worker refuses a report whose `context` is over this many UTF-8 bytes before it reads the shape (`feedback-meta.ts`'s
+ *  `CONTEXT_MAX_BYTES`; `report.test.ts` pins the two together). Ten lines of 280 characters from a script that takes three or four
+ *  bytes a character are over it, so the lines are fitted to it: the OLDEST are dropped first. */
+export const REPORT_CONTEXT_MAX_BYTES = 8 * 1024;
 /** A line's text, in code points (the room's own chat cap). */
 export const REPORT_LINE_TEXT_MAX = 280;
 const PUBLIC_ID = /^[0-9A-HJKMNP-TV-Z]{8}$/;
@@ -79,12 +83,35 @@ export function reportLine(l: ReportLine): string | null {
   return text === '' ? null : `${l.seat}: ${text}`;
 }
 
+const utf8Bytes = (s: string): number => new TextEncoder().encode(s).length;
+
+/**
+ * The newest lines of `lines` whose report `context` fits `REPORT_CONTEXT_MAX_BYTES`, oldest dropped first, and how many of the usable ones were dropped for size.
+ * Measured for the largest context any reason and any member id can make (a six-letter reason, a present public id), so the answer does
+ * not depend on what the player picks next and the dialog can tell them BEFORE they send. A line that is empty once cleaned is not a line.
+ */
+export function fitReportLines(lines: readonly ReportLine[]): { lines: ReportLine[]; dropped: number } {
+  const usable = lines.slice(-REPORT_LINES_MAX).filter((l) => reportLine(l) !== null);
+  let keep = usable.length;
+  const bytes = (n: number): number =>
+    utf8Bytes(
+      JSON.stringify({
+        lines: usable.slice(usable.length - n).map((l) => reportLine(l)),
+        seat: 0,
+        reported_seat: 1,
+        reason: 'sexual',
+        reported_public_id: 'ZZZZZZZZ',
+      }),
+    );
+  while (keep > 0 && bytes(keep) > REPORT_CONTEXT_MAX_BYTES) keep -= 1;
+  return { lines: usable.slice(usable.length - keep), dropped: usable.length - keep };
+}
+
 /** Null when the input cannot make a valid report (nothing to report, or oneself), so the caller never sends a refusal. */
 export function buildReportMeta(i: ReportInput): ReportMeta | null {
   if (i.seat === i.reportedSeat) return null;
-  const lines = i.lines
-    .slice(-REPORT_LINES_MAX)
-    .map(reportLine)
+  const lines = fitReportLines(i.lines)
+    .lines.map(reportLine)
     .filter((l): l is string => l !== null);
   if (lines.length === 0) return null;
   const context: ReportContext = { lines, seat: i.seat, reported_seat: i.reportedSeat, reason: i.reason };

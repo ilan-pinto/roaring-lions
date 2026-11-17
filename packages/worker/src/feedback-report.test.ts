@@ -3,7 +3,8 @@
 // the feedback switch, never makes it a GitHub issue link, and refuses every id a report must not carry.
 import { describe, expect, it } from 'vitest';
 import { handleFeedback } from './feedback-ingest';
-import { applyFeedbackAction, feedbackDetail, setFeedbackOpen } from './feedback-triage';
+import { RETENTION_MS, applyFeedbackAction, feedbackDetail, purgeExpired, setFeedbackOpen } from './feedback-triage';
+import { FEEDBACK_HTML } from './feedback-page';
 import { openReportD1, migrationsAcceptReports } from './test-d1-reports';
 import type { Env } from './d1';
 
@@ -173,3 +174,83 @@ describe('triage: a report is read on /stats and never filed as a GitHub issue',
     expect(d?.issue.url).toContain('https://github.com/');
   });
 });
+
+// Review: W15, the session-less ceiling counts only session-less reports.
+describe('the session-less report ceiling (review W15)', () => {
+  it('twenty reports WITH sessions do not spend the session-less twenty, and twenty without do', async () => {
+    const h = setup();
+    const { session: _s, ...noSession } = REPORT;
+    void _s;
+    for (let i = 0; i < 20; i++) {
+      // twenty different sessions, so the per-session five never bites
+      const sess = `7c9e6679-7425-40de-944b-e07fc1f9${String(i).padStart(4, '0')}`;
+      expect((await h.post({ ...REPORT, session: sess }, NOW + i)).status, `with session ${i}`).toBe(201);
+    }
+    // the session-less count is still zero: a session-less report is accepted
+    expect((await h.post(noSession, NOW + 30, () => undefined, { 'cf-connecting-ip': '198.51.100.1' })).status).toBe(201);
+  });
+  it('twenty session-less reports in ten minutes fill their ceiling; the twenty-first waits', async () => {
+    const h = setup();
+    const { session: _s, ...noSession } = REPORT;
+    void _s;
+    for (let i = 0; i < 20; i++) expect((await h.post(noSession, NOW + i * 1000, () => undefined, { 'cf-connecting-ip': `198.51.100.${i + 1}` })).status, `n=${i}`).toBe(201);
+    const r = await h.post(noSession, NOW + 21_000, () => undefined, { 'cf-connecting-ip': '198.51.100.99' });
+    expect(r.status).toBe(429);
+  });
+});
+
+// Review W20: the stats page never offers "File as GitHub issue" for a report.
+describe('the stats page for a report (review W20)', () => {
+  const detailHtml = (): ((d: unknown) => string) => {
+    const script = FEEDBACK_HTML.slice(FEEDBACK_HTML.indexOf('<script'), FEEDBACK_HTML.lastIndexOf('</script>'));
+    const from = script.indexOf('function kvRow');
+    const to = script.indexOf('\nfunction paintSwitch');
+    const src = script.slice(from, to);
+    const fn = new Function(
+      'const esc=(s)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");const when=()=>"";const clock=()=>"";' + src + ';return detailHtml;',
+    );
+    return fn() as (d: unknown) => string;
+  };
+  const base = { id: 1, ref: 'FB-1', category: 'report', who: 'anonymous', receivedAt: 0, status: 'new', text: '', issueNumber: null, note: '', replay: null, shot: null, timeline: [], context: { lines: ['1: x'] }, source: 'match', build: 'b', transitions: ['filed', 'triaged', 'dismissed'] };
+  it('a report has no File button and says it is never turned into an issue', () => {
+    const html = detailHtml()({ ...base, issue: { url: '', title: '', body: '', truncated: false } });
+    expect(html).not.toContain('data-act="file"');
+    expect(html).toContain('never turned into a GitHub issue link');
+    expect(html).toContain('data-act="triage"');
+  });
+  it('an ordinary note still has it (so the guard above is not vacuous)', () => {
+    const html = detailHtml()({ ...base, category: 'bug', issue: { url: 'https://github.com/x', title: 't', body: 'b', truncated: false } });
+    expect(html).toContain('data-act="file"');
+  });
+});
+
+// Review (design 3.4): reports are deleted whole at 180 days, because their context holds another player's words.
+describe('a report is deleted at 180 days', () => {
+  it('the whole row goes at 180 days, a newer report stays, and an ordinary old note keeps its note and context', async () => {
+    const h = setup();
+    expect((await h.post(REPORT, NOW)).status).toBe(201);
+    expect((await h.post({ ...REPORT, session: S2 }, NOW + 1000)).status).toBe(201);
+    expect((await h.post({ v: 1, t: NOW, source: 'menu', category: 'idea', text: 'keep this note', build: '0.133.11', session: S1, context: { route: '/' } }, NOW + 2000)).status).toBe(201);
+    const old = (h.rows()[0] as { id: number }).id;
+    const oldNote = (h.rows()[2] as { id: number }).id;
+    h.db.raw.prepare('UPDATE feedback SET received_at = ? WHERE id IN (?, ?)').run(NOW - RETENTION_MS - 1, old, oldNote);
+    const purged = await purgeExpired({ DB: h.db, ASSETS: { fetch: async () => new Response('') } } as Env, NOW + 5000);
+    expect(purged).toBeGreaterThanOrEqual(2);
+    const left = h.rows() as { id: number; category: string; text: string; context: string; session: string | null }[];
+    expect(left.some((r) => r.id === old)).toBe(false);
+    expect(left.filter((r) => r.category === 'report')).toHaveLength(1);
+    const note = left.find((r) => r.id === oldNote);
+    expect(note?.text).toBe('keep this note');
+    expect(note?.session).toBeNull();
+  });
+
+  it('keeps slicing while reports alone still fill a slice: a backlog of old reports is cleared across batches', async () => {
+    const h = setup();
+    for (let i = 0; i < 5; i++) expect((await h.post({ ...REPORT, session: `7c9e6679-7425-40de-944b-e07fc1f9${String(i).padStart(4, '0')}` }, NOW + i)).status).toBe(201);
+    h.db.raw.prepare('UPDATE feedback SET received_at = ?').run(NOW - RETENTION_MS - 1);
+    const env = { DB: h.db, ASSETS: { fetch: async () => new Response('') } } as Env;
+    expect(await purgeExpired(env, NOW + 10_000, 2, 5)).toBe(5);
+    expect(h.rows()).toHaveLength(0);
+  });
+});
+
