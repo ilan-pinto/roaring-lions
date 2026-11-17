@@ -143,7 +143,9 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   `data/locales/en/missions.json` is the GENERATED translator's template (`pnpm
   locales:en -- --write`, checked by `validate:data`; never edited, never fetched).
   Unit names and blurbs are overlaid from `data/locales/<lang>/units.json`
-  (`unit-text.ts`); roles are chrome.
+  (`unit-text.ts`); roles are chrome. Translators' files are served by `packages/app/vite-plugin-locales.ts`
+  (dev middleware and build assets, derived from `data/locales/`, never copied into `assets/`); a
+  non-`en` file that does not arrive warns once with its URL (`i18n/overlay-fetch.ts`).
 
 <!-- CLAUDE.md lines 322-338, section "Dev instruments" -->
 
