@@ -11,7 +11,8 @@
 // latency; the L/F/G ratio is the figure the bars (1.05 / 1.10) are read on, and the lead sees both numbers.
 import type { Sim } from '@lions/sim';
 import { buildWorld, buildRendererOptions, createHost, loadAllMeshes, computeAnchors, createSpawner, spawnUpTo, livingCount } from './three-units';
-import type { maps, ParsedMap } from '@lions/data';
+import type { ParsedMap } from '@lions/data';
+import type { maps } from '@lions/data/content';
 import { DECOR_LOD1, DECOR_MESHES, PROP_MESHES, meshPlanFor } from '../../../packages/app/src/mesh-catalogue';
 import { censusUnported } from '../../../packages/render/src/three/backend/unported';
 import { resolveNodeDraw, type NodeDrawOptions } from '../../../packages/render/src/three/backend/node-draw-options';

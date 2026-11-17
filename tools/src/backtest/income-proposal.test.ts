@@ -3,7 +3,7 @@
 // holds are the 40% anchors the doc states, and no proposed zone covers a starting placement (the
 // reason ZONE_PASSIVE_INCOME reads 0 under it: a force that never moves stands where it was placed).
 import { describe, expect, it } from 'vitest';
-import { maps, missions } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import {
   INCOME_TABLES,
   CENSUS_TABLES,

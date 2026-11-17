@@ -45,6 +45,7 @@ import { doctrineFailures } from './validate_doctrine.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
+import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
@@ -1469,6 +1470,12 @@ const garrisonableSymbols = new Set(
   const formationFiles = jsonFilesIn(join(ROOT, 'data/formations')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...formationFailures(formationFiles, en));
 }
+
+// --- the synchronous content manifest (B6-6) ----------------------------------
+// packages/data/src/content-manifest.ts is GENERATED from the map and mission files (tools/content_manifest.mjs): the
+// app's entry chunk reads it instead of the JSON. Regenerated here and compared byte for byte, so a map or a mission
+// edited without `pnpm content:manifest -- --write` fails, and so does a hand-edit of the manifest.
+failures.push(...contentManifestFailures(ROOT));
 
 // --- map grid + bounds checks (beyond what JSON Schema can express) ---------
 //

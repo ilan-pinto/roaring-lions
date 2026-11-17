@@ -3,7 +3,8 @@
 // default camera, with no building's mesh over more than half of a rifleman standing there.
 // See map_visibility.ts for the metric and for why the floor is 0.84.
 import { describe, expect, it } from 'vitest';
-import { maps, parseMap, versusRules, type MapJson } from '../../packages/data/src/index';
+import { parseMap, versusRules, type MapJson } from '../../packages/data/src/index';
+import { maps } from '../../packages/data/src/content';
 import {
   VISIBLE_FLOOR,
   bodyHiddenShare,

@@ -21,7 +21,8 @@
 // here as the controls.
 import { describe, expect, it } from 'vitest';
 import { START_LAYOUT } from './mission-harness';
-import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, tutorials, units } from '@lions/data';
+import { applyTerrain, parseMap, structures as structureCatalogue, tutorials, units } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { fx } from '../../packages/sim/src/fixed';
 import { Sim, TICKS_PER_SECOND, type SimEvent } from '../../packages/sim/src/sim';
 import { MissionRuntime, type MissionEvent, type MissionJson } from '../../packages/sim/src/mission';

@@ -24,7 +24,8 @@
 // the flat control is what proves the low one is chosen for its height and
 // not for its position.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, parseMap, TERRAIN_LEGEND, THEME_SYMBOLS, units, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, TERRAIN_LEGEND, THEME_SYMBOLS, units, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { fx } from '../../packages/sim/src/fixed';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';

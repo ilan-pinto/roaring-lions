@@ -2,7 +2,8 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { missions, postureOf, DIFFICULTY_LEDGER_KEY, RELIEF_TRIGGER_ID } from '@lions/data';
+import { postureOf, DIFFICULTY_LEDGER_KEY, RELIEF_TRIGGER_ID } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { reinforceKey, type MissionJson } from '@lions/sim';
 import { sanitiseLedger } from './ledger-shape';
 import { memoryLedgerStore, newCampaign } from './ledger-store';

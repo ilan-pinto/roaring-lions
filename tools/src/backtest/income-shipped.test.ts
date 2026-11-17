@@ -2,7 +2,7 @@
 // holds the data. A zone deleted from a mission (or a rate nudged, or a new mission quietly given zones) goes red here, and `playtest.ts` reads
 // the same count (`ZONE_MISSIONS`). Each batch of `docs/campaign/economy/held-ground-census.md` adds its rows to LANDED and raises the pin.
 import { describe, expect, it } from 'vitest';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { CENSUS_TABLES } from './income-proposal';
 
 type Zones = [zone: string, rate: number][];

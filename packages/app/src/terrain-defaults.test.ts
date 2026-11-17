@@ -34,7 +34,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
-import { maps, parseMap, applyTerrain, structures as structureCatalogue, paletteColor, type MapId } from '@lions/data';
+import { parseMap, applyTerrain, structures as structureCatalogue, paletteColor, type MapId } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { composeTerrain } from '@lions/render/three';
 import { rendererOptionsFor } from './renderer-options';
 

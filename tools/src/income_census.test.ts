@@ -19,7 +19,7 @@
 // income zone without first opening the boulders around it (which moves UZ III's pathing and
 // every playtest line). The second block below shows the census naming it.
 import { describe, expect, it } from 'vitest';
-import { maps, missions } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import type { MissionJson } from '@lions/sim';
 import { MissionRuntime } from '@lions/sim';
 import { fx } from '../../packages/sim/src/fixed';
