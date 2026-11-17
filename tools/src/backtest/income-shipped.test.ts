@@ -13,6 +13,9 @@ const LANDED: Record<string, { batch: number; zones: Zones }> = {
   umm_zeitoun_2_buildup: { batch: 0, zones: [['crest_line', 50], ['post_stone', 30]] },
   umm_zeitoun_4_clearance: { batch: 0, zones: [['stockpile', 16], ['crest_top', 8], ['hamlet', 8]] },
   wadi_halam_2_laager: { batch: 0, zones: [['pasture', 32], ['ford_watch', 16]] },
+  // Authored with their town (Qasr Liwan II and III, GH-1438), not by a GH-1386 batch: batch 0, like the five D7 missions before the census.
+  qasr_liwan_2_foothold: { batch: 0, zones: [['coast_road', 28], ['the_cut', 20]] },
+  qasr_liwan_3_buildup: { batch: 0, zones: [['water_point', 80]] },
   khan_rafid_2_foothold: { batch: 1, zones: [['ward', 48]] },
   qarn_hadid_2_foothold: { batch: 1, zones: [['the_gates', 32], ['hollow', 16]] },
   tel_marum_2_foothold: { batch: 1, zones: [['approach', 32], ['overwatch_west', 16]] },
@@ -35,11 +38,11 @@ describe('shipped held-ground income (GH-1386)', () => {
     }
   });
 
-  it('no other mission authors zones: the census line is exactly the landed set (12 of 30 after batch 2)', () => {
+  it('no other mission authors zones: the census line is exactly the landed set (14 of 35: batch 2, plus Qasr Liwan II and III)', () => {
     const authors = all.filter((m) => zonesOf(m).length > 0).map((m) => m.id).sort();
     expect(authors).toEqual(Object.keys(LANDED).sort());
-    expect(authors.length).toBe(12);
-    expect(all.length).toBe(30);
+    expect(authors.length).toBe(14);
+    expect(all.length).toBe(35);
   });
 
   it("each landed batch-1 and batch-2 row is the census plan's candidate row, verbatim", () => {

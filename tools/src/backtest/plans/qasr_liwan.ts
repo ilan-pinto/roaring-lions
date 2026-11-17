@@ -178,10 +178,12 @@ export const ql4Plan: Plan = (sim, rt, ids, at) => {
   const squads = ids('inf_squad');
   const feet = [...squads, ...ids('inf_medic_squad')];
   const apc = ids('apc_eitan');
-  const armour = [...apc, ...ids('ifv_namer'), ...ids('mbt_lavi')];
+  const namer = ids('ifv_namer');
+  const armour = [...apc, ...ids('mbt_lavi')];
   const yah = ids('yahalom_squad');
   const dog = ids('ugv_recon_dog');
   at(0, () => {
+    sim.queueCommand({ kind: 'attackMove', ids: namer, ...M(29.5, 34.5) });
     sim.queueCommand({ kind: 'attackMove', ids: feet, ...M(30.5, 30.5) });
     sim.queueCommand({ kind: 'attackMove', ids: armour, ...M(29.5, 34.5) });
     sim.queueCommand({ kind: 'move', ids: [...yah, ...dog], ...M(29.5, 40) });
@@ -193,13 +195,19 @@ export const ql4Plan: Plan = (sim, rt, ids, at) => {
       if (pushed || (rt.objectiveStatus('walk_the_forecourt_out') !== 'complete' && s < 200)) return;
       pushed = true;
       sim.queueCommand({ kind: 'attackMove', ids: armour.filter((i) => sim.state.alive[i] === 1), ...M(28.5, 28.5) });
+      // The Namer's 30mm bills a stray when a target stands behind the clinic from where it sits (the Harder posture's extra militia do): it takes the
+      // west side of the compound, where the line to the north wall runs clear of the building.
+      sim.queueCommand({ kind: 'attackMove', ids: namer.filter((i) => sim.state.alive[i] === 1), ...M(25.5, 27.5) });
     });
   for (let s = 20; s < 360; s += 10)
     at(s, () => {
       if (pushed && sim.tnAlive[0] === 1) {
         sim.queueCommand({ kind: 'attackMove', ids: feet.filter((i) => sim.state.alive[i] === 1), ...M(27.5, 27.5) });
         sim.queueCommand({ kind: 'move', ids: dog.filter((i) => sim.state.alive[i] === 1), ...M(27.5, 30) });
-        sim.queueCommand({ kind: 'chargeTunnel', ids: yah.filter((i) => sim.state.alive[i] === 1), tunnel: 0 });
+        // The engineers go in once the yard is held (`take_the_yard`): sent with the squads they walk into the yard's fire and die before the charge
+        // (the Harder posture's heavier first wave does this); held back they are still inside the 360 s the collapse is given.
+        if (rt.objectiveStatus('take_the_yard') === 'complete')
+          sim.queueCommand({ kind: 'chargeTunnel', ids: yah.filter((i) => sim.state.alive[i] === 1), tunnel: 0 });
       }
     });
 };

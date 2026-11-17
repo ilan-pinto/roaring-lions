@@ -89,7 +89,7 @@ describe('the shipped limits', () => {
 describe('GH-1394: every shipped mission under every posture passes the overlaid clock rule', () => {
   const ids = Object.keys(missions) as (keyof typeof missions)[];
   it('covers the whole shipped list', () => {
-    expect(ids.length).toBe(30);
+    expect(ids.length).toBe(35); // Was 30: Qasr Liwan's five missions
   });
   for (const posture of POSTURE_IDS) {
     it.each(ids)(`%s at ${posture}`, (id) => {
