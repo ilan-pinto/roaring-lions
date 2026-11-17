@@ -18,13 +18,12 @@
   "challenge": {
     "id": "whole_picture",
     "label": "Whole Picture",
-    "blurb": "Without the drone, find everything the brigade asked for, inside the target time.",
+    "blurb": "Without the drone, find everything the brigade asked for.",
     "amendments": [
       "recon_no_drone"
     ],
     "win": {
-      "carries_all": true,
-      "ticks_at_most_target": true
+      "carries_all": true
     }
   }
 }
