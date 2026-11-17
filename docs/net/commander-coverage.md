@@ -214,3 +214,56 @@ the commander plays without building) the Sarim commander wins 126 of 160 and th
 
 Whatever the lead rules, the probe is the instrument for the "no stalled match" criterion of GH-1390: re-run it and read the two stall columns, the
 "decided by" column and the W / L column.
+
+
+## 4. Slice 2 of the commander: the scout and the counter (GH-1391)
+
+Two more tasks in `createCommander`, both **off unless `CommanderOptions` turns them on** (`scout`, `counter`), because the probe below says neither raised the
+win rate. They are plain heuristics in the app layer, commands only, over the same fog-honest `SideView`: no vision, no sim read, no `tuning.ts`, no unit-data change.
+
+- **Scout.** At its first decision the seat sends its cheapest unit (by `cost.logistics`, then the faster, then the lower id; never its only unit) with a `move` to a
+  point `RUSH_HOME_TILES` short of the enemy camp, the anchor a human reads off the map. It is kept out of the march, the zone shares and the straggler sweep; one scout, never replaced.
+- **Counter.** The seat remembers, per enemy type, the most of it ever in sight at once (`view.contacts`). `composition.ts` classes a type from the unit data alone:
+  *armour* is a hull whose front plate is above `SOFT_PENETRATION_CEILING` (120, derived: the best round any non-anti-armour, non-demolition weapon has), so only an
+  anti-armour weapon (`atgm`, `apfsds`, `heat`, `rpg`, able to hit the ground) can hurt it; *air* is the authored air domain; any other armed unit is *soft*; an unarmed unit is *none*.
+  More armour than soft seen: build an anti-armour menu unit whose round beats the strongest plate seen (else the strongest it has), until the seat has one for every armoured hull
+  seen at once. More soft than armour: an infantry-role unit, until it has as many as soft units seen at once. Equal, nothing seen, parity met or nothing in the menu to answer: the slice 1 rule.
+
+### What was measured (the same 992 games as section 1, 8 seeds a cell)
+
+`--commander=slice1` is the slice 1 commander (it reproduces the earlier gate run: 992 of 992 games identical, to the tick and the outcome). `--commander=slice2` adds both tasks;
+`--options='{"counter":false}'` and `--options='{"scout":false}'` give each alone (economy cells only, 320 games). Economy rooms, commander W / L of 80 games a row:
+
+| commander | vs | variant | games | enemy at once (armour / soft, median) | commander saw (armour / soft, median) | first contact (median) | built a game (anti-armour / infantry / other) | W / L |
+|---|---|---|---|---|---|---|---|---|
+| kdf | rush | slice 1 (before) | 80 | 0 / 26 | 0 / 20 | 15 s | 0.7 / 0.5 / 3.9 | 15 / 65 |
+| kdf | rush | scout only | 80 | 0 / 26 | 0 / 19 | 15 s | 0.7 / 0.4 / 3.7 | 17 / 63 |
+| kdf | rush | counter only | 80 | 0 / 26 | 0 / 20 | 15 s | 0.4 / 1.2 / 3.8 | 15 / 65 |
+| kdf | rush | scout + counter (after) | 80 | 0 / 26 | 0 / 19 | 15 s | 0.2 / 1.8 / 2.6 | 8 / 72 |
+| kdf | passive | slice 1 (before) | 80 | 0 / 26 | 0 / 14 | 15 s | 0.8 / 0.4 / 9.8 | 80 / 0 |
+| kdf | passive | scout only | 80 | 0 / 26 | 0 / 12 | 15 s | 0.6 / 0.5 / 10.5 | 80 / 0 |
+| kdf | passive | counter only | 80 | 0 / 26 | 0 / 14 | 15 s | 0.6 / 1.2 / 9.7 | 80 / 0 |
+| kdf | passive | scout + counter (after) | 80 | 0 / 26 | 0 / 12 | 15 s | 0.2 / 1.9 / 10.3 | 80 / 0 |
+| sarim | rush | slice 1 (before) | 80 | 5 / 7 | 5 / 3 | 10 s | 3.6 / 1.1 / 5.4 | 59 / 21 |
+| sarim | rush | scout only | 80 | 5 / 7 | 5 / 3 | 10 s | 3.5 / 1.1 / 5.9 | 58 / 22 |
+| sarim | rush | counter only | 80 | 5 / 7 | 5 / 3 | 10 s | 2.9 / 2.0 / 4.8 | 55 / 25 |
+| sarim | rush | scout + counter (after) | 80 | 5 / 7 | 5 / 3 | 10 s | 2.6 / 2.1 / 5.2 | 56 / 24 |
+| sarim | passive | slice 1 (before) | 80 | 5 / 7 | 3 / 3 | 20 s | 4.1 / 0.8 / 10.1 | 80 / 0 |
+| sarim | passive | scout only | 80 | 5 / 7 | 3 / 3 | 25 s | 3.9 / 0.8 / 9.6 | 80 / 0 |
+| sarim | passive | counter only | 80 | 5 / 7 | 3 / 3 | 20 s | 3.4 / 1.8 / 9.3 | 80 / 0 |
+| sarim | passive | scout + counter (after) | 80 | 5 / 7 | 3 / 3 | 25 s | 3.3 / 1.8 / 8.8 | 80 / 0 |
+
+mirror rush 336 slice1 W 197 scout+counter W 178
+mirror passive 336 slice1 W 234 scout+counter W 234
+
+
+Mirror rooms (no economy, so the scout is the only change): vs rush 197 -> 178 of 336 wins; vs passive 234 -> 234.
+
+### Reading it
+
+- **The scout reveals nothing early.** The first contact tick is the same in 946 of 976 paired games (earlier in 7, later in 23): on these maps the armies are in sight of each other within ~15 s, before a
+  scout has walked anywhere. It costs a unit from the march: -19 wins in the mirror rush cells, and about neutral (+2 / -1) in the economy cells.
+- **The counter does what it says and does not win more.** Against the soft-heavy Sarim force a KDF commander builds 1.2 infantry a game instead of 0.5 (counter only) and fewer of the rest, and wins the same 15 of 80.
+  A Sarim commander against KDF armour (5 armoured hulls, 7 soft, at once) sees 5 / 3 and builds anti-armour, but slice 1 already built 3.6 of them a game by its own mix rule, so the counter reaches parity sooner and returns to the mix: 59 -> 55 wins.
+  Together the two are 15 -> 8 (KDF) and 59 -> 56 (Sarim). With 80 games a row these are not noise-free (a flip of 5 either way is within it), but nothing here is a gain.
+- **Why the counter cannot be judged here.** The heuristics are right in shape and the table shows them acting, but whether an infantry squad is a better answer to a squad than a mortar team, or an ATGM team a better answer to an APC than a rifle squad, is a balance question: `pnpm balance` and `tuning.ts` decide it, and the issue holds armour counters until sim balance is unparked. HOLD FOR LEAD.

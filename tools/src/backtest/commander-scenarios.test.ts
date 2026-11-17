@@ -66,3 +66,28 @@ describe('what the commander does not change', () => {
     expect([b.ticks, b.winner, b.by, b.commanderOrders]).toEqual([a.ticks, a.winner, a.by, a.commanderOrders]);
   }, 120_000);
 });
+
+// ---- slice 2 (GH-1391): the scout and the counter are opt-in; each changes a real game when switched on -------------------------------
+
+const mirrorRush: Cell = { map: 'beit_sahwan_outskirts', matchup: 'mirror', winMode: null, commanderSeat: 0, baseline: 'rush' };
+
+describe('slice 2: the scout', () => {
+  it('with it on the commander sends a unit ahead with a move order (one), and with it off it sends none, on two seeds', () => {
+    for (const n of [0, 1]) {
+      const on = playGame(mirrorRush, seedOf(n), { commander: 'slice2', options: { counter: false } });
+      const off = playGame(mirrorRush, seedOf(n), { commander: 'slice1' });
+      expect(off.moveOrders, `seed ${n}`).toBe(0);
+      expect(on.moveOrders, `seed ${n}`).toBeGreaterThanOrEqual(1);
+    }
+  }, 240_000);
+});
+
+describe('slice 2: the counter', () => {
+  it('against a rushing KDF force a Sarim commander builds more infantry with it than without it, and fewer anti-armour units', () => {
+    const cell: Cell = { ...sarimEconomy, baseline: 'rush' };
+    const on = playGame(cell, seedOf(0), { commander: 'slice2', capTicks: CAP, options: { scout: false } });
+    const off = playGame(cell, seedOf(0), { commander: 'slice1', capTicks: CAP });
+    expect(on.builtKinds.inf).toBeGreaterThan(off.builtKinds.inf);
+    expect(on.builtKinds.anti).toBeLessThan(off.builtKinds.anti);
+  }, 240_000);
+});
