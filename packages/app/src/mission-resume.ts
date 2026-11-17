@@ -66,7 +66,10 @@ export function campaignMoved(frozen: StartInputs, live: { ledger: CampaignLedge
   return whatMoved(frozen, live).length > 0;
 }
 
-/** What changed in the campaign since the mission was started: the ledger (another mission was completed), the units bought, the upgrade tiers bought. */
+/**
+ * What changed in the campaign since the mission was started: the ledger (ANY of its keys: a completed mission is the usual cause, but the digest proves only
+ * that something in it differs, so the words say "your campaign progress has changed" and no more), the units bought, the upgrade tiers bought.
+ */
 export type MovedWhat = 'ledger' | 'units' | 'upgrades';
 
 /** Which of the three parts of the campaign differ, in a fixed order; empty when none does. `campaignMoved` is exactly "not empty". */
