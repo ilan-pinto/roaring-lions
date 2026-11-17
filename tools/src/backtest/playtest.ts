@@ -4035,7 +4035,8 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // The assembly layout also sped up three Qasr Liwan wins, so their `min_win_seconds` floors (floor(fastest win / 4), `--min-win`) fall by 1 s each: II 74 -> 73, IV 57 -> 56, V 83 -> 82. Was 74, 57, 83.
 // 2026-11-17, GH-1438 (Bir Tarsha, The Long Ground town 2; I, II, III and V, IV follows): 8093 -> 8927, +834, read off the printed per-mission credits of a playtest on the branch
 // (I 225, II 169, III 195, V 245 on seed 424242). Was 8093.
-const LADDER_CREDITS = 8927;
+// Bir Tarsha IV (GH-1438, part 3): 8927 -> 9232, +305 (IV 295 on seed 424242, 2 stars; the others unchanged). Was 8927.
+const LADDER_CREDITS = 9232;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -4051,7 +4052,8 @@ let ladderStars = 0;
 for (const missionId of missionOrder) ladderStars += missionStars.get(missionId) ?? 0;
 // 2026-11-15, GH-1438 (Qasr Liwan): 68 -> 80, +12. Was 68. Qasr Liwan I and III reach three stars (their carrying secondaries), II, IV and V two.
 // Bir Tarsha I, II, III and V (GH-1438) add 10 stars (3, 2, 2, 3): 80 -> 90. Was 80.
-const LADDER_STARS = 90;
+// Bir Tarsha IV (GH-1438, part 3) adds 2 stars: 90 -> 92. Was 90.
+const LADDER_STARS = 92;
 console.log(`star ladder: ${ladderStars} over ${missionOrder.length} missions`);
 if (ladderStars !== LADDER_STARS) {
   console.error(`star ladder: FAILED — expected ${LADDER_STARS}, got ${ladderStars}`);
@@ -4311,7 +4313,8 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // 2026-11-15, GH-1438 (Qasr Liwan, The Long Ground town 1): 44 -> 49. Was 44. Five more winning runs, one per mission, and each earns a sweep (Qasr Liwan I
 // 184, II 232, III 312, IV 248, V 256 intel on seed 424242). The one short plan is still `beit_sahwan_2_foothold`, so "49 of 50".
 // Bir Tarsha's four winning plans each earn a sweep (GH-1438): 49 -> 53 of 54 winning plans. Was 49.
-const INTEL_WINNERS_ONE_SWEEP = 53;
+// Bir Tarsha IV's plan earns one too (232 intel on seed 424242): 53 -> 54 of 55. Was 53.
+const INTEL_WINNERS_ONE_SWEEP = 54;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend

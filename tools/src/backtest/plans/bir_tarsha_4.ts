@@ -11,7 +11,7 @@
  *     with it), at most to x 26 while the barrier lives and to x 33 while only the team behind the wall does.
  *  4. The Yahalom teams charge the west and centre routes once nothing hostile stands within nine tiles, the east route once the barrier is down.
  *  5. When the belt is level the blades drive through the cut wall to the far gate.
- *  The camp buys replacement infantry while it can (the design's "Logistics buys infantry"); they stay at the camp, and the purse is spent rather than banked
+ *  The camp buys with what it has (a squad at once, a recon dog when the income allows); they stay at the camp, and the purse is spent rather than banked
  *  (`BANKING_OVER_30_MAX` in playtest.ts counts a plan that ends holding most of its logistics).
  */
 import type { Plan } from '../playtest-run';
@@ -22,7 +22,9 @@ export const bt4Plan: Plan = (sim, rt, ids, at) => {
   const live = (l: number[]) => l.filter((i) => sim.state.alive[i] === 1 && !ID(i).startsWith('wounded'));
   const px = (i: number) => Number(sim.state.posX[i]) / 65536;
   const py = (i: number) => Number(sim.state.posY[i]) / 65536;
-  for (let s = 5; s < 200; s += 5) at(s, () => { rt.requestBuild('inf_squad'); });
+  // A squad costs 292 of the 300 the camp starts with; the income that follows buys a recon dog (190) around two minutes in. Both stay at the camp.
+  let squadBought = false;
+  for (let s = 5; s < 400; s += 5) at(s, () => { if (!squadBought) squadBought = rt.requestBuild('inf_squad'); else rt.requestBuild('ugv_recon_dog'); });
   const blades = ids('dozer_d9');
   const namers = ids('ifv_namer');
   const lavis = ids('mbt_lavi');
