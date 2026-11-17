@@ -57,8 +57,18 @@ function client(deleteAccount: AccountClient['deleteAccount']): AccountClient {
 const PLAYER = '0f8fad5b-d9cb-469f-a165-70867728950e';
 let bodies: string[] = [];
 let storage: Storage = memoryStorage();
+// Every `initTelemetry` adds a pagehide listener to the one jsdom window; taken down after each test, or a later test's pagehide would
+// also flush an earlier test's (module-reset) instance and its queue.
+let pagehides: EventListenerOrEventListenerObject[] = [];
+const addListener = window.addEventListener.bind(window);
 
 beforeEach(() => {
+  pagehides = [];
+  vi.spyOn(window, 'addEventListener').mockImplementation((type: string, fn: EventListenerOrEventListenerObject | null, o?: boolean | AddEventListenerOptions) => {
+    if (fn === null) return;
+    if (type === 'pagehide') pagehides.push(fn);
+    addListener(type, fn, o);
+  });
   vi.stubGlobal('__APP_BUILD__', '0.0.0-test');
   window.history.pushState({}, '', 'http://localhost:3000/?telemetry');
   Object.defineProperty(navigator, 'doNotTrack', { value: null, configurable: true });
@@ -70,6 +80,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const fn of pagehides) window.removeEventListener('pagehide', fn);
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
@@ -90,13 +102,14 @@ async function deleteWith(answer: () => Promise<'ok' | AccountError>, onConfirme
   const stage = document.createElement('div');
   document.body.appendChild(stage);
   let reloads = 0;
-  // A copy of main.ts's wiring for these three deps (pinned below by a source check).
+  // A copy of main.ts's wiring for these four deps (pinned below by a source check).
   const deps: ProfileDeps = {
     client: client(answer),
     store: null,
     query: new URLSearchParams(),
     telemetryPlayer: () => mod.telemetryPlayerForDeletion(),
     rotateTelemetry: () => mod.rotateTelemetryPlayer(),
+    pauseTelemetry: () => mod.pauseTelemetrySends(),
     navigate: () => undefined,
     reload: () => void reloads++,
   };
@@ -248,8 +261,124 @@ describe('a successful account delete rotates the telemetry id (lead ruling, 17 
     expect(after?.session).not.toBe(before?.session);
   });
 
-  it('main.ts wires the profile screen to the telemetry module\'s rotation', () => {
+  it('main.ts wires the profile screen to the telemetry module\'s rotation and pause', () => {
     const main = readFileSync(join(__dirname, '..', 'main.ts'), 'utf8');
     expect(main).toMatch(/rotateTelemetry:\s*\(\)\s*=>\s*rotateTelemetryPlayer\(\)/);
+    expect(main).toMatch(/pauseTelemetry:\s*\(\)\s*=>\s*pauseTelemetrySends\(\)/);
+  });
+});
+
+/**
+ * Lead ruling T1, 17 Nov 2026: the report queue PAUSES before the delete request is sent. While it is in flight no send leaves (the 30 s
+ * interval flush, a crash's immediate flush, the pagehide beacon). On success the queue is dropped with the rotation and sends resume under
+ * the new id; on failure sends resume under the old id with nothing lost.
+ */
+describe('the telemetry queue pauses while an account delete is in flight (T1)', () => {
+  let beacons: Blob[] = [];
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    beacons = [];
+    Object.defineProperty(navigator, 'sendBeacon', { value: (_u: string, b: Blob) => { beacons.push(b); return true; }, configurable: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    Object.defineProperty(navigator, 'sendBeacon', { value: undefined, configurable: true });
+  });
+
+  const posted = async (): Promise<Sent[]> => {
+    for (const b of beacons.splice(0)) bodies.push(await b.text());
+    return sent();
+  };
+
+  /** Boots telemetry with two events QUEUED (not sent), mounts the profile screen and confirms a delete whose answer the test gives. */
+  async function inFlight(): Promise<{ mod: typeof import('./index'); tel: ReturnType<typeof import('./index')['initTelemetry']>; answer: (r: 'ok' | AccountError) => Promise<void>; reloads: () => number }> {
+    vi.resetModules();
+    const mod = await import('./index');
+    const { showProfile } = await import('../ui/profile');
+    const tel = mod.initTelemetry({ dev: false });
+    tel.sessionStart('menu', 'three');
+    tel.boot(100);
+    expect(bodies).toEqual([]);
+    let settle: (r: 'ok' | AccountError) => void = () => undefined;
+    const pending = new Promise<'ok' | AccountError>((r) => (settle = r));
+    let reloads = 0;
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    showProfile(stage, {
+      client: client(() => pending),
+      store: null,
+      query: new URLSearchParams(),
+      telemetryPlayer: () => mod.telemetryPlayerForDeletion(),
+      rotateTelemetry: () => mod.rotateTelemetryPlayer(),
+      pauseTelemetry: () => mod.pauseTelemetrySends(),
+      navigate: () => undefined,
+      reload: () => void reloads++,
+    });
+    await flush();
+    const del = [...stage.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === t('profile.delete'));
+    if (!del) throw new Error('no delete button');
+    del.click();
+    (document.querySelector('.rl-confirm__yes') as HTMLButtonElement).click();
+    await flush();
+    return { mod, tel, answer: async (r) => { settle(r); await flush(); }, reloads: () => reloads };
+  }
+
+  /** Every send path, tried while the request is in flight: a crash (push + immediate flush), the 30 s interval, the pagehide beacon. */
+  async function tryEverySend(tel: { clientError: (e: ReturnType<typeof describeError>) => void }): Promise<void> {
+    tel.clientError(describeError(new Error('during')));
+    vi.advanceTimersByTime(30_000);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(await posted()).toEqual([]);
+  }
+
+  it('while the request is in flight nothing is sent; on success the old queue is dropped and sends resume under the new id', async () => {
+    const { tel, answer, reloads } = await inFlight();
+    await tryEverySend(tel);
+    await answer('ok');
+    expect(reloads()).toBe(1);
+    const stored = storage.getItem(PLAYER_KEY);
+    expect(stored).toMatch(ID_PATTERN);
+    expect(stored).not.toBe(PLAYER);
+    // Resumed, and nothing of the old id was left to send.
+    vi.advanceTimersByTime(30_000);
+    expect(await posted()).toEqual([]);
+    tel.clientError(describeError(new TypeError('after')));
+    const all = await posted();
+    expect(all.map((e) => e.type)).toEqual(['client_error']);
+    expect(all[0]?.player).toBe(stored);
+  });
+
+  it.each<[string, AccountError]>([
+    ['server', { error: 'server', status: 500 }],
+    ['network', { error: 'network', status: 0 }],
+    ['reauth', { error: 'reauth', status: 403 }],
+  ])('on a failure (%s) sends resume under the old id, and nothing queued before or during the request is lost', async (_why, err) => {
+    const { tel, answer, reloads } = await inFlight();
+    const old = tel.ids();
+    await tryEverySend(tel);
+    await answer(err);
+    expect(reloads()).toBe(0);
+    expect(storage.getItem(PLAYER_KEY)).toBe(PLAYER);
+    // Resuming sends nothing by itself: the next scheduled flush carries the whole queue, under the old ids.
+    expect(await posted()).toEqual([]);
+    vi.advanceTimersByTime(30_000);
+    const all = await posted();
+    expect(all.map((e) => e.type)).toEqual(['session_start', 'boot', 'client_error']);
+    expect(all.every((e) => e.player === PLAYER && e.session === old?.session)).toBe(true);
+  });
+
+  it('a release resumes only its own hold, once', async () => {
+    vi.resetModules();
+    const mod = await import('./index');
+    const tel = mod.initTelemetry({ dev: false });
+    const a = mod.pauseTelemetrySends();
+    const b = mod.pauseTelemetrySends();
+    a();
+    a();
+    tel.clientError(describeError(new Error('held')));
+    expect(await posted()).toEqual([]);
+    b();
+    vi.advanceTimersByTime(30_000);
+    expect((await posted()).map((e) => e.type)).toEqual(['client_error']);
   });
 });

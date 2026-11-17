@@ -35,6 +35,9 @@ export interface ProfileDeps {
   telemetryPlayer: () => string | null;
   /** Lead ruling, 17 Nov 2026: called once the server has confirmed the deletion, never on a failure. `telemetry/index.ts`'s `rotateTelemetryPlayer`. */
   rotateTelemetry: () => void;
+  /** Lead ruling T1, 17 Nov 2026: holds every telemetry send from BEFORE the delete request until it answers; the returned release resumes.
+   *  `telemetry/index.ts`'s `pauseTelemetrySends`. */
+  pauseTelemetry: () => () => void;
   /** Leaves the page for `href`: Steam's login URL is another origin, so main.ts passes a real page load. */
   navigate: (href: string) => void;
   /** A HARD reload of the app (`shell/links.ts`'s `reloadMenuHref`: the menu plus the sticky query keys), so the next boot chooses its store afresh. */
@@ -625,9 +628,17 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
         if (confirm === h) confirm = null;
         if (!yes || disposed) return;
         const player = box2.checked ? deps.telemetryPlayer() : null;
-        const r = await deps.client.deleteAccount(player === null ? {} : { telemetryPlayer: player });
-        // Before the `disposed` check: the account is gone whether or not the player is still on this screen.
-        if (!isError(r)) deps.rotateTelemetry();
+        // T1: no telemetry send leaves while the request is in flight, so no flush can re-create the old id's rows after the server deleted them.
+        const resume = deps.pauseTelemetry();
+        let r: 'ok' | AccountError;
+        try {
+          r = await deps.client.deleteAccount(player === null ? {} : { telemetryPlayer: player });
+          // Before the `disposed` check: the account is gone whether or not the player is still on this screen. Rotate (which drops the
+          // old id's queue) BEFORE resuming; a failure only resumes, and the queue leaves under the old id, nothing lost.
+          if (!isError(r)) deps.rotateTelemetry();
+        } finally {
+          resume();
+        }
         if (disposed) return;
         if (!isError(r)) {
           deps.wipeDeleted?.();

@@ -324,14 +324,36 @@ export function rotateTelemetryPlayer(storage: StorageLike | null = safeStorage(
   }
 }
 
+/** How many account-delete requests are in flight on this page (lead ruling T1, 17 Nov 2026). While any is, no telemetry send leaves. */
+let sendHolds = 0;
+
+/**
+ * Lead ruling T1, 17 Nov 2026: the report queue PAUSES before the account-delete request is sent. While paused, no send leaves: not the
+ * 30 s interval flush, not a crash's immediate flush, not the pagehide beacon. Events are still QUEUED, under the old id. The returned
+ * release resumes (idempotent, and only its own hold): the caller rotates FIRST on a success (`rotateTelemetryPlayer`, which drops that
+ * queue), then releases; on a failure it only releases, and the queue goes out under the old id at the next flush, nothing lost.
+ * A page that unloads while paused loses what was queued, unsent: a privacy-leaning loss, as the class comment of `Sender` allows.
+ */
+export function pauseTelemetrySends(): () => void {
+  sendHolds++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    sendHolds--;
+  };
+}
+
 /**
  * GH-1410: the sink the game's events go through, with the opt-out read LIVE before every push and flush. The off switch at boot
  * (`telemetryEnabled`) decides whether telemetry exists at all; this decides, event by event, whether the Settings toggle was turned to
- * "off" since. An opt-out drops what is already queued too (`clear`), so nothing waiting leaves after the player said no.
+ * "off" since. An opt-out drops what is already queued too (`clear`), so nothing waiting leaves after the player said no. `paused`
+ * (T1, `pauseTelemetrySends`) holds every flush, keeping the queue; an opt-out still wins and drops it.
  */
 export function gatedSink(
   inner: { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void; clear(): void },
-  optedOut: () => boolean
+  optedOut: () => boolean,
+  paused: () => boolean = () => false
 ): { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void; clear(): void } {
   return {
     // Not gated: dropping the queue is always allowed (the id rotation's call, opted out or not).
@@ -342,7 +364,7 @@ export function gatedSink(
     },
     flush: (useBeacon) => {
       if (optedOut()) inner.clear();
-      else inner.flush(useBeacon);
+      else if (!paused()) inner.flush(useBeacon);
     },
   };
 }
@@ -398,7 +420,7 @@ export function initTelemetry(opts: { dev: boolean; gear?: () => Gear }): Teleme
     if (!on) return (instance = NOOP_TELEMETRY);
     const identity = resolveIdentity(storage, query, () => crypto.randomUUID());
     const sender = new Sender(browserTransport(new URL('api/events', location.origin + import.meta.env.BASE_URL).href));
-    const sink = gatedSink(sender, () => optedOutNow(storage));
+    const sink = gatedSink(sender, () => optedOutNow(storage), () => sendHolds > 0);
     window.setInterval(safe(() => sink.flush()), FLUSH_MS);
     instance = createTelemetry({
       identity,
