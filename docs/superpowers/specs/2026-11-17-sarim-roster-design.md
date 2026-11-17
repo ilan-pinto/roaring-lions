@@ -516,8 +516,8 @@ Pipeline keys:
 
 - **No Meshy call was made for this page,** and no estimate was run. The credit column is arithmetic on `pricing.ts`'s
   table and the ledger's precedents.
-- **Before ANY call,** the lead approves these numbers, and each call is announced with its credits first. Running
-  `pnpm meshy -- estimate text --refine --tex 2k` then prints the same 30 + 5 offline.
+- **Before ANY call,** the lead approves these numbers, and each call is announced with its credits first. The CLI's
+  offline `estimate text ... --refine` and `estimate remesh` then print the same 30 and 5.
 - **The assumptions:**
   - `meshy-6` standard previews at 20;
   - 2K refines;
