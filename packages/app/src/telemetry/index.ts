@@ -19,7 +19,7 @@ import type { MissionEvent } from '@lions/sim';
 import * as ev from './events';
 import type { AccountExtra, AccountLike, Loadout, RuntimeView } from './events';
 import type { PlayerIntent } from '../input/intents';
-import { resolveIdentity, readOptOut, safeStorage, setOptOut, storedOptOut, storedPlayerId, type Identity, type StorageLike } from './identity';
+import { resolveIdentity, readOptOut, safeStorage, setOptOut, storedOptOut, storedPlayerId, writePlayerId, type Identity, type StorageLike } from './identity';
 import { gpuFamily } from '@lions/data/telemetry';
 import { installErrorHandlers, type DescribedError } from './errors';
 import { FrameSampler } from './perf';
@@ -68,6 +68,9 @@ export interface Telemetry {
   /** GH-1431: this session's player id even after an opt-out, for an account deletion that also deletes the reports. Reads memory only;
    *  sends and stores nothing. Null when telemetry never ran this page load. */
   knownPlayer(): string | null;
+  /** Lead ruling, 17 Nov 2026: after a successful account deletion, every later event of this page carries `player` and a fresh session id,
+   *  so nothing sent from here on links back to the deleted account's id. Memory only: the caller stores the id. */
+  rotate(player: string): void;
 }
 
 const NOOP_MISSION: MissionTelemetry = {
@@ -87,6 +90,7 @@ export const NOOP_TELEMETRY: Telemetry = {
   clientError: () => undefined,
   ids: () => null,
   knownPlayer: () => null,
+  rotate: () => undefined,
 };
 
 export interface TelemetryDeps {
@@ -129,7 +133,8 @@ const safe =
 const DEFAULT_GEAR: Gear = { preset: 'high', backend: 'webgl2', gpu: null };
 
 export function createTelemetry(d: TelemetryDeps): Telemetry {
-  const session = d.newSession();
+  let session = d.newSession();
+  let player = d.identity.player;
   // The ONE place the graphics card is named in an event, and it is the FAMILY: the raw `WEBGL_debug_renderer_info` string carries PCI device ids
   // and driver versions. Nothing past here sees the raw text, so no caller can send it by mistake.
   const gear = (): Gear => {
@@ -138,7 +143,7 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
   };
   const envelope = (): TelemetryEnvelope => ({
     v: 1,
-    player: d.identity.player,
+    player,
     session,
     ...(d.identity.tester === undefined ? {} : { tester: d.identity.tester }),
     build: d.build,
@@ -160,13 +165,17 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
   );
 
   return {
-    knownPlayer: () => d.identity.player,
+    knownPlayer: () => player,
+    rotate: (next) => {
+      player = next;
+      session = d.newSession();
+    },
     ids: () =>
       d.optedOut?.() === true
         ? null
         : d.identity.tester === undefined
-          ? { player: d.identity.player, session }
-          : { player: d.identity.player, session, tester: d.identity.tester },
+          ? { player, session }
+          : { player, session, tester: d.identity.tester },
     sessionStart: safe((screen, renderer) => {
       d.sink.push(ev.sessionStart(envelope(), screen, renderer, d.viewport(), d.identity.returning));
     }),
@@ -291,6 +300,22 @@ export function telemetry(): Telemetry {
  */
 export function telemetryPlayerForDeletion(storage: StorageLike | null = safeStorage(() => window.localStorage)): string | null {
   return instance.knownPlayer() ?? storedPlayerId(storage);
+}
+
+/**
+ * Lead ruling, 17 Nov 2026: a SUCCESSFUL account deletion rotates this browser's telemetry id, client side only. A fresh id (the same
+ * `crypto.randomUUID()` a first visit mints) replaces the stored one through the one writer, and the running session, if any, takes it and
+ * a new session id for every later event. It sends nothing. A browser that never held an id (GPC, DNT, `?notrack`, dev) is given none.
+ */
+export function rotateTelemetryPlayer(storage: StorageLike | null = safeStorage(() => window.localStorage), newId: () => string = () => crypto.randomUUID()): void {
+  try {
+    if (instance.knownPlayer() === null && storedPlayerId(storage) === null) return;
+    const next = newId();
+    writePlayerId(storage, next);
+    instance.rotate(next);
+  } catch {
+    /* telemetry never breaks the game */
+  }
 }
 
 /**

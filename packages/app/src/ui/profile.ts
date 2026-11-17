@@ -33,6 +33,8 @@ export interface ProfileDeps {
   query: URLSearchParams;
   /** This browser's anonymous telemetry player id, or null when it never held one. Still answers after the player switched reports off (GH-1431), so "also delete my reports" can name it. */
   telemetryPlayer: () => string | null;
+  /** Lead ruling, 17 Nov 2026: called once the server has confirmed the deletion, never on a failure. `telemetry/index.ts`'s `rotateTelemetryPlayer`. */
+  rotateTelemetry: () => void;
   /** Leaves the page for `href`: Steam's login URL is another origin, so main.ts passes a real page load. */
   navigate: (href: string) => void;
   /** A HARD reload of the app (`shell/links.ts`'s `reloadMenuHref`: the menu plus the sticky query keys), so the next boot chooses its store afresh. */
@@ -624,6 +626,8 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
         if (!yes || disposed) return;
         const player = box2.checked ? deps.telemetryPlayer() : null;
         const r = await deps.client.deleteAccount(player === null ? {} : { telemetryPlayer: player });
+        // Before the `disposed` check: the account is gone whether or not the player is still on this screen.
+        if (!isError(r)) deps.rotateTelemetry();
         if (disposed) return;
         if (!isError(r)) {
           deps.wipeDeleted?.();

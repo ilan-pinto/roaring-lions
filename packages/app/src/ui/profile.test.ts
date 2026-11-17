@@ -73,6 +73,7 @@ function mount(client: AccountClient, over: Partial<ProfileDeps> = {}, store = m
     store,
     query: new URLSearchParams(),
     telemetryPlayer: () => 'tel-player',
+    rotateTelemetry: () => undefined,
     navigate: (h) => void navigated.push(h),
     reload: () => void reloads.push(1),
     ...over,

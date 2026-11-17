@@ -76,6 +76,12 @@ export function storedPlayerId(storage: StorageLike | null): string | null {
   return stored !== null && ID_PATTERN.test(stored) ? stored : null;
 }
 
+/** The ONE writer of the player id: the first visit's mint (`resolveIdentity`) and the rotation after an account deletion (lead ruling,
+ *  17 Nov 2026) both go through it. `null` storage, or a write that throws, keeps the id for this page load only. */
+export function writePlayerId(storage: StorageLike | null, player: string): void {
+  storage?.setItem(PLAYER_KEY, player);
+}
+
 export function resolveIdentity(storage: StorageLike | null, query: URLSearchParams, newId: () => string): Identity {
   const optedOut = readOptOut(storage, query);
 
@@ -92,7 +98,7 @@ export function resolveIdentity(storage: StorageLike | null, query: URLSearchPar
   const stored = storage?.getItem(PLAYER_KEY) ?? null;
   const returning = stored !== null && ID_PATTERN.test(stored);
   const player = returning ? stored : newId();
-  if (!returning) storage?.setItem(PLAYER_KEY, player);
+  if (!returning) writePlayerId(storage, player);
 
   return tester === undefined ? { player, returning, optedOut } : { player, tester, returning, optedOut };
 }
