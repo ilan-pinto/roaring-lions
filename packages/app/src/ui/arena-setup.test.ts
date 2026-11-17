@@ -161,17 +161,17 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
       pickMap(r, id);
       expect(opts(modeField(r)), id).toEqual(['annihilation', 'camp', 'points', 'flag']);
     }
-    // KDF against Sarim is offered nothing, the staged maps included.
+    // KDF against Sarim is offered the camp alone on the two Wadi Tarfans (GH-1381), never the points race or the flag.
     pickMatchup(r, 'kdf');
-    expect(opts(modeField(r)), 'wadi_tarfan_l kdf').toEqual(['annihilation']);
+    expect(opts(modeField(r)), 'wadi_tarfan_l kdf').toEqual(['annihilation', 'camp']);
   });
 
   it('a faction matchup nobody read fair on the map is offered none; the pick is dropped, not sent', async () => {
     const r = rig();
     showArenaSetup(r.host, r.deps);
     await settle();
-    pickMap(r, 'wadi_tarfan');
-    pickMode(r, 'flag');
+    pickMap(r, 'tel_marum');
+    pickMode(r, 'points');
     pickMatchup(r, 'kdf');
     expect(opts(modeField(r))).toEqual(['annihilation']);
     expect(modeField(r).value).toBe('annihilation');
@@ -181,15 +181,17 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     expect(bodyOfStart(r).matchup).toBe('kdf');
   });
 
-  it('GH-976 P4 review: KDF against Sarim is offered nothing on Wadi Tarfan (large) either, in both orders', async () => {
-    for (const matchup of ['kdf', 'sarim']) {
+  it('GH-1381: KDF against Sarim is offered Destroy the camp alone on both Wadi Tarfans, in both orders; a flag pick is dropped', async () => {
+    for (const map of ['wadi_tarfan', 'wadi_tarfan_l']) for (const matchup of ['kdf', 'sarim']) {
       const r = rig();
       showArenaSetup(r.host, r.deps);
       await settle();
-      pickMap(r, 'wadi_tarfan_l');
+      pickMap(r, map);
+      pickMode(r, 'flag');
       pickMatchup(r, matchup);
-      expect(modeField(r).closest('.rl-arena-setup__field')!.hasAttribute('hidden')).toBe(true);
-      expect(opts(modeField(r)), matchup).toEqual(['annihilation']);
+      expect(modeField(r).closest('.rl-arena-setup__field')!.hasAttribute('hidden'), `${map} ${matchup}`).toBe(false);
+      expect(opts(modeField(r)), `${map} ${matchup}`).toEqual(['annihilation', 'camp']);
+      expect(modeField(r).value, `${map} ${matchup}`).toBe('annihilation');
     }
   });
 
