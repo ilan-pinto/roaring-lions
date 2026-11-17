@@ -4258,6 +4258,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // The slot holds ONE save. Replacing another mission's is the player's decision, asked before anything is cut or written.
     const other = savedMissionOtherThan(openSuspendStore(() => window.localStorage), resolvedMission.id);
     if (!(await confirmReplaceOther(other, (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name))) return { declined: true };
+    if (disposed) return null; // torn down while the replace question was open: nothing to cut, write or leave
     const cut = cutMission({
       sim,
       runtime,
