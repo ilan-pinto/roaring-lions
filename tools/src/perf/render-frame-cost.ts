@@ -121,6 +121,7 @@ import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPortOrAttach, refuseRetiredBaseUrl } from '../ui-review/port';
 import { parseSoftArg, withSoftQuery } from './soft-arg';
+import { isPresetLiveModule, setPresetSwitches } from './fx-ragdoll-plan';
 
 const TAG = 'render-frame-cost';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -165,6 +166,21 @@ const page = await browser.newPage({
   viewport: { width: viewportWidth, height: viewportHeight },
   deviceScaleFactor: 2,
 });
+// GH-1400: `--soft=` also HOLDS `SOFT_PARTICLES_PRESET_LIVE` on the asked side, by a route on the served `preset-live.ts`
+// (nothing on disk changes). Since the flip `high` resolves soft particles ON by itself, so dropping `&soft` alone no
+// longer gives an OFF arm. Both arms route, so they differ in the switch alone.
+let presetRoutes = 0;
+if (softArg !== undefined) {
+  await page.route(
+    (u) => isPresetLiveModule(u.pathname),
+    async (route) => {
+      const resp = await route.fetch();
+      const body = setPresetSwitches(await resp.text(), { softParticles: softArg === 'on' });
+      presetRoutes++;
+      await route.fulfill({ response: resp, body });
+    }
+  );
+}
 await page.addInitScript(quality ? musicOffInitScript({}, { quality: quality as 'high' | 'medium' | 'low' }) : musicOffInitScript());
 await page.goto(base + '/' + query, { waitUntil: 'load' });
 await page.waitForFunction(() => !!(window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer, null, { timeout: 60000 });
@@ -192,7 +208,13 @@ const softLive = await page.evaluate(() => {
   return r.softDepth !== null && r.softDepth !== undefined;
 });
 console.log(`soft particles: ${softLive ? 'on' : 'off'}${softArg ? ` (asked ${softArg})` : ''}`);
-if (softArg === 'on' && !softLive) console.warn('--soft=on asked but no depth snapshot is live (the node backend is inert until slice 3)');
+if (softArg !== undefined && presetRoutes === 0) throw new Error(`--soft=${softArg}: preset-live.ts was never served through its route`);
+// A read whose arm is not the arm it asked for is not a read: refuse both ways (GH-1400).
+if (softArg !== undefined && (softArg === 'on') !== softLive) {
+  await browser.close();
+  stopServer();
+  throw new Error(`--soft=${softArg} asked but the depth snapshot is ${softLive ? 'live' : 'not live'} (on the node backend it is inert until slice 3)`);
+}
 console.log(`quality: ${qualityRead}${quality ? ` (asked ${quality})` : ''}`);
 for (const name of hidden) {
   await page.evaluate((n) => {

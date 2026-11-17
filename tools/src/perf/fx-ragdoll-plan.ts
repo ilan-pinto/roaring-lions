@@ -263,6 +263,29 @@ export function rewritePresetLive(code: string, which: readonly (keyof typeof SW
   return out;
 }
 
+const ANY_SWITCH_RE = {
+  ragdolls: /(export\s+const\s+RAGDOLL_PRESETS_LIVE\s*(?::\s*boolean\s*)?=\s*)(?:true|false)\b/g,
+  softParticles: /(export\s+const\s+SOFT_PARTICLES_PRESET_LIVE\s*(?::\s*boolean\s*)?=\s*)(?:true|false)\b/g,
+} as const;
+
+/**
+ * `preset-live.ts`'s served source with each named switch SET to the given value, whatever it ships as: an arm that must
+ * hold a switch where the tree does not (the soft-particle OFF arm once `SOFT_PARTICLES_PRESET_LIVE` is true, which
+ * `--soft=off` alone, by dropping `&soft`, would leave ON). Each named switch must match exactly once, or this throws.
+ */
+export function setPresetSwitches(code: string, to: { readonly ragdolls?: boolean; readonly softParticles?: boolean }): string {
+  let out = code;
+  for (const k of ['ragdolls', 'softParticles'] as const) {
+    const v = to[k];
+    if (v === undefined) continue;
+    const re = ANY_SWITCH_RE[k];
+    const n = (out.match(re) ?? []).length;
+    if (n !== 1) throw new Error(`fx-ragdoll: expected exactly one "${k}" switch in preset-live, found ${n}`);
+    out = out.replace(re, `$1${v}`);
+  }
+  return out;
+}
+
 /** A URL path is `preset-live.ts` as the dev server serves it (any prefix, any query). */
 export function isPresetLiveModule(pathname: string): boolean {
   return pathname.endsWith('/render/src/three/preset-live.ts');

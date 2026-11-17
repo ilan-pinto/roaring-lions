@@ -820,7 +820,9 @@ async function ragdollScenarioInPage(cfg: { view: [number, number, number]; perT
   // The last kill's death tick is the tick the last batch was killed BEFORE: the tick count when it was killed.
   const tickAtLastKill = L.sim.tickCount - 1;
   const lastKillMs = tickAtLastKill * 50;
-  while (presentation(1) - lastKillMs < cfg.timedUntil) {
+  // Bounded: a sim clock that stopped advancing would otherwise hang the page. 4.5 s is 90 ticks; 400 is far past it.
+  for (let guard = 0; presentation(1) - lastKillMs < cfg.timedUntil; guard++) {
+    if (guard > 400) throw new Error(`fx-ragdoll: the sim clock stalled at ${presentation(1) - lastKillMs} ms after the last kill`);
     for (let f = 1; f <= 3; f++) {
       const ms = liveFrame(f === 1, f / 3);
       recorded.push({ simMs: presentation(f / 3), ms });
@@ -854,6 +856,9 @@ const RAGDOLL_VIEW: [number, number, number] = [26, 22, 1.6];
 
 /** Runs the scenario on a booted page at `cap` (read back first), refusing every way the read could be empty. */
 async function runRagdollRows(page: Page, expectCap: number, liveCap: number, rapierRequests: () => number): Promise<{ rows: ArmRows; read: RagdollRead }> {
+  // The cap first: an override that did not take must say so, not time out waiting for a Rapier that cap 0 never loads.
+  const cap = await page.evaluate(() => (window as unknown as { __lions: { renderer: { ragdolls: { cap: number } } } }).__lions.renderer.ragdolls.cap);
+  if (cap !== expectCap) throw new Error(`fx-ragdoll: the renderer reads ragdoll cap ${cap}, this arm expects ${expectCap}`);
   if (expectCap > 0) {
     // Rapier loads asynchronously; a claim before it is ready is refused and the death keeps the animated fall.
     await page.waitForFunction(() => (window as unknown as { __lions: { renderer: { ragdolls: { ready: boolean } } } }).__lions.renderer.ragdolls.ready, null, { timeout: 60000 });
@@ -861,8 +866,6 @@ async function runRagdollRows(page: Page, expectCap: number, liveCap: number, ra
   // Both arms idle the same 3 s here, so the ON arm's WASM compile and its GC are behind it before any row is timed
   // (a one-round smoke read the quiet control at +1.2 ms without this).
   await page.waitForTimeout(3000);
-  const cap = await page.evaluate(() => (window as unknown as { __lions: { renderer: { ragdolls: { cap: number } } } }).__lions.renderer.ragdolls.cap);
-  if (cap !== expectCap) throw new Error(`fx-ragdoll: the renderer reads ragdoll cap ${cap}, this arm expects ${expectCap}`);
   // The burst is the LIVE cap's in both arms (`armPlan`): the arms must kill the same teams.
   const { burst: plan, expectedPeakFigures } = armPlan(liveCap, expectCap > 0 ? 'on' : 'off');
   const read = await page.evaluate(ragdollScenarioInPage, {

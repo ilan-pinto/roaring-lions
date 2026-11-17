@@ -13,6 +13,7 @@ import {
   presentationMs,
   ragdollBurstPlan,
   rewritePresetLive,
+  setPresetSwitches,
   stats,
   windowStats,
   type ArmRows,
@@ -192,6 +193,15 @@ describe('rewritePresetLive', () => {
   it('does not take a longer name for the switch', () => {
     expect(() => rewritePresetLive('export const RAGDOLL_PRESETS_LIVE_X = false;', ['ragdolls'])).toThrow(/found 0/);
     expect(() => rewritePresetLive('export const RAGDOLL_PRESETS_LIVE = falsey;', ['ragdolls'])).toThrow(/found 0/);
+  });
+  it('setPresetSwitches sets a switch to either value from either value, and only the named one', () => {
+    const on = 'export const RAGDOLL_PRESETS_LIVE = false;\nexport const SOFT_PARTICLES_PRESET_LIVE = true;\n';
+    expect(setPresetSwitches(on, { softParticles: false })).toBe('export const RAGDOLL_PRESETS_LIVE = false;\nexport const SOFT_PARTICLES_PRESET_LIVE = false;\n');
+    expect(setPresetSwitches(on, { softParticles: true })).toBe(on);
+    expect(setPresetSwitches(ts, { ragdolls: true })).toContain('RAGDOLL_PRESETS_LIVE: boolean = true');
+    expect(setPresetSwitches(ts, {})).toBe(ts);
+    expect(() => setPresetSwitches('export const X = true;', { softParticles: false })).toThrow(/found 0/);
+    expect(() => setPresetSwitches(on + on, { softParticles: false })).toThrow(/found 2/);
   });
   it('matches the served module path only', () => {
     expect(isPresetLiveModule('/@fs/Users/x/packages/render/src/three/preset-live.ts')).toBe(true);
