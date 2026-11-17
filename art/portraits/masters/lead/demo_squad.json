@@ -2,7 +2,7 @@
   "unit": "demo_squad",
   "variant": "lead",
   "source": "assets/meshes/demo_squad.glb",
-  "source_sha256": "20cb6a8863428a819a2ab7c65e4e1dccd1882a01f4cd639dd539fc69a544bcbb",
+  "source_sha256": "12a4e626dff0d6a338988535e43f3ca21137b2fd3a18acd678fd5b09a5f744e5",
   "yaw_deg": -125.0,
   "elevation_deg": 12.0,
   "fov_deg": 30.0,
@@ -11,14 +11,14 @@
     0.88
   ],
   "ndc_box": [
-    0.3237,
-    0.6763,
+    0.3091,
+    0.6909,
     0.06,
     0.94
   ],
   "materials": {
-    "baked": 3,
-    "flat": 3
+    "baked": 4,
+    "flat": 2
   },
   "lead_figure": "demo_a"
 }

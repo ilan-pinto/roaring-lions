@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single game-ready infantry combat engineer, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover, dark brown gloves, black knee pads. Fit, medium build, clean-shaven. He holds a compact carbine in BOTH hands at low ready, a hand's width out in front of his chest: butt at the front of his right shoulder, right hand closed round the pistol grip, left hand closed under the handguard ahead of the magazine, muzzle angled down at the ground ahead. Both hands on the gun, in clear view. Standing upright, feet apart, head level. Real-world scale, 1.79 metres tall. Even lighting, no ground, no base, one figure, facing forward. No insignia or text.",
+    "negative_prompt": "one-handed, hand on hip, open hand, spread fingers, extra hand, extra arm, extra fingers, arms touching torso, rifle pressed against chest, hidden hand, vertical foregrip, rifle sling, pistol, rolled sleeves, bare forearms, kneeling, aiming down sights, base, ground, text, insignia, flag, backpack, holster, explosives",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a1d147-8c11-735d-aaf3-bef50367f997",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2681750476,
+    "prompt": "A single game-ready infantry combat engineer, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover, dark brown gloves, black knee pads. Fit, medium build, clean-shaven. He holds a compact carbine in BOTH hands at low ready, a hand's width out in front of his chest: butt at the front of his right shoulder, right hand closed round the pistol grip, left hand closed under the handguard ahead of the magazine, muzzle angled down at the ground ahead. Both hands on the gun, in clear view. Standing upright, feet apart, head level. Real-world scale, 1.79 metres tall. Even lighting, no ground, no base, one figure, facing forward. No insignia or text.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1794512492084,
+    "progress": 100,
+    "started_at": 1794512492098,
+    "finished_at": 1794512533570,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1d147-8c11-735d-aaf3-bef50367f997/output/model.glb?Expires=4948041600&Signature=E9FXGzbUzp67f7EvhnbZyQ3MqFZ9UBfdB1t1hoeMrTlOE1kwhzP~0rIslVS8dVm6PWEw8gOHZZBCdcGRK7eFep5MkYzlpqsoq8weCqifaYwy5WCnnfmYZFxxb-Jfff516jWTSiUUEruXlinLg4lFlDVP8YlQkafNQYA7K3KYlBx-o5bhVbpNHIYgD4DcBxBvqi7KcRIJmCzid74QMx22orr1tn6TRtlNy2-wYW2Bv67-sQTMxyylKM8WO2QTse3qgYQ5piRKt3xKEldYASkso1cBo61YMDdPFQ-~NGgX8haF1f7WHCMgw4im6aLsfehaENjYlJa5XRmuuAybS2h0qQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1d147-8c11-735d-aaf3-bef50367f997/output/preview.png?Expires=4948041600&Signature=cg0DUXss8jERs2u-d5IfT1y3tHZZhlkMZrF3YZ4XVzvnaycsMBXUekWcKEAZJZeezvo62TqiRbrNpHXcmcoHTYilL2Bv-iy5k52KCyPOn-vrd~1PmjNuaq4LC9UZS8VwKUXGS3lSRaVWXazN2No1t4tAMvTINJZEDYVHeX~pF1VGHk2YHlzZw1yLqKA4SS03WnqA~wJb0TlwYvNeubb8a9BgYsiVE322xMhpPDHv1QQw9B5H21XMBZ5sEzJR8YaPZ0geWdDOnJZWb~5SlDWHmlWRSkUGYISbrZcCck30W6lh-4r3wT-Tny48k7JkpXo3a10CJ2DK2DDtfkyB637~UQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1794512492084,
+    "started_at": 1794512492098,
+    "finished_at": 1794512533570
+  },
+  "usd_estimated": 0.4
+}

@@ -77,12 +77,17 @@ describe('the Resume row', () => {
     }
   });
 
+  it('the ledger line claims no more than the code proves: a changed digest is not "a mission was completed"', () => {
+    expect(en['resume.moved.ledger']).toBe('your campaign progress has changed');
+    expect(en['resume.moved.ledger']).not.toMatch(/mission|complet|won|win|victor/i);
+  });
+
   it('a campaign that moved names what changed, in words, and the plain sentence is the fallback', () => {
-    expect(movedText(['ledger'])).toBe('Since you saved: another mission was completed. Discard this save to carry on.');
+    expect(movedText(['ledger'])).toBe('Since you saved: your campaign progress has changed. Discard this save to carry on.');
     expect(movedText(['units', 'upgrades'])).toBe('Since you saved: a unit was bought, an upgrade was bought. Discard this save to carry on.');
     expect(movedText([])).toBe('Your brigade has changed since you saved. Discard this save to carry on.');
     const row = resumeRow(deps({ state: 'refused', reason: 'moved', moved: ['ledger', 'units'] }));
-    expect(row.el!.querySelector('.rl-resume__line')?.textContent).toBe('Since you saved: another mission was completed, a unit was bought. Discard this save to carry on.');
+    expect(row.el!.querySelector('.rl-resume__line')?.textContent).toBe('Since you saved: your campaign progress has changed, a unit was bought. Discard this save to carry on.');
     expect(row.el!.textContent).not.toMatch(/ledger|units|upgrades|moved/); // the internal ids never reach the screen
   });
 
