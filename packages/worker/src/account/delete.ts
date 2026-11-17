@@ -84,17 +84,22 @@ const timer = (ms: number): Promise<void> => new Promise((resolve) => { setTimeo
  *  (`sweep.ts`, the scan and the survivor step) judges the member by a D1 read made BEFORE this batch committed and the tombstone by an
  *  eventually consistent KV read, which may still show the cron's own older one; its delete can then remove the tombstone written above,
  *  leaving a deleted account that a Time Travel restore would not re-delete and `gone` would not report. This later write overwrites
- *  that delete (KV keeps the last write). Two tries, a gap before each; a failure of both is logged and the delete still answers 200:
- *  the rows are gone and the first write stands unless that rare race took it. */
+ *  that delete (KV keeps the last write). Two tries, a gap before each. It NEVER rejects (it runs under `waitUntil`, past the response):
+ *  a failure of both is logged as an error, by its name alone, and is then the only evidence; the delete has already answered 200, the
+ *  rows are gone, and the first write stands unless that rare race took it. */
 async function rewriteTomb(kv: KVLike, key: string, value: string, sleep: (ms: number) => Promise<void>): Promise<void> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    await sleep(TOMB_REWRITE_GAP_MS);
-    try {
-      await kv.put(key, value, { expirationTtl: TOMB_TTL_S });
-      return;
-    } catch (err) {
-      if (attempt === 1) console.warn('account: tombstone rewrite failed', { error: err instanceof Error ? err.name : typeof err });
+  try {
+    for (let attempt = 0; ; attempt++) {
+      await sleep(TOMB_REWRITE_GAP_MS);
+      try {
+        await kv.put(key, value, { expirationTtl: TOMB_TTL_S });
+        return;
+      } catch (err) {
+        if (attempt === 1) throw err;
+      }
     }
+  } catch (err) {
+    console.error('account: tombstone rewrite failed', { error: err instanceof Error ? err.name : typeof err });
   }
 }
 
@@ -137,7 +142,10 @@ export async function deleteAccount(ctx: AccountCtx): Promise<Response> {
   } catch {
     return sessionJson(503, { error: 'retry' }, setCookie);
   }
-  await rewriteTomb(kv, key, tomb, ctx.deps.sleep ?? timer);
+  // Past the response when the Worker gave a `waitUntil`: the client does not wait out the gap, and a disconnect cannot cancel the write.
+  const rewrite = rewriteTomb(kv, key, tomb, ctx.deps.sleep ?? timer);
+  if (ctx.deps.waitUntil !== undefined) ctx.deps.waitUntil(rewrite);
+  else await rewrite;
   return accountJson(200, { deleted: true }, { 'set-cookie': clearedSessionCookie() });
 }
 
