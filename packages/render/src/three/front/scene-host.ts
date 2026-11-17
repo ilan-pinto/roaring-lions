@@ -101,6 +101,7 @@ import type { Sim } from '@lions/sim';
 import type { RendererOptions } from '../../api';
 import type { EmitterSpec } from '../../vfx';
 import { ThreeRenderer } from '../ThreeRenderer';
+import { PRESET_SWITCHES, menuRendererOptions } from '../preset-live';
 import type { MeshFaction } from '../units/mesh-role';
 import { HOST_FPS_CAP, drawDue, motionVerdict } from './cadence';
 
@@ -224,7 +225,8 @@ export async function mountSceneHost(host: HTMLElement, opts: SceneHostOptions):
 
   // 2. The context. From here an abort must release it AT ONCE, not at the
   //    next await: the router mounts the next screen right after.
-  const renderer = new ThreeRenderer(opts.sim, opts.renderer);
+  // GH-1400: never a ragdoll on the menu (nothing dies there), whatever the preset's switch says (`menuRendererOptions`).
+  const renderer = new ThreeRenderer(opts.sim, menuRendererOptions(opts.renderer, PRESET_SWITCHES));
   const canvas = renderer.canvas;
   let released = false;
   let raf = 0;

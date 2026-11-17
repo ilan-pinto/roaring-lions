@@ -30,9 +30,10 @@ import { handsSource } from './mesh_hand_gates';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 
-/** Teams carrying claw polygons off the hand. Measured on the bytes: demo_a and demo_b 358 cm2 each in 3 pieces on the thighs and pelvis. */
+/** Teams carrying claw polygons off the hand. Measured on the rigid Combat Engineers' bytes: demo_a and demo_b 358 cm2 each in 3 pieces on the thighs and pelvis. */
 const STRAY_CLAW_EXEMPT: Readonly<Record<string, string>> = {
-  demo_squad: 'orange claw polygons bound to the thighs and pelvis of both men: the third hand at the hip',
+  // demo_squad left 13 Nov 2026 (GH-826 unit 1: one skinned Meshy body, no claw polygons off the hand). The "third hand at
+  // the hip" is still read below, off the frozen rigid file (fixtures/README.txt), and on officer_engineer's sapper.
   officer_engineer: 'the Combat Engineer body (sap): the same orange claw polygons on the thighs and pelvis',
 };
 
@@ -141,8 +142,8 @@ describe('G2 can fail (constructed inputs)', () => {
     expect(strayClawPieces(moved)).toEqual([]);
     expect(strayClawReport(moved).blind).toContain('atgm_crew0');
   });
-  it('the shipped Combat Engineer reads its thigh pieces by tone, about 358 cm2 a man', () => {
-    const demo = teams.find(([t]) => t === 'demo_squad')![1];
+  it('the rigid Combat Engineer (frozen) reads its thigh pieces by tone, about 358 cm2 a man', () => {
+    const demo = readGlb(fileURLToPath(new URL('./fixtures/demo_squad_rigid_422df13dd.glb', import.meta.url)));
     const v = strayClawPieces(demo).filter((s) => s.build === 'demo_a');
     expect(v.length).toBeGreaterThanOrEqual(2);
     expect(v.every((s) => s.how === 'tone')).toBe(true);

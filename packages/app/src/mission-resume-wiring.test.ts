@@ -7,6 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import en from './i18n/en.json';
 import { KNOWN_PARAMS, unknownParams } from './sandbox-help';
 import { routes } from './shell/links';
 
@@ -26,7 +27,8 @@ describe('the resume boot (main.ts bootBattlefield)', () => {
   it('presets the deploy pick, answers the deploy itself, and skips the intro', () => {
     expect(main).toMatch(/let deploySelection: DeploySelection \| null = resumed\?\.inputs\.deploy == null \? null : \{ chosen: new Set\(resumed\.inputs\.deploy\) \};/);
     expect(main).toMatch(/if \(resumed !== null\) loading\.deployNow\(\);/);
-    expect(main).toMatch(/resumed: resumed !== null,/);
+    // anchored to the intro's own deps: the HUD's `resumed` line below it must not be able to satisfy this one (found by deleting the intro's)
+    expect(main).toMatch(/tutorial: isTutorialMission,\s*reduced: prefersReducedMotion\(\),\s*resumed: resumed !== null,/);
   });
 
   it('restores onto the world startMission built, proves it, re-seeds the renderer, and drops the sim on a refusal', () => {
@@ -69,11 +71,30 @@ describe('Save and quit (main.ts)', () => {
   });
 });
 
-describe('the save is dropped when its mission is over', () => {
-  it('on a victory or a defeat, on Quit and on Restart of a resumed mission', () => {
+describe('the save is dropped when its mission is over, and only then', () => {
+  it('on a victory or a defeat; NOT on Quit or Restart of a resumed mission, whose confirm says the saved game stays', () => {
     expect(main).toMatch(/if \(mev\.kind === 'missionEnd'\) \{\s*\/\/[^\n]*\n\s*if \(mission\) dropSavedMission\(mission\.id\);/);
-    expect(main).toMatch(/if \(resumed !== null && mission\) dropSavedMission\(mission\.id\);\s*req\.navigate\(quitHref\(/);
-    expect(main).toMatch(/if \(resumed !== null && mission\) dropSavedMission\(mission\.id\);\s*req\.restart\(\);/);
+    expect(main.match(/dropSavedMission\(/g)?.length).toBe(2); // the definition and the one call at the mission's end
+    expect(main).toMatch(/if \(ok\) req\.navigate\(quitHref\(room !== null, !mission\)\);/);
+    expect(main).toMatch(/if \(!ok\) return;\s*\/\/[^\n]*\n\s*req\.restart\(\);/);
+    expect(main).toMatch(/leaveCopy\(!mission, resumed !== null\)/); // the pause menu's Quit says it
+    expect(main).toMatch(/freePlay: !mission,\s*resumed: resumed !== null,/); // and so does the HUD's own leave
+  });
+
+  it("a resumed mission's Restart confirm says the saved game stays, and a fresh mission's does not change", () => {
+    expect(main).toMatch(/body: t\(resumed !== null \? 'pause\.restart\.confirm\.body\.resumed' : 'pause\.restart\.confirm\.body'\),/);
+    expect(en['pause.restart.confirm.body.resumed']).toBe('This attempt is lost. Your saved game stays on the campaign map.');
+    expect(en['pause.restart.confirm.body']).toBe('This attempt is lost.');
+  });
+
+  it('Save and quit asks BEFORE it cuts or writes when another mission\'s save is in the slot, and a "no" changes nothing', () => {
+    const body = main.slice(at(/const saveAndQuit = async/), at(/const pauseMenuDeps = \(\): PauseDeps/));
+    const ask = body.indexOf('savedMissionOtherThan(');
+    expect(ask).toBeGreaterThan(0);
+    expect(ask).toBeLessThan(body.indexOf('cutMission('));
+    expect(body.indexOf('confirmReplaceOther(')).toBeLessThan(body.indexOf('cutMission('));
+    expect(body).toMatch(/if \(!\(await confirmReplaceOther\(other, [^\n]*\)\) return \{ declined: true \};/);
+    expect(body.indexOf('return { declined: true }')).toBeLessThan(body.indexOf('writeSuspended('));
   });
 
   it('dropSavedMission removes only this mission\'s save', () => {
@@ -88,7 +109,7 @@ describe('the save is dropped when its mission is over', () => {
 
 describe('the lazy boundary (main red since PR 1478: the entry chunk went over its guard)', () => {
   // `pnpm --filter @lions/tools webgpu:bundle` is the byte gate; this is the cheap one that names the cause.
-  const LAZY = ['mission-save', 'mission-save-store', 'mission-shell', 'mission-resume', 'ui/resume-copy', 'mission-save-kit'];
+  const LAZY = ['ui/resume-row', 'mission-save', 'mission-save-store', 'mission-shell', 'mission-resume', 'ui/resume-copy', 'mission-save-kit'];
   it('main.ts imports none of the save modules except as a type, and reaches them through one dynamic import of the kit', () => {
     for (const mod of LAZY) {
       const staticValue = new RegExp(`^import (?!type )[^;]*from '\\./${mod}';`, 'm');
@@ -100,8 +121,16 @@ describe('the lazy boundary (main red since PR 1478: the entry chunk went over i
 
   it('a chunk that will not load costs the Resume row or the Save button, never the board or the mission', () => {
     expect(main).toMatch(/const kit = await saveKit\(\)\.catch\(\(\) => null\);\s*if \(req\.signal\.aborted\) return \(\) => undefined;/);
-    expect(main).toMatch(/\.\.\.\(kit === null \? \{\} : \{ resume: \{/);
+    expect(main).toMatch(/\.\.\.\(kit === null \? \{\} : \{ resume: \(\) => kit\.resumeRow\(\{/);
     expect(main).toMatch(/const sk: typeof SaveKit \| null = resumeKit \?\? \(resolvedMission \? await saveKit\(\)\.catch\(\(\) => null\) : null\);/);
+  });
+
+  it('menu.ts takes only the TYPE of the Resume row and is handed a builder; the kit carries the row', () => {
+    const menu = readFileSync(join(__dirname, 'ui', 'menu.ts'), 'utf8');
+    expect(menu).not.toMatch(/^import (?!type )[^;]*from '\.\/resume-row';/m);
+    expect(menu).toMatch(/opts\.resume\(\)/);
+    expect(readFileSync(join(__dirname, 'mission-save-kit.ts'), 'utf8')).toContain("export { resumeRow } from './ui/resume-row';");
+    expect(main).toMatch(/resume: \(\) => kit\.resumeRow\(/);
   });
 
   it('the kit re-exports everything main.ts uses', () => {

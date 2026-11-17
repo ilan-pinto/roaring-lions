@@ -96,10 +96,27 @@ function census(mission: MissionJson & { resources?: Res }): Reading {
 }
 
 describe('the t=0 census: every authored income zone and convoy has a wheeled route', () => {
-  it('finds the five D7 missions (the loop below is not vacuous)', () => {
-    expect(censused).toEqual(['deir_amun_2_foothold', 'ein_qasab_3_buildup', 'qasr_liwan_2_foothold', 'qasr_liwan_3_buildup', 'umm_zeitoun_2_buildup', 'umm_zeitoun_4_clearance', 'wadi_halam_2_laager']);
+  it('finds every mission that authors zones or a convoy (the loop below is not vacuous)', () => {
+    // Qasr Liwan II and III (GH-1438) add two more. GH-1386 batch 1 added khan_rafid_2, qarn_hadid_2 and tel_marum_2 to the five that shipped before it (Was five); batch 2 adds
+    // beit_sahwan_3, tel_marum_3, umm_zeitoun_3 and wadi_halam_5 (Was eight).
+    expect(censused).toEqual([
+      'beit_sahwan_3_clearance',
+      'deir_amun_2_foothold',
+      'ein_qasab_3_buildup',
+      'khan_rafid_2_foothold',
+      'qarn_hadid_2_foothold',
+      'qasr_liwan_2_foothold',
+      'qasr_liwan_3_buildup',
+      'tel_marum_2_foothold',
+      'tel_marum_3_clearance',
+      'umm_zeitoun_2_buildup',
+      'umm_zeitoun_3_clearance',
+      'umm_zeitoun_4_clearance',
+      'wadi_halam_2_laager',
+      'wadi_halam_5_depot',
+    ]);
   });
-  it('reads 13 zones and 3 convoys across them', () => {
+  it('reads 24 zones and 3 convoys across them', () => {
     let zones = 0;
     let convoys = 0;
     for (const id of censused) {
@@ -107,7 +124,7 @@ describe('the t=0 census: every authored income zone and convoy has a wheeled ro
       zones += r.zones;
       convoys += r.convoys;
     }
-    expect([zones, convoys]).toEqual([13, 3]); // Was 10: Qasr Liwan II (coast_road, the_cut) and III (water_point)
+    expect([zones, convoys]).toEqual([24, 3]); // Qasr Liwan II (coast_road, the_cut) and III (water_point) add 3. Was [15, 3] after batch 1 and [10, 3] before it: batch 2 adds 1 + 2 + 1 + 2 zones, no convoy
   });
   for (const id of censused) {
     it(`${id}: no zone and no convoy is unreachable at t=0`, () => {
@@ -124,7 +141,10 @@ describe('the census sees what it guards: umm_zeitoun_3_clearance horn_west (C-R
   });
   it('horn_west is a zone of the map and is not authored as an income zone today', () => {
     expect(Object.keys(mapZones(uz3.map.file))).toContain('horn_west');
-    expect((uz3.resources as Res | undefined)?.income_zones ?? []).toEqual([]);
+    // GH-1386 batch 2 gave UZ III its `hamlet` (32). Was: no income zone at all. The invariant is only that the unreachable knoll is never one.
+    const authored = ((uz3.resources as Res | undefined)?.income_zones ?? []).map((z) => z.zone);
+    expect(authored).toEqual(['hamlet']);
+    expect(authored).not.toContain('horn_west');
   });
   it('authored on a copy of UZ III, the census names it', () => {
     const r = census(withZone('horn_west'));
