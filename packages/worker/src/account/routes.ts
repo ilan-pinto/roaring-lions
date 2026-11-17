@@ -24,6 +24,8 @@ export interface AccountDeps {
   minWinSeconds?: Readonly<Record<string, number>>;
   /** The coupon table `POST coupon` matches (default `coupons` from @lions/data). A test sets one with a known code's hash. */
   coupons?: readonly { id: string; sha256: string; credits?: number; coins?: number }[];
+  /** E13: whether coins buy cosmetics only (default `COINS_COSMETIC_ONLY` from @lions/economy). A test sets either arm. */
+  coinsCosmeticOnly?: boolean;
 }
 
 export interface AccountCtx {

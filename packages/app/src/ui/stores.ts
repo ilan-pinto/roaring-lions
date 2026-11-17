@@ -30,9 +30,11 @@ import type { RoarReceipt } from '../roar-wallet';
 import type { Disposer } from '../shell/router';
 import {
   COIN_PACKS,
+  COINS_COSMETIC_ONLY,
   PREVIEW_WALLET,
   buyEnabled,
   coinCost,
+  coinsMayBuy,
   packBonusPercent,
   storeItems,
   unitItem,
@@ -96,6 +98,9 @@ export interface StoresOptions extends StoreInput {
   adds?: string;
   /** Told when a panel opens (its unit id) or closes (`null`), so a redraw can reopen it. */
   onAdds?: (id: string | null) => void;
+  /** E13: coins buy cosmetics only (default `COINS_COSMETIC_ONLY`). A unit or tier card then shows its coin price as
+   *  not for coins, with no coin Buy; its credit Buy is unchanged. A test sets either arm. */
+  cosmeticOnly?: boolean;
 }
 
 export interface StoresWallet {
@@ -196,9 +201,12 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
       btn.addEventListener('click', () => setAdds(addsOpen === id ? null : id, true));
     },
   };
+  const cosmeticOnly = opts.cosmeticOnly ?? COINS_COSMETIC_ONLY;
+  if (cosmeticOnly) root.dataset.cosmeticOnly = '1';
   const ctx: Ctx = {
     opts,
     wallet: coinWallet,
+    cosmeticOnly,
     adds: addsHook,
     unitOpen: (unitId) => {
       const u = opts.units.find((x) => x.id === unitId);
@@ -249,7 +257,7 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
   } else {
     // The honest line (GH-317): what the coins are, said once, with the numbers read
     // from the table `roar-earn.ts` pays by. Then "How to earn", from the same table.
-    const about = el('p', 'rl-stores__notice rl-stores__about', t('stores.about', EARN));
+    const about = el('p', 'rl-stores__notice rl-stores__about', t(cosmeticOnly ? 'stores.about.cosmeticOnly' : 'stores.about', EARN));
     about.setAttribute('role', 'note');
     root.append(about, earnPanel());
   }
@@ -337,7 +345,7 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
   const groups: { section: HTMLElement; always: number }[] = [];
   let nothing: HTMLElement | null = null;
   if (early !== undefined) {
-    early.appendChild(el('p', 'rl-stores__lede', t('stores.lede')));
+    early.appendChild(el('p', 'rl-stores__lede', t(cosmeticOnly ? 'stores.lede.cosmeticOnly' : 'stores.lede')));
     if (offSaleCount > 0) {
       early.appendChild(el('p', 'rl-stores__offsale-count', t('stores.offSale.count', { n: offSaleCount })));
     }
@@ -505,6 +513,8 @@ function earnPanel(): HTMLElement {
 interface Ctx {
   readonly opts: StoresOptions;
   readonly wallet: CoinWallet;
+  /** E13: coins buy cosmetics only, so a unit or tier card offers no coin Buy. */
+  readonly cosmeticOnly: boolean;
   readonly adds: AddsHook;
   /** Whether a unit is open (earned or coin-bought): `TierItem.state` cannot say, since `locked` also means short of credits. */
   readonly unitOpen: (unitId: string) => boolean;
@@ -531,13 +541,18 @@ function addsControl(item: UnitItem, card: HTMLElement, ctx: Ctx): HTMLButtonEle
   return btn;
 }
 
-/** ONE price line: coins first, credits small beside them. */
-function priceLine(credits: number, coins: number, opts: StoresOptions): HTMLElement {
+/** ONE price line: coins first, credits small beside them. `coinsClosed` (E13): the coin price is shown, marked not for
+ *  coins, because coins buy cosmetics only. */
+function priceLine(credits: number, coins: number, opts: StoresOptions, coinsClosed = false): HTMLElement {
   const line = el('div', 'rl-stores__price');
-  const coin = el('span', 'rl-stores__coin-price');
+  const coin = el('span', coinsClosed ? 'rl-stores__coin-price rl-stores__coin-price--closed' : 'rl-stores__coin-price');
   coin.appendChild(coinImg(opts.coinSrc(24), 24, 'rl-stores__coin'));
   coin.appendChild(el('span', 'rl-stores__coin-n', String(coins)));
   coin.appendChild(el('span', 'rl-stores__coin-word', t('stores.wallet.word', { n: coins })));
+  if (coinsClosed) {
+    coin.dataset.closed = '1';
+    coin.appendChild(el('span', 'rl-stores__coin-closed', t('stores.coins.closed')));
+  }
   line.appendChild(coin);
   line.appendChild(el('span', 'rl-stores__credits', t('stores.price.credits', { n: credits })));
   return line;
@@ -714,14 +729,20 @@ function unitCard(item: UnitItem, ctx: Ctx): HTMLElement {
   card.appendChild(portraitEl(item.id, opts));
   const body = el('div', 'rl-stores__card-body');
   body.appendChild(el('h4', 'rl-stores__card-name', item.name));
-  if (item.credits !== undefined && item.coins !== undefined) body.appendChild(priceLine(item.credits, item.coins, opts));
+  // E13: a unit for sale whose coin price coins may no longer pay (cosmetics only). Owned cards are not marked.
+  const coinsClosed = forSale(item.state) && !coinsMayBuy('unit', ctx.cosmeticOnly);
+  if (item.credits !== undefined && item.coins !== undefined) body.appendChild(priceLine(item.credits, item.coins, opts, coinsClosed));
   if (item.state === 'locked') {
     const path = shortPath(item.honest, opts.missionName);
     if (path !== null) body.appendChild(el('div', 'rl-stores__path', path));
   }
   if (forSale(item.state) && item.coins !== undefined) {
-    const label = t('stores.buy.aria', { name: item.name, n: item.coins, note: buyNote(coinCost(item), ctx) });
-    body.appendChild(coinBuy(item.coins, label, buyEnabled(item, ctx.wallet), ctx, `unit:${item.id}`, { kind: 'unit', unitId: item.id }));
+    if (!coinsClosed) {
+      const label = t('stores.buy.aria', { name: item.name, n: item.coins, note: buyNote(coinCost(item), ctx) });
+      body.appendChild(
+        coinBuy(item.coins, label, buyEnabled(item, ctx.wallet, ctx.cosmeticOnly), ctx, `unit:${item.id}`, { kind: 'unit', unitId: item.id })
+      );
+    }
     const byCredits = creditBuy(item, ctx);
     if (byCredits !== null) body.appendChild(byCredits);
   } else {
@@ -769,18 +790,29 @@ function tierCard(list: readonly TierItem[], ctx: Ctx, ownedEls: HTMLElement[]):
       // run and the figure beside it is the run's total (the button and the figure never disagree).
       const prices = (opts.units.find((x) => x.id === item.unitId)?.upgrades?.[item.track]?.tiers ?? []).map((x) => x.price);
       const ask = creditAsk(prices, item.earned, item.owned);
-      row.appendChild(priceLine(ask !== null && ask.again > 0 ? ask.price : item.next.credits, item.next.coins, opts));
-      const label = t('stores.buy.tier.aria', {
-        name: item.unitName,
-        track: t(`garage.track.${item.track}`),
-        tier: item.next.tier,
-        n: item.next.coins,
-        note: buyNote(coinCost(item), ctx),
-      });
-      const coinAsk: CoinAsk = { kind: 'tier', unitId: item.unitId, track: item.track, tier: item.next.tier };
-      row.appendChild(
-        coinBuy(item.next.coins, label, buyEnabled(item, ctx.wallet), ctx, `tier:${item.unitId}.${item.track}.${item.next.tier}`, coinAsk)
-      );
+      // E13: coins buy cosmetics only, so the rung's coin price is shown as not for coins, with no coin Buy.
+      const coinsClosed = !coinsMayBuy('tier', ctx.cosmeticOnly);
+      row.appendChild(priceLine(ask !== null && ask.again > 0 ? ask.price : item.next.credits, item.next.coins, opts, coinsClosed));
+      if (!coinsClosed) {
+        const label = t('stores.buy.tier.aria', {
+          name: item.unitName,
+          track: t(`garage.track.${item.track}`),
+          tier: item.next.tier,
+          n: item.next.coins,
+          note: buyNote(coinCost(item), ctx),
+        });
+        const coinAsk: CoinAsk = { kind: 'tier', unitId: item.unitId, track: item.track, tier: item.next.tier };
+        row.appendChild(
+          coinBuy(
+            item.next.coins,
+            label,
+            buyEnabled(item, ctx.wallet, ctx.cosmeticOnly),
+            ctx,
+            `tier:${item.unitId}.${item.track}.${item.next.tier}`,
+            coinAsk
+          )
+        );
+      }
       const byCredits = ask === null ? null : tierCreditBuy(item, ask, ctx);
       if (byCredits !== null) row.appendChild(byCredits);
     } else {

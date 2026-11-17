@@ -24,6 +24,19 @@ export const RECEIPT_CAP = 500;
  *  and the Stores' packs stay disabled (`buyEnabled`). */
 export const PURCHASES_OPEN: boolean = false;
 
+/**
+ * E13 (GH-1415; the lead's ruling, before the Steam page goes live): Roar coins buy COSMETICS ONLY. False today, so a
+ * coin still buys a unit or an upgrade tier exactly as it did. Flipping this ONE line closes the power lane on both
+ * sides at once, because the app and the Worker both read it from here (`coinsMayBuy` in `stores.ts`):
+ *   - the Stores stop offering units and tiers for coins (`buyEnabled`, `buyWithCoins`, the guest Buy in `main.ts`);
+ *   - the Worker's `POST spend` refuses a unit or tier ask, reason `cosmetic_only`;
+ *   - credits are untouched, and what coins already bought is KEPT: nothing here reads an entitlement, and a claim
+ *     still carries a device's coin-bought items (`claim.ts` step 4 asks with `cosmeticOnly: false`);
+ *   - a cosmetic stays buyable for coins (the shelf is empty today; the path is kept open).
+ * Every reader takes the value as a defaulted parameter, so a test runs both arms in one suite.
+ */
+export const COINS_COSMETIC_ONLY: boolean = false;
+
 export interface CoinSplit {
   free: number;
   paid: number;

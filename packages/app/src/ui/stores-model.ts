@@ -21,6 +21,8 @@ export {
   buyEnabled,
   buyWithCoins,
   PURCHASES_OPEN,
+  COINS_COSMETIC_ONLY,
+  coinsMayBuy,
 } from '@lions/economy';
 export type {
   CoinPack,
@@ -33,4 +35,5 @@ export type {
   TierItem,
   CoinWallet,
   CoinAsk,
+  CoinItemKind,
 } from '@lions/economy';

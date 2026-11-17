@@ -11,9 +11,20 @@
 // predicate every Buy control asks.
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import type { UpgradeTracks } from '@lions/data';
-import { PURCHASES_OPEN, buyTierWithCoins, buyUnitWithCoins, spendable, type RoarWallet } from './wallet';
+import { COINS_COSMETIC_ONLY, PURCHASES_OPEN, buyTierWithCoins, buyUnitWithCoins, spendable, type RoarWallet } from './wallet';
 
-export { PURCHASES_OPEN };
+export { COINS_COSMETIC_ONLY, PURCHASES_OPEN };
+
+/** What a coin can be asked to buy. `cosmetic` has no catalogue yet (the shelf is empty); it is named so that the
+ *  cosmetic-only rule has something left to allow. */
+export type CoinItemKind = 'unit' | 'tier' | 'cosmetic';
+
+/** E13: whether coins may buy an item of this kind. Everything while `cosmeticOnly` is false (today); a cosmetic and
+ *  nothing else once it is true. The ONE predicate every coin path asks (`buyEnabled`, `buyWithCoins`, the Stores' cards,
+ *  the signed-in spend flow and the Worker's `POST spend`). It never reads an entitlement: what is owned stays owned. */
+export function coinsMayBuy(kind: CoinItemKind, cosmeticOnly: boolean = COINS_COSMETIC_ONLY): boolean {
+  return kind === 'cosmetic' || !cosmeticOnly;
+}
 
 /** Spec §1.3, decision 1 (the lead's ruling): 1 Roar coin = 10 credits. */
 export const CREDITS_PER_COIN = 10;
@@ -358,14 +369,18 @@ export function coinCost(item: UnitItem | TierItem): number | null {
  *
  * - A pack is real money: enabled only once `PURCHASES_OPEN`, never by the
  *   free wallet.
+ * - E13: with `cosmeticOnly` (default `COINS_COSMETIC_ONLY`), a unit or a tier is
+ *   never enabled, whatever the wallet holds.
  * - An item needs a live wallet, an item for sale (G1 keeps `offSale` off;
  *   earned and coin-bought items have nothing left to buy), and coins enough
  *   to cover it. With no live wallet this is `false` for every item: the
  *   preview.
  */
-export function buyEnabled(item: UnitItem | TierItem | CoinPack, wallet: CoinWallet = PREVIEW_WALLET): boolean {
+export function buyEnabled(item: UnitItem | TierItem | CoinPack, wallet: CoinWallet = PREVIEW_WALLET, cosmeticOnly: boolean = COINS_COSMETIC_ONLY): boolean {
   if ('usdCents' in item) return PURCHASES_OPEN;
   if (!wallet.live) return false;
+  // E13: once coins are cosmetic-only, a unit or a tier is not sold for coins at all (credits still buy it).
+  if (!coinsMayBuy(item.kind, cosmeticOnly)) return false;
   const cost = coinCost(item);
   return cost !== null && cost > 0 && wallet.coins >= cost;
 }
@@ -384,18 +399,28 @@ export type CoinAsk =
  * is ever bought, and a stale ask (two tabs) is refused. The coin price is the
  * item's own `coinPrice` of its JSON price; the ask carries no price at all.
  * Writes only the wallet: credits, and the brigade account, are untouched.
- * Free coins are spent before paid ones (`roar-wallet.ts`).
+ * Free coins are spent before paid ones (`roar-wallet.ts`). E13: with `cosmeticOnly`
+ * (default `COINS_COSMETIC_ONLY`) a unit or tier ask is refused outright; only a
+ * claim's carry of what a device already owns passes `false` (`claim.ts` step 4).
  */
-export function buyWithCoins(input: StoreInput, roar: RoarWallet, ask: CoinAsk, at: number): { account: RoarWallet; ok: boolean } {
+export function buyWithCoins(
+  input: StoreInput,
+  roar: RoarWallet,
+  ask: CoinAsk,
+  at: number,
+  cosmeticOnly: boolean = COINS_COSMETIC_ONLY
+): { account: RoarWallet; ok: boolean } {
   const refuse = { account: roar, ok: false };
+  // E13: refused before anything is priced. The wallet comes back as it was, entitlements and all.
+  if (!coinsMayBuy(ask.kind, cosmeticOnly)) return refuse;
   const wallet = walletOf(roar);
   const items = storeItems(input);
   if (ask.kind === 'unit') {
     const item = items.units.find((u) => u.id === ask.unitId);
-    if (item === undefined || !buyEnabled(item, wallet) || item.coins === undefined || item.credits === undefined) return refuse;
+    if (item === undefined || !buyEnabled(item, wallet, cosmeticOnly) || item.coins === undefined || item.credits === undefined) return refuse;
     return buyUnitWithCoins(roar, item.id, item.coins, item.credits, at);
   }
   const item = items.tiers.find((x) => x.unitId === ask.unitId && x.track === ask.track);
-  if (item === undefined || item.next === null || item.next.tier !== ask.tier || !buyEnabled(item, wallet)) return refuse;
+  if (item === undefined || item.next === null || item.next.tier !== ask.tier || !buyEnabled(item, wallet, cosmeticOnly)) return refuse;
   return buyTierWithCoins(roar, item.unitId, item.track, item.next.tier, item.owned, item.next.coins, item.next.credits, at);
 }

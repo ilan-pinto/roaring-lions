@@ -7,7 +7,7 @@
  * the wallet and, for a coupon or a reset, the campaign, and `sync.ts` has already written that answer into the view by
  * the time a promise below resolves. A guest never builds one of these.
  */
-import type { CoinAsk, CoinAskWire } from '@lions/economy';
+import { COINS_COSMETIC_ONLY, coinsMayBuy, type CoinAsk, type CoinAskWire } from '@lions/economy';
 import type { CoinLineState, DebriefCoins } from '../ui/debrief';
 import type { NetState, SpendGate } from '../ui/spend-gate';
 import type { AccountLedgerStore } from './account-store';
@@ -52,6 +52,8 @@ export function provisionalLine(start: string | null, awarded: number, balance: 
 export interface SpendFlowOptions {
   store: AccountLedgerStore;
   online?: () => boolean;
+  /** E13: whether coins buy cosmetics only (default `COINS_COSMETIC_ONLY`). A test sets either arm. */
+  cosmeticOnly?: boolean;
 }
 
 const wireOf = (ask: CoinAsk): CoinAskWire =>
@@ -66,6 +68,7 @@ function outcomeOf(o: BarrierOutcome<unknown>): ServerOutcome {
 export function spendFlow(o: SpendFlowOptions): SpendFlow {
   const { store } = o;
   const online = o.online ?? defaultOnline;
+  const cosmeticOnly = o.cosmeticOnly ?? COINS_COSMETIC_ONLY;
   const listeners = new Set<() => void>();
   let sync: SyncHandle | null = null;
   // A coupon or a reset is a campaign-writing barrier (§0.39): while any is in flight the campaign-writing controls are frozen.
@@ -106,6 +109,9 @@ export function spendFlow(o: SpendFlowOptions): SpendFlow {
       sync = s;
     },
     async buy(ask) {
+      // E13: a unit or tier is not sold for coins once they are cosmetic-only. Nothing is queued or sent, and nothing is
+      // marked pending; the Worker refuses the same ask (`cosmetic_only`) if an older tab sends it.
+      if (!coinsMayBuy(ask.kind, cosmeticOnly)) return 'refused';
       const s = need();
       // The key is pending from the CLICK, not from the moment the barrier's lock is granted: a credit Buy of the same track
       // must already be held when the screens redraw (GH-1142). The sync loop marks and clears the same key; a Set holds it once.

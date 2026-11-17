@@ -6756,6 +6756,14 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-stores__coin {
   flex: none;
 }
+/* E13: a coin price coins may no longer pay (cosmetics only): dimmed, with its "not for coins" word. */
+.rl-menu--garage .rl-stores__coin-price--closed .rl-stores__coin-n {
+  color: var(--ink-mute);
+}
+.rl-menu--garage .rl-stores__coin-closed {
+  font-size: var(--t-band);
+  color: var(--ink-dim);
+}
 .rl-menu--garage .rl-stores__credits {
   font-family: var(--font-mono);
   font-size: var(--t-band);

@@ -300,7 +300,10 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
           notCarried.push({ ask, reason: 'coins' });
           continue;
         }
-        const bought = buyWithCoins(storeInputFor({ ledger, brigade, roar: scratch }), scratch, coinAsk, ctx.now);
+        // A CARRY, not a sale: `cosmeticOnly` is false whatever `COINS_COSMETIC_ONLY` says (E13), so a device's coin-bought
+        // units and tiers come into the account after the flip as before, charged against this claim's own coins. Only what
+        // the device's wallet holds is asked (`askOrder`); `POST spend` is what refuses a new one.
+        const bought = buyWithCoins(storeInputFor({ ledger, brigade, roar: scratch }), scratch, coinAsk, ctx.now, false);
         if (!bought.ok) {
           notCarried.push({ ask, reason: 'closed' });
           continue;

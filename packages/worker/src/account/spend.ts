@@ -6,9 +6,11 @@
  * they read, so a stale read fails the batch and `budgetedOp` re-reads and re-prices.
  */
 import {
+  COINS_COSMETIC_ONLY,
   buyWithCoins,
   canonicalCampaign,
   coinCost,
+  coinsMayBuy,
   couponGrant,
   emptyAccount,
   grantCouponCoins,
@@ -76,6 +78,8 @@ export async function spend(ctx: AccountCtx): Promise<Response> {
   const ask = isRec(raw) ? parseAsk(raw) : null;
   if (!isRec(raw) || ask === null) return sessionJson(400, { error: 'body' }, setCookie);
   const coinAsk = toCoinAsk(ask);
+  // E13: the one switch, as the app reads it. A test injects either arm through `deps`.
+  const cosmeticOnly = ctx.deps.coinsCosmeticOnly ?? COINS_COSMETIC_ONLY;
 
   const out = await budgetedOp(ctx, { memberId, opId: raw.op_id, kind: 'spend' }, async () => {
     const wallet = await readWallet(db, memberId);
@@ -83,8 +87,10 @@ export async function spend(ctx: AccountCtx): Promise<Response> {
     const receipts = await receiptsOf(db, memberId);
     const roar = asRoar(wallet, receipts);
     const input = storeInputFor({ ledger: camp?.body.ledger ?? {}, brigade: camp?.body.brigade ?? emptyAccount(), roar });
-    const bought = buyWithCoins(input, roar, coinAsk, ctx.now);
+    const bought = buyWithCoins(input, roar, coinAsk, ctx.now, cosmeticOnly);
     if (!bought.ok) {
+      // Coins buy cosmetics only (E13) and this is a unit or a tier: `cosmetic_only`, whatever the wallet holds.
+      if (!coinsMayBuy(coinAsk.kind, cosmeticOnly)) throw new OpReject(409, { error: 'refused', reason: 'cosmetic_only', wallet: viewOf(wallet, roar, false) });
       // The item is on sale but the wallet is short: `coins`. Anything else (earned, owned, unpriced, unknown): `closed`.
       const items = storeItems(input);
       const item =
