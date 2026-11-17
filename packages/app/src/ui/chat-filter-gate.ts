@@ -11,7 +11,7 @@
  *    held lines are dropped, never shown, and the next line asks again;
  *  - a typed name (a callsign, a member's name, a bot's typed model; `net/seat-label.ts`) reads as the room's fallback name,
  *    `DEFAULT_CALLSIGN` ("Lion"), which is also what a name with a filtered word reads as. The lobby relabels when the filter arrives,
- *    and the battlefield waits for it before it mounts a room's chat, score and status line.
+ *    and the battlefield waits for it (at most `CHAT_FILTER_WAIT_MS`) before it mounts a room's chat, score and status line.
  * `chat-filter-gate.test.ts` and `chat-inbox.test.ts` hold both; `chat-filter-wiring.test.ts` holds the lazy boundary.
  *
  * Presentation only: nothing here touches a command, a frame or the sim (invariant 4).
@@ -54,20 +54,32 @@ export function loadChatFilter(load: () => Promise<FilterModule> = importFilter)
 }
 
 /**
- * Settles when `load` does or when `signal` aborts, whichever is first: a boot left while the chunk is in flight stops waiting at
- * once (CR1), and its caller checks the signal after. The load itself runs on, since it is the gate's one shared load and the next
- * room wants it; the abort listener is removed when the load wins.
+ * How long a room's boot waits for the filter before it plays on without it (CR7). The chunk is some 17 KB, so a working connection
+ * has it well inside this; a request that hangs (a dynamic import has no timeout, and `importWithRetry` retries only a REJECTION)
+ * must not keep the match from starting, since the fallback is already safe: lines are held by the inbox, names read as
+ * `PENDING_NAME`, and both refresh when the load lands.
  */
-export function untilLoadedOrAborted(load: Promise<boolean>, signal: AbortSignal): Promise<void> {
+export const CHAT_FILTER_WAIT_MS = 5000;
+
+/**
+ * Settles when `load` does (resolved or rejected), when `signal` aborts, or after `ms`, whichever is first: a boot left while the
+ * chunk is in flight stops waiting at once (CR1), a hung chunk stops holding the boot (CR7), and its caller checks the signal after.
+ * The load itself runs on, since it is the gate's one shared load and the next room wants it; the listener and the timer are removed
+ * by whichever wins.
+ */
+export function untilLoadedOrAborted(load: Promise<boolean>, signal: AbortSignal, ms: number = CHAT_FILTER_WAIT_MS): Promise<void> {
   return new Promise<void>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const done = (): void => {
       signal.removeEventListener('abort', done);
+      clearTimeout(timer);
       resolve();
     };
     if (signal.aborted) done();
     else {
       signal.addEventListener('abort', done, { once: true });
-      void load.then(done);
+      timer = setTimeout(done, ms);
+      void load.then(done, done);
     }
   });
 }

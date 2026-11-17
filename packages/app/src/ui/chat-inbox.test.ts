@@ -190,6 +190,20 @@ describe('ChatInbox before the word filter has loaded', () => {
     expect(lines(inbox, [[1, 'x']])).toEqual([]);
   });
 
+  it('chat switched off while the filter loads: the held line is never shown, and the queue is emptied (CR8)', async () => {
+    const p = pending();
+    let on = true;
+    const inbox = new ChatInbox(() => on, () => true, p.filter, p.load);
+    const shown: string[] = [];
+    inbox.deliver(1, 'good game', (t) => shown.push(t));
+    expect(inbox.heldCount()).toBe(1);
+    on = false;
+    p.settle(true);
+    await flush();
+    expect(shown).toEqual([]);
+    expect(inbox.heldCount()).toBe(0);
+  });
+
   it('a failed load drops the held lines (hidden, never shown), and the next line asks again', async () => {
     const p = pending();
     const inbox = new ChatInbox(() => true, () => true, p.filter, p.load);

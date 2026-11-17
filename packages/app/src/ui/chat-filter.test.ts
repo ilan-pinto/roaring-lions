@@ -78,6 +78,9 @@ describe('the matcher, on a fixture list', () => {
     expect(wordsOf('I b l a r g').map((w) => w.norm)).toEqual(['iblarg']);
     // a run of two is never trimmed to one letter
     expect(shown('a b')).toBe('a b');
+    // the Russian lone words split off too: "яvex" and "иblarg" are no entry, so only the trimmed reading catches these
+    expect(hidden('я v e x')).toBe(true);
+    expect(shown('и b l a r g')).toBe('и ***');
   });
 
   it('step 7, repeated letters: a LONGER stretched spelling matches, a shorter word never does', () => {
@@ -166,6 +169,8 @@ describe('the shipped lists', () => {
   it('ships English with a hide tier, and every other language with an empty one until a native reader reviews it (D3, D4)', () => {
     expect(en.hide.length).toBeGreaterThan(20);
     expect(en.mask.length).toBeGreaterThan(100);
+    // Literal oracle, so the loop below cannot pass by running over nothing (CR6).
+    expect(chatFilters.map((c) => c.lang)).toEqual(expect.arrayContaining(['de', 'es-ES', 'fr', 'ru']));
     for (const c of chatFilters.filter((x) => x.lang !== 'en')) {
       expect(c.hide, c.lang).toEqual([]);
       expect(c.review, c.lang).toBe('none');
@@ -189,6 +194,23 @@ describe('the shipped lists', () => {
     const short = en.hide.filter((e) => !e.includes(' ') && [...e].length < SUBSTRING_MIN);
     expect(short.length).toBeGreaterThanOrEqual(20);
     for (const e of short) expect(filterLine(shipped, `you are a ${[...e].join(' ')}`, { mask: false }).kind, e).toBe('hide');
+  });
+
+  it('a run of three trims to a two-letter entry: "you are a s m" masks s&m (CR3, the 3-letter boundary)', () => {
+    // Literal oracle: a shipped two-letter mask entry; "asm" and "smi" are no entry, so only the trimmed reading catches these.
+    expect(en.mask).toContain('s&m');
+    expect(filterLine(shipped, 'you are a s m', { mask: true })).toEqual({ kind: 'show', text: 'you are a ***', masked: true });
+    expect(filterLine(shipped, 's m I said', { mask: true })).toEqual({ kind: 'show', text: '*** I said', masked: true });
+  });
+
+  it('a Russian reader: a lone и or я before a spelled-out Russian mask entry is split off, and the entry masks', () => {
+    const ru = chatFilters.find((c) => c.lang === 'ru');
+    if (ru === undefined) throw new Error('no Russian list');
+    // Literal oracle: a shipped ru mask entry; "ижопа" and "яжопа" are no entry, so only the trimmed reading catches these.
+    expect(ru.mask).toContain('жопа');
+    const reader = shippedFilter('ru');
+    expect(filterLine(reader, 'и ж о п а', { mask: true })).toEqual({ kind: 'show', text: 'и ***', masked: true });
+    expect(filterLine(reader, 'я ж о п а', { mask: true })).toEqual({ kind: 'show', text: 'я ***', masked: true });
   });
 
   it('leaves ordinary RTS chat alone: dropped entries, allow words, and short hide words inside longer ones', () => {

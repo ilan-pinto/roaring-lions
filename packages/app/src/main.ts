@@ -3204,7 +3204,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const sk: typeof SaveKit | null = resumeKit ?? (resolvedMission ? await saveKit().catch(() => null) : null);
   if (req.signal.aborted) return () => undefined;
   // GH-1417 S2: a room waits for its word filter. The load never rejects; a failure is logged by the gate, and the match plays on
-  // with its received lines hidden and its typed names read as the fallback name. The wait gives way to a leave (CR1); the load runs on.
+  // with its received lines hidden and its typed names read as the fallback name. The wait gives way to a leave (CR1) and to a hung
+  // chunk after `CHAT_FILTER_WAIT_MS` (CR7): the match then starts on the same fallback, and the load runs on; when it lands the inbox
+  // delivers its held lines and every name below reads its label again (`seatName` is read at each draw, never kept).
   if (chatFilterLoad !== null) await untilLoadedOrAborted(chatFilterLoad, req.signal);
   if (req.signal.aborted) abandon('left while the chat filter loaded');
   if (resolvedMission) {
@@ -7102,7 +7104,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  show the same board. A versus room only: single-player and a sandbox room
    *  mount nothing. */
   const otherSeat = netSeat === 0 ? 1 : 0;
-  const scoreNames = { theirs: seatName(otherSeat) };
+  // A getter, read at each paint: a name that read as the fallback while the word filter loaded reads as typed once it is in (CR7).
+  const scoreNames = { get theirs(): string { return seatName(otherSeat); } };
   const netScore = showsScoreboard(netConfig) && !spectating ? new NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());
   /** The points race (GH-976 P2): both sides' points against the target, from the goals-only runtime. Scores and

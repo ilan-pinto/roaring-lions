@@ -12,6 +12,7 @@ import { missingKeys, setCatalogue } from '../i18n/t';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
 import { loadChatFilter, resetChatFilterGateForTests } from './chat-filter-gate';
+import { nameFrom } from '../net/seat-label';
 
 /** The methods the screens call on a transport, recorded. */
 function fakeTransport() {
@@ -1576,6 +1577,28 @@ describe('members, guests and bots (GH-1075 A3, Task 3.7)', () => {
       await flush();
       // Literal oracle: no onLobby has come since, so only the relabel on arrival can have changed them.
       expect([name(0), name(1)]).toEqual(['Ari', 'Ilan · K7Q2M4XA']);
+    } finally {
+      arrive(mod);
+      await held;
+    }
+  });
+  it('a match that starts while the word filter loads reads the names as typed once it arrives, not the fallback name (CR5)', async () => {
+    setCatalogue('en', en);
+    const mod = await import('./chat-filter');
+    resetChatFilterGateForTests();
+    let arrive: (m: typeof mod) => void = () => undefined;
+    const held = loadChatFilter(() => new Promise<typeof mod>((r) => { arrive = r; }));
+    try {
+      const { fake } = await hosted(MEMBER_SEATS);
+      const config = { code: 'ABCDEF', map: 'tel_marum', mode: 'versus', seats: [{ callsign: 'Ari' }, { callsign: 'Lion' }] } as unknown as MatchConfig;
+      fake.hooks.onStart?.(config);
+      const handed = takeHanded('ABCDEF');
+      expect([nameFrom(handed?.labels, 0, ''), nameFrom(handed?.labels, 1, '')]).toEqual(['Lion', 'Lion · K7Q2M4XA']);
+      arrive(mod);
+      expect(await held).toBe(true);
+      await flush();
+      // Literal oracle: the tuple the battlefield was handed, read as the battlefield reads it (`seatName`), after the start.
+      expect([nameFrom(handed?.labels, 0, ''), nameFrom(handed?.labels, 1, '')]).toEqual(['Ari', 'Ilan · K7Q2M4XA']);
     } finally {
       arrive(mod);
       await held;

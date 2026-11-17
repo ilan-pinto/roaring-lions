@@ -282,11 +282,15 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
   });
   // GH-1417 S2: the word filter loads on demand (`chat-filter-gate.ts`). Until it is in, every typed name reads as the fallback name
   // and every received line is held by the inbox; once it is, the lobby is relabelled so the names read as typed (or filtered).
+  // IN PLACE, whatever the phase: a match that started while the filter loaded holds this very tuple (`handOver`) and reads it at
+  // every name (`nameFrom`), so it reads the names as typed from then on instead of the fallback name for the whole match (CR5).
   if (chatFilterNow() === null) {
     void loadChatFilter().then((ok) => {
-      if (!ok || room.phase !== 'lobby') return;
-      room.labels = labelsOf(room.seats);
-      room.repaint?.();
+      if (!ok) return;
+      const fresh = labelsOf(room.seats);
+      room.labels[0] = fresh[0];
+      room.labels[1] = fresh[1];
+      if (room.phase === 'lobby') room.repaint?.();
     });
   }
   return room;

@@ -1,7 +1,7 @@
 // GH-1417 S2: the word filter's lazy door. Before the filter has loaded, and after it failed to, no typed name is shown as typed.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CALLSIGN } from '@lions/net';
-import { PENDING_NAME, chatFilterNow, loadChatFilter, resetChatFilterGateForTests, shownName, untilLoadedOrAborted } from './chat-filter-gate';
+import { CHAT_FILTER_WAIT_MS, PENDING_NAME, chatFilterNow, loadChatFilter, resetChatFilterGateForTests, shownName, untilLoadedOrAborted } from './chat-filter-gate';
 import { labelsOf, nameFrom, seatLabel } from '../net/seat-label';
 
 afterEach(() => {
@@ -79,5 +79,34 @@ describe('untilLoadedOrAborted (CR1: a boot left while the filter loads does not
     expect(await settled(wait)).toBe(true);
     expect(off).toHaveBeenCalledTimes(1);
     expect(off.mock.calls[0]?.[0]).toBe('abort');
+  });
+
+  it('settles when the load rejects, too, leaving no listener on the signal (it takes any promise, not only the gate\'s own)', async () => {
+    const ac = new AbortController();
+    const off = vi.spyOn(ac.signal, 'removeEventListener');
+    const wait = untilLoadedOrAborted(Promise.reject(new Error('chunk gone')), ac.signal);
+    expect(await settled(wait)).toBe(true);
+    expect(off).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops waiting after 5 s when the load hangs, names still the fallback; a load that wins leaves no timer (CR7)', async () => {
+    vi.useFakeTimers();
+    try {
+      // Literal oracle: the bound the boot plays on after, not read back from the module.
+      expect(CHAT_FILTER_WAIT_MS).toBe(5000);
+      let done = false;
+      void untilLoadedOrAborted(never(), new AbortController().signal).then(() => { done = true; });
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(done).toBe(true);
+      // the match plays on with the safe fallback: the filter is not in, so a typed name is still the fallback name
+      expect(chatFilterNow()).toBeNull();
+      expect(shownName('Desert Fox')).toBe(DEFAULT_CALLSIGN);
+      await untilLoadedOrAborted(Promise.resolve(true), new AbortController().signal);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
