@@ -6,7 +6,7 @@ import { MISSION_SAVE_VERSION, digestOf, serializeSuspended, type SuspendedMissi
 import { SUSPEND_KEY, type KeyStore } from './mission-save-store';
 import { captureShell, shellJson } from './mission-shell';
 import { newMissionLog } from './mission-log';
-import { campaignMoved, clearResumeProblem, loadResume, noteResumeProblem, parseStartInputs, peekResumeMoved, peekResumeProblem, startInputsJson, whatMoved } from './mission-resume';
+import { campaignMoved, clearResumeProblem, loadResume, noteResumeProblem, parseStartInputs, peekResumeMoved, peekResumePosture, peekResumeProblem, startInputsJson, whatMoved } from './mission-resume';
 import type { CampaignLedger } from './ledger-store';
 import { gzipBytes } from '@lions/net';
 
@@ -92,6 +92,23 @@ describe('whatMoved: which part of the campaign changed (GH-1393 follow-up)', ()
   });
 });
 
+describe('whatMoved: a posture change is its own reason (GH-1394 slice 2, ruling 6)', () => {
+  const frozen = parseStartInputs(JSON.parse(JSON.stringify(inputs())))!;
+  const on = (p: string | undefined): CampaignLedger => (p === undefined ? { ...LEDGER } : { ...LEDGER, 'campaign.difficulty': p }) as CampaignLedger;
+  it('a changed posture alone reads as posture, never as another mission completed', () => {
+    expect(whatMoved(frozen, { ...LIVE, ledger: on('easier') })).toEqual(['posture']);
+    expect(whatMoved({ ...frozen, ledger: on('harder') }, { ...LIVE, ledger: on('easier') })).toEqual(['posture']);
+  });
+  it('an absent key and an explicit standard are the same campaign', () => {
+    expect(whatMoved(frozen, { ...LIVE, ledger: on('standard') })).toEqual([]);
+    expect(whatMoved({ ...frozen, ledger: on('standard') }, LIVE)).toEqual([]);
+  });
+  it('a posture change beside another mission won names both, the posture last', () => {
+    const wonAnother = { ...on('easier'), 'campaign.mission_results': { m0: { stars: 2 }, m1: { stars: 1 } } } as unknown as CampaignLedger;
+    expect(whatMoved(frozen, { ...LIVE, ledger: wonAnother })).toEqual(['ledger', 'posture']);
+  });
+});
+
 describe('loadResume: every reason a resume does not start, and what it leaves behind', () => {
   const load = (rec: SuspendedMission | null, o: Partial<Parameters<typeof loadResume>[0]> = {}) =>
     loadResume({ missionId: MISSION, store: store(rec === null ? null : serializeSuspended(rec)), seed: 20260727, live: LIVE, ...o });
@@ -122,6 +139,18 @@ describe('loadResume: every reason a resume does not start, and what it leaves b
     expect(peekResumeMoved()).toEqual(['units']); // and the board is told WHAT moved
     clearResumeProblem();
     expect(peekResumeMoved()).toEqual([]);
+  });
+
+  it('a posture changed since the save: moved, and the board is told which two postures', async () => {
+    const moved = await load(await record(), { live: { ...LIVE, ledger: { ...LEDGER, 'campaign.difficulty': 'easier' } as CampaignLedger } });
+    expect(moved).toEqual({ ok: false, why: 'moved' });
+    expect(peekResumeMoved()).toEqual(['posture']);
+    expect(peekResumePosture()).toEqual({ was: 'standard', now: 'easier' });
+    clearResumeProblem();
+    expect(peekResumePosture()).toBeNull();
+    noteResumeProblem('moved', ['units'], { was: 'standard', now: 'standard' });
+    expect(peekResumePosture()).toBeNull(); // kept only when the posture is one of the things that moved
+    clearResumeProblem();
   });
 
   it('a later problem that is not "moved" forgets the cause it was holding', () => {

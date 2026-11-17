@@ -121,6 +121,9 @@ export interface CampaignOptions {
   signal?: AbortSignal;
   /** GH-1393: builds the saved mission's Resume row above the footer. Absent, no row (and nothing is read). The row's code is NOT imported here: it rides in the lazy save kit (mission-save-kit.ts), so the board hands in a builder. */
   resume?: ResumeBlock;
+  /** GH-1394 slice 2 (ruling D10): builds the campaign posture chip under the theatre line. Absent, no chip. Its code rides in
+   *  the lazy `ui/posture-ui.ts` chunk, so the board hands in a builder, as for `resume`. */
+  posture?: () => { el: HTMLElement; dispose(): void };
 }
 
 export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
@@ -422,6 +425,8 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   // them here keeps `worldMap`/`worldMap3d` themselves unaware of this
   // screen's layout.
   boardEl.prepend(wordmarkEl, theatre);
+  const postureChip = opts.posture?.() ?? null;
+  if (postureChip !== null) theatre.after(postureChip.el);
   wrap.appendChild(boardEl);
 
   // PA-20: the board's one primary call to action -- the next open mission, a
@@ -454,6 +459,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   stage.appendChild(wrap);
   return () => {
     resumeBlock?.dispose();
+    postureChip?.dispose();
     wrap.remove();
   };
 }
