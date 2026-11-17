@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import type { Command } from '@lions/sim';
 import { DEFEND_TILES, createCommander, type CommanderContext, type ZoneFact } from './commander';
 import { ComputerSeat, sweepStragglers } from './computer-seat';
+import { DESK_MAX_QUEUE } from './order-desk';
 import { RUSH_HOME_TILES } from './policy';
 import { zoneFacts } from './zones';
 import type { EconomyView, MenuLine } from './economy-view';
@@ -54,6 +55,12 @@ describe('defend: a contact near the camp is met at the camp', () => {
     const m = marches(out.commands);
     expect(m).toHaveLength(1);
     expect(tileOf(m[0])).toEqual(far);
+  });
+
+  it('a lone contact just beyond the radius is marched on as the centroid of ALL contacts, which a defend march on it would not be', () => {
+    const justOut: [number, number] = [CAMP[0] + DEFEND_TILES + 3, CAMP[1]];
+    const out = createCommander({ zones: false, produce: false })(view({ units: home, contacts: [contact(90, justOut), contact(91, [40, 8])] }), ctx());
+    expect(marches(out.commands).map(tileOf)).toEqual([[Math.floor((justOut[0] + 40) / 2), Math.floor((justOut[1] + 8) / 2)]]);
   });
 
   it('DEFEND_TILES is the script\'s own home radius, not a new number', () => {
@@ -127,11 +134,29 @@ describe('production: queue from the camp\'s line, through ordinary Commands', (
     expect(out.commands.filter((x) => x.kind === 'build')).toEqual([{ kind: 'build', side: 0, unit: 'at_team', line: 0 }]);
   });
 
-  it('passes over a unit the room would refuse now, one it cannot afford, and one that carries no weapon', () => {
+  it('passes over a unit the room would refuse now and one that carries no weapon', () => {
     const c = createCommander({ zones: false, defend: false });
-    const e = eco({ purse: 120, menu: [menu('at_team', 150), menu('inf_medic_squad', 50), menu('mbt_lavi', 100, 'population cap'), menu('inf_squad', 100)] });
-    const out = c(view({ units: army(1, 'at_team'), economy: e }), ctx());
+    const e = eco({ purse: 1000, menu: [menu('inf_medic_squad', 50), menu('mbt_lavi', 100, 'population cap'), menu('inf_squad', 100)] });
+    const out = c(view({ units: army(1, 'inf_squad'), economy: e }), ctx());
     expect(out.commands.filter((x) => x.kind === 'build')).toEqual([{ kind: 'build', side: 0, unit: 'inf_squad', line: 0 }]);
+  });
+
+  it('passes over the unit it is furthest below its mix on when it cannot afford it, and buys the next', () => {
+    const c = createCommander({ zones: false, defend: false });
+    c(view({ units: [...army(1, 'inf_squad'), ...army(1, 'at_team', 2)], economy: eco() }), ctx()); // started with one of each
+    const out = c(view({ units: army(1, 'inf_squad'), economy: eco({ purse: 120 }) }), ctx()); // at_team lost (0 of 1) but costs 150 > 120
+    expect(out.commands.filter((x) => x.kind === 'build')).toEqual([{ kind: 'build', side: 0, unit: 'inf_squad', line: 0 }]);
+    const rich = c(view({ units: army(1, 'inf_squad'), economy: eco({ purse: 1000 }) }), ctx());
+    expect(rich.commands.filter((x) => x.kind === 'build')).toEqual([{ kind: 'build', side: 0, unit: 'at_team', line: 0 }]);
+  });
+
+  it('one decision on the biggest shipped board (5 zones, 4 lines) fits the order desk\'s queue of 12, so nothing is dropped from the end', () => {
+    const lineOf = (n: number) => ({ line: n, alive: true, tile: [10, 40] as [number, number], building: null, progress: 0, secondsLeft: 0, contested: false, queued: [] as string[], rally: null });
+    const zones = [1, 2, 3, 4, 5].map((n) => zone(`z${n}`, [10 + n * 4, 20, 3, 3], 'none'));
+    const starters = Array.from({ length: 12 }, (_, i) => unit(i + 1, [10 + (i % 4), 40]));
+    const out = createCommander()(view({ units: starters, economy: eco({ purse: 5000, lines: [0, 1, 2, 3].map(lineOf) }) }), ctx(zones));
+    expect(out.commands.length).toBeGreaterThan(8);
+    expect(out.commands.length).toBeLessThanOrEqual(DESK_MAX_QUEUE);
   });
 
   it('does not stack: a line with something waiting gets nothing, a dead camp gets nothing, and the purse is spent down across lines', () => {
@@ -192,6 +217,17 @@ describe('the seat', () => {
     expect(seat.commandsFor(0)).toEqual([]);
   });
 
+  it('a policy and a commander together are refused: one of them would be silently ignored', () => {
+    expect(() => new ComputerSeat({ seat: 1, side: 1, policy: () => [], commander: createCommander() })).toThrow(/not both/);
+    expect(() => new ComputerSeat({ seat: 1, side: 1, commander: createCommander() })).not.toThrow();
+  });
+
+  it('a commander first called on an empty view takes its starting force from the first view that has units, so that force is not "built" (no guard)', () => {
+    const c = createCommander({ zones: false, produce: false });
+    c(view({ units: [], economy: eco() }), ctx());
+    expect(c(view({ units: [unit(1, [10, 41])], economy: eco() }), ctx()).keep.size).toBe(0);
+  });
+
   it('the zone board is public data from the runtime: holder by this side\'s chair, contested apart, never a unit', () => {
     const runtime = { incomeZones: [
       { zone: 'a', rect: [1, 2, 3, 4], state: 0, holder: 0, ratePerMin: 40 },
@@ -199,9 +235,26 @@ describe('the seat', () => {
       { zone: 'c', rect: [9, 10, 11, 12], state: -2, holder: -1, ratePerMin: 20 },
       { zone: 'd', rect: [13, 14, 15, 16], state: -1, holder: -1, ratePerMin: 20 },
     ] } as never;
-    expect(zoneFacts({ runtime }, 0).map((z) => z.holder)).toEqual(['mine', 'theirs', 'contested', 'none']);
-    expect(zoneFacts({ runtime }, 1).map((z) => z.holder)).toEqual(['theirs', 'mine', 'contested', 'none']);
-    expect(zoneFacts({ runtime: null }, 0)).toEqual([]);
+    // A points race shows both holders to both seats (points-view.ts), so `theirs` is public there.
+    expect(zoneFacts({ runtime, winMode: 'points' }, 0).map((z) => z.holder)).toEqual(['mine', 'theirs', 'contested', 'none']);
+    expect(zoneFacts({ runtime, winMode: 'points' }, 1).map((z) => z.holder)).toEqual(['theirs', 'mine', 'contested', 'none']);
+    expect(zoneFacts({ runtime: null, winMode: null }, 0)).toEqual([]);
+  });
+});
+
+describe('fog: an economy room\'s HUD does not tell an enemy-held zone from an empty one, so neither does the board', () => {
+  const runtime = { incomeZones: [
+    { zone: 'theirs', rect: [1, 2, 3, 4], state: 1, holder: 1, ratePerMin: 40 },
+    { zone: 'empty', rect: [5, 6, 7, 8], state: -1, holder: -1, ratePerMin: 40 },
+    { zone: 'mine', rect: [9, 10, 11, 12], state: 0, holder: 0, ratePerMin: 40 },
+  ] } as never;
+  it('an enemy unit standing in a fogged zone reads `none` in an economy room (winMode null) and in a camp or flag room', () => {
+    for (const winMode of [null, 'camp', 'flag'] as const) {
+      expect(zoneFacts({ runtime, winMode }, 0).map((z) => z.holder), String(winMode)).toEqual(['none', 'none', 'mine']);
+    }
+  });
+  it('and `theirs` only in a points race, whose board is public to both seats', () => {
+    expect(zoneFacts({ runtime, winMode: 'points' }, 0).map((z) => z.holder)).toEqual(['theirs', 'none', 'mine']);
   });
 });
 

@@ -13,7 +13,8 @@
 //     that means "it stopped playing" is `stallIdle` (60 s with no order while an idle, able unit stood by). Both are reported;
 //   * the outcome, by SEAT: commander win, baseline win, draw, and how it was decided (annihilation, objective, stalemate, time).
 //
-// The commander is what ships: `ComputerSeat` with its default `rush` policy plus the straggler sweep (GH-1388). There is no other. The
+// The commander is, by default, what ships: `ComputerSeat` with its default `rush` policy plus the straggler sweep (GH-1388). `--commander=slice1`
+// plays the opt-in commander of GH-1391 instead (production, zones, defend, a guard), so one probe grades both. The
 // baselines are the arena's scripted controls (`passive`, `rush`); a "sensible" baseline does not exist for versus (the campaign
 // ladders are mission plans, `plans/`), and one is not invented here. The `rush` baseline is a plain ComputerSeat too, so commander vs
 // rush is the same script on both seats: any lean in that row is the cell's, not the script's.

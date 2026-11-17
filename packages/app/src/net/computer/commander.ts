@@ -76,6 +76,7 @@ function march(ids: readonly number[], to: readonly [number, number], sweep: boo
   return out;
 }
 
+/** One commander per match: it remembers the force the seat started with, so a second match needs a second instance (a stabilised casualty who returns to view is, by id, a new unit, and joins the guard: accepted). */
 export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
   const defendOn = o.defend !== false;
   const zonesOn = o.zones !== false;
@@ -88,12 +89,12 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
   let startIds: Set<number> | null = null;
 
   return (view, ctx) => {
-    if (started === null) {
+    if (started === null && view.units.length > 0) {
       started = new Map();
       for (const u of view.units) started.set(u.type, (started.get(u.type) ?? 0) + 1);
       startIds = new Set(view.units.map((u) => u.id));
     }
-    const startMix = started;
+    const startMix = started ?? new Map<string, number>();
     const first = startIds ?? new Set<number>();
     const commands: Command[] = [];
     const taken = new Set<number>();

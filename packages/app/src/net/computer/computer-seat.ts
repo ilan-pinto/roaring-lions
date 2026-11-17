@@ -86,6 +86,7 @@ export class ComputerSeat {
   decisions = 0;
 
   constructor(private readonly o: ComputerSeatOptions) {
+    if (o.policy !== undefined && o.commander !== undefined) throw new Error('computer seat: give a policy or a commander, not both');
     this.policy = o.policy ?? (rush as SyncPolicy);
     this.every = o.every ?? REALTIME_EVERY_TICKS;
   }
