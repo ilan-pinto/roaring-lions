@@ -745,9 +745,9 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     pick(mapRadio(stage, 'wadi_tarfan_l'));
     pick(winRadios(stage).find((r) => r.value === 'flag')!);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('flag');
-    // KDF against Sarim is offered the points race alone on this map (a cell the test adds): the flag pick is dropped, annihilation is the default again.
+    // KDF against Sarim is offered the shipped camp (GH-1381) and the points race (a cell the test adds) on this map, not the flag: the flag pick is dropped, annihilation is the default again.
     pick(sideRadio(stage, 'kdf'));
-    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
+    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'camp', 'points']);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
     pick(winRadios(stage).find((r) => r.value === 'points')!);
     // ...and a map the pairing was not read fair on drops the points pick too: absent from the DOM, not merely hidden.
@@ -761,10 +761,10 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
 
   it('a faction pick on a map KDF-against-Sarim was not read fair on offers no mode and drops the pick', async () => {
     const { open, stage } = mount();
-    pick(mapRadio(stage, 'wadi_tarfan'));
+    pick(mapRadio(stage, 'tel_marum'));
     pick(winRadios(stage).find((r) => r.value === 'points')!);
     pick(sideRadio(stage, 'sarim'));
-    expect(checkedMap(stage)).toBe('wadi_tarfan');   // a map KDF-v-Sarim plays, so the ground stays
+    expect(checkedMap(stage)).toBe('tel_marum');   // a map KDF-v-Sarim plays, so the ground stays
     expect(winRadios(stage)).toEqual([]);
     const req = await created(stage, open);
     expect(req).toMatchObject({ matchup: 'sarim' });
@@ -772,6 +772,20 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     // and back to the mirror: Annihilation again, not the dropped Points race
     pick(sideRadio(stage, 'mirror'));
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
+  });
+
+  it('GH-1381: KDF against Sarim on Wadi Tarfan is offered Destroy the camp alone, from either host, as shipped; a points pick is dropped', async () => {
+    asShipped();
+    for (const side of ['kdf', 'sarim'] as const) {
+      const { open, stage } = mount();
+      pick(mapRadio(stage, 'wadi_tarfan'));
+      pick(winRadios(stage).find((r) => r.value === 'points')!);
+      pick(sideRadio(stage, side));
+      expect(winRadios(stage).map((r) => r.value), side).toEqual(['annihilation', 'camp']);
+      expect(winRadios(stage).find((r) => r.checked)?.value, side).toBe('annihilation');
+      pick(winRadios(stage).find((r) => r.value === 'camp')!);
+      expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan', matchup: side, winMode: 'camp' });
+    }
   });
 
   it('GH-976 P4: a faction cell in the table is offered, the create carries it, and the economy line gives way to the placed-forces one', async () => withFactionPoints(['kdf', 'sarim'], async () => {
@@ -783,7 +797,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       pick(sideRadio(stage, side));
       expect(checkedMap(stage)).toBe('wadi_tarfan_l');
       expect(winGroup(stage).hidden).toBe(false);
-      expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
+      expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'camp', 'points']);   // the camp is the shipped cell (GH-1381), points the test's
       // Annihilation on a faction pairing is the economy room: the economy line shows and the placed-forces line does not.
       expect(economy.hidden).toBe(false);
       expect(placed.hidden).toBe(true);
@@ -1564,5 +1578,112 @@ describe('members, guests and bots (GH-1075 A3, Task 3.7)', () => {
     expect(handed?.transport).toBe(transport);
     expect(handed?.labels?.[1]?.text).toBe('Ilan · K7Q2M4XA');
     expect(handed?.labels?.[0]?.text).toBe('Ari');
+  });
+});
+
+// GH-1388: the basic computer opponent, offered in the lobby with no flag and no URL parameter.
+describe('the computer seat in the lobby', () => {
+  const cpuButton = (stage: ParentNode): HTMLButtonElement | null => stage.querySelector<HTMLButtonElement>('.rl-versus__cpu-start');
+
+  it('is offered when the build can arm one, labelled plainly as a basic opponent, with a note that says only what the script does', () => {
+    const stage = mountPick(deps({ playComputer: vi.fn().mockResolvedValue('OFFLINE') }));
+    const b = cpuButton(stage);
+    expect(b?.textContent).toBe(en['versus.cpu.start']);
+    expect(b?.textContent).toMatch(/basic/i);
+    expect(describedBy(b!)).toBe(en['versus.cpu.note']);
+    expect(missingKeys()).toEqual([]);
+  });
+
+  it('?pseudo=1: the heading, the note, the button and the failure line are bracketed, so none bypassed t()', async () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const stage = mountPick(deps({ playComputer: vi.fn().mockRejectedValue(new Error('x')) }));
+      cpuButton(stage)!.click();
+      await flush();
+      const shown = [
+        stage.querySelector('.rl-versus__cpu .rl-versus__join-lead'),
+        stage.querySelector('.rl-versus__cpu-note'),
+        cpuButton(stage),
+        stage.querySelector('.rl-versus__cpu-msg'),
+      ].map((e) => e?.textContent ?? '');
+      expect(shown.length).toBe(4);
+      for (const text of shown) expect(text, text).toMatch(/^⟦[\s\S]*⟧$/);
+    } finally {
+      setCatalogue('en', en);
+    }
+  });
+
+  it('is not drawn when the build cannot arm one', () => {
+    expect(cpuButton(mountPick(deps()))).toBeNull();
+  });
+
+  it('a click arms the match for the picked map, side and callsign and opens the battlefield on the offline code, with no room opened', async () => {
+    const playComputer = vi.fn().mockResolvedValue('OFFLINE');
+    const d = deps({ playComputer });
+    const stage = mountPick(d);
+    cpuButton(stage)!.click();
+    await flush();
+    expect(playComputer).toHaveBeenCalledTimes(1);
+    const arg = playComputer.mock.calls[0]![0] as { map: string; matchup: string; callsign: string };
+    expect(arg.matchup).toBe('mirror');
+    expect(arg.callsign).toBe('Ari');
+    expect(MAPS.some((m) => m.id === arg.map)).toBe(true);
+    expect(d.navigated).toEqual([[`/free-play/${arg.map}?net=OFFLINE`, undefined]]);
+    expect(d.open).not.toHaveBeenCalled();
+  });
+
+  it('an economy pairing hides the computer seat (it builds nothing, so the match could never end), and the mirror brings it back', async () => {
+    const playComputer = vi.fn().mockResolvedValue('OFFLINE');
+    const stage = mountPick(deps({ playComputer }));
+    const section = stage.querySelector<HTMLElement>('.rl-versus__cpu')!;
+    expect(section.hidden).toBe(false);
+    for (const m of ['kdf', 'sarim'] as const) {
+      const r = stage.querySelector<HTMLInputElement>(`.rl-versus__side-radio[value="${m}"]`)!;
+      r.click();
+      r.dispatchEvent(new Event('change'));
+      expect(section.hidden, m).toBe(true);
+      cpuButton(stage)!.click();
+      await flush();
+      expect(playComputer, m).not.toHaveBeenCalled();
+    }
+    const back = stage.querySelector<HTMLInputElement>('.rl-versus__side-radio[value="mirror"]')!;
+    back.click();
+    back.dispatchEvent(new Event('change'));
+    expect(section.hidden).toBe(false);
+  });
+
+  it('a failure to arm says so on its own line, re-enables the button, and navigates nowhere', async () => {
+    const d = deps({ playComputer: vi.fn().mockRejectedValue(new Error('chunk')) });
+    const stage = mountPick(d);
+    cpuButton(stage)!.click();
+    await flush();
+    expect(stage.querySelector('.rl-versus__cpu-msg')?.textContent).toBe(en['versus.cpu.failed']);
+    expect(cpuButton(stage)!.disabled).toBe(false);
+    expect(d.navigated).toEqual([]);
+  });
+
+  it('the screen left while the match arms: nothing is opened, and the armed match is dropped (the disposer contract)', async () => {
+    let release: (v: string) => void = () => {};
+    const discardComputer = vi.fn();
+    const d = deps({ playComputer: vi.fn(() => new Promise<string>((r) => { release = r; })), discardComputer });
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    const leave = showVersus(stage, d);
+    cpuButton(stage)!.click();
+    leave();
+    release('OFFLINE');
+    await flush();
+    expect(discardComputer).toHaveBeenCalledTimes(1);
+    expect(d.navigated).toEqual([]);
+  });
+
+  it('a second click while it arms is ignored', async () => {
+    const playComputer = vi.fn(() => new Promise<string>(() => {}));
+    const stage = mountPick(deps({ playComputer }));
+    const b = cpuButton(stage)!;
+    b.click();
+    b.click();
+    expect(playComputer).toHaveBeenCalledTimes(1);
+    expect(b.disabled).toBe(true);
   });
 });

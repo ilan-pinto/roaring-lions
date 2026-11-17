@@ -19,11 +19,14 @@ import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { stagger } from './motion';
 import { wordmark } from './mark';
+import { avatarElement, guestMark } from './avatar';
+import type { MenuWho } from '../account/menu-account';
 import { worldMap } from './worldmap';
 import { worldMap3d } from './worldmap3d';
 import { markConfirm } from './confirm-cue';
 import { paintMapTerrain } from './map-preview';
 import { terrainTonesFor } from '../terrain-themes';
+import type { ResumeBlock } from './resume-row';
 
 /** Shipped maps the Free Play picker does not list (GH-871 P2, the lead's
  *  ruling): Ein Qasab is a greybox terrain study until P3's real art lands, so
@@ -88,9 +91,9 @@ export interface MenuOptions {
   /** The server's switch (`GET /api/feedback`, asked once a boot): when it
    *  resolves false after this menu mounted, the button comes down. */
   feedbackAvailable?: Promise<boolean>;
-  /** The account chip (GH-1075 A1): drawn only when `enabled`. `name` resolves to the signed-in display name, or
-   *  null for a guest; until it does the chip reads as a guest's. */
-  account?: { enabled: boolean; name?: Promise<string | null> };
+  /** The account chip (GH-1075 A1): drawn only when `enabled`. `who` resolves to the signed-in member (name and
+   *  resolved avatar), or null for a guest; until it does the chip reads as a guest's. */
+  account?: { enabled: boolean; /** The device has an account binding: the chip says Sign in; without one, Sign up. */ hasAccount?: boolean; who?: Promise<MenuWho | null>; /** `GET open`: a closed switch removes the chip and the privacy link, unless `name` says someone is signed in (they still need export and delete). */ open?: Promise<boolean> };
   /** A claimed device with no cache whose `GET state` timed out (GH-1075 A2, §0.11): the campaign cannot be read, so its
    *  entries (Continue, the tutorial, Campaign, Brigade) are off, and the column says `account.unreachable`. */
   unreachable?: boolean;
@@ -116,6 +119,8 @@ export interface CampaignOptions {
    *  Handed to the 3D board so a leave during its download makes no WebGL
    *  context (`worldmap3d.ts`, `World3dOptions.signal`). */
   signal?: AbortSignal;
+  /** GH-1393: builds the saved mission's Resume row above the footer. Absent, no row (and nothing is read). The row's code is NOT imported here: it rides in the lazy save kit (mission-save-kit.ts), so the board hands in a builder. */
+  resume?: ResumeBlock;
 }
 
 export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
@@ -265,15 +270,31 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   }
   if (opts.account?.enabled) {
     const chip = document.createElement('a');
-    chip.className = 'rl-btn rl-menu__item';
-    chip.dataset.kind = 'aside';
+    chip.className = 'rl-menu__acct';
     chip.dataset.act = 'profile';
     chip.href = routes.profile();
-    chip.textContent = t('menu.profile.guest');
-    aside.appendChild(chip);
+    const chipText = document.createElement('span');
+    chipText.className = 'rl-menu__acct-name';
+    chipText.textContent = opts.account.hasAccount === true ? t('menu.profile.guest') : t('menu.profile.signUp');
+    chip.append(guestMark('chip'), chipText);
+    // Top of the column, above the wordmark, right-aligned: in flow, so it can never overlap the lockup at any width.
+    wrap.insertBefore(chip, wrap.firstChild);
     addAside(t('menu.aside.privacy'), routes.privacy());
-    void opts.account.name?.then((name) => {
-      if (name !== null) chip.textContent = name;
+    const privacyLink = aside.lastElementChild;
+    let signedInName: string | null = null;
+    void opts.account.who?.then((who) => {
+      signedInName = who?.name ?? null;
+      if (who === null) return;
+      chipText.textContent = who.name;
+      chip.setAttribute('aria-label', t('menu.profile.avatar', { name: who.name }));
+      chip.firstElementChild?.replaceWith(avatarElement(who.avatar, who.publicId, 'chip'));
+    });
+    void opts.account.open?.then(async (open) => {
+      if (open) return;
+      await opts.account?.who?.catch(() => null);
+      if (signedInName !== null) return;
+      chip.remove();
+      privacyLink?.remove();
     });
   }
   // Last, deliberately: people, libraries, fonts and the licence split are
@@ -424,12 +445,17 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
     markConfirm(next);
     foot.end.appendChild(next);
   }
+  const resumeBlock = opts.resume === undefined ? null : opts.resume();
+  if (resumeBlock?.el) nav.appendChild(resumeBlock.el);
   nav.appendChild(foot.el);
   wrap.appendChild(nav);
 
   stagger(wrap);
   stage.appendChild(wrap);
-  return () => wrap.remove();
+  return () => {
+    resumeBlock?.dispose();
+    wrap.remove();
+  };
 }
 
 /** The sandbox picker: which map, and which of the opt-in extras.

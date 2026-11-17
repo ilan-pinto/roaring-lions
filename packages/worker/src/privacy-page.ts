@@ -13,7 +13,7 @@ export const PRIVACY_CONTACT: string | null =
 /** The lead's minimum age (an integer 13 to 18). `null` until the lead decides it. */
 export const PRIVACY_MIN_AGE: number | null = 16;
 /** The date this text last changed. Set at merge. */
-export const PRIVACY_UPDATED = '2026-11-12';
+export const PRIVACY_UPDATED = '2026-11-15';
 
 /** PAGE_CSP with its inline-script allowance removed: this page has no script, so it may run none. */
 export const PRIVACY_PAGE_CSP = PAGE_CSP.replace("script-src 'unsafe-inline'", "script-src 'none'");
@@ -46,11 +46,12 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <body>
 <main>
 <h1>How your data is kept</h1>
-<p>Playing as a guest creates no account and stores no personal details on our server, unless you choose to send feedback with contact details. Anonymous play statistics and rate limiting are described below. This page is mainly about what happens if you choose to sign in.</p>
+<p>Playing as a guest creates no account and stores no personal details on our server, unless you choose to send feedback with contact details. Anonymous play statistics and rate limiting are described below. This page is mainly about what happens if you choose to sign in, with Google or with Steam.</p>
 
 <h2>What is stored for a signed-in player</h2>
 <ul>
-<li>Your SteamID64, which links to your public Steam profile.</li>
+<li>If you sign in with Google: Google's account number for you (its "sub"), and nothing else from Google. We do not ask Google for your email, name or picture.</li>
+<li>If you link Steam: your SteamID64, which links to your public Steam profile.</li>
 <li>The display name you choose, and a random Player ID shown beside it.</li>
 <li>The day the account was created and the day you last signed in (the 36-month rule below uses it).</li>
 <li>A hash of each sign-in session, with the day it was made and the day it was last used.</li>
@@ -62,20 +63,48 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <li>Versus matches you play while signed in: the map, the sides, the result, when it was played, and whether your opponent was a member, a guest or a bot (with the model the bot's operator declared). A guest opponent's name is never stored. Kept while either player keeps an account.</li>
 </ul>
 
+<h2>What the team can see</h2>
+<ul>
+<li>The Roaring Lions team can view your display name, Player ID, balances and their history, and can correct your coin or credit balance. Every view and every change is logged with the reason, and the change appears in your export.</li>
+<li>What the team sees never includes your Google or Steam account number.</li>
+<li>A log of views is kept for 180 days. A log of changes is kept while your account is.</li>
+</ul>
+
+<h2>Anonymous usage, crash and performance reports</h2>
+<ul>
+<li>When you play on the live site, the game sends reports tied to a random ID. The ID is kept in this browser and is sent with every report. It is not linked to an account. If you were given a tester label (?tester=), that label is sent with every report too.</li>
+<li>A report holds: the size of your window, the game build, the time of each event and which graphics backend draws; which screens and missions you reach, the kinds of orders you give and how many, your brigade credits, purchases and upgrades, and how each mission ended; for a crash, its type, a short error text and a hash of where it happened; and frame times (median, 95th and 99th percentile), the number of units on the map, your graphics quality setting, the family of your graphics card, and how long the game took to start.</li>
+<li>No email, IP address or browser user agent is sent or stored. Crash text is short, and links, file paths, IP addresses, quoted text and long numbers are removed from it by rule. It is still error text from the game, and it can hold fragments of what the game was handling.</li>
+<li>Everything held about an ID is deleted about 180 days after it was last seen, by a daily clean-up: its reports, and the summary kept for it (when it was first and last seen, time played, missions won, the tester label and the brigade credits). In other words, after about 180 days without play.</li>
+<li>Turn the reports off in Settings, under Privacy, or add ?notrack to the address. Your browser's Do Not Track and Global Privacy Control signals also turn them off. Nothing is sent from a local or development build unless the address has ?telemetry.</li>
+</ul>
+
 <h2>What is never stored</h2>
 <ul>
 <li>Email, phone number and real name.</li>
 <li>IP address and user agent.</li>
 <li>Location.</li>
+<li>Your Google email address, name and profile picture, and any Google sign-in token.</li>
 <li>Your Steam persona name, avatar and friends list.</li>
 <li>The session cookie itself (only a hash of it).</li>
 </ul>
+
+<h2>Signing in with Google</h2>
+<ul>
+<li>Google handles the sign-in under its own privacy policy, and learns that you signed in to Roaring Lions.</li>
+<li>We ask Google for the "openid" scope only. That is why it sends us an account number and nothing about who you are.</li>
+<li>You can remove Roaring Lions from your Google account's third-party access page at any time.</li>
+<li>We hold no Google token, so there is nothing for us to revoke.</li>
+</ul>
+
+<h2>Signing in with Steam</h2>
+<p>Sign-in through Steam is paused for now. If you already linked a Steam account, what is kept about it is listed above.</p>
 
 <h2>What rate limiting keeps</h2>
 <p>A daily keyed hash of the connecting address, which cannot be turned back into the address. It is deleted after two days.</p>
 
 <h2>What Cloudflare keeps</h2>
-<p>The game runs on Cloudflare. Its request logs record the address of each request, including the Steam sign-in return, which carries your SteamID. Cloudflare keeps them for its own log retention period.</p>
+<p>The game runs on Cloudflare. Its request logs record the address of each request. Google's return carries a one-time code and no identifier about you. A Steam return, when Steam sign-in is on, carries your SteamID. Cloudflare keeps the logs for its own log retention period.</p>
 
 <h2>Why</h2>
 <p>The lawful basis is providing the service you asked for: keeping your progress on our server.</p>
@@ -91,7 +120,7 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <p>Use "Download my data" and "Delete my account" on the profile screen. Both work at any time. Deletion cannot be undone.</p>
 
 <h2>Play statistics</h2>
-<p>Play statistics stay anonymous and are never linked to an account. Opt out with ?notrack, Global Privacy Control or Do Not Track.</p>
+<p>Play statistics stay anonymous and are never linked to an account. Opt out in Settings, under Privacy, or with ?notrack, Global Privacy Control or Do Not Track.</p>
 
 <h2>Contact and minimum age</h2>
 <p>Questions or requests about your data: ${esc(v.contact)}</p>

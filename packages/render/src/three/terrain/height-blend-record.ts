@@ -24,6 +24,12 @@ export const HEIGHT_BLEND_BUILT_KEY = 'rlHeightBlendBuilt';
 export interface HeightBlendRecord {
   /** The field texture (RGBA8, Linear, clamp, no mips). A rebuild or a late load REPLACES it; the twin re-reads it each render. */
   field: THREE.Texture;
+  /**
+   * The ground's OWN `uControlA` uniform object (shared by reference, so a terrain rebuild's new control A reaches every reader with the one
+   * write). The node decal twin taps `.value` for its soil weight (GH-1226: the decal has no control A of its own); the ground twin reads
+   * its own uniform and ignores this.
+   */
+  readonly controlA: { value: THREE.Texture };
   /** LINEAR rgb. Mutated or replaced; the twin re-reads the reference each render. */
   rockTone: THREE.Color;
   /** Absent exactly when `options.joints` is false (arid): `installHeightBlend` throws on `joints: true` without both this and `aJ`. */

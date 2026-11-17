@@ -133,9 +133,17 @@ function updateNodesOf(d: UnitDeps, mesh: THREE.Object3D, material: THREE.Materi
 }
 
 describe('G3: a late field reaches the texture node through the BUILT program\'s own render updates (WGSL and GLSL)', () => {
-  it.each([true, false])('wgsl %s: running every render-type update node the builder kept binds the landed field', async (wgsl) => {
+  // GH-1096 S2: both shapes the fleet ships. Team + insignia is the Lavi line and the three carriers; insignia-only is the other
+  // seven framed types (the D9, the jeep, the Tzav, the Remetz, the two Te'o, the Shachaf), whose program has no team term, so
+  // its render updates are a different set and the carrier must be witnessed on it too (B1 of the S1 review).
+  it.each([
+    ['team + insignia', true, true],
+    ['team + insignia', false, true],
+    ['insignia only', true, false],
+    ['insignia only', false, false],
+  ] as const)('%s, wgsl %s: running every render-type update node the builder kept binds the landed field', async (_shape, wgsl, team) => {
     const d = await unitDeps();
-    const { shared, twin, mesh } = await built(d, laviMaterial());
+    const { shared, twin, mesh } = await built(d, team ? laviMaterial() : insOnlyMaterial());
     const nodes = updateNodesOf(d, mesh, twin, wgsl);
     const sdf = uniformOf(twin, 'uInsSdf');
     const real = new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1);

@@ -1,7 +1,8 @@
 // packages/app/src/ui/settings-panel.ts
 /**
- * The settings screen: one table, five sections (Video, Audio, Controls,
- * Accessibility, Language), applied as the player changes them. `get`/`set`
+ * The settings screen: up to seven sections (Video, Audio, Accessibility,
+ * Privacy, Chat, Language, Controls), each a card in the account page's
+ * design (GH-1510), applied as the player changes them. `get`/`set`
  * are the whole contract with the shell -- this module reads the current
  * `Settings` once per render and writes a whole new object back through
  * `set`, which persists and applies it (`main.ts`'s `settingsDeps.set`). The
@@ -41,6 +42,7 @@ import {
   type TextSize,
   type UiScaleSetting,
 } from '../settings';
+import { pageCard, pageColumns } from './page-card';
 import { panel } from './panel';
 import type { KeymapDeps } from './settings-keymap';
 
@@ -55,6 +57,8 @@ export interface SettingsDeps {
   /** `main.ts` passes `keymapRows(...)`; `null` renders no Controls section
    *  at all, which is what a test that does not exercise the row wants. */
   keymap: KeymapDeps | null;
+  /** GH-1410: the anonymous usage-and-crash-report switch. `get()` is true while reports are SENT (the stored opt-out, inverted). Absent or null: no Privacy section. */
+  reports?: { get(): boolean; set(on: boolean): void } | null;
   /** `__APP_BUILD__`, printed at the foot of the table. */
   build: string;
   /** `__APP_COMMIT__` (the full hex commit, or '' when the build had none).
@@ -150,11 +154,17 @@ function checkbox(name: string, checked: boolean, onChange: (v: boolean) => void
   return cb;
 }
 
-function section(table: HTMLElement, title: string): void {
-  const h = document.createElement('h3');
-  h.className = 'rl-settings__section';
-  h.textContent = title;
-  table.appendChild(h);
+/** The card a section is drawn in. The key names its colour strip in `theme.css` (the account page's own head colours). */
+type SectionKey = 'video' | 'audio' | 'accessibility' | 'controls' | 'privacy' | 'chat' | 'language';
+
+/**
+ * One section is one card of the account page's design (GH-1510; `page-card.ts`, GH-1075 P7): the title strip, then
+ * the rows. Returns the card's body, which is where the section's rows go.
+ */
+function section(column: HTMLElement, key: SectionKey, title: string): HTMLElement {
+  const c = pageCard(`rl-settings__card rl-settings__card--${key}`, title);
+  column.appendChild(c.el);
+  return c.body;
 }
 
 export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTMLElement; dispose: Disposer } {
@@ -162,9 +172,16 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
   const cleanup: Disposer[] = [];
   const p = panel({ rank: 'inspect', title: t('settings.title') });
   p.el.classList.add('rl-settings');
-  const table = document.createElement('div');
-  table.className = 'rl-settings__table';
-  p.body.appendChild(table);
+  // GH-1510: the account page's layout. Two columns of cards (the wide one: Video, Audio; the narrow one:
+  // Accessibility, Privacy, Chat, Language), then Controls full width under both, because the key table is the
+  // one long section. One column, in that order, when the panel is narrow: a small window, or the pause menu's tab.
+  const content = document.createElement('div');
+  content.className = 'rl-settings__content';
+  const cols = pageColumns('rl-settings__cols');
+  content.appendChild(cols.el);
+  p.body.appendChild(content);
+  /** The body of the card being filled. Every `row` below writes into it. */
+  let table: HTMLElement;
 
   const update = (mut: (s: Settings) => void): void => {
     const next = structuredClone(deps.get());
@@ -173,7 +190,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
   };
   const s = deps.get();
 
-  section(table, t('settings.video'));
+  table = section(cols.main, 'video', t('settings.video'));
   if (deps.fullscreen?.supported()) {
     const fs = deps.fullscreen;
     const cb = document.createElement('input');
@@ -302,7 +319,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
     row(table, t('settings.intro'), btn, t('settings.intro.hint'));
   }
 
-  section(table, t('settings.audio'));
+  table = section(cols.main, 'audio', t('settings.audio'));
   const live = (k: 'master' | 'music' | 'sfx' | 'voice') => (v: number): void => {
     // The four levels only: `audio` also carries the radio toggle, which is
     // not a gain and is applied by `set`, never live.
@@ -337,7 +354,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
     t('settings.audio.radio.hint')
   );
 
-  section(table, t('settings.accessibility'));
+  table = section(cols.side, 'accessibility', t('settings.accessibility'));
   row(
     table,
     t('settings.motion'),
@@ -388,7 +405,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
 
   if (deps.keymap) {
     const keymap = deps.keymap;
-    section(table, t('settings.controls'));
+    table = section(content, 'controls', t('settings.controls'));
     row(
       table,
       t('settings.cameraSpeed'),
@@ -426,7 +443,30 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
     keymap.mount(table);
   }
 
-  section(table, t('settings.language'));
+  if (deps.reports) {
+    const reports = deps.reports;
+    table = section(cols.side, 'privacy', t('settings.privacy'));
+    row(
+      table,
+      t('settings.reports'),
+      checkbox('reports', reports.get(), (v) => reports.set(v)),
+      t('settings.reports.hint')
+    );
+  }
+
+  table = section(cols.side, 'chat', t('settings.chat'));
+  row(
+    table,
+    t('settings.chat.enabled'),
+    checkbox('chat', s.chat.enabled, (v) =>
+      update((n) => {
+        n.chat.enabled = v;
+      })
+    ),
+    t('settings.chat.hint')
+  );
+
+  table = section(cols.side, 'language', t('settings.language'));
   row(
     table,
     t('settings.language'),

@@ -1,7 +1,7 @@
 /**
  * Which `LedgerStore` this boot gets (GH-1075 A2, §0.11), decided once and synchronously. A guest, a device with no
- * claim, `?fresh`, or no `?accounts` all get today's `browserLedgerStore`, untouched. Only a claimed binding behind
- * `?accounts` gets the server-backed store; with no cache yet it gets a blocked store (no guest key is read: the claim
+ * claim, `?fresh`, or accounts off (dev and CI) all get today's `browserLedgerStore`, untouched. Only a claimed binding with
+ * accounts on gets the server-backed store; with no cache yet it gets a blocked store (no guest key is read: the claim
  * removed them) and `needsState`, so boot awaits `GET state` before the first screen.
  */
 import type { ParsedWorld } from '@lions/economy';

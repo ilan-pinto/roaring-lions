@@ -7,3 +7,7 @@
 export function pxFailures(file: string, css: string): string[];
 export const RETIRED_DINGBATS: readonly string[];
 export function dingbatFailures(file: string, src: string): string[];
+
+export const BRAND_DIR: string;
+export const BRAND_MARKS: string[];
+export function brandMarkFailures(present: string[], marks?: string[]): string[];

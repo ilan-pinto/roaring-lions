@@ -25,10 +25,10 @@ function field(w: number, h: number, edit?: (i: TerrainInput) => void): TerrainI
 const place = (i: TerrainInput, d?: number) => placeGrassClumps(i, buildTerrainSurface(i), d);
 
 describe('placeGrassClumps', () => {
-  it('keeps a mean of 0.7 of 16 candidates a tile at dial 1, and the dial scales it linearly', () => {
+  it('keeps a mean of 0.64 of 25 candidates a tile at dial 1, and the dial scales it linearly', () => {
     const i = field(32, 32);
-    expect(place(i, 1).count / 1024).toBeGreaterThan(11.2 - 1);
-    expect(place(i, 1).count / 1024).toBeLessThan(11.2 + 1);
+    expect(place(i, 1).count / 1024).toBeGreaterThan(16 - 1);
+    expect(place(i, 1).count / 1024).toBeLessThan(16 + 1);
     const half = place(i, 0.5).count / place(i, 1).count;
     expect(half).toBeGreaterThan(0.45);
     expect(half).toBeLessThan(0.55);

@@ -100,6 +100,7 @@ function realField(): THREE.DataTexture {
 function makeRecord(over: Partial<HeightBlendRecord> = {}): HeightBlendRecord {
   return {
     field: heightBlendPlaceholder(),
+    controlA: { value: new THREE.DataTexture(new Uint8Array([255, 0, 0, 0]), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType) },
     rockTone: new THREE.Color(0.1, 0.2, 0.3),
     jointTone: new THREE.Color(0.4, 0.5, 0.6),
     hollowTone: new THREE.Color(0.7, 0.8, 0.9),

@@ -19,8 +19,9 @@ export interface ReplayRunOptions {
   frameMs?: number;
   /** The most ticks one frame may ask the transport for; default 4 (the battlefield's own floor). */
   perFrame?: number;
-  /** Called after each animation frame with the ticks run so far: lets a spec look at the run mid-way. */
-  onFrame?: (tick: number) => void;
+  /** Called after each animation frame with the ticks run so far, and a reader of the sim's hash at that moment: lets a spec (or the
+   *  verifier's checkpoints, with `perFrame: 1`) look at the run mid-way. */
+  onFrame?: (tick: number, hash: () => number) => void;
 }
 
 /** The sim's tick and `sim.hash()` once every recorded frame has run. */
@@ -37,7 +38,7 @@ export function replayToEnd(file: ReplayFile, o: ReplayRunOptions = {}): ReplayD
   while (transport.position < transport.total) {
     clock += frameMs;
     runFrames(step, perFrame);
-    o.onFrame?.(w.sim.tickCount);
+    o.onFrame?.(w.sim.tickCount, () => w.sim.hash());
   }
   return { tick: w.sim.tickCount, hash: w.sim.hash() };
 }

@@ -43,8 +43,9 @@ export const routes = {
   freePlay: (): string => href('/free-play'),
   sandbox: (map: string, on?: Partial<Record<SandboxFlagName, boolean>>): string =>
     `${href(`/free-play/${encodeURIComponent(map)}`)}${flagQuery(on)}`,
-  mission: (id: string, opts: { tutorial?: boolean; fresh?: boolean } = {}): string => {
+  mission: (id: string, opts: { tutorial?: boolean; fresh?: boolean; resume?: boolean } = {}): string => {
     const q = new URLSearchParams();
+    if (opts.resume) q.set('resume', '1');
     if (opts.tutorial) q.set('tutorial', '1');
     if (opts.fresh) q.set('fresh', '1');
     return href(`/mission/${encodeURIComponent(id)}`, q);
@@ -77,7 +78,7 @@ export const routes = {
 /**
  * The menu href for a HARD reload (GH-1075 A2): `routes.menu()` plus the sticky keys copied from `search` (the current
  * `location.search`). A router navigation carries them itself; a `location.assign` does not, and a reload that loses
- * `?accounts` lands a signed-in device on the guest store.
+ * `?accounts` lands a signed-in dev-server device on the guest store (on a real host accounts are on without it).
  */
 export function reloadMenuHref(search: string): string {
   const here = new URLSearchParams(search);

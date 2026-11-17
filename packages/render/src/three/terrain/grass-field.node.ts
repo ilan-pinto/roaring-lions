@@ -167,6 +167,9 @@ export function createGrassFieldMaterial(deps: NodeGrassFieldDeps, rec: GrassFie
   mat.roughness = GRASS_FIELD_ROUGHNESS;
   mat.metalness = GRASS_FIELD_METALNESS;
   mat.side = W.DoubleSide;
+  // One pass, not the back-faces-then-front-faces pair three draws for a transparent DoubleSide material: it halved the field's
+  // cost on Metal (S8, `docs/agent-notes/webgpu-backend.md`). Both faces still draw, in one call.
+  mat.forceSinglePass = true;
   // Section 3.3: the transparent queue at opacity 1, depth-tested, writing no depth.
   mat.transparent = true;
   mat.opacity = 1;
@@ -306,7 +309,7 @@ export function createGrassFieldMesh(
 
 /**
  * GH-1167 S5: how far past an instanced cell's rest bounds the grass may draw (tiles): the wind (0.015 tile at weight 1), the
- * flutter (0.004), the disturbers' bend (at most the 0.12-tile blade laid flat) and the width floor's push. Padded so three's
+ * flutter (0.004), the disturbers' bend (at most the 0.16-tile blade laid flat) and the width floor's push. Padded so three's
  * frustum test never drops a cell whose blades still reach the screen.
  */
 export const GRASS_CELL_BOUNDS_PAD_TILES = 0.25;
@@ -319,6 +322,8 @@ export interface GrassFieldSpec {
   readonly meshes: readonly GrassCellMesh[];
   /** The LOD to draw first (`grassLodFor`). */
   readonly lod: GrassLod;
+  /** Whether the rung is on at the first frame (`grassRungFor`). Absent is off. */
+  readonly rung?: boolean;
 }
 
 /** A built field. One material and nine geometries, shared by every cell mesh. */
@@ -327,6 +332,13 @@ export interface GrassFieldHandle {
   readonly root: THREE.Group;
   readonly material: THREE.Material;
   lod(): GrassLod;
+  /** Whether the zoom rung is on (the `thin` share of the clumps drawing). */
+  rung(): boolean;
+  /**
+   * The zoom rung: on writes each mesh's `thin` matrices over the front of its instance buffer, sets its `count` and hides a mesh with
+   * none; off writes the full matrices back. One upload per mesh per change. True when it changed.
+   */
+  setRung(on: boolean): boolean;
   /** Swaps every mesh's geometry to `lod`'s (same attribute layout, so the pipeline does not change; no matrix re-uploads). True when it changed. */
   setLod(lod: GrassLod): boolean;
   /** The collapse splice: every mesh of `cells` is removed and disposed, and `meshes` (all of them from those cells) are added. */
@@ -359,7 +371,16 @@ export function createGrassFieldKit(deps: NodeGrassFieldDeps): GrassFieldKit {
       root.userData.rlAoExempt = true;
       root.matrixAutoUpdate = false;
       let current: GrassLod = spec.lod;
+      let rungOn = spec.rung === true;
       const live: THREE.InstancedMesh[] = [];
+      const source = new Map<THREE.InstancedMesh, GrassCellMesh>();
+      const shape = (mesh: THREE.InstancedMesh, m: GrassCellMesh, on: boolean): void => {
+        const d = on ? m.thin : m;
+        (mesh.instanceMatrix.array as Float32Array).set(d.matrices);
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.count = d.count;
+        mesh.visible = d.count > 0;
+      };
       const make = (m: GrassCellMesh): THREE.InstancedMesh => {
         const row = geos[m.variant];
         if (row === undefined) throw new Error(`GrassFieldKit: variant ${m.variant}`);
@@ -370,6 +391,8 @@ export function createGrassFieldKit(deps: NodeGrassFieldDeps): GrassFieldKit {
         mesh.computeBoundingSphere();
         if (mesh.boundingSphere !== null) mesh.boundingSphere.radius += GRASS_CELL_BOUNDS_PAD_TILES;
         mesh.geometry = row[current] as THREE.BufferGeometry;
+        source.set(mesh, m);
+        if (rungOn) shape(mesh, m, true);
         mesh.userData.rlGrassCell = m.cell;
         mesh.userData.rlGrassVariant = m.variant;
         mesh.matrixAutoUpdate = false;
@@ -390,6 +413,16 @@ export function createGrassFieldKit(deps: NodeGrassFieldDeps): GrassFieldKit {
         root,
         material,
         lod: () => current,
+        rung: () => rungOn,
+        setRung(on: boolean): boolean {
+          if (on === rungOn) return false;
+          rungOn = on;
+          for (const mesh of live) {
+            const m = source.get(mesh);
+            if (m !== undefined) shape(mesh, m, on);
+          }
+          return true;
+        },
         setLod(lod: GrassLod): boolean {
           if (lod === current) return false;
           current = lod;
@@ -407,6 +440,7 @@ export function createGrassFieldKit(deps: NodeGrassFieldDeps): GrassFieldKit {
             if (!set.has(mesh.userData.rlGrassCell as number)) continue;
             root.remove(mesh);
             mesh.dispose();
+            source.delete(mesh);
             live.splice(i, 1);
           }
           add(meshes);
@@ -419,6 +453,7 @@ export function createGrassFieldKit(deps: NodeGrassFieldDeps): GrassFieldKit {
           root.removeFromParent();
           for (const mesh of live) mesh.dispose();
           live.length = 0;
+          source.clear();
           root.clear();
           for (const row of geos) for (const g of row) g.dispose();
           material.dispose();

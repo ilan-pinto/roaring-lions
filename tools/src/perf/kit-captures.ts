@@ -84,6 +84,8 @@
  * (which stops the auto-turn) and photographs the plate at the default face
  * (Home, 0 deg) and the far side (End, 180 deg). Then the Lavi again from an
  * account at L0. Writes `final/garage-<id>.png` and `final/garage-mbt_lavi-L0.png`.
+ * `--only=` may also name a `GARAGE_ONLY` id (GH-1096 S2: an insignia-framed
+ * vehicle with no kit), photographed the same way at the same account.
  * Until the garage view takes tiers (plan Task 7b) the L0 and L3 bays are
  * expected to match; the tool reports what it saw rather than asserting it.
  *
@@ -151,6 +153,11 @@ const VEHICLES = [
   'heli_peten',
 ] as const;
 type VehicleId = (typeof VEHICLES)[number];
+/** GH-1096 S2: the KDF vehicles that carry the Roaring Lion insignia but no kit. They have a garage card like every KDF unit, so
+ *  `--garage --only=<id>` photographs their bay (the lead's close-up of the emblem); the kit sheets, the toggle and the merge
+ *  measure do not apply to them, and refuse them. `officer_armour` is framed too but is not here: it is a HELD mesh
+ *  (`mesh-catalogue.ts`, GH-298 Stage 5) with no unit type yet, so it has no card to click. */
+const GARAGE_ONLY = ['demo_tzav', 'aa_remetz', 'spg_long_range', 'spg_cluster'] as const;
 const LEVELS = [0, 1, 2, 3] as const;
 const ZOOMS = [1.0, 2.5] as const;
 
@@ -210,6 +217,8 @@ type Mode = 'sheets' | 'garage' | 'toggle' | 'measure';
 interface Args {
   mode: Mode;
   only: VehicleId[];
+  /** `--garage` only: the bays to photograph, `only` plus any `GARAGE_ONLY` id named. */
+  garageOnly: string[];
   gpu: GpuBackend;
 }
 
@@ -226,23 +235,27 @@ function parseArgs(argv: readonly string[]): Args {
   let toggle = false;
   let measure = false;
   let only: VehicleId[] = [...VEHICLES];
+  let named: string[] | null = null;
   for (const a of argv) {
     if (a === '--') continue;
     if (a === '--garage') garage = true;
     else if (a === '--toggle') toggle = true;
     else if (a === '--measure') measure = true;
     else if (a.startsWith('--only=')) {
-      const ids = a.slice('--only='.length).split(',').filter((s) => s.length > 0);
-      if (ids.length === 0) usage('--only= names no vehicle');
-      for (const id of ids) {
-        if (!(VEHICLES as readonly string[]).includes(id)) usage(`--only: "${id}" is not one of ${VEHICLES.join(', ')}`);
-      }
-      only = VEHICLES.filter((v) => ids.includes(v));
+      named = a.slice('--only='.length).split(',').filter((s) => s.length > 0);
+      if (named.length === 0) usage('--only= names no vehicle');
     } else if (a.startsWith('--port=') || a.startsWith('--gpu=')) {
       // Parsed (and refused when malformed) by `claimPort` / `resolveGpuBackend`.
     } else usage(`unknown argument "${a}"`);
   }
   if ([garage, toggle, measure].filter(Boolean).length > 1) usage('--garage, --toggle and --measure are separate runs; pick one');
+  let garageOnly: string[] = [...VEHICLES];
+  if (named !== null) {
+    const allowed: readonly string[] = garage ? [...VEHICLES, ...GARAGE_ONLY] : VEHICLES;
+    for (const id of named) if (!allowed.includes(id)) usage(`--only: "${id}" is not one of ${allowed.join(', ')}`);
+    only = VEHICLES.filter((v) => named.includes(v));
+    garageOnly = allowed.filter((v) => named.includes(v));
+  }
   let gpu: GpuBackend;
   try {
     gpu = resolveGpuBackend(argv, process.platform);
@@ -252,7 +265,7 @@ function parseArgs(argv: readonly string[]): Args {
   if (toggle && argv.some((a) => a.startsWith('--gpu='))) {
     usage('--toggle runs in the gate\'s own browser (SwiftShader, launchCaptureBrowser); --gpu does not apply');
   }
-  return { mode: garage ? 'garage' : toggle ? 'toggle' : measure ? 'measure' : 'sheets', only, gpu };
+  return { mode: garage ? 'garage' : toggle ? 'toggle' : measure ? 'measure' : 'sheets', only, garageOnly, gpu };
 }
 
 // ------------------------------------------------------------- data ----
@@ -924,10 +937,10 @@ async function runGarage(args: Args, port: number): Promise<void> {
   const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(args.gpu) });
   try {
     console.log(`[${TAG}] GPU (${args.gpu}): ${await readUnmaskedRenderer(browser)}`);
-    const runs: { level: number; ids: readonly VehicleId[]; suffix: string }[] = [
-      { level: 3, ids: args.only, suffix: '' },
+    const runs: { level: number; ids: readonly string[]; suffix: string }[] = [
+      { level: 3, ids: args.garageOnly, suffix: '' },
     ];
-    if (args.only.includes('mbt_lavi')) runs.push({ level: 0, ids: ['mbt_lavi'], suffix: '-L0' });
+    if (args.garageOnly.includes('mbt_lavi')) runs.push({ level: 0, ids: ['mbt_lavi'], suffix: '-L0' });
     for (const run of runs) {
       const ctx = await browser.newContext({ viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: 1 });
       try {

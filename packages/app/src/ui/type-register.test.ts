@@ -156,6 +156,7 @@ describe('the type register: theme.css', () => {
     // regression VR-16 was filed for; a new numeric one adds its name here.
     const allowed = new Set([
       '.rl-obj__clock',
+      '.rl-profile__public-id', // the Player ID (GH-1075 P7): an identifier read character by character
       '.rl-keys__cap',
       '.rl-sandbox__flag',
       '.rl-aar__mark',
@@ -163,6 +164,8 @@ describe('the type register: theme.css', () => {
       '.rl-world__stars',
       '.rl-garage__wallet-n',
       '.rl-menu--garage .rl-stores__wallet-n',
+      '.rl-profile__coins-n', // the account page's coin balance (GH-1370 C3): the same numeral as the Stores' wallet
+      '.rl-profile__coin-amount', // the coin history's signed amounts (GH-1370 C4): numerals, aligned right
       '.rl-menu--garage .rl-stores__pack-price',
       '.rl-menu--garage .rl-stores__coin-n',
       '.rl-menu--garage .rl-stores__credits',

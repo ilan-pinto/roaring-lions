@@ -1,4 +1,7 @@
-import { fx, type Sim } from '@lions/sim';
+import { DOMAIN_VEHICLE, fx, type Sim } from '@lions/sim';
+
+/** How far the spiral looks for a free tile (it was 6 before the occupancy test). */
+const MAX_RING = 12;
 
 /**
  * The sandbox's placer, out of `main.ts`'s `sandboxSpawns` so the mirror match
@@ -13,27 +16,46 @@ export function placeOnOpen(
   sim: Sim,
   typeOf: Map<string, number>
 ): (id: string, side: number, x: number, y: number, facing?: number) => number {
-  const open = (x: number, y: number): [number, number] => {
+  // GH-1360 S1: a tile is open for a body iff it is clear on THAT body's own mask (the vehicle mask, `blocked |
+  // boulder`, for anything that paths as a vehicle; air and foot read `blocked`) and no living body already stands
+  // on it. "Vehicle" is the type's `moveDomain`, which is `mobility.wheeled` and never `FOOT_ROLES` (CLAUDE.md).
+  const occupied = (): Set<number> => {
+    const taken = new Set<number>();
+    const st = sim.state;
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (st.alive[i] !== 1) continue;
+      taken.add((st.posY[i] >> 16) * sim.width + (st.posX[i] >> 16));
+    }
+    return taken;
+  };
+
+  const open = (x: number, y: number, mask: Uint8Array, taken: Set<number>): [number, number] => {
     const cx = Math.min(Math.max(Math.round(x), 0), sim.width - 1);
     const cy = Math.min(Math.max(Math.round(y), 0), sim.height - 1);
-    for (let r = 0; r <= 6; r++) {
+    let firstClear: [number, number] | null = null;
+    for (let r = 0; r <= MAX_RING; r++) {
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
           const tx = cx + dx;
           const ty = cy + dy;
           if (tx < 0 || ty < 0 || tx >= sim.width || ty >= sim.height) continue;
-          if (sim.blocked[ty * sim.width + tx] === 0) return [tx, ty];
+          const t = ty * sim.width + tx;
+          if (mask[t] !== 0) continue;
+          if (!taken.has(t)) return [tx, ty];
+          // Last resort only: a crowded pocket stacks rather than strands a body in rock.
+          firstClear ??= [tx, ty];
         }
       }
     }
-    return [cx, cy];
+    return firstClear ?? [cx, cy];
   };
 
   return (id, side, x, y, facing = 0) => {
     const t = typeOf.get(id);
     if (t === undefined) throw new Error(`unknown unit ${id}`);
-    const [ox, oy] = open(x, y);
+    const mask = sim.unitTypes[t].moveDomain === DOMAIN_VEHICLE ? sim.blockedVehicle : sim.blocked;
+    const [ox, oy] = open(x, y, mask, occupied());
     return sim.spawn(t, side, fx.from(ox + 0.5), fx.from(oy + 0.5), facing);
   };
 }

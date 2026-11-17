@@ -12,14 +12,17 @@ export function accountJson(status: number, body: unknown, headers?: HeadersInit
   return new Response(JSON.stringify(body), { status, headers: h });
 }
 
+/** The GETs a provider's redirect lands on. */
+const RETURN_PATHS: ReadonlySet<string> = new Set(['steam/return', 'google/return']);
+
 const BODY_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
 /** null when the request may proceed. `path` is the part after `/api/account/`. */
 export function accountGuard(req: Request, env: Env, path: string): Response | null {
   const method = req.method.toUpperCase();
   if (method === 'OPTIONS') return accountJson(405, { error: 'method_not_allowed' }, { allow: 'GET, HEAD, POST, PATCH, PUT, DELETE' });
-  // Steam's redirect is a top-level cross-site GET: it carries no custom header (§1.8.5).
-  if (method === 'GET' && path === 'steam/return') return null;
+  // Steam's and Google's redirects are top-level cross-site GETs: they carry no custom header (§1.8.5).
+  if (method === 'GET' && RETURN_PATHS.has(path)) return null;
   if (req.headers.get('x-rl-account') !== '1') return accountJson(403, { error: 'forbidden' });
   if (method !== 'GET' && method !== 'HEAD' && !originAllowed(req, env)) return accountJson(403, { error: 'forbidden' });
   if (BODY_METHODS.has(method) && !(req.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) {

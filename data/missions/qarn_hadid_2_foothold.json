@@ -5,6 +5,8 @@
   "phase": "foothold",
   "target_minutes": 7,
   "time_limit_s": 840,
+  "start_layout": "assembly",
+  "start_front": "N",
   "debrief": {
     "victory": {
       "speaker": "shai",
@@ -54,7 +56,7 @@
     "kdf_workshop": 1,
     "kdf_intel_centre": 1
   },
-  "resources": { "logistics_start": 500, "logistics_rate_per_min": 130 },
+  "resources": { "logistics_start": 500, "logistics_rate_per_min": 130, "income_zones": [{ "zone": "the_gates", "rate_per_min": 32 }, { "zone": "hollow", "rate_per_min": 16 }] },
   "structures": [
     { "type": "concrete", "at": [13, 13], "size": [4, 1] },
     { "type": "camp", "at": [25, 34], "size": [2, 2] },

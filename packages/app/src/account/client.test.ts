@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { accountsEnabled } from './enabled';
 import { emptyAccount } from '@lions/economy';
-import { createAccountClient, readReturnCode, type CampaignOp, type SlotPutOp, type VictoryOp } from './client';
+import { createAccountClient, readReturnCode, readReturnProvider, RETURN_CODES, type CampaignOp, type SlotPutOp, type VictoryOp } from './client';
 import { slotOf } from './fixtures';
 
 const json = (status: number, body: unknown): Response =>
@@ -62,6 +62,30 @@ describe('off means no request (A1-11)', () => {
     expect(url).toBe('/api/account/me');
     expect((init?.headers as Record<string, string>)['x-rl-account']).toBe('1');
     expect(init?.credentials).toBe('same-origin');
+  });
+});
+
+describe('me copies the profile fields by name (GH-1075 P4)', () => {
+  const WIRE = {
+    publicId: 'ABCD2345',
+    displayName: 'Ilan',
+    showRecord: true,
+    avatar: { kind: 'preset', id: 'crest-lion', chosen: true },
+    createdDay: 20_000,
+    fresh: true,
+    identities: [],
+  };
+  it('avatar and createdDay survive the copy', async () => {
+    const { client } = make('?accounts', () => json(200, WIRE));
+    expect(await client.me()).toEqual({ kind: 'signedIn', ...WIRE });
+  });
+  it('patchProfile sends the avatar id, and null to reset', async () => {
+    const { client, spy } = make('?accounts', () => json(200, {}));
+    await client.patchProfile({ avatar: 'crest-claw' });
+    await client.patchProfile({ avatar: null });
+    const bodies = spy.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    expect(bodies[0]).toMatchObject({ avatar: 'crest-claw' });
+    expect(bodies[1]).toMatchObject({ avatar: null });
   });
 });
 
@@ -126,6 +150,34 @@ describe('results', () => {
     expect(readReturnCode(new URLSearchParams('r=bogus'))).toBeNull();
     expect(readReturnCode(new URLSearchParams(''))).toBeNull();
   });
+  it('knows the Google codes (GH-1075 G5)', () => {
+    expect(readReturnCode(new URLSearchParams('r=google'))).toBe('google');
+    expect(readReturnCode(new URLSearchParams('r=already'))).toBe('already');
+    expect(RETURN_CODES).toHaveLength(12);
+  });
+  it('reads p= against an allow-list: an unknown or missing p is null', () => {
+    expect(readReturnProvider(new URLSearchParams('r=ok&p=google'))).toBe('google');
+    expect(readReturnProvider(new URLSearchParams('p=steam'))).toBe('steam');
+    for (const q of ['p=discord', 'p=GOOGLE', 'p=', 'p=google%20', 'p=__proto__', 'r=ok', '']) expect(readReturnProvider(new URLSearchParams(q))).toBeNull();
+  });
+  it('providers() reads GET open and drops unknown names; a failure is an empty list', async () => {
+    const a = make('?accounts', () => json(200, { open: true, providers: ['steam', 'discord', 'google', 7] }));
+    expect(await a.client.providers()).toEqual(['google', 'steam']);
+    expect(a.spy.mock.calls[0]?.[0]).toBe('/api/account/open');
+    expect(await make('?accounts', () => json(200, { open: true })).client.providers()).toEqual([]);
+    expect(await make('?accounts', () => json(200, { providers: 'google' })).client.providers()).toEqual([]);
+    expect(await make('?accounts', () => json(503, { error: 'x' })).client.providers()).toEqual([]);
+    const off = make('');
+    expect(await off.client.providers()).toEqual([]);
+    expect(off.spy).not.toHaveBeenCalled();
+  });
+  it('googleStart posts the purpose to google/start; a 503 is an AccountError', async () => {
+    const ok = make('?accounts', () => json(200, { url: 'https://accounts.google.com/x' }));
+    expect(await ok.client.googleStart('google-login')).toEqual({ url: 'https://accounts.google.com/x' });
+    expect(ok.spy.mock.calls[0]?.[0]).toBe('/api/account/google/start');
+    expect(JSON.parse(String(ok.spy.mock.calls[0]?.[1]?.body))).toEqual({ purpose: 'google-login' });
+    expect(await make('?accounts', () => json(503, { error: 'provider_off' })).client.googleStart('google-link')).toEqual({ error: 'provider_off', status: 503 });
+  });
 });
 
 describe('the A2 routes (GH-1075)', () => {
@@ -144,6 +196,8 @@ describe('the A2 routes (GH-1075)', () => {
     await client.claim({ op_id: 'x', device_id: 'y', campaign: null, slots: [], wallet: {}, coupons: [] });
     await client.matches();
     await client.matches('1731400000.K7Q2');
+    await client.coins();
+    await client.coins('412');
     const seen = spy.mock.calls.map(([u, i]) => `${i?.method} ${String(u)}`);
     expect(seen).toEqual([
       'GET /api/account/state',
@@ -159,6 +213,8 @@ describe('the A2 routes (GH-1075)', () => {
       'POST /api/account/claim',
       'GET /api/account/matches',
       'GET /api/account/matches?before=1731400000.K7Q2',
+      'GET /api/account/coins',
+      'GET /api/account/coins?before=412',
     ]);
     const body = (n: number): Record<string, unknown> => JSON.parse(String(spy.mock.calls[n]?.[1]?.body)) as Record<string, unknown>;
     expect(body(2)).toEqual({ op_id: 'op1', missionId: 'm1' });

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Roaring Lions Members (mock)</title>
+<!-- MOCK for docs/superpowers/specs/2026-11-14-admin-account-page-design.md (GH-695). Static, no script, no external
+     assets. Every name, id and number is invented. Colours are the /stats tokens from data/palette.json
+     (STATS_STYLE_HEAD): limestone 0/1, shadow 0, gunmetal 0/2, olive 1, terracotta 1, scrub 1. The shipped page would
+     load the self-hosted fonts from /fonts/; this file falls back to system faces. -->
+<style>
+:root{--ground:#F2E8D5;--surface:#E6D8BE;--ink:#23241F;--muted:#5C625F;--rule:#C3C7C4;--accent:#6E7449;--bad:#9E4F30;--good:#3E5C2E}
+*{box-sizing:border-box}
+body{margin:0;padding:0 16px 64px;background:var(--ground);color:var(--ink);font:16px/1.5 Barlow,"Helvetica Neue",Arial,sans-serif}
+main{max-width:1180px;margin:0 auto}
+h1{font:800 48px/1 'Big Shoulders Display',Impact,"Arial Narrow",sans-serif;text-transform:uppercase;margin:32px 0 8px;letter-spacing:.5px}
+h2{font:700 26px/1.1 'Big Shoulders Display',Impact,"Arial Narrow",sans-serif;text-transform:uppercase;border-top:1px solid var(--rule);padding-top:14px;margin:32px 0 12px}
+h3{font:700 20px/1.1 'Big Shoulders Display',Impact,"Arial Narrow",sans-serif;text-transform:uppercase;margin:0 0 8px}
+.mono,td.n,td.ref{font-family:'IBM Plex Mono',Menlo,monospace}
+.muted{color:var(--muted)}
+.hdr{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px}
+nav{display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+nav a,nav button.link{color:var(--muted);font:600 13px 'IBM Plex Mono',Menlo,monospace;text-transform:uppercase;text-decoration:none;border:0;border-bottom:1px solid var(--rule);background:none;padding:0;cursor:pointer}
+nav a[aria-current]{color:var(--ink);border-bottom-color:var(--ink)}
+.switch{display:flex;gap:8px;align-items:center;margin:4px 0 0;flex-wrap:wrap}
+.chip{font:600 12px 'IBM Plex Mono',Menlo,monospace;text-transform:uppercase;border:1px solid var(--good);color:var(--good);padding:1px 8px}
+.chip.bad{border-color:var(--bad);color:var(--bad)}
+button,input,select,textarea{font:inherit;padding:4px 8px}
+.btn{background:var(--surface);border:1px solid var(--ink);color:var(--ink);cursor:pointer;padding:6px 12px}
+.btn.primary{background:var(--ink);color:var(--surface)}
+.btn.danger{border-color:var(--bad);color:var(--bad)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;align-items:center}
+.controls input[type=search]{flex:1;min-width:220px;border:1px solid var(--ink);background:var(--ground)}
+.wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font:600 12px 'IBM Plex Mono',Menlo,monospace;text-transform:uppercase;color:var(--muted)}
+td.n{text-align:right;white-space:nowrap}
+tr.sel{background:var(--surface)}tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--ink)}
+tr.new{background:color-mix(in srgb,var(--accent) 18%,var(--ground))}
+.kind{font:600 11px 'IBM Plex Mono',Menlo,monospace;text-transform:uppercase;border:1px solid var(--muted);padding:1px 6px;color:var(--muted);white-space:nowrap}
+.kind.admin{border-color:var(--ink);color:var(--ink)}
+.plus{color:var(--good)}.minus{color:var(--bad)}
+.card{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media (max-width:760px){.card{grid-template-columns:minmax(0,1fr)}}
+.bal{background:var(--surface);border-left:4px solid var(--ink);padding:12px 16px}
+.bal .big{font:800 44px/1 'Big Shoulders Display',Impact,"Arial Narrow",sans-serif}
+.bal dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:10px 0 0;font-size:14px}
+.bal dt{color:var(--muted)}.bal dd{margin:0;font-family:'IBM Plex Mono',Menlo,monospace}
+.who{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;margin:0 0 12px}
+.who .name{font:700 28px/1 'Big Shoulders Display',Impact,"Arial Narrow",sans-serif;text-transform:uppercase}
+.warn{border-left:3px solid var(--bad);background:var(--surface);padding:6px 10px;margin:8px 0;font-size:14px}
+form.change{display:grid;grid-template-columns:140px minmax(0,1fr);gap:10px 14px;align-items:center;max-width:720px}
+@media (max-width:600px){form.change{grid-template-columns:minmax(0,1fr)}}
+form.change label{font:600 13px 'IBM Plex Mono',Menlo,monospace;text-transform:uppercase;color:var(--muted)}
+.seg{display:inline-flex;border:1px solid var(--ink);justify-self:start}
+.seg span{padding:4px 12px;cursor:pointer;border-right:1px solid var(--ink)}
+.seg span:last-child{border-right:0}
+.seg span[aria-pressed=true]{background:var(--ink);color:var(--surface);font-weight:600}
+form.change input[type=number]{width:160px;border:1px solid var(--ink);background:var(--ground);font-family:'IBM Plex Mono',Menlo,monospace}
+form.change textarea{width:100%;min-height:60px;border:1px solid var(--ink);background:var(--ground)}
+.count{font:12px 'IBM Plex Mono',Menlo,monospace;color:var(--muted)}
+.preview{font:600 16px 'IBM Plex Mono',Menlo,monospace}
+/* The dialog is drawn open, inline, so the mock shows it; the page uses <dialog> with showModal(). */
+.scrim{position:relative;margin:28px 0 0;padding:28px 16px;background:color-mix(in srgb,var(--ink) 55%,transparent)}
+.scrim::before{content:"CONFIRM DIALOG (modal, shown inline for the mock)";position:absolute;top:6px;left:12px;font:600 11px 'IBM Plex Mono',Menlo,monospace;color:var(--surface)}
+.dlg{max-width:520px;margin:0 auto;background:var(--ground);border:2px solid var(--ink);padding:18px 20px}
+.dlg h3{font-size:24px}
+.dlg table{font-size:15px;margin:8px 0}
+.dlg th{width:120px}
+.dlg .type{display:block;width:100%;border:1px solid var(--ink);background:var(--ground);font-family:'IBM Plex Mono',Menlo,monospace;margin-top:4px}
+.dlg .row{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap}
+.note{font-size:13px}
+</style></head>
+<body><main>
+
+<div class="hdr">
+  <h1>Roaring Lions Stats</h1>
+  <div>
+    <nav aria-label="Stats sections">
+      <a href="#">Players</a><a href="#">Feedback</a><a href="#" aria-current="page">Members</a>
+      <button class="link" type="button">Sign out</button>
+    </nav>
+    <div class="switch"><span class="chip" role="status">Admin writes: open</span>
+      <button class="btn danger" type="button">Close admin writes</button>
+      <span class="muted note">Signed in as admin <span class="mono">K7Q2M9TX</span></span></div>
+  </div>
+</div>
+<p class="muted">Signed-in members only. A guest's credits and coins live on their own device and cannot be seen or changed here.</p>
+
+<h2>Find a member</h2>
+<div class="controls" role="search">
+  <label for="q" class="muted mono" style="font-size:13px">PUBLIC ID OR NAME</label>
+  <input id="q" type="search" value="ham" autocomplete="off" aria-describedby="q-hint">
+  <button class="btn primary" type="button">Find</button>
+  <button class="btn" type="button" title="The member signed in to the game in this browser">Me</button>
+</div>
+<p id="q-hint" class="muted note">An exact 8-character Player ID, or the first 3 or more letters of a display name. At most 20 results.</p>
+<div class="wrap"><table>
+  <thead><tr><th scope="col">Name</th><th scope="col">Player ID</th><th scope="col">Signs in with</th><th scope="col">Created</th><th scope="col">Last seen</th><th scope="col" style="text-align:right">Coins</th><th scope="col" style="text-align:right">Credits</th></tr></thead>
+  <tbody>
+    <tr class="sel" aria-selected="true"><td>Hammerhead</td><td class="ref">3VXB8R2N</td><td>Google</td><td class="mono">2026-11-08</td><td class="mono">today</td><td class="n">12,400</td><td class="n">3,180</td></tr>
+    <tr><td>Hamsin Six</td><td class="ref">9TDE4K1W</td><td>Google, Steam</td><td class="mono">2026-11-09</td><td class="mono">2026-11-12</td><td class="n">925</td><td class="n">7,640</td></tr>
+    <tr><td>Hamra Gate</td><td class="ref">P2MH6Z0C</td><td>passkey</td><td class="mono">2026-11-10</td><td class="mono">2026-11-10</td><td class="n">100</td><td class="n muted">no campaign</td></tr>
+  </tbody>
+</table></div>
+
+<h2>Member</h2>
+<div class="who"><span class="name">Hammerhead</span><span class="mono">3VXB8R2N</span>
+  <span class="muted">signs in with Google · created 2026-11-08 · last seen today</span></div>
+<div class="card">
+  <section class="bal" aria-labelledby="c-coins">
+    <h3 id="c-coins">Roar coins</h3>
+    <div class="big">12,400</div>
+    <dl><dt>free</dt><dd>12,400</dd><dt>paid</dt><dd>0 (purchases closed)</dd><dt>wallet revision</dt><dd>41</dd><dt>last change</dt><dd>today 09:12, earn +10</dd></dl>
+  </section>
+  <section class="bal" aria-labelledby="c-cr">
+    <h3 id="c-cr">Brigade credits</h3>
+    <div class="big">3,180</div>
+    <dl><dt>earned total</dt><dd>11,920</dd><dt>granted total</dt><dd>500</dd><dt>campaign revision</dt><dd>57</dd><dt>last synced</dt><dd>4 minutes ago</dd></dl>
+  </section>
+</div>
+
+<h2>Change a balance</h2>
+<form class="change" aria-describedby="chg-note">
+  <label id="l-cur">Currency</label>
+  <div class="seg" role="group" aria-labelledby="l-cur"><span aria-pressed="true">Roar coins</span><span aria-pressed="false">Brigade credits</span></div>
+  <label id="l-mode">Change</label>
+  <div class="seg" role="group" aria-labelledby="l-mode"><span aria-pressed="true">Grant +</span><span aria-pressed="false">Deduct −</span><span aria-pressed="false">Set =</span></div>
+  <label for="amt">Amount</label>
+  <div><input id="amt" type="number" min="1" max="100000" value="500"> <span class="muted note">at most 100,000 in one change</span></div>
+  <label for="why">Reason <span aria-hidden="true">*</span></label>
+  <div><textarea id="why" required aria-required="true" maxlength="200">Compensation: lost a won mission to the 12 Nov sync bug</textarea>
+    <div class="count">55 / 200 · at least 8</div></div>
+  <label>Result</label>
+  <div class="preview">12,400 → <span class="plus">12,900</span> <span class="muted">(+500 grant)</span></div>
+  <span></span>
+  <div><button class="btn primary" type="button">Review change…</button></div>
+</form>
+<div class="warn" id="chg-note" role="note"><strong>Credits:</strong> last synced 4 minutes ago. This player may be playing now; a credit change would move their newest campaign into a conflict slot. Wait 15 minutes, or tick “The player is offline” in the dialog. A credit deduction is advisory: credits are still trusted from the device.</div>
+
+<h2>Journal</h2>
+<div class="controls"><span class="muted mono" style="font-size:13px">SHOW</span>
+  <div class="seg" role="group" aria-label="Currency filter"><span aria-pressed="true">All</span><span aria-pressed="false">Coins</span><span aria-pressed="false">Credits</span><span aria-pressed="false">Views</span></div></div>
+<div class="wrap"><table>
+  <thead><tr><th scope="col">When</th><th scope="col">Currency</th><th scope="col">Kind</th><th scope="col" style="text-align:right">Delta</th><th scope="col" style="text-align:right">Before → after</th><th scope="col">Reason</th><th scope="col">By</th><th scope="col">Op</th></tr></thead>
+  <tbody>
+    <tr class="new"><td class="mono">today 09:20</td><td>coins</td><td><span class="kind admin">admin grant</span></td><td class="n plus">+500</td><td class="n">12,400 → 12,900</td><td>Compensation: lost a won mission to the 12 Nov sync bug</td><td class="ref">K7Q2M9TX</td><td class="ref">4f1c…9a02</td></tr>
+    <tr><td class="mono">today 09:12</td><td>coins</td><td><span class="kind">earn</span></td><td class="n plus">+10</td><td class="n">12,390 → 12,400</td><td class="muted">mission win, 2 stars</td><td class="muted">player</td><td class="ref">b07e…11cd</td></tr>
+    <tr><td class="mono">2026-11-13 18:40</td><td>credits</td><td><span class="kind admin">admin deduct</span></td><td class="n minus">−200</td><td class="n">3,380 → 3,180</td><td>Duplicate coupon credits from the 13 Nov claim retry</td><td class="ref">K7Q2M9TX</td><td class="ref">e3aa…7c40</td></tr>
+    <tr><td class="mono">2026-11-13 18:38</td><td>—</td><td><span class="kind">view</span></td><td class="n muted">—</td><td class="n muted">—</td><td class="muted">card opened</td><td class="ref">K7Q2M9TX</td><td class="ref muted">—</td></tr>
+    <tr><td class="mono">2026-11-12 21:05</td><td>coins</td><td><span class="kind">unit</span></td><td class="n minus">−850</td><td class="n">13,240 → 12,390</td><td class="muted">bought a Store special</td><td class="muted">player</td><td class="ref">0d93…e5f8</td></tr>
+    <tr><td class="mono">2026-11-08 16:02</td><td>coins</td><td><span class="kind">claim</span></td><td class="n plus">+13,240</td><td class="n">0 → 13,240</td><td class="muted">progress moved from this device</td><td class="muted">player</td><td class="ref">72c1…aa19</td></tr>
+  </tbody>
+</table></div>
+<p class="muted note">Newest first, 50 a page. Player rows come from the coin journal; admin rows and views from the admin log. A member's export shows admin rows with “by: admin”, never the admin's id.</p>
+
+<div class="scrim">
+  <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="d-title">
+    <h3 id="d-title">Grant 500 Roar coins?</h3>
+    <table>
+      <tr><th scope="row">Member</th><td>Hammerhead <span class="mono">3VXB8R2N</span></td></tr>
+      <tr><th scope="row">Coins</th><td class="mono">12,400 → <strong class="plus">12,900</strong> (+500)</td></tr>
+      <tr><th scope="row">Reason</th><td>Compensation: lost a won mission to the 12 Nov sync bug</td></tr>
+      <tr><th scope="row">Wallet rev.</th><td class="mono">41 (refused if it has moved)</td></tr>
+    </table>
+    <label class="note muted" for="typed">For a deduction or a set, type the Player ID to confirm:</label>
+    <input class="type" id="typed" placeholder="3VXB8R2N" disabled aria-describedby="typed-why">
+    <p id="typed-why" class="muted note">Not needed for a grant. Written to the journal with your Player ID; the change cannot be deleted, only reversed by another change.</p>
+    <div class="row"><button class="btn" type="button">Cancel</button><button class="btn primary" type="button">Grant 500 coins</button></div>
+  </div>
+</div>
+
+</main></body></html>

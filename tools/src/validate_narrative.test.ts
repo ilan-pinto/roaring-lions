@@ -11,6 +11,7 @@ import {
   commanderRankFailures,
   narrativeTextFailures,
   overlayFailures,
+  unitOverlayFailures,
   removeTriggerFailures,
   triggerLabelFailures,
 } from '../validate_narrative.mjs';
@@ -339,5 +340,125 @@ describe('overlayFailures', () => {
 
   it('is silent on an empty overlay', () => {
     expect(overlayFailures('fr/missions.json', {}, missions())).toEqual([]);
+  });
+});
+
+describe('unitOverlayFailures (GH-1406)', () => {
+  const ids = new Set(['inf_squad', 'mbt_lavi']);
+
+  it('passes a well-formed overlay, an empty one, and a null one', () => {
+    expect(unitOverlayFailures('fr/units.json', { inf_squad: { name: 'Escouade', blurb: 'Fantassins.' }, mbt_lavi: { name: 'Lavi' } }, ids)).toEqual([]);
+    expect(unitOverlayFailures('fr/units.json', {}, ids)).toEqual([]);
+    expect(unitOverlayFailures('fr/units.json', null, ids)).toEqual([]);
+  });
+
+  it('refuses a unit id that is not in data/units (a typo would otherwise do nothing forever)', () => {
+    const out = unitOverlayFailures('fr/units.json', { inf_sqaud: { name: 'x' } }, ids);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatch(/inf_sqaud.*not a unit/);
+  });
+
+  it('refuses any key but name and blurb: an overlay is text, never stats', () => {
+    const out = unitOverlayFailures('fr/units.json', { inf_squad: { name: 'x', cost: 5 } }, ids);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatch(/"cost".*only name and blurb/);
+  });
+
+  it('refuses an empty, blank or non-string value', () => {
+    expect(unitOverlayFailures('f', { inf_squad: { name: '' } }, ids)).toHaveLength(1);
+    expect(unitOverlayFailures('f', { inf_squad: { blurb: '   ' } }, ids)).toHaveLength(1);
+    expect(unitOverlayFailures('f', { inf_squad: { name: 7 } }, ids)).toHaveLength(1);
+  });
+
+  it('reports every failure, not the first', () => {
+    expect(unitOverlayFailures('f', { nope: { name: 'x' }, inf_squad: { name: '', wat: 1 } }, ids)).toHaveLength(3);
+  });
+});
+
+// GH-1406 part 3: the overlay validator on the rest of the mission text. Each case is one constructed fault and the sentence that names it.
+describe('overlayFailures: dispatch, aftermath, hostages_place, debrief, sections and radio lines', () => {
+  const say = (text: string) => ({ speaker: 'idit', text });
+  const rich = () =>
+    new Map([
+      [
+        'm1',
+        {
+          id: 'm1',
+          dispatch: 'The dispatch.',
+          aftermath: 'The aftermath.',
+          hostages_place: 'the ford',
+          debrief: { victory: say('Won.'), defeat: say('Lost.') },
+          briefing: 'A one. A two.',
+          briefing_sections: [
+            { id: 'situation', text: 'A one.' },
+            { id: 'mission', text: 'A two.' },
+          ],
+          objectives: [{ id: 'o1', say: say('Held.'), say_on_fail: say('Gone.') }, { id: 'o2' }],
+          triggers: [{ id: 't1', say: say('They come.') }, { id: 't2' }],
+          enemy: { waves: [{ say: say('First.') }, {}] },
+        },
+      ],
+    ]);
+  const bare = () => new Map([['m1', { id: 'm1', objectives: [{ id: 'o1' }], triggers: [{ id: 't1' }] }]]);
+  const run = (entry: Record<string, unknown>, missions: Map<string, object> = rich()) => overlayFailures('fr/missions.json', { m1: entry }, missions);
+
+  it('passes a full, consistent translation of every field', () => {
+    expect(
+      run({
+        name: 'N', briefing: 'Un. Deux.', sections: { situation: 'Un.', mission: 'Deux.' },
+        dispatch: 'D', aftermath: 'A', hostages_place: 'le gué', debrief: { victory: 'V', defeat: 'L' },
+        objectives: { o1: 'O' }, objective_say: { o1: 'S' }, objective_say_on_fail: { o1: 'F' },
+        triggers: { t1: 'T' }, trigger_say: { t1: 'TS' }, wave_say: { '0': 'W' },
+      })
+    ).toEqual([]);
+  });
+  it('rejects a key the overlay does not read (a typo would no-op for ever)', () => {
+    expect(run({ dispach: 'x' }).join('\n')).toContain('carries "dispach", which the overlay does not read');
+  });
+  it('rejects a dispatch, aftermath or hostages_place the mission does not have', () => {
+    const out = overlayFailures('fr/missions.json', { m1: { dispatch: 'x', aftermath: 'x', hostages_place: 'x' } }, bare()).join('\n');
+    expect(out).toContain('translates dispatch, which the mission does not have');
+    expect(out).toContain('translates aftermath, which the mission does not have');
+    expect(out).toContain('translates hostages_place, which the mission does not have');
+  });
+  it('holds the source caps on a translation: 240 for dispatch, aftermath and a radio line, 40 for hostages_place, 48 for a label', () => {
+    const long = 'x'.repeat(241);
+    const out = run({ dispatch: long, aftermath: long, hostages_place: 'x'.repeat(41), objective_say: { o1: long }, debrief: { victory: long }, triggers: { t1: 'x'.repeat(49) } }).join('\n');
+    expect(out).toContain('dispatch is 241 characters (max 240)');
+    expect(out).toContain('aftermath is 241 characters (max 240)');
+    expect(out).toContain('hostages_place is 41 characters (max 40)');
+    expect(out).toContain('objective_say "o1" is 241 characters (max 240)');
+    expect(out).toContain('debrief victory is 241 characters (max 240)');
+    expect(out).toContain('trigger "t1" overlay label is 49 characters (max 48)');
+  });
+  it('rejects an empty or non-string value', () => {
+    const out = run({ dispatch: '', briefing: 7 as unknown as string, objectives: { o1: ' ' } }).join('\n');
+    expect(out).toContain('dispatch is not a non-empty string');
+    expect(out).toContain('briefing is not a non-empty string');
+    expect(out).toContain('objective "o1" is not a non-empty string');
+  });
+  it('rejects a radio-line key naming something with no line of that kind', () => {
+    const out = run({ objective_say: { o2: 'x', ghost: 'x' }, objective_say_on_fail: { o2: 'x' }, trigger_say: { t2: 'x' }, wave_say: { '1': 'x', '7': 'x', first: 'x' } }).join('\n');
+    expect(out).toContain('objective_say names objective "o2", which has no such line');
+    expect(out).toContain('objective_say names objective "ghost"');
+    expect(out).toContain('objective_say_on_fail names objective "o2"');
+    expect(out).toContain('trigger_say names trigger "t2"');
+    expect(out).toContain('wave_say names wave index "1"');
+    expect(out).toContain('wave_say names wave index "7"');
+    expect(out).toContain('wave_say names wave index "first"');
+  });
+  it('rejects a debrief side that is not victory or defeat, or that the mission lacks', () => {
+    expect(run({ debrief: { draw: 'x' } }).join('\n')).toContain('debrief carries "draw"');
+    const half = new Map([['m1', { id: 'm1', objectives: [], debrief: { victory: say('Won.') } }]]);
+    expect(run({ debrief: { defeat: 'x' } }, half).join('\n')).toContain('translates the defeat debrief line, which the mission does not have');
+  });
+  it('rejects sections on a mission with none, a section it lacks, and a partial set', () => {
+    expect(overlayFailures('fr/missions.json', { m1: { sections: { situation: 'x' } } }, bare()).join('\n')).toContain('translates sections, which the mission does not have');
+    expect(run({ briefing: 'x', sections: { notes: 'x' } }).join('\n')).toContain('names section "notes", which is not a section of that mission');
+    expect(run({ briefing: 'Un.', sections: { situation: 'Un.' } }).join('\n')).toContain('gives some sections but not "mission": all or none');
+  });
+  it('rejects sections without a briefing, and sections that do not join to the translated briefing exactly', () => {
+    expect(run({ sections: { situation: 'Un.', mission: 'Deux.' } }).join('\n')).toContain('translates the sections but not the briefing');
+    expect(run({ briefing: 'Un.  Deux.', sections: { situation: 'Un.', mission: 'Deux.' } }).join('\n')).toContain('do not spell the overlay briefing exactly');
   });
 });

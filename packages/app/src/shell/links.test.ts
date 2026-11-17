@@ -88,13 +88,14 @@ describe('routes', () => {
 });
 
 describe('reloadMenuHref (GH-1075 A2: a hard reload keeps the sticky keys)', () => {
-  it('copies accounts, lang and pseudo from the current search onto the menu href, and nothing else', () => {
-    const href = reloadMenuHref('?accounts&lang=he&pseudo=1&fresh=1&sandbox=x');
+  it('copies accounts, google, lang and pseudo from the current search onto the menu href, and nothing else', () => {
+    const href = reloadMenuHref('?accounts&google&lang=he&pseudo=1&fresh=1&sandbox=x');
     const u = new URL(href, 'http://x.test');
     expect(u.pathname + '/').toContain(new URL(routes.menu(), 'http://x.test').pathname);
     expect([...u.searchParams.keys()].sort()).toEqual([...STICKY_QUERY_KEYS].sort());
     expect(u.searchParams.get('lang')).toBe('he');
     expect(u.searchParams.has('accounts')).toBe(true);
+    expect(u.searchParams.has('google')).toBe(true);
   });
   it('is exactly routes.menu() when nothing sticky is present', () => {
     expect(reloadMenuHref('?fresh=1')).toBe(routes.menu());

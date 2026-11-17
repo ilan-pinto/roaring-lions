@@ -21,6 +21,7 @@ import {
 import { runningGearMaterial } from './running-gear-material';
 import { beginMeshDeathFade } from './mesh-death';
 import { InsigniaShared, setInsigniaStrength } from './insignia';
+import { INSIGNIA_FRAMES } from './insignia-frames';
 import { INSIGNIA_ONLY_SLOT, insigniaHookOf, setInsigniaPass, UNIT_MARK_PROGRAM_KEY } from './team-mask';
 import { VehicleScarMaterials } from './vehicle-damage';
 import { charredTexturedMaterial } from '../world-materials';
@@ -382,5 +383,69 @@ describe('gate 5 on the SHIPPED shape: the Lavi is team + insignia, and every cl
     expect(fragmentShader).toContain('float rlTeamMask');
     expect(fragmentShader).toContain('float rlInsMask');
     expect(uniforms.uInsSdf).toBe(compile(variant).uniforms.uInsSdf);
+  });
+});
+
+describe('gate 5 on EVERY framed type, in the shape it ships (GH-1096 S2)', () => {
+  /**
+   * The framed types whose GLB carries a team mark, so the renderer mints them team + insignia; every other framed type is
+   * insignia-only. A LITERAL, pinned against the bytes by `tools/src/insignia.test.ts` ("the team-marked framed vehicles").
+   */
+  const TEAM_MARKED: readonly string[] = ['apc_eitan', 'apc_kipod', 'ifv_namer', 'mbt_lavi', 'officer_armour'];
+  const ids = Object.keys(INSIGNIA_FRAMES).sort();
+  const spec = { wheels: [], track: { r: [10, 0.3], l: [10, 0.3] }, gauge: { r: 1.2, l: 1.2 }, wheelbase: 0, steerLimit: 0 } as never;
+  const clones: ReadonlyArray<readonly [string, (v: THREE.MeshStandardMaterial) => THREE.Material]> = [
+    ['scar', (v) => new VehicleScarMaterials().materialFor(v, 3)],
+    ['running gear', (v) => runningGearMaterial(v, spec).material],
+    [
+      'death fade',
+      (v) => {
+        const root = new THREE.Group();
+        root.add(new THREE.Mesh(new THREE.BufferGeometry(), v));
+        return beginMeshDeathFade(root)[0]!.fade;
+      },
+    ],
+  ];
+  /** What the renderer mints for `id`: its own bake shape (team-marked or not), slot 0, and its OWN frame from the table. */
+  const shipped = (id: string): THREE.MeshStandardMaterial =>
+    new VehicleTeamMaterials(slotsOf(), undefined, { frame: INSIGNIA_FRAMES[id]!, shared: new InsigniaShared() }).materialFor(
+      TEAM_MARKED.includes(id) ? lavi() : plainHull(),
+      0
+    ) as THREE.MeshStandardMaterial;
+
+  it('runs over the whole table: twelve framed types, five of them team-marked', () => {
+    expect(ids).toHaveLength(12);
+    expect(TEAM_MARKED.filter((id) => ids.includes(id))).toHaveLength(5);
+  });
+
+  it.each(ids.flatMap((id) => clones.map(([name, cut]) => [id, name, cut] as const)))(
+    '%s: the %s clone keeps the hook it shipped with, its key and its frame',
+    (id, _name, cut) => {
+      const team = TEAM_MARKED.includes(id);
+      const variant = shipped(id);
+      expect(insigniaHookOf(variant)).toBeDefined();
+      expect(teamHookOf(variant) !== undefined).toBe(team);
+      const clone = cut(variant);
+      expect(clone).not.toBe(variant);
+      expect(insigniaHookOf(clone)).toBe(insigniaHookOf(variant));
+      expect(teamHookOf(clone)).toBe(teamHookOf(variant));
+      expect(clone.customProgramCacheKey()).toContain(`${UNIT_MARK_PROGRAM_KEY}|${team ? 'team+ins' : 'ins'}`);
+      const { fragmentShader, uniforms } = compile(clone);
+      expect(fragmentShader).toContain('float rlInsMask');
+      expect(fragmentShader.includes('float rlTeamMask')).toBe(team);
+      const f = INSIGNIA_FRAMES[id]!;
+      expect((uniforms.uInsFrame as { value: THREE.Vector4 }).value.toArray()).toEqual([f.centre[0], f.centre[1], f.d, f.min_n]);
+      expect((uniforms.uInsSlab as { value: THREE.Vector2 }).value.toArray()).toEqual([f.slab[0], f.slab[1]]);
+      expect((uniforms.uInsLuma as { value: number }).value).toBe(f.luma);
+      expect(uniforms.uInsSdf).toBe(compile(variant).uniforms.uInsSdf);
+    }
+  );
+
+  it.each(ids)('%s: its soot wreck carries neither half', (id) => {
+    const wreck = charredTexturedMaterial(shipped(id));
+    expect(insigniaHookOf(wreck)).toBeUndefined();
+    expect(teamHookOf(wreck)).toBeUndefined();
+    expect(wreck.customProgramCacheKey()).not.toContain(UNIT_MARK_PROGRAM_KEY);
+    expect(compile(wreck).fragmentShader).not.toContain('uInsSdf');
   });
 });

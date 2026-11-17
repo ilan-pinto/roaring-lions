@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "note": "defaultPool is FROZEN at version 1: append-never, reorder-never. Changing it changes every member's default avatar. A new pool is a defaultPoolV2 chosen by member creation date, and a recorded ruling, never an edit here. Adding to presets is free.",
+  "defaultPool": [
+    "crest-chevrons",
+    "crest-claw",
+    "crest-lion",
+    "crest-tower",
+    "crest-star",
+    "crest-wing",
+    "crest-track",
+    "crest-sprig",
+    "crest-ridge",
+    "crest-wave",
+    "crest-dune",
+    "crest-reticle"
+  ],
+  "presets": [
+    {
+      "id": "crest-chevrons",
+      "family": "crest",
+      "label": "avatar.preset.crest-chevrons"
+    },
+    {
+      "id": "crest-claw",
+      "family": "crest",
+      "label": "avatar.preset.crest-claw"
+    },
+    {
+      "id": "crest-lion",
+      "family": "crest",
+      "label": "avatar.preset.crest-lion"
+    },
+    {
+      "id": "crest-tower",
+      "family": "crest",
+      "label": "avatar.preset.crest-tower"
+    },
+    {
+      "id": "crest-star",
+      "family": "crest",
+      "label": "avatar.preset.crest-star"
+    },
+    {
+      "id": "crest-wing",
+      "family": "crest",
+      "label": "avatar.preset.crest-wing"
+    },
+    {
+      "id": "crest-track",
+      "family": "crest",
+      "label": "avatar.preset.crest-track"
+    },
+    {
+      "id": "crest-sprig",
+      "family": "crest",
+      "label": "avatar.preset.crest-sprig"
+    },
+    {
+      "id": "crest-ridge",
+      "family": "crest",
+      "label": "avatar.preset.crest-ridge"
+    },
+    {
+      "id": "crest-wave",
+      "family": "crest",
+      "label": "avatar.preset.crest-wave"
+    },
+    {
+      "id": "crest-dune",
+      "family": "crest",
+      "label": "avatar.preset.crest-dune"
+    },
+    {
+      "id": "crest-reticle",
+      "family": "crest",
+      "label": "avatar.preset.crest-reticle"
+    }
+  ]
+}

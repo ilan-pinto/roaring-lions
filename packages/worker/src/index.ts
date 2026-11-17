@@ -1,5 +1,5 @@
 import type { Env } from './d1';
-import { handleIngest, purgeEvents } from './ingest';
+import { handleIngest, purgeEvents, purgePlayers } from './ingest';
 import { purgeRateDays } from './rate-day';
 import { withSecurityHeaders } from './security-headers';
 import { handleStats } from './stats';
@@ -9,6 +9,7 @@ import { handleArenaResults, isArenaPath } from './arena-results';
 import { handlePrivacy } from './privacy-page';
 import { handleAccount } from './account/routes';
 import { reconcileTombstones, sweepAccounts } from './account/sweep';
+import { sweepAdminViews } from './admin/view-sweep';
 import { handleMatch } from './match/routes';
 import { purgeDesyncs } from './match/desync-log';
 import { purgeSnapMismatches } from './match/snap-mismatch-log';
@@ -34,7 +35,7 @@ export default {
   },
   /** The daily Cron Trigger (wrangler.jsonc `triggers.crons`): GH-464's
    *  180-day purge of feedback pictures, replays and contacts, N1b's of
-   *  desync evidence (M-6) and of snapshot mismatch rows (snapshot S3), #559 M-3's of raw events, and the day counters. Each runs whatever the other does -- a missing
+   *  desync evidence (M-6) and of snapshot mismatch rows (snapshot S3), #559 M-3's of raw events, and the day counters, and GH-695's 180-day sweep of admin `view` rows. Each runs whatever the other does -- a missing
    *  table on one side must not keep the other's data -- and a failure still
    *  fails the run. */
   async scheduled(_controller: unknown, env: Env): Promise<void> {
@@ -43,9 +44,9 @@ export default {
     const accountDb = env.ACCOUNTS;
     const tombs = env.ACCOUNT_TOMBSTONES;
     const accounts = accountDb !== undefined && tombs !== undefined
-      ? [(async () => { try { await sweepAccounts(accountDb, now, tombs); } finally { await reconcileTombstones(accountDb, tombs); } })()]
+      ? [(async () => { try { await sweepAccounts(accountDb, now, tombs); } finally { await reconcileTombstones(accountDb, tombs); } })(), sweepAdminViews(accountDb, now)]
       : [];
-    const runs = await Promise.allSettled([purgeExpired(env, now), purgeDesyncs(env.DB, now), purgeSnapMismatches(env.DB, now), purgeEvents(env.DB, now), purgeRateDays(env.DB, now), ...accounts]);
+    const runs = await Promise.allSettled([purgeExpired(env, now), purgeDesyncs(env.DB, now), purgeSnapMismatches(env.DB, now), purgeEvents(env.DB, now), purgePlayers(env.DB, now), purgeRateDays(env.DB, now), ...accounts]);
     for (const r of runs) if (r.status === 'rejected') throw r.reason;
   },
 };

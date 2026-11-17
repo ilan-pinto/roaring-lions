@@ -6,8 +6,8 @@
  * or is read from the weapon JSON the sim loads, never from `munitions.ts`'s own arithmetic.
  */
 import { readFileSync, readdirSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
-import { FIRE_SUPPORT, fx } from '@lions/sim';
+import { describe, expect, it, vi } from 'vitest';
+import { FIRE_SUPPORT, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, fx } from '@lions/sim';
 import { munitionHitStopMs, munitionLightSpec, munitionShake } from './blast-spec';
 import {
   FIREBALL_DURATION_MS,
@@ -29,6 +29,9 @@ import {
   LATCH_AIR_STRIKE,
   LATCH_MORTAR_BARRAGE,
   LATCH_PLACED_CHARGE,
+  SUPPORT_LATCH,
+  SUPPORT_PROFILE,
+  supportKindForProfile,
   recipeCount,
   ringSpecFor,
   type MunitionClassId,
@@ -280,6 +283,38 @@ describe('the ragdoll push per class (GH-1223)', () => {
     expect(ragdollPushForKill(LATCH_PLACED_CHARGE)).toEqual({ horizontalMS: 4.0, upMS: 2.2 });
     expect(ragdollPushForKill('rpg')).toEqual({ horizontalMS: 3.5, upMS: 1.8 });
     expect(ragdollPushForKill(undefined)).toEqual(RAGDOLL_PUSH_DEFAULT);
+  });
+  it('a strike profile the table does not know borrows no push: null, a console.error, and the default (GH-1223)', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      expect(supportKindForProfile(7)).toBeNull();
+      expect(err).toHaveBeenCalledTimes(1);
+      expect(ragdollPushForKill('support:future_he')).toEqual(RAGDOLL_PUSH_DEFAULT);
+      expect(ragdollPushForKill('support:future_he')).not.toEqual(ragdollPushForKill(LATCH_AIR_STRIKE));
+    } finally {
+      err.mockRestore();
+    }
+  });
+  it('an unknown strike profile logs once per profile per reporting set, however many events and batches (GH-1223)', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const reported = new Set<number>();
+      for (let batch = 0; batch < 2; batch++) for (let ev = 0; ev < 2; ev++) expect(supportKindForProfile(7, reported)).toBeNull();
+      expect(err).toHaveBeenCalledTimes(1);
+      supportKindForProfile(8, reported);
+      expect(err).toHaveBeenCalledTimes(2);
+      supportKindForProfile(7, new Set<number>());
+      expect(err).toHaveBeenCalledTimes(3);
+    } finally {
+      err.mockRestore();
+    }
+  });
+  it('every support kind has its own latch and profile, and the profile copy matches tuning.ts', () => {
+    expect(SUPPORT_PROFILE.air_strike).toBe(FS_AIR_STRIKE);
+    expect(SUPPORT_PROFILE.mortar_barrage).toBe(FS_MORTAR_BARRAGE);
+    expect(supportKindForProfile(FS_AIR_STRIKE)).toBe('air_strike');
+    expect(supportKindForProfile(FS_MORTAR_BARRAGE)).toBe('mortar_barrage');
+    expect(new Set(Object.values(SUPPORT_LATCH)).size).toBe(Object.keys(SUPPORT_LATCH).length);
   });
   it('heavier classes push harder than the default and than the class below', () => {
     const h = (c: MunitionClassId): number => ragdollPushFor(c).horizontalMS;

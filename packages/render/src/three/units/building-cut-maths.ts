@@ -43,7 +43,7 @@ type V3<T> = readonly [T, T, T];
 type V4<T> = readonly [T, T, T, T];
 
 /** The cut's inputs: the shared volume block (`CUT_VOLUME_CAP * CUT_FLOATS_PER_VOLUME` floats, `uRlCutV` as the legacy hook lays
- *  it out: (cx, cz, r, w) then (yCut, yTop, 0, 0) a volume), the live count `uRlCutN`, and the building's two colours. */
+ *  it out: (cx, cz, r, w) then (yCut, yTop, j, 0) a volume), the live count `uRlCutN`, and the building's two colours. */
 export interface CutInput<T> {
   readonly v: readonly T[];
   readonly n: T;
@@ -115,14 +115,14 @@ const cross3 = <T>(o: Ops<T>, a: V3<T>, b: V3<T>): V3<T> => [
  * The cut over every live volume (`rlCutApply`): `cut` 1 where any volume with index under `n` takes the fragment away,
  * `section` 1 where any such volume puts it in the light cap band. Each volume is `cutawayOps`, the one body.
  */
-export function cutVolumesOps<T>(o: Ops<T>, flow: Flow<T>, p: V3<T>, v: readonly T[], n: T): { readonly cut: T; readonly section: T } {
+export function cutVolumesOps<T>(o: Ops<T>, io: IntOps<T>, flow: Flow<T>, p: V3<T>, v: readonly T[], n: T): { readonly cut: T; readonly section: T } {
   if (v.length !== CUT_VOLUME_CAP * CUT_FLOATS_PER_VOLUME) throw new Error(`cutVolumesOps: the block holds ${v.length} floats, not ${CUT_VOLUME_CAP * CUT_FLOATS_PER_VOLUME}`);
   let state: readonly T[] = [o.lit(0), o.lit(0)];
   for (let i = 0; i < CUT_VOLUME_CAP; i++) {
     const b = i * CUT_FLOATS_PER_VOLUME;
     // `if (i >= uRlCutN) break;`
     state = flow.when(lt(o, o.lit(i), n), state, ([cut, section]) => {
-      const r = cutawayOps(o, p[0], p[1], p[2], { cx: v[b], cz: v[b + 1], r: v[b + 2], w: v[b + 3], yCut: v[b + 4], yTop: v[b + 5] });
+      const r = cutawayOps(o, io, p[0], p[1], p[2], { cx: v[b], cz: v[b + 1], r: v[b + 2], w: v[b + 3], yCut: v[b + 4], yTop: v[b + 5], j: v[b + 6] });
       return [o.max(cut as T, r.cut), o.max(section as T, r.section)];
     });
   }
@@ -231,7 +231,7 @@ export function buildingFragmentOps<T>(o: Ops<T>, io: IntOps<T>, flow: Flow<T>, 
   let gone = o.lit(0);
   let rgb: V3<T> = f.base;
   if (f.cut !== null) {
-    const c = cutVolumesOps(o, flow, f.p, f.cut.v, f.cut.n);
+    const c = cutVolumesOps(o, io, flow, f.p, f.cut.v, f.cut.n);
     gone = o.max(gone, c.cut);
     // `if (!gl_FrontFacing) interior; else if (rlCutSection > 0.5) cap;`
     rgb = pick3(o, f.front, pick3(o, c.section, f.cut.cap, rgb), f.cut.interior);

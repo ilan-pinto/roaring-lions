@@ -17,7 +17,7 @@ const n = async (db: D1Like, sql: string): Promise<number> =>
 
 async function member(h: H, id: string, lastSeen: number, steam?: string): Promise<void> {
   await h.db.prepare('INSERT INTO member VALUES (?1, ?2, ?3, ?4, 1, ?5)').bind(id, 'PUB' + id, 'hash' + id, 'uh' + id, lastSeen).run();
-  await h.db.prepare("INSERT INTO profile VALUES (?1, 'Name', 0, 1)").bind(id).run();
+  await h.db.prepare("INSERT INTO profile (member_id, display_name, show_record, updated_at) VALUES (?1, 'Name', 0, 1)").bind(id).run();
   if (steam !== undefined) {
     await h.db.prepare("INSERT INTO member_identity (id, member_id, provider, subject, created_at, last_used_day) VALUES (?1, ?2, 'steam', ?3, 1, 0)").bind('i' + id, id, steam).run();
   }
@@ -103,6 +103,7 @@ describe('sweepAccounts', () => {
   it('a sign-in after the sweep selected the member wins', async () => {
     const stub = steamStub();
     const h = accountHarness({ now: NOW, deps: stub });
+    await h.db.prepare(`INSERT INTO flags VALUES ('steam','open',0)`).run();
     await member(h, 'm1', CUTOFF, STEAM);
     const start = await h.call('POST', '/api/account/steam/start', { body: { purpose: 'steam-login' } });
     expect(start.status).toBe(200);

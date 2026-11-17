@@ -192,7 +192,7 @@ function queryString(query: URLSearchParams): string {
  * `renderer` persists per origin in `localStorage` instead, and a sandbox flag
  * belongs to one map's URL rather than to the session.
  */
-export const STICKY_QUERY_KEYS = ['lang', 'pseudo', 'accounts'] as const;
+export const STICKY_QUERY_KEYS = ['lang', 'pseudo', 'accounts', 'google'] as const;
 
 interface Mounted {
   req: RouteRequest;

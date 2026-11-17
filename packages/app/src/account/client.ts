@@ -2,7 +2,8 @@
  * The ONLY file under packages/app/src that names the account API (a source scan pins that). With the client
  * disabled no method calls `fetch` (GH-1075 A1, A1-11).
  */
-import type { CampaignView, ClaimBody, ClaimResult, CoinAskWire, ConflictAnswer, EarnAward, MatchesView, SaveSlot, ServerState, SlotMetaView, WalletView } from '@lions/economy';
+import type { AvatarView } from '@lions/data';
+import type { CampaignView, ClaimBody, ClaimResult, CoinAskWire, CoinsView, ConflictAnswer, EarnAward, MatchesView, SaveSlot, ServerState, SlotMetaView, WalletView } from '@lions/economy';
 import type { OutboxOp } from './outbox';
 
 export interface IdentityView {
@@ -20,7 +21,7 @@ export interface AccountError {
 }
 
 export type MeResult =
-  | { kind: 'signedIn'; publicId: string; displayName: string; showRecord: boolean; fresh: boolean; identities: IdentityView[] }
+  | { kind: 'signedIn'; publicId: string; displayName: string; showRecord: boolean; avatar: AvatarView; createdDay: number; fresh: boolean; identities: IdentityView[] }
   | { kind: 'signedOut' }
   | { kind: 'off' };
 
@@ -54,11 +55,14 @@ export type SlotDeleteOp = Extract<OutboxOp, { kind: 'slot.delete' }>;
 export interface AccountClient {
   enabled: boolean;
   open(): Promise<boolean>;
+  /** The providers the server lists in `GET open` (spec U1): the buttons follow this, never a constant. Unknown names are dropped. */
+  providers(): Promise<readonly Provider[]>;
   me(): Promise<MeResult>;
   steamStart(purpose: 'steam-login' | 'steam-link'): Promise<{ url: string } | AccountError>;
+  googleStart(purpose: 'google-login' | 'google-link'): Promise<{ url: string } | AccountError>;
   logout(): Promise<'ok' | AccountError>;
   logoutAll(): Promise<'ok' | AccountError>;
-  patchProfile(p: { displayName?: string; showRecord?: boolean }): Promise<'ok' | AccountError>;
+  patchProfile(p: { displayName?: string; showRecord?: boolean; avatar?: string | null }): Promise<'ok' | AccountError>;
   deleteIdentity(id: string): Promise<'ok' | AccountError>;
   exportData(): Promise<Blob | AccountError>;
   deleteAccount(o: { telemetryPlayer?: string }): Promise<'ok' | AccountError>;
@@ -77,11 +81,23 @@ export interface AccountClient {
   claim(body: ClaimBody): Promise<CallResult<ClaimResult>>;
   /** The member's match history, newest first (GH-1075 A3): `before` is the previous page's `next`. */
   matches(before?: string): Promise<CallResult<MatchesView>>;
+  /** The member's own coin history, newest first (GH-1370 C1): `before` is the previous page's `next`. */
+  coins(before?: string): Promise<CallResult<CoinsView>>;
 }
 
-/** The `r=` codes `steam/return` appends to the profile path (plan section 0, ruling 12). */
-export const RETURN_CODES = ['ok', 'linked', 'cancelled', 'expired', 'nocookie', 'invalid', 'steam', 'closed', 'limit', 'taken'] as const;
+/** The `r=` codes the provider returns append to the profile path (plan section 0, ruling 12; `google` and `already` are GH-1075 §3.4). */
+export const RETURN_CODES = ['ok', 'linked', 'cancelled', 'expired', 'nocookie', 'invalid', 'steam', 'closed', 'limit', 'taken', 'google', 'already'] as const;
 export type ReturnCode = (typeof RETURN_CODES)[number];
+
+/** The providers `GET open` and the `p=` return parameter may name. An allow-list: anything else is dropped. */
+export const PROVIDERS = ['google', 'steam'] as const;
+export type Provider = (typeof PROVIDERS)[number];
+
+/** `p=` on the profile path: which provider the return was about. Selects wording only, never behaviour. Unknown or missing is null. */
+export function readReturnProvider(query: URLSearchParams): Provider | null {
+  const p = query.get('p');
+  return PROVIDERS.find((c) => c === p) ?? null;
+}
 
 export function readReturnCode(query: URLSearchParams): ReturnCode | null {
   const r = query.get('r');
@@ -140,6 +156,17 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
       return { ok: false, status: 0, body: { error: 'network' } };
     }
   }
+  async function start(path: string, purpose: string): Promise<{ url: string } | AccountError> {
+    if (!o.enabled) return OFF;
+    try {
+      const res = await call('POST', path, { purpose });
+      if (!res.ok) return await failure(res);
+      const j = (await res.json()) as { url?: unknown };
+      return typeof j.url === 'string' ? { url: j.url } : { error: 'error', status: res.status };
+    } catch {
+      return { error: 'network', status: 0 };
+    }
+  }
   const slotPath = (id: string): string => `slots/${encodeURIComponent(id)}`;
   return {
     enabled: o.enabled,
@@ -153,6 +180,17 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
         return false;
       }
     },
+    async providers() {
+      if (!o.enabled) return [];
+      try {
+        const res = await call('GET', 'open');
+        if (!res.ok) return [];
+        const j = (await res.json()) as { providers?: unknown };
+        return Array.isArray(j.providers) ? PROVIDERS.filter((p) => (j.providers as unknown[]).includes(p)) : [];
+      } catch {
+        return [];
+      }
+    },
     async me() {
       if (!o.enabled) return { kind: 'off' };
       try {
@@ -160,22 +198,13 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
         if (res.status === 401) return { kind: 'signedOut' };
         if (!res.ok) return { kind: 'off' };
         const j = (await res.json()) as Omit<Extract<MeResult, { kind: 'signedIn' }>, 'kind'>;
-        return { kind: 'signedIn', publicId: j.publicId, displayName: j.displayName, showRecord: j.showRecord, fresh: j.fresh, identities: j.identities };
+        return { kind: 'signedIn', publicId: j.publicId, displayName: j.displayName, showRecord: j.showRecord, avatar: j.avatar, createdDay: j.createdDay, fresh: j.fresh, identities: j.identities };
       } catch {
         return { kind: 'off' };
       }
     },
-    async steamStart(purpose) {
-      if (!o.enabled) return OFF;
-      try {
-        const res = await call('POST', 'steam/start', { purpose });
-        if (!res.ok) return await failure(res);
-        const j = (await res.json()) as { url?: unknown };
-        return typeof j.url === 'string' ? { url: j.url } : { error: 'error', status: res.status };
-      } catch {
-        return { error: 'network', status: 0 };
-      }
-    },
+    steamStart: (purpose) => start('steam/start', purpose),
+    googleStart: (purpose) => start('google/start', purpose),
     // For logout a 401 means this session is already gone, which is what the caller wanted. For logoutAll it means
     // nothing was ended (the other sessions are still live), so it stays a failure.
     logout: () => signOut('logout', true),
@@ -205,6 +234,7 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
     deleteSlot: (op) => result('DELETE', slotPath(op.slotId), { op_id: op.opId }),
     claim: (body) => result('POST', 'claim', body),
     matches: (before) => result('GET', before === undefined ? 'matches' : `matches?before=${encodeURIComponent(before)}`),
+    coins: (before) => result('GET', before === undefined ? 'coins' : `coins?before=${encodeURIComponent(before)}`),
     async gone(idHash) {
       if (!o.enabled) return 'unknown';
       try {

@@ -190,6 +190,10 @@ describe('GH-1226: the decal twin is sealed with the ground\'s record already in
     }
     expect(twin.heightField, 'a height-field tap exists in the compiled twin').not.toBeNull();
     expect((twin.heightField as unknown as { value: unknown }).value, 'it samples the record\'s field').toBe(record.field);
+    const groundA = (priv.groundMat as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms.uControlA as { value: unknown };
+    expect(record.controlA, 'the record carries the ground\'s own uControlA uniform object').toBe(groundA);
+    expect(twin.controlA, 'a control A tap exists').not.toBeNull();
+    expect((twin.controlA as unknown as { value: unknown }).value, 'it samples the ground\'s control A').toBe(groundA.value);
     expect(twin.numbers.uHeightBlendRockTone?.value, 'bound, not copied').toBe(record.rockTone);
     expect(twin.numbers.uHeightBlendHollowTone?.value).toBe(record.hollowTone);
   });

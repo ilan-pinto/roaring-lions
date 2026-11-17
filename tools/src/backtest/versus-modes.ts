@@ -254,8 +254,25 @@ export type MassedState = ReadonlyMap<number, readonly number[]>;
 export function rallyTile(w: MatchWorld, side: 0 | 1): [number, number] {
   const [ax, ay] = w.anchors[w.endOfSide[side]];
   const [bx, by] = w.anchors[w.endOfSide[side === 0 ? 1 : 0]];
-  return [Math.round(ax + ((bx - ax) * RALLY_NUM) / RALLY_DEN), Math.round(ay + ((by - ay) * RALLY_NUM) / RALLY_DEN)];
+  return [rallyAxis(ax, bx), rallyAxis(ay, by)];
 }
+/** `a + (b - a) * RALLY_NUM / RALLY_DEN` rounded to a whole tile, a tie going TOWARDS `a` (GH-976). `Math.round` sends every tie up, so on a
+ *  half-turn map the two seats' ties land on opposite sides and the rally tiles are a tile off a true half-turn image. */
+function rallyAxis(a: number, b: number): number {
+  const num = a * RALLY_DEN + (b - a) * RALLY_NUM;
+  const q = Math.floor(num / RALLY_DEN);
+  const r = num - q * RALLY_DEN;
+  if (r * 2 === RALLY_DEN) return b > a ? q : q + 1;
+  return r * 2 < RALLY_DEN ? q : q + 1;
+}
+
+/** The Q16.16 point `massedFlagOrder` sends `side`'s body to: the CENTRE of its rally tile (GH-976). Sent at the tile's corner
+ *  (`fx.from(rx)`) the two seats' points were a tile off a true half-turn image of each other, which hands one seat the first volley. */
+export function rallyPoint(w: MatchWorld, side: 0 | 1): [number, number] {
+  const [rx, ry] = rallyTile(w, side);
+  return [fx.from(rx) + HALF_TILE, fx.from(ry) + HALF_TILE];
+}
+const HALF_TILE = 1 << 15;
 
 /** The `massed` script's order for every side that is not idle, at `nowTick`: before `bell + massS` the body (every living unit but
  *  the two defenders) moves to the rally tile and the defenders attack-move onto the OWN flag; from then on the body attack-moves
@@ -274,8 +291,8 @@ export function massedFlagOrder(w: MatchWorld, mapId: string, defenders: MassedS
       const enemy = flagTile(mapId, w.endOfSide[side === 0 ? 1 : 0], w.setup !== null);
       w.sim.queueCommand({ kind: 'attackMove', ids: body, x: enemy[0], y: enemy[1] });
     } else {
-      const [rx, ry] = rallyTile(w, side);
-      w.sim.queueCommand({ kind: 'move', ids: body, x: fx.from(rx), y: fx.from(ry) });
+      const [rx, ry] = rallyPoint(w, side);
+      w.sim.queueCommand({ kind: 'move', ids: body, x: rx, y: ry });
     }
   }
 }

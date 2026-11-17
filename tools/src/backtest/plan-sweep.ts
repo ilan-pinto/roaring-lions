@@ -31,7 +31,9 @@ import { missions, minWinSeconds, world } from '@lions/data';
 import { worldMissionIds } from '../../../packages/economy/src';
 import { parseWorld } from '../../../packages/app/src/campaign';
 import { fastestWins, limitHeadroom, MIN_WIN_DIVISOR, type WinTime } from './time-limit';
-import { SWEEP_SEEDS } from './passive-sweep';
+import { POSTURE_SEEDS, SWEEP_SEEDS } from './passive-sweep';
+import type { PostureId } from '@lions/data';
+import { LADDER_VARIANTS, monotoneFailure, postureClockFailures, postureLimit, readingOf, wrongWay, type Rate, type Variant } from './posture-ladder';
 
 /** True inside a seed's child process. */
 export const PLAN_CHILD = process.env.PT_PLAN_CHILD === '1';
@@ -47,12 +49,27 @@ export interface GateRecord {
 
 interface ChildReply {
   seed: number;
+  /** GH-1394: the posture the child played (`PT_POSTURE`), and whether its plans used the relief (`PT_RELIEF_JOIN`). */
+  posture: PostureId;
+  relief: boolean;
   runs: RunRecord[];
   gates: GateRecord[];
 }
 
+/** One child: a seed, at a posture. Standard is the existing sweep; Easier and Harder are GH-1394's ladder. */
+interface Job {
+  seed: number;
+  posture: PostureId;
+  relief: boolean;
+}
+
 const replies = new Map<number, ChildReply>();
 const failedSeeds = new Map<number, string>();
+/** GH-1394: the posture children's replies and failures, keyed `posture:seed`. Standard's stay in the two above. */
+const postureReplies = new Map<string, ChildReply>();
+const postureFailed = new Map<string, string>();
+const variantKey = (posture: PostureId, relief: boolean): string => `${posture}${relief ? '+relief' : ''}`;
+const jobKey = (j: Job): string => `${variantKey(j.posture, j.relief)}:${j.seed}`;
 let pending = 0;
 let onIdle: (() => void) | undefined;
 
@@ -62,28 +79,34 @@ function poolSize(): number {
   return Math.max(1, Math.min(8, availableParallelism() - 1));
 }
 
-function launch(seed: number, queue: number[]): void {
+function launch(job: Job, queue: Job[]): void {
+  const { seed, posture, relief } = job;
   const path = fileURLToPath(new URL('./playtest.ts', import.meta.url));
   // `silent`: a child's own lines (run lines, the pinned 424242 numbers it does not meet) are not
   // this report. What it ran comes back as a message; its stderr is kept for a crash.
   const child: ChildProcess = fork(path, [], {
     execArgv: process.execArgv,
-    env: { ...process.env, PT_SEED: String(seed), PT_PLAN_CHILD: '1', PT_SWEEP_WORKERS: '0' },
+    env: { ...process.env, PT_SEED: String(seed), PT_PLAN_CHILD: '1', PT_SWEEP_WORKERS: '0', PT_POSTURE: posture, PT_RELIEF_JOIN: relief ? '1' : '0' },
     serialization: 'advanced',
     silent: true,
   });
   let err = '';
   child.stderr?.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-2000)));
   child.stdout?.resume();
-  child.on('message', (msg: ChildReply) => replies.set(msg.seed, msg));
+  child.on('message', (msg: ChildReply) => {
+    if (msg.posture === 'standard') replies.set(msg.seed, msg);
+    else postureReplies.set(jobKey(msg), msg);
+  });
   // `close`, not `exit`: it comes after the IPC channel and stdio are drained, so a report the
   // child sent just before exiting has already arrived.
   child.on('close', (code) => {
-    if (!replies.has(seed)) {
+    if (posture === 'standard' ? !replies.has(seed) : !postureReplies.has(jobKey(job))) {
       // Node's own trailer ("Node.js v25...") is the last stderr line; the error is the line naming it.
       const lines = err.trim().split('\n');
       const why = lines.find((l) => /Error|FAILED/.test(l)) ?? lines.pop() ?? '';
-      failedSeeds.set(seed, `child exited (code ${code}) without a report${why ? `: ${why.trim()}` : ''}`);
+      const text = `child exited (code ${code}) without a report${why ? `: ${why.trim()}` : ''}`;
+      if (posture === 'standard') failedSeeds.set(seed, text);
+      else postureFailed.set(jobKey(job), text);
     }
     pending--;
     const next = queue.shift();
@@ -97,18 +120,24 @@ function launch(seed: number, queue: number[]): void {
 /** Starts one child per seed after the first (which is this process's own run). */
 export function startPlanSweep(seeds: readonly number[] = SWEEP_SEEDS): void {
   if (PLAN_CHILD || process.env.PT_PLAN_SWEEP === '0') return;
-  const queue = seeds.slice(1);
+  // GH-1394: Easier and Harder run as children too, on every posture seed (424242 included: this process plays
+  // Standard), after the Standard seeds in the queue.
+  const queue: Job[] = [
+    ...seeds.slice(1).map((seed) => ({ seed, posture: 'standard' as const, relief: false })),
+    ...LADDER_VARIANTS.flatMap((v) => POSTURE_SEEDS.map((seed) => ({ seed, posture: v.posture, relief: v.relief }))),
+  ];
   for (let w = 0; w < poolSize() && queue.length > 0; w++) {
-    const seed = queue.shift() as number;
+    const job = queue.shift() as Job;
     pending++;
-    launch(seed, queue);
+    launch(job, queue);
   }
 }
 
 /** In a child: hands what it ran back to the parent. */
 export function reportToParent(gates: GateRecord[]): void {
   if (!PLAN_CHILD || !process.send) return;
-  process.send({ seed: Number(process.env.PT_SEED), runs: runLog, gates } satisfies ChildReply);
+  const posture = (process.env.PT_POSTURE || 'standard') as PostureId;
+  process.send({ seed: Number(process.env.PT_SEED), posture, relief: process.env.PT_RELIEF_JOIN === '1', runs: runLog, gates } satisfies ChildReply);
 }
 
 /** #540: one line per mission with a winning plan, and exit 1 if a limit sits too close to a win. */
@@ -241,5 +270,110 @@ export async function drainPlanSweeps(
   }
   reportLimitHeadroom(bySeed.values());
   reportMinWin(bySeed.values(), seeds.length);
+  reportPostures(seeds, bySeed, labels);
   return bySeed;
+}
+
+/**
+ * GH-1394 (design §8, D13): the ladder at Easier and Harder. Every winning plan must win on every posture seed with the
+ * #540 margin to the posture's own limit, at Easier both with the relief left standing and with the plans using it
+ * (`LADDER_VARIANTS`); its win rate must be monotone (each Easier reading >= Standard >= Harder); and the clock
+ * validator must be clean at every posture. Report-only: each reading against Standard on the same seeds, per mission
+ * (`wrongWay`). The passive half is `passive-sweep.ts`'s (`... (no orders, easier)`).
+ */
+function reportPostures(seeds: readonly number[], bySeed: ReadonlyMap<number, readonly RunRecord[]>, labels: readonly string[]): void {
+  const clock = postureClockFailures();
+  for (const f of clock) console.error(`posture clock: FAILED — ${f}`);
+  console.log(`posture clock: ${clock.length === 0 ? 'clean' : `${clock.length} failure(s)`} at every posture under the overlaid rule (D6/D13)`);
+  if (clock.length > 0) process.exitCode = 1;
+  if (POSTURE_SEEDS.length === 0) {
+    console.log('posture ladder: off (PT_POSTURE_SEEDS=0)');
+    return;
+  }
+  const stdRate = (label: string): Rate => {
+    const r = { wins: 0, seeds: 0 };
+    for (const seed of seeds) {
+      r.seeds++;
+      if (bySeed.get(seed)?.find((x) => x.label === label)?.result === 'victory') r.wins++;
+    }
+    return r;
+  };
+  const rates = new Map<string, Rate>(); // `${variant.key}|${label}`
+  for (const v of LADDER_VARIANTS) {
+    let held = 0;
+    const wins: WinTime[] = [];
+    for (const label of labels) {
+      const missed: string[] = [];
+      let slowest = 0;
+      const r: Rate = { wins: 0, seeds: 0 };
+      rates.set(`${v.key}|${label}`, r);
+      for (const seed of POSTURE_SEEDS) {
+        const key = `${v.key}:${seed}`;
+        const run = postureReplies.get(key)?.runs.find((x) => x.label === label);
+        r.seeds++;
+        if (!run) {
+          missed.push(`${seed} (${postureFailed.get(key) ?? 'no run'})`);
+          continue;
+        }
+        if (run.result !== 'victory') {
+          missed.push(`${seed} (${outcomeName(run.result, run.stuck).toLowerCase()})`);
+          continue;
+        }
+        r.wins++;
+        slowest = Math.max(slowest, run.minutes);
+        wins.push({ id: run.id, label: `${run.label}, ${v.key}, seed ${seed}`, seconds: run.minutes * 60 });
+      }
+      if (missed.length === 0) held++;
+      else process.exitCode = 1;
+      console.log(
+        `${label} [${v.key}]: VICTORY on ${POSTURE_SEEDS.length - missed.length}/${POSTURE_SEEDS.length} seeds, slowest ${slowest.toFixed(1)} min` +
+          (missed.length ? ` -- missed on ${missed.join(', ')}` : '')
+      );
+      if (missed.length) console.error(`${label} [${v.key}]: FAILED — the plan does not win on every ${v.key} seed`);
+    }
+    console.log(`posture ${v.key}: ${held} of ${labels.length} winning plans win on all ${POSTURE_SEEDS.length} seeds`);
+    const { lines, failures } = limitHeadroom(wins, (id) => postureLimit(id, v.posture));
+    for (const l of lines) console.log(`[${v.key}] ${l}`);
+    for (const f of failures) console.error(`[${v.key}] ${f}`);
+    if (failures.length > 0) process.exitCode = 1;
+  }
+  let monotone = 0;
+  const easiers = LADDER_VARIANTS.filter((v) => v.posture === 'easier');
+  const harder = LADDER_VARIANTS.find((v) => v.posture === 'harder') as Variant;
+  for (const label of labels) {
+    let ok = true;
+    for (const e of easiers) {
+      const f = monotoneFailure(`${label} [${e.key}]`, {
+        easier: rates.get(`${e.key}|${label}`) as Rate,
+        standard: stdRate(label),
+        harder: rates.get(`${harder.key}|${label}`) as Rate,
+      });
+      if (f !== undefined) {
+        ok = false;
+        console.error(f);
+        process.exitCode = 1;
+      }
+    }
+    if (ok) monotone++;
+  }
+  console.log(`posture monotone: ${monotone} of ${labels.length} winning plans win no less often at Easier (both readings) than Standard, nor at Standard than Harder`);
+  // REPORT-ONLY: each reading against Standard on the same seeds, for the mission itself.
+  let flagged = 0;
+  for (const label of labels) {
+    const std = readingOf(
+      POSTURE_SEEDS.flatMap((seed) => bySeed.get(seed)?.filter((x) => x.label === label) ?? []),
+      POSTURE_SEEDS.length
+    );
+    for (const v of LADDER_VARIANTS) {
+      const p = readingOf(
+        POSTURE_SEEDS.flatMap((seed) => postureReplies.get(`${v.key}:${seed}`)?.runs.filter((x) => x.label === label) ?? []),
+        POSTURE_SEEDS.length
+      );
+      const why = wrongWay(v.posture, p, std);
+      const fmt = (r: typeof p) => `${r.wins}/${r.seeds} wins, median ${Number.isFinite(r.medianMin) ? r.medianMin.toFixed(2) : '-'} min, lost ${Number.isFinite(r.meanLost) ? r.meanLost.toFixed(1) : '-'}`;
+      console.log(`posture vs standard ${label} [${v.key}]: ${fmt(p)} | standard ${fmt(std)}${why ? ` -- ${v.posture === 'easier' ? 'HARDER' : 'EASIER'} than Standard here: ${why} (report only)` : ''}`);
+      if (why) flagged++;
+    }
+  }
+  console.log(`posture vs standard: ${flagged} reading(s) point the wrong way for the mission itself (report only; same ${POSTURE_SEEDS.length} seeds)`);
 }

@@ -1,6 +1,7 @@
 import { isTelemetryEvent, type TelemetryEvent } from '@lions/data/telemetry';
 import type { D1Like, D1Stmt, Env } from './d1';
 import { bump, ipKey, ipSecret } from './rate-day';
+import { readCapped } from './read-capped';
 
 const MAX_BODY = 64 * 1024;
 const MAX_EVENTS = 50;
@@ -39,11 +40,13 @@ export async function handleIngest(req: Request, env: Env, now: number): Promise
     }
     // M5: reject on the declared size before reading the body at all, so an
     // oversized request never gets buffered into memory just to be dropped.
-    // The header can be absent or lie, so `text.length` below still guards.
+    // The header can be absent (a chunked upload) or lie, so the read itself
+    // stops at the cap: `req.text()` would buffer the whole body first.
     const contentLength = req.headers.get('content-length');
     if (contentLength !== null && Number(contentLength) > MAX_BODY) return NO_CONTENT();
-    const text = await req.text();
-    if (text.length > MAX_BODY) return NO_CONTENT();
+    const bytes = await readCapped(req, MAX_BODY);
+    if (bytes === null) return NO_CONTENT();
+    const text = new TextDecoder().decode(bytes);
     const body = JSON.parse(text) as { events?: unknown };
     if (!Array.isArray(body.events) || body.events.length > MAX_EVENTS) return NO_CONTENT();
     // One request speaks for one player (#559 M-3): the game only ever sends
@@ -57,7 +60,7 @@ export async function handleIngest(req: Request, env: Env, now: number): Promise
     // One row for the whole request: the events as a JSON array (`events_all` expands it).
     const stmts: D1Stmt[] = [
       env.DB.prepare('INSERT INTO event_batch (received_at, player, events) VALUES (?, ?, ?)').bind(now, player, JSON.stringify(events)),
-      upsertPlayer(env, player, events),
+      upsertPlayer(env, player, events, now),
     ];
     await env.DB.batch(stmts);
   } catch {
@@ -68,7 +71,7 @@ export async function handleIngest(req: Request, env: Env, now: number): Promise
   // events above have already committed, and QUERIES.sql rebuilds it.
   try {
     const latest = latestAccountByPlayer(events);
-    if (latest.length > 0) await env.DB.batch(latest.map((e) => upsertAccount(env, e)));
+    if (latest.length > 0) await env.DB.batch(latest.map((e) => upsertAccount(env, e, now)));
   } catch {
     /* summary only */
   }
@@ -86,15 +89,70 @@ async function withinBudget(env: Env, req: Request, player: string, now: number)
   return bump(env.DB, 'ingest-all', '', now, INGEST_DAY.global);
 }
 
-/** #559 M-3: the daily cron ages raw events out after `EVENTS_RETENTION_MS`,
- *  oldest first, a bounded slice a day so no run can spend the day's D1
- *  writes: up to 2,000 batch rows and 1,000 legacy event rows (each of those
- *  also carries four index entries). Returns the rows deleted. */
+/**
+ * How many rows one daily run may delete, and in how many D1 statements. Ingest can write `INGEST_DAY.global` batch rows a day, so a run that
+ * deleted fewer than that (it was 2,000 against 5,000) fell further behind every busy day and raw events outlived their 180 days. A run now
+ * clears up to three slices of that size: it catches up on a backlog three times faster than ingest grows, and stops at the cap so no run can
+ * spend the day's D1 writes. The Free plan allows 50 D1 queries per invocation, shared by every purge the cron runs, so each pass is a FEW BIG
+ * statements (a slice is one `DELETE ... LIMIT`), never a loop over small ones; `purge.test.ts` counts them.
+ */
+export const PURGE_BATCH_SLICE = INGEST_DAY.global;
+export const PURGE_BATCH_SLICES = 3;
+/** The legacy per-event table is no longer written (M-3); each row carries four index entries, so its slice is smaller. */
+export const PURGE_LEGACY_ROWS = 3000;
+/** Summary rows (players, accounts) per slice, and slices per run. */
+export const PURGE_PLAYER_SLICE = 5000;
+export const PURGE_PLAYER_SLICES = 2;
+
+/** #559 M-3: the daily cron ages raw events out after `EVENTS_RETENTION_MS`, oldest first, in bounded slices (see above). Returns the rows deleted. */
 export async function purgeEvents(db: D1Like, now: number): Promise<number> {
   const cutoff = now - EVENTS_RETENTION_MS;
-  const a = await db.prepare('DELETE FROM event_batch WHERE id IN (SELECT id FROM event_batch ORDER BY id LIMIT 2000) AND received_at < ? RETURNING id').bind(cutoff).all<{ id: number }>();
-  const b = await db.prepare('DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY id LIMIT 1000) AND received_at < ? RETURNING id').bind(cutoff).all<{ id: number }>();
-  return a.results.length + b.results.length;
+  let deleted = 0;
+  for (let i = 0; i < PURGE_BATCH_SLICES; i++) {
+    // The slice is the OLDEST ids (a prefix, since ids grow with time), so a slice that is not full means the old rows are gone.
+    const a = await db
+      .prepare('DELETE FROM event_batch WHERE id IN (SELECT id FROM event_batch ORDER BY id LIMIT ?1) AND received_at < ?2 RETURNING id')
+      .bind(PURGE_BATCH_SLICE, cutoff)
+      .all<{ id: number }>();
+    deleted += a.results.length;
+    if (a.results.length < PURGE_BATCH_SLICE) break;
+  }
+  const b = await db
+    .prepare('DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY id LIMIT ?1) AND received_at < ?2 RETURNING id')
+    .bind(PURGE_LEGACY_ROWS, cutoff)
+    .all<{ id: number }>();
+  return deleted + b.results.length;
+}
+
+/**
+ * GH-1410, the lead's ruling of 15 Nov: each ID's summary (`players`) and its brigade snapshot (`accounts`) are deleted `EVENTS_RETENTION_MS`
+ * (180 days) after that ID was LAST SEEN, so everything held about an ID is gone after about 180 days without play. At exactly 180 days a row
+ * is kept (`last_seen < cutoff` is strict). An `accounts` row with no `players` row is an orphan: it goes when its own `t` is that old.
+ * Returns the `players` rows deleted.
+ */
+export async function purgePlayers(db: D1Like, now: number): Promise<number> {
+  const cutoff = now - EVENTS_RETENTION_MS;
+  // Heal rows written before ingest capped client time: a `last_seen` or `t` in the future would never age out. One batch is one D1 query.
+  await db.batch([
+    db.prepare('UPDATE players SET last_seen = ?1 WHERE last_seen > ?1').bind(now),
+    db.prepare('UPDATE accounts SET t = ?1 WHERE t > ?1').bind(now),
+  ]);
+  let deleted = 0;
+  for (let i = 0; i < PURGE_PLAYER_SLICES; i++) {
+    // Both deletes name the same oldest-first slice of stale players; one batch is one transaction, so the account row never outlives its player.
+    const stale = 'SELECT player FROM players WHERE last_seen < ?1 ORDER BY last_seen, player LIMIT ?2';
+    const out = await db.batch([
+      db.prepare(`DELETE FROM accounts WHERE player IN (${stale})`).bind(cutoff, PURGE_PLAYER_SLICE),
+      db.prepare(`DELETE FROM players WHERE player IN (${stale})`).bind(cutoff, PURGE_PLAYER_SLICE),
+    ]);
+    // D1's batch result carries `meta.changes`; the node:sqlite test double's `run()` result carries `changes`.
+    const second = out[1] as { meta?: { changes?: number }; changes?: number | bigint } | undefined;
+    const n = Number(second?.meta?.changes ?? second?.changes ?? 0);
+    deleted += n;
+    if (n < PURGE_PLAYER_SLICE) break;
+  }
+  await db.prepare('DELETE FROM accounts WHERE t < ?1 AND player NOT IN (SELECT player FROM players)').bind(cutoff).run();
+  return deleted;
 }
 
 type AccountEvent = Extract<TelemetryEvent, { type: 'account' }>;
@@ -110,7 +168,8 @@ function latestAccountByPlayer(events: TelemetryEvent[]): AccountEvent[] {
   return [...byPlayer.values()];
 }
 
-function upsertAccount(env: Env, e: AccountEvent): D1Stmt {
+/** `t` is the client's clock; the server's `now` caps it, so a clock set years ahead cannot keep a row past its retention. */
+function upsertAccount(env: Env, e: AccountEvent, now: number): D1Stmt {
   return env.DB.prepare(
     `INSERT INTO accounts (player, t, credits, earned, unlocks, tiers, tester, dev)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -120,12 +179,13 @@ function upsertAccount(env: Env, e: AccountEvent): D1Stmt {
        tester = COALESCE(excluded.tester, accounts.tester),
        dev = MAX(accounts.dev, excluded.dev)
      WHERE excluded.t >= accounts.t`
-  ).bind(e.player, e.t, e.credits, e.earned, JSON.stringify(e.unlocks), JSON.stringify(e.tiers), e.tester ?? null, e.dev ? 1 : 0);
+  ).bind(e.player, Math.min(e.t, now), e.credits, e.earned, JSON.stringify(e.unlocks), JSON.stringify(e.tiers), e.tester ?? null, e.dev ? 1 : 0);
 }
 
-function upsertPlayer(env: Env, player: string, events: TelemetryEvent[]): D1Stmt {
-  const first = Math.min(...events.map((e) => e.t));
-  const last = Math.max(...events.map((e) => e.t));
+/** `first_seen` and `last_seen` come from the client's clock, capped at the server's receive time `now`: retention is judged on `last_seen`, and a clock set years ahead would otherwise keep an ID forever (`MAX(last_seen, …)` makes a future value stick). */
+function upsertPlayer(env: Env, player: string, events: TelemetryEvent[], now: number): D1Stmt {
+  const first = Math.min(now, ...events.map((e) => e.t));
+  const last = Math.min(now, Math.max(...events.map((e) => e.t)));
   const seconds = HEARTBEAT_SECONDS * events.filter((e) => e.type === 'heartbeat').length;
   const progress = events.filter((e) => e.type === 'campaign_progress').at(-1);
   const won = progress?.type === 'campaign_progress' ? progress.missionsWon : null;

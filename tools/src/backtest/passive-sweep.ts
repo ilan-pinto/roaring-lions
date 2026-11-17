@@ -19,21 +19,32 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { LedgerData } from '@lions/sim';
-import { run, lastIntelRun, setSweep, sweepOutcome, type IntelRun } from './playtest-run';
+import type { PostureId } from '@lions/data';
+import { run, lastIntelRun, setPosture, setSweep, sweepOutcome, type IntelRun } from './playtest-run';
+import { LADDER_POSTURES, passiveLost, postureSeedCount } from './posture-ladder';
 import type { SweepJob, SweepReply } from './passive-sweep-worker';
 import { controlPlan, type ControlPlan } from './passive-plans';
 
 /** The seeds a swept control runs on: the pinned 424242 first, then 1..29 (PR #533's set). */
 export const SWEEP_SEEDS: readonly number[] = [424242, ...Array.from({ length: 29 }, (_, k) => k + 1)];
 
+/** GH-1394 (D13): the seeds a posture run uses, the first `PT_POSTURE_SEEDS` (default 8) of `SWEEP_SEEDS`. */
+export const POSTURE_SEEDS: readonly number[] = SWEEP_SEEDS.slice(0, postureSeedCount(process.env.PT_POSTURE_SEEDS, SWEEP_SEEDS.length));
+
+/** What a no-orders control must end in. There is no `victory` exemption any more: GH-1385's one passive win, Beit Sahwan II, was
+ *  closed by GH-1378 Q12 (its hold moved onto a crest nobody starts on), so every control must lose. */
 type Expect = 'defeat' | 'ongoing' | 'withdrawn';
+/** GH-1394: a posture control must LOSE, by either cause (`passiveLost`). */
+type ControlExpect = Expect | 'lost';
 
 interface Control {
   /** The mission the control runs, which is the id its winning plan is labelled with. */
   id: string;
   label: string;
-  expect: Expect;
+  expect: ControlExpect;
   seeds: readonly number[];
+  /** GH-1394: the posture the control plays at. */
+  posture: PostureId;
   /** What the passive player does: nothing, or (GH-277) order one medic station. */
   plan: ControlPlan;
   /** Seed -> outcome, filled as runs come back. */
@@ -68,13 +79,15 @@ export function seedLabel(label: string, seed: number): string {
   return `${label.slice(0, -1)}, seed ${seed})`;
 }
 
-function runInline(id: string, label: string, expect: Expect, ledger: LedgerData, seed: number, quiet: boolean, plan: ControlPlan): { result: string; intel: IntelRun } {
+function runInline(id: string, label: string, expect: ControlExpect, ledger: LedgerData, seed: number, quiet: boolean, plan: ControlPlan, posture: PostureId = 'standard'): { result: string; intel: IntelRun } {
   const m = { result: 'ongoing', stars: 0, roeScore: 0, credits: 0 } as NonNullable<Parameters<typeof run>[10]>;
   try {
     setSweep(seed, quiet);
-    run(id as Parameters<typeof run>[0], controlPlan(plan), ledger, expect === 'withdrawn' ? 'defeat' : expect, label, 0, undefined, new Set(), undefined, undefined, m);
+    setPosture(posture);
+    run(id as Parameters<typeof run>[0], controlPlan(plan), ledger, expect === 'withdrawn' || expect === 'lost' ? 'defeat' : expect, label, 0, undefined, new Set(), undefined, undefined, m);
   } finally {
     setSweep(undefined, false);
+    setPosture('standard');
   }
   return { result: sweepOutcome(m.result, m.cause), intel: lastIntelRun() };
 }
@@ -118,7 +131,7 @@ export function passiveAcrossSeeds(
 ): void {
   // A seed's child process in the plan sweep (`plan-sweep.ts`) runs the winning plans only.
   if (process.env.PT_PLAN_CHILD === '1') return;
-  const control: Control = { id, label, expect, seeds, plan, got: new Map(), intel: new Map() };
+  const control: Control = { id, label, expect, seeds, plan, posture: 'standard', got: new Map(), intel: new Map() };
   const index = controls.push(control) - 1;
   const first = runInline(id, label, expect, ledger, seeds[0], false, plan);
   control.got.set(seeds[0], first.result);
@@ -131,22 +144,42 @@ export function passiveAcrossSeeds(
       control.intel.set(seed, r.intel);
       continue;
     }
-    if (workers.length === 0) spawnWorkers(n);
-    const job: SweepJob = { control: index, id, label: seedLabel(label, seed), expect, ledger, seed, plan };
-    const w = nextWorker++ % workers.length;
-    const key = `${index}:${seed}`;
-    owed[w].add(key);
-    workers[w].send(job, (err) => {
-      if (err) settle(w, key);
-    });
+    dispatch({ control: index, id, label: seedLabel(label, seed), expect, ledger, seed, plan }, n);
   }
+  // GH-1394: the same control at Easier and Harder, on `POSTURE_SEEDS`, every seed quiet (so the lines above are what
+  // they always were). The no-orders control only: the medic-only control is a second reading of a Standard mission.
+  if (plan !== 'none') return;
+  for (const posture of LADDER_POSTURES) {
+    const pLabel = `${label.slice(0, -1)}, ${posture})`;
+    const pc: Control = { id, label: pLabel, expect: 'lost', seeds: POSTURE_SEEDS, plan, posture, got: new Map(), intel: new Map() };
+    const pi = controls.push(pc) - 1;
+    for (const seed of POSTURE_SEEDS) {
+      if (n === 0) {
+        const r = runInline(id, seedLabel(pLabel, seed), 'lost', ledger, seed, true, plan, posture);
+        pc.got.set(seed, r.result);
+        pc.intel.set(seed, r.intel);
+        continue;
+      }
+      dispatch({ control: pi, id, label: seedLabel(pLabel, seed), expect: 'defeat', ledger, seed, plan, posture }, n);
+    }
+  }
+}
+
+function dispatch(job: SweepJob, n: number): void {
+  if (workers.length === 0) spawnWorkers(n);
+  const w = nextWorker++ % workers.length;
+  const key = `${job.control}:${job.seed}`;
+  owed[w].add(key);
+  workers[w].send(job, (err) => {
+    if (err) settle(w, key);
+  });
 }
 
 /** Each control's mission id and what it earned on each seed it came back from (`intel-gate.ts`). */
 export function controlIntel(): { id: string; label: string; intel: ReadonlyMap<number, IntelRun> }[] {
   // The no-orders controls only: the medic-only control (GH-277) is a second reading of the same mission, not a second
   // control to pair, bank or count.
-  return controls.filter((c) => c.plan === 'none').map((c) => ({ id: c.id, label: c.label, intel: c.intel }));
+  return controls.filter((c) => c.plan === 'none' && c.posture === 'standard').map((c) => ({ id: c.id, label: c.label, intel: c.intel }));
 }
 
 /** A control runs to its own deadline (4-5 min), so one still ONGOING was at the 20-minute cap. */
@@ -159,7 +192,7 @@ export async function drainPassiveSweeps(): Promise<void> {
   if (owed.some((o) => o.size > 0)) await new Promise<void>((resolve) => (onIdle = resolve));
   for (const w of workers) if (w.connected) w.disconnect();
   for (const c of controls) {
-    const missed = c.seeds.filter((s) => c.got.get(s) !== c.expect);
+    const missed = c.seeds.filter((s) => (c.expect === 'lost' ? !passiveLost(c.got.get(s)) : c.got.get(s) !== c.expect));
     console.log(
       `${c.label}: ${c.expect.toUpperCase()} on ${c.seeds.length - missed.length}/${c.seeds.length} seeds` +
         (missed.length ? ` -- missed on ${missed.map((s) => `${s} (${missLabel(c.got.get(s))})`).join(', ')}` : '')

@@ -7,7 +7,7 @@
 // the way `tools/src/perf/wreck-captures.ts` does, so it runs unattended --
 // no positional base-URL argument, no assumption a server is already up.
 //
-// Usage: pnpm ui:shots -- [--pseudo] [--res=1400x900,1920x1080,2560x1440] [--out=.superpowers/ui-shots] [--port=5176] [--only=garage]
+// Usage: pnpm ui:shots -- [--pseudo[=rtl] | --lang=<id>[,<id>...] | --lang=all] [--res=1400x900,1920x1080,2560x1440] [--out=.superpowers/ui-shots] [--port=5176] [--only=garage]
 //
 // The port is `--port=<n>`, else `UI_SHOTS_PORT`, else 5176 (`./port.ts`). A
 // port something else already holds is REFUSED, exit 2, before a browser or a
@@ -55,6 +55,17 @@
 // swaps the real catalogue for the bracketed pseudo-locale one
 // (`i18n/pseudo.ts`) on whichever screen loads -- a plain, unbracketed word
 // in a pseudo capture is a string that never went through `t()`.
+// `--pseudo=rtl` appends `?pseudo=rtl` instead: the same, forced right-to-left.
+//
+// `--lang=<id>[,<id>...]` (the lead's ruling D9 on PR 1474, GH-1406/GH-1407)
+// walks every state once per shipped locale, `?lang=<id>` on every
+// navigation, into <out>/<id>/<WxH>/, with the overflow probe's total
+// reported per locale. `--lang=all` is every shipped locale but `en`; with
+// none shipped it prints one line and exits 0 before a port, a server or a
+// browser is touched, which is what CI's report-only step relies on today.
+// An id `LOCALES` does not list is refused, exit 2: the app ignores such a
+// `?lang=` and would draw English under that language's name. The rules and
+// their tests: `./shot-locales.ts`.
 //
 // 17-debrief (the after-action report, GH-417) is a SCRIPTED defeat: `debugKill` every
 // player unit and step the sim until `checkEnd` notices, which a script can
@@ -97,6 +108,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { FREEZE_FOR_SCREENSHOT_SCRIPT, RESTORE_AFTER_SCREENSHOT_SCRIPT } from './frame-freeze';
 import { claimGpuBackend, gpuLaunchArgs } from './gpu';
+import { menuUsesPlate, SHOT_TIMEOUT_MS, ShotLog } from './shot-policy';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -108,9 +120,11 @@ import {
   waitForHostCrossfade,
 } from '../golden-diff/browser';
 import { garageSeedScript } from './garage-seed';
-import { assertOutcomeStillPresent } from './outcome-guard';
+import { assertOutcomeStillPresent, OutcomeMomentDismissedError } from './outcome-guard';
 import { claimPort } from './port';
 import { musicOffInitScript } from './music-off';
+import { carriesLocaleQuery, overflowReport, planLocales, withLocaleQuery, type LocalePass } from './shot-locales';
+import { LOCALES } from '../../../packages/app/src/i18n/locales';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -121,7 +135,6 @@ const TAG = 'ui-shots';
 // and on a machine where something does, `--port=`/`UI_SHOTS_PORT` pick
 // another, and `claimPort` refuses the busy one rather than sharing it.
 const DEFAULT_PORT = 5176;
-const PORT = await claimPort(TAG, 'UI_SHOTS_PORT', DEFAULT_PORT);
 const MISSION = 'beit_sahwan_1_recon';
 
 const argv = process.argv.slice(2);
@@ -129,10 +142,21 @@ const arg = (name: string, fallback: string): string => {
   const hit = argv.find((a) => a.startsWith(`--${name}=`));
   return hit ? hit.slice(name.length + 3) : fallback;
 };
-// Value-less, unlike every other flag here: `--pseudo` is a switch, not a
-// `--name=value` pair, so it is read straight off argv rather than through
-// `arg()`.
-const PSEUDO = argv.includes('--pseudo');
+// The languages this run photographs (`./shot-locales.ts`), decided FIRST:
+// `--lang=all` with no locale shipped is a clean no-op, so it must leave
+// before the port is claimed, a server started or a browser launched; a bad
+// `--pseudo=`/`--lang=` value is refused, exit 2, at the same point.
+const LOCALE_PLAN = planLocales(argv, LOCALES.map((l) => l.id));
+if (LOCALE_PLAN.kind === 'nothing') {
+  console.log(`[${TAG}] ${LOCALE_PLAN.message}`);
+  process.exit(0);
+}
+if (LOCALE_PLAN.kind === 'refuse') {
+  console.error(`[${TAG}] ${LOCALE_PLAN.message}`);
+  process.exit(2);
+}
+const PASSES: readonly LocalePass[] = LOCALE_PLAN.passes;
+const PORT = await claimPort(TAG, 'UI_SHOTS_PORT', DEFAULT_PORT);
 // `''` (unset) or `'garage'` -- anything else is a typo, and the tool's own
 // convention (`./port.ts`'s bad-port refusal) is to say so and exit 2 before
 // a browser or a server starts, rather than silently running the full walk.
@@ -158,9 +182,14 @@ const RESOLUTIONS = arg('res', '1400x900,1920x1080,2560x1440')
     return { width: w, height: h };
   });
 
-/** Counted across the whole run and printed at the end -- a per-shot line is
+/** The pass being walked: its locale query rides on every `url()` below. */
+let PASS: LocalePass = PASSES[0];
+/** Counted per pass (per locale) and printed at the end -- a per-shot line is
  *  easy to scroll past in 51 frames' worth of output. */
-let OVERFLOW_TOTAL = 0;
+const OVERFLOW_TOTALS = new Map<LocalePass, number>(PASSES.map((p) => [p, 0]));
+
+/** Shots that did not come out (GH-1409, `shot-policy.ts`): recorded, the walk goes on, the run exits non-zero. */
+const SHOTS = new ShotLog();
 
 interface LionsWindow extends Window {
   __lions?: {
@@ -228,13 +257,41 @@ async function overflows(page: Page): Promise<string[]> {
   });
 }
 
-async function shot(page: Page, dir: string, name: string, opts: { fullPage?: boolean } = {}): Promise<void> {
+/** True when the PNG was written; false when the screenshot failed (recorded in `SHOTS`). Callers that check the page AFTER the shot ask this first. */
+async function shot(page: Page, dir: string, name: string, opts: { fullPage?: boolean } = {}): Promise<boolean> {
   await page.waitForTimeout(400);
-  await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: opts.fullPage ?? false });
+  try {
+    await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: opts.fullPage ?? false, timeout: SHOT_TIMEOUT_MS });
+  } catch (err) {
+    SHOTS.record(name, err);
+    console.log(`  ${name}  [SCREENSHOT FAILED] ${SHOTS.failed[SHOTS.failed.length - 1].reason}`);
+    return false;
+  }
   const over = await overflows(page);
   console.log(`  ${name}${over.length > 0 ? `  [overflow x${over.length}]` : ''}`);
   for (const line of over) console.log(`      ! ${line}`);
-  OVERFLOW_TOTAL += over.length;
+  OVERFLOW_TOTALS.set(PASS, (OVERFLOW_TOTALS.get(PASS) ?? 0) + over.length);
+  return true;
+}
+
+/**
+ * `assertOutcomeStillPresent` for a REPORT-ONLY tool (GH-1409). The guard is right that the PNG is mislabelled when the outcome moment was
+ * gone before the photograph, and under SwiftShader that happens: the first CI run took `25-outcome-defeat` after the moment's 2600 ms hold
+ * had elapsed. Throwing there ended the whole walk at the first resolution. Here the mislabelled PNG is deleted, the shot is recorded as
+ * failed (so the run still exits non-zero and says so), and the walk goes on. Returns true when the moment was dismissed. Any other error is
+ * rethrown.
+ */
+function outcomeDismissed(present: boolean, label: string, dir: string): boolean {
+  try {
+    assertOutcomeStillPresent(present, label);
+    return false;
+  } catch (err) {
+    if (!(err instanceof OutcomeMomentDismissedError)) throw err;
+    SHOTS.record(label, err);
+    fs.rmSync(path.join(dir, `${label}.png`), { force: true });
+    console.log(`  ${label}  [DISMISSED BEFORE ITS PHOTOGRAPH] the PNG was removed, not mislabelled`);
+    return true;
+  }
 }
 
 async function settle(page: Page, ms: number): Promise<void> {
@@ -282,11 +339,12 @@ async function settleMenuHost(page: Page): Promise<void> {
 }
 
 const BASE = `http://localhost:${PORT}`;
-// The app's own paths (Task 1) plus the pseudo switch: `p` is always
-// base-relative (`/campaign`, `/mission/x`), so every call site reads as the
-// route it is rather than a hand-built query string. Named `p`, not `path`,
-// so it does not shadow the `node:path` import above.
-const url = (p: string): string => `${BASE}${p}${PSEUDO ? `${p.includes('?') ? '&' : '?'}pseudo=1` : ''}`;
+// The app's own paths (Task 1) plus the pass's locale query (`?pseudo=1`,
+// `?pseudo=rtl`, `?lang=<id>` or nothing): `p` is always base-relative
+// (`/campaign`, `/mission/x`), so every call site reads as the route it is
+// rather than a hand-built query string. Named `p`, not `path`, so it does not
+// shadow the `node:path` import above.
+const url = (p: string): string => withLocaleQuery(BASE, p, PASS.query);
 
 /** The faked room's code: in the Worker's alphabet (no 0/O/1/I), six long. */
 const VERSUS_CODE = 'TESTAB';
@@ -756,11 +814,15 @@ try {
     args: gpuLaunchArgs(gpu),
   });
   console.log(`[${TAG}] renderer: ${await readUnmaskedRenderer(browser)}`);
-  for (const res of RESOLUTIONS) {
+  // One walk per locale pass, each at every resolution. The plain run, and a
+  // pseudo one, is a single pass into <out>/<WxH>/ as it always was.
+  const walks = PASSES.flatMap((pass) => RESOLUTIONS.map((res) => ({ pass, res })));
+  for (const { pass, res } of walks) {
+    PASS = pass;
     const dirName = `${res.width}x${res.height}`;
-    const dir = path.join(OUT, dirName);
+    const dir = path.join(OUT, pass.subdir, dirName);
     fs.mkdirSync(dir, { recursive: true });
-    console.log(`\n== ${dirName}`);
+    console.log(`\n== ${pass.query === '' ? '' : `${pass.label} `}${dirName}`);
     const ctx = await browser.newContext({
       viewport: { width: res.width, height: res.height },
       deviceScaleFactor: 1,
@@ -773,9 +835,17 @@ try {
     // read by a garage look task, and every one of these states is already
     // covered by the normal (non-`--only`) run.
     if (ONLY !== 'garage') {
+      // GH-1409: under SwiftShader the live scene host cannot paint inside the screenshot timeout (the first CI run died here), so the
+      // menu is shot on the reduced-motion plate path -- the page's media is switched for this one visit and put back after it.
+      const platePath = menuUsesPlate(gpu);
+      if (platePath) {
+        console.log(`  01-menu: shot on the plate path (${gpu} cannot paint the live scene host in time); the live host is not captured here`);
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+      }
       await page.goto(url('/'), { waitUntil: 'load' });
       await settleMenuHost(page);
       await shot(page, dir, '01-menu');
+      if (platePath) await page.emulateMedia({ reducedMotion: 'no-preference' });
 
       // Task 8: the reduced-motion plate path (spec §3.4), on its OWN context
       // so `reducedMotion: 'reduce'` never leaks onto `page` above, which keeps
@@ -883,9 +953,12 @@ try {
       // `--pseudo` this lands on `/campaign?pseudo=1` -- which is the point of
       // that fix, not a miss. An exact-string check called it UNEXPECTED on
       // every pseudo run, which is how a diagnostic that cries wolf stops
-      // being read at all. Carrying the flag is now part of what it asserts.
+      // being read at all. Carrying the flag is now part of what it asserts,
+      // and since GH-1406's `--lang` it is the pass's `lang`/`pseudo` VALUES
+      // (`carriesLocaleQuery`): a walk that dropped its language would
+      // photograph English from here on.
       const landed = new URL(landedUrl);
-      const ok = landed.origin === BASE && landed.pathname === '/campaign' && landed.searchParams.has('pseudo') === PSEUDO;
+      const ok = landed.origin === BASE && landed.pathname === '/campaign' && carriesLocaleQuery(landed.searchParams, PASS.query);
       console.log(`  escape-from-briefing -> ${landedUrl} (${ok ? 'OK' : 'UNEXPECTED'})`);
       await backCtx.close();
     }
@@ -1132,7 +1205,7 @@ try {
     // `.rl-aar` wait that follows needs Playwright's own
     // polling working again.
     await page.evaluate(FREEZE_FOR_SCREENSHOT_SCRIPT);
-    await shot(page, dir, '25-outcome-defeat');
+    let defeatShot = await shot(page, dir, '25-outcome-defeat');
     await page.evaluate(RESTORE_AFTER_SCREENSHOT_SCRIPT);
     // Fix round 1 (Task 6 review): `shot()` alone never checked that the
     // moment was STILL the thing on screen by the time its pixels were
@@ -1145,11 +1218,19 @@ try {
     // check, and its absence here means the PNG just taken is mislabelled.
     // `.count()` is a plain, non-waiting query, so it is unaffected by
     // whether the loop is frozen or restored at the point it runs.
-    assertOutcomeStillPresent(
-      (await page.locator('.rl-outcome[data-outcome="defeat"]').count()) > 0,
-      '25-outcome-defeat'
-    );
-    await page.click('.rl-outcome__skip');
+    // GH-1409: only a PNG that was actually taken can be mislabelled. After a failed capture the moment's own 2600 ms hold may have
+    // elapsed while the screenshot waited, so its absence is not a defect to throw on; the skip is clicked only if it is still there.
+    if (defeatShot) {
+      defeatShot = !outcomeDismissed(
+        (await page.locator('.rl-outcome[data-outcome="defeat"]').count()) > 0,
+        '25-outcome-defeat',
+        dir
+      );
+    }
+    // A taken, still-present moment is clicked as before. After a lost one, presence and click are ONE page-context step: a count() followed
+    // by page.click() can lose the race with the moment's own dismissal and wait out Playwright's timeout (CodeRabbit, GH-1409).
+    if (defeatShot) await page.click('.rl-outcome__skip');
+    else await page.evaluate(() => (document.querySelector('.rl-outcome__skip') as HTMLElement | null)?.click());
     // GH-417 (L-7): the moment hands over straight to the after-action
     // report, which absorbed the old end panel -- so `16-end-defeat` and
     // `17-debrief` are one screen now. The name `17-debrief` is kept for the
@@ -1261,7 +1342,7 @@ try {
           '24-outcome-victory: the scripted plan did not reach victory (.rl-outcome[data-outcome="victory"] absent immediately after the plan\'s own step() calls) -- see the freeze comment above for the tick-drift failure mode this replaced'
         );
       }
-      await shot(winPage, dir, '24-outcome-victory');
+      let victoryShot = await shot(winPage, dir, '24-outcome-victory');
       // `winCtx` closes right after this block, so nothing later on
       // `winPage` needs the loop restored -- unlike the defeat capture,
       // which freezes only briefly and restores before continuing the same
@@ -1270,10 +1351,13 @@ try {
       // -- see its comment and `outcome-guard.ts`'s header for the failure
       // this closes. `.count()` is a plain, non-waiting query, unaffected by
       // the loop being frozen.
-      assertOutcomeStillPresent(
-        (await winPage.locator('.rl-outcome[data-outcome="victory"]').count()) > 0,
-        '24-outcome-victory'
-      );
+      if (victoryShot) {
+        victoryShot = !outcomeDismissed(
+          (await winPage.locator('.rl-outcome[data-outcome="victory"]').count()) > 0,
+          '24-outcome-victory',
+          dir
+        );
+      }
       await winCtx.close();
     }
   }
@@ -1286,4 +1370,7 @@ console.log(`\ndone -> ${OUT}`);
 // reported" and "the probe never ran" look identical in a log that only speaks
 // up on a hit -- the failure mode CLAUDE.md names for every check that can
 // return an empty answer in zero milliseconds.
-console.log(`overflow probe: ${OVERFLOW_TOTAL} element(s) wider than their own box, across every shot above`);
+// One line per locale pass (`overflowReport`): a report, never a gate.
+for (const line of overflowReport(PASSES.map((pass) => ({ pass, total: OVERFLOW_TOTALS.get(pass) ?? 0 })))) console.log(line);
+for (const line of SHOTS.summary()) console.log(line);
+if (SHOTS.failed.length > 0) process.exitCode = 1;

@@ -4,7 +4,10 @@ import { labelTutorialRows } from './tutorial-funnel';
 import { STATS_HTML } from './stats-page';
 import { loginPageHtml } from './login-page';
 import { FEEDBACK_HTML, FEEDBACK_PAGE_CSP } from './feedback-page';
+import { MEMBERS_HTML } from './members-page';
+import { fieldHealth } from './field-health';
 import { handleFeedbackApi } from './feedback-triage';
+import { handleAdminApi } from './admin/api';
 import { SESSION_COOKIE, readCookie, verifySession, sessionCookieHeader, clearedSessionCookieHeader, passwordsMatch } from './auth';
 import { cleanCallsign } from '@lions/net';
 import type { TelemetryOrderVerb } from '@lions/data/telemetry';
@@ -436,6 +439,7 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
     if (!authed) return json(UNAUTHORIZED_JSON, 401);
     if (path === '/stats/api/feedback' || path.startsWith('/stats/api/feedback/')) return handleFeedbackApi(req, env, url, now);
     if (path === '/stats/api/members/blank') return handleBlank(req, env, 'member');
+    if (path === '/stats/api/members' || path.startsWith('/stats/api/members/')) return handleAdminApi(req, env, url, now); // GH-695
     if (path === '/stats/api/bots/blank') return handleBlank(req, env, 'bot');
     const f = parseFilter(url, now);
     switch (path) {
@@ -455,6 +459,8 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
         return json(await accounts(env.DB, f));
       case '/stats/api/loadouts':
         return json(await loadouts(env.DB, f));
+      case '/stats/api/health':
+        return json(await fieldHealth(env.DB, f)); // GH-1410
       default:
         return new Response('Not found', { status: 404, headers: NO_STORE });
     }
@@ -468,6 +474,14 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
   if (path === '/stats/feedback' || /^\/stats\/feedback\/\d{1,9}$/.test(path)) {
     if (!authed) return html(loginPageHtml());
     const res = html(FEEDBACK_HTML);
+    res.headers.set('content-security-policy', FEEDBACK_PAGE_CSP);
+    return res;
+  }
+
+  // GH-695 S5: the members page. Seeing it needs the /stats session; its writes check the game session themselves.
+  if (path === '/stats/members') {
+    if (!authed) return html(loginPageHtml());
+    const res = html(MEMBERS_HTML);
     res.headers.set('content-security-policy', FEEDBACK_PAGE_CSP);
     return res;
   }

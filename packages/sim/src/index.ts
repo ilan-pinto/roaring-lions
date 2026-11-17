@@ -3,6 +3,7 @@
 // This package imports NOTHING (enforced by lint).
 
 export const SIM_VERSION = 1;
+export { SIM_EPOCH, SIM_EPOCH_RECORD } from './sim-epoch';
 
 export { fx, ONE, HALF, HALF_TURN, QUARTER_TURN, FX_MAX, FX_MIN, type Fx } from './fixed';
 export { Rng } from './rng';
@@ -29,6 +30,8 @@ export {
   type WorksRefusal,
   worksRefund,
   NOT_ON_LINE,
+  startFrontDerivations,
+  type StartFrontDerivations,
 } from './mission';
 export type { FortifyRefusal, PlacementRefusal } from './sim';
 export { DOMAIN_AIR, DOMAIN_FOOT, DOMAIN_VEHICLE } from './sim';
@@ -174,3 +177,5 @@ export {
   type UnitClassJson,
 } from './formation-template';
 export { MAX_FORMATION_GROUPS_PER_SIDE, FORMATION_WALK_CAP } from './tuning';
+// GH-1360 S3a: the starting layout (pure). S3b: `MissionRuntime.start()` calls it for a mission with `start_layout`.
+export { startLayout, frontToward, startFaceOf, START_FREE_SPOT_REACH, type StartBody, type StartFront, type StartLayoutInput, type StartPlacement } from './start-layout';

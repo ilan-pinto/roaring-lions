@@ -8,6 +8,9 @@
  *   (`buildingFragmentOps`, `building-cut-maths.ts`, the one body the number specs run).
  * - **Colour:** a `colorNode` over the stock base (`materialColor`, the colour times the map): the cap and the interior are chosen by
  *   `faceDirection`, the cut's splice first and the holes' over it, as the legacy hooks compose.
+ * - **Rim (GH-1225, variant B):** the cut's ragged top is `tileHash` of the 0.25 t brick cell, in `cutawayOps` through the SAME `IntOps` the
+ *   holes use (`building-cut-maths.ts` threads `io` into `cutVolumesOps`), and the amplitude `j` rides slot 6 of the volume block the twin
+ *   already reads whole, so no new uniform or node exists here; the cap tone is a CPU-side colour (`cutColorsFor`).
  * - **Maths:** `cutawayOps` (through `buildingFragmentOps`) arrives as a VALUE, `MATERIAL_MATHS.building`, so the two backends cannot
  *   drift and the node chunk never statically loads the ThreeRenderer chunk.
  * - **Uniforms:** the volume block is a `uniformArray` over the legacy record's `Float32Array`, BY REFERENCE (three copies it into its

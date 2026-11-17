@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Sim } from '@lions/sim';
 import type { RendererOptions } from '../../api';
 import { HOLD_SAMPLES } from './cadence';
+import { QUALITY_PRESETS } from '../../quality';
 import { mountSceneHost, type SceneHostOptions } from './scene-host';
 
 interface FakeRenderer {
@@ -40,6 +41,15 @@ const made = vi.hoisted(() => ({
   initGate: null as Promise<void> | null,
   /** What `groundTexturesSettled()` returns; resolved when null. */
   groundGate: null as Promise<void> | null,
+  /** The options each renderer was built with, in order (GH-1400). */
+  options: [] as RendererOptions[],
+}));
+/** GH-1400: the preset switches as the door reads them (`preset-live.ts`'s `PRESET_SWITCHES`), off unless a test turns one on. */
+const switches = vi.hoisted(() => ({ ragdolls: false, softParticles: false }));
+
+vi.mock('../preset-live', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../preset-live')>()),
+  PRESET_SWITCHES: switches,
 }));
 
 vi.mock('../ThreeRenderer', () => ({
@@ -58,8 +68,9 @@ vi.mock('../ThreeRenderer', () => ({
         return null;
       },
     };
-    constructor() {
+    constructor(_sim: unknown, options: RendererOptions) {
       made.renderers.push(this);
+      made.options.push(options);
     }
     async load(what: string): Promise<void> {
       if (made.gate) await made.gate;
@@ -156,6 +167,9 @@ const frameAt = (t: number): void => {
 
 beforeEach(() => {
   made.renderers.length = 0;
+  made.options.length = 0;
+  switches.ragdolls = false;
+  switches.softParticles = false;
   made.disposeThrows = false;
   made.gate = null;
   made.initGate = null;
@@ -545,5 +559,23 @@ describe('release', () => {
     expect(() => controller.abort()).not.toThrow();
     expect(r.canvas.removed).toBe(true);
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('GH-1400: the menu never asks for ragdolls', () => {
+  const medium = { dracoDecoderPath: '/draco/', quality: QUALITY_PRESETS.medium } as RendererOptions;
+
+  it('with the switches off the renderer gets the very options the menu built', async () => {
+    await mount({ renderer: medium });
+    expect(made.options[0]).toBe(medium);
+  });
+
+  it('with the ragdoll switch on, the menu pins an explicit 0 (no WASM on `/`) and keeps the rest of its preset', async () => {
+    // Falsify: build the renderer from `opts.renderer` again (drop `menuRendererOptions`): physics reads the preset's own object.
+    switches.ragdolls = true;
+    await mount({ renderer: medium });
+    expect(made.options[0].quality?.physics).toEqual({ ragdolls: 0 });
+    expect(made.options[0].quality?.physics).not.toBe(QUALITY_PRESETS.medium.physics);
+    expect({ ...made.options[0].quality, physics: undefined }).toEqual({ ...QUALITY_PRESETS.medium, physics: undefined });
   });
 });

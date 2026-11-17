@@ -10,7 +10,7 @@
  * or the band's scar clone) cloned, `DoubleSide`, with an `onBeforeCompile` hook that:
  *
  * - **discards** every fragment a volume cuts (`cutawayOps`, `building-cutaway.ts`, spelled in GLSL below);
- * - paints the **section cap** on a front face within `CUT_SECTION_TILES` under the cut: the wall ramp's lightest key;
+ * - paints the **section cap** on a front face within `CUT_SECTION_TILES` under the cut: the wall ramp's lightest key taken `CUT_CAP_TONE` toward the interior;
  * - shades **back faces** -- the far walls seen through the cut -- as interior: the wall ramp's darkest key, 0.6 toward
  *   `gunmetal.2` (P4's interior, GH-1197).
  *
@@ -29,7 +29,8 @@ import * as THREE from 'three';
 import paletteJson from '../../../../../data/palette.json';
 import { paletteHex } from '../palette-hex';
 import { hexToLinear } from '../terrain/shared';
-import { CUT_FLOATS_PER_VOLUME, CUT_SECTION_TILES, CUT_VOLUME_CAP } from './building-cutaway';
+import { TILE_HASH_MIX, TILE_HASH_MX, TILE_HASH_MY, TILE_HASH_SHIFT_A, TILE_HASH_SHIFT_B } from '../../tile-hash';
+import { CUT_FLOATS_PER_VOLUME, CUT_RIM_CELLS_PER_TILE, CUT_SECTION_TILES, CUT_VOLUME_CAP } from './building-cutaway';
 import { createMaskMaterials, maskHook, type MaskMaterials, type MaskTerm } from './building-mask';
 import { HOLES_MASK_TERM, type BuildingHoleMaterials } from './holed-material';
 
@@ -37,6 +38,8 @@ export const CUT_PROGRAM_KEY = 'rl-cut';
 /** How far the interior colour is taken from the wall ramp's darkest key toward `gunmetal.2` (P4's `HOLE_INTERIOR_TOWARD_CHAR`). */
 export const CUT_INTERIOR_TOWARD_CHAR = 0.6;
 export const CUT_INTERIOR_CHAR_KEY = 'gunmetal.2';
+/** How far the section cap is taken from the ramp's lightest key toward the interior colour (lead ruling 13 Nov, rim B). */
+export const CUT_CAP_TONE = 0.5;
 
 const f = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v));
 
@@ -48,6 +51,12 @@ uniform vec3 uRlCutCap;
 uniform vec3 uRlCutInterior;
 varying vec3 vRlCutW;
 float rlCutSection;
+float rlCutHash(int xi, int yi) {
+  uint h = uint(xi) * ${TILE_HASH_MX}u + uint(yi) * ${TILE_HASH_MY}u;
+  h = (h ^ (h >> ${TILE_HASH_SHIFT_A}u)) * ${TILE_HASH_MIX}u;
+  h = h ^ (h >> ${TILE_HASH_SHIFT_B}u);
+  return float(h >> 8u) / 16777216.0;
+}
 void rlCutApply() {
   rlCutSection = 0.0;
   for (int i = 0; i < ${CUT_VOLUME_CAP}; i++) {
@@ -56,7 +65,8 @@ void rlCutApply() {
     vec4 b = uRlCutV[2 * i + 1];
     float rho = length(vRlCutW.xz - a.xy);
     if (rho >= a.z + a.w) continue;
-    float h = b.x + (b.y - b.x) * clamp((rho - a.z) / a.w, 0.0, 1.0);
+    float yc = b.x + b.z * (rlCutHash(int(floor(vRlCutW.x * ${f(CUT_RIM_CELLS_PER_TILE)})), int(floor(vRlCutW.z * ${f(CUT_RIM_CELLS_PER_TILE)}))) * 2.0 - 1.0);
+    float h = yc + (b.y - yc) * clamp((rho - a.z) / a.w, 0.0, 1.0);
     if (vRlCutW.y > h) discard;
     if (vRlCutW.y > h - ${f(CUT_SECTION_TILES)}) rlCutSection = 1.0;
   }
@@ -150,7 +160,9 @@ const linear = (key: string): THREE.Color => {
 /** A building's cut colours, resolved through `hexToLinear` (shader-uniform colours are LINEAR). */
 export function cutColorsFor(colorKey: string): CutColors {
   const keys = cutColorKeys(colorKey);
-  return { cap: linear(keys.cap), interior: linear(keys.interior).lerp(linear(CUT_INTERIOR_CHAR_KEY), CUT_INTERIOR_TOWARD_CHAR) };
+  const interior = linear(keys.interior).lerp(linear(CUT_INTERIOR_CHAR_KEY), CUT_INTERIOR_TOWARD_CHAR);
+  // GH-1225 rim: the section cap sits halfway between the ramp's lightest key and the interior, so the brick course reads as an edge.
+  return { cap: linear(keys.cap).lerp(interior, CUT_CAP_TONE), interior };
 }
 
 const STOCK_HOOK = THREE.Material.prototype.onBeforeCompile;

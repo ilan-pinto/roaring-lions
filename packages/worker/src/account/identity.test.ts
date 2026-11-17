@@ -47,6 +47,26 @@ describe('identity routes', () => {
     expect(await count(h, 'is')).toBe(0);
   });
 
+  it('a Google+Steam member removes either one over the route, never both (G1)', async () => {
+    const h = accountHarness({ now: T0 });
+    await seed(h);
+    await ident(h, 'is', 'steam', '76561197960287930');
+    await ident(h, 'ig', 'google', '1000000000000000001');
+    const ck = await cookie(h);
+    expect((await del(h, 'is', ck)).status).toBe(200);
+    expect(await count(h, 'is')).toBe(0);
+    expect((await del(h, 'ig', ck, OP2)).status).toBe(409);
+    expect(await count(h, 'ig')).toBe(1);
+    // and the other order, on a second member
+    await seed(h, 'm2');
+    await ident(h, 'js', 'steam', '76561197960287931', 'active', 'm2');
+    await ident(h, 'jg', 'google', '1000000000000000002', 'active', 'm2');
+    const ck2 = await cookie(h, 'm2');
+    expect((await del(h, 'jg', ck2)).status).toBe(200);
+    expect((await del(h, 'js', ck2, OP2)).status).toBe(409);
+    expect(await count(h, 'js')).toBe(1);
+  });
+
   it('canSignInCount ignores a pending recovery row and honours the exclusion', async () => {
     const h = accountHarness({ now: T0 });
     await seed(h);

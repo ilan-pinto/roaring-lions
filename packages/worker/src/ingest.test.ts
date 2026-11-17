@@ -28,6 +28,64 @@ function setup(limiter?: RateLimiter) {
 }
 
 describe('POST /api/events', () => {
+  it('stops reading a body that has no Content-Length once it is over the cap (GH-1075 review)', async () => {
+    // A chunked upload declares no length, so the header check cannot refuse it:
+    // the reader itself must stop. Counting the chunks pulled is the witness.
+    const h = setup();
+    let pulled = 0;
+    const chunk = new TextEncoder().encode('x'.repeat(16 * 1024));
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        pulled++;
+        if (pulled > 4096) c.close(); // 64 MiB offered at most
+        else c.enqueue(chunk);
+      },
+    });
+    const req = new Request('https://game.example.workers.dev/api/events', {
+      method: 'POST',
+      body,
+      // @ts-expect-error undici needs `duplex` for a stream body
+      duplex: 'half',
+      headers: { origin: 'https://game.example.workers.dev', 'cf-connecting-ip': '203.0.113.9' },
+    });
+    expect(req.headers.get('content-length')).toBeNull();
+    expect((await handleIngest(req, { DB: h.db, ASSETS: { fetch: async () => new Response('asset') } }, 1_790_000_001_000)).status).toBe(204);
+    // 64 KiB cap = 4 chunks; a reader that stops at the cap pulls a handful, not thousands.
+    expect(pulled).toBeLessThan(16);
+  });
+
+  it('pins the size of the read cap: a streamed body of exactly 65536 bytes is stored, 65537 is not (GH-1075 review)', async () => {
+    // No Content-Length, so only the capped read can refuse. The cap is written as a literal on purpose:
+    // importing MAX_BODY would move the test with the mutation it must catch.
+    const CAP = 65536;
+    const stream = (padTo: number): Request => {
+      const json = JSON.stringify({ events: [hb(1)] });
+      const bytes = new TextEncoder().encode(json + ' '.repeat(padTo - new TextEncoder().encode(json).length)); // trailing spaces keep it valid JSON
+      expect(bytes.length).toBe(padTo);
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(bytes);
+          c.close();
+        },
+      });
+      return new Request('https://game.example.workers.dev/api/events', {
+        method: 'POST',
+        body,
+        // @ts-expect-error undici needs `duplex` for a stream body
+        duplex: 'half',
+        headers: { origin: 'https://game.example.workers.dev', 'cf-connecting-ip': '203.0.113.9' },
+      });
+    };
+    const over = setup();
+    const reqOver = stream(CAP + 1);
+    expect(reqOver.headers.get('content-length')).toBeNull();
+    expect((await handleIngest(reqOver, { DB: over.db, ASSETS: { fetch: async () => new Response('asset') } }, 1_790_000_001_000)).status).toBe(204);
+    expect(over.count('SELECT COUNT(*) AS n FROM event_batch')).toBe(0);
+    const at = setup();
+    expect((await handleIngest(stream(CAP), { DB: at.db, ASSETS: { fetch: async () => new Response('asset') } }, 1_790_000_001_000)).status).toBe(204);
+    expect(at.count('SELECT COUNT(*) AS n FROM event_batch')).toBe(1);
+  });
+
   it('stores valid events, drops invalid ones, and always answers 204', async () => {
     const h = setup();
     const res = await h.post({ events: [hb(1), { ...hb(2), email: 'x@y.z' }, hb(3)] });

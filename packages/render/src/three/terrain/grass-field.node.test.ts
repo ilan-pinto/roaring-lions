@@ -493,6 +493,8 @@ describe('render state: no depth write, GRASS_RENDER_ORDER, no shadow, no AO, th
     expect(f.mat.opacity).toBe(1);
     expect(f.mat.depthTest).toBe(true);
     expect(f.mat.depthWrite).toBe(false);
+    // One pass for the transparent DoubleSide material (S8: half the cost). Falsify: remove `mat.forceSinglePass = true`.
+    expect(f.mat.forceSinglePass).toBe(true);
     expect(f.mat.roughness).toBe(0.85);
     expect(f.mat.metalness).toBe(0);
     expect(f.mat.vertexColors).toBe(true);

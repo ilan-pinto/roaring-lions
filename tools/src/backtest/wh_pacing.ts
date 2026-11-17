@@ -59,6 +59,7 @@ import {
 } from '@lions/sim';
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
 import { WADI_HALAM_CHAIN, WADI_HALAM_PLANS } from './plans/wadi_halam';
+import { START_LAYOUT } from '../mission-harness';
 
 type Tier = 'passive' | 'naive' | 'sensible' | 'optimal';
 type At = (t: number, fn: () => void) => void;
@@ -221,6 +222,7 @@ function run(id: string, plan: Plan, ledger: LedgerData, seed: number, probe: Pr
   const unitData = units as Record<string, any>;
   const resolved = resolveUpgrades(mission, ledger, (u) => gateOf(unitData[u]));
   const rt = new MissionRuntime(sim, resolved, {
+    startLayout: START_LAYOUT, // GH-1360 S3b: shipped missions start in the assembly layout
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,

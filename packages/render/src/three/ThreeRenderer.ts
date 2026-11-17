@@ -121,6 +121,7 @@ import { FIRE_SUPPORT, FS_AIR_STRIKE, fx, MED_CARRYING, MED_DELIVERING, ONE, WEA
 import type { AimFootprint, AuraRingView, BeamReadback, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS, debrisQualityOf, groundBlendQualityOf } from '../quality';
+import { PRESET_SWITCHES, liveRendererOptions } from './preset-live';
 import type { GrassFieldTones } from '../api';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import type { FlipbookLayerSpec } from '../vfx/emitters';
@@ -308,9 +309,10 @@ import {
   munitionRow,
   munitionScorchTiles,
   ragdollPushForKill,
-  LATCH_AIR_STRIKE,
-  LATCH_MORTAR_BARRAGE,
   LATCH_PLACED_CHARGE,
+  SUPPORT_LATCH,
+  SUPPORT_PROFILE,
+  supportKindForProfile,
   ringSpecFor,
   type Munition,
 } from './munitions';
@@ -384,7 +386,7 @@ import {
 import { makeDisturbUniforms, type DisturbUniformSet } from './terrain/disturb-uniforms';
 import type { TerrainInput, MeshData } from './terrain/types';
 import { buildGrassClump, type GrassGeometry, type GrassLod, type GrassVariant } from './terrain/grass-blade';
-import { grassCellMeshes, grassLodFor, grassLodScaleOf, grassSpliceCells, planGrassField } from './terrain/grass-field-cells';
+import { grassCellMeshes, grassLodFor, grassLodScaleOf, grassRungFor, grassSpliceCells, planGrassField } from './terrain/grass-field-cells';
 import type { GrassFieldHandle } from './terrain/grass-field.node';
 import {
   buildDecorMesh,
@@ -571,9 +573,11 @@ import {
 import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
 import { footprintCentre } from './units/footprint';
+import { keptWallHeight, lowestSlabBottom } from './units/cut-rim';
 import {
   CUT_BAND_TILES,
   CUT_HEIGHT_TILES,
+  CUT_RIM_WALL_TILES,
   CUT_ROOF_FALLBACK_TILES,
   CUT_SELECT_RADIUS_TILES,
   CutawayTable,
@@ -723,7 +727,7 @@ import {
   vehicleTakesDamageStates,
 } from './units/vehicle-damage';
 import { TeamMaskSlots, VehicleTeamMaterials, setInsigniaPass, setTeamMaskPass } from './units/team-mask';
-import { InsigniaShared } from './units/insignia';
+import { InsigniaShared, insigniaHiddenAt } from './units/insignia';
 import { insigniaFrameOf } from './units/insignia-frames';
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
@@ -890,8 +894,9 @@ import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, conta
 
 
 
-/** COPIED from tuning.ts (FS_MORTAR_BARRAGE, SMOKE_RANGE_SQ); the vfx-triggers spec reads tuning.ts as text. */
-const FS_MORTAR_BARRAGE = 1;
+/** The mortar barrage's profile index: the ONE renderer-side copy of tuning.ts `FS_MORTAR_BARRAGE`, pinned by
+ *  `munitions.test.ts` against the sim's constant. */
+const FS_MORTAR_BARRAGE = SUPPORT_PROFILE.mortar_barrage;
 /** GH-1197 P5: the rubble showcase's two collapses hash as these (no real structure has an index this high; times 64
  *  plus a salt it stays under 2^22, where `tileHash` is exact). */
 const RUBBLE_SHOWCASE_ID_BASE = 60000;
@@ -919,9 +924,10 @@ const HIT_FACE_CLASSES: ReadonlySet<number> = new Set([
 /** GH-1197: a loaded weapon's munition, its reach read off the weapon the sim built from the unit JSON
  *  (`splash_tiles`, or the bomblets' for a cluster round). Null for no weapon or one the table does not map. */
 /** GH-1223: the killer latch key for a support call (by its profile: a barrage is the mortar class) or a charge. */
-function batchActKey(e: { kind: 'strike'; profile: number } | { kind: 'chargeDetonated' }): string {
+function batchActKey(e: { kind: 'strike'; profile: number } | { kind: 'chargeDetonated' }, reported: Set<number>): string | null {
   if (e.kind === 'chargeDetonated') return LATCH_PLACED_CHARGE;
-  return e.profile === FS_MORTAR_BARRAGE ? LATCH_MORTAR_BARRAGE : LATCH_AIR_STRIKE;
+  const kind = supportKindForProfile(e.profile, reported);
+  return kind === null ? null : SUPPORT_LATCH[kind];
 }
 
 function weaponMunition(wp: WeaponStats | undefined): Munition | null {
@@ -2326,6 +2332,8 @@ export class ThreeRenderer implements Renderer {
   private readonly killerWeapon: string[];
   /** GH-1223: the strike / charge each caller made in the batch `onEvents` is reading (cleared per batch). */
   private readonly batchAct = new Map<number, string>();
+  /** GH-1223: strike profiles already reported as unknown (`supportKindForProfile`): one console.error per value, per renderer. */
+  private readonly unknownStrikeProfiles = new Set<number>();
   /** GH-1223: the tick each entity's `destroyed` fired (-1 = none seen), and whether it fired during a catch-up --
    *  a ragdoll's clock starts at the death TICK, never at the frame that noticed it. */
   private readonly deathTick: Int32Array;
@@ -2876,6 +2884,8 @@ export class ThreeRenderer implements Renderer {
   private readonly buildingCuts = new Map<number, { root: THREE.Object3D; mats: BuildingCutMaterials }>();
   /** Each standing clone's drawn roof, world Y (tiles), read once from its frozen bounds: a standing building never moves. */
   private readonly buildingRoofY = new Map<number, { root: THREE.Object3D; y: number }>();
+  /** GH-1225 rim: the wall a cut keeps, per STRUCTURE (its plot's fit scales the clone and its slab), measured once (`keptWallOf`). */
+  private readonly keptWallByStructure = new Map<number, { root: THREE.Object3D; kept: number }>();
   private readonly cutTriggers: CutTrigger[] = [];
   private readonly cutVolumes: CutVolume[] = [];
   /** GH-1225 slice 2: the shared shadow and AO mask materials, minted with the first cut, never before. */
@@ -3291,6 +3301,9 @@ export class ThreeRenderer implements Renderer {
     // colour-vision variant's `teamColors`/`resolveColor` mid-mission.
     private opts: RendererOptions
   ) {
+    // GH-1400 (G2): the preset's switched-on features (`preset-live.ts`: ragdolls, soft particles), resolved ONCE, before
+    // anything reads `opts.quality`. Both switches are off: this hands back `opts` itself, so every preset builds today's frame.
+    opts = this.opts = liveRendererOptions(opts, PRESET_SWITCHES);
     // FIRST, before any loader can be built: every shipped GLB carries
     // `KHR_draco_mesh_compression` (level load time, step 4), and a
     // `GLTFLoader` constructed without a decoder throws on the first one.
@@ -4579,6 +4592,7 @@ export class ThreeRenderer implements Renderer {
     for (const cut of this.buildingCuts.values()) cut.mats.dispose();
     this.buildingCuts.clear();
     this.buildingRoofY.clear();
+    this.keptWallByStructure.clear();
     this.cutaway.clear();
     this.garrisonStationAt.clear();
     this.garrisonCutTriggers = [];
@@ -6655,12 +6669,16 @@ export class ThreeRenderer implements Renderer {
     const st = this.sim.state;
     // A catch-up tick: the next swarm frame must see it (`main.ts` has cleared `setQuiet` by then).
     if (this.quiet) this.swarmCaughtUp = true;
-    // GH-1223: a strike or a charge in THIS batch names its caller's kills in this batch, wherever the kill sits:
+    // GH-1223: a strike or a charge in THIS batch (one tick's events; a `strike` event is raised on the tick the call
+    // RESOLVES, after its delay, not the tick it was called) names its caller's kills in this batch, wherever the kill sits:
     // the sim's `stepCharges` kills a garrison (`destroyStructure`) BEFORE it pushes `chargeDetonated`, so an
     // in-order latch would hand those men a stale act. A fire is NOT pre-latched: it never reaches back.
     this.batchAct.clear();
     for (const e of events) {
-      if (e.kind === 'strike' || e.kind === 'chargeDetonated') this.batchAct.set(e.by, batchActKey(e));
+      if (e.kind === 'strike' || e.kind === 'chargeDetonated') {
+        const key = batchActKey(e, this.unknownStrikeProfiles);
+        if (key !== null) this.batchAct.set(e.by, key);
+      }
     }
     for (const e of events) {
       // A tick far behind the live edge (`setQuiet`) throws no burst: the
@@ -6671,7 +6689,10 @@ export class ThreeRenderer implements Renderer {
       // `fire`, `strike` and `chargeDetonated` events still say what the killer last did. In batch order, so a
       // later act (a fire after a strike) wins for the NEXT batch, and a fire never reaches back onto an earlier kill.
       if (e.kind === 'fire') this.latchKiller(e.shooter, e.weaponId);
-      else if (e.kind === 'strike' || e.kind === 'chargeDetonated') this.latchKiller(e.by, batchActKey(e));
+      else if (e.kind === 'strike' || e.kind === 'chargeDetonated') {
+        const key = batchActKey(e, this.unknownStrikeProfiles);
+        if (key !== null) this.latchKiller(e.by, key);
+      }
       if (this.quiet && isBurstOnlyEvent(e.kind)) continue;
       if (e.kind === 'fire') {
         this.onFire(e);
@@ -12227,13 +12248,18 @@ export class ThreeRenderer implements Renderer {
    * A minted variant goes to the environment registry under the class its surface clone was tagged with.
    *
    * GH-1096 S1: the insignia frame is looked up by the unit TYPE id, never the template key (a versus seat's `typeId#s1` is the
-   * same vehicle), and EXACTLY: `mbt_lavi_camo` and `officer_armour` share the Lavi's hull and have no frame of their own.
+   * same vehicle), and EXACTLY: `mbt_lavi_camo` shares the Lavi's hull and has no frame of its own. `officer_armour` has its own
+   * (GH-1096 S2), so it is looked up by its own id like the rest.
    */
   private vehicleTeamFor(templateKey: string, typeId: string): VehicleTeamMaterials {
     let team = this.vehicleTeamMaterials.get(templateKey);
     if (!team) {
       if (!this.teamMaskSlots) this.teamMaskSlots = new TeamMaskSlots(this.opts.teamColors);
-      const frame = insigniaFrameOf(typeId);
+      const found = insigniaFrameOf(typeId);
+      // The kit the TEMPLATE was built with (a versus seat's `#s1` key is side 1's): a frame with `hide_from_tier` draws nothing from
+      // that armour tier up, so the type takes the same no-insignia path as an unframed one.
+      const tiers = templateKitTiers(typeId, templateKey === typeId ? 0 : 1, this.opts.unitKitTiers, this.opts.unitKitTiersBySide);
+      const frame = found !== null && !insigniaHiddenAt(found, tiers) ? found : null;
       team = new VehicleTeamMaterials(
         this.teamMaskSlots,
         (m) => this.adoptEnvironment([m], 'unitDielectric'),
@@ -12415,7 +12441,7 @@ export class ThreeRenderer implements Renderer {
       if (root === undefined) continue;
       const cx = (ss.minX[b.s] + ss.maxX[b.s] + 1) / 2;
       const cz = (ss.minY[b.s] + ss.maxY[b.s] + 1) / 2;
-      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cz) + CUT_HEIGHT_TILES;
+      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cz) + this.keptWallOf(b.s, root);
       const yTop = this.roofYOf(b.s, root);
       if (yTop <= yCut) continue;
       const r = garrisonCutRadius(ss.minX[b.s], ss.minY[b.s], ss.maxX[b.s], ss.maxY[b.s]);
@@ -12468,7 +12494,9 @@ export class ThreeRenderer implements Renderer {
       const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
       if (!isOwnSide(st.side[i], this.fogViewer) && !this.isVisible(x, z)) continue;
-      const yCut = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z) + CUT_HEIGHT_TILES;
+      const ground = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z);
+      // The rim is the LOWEST kept wall among the buildings in reach, so no reached building keeps a slab standing.
+      let kept = CUT_RIM_WALL_TILES;
       let near = false;
       let yTop = -Infinity;
       for (const [s, root] of this.buildingMeshIdleEntities) {
@@ -12476,16 +12504,48 @@ export class ThreeRenderer implements Renderer {
         const d = footprintDistance(ss.minX[s], ss.minY[s], ss.maxX[s], ss.maxY[s], x, z);
         if (d >= reach) continue;
         const roof = this.roofYOf(s, root);
+        const keep = this.keptWallOf(s, root);
         // A structure no taller than the cut (a sandbag line) has nothing to take away.
-        if (roof <= yCut) continue;
+        if (roof <= ground + keep) continue;
         if (d <= CUT_SELECT_RADIUS_TILES) near = true;
         if (roof > yTop) yTop = roof;
+        if (keep < kept) kept = keep;
       }
       if (!near) continue;
+      const yCut = ground + kept;
       const dx = x - this.camera.x;
       const dz = z - this.camera.y;
       out.push({ key: i, r: CUT_SELECT_RADIUS_TILES, garrison: false, x, z, yCut, yTop, focusDist2: dx * dx + dz * dz });
     }
+  }
+
+  /**
+   * GH-1225 rim: the wall a cut keeps on building `s`: `keptWallHeight` of the lowest slab in its drawn clone, measured once per
+   * structure (not per type: `buildingFitScale` shrinks a clone to its plot, and its slab with it) and read back from the memo.
+   */
+  private keptWallOf(s: number, root: THREE.Object3D): number {
+    const known = this.keptWallByStructure.get(s);
+    if (known !== undefined && known.root === root) return known.kept;
+    root.updateWorldMatrix(true, true);
+    const chunks: number[] = [];
+    const tri: number[] = [];
+    const v = new THREE.Vector3();
+    root.traverse((m) => {
+      const mesh = m as THREE.Mesh;
+      const pos = mesh.isMesh ? mesh.geometry.getAttribute('position') : undefined;
+      if (pos === undefined) return;
+      const idx = mesh.geometry.getIndex();
+      const base = chunks.length / 3;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+        chunks.push(v.x, v.y, v.z);
+      }
+      if (idx !== null) for (let i = 0; i < idx.count; i++) tri.push(base + idx.getX(i));
+      else for (let i = 0; i < pos.count; i++) tri.push(base + i);
+    });
+    const kept = keptWallHeight(lowestSlabBottom(chunks, tri, root.position.y));
+    this.keptWallByStructure.set(s, { root, kept });
+    return kept;
   }
 
   /** Building `s`'s drawn roof, world Y: its clone's bounds, read once (a standing building never moves). */
@@ -15930,6 +15990,7 @@ export class ThreeRenderer implements Renderer {
       geometries,
       meshes: plan.meshes,
       lod: grassLodFor(this.camera.zoom, null, scale),
+      rung: grassRungFor(this.camera.zoom, null, scale),
     });
     field.root.visible = !this.grassDebugHidden;
     this.scene.add(field.root);
@@ -15955,7 +16016,9 @@ export class ThreeRenderer implements Renderer {
     if (field === null) return;
     this.grassView.zoom.value = this.camera.zoom;
     this.grassView.dpr.value = this.pixelRatio;
-    field.setLod(grassLodFor(this.camera.zoom, field.lod(), grassLodScaleOf(this.opts.quality) ?? 1));
+    const bandScale = grassLodScaleOf(this.opts.quality) ?? 1;
+    field.setLod(grassLodFor(this.camera.zoom, field.lod(), bandScale));
+    field.setRung(grassRungFor(this.camera.zoom, field.rung(), bandScale));
     field.root.visible = !this.grassDebugHidden;
   }
 
@@ -15976,6 +16039,7 @@ export class ThreeRenderer implements Renderer {
     const placeholder = heightBlendPlaceholder();
     const record: HeightBlendRecord = {
       field: placeholder,
+      controlA: this.groundMat.uniforms.uControlA,
       rockTone: tone(tones.rock),
       ...(joints && tones.joint !== undefined && tones.aJ !== undefined ? { jointTone: tone(tones.joint), aJ: tones.aJ } : {}),
       hollowTone: tone(tones.hollow),

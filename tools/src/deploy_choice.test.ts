@@ -21,17 +21,17 @@
 // The fixture is `beit_sahwan_2_foothold` because its starting force draws
 // `inf_squad` x2 and `at_team` x1 from the ledger (read from the mission's own
 // JSON below, never transcribed), so a pool of three squads makes the choice
-// real. A passive run of it ENDS -- measured: victory at tick 7033 on the
-// harness seed, `hold_west` held with no orders -- so `runToEnd` produces the
-// ledger rather than hitting its ceiling. On that seed every body the ledger
-// fielded dies before the end; that is the passive run's price, not this
-// file's subject, and it is why the "unless its unit died" clause below is
-// exercised on every fielded entry. The survivor half of the round trip --
+// real. The victory-write test needs a run that ENDS in a win: it was a passive run (victory at tick 7033 on the harness
+// seed, `hold_west` held with no orders) until GH-1378 Q12 moved `hold_west` onto the crest nobody starts on, so that test now
+// sends the survivors to the crest at t=0 and `runToEnd` produces the ledger rather than hitting its ceiling. Before the GH-1360 starting layout
+// every body the ledger fielded died before the end on that seed; in the
+// assembly layout they live, so the victory-write test kills them at t=0
+// itself. The survivor half of the round trip --
 // a fielded body that comes home under its own name -- is
 // `roster-carry.test.ts`'s.
 import { describe, expect, it } from 'vitest';
 import { missions, names as namesJson, units } from '@lions/data';
-import type { LedgerData, LedgerRosterEntry, MissionJson, Sim } from '@lions/sim';
+import { fx, type LedgerData, type LedgerRosterEntry, type MissionJson, type Sim } from '@lions/sim';
 import type { CampaignLedger, LostRecord, RosterEntry } from '../../packages/app/src/ledger-store';
 import { nameKind, type NamesJson } from '../../packages/app/src/names';
 import { applyRosterCarryover, type RosterCarryoverDeps } from '../../packages/app/src/roster-carryover';
@@ -225,14 +225,23 @@ describe('the deploy choice, against the real spawner', () => {
   // re-slot an already-slotted entry goes red there and not in the first.
   it('after a win, the victory write keeps a benched slotted veteran in its own slot', RUNS_TO_END, () => {
     const before = campaign();
-    const { world } = field(deployedLedger(before, benchErezFieldNachshon(view())));
+    const { world, byName } = field(deployedLedger(before, benchErezFieldNachshon(view())));
+    // GH-1360 S3b: the fielded veterans are killed at t=0 (`debugKill`, the house way to isolate a unit), not left to the
+    // passive run. Before the starting layout every body the ledger fielded died on this seed by itself; in the assembly
+    // layout none does, and this test's subject is the write, not who the passive run happens to lose.
+    for (const id of byName.values()) world.sim.debugKill(id);
+    // GH-1378 Q12: `hold_west` is on the crest (`terrace_crest`), which no unit starts on, so a win needs one order: the survivors
+    // attack-move onto it (8,23), the same order the playtest's winning plan gives. Was: no orders, a passive win.
+    const survivors: number[] = [];
+    for (let id = 0; id < world.sim.entityCount; id++) if (world.sim.state.side[id] === 0 && world.sim.state.alive[id] === 1) survivors.push(id);
+    world.sim.queueCommand({ kind: 'attackMove', ids: survivors, x: fx.from(8), y: fx.from(23) });
     const lost: LostRecord[] = [];
     const produced = world.runToEnd(HARNESS_MAX_TICKS, (me) => {
       if (me.kind !== 'unitLost') return;
       const record = lostRecordFor(world.runtime.rosterEntryOf(me.entity), me.unit, MISSION_ID, me.tick);
       if (record) lost.push(record);
     });
-    expect(world.runtime.result, 'premise: the passive run of this mission is a win').toBe('victory');
+    expect(world.runtime.result, 'premise: the run of this mission, with the survivors sent to the crest, is a win').toBe('victory');
 
     const erez = POOL[0];
     // The runtime hands the benched entry back whole, slot included ...

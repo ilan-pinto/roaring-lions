@@ -50,8 +50,8 @@ in step with it.
   (rates and prices ruled by the lead on 15 Oct: 8/40/30, smoke 100; GDD §3,
   `docs/campaign/economy/fire-support-numbers.md`). A drone or a still scout
   no longer earns by standing there: write a recon mission's intel as
-  *identifications*, not minutes. 18 of 27 shipped missions declare a
-  `resources` block. Unit availability is gated by campaign ROE rating, completed
+  *identifications*, not minutes. 20 of the 29 board missions declare a
+  `resources` block (21 of the 30 mission files, the tutorial's included). Unit availability is gated by campaign ROE rating, completed
   missions and earned stars, not by tiers.
 - **Held-ground income is in the schema and in four missions** (F2, GH-183; the lead approved the
   table on 15 Oct: `docs/campaign/economy/income-numbers.md`). `resources.income_zones` is a list of `{ zone, rate_per_min }` (a zone of the
@@ -105,7 +105,11 @@ in step with it.
   schema and the runtime throws on it (`mark`). `escort` (GH-2):
   `target` is a tag on the player's own `starting_force` placements, `zone` the destination;
   it fails the tick any tagged unit is dead or taken and completes when every one stands in
-  the zone at once. `no_collateral_above` (GH-4): `threshold` is the most Conduct (the ROE score) the mission
+  the zone at once. Two optional fields (GH-1439): `fail_after_losses` (1 up to the number tagged; the escort fails
+  that many losses in, default 1) and `until` (ids of PRIMARY objectives it waits on: it completes the first tick they
+  are all complete and every surviving tagged unit stands in the zone, read each tick, never latched; failure wins a
+  tie; with an `until` the units may start inside the zone). `until` may not name an escort, a ceiling, a score or
+  a secondary. `no_collateral_above` (GH-4): `threshold` is the most Conduct (the ROE score) the mission
   may lose, a whole number 0 to 100; it fails the tick the loss is strictly above it and completes the tick every
   other primary does, so it needs ROE on and another primary. No shipped mission uses either yet.
 - **ROE is the second score, and the player calls it Conduct.** 0–100, `flagged_zones` from map zones, `fail_below`
@@ -116,10 +120,13 @@ in step with it.
   job is to make the player want to break it.
 - **The third star is the carrying secondaries.** `carries: true` marks a secondary a later
   mission reads (spec 2026-09-10 §4.1); the Ari'im citation needs every one complete, and a
-  mission with none caps at two stars. As of 2026-09-11 only **six** missions can reach three
-  stars — Beit Sahwan I, Deir Amun I, Khan Rafid I, Qarn Hadid I, Umm Zeitoun I and Umm
-  Zeitoun III — and every other mission in the campaign caps at two. No foothold, build-up,
-  subterranean or breach mission carries anything. Tel Marum I and Wadi Halam I are recon
+  mission with none caps at two stars. As of 2026-11-15 **ten** missions can reach three
+  stars (`data/missions/*.json`, an objective with `carries: true`): Beit Sahwan I and III, Deir
+  Amun I, Ein Qasab I and II, Khan Rafid I, Qarn Hadid I, Tel Marum III, Umm Zeitoun I and Umm
+  Zeitoun III. Every other mission in the campaign caps at two, and a build-up, subterranean or
+  breach mission carries nothing; the one foothold that does is Ein Qasab II. (On 2026-09-11 the
+  count was six: Beit Sahwan I, Deir Amun I, Khan Rafid I, Qarn Hadid I, Umm Zeitoun I and
+  Umm Zeitoun III.) Tel Marum I and Wadi Halam I are recon
   missions and still cap: both make every `locate` a PRIMARY, which leaves a bare
   `survive_until` screen as their only secondary, and a clock the passive control also
   completes is exactly what must never be flagged. Giving a mission a third star means
@@ -147,11 +154,11 @@ finished.
 | `video` | deploy-screen cinematic above the beats: `briefing_video`, a short mp4/webm under `assets/video/` (no mission declares one since 2026-10-11, when the Tel Marum II and III cuts were removed at the lead's request; a file lives under `assets/video/` named `<mission>_briefing.mp4`); autoplays with sound after the mission click, falls back to muted autoplay with controls; never holds Deploy | the lead's cut | start | **live** since 2026-09-06 | `ui/loading.ts`, `mission.schema.json` `briefing_video`, `validate_data.mjs` (file must exist, and since 2026-10-11 carry a `data/video.json` provenance entry inside the size budget: `tools/validate_video.mjs`, `docs/cinematics/README.md`) |
 | `toast` | notice feed, 4 lines, 9 s | system | on `MissionEvent` | **live**, strings hard-coded; only `objectives[].text` and the raw `trigger.id` are authored | `main.ts` `describeMissionEvent`, `hud.note` |
 | `title` | title card | system | start | **live**: `name` + "N primary objective(s)" | `hud.announce` |
-| `dispatch` | story line on the title card | narrator | start | **specced, unbuilt** (2026-08-21 storyline spec) | — |
-| `aftermath` | story line on the victory banner | narrator | end | **specced, unbuilt** | — |
-| `debrief` | end-screen text | Shai / Idit | end | **needed** — the end screen has zero authorable text | `ui/menu.ts` `showEndScreen` |
-| `radio` | mid-mission transmission overlay: speaker, portrait, line | Shai / Idit / villain | on trigger, objective, wave, event | **approved target, unbuilt** — needs a `say` field on `triggers[].do` / objectives and an overlay | `sim/mission.ts` `stepTriggers`, `render-vfx` |
-| `eva` | announcements: objective complete/failed, unit lost, reinforcements | the brigade net | on `MissionEvent` | **approved target, unbuilt** — GH-110; `audio.schema.json` needs a non-weapon set kind | `render/audio.ts` |
+| `dispatch` | story line on the title card | narrator | start | **live**: the mission's `dispatch` (≤240 characters, `mission.schema.json`) is the third argument of `hud.announce`; 7 of the 30 mission files author one | `main.ts` (`hud.announce(..., mission.dispatch)`), `ui/hud.ts` |
+| `aftermath` | story line on the victory banner | narrator | end | **live**: the mission's `aftermath` (≤240 characters) closes a victory on the after-action report; 4 of the 30 mission files author one | `ui/debrief.ts` (`aftermath`), `ui/after-action.ts` |
+| `debrief` | end-screen text, outcome-aware | Shai / Idit | end | **live**: `debrief.victory` / `debrief.defeat` (a `say`) are the closing word of the after-action report; all 30 mission files author a `debrief` | `data/schemas/mission.schema.json` `debrief`, `ui/debrief.ts`, `ui/after-action.ts` |
+| `radio` | mid-mission transmission overlay: speaker, portrait, line | Shai / Idit / villain | on trigger, objective, wave, event | **live**: a `say` (`speaker`, `text` ≤240 characters) on `triggers[].do`, an objective (`say`, `say_on_fail`) and a wave; the commander bar shows it until paged or replaced, and speaker `net` draws the brigade mark, not a face | `sim/mission.ts` `SayJson`, `ui/hud.ts` `say()`, `mission.schema.json` `$defs/say` |
+| `eva` | announcements: objective complete/failed, unit lost, reinforcements | the brigade net | on `MissionEvent` | **live as captions** (GH-110, PR 370): `announcements.events` in `data/audio.json`; audio is recorded for five lines only (`mission_start`, `objective_active`, `objective_complete`, `reinforcements`, `defeat`), the rest are caption-only | `data/audio.json` `announcements`, `render/audio.ts` |
 | `bark` | order acknowledgements and death calls, one line per gesture | units, keyed by voice class; KDF in Hebrew, the three doctrines in Arabic | on an order intent; on a death | **engine live, lines unrecorded** (WP-AU1): every key plays nothing until the asset plan lands (D5) | `app/src/voice/`, `render/audio.ts` `playVoice`, `data/audio.json` `voices` |
 | `board` | campaign map text | — | between missions | **live**: region `faction · doctrine`, town done/total; `world.json` `blurb` is authored and rendered nowhere | `ui/worldmap.ts` |
 | `tutorial` | step machine: `title`/`teach`/`nudge`, `await` predicates over intent, sim and mission events, camera `focus` | — | mid-mission | **live, gated to the tutorial** — the only condition-gated mid-mission text engine; the seed for `radio` | `tutorial/runtime.ts`, `data/schemas/tutorial.schema.json` |

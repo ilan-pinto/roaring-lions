@@ -16,6 +16,18 @@ export const MEMBER_TABLES: readonly MemberTable[] = [
   {
     table: 'account_op', key: 'member_id', exportSql: null, deleteSql: del('account_op'),
   },
+  // GH-695: who may write from /stats/members. Never exported: it says nothing the member did or was told.
+  {
+    table: 'admin_member', key: 'member_id', exportSql: null, deleteSql: del('admin_member'),
+  },
+  {
+    // What an admin changed for this member, with the reason. `by` is the word "admin", never the admin's id; the
+    // access log ('view') is the lead's, not part of the member's data. (`admin_id` of rows ABOUT other members that
+    // this member made as an admin goes NULL through the foreign key.)
+    table: 'admin_action', key: 'member_id', deleteSql: del('admin_action'),
+    exportSql: `SELECT at, action, mode, delta, "before", "after", reason, 'admin' AS "by", op_id
+FROM admin_action WHERE member_id = ?1 AND action IN ('coins', 'credits') ORDER BY id`,
+  },
   {
     table: 'device_claim', key: 'member_id', deleteSql: del('device_claim'),
     exportSql: 'SELECT device_id, at, result FROM device_claim WHERE member_id = ?1 ORDER BY at',
@@ -42,7 +54,7 @@ export const MEMBER_TABLES: readonly MemberTable[] = [
   },
   {
     table: 'profile', key: 'member_id', deleteSql: del('profile'),
-    exportSql: 'SELECT display_name, show_record, updated_at FROM profile WHERE member_id = ?1',
+    exportSql: 'SELECT display_name, show_record, avatar, avatar_rev, updated_at FROM profile WHERE member_id = ?1',
   },
   // A challenge lives five minutes and is never exported; member_id is nullable, so a row can have none.
   {
@@ -55,9 +67,10 @@ export const MEMBER_TABLES: readonly MemberTable[] = [
   },
   {
     table: 'member_identity', key: 'member_id', deleteSql: del('member_identity'),
-    // Metadata only: a SteamID in full (the player's own), never key bytes or a code hash (§6.2).
+    // Metadata only: a SteamID or Google sub in full (the player's own), never key bytes or a code hash (§6.2).
     exportSql: `SELECT provider, label, created_at, last_used_day, backed_up, state,
-  CASE WHEN provider = 'steam' THEN subject END AS steam_id
+  CASE WHEN provider = 'steam' THEN subject END AS steam_id,
+  CASE WHEN provider = 'google' THEN subject END AS google_sub
 FROM member_identity WHERE member_id = ?1 ORDER BY created_at`,
   },
   {

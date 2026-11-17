@@ -71,12 +71,14 @@ const RIFLES: UnitTypeJson = {
 const W = 16;
 
 /** A template with two meshes over ONE shared material: a 6 m (2 t) box, so the drawn roof is at 2 t. */
+/** The box height in metres: 6 (a 2 t roof) unless a spec stands a LOW roof (GH-1225 rim: the kept wall stays under a slab). */
+let boxHeightM = 6;
 function template(): { template: BuildingMeshTemplate; base: THREE.MeshStandardMaterial } {
   const root = new THREE.Group();
   root.scale.setScalar(MESH_SCALE);
   const base = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
   for (const name of ['wall', 'roof']) {
-    const geo = new THREE.BoxGeometry(6, 6, 6).translate(0, 3, 0);
+    const geo = new THREE.BoxGeometry(6, boxHeightM, 6).translate(0, boxHeightM / 2, 0);
     const mesh = new THREE.Mesh(geo, base);
     mesh.name = name;
     root.add(mesh);
@@ -211,15 +213,31 @@ describe('roof cutaway: the selected-unit trigger', () => {
     expect(mats[0].side).toBe(THREE.DoubleSide);
     expect(base.side).toBe(THREE.FrontSide);
     expect(priv.cutUniforms!.uRlCutN.value).toBe(1);
-    // After the iris: the full R and W, centred on the unit, the cut 0.4 t over the ground, the roof the box's 2 t.
+    // After the iris: the full R and W, centred on the unit, the cut keeps 0.9 t of wall over the ground (the box's slab is the 2 t roof, far above), the roof the box's 2 t.
     frames(30);
     const v = Array.from(priv.cutUniforms!.uRlCutV.value.slice(0, 8));
     expect(v[0]).toBeCloseTo(8, 5);
     expect(v[1]).toBeCloseTo(6, 5);
     expect(v[2]).toBe(1.25);
     expect(v[3]).toBe(0.5);
-    expect(v[4]).toBeCloseTo(0.4, 5);
+    expect(v[4]).toBeCloseTo(0.9, 5);
     expect(v[5]).toBeCloseTo(2, 5);
+    // The ragged top's amplitude rides slot 6 at its full 0.12 t once the iris is open.
+    expect(v[6]).toBeCloseTo(0.12, 5);
+  });
+
+  it('a low roof (a slab at 1.0 t) keeps min(0.9, 1.0 - 0.16) = 0.84 t: the rim never reaches the slab', () => {
+    boxHeightM = 3;
+    try {
+      const { priv, renderer, units, frames } = arm([[8, 6]]);
+      renderer.selection = [units[0]];
+      frames(40);
+      const v = Array.from(priv.cutUniforms!.uRlCutV.value.slice(0, 8));
+      expect(v[4]).toBeCloseTo(0.84, 5);
+      expect(v[4] + v[6]).toBeLessThan(1.0);
+    } finally {
+      boxHeightM = 6;
+    }
   });
 
   it('is released 1.0 s + 400 ms after the selection clears: the band material back, the clone disposed', () => {
@@ -309,7 +327,7 @@ describe('roof cutaway slice 2: the garrison trigger (the banner\'s fog rule)', 
     expect(v[1]).toBe(6);
     expect(v[2]).toBeCloseTo(Math.SQRT2 + 0.25, 5); // a 2 x 2 footprint: 1.664 t
     expect(v[3]).toBe(0.5);
-    expect(v[4]).toBeCloseTo(0.4, 5);
+    expect(v[4]).toBeCloseTo(0.9, 5);
     expect(v[5]).toBeCloseTo(2, 5);
   });
 

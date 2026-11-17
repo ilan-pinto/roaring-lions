@@ -98,6 +98,8 @@ import wadiTarfanModes from '../../../data/versus/modes/wadi_tarfan.json';
 import formationAmbush from '../../../data/formations/ambush.json';
 import formationAttack from '../../../data/formations/attack.json';
 import formationColumn from '../../../data/formations/column.json';
+// GH-1360 S3a: starting layouts live in data/layouts/, a different directory, and are NEVER in `formations` (the HUD picker).
+import layoutAssembly from '../../../data/layouts/assembly.json';
 // Look uplift L2 (GH-943): the colour grades, one file per shipped time of day. Day is the identity and has no file.
 import gradeDawn from '../../../data/grades/dawn.json';
 import gradeDusk from '../../../data/grades/dusk.json';
@@ -307,6 +309,29 @@ export {
   type UpgradeTracks,
 } from './upgrades';
 
+/** GH-1394/GH-1395: the one pure pre-pass over a mission's JSON (difficulty postures, then amendments),
+ *  run before the runtime is built so the sim never learns a posture exists. */
+export {
+  applyOverlays,
+  applyOps,
+  postureOf,
+  postureOps,
+  postureApplies,
+  postures,
+  reliefTriggerIndices,
+  POSTURE_IDS,
+  DIFFICULTY_LEDGER_KEY,
+  RELIEF_TRIGGER_ID,
+  type OverlayOp,
+  type OverlayChoice,
+  type OverlayMission,
+  type OverlayOptions,
+  type OverlayWave,
+  type PostureId,
+  type PostureJson,
+  type PostureCatalogue,
+} from './overlays';
+
 export {
   versusMissionOf,
   versusCapacityOf,
@@ -382,6 +407,18 @@ export const versusModes: Readonly<Record<string, VersusModeFileJson>> = {
  *  sorted directory order. Hand-kept, so `index.test.ts` pins it to the directory: an
  *  unregistered file would be silently unorderable. The sim's `addFormationType` compiles each. */
 export const formations = [formationAmbush, formationAttack, formationColumn] as const;
+
+/** The starting-force layouts (GH-1360 S3a): data/layouts/*.json, written in formation.schema.json's vocabulary and compiled
+ *  by the sim's `compileFormation`, but never registered with the sim (`addFormationType`) and never in `formations`, so
+ *  they never reach the HUD picker. `index.test.ts` pins this array to its directory. */
+export const layouts = [layoutAssembly] as const;
+
+/** The assembly layout: vehicles in the front rank, infantry behind, support weapons, medics and drones at the rear. */
+export const assemblyLayout = layoutAssembly;
+
+// Avatar presets (GH-1075 P1): the catalogue, the frozen default pool, the shared default rule.
+export { avatarPresets, defaultAvatarPool, defaultAvatar, resolveAvatar, isAvatarPreset, fnv1a32, LAST_RESORT_AVATAR } from './avatar';
+export type { AvatarPreset, AvatarView, AvatarInput } from './avatar';
 
 /** Colour grades (look uplift L2, GH-943): data/grades/*.json against grade.schema.json, in sorted
  *  directory order. Hand-kept, so `index.test.ts` pins it to the directory: an unregistered file
@@ -843,6 +880,35 @@ export function variantAwareResolver(variant: ColorVisionVariant): (key: string)
 // `narrative-designer` write against, and a translator's file can go stale
 // or missing without touching it.
 
+/** The four named blocks of a sectioned briefing (`mission.schema.json` `briefing_sections[].id`), in their fixed order. */
+export const BRIEFING_SECTION_IDS = ['situation', 'mission', 'execution', 'notes'] as const;
+export type BriefingSectionId = (typeof BRIEFING_SECTION_IDS)[number];
+
+/**
+ * One mission's translatable text (GH-1406 parts 2 and 3). Every field is optional and falls back to the `en` source per field.
+ * Beyond the first four, which have been here from the start: `dispatch`, `aftermath` and `hostages_place` are the mission's own
+ * strings; `debrief` carries the two closing lines' TEXT (the speaker is never translated); `sections` the named blocks of a sectioned
+ * briefing; `objective_say`, `objective_say_on_fail` and `trigger_say` the radio lines of an objective's completion, its failure and a
+ * trigger, keyed by that objective's or trigger's own id; `wave_say` the line a wave speaks, keyed by the wave's INDEX in
+ * `enemy.waves` (a wave has no id), as a string. A key naming something the mission does not have is a validator failure, never a
+ * silent no-op (`tools/validate_narrative.mjs`).
+ */
+export interface MissionLocaleEntry {
+  name?: string;
+  briefing?: string;
+  objectives?: Record<string, string>;
+  triggers?: Record<string, string>;
+  dispatch?: string;
+  aftermath?: string;
+  hostages_place?: string;
+  debrief?: { victory?: string; defeat?: string };
+  sections?: Partial<Record<BriefingSectionId, string>>;
+  objective_say?: Record<string, string>;
+  objective_say_on_fail?: Record<string, string>;
+  trigger_say?: Record<string, string>;
+  wave_say?: Record<string, string>;
+}
+
 /**
  * One locale's mission text, keyed by mission id. `objectives`/`triggers`
  * are keyed by THEIR OWN ids — an objective or trigger with no id of its own
@@ -851,12 +917,13 @@ export function variantAwareResolver(variant: ColorVisionVariant): (key: string)
  * elsewhere) already key everything else off.
  */
 export interface MissionLocaleOverlay {
-  [missionId: string]: {
-    name?: string;
-    briefing?: string;
-    objectives?: Record<string, string>;
-    triggers?: Record<string, string>;
-  };
+  [missionId: string]: MissionLocaleEntry;
+}
+
+/** A radio line as the schema has it (`$defs/say`): the speaker is a fixed enum and is never translated. */
+interface SayJson {
+  speaker: string;
+  text: string;
 }
 
 /**
@@ -873,22 +940,41 @@ export interface MissionJson {
   id: string;
   name?: string;
   briefing?: string;
-  objectives: readonly { id: string; text?: string }[];
-  triggers?: readonly { id?: string; label?: string }[];
+  dispatch?: string;
+  aftermath?: string;
+  hostages_place?: string;
+  debrief?: { victory?: SayJson; defeat?: SayJson };
+  briefing_sections?: readonly { id: string; text: string; image?: unknown }[];
+  objectives: readonly { id: string; text?: string; say?: SayJson; say_on_fail?: SayJson }[];
+  triggers?: readonly { id?: string; label?: string; say?: SayJson }[];
+  enemy?: { waves?: readonly { say?: SayJson }[] };
+}
+
+/** `say` with its text replaced, speaker and every other field kept. */
+function withSayText<S extends SayJson | undefined>(say: S, text: string | undefined): S {
+  return say !== undefined && text !== undefined ? ({ ...say, text } as S) : say;
 }
 
 /**
  * Overlays a locale's mission text onto a mission's own JSON, id-matched:
  * `name`/`briefing` replace whole-string, `objectives`/`triggers` by their
- * own ids. A field the overlay does not carry falls back to the mission's
+ * own ids, and (part 3) `dispatch`, `aftermath`, `hostages_place`, the two
+ * `debrief` lines, the briefing's `sections` and every radio line by the same
+ * rule. A field the overlay does not carry falls back to the mission's
  * own `en` text, so a partial translation degrades to English per-field
- * rather than per-mission.
+ * rather than per-mission. A `say`'s speaker and a section's image are never
+ * touched.
  *
  * A missing mission id in the overlay, or a null overlay (`main.ts`'s own
  * loader returns null for `en` and for a 404, rather than fetching a file
  * that would just be the source text again), is a no-op that returns
  * `mission` BY REFERENCE, unchanged — the common case (every mission, on
  * `en`) costs nothing.
+ *
+ * A translated `briefing` over a mission with `briefing_sections` that the
+ * overlay does not also translate leaves the sections in English; the deploy
+ * screen already falls back to the unsectioned beats whenever the sections
+ * no longer join to the briefing (`ui/briefing-sections.ts`).
  */
 export function applyMissionLocale<T extends MissionJson>(
   mission: T,
@@ -900,12 +986,78 @@ export function applyMissionLocale<T extends MissionJson>(
     ...(mission as Record<string, unknown>),
     name: o.name ?? mission.name,
     briefing: o.briefing ?? mission.briefing,
-    objectives: mission.objectives.map((ob) =>
-      o.objectives?.[ob.id] !== undefined ? { ...ob, text: o.objectives[ob.id] } : ob
-    ),
-    triggers: mission.triggers?.map((tr) =>
-      tr.id !== undefined && o.triggers?.[tr.id] !== undefined ? { ...tr, label: o.triggers[tr.id] } : tr
-    ),
+    objectives: mission.objectives.map((ob) => {
+      const text = o.objectives?.[ob.id];
+      const say = withSayText(ob.say, o.objective_say?.[ob.id]);
+      const sayOnFail = withSayText(ob.say_on_fail, o.objective_say_on_fail?.[ob.id]);
+      if (text === undefined && say === ob.say && sayOnFail === ob.say_on_fail) return ob;
+      return {
+        ...ob,
+        ...(text === undefined ? {} : { text }),
+        ...(say === ob.say ? {} : { say }),
+        ...(sayOnFail === ob.say_on_fail ? {} : { say_on_fail: sayOnFail }),
+      };
+    }),
+    triggers: mission.triggers?.map((tr) => {
+      if (tr.id === undefined) return tr;
+      const label = o.triggers?.[tr.id];
+      const say = withSayText(tr.say, o.trigger_say?.[tr.id]);
+      if (label === undefined && say === tr.say) return tr;
+      return { ...tr, ...(label === undefined ? {} : { label }), ...(say === tr.say ? {} : { say }) };
+    }),
   };
+  if (o.dispatch !== undefined && mission.dispatch !== undefined) out.dispatch = o.dispatch;
+  if (o.aftermath !== undefined && mission.aftermath !== undefined) out.aftermath = o.aftermath;
+  if (o.hostages_place !== undefined && mission.hostages_place !== undefined) out.hostages_place = o.hostages_place;
+  if (o.debrief !== undefined && mission.debrief !== undefined) {
+    out.debrief = {
+      ...mission.debrief,
+      ...(mission.debrief.victory === undefined || o.debrief.victory === undefined ? {} : { victory: withSayText(mission.debrief.victory, o.debrief.victory) }),
+      ...(mission.debrief.defeat === undefined || o.debrief.defeat === undefined ? {} : { defeat: withSayText(mission.debrief.defeat, o.debrief.defeat) }),
+    };
+  }
+  if (o.sections !== undefined && mission.briefing_sections !== undefined) {
+    out.briefing_sections = mission.briefing_sections.map((sec) => {
+      const text = (o.sections as Record<string, string | undefined>)[sec.id];
+      return text === undefined ? sec : { ...sec, text };
+    });
+  }
+  if (o.wave_say !== undefined && mission.enemy?.waves !== undefined) {
+    out.enemy = {
+      ...mission.enemy,
+      waves: mission.enemy.waves.map((w, i) => {
+        const say = withSayText(w.say, o.wave_say?.[String(i)]);
+        return say === w.say ? w : { ...w, say };
+      }),
+    };
+  }
   return out as T;
+}
+
+// --- unit-text locale overlay -----------------------------------------------
+//
+// A unit's `name` and `blurb` are DATA like a mission's text, authored in `en` on every file under `data/units/`. A shipped translation is
+// a separate optional file, `data/locales/<lang>/units.json` (`data/locales/README.md`), layered on at the point `@lions/app` REGISTERS a
+// unit for display. It is never written into `units` itself: the net content digest hashes `units` (names included), so two players in
+// different languages would otherwise disagree about the content and be refused a room. A unit's `role` label is chrome and already goes
+// through `t()` (`ui/role.ts`).
+
+/** One locale's unit text, keyed by unit id. A field the overlay does not carry keeps the `en` text, per field. */
+export interface UnitLocaleOverlay {
+  [unitId: string]: { name?: string; blurb?: string };
+}
+
+/**
+ * Overlays a locale's name and blurb onto a unit's JSON. No entry for the unit, or a null overlay (`en`, or a locale nothing ships a file
+ * for), returns `unit` BY REFERENCE, unchanged. Generic, like `applyMissionLocale`, so a caller holding `@lions/sim`'s own unit type gets
+ * one back with no cast.
+ */
+export function applyUnitLocale<T extends { id: string; name?: string; blurb?: string }>(unit: T, overlay: UnitLocaleOverlay | null): T {
+  const o = overlay?.[unit.id];
+  if (!o || (o.name === undefined && o.blurb === undefined)) return unit;
+  return {
+    ...unit,
+    ...(o.name === undefined ? {} : { name: o.name }),
+    ...(o.blurb === undefined || unit.blurb === undefined ? {} : { blurb: o.blurb }),
+  };
 }

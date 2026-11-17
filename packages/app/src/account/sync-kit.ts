@@ -209,8 +209,10 @@ export function clientFor(server: FakeServer, o: { me?: () => MeResult; gone?: '
   return {
     enabled: true,
     open: never,
-    me: () => Promise.resolve(o.me ? o.me() : { kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, fresh: false, identities: [] }),
+    me: () => Promise.resolve(o.me ? o.me() : { kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, avatar: { kind: 'preset', id: 'crest-chevrons', chosen: false }, createdDay: 0, fresh: false, identities: [] }),
+    providers: never,
     steamStart: never,
+    googleStart: never,
     logout: () => (server.calls.push({ name: 'logout' }), o.log?.push('logout'), Promise.resolve('ok' as const)),
     logoutAll: never,
     patchProfile: never,
@@ -235,5 +237,6 @@ export function clientFor(server: FakeServer, o: { me?: () => MeResult; gone?: '
     deleteSlot: (op) => server.deleteSlot(op),
     claim: never,
     matches: async () => ok({ matches: [], next: null, record: { won: 0, lost: 0, drawn: 0 } }),
+    coins: async () => ok({ rows: [], next: null }),
   };
 }

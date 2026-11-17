@@ -71,8 +71,8 @@ yours; each one records what the next phase inherits.
 - **The colour pipeline is the standard one since Phase 0 (2026-09-14).**
   `renderer.outputColorSpace = SRGBColorSpace`, ACES tone mapping at exposure
   1.0 applied in the composer's `OutputPass`, and every world material a
-  `MeshStandardMaterial` (`units/world-materials.ts`, and `terrain/mesh.ts`'s
-  `GroundMaterial`/`GroveMaterial`). One sun plus one hemisphere bounce in
+  `MeshStandardMaterial` (`world-materials.ts`, and `terrain/mesh.ts`'s
+  `GroundMaterial`). One sun plus one hemisphere bounce in
   `lighting.ts`, with a 4096² orthographic shadow box that **follows the
   camera** (GH-705, `shadow-fit.ts`, `shadowFit: 'view'` on every preset): refit
   each frame to the view's receivers, its SIZE a function of zoom alone and its
@@ -102,7 +102,7 @@ yours; each one records what the next phase inherits.
   not a pass: it is the last statement of `OutputPass`'s shader (`vignette-pass.ts`, GH-829),
   pixel-identical to the pass it replaced only because it rounds through half float first. Fog of war is
   `shroud-texture.ts` + `fog-pass.ts` — a depth-reading post pass, not
-  geometry. A muzzle flash is a pooled `PointLight` (`units/flash-light.ts`),
+  geometry. A muzzle flash is a pooled `PointLight` (`flash-light.ts`),
   not a ramp-index shift. `applyPalettePipeline`, `paletteColorNoConvert`, the
   toon ramp materials, the blob shadows and the black fog quads are all
   deleted. Ground decals (`decal-pool.ts`) are albedo RATIOS: each decal's
@@ -642,6 +642,12 @@ slot of kind `DISTURB_KIND_AIR` in N2's array. +0 draw calls, +0 programs; the c
   death clip (`fall`/`fallAlt`, else `idle` with the topple's spin) at the sim's position and facing -- never read off
   the frame-clock screen -- and the screen blends into the ragdoll over 100 ms. Freeze at 30 quiet steps or 240 steps;
   the entity is then a `MeshWreck` (fog-revealed as usual).
+- **The push per killer (GH-1223).** The push is read off the killer's last act (`ragdollPushForKill`): a weapon id, or a
+  latch key for a strike (`SUPPORT_LATCH`, one per `SupportMunitionKind`, an exhaustive `Record`) or a placed charge. A
+  strike profile the table does not know (`supportKindForProfile`) latches nothing and logs a `console.error`: it never
+  reads as an air strike. Known limit: a strike or charge names every kill its caller makes in the same event batch (one
+  tick). A `strike` event is raised on the tick the call RESOLVES, after its delay, not when it was called, so a round the
+  caller fires in that same tick takes the strike's push. Rare, accepted.
 - **The `ragdolls` debug layer** hides every root the ragdolls hold or froze (a flag re-applied after the wreck reveal).
 - Tests: `physics/ragdoll-world.test.ts` (a committed digest, so CI's Linux and a developer's macOS must agree),
   `physics/ragdoll-rig.test.ts` (the shipped GLBs), `ThreeRenderer.ragdoll*.test.ts` (wiring, the sim hash with physics
@@ -723,6 +729,20 @@ with P4's `rl-holes` hook, and the TSL twin are later slices.
   write is `applyBuildingSkin`.
 - **The capture precondition:** a `mission=` scenario (only the report-only `combat`) drops the `cutawayCount` clause
   (`capturePreconditionFor`): a mission's visible garrison is its own picture. Every gated (sandbox) scenario keeps it.
+
+## Roof cutaway, the rim (GH-1225, lead ruling 13 Nov 2026, variant B)
+
+A cut keeps a wall, so a cut building still reads as a house with people inside (the 0.4 t rim read as a fence).
+- **Height:** `kept = min(0.9 t, lowest slab - 0.16 t)` per structure, measured once from its drawn clone (`ThreeRenderer.keptWallOf`,
+  `units/cut-rim.ts` `lowestSlabBottom`: horizontal triangles, up or down, spanning at least 20% of the footprint, over 0.5 t). A floor
+  slab left standing hides the garrison below it (the house's ceiling is 1.28 t; a 1.37 t cut showed a floor over the men), and a roof that is
+  one up-facing plane (the hall's, 0.87 t) must be cut too. The memo is per STRUCTURE, never per type: `buildingFitScale` shrinks a plot's
+  clone, and the slab with it (house 5 is 1.28 t, a full-size house 1.6 t). A selected unit takes the lowest kept height among the buildings in reach.
+- **The one type that keeps LESS wall than before:** `kdf_outpost` keeps 0.36 t (its lowest deck is at 0.52 t), below the old fixed 0.4 t. Every other shipped clone-drawn type keeps 0.64 t or more (table in `tools/src/cut_rim_heights.test.ts`).
+- **Ragged top:** `tileHash` of the 0.25 t brick cell (`CUT_RIM_CELLS_PER_TILE`), +-0.12 t, in `cutawayOps` through `IntOps` (the holes' body),
+  amplitude in slot 6 of the volume block (iris-scaled). No sin hash, no per-fragment noise: a cell is flat and never moves.
+- **Cap:** 0.06 t, its colour halfway from the ramp's lightest key to the interior (`CUT_CAP_TONE`, CPU side, so both backends match).
+- `tools/src/cut_rim_heights.test.ts` prints every shipped clone-drawn type's full-size kept height from its GLB and pins that no rim reaches a slab.
 
 ## The debris pool (GH-1197 P2)
 

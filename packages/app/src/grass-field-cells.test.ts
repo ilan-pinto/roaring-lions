@@ -56,6 +56,7 @@ function rig(id: MapId): { sim: Sim; build(prev: ComposedTerrainBuild | null): C
 /** The green maps that stand no structure (named, so a map that loses its structures is caught, not skipped). */
 const NO_STRUCTURES: ReadonlySet<string> = new Set(['wadi_halam_3']);
 
+const total0 = (list: readonly GrassCellMesh[]): number => list.reduce((n, m) => n + m.count, 0);
 const keyOf = (m: GrassCellMesh): string => `${m.cell}|${m.variant}|${m.part}`;
 
 /** The first difference between two mesh lists, or null when they are the same bytes. */
@@ -68,12 +69,14 @@ function planDiff(a: readonly GrassCellMesh[], b: readonly GrassCellMesh[]): str
     // Each mesh carries 16 floats a clump: a mesh with count but no matrices would compare equal to itself below.
     if (x.matrices.length !== x.count * 16 || y.matrices.length !== y.count * 16) return `mesh ${keyOf(x)}: ${x.matrices.length} / ${y.matrices.length} floats for ${x.count} clumps`;
     for (let k = 0; k < x.matrices.length; k++) if (x.matrices[k] !== y.matrices[k]) return `mesh ${keyOf(x)} [${k}]: ${x.matrices[k]} vs ${y.matrices[k]}`;
+    if (x.thin.count !== y.thin.count) return `mesh ${keyOf(x)}: thin ${x.thin.count} vs ${y.thin.count}`;
+    for (let k = 0; k < x.thin.matrices.length; k++) if (x.thin.matrices[k] !== y.thin.matrices[k]) return `mesh ${keyOf(x)} thin [${k}]`;
   }
   return null;
 }
 
 describe('GH-1167 S5: the grass cells on the five green maps', () => {
-  it.each(GREEN)('%s: at most 108 meshes, none over the cap, holding exactly the placed clumps in back-to-front order', (id) => {
+  it.each(GREEN)('%s: at most 140 meshes (108 and the splits 12 a tile forces), none over the cap, holding exactly the placed clumps in back-to-front order', (id) => {
     const r = rig(id);
     const b = r.build(null);
     const input = b.composed.input;
@@ -81,15 +84,22 @@ describe('GH-1167 S5: the grass cells on the five green maps', () => {
     const plan = planGrassField(input, surface, CAP);
     const { cellsX, cellsY } = grassCellGrid(input.width, input.height);
     expect(cellsX * cellsY).toBe(36);
-    expect(plan.meshes.length).toBeLessThanOrEqual(108);
-    // Anti-vacuity: the field is real on every map (about 15,000 clumps, design 2.1).
-    expect(plan.meshes.length).toBeGreaterThan(80);
-    expect(plan.meshes.every((m) => m.part === 0 && m.count <= CAP && m.count > 0)).toBe(true);
+    expect(plan.meshes.length).toBeLessThanOrEqual(140);
+    // Anti-vacuity: the field is real on every map (about 21,000 clumps at 12 a tile) and 12 a tile DOES split some (cell, variant).
+    expect(plan.meshes.length).toBeGreaterThan(108);
+    expect(plan.meshes.every((m) => m.count <= CAP && m.count > 0)).toBe(true);
+    expect(plan.meshes.some((m) => m.part > 0)).toBe(true);
+    // The rung (GRASS_RUNG_KEEP 0.5): a subset of this part, about half of the map, at most one drawn mesh per (cell, variant) (108: the rung cuts the splits' draws).
+    const thinTotal = plan.meshes.reduce((n, m) => n + m.thin.count, 0);
+    expect(thinTotal / total0(plan.meshes)).toBeGreaterThan(0.45);
+    expect(thinTotal / total0(plan.meshes)).toBeLessThan(0.55);
+    expect(plan.meshes.every((m) => m.thin.count <= m.count && m.thin.matrices.length === m.thin.count * 16)).toBe(true);
+    expect(plan.meshes.filter((m) => m.thin.count > 0).length).toBeLessThanOrEqual(108);
     // The clumps: S1's, as a multiset of (x, z, variant) and seat height.
     const placed = placeGrassClumps(input, surface);
     const total = plan.meshes.reduce((n, m) => n + m.count, 0);
     expect(total).toBe(placed.count);
-    expect(total).toBeGreaterThan(13000);
+    expect(total).toBeGreaterThan(19000);
     const fromS1 = new Map<string, number>();
     for (let i = 0; i < placed.count; i++) {
       const k = `${placed.x[i]}|${placed.y[i]}|${placed.z[i]}|${placed.variant[i]}`;
@@ -139,6 +149,15 @@ describe('GH-1167 S5: the grass cells on the five green maps', () => {
         o += p.matrices.length;
       }
       expect(joined).toEqual(w.matrices);
+      // The rung's chunks join to the whole's rung list, in order, whatever the cap.
+      const jt = new Float32Array(parts.reduce((n, p) => n + p.thin.matrices.length, 0));
+      let ot = 0;
+      for (const p of parts) {
+        jt.set(p.thin.matrices, ot);
+        ot += p.thin.matrices.length;
+      }
+      expect(jt).toEqual(w.thin.matrices);
+      expect(jt.length).toBeGreaterThan(0);
     }
   });
 });

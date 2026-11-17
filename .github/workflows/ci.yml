@@ -80,15 +80,53 @@ jobs:
       # Version pinned to match the Blender.app used for local dev (CLAUDE.md,
       # "Blender 5.2.0 LTS"), same reasoning render_rig.py's rig-lock comment
       # gives for every other CI-vs-local mismatch risk in this pipeline.
+      # The archive is cached (key = exact version + checksum, so a version bump
+      # is a new key) and the download retries, then falls back to two mirrors of
+      # the same file. Every path ends in the same SHA-256 check, so a cached or
+      # mirrored file that is not byte-identical is rejected. 14 Nov: three PRs
+      # red on `curl: (22) ... 403` from download.blender.org, no code at fault.
+      - name: Cache Blender archive (mesh gate)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/blender-cache
+          key: blender-5.2.0-linux-x64-96f6c181a30f
       - name: Install Blender (mesh gate)
         run: |
-          curl -fsSL -o /tmp/blender.tar.xz \
-            https://download.blender.org/release/Blender5.2/blender-5.2.0-linux-x64.tar.xz
+          set -u
+          ARCHIVE="$HOME/blender-cache/blender-5.2.0-linux-x64.tar.xz"
           # SHA-256 as published at
           # https://download.blender.org/release/Blender5.2/blender-5.2.0.sha256
-          echo "96f6c181a30f4950607839dc84d42a354b250d8a0231b098b59b7bc69c351c48  /tmp/blender.tar.xz" | sha256sum -c -
-          mkdir -p /opt/blender
-          tar -xf /tmp/blender.tar.xz -C /opt/blender --strip-components=1
+          SUM="96f6c181a30f4950607839dc84d42a354b250d8a0231b098b59b7bc69c351c48"
+          PATH_PART="release/Blender5.2/blender-5.2.0-linux-x64.tar.xz"
+          mkdir -p "$HOME/blender-cache"
+          if [ -f "$ARCHIVE" ] && ! echo "$SUM  $ARCHIVE" | sha256sum -c - >/dev/null 2>&1; then
+            echo "cached archive fails its checksum; discarding it"
+            rm -f "$ARCHIVE"
+          fi
+          if [ ! -f "$ARCHIVE" ]; then
+            ok=0
+            for round in 1 2 3; do
+              for base in https://download.blender.org https://mirrors.ocf.berkeley.edu/blender https://ftp.nluug.nl/pub/graphics/blender; do
+                echo "downloading from $base (round $round)"
+                if curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --max-time 600 \
+                     -o "$ARCHIVE.part" "$base/$PATH_PART" \
+                   && echo "$SUM  $ARCHIVE.part" | sha256sum -c -; then
+                  mv "$ARCHIVE.part" "$ARCHIVE"
+                  ok=1
+                  break 2
+                fi
+                rm -f "$ARCHIVE.part"
+              done
+              sleep 30
+            done
+            if [ "$ok" != 1 ]; then
+              echo "::error::Blender 5.2.0 could not be downloaded and verified from any source"
+              exit 1
+            fi
+          fi
+          echo "$SUM  $ARCHIVE" | sha256sum -c -
+          sudo mkdir -p /opt/blender
+          sudo tar -xf "$ARCHIVE" -C /opt/blender --strip-components=1
           echo "/opt/blender" >> "$GITHUB_PATH"
       - run: pnpm validate:meshes
       - run: pnpm validate:ui
@@ -355,6 +393,27 @@ jobs:
       - name: one realm, no reload -- the router's own walk
         if: ${{ success() || failure() }}
         run: pnpm ui:routes
+      # GH-1409: every shell screen at 1400x900, as a build artifact, so the pictures a reviewer reads are from THIS commit and not from
+      # October. ONE resolution on CI: measured on SwiftShader, a single resolution's walk takes about 15 minutes (13:27 to 13:42 on the
+      # first run that got through the menu), so the tool's three resolutions would need about 45 and could not fit `timeout-minutes: 25`.
+      # The other two stay available locally and on a Mac (`--res=`). REPORT-ONLY: `continue-on-error`, so a failed or slow capture can neither fail
+      # the job nor skip the `version` job behind it (the overflow output of `ui:shots` is a report by design), and `timeout-minutes` is
+      # the hang guard (the tool stops its own dev server; see shoot.ts). Its own port, apart from the gate's :5175 and the walk's :5177.
+      # SwiftShader (the Linux default), music off by the tool: compare these only with other CI captures, never with a Mac's.
+      - name: ui:shots -- every shell screen at 1400x900 (report-only)
+        if: ${{ success() || failure() }}
+        continue-on-error: true
+        timeout-minutes: 25
+        run: pnpm ui:shots -- --port=5176 --res=1400x900 --out=ui-shots-output
+      # GH-1406/GH-1407, the lead's ruling D9 on PR 1474: the same walk once per shipped locale but en (`--lang=all`), with the overflow
+      # probe reported per locale, into ui-shots-output/locales/<id>/ (uploaded with the captures below). REPORT-ONLY, like the step above.
+      # With no locale shipped it prints one line and exits 0 before a port or a browser is touched (`shot-locales.ts`). Each locale is
+      # another ~15 min walk on SwiftShader, so the first translation to land must also give this step the minutes it needs.
+      - name: ui:shots -- every shell screen per shipped locale (report-only)
+        if: ${{ success() || failure() }}
+        continue-on-error: true
+        timeout-minutes: 25
+        run: pnpm ui:shots -- --lang=all --port=5176 --res=1400x900 --out=ui-shots-output/locales
       # Uploaded on failure AND on success: the diff image is what a triager
       # actually needs, and `combat` is captured but never gated, so its frame
       # is only ever reachable here.
@@ -376,6 +435,18 @@ jobs:
           path: visual-baseline-output
           if-no-files-found: ignore
           retention-days: 3
+      # GH-1409: the shell captures. Same three-day retention and same `continue-on-error` as the upload above, for the same reason (the
+      # private repository's artifact quota); PNGs are already compressed, so the level is 0 rather than spending time re-deflating them.
+      - name: Upload the shell captures
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-shots
+          path: ui-shots-output
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 0
 
   # GH-943 WebGPU-primary migration, P0: the node backends' capture arms. They gate on FRAME CONTENT and nothing else (the lead, 7 Nov).
   #

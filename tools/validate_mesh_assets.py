@@ -1512,9 +1512,22 @@ def check_team_marks(vehicles_root, required=MARK_REQUIRED):
 # until the frame is re-measured, so an emblem cannot silently float off a changed hull. The hash is computed HERE, with struct
 # and hashlib only, independently of the generator (whose numpy reader wrote it) and of `tools/src/insignia.test.ts`'s TS one.
 INSIGNIA_TABLE = os.path.join(REPO, "packages", "render", "src", "three", "units", "insignia-frames.ts")
-#: The vehicles that MUST carry an insignia frame (GH-1096 S1: the Lavi pilot). Pinned against the table's keys by
-#: `tools/src/insignia.test.ts`; S2 and S3 grow both together.
-INSIGNIA_REQUIRED = ("mbt_lavi",)
+#: The vehicles that MUST carry an insignia frame (GH-1096 S1: the Lavi pilot; S2: the rest of the ground fleet). Pinned against
+#: the table's keys by `tools/src/insignia.test.ts`; S3 (the aircraft) grows both together.
+INSIGNIA_REQUIRED = (
+    "aa_remetz",
+    "apc_eitan",
+    "apc_kipod",
+    "demo_tzav",
+    "dozer_d9",
+    "ifv_namer",
+    "jeep_shoded",
+    "mbt_lavi",
+    "officer_armour",
+    "scout_shachaf",
+    "spg_cluster",
+    "spg_long_range",
+)
 _INSIGNIA_BEGIN = "// BEGIN rl-insignia-frames"
 _INSIGNIA_END = "// END rl-insignia-frames"
 

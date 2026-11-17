@@ -290,14 +290,14 @@ describe('the weapon-in-glove ceiling can fail (constructed failing input 5)', (
     const r = measureGrip(file, 'idle', 'f0', { hz: 60 });
     expect(r.support.depthM!, 'support fist').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.idle[1]);
     expect(read('f0', 'idle').support.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.idle[1]);
-  }, 60_000);
+  }, 120_000); // 52.8 s clean, 62.3 s under 4 extra CPU spinners (GH-1079, 14 Nov): it timed out at 60 s; the sibling loop uses 120 s
 
   it('the f1/f2 rest ratchet can fail: f1\'s weapon bone pushed 15 mm into the fists in idle reads past 13.5 mm', () => {
     if (!FUSED) return;
     const file = patched('idle', 'f1_weapon', 'translation', (v) => [v[0], v[1] - 0.015, v[2]]);
     expect(measureGrip(file, 'idle', 'f1', { hz: 60 }).support.depthM!).toBeGreaterThan(SUPPORT_REST_RATCHET_M);
     expect(read('f1', 'idle').support.depthM!).toBeLessThanOrEqual(SUPPORT_REST_RATCHET_M);
-  }, 60_000);
+  }, 120_000); // 44.7 s clean, 54.9 s under 4 extra CPU spinners (GH-1079, 14 Nov): 60 s was 90% of the limit
 
   it('the old sampler (each weapon triangle\'s first vertex and centroid) reads the SAME bytes at 2 mm in the support hand where the dense one reads 9 (constructed failing input 6)', () => {
     const dense = readRigid('f1', 'fire');

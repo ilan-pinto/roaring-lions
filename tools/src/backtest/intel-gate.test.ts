@@ -6,6 +6,8 @@ const run = (endTick: number, intel: [number, number][], spent = 0): IntelRun =>
 const win = (id: string, label: string, r: IntelRun, expectation: RunRecord['expect'] = 'victory'): RunRecord => ({
   id,
   label,
+  posture: 'standard',
+  lost: 0,
   expect: expectation,
   result: 'victory',
   stuck: false,

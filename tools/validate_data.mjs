@@ -59,7 +59,9 @@ import {
 import {
   commanderRankFailures,
   narrativeTextFailures,
+  englishCatalogueFailures,
   overlayFailures,
+  unitOverlayFailures,
   removeTriggerFailures,
   triggerLabelFailures,
 } from './validate_narrative.mjs';
@@ -191,6 +193,8 @@ function validateFile(file, validate, schemaName) {
 // --- schema validation ------------------------------------------------------
 // Shared $defs (unlock) live in common.schema.json; unit and structure refer to it by relative $ref.
 ajv.addSchema(JSON.parse(readFileSync(join(ROOT, 'data/schemas/common.schema.json'), 'utf8')));
+// GH-1394: the closed overlay operation set, shared by the difficulty postures and (GH-1395) the amendments.
+ajv.addSchema(JSON.parse(readFileSync(join(ROOT, 'data/schemas/overlay_ops.schema.json'), 'utf8')));
 const schemas = {
   unit: loadJson(join(ROOT, 'data/schemas/unit.schema.json')),
   mission: loadJson(join(ROOT, 'data/schemas/mission.schema.json')),
@@ -214,7 +218,9 @@ const schemas = {
   formation: loadJson(join(ROOT, 'data/schemas/formation.schema.json')),
   grade: loadJson(join(ROOT, 'data/schemas/grade.schema.json')),
   coupons: loadJson(join(ROOT, 'data/schemas/coupons.schema.json')),
+  avatarPresets: loadJson(join(ROOT, 'data/schemas/avatar_presets.schema.json')),
   minWin: loadJson(join(ROOT, 'data/schemas/min_win_seconds.schema.json')),
+  difficulty: loadJson(join(ROOT, 'data/schemas/difficulty.schema.json')),
   arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
   arenaPlayers: loadJson(join(ROOT, 'data/schemas/arena-public-players.schema.json')),
 };
@@ -223,7 +229,7 @@ let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.minWin && schemas.arenaResults && schemas.arenaPlayers
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.arenaResults && schemas.arenaPlayers
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -245,7 +251,9 @@ if (
     formation: ajv.compile(schemas.formation),
     grade: ajv.compile(schemas.grade),
     coupons: ajv.compile(schemas.coupons),
+    avatarPresets: ajv.compile(schemas.avatarPresets),
     minWin: ajv.compile(schemas.minWin),
+    difficulty: ajv.compile(schemas.difficulty),
     arenaResults: ajv.compile(schemas.arenaResults),
     arenaPlayers: ajv.compile(schemas.arenaPlayers),
   };
@@ -259,6 +267,8 @@ if (
   checked += validateDir(join(ROOT, 'data/versus'), validators.versus, 'versus_rules.schema', ['modes']);
   checked += validateDir(join(ROOT, 'data/versus/modes'), validators.versusMode, 'versus_mode.schema');
   checked += validateDir(join(ROOT, 'data/formations'), validators.formation, 'formation.schema');
+  // GH-1360 S3a: starting layouts share the schema; their cross-file rules (HUD keys, picker ids) do not apply, they are never registered.
+  checked += validateDir(join(ROOT, 'data/layouts'), validators.formation, 'formation.schema');
   checked += validateDir(join(ROOT, 'data/grades'), validators.grade, 'grade.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
@@ -271,7 +281,9 @@ if (
   checked += validateFile(join(ROOT, 'data/hints/first_use.json'), validators.hints, 'first_use_hints.schema');
   checked += validateFile(join(ROOT, 'data/structures.json'), validators.structure, 'structure.schema');
   checked += validateFile(join(ROOT, 'data/coupons.json'), validators.coupons, 'coupons.schema');
+  checked += validateFile(join(ROOT, 'data/avatars/presets.json'), validators.avatarPresets, 'avatar_presets.schema');
   checked += validateFile(join(ROOT, 'data/accounts/min_win_seconds.json'), validators.minWin, 'min_win_seconds.schema');
+  checked += validateFile(join(ROOT, 'data/difficulty/postures.json'), validators.difficulty, 'difficulty.schema');
   // GH-954 public-arena P2: the publisher's allow-list is always there; results.json exists only once the lead has
   // published (P4), and when it does it must pass its closed schema, its deny scan and its digest (G2, G3, G14).
   checked += validateFile(join(ROOT, 'data/arena/public-players.json'), validators.arenaPlayers, 'arena-public-players.schema');
@@ -420,6 +432,13 @@ const garrisonableSymbols = new Set(
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
     const mi = loadJson(file);
     if (!mi) continue;
+    // GH-1360 S3b: every shipped mission says how its starting force stands (D1), and an assembly says which way
+    // it faces (D2). The schema leaves both optional so the sim's fixtures keep today's spread byte for byte.
+    if (mi.start_layout === undefined) {
+      failures.push(`${rel(file)}: no start_layout -- a shipped mission declares "assembly" or "authored" (GH-1360)`);
+    } else if (mi.start_layout === 'assembly' && mi.start_front === undefined) {
+      failures.push(`${rel(file)}: start_layout "assembly" with no start_front -- an assembly faces an authored front (GH-1360 D2)`);
+    }
     const map = mapsById.get(mi.map?.file);
     if (!map) {
       failures.push(`${rel(file)}: map.file "${mi.map?.file}" is not a map in data/maps`);
@@ -1188,8 +1207,8 @@ const garrisonableSymbols = new Set(
 // shape; `en` is the source and never ships one of these) may only point at
 // mission, objective and trigger ids that are real, and a translated
 // trigger label may not overflow the same 48-character cap the source label
-// is held to above. None ship yet -- `overlayFailures`'s own test proves the
-// rule against a fixture rather than against nothing.
+// is held to above. `en` is the exception that proves the rule: its file is the
+// GENERATED template (GH-1406 part 2, `pnpm locales:en`), checked for exact parity below.
 {
   const missionsById = new Map();
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
@@ -1201,6 +1220,46 @@ const garrisonableSymbols = new Set(
     const overlay = loadJson(file);
     if (!overlay) continue;
     failures.push(...overlayFailures(rel(file), overlay, missionsById));
+    // GH-1406 part 2: the `en` file is the GENERATED template, so it must match the mission files exactly.
+    if (basename(dirname(file)) === 'en') failures.push(...englishCatalogueFailures(rel(file), overlay, [...missionsById.values()]));
+    checked += 1;
+  }
+  // ...and it must exist: a deleted file is one failure, not a silent pass.
+  if (!existsSync(join(ROOT, 'data/locales/en/missions.json'))) {
+    failures.push(...englishCatalogueFailures('data/locales/en/missions.json', null, []));
+  }
+}
+
+// --- unit-text locale overlays (GH-1406) ------------------------------------
+// data/locales/<lang>/units.json: `name` and `blurb` per unit id, every id a real unit (`unitOverlayFailures`).
+{
+  const unitIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.id) unitIds.add(u.id);
+  }
+  for (const file of jsonFilesIn(join(ROOT, 'data/locales'))) {
+    if (!file.endsWith('units.json')) continue;
+    const overlay = loadJson(file);
+    if (!overlay) continue;
+    failures.push(...unitOverlayFailures(rel(file), overlay, unitIds));
+    checked += 1;
+  }
+}
+
+// --- unit-text locale overlays (GH-1406) ------------------------------------
+// data/locales/<lang>/units.json: `name` and `blurb` per unit id, every id a real unit (`unitOverlayFailures`).
+{
+  const unitIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.id) unitIds.add(u.id);
+  }
+  for (const file of jsonFilesIn(join(ROOT, 'data/locales'))) {
+    if (!file.endsWith('units.json')) continue;
+    const overlay = loadJson(file);
+    if (!overlay) continue;
+    failures.push(...unitOverlayFailures(rel(file), overlay, unitIds));
     checked += 1;
   }
 }
@@ -1560,6 +1619,12 @@ if (palette) {
     for (const [variant, colors] of Object.entries(spec.variants ?? {})) {
       Object.keys(colors ?? {}).forEach((name) => paletteKeys.add(`${band}.variants.${variant}.${name}`));
       count += Object.keys(colors ?? {}).length;
+    }
+  }
+  // `brand` (a third party's fixed colours) is outside total_colors and outside every palette_ref: it only has to be well-formed.
+  for (const [owner, spec] of Object.entries(palette.brand ?? {})) {
+    for (const [name, hex] of Object.entries(spec.colors ?? {})) {
+      if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) failures.push(`${rel(palettePath)}: brand.${owner}.${name} is not a #RRGGBB hex`);
     }
   }
   if (count !== palette.total_colors) {

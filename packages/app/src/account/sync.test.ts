@@ -311,7 +311,7 @@ describe('A1-21 a_returning_device_after_gone_404', () => {
     expect(r.server.calls.length).toBe(before);
     // sign in to the same member
     server.signedIn = true;
-    me = { kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, fresh: false, identities: [] };
+    me = { kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, avatar: { kind: 'preset', id: 'crest-chevrons', chosen: false }, createdDay: 0, fresh: false, identities: [] };
     await r.sync.flush();
     expect(r.sync.status()).toBe('active');
     expect(markOf(r.server.campaign)).toBe(4);
@@ -328,7 +328,7 @@ describe('A1-21 a_returning_device_after_gone_404', () => {
     r.store.writeLedger(led(4));
     await r.sync.flush();
     server.signedIn = true;
-    me = { kind: 'signedIn', publicId: 'someone-else', displayName: 'D', showRecord: false, fresh: false, identities: [] };
+    me = { kind: 'signedIn', publicId: 'someone-else', displayName: 'D', showRecord: false, avatar: { kind: 'preset', id: 'crest-chevrons', chosen: false }, createdDay: 0, fresh: false, identities: [] };
     const before = r.server.calls.length;
     await r.sync.flush();
     expect(r.foreign).toHaveBeenCalledTimes(1);
@@ -1124,7 +1124,7 @@ describe('signOut', () => {
 
 
 describe('I1 the loop starts unverified', () => {
-  const other: MeResult = { kind: 'signedIn', publicId: 'someone-else', displayName: 'B', showRecord: false, fresh: false, identities: [] };
+  const other: MeResult = { kind: 'signedIn', publicId: 'someone-else', displayName: 'B', showRecord: false, avatar: { kind: 'preset', id: 'crest-chevrons', chosen: false }, createdDay: 0, fresh: false, identities: [] };
   it('a fresh startSync whose me() names another member applies no GET state, sends no op and calls onForeignMember', async () => {
     const server = new FakeServer();
     const storage = memStorage();
@@ -1170,7 +1170,7 @@ describe('NB1 an unanswered GET me backs off', () => {
   /** The fake `me` answers through a resolved promise (as a real fetch does); after 200 asks it gives in and names the member, which only ends a runaway loop so the count assertions below can fail instead of hanging. */
   const slowOff = (asks: { n: number }) => (): MeResult => {
     asks.n++;
-    return asks.n > 200 ? { kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, fresh: false, identities: [] } : off;
+    return asks.n > 200 ? { kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, avatar: { kind: 'preset', id: 'crest-chevrons', chosen: false }, createdDay: 0, fresh: false, identities: [] } : off;
   };
   const retries = (r: Rig): number[] => r.sched.delays.filter((d) => d !== HEARTBEAT_MS);
   const bound = (asks: { n: number }): Rig => {
@@ -1280,7 +1280,7 @@ describe('R27 a foreign-owned tab key is re-keyed, not written', () => {
     const sched = makeScheduler();
     const cacheA = { ...cacheOf(server.snapshot()), publicId: 'pub-A' };
     const storeA = accountLedgerStore({ storage, cache: cacheA, world, onChange: () => {}, newOpId: opIds(), tabId: 'TA' });
-    const syncA = startSync({ store: storeA, client: clientFor(server, { me: () => ({ kind: 'signedIn', publicId: 'pub-A', displayName: 'A', showRecord: false, fresh: false, identities: [] }) }), storage, now: sched.now, schedule: sched.schedule });
+    const syncA = startSync({ store: storeA, client: clientFor(server, { me: () => ({ kind: 'signedIn', publicId: 'pub-A', displayName: 'A', showRecord: false, avatar: { kind: 'preset', id: 'crest-chevrons', chosen: false }, createdDay: 0, fresh: false, identities: [] }) }), storage, now: sched.now, schedule: sched.schedule });
     storeA.sync.setOps([camp('A0', 1)]);
     await syncA.flush();
     expect(storage.getItem(outboxKey('T'))).toBeNull();

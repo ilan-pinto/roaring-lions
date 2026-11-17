@@ -5,6 +5,8 @@
   "phase": "subterranean",
   "target_minutes": 7,
   "time_limit_s": 840,
+  "start_layout": "assembly",
+  "start_front": "S",
   "map": { "file": "deir_amun_3", "player_start": [24, 4] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],

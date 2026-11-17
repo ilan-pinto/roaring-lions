@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { defaultAvatar } from '@lions/data';
 import type { AccountClient, AccountError, IdentityView, MeResult } from '../account/client';
 import { ACCOUNT_BINDING_KEY, readBinding } from '../account/binding';
 import { canonicalCampaign } from '@lions/economy';
@@ -15,6 +16,8 @@ import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
 import type { MatchView, MatchesView } from '@lions/economy';
 import { showProfile, type ProfileDeps } from './profile';
+import { showStores } from './stores';
+import { spendable } from '../roar-wallet';
 import { accountLedgerStore } from '../account/account-store';
 import { ACCOUNT_CACHE_KEY, writeCache } from '../account/cache';
 import { writeBinding } from '../account/binding';
@@ -34,7 +37,7 @@ function memStore(initial: Record<string, string> = {}) {
 }
 
 const steam = { id: 'ident-1', provider: 'steam', label: null, createdAt: 1, lastUsedDay: null, steamId: '76561197960287930' };
-const signedIn = (identities: IdentityView[] = [steam]): MeResult => ({ kind: 'signedIn', publicId: 'ABCD2345', displayName: 'Ilan', showRecord: false, fresh: true, identities });
+const signedIn = (identities: IdentityView[] = [steam]): MeResult => ({ kind: 'signedIn', publicId: 'ABCD2345', displayName: 'Ilan', showRecord: false, avatar: { kind: 'preset', id: 'crest-chevrons', chosen: false }, createdDay: 0, fresh: true, identities });
 
 function stub(over: Partial<AccountClient> = {}): AccountClient & { calls: string[] } {
   const calls: string[] = [];
@@ -43,6 +46,8 @@ function stub(over: Partial<AccountClient> = {}): AccountClient & { calls: strin
     open: async () => true,
     me: async () => ({ kind: 'signedOut' }),
     steamStart: async () => ({ url: 'https://steam.example/login' }),
+    providers: async () => ["steam"],
+    googleStart: async () => ({ url: "https://google.example/login" }),
     logout: async () => (calls.push('logout'), 'ok'),
     logoutAll: async () => (calls.push('logoutAll'), 'ok'),
     patchProfile: async (p) => (calls.push('patch:' + JSON.stringify(p)), 'ok'),
@@ -52,6 +57,7 @@ function stub(over: Partial<AccountClient> = {}): AccountClient & { calls: strin
     gone: async () => 'unknown',
     ...unusedA2Client,
     matches: async () => ({ ok: true, status: 200, body: { matches: [], next: null, record: { won: 0, lost: 0, drawn: 0 } } }),
+    coins: async () => ({ ok: true, status: 200, body: { rows: [], next: null } }),
     ...over,
   };
   return Object.assign(c, { calls });
@@ -86,6 +92,38 @@ describe('showProfile', () => {
     await flush();
     expect(btn(stage, t('profile.signIn'))).toBeTruthy();
     expect(stage.textContent).toContain(t('profile.privacy'));
+  });
+
+  it('G7: the privacy line is provider-neutral and the sign-up hint states the age', () => {
+    expect(t('profile.signUpHint')).toContain('You must be 16 or older');
+    expect(t('profile.privacy')).toContain('account number from Google');
+    expect(t('profile.privacy')).toContain('SteamID if you link Steam');
+  });
+
+  it('offers Create an account and Sign in as two buttons that both start steam-login (switch open)', async () => {
+    const starts: string[] = [];
+    const { stage } = mount(stub({ steamStart: async (p) => (starts.push(p), { url: 'https://steam.example/x' }) }));
+    await flush();
+    expect(btn(stage, t('profile.signUp'))).toBeTruthy();
+    expect(btn(stage, t('profile.signIn'))).toBeTruthy();
+    expect(stage.textContent).toContain(t('profile.signUpHint'));
+    expect(stage.textContent).not.toContain(t('profile.signUpClosed'));
+    btn(stage, t('profile.signUp')).click();
+    await flush();
+    btn(stage, t('profile.signIn')).click();
+    await flush();
+    expect(starts).toEqual(['steam-login', 'steam-login']);
+  });
+
+  it('hides sign-up and says so when the switch is closed or unreachable; sign-in stays', async () => {
+    for (const open of [async () => false, async () => Promise.reject(new Error('x'))]) {
+      const { stage, dispose } = mount(stub({ open }));
+      await flush();
+      expect(Array.from(stage.querySelectorAll('button')).some((b) => b.textContent === t('profile.signUp'))).toBe(false);
+      expect(btn(stage, t('profile.signIn'))).toBeTruthy();
+      expect(stage.textContent).toContain(t('profile.signUpClosed'));
+      dispose();
+    }
   });
 
   it('links to /privacy, as a guest and when signed in', async () => {
@@ -402,7 +440,7 @@ describe('C1: sign-out and deletion go through the sync module over the account 
     writeBinding(storage, { version: 1, publicId: 'pub1', deviceId: DEV, claimedAt: 5 });
     const cache = cacheOf(server.snapshot());
     writeCache(storage, cache);
-    const client = { ...clientFor(server, { me: () => ({ kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, fresh: false, identities: [steam] }) }), logoutAll: async () => (server.calls.push({ name: 'logoutAll' }), 'ok' as const), deleteAccount: async () => 'ok' as const };
+    const client = { ...clientFor(server, { me: () => ({ kind: 'signedIn', publicId: 'pub1', displayName: 'D', showRecord: false, avatar: { kind: 'preset', id: 'crest-chevrons', chosen: false }, createdDay: 0, fresh: false, identities: [steam] }) }), logoutAll: async () => (server.calls.push({ name: 'logoutAll' }), 'ok' as const), deleteAccount: async () => 'ok' as const };
     const store = accountLedgerStore({ storage, cache, world, onChange: () => {}, newOpId: opIds(), tabId: 'T1' });
     const sync = startSync({ store, client, storage, now: sched.now, schedule: sched.schedule });
     store.sync.setOps([{ kind: 'campaign', opId: 'A', campaign: { ledger: {}, brigade: store.readAccount(), tutorialDone: false } }]);
@@ -563,7 +601,11 @@ describe('the history and the record (GH-1075 A3)', () => {
   it('history_record_counts_everything', async () => {
     const { stage } = mount(withMatches(answer([view({ opponent: { kind: 'guest' } })], { record: { won: 7, lost: 3, drawn: 2 } })));
     await flush();
-    expect(stage.querySelector('.rl-profile__record')?.textContent).toBe(t('profile.record', { won: 7, lost: 3, drawn: 2 }));
+    const rec = stage.querySelector('.rl-profile__record');
+    expect(rec?.getAttribute('aria-label')).toBe(t('profile.record', { won: 7, lost: 3, drawn: 2 }));
+    expect([...(rec?.querySelectorAll('.rl-profile__tile-n') ?? [])].map((x) => x.textContent)).toEqual(['7', '3', '2']);
+    expect([...(rec?.querySelectorAll('.rl-profile__tile-label') ?? [])].map((x) => x.textContent)).toEqual([t('profile.history.won'), t('profile.history.lost'), t('profile.history.drawn')]);
+    expect(rec?.hasAttribute('hidden')).toBe(false);
   });
 
   it('show_record_toggle', async () => {
@@ -605,5 +647,457 @@ describe('the history and the record (GH-1075 A3)', () => {
     expect(seen).toEqual([undefined, '1731400000.K7Q2']);
     expect(rows(stage)).toHaveLength(2);
     expect(stage.querySelector<HTMLButtonElement>('.rl-profile__more')?.hidden).toBe(true);
+  });
+});
+
+// GH-1075 G6: the profile screen follows the server's provider list.
+describe('showProfile: Google sign-in (GH-1075 G6)', () => {
+  const googleRow: IdentityView = { id: 'ident-g', provider: 'google', label: null, createdAt: 1, lastUsedDay: null };
+  const buttons = (stage: HTMLElement): string[] => [...stage.querySelectorAll('button')].map((b) => b.textContent ?? '');
+  const signedInWith = (identities: IdentityView[], fresh = true): MeResult => ({ ...(signedIn(identities) as Extract<MeResult, { kind: 'signedIn' }>), fresh });
+
+  it('with providers [] a guest sees the closed line and no sign-in or sign-up button', async () => {
+    const { stage } = mount(stub({ providers: async () => [] }));
+    await flush();
+    expect(stage.textContent).toContain(t('profile.signInClosed'));
+    expect(stage.querySelectorAll('button')).toHaveLength(0);
+    expect(stage.textContent).not.toContain(t('profile.signUpHint'));
+  });
+
+  it('with [google] a guest sees the Google buttons and no Steam button or Steam hint', async () => {
+    const { stage } = mount(stub({ providers: async () => ['google'] }));
+    await flush();
+    expect(buttons(stage)).toEqual([t('profile.google.signUp'), t('profile.google.signIn')]);
+    expect(buttons(stage).join(' ')).not.toContain('Steam');
+    expect(stage.textContent).not.toContain(t('profile.signIn'));
+    expect(stage.textContent).not.toContain(t('profile.signUp'));
+    expect(stage.querySelector('img.rl-profile__g')?.getAttribute('src')).toBe('/brand/google-g.svg');
+  });
+
+  it('Google sign-up hides while the switch is closed; sign-in stays, with the closed line', async () => {
+    const { stage } = mount(stub({ providers: async () => ['google'], open: async () => false }));
+    await flush();
+    expect(buttons(stage)).toEqual([t('profile.google.signIn')]);
+    expect(stage.textContent).toContain(t('profile.signUpClosed'));
+  });
+
+  it('both buttons start google-login and navigate to the returned url', async () => {
+    const starts: string[] = [];
+    const { stage, navigated } = mount(stub({ providers: async () => ['google'], googleStart: async (p) => (starts.push(p), { url: 'https://accounts.example/x' }) }));
+    await flush();
+    btn(stage, t('profile.google.signUp')).click();
+    await flush();
+    btn(stage, t('profile.google.signIn')).click();
+    await flush();
+    expect(starts).toEqual(['google-login', 'google-login']);
+    expect(navigated).toEqual(['https://accounts.example/x', 'https://accounts.example/x']);
+  });
+
+  it('a Google network failure says Google did not answer', async () => {
+    const { stage } = mount(stub({ providers: async () => ['google'], googleStart: async () => ({ error: 'network', status: 0 }) }));
+    await flush();
+    btn(stage, t('profile.google.signIn')).click();
+    await flush();
+    expect(stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.result.google'));
+  });
+
+  it('?google shows the Google buttons with the flag closed (providers [])', async () => {
+    const { stage } = mount(stub({ providers: async () => [] }), { query: new URLSearchParams('google') });
+    await flush();
+    expect(buttons(stage)).toEqual([t('profile.google.signUp'), t('profile.google.signIn')]);
+    expect(stage.textContent).not.toContain(t('profile.signInClosed'));
+  });
+
+  it('a signed-in member without Google gets Link Google (google-link); with Google they do not', async () => {
+    const starts: string[] = [];
+    const c = stub({ providers: async () => ['google'], me: async () => signedIn(), googleStart: async (p) => (starts.push(p), { url: 'https://accounts.example/l' }) });
+    const { stage, navigated } = mount(c);
+    await flush();
+    btn(stage, t('profile.link.google')).click();
+    await flush();
+    expect(starts).toEqual(['google-link']);
+    expect(navigated).toEqual(['https://accounts.example/l']);
+    const held = mount(stub({ providers: async () => ['google'], me: async () => signedInWith([googleRow]) }));
+    await flush();
+    expect(buttons(held.stage)).not.toContain(t('profile.link.google'));
+    expect(held.stage.textContent).toContain(t('profile.identity.google'));
+  });
+
+  it('Link Steam shows only when steam is listed', async () => {
+    const off = mount(stub({ providers: async () => ['google'], me: async () => signedInWith([googleRow]) }));
+    await flush();
+    expect(buttons(off.stage)).not.toContain(t('profile.link.steam'));
+    const on = mount(stub({ providers: async () => ['google', 'steam'], me: async () => signedInWith([googleRow]) }));
+    await flush();
+    expect(buttons(on.stage)).toContain(t('profile.link.steam'));
+  });
+
+  it('a stale session asks for the fresh sign-in before linking, and the button uses the held provider (Google first)', async () => {
+    const starts: string[] = [];
+    const stale = mount(stub({ providers: async () => ['google'], me: async () => signedInWith([steam], false), googleStart: async (p) => (starts.push('nolink:' + p), { url: 'x' }) }));
+    await flush();
+    btn(stale.stage, t('profile.link.google')).click();
+    await flush();
+    expect(starts).toEqual([]); // no google-link was started on a stale session
+    expect(stale.stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.reauth'));
+    // Remove on a stale session: the server's reauth shows the line and the button.
+    const two = mount(stub({ providers: async () => ['google', 'steam'], me: async () => signedInWith([steam, googleRow]), deleteIdentity: async () => ({ error: 'reauth', status: 403 }), googleStart: async (p) => (starts.push(p), { url: 'https://accounts.example/r' }) }));
+    await flush();
+    [...two.stage.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === t('profile.identity.remove'))?.click();
+    await flush();
+    btn(two.stage, t('profile.reauth.action')).click();
+    await flush();
+    expect(starts).toEqual(['google-login']);
+  });
+
+  it('the server answering reauth to google-link shows the reauth line and button', async () => {
+    const c = stub({ providers: async () => ['google'], me: async () => signedIn(), googleStart: async () => ({ error: 'reauth', status: 403 }) });
+    const { stage } = mount(c);
+    await flush();
+    btn(stage, t('profile.link.google')).click();
+    await flush();
+    expect(stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.reauth'));
+    expect(stage.querySelector('.rl-profile__reauth')).not.toBeNull();
+  });
+
+  it('p selects wording only: linked and taken, and an unknown p falls back to neutral text', async () => {
+    const say = async (q: string): Promise<string> => {
+      const { stage, dispose } = mount(stub(), { query: new URLSearchParams(q) });
+      await flush();
+      const text = stage.querySelector('.rl-profile__status')?.textContent ?? '';
+      dispose();
+      return text;
+    };
+    expect(await say('r=linked&p=google')).toBe('Google is linked.');
+    expect(await say('r=linked&p=steam')).toBe('Steam is linked.');
+    expect(await say('r=linked&p=bogus')).toBe(t('profile.result.linked'));
+    expect(await say('r=linked')).toBe(t('profile.result.linked'));
+    expect(await say('r=taken&p=google')).toBe(t('profile.result.taken.google'));
+    expect(await say('r=google&p=google')).toBe(t('profile.result.google'));
+    expect(await say('r=already&p=google')).toBe(t('profile.result.already'));
+    // The same screen either way: p changed no button.
+    const a = mount(stub({ providers: async () => ['google'] }), { query: new URLSearchParams('r=taken&p=google') });
+    const b = mount(stub({ providers: async () => ['google'] }), { query: new URLSearchParams('r=taken&p=steam') });
+    await flush();
+    expect(buttons(a.stage)).toEqual(buttons(b.stage));
+  });
+
+  it('the taken text names no owner', () => {
+    for (const key of ['profile.result.taken', 'profile.result.taken.google', 'profile.result.taken.steam']) {
+      expect(t(key)).not.toContain('{');
+      expect(t(key)).toMatch(/another player\.$/);
+    }
+  });
+
+  it('a sub sentinel never reaches the page (A1-10): a Google row, a stray field, and the return query', async () => {
+    const SENTINEL = '118273645500991234567';
+    const leaky = { ...googleRow, steamId: SENTINEL, subject: SENTINEL, sub: SENTINEL } as IdentityView;
+    const { stage } = mount(stub({ providers: async () => ['google'], me: async () => signedInWith([leaky, steam]) }), { query: new URLSearchParams(`r=taken&p=google&sub=${SENTINEL}&subject=${SENTINEL}`) });
+    await flush();
+    expect(stage.textContent).toContain(t('profile.identity.google'));
+    expect(stage.innerHTML).not.toContain(SENTINEL);
+  });
+
+  it('an account switch after sign-in is made visible; the same account is not', async () => {
+    const bound = (publicId: string) => memStore({ [ACCOUNT_BINDING_KEY]: JSON.stringify({ version: 1, publicId }) });
+    const other = mount(stub({ me: async () => signedIn() }), { query: new URLSearchParams('r=ok&p=google') }, bound('ZZZZ9999'));
+    await flush();
+    expect(other.stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.result.switched', { name: 'Ilan' }));
+    const same = mount(stub({ me: async () => signedIn() }), { query: new URLSearchParams('r=ok&p=google') }, bound('ABCD2345'));
+    await flush();
+    expect(same.stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.result.ok'));
+    const fresh = mount(stub({ me: async () => signedIn() }), { query: new URLSearchParams('r=ok&p=google') }, memStore());
+    await flush();
+    expect(fresh.stage.querySelector('.rl-profile__status')?.textContent).toBe(t('profile.result.ok'));
+  });
+});
+
+// GH-1075 P6: the avatar sheet is mounted on document.body, so the screen's disposer owns it.
+describe('showProfile: the avatar sheet (GH-1075 P6)', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+  const openSheet = async (c: ReturnType<typeof stub>) => {
+    const m = mount(c);
+    await flush();
+    btn(m.stage, t('profile.avatar.change')).click();
+    await vi.waitFor(() => expect(document.body.querySelector('.rl-avatar-picker')).not.toBeNull());
+    return m;
+  };
+
+  it('Change avatar opens the sheet once; Save sends {avatar} through PATCH profile and redraws the avatar', async () => {
+    const c = stub({ me: async () => signedIn() });
+    const m = await openSheet(c);
+    btn(m.stage, t('profile.avatar.change')).click(); // a second click opens nothing more
+    await flush();
+    expect(document.body.querySelectorAll('.rl-avatar-picker')).toHaveLength(1);
+    (document.body.querySelector('[data-preset="crest-wave"]') as HTMLButtonElement).click();
+    (document.body.querySelector('.rl-avatar-picker__save') as HTMLButtonElement).click();
+    await flush();
+    expect(c.calls.filter((x) => x.startsWith('patch:'))).toEqual(['patch:{"avatar":"crest-wave"}']);
+    expect(document.body.querySelector('.rl-avatar-picker')).toBeNull();
+    expect(m.stage.querySelector('.rl-profile__avatar .rl-avatar')?.getAttribute('data-avatar')).toBe('crest-wave');
+  });
+
+  it('disposing the screen with the sheet open removes it from the body', async () => {
+    const m = await openSheet(stub({ me: async () => signedIn() }));
+    m.dispose();
+    expect(document.body.querySelector('.rl-avatar-picker')).toBeNull();
+  });
+
+  // Falsification audit (GH-1075): the "second click opens nothing more" line above waits only six microtasks, which a
+  // lazy import() has not finished by, so it cannot see a second sheet that opens later. These wait on a timer.
+  const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 40));
+
+  it('a second Change avatar click while the sheet is open opens no second sheet, even after the lazy import settles', async () => {
+    const m = await openSheet(stub({ me: async () => signedIn() }));
+    btn(m.stage, t('profile.avatar.change')).click();
+    await settle();
+    expect(document.body.querySelectorAll('.rl-avatar-picker')).toHaveLength(1);
+  });
+
+  it('the sheet can be opened again after it was closed', async () => {
+    const m = await openSheet(stub({ me: async () => signedIn() }));
+    (document.body.querySelector('.rl-avatar-picker__cancel') as HTMLButtonElement).click();
+    expect(document.body.querySelector('.rl-avatar-picker')).toBeNull();
+    btn(m.stage, t('profile.avatar.change')).click();
+    await vi.waitFor(() => expect(document.body.querySelector('.rl-avatar-picker')).not.toBeNull());
+    expect(document.body.querySelectorAll('.rl-avatar-picker')).toHaveLength(1);
+  });
+
+  it('Use my default, then Save, redraws the member\'s derived default crest as not chosen', async () => {
+    const c = stub({ me: async () => signedIn() });
+    const m = await openSheet(c);
+    (document.body.querySelector('[data-preset="crest-wave"]') as HTMLButtonElement).click();
+    (document.body.querySelector('.rl-avatar-picker__save') as HTMLButtonElement).click();
+    await flush();
+    expect(m.stage.querySelector('.rl-profile__avatar .rl-avatar')?.getAttribute('data-avatar')).toBe('crest-wave');
+    btn(m.stage, t('profile.avatar.change')).click();
+    await vi.waitFor(() => expect(document.body.querySelector('.rl-avatar-picker')).not.toBeNull());
+    (document.body.querySelector('.rl-avatar-picker__default') as HTMLButtonElement).click();
+    (document.body.querySelector('.rl-avatar-picker__save') as HTMLButtonElement).click();
+    await flush();
+    expect(c.calls.filter((x) => x.startsWith('patch:'))).toEqual(['patch:{"avatar":"crest-wave"}', 'patch:{"avatar":null}']);
+    expect(m.stage.querySelector('.rl-profile__avatar .rl-avatar')?.getAttribute('data-avatar')).toBe(defaultAvatar('ABCD2345'));
+    // still "not chosen": opening the sheet again and saving untouched sends null, not the default crest's id
+    btn(m.stage, t('profile.avatar.change')).click();
+    await vi.waitFor(() => expect(document.body.querySelector('.rl-avatar-picker')).not.toBeNull());
+    (document.body.querySelector('.rl-avatar-picker__save') as HTMLButtonElement).click();
+    await flush();
+    // The whole sequence, not the last element: the earlier null is already the last one before this Save, so `.pop()` alone passes
+    // when this Save sends nothing.
+    expect(c.calls.filter((x) => x.startsWith('patch:'))).toEqual(['patch:{"avatar":"crest-wave"}', 'patch:{"avatar":null}', 'patch:{"avatar":null}']);
+  });
+
+  it('a click that is still loading the sheet when the screen is disposed opens nothing', async () => {
+    const m = mount(stub({ me: async () => signedIn() }));
+    await flush();
+    btn(m.stage, t('profile.avatar.change')).click();
+    m.dispose();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.body.querySelector('.rl-avatar-picker')).toBeNull();
+  });
+});
+
+// GH-1075 P7: the redesigned layout, two columns of cards.
+describe('showProfile: the redesigned layout (GH-1075 P7)', () => {
+  const titles = (root: ParentNode): string[] => [...root.querySelectorAll('.rl-profile__card-title')].map((x) => x.textContent ?? '');
+  const named = (c: ReturnType<typeof stub>) => mount(c);
+
+  it('signed in: header, record, history on the left; sign-in, data and the danger zone on the right, in that order', async () => {
+    const { stage } = named(stub({ me: async () => signedIn() }));
+    await flush();
+    const main = stage.querySelector('.rl-profile__col--main') as HTMLElement;
+    const side = stage.querySelector('.rl-profile__col--side') as HTMLElement;
+    expect([...main.children].map((x) => x.className.replace('rl-profile__card ', ''))).toEqual(['rl-profile__card--head', 'rl-profile__card--record', 'rl-profile__card--history']);
+    expect(titles(main)).toEqual([t('profile.section.record'), t('profile.history.title')]);
+    expect(titles(side)).toEqual([t('profile.section.signIn'), t('profile.section.data'), t('profile.section.danger')]);
+    expect(main.nextElementSibling).toBe(side);
+  });
+
+  // GH-1510: the card builder moved to ui/page-card.ts and is shared with Settings, so the profile pins its own
+  // heading level here rather than leaning on settings-panel.test.ts to notice a change.
+  it('every card title is an <h2>, the first child of its <section> card', async () => {
+    const { stage } = named(stub({ me: async () => signedIn() }));
+    await flush();
+    const heads = [...stage.querySelectorAll('.rl-profile__card-title')];
+    expect(heads).toHaveLength(5);
+    for (const h of heads) {
+      expect(h.tagName).toBe('H2');
+      expect(h.parentElement?.tagName).toBe('SECTION');
+      expect(h.parentElement?.classList.contains('rl-profile__card')).toBe(true);
+      expect(h.parentElement?.firstElementChild).toBe(h);
+    }
+  });
+
+  it('the header card shows the avatar, the name, the Player ID and the month the member joined', async () => {
+    const me = { ...(signedIn() as Extract<MeResult, { kind: 'signedIn' }>), createdDay: 20_000 }; // 4 Oct 2024
+    const { stage } = named(stub({ me: async () => me }));
+    await flush();
+    const head = stage.querySelector('.rl-profile__card--head') as HTMLElement;
+    expect(head.querySelector('img.rl-avatar__img')?.getAttribute('src')).toBe('/ui/avatars/crests/crest-chevrons.svg');
+    expect(head.querySelector<HTMLInputElement>('input[type=text]')?.value).toBe('Ilan');
+    expect(head.querySelector('.rl-profile__public-id')?.textContent).toBe(t('profile.publicId', { id: 'ABCD2345' }));
+    expect(head.querySelector('.rl-profile__since')?.textContent).toBe(t('profile.memberSince', { date: 'October 2024' }));
+  });
+
+  it('Copy writes the Player ID to the clipboard and says Copied', async () => {
+    const written: string[] = [];
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (s: string) => void written.push(s) } });
+    const { stage } = named(stub({ me: async () => signedIn() }));
+    await flush();
+    btn(stage, t('profile.copyId')).click();
+    await flush();
+    expect(written).toEqual(['ABCD2345']);
+    expect(btn(stage, t('profile.copied'))).toBeTruthy();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+  });
+
+  it('has exactly ONE Download button, and it is in the Your data card, not the danger zone', async () => {
+    const { stage } = named(stub({ me: async () => signedIn() }));
+    await flush();
+    const downloads = [...stage.querySelectorAll('button')].filter((b) => b.textContent === t('profile.export'));
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0]?.closest('.rl-profile__card--data')).not.toBeNull();
+    expect(stage.querySelector('.rl-profile__card--danger')?.querySelector('button')?.textContent).toBe(t('profile.delete'));
+    expect(stage.querySelector('.rl-profile__card--danger')?.contains(downloads[0] ?? null)).toBe(false);
+  });
+
+  it('each way to sign in shows its state: Linked, or Paused when the server has switched that provider off', async () => {
+    const google: IdentityView = { id: 'ident-g', provider: 'google', label: null, createdAt: 1, lastUsedDay: null };
+    const { stage } = named(stub({ me: async () => signedIn([steam, google]), providers: async () => ['google'] }));
+    await flush();
+    const states = [...stage.querySelectorAll('.rl-profile__identity')].map((li) => li.querySelector('.rl-profile__identity-state')?.textContent);
+    expect(states).toEqual([t('profile.identity.paused'), t('profile.identity.linked')]);
+  });
+
+  it('the guest card: the mark, the headline, three perks and the sign-in buttons', async () => {
+    const { stage } = named(stub({ providers: async () => ['google'] }));
+    await flush();
+    const g = stage.querySelector('.rl-profile__guest') as HTMLElement;
+    expect(g.querySelector('[data-avatar="guest"]')).not.toBeNull();
+    expect(g.querySelector('.rl-profile__guest-headline')?.textContent).toBe(t('profile.guest.headline'));
+    expect(g.querySelectorAll('.rl-profile__perks li')).toHaveLength(3);
+    expect(stage.querySelector('.rl-profile__cols')).toBeNull();
+  });
+
+  it('closed, signed-out and deleted states keep the guest card; the line sits above it', async () => {
+    const closed = named(stub({ providers: async () => [] }));
+    await flush();
+    expect(closed.stage.querySelector('.rl-profile__guest .rl-profile__closed')?.textContent).toBe(t('profile.signInClosed'));
+    expect(closed.stage.querySelector('.rl-profile__guest-headline')).not.toBeNull();
+    for (const [gone, text] of [['unknown', 'profile.signedOut'], ['deleted', 'profile.deleted']] as const) {
+      const store = memStore({ [ACCOUNT_BINDING_KEY]: JSON.stringify({ version: 1, publicId: 'ABCD2345' }) });
+      const m = mount(stub({ gone: async () => gone }), {}, store);
+      await vi.waitFor(() => expect(m.stage.textContent).toContain(t(text)));
+      const card = m.stage.querySelector('.rl-profile__guest');
+      expect(card).not.toBeNull();
+      expect(card?.previousElementSibling?.textContent).toBe(t(text));
+    }
+  });
+
+  it('?pseudo=1 brackets every chrome label on both the signed-in page and the guest card', async () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const a = named(stub({ me: async () => signedIn() }));
+      await flush();
+      const g = named(stub({ providers: async () => ['google'] }));
+      await flush();
+      for (const root of [a.stage, g.stage]) {
+        const chrome = [
+          ...root.querySelectorAll('button'),
+          ...root.querySelectorAll('.rl-profile__card-title, .rl-profile__guest-headline, .rl-profile__perks li, .rl-profile__tile-label, .rl-profile__identity-state, .rl-profile__since, .rl-profile__show-record, label'),
+        ].map((x) => x.textContent ?? '');
+        expect(chrome.length).toBeGreaterThan(5);
+        // The display name and the Player ID are data and never go through t(); everything else is bracketed.
+        for (const text of chrome) expect(text, text).toMatch(/^⟦.*⟧$|^$/);
+      }
+    } finally {
+      setCatalogue('en', en);
+    }
+  });
+});
+
+describe('the Roar coins card (GH-1370 C3)', () => {
+  const coinSrc = (size: number): string => `/ui/roar_coin/roar_coin_${size}.png`;
+  const walletOf = (free: number, paid: number) => {
+    const store = memoryLedgerStore();
+    const w = store.readRoar();
+    store.writeRoar({ ...w, coins: { free, paid } });
+    return store;
+  };
+  const coinsDep = (store: ReturnType<typeof memoryLedgerStore>, onAccount: boolean): NonNullable<ProfileDeps['coins']> => ({
+    read: () => store.readRoar(),
+    onAccount,
+    available: true,
+    coinSrc,
+  });
+  const card = (stage: HTMLElement): HTMLElement | null => stage.querySelector('.rl-profile__card--coins');
+
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it('shows the same number as the Stores for the same store state', async () => {
+    const store = walletOf(300, 0);
+    const { stage } = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(store, true) });
+    await flush();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    showStores(host, { units: [], ledger: {}, credits: 0, owned: {}, coinSrc, missionName: () => undefined, wallet: { coins: spendable(store.readRoar()), receipts: [] } });
+    const stores = host.querySelector('.rl-stores__wallet-n')?.textContent;
+    expect(stores).toBe('300');
+    expect(card(stage)?.querySelector('.rl-profile__coins-n')?.textContent).toBe(stores);
+  });
+
+  it('is the second card of the main column, under the header', async () => {
+    const { stage } = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(walletOf(5, 0), true) });
+    await flush();
+    const kids = [...(stage.querySelector('.rl-profile__col--main')?.children ?? [])];
+    expect(kids[0]?.classList.contains('rl-profile__card--head')).toBe(true);
+    expect(kids[1]).toBe(card(stage));
+  });
+
+  it('is not drawn for a signed-out guest', async () => {
+    const { stage } = mount(stub(), { coins: coinsDep(walletOf(340, 0), false) });
+    await flush();
+    expect(card(stage)).toBeNull();
+    expect(stage.querySelector('.rl-profile__coins-n')).toBeNull();
+  });
+
+  it('reads "On this device" when the store is not the account store, "On your account" when it is', async () => {
+    const a = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(walletOf(10, 0), false) });
+    await flush();
+    expect(card(a.stage)?.textContent).toContain(t('profile.coins.device'));
+    expect(card(a.stage)?.textContent).not.toContain(t('profile.coins.account'));
+    const b = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(walletOf(10, 0), true) });
+    await flush();
+    expect(card(b.stage)?.textContent).toContain(t('profile.coins.account'));
+  });
+
+  it('draws the account history in the card (C4): rows from client.coins, headed on an unclaimed device', async () => {
+    const asked: (string | undefined)[] = [];
+    const client = stub({
+      me: async () => signedIn(),
+      coins: async (b) => (asked.push(b), { ok: true as const, status: 200 as const, body: { rows: [{ at: 1_700_000_000_000, delta: 10, what: { kind: 'earn' as const, source: 'welcome' } }], next: null } }),
+    });
+    const a = mount(client, { coins: coinsDep(walletOf(10, 0), false) });
+    await flush();
+    expect(asked).toEqual([undefined]);
+    expect(card(a.stage)?.querySelector('.rl-profile__coin-main')?.textContent).toBe(t('profile.coins.row.welcome'));
+    expect(card(a.stage)?.textContent).toContain(t('profile.coins.history'));
+    const b = mount(client, { coins: coinsDep(walletOf(10, 0), true) });
+    await flush();
+    expect(card(b.stage)?.textContent).not.toContain(t('profile.coins.history'));
+  });
+
+  it('says what to do at a zero balance, and that the wallet is unavailable when it is', async () => {
+    const zero = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(walletOf(0, 0), true) });
+    await flush();
+    expect(card(zero.stage)?.textContent).toContain(t('profile.coins.empty'));
+    const off = mount(stub({ me: async () => signedIn() }), { coins: { ...coinsDep(walletOf(0, 0), false), available: false } });
+    await flush();
+    expect(card(off.stage)?.textContent).toContain(t('profile.coins.offline'));
+    expect(card(off.stage)?.querySelector('.rl-profile__coins-note')?.textContent).toBe(t('profile.coins.offline'));
   });
 });

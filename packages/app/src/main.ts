@@ -45,6 +45,8 @@ import {
   creditInputFrom,
   MAX_PATROL_WAYPOINTS,
   unitTypeFromJson,
+  compileFormation,
+  type FormationJson,
   type MissionEvent,
   type MissionJson,
   type SimEvent,
@@ -94,6 +96,7 @@ import {
   videoManifest,
   coupons,
   formations,
+  assemblyLayout,
   grades,
   versusModes,
   flagBlockOf,
@@ -138,7 +141,7 @@ import { browserFeedbackSession, type FeedbackSession, type SessionNote } from '
 import { collectContext, type ContextInput } from './feedback/context';
 import { installErrorRing, recentErrors } from './feedback/errors';
 import { holdDraft, readDraft } from './feedback/draft';
-import { isClosed as feedbackClosed } from './feedback/gate';
+import { isClosed as feedbackClosed, feedbackSends } from './feedback/gate';
 import { gpuName } from './feedback/gpu';
 import { takePicture } from './feedback/picture';
 import { withGroundPhoto } from './ui/ground-photo';
@@ -171,7 +174,7 @@ import { installEscapeBack } from './shell/escape-back';
 import { leaveCopy, leaveHref } from './ui/leave-copy';
 import { closeTip } from './ui/tooltip';
 import { objectiveStatusShout } from './ui/objective-status';
-import { pauseMenu, type PauseDeps } from './ui/pause';
+import { pauseMenu, type PauseDeps, type SaveOutcome } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget, unloadPress } from './input/keymap';
@@ -192,7 +195,9 @@ import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
-import { initTelemetry, telemetry, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
+import type { ResumeLoaded } from './mission-resume';
+import type * as SaveKit from './mission-save-kit';
+import { initTelemetry, telemetry, telemetryPlayerForDeletion, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
 import { startLoadout } from './telemetry/loadout';
 import { screenFor } from './telemetry/events';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
@@ -286,43 +291,34 @@ import { garageColors, garageGroundTexture, garageInsigniaTexture, garageModelSo
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { withSoftParticles } from './soft-flag';
-import { PAUSES_PER_SEAT, WsTransport, flagSetupRoom, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
-import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
-import { nameFrom } from './net/seat-label';
-import { desyncReportDraft, withoutReplay } from './net/desync-report';
+// GH-1500 follow-up (lead ruling 16 Nov 2026): the versus and chat code loads on demand. `./versus-kit` (a dynamic import, below) holds the
+// room's transport, lobby wiring, snapshot, chat, advisor, scoreboard and end screen; this file takes ONLY its types. What stays static is
+// small and runs outside a room too (`LocalTransport`, ownership, pause copy, the frame step); `versus-kit-wiring.test.ts` pins the boundary.
+import { LocalTransport, flagSetupRoom, seatRules, validateCommand, type Faction, type MatchConfig, type Seat, type TransportStatus, type WsTransport } from '@lions/net';
+import type { Connected } from './net/connect';
+import type * as VersusKit from './versus-kit';
+import { OfflineMatchGone, dropOffline, isOfflineTransport } from './net/offline-slot';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { accountsEnabled } from './account/enabled';
-// The account client and the profile screen load only behind `?accounts` (GH-1075 A1), never with the entry chunk.
+import { readBinding } from './account/binding';
+import { menuAccountSource } from './account/menu-account';
+// Type-only: the account client and the profile screen load by dynamic import (GH-1075 A1), never with the entry chunk.
 import type { AccountClient, AccountError } from './account/client';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
-import { logRejoin, netReport } from './net/net-report';
-import { SnapshotProducer } from './net/snapshot-producer';
-import { seatShouldProduceSnapshots } from './net/snapshot-gate';
-import { settleRejoin } from './net/snapshot-rejoin';
 import { viewerSideOf } from './net/viewer';
-import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
-import { ownedStoreSpecials } from './net/versus-specials';
-import { buildMatchWorld, matchTick, tunnelRouteOf } from './net/match-world';
-import { SPECTATOR_SHOWN, spectatorSink, type SpectateEnd, type SpectateHooks } from './net/spectator';
-import { roomDockMenu, roomDockRuntime, roomEconomyView } from './net/room-economy';
+import { tunnelRouteOf } from './net/tunnel-route';
+import type { SpectateEnd, SpectateHooks } from './net/spectator';
 import { screenKit } from './net/room-kit';
 import { shippedContentDigest } from './net/content-digest';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
-import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
-import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
-import { showNetEnd } from './ui/net-end';
-import { NetPoints, payZoneOf } from './ui/net-points';
-import { NetFlags } from './ui/net-flags';
-import { flagMarksOf, flagViewOf, type FlagView } from './net/flag-view';
-import { pointsViewOf, type PointsView } from './net/points-view';
-import { describeCommand, mountAdvisorPanel, type AdvisorPanel } from './ui/advisor';
-import { NetScoreboard, advisorPresenceHook } from './ui/net-score';
-import { scoreOf, showsScoreboard } from './net/scoreboard';
-import { decideOnHashTick, goalsOf, productionOf, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
+import type { FlagView } from './net/flag-view';
+import type { PointsView } from './net/points-view';
+import type { AdvisorPanel } from './ui/advisor';
+import type { LocalDecision, MatchResult } from './net/outcome';
 import { gradeOf, lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { enginesOf } from './engines-flag';
 import { buildingFitOf } from './building-fit-flag';
@@ -384,9 +380,11 @@ import type { SavesDeps } from './ui/saves';
 import type { CreditsDeps } from './ui/credits';
 import { versusMaps } from './ui/versus-maps';
 import type { VersusDeps } from './ui/versus';
-import { LOCALES, applyLocale, loadLocale, resolveLang } from './i18n/locales';
+import { LOCALES, PSEUDO_RTL, applyLocale, isPseudo, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
-import { pseudo } from './i18n/pseudo';
+import { pseudo, pseudoRtl } from './i18n/pseudo';
+import { KillCauseTracker, causeText, parseKillCause, type KillCause } from './kill-cause';
+import { loadUnitOverlay, localizedUnit, setUnitOverlay, unitName as textUnitName } from './unit-text';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -439,8 +437,10 @@ function safeStorage(): Storage | null {
 let savePromptShownOnPage = false;
 /** `markShown` could not keep the count (a refused write): the page alone limits the prompt. */
 let savePromptUnpersisted = false;
-/** `?accounts` is on for this page (set once by `main()`): the save prompt and the held list exist only then. */
+/** Accounts are on for this page (set once by `main()`): the save prompt and the held list exist only then. */
 let accountsOnPage = false;
+/** `GET open` said the server switch is open (set after the lazy client loads; false until then and on any failure): the save prompt waits for it. */
+let accountOpenOnPage = false;
 
 /** The app's one door to the campaign ledger, the brigade account and the save
  *  slots (`ledger-store.ts`). One per page, because it is a handle on the
@@ -647,7 +647,7 @@ async function fetchLicenceText(url: string): Promise<string> {
  * going missing must degrade to English, not break the mission.
  */
 async function loadMissionOverlay(lang: string, base: string): Promise<MissionLocaleOverlay | null> {
-  if (lang === 'en') return null;
+  if (lang === 'en' || isPseudo(lang)) return null;
   try {
     const res = await fetch(`${base}locales/${lang}/missions.json`);
     if (!res.ok) return null;
@@ -705,6 +705,26 @@ const voiceNoted = new Set<string>();
  * through the router now, so a value resolved once at boot would leave the
  * roster showing the unit the player has just bought as still locked.
  */
+/** GH-1393: a mission that has ended (won, lost, or left on purpose) has no place left to resume. Drops the save if it is THIS mission's. */
+function dropSavedMission(id: string): void {
+  void saveKit().then(({ openSuspendStore, readSuspended, discardSuspended }) => {
+    const store = openSuspendStore(() => window.localStorage);
+    const r = readSuspended(store);
+    if (r.state === 'ready' && r.record.missionId === id) discardSuspended(store);
+  }).catch(() => undefined);
+}
+
+/** GH-1393: Save and Resume load on demand (mission-save-kit.ts), keeping them out of the entry chunk. */
+function saveKit(): Promise<typeof SaveKit> {
+  return importWithRetry(() => import('./mission-save-kit'));
+}
+
+/** The versus and chat code (lead ruling 16 Nov 2026: the entry ceiling stays), loaded when a player opens the lobby, boots a room (`?net=`)
+ *  or spectates, never for a campaign or free-play session. */
+function versusKit(): Promise<typeof VersusKit> {
+  return importWithRetry(() => import('./versus-kit'));
+}
+
 function accountState(): {
   boughtUnits: Set<string>;
   ownedTiers: Record<string, Record<string, number>>;
@@ -874,6 +894,8 @@ async function main(): Promise<void> {
           controls: { ...settings.controls, bindings: overridesOf(next) },
         }),
     }),
+    // GH-1410: reports are sent unless the stored opt-out (`?notrack`, or this switch) says no.
+    reports: reportsSwitch,
     build: __APP_BUILD__,
     commit: __APP_COMMIT__,
   };
@@ -901,7 +923,7 @@ async function main(): Promise<void> {
   // so `unknownParams` does not report either as a typo, and neither is in
   // `router.start`'s own `drop` list below, so a reload keeps carrying them.
   const q = new URLSearchParams(window.location.search);
-  // GH-1075 A1: the one account client of this page. Disabled (no `?accounts`, or `?fresh`) it is never even loaded, so it
+  // GH-1075 A1: the one account client of this page. Disabled (`?fresh`, or a dev/CI page with no `?accounts`) it is never even loaded, so it
   // never calls `fetch`; enabled, its module is fetched on first use and the one client is shared by every caller.
   const accountsOn = accountsEnabled(q);
   accountsOnPage = accountsOn;
@@ -920,11 +942,17 @@ async function main(): Promise<void> {
         throw err;
       }
     ));
+  // The kill switch (D1 `flags`) and the member's name: `account/menu-account.ts`.
+  const menuAcctFor = menuAccountSource({ on: accountsOn, hasBinding: () => readBinding(safeStorage()) !== null, loadClient: accountClient, onOpen: (v) => (accountOpenOnPage = v) });
   const lang = resolveLang(q.get('lang'), settings.language);
-  const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
+  // `?pseudo=1` is the accented, padded, bracketed `en`; `?pseudo=rtl` (GH-1406 part 2) is the same forced right-to-left with `dir="rtl"`.
+  const pseudoMode = pseudoModeOf(q.get('pseudo'));
+  const activeLocale = pseudoMode ?? lang;
   const cat = await loadLocale(activeLocale, BASE);
-  setCatalogue(activeLocale, cat, q.has('pseudo') ? pseudo : undefined);
-  applyLocale(document.documentElement, lang);
+  setCatalogue(activeLocale, cat, pseudoMode === PSEUDO_RTL ? pseudoRtl : pseudoMode === 'pseudo' ? pseudo : undefined);
+  // GH-1406: unit names and blurbs, from data/locales/<lang>/units.json. Mission text is data and is not pseudo-transformed; neither is this.
+  setUnitOverlay(await loadUnitOverlay(lang, BASE));
+  applyLocale(document.documentElement, pseudoMode === PSEUDO_RTL ? PSEUDO_RTL : lang);
   // Dev-only: which keys a screen walk asked for and never got, without
   // scraping console output for `[i18n] missing key: …` lines.
   if (import.meta.env.DEV) {
@@ -932,7 +960,7 @@ async function main(): Promise<void> {
   }
 
   // GH-1075 A2 (§0.11, Task 2.12): a signed-in device waits (5 s) for its first `GET state` when it has no cache, then the sync loop
-  // and the spend flow start around the account store. Behind `?accounts` only: a guest never reaches this network call.
+  // and the spend flow start around the account store. Only for a claimed binding: a guest never reaches this network call.
   let accountUnreachable = false;
   if (selectedStore.signedIn && accountsOn) {
     const { bootAccountLazy } = await importWithRetry(() => import('./account/boot'));
@@ -988,6 +1016,8 @@ async function main(): Promise<void> {
     // menu MOUNT now rather than once per page load, so a store whose property
     // access throws would have thrown on every return to the menu.
     const tutorialIsDone = ledgerStore.tutorialDone();
+    // GH-1075: the binding is read per mount (the profile flow writes it after boot); `GET open` is asked once per page.
+    const menuAcct = menuAcctFor();
     // GH-464: whether this menu offers feedback, asked per mount.
     const menuFeedback = browserFeedbackSession();
     // The feedback dialog's late-load guards (see `feedback:` below).
@@ -1037,11 +1067,9 @@ async function main(): Promise<void> {
       account: {
         enabled: accountsOn,
         // A client module that will not load reads as signed out, as an unreachable server does (`me()` answers `off`).
-        name: accountsOn
-          ? accountClient()
-              .then((c) => c.me())
-              .then((m) => (m.kind === 'signedIn' ? m.displayName : null), () => null)
-          : undefined,
+        open: menuAcct.open,
+        who: menuAcct.who,
+        hasAccount: menuAcct.hasAccount,
       },
       feedback: menuFeedback.shown && !feedbackClosed()
         ? () => {
@@ -1140,7 +1168,10 @@ async function main(): Promise<void> {
   /** The map page. publicDir is the repo-root assets/ dir (vite.config.ts), so
    *  the world render is served rather than bundled; the per-country overlay is
    *  built by worldMap from the generated geometry in countries.json. */
-  function mountCampaign(host: HTMLElement, req: RouteRequest): Disposer {
+  async function mountCampaign(host: HTMLElement, req: RouteRequest): Promise<Disposer> {
+    // GH-1393: the Resume row needs the save library; if its chunk will not load the board still opens, without the row.
+    const kit = await saveKit().catch(() => null);
+    if (req.signal.aborted) return () => undefined;
     return showCampaign(host, {
       base: BASE,
       world: parseWorld(world),
@@ -1156,6 +1187,25 @@ async function main(): Promise<void> {
       // Aborted when this screen is left, so the 3D board can decline to
       // make a WebGL context for a player who has already gone.
       signal: req.signal,
+      // GH-1393: the saved mission, if there is one: a Resume row above the footer. The store is read again after a discard.
+      ...(kit === null ? {} : { resume: () => kit.resumeRow({
+        read: () => {
+          const r = kit.readSuspended(kit.openSuspendStore(() => window.localStorage));
+          if (r.state === 'refused') return { state: 'refused', reason: r.reason };
+          if (r.state !== 'ready') return { state: 'none' };
+          const p = kit.peekResumeProblem();
+          if (p === 'moved') return { state: 'refused', reason: 'moved', moved: kit.peekResumeMoved() };
+          return { state: 'ready', missionId: r.record.missionId, savedAt: r.record.savedAt, simTick: r.record.simTick, ...(p === 'failed' ? { note: 'failed' as const } : {}) };
+        },
+        nameOf: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+        resume: (id) => void router.navigate(routes.mission(id, { resume: true })),
+        discard: () => {
+          const ok = kit.discardSuspended(kit.openSuspendStore(() => window.localStorage));
+          if (ok) kit.clearResumeProblem();
+          return ok;
+        },
+        now: () => Date.now(),
+      }) }),
     });
   }
 
@@ -1178,7 +1228,7 @@ async function main(): Promise<void> {
         .filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
         .map((u) => ({
           id: u.id,
-          name: u.name,
+          name: localizedUnit(u).name,
           role: u.role,
           unlock: kdfUnlockGate(u, bought),
           ...kdfBrigadeTraits(u),
@@ -1376,8 +1426,10 @@ async function main(): Promise<void> {
   // room compares like with like (R8).
   const versusStore = safeStorageLike(() => window.localStorage);
   const versusDeps: VersusDeps = {
-    open: (req, signal) =>
-      openRoom(req, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
+    chatEnabled: () => settingsDeps.get().chat.enabled,
+    open: async (req, signal) => {
+      const kit = await versusKit();
+      return kit.openRoom(req, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
         fetch: window.fetch.bind(window),
         origin: location.origin,
         openSocket: (url) => new WebSocket(url),
@@ -1389,9 +1441,21 @@ async function main(): Promise<void> {
         // a room path. The world is built from the room's config, never from it.
         tiers: () => accountState().ownedTiers,
         // GH-1102: the Store specials the account owns, by the same path and the same rule.
-        specials: () => ownedStoreSpecials(accountState().boughtUnits),
+        specials: () => kit.ownedStoreSpecials(accountState().boughtUnits),
         ...(signal ? { signal } : {}),
-      }),
+      });
+    },
+    // GH-1388: a match against the computer seat, offline. The script, its view and its fog load only now.
+    playComputer: async (req) => {
+      const { armOfflineMatch } = await importWithRetry(() => import('./net/offline-match'));
+      return armOfflineMatch({
+        ...req,
+        computerName: t('versus.cpu.callsign'),
+        build: `${__APP_BUILD__}+${__APP_COMMIT__}`,
+        seed: crypto.getRandomValues(new Uint32Array(1))[0]! & 0x7fffffff,
+      });
+    },
+    discardComputer: () => dropOffline(),
     maps: versusMaps(),
     callsign: {
       get: () => versusStore?.getItem(VERSUS_CALLSIGN_KEY) ?? '',
@@ -1412,8 +1476,8 @@ async function main(): Promise<void> {
     linkFor: (code) => new URL(routes.versusRoom(code), location.origin).href,
     serverOrigin: location.origin,
     // The ticket this tab stored for the room is what is traded (decision D1).
-    advisorTicket: (code, scope) =>
-      inviteAdvisor(code, scope, { fetch: window.fetch.bind(window), origin: location.origin, session: safeStorageLike(() => window.sessionStorage) }),
+    advisorTicket: async (code, scope) =>
+      (await versusKit()).inviteAdvisor(code, scope, { fetch: window.fetch.bind(window), origin: location.origin, session: safeStorageLike(() => window.sessionStorage) }),
     // The menu's still plate behind both screens (the face-off, 2026-10-16):
     // the scene host's own poster, never a second live host.
     plateUrl: `${BASE}${menuDiorama.plate}`,
@@ -1564,7 +1628,12 @@ async function main(): Promise<void> {
             signal: req.signal,
             navigate: (href, opts) => void router.navigate(href, opts),
             settings: settingsDeps,
-            restart: () => void router.navigate(router.href(req.path, req.query), { replace: true, force: true }),
+            // GH-1393: a Restart starts the mission over; it must not carry `resume` along and load the save again.
+            restart: () => {
+              const q = new URLSearchParams(req.query);
+              q.delete('resume');
+              void router.navigate(router.href(req.path, q), { replace: true, force: true });
+            },
           })),
       },
       {
@@ -1587,7 +1656,7 @@ async function main(): Promise<void> {
         pattern: '/profile',
         mount: (host, req) => {
           if (!accountsOn) {
-            // No `?accounts`: this screen does not exist. Leave softly once the router has finished mounting.
+            // Accounts off (`?fresh`, or dev/CI): this screen does not exist. Leave softly once the router has finished mounting.
             queueMicrotask(() => void router.navigate(routes.menu(), { replace: true }));
             return () => {};
           }
@@ -1595,7 +1664,7 @@ async function main(): Promise<void> {
           // The sync module rides along only when the server-backed store is up (it is already loaded then: boot imported it).
           const syncMod = syncHandle !== null && isAccountStore(ledgerStore) ? importWithRetry(() => import('./account/sync')) : Promise.resolve(null);
           return Promise.all([importWithRetry(() => import('./ui/profile')), accountClient(), syncMod]).then(([{ showProfile }, client, syncApi]) => {
-            // C2: every hard reload here keeps the sticky query keys (`?accounts` above all), or the device lands on the guest store.
+            // C2: every hard reload here keeps the sticky query keys, or the device lands on the guest store.
             const reloadHere = (): void => window.location.assign(reloadMenuHref(window.location.search));
             const sync = syncHandle;
             const acct = isAccountStore(ledgerStore) ? ledgerStore : null;
@@ -1605,7 +1674,7 @@ async function main(): Promise<void> {
               client,
               store: storage,
               query: req.query,
-              telemetryPlayer: () => telemetry().ids()?.player ?? null,
+              telemetryPlayer: () => telemetryPlayerForDeletion(),
               navigate: (href) => window.location.assign(href),
               reload: reloadHere,
               // C1 (§0.46): with the server-backed store, sign-out and deletion go through the sync module.
@@ -1618,6 +1687,17 @@ async function main(): Promise<void> {
                     },
                   }
                 : {}),
+              coins: {
+                read: () => ledgerStore.readRoar(),
+                onAccount: acct !== null,
+                available: ledgerStore.available,
+                coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png`,
+                // The history rows name a mission or a unit the way the Stores do; an id this build does not know words generically.
+                names: {
+                  mission: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+                  unit: (id) => textUnitName(id),
+                },
+              },
               // A guest boot only: a claimed device has the server-backed store and nothing to claim.
               claim: selectedStore.signedIn ? undefined : { guest: ledgerStore, download: downloadFile, onClaimed: reloadHere },
             });
@@ -1679,6 +1759,31 @@ async function main(): Promise<void> {
     env: { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) },
     renderer: gpuName,
   });
+  // The slow-frames suggestion (GH-1413): after the notice above on purpose (it never shows for a software renderer, which that
+  // notice owns). Gated like it; it measures the first seconds of frames on a shell screen and, if they run slow, ASKS once
+  // whether to switch to Low. `settingsDeps.set` is the only write, and only the card's accept button calls it; the preset applies
+  // at the next mission's boot.
+  // The gate is read HERE and the card's code (quality-hint, frame-probe) loaded only past it (`qualityHintAllowed`'s own test),
+  // so a harness origin (CI, `pnpm dev`, every test) never carries the module on the board's heap (board budget, GH-1413).
+  const qualityEnv = { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) };
+  if (feedbackSends(qualityEnv) || qualityEnv.query.has('qualityhint')) {
+    void import('./ui/quality-hint').then(({ watchQualityHint }) => {
+      watchQualityHint({
+        env: qualityEnv,
+        renderer: gpuName,
+        quality: () => settings.video.quality,
+        setQuality: (q) => settingsDeps.set({ ...settings, video: { ...settings.video, quality: q } }),
+        inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? ''),
+        frames: {
+          raf: (cb) => requestAnimationFrame(cb),
+          cancel: (id) => cancelAnimationFrame(id),
+          now: () => performance.now(),
+          visible: () => document.visibilityState === 'visible',
+        },
+        store: settingsStore,
+      });
+    }).catch((err: unknown) => console.error('[quality-hint] the card failed to load', err));
+  }
   // `fresh` has done its work above and is not a route parameter, so it comes
   // off the URL -- except on the way into a mission, where it still means "run
   // this one against an empty ledger" and `bootBattlefield` reads it back off
@@ -1689,7 +1794,19 @@ async function main(): Promise<void> {
   const telemetryScreen = screenFor(landingPath, '/', 'beit_sahwan_0_tutorial');
   // `renderer` is always 'three' since WP-A3.3: the field stays so old D1
   // rows and `packages/worker/QUERIES.sql` group the same way.
-  initTelemetry({ dev: telemetryScreen === 'sandbox' }).sessionStart(telemetryScreen, 'three');
+  initTelemetry({
+    dev: telemetryScreen === 'sandbox',
+    // GH-1410: what the field-signal events say about the machine. A mission always draws through the legacy WebGL2 renderer (`&gpu=` is
+    // sandbox-only until the cutover, `gpu-flag.ts`), so the backend is 'webgpu' only on a sandbox page that asked for it.
+    gear: () => ({
+      preset: settingsDeps.get().video.quality,
+      backend: telemetryScreen === 'sandbox' && new URLSearchParams(location.search).get('gpu') === 'webgpu' ? 'webgpu' : 'webgl2',
+      gpu: gpuName(), // RAW here; the telemetry façade reduces it to a family before any event is built (`createTelemetry`'s `gear`)
+    }),
+  }).sessionStart(telemetryScreen, 'three');
+  // GH-1410: time to the first drawn frame, from navigation start (`performance.now()` counts from it). Two frames, because the first
+  // callback runs BEFORE the first paint it requests.
+  requestAnimationFrame(() => requestAnimationFrame(() => telemetry().boot(performance.now())));
   // GH-464 (spec §12.2): ask the server's switch once a boot, so the lead can
   // close feedback without an app deploy. Cached for the session; every entry
   // point checks `isClosed()` when it is built, and the menu takes its button
@@ -1777,8 +1894,47 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const spectating = spectate !== undefined;
   const inRoom = params.get('net') !== null || spectating;
   if (inRoom && req.missionId !== null) throw new Error('a room runs Free Play only -- open /free-play/<map>?net=new');
+  // Lead ruling 16 Nov 2026: a room's code (transport, snapshot, chat, advisor, scoreboard, end screen) is a chunk of its own, fetched here
+  // and only here. Nothing is mounted yet, so a chunk that will not load throws a `ChunkLoadError` to the router's error card; a screen
+  // already left (`req.signal`) boots nothing. A campaign or free-play boot (`inRoom` false) never touches it.
+  const vk: typeof VersusKit | null = inRoom ? await versusKit() : null;
+  if (req.signal.aborted) return () => undefined;
+  /** The kit, at a site only a room reaches (each is guarded by `room`, `netConfig`, `versusRoom`, `netChat`... which are null outside one). */
+  const rk = (): typeof VersusKit => {
+    if (vk === null) throw new Error('the versus kit is loaded for a room only');
+    return vk;
+  };
   const flags = roomFlags(readFlags(params), inRoom, (k) => console.warn(`[net] sandbox flag &${k} is ignored in a room`));
   const audio = battleAudio();
+  // GH-1393: a mission being RESUMED from a save. Everything the save needs is read and checked HERE, before anything is built: a save that
+  // will not load, is another mission's, or was started from a campaign that has since moved sends the player back to the board (which says
+  // why) without a renderer, a sim or a screen having been made. The world is then built exactly as for a new mission, from the live stores,
+  // which `loadResume` has just proved are the ones the mission was started from; only the deploy pick, the restore and the shell differ.
+  let resumed: ResumeLoaded | null = null;
+  let resumeKit: typeof SaveKit | null = null;
+  if (params.has('resume') && req.missionId !== null && !inRoom) {
+    const a = accountState();
+    // A chunk that will not load is a save that will not start: the board says so (the save stays).
+    const loadedKit = await saveKit().catch(() => null);
+    if (req.signal.aborted) return () => undefined;
+    if (loadedKit === null) {
+      req.navigate(routes.campaign(), { replace: true });
+      return () => undefined;
+    }
+    resumeKit = loadedKit;
+    const got = await loadedKit.loadResume({
+      missionId: req.missionId,
+      store: loadedKit.openSuspendStore(() => window.localStorage),
+      seed: SIM_SEED,
+      live: { ledger: ledgerStore.readLedger(), unlocks: a.boughtUnits, tiers: a.ownedTiers },
+    });
+    if (req.signal.aborted) return () => undefined;
+    if (!got.ok) {
+      req.navigate(routes.campaign(), { replace: true });
+      return () => undefined;
+    }
+    resumed = got.loaded;
+  }
   const { boughtUnits, ownedTiers } = accountState();
   /** The bought kit, read ONCE from the account through `accountState()`
    *  (WP-S3g §3.4): tiers are type-wide and fixed for the mission (brigade
@@ -1920,6 +2076,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission = applyMissionLocale(rawMission, await loadMissionOverlay(currentLocale(), BASE));
   }
   const ledger: CampaignLedger = params.get('fresh') !== null ? {} : ledgerStore.readLedger();
+  // GH-1394: the campaign difficulty posture, read from the campaign LEDGER only (never a URL flag, so no dev flag
+  // changes a score), applied once to the mission JSON here so every reader below -- briefing, objectives, the
+  // runtime, the debrief, a mid-mission save -- sees the mission the run is played on. Standard, and the tutorial
+  // under any posture, is the mission itself (`campaignMission` returns it by reference).
+  // Loaded lazily, as the save kit is: the posture code is the campaign's alone, and the entry chunk and its static
+  // imports sit under a byte ceiling (`pnpm --filter @lions/tools webgpu:bundle`), which an eager import crossed by 2.4 KB.
+  // A chunk that will not load must not boot the run at another posture: the board, as for a save that will not start.
+  const posture = await importWithRetry(() => import('./posture')).catch(() => null);
+  if (req.signal.aborted) return teardown;
+  if (posture === null) {
+    req.navigate(routes.campaign(), { replace: true });
+    return teardown;
+  }
+  if (mission !== undefined) mission = posture.campaignMission(mission, ledger, t);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -2013,7 +2183,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // and a room must refuse a pair whose code differs.
   let match: Connected;
   try {
-    match = spectate !== undefined ? await spectate.connect(req.signal) : await connectMatch(params, mapId, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
+    match = spectate !== undefined ? await spectate.connect(req.signal) : vk === null ? { transport: new LocalTransport(), seat: null, config: null } : await vk.connectMatch(params, mapId, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
       fetch: window.fetch.bind(window),
       origin: location.origin,
       openSocket: (url) => new WebSocket(url),
@@ -2035,8 +2205,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // review 559 F8: a `?net=<code>` link is not a join. Hand it to the room's own
     // Join confirmation (callsign, explicit click) instead of seating and
     // readying whoever followed it.
-    if (err instanceof JoinNeedsConfirmation) {
+    if (vk !== null && err instanceof vk.JoinNeedsConfirmation) {
       req.navigate(routes.versusRoom(err.code), { replace: true });
+      return teardown;
+    }
+    // GH-1388: an offline match lives in the realm that armed it; a reload or a stray link has none to open, so the lobby it came from.
+    if (err instanceof OfflineMatchGone) {
+      req.navigate(routes.versus(), { replace: true });
       return teardown;
     }
     throw err;
@@ -2047,16 +2222,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const netConfig = match.config;
   /** A seat's name: the lobby's label (a member's name and public id, GH-1075 A3), else the config's callsign. The
    *  config carries no label (§0.14); after a reload nothing was handed over and the callsign stands. */
-  const seatName = (seat: number): string => nameFrom(match.labels, seat, netConfig?.seats[seat]?.callsign ?? '');
+  const seatName = (seat: number): string => rk().nameFrom(match.labels, seat, netConfig?.seats[seat]?.callsign ?? '');
   /** This battlefield's room, when it is one seat of a match (N1b task 8):
    *  where Escape's pause, the menu's Resume and Surrender go. Null in
    *  single-player, which keeps its local pause exactly as it was. */
-  const room = netSeat !== null && transport instanceof WsTransport ? transport : null;
+  const room = netSeat !== null && transport instanceof rk().WsTransport ? transport : null;
   /** This seat's pauses left, from the last `paused` the room sent (R-B17):
    *  a refused pause is silent, so this count is the only way to know there
    *  is none left. Hooked here, before the first await, so a rejoin into a
    *  pause in force (the room re-sends `paused` behind its `log`) is counted. */
-  let roomPausesLeft = PAUSES_PER_SEAT;
+  let roomPausesLeft = vk?.PAUSES_PER_SEAT ?? 0;
   if (room !== null && netSeat !== null) {
     room.setHooks({ onPaused: (_by, _ms, left) => { roomPausesLeft = left[netSeat]; } });
   }
@@ -2075,7 +2250,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** Each side's faction in a versus room (2026-10-14): KDF against KDF -- the
    *  mirror -- or KDF against Sarim, as the host picked. From the config both
    *  seats share, so both spawn the same world. */
-  const versusFactions = factionsBySide(versusRoom ? netConfig : null);
+  const versusFactions: [Faction, Faction] = vk !== null && versusRoom ? vk.factionsBySide(netConfig) : ['kdf', 'kdf'];
   /** A versus room's own ending (N1b task 10): a surrender or a leave, as a
    *  result for this seat. Hooked here, before the first await, so an ending
    *  that arrives while the battlefield boots is not lost. It is only
@@ -2088,7 +2263,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     room.setHooks({
       onEnded: (reason, seat) => {
         console.info(`[net] match ended: ${reason}`);
-        roomEnding = roomEndingOutcome(reason, seat, me, (s) => netConfig.seats[s].side);
+        roomEnding = rk().roomEndingOutcome(reason, seat, me, (s) => netConfig.seats[s].side);
       },
     });
   }
@@ -2112,9 +2287,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Snapshot S4: a reload that restored a snapshot boots on the RESTORED world, and any refusal on a fresh one
   // (settleRejoin builds it and restarts the transport from zero). Called here, after `connectMatch` resolved and
   // its `log` handler returned -- never from `onStart`. A tab that did not reload gets a fresh world, no outcome.
-  const settled = netConfig !== null && room !== null ? settleRejoin(netConfig, match.rejoin, room) : null;
-  if (settled?.rejoin) logRejoin(settled.rejoin, console);
-  const versusWorld = versusRoom && netConfig !== null ? settled?.world ?? buildMatchWorld(netConfig) : null;
+  const settled = netConfig !== null && room !== null ? rk().settleRejoin(netConfig, match.rejoin, room) : null;
+  if (settled?.rejoin) rk().logRejoin(settled.rejoin, console);
+  const versusWorld = versusRoom && netConfig !== null ? settled?.world ?? rk().buildMatchWorld(netConfig) : null;
+  // GH-1388: the computer seat of an offline match reads this world through the public view only, from its first decision on.
+  if (versusWorld !== null && isOfflineTransport(transport)) transport.attach(versusWorld);
   /** The runtime of an ECONOMY room (purse, production, rally, dock): a win-mode room has a runtime too (GH-976), but
    *  it runs goals only -- no purse, no camp line -- so nothing that treats a room's runtime as an economy may see it. */
   const economyRt = versusWorld !== null && versusWorld.winMode === null ? versusWorld.runtime : null;
@@ -2212,7 +2389,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // patched copy, because cost is not patchable.
   if (versusWorld === null) {
     for (const registered of prepass.registered) {
-      typeOf.set(registered.id, sim.addUnitType(registered));
+      typeOf.set(registered.id, sim.addUnitType(localizedUnit(registered)));
     }
     // GH-859 P1a: the combat formations, after the unit types and in `formations`' own order (a group row's type is
     // an INDEX into this table). Config, not state: it moves no hash until a formation is ordered. A versus room's
@@ -2238,6 +2415,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  zone they name, objective outcomes, the hostile kill count. Read off
    *  events and sim state; never written back. */
   const missionLog: MissionLog = newMissionLog();
+  // GH-1380: why a unit died, derived from the events the sim already emits (read-only, invariant 4). A side-0 death's cause waits here
+  // between its `destroyed` SimEvent and the `unitLost` MissionEvent of the same tick, and is taken by the log and the memorial record.
+  const killCauses = new KillCauseTracker({
+    typeIdOf: (id) => sim.unitTypes[sim.state.typeIdx[id]]?.id,
+    isKamikaze: (id) => sim.unitTypes[sim.state.typeIdx[id]]?.isKamikaze === true,
+  });
+  const causeOfLost = new Map<number, KillCause>();
   /**
    * `&civ`: where the crowd is walked to, and the ground that counts as out.
    *
@@ -2335,7 +2519,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     resolvedMission = resolveUpgrades(mission, ledger, gateOf);
     loanedForce = loanedPlacements(mission, ledger, gateOf);
     const resolvedForce = resolvedMission.starting_force ?? [];
-    loanedReinforce = loanedReinforcements(mission, ledger, gateOf);
+    // GH-1394: a posture's relief is always on loan (it goes back; it never joins the roster).
+    loanedReinforce = posture.withReliefOnLoan(mission, loanedReinforcements(mission, ledger, gateOf));
     // A reinforced loan, like a starting one, brings no body home to replace an earlier one (R-2).
     const reinforceUnits = new Set<string>();
     (mission.triggers ?? []).forEach((t, i) =>
@@ -2461,7 +2646,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? withWoundedTypes(missionUnitTypes(resolvedMission ?? mission, new Set(Object.keys(units))), woundsOf)
     : versusRoom
       // A versus room fields its two factions' forces and nothing else.
-      ? withWoundedTypes(versusUnitTypes(versusFactions, versusWorld?.specialsBySide), woundsOf)
+      ? withWoundedTypes(rk().versusUnitTypes(versusFactions, versusWorld?.specialsBySide), woundsOf)
       : withWoundedTypes(sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks }), woundsOf);
   // Only the roster's languages decode (N16). The roster is the one the mesh
   // plan already trusts; a unit it misses still plays -- as `missing` -- and
@@ -2759,7 +2944,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // reaches that call, so its briefing must not promise a secondary pays
   // credits when nothing will pay them.
   const paysCredits = mission !== undefined && mission.ledger.produces.length > 0;
-  const unitName = (id: string): string => units[id as keyof typeof units]?.name ?? id;
+  const unitName = (id: string): string => textUnitName(id);
   // Deploy as a decision (spec Decision 4; plan R-3). The view reads
   // `resolvedMission` for the same reason `broughtFor` does: `upgrades_to` and
   // `gate_only` change which placements draw from the ledger (pre-flight P3).
@@ -2769,7 +2954,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // was never touched -- or never drawn, which is the case for a sandbox, the
   // tutorial and a campaign that has no roster yet -- and `deployedLedger`
   // then hands the runtime the original ledger object itself.
-  let deploySelection: DeploySelection | null = null;
+  let deploySelection: DeploySelection | null = resumed?.inputs.deploy == null ? null : { chosen: new Set(resumed.inputs.deploy) };
   // Up before the canvas exists, so the player never sees the terrain draw
   // itself in or the units stand around as procedural boxes waiting for their
   // sheets. It comes down once the art gate below has settled.
@@ -2867,6 +3052,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     field
   );
   onDispose(() => loading.dispose());
+  // GH-1393: a resumed mission was briefed and deployed before it was saved: the screen stays up as the loading screen and answers itself.
+  if (resumed !== null) loading.deployNow();
   if (startHandle.failed) noteOfflineCoins(); // an answer that failed before the briefing was up
   // The one teardown that cannot wait for this function to return.
   //
@@ -2981,12 +3168,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // frame; ruling: no camera ease, so no intro at all), and a mission whose
   // screen did not hold (no briefing). Decided here, before the await,
   // because `keep` is what the deploy click obeys.
+  const isTutorialMission = Object.values(tutorials as Record<string, { mission: string } | undefined>).some((tt) => tt?.mission === missionId);
   const introPlanned = introPlan({
     hasBriefing: briefingHoldsDeployment(mission?.briefing),
     sandbox: mission === undefined,
     room: inRoom || netConfig !== null,
-    tutorial: Object.values(tutorials as Record<string, { mission: string } | undefined>).some((tt) => tt?.mission === missionId),
+    tutorial: isTutorialMission,
     reduced: prefersReducedMotion(),
+    resumed: resumed !== null,
   });
   try {
     await loading.done({ keep: introPlanned !== null });
@@ -3024,6 +3213,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // (spec §4.3). In memory only, and only for a mission: a sandbox has no
   // start a replay could rebuild.
   const replayLog = new ReplayRecorder();
+  // GH-1393: what this mission was started from, kept for Save and quit (`startInputsJson`); set once the mission has started.
+  let startInputs: ReturnType<typeof SaveKit.startInputsJson> | null = null;
+  // The save library, loaded on demand. Without it (a chunk that will not load) the mission plays and Save and quit is not offered.
+  const sk: typeof SaveKit | null = resumeKit ?? (resolvedMission ? await saveKit().catch(() => null) : null);
+  if (req.signal.aborted) return () => undefined;
   if (resolvedMission) {
     try {
       // One ledger for the runtime and the loadout (GH-254), so the roster
@@ -3031,6 +3225,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // the spawner drew from.
       const sentLedger = deployedLedger(ledger, deploySelection);
       runtime = startMission(sim, resolvedMission, {
+        // GH-1360 S3b: a shipped mission's starting force stands in the assembly layout (`start_layout`).
+        startLayout: compileFormation(assemblyLayout as unknown as FormationJson),
         typeIdOf: (id) => {
           const t = typeOf.get(id);
           if (t === undefined) throw new Error(`mission references unknown unit ${id}`);
@@ -3061,7 +3257,35 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // cast: TypeScript narrows `deploySelection` to its initial null, since
       // it is assigned only inside the deploy screen's callback.
       const picks = deploySelection as DeploySelection | null;
-      replayLog.begin({
+      startInputs = sk?.startInputsJson({ ledger, tiers: bootKit, unlocks: boughtUnits, deploy: picks === null ? null : picks.chosen }) ?? null;
+      if (resumed !== null && sk !== null) {
+        // The world stands at tick 0, built as for a new mission. The save is written onto it, proved (sim hash and runtime digest equal
+        // the saved ones) before a tick runs, and the renderer is re-seeded from it. A refusal leaves this sim half-written: it is dropped.
+        const r = sk.restoreMission(resumed.prepared, { sim, runtime });
+        if (!r.ok) {
+          sk.noteResumeProblem('failed');
+          teardown();
+          req.navigate(routes.campaign(), { replace: true });
+          return () => undefined;
+        }
+        sk.clearResumeProblem();
+        renderer.reseed();
+        renderer.settleDead?.();
+        // The app's own bookkeeping, which no snapshot holds: the debrief and the victory write are built from it.
+        const sh = resumed.shell;
+        Object.assign(missionLog, sh.log);
+        deductions.push(...sh.deductions);
+        lostThisMission.push(...sh.lost);
+        for (const reason of sh.narratedRoe) narratedRoeReasons.add(reason);
+        evacuatedSoFar = sh.evacuated;
+        deadlinesWarned = new Set(sh.deadlinesWarned);
+        limitWarned = sh.limitWarned;
+        stall = stallStart(sim.tickCount);
+      }
+      // GH-1393: NOT begun on a resumed mission, on purpose. A replay is the start plus every order from tick 0; the save holds the world, not the
+      // orders that made it, so a log begun at the saved tick would replay a different battle under this one's name. The Bug note offers no replay
+      // there (`replayLog.available` is false) and says nothing else is lost (`feedback/replay.test.ts`; `docs/agent-notes/sim-and-orders.md`).
+      if (resumed === null) replayLog.begin({
         mission: resolvedMission.id,
         build: __APP_BUILD__,
         ...(__APP_COMMIT__ === '' ? {} : { commit: __APP_COMMIT__ }),
@@ -3614,7 +3838,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     map,
     structureCatalogue as Readonly<Record<string, { name: string } | undefined>>
   );
-  let hudShown: ReadonlySet<HudElement> = spectating ? SPECTATOR_SHOWN : hudVisibility(null, null, (mission ?? null) as MissionHudJson | null);
+  let hudShown: ReadonlySet<HudElement> = spectating ? rk().SPECTATOR_SHOWN : hudVisibility(null, null, (mission ?? null) as MissionHudJson | null);
   const isShown = (el: HudElement): boolean => hudShown.has(el);
 
   /** The cursor `updateHover` last chose, bare (no badge). The fire panel
@@ -3674,7 +3898,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ...(versusRoom ? { versusFaction: versusFactions[me] } : {}),
     ...(versusRoom && netConfig?.winMode !== undefined ? { versusMode: netConfig.winMode } : {}),
     // N3 Task 6: an economy room's purse and (the KDF seat's only, LD7) Conduct.
-    ...(economyRt !== null ? { roomEconomy: () => roomEconomyView(economyRt, me, versusFactions[me]) } : {}),
+    ...(economyRt !== null ? { roomEconomy: () => rk().roomEconomyView(economyRt, me, versusFactions[me]) } : {}),
     commander: hudCommander,
     orders,
     armedOrder: () => armedOrder,
@@ -3716,9 +3940,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     predecessorOf: (slot) => {
       const record = predecessorOf(ledger['roster.lost'] ?? [], slot);
       if (record === undefined) return undefined;
+      const why = parseKillCause(record.cause); // a save is untrusted: a malformed cause is dropped, not worded
       return {
         ...(record.name !== undefined ? { name: record.name } : {}),
-        type: units[record.type as keyof typeof units]?.name ?? record.type,
+        type: textUnitName(record.type),
+        // GH-1380: why the one before it fell, worded now in the active language from the structured record.
+        ...(why !== undefined ? { cause: causeText(why, textUnitName) } : {}),
       };
     },
     setSelection: (ids) => {
@@ -3741,6 +3968,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // running over whatever screen came next.
     leave: () => req.navigate(leaveHref(!mission)),
     freePlay: !mission,
+    resumed: resumed !== null,
     // A room's exit is the pause menu's (M-1): a confirmed Surrender while
     // the match can be given up, its Quit once it cannot. Absent in
     // single-player, whose leave control is unchanged.
@@ -3798,12 +4026,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  this one's own echoed back -- go to the HUD feed. The feed sets
    *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
    *  which escapes them. */
-  const netChat = room !== null && netConfig !== null && !spectating
-    ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat) })
+  const chatInbox = room !== null && netConfig !== null && !spectating
+    ? rk().inboxOf(room, () => req.settings.get().chat.enabled)
+    : null;
+  const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
+    ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
     : null;
   if (netChat !== null) onDispose(() => netChat.dispose());
-  if (room !== null && netConfig !== null && !spectating) {
-    room.setHooks({ onChat: (seat, text) => hud.note(chatFeedLine(seatName(seat), text), 'info') });
+  if (room !== null && netConfig !== null && !spectating && chatInbox !== null) {
+    // A line reaches the HUD feed only through the room's inbox, the same one the lobby log used (`chat-inbox.ts`).
+    room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')) });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
    *  places that learn of one: the dispatch below (withheld here) and the room
@@ -3826,7 +4058,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  is dropped with the pause notice, as every other order is. Declared up
    *  here, not beside `dispatch`, because the dock is built before it. */
   const cmdSink: CommandSink = spectating
-    ? spectatorSink
+    ? rk().spectatorSink
     : room === null
     ? transport
     : roomOrderSink(() => room.status(), transport, () => { blockedNotes?.blocked(); }, netConfig?.mode, undefined, netConfig?.map, roomKindOf(netConfig));
@@ -3841,12 +4073,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (room !== null && netConfig !== null && netSeat !== null && versusRoom && !spectating) {
     const myNetSeat: Seat = netSeat;
     const orderSink = roomOrderSink(() => room.status(), transport, () => blockedNotes?.blocked(), netConfig.mode, undefined, netConfig.map, roomKindOf(netConfig));
-    const panel = mountAdvisorPanel(document.body, {
+    const panel = rk().mountAdvisorPanel(document.body, {
       send: (a) => room.advisor(a),
       queueCommand: (cmd) => orderSink.queueCommand(cmd),
       validate: (cmd) => !ordersWait(room.status()) && validateCommand(cmd, myNetSeat, seatWorld),
       now: () => performance.now(),
-      describe: describeCommand,
+      describe: rk().describeCommand,
       // The field's own ping (R-10): a minimap flash and a marker on the ground.
       ping: (x, y) => {
         if (x >= map.width || y >= map.height) return;
@@ -3976,7 +4208,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const confirmQuit = (): void => {
     // A room's Quit is the end of a match, not of a free-play run (L-3): it
     // never wears the sandbox's wording.
-    const leaveText = room !== null ? matchLeaveCopy(room.status()) : leaveCopy(!mission);
+    const leaveText = room !== null ? matchLeaveCopy(room.status()) : leaveCopy(!mission, resumed !== null);
     void confirmDialog(document.body, {
       title: leaveText.title,
       body: leaveText.body,
@@ -3984,6 +4216,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       danger: true,
     }).answer.then((ok) => {
       // A room's players go to Play with a friend, not the free-play picker.
+      // GH-1393: leaving a RESUMED mission KEEPS its save, as the HUD's own leave always did: a quit costs the progress since the resume,
+      // which the confirm says, and never the saved game, which only a finished mission or Discard on the board removes. A save that a
+      // mis-click could destroy would be the one thing here a player could not take back.
       if (ok) req.navigate(quitHref(room !== null, !mission));
     });
   };
@@ -4007,6 +4242,37 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   };
   /** The menu both pauses open -- single-player's, and a room's with
    *  Surrender added (below). */
+  /**
+   * GH-1393: Save and quit. The mission is read at THIS instant (`cutMission`, synchronous: the sim is paused, and nothing can tick between
+   * the read and the gzip), written, READ BACK and compared, and only then left. Any failure comes back as a line for the menu and leaves
+   * the mission running and the previous save in place. Returns null once the save is kept (and the player is on their way out).
+   */
+  const saveAndQuit = async (): Promise<SaveOutcome> => {
+    const kit = await saveKit().catch(() => null);
+    if (kit === null) return t('save.err.encode_failed');
+    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
+    if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
+    // The slot holds ONE save. Replacing another mission's is the player's decision, asked before anything is cut or written.
+    const other = savedMissionOtherThan(openSuspendStore(() => window.localStorage), resolvedMission.id);
+    if (!(await confirmReplaceOther(other, (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name))) return { declined: true };
+    const cut = cutMission({
+      sim,
+      runtime,
+      missionId: resolvedMission.id,
+      seed: SIM_SEED,
+      build: `${__APP_BUILD__}+${__APP_COMMIT__}`,
+      savedAt: Date.now(),
+      campaign: startInputs,
+      shell: shellJson(captureShell({ log: missionLog, deductions, lost: lostThisMission, narratedRoe: narratedRoeReasons, evacuated: evacuatedSoFar, deadlinesWarned, limitWarned })),
+    });
+    if (!cut.ok) return saveFailureText('encode_failed');
+    const sealed = await sealMission(cut.cut);
+    if (!sealed.ok) return saveFailureText(sealed.reason);
+    const wrote = writeSuspended(openSuspendStore(() => window.localStorage), sealed.record);
+    if (!wrote.ok) return saveFailureText(wrote.reason);
+    req.navigate(routes.campaign());
+    return null;
+  };
   const pauseMenuDeps = (): PauseDeps => ({
     objectives: liveObjectives,
     paysCredits,
@@ -4032,7 +4298,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               confirm: t('pause.restart.confirm.action'),
               danger: true,
             }).answer.then((ok) => {
-              if (ok) req.restart();
+              if (!ok) return;
+              // GH-1393: Restart keeps a resumed mission's save too (it starts the mission over; the old save is still the player's to resume or discard).
+              req.restart();
             });
           },
         }
@@ -4041,6 +4309,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // does; absent, single-player's label.
     ...(room !== null ? { quitLabel: t('pause.quit.match') } : {}),
     onQuit: () => confirmQuit(),
+    // GH-1393: Save and quit, for a campaign mission that is still running (not the tutorial, a sandbox, a match or a spectated game).
+    ...(runtime !== null && startInputs !== null && resolvedMission !== undefined && !isTutorialMission && netSeat === null && !spectating && netEnd === null && runtime.result === 'ongoing'
+      ? { onSave: saveAndQuit }
+      : {}),
     settings: req.settings,
     build: __APP_BUILD__,
     feedback:
@@ -4106,7 +4378,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const menu = pauseMenuDeps();
     pauseHandle = pauseMenu(document.body, {
       ...menu,
-      ...(report ? { openOn: 'feedback' as const, feedback: withoutReplay(menu.feedback) } : {}),
+      ...(report ? { openOn: 'feedback' as const, feedback: rk().withoutReplay(menu.feedback) } : {}),
       // An ended or voided match cannot be given up (N1b task 10): Quit,
       // which leaves, stands in for Surrender.
       ...(surrenderOffered(r.status()) ? { onSurrender } : {}),
@@ -4122,8 +4394,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  is closed first and reopened there; it never asks the room to pause. */
   const reportDesync = (tick: number): void => {
     if (room === null || netConfig === null || netSeat === null) return;
-    const line = t('net.desync.draft', { code: netConfig.code, time: matchClock(tick), seat: netSeat });
-    holdDraft(desyncReportDraft(readDraft(fb.storage), line));
+    const kit = rk();
+    const line = t('net.desync.draft', { code: netConfig.code, time: kit.matchClock(tick), seat: netSeat });
+    holdDraft(kit.desyncReportDraft(readDraft(fb.storage), line));
     closeOpenDialog();
     pauseHandle?.close();
     pauseHandle = null;
@@ -4376,6 +4649,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     hud.announce(mission.name ?? mission.id, t('main.announce.primaryObjectives', { n: primaries }), mission.dispatch);
   };
   if (introPlanned === null) reveal();
+  // GH-1393: a resumed mission lands PAUSED, over the menu with Resume first: nobody is dropped into a running fight.
+  if (resumed !== null) pause();
 
   const start = mission?.map.player_start;
   if (start) {
@@ -4389,7 +4664,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // A room's seat starts on its own camp, not on side 0's: its own END,
     // which follows the seat, not the side (LD1 -- a Sarim host is side 1 on
     // the friendly end). A sandbox room (no versus world) is side 0's end.
-    const [cx, cy] = campOf(anchors, versusWorld?.endOfSide[me] ?? 'friendly');
+    const [cx, cy] = rk().campOf(anchors, versusWorld?.endOfSide[me] ?? 'friendly');
     renderer.camera.x = cx;
     renderer.camera.y = cy;
   }
@@ -4514,9 +4789,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const roomRt = economyRt;
   /** The units an economy room's dock lists: the viewer faction's doctrine menu, in its
    *  order (N3 Task 6). Null off an economy room. */
-  const roomMenu = roomRt !== null ? roomDockMenu(versusFactions[me]) : null;
+  const roomMenu = roomRt !== null ? rk().roomDockMenu(versusFactions[me]) : null;
   const dockRt: ProductionRuntime | null =
-    roomRt !== null ? roomDockRuntime(roomRt, me) : runtime && mission?.resources ? runtime : sandboxWorksRt;
+    roomRt !== null ? rk().roomDockRuntime(roomRt, me) : runtime && mission?.resources ? runtime : sandboxWorksRt;
   if (dockRt) {
     production = new ReinforcementDock(document.body, {
       onBought: (id) => {
@@ -4551,7 +4826,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           const bucket = simType === undefined ? ('soft' as const) : roleBucket(simType);
           return {
             id: u.id,
-            name: u.name,
+            name: localizedUnit(u).name,
             logistics: u.cost.logistics,
             // The runtime's own default when a unit declares none, so the
             // tooltip's `· 30s` and the bar it fills are one number.
@@ -4565,7 +4840,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // The same one read the chips and the card make.
             kit: kitLevelOf(u.id),
             tags: doctrineTags(bucket, abilities),
-            blurb: 'blurb' in u ? (u.blurb as string) : undefined,
+            blurb: 'blurb' in u ? localizedUnit(u as { id: string; blurb?: string }).blurb : undefined,
             // What it takes of the population cap (schema default 1, a drone 0) --
             // the same read `unitInfo` above hands the runtime. Only words the
             // capped tile's "needs N" line; the cap itself is the runtime's call.
@@ -4948,7 +5223,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** GH-345: recompute the disclosure set from the tutorial as it stands.
    *  Cheap (a set of at most eighteen), and called wherever `tut` changes. */
   const refreshHudShown = (): void => {
-    hudShown = spectating ? SPECTATOR_SHOWN : hudVisibility(tut, stepList ?? null, (mission ?? null) as MissionHudJson | null);
+    hudShown = spectating ? rk().SPECTATOR_SHOWN : hudVisibility(tut, stepList ?? null, (mission ?? null) as MissionHudJson | null);
   };
   /** Where the camera stood when the tutorial first ticked, for beat 1's
    *  `camera` predicate. Captured lazily on that first tick rather than at
@@ -5337,6 +5612,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission: resolvedMission ?? null,
     map,
     units: units as Readonly<Record<string, { name?: string } | undefined>>,
+    unitName: textUnitName,
     placeOf: (x, y) => placeOnScreen(renderer.worldToScreen(x, y), canvas.clientWidth, canvas.clientHeight),
     viewer: me,
   });
@@ -5517,7 +5793,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // N4a (D11 as ruled): Enter does NOT accept an advisor's proposal -- a
     // player reaching for chat would take it by accident. Accept is the panel's
     // button or its 2 s deadline; Enter always opens the chat (`roomEnterAction`).
-    if (netChat !== null && roomEnterAction(ev, { inRoom: true, modalOpen: isDialogOpen() || pauseHandle !== null || netEnd !== null }, advisorPanel) === 'chat') {
+    if (netChat !== null && rk().roomEnterAction(ev, { inRoom: true, modalOpen: isDialogOpen() || pauseHandle !== null || netEnd !== null }, advisorPanel) === 'chat') {
       ev.preventDefault();
       netChat.open();
       return;
@@ -5962,7 +6238,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     /** The economy runtime's events this tick (N3 Task 6); `[]` in a mirror room and off one. */
     let roomEvents: MissionEvent[] = [];
     if (versusWorld !== null) {
-      const out = matchTick(versusWorld);
+      const out = rk().matchTick(versusWorld);
       events = out.sim;
       roomEvents = out.mission;
       // A purchase landed: repaint the dock now rather than at the next 4 Hz beat.
@@ -6039,7 +6315,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       announceAlerts(alertsForTick(alertState, events, missionEvents, alertWorld, sim.tickCount));
 
       for (const e of events) {
-        if (e.kind === 'destroyed') logDestroyed(missionLog, sim.state.side[e.entity]);
+        const cause = killCauses.observe(e);
+        if (e.kind === 'destroyed') {
+          if (cause !== undefined && runtime && isOwnSide(sim.state.side[e.entity], me)) causeOfLost.set(e.entity, cause);
+          logDestroyed(missionLog, sim.state.side[e.entity]);
+        }
         else if (e.kind === 'woundEvacuated') logWoundEvacuated(missionLog, sim.state.side[e.entity], me);
       }
       for (const mev of missionEvents) {
@@ -6048,6 +6328,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // Sim positions are tile CENTRES; the log keeps the tile.
           positionOf: (id) => ({ x: Math.floor(fx.toNumber(sim.state.posX[id])), y: Math.floor(fx.toNumber(sim.state.posY[id])) }),
           rosterOf: (id) => runtime?.rosterEntryOf(id),
+          causeOf: (id) => causeOfLost.get(id),
           zone: (id) => map.zones[id],
         });
         if (tut) tut = advance(tut, { kind: 'mission', event: mev }, performance.now());
@@ -6059,8 +6340,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // dead unit's ledger entry is still readable here -- which is the whole reason
         // this can be a read at the event rather than a diff after checkEnd.
         if (mev.kind === 'unitLost' && runtime) {
-          const record = lostRecordFor(runtime.rosterEntryOf(mev.entity), mev.unit, mission.id, mev.tick);
+          const record = lostRecordFor(runtime.rosterEntryOf(mev.entity), mev.unit, mission.id, mev.tick, causeOfLost.get(mev.entity));
           if (record) lostThisMission.push(record);
+          causeOfLost.delete(mev.entity);
         }
         const described = describeMissionEvent(mev, mission, narratedRoeReasons, placeNames, structureName);
         if (described) hud.note(described[0], described[1], { tier: missionEventTier(mev) ?? undefined });
@@ -6070,6 +6352,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // doc comment for why this call is independent of `brief()`.
         if (mev.kind === 'say') hud.say(mev.speaker, mev.text);
         if (mev.kind === 'missionEnd') {
+          // GH-1393: the mission is over, won or lost; a save of it has no place left to resume.
+          if (mission) dropSavedMission(mission.id);
           // PR 361: a lost mission names the primary that lost it, at once,
           // in the feed and on the outcome card -- never a bare verdict over
           // clocks that have simply stopped.
@@ -6105,7 +6389,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   // The same lookup `alertWorld.unitName` uses (spec §4.7's own
                   // convention), so a feed line, a briefing line and a debrief row
                   // all name a unit the same way.
-                  displayName: (typeId) => units[typeId as keyof typeof units]?.name ?? typeId,
+                  displayName: (typeId) => textUnitName(typeId),
                 })
               : null;
           const updatedLedger: CampaignLedger = carryover ? carryover.ledger : { ...ledger, ...mev.ledger };
@@ -6215,7 +6499,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               .filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
               .map((u) => ({
                 id: u.id,
-                name: u.name ?? u.id,
+                name: localizedUnit(u).name ?? u.id,
                 unlock: kdfUnlockGate(u, boughtUnits),
               }));
             const tier = tierLine(runtime.stars);
@@ -6269,7 +6553,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                       : { name: u.name, why: t('aar.unlock.conduct', { was, now }) };
                   })
                 : [];
-            const typeName = (id: string): string => units[id as keyof typeof units]?.name ?? id;
+            const typeName = (id: string): string => textUnitName(id);
             // GH-417 (H5): the after-action report. Its words are
             // `after-action.ts`'s; the log is what this run remembered.
             const report = afterAction({
@@ -6459,7 +6743,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 promptDue({
                   storage: safeStorage(),
                   enabled: accountsOnPage,
-                  open: accountsOnPage,
+                  open: accountOpenOnPage,
                   signedIn: isAccountStore(ledgerStore),
                   moment,
                   tutorial: mission.ledger.produces.length === 0,
@@ -6774,8 +7058,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  one after a rejoin). A human-versus-human room with a cadence and a ticket-holding tab only (a bot never produces,
    *  so a bot room could never store the second copy: `net/snapshot-gate.ts`); reads the sim, never writes it. */
   const producer =
-    versusWorld !== null && room !== null && netConfig !== null && snapshotLink !== undefined && seatShouldProduceSnapshots(netConfig)
-      ? new SnapshotProducer({
+    versusWorld !== null && room !== null && netConfig !== null && snapshotLink !== undefined && rk().seatShouldProduceSnapshots(netConfig)
+      ? new (rk().SnapshotProducer)({
           config: netConfig,
           build: netConfig.build,
           sim,
@@ -6805,7 +7089,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ...(versusRoom
       ? {
           stopAfter: (tick: number): boolean => {
-            matchDecided = decideOnHashTick(matchDecided, tick, netConfig, sim, versusWorld !== null ? productionOf(versusWorld) : undefined, versusWorld !== null ? goalsOf(versusWorld) : undefined);
+            matchDecided = rk().decideOnHashTick(matchDecided, tick, netConfig, sim, versusWorld !== null ? rk().productionOf(versusWorld) : undefined, versusWorld !== null ? rk().goalsOf(versusWorld) : undefined);
             return matchDecided !== null;
           },
         }
@@ -6823,7 +7107,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  single-player there is nothing to say and nothing is mounted. */
   // (Not for a spectator: its lines speak to a seat -- "until you win by forfeit" -- and the strip says what the room is doing.)
   const netStatus = netSeat !== null && !spectating
-    ? new NetStatusLine(document.body, (seat) => seatName(seat ?? netSeat), {
+    ? new (rk().NetStatusLine)(document.body, (seat) => seatName(seat ?? netSeat), {
         code: netConfig?.code ?? '',
         // Report only where it leads somewhere: a room, with the feedback
         // form offered at all (`feedback/gate.ts`).
@@ -6836,16 +7120,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  show the same board. A versus room only: single-player and a sandbox room
    *  mount nothing. */
   const otherSeat = netSeat === 0 ? 1 : 0;
-  const scoreNames = { theirs: seatName(otherSeat) };
-  const netScore = showsScoreboard(netConfig) && !spectating ? new NetScoreboard(document.body, me, scoreNames) : null;
+  /** Read in a room only (NetScoreboard, NetPoints, showNetEnd): outside one the kit is not loaded, so `seatName` would throw. */
+  const scoreNames = { theirs: vk !== null ? seatName(otherSeat) : '' };
+  const netScore = vk !== null && vk.showsScoreboard(netConfig) && !spectating ? new vk.NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());
   /** The points race (GH-976 P2): both sides' points against the target, from the goals-only runtime. Scores and
    *  zone holders are public by design (`net/points-view.ts`); no unit is shown. A points room only, never a spectator. */
   const pointsRules = netConfig?.winMode === 'points' ? versusModes[netConfig.map]?.modes.points : undefined;
   const pointsViewNow = (): PointsView | null =>
-    pointsRules !== undefined && versusWorld?.runtime != null && !spectating ? pointsViewOf(versusWorld.runtime, pointsRules, me) : null;
-  const netPoints = pointsViewNow() !== null ? new NetPoints(document.body, scoreNames, pointsRules !== undefined ? pointsExplainer(pointsRules) : '') : null;
-  payZonesNow = () => pointsViewNow()?.zones.map(payZoneOf) ?? [];
+    pointsRules !== undefined && versusWorld?.runtime != null && !spectating ? rk().pointsViewOf(versusWorld.runtime, pointsRules, me) : null;
+  const netPoints = pointsViewNow() !== null ? new (rk().NetPoints)(document.body, scoreNames, pointsRules !== undefined ? pointsExplainer(pointsRules) : '') : null;
+  payZonesNow = () => pointsViewNow()?.zones.map(rk().payZoneOf) ?? [];
   if (netPoints !== null) onDispose(() => netPoints.dispose());
   /** The flag raid (GH-976 P3): how long each flag has been held, from the goals-only runtime's objectives, and the two
    *  flags outlined on the field. Both flags' state is public by design (`net/flag-view.ts`); no unit is shown. A flag room
@@ -6855,9 +7140,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const flagRules = flagFile !== undefined && netConfig !== null ? flagBlockOf(flagFile, flagSetupRoom(netConfig)) : undefined;
   const flagViewNow = (): FlagView | null =>
     flagRules !== undefined && versusWorld?.runtime != null && !spectating
-      ? flagViewOf(versusWorld.runtime, flagRules, me, versusWorld.endOfSide[me])
+      ? rk().flagViewOf(versusWorld.runtime, flagRules, me, versusWorld.endOfSide[me])
       : null;
-  const netFlags = flagViewNow() !== null ? new NetFlags(document.body) : null;
+  const netFlags = flagViewNow() !== null ? new (rk().NetFlags)(document.body) : null;
   if (netFlags !== null) onDispose(() => netFlags.dispose());
   let flagsPainted = false;
   /** Who has an advisor (decision D1): this seat's own to its panel, both
@@ -6866,7 +7151,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  `setHooks` replays the room's last `advisors` at once, and clears to
    *  none on a relink. */
   if (room !== null && netSeat !== null && versusRoom && !spectating) {
-    room.setHooks({ onAdvisors: advisorPresenceHook(netSeat, { panel: advisorPanel, board: netScore }, () => netEnd === null) });
+    room.setHooks({ onAdvisors: rk().advisorPresenceHook(netSeat, { panel: advisorPanel, board: netScore }, () => netEnd === null) });
   }
   /** The match is over on this screen (N1b task 10). The sim is stepped no
    *  more; the transport is NOT closed (R-B11) -- the panel's buttons
@@ -6887,7 +7172,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (spectating) { endSpectate(matchDecided !== null ? 'result' : 'ended'); return; }
     // The sim's own result is told to the room, which closes itself two
     // minutes later (L-1); a result from the room's own ending owes nothing.
-    reportOver(room, result, matchDecided, netConfig);
+    rk().reportOver(room, result, matchDecided, netConfig);
     pauseHandle?.close();
     pauseHandle = null;
     closeOpenDialog();
@@ -6897,12 +7182,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     netFlags?.hide();
     advisorPanel?.onPresence(null);
     const endPoints = pointsViewNow();
-    netEnd = showNetEnd(document.body, result, me, {
+    netEnd = rk().showNetEnd(document.body, result, me, {
       again: () => req.navigate(routes.versus()),
       menu: () => req.navigate(routes.menu()),
       // No frame runs after the tick that decided the match, so this is the
       // board both seats stopped on.
-      score: { score: scoreOf(sim), names: scoreNames },
+      score: { score: rk().scoreOf(sim), names: scoreNames },
       factions: versusFactions,
       ...(endPoints === null ? {} : { points: endPoints }),
     });
@@ -6953,7 +7238,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               return sim.tickCount;
             },
           }
-        : { net: () => netReport(transport, netSeat, netConfig, sim.tickCount, { rejoin: settled?.rejoin ?? null, snapshot: producer?.stats() ?? null }) }),
+        : { net: () => rk().netReport(transport, netSeat, netConfig, sim.tickCount, { rejoin: settled?.rejoin ?? null, snapshot: producer?.stats() ?? null }) }),
 
       /** Every voiced decision this battlefield made, and the mixer's own
        *  voice stats (WP-AU1 R-10). Read back, never recomputed: the log is
@@ -7377,6 +7662,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** The room's status as the last frame saw it: what `pauseEndClosesMenu`
    *  compares this frame's with. */
   let roomStatusSeen: TransportStatus = room?.status() ?? { kind: 'local' };
+  let telFrameAt = 0;
   const loop = (): void => {
     rafId = requestAnimationFrame(loop);
     // GH-943 P0: the harness's frame-loop freeze (`frame-freeze.ts`). The loop keeps re-arming through the NATIVE rAF, runs no
@@ -7397,6 +7683,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // eases the PRESENTATION clock alone; the sim is neither slowed nor
     // ticked by it.
     const now = performance.now();
+    // GH-1410: the frame's wall time, for the `perf_sample` event. Presentation only; the sim never sees it.
+    if (telFrameAt !== 0) missionTelemetry?.onFrame(now - telFrameAt);
+    telFrameAt = now;
     const pose = beat ? beatPose(now - beat.t0, beat.reduced) : null;
     // H3: the intro holds it too, until the camera lands (ruling 2).
     const { ticks, frameMs } = advanceClock(clock, now, gameSpeed, paused || beat !== null || intro !== null, MS_PER_TICK);
@@ -7409,7 +7698,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // behind-stalled. The cap is never below the normal one, so a 'behind'
     // stall's own seat goes on running the frames it holds to ack (R31).
     if (transport.local) {
-      if (stepFrames(ticks) > 0) lastTickAt = now;
+      // GH-1388: an offline match against the computer seat is a versus match on local pacing: it ends on the sim's own result, as a
+      // room's does, and stops stepping once it is over. Single-player and the sandbox are never `versusRoom`, so nothing changes for them.
+      if (netEnd === null) {
+        if (stepFrames(ticks) > 0) lastTickAt = now;
+        if (versusRoom) {
+          const result = rk().matchResult(matchDecided?.result ?? null, null, false);
+          if (result !== null) showMatchEnd(result);
+        }
+      }
     } else if (netEnd === null) {
       const t0 = performance.now();
       // A spectated game stops at the arena's cap tick, as the arena's own players do.
@@ -7422,21 +7719,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // N1b task 10 (R-B11): the sim's own result shows at once; a room's
       // surrender or leave only once the drain has nothing left to run.
       if (versusRoom) {
-        const result = matchResult(matchDecided?.result ?? null, roomEnding, ran === 0);
+        const result = rk().matchResult(matchDecided?.result ?? null, roomEnding, ran === 0);
         if (result !== null) showMatchEnd(result);
         else if (spectate !== undefined && sim.tickCount >= spectate.capTicks) endSpectate('cap');
       }
     }
-    if (netEnd === null) netScore?.update(scoreOf(sim));
+    if (netEnd === null) netScore?.update(rk().scoreOf(sim));
     if (netEnd === null && netPoints !== null) { const pv = pointsViewNow(); if (pv !== null) netPoints.update(pv); }
     // Every 5th tick, and at once on the first frame: a seat that joins or resumes mid-match must not show an empty panel.
     if (netEnd === null && netFlags !== null && (!flagsPainted || sim.tickCount % 5 === 0)) {
       const fv = flagViewNow();
-      if (fv !== null) { netFlags.update(fv); renderer.objectiveZones = flagMarksOf(fv); flagsPainted = true; }
+      if (fv !== null) { netFlags.update(fv); renderer.objectiveZones = rk().flagMarksOf(fv); flagsPainted = true; }
     }
     // The advisor's 2 s deadline counts the frames that run here, so a room pause holds it.
     if (netEnd === null && room !== null && !ordersWait(room.status())) advisorPanel?.frame();
-    if (netEnd === null || lineOverMatchEnd(transport.status())) netStatus?.paint(transport.status(), Date.now(), room?.forfeitClock() ?? null);
+    if (netEnd === null || rk().lineOverMatchEnd(transport.status())) netStatus?.paint(transport.status(), Date.now(), room?.forfeitClock() ?? null);
     // A room's pause (either seat's) quiets the mix and dims the strip as a
     // local pause does; the room's status is the only thing that says so.
     if (room !== null) {
@@ -7557,7 +7854,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const cfg: MatchConfig = netConfig;
     spectate.hooks.onReady({
       setViewer: (v) => renderer.setViewer(v),
-      read: () => ({ config: cfg, tick: sim.tickCount, behind: room?.behind() ?? 0, score: scoreOf(sim), over: netEnd !== null }),
+      read: () => ({ config: cfg, tick: sim.tickCount, behind: room?.behind() ?? 0, score: rk().scoreOf(sim), over: netEnd !== null }),
       digest: () => ({ tick: sim.tickCount, hash: sim.hash() }),
     });
   }

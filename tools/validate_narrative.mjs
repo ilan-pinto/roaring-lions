@@ -234,20 +234,38 @@ export function commanderRankFailures(commander, world, label) {
   return out;
 }
 
+/** The keys one mission's overlay entry may carry: everything `applyMissionLocale` (`@lions/data`) reads. Anything else is a typo that
+ *  would no-op for ever, so it is a failure. */
+const OVERLAY_ENTRY_KEYS = new Set([
+  'name', 'briefing', 'objectives', 'triggers', 'dispatch', 'aftermath', 'hostages_place', 'debrief', 'sections',
+  'objective_say', 'objective_say_on_fail', 'trigger_say', 'wave_say',
+]);
+const SECTION_IDS = ['situation', 'mission', 'execution', 'notes'];
+/** `mission.schema.json`'s own caps, held on a translated string too: `dispatch` and `aftermath` 240, `hostages_place` 40. */
+const MAX_DISPATCH = 240;
+const MAX_AFTERMATH = 240;
+const MAX_HOSTAGES_PLACE = 40;
+
+const isText = (v) => typeof v === 'string' && v.trim().length > 0;
+const isRecord = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
 /**
  * Cross-checks one mission-text locale overlay (`data/locales/<lang>/missions.json`,
  * `@lions/data`'s `MissionLocaleOverlay` shape) against the real missions it
- * overlays: every mission id it names, and every objective/trigger id under
- * that mission, must exist, and a trigger label override may not overflow
- * the 48-character cap the SOURCE label is already held to
- * (`triggerLabelFailures` above). `applyMissionLocale`
- * (`packages/data/src/index.ts`) silently no-ops an unknown id at runtime —
- * a translator's typo would otherwise ship invisibly, doing nothing, forever.
+ * overlays. `applyMissionLocale` (`packages/data/src/index.ts`) silently
+ * no-ops anything that does not resolve, so a translator's typo would
+ * otherwise ship invisibly, doing nothing, forever. Every one of these is a failure:
  *
- * `missions` is a `Map` from mission id to its parsed JSON, the same shape
- * `validate_data.mjs`'s own tutorial cross-check already builds — a plain
- * object would work too, but a `Map` is what every other cross-check in this
- * file's caller already has lying around by the time an overlay is checked.
+ * - a mission id that is not a mission; a key the overlay does not read (`dispach`);
+ * - an objective, trigger or wave key that is not on THAT mission, or a `*_say` key naming one with no line of that kind;
+ * - `dispatch`, `aftermath`, `hostages_place` or a `debrief` line the mission does not have;
+ * - a string that is not a non-empty string, or that overflows its cap (a trigger label 48, a radio line 240, `dispatch` and
+ *   `aftermath` 240, `hostages_place` 40: the caps the SOURCE text is held to);
+ * - `sections` naming a section the mission lacks, giving only some of them, or giving them without a `briefing` that equals them
+ *   joined with one space (`validate_briefing.mjs`'s own rule, which the deploy screen falls back on).
+ *
+ * `missions` is a `Map` from mission id to its parsed JSON, the same shape `validate_data.mjs`'s own
+ * sweep builds.
  */
 export function overlayFailures(file, overlay, missions) {
   const out = [];
@@ -257,29 +275,204 @@ export function overlayFailures(file, overlay, missions) {
       out.push(`${file}: overlay names mission "${missionId}", which is not a mission in data/missions`);
       continue;
     }
+    const at = `${file}: mission "${missionId}"`;
+    if (!isRecord(o)) {
+      out.push(`${at} overlay is not an object`);
+      continue;
+    }
+    for (const key of Object.keys(o)) {
+      if (!OVERLAY_ENTRY_KEYS.has(key)) out.push(`${at} overlay carries "${key}", which the overlay does not read`);
+    }
+    const text = (what, v, max) => {
+      if (!isText(v)) out.push(`${at} overlay ${what} is not a non-empty string`);
+      else if (max !== undefined && v.length > max) out.push(`${at} overlay ${what} is ${v.length} characters (max ${max})`);
+    };
+    for (const key of ['name', 'briefing']) if (o[key] !== undefined) text(key, o[key]);
+    for (const [key, max] of [['dispatch', MAX_DISPATCH], ['aftermath', MAX_AFTERMATH], ['hostages_place', MAX_HOSTAGES_PLACE]]) {
+      if (o[key] === undefined) continue;
+      if (typeof mission[key] !== 'string') out.push(`${at} overlay translates ${key}, which the mission does not have`);
+      text(key, o[key], max);
+    }
+    // objectives and trigger labels, as before
     const objectiveIds = new Set((mission.objectives ?? []).map((ob) => ob.id));
-    for (const obId of Object.keys(o.objectives ?? {})) {
+    for (const [obId, v] of Object.entries(o.objectives ?? {})) {
       if (!objectiveIds.has(obId)) {
-        out.push(
-          `${file}: mission "${missionId}" overlay names objective "${obId}", which is not ` +
-            `an objective on that mission`
-        );
-      }
+        out.push(`${at} overlay names objective "${obId}", which is not an objective on that mission`);
+      } else text(`objective "${obId}"`, v);
     }
     const triggerIds = new Set((mission.triggers ?? []).map((t) => t.id).filter((id) => id !== undefined));
     for (const [trId, trLabel] of Object.entries(o.triggers ?? {})) {
       if (!triggerIds.has(trId)) {
-        out.push(
-          `${file}: mission "${missionId}" overlay names trigger "${trId}", which is not ` +
-            `a trigger on that mission`
-        );
+        out.push(`${at} overlay names trigger "${trId}", which is not a trigger on that mission`);
         continue;
       }
       if (typeof trLabel === 'string' && trLabel.length > MAX_TRIGGER_LABEL) {
-        out.push(
-          `${file}: mission "${missionId}" trigger "${trId}" overlay label is ` +
-            `${trLabel.length} characters (max ${MAX_TRIGGER_LABEL})`
-        );
+        out.push(`${at} trigger "${trId}" overlay label is ${trLabel.length} characters (max ${MAX_TRIGGER_LABEL})`);
+      } else if (typeof trLabel !== 'string') text(`trigger "${trId}"`, trLabel);
+    }
+    // radio lines: each key must name something that HAS a line of that kind
+    const sayMap = (key, what, hasLine) => {
+      for (const [k, v] of Object.entries(o[key] ?? {})) {
+        if (!hasLine(k)) out.push(`${at} overlay ${key} names ${what} "${k}", which has no such line on that mission`);
+        else text(`${key} "${k}"`, v, MAX_SAY_LENGTH);
+      }
+    };
+    const objectiveBy = (id) => (mission.objectives ?? []).find((ob) => ob.id === id);
+    sayMap('objective_say', 'objective', (k) => objectiveBy(k)?.say !== undefined);
+    sayMap('objective_say_on_fail', 'objective', (k) => objectiveBy(k)?.say_on_fail !== undefined);
+    sayMap('trigger_say', 'trigger', (k) => (mission.triggers ?? []).some((t) => t.id === k && t.say !== undefined));
+    const waves = mission.enemy?.waves ?? [];
+    sayMap('wave_say', 'wave index', (k) => /^(0|[1-9]\d*)$/.test(k) && waves[Number(k)]?.say !== undefined);
+    // debrief
+    if (o.debrief !== undefined) {
+      if (!isRecord(o.debrief)) out.push(`${at} overlay debrief is not an object`);
+      else {
+        for (const [side, v] of Object.entries(o.debrief)) {
+          if (side !== 'victory' && side !== 'defeat') out.push(`${at} overlay debrief carries "${side}", which is not victory or defeat`);
+          else if (mission.debrief?.[side] === undefined) out.push(`${at} overlay translates the ${side} debrief line, which the mission does not have`);
+          else text(`debrief ${side}`, v, MAX_SAY_LENGTH);
+        }
+      }
+    }
+    // sections: all of them or none, naming real ones, and joining to the translated briefing
+    if (o.sections !== undefined) {
+      const have = mission.briefing_sections ?? [];
+      if (!isRecord(o.sections)) out.push(`${at} overlay sections is not an object`);
+      else if (have.length === 0) out.push(`${at} overlay translates sections, which the mission does not have`);
+      else {
+        for (const [id, v] of Object.entries(o.sections)) {
+          if (!SECTION_IDS.includes(id) || !have.some((sec) => sec.id === id)) out.push(`${at} overlay names section "${id}", which is not a section of that mission`);
+          else text(`section "${id}"`, v);
+        }
+        const missing = have.filter((sec) => o.sections[sec.id] === undefined).map((sec) => sec.id);
+        if (missing.length > 0) out.push(`${at} overlay gives some sections but not "${missing.join('", "')}": all or none, or the briefing and its sections stop agreeing`);
+        else if (o.briefing === undefined) out.push(`${at} overlay translates the sections but not the briefing: they must join to it`);
+        else if (have.map((sec) => o.sections[sec.id]).join(' ') !== o.briefing) {
+          out.push(`${at} overlay sections joined with one space do not spell the overlay briefing exactly`);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The English mission-text catalogue (GH-1406 parts 2 and 3): `data/locales/en/missions.json`, GENERATED from `data/missions/*.json`
+ * and never authored. It is a translator's template, not an overlay the game loads (`main.ts`'s `loadMissionOverlay` short-circuits
+ * `en`): one entry per mission with every string `applyMissionLocale` can replace, so a translator copies the file, translates the
+ * values, and sees at once what is missing. Missions are by id, and each entry's fields are in a fixed order with the mission file's own
+ * order inside each group, so the output is stable and `locales:en --check` is a plain comparison.
+ *
+ * Covers exactly what the overlay covers: `name`, `briefing`, the briefing's named `sections`, `dispatch`, `aftermath`,
+ * `hostages_place`, the two `debrief` lines' text, an objective's `text`, `say` and `say_on_fail`, a trigger's `label` and `say`, and a
+ * wave's `say` (by its index). A radio line's speaker, a section's image and every id stay out: they are not text a translator owns.
+ */
+export function englishMissionText(mission) {
+  const entry = {};
+  const put = (key, v) => {
+    if (typeof v === 'string') entry[key] = v;
+  };
+  put('name', mission.name);
+  put('briefing', mission.briefing);
+  const sections = {};
+  for (const sec of mission.briefing_sections ?? []) if (typeof sec.id === 'string' && typeof sec.text === 'string') sections[sec.id] = sec.text;
+  if (Object.keys(sections).length > 0) entry.sections = sections;
+  put('dispatch', mission.dispatch);
+  put('aftermath', mission.aftermath);
+  put('hostages_place', mission.hostages_place);
+  const debrief = {};
+  for (const side of ['victory', 'defeat']) if (typeof mission.debrief?.[side]?.text === 'string') debrief[side] = mission.debrief[side].text;
+  if (Object.keys(debrief).length > 0) entry.debrief = debrief;
+  const group = (key, items, id, pick) => {
+    const g = {};
+    for (const it of items) {
+      const k = id(it);
+      const v = pick(it);
+      if (typeof k === 'string' && typeof v === 'string') g[k] = v;
+    }
+    if (Object.keys(g).length > 0) entry[key] = g;
+  };
+  const objectives = mission.objectives ?? [];
+  const triggers = mission.triggers ?? [];
+  group('objectives', objectives, (o) => o.id, (o) => o.text);
+  group('objective_say', objectives, (o) => o.id, (o) => o.say?.text);
+  group('objective_say_on_fail', objectives, (o) => o.id, (o) => o.say_on_fail?.text);
+  group('triggers', triggers, (t) => t.id, (t) => t.label);
+  group('trigger_say', triggers, (t) => t.id, (t) => t.say?.text);
+  const g = {};
+  (mission.enemy?.waves ?? []).forEach((w, i) => {
+    if (typeof w.say?.text === 'string') g[String(i)] = w.say.text;
+  });
+  if (Object.keys(g).length > 0) entry.wave_say = g;
+  return entry;
+}
+
+/** The whole catalogue for a list of missions: ids sorted, each through `englishMissionText`. */
+export function buildEnglishCatalogue(missions) {
+  const out = {};
+  for (const m of [...missions].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) out[m.id] = englishMissionText(m);
+  return out;
+}
+
+/**
+ * Checks `data/locales/en/missions.json` against the missions it was generated from: an entry for every mission, every string present and
+ * equal to the source, nothing left over (a deleted mission, a renamed objective, a removed trigger or line). `catalogue` may be null
+ * or not an object (a missing or unreadable file), which is one failure and not a pass.
+ */
+export function englishCatalogueFailures(file, catalogue, missions) {
+  if (catalogue === null || typeof catalogue !== 'object' || Array.isArray(catalogue)) {
+    return [`${file}: is missing or is not a JSON object -- run \`pnpm locales:en\``];
+  }
+  const out = [];
+  const want = buildEnglishCatalogue(missions);
+  for (const id of Object.keys(catalogue)) {
+    if (!(id in want)) out.push(`${file}: has an entry for "${id}", which is not a mission in data/missions (stale)`);
+  }
+  for (const [id, w] of Object.entries(want)) {
+    const have = catalogue[id];
+    if (have === undefined) {
+      out.push(`${file}: no entry for mission "${id}"`);
+      continue;
+    }
+    const at = `${file}: mission "${id}"`;
+    for (const key of Object.keys(have)) if (!OVERLAY_ENTRY_KEYS.has(key)) out.push(`${at} carries "${key}", which the overlay does not read`);
+    for (const key of OVERLAY_ENTRY_KEYS) {
+      const wantV = w[key];
+      const haveV = have[key];
+      if (typeof wantV === 'string' || (typeof haveV === 'string' && wantV === undefined)) {
+        if (wantV !== haveV) out.push(`${at} ${key} ${haveV === undefined ? 'is missing' : wantV === undefined ? 'is not in the mission file (stale)' : 'differs from the mission file'}`);
+        continue;
+      }
+      const wantG = wantV ?? {};
+      const haveG = haveV ?? {};
+      for (const [k, text] of Object.entries(wantG)) {
+        if (haveG[k] === undefined) out.push(`${at} ${key} "${k}" is missing`);
+        else if (haveG[k] !== text) out.push(`${at} ${key} "${k}" differs from the mission file`);
+      }
+      for (const k of Object.keys(haveG)) if (!(k in wantG)) out.push(`${at} ${key} "${k}" is not in the mission file (stale)`);
+    }
+  }
+  return out;
+}
+
+/**
+ * Cross-checks one unit-text locale overlay (`data/locales/<lang>/units.json`, `@lions/data`'s `UnitLocaleOverlay` shape) against the real
+ * units: every id it names must be a unit in data/units, it may carry only `name` and `blurb`, and both must be non-empty strings.
+ * `applyUnitLocale` silently no-ops an unknown id at runtime, so a translator's typo would otherwise ship invisibly, doing nothing, forever.
+ * `unitIds` is a Set of the shipped unit ids.
+ */
+export function unitOverlayFailures(file, overlay, unitIds) {
+  const out = [];
+  for (const [unitId, o] of Object.entries(overlay ?? {})) {
+    if (!unitIds.has(unitId)) {
+      out.push(`${file}: overlay names unit "${unitId}", which is not a unit in data/units`);
+      continue;
+    }
+    for (const [k, v] of Object.entries(o ?? {})) {
+      if (k !== 'name' && k !== 'blurb') {
+        out.push(`${file}: unit "${unitId}" overlay carries "${k}"; a unit overlay may carry only name and blurb`);
+      } else if (typeof v !== 'string' || v.trim() === '') {
+        out.push(`${file}: unit "${unitId}" overlay ${k} must be a non-empty string`);
       }
     }
   }

@@ -1,7 +1,7 @@
 /** GH-1075 A1 task 1.10: the privacy page for what accounts store. */
 import { describe, expect, it } from 'vitest';
 import worker from './index';
-import { PRIVACY_CONTACT, PRIVACY_MIN_AGE, handlePrivacy, privacyValues, renderPrivacy } from './privacy-page';
+import { PRIVACY_CONTACT, PRIVACY_MIN_AGE, PRIVACY_UPDATED, handlePrivacy, privacyValues, renderPrivacy } from './privacy-page';
 import type { Env } from './d1';
 
 const GET = (): Request => new Request('https://game.example.workers.dev/privacy');
@@ -23,6 +23,37 @@ describe('the privacy page', () => {
     expect(html).not.toContain('An empty coin wallet');
   });
 
+  // GH-1410 (approved by the lead, 15 Nov): the lines for client_error, perf_sample and boot, as the privacy review corrected them and the ruling set the retention.
+  it('names the anonymous usage, crash and performance reports: what is sent, what is not, the ID, the tester label, retention, and how to turn it off', () => {
+    const html = renderPrivacy(fixtureValues);
+    const section = html.split('Anonymous usage, crash and performance reports')[1]?.split('<h2>')[0] ?? '';
+    for (const m of [
+      'sent with every report', // the ID leaves the browser: it is not "stays in this browser" alone
+      'that label is sent with every report too', // a tester carries a name, and it rides every event
+      'size of your window', 'game build', 'time of each event', 'graphics backend', // the envelope and the session
+      'kinds of orders you give', 'brigade credits, purchases and upgrades', // what "how you do" means
+      'frame times', 'family of your graphics card', 'how long the game took to start',
+      'No email, IP address or browser user agent',
+      'can hold fragments of what the game was handling', // crash text is heuristic
+      'deleted about 180 days after it was last seen', 'after about 180 days without play', // reports AND the per-ID summary, from the last time the ID was seen
+      'Settings, under Privacy', '?notrack', 'Do Not Track', 'Global Privacy Control', '?telemetry',
+    ]) {
+      expect(section, m).toContain(m);
+    }
+    // The draft must not claim what the review found false.
+    expect(section).not.toContain('no name');
+    expect(section).not.toContain('stays in this browser.');
+    expect(section).not.toContain('kept for 180 days.');
+    expect(section).not.toContain('not aged out'); // the summaries ARE aged out now (`purgePlayers`)
+  });
+
+  it('the older Play statistics section lists the Settings switch among the opt-outs', () => {
+    const html = renderPrivacy(fixtureValues);
+    const stats = html.split('<h2>Play statistics</h2>')[1]?.split('<h2>')[0] ?? '';
+    expect(stats).toContain('Settings, under Privacy');
+    for (const m of ['?notrack', 'Global Privacy Control', 'Do Not Track']) expect(stats, m).toContain(m);
+  });
+
   it('A3-9 names_the_a3_data: versus records, a guest opponent never stored, the declared bot model', () => {
     const html = renderPrivacy(fixtureValues);
     for (const m of ['versus', 'guest', 'never stored', 'declared']) expect(html.toLowerCase(), m).toContain(m);
@@ -40,6 +71,20 @@ describe('the privacy page', () => {
     expect(html).not.toContain('email address we store');
     const never = html.split('What is never stored')[1]?.split('</ul>')[0] ?? '';
     expect(never).toContain('IP address');
+  });
+
+  it('G7 names Google, what is not asked, and the third-party-access line', () => {
+    const html = renderPrivacy(fixtureValues);
+    for (const m of ['Google', 'do not ask Google for your email', "third-party access page", 'We hold no Google token', '"openid" scope only', 'SteamID', 'Sign-in through Steam is paused']) expect(html, m).toContain(m);
+    const never = html.split('What is never stored')[1]?.split('</ul>')[0] ?? '';
+    expect(never).toContain('Google email address, name and profile picture');
+    expect(PRIVACY_UPDATED).toBe('2026-11-15');
+  });
+
+  it('GH-695 D14 names_the_admin_view: what the team sees, the logging, the export, and no provider number', () => {
+    const html = renderPrivacy(fixtureValues);
+    const team = html.split('What the team can see')[1]?.split('<h2>')[0] ?? '';
+    for (const m of ['can view your display name, Player ID, balances and their history', 'can correct your coin or credit balance', 'Every view and every change is logged with the reason', 'the change appears in your export', 'never includes your Google or Steam account number', 'A log of views is kept for 180 days']) expect(team, m).toContain(m);
   });
 
   it('escapes the contact', () => {

@@ -15,6 +15,8 @@
     "formations:playtest": "tsx src/backtest/formation-playtest.ts",
     "snapshot:witness": "tsx src/net/snapshot-witness.ts",
     "vehicle-overlap:probe": "tsx src/backtest/vehicle-overlap-probe.ts",
+    "spacing:census": "tsx src/backtest/spacing-census.ts",
+    "spacing:sheet": "tsx src/backtest/spacing-sheet.ts",
     "air-assault:probe": "tsx src/backtest/air-assault-probe.ts",
     "vehicle-health:probe": "tsx src/backtest/vehicle-health-probe.ts",
     "versus:breach": "tsx src/backtest/versus-breach.ts",
@@ -88,6 +90,7 @@
     "agent": "tsx src/net/agent.ts",
     "arena": "tsx src/net/arena.ts",
     "arena:publish": "tsx src/net/arena-publish.ts",
+    "replay:verify": "tsx src/net/replay-verify-cli.ts",
     "bot": "tsx src/net/bot.ts",
     "net:rejoin-measure": "tsx src/net/rejoin-measure.ts",
     "net:budget": "tsx src/net/budget-measure.ts"

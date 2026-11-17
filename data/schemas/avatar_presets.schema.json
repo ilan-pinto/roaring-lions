@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "avatar_presets.schema.json",
+  "title": "Avatar preset catalogue (GH-1075)",
+  "description": "data/avatars/presets.json. defaultPool is FROZEN at version 1 (append-never, reorder-never); the app and the Worker both read this file through @lions/data's avatar.ts. Cross-file facts (every preset has a file, every file a preset, every pool id is a crest) are pinned by packages/data/src/avatar.test.ts and tools/src/avatars/.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "defaultPool", "presets"],
+  "properties": {
+    "version": { "const": 1 },
+    "note": { "type": "string" },
+    "defaultPool": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
+    },
+    "presets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "family", "label"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "family": { "const": "crest" },
+              "label": { "$ref": "#/$defs/label" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "family", "side", "unit", "label"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "family": { "const": "unit" },
+              "side": { "enum": ["kdf", "sarim"] },
+              "unit": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+              "label": { "$ref": "#/$defs/label" }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_-]{3,40}$" },
+    "label": { "type": "string", "pattern": "^avatar\\.preset\\.[a-z0-9_-]+$", "description": "An en.json key, never text." }
+  }
+}
