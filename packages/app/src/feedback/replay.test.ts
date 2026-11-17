@@ -40,6 +40,15 @@ describe('ReplayRecorder', () => {
     expect(r.log(1, 1)).toBeNull();
   });
 
+  it('a recorder that was never begun (a RESUMED mission: main.ts does not begin it) records nothing and gives no log (GH-1393)', () => {
+    // A replay rebuilds a mission from tick 0 plus every order since. A resumed mission starts at the saved tick with the earlier orders
+    // unknown, so a log begun there would reproduce a different battle while claiming to be this one: the Bug note offers no replay instead.
+    const r = new ReplayRecorder();
+    r.record(5, order);
+    r.buy(6, 'jeep_shoded');
+    expect([r.available, r.count, r.approxBytes, r.log(10, 1)]).toEqual([false, 0, 0, null]);
+  });
+
   it('starts clean on the next mission', () => {
     const r = new ReplayRecorder();
     r.begin(start());

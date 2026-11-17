@@ -60,6 +60,7 @@ describe('profile and avatar-picker classes have a rule in theme.css', () => {
   it.each([
     ['profile.ts', 'rl-profile__'],
     ['avatar-picker.ts', 'rl-avatar-picker__'],
+    ['page-card.ts', 'rl-profile__'],
   ])('%s', (file, prefix) => {
     const used = [...new Set(ts(file).match(new RegExp(`${prefix}[a-z0-9-]*(?:--[a-z0-9-]+)?`, 'g')) ?? [])];
     expect(used.length).toBeGreaterThan(3);
@@ -109,17 +110,18 @@ describe('the account page accents (GH-1367 S1)', () => {
 });
 
 describe('the warm ground (GH-1367 S2)', () => {
-  it('is painted only on a stage that holds the profile column', () => {
+  // GH-1510: the Settings screen follows the account page and stands on the same ground, in the same one rule.
+  it('is painted only on a stage that holds the profile column or the settings screen', () => {
     const rules = [...css.matchAll(/([^{}]*)\{[^{}]*var\(--profile-ground\)[^{}]*\}/g)];
     expect(rules.length).toBe(1);
-    expect(rules[0]?.[1]?.trim()).toBe('#stage:has(> .rl-menu--profile)');
+    expect(rules[0]?.[1]?.trim()).toBe('#stage:has(> .rl-menu--profile),\n#stage:has(> .rl-settings)');
   });
   it('drops the menu column\'s own box on the profile screen only', () => {
     expect(css).toMatch(/\n\.rl-menu--profile \{\n {2}background: transparent;\n {2}border-color: transparent;/);
     expect(css).not.toMatch(/\n\.rl-menu \{[^}]*transparent/);
   });
   it('never animates', () => {
-    expect(body('#stage:has(> .rl-menu--profile)')).not.toMatch(/animation|transition/);
+    expect(body('#stage:has(> .rl-menu--profile),\n#stage:has(> .rl-settings)')).not.toMatch(/animation|transition/);
   });
 });
 
