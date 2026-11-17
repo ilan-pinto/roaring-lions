@@ -138,3 +138,59 @@ describe('the chat word filter stays off the entry chunk (GH-1417 S2)', () => {
     expect(main.slice(wait, wait + 200)).toContain("if (req.signal.aborted) abandon('left while the chat filter loaded');");
   });
 });
+
+/**
+ * CR9 (review of PR 1492): the names object the battlefield hands the scoreboard and the points panel, as the TypeScript parser
+ * reads `src`. For each `new <ctor>(...)` it names, which argument names the other seat, and whether `theirs` is read at paint time:
+ * a getter, or a property whose value is a function, on the object literal that argument is (directly or through one `const`).
+ * A plain `theirs: seatName(otherSeat)` is captured ONCE at mount, so a name that read as the fallback while the word filter loaded
+ * would never be redrawn as its label.
+ */
+function namesReadLate(file: string, src: string, ctors: readonly string[]): Map<string, 'late' | 'captured' | 'unknown'> {
+  const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const consts = new Map<string, ts.Expression>();
+  const news: ts.NewExpression[] = [];
+  const visit = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer !== undefined) consts.set(n.name.text, n.initializer);
+    if (ts.isNewExpression(n) && ts.isIdentifier(n.expression) && ctors.includes(n.expression.text)) news.push(n);
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  const verdict = (arg: ts.Expression | undefined): 'late' | 'captured' | 'unknown' => {
+    const lit = arg !== undefined && ts.isIdentifier(arg) ? consts.get(arg.text) : arg;
+    if (lit === undefined || !ts.isObjectLiteralExpression(lit)) return 'unknown';
+    const theirs = lit.properties.find((p) => p.name !== undefined && ts.isIdentifier(p.name) && p.name.text === 'theirs');
+    if (theirs === undefined) return 'unknown';
+    if (ts.isGetAccessorDeclaration(theirs)) return 'late';
+    if (ts.isPropertyAssignment(theirs) && (ts.isArrowFunction(theirs.initializer) || ts.isFunctionExpression(theirs.initializer))) return 'late';
+    return 'captured';
+  };
+  const out = new Map<string, 'late' | 'captured' | 'unknown'>();
+  for (const n of news) {
+    const name = (n.expression as ts.Identifier).text;
+    // NetScoreboard(host, viewer, names); NetPoints(host, names, explainer).
+    const arg = n.arguments?.[name === 'NetScoreboard' ? 2 : 1];
+    const v = verdict(arg);
+    const prev = out.get(name);
+    out.set(name, prev === undefined || prev === v ? v : 'unknown');
+  }
+  return out;
+}
+
+describe('the scoreboard and the points panel read the other seat\'s name at paint time (GH-1417 S2, CR9)', () => {
+  it('the reader tells a getter from a value captured once (literal fixtures)', () => {
+    const ctors = ['NetScoreboard', 'NetPoints'];
+    const late = "const n = { get theirs(): string { return seatName(1); } };\nnew NetScoreboard(b, 0, n);\nnew NetPoints(b, n, '');";
+    expect(namesReadLate('a.ts', late, ctors)).toEqual(new Map([['NetScoreboard', 'late'], ['NetPoints', 'late']]));
+    const once = "const n = { theirs: seatName(1) };\nnew NetScoreboard(b, 0, n);\nnew NetPoints(b, { theirs: 'x' }, '');";
+    expect(namesReadLate('b.ts', once, ctors)).toEqual(new Map([['NetScoreboard', 'captured'], ['NetPoints', 'captured']]));
+    // Comments and strings do not fake one: the parser reads the code.
+    const faked = "// const n = { get theirs() { return '' } };\nconst n = { theirs: seatName(1) /* get theirs() */ };\nnew NetScoreboard(b, 0, n);";
+    expect(namesReadLate('c.ts', faked, ctors)).toEqual(new Map([['NetScoreboard', 'captured']]));
+  });
+
+  it('main.ts mounts both with names whose `theirs` is a getter', () => {
+    const main = readFileSync(join(__dirname, '..', 'main.ts'), 'utf8');
+    expect(namesReadLate('main.ts', main, ['NetScoreboard', 'NetPoints'])).toEqual(new Map([['NetScoreboard', 'late'], ['NetPoints', 'late']]));
+  });
+});

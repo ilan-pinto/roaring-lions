@@ -3206,7 +3206,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // GH-1417 S2: a room waits for its word filter. The load never rejects; a failure is logged by the gate, and the match plays on
   // with its received lines hidden and its typed names read as the fallback name. The wait gives way to a leave (CR1) and to a hung
   // chunk after `CHAT_FILTER_WAIT_MS` (CR7): the match then starts on the same fallback, and the load runs on; when it lands the inbox
-  // delivers its held lines and every name below reads its label again (`seatName` is read at each draw, never kept).
+  // delivers its held lines, and what draws a name next reads its label (`seatName` is asked at each draw, never kept): the status
+  // line and new chat lines; the scoreboard, its advisor chip and the points panel at their next update, which repaints on a changed
+  // name (CR9). A feed line already posted, and the chat's mute button until the chat opens or the inbox changes, keep the fallback they drew.
   if (chatFilterLoad !== null) await untilLoadedOrAborted(chatFilterLoad, req.signal);
   if (req.signal.aborted) abandon('left while the chat filter loaded');
   if (resolvedMission) {
@@ -7104,7 +7106,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  show the same board. A versus room only: single-player and a sandbox room
    *  mount nothing. */
   const otherSeat = netSeat === 0 ? 1 : 0;
-  // A getter, read at each paint: a name that read as the fallback while the word filter loaded reads as typed once it is in (CR7).
+  // A getter, read at each update of the board and the points panel, which key their repaint on it (CR9): a name that read as the
+  // fallback while the word filter loaded is redrawn as its label at the next update once the filter is in (CR7), the advisor chip
+  // with it. The end panel reads it once, when the match is over. `chat-filter-wiring.test.ts` pins the getter.
   const scoreNames = { get theirs(): string { return seatName(otherSeat); } };
   const netScore = showsScoreboard(netConfig) && !spectating ? new NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());

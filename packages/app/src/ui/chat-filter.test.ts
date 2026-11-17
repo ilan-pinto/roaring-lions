@@ -252,6 +252,25 @@ describe('the shipped lists', () => {
     }
   });
 
+  it('review of PR 1492, finding (iv): a short hide entry\'s plural hides too, in chat and in a name, and the plural idioms show', () => {
+    // Literal oracle. Each singular is shorter than SUBSTRING_MIN, so it matches whole words only and never inside its plural: the
+    // plural is caught by its own hide entry or by nothing.
+    for (const [one, many] of [['chink', 'chinks'], ['mong', 'mongs'], ['pikey', 'pikeys'], ['shota', 'shotas']]) {
+      expect([...one].length, one).toBeLessThan(SUBSTRING_MIN);
+      for (const w of [one, many]) {
+        expect(en.hide, w).toContain(w);
+        expect(filterLine(shipped, `ok ${w} ok`, { mask: false }).kind, w).toBe('hide');
+        expect(filterLine(shipped, `ok ${w} ok`, { mask: true }).kind, w).toBe('hide');
+        expect(screenName(shipped, w), w).toBe(DEFAULT_CALLSIGN);
+        expect(screenName(shipped, `${w[0].toUpperCase()}${w.slice(1)}`), w).toBe('Lion');
+      }
+      expect(en.in_house, many).toContain(many);
+    }
+    for (const s of ['found the chinks in their armour', 'chinks in the armor', 'chinks of light through the wall']) {
+      expect(filterLine(shipped, s, { mask: true }), s).toEqual({ kind: 'show', text: s, masked: false });
+    }
+  });
+
   it('masks a launch language\'s words only for a reader in that language; English masks for everyone', () => {
     const fr = chatFilters.find((c) => c.lang === 'fr');
     if (fr === undefined) throw new Error('no French list');
