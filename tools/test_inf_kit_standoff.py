@@ -89,13 +89,19 @@ FIGURE_LIMITS = {
     # GH-826 unit "Yahalom" (17 Nov 2026), the same rows by the same rule (a ceiling is the reading rounded up to the next
     # half millimetre; the cup band is +-5 mm about the reading). Readings on the round-1 bytes: carrier max 65.3 / 69.7 mm,
     # cups -63.5 / -48.3 mm (yah_a's raised 20 mm over the stock's comb, yah_b's not raised), scope 13.6 / 3.0 mm, laser
-    # 12.4 / 13.7 mm. APPROVED by the lead on 17 Nov 2026 ("Approve all", the round-1 review's row 16) once watched red:
-    # round 2 (17 Nov), one kit build with `headset_below_rim` 0.048 -> 0.070 in the team's row and the scope and the laser
-    # box seated 4 mm higher (`inf_kit_v7.v7_lpvo`, `v7_laser_box`): yah_a's cups -51.6 mm, "LOWER on the head than the band"
-    # (the band's low side, which round 1 never tripped), scope 17.6 / 7.0 mm and laser 14.9 / 16.2 mm: five reds, and a
-    # sixth with them (36 gun triangles through yah_a's lowered cup). SURVIVORS, disclosed: yah_b's cups (-50 mm, inside
-    # his band: his are not raised, and 22 mm under the rim moved the centroid 2 mm); and `carrier_trim.drop` 0.26 -> 0.20,
-    # which moved neither carrier row (65 / 70 mm before and after) and was seen by `test_yahalom_back_plate.py` alone.
+    # 12.4 / 13.7 mm. The lead's ruling of 17 Nov 2026 ("Approve all", the round-1 review's row 16) approves these rows ONCE
+    # WATCHED RED. Watched, round 2 (17 Nov; `_coord/infantry-upgrade/yahalom/gates-r2/mutation_M1_RED.txt`, `mutation_M2_RED.txt`):
+    #   - the scope and the laser box seated 4 mm higher (`inf_kit_v7.v7_lpvo`, `v7_laser_box`): scope 17.6 / 7.0 mm, laser
+    #     14.9 / 16.2 mm: four reds;
+    #   - the cups' LOW side (round 1 never tripped it): `headset_below_rim` 0.048 -> 0.070 with `headset_clear_gun` None (no
+    #     lift over the stock): -21.6 / -26.5 mm, "LOWER on the head than the band" on BOTH men, and the gun through a cup
+    #     (132 / 74 pairs). With the lift left ON the same drop reddens yah_a alone (-51.6): on yah_b the fitter raises the
+    #     lowered cup back over the comb and it reads -50, inside his band;
+    #   - the carrier's MAX rows: only by `carrier_trim.half_w` 0.13 -> 0.135 (round 1: 69.4 / 73.9 mm).
+    # NOT HELD BY THESE ROWS, disclosed: `carrier_trim.drop`. At 0.20 the carrier rows read 65 / 70 mm, as shipped; at 0.12 the
+    # graft refuses the kit first ("yah_b draws 7233 kit triangles ... over the 7200"). `test_yahalom_back_plate.py` sees both
+    # (184 / 150 and 330 / 296 cells differ). So a deeper trim is caught by the plate table and, far enough, by the triangle
+    # cap; nothing here holds the lip that 0.20 leaves under the arm (demo_squad's row is as blind to it).
     # yah_b's scope at 3.0 mm, SIGNED (the review, section 6: an unsigned row passes a scope sunk in the rail): 0 of its 443
     # vertices are inside the gun and its lower face stands +5.1 mm (least) over the gun's top surface under it; the other
     # three men's stand +14.4 to +15.4 (`_coord/infantry-upgrade/yahalom/gates-r2/scope_signed.txt`). Not sunk: a lower seat.
