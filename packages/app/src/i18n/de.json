@@ -146,6 +146,7 @@
   "resume.ago.days": "vor {n, plural, one {# Tag} other {# Tagen}}",
   "pause.restart.confirm.title": "Einsatz neu starten?",
   "pause.restart.confirm.body": "Dieser Versuch geht verloren.",
+  "pause.restart.confirm.body.resumed": "Dieser Versuch geht verloren. Dein gespeicherter Spielstand bleibt auf der Kampagnenkarte.",
   "pause.restart.confirm.action": "Neustart",
   "pause.surrender": "Aufgeben",
   "pause.noPausesLeft": "Keine Pausen mehr: Das Match läuft weiter",

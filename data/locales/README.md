@@ -93,6 +93,17 @@ bas" in prose and "dock" on chips, field works = "ouvrages de campagne", checkpo
 check them in play. Both languages share one limit for a proofreader: the hostage count words (`world.hostages.n0` to `n20`) are capitalised
 because the same word starts a sentence and sits mid-sentence ("Noch Zwei draußen"), which the catalogue cannot express without a second set.
 
+## Staged versus shipped: lag is reported, wrong is red (GH-1406)
+
+A language is **shipped** when it is in `LOCALES` (`packages/app/src/i18n/locales.ts`): a player can choose it. Anything with files here and not in `LOCALES` is **staged**.
+
+- A **shipped** language is held strictly: every chrome key present and current, every translated mission and unit string carrying the hash of the English it was read from.
+- A **staged** language may **lag** the English. A chrome key main added, an English line main edited (a hash that no longer matches), a translated string with no hash yet, or a section the English gained are **reported** by `pnpm validate:data` (a `locale <id> (staged ...) lags the English by N item(s)` block, never a failure). The worklist for a translator is `pnpm locales:pending -- <id>`.
+- A staged language still **fails** on what is wrong rather than stale: a key `en` does not have, a changed `{placeholder}` or ICU shape, a value that is not a string, a malformed source hash (not 8 hex characters), a hash for a string it does not translate, a mission or unit that does not exist, a trigger label over 48 characters.
+- `en` is the source and is always strict. The strict gate applies the day a language ships; that is the text freeze in practice.
+
+`tools/locale_staging.mjs` decides which is which (`shippedLocaleIds`, `isStaged`); `tools/src/locale_staging.test.ts` builds one input that is green staged and red shipped, and the staged failures that stay red.
+
 ## Shape
 
 One directory per shipped locale other than `en`, id-matched to

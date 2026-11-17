@@ -58,12 +58,20 @@ export function messageShape(msg) {
   return out.sort();
 }
 
-/** Failure strings; `[]` when `tr` has exactly `en`'s keys, each a non-empty string of the same shape. */
-export function chromeCatalogueFailures(file, en, tr) {
+/**
+ * Failure strings; `[]` when `tr` has exactly `en`'s keys, each a non-empty string of the same shape.
+ * `opts.staged` (a language not in `LOCALES`, `locale_staging.mjs`): a key en has and the catalogue lacks is LAG, not a failure; it goes to
+ * `opts.lag` (an array the caller passes) instead. Everything else, an extra key, a wrong shape, a non-string, still fails.
+ */
+export function chromeCatalogueFailures(file, en, tr, opts = {}) {
   const out = [];
   if (tr === null || typeof tr !== 'object' || Array.isArray(tr)) return [`${file}: not a JSON object of key -> text`];
   for (const key of Object.keys(en)) {
-    if (!(key in tr)) { out.push(`${file}: missing key "${key}"`); continue; }
+    if (!(key in tr)) {
+      if (opts.staged === true) opts.lag?.push(`${file}: missing key "${key}"`);
+      else out.push(`${file}: missing key "${key}"`);
+      continue;
+    }
     const v = tr[key];
     if (typeof v !== 'string' || v.trim() === '') { out.push(`${file}: "${key}" is not a non-empty string`); continue; }
     const want = messageShape(en[key]).join(' ');
@@ -82,16 +90,19 @@ export function chromeCatalogueFailures(file, en, tr) {
  *
  * Fails on: a translated key with no hash, a stale hash (both printed), a malformed hash, and a hash for a key the catalogue lacks.
  */
-export function chromeSourceFailures(file, en, tr, src) {
+export function chromeSourceFailures(file, en, tr, src, opts = {}) {
   const out = [];
+  // A STAGED language (`locale_staging.mjs`) may lag the English: a missing hash and a stale one go to `opts.lag`; a malformed hash and a hash
+  // for a key the catalogue does not translate still fail.
+  const lagOut = opts.staged === true && opts.lag ? opts.lag : out;
   if (src === null || typeof src !== 'object' || Array.isArray(src)) return [`${file}: not a JSON object of key -> source hash`];
   for (const key of Object.keys(tr ?? {})) {
     if (!(key in en)) continue; // chromeCatalogueFailures names it
     const want = sourceHash(en[key]);
     const have = src[key];
-    if (have === undefined) out.push(`${file}: "${key}" is translated but carries no source hash: set it to ${want}`);
+    if (have === undefined) lagOut.push(`${file}: "${key}" is translated but carries no source hash: set it to ${want}`);
     else if (typeof have !== 'string' || !/^[0-9a-f]{8}$/.test(have)) out.push(`${file}: "${key}" source hash ${JSON.stringify(have)} is not 8 hex characters`);
-    else if (have !== want) out.push(`${file}: "${key}" is stale: it was translated from English ${have}, and the English is now ${want}; re-translate it, then set the hash to ${want}`);
+    else if (have !== want) lagOut.push(`${file}: "${key}" is stale: it was translated from English ${have}, and the English is now ${want}; re-translate it, then set the hash to ${want}`);
   }
   for (const key of Object.keys(src)) if (!(key in (tr ?? {}))) out.push(`${file}: has a source hash for "${key}", which this catalogue does not translate`);
   return out;
