@@ -144,8 +144,8 @@ export function challengeTerms(win: ChallengeWin, run: ChallengeRun, targetMinut
   if (win.conduct_at_least !== undefined) out.push({ term: 'conduct_at_least', held: run.roe >= win.conduct_at_least });
   if (win.lost_at_most !== undefined) out.push({ term: 'lost_at_most', held: run.lost <= win.lost_at_most });
   if (win.ticks_at_most_target === true) out.push({ term: 'ticks_at_most_target', held: run.ticks <= targetMinutes * TICKS_PER_TARGET_MINUTE });
-  if (win.carries_all === true) out.push({ term: 'carries_all', held: run.objectivesDone.includes(win.objective_done) });
-  if (win.objective_done !== undefined) out.push({ term: 'objective_done', held: run.carriesAll });
+  if (win.carries_all === true) out.push({ term: 'carries_all', held: run.carriesAll });
+  if (win.objective_done !== undefined) out.push({ term: 'objective_done', held: run.objectivesDone.includes(win.objective_done) });
   return out;
 }
 

@@ -1,4 +1,4 @@
-// GH-(x.held ? 1 : 0)395 slice 1: the REPORT-ONLY challenge reading of `pnpm playtest` (design §8, "the playtest witness").
+// GH-1395 slice 1: the REPORT-ONLY challenge reading of `pnpm playtest` (design §8, "the playtest witness").
 //
 // One more seed child per `POSTURE_SEEDS` seed runs the whole ladder at Standard with every pilot mission's CHALLENGE
 // amendments on (`PT_CHALLENGE=1`, `playtest-run.ts`), and the parent prints, per winning plan on a pilot mission: how
@@ -38,7 +38,7 @@ export function tallyChallenge(runs: readonly (ChallengeRunRecord | undefined)[]
     if (r.result !== 'victory') continue;
     t.wins++;
     if (r.challenge?.met === true) t.met++;
-    for (const x of r.challenge?.terms ?? []) t.held[x.term] = (t.held[x.term] ?? 0) + 1;
+    for (const x of r.challenge?.terms ?? []) t.held[x.term] = (t.held[x.term] ?? 0) + (x.held ? 1 : 0);
     t.slowestMin = Math.max(t.slowestMin, r.minutes);
   }
   return t;
