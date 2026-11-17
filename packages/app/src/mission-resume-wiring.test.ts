@@ -60,9 +60,21 @@ describe('Save and quit (main.ts)', () => {
     const order = ['cutMission(', 'sealMission(', 'writeSuspended(', 'req.navigate(routes.campaign())'].map((s) => body.indexOf(s));
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    // every failure is a line, never a throw or a silent return of null before the write is kept
+    // every failure is a line, never a throw or a silent return of null before the write is kept (a torn-down battlefield aside, below)
     expect(body.match(/return saveFailureText\(/g)?.length).toBe(4);
     expect(body).toMatch(/return null;\s*\};?\s*$/);
+  });
+
+  it('stops after every await once the battlefield is gone: no cut, no write, no navigation from a torn-down mission', () => {
+    // The disposer contract: a Back press or another route during the kit load or the gzip tears the battlefield down, and the
+    // continuation must not then write a save of a mission the player left, or navigate them off the screen they went to.
+    const body = main.slice(at(/const saveAndQuit = async/), at(/const pauseMenuDeps = \(\): PauseDeps/));
+    const awaits = [...body.matchAll(/\bawait\b[^;]*;/g)];
+    expect(awaits.length).toBeGreaterThanOrEqual(2); // saveKit() and sealMission(): never a vacuous pass over none
+    for (const a of awaits) {
+      const after = body.slice((a.index ?? 0) + a[0].length).replace(/^(?:\s|\/\/[^\n]*\n)*/, '');
+      expect(after.startsWith('if (disposed) return'), `after \`${a[0]}\` the next statement is: ${after.split('\n')[0]}`).toBe(true);
+    }
   });
 
   it('what is saved is what the mission was started from, and the shell', () => {
@@ -136,6 +148,29 @@ describe('the lazy boundary (main red since PR 1478: the entry chunk went over i
   it('the kit re-exports everything main.ts uses', () => {
     const kit = readFileSync(join(__dirname, 'mission-save-kit.ts'), 'utf8');
     for (const name of ['cutMission', 'restoreMission', 'sealMission', 'discardSuspended', 'openSuspendStore', 'readSuspended', 'writeSuspended', 'captureShell', 'shellJson', 'clearResumeProblem', 'loadResume', 'noteResumeProblem', 'peekResumeProblem', 'startInputsJson', 'saveFailureText']) expect(kit, name).toContain(name);
+  });
+});
+
+describe('a boot left after the renderer exists tears it down (main.ts bootBattlefield)', () => {
+  // The router RUNS the disposer a stale mount returns (`seq !== this.seq` in `shell/router.ts`); it does not tear down for it. So from
+  // `new ThreeRenderer` on, an abort answered with a bare `() => undefined` keeps the WebGL context, the canvas, the transport and the
+  // loading screen. PR 1499 shipped exactly that after the lazy save-kit await.
+  const boot = main.slice(at(/^async function bootBattlefield\(/m));
+  const body = boot.slice(0, boot.search(/^\}$/m));
+  const built = body.slice(body.indexOf('const three = new ThreeRenderer('));
+
+  it('every abort check after the renderer is built goes through `abandon`', () => {
+    expect(body.length).toBeGreaterThan(0);
+    expect(built.length).toBeLessThan(body.length);
+    const checks = [...built.matchAll(/if \((?:req\.)?signal\.aborted\)\s*([^\n]*)/g)].map((m) => m[1] ?? '');
+    // Not vacuous: meshes, renderer, ground photo, deploy, save kit.
+    expect(checks.length).toBeGreaterThanOrEqual(5);
+    for (const then of checks) expect(then, then).toMatch(/^abandon\('[^']+'\);$/);
+  });
+
+  it('no early return after the renderer is built hands back a no-op without having run the teardown', () => {
+    const at0 = [...built.matchAll(/return \(\) => undefined;/g)].map((m) => m.index);
+    for (const i of at0) expect(built.slice(Math.max(0, i - 160), i), built.slice(i - 160, i + 25)).toMatch(/teardown\(\);/);
   });
 });
 

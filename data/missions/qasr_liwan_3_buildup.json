@@ -1,0 +1,436 @@
+{
+  "id": "qasr_liwan_3_buildup",
+  "name": "Qasr Liwan III — The Pause",
+  "hostages_place": "the Cut",
+  "town": "qasr_liwan",
+  "phase": "buildup",
+  "target_minutes": 7,
+  "time_limit_s": 840,
+  "start_layout": "assembly",
+  "start_front": "W",
+  "map": {
+    "file": "qasr_liwan_3",
+    "player_start": [
+      42,
+      45
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results",
+      "intel.marked_positions",
+      "civ.hostages_recovered"
+    ]
+  },
+  "briefing": "The pause holds for four minutes from the time you step off. Their lines are back just past the edge of what we can see, and they stay there unless one of theirs dies or something of ours crosses the south street. Four of the taken are being walked to the open ground west of the checkpoint. At ninety seconds the party with them steps back; go to them then and not before, and bring all four south across the Cut. From south of that street I can see into the clinic yard, and from nowhere closer. Crossing it to look, with a squad or with the drone, ends the pause for everyone on that ground. Put the mortar and the AT team on ambush before anything identifies anything, because a tube left to its own judgement is how a pause ends. The handover ground is flagged, and Conduct has five points to give today. When it ends it ends on the forward ground north of the checkpoint, from three sides, with wheels a minute later. The water point west of it pays eighty a minute to whoever holds it. Spend the quiet on what holds that ground at four minutes: AT for the wheels, rifles for the rest. The four come first, because there is no buying them back under fire.",
+  "dispatch": "A pause was agreed at midnight. For as long as it holds nobody fires across the Cut, and in the morning four of the people taken at First Light are to be walked out to the open ground beside it and handed back.",
+  "aftermath": "Four walked back across the Cut. That is the whole of what the pause bought, and the brigade did not ask it for more.",
+  "debrief": {
+    "victory": {
+      "speaker": "idit",
+      "text": "Four back across the Cut. What we built in the quiet held the forward ground when the quiet ended."
+    },
+    "defeat": {
+      "speaker": "shai",
+      "text": "The pause is over, and we came out of it worse than we went in."
+    }
+  },
+  "starting_force": [
+    {
+      "unit": "inf_squad",
+      "count": 3,
+      "at": [
+        42.5,
+        43.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        43.5,
+        46.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "mortar_team",
+      "count": 1,
+      "at": [
+        41.5,
+        46.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        40.5,
+        45.5
+      ]
+    },
+    {
+      "unit": "jeep_shoded",
+      "count": 1,
+      "at": [
+        40.5,
+        44.5
+      ]
+    },
+    {
+      "unit": "recon_drone",
+      "count": 1,
+      "at": [
+        43.5,
+        45.5
+      ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        41.5,
+        44.5
+      ]
+    }
+  ],
+  "resources": {
+    "logistics_start": 500,
+    "logistics_rate_per_min": 150,
+    "intel_start": 0,
+    "income_zones": [
+      {
+        "zone": "water_point",
+        "rate_per_min": 80
+      }
+    ]
+  },
+  "structures": [
+    {
+      "type": "camp",
+      "at": [
+        44,
+        44
+      ],
+      "size": [
+        2,
+        2
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "bring_four_across",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "pause_refuge",
+      "count": 4,
+      "seconds": 330,
+      "hostages": true,
+      "text": "Bring all four of the taken south of the Cut",
+      "say": {
+        "speaker": "shai",
+        "text": "Four across. Whatever happens on the forward ground now, that part is done."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "Not all four are across, and that ground will not be quiet again. There is no second handover."
+      }
+    },
+    {
+      "id": "hold_the_forward_ground",
+      "type": "hold_for",
+      "primary": true,
+      "target": "staging",
+      "seconds": 360,
+      "text": "Hold the forward ground for six minutes",
+      "say": {
+        "speaker": "net",
+        "text": "Forward ground held. The checkpoint has a line in front of it again."
+      }
+    },
+    {
+      "id": "keep_the_pause",
+      "type": "no_collateral_above",
+      "primary": true,
+      "threshold": 5,
+      "text": "Lose no more than 5 Conduct",
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "That is more than five Conduct, and five was all the pause had to give."
+      }
+    },
+    {
+      "id": "take_the_water_point",
+      "type": "capture",
+      "primary": false,
+      "target": "water_point",
+      "seconds": 15,
+      "text": "Take the water point west of the checkpoint",
+      "say": {
+        "speaker": "net",
+        "text": "Water point held. It pays for the next fight from here."
+      }
+    },
+    {
+      "id": "find_the_yard_watch",
+      "type": "locate",
+      "primary": false,
+      "target": "ql_yard_watch",
+      "carries": true,
+      "text": "Identify the watch in the clinic yard",
+      "say": {
+        "speaker": "idit",
+        "text": "Rocket team standing in the clinic yard, on the open ground. He goes on the board, and he does not get the first shot when we go in there."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "handover",
+      "walk_south"
+    ]
+  },
+  "civilians": {
+    "refuge": "pause_refuge_point",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 4,
+        "at": [
+          11.5,
+          37.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          11.5,
+          34.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "handover_party"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          5.5,
+          25.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "pause_lines"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          22.5,
+          24.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "pause_lines"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          22.5,
+          23.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "pause_lines"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          39.5,
+          24.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "pause_lines"
+      },
+      {
+        "unit": "mortar_crew",
+        "count": 1,
+        "at": [
+          17.5,
+          24.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "pause_mortar"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          27.5,
+          22.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "ql_yard_watch"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 240,
+        "to": "staging_point",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 3,
+            "from": "city_north"
+          },
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "from": "city_north"
+          }
+        ]
+      },
+      {
+        "at_seconds": 240,
+        "to": "water_mk",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "city_west"
+          }
+        ]
+      },
+      {
+        "at_seconds": 300,
+        "to": "staging_point",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "city_east"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "city_east"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "Wheels from the east end of the city, a technical and two bikes, for the forward ground."
+        }
+      },
+      {
+        "at_seconds": 390,
+        "to": "staging_point",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "city_north"
+          },
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "from": "city_north"
+          }
+        ]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "the_handover_party_steps_back",
+      "label": "The party at the handover steps back",
+      "on": {
+        "kind": "timer_s",
+        "value": 90
+      },
+      "do": {
+        "kind": "withdraw_to",
+        "group": "handover_party",
+        "to": "handover_withdraw"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "The party with them has stepped back toward the city. Nobody is standing over the four now."
+      }
+    },
+    {
+      "id": "the_pause_ends",
+      "label": "The pause is over",
+      "on": {
+        "kind": "timer_s",
+        "value": 240
+      },
+      "do": {
+        "kind": "commit",
+        "group": "pause_lines",
+        "to": "staging_point"
+      },
+      "say": {
+        "speaker": "shai",
+        "text": "Four minutes. Everything they kept out of sight is walking at the forward ground."
+      }
+    },
+    {
+      "id": "ours_over_the_south_street",
+      "label": "Our units are over the south street",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "pause_line"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "pause_lines",
+        "to": "staging_point"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "Something of ours is over the south street, and their lines can see it. Whatever quiet was left is gone."
+      }
+    },
+    {
+      "id": "the_first_of_theirs_down",
+      "label": "One of theirs is down and their lines move",
+      "on": {
+        "kind": "casualties_pct",
+        "value": 5
+      },
+      "do": {
+        "kind": "commit",
+        "group": "pause_lines",
+        "to": "staging_point"
+      }
+    }
+  ]
+}

@@ -71,6 +71,8 @@ describe('the shipped limits', () => {
     qarn_hadid_2_foothold: 840, qarn_hadid_3_clearance: 840, umm_zeitoun_1_recon: 720,
     umm_zeitoun_2_buildup: 840, umm_zeitoun_3_clearance: 840, umm_zeitoun_4_clearance: 840,
     ein_qasab_1_recon: 720, ein_qasab_2_foothold: 840, ein_qasab_3_buildup: 840,
+    qasr_liwan_1_recon: 720, qasr_liwan_2_foothold: 840, qasr_liwan_3_buildup: 840,
+    qasr_liwan_4_clearance: 840, qasr_liwan_5_subterranean: 840,
   };
   const dir = join(ROOT, 'data/missions');
   const shipped = readdirSync(dir).filter((n) => n.endsWith('.json'));
@@ -88,7 +90,7 @@ describe('the shipped limits', () => {
 describe('GH-1394: every shipped mission under every posture passes the overlaid clock rule', () => {
   const ids = Object.keys(missions) as (keyof typeof missions)[];
   it('covers the whole shipped list', () => {
-    expect(ids.length).toBe(30);
+    expect(ids.length).toBe(35); // Was 30: Qasr Liwan's five missions
   });
   for (const posture of POSTURE_IDS) {
     it.each(ids)(`%s at ${posture}`, (id) => {

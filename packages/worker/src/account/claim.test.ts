@@ -146,15 +146,15 @@ describe('POST claim', () => {
   });
 
   it('a_forged_record_is_bounded (A2-4)', async () => {
-    expect(ids.length).toBe(29);
+    expect(ids.length).toBe(34);
     const s = setup();
     const cookie = await member(s);
     const all = ids.map((id) => [id, 99] as [string, number]);
     const earn = { welcomed: true, campaignDone: true, backfilled: false, missions: Object.fromEntries(ids.map((id) => [id, { won: true, stars: 99 }])) };
     const r = await ok(await claim(s, cookie, { wallet: { ...RICH, earn }, campaign: campaignOf(all), slots: [{ id: 'x', slot: slotOf('x', 1, all) }] }));
-    expect(r.coins).toBeLessThanOrEqual(925);
-    expect(r.earned).toBe(925);
-    expect(await freeOf(s)).toBeLessThanOrEqual(925);
+    expect(r.coins).toBeLessThanOrEqual(1050);
+    expect(r.earned).toBe(1050);
+    expect(await freeOf(s)).toBeLessThanOrEqual(1050);
     const lifetime = await record(s, 'earn_lifetime');
     expect(Object.values(lifetime.missions).every((m) => (m as { stars: number }).stars <= 3)).toBe(true);
   });

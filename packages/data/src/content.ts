@@ -30,6 +30,11 @@ import einQasab from '../../../data/maps/ein_qasab.json';
 import einQasab3 from '../../../data/maps/ein_qasab_3.json';
 import jebelMatar from '../../../data/maps/jebel_matar.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
+import qasrLiwanMap from '../../../data/maps/qasr_liwan.json';
+import qasrLiwan2Map from '../../../data/maps/qasr_liwan_2.json';
+import qasrLiwan3Map from '../../../data/maps/qasr_liwan_3.json';
+import qasrLiwan4Map from '../../../data/maps/qasr_liwan_4.json';
+import qasrLiwan5Map from '../../../data/maps/qasr_liwan_5.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import qarnHadid2Map from '../../../data/maps/qarn_hadid_2.json';
 import qarnHadid3Map from '../../../data/maps/qarn_hadid_3.json';
@@ -96,6 +101,11 @@ import ummZeitoun1Recon from '../../../data/missions/umm_zeitoun_1_recon.json';
 import ummZeitoun2Buildup from '../../../data/missions/umm_zeitoun_2_buildup.json';
 import ummZeitoun3Clearance from '../../../data/missions/umm_zeitoun_3_clearance.json';
 import ummZeitoun4Clearance from '../../../data/missions/umm_zeitoun_4_clearance.json';
+import qasrLiwan1Recon from '../../../data/missions/qasr_liwan_1_recon.json';
+import qasrLiwan2Foothold from '../../../data/missions/qasr_liwan_2_foothold.json';
+import qasrLiwan3Buildup from '../../../data/missions/qasr_liwan_3_buildup.json';
+import qasrLiwan4Clearance from '../../../data/missions/qasr_liwan_4_clearance.json';
+import qasrLiwan5Subterranean from '../../../data/missions/qasr_liwan_5_subterranean.json';
 import einQasab1Recon from '../../../data/missions/ein_qasab_1_recon.json';
 import einQasab2Foothold from '../../../data/missions/ein_qasab_2_foothold.json';
 import einQasab3Buildup from '../../../data/missions/ein_qasab_3_buildup.json';
@@ -132,6 +142,11 @@ export const maps = {
   qarn_hadid: qarnHadid,
   qarn_hadid_2: qarnHadid2Map,
   qarn_hadid_3: qarnHadid3Map,
+  qasr_liwan: qasrLiwanMap,
+  qasr_liwan_2: qasrLiwan2Map,
+  qasr_liwan_3: qasrLiwan3Map,
+  qasr_liwan_4: qasrLiwan4Map,
+  qasr_liwan_5: qasrLiwan5Map,
   rujm_sawda: rujmSawda,
   tel_marum: telMarum,
   tel_marum_1: telMarum1,
@@ -182,6 +197,11 @@ export const missions = {
   umm_zeitoun_2_buildup: ummZeitoun2Buildup,
   umm_zeitoun_3_clearance: ummZeitoun3Clearance,
   umm_zeitoun_4_clearance: ummZeitoun4Clearance,
+  qasr_liwan_1_recon: qasrLiwan1Recon,
+  qasr_liwan_2_foothold: qasrLiwan2Foothold,
+  qasr_liwan_3_buildup: qasrLiwan3Buildup,
+  qasr_liwan_4_clearance: qasrLiwan4Clearance,
+  qasr_liwan_5_subterranean: qasrLiwan5Subterranean,
   ein_qasab_1_recon: einQasab1Recon,
   ein_qasab_2_foothold: einQasab2Foothold,
   ein_qasab_3_buildup: einQasab3Buildup,

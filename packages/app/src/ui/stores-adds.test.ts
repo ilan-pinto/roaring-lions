@@ -294,10 +294,10 @@ describe('T8 block F: where it can be used', () => {
     const t = mission('m_t', { triggers: [{ on: { kind: 'timer_s', value: 5 }, do: { kind: 'reinforce', units: [{ unit: 'fx_med', count: 1 }] } }] });
     expect(where({ missions: [t], worldMissionIds: ['m_t'] })).toContainEqual({ kind: 'loaned', n: 1 });
   });
-  it('the shipped medic: on loan in 29 missions on a starting ledger, docked in 20 world missions (literals)', () => {
+  it('the shipped medic: on loan in 34 missions on a starting ledger, docked in 23 world missions (literals)', () => {
     const w = unitAdds(input('inf_medic_squad')).where;
-    expect(w).toContainEqual({ kind: 'loaned', n: 29 });
-    expect(w).toContainEqual({ kind: 'dock', n: 20 });
+    expect(w).toContainEqual({ kind: 'loaned', n: 34 });
+    expect(w).toContainEqual({ kind: 'dock', n: 23 });
   });
   it('the ledger is read: a gate the ledger opens is not a loan, and an upgrade a ledger opens shifts the indices', () => {
     const G: UnitJson = { ...BASE, id: 'fx_gate', name: 'Gate', role: 'support', unlock: { after_mission: 'm_y', price: 100 } } as UnitJson;

@@ -384,7 +384,7 @@ import type { SavesDeps } from './ui/saves';
 import type { CreditsDeps } from './ui/credits';
 import { versusMaps } from './ui/versus-maps';
 import type { VersusDeps } from './ui/versus';
-import { LOCALES, PSEUDO_RTL, applyLocale, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
+import { LOCALES, PSEUDO_RTL, applyLocale, loadLocale, pseudoModeOf, resolveLang, sessionLangOverride } from './i18n/locales';
 import { fetchLocaleJson } from './i18n/overlay-fetch';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo, pseudoRtl } from './i18n/pseudo';
@@ -842,6 +842,8 @@ async function main(): Promise<void> {
   forgetRetiredKeys();
   const settingsStore = safeStorage();
   let settings: Settings = loadSettings(settingsStore);
+  /** This load's `?lang=`/`?pseudo=rtl` locale, set once below beside `applyLocale`: every later `applySettings` keeps it (GH-1413 review F2). */
+  let sessionLang: string | null = null;
   applySettings(settings, document.documentElement);
   audio.setGains(settings.audio);
   audio.setRadioEffect(settings.audio.radio);
@@ -857,7 +859,7 @@ async function main(): Promise<void> {
     set: (next) => {
       settings = next;
       saveSettings(settingsStore, next);
-      applySettings(next, document.documentElement);
+      applySettings(next, document.documentElement, sessionLang);
       audio.setGains(next.audio);
       // Read by the NEXT radio line as it starts (N17); nothing sounding is touched.
       audio.setRadioEffect(next.audio.radio);
@@ -952,6 +954,7 @@ async function main(): Promise<void> {
   // GH-1406: unit names and blurbs, from data/locales/<lang>/units.json. Mission text is data and is not pseudo-transformed; neither is this.
   setUnitOverlay(await loadUnitOverlay(lang, BASE));
   applyLocale(document.documentElement, pseudoMode === PSEUDO_RTL ? PSEUDO_RTL : lang);
+  sessionLang = sessionLangOverride(q.get('lang'), pseudoMode);
   // Dev-only: which keys a screen walk asked for and never got, without
   // scraping console output for `[i18n] missing key: …` lines.
   if (import.meta.env.DEV) {
@@ -3251,7 +3254,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let startInputs: ReturnType<typeof SaveKit.startInputsJson> | null = null;
   // The save library, loaded on demand. Without it (a chunk that will not load) the mission plays and Save and quit is not offered.
   const sk: typeof SaveKit | null = resumeKit ?? (resolvedMission ? await saveKit().catch(() => null) : null);
-  if (req.signal.aborted) return () => undefined;
+  // `abandon`, never a bare `() => undefined`: the renderer, its canvas, the transport and the loading screen all exist by now, and the
+  // router runs the disposer a stale mount returns rather than tearing down for it, so a no-op here kept them all (WebGL context included).
+  if (req.signal.aborted) abandon('left while the save kit loaded');
   if (resolvedMission) {
     try {
       // One ledger for the runtime and the loadout (GH-254), so the roster
@@ -4283,16 +4288,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /**
    * GH-1393: Save and quit. The mission is read at THIS instant (`cutMission`, synchronous: the sim is paused, and nothing can tick between
    * the read and the gzip), written, READ BACK and compared, and only then left. Any failure comes back as a line for the menu and leaves
-   * the mission running and the previous save in place. Returns null once the save is kept (and the player is on their way out).
+   * the mission running and the previous save in place. Returns null once the save is kept (and the player is on their way out), or once
+   * the battlefield is gone (torn down mid-save: no menu is left to read a line, and nothing is written or navigated).
    */
   const saveAndQuit = async (): Promise<SaveOutcome> => {
     const kit = await saveKit().catch(() => null);
+    if (disposed) return null; // left by another way while the kit loaded: nothing to cut, write or leave
     if (kit === null) return t('save.err.encode_failed');
     const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
     if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
     // The slot holds ONE save. Replacing another mission's is the player's decision, asked before anything is cut or written.
     const other = savedMissionOtherThan(openSuspendStore(() => window.localStorage), resolvedMission.id);
     if (!(await confirmReplaceOther(other, (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id]?.name))) return { declined: true };
+    if (disposed) return null; // torn down while the replace question was open: nothing to cut, write or leave
     const cut = cutMission({
       sim,
       runtime,
@@ -4305,6 +4313,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     });
     if (!cut.ok) return saveFailureText('encode_failed');
     const sealed = await sealMission(cut.cut);
+    if (disposed) return null; // left mid-gzip: no save of a mission the player left, and no navigation off where they went
     if (!sealed.ok) return saveFailureText(sealed.reason);
     const wrote = writeSuspended(openSuspendStore(() => window.localStorage), sealed.record);
     if (!wrote.ok) return saveFailureText(wrote.reason);
