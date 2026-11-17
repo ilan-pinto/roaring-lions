@@ -1425,8 +1425,14 @@ async function main(): Promise<void> {
   // start (`net/handoff.ts`). Same build string as the battlefield's, so the
   // room compares like with like (R8).
   const versusStore = safeStorageLike(() => window.localStorage);
+  // GH-1417 S3: the lobby offers a report only where feedback is offered (a production build on a real host, not closed by the switch).
+  const versusReportFeedback = browserFeedbackSession();
   const versusDeps: VersusDeps = {
     chatEnabled: () => settingsDeps.get().chat.enabled,
+    chatReport: {
+      offered: () => versusReportFeedback.shown && !feedbackClosed(),
+      send: (r, o) => versusReportFeedback.sendReport(r, o),
+    },
     open: async (req, signal) => {
       const kit = await versusKit();
       return kit.openRoom(req, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
@@ -4007,11 +4013,37 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  this one's own echoed back -- go to the HUD feed. The feed sets
    *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
    *  which escapes them. */
+  const seatIds: [string | null, string | null] = room !== null && netConfig !== null && !spectating ? rk().browserSeatIds(netConfig.code, match.labels) : [null, null];
   const chatInbox = room !== null && netConfig !== null && !spectating
-    ? rk().inboxOf(room, () => req.settings.get().chat.enabled)
+    ? rk().inboxOf(room, () => req.settings.get().chat.enabled, {
+        // Who sits where, for the persistent block: the lobby's labels, or the ids stored for this room when a reload left none.
+        who: { blocks: rk().browserBlockList(), publicIdOf: (seat) => seatIds[seat] },
+      })
     : null;
+  const reportFeedback = browserFeedbackSession();
   const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
-    ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
+    ? new (rk().NetChat)(document.body, {
+        send: (text) => room.chat(text),
+        nameOf: (seat) => seatName(seat),
+        inbox: chatInbox,
+        peer: netSeat === 0 ? 1 : 0,
+        // GH-1417 S3: Report, once the other seat has spoken, where this build offers feedback (a closed switch answers in the dialog).
+        ...(reportFeedback.shown
+          ? {
+              report: () => {
+                rk().openChatReport({
+                  host: document.body,
+                  port: { offered: () => true, send: (r, o) => reportFeedback.sendReport(r, o) },
+                  inbox: chatInbox,
+                  seat: netSeat,
+                  peer: netSeat === 0 ? 1 : 0,
+                  nameOf: (seat) => seatName(seat),
+                  map: netConfig.map,
+                });
+              },
+            }
+          : {}),
+      })
     : null;
   if (netChat !== null) onDispose(() => netChat.dispose());
   if (room !== null && netConfig !== null && !spectating && chatInbox !== null) {

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { createBlockList } from '../chat/block-list';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { maps, paletteTeamColors } from '@lions/data';
@@ -6,7 +7,7 @@ import { FACTION_MATCHUP_MAPS, FLAG_SETUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODE_FAIR_
 import { ANNOUNCE_AFTER_MOUNT_MS, CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { takeHanded } from '../net/handoff';
-import { isDialogOpen } from './confirm';
+import { closeOpenDialog, isDialogOpen } from './confirm';
 import { AdvisorRefused } from '../net/connect';
 import { missingKeys, setCatalogue } from '../i18n/t';
 import en from '../i18n/en.json';
@@ -1522,9 +1523,9 @@ describe('members, guests and bots (GH-1075 A3, Task 3.7)', () => {
     { seat: 0, callsign: 'Ari', connected: true, ready: false },
     { seat: 1, callsign: 'ignored', connected: true, ready: false, member: { name: 'Ilan', publicId: 'K7Q2M4XA', record: { won: 3, lost: 1, drawn: 0 } } },
   ];
-  async function hosted(seats: SeatState[]) {
+  async function hosted(seats: SeatState[], over: Partial<VersusDeps> = {}) {
     const { fake, transport } = fakeTransport();
-    const d = deps({ open: vi.fn().mockResolvedValue(opened(transport, { lobby: lobbyOf(seats) })) });
+    const d = deps({ open: vi.fn().mockResolvedValue(opened(transport, { lobby: lobbyOf(seats) })), ...over });
     const entry = document.createElement('div');
     const leave = showVersus(entry, d);
     entry.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
@@ -1568,6 +1569,56 @@ describe('members, guests and bots (GH-1075 A3, Task 3.7)', () => {
     const { fake, stage } = await hosted(MEMBER_SEATS);
     fake.hooks.onChat?.(1, 'hello');
     expect(stage.querySelector('.rl-chat__line')!.textContent).toContain('Ilan · K7Q2M4XA');
+  });
+  // GH-1417 S3: Block (a member, by public id) and Report in the lobby chat.
+  it('a blocked member\'s lobby line is never drawn, and the block is the one on the shared list', async () => {
+    setCatalogue('en', en);
+    const blocks = createBlockList(null);
+    blocks.add('K7Q2M4XA');
+    const { fake, stage } = await hosted(MEMBER_SEATS, { blocks });
+    fake.hooks.onChat?.(1, 'you cannot see this');
+    expect(stage.querySelector('.rl-chat__line')).toBeNull();
+    const btn = stage.querySelector<HTMLButtonElement>('.rl-chat__block')!;
+    expect(btn.hidden).toBe(false);
+    expect(btn.textContent).toBe('Unblock Ilan · K7Q2M4XA');
+  });
+  it('Block in the lobby writes the member\'s public id to the list and the next line is hidden', async () => {
+    setCatalogue('en', en);
+    const blocks = createBlockList(null);
+    const { fake, stage } = await hosted(MEMBER_SEATS, { blocks });
+    fake.hooks.onChat?.(1, 'first');
+    expect(stage.querySelectorAll('.rl-chat__line')).toHaveLength(1);
+    stage.querySelector<HTMLButtonElement>('.rl-chat__block')!.click();
+    expect(blocks.has('K7Q2M4XA')).toBe(true);
+    fake.hooks.onChat?.(1, 'second');
+    expect(stage.querySelectorAll('.rl-chat__line')).toHaveLength(1);
+  });
+  it('a guest has no Block button (they can only be muted), and a bot none either', async () => {
+    setCatalogue('en', en);
+    const { stage } = await hosted([MEMBER_SEATS[0]!, { seat: 1, callsign: 'Bo', connected: true, ready: false }]);
+    expect(stage.querySelector<HTMLButtonElement>('.rl-chat__block')!.hidden).toBe(true);
+    expect(stage.querySelector<HTMLButtonElement>('.rl-chat__mute')!.hidden).toBe(false);
+  });
+  it('Report shows once the other player has spoken, only where reports are offered, and opens the dialog', async () => {
+    setCatalogue('en', en);
+    const none = await hosted(MEMBER_SEATS);
+    expect(none.stage.querySelector('.rl-chat__report')).toBeNull();
+    const send = vi.fn();
+    const { fake, stage } = await hosted(MEMBER_SEATS, { chatReport: { offered: () => true, send } });
+    const btn = stage.querySelector<HTMLButtonElement>('.rl-chat__report')!;
+    expect(btn.hidden).toBe(true);
+    fake.hooks.onChat?.(1, 'rude');
+    expect(btn.hidden).toBe(false);
+    btn.click();
+    expect(document.querySelector('.rl-report-dialog')).not.toBeNull();
+    expect(document.querySelector('.rl-report__line')!.textContent).toBe('Ilan · K7Q2M4XA: rude');
+    closeOpenDialog();
+  });
+  it('no Report button where the port says reports are not offered (a closed switch, a build that does not send)', async () => {
+    setCatalogue('en', en);
+    const { fake, stage } = await hosted(MEMBER_SEATS, { chatReport: { offered: () => false, send: vi.fn() } });
+    fake.hooks.onChat?.(1, 'rude');
+    expect(stage.querySelector('.rl-chat__report')).toBeNull();
   });
   it('labels_reach_the_match', async () => {
     setCatalogue('en', en);

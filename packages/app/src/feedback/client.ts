@@ -22,9 +22,11 @@
  */
 import { markClosed } from './gate';
 import type { FeedbackMeta } from './meta';
+import type { ReportMeta } from './report';
 
 export interface FeedbackNote {
-  meta: FeedbackMeta;
+  /** A form note, or a report of another player's chat (`report.ts`, GH-1417 S3). */
+  meta: FeedbackMeta | ReportMeta;
   /** The picture, already encoded as WebP. Sent only from the pause form. */
   shot?: Blob | null;
   /** The replay log as JSON. Sent only with a Bug from the pause form. */
@@ -59,8 +61,8 @@ export interface ClientDeps {
 
 /** May this note carry a picture / a replay? The Worker refuses either part
  *  outside these cases with a 400, so the client never builds one. */
-export const mayAttachShot = (m: Pick<FeedbackMeta, 'source'>): boolean => m.source === 'pause';
-export const mayAttachReplay = (m: Pick<FeedbackMeta, 'source' | 'category'>): boolean =>
+export const mayAttachShot = (m: { source: string }): boolean => m.source === 'pause';
+export const mayAttachReplay = (m: { source: string; category: string }): boolean =>
   m.source === 'pause' && m.category === 'bug';
 
 /** The multipart body. Exported for its test: the parts are the contract. */

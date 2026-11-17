@@ -13,7 +13,7 @@ export const PRIVACY_CONTACT: string | null =
 /** The lead's minimum age (an integer 13 to 18). `null` until the lead decides it. */
 export const PRIVACY_MIN_AGE: number | null = 16;
 /** The date this text last changed. Set at merge. */
-export const PRIVACY_UPDATED = '2026-11-15';
+export const PRIVACY_UPDATED = '2026-11-17';
 
 /** PAGE_CSP with its inline-script allowance removed: this page has no script, so it may run none. */
 export const PRIVACY_PAGE_CSP = PAGE_CSP.replace("script-src 'unsafe-inline'", "script-src 'none'");
@@ -99,6 +99,9 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 
 <h2>Signing in with Steam</h2>
 <p>Sign-in through Steam is paused for now. If you already linked a Steam account, what is kept about it is listed above.</p>
+
+<h2>Reports of another player's chat</h2>
+<p>If you report a player from the chat box of a versus room, we keep that report for 180 days and then delete all of it. It holds the last messages your game received in that room (at most ten, including any you had muted or blocked, as your game received them and unchecked), the reason you chose and any note you typed, the map, the other player's public ID if they are a signed-in member (never anything for a guest), and the random session ID your browser uses for feedback, which is not tied to an account. Only the project lead reads reports, and nothing happens to the other player automatically. Chat messages are not stored anywhere else: a room relays them and keeps none. Your block list stays in this browser and is never sent.</p>
 
 <h2>What rate limiting keeps</h2>
 <p>A daily keyed hash of the connecting address, which cannot be turned back into the address. It is deleted after two days.</p>

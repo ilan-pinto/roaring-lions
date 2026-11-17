@@ -52,6 +52,11 @@ export const FEEDBACK_LIMITS = {
    *  smaller ceiling, so a flood of them cannot spend the global one. */
   anonymous: { max: 100, windowMs: DAY },
   global: { max: 500, windowMs: DAY },
+  /** GH-1417 S3 (the lead's D7): reports ride the limits above AND have their own, so a session cannot flood the triage list with
+   *  them: 5 a session in 10 minutes, and a smaller shared ceiling for reports that name no session (a player who opted out of telemetry
+   *  can still report). */
+  report: { max: 5, windowMs: 10 * 60_000 },
+  reportAnonymous: { max: 20, windowMs: 10 * 60_000 },
 } as const;
 /** #559 M-4: notes a day from one address, counted in D1 under a keyed hash
  *  with a daily salt (`rate-day.ts`): an address is never stored. Inventing
@@ -100,6 +105,18 @@ async function limitedFor(env: Env, column: 'session' | 'player' | 'anonymous' |
   const row = await env.DB.prepare(sql).bind(...args).first<{ received_at: number }>();
   if (!row) return null;
   return Math.max(1, Math.ceil((row.received_at + windowMs - now) / 1000));
+}
+
+/** GH-1417 S3: the report limit. Counts only `report` rows, by session, or the session-less ones together when there is no session. */
+async function limitedForReports(env: Env, session: string | undefined, now: number): Promise<number | null> {
+  const L = session === undefined ? FEEDBACK_LIMITS.reportAnonymous : FEEDBACK_LIMITS.report;
+  const sql =
+    session === undefined
+      ? `SELECT received_at FROM feedback WHERE category = 'report' AND session IS NULL AND received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?`
+      : `SELECT received_at FROM feedback WHERE category = 'report' AND session = ? AND received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?`;
+  const args = session === undefined ? [now - L.windowMs, L.max - 1] : [session, now - L.windowMs, L.max - 1];
+  const row = await env.DB.prepare(sql).bind(...args).first<{ received_at: number }>();
+  return row ? Math.max(1, Math.ceil((row.received_at + L.windowMs - now) / 1000)) : null;
 }
 
 /** Whether `want` more attachment bytes stay inside both D1 budgets. */
@@ -223,6 +240,7 @@ export async function handleFeedback(req: Request, env: Env, now: number): Promi
     const L = FEEDBACK_LIMITS;
     const anonymous = meta.player === undefined && meta.session === undefined;
     const wait =
+      (meta.category === 'report' ? await limitedForReports(env, meta.session, now) : null) ??
       (await limitedFor(env, 'session', meta.session, L.session.max, L.session.windowMs, now)) ??
       (await limitedFor(env, 'player', meta.player, L.player.max, L.player.windowMs, now)) ??
       (anonymous ? await limitedFor(env, 'anonymous', undefined, L.anonymous.max, L.anonymous.windowMs, now) : null) ??

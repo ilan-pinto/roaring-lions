@@ -11,14 +11,14 @@ const member = { name: 'Ilan', publicId: 'K7Q2M4XA' };
 describe('seatLabel (GH-1075 A3)', () => {
   it('a member reads name · public id, tagged, with its record when shown', () => {
     setCatalogue('en', en);
-    expect(seatLabel({ callsign: 'x', member: { ...member, record: { won: 3, lost: 1, drawn: 0 } } }, 'human')).toEqual({ text: 'Ilan · K7Q2M4XA', tag: 'member', record: '3-1', model: null });
+    expect(seatLabel({ callsign: 'x', member: { ...member, record: { won: 3, lost: 1, drawn: 0 } } }, 'human')).toEqual({ text: 'Ilan · K7Q2M4XA', tag: 'member', record: '3-1', model: null, publicId: 'K7Q2M4XA' });
     expect(seatLabel({ callsign: 'x', member: { ...member, record: { won: 3, lost: 1, drawn: 2 } } }, 'human').record).toBe('3-1-2');
     expect(seatLabel({ callsign: 'x', member }, 'human')).toMatchObject({ record: null, tag: 'member' });
   });
   it('a seat with no member is a guest, or a bot', () => {
     setCatalogue('en', en);
-    expect(seatLabel({ callsign: 'Lion' }, 'human')).toEqual({ text: 'Lion', tag: 'guest', record: null, model: null });
-    expect(seatLabel({ callsign: 'Bot' }, 'bot')).toEqual({ text: 'Bot', tag: 'bot', record: null, model: null });
+    expect(seatLabel({ callsign: 'Lion' }, 'human')).toEqual({ text: 'Lion', tag: 'guest', record: null, model: null, publicId: null });
+    expect(seatLabel({ callsign: 'Bot' }, 'bot')).toEqual({ text: 'Bot', tag: 'bot', record: null, model: null, publicId: null });
   });
   it('a sandbox room shows no tag', () => {
     expect(seatLabel({ callsign: 'Lion' }, 'human', { sandbox: true }).tag).toBeNull();

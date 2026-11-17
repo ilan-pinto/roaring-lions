@@ -1939,6 +1939,102 @@ body[data-outcome-beat] .rl-aar {
   overflow: auto;
 }
 
+/* GH-1417 S3: the chat report dialog (ui/chat-report.ts), the feedback dialog's skeleton with its own form. */
+.rl-report-dialog__panel {
+  width: min(32rem, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+}
+.rl-report,
+.rl-report__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.rl-report[hidden],
+.rl-report__result[hidden] {
+  display: none;
+}
+.rl-report__lede {
+  margin: 0;
+  color: var(--ink-dim);
+  font: var(--t-m) / 1.45 var(--font-body);
+}
+.rl-report__reasons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.rl-report__label {
+  margin: 0;
+  padding: 0;
+  font: 600 var(--t-s) var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-report__reason {
+  color: var(--ink);
+  font: var(--t-m) / 1.5 var(--font-body);
+}
+.rl-report__note {
+  box-sizing: border-box;
+  width: 100%;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame);
+  font: var(--t-m) / 1.5 var(--font-body);
+  padding: var(--s2);
+  resize: vertical;
+}
+.rl-report__sends {
+  color: var(--ink-mute);
+  font: var(--t-s) / 1.5 var(--font-body);
+}
+.rl-report__sends summary {
+  cursor: pointer;
+  color: var(--ink-dim);
+}
+.rl-report__lines {
+  margin: var(--s1) 0 0;
+  padding-inline-start: var(--s4);
+  max-height: 8rem;
+  overflow-y: auto;
+}
+.rl-report__line {
+  overflow-wrap: anywhere;
+}
+.rl-report__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.rl-report__fine {
+  margin: 0;
+  color: var(--ink-mute);
+  font: var(--t-s) / 1.5 var(--font-body);
+}
+.rl-report__result {
+  align-items: flex-start;
+  padding-block: var(--s3);
+}
+.rl-report__result-title {
+  margin: 0;
+  font: 800 var(--t-xl) / 1 var(--font-display);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-report__result-body {
+  margin: 0;
+  color: var(--ink);
+  font: var(--t-read) / 1.45 var(--font-body);
+}
+
 /* The debrief's rating prompt, in the report's foot above the nav. */
 .rl-rate {
   display: flex;
@@ -9253,7 +9349,9 @@ fieldset.rl-versus__maps {
   color: var(--ink-mute);
 }
 /* The mute toggle beside the input; aria-pressed carries the state, the label names the action. */
-.rl-chat__mute {
+.rl-chat__mute,
+.rl-chat__block,
+.rl-chat__report {
   flex: none;
   background: var(--panel-bg-solid);
   color: var(--ink);
@@ -9263,7 +9361,12 @@ fieldset.rl-versus__maps {
   padding: var(--s1) var(--s2);
   cursor: pointer;
 }
-.rl-chat__mute[aria-pressed='true'] {
+.rl-chat__block[hidden],
+.rl-chat__report[hidden] {
+  display: none;
+}
+.rl-chat__mute[aria-pressed='true'],
+.rl-chat__block[aria-pressed='true'] {
   color: var(--ink);
   background: var(--selected-fill);
   border-color: var(--selected);

@@ -78,7 +78,7 @@ describe('the privacy page', () => {
     for (const m of ['Google', 'do not ask Google for your email', "third-party access page", 'We hold no Google token', '"openid" scope only', 'SteamID', 'Sign-in through Steam is paused']) expect(html, m).toContain(m);
     const never = html.split('What is never stored')[1]?.split('</ul>')[0] ?? '';
     expect(never).toContain('Google email address, name and profile picture');
-    expect(PRIVACY_UPDATED).toBe('2026-11-15');
+    expect(PRIVACY_UPDATED).toBe('2026-11-17');
   });
 
   it('GH-695 D14 names_the_admin_view: what the team sees, the logging, the export, and no provider number', () => {
@@ -130,3 +130,26 @@ describe('the privacy page', () => {
     expect(privacyValues(PRIVACY_CONTACT, PRIVACY_MIN_AGE)).not.toBeNull();
   });
 });
+
+// GH-1417 S3 (the lead's ruling of 17 Nov): ONE paragraph on what a report keeps, who reads it and when it goes. HOLD FOR LEAD on the wording.
+describe('the paragraph on reports of another player\'s chat', () => {
+  const section = (): string => renderPrivacy(fixtureValues).split("Reports of another player's chat")[1]?.split('<h2>')[0] ?? '';
+  it('says what a report keeps, who reads it, that nothing is automatic, and that it is deleted at 180 days', () => {
+    const t = section();
+    for (const m of [
+      'we keep that report for 180 days and then delete all of it',
+      'at most ten',
+      'including any you had muted or blocked',
+      "the other player's public ID if they are a signed-in member (never anything for a guest)",
+      'random session ID',
+      'Only the project lead reads reports',
+      'nothing happens to the other player automatically',
+      'Chat messages are not stored anywhere else',
+      'Your block list stays in this browser and is never sent',
+    ]) expect(t, m).toContain(m);
+  });
+  it('is exactly one paragraph', () => {
+    expect((section().match(/<p>/g) ?? []).length).toBe(1);
+  });
+});
+

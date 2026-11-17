@@ -54,7 +54,9 @@ import { markConfirm } from './confirm-cue';
 import { footBack, screenFoot } from './foot';
 import { stagger } from './motion';
 import { NetChat } from './net-chat';
-import { inboxOf } from './chat-inbox';
+import { inboxOf, type InboxWho } from './chat-inbox';
+import { openChatReport, type ChatReportPort } from './chat-report';
+import { browserBlockList, type BlockList } from '../chat/block-list';
 import { symbolLabel } from './symbol';
 import { unitName } from '../unit-text';
 import { factionArt, factionBlurb, factionName, friendSide, hostSide, matchupLabel } from './versus-faction';
@@ -114,7 +116,17 @@ export interface VersusDeps {
   saveData?: () => boolean;
   /** Whether the player has chat on (Settings, Chat; GH-1417 S1), read at every line. Absent is on. */
   chatEnabled?: () => boolean;
+  /** GH-1417 S3: the local block list (members, by public id); absent is the browser's own. */
+  blocks?: BlockList;
+  /** GH-1417 S3: reports of the other player's chat. Absent: the lobby shows no Report button. */
+  chatReport?: ChatReportPort;
 }
+
+/** Who sits in a seat, for the inbox's block: a member's public id from the lobby's labels, else null. */
+const whoOf = (room: Pick<Room, 'labels'>, deps: VersusDeps): InboxWho => ({
+  blocks: deps.blocks ?? browserBlockList(),
+  publicIdOf: (seat) => room.labels[seat]?.publicId ?? null,
+});
 
 /** Where the lobby tells a player to save the copied advisor ticket: a private
  *  file the command reads (`--ticket-file`). A ticket on a command line shows
@@ -269,7 +281,7 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
     },
     // The room echoes every line to both seats, this one's own included. A line reaches the log only through the room's inbox
     // (`chat-inbox.ts`): what is off or muted is never drawn, here or in the match's feed.
-    onChat: (seat, text) => inboxOf(room.transport, deps.chatEnabled ?? (() => true)).deliver(seat, text, (shown) => room.chat?.receive(seat, shown)),
+    onChat: (seat, text) => inboxOf(room.transport, deps.chatEnabled ?? (() => true), { who: whoOf(room, deps) }).deliver(seat, text, (shown) => room.chat?.receive(seat, shown)),
     // The badges: the transport clears them on a reconnect, before the room's next say.
     onAdvisors: (present) => {
       room.advisors = present;
@@ -1129,11 +1141,17 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     chat.setAttribute('role', 'region');
     chat.setAttribute('aria-label', t('versus.room.chat'));
     r.chat?.dispose();
+    const chatInbox = inboxOf(r.transport, deps.chatEnabled ?? (() => true), { who: whoOf(r, deps) });
+    const peer: Seat = r.seat === 0 ? 1 : 0;
+    const chatName = (seat: Seat): string => nameFrom(r.labels, seat, r.seats.find((x) => x.seat === seat)?.callsign ?? '');
     r.chat = new NetChat(chat, {
       send: (text) => r.transport.chat(text),
-      nameOf: (seat) => nameFrom(r.labels, seat, r.seats.find((x) => x.seat === seat)?.callsign ?? ''),
-      inbox: inboxOf(r.transport, deps.chatEnabled ?? (() => true)),
-      peer: r.seat === 0 ? 1 : 0,
+      nameOf: chatName,
+      inbox: chatInbox,
+      peer,
+      ...(deps.chatReport?.offered() === true
+        ? { report: () => openChatReport({ host: document.body, port: deps.chatReport as ChatReportPort, inbox: chatInbox, seat: r.seat, peer, nameOf: chatName, map: r.map }) }
+        : {}),
     }, { docked: true });
 
     // Built once: only this seat's card ever holds it, and a repaint moves it.

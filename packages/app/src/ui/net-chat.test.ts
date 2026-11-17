@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Seat } from '@lions/net';
 import { NetChat, chatFeedLine, chatOpens, roomEnterAction, type ChatDeps } from './net-chat';
 import { ChatInbox } from './chat-inbox';
+import { createBlockList } from '../chat/block-list';
 
 const NAMES: Record<Seat, string> = { 0: 'A', 1: 'B' };
 
@@ -301,3 +302,100 @@ describe('NetChat with an inbox', () => {
     expect(parent.querySelector('.rl-chat')).toBeNull();
   });
 });
+
+// GH-1417 S3: Block (members only) and Report (once the other seat has spoken).
+describe('NetChat block and report', () => {
+  const MEMBER = 'ABCDEFG1';
+  const build = (o: { member: boolean; report?: boolean; docked?: boolean }) => {
+    const blocks = createBlockList(null);
+    const inbox = new ChatInbox(() => true);
+    inbox.useWho({ blocks, publicIdOf: (seat) => (o.member && seat === 1 ? MEMBER : null) });
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const report = vi.fn();
+    const chat = new NetChat(parent, { send: vi.fn(), nameOf: (seat) => NAMES[seat], inbox, peer: 1, ...(o.report === false ? {} : { report }) }, { docked: o.docked === true });
+    const q = <T extends HTMLElement>(sel: string): T => parent.querySelector<T>(sel)!;
+    return { chat, inbox, blocks, report, q, parent };
+  };
+
+  it('shows Block for a member and hides it for a guest (a guest can only be muted)', () => {
+    expect(build({ member: true }).q('.rl-chat__block').hidden).toBe(false);
+    expect(build({ member: false }).q('.rl-chat__block').hidden).toBe(true);
+  });
+
+  it('Block blocks the member on the list, flips to Unblock with aria-pressed, and hides their later lines', () => {
+    const { q, inbox, blocks } = build({ member: true });
+    expect(q('.rl-chat__block').textContent).toBe('Block B');
+    q<HTMLButtonElement>('.rl-chat__block').click();
+    expect(blocks.has(MEMBER)).toBe(true);
+    expect(q('.rl-chat__block').textContent).toBe('Unblock B');
+    expect(q('.rl-chat__block').getAttribute('aria-pressed')).toBe('true');
+    const shown: string[] = [];
+    inbox.deliver(1, 'hello', (t) => shown.push(t));
+    expect(shown).toEqual([]);
+    q<HTMLButtonElement>('.rl-chat__block').click();
+    expect(blocks.has(MEMBER)).toBe(false);
+  });
+
+  it('Report is hidden until the other seat has spoken, then appears; it is hidden again for a seat that never spoke', () => {
+    const { q, inbox } = build({ member: true });
+    expect(q('.rl-chat__report').hidden).toBe(true);
+    inbox.deliver(0, 'my own line', () => undefined);
+    expect(q('.rl-chat__report').hidden).toBe(true);
+    inbox.deliver(1, 'theirs', () => undefined);
+    expect(q('.rl-chat__report').hidden).toBe(false);
+    expect(q('.rl-chat__report').textContent).toBe('Report B');
+  });
+
+  it('has no Report button at all where reports are not offered', () => {
+    const { parent } = build({ member: true, report: false });
+    expect(parent.querySelector('.rl-chat__report')).toBeNull();
+  });
+
+  it('Report opens the dialog; in the match the chat closes first, in the lobby the typed text is kept', () => {
+    const match = build({ member: true });
+    match.chat.open();
+    match.inbox.deliver(1, 'x', () => undefined);
+    match.q<HTMLInputElement>('.rl-chat__input').value = 'half typed';
+    match.q<HTMLButtonElement>('.rl-chat__report').click();
+    expect(match.report).toHaveBeenCalledTimes(1);
+    expect(match.q('.rl-chat__entry').hidden).toBe(true);
+
+    const lobby = build({ member: true, docked: true });
+    lobby.inbox.deliver(1, 'x', () => undefined);
+    lobby.q<HTMLInputElement>('.rl-chat__input').value = 'half typed';
+    lobby.q<HTMLButtonElement>('.rl-chat__report').click();
+    expect(lobby.report).toHaveBeenCalledTimes(1);
+    expect(lobby.q<HTMLInputElement>('.rl-chat__input').value).toBe('half typed');
+  });
+
+  it('a press on Block or Report does not take focus from the input (the match would close it)', () => {
+    const { q } = build({ member: true });
+    for (const sel of ['.rl-chat__block', '.rl-chat__report']) {
+      const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      q(sel).dispatchEvent(ev);
+      expect(ev.defaultPrevented, sel).toBe(true);
+    }
+  });
+
+  it('the new buttons keep the game\'s keys out and Escape closes the match chat, as the mute button does', () => {
+    const { q, chat } = build({ member: true });
+    chat.open();
+    for (const sel of ['.rl-chat__block', '.rl-chat__report']) {
+      const seen = vi.fn();
+      document.addEventListener('keydown', seen);
+      key(q(sel), 'w');
+      expect(seen, sel).not.toHaveBeenCalled();
+      document.removeEventListener('keydown', seen);
+    }
+    key(q('.rl-chat__block'), 'Escape');
+    expect(q('.rl-chat__entry').hidden).toBe(true);
+  });
+
+  it('dispose removes the new buttons\' listeners and the whole chat', () => {
+    const { chat, parent } = build({ member: true });
+    chat.dispose();
+    expect(parent.querySelector('.rl-chat')).toBeNull();
+  });
+});
+

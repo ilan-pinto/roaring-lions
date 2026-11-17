@@ -17,6 +17,8 @@ export interface SeatLabel {
   tag: 'member' | 'guest' | 'bot' | null;
   record: string | null;
   model: string | null;
+  /** A member's full public id (GH-1417 S3: what a block and a report name); null for a guest or a bot, who have none to give. */
+  publicId: string | null;
 }
 
 const modelText = (m: BotModel | undefined): string | null => {
@@ -41,12 +43,13 @@ export function seatLabel(
       tag: opts.sandbox === true ? null : 'member',
       record: s.member.record === undefined ? null : recordText(s.member.record),
       model: null,
+      publicId: s.member.publicId,
     };
   }
   if (kind === 'bot') {
-    return { text: s.callsign, tag: opts.sandbox === true ? null : 'bot', record: null, model: modelText(s.botModel) };
+    return { text: s.callsign, tag: opts.sandbox === true ? null : 'bot', record: null, model: modelText(s.botModel), publicId: null };
   }
-  return { text: s.callsign, tag: opts.sandbox === true ? null : 'guest', record: null, model: null };
+  return { text: s.callsign, tag: opts.sandbox === true ? null : 'guest', record: null, model: null, publicId: null };
 }
 
 /** The label of each seat the lobby named, by seat; a seat it did not name is null. */
