@@ -332,6 +332,17 @@ export {
   type PostureCatalogue,
 } from './overlays';
 
+/** GH-1389: the versus computer seat's three levels, each a stated handicap on its force size. */
+export {
+  computerLevels,
+  computerLevelOf,
+  withholdOf,
+  COMPUTER_LEVEL_IDS,
+  type ComputerLevelId,
+  type ComputerLevelJson,
+  type ComputerLevelCatalogue,
+} from './computer-levels';
+
 export {
   versusMissionOf,
   versusCapacityOf,
