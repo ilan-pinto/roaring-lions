@@ -111,6 +111,32 @@ describe('escort through the work (GH-1439): R1 to R7, the same literals the run
   });
 });
 
+describe('an escort whose tag only a passenger carries (GH-1439 follow-up)', () => {
+  // The runtime tags a rider like any spawn (`escort (GH-2)` "an escort carried by a carrier"); the validator used to refuse it with
+  // "needs a tag on a starting_force placement" because it looked at the placements alone.
+  const riders = (extra: Obj = {}): Obj => ({ unit: 'carrier', count: 1, at: [3, 5], passengers: [{ unit: 'rider', count: 2, tag: 'vip' }], ...extra });
+  const withForce = (...p: Obj[]): Obj => ({ starting_force: force(...p) });
+  it('accepts a tag carried by a passenger and by no placement', () => {
+    expect(run(escort(), [hold], withForce(riders()))).toEqual([]);
+  });
+  it('still refuses a tag no placement and no passenger carries', () => {
+    expect(run(escort(), [hold], withForce(riders({ passengers: [{ unit: 'rider', count: 2, tag: 'other' }] })))[0]).toContain('needs a tag on a starting_force placement');
+    expect(run(escort(), [hold], withForce(riders({ passengers: [{ unit: 'rider', count: 2 }] })))[0]).toContain('needs a tag on a starting_force placement');
+  });
+  it('counts the riders for fail_after_losses (R3): two riders allow 2 and refuse 3', () => {
+    expect(run(escort({ fail_after_losses: 2 }), [hold], withForce(riders()))).toEqual([]);
+    expect(run(escort({ fail_after_losses: 3 }), [hold], withForce(riders()))).toEqual(['fx.json: escort "vip" fail_after_losses 3 cannot exceed the 2 units tagged "vip"']);
+  });
+  it('does not call the starts-inside fault on a rider-only tag, even when the carrier stands in the zone (the runtime reads the bodies)', () => {
+    expect(run(escort(), [hold], withForce(riders({ at: [21, 5], passengers: [{ unit: 'rider', count: 1, tag: 'vip' }] })))).toEqual([]);
+    // control: the same position on a DIRECTLY tagged single unit is still the fault
+    expect(run(escort(), [hold], withForce({ unit: 'u', count: 1, at: [21, 5], tag: 'vip' }))).toEqual(['fx.json: escort "vip" starts inside zone "dest", so it would complete on the first tick']);
+  });
+  it('a directly tagged carrier with tagged riders still gets the starts-inside check on the carrier', () => {
+    expect(run(escort(), [hold], withForce({ unit: 'carrier', count: 1, at: [21, 5], tag: 'vip', passengers: [{ unit: 'rider', count: 1, tag: 'vip' }] }))).toHaveLength(1);
+  });
+});
+
 describe('no_collateral_above', () => {
   it('passes a whole threshold from 0 to 100 beside another primary', () => {
     for (const threshold of [0, 30, 100]) expect(run(ceiling({ threshold }), [hold]), String(threshold)).toEqual([]);

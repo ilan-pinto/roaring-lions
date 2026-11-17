@@ -152,6 +152,13 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   toggle and, when chat is off, a line saying so instead of the input. `chat-inbox-guard.test.ts` reads the source and fails when a
   third place hooks `onChat` or a sink stops going through `.deliver(`. Not in this slice, waiting for the lead: word filter,
   persistent block, report, kill switch.
+- **Settings wears the account page (GH-1510).** `ui/settings-panel.ts` draws each section as one of the profile's
+  cards (`ui/page-card.ts`, which `ui/profile.ts` uses too; the classes keep their `rl-profile__` names so the
+  profile's pins and crest echo do not move). Wide column: Video, Audio; narrow: Accessibility, Privacy, Chat, Language;
+  Controls full width under both. The pause menu's Settings tab mounts the same panel, so the drop to one column is a
+  container query on `.rl-settings__content` (48rem), not a media query. A new row goes into its section's card body
+  (`row(table, ...)` after that section's `table = section(...)`); a new section needs a `SectionKey` and a title strip
+  in `theme.css` (`settings-css.test.ts` fails without one). Presentation only: no setting, field or default moved.
 - **Two more `localStorage` keys, beside the ledger/account pair below.**
   `lions.settings` (`packages/app/src/settings.ts`, the only reader and writer)
   holds video/audio/controls/accessibility/language and is the only thing that
@@ -183,7 +190,7 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   default colours were measured NOT to collapse under any simulated deficiency,
   and the one variant with a relational gate buys 1.5 ΔE, below the 2.3
   just-noticeable difference.
-- `pnpm ui:shots -- [--pseudo] [--res=…] [--out=…] [--port=…]` (`tools/src/ui-review/shoot.ts`) boots its own dev server and photographs every shell screen at three resolutions, and since Task 13 that walk covers settings, credits, saves, the pause menu (`Escape` in a running mission) and a scripted `debugKill`-forced defeat plus its debrief, with `--pseudo` swapping the catalogue for the bracketed pseudo-locale first.
+- `pnpm ui:shots -- [--pseudo[=rtl] | --lang=<id>[,<id>…] | --lang=all] [--res=…] [--out=…] [--port=…]` (`tools/src/ui-review/shoot.ts`) boots its own dev server and photographs every shell screen at three resolutions, and since Task 13 that walk covers settings, credits, saves, the pause menu (`Escape` in a running mission) and a scripted `debugKill`-forced defeat plus its debrief, with `--pseudo` swapping the catalogue for the bracketed pseudo-locale first. `--pseudo=rtl` is the mirrored pseudo-locale. `--lang=<id>` (GH-1406/GH-1407, the lead's ruling D9 on PR 1474) walks once per listed locale with `?lang=<id>` on every navigation, into `<out>/<id>/<WxH>/`, and prints the overflow probe's total per locale; `--lang=all` is every `LOCALES` id but `en`, and with none shipped it prints one line and exits 0 before a port, server or browser is touched. An id `LOCALES` does not list is refused (exit 2), because the app ignores it and would draw English under that name; so is `--pseudo` with `--lang`. CI's `visual` job runs `--lang=all` as a report-only step. Rules and tests: `tools/src/ui-review/shot-locales.ts`.
   After each shot it also prints every element inside `.rl-menu`/`.rl-panel`/
   `.rl-garage` whose content is wider than its own box, by selector — a printed
   REPORT and deliberately not a gate, because a threshold on "how much overflow
