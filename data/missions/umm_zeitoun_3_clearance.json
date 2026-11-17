@@ -55,7 +55,10 @@
   ],
   "resources": {
     "logistics_start": 400,
-    "logistics_rate_per_min": 80
+    "logistics_rate_per_min": 80,
+    "income_zones": [
+      { "zone": "hamlet", "rate_per_min": 32 }
+    ]
   },
   "structures": [
     { "type": "militia_observation_post", "at": [42, 31], "size": [1, 1] }
