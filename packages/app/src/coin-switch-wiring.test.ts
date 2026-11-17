@@ -46,6 +46,24 @@ describe('the coin switch reaches production through its default', () => {
     for (const f of ['main.ts', 'account/boot.ts']) expect(read(f), f).not.toMatch(/cosmeticOnly|COINS_COSMETIC_ONLY/);
   });
 
+  // N1 (delta review): the other two production roots. A literal there would keep the old reset or the old spend gate
+  // open after the flip, and the specs build memory stores and inject deps, so only the source can see it.
+  it('ledger-store.ts: the shipping browserLedgerStore passes overStorage three arguments, so the fourth is the constant', () => {
+    const src = read('ledger-store.ts');
+    const body = src.slice(src.indexOf('export function browserLedgerStore'));
+    const calls = callArgs(body.slice(0, body.indexOf('\n}\n')), 'overStorage');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toHaveLength(3);
+  });
+
+  it('worker routes.ts: DEFAULT_DEPS never sets coinsCosmeticOnly, so the Worker reads the constant', () => {
+    const src = read('../../worker/src/account/routes.ts');
+    // The `AccountDeps` field declaration is the one legal mention; the default object and accountDepsFor must not name it.
+    const at = src.indexOf('const DEFAULT_DEPS');
+    expect(at).toBeGreaterThan(0);
+    expect(src.slice(at)).not.toMatch(/osmeticOnly|COINS_COSMETIC_ONLY/);
+  });
+
   it('the guard can see a fifth argument (the splitter is not vacuous)', () => {
     expect(callArgs('buyWithCoins(a(1, 2), { b: [3, 4] }, c, d, false)', 'buyWithCoins')).toEqual([['a(1, 2)', '{ b: [3, 4] }', 'c', 'd', 'false']]);
   });

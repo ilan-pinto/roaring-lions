@@ -149,6 +149,33 @@ describe('POST reset-free and the switch', () => {
     expect(await kinds(h)).toEqual(['claim', 'unit', 'tier', 'reset']);
   });
 
+  // N2 (delta review): a member with a campaign row. The seeded wallet has none, so the ON arm used to take the
+  // `camp === null` branch only and nothing saw `spend.ts` keep the brigade. Credits go; coins, earn and entitlements stay.
+  it('ON, with a campaign row: the credit brigade is emptied; earn, the balance and the entitlements are unchanged', async () => {
+    const flag = { on: false as boolean | undefined };
+    const h = setup(flag);
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0, { free: 1000 });
+    expect((await spend(h, cookie, UNIT)).status).toBe(200);
+    expect((await spend(h, cookie, TIER)).status).toBe(200);
+    const brigade = { ...emptyAccount(), balance: 700, earned_total: 900, grants: [{ source: 'granted', amount: 900, at: 1 }] };
+    await h.db.prepare("INSERT INTO campaign_state (member_id, ledger, brigade, bytes, updated_at) VALUES ('m1', '{}', ?1, 10, ?2)").bind(JSON.stringify(brigade), T0).run();
+    const earn = '{"welcomed":true,"campaignDone":false,"backfilled":false,"missions":{"x":{"won":true,"stars":2}}}';
+    // Precondition: the seeded brigade survives the stored round trip, so emptying it below is the reset's doing.
+    expect(JSON.parse((await h.db.prepare('SELECT brigade FROM campaign_state').first<{ brigade: string }>())?.brigade ?? '{}')).toMatchObject({ balance: 700 });
+    await h.db.prepare("UPDATE wallet SET earn = ?1").bind(earn).run();
+    flag.on = true;
+    const r = await h.call('POST', '/api/account/reset-free', { cookie, body: { op_id: op() } });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { campaign: { brigade: unknown } };
+    expect(body.campaign.brigade).toEqual(emptyAccount());
+    const row = await h.db.prepare('SELECT brigade FROM campaign_state').first<{ brigade: string }>();
+    expect(JSON.parse(row?.brigade ?? '{}')).toEqual(emptyAccount());
+    expect((await h.db.prepare('SELECT earn FROM wallet').first<{ earn: string }>())?.earn).toBe(earn);
+    expect(await freeOf(h)).toBe(1000 - 60 - 15);
+    expect(await entitlementsOf(h)).toEqual(BOUGHT);
+    expect(await kinds(h)).toEqual(['claim', 'unit', 'tier']);
+  });
+
   it('ON: the coin-bought unit and tier and the balance stay; no journal row claims coins were cleared', async () => {
     const { h, cookie, body } = await boughtThenReset(true);
     expect(await freeOf(h)).toBe(1000 - 60 - 15);

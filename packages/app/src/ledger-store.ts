@@ -303,8 +303,9 @@ function overStorage(backend: StorageLike | null, backfill?: RoarBackfill, refus
     resetAccount: (): BrigadeAccount => {
       if (!store) return emptyAccount();
       // The brigade screen's reset also clears the wallet's FREE half (balance,
-      // free entitlements, the earn record), never the paid. With no wallet
-      // stored there is nothing to clear and nothing is written.
+      // free entitlements, the earn record), never the paid, but only with the
+      // coins-cosmetic-only switch OFF: with it on the wallet is kept whole (E13).
+      // With no wallet stored there is nothing to clear and nothing is written.
       // Both or neither: the wallet's free half is cleared first, and put back
       // if removing the account then fails, so a refusal never leaves the
       // account gone with the free coins it paid still in the wallet.
