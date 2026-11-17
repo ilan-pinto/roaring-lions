@@ -63,6 +63,7 @@ import {
   commanderRankFailures,
   narrativeTextFailures,
   englishCatalogueFailures,
+  englishUnitFailures,
   overlayFailures,
   unitOverlayFailures,
   removeTriggerFailures,
@@ -196,6 +197,8 @@ function validateFile(file, validate, schemaName) {
 // --- schema validation ------------------------------------------------------
 // Shared $defs (unlock) live in common.schema.json; unit and structure refer to it by relative $ref.
 ajv.addSchema(JSON.parse(readFileSync(join(ROOT, 'data/schemas/common.schema.json'), 'utf8')));
+// GH-1394: the closed overlay operation set, shared by the difficulty postures and (GH-1395) the amendments.
+ajv.addSchema(JSON.parse(readFileSync(join(ROOT, 'data/schemas/overlay_ops.schema.json'), 'utf8')));
 const schemas = {
   unit: loadJson(join(ROOT, 'data/schemas/unit.schema.json')),
   mission: loadJson(join(ROOT, 'data/schemas/mission.schema.json')),
@@ -221,6 +224,7 @@ const schemas = {
   coupons: loadJson(join(ROOT, 'data/schemas/coupons.schema.json')),
   avatarPresets: loadJson(join(ROOT, 'data/schemas/avatar_presets.schema.json')),
   minWin: loadJson(join(ROOT, 'data/schemas/min_win_seconds.schema.json')),
+  difficulty: loadJson(join(ROOT, 'data/schemas/difficulty.schema.json')),
   arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
   arenaPlayers: loadJson(join(ROOT, 'data/schemas/arena-public-players.schema.json')),
   chatFilter: loadJson(join(ROOT, 'data/schemas/chat_filter.schema.json')),
@@ -230,7 +234,7 @@ let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -254,6 +258,7 @@ if (
     coupons: ajv.compile(schemas.coupons),
     avatarPresets: ajv.compile(schemas.avatarPresets),
     minWin: ajv.compile(schemas.minWin),
+    difficulty: ajv.compile(schemas.difficulty),
     arenaResults: ajv.compile(schemas.arenaResults),
     arenaPlayers: ajv.compile(schemas.arenaPlayers),
     chatFilter: ajv.compile(schemas.chatFilter),
@@ -286,6 +291,7 @@ if (
   checked += validateFile(join(ROOT, 'data/coupons.json'), validators.coupons, 'coupons.schema');
   checked += validateFile(join(ROOT, 'data/avatars/presets.json'), validators.avatarPresets, 'avatar_presets.schema');
   checked += validateFile(join(ROOT, 'data/accounts/min_win_seconds.json'), validators.minWin, 'min_win_seconds.schema');
+  checked += validateFile(join(ROOT, 'data/difficulty/postures.json'), validators.difficulty, 'difficulty.schema');
   // GH-954 public-arena P2: the publisher's allow-list is always there; results.json exists only once the lead has
   // published (P4), and when it does it must pass its closed schema, its deny scan and its digest (G2, G3, G14).
   checked += validateFile(join(ROOT, 'data/arena/public-players.json'), validators.arenaPlayers, 'arena-public-players.schema');
@@ -1233,36 +1239,24 @@ const garrisonableSymbols = new Set(
 }
 
 // --- unit-text locale overlays (GH-1406) ------------------------------------
-// data/locales/<lang>/units.json: `name` and `blurb` per unit id, every id a real unit (`unitOverlayFailures`).
+// data/locales/<lang>/units.json: `name` and `blurb` per unit id, every id a real unit, every translated text carrying the hash of the
+// English it was translated from (`unitOverlayFailures`). `en` is the GENERATED template, held to exact parity like the mission one.
 {
-  const unitIds = new Set();
+  const unitsById = new Map();
   for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
     const u = loadJson(file);
-    if (u?.id) unitIds.add(u.id);
+    if (u?.id) unitsById.set(u.id, u);
   }
   for (const file of jsonFilesIn(join(ROOT, 'data/locales'))) {
     if (!file.endsWith('units.json')) continue;
     const overlay = loadJson(file);
     if (!overlay) continue;
-    failures.push(...unitOverlayFailures(rel(file), overlay, unitIds));
+    failures.push(...unitOverlayFailures(rel(file), overlay, unitsById));
+    if (basename(dirname(file)) === 'en') failures.push(...englishUnitFailures(rel(file), overlay, [...unitsById.values()]));
     checked += 1;
   }
-}
-
-// --- unit-text locale overlays (GH-1406) ------------------------------------
-// data/locales/<lang>/units.json: `name` and `blurb` per unit id, every id a real unit (`unitOverlayFailures`).
-{
-  const unitIds = new Set();
-  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
-    const u = loadJson(file);
-    if (u?.id) unitIds.add(u.id);
-  }
-  for (const file of jsonFilesIn(join(ROOT, 'data/locales'))) {
-    if (!file.endsWith('units.json')) continue;
-    const overlay = loadJson(file);
-    if (!overlay) continue;
-    failures.push(...unitOverlayFailures(rel(file), overlay, unitIds));
-    checked += 1;
+  if (!existsSync(join(ROOT, 'data/locales/en/units.json'))) {
+    failures.push(...englishUnitFailures('data/locales/en/units.json', null, []));
   }
 }
 

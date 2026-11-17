@@ -262,6 +262,83 @@ enters (the walk reads `empty` for the whole run), and drop one plan's hold belo
    change with a reason, not tuning.
 5. **No camps are added** (§1). If the lead wants "zones and a camp" literally on every counted mission, that is a separate content PR per mission.
 
+## 8. Batch 1 landed (step 2, 16 Nov 2026)
+
+`khan_rafid_2_foothold`, `qarn_hadid_2_foothold` and `tel_marum_2_foothold` now author the zones of §4.1 in `resources.income_zones`, through
+existing data fields only: no `tuning.ts`, no unit stat, no sim change, no camp. The census line reads **8 of 30** (was 5):
+`jq -s '[.[]|select((.resources.income_zones//[])|length>0)]|length' data/missions/*.json`.
+
+| Mission | Zones, rate a minute | Plan wins | Slowest win, headroom | Stars | ROE | Credits | Zone income (plan mean) | Banked | Passive control | Sarim zone (passive) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `khan_rafid_2_foothold` | `ward` 48 | 30/30 to 30/30 | 269 s, 571 s (same) | 2 to 2 | 96.3 to 96.3 | 241 [230-250] (same) | 0 to 175 | 100% to 100% | loses 30/30, zones 0 | 119 |
+| `qarn_hadid_2_foothold` | `the_gates` 32, `hollow` 16 | 30/30 to 30/30 | 210 s, 630 s (same) | 2 to 2 | 100 to 100 | 200 [180-220] (same) | 0 to 91 | 100% to 100% | loses 30/30, zones 0 | 240 |
+| `tel_marum_2_foothold` | `approach` 32, `overwatch_west` 16 | 30/30 to 30/30 | 250 s, 470 s (same) | 2 to 2 | 98 to 98 | 225 [198-228] (same) | 0 to 138 | 100% to 100% | loses 30/30, zones 0 | 80 |
+
+Compared seed by seed, **0 of 30** plan runs differ in result, clock, stars, ROE or credits on each of the three. The only lines of the whole
+`pnpm playtest` output that differ from `main` are the three missions' `banking` lines (the zone income itself), two renamed banking lines
+and the new census line; the credit ladder, star ladder, roster maximum, every time-limit line, every `min_win_seconds` check and every
+other plan and control are byte-identical. `pnpm playtest` exits 0.
+
+**The pins, with their Was values.**
+
+| Pin | Was | Now | Where |
+|---|---|---|---|
+| `LADDER_CREDITS` | 6923 | unchanged (the plans decide identically) | `playtest.ts`, dated comment added |
+| `LADDER_STARS` (and the coin table `roar_earn.test.ts` reads) | 68 | 68 | unchanged |
+| `ROSTER_MAX` | 26 | 26 | unchanged |
+| `BANKING_OVER_30_MAX` | 15 | 15 (all three plans already banked 100%) | unchanged |
+| `ZONE_PASSIVE_INCOME` over the zone missions' passive controls | 0 over a hard-coded four | 0 over **eight**, derived from the data ("zone-mission controls found 8/8") | `playtest.ts`: the list was `['umm_zeitoun_2_buildup', 'umm_zeitoun_4_clearance', 'deir_amun_2_foothold', 'wadi_halam_2_laager']`, so `ein_qasab_3` and a new batch were not covered |
+| `ZONE_MISSIONS` (new) | (5 implied) | 8 | `playtest.ts`: a floor that only rises, one batch at a time |
+| `income_census.test.ts` | 5 missions, 10 zones, 3 convoys | 8 missions, 15 zones, 3 convoys | the t=0 wheeled-route census; it passed for all five new zones |
+| `income-shipped.test.ts` (new) | none | the exact zones of all eight, and no stray mission | `tools/src/backtest/` |
+
+**Falsification (run, then restored).** (1) In one `pnpm playtest`, `khan_rafid_2`'s `ward` was moved onto `staging` (a starting ground) and
+`tel_marum_2`'s zones were deleted: it exited 1 with `income census: FAILED — zones on 7 missions, expected at least 8` and `banking:
+FAILED — the zone missions' passive controls earned 234 from zones, expected 0`. (2) In `income-shipped.test.ts`: one zone deleted from
+`qarn_hadid_2` (red), a rate 32 to 33 (red), and a stray mission given a zone (`wadi_halam_4`, red). (3) The original four-mission list
+could not have seen (1): that is why it is derived now.
+
+Batch 2 follows below.
+
+## 9. Batch 2 landed (step 2, 16 Nov 2026)
+
+`beit_sahwan_3_clearance` (`clinic` 32), `tel_marum_3_clearance` (`pass` 20, `overwatch_east` 12), `umm_zeitoun_3_clearance` (`hamlet` 32, never
+`horn_west`) and `wadi_halam_5_depot` (`depot` 20, `village` 12) author the zones of §4.1. Existing data fields only: no `tuning.ts`, unit stat,
+sim change or camp. The census line reads **12 of 30** (Was 8). Four clearances, so a full hold is 32 a minute each, on plans that win in 2.1 to 5.8
+minutes.
+
+| Mission | Zones, rate a minute | Plan wins | Slowest win, headroom | Stars | ROE | Credits | Zone income (plan mean) | Banked | Passive control | Sarim zone (passive) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `beit_sahwan_3_clearance` | `clinic` 32 | 30/30 to 30/30 | 215 s, 625 s (same) | 3 to 3 | 92.9 (same) | 280 [259-290] (same) | 0 to 58 | 100% to 100% | loses 30/30, zones 0 | 448 |
+| `tel_marum_3_clearance` | `pass` 20, `overwatch_east` 12 | 30/30 to 30/30 | 142 s, 698 s (same) | 3 to 3 | 100 (same) | 285 [265-295] (same) | 0 to 40 | 100% to 100% | loses 30/30, zones 0 | 160 |
+| `umm_zeitoun_3_clearance` | `hamlet` 32 | 30/30 to 30/30 | 248 s to 249 s, 592 s to 591 s | 3 to 3 | 92.8 (same) | 262 [225-290] (same) | 0 to 32 | 78% to 77% | loses 30/30, zones 0 | 160 |
+| `wadi_halam_5_depot` | `depot` 20, `village` 12 | 30/30 to 30/30 | 392 s, 448 s (same) | 2 to 2 | 100 (same) | 193 [170-220] (same) | 0 to 89 | 100% to 100% | loses 30/30, zones 0 | 127 |
+
+Compared seed by seed, 0 of 30 plan runs differ on `beit_sahwan_3`, `tel_marum_3` and `wadi_halam_5`. **One of 30 differs on `umm_zeitoun_3`** (seed
+21, the slowest, the only seed on which that plan builds): its `inf_squad` is accepted at 190 s and not 240 s because the zone income has
+reached the price, and the win comes 0.4 s later; stars, ROE and credits are the same. That is the same effect `income-numbers.md` found on
+`wadi_halam_2` and `deir_amun_2`. Across the whole `pnpm playtest` output the only lines that differ from batch 1 are the four missions' banking lines, the
+renamed pins (now 12 of 12 zone-mission controls, census 12 of 30) and that one time-limit line (`umm_zeitoun_3` headroom 592 s to 591 s). `pnpm playtest`
+exits 0.
+
+**The pins, with their Was values.**
+
+| Pin | Was | Now |
+|---|---|---|
+| `LADDER_CREDITS` | 6923 | unchanged (dated comment: byte-identical per-mission credits) |
+| `LADDER_STARS`, `ROSTER_MAX`, `BANKING_OVER_30_MAX` | 68, 26, 15 | unchanged |
+| `ZONE_PASSIVE_INCOME` | 0 over 8 controls | 0 over **12** ("zone-mission controls found 12/12") |
+| `ZONE_MISSIONS` | 8 | 12 |
+| `income_census.test.ts` | 8 missions, 15 zones, 3 convoys | 12 missions, **21** zones, 3 convoys; a wheeled route to all six new zones at t=0 |
+| `income_census.test.ts`, "horn_west is not authored" | `income_zones` empty | exactly `['hamlet']`, and never `horn_west` (Was: the test asserted no zones at all, which batch 2 had to change) |
+| `income-shipped.test.ts` | the 8 rows | the 12 rows |
+
+**Falsification (run, then restored).** One `pnpm playtest` with `tel_marum_3`'s `pass` moved onto `muster_ground` (a starting ground) and
+`wadi_halam_5`'s zones deleted exited 1 on both pins: `zones on 11 missions, expected at least 12` and `passive controls earned 100 from zones, expected 0`. A `hamlet` swapped for
+`horn_west` turns the census test red, and a deleted zone, a nudged rate or a stray mission turns `income-shipped.test.ts` red as in batch 1.
+
+Batch 3 (`ein_qasab_2`, `wadi_halam_3`, `deir_amun_3`) is the one that moves pins: §4.3.
+
 ## Reproducing
 
 The numbers above come from a clean checkout of `main` at `55e5595d3` with the probe fix and the two tables of this change:

@@ -144,11 +144,15 @@ describe('census income tables (GH-1386)', () => {
     expect(CENSUS_TABLES['census-candidate'].umm_zeitoun_3_clearance.zones.map(([z]) => z)).not.toContain('horn_west');
   });
 
-  it('the candidate adds ten missions to the five that already author zones: fifteen, none counted twice', () => {
+  it('the candidate adds ten missions to the five that authored zones before GH-1386: fifteen, none counted twice, and whatever has shipped since is one of them', () => {
+    const before = [...D7_MISSIONS, 'ein_qasab_3_buildup'];
     const shipped = Object.keys(missions as object).filter((id) => (phased(id).resources?.income_zones?.length ?? 0) > 0).sort();
-    expect(shipped).toEqual([...D7_MISSIONS, 'ein_qasab_3_buildup'].sort());
     const candidate = Object.keys(CENSUS_TABLES['census-candidate']);
-    expect(candidate.filter((id) => shipped.includes(id))).toEqual([]);
-    expect(new Set([...shipped, ...candidate]).size).toBe(15);
+    expect(candidate.filter((id) => before.includes(id))).toEqual([]);
+    expect(new Set([...before, ...candidate]).size).toBe(15);
+    // a mission that authors zones is one of the five or one of the ten: nothing is landed outside the plan
+    expect(shipped.filter((id) => !before.includes(id) && !candidate.includes(id))).toEqual([]);
+    expect(before.every((id) => shipped.includes(id))).toBe(true);
   });
+
 });

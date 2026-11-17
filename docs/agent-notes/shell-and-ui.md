@@ -34,13 +34,16 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   full day of ingest; the old 2,000 a day fell behind), `purgePlayers` (a `players` row by `last_seen`, with its `accounts` row in the
   same batch, plus any orphan `accounts` row by its own `t`; strict `<`, so a row at exactly 180 days is kept) and `purgeRateDays`.
   Each is a few big `DELETE ... LIMIT` statements, never a loop of small ones: the Free plan allows 50 D1 queries per invocation and
-  `purge.test.ts` counts them. **The whole run is held under the 50 (GH-1432):** `cron-budget.test.ts` meters BOTH databases (a `batch()` is
-  one query), seeds a worst-case backlog for every sweep and runs `scheduled()` until nothing is left, none of the runs reaching 50 (the
-  first costs 42; a quiet day is pinned at exactly 12). The shares: `purgeExpired` 10 (one batch per 100 notes), events 4, players 4, desync,
-  snapshot and rate-day 3, admin views 1, `sweepAccounts` 2 plus a member budget of 10, `reconcileTombstones` 12 = 46. The member loops
-  spend from a budget (`SWEEP_MEMBER_QUERIES`, `RECONCILE_D1_QUERIES`; a member is 1 query, 2 when a guard held, 3 with the cancelled
-  tombstone) and what is left waits a day; the tombstone scan is resumable through a KV cursor (`RECONCILE_CURSOR_KEY`), because dead
-  tombstones cost a query a page and find nothing. **Add a sweep and you add its share to that sum, or the test reads red.**
+  `purge.test.ts` counts them. **The whole run is held under the 50 (GH-1432), counted PER STATEMENT, as a deliberate conservative
+  POLICY, stricter than the platform:** D1's limits page counts a `db.batch()` call as ONE query, not one per statement (the PM's
+  reading, PR 1518). `cron-budget.test.ts` nevertheless meters BOTH databases per statement on purpose (every statement of a batch is a query; the 51st throws; `calls`, a batch as one, is the platform's count), seeds a worst-case backlog for every sweep and
+  runs `scheduled()` until nothing is left, none of the runs reaching 50 (the dearest, a sign-in racing the member delete, costs 48; a
+  realistic day 41; a quiet day is pinned at exactly 20 statements in 12 calls). The shares: `purgeExpired` 6 (two slices of 500 notes,
+  three statements each), events 4, players 7, desync, snapshot and rate-day 3, admin views 1, and the account cron (`accountCron`) 27:
+  the expiry batch 5, the idle select 1, three tombstone pages, ONE guarded delete batch of 17 statements for every member the run
+  deletes (up to 40: 20 idle, the rest from tombstones; `deleteDueStatements`, a `due` CTE, so a raced member is spared whole and
+  nobody else), and one survivor select when a guard held = 48. The tombstone scan is resumable through a KV cursor
+  (`RECONCILE_CURSOR_KEY`), which moves on only once the delete batch has committed. **Add a sweep and you add its share to that sum, or the test reads red.**
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the
@@ -133,14 +136,20 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   garage's three upgrade-track headings both shipped in English. Its own header
   names the three defect classes it cannot see; a clean run is not proof that
   nothing was missed. The pseudo capture pass is the instrument that finds them.
-  **Mission TEXT is data, not chrome**: `name`, `briefing`, objective `text` and
-  trigger `label` are overlaid per locale from
+  **Mission TEXT is data, not chrome**: `name`, `briefing` and its sections, `dispatch`, `aftermath`,
+  `hostages_place`, the debrief lines, objective `text`, trigger `label` and every radio line are overlaid per locale from
   `data/locales/<lang>/missions.json` (`applyMissionLocale`), gated by
   `pnpm validate:data`, and deliberately do NOT go through the pseudo transform.
   `data/locales/en/missions.json` is the GENERATED translator's template (`pnpm
   locales:en -- --write`, checked by `validate:data`; never edited, never fetched).
   Unit names and blurbs are overlaid from `data/locales/<lang>/units.json`
-  (`unit-text.ts`); roles are chrome.
+  (`unit-text.ts`); roles are chrome. Translators' files are served by `packages/app/vite-plugin-locales.ts`
+  (dev middleware and build assets, derived from `data/locales/`, never copied into `assets/`); a
+  non-`en` file that does not arrive warns once with its URL (`i18n/overlay-fetch.ts`).
+  Stale translations (GH-1406 part 5): every overlay entry carries `src`, the first 8 hex of the SHA-256 of the English each string was
+  translated from, written into `en/missions.json` and `en/units.json` by `pnpm locales:en -- --write` and checked for every locale by
+  `validate:data` (`sourceHashFailures`, `unitOverlayFailures`), because `wave_say` is keyed by wave INDEX and a reorder or an edit leaves
+  every key valid. The runtime never reads it. Format and translator workflow: `data/locales/README.md`.
 
 <!-- CLAUDE.md lines 322-338, section "Dev instruments" -->
 
@@ -150,8 +159,21 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   The inbox hides everything when `settings.chat.enabled` is false (Settings, Chat; read per line through the one settings reader) and
   a muted seat's lines (per room, never stored: a guest cannot be recognised next room by design). `NetChat` shows the "Mute <name>"
   toggle and, when chat is off, a line saying so instead of the input. `chat-inbox-guard.test.ts` reads the source and fails when a
-  third place hooks `onChat` or a sink stops going through `.deliver(`. Not in this slice, waiting for the lead: word filter,
-  persistent block, report, kill switch.
+  third place hooks `onChat` or a sink stops going through `.deliver(`. Quick chat (S1b, the lead's D12): a select of twelve
+  preset phrases (`QUICK_CHAT_IDS` in `@lions/net`, words in `net.quick.<id>`). The wire carries the ID (`quick` messages, parsed against the
+  list, relayed by the room under the chat rate limit), and each client draws the phrase in its OWN language, through the same inbox
+  (`onQuick` is hooked in the same two places, guarded the same way). Not in this slice, waiting for the lead: word filter, persistent block,
+  report, kill switch, and a room mode that allows quick chat only.
+- **Settings wears the account page (GH-1510).** `ui/settings-panel.ts` draws each section as one of the profile's
+  cards (`ui/page-card.ts`, which `ui/profile.ts` uses too). The shared classes were renamed to neutral ones in their
+  own change (GH-1510 Q4): `rl-profile__card` -> `rl-page-card`, `__card-title` -> `rl-page-card__title`,
+  `__card-body` -> `rl-page-card__body`, `__cols` -> `rl-page-cols`, `__col` -> `rl-page-cols__col`, `__col--main` /
+  `--side` -> `rl-page-cols__col--main` / `--side`, one class for one class so no specificity moved. The screens'
+  own modifiers stay theirs (`rl-profile__card--head`, the crest echo's hook; `rl-settings__card--video`). Wide column: Video, Audio; narrow: Accessibility, Privacy, Chat, Language;
+  Controls full width under both. The pause menu's Settings tab mounts the same panel, so the drop to one column is a
+  container query on `.rl-settings__content` (48rem), not a media query. A new row goes into its section's card body
+  (`row(table, ...)` after that section's `table = section(...)`); a new section needs a `SectionKey` and a title strip
+  in `theme.css` (`settings-css.test.ts` fails without one). Presentation only: no setting, field or default moved.
 - **Two more `localStorage` keys, beside the ledger/account pair below.**
   `lions.settings` (`packages/app/src/settings.ts`, the only reader and writer)
   holds video/audio/controls/accessibility/language and is the only thing that
@@ -183,7 +205,7 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   default colours were measured NOT to collapse under any simulated deficiency,
   and the one variant with a relational gate buys 1.5 ΔE, below the 2.3
   just-noticeable difference.
-- `pnpm ui:shots -- [--pseudo] [--res=…] [--out=…] [--port=…]` (`tools/src/ui-review/shoot.ts`) boots its own dev server and photographs every shell screen at three resolutions, and since Task 13 that walk covers settings, credits, saves, the pause menu (`Escape` in a running mission) and a scripted `debugKill`-forced defeat plus its debrief, with `--pseudo` swapping the catalogue for the bracketed pseudo-locale first.
+- `pnpm ui:shots -- [--pseudo[=rtl] | --lang=<id>[,<id>…] | --lang=all] [--res=…] [--out=…] [--port=…]` (`tools/src/ui-review/shoot.ts`) boots its own dev server and photographs every shell screen at three resolutions, and since Task 13 that walk covers settings, credits, saves, the pause menu (`Escape` in a running mission) and a scripted `debugKill`-forced defeat plus its debrief, with `--pseudo` swapping the catalogue for the bracketed pseudo-locale first. `--pseudo=rtl` is the mirrored pseudo-locale. `--lang=<id>` (GH-1406/GH-1407, the lead's ruling D9 on PR 1474) walks once per listed locale with `?lang=<id>` on every navigation, into `<out>/<id>/<WxH>/`, and prints the overflow probe's total per locale; `--lang=all` is every `LOCALES` id but `en`, and with none shipped it prints one line and exits 0 before a port, server or browser is touched. An id `LOCALES` does not list is refused (exit 2), because the app ignores it and would draw English under that name; so is `--pseudo` with `--lang`. CI's `visual` job runs `--lang=all` as a report-only step. Rules and tests: `tools/src/ui-review/shot-locales.ts`.
   After each shot it also prints every element inside `.rl-menu`/`.rl-panel`/
   `.rl-garage` whose content is wider than its own box, by selector — a printed
   REPORT and deliberately not a gate, because a threshold on "how much overflow

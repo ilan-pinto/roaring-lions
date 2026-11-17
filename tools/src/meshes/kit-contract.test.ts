@@ -63,9 +63,12 @@ describe('the kit contract', () => {
     expect(parsed).toEqual(team);
   });
 
-  it('demo_squad reads the shared limit; the Rifle Squad reads its own row, and the shared one for a part v7 lacks', () => {
-    expect(INFANTRY_KIT_TEAM_PART_TRIS.demo_squad).toBeUndefined();
-    expect(infantryKitPartTris('demo_squad', 'carrier')).toBe(INFANTRY_KIT_PART_TRIS.carrier);
+  it('both kitted teams read the v7 row, the shared one for a part v7 lacks, and a team with no row the shared limit', () => {
+    // demo_squad fits the v7 set since 13 Nov 2026 (GH-826 unit 1: the skinned Meshy body); until then it read the shared limit
+    expect(INFANTRY_KIT_TEAM_PART_TRIS.demo_squad).toEqual(team);
+    expect(infantryKitPartTris('demo_squad', 'carrier')).toBe(2299);
+    expect(infantryKitPartTris('demo_squad', 'yoke')).toBe(INFANTRY_KIT_PART_TRIS.yoke);
+    expect(infantryKitPartTris('breach_team', 'carrier')).toBe(INFANTRY_KIT_PART_TRIS.carrier);
     expect(infantryKitPartTris('inf_squad', 'carrier')).toBe(2299);
     expect(infantryKitPartTris('inf_squad', 'yoke')).toBe(INFANTRY_KIT_PART_TRIS.yoke);
     expect(infantryKitPartTris('inf_squad', 'cape')).toBeUndefined();

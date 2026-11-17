@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MISSION_SAVE_VERSION, serializeSuspended, type SuspendedMission } from './mission-save';
-import { SUSPEND_KEY, discardSuspended, openSuspendStore, readSuspended, writeSuspended, type KeyStore } from './mission-save-store';
+import { SUSPEND_KEY, discardSuspended, openSuspendStore, readSuspended, savedMissionOtherThan, writeSuspended, type KeyStore } from './mission-save-store';
 import { SIM_EPOCH, SNAPSHOT_FORMAT } from '@lions/sim';
 import { digestOf } from './mission-save';
 import { missions } from '@lions/data';
@@ -157,6 +157,44 @@ describe('readSuspended: what is there, checked as far as it can be, never delet
     const junk = store({ [SUSPEND_KEY]: 'not json' });
     expect(readSuspended(junk)).toEqual({ state: 'refused', reason: 'unreadable' });
     expect(junk.data.get(SUSPEND_KEY)).toBe('not json');
+  });
+});
+
+describe('savedMissionOtherThan: would a Save replace somebody else\'s save?', () => {
+  const OTHER = Object.keys(missions).find((id) => id !== MISSION) ?? '';
+  it('names the stored mission when it is not the one being saved', () => {
+    const s = store();
+    writeSuspended(s, record({ missionId: OTHER }));
+    expect(savedMissionOtherThan(s, MISSION)).toBe(OTHER);
+  });
+  it('is null for an empty slot, this mission\'s own save, no storage, a blocked read, and a save that cannot load', () => {
+    const s = store();
+    expect(savedMissionOtherThan(s, MISSION)).toBeNull();
+    writeSuspended(s, record());
+    expect(savedMissionOtherThan(s, MISSION)).toBeNull();
+    expect(savedMissionOtherThan(null, MISSION)).toBeNull();
+    s.failGet = true;
+    expect(savedMissionOtherThan(s, MISSION)).toBeNull();
+    expect(savedMissionOtherThan(store({ [SUSPEND_KEY]: serializeSuspended(record({ missionId: OTHER, simEpoch: SIM_EPOCH + 1 })) }), MISSION)).toBeNull();
+  });
+  it('reads, never writes or deletes', () => {
+    const s = store();
+    writeSuspended(s, record({ missionId: OTHER }));
+    const before = s.sets.length;
+    savedMissionOtherThan(s, MISSION);
+    expect(s.sets.length).toBe(before);
+    expect(s.data.has(SUSPEND_KEY)).toBe(true);
+  });
+});
+
+describe('the store module keeps each function\'s own doc (a function inserted between a JSDoc and its function steals it)', () => {
+  const src = readFileSync(join(__dirname, 'mission-save-store.ts'), 'utf8');
+  it('discardSuspended is documented by its own "Removes the record" line, directly above it', () => {
+    expect(src).toMatch(/\/\*\* Removes the record\.[^\n]*\*\/\nexport function discardSuspended\(/);
+  });
+  it('savedMissionOtherThan is documented by its own block, directly above it', () => {
+    expect(src).toMatch(/\*\/\nexport function savedMissionOtherThan\(/);
+    expect(src).toMatch(/\/\*\*\n \* The mission whose save is stored now[\s\S]*?\*\/\nexport function savedMissionOtherThan\(/);
   });
 });
 

@@ -174,7 +174,7 @@ import { installEscapeBack } from './shell/escape-back';
 import { leaveCopy, leaveHref } from './ui/leave-copy';
 import { closeTip } from './ui/tooltip';
 import { objectiveStatusShout } from './ui/objective-status';
-import { pauseMenu, type PauseDeps } from './ui/pause';
+import { pauseMenu, type PauseDeps, type SaveOutcome } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget, unloadPress } from './input/keymap';
@@ -380,7 +380,8 @@ import type { SavesDeps } from './ui/saves';
 import type { CreditsDeps } from './ui/credits';
 import { versusMaps } from './ui/versus-maps';
 import type { VersusDeps } from './ui/versus';
-import { LOCALES, PSEUDO_RTL, applyLocale, isPseudo, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
+import { LOCALES, PSEUDO_RTL, applyLocale, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
+import { fetchLocaleJson } from './i18n/overlay-fetch';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo, pseudoRtl } from './i18n/pseudo';
 import { KillCauseTracker, causeText, parseKillCause, type KillCause } from './kill-cause';
@@ -647,14 +648,8 @@ async function fetchLicenceText(url: string): Promise<string> {
  * going missing must degrade to English, not break the mission.
  */
 async function loadMissionOverlay(lang: string, base: string): Promise<MissionLocaleOverlay | null> {
-  if (lang === 'en' || isPseudo(lang)) return null;
-  try {
-    const res = await fetch(`${base}locales/${lang}/missions.json`);
-    if (!res.ok) return null;
-    return (await res.json()) as MissionLocaleOverlay;
-  } catch {
-    return null;
-  }
+  // `en` and the pseudo-locales have no file (never fetched, never warned about); any other id that does not arrive warns, naming the URL.
+  return fetchLocaleJson<MissionLocaleOverlay>(lang, `${base}locales/${lang}/missions.json`, 'mission text');
 }
 
 /**
@@ -1194,7 +1189,7 @@ async function main(): Promise<void> {
           if (r.state === 'refused') return { state: 'refused', reason: r.reason };
           if (r.state !== 'ready') return { state: 'none' };
           const p = kit.peekResumeProblem();
-          if (p === 'moved') return { state: 'refused', reason: 'moved' };
+          if (p === 'moved') return { state: 'refused', reason: 'moved', moved: kit.peekResumeMoved() };
           return { state: 'ready', missionId: r.record.missionId, savedAt: r.record.savedAt, simTick: r.record.simTick, ...(p === 'failed' ? { note: 'failed' as const } : {}) };
         },
         nameOf: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
@@ -2077,6 +2072,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission = applyMissionLocale(rawMission, await loadMissionOverlay(currentLocale(), BASE));
   }
   const ledger: CampaignLedger = params.get('fresh') !== null ? {} : ledgerStore.readLedger();
+  // GH-1394: the campaign difficulty posture, read from the campaign LEDGER only (never a URL flag, so no dev flag
+  // changes a score), applied once to the mission JSON here so every reader below -- briefing, objectives, the
+  // runtime, the debrief, a mid-mission save -- sees the mission the run is played on. Standard, and the tutorial
+  // under any posture, is the mission itself (`campaignMission` returns it by reference).
+  // Loaded lazily, as the save kit is: the posture code is the campaign's alone, and the entry chunk and its static
+  // imports sit under a byte ceiling (`pnpm --filter @lions/tools webgpu:bundle`), which an eager import crossed by 2.4 KB.
+  // A chunk that will not load must not boot the run at another posture: the board, as for a save that will not start.
+  const posture = await importWithRetry(() => import('./posture')).catch(() => null);
+  if (req.signal.aborted) return teardown;
+  if (posture === null) {
+    req.navigate(routes.campaign(), { replace: true });
+    return teardown;
+  }
+  if (mission !== undefined) mission = posture.campaignMission(mission, ledger, t);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -2510,7 +2519,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     resolvedMission = resolveUpgrades(mission, ledger, gateOf);
     loanedForce = loanedPlacements(mission, ledger, gateOf);
     const resolvedForce = resolvedMission.starting_force ?? [];
-    loanedReinforce = loanedReinforcements(mission, ledger, gateOf);
+    // GH-1394: a posture's relief is always on loan (it goes back; it never joins the roster).
+    loanedReinforce = posture.withReliefOnLoan(mission, loanedReinforcements(mission, ledger, gateOf));
     // A reinforced loan, like a starting one, brings no body home to replace an earlier one (R-2).
     const reinforceUnits = new Set<string>();
     (mission.triggers ?? []).forEach((t, i) =>
@@ -3280,6 +3290,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         limitWarned = sh.limitWarned;
         stall = stallStart(sim.tickCount);
       }
+      // GH-1393: NOT begun on a resumed mission, on purpose. A replay is the start plus every order from tick 0; the save holds the world, not the
+      // orders that made it, so a log begun at the saved tick would replay a different battle under this one's name. The Bug note offers no replay
+      // there (`replayLog.available` is false) and says nothing else is lost (`feedback/replay.test.ts`; `docs/agent-notes/sim-and-orders.md`).
       if (resumed === null) replayLog.begin({
         mission: resolvedMission.id,
         build: __APP_BUILD__,
@@ -3963,6 +3976,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // running over whatever screen came next.
     leave: () => req.navigate(leaveHref(!mission)),
     freePlay: !mission,
+    resumed: resumed !== null,
     // A room's exit is the pause menu's (M-1): a confirmed Surrender while
     // the match can be given up, its Quit once it cannot. Absent in
     // single-player, whose leave control is unchanged.
@@ -4024,12 +4038,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? rk().inboxOf(room, () => req.settings.get().chat.enabled, () => req.settings.get().chat.mask, netSeat)
     : null;
   const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
-    ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
+    ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), sendQuick: (id) => room.quick(id), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
     : null;
   if (netChat !== null) onDispose(() => netChat.dispose());
   if (room !== null && netConfig !== null && !spectating && chatInbox !== null) {
     // A line reaches the HUD feed only through the room's inbox, the same one the lobby log used (`chat-inbox.ts`).
-    room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => { if (!disposed) hud.note(rk().chatFeedLine(seatName(seat), shown), 'info'); }) });
+    room.setHooks({
+      onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => { if (!disposed) hud.note(rk().chatFeedLine(seatName(seat), shown), 'info'); }),
+      // A preset phrase is an id on the wire and is drawn in this client's language, through the same inbox.
+      onQuick: (seat, id) => chatInbox.deliver(seat, rk().quickChatText(id), (shown) => { if (!disposed) hud.note(rk().chatFeedLine(seatName(seat), shown), 'info'); }),
+    });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
    *  places that learn of one: the dispatch below (withheld here) and the room
@@ -4202,7 +4220,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const confirmQuit = (): void => {
     // A room's Quit is the end of a match, not of a free-play run (L-3): it
     // never wears the sandbox's wording.
-    const leaveText = room !== null ? matchLeaveCopy(room.status()) : leaveCopy(!mission);
+    const leaveText = room !== null ? matchLeaveCopy(room.status()) : leaveCopy(!mission, resumed !== null);
     void confirmDialog(document.body, {
       title: leaveText.title,
       body: leaveText.body,
@@ -4210,11 +4228,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       danger: true,
     }).answer.then((ok) => {
       // A room's players go to Play with a friend, not the free-play picker.
-      if (ok) {
-        // GH-1393: leaving a RESUMED mission on purpose abandons it, and its save with it.
-        if (resumed !== null && mission) dropSavedMission(mission.id);
-        req.navigate(quitHref(room !== null, !mission));
-      }
+      // GH-1393: leaving a RESUMED mission KEEPS its save, as the HUD's own leave always did: a quit costs the progress since the resume,
+      // which the confirm says, and never the saved game, which only a finished mission or Discard on the board removes. A save that a
+      // mis-click could destroy would be the one thing here a player could not take back.
+      if (ok) req.navigate(quitHref(room !== null, !mission));
     });
   };
   /** A room's Surrender, confirmed: the pause menu's, and the HUD's exit
@@ -4242,11 +4259,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * the read and the gzip), written, READ BACK and compared, and only then left. Any failure comes back as a line for the menu and leaves
    * the mission running and the previous save in place. Returns null once the save is kept (and the player is on their way out).
    */
-  const saveAndQuit = async (): Promise<string | null> => {
+  const saveAndQuit = async (): Promise<SaveOutcome> => {
     const kit = await saveKit().catch(() => null);
     if (kit === null) return t('save.err.encode_failed');
-    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell } = kit;
+    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
     if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
+    // The slot holds ONE save. Replacing another mission's is the player's decision, asked before anything is cut or written.
+    const other = savedMissionOtherThan(openSuspendStore(() => window.localStorage), resolvedMission.id);
+    if (!(await confirmReplaceOther(other, (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name))) return { declined: true };
     const cut = cutMission({
       sim,
       runtime,
@@ -4286,12 +4306,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           onRestart: () => {
             void confirmDialog(document.body, {
               title: t('pause.restart.confirm.title'),
-              body: t('pause.restart.confirm.body'),
+              // GH-1393: a resumed mission's Restart keeps its save, and says so (the Quit confirm already does: `leaveCopy(.., resumed)`).
+              body: t(resumed !== null ? 'pause.restart.confirm.body.resumed' : 'pause.restart.confirm.body'),
               confirm: t('pause.restart.confirm.action'),
               danger: true,
             }).answer.then((ok) => {
               if (!ok) return;
-              if (resumed !== null && mission) dropSavedMission(mission.id);
+              // GH-1393: Restart keeps a resumed mission's save too (it starts the mission over; the old save is still the player's to resume or discard).
               req.restart();
             });
           },

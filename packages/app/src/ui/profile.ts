@@ -24,6 +24,7 @@ import { avatarElement, guestMark } from './avatar';
 import { coinHistory, type CoinNames } from './coin-history';
 import { confirmDialog, type ConfirmHandle } from './confirm';
 import { footBack, screenFoot } from './foot';
+import { pageCard, pageColumns } from './page-card';
 import { panel } from './panel';
 
 export interface ProfileDeps {
@@ -214,21 +215,8 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     if (provider === 'google') b.prepend(gMark());
     return b;
   };
-  /** One card of the page (GH-1075 P7): a hairline frame with a small uppercase title. The title is chrome, so it goes through `t()` at build. */
-  const card = (cls: string, title: string | null): { el: HTMLElement; body: HTMLElement } => {
-    const el = document.createElement('section');
-    el.className = `rl-profile__card ${cls}`;
-    if (title !== null) {
-      const h = document.createElement('h2');
-      h.className = 'rl-profile__card-title';
-      h.textContent = title;
-      el.appendChild(h);
-    }
-    const body = document.createElement('div');
-    body.className = 'rl-profile__card-body';
-    el.appendChild(body);
-    return { el, body };
-  };
+  /** One card of the page (GH-1075 P7): `page-card.ts`, shared with Settings (GH-1510). The title is chrome, so it goes through `t()` at build. */
+  const card = pageCard;
   const privacyLink = (): HTMLAnchorElement => {
     const a = document.createElement('a');
     a.className = 'rl-profile__privacy-link';
@@ -491,13 +479,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
   const signedInBlock = (me: SignedInMe, reload: () => void): HTMLElement => {
     const box = document.createElement('div');
     box.className = 'rl-profile__signed';
-    const cols = document.createElement('div');
-    cols.className = 'rl-profile__cols';
-    const main = document.createElement('div');
-    main.className = 'rl-profile__col rl-profile__col--main';
-    const side = document.createElement('div');
-    side.className = 'rl-profile__col rl-profile__col--side';
-    cols.append(main, side);
+    const { el: cols, main, side } = pageColumns();
     box.appendChild(cols);
 
     // ---- Header card: avatar, name, Player ID, member since.

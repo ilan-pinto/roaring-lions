@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { timeLimitFailures } from '../validate_time_limit.mjs';
+import { applyOverlays, missions, POSTURE_IDS } from '@lions/data';
 
 const ROOT = join(__dirname, '..', '..');
 const base = {
@@ -35,6 +36,16 @@ describe('timeLimitFailures', () => {
     expect(
       timeLimitFailures({ ...late, target_minutes: 1, time_limit_s: 359, objectives: [{ id: 'x', type: 'evacuate_before', primary: true }] }, 'm')
     ).toHaveLength(1);
+  });
+  it('GH-1394 D6 / GH-1395 D13: an overlaid mission may go down to once its target, never below, and keeps the clearance', () => {
+    expect(timeLimitFailures({ ...base, time_limit_s: 420 }, 'm', { overlaid: true })).toEqual([]);
+    expect(timeLimitFailures({ ...base, time_limit_s: 419 }, 'm', { overlaid: true })).toHaveLength(1);
+    // The authored rule is untouched: 420 is still under twice the target.
+    expect(timeLimitFailures({ ...base, time_limit_s: 420 }, 'm')).toHaveLength(1);
+    // The clearance holds for an overlaid run too: 300 s evacuation + 60 s > 359.
+    expect(
+      timeLimitFailures({ ...base, target_minutes: 5, time_limit_s: 359 }, 'm', { overlaid: true })
+    ).toEqual(['m: time_limit_s 359 does not clear primary "evac"\'s 300 s clock by 60 s -- the mission would end by the limit instead of its own deadline']);
   });
   it('ignores a secondary deadline and a hold clock', () => {
     const m = { ...base, objectives: [
@@ -71,4 +82,19 @@ describe('the shipped limits', () => {
     expect(m.time_limit_s).toBe(EXPECTED[m.id]);
     expect(timeLimitFailures(m, f)).toEqual([]);
   });
+});
+
+describe('GH-1394: every shipped mission under every posture passes the overlaid clock rule', () => {
+  const ids = Object.keys(missions) as (keyof typeof missions)[];
+  it('covers the whole shipped list', () => {
+    expect(ids.length).toBe(30);
+  });
+  for (const posture of POSTURE_IDS) {
+    it.each(ids)(`%s at ${posture}`, (id) => {
+      const m = applyOverlays(missions[id] as never, { posture }) as { time_limit_s?: number };
+      expect(timeLimitFailures(m, id, { overlaid: true })).toEqual([]);
+      // A posture never shortens the backstop (F-1: every shipped limit sits on the authored floor).
+      expect(m.time_limit_s ?? 0).toBeGreaterThanOrEqual((missions[id] as { time_limit_s?: number }).time_limit_s ?? 0);
+    });
+  }
 });

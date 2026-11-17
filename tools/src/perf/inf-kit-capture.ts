@@ -34,7 +34,8 @@
  *
  * The same squad on the brigade bay's turntable (`/brigade`, `inf_squad`'s
  * card) at three states, photographed at the default face (Home, 0 deg) and
- * the far side (End, 180 deg), the turntable focused so it does not auto-turn:
+ * the far side (End, 180 deg), plus the two sides (90 and 270 deg, photographed and not held; `--dpr=2` shoots the
+ * plate at twice the pixels, the close-up), the turntable focused so it does not auto-turn:
  * `T0` (an account with no tiers), `full` (all three tracks at tier 3, seeded,
  * so the model MOUNTS wearing them) and `bought` (the tier-0 account, then
  * every rung bought by clicking Buy, so the model RE-MERGES through `setKit`
@@ -122,7 +123,7 @@ interface TemplateObject {
 
 function usage(msg: string): never {
   console.error(`[${TAG}] ${msg}`);
-  console.error(`[${TAG}] usage: pnpm inf-kit:capture -- [--garage] [--unit=<team>] --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]`);
+  console.error(`[${TAG}] usage: pnpm inf-kit:capture -- [--garage [--dpr=1|2]] [--unit=<team>] --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]`);
   process.exit(2);
 }
 
@@ -139,6 +140,7 @@ function parseArgs(argv: readonly string[]): { out: string; gpu: ReturnType<type
       UNIT = id;
       STATES = TEAM_CHECKS[id].states;
     }
+    else if (a === '--dpr=1' || a === '--dpr=2') GARAGE_DPR = Number(a.slice('--dpr='.length));
     else if (a.startsWith('--port=') || a.startsWith('--gpu=')) {
       // Parsed (and refused when malformed) by `claimPort` / `resolveGpuBackend`.
     } else usage(`unknown argument "${a}"`);
@@ -468,10 +470,16 @@ const GARAGE_STATES = [
   { id: 'full', label: 'full kit, seeded', tiers: { armour: 3, sensors: 3, firepower: 3 }, buyAll: false },
   { id: 'bought', label: 'full kit, bought live', tiers: {} as Record<string, number>, buyAll: true },
 ] as const;
-const GARAGE_YAWS = [
-  ['Home', 0],
-  ['End', 180],
-] as const;
+/** A face of the turntable: the keys that reach it (Home is 0 deg, End 180, PageUp +45), and its yaw. The two sides
+ *  (GH-826 unit 1, 17 Nov 2026) are photographed but not held: the tier check below reads 0 and 180 only. */
+const GARAGE_YAWS: readonly (readonly [readonly string[], number, boolean])[] = [
+  [['Home'], 0, true],
+  [['Home', 'PageUp', 'PageUp'], 90, false],
+  [['End'], 180, true],
+  [['End', 'PageUp', 'PageUp'], 270, false],
+];
+/** `--dpr=<1|2>`: the garage pages' device pixel ratio. 2 is the close-up (the bay caps its own ratio at 2). */
+let GARAGE_DPR = 1;
 
 /** `differingPixels` over two PNG files. */
 function differingPixelsOf(a: string, b: string): number {
@@ -486,7 +494,7 @@ async function runGarage(out: string, gpu: ReturnType<typeof resolveGpuBackend>,
     const frames = (page: Page): Promise<number> =>
       page.evaluate(() => Number(document.querySelector<HTMLElement>('.rl-garage__plate .rl-garage__model')?.dataset.frames ?? 0));
     for (const state of GARAGE_STATES) {
-      const ctx = await browser.newContext({ viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: 1 });
+      const ctx = await browser.newContext({ viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: GARAGE_DPR });
       try {
         await ctx.addInitScript(musicOffInitScript(SILENT_AUDIO));
         await ctx.addInitScript(garageSeedScript(GARAGE_SEED_LEDGER, accountWith(state.tiers)));
@@ -532,10 +540,13 @@ async function runGarage(out: string, gpu: ReturnType<typeof resolveGpuBackend>,
           const kit = await page.evaluate(() => document.querySelector<HTMLElement>('.rl-garage__plate')?.dataset.kit);
           console.log(`[${TAG}] ${state.id}: ${await frames(page)} frames after the purchases, plate kit level ${kit}`);
         }
-        for (const [key, deg] of GARAGE_YAWS) {
+        for (const [keys, deg] of GARAGE_YAWS) {
           const before = await frames(page);
           await page.focus('.rl-garage__plate .rl-garage__model');
-          await page.keyboard.press(key);
+          for (const key of keys) {
+            await page.keyboard.press(key);
+            await sleep(120);
+          }
           await page
             .waitForFunction(
               (f) => Number(document.querySelector<HTMLElement>('.rl-garage__plate .rl-garage__model')?.dataset.frames ?? 0) > f,
@@ -555,7 +566,8 @@ async function runGarage(out: string, gpu: ReturnType<typeof resolveGpuBackend>,
   } finally {
     await browser.close();
   }
-  for (const [, deg] of GARAGE_YAWS) {
+  for (const [, deg, held] of GARAGE_YAWS) {
+    if (!held) continue;
     const f = (id: string): string => path.join(out, `garage-${id}-${deg}.png`);
     const seeded = differingPixelsOf(f('T0'), f('full'));
     const bought = differingPixelsOf(f('T0'), f('bought'));
@@ -563,7 +575,7 @@ async function runGarage(out: string, gpu: ReturnType<typeof resolveGpuBackend>,
     console.log(`[${TAG}] yaw ${deg}: pixels differing from tier 0 -- seeded ${seeded}, bought live ${bought}; seeded vs bought ${agree}`);
     if (seeded < 200) failures.push(`yaw ${deg}: the seeded full kit differs from tier 0 in only ${seeded} pixels`);
     if (bought < 200) failures.push(`yaw ${deg}: the live-bought kit differs from tier 0 in only ${bought} pixels`);
-    if (agree > 200) failures.push(`yaw ${deg}: seeded and live-bought full kit differ in ${agree} pixels`);
+    if (agree > 200 * GARAGE_DPR ** 2) failures.push(`yaw ${deg}: seeded and live-bought full kit differ in ${agree} pixels`);
   }
   return failures;
 }
