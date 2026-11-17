@@ -63,8 +63,20 @@ export function parseStartInputs(v: unknown): StartInputs | null {
  * (design 5.3). Compared by digest of the canonical JSON, so key order cannot matter.
  */
 export function campaignMoved(frozen: StartInputs, live: { ledger: CampaignLedger; unlocks: Iterable<string>; tiers: Record<string, Record<string, number>> }): boolean {
+  return whatMoved(frozen, live).length > 0;
+}
+
+/** What changed in the campaign since the mission was started: the ledger (another mission was completed), the units bought, the upgrade tiers bought. */
+export type MovedWhat = 'ledger' | 'units' | 'upgrades';
+
+/** Which of the three parts of the campaign differ, in a fixed order; empty when none does. `campaignMoved` is exactly "not empty". */
+export function whatMoved(frozen: StartInputs, live: { ledger: CampaignLedger; unlocks: Iterable<string>; tiers: Record<string, Record<string, number>> }): MovedWhat[] {
   const j = (x: unknown): number => digestOf(JSON.parse(JSON.stringify(x)) as JsonValue);
-  return j(frozen.ledger) !== j(live.ledger) || j(frozen.unlocks) !== j([...live.unlocks].sort()) || j(frozen.tiers) !== j(live.tiers);
+  const out: MovedWhat[] = [];
+  if (j(frozen.ledger) !== j(live.ledger)) out.push('ledger');
+  if (j(frozen.unlocks) !== j([...live.unlocks].sort())) out.push('units');
+  if (j(frozen.tiers) !== j(live.tiers)) out.push('upgrades');
+  return out;
 }
 
 /**
@@ -74,9 +86,12 @@ export function campaignMoved(frozen: StartInputs, live: { ledger: CampaignLedge
  */
 export type ResumeProblem = 'moved' | 'failed';
 let problem: ResumeProblem | null = null;
-export const noteResumeProblem = (p: ResumeProblem): void => { problem = p; };
+let movedWhat: readonly MovedWhat[] = [];
+/** `moved` names what changed (`whatMoved`) so the board can say it; any other problem clears it. */
+export const noteResumeProblem = (p: ResumeProblem, moved: readonly MovedWhat[] = []): void => { problem = p; movedWhat = p === 'moved' ? moved : []; };
 export const peekResumeProblem = (): ResumeProblem | null => problem;
-export const clearResumeProblem = (): void => { problem = null; };
+export const peekResumeMoved = (): readonly MovedWhat[] => movedWhat;
+export const clearResumeProblem = (): void => { problem = null; movedWhat = []; };
 
 // ---- loading a save for the boot ----------------------------------------------------------------------------------------------------
 
@@ -118,8 +133,9 @@ export async function loadResume(o: {
     noteResumeProblem('failed');
     return { ok: false, why: 'failed' };
   }
-  if (campaignMoved(inputs, o.live)) {
-    noteResumeProblem('moved');
+  const moved = whatMoved(inputs, o.live);
+  if (moved.length > 0) {
+    noteResumeProblem('moved', moved);
     return { ok: false, why: 'moved' };
   }
   const prepared = await prepareResume(record);

@@ -73,6 +73,9 @@ import { panel } from './panel';
 import { importWithRetry } from '../shell/chunk';
 import type { SettingsDeps } from './settings-panel';
 
+/** What Save and quit came to: null (kept, and on its way out), a refusal line, or `{ declined: true }` (the player would not replace another mission's save). */
+export type SaveOutcome = string | null | { declined: true };
+
 export interface PauseDeps {
   /** `MissionRuntime.objectiveList`'s own shape -- a structural superset of
    *  `ObjectiveRow`, so it is passed straight through with no adapter. Task 6
@@ -95,11 +98,12 @@ export interface PauseDeps {
   onRestart?: () => void;
   /**
    * GH-1393: Save and quit. Present only for a mission that can be saved (a campaign mission with a ledger, not the tutorial, a sandbox or a
-   * match). Resolves to null when the mission was saved AND read back, in which case the caller leaves; otherwise to the line to show: the
+   * match). Resolves to null when the mission was saved AND read back, in which case the caller leaves; to `{ declined: true }` when another
+   * mission's save was in the slot and the player would not replace it; otherwise to the line to show: the
    * menu stays open and the mission is not left, so a refused write costs the player nothing. The words are the caller's (`t()` keys), never a
    * reason code.
    */
-  onSave?: () => Promise<string | null>;
+  onSave?: () => Promise<SaveOutcome>;
   /** The caller confirms before actually leaving. Not offered when
    *  `onSurrender` is: in a room the way out is surrendering. */
   onQuit(): void;
@@ -333,12 +337,18 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
       saveMsg.textContent = t('pause.save.busy');
       delete saveMsg.dataset.tone;
       onSave().then(
-        (refusal) => {
+        (outcome) => {
           if (closed) return; // the menu was left while the write was out: the caller's navigation owns what happens next
           saving = false;
           saveBtn.disabled = false;
-          saveMsg.textContent = refusal ?? '';
-          if (refusal !== null) saveMsg.dataset.tone = 'bad';
+          if (outcome !== null && typeof outcome === 'object') {
+            // The player was asked whether to replace another mission's save and said no: nothing failed, so it is a plain line.
+            saveMsg.textContent = t('pause.save.replace.declined');
+            delete saveMsg.dataset.tone;
+            return;
+          }
+          saveMsg.textContent = outcome ?? '';
+          if (outcome !== null) saveMsg.dataset.tone = 'bad';
         },
         () => {
           if (closed) return;

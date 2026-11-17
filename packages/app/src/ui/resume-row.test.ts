@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeOpenDialog, isDialogOpen } from './confirm';
 import { clockOfTicks, resumeRow, type ResumeRowDeps, type ResumeView } from './resume-row';
-import { resumeRefusalText, saveFailureText, savedAgo } from './resume-copy';
+import { movedText, resumeRefusalText, saveFailureText, savedAgo } from './resume-copy';
 import { setCatalogue, missingKeys } from '../i18n/t';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
@@ -75,6 +75,15 @@ describe('the Resume row', () => {
       expect(row.el!.querySelector('[data-act="resume"]'), reason).toBeNull();
       expect(row.el!.querySelector('[data-act="discard"]'), reason).not.toBeNull();
     }
+  });
+
+  it('a campaign that moved names what changed, in words, and the plain sentence is the fallback', () => {
+    expect(movedText(['ledger'])).toBe('Since you saved: another mission was completed. Discard this save to carry on.');
+    expect(movedText(['units', 'upgrades'])).toBe('Since you saved: a unit was bought, an upgrade was bought. Discard this save to carry on.');
+    expect(movedText([])).toBe('Your brigade has changed since you saved. Discard this save to carry on.');
+    const row = resumeRow(deps({ state: 'refused', reason: 'moved', moved: ['ledger', 'units'] }));
+    expect(row.el!.querySelector('.rl-resume__line')?.textContent).toBe('Since you saved: another mission was completed, a unit was bought. Discard this save to carry on.');
+    expect(row.el!.textContent).not.toMatch(/ledger|units|upgrades|moved/); // the internal ids never reach the screen
   });
 
   it('a resume that was tried and failed keeps Resume and says so', () => {

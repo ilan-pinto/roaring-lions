@@ -6,7 +6,7 @@ import { MISSION_SAVE_VERSION, digestOf, serializeSuspended, type SuspendedMissi
 import { SUSPEND_KEY, type KeyStore } from './mission-save-store';
 import { captureShell, shellJson } from './mission-shell';
 import { newMissionLog } from './mission-log';
-import { campaignMoved, clearResumeProblem, loadResume, noteResumeProblem, parseStartInputs, peekResumeProblem, startInputsJson } from './mission-resume';
+import { campaignMoved, clearResumeProblem, loadResume, noteResumeProblem, parseStartInputs, peekResumeMoved, peekResumeProblem, startInputsJson, whatMoved } from './mission-resume';
 import type { CampaignLedger } from './ledger-store';
 import { gzipBytes } from '@lions/net';
 
@@ -75,6 +75,23 @@ describe('campaignMoved: the live campaign is still the one the mission was star
   });
 });
 
+describe('whatMoved: which part of the campaign changed (GH-1393 follow-up)', () => {
+  const frozen = parseStartInputs(JSON.parse(JSON.stringify(inputs())))!;
+  const wonAnother = { ...LEDGER, 'campaign.mission_results': { m0: { stars: 2 }, m1: { stars: 1 } } } as unknown as CampaignLedger;
+  it('names exactly the part that changed, one at a time', () => {
+    expect(whatMoved(frozen, LIVE)).toEqual([]);
+    expect(whatMoved(frozen, { ...LIVE, ledger: wonAnother })).toEqual(['ledger']);
+    expect(whatMoved(frozen, { ...LIVE, unlocks: ['a', 'b', 'c'] })).toEqual(['units']);
+    expect(whatMoved(frozen, { ...LIVE, tiers: { mbt_lavi: { armour: 2 } } })).toEqual(['upgrades']);
+  });
+  it('names all three in a fixed order when all three changed, and campaignMoved agrees with "not empty"', () => {
+    const live = { ledger: wonAnother, unlocks: ['a', 'b', 'c'], tiers: { mbt_lavi: { armour: 2 } } };
+    expect(whatMoved(frozen, live)).toEqual(['ledger', 'units', 'upgrades']);
+    expect(campaignMoved(frozen, live)).toBe(true);
+    expect(campaignMoved(frozen, LIVE)).toBe(whatMoved(frozen, LIVE).length > 0);
+  });
+});
+
 describe('loadResume: every reason a resume does not start, and what it leaves behind', () => {
   const load = (rec: SuspendedMission | null, o: Partial<Parameters<typeof loadResume>[0]> = {}) =>
     loadResume({ missionId: MISSION, store: store(rec === null ? null : serializeSuspended(rec)), seed: 20260727, live: LIVE, ...o });
@@ -102,6 +119,15 @@ describe('loadResume: every reason a resume does not start, and what it leaves b
     const moved = await load(await record(), { live: { ...LIVE, unlocks: ['a', 'b', 'extra'] } });
     expect(moved).toEqual({ ok: false, why: 'moved' });
     expect(peekResumeProblem()).toBe('moved');
+    expect(peekResumeMoved()).toEqual(['units']); // and the board is told WHAT moved
+    clearResumeProblem();
+    expect(peekResumeMoved()).toEqual([]);
+  });
+
+  it('a later problem that is not "moved" forgets the cause it was holding', () => {
+    noteResumeProblem('moved', ['ledger']);
+    noteResumeProblem('failed', ['units']);
+    expect(peekResumeMoved()).toEqual([]);
   });
 
   it('inputs or a shell that are not exactly their shapes: failed', async () => {

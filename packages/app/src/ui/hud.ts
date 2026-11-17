@@ -463,6 +463,8 @@ export interface HudDeps {
   /** K-13: a free-play sandbox, not a mission -- the leave confirm words
    *  itself for it. Absent means a mission. */
   freePlay?: boolean;
+  /** GH-1393: this mission was resumed from a save, which a leave keeps (the confirm says so). */
+  resumed?: boolean;
   /** A room's exit (N1b final fix wave, M-1): the leave control's tooltip
    *  and what its click runs, in place of the HUD's own leave confirm. The
    *  battlefield passes the pause menu's own confirmed Surrender (or Quit,
@@ -872,7 +874,7 @@ export class Hud {
     // walk selects on would make a restyle silently break the walk.
     leaveBtn.className = 'rl-strip__link rl-hud__leave';
     leaveBtn.innerHTML = symbolLabel('leave', t('hud.leave.link')); // GH-261: line of departure
-    const leaveText = leaveCopy(deps.freePlay === true);
+    const leaveText = leaveCopy(deps.freePlay === true, deps.resumed === true);
     const exit = deps.exit;
     leaveBtn.title = exit ? exit.tip() : leaveText.tip;
     if (exit) {
