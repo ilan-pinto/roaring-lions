@@ -1,7 +1,7 @@
 /**
  * The A2 invariants under random play (GH-1075 A2-8, A2-21). A seeded generator drives every A2 write route and the
  * invariants are checked after EVERY op, not at the end: the coin journal balances (`wallet.free` is the sum of its
- * `free_delta`), the free coins credited since the last `reset` never pass the 1050 ceiling, and `earn_lifetime` never
+ * `free_delta`), the free coins credited since the last `reset` never pass the 1150 ceiling, and `earn_lifetime` never
  * goes down. A red run prints its seed and op list, so it replays.
  */
 import { emptyAccount, parseWorld, sha256Hex, worldMissionIds } from '@lions/economy';
@@ -16,7 +16,7 @@ const ids = worldMissionIds(parseWorld(world));
 const CODE = 'TEST-CODE';
 const TABLE = coupons.map((c) => ({ ...c, sha256: sha256Hex(CODE) }));
 const COIN_ID = 'lead_roar_coins_100k';
-const CEILING = 1050; // Was 925 over 29 missions: 100 + 10 a mission + 5 a star + 100 (the Qasr Liwan town makes it 34)
+const CEILING = 1150; // Was 1050 over 34 missions, 925 over 29: 100 + 10 a mission + 5 a star + 100 (the Bir Tarsha town makes it 38)
 const FLOORS = Object.fromEntries(ids.map((id) => [id, 1]));
 const RICH = { coins: { free: 1_000_000, paid: 0 } };
 
@@ -147,7 +147,7 @@ async function play(seed: number, n: number, check: { journal: boolean; bound: b
            AND id > COALESCE((SELECT MAX(id) FROM coin_journal WHERE member_id = 'm1' AND kind = 'reset'), 0)`,
       ).first<{ s: number }>())?.s ?? -1;
       maxCredited = Math.max(maxCredited, credited);
-      expect(credited, 'free coins credited since the last reset stay within the 1050 ceiling').toBeLessThanOrEqual(CEILING);
+      expect(credited, 'free coins credited since the last reset stay within the 1150 ceiling').toBeLessThanOrEqual(CEILING);
     }
   }
 
@@ -182,7 +182,7 @@ describe('invariants under random play', () => {
     }
   }, 120_000);
 
-  it('the_bound_holds (A2-21): over 50 seeds of 60 ops, 1050 is never passed and earn_lifetime never decreases', async () => {
+  it('the_bound_holds (A2-21): over 50 seeds of 60 ops, 1150 is never passed and earn_lifetime never decreases', async () => {
     let reached = 0;
     for (let seed = 1; seed <= 50; seed++) {
       const { maxCredited } = await play(seed, 60, { journal: true, bound: true });

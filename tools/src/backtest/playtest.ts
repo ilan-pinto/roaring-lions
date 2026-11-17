@@ -4029,7 +4029,9 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // stale, because the branch's merge of main had dropped main's four S3b plan fixes from this file (Deir Amun I's second look, Umm Zeitoun I's sweep, Umm
 // Zeitoun IV's yard, Wadi Halam III's Peten point (34, 14)); they are restored and 6923 + 1170 is what the full run prints.
 // The assembly layout also sped up three Qasr Liwan wins, so their `min_win_seconds` floors (floor(fastest win / 4), `--min-win`) fall by 1 s each: II 74 -> 73, IV 57 -> 56, V 83 -> 82. Was 74, 57, 83.
-const LADDER_CREDITS = 8093;
+// 2026-11-17, GH-1438 (Bir Tarsha, The Long Ground town 2; I, II, III and V, IV follows): 8093 -> 8927, +834, read off the printed per-mission credits of a playtest on the branch
+// (I 225, II 169, III 195, V 245 on seed 424242). Was 8093.
+const LADDER_CREDITS = 8927;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -4044,7 +4046,8 @@ if (ladderCredits !== LADDER_CREDITS) {
 let ladderStars = 0;
 for (const missionId of missionOrder) ladderStars += missionStars.get(missionId) ?? 0;
 // 2026-11-15, GH-1438 (Qasr Liwan): 68 -> 80, +12. Was 68. Qasr Liwan I and III reach three stars (their carrying secondaries), II, IV and V two.
-const LADDER_STARS = 80;
+// Bir Tarsha I, II, III and V (GH-1438) add 10 stars (3, 2, 2, 3): 80 -> 90. Was 80.
+const LADDER_STARS = 90;
 console.log(`star ladder: ${ladderStars} over ${missionOrder.length} missions`);
 if (ladderStars !== LADDER_STARS) {
   console.error(`star ladder: FAILED — expected ${LADDER_STARS}, got ${ladderStars}`);
@@ -4303,7 +4306,8 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // in winning runs too, and each earns its sweep. The one short plan is still `beit_sahwan_2_foothold`, so "44 of 45".
 // 2026-11-15, GH-1438 (Qasr Liwan, The Long Ground town 1): 44 -> 49. Was 44. Five more winning runs, one per mission, and each earns a sweep (Qasr Liwan I
 // 184, II 232, III 312, IV 248, V 256 intel on seed 424242). The one short plan is still `beit_sahwan_2_foothold`, so "49 of 50".
-const INTEL_WINNERS_ONE_SWEEP = 49;
+// Bir Tarsha's four winning plans each earn a sweep (GH-1438): 49 -> 53 of 54 winning plans. Was 49.
+const INTEL_WINNERS_ONE_SWEEP = 53;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend
