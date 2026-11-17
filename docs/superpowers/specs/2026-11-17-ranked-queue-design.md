@@ -43,11 +43,12 @@ Issues are written GH-NNN and pull requests "PR NNN".
    (`cron-budget.test.ts`: 48 of 50 statements in the worst run) leaves room for **one** more delete statement, not two. So the two
    member tables are removed by `ON DELETE CASCADE` from `member`, listed in `MEMBER_TABLES` as cascade rows with a test that proves
    the cascade (§4.4, Q11).
-7. **Cost is the matches, not the rating.** A ranked match adds about 12 D1 rows written and 7 read to a match that writes 1,440 to
-   2,640 Durable Object rows. The rating adds **zero** statements to the daily cron (every season and decay rule is lazy). The ceiling
+7. **Cost is the matches, not the rating.** A ranked match adds about 18 D1 rows written (indexes included) and 36 read, in 7 reads and
+   2 batches, to a match that writes 1,440 to 2,640 Durable Object rows. The rating adds **zero** statements to the daily cron (every season and decay rule is lazy). The ceiling
    stays the PM design's 12 public matches a day on Free (§7).
-8. **Nineteen questions for the lead** (§9). The ones that carry the most weight: Q1 (is the A3 agreed path the "server-authoritative
-   path" GH-1399 asks for), Q5 (no KDF v Sarim in season 1), Q8 (ranked requires a Google or Steam identity), Q11 (cascade deletion).
+8. **Twenty questions for the lead** (§9). The ones that carry the most weight: Q1 (is the A3 agreed path the "server-authoritative
+   path" GH-1399 asks for), Q5 (no KDF v Sarim in season 1), Q8 (ranked requires a Google or Steam identity), Q11 (cascade deletion),
+   Q19 (open only after the relay cut) and Q20 (the matchmaker in the game Worker).
 
 ### 0.1 What exists today (facts this design stands on)
 
@@ -173,19 +174,19 @@ stores every input and output, so any update can be re-derived and checked.
 
 - **Placement: 10 games.** Until then the player sees "Placement 4 of 10" and no rank. At 10 games the simulated mean error is 87
   points and RD about 108. Lichess calls a rating provisional above RD 110 for the same reason. Ten is reached in about two weeks at
-  0.8 games a day; Q13 asks whether that is too long.
+  0.8 games a day; Q3 asks whether that is too long.
 - **The visible rank is `r − 2·RD`** (a conservative estimate: the player is very likely at least this good), cut into named bands
   shown through `t('ranked.band.<id>')`. A player cannot rise by playing less, and a lucky streak at high RD shows less than it seems.
 - **No rating decay that moves points.** Idle time grows RD (§1.2), which lowers the visible rank by about 2 × 33 = 66 points after a
   month away and gives it back within a few games. The number itself never changes without a game. That is the "decay", and it costs
   no write and no cron (it is computed at read time from `last_game_at`).
 - **The number is never shown**, to the player or anyone else, in season 1. The player sees their band and their placement progress.
-  The PM design's Q10 recommended the same; Q12 asks again, with accounts now existing.
+  The PM design's Q10 recommended the same; Q3 and Q12 ask again, now that accounts exist.
 
 ### 1.6 Seasons
 
 - **A season is a row in `ranked_season`** (§4): an id, a start, an optional end, and the RD floor its start applies. Season 1 has no
-  end date until the lead sets one (Q14); the recommendation for later seasons is 12 weeks.
+  end date until the lead sets one (Q13); the recommendation for later seasons is 12 weeks.
 - **The reset is soft and lazy.** At a season's start nothing runs. The first time a member's row is read in a new season (their next
   queue join, or the profile), the read applies the reset in the same batch as anything else it writes: the season's counters move into
   one journal row of kind `season` (the final rating, RD, games, wins and best visible rank), `RD` is raised to at least the season's
@@ -217,7 +218,7 @@ are one point apart on the ladder (§2.4), and both still lose the match, as the
 
 **The finding.** `recordOf` (A3) treats one case in a way ranked cannot use. If seat X reports `over` naming itself the winner and seat
 Y, which has not reported, then leaves or forfeits, the record is X's **unconfirmed** claim (`agreed = 0`), not the room's own decision
-that the leaver loses: `lone` is tested before `gaveUp` (`room-core.ts:714-723`). An honest client reports `over` automatically on the
+that the leaver loses: `lone` is tested before `gaveUp` (`room-core.ts:713-724`). An honest client reports `over` automatically on the
 hash-window tick where its sim decides, before its player can react, so the losing seat that never reports is a modified client (or a
 crash in the same second). Under A3's rule, that client turns its loss into an unrated match by withholding one message and leaving.
 For W-L this was a deliberate, conservative choice; for a rating it is a hole.
@@ -236,15 +237,17 @@ once the room has ended). Its result is `{rated: [w0, w1] | null, winner, incide
 | F | X forfeited, `goneHow` = `lost` | as E | X: **drop** |
 | G | X ended it before `EARLY_TICKS` by any of C to F | X loses at weight 1; **Y unchanged** (a weight-0 row: "no contest") | X: **early** (a `lost` forfeit: **drop**) |
 | H | Both seats gone within `INFRA_WINDOW_MS`, or the room was revived and reconciled both | **void** | none |
-| I | X reported `over` naming X the winner; Y never reported and then left, forfeited or was gone at the close | **X wins, Y loses**, weight `w` (the room's own decision, which the claim agrees with) | Y: by its exit, abandon or drop |
+| I | X reported `over` naming X the winner; Y never reported and then left, forfeited or was gone at the close | **X wins, Y loses**, weight `w` (the room's own decision, which the claim agrees with) | Y: by its exit (a `bye`: none, as D; a forfeit: abandon or drop) |
 | I′ | As I, but X's claim names **Y** the winner | **void** (the claim and the room disagree) | dispute for both |
 | J | X reported `over`; Y is still connected and acking but has not reported within `OVER_CONFIRM_MS` (10 s) | **void, disputed**: the room cannot tell X forging from Y withholding without running the sim | dispute for both; the evidence row is written (§5.3) |
-| K | X reported `over`, then X left before Y reported | X's exit is **not** a leave (X was done); Y's report or silence decides, as A or J | none for X |
+| K | X reported `over`, then X left before Y reported (a `bye` ends the room at once, so Y can no longer report) | X's exit is **not** a leave (X was done), and the match is **disputed**, as J: an honest Y reports within a round trip, long before a person can click Leave, so a missing report here is a withheld one or a forged `over` from X | none for either; dispute for both |
 | L | After both accepted, a seat never said `hello` within `NOSHOW_MS` (30 s), or left during the face-off before tick 0 | none: no game was played | the absent or leaving seat: **dodge** (no-show) or **early** (face-off exit) |
-| M | `expired` (the 6 h TTL), or the room voided its own log (#559 H-1) | void | none |
+| M | `expired` (the 6 h TTL), or the room voided its own log (GH-559 H-1) | void | none |
 
 Rows I and J are what close the hole: a withheld report either matches the room's decision (I, rated) or makes the match a dispute
-that nobody gains from (J). The match cap is not a row of its own: both sims decide it on a hash tick and report it, which is row A.
+that nobody gains from (J, K). The match cap is not a row of its own: both sims decide it on a hash tick and report it, which is row A.
+So that an honest winner never lands in row K, the ranked client sends no `bye` after its own `over` until the room has said `ended`
+(the victory screen's Leave waits for it, at most `OVER_CONFIRM_MS`).
 
 The room writes rows A to K in **one D1 batch** on ACCOUNTS, in its own invocation (the relay's; §7.2): the record and seats as today,
 the two `ranked_member` updates, the two `rating_journal` rows and the incident points. Row L is written by the room at the no-show
@@ -278,8 +281,8 @@ socket is connected, or a no-show). A dispute earns no points: it is counted sep
 | 7 or more (cap 12) | 72 hours, and the member appears on the read-only ranked review list of `/stats/members` |
 
 **Decay.** Points fall by one for every full 48 hours since the last incident, computed when they are read (`effective = max(0, points
-− floor((now − leave_at) / 48 h))`, no cron), and by one for each completed ranked match (rows A, C, D and I for both seats, written in
-the record batch). Only the queue reads them; an incident never changes a rating by itself.
+− floor((now − leave_at) / 48 h))`, no cron), and by one for each ranked match a seat finished (both seats of row A, the winner of rows C to F and I,
+and a conceder of rows C and D), written in the record batch. Only the queue reads them; an incident never changes a rating by itself.
 
 **What it looks like.**
 - A player whose wifi drops out of one match a week never locks: one point, gone in 48 hours.
@@ -362,7 +365,7 @@ to catch one particular player unreliable (§5.5).
 
 **What a player waits, in this pool.** Thirty members who each queue twice an evening, spread over six evening hours, arrive at about ten
 an hour: a lone searcher waits about six minutes on average for the next arrival, and with the band at its 120 s floor nearly any two of
-them are feasible. The screen therefore says what it knows ("Widening the search", "Few players are searching now"), and Q15 asks
+them are feasible. The screen therefore says what it knows ("Widening the search", "Few players are searching now"), and Q14 asks
 whether a fixed "ranked hour" would serve a pool this small better.
 
 **Daily cap and kill switch.** The PM design's public-match cap (12 a day, counted in the object's storage, `closed{cap, until}`) and its
@@ -374,9 +377,9 @@ already behave. Closing it needs no deploy and leaves rooms already minted to fi
 
 **Season 1 is the mirror only: KDF against KDF.**
 - **Maps:** the 25-minute fair maps, `beit_sahwan_outskirts`, `tel_marum`, `wadi_tarfan` and `milh_flats`. The three 35-minute large maps
-  cost 1.4 times the rows of a match (§7) and are out of season 1 (Q16).
+  cost 1.4 times the rows of a match (§7) and are out of season 1 (Q15).
 - **Rules:** placed forces, annihilation (no win mode), matched kit, `pace: realtime`, formations as `formationsOpenIn` says for a
-  mirror room. One rule set, so a rating means one thing (Q16).
+  mirror room. One rule set, so a rating means one thing (Q15).
 - **The map is drawn** uniformly from the pool minus each player's one veto (a veto can never empty it), and **shown only at the
   face-off**, after both accepted (§5.4).
 - **The seats are drawn at random.** The mirror's measured seat lean (wadi_tarfan west 45 / east 51 at 96 seeds, inside the lead's
@@ -424,7 +427,7 @@ When a faction cell opens, each player ticks KDF, Sarim or both, and the queue n
    refuses a `hello` whose member is not the seat's (`ranked_member_mismatch`). A leaked ticket is useless.
 8. **What a ranked room refuses:** `/join` (both seats are assigned), `/advisor` in either scope (an `assist` advisor is an AI playing a
    seat), `kit: 'brigade'` (never in a public or ranked room, network design decision 5), a seat of kind `bot`, and free-text chat
-   (quick chat only, the use `protocol.ts` names for it). Pauses: one of 60 s a seat (the PM design's Q5; Q17 here).
+   (quick chat only, the use `protocol.ts` names for it). Pauses: one of 60 s a seat (the PM design's Q5; Q16 here).
 9. **The end** is §2.2, written in one batch that also clears both `active_code`s. A room that never starts (row L) clears them at its
    own end. `active_code` older than `ROOM_TTL_MS` is ignored when read, so a lost write cannot strand a member.
 
@@ -462,7 +465,7 @@ CREATE TABLE ranked_member (
   games         INTEGER NOT NULL DEFAULT 0,    -- rated games THIS season (placement is games_total < 10)
   wins          INTEGER NOT NULL DEFAULT 0,
   losses        INTEGER NOT NULL DEFAULT 0,
-  voids         INTEGER NOT NULL DEFAULT 0,    -- no-result games this season (rows B, H, I', J, M)
+  voids         INTEGER NOT NULL DEFAULT 0,    -- no-result games this season (rows B, H, I', J, K, M)
   games_total   INTEGER NOT NULL DEFAULT 0,    -- every rated game ever: placement and the visible rank read it
   best_shown    INTEGER,                       -- this season's best r - 2*RD after placement, whole points
   last_game_at  INTEGER,                       -- the idle RD term reads it (§1.2); NULL before the first game
@@ -628,7 +631,7 @@ A strong player on a fresh account, to play weaker players.
 | Write a rating directly | there is no route: `ranked_member` and `rating_journal` are written only by the room's record module and the matchmaker. A source scan pins it, in the style of `admin_action`'s append-only test | K2-w |
 
 So a modified client can **void** a match, never win one. What stops it voiding every match it is losing:
-- **Disputes are counted by distinct opponent.** Rows B, I′ and J add a dispute to both seats. An honest player's rare disputes are
+- **Disputes are counted by distinct opponent.** Rows B, I′, J and K add a dispute to both seats. An honest player's rare disputes are
   each with a different cheater; a cheater's are with everyone. **Three disputes against three distinct opponents in 30 days lock the
   member out of ranked for 72 hours and put them on the review list.** The count is one query over `match_seat` (the no-result ranked
   records of §4.2 are what make it possible).
@@ -811,7 +814,7 @@ versus; the relay cut (GH-1397 P2) is done (Q19).
 | T1 | A seat reporting itself the winner while the other reports the opposite: no rating moves (the issue's tamper test) | rate on the first report |
 | T2 | A false hash: void, no rating moves, the evidence row is written | skip the hash comparison in the ranked path |
 | T3 | Withhold `over` and leave: rated as a loss (row I) | use `recordOf`'s lone rule for ranked |
-| T4 | Stay silent after the opponent's `over` for `OVER_CONFIRM_MS`: a dispute for both, void | treat it as row I |
+| T4 | Stay silent after the opponent's `over` for `OVER_CONFIRM_MS` (row J), or the reporter leaves first (row K): a dispute for both, void | treat either as row I |
 | T5 | A leave before 3,600 ticks: the leaver loses at weight 1, the stayer is unchanged | give the stayer weight 1; compare with `>` instead of `>=` at the boundary |
 | T6 | Both seats gone 4 s apart: void; 6 s apart: the first gone forfeits | keep today's same-instant rule only |
 | T7 | Points and locks at the ladder's literal edges; decay after 48 h and per finished match | off-by-one at 48 h; decay on a void |
@@ -826,6 +829,10 @@ versus; the relay cut (GH-1397 P2) is done (Q19).
 | K5-f | At most one alarm per pairing; no `setInterval` (fake-DO counters) | a periodic alarm; a 1 s heartbeat |
 | K6-a | `/privacy` names the ranked data (`names_the_ranked_data`), and `PRIVACY_UPDATED` moved | drop one item |
 | K6-b | The lobby shows "Find a ranked match" only while `GET /api/ranked/open` says open | render it unconditionally |
+
+**GH-1399's "done means", mapped:** a ranked 1v1 queue with a server-held rating (K1, K5); a leaver takes a rating loss and a short
+queue lock (K3 rows E to G, T5, T7); results only from the server-authoritative path (Q1, K2-w, T1 to T4); a tampered client reporting a
+false hash or a false win rejected in a test (T1, T2, the GH-559 tamper test); store and lobby copy only once open (K6-a, K6-b).
 
 **Gates.** The lead and a friend, both signed in with Google, on two machines and the deployed build: three ranked matches (one won,
 one surrendered after 3 minutes, one left in the first minute), and the expected rating rows and lock read back in the profile; the lead
