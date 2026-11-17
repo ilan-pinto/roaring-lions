@@ -86,7 +86,8 @@ describe('A1: what an amendment moves, it moves the restricting way, and nothing
   it.each(cases.map((c) => [c.label, c] as const))('%s', (_, c) => {
     const plain = play(c.id, c.posture, []);
     const amended = play(c.id, c.posture, c.on);
-    expect(amended.time_limit_s ?? 0).toBeLessThanOrEqual(plain.time_limit_s ?? 0);
+    // The clock is the posture's alone: the lead dropped Tight clock (PR 1524), so no amendment moves it at all.
+    expect(amended.time_limit_s).toBe(plain.time_limit_s);
     const r = (m: MissionJson) => m.resources ?? {};
     expect(r(amended).logistics_start ?? 0).toBeLessThanOrEqual(r(plain).logistics_start ?? 0);
     expect(r(amended).logistics_rate_per_min ?? 0).toBeLessThanOrEqual(r(plain).logistics_rate_per_min ?? 0);
@@ -127,13 +128,14 @@ describe('C5: every amended mission passes the mission schema and the overlaid c
     expect(validateMission(m), JSON.stringify(validateMission.errors)).toBe(true);
     expect(timeLimitFailures(m, c.label, { overlaid: m !== raw(c.id) })).toEqual([]);
   });
-  it('both checks can fail: Tight clock on a 720 s mission breaks the schema floor, and x1/3 breaks the clock rule', () => {
-    // mission.schema.json's `time_limit_s` minimum is 600 s, under D13's 1x floor: Beit Sahwan IV's 720 x 3/4 = 540 is
-    // refused by it, which is why no 600 s or 720 s mission offers Tight clock.
-    const tight = applyOverlays(raw('beit_sahwan_4_subterranean'), { amendments: amendmentOps(['tight_clock']) });
-    expect(tight.time_limit_s).toBe(540);
-    expect(validateMission(tight)).toBe(false);
-    expect(timeLimitFailures(tight, 'x3/4', { overlaid: true })).toEqual([]);
+  it('both checks can fail: a x3/4 clock on a 720 s mission breaks the schema floor, and x1/3 breaks the clock rule', () => {
+    // Literal overlay ops, not an amendment: no amendment moves the clock (the lead dropped Tight clock, PR 1524), but a
+    // posture can, so both checks stay and each needs an input it refuses. mission.schema.json's `time_limit_s` minimum
+    // is 600 s: Beit Sahwan IV's 720 x 3/4 = 540 is refused by it while D13's 1x floor (360 s) would pass it.
+    const short = applyOverlays(raw('beit_sahwan_4_subterranean'), { amendments: [[{ op: 'scale_time_limit', num: 3, den: 4 }]] });
+    expect(short.time_limit_s).toBe(540);
+    expect(validateMission(short)).toBe(false);
+    expect(timeLimitFailures(short, 'x3/4', { overlaid: true })).toEqual([]);
     const third = applyOverlays(raw('beit_sahwan_4_subterranean'), { amendments: [[{ op: 'scale_time_limit', num: 1, den: 3 }]] });
     expect(third.time_limit_s).toBe(240);
     expect(timeLimitFailures(third, 'x1/3', { overlaid: true }).length).toBeGreaterThan(0);
@@ -152,7 +154,7 @@ describe('C4: every amended mission builds and starts a real runtime, and fields
     const plain = build(play(c.id, c.posture, []));
     const amended = build(play(c.id, c.posture, c.on));
     expect(amended.startingCount).toBeLessThanOrEqual(plain.startingCount);
-    if (c.on.includes('light_order') || c.on.includes('no_medic')) expect(amended.startingCount).toBeLessThan(plain.startingCount);
+    if (amendmentOps(c.on, c.id).flat().some((o) => o.op === 'remove_starting')) expect(amended.startingCount).toBeLessThan(plain.startingCount);
   });
 });
 

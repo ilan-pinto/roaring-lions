@@ -1,14 +1,6 @@
 {
   "amendments": [
     {
-      "id": "tight_clock",
-      "label": "Tight clock",
-      "blurb": "A quarter less time on the mission clock before the brigade calls the column back.",
-      "ops": [
-        { "op": "scale_time_limit", "num": 3, "den": 4 }
-      ]
-    },
-    {
       "id": "clean_hands",
       "label": "Clean hands",
       "blurb": "The Conduct line rises by ten points.",

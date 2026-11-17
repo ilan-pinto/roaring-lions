@@ -197,7 +197,9 @@ describe('a posture composes with amendments: the posture first, the amendments 
     const reversed = applyOps(applyOps(m, [{ op: 'add_wave', wave: added }]), postureOps('easier'));
     expect(reversed.enemy?.waves?.at(-1)).not.toEqual(added);
   });
-  it('a tight clock amendment stacks on the posture, multiplied in that order', () => {
+  // The applier is generic: a clock op in the amendment slot still stacks after the posture. No shipped amendment
+  // carries one (the lead dropped Tight clock, PR 1524; tools/validate_challenges.mjs refuses it).
+  it('a clock op in the amendment slot stacks on the posture, multiplied in that order', () => {
     const o = applyOverlays(m, { posture: 'easier', amendments: [[{ op: 'scale_time_limit', num: 3, den: 4 }]] });
     expect(o.time_limit_s).toBe(788); // ceil(ceil(840 * 5/4) * 3/4) = ceil(1050 * 3/4)
   });

@@ -1,9 +1,9 @@
 {
   "mission": "umm_zeitoun_2_buildup",
   "offers": [
-    "tight_clock",
     "thin_purse",
-    "no_eyes"
+    "no_eyes",
+    "light_order"
   ],
   "challenge": {
     "id": "blind_build",

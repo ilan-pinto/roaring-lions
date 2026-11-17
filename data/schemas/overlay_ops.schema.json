@@ -15,7 +15,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["op", "num", "den"],
-          "description": "time_limit_s := ceil(time_limit_s * num / den). Only the `withdrawn` backstop moves; a primary's own clock does not.",
+          "description": "time_limit_s := ceil(time_limit_s * num / den). Only the `withdrawn` backstop moves; a primary's own clock does not. A posture's operation alone: no amendment may carry it, in either direction (the lead dropped Tight clock, PR 1524; tools/validate_challenges.mjs refuses it).",
           "properties": {
             "op": { "const": "scale_time_limit" },
             "num": { "$ref": "#/$defs/ratio" },

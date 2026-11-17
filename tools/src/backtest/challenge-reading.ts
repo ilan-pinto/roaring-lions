@@ -40,7 +40,9 @@ export function tallyChallenge(runs: readonly (ChallengeRunRecord | undefined)[]
   return t;
 }
 
-/** The limit the challenge run plays `id` on: Standard, with the challenge's named amendments. */
+/** The limit the challenge run plays `id` on: Standard, with the challenge's named amendments. No amendment moves the
+ *  clock (the lead dropped Tight clock, PR 1524), so this reads the authored limit; it is computed, not assumed, so a
+ *  clock that did move would show in the line. */
 export function challengeLimit(id: string): number | undefined {
   const m = (missions as unknown as Record<string, (OverlayMission & { time_limit_s?: number }) | undefined>)[id];
   const c = challengeOf(id);

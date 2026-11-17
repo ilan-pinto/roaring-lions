@@ -1,9 +1,9 @@
 {
   "mission": "beit_sahwan_3_clearance",
   "offers": [
-    "tight_clock",
     "clean_hands",
-    "light_order"
+    "light_order",
+    "thin_purse"
   ],
   "challenge": {
     "id": "clean_sweep",

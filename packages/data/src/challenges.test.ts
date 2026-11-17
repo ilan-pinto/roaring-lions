@@ -114,8 +114,12 @@ describe('the amendment operations, on literals read off the shipped files', () 
   });
   it('scale_resources: Beit Sahwan II 400 + 120/min to 200 + 60/min, income zones untouched', () => {
     const bs2 = byId('beit_sahwan_2_foothold');
-    expect(bs2.resources).toEqual({ logistics_start: 400, logistics_rate_per_min: 120 });
-    expect(applyOps(bs2, [{ op: 'scale_resources', num: 1, den: 2 }]).resources).toEqual({ logistics_start: 200, logistics_rate_per_min: 60 });
+    // The held-ground zone is dev's (GH-1386 batch 3); the purse halves, the zone's own rate does not.
+    const zones = [{ zone: 'terrace_crest', rate_per_min: 48 }];
+    expect(bs2.resources).toEqual({ logistics_start: 400, logistics_rate_per_min: 120, income_zones: zones });
+    const halved = applyOps(bs2, [{ op: 'scale_resources', num: 1, den: 2 }]).resources;
+    expect(halved).toEqual({ logistics_start: 200, logistics_rate_per_min: 60, income_zones: zones });
+    expect(halved?.income_zones).toBe(bs2.resources?.income_zones);
     const uz2 = byId('umm_zeitoun_2_buildup');
     const r = applyOps(uz2, [{ op: 'scale_resources', num: 1, den: 2 }]).resources;
     expect([r?.logistics_start, r?.logistics_rate_per_min, r?.intel_start]).toEqual([250, 75, 150]);
@@ -135,11 +139,12 @@ describe('the amendment operations, on literals read off the shipped files', () 
 
 describe('amendmentOps', () => {
   it('library order, duplicates dropped: one set of ids is one mission (D10)', () => {
-    const ab = amendmentOps(['tight_clock', 'light_order'], 'beit_sahwan_2_foothold');
-    const ba = amendmentOps(['light_order', 'tight_clock', 'light_order'], 'beit_sahwan_2_foothold');
+    const ab = amendmentOps(['light_order', 'no_medic'], 'beit_sahwan_2_foothold');
+    const ba = amendmentOps(['no_medic', 'light_order', 'no_medic'], 'beit_sahwan_2_foothold');
     expect(ba).toEqual(ab);
     expect(ab.length).toBe(2);
-    expect(ab[0]).toBe(amendments.amendments.find((a) => a.id === 'tight_clock')?.ops);
+    expect(ab[0]).toBe(amendments.amendments.find((a) => a.id === 'light_order')?.ops);
+    expect(ab[1]).toBe(amendments.amendments.find((a) => a.id === 'no_medic')?.ops);
   });
   it('a mission-specific amendment (D8) is known only to its mission: First Light without the jeep', () => {
     const breach = byId('beit_sahwan_breach');
@@ -152,7 +157,9 @@ describe('amendmentOps', () => {
   it('refuses an unknown id and an id the mission does not offer', () => {
     expect(() => amendmentOps(['double_pay'])).toThrow(/no amendment/);
     expect(() => amendmentOps(['no_eyes'], 'beit_sahwan_2_foothold')).toThrow(/does not offer/);
-    expect(() => amendmentOps(['tight_clock'], 'khan_rafid_1_recon')).toThrow(/does not offer/);
+    expect(() => amendmentOps(['light_order'], 'khan_rafid_1_recon')).toThrow(/does not offer/);
+    // The lead dropped Tight clock (PR 1524): it is no longer an amendment anywhere.
+    expect(() => amendmentOps(['tight_clock'])).toThrow(/no amendment/);
   });
 });
 
@@ -197,12 +204,12 @@ describe('C7: the predicate, on the stored row, at its boundaries', () => {
 
 describe('D7: armed when every named amendment is on; extras allowed', () => {
   const c = challengeOf('beit_sahwan_2_foothold');
-  it('Quiet Souk needs tight_clock and light_order', () => {
+  it('Quiet Souk needs light_order and no_medic', () => {
     if (c === undefined) throw new Error('no Beit Sahwan II challenge');
-    expect(c.challenge.amendments).toEqual(['tight_clock', 'light_order']);
-    expect(challengeArmed(c, ['tight_clock', 'light_order'])).toBe(true);
-    expect(challengeArmed(c, ['light_order', 'tight_clock', 'thin_purse'])).toBe(true);
-    expect(challengeArmed(c, ['tight_clock'])).toBe(false);
+    expect(c.challenge.amendments).toEqual(['light_order', 'no_medic']);
+    expect(challengeArmed(c, ['light_order', 'no_medic'])).toBe(true);
+    expect(challengeArmed(c, ['no_medic', 'light_order', 'thin_purse'])).toBe(true);
+    expect(challengeArmed(c, ['no_medic'])).toBe(false);
     expect(challengeArmed(c, [])).toBe(false);
   });
 });

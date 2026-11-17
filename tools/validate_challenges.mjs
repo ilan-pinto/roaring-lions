@@ -4,7 +4,8 @@
 //
 //   - amendment ids are unique; every operation of every amendment, in the library and in a mission's `own`, points
 //     the RESTRICTING way (rule A1, `restrictionFailure` below: a check per operation of the closed set, because the
-//     schema's `ratio` allows 1..16 for both terms and would take a x16/1 clock or a x1/16 wave);
+//     schema's `ratio` allows 1..16 for both terms and would take a x1/16 purse or a x1/16 wave), and no amendment
+//     moves the clock at all (the lead dropped Tight clock, PR 1524: `scale_time_limit` is a posture's alone);
 //   - each per-mission file is named for its `mission`, which is a shipped CAMPAIGN mission (it produces a ledger
 //     key: the tutorial pays nothing and has no challenge);
 //   - its three offers are library ids or its own (D8's mission-specific amendment: the same restricting operations,
@@ -22,15 +23,18 @@
  * Why an AMENDMENT operation would make a mission easier (or change how it grades), or null when it restricts. One
  * case per operation of overlay_ops.schema.json's closed set; an operation this does not know is refused, so a new
  * operation cannot reach an amendment until its direction is written here.
- *   time limit and purse shrink (num < den); waves grow (num > den) and come sooner (seconds < 0); the Conduct floor
- *   rises (by > 0); bodies are removed (count > 0); intel only goes down (min); an added enemy wave has bodies.
- *   `reinforce_player` adds player bodies, and `uncarry` takes the third star away, which an amended win must keep (D6).
+ *   the purse shrinks (num < den); waves grow (num > den) and come sooner (seconds < 0); the Conduct floor rises
+ *   (by > 0); bodies are removed (count > 0); intel only goes down (min); an added enemy wave has bodies.
+ *   `scale_time_limit` is refused in either direction: the lead dropped Tight clock (PR 1524), so the clock is a
+ *   difficulty posture's lever and never an amendment's. `reinforce_player` adds player bodies, and `uncarry` takes
+ *   the third star away, which an amended win must keep (D6).
  * @param {any} op
  * @returns {string | null}
  */
 export function restrictionFailure(op) {
   switch (op?.op) {
     case 'scale_time_limit':
+      return 'scale_time_limit moves the clock, which no amendment does (the lead dropped Tight clock, PR 1524)';
     case 'scale_resources':
       return op.num < op.den ? null : `${op.op} ${op.num}/${op.den} is not below 1`;
     case 'scale_waves':
@@ -124,8 +128,6 @@ export function challengeFailures({ library, files, missions }) {
 /** Why `op` would leave mission `m` exactly as it is, or null when it bites. */
 function identityOn(m, op) {
   switch (op.op) {
-    case 'scale_time_limit':
-      return typeof m.time_limit_s === 'number' ? null : 'it declares no time_limit_s';
     case 'raise_fail_below':
       return typeof m.roe?.fail_below === 'number' && m.roe.fail_below < 80 ? null : 'it declares no roe.fail_below below 80';
     case 'scale_resources': {

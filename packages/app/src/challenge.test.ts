@@ -29,7 +29,7 @@ const beaten = { roe: 95, ticks: 8000, lost: 0, carriesAll: true };
 const input = (o: Partial<ChallengeRunInput> = {}): ChallengeRunInput => ({
   missionId: BS2,
   result: 'victory',
-  amendments: ['tight_clock', 'light_order'],
+  amendments: ['light_order', 'no_medic'],
   ledgerAtBoot: opened,
   world,
   targetMinutes: 7,
@@ -43,8 +43,8 @@ describe('challengeMarkFor', () => {
     expect(challengeMarkFor(input())).toEqual({ id: 'quiet_souk', roe: 95, ticks: 8000, lost: 0 });
   });
   it('extra amendments on top are allowed (D7); a missing one is not', () => {
-    expect(challengeMarkFor(input({ amendments: ['tight_clock', 'light_order', 'thin_purse'] }))).not.toBeNull();
-    expect(challengeMarkFor(input({ amendments: ['tight_clock'] }))).toBeNull();
+    expect(challengeMarkFor(input({ amendments: ['light_order', 'no_medic', 'thin_purse'] }))).not.toBeNull();
+    expect(challengeMarkFor(input({ amendments: ['no_medic'] }))).toBeNull();
     expect(challengeMarkFor(input({ amendments: [] }))).toBeNull();
   });
   it('not on Easier (GH-1394 D9); Harder and Standard record it', () => {
@@ -86,9 +86,13 @@ describe('amendedMission: the posture first, the amendments last, the sim none t
     expect(amendedMission(foothold, {}, [])).toBe(foothold);
     expect(amendedMission(foothold, { [DIFFICULTY_LEDGER_KEY]: 'easier' }, [])).toStrictEqual(campaignMission(foothold, { [DIFFICULTY_LEDGER_KEY]: 'easier' }));
   });
-  it('Easier x5/4 then Tight clock x3/4: 840 to 1050 to 788', () => {
-    expect(amendedMission(foothold, { [DIFFICULTY_LEDGER_KEY]: 'easier' }, ['tight_clock']).time_limit_s).toBe(788);
-    expect(amendedMission(foothold, {}, ['tight_clock']).time_limit_s).toBe(630);
+  it('Easier x5/4 then Light order: the clock is the posture\'s alone (840 to 1050), and one rifle squad fewer (2 to 1)', () => {
+    const squads = (m: typeof foothold) => (m.starting_force ?? []).filter((p) => p.unit === 'inf_squad').reduce((n, p) => n + p.count, 0);
+    const easier = amendedMission(foothold, { [DIFFICULTY_LEDGER_KEY]: 'easier' }, ['light_order']);
+    expect([foothold.time_limit_s, easier.time_limit_s]).toEqual([840, 1050]);
+    expect([squads(foothold), squads(easier)]).toEqual([2, 1]);
+    // No amendment moves the clock (the lead dropped Tight clock, PR 1524).
+    expect(amendedMission(foothold, {}, ['light_order', 'no_medic', 'thin_purse']).time_limit_s).toBe(840);
   });
   it('refuses an amendment the mission does not offer', () => {
     expect(() => amendedMission(foothold, {}, ['no_eyes'])).toThrow(/does not offer/);
@@ -152,8 +156,8 @@ describe('the lazy entry points main.ts calls through ./posture', () => {
   });
   const end = { result: 'victory' as const, roeRating: 95, tick: 8000 };
   it('victoryMark reads the run off the runtime: lost is lostByType summed', () => {
-    expect(victoryMark(foothold, opened, ['tight_clock', 'light_order'], rt({}), end)).toEqual({ id: 'quiet_souk', roe: 95, ticks: 8000, lost: 0 });
-    expect(victoryMark(foothold, opened, ['tight_clock', 'light_order'], rt({ inf_squad: 1 }), end)).toBeNull();
+    expect(victoryMark(foothold, opened, ['light_order', 'no_medic'], rt({}), end)).toEqual({ id: 'quiet_souk', roe: 95, ticks: 8000, lost: 0 });
+    expect(victoryMark(foothold, opened, ['light_order', 'no_medic'], rt({ inf_squad: 1 }), end)).toBeNull();
     expect(victoryMark(foothold, opened, undefined, rt({}), end)).toBeNull();
   });
   it('runRowOf: carriesAll needs every carrying secondary complete', () => {
@@ -163,7 +167,8 @@ describe('the lazy entry points main.ts calls through ./posture', () => {
   });
   it('amended on top of the posture equals the one call, and none on is the mission itself', () => {
     const easier = { [DIFFICULTY_LEDGER_KEY]: 'easier' };
-    expect(amended(campaignMission(foothold, easier), ['tight_clock'])).toStrictEqual(amendedMission(foothold, easier, ['tight_clock']));
+    expect(amended(campaignMission(foothold, easier), ['light_order'])).toStrictEqual(amendedMission(foothold, easier, ['light_order']));
+    expect(amended(campaignMission(foothold, easier), ['light_order'])).not.toStrictEqual(campaignMission(foothold, easier));
     expect(amended(foothold, [])).toBe(foothold);
   });
   it('C9: challengeMarksOf drops a wrong-shaped row, and withChallengeMark writes only well-shaped ones', () => {

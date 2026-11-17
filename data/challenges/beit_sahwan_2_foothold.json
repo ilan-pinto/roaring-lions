@@ -1,17 +1,17 @@
 {
   "mission": "beit_sahwan_2_foothold",
   "offers": [
-    "tight_clock",
+    "no_medic",
     "thin_purse",
     "light_order"
   ],
   "challenge": {
     "id": "quiet_souk",
     "label": "Quiet Souk",
-    "blurb": "On a tight clock and one squad short, hold the west with no unit lost, inside the target time.",
+    "blurb": "One squad short and with the medics held back, hold the west with no unit lost, inside the target time.",
     "amendments": [
-      "tight_clock",
-      "light_order"
+      "light_order",
+      "no_medic"
     ],
     "win": {
       "lost_at_most": 0,
