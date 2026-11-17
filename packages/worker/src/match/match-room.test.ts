@@ -1402,7 +1402,7 @@ describe('advisor sockets (N4a task 7)', () => {
     const stBefore = await persisted(state);
     for (const m of [
       { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, { t: 'ready' }, { t: 'pause' }, { t: 'resume' }, { t: 'surrender' },
-      { t: 'chat', text: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
+      { t: 'chat', text: 'gg' }, { t: 'quick', id: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
     ]) await say(room, adv, m);
     expect(adv.closed).toBeNull();
     expect(state.storage.rowsWritten).toBe(before);
@@ -2884,7 +2884,7 @@ describe('watch sockets (GH-954 W1)', () => {
   const watchHello = async (room: MatchRoom): Promise<FakeSocket> => hello(room, 0, await watchTicket());
   const EVERY_VERB: unknown[] = [
     { t: 'hello', ticket: 'x', build: BUILD }, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, { t: 'ready' }, { t: 'pause' }, { t: 'resume' },
-    { t: 'surrender' }, { t: 'chat', text: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
+    { t: 'surrender' }, { t: 'chat', text: 'gg' }, { t: 'quick', id: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
     { t: 'advisor', a: { kind: 'text', text: 'ridge' } }, { t: 'advisor', a: { kind: 'proposal', id: 1, cmd: { kind: 'halt', ids: [3] }, note: 'hold' } }, '{not json',
   ];
 

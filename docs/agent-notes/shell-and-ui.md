@@ -155,8 +155,11 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   The inbox hides everything when `settings.chat.enabled` is false (Settings, Chat; read per line through the one settings reader) and
   a muted seat's lines (per room, never stored: a guest cannot be recognised next room by design). `NetChat` shows the "Mute <name>"
   toggle and, when chat is off, a line saying so instead of the input. `chat-inbox-guard.test.ts` reads the source and fails when a
-  third place hooks `onChat` or a sink stops going through `.deliver(`. Not in this slice, waiting for the lead: word filter,
-  persistent block, report, kill switch.
+  third place hooks `onChat` or a sink stops going through `.deliver(`. Quick chat (S1b, the lead's D12): a select of twelve
+  preset phrases (`QUICK_CHAT_IDS` in `@lions/net`, words in `net.quick.<id>`). The wire carries the ID (`quick` messages, parsed against the
+  list, relayed by the room under the chat rate limit), and each client draws the phrase in its OWN language, through the same inbox
+  (`onQuick` is hooked in the same two places, guarded the same way). Not in this slice, waiting for the lead: word filter, persistent block,
+  report, kill switch, and a room mode that allows quick chat only.
 - **Settings wears the account page (GH-1510).** `ui/settings-panel.ts` draws each section as one of the profile's
   cards (`ui/page-card.ts`, which `ui/profile.ts` uses too; the classes keep their `rl-profile__` names so the
   profile's pins and crest echo do not move). Wide column: Video, Audio; narrow: Accessibility, Privacy, Chat, Language;

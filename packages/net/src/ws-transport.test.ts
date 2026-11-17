@@ -394,6 +394,26 @@ describe('WsTransport', () => {
       { t: 'pause' }, { t: 'resume' }, { t: 'surrender' }, { t: 'chat', text: 'gg' },
     ]);
   });
+  it('quick(id) sends a quick message with the id and nothing else (GH-1417 S1b)', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    const before = sock.sent.length;
+    t.quick('gg');
+    expect(sock.sent.slice(before).map((m) => JSON.parse(m) as unknown)).toEqual([{ t: 'quick', id: 'gg' }]);
+  });
+  it('a received quick calls onQuick with the seat and the id, and onChat is left alone', () => {
+    const sock = fakeSocket();
+    const quick: unknown[] = [];
+    const chat: unknown[] = [];
+    new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onChat: (...a) => { chat.push(a); }, onQuick: (seat, id) => { quick.push([seat, id]); } });
+    sock.open();
+    sock.recv({ t: 'quick', seat: 1, id: 'wp' });
+    sock.recv({ t: 'quick', seat: 0, id: 'not-a-phrase' }); // refused by the parser: no call
+    expect(quick).toEqual([[1, 'wp']]);
+    expect(chat).toEqual([]);
+  });
   it('a received cmdRefused calls onCmdRefused, once per message, and changes no status', () => {
     const sock = fakeSocket();
     let refused = 0;
@@ -987,6 +1007,15 @@ describe('N4a: a paced room releases a closed round past the buffer', () => {
 });
 
 describe('GH-954 W1: the watch role', () => {
+  it('a spectator socket drops quick(id) as it drops chat (GH-1417 S1b)', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0, 'watch');
+    sock.open();
+    const before = sock.sent.length;
+    t.quick('gg');
+    t.chat('gg');
+    expect(sock.sent.length).toBe(before);
+  });
   it('says hello and then NOTHING: every verb a transport has is dropped at the socket', () => {
     const sock = fakeSocket();
     const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0, 'watch');
