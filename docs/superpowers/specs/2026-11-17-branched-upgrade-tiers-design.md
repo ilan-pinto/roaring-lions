@@ -182,11 +182,12 @@ first; mutation M15 (§5.3) proves it.
   unit that branches with no row in the table is refused too, so a new branched unit cannot skip
   the ceiling by omission. Raising a ceiling is an edit to that table, which a reviewer sees, and
   it still has to pass both balance gates (§6).
-  - *Alternative, for the lead:* derive the ceiling from the delta curve (`upgrades.md:90-96`)
+  - *Alternative considered:* derive the ceiling from the delta curve (`upgrades.md:90-96`)
     and the unit's base, with the four `upgrades.md` §4.1-§4.4 exceptions as literals. That
     follows a base-stat change automatically, but it needs the curve's own rounding (the jeep's
     front +3.5 ships as +4, the AT team's optics +0.275 as +0.28) written into the validator.
-    The literal table is the smaller change, and it is what this design proposes.
+    The literal table is the smaller change, and it is what this design uses. The table is
+    keyed by track, so a unit's second branched track later is one more row, not a new table.
   - Without B7, only the two balance gates (§6) would hold the ceiling.
 
 **The content cap, separate from the shape rules:**
@@ -776,9 +777,11 @@ tiers:
 > For every account and wallet REACHABLE through the public operations, from `emptyAccount()` and
 > `emptyRoar()` AND from the literal legacy roots of §5.2, the resolved kit of a branched (unit,
 > track) is exactly branch 1 or exactly branch 2 (or a tier below the branched one), and NEVER
-> the envelope. And at the level of the stores: no operation leaves the two stores holding two
-> different picks for one (unit, track) where they held at most one before, and a store's pick
-> changes only through the legacy Switch (or leaves with its tier, by Return or a reset).
+> the envelope. This holds for EACH branched track of a unit on its own: a unit with two branched
+> tracks resolves each to its own pick, and any of the four pairs is allowed. And at the level of
+> the stores: no operation leaves the two stores holding two different picks for one (unit,
+> track) where they held at most one before, and a store's pick for a (unit, track) changes only
+> through the legacy Switch on THAT track (or leaves with its tier, by Return or a reset).
 >
 > The public operations are: credit buy, run buy and branch buy; coin tier buy and branch buy; the
 > legacy switch and refund; `migrateAccount` and `migrateRoar`; and `singlePlayerView`.
@@ -793,12 +796,19 @@ The test is `packages/economy/src/branch-exclusive.test.ts`. `economy` owns the 
 migrations and the merge, and it may import `@lions/data` for `applyUpgrades`.
 
 **The fixtures are literal,** never read through the code under test, because an oracle takes
-literals (CLAUDE.md, falsification casebook). There are TWO inline branched units, and both
-branch the SAME track name, `firepower`. A picks map keyed by track alone, instead of by (unit,
-track), then conflates them, and the search sees it.
+literals (CLAUDE.md, falsification casebook). There are TWO inline branched units. Both branch
+the SAME track name, `firepower`, so a picks map keyed by track alone, instead of by (unit,
+track), conflates them, and the search sees it. And `fx_tank` branches TWO tracks, `firepower`
+and `armour`, so a picks map keyed by unit alone, or an `applyUpgrades` that reads one track's
+pick for another, is seen too (Q3). The fixtures sit outside the shipped roster, so the C1 cap
+(one branched track per shipped unit) does not apply to them; the code under test never reads
+C1.
 
-- `fx_tank`: weapon 0 at accuracy 0.85 and penetration 1300; firepower tiers `455 {0.03, 104}`,
-  then `680 {0.06, 208}`, then `950` branched into `a {0.10, 208}` and `b {0.06, 325}`.
+- `fx_tank`: weapon 0 at accuracy 0.85 and penetration 1300; hull hp 2000 and front armour 600.
+  - firepower tiers `455 {0.03, 104}`, then `680 {0.06, 208}`, then `950` branched into
+    `a {0.10, 208}` and `b {0.06, 325}`;
+  - armour tiers (hp, front) `300 {100, 30}`, then `450 {200, 60}`, then `640` branched into
+    `a {300, 60}` and `b {200, 90}`.
 - `fx_ifv`: weapon 0 at accuracy 0.70 and penetration 120; firepower tiers `330 {0.03, 10}`, then
   `495 {0.06, 19}`, then `660` branched into `a {0.10, 19}` and `b {0.06, 30}`.
 
@@ -815,7 +825,18 @@ The expected patched pairs, computed by hand:
 | | `T2` | 0.76 | 139 | allowed |
 | | `BOTH` | 0.80 | 150 | must never appear |
 
-Accuracy is compared to 1e-9 (the float sum `0.85 + 0.10`); penetration exactly.
+And for `fx_tank`'s second branched track:
+
+| unit, track | state | hp | front | expected |
+|---|---|---|---|---|
+| `fx_tank` armour | `ONE` (branch a) | 2300 | 660 | allowed |
+| | `TWO` (branch b) | 2200 | 690 | allowed |
+| | `T2` | 2200 | 660 | allowed |
+| | `BOTH` | 2300 | 690 | must never appear |
+
+Accuracy is compared to 1e-9 (the float sum `0.85 + 0.10`); penetration, hp and armour exactly.
+Each track is read on its own paths, so `fx_tank`'s resolved kit is a PAIR of these states, one
+per track.
 
 **The literal legacy roots** (each a raw store, as an old build wrote it, fed through
 `migrateAccount` / `migrateRoar`; written for `fx_tank`, and again for `fx_ifv`):
@@ -828,24 +849,28 @@ Accuracy is compared to 1e-9 (the float sum `0.85 + 0.10`); penetration exactly.
   L2 (a guest strip of the wallet alone, §4.4). After migration the wallet takes pick 1.
 - **L5, the hand-edit:** the account with pick `a` and the wallet with `branch: b`, neither
   legacy.
+- **L6, two branched tracks (`fx_tank` only):** the account at firepower 3 AND armour 3, no
+  `picks`, no `legacy`.
 
 **Cases:**
 
 1. **Exhaustive reachability.** A breadth-first search over the operations above, from the empty
-   pair and from L1 to L5, with the balance and coins funded at 5,000 each, to depth 8,
+   pair and from L1 to L6, with the balance and coins funded at 5,000 each, to depth 8,
    deduplicating states. The run prints the number of states it visited. At every state, for
-   each fixture unit `u`:
+   each fixture unit `u` and EACH of its branched tracks `t`:
    - `applyUpgrades(u, view.ownedTiers[u.id], view.ownedPicks[u.id])` reads `ONE`, `TWO`, `T2` or
-     lower, and never `BOTH`;
+     lower on `t`'s paths, and never `BOTH`;
    - **(s1)** no edge takes a state where the two stores hold at most one distinct pick for
-     (`u`, `firepower`) to one where they hold two;
-   - **(s2)** along every edge, a store's pick for (`u`, `firepower`) is unchanged, or the edge is
-     a Switch, or the pick left with its tier (Return, reset).
+     (`u`, `t`) to one where they hold two;
+   - **(s2)** along every edge, a store's pick for (`u`, `t`) is unchanged, or the edge is a
+     Switch on (`u`, `t`) itself, or the pick left with its tier (Return, reset). A Switch or a
+     buy on `fx_tank` firepower that moves `fx_tank` armour's pick fails here.
 
-   The search also asserts that it reached a `ONE` state and a `TWO` state for EACH unit, that at
+   The search also asserts that it reached a `ONE` state and a `TWO` state for EACH (unit, track),
+   that it reached all FOUR `fx_tank` pairs (firepower `a` or `b` with armour `a` or `b`), that at
    least one Switch fired and at least one Return fired, and that at least one state held both
-   units at their branched tier on different picks. So the run cannot pass by reaching nothing
-   (the casebook's "empty array, every caller loops" shape).
+   units at their branched firepower tier on different picks. So the run cannot pass by reaching
+   nothing (the casebook's "empty array, every caller loops" shape).
 2. **The single guards, one each, with everything else permitting** (PR 1512's style):
    - credits own `a`; a credit buy of `b` in the SAME store, with the balance to cover it, is
      refused, and returns the same object;
@@ -862,11 +887,19 @@ Accuracy is compared to 1e-9 (the float sum `0.85 + 0.10`); penetration exactly.
      balance unchanged. So the balance rises by 950 exactly once.
    - From L2, Return refunds the receipt's literal `CoinSplit`; with the receipt pruned, it
      refunds `coinPrice(950)` as free coins, a literal.
+   - **Two branched tracks.** Root L6 migrates to pick `a` and a marker on EACH of `fx_tank`'s
+     two tracks. Switch on firepower: firepower reads `TWO` and loses its marker, and armour still
+     reads `ONE` with its marker standing. Then Return on armour: armour reads `T2`, the balance is
+     up by exactly 640 (a literal), and firepower still reads `TWO`.
 5. **The legacy migration, both stores.** From L3, Switch moves BOTH stores to `b` in one write
    and clears both markers; Return drops both to tier 2 and refunds each store in its own
-   currency. From L4 (one store with a fresh pick, one with a marker), Switch is not offered and
-   Return is (§4.3; the rule is Q11's to change).
-6. **No pick, no stats.** `applyUpgrades(fx_tank, { firepower: 3 }, {})` reads `T2`.
+   currency, all at once. From L4 (one store with a fresh pick, one with a marker), Switch is not
+   offered and Return is. From L2, a later credit buy of the same branch in the account leaves the
+   wallet's Return offered and its refund the same literal `CoinSplit` (§4.3, as the lead ruled,
+   Q11).
+6. **No pick, no stats, per track.** `applyUpgrades(fx_tank, { firepower: 3 }, {})` reads `T2`.
+   `applyUpgrades(fx_tank, { firepower: 3, armour: 3 }, { firepower: 2 })` reads firepower `TWO`
+   and armour `T2`: a missing pick on one track takes nothing from the other.
 7. **The shipped sweep.** For each of the thirteen branched units in `data/units/kdf`:
    - each pick reads exactly that branch's literal values from §2.1's table, written into the test
      as literals (base plus delta, for example `dozer_d9` branch 2 hp 2760 and front armour 300);
@@ -875,7 +908,10 @@ Accuracy is compared to 1e-9 (the float sum `0.85 + 0.10`); penetration exactly.
 8. **The server's sticky pick (members, §4.4).** A stored `campaign_state.brigade` at tier 3 with
    pick `b` and no marker, and an incoming body at tier 3 with no `picks` (an old build's strip):
    the merged result keeps pick `b` and has no marker. A body that changes the pick with no stored
-   marker is refused. (This one is a Worker test, beside the campaign route's.)
+   marker is refused. And a member's coin Return writes exactly one `tier` row with
+   `detail.refund: true` and a positive `free_delta` of the literal refund, after which
+   `wallet.free = SUM(free_delta)` still holds (Q4). (These are Worker tests, beside the campaign
+   and spend routes'.)
 
 **Outside `economy`:**
 
@@ -898,7 +934,12 @@ Accuracy is compared to 1e-9 (the float sum `0.85 + 0.10`); penetration exactly.
   - a missing `label` key;
   - **B7:** a branch raised one step above its `BRANCH_CEILING` row, and a branched unit with no
     row at all;
-  - **`:412`:** a branch that patches a path the unit does not have.
+  - **`:412`:** a branch that patches a path the unit does not have;
+  - **per track (Q3), with `BRANCHED_TRACKS_MAX` raised to 2 for the test:** a unit whose FIRST
+    branched track is valid and whose SECOND has a dominating branch is refused, and the error
+    names the second track; a unit with two valid branched tracks passes;
+  - **C1, at the shipped cap of 1:** that same valid two-track unit is refused, and the error
+    names the cap.
 
   The same file spawns `validate_balance.py` (as `e5_staged.test.ts:144-146` does) on a fixture
   roster with one branched unit: `--max-tier` with no `--branch` must exit non-zero, and
@@ -906,7 +947,8 @@ Accuracy is compared to 1e-9 (the float sum `0.85 + 0.10`); penetration exactly.
 
 ### 5.3 The mutations that must turn it red
 
-Each mutation is a small change to ONE function. Most are one line; M1, M9 and M10 are a few. The
+Each mutation is a small change to ONE function. Most are one line; M1, M9, M10 and M13 are a
+few. The
 first draft claimed each was one line and that M2 and M3 turned case 1 red; neither claim held, and
 both are corrected here.
 
@@ -924,6 +966,11 @@ both are corrected here.
 | **M10** | in `connect.ts`, move `picks` outside the `kit === 'matched'` ternary | 9 | the matched create carries `picks` |
 | **M11** | in `parseStartInputs`, default a missing `picks` to `{}` | 10 | the pre-branch record parses |
 | **M12** | key the account's picks by track only, not by (unit, track) | 1 | the second fixture unit's pick follows the first's, and (s2) fails |
+| **M13** | key the account's picks by unit only, one pick per unit | 1, 4 | `fx_tank`'s mixed pairs are never reached, (s2) fails on the Switch, and L6's armour reads `TWO` after a firepower Switch |
+| **M14** | in `applyUpgrades`, read the pick of the unit's first branched track for every branched track | 6, 1 | case 6's firepower reads `T2` (the first sorted track, armour, has no pick), and the mixed pairs read wrong |
+| **M15** | in `validate_branches.mjs`, check only the first branched track (`find` for `filter`) | the per-track bad unit | its second track's dominating branch passes |
+| **M16** | in `validate_branches.mjs`, skip the C1 count | the C1 bad unit | a two-track shipped unit passes at the cap of 1 |
+| **M17** | in the coin Return route, write the row without `detail.refund` | 8 | the row reads as a buy |
 
 The commit that adds each test carries its rows of this table, as CLAUDE.md requires of a new
 gate, with each mutation's red run named. Any survivor is disclosed, not hidden.
@@ -933,8 +980,12 @@ gate, with each mutation's red run named. Any survivor is disclosed, not hidden.
 ### 6.1 The cost curve (`validate_balance.py`): measured for this document
 
 The `apply_upgrades` / `max_tiers` / `total_tier_price` mirror (`validate_balance.py:129-198`)
-learns branches in the same way: `--max-tier --branch=1|2`. `total_tier_price` counts the branched
-tier's price ONCE, since one branch is ever bought, so a unit's price total does not change.
+learns branches in the same way: `--max-tier --branch=1|2`, which sets EVERY branched track of
+every unit to that branch (`maxPicks(u, pick)`'s uniform vector). The mirror keys its picks by
+(unit, track) like the TypeScript, so the slice that raises C1 adds only the mixed per-unit
+vectors to the command line (§7, "Later"), not a new data shape. `total_tier_price` counts each
+branched tier's price ONCE, since one branch is ever bought, so a unit's price total does not
+change.
 `--max-tier` on a roster that holds a branched tier with no `--branch` is an error (§1.1), so a
 forgotten line cannot fall back to tier 2 silently. CI has TWO max-tier lines today, and both are
 doubled, once per branch, for four lines in all:
@@ -984,7 +1035,7 @@ The fitted curves were:
 
 The worst unit in every run is the unbranched `heli_yanshuf` (+15.3, +15.0, +15.0). **All 47 pass
 ±18% in all three runs. The worst branched unit is ifv_namer B at −8.8%.** So prices need no
-change to pass the gate (Q1 asks whether they should change anyway).
+change to pass the gate, and the lead ruled that they stay (Q1).
 
 **This measures the uniform vectors only.** A mixed vector (some units on 1, some on 2) moves the
 refit by less than either uniform run here. Even so, CI should run the two uniform lines, and the
@@ -1034,7 +1085,8 @@ stats.
 - **R1. A nerf at the top.** Every max-tier player is weaker on one group than the old tier 3.
   §4 makes them whole in price, not in stats. Telemetry can count the legacy markers taken,
   switched and refunded.
-- **R2. The split star at 8 px may not read.** That is why §3.3 offers two fallbacks.
+- **R2. The split star at 8 px may not read.** The lead chose it (Q5). Slice 3's mock capture
+  is the check, and a reading that fails goes back to the lead (§3.3).
 - **R3. Carrier drift.** §1.3 lists fifteen carriers. A required `picks` parameter and a `picks`
   field in each type catch most of them at compile time. `seatTiersField` cleans by table, and
   `kit-tracks.test.ts` is the guard there. Three readers the compiler cannot see are untyped:
@@ -1044,69 +1096,82 @@ stats.
   `/stats` readers of the telemetry `tier` string are untyped too (§1.3).
 - **R6. An older build strips the picks.** A tab open across the deploy, or a cached bundle,
   rewrites a store without `picks`, `legacy` and `branch` (§4.4). Members are guarded by the
-  server; guests are not, until Q9 is decided.
+  server. Guests are not, and the lead accepted that a guest on a stale build can lose a pick
+  (Q9).
 - **R4. Uniform runs miss a mixed-vector failure.** Mitigated by the per-target cross product
   (§6.2). The cost curve runs only the uniform vectors (§6.1).
 - **R5. A coin refund is a server write.** It needs a route, a journal row and an admin-page
-  reading. It is the one part of this design that touches production data paths, so it should be
-  its own slice behind its own flag.
+  reading. It is the one part of this design that touches production data paths. The lead ruled
+  the journal shape (a `tier` row with `detail.refund: true`, no table rebuild) and that it ships
+  with slice 2 (Q4), so slice 2 lands it in its own commit with its Worker tests and M17.
+- **R7. A second branched track (Q3).** The shape allows it and slice 1 ships none. The risk is
+  that a carrier, a reader or a test quietly assumes one. The per-track rules, the two-track
+  fixture `fx_tank`, and M13 to M15 are what catch that before any shipped unit needs it.
 
 ## 7. Slices (each 1 to 5 days, in order)
 
-1. **Data and `applyUpgrades`:** the schema `oneOf`, B1-B7 (the `BRANCH_CEILING` table empty
-   until slice 5), the raising tier helpers in both validators and the Python mirror,
-   `applyUpgrades` with required `picks`, `maxPicks`, `branchOf`, §5's case 6 and the validator
-   cases, with M1, M5, M7 and M8. No unit is branched yet. Every caller passes `{}`.
-2. **Account, wallet and view:** `picks` and `legacy` (a boolean marker), the migration, the
-   refund priced from data, `buyBranch` and `buyBranchWithCoins`, Switch and Return across both
-   stores, the merge rule, `resetFree` keeping `branch`, mid-mission resume (§4.5) and the
-   sandbox `&kit` picks, and §5's cases 1-5 and 10 with M2-M4, M6, M11 and M12.
+1. **Data and `applyUpgrades`:** the schema `oneOf`, B1-B7 per branched track, the C1 cap at 1
+   (the `BRANCH_CEILING` table empty until slice 5), the raising tier helpers in both validators
+   and the Python mirror, `applyUpgrades` with required per-track `picks`, `maxPicks`,
+   `branchedTracks`, `branchOf`, §5's case 6 (both halves) and the validator cases including the
+   per-track and C1 ones, with M1, M5, M7, M8 and M14-M16. No unit is branched yet. Every caller
+   passes `{}`.
+2. **Account, wallet and view:** `picks` and `legacy` (a boolean marker), keyed by (unit,
+   track), the migration, the refund priced from data, `buyBranch` and `buyBranchWithCoins`,
+   Switch and Return across both stores, the merge rule, `resetFree` keeping `branch`,
+   mid-mission resume (§4.5), the sandbox `&kit` picks, and the members' coin Return route with
+   its `tier` row carrying `detail.refund: true` (Q4); §5's cases 1-5 and 10, and case 8's
+   refund-row half, with M2-M4, M6, M11-M13 and M17.
 3. **The Garage and the icon:** the fork rung, "Gives up", the confirm dialog, split pips, and the
    split corner star. A mock capture for the lead (one Metal browser check, on its own port, with
    music off).
 4. **Net and worker carriers:** the room claim inside the matched ternary, the room mint and
    `seatKitPicks`, `SeatConfig.picks` (optional on read), `KIT_BRANCHES`, the spend route's and
    the claim's `branch`, the server's sticky-pick campaign merge, and the telemetry patterns with
-   their `/stats` readers; §5's cases 8 and 9 with M9 and M10.
+   their `/stats` readers; §5's case 8 (the sticky pick) and case 9 with M9 and M10.
 5. **Content:** the thirteen JSON edits, the `BRANCH_CEILING` rows, the `en.json` names, and both
    balance gates measured and reported with their conditions: all four cost-curve lines, and the
    two backtest tables.
-6. **The legacy coin refund route** for members (behind a flag; Q4).
 
-## 8. Open questions for the lead
+**Later, not a slice yet: a second branched track on a unit** (allowed by Q3). The schema,
+`applyUpgrades`, the stores, the migration and the carriers built in slices 1 to 4 need no change
+for it. That content slice carries: the C1 cap raised to 2; the second
+track's JSON, `BRANCH_CEILING` rows and `en.json` names; both balance gates run over the four
+per-unit pick pairs (`maxPicks` with a per-track map, and a per-track `--branch` in the Python
+mirror) as well as the uniform vectors; the icon's look for two owned branches, as a mock for the
+lead (§3.3); and the art question for any distinct parts, which stays with Q6.
 
-- **Q1. Price.** Each branch is a strict subset of today's tier 3 and costs the same 950 (on the
-  Lavi). The gate passes as is (§6.1). Keep the price, or rule a branch multiplier (for example
-  `m[track][3]` lowered toward the mean of tiers 2 and 3)?
-- **Q2. Respec.** Slice 1 sells no switch. Should a paid switch exist (for example at the full
-  tier-3 price, with the first branch's price not refunded), or is the choice final?
-- **Q3. Scope.** One branched track per unit, and only on the last tier. Is that the shape, or
-  should a unit be able to branch two tracks later?
-- **Q4. The coin refund journal.** A new `coin_journal.kind = 'refund'` (a table rebuild, like
-  `0004_admin.sql`) or a `tier` row with `detail.refund: true`? And does it ship with slice 2, or
-  wait for slice 6?
-- **Q5. The icon.** The split corner star, (b) a tick under it, or (c) text only? The G-P3 stars
-  are final, so any change is yours to make.
-- **Q6. World parts.** Should the two branches ever draw different kit parts on kitted vehicles?
-  That is new art, so it needs art numbers and any Meshy budget from you first. Until then both
-  draw today's tier-3 parts.
-- **Q7. The roster.** Thirteen units are proposed for the ten required. Strike any, and rename any
-  branch (they are `en.json` keys).
-- **Q8. The default pick for legacy owners.** Branch 1 is the first column in §2.1. Is that the
-  right default for each unit?
-- **Q9. Where the pick is stored.** As a separate `picks` field, which the compiler checks at
-  every carrier but which an older build strips (§4.4)? Or as a reserved key inside `upgrades`,
-  which survives an older build (`migrateUpgrades` keeps any non-negative integer under any key)
-  but which the compiler cannot see, and which `isTiers` would accept as a tier (§1.2)? A third
-  option is a new `localStorage` key that no older build touches, which is outside the save
-  slots. Members are guarded on the server whichever is chosen; the choice decides whether guests
-  are. This document proposes the separate field and does not decide it.
-- **Q10. Coin-bought branches in a friends' brigade room.** Under the D4 exception a coin-bought
-  TIER reaches a friends' brigade room today (`main.ts:1437`, `connect.ts:344`). Should a
-  coin-bought BRANCH reach it the same way, as this document's carrier plan would have it (§4.3)?
-  Matched rooms carry neither, and G-V1 grows to prove it for picks.
-- **Q11. Both stores holding a legacy tier 3.** Does the player get one Switch that moves both
-  stores (this document's proposal, §4.3), and is Return all at once (the proposal) or per store?
-  And when one store holds a legacy tier 3 and the other bought the same branch fresh, is Switch
-  withheld (the proposal) and does a later buy in the other store void the first store's refund
-  (the proposal: it does not)?
+## 8. Lead rulings (17 Nov 2026)
+
+The lead ruled on all eleven questions on PR 1539, against design head `8804ce6`. Each ruling is
+applied in the body of this document; the section it changed is named after it. No question
+remains open.
+
+- **Q1. Price: keep the full price.** A branch costs today's tier-3 price (950 on the Lavi), so
+  no price data changes. (§2, §4.2, §6.1.)
+- **Q2. Respec: the choice is final.** There is no paid switch for a new buyer. The one-time
+  free Switch or Return for LEGACY tier-3 owners stays as designed. (§3.1, §4.2, §4.3.)
+- **Q3. Scope: allow two branched tracks later.** Slice 1 ships one branched track per unit, on
+  tier 3 only, but the schema and `applyUpgrades(unit, tiers, picks)` must not assume one. Picks
+  are keyed per (unit, track), and validator rules B1 to B7 apply per track. (§1.1: any track may
+  branch, and the count lives only in the content cap C1; §1.2: per-track walk, `OwnedPicks`,
+  `maxPicks` and `branchedTracks`; §1.3: every carrier keyed by (unit, track); §3: a fork per
+  track, `KitSummary.branches` and the icon signatures as lists; §4.2: each branched track
+  migrated, switched and returned on its own; §5: the two-track fixture, root L6, the per-track
+  search assertions and cases, and M13 to M16; §6.1; §7, "Later".)
+- **Q4. Coin refund journal: a `tier` row with `detail.refund: true`.** It needs no table rebuild,
+  and it ships with slice 2. (§4.2, §5.2 case 8, M17, R5, §7 slice 2; the former slice 6 is
+  folded into slice 2.)
+- **Q5. Icon: the split corner star.** The tick and the text-only fallbacks are dropped. (§3.3,
+  R2.)
+- **Q6. World parts: both branches draw today's tier-3 kit parts.** Distinct parts wait for an
+  art budget. (§3.3.)
+- **Q7. Roster: keep all 13 units.** (§2, §2.1.)
+- **Q8. Legacy default: branch 1.** (§4.2.)
+- **Q9. Storage: a separate `picks` field.** Members are guarded on the server; guests on a stale
+  build can lose a pick. (§1.2, §4.4, R6.)
+- **Q10. Friends' brigade rooms: yes, the same as tiers (D4).** Matched rooms carry neither, and
+  G-V1 grows to prove that. (§4.3, §5.2 case 9.)
+- **Q11. Both stores: the proposal is accepted.** One Switch moves both stores; Return refunds
+  every store, all at once; Switch is withheld on a mix of legacy and fresh; a later buy in one
+  store never voids the other store's refund. (§4.2, §4.3, §5.2 case 5.)
