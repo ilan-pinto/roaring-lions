@@ -1803,7 +1803,12 @@ const ledQH2 = run(
     //   nearest its foot;
     // - the mortar backs off out of an identified Kornet's reach;
     // - the engineers wait at the start line while anything they know of stands within reach of
-    //   their road. A Kornet's reach counts as 15 tiles (range 14, plus one); anything else as 9.
+    //   their road AHEAD of them. A Kornet's reach counts as 15 tiles (range 14, plus one); anything
+    //   else as 9. A threat that reaches only the start line itself is no reason to wait: they are
+    //   already under it standing still. (GH-1394, Easier seed 1: TM3 sends one rifle squad and a
+    //   fresh AT team here, the lone foot do not hold the gate group at the bench, and its Kornet,
+    //   seen at (31,32) at 100 s, reaches the start line and nothing else; waiting for it to leave,
+    //   the engineers were killed where they stood at 146 s, by that Kornet at (25,36).)
     // Most of what crosses the valley walks on into the armour parked at the gate and dies there.
     // The raze is quick: about 50 s up the road and 5 s at the wall. The latest start, 200 s,
     // therefore still beats the 300 s deadline.
@@ -1811,9 +1816,9 @@ const ledQH2 = run(
     const ROAD: readonly (readonly [number, number])[] = [[22, 43], [16, 37], [12, 30], [12, 22], [20, 20], [14, 15]];
     const kornets = () => new Set(pic.identified('atgm_cell').map((c) => c.id));
     const reach = (c: { x: number; y: number }, x: number, y: number, r: number) => (c.x - x) ** 2 + (c.y - y) ** 2 <= r * r;
-    const roadThreats = () => {
+    const roadThreats = (road = ROAD) => {
       const k = kornets();
-      return pic.contacts().filter((c) => ROAD.some(([x, y]) => reach(c, x, y, k.has(c.id) ? 15 : 9)));
+      return pic.contacts().filter((c) => road.some(([x, y]) => reach(c, x, y, k.has(c.id) ? 15 : 9)));
     };
     let demoSent = false;
     for (let when = 2; when <= 300; when += 2) at(when, () => pic.update());
@@ -1828,7 +1833,7 @@ const ledQH2 = run(
       });
     for (let when = 100; when <= 200; when += 5)
       at(when, () => {
-        if (demoSent || (when < 200 && roadThreats().length > 0)) return;
+        if (demoSent || (when < 200 && roadThreats(ROAD.slice(1)).length > 0)) return;
         demoSent = true;
         sim.queueCommand({ kind: 'move', ids: demo, ...M(14, 15) });
       });
