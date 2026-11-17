@@ -172,6 +172,8 @@ export interface RowVerdict {
   /** The off arm's own spread of medians across rounds (max - min): the noise this delta sits in. */
   readonly offSpread: number;
   readonly gated: boolean;
+  /** An idle-sweep row (`sweepRowName`): reported, neither gated nor a control. */
+  readonly informational: boolean;
   readonly pass: boolean;
   /** On minus off per round (boot `i` of each arm), the noise in plain sight. */
   readonly perRound: readonly number[];
@@ -222,6 +224,7 @@ export function abVerdict(off: readonly ArmRows[], on: readonly ArmRows[]): AbVe
     const dMed = onMed - offMed;
     const dP95 = onP95 - offP95;
     const gated = row.startsWith('burst');
+    const informational = row.startsWith('idle ');
     rows.push({
       row,
       offMed,
@@ -232,12 +235,13 @@ export function abVerdict(off: readonly ArmRows[], on: readonly ArmRows[]): AbVe
       dP95,
       offSpread: Math.max(...offMeds) - Math.min(...offMeds),
       gated,
+      informational,
       pass: !gated || (dMed <= RAGDOLL_GATE_MS.median && dP95 <= RAGDOLL_GATE_MS.p95),
       perRound,
     });
   }
   const pass = rows.every((r) => r.pass);
-  const controlOpen = rows.some((r) => !r.gated && Math.abs(r.dMed) > CONTROL_BOUND_MS);
+  const controlOpen = rows.some((r) => !r.gated && !r.informational && Math.abs(r.dMed) > CONTROL_BOUND_MS);
   return { rows, pass, outcome: controlOpen ? 'inconclusive' : pass ? 'pass' : 'fail' };
 }
 
@@ -291,13 +295,33 @@ export function isPresetLiveModule(pathname: string): boolean {
   return pathname.endsWith('/render/src/three/preset-live.ts');
 }
 
-/** Parses the ragdoll A/B options: `--ragdoll-ab` (the mode) and `--ab-rounds=<n>` (default 3). */
-export function parseRagdollArgs(argv: readonly string[]): { readonly ab: boolean; readonly rounds: number } {
+/** The row name of an idle-sweep point: informational, never gated and never a control (`abVerdict`). */
+export function sweepRowName(atMs: number): string {
+  return `idle @${atMs / 1000}s`;
+}
+
+/**
+ * Parses the ragdoll A/B options: `--ragdoll-ab` (the mode), `--ab-rounds=<n>` (default 3) and `--idle-sweep=<s>,<s>,...`
+ * (seconds after the scenario start, strictly increasing, at most 120: the declared sweep; GH-1400's owed read).
+ */
+export function parseRagdollArgs(argv: readonly string[]): { readonly ab: boolean; readonly rounds: number; readonly sweepMs: readonly number[] } {
   const ab = argv.includes('--ragdoll-ab');
   const raw = argv.find((a) => a.startsWith('--ab-rounds='))?.slice('--ab-rounds='.length);
   if (raw !== undefined && !ab) throw new Error('fx-ragdoll: --ab-rounds is a --ragdoll-ab option');
   if (raw !== undefined && !/^\d+$/.test(raw)) throw new Error(`fx-ragdoll: --ab-rounds wants a positive integer, got "${raw}"`);
   const rounds = raw === undefined ? 3 : Number(raw);
   if (rounds < 1) throw new Error('fx-ragdoll: --ab-rounds must be at least 1');
-  return { ab, rounds };
+  const rawSweep = argv.find((a) => a.startsWith('--idle-sweep='))?.slice('--idle-sweep='.length);
+  if (rawSweep !== undefined && !ab) throw new Error('fx-ragdoll: --idle-sweep is a --ragdoll-ab option');
+  const sweepMs: number[] = [];
+  if (rawSweep !== undefined) {
+    for (const t of rawSweep.split(',')) {
+      if (!/^\d+$/.test(t.trim())) throw new Error(`fx-ragdoll: --idle-sweep wants whole seconds, got "${t}"`);
+      const ms = Number(t.trim()) * 1000;
+      if (ms > 120000) throw new Error('fx-ragdoll: --idle-sweep points stop at 120 s');
+      if (sweepMs.length > 0 && ms <= (sweepMs[sweepMs.length - 1] as number)) throw new Error('fx-ragdoll: --idle-sweep must increase');
+      sweepMs.push(ms);
+    }
+  }
+  return { ab, rounds, sweepMs };
 }

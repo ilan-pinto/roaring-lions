@@ -15,6 +15,7 @@ import {
   rewritePresetLive,
   setPresetSwitches,
   stats,
+  sweepRowName,
   windowStats,
   type ArmRows,
 } from './fx-ragdoll-plan';
@@ -210,10 +211,29 @@ describe('rewritePresetLive', () => {
   });
 });
 
+describe('the idle sweep', () => {
+  it('parses whole seconds, increasing, to 120 s at most, and only with the A/B', () => {
+    expect(parseRagdollArgs(['--ragdoll-ab', '--idle-sweep=0,5,10,20,40']).sweepMs).toEqual([0, 5000, 10000, 20000, 40000]);
+    expect(() => parseRagdollArgs(['--idle-sweep=0,5'])).toThrow(/ragdoll-ab/);
+    expect(() => parseRagdollArgs(['--ragdoll-ab', '--idle-sweep=5,5'])).toThrow(/increase/);
+    expect(() => parseRagdollArgs(['--ragdoll-ab', '--idle-sweep=0,121'])).toThrow(/120/);
+    expect(() => parseRagdollArgs(['--ragdoll-ab', '--idle-sweep=1.5'])).toThrow(/whole/);
+  });
+  it('a sweep row is informational: an open early point does not make the verdict inconclusive, the post-sweep quiet does', () => {
+    const row = (med: number) => ({ n: 90, med, p95: med + 1, max: med + 1 });
+    const boot = (idle0: number, quiet: number): ArmRows => ({ [sweepRowName(0)]: row(idle0), 'quiet live': row(quiet), 'burst all': row(10) });
+    const v = abVerdict([boot(10, 10)], [boot(11, 10.1)]);
+    expect(v.rows.find((r) => r.row === 'idle @0s')?.informational).toBe(true);
+    expect(v.outcome).toBe('pass');
+    expect(abVerdict([boot(10, 10)], [boot(11, 10.4)]).outcome).toBe('inconclusive');
+    expect(sweepRowName(20000)).toBe('idle @20s');
+  });
+});
+
 describe('parseRagdollArgs', () => {
   it('defaults to three rounds and refuses a rounds flag without the mode', () => {
-    expect(parseRagdollArgs([])).toEqual({ ab: false, rounds: 3 });
-    expect(parseRagdollArgs(['--ragdoll-ab', '--ab-rounds=4'])).toEqual({ ab: true, rounds: 4 });
+    expect(parseRagdollArgs([])).toEqual({ ab: false, rounds: 3, sweepMs: [] });
+    expect(parseRagdollArgs(['--ragdoll-ab', '--ab-rounds=4'])).toEqual({ ab: true, rounds: 4, sweepMs: [] });
     expect(() => parseRagdollArgs(['--ab-rounds=4'])).toThrow();
     expect(() => parseRagdollArgs(['--ragdoll-ab', '--ab-rounds=x'])).toThrow();
   });

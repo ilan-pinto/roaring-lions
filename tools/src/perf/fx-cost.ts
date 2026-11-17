@@ -89,8 +89,9 @@ import {
   isPresetLiveModule,
   parseRagdollArgs,
   armPlan,
-  rewritePresetLive,
+  setPresetSwitches,
   stats as ragdollStats,
+  sweepRowName,
   windowStats,
   type ArmRows,
   type Sample,
@@ -717,6 +718,7 @@ interface RagdollRead {
   pixelRatio: number;
   tickAtLastKill: number;
   facts: string;
+  sweep: { atMs: number; ms: number[] }[];
 }
 
 /**
@@ -727,7 +729,7 @@ interface RagdollRead {
  * readPixels sync are inside the bracket; the tick, `snapshot` and `onEvents` are not. Before the burst: a quiet live
  * row (no deaths); after it and a settle: a settled live row. Both are controls whose delta must read about 0.
  */
-async function ragdollScenarioInPage(cfg: { view: [number, number, number]; perTick: number[]; teams: string[]; timedUntil: number; quietTicks: number; settleTicks: number }): Promise<RagdollRead> {
+async function ragdollScenarioInPage(cfg: { view: [number, number, number]; perTick: number[]; teams: string[]; timedUntil: number; quietTicks: number; settleTicks: number; sweepMs: number[] }): Promise<RagdollRead> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const L = (window as any).__lions;
   const r = L.renderer;
@@ -797,6 +799,18 @@ async function ragdollScenarioInPage(cfg: { view: [number, number, number]; perT
     return out;
   };
   liveTicks(60); // the warm-up (3 s of sim): shaders, the figures placed, the sync settled
+  // GH-1400 idle sweep (`--idle-sweep`): quiet live rows at declared wall-clock delays after this point, the app loop frozen
+  // between them, so both arms take each point on the same sim tick. Each point pumps 5 untimed ticks first (an idle
+  // headless page can resume slowly), then times `quietTicks`. Informational rows: the controls stay the quiet row timed
+  // AFTER the sweep and the settled row.
+  const sweep: { atMs: number; ms: number[] }[] = [];
+  const sweepT0 = performance.now();
+  for (const at of cfg.sweepMs) {
+    const wait = at - (performance.now() - sweepT0);
+    if (wait > 0) await sleep(wait);
+    liveTicks(5);
+    sweep.push({ atMs: Math.round(performance.now() - sweepT0), ms: liveTicks(cfg.quietTicks) });
+  }
   // Discrete facts of the quiet frame: if any differs between arms, the flip changes the frame beyond ragdolls.
   const info = r.renderer.info;
   info.autoReset = false;
@@ -849,13 +863,14 @@ async function ragdollScenarioInPage(cfg: { view: [number, number, number]; perT
     pixelRatio: r.renderer.getPixelRatio(),
     tickAtLastKill,
     facts,
+    sweep,
   };
 }
 
 const RAGDOLL_VIEW: [number, number, number] = [26, 22, 1.6];
 
 /** Runs the scenario on a booted page at `cap` (read back first), refusing every way the read could be empty. */
-async function runRagdollRows(page: Page, expectCap: number, liveCap: number, rapierRequests: () => number): Promise<{ rows: ArmRows; read: RagdollRead }> {
+async function runRagdollRows(page: Page, expectCap: number, liveCap: number, rapierRequests: () => number, sweepMs: readonly number[] = []): Promise<{ rows: ArmRows; read: RagdollRead }> {
   // The cap first: an override that did not take must say so, not time out waiting for a Rapier that cap 0 never loads.
   const cap = await page.evaluate(() => (window as unknown as { __lions: { renderer: { ragdolls: { cap: number } } } }).__lions.renderer.ragdolls.cap);
   if (cap !== expectCap) throw new Error(`fx-ragdoll: the renderer reads ragdoll cap ${cap}, this arm expects ${expectCap}`);
@@ -875,6 +890,7 @@ async function runRagdollRows(page: Page, expectCap: number, liveCap: number, ra
     timedUntil: BURST_TIMED_UNTIL_MS,
     quietTicks: 30,
     settleTicks: 120,
+    sweepMs: [...sweepMs],
   });
   if (read.killed !== plan.victims) throw new Error(`fx-ragdoll: ${read.killed} of ${plan.victims} victims died`);
   // The cap held and was full: every figure it allows was IN FLIGHT (active, stepping), and the extra team was refused.
@@ -884,7 +900,13 @@ async function runRagdollRows(page: Page, expectCap: number, liveCap: number, ra
   if (expectCap > 0 && read.maxSteps < 30) throw new Error(`fx-ragdoll: the ragdolls took at most ${read.maxSteps} physics steps: the sim clock did not move them`);
   if (expectCap === 0 && rapierRequests() > 0) throw new Error(`fx-ragdoll: cap 0 fetched Rapier (${rapierRequests()} requests)`);
   if (expectCap > 0 && rapierRequests() === 0) throw new Error('fx-ragdoll: ragdolls are live but no Rapier request was seen');
-  const rows: ArmRows = { 'quiet live': ragdollStats(read.quiet), ...windowStats(read.samples), 'settled live': ragdollStats(read.settled) };
+  const idle: ArmRows = {};
+  sweepMs.forEach((at, i) => {
+    const pt = read.sweep[i];
+    if (pt === undefined) throw new Error(`fx-ragdoll: idle sweep point ${at} ms was not taken`);
+    idle[sweepRowName(at)] = ragdollStats(pt.ms);
+  });
+  const rows: ArmRows = { ...idle, 'quiet live': ragdollStats(read.quiet), ...windowStats(read.samples), 'settled live': ragdollStats(read.settled) };
   return { rows, read };
 }
 
@@ -912,7 +934,8 @@ async function runRagdollAb(): Promise<void> {
           async (route) => {
             const resp = await route.fetch();
             const text = await resp.text();
-            const body = arm === 'on' ? rewritePresetLive(text, ['ragdolls']) : text;
+            // Both arms SET the switch (on: true, off: false), whatever the tree ships, so the A/B survives the flip itself.
+            const body = setPresetSwitches(text, { ragdolls: arm === 'on' });
             rewrites++;
             await route.fulfill({ response: resp, body });
           }
@@ -921,7 +944,8 @@ async function runRagdollAb(): Promise<void> {
       if (rewrites === 0) throw new Error(`fx-ragdoll: the ${arm} arm never served preset-live.ts through its route`);
       const expectCap = arm === 'on' ? EXPECTED_LIVE_CAP[quality] : 0;
       const loadBefore = os.loadavg()[0].toFixed(2);
-      const { rows, read } = await runRagdollRows(page, expectCap, EXPECTED_LIVE_CAP[quality], () => rapier);
+      const { rows, read } = await runRagdollRows(page, expectCap, EXPECTED_LIVE_CAP[quality], () => rapier, RAGDOLL.sweepMs);
+      if (read.sweep.length > 0) console.log(`    idle sweep taken at ${read.sweep.map((p) => `${(p.atMs / 1000).toFixed(1)} s`).join(' / ')} after the scenario start`);
       (arm === 'on' ? on : off).push(rows);
       console.log(
         `${label} RAGDOLL quality=${quality} round=${Math.floor(i / 2) + 1} arm=${arm} cap=${read.cap} team=${read.team} ` +
@@ -943,7 +967,7 @@ async function runRagdollAb(): Promise<void> {
       console.log(
         `    ${r.row.padEnd(14)} off med ${r.offMed.toFixed(2)} p95 ${r.offP95.toFixed(2)} | on med ${r.onMed.toFixed(2)} p95 ${r.onP95.toFixed(2)} | ` +
           `dMed ${r.dMed >= 0 ? '+' : ''}${r.dMed.toFixed(2)} dP95 ${r.dP95 >= 0 ? '+' : ''}${r.dP95.toFixed(2)} | off spread ${r.offSpread.toFixed(2)} | ` +
-          `per round ${r.perRound.map((d) => (d >= 0 ? '+' : '') + d.toFixed(1)).join(' ')} | ${r.gated ? (r.pass ? 'PASS' : 'FAIL') : `control (bound ${CONTROL_BOUND_MS})`}`
+          `per round ${r.perRound.map((d) => (d >= 0 ? '+' : '') + d.toFixed(1)).join(' ')} | ${r.gated ? (r.pass ? 'PASS' : 'FAIL') : r.informational ? 'sweep (informational)' : `control (bound ${CONTROL_BOUND_MS})`}`
       );
     }
     console.log(`${label} RAGDOLL ${quality}: ${v.outcome.toUpperCase()}${v.outcome === 'inconclusive' ? ' (a control row moved more than the bound: flips nothing)' : ''}`);
