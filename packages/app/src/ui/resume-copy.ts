@@ -45,7 +45,7 @@ function movedWord(m: MovedWhat): string {
   }
 }
 
-/** What changed in the campaign since the save, in words ("another mission was completed, a unit was bought"). With nothing named, the plain sentence.
+/** What changed in the campaign since the save, in words ("your campaign progress has changed, a unit was bought"). With nothing named, the plain sentence.
  *  A posture change ALONE has its own sentence (GH-1394 slice 2, ruling 6): it names both postures and says how to get the save back, since setting
  *  the posture back is all it takes. */
 export function movedText(moved: readonly MovedWhat[], posture?: PostureShift): string {

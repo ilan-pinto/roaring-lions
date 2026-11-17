@@ -67,11 +67,14 @@ export function campaignMoved(frozen: StartInputs, live: { ledger: CampaignLedge
   return whatMoved(frozen, live).length > 0;
 }
 
-/** What changed in the campaign since the mission was started: the ledger (another mission was completed), the units bought, the upgrade tiers bought,
- *  the campaign posture (GH-1394: a ledger key, but its own reason, because the mission was overlaid for the posture it was started under). */
+/**
+ * What changed in the campaign since the mission was started: the ledger (ANY of its keys but the posture: a completed mission is the usual cause, but the
+ * digest proves only that something in it differs, so the words say "your campaign progress has changed" and no more), the units bought, the upgrade tiers
+ * bought, the campaign posture (GH-1394: a ledger key, but its own reason, because the mission was overlaid for the posture it was started under).
+ */
 export type MovedWhat = 'ledger' | 'units' | 'upgrades' | 'posture';
 
-/** The ledger without its posture key, so a posture change reads as `posture` and never as "another mission was completed". */
+/** The ledger without its posture key, so a posture change reads as `posture` and never as "your campaign progress has changed". */
 const withoutPosture = (l: CampaignLedger): CampaignLedger => {
   if (!Object.hasOwn(l, DIFFICULTY_LEDGER_KEY)) return l;
   const out: CampaignLedger = { ...l };
