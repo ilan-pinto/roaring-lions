@@ -1,0 +1,51 @@
+# GH-1406: the weekly translation worklist. REPORT ONLY, never red.
+#
+# `node tools/locales_pending.mjs --all` lists, per staged language, the chrome keys and the mission and unit strings that are missing, stale
+# (the English changed after translation), unhashed or the wrong shape, with the English beside each. When anything is pending this posts the list
+# as a comment on GH-1406; when nothing is, it posts nothing. `pnpm validate:data` is the gate that fails when a translation is behind; this is the
+# worklist a translator works from. The tool reads files and prints, changes nothing, and exits 0 whatever it finds, and both steps are
+# continue-on-error besides, so a bad week can never put this job (or anything that waits on it) red.
+#
+# No `pnpm install`: the tool imports only node built-ins and sibling .mjs files.
+
+name: locales-pending
+
+on:
+  schedule:
+    # Monday 06:41 UTC: before the working week, off the hour, off the nightlies (02:17 and 03:00).
+    - cron: '41 6 * * 1'
+  workflow_dispatch: {}
+
+# The comment is the one write: issues, nothing else.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: locales-pending
+  cancel-in-progress: true
+
+jobs:
+  worklist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Build the worklist
+        continue-on-error: true
+        # 60,000 characters: GitHub caps a comment at 65,536. The tool cuts the list there and says how much is left.
+        run: node tools/locales_pending.mjs --all --max-chars=60000 > worklist.md
+      - name: Post it on GH-1406 when something is pending
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f worklist.md ] && grep -q '^<!-- locales-pending: yes -->' worklist.md; then
+            gh issue comment 1406 --body-file worklist.md
+          else
+            echo "Nothing pending (or no worklist built): no comment."
+          fi
