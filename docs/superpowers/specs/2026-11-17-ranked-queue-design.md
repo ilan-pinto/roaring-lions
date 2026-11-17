@@ -429,6 +429,157 @@ When a faction cell opens, each player ticks KDF, Sarim or both, and the queue n
    own end. `active_code` older than `ROOM_TTL_MS` is ignored when read, so a lost write cannot strand a member.
 
 ## 4. The D1 schema and the migration plan (ACCOUNTS)
+
+**Nothing here is a migration file, and nothing has been run.** The SQL below is what slice K2 would add as
+`packages/worker/migrations-accounts/0005_ranked.sql`, applied by the lead before its PR merges (merging deploys), exactly as
+`0001` to `0004` were. It adds three tables and one column, rebuilds nothing, and needs no `defer_foreign_keys`.
+
+### 4.1 The SQL
+
+```sql
+-- GH-1399 K2 (spec 2026-11-17-ranked-queue-design.md §4). Applied to production by the LEAD before the PR merges (merging deploys):
+--   npx wrangler d1 migrations apply roaring-lions-accounts --remote
+-- Three new tables and one plain ADD COLUMN: no rebuild. The two member tables are removed by ON DELETE CASCADE from member,
+-- not by statements of the delete batch, because the cron pin has room for one more statement and not two (§4.4).
+
+-- One row per season. No member data. Season 1 is inserted by the lead when ranked opens (§4.3), never by this migration.
+CREATE TABLE ranked_season (
+  id            INTEGER PRIMARY KEY,           -- 1, 2, ...: what ranked_member.season and the journal name
+  starts_at     INTEGER NOT NULL,              -- epoch ms
+  ends_at       INTEGER,                       -- NULL: open until the lead sets it
+  rd_floor      INTEGER NOT NULL DEFAULT 120 CHECK (rd_floor BETWEEN 45 AND 350),   -- the lazy reset raises RD to this (§1.6)
+  created_at    INTEGER NOT NULL,
+  CHECK (ends_at IS NULL OR ends_at > starts_at)
+);
+
+-- A member's ranked state: one row, so a rated game is one row written per seat. The journal below is the history.
+CREATE TABLE ranked_member (
+  member_id     TEXT PRIMARY KEY REFERENCES member (id) ON DELETE CASCADE,
+  season        INTEGER NOT NULL REFERENCES ranked_season (id),   -- the season these counters belong to (lazy reset, §1.6)
+  r             REAL NOT NULL DEFAULT 1500 CHECK (r BETWEEN 0 AND 4000),
+  rd            REAL NOT NULL DEFAULT 350 CHECK (rd BETWEEN 45 AND 350),
+  sigma         REAL NOT NULL DEFAULT 0.06 CHECK (sigma > 0 AND sigma < 0.2),
+  games         INTEGER NOT NULL DEFAULT 0,    -- rated games THIS season (placement is games_total < 10)
+  wins          INTEGER NOT NULL DEFAULT 0,
+  losses        INTEGER NOT NULL DEFAULT 0,
+  voids         INTEGER NOT NULL DEFAULT 0,    -- no-result games this season (rows B, H, I', J, M)
+  games_total   INTEGER NOT NULL DEFAULT 0,    -- every rated game ever: placement and the visible rank read it
+  best_shown    INTEGER,                       -- this season's best r - 2*RD after placement, whole points
+  last_game_at  INTEGER,                       -- the idle RD term reads it (§1.2); NULL before the first game
+  leave_points  INTEGER NOT NULL DEFAULT 0 CHECK (leave_points BETWEEN 0 AND 12),
+  leave_at      INTEGER,                       -- the last incident; decay is read from it (§2.4)
+  lock_until    INTEGER,                       -- the queue refuses a join before this
+  active_code   TEXT,                          -- the live ranked room, set at mint and cleared at its end (§3.5)
+  active_since  INTEGER,
+  revision      INTEGER NOT NULL DEFAULT 0,    -- compare-and-swap for every write (the room's record, the queue's incidents)
+  updated_at    INTEGER NOT NULL,
+  CHECK (wins + losses <= games),
+  CHECK ((active_code IS NULL) = (active_since IS NULL))
+);
+
+-- Append-only. Every change to a member's rating or leave points is a row, with its inputs, so any update can be re-derived.
+-- No opponent id: the opponent is reached through match_seat (code, started_at, the other seat), the A3 tables, and only server-side.
+CREATE TABLE rating_journal (
+  id            INTEGER PRIMARY KEY,
+  member_id     TEXT NOT NULL REFERENCES member (id) ON DELETE CASCADE,
+  season        INTEGER NOT NULL,
+  at            INTEGER NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('match', 'void', 'dodge', 'season')),
+  code          TEXT,                          -- the match (kinds 'match' and 'void'); NO foreign key to match_record (§4.4)
+  started_at    INTEGER,
+  seat          INTEGER CHECK (seat IN (0, 1)),
+  end_row       TEXT,                          -- the §2.2 row letter that decided it: 'A' .. 'M'
+  score         REAL CHECK (score IN (0, 0.5, 1)),
+  weight        REAL NOT NULL DEFAULT 1 CHECK (weight BETWEEN 0 AND 1),
+  adv           REAL NOT NULL DEFAULT 0,       -- the cell's advantage term, in rating points (0 for every mirror cell)
+  opp_r         REAL,                          -- the opponent's rating and RD AS USED, numbers only
+  opp_rd        REAL,
+  r_before      REAL NOT NULL,
+  rd_before     REAL NOT NULL,                 -- after the idle term (§1.2), i.e. the RD the update used
+  sigma_before  REAL NOT NULL,
+  r_after       REAL NOT NULL,
+  rd_after      REAL NOT NULL,
+  sigma_after   REAL NOT NULL,
+  incident      TEXT CHECK (incident IN ('early', 'abandon', 'drop', 'dodge')),
+  points_after  INTEGER,                       -- leave_points after this row
+  op_id         TEXT NOT NULL,                 -- 'm:<code>.<started_at>', 'd:<offer id>', 's:<season>': a retry is ignored
+  UNIQUE (member_id, op_id)
+);
+CREATE INDEX rating_journal_member ON rating_journal (member_id, id);
+
+-- A3's record learns which matches were ranked. A plain ADD COLUMN on a WITHOUT ROWID table: existing rows read 0.
+ALTER TABLE match_record ADD COLUMN ranked INTEGER NOT NULL DEFAULT 0 CHECK (ranked IN (0, 1));
+```
+
+`ranked_member.season` references `ranked_season`, so the migration must run before season 1's row exists; the lead's opening
+command inserts the season row first (§4.3). The journal's `season` is a plain integer, not a foreign key, so a season row can never
+be blocked from correction by its history.
+
+### 4.2 What each write is
+
+| Write | Who | Statements (one batch) |
+|---|---|---|
+| A rated or no-result ranked match (§2.2 rows A to K, M) | the room, relay invocation | the A3 four (`match_record` with `ranked = 1`, two `match_seat`, the `acct-all` bump) **plus** two `ranked_member` UPDATEs (compare-and-swap on `revision`, clearing `active_code`) and two `rating_journal` INSERTs: **8**, after 3 reads (the `records` flag, the day count, both members' rows in one SELECT) and one more for repeat damping (§5.1) |
+| Row L (no-show, face-off exit) | the room | one `ranked_member` UPDATE per seat (incident on one, `active_code` cleared on both) and one journal row: **3** |
+| A dodge at `found` | the matchmaker | one UPDATE and one INSERT: **2** |
+| Mint | the matchmaker | two UPDATEs setting `active_code`: **2** |
+| The lazy season reset (§1.6) | whichever of the above reads the row first in a new season | one journal row of kind `season`, folded into that batch: **+1** |
+
+**A no-result ranked match is recorded too.** Today `void` and `expired` write nothing. A ranked room writes its `match_record` for
+every match that started, with `agreed = 0` and `winner_seat` NULL for the no-result rows, and `reason` naming why (`dispute`,
+`void`, `infra`, added to the validated reason list in code, not in the schema). Two reasons: a member's history shows "No result
+(disputed)" instead of a match that silently vanished, and the dispute counter of §5.3 needs the opponent, which only `match_seat`
+knows. W-L is unaffected: `memberRecord` counts `agreed = 1` only.
+
+**The compare-and-swap.** The room reads both rows with their `revision`, computes both updates, and writes `UPDATE ranked_member SET
+... , revision = revision + 1 WHERE member_id = ?1 AND revision = ?2`; a miss re-reads and retries, `CAS_TRIES` (3) times, the
+`budgetedOp` pattern. The room's own `recorded` flag, saved before the write (A3), stays the guard against writing a match twice, and
+the journal's `UNIQUE (member_id, op_id)` is the second.
+
+### 4.3 The migration plan
+
+| Step | Who | What |
+|---|---|---|
+| M1 | lead | Apply `0005_ranked.sql` to production, then merge slice K2 (merging deploys; a Worker reading tables that do not exist fails) |
+| M2 | agent PRs, lead merges | Slices K3 to K6 (§8). Ranked stays closed: no `flags` row `ranked` means closed |
+| M3 | lead | **Open season 1:** `npx wrangler d1 execute roaring-lions-accounts --remote --command "INSERT INTO ranked_season (id, starts_at, ends_at, rd_floor, created_at) VALUES (1, unixepoch() * 1000, NULL, 120, unixepoch() * 1000)"` |
+| M4 | lead | **Open the queue:** the `flags` command of "Accounts A1" with the name `ranked` and the value `'open'`. Close: the same with `'closed'`. No deploy either way. The agent never runs either |
+| M5 | lead | A later season: insert its row, then set the previous row's `ends_at`. Nothing else: the reset is lazy |
+
+**After a D1 Time Travel restore** of ACCOUNTS, the A1 rule applies (close `accounts` first, re-apply the deletions), and **close
+`ranked` too**: a restore rewinds every rating to the restore point, and the `match_record` rows rewind with it, so the two stay
+consistent, but a member's `active_code` may name a room that has since ended. Reopen only after the deletions are re-applied.
+
+### 4.4 With the existing tables, member deletion and the tombstones
+
+**The deletion cascade must remove ranked rows, and the cron pin decides how.**
+- `deleteStatements()` emits one statement per `MEMBER_TABLES` row, plus `RATE_DAY_SQL` and the orphan sweep: 17 today. The account
+  cron runs **one** member delete per run in its worst case (`ACCOUNT_CRON_STATEMENTS` = 27), and the whole run's static worst case is
+  pinned at **48 of 50** (`cron-budget.test.ts`, "sums under the limit", which asserts `toBe(48)` and `toBeLessThan(50)`).
+- Two explicit `DELETE FROM ranked_member/rating_journal WHERE member_id = ?1` statements would make it **50**, which fails the pin's
+  `< 50`. One would fit (49), with no room left for anything after it.
+- **Recommended: the two ranked tables are removed by `ON DELETE CASCADE` from `member`** (D1 enforces foreign keys; the SQL above
+  declares the cascade). `MemberTable` gains `cascade: true` with `deleteSql: null`; `deleteStatements()` emits nothing for such a row,
+  so the batch stays 17 and the pin stays 48. Test A1-8 (every table with a `member_id` column is listed) keeps both tables listed, so
+  export still finds them, and a new test proves the cascade (§8, check K2-c). The same holds for the idle-member sweep, which deletes
+  through the same batch.
+- *Alternatives (Q11):* one explicit statement for `rating_journal` and the cascade for `ranked_member` (49); or free two statements
+  elsewhere in the cron before adding two. The existing table-by-table rule ("the delete path still deletes table by table") was a
+  choice for clarity, not a platform need, and the cascade keeps it testable.
+
+**The rest of the interaction:**
+
+| Existing thing | Effect |
+|---|---|
+| `match_seat` / `match_record` | A deleted member's seat becomes `deleted` (A1), so the opponent's record and **the opponent's journal** survive. The journal has no foreign key to `match_record`, so the orphan sweep (`MATCH_ORPHAN_SWEEP_SQL`, which drops a record with no member seat left) is never blocked; it can only fire once both members are gone, and then both journals are already gone by cascade |
+| The opponent's journal | keeps `opp_r` and `opp_rd` of a deleted member as numbers: a rating at a moment, not an identity, and needed to re-derive the opponent's own update |
+| A member deleted mid-match | the room's record writes `deleted` for that seat (A3, §0.25); the deleted seat's rating UPDATE affects no row and its journal INSERT is written as `INSERT ... SELECT ... WHERE EXISTS (SELECT 1 FROM member WHERE id = ?1)` (the `match_seat` pattern), so the batch never fails on the foreign key; **the opponent is still rated** |
+| A member deleted while queued | the queue reads `ranked_member` at pair time; a missing member row drops the entry. The page's own deletion flow closes the queue socket (`wipeMember`, then a hard reload) |
+| Tombstones (`ACCOUNT_TOMBSTONES`) | unchanged: ranked rows hold nothing the tombstone needs, and the tombstone holds nothing ranked could read. A deleted member who returns with a new account is a new player (§5.2, Q10) |
+| Export (`GET export`) | both tables gain `exportSql`: the whole `ranked_member` row except `revision` and `active_code`, and every journal row |
+| `admin_action` / `/stats/members` | slice K6 adds a read-only ranked block to the member card. Correcting a rating is out of scope: it would need `'rating'` in `admin_action.action`'s CHECK, which is a table rebuild (as `0004_admin.sql` did for `coin_journal`) and its own design (Q18) |
+| `rate_day` | ranked writes count against `acct-all` (`OPS_ALL` 20,000 a day): `RECORD_ROWS` becomes 8 for a ranked record (§7.1). No new scope |
+
 ## 5. Abuse cases
 ## 6. What /privacy must say, and retention
 ## 7. Cost against the D1, KV and Durable Object budgets
