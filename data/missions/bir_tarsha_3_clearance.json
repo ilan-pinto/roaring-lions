@@ -1,0 +1,372 @@
+{
+  "id": "bir_tarsha_3_clearance",
+  "name": "Bir Tarsha III — Two Houses",
+  "hostages_place": "the north of the camp quarter",
+  "town": "bir_tarsha",
+  "phase": "clearance",
+  "target_minutes": 6,
+  "time_limit_s": 720,
+  "start_layout": "assembly",
+  "start_front": "S",
+  "map": {
+    "file": "bir_tarsha_3",
+    "time_of_day": "day",
+    "player_start": [
+      24,
+      3
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results",
+      "civ.hostages_recovered"
+    ]
+  },
+  "briefing": "Two apartment blocks stand ten tiles apart in the camp quarter, with two of the people taken at First Light in each. I can place both doors and the guard on each, and nothing inside. Take out the guard on each door, and bring three of the four to the extraction on the north edge inside six minutes. Fewer than three is a loss. Anyone on the ground round either block warns the other inside twenty seconds, and their firing positions cover the lane between. A missile team on each roof looks into any yard you cross. So split and go in together, or take one and fight for the second. The second is slower, louder and dearer. Both blocks are lived in, and the one that holds the taken holds the neighbours as well. A cannon round into either is fourteen Conduct. Fifteen is the line. One hit on a block is fourteen, and a second hit ends the mission.",
+  "aftermath": "Three came back from the camp quarter, or four, and the Marj counted each of them.",
+  "debrief": {
+    "victory": {
+      "speaker": "idit",
+      "text": "Three or four came back down the lane. Two houses were never meant to be taken at once, and the camp quarter has that to remember."
+    },
+    "defeat": {
+      "speaker": "shai",
+      "text": "Not today. The blocks are warned and the lane is covered, and the people in them are exactly where they were."
+    }
+  },
+  "starting_force": [
+    {
+      "unit": "inf_squad",
+      "count": 3,
+      "at": [
+        21.5,
+        1.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "breach_team",
+      "count": 1,
+      "at": [
+        26.5,
+        1.5
+      ]
+    },
+    {
+      "unit": "yahalom_squad",
+      "count": 1,
+      "at": [
+        27.5,
+        2.5
+      ]
+    },
+    {
+      "unit": "sniper_team",
+      "count": 1,
+      "at": [
+        20.5,
+        3.5
+      ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        22.5,
+        3.5
+      ]
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        25.5,
+        3.5
+      ]
+    }
+  ],
+  "structures": [
+    {
+      "type": "militia_observation_post",
+      "at": [
+        38,
+        11
+      ],
+      "size": [
+        1,
+        1
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        36,
+        19
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        46,
+        25
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        38,
+        31
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        43,
+        31
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_observation_post",
+      "at": [
+        46,
+        32
+      ],
+      "size": [
+        1,
+        1
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "bring_three_out",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "bt3_extract",
+      "count": 3,
+      "seconds": 360,
+      "hostages": true,
+      "text": "Bring three of the four taken out to the extraction",
+      "say": {
+        "speaker": "idit",
+        "text": "Three on the north edge. I will count them again when you are clear of the lane."
+      },
+      "say_on_fail": {
+        "speaker": "idit",
+        "text": "There are not three to bring any more. Whatever this was, it was not a count we could afford to be wrong about."
+      }
+    },
+    {
+      "id": "guard_west",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "bt3_guard_west",
+      "text": "Take out the guard on the west block",
+      "say": {
+        "speaker": "shai",
+        "text": "West door is open. Do not stop in the yard."
+      }
+    },
+    {
+      "id": "guard_east",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "bt3_guard_east",
+      "text": "Take out the guard on the east block",
+      "say": {
+        "speaker": "shai",
+        "text": "East door is open. The lane is the dangerous half."
+      }
+    },
+    {
+      "id": "keep_the_blocks",
+      "type": "no_collateral_above",
+      "primary": true,
+      "threshold": 15,
+      "text": "Lose no more than 15 Conduct",
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "That is past fifteen. A block with a cannon round in it is not the thing we came to carry out."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "fail_below": 55
+  },
+  "civilians": {
+    "refuge": "bt3_extract_point",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 2,
+        "at": [
+          32.5,
+          16.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 2,
+        "at": [
+          42.5,
+          21.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          32.5,
+          16.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            32,
+            14
+          ]
+        },
+        "tag": "bt3_guard_west",
+        "group": "west_block"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [
+          33.5,
+          16.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "west_block"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          42.5,
+          21.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            42,
+            23
+          ]
+        },
+        "tag": "bt3_guard_east",
+        "group": "east_block"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [
+          43.5,
+          21.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "east_block"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          36.5,
+          18.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            36,
+            19
+          ]
+        },
+        "group": "lane"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          46.5,
+          24.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            46,
+            25
+          ]
+        },
+        "group": "lane"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "bt3_west_warns_east",
+      "label": "The east block has been warned",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "bt3_block_w"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "east_block",
+        "to": "yard_w_point"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "Shots at the west block. The east block heard them, and it is moving a team to its yard."
+      }
+    },
+    {
+      "id": "bt3_east_warns_west",
+      "label": "The west block has been warned",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "bt3_block_e"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "west_block",
+        "to": "yard_e_point"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "The west block heard that. Twenty seconds is what the lane gives them to cross it."
+      }
+    }
+  ]
+}
