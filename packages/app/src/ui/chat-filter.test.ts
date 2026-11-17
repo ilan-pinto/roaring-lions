@@ -107,14 +107,23 @@ describe('the matcher, on a fixture list', () => {
   });
 
   it('step 9, whole_word: a long hide entry declared there matches whole words only, like a short one; an undeclared one still matches inside', () => {
-    const g = compileFilter([{ lang: 'en', hide: ['gnarf', 'gnarfs', 'blorpy', 'blorpys'], mask: [], allow: [], whole_word: ['gnarfs'] }], () => true);
+    // `gnarfsome` (this list) and `megagnarfs` (another language's list) each CONTAIN the declared `gnarfs`; the exclusion is by
+    // exact entry, so both stay in the inside tier (review of PR 1492: a substring-broad exclusion would take them out).
+    const g = compileFilter([
+      { lang: 'en', hide: ['gnarf', 'gnarfs', 'blorpy', 'blorpys', 'gnarfsome'], mask: [], allow: [], whole_word: ['gnarfs'] },
+      { lang: 'xx', hide: ['megagnarfs'], mask: [], allow: [] },
+    ], () => true);
     const hid = (s: string): boolean => filterLine(g, s, { mask: true }).kind === 'hide';
     expect(hid('the gnarfs')).toBe(true);
     expect(hid('GNARFS!')).toBe(true);
     expect(hid('xgnarfsx')).toBe(false);
     expect(hid('bigGnarfsville')).toBe(false);
     expect(hid('xblorpysx')).toBe(true);
-    expect(g.inside.map((t) => t.joined)).toEqual(['blorpy', 'blorpys']);
+    expect(hid('xgnarfsomex')).toBe(true);
+    expect(hid('BigGnarfsomeVille')).toBe(true);
+    expect(hid('xmegagnarfsx')).toBe(true);
+    expect(hid('UltraMegaGnarfsVille')).toBe(true);
+    expect(g.inside.map((t) => t.joined)).toEqual(['blorpy', 'blorpys', 'gnarfsome', 'megagnarfs']);
   });
 
   it('step 10, allow phrases: a hide word inside a longer allow phrase shows; the bare word, or the words out of order, still hide', () => {

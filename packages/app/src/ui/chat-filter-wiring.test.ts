@@ -211,3 +211,82 @@ describe('the scoreboard and the points panel read the other seat\'s name at pai
     expect(namesReadLate('main.ts', main, ['NetScoreboard', 'NetPoints'])).toEqual(new Map([['NetScoreboard', 'late'], ['NetPoints', 'late']]));
   });
 });
+
+/**
+ * Review of PR 1492: the HUD feed's sink, as the TypeScript parser reads `src`. For each `onChat` hook whose function calls
+ * `<inbox>.deliver(seat, text, sink)`, every `hud.note(...)` inside that sink must sit behind the battlefield's `disposed` flag: in the
+ * THEN branch of `if (!disposed)`, or after an `if (disposed) return;` in a block that holds it. A line the inbox held while the
+ * filter loaded is handed back LATER (`chat-inbox.ts`, `hold`), so it can arrive after the battlefield's disposer ran and its HUD is
+ * gone. 'none' when no such sink is found, so a reshaped hook reads red rather than vacuously guarded.
+ */
+function feedSinkGuard(file: string, src: string): 'guarded' | 'unguarded' | 'none' {
+  const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const isNotDisposed = (e: ts.Expression): boolean =>
+    ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.ExclamationToken && ts.isIdentifier(e.operand) && e.operand.text === 'disposed';
+  const isBailOnDisposed = (s: ts.Statement): boolean => {
+    if (!ts.isIfStatement(s) || !ts.isIdentifier(s.expression) || s.expression.text !== 'disposed') return false;
+    const t = s.thenStatement;
+    return ts.isReturnStatement(t) || (ts.isBlock(t) && t.statements.length === 1 && ts.isReturnStatement(t.statements[0]));
+  };
+  const guarded = (call: ts.Node, sink: ts.Node): boolean => {
+    for (let child: ts.Node = call, n: ts.Node = call.parent; child !== sink; child = n, n = n.parent) {
+      if (ts.isIfStatement(n) && n.thenStatement === child && isNotDisposed(n.expression)) return true;
+      if (ts.isBlock(n)) {
+        const at = n.statements.indexOf(child as ts.Statement);
+        if (n.statements.slice(0, at).some(isBailOnDisposed)) return true;
+      }
+    }
+    return false;
+  };
+  // Every `hud.note(...)` call, each with the sink it sits in.
+  const notes: { call: ts.CallExpression; sink: ts.Node }[] = [];
+  const inSink = (n: ts.Node, sink: ts.Node): void => {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'note'
+      && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === 'hud') notes.push({ call: n, sink });
+    ts.forEachChild(n, (c) => inSink(c, sink));
+  };
+  const inHook = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'deliver' && n.arguments.length === 3) {
+      const sink = n.arguments[2];
+      if (ts.isArrowFunction(sink) || ts.isFunctionExpression(sink)) inSink(sink, sink);
+    }
+    ts.forEachChild(n, inHook);
+  };
+  const visit = (n: ts.Node): void => {
+    if (ts.isPropertyAssignment(n) && ts.isIdentifier(n.name) && n.name.text === 'onChat'
+      && (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))) inHook(n.initializer);
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  if (notes.length === 0) return 'none';
+  return notes.every(({ call, sink }) => guarded(call, sink)) ? 'guarded' : 'unguarded';
+}
+
+describe('the HUD feed\'s chat sink checks `disposed` before it writes (review of PR 1492)', () => {
+  const hook = (sink: string): string => `room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, ${sink}) });`;
+
+  it('the reader tells a guarded sink from an unguarded one (literal fixtures)', () => {
+    expect(feedSinkGuard('a.ts', hook("(shown) => { if (!disposed) hud.note(line(shown), 'info'); }"))).toBe('guarded');
+    expect(feedSinkGuard('b.ts', hook("(shown) => { if (disposed) return; hud.note(line(shown), 'info'); }"))).toBe('guarded');
+    expect(feedSinkGuard('c.ts', hook("function (shown) { if (disposed) { return; } hud.note(line(shown), 'info'); }"))).toBe('guarded');
+    // the review's mutation, and the sink with no check at all
+    expect(feedSinkGuard('d.ts', hook("(shown) => { if (true) hud.note(line(shown), 'info'); }"))).toBe('unguarded');
+    expect(feedSinkGuard('e.ts', hook("(shown) => hud.note(line(shown), 'info')"))).toBe('unguarded');
+    // the note in the ELSE branch, the check the wrong way round, a bail that does not bail, a check after the write
+    expect(feedSinkGuard('f.ts', hook("(shown) => { if (!disposed) {} else hud.note(line(shown), 'info'); }"))).toBe('unguarded');
+    expect(feedSinkGuard('g.ts', hook("(shown) => { if (disposed) hud.note(line(shown), 'info'); }"))).toBe('unguarded');
+    expect(feedSinkGuard('h.ts', hook("(shown) => { if (disposed) log(); hud.note(line(shown), 'info'); }"))).toBe('unguarded');
+    expect(feedSinkGuard('i.ts', hook("(shown) => { hud.note(line(shown), 'info'); if (disposed) return; }"))).toBe('unguarded');
+    // a second, unguarded note beside a guarded one
+    expect(feedSinkGuard('j.ts', hook("(shown) => { if (!disposed) hud.note(a, 'info'); hud.note(b, 'info'); }"))).toBe('unguarded');
+    // comments and strings do not fake the check; a sink that writes no note, or no deliver at all, is no sink
+    expect(feedSinkGuard('k.ts', hook("(shown) => { /* if (!disposed) */ hud.note('if (!disposed)', 'info'); }"))).toBe('unguarded');
+    expect(feedSinkGuard('l.ts', hook('(shown) => { log(shown); }'))).toBe('none');
+    expect(feedSinkGuard('m.ts', "room.setHooks({ onChat: (seat, text) => { if (!disposed) hud.note(text, 'info'); } });")).toBe('none');
+  });
+
+  it('main.ts\'s feed sink writes to the HUD only while the battlefield is not disposed', () => {
+    const main = readFileSync(join(__dirname, '..', 'main.ts'), 'utf8');
+    expect(feedSinkGuard('main.ts', main)).toBe('guarded');
+  });
+});
