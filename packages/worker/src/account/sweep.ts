@@ -51,7 +51,8 @@ const IN_CHUNK = 90;
 /** The account cron's worst case in D1 statements: what `cron-budget.test.ts` adds to the telemetry shares. */
 export const ACCOUNT_CRON_STATEMENTS = EXPIRY_STATEMENTS + 1 + RECONCILE_PAGES + deleteStatements().length + 1;
 
-interface Due extends DueMember { idHash: string }
+/** `tombFresh`: this run wrote the member's tombstone (the idle path), so nothing needs to rewrite it again this run. */
+interface Due extends DueMember { idHash: string; tombFresh: boolean }
 
 /** What a run tallies for its log line: tombstones that do not parse to a numeric day (GH-1530: the scan and the survivor step skip them
  *  alike). */
@@ -67,9 +68,19 @@ function tombDay(raw: string): number | undefined {
   }
 }
 
+const IDLE_SQL = 'SELECT id, id_hash, last_seen_day FROM member WHERE last_seen_day <= ?1 ORDER BY last_seen_day LIMIT ?2';
+
+/** What `expireAndFindIdle` found: the idle members queued, and, once the idle select has run, which of the `recorded` hashes (GH-1530's
+ *  failing record) still have a member row, with its `last_seen_day`. */
+interface Idle { due: Due[]; present: Map<string, number> }
+
 /** The five expiry deletes (ONE batch), then the idle members, oldest first, each tombstoned before it is queued (a restore re-applies
- *  the tombstone). A member whose tombstone could not be written is not queued: it waits for the next run. */
-async function expireAndFindIdle(db: D1Like, now: number, kv: KVLike, fail: (err: unknown) => void): Promise<Due[]> {
+ *  the tombstone). A member whose tombstone could not be written is not queued: it waits for the next run.
+ *
+ *  GH-1530: when the failing record is not empty, the SAME select also reads which recorded members still exist (`UNION ALL` over
+ *  `id_hash IN (...)`: at most `DUE_MEMBERS_MAX` hashes plus the two binds, under D1's 100), so a record entry whose member is gone can
+ *  leave the record at no extra D1 statement. */
+async function expireAndFindIdle(db: D1Like, now: number, kv: KVLike, fail: (err: unknown) => void, recorded: readonly string[] = []): Promise<Idle> {
   const expiry = [
     db.prepare('DELETE FROM session WHERE expires_at <= ?1 OR absolute_at <= ?1').bind(now),
     db.prepare('DELETE FROM auth_challenge WHERE expires_at <= ?1').bind(now),
@@ -80,20 +91,23 @@ async function expireAndFindIdle(db: D1Like, now: number, kv: KVLike, fail: (err
   if (expiry.length !== EXPIRY_STATEMENTS) throw new Error('EXPIRY_STATEMENTS is stale');
   await db.batch(expiry);
   const cutoff = dayOf(now) - MEMBER_IDLE_DAYS - 1;
-  const idle = await db
-    .prepare('SELECT id, id_hash FROM member WHERE last_seen_day <= ?1 ORDER BY last_seen_day LIMIT ?2')
-    .bind(cutoff, SWEEP_MEMBERS_PER_RUN)
-    .all<{ id: string; id_hash: string }>();
+  const sql = recorded.length === 0
+    ? IDLE_SQL
+    : `SELECT id, id_hash, last_seen_day, 1 AS idle FROM (${IDLE_SQL}) UNION ALL SELECT id, id_hash, last_seen_day, 0 FROM member WHERE id_hash IN (${recorded.map((_, j) => `?${j + 3}`).join(',')})`;
+  const rows = (await db.prepare(sql).bind(cutoff, SWEEP_MEMBERS_PER_RUN, ...recorded).all<{ id: string; id_hash: string; last_seen_day: number; idle?: number }>()).results;
+  const present = new Map(rows.filter((m) => m.idle === 0).map((m) => [m.id_hash, m.last_seen_day] as const));
+  // `sort` is stable, so members on the same day keep the order the select returned them in.
+  const idle = rows.filter((m) => m.idle !== 0).sort((a, b) => a.last_seen_day - b.last_seen_day);
   const due: Due[] = [];
-  for (const m of idle.results) {
+  for (const m of idle) {
     try {
       await kv.put('tomb:' + m.id_hash, JSON.stringify({ deletedAt: now, lastSeenDay: cutoff }), { expirationTtl: TOMB_TTL_S });
-      due.push({ id: m.id, idHash: m.id_hash, day: cutoff });
+      due.push({ id: m.id, idHash: m.id_hash, day: cutoff, tombFresh: true });
     } catch (err) {
       fail(err); // one member's failure must not keep the next one's deletion
     }
   }
-  return due;
+  return { due, present };
 }
 
 /** `save(settled)` moves the cursor past each page read, in order, whose queued members are all in `settled`, and stops at the first one
@@ -153,7 +167,7 @@ async function scanTombstones(db: D1Like, kv: KVLike, room: number, known: Reado
           }
           if (m.last_seen_day > day) await kv.delete('tomb:' + m.id_hash);
           else {
-            due.push({ id: m.id, idHash: m.id_hash, day });
+            due.push({ id: m.id, idHash: m.id_hash, day, tombFresh: false });
             ids.push(m.id);
           }
         } catch (err) {
@@ -244,11 +258,44 @@ async function readFallback(kv: KVLike, fail: (err: unknown) => void): Promise<{
   return { fails, failing };
 }
 
-/** Writes the failing record: entries under `FAILING_KEEP_DAYS` old, at most `DUE_MEMBERS_MAX` of them, newest first. */
-async function writeFailing(kv: KVLike, failing: Record<string, number>, today: number): Promise<void> {
-  const keep = Object.entries(failing).filter(([, day]) => today - day < FAILING_KEEP_DAYS).sort((a, b) => b[1] - a[1]).slice(0, DUE_MEMBERS_MAX);
-  if (keep.length === 0) await kv.delete(FAILING_KEY);
-  else await kv.put(FAILING_KEY, JSON.stringify(Object.fromEntries(keep)), { expirationTtl: FAILING_TTL_S });
+/** The failing record as it may be kept: entries under `FAILING_KEEP_DAYS` old, at most `DUE_MEMBERS_MAX` of them, newest first. Applied
+ *  when the record is read as well as when it is written, so what a run acts on never holds an entry past its 30 days. */
+function trimFailing(failing: Record<string, number>, today: number): Record<string, number> {
+  return Object.fromEntries(Object.entries(failing).filter(([, day]) => today - day < FAILING_KEEP_DAYS).sort((a, b) => b[1] - a[1]).slice(0, DUE_MEMBERS_MAX));
+}
+
+/** Writes the failing record (already trimmed), or deletes the key when it is empty. */
+async function writeFailing(kv: KVLike, failing: Record<string, number>): Promise<void> {
+  if (Object.keys(failing).length === 0) await kv.delete(FAILING_KEY);
+  else await kv.put(FAILING_KEY, JSON.stringify(failing), { expirationTtl: FAILING_TTL_S });
+}
+
+/** GH-1530: drops, in place, the record entries that no longer describe an owed deletion, given which recorded members still exist
+ *  (`present`): one whose member row is gone (the route deleted it, or its rows went another way), and one whose tombstone is older
+ *  than its member's last sign-in (the deletion was cancelled; the scan prunes that tombstone). A missing or unreadable tombstone KEEPS
+ *  the entry, so a deletion that lost its tombstone stays red instead of going quiet. KV reads only, no D1 statement. Returns whether
+ *  anything was dropped. */
+async function dropSettledRecords(kv: KVLike, failing: Record<string, number>, present: ReadonlyMap<string, number>, fail: (err: unknown) => void): Promise<boolean> {
+  let dropped = false;
+  for (const h of Object.keys(failing)) {
+    const seen = present.get(h);
+    if (seen === undefined) {
+      delete failing[h];
+      dropped = true;
+      continue;
+    }
+    try {
+      const raw = await kv.get('tomb:' + h);
+      const day = raw === null ? undefined : tombDay(raw);
+      if (day !== undefined && day < seen) {
+        delete failing[h];
+        dropped = true;
+      }
+    } catch (err) {
+      fail(err); // kept: an entry leaves only on evidence
+    }
+  }
+  return dropped;
 }
 
 /** The whole account cron, as `scheduled()` runs it: expiries and idle members, then the tombstone scan (which runs even if the first
@@ -267,9 +314,15 @@ export async function accountCron(db: D1Like, now: number, kv: KVLike): Promise<
   const tally: Tally = { unreadable: 0 };
   const today = dayOf(now);
   const state = await readFallback(kv, fail);
+  const read = Object.keys(state.failing).length;
+  state.failing = trimFailing(state.failing, today);
+  // The record differs from what is stored (an entry aged out or fell past the cap, or one is dropped below): written back after the batch.
+  let dirty = Object.keys(state.failing).length !== read;
   let due: Due[] = [];
   try {
-    due = await expireAndFindIdle(db, now, kv, fail);
+    const idle = await expireAndFindIdle(db, now, kv, fail, Object.keys(state.failing));
+    due = idle.due;
+    if (await dropSettledRecords(kv, state.failing, idle.present, fail)) dirty = true;
   } catch (err) {
     fail(err);
   }
@@ -309,7 +362,8 @@ export async function accountCron(db: D1Like, now: number, kv: KVLike): Promise<
       } else {
         if (recorded(alone) !== undefined) {
           delete state.failing[alone.idHash];
-          await writeFailing(kv, state.failing, today);
+          await writeFailing(kv, state.failing);
+          dirty = false;
         }
         if (state.fails >= BATCH_FAIL_THRESHOLD) await kv.put(BATCH_FAIL_KEY, String(BATCH_FAIL_THRESHOLD - 1), { expirationTtl: BATCH_FAIL_TTL_S });
       }
@@ -317,16 +371,30 @@ export async function accountCron(db: D1Like, now: number, kv: KVLike): Promise<
       await kv.put(BATCH_FAIL_KEY, String(state.fails + 1), { expirationTtl: BATCH_FAIL_TTL_S });
     } else {
       state.failing[alone.idHash] = today;
-      await writeFailing(kv, state.failing, today);
+      state.failing = trimFailing(state.failing, today);
+      await writeFailing(kv, state.failing);
+      dirty = false;
       settled.add(alone.id); // recorded as failing only once the record is written
       if (state.fails > 0) await kv.delete(BATCH_FAIL_KEY);
+      // Recorded, or re-recorded: its tombstone gets a fresh `TOMB_TTL_S` with the same value, so a deletion that keeps failing is not
+      // dropped when the tombstone it was found by expires. The idle path wrote this member's tombstone this run already (`tombFresh`),
+      // and a second write to one key within a second risks KV's per-key write limit.
+      if (!alone.tombFresh) {
+        const raw = await kv.get('tomb:' + alone.idHash);
+        if (raw !== null) await kv.put('tomb:' + alone.idHash, raw, { expirationTtl: TOMB_TTL_S });
+      }
     }
   } catch (err) {
     fail(err);
   }
+  if (dirty) await writeFailing(kv, state.failing).catch(fail);
   await scan?.save(settled).catch(fail); // a lost cursor only restarts the scan from the top tomorrow
   if (tally.unreadable > 0) console.warn('account cron: skipped tombstones that do not parse to a day', { count: tally.unreadable });
-  if (held.length > 0) fail(new Error(`account cron: ${held.length} member deletion(s) held back after failing alone (GH-1530)`));
+  // Red while the record holds ANY entry, not only one this run happened to queue: a recorded tombstone-path member is settled, so the
+  // cursor moves past its page and later runs need not find it. An entry leaves when its delete commits, when its member is gone or its
+  // deletion was cancelled (`dropSettledRecords`), or after `FAILING_KEEP_DAYS` without a failed retry re-recording it.
+  const stuck = Object.keys(state.failing).length;
+  if (stuck > 0) fail(new Error(`account cron: ${stuck} member deletion(s) held back after failing alone (GH-1530)`));
   if (failure !== undefined) throw failure;
   return done;
 }
@@ -334,7 +402,7 @@ export async function accountCron(db: D1Like, now: number, kv: KVLike): Promise<
 /** Expiries and idle members only (one delete batch). No production caller since `accountCron` (GH-1432); kept for the unit tests. */
 export async function sweepAccounts(db: D1Like, now: number, kv: KVLike): Promise<void> {
   let failure: unknown;
-  const due = await expireAndFindIdle(db, now, kv, (err) => { failure ??= err; });
+  const { due } = await expireAndFindIdle(db, now, kv, (err) => { failure ??= err; });
   await deleteDue(db, kv, due, { unreadable: 0 });
   if (failure !== undefined) throw failure;
 }
