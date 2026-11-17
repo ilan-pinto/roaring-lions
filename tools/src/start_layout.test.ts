@@ -116,16 +116,16 @@ const READINGS = IDS.map(read);
 const byId = new Map(READINGS.map((r) => [r.id, r]));
 
 describe('the starting layout on every shipped mission (GH-1360 S3b)', () => {
-  it('walks all 35 missions and the same 315 side-0 ground bodies as the S0 census, with 74 pairs before', () => {
+  it('walks all 39 missions and the same 344 side-0 ground bodies as the S0 census, with 74 pairs before', () => {
     // Literals, so a walk that silently lost a mission or a body cannot pass: S0's census (GH-1360, 15 Nov) read 271
     // ground bodies and 70 overlapping pairs for side 0 across the first 30 starts. Was 30 missions / 271 / 70 / 292 laid. The five Qasr Liwan
-    // missions (GH-1438) add 44 ground bodies (315), 4 overlapping pairs before (74: II 2, III 1, IV 1) and 46 laid bodies with their aircraft (338).
-    expect(IDS.length).toBe(35);
-    expect(READINGS.reduce((n, r) => n + r.after.length, 0)).toBe(315);
-    expect(READINGS.reduce((n, r) => n + r.before.length, 0)).toBe(315);
+    // missions (GH-1438) add 44 ground bodies (315), 4 overlapping pairs before (74: II 2, III 1, IV 1) and 46 laid bodies with their aircraft (338). Bir Tarsha I, II, III and V (GH-1438) add 29 ground bodies (344), no overlapping pair before (74) and 29 laid bodies (367).
+    expect(IDS.length).toBe(39);
+    expect(READINGS.reduce((n, r) => n + r.after.length, 0)).toBe(344);
+    expect(READINGS.reduce((n, r) => n + r.before.length, 0)).toBe(344);
     expect(READINGS.reduce((n, r) => n + overlaps(r.before).length, 0)).toBe(74);
     // Every laid body: the census's ground bodies plus the force's aircraft.
-    expect(READINGS.reduce((n, r) => n + r.placements.length, 0)).toBe(338);
+    expect(READINGS.reduce((n, r) => n + r.placements.length, 0)).toBe(367);
   });
 
   it('every mission declares start_layout, and every assembly a start_front', () => {
@@ -203,7 +203,7 @@ describe('the starting layout on every shipped mission (GH-1360 S3b)', () => {
       sum += d;
       n++;
     }
-    expect(n).toBe(338);
+    expect(n).toBe(367);
     expect(sum / n).toBeLessThan(MAX_MEAN_MOVE_TILES);
   });
 
@@ -215,7 +215,7 @@ describe('the starting layout on every shipped mission (GH-1360 S3b)', () => {
     }
   });
 
-  it('every authored front is the enemy-centroid derivation (D2), and six missions\' derivations disagree', () => {
+  it('every authored front is the enemy-centroid derivation (D2), and eleven missions\' derivations disagree', () => {
     for (const r of READINGS) {
       if (r.mission.start_front === undefined) continue;
       expect(r.mission.start_front, r.id).toBe(r.derived.chosen);
@@ -226,6 +226,8 @@ describe('the starting layout on every shipped mission (GH-1360 S3b)', () => {
       'beit_sahwan_0_tutorial',
       'beit_sahwan_1_recon',
       'beit_sahwan_breach',
+      'bir_tarsha_1_recon',
+      'bir_tarsha_3_clearance',
       'ein_qasab_1_recon',
       'qasr_liwan_1_recon',
       'qasr_liwan_3_buildup',
