@@ -69,7 +69,8 @@ export interface Telemetry {
    *  sends and stores nothing. Null when telemetry never ran this page load. */
   knownPlayer(): string | null;
   /** Lead ruling, 17 Nov 2026: after a successful account deletion, every later event of this page carries `player` and a fresh session id,
-   *  so nothing sent from here on links back to the deleted account's id. Memory only: the caller stores the id. */
+   *  so nothing sent from here on links back to the deleted account's id. Memory only: the caller stores the id. What is still QUEUED under
+   *  the old id is dropped first, unsent: a later flush or the reload's pagehide beacon would otherwise re-create the deleted id's rows. */
   rotate(player: string): void;
 }
 
@@ -108,7 +109,8 @@ export interface TelemetryDeps {
   gear?: () => Gear;
   /** GH-1410: the live opt-out. True once the player has switched reports off this session: `ids()` then answers null, so a feedback note carries no id. */
   optedOut?: () => boolean;
-  sink: { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void };
+  /** `clear` drops everything queued, unsent: the id rotation calls it before the new id takes effect. */
+  sink: { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void; clear(): void };
 }
 
 const HEARTBEAT_MS = 60_000;
@@ -167,6 +169,10 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
   return {
     knownPlayer: () => player,
     rotate: (next) => {
+      // FIRST, before the new id takes effect: an event queued under the old id must never leave. Flushed later (or by the
+      // reload's pagehide beacon) it would re-create rows the server just deleted, or share one POST with new-id events, and
+      // the Worker keeps only the first event's player.
+      d.sink.clear();
       player = next;
       session = d.newSession();
     },
@@ -326,8 +332,10 @@ export function rotateTelemetryPlayer(storage: StorageLike | null = safeStorage(
 export function gatedSink(
   inner: { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void; clear(): void },
   optedOut: () => boolean
-): { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void } {
+): { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void; clear(): void } {
   return {
+    // Not gated: dropping the queue is always allowed (the id rotation's call, opted out or not).
+    clear: () => inner.clear(),
     push: (e) => {
       if (optedOut()) inner.clear();
       else inner.push(e);

@@ -192,6 +192,62 @@ describe('a successful account delete rotates the telemetry id (lead ruling, 17 
     expect(after?.session).not.toBe(before?.session);
   });
 
+  // Review finding 1 (PR 1532): events QUEUED in the Sender before the rotation still carry the old id. Left there, the reload's pagehide
+  // beacon (or the next flush, sharing one POST with new-id events) sends them after the server deleted the old id's rows.
+  it.each(['flush', 'pagehide'] as const)('events queued before the rotation are dropped, unsent, and the next event carries the new id (%s)', async (via) => {
+    const beacons: Blob[] = [];
+    Object.defineProperty(navigator, 'sendBeacon', { value: (_u: string, b: Blob) => { beacons.push(b); return true; }, configurable: true });
+    vi.resetModules();
+    const mod = await import('./index');
+    const tel = mod.initTelemetry({ dev: false });
+    const old = tel.ids();
+    expect(old?.player).toBe(PLAYER);
+    // Queued, not yet sent: neither event flushes on its own.
+    tel.sessionStart('menu', 'three');
+    tel.boot(100);
+    expect(bodies).toEqual([]);
+    mod.rotateTelemetryPlayer();
+    // The rotation itself sends nothing, by fetch or by beacon.
+    expect(bodies).toEqual([]);
+    expect(beacons).toEqual([]);
+    if (via === 'flush') tel.clientError(describeError(new Error('after'))); // pushes, then flushes over fetch
+    else window.dispatchEvent(new Event('pagehide')); // the reload's beacon
+    for (const b of beacons) bodies.push(await b.text());
+    const all = sent();
+    const stored = storage.getItem(PLAYER_KEY);
+    expect(stored).toMatch(ID_PATTERN);
+    expect(stored).not.toBe(PLAYER);
+    expect(all.filter((e) => e.player === PLAYER || e.session === old?.session)).toEqual([]);
+    if (via === 'pagehide') {
+      expect(all).toEqual([]);
+      tel.clientError(describeError(new Error('after')));
+    }
+    const next = sent().at(-1);
+    expect(next?.type).toBe('client_error');
+    expect(next?.player).toBe(stored);
+    expect(next?.session).toMatch(ID_PATTERN);
+    expect(next?.session).not.toBe(old?.session);
+    expect(sent().every((e) => e.player === stored)).toBe(true);
+  });
+
+  // Review finding 2 (PR 1532): the tester branch of `ids()` (a `?tester` label set) must answer the NEW id too, or a tester's feedback
+  // note after a delete would carry the deleted account's telemetry id. The label itself is untouched (whether a delete clears it is the lead's call).
+  it('with a ?tester label, ids() after the rotation answers the new player and session, and keeps the label', async () => {
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry&tester=alice');
+    vi.resetModules();
+    const mod = await import('./index');
+    const tel = mod.initTelemetry({ dev: false });
+    const before = tel.ids();
+    expect(before).toMatchObject({ player: PLAYER, tester: 'alice' });
+    mod.rotateTelemetryPlayer();
+    const after = tel.ids();
+    const stored = storage.getItem(PLAYER_KEY);
+    expect(stored).toMatch(ID_PATTERN);
+    expect(stored).not.toBe(PLAYER);
+    expect(after).toEqual({ player: stored, session: expect.stringMatching(ID_PATTERN), tester: 'alice' });
+    expect(after?.session).not.toBe(before?.session);
+  });
+
   it('main.ts wires the profile screen to the telemetry module\'s rotation', () => {
     const main = readFileSync(join(__dirname, '..', 'main.ts'), 'utf8');
     expect(main).toMatch(/rotateTelemetry:\s*\(\)\s*=>\s*rotateTelemetryPlayer\(\)/);
