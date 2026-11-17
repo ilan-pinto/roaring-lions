@@ -180,10 +180,13 @@ async function scanTombstones(db: D1Like, kv: KVLike, room: number, known: Reado
 }
 
 /** Deletes every queued member in ONE guarded batch, then, only when a guard held someone back, ONE select for the survivors, whose
- *  tombstone is pruned when a sign-in came after it (so `gone` never calls a live account deleted). Returns the members deleted. */
-async function deleteDue(db: D1Like, kv: KVLike, due: readonly Due[], tally: Tally): Promise<number> {
+ *  tombstone is pruned when a sign-in came after it (so `gone` never calls a live account deleted). Returns the members deleted.
+ *  `commit.committed` is set the moment the batch resolves, before the survivor tidy-up, so a caller can tell a batch that failed from
+ *  one that committed and whose tidy-up then threw (GH-1530: only the first is a failed delete). */
+async function deleteDue(db: D1Like, kv: KVLike, due: readonly Due[], tally: Tally, commit: { committed: boolean } = { committed: false }): Promise<number> {
   if (due.length === 0) return 0;
   const out = await db.batch(deleteDueStatements(db, due));
+  commit.committed = true;
   // `member` is the last statement: its change count is the members deleted. D1's batch result carries `meta.changes`; the node:sqlite
   // test double's `run()` result carries `changes`.
   const last = out[out.length - 1] as { meta?: { changes?: number }; changes?: number | bigint } | undefined;
@@ -277,13 +280,15 @@ export async function accountCron(db: D1Like, now: number, kv: KVLike): Promise<
   const alone = queue.find((d) => recorded(d) !== undefined) ?? (state.fails >= BATCH_FAIL_THRESHOLD ? oldest : undefined);
   const batch = alone !== undefined ? [alone] : queue;
   let done = 0;
-  let committed = false;
+  // Set when `db.batch` resolves, not when `deleteDue` returns: a throw in its survivor tidy-up comes after the deletes committed, and
+  // must neither raise the counter nor record a member that is already gone.
+  const commit = { committed: false };
   try {
-    done = await deleteDue(db, kv, batch, tally);
-    committed = true;
+    done = await deleteDue(db, kv, batch, tally, commit);
   } catch (err) {
     fail(err);
   }
+  const committed = commit.committed;
   try {
     if (batch.length === 0) {
       // no batch ran: the counter neither rises nor clears

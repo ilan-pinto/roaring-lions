@@ -423,6 +423,33 @@ describe('accountCron: the one-member fallback after repeated failed batches (GH
   });
 });
 
+describe('accountCron: a batch that committed is not a failed delete, whatever its tidy-up does (PR 1540 review)', () => {
+  const today = dayOf(NOW);
+  /** `h.kv`, except that reading `key` throws: the survivor step's tombstone read, which runs only after the batch committed. */
+  const throwingGet = (h: H, key: string) => ({ ...h.kv, get: async (k: string) => { if (k === key) throw new Error('kv get failed'); return h.kv.get(k); } });
+
+  it('shared: the batch commits, then the survivor step throws: the counter does not rise', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'a', CUTOFF - 2);
+    await member(h, 'b', CUTOFF - 1);
+    const db = beforeMemberDelete(h.db, async () => { await h.db.prepare("UPDATE member SET last_seen_day = ?1 WHERE id = 'b'").bind(today).run(); });
+    await expect(accountCron(db, NOW, throwingGet(h, 'tomb:hashb'))).rejects.toThrow('kv get failed');
+    expect(await ids(h)).toEqual(['b']); // a deleted, b spared by its guard: the batch committed
+    expect(await h.kv.get(BATCH_FAIL_KEY)).toBeNull();
+  });
+
+  it('alone: the batch commits, then the survivor step throws: the member is not recorded, and the counter drops to K-1', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'a', CUTOFF - 2);
+    await h.kv.put(BATCH_FAIL_KEY, String(BATCH_FAIL_THRESHOLD));
+    const db = beforeMemberDelete(h.db, async () => { await h.db.prepare("UPDATE member SET last_seen_day = ?1 WHERE id = 'a'").bind(today).run(); });
+    await expect(accountCron(db, NOW, throwingGet(h, 'tomb:hasha'))).rejects.toThrow('kv get failed');
+    expect(await ids(h)).toEqual(['a']); // spared by its guard, which is a commit, not a failure
+    expect(await h.kv.get(FAILING_KEY)).toBeNull();
+    expect(await h.kv.get(BATCH_FAIL_KEY)).toBe(String(BATCH_FAIL_THRESHOLD - 1));
+  });
+});
+
 describe('the cron wiring', () => {
   it('scheduled sweeps and reconciles when both bindings exist, and skips them when one is missing', async () => {
     const { default: worker } = await import('../index');
