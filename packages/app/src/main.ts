@@ -380,7 +380,8 @@ import type { SavesDeps } from './ui/saves';
 import type { CreditsDeps } from './ui/credits';
 import { versusMaps } from './ui/versus-maps';
 import type { VersusDeps } from './ui/versus';
-import { LOCALES, PSEUDO_RTL, applyLocale, isPseudo, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
+import { LOCALES, PSEUDO_RTL, applyLocale, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
+import { fetchLocaleJson } from './i18n/overlay-fetch';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo, pseudoRtl } from './i18n/pseudo';
 import { KillCauseTracker, causeText, parseKillCause, type KillCause } from './kill-cause';
@@ -647,14 +648,8 @@ async function fetchLicenceText(url: string): Promise<string> {
  * going missing must degrade to English, not break the mission.
  */
 async function loadMissionOverlay(lang: string, base: string): Promise<MissionLocaleOverlay | null> {
-  if (lang === 'en' || isPseudo(lang)) return null;
-  try {
-    const res = await fetch(`${base}locales/${lang}/missions.json`);
-    if (!res.ok) return null;
-    return (await res.json()) as MissionLocaleOverlay;
-  } catch {
-    return null;
-  }
+  // `en` and the pseudo-locales have no file (never fetched, never warned about); any other id that does not arrive warns, naming the URL.
+  return fetchLocaleJson<MissionLocaleOverlay>(lang, `${base}locales/${lang}/missions.json`, 'mission text');
 }
 
 /**
@@ -2076,6 +2071,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission = applyMissionLocale(rawMission, await loadMissionOverlay(currentLocale(), BASE));
   }
   const ledger: CampaignLedger = params.get('fresh') !== null ? {} : ledgerStore.readLedger();
+  // GH-1394: the campaign difficulty posture, read from the campaign LEDGER only (never a URL flag, so no dev flag
+  // changes a score), applied once to the mission JSON here so every reader below -- briefing, objectives, the
+  // runtime, the debrief, a mid-mission save -- sees the mission the run is played on. Standard, and the tutorial
+  // under any posture, is the mission itself (`campaignMission` returns it by reference).
+  // Loaded lazily, as the save kit is: the posture code is the campaign's alone, and the entry chunk and its static
+  // imports sit under a byte ceiling (`pnpm --filter @lions/tools webgpu:bundle`), which an eager import crossed by 2.4 KB.
+  // A chunk that will not load must not boot the run at another posture: the board, as for a save that will not start.
+  const posture = await importWithRetry(() => import('./posture')).catch(() => null);
+  if (req.signal.aborted) return teardown;
+  if (posture === null) {
+    req.navigate(routes.campaign(), { replace: true });
+    return teardown;
+  }
+  if (mission !== undefined) mission = posture.campaignMission(mission, ledger, t);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -2505,7 +2514,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     resolvedMission = resolveUpgrades(mission, ledger, gateOf);
     loanedForce = loanedPlacements(mission, ledger, gateOf);
     const resolvedForce = resolvedMission.starting_force ?? [];
-    loanedReinforce = loanedReinforcements(mission, ledger, gateOf);
+    // GH-1394: a posture's relief is always on loan (it goes back; it never joins the roster).
+    loanedReinforce = posture.withReliefOnLoan(mission, loanedReinforcements(mission, ledger, gateOf));
     // A reinforced loan, like a starting one, brings no body home to replace an earlier one (R-2).
     const reinforceUnits = new Set<string>();
     (mission.triggers ?? []).forEach((t, i) =>
@@ -4015,12 +4025,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? rk().inboxOf(room, () => req.settings.get().chat.enabled)
     : null;
   const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
-    ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
+    ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), sendQuick: (id) => room.quick(id), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
     : null;
   if (netChat !== null) onDispose(() => netChat.dispose());
   if (room !== null && netConfig !== null && !spectating && chatInbox !== null) {
     // A line reaches the HUD feed only through the room's inbox, the same one the lobby log used (`chat-inbox.ts`).
-    room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')) });
+    room.setHooks({
+      onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')),
+      // A preset phrase is an id on the wire and is drawn in this client's language, through the same inbox.
+      onQuick: (seat, id) => chatInbox.deliver(seat, rk().quickChatText(id), (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')),
+    });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
    *  places that learn of one: the dispatch below (withheld here) and the room
