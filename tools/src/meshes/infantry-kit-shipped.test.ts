@@ -55,13 +55,14 @@ const TEAMS: Readonly<
   // growth rounded up to 80 KiB, this team's own row (the lead's ruling of 13 Nov 2026: per team, never global).
   demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform', 'weapon'], leader: 'demo_b', preKitEncodedBytes: 1_559_820, growthKiB: 80 },
   // GH-826 unit "Yahalom" (17 Nov 2026): the Combat Engineers' body, the same v7 set less the back radio (the pack holds its
-  // slot) plus the four specialist items (yah_a 6,667 and yah_b 6,912 triangles drawn). Pre-kit encode 1,637,336 (the same
-  // procedure: `stripKit`, then the encode pass's draco()); with the kit 1,714,364: +77,028 bytes, 75.2 KiB. Inside the
+  // slot) plus the four specialist items (yah_a 6,655 and yah_b 6,910 triangles drawn). Pre-kit encode 1,638,380 (the same
+  // procedure: `stripKit`, then the encode pass's draco()); with the kit 1,715,220: +76,840 bytes, 75.0 KiB (round 2, 17 Nov:
+  // the 0.40 m pack and its conformed straps, the mast sensor a cylinder; round 1 read 1,637,336 and 1,714,364). Inside the
   // Combat Engineers' 80 KiB, so the same row. `leader` here is who carries the radio parts: yah_b, not the team's leader;
   // `radio` is what he alone carries (the pouch on his pack's side, the whips off its top) and `noRadio` what nobody does
   // (the assault pack holds the back radio's slot: the 30 Oct "baked gear wins" rule).
   yahalom_squad: {
-    figures: ['yah_a', 'yah_b'], hosts: ['uniform', 'weapon'], leader: 'yah_b', preKitEncodedBytes: 1_637_336, growthKiB: 80,
+    figures: ['yah_a', 'yah_b'], hosts: ['uniform', 'weapon'], leader: 'yah_b', preKitEncodedBytes: 1_638_380, growthKiB: 80,
     radio: ['whip_short', 'whip_long', 'radio_pouch'], noRadio: ['radio_panel', 'radio_pack'],
   },
 };

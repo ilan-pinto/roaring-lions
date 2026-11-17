@@ -132,16 +132,28 @@ describe('a mounted kit part stays out of the body it rides', () => {
  * Read against the BARE figure (the upgrade kit's own nodes are left out: the pack is worn over the carrier, and the kit
  * against the body is `inf_kit_clash.py`'s census), over the same trunk as the rows above.
  *
- * The bag and its pad are out of the trunk in every clip (measured with the straps left off: 0 of 5,100-8,000 samples in
- * all nine living clips, both men). The SHOULDER STRAPS are rigid on the spine and lie on a collar the neck bone bends
- * under them, so in the clips that turn the neck (the aim's cheek weld, `work`'s look down) a few of their samples read
- * inside it. NAMED, for the lead (not ruled on): a ceiling per man and clip at what the shipped bytes read; idle and move
- * stay at 0, as the box's rows were. (Not held here: kneelIn and kneelOut, 0.2 s transitions: 90-120 samples, and 28-34
- * inside an elbow.)
+ * The bag and its conforming back are out of the trunk in every clip. The SHOULDER STRAPS are rigid on the spine and lie
+ * over a shoulder, a collar and a neck that move under them.
+ *
+ * Round 2 (17 Nov 2026, the lead's ruling "Approve all" on the round-1 review's size table): a 0.40 m pack seated over the
+ * bare back and the kit's back plate, and 60 x 12 mm straps CONFORMED to the shoulder, whose clearance is ruled as "the
+ * smallest value that keeps idle and move at 0". That is these rows' idle and move: the sweep that read it is in
+ * `tools/units/yahalom_gear.py` beside the literal (27 mm; at 26 mm yah_b's move reads 2, at 16 mm, round 1's, yah_a's idle
+ * reads 2 and yah_b's move 8).
+ * `kneel` and `pinned` are held now (the review, section 6: "kneel and pinned have no row"): 0 on both men.
+ * NAMED, for the lead (not ruled on as numbers): a ceiling per man and clip where the shipped bytes read over 0: yah_b's
+ * moveFire and both men's `work` (the head looks down at the charge and the collar comes up under the straps' inner edge).
+ * Round 1's rows, for the record (a flat 50 x 8 strap 16 mm over the highest point under it): fire 0 / 2, moveFire 7 / 21,
+ * work 64 / 34. (Not held here: kneelIn and kneelOut, 0.2 s transitions: 148 / 109 and 149 / 114 samples.)
+ *
+ * Falsified (17 Nov 2026) on a build with the strap's `clear` at 0 (nothing else moved): every row red, yah_b's `move`
+ * among them, which round 1's 4 mm mutation left at 0 (idle 155 / 153, move 127 / 113, kneel 83 / 104, pinned 128 / 156).
+ * The round-1 bytes are NOT a failing input of the new kneel and pinned rows (they read 0 and 4 there against 0 and 0:
+ * one red, yah_b's pinned).
  */
 const YAHALOM_GEAR: Readonly<Record<string, Readonly<Record<string, number>>>> = {
-  yah_a: { idle: 0, move: 0, fire: 0, moveFire: 7, work: 64 },
-  yah_b: { idle: 0, move: 0, fire: 2, moveFire: 21, work: 34 },
+  yah_a: { idle: 0, move: 0, fire: 0, moveFire: 0, kneel: 0, pinned: 0, work: 57 },
+  yah_b: { idle: 0, move: 0, fire: 0, moveFire: 8, kneel: 0, pinned: 0, work: 25 },
 };
 
 describe('the Yahalom Engineers\' pack and stowed detector stay out of the man who wears them', () => {
@@ -158,13 +170,13 @@ describe('the Yahalom Engineers\' pack and stowed detector stay out of the man w
       it(`yahalom_squad.glb ${clip}: ${fig}'s gear -- ${ceiling === 0 ? 'no sample inside' : `at most ${ceiling} samples inside (the straps on the collar, named)`}`, () => {
         const r = read(file, fig, clip);
         expect(r.instants, `${clip}: instants with the gear drawn`).toBeGreaterThan(0);
-        expect(r.samples, `${clip}: gear samples (a pack, its pad and straps${fig === 'yah_a' ? ', the detector' : ''})`).toBeGreaterThan(fig === 'yah_a' ? 8000 : 5500);
+        expect(r.samples, `${clip}: gear samples (a pack, its pad and straps${fig === 'yah_a' ? ', the detector' : ''})`).toBeGreaterThan(fig === 'yah_a' ? 7500 : 5000);
         expect(r.worstInside, `${clip}: samples inside ${fig}'s trunk`).toBeLessThanOrEqual(ceiling);
       }, 30_000);
     }
   }
   it('the reading is not blind on this file: the kneel transition, which no row holds, reads over every ceiling here', () => {
-    // (measured 17 Nov: 120 and 90 samples in kneelIn; a reading of 0 there would mean the instrument sees no strap at all)
+    // (measured 17 Nov, round 2: 148 and 109 samples in kneelIn; a reading of 0 there would mean the instrument sees no strap at all)
     for (const fig of Object.keys(YAHALOM_GEAR)) {
       expect(read(file, fig, 'kneelIn').worstInside).toBeGreaterThan(Math.max(...Object.values(YAHALOM_GEAR[fig])));
     }

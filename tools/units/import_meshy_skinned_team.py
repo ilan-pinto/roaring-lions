@@ -2443,6 +2443,24 @@ def _yahalom_extras(figures, Js, co0, src):
     tris = np.array([t.vertices[:] for t in me0.loop_triangles], int)
     mat = src.data.materials[0]
     parts, forced = [], {}
+    # The kit's back plate (the lead's ruling of 17 Nov 2026: the pack is seated over the bare back AND the plate). The kit
+    # is fitted AFTER this importer, on the file it writes, so the plate's rear face comes back as committed data:
+    # `tools/units/yahalom_back_plate.json`, written by `tools/units/yahalom_back_plate.py` from the kit's own source
+    # (`art/parts/inf_kit/yahalom_squad.glb`) and pinned to it by `tools/test_yahalom_back_plate.py` (the carrier is fitted
+    # to the `uniform` skin alone: moving the pack does not move it, which that test's header shows). Without the table
+    # the importer refuses, unless RL_YAH_PLATE_BOOTSTRAP=1 (the first build of a new body: seat on the bare back, export
+    # the kit, write the table, build again).
+    plate_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "yahalom_back_plate.json")
+    if os.path.exists(plate_path) and not os.environ.get("RL_YAH_PLATE_BOOTSTRAP"):
+        with open(plate_path) as fh:
+            plates = json.load(fh)["figures"]
+        if sorted(plates) != sorted(s_["prefix"] for s_ in figures):
+            raise SystemExit(f"yahalom_squad: {plate_path} has rows for {sorted(plates)}, the team's men are {sorted(s_['prefix'] for s_ in figures)}")
+    elif os.environ.get("RL_YAH_PLATE_BOOTSTRAP"):
+        plates = {}
+        log("yahalom_squad: RL_YAH_PLATE_BOOTSTRAP -- the packs are seated on the BARE back (no plate table read)")
+    else:
+        raise SystemExit(f"yahalom_squad: no {plate_path}: the pack's seat needs the kit's back plate (see the comment above)")
     for spec in figures:
         p = spec["prefix"]; J = Js[p]
         shift = np.array([spec["x"], spec["y"], 0.0])
@@ -2452,7 +2470,8 @@ def _yahalom_extras(figures, Js, co0, src):
         # the helmet's front rim: where the face's skin ends (the kit's own reading of it, `inf_kit_fit.Fit.hel_z0`)
         z_rim = float(J["rim"])
         cx = float((J["leg"]["R"][0] + J["leg"]["L"][0]) / 2) + spec["x"]
-        built, read, frame = yg.build("yahalom_squad", p, body, tris, cx, cy, z_sh, z_rim, float(J["belt"]), detector=spec["leader"])
+        built, read, frame = yg.build("yahalom_squad", p, body, tris, cx, cy, z_sh, z_rim, detector=spec["leader"],
+                                      plate=yg.plate_reader(plates.get(p), shift))
         # relative to his slot: the motion pass moves a figure's root by a pure translation (the wedge), and the kit
         # reads the frame back about the root it finds (`inf_kit_yahalom.py`)
         frame["pack"]["origin"] = [round(float(a_ - b_), 5) for a_, b_ in zip(frame["pack"]["origin"], shift)]

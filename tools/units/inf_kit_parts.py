@@ -194,20 +194,22 @@ V7_PART_TRIS = {
 #: The Yahalom Engineers' own parts (the lead's approval of 30 Oct 2026 on GH-826, "Specialists approved ... Yahalom: a
 #: respirator, headlamp, gas detector and mast sensor"; sizes and places as tabled in the seven-teams spec and in the unit's
 #: plan of 15 Nov, decision 5). `figs` are this team's own prefixes. `spec_tris` here is the size each was BUILT at (17 Nov),
-#: which is also its per-node row in `kit-contract.ts` (`YAHALOM_PART_TRIS`).
+#: which is also its per-node row in `kit-contract.ts` (`YAHALOM_PART_TRIS`). Round 2 (17 Nov, the lead's "the triangle rows
+#: are kept"): the rows did not move; under them the respirator is built at 408 (its flap is a cap now) and the mast sensor
+#: at 200 (a 12-sided cylinder and a plain clamp).
 _YAHALOM_PARTS = (
     P("respirator", "armour", 2, None, ("yah_a", "yah_b"), "thigh_R", "uniform", "olive", 410,
       "drop-leg gas-mask carrier 0.22 x 0.16 x 0.10",
-      "0.22 tall x 0.16 wide x 0.10 deep on the left outer thigh, its top at the belt line; a flap, one thigh strap"),
+      "0.22 tall x 0.16 wide x 0.10 deep on the left outer thigh, its top 85 mm under the belt's lower edge; a flap, one thigh strap"),
     P("headlamp", "sensors", 1, None, ("yah_a", "yah_b"), "head", "weapon", "olive_dark", 156,
       "helmet light 0.065 x 0.040 x 0.035",
       "0.065 long x 0.040 tall x 0.035 deep on the left helmet rail, ahead of the headset cup; the lens glass"),
     P("gas_detector", "sensors", 2, None, ("yah_a", "yah_b"), "spine", "weapon", "olive_dark", 218,
       "multi-gas clip, Altair 4X class, 0.11 x 0.07 x 0.04",
-      "0.11 tall x 0.07 wide x 0.04 deep on the right carrier strap at z 1.40; the display glass"),
+      "0.11 tall x 0.07 wide x 0.04 deep on the left carrier strap at z 1.40; the display glass"),
     P("mast_sensor", "sensors", 3, None, ("yah_a",), "spine", "weapon", "olive_dark", 210,
       "probe camera head 0.10 x 0.08 x 0.08",
-      "0.10 x 0.08 x 0.08 on the stowed mine detector's search head; the lens glass"),
+      "a cylinder 0.08 across x 0.10 long on the stowed mine detector's search head; the lens glass on its end"),
 )
 
 #: ...and the team's per-NODE rows: the v7 table plus its own four (pinned to `kit-contract.ts` by `kit-contract.test.ts`).

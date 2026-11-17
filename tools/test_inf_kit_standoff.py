@@ -89,7 +89,16 @@ FIGURE_LIMITS = {
     # GH-826 unit "Yahalom" (17 Nov 2026), the same rows by the same rule (a ceiling is the reading rounded up to the next
     # half millimetre; the cup band is +-5 mm about the reading). Readings on the round-1 bytes: carrier max 65.3 / 69.7 mm,
     # cups -63.5 / -48.3 mm (yah_a's raised 20 mm over the stock's comb, yah_b's not raised), scope 13.6 / 3.0 mm, laser
-    # 12.4 / 13.7 mm. NOT ruled on by the lead: the Combat Engineers' rows were (16 Nov, L3 and L4); these are their twins.
+    # 12.4 / 13.7 mm. APPROVED by the lead on 17 Nov 2026 ("Approve all", the round-1 review's row 16) once watched red:
+    # round 2 (17 Nov), one kit build with `headset_below_rim` 0.048 -> 0.070 in the team's row and the scope and the laser
+    # box seated 4 mm higher (`inf_kit_v7.v7_lpvo`, `v7_laser_box`): yah_a's cups -51.6 mm, "LOWER on the head than the band"
+    # (the band's low side, which round 1 never tripped), scope 17.6 / 7.0 mm and laser 14.9 / 16.2 mm: five reds, and a
+    # sixth with them (36 gun triangles through yah_a's lowered cup). SURVIVORS, disclosed: yah_b's cups (-50 mm, inside
+    # his band: his are not raised, and 22 mm under the rim moved the centroid 2 mm); and `carrier_trim.drop` 0.26 -> 0.20,
+    # which moved neither carrier row (65 / 70 mm before and after) and was seen by `test_yahalom_back_plate.py` alone.
+    # yah_b's scope at 3.0 mm, SIGNED (the review, section 6: an unsigned row passes a scope sunk in the rail): 0 of its 443
+    # vertices are inside the gun and its lower face stands +5.1 mm (least) over the gun's top surface under it; the other
+    # three men's stand +14.4 to +15.4 (`_coord/infantry-upgrade/yahalom/gates-r2/scope_signed.txt`). Not sunk: a lower seat.
     "yahalom_squad": {
         "yah_a": {("carrier", "max"): 0.0655, ("headset", "below_face_mid"): (-0.0685, -0.0585), ("lpvo", "min"): 0.0140, ("laser_box", "min"): 0.0125},
         "yah_b": {("carrier", "max"): 0.0700, ("headset", "below_face_mid"): (-0.0533, -0.0433), ("lpvo", "min"): 0.0035, ("laser_box", "min"): 0.0140},
