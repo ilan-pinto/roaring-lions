@@ -2252,7 +2252,10 @@ GLOVE_SLEEVE_REACH_M = 0.06
 #: glove is DARK BROWN, sRGB (70, 48, 32), Lab about (22, 8, 14). Its L* floor is 20 (every other team keeps 30), and its
 #: hue (atan2(b*, a*), degrees) must sit in 40-75: round 4's (34, 12, 3) read hue 5 and rendered mauve-pink, and a black
 #: glove is held by the floor. Like the sleeve floor, only for a file whose `rl_hands.source` is "meshy".
-GLOVE_BAKED_TONE = {"inf_squad": {"L_floor": 20.0, "hue": (40.0, 75.0)}}
+#: GH-826 unit 1 (13 Nov 2026): the Combat Engineers are the same kind of figure through the same importer, and their gloves
+#: are retinted to the SAME dark brown (`RETINT["glove"]`, one target for every skinned team): read L* 21.7-22.6, hue 61,
+#: 19.0 dE from the nearest neighbour. The same row, for the same colour; every other team keeps 30.
+GLOVE_BAKED_TONE = {"inf_squad": {"L_floor": 20.0, "hue": (40.0, 75.0)}, "demo_squad": {"L_floor": 20.0, "hue": (40.0, 75.0)}}
 #: B3 (the review of 9 Nov): no glove-coloured sample where the hand weight, interpolated across the face, is under
 #: GLOVE_SPILL_HW and which lies more than GLOVE_SPILL_M proximal of the wrist (up the sleeve). Round 4 painted whole cuff triangles by their hand vertices and ran glove-coloured wedges 8-10 cm up the
 #: support sleeve; the gate, sampling vertex UVs only, could not see a triangle's inside. Read inside every face with any
@@ -2507,6 +2510,23 @@ def check_glove_contrast(teams_root):
                      f"worst dE76 {worst:.1f} (floor {GLOVE_MIN_DE:.0f}" + (f"; L* floor {tone['L_floor']:g}, hue {tone['hue'][0]:g}-{tone['hue'][1]:g}: "
                                                                              f"baked dark brown, the lead's 9 Nov ruling)" if tone else ")"))
     return failures, lines
+
+
+def check_review_builds(teams_root):
+    """No team GLB is a REVIEW build. `tools/units/import_meshy_skinned_team.py` refuses a Meshy body whose gun reads
+    outside its length band (0.72 to 0.98 m); `SKINNED_GUN_LEN_REVIEW=<team>` builds it anyway, so the lead can see the
+    figure in motion before he rules on it, and stamps the file `extras.rl_skinned.gun_len_review`. Such a file is not
+    for shipping: it fails here until the body is re-rolled or the lead's ruling is written into the importer's row.
+    Returns failures."""
+    failures = []
+    for path in sorted(glob.glob(os.path.join(teams_root, "*.glb"))):
+        js, _bin = _read_glb_chunks(path)
+        review = (((js.get("scenes") or [{}])[0].get("extras") or {}).get("rl_skinned") or {}).get("gun_len_review")
+        if review:
+            failures.append(f"{os.path.relpath(path, REPO)}: a REVIEW build -- its Meshy gun measures {review.get('length')} m, "
+                            f"outside {tuple(review.get('band') or ())}; the importer refuses that length without "
+                            f"SKINNED_GUN_LEN_REVIEW, and the lead rules on it before the file ships")
+    return failures
 
 
 def check_infantry_kits(teams_root, units_root, owed):
@@ -3401,6 +3421,7 @@ def main():
                            if o != unit_id) if unit_id in mesh_masks else (0.0, "?")
                 print(f"    {unit_id}: shipped {base[1]} {base[0]:.3f} -> {variant} vs {other} {score:.3f}")
 
+        failures.extend(check_review_builds(teams_root))
         glove_failures, glove_lines = check_glove_contrast(teams_root)
         failures.extend(glove_failures)
         print(f"  glove contrast: {len(glove_lines)} team(s) carrying rl_hands, from the GLB bytes --")

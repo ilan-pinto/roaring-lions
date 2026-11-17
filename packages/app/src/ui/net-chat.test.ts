@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Seat } from '@lions/net';
 import { NetChat, chatFeedLine, chatOpens, roomEnterAction, type ChatDeps } from './net-chat';
 import { ChatInbox } from './chat-inbox';
+import { QUICK_CHAT_IDS, quickChatText } from './quick-chat';
 
 const NAMES: Record<Seat, string> = { 0: 'A', 1: 'B' };
 
@@ -299,5 +300,111 @@ describe('NetChat with an inbox', () => {
     chat.dispose();
     expect(unsub).toHaveBeenCalledTimes(1);
     expect(parent.querySelector('.rl-chat')).toBeNull();
+  });
+});
+
+// GH-1417 S1b: the quick-chat menu. It sends an id, never text.
+describe('NetChat quick chat', () => {
+  function mountQuick(opts?: { docked?: boolean }) {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const inbox = new ChatInbox(() => true);
+    const sendQuick = vi.fn<(id: string) => void>();
+    const send = vi.fn<(text: string) => void>();
+    const chat = new NetChat(parent, { send, sendQuick, nameOf: (seat) => NAMES[seat], inbox, peer: 1 }, opts);
+    const sel = parent.querySelector<HTMLSelectElement>('.rl-chat__quick')!;
+    const pick = (value: string): void => {
+      sel.value = value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    return { parent, chat, sel, send, sendQuick, pick };
+  }
+
+  it('is a labelled select: a prompt and the twelve phrases in the catalogue\'s words, and only when sendQuick is given', () => {
+    const { sel } = mountQuick({ docked: true });
+    expect(sel.getAttribute('aria-label')).toBe('Quick chat');
+    const opts = [...sel.options];
+    expect(opts[0].value).toBe('');
+    expect(opts[0].textContent).toBe('Say a phrase...');
+    expect(opts.slice(1).map((o) => o.value)).toEqual([...QUICK_CHAT_IDS]);
+    expect(opts.slice(1).map((o) => o.textContent)).toEqual(QUICK_CHAT_IDS.map((id) => quickChatText(id)));
+    expect(opts.slice(1).map((o) => o.textContent)).toContain('Good game.');
+    const plain = mount({ docked: true });
+    expect(plain.parent.querySelector('.rl-chat__quick')).toBeNull();
+  });
+
+  it('choosing a phrase sends its ID through sendQuick, never text through send, and the menu goes back to its prompt', () => {
+    const { sel, pick, sendQuick, send } = mountQuick({ docked: true });
+    pick('wp');
+    expect(sendQuick).toHaveBeenCalledTimes(1);
+    expect(sendQuick).toHaveBeenCalledWith('wp');
+    expect(send).not.toHaveBeenCalled();
+    expect(sel.value).toBe('');
+  });
+
+  it('ignores the prompt and a value that is not a phrase id', () => {
+    const { pick, sendQuick } = mountQuick({ docked: true });
+    pick('');
+    pick('not-a-phrase');
+    expect(sendQuick).not.toHaveBeenCalled();
+  });
+
+  it('in the match, a choice closes the chat, as a send does; the lobby\'s docked chat stays', () => {
+    const match = mountQuick();
+    match.chat.open();
+    const entry = match.parent.querySelector<HTMLElement>('.rl-chat__entry')!;
+    expect(entry.hidden).toBe(false);
+    match.pick('gl');
+    expect(entry.hidden).toBe(true);
+    const lobby = mountQuick({ docked: true });
+    lobby.pick('gl');
+    expect(lobby.parent.querySelector<HTMLElement>('.rl-chat__entry')!.hidden).toBe(false);
+  });
+
+  it('in the match, focus moving between the input, the mute button and the menu keeps the chat open; focus leaving the row closes it', () => {
+    const { parent, chat, sel } = mountQuick();
+    const entry = parent.querySelector<HTMLElement>('.rl-chat__entry')!;
+    const input = parent.querySelector<HTMLInputElement>('.rl-chat__input')!;
+    const btn = parent.querySelector<HTMLButtonElement>('.rl-chat__mute')!;
+    chat.open();
+    input.dispatchEvent(new FocusEvent('blur', { relatedTarget: sel }));
+    expect(entry.hidden).toBe(false);
+    sel.dispatchEvent(new FocusEvent('blur', { relatedTarget: btn }));
+    expect(entry.hidden).toBe(false);
+    sel.dispatchEvent(new FocusEvent('blur', { relatedTarget: input }));
+    expect(entry.hidden).toBe(false);
+    sel.dispatchEvent(new FocusEvent('blur', { relatedTarget: null }));
+    expect(entry.hidden).toBe(true);
+  });
+
+  it('keys typed on the menu never reach the game, and Escape closes the match chat', () => {
+    const { chat, sel, parent } = mountQuick();
+    const seen = vi.fn();
+    window.addEventListener('keydown', seen);
+    chat.open();
+    key(sel, 'a');
+    expect(seen).not.toHaveBeenCalled();
+    const esc = key(sel, 'Escape');
+    expect(esc.defaultPrevented).toBe(true);
+    expect(parent.querySelector<HTMLElement>('.rl-chat__entry')!.hidden).toBe(true);
+    window.removeEventListener('keydown', seen);
+  });
+
+  it('is hidden with the rest of the input while chat is off', () => {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const inbox = new ChatInbox(() => false);
+    const chat = new NetChat(parent, { send: vi.fn(), sendQuick: vi.fn(), nameOf: (seat) => NAMES[seat], inbox, peer: 1 }, { docked: true });
+    expect(parent.querySelector<HTMLElement>('.rl-chat__entry')!.hidden).toBe(true);
+    chat.open();
+    expect(parent.querySelector<HTMLElement>('.rl-chat__entry')!.hidden).toBe(true);
+  });
+
+  it('dispose releases the menu\'s listeners (a change after dispose sends nothing)', () => {
+    const { chat, sel, pick, sendQuick } = mountQuick({ docked: true });
+    chat.dispose();
+    pick('gg');
+    expect(sel.isConnected).toBe(false);
+    expect(sendQuick).not.toHaveBeenCalled();
   });
 });
