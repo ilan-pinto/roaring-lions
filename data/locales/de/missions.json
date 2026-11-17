@@ -87,10 +87,10 @@
   },
   "beit_sahwan_2_foothold": {
     "name": "Beit Sahwan II — Brückenkopf",
-    "briefing": "Das Bataillon hat seinen Brückenkopf auf den westlichen Terrassen, und Ashwar weiß es. Idit liest Aushub in der trockenen Rinne unterhalb der Linie — aufgeworfene Erde, die sich auf dich zuschiebt, also schneidet gerade jetzt eine Mannschaft einen Schacht aus der Stadt heraus. Halte den westlichen Zugang fünf Minuten lang, während sich die Pioniere hinter dir eingraben. Der Korridor liefert Verstärkung — setze sie gut ein; was heute Nacht überlebt, räumt morgen die Stadt. Du hältst die oberste Terrasse, und alles, was sie schicken, muss sich aus der Rinne zu dir hochkämpfen. Ashwar hat diesen Boden jahrelang untergraben, bevor der Krieg ihn erreichte, und eine Route, die in der Rinnensohle unter deiner Mauer hochkommt, ist ihnen mehr wert als alle Männer, die sie davor opfern. Halte die Yahalom-Pioniere am Leben; sie sind der einzige Trupp, der einen Tunnel zum Einsturz bringen kann.",
+    "briefing": "Das Bataillon hat seinen Brückenkopf auf den westlichen Terrassen, und Ashwar weiß es. Idit liest Aushub in der trockenen Rinne unterhalb der Linie — aufgeworfene Erde, die sich auf dich zuschiebt, also schneidet gerade jetzt eine Mannschaft einen Schacht aus der Stadt heraus. Nimm die Kuppe der obersten Terrasse und halte sie fünf Minuten lang, während sich die Pioniere hinter dir eingraben. Der Korridor liefert Verstärkung — setze sie gut ein; was heute Nacht überlebt, räumt morgen die Stadt. Du hältst die oberste Terrasse, und alles, was sie schicken, muss sich aus der Rinne zu dir hochkämpfen. Ashwar hat diesen Boden jahrelang untergraben, bevor der Krieg ihn erreichte, und eine Route, die in der Rinnensohle unter deiner Mauer hochkommt, ist ihnen mehr wert als alle Männer, die sie davor opfern. Halte die Yahalom-Pioniere am Leben; sie sind der einzige Trupp, der einen Tunnel zum Einsturz bringen kann.",
     "sections": {
       "situation": "Das Bataillon hat seinen Brückenkopf auf den westlichen Terrassen, und Ashwar weiß es. Idit liest Aushub in der trockenen Rinne unterhalb der Linie — aufgeworfene Erde, die sich auf dich zuschiebt, also schneidet gerade jetzt eine Mannschaft einen Schacht aus der Stadt heraus.",
-      "mission": "Halte den westlichen Zugang fünf Minuten lang, während sich die Pioniere hinter dir eingraben.",
+      "mission": "Nimm die Kuppe der obersten Terrasse und halte sie fünf Minuten lang, während sich die Pioniere hinter dir eingraben.",
       "execution": "Der Korridor liefert Verstärkung — setze sie gut ein; was heute Nacht überlebt, räumt morgen die Stadt. Du hältst die oberste Terrasse, und alles, was sie schicken, muss sich aus der Rinne zu dir hochkämpfen. Ashwar hat diesen Boden jahrelang untergraben, bevor der Krieg ihn erreichte, und eine Route, die in der Rinnensohle unter deiner Mauer hochkommt, ist ihnen mehr wert als alle Männer, die sie davor opfern.",
       "notes": "Halte die Yahalom-Pioniere am Leben; sie sind der einzige Trupp, der einen Tunnel zum Einsturz bringen kann."
     },
@@ -98,7 +98,7 @@
       "victory": "Sie haben die Männer einer Nacht für eine Linie geopfert, die sie nicht wollten, um einen Tag für einen Schacht zu kaufen, den sie wollten."
     },
     "objectives": {
-      "hold_west": "Den westlichen Zugang fünf Minuten halten",
+      "hold_west": "Die Kuppe der obersten Terrasse fünf Minuten halten",
       "collapse_tunnel": "Den Tunnel zum Einsturz bringen, den Ashwar unter dem Zugang gräbt"
     },
     "objective_say": {
@@ -118,14 +118,14 @@
     },
     "src": {
       "name": "1f3d0fae",
-      "briefing": "c0964d11",
-      "objectives.hold_west": "dc2a8b2f",
+      "briefing": "dfd7170c",
+      "objectives.hold_west": "9d60b14f",
       "objectives.collapse_tunnel": "442823a4",
       "triggers.flank_delivery_rolls": "131a11b3",
       "triggers.flank_delivery_drops": "ffa7ef5c",
       "debrief.victory": "87631977",
       "sections.situation": "95d0f0d1",
-      "sections.mission": "a3680b33",
+      "sections.mission": "b003c902",
       "sections.execution": "a66cfd9f",
       "sections.notes": "d320d7fc",
       "objective_say.collapse_tunnel": "537e3e43",

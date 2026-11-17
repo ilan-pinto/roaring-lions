@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.133.12",
+  "version": "0.133.13",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
@@ -60,6 +60,7 @@
     "agent": "pnpm --silent --filter @lions/tools agent",
     "arena": "pnpm --filter @lions/tools arena",
     "arena:publish": "pnpm --filter @lions/tools arena:publish",
+    "replay:verify": "pnpm --filter @lions/tools replay:verify",
     "bot": "pnpm --silent --filter @lions/tools bot",
     "net:rejoin-measure": "pnpm --filter @lions/tools net:rejoin-measure",
     "net:budget": "pnpm --filter @lions/tools net:budget",

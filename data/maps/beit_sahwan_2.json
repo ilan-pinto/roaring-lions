@@ -123,6 +123,12 @@
     ]
   },
   "zones": {
+    "terrace_crest": [
+      8,
+      16,
+      7,
+      16
+    ],
     "west_approach": [
       0,
       12,

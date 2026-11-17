@@ -54,6 +54,7 @@ import { markConfirm } from './confirm-cue';
 import { footBack, screenFoot } from './foot';
 import { stagger } from './motion';
 import { NetChat } from './net-chat';
+import { inboxOf } from './chat-inbox';
 import { symbolLabel } from './symbol';
 import { unitName } from '../unit-text';
 import { factionArt, factionBlurb, factionName, friendSide, hostSide, matchupLabel } from './versus-faction';
@@ -111,6 +112,8 @@ export interface VersusDeps {
   plateUrl?: string;
   /** The browser asked to spend less data: the plate is not fetched. */
   saveData?: () => boolean;
+  /** Whether the player has chat on (Settings, Chat; GH-1417 S1), read at every line. Absent is on. */
+  chatEnabled?: () => boolean;
 }
 
 /** Where the lobby tells a player to save the copied advisor ticket: a private
@@ -264,8 +267,9 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
       room.error = code === 'build_mismatch' ? 'versus.error.build' : null;
       room.repaint?.();
     },
-    // The room echoes every line to both seats, this one's own included.
-    onChat: (seat, text) => room.chat?.receive(seat, text),
+    // The room echoes every line to both seats, this one's own included. A line reaches the log only through the room's inbox
+    // (`chat-inbox.ts`): what is off or muted is never drawn, here or in the match's feed.
+    onChat: (seat, text) => inboxOf(room.transport, deps.chatEnabled ?? (() => true)).deliver(seat, text, (shown) => room.chat?.receive(seat, shown)),
     // The badges: the transport clears them on a reconnect, before the room's next say.
     onAdvisors: (present) => {
       room.advisors = present;
@@ -1128,6 +1132,8 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     r.chat = new NetChat(chat, {
       send: (text) => r.transport.chat(text),
       nameOf: (seat) => nameFrom(r.labels, seat, r.seats.find((x) => x.seat === seat)?.callsign ?? ''),
+      inbox: inboxOf(r.transport, deps.chatEnabled ?? (() => true)),
+      peer: r.seat === 0 ? 1 : 0,
     }, { docked: true });
 
     // Built once: only this seat's card ever holds it, and a repaint moves it.

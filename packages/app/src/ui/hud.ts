@@ -422,7 +422,7 @@ export interface HudDeps {
    *  at mission end. `type` already carries a resolved display name
    *  (the same lookup `units[type]?.name ?? type` the debrief uses) -- never a
    *  raw sim type id -- so `cardHtml`'s own fallback never has to resolve one. */
-  predecessorOf?: (slot: number) => { name?: string; type: string } | undefined;
+  predecessorOf?: (slot: number) => { name?: string; type: string; cause?: string } | undefined;
   /** The kit a KDF type carried INTO this mission (WP-S3g §3.4, D2): three
    *  tracks' pips and the hit points it bought, or null for a type with no
    *  account behind it. Tiers are type-wide and fixed for the mission (brigade
@@ -463,6 +463,8 @@ export interface HudDeps {
   /** K-13: a free-play sandbox, not a mission -- the leave confirm words
    *  itself for it. Absent means a mission. */
   freePlay?: boolean;
+  /** GH-1393: this mission was resumed from a save, which a leave keeps (the confirm says so). */
+  resumed?: boolean;
   /** A room's exit (N1b final fix wave, M-1): the leave control's tooltip
    *  and what its click runs, in place of the HUD's own leave confirm. The
    *  battlefield passes the pause menu's own confirmed Surrender (or Quit,
@@ -872,7 +874,7 @@ export class Hud {
     // walk selects on would make a restyle silently break the walk.
     leaveBtn.className = 'rl-strip__link rl-hud__leave';
     leaveBtn.innerHTML = symbolLabel('leave', t('hud.leave.link')); // GH-261: line of departure
-    const leaveText = leaveCopy(deps.freePlay === true);
+    const leaveText = leaveCopy(deps.freePlay === true, deps.resumed === true);
     const exit = deps.exit;
     leaveBtn.title = exit ? exit.tip() : leaveText.tip;
     if (exit) {
@@ -2881,7 +2883,11 @@ export class Hud {
     const predecessor = entry?.slot !== undefined ? this.deps.predecessorOf?.(entry.slot) : undefined;
     const replaces =
       predecessor !== undefined
-        ? `<div class="rl-card__replaces rl-dim">${t('hud.card.replaces', { predecessor: escapeHtml(predecessor.name ?? predecessor.type) })}</div>`
+        ? `<div class="rl-card__replaces rl-dim">${
+            predecessor.cause === undefined
+              ? t('hud.card.replaces', { predecessor: escapeHtml(predecessor.name ?? predecessor.type) })
+              : t('hud.card.replacesBy', { predecessor: escapeHtml(predecessor.name ?? predecessor.type), cause: escapeHtml(predecessor.cause) })
+          }</div>`
         : '';
 
     // Condition: only what is actually true right now. Since pass C2/C4

@@ -7,13 +7,14 @@
  * the outcome. That is what the epoch is for: bump `epoch` BY HAND in the commit that deliberately changes sim behaviour, i.e. in the commit that
  * moves a golden pin (`determinism.test.ts`'s pins).
  *
- * `fingerprint` is a hash of those pins, and `tools/src/sim_epoch.test.ts` recomputes it from the test file's own text: a pin that moves
+ * `fingerprint` is a hash of those pins AND of every value `tuning.ts` exports (slice 2 of GH-1393: a tuning edit changes what a match does, and
+ * a constant no pin world exercises would otherwise move nothing), and `tools/src/sim_epoch.test.ts` recomputes it from the test file's own text: a pin that moves
  * without this record moving is a red test. The fingerprint and the epoch are one literal on purpose, so that editing the fingerprint
  * alone to make the test pass is a visible half-edit in review. Changing a pin and the fingerprint but not the epoch is the mistake this
  * guard exists to make loud, not one it can prevent.
  *
  * A constant and a number: no column, no hash, no tuning. The golden hashes do not move.
  */
-export const SIM_EPOCH_RECORD = { epoch: 1, fingerprint: 2012679294 } as const;
+export const SIM_EPOCH_RECORD = { epoch: 1, fingerprint: 1875494945 } as const;
 
 export const SIM_EPOCH: number = SIM_EPOCH_RECORD.epoch;

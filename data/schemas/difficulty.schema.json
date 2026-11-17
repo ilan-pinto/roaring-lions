@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/difficulty.schema.json",
+  "title": "Campaign difficulty postures",
+  "description": "GH-1394: the three campaign postures, each an id and a list of overlay operations from overlay_ops.schema.json, applied to a campaign mission before the runtime is built. Standard is the identity (no ops). The posture a run uses is read from the campaign ledger key `campaign.difficulty` and nowhere else. Labels and blurbs are en.json keys.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["postures"],
+  "properties": {
+    "postures": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label_key", "blurb_key", "ops"],
+        "properties": {
+          "id": { "enum": ["easier", "standard", "harder"] },
+          "label_key": { "type": "string", "pattern": "^difficulty\\.[a-z]+\\.label$" },
+          "blurb_key": { "type": "string", "pattern": "^difficulty\\.[a-z]+\\.blurb$" },
+          "ops": { "type": "array", "items": { "$ref": "overlay_ops.schema.json#/$defs/op" } }
+        }
+      }
+    }
+  }
+}
