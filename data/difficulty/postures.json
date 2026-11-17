@@ -1,0 +1,39 @@
+{
+  "postures": [
+    {
+      "id": "easier",
+      "label_key": "difficulty.easier.label",
+      "blurb_key": "difficulty.easier.blurb",
+      "ops": [
+        { "op": "scale_time_limit", "num": 5, "den": 4 },
+        { "op": "scale_waves", "num": 3, "den": 4, "skip_tagged": true },
+        { "op": "shift_waves", "seconds": 30 },
+        {
+          "op": "reinforce_player",
+          "at_seconds": 90,
+          "label_key": "difficulty.relief.label",
+          "units": [
+            { "unit": "inf_squad", "count": 1 },
+            { "unit": "inf_medic_squad", "count": 1 }
+          ]
+        },
+        { "op": "uncarry" }
+      ]
+    },
+    {
+      "id": "standard",
+      "label_key": "difficulty.standard.label",
+      "blurb_key": "difficulty.standard.blurb",
+      "ops": []
+    },
+    {
+      "id": "harder",
+      "label_key": "difficulty.harder.label",
+      "blurb_key": "difficulty.harder.blurb",
+      "ops": [
+        { "op": "scale_waves", "num": 5, "den": 4, "skip_tagged": true },
+        { "op": "shift_waves", "seconds": -15 }
+      ]
+    }
+  ]
+}

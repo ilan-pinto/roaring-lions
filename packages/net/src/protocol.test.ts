@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanCommand, endingLoser, parseClientMsg, parseServerMsg, FORFEIT_MS, MAX_MESSAGE_BYTES, MAX_CMD_IDS, OVER_CLOSE_MS } from './protocol';
+import { cleanCommand, endingLoser, isQuickChatId, parseClientMsg, parseServerMsg, FORFEIT_MS, MAX_MESSAGE_BYTES, MAX_CMD_IDS, OVER_CLOSE_MS, QUICK_CHAT_IDS } from './protocol';
 import type { MatchConfig } from './config';
 import { MAX_PATROL_WAYPOINTS } from '@lions/sim';
 
@@ -175,6 +175,28 @@ describe('parseServerMsg', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'build_mismatch', build: 'a\nb' }))).toEqual({ t: 'error', code: 'build_mismatch' });
     expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'build_mismatch', build: 7 }))).toEqual({ t: 'error', code: 'build_mismatch' });
     expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'teapot' }))).toBeNull();
+  });
+});
+
+describe('quick chat messages (GH-1417 S1b)', () => {
+  it('the phrase list is twelve distinct ids, and exactly those are quick-chat ids', () => {
+    expect(QUICK_CHAT_IDS).toHaveLength(12);
+    expect(new Set(QUICK_CHAT_IDS).size).toBe(12);
+    for (const id of QUICK_CHAT_IDS) expect(isQuickChatId(id), id).toBe(true);
+    for (const no of ['', 'GG', 'gg ', 'hello', '__proto__', 'constructor', 'toString', 5, null, undefined, {}]) expect(isQuickChatId(no), String(no)).toBe(false);
+  });
+  it('a client may say any listed id and nothing else', () => {
+    for (const id of QUICK_CHAT_IDS) expect(parseClientMsg(JSON.stringify({ t: 'quick', id }))).toEqual({ t: 'quick', id });
+    for (const id of ['hello', 'GG', '', 5, null]) expect(parseClientMsg(JSON.stringify({ t: 'quick', id })), String(id)).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'quick' }))).toBeNull();
+    // free text cannot ride in: an extra field is dropped, not relayed
+    expect(parseClientMsg(JSON.stringify({ t: 'quick', id: 'gg', text: 'anything' }))).toEqual({ t: 'quick', id: 'gg' });
+  });
+  it('a server message carries the seat and a listed id', () => {
+    expect(parseServerMsg(JSON.stringify({ t: 'quick', seat: 1, id: 'wp' }))).toEqual({ t: 'quick', seat: 1, id: 'wp' });
+    expect(parseServerMsg(JSON.stringify({ t: 'quick', seat: 3, id: 'wp' }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'quick', seat: 0, id: 'nope' }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'quick', seat: 0 }))).toBeNull();
   });
 });
 

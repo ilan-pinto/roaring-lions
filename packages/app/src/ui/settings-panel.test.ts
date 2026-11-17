@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, type Settings } from '../settings';
 import { LOCALES } from '../i18n/locales';
+import { setCatalogue, t } from '../i18n/t';
+import en from '../i18n/en.json';
+import { pseudo } from '../i18n/pseudo';
 import { bindingsFrom } from '../input/keymap';
 import { settingsPanel, showSettings } from './settings-panel';
 import { keymapRows } from './settings-keymap';
@@ -57,7 +60,8 @@ describe('settingsPanel', () => {
   it('renders one table with the five sections and the build id', () => {
     const { d } = deps();
     const { el } = settingsPanel(document.body, d);
-    const heads = [...el.querySelectorAll('h3')].map((h) => h.textContent);
+    // GH-1510: a section is a card of the account page now, titled by its strip.
+    const heads = [...el.querySelectorAll('.rl-profile__card-title')].map((h) => h.textContent);
     expect(heads).toEqual(['Video', 'Audio', 'Accessibility', 'Chat', 'Language']);
     expect(el.textContent).toContain('0.68.0');
   });
@@ -370,3 +374,154 @@ describe('settingsPanel', () => {
   });
 });
 
+
+// ---- GH-1510: the account page's design --------------------------------------------------------------------------
+// The screen follows `/profile` (GH-1075 P7): each section is one of the profile's cards (`page-card.ts`), the cards sit
+// in the profile's wide and narrow columns, and Controls runs full width under both. Presentation only: every control,
+// its name, its label and its write are what they were. Falsified by one-line mutations of settings-panel.ts (see the
+// PR): Privacy moved to the wide column; Controls moved into the narrow one; a card title spelled without t(); a label's
+// `for` dropped; Edge pan writing zoomToCursor; and, in page-card.ts, the title an h3. Each turned its case red, and
+// each was put back by re-editing.
+describe('the account page layout (GH-1510)', () => {
+  afterEach(() => setCatalogue('en', en));
+
+  /** Every optional row present: a fullscreen-capable browser, the key table, the reports switch, an intro, two locales. */
+  const full = () =>
+    deps({
+      fullscreen: { supported: () => true, active: () => false, set: async () => {} },
+      keymap: keymapRows({ bindings: () => bindingsFrom({}), set: () => {} }),
+      reports: { get: () => true, set: () => {} },
+      intro: { replay: () => () => {} },
+      locales: [...LOCALES, { id: 'xx', name: 'Second', dir: 'ltr' }],
+    });
+  const keyOf = (card: Element): string => [...card.classList].find((c) => c.startsWith('rl-settings__card--'))?.slice('rl-settings__card--'.length) ?? '';
+  const TITLE_KEY: Record<string, string> = {
+    video: 'settings.video',
+    audio: 'settings.audio',
+    accessibility: 'settings.accessibility',
+    privacy: 'settings.privacy',
+    chat: 'settings.chat',
+    language: 'settings.language',
+    controls: 'settings.controls',
+  };
+
+  it('draws each section as a profile card in two columns, with Controls full width under both', () => {
+    const { d } = full();
+    const { el } = settingsPanel(document.body, d);
+    const content = el.querySelector('.rl-panel__body > .rl-settings__content');
+    if (!content) throw new Error('no content');
+    const cols = content.querySelector(':scope > .rl-profile__cols.rl-settings__cols');
+    if (!cols) throw new Error('no columns');
+    const keys = (sel: string): string[] => [...(cols.querySelector(sel)?.children ?? [])].map(keyOf);
+    expect(keys(':scope > .rl-profile__col--main')).toEqual(['video', 'audio']);
+    expect(keys(':scope > .rl-profile__col--side')).toEqual(['accessibility', 'privacy', 'chat', 'language']);
+    expect([...content.children].map((c) => (c === cols ? 'cols' : keyOf(c)))).toEqual(['cols', 'controls']);
+    // Every card is the profile's own: a <section>, its title strip an <h2> through t(), then the body with the rows.
+    const cards = [...el.querySelectorAll('.rl-settings__card')];
+    expect(cards.map(keyOf).sort()).toEqual(Object.keys(TITLE_KEY).sort());
+    for (const c of cards) {
+      expect(c.tagName).toBe('SECTION');
+      expect(c.classList.contains('rl-profile__card')).toBe(true);
+      const [h, body] = [...c.children];
+      expect(h?.tagName).toBe('H2');
+      expect(h?.className).toBe('rl-profile__card-title');
+      expect(h?.textContent).toBe(t(TITLE_KEY[keyOf(c)] ?? ''));
+      expect(body?.className).toBe('rl-profile__card-body');
+      expect(body?.querySelector('.rl-settings__row')).not.toBeNull();
+    }
+    // The old flat table is gone, and nothing else heads a section.
+    expect(el.querySelector('h3, .rl-settings__section, .rl-settings__table')).toBeNull();
+    // The build line stays the body's last word, under the cards.
+    expect(el.querySelector('.rl-panel__body')?.lastElementChild?.textContent).toContain('0.68.0');
+  });
+
+  /** [control name, its label's catalogue key, the card it sits in]. */
+  const ROWS: readonly (readonly [string, string, string])[] = [
+    ['fullscreen', 'settings.fullscreen', 'video'],
+    ['uiScale', 'settings.uiScale', 'video'],
+    ['textSize', 'settings.textSize', 'video'],
+    ['quality', 'settings.quality', 'video'],
+    ['replayIntro', 'settings.intro', 'video'],
+    ['master', 'settings.audio.master', 'audio'],
+    ['music', 'settings.audio.music', 'audio'],
+    ['sfx', 'settings.audio.sfx', 'audio'],
+    ['voice', 'settings.audio.voice', 'audio'],
+    ['radio', 'settings.audio.radio', 'audio'],
+    ['motion', 'settings.motion', 'accessibility'],
+    ['colorVision', 'settings.colorVision', 'accessibility'],
+    ['captions', 'settings.captions', 'accessibility'],
+    ['cameraSpeed', 'settings.cameraSpeed', 'controls'],
+    ['edgePan', 'settings.edgePan', 'controls'],
+    ['zoomToCursor', 'settings.zoomToCursor', 'controls'],
+    ['reports', 'settings.reports', 'privacy'],
+    ['chat', 'settings.chat.enabled', 'chat'],
+    ['language', 'settings.language', 'language'],
+  ];
+  it.each(ROWS)('%s renders its control with its t() label, in the %s card', (name, key, card) => {
+    const { d } = full();
+    const { el } = settingsPanel(document.body, d);
+    const controls = el.querySelectorAll(`[name="${name}"]`);
+    expect(controls).toHaveLength(1);
+    const control = controls[0] as HTMLElement;
+    const label = el.querySelector(`label[for="set-${name}"]`);
+    expect(control.id).toBe(`set-${name}`);
+    expect(label?.textContent).toBe(t(key));
+    const row = control.closest('.rl-settings__row');
+    expect(row).not.toBeNull();
+    expect(label?.closest('.rl-settings__row')).toBe(row);
+    expect(row?.closest('.rl-settings__card')?.classList.contains(`rl-settings__card--${card}`)).toBe(true);
+  });
+  it('the row table covers every named control the panel draws', () => {
+    const { d } = full();
+    const { el } = settingsPanel(document.body, d);
+    const drawn = [...el.querySelectorAll('[name]')].map((x) => x.getAttribute('name')).sort();
+    expect(drawn).toEqual(ROWS.map(([n]) => n).sort());
+  });
+
+  /** [control name, the value set on it, the one field that write must move]. Fullscreen (async, the browser's say) and reports (its own setter) have their own cases above. */
+  const WRITES: readonly (readonly [string, string | boolean, (n: Settings) => void])[] = [
+    ['uiScale', '0.85', (n) => { n.video.uiScale = 0.85; }],
+    ['textSize', '1.3', (n) => { n.video.textSize = 1.3; }],
+    ['quality', 'low', (n) => { n.video.quality = 'low'; }],
+    ['master', '0.4', (n) => { n.audio.master = 0.4; }],
+    ['music', '0.3', (n) => { n.audio.music = 0.3; }],
+    ['sfx', '0.2', (n) => { n.audio.sfx = 0.2; }],
+    ['voice', '0.1', (n) => { n.audio.voice = 0.1; }],
+    ['radio', false, (n) => { n.audio.radio = false; }],
+    ['motion', 'reduce', (n) => { n.accessibility.motion = 'reduce'; }],
+    ['colorVision', 'protanopia', (n) => { n.accessibility.colorVision = 'protanopia'; }],
+    ['captions', false, (n) => { n.accessibility.captions = false; }],
+    ['cameraSpeed', '2', (n) => { n.controls.cameraSpeed = 2; }],
+    ['edgePan', true, (n) => { n.controls.edgePan = true; }],
+    ['zoomToCursor', false, (n) => { n.controls.zoomToCursor = false; }],
+    ['chat', false, (n) => { n.chat.enabled = false; }],
+    ['language', 'xx', (n) => { n.language = 'xx'; }],
+  ];
+  it.each(WRITES)('%s still writes through set(), moving its own field and no other', (name, value, move) => {
+    const { d, set } = full();
+    const before = structuredClone(d.get());
+    const { el } = settingsPanel(document.body, d);
+    const c = el.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${name}"]`);
+    if (!c) throw new Error(`no ${name}`);
+    if (typeof value === 'boolean' && c instanceof HTMLInputElement) c.checked = value;
+    else c.value = String(value);
+    c.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(set).toHaveBeenCalledTimes(1);
+    const want = structuredClone(before);
+    move(want);
+    expect(want).not.toEqual(before);
+    expect(set.mock.calls[0]?.[0]).toEqual(want);
+  });
+
+  it('under ?pseudo=1 every card title, label, option and button is bracketed', () => {
+    setCatalogue('pseudo', en, pseudo);
+    const { d } = full();
+    // A locale's name is data (its own endonym), never through t(), so those options are left out.
+    const { el } = settingsPanel(document.body, d);
+    const chrome = [...el.querySelectorAll('.rl-profile__card-title, label, button, .rl-settings__control option')]
+      .filter((x) => x.closest('select[name="language"]') === null)
+      .map((x) => x.textContent ?? '');
+    expect(chrome.length).toBeGreaterThan(30);
+    for (const text of chrome) expect(text, text).toMatch(/^⟦.*⟧$/);
+  });
+});

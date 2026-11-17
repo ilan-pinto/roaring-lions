@@ -753,6 +753,18 @@ describe('pauseMenu: Save and quit', () => {
     expect(d.onQuit).not.toHaveBeenCalled();
   });
 
+  it('a save the player declined to make (it would replace another mission\'s) is a plain line, not a failure, and the menu stays', async () => {
+    const d = { ...deps(), onSave: vi.fn().mockResolvedValue({ declined: true }) };
+    pauseMenu(document.body, d);
+    saveBtn()!.click();
+    await flush();
+    expect(msg()?.textContent).toBe('Not saved. Your earlier saved game is unchanged.');
+    expect(msg()?.dataset.tone).toBeUndefined();
+    expect(saveBtn()!.disabled).toBe(false);
+    expect(document.querySelector('.rl-pause')).not.toBeNull();
+    expect(d.onQuit).not.toHaveBeenCalled();
+  });
+
   it('a save that is kept leaves the line empty (the caller is already on its way out)', async () => {
     pauseMenu(document.body, { ...deps(), onSave: vi.fn().mockResolvedValue(null) });
     saveBtn()!.click();
