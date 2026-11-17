@@ -213,15 +213,18 @@ describe('one scheduled() run stays under 50 D1 queries with worst-case backlogs
     const live = () => (w.acc.prepare("SELECT COUNT(*) AS n FROM member WHERE id LIKE 'live%'").get() as { n: number }).n;
     const shared = (log: string[]) => log.filter((s) => / batch\(17\) WITH due\(id, day\) AS \(VALUES \(\?1, \?2\), /.test(s)).length;
     const alone = (log: string[]) => log.filter((s) => / batch\(17\) WITH due\(id, day\) AS \(VALUES \(\?1, \?2\)\) /.test(s)).length;
-    const runs: { n: number; live: number; shared: number; alone: number; threw: boolean }[] = [];
-    for (let i = 0; i < 4; i++) {
+    // PR 1540 review: with a record, the idle select also reads which recorded members exist. It must stay ONE statement.
+    const union = (log: string[]) => log.filter((s) => / SELECT id, id_hash, last_seen_day, 1 AS idle FROM \(/.test(s)).length;
+    const runs: { n: number; live: number; shared: number; alone: number; union: number; threw: boolean }[] = [];
+    const once = async (): Promise<void> => {
       w.meter.n = 0;
       w.meter.calls = 0;
       w.meter.log = [];
       const threw = await worker.scheduled(undefined, w.env).then(() => false, () => true);
       expect(w.meter.over, w.meter.log.join('\n')).toBe(0);
-      runs.push({ n: w.meter.n, live: live(), shared: shared(w.meter.log), alone: alone(w.meter.log), threw });
-    }
+      runs.push({ n: w.meter.n, live: live(), shared: shared(w.meter.log), alone: alone(w.meter.log), union: union(w.meter.log), threw });
+    };
+    for (let i = 0; i < 4; i++) await once();
     expect(runs.map((r) => [r.live, r.shared, r.alone, r.threw])).toEqual([
       [40, 1, 0, true], // the shared batch of 40 fails
       [40, 1, 0, true], // again: the threshold (2)
@@ -231,9 +234,17 @@ describe('one scheduled() run stays under 50 D1 queries with worst-case backlogs
     for (const r of runs) expect(r.n).toBeLessThan(LIMIT);
     // The alone run costs what a shared run does (one 17-statement batch): the fallback adds KV calls, never a D1 statement.
     expect(runs.map((r) => r.n)).toEqual([45, 41, 41, 41]);
+    expect(runs.map((r) => r.union)).toEqual([0, 0, 0, 1]); // run 4 has a record: its existence check rode the idle select
     expect(w.acc.prepare("SELECT id FROM member WHERE id LIKE 'live%'").all()).toEqual([{ id: 'live0' }]);
     expect(await w.kv.get('tomb:zlive0')).not.toBeNull(); // its deletion is still on record
     expect(await w.tombs('tomb:zlive')).toBe(DUE_MEMBERS_MAX); // the 39 keep theirs too: dead ones, for `gone`
+    // The way out, metered: live0's rows go by another path (the route), and the next run is green and drops the record.
+    w.acc.exec('DROP TRIGGER stuck');
+    w.acc.exec("DELETE FROM member WHERE id = 'live0'");
+    await once();
+    expect(runs[4]).toMatchObject({ live: 0, shared: 0, alone: 0, union: 1, threw: false });
+    expect(runs[4]?.n).toBe(21); // the backlogs are drained by now: a quiet day (20) plus one page of the 40 dead tombstones
+    expect(await w.kv.get('reconcile:failing')).toBeNull();
   });
 
   it('a quiet day costs exactly 20 statements in 12 calls: each sweep\'s fixed statements, and nothing a bound should have removed', async () => {
