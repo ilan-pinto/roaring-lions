@@ -8,9 +8,10 @@ import { deleteStatements } from './tables';
 
 /**
  * GH-1432: what one run may cost, counted PER STATEMENT. The Free plan allows 50 D1 queries per Worker invocation, and every sweep
- * `scheduled()` runs shares them (the sum is pinned by `cron-budget.test.ts`). Counting each statement is a conservative POLICY pending
- * the lead's reading of whether D1 charges a `batch()` as one query (PR 1518, HOLD FOR LEAD item 1), not platform behaviour: a member's delete
- * is 17 statements, and the cron therefore deletes every member of a run in ONE guarded batch (`deleteDueStatements`), whoever found it.
+ * `scheduled()` runs shares them (the sum is pinned by `cron-budget.test.ts`). The platform counts a `db.batch()` call as ONE query (D1's
+ * limits page, the PM's reading, PR 1518); this code meters every statement of a batch on purpose, as a stricter budget than the
+ * platform's, so a run that fits it fits the real limit with room to spare. Under that meter a member's delete is 17 statements, and the
+ * cron therefore deletes every member of a run in ONE guarded batch (`deleteDueStatements`), whoever found it.
  *
  * The account share of a run, at worst: the expiry batch, the idle select, `RECONCILE_PAGES` page selects, the one delete batch, and one
  * survivor select when a guard held. What does not fit waits a day, oldest first: nothing is dropped, only deferred.
@@ -70,6 +71,9 @@ interface Scan { due: Due[]; save: () => Promise<void> }
 async function scanTombstones(db: D1Like, kv: KVLike, room: number, known: ReadonlySet<string>, fail: (err: unknown) => void): Promise<Scan> {
   const due: Due[] = [];
   let acted = 0;
+  // Workers KV is eventually consistent: a write can take up to about 60 s to be seen from another location. Runs are a day apart, so
+  // this read sees yesterday's `save()`; an invocation within a minute of the last (a retry, a manual trigger) may read the cursor before
+  // it, or the key it deleted. That only re-reads pages already read: their deletions are guarded and idempotent, and nothing is skipped.
   const saved = await kv.get(RECONCILE_CURSOR_KEY);
   let cursor: string | undefined = saved ?? undefined;
   let finished = false;
@@ -90,6 +94,8 @@ async function scanTombstones(db: D1Like, kv: KVLike, room: number, known: Reado
         }
         acted++;
         try {
+          // An eventually consistent read (see the survivor step in `deleteDue`): a delete request written elsewhere in the last ~60 s
+          // may not be seen yet, so this prune can drop a tombstone that has just been rewritten.
           const raw = await kv.get('tomb:' + m.id_hash);
           if (raw === null) continue;
           const day = (JSON.parse(raw) as { lastSeenDay?: unknown }).lastSeenDay;
@@ -108,6 +114,8 @@ async function scanTombstones(db: D1Like, kv: KVLike, room: number, known: Reado
     }
     cursor = page.cursor;
   }
+  // Written only after the delete batch commits (`accountCron`). The write is eventually consistent like the read above; a stale view of
+  // it costs a re-read of pages, never a skipped one.
   const save = async (): Promise<void> => {
     if (finished) await kv.delete(RECONCILE_CURSOR_KEY);
     else if (cursor !== saved && cursor !== undefined) await kv.put(RECONCILE_CURSOR_KEY, cursor, { expirationTtl: RECONCILE_CURSOR_TTL_S });
@@ -133,8 +141,11 @@ async function deleteDue(db: D1Like, kv: KVLike, due: readonly Due[]): Promise<n
     if (d === undefined) continue;
     // Judge the tombstone as it is STORED now, not by the day this run queued: a delete request made since (`deleteAccount`) rewrites it
     // with a newer `lastSeenDay` (today, the member's own last sign-in), and that one must survive here whether its own batch failed or
-    // committed meanwhile. A missing or unparsable tombstone is left alone. KV has no conditional delete, so a sub-millisecond gap remains
-    // between this get and the delete below, as at the scan's prune.
+    // committed meanwhile. A missing or unparsable tombstone is left alone. Two windows remain, as at the scan's prune: KV has no
+    // conditional delete, so there is a gap between this get and the delete below; and KV is EVENTUALLY CONSISTENT, so a tombstone the
+    // route wrote from another location in the last ~60 s may not be visible to this get yet, which can then still read this run's
+    // older tombstone and delete it. That is seconds, not microseconds: it needs a delete request within a minute of the cron's batch
+    // for a member the cron had already queued. Closing it fully is the route's job (rewrite the tombstone after its batch commits).
     const raw = await kv.get('tomb:' + d.idHash);
     if (raw === null) continue;
     let stored: unknown;

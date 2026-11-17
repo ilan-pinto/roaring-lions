@@ -44,7 +44,8 @@ export const DUE_MEMBERS_MAX = 40;
 /** GH-1432: the cron's ONE delete batch for many members at once, the same statements as `deleteMemberCounted` in the same order, each
  *  naming the members through a `due` CTE instead of `= ?1`. A row goes only if its member is still eligible (the guard, per row, inside
  *  the one transaction), so a sign-in racing the batch spares that member whole and nobody else. It costs `deleteStatements().length`
- *  statements however many members it carries: counted per statement, as `cron-budget.test.ts` counts, that is the reason it exists. */
+ *  statements however many members it carries. The platform counts the whole batch as ONE D1 query; under this repository's stricter
+ *  per-statement meter (`cron-budget.test.ts`) it is 17, and one batch for all is the reason it exists. */
 export function deleteDueStatements(db: D1Like, due: readonly DueMember[]): D1Stmt[] {
   if (due.length === 0 || due.length > DUE_MEMBERS_MAX) throw new Error(`a due batch carries 1 to ${DUE_MEMBERS_MAX} members, not ${due.length}`);
   const cte = `WITH due(id, day) AS (VALUES ${due.map((_, i) => `(?${2 * i + 1}, ?${2 * i + 2})`).join(', ')}) `;

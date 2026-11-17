@@ -35,8 +35,8 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   same batch, plus any orphan `accounts` row by its own `t`; strict `<`, so a row at exactly 180 days is kept) and `purgeRateDays`.
   Each is a few big `DELETE ... LIMIT` statements, never a loop of small ones: the Free plan allows 50 D1 queries per invocation and
   `purge.test.ts` counts them. **The whole run is held under the 50 (GH-1432), counted PER STATEMENT, as a deliberate conservative
-  POLICY:** it states no platform behaviour. Whether D1's limits page charges a `batch()` as one query or one per statement waits on the
-  lead's reading (PR 1518, HOLD FOR LEAD item 1); until then `cron-budget.test.ts` meters BOTH databases conservatively (every statement of a batch is a query; the 51st throws), seeds a worst-case backlog for every sweep and
+  POLICY, stricter than the platform:** D1's limits page counts a `db.batch()` call as ONE query, not one per statement (the PM's
+  reading, PR 1518). `cron-budget.test.ts` nevertheless meters BOTH databases per statement on purpose (every statement of a batch is a query; the 51st throws; `calls`, a batch as one, is the platform's count), seeds a worst-case backlog for every sweep and
   runs `scheduled()` until nothing is left, none of the runs reaching 50 (the dearest, a sign-in racing the member delete, costs 48; a
   realistic day 41; a quiet day is pinned at exactly 20 statements in 12 calls). The shares: `purgeExpired` 6 (two slices of 500 notes,
   three statements each), events 4, players 7, desync, snapshot and rate-day 3, admin views 1, and the account cron (`accountCron`) 27:

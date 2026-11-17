@@ -1,13 +1,13 @@
 /**
  * GH-1432: one `scheduled()` run stays under the Workers Free plan's 50 D1 queries per invocation, whatever the backlogs.
  *
- * COUNTED PER STATEMENT, AS A POLICY. This is a deliberate conservative rule of this repository, not a statement of how the platform
- * counts: whether Cloudflare's D1 limits page (https://developers.cloudflare.com/d1/platform/limits/, "Queries per Worker invocation")
- * charges a `batch()` as one query or one per statement is open for the lead's reading (PR 1518, HOLD FOR LEAD item 1). Until then the
- * meter charges every statement of a batch as a query, and every `run`/`all`/`first` as one. Calls are tallied too (`calls`, a batch as
- * one), which is the looser reading. Both databases are metered into ONE count (the telemetry D1 and the accounts D1 share the
- * invocation's 50), and the 51st statement THROWS, so a run past the policy cannot pass quietly. If the lead rules that a batch is one
- * query, the limit moves onto `calls` in one line and the statement total stays pinned on its own.
+ * COUNTED PER STATEMENT, ON PURPOSE: a stricter budget than the platform's. Cloudflare's D1 limits page
+ * (https://developers.cloudflare.com/d1/platform/limits/, "Queries per Worker invocation") counts a `db.batch()` call as ONE query, not
+ * one per statement (the PM's reading of the page, PR 1518). This meter nevertheless charges every statement of a batch as a query, and
+ * every `run`/`all`/`first` as one, as a deliberate conservative policy of this repository: a run that fits 50 statements fits 50
+ * queries with room to spare. `calls` (a batch as one) is the platform's own count, tallied alongside. Both databases are metered into
+ * ONE count (the telemetry D1 and the accounts D1 share the invocation's 50), and the 51st statement THROWS, so a run past the policy
+ * cannot pass quietly.
  *
  * The seeds are the worst case each sweep can face: more expired feedback than a run clears, more raw events and stale players than the
  * slices clear, idle members past the member cap, a KV listing of dead tombstones that costs a query a page and finds nothing, live
@@ -29,7 +29,7 @@ import type { D1Like, D1Stmt, Env } from './d1';
 const DAY = 86_400_000;
 const NOW = 20_000 * DAY + 3_600_000;
 const OLD = NOW - RETENTION_MS - DAY;
-/** The Free plan's queries per Worker invocation. */
+/** The Free plan's queries per Worker invocation (the platform counts a batch as one; this file charges it per statement, the stricter policy). */
 const LIMIT = 50;
 const CUTOFF = dayOf(NOW) - MEMBER_IDLE_DAYS - 1;
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -135,7 +135,7 @@ async function run(w: Awaited<ReturnType<typeof world>>): Promise<number> {
 
 const memberDeletes = (log: string[]) => log.filter((s) => / batch\(17\) /.test(s)).length;
 
-describe('one scheduled() run stays under 50 D1 queries with worst-case backlogs, counted per statement (GH-1432)', () => {
+describe('one scheduled() run stays under 50 D1 queries with worst-case backlogs, metered per statement as a stricter policy than the platform\'s batch-as-one count (GH-1432)', () => {
   it('the static worst case of every sweep sums under the limit', () => {
     // expired (slices x 3) + events (3 slices + legacy) + players (heal 2 + slices x 2 + orphans) + desync + snap + rate_day (telemetry)
     // + admin views + the account cron (expiry 5 + idle select + pages + ONE member delete of 17 + the survivor select).

@@ -402,8 +402,9 @@ export const RETENTION_MS = 180 * 86_400_000;
 /** Notes a slice, and slices a run: still 1,000 notes a day, twice the 500 a day feedback ingest admits (`feedback-ingest.ts`). */
 export const PURGE_EXPIRED_SLICE = 500;
 export const PURGE_EXPIRED_BATCHES = 2;
-/** One slice is ONE `batch()` of `PURGE_EXPIRED_STATEMENTS` statements. GH-1432 counts the Free plan's 50 D1 queries per invocation
- *  PER STATEMENT (see `account/sweep.ts`), so a run costs at most `maxBatches` times three: a few big slices, never many small ones.
+/** One slice is ONE `batch()` of `PURGE_EXPIRED_STATEMENTS` statements. The platform counts a batch as one D1 query; GH-1432 meters
+ *  the Free plan's 50 per invocation PER STATEMENT on purpose, as a stricter budget (see `account/sweep.ts`), so a run costs at most
+ *  `maxBatches` times three: a few big slices, never many small ones.
  *  Every statement names the same oldest-first slice of expired rows, and the batch is one transaction: the attachments go first
  *  while the note still matches the slice, the note's own columns last, and that last statement's change count is the slice size. */
 export const PURGE_EXPIRED_STATEMENTS = 3;
