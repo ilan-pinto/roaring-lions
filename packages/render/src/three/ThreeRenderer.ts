@@ -1475,7 +1475,7 @@ export class ThreeRenderer implements Renderer {
    *  keeps a composer-less path: the raw renderer, whose own `antialias:
    *  true` covers what SMAA covers in the game. */
   private post: PostChain | null = null;
-  /** GH-1227 slice 1: the soft-particle depth snapshot, built by `init` only for `quality.softParticles` (no preset sets it).
+  /** GH-1227 slice 1: the soft-particle depth snapshot, built by `init` only for `quality.softParticles` (`high`, via `preset-live.ts`).
    *  Slice 3: on a node boot it is the node copy (`NodeSoftDepthCopy`), built only when the backend's `softDepthOn` says so. */
   private softDepth: SoftDepthSnapshot | NodeSoftDepthCopy | null = null;
   /** The meshes that sample `softDepth`, set where it is built: its sentinel draws (and the depth is copied) only while one of
@@ -3302,7 +3302,7 @@ export class ThreeRenderer implements Renderer {
     private opts: RendererOptions
   ) {
     // GH-1400 (G2): the preset's switched-on features (`preset-live.ts`: ragdolls, soft particles), resolved ONCE, before
-    // anything reads `opts.quality`. Both switches are off: this hands back `opts` itself, so every preset builds today's frame.
+    // anything reads `opts.quality`. Ragdolls are off; soft particles are on (17 Nov), so `high` gets a copy with `softParticles`.
     opts = this.opts = liveRendererOptions(opts, PRESET_SWITCHES);
     // FIRST, before any loader can be built: every shipped GLB carries
     // `KHR_draco_mesh_compression` (level load time, step 4), and a
@@ -4001,7 +4001,7 @@ export class ThreeRenderer implements Renderer {
     // `setFogPass`'s again: `dispose()` below frees it.
     this.bloomPass = bloomPassFor(quality, this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
     if (this.bloomPass) this.post.setBloomPass(this.bloomPass);
-    // GH-1227 slice 1: soft particles, opt-in (no preset sets it). The snapshot copies only from the
+    // GH-1227 slice 1: soft particles (`high` only, via `preset-live.ts`). The snapshot copies only from the
     // composer's own two buffers; its sentinel is the first transparent draw (`soft-depth.ts`).
     if (quality.softParticles === true) {
       this.softDepth = new SoftDepthSnapshot([this.post.composer.renderTarget1, this.post.composer.renderTarget2]);

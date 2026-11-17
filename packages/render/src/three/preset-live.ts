@@ -1,5 +1,5 @@
 /**
- * GH-1400 (G2): the quality presets' two dark features, wired and LEFT DARK. The lead's rulings (16 Nov 2026):
+ * GH-1400 (G2): the quality presets' two dark features, each behind one switch (ragdolls still dark). The lead's rulings (16 Nov 2026):
  *
  * - **Ragdolls** (GH-1223): `high` 16 figures, `medium` 8, `low` 0, after ONE Metal browser read confirms the headless bench.
  * - **Soft particles** (GH-1227): `high` only, after ONE Metal G-cost read of 2 ms or less with smoke on screen.
