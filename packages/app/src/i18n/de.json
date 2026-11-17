@@ -133,7 +133,7 @@
   "resume.refused.mission": "Dieser Speicherstand gehört zu einem Einsatz, den diese Version des Spiels nicht mehr hat.",
   "resume.refused.moved": "Deine Brigade hat sich seit dem Speichern verändert. Verwirf diesen Speicherstand, um weiterzumachen.",
   "resume.refused.moved.named": "Seit dem Speichern: {what}. Verwirf diesen Speicherstand, um weiterzumachen.",
-  "resume.moved.ledger": "ein anderer Einsatz wurde abgeschlossen",
+  "resume.moved.ledger": "dein Kampagnenfortschritt hat sich geändert",
   "resume.moved.units": "eine Einheit wurde gekauft",
   "resume.moved.upgrades": "eine Aufrüstung wurde gekauft",
   "resume.moved.join": ", ",
