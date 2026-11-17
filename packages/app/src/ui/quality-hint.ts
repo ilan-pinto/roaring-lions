@@ -12,15 +12,20 @@
 // the saved preset is already `low` (nothing lower to suggest), not once the player has answered (asked ONCE, remembered in
 // the browser store (`safeStorage`), in try/catch; a player who later raises the preset is not asked again), not while another dialog is open, and
 // not while the player is in a mission.
+//
+// SOFTWARE RENDERING. The card never probes a software renderer; that player gets the software-rendering LINE instead
+// (`software-hint.ts`, the same gate, loaded in this same lazy chunk), which suggests Low once and is remembered in
+// `settings.hints.software`.
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { feedbackSends } from '../feedback/gate';
-import type { Quality } from '../settings';
+import type { Quality, Settings } from '../settings';
 import type { StorageLike } from '../brigade-account';
 import { isDialogOpen } from './confirm';
 import { framesRunSlow, sampleFrames, type ProbeDeps, type ProbeResult } from './frame-probe';
 import { isSoftwareRenderer, type NoGpuEnv } from './no-gpu';
 import { mountNotice, type NoticeHandle } from './notice-card';
+import { mountSoftwareHint, probeRendererName, resolveRenderer, softwareHintWanted, type SettingsAccess } from './software-hint';
 
 /** Browser-store key: present once the player has answered the card (either way). */
 export const QUALITY_HINT_ANSWERED_KEY = 'lions.qualityHint.answered';
@@ -37,10 +42,10 @@ export interface QualityHintDeps {
   env: NoGpuEnv;
   /** The unmasked renderer string, or null. Read once the gate has passed. */
   renderer: () => string | null;
-  /** The saved preset. */
-  quality: () => Quality;
-  /** Save a preset the player chose. Called by the accept button only. */
-  setQuality: (q: Quality) => void;
+  /** A fresh renderer read for when `renderer` says nothing (masked or missing): `software-hint.ts`'s `probeRendererName`. */
+  probeRenderer?: () => string | null;
+  /** The saved settings, and their one writer (`main.ts`'s `settingsDeps`). `set` is called by an accept or dismiss button only. */
+  settings: SettingsAccess;
   /** False while the player is in a mission or anywhere else a sample means nothing. */
   inShell: () => boolean;
   frames: Pick<ProbeDeps, 'raf' | 'cancel' | 'now' | 'visible'>;
@@ -65,6 +70,14 @@ function remember(store: StorageLike | null): void {
   }
 }
 
+const quality = (deps: QualityHintDeps): Quality => deps.settings.get().video.quality;
+
+/** Save a preset the player chose, through the settings dependency and nothing else. */
+function setQuality(settings: SettingsAccess, q: Quality): void {
+  const s: Settings = settings.get();
+  settings.set({ ...s, video: { ...s.video, quality: q } });
+}
+
 /** Show the card for a slow verdict. Returns its handle, or null when another dialog owns the screen. */
 function showCard(deps: QualityHintDeps, win: Window): NoticeHandle | null {
   if (isDialogOpen(win.document)) return null;
@@ -80,7 +93,7 @@ function showCard(deps: QualityHintDeps, win: Window): NoticeHandle | null {
   };
   const accept = (): void => {
     remember(deps.store);
-    deps.setQuality(SUGGESTED_QUALITY);
+    setQuality(deps.settings, SUGGESTED_QUALITY);
     close();
   };
   card = mountNotice(win, {
@@ -105,15 +118,14 @@ function showCard(deps: QualityHintDeps, win: Window): NoticeHandle | null {
 export function watchQualityHint(deps: QualityHintDeps): Disposer {
   const win = deps.win ?? window;
   if (!qualityHintAllowed(deps.env)) return () => {};
-  if (answered(deps.store)) return () => {};
-  if (deps.quality() === SUGGESTED_QUALITY) return () => {};
-  let name: string | null;
-  try {
-    name = deps.renderer();
-  } catch {
-    name = null;
+  if (quality(deps) === SUGGESTED_QUALITY) return () => {};
+  const name = resolveRenderer(deps.renderer, deps.probeRenderer ?? (() => probeRendererName(win.document)));
+  if (isSoftwareRenderer(name)) {
+    // No probe and no card: the line, once (`software-hint.ts`).
+    if (!softwareHintWanted({ allowed: true, renderer: name, settings: deps.settings.get() })) return () => {};
+    return mountSoftwareHint({ settings: deps.settings, inShell: deps.inShell, win });
   }
-  if (isSoftwareRenderer(name)) return () => {};
+  if (answered(deps.store)) return () => {};
 
   let card: NoticeHandle | null = null;
   let stopProbe: Disposer | null = null;
@@ -121,7 +133,7 @@ export function watchQualityHint(deps: QualityHintDeps): Disposer {
     stopProbe = null;
     if (r.kind !== 'sample' || !framesRunSlow(r.stats)) return;
     // The probe voids itself the moment `inShell` goes false (`steady`), so a sample that reaches here ended on a shell screen.
-    if (deps.quality() === SUGGESTED_QUALITY) return;
+    if (quality(deps) === SUGGESTED_QUALITY) return;
     card = showCard(deps, win);
   };
   stopProbe = sampleFrames({ ...deps.frames, steady: deps.inShell }, onResult);

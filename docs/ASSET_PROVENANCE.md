@@ -99,6 +99,22 @@ the printed files from the output, because Vite copies the whole of `assets/`
 theme's `source` records no unconfirmed licence, so its open question (item 3)
 is the lead's to settle (audit L6), not this gate's to catch.
 
+**The commercial asset cut, report only (GH-1415, 17 Nov 2026).** `pnpm
+commercial:cut` (`tools/commercial_asset_cut.py`) lists every file under
+`assets/` that a commercial build would leave out, from three records: a
+register row whose Rights cell records an uncleared licence ("not confirmed",
+"unrecorded", "pending", "open question"; a `Same as its source row` twin takes
+its `art/meshes` row), a shipped file no row covers, `validate_audio.py`'s
+`commercial_manifest`, and a `data/video.json` entry not `confirmed`. It also
+lists the audio files on which the register and `data/audio.json` disagree, so
+the music's blind spot above shows. `--dist DIR` says which of them a built app
+holds. It removes nothing and exits 0: the shipped build is unchanged until the
+strip step lands, which is the lead's call. On 17 Nov 2026 it lists 26 shipped
+files: the theme and its four bed files (item 3, register only), the ten voice
+files (item 2, both records), the eight ground tiles (item 7) and the three
+favicons (item 5). `tools/test_commercial_asset_cut.py` (CI, `gates`) is its
+unit test.
+
 **The credits screen** names all of it (`credits-data.ts`, `credits.ai.*` in
 `en.json`): the generated theme and the music cut from it, the ElevenLabs
 placeholders and their exclusion from a commercial release, the AI-generated
@@ -452,6 +468,8 @@ one directory, `**` crosses directories).
 | `assets/fonts/big-shoulders-display-latin.woff2`<br>`assets/fonts/OFL-BigShouldersDisplay.txt` | Big Shoulders Display, latin subset, and its licence | The Big Shoulders Project Authors (github.com/xotypeco/big_shoulders); latin subset self-hosted on 2026-08-06, download source not recorded; its outlines and advances match Google Fonts' build (`google/fonts` `ofl/bigshouldersdisplay`, version 2.002) on every code point it maps (checked 2026-11-16, GH-1407) | woff2 subset | No | SIL OFL 1.1; text beside the file; on the credits screen | `packages/app/src/credits-data.ts` |
 | `assets/fonts/ibm-plex-mono-latin-{400,600}.woff2`<br>`assets/fonts/OFL-IBMPlexMono.txt` | IBM Plex Mono, latin subset, and its licence | IBM Corp. (Reserved Font Name 'Plex'); latin subset self-hosted on 2026-08-06, download source not recorded; its outlines and advances match Google Fonts' build (`google/fonts` `ofl/ibmplexmono`, version 2.3) on every code point it maps (checked 2026-11-16, GH-1407) | woff2 subset | No | SIL OFL 1.1; text beside the file; on the credits screen | `packages/app/src/credits-data.ts` |
 | `assets/fonts/ibm-plex-mono-cyrillic-{400,600}.woff2` | IBM Plex Mono, Cyrillic subset (U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116), loaded by `unicode-range` beside the latin files; licence is `OFL-IBMPlexMono.txt` above | IBM Corp. (Reserved Font Name 'Plex'); subset on 2026-11-16 (GH-1407, ruling D6) from `IBMPlexMono-{Regular,SemiBold}.ttf` version 2.3, https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/ (sha256 recorded in the tool, which refuses any other build or one whose Latin outlines differ from the shipped latin files) | `tools/fonts/build_cyrillic.py` (fontTools 4.68.0 pyftsubset, woff2) | No | SIL OFL 1.1, the same terms and the same subsetting as the latin files above (the Reserved Font Name question, if any, is theirs too); text beside the file; on the credits screen | `packages/app/src/credits-data.ts` |
+| `assets/fonts/fira-sans-cyrillic-{400,600}.woff2`<br>`assets/fonts/OFL-FiraSans.txt` | Fira Sans, Cyrillic subset (U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116), served under the family name **Barlow** with the same `unicode-range` (the Cyrillic companion Barlow lacks) | Copyright 2012-2015 The Mozilla Foundation and Telefonica S.A.; subset on 2026-11-17 (GH-1407, the lead's ruling of 17 Nov, option B) from `FiraSans-{Regular,SemiBold}.ttf` version 4.203, https://raw.githubusercontent.com/google/fonts/main/ofl/firasans/ (sha256 pinned in the tool, which refuses any other build) | `tools/fonts/build_cyrillic.py` (fontTools 4.68.0 pyftsubset, woff2, unhinted); a companion maps nothing outside the Cyrillic range | No | SIL OFL 1.1; text beside the file (no Reserved Font Name is declared in it); on the credits screen | `packages/app/src/credits-data.ts` |
+| `assets/fonts/oswald-cyrillic.woff2`<br>`assets/fonts/OFL-Oswald.txt` | Oswald (variable, wght 200-700), Cyrillic subset (same range), served under the family name **Big Shoulders Display** with the same `unicode-range` (the Cyrillic companion Big Shoulders lacks) | Copyright 2016 The Oswald Project Authors (https://github.com/googlefonts/OswaldFont); subset on 2026-11-17 (GH-1407, option B) from `Oswald[wght].ttf` version 4.103, https://raw.githubusercontent.com/google/fonts/main/ofl/oswald/ (sha256 pinned in the tool) | `tools/fonts/build_cyrillic.py` (fontTools 4.68.0 pyftsubset, woff2, unhinted); the variable axis is kept | No | SIL OFL 1.1; text beside the file (no Reserved Font Name is declared in it); on the credits screen | `packages/app/src/credits-data.ts` |
 | `assets/draco/draco_decoder.wasm`<br>`assets/draco/draco_wasm_wrapper.js`<br>`assets/draco/README.md` | Draco mesh decoder (three.js bundle) | Vendored Google Draco decoder (wasm and wrapper), self-hosted on 2026-09-08; the README is three.js's own `examples/jsm/libs/draco` README | None (third-party binary) | No | Apache-2.0; the README links the licence and no copy of the text ships (item 8) | `assets/draco/README.md` |
 | `assets/_headers` | Cloudflare static-asset headers (Content-Security-Policy and the rest) | Written for the project in the server-side security review (commit d78d900e, 13 Oct 2026) | Hand-written text | No | ARR, project original | the file's own header comment |
 | `assets/sw.js` | Service worker | Written for the project | Hand-written JavaScript | No | ARR, project original | none needed |

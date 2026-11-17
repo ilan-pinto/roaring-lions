@@ -57,6 +57,9 @@ export const CREDITS = {
     { family: 'Big Shoulders Display', licenceFile: 'OFL-BigShouldersDisplay.txt', holder: 'The Big Shoulders Project Authors' },
     { family: 'Barlow', licenceFile: 'OFL-Barlow.txt', holder: 'The Barlow Project Authors' },
     { family: 'IBM Plex Mono', licenceFile: 'OFL-IBMPlexMono.txt', holder: 'IBM Corp.' },
+    // Cyrillic companions for Barlow and Big Shoulders Display (GH-1407; the lead's ruling of 17 Nov 2026, option B).
+    { family: 'Fira Sans', licenceFile: 'OFL-FiraSans.txt', holder: 'The Mozilla Foundation and Telefonica S.A.' },
+    { family: 'Oswald', licenceFile: 'OFL-Oswald.txt', holder: 'The Oswald Project Authors' },
   ],
   // Empty on purpose. The only entry was the Namer's (Mutte, CC BY 3.0), for
   // sprite sheets that were deleted in A3.3 -- the Namer is a Meshy model now,
