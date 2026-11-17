@@ -19,6 +19,7 @@
 //                     Meshy copyright -- all of which a kit re-export drops
 //   warehouse/apartment(.glb and _wreck)  1 material, 1 texture, Meshy
 //                     copyright, while BuildingSpec said MESH_KIT_OWNED
+import { spawnSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -201,5 +202,63 @@ describe('the building owner table', () => {
       expect(owner, `${name} is still MESH_KIT_OWNED`).not.toBe('MESH_KIT_OWNED');
       expectOwnerWrites(owner, `art/meshes/buildings/${unit}.glb`);
     }
+  });
+});
+
+// An importer keeps a SOURCES row for a team after the team has moved to another importer, and builds every row when
+// run bare. `rig.TEAM_MESH_OWNER` alone does not stop it: the old importers never read the table for themselves.
+// GH-826 unit 1 (12 Nov 2026) gave demo_squad to the skinned importer while `import_meshy_kdf_team.py` could still
+// write the rigid figure over it (run and watched, in Blender: the file changed; with the guard it exits and the file
+// does not). Falsified by mutation: with the guard line deleted from `import_meshy_kdf_team.py`'s `build_team`, the
+// first test below is red; with `owner != rel` in `assert_script_owns` changed to `owner == rel`, the second is.
+describe('an importer does not write a team the owner table gave to another script', () => {
+  const rigPy = read('tools/units/rig.py');
+  const block = /TEAM_MESH_OWNER\s*=\s*\{([\s\S]*?)^\}/m.exec(rigPy);
+  const ownerOfTeam = (team: string): string | undefined =>
+    new RegExp(`^\\s*"${team}":\\s*"([^"]+)"`, 'm').exec((block as RegExpExecArray)[1])?.[1];
+
+  it.each([
+    ['tools/units/import_meshy_kdf_team.py', ['demo_squad']],
+    // (moto_rpg: the riders' source row; the bike importer loads it itself, and `main` already refused the name)
+    ['tools/units/import_meshy_crew_team.py', ['inf_squad', 'moto_rpg']],
+  ] as const)('%s guards build_team, and still lists %j as a source it no longer owns', (script, moved) => {
+    const py = read(script);
+    expect(py).toMatch(/^from mesh_ownership import assert_script_owns/m);
+    // the guard is the first statement of build_team: nothing is loaded or written before it
+    expect(py).toMatch(/^def build_team\(team_id\):\n {4}assert_script_owns\(rig\.TEAM_MESH_OWNER, team_id, "TEAM_MESH_OWNER", __file__, REPO\)\n/m);
+    const sources = /^SOURCES\s*=\s*\{([\s\S]*?)^\}/m.exec(py);
+    expect(sources, `${script}: SOURCES`).not.toBeNull();
+    const teams = [...(sources as RegExpExecArray)[1].matchAll(/^\s*"([a-z_0-9]+)":/gm)].map((m) => m[1]);
+    const notMine = teams.filter((t) => ownerOfTeam(t) !== undefined && ownerOfTeam(t) !== script).sort();
+    expect(notMine).toEqual([...moved]);
+  });
+
+  it('assert_script_owns passes the owner, refuses another script by name, and has no default', () => {
+    const code = [
+      'import json, sys',
+      'sys.path.insert(0, "tools")',
+      'import mesh_ownership as m',
+      'table = {"demo_squad": "tools/units/import_meshy_skinned_team.py", "at_team": "tools/units/import_meshy_kdf_team.py"}',
+      'out = {}',
+      'def run(unit, script):',
+      '    try:',
+      '        m.assert_script_owns(table, unit, "TEAM_MESH_OWNER", script, ".")',
+      '        return "ok"',
+      '    except SystemExit as e:',
+      '        return "refused: " + str(e)',
+      '    except RuntimeError as e:',
+      '        return "no entry: " + str(e)[:20]',
+      'out["owner"] = run("at_team", "tools/units/import_meshy_kdf_team.py")',
+      'out["moved"] = run("demo_squad", "tools/units/import_meshy_kdf_team.py")',
+      'out["unknown"] = run("nobody", "tools/units/import_meshy_kdf_team.py")',
+      'print(json.dumps(out))',
+    ].join('\n');
+    const r = spawnSync('python3', ['-c', code], { cwd: REPO, encoding: 'utf8' });
+    expect(r.status, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as Record<string, string>;
+    expect(out.owner).toBe('ok');
+    expect(out.moved).toMatch(/^refused: demo_squad: TEAM_MESH_OWNER names tools\/units\/import_meshy_skinned_team\.py/);
+    expect(out.moved).toMatch(/import_meshy_kdf_team\.py no longer builds it/);
+    expect(out.unknown).toMatch(/^no entry: /);
   });
 });
