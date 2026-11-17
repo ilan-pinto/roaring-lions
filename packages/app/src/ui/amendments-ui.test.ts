@@ -70,11 +70,11 @@ describe('the deploy panel: "Amendments to the orders"', () => {
   });
   it('shows what is on: pressed rows, the count, open when any is on, and armed only when every needed one is', () => {
     const none = panel();
-    expect(none.p.el.open).toBe(false);
+    expect((none.p.el as HTMLDetailsElement).open).toBe(false);
     expect(none.p.el.dataset.armed).toBe('false');
     expect(none.rows().every((b) => b.getAttribute('aria-pressed') === 'false')).toBe(true);
     const half = panel({ chosen: ['light_order'] });
-    expect(half.p.el.open).toBe(true);
+    expect((half.p.el as HTMLDetailsElement).open).toBe(true);
     expect(half.p.el.dataset.armed).toBe('false');
     expect(half.row('light_order').getAttribute('aria-pressed')).toBe('true');
     const full = panel({ chosen: ['no_medic', 'light_order'] });

@@ -86,7 +86,9 @@ describe("the run's ids (amendmentsForRun): what the save, the replay and Restar
   });
   it('the amended mission is a different mission (fewer bodies), and the plain one is the mission itself', () => {
     const plain = campaignMission(foothold, opened);
-    const amended = amendedMission(foothold, opened, run({ requested: QUIET_SOUK }).ids as string[]);
+    const r = run({ requested: QUIET_SOUK });
+    if ('refused' in r) throw new Error('a new run is never refused');
+    const amended = amendedMission(foothold, opened, r.ids);
     expect(amendedMission(foothold, opened, [])).toBe(plain);
     const count = (m: MissionJson) => (m.starting_force ?? []).reduce((n, p) => n + (p.count ?? 1), 0);
     expect(count(amended)).toBe(count(plain) - 2);
