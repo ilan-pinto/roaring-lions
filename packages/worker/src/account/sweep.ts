@@ -106,8 +106,8 @@ const FINISHED = Symbol('finished');
  *  and queues each member whose deletion a tombstone records (up to `room`, skipping ids in `known`). Most tombstones are DEAD ones, kept
  *  for `gone` after their member is deleted, so a page can find nothing: the scan is RESUMABLE through `RECONCILE_CURSOR_KEY` (not under
  *  `tomb:`), and a finished listing starts over. When a page is cut short, the cursor stays on it, so its remaining keys are read again.
- *  A tombstone that does not parse to a numeric day is skipped and tallied, as the survivor step does (GH-1530): an unparsable one used
- *  to fail the run, every run that read its page, for the 90 days it lives. */
+ *  A tombstone that does not parse to a numeric day is skipped and tallied, as the survivor step does (GH-1530), and FAILS the run: it
+ *  is a live member's unfinished deletion. The rest of its page is still acted on, and the page is not pinned by it. */
 async function scanTombstones(db: D1Like, kv: KVLike, room: number, known: ReadonlySet<string>, fail: (err: unknown) => void, tally: Tally): Promise<Scan> {
   const due: Due[] = [];
   // Each page read to its end: the cursor after it, and every member queued from it (or found on it already queued, in `known`).
@@ -145,7 +145,10 @@ async function scanTombstones(db: D1Like, kv: KVLike, room: number, known: Reado
           if (raw === null) continue;
           const day = tombDay(raw);
           if (day === undefined) {
+            // Skipped, so the page is not pinned, but RED: the page select joins `member`, so this is a live member's deletion that
+            // nothing will finish (spec 6.4 step 3). The survivor step's skip stays quiet: there the guard has just spared the member.
             tally.unreadable++;
+            fail(new Error('account cron: a live member\'s tombstone does not parse to a day (GH-1530)'));
             continue;
           }
           if (m.last_seen_day > day) await kv.delete('tomb:' + m.id_hash);

@@ -233,22 +233,24 @@ describe('accountCron: a tombstone that does not parse to a numeric day is left 
     expect(warn).toHaveBeenCalledWith('account cron: skipped tombstones that do not parse to a day', { count: 1 });
   });
 
-  // GH-1530: the scan used to rethrow on the two values that do not parse ('not json', 'null'), failing every run that read the page
-  // for the tombstone's 90 days, while the survivor step skipped the same tombstone. Both paths now skip, log and count, for all six.
-  it.each(BAD_TOMBS)('scan, %s: skipped, logged and counted, the run does not throw; the member and the tombstone stay, and the next tombstone on the page is still acted on', async (bad) => {
+  // GH-1530: the scan used to rethrow on the two values that do not parse ('not json', 'null'), while the survivor step skipped the same
+  // tombstone. Both paths now skip, log and count, for all six; the scan also fails the run (PR 1540 review), because the member it
+  // belongs to is live and its deletion is owed, but the rest of the page is still acted on and the page does not pin the cursor.
+  it.each(BAD_TOMBS)('scan, %s: skipped, logged and counted, and the run is RED; the member and the tombstone stay, and the next tombstone on the page is still acted on', async (bad) => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const h = accountHarness({ now: NOW });
     await member(h, 'a', today); // signed in today, not idle: found through the tombstone alone
     await member(h, 'b', today);
     await h.kv.put('tomb:hasha', bad); // 'hasha' sorts first on the page
     await h.kv.put('tomb:hashb', JSON.stringify({ deletedAt: NOW, lastSeenDay: today }));
-    expect(await accountCron(h.db, NOW, h.kv)).toBe(1);
+    await expect(accountCron(h.db, NOW, h.kv)).rejects.toThrow(/a live member's tombstone does not parse to a day \(GH-1530\)/);
     expect((await h.db.prepare('SELECT id AS x FROM member').all<{ x: string }>()).results.map((r) => r.x)).toEqual(['a']);
     expect(await h.kv.get('tomb:hasha')).toBe(bad);
     expect(warn).toHaveBeenCalledWith('account cron: skipped tombstones that do not parse to a day', { count: 1 });
     // and it moves the cursor on like any other page: the listing is finished, so the next run starts from the top (no stuck page)
     expect(await h.kv.get(RECONCILE_CURSOR_KEY)).toBeNull();
-    expect(await accountCron(h.db, NOW, h.kv)).toBe(0);
+    await expect(accountCron(h.db, NOW, h.kv)).rejects.toThrow(/does not parse to a day/); // red every run that reads it
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(1);
   });
 
   it('a run with nothing unreadable logs nothing', async () => {
