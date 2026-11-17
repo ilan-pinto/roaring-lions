@@ -19,7 +19,11 @@ const BASE = {
 };
 const RATING = { ...BASE, source: 'debrief', category: 'rating', rating: 4, text: '' };
 
+const PRIVACY = { ...BASE, source: 'privacy', category: 'privacy', build: '0.0.0', text: 'Request: deletion', contact: 'dana' };
+
 const VALID: Record<string, unknown>[] = [
+  PRIVACY,
+  { ...PRIVACY, contact: undefined, text: 'a\nb' },
   BASE,
   { ...BASE, commit: '41bc520b', player: '0f8fad5b-d9cb-469f-a165-70867728950e', session: '7c9e6679-7425-40de-944b-e07fc1f90ae7', tester: 'dana', mission: 'beit_sahwan_2_foothold', map: 'beit_sahwan_outskirts', tick: 467, dev: true },
   { ...BASE, source: 'menu', category: 'idea', contact: 'dana on Discord' },
@@ -33,6 +37,22 @@ const VALID: Record<string, unknown>[] = [
 ];
 
 const INVALID: [string, unknown][] = [
+  ['privacy from the pause form', { ...PRIVACY, source: 'pause' }],
+  ['privacy from the menu', { ...PRIVACY, source: 'menu' }],
+  ['privacy from the debrief', { ...PRIVACY, source: 'debrief' }],
+  ['a form kind on the privacy source', { ...PRIVACY, category: 'idea' }],
+  ['privacy with a rating', { ...PRIVACY, rating: 3 }],
+  ['privacy with a player id', { ...PRIVACY, player: '0f8fad5b-d9cb-469f-a165-70867728950e' }],
+  ['privacy with a session id', { ...PRIVACY, session: '7c9e6679-7425-40de-944b-e07fc1f90ae7' }],
+  ['privacy with a tester label', { ...PRIVACY, tester: 'dana' }],
+  ['privacy with a mission', { ...PRIVACY, mission: 'beit_sahwan_2_foothold' }],
+  ['privacy with a map', { ...PRIVACY, map: 'beit_sahwan_outskirts' }],
+  ['privacy with a tick', { ...PRIVACY, tick: 5 }],
+  ['privacy with a commit', { ...PRIVACY, commit: '41bc520b' }],
+  ['privacy with dev', { ...PRIVACY, dev: true }],
+  ['privacy with context', { ...PRIVACY, context: { renderer: 'three' } }],
+  ['privacy with empty text', { ...PRIVACY, text: '' }],
+  ['privacy with text over 2000', { ...PRIVACY, text: 'x'.repeat(2001) }],
   ['not an object', 'bug'],
   ['wrong version', { ...BASE, v: 2 }],
   ['unknown field', { ...BASE, email: 'x@y.z' }],

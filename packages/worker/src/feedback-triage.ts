@@ -216,7 +216,8 @@ export async function feedbackDetail(env: Env, id: number, origin: string) {
   const r = await getRow(env.DB, id);
   if (!r) return null;
   const context = parseContext(r.context);
-  const issue: IssueLink = buildIssueLink(
+  // GH-1417 C2: a privacy request is private. No GitHub link is built for it, so no URL can carry it anywhere.
+  const issue: IssueLink | null = r.category === 'privacy' ? null : buildIssueLink(
     {
       id: r.id, category: r.category, rating: r.rating, text: r.text, mission: r.mission, tick: r.tick, build: r.build,
       commit: r.commit, context, hasReplay: r.replay_bytes !== null, tester: r.tester, contact: r.contact, player: r.player, session: r.session,
@@ -264,6 +265,8 @@ export async function applyFeedbackAction(env: Env, id: number, body: Record<str
   const r = await getRow(env.DB, id);
   if (!r) return { ok: false, code: 404, error: 'not found' };
   const action = body.action;
+  // GH-1417 C2: never filed on GitHub, not even by hand-entering an issue number.
+  if (r.category === 'privacy' && (action === 'file' || action === 'issue')) return { ok: false, code: 409, error: 'privacy requests are never filed on GitHub' };
   if (action === 'delete') {
     // Explicit, in one transaction: the ON DELETE CASCADE in 0003 needs
     // foreign keys on, which D1 has and a plain SQLite connection may not.
@@ -396,7 +399,7 @@ export async function handleFeedbackApi(req: Request, env: Env, url: URL, now: n
 
 /** Retention (spec §7, D15; GH-1410): 180 days after receipt the picture, the replay,
  *  the contact and the ids that tie the note to a person (player, session, tester) go;
- *  the note and context stay.
+ *  the note and context stay. A `privacy` request is trimmed further (GH-1417 L1): to its request type alone, with no contact.
  *  Run daily by the Cron Trigger in wrangler.jsonc. Returns rows purged. */
 export const RETENTION_MS = 180 * 86_400_000;
 /** Slices of 100 notes a run: 1,000 notes a day at one D1 query each (GH-1432). */
@@ -404,6 +407,7 @@ export const PURGE_EXPIRED_BATCHES = 10;
 /** One slice is ONE D1 query (a `batch()`), so a run costs at most `maxBatches` of the Free plan's 50 per invocation (GH-1432).
  *  Every statement names the same oldest-first slice of expired rows, and the batch is one transaction: the attachments go first
  *  while the note still matches the slice, the note's own columns last, and that last statement's change count is the slice size. */
+const TYPES = "'Request: access','Request: export','Request: deletion','Request: correction'";
 export async function purgeExpired(env: Env, now: number, batch = 100, maxBatches = PURGE_EXPIRED_BATCHES): Promise<number> {
   let purged = 0;
   const slice = `SELECT id FROM feedback WHERE received_at < ?1
@@ -414,12 +418,22 @@ export async function purgeExpired(env: Env, now: number, batch = 100, maxBatche
       env.DB.prepare(`DELETE FROM feedback_picture WHERE feedback_id IN (${slice})`).bind(now - RETENTION_MS, batch),
       env.DB.prepare(`DELETE FROM feedback_replay WHERE feedback_id IN (${slice})`).bind(now - RETENTION_MS, batch),
       env.DB.prepare(`UPDATE feedback SET shot_bytes = NULL, replay_bytes = NULL, contact = NULL, player = NULL, session = NULL, tester = NULL WHERE id IN (${slice})`).bind(now - RETENTION_MS, batch),
+      // GH-1417 L1: a privacy request is trimmed to its type ("Request: deletion"); the rest of the text and the lead's note go. Same batch, so a quiet day costs no extra query.
+      // A first line that is not one of the four types is replaced, never kept. Rows already trimmed do not match.
+      env.DB.prepare(
+        `UPDATE feedback SET contact = NULL, note = NULL, player = NULL, session = NULL, tester = NULL,
+           text = CASE WHEN substr(text, 1, instr(text || char(10), char(10)) - 1) IN (${TYPES}) THEN substr(text, 1, instr(text || char(10), char(10)) - 1) ELSE 'Request' END
+         WHERE id IN (SELECT id FROM feedback WHERE category = 'privacy' AND received_at < ?1
+           AND (contact IS NOT NULL OR note IS NOT NULL OR text NOT IN (${TYPES})) ORDER BY id LIMIT ?2)`
+      ).bind(now - RETENTION_MS, batch),
     ]);
     // D1's batch result carries `meta.changes`; the node:sqlite test double's `run()` result carries `changes`.
     const last = out[2] as { meta?: { changes?: number }; changes?: number | bigint } | undefined;
     const n = Number(last?.meta?.changes ?? last?.changes ?? 0);
-    purged += n;
-    if (n < batch) break;
+    const t = out[3] as { meta?: { changes?: number }; changes?: number | bigint } | undefined;
+    const nt = Number(t?.meta?.changes ?? t?.changes ?? 0);
+    purged += n + nt;
+    if (n < batch && nt < batch) break;
   }
   return purged;
 }

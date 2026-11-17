@@ -2,15 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaring-lions/schemas/feedback.schema.json",
   "title": "In-game feedback: the `meta` part of POST /api/feedback",
-  "description": "GH-464. Spec: docs/superpowers/specs/2026-10-08-in-game-feedback-design.md (\"Server contract as built\"). The Worker's twin is packages/worker/src/feedback-meta.ts, pinned to this file by feedback-meta.test.ts. Rules a JSON Schema cannot state, enforced by the Worker: `context` serialises to at most 8192 UTF-8 bytes; the `meta` part is at most 24 KB; `text` is not whitespace-only for the five form kinds; the multipart `shot` part (image/webp ONLY, magic bytes checked) is accepted only with source `pause`, and one over 64 KB is dropped while the note is still stored (201 with dropped.picture = too_large); the `replay` part (a JSON object, <= 96 KB) only with source `pause` and category `bug`; the whole body is <= 448 KB.",
+  "description": "GH-464, GH-1417 (the `privacy` category: a private request from the Worker's /privacy/request form, source `privacy` only, shown on /stats and never as a GitHub issue link). Spec: docs/superpowers/specs/2026-10-08-in-game-feedback-design.md (\"Server contract as built\"). The Worker's twin is packages/worker/src/feedback-meta.ts, pinned to this file by feedback-meta.test.ts. Rules a JSON Schema cannot state, enforced by the Worker: `context` serialises to at most 8192 UTF-8 bytes; the `meta` part is at most 24 KB; `text` is not whitespace-only for the five form kinds; the multipart `shot` part (image/webp ONLY, magic bytes checked) is accepted only with source `pause`, and one over 64 KB is dropped while the note is still stored (201 with dropped.picture = too_large); the `replay` part (a JSON object, <= 96 KB) only with source `pause` and category `bug`; the whole body is <= 448 KB.",
   "type": "object",
   "additionalProperties": false,
   "required": ["v", "t", "source", "category", "text", "build", "context"],
   "properties": {
     "v": { "const": 1 },
     "t": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Client epoch milliseconds." },
-    "source": { "enum": ["pause", "debrief", "menu"] },
-    "category": { "enum": ["bug", "balance", "confusing", "idea", "praise", "rating"] },
+    "source": { "enum": ["pause", "debrief", "menu", "privacy"] },
+    "category": { "enum": ["bug", "balance", "confusing", "idea", "praise", "rating", "privacy"] },
     "text": { "type": "string", "maxLength": 2000, "pattern": "^[^\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]*$" },
     "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
     "contact": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[^\\u0000-\\u001F\\u007F]*$" },
@@ -41,11 +41,20 @@
       },
       "else": {
         "not": { "required": ["rating"] },
-        "properties": {
-          "source": { "enum": ["pause", "menu"] },
-          "text": { "minLength": 1 }
-        }
+        "properties": { "text": { "minLength": 1 } }
       }
+    },
+    {
+      "if": { "properties": { "category": { "const": "privacy" } }, "required": ["category"] },
+      "then": {
+        "properties": { "source": { "const": "privacy" }, "context": { "maxProperties": 0 } },
+        "not": { "anyOf": [{ "required": ["player"] }, { "required": ["session"] }, { "required": ["tester"] }, { "required": ["mission"] }, { "required": ["map"] }, { "required": ["tick"] }, { "required": ["commit"] }, { "required": ["dev"] }] }
+      },
+      "else": { "properties": { "source": { "enum": ["pause", "debrief", "menu"] } } }
+    },
+    {
+      "if": { "properties": { "category": { "enum": ["rating", "privacy"] } }, "required": ["category"] },
+      "else": { "properties": { "source": { "enum": ["pause", "menu"] } } }
     }
   ]
 }

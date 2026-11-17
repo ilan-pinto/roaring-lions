@@ -8,12 +8,11 @@
 import { PAGE_CSP } from './security-headers';
 
 /** The lead's contact for privacy requests. `null` until the lead supplies it. */
-export const PRIVACY_CONTACT: string | null =
-  'open an issue titled "Privacy" at https://github.com/ilan-pinto/roaring-lions/issues';
+export const PRIVACY_CONTACT: string | null = 'private request form';
 /** The lead's minimum age (an integer 13 to 18). `null` until the lead decides it. */
 export const PRIVACY_MIN_AGE: number | null = 16;
 /** The date this text last changed. Set at merge. */
-export const PRIVACY_UPDATED = '2026-11-15';
+export const PRIVACY_UPDATED = '2026-11-16';
 
 /** PAGE_CSP with its inline-script allowance removed: this page has no script, so it may run none. */
 export const PRIVACY_PAGE_CSP = PAGE_CSP.replace("script-src 'unsafe-inline'", "script-src 'none'");
@@ -123,7 +122,7 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <p>Play statistics stay anonymous and are never linked to an account. Opt out in Settings, under Privacy, or with ?notrack, Global Privacy Control or Do Not Track.</p>
 
 <h2>Contact and minimum age</h2>
-<p>Questions or requests about your data: ${esc(v.contact)}</p>
+<p>Questions or requests about your data: use the <a href="/privacy/request">${esc(v.contact)}</a>. What you send there is private, is read only by the person who runs Roaring Lions, and is never posted to GitHub. After 180 days it is cut down to the type of request (for example "Request: deletion"); your contact and everything else you wrote are removed.</p>
 <p>The minimum age to sign in is ${v.minAge}.</p>
 
 <p><small>Last updated ${esc(PRIVACY_UPDATED)}.</small></p>

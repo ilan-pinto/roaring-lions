@@ -641,3 +641,7 @@ npx wrangler d1 migrations apply roaring-lions-telemetry --remote
 Nothing else is needed: the rate-limit namespace (`1003`) and the cron are
 declared in `wrangler.jsonc`, and nothing needs creating in the dashboard.
 `FEEDBACK_CLOSED` is only for closing feedback.
+
+### 12.6 The `privacy` category (GH-1417, added 2026-11-16)
+
+Facts only. `POST /api/feedback` also takes `category: "privacy"` with `source: "privacy"` and no other pairing, sent by the Worker's own form at `/privacy/request`. The meta may not carry `player`, `session`, `tester`, `mission`, `map`, `tick`, `commit` or `dev`, and `context` must be `{}`; no picture or replay. It has its own 30-a-day bucket and is left out of the anonymous and global buckets. It is stored and listed like any note and shown only on `/stats/feedback`; no GitHub issue link is built for it and the `file` and `issue` actions answer 409. The kill switch closes it with the rest. At 180 days the daily purge trims it to its request type (for example `Request: deletion`) and removes the contact and the lead's note. Migration `0007_feedback_privacy.sql` also admits the `report` category and `match` source for the chat-safety design; nothing writes them yet.

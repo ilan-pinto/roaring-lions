@@ -20,7 +20,10 @@
 			"/arena-results*",
 			// GH-1075 A1: the privacy page. Without this the SPA fallback would
 			// answer it, and the account bindings pin (wrangler-pin.test.ts) fails.
-			"/privacy"
+			"/privacy",
+			// GH-1417: the private privacy-request form, and security.txt (C5).
+			"/privacy/request",
+			"/.well-known/security.txt"
 		]
 	},
 	// Cloudflare's own preview URLs (<hash>.roaring-lions.workers.dev) would be

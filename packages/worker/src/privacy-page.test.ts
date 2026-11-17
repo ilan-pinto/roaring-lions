@@ -78,7 +78,7 @@ describe('the privacy page', () => {
     for (const m of ['Google', 'do not ask Google for your email', "third-party access page", 'We hold no Google token', '"openid" scope only', 'SteamID', 'Sign-in through Steam is paused']) expect(html, m).toContain(m);
     const never = html.split('What is never stored')[1]?.split('</ul>')[0] ?? '';
     expect(never).toContain('Google email address, name and profile picture');
-    expect(PRIVACY_UPDATED).toBe('2026-11-15');
+    expect(PRIVACY_UPDATED).toBe('2026-11-16');
   });
 
   it('GH-695 D14 names_the_admin_view: what the team sees, the logging, the export, and no provider number', () => {

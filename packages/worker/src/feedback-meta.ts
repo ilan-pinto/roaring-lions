@@ -14,12 +14,14 @@
 import { BUILD_PATTERN, ID_PATTERN, MISSION_PATTERN, TESTER_PATTERN } from '@lions/data/telemetry';
 
 export const FEEDBACK_VERSION = 1;
-export const FEEDBACK_SOURCES = ['pause', 'debrief', 'menu'] as const;
+export const FEEDBACK_SOURCES = ['pause', 'debrief', 'menu', 'privacy'] as const;
 export type FeedbackSource = (typeof FEEDBACK_SOURCES)[number];
 /** The five a player picks in the pause/menu form, plus `rating`, which only
  *  the debrief prompt sends. */
 export const FEEDBACK_KINDS = ['bug', 'balance', 'confusing', 'idea', 'praise'] as const;
-export const FEEDBACK_CATEGORIES = [...FEEDBACK_KINDS, 'rating'] as const;
+/** `privacy` (GH-1417 C2) is a private request from the Worker's own /privacy/request form: stored like a note,
+ *  readable only on /stats, never turned into a GitHub issue link. It travels with source `privacy` and no other. */
+export const FEEDBACK_CATEGORIES = [...FEEDBACK_KINDS, 'rating', 'privacy'] as const;
 export type FeedbackCategory = (typeof FEEDBACK_CATEGORIES)[number];
 
 /** Caps, in code points for text and bytes for everything else (spec §7). */
@@ -63,6 +65,9 @@ const KEYS = new Set([
   'player', 'session', 'tester', 'mission', 'map', 'tick', 'dev', 'context',
 ]);
 
+/** Fields a `privacy` request may not carry; `context` must also be `{}`. The schema says the same. */
+export const PRIVACY_FORBIDDEN = ['player', 'session', 'tester', 'mission', 'map', 'tick', 'commit', 'dev'] as const;
+
 const codePoints = (s: string): number => [...s].length;
 /** C0 controls and DEL. Text may keep \t \n \r; a one-line field keeps none. */
 // eslint-disable-next-line no-control-regex -- matching control characters is the point
@@ -86,8 +91,12 @@ export function feedbackMetaProblem(x: unknown): string | null {
   if (!(FEEDBACK_SOURCES as readonly unknown[]).includes(e.source)) return 'source';
   if (!(FEEDBACK_CATEGORIES as readonly unknown[]).includes(e.category)) return 'category';
   const isRating = e.category === 'rating';
-  // The debrief prompt sends ratings and nothing else; the forms never do.
+  const isPrivacy = e.category === 'privacy';
+  // The debrief prompt sends ratings and nothing else; the forms never do. The privacy form sends privacy and nothing else.
   if (isRating !== (e.source === 'debrief')) return 'category does not match source';
+  if (isPrivacy !== (e.source === 'privacy')) return 'category does not match source';
+  // A privacy request names no player, session or tester and carries no game context (GH-1417): nothing ties it to a person but what they write.
+  if (isPrivacy) for (const k of PRIVACY_FORBIDDEN) if (e[k] !== undefined) return k;
   if (typeof e.text !== 'string' || TEXT_BAD.test(e.text)) return 'text';
   const n = codePoints(e.text);
   if (isRating ? n > LINE_MAX || LINE_BAD.test(e.text) : n < 1 || n > TEXT_MAX || e.text.trim() === '') return 'text';
@@ -105,6 +114,7 @@ export function feedbackMetaProblem(x: unknown): string | null {
   const c = e.context;
   if (typeof c !== 'object' || c === null || Array.isArray(c)) return 'context';
   if (Object.keys(c).length > 64) return 'context';
+  if (isPrivacy && Object.keys(c).length > 0) return 'context';
   if (utf8Bytes(JSON.stringify(c)) > CONTEXT_MAX_BYTES) return 'context over 8 KB';
   return null;
 }
