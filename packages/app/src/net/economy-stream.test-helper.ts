@@ -194,11 +194,15 @@ export interface EconomyStreamResult {
  * `frames` is played in the order given: a test may hand it a stream with a
  * frame out of place or a command missing, as a faulty transport would.
  */
-export function runEconomyClient(frames: readonly Frame[], o: { onFrame?: (f: Frame) => void } = {}): EconomyStreamResult {
+export function runEconomyClient(
+  frames: readonly Frame[],
+  o: { onFrame?: (f: Frame) => void; afterFrame?: (tick: number) => void; onWorld?: (w: MatchWorld) => void } = {},
+): EconomyStreamResult {
   const config = economyStreamConfig();
   const w = buildMatchWorld(config);
   const rt = w.runtime;
   if (rt === null) throw new Error('economy stream: a kdf-v-sarim room must have a runtime');
+  o.onWorld?.(w);
   const feed = new Feed(frames);
   const built: [number, number] = [0, 0];
   const droppedTicks: number[] = [];
@@ -223,6 +227,7 @@ export function runEconomyClient(frames: readonly Frame[], o: { onFrame?: (f: Fr
       }
     },
     runtimeDigest: () => rt.digest(),
+    afterFrame: (tick: number) => { o.afterFrame?.(tick); },
   };
   // One frame at a time, so a drop is charged to its own frame's tick.
   for (;;) {

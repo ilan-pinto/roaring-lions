@@ -2093,6 +2093,23 @@ describe('the card\'s service record — whose place this is', () => {
     expect(card.querySelector('.rl-card__replaces')?.textContent).toContain('Barkai');
   });
 
+  // GH-1380. Falsified: dropping the `cause` branch prints the plain "in X's place" line and loses the why.
+  it('says why the predecessor fell, escaped, when the record has a cause', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: (id) =>
+          id === world.namer ? { type: 'inf_squad', veterancy: 1, name: 'Gilad', missions: 1, kills: 0, slot: 7 } : undefined,
+        predecessorOf: () => ({ name: 'Barkai', type: 'inf_squad', cause: 'Penetrated through the rear by <b>AT</b> team.' }),
+      },
+      world
+    );
+    const line = r.host.querySelector<HTMLElement>('.rl-card__replaces')!;
+    expect(line.textContent).toBe("in Barkai's place. Penetrated through the rear by <b>AT</b> team.");
+    expect(line.querySelector('b')).toBeNull();
+  });
+
   // Do not regress the plain record line: a unit that has always held its own
   // place is the common case and must gain nothing.
   it('shows nothing extra for a unit whose slot has no history', () => {

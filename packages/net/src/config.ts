@@ -153,7 +153,7 @@ export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = 
  *  inside 60/40 over all the games and over the decisive games alone, the passive seat lost every game from either end,
  *  and at least 70% of the games decided by the goal.
  *
- *  - Nothing is listed (GH-976 P4 review). The one cell that passed, `points` on wadi_tarfan_l at 10 points per 100 value and a
+ *  - Nothing was listed after the GH-976 P4 review, until GH-1381 (below). The one cell that passed, `points` on wadi_tarfan_l at 10 points per 100 value and a
  *    target of 400 (4000-4287: 130 / 158 and 125 / 163, 54.9% and 56.6%), was a kill race, not a points race: about 80% of its
  *    points came from kills (held ground 20%, against 87-91% on the other maps), and at the real race (1 per 100, target 600) the
  *    faction cells read Sarim 63.2% and 64.2% on 9000-9287. It was removed, and the mirror file went back to 1 per 100.
@@ -163,9 +163,27 @@ export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = 
  *    (Sarim; the two forces annihilate each other first), on tel_marum 72.9% and 94.8% / 24.3% and 4.9% (Sarim). The full table,
  *    with the fitting reads and the levers screened, is in the PR that added this list.
  *
+ *  - **GH-1381, 16 Nov (the lead's ruling GH-1378 Q11: the probe runs report-only, and an opening that passes the existing bar may
+ *    proceed, no tuning): `camp` on wadi_tarfan and wadi_tarfan_l, both hosts.** Read once on 4000-4287 with the shipped mode files
+ *    (forward camps, `wipe: after_camp`), every arm of the camp room's gates (`pnpm versus:probe -- --mode=camp --maps=<id>
+ *    --arr=kdf/sarim,sarim/kdf --seed-from=4000 --seeds=288`); west / east, leader, by the goal, then the passive and defend arms:
+ *
+ *    | map | host | active W / E | leader | by the goal | passive lost (W / E end) | G4 holds W / E | G5 active mean raze |
+ *    |---|---|---|---|---|---|---|---|
+ *    | wadi_tarfan | kdf | 159 / 129 | 55.2% | 100% | 288 / 288 | 3 / 6 | 23 s of 120 |
+ *    | wadi_tarfan | sarim | 144 / 144 | 50.0% | 100% | 288 / 288 | 1 / 0 | 23 s of 120 |
+ *    | wadi_tarfan_l | kdf | 139 / 149 | 51.7% | 100% | 288 / 288 | 0 / 7 | 55 s of 240 |
+ *    | wadi_tarfan_l | sarim | 155 / 133 | 53.8% | 100% | 288 / 288 | 6 / 0 | 55 s of 240 |
+ *
+ *    No draw, no cap in an active or passive arm, no wiped-but-unrazed game. A race, like the mirror's (median win 160-210 s; 44 and
+ *    51 of 288 won inside 120 s on wadi_tarfan, 3 and 4 on wadi_tarfan_l: report only, no camp gate reads it). Read on the same
+ *    seeds and NOT fair, so still not listed: `points` on wadi_tarfan (Sarim 89.2% / 94.4%, 13-16% by the goal), on wadi_tarfan_l
+ *    (Sarim 70.5% / 68.4%, 76% by the goal), on tel_marum (48-seed screen: 75.0% / 100%, 2-19% by the goal); `flag` on wadi_tarfan (48-seed screen:
+ *    0-2% by the goal) and on wadi_tarfan_l (48-seed screen: 2.1% by the goal).
+ *
  *  Absent maps and absent hosts are not offered, and the Worker answers 400 for them (`winModeRequest`). */
 export const WIN_MODE_FAIR_FACTION_CELLS: Readonly<Record<WinMode, Readonly<Record<string, readonly ('kdf' | 'sarim')[]>>>> = {
-  camp: {},
+  camp: { wadi_tarfan: ['kdf', 'sarim'], wadi_tarfan_l: ['kdf', 'sarim'] },
   points: {},
   flag: {},
 };
