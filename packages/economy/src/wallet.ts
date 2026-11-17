@@ -25,15 +25,19 @@ export const RECEIPT_CAP = 500;
 export const PURCHASES_OPEN: boolean = false;
 
 /**
- * E13 (GH-1415; the lead's ruling, before the Steam page goes live): Roar coins buy COSMETICS ONLY. False today, so a
- * coin still buys a unit or an upgrade tier exactly as it did. Flipping this ONE line closes the power lane on both
- * sides at once, because the app and the Worker both read it from here (`coinsMayBuy` in `stores.ts`):
+ * E13 (GH-1415; the lead's ruling, before the Steam page goes live): Roar coins buy COSMETICS ONLY. It SHIPS false:
+ * while it is false a coin buys a unit or an upgrade tier exactly as it did before E13. Turning it on is this one line
+ * plus the "ships OFF" pin in `cosmetic-only.test.ts`, by the flip-day checklist in PR 1565's description, and it closes
+ * the power lane on both sides at once, because the app and the Worker both read it from here (`coinsMayBuy` in
+ * `stores.ts`). With it on:
  *   - the Stores stop offering units and tiers for coins (`buyEnabled`, `buyWithCoins`, the guest Buy in `main.ts`);
  *   - the Worker's `POST spend` refuses a unit or tier ask, reason `cosmetic_only`;
- *   - credits are untouched, and what coins already bought is KEPT: nothing here reads an entitlement, and a claim
- *     still carries a device's coin-bought items (`claim.ts` step 4 asks with `cosmeticOnly: false`);
+ *   - credits are untouched, and what coins already bought is KEPT: nothing here reads an entitlement, a claim still
+ *     carries a device's coin-bought items (`claim.ts` step 4 asks with `cosmeticOnly: false`), and the brigade reset
+ *     (`resetFree`, client and Worker) keeps them too;
  *   - a cosmetic stays buyable for coins (the shelf is empty today; the path is kept open).
- * Every reader takes the value as a defaulted parameter, so a test runs both arms in one suite.
+ * Every reader takes the value as a defaulted parameter, so a test runs both arms in one suite, and the coin-buy and
+ * reset suites pass `false` explicitly, so the flip turns only the pin red.
  */
 export const COINS_COSMETIC_ONLY: boolean = false;
 
