@@ -196,6 +196,101 @@ stores every input and output, so any update can be re-derived and checked.
   a rating that has not.
 
 ## 2. The leaver penalty
+
+### 2.1 Telling a disconnect from a quit
+
+The Worker cannot know intent. It can know five facts, three of which exist today:
+
+| Fact | Today | What ranked adds |
+|---|---|---|
+| **`bye`**: the client said it is leaving | yes: only `transport.close()` sends it, the deliberate leave; a reload or a hand-off uses `detach()`, which does not | nothing |
+| **A reconnect inside `FORFEIT_MS`** | yes: it cancels the forfeit clock completely | nothing: a reload, a wifi blip or a laptop lid under 60 s is no incident at all |
+| **How the socket closed** | read nowhere: `webSocketClose(ws)` ignores its arguments | record, per seat and in memory, `goneHow`: `clean` for code 1000 or 1001 with `wasClean` (a tab or window closed, a navigation away), `lost` for anything else (1006, an error, or the room's own silent-stall detection, `STALL_SILENT_MS` 2 s, seeing the seat go quiet first) |
+| **Both seats gone together** | voids only on the **same instant** (`reconcileSockets` after a restart) | ranked also voids when the two seats went within `INFRA_WINDOW_MS` (5 s) of each other, or the room was revived from storage and reconciled its sockets: an outage or a relay deploy, nobody's fault |
+| **The result reports and the hash pair** | yes: `over{tick, result}` per seat and `lastHashTick` | the end table below, and an `OVER_CONFIRM_MS` (10 s) wait for the second report (§2.2, row J) |
+
+So a deliberate quit is `bye` or `surrender`; an abandon is a `clean` close that does not come back; a drop is a `lost` close that does
+not come back. The residual error is known and small: a player who pulls a cable reads as a drop, and a crash reads as a drop. Both
+are one point apart on the ladder (§2.4), and both still lose the match, as the lead ruled on 13 Oct ("the player who drops loses").
+
+### 2.2 The end table: `rankedOutcomeOf`
+
+**The finding.** `recordOf` (A3) treats one case in a way ranked cannot use. If seat X reports `over` naming itself the winner and seat
+Y, which has not reported, then leaves or forfeits, the record is X's **unconfirmed** claim (`agreed = 0`), not the room's own decision
+that the leaver loses: `lone` is tested before `gaveUp` (`room-core.ts:714-723`). An honest client reports `over` automatically on the
+hash-window tick where its sim decides, before its player can react, so the losing seat that never reports is a modified client (or a
+crash in the same second). Under A3's rule, that client turns its loss into an unrated match by withholding one message and leaving.
+For W-L this was a deliberate, conservative choice; for a rating it is a hole.
+
+**The rule.** A pure `rankedOutcomeOf(st, seatFacts)` in `room-core.ts`, beside `recordOf` and in its style (no effect, no I/O, called
+once the room has ended). Its result is `{rated: [w0, w1] | null, winner, incident: [class | null, class | null], dispute: boolean}`.
+`EARLY_TICKS` is 3,600 (three minutes at 20 Hz): before it, a game is no evidence of the remaining player's skill.
+
+| # | How the ranked match ended | Rating | Incident (§2.4) |
+|---|---|---|---|
+| A | Both seats reported the same `over` tick and result, with a fresh compared hash (A3's agreed rule) | rated, weight `w` (repeat damping, §5.1) | none |
+| B | The reports differ, or the hashes differ (a desync) | **void** for both: a `void` journal row of weight 0 each | none, but a **dispute** for both (§5.3) |
+| C | X surrendered at or after `EARLY_TICKS` | X loses, Y wins, weight `w` | none: conceding is what ranked wants players to do |
+| D | X left (`bye`) at or after `EARLY_TICKS`, X had not reported `over` | as C | none (Q6 asks whether it should be 1 point) |
+| E | X forfeited (gone 60 s), `goneHow` = `clean` | X loses, Y wins, weight `w` | X: **abandon** |
+| F | X forfeited, `goneHow` = `lost` | as E | X: **drop** |
+| G | X ended it before `EARLY_TICKS` by any of C to F | X loses at weight 1; **Y unchanged** (a weight-0 row: "no contest") | X: **early** (a `lost` forfeit: **drop**) |
+| H | Both seats gone within `INFRA_WINDOW_MS`, or the room was revived and reconciled both | **void** | none |
+| I | X reported `over` naming X the winner; Y never reported and then left, forfeited or was gone at the close | **X wins, Y loses**, weight `w` (the room's own decision, which the claim agrees with) | Y: by its exit, abandon or drop |
+| I′ | As I, but X's claim names **Y** the winner | **void** (the claim and the room disagree) | dispute for both |
+| J | X reported `over`; Y is still connected and acking but has not reported within `OVER_CONFIRM_MS` (10 s) | **void, disputed**: the room cannot tell X forging from Y withholding without running the sim | dispute for both; the evidence row is written (§5.3) |
+| K | X reported `over`, then X left before Y reported | X's exit is **not** a leave (X was done); Y's report or silence decides, as A or J | none for X |
+| L | After both accepted, a seat never said `hello` within `NOSHOW_MS` (30 s), or left during the face-off before tick 0 | none: no game was played | the absent or leaving seat: **dodge** (no-show) or **early** (face-off exit) |
+| M | `expired` (the 6 h TTL), or the room voided its own log (#559 H-1) | void | none |
+
+Rows I and J are what close the hole: a withheld report either matches the room's decision (I, rated) or makes the match a dispute
+that nobody gains from (J). The match cap is not a row of its own: both sims decide it on a hash tick and report it, which is row A.
+
+The room writes rows A to K in **one D1 batch** on ACCOUNTS, in its own invocation (the relay's; §7.2): the record and seats as today,
+the two `ranked_member` updates, the two `rating_journal` rows and the incident points. Row L is written by the room at the no-show
+deadline; a decline (§2.4) by the matchmaker.
+
+### 2.3 The rating effect
+
+- **A leave is an ordinary loss: `S = 0`, weight 1.** No extra points are taken. The rating stays an estimate of skill, which is what
+  makes it useful for pairing; the penalty for leaving badly is time, not rating (§2.4). An extra point penalty would also make
+  a leaver's rating wrong in the direction that sends them to easier opponents, which is the opposite of a penalty.
+- **The opponent of an early leaver gains nothing** (row G). That is the rule that stops two accounts trading a win a minute by
+  leaving at once, and it costs an honest opponent at most three minutes. The leaver still loses at full weight, so a trade is a pure
+  loss for whoever gives the win.
+- **A void, a dispute, a no-show and an infrastructure drop move no rating.** They are journaled at weight 0 so the history is whole.
+
+### 2.4 Incidents, the cooldown ladder and decay
+
+**Points per incident:** early exit 2, abandon 2, drop 1, dodge 1 (a decline at `found`, letting the 15 s accept lapse while the queue
+socket is connected, or a no-show). A dispute earns no points: it is counted separately, by distinct opponent (§5.3).
+
+**The lock is read from the points the incident leaves:**
+
+| Points after the incident | Queue lock |
+|---|---|
+| 1 | none: the next queue join shows one line ("Leaving early locks the ranked queue") |
+| 2 | 5 minutes |
+| 3 | 15 minutes |
+| 4 | 1 hour |
+| 5 | 4 hours |
+| 6 | 24 hours |
+| 7 or more (cap 12) | 72 hours, and the member appears on the read-only ranked review list of `/stats/members` |
+
+**Decay.** Points fall by one for every full 48 hours since the last incident, computed when they are read (`effective = max(0, points
+− floor((now − leave_at) / 48 h))`, no cron), and by one for each completed ranked match (rows A, C, D and I for both seats, written in
+the record batch). Only the queue reads them; an incident never changes a rating by itself.
+
+**What it looks like.**
+- A player whose wifi drops out of one match a week never locks: one point, gone in 48 hours.
+- A rage-closer who closes the tab twice in an evening: 2 points (5 minutes), then 4 (1 hour).
+- A dodger who declines three offers in a row: no lock, 5 minutes, 15 minutes. One clean match then takes a point off.
+- The PM design's separate decline cooldown (1 minute doubling to 15, forgiven after an hour) is replaced by this one ladder, so a
+  dodger and a leaver are held by the same rule.
+
+The ladder's numbers are starting values, chosen against nothing measured; §8's gate is the first 200 ranked results, as in the PM
+design.
+
 ## 3. Matchmaking inside the relay design
 ## 4. The D1 schema and the migration plan (ACCOUNTS)
 ## 5. Abuse cases
