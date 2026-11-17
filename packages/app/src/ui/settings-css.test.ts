@@ -40,36 +40,36 @@ describe('the settings screen wears the account page (GH-1510)', () => {
 
   it('gives every section key a title strip in one of the profile role tokens', () => {
     expect(keys).toEqual(['video', 'audio', 'accessibility', 'controls', 'privacy', 'chat', 'language']);
-    const strips = [...css.matchAll(/([^{}]*\.rl-profile__card-title[^{}]*)\{([^{}]*)\}/g)].filter((m) => (m[1] ?? '').includes('.rl-settings__card--'));
+    const strips = [...css.matchAll(/([^{}]*\.rl-page-card__title[^{}]*)\{([^{}]*)\}/g)].filter((m) => (m[1] ?? '').includes('.rl-settings__card--'));
     for (const k of keys) {
-      const rule = strips.find((m) => new RegExp(`\\.rl-settings__card--${k} \\.rl-profile__card-title(?![\\w-])`).test(m[1] ?? ''));
+      const rule = strips.find((m) => new RegExp(`\\.rl-settings__card--${k} \\.rl-page-card__title(?![\\w-])`).test(m[1] ?? ''));
       expect(rule, `no strip for ${k}`).toBeDefined();
       const bg = /background: var\((--[a-z-]+)\)/.exec(rule?.[2] ?? '')?.[1];
       expect(ROLE_TOKENS, `${k}: ${bg ?? 'none'}`).toContain(bg);
     }
     // The limestone strip takes its own dark ink, as the profile's sign-in card does.
-    expect(body('.rl-settings__card--accessibility .rl-profile__card-title')).toContain('color: var(--card-head-signin-ink)');
+    expect(body('.rl-settings__card--accessibility .rl-page-card__title')).toContain('color: var(--card-head-signin-ink)');
   });
 
   it('out-ranks the profile card border, which comes later in the file', () => {
-    expect(css.indexOf('.rl-profile__card {')).toBeGreaterThan(css.indexOf('.rl-settings__card--audio'));
+    expect(css.indexOf('.rl-page-card {')).toBeGreaterThan(css.indexOf('.rl-settings__card--audio'));
     const borders = [...css.matchAll(/([^{}]*)\{[^{}]*border-color[^{}]*\}/g)].map((m) => (m[1] ?? '').trim()).filter((s) => s.includes('.rl-settings__card--'));
     expect(borders.length).toBeGreaterThan(0);
-    for (const sel of borders) for (const part of sel.split(',')) expect(part.trim()).toMatch(/^\.rl-profile__card\.rl-settings__card--[a-z]+$/);
+    for (const sel of borders) for (const part of sel.split(',')) expect(part.trim()).toMatch(/^\.rl-page-card\.rl-settings__card--[a-z]+$/);
   });
 
   it('drops to one column when the panel is narrow, by a container query that out-ranks the profile grid', () => {
     expect(body('.rl-settings__content')).toContain('container: rl-settings / inline-size');
-    const q = /@container rl-settings \(max-width: 48rem\) \{\s*\.rl-profile__cols\.rl-settings__cols \{\s*grid-template-columns: minmax\(0, 1fr\);/.exec(css);
+    const q = /@container rl-settings \(max-width: 48rem\) \{\s*\.rl-page-cols\.rl-settings__cols \{\s*grid-template-columns: minmax\(0, 1fr\);/.exec(css);
     expect(q).not.toBeNull();
     // The profile's grid, which the query must beat, is ruled later in the file.
-    expect(css.indexOf('.rl-profile__cols {')).toBeGreaterThan(q?.index ?? Infinity);
+    expect(css.indexOf('.rl-page-cols {')).toBeGreaterThan(q?.index ?? Infinity);
   });
 
   // The pause menu's Settings tab is one column on every screen only while the modal it mounts in is narrower than
   // the query's threshold: both numbers are read here, so moving either one past the other goes red.
   it('sets the one-column threshold above the pause modal, so the pause tab is always one column', () => {
-    const threshold = Number(/@container rl-settings \(max-width: (\d+(?:\.\d+)?)rem\) \{\s*\.rl-profile__cols\.rl-settings__cols \{/.exec(css)?.[1]);
+    const threshold = Number(/@container rl-settings \(max-width: (\d+(?:\.\d+)?)rem\) \{\s*\.rl-page-cols\.rl-settings__cols \{/.exec(css)?.[1]);
     expect(threshold).toBeGreaterThan(0);
     // Every rule naming `.rl-pause__panel` itself (not a scrollbar pseudo-element) that sets a width. Each must be
     // bounded in rem (`Nrem`, or a `min()` with a rem term), since a bare vw width has no ceiling to compare.
