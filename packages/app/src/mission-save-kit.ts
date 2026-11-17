@@ -9,3 +9,4 @@ export { discardSuspended, openSuspendStore, readSuspended, writeSuspended } fro
 export { captureShell, shellJson } from './mission-shell';
 export { clearResumeProblem, loadResume, noteResumeProblem, peekResumeProblem, startInputsJson, type ResumeLoaded } from './mission-resume';
 export { saveFailureText } from './ui/resume-copy';
+export { resumeRow } from './ui/resume-row';

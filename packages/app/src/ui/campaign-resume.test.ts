@@ -6,11 +6,12 @@ import countriesJson from '../../../../data/campaign/countries.json';
 import { parseCountries, parseWorld } from '../campaign';
 import { showCampaign } from './menu';
 import { closeOpenDialog, isDialogOpen } from './confirm';
-import type { ResumeRowDeps, ResumeView } from './resume-row';
+import { resumeRow, type ResumeBlock, type ResumeRowDeps, type ResumeView } from './resume-row';
 
 const NOW = 1_790_000_000_000;
-const opts = (resume?: ResumeRowDeps) => ({ base: '/', world: parseWorld(worldJson), countries: parseCountries(countriesJson), ledger: {}, ...(resume === undefined ? {} : { resume }) });
-const resumeDeps = (view: ResumeView): ResumeRowDeps => ({ read: () => view, nameOf: () => 'Tel Marum II', resume: vi.fn(), discard: vi.fn(() => true), now: () => NOW });
+const opts = (resume?: ResumeBlock) => ({ base: '/', world: parseWorld(worldJson), countries: parseCountries(countriesJson), ledger: {}, ...(resume === undefined ? {} : { resume }) });
+const resumeDeps = (view: ResumeView): ResumeBlock => () => resumeRow(deps(view));
+const deps = (view: ResumeView): ResumeRowDeps => ({ read: () => view, nameOf: () => 'Tel Marum II', resume: vi.fn(), discard: vi.fn(() => true), now: () => NOW });
 
 afterEach(() => { closeOpenDialog(); document.body.replaceChildren(); });
 

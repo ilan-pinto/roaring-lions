@@ -26,7 +26,7 @@ import { worldMap3d } from './worldmap3d';
 import { markConfirm } from './confirm-cue';
 import { paintMapTerrain } from './map-preview';
 import { terrainTonesFor } from '../terrain-themes';
-import { resumeRow, type ResumeRowDeps } from './resume-row';
+import type { ResumeBlock } from './resume-row';
 
 /** Shipped maps the Free Play picker does not list (GH-871 P2, the lead's
  *  ruling): Ein Qasab is a greybox terrain study until P3's real art lands, so
@@ -119,8 +119,8 @@ export interface CampaignOptions {
    *  Handed to the 3D board so a leave during its download makes no WebGL
    *  context (`worldmap3d.ts`, `World3dOptions.signal`). */
   signal?: AbortSignal;
-  /** GH-1393: the saved mission, when there is one: a Resume row above the footer. Absent, no row (and nothing is read). */
-  resume?: ResumeRowDeps;
+  /** GH-1393: builds the saved mission's Resume row above the footer. Absent, no row (and nothing is read). The row's code is NOT imported here: it rides in the lazy save kit (mission-save-kit.ts), so the board hands in a builder. */
+  resume?: ResumeBlock;
 }
 
 export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
@@ -445,7 +445,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
     markConfirm(next);
     foot.end.appendChild(next);
   }
-  const resumeBlock = opts.resume === undefined ? null : resumeRow(opts.resume);
+  const resumeBlock = opts.resume === undefined ? null : opts.resume();
   if (resumeBlock?.el) nav.appendChild(resumeBlock.el);
   nav.appendChild(foot.el);
   wrap.appendChild(nav);
