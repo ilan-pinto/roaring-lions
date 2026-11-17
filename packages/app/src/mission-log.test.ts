@@ -18,6 +18,17 @@ describe('mission log (GH-417, L-6)', () => {
     ]);
   });
 
+  // GH-1380. Falsified: dropping `causeOf` from the push leaves the debrief and the memorial with no cause.
+  it('keeps the cause the tracker gave a loss, and leaves the field off when it gave none', () => {
+    const log = newMissionLog();
+    const cause = { kind: 'gun' as const, attacker: 'at_team', weapon: 'spike_atgm', arc: 'rear' as const, penetrated: true, suppressed: false };
+    const withCause: LogContext = { ...ctx, causeOf: (e) => (e === 7 ? cause : undefined) };
+    logMissionEvent(log, { kind: 'unitLost', tick: 6800, entity: 7, unit: 'inf_squad' }, withCause);
+    logMissionEvent(log, { kind: 'unitLost', tick: 2600, entity: 3, unit: 'jeep_shoded' }, withCause);
+    expect(log.losses[0].cause).toEqual(cause);
+    expect('cause' in log.losses[1]).toBe(false);
+  });
+
   // Falsified: dropping the zone lookup leaves the hall deduction unpinned.
   it('pins a deduction to the zone its reason names, and no other', () => {
     const log = newMissionLog();

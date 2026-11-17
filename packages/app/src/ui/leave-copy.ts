@@ -14,7 +14,8 @@ export interface LeaveCopy {
   confirm: string;
 }
 
-export function leaveCopy(freePlay: boolean): LeaveCopy {
+export function leaveCopy(freePlay: boolean, resumed = false): LeaveCopy {
+  // GH-1393: leaving a RESUMED mission keeps its save, so the confirm says so: "this attempt is lost" would read as the save going too.
   return freePlay
     ? {
         tip: t('hud.leave.title.sandbox'),
@@ -25,7 +26,7 @@ export function leaveCopy(freePlay: boolean): LeaveCopy {
     : {
         tip: t('hud.leave.title'),
         title: t('hud.leave.confirm.title'),
-        body: t('hud.leave.confirm.body'),
+        body: t(resumed ? 'hud.leave.confirm.body.resumed' : 'hud.leave.confirm.body'),
         confirm: t('hud.leave.confirm.action'),
       };
 }

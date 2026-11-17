@@ -118,14 +118,16 @@ export function anchorTarget(id: D7Mission): number {
 /** Whatever is wrong with a table against the maps it names: unknown zone, repeated zone, a rate that
  *  is not an integer >= 1 (the schema's rule), a mission outside D7. Empty when clean. */
 export function tableProblems(
-  table: IncomeTable,
+  table: IncomeTable | CensusTable,
   zonesOf: (id: D7Mission) => Record<string, unknown>,
   markersOf: (id: D7Mission) => Record<string, unknown>,
+  /** The mission ids the table may name: the four D7 missions, or (GH-1386) the census candidates. */
+  allowed: readonly string[] = D7_MISSIONS,
 ): string[] {
   const out: string[] = [];
   for (const [id, m] of Object.entries(table) as [string, MissionIncome][]) {
-    if (!(D7_MISSIONS as readonly string[]).includes(id)) {
-      out.push(`${id}: not a D7 mission`);
+    if (!allowed.includes(id)) {
+      out.push(`${id}: not an allowed mission`);
       continue;
     }
     const d7 = id as D7Mission;
@@ -142,3 +144,69 @@ export function tableProblems(
   }
   return out;
 }
+
+// --- GH-1386: the census of the missions that could carry held-ground income ------------------------
+//
+// Same idiom, same report-only status: `docs/campaign/economy/held-ground-census.md` is the plan, and this
+// is the measurement behind it. A census table names missions OUTSIDE the four D7 ones; `income-probe.ts`
+// applies it in memory exactly as it applies the tables above.
+
+/** A census table: any mission id (checked against `CENSUS_MISSIONS` by `tableProblems`). */
+export type CensusTable = Record<string, MissionIncome>;
+
+/** The 12 missions with a purse and no zones whose phase has a GDD anchor (foothold, build-up, clearance), plus the two
+ *  subterranean ones, which have a base rate and no anchor and are measured as the reserve. `beit_sahwan_2_foothold` is
+ *  left out until PR 1483 (GH-1378 Q12) settles where its hold stands. */
+export const CENSUS_MISSIONS = [
+  'ein_qasab_2_foothold',
+  'khan_rafid_2_foothold',
+  'qarn_hadid_2_foothold',
+  'tel_marum_2_foothold',
+  'wadi_halam_3_counterraid',
+  'beit_sahwan_3_clearance',
+  'khan_rafid_3_clearance',
+  'qarn_hadid_3_clearance',
+  'tel_marum_3_clearance',
+  'umm_zeitoun_3_clearance',
+  'wadi_halam_4_village',
+  'wadi_halam_5_depot',
+  'beit_sahwan_4_subterranean',
+  'deir_amun_3_subterranean',
+] as const;
+
+export const CENSUS_TABLES: Record<string, CensusTable> = {
+  /** THE CANDIDATE (docs/campaign/economy/held-ground-census.md): ten missions, zones the plan holds, none that holds a
+   *  starting force, a full hold of 40% of the phase anchor (foothold 48, build-up 80, clearance 32; the subterranean
+   *  reserve borrows the clearance 32, the GDD names no anchor for it). Split 60/40 between a mission's primary zone
+   *  and the rest where there is more than one. */
+  'census-candidate': {
+    khan_rafid_2_foothold: { zones: [['ward', 48]] },
+    qarn_hadid_2_foothold: { zones: [['the_gates', 32], ['hollow', 16]] },
+    tel_marum_2_foothold: { zones: [['approach', 32], ['overwatch_west', 16]] },
+    ein_qasab_2_foothold: { zones: [['hollow', 28], ['farmhouse', 20]] },
+    wadi_halam_3_counterraid: { zones: [['pasture', 80]] },
+    beit_sahwan_3_clearance: { zones: [['clinic', 32]] },
+    tel_marum_3_clearance: { zones: [['pass', 20], ['overwatch_east', 12]] },
+    umm_zeitoun_3_clearance: { zones: [['hamlet', 32]] },
+    wadi_halam_5_depot: { zones: [['depot', 20], ['village', 12]] },
+    deir_amun_3_subterranean: { zones: [['hamlet', 20], ['spoil_field', 12]] },
+  },
+  /** Every declared zone of every candidate at 1 a minute: who stands where, when, and whether a wheeled route
+   *  to the rear exists at t=0. Pays nothing worth a decision; the plan's play is what is read. */
+  'census-survey': {
+    ein_qasab_2_foothold: { zones: [['hollow', 1], ['barn_yard', 1], ['farmhouse', 1], ['north_saddle', 1], ['north_crest', 1]] },
+    khan_rafid_2_foothold: { zones: [['staging', 1], ['ward', 1], ['market', 1], ['souk', 1], ['old_town', 1]] },
+    qarn_hadid_2_foothold: { zones: [['the_gates', 1], ['hollow', 1], ['south_staging', 1]] },
+    tel_marum_2_foothold: { zones: [['approach', 1], ['ammo_draw', 1], ['overwatch_west', 1], ['overwatch_east', 1]] },
+    wadi_halam_3_counterraid: { zones: [['pasture', 1], ['refuge', 1], ['east_road', 1]] },
+    beit_sahwan_3_clearance: { zones: [['town', 1], ['clinic', 1]] },
+    khan_rafid_3_clearance: { zones: [['staging', 1], ['ward', 1], ['souk', 1], ['store', 1], ['orchard_west', 1], ['orchard_east', 1], ['orchard_south', 1]] },
+    qarn_hadid_3_clearance: { zones: [['village', 1], ['clinic', 1], ['the_terraces', 1]] },
+    tel_marum_3_clearance: { zones: [['pass', 1], ['overwatch_east', 1], ['overwatch_west', 1], ['approach', 1], ['town_block', 1], ['muster_ground', 1]] },
+    umm_zeitoun_3_clearance: { zones: [['refuge_wadi', 1], ['hamlet', 1], ['horn_west', 1], ['horn_east', 1]] },
+    wadi_halam_4_village: { zones: [['village', 1], ['hall_block', 1], ['refuge', 1], ['east_road', 1]] },
+    wadi_halam_5_depot: { zones: [['depot', 1], ['hall_block', 1], ['village', 1], ['refuge', 1], ['east_road', 1]] },
+    beit_sahwan_4_subterranean: { zones: [['town', 1], ['clinic', 1], ['shaft_head', 1], ['collection_point', 1]] },
+    deir_amun_3_subterranean: { zones: [['staging', 1], ['hamlet', 1], ['spoil_field', 1], ['plateau', 1]] },
+  },
+};

@@ -745,9 +745,9 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     pick(mapRadio(stage, 'wadi_tarfan_l'));
     pick(winRadios(stage).find((r) => r.value === 'flag')!);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('flag');
-    // KDF against Sarim is offered the points race alone on this map (a cell the test adds): the flag pick is dropped, annihilation is the default again.
+    // KDF against Sarim is offered the shipped camp (GH-1381) and the points race (a cell the test adds) on this map, not the flag: the flag pick is dropped, annihilation is the default again.
     pick(sideRadio(stage, 'kdf'));
-    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
+    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'camp', 'points']);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
     pick(winRadios(stage).find((r) => r.value === 'points')!);
     // ...and a map the pairing was not read fair on drops the points pick too: absent from the DOM, not merely hidden.
@@ -761,10 +761,10 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
 
   it('a faction pick on a map KDF-against-Sarim was not read fair on offers no mode and drops the pick', async () => {
     const { open, stage } = mount();
-    pick(mapRadio(stage, 'wadi_tarfan'));
+    pick(mapRadio(stage, 'tel_marum'));
     pick(winRadios(stage).find((r) => r.value === 'points')!);
     pick(sideRadio(stage, 'sarim'));
-    expect(checkedMap(stage)).toBe('wadi_tarfan');   // a map KDF-v-Sarim plays, so the ground stays
+    expect(checkedMap(stage)).toBe('tel_marum');   // a map KDF-v-Sarim plays, so the ground stays
     expect(winRadios(stage)).toEqual([]);
     const req = await created(stage, open);
     expect(req).toMatchObject({ matchup: 'sarim' });
@@ -772,6 +772,20 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     // and back to the mirror: Annihilation again, not the dropped Points race
     pick(sideRadio(stage, 'mirror'));
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
+  });
+
+  it('GH-1381: KDF against Sarim on Wadi Tarfan is offered Destroy the camp alone, from either host, as shipped; a points pick is dropped', async () => {
+    asShipped();
+    for (const side of ['kdf', 'sarim'] as const) {
+      const { open, stage } = mount();
+      pick(mapRadio(stage, 'wadi_tarfan'));
+      pick(winRadios(stage).find((r) => r.value === 'points')!);
+      pick(sideRadio(stage, side));
+      expect(winRadios(stage).map((r) => r.value), side).toEqual(['annihilation', 'camp']);
+      expect(winRadios(stage).find((r) => r.checked)?.value, side).toBe('annihilation');
+      pick(winRadios(stage).find((r) => r.value === 'camp')!);
+      expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan', matchup: side, winMode: 'camp' });
+    }
   });
 
   it('GH-976 P4: a faction cell in the table is offered, the create carries it, and the economy line gives way to the placed-forces one', async () => withFactionPoints(['kdf', 'sarim'], async () => {
@@ -783,7 +797,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       pick(sideRadio(stage, side));
       expect(checkedMap(stage)).toBe('wadi_tarfan_l');
       expect(winGroup(stage).hidden).toBe(false);
-      expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
+      expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'camp', 'points']);   // the camp is the shipped cell (GH-1381), points the test's
       // Annihilation on a faction pairing is the economy room: the economy line shows and the placed-forces line does not.
       expect(economy.hidden).toBe(false);
       expect(placed.hidden).toBe(true);

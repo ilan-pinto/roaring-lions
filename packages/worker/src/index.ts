@@ -8,7 +8,7 @@ import { purgeExpired } from './feedback-triage';
 import { handleArenaResults, isArenaPath } from './arena-results';
 import { handlePrivacy } from './privacy-page';
 import { handleAccount } from './account/routes';
-import { reconcileTombstones, sweepAccounts } from './account/sweep';
+import { accountCron } from './account/sweep';
 import { sweepAdminViews } from './admin/view-sweep';
 import { handleMatch } from './match/routes';
 import { purgeDesyncs } from './match/desync-log';
@@ -40,12 +40,11 @@ export default {
    *  fails the run. */
   async scheduled(_controller: unknown, env: Env): Promise<void> {
     const now = Date.now();
-    // One chain, so reconciliation sees the tombstones the sweep just wrote; it runs even if the sweep fails.
+    // GH-1432: the sweep and the reconciler share ONE member delete batch (a delete is 17 statements), and the reconciler's scan runs
+    // even if the sweep fails. Every share of the 50 D1 queries an invocation may make is pinned by `cron-budget.test.ts`.
     const accountDb = env.ACCOUNTS;
     const tombs = env.ACCOUNT_TOMBSTONES;
-    const accounts = accountDb !== undefined && tombs !== undefined
-      ? [(async () => { try { await sweepAccounts(accountDb, now, tombs); } finally { await reconcileTombstones(accountDb, tombs); } })(), sweepAdminViews(accountDb, now)]
-      : [];
+    const accounts = accountDb !== undefined && tombs !== undefined ? [accountCron(accountDb, now, tombs), sweepAdminViews(accountDb, now)] : [];
     const runs = await Promise.allSettled([purgeExpired(env, now), purgeDesyncs(env.DB, now), purgeSnapMismatches(env.DB, now), purgeEvents(env.DB, now), purgePlayers(env.DB, now), purgeRateDays(env.DB, now), ...accounts]);
     for (const r of runs) if (r.status === 'rejected') throw r.reason;
   },

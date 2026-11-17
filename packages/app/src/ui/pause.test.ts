@@ -717,3 +717,90 @@ describe('pauseMenu settings panel loads on demand', () => {
     expect(d.onResume).toHaveBeenCalledTimes(1);
   });
 });
+
+// GH-1393 slice 2: Save and quit.
+describe('pauseMenu: Save and quit', () => {
+  const saveBtn = (): HTMLButtonElement | null => document.querySelector<HTMLButtonElement>('[data-act="save"]');
+  const msg = (): HTMLElement | null => document.querySelector('.rl-pause__save-msg');
+  const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+  it('is offered only when the caller can save: no onSave, no button and no line', () => {
+    pauseMenu(document.body, deps());
+    expect(saveBtn()).toBeNull();
+    expect(msg()).toBeNull();
+  });
+
+  it('is labelled by the catalogue and sits between Settings and Quit', () => {
+    pauseMenu(document.body, { ...deps(), onSave: vi.fn().mockResolvedValue(null) });
+    expect(saveBtn()?.textContent).toBe('Save and quit');
+    const order = [...document.querySelectorAll<HTMLElement>('.rl-pause__actions [data-act]')].map((b) => b.dataset.act);
+    expect(order).toEqual(['resume', 'restart', 'settings', 'save', 'quit']);
+  });
+
+  it('a refused save shows the caller\'s line, leaves the menu open, and re-enables the button', async () => {
+    const onSave = vi.fn().mockResolvedValue('This browser would not keep the save.');
+    const d = { ...deps(), onSave };
+    pauseMenu(document.body, d);
+    saveBtn()!.click();
+    expect(saveBtn()!.disabled).toBe(true); // busy
+    expect(msg()?.textContent).toBe('Saving…');
+    await flush();
+    expect(msg()?.textContent).toBe('This browser would not keep the save.');
+    expect(msg()?.dataset.tone).toBe('bad');
+    expect(saveBtn()!.disabled).toBe(false);
+    expect(document.querySelector('.rl-pause')).not.toBeNull();
+    expect(d.onResume).not.toHaveBeenCalled();
+    expect(d.onQuit).not.toHaveBeenCalled();
+  });
+
+  it('a save the player declined to make (it would replace another mission\'s) is a plain line, not a failure, and the menu stays', async () => {
+    const d = { ...deps(), onSave: vi.fn().mockResolvedValue({ declined: true }) };
+    pauseMenu(document.body, d);
+    saveBtn()!.click();
+    await flush();
+    expect(msg()?.textContent).toBe('Not saved. Your earlier saved game is unchanged.');
+    expect(msg()?.dataset.tone).toBeUndefined();
+    expect(saveBtn()!.disabled).toBe(false);
+    expect(document.querySelector('.rl-pause')).not.toBeNull();
+    expect(d.onQuit).not.toHaveBeenCalled();
+  });
+
+  it('a save that is kept leaves the line empty (the caller is already on its way out)', async () => {
+    pauseMenu(document.body, { ...deps(), onSave: vi.fn().mockResolvedValue(null) });
+    saveBtn()!.click();
+    await flush();
+    expect(msg()?.textContent).toBe('');
+    expect(msg()?.dataset.tone).toBeUndefined();
+  });
+
+  it('a save that throws is worded, not left silent', async () => {
+    pauseMenu(document.body, { ...deps(), onSave: vi.fn().mockRejectedValue(new Error('boom')) });
+    saveBtn()!.click();
+    await flush();
+    expect(msg()?.textContent).toBe('The mission could not be saved. It is still running; try again.');
+    expect(saveBtn()!.disabled).toBe(false);
+  });
+
+  it('a second click while it writes is ignored', async () => {
+    let release: (v: string | null) => void = () => {};
+    const onSave = vi.fn(() => new Promise<string | null>((r) => { release = r; }));
+    pauseMenu(document.body, { ...deps(), onSave });
+    saveBtn()!.click();
+    saveBtn()!.click();
+    expect(onSave).toHaveBeenCalledTimes(1);
+    release(null);
+    await flush();
+  });
+
+  it('the menu closed while it wrote: the late answer touches nothing', async () => {
+    let release: (v: string | null) => void = () => {};
+    pauseMenu(document.body, { ...deps(), onSave: () => new Promise<string | null>((r) => { release = r; }) });
+    const b = saveBtn()!;
+    const line = msg()!;
+    b.click();
+    document.querySelector<HTMLButtonElement>('[data-act="resume"]')!.click(); // finish()
+    release('late refusal');
+    await flush();
+    expect(line.textContent).toBe('Saving…'); // not overwritten: the menu was gone
+  });
+});

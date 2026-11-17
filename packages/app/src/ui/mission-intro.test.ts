@@ -29,6 +29,7 @@ describe('introPlan: who gets the transition', () => {
     ['a network room', { room: true }],
     ['the tutorial', { tutorial: true }],
     ['a mission whose screen did not hold', { hasBriefing: false }],
+    ['a mission resumed from a save (GH-1393)', { resumed: true }],
   ] as const)('%s gets none', (_, over) => {
     expect(introPlan({ ...MISSION, ...over })).toBeNull();
     expect(introPlan({ ...MISSION, ...over, reduced: true })).toBeNull();
