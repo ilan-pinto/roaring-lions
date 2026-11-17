@@ -94,3 +94,25 @@ mission is resolved for a battlefield, with the overlay fetched for the
 CURRENT UI language (`${base}locales/${lang}/missions.json`) — `null` for
 `en` or for a language nothing has shipped a file for, which
 `applyMissionLocale` treats as a no-op.
+
+### Where the file is served from, and what happens when it is not there
+
+The loaders fetch `${base}locales/<lang>/missions.json` and `units.json`, but the app's `publicDir` is `assets/`, which holds no
+locales. **`packages/app/vite-plugin-locales.ts` is the bridge**: in `pnpm dev` a middleware answers those two paths from
+`data/locales/<lang>/`, and in `pnpm build` it emits every `<lang>/missions.json` and `<lang>/units.json` as `locales/<lang>/<file>`
+in the output (`packages/app/dist`, which `wrangler.jsonc` serves as its static assets). The set is **derived from this directory**,
+never listed: every such file except `en`'s (the generated template is never fetched, so it is not shipped), and nothing else (a
+`README.md`, a stray note, anything deeper). Do not copy a translation into `assets/` by hand: a file present in both places is a build
+error. A symlinked file or directory is **not** followed, in dev or in the build (one definition, `localeFiles`; dev answers only what it
+lists), and the plugin works under a non-root `base` (the app prefixes the URL, the output paths stay `locales/...`).
+
+**The chrome catalogue** (menus, the HUD) is the third file a locale has, and `loadLocale` fetches it as a flat `${base}locales/<id>.json`.
+It lives beside the bundled source: add `packages/app/src/i18n/<id>.json` (the sibling of `en.json`), and the same plugin serves it at
+`locales/<id>.json` and emits it in the build, derived the same way (every flat `<id>.json` in that folder but `en.json`). Nothing ships
+one today. It is not a data/locales file, so `validate:data` does not read it yet.
+
+A non-`en` locale whose file does not arrive is still a null overlay and plays in English, **but no longer silently**:
+`i18n/overlay-fetch.ts` writes one `console.warn` per URL naming the URL and what came back (a status, a request that threw, or a
+200 whose body is not JSON, which is how the dev server and the Worker answer a path they do not serve). `en` and the pseudo-locales
+never warn. A warn and not an error because `pnpm ui:routes` fails on any console error.
+

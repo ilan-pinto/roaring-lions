@@ -55,6 +55,7 @@ import { footBack, screenFoot } from './foot';
 import { stagger } from './motion';
 import { NetChat } from './net-chat';
 import { inboxOf } from './chat-inbox';
+import { quickChatText } from './quick-chat';
 import { symbolLabel } from './symbol';
 import { unitName } from '../unit-text';
 import { factionArt, factionBlurb, factionName, friendSide, hostSide, matchupLabel } from './versus-faction';
@@ -270,6 +271,8 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
     // The room echoes every line to both seats, this one's own included. A line reaches the log only through the room's inbox
     // (`chat-inbox.ts`): what is off or muted is never drawn, here or in the match's feed.
     onChat: (seat, text) => inboxOf(room.transport, deps.chatEnabled ?? (() => true)).deliver(seat, text, (shown) => room.chat?.receive(seat, shown)),
+    // A preset phrase arrives as an id and is drawn in THIS client's language, through the same inbox.
+    onQuick: (seat, id) => inboxOf(room.transport, deps.chatEnabled ?? (() => true)).deliver(seat, quickChatText(id), (shown) => room.chat?.receive(seat, shown)),
     // The badges: the transport clears them on a reconnect, before the room's next say.
     onAdvisors: (present) => {
       room.advisors = present;
@@ -1132,6 +1135,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     r.chat = new NetChat(chat, {
       send: (text) => r.transport.chat(text),
       nameOf: (seat) => nameFrom(r.labels, seat, r.seats.find((x) => x.seat === seat)?.callsign ?? ''),
+      sendQuick: (id) => r.transport.quick(id),
       inbox: inboxOf(r.transport, deps.chatEnabled ?? (() => true)),
       peer: r.seat === 0 ? 1 : 0,
     }, { docked: true });

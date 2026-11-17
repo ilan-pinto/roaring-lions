@@ -86,9 +86,11 @@ describe('the English mission catalogue (GH-1406 part 2)', () => {
     for (const m of missions) expect(applyMissionLocale(m as never, catalogue), m.id).toEqual(m);
   });
 
-  it('is never fetched: `main.ts` short-circuits `en` before any request', () => {
+  it('is never fetched: `main.ts` sends the mission overlay through `fetchLocaleJson`, which returns before any request for `en` and the pseudo-locales', () => {
     const src = readFileSync(join(ROOT, 'packages/app/src/main.ts'), 'utf8');
-    expect(src).toMatch(/async function loadMissionOverlay\(lang: string, base: string\)[^{]*\{\s*if \(lang === 'en' \|\| isPseudo\(lang\)\) return null;/);
+    expect(src).toMatch(/async function loadMissionOverlay\(lang: string, base: string\)[^{]*\{[^}]*fetchLocaleJson<MissionLocaleOverlay>\(lang, `\$\{base\}locales\/\$\{lang\}\/missions\.json`/);
+    const helper = readFileSync(join(ROOT, 'packages/app/src/i18n/overlay-fetch.ts'), 'utf8');
+    expect(helper).toContain("if (lang === 'en' || lang === 'pseudo' || lang === 'pseudo-rtl') return null;");
   });
 
   describe('the checker fails on each fault (constructed, not imagined)', () => {

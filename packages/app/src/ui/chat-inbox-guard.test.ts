@@ -41,6 +41,12 @@ describe('the chat inbox is the only door (GH-1417 S1)', () => {
     expect(hits.some((h) => h.file === 'ui/versus.ts')).toBe(true);
   });
 
+  it('the quick-chat hook `onQuick` is set in exactly the same two places, each through `.deliver(` (GH-1417 S1b)', () => {
+    const hits = scan(/\bonQuick\b/);
+    expect([...new Set(hits.map((h) => h.file))].sort()).toEqual(['main.ts', 'ui/versus.ts']);
+    for (const h of hits) expect(h.text, `${h.file}:${h.line}`).toContain('.deliver(');
+  });
+
   it('`chatFeedLine` and `NetChat.receive` are called only from inside a `.deliver(` callback', () => {
     const feed = scan(/\bchatFeedLine\(/).filter((h) => !/export function chatFeedLine/.test(h.text));
     expect(feed.length, 'the feed sink exists').toBeGreaterThan(0);

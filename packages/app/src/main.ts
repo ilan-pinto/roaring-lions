@@ -380,7 +380,8 @@ import type { SavesDeps } from './ui/saves';
 import type { CreditsDeps } from './ui/credits';
 import { versusMaps } from './ui/versus-maps';
 import type { VersusDeps } from './ui/versus';
-import { LOCALES, PSEUDO_RTL, applyLocale, isPseudo, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
+import { LOCALES, PSEUDO_RTL, applyLocale, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
+import { fetchLocaleJson } from './i18n/overlay-fetch';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo, pseudoRtl } from './i18n/pseudo';
 import { KillCauseTracker, causeText, parseKillCause, type KillCause } from './kill-cause';
@@ -647,14 +648,8 @@ async function fetchLicenceText(url: string): Promise<string> {
  * going missing must degrade to English, not break the mission.
  */
 async function loadMissionOverlay(lang: string, base: string): Promise<MissionLocaleOverlay | null> {
-  if (lang === 'en' || isPseudo(lang)) return null;
-  try {
-    const res = await fetch(`${base}locales/${lang}/missions.json`);
-    if (!res.ok) return null;
-    return (await res.json()) as MissionLocaleOverlay;
-  } catch {
-    return null;
-  }
+  // `en` and the pseudo-locales have no file (never fetched, never warned about); any other id that does not arrive warns, naming the URL.
+  return fetchLocaleJson<MissionLocaleOverlay>(lang, `${base}locales/${lang}/missions.json`, 'mission text');
 }
 
 /**
@@ -4030,12 +4025,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? rk().inboxOf(room, () => req.settings.get().chat.enabled)
     : null;
   const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
-    ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
+    ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), sendQuick: (id) => room.quick(id), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
     : null;
   if (netChat !== null) onDispose(() => netChat.dispose());
   if (room !== null && netConfig !== null && !spectating && chatInbox !== null) {
     // A line reaches the HUD feed only through the room's inbox, the same one the lobby log used (`chat-inbox.ts`).
-    room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')) });
+    room.setHooks({
+      onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')),
+      // A preset phrase is an id on the wire and is drawn in this client's language, through the same inbox.
+      onQuick: (seat, id) => chatInbox.deliver(seat, rk().quickChatText(id), (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')),
+    });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
    *  places that learn of one: the dispatch below (withheld here) and the room

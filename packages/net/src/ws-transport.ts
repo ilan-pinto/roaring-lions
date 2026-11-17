@@ -10,7 +10,7 @@ import type { Faction, MatchConfig, Seat, WinMode } from './config';
 import type { AdvisorMsg, AdvisorScope } from './advisor';
 import type { Frame } from './frames';
 import { LockstepClock } from './lockstep';
-import { isFromTick, parseServerMsg, type ClientMsg, type LobbyKit, type OverResult, type SeatState, type ServerMsg } from './protocol';
+import { isFromTick, parseServerMsg, type ClientMsg, type QuickChatId, type LobbyKit, type OverResult, type SeatState, type ServerMsg } from './protocol';
 import type { MatchTransport, TransportStatus } from './transport';
 
 /** The room's `ACK_EVERY`: a seat acks the last tick of every ten it ran. */
@@ -49,6 +49,8 @@ export interface WsTransportHooks {
   /** A seat paused: how long the room will hold the pause, and each seat's pauses left. */
   onPaused?(seat: Seat, remainingMs: number, pausesLeft: [number, number]): void;
   onChat?(seat: Seat, text: string): void;
+  /** A seat said a preset phrase (GH-1417 S1b): its id, drawn in this client's own language. */
+  onQuick?(seat: Seat, id: QuickChatId): void;
   /** The room dropped a command this seat sent, because a pause was in force (an order in flight when it began). */
   onCmdRefused?(): void;
   /** `detail.build`: the room's own build, on a `build_mismatch` (GH-954). */
@@ -326,6 +328,7 @@ export class WsTransport implements MatchTransport {
         this.hooks.onPaused?.(msg.seat, msg.remainingMs, msg.pausesLeft);
         return;
       case 'chat': this.hooks.onChat?.(msg.seat, msg.text); return;
+      case 'quick': this.hooks.onQuick?.(msg.seat, msg.id); return;
       case 'dropped': this.forfeit = { seat: msg.seat, untilMs: this.now() + msg.remainingMs }; return;
       case 'back': if (this.forfeit?.seat === msg.seat) this.forfeit = null; return;
       case 'cmdRefused': this.hooks.onCmdRefused?.(); return;
@@ -389,6 +392,8 @@ export class WsTransport implements MatchTransport {
   resume(): void { this.send({ t: 'resume' }); }
   surrender(): void { this.send({ t: 'surrender' }); }
   chat(text: string): void { this.send({ t: 'chat', text }); }
+  /** Says a preset phrase by id (GH-1417 S1b). */
+  quick(id: QuickChatId): void { this.send({ t: 'quick', id }); }
   /** This seat's sim decided the match on `tick` (L-1, R-B26): tells the room
    *  once, so it can close itself `OVER_CLOSE_MS` after the result. Only the
    *  first call speaks (repeated after a reconnect's `log`); a room that has
