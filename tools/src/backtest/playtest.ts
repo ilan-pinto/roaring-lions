@@ -3151,8 +3151,13 @@ function technicalProbe(
 // GH-1360 S3b: (36,12) -> (34,14). In the assembly layout the Peten at (36,12) took 2 technical hits on the pinned seed and no
 // penetration (was 4 hits, 1 penetration), so the engaged pin had no sample. Of 15 points tried round it, (34,14) alone gives
 // one: 3 hits, 1 penetration, 3 kills, the mission still a VICTORY at 2 stars. As thin as before (one sample on one seed).
-// Bought at 141 s, the second the purse first covered it before GH-1386 batch 3 gave the mission held-ground income (Was: as soon as affordable, 141 s then, 95 s with the zones).
-technicalProbe('wadi_halam_3_counterraid', wadiHalam3Plan, wh2, 'heli_peten', [34, 14], true, 141);
+// THIS IS A GATE (a failed pin exits 1), not a report. It proves one thing: a bought Peten sent at the technicals' road takes at least 5 penetrations before it dies,
+// none costing more than 25% of its hull, scores a kill, and the mission is still a victory at no fewer stars (GH-868). It is bought at 141 s, the second the purse first covered
+// it before GH-1386 gave the mission held-ground income (Was: as soon as affordable, 141 s then, 95 s with the zone), so that the engagement it pins does not move with the purse.
+// What that pinning hides, said plainly: bought the moment the purse allows (95 s with the zone), the Peten reaches the road 46 s sooner, takes six penetrations and is lost at 199 s with
+// no kill (the mission is still a victory, 2 stars, ROE 100): a player who rushes the helicopter now loses it. Nothing was tuned for that. `PT_PETEN_BUY_AT=0` (any second) prints that run and the gate
+// goes red on it, as it should: `PT_PETEN_BUY_AT=0 npx tsx src/backtest/playtest.ts` from tools/.
+technicalProbe('wadi_halam_3_counterraid', wadiHalam3Plan, wh2, 'heli_peten', [34, 14], true, Number(process.env.PT_PETEN_BUY_AT ?? 141));
 technicalProbe('wadi_halam_5_depot', wadiHalam5Plan, wh4, 'aa_remetz', [33, 30], false);
 
 // --- Brigade economy Task 5: every optimal plan holds at max tier ----------

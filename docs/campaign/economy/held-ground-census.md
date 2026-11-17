@@ -24,7 +24,7 @@ Read with `income-numbers.md` (the F2 rules this reuses: approved 15 Oct, shippe
    plan's clock moves.
 4. **Three pins do move, all for named reasons (§4.3), none of them a tuning constant:** `BANKING_OVER_30_MAX` 15 to 16 if
    `ein_qasab_2_foothold` is authored (its plan has a purse of 400 and no base rate; zones make it bank 48%);
-   `wadi_halam_3_counterraid`'s `min_win_seconds` floor 80 to 79 and its report-only "bought heli_peten" probe, whose purchase moves from 141 s to
+   `wadi_halam_3_counterraid`'s `min_win_seconds` floor 80 to 79 and its "bought heli_peten" probe (a gate, §10), whose purchase moves from 141 s to
    95 s and then loses the helicopter before it scores (its plan, stars and credits are unmoved). Both of those missions go in the
    **last** batch, so the first two batches move no pin.
 5. **The honest limit (§6): income that the plan does not spend is scored and does not bind.** In 7 of these 10 missions the winning plan
@@ -187,7 +187,7 @@ whole difference is below.
 | `ZONE_PASSIVE_INCOME` | 0 over the four D7 controls | 0 over all fourteen controls | nothing | **widen the check**: it reads a hard-coded list of four missions, so a new zone on a starting ground would pay a force that never moves and pass. Derive the list from the missions that author zones |
 | `BANKING_OVER_30_MAX` | 15 of 20 plans bank over 30% | **16 of 20** | `ein_qasab_2_foothold` 12% to 48% | the pin is an upper bound at its ceiling. Either `ein_qasab_2` waits, or the bound goes 15 to 16 in that batch with the reason. The other nine do not move the count (eight already bank 100%; `wadi_halam_3` goes 72% to 78%) |
 | `min_win_seconds` floor, `wadi_halam_3_counterraid` | 80 s, fastest win above 320 s | fastest win 317 s | floor 80 s is above a quarter of it | regenerate the floor (`plan-sweep.ts` write mode) to 79 s, with the reason; the plan's own clock is unmoved, so this is one variant's win coming earlier |
-| `wadi_halam_3` "bought heli_peten vs technicals" (report-only probe) | helicopter bought at 141 s, 3 technicals killed | bought at 95 s, killed 0, **dead at 199 s**, probe **FAILED** | the extra 369 logistics buy the helicopter 46 s sooner | re-solve that probe's purchase (the plan is unchanged), or leave `wadi_halam_3` out. The reason it is last |
+| `wadi_halam_3` "bought heli_peten vs technicals" (a gated probe, §10) | helicopter bought at 141 s, 3 technicals killed | bought at 95 s, killed 0, **dead at 199 s**, probe **FAILED** | the extra 369 logistics buy the helicopter 46 s sooner | re-solve that probe's purchase (the plan is unchanged), or leave `wadi_halam_3` out. The reason it is last |
 
 ### 4.4 The tests this adds (report-only tooling, `income-proposal.test.ts`)
 
@@ -366,16 +366,24 @@ and nothing else; the credit ladder (6923), star ladder (68) and roster maximum 
 
 | Pin | With the zone, unfixed | Fix | Now |
 |---|---|---|---|
-| `wadi_halam_3` "bought heli_peten vs technicals" (report-only probe) | purchase at 95 s, six penetrations, Peten dead at 199 s with 0 kills: FAILED | the probe buys at 141 s, the second its purse first covered the Peten before the zone existed (`technicalProbe`'s new `buyNotBeforeS`, a harness parameter, not a game rule) | line identical to `main`'s: accepted at 141 s, 1 penetration, 3 technicals killed, credits 180 |
-| `min_win_seconds` floor 80 s | "above a quarter of the fastest win (317 s)" | none needed: that 317 s was the heli probe's own win; with the probe's timing fixed the fastest win is back above 320 s | 29 of 29 floors clean; `data/accounts/min_win_seconds.json` is **not** rewritten |
+| `wadi_halam_3` "bought heli_peten vs technicals" (a **gated** probe: a failed pin exits 1) | purchase at 95 s, six penetrations, Peten dead at 199 s with 0 kills: FAILED | the gate buys at 141 s, the second its purse first covered the Peten before the zone existed (`technicalProbe`'s `buyNotBeforeS`, a harness parameter, not a game rule) | line identical to `main`'s: accepted at 141 s, 1 penetration, 3 technicals killed, credits 180 |
+| `min_win_seconds` floor 80 s | "above a quarter of the fastest win (317 s)" | none needed: that 317 s was the heli probe's own win; with its timing fixed the fastest win is back above 320 s | 29 of 29 floors clean; `data/accounts/min_win_seconds.json` is **not** rewritten |
 
-The reasoning for the first row: that probe is about a Peten meeting a technical on the road, and "as soon as affordable" tied its engagement to the purse. A probe whose
-result moves with income says nothing about the Peten. Pinned to the old second it reproduces the old engagement exactly, which is the property the probe was written around.
+**What the heli gate proves, why 141 s, and what that pinning hides.** The gate proves one thing (GH-868): a bought Peten sent at the technicals' road takes at least 5 penetrations before it
+dies, none costing more than 25% of its hull, scores a kill, and the mission is still a victory at no fewer stars. That is a statement about the Peten meeting a technical, not about the economy, and "as
+soon as the purse allows" tied it to the purse: with the zone the first affordable second is 95 s, not 141 s, so the gate would have moved with income. It is pinned to the second it was written around so it keeps testing
+what it tests.
+
+**The real result, which the pinning would otherwise hide:** bought the moment the purse allows (95 s with `pasture` 80), the Peten is on the field at 137 s, 46 s sooner, meets the technicals at 189 s, takes six
+penetrations (worst single cost 17.6% of its hull, five samples) and is **lost at 199 s with no kill**; the mission is still a VICTORY at 2 stars, ROE 100 (credits 190, clock 5.6 min). A player who
+rushes the helicopter on this mission now loses it, where before the same player bought it 46 s later and it killed three technicals. That is a consequence of the income, not a defect of the gate, and nothing was tuned for it: sim
+balance is parked. To print it: `PT_PETEN_BUY_AT=0 npx tsx src/backtest/playtest.ts` from `tools/` (any second works); the gate goes red on it, as it should, and the `min_win_seconds` line goes red with it for the reason above.
 
 **Other pins.** `ZONE_MISSIONS` 15 (Was 12); `ZONE_PASSIVE_INCOME` 0 over **15** controls ("found 15/15"); `BANKING_OVER_30_MAX` 15 (unchanged); `income_census.test.ts` reads 15 missions, **25** zones, 3 convoys
 (Was 12, 21, 3), with a wheeled route to `terrace_crest`, `pasture`, `hamlet` and `spoil_field` at t=0; `income-shipped.test.ts` carries the 15 rows. The static
-start-ground check in `income-proposal.test.ts` now flags within **one** tile and not two: `terrace_crest` begins two tiles from a placement and the measurement says it does not pay a still
-force, while the case that did pay (`wadi_halam_4`'s `refuge`) was one tile off and is still caught. The measured gate, `ZONE_PASSIVE_INCOME`, is the authority; the static check is the early warning.
+start-ground check in `income-proposal.test.ts` stays at **two** tiles for every mission. `terrace_crest` begins two tiles from a placement (x=8 against a placement at x=6) and the measurement says it does not pay a still
+force, so it is a **named exemption** (`START_GROUND_EXEMPT`) that cites the measurement, covers the one-to-two-tile band only (a zone within one tile can never be exempted: that is `wadi_halam_4`'s `refuge`, which paid) and carries a demotion
+assertion that fails when the placement or the zone moves, so the entry gets deleted. The measured gate, `ZONE_PASSIVE_INCOME`, is the authority; the static check is the early warning.
 
 **Falsification (run, then restored).** One `pnpm playtest` with `beit_sahwan_2`'s `terrace_crest` moved onto `west_approach` (the starting ground) and `deir_amun_3`'s zones deleted
 exited 1: `zones on 14 missions, expected at least 15` and `passive controls earned 637 from zones, expected 0`. Mutations of the implementation are listed in the batch 3 PR.

@@ -154,9 +154,10 @@ export function tableProblems(
 /** A census table: any mission id (checked against `CENSUS_MISSIONS` by `tableProblems`). */
 export type CensusTable = Record<string, MissionIncome>;
 
-/** The 12 missions with a purse and no zones whose phase has a GDD anchor (foothold, build-up, clearance), plus the two
- *  subterranean ones, which have a base rate and no anchor and are measured as the reserve. `beit_sahwan_2_foothold` is
- *  left out until PR 1483 (GH-1378 Q12) settles where its hold stands. */
+/** The missions the census measures: those with a purse and no zones when the survey was taken, whose phase has a GDD anchor (foothold,
+ *  build-up, clearance) or is subterranean (a base rate and no anchor; `deir_amun_3_subterranean` borrows the clearance 32). `beit_sahwan_2_foothold` joined at
+ *  batch 3, once PR 1483 (GH-1378 Q12) gave it a hold zone nobody starts on; `ein_qasab_2_foothold` is surveyed but not in the plan (its briefing says
+ *  "the logistics for one outpost", section 10 of the census doc). The plan itself is `census-candidate` below. */
 export const CENSUS_MISSIONS = [
   'beit_sahwan_2_foothold',
   'ein_qasab_2_foothold',
