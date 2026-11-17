@@ -134,7 +134,7 @@ describe('C15: the ids are a start input, so a save and a replay carry them', ()
 });
 
 describe('the after-action rung: the challenge, beside the stars and never one of them (D2)', () => {
-  const won = { roe: 95, ticks: 8000, lost: 0, carriesAll: true };
+  const won = { roe: 95, ticks: 8000, lost: 0, carriesAll: true, objectivesDone: [] };
   const mark = challengeMarkFor({ missionId: BS2, result: 'victory', amendments: QUIET_SOUK, ledgerAtBoot: opened, world, targetMinutes: 7, run: won });
   it('none on: no rung at all, so an unamended debrief is unchanged', () => {
     expect(challengeRung(BS2, [], null, won, 7)).toBeNull();
@@ -190,7 +190,7 @@ describe('the board mark never feeds stars or unlocks (D2)', () => {
 });
 
 describe('the coin through the UI’s own gate: 10 once per account, never on Easier', () => {
-  const win = { roe: 95, ticks: 8000, lost: 0, carriesAll: true };
+  const win = { roe: 95, ticks: 8000, lost: 0, carriesAll: true, objectivesDone: [] };
   /** One won run as main.ts plays it: the panel's ids for the ledger at boot, the mark, the all-or-none write. */
   const play = (store: ReturnType<typeof memoryLedgerStore>, ledgerAtBoot: LedgerData, requested: readonly string[], at: number) => {
     const r = amendmentsForRun({ mission: foothold, ledger: ledgerAtBoot, requested, saved: null, world });

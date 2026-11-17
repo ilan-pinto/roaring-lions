@@ -43,7 +43,15 @@ export interface ChallengeWin {
   lost_at_most?: number;
   ticks_at_most_target?: true;
   carries_all?: true;
+  /** The lead's ruling on PR 1568 (Whole Picture): this one SECONDARY objective of the mission is complete at the end.
+   *  `tools/validate_challenges.mjs` refuses an id that is not a secondary of the file's mission (never the primary,
+   *  which a win completes anyway). Like every term, it only adds to a victory: it can never make a challenge easier
+   *  than winning the mission. */
+  objective_done?: string;
 }
+
+/** One term of the closed set, by its JSON key. */
+export type ChallengeTerm = keyof Required<ChallengeWin>;
 
 /** A mission's offers and its one named challenge (`data/challenges/<mission>.json`). */
 export interface MissionChallengeJson {
@@ -122,15 +130,28 @@ export interface ChallengeRun {
   lost: number;
   /** Every `carries: true` secondary of the mission AS PLAYED is complete. */
   carriesAll: boolean;
+  /** The ids of the mission's objectives that are complete at the end (`objective_done` reads it). */
+  objectivesDone: readonly string[];
 }
 
-/** The predicate (§5.1), on one run's row. `targetMinutes` is the mission's own `target_minutes` (no overlay moves it). */
+/**
+ * The predicate (§5.1), term by term, on one run's row: one entry per field `win` names, in the closed set's order,
+ * with whether it held. `targetMinutes` is the mission's own `target_minutes` (no overlay moves it). The playtest's
+ * challenge reading counts these; `challengeMet` is "every one held".
+ */
+export function challengeTerms(win: ChallengeWin, run: ChallengeRun, targetMinutes: number): { term: ChallengeTerm; held: boolean }[] {
+  const out: { term: ChallengeTerm; held: boolean }[] = [];
+  if (win.conduct_at_least !== undefined) out.push({ term: 'conduct_at_least', held: run.roe >= win.conduct_at_least });
+  if (win.lost_at_most !== undefined) out.push({ term: 'lost_at_most', held: run.lost <= win.lost_at_most });
+  if (win.ticks_at_most_target === true) out.push({ term: 'ticks_at_most_target', held: run.ticks <= targetMinutes * TICKS_PER_TARGET_MINUTE });
+  if (win.carries_all === true) out.push({ term: 'carries_all', held: run.objectivesDone.includes(win.objective_done) });
+  if (win.objective_done !== undefined) out.push({ term: 'objective_done', held: run.carriesAll });
+  return out;
+}
+
+/** The predicate (§5.1), on one run's row: every term `win` names holds. */
 export function challengeMet(win: ChallengeWin, run: ChallengeRun, targetMinutes: number): boolean {
-  if (win.conduct_at_least !== undefined && !(run.roe >= win.conduct_at_least)) return false;
-  if (win.lost_at_most !== undefined && !(run.lost <= win.lost_at_most)) return false;
-  if (win.ticks_at_most_target === true && !(run.ticks <= targetMinutes * TICKS_PER_TARGET_MINUTE)) return false;
-  if (win.carries_all === true && !run.carriesAll) return false;
-  return true;
+  return challengeTerms(win, run, targetMinutes).every((t) => t.held);
 }
 
 /** Whether mark `a` should replace `b` as this campaign's best: faster, then higher Conduct (`betterResult`'s order

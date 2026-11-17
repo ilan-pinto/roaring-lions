@@ -208,7 +208,7 @@ describe('C12: every chrome string goes through t(); the data text is shown as w
     const re = /['"`]((?:amend|aar\.challenge|world\.challenge)(?:\.[A-Za-z]+)*)['"`]/g;
     const used = new Set([...src.matchAll(re)].map((m) => m[1]));
     const keys = Object.keys(en).filter((k) => /^(amend\.|aar\.challenge\.|world\.challenge$)/.test(k));
-    expect(keys.length).toBe(18);
+    expect(keys.length).toBe(20);
     for (const k of keys) expect(used.has(k), `${k} is unused`).toBe(true);
     for (const k of used) expect(Object.hasOwn(en, k), `${k} is missing`).toBe(true);
   });

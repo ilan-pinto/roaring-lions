@@ -68,13 +68,15 @@ export interface ChallengeRunInput {
 }
 
 /** The run's own row off a finished runtime, as the victory handler and the playtest harness both read it: `lost` is
- *  every player unit lost (`lostByType` summed, the ledger's `lost`), `carriesAll` every carrying secondary complete. */
+ *  every player unit lost (`lostByType` summed, the ledger's `lost`), `carriesAll` every carrying secondary complete,
+ *  `objectivesDone` the ids of every objective complete at the end. */
 export function runRowOf(rt: Pick<MissionRuntime, 'lostByType' | 'objectiveList'>, roe: number, ticks: number): ChallengeRun {
   return {
     roe,
     ticks,
     lost: Object.values(rt.lostByType()).reduce((n, k) => n + k, 0),
     carriesAll: rt.objectiveList.every((o) => o.primary || o.carries !== true || o.status === 'complete'),
+    objectivesDone: rt.objectiveList.filter((o) => o.status === 'complete').map((o) => o.id),
   };
 }
 
@@ -233,7 +235,9 @@ export function challengeRung(
   ids: readonly string[],
   mark: ChallengeMark | null,
   run: ChallengeRun,
-  targetMinutes: number
+  targetMinutes: number,
+  /** The run's objectives with their text as played (the runtime's `objectiveList`): `objective_done` names its one. */
+  objectives: readonly { readonly id: string; readonly text: string }[] = []
 ): ChallengeRungView | null {
   if (ids.length === 0) return null;
   const c = challengeOf(missionId);
@@ -250,6 +254,10 @@ export function challengeRung(
   if (w.lost_at_most !== undefined) parts.push(t('aar.challenge.lost', { n: run.lost, most: w.lost_at_most }));
   if (w.ticks_at_most_target === true) parts.push(t('aar.challenge.clock', { clock: mmss(run.ticks), target: targetMinutes }));
   if (w.carries_all === true) parts.push(t(run.carriesAll ? 'aar.challenge.carried' : 'aar.challenge.carriedNot'));
+  if (w.objective_done !== undefined) {
+    const objective = objectives.find((o) => o.id === w.objective_done)?.text ?? w.objective_done;
+    parts.push(t(run.objectivesDone.includes(w.objective_done) ? 'aar.challenge.objective' : 'aar.challenge.objectiveNot', { objective }));
+  }
   return { met: mark !== null, text: t(mark !== null ? 'aar.challenge.met' : 'aar.challenge.missed', { name, detail: parts.join(' · ') }) };
 }
 
@@ -261,7 +269,7 @@ export function victoryRung(
   rt: Pick<MissionRuntime, 'lostByType' | 'objectiveList'>,
   end: { roeRating: number; tick: number }
 ): ChallengeRungView | null {
-  return challengeRung(mission.id, amendments, mark, runRowOf(rt, end.roeRating, end.tick), (mission as { target_minutes?: number }).target_minutes ?? 0);
+  return challengeRung(mission.id, amendments, mark, runRowOf(rt, end.roeRating, end.tick), (mission as { target_minutes?: number }).target_minutes ?? 0, rt.objectiveList);
 }
 
 export { settleVictory, type VictorySettle } from './victory-settle';

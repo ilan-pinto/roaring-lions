@@ -1041,6 +1041,8 @@
   "aar.challenge.clock": "{clock} against a {target}-minute target",
   "aar.challenge.carried": "every carried secondary done",
   "aar.challenge.carriedNot": "a carried secondary left open",
+  "aar.challenge.objective": "{objective}: done",
+  "aar.challenge.objectiveNot": "{objective}: left open",
   "world.challenge": "Challenges beaten here: {n} of {of}",
   "debrief.coins.earned": "{n, plural, one {# Roar coin} other {# Roar coins}} earned",
   "debrief.coins.provisional": "Counting: your account confirms this when it saves.",

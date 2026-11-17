@@ -36,6 +36,8 @@ import {
   amendmentOps,
   challengeMet,
   challengeOf,
+  challengeTerms,
+  type ChallengeTerm,
   type PostureId,
 } from '@lions/data';
 import { withReliefOnLoan } from '../../../packages/app/src/posture';
@@ -201,7 +203,7 @@ export interface RunRecord extends IntelRun {
   /** GH-1394: starting-force bodies lost (`startingCount - startingHome`), for the per-mission posture comparison. */
   lost: number;
   /** GH-1395: present only in a challenge child, on a mission with a challenge: whether this run beat it. */
-  challenge?: { met: boolean };
+  challenge?: { met: boolean; terms: readonly { term: ChallengeTerm; held: boolean }[] };
   /** GH-277: numbers a plan recorded for this run through `runNotes` (the forward camp's completion second), carried to the
    *  parent of a sweep with the rest of the record. Absent when the plan wrote none. */
   notes?: Record<string, number>;
@@ -602,18 +604,16 @@ export function run(
       ? undefined
       : { start: mission.resources.logistics_start ?? 0, earned: rt.logisticsEarned(0), zoneEarned: rt.zoneLogisticsEarned(0), held: rt.logistics };
   // GH-1395: the challenge predicate on this run's own row, as the app's `challengeMarkFor` reads it (the posture and
-  // open-at-boot halves are the app's; the reading runs at Standard on the harness's own ledgers).
+  // open-at-boot halves are the app's; the reading runs at Standard on the harness's own ledgers), and term by term for
+  // the reading's "held on wins" counts.
+  const challengeRun = challenge === undefined ? undefined : runRowOf(rt, rt.roeScore, sim.tickCount);
+  const target = (missions[id] as unknown as { target_minutes?: number }).target_minutes ?? 0;
   const challengeRow =
-    challenge === undefined
+    challenge === undefined || challengeRun === undefined
       ? undefined
       : {
-          met:
-            rt.result === 'victory' &&
-            challengeMet(
-              challenge.challenge.win,
-              runRowOf(rt, rt.roeScore, sim.tickCount),
-              (missions[id] as unknown as { target_minutes?: number }).target_minutes ?? 0
-            ),
+          met: rt.result === 'victory' && challengeMet(challenge.challenge.win, challengeRun, target),
+          terms: challengeTerms(challenge.challenge.win, challengeRun, target),
         };
   runLog.push({ id, label, posture, ...(challengeRow !== undefined ? { challenge: challengeRow } : {}), lost: rt.startingCount - rt.startingHome, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue, ...(Object.keys(runNotes).length > 0 ? { notes: { ...runNotes } } : {}) });
   if (rt.stars < expectStar) {
