@@ -43,7 +43,7 @@ function movedWord(m: MovedWhat): string {
   }
 }
 
-/** What changed in the campaign since the save, in words ("another mission was completed, a unit was bought"). With nothing named, the plain sentence. */
+/** What changed in the campaign since the save, in words ("your campaign progress has changed, a unit was bought"). With nothing named, the plain sentence. */
 export function movedText(moved: readonly MovedWhat[]): string {
   if (moved.length === 0) return t('resume.refused.moved');
   return t('resume.refused.moved.named', { what: moved.map(movedWord).join(t('resume.moved.join')) });
