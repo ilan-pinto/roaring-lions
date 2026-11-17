@@ -19,6 +19,8 @@ import { FogTracker } from './fog-tracker';
 import { OrderDesk } from './order-desk';
 import { REALTIME_EVERY_TICKS, rush } from './policy';
 import { sideView, type SideView } from './view';
+import type { CommanderPolicy } from './commander';
+import { zoneFacts } from './zones';
 
 /** A script the seat can run in place: it answers at once. (`rush` and `passive` do; a slow or external policy is the arena's.) */
 export type SyncPolicy = (view: SideView) => Command[];
@@ -28,6 +30,8 @@ export interface ComputerSeatOptions {
   side: 0 | 1;
   /** Default: the arena's `rush`, as it is. */
   policy?: SyncPolicy;
+  /** GH-1391: the commander (`createCommander`) instead of the bare script: it also reads the income-zone board, and may name units the sweep must leave where they hold. */
+  commander?: CommanderPolicy;
   /** Ticks between decisions; default `REALTIME_EVERY_TICKS`. */
   every?: number;
 }
@@ -42,8 +46,8 @@ const MAX_IDS_PER_COMMAND = 256;
  * contact is only what this seat's own fog shows (`view.contacts`), the camp is what a human reads off the map. Commands only, a pure
  * function of the view: no clock, no randomness. `rush` itself is untouched (the arena and the probes play it as it is).
  */
-export function sweepStragglers(view: SideView, ordered: readonly Command[]): Command[] {
-  const taken = new Set<number>();
+export function sweepStragglers(view: SideView, ordered: readonly Command[], keep: ReadonlySet<number> = new Set()): Command[] {
+  const taken = new Set<number>(keep);
   for (const c of ordered) if ('ids' in c) for (const id of c.ids) taken.add(id);
   const strays = view.units.filter((u) => u.flags.includes('idle') && !taken.has(u.id)
     && !u.flags.some((f) => f === 'disarmed' || f === 'immobile' || f === 'routed'));
@@ -113,9 +117,11 @@ export class ComputerSeat {
     if (this.decidesAt(tick)) {
       this.decisions++;
       const view = sideView(world, this.o.side, fog, null);
-      const ordered = this.policy(view);
-      for (const cmd of ordered) this.desk.submit(cmd, tick);
-      for (const cmd of sweepStragglers(view, ordered)) this.desk.submit(cmd, tick);
+      const decided = this.o.commander === undefined
+        ? { commands: this.policy(view), keep: new Set<number>() as ReadonlySet<number> }
+        : this.o.commander(view, { zones: zoneFacts(world, this.o.side) });
+      for (const cmd of decided.commands) this.desk.submit(cmd, tick);
+      for (const cmd of sweepStragglers(view, decided.commands, decided.keep)) this.desk.submit(cmd, tick);
     }
     this.desk.onTick(tick);
     return this.out.splice(0).map((cmd) => ({ seat: this.o.seat, seq: this.seq++, cmd }));
