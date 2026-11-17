@@ -119,7 +119,7 @@ function rig(o: { balance?: number; coins?: number } = {}): Rig {
   // eslint-disable-next-line prefer-const -- as above
   let flowRef: SpendFlow | undefined;
   const store = accountLedgerStore({ storage, cache, world, onChange: () => (syncRef?.kick(), flowRef?.notify()), newOpId: opIds(), tabId: 'T1' });
-  const flow = spendFlow({ store, online: () => online.on });
+  const flow = spendFlow({ store, online: () => online.on, cosmeticOnly: false }); // E13: the coin-buy suite runs the OFF arm explicitly, so it keeps running after the flip.
   flowRef = flow;
   const sync = startSync({ store, client, storage, now: sched.now, schedule: sched.schedule, online: () => online.on, onChange: () => flow.notify(), onVictory: (id, a) => flow.onVictory(id, a) });
   syncRef = sync;
@@ -157,6 +157,7 @@ function garage(r: Rig, over: Partial<BrigadeOptions> = {}): HTMLElement {
       pendingTracks: r.flow.gate.pendingTracks,
       stores: {
         coinSrc: (s) => `/c${s}.png`,
+        cosmeticOnly: false,
         open: true,
         pendingTracks: r.flow.gate.pendingTracks,
         read: () => {

@@ -52,7 +52,7 @@ async function play(seed: number, n: number, check: { journal: boolean; bound: b
   const clock = { t: T0 };
   const h = accountHarness({
     now: T0,
-    handler: (req, env, at) => handleAccount(req, env, clock.t || at, { fetch: async () => new Response('no', { status: 500 }), minWinSeconds: FLOORS, coupons: TABLE }),
+    handler: (req, env, at) => handleAccount(req, env, clock.t || at, { fetch: async () => new Response('no', { status: 500 }), minWinSeconds: FLOORS, coupons: TABLE, coinsCosmeticOnly: false }), // E13: the OFF arm, so every kind of op still lands after the flip
   });
   const { cookie } = await seedWalletMember(h.db, 'm1', T0);
   const q = h.db;

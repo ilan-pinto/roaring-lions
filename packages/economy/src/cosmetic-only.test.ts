@@ -29,17 +29,17 @@ describe('the switch', () => {
   it('coinsMayBuy: everything while off; a cosmetic and nothing else while on', () => {
     expect([coinsMayBuy('unit', false), coinsMayBuy('tier', false), coinsMayBuy('cosmetic', false)]).toEqual([true, true, true]);
     expect([coinsMayBuy('unit', true), coinsMayBuy('tier', true), coinsMayBuy('cosmetic', true)]).toEqual([false, false, true]);
-    // The default is the constant, so the default call is today's answer.
-    expect([coinsMayBuy('unit'), coinsMayBuy('tier'), coinsMayBuy('cosmetic')]).toEqual([true, true, true]);
+    // The default is the constant, whichever way it is set (so flip day turns only the pin above red).
+    expect([coinsMayBuy('unit'), coinsMayBuy('tier'), coinsMayBuy('cosmetic')]).toEqual([!COINS_COSMETIC_ONLY, !COINS_COSMETIC_ONLY, true]);
   });
 });
 
 describe('switch OFF: today, pinned', () => {
-  it('buyEnabled answers exactly as it does with no switch argument, and enables real items', () => {
+  it('buyEnabled enables real items, and with no switch argument answers as the constant\'s arm', () => {
     const items = storeItems(fresh());
     const all = [...items.units, ...items.tiers];
     const wallet = { live: true, coins: 100_000 };
-    for (const i of all) expect(buyEnabled(i, wallet, false)).toBe(buyEnabled(i, wallet));
+    for (const i of all) expect(buyEnabled(i, wallet)).toBe(buyEnabled(i, wallet, COINS_COSMETIC_ONLY));
     expect(all.filter((i) => buyEnabled(i, wallet, false)).length).toBeGreaterThan(10);
   });
 
@@ -52,9 +52,9 @@ describe('switch OFF: today, pinned', () => {
     expect(t.ok).toBe(true);
     expect(t.account.coins.free).toBe(100_000 - 15);
     expect(t.account.entitlements.upgrades.inf_squad?.armour).toEqual({ tier: 1, paidTiers: 0 });
-    // The default arm is the same purchase, byte for byte.
-    expect(buyWithCoins(fresh(), funded(), UNIT, 9)).toEqual(u);
-    expect(buyWithCoins(fresh(), funded(), TIER, 9)).toEqual(t);
+    // The default arm is the constant's arm, byte for byte (today, the purchase above).
+    expect(buyWithCoins(fresh(), funded(), UNIT, 9)).toEqual(buyWithCoins(fresh(), funded(), UNIT, 9, COINS_COSMETIC_ONLY));
+    expect(buyWithCoins(fresh(), funded(), TIER, 9)).toEqual(buyWithCoins(fresh(), funded(), TIER, 9, COINS_COSMETIC_ONLY));
   });
 });
 

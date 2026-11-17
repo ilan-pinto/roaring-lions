@@ -206,6 +206,7 @@ describe('item states', () => {
   });
 });
 
+// E13: the coin-buy tests below pass the OFF arm (`false`) explicitly, so they keep running after the flip.
 describe('G-P1: a live wallet enables a Buy exactly when it covers the price; packs never', () => {
   it('for every item, at one coin short, exact and one over', () => {
     const items = storeItems(input({ credits: 0 }));
@@ -215,7 +216,7 @@ describe('G-P1: a live wallet enables a Buy exactly when it covers the price; pa
       const cost = coinCost(item);
       for (const coins of [0, 1, (cost ?? 1) - 1, cost ?? 1, (cost ?? 1) + 1, 1_000_000]) {
         const want = cost !== null && cost > 0 && coins >= cost;
-        expect(buyEnabled(item, { live: true, coins }), `${item.kind}:${'id' in item ? item.id : item.unitId} at ${coins} coins`).toBe(want);
+        expect(buyEnabled(item, { live: true, coins }, false), `${item.kind}:${'id' in item ? item.id : item.unitId} at ${coins} coins`).toBe(want);
         if (want) enabled++;
       }
     }
@@ -237,9 +238,9 @@ describe('buyEnabled: no Buy without a live wallet, whatever it holds', () => {
     const all = [...items.units, ...items.tiers];
     const rich = { live: false, coins: 1_000_000 };
     expect(all.length).toBeGreaterThan(40);
-    expect(all.filter((i) => buyEnabled(i, rich))).toEqual([]);
+    expect(all.filter((i) => buyEnabled(i, rich, false))).toEqual([]);
     // ...while the same wallet, live, does enable some: the guard is not vacuous.
-    expect(all.filter((i) => buyEnabled(i, { ...rich, live: true })).length).toBeGreaterThan(10);
+    expect(all.filter((i) => buyEnabled(i, { ...rich, live: true }, false)).length).toBeGreaterThan(10);
   });
 
   it('a pack is never enabled by the free wallet', () => {
@@ -261,13 +262,13 @@ describe('special units are bought with coins (single-player)', () => {
       const item = items.find((u) => u.id === id);
       expect(item?.specialForces, id).toBe(true);
       expect(item?.coins, id).toBe(coinPrice(item?.credits ?? 0));
-      expect(buyEnabled(item as NonNullable<typeof item>, wallet), id).toBe(true);
+      expect(buyEnabled(item as NonNullable<typeof item>, wallet, false), id).toBe(true);
     }
   });
 
   it('buying spends coins only, opens the unit for single-player, and not for co-op or skirmish', () => {
     const before = funded();
-    const { account, ok } = buyWithCoins(input({ credits: 0 }), before, { kind: 'unit', unitId: 'spg_long_range' }, 9);
+    const { account, ok } = buyWithCoins(input({ credits: 0 }), before, { kind: 'unit', unitId: 'spg_long_range' }, 9, false);
     expect(ok).toBe(true);
     expect(account.coins.free).toBe(100000 - coinPrice(6500));
     expect(account.coins.free).toBe(100000 - 650);
@@ -284,10 +285,10 @@ describe('special units are bought with coins (single-player)', () => {
   });
 
   it('an unfunded wallet buys nothing, and 100,000 coins is enough for all nine', () => {
-    expect(buyWithCoins(input({ credits: 0 }), emptyRoar(), { kind: 'unit', unitId: 'spg_long_range' }, 1).ok).toBe(false);
+    expect(buyWithCoins(input({ credits: 0 }), emptyRoar(), { kind: 'unit', unitId: 'spg_long_range' }, 1, false).ok).toBe(false);
     let wallet = funded();
     for (const id of SPECIAL) {
-      const r = buyWithCoins(input({ credits: 0 }), wallet, { kind: 'unit', unitId: id }, 1);
+      const r = buyWithCoins(input({ credits: 0 }), wallet, { kind: 'unit', unitId: id }, 1, false);
       expect(r.ok, id).toBe(true);
       wallet = r.account;
     }

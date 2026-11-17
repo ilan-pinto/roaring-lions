@@ -1,7 +1,7 @@
 // E13 (GH-1415): the Worker's half of "coins buy cosmetics only". The switch is injected through `deps`, so both arms run
 // on one database: today's spend, the flipped refusal (`cosmetic_only`), what coins bought before the flip kept, and a
 // claim that still carries a device's coin-bought items. Prices are literals read off the unit JSON.
-import { emptyAccount, parseWorld, worldMissionIds } from '@lions/economy';
+import { COINS_COSMETIC_ONLY, emptyAccount, parseWorld, worldMissionIds } from '@lions/economy';
 import { world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import { handleAccount } from './routes';
@@ -33,15 +33,25 @@ const UNIT = { item: 'unit', unitId: 'dozer_d9' };
 const TIER = { item: 'tier', unitId: 'inf_squad', track: 'armour', tier: 1 };
 
 describe('POST spend, switch OFF: today', () => {
-  it('sells a unit and a tier for coins, as with no switch at all', async () => {
-    for (const on of [false, undefined]) {
-      const h = setup({ on });
-      const { cookie } = await seedWalletMember(h.db, 'm1', T0, { free: 1000 });
-      expect((await spend(h, cookie, UNIT)).status).toBe(200);
-      expect((await spend(h, cookie, TIER)).status).toBe(200);
-      expect(await freeOf(h)).toBe(1000 - 60 - 15);
-      expect(await kinds(h)).toEqual(['claim', 'unit', 'tier']);
-    }
+  it('sells a unit and a tier for coins', async () => {
+    const h = setup({ on: false });
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0, { free: 1000 });
+    expect((await spend(h, cookie, UNIT)).status).toBe(200);
+    expect((await spend(h, cookie, TIER)).status).toBe(200);
+    expect(await freeOf(h)).toBe(1000 - 60 - 15);
+    expect(await kinds(h)).toEqual(['claim', 'unit', 'tier']);
+  });
+});
+
+describe('POST spend, no switch in deps: the Worker reads COINS_COSMETIC_ONLY', () => {
+  it('answers a unit and a tier ask as the constant\'s arm does', async () => {
+    const h = setup({ on: undefined });
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0, { free: 1000 });
+    const want = COINS_COSMETIC_ONLY ? 409 : 200;
+    expect((await spend(h, cookie, UNIT)).status).toBe(want);
+    expect((await spend(h, cookie, TIER)).status).toBe(want);
+    expect(await freeOf(h)).toBe(COINS_COSMETIC_ONLY ? 1000 : 1000 - 60 - 15);
+    expect(await kinds(h)).toEqual(COINS_COSMETIC_ONLY ? ['claim'] : ['claim', 'unit', 'tier']);
   });
 });
 

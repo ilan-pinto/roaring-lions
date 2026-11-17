@@ -51,6 +51,8 @@ function mountStores(over: Partial<StoresOptions> = {}): { host: HTMLElement; di
     owned: {},
     coinSrc,
     missionName: () => undefined,
+    // E13: the coin-buy suite runs the OFF arm explicitly, so it keeps running after the flip.
+    cosmeticOnly: false,
     ...over,
   });
   return { host, dispose };
@@ -273,7 +275,7 @@ describe('the garage\'s Stores tab', () => {
       owned: {},
       onBuy: () => undefined,
       onBuyUpgrade: () => undefined,
-      stores: { coinSrc },
+      stores: { coinSrc, cosmeticOnly: false },
     });
     return { host, dispose };
   }
@@ -315,6 +317,7 @@ describe('the garage\'s Stores tab', () => {
       owned: {},
       stores: {
         coinSrc,
+        cosmeticOnly: false,
         open: true,
         read: () => ({
           coin: { earnedUnits: new Set(), coinUnits, earnedTiers: {}, coinTiers: {} },
@@ -524,6 +527,7 @@ describe('GH-1076: the "What it adds" panel', () => {
       owned: {},
       stores: {
         coinSrc,
+        cosmeticOnly: false,
         open: true,
         read: () => ({
           coin: { earnedUnits: new Set(), coinUnits, earnedTiers: {}, coinTiers: {} },
@@ -719,6 +723,7 @@ describe('a guest Buy still answers synchronously', () => {
       reducedMotion: () => true,
       stores: {
         coinSrc,
+        cosmeticOnly: false,
         open: true,
         read: () => ({ coin: coinHalfFor({ brigade: emptyAccount(), roar: emptyRoar() }), wallet: { coins: 99999, receipts: [] } }),
         onBuy: (ask) => {

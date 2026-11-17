@@ -2,6 +2,7 @@
 // before anything is marked pending or sent; switch off, the ask goes on to the sync loop as today (which, unattached,
 // throws: the proof it got that far).
 import { describe, expect, it } from 'vitest';
+import { COINS_COSMETIC_ONLY } from '@lions/economy';
 import type { AccountLedgerStore } from './account-store';
 import { spendFlow } from './spend-flow';
 
@@ -24,10 +25,20 @@ describe('spendFlow.buy and the switch', () => {
   });
 
   it('OFF: the ask goes on toward the server, as today', async () => {
-    for (const cosmeticOnly of [false, undefined]) {
-      const { s } = store();
-      const flow = spendFlow({ store: s, online: () => true, ...(cosmeticOnly === undefined ? {} : { cosmeticOnly }) });
-      await expect(flow.buy({ kind: 'unit', unitId: 'dozer_d9' })).rejects.toThrow(/attach\(sync\)/);
+    const { s } = store();
+    const flow = spendFlow({ store: s, online: () => true, cosmeticOnly: false });
+    await expect(flow.buy({ kind: 'unit', unitId: 'dozer_d9' })).rejects.toThrow(/attach\(sync\)/);
+  });
+
+  it('no switch in the options: the flow reads COINS_COSMETIC_ONLY', async () => {
+    const { s, touched } = store();
+    const flow = spendFlow({ store: s, online: () => true });
+    const ask = flow.buy({ kind: 'unit', unitId: 'dozer_d9' });
+    if (COINS_COSMETIC_ONLY) {
+      expect(await ask).toBe('refused');
+      expect(touched).toEqual([]);
+    } else {
+      await expect(ask).rejects.toThrow(/attach\(sync\)/);
     }
   });
 });

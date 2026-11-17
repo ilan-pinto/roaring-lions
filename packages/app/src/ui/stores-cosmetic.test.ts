@@ -4,6 +4,7 @@
 // Buy, keeps every credit Buy, and still reads a coin-bought item as owned.
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
+import { COINS_COSMETIC_ONLY } from '@lions/economy';
 import type { UnlockGate } from '@lions/sim';
 import en from '../i18n/en.json';
 import { showStores, type StoresOptions } from './stores';
@@ -43,15 +44,23 @@ const coinBuys = (host: HTMLElement) => [...host.querySelectorAll('button[data-b
 
 describe('switch OFF: today\'s Stores', () => {
   it('offers coin Buys for units and tiers, unmarked, with the old lede', () => {
-    for (const cosmeticOnly of [false, undefined]) {
-      const { host, dispose } = mount(cosmeticOnly === undefined ? {} : { cosmeticOnly });
-      expect(btn(host, 'unit:recon_drone')?.disabled).toBe(false);
-      expect(btn(host, 'tier:inf_squad.armour.1')?.disabled).toBe(false);
-      expect(host.querySelectorAll('[data-closed="1"]')).toHaveLength(0);
-      expect(host.querySelector('.rl-stores__lede')?.textContent).toBe(en['stores.lede']);
-      expect(host.querySelector('.rl-stores')?.hasAttribute('data-cosmetic-only')).toBe(false);
-      dispose();
-    }
+    const { host, dispose } = mount({ cosmeticOnly: false });
+    expect(btn(host, 'unit:recon_drone')?.disabled).toBe(false);
+    expect(btn(host, 'tier:inf_squad.armour.1')?.disabled).toBe(false);
+    expect(host.querySelectorAll('[data-closed="1"]')).toHaveLength(0);
+    expect(host.querySelector('.rl-stores__lede')?.textContent).toBe(en['stores.lede']);
+    expect(host.querySelector('.rl-stores')?.hasAttribute('data-cosmetic-only')).toBe(false);
+    dispose();
+  });
+});
+
+describe('no switch in the options: the Stores read COINS_COSMETIC_ONLY', () => {
+  it('draws the constant\'s arm: its coin Buys, its mark and its lede', () => {
+    const { host, dispose } = mount();
+    expect(coinBuys(host).length > 0).toBe(!COINS_COSMETIC_ONLY);
+    expect(host.querySelector('.rl-stores')?.hasAttribute('data-cosmetic-only')).toBe(COINS_COSMETIC_ONLY);
+    expect(host.querySelector('.rl-stores__lede')?.textContent).toBe(en[COINS_COSMETIC_ONLY ? 'stores.lede.cosmeticOnly' : 'stores.lede']);
+    dispose();
   });
 });
 

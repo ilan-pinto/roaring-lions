@@ -49,7 +49,7 @@ function inputOf(store: ReturnType<typeof memoryLedgerStore>): StoreInput {
 }
 
 function buy(store: ReturnType<typeof memoryLedgerStore>, ask: CoinAsk): { ok: boolean; after: RoarWallet } {
-  const { account, ok } = buyWithCoins(inputOf(store), store.readRoar(), ask, 1000);
+  const { account, ok } = buyWithCoins(inputOf(store), store.readRoar(), ask, 1000, false); // E13: the coin-buy suite runs the OFF arm explicitly, so it keeps running after the flip.
   if (ok) store.writeRoar(account);
   return { ok, after: store.readRoar() };
 }

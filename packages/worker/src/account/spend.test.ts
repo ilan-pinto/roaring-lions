@@ -30,6 +30,9 @@ function setup(opts: { race?: number; beforeFirstBatch?: (db: D1Like) => Promise
       return handleAccount(req, { ...env, ACCOUNTS: db }, T0, {
         fetch: async () => new Response('no', { status: 500 }),
         coupons: TABLE,
+        // E13: these are the coin-buy mechanism's own tests, so they run the OFF arm explicitly and keep running after
+        // the flip (`cosmetic-only.test.ts` holds the ON arm and the default).
+        coinsCosmeticOnly: false,
       });
     },
   });

@@ -44,6 +44,7 @@ function mount(store: ReturnType<typeof accountStore>, handlers: ServerHandlers<
       ...(gate !== undefined ? { gate, pendingTracks: gate.pendingTracks } : {}),
       stores: {
         coinSrc: (s) => `/c${s}.png`,
+        cosmeticOnly: false, // E13: the coin-buy suite runs the OFF arm explicitly, so it keeps running after the flip.
         open: true,
         ...(gate !== undefined ? { pendingTracks: gate.pendingTracks } : {}),
         read: () => ({ coin: coinHalfFor({ brigade: store.readAccount(), roar: store.readRoar() }), wallet: { coins: 5000, receipts: [] } }),

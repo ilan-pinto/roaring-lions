@@ -256,6 +256,9 @@ export interface GarageStoresOptions {
   /** Signed in (GH-1142): keys `unitId.track` and `unit:<id>` of coin Buys in flight (`store.pendingSpends`). A credit Buy of
    *  one of them is drawn disabled, with the reason `stores.pendingCoin`. Absent for a guest. */
   pendingTracks?: () => ReadonlySet<string>;
+  /** E13: whether coins buy cosmetics only, handed to the Stores (`StoresOptions.cosmeticOnly`). Absent, the Stores read
+   *  `COINS_COSMETIC_ONLY`, which is what `main.ts` does; a test sets either arm. */
+  cosmeticOnly?: boolean;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -767,6 +770,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       },
       focusKey,
       pending: busy,
+      ...(so.cosmeticOnly !== undefined ? { cosmeticOnly: so.cosmeticOnly } : {}),
       ...(opts.gate !== undefined || opts.pendingTracks !== undefined || so.pendingTracks !== undefined
         ? { pendingTracks: (): ReadonlySet<string> => pendingSet() ?? new Set<string>(), frozen }
         : {}),
