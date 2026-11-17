@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { DEFAULT_SETTINGS, SETTINGS_KEY, applySettings, loadSettings, parseSettings, saveSettings, settingsBus } from './settings';
+import { PSEUDO_RTL, applyLocale, sessionLangOverride } from './i18n/locales';
 
 function memStore(): { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void; map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -157,6 +160,40 @@ describe('applySettings', () => {
     expect(root.dataset.cvd).toBe('tritanopia');
     applySettings(DEFAULT_SETTINGS, root);
     expect(root.style.getPropertyValue('--ui-scale')).toBe('');
+  });
+
+  // GH-1413 review F2: the boot order of main.ts (stored settings, then the session locale, then a settings change).
+  const changed = { ...DEFAULT_SETTINGS, video: { ...DEFAULT_SETTINGS.video, textSize: 1.3 as const } };
+  it('a settings change keeps a session ?lang= override instead of re-applying the stored language', () => {
+    const root = document.createElement('html');
+    applySettings(DEFAULT_SETTINGS, root);
+    applyLocale(root, 'pseudo');
+    applySettings(changed, root, sessionLangOverride('pseudo', null));
+    expect(root.getAttribute('lang')).toBe('pseudo');
+    expect(root.style.getPropertyValue('--text-size')).toBe('1.3');
+  });
+  it('a settings change keeps ?pseudo=rtl: the mirrored tag and dir=rtl both survive', () => {
+    const root = document.createElement('html');
+    applySettings(DEFAULT_SETTINGS, root);
+    applyLocale(root, PSEUDO_RTL);
+    applySettings(changed, root, sessionLangOverride(null, PSEUDO_RTL));
+    expect([root.getAttribute('lang'), root.dir]).toEqual(['qps-plocm', 'rtl']);
+  });
+  it('with no override (no ?lang=, an unshipped id, plain ?pseudo=1) the stored language is applied, as before', () => {
+    expect(sessionLangOverride(null, null)).toBeNull();
+    expect(sessionLangOverride('xx', null)).toBeNull();
+    expect(sessionLangOverride('', null)).toBeNull();
+    expect(sessionLangOverride(null, 'pseudo')).toBeNull();
+    expect(sessionLangOverride('en', null)).toBe('en');
+    const root = document.createElement('html');
+    root.setAttribute('lang', 'pseudo');
+    applySettings(changed, root, sessionLangOverride('xx', null));
+    expect(root.getAttribute('lang')).toBe('en');
+  });
+  it('main.ts hands the session override to the settings writer (source guard)', () => {
+    const main = readFileSync(join(__dirname, 'main.ts'), 'utf8');
+    expect(main).toContain("sessionLang = sessionLangOverride(q.get('lang'), pseudoMode);");
+    expect(main).toContain('applySettings(next, document.documentElement, sessionLang);');
   });
 });
 
