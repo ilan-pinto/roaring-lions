@@ -24,6 +24,9 @@ export interface AccountDeps {
   minWinSeconds?: Readonly<Record<string, number>>;
   /** The coupon table `POST coupon` matches (default `coupons` from @lions/data). A test sets one with a known code's hash. */
   coupons?: readonly { id: string; sha256: string; credits?: number; coins?: number }[];
+  /** Waits `ms` (default a timer): the delete route's pause before it rewrites its tombstone (GH-1534). A test sets one that returns at
+   *  once, or one that lets a racing cron step run in the pause. */
+  sleep?(ms: number): Promise<void>;
 }
 
 export interface AccountCtx {

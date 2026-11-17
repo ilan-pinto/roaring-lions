@@ -74,7 +74,31 @@ export async function deleteTelemetryFor(db: D1Like, player: string): Promise<vo
   await db.batch(sql.map((s) => db.prepare(s).bind(player)));
 }
 
-/** POST delete: a fresh session. Telemetry (if asked), then the tombstone, then the guarded batch. */
+/** Workers KV takes one write a second to a key (a faster one can answer 429), so the route's second write of its tombstone waits this
+ *  long after the first, and again before its one retry: the cron's racing delete of the same key may have just taken that second. */
+export const TOMB_REWRITE_GAP_MS = 1_100;
+
+const timer = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+/** GH-1534: the tombstone written AGAIN, byte for byte, once the batch has committed. The cron's prune of a "cancelled" tombstone
+ *  (`sweep.ts`, the scan and the survivor step) judges the member by a D1 read made BEFORE this batch committed and the tombstone by an
+ *  eventually consistent KV read, which may still show the cron's own older one; its delete can then remove the tombstone written above,
+ *  leaving a deleted account that a Time Travel restore would not re-delete and `gone` would not report. This later write overwrites
+ *  that delete (KV keeps the last write). Two tries, a gap before each; a failure of both is logged and the delete still answers 200:
+ *  the rows are gone and the first write stands unless that rare race took it. */
+async function rewriteTomb(kv: KVLike, key: string, value: string, sleep: (ms: number) => Promise<void>): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await sleep(TOMB_REWRITE_GAP_MS);
+    try {
+      await kv.put(key, value, { expirationTtl: TOMB_TTL_S });
+      return;
+    } catch (err) {
+      if (attempt === 1) console.warn('account: tombstone rewrite failed', { error: err instanceof Error ? err.name : typeof err });
+    }
+  }
+}
+
+/** POST delete: a fresh session. Telemetry (if asked), then the tombstone, then the guarded batch, then the tombstone again (GH-1534). */
 export async function deleteAccount(ctx: AccountCtx): Promise<Response> {
   const got = await requireSession(ctx, { fresh: true });
   if (got instanceof Response) return got;
@@ -100,9 +124,11 @@ export async function deleteAccount(ctx: AccountCtx): Promise<Response> {
     .bind(session.memberId)
     .first<{ id_hash: string; last_seen_day: number }>();
   if (row === null) return accountJson(401, { error: 'signed_out' });
+  const key = 'tomb:' + row.id_hash;
+  const tomb = JSON.stringify({ deletedAt: ctx.now, lastSeenDay: row.last_seen_day });
   try {
     if (typeof player === 'string') await deleteTelemetryFor(ctx.env.DB, player);
-    await kv.put('tomb:' + row.id_hash, JSON.stringify({ deletedAt: ctx.now, lastSeenDay: row.last_seen_day }), { expirationTtl: TOMB_TTL_S });
+    await kv.put(key, tomb, { expirationTtl: TOMB_TTL_S });
     // false: a sign-in raised last_seen_day past `seen` meanwhile, so the guard held the batch back. Retry reads the new day.
     if (!(await deleteMember(db, session.memberId, { lastSeenAtMost: row.last_seen_day }))) {
       await dropCancelled(db, kv, row.id_hash, row.last_seen_day);
@@ -111,6 +137,7 @@ export async function deleteAccount(ctx: AccountCtx): Promise<Response> {
   } catch {
     return sessionJson(503, { error: 'retry' }, setCookie);
   }
+  await rewriteTomb(kv, key, tomb, ctx.deps.sleep ?? timer);
   return accountJson(200, { deleted: true }, { 'set-cookie': clearedSessionCookie() });
 }
 

@@ -4,9 +4,11 @@ import { TOMB_TTL_S } from './config';
 import { sha256Hex } from './crypto';
 import { handleAccount } from './routes';
 import { openTestD1 } from '../test-d1';
-import { memoryKV } from './kv';
-import { RECONCILE_PER_RUN, reconcileTombstones } from './sweep';
-import { accountHarness, memberTablesInMigration, seedFullMember, SEED_PUBLIC_ID } from './test-kit';
+import { memoryKV, type KVLike } from './kv';
+import { createSession } from './session';
+import { MEMBER_IDLE_DAYS, RECONCILE_PER_RUN, accountCron, reconcileTombstones } from './sweep';
+import { accountHarness, instantSleep, memberTablesInMigration, seedFullMember, SEED_PUBLIC_ID } from './test-kit';
+import { SESSION_COOKIE } from './config';
 import { DUE_MEMBERS_MAX, deleteDueStatements, deleteMember, deleteTelemetryFor } from './delete';
 
 const DAY = 86_400_000;
@@ -191,7 +193,7 @@ describe('a failed telemetry step is retryable (A1-22b)', () => {
       now: NOW,
       handler: (req, e, now) => {
         flaky ??= failFirstDelete(e.DB);
-        return handleAccount(req, { ...e, DB: flaky }, now);
+        return handleAccount(req, { ...e, DB: flaky }, now, { fetch: noFetch, sleep: instantSleep });
       },
     });
     const { cookie, idHash } = await seedFullMember(h.db, NOW);
@@ -371,5 +373,139 @@ describe('the cron\'s one delete batch for many members (GH-1432)', () => {
     expect(() => deleteDueStatements(h.db, [])).toThrow();
     expect(() => deleteDueStatements(h.db, Array.from({ length: DUE_MEMBERS_MAX + 1 }, (_, i) => ({ id: 'x' + i, day: 1 })))).toThrow();
     expect(deleteDueStatements(h.db, Array.from({ length: DUE_MEMBERS_MAX }, (_, i) => ({ id: 'x' + i, day: 1 }))).length).toBe(17);
+  });
+});
+
+const noFetch = async (): Promise<Response> => new Response('no', { status: 500 });
+
+/** A KV seen from another location: a read returns what was written THROUGH this view, not a write made elsewhere since (KV is eventually
+ *  consistent), and falls back to the store for a key this view never wrote. Every write and delete reaches the one store, last one wins. */
+function laggingView(kv: KVLike, onDelete: (key: string) => void): KVLike {
+  const own = new Map<string, string | null>();
+  return {
+    ...kv,
+    get: async (k) => (own.has(k) ? own.get(k) ?? null : kv.get(k)),
+    put: async (k, v, o) => { await kv.put(k, v, o); own.set(k, v); },
+    delete: async (k) => { await kv.delete(k); own.set(k, null); onDelete(k); },
+  };
+}
+
+describe('the route writes its tombstone again once its batch has committed (GH-1534)', () => {
+  /** `dayOf(NOW)`, a literal: the day the seeded sessions stamp on their member. */
+  const TODAY = 20_000;
+
+  it('a normal delete writes the same tombstone as before, twice: before the batch, and again after it, once the gap has passed', async () => {
+    const log: string[] = [];
+    const h = accountHarness({
+      now: NOW,
+      handler: (req, e, now) => {
+        const kv: KVLike = { ...e.ACCOUNT_TOMBSTONES, put: async (k, v, o) => { log.push(`put ${k} ${v} ${String(o?.expirationTtl)}`); await e.ACCOUNT_TOMBSTONES.put(k, v, o); } };
+        const db: D1Like = { ...e.ACCOUNTS, batch: async (ss: D1Stmt[]) => { const out = await e.ACCOUNTS.batch(ss); log.push(`batch ${ss.length}`); return out; } };
+        return handleAccount(req, { ...e, ACCOUNTS: db, ACCOUNT_TOMBSTONES: kv }, now, { fetch: noFetch, sleep: async (ms) => { log.push(`sleep ${ms}`); } });
+      },
+    });
+    const { cookie, idHash } = await seedFullMember(h.db, NOW);
+    expect((await h.call('POST', '/api/account/delete', { cookie, body: {} })).status).toBe(200);
+    // Today's shape, as literals: the deletion instant and the member's own last sign-in day, for 90 days.
+    const tomb = `{"deletedAt":${NOW},"lastSeenDay":${TODAY}}`;
+    const put = `put tomb:${idHash} ${tomb} 7776000`;
+    expect(log).toEqual([put, 'batch 17', 'sleep 1100', put]);
+    expect((await h.kv.list({ prefix: '' })).keys.map((k) => k.name)).toEqual(['tomb:' + idHash]);
+    expect(await h.kv.get('tomb:' + idHash)).toBe(tomb);
+    expect(h.kv.ttl('tomb:' + idHash)).toBe(7_776_000);
+  });
+
+  it('a rewrite KV refuses (one write a second to a key) is tried once more after another gap; two refusals still answer 200', async () => {
+    for (const refusals of [1, 2]) {
+      const log: string[] = [];
+      let puts = 0;
+      const h = accountHarness({
+        now: NOW,
+        handler: (req, e, now) => {
+          const kv: KVLike = {
+            ...e.ACCOUNT_TOMBSTONES,
+            put: async (k, v, o) => {
+              // the first put (before the batch) goes through; the next `refusals` are refused, as KV answers 429
+              if (puts++ >= 1 && puts <= 1 + refusals) { log.push('refused'); throw new Error('429'); }
+              log.push('put');
+              await e.ACCOUNT_TOMBSTONES.put(k, v, o);
+            },
+          };
+          return handleAccount(req, { ...e, ACCOUNT_TOMBSTONES: kv }, now, { fetch: noFetch, sleep: async (ms) => { log.push(`sleep ${ms}`); } });
+        },
+      });
+      const { cookie, idHash } = await seedFullMember(h.db, NOW);
+      const res = await h.call('POST', '/api/account/delete', { cookie, body: {} });
+      expect(res.status, String(refusals)).toBe(200);
+      expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'm1'")).toBe(0);
+      expect(log, String(refusals)).toEqual(refusals === 1
+        ? ['put', 'sleep 1100', 'refused', 'sleep 1100', 'put']
+        : ['put', 'sleep 1100', 'refused', 'sleep 1100', 'refused']);
+      expect(await h.kv.get('tomb:' + idHash)).toBe(`{"deletedAt":${NOW},"lastSeenDay":${TODAY}}`); // the first write stands
+    }
+  });
+
+  it('the cron queues the member, the member signs in and deletes, and the cron prunes from a stale read: the tombstone holds', async () => {
+    const cutoff = TODAY - MEMBER_IDLE_DAYS - 1;
+    let routeSlept: () => void = () => undefined;
+    const slept = new Promise<void>((r) => { routeSlept = r; });
+    let releaseRoute: () => void = () => undefined;
+    const released = new Promise<void>((r) => { releaseRoute = r; });
+    const sleeps: number[] = [];
+    const h = accountHarness({
+      now: NOW,
+      foreignKeys: true,
+      // the route's pause before its rewrite: it waits there until the cron's prune has landed
+      deps: { fetch: noFetch, sleep: async (ms) => { sleeps.push(ms); routeSlept(); await released; } },
+    });
+    const hx = await sha256Hex('PUBXXXXX');
+    const key = 'tomb:' + hx;
+    await h.db.prepare('INSERT INTO member VALUES (?1, ?2, ?3, ?4, 1, ?5)').bind('X', 'PUBXXXXX', hx, 'uhX', cutoff - 5).run();
+    let pruned = false;
+    const cronKV = laggingView(h.kv, (k) => { if (k === key) { pruned = true; releaseRoute(); } });
+    let cookie = '';
+    let route: Promise<Response> | undefined;
+    let signedIn = false;
+    const wrap = (s: D1Stmt): D1Stmt => ({
+      ...s,
+      bind: (...v: unknown[]) => wrap(s.bind(...v)),
+      all: async <T>() => {
+        const rows = await s.all<T>();
+        // 3. between the cron's survivor select and its prune, the member asks to delete: the route writes its tombstone and its batch
+        // commits (the route then pauses before the rewrite, or returns if it has none)
+        route = h.call('POST', '/api/account/delete', { cookie, body: {} });
+        await Promise.race([slept, route]);
+        return rows;
+      },
+    });
+    const db: D1Like = {
+      ...h.db,
+      prepare: (sql: string) => (sql.startsWith('SELECT id, last_seen_day FROM member WHERE id IN') ? wrap(h.db.prepare(sql)) : h.db.prepare(sql)),
+      batch: async (ss: D1Stmt[]) => {
+        if (ss.length === 17 && !signedIn) {
+          // 2. the cron has queued X and written its own tombstone; X signs in just before the cron's delete batch, so its guard holds
+          signedIn = true;
+          expect(JSON.parse((await h.kv.get(key)) ?? '{}')).toEqual({ deletedAt: NOW, lastSeenDay: cutoff });
+          const s = await createSession(h.db, 'X', NOW);
+          await h.db.batch(s.statements);
+          cookie = `${SESSION_COOKIE}=${s.token}`;
+        }
+        return h.db.batch(ss);
+      },
+    };
+    // 1. the cron runs; 4. its survivor step reads its OWN older tombstone (the route's write is not visible here yet) and deletes the key
+    expect(await accountCron(db, NOW, cronKV)).toBe(0);
+    releaseRoute();
+    expect(signedIn).toBe(true);
+    expect(pruned).toBe(true); // the race happened: the cron deleted the key after the route had written it
+    expect(route).toBeDefined();
+    const res = await (route ?? Promise.reject(new Error('the route never ran')));
+    expect(res.status).toBe(200);
+    expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'X'")).toBe(0);
+    // the deleted account still has its tombstone, in today's shape: `gone` and a Time Travel restore both learn it was deleted
+    expect(await h.kv.get(key)).toBe(`{"deletedAt":${NOW},"lastSeenDay":${TODAY}}`);
+    expect(h.kv.ttl(key)).toBe(7_776_000);
+    expect((await h.call('POST', '/api/account/gone', { body: { idHash: hx } })).status).toBe(410);
+    expect(sleeps).toEqual([1_100]);
   });
 });

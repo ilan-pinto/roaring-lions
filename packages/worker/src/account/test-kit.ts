@@ -35,11 +35,14 @@ export interface AccountHarnessOpts {
   /** The dispatcher under test; default `handleAccount`. */
   handler?: (req: Request, env: AccountTestEnv, now: number) => Promise<Response>;
   now?: number;
-  /** The outbound calls the handler may make; default the real fetch. */
+  /** The outbound calls the handler may make; default the real fetch. `sleep` defaults to `instantSleep` either way. */
   deps?: AccountDeps;
 }
 
 const limiter = (ok: boolean): RateLimiter => ({ limit: async () => ({ success: ok }) });
+
+/** A `sleep` that returns at once, so the delete route's tombstone rewrite (GH-1534) costs a test no wall time. */
+export const instantSleep = async (): Promise<void> => undefined;
 
 export function accountHarness(opts: AccountHarnessOpts = {}) {
   const db = openTestD1({ dir: ACCOUNTS_MIGRATIONS, foreignKeys: opts.foreignKeys });
@@ -53,7 +56,8 @@ export function accountHarness(opts: AccountHarnessOpts = {}) {
     ACCOUNT_LIMIT: limiter(!deny.has('ACCOUNT_LIMIT')),
     ACCOUNT_OP_LIMIT: limiter(!deny.has('ACCOUNT_OP_LIMIT')),
   };
-  const handler = opts.handler ?? ((req, e, now) => handleAccount(req, e, now, opts.deps));
+  const deps: AccountDeps = { fetch: (url, init) => globalThis.fetch(url, init), sleep: instantSleep, ...opts.deps };
+  const handler = opts.handler ?? ((req, e, now) => handleAccount(req, e, now, deps));
   const call = (method: string, path: string, init: CallInit = {}): Promise<Response> => {
     const headers = new Headers({ 'x-rl-account': '1', 'content-type': 'application/json' });
     const origin = init.origin === undefined ? TEST_ORIGIN : init.origin;
