@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Command } from '@lions/sim';
-import { DEFEND_TILES, createCommander as createSlice2, type CommanderContext, type CommanderOptions, type ZoneFact } from './commander';
+import { DEFEND_TILES, counterPool, createCommander as createSlice2, type CommanderContext, type CommanderOptions, type ZoneFact } from './commander';
 import { ComputerSeat, sweepStragglers } from './computer-seat';
 import { DESK_MAX_QUEUE } from './order-desk';
 import { RUSH_HOME_TILES } from './policy';
@@ -307,17 +307,17 @@ describe('scout: the cheapest unit looks at the enemy camp', () => {
   const force = [unit(1, [10, 41], { type: 'at_team' }), unit(2, [11, 40], { type: 'inf_squad' }), unit(3, [9, 39], { type: 'mortar_team' })];
   const only = (o: CommanderOptions) => slice2({ defend: false, zones: false, produce: false, counter: false, ...o });
 
-  it('sends the cheapest (at_team 236 < inf_squad 292, mortar_team 209: the mortar crew) with a move to RUSH_HOME_TILES short of the enemy camp, and leaves it out of the march', () => {
+  it('sends the fastest of the cheaper half (costs 209 / 236 / 292, median 236: the at_team at 0.7 t/s, not the slower mortar crew that is the cheapest) with a move to RUSH_HOME_TILES short of the enemy camp, and leaves it out of the march', () => {
     const out = only({})(view({ units: force }), ctx());
     const m = moves(out.commands);
     expect(m).toHaveLength(1);
-    expect(m[0].ids).toEqual([3]);
+    expect(m[0].ids).toEqual([1]);
     const [x, y] = mkMove(m[0]);
     expect(Math.round(Math.hypot(x - ENEMY_CAMP[0], y - ENEMY_CAMP[1]))).toBe(RUSH_HOME_TILES);
     expect(Math.hypot(x - CAMP[0], y - CAMP[1])).toBeLessThan(Math.hypot(ENEMY_CAMP[0] - CAMP[0], ENEMY_CAMP[1] - CAMP[1]));
-    expect(out.keep.has(3)).toBe(true);
-    expect(marches(out.commands).flatMap(ids)).not.toContain(3);
-    expect(marches(out.commands).flatMap(ids).sort()).toEqual([1, 2]);
+    expect(out.keep.has(1)).toBe(true);
+    expect(marches(out.commands).flatMap(ids)).not.toContain(1);
+    expect(marches(out.commands).flatMap(ids).sort()).toEqual([2, 3]);
   });
 
   it('with it off the same view sends nobody ahead and the march takes all three', () => {
@@ -333,29 +333,55 @@ describe('scout: the cheapest unit looks at the enemy camp', () => {
 
   it('a scout under way is left alone; one that stopped short is sent again; one that arrived is not; it is kept in all three', () => {
     const c = only({});
-    c(view({ units: force }), ctx()); // chooses unit 3
-    const moving = c(view({ units: [force[0], force[1], unit(3, [20, 30], { flags: ['moving'] })] }), ctx());
+    c(view({ units: force }), ctx()); // chooses unit 1
+    const moving = c(view({ units: [unit(1, [20, 30], { type: 'at_team', flags: ['moving'] }), force[1], force[2]] }), ctx());
     expect(moves(moving.commands)).toHaveLength(0);
-    expect(moving.keep.has(3)).toBe(true);
-    const stopped = c(view({ units: [force[0], force[1], unit(3, [20, 30], { flags: ['idle'] })] }), ctx());
+    expect(moving.keep.has(1)).toBe(true);
+    const stopped = c(view({ units: [unit(1, [20, 30], { type: 'at_team', flags: ['idle'] }), force[1], force[2]] }), ctx());
     expect(moves(stopped.commands)).toHaveLength(1);
     const to = mkMove(moves(stopped.commands)[0]);
-    const arrived = c(view({ units: [force[0], force[1], unit(3, to, { flags: ['idle'] })] }), ctx());
+    const arrived = c(view({ units: [unit(1, to, { type: 'at_team', flags: ['idle'] }), force[1], force[2]] }), ctx());
     expect(moves(arrived.commands)).toHaveLength(0);
-    expect(arrived.keep.has(3)).toBe(true);
-    expect(marches(arrived.commands).flatMap(ids)).not.toContain(3);
+    expect(arrived.keep.has(1)).toBe(true);
+    expect(marches(arrived.commands).flatMap(ids)).not.toContain(1);
   });
 
   it('is chosen once: when the scout dies nobody is sent in its place', () => {
     const c = only({});
     c(view({ units: force }), ctx());
-    const after = c(view({ units: [force[0], force[1]] }), ctx());
+    const after = c(view({ units: [force[1], force[2]] }), ctx());
     expect(moves(after.commands)).toHaveLength(0);
+  });
+
+  it('is decided at one decision only: a unit that arrives later is never picked, even if nobody could go at the start', () => {
+    const c = only({});
+    c(view({ units: [unit(1, [10, 41], { flags: ['moving'] }), unit(2, [11, 40], { flags: ['moving'] })] }), ctx()); // nobody idle at home
+    expect(moves(c(view({ units: force }), ctx()).commands)).toHaveLength(0);
+  });
+
+  it('a scout that cannot move (it is idle on the tile it was last sent from) is not sent again; one that moved and stopped is', () => {
+    const c = only({});
+    c(view({ units: force }), ctx());
+    const stuckAt = unit(1, [10, 41], { type: 'at_team' });
+    expect(moves(c(view({ units: [stuckAt, force[1], force[2]] }), ctx()).commands)).toHaveLength(0);
+  });
+
+  it('nobody is sent when the camps are no further apart than the standoff', () => {
+    const out = only({})(view({ units: force, enemyCamp: [CAMP[0] + 4, CAMP[1]] }), ctx());
+    expect(moves(out.commands)).toHaveLength(0);
+    expect(out.keep.size).toBe(0);
+  });
+
+  it('the scout is not a zone\'s holder: another idle unit standing in a held zone is kept for it', () => {
+    const zoneAt = zone('held', [8, 36, 6, 8], 'mine');
+    const out = only({ zones: true })(view({ units: force }), ctx([zoneAt]));
+    expect(out.keep.has(1)).toBe(true); // the scout
+    expect([...out.keep].filter((id) => id !== 1)).toHaveLength(1); // plus one real holder
   });
 
   it('is not recalled to defend: the defend march names the others', () => {
     const out = slice2({ zones: false, produce: false, counter: false })(view({ units: force, contacts: [contact(90, [12, 38])] }), ctx());
-    expect(marches(out.commands).flatMap(ids).sort()).toEqual([1, 2]);
+    expect(marches(out.commands).flatMap(ids).sort()).toEqual([2, 3]);
     expect(moves(out.commands)).toHaveLength(1);
   });
 
@@ -443,6 +469,35 @@ describe('counter: build against what has been seen', () => {
     expect(buildsOf(slice2({ ...o })(view({ units: sarim, contacts: sees(['mbt_lavi']), economy: menuAt }), ctx()).commands)).toEqual(['atgm_cell']);
     // against an APC (220 front) the cheaper 650 round beats it and is a candidate too: the furthest-below rule picks between them (menu order on a tie)
     expect(buildsOf(slice2({ ...o })(view({ units: sarim, contacts: sees(['apc_eitan']), economy: menuAt }), ctx()).commands)).toEqual(['recoilless_team']);
+  });
+
+  it('the round that beats the plate is unaffordable: the seat does what the slice 1 commander does with this purse, not buy the round that cannot penetrate', () => {
+    const menuAt = (purse: number) => eco({ purse, menu: [menu('recoilless_team', 100), menu('atgm_cell', 150), menu('sarim_rifles', 90)] });
+    // Started with 2 rifles and 1 recoilless; one rifle lost. Slice 1 rebuilds the rifles (1 of 2 over 1 of 1). Two hulls seen with a 700 front plate.
+    const started = [unit(1, [10, 41], { type: 'sarim_rifles' }), unit(2, [11, 40], { type: 'sarim_rifles' }), unit(3, [12, 40], { type: 'recoilless_team' })];
+    const later = [started[0], started[2]];
+    const run = (counter: boolean, purse: number): string[] => {
+      const c = slice2({ ...o, counter });
+      c(view({ units: started, economy: eco({ lines: [] }) }), ctx());
+      return buildsOf(c(view({ units: later, contacts: sees(['mbt_lavi', 'mbt_lavi']), economy: menuAt(purse) }), ctx()).commands);
+    };
+    expect(run(true, 1000)).toEqual(['atgm_cell']);
+    expect(run(true, 120)).toEqual(['sarim_rifles']);
+    expect(run(true, 120)).toEqual(run(false, 120));
+  });
+
+  it('counterPool: a held round that cannot beat the plate does not count toward parity; one that can does', () => {
+    const peak = new Map([['mbt_lavi', 1]]);
+    const menuAll = ['recoilless_team', 'atgm_cell', 'sarim_rifles'];
+    const all = new Set(menuAll);
+    expect([...(counterPool(menuAll, all, peak, new Map([['recoilless_team', 1]])) ?? [])]).toEqual(['atgm_cell']);
+    expect(counterPool(menuAll, all, peak, new Map([['atgm_cell', 1]]))).toBeNull();
+  });
+
+  it('counterPool: when no round in the menu beats the plate, the strongest the menu has is the pool (a weaker hit is still a hit)', () => {
+    const peak = new Map([['mbt_lavi', 1]]);
+    const menuAll = ['recoilless_team', 'rpg_team', 'sarim_rifles']; // 650 and 550 against 700
+    expect([...(counterPool(menuAll, new Set(menuAll), peak, new Map()) ?? [])]).toEqual(['recoilless_team']);
   });
 
   it('a menu with no anti-armour unit falls through to the slice 1 rule, and so does a menu with no infantry against soft', () => {
