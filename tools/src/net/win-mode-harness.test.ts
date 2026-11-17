@@ -438,7 +438,7 @@ describe('a points race played through the arena (GH-976 P2)', () => {
   }, 280_000);
 });
 
-// GH-976 P4: a KDF-v-Sarim mode room (not offered today: the arena refuses it) is a PLACED-force match (no production, no tunnels,
+// GH-976 P4: a KDF-v-Sarim mode room (offered for the camp on the two Wadi Tarfans only, GH-1381; the arena refuses any other) is a PLACED-force match (no production, no tunnels,
 // a goals-only runtime), so the harness shows no economy.
 describe('a KDF-against-Sarim mode room, and the arena that refuses to start one (GH-976 P4)', () => {
   it('observe in a faction mode room: each seat reads its own faction, the board and no economy', () => {
@@ -456,7 +456,7 @@ describe('a KDF-against-Sarim mode room, and the arena that refuses to start one
     expect(kdfSeat.camp).toEqual([w.anchors.hostile[0], w.anchors.hostile[1]]);
   });
 
-  it('the arena refuses the pairing before any room: no faction cell is offered (exit 2)', async () => {
+  it('the arena refuses a faction cell that is not offered before any room: the points race KDF v Sarim (exit 2; only the camp on the two Wadi Tarfans is, GH-1381)', async () => {
     const lines: string[] = [];
     const run = await runArena(['--a', 'passive', '--b', 'passive', '--seeds', '1', '--map', 'wadi_tarfan_l', '--matchup', 'kdf', '--mode=points', '--out', '/nonexistent-arena-out'], { log: (l) => { lines.push(l); }, print: () => {} });
     expect(run.code).toBe(2);
