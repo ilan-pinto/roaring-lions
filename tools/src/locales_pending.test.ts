@@ -200,6 +200,17 @@ describe('pendingFor, renderMarkdown and the command line, on a copy of the real
     expect(r.out).toMatch(/cut to fit the comment size; about \d+ more items/);
     expect(cli(lang, `--root=${dir}`).out).not.toMatch(/cut to fit/);
   });
+  it('a list far bigger than a pipe buffer arrives whole (--json through a pipe is not cut where the buffer fills)', () => {
+    if (staged.length === 0) return;
+    const dir = tree('big');
+    edit(dir, 'packages/app/src/i18n/en.json', (en) => {
+      for (let i = 0; i < 30000; i++) en[`zz.big.${i}`] = `English line number ${i} with some padding to make it longer than it needs to be`;
+    });
+    const r = cli(lang, '--json', `--root=${dir}`);
+    expect(r.out.length).toBeGreaterThan(500000);
+    const parsed = JSON.parse(r.out) as { chrome: { missing: string[] } }[];
+    expect(parsed[0]?.chrome.missing.filter((k) => k.startsWith('zz.big.'))).toHaveLength(30000);
+  });
   it('a missing language is a bad command line (exit 2), "en" is not a staged language, and no argument is a usage error', () => {
     expect(cli('en').status).toBe(2);
     expect(cli('zz-not-staged').status).toBe(2);

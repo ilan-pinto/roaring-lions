@@ -185,4 +185,5 @@ function main(argv) {
   return 0;
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) process.exit(main(process.argv.slice(2)));
+// process.exitCode, not process.exit(): exit() cuts a large write to a PIPE short (a 64 KiB JSON list arrived truncated), while a file is synchronous.
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = main(process.argv.slice(2));
