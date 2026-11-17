@@ -253,7 +253,7 @@ function feedSinkGuard(file: string, src: string): 'guarded' | 'unguarded' | 'no
     ts.forEachChild(n, inHook);
   };
   const visit = (n: ts.Node): void => {
-    if (ts.isPropertyAssignment(n) && ts.isIdentifier(n.name) && n.name.text === 'onChat'
+    if (ts.isPropertyAssignment(n) && ts.isIdentifier(n.name) && (n.name.text === 'onChat' || n.name.text === 'onQuick')
       && (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))) inHook(n.initializer);
     ts.forEachChild(n, visit);
   };
@@ -283,6 +283,11 @@ describe('the HUD feed\'s chat sink checks `disposed` before it writes (review o
     expect(feedSinkGuard('k.ts', hook("(shown) => { /* if (!disposed) */ hud.note('if (!disposed)', 'info'); }"))).toBe('unguarded');
     expect(feedSinkGuard('l.ts', hook('(shown) => { log(shown); }'))).toBe('none');
     expect(feedSinkGuard('m.ts', "room.setHooks({ onChat: (seat, text) => { if (!disposed) hud.note(text, 'info'); } });")).toBe('none');
+    // the preset-phrase hook (S1b's onQuick) is a sink too: guarded beside a guarded onChat, and an unguarded one is caught
+    const both = (quick: string): string =>
+      `room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => { if (!disposed) hud.note(a, 'info'); }), onQuick: (seat, id) => chatInbox.deliver(seat, phrase(id), ${quick}) });`;
+    expect(feedSinkGuard('n.ts', both("(shown) => { if (!disposed) hud.note(b, 'info'); }"))).toBe('guarded');
+    expect(feedSinkGuard('o.ts', both("(shown) => hud.note(b, 'info')"))).toBe('unguarded');
   });
 
   it('main.ts\'s feed sink writes to the HUD only while the battlefield is not disposed', () => {
