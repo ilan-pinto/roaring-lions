@@ -88,7 +88,7 @@ import {
   abVerdict,
   isPresetLiveModule,
   parseRagdollArgs,
-  ragdollBurstPlan,
+  armPlan,
   rewritePresetLive,
   stats as ragdollStats,
   windowStats,
@@ -853,7 +853,7 @@ async function ragdollScenarioInPage(cfg: { view: [number, number, number]; perT
 const RAGDOLL_VIEW: [number, number, number] = [26, 22, 1.6];
 
 /** Runs the scenario on a booted page at `cap` (read back first), refusing every way the read could be empty. */
-async function runRagdollRows(page: Page, expectCap: number, rapierRequests: () => number): Promise<{ rows: ArmRows; read: RagdollRead }> {
+async function runRagdollRows(page: Page, expectCap: number, liveCap: number, rapierRequests: () => number): Promise<{ rows: ArmRows; read: RagdollRead }> {
   if (expectCap > 0) {
     // Rapier loads asynchronously; a claim before it is ready is refused and the death keeps the animated fall.
     await page.waitForFunction(() => (window as unknown as { __lions: { renderer: { ragdolls: { ready: boolean } } } }).__lions.renderer.ragdolls.ready, null, { timeout: 60000 });
@@ -863,7 +863,8 @@ async function runRagdollRows(page: Page, expectCap: number, rapierRequests: () 
   await page.waitForTimeout(3000);
   const cap = await page.evaluate(() => (window as unknown as { __lions: { renderer: { ragdolls: { cap: number } } } }).__lions.renderer.ragdolls.cap);
   if (cap !== expectCap) throw new Error(`fx-ragdoll: the renderer reads ragdoll cap ${cap}, this arm expects ${expectCap}`);
-  const plan = ragdollBurstPlan(expectCap);
+  // The burst is the LIVE cap's in both arms (`armPlan`): the arms must kill the same teams.
+  const { burst: plan, expectedPeakFigures } = armPlan(liveCap, expectCap > 0 ? 'on' : 'off');
   const read = await page.evaluate(ragdollScenarioInPage, {
     view: RAGDOLL_VIEW,
     perTick: [...plan.perTick],
@@ -874,8 +875,8 @@ async function runRagdollRows(page: Page, expectCap: number, rapierRequests: () 
   });
   if (read.killed !== plan.victims) throw new Error(`fx-ragdoll: ${read.killed} of ${plan.victims} victims died`);
   // The cap held and was full: every figure it allows was IN FLIGHT (active, stepping), and the extra team was refused.
-  if (read.peakActiveFigures !== plan.expectedPeakFigures) {
-    throw new Error(`fx-ragdoll: peak active ragdoll figures ${read.peakActiveFigures}, expected ${plan.expectedPeakFigures} (cap ${cap})`);
+  if (read.peakActiveFigures !== expectedPeakFigures) {
+    throw new Error(`fx-ragdoll: peak active ragdoll figures ${read.peakActiveFigures}, expected ${expectedPeakFigures} (cap ${cap})`);
   }
   if (expectCap > 0 && read.maxSteps < 30) throw new Error(`fx-ragdoll: the ragdolls took at most ${read.maxSteps} physics steps: the sim clock did not move them`);
   if (expectCap === 0 && rapierRequests() > 0) throw new Error(`fx-ragdoll: cap 0 fetched Rapier (${rapierRequests()} requests)`);
@@ -917,7 +918,7 @@ async function runRagdollAb(): Promise<void> {
       if (rewrites === 0) throw new Error(`fx-ragdoll: the ${arm} arm never served preset-live.ts through its route`);
       const expectCap = arm === 'on' ? EXPECTED_LIVE_CAP[quality] : 0;
       const loadBefore = os.loadavg()[0].toFixed(2);
-      const { rows, read } = await runRagdollRows(page, expectCap, () => rapier);
+      const { rows, read } = await runRagdollRows(page, expectCap, EXPECTED_LIVE_CAP[quality], () => rapier);
       (arm === 'on' ? on : off).push(rows);
       console.log(
         `${label} RAGDOLL quality=${quality} round=${Math.floor(i / 2) + 1} arm=${arm} cap=${read.cap} team=${read.team} ` +
@@ -1268,7 +1269,7 @@ try {
     }
     // ---- infantry kill (GH-1400): two-figure teams over four ticks, at the cap this tree ships for the preset.
     const shippedCap = await page.evaluate(() => (window as unknown as { __lions: { renderer: { ragdolls: { cap: number } } } }).__lions.renderer.ragdolls.cap);
-    const inf = await runRagdollRows(page, shippedCap, () => rapier);
+    const inf = await runRagdollRows(page, shippedCap, shippedCap, () => rapier);
     const infNote = `team ${inf.read.team}, killed ${inf.read.killed}/${inf.read.victims}, ragdoll cap ${inf.read.cap}, peak figures ${inf.read.peakActiveFigures}, max steps ${inf.read.maxSteps}`;
     for (const [k, v] of Object.entries(inf.rows)) {
       const name = k === 'quiet live' || k === 'settled live' ? `inf ${k}` : `inf-kill ${k.replace('burst ', '')}`;

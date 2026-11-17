@@ -75,6 +75,17 @@ export function ragdollBurstPlan(cap: number): BurstPlan {
   return { perTick, victims, offeredFigures: victims * TEAM_FIGURES, expectedPeakFigures: cap };
 }
 
+/**
+ * One arm's plan. BOTH arms of a preset kill the SAME burst, the one for the preset's LIVE cap; only the figures the
+ * ragdolls must hold differ (the cap ON, 0 OFF). The first `medium` read burst the OFF arm at its own cap (0, so nine
+ * teams) and the ON arm at 8 (five): its quiet frame drew 44 calls and 53k triangles fewer before anything died, and
+ * the ON arm read 0.65 ms FASTER in every row.
+ */
+export function armPlan(liveCap: number, arm: Arm): { readonly burst: BurstPlan; readonly expectedPeakFigures: number } {
+  const burst = ragdollBurstPlan(liveCap);
+  return { burst, expectedPeakFigures: arm === 'on' ? burst.expectedPeakFigures : 0 };
+}
+
 /** One frame of a live schedule: tick the sim first (outside the timed bracket) when `tick`, then draw at `alpha`. */
 export interface LiveFrame {
   readonly tick: boolean;

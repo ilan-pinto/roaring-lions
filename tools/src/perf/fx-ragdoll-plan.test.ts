@@ -6,6 +6,7 @@ import {
   medianOf,
   abSchedule,
   abVerdict,
+  armPlan,
   isPresetLiveModule,
   liveFrames,
   parseRagdollArgs,
@@ -49,6 +50,17 @@ describe('ragdollBurstPlan', () => {
   it('the oracle caps are the ruling, as literals', () => {
     expect(EXPECTED_LIVE_CAP).toEqual({ high: 16, medium: 8, low: 0 });
     expect(RAGDOLL_GATE_MS).toEqual({ median: 1.0, p95: 2.0 });
+  });
+});
+
+describe('armPlan', () => {
+  it('kills the same burst in both arms of a preset, holding the cap ON and nothing OFF', () => {
+    for (const cap of [16, 8, 0]) {
+      expect(armPlan(cap, 'off').burst).toEqual(armPlan(cap, 'on').burst);
+      expect(armPlan(cap, 'off').expectedPeakFigures).toBe(0);
+      expect(armPlan(cap, 'on').expectedPeakFigures).toBe(cap);
+    }
+    expect(armPlan(8, 'off').burst.perTick).toEqual([1, 1, 1, 2]);
   });
 });
 
