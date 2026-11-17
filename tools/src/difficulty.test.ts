@@ -74,7 +74,7 @@ describe('the Easier relief, in a real runtime (S7)', () => {
   // throw, every relief body is on loan (so none joins the roster), and the starting count -- what credits read --
   // is Standard's. 95 s of ticks per mission; no orders.
   const campaign = ids.filter((id) => raw(id).ledger.produces.length > 0);
-  it('covers the 38 campaign missions', () => expect(campaign.length).toBe(38)); // Was 34 (29 before Qasr Liwan's five): Bir Tarsha I, II, III and V
+  it('covers the 39 campaign missions', () => expect(campaign.length).toBe(39)); // Was 34 (29 before Qasr Liwan's five): Bir Tarsha I, II, III, IV and V
   it.each(campaign)('%s', (id) => {
     const ledger = { 'campaign.difficulty': 'easier' };
     const easier = campaignMission(raw(id), ledger);

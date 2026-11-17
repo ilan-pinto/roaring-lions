@@ -59,11 +59,11 @@ describe('Standard is the identity (S1)', () => {
 
 describe('where a posture changes nothing, by literal (S12)', () => {
   // Recorded on main before the build (census in the design, F-3): the tutorial produces nothing (D12), and, on main, four
-  // missions have no wave for Harder to push (three more arrived with Bir Tarsha). Literals, never re-derived from the data.
+  // missions have no wave for Harder to push (four more arrived with Bir Tarsha). Literals, never re-derived from the data.
   const IDENTITY: Record<PostureId, string[]> = {
     easier: ['beit_sahwan_0_tutorial'],
     standard: all.map((m) => m.id),
-    harder: ['beit_sahwan_0_tutorial', 'beit_sahwan_1_recon', 'wadi_halam_2_laager', 'wadi_halam_4_village', 'bir_tarsha_1_recon', 'bir_tarsha_3_clearance', 'bir_tarsha_5_subterranean'], // the last three have no wave to push (Bir Tarsha I, III, V)
+    harder: ['beit_sahwan_0_tutorial', 'beit_sahwan_1_recon', 'wadi_halam_2_laager', 'wadi_halam_4_village', 'bir_tarsha_1_recon', 'bir_tarsha_3_clearance', 'bir_tarsha_4_clearance', 'bir_tarsha_5_subterranean'], // the last four have no wave to push (Bir Tarsha I, III, IV, V)
   };
   for (const p of POSTURE_IDS) {
     it(`${p}: identity on exactly the recorded list`, () => {

@@ -43,6 +43,7 @@ import birTarsha5Map from '../../../data/maps/bir_tarsha_5.json';
 import birTarsha1Recon from '../../../data/missions/bir_tarsha_1_recon.json';
 import birTarsha2Foothold from '../../../data/missions/bir_tarsha_2_foothold.json';
 import birTarsha3Clearance from '../../../data/missions/bir_tarsha_3_clearance.json';
+import birTarsha4Clearance from '../../../data/missions/bir_tarsha_4_clearance.json';
 import birTarsha5Subterranean from '../../../data/missions/bir_tarsha_5_subterranean.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import qarnHadid2Map from '../../../data/maps/qarn_hadid_2.json';
@@ -546,6 +547,7 @@ export const missions = {
   bir_tarsha_1_recon: birTarsha1Recon,
   bir_tarsha_2_foothold: birTarsha2Foothold,
   bir_tarsha_3_clearance: birTarsha3Clearance,
+  bir_tarsha_4_clearance: birTarsha4Clearance,
   bir_tarsha_5_subterranean: birTarsha5Subterranean,
   ein_qasab_1_recon: einQasab1Recon,
   ein_qasab_2_foothold: einQasab2Foothold,

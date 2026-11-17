@@ -558,7 +558,7 @@ passiveAcrossSeeds('qasr_liwan_5_subterranean', 'qasr_liwan_5_subterranean (no o
 
 // --- Marj: Bir Tarsha, The Long Ground town 2 (GH-1438) -----------------------------------------------------------
 //
-// Four missions here (IV, the blade line, follows in its own PR), one ledger, run on the app's persistent merge like Qasr Liwan. Plans:
+// Five missions here, one ledger, run on the app's persistent merge like Qasr Liwan. Plans:
 // `plans/bir_tarsha*.ts`, one file per mission. The town starts on a bare `{}`.
 //
 // - I: a failable primary (`six_out`, 300 s). The passive control loses on that clock (`objective:six_out`), not on the 720 s limit.
@@ -575,8 +575,11 @@ const bt3 = run('bir_tarsha_3_clearance', BIR_TARSHA_PLANS.bir_tarsha_3_clearanc
 // The taken walk out on their own with no orders (bring_three_out is nearly free), so the control loses on the 720 s limit (withdrawn), not on an objective clock. Was 'defeat': 0 of 30 seeds.
 passiveAcrossSeeds('bir_tarsha_3_clearance', 'bir_tarsha_3_clearance (no orders)', 'withdrawn', btLed2);
 const btLed3 = { ...btLed2, ...bt3 };
-run('bir_tarsha_5_subterranean', BIR_TARSHA_PLANS.bir_tarsha_5_subterranean, btLed3, 'victory', 'bir_tarsha_5_subterranean', 3);
-passiveAcrossSeeds('bir_tarsha_5_subterranean', 'bir_tarsha_5_subterranean (no orders)', 'defeat', btLed3);
+const bt4 = run('bir_tarsha_4_clearance', BIR_TARSHA_PLANS.bir_tarsha_4_clearance, btLed3, 'victory', 'bir_tarsha_4_clearance');
+passiveAcrossSeeds('bir_tarsha_4_clearance', 'bir_tarsha_4_clearance (no orders)', 'defeat', btLed3);
+const btLed4 = { ...btLed3, ...bt4 };
+run('bir_tarsha_5_subterranean', BIR_TARSHA_PLANS.bir_tarsha_5_subterranean, btLed4, 'victory', 'bir_tarsha_5_subterranean', 3);
+passiveAcrossSeeds('bir_tarsha_5_subterranean', 'bir_tarsha_5_subterranean (no orders)', 'defeat', btLed4);
 
 // --- Beit Sahwan IV: Subterranean --------------------------------------------
 
