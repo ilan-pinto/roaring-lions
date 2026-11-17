@@ -292,6 +292,142 @@ The ladder's numbers are starting values, chosen against nothing measured; §8's
 design.
 
 ## 3. Matchmaking inside the relay design
+
+### 3.1 Where the queue lives: a `Matchmaker` Durable Object in the game Worker
+
+The PM design's shape stands: **one** matchmaker object (a small pool is made smaller by sharding), hibernating WebSockets, no
+`setInterval`, an alarm only for the next moment a pair can become feasible. What is new is the relay split, which makes "which
+Worker hosts it" a real choice.
+
+| | **In the game Worker** (recommended) | In the relay Worker |
+|---|---|---|
+| Minting rooms | through `roomsOf(env)`, like every `/api/match*` route, so the `ROOMS_NEW=0` lever moves ranked rooms with friend rooms | through the relay's own `MatchRoom` namespace, which the lever does not reach: after a flip, the game Worker's upgrade route would look for a ranked room in the legacy namespace and find nothing |
+| The relay's import closure (F8) | unchanged: the relay hosts `MatchRoom` only (D-R2, PR 1550's `relay.ts`: "Keep this file to these two exports") | grows by the matchmaker; F8's ceiling and the watch paths move |
+| Ticket signing | stays in the game Worker, as the relay design requires (§2.1 there) | the relay would start signing tickets |
+| What a deploy costs | every merge to `main` restarts it and drops every queue socket | only a relay deploy, which is every sim or tuning PR anyway (PR 1550) |
+
+**The cost on the left is cheap to carry.** A queue socket holds no game. On a drop the client reconnects (the same backoff as the
+room's transport) and presents a **requeue token** the matchmaker gave it at join: `{enqueuedAt, nonce, mac}`, where `mac` is an HMAC
+under `TICKET_SECRET` over the member id, `enqueuedAt` and the nonce. The member id is an input to the MAC and never in the token, so it
+never leaves the server (A3's rule). A token younger than 10 minutes restores the waited time; anything else starts afresh. An offer in
+flight at the moment of a deploy is simply lost: both players are requeued, and **neither gets a dodge**, because a dodge is written
+only for a decline the object received or an accept window that lapsed while the socket stayed connected.
+
+`wrangler.jsonc` gains a binding `QUEUE` to class `Matchmaker` and a migration `{ tag: 'mm-v1', new_sqlite_classes: ['Matchmaker'] }`
+(the PM design's tag), and a rate limiter `RANKED_LIMIT`. **The PM design's namespace id 1007 is now `ACCOUNT_LIMIT`**; the next free
+id is 1009.
+
+### 3.2 The shape
+
+```
+browser ──WS /api/ranked/ws──▶ game Worker: Origin rule, RANKED_LIMIT, seatMemberOf (a member is REQUIRED), flags.ranked
+                                  │   forwards the upgrade with: member id, request.cf.continent, a daily keyed hash of the address
+                                  ▼
+                             Matchmaker DO "mm:ranked"  (game Worker; hibernating sockets; entries live in socket attachments)
+                                  │ pair → found (blind) → both accept → draw map, seats, cell
+                                  │ roomsOf(env).get(idFromName(code)).fetch('https://room/create-ranked', …)   (tickets signed here)
+                                  ▼
+                             MatchRoom (relay Worker, `roaring-lions-relay`), ranked: true, both seats pre-assigned to members
+browser ◀── matched{code, seat, ticket} ── queue socket closed ── room socket opened (today's path, net/handoff.ts)
+```
+
+- **The member comes from the cookie, never the body** (A3 §0.13). A guest gets `closed{reason: 'signin'}`.
+- **What travels to the object** is three fields set by the game Worker, never by the client: the internal member id, the coarse
+  continent (`request.cf.continent`), and `netKey`, the day's keyed hash of the connecting address made with the same `ipSecret` the
+  account budgets already use. All three live in the socket attachment for the length of the wait and are **never written to storage**.
+- **What the client sends** in `join` is rebuilt field by field: `build`, `sides` (season 1: KDF only, §3.4), `veto` (at most one map),
+  and the requeue token if it has one. No callsign: the room shows the profile's display name, as A3 already does for members.
+- **Messages to the client:** `queued{position: 'few' | 'some' | 'many'}`, `band{stage}`, `found{deadline}`, `matched{code, seat, ticket}`,
+  `requeued`, and `closed{reason, until?}` with reasons `cap`, `switch`, `full`, `build`, `locked`, `busy` (already in a ranked match),
+  `signin`, `identity` (Q8) and `new` (Q9).
+- **Eligibility at join** costs one D1 read on ACCOUNTS (`ranked_member`, the member's providers and `created_at` in one query): the
+  lock, `active_code` (a member in a live ranked room cannot queue; the profile offers "Rejoin your ranked match" instead), the season's
+  lazy reset (§1.6), Q8 and Q9.
+
+### 3.3 Pairing and the widening band
+
+**Feasible pair.** Two entries pair only when: their builds match (the room would refuse a mismatch anyway); their `netKey`s differ (two
+seats from one address are never paired, §5.1); neither is the other's previous ranked opponent, unless nobody else has been feasible
+for 60 s; and the rating gap fits **both** entries' bands. Each entry's band is the PM design's (`max(100, RD)`, `max(200, RD)`,
+`max(400, RD)`, `max(700, RD)` at 0, 15, 30 and 60 s), with one change for ranked: **"unbounded" after 120 s is replaced by a floor on
+the weaker player's expected score**, 0.10 after 120 s and 0.05 after 300 s. At established RDs that is a gap of about 380 and 510
+points. A pairing the rating predicts at 97 to 3 teaches the rating nothing and the weaker player only that ranked is not for them.
+
+**Choosing among feasible pairs:** the smallest gap, and inside the first 30 s, a pair on one continent before one across two. Region is
+never a hard filter (the PM design's P3 rule).
+
+**Pairing is not instant.** After the event that makes a pair feasible, the object pairs at an alarm set 2 to 6 s later, at a random
+point, among every entry then feasible. One alarm per pairing is already in the PM design's budget (§7.2). It is what makes timing a join
+to catch one particular player unreliable (§5.5).
+
+**What a player waits, in this pool.** Thirty members who each queue twice an evening, spread over six evening hours, arrive at about ten
+an hour: a lone searcher waits about six minutes on average for the next arrival, and with the band at its 120 s floor nearly any two of
+them are feasible. The screen therefore says what it knows ("Widening the search", "Few players are searching now"), and Q15 asks
+whether a fixed "ranked hour" would serve a pool this small better.
+
+**Daily cap and kill switch.** The PM design's public-match cap (12 a day, counted in the object's storage, `closed{cap, until}`) and its
+total-rooms breaker apply to ranked, which is the only public queue. The kill switch is a `flags` row on ACCOUNTS, `ranked`, read at
+join with a 60 s cache in memory: `'open'` opens it, anything else including no row is closed, as `accounts`, `admin` and `records`
+already behave. Closing it needs no deploy and leaves rooms already minted to finish and be rated.
+
+### 3.4 Which map, which faction, and the KDF v Sarim asymmetry
+
+**Season 1 is the mirror only: KDF against KDF.**
+- **Maps:** the 25-minute fair maps, `beit_sahwan_outskirts`, `tel_marum`, `wadi_tarfan` and `milh_flats`. The three 35-minute large maps
+  cost 1.4 times the rows of a match (§7) and are out of season 1 (Q16).
+- **Rules:** placed forces, annihilation (no win mode), matched kit, `pace: realtime`, formations as `formationsOpenIn` says for a
+  mirror room. One rule set, so a rating means one thing (Q16).
+- **The map is drawn** uniformly from the pool minus each player's one veto (a veto can never empty it), and **shown only at the
+  face-off**, after both accepted (§5.4).
+- **The seats are drawn at random.** The mirror's measured seat lean (wadi_tarfan west 45 / east 51 at 96 seeds, inside the lead's
+  60/40) then falls on each player half the time, and the rating's advantage term for a mirror cell is 0.
+
+**Why not KDF v Sarim yet.** The faction cells were opened for friend rooms on bot probes reading "within 60/40": wadi_tarfan's placed
+cell is "Sarim-friendly about 56 pooled over 768" (`config.ts:376`). In rating terms an edge of `p` is `400·log10(p / (1 − p))` points:
+
+| Edge | 52/48 | 56/44 | 60/40 |
+|---|---|---|---|
+| Rating points | 14 | **42** | **70** |
+
+A steady-state game moves a rating about 10 points (§1.3), so an unadjusted 56/44 cell would carry a Sarim specialist about 40 points
+above their skill, permanently. GH-1399 says the same in product terms ("ranked play makes seat bias a product defect").
+
+**The options when the lead unparks balance (Q5):**
+
+| Option | How | Cost |
+|---|---|---|
+| **(a) Mirror only** (season 1, recommended) | no faction cell in the pool | Sarim is not ranked |
+| **(b) A faction cell with an advantage term** (recommended next) | §1.4's `a`: start at the probe's value shrunk halfway to 0 (bot readings are not human readings), journal it with every game, refit per cell at a season's end by a logistic fit of the residuals, published in the PR that changes it | at 12 matches a day the evidence is slow: a cell's win rate is ±7 points at 95% after 200 games and ±3.5 after 800, i.e. ±50 and ±24 rating points, so `a` leans on the probe for months |
+| (c) A rating per faction | two numbers per member | halves the evidence in a pool of 30; rejected |
+| (d) A ranked set: two games, sides swapped | the asymmetry cancels exactly | twice the rows and the time of a match; possible later, on the paid plan |
+
+When a faction cell opens, each player ticks KDF, Sarim or both, and the queue never seats a player on a side they did not tick
+(the PM design's standing rule). Sarim v Sarim does not exist (`Matchup` has no Sarim mirror).
+
+### 3.5 How a match room is minted from the queue
+
+1. **Pair.** Both entries get `found{deadline}` with 15 s to accept, and **nothing else**: no opponent, rating, map or side.
+2. **Both accept.** A decline or a lapsed window while connected is a dodge (§2.4); the one who accepted is requeued with the waited time
+   kept.
+3. **Draw.** The object draws the map, the seats and (later) the cell with a random source tests can inject (the Worker, not the sim).
+4. **Mint.** It mints a code with the existing `match/code.ts` and calls the room through `roomsOf(env)`, with
+   `locationHint` from the pair's continents (one continent: its hint; two: the table's choice for the pair), at the internal path
+   `https://room/create-ranked`. The request carries, field by field: the map, the factions by seat, `kit: 'matched'`,
+   `pace: 'realtime'`, the build, `ranked: {season, cell, adv, offerId}`, and both seats' `SeatMemberInfo` (as `routes.ts` builds it
+   today). A room that already exists answers 409, and the object mints again, at most three times.
+5. **Tickets.** The object signs both seat tickets with `TICKET_SECRET` (it runs in the game Worker, where signing stays) and writes
+   both members' `active_code` in one batch.
+6. **Hand-off.** Each socket gets `matched{code, seat, ticket}` and is closed; the page opens the room socket through the existing
+   hand-off (`net/handoff.ts`) and shows the lobby read-only as a 10 s face-off: both display names, the map, the sides. No Ready
+   step: accepting was the ready.
+7. **The member must match.** The upgrade route resolves the cookie's member as it does for create and join, and a ranked room
+   refuses a `hello` whose member is not the seat's (`ranked_member_mismatch`). A leaked ticket is useless.
+8. **What a ranked room refuses:** `/join` (both seats are assigned), `/advisor` in either scope (an `assist` advisor is an AI playing a
+   seat), `kit: 'brigade'` (never in a public or ranked room, network design decision 5), a seat of kind `bot`, and free-text chat
+   (quick chat only, the use `protocol.ts` names for it). Pauses: one of 60 s a seat (the PM design's Q5; Q17 here).
+9. **The end** is §2.2, written in one batch that also clears both `active_code`s. A room that never starts (row L) clears them at its
+   own end. `active_code` older than `ROOM_TTL_MS` is ignored when read, so a lost write cannot strand a member.
+
 ## 4. The D1 schema and the migration plan (ACCOUNTS)
 ## 5. Abuse cases
 ## 6. What /privacy must say, and retention
