@@ -13,7 +13,7 @@ import {
   storeItems,
   type CoinAsk,
 } from './stores';
-import { buyTierWithCoins, buyUnitWithCoins, emptyRoar, grantCouponCoins, networkView, singlePlayerView, type RoarWallet } from './wallet';
+import { buyTierWithCoins, buyUnitWithCoins, emptyRoar, grantCouponCoins, networkView, resetFree, singlePlayerView, type RoarWallet } from './wallet';
 
 const funded = (n = 100_000): RoarWallet => grantCouponCoins(emptyRoar(), n, ['lead_roar_coins_100k'], 1);
 const fresh = () => storeInputFor({ ledger: {}, brigade: emptyAccount(), roar: funded() });
@@ -109,5 +109,41 @@ describe('switch ON: coins buy cosmetics only', () => {
     const run = buyUpgradeRun(rich, 'inf_squad', 'armour', 1, 1, [115, 175, 250]);
     expect(run.ok).toBe(true);
     expect(run.account.balance).toBe(10_000 - 115);
+  });
+});
+
+// F5 (the lead's ruling on PR 1565): with the switch on, the brigade reset never revokes what coins bought.
+describe('resetFree and the switch', () => {
+  /** A wallet that bought a unit and a tier with free coins, with an earn record to clear. */
+  const bought = (): RoarWallet => {
+    let w = funded();
+    w = buyUnitWithCoins(w, 'spg_long_range', 650, 6500, 2).account;
+    w = buyTierWithCoins(w, 'inf_squad', 'armour', 1, 0, 15, 115, 3).account;
+    return { ...w, earn: { welcomed: true, campaignDone: false, backfilled: true, missions: { m1: { won: true, stars: 2 } } } };
+  };
+
+  it('OFF: as today, the free half goes: balance, free unit and tier, earn record and free receipts', () => {
+    const r = resetFree(bought(), false);
+    expect(r.coins).toEqual({ free: 0, paid: 0 });
+    expect(r.entitlements).toEqual({ units: {}, upgrades: {} });
+    expect(r.earn).toEqual({ welcomed: false, campaignDone: false, backfilled: true, missions: {} });
+    expect(r.receipts).toEqual([]);
+  });
+
+  it('ON: KEEPS every coin-bought unit and tier, and the balance, earn record and receipts with them', () => {
+    const w = bought();
+    const copy = structuredClone(w);
+    const r = resetFree(w, true);
+    // Nothing in the wallet moved (no cosmetic entitlement exists to refund), so it is the wallet itself, untouched.
+    expect(r).toBe(w);
+    expect(w).toEqual(copy);
+    expect(r.entitlements).toEqual({ units: { spg_long_range: { free: true } }, upgrades: { inf_squad: { armour: { tier: 1, paidTiers: 0 } } } });
+    expect(r.coins.free).toBe(100_000 - 650 - 15);
+    expect(singlePlayerView(emptyAccount(), r).boughtUnits.has('spg_long_range')).toBe(true);
+  });
+
+  it('with no switch argument it answers as the constant\'s arm', () => {
+    expect(resetFree(bought())).toEqual(resetFree(bought(), COINS_COSMETIC_ONLY));
+    expect(resetFree(bought()).entitlements.units.spg_long_range !== undefined).toBe(COINS_COSMETIC_ONLY);
   });
 });

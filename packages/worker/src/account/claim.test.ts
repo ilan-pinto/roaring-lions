@@ -65,7 +65,8 @@ function setup(opts: Opts = {}) {
         let fired = false;
         db = { ...inner, prepare: (q: string) => inner.prepare(q), batch: async (ss: D1Stmt[]) => { if (!fired && ss.length > 1) { fired = true; await hook(inner); } return inner.batch(ss); } };
       }
-      return handleAccount(req, { ...env, ACCOUNTS: db }, clock.t || at, { fetch: async () => new Response('no', { status: 500 }), coupons: TABLE });
+      // E13: OFF explicitly, so the reset in no_repay_after_a_reset clears the free half after the flip too.
+      return handleAccount(req, { ...env, ACCOUNTS: db }, clock.t || at, { fetch: async () => new Response('no', { status: 500 }), coupons: TABLE, coinsCosmeticOnly: false });
     },
   });
   return { h, clock, racing: () => racing };

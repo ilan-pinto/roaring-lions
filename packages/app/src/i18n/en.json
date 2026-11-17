@@ -777,6 +777,7 @@
   "garage.redeem.unknown": "That code is not valid",
   "garage.reset.button": "Reset brigade account",
   "garage.reset.confirm": "Click again to reset — this also clears your free Roar coins, free purchases and the record of what you earned, so you can earn them again. It cannot be undone",
+  "garage.reset.confirm.cosmeticOnly": "Click again to reset your credits and what they bought. Your Roar coins, and everything coins bought, stay yours. It cannot be undone",
   "garage.reset.keep": "Keep the brigade",
   "kit.level.1": "Kit I",
   "kit.level.2": "Kit II",

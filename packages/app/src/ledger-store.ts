@@ -63,7 +63,7 @@
 import { ROAR_KEY, emptyRoar, loadRoar, resetFree, restoreRoarText, saveRoar, snapshotRoarText, type RoarSeed, type RoarWallet } from './roar-wallet';
 import type { LedgerData, LedgerRosterEntry } from '@lions/sim';
 import type { KillCause } from './kill-cause';
-import type { VictoryWin } from '@lions/economy';
+import { COINS_COSMETIC_ONLY, type VictoryWin } from '@lions/economy';
 import {
   ACCOUNT_KEY,
   emptyAccount,
@@ -269,7 +269,9 @@ function refusingWhileClaiming(backend: StorageLike): StorageLike {
  * function with a different backend, which is what keeps the test double from
  * being a second implementation that can disagree with the real one.
  */
-function overStorage(backend: StorageLike | null, backfill?: RoarBackfill, refuseClaim = true): LedgerStore {
+/** `cosmeticOnly` (E13, F5; default `COINS_COSMETIC_ONLY`, read through `@lions/economy`): with it on, the reset keeps
+ *  the wallet's coin-bought units and tiers (`resetFree`). Only the test double sets it. */
+function overStorage(backend: StorageLike | null, backfill?: RoarBackfill, refuseClaim = true, cosmeticOnly: boolean = COINS_COSMETIC_ONLY): LedgerStore {
   const store = backend === null ? null : refuseClaim ? refusingWhileClaiming(backend) : backend;
   /** The back-payment, read from the ledger AS IT STANDS when the wallet is first made. */
   const seed: RoarSeed | undefined =
@@ -310,7 +312,9 @@ function overStorage(backend: StorageLike | null, backfill?: RoarBackfill, refus
       const roarBefore = snapshotRoarText(store);
       if (roarBefore === null) return removeStoredAccount(store);
       try {
-        saveRoar(store, resetFree(wallet));
+        // E13 (F5): with the switch on the wallet half keeps every coin-bought unit and tier (`resetFree`). Passed from
+        // `overStorage`, whose default reads the constant through `@lions/economy` like the app's other readers.
+        saveRoar(store, resetFree(wallet, cosmeticOnly));
         return removeStoredAccount(store);
       } catch (err) {
         try {
@@ -414,7 +418,7 @@ export interface MemoryLedgerStore extends LedgerStore {
   readonly map: Map<string, string>;
 }
 
-export function memoryLedgerStore(seed: Partial<Record<string, string>> = {}, backfill?: RoarBackfill): MemoryLedgerStore {
+export function memoryLedgerStore(seed: Partial<Record<string, string>> = {}, backfill?: RoarBackfill, opts: { cosmeticOnly?: boolean } = {}): MemoryLedgerStore {
   const map = new Map<string, string>();
   for (const [key, value] of Object.entries(seed)) if (value !== undefined) map.set(key, value);
   // Through the same `overStorage` the browser path takes, so a spec written
@@ -424,7 +428,7 @@ export function memoryLedgerStore(seed: Partial<Record<string, string>> = {}, ba
     setItem: (k, v) => void map.set(k, v),
     removeItem: (k) => void map.delete(k),
   };
-  return { ...overStorage(backend, backfill), raw: (k) => map.get(k) ?? null, map };
+  return { ...overStorage(backend, backfill, true, opts.cosmeticOnly), raw: (k) => map.get(k) ?? null, map };
 }
 
 /** The unavailable variant: what every call site gets in a private window with

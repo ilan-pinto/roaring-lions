@@ -123,3 +123,45 @@ describe('POST claim, switch ON: a device\'s coin-bought items are carried, neve
     }
   });
 });
+
+// F5 (the lead's ruling on PR 1565): POST reset-free with the switch on keeps every coin-bought unit and tier; off, it
+// clears the free half exactly as today.
+describe('POST reset-free and the switch', () => {
+  async function boughtThenReset(on: boolean | undefined) {
+    const flag = { on: false as boolean | undefined };
+    const h = setup(flag);
+    const { cookie } = await seedWalletMember(h.db, 'm1', T0, { free: 1000 });
+    expect((await spend(h, cookie, UNIT)).status).toBe(200);
+    expect((await spend(h, cookie, TIER)).status).toBe(200);
+    flag.on = on;
+    const r = await h.call('POST', '/api/account/reset-free', { cookie, body: { op_id: op() } });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { wallet: { free: number; entitlements: unknown } };
+    return { h, cookie, body };
+  }
+  const BOUGHT = { units: { dozer_d9: { free: true } }, upgrades: { inf_squad: { armour: { tier: 1, paidTiers: 0 } } } };
+
+  it('OFF: the free balance and the coin-bought unit and tier go, journalled as a reset', async () => {
+    const { h, body } = await boughtThenReset(false);
+    expect(await freeOf(h)).toBe(0);
+    expect(await entitlementsOf(h)).toEqual({ units: {}, upgrades: {} });
+    expect(body.wallet).toMatchObject({ free: 0, entitlements: { units: {}, upgrades: {} } });
+    expect(await kinds(h)).toEqual(['claim', 'unit', 'tier', 'reset']);
+  });
+
+  it('ON: the coin-bought unit and tier and the balance stay; no journal row claims coins were cleared', async () => {
+    const { h, cookie, body } = await boughtThenReset(true);
+    expect(await freeOf(h)).toBe(1000 - 60 - 15);
+    expect(await entitlementsOf(h)).toEqual(BOUGHT);
+    expect(body.wallet).toMatchObject({ free: 1000 - 60 - 15, entitlements: BOUGHT });
+    expect(await kinds(h)).toEqual(['claim', 'unit', 'tier']);
+    const state = (await (await h.call('GET', '/api/account/state', { cookie })).json()) as { wallet: { free: number; entitlements: unknown } };
+    expect(state.wallet).toMatchObject({ free: 1000 - 60 - 15, entitlements: BOUGHT });
+  });
+
+  it('no switch in deps: the reset answers as the constant\'s arm', async () => {
+    const { h } = await boughtThenReset(undefined);
+    expect(await entitlementsOf(h)).toEqual(COINS_COSMETIC_ONLY ? BOUGHT : { units: {}, upgrades: {} });
+    expect(await freeOf(h)).toBe(COINS_COSMETIC_ONLY ? 1000 - 60 - 15 : 0);
+  });
+});

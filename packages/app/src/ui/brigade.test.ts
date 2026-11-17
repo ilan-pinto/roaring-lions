@@ -876,6 +876,7 @@ describe('showBrigade — the wallet and the footer', () => {
   it('prints the balance in the wallet and asks twice before resetting the account', () => {
     let resets = 0;
     const host = mount({
+      cosmeticOnly: false, // E13: the OFF arm's confirm line, explicitly (reset-cosmetic.test.ts holds the ON arm)
       units,
       ledger: {},
       possibleStars: 78,

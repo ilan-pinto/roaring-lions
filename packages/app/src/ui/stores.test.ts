@@ -275,7 +275,8 @@ describe('the garage\'s Stores tab', () => {
       owned: {},
       onBuy: () => undefined,
       onBuyUpgrade: () => undefined,
-      stores: { coinSrc, cosmeticOnly: false },
+      cosmeticOnly: false,
+      stores: { coinSrc },
     });
     return { host, dispose };
   }
@@ -315,9 +316,9 @@ describe('the garage\'s Stores tab', () => {
       possibleStars: 78,
       credits: 0,
       owned: {},
+      cosmeticOnly: false,
       stores: {
         coinSrc,
-        cosmeticOnly: false,
         open: true,
         read: () => ({
           coin: { earnedUnits: new Set(), coinUnits, earnedTiers: {}, coinTiers: {} },
@@ -525,9 +526,9 @@ describe('GH-1076: the "What it adds" panel', () => {
       possibleStars: 78,
       credits: 0,
       owned: {},
+      cosmeticOnly: false,
       stores: {
         coinSrc,
-        cosmeticOnly: false,
         open: true,
         read: () => ({
           coin: { earnedUnits: new Set(), coinUnits, earnedTiers: {}, coinTiers: {} },
@@ -721,9 +722,9 @@ describe('a guest Buy still answers synchronously', () => {
       possibleStars: 3,
       credits: 0,
       reducedMotion: () => true,
+      cosmeticOnly: false,
       stores: {
         coinSrc,
-        cosmeticOnly: false,
         open: true,
         read: () => ({ coin: coinHalfFor({ brigade: emptyAccount(), roar: emptyRoar() }), wallet: { coins: 99999, receipts: [] } }),
         onBuy: (ask) => {

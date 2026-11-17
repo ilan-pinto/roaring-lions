@@ -161,7 +161,7 @@ describe('T21 reset and slots with credit tiers and coin tiers', () => {
   });
 
   it('resetAccount drops a bought unit\'s credit tiers, its unlock and the free coin tiers', () => {
-    const s = memStore();
+    const s = memStore({}, undefined, { cosmeticOnly: false }); // E13: the reset suites run the OFF arm explicitly, so they keep running after the flip.
     const bought = buyUpgradeRun({ ...funded, unlocks: ['spg_long_range'] }, 'spg_long_range', 'armour', 1, 3, PRICES).account;
     s.writeAccount(bought);
     s.writeRoar(coinWallet());
@@ -181,7 +181,7 @@ describe('T21 reset and slots with credit tiers and coin tiers', () => {
       coins: { free: 10, paid: 5 },
       entitlements: { units: {}, upgrades: { u: { armour: { tier: 2, paidTiers: 1 }, sensors: { tier: 1, paidTiers: 0 } } } },
     };
-    const r = resetFree(w);
+    const r = resetFree(w, false); // E13: the reset suites run the OFF arm explicitly, so they keep running after the flip.
     expect(r.entitlements.upgrades).toEqual({ u: { armour: { tier: 1, paidTiers: 1 } } });
     expect(r.coins).toEqual({ free: 0, paid: 5 });
   });

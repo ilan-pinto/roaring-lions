@@ -155,9 +155,9 @@ function garage(r: Rig, over: Partial<BrigadeOptions> = {}): HTMLElement {
       reducedMotion: () => true,
       gate: r.flow.gate,
       pendingTracks: r.flow.gate.pendingTracks,
+      cosmeticOnly: false,
       stores: {
         coinSrc: (s) => `/c${s}.png`,
-        cosmeticOnly: false,
         open: true,
         pendingTracks: r.flow.gate.pendingTracks,
         read: () => {

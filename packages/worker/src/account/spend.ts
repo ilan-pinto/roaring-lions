@@ -205,10 +205,12 @@ export async function resetFreeRoute(ctx: AccountCtx): Promise<Response> {
     const camp = await readCampaign(db, memberId);
     const receipts = await receiptsOf(db, memberId);
     const roar = asRoar(wallet, receipts);
-    const after = resetFree(roar);
+    // E13 (F5): with the switch on the wallet half keeps every coin-bought unit and tier (`resetFree` hands back `roar`
+    // itself), so no journal row says "free coins cleared"; the wallet write stays, for its revision guard.
+    const after = resetFree(roar, ctx.deps.coinsCosmeticOnly ?? COINS_COSMETIC_ONLY);
     // `earn` is emptied and `earn_lifetime` is not: the claim record outlives the reset (R15).
     const entry: JournalEntry = { kind: 'reset', delta: after.coins.free - wallet.free, receipt: null, detail: { free: wallet.free }, opId: raw.op_id as string, at: ctx.now };
-    const statements: D1Stmt[] = [...walletWrite(db, wallet, { roar: after, earnLifetime: wallet.earnLifetime }, [entry])];
+    const statements: D1Stmt[] = [...walletWrite(db, wallet, { roar: after, earnLifetime: wallet.earnLifetime }, after === roar ? [] : [entry])];
     let campaign: CampaignView | null = null;
     if (camp !== null) {
       const body: CampaignBody = { ...camp.body, brigade: emptyAccount() };

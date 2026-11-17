@@ -316,8 +316,18 @@ export function buyTierWithCoins(
  * entitlements, the earn record) and the paid half stays (G-S3's twin). The earn
  * record goes with the free coins it paid out, so the account starts over as a new
  * one would. A track keeps only the tiers a paid coin bought.
+ *
+ * E13 (the lead's ruling on PR 1565, F5): with `cosmeticOnly` (default
+ * `COINS_COSMETIC_ONLY`) a coin can no longer buy a unit or a tier back, so the
+ * reset KEEPS every coin-bought unit and tier, and with them the balance, the
+ * earn record and the receipts: nothing coins bought is ever revoked. It refunds
+ * and clears only cosmetics, and the wallet holds none today (there is no
+ * cosmetic entitlement yet), so it hands back `w` itself, unchanged; the Worker
+ * reads that identity as "nothing in the wallet moved" and journals no row. The
+ * brigade account's own reset (credits, credit purchases) is not this function's.
  */
-export function resetFree(w: RoarWallet): RoarWallet {
+export function resetFree(w: RoarWallet, cosmeticOnly: boolean = COINS_COSMETIC_ONLY): RoarWallet {
+  if (cosmeticOnly) return w;
   const units: Record<string, UnitEntitlement> = {};
   for (const [id, e] of Object.entries(w.entitlements.units)) if ('paid' in e) units[id] = e;
   const upgrades: Record<string, Record<string, TrackEntitlement>> = {};

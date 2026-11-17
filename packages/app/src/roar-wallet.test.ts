@@ -136,7 +136,7 @@ describe('G-S3: the wallet outlives a new campaign, ?fresh and a slot load', () 
   });
 
   it('the brigade reset clears the FREE half only', () => {
-    const s = memoryLedgerStore();
+    const s = memoryLedgerStore({}, undefined, { cosmeticOnly: false }); // E13: the reset suites run the OFF arm explicitly, so they keep running after the flip.
     s.writeAccount({ ...emptyAccount(), balance: 5 });
     const w: RoarWallet = {
       ...funded(),
@@ -161,7 +161,7 @@ describe('G-S3: the wallet outlives a new campaign, ?fresh and a slot load', () 
         { kind: 'unit', id: '2', at: 2, coins: { free: 10, paid: 0 }, unitId: 'a', credits: 100 },
       ],
     };
-    const r = resetFree(w);
+    const r = resetFree(w, false); // E13: the reset suites run the OFF arm explicitly, so they keep running after the flip.
     expect(r.coins).toEqual({ free: 0, paid: 25 });
     expect(r.entitlements.units).toEqual({ b: { paid: true } });
     expect(r.entitlements.upgrades).toEqual({ u: { t: { tier: 1, paidTiers: 1 } } });
