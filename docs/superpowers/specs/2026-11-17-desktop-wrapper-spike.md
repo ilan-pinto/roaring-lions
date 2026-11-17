@@ -1,0 +1,250 @@
+# Desktop wrapper spike: Electron, Tauri or NW.js (GH-1418, B5-2)
+
+**HOLD FOR LEAD on the choice.** This document recommends a wrapper; it does not choose one. Nothing here signs,
+uploads, publishes or registers anything, and no app code changed.
+
+- Issue: GH-1418 (the demo: its own appID, a packaged build, a Next Fest registration). No comments and no linked PRs
+  at the time of writing (`gh api search/issues "repo:ilan-pinto/roaring-lions 1418 is:pr"` returns nothing).
+- Prototype: `pnpm desktop:spike` (`tools/desktop/build-local.mjs` + `tools/desktop/main.mjs`), output in
+  `dist-desktop/` (gitignored; eslint already ignores `**/dist-*/**`).
+- Conventions: every claim carries its source URL. **(est.)** marks an estimate or inference of mine. **(measured)**
+  marks a number from the spike run in section 2, with its conditions. Three documentation hosts were not reachable
+  from the session that wrote this (`www.electronjs.org`, `v2.tauri.app`, `webkitgtk.org`); where their pages are
+  cited, the text was read from the same docs' GitHub source or from a search-result excerpt, and that is said.
+
+---
+
+## 1. What the game needs from a wrapper (facts from this repository)
+
+These decide the comparison more than any benchmark does.
+
+| Need | Fact in the repo | Consequence |
+|---|---|---|
+| WebGL2 | The shipping renderer is three.js on WebGL2. WebGPU is a sandbox-only opt-in (`?gpu=webgpu`, `packages/app/src/main.ts` near the `backend:` telemetry field). | WebGL2 is the hard requirement. WebGPU is a "later" requirement. |
+| One engine | Every visual gate (`pnpm golden-baseline`), `ui:shots`, `ui:routes` and the perf tools run on Chromium (Playwright). | A wrapper that ships Chromium runs the engine the game is tested on. Any other engine is an untested target. |
+| Absolute asset paths | `vite.config.ts` builds with `base: '/'`; chunks, GLBs, textures, audio and the Draco decoder load from `/assets/`, `/meshes/`, `/draco/`... | `file://` breaks every one of them. The wrapper needs a custom scheme (or a local server) whose `/` is the build. |
+| Decoders | Draco only: two `draco_decoder*.wasm` in `assets/` plus `/draco/` (172 GLBs use `KHR_draco_mesh_compression`). No GLB uses `KHR_texture_basisu` and no `.ktx2` ships, so there is **no Basis/KTX2 transcoder to bundle today**. Rapier is inlined in its JS chunk. | The scheme must serve `application/wasm` and allow `'wasm-unsafe-eval'` (the CSP in `assets/_headers` already does). |
+| Audio | `audio.ts` plays OGG Vorbis first and falls back to `.m4a` only when OGG is unplayable. | Any Chromium plays OGG; the 5.9 MiB of `.m4a` is dead weight in a Chromium bundle (not pruned by the spike). |
+| Network | Telemetry, accounts, feedback and versus rooms call relative `/api/...` and switch off on a `*.local` host (`telemetry/enabled.ts` `LOCAL`, `account/enabled.ts`, `feedback/gate.ts`). | The spike's origin is `app://roaring-lions.local`, so the packaged build is offline and quiet with no app change. "Play with a friend" cannot reach a room from it (open question 3). |
+| Size | `pnpm build` output: 183 MB (`du -sh packages/app/dist`): meshes 109 MB, assets (JS/wasm) 28 MB, ui 20 MB, audio 14 MB, textures 8.6 MB. | The game payload, not the runtime, dominates any installer. |
+
+## 2. What the spike built and measured
+
+`pnpm desktop:spike --smoke` (Electron 45.2.1, `@electron/packager` 20.3.0, linux-x64, asar off, no signing):
+
+| Measure | Value | Conditions |
+|---|---|---|
+| Staged web build | 180.4 MiB | `packages/app/dist` at `e049ba7` (origin/dev), copied unchanged |
+| Bundle on disk | **453.8 MiB** (Electron runtime 273.4 MiB + game 180.4 MiB) | `dist-desktop/out/Roaring Lions-linux-x64/` |
+| `tar.gz` of the bundle (installer stand-in) | **275.0 MiB** (runtime 118.0 MiB + game 156.9 MiB, compressed separately) | `tar -czf`, gzip default level |
+| Headless launch | **PASS**: `app://roaring-lions.local/` loaded, title "Roaring Lions", secure context, WebGL2 context created, the menu diorama drew (screenshot `dist-desktop/smoke.png`), **0 console errors** | Xvfb 1600x900x24, 4-core container, no GPU: WebGL on ANGLE/SwiftShader (Vulkan 1.3.0, SwiftShader driver), Chromium 156.0.8078.75, `--no-sandbox` because the container runs as root |
+| WebGPU | `navigator.gpu` present, `requestAdapter()` returned null | Same: no GPU, so this says nothing about real hardware |
+| Deep routes | `/free-play` and `/mission/beit_sahwan_0_tutorial` both loaded through the SPA fallback; the tutorial's briefing drew its ground photograph (the battlefield renderer booted), 0 console errors | Same, 40 s settle |
+
+All numbers are **(measured)** once on the conditions above; SwiftShader is a software rasteriser, so none of this is a
+performance number.
+
+**The gate was watched going red** (CLAUDE.md, "every check gets an input that makes it fail"), each mutation run
+against the packaged bundle and then restored:
+
+1. `web/index.html` removed: `RL_SMOKE pass:false, reason did-fail-load -9 ERR_UNEXPECTED`, exit 1.
+2. The two SwiftShader switches deleted from the bundled `main.mjs`: `webgl2:false, pass:false`, exit 1 (the game
+   itself fell back to its flat menu plate with no console error, which is the intended no-WebGL path).
+3. Restored: `pass:true`, exit 0.
+
+Observed, cause not investigated: `--disable-webgl` and `--disable-3d-apis` passed on the Electron command line did
+**not** disable WebGL (the probe still read `webgl2:true`). A Chromium switch the game needs on Steam (for the
+overlay, section 3.5) should be appended in `main.mjs` with `app.commandLine.appendSwitch`, not left to a launch
+option.
+
+How the prototype serves the build (`tools/desktop/main.mjs`): a privileged standard scheme
+(`protocol.registerSchemesAsPrivileged`, `standard`/`secure`/`supportFetchAPI`/`corsEnabled`/`stream`) and
+`protocol.handle` returning files from the bundled `web/` through `net.fetch(pathToFileURL(...))`, with a path-escape
+guard, explicit MIME types, the `_headers` CSP applied to every response, and `index.html` for any extension-less
+path (the router's screens). This is the pattern Electron's own protocol doc shows: "Registering a scheme as standard
+allows relative and absolute resources to be resolved correctly when served", and its `app://` example serves a
+bundle with `net.fetch(pathToFileURL(pathToServe).toString())` behind a check "for paths that escape the bundle"
+(https://github.com/electron/electron/blob/main/docs/api/protocol.md). Service workers are deliberately not allowed on
+the scheme: the files are already on disk, and `registerServiceWorker` warns and carries on (its documented contract).
+The window runs with `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, no preload.
+
+## 3. The comparison
+
+### 3.1 Installer and on-disk size
+
+| | Runtime cost | With this game (180 MiB payload) |
+|---|---|---|
+| Electron | 273.4 MiB on disk, 118.0 MiB gzipped **(measured, linux-x64, 45.2.1)**. Community empty-app benchmark: about 263-266 MB on Windows x64 and Linux x64 (https://github.com/Elanis/web-to-desktop-framework-comparison, read through a search excerpt). | 454 MiB on disk, 275 MiB `tar.gz` **(measured)** |
+| Tauri | About 1-2 MB for an empty app in the same benchmark (same URL); other same-app comparisons put Tauri installers in single- to low-double-digit MB against Electron's 85-320 MB (https://hackernoon.com/six-months-with-tauri-the-benefits-and-the-bill, https://betterstack.com/community/guides/scaling-nodejs/tauri-vs-electron-vs-deno-vs-electrobun/). The Tauri docs give no number ("by default provides very small binaries", https://github.com/tauri-apps/tauri-docs/blob/v2/src/content/docs/concept/size.mdx). | About 185-200 MiB on Windows/macOS **(est.)**. On Linux under Steam it would have to carry its own WebKitGTK (3.2), which takes most of the advantage back **(est.)**. |
+| NW.js | About 404-474 MB for an empty app in the same community benchmark (same URL). | About 590-650 MiB on disk **(est.)** |
+
+Reading: the runtime is 118 MiB of a 275 MiB download for Electron **(measured)**. Tauri saves that 118 MiB at most;
+the game's own 157 MiB (compressed) is the floor for every option. Steam downloads compressed chunks and patches by
+chunk, so a later update costs what changed, not the whole bundle (https://partner.steamgames.com/doc/sdk/uploading,
+through a search excerpt: "SteamPipe is the game/application content system that powers Steam").
+
+### 3.2 WebGL2 and WebGPU
+
+| | WebGL2 | WebGPU |
+|---|---|---|
+| **Electron** (bundled Chromium; 45.2.1 = Chromium 156, measured) | Chromium's, on every OS: the engine every gate runs. **(measured** on SwiftShader above). | Follows Chromium: shipped on Windows, macOS and ChromeOS since 113; on Linux shipped for Intel Gen12+ (144) and NVIDIA 535.183.01+ on Wayland (147), other Linux "behind a flag" (`--enable-unsafe-webgpu`) (https://github.com/gpuweb/gpuweb/wiki/Implementation-Status, edited 2 Oct 2026). Electron can append that flag itself. Steam Deck (AMD, Linux) is in the flag group **(est.** from the table**)**. |
+| **Tauri, Windows** (WebView2, Chromium-based) | Chromium's, evergreen: "WebView2 can update itself, you are guaranteed a relatively recent chromium build on all Windows targets" (https://v2.tauri.app/reference/webview-versions/, read through a search excerpt). | Works when `--enable-unsafe-webgpu` is injected through `additionalBrowserArgs`, "Windows-only" (Tauri maintainer, https://github.com/tauri-apps/tauri/issues/6381). |
+| **Tauri, macOS** (WKWebView) | WebKit's, tied to the OS: "unsupported macOS versions do not receive WebKit updates" (same webview-versions page, search excerpt). | Safari/WebKit ships WebGPU in the 26 releases (gpuweb status page above). Tauri maintainer: it "should work out of the box on macos/ios 26+"; a user reports it works in production builds but not dev builds (issue 6381). Nothing before macOS 26. |
+| **Tauri, Linux** (WebKitGTK, the distro's version) | WebKitGTK's, whatever the distro ships. Tauri's own Linux graphics page says WebGL "can silently land on a slow path", that NVIDIA setups range from a blank window to subtle problems (the workaround, `WEBKIT_DISABLE_DMABUF_RENDERER`, "disables a faster path for everyone"), and that `WEBGL_debug_renderer_info` reports "Apple GPU" on every Linux machine (https://v2.tauri.app/develop/debug/linux-graphics/, search excerpt). That last one blinds this game's software-renderer notice (`ui/no-gpu.ts` reads the unmasked renderer string). An open WebKit bug reports slow WebGL framerates on GTK (https://bugs.webkit.org/show_bug.cgi?id=278695). | Not listed at all on the gpuweb status page; Tauri maintainer, asked whether it would be supported for "wkwebview/webkitgtk": no (issue 6381). Treat as absent **(est.)**. |
+| **NW.js** (bundled Chromium; v0.120.0 = Chromium 157, 12 Nov 2026, https://github.com/nwjs/nw.js) | Chromium's, every OS. | Follows Chromium, as Electron. |
+
+Reading: Electron and NW.js give one engine and one WebGL2 on all three OSes. Tauri gives three engines, two of
+which (WKWebView, WebKitGTK) nothing in this repository has ever been tested on, and one of which (WebKitGTK) is
+documented by Tauri itself as the weak spot for WebGL. A Tauri maintainer, asked whether Electron is the better
+option for cross-platform WebGPU, answered "yes" (issue 6381).
+
+### 3.3 Offline assets (the Vite `dist`, GLB, audio, Draco)
+
+- **Electron**: proved by the spike, with zero app changes: a privileged `app://` scheme serves the untouched build,
+  absolute paths resolve, the Draco wasm decodes, the router's paths fall back to `index.html` (section 2).
+- **Tauri**: serves the frontend from its own custom protocol by default (an assumption from Tauri's architecture,
+  not verified in this session: the Tauri docs host was unreachable) **(est.)**. Absolute paths would resolve the same
+  way. Untested here; the risk is not the protocol but the engines in 3.2. WKWebView's OGG support is not verified
+  here; the `.m4a` fallback covers it.
+- **NW.js**: can load the app from the package directory; with Node in the page there are more ways to read files,
+  but the same absolute-path issue applies and needs the same answer **(est.)**. Its prebuilt binary also ships
+  without patented codecs: "Due to licensing issues, the pre-built binary doesn't ship with the necessary codecs for
+  patented media formats" (https://github.com/nwjs/nw.js/wiki/Using-MP3-&-MP4-(H.264)-using-the--video--&--audio--tags.).
+  This game plays OGG Vorbis, which that list includes, so it costs nothing here.
+
+### 3.4 Licence
+
+| | Licence | Note |
+|---|---|---|
+| Electron | MIT (https://github.com/electron/electron) | The bundle carries Chromium's third-party notices (`LICENSES.chromium.html`, 5.4 MiB, measured in the bundle) and must keep shipping it. |
+| Tauri | "MIT or MIT/Apache 2.0 where applicable" (https://github.com/tauri-apps/tauri) | The system webview is not redistributed (except WebKitGTK on Linux if bundled, LGPL **(est.)**). |
+| NW.js | MIT for the repository code; redistributing the binary "is covered separately in the wiki" (https://github.com/nwjs/nw.js) | Patented codecs need a self-built ffmpeg, and the wiki warns that GPL ffmpeg codecs would pull the app under the GPL (wiki page above). |
+
+None conflicts with the game's PolyForm Noncommercial licence for the source **(est.;** a lead/legal call for the
+commercial demo**)**. `@electron/packager` is BSD-2-Clause (its `package.json` `license` field, read in this session); it is a
+build tool and is not in the shipped bundle.
+
+### 3.5 Steamworks hookup
+
+| | Binding | Overlay |
+|---|---|---|
+| **Electron** | `steamworks.js`, MIT, "A modern implementation of the Steamworks SDK for HTML/JS and NodeJS based applications" that replaces greenworks (https://github.com/ceifa/steamworks.js). `greenworks`, MIT, Steamworks SDK v1.62, Electron v1.0.0+, "maintained on a best-effort basis" (https://github.com/greenheartgames/greenworks). | `require('steamworks.js').electronEnableSteamOverlay()` at the end of `main.js` (steamworks.js README). Community notes add `in-process-gpu` and `disable-direct-composition` switches; reports conflict on whether both are still needed (https://github.com/ceifa/steamworks.js/issues/95, https://github.com/JamesMoulang/electron-steam-notes, via search excerpts). Needs testing on real GPUs. |
+| **Tauri** | `steamworks-rs`, MIT/Apache-2.0, crate 0.13.0 on SDK 1.64 (https://github.com/Noxime/steamworks-rs). | **The overlay does not hook WebView2.** WebView2 runs as a child HWND and "does not create a D3D Device in the application process"; Steam only adds the overlay for rendering in the main process, and `--in-process-gpu` alone was not enough (Microsoft and Construct, https://github.com/MicrosoftEdge/WebView2Feedback/discussions/4019). Construct's WebView2 workaround works only with an opaque background and breaks Steam Recordings, Remote Play and Broadcast (https://construct.net/en/blogs/ashleys-blog-2/trying-show-steam-overlay-1861). A third-party fix was posted in July 2026 and is unverified (same discussion). |
+| **NW.js** | greenworks (built for NW.js first, above). | Same Chromium process model as Electron; the overlay is reported to work for Chromium-based NW.js and Electron, not WebView2 (Construct, same blog, search excerpt) **(est.** for current versions**)**. |
+
+Security note for Electron: steamworks.js's README tells you to set `contextIsolation: false` and
+`nodeIntegration: true` so the renderer can `require` it. That is not necessary: keep the page sandboxed, call
+steamworks.js from the main process, and expose the handful of calls (achievements, overlay, user) through a preload
+with `contextBridge` **(est.;** the design choice for the real integration, not tried in the spike**)**.
+
+Linux under Steam: Steam-launched Electron apps have been reported to fail at startup because the Steam Linux
+Runtime's sandbox collides with Chromium's, with `--no-sandbox` as the usual workaround (community reports,
+https://docs.hagicode.com/en/faq/steam-linux-startup/ and https://steamcommunity.com/app/1675200/discussions/1/3416557114747120335,
+via search excerpts). A Tauri Linux build has the opposite problem: it links against the system `libwebkit2gtk-4.1`,
+which the Steam Linux Runtime container is not known to provide (SteamOS does not ship WebKit2GTK, per a search
+excerpt from the same search) **(est.)**, so it would have to bundle WebKitGTK.
+
+### 3.6 Auto-update
+
+On Steam, **Steam is the updater**: a build uploaded through SteamPipe and set live on a branch reaches players
+through the client ("Once your update is live, players will see the game update in their Steam client",
+https://partner.steamgames.com/doc/store/updates, search excerpt). The demo needs no in-app updater, and the spike
+ships none. For an off-Steam download later:
+
+- Electron: built-in `autoUpdater` on macOS (Squirrel.Mac) and Windows (Squirrel.Windows or MSIX); "There is no
+  built-in support for auto-updater on Linux"; "Your application must be signed for automatic updates on macOS"
+  (https://github.com/electron/electron/blob/main/docs/api/auto-updater.md).
+- Tauri: `tauri-plugin-updater` on Windows, macOS and Linux (AppImage), from a static JSON or a server; its own
+  update signature is mandatory and "cannot be disabled", and losing the private key strands existing installs
+  (https://github.com/tauri-apps/tauri-docs/blob/v2/src/content/docs/plugin/updater.mdx).
+- NW.js: nothing built in; third-party `nwutils/updater` (https://github.com/nwutils/updater); the older
+  `nwjs-builder-phoenix` is read-only since February 2021 (https://github.com/codekiln/nwjs-builder-phoenix, search
+  excerpt).
+
+### 3.7 Code signing
+
+The same for all three, because it is an OS rule, not a wrapper rule:
+
+- **macOS**: sign with an Apple Developer certificate and notarise; "Squirrel.Mac requires the app to be signed for
+  automatic updates to work at all" (https://github.com/electron/electron/blob/main/docs/tutorial/code-signing.md).
+  Steam's platform page states Steam "will require all new macOS Applications to be 64-bit and notarized by Apple"
+  from 14 Oct 2019 (https://partner.steamgames.com/doc/store/application/platforms, search excerpt); developers
+  disagree on whether it is enforced (https://ebitengine.org/en/blog/steam.html), so treat it as required.
+  Needs a Mac for the build step **(est.)** and an Apple Developer Program membership.
+- **Windows**: OV certificates no longer help ("Windows will treat your app as completely unsigned"); EV certificates
+  live on hardware; Microsoft's cloud signing (Azure Artifact Signing) is "the cheapest option for code signing on
+  Windows, and it gets rid of SmartScreen warnings", available in certain countries (Electron code-signing doc above).
+  A Steam-installed Windows game is not downloaded through a browser, so SmartScreen's download check should not
+  fire; an unsigned Steam build is common **(est.**, not verified against a Valve requirement**)**.
+- **Linux**: no OS signing. Steam verifies its own depots.
+
+Electron's tooling covers all of this (`@electron/osx-sign`, `@electron/notarize`, `@electron/windows-sign`, already
+in the packager's dependency tree); Tauri has its own signing guides (not read: host unreachable); NW.js has none
+first-party (the nwjs-builder-phoenix signing feature was never finished, search excerpt above).
+
+## 4. Recommendation
+
+**Electron**, for the demo and the game, subject to the lead's choice.
+
+1. It ships the engine the game is tested on. Every visual gate, capture and perf number in this repository is
+   Chromium; Electron puts that same Chromium on Windows, macOS, Linux and the Deck. Tauri would put three engines
+   under the game, two never tested, one (WebKitGTK) documented by Tauri itself as a WebGL problem and blind to the
+   renderer string the game's no-GPU notice reads.
+2. The Steam overlay works with it (with switches to test), and does not work with Tauri's Windows webview without a
+   workaround that breaks Steam Recordings and Remote Play. Windows is the demo's target (GH-1418: "a Windows
+   executable installs and starts from the Steam client").
+3. It works today with no app change: the spike's bundle loads the menu, the free-play picker and a mission briefing
+   offline from a custom scheme with zero console errors **(measured)**.
+4. Tauri's one real advantage, size, is about 118 MiB compressed against a 157 MiB game that every option must ship,
+   and Steam patches by chunk. NW.js gives the same engine as Electron with a larger runtime, no first-party
+   packaging, signing or update tooling, and a weaker maintenance story for its Steam binding.
+
+Costs to accept: about 118 MiB more download and 273 MiB more disk than the game itself **(measured, Linux)**, more
+RAM than a system webview **(est.)**, and an upgrade duty: Electron releases a major every 8 weeks and supports the
+latest three ("The latest three _stable_ major versions are supported",
+https://github.com/electron/electron/blob/main/docs/tutorial/electron-timelines.md), so a shipped build must be
+re-packaged on a schedule to stay inside security support.
+
+## 5. Open questions for the lead
+
+1. **The choice itself.** HOLD FOR LEAD.
+2. **Platforms for the demo.** Windows only (the issue's done-line), or Windows + Linux native for the Deck? A
+   Windows Electron build under Proton is the other Deck path; untested **(est.)**.
+3. **Should the desktop build talk to the Worker?** The spike's `*.local` origin keeps telemetry, accounts, feedback
+   and versus rooms off, which is right for an offline demo but leaves "Play with a friend" unable to reach a room.
+   Turning any of them on needs an absolute API origin in the app (an app change, out of this spike's scope) and a
+   decision on what a Steam build may send (privacy page, `?notrack`).
+4. **The Steam overlay switches** (`in-process-gpu`, `disable-direct-composition`): their frame cost and whether
+   both are still needed must be measured on real Windows hardware with the overlay on.
+5. **Signing money and accounts.** Apple Developer Program (if macOS ships), and whether the Windows demo is signed
+   at all (Azure Artifact Signing is the cheapest route the Electron doc names). Both are lead actions.
+6. **Linux sandbox under Steam.** Reported collisions between the Steam Linux Runtime and Chromium's sandbox; the
+   spike ran `--no-sandbox` only because the container is root. The real build needs a decision and a test on a Deck.
+7. **Bundle trimming.** Drop the 5.9 MiB of `.m4a` (Chromium plays the OGG), `sw.js` and `_headers` from the desktop
+   copy; consider asar for the code and loose files for the assets. Not done: the spike copies the build unchanged.
+8. **Commercial gate.** The demo ships only assets that pass the commercial gate (GH-1418 constraint); the spike
+   bundles the whole `dist`. A demo build needs a filtered asset set and the demo slice's routes only.
+
+## 6. What a Windows or macOS build would add (not run)
+
+- Windows: the same staging, `platform: 'win32'` in the packager call, plus a Squirrel or NSIS/MSI maker if an
+  installer is wanted outside Steam (for Steam, the packaged folder is the depot content), and `@electron/windows-sign`
+  with a certificate (open question 5).
+- macOS: `platform: 'darwin'`, `@electron/osx-sign` + `@electron/notarize` with Apple credentials, run on a Mac.
+- Steam: `steamworks.js` (pinned) in the main process, the SDK's redistributable `steam_api` library next to the
+  executable (steamworks.js README), `steam_appid.txt` for local runs, the overlay switches, then a SteamPipe
+  `app_build` script per depot. None of it is in the spike, because each needs the demo appID or a secret.
+
+## 7. Running the spike
+
+```bash
+pnpm desktop:spike                      # pnpm build, stage, package, tar.gz
+pnpm desktop:spike --skip-build --smoke # reuse packages/app/dist, then the headless launch check
+```
+
+`--smoke` runs the bundle under `xvfb-run` when there is no `$DISPLAY` and writes `dist-desktop/smoke.json` and
+`dist-desktop/smoke.png`. `RL_DESKTOP_SMOKE_PATH=/free-play` (set on a direct run of the bundle with
+`RL_DESKTOP_SMOKE=1`) opens a deep route instead of the menu. The Electron zip is downloaded once into
+`dist-desktop/cache/` by `@electron/get`, which checks it against the release's SHASUMS256; if the network proxy
+blocks that download, the script fails with the packager's message and does nothing else. It never signs, uploads or
+publishes, and it refuses to run on a non-Linux host.
