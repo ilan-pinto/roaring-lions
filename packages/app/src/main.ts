@@ -174,7 +174,7 @@ import { installEscapeBack } from './shell/escape-back';
 import { leaveCopy, leaveHref } from './ui/leave-copy';
 import { closeTip } from './ui/tooltip';
 import { objectiveStatusShout } from './ui/objective-status';
-import { pauseMenu, type PauseDeps } from './ui/pause';
+import { pauseMenu, type PauseDeps, type SaveOutcome } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget, unloadPress } from './input/keymap';
@@ -1194,7 +1194,7 @@ async function main(): Promise<void> {
           if (r.state === 'refused') return { state: 'refused', reason: r.reason };
           if (r.state !== 'ready') return { state: 'none' };
           const p = kit.peekResumeProblem();
-          if (p === 'moved') return { state: 'refused', reason: 'moved' };
+          if (p === 'moved') return { state: 'refused', reason: 'moved', moved: kit.peekResumeMoved() };
           return { state: 'ready', missionId: r.record.missionId, savedAt: r.record.savedAt, simTick: r.record.simTick, ...(p === 'failed' ? { note: 'failed' as const } : {}) };
         },
         nameOf: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
@@ -3282,6 +3282,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         limitWarned = sh.limitWarned;
         stall = stallStart(sim.tickCount);
       }
+      // GH-1393: NOT begun on a resumed mission, on purpose. A replay is the start plus every order from tick 0; the save holds the world, not the
+      // orders that made it, so a log begun at the saved tick would replay a different battle under this one's name. The Bug note offers no replay
+      // there (`replayLog.available` is false) and says nothing else is lost (`feedback/replay.test.ts`; `docs/agent-notes/sim-and-orders.md`).
       if (resumed === null) replayLog.begin({
         mission: resolvedMission.id,
         build: __APP_BUILD__,
@@ -3965,6 +3968,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // running over whatever screen came next.
     leave: () => req.navigate(leaveHref(!mission)),
     freePlay: !mission,
+    resumed: resumed !== null,
     // A room's exit is the pause menu's (M-1): a confirmed Surrender while
     // the match can be given up, its Quit once it cannot. Absent in
     // single-player, whose leave control is unchanged.
@@ -4204,7 +4208,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const confirmQuit = (): void => {
     // A room's Quit is the end of a match, not of a free-play run (L-3): it
     // never wears the sandbox's wording.
-    const leaveText = room !== null ? matchLeaveCopy(room.status()) : leaveCopy(!mission);
+    const leaveText = room !== null ? matchLeaveCopy(room.status()) : leaveCopy(!mission, resumed !== null);
     void confirmDialog(document.body, {
       title: leaveText.title,
       body: leaveText.body,
@@ -4212,11 +4216,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       danger: true,
     }).answer.then((ok) => {
       // A room's players go to Play with a friend, not the free-play picker.
-      if (ok) {
-        // GH-1393: leaving a RESUMED mission on purpose abandons it, and its save with it.
-        if (resumed !== null && mission) dropSavedMission(mission.id);
-        req.navigate(quitHref(room !== null, !mission));
-      }
+      // GH-1393: leaving a RESUMED mission KEEPS its save, as the HUD's own leave always did: a quit costs the progress since the resume,
+      // which the confirm says, and never the saved game, which only a finished mission or Discard on the board removes. A save that a
+      // mis-click could destroy would be the one thing here a player could not take back.
+      if (ok) req.navigate(quitHref(room !== null, !mission));
     });
   };
   /** A room's Surrender, confirmed: the pause menu's, and the HUD's exit
@@ -4244,11 +4247,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * the read and the gzip), written, READ BACK and compared, and only then left. Any failure comes back as a line for the menu and leaves
    * the mission running and the previous save in place. Returns null once the save is kept (and the player is on their way out).
    */
-  const saveAndQuit = async (): Promise<string | null> => {
+  const saveAndQuit = async (): Promise<SaveOutcome> => {
     const kit = await saveKit().catch(() => null);
     if (kit === null) return t('save.err.encode_failed');
-    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell } = kit;
+    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
     if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
+    // The slot holds ONE save. Replacing another mission's is the player's decision, asked before anything is cut or written.
+    const other = savedMissionOtherThan(openSuspendStore(() => window.localStorage), resolvedMission.id);
+    if (!(await confirmReplaceOther(other, (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name))) return { declined: true };
     const cut = cutMission({
       sim,
       runtime,
@@ -4293,7 +4299,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               danger: true,
             }).answer.then((ok) => {
               if (!ok) return;
-              if (resumed !== null && mission) dropSavedMission(mission.id);
+              // GH-1393: Restart keeps a resumed mission's save too (it starts the mission over; the old save is still the player's to resume or discard).
               req.restart();
             });
           },

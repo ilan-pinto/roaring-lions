@@ -195,6 +195,13 @@ describe('roomExitCopy', () => {
     expect(leaveCopy(false).title).toBe('Leave the mission?');
     expect(t('hud.leave.link')).toBe('leave');
   });
+
+  it('GH-1393: leaving a resumed mission says the saved game stays; a free-play run and a fresh mission do not change', () => {
+    expect(leaveCopy(false, true).body).toBe('Progress since you resumed is lost. Your saved game stays on the campaign map, and the campaign keeps everything from before it.');
+    expect(leaveCopy(false, true).title).toBe(leaveCopy(false).title);
+    expect(leaveCopy(false).body).toBe('This attempt is lost. The campaign keeps everything from before it.');
+    expect(leaveCopy(true, true)).toEqual(leaveCopy(true));
+  });
 });
 
 // L-3: the wiring, read from main.ts's source like L-2's below (the battlefield
@@ -210,7 +217,7 @@ describe('main.ts wires a room\'s exit copy', () => {
   });
   it('confirmQuit says matchLeaveCopy in a room and leaveCopy only outside one', () => {
     const quit = main.slice(main.indexOf('const confirmQuit = (): void => {'), main.indexOf('const confirmSurrender'));
-    expect(quit).toContain('const leaveText = room !== null ? matchLeaveCopy(room.status()) : leaveCopy(!mission);');
+    expect(quit).toContain('const leaveText = room !== null ? matchLeaveCopy(room.status()) : leaveCopy(!mission, resumed !== null);');
   });
   it('confirmQuit navigates through quitHref, so a room lands on Play with a friend', () => {
     const quit = main.slice(main.indexOf('const confirmQuit = (): void => {'), main.indexOf('const confirmSurrender'));
