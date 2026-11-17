@@ -4293,7 +4293,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           onRestart: () => {
             void confirmDialog(document.body, {
               title: t('pause.restart.confirm.title'),
-              body: t('pause.restart.confirm.body'),
+              // GH-1393: a resumed mission's Restart keeps its save, and says so (the Quit confirm already does: `leaveCopy(.., resumed)`).
+              body: t(resumed !== null ? 'pause.restart.confirm.body.resumed' : 'pause.restart.confirm.body'),
               confirm: t('pause.restart.confirm.action'),
               danger: true,
             }).answer.then((ok) => {

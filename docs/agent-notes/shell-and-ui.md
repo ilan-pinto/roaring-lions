@@ -146,6 +146,10 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   (`unit-text.ts`); roles are chrome. Translators' files are served by `packages/app/vite-plugin-locales.ts`
   (dev middleware and build assets, derived from `data/locales/`, never copied into `assets/`); a
   non-`en` file that does not arrive warns once with its URL (`i18n/overlay-fetch.ts`).
+  Stale translations (GH-1406 part 5): every overlay entry carries `src`, the first 8 hex of the SHA-256 of the English each string was
+  translated from, written into `en/missions.json` and `en/units.json` by `pnpm locales:en -- --write` and checked for every locale by
+  `validate:data` (`sourceHashFailures`, `unitOverlayFailures`), because `wave_say` is keyed by wave INDEX and a reorder or an edit leaves
+  every key valid. The runtime never reads it. Format and translator workflow: `data/locales/README.md`.
 
 <!-- CLAUDE.md lines 322-338, section "Dev instruments" -->
 

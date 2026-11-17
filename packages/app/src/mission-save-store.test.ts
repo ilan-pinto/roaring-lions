@@ -187,6 +187,17 @@ describe('savedMissionOtherThan: would a Save replace somebody else\'s save?', (
   });
 });
 
+describe('the store module keeps each function\'s own doc (a function inserted between a JSDoc and its function steals it)', () => {
+  const src = readFileSync(join(__dirname, 'mission-save-store.ts'), 'utf8');
+  it('discardSuspended is documented by its own "Removes the record" line, directly above it', () => {
+    expect(src).toMatch(/\/\*\* Removes the record\.[^\n]*\*\/\nexport function discardSuspended\(/);
+  });
+  it('savedMissionOtherThan is documented by its own block, directly above it', () => {
+    expect(src).toMatch(/\*\/\nexport function savedMissionOtherThan\(/);
+    expect(src).toMatch(/\/\*\*\n \* The mission whose save is stored now[\s\S]*?\*\/\nexport function savedMissionOtherThan\(/);
+  });
+});
+
 describe('discardSuspended', () => {
   it('removes it and says so; says false when the browser refuses or the key stays', () => {
     const s = store();
