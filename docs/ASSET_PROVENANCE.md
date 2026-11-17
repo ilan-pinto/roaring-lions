@@ -99,6 +99,22 @@ the printed files from the output, because Vite copies the whole of `assets/`
 theme's `source` records no unconfirmed licence, so its open question (item 3)
 is the lead's to settle (audit L6), not this gate's to catch.
 
+**The commercial asset cut, report only (GH-1415, 17 Nov 2026).** `pnpm
+commercial:cut` (`tools/commercial_asset_cut.py`) lists every file under
+`assets/` that a commercial build would leave out, from three records: a
+register row whose Rights cell records an uncleared licence ("not confirmed",
+"unrecorded", "pending", "open question"; a `Same as its source row` twin takes
+its `art/meshes` row), a shipped file no row covers, `validate_audio.py`'s
+`commercial_manifest`, and a `data/video.json` entry not `confirmed`. It also
+lists the audio files on which the register and `data/audio.json` disagree, so
+the music's blind spot above shows. `--dist DIR` says which of them a built app
+holds. It removes nothing and exits 0: the shipped build is unchanged until the
+strip step lands, which is the lead's call. On 17 Nov 2026 it lists 26 shipped
+files: the theme and its four bed files (item 3, register only), the ten voice
+files (item 2, both records), the eight ground tiles (item 7) and the three
+favicons (item 5). `tools/test_commercial_asset_cut.py` (CI, `gates`) is its
+unit test.
+
 **The credits screen** names all of it (`credits-data.ts`, `credits.ai.*` in
 `en.json`): the generated theme and the music cut from it, the ElevenLabs
 placeholders and their exclusion from a commercial release, the AI-generated

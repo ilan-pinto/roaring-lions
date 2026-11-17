@@ -7,7 +7,7 @@ import { handleFeedback } from './feedback-ingest';
 import { purgeExpired } from './feedback-triage';
 import { handleArenaResults, isArenaPath } from './arena-results';
 import { handlePrivacy } from './privacy-page';
-import { handleAccount } from './account/routes';
+import { accountDepsFor, handleAccount, type WaitUntilCtx } from './account/routes';
 import { accountCron } from './account/sweep';
 import { sweepAdminViews } from './admin/view-sweep';
 import { handleMatch } from './match/routes';
@@ -18,12 +18,13 @@ import { purgeSnapMismatches } from './match/snap-mismatch-log';
 export { MatchRoom } from './match/match-room';
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  /** `ctx` is the Workers `ExecutionContext`; optional so a test may call `fetch(req, env)`. */
+  async fetch(req: Request, env: Env, ctx?: WaitUntilCtx): Promise<Response> {
     const { pathname } = new URL(req.url);
     // #559 L-5: every response the Worker writes carries the security headers.
     if (pathname === '/api/events') return withSecurityHeaders(await handleIngest(req, env, Date.now()));
     if (pathname === '/api/feedback') return withSecurityHeaders(await handleFeedback(req, env, Date.now()));
-    if (pathname.startsWith('/api/account/')) return withSecurityHeaders(await handleAccount(req, env, Date.now()));
+    if (pathname.startsWith('/api/account/')) return withSecurityHeaders(await handleAccount(req, env, Date.now(), accountDepsFor(ctx)));
     if (pathname === '/api/match' || pathname.startsWith('/api/match/')) return withSecurityHeaders(await handleMatch(req, env, Date.now()));
     // GH-1075 A1: the privacy page. No D1, no cookie; closed (503) until the lead supplies the contact and age.
     if (pathname === '/privacy') return withSecurityHeaders(handlePrivacy(req));
