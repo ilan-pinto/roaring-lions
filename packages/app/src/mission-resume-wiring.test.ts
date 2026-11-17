@@ -7,6 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import en from './i18n/en.json';
 import { KNOWN_PARAMS, unknownParams } from './sandbox-help';
 import { routes } from './shell/links';
 
@@ -78,6 +79,12 @@ describe('the save is dropped when its mission is over, and only then', () => {
     expect(main).toMatch(/if \(!ok\) return;\s*\/\/[^\n]*\n\s*req\.restart\(\);/);
     expect(main).toMatch(/leaveCopy\(!mission, resumed !== null\)/); // the pause menu's Quit says it
     expect(main).toMatch(/freePlay: !mission,\s*resumed: resumed !== null,/); // and so does the HUD's own leave
+  });
+
+  it("a resumed mission's Restart confirm says the saved game stays, and a fresh mission's does not change", () => {
+    expect(main).toMatch(/body: t\(resumed !== null \? 'pause\.restart\.confirm\.body\.resumed' : 'pause\.restart\.confirm\.body'\),/);
+    expect(en['pause.restart.confirm.body.resumed']).toBe('This attempt is lost. Your saved game stays on the campaign map.');
+    expect(en['pause.restart.confirm.body']).toBe('This attempt is lost.');
   });
 
   it('Save and quit asks BEFORE it cuts or writes when another mission\'s save is in the slot, and a "no" changes nothing', () => {
