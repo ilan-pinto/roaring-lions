@@ -17,6 +17,16 @@ are AI translations (Claude, in-house, no paid service, GH-1407 D3), **not proof
 - **Languages:** only what has shipped. Today that is English; the five planned are staged, not shipped (`LOCALES` in
   `packages/app/src/i18n/locales.ts`).
 
+## Register and wording, chosen on purpose
+- **de: "du"** (the register of the German mission text and chrome in `data/locales/de/`); **fr: "vous"**; **es-ES: "usted"**. Not mixed within a language.
+- **"Free to play" is said one way per language**, in the short description, as the bold heading and in the key-features bullet: "Free to play" /
+  "Kostenlos spielbar" / "Jouable gratuitement" / "Gratis para jugar". The test checks all three places.
+- **The numbers are derived, not pinned:** missions (the count of `data/missions/*.json`, spelled out per language), the Free Play maps (above) and the
+  unit types (more than 40). PR 1452 (Qasr Liwan, five more missions) takes the missions to 35: `MISSION_WORDS` in `tools/src/store_copy.test.ts`
+  already holds the words for 30 to 40, and the test fails with "add the word" outside the table, so the copy ("Thirty missions") and E4 move together.
+- **The ban list** has two parts: real-world places, peoples, faiths, persons and operations, matched from the start of a word with accents
+  ignored; and every Kedem town and region name, read from `data/campaign/world.json` and the mission names at test time so the list cannot go stale.
+
 ## Claim ledger: each claim, and where it lives on main
 | # | Claim in the copy | Where it lives |
 |---|---|---|
@@ -28,12 +38,12 @@ are AI translations (Claude, in-house, no paid service, GH-1407 D3), **not proof
 | E6 | Garrison a house, collapse a tunnel, bring down a wall, medic under fire, civilians to the refuge | `packages/sim/src/structures.ts` (garrison), `tunnels.ts` (Yahalom collapse), `wounds.ts` (wounds and rescue), `civilians.ts` (flight to the refuge); units `yahalom_squad`, `demo_squad`, `dozer_d9`, `inf_medic_squad` in `data/units/` |
 | E7 | Column, attack formation, ambush | `data/formations/{column,attack,ambush}.json` (GH-859) |
 | E8 | A persistent brigade with credits, upgrades and a garage; credits are earned and never sold | `packages/app/src/brigade-account.ts`, `packages/app/src/ui/garage-*.ts`; `packages/app/src/roar-wallet.ts` header; GH-1378 Q6 and G7 in `docs/HANDOVER.md` |
-| E9 | Free play on 41 maps with a full task force | `data/maps/*.json` (41 files; the test counts them); `routes.freePlay` in `packages/app/src/shell/links.ts`; CLAUDE.md "Sandbox and console" (`?sandbox=<map id>`) |
+| E9 | Free play on **38** maps with a full task force | `data/maps/*.json` holds 41 files; Free Play's picker hides three (`UNLISTED_MAP_IDS` in `packages/app/src/ui/menu.ts`: `ein_qasab`, `ein_qasab_3`, `jebel_matar`, still reachable by URL for dev work), so a player sees 38 cards. The test derives 41 minus the unlisted ids from the two files, so the number cannot drift. `routes.freePlay` in `packages/app/src/shell/links.ts`; CLAUDE.md "Sandbox and console" |
 | E10 | Friend matches with a room code, KDF against Sarim; a match against the computer | `packages/net`, `packages/app/src/ui/versus.ts`, `data/versus/*.json` (six maps and the win modes); the computer seat: `playComputer` in `packages/app/src/main.ts` and `packages/app/src/net/offline-match.ts` (GH-1388). Not described as skirmish, and not as co-op. |
 | E11 | Remappable keys, colour-vision modes, text and interface size, reduced motion, three quality presets, save and resume mid-mission | `packages/app/src/settings.ts` (`colorVision`, `motion`, text size, UI scale), `packages/app/src/ui/settings-keymap.ts` (rebind), `packages/render/src/quality.ts` (`high`/`medium`/`low`), `packages/app/src/mission-save-store.ts` (GH-1393, PRs 1478 and 1485) |
 | E12 | More than 40 unit types, from rifle squads to tanks and helicopters | `data/units/` (50 files; 47 once civilians and the two wounded types are left out; the test counts them); `mbt_lavi`, `heli_peten`, `heli_yanshuf`, `inf_squad` |
 | E13 | **Free to play; Roar coins buy cosmetics only** | The lead's posture (`docs/HANDOVER.md`, 19 Sep: free to play plus Steam Wallet) and GH-1378 Q6. **The build does not do this yet:** `PURCHASES_OPEN` is false (`packages/economy/src/stores.ts`), the Stores' own lede says "Coins buy what credits buy" (units and tiers, `stores.lede` in `en.json`) and its cosmetics shelf is empty (`stores.empty.cosmetics`). The line is a LAUNCH GATE: close the power lane in code before the page goes live. |
-| E14 | Languages: English; system requirements: placeholder only | `LOCALES` holds `en` alone; no Steam build exists (M5, `docs/HANDOVER.md`); WebGL 2 and the low preset: the no-GPU screen (`noGpu.*`) and `docs/agent-notes/webgpu-backend.md`. No figures are claimed. |
+| E14 | Languages: English; system requirements: placeholder only | `LOCALES` holds `en` alone; no Steam build exists (M5, `docs/HANDOVER.md`); WebGL 2 and the low preset: the no-GPU screen (`noGpu.*`). **No WebGPU claim:** a mission draws through the legacy WebGL2 renderer until the cutover (`main.ts`: "A mission always draws through the legacy WebGL2 renderer"; `docs/agent-notes/webgpu-backend.md`), and the test refuses the word. No figures are claimed. |
 
 ## Not claimed, and why
 Co-op and skirmish (above); a Sarim campaign (opposition sides are playable in versus and free play only, GH-1378 Q10); voice (audio is postponed);
