@@ -1,7 +1,7 @@
 """Limb edges piercing the carrier (and thigh edges the groin apron): the READING behind the ratchet `tools/test_inf_kit_pierce.py` (GH-746).
 This tool only reads; the ceilings live in `tools/inf_kit_pierce_ratchet.json` and the test holds them.
 
-    blender -b --factory-startup -P tools/inf_kit_pierce.py -- <inf_squad.glb> <out.json> [--figs f1,f2]
+    blender -b --factory-startup -P tools/inf_kit_pierce.py -- <team.glb> <out.json> [--figs f1,f2] [--clips idle,work]
 
 Reads a shipped `inf_squad.glb` (kit grafted in), poses every frame of all eight living clips (every 0.25 frame on kneelIn and
 kneelOut), and per figure and clip counts the limb MESH EDGES (upper arm more than 12 cm from its shoulder, forearm, hand,
@@ -24,6 +24,9 @@ FIGS = tuple(argv[argv.index("--figs") + 1].split(",")) if "--figs" in argv else
 LIMB = ("forearm", "hand", "finger", "upperarm")
 SHOULDER_SKIP_M = 0.12
 CLIPS = ["idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned"]
+if "--clips" in argv:
+    # a team with a living clip of its own (the Combat Engineers' `work`): its ratchet names the clips it is read on
+    CLIPS = argv[argv.index("--clips") + 1].split(",")
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=GLB)

@@ -197,7 +197,7 @@ import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
 import type { ResumeLoaded } from './mission-resume';
 import type * as SaveKit from './mission-save-kit';
-import { initTelemetry, telemetry, telemetryPlayerForDeletion, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
+import { initTelemetry, telemetry, telemetryPlayerForDeletion, rotateTelemetryPlayer, pauseTelemetrySends, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
 import { startLoadout } from './telemetry/loadout';
 import { screenFor } from './telemetry/events';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
@@ -1670,6 +1670,8 @@ async function main(): Promise<void> {
               store: storage,
               query: req.query,
               telemetryPlayer: () => telemetryPlayerForDeletion(),
+              rotateTelemetry: () => rotateTelemetryPlayer(),
+              pauseTelemetry: () => pauseTelemetrySends(),
               navigate: (href) => window.location.assign(href),
               reload: reloadHere,
               // C1 (§0.46): with the server-backed store, sign-out and deletion go through the sync module.
@@ -4295,7 +4297,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           onRestart: () => {
             void confirmDialog(document.body, {
               title: t('pause.restart.confirm.title'),
-              body: t('pause.restart.confirm.body'),
+              // GH-1393: a resumed mission's Restart keeps its save, and says so (the Quit confirm already does: `leaveCopy(.., resumed)`).
+              body: t(resumed !== null ? 'pause.restart.confirm.body.resumed' : 'pause.restart.confirm.body'),
               confirm: t('pause.restart.confirm.action'),
               danger: true,
             }).answer.then((ok) => {

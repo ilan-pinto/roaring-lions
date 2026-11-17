@@ -145,7 +145,7 @@ describe('the Garage credit Buy asks creditAsk (WP5)', () => {
       setInterval: () => 0,
       clearInterval: () => {},
       onPagehide: () => {},
-      sink: { push: (e) => void sent.push(e), flush: () => {} },
+      sink: { push: (e) => void sent.push(e), flush: () => {}, clear: () => {} },
     };
     const tel = createTelemetry(deps);
     const g = garage(2);

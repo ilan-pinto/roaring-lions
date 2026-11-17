@@ -1,12 +1,13 @@
 // GH-1406 part 2: `data/locales/en/missions.json` is the GENERATED English template. These checks prove it can neither miss a string nor
 // keep a stale one, and that it is not an overlay the game fetches. The oracle reads the mission files itself and compares by hand; it
 // does not call the builder to decide what the file should say.
-import { readdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyMissionLocale, type MissionLocaleOverlay } from '@lions/data';
 // @ts-expect-error: a plain .mjs module with no declarations, like the other validators the tools tests import.
-import { buildEnglishCatalogue, englishCatalogueFailures, englishMissionText } from '../validate_narrative.mjs';
+import { buildEnglishCatalogue, buildEnglishUnits, englishCatalogueFailures, englishMissionText, englishUnitFailures, overlayFailures, unitOverlayFailures } from '../validate_narrative.mjs';
 
 const ROOT = join(__dirname, '..', '..');
 interface Say { speaker: string; text: string }
@@ -154,5 +155,109 @@ describe('the English mission catalogue (GH-1406 part 2)', () => {
       const e = englishMissionText({ id: 'x', name: 'n', objectives: [{ id: 'a', text: 't' }], triggers: [{ id: 'k' }, { label: 'no id' }] }) as { triggers?: unknown };
       expect(e.triggers).toBeUndefined();
     });
+  });
+
+  // GH-1406 part 5: every entry carries `src`, the hash of its English, so a translation copied from this file carries the hashes it was made from.
+  describe('the src hashes (stale-translation guard)', () => {
+    // the oracle is node's SHA-256 written out here, and the path walk is by hand: nothing is read back from the module under test
+    const h8 = (t: string): string => createHash('sha256').update(t, 'utf8').digest('hex').slice(0, 8);
+    type Entry = Record<string, unknown> & { src?: Record<string, string> };
+    const expected = (e: Entry): Record<string, string> => {
+      const out: Record<string, string> = {};
+      for (const [key, v] of Object.entries(e)) {
+        if (key === 'src') continue;
+        if (typeof v === 'string') out[key] = h8(v);
+        else for (const [k, t] of Object.entries(v as Record<string, string>)) out[`${key}.${k}`] = h8(t);
+      }
+      return out;
+    };
+    const entries = (): [string, Entry][] => Object.entries(catalogue as Record<string, Entry>);
+
+    it('holds, for every mission, exactly one hash per string and each is the hash of that string', () => {
+      let paths = 0;
+      for (const [id, e] of entries()) {
+        expect(e.src, id).toEqual(expected(e));
+        paths += Object.keys(e.src ?? {}).length;
+      }
+      // the same count from the mission files, not from the catalogue: 214 radio lines + 99 sections + the rest
+      expect(paths).toBeGreaterThan(500);
+    });
+    it('is the last key of an entry, and is not text: applying the catalogue still changes nothing', () => {
+      for (const [id, e] of entries()) expect(Object.keys(e).at(-1), id).toBe('src');
+    });
+    it('goes red when a hash is altered, dropped or invented', () => {
+      const c = JSON.parse(fileText) as Record<string, Entry>;
+      const e = c[missions[0].id];
+      const path = Object.keys(e.src ?? {})[0];
+      (e.src as Record<string, string>)[path] = '00000000';
+      expect(check(c).join('\n')).toContain(`src "${path}" differs from the mission file`);
+      delete (e.src as Record<string, string>)[path];
+      expect(check(c).join('\n')).toContain(`src "${path}" is missing`);
+      (e.src as Record<string, string>).ghost = 'abcdef12';
+      expect(check(c).join('\n')).toContain('src "ghost" is not in the mission file (stale)');
+    });
+
+    // A fixture non-en locale built from the REAL catalogue and the REAL missions: the English text copied unchanged, hashes carried over.
+    const fixtureLocale = (): MissionLocaleOverlay => JSON.parse(fileText) as MissionLocaleOverlay;
+    const byId = (ms: M[]): Map<string, M> => new Map(ms.map((m) => [m.id, m]));
+    it('a non-en locale copied from the catalogue passes against the missions it was made from', () => {
+      expect(overlayFailures('fr/missions.json', fixtureLocale(), byId(missions))).toEqual([]);
+    });
+    it('goes red when a mission reorders its waves (wave_say is keyed by index)', () => {
+      const m = missions.find((x) => x.id === 'beit_sahwan_breach') as M;
+      const waves = [...(m.enemy?.waves ?? [])];
+      expect(waves[0]?.say && waves[2]?.say, 'the fixture mission needs lines at waves 0 and 2').toBeTruthy();
+      [waves[0], waves[2]] = [waves[2], waves[0]];
+      const reordered = missions.map((x) => (x.id === m.id ? { ...x, enemy: { ...x.enemy, waves } } : x));
+      const out = overlayFailures('fr/missions.json', fixtureLocale(), byId(reordered)) as string[];
+      expect(out.filter((f) => f.includes('beit_sahwan_breach') && f.includes('is stale')).sort()).toHaveLength(2);
+      expect(out.join('\n')).toContain('"wave_say.0" is stale');
+      expect(out.join('\n')).toContain('"wave_say.2" is stale');
+    });
+    it('goes red when an English line is edited after the translation, for a name-free one-character edit', () => {
+      const m = missions.find((x) => x.dispatch !== undefined) as M;
+      const edited = missions.map((x) => (x.id === m.id ? { ...x, dispatch: `${x.dispatch}.` } : x));
+      const out = overlayFailures('fr/missions.json', fixtureLocale(), byId(edited)) as string[];
+      expect(out).toHaveLength(1);
+      expect(out[0]).toContain(`mission "${m.id}" overlay "dispatch" is stale`);
+    });
+  });
+});
+
+// The same for unit text: `data/locales/en/units.json` is generated from data/units/**, carries a hash per text, and a copy of it is the fixture locale.
+describe('the English unit catalogue (GH-1406 part 5)', () => {
+  const jsonIn = (dir: string): string[] =>
+    readdirSync(dir).flatMap((f) => {
+      const p = join(dir, f);
+      return statSync(p).isDirectory() ? jsonIn(p) : f.endsWith('.json') ? [p] : [];
+    });
+  const units = jsonIn(join(ROOT, 'data/units')).map((f) => JSON.parse(readFileSync(f, 'utf8')) as { id: string; name?: string; blurb?: string });
+  const unitText = readFileSync(join(ROOT, 'data/locales/en/units.json'), 'utf8');
+  const h8 = (t: string): string => createHash('sha256').update(t, 'utf8').digest('hex').slice(0, 8);
+
+  it('has an entry for every shipped unit, with its name, its blurb when it has one, and the hash of each (hand-compared)', () => {
+    const c = JSON.parse(unitText) as Record<string, { name?: string; blurb?: string; src: Record<string, string> }>;
+    expect(Object.keys(c).sort()).toEqual(units.map((u) => u.id).sort());
+    expect(units.length).toBeGreaterThan(40);
+    for (const u of units) {
+      expect(c[u.id].name, u.id).toBe(u.name);
+      expect(c[u.id].blurb, u.id).toBe(u.blurb);
+      expect(c[u.id].src.name, u.id).toBe(u.name === undefined ? undefined : h8(u.name));
+      expect(c[u.id].src.blurb, u.id).toBe(u.blurb === undefined ? undefined : h8(u.blurb));
+    }
+  });
+  it('is byte-for-byte what the generator writes today, and checks clean', () => {
+    expect(unitText).toBe(JSON.stringify(buildEnglishUnits(units), null, 2) + '\n');
+    expect(englishUnitFailures('en/units.json', JSON.parse(unitText), units)).toEqual([]);
+  });
+  it('a locale copied from it passes; one blurb edited in data/units goes red', () => {
+    const byId = new Map(units.map((u) => [u.id, u]));
+    expect(unitOverlayFailures('fr/units.json', JSON.parse(unitText), byId)).toEqual([]);
+    const withBlurb = units.find((u) => u.blurb !== undefined) as { id: string; blurb: string };
+    const edited = new Map(byId);
+    edited.set(withBlurb.id, { ...(byId.get(withBlurb.id) as object), id: withBlurb.id, blurb: `${withBlurb.blurb}!` });
+    const out = unitOverlayFailures('fr/units.json', JSON.parse(unitText), edited) as string[];
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain(`unit "${withBlurb.id}" overlay blurb is stale`);
   });
 });

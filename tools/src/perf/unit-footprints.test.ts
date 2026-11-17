@@ -118,9 +118,10 @@ describe('per-type ring radius', () => {
 
   it('no type inherits a classmate\'s size: the rule is per type, not per class max', () => {
     // A class-max table gives every foot unit the sniper's ring, every air unit the heli's.
-    // demo_squad, not at_team: at_team's own footprint rose above the class
-    // value with the Meshy Spike (A3.1 stage 2), so it is no longer the example.
-    expect(RADIUS_BY_TYPE.demo_squad).toBe(SELECTION_RING.radiusTiles.foot);
+    // breach_team: at_team's own footprint rose above the class value with the
+    // Meshy Spike (A3.1 stage 2), and demo_squad's with its skinned Meshy body
+    // (GH-826 unit 1, 13 Nov 2026: 0.46), so neither is the example any more.
+    expect(RADIUS_BY_TYPE.breach_team).toBe(SELECTION_RING.radiusTiles.foot);
     expect(RADIUS_BY_TYPE.paramotor).toBe(SELECTION_RING.radiusTiles.air);
     expect(RADIUS_BY_TYPE.mbt_lavi).toBeLessThan(RADIUS_BY_TYPE.ifv_namer);
     expect(RADIUS_BY_TYPE.moto_rpg).toBe(SELECTION_RING.radiusTiles.light);

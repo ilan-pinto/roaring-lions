@@ -50,7 +50,11 @@
   ],
   "resources": {
     "logistics_start": 400,
-    "logistics_rate_per_min": 80
+    "logistics_rate_per_min": 80,
+    "income_zones": [
+      { "zone": "pass", "rate_per_min": 20 },
+      { "zone": "overwatch_east", "rate_per_min": 12 }
+    ]
   },
   "civilians": {
     "refuge": "approach",
