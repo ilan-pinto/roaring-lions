@@ -176,6 +176,7 @@ const gpu = await page.evaluate(() => {
   return ext && gl ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : 'unknown';
 });
 console.log(`renderer: ${gpu}`);
+console.log(`chrome: ${browser.version()}`);
 if (/SwiftShader/i.test(gpu)) console.warn('SOFTWARE GPU -- numbers are not comparable to a hardware run');
 const buffer = await page.evaluate(() => {
   const L = (window as unknown as { __lions: { renderer: { canvas: HTMLCanvasElement } } }).__lions;
@@ -307,17 +308,31 @@ for (const row of ROWS) {
       gl2.finish();
       wall.push(performance.now() - t0);
     }
+    // GH-1400: the same frames bracketed by a 1x1 readPixels, `perf:fx`'s sync (its header, GH-777: on ANGLE/Metal
+    // `gl.finish()` can return before a frame that samples no render target back has run; a readPixels cannot).
+    // The soft-particle G-cost is read on THIS figure, so a depth snapshot sampled in one arm only cannot bias it.
+    const px = new Uint8Array(4);
+    const synced: number[] = [];
+    gl2.readPixels(0, 0, 1, 1, gl2.RGBA, gl2.UNSIGNED_BYTE, px);
+    for (let i = 0; i < 120; i++) {
+      const t0 = performance.now();
+      L.renderer.frame(1, dt);
+      gl2.readPixels(0, 0, 1, 1, gl2.RGBA, gl2.UNSIGNED_BYTE, px);
+      synced.push(performance.now() - t0);
+    }
+    synced.sort((a, b) => a - b);
     wall.sort((a, b) => a - b);
     times.sort((a, b) => a - b);
     // Live flipbook instances (branch only; `main` has no `flipbook`): the
     // witness that the stress row drew the burst it claims to time.
     const fb = (L.renderer as unknown as { flipbook?: { liveCount: number } }).flipbook;
     const flipbookLive = fb ? fb.liveCount : -1;
-    return { median: times[120], p95: times[228], wallMedian: wall[60], wallP95: wall[114], calls, programs, flipbookLive };
+    return { median: times[120], p95: times[228], wallMedian: wall[60], wallP95: wall[114], syncMedian: synced[60], syncP95: synced[114], calls, programs, flipbookLive };
   }, [x, y, zoom, row.dt, row.landings]);
   console.log(
     `view (${x},${y}) zoom ${zoom}${row.label}: cpu median ${stats.median.toFixed(2)} ms, cpu p95 ${stats.p95.toFixed(2)} ms, ` +
-      `gpu median ${stats.wallMedian.toFixed(2)} ms, gpu p95 ${stats.wallP95.toFixed(2)} ms, draw calls ${stats.calls}, programs ${stats.programs}` +
+      `gpu median ${stats.wallMedian.toFixed(2)} ms, gpu p95 ${stats.wallP95.toFixed(2)} ms, ` +
+      `sync median ${stats.syncMedian.toFixed(2)} ms, sync p95 ${stats.syncP95.toFixed(2)} ms, draw calls ${stats.calls}, programs ${stats.programs}` +
       (row.landings > 0 ? `, flipbook live ${stats.flipbookLive < 0 ? 'n/a' : stats.flipbookLive}` : '')
   );
 }
