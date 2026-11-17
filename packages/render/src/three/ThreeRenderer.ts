@@ -5461,6 +5461,15 @@ export class ThreeRenderer implements Renderer {
         // GH-705 smoke uplift: a FLAG on `SmokeMesh`, which `update` never
         // overrides (it does not write `visible`). Returns 1, the mesh.
         return this.smokeMesh.setDebugHidden(!visible);
+      case 'soft-depth': {
+        // GH-1400: soft particles off and back on, on the legacy consumers (see `debug-layers.ts`).
+        const snap = this.softDepth;
+        if (!(snap instanceof SoftDepthSnapshot)) return 0;
+        const source = visible ? snap : null;
+        this.flipbook.setSoftDepth(source);
+        this.particleInstancerBelow.setSoftDepth(source);
+        return 2;
+      }
       case 'flipbook':
         // Defilade T4: a FLAG, `missiles`' shape -- the flipbook's live
         // window rewrites both meshes' `visible` on every `step` and spawn,

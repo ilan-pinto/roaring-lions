@@ -2096,11 +2096,29 @@ const BLOOM_ZERO_CHECK: LayerCheckSpec = {
  * (tick 500: the legacy reading is 167 px / 0.0139, pixels exceed linear 1.0; lead-approved 6 Nov, PR 1061). No threshold moved. */
 const BLOOM_ZERO_SCENARIOS: readonly string[] = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'];
 
+/**
+ * GH-1400, TEMPORARY: the MEASUREMENT push for the soft-particle G-visual check. Soft particles are on at `high` (the capture
+ * preset) since `SOFT_PARTICLES_PRESET_LIVE`, and the design (soft-particles section 6) predicts which gated frames have a smoke-pass
+ * billow or band-2 dust in them, but nobody has measured it. A `zero` check on every gated scenario goes red exactly where the
+ * fade moves pixels and prints by how much. The next commit keeps a FLOOR check (a third of the smallest of three CI readings)
+ * on the frame that moves, and deletes this. Not a gate: it exists for one CI run.
+ */
+const SOFT_DEPTH_ZERO_PROBE: LayerCheckSpec = {
+  kind: 'zero',
+  layer: 'soft-depth',
+  minMeanAbsChannelDelta: 0,
+  minDiffPixels: 0,
+  rationale:
+    'GH-1400 MEASUREMENT (temporary, one CI run): hiding the soft-particle depth fade (`soft-depth`, both legacy consumers back ' +
+    'on their shipped programs). Red here means the fade moves this frame, and the reading is the floor candidate.',
+};
+
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = Object.fromEntries(
-  Object.entries(BASELINES_DECLARED).map(([id, spec]) => [
-    id,
-    BLOOM_ZERO_SCENARIOS.includes(id) && isGated(spec) ? { ...spec, layerChecks: [...(spec.layerChecks ?? []), BLOOM_ZERO_CHECK] } : spec,
-  ])
+  Object.entries(BASELINES_DECLARED).map(([id, spec]) => {
+    const bloom = BLOOM_ZERO_SCENARIOS.includes(id) && isGated(spec) ? [BLOOM_ZERO_CHECK] : [];
+    const soft = isGated(spec) ? [SOFT_DEPTH_ZERO_PROBE] : [];
+    return [id, bloom.length + soft.length === 0 ? spec : { ...spec, layerChecks: [...(spec.layerChecks ?? []), ...bloom, ...soft] }];
+  })
 );
 
 /** `gated` defaults to true so a new entry has to opt OUT of the gate rather

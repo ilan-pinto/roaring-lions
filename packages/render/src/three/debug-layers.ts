@@ -487,6 +487,12 @@ export const DEBUG_LAYERS = [
   'blast-light',
   'missiles',
   'flipbook',
+  // GH-1400: the soft-particle depth fade (GH-1227) on the legacy consumers, the smoke pass and the band-2 dust tier.
+  // Hidden is the soft-OFF render exactly (`setSoftDepth(null)`: the shipped programs and uniform records); shown puts the
+  // snapshot back. Nothing per frame re-asserts it. Returns the consumers it switched: 0 with no snapshot (soft off, `medium`,
+  // `low`) and 0 on the node backend (its smoke twin is built once, at adoption), which is the honest reading for a check to
+  // fail on. Witnessed by `BaselineSpec.layerChecks`; falsified by forcing the fade to 1.
+  'soft-depth',
   // GH-1197 P2: the 3D debris pool (`units/debris-pool.ts`), a flag the pool's visibility consults.
   'debris',
   'kit',

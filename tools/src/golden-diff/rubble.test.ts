@@ -59,6 +59,6 @@ describe('the rubble scenario frames the showcase it exists for', () => {
     expect(isGated(spec)).toBe(true);
     expect(spec.maxDiffPixels).toBe(40);
     expect(spec.maxMeanAbsChannelDelta).toBe(0.004);
-    expect((spec.layerChecks ?? []).map((c) => c.layer)).toEqual(['debris']);
+    expect((spec.layerChecks ?? []).map((c) => c.layer)).toEqual(['debris', 'soft-depth']); // GH-1400: + the temporary soft-depth probe
   });
 });
