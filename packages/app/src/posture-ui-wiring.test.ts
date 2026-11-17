@@ -27,17 +27,30 @@ describe('the posture UI lazy boundary', () => {
     expect(main).toMatch(/const postureUi = await postureUiLoad;\s*if \(req\.signal\.aborted\) return \(\) => undefined;/);
     // Started before the save kit is awaited, so the two load side by side.
     expect(main.search(/const postureUiLoad = /)).toBeLessThan(main.search(/const kit = await saveKit\(\)/));
-    expect(main).toMatch(/\.\.\.\(postureUi === null \? \{\} : \{ posture: \(\) => postureUi\.posturePicker\(\{\s*where: 'board',/);
+    // The deps are `boardPostureDeps`'s (unit-tested in `ui/posture-ui.test.ts`), handed the campaign store itself.
+    expect(main).toMatch(/\.\.\.\(postureUi === null \? \{\} : \{ posture: \(\) => postureUi\.posturePicker\(postureUi\.boardPostureDeps\(ledgerStore\)\) \}\),/);
   });
 });
 
 describe('each ruling at its place in main.ts', () => {
   it('the deploy line: only on a new campaign briefing (never the tutorial or a resumed run), and a change restarts it', () => {
+    // The whole block, exactly: the deps are `deployPostureDeps`'s (its `?fresh` guards are unit-tested in
+    // `ui/posture-ui.test.ts`), fed the URL's `fresh`, the ledger this boot read, the campaign store and the restart; the line
+    // is mounted under the orders (or in the box), and its disposer is registered where it is made.
     expect(main).toMatch(
-      /if \(resumed === null && posture\.showsPosture\(mission\)\) \{[\s\S]{0,200}posture\.posturePicker\(\{\s*where: 'deploy',[\s\S]{0,300}onChanged: \(\) => req\.restart\(\),/
+      new RegExp(
+        [
+          String.raw`if \(resumed === null && posture\.showsPosture\(mission\)\) \{`,
+          String.raw`const line = posture\.posturePicker\(posture\.deployPostureDeps\(\{ fresh: params\.get\('fresh'\) !== null, ledger, store: ledgerStore, restart: \(\) => req\.restart\(\) \}\)\);`,
+          String.raw`\(stage\.querySelector\('\.rl-loading__orders'\) \?\? stage\.querySelector\('\.rl-loading__box'\)\)\?\.append\(line\.el\);`,
+          String.raw`onDispose\(line\.dispose\);`,
+        ].join(String.raw`\s*`)
+      )
     );
+    // `ledger` is the one this boot read: `{}` under `?fresh`, never the store.
+    expect(main).toMatch(/const ledger: CampaignLedger = params\.get\('fresh'\) !== null \? \{\} : ledgerStore\.readLedger\(\);/);
     // After the briefing exists, so the line has somewhere to go.
-    expect(main.search(/posture\.posturePicker\(\{\s*where: 'deploy'/)).toBeGreaterThan(main.search(/const loading = showLoading\(/));
+    expect(main.search(/posture\.posturePicker\(posture\.deployPostureDeps\(/)).toBeGreaterThan(main.search(/const loading = showLoading\(/));
   });
 
   it('the defeat suggestion comes from the posture module and rides the debrief options; nothing else calls it', () => {

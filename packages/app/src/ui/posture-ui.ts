@@ -13,7 +13,11 @@
  * is on the entry chunk (`webgpu:bundle`); `posture-ui-wiring.test.ts` holds the boundary.
  *
  * Disposer contract: the picker owns what it makes. Its listeners are on its own elements and die with them; a click after
- * `dispose` writes nothing (`disposed`).
+ * `dispose` writes nothing (`disposed`). On the deploy line, `freeze` closes it once Deploy is answered: a change there
+ * restarts the mission, and after Deploy the mission has started.
+ *
+ * The deps each caller hands the picker are built HERE, by `boardPostureDeps` and `deployPostureDeps`, so the guards that keep
+ * a `?fresh` run off the player's real ledger are unit-tested rather than held by a regex over `main.ts`.
  */
 import { DIFFICULTY_LEDGER_KEY, POSTURE_IDS, postureApplies, postureOf, type OverlayMission, type PostureId } from '@lions/data';
 import type { CampaignLedger } from '../ledger-store';
@@ -45,7 +49,47 @@ export interface PosturePickerDeps {
 
 export interface PosturePicker {
   el: HTMLElement;
+  /** Disables every row for good, and a click after it writes nothing. The deploy line is frozen the moment Deploy is
+   *  answered (GH-1394 slice 2 review, finding 2), so a late click cannot restart a mission that has started. Idempotent. */
+  freeze(): void;
   dispose(): void;
+}
+
+/** The three members of the campaign `LedgerStore` the picker's deps use. */
+export interface PostureLedgerStore {
+  readonly available: boolean;
+  readLedger(): CampaignLedger;
+  writeLedger(l: CampaignLedger): void;
+}
+
+/** The board chip's deps: the store as it stands; a change applies from the next deploy. `?fresh` is not a sticky router key,
+ *  so the board holds the real (purged) store and writes it. */
+export function boardPostureDeps(store: PostureLedgerStore): PosturePickerDeps {
+  return {
+    where: 'board',
+    read: () => store.readLedger(),
+    write: (l) => store.writeLedger(l),
+    canWrite: store.available,
+  };
+}
+
+/**
+ * The deploy line's deps. A change writes the ledger and starts this briefing again (`restart`).
+ *
+ * Under `?fresh` (`fresh`) the run booted on `ledger`, the empty ledger the boot read, and NOT on the store: a `?fresh`
+ * landing on `/mission/<id>` does not purge it, so the store still holds the player's real campaign. The line then reads the
+ * boot's ledger (it names the posture this run is on) and cannot write: a write would put `{ posture }` over every result,
+ * roster and credit the player has.
+ */
+export function deployPostureDeps(o: { fresh: boolean; ledger: CampaignLedger; store: PostureLedgerStore; restart(): void }): PosturePickerDeps {
+  const { fresh, ledger, store, restart } = o;
+  return {
+    where: 'deploy',
+    read: () => (fresh ? ledger : store.readLedger()),
+    write: (l) => store.writeLedger(l),
+    canWrite: store.available && !fresh,
+    onChanged: () => restart(),
+  };
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] => {
@@ -57,6 +101,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
 
 export function posturePicker(deps: PosturePickerDeps): PosturePicker {
   let disposed = false;
+  let frozen = false;
   const root = el('details', 'rl-posture');
   root.dataset.where = deps.where;
   const summary = el('summary', 'rl-posture__chip');
@@ -93,7 +138,7 @@ export function posturePicker(deps: PosturePickerDeps): PosturePicker {
   };
 
   function choose(id: PostureId): void {
-    if (disposed || !deps.canWrite) return;
+    if (disposed || frozen || !deps.canWrite) return;
     const ledger = deps.read();
     if (postureOf(ledger) === id) return;
     try {
@@ -113,6 +158,10 @@ export function posturePicker(deps: PosturePickerDeps): PosturePicker {
   paint();
   return {
     el: root,
+    freeze: () => {
+      frozen = true;
+      for (const b of buttons) b.disabled = true;
+    },
     dispose: () => {
       disposed = true;
       root.remove();

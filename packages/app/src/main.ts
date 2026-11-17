@@ -1188,12 +1188,7 @@ async function main(): Promise<void> {
       // make a WebGL context for a player who has already gone.
       signal: req.signal,
       // GH-1394 slice 2 (D10): the posture chip, one of its two writers; a change applies from the next deploy.
-      ...(postureUi === null ? {} : { posture: () => postureUi.posturePicker({
-        where: 'board',
-        read: () => ledgerStore.readLedger(),
-        write: (l) => ledgerStore.writeLedger(l),
-        canWrite: ledgerStore.available,
-      }) }),
+      ...(postureUi === null ? {} : { posture: () => postureUi.posturePicker(postureUi.boardPostureDeps(ledgerStore)) }),
       // GH-1393: the saved mission, if there is one: a Resume row above the footer. The store is read again after a discard.
       ...(kit === null ? {} : { resume: () => kit.resumeRow({
         read: () => {
@@ -3065,16 +3060,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // GH-1394 slice 2 (D10): the deploy line, under the orders: the posture this run is played on, what it does to the grade and
   // the pay, and the one place besides the board to change it. A change rewrites the ledger key and starts this briefing again
   // (`req.restart`), so the mission the player deploys is the one the line names. Not on the tutorial (D12), a sandbox or a
-  // resumed run (its posture is the save's); read-only under `?fresh`, whose ledger is not the campaign's.
+  // resumed run (its posture is the save's); read-only under `?fresh`, whose ledger is not the campaign's (`deployPostureDeps`).
   if (resumed === null && posture.showsPosture(mission)) {
-    const fresh = params.get('fresh') !== null;
-    const line = posture.posturePicker({
-      where: 'deploy',
-      read: () => (fresh ? ledger : ledgerStore.readLedger()),
-      write: (l) => ledgerStore.writeLedger(l),
-      canWrite: ledgerStore.available && !fresh,
-      onChanged: () => req.restart(),
-    });
+    const line = posture.posturePicker(posture.deployPostureDeps({ fresh: params.get('fresh') !== null, ledger, store: ledgerStore, restart: () => req.restart() }));
     (stage.querySelector('.rl-loading__orders') ?? stage.querySelector('.rl-loading__box'))?.append(line.el);
     onDispose(line.dispose);
   }

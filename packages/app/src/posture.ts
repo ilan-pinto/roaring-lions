@@ -14,7 +14,7 @@ import { reinforceKey } from '@lions/sim';
 
 // GH-1394 slice 2: the deploy line and the defeat suggestion, for the battlefield, which already holds this module (one lazy
 // load, not two). The campaign board loads `./ui/posture-ui` itself.
-export { defeatSuggestion, posturePicker, showsPosture } from './ui/posture-ui';
+export { defeatSuggestion, deployPostureDeps, posturePicker, showsPosture } from './ui/posture-ui';
 
 /** `mission` as the campaign ledger's posture plays it. Standard (and the tutorial under any posture): `mission`
  *  itself, by reference. `label` resolves the relief trigger's `label_key` (the app passes `t`). */
