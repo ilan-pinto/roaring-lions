@@ -59,12 +59,13 @@ export function messageShape(msg) {
 }
 
 /**
- * Plural categories a language has BEYOND the `one` and `other` the English messages carry (CLDR; Intl.PluralRules agrees). Russian counts
- * 1 / 2-4 / 5-20 differently, so its messages say `one`, `few`, `many` and `other`. Every language not listed here keeps the strict rule:
- * exactly the English option keys. Adding a language with extra categories is one line here, and a test (validate_chrome_catalogue.test.ts)
- * holds that the table and the platform's plural rules agree.
+ * The plural categories a language REQUIRES in every plural besides `other` (CLDR; Intl.PluralRules agrees), for the languages whose rules
+ * differ from the English `one`/`other`. Russian counts 1 / 2-4 / 5-20 differently, so every Russian plural says `one`, `few`, `many` and
+ * `other`, even where the English has no `one` (a plural that is only `=0` and `other`). Every language not listed here keeps the strict rule:
+ * exactly the English option keys. Adding a language is one line here, and a test (validate_chrome_catalogue.test.ts) holds that the table and
+ * the platform's plural rules agree.
  */
-export const EXTRA_PLURAL_CATEGORIES = { ru: ['few', 'many'] };
+export const EXTRA_PLURAL_CATEGORIES = { ru: ['one', 'few', 'many'] };
 
 /** The extra plural categories for a locale id such as `ru` or `es-ES` (matched on the language part). */
 export function pluralExtrasFor(locale) {
@@ -93,15 +94,15 @@ function optionsOf(rest) {
   return out;
 }
 
+/** The comparable shape of one plural branch's text: its placeholders (and nested ICU arguments) and whether it uses `#`. */
+const branchShape = (text) => `${messageShape(text).join(' ')}${text.includes('#') ? ' #' : ''}`;
+
 /**
- * Takes a translation's extra plural categories OUT of `msg`, so what is left can be compared with the English by the ordinary shape rule.
- * Every plural argument must carry each of `extras`, and each extra branch must hold the same placeholders (and `#`) as its `other` branch.
- * Returns the message without the extras and the problems found. With no `extras` it changes nothing.
+ * Walks `msg` calling `onPlural(arg, branches)` for every plural argument (not for one inside a plural's own branches, which none of the
+ * messages has) and returns `msg` rebuilt with the branches `rebuild(arg, branches)` returns.
  */
-export function withoutExtraPlurals(msg, extras) {
-  const problems = [];
-  if (extras.length === 0) return { text: msg, problems };
-  const walk = (s) => {
+function mapPlurals(msg, onPlural) {
+  const walk = (s, inPlural) => {
     let out = '';
     let i = 0;
     while (i < s.length) {
@@ -119,25 +120,58 @@ export function withoutExtraPlurals(msg, extras) {
       const body = s.slice(open + 1, j - 1);
       const m = /^\s*([A-Za-z0-9_]+)\s*,\s*(plural|select)\s*,([\s\S]*)$/.exec(body);
       if (m === null) out += `{${body}}`;
-      else {
-        const branches = optionsOf(m[3]).map(([k, t]) => [k, walk(t)]);
-        if (m[2] === 'plural') {
-          const other = branches.find(([k]) => k === 'other');
-          for (const e of extras) {
-            const b = branches.find(([k]) => k === e);
-            if (b === undefined) problems.push(`plural "${m[1]}" has no "${e}" branch`);
-            else if (other !== undefined && (messageShape(b[1]).join(' ') !== messageShape(other[1]).join(' ') || b[1].includes('#') !== other[1].includes('#'))) {
-              problems.push(`plural "${m[1]}" branch "${e}" has different placeholders from "other"`);
-            }
-          }
-          out += `{${m[1]}, plural, ${branches.filter(([k]) => !extras.includes(k)).map(([k, t]) => `${k} {${t}}`).join(' ')}}`;
-        } else out += `{${m[1]}, select, ${branches.map(([k, t]) => `${k} {${t}}`).join(' ')}}`;
-      }
+      else if (m[2] === 'plural') {
+        const branches = optionsOf(m[3]).map(([k, t]) => [k, walk(t, true)]);
+        const kept = inPlural ? branches : onPlural(m[1], branches);
+        out += `{${m[1]}, plural, ${kept.map(([k, t]) => `${k} {${t}}`).join(' ')}}`;
+      } else out += `{${m[1]}, select, ${optionsOf(m[3]).map(([k, t]) => `${k} {${walk(t, inPlural)}}`).join(' ')}}`;
       i = j;
     }
     return out;
   };
-  return { text: walk(msg), problems };
+  return walk(msg, false);
+}
+
+/**
+ * Takes a language's own plural categories (`extras`) OUT of a message, so what is left can be compared by the ordinary shape rule.
+ *
+ * The English side (`enMsg` absent): the categories are only set aside. The translation (`enMsg` given): every plural argument must carry each
+ * of `extras`, and each such branch must have a shape the English plural of the same argument (the k-th one of that name) has in one of its
+ * own branches: `few` and `many` follow the English `other`, `one` follows the English `one` where the English has one (often it shows the
+ * name alone, `other` the name and the count) and its `other` where it has none. Returns the message without the categories and the problems.
+ * With no `extras` it changes nothing.
+ */
+export function withoutExtraPlurals(msg, extras, enMsg = undefined) {
+  const problems = [];
+  if (extras.length === 0) return { text: msg, problems };
+  const english = new Map();
+  if (enMsg !== undefined) {
+    mapPlurals(enMsg, (arg, branches) => {
+      const list = english.get(arg) ?? [];
+      list.push(Object.fromEntries(branches.map(([k, t]) => [k, branchShape(t)])));
+      english.set(arg, list);
+      return branches;
+    });
+  }
+  const seen = new Map();
+  const text = mapPlurals(msg, (arg, branches) => {
+    if (enMsg !== undefined) {
+      const occurrence = seen.get(arg) ?? 0;
+      seen.set(arg, occurrence + 1);
+      const ref = english.get(arg)?.[occurrence];
+      const own = Object.fromEntries(branches.map(([k, t]) => [k, branchShape(t)]));
+      for (const e of extras) {
+        if (!(e in own)) {
+          problems.push(`plural "${arg}" has no "${e}" branch`);
+          continue;
+        }
+        const allowed = ref === undefined ? [own.other] : e === 'one' ? [ref.one ?? ref.other] : [ref.other];
+        if (!allowed.includes(own[e])) problems.push(`plural "${arg}" branch "${e}" has different placeholders from the English`);
+      }
+    }
+    return branches.filter(([k]) => !extras.includes(k));
+  });
+  return { text, problems };
 }
 
 /**
@@ -153,8 +187,8 @@ export function chromeCatalogueFailures(file, en, tr, opts = {}) {
     if (!(key in tr)) { out.push(`${file}: missing key "${key}"`); continue; }
     const v = tr[key];
     if (typeof v !== 'string' || v.trim() === '') { out.push(`${file}: "${key}" is not a non-empty string`); continue; }
-    const want = messageShape(en[key]).join(' ');
-    const stripped = withoutExtraPlurals(v, extras);
+    const want = messageShape(withoutExtraPlurals(en[key], extras).text).join(' ');
+    const stripped = withoutExtraPlurals(v, extras, en[key]);
     for (const p of stripped.problems) out.push(`${file}: "${key}": ${p}`);
     const got = messageShape(stripped.text).join(' ');
     if (want !== got) out.push(`${file}: "${key}" has the wrong placeholders (English: ${want || 'none'}; here: ${got || 'none'})`);

@@ -186,16 +186,42 @@ describe('extra plural categories (ru)', () => {
     expect(fails(en, ok, 'ru')).toEqual([]);
     expect(fails(en, { m: '{r, select, a {{n, plural, one {# человек} other {# человека}}} other {х}}' }, 'ru')[0]).toMatch(/no "few" branch/);
   });
-  it('the table agrees with the platform\'s plural rules: ru has few and many beyond one/other, de/fr/es-ES/en need no more than one/other here', () => {
-    expect(EXTRA_PLURAL_CATEGORIES).toEqual({ ru: ['few', 'many'] });
+  it('the table agrees with the platform\'s plural rules: ru needs one, few and many beyond other; de/fr/es-ES/en are not listed', () => {
+    expect(EXTRA_PLURAL_CATEGORIES).toEqual({ ru: ['one', 'few', 'many'] });
     expect(new Intl.PluralRules('ru').resolvedOptions().pluralCategories.sort()).toEqual(['few', 'many', 'one', 'other']);
-    expect(pluralExtrasFor('ru')).toEqual(['few', 'many']);
-    expect(pluralExtrasFor('RU')).toEqual(['few', 'many']);
+    expect(pluralExtrasFor('ru')).toEqual(['one', 'few', 'many']);
+    expect(pluralExtrasFor('RU')).toEqual(['one', 'few', 'many']);
     for (const l of ['en', 'de', 'fr', 'es-ES', undefined]) expect(pluralExtrasFor(l as string), String(l)).toEqual([]);
+  });
+  it('a plural the English writes as only =0 and other still needs all four Russian forms, and one is refused without it', () => {
+    const en = { a: '{more, plural, =0 {} other {+# more}}' };
+    const ok = { a: '{more, plural, =0 {} one {ещё #} few {ещё #} many {ещё #} other {ещё #}}' };
+    expect(fails(en, ok, 'ru')).toEqual([]);
+    expect(fails(en, { a: '{more, plural, =0 {} few {ещё #} many {ещё #} other {ещё #}}' }, 'ru')[0]).toMatch(/no "one" branch/);
+    // and the strict languages still refuse an invented `one` the English does not have
+    expect(fails(en, { a: '{more, plural, =0 {} one {noch #} other {noch #}}' }, 'de').length).toBeGreaterThan(0);
+  });
+  it('the English side is only set aside, not required: an English plural WITH a one branch compares the same', () => {
+    expect(withoutExtraPlurals('{n, plural, one {# a} other {# b}}', ['one', 'few', 'many'])).toEqual({ text: '{n, plural, other {# b}}', problems: [] });
   });
   it('withoutExtraPlurals changes nothing when there are no extras', () => {
     const m = '{n, plural, one {a} few {b} other {c}}';
     expect(withoutExtraPlurals(m, [])).toEqual({ text: m, problems: [] });
+  });
+  it('each Russian form follows the English plural of the SAME argument: one follows the English one, few and many follow other', () => {
+    // the English shows the name alone for one and the name with the count for other (alert.kill)
+    const en = { k: '{n, plural, one {{name}} other {{name} (#)}}' };
+    const ok = { k: '{n, plural, one {{name}} few {{name} (#)} many {{name} (#)} other {{name} (#)}}' };
+    expect(fails(en, ok, 'ru')).toEqual([]);
+    expect(fails(en, { k: '{n, plural, one {{name} (#)} few {{name} (#)} many {{name} (#)} other {{name} (#)}}' }, 'ru')[0]).toMatch(/branch "one" has different placeholders/);
+    expect(fails(en, { k: '{n, plural, one {{name}} few {{name}} many {{name} (#)} other {{name} (#)}}' }, 'ru')[0]).toMatch(/branch "few" has different placeholders/);
+  });
+  it('pairs the k-th plural of an argument with the k-th English one (two plurals on {n} in one message)', () => {
+    const en = { k: '{n, plural, one {# unit} other {# units}} wait. {n, plural, one {It goes} other {They go}}' };
+    const ok = { k: '{n, plural, one {# единица} few {# единицы} many {# единиц} other {# единицы}} ждут. {n, plural, one {Идёт} few {Идут} many {Идут} other {Идут}}' };
+    expect(fails(en, ok, 'ru')).toEqual([]);
+    const bad = { k: '{n, plural, one {# единица} few {# единицы} many {# единиц} other {# единицы}} ждут. {n, plural, one {Идёт} few {Идут #} many {Идут} other {Идут}}' };
+    expect(fails(en, bad, 'ru')[0]).toMatch(/branch "few"/);
   });
 });
 

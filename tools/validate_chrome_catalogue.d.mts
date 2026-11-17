@@ -4,4 +4,4 @@ export function chromeSourceFailures(file: string, en: Record<string, string>, t
 export function buildChromeSource(en: Record<string, string>, tr: Record<string, string>, existing?: Record<string, string>, rebless?: string[]): Record<string, string>;
 export const EXTRA_PLURAL_CATEGORIES: Record<string, string[]>;
 export function pluralExtrasFor(locale: string | undefined): string[];
-export function withoutExtraPlurals(msg: string, extras: string[]): { text: string; problems: string[] };
+export function withoutExtraPlurals(msg: string, extras: string[], enMsg?: string): { text: string; problems: string[] };
