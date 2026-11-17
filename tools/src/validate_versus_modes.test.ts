@@ -12,6 +12,7 @@ import { CAMP_REACH, scanExit } from '../validate_versus_rules.mjs';
 import { LZ_SEARCH_TILES } from '../../packages/sim/src/tuning';
 import { SETUP_PLACEMENTS_PER_SIDE, fx } from '@lions/sim';
 import { buildMatchWorld, type MatchWorld } from '../../packages/app/src/net/match-world';
+import { versusForceOf } from '../../packages/app/src/net/versus-force';
 
 const ROOT = join(__dirname, '..', '..');
 const DIR = join(ROOT, 'data', 'versus', 'modes');
@@ -86,8 +87,9 @@ describe('the shipped win-mode files', () => {
     expect(WIN_MODE_FAIR_MAPS.camp).toEqual(['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l']); // forward camps; milh_flats (15,39)/(31,7): 52.4%, 96.5% by the goal; wadi_tarfan (13,18)/(33,28) and wadi_tarfan_l (26,30)/(68,64) with wipe after_camp (GH-976, 5 Nov); the others stay out: see config.ts
     expect([...VERSUS_FAIR_MAPS].sort()).toEqual([...SEVEN].sort());
     for (const map of SEVEN) for (const mode of ['points', 'flag'] as const) expect(versusModes[map].modes[mode], `${map} ${mode}`).toBeDefined();
-    // ...and no KDF-v-Sarim cell: the one that passed (points on wadi_tarfan_l at 10 per 100) was a kill race and was removed.
-    expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: {}, points: {}, flag: {} });
+    // ...and the KDF-v-Sarim cells: the camp on the two Wadi Tarfans from either host (GH-1381, read on 4000-4287 under GH-1378 Q11);
+    // no points or flag cell (the one points cell that passed, on wadi_tarfan_l at 10 per 100, was a kill race and was removed).
+    expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: { wadi_tarfan: ['kdf', 'sarim'], wadi_tarfan_l: ['kdf', 'sarim'] }, points: {}, flag: {} });
     expect(winModeAllowed('camp', 'wadi_tarfan')).toBe(true);
     expect(winModeAllowed('camp', 'wadi_tarfan_l')).toBe(true);
     for (const out of ['milh_flats_l', 'rujm_sawda', 'tel_marum', 'beit_sahwan_outskirts']) expect(winModeAllowed('camp', out), out).toBe(false);
@@ -226,8 +228,12 @@ describe('the shipped win-mode files', () => {
   // GH-976 (the lead's ruling, 8 Nov): the placement rule "no camp tile is a tile the placed force spawns on" EXEMPTS AIRCRAFT. A flying unit never blocks a camp
   // (V5 on milh_flats, 3x3 camps, puts a recon drone over each footprint). "Aircraft" is read from the sim's own `isAir`, which is the unit JSON's
   // `mobility.domain === 'air'`, never from a unit id, so a ground unit on a camp tile is refused whatever its name.
-  const campRoom = (map: string): MatchWorld => {
-    const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'camp' } as never) as MatchConfig;
+  /** A camp room on `map`: the mirror unless `host` names the host's faction in a KDF-v-Sarim pairing (the KDF is side 0 at whichever end
+   *  it stands, `sidesOfFactions`; the Sarim host stands friendly on side 1). */
+  const campRoom = (map: string, host?: 'kdf' | 'sarim'): MatchWorld => {
+    const factions: ['kdf' | 'sarim', 'kdf' | 'sarim'] = host === undefined ? ['kdf', 'kdf'] : host === 'kdf' ? ['kdf', 'sarim'] : ['sarim', 'kdf'];
+    const sides = host === 'sarim' ? [1, 0] : [0, 1];
+    const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'camp' } as never) as MatchConfig;
     return buildMatchWorld(c);
   };
   /** The units standing on a camp's footprint, as `{ id, air, at }`; with `aircraftExempt` (the rule) a flying unit is not counted. */
@@ -251,6 +257,23 @@ describe('the shipped win-mode files', () => {
       const w = campRoom(doc.map);
       for (const end of ['friendly', 'hostile'] as const) {
         expect(unitsOnCamp(w, doc.camps![end], true), `${doc.map} ${end} camp tile under a ground unit`).toEqual([]);
+      }
+    }
+  });
+
+  it('GH-1381: no camp tile is a tile the placed force spawns on in any KDF-v-Sarim camp cell offered, from either host (aircraft exempt)', () => {
+    // The mirror test above reads the KDF force alone; a faction cell places the Sarim force at one end, on its own placement.
+    const cells = Object.entries(WIN_MODE_FAIR_FACTION_CELLS.camp).flatMap(([map, hosts]) => hosts.map((host) => [map, host] as const));
+    expect(cells.length, 'an offered faction camp cell to read').toBeGreaterThan(0);
+    for (const [map, host] of cells) {
+      const doc = shipped.find((x) => x.doc.map === map)!.doc;
+      const w = campRoom(map, host);
+      // The room really is KDF against Sarim (the KDF is side 0 from either host): side 1 fields the Sarim versus force, side 0 the KDF's.
+      const typesOn = (side: 0 | 1): string[] => [...new Set(w.bySide[side].map((i) => w.sim.unitTypes[w.sim.state.typeIdx[i]].id))].sort();
+      expect(typesOn(1), `${map} host ${host}: side 1 is the Sarim force`).toEqual([...new Set(versusForceOf('sarim').map((p) => p[0]))].sort());
+      expect(typesOn(0), `${map} host ${host}: side 0 is the KDF force`).toEqual([...new Set(versusForceOf('kdf').map((p) => p[0]))].sort());
+      for (const end of ['friendly', 'hostile'] as const) {
+        expect(unitsOnCamp(w, doc.camps![end], true), `${map} host ${host} ${end} camp tile under a ground unit`).toEqual([]);
       }
     }
   });

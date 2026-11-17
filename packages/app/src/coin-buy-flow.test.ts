@@ -108,5 +108,14 @@ describe('buying with coins', () => {
     expect(short.readRoar().coins.free).toBe(10);
     buy(store, { kind: 'unit', unitId: 'apc_kipod' });
     expect(buy(store, { kind: 'unit', unitId: 'apc_kipod' }).ok).toBe(false); // already coin-bought
+    // GH-1385: "earned" was in the title and not in the body. A unit bought with credits is not for sale for coins, with
+    // the coins for it on hand and no coin entitlement to stop the wallet: only the Stores' own `buyEnabled` refuses it.
+    const earned = memoryLedgerStore({
+      [ROAR_KEY]: JSON.stringify({ ...emptyRoar(), coins: { free: 100000, paid: 0 } }),
+      [ACCOUNT_KEY]: JSON.stringify({ version: 1, balance: 0, earned_total: 0, paid: {}, unlocks: ['apc_kipod'], upgrades: {}, grants: [] }),
+    });
+    expect(buy(earned, { kind: 'unit', unitId: 'apc_kipod' }).ok).toBe(false);
+    expect(earned.readRoar().coins.free).toBe(100000);
+    expect(earned.readRoar().entitlements.units).toEqual({});
   });
 });

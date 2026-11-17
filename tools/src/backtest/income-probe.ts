@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { MissionRuntime, creditsFor, creditInputFrom, type SimEvent, type MissionEvent } from '@lions/sim';
 import { missions, maps } from '@lions/data';
 import { runLog } from './playtest-run';
-import { INCOME_TABLES, D7_MISSIONS, tableProblems, type MissionIncome } from './income-proposal';
+import { INCOME_TABLES, CENSUS_TABLES, CENSUS_MISSIONS, D7_MISSIONS, tableProblems, type MissionIncome } from './income-proposal';
 
 const TABLE = process.env.PT_INCOME;
 const OUT = process.env.PT_INCOME_OUT;
@@ -62,14 +62,15 @@ type MutableMission = { id: string; map: { file: string }; resources?: Record<st
 type MutableMap = { zones?: Record<string, number[]>; markers?: Record<string, number[]> };
 
 function apply(name: string): void {
-  const table = INCOME_TABLES[name];
-  if (table === undefined) throw new Error(`income-probe: no table "${name}" (have ${Object.keys(INCOME_TABLES).join(', ')})`);
+  const table = INCOME_TABLES[name] ?? CENSUS_TABLES[name];
+  if (table === undefined) throw new Error(`income-probe: no table "${name}" (have ${[...Object.keys(INCOME_TABLES), ...Object.keys(CENSUS_TABLES)].join(', ')})`);
   const ms = missions as unknown as Record<string, MutableMission>;
   const mp = maps as unknown as Record<string, MutableMap>;
   const problems = tableProblems(
     table,
     (id) => mp[ms[id].map.file].zones ?? {},
     (id) => mp[ms[id].map.file].markers ?? {},
+    [...D7_MISSIONS, ...CENSUS_MISSIONS],
   );
   // Markers added in memory are checked against the map's grid by the runtime itself: an entry on a
   // blocked tile reads 'unreachable' in the walk, which is the reading such a choice would give.
@@ -109,7 +110,7 @@ if (TABLE !== undefined && OUT !== undefined) {
     });
   }
   const recs = new WeakMap<MissionRuntime, Rec>();
-  const d7 = new Set<string>(D7_MISSIONS);
+  const d7 = new Set<string>([...D7_MISSIONS, ...CENSUS_MISSIONS]);
 
   const flush = (rec: Rec, rt: MissionRuntime): void => {
     const entry = runLog[rec.index];
@@ -157,10 +158,13 @@ if (TABLE !== undefined && OUT !== undefined) {
   };
 
   const origBuild = MissionRuntime.prototype.requestBuild;
-  MissionRuntime.prototype.requestBuild = function (this: MissionRuntime, unitId: string): boolean {
-    const ok = origBuild.call(this, unitId);
+  // Every argument is passed on: `requestBuild(unitId, line?, side?)` since F4. The wrapper used to forward `unitId`
+  // alone, so a plan that names a production line (the forward-camp plans) built on line 0 under the probe and not
+  // without it, and `none` was no longer byte-identical to `pnpm playtest` (GH-1386 found it on Umm Zeitoun IV).
+  MissionRuntime.prototype.requestBuild = function (this: MissionRuntime, ...args: Parameters<MissionRuntime['requestBuild']>): boolean {
+    const ok = origBuild.apply(this, args);
     const rec = recs.get(this);
-    if (rec) rec.builds.push([rec.ticks, unitId, ok]);
+    if (rec) rec.builds.push([rec.ticks, args[0], ok]);
     return ok;
   };
 
