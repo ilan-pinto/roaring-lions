@@ -901,15 +901,15 @@ describe('showProfile: the avatar sheet (GH-1075 P6)', () => {
 
 // GH-1075 P7: the redesigned layout, two columns of cards.
 describe('showProfile: the redesigned layout (GH-1075 P7)', () => {
-  const titles = (root: ParentNode): string[] => [...root.querySelectorAll('.rl-profile__card-title')].map((x) => x.textContent ?? '');
+  const titles = (root: ParentNode): string[] => [...root.querySelectorAll('.rl-page-card__title')].map((x) => x.textContent ?? '');
   const named = (c: ReturnType<typeof stub>) => mount(c);
 
   it('signed in: header, record, history on the left; sign-in, data and the danger zone on the right, in that order', async () => {
     const { stage } = named(stub({ me: async () => signedIn() }));
     await flush();
-    const main = stage.querySelector('.rl-profile__col--main') as HTMLElement;
-    const side = stage.querySelector('.rl-profile__col--side') as HTMLElement;
-    expect([...main.children].map((x) => x.className.replace('rl-profile__card ', ''))).toEqual(['rl-profile__card--head', 'rl-profile__card--record', 'rl-profile__card--history']);
+    const main = stage.querySelector('.rl-page-cols__col--main') as HTMLElement;
+    const side = stage.querySelector('.rl-page-cols__col--side') as HTMLElement;
+    expect([...main.children].map((x) => x.className.replace('rl-page-card ', ''))).toEqual(['rl-profile__card--head', 'rl-profile__card--record', 'rl-profile__card--history']);
     expect(titles(main)).toEqual([t('profile.section.record'), t('profile.history.title')]);
     expect(titles(side)).toEqual([t('profile.section.signIn'), t('profile.section.data'), t('profile.section.danger')]);
     expect(main.nextElementSibling).toBe(side);
@@ -920,12 +920,12 @@ describe('showProfile: the redesigned layout (GH-1075 P7)', () => {
   it('every card title is an <h2>, the first child of its <section> card', async () => {
     const { stage } = named(stub({ me: async () => signedIn() }));
     await flush();
-    const heads = [...stage.querySelectorAll('.rl-profile__card-title')];
+    const heads = [...stage.querySelectorAll('.rl-page-card__title')];
     expect(heads).toHaveLength(5);
     for (const h of heads) {
       expect(h.tagName).toBe('H2');
       expect(h.parentElement?.tagName).toBe('SECTION');
-      expect(h.parentElement?.classList.contains('rl-profile__card')).toBe(true);
+      expect(h.parentElement?.classList.contains('rl-page-card')).toBe(true);
       expect(h.parentElement?.firstElementChild).toBe(h);
     }
   });
@@ -978,7 +978,7 @@ describe('showProfile: the redesigned layout (GH-1075 P7)', () => {
     expect(g.querySelector('[data-avatar="guest"]')).not.toBeNull();
     expect(g.querySelector('.rl-profile__guest-headline')?.textContent).toBe(t('profile.guest.headline'));
     expect(g.querySelectorAll('.rl-profile__perks li')).toHaveLength(3);
-    expect(stage.querySelector('.rl-profile__cols')).toBeNull();
+    expect(stage.querySelector('.rl-page-cols')).toBeNull();
   });
 
   it('closed, signed-out and deleted states keep the guest card; the line sits above it', async () => {
@@ -1006,7 +1006,7 @@ describe('showProfile: the redesigned layout (GH-1075 P7)', () => {
       for (const root of [a.stage, g.stage]) {
         const chrome = [
           ...root.querySelectorAll('button'),
-          ...root.querySelectorAll('.rl-profile__card-title, .rl-profile__guest-headline, .rl-profile__perks li, .rl-profile__tile-label, .rl-profile__identity-state, .rl-profile__since, .rl-profile__show-record, label'),
+          ...root.querySelectorAll('.rl-page-card__title, .rl-profile__guest-headline, .rl-profile__perks li, .rl-profile__tile-label, .rl-profile__identity-state, .rl-profile__since, .rl-profile__show-record, label'),
         ].map((x) => x.textContent ?? '');
         expect(chrome.length).toBeGreaterThan(5);
         // The display name and the Player ID are data and never go through t(); everything else is bracketed.
@@ -1053,7 +1053,7 @@ describe('the Roar coins card (GH-1370 C3)', () => {
   it('is the second card of the main column, under the header', async () => {
     const { stage } = mount(stub({ me: async () => signedIn() }), { coins: coinsDep(walletOf(5, 0), true) });
     await flush();
-    const kids = [...(stage.querySelector('.rl-profile__col--main')?.children ?? [])];
+    const kids = [...(stage.querySelector('.rl-page-cols__col--main')?.children ?? [])];
     expect(kids[0]?.classList.contains('rl-profile__card--head')).toBe(true);
     expect(kids[1]).toBe(card(stage));
   });

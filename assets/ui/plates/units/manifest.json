@@ -59,10 +59,10 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        240,
-        215
+        253,
+        221
       ],
-      "glb_sha256": "20cb6a8863428a819a2ab7c65e4e1dccd1882a01f4cd639dd539fc69a544bcbb"
+      "glb_sha256": "12a4e626dff0d6a338988535e43f3ca21137b2fd3a18acd678fd5b09a5f744e5"
     },
     "dozer_d9": {
       "file": "dozer_d9.jpg",

@@ -587,8 +587,9 @@ export class MatchRoom {
       for (const ws of targets) { try { ws.send(text); } catch { /* closing */ } }
     }
     // A spectator hears the broadcast stream (frames, stalls, pauses, the end) and none of the seats' own
-    // business: no lobby (it has no seat), no advisor badge and no advisor text. Never a seat-targeted message.
-    if (to === 'all' && msg.t !== 'lobby' && msg.t !== 'advisors' && msg.t !== 'advisor') {
+    // business: no lobby (it has no seat), no advisor badge and no advisor text, and (GH-1417, the lead's D11) no chat and no quick
+    // chat: a seat's talk is private to the two seats. Never a seat-targeted message.
+    if (to === 'all' && msg.t !== 'lobby' && msg.t !== 'advisors' && msg.t !== 'advisor' && msg.t !== 'chat' && msg.t !== 'quick') {
       const text = JSON.stringify(msg);
       for (const ws of this.watchers()) { try { ws.send(text); } catch { /* closing */ } }
     }

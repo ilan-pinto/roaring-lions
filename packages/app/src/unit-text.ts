@@ -12,6 +12,7 @@
  *    stats are untouched, so a replay in any language is the same replay.
  */
 import { applyUnitLocale, units, type UnitLocaleOverlay } from '@lions/data';
+import { fetchLocaleJson } from './i18n/overlay-fetch';
 
 let overlay: UnitLocaleOverlay | null = null;
 
@@ -38,16 +39,10 @@ export function unitBlurb(id: string): string | undefined {
 }
 
 /**
- * `data/locales/<lang>/units.json`, served from `${base}locales/`. `en` is the source text and is never fetched. Any other id whose file is
- * missing or unreadable is a null overlay, so a translator's file going missing degrades to English instead of breaking boot.
+ * `data/locales/<lang>/units.json`, served from `${base}locales/` (`vite-plugin-locales.ts`). `en` is the source text and is never fetched. Any
+ * other id whose file is missing or unreadable is a null overlay, so a translator's file going missing degrades to English instead of
+ * breaking boot, and a `console.warn` names the URL (`i18n/overlay-fetch.ts`).
  */
 export async function loadUnitOverlay(lang: string, base: string): Promise<UnitLocaleOverlay | null> {
-  if (lang === 'en') return null;
-  try {
-    const res = await fetch(`${base}locales/${lang}/units.json`);
-    if (!res.ok) return null;
-    return (await res.json()) as UnitLocaleOverlay;
-  } catch {
-    return null;
-  }
+  return fetchLocaleJson<UnitLocaleOverlay>(lang, `${base}locales/${lang}/units.json`, 'unit text');
 }

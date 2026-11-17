@@ -346,3 +346,43 @@ describe('victory: the challenge coin', () => {
     expect([bad.status, await bad.json()]).toEqual([400, { error: 'body' }]);
   });
 });
+
+// GH-1385: the earn journal and the answer checked against the rows. The victory tests read the journal's SUM and the answer's
+// coins only, so earn rows with no receipt, rows that lost their missionId, and an answer one revision off the wallet (the
+// next guarded write's expected revision) all passed.
+describe('what a paying victory writes and answers (GH-1385)', () => {
+  const walletRow = async (s: S) => (await s.h.db.prepare('SELECT revision FROM wallet').first<{ revision: number }>())?.revision ?? -1;
+  const earnRows = async (s: S) =>
+    (await s.h.db.prepare("SELECT free_delta AS d, detail FROM coin_journal WHERE kind = 'earn' ORDER BY id").all<{ d: number; detail: string }>()).results.map((r) => ({ d: r.d, ...(JSON.parse(r.detail) as object) }));
+
+  it('a first win journals one row per award, each with its source, mission and receipt, and answers the wallet row', async () => {
+    const s = setup();
+    const cookie = await member(s);
+    await start(s, cookie, 1);
+    s.clock.now = T0 + MIN;
+    const r = (await (await win(s, cookie, 2, { start: 1, stars: 2 })).json()) as { coins: number; wallet: { free: number; paid: number; revision: number } };
+    expect(r.coins).toBe(120);
+    expect(r.wallet.revision).toBe(await walletRow(s));
+    const at = T0 + MIN;
+    const receipt = (n: number, source: string, free: number, mission?: string) => ({
+      kind: 'earn', id: `${at}-${n}`, at, coins: { free, paid: 0 }, source, ...(mission === undefined ? {} : { missionId: mission }),
+    });
+    expect(await earnRows(s)).toEqual([
+      { d: 100, source: 'welcome', receipt: receipt(1, 'welcome', 100) },
+      { d: 10, source: 'first_win', missionId: M1, receipt: receipt(2, 'first_win', 10, M1) },
+      { d: 10, source: 'star', missionId: M1, receipt: receipt(3, 'star', 10, M1) },
+    ]);
+  });
+
+  it('a win that pays nothing answers the unchanged wallet row, paid 0', async () => {
+    const s = setup();
+    const cookie = await member(s);
+    await start(s, cookie, 1);
+    s.clock.now = T0 + MIN;
+    await win(s, cookie, 2, { start: 1, stars: 2 });
+    await start(s, cookie, 3);
+    s.clock.now += MIN;
+    const r = (await (await win(s, cookie, 4, { start: 3, stars: 2 })).json()) as { coins: number; wallet: { free: number; paid: number; revision: number } };
+    expect([r.coins, r.wallet.free, r.wallet.paid, r.wallet.revision]).toEqual([0, 120, 0, await walletRow(s)]);
+  });
+});

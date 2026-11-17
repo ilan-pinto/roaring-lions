@@ -225,10 +225,13 @@ TEAM_MESH_OWNER = {
     # B3 (GH-179, 2026-09-30): Meshy figures with their own bake, cut and
     # driven by this module through tools/units/import_meshy_crew_team.py.
     "militia_cell": "tools/units/import_meshy_crew_team.py",
-    # B0b (GH-286, 2026-09-30): both are Meshy figures with their bake, cut
-    # into this module's parts and driven by its clips -- built by
-    # tools/units/import_meshy_kdf_team.py, which owns both files.
-    "demo_squad": "tools/units/import_meshy_kdf_team.py",
+    # Infantry upgrade unit 1 (GH-826, 12 Nov 2026): the Combat Engineers are
+    # ONE posed Meshy combat-engineer body (both fists closed on its own
+    # carbine), skinned to these bones by the skinned importer as the Rifle
+    # Squad's is; `demo_a` and `demo_b` are its measured scalings. Was
+    # tools/units/import_meshy_kdf_team.py's A-pose cut (B0b, GH-286), which
+    # still owns at_team.
+    "demo_squad": "tools/units/import_meshy_skinned_team.py",
     "charge_squad": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "at_team": "tools/units/import_meshy_kdf_team.py",
     "rpg_team": "tools/units/import_meshy_crew_team.py",
@@ -1214,7 +1217,10 @@ TEAM_FIGURES = {
         # slid along the ground with him. The charge is packed away while the
         # team moves (`_key_death_visibility`) and he kneels at it on the
         # sim's brace alone (the motion pass's kneel clips).
-        _f("demo_a", 0.34, -0.16),
+        # Infantry upgrade unit 1 (GH-826, 12 Nov): both men are armed now,
+        # each with the Meshy body's own carbine (the lead's rule 2: every
+        # figure carries a weapon); `demo_a` still sets the charge in `work`.
+        _f("demo_a", 0.34, -0.16, weapon="rifle"),
         _f("demo_b", -0.36, 0.28, leader=True, weapon="rifle"),
     ],
     "at_team": [

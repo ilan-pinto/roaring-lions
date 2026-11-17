@@ -63,6 +63,7 @@ import {
   commanderRankFailures,
   narrativeTextFailures,
   englishCatalogueFailures,
+  englishUnitFailures,
   overlayFailures,
   unitOverlayFailures,
   removeTriggerFailures,
@@ -1241,36 +1242,24 @@ const garrisonableSymbols = new Set(
 }
 
 // --- unit-text locale overlays (GH-1406) ------------------------------------
-// data/locales/<lang>/units.json: `name` and `blurb` per unit id, every id a real unit (`unitOverlayFailures`).
+// data/locales/<lang>/units.json: `name` and `blurb` per unit id, every id a real unit, every translated text carrying the hash of the
+// English it was translated from (`unitOverlayFailures`). `en` is the GENERATED template, held to exact parity like the mission one.
 {
-  const unitIds = new Set();
+  const unitsById = new Map();
   for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
     const u = loadJson(file);
-    if (u?.id) unitIds.add(u.id);
+    if (u?.id) unitsById.set(u.id, u);
   }
   for (const file of jsonFilesIn(join(ROOT, 'data/locales'))) {
     if (!file.endsWith('units.json')) continue;
     const overlay = loadJson(file);
     if (!overlay) continue;
-    failures.push(...unitOverlayFailures(rel(file), overlay, unitIds));
+    failures.push(...unitOverlayFailures(rel(file), overlay, unitsById));
+    if (basename(dirname(file)) === 'en') failures.push(...englishUnitFailures(rel(file), overlay, [...unitsById.values()]));
     checked += 1;
   }
-}
-
-// --- unit-text locale overlays (GH-1406) ------------------------------------
-// data/locales/<lang>/units.json: `name` and `blurb` per unit id, every id a real unit (`unitOverlayFailures`).
-{
-  const unitIds = new Set();
-  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
-    const u = loadJson(file);
-    if (u?.id) unitIds.add(u.id);
-  }
-  for (const file of jsonFilesIn(join(ROOT, 'data/locales'))) {
-    if (!file.endsWith('units.json')) continue;
-    const overlay = loadJson(file);
-    if (!overlay) continue;
-    failures.push(...unitOverlayFailures(rel(file), overlay, unitIds));
-    checked += 1;
+  if (!existsSync(join(ROOT, 'data/locales/en/units.json'))) {
+    failures.push(...englishUnitFailures('data/locales/en/units.json', null, []));
   }
 }
 

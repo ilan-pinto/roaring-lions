@@ -527,3 +527,32 @@ describe('POST claim', () => {
     });
   });
 });
+
+// GH-1385: the claim's journal rows, read whole. The claim tests read the balance, the SUM of the journal and the answer, so a
+// carried tier journalled with a unit's detail and a claim row whose `ceilingCut` was computed with the wrong sign both passed.
+describe('what a claim journals (GH-1385)', () => {
+  it('the claim row, then one row per carried item, each with its own detail; the ceiling cut is what the device ceiling took', async () => {
+    const s = setup();
+    const cookie = await member(s);
+    // The device holds 10 coins and owns dozer_d9 and its armour tier 1. The campaign earns 115; the unit costs 60 and the
+    // tier 25, so 30 are left to credit, and the device's own balance (10) is the ceiling: 20 are cut.
+    const wallet = { coins: { free: 10, paid: 0 }, entitlements: { units: { dozer_d9: { free: true } }, upgrades: { dozer_d9: { armour: { tier: 1, paidTiers: 0 } } } } };
+    const r = await ok(await claim(s, cookie, { campaign: campaignOf([[M1, 1]]), wallet }));
+    expect([r.earned, r.coins]).toEqual([115, 10]);
+    expect(await freeOf(s)).toBe(10);
+    const rows = (await s.h.db.prepare('SELECT kind, free_delta AS d, detail FROM coin_journal ORDER BY id').all<{ kind: string; d: number; detail: string }>()).results.map((x) => ({
+      kind: x.kind,
+      d: x.d,
+      detail: JSON.parse(x.detail) as Record<string, unknown>,
+    }));
+    expect(rows.map((x) => [x.kind, x.d])).toEqual([['backfill', 95], ['unit', -60], ['tier', -25]]);
+    expect(rows[0]?.detail).toEqual(expect.objectContaining({ earned: 115, couponCoins: 0, coupons: [], ceilingCut: 20 }));
+    expect(rows[1]?.detail).toEqual({ unitId: 'dozer_d9', receipt: expect.objectContaining({ kind: 'unit', unitId: 'dozer_d9', coins: { free: 60, paid: 0 } }) });
+    expect(rows[2]?.detail).toEqual({
+      unitId: 'dozer_d9',
+      track: 'armour',
+      tier: 1,
+      receipt: expect.objectContaining({ kind: 'tier', unitId: 'dozer_d9', track: 'armour', tier: 1, coins: { free: 25, paid: 0 } }),
+    });
+  });
+});

@@ -148,6 +148,7 @@ sys.path.insert(0, HERE)
 
 import kit  # noqa: E402
 import rig  # noqa: E402
+from mesh_ownership import assert_script_owns  # noqa: E402
 
 REPO = os.path.dirname(TOOLS)
 #: art/meshes/at_team.glb and art/meshes/demo_squad.glb
@@ -942,6 +943,7 @@ def _seat_spike(part, seat, fx, fy, mat):
 
 
 def build_team(team_id):
+    assert_script_owns(rig.TEAM_MESH_OWNER, team_id, "TEAM_MESH_OWNER", __file__, REPO)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     src, height, mat = _load_figure(team_id)
     spike = _spike_part(team_id, src, mat) if team_id in SPIKE_PART else None
@@ -1038,7 +1040,10 @@ def build_team(team_id):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    names = list(SOURCES) if argv in ([], ["all"]) else argv
+    # a bare run or `all` is the teams this script still owns (demo_squad's row stays as the rigid figure's provenance;
+    # the team is import_meshy_skinned_team.py's since GH-826, and naming it here is refused by `build_team`)
+    mine = os.path.relpath(os.path.abspath(__file__), REPO).replace(os.sep, "/")
+    names = [n for n in SOURCES if rig.TEAM_MESH_OWNER.get(n) == mine] if argv in ([], ["all"]) else argv
     for name in names:
         if name not in SOURCES:
             raise SystemExit(f"unknown team {name!r}; have {sorted(SOURCES)}")

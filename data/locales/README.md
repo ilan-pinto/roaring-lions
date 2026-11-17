@@ -1,7 +1,7 @@
 # data/locales/
 
-Mission TEXT in another language — `name`, `briefing`, an objective's `text`,
-a trigger's `label`. Nothing else: the chrome catalogue (menus, the HUD, the
+Mission TEXT in another language — everything `applyMissionLocale` can replace: `name`, `briefing` and its `sections`, `dispatch`,
+`aftermath`, `hostages_place`, the two `debrief` lines, an objective's `text`, a trigger's `label` and every radio line (`say`). Nothing else: the chrome catalogue (menus, the HUD, the
 brigade screen, every string that goes through `packages/app/src/i18n/t.ts`'s
 `t()`) lives under `packages/app/src/i18n/` and is a separate mechanism with
 its own fetch path — this directory is mission DATA, the thing CLAUDE.md
@@ -15,13 +15,44 @@ of that source at the point `@lions/app` resolves a mission, never a fork of it.
 
 **`data/locales/en/missions.json` exists, and it is generated** (GH-1406 part 2): `pnpm locales:en -- --write` builds it from the
 mission files and `pnpm locales:en` checks it. It is a **translator's template**: one entry per mission with every string the
-overlay can replace (`name`, `briefing`, each objective's `text`, each labelled trigger's `label`), in the mission file's own order.
+overlay can replace (every field in the shape below), in the mission file's own order.
 A translator copies it to `data/locales/<lang>/missions.json` and translates the values; the keys are exactly the ids the overlay
 validator accepts. **Nobody edits it by hand and the game never fetches it** (`main.ts`'s `loadMissionOverlay` returns before any
 request for `en`). `pnpm validate:data` fails on a mission, objective or trigger it lacks, on an entry for something that is gone,
 and on text that has drifted from the mission file, so editing a briefing means running `pnpm locales:en -- --write` in the same
-commit. It does not cover `dispatch`, `aftermath`, `debrief`, a `say`, `hostages_place` or `briefing_sections`: the overlay does
-not replace those today, so a template row for one would promise what the loader does not do.
+commit. **`data/locales/en/units.json` is generated the same way** (GH-1406 part 5): a unit id to its `name`, its `blurb` when it has
+one, and the `src` hashes below.
+
+## The source hash (`src`): how a translation knows it has gone stale
+
+An overlay finds its line by KEY: an objective id, a section id, or for `wave_say` the wave's INDEX in `enemy.waves`. A key says which
+line, not which sentence the translator read. So a mission that reorders its waves, or gains one ahead of a translated wave, leaves every
+key valid and the player sees another wave's translation, and an English line that is reworded leaves its old translation standing,
+with nothing red either way (GH-1406 part 5; the `wave_say` case was found on the part-3 review).
+
+Every entry therefore carries a `src` block, written by the English generator and checked by `validate:data`:
+
+```json
+"src": { "name": "1687e8ef", "briefing": "a3f0c2d1", "sections.situation": "09be77a4", "wave_say.0": "5c1de2f8", "objectives.<id>": "…" }
+```
+
+- A key is the path of a string in the entry (`name`, `dispatch`, `debrief.victory`, `sections.<id>`, `objectives.<id>`,
+  `objective_say.<id>`, `wave_say.<index>`, …); the value is the **first 8 hex characters of the SHA-256 of the English string**, over its
+  exact UTF-8 bytes (no trimming, case and spaces count). `sourceHash` in `tools/validate_narrative.mjs` is the one definition.
+- **Copy `en/missions.json`, translate the values, leave `src` alone.** It already holds the hash of the English you read, so a fresh
+  translation passes with no extra step. A partial translation keeps only the `src` entries of the strings it translates.
+- `validate:data` fails a translated string whose `src` entry is missing (the message prints the hash to copy), is not 8 lowercase hex
+  characters, or no longer equals the hash of the mission's CURRENT English (the message prints both: re-translate the line, then set
+  `src` to the new hash, which is also what `en/missions.json` now holds for it). It also fails a `src` key whose string the
+  entry does not translate, so a deleted line cannot leave its hash behind.
+- A string whose English the mission does not carry has nothing to be stale against and needs no hash.
+- It is not text: `applyMissionLocale` and `applyUnitLocale` never read `src`, and `en`'s own copy is checked for exact parity like the rest
+  of it. Editing the English of a shipped line is therefore a red build in every locale that translated it, which is the point: the
+  translator is told which line, and the fix is theirs.
+- A 32-bit hash is a tripwire, not a signature: an edit that happens to keep the hash is a 1 in 4.3 billion chance per edit.
+
+`units.json` carries the same block, `"src": { "name": "…", "blurb": "…" }` per unit, with the same rules, and
+`unitOverlayFailures` also refuses a `blurb` for a unit that has none.
 
 ## Shape
 
@@ -34,7 +65,7 @@ data/locales/<lang>/missions.json
 data/locales/<lang>/units.json
 ```
 
-`units.json` (GH-1406) is unit display text: a unit id to `{ "name"?, "blurb"? }`, nothing else. Every key must be a real unit
+`units.json` (GH-1406) is unit display text: a unit id to `{ "name"?, "blurb"?, "src"? }` (`src` is the hash block above), nothing else. Every key must be a real unit
 id from `data/units/`, and a value must be a non-empty string; `tools/validate_data.mjs` runs each file through
 `tools/validate_narrative.mjs`'s `unitOverlayFailures`. A unit or field the file does not mention keeps its `en` text. It is applied
 by `@lions/data`'s `applyUnitLocale` through `packages/app/src/unit-text.ts` (`unitName`, `unitBlurb`, `localizedUnit`), set once at
@@ -51,11 +82,28 @@ validated against `@lions/data`'s `MissionLocaleOverlay` shape
   "<mission id>": {
     "name": "…",
     "briefing": "…",
+    "sections": { "situation": "…", "mission": "…" },
+    "dispatch": "…",
+    "aftermath": "…",
+    "hostages_place": "…",
+    "debrief": { "victory": "…", "defeat": "…" },
     "objectives": { "<objective id>": "…" },
-    "triggers": { "<trigger id>": "…" }
+    "objective_say": { "<objective id>": "…" },
+    "objective_say_on_fail": { "<objective id>": "…" },
+    "triggers": { "<trigger id>": "…" },
+    "trigger_say": { "<trigger id>": "…" },
+    "wave_say": { "<index in enemy.waves>": "…" },
+    "src": { "<path of each translated string>": "<8 hex of its English>" }
   }
 }
 ```
+
+Every field is optional and falls back to `en` per field. A `say` is replaced by its TEXT only: the speaker (`shai`, `idit`,
+`net`, `enemy`) and a section's `image` are never translated. `wave_say` is keyed by the wave's index in `enemy.waves` as a string
+(a wave has no id). Caps held on a translation: a trigger label 48, a radio line, `dispatch` and `aftermath` 240, `hostages_place` 40.
+`sections` is all or none, must be accompanied by a `briefing`, and joined with one space must spell it exactly (the rule the
+deploy screen already falls back on). `en/missions.json` carries every one of these fields for every mission that has them, so
+copying it gives a translator the full list.
 
 Every top-level key is a real mission id from `data/missions/`; every key
 under `objectives`/`triggers` is a real objective/trigger id on THAT
@@ -79,3 +127,25 @@ mission is resolved for a battlefield, with the overlay fetched for the
 CURRENT UI language (`${base}locales/${lang}/missions.json`) — `null` for
 `en` or for a language nothing has shipped a file for, which
 `applyMissionLocale` treats as a no-op.
+
+### Where the file is served from, and what happens when it is not there
+
+The loaders fetch `${base}locales/<lang>/missions.json` and `units.json`, but the app's `publicDir` is `assets/`, which holds no
+locales. **`packages/app/vite-plugin-locales.ts` is the bridge**: in `pnpm dev` a middleware answers those two paths from
+`data/locales/<lang>/`, and in `pnpm build` it emits every `<lang>/missions.json` and `<lang>/units.json` as `locales/<lang>/<file>`
+in the output (`packages/app/dist`, which `wrangler.jsonc` serves as its static assets). The set is **derived from this directory**,
+never listed: every such file except `en`'s (the generated template is never fetched, so it is not shipped), and nothing else (a
+`README.md`, a stray note, anything deeper). Do not copy a translation into `assets/` by hand: a file present in both places is a build
+error. A symlinked file or directory is **not** followed, in dev or in the build (one definition, `localeFiles`; dev answers only what it
+lists), and the plugin works under a non-root `base` (the app prefixes the URL, the output paths stay `locales/...`).
+
+**The chrome catalogue** (menus, the HUD) is the third file a locale has, and `loadLocale` fetches it as a flat `${base}locales/<id>.json`.
+It lives beside the bundled source: add `packages/app/src/i18n/<id>.json` (the sibling of `en.json`), and the same plugin serves it at
+`locales/<id>.json` and emits it in the build, derived the same way (every flat `<id>.json` in that folder but `en.json`). Nothing ships
+one today. It is not a data/locales file, so `validate:data` does not read it yet.
+
+A non-`en` locale whose file does not arrive is still a null overlay and plays in English, **but no longer silently**:
+`i18n/overlay-fetch.ts` writes one `console.warn` per URL naming the URL and what came back (a status, a request that threw, or a
+200 whose body is not JSON, which is how the dev server and the Worker answer a path they do not serve). `en` and the pseudo-locales
+never warn. A warn and not an error because `pnpm ui:routes` fails on any console error.
+
