@@ -89,6 +89,29 @@ describe('brigade account', () => {
     expect(paid.grants.every((g) => g.source === 'earned')).toBe(true);
   });
 
+  it('drops a grant whose `at` is not a time, even when its amount is good, and bounds the balance by what is left (GH-1385)', () => {
+    // Only the `at` half of the grant check refuses this entry: kept, it would account for the whole 5,000.
+    const raw = { ...emptyAccount(), balance: 5000, grants: [{ source: 'earned', amount: 5000, missionId: 'm1', at: 'yesterday' }] };
+    const migrated = migrateAccount(raw);
+    expect(migrated.grants).toEqual([]);
+    expect(migrated.balance).toBe(0);
+  });
+
+  it('skips a null grant and a null track table rather than throwing, and keeps a granted entry granted (GH-1385)', () => {
+    // `typeof null` is 'object': only the `=== null` half of each check keeps these from being read as records.
+    const raw = {
+      ...emptyAccount(),
+      balance: 30,
+      grants: [null, { source: 'granted', amount: 30, missionId: 'm9', at: 2 }],
+      upgrades: { inf_squad: null, mbt_lavi: { armour: 2 } },
+    };
+    const migrated = migrateAccount(raw);
+    // A granted entry carrying a well-formed missionId keeps both its source and the id.
+    expect(migrated.grants).toEqual([{ source: 'granted', amount: 30, missionId: 'm9', at: 2 }]);
+    expect(migrated.balance).toBe(30);
+    expect(migrated.upgrades).toEqual({ mbt_lavi: { armour: 2 } });
+  });
+
   it('keeps a legitimate balance below the earned sum as is, and bounds earned_total the same way', () => {
     const raw = {
       ...emptyAccount(),
@@ -143,9 +166,16 @@ describe('brigade account', () => {
     expect(buyUnlock(funded, 'mbt_lavi', 600)).toEqual({ account: funded, ok: false });
     const bought = buyUnlock(funded, 'mbt_lavi', 500).account;
     expect(buyUnlock(bought, 'mbt_lavi', 0)).toEqual({ account: bought, ok: false });
+    // GH-1385: the case above is refused by its price (0) and its balance (0) as well, so it could not see the
+    // already-bought guard go. Here only that guard stands between the account and a second charge.
+    const rich = buyUnlock(payMission(emptyAccount(), 'm1', 1000, 1).account, 'mbt_lavi', 500).account;
+    expect(rich.balance).toBe(500);
+    expect(buyUnlock(rich, 'mbt_lavi', 100)).toEqual({ account: rich, ok: false });
     expect(buyUnlock(funded, 'x', 2.5)).toEqual({ account: funded, ok: false });
     expect(buyUnlock(funded, 'x', -1)).toEqual({ account: funded, ok: false });
     expect(buyUnlock(funded, 'x', 0).ok).toBe(false); // schema minimum is 1; price 0 authors nothing
+    // ...and the minimum itself is on sale.
+    expect(buyUnlock(funded, 'x', 1).account.balance).toBe(499);
   });
 
   it('round-trips a bought unlock through storage', () => {
@@ -210,6 +240,8 @@ describe('brigade account', () => {
     expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, [0]).ok).toBe(false);
     expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, [2.5]).ok).toBe(false);
     expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, [-1]).ok).toBe(false);
+    // The schema minimum, 1, is a price.
+    expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, [1]).account.balance).toBe(999);
   });
 
   it('preserves other units and tracks when upgrading one', () => {
@@ -237,6 +269,20 @@ describe('brigade account', () => {
     expect(account.upgrades.spg_long_range?.armour).toBe(3);
     expect(account.grants).toEqual(funded.grants);
     expect(account.earned_total).toBe(1000);
+  });
+
+  it('a run the balance covers exactly is bought, down to 0 (GH-1385)', () => {
+    const funded = payMission(emptyAccount(), 'm1', 740, 1).account;
+    const { account, ok } = buyUpgradeRun(funded, 'spg_long_range', 'armour', 1, 3, [160, 240, 340]);
+    expect(ok).toBe(true);
+    expect(account.balance).toBe(0);
+    expect(account.upgrades.spg_long_range?.armour).toBe(3);
+  });
+
+  it('refuses a run whose end is not a whole tier, and charges nothing (GH-1385)', () => {
+    // `from` is right (1), so only the integer check on `to` stands between this and tier 1.5 at tier 1's price.
+    const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
+    expect(buyUpgradeRun(funded, 'spg_long_range', 'armour', 1, 1.5, [160, 240, 340])).toEqual({ account: funded, ok: false });
   });
 
   it('resetAccount clears upgrades (existing behaviour)', () => {
