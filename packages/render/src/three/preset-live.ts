@@ -4,8 +4,8 @@
  * - **Ragdolls** (GH-1223): `high` 16 figures, `medium` 8, `low` 0, after ONE Metal browser read confirms the headless bench.
  * - **Soft particles** (GH-1227): `high` only, after ONE Metal G-cost read of 2 ms or less with smoke on screen.
  *
- * Each feature is behind ONE switch, below. Both are `false`, so no preset changes: with a switch off `liveQuality`
- * hands back the very object it was given, and the renderer builds today's frame on every preset, `high` included
+ * Each feature is behind ONE switch, below. Ragdolls are still `false`; soft particles are `true` since their Metal read
+ * (17 Nov 2026, below). With both off `liveQuality` hands back the very object it was given, and the renderer builds today's frame on every preset, `high` included
  * (`quality.ts`'s header: `high` is pinned to the pre-preset constants). Flipping a switch is the follow-up PR, after
  * its Metal read, and that PR carries the CI bless.
  *
@@ -21,8 +21,13 @@ import { QUALITY_PRESETS, type PhysicsQuality, type RenderQuality } from '../qua
 /** GH-1223 / GH-1400: give `medium` and `high` their ragdoll caps (`RAGDOLL_PRESET_CAPS`). OFF until the Metal read. */
 export const RAGDOLL_PRESETS_LIVE: boolean = false;
 
-/** GH-1227 / GH-1400: give `high` soft particles (`SOFT_PARTICLES_PRESETS`). OFF until the Metal G-cost read. */
-export const SOFT_PARTICLES_PRESET_LIVE: boolean = false;
+/**
+ * GH-1227 / GH-1400: give `high` soft particles (`SOFT_PARTICLES_PRESETS`). ON since the Metal G-cost read of 17 Nov 2026
+ * (Apple M3 Pro, ANGLE Metal, Chrome 158, CSS 1440x900 at DPR 2, `high`, beit_sahwan_outskirts (26,22) zoom 1.6 after
+ * 24 Grad landings, 528 live billows, readPixels-synced, 3 ABBA runs a side): +0.2 ms median, +0.7 ms p95 against the
+ * 2 ms bar. HOLD FOR LEAD: the ruling also asks for a gated scenario with a CI floor, still owed.
+ */
+export const SOFT_PARTICLES_PRESET_LIVE: boolean = true;
 
 export type PresetTier = 'low' | 'medium' | 'high';
 

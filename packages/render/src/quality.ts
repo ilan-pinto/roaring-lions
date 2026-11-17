@@ -126,7 +126,7 @@ export interface RenderQuality {
    * meets the ground or a wall. WebGL2 only. Absent or `false` builds nothing
    * and leaves every program byte for byte; NO preset sets it until the lead
    * rules on the cost and the baseline move (the design's decisions table). GH-1400: the lead's ruling (16 Nov 2026, `high`
-   * only, at a G-cost of 2 ms or less) is wired in `three/preset-live.ts` behind `SOFT_PARTICLES_PRESET_LIVE`, OFF.
+   * only, at a G-cost of 2 ms or less) is wired in `three/preset-live.ts` behind `SOFT_PARTICLES_PRESET_LIVE`, ON since 17 Nov.
    */
   softParticles?: boolean;
   /**
