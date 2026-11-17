@@ -21,7 +21,18 @@ export interface StartInputs {
   unlocks: string[];
   /** The deploy pick as sorted roster indices (`DeploySelection.chosen`), or null when the screen was never touched. */
   deploy: number[] | null;
+  /**
+   * GH-1395 slice 2 (the lead's D10): the amendments to the orders the run was started with, in the mission's `offers`
+   * order. ABSENT for an unamended run, so an unamended save's start inputs are byte for byte what they were before
+   * amendments existed. A resume rebuilds the AMENDED mission from these (`amendmentsForRun`), so a save cannot shed a
+   * restriction, and an unamended save reloads the plain mission.
+   */
+  amendments?: string[];
 }
+
+/** An amendment id as a save may carry it (`mission-save.ts`'s own rule): plain, lower-case, short; at most 16. */
+const isAmendmentIds = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.length > 0 && v.length <= 16 && v.every((x) => typeof x === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(x)) && new Set(v).size === v.length;
 
 /** The JSON a save carries (`MissionSaveInput.campaign`). Sets become sorted arrays, so the digest does not depend on insertion order. */
 export function startInputsJson(i: {
@@ -29,12 +40,15 @@ export function startInputsJson(i: {
   tiers: Record<string, Record<string, number>>;
   unlocks: Iterable<string>;
   deploy: ReadonlySet<number> | null;
+  /** The run's amendment ids (`amendmentsForRun`); none or empty writes no field. */
+  amendments?: readonly string[];
 }): JsonValue {
   const out: StartInputs = {
     ledger: i.ledger,
     tiers: i.tiers,
     unlocks: [...i.unlocks].sort(),
     deploy: i.deploy === null ? null : [...i.deploy].sort((a, b) => a - b),
+    ...(i.amendments !== undefined && i.amendments.length > 0 ? { amendments: [...i.amendments] } : {}),
   };
   return JSON.parse(JSON.stringify(out)) as JsonValue;
 }
@@ -49,11 +63,13 @@ export function parseStartInputs(v: unknown): StartInputs | null {
     if (!isRec(tracks) || !Object.values(tracks).every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 0)) return null;
   }
   if (v.deploy !== null && !(Array.isArray(v.deploy) && v.deploy.every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 0))) return null;
+  if (v.amendments !== undefined && !isAmendmentIds(v.amendments)) return null;
   return {
     ledger: v.ledger as CampaignLedger,
     tiers: v.tiers as Record<string, Record<string, number>>,
     unlocks: [...(v.unlocks as string[])],
     deploy: v.deploy === null ? null : [...(v.deploy as number[])],
+    ...(v.amendments === undefined ? {} : { amendments: [...v.amendments] }),
   };
 }
 
@@ -132,7 +148,9 @@ export async function loadResume(o: {
   }
   const inputs = parseStartInputs(record.campaign);
   const shell = parseShell(record.shell);
-  if (inputs === null || shell === null) {
+  // GH-1395 slice 2: the record's own `amendments` and the start inputs' are written from one list; a record whose two
+  // disagree was not written by this build's save and is not loaded.
+  if (inputs === null || shell === null || (record.amendments ?? []).join(',') !== (inputs.amendments ?? []).join(',')) {
     noteResumeProblem('failed');
     return { ok: false, why: 'failed' };
   }

@@ -121,6 +121,9 @@ export interface CampaignOptions {
   signal?: AbortSignal;
   /** GH-1393: builds the saved mission's Resume row above the footer. Absent, no row (and nothing is read). The row's code is NOT imported here: it rides in the lazy save kit (mission-save-kit.ts), so the board hands in a builder. */
   resume?: ResumeBlock;
+  /** GH-1395 slice 2: the challenge mark beside a town's stars, on both boards. Built by the lazy `challenge-board.ts` and
+   *  handed in, so the board itself imports no challenge code; absent, no mark. */
+  townMark?: (townId: string) => HTMLElement | null;
 }
 
 export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
@@ -379,6 +382,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
       missionOf: opts.missionOf,
       portraitUrl: opts.portraitUrl,
       statusHost: nav,
+      townMark: opts.townMark,
     });
   // A world with no GLB in the catalogue has no diorama to draw, and
   // `meshUrl` throws by name for a catalogue entry whose file is gone. Both
@@ -410,6 +414,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
           missionOf: opts.missionOf,
           portraitUrl: opts.portraitUrl,
           statusHost: nav,
+          townMark: opts.townMark,
           navigate: opts.navigate,
           signal: opts.signal,
         }).el;

@@ -61,9 +61,10 @@ export interface MissionSaveInput {
   /** The app's own bookkeeping no snapshot can hold (the mission log and so on). Opaque here. */
   shell?: JsonValue;
   /**
-   * The ids of the mission amendments (the challenge) this run was started with, when it was (GH-1395, the lead's ruling of 16 Nov: D10 is
-   * not yet ruled, so the field exists and is ABSENT today: nothing sets it). A resumed run must be graded as the amended run it is,
-   * and a save must not become a way to shed a restriction.
+   * The ids of the mission amendments (the challenge) this run was started with, when it was (GH-1395, the lead's ruling D10: a save
+   * stores them). Set by main.ts's Save and quit from the same list it writes into `campaign` (`startInputsJson`), and absent for an
+   * unamended run; `loadResume` refuses a record whose two disagree. A resumed run must be graded as the amended run it is, and a
+   * save must not become a way to shed a restriction.
    */
   amendments?: readonly string[];
   /** Default `shippedContentDigest()`. */
@@ -86,7 +87,7 @@ export interface SuspendedMission {
   campaignDigest: number;
   shell: JsonValue | null;
   shellDigest: number;
-  /** Optional, absent today (see `MissionSaveInput.amendments`). */
+  /** Absent for an unamended run (see `MissionSaveInput.amendments`). */
   amendments?: string[];
   hashAtSave: { sim: number; runtime: number };
   /** Raw (ungzipped) snapshot size, for the size census. */

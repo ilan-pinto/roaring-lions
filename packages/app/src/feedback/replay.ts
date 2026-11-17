@@ -32,6 +32,9 @@ export interface ReplayStart {
   unlocks: readonly string[];
   /** The roster indices the player sent in, or null for the default force. */
   deploy: readonly number[] | null;
+  /** GH-1395 slice 2 (D10): the amendments to the orders the run was started with; absent for an unamended run. A replay
+   *  without them would rebuild the plain mission under the amended run's name. */
+  amendments?: readonly string[];
 }
 
 export type ReplayEntry = { tick: number; cmd: unknown } | { tick: number; buy: string };
