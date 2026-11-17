@@ -13,7 +13,8 @@ import { unusedA2Client } from '../account/fixtures';
 import { t } from '../i18n/t';
 import type { ProfileDeps } from '../ui/profile';
 import { describeError } from './errors';
-import { PLAYER_KEY } from './identity';
+import { PLAYER_KEY, TESTER_KEY, resolveIdentity, safeStorage } from './identity';
+import { testerLabel } from '../feedback/gate';
 
 function memoryStorage(init: Record<string, string> = {}): Storage {
   const data = { ...init };
@@ -86,7 +87,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-type Sent = { type: string; player: string; session: string };
+type Sent = { type: string; player: string; session: string; tester?: string };
 const sent = (): Sent[] => bodies.flatMap((b) => (JSON.parse(b) as { events: Sent[] }).events);
 
 /** Boots telemetry, mounts the profile screen as main.ts wires it, and answers the delete confirm with yes. */
@@ -244,8 +245,8 @@ describe('a successful account delete rotates the telemetry id (lead ruling, 17 
   });
 
   // Review finding 2 (PR 1532): the tester branch of `ids()` (a `?tester` label set) must answer the NEW id too, or a tester's feedback
-  // note after a delete would carry the deleted account's telemetry id. The label itself is untouched (whether a delete clears it is the lead's call).
-  it('with a ?tester label, ids() after the rotation answers the new player and session, and keeps the label', async () => {
+  // note after a delete would carry the deleted account's telemetry id. Lead ruling T2: the label itself is dropped by the rotation.
+  it('with a ?tester label, ids() after the rotation answers the new player and session, and no label', async () => {
     window.history.pushState({}, '', 'http://localhost:3000/?telemetry&tester=alice');
     vi.resetModules();
     const mod = await import('./index');
@@ -257,7 +258,7 @@ describe('a successful account delete rotates the telemetry id (lead ruling, 17 
     const stored = storage.getItem(PLAYER_KEY);
     expect(stored).toMatch(ID_PATTERN);
     expect(stored).not.toBe(PLAYER);
-    expect(after).toEqual({ player: stored, session: expect.stringMatching(ID_PATTERN), tester: 'alice' });
+    expect(after).toEqual({ player: stored, session: expect.stringMatching(ID_PATTERN) });
     expect(after?.session).not.toBe(before?.session);
   });
 
@@ -265,6 +266,51 @@ describe('a successful account delete rotates the telemetry id (lead ruling, 17 
     const main = readFileSync(join(__dirname, '..', 'main.ts'), 'utf8');
     expect(main).toMatch(/rotateTelemetry:\s*\(\)\s*=>\s*rotateTelemetryPlayer\(\)/);
     expect(main).toMatch(/pauseTelemetry:\s*\(\)\s*=>\s*pauseTelemetrySends\(\)/);
+  });
+});
+
+/**
+ * Lead ruling T2, 17 Nov 2026: a SUCCESSFUL account delete also forgets the stored `?tester` label (through `identity.ts`'s own remover), so
+ * no label links the deleted account's telemetry id to the next one: not in storage, not on a later event of this page, not on the next boot.
+ */
+describe('a successful account delete clears the stored ?tester label (T2)', () => {
+  beforeEach(() => {
+    window.history.pushState({}, '', 'http://localhost:3000/?telemetry&tester=alice');
+  });
+
+  it('the stored label is removed, later events carry none, and neither the feedback reader nor the next boot finds it', async () => {
+    const { before, after, reloads } = await deleteWith(async () => 'ok');
+    expect(reloads).toBe(1);
+    expect(before.tester).toBe('alice');
+    expect(storage.getItem(TESTER_KEY)).toBeNull();
+    expect(after.tester).toBeUndefined();
+    expect(after.player).toBe(storage.getItem(PLAYER_KEY));
+    // The reload lands without `?tester` (it is not a sticky key): neither reader of the stored label finds one.
+    const store = safeStorage(() => window.localStorage);
+    expect(testerLabel({ query: new URLSearchParams(), storage: store })).toBeUndefined();
+    expect(resolveIdentity(store, new URLSearchParams(), () => 'unused').tester).toBeUndefined();
+  });
+
+  it.each<[string, AccountError]>([
+    ['reauth', { error: 'reauth', status: 403 }],
+    ['server', { error: 'server', status: 500 }],
+  ])('a failed delete (%s) keeps the stored label', async (_why, err) => {
+    const { after } = await deleteWith(async () => err);
+    expect(storage.getItem(TESTER_KEY)).toBe('alice');
+    expect(after.tester).toBe('alice');
+  });
+
+  it('a browser that never held a player id still forgets a stored label', async () => {
+    storage = memoryStorage({ [TESTER_KEY]: 'alice' });
+    Object.defineProperty(window, 'localStorage', { value: storage, configurable: true });
+    Object.defineProperty(navigator, 'globalPrivacyControl', { value: true, configurable: true });
+    vi.resetModules();
+    const mod = await import('./index');
+    mod.initTelemetry({ dev: false });
+    mod.rotateTelemetryPlayer();
+    expect(storage.getItem(TESTER_KEY)).toBeNull();
+    expect(storage.getItem(PLAYER_KEY)).toBeNull();
+    expect(bodies).toEqual([]);
   });
 });
 

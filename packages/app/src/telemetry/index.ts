@@ -19,7 +19,7 @@ import type { MissionEvent } from '@lions/sim';
 import * as ev from './events';
 import type { AccountExtra, AccountLike, Loadout, RuntimeView } from './events';
 import type { PlayerIntent } from '../input/intents';
-import { resolveIdentity, readOptOut, safeStorage, setOptOut, storedOptOut, storedPlayerId, writePlayerId, type Identity, type StorageLike } from './identity';
+import { clearStoredTester, resolveIdentity, readOptOut, safeStorage, setOptOut, storedOptOut, storedPlayerId, writePlayerId, type Identity, type StorageLike } from './identity';
 import { gpuFamily } from '@lions/data/telemetry';
 import { installErrorHandlers, type DescribedError } from './errors';
 import { FrameSampler } from './perf';
@@ -70,7 +70,8 @@ export interface Telemetry {
   knownPlayer(): string | null;
   /** Lead ruling, 17 Nov 2026: after a successful account deletion, every later event of this page carries `player` and a fresh session id,
    *  so nothing sent from here on links back to the deleted account's id. Memory only: the caller stores the id. What is still QUEUED under
-   *  the old id is dropped first, unsent: a later flush or the reload's pagehide beacon would otherwise re-create the deleted id's rows. */
+   *  the old id is dropped first, unsent: a later flush or the reload's pagehide beacon would otherwise re-create the deleted id's rows.
+   *  The `?tester` label is dropped too (T2): later events and `ids()` carry none. */
   rotate(player: string): void;
 }
 
@@ -137,6 +138,8 @@ const DEFAULT_GEAR: Gear = { preset: 'high', backend: 'webgl2', gpu: null };
 export function createTelemetry(d: TelemetryDeps): Telemetry {
   let session = d.newSession();
   let player = d.identity.player;
+  // T2: the rotation forgets the label too, so no later event or feedback note of this page carries it beside the new id.
+  let tester = d.identity.tester;
   // The ONE place the graphics card is named in an event, and it is the FAMILY: the raw `WEBGL_debug_renderer_info` string carries PCI device ids
   // and driver versions. Nothing past here sees the raw text, so no caller can send it by mistake.
   const gear = (): Gear => {
@@ -147,7 +150,7 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
     v: 1,
     player,
     session,
-    ...(d.identity.tester === undefined ? {} : { tester: d.identity.tester }),
+    ...(tester === undefined ? {} : { tester }),
     build: d.build,
     t: d.now(),
     ...(d.dev ? { dev: true as const } : {}),
@@ -175,13 +178,9 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
       d.sink.clear();
       player = next;
       session = d.newSession();
+      tester = undefined;
     },
-    ids: () =>
-      d.optedOut?.() === true
-        ? null
-        : d.identity.tester === undefined
-          ? { player, session }
-          : { player, session, tester: d.identity.tester },
+    ids: () => (d.optedOut?.() === true ? null : { player, session, ...(tester === undefined ? {} : { tester }) }),
     sessionStart: safe((screen, renderer) => {
       d.sink.push(ev.sessionStart(envelope(), screen, renderer, d.viewport(), d.identity.returning));
     }),
@@ -312,9 +311,11 @@ export function telemetryPlayerForDeletion(storage: StorageLike | null = safeSto
  * Lead ruling, 17 Nov 2026: a SUCCESSFUL account deletion rotates this browser's telemetry id, client side only. A fresh id (the same
  * `crypto.randomUUID()` a first visit mints) replaces the stored one through the one writer, and the running session, if any, takes it and
  * a new session id for every later event. It sends nothing. A browser that never held an id (GPC, DNT, `?notrack`, dev) is given none.
+ * Lead ruling T2: the stored `?tester` label is forgotten first, whether or not an id was held, through `identity.ts`'s own remover.
  */
 export function rotateTelemetryPlayer(storage: StorageLike | null = safeStorage(() => window.localStorage), newId: () => string = () => crypto.randomUUID()): void {
   try {
+    clearStoredTester(storage);
     if (instance.knownPlayer() === null && storedPlayerId(storage) === null) return;
     const next = newId();
     writePlayerId(storage, next);

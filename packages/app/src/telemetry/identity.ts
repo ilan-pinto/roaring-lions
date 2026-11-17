@@ -7,6 +7,8 @@ export const OPTOUT_KEY = 'lions.telemetry.optout';
 export interface StorageLike {
   getItem(k: string): string | null;
   setItem(k: string, v: string): void;
+  /** Optional so a bare two-method store still fits; `safeStorage` always provides it. */
+  removeItem?(k: string): void;
 }
 
 /** A storage that cannot throw. `get` is the ACCESS itself (a function that retrieves
@@ -35,6 +37,13 @@ export function safeStorage(get: () => unknown): StorageLike | null {
         real.setItem?.(k, v);
       } catch {
         /* quota or blocked: the id lives for this session */
+      }
+    },
+    removeItem: (k) => {
+      try {
+        real.removeItem?.(k);
+      } catch {
+        /* blocked: nothing to remove that a read could reach */
       }
     },
   };
@@ -82,11 +91,22 @@ export function writePlayerId(storage: StorageLike | null, player: string): void
   storage?.setItem(PLAYER_KEY, player);
 }
 
+/** The ONE writer of the `?tester` label (GH-464): the first visit with a well-formed `?tester=` stores it here. */
+export function writeTester(storage: StorageLike | null, tester: string): void {
+  storage?.setItem(TESTER_KEY, tester);
+}
+
+/** Lead ruling T2, 17 Nov 2026: a successful account deletion forgets the stored `?tester` label, so no label links the deleted account's
+ *  telemetry id to the next one. The label's one remover; `null` storage has nothing to remove. */
+export function clearStoredTester(storage: StorageLike | null): void {
+  storage?.removeItem?.(TESTER_KEY);
+}
+
 export function resolveIdentity(storage: StorageLike | null, query: URLSearchParams, newId: () => string): Identity {
   const optedOut = readOptOut(storage, query);
 
   const asked = query.get('tester');
-  if (asked !== null && TESTER_PATTERN.test(asked)) storage?.setItem(TESTER_KEY, asked);
+  if (asked !== null && TESTER_PATTERN.test(asked)) writeTester(storage, asked);
   const storedTester = storage?.getItem(TESTER_KEY) ?? null;
   const tester =
     asked !== null && TESTER_PATTERN.test(asked)
