@@ -190,7 +190,9 @@ export function bindingReadsOutsideRoomsOf(files: Record<string, string>): strin
   const out: string[] = [];
   for (const [file, src] of Object.entries(files)) {
     const code = src.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '').replace(/export function roomsOf\([^)]*\)[^{]*\{[\s\S]*?\n\}/, '');
-    if (/\bROOMS(_LEGACY)?\b/.test(code.replace(/^\s*ROOMS(_LEGACY)?\?:.*$/gm, ''))) out.push(file);
+    // A read: `x.ROOMS`, `x?.ROOMS`, `x['ROOMS']`, or a destructuring out of an env. A string naming the binding
+    // (`wrangler-cfg.ts`'s config reader) or the `Env` declaration (`ROOMS?:`) is not one.
+    if (/\.\s*ROOMS(_LEGACY)?\b|\[\s*['"`]ROOMS(_LEGACY)?['"`]\s*\]|\{[^}]*\bROOMS(_LEGACY)?\b[^}]*\}\s*=\s*[\w.]*env\b/.test(code)) out.push(file);
   }
   return out;
 }
@@ -219,5 +221,8 @@ describe('GH-1397 F7: roomsOf is the only reader of either binding', () => {
     expect(bindingReadsOutsideRoomsOf({ 'match/routes.ts': routes + '\nasync function x(env: Env) { return env.ROOMS?.get(env.ROOMS.idFromName("A")); }\n' })).toEqual(['match/routes.ts']);
     expect(bindingReadsOutsideRoomsOf({ 'match/routes.ts': routes + '\nconst probe = (env: Env) => env.ROOMS_LEGACY;\n' })).toEqual(['match/routes.ts']);
     expect(bindingReadsOutsideRoomsOf({ 'index.ts': 'const r = env["ROOMS"];' })).toEqual(['index.ts']);
+    expect(bindingReadsOutsideRoomsOf({ 'index.ts': 'const { ROOMS_LEGACY } = env;' })).toEqual(['index.ts']);
+    // Not reads: the Env declaration and a config reader naming the binding.
+    expect(bindingReadsOutsideRoomsOf({ 'd1.ts': '  ROOMS?: DurableObjectNamespaceLike;', 'cfg.ts': "b.name === 'ROOMS'" })).toEqual([]);
   });
 });

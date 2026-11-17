@@ -5,54 +5,16 @@
  *
  * `wrangler.jsonc` is NOT changed by this slice (design §5.2, P0): `ROOMS` binds the game Worker's own class
  * until the lead's cut PR. So the game-config checks accept two shapes: today's (pre-cut) and the cut. The
- * cut's exact shape is `cutConfig` below, the same change the runbook gives the lead as a diff
+ * cut's exact shape is `cutConfig` (`wrangler-cfg.ts`), the same change the runbook gives the lead as a diff
  * (`docs/agent-notes/relay-split.md`), and it is checked here as if applied.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { REPO_ROOT, bundleWorker } from './worker-bundle';
+import { RELAY_MAIN, ROOM_CLASS, cutConfig, declaresSqliteClass, doBinding, readCfg, type WranglerCfg } from './wrangler-cfg';
 
-interface DoBinding { name: string; class_name: string; script_name?: string }
-interface Migration { tag: string; new_sqlite_classes?: string[]; new_classes?: string[]; deleted_classes?: string[] }
-export interface WranglerCfg {
-  name?: string;
-  main?: string;
-  compatibility_date?: string;
-  workers_dev?: boolean;
-  preview_urls?: boolean;
-  routes?: unknown[];
-  route?: unknown;
-  migrations?: Migration[];
-  durable_objects?: { bindings?: DoBinding[] };
-  d1_databases?: { binding: string; database_name?: string; database_id?: string; migrations_dir?: string }[];
-  kv_namespaces?: { binding: string }[];
-  vars?: Record<string, string>;
-  observability?: unknown;
-}
-
-/** Strip // and block comments outside strings and trailing commas, then parse (the wrangler-pin reader). */
-const strip = (s: string): string => s.replace(/"(?:[^"\\]|\\.)*"|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (m) => (m.startsWith('"') ? m : '')).replace(/,(\s*[}\]])/g, '$1');
-export const readCfg = (file: string): WranglerCfg => JSON.parse(strip(readFileSync(REPO_ROOT + file, 'utf8'))) as WranglerCfg;
-
-const ROOM_CLASS = 'MatchRoom';
-/** The relay's entry file (D-R2). */
-export const RELAY_MAIN = 'packages/worker/src/relay.ts';
 /** Secrets the room reads: a pin cannot see a secret, so it is named here (design §6.2, the parity smoke). */
 export const RELAY_SECRETS = ['TICKET_SECRET'] as const;
-
-const doBinding = (cfg: WranglerCfg, name: string): DoBinding | undefined => (cfg.durable_objects?.bindings ?? []).find((b) => b.name === name);
-const declaresSqliteClass = (cfg: WranglerCfg, tag: string | null, cls: string): boolean =>
-  (cfg.migrations ?? []).some((m) => (tag === null || m.tag === tag) && (m.new_sqlite_classes ?? []).includes(cls));
-
-/**
- * The cut (design §4, §5.3 step 3): `ROOMS` gains `script_name` (every room from the cut on is the relay's), and
- * the old namespace stays bound as `ROOMS_LEGACY`, the `ROOMS_NEW=0` lever's target. Nothing else changes: the
- * `net-v1` migration and the `MatchRoom` export stay. Pure: returns a new config.
- */
-export function cutConfig(game: WranglerCfg, relayName: string): WranglerCfg {
-  const bindings = (game.durable_objects?.bindings ?? []).map((b) => (b.name === 'ROOMS' ? { ...b, script_name: relayName } : b));
-  return { ...game, durable_objects: { ...game.durable_objects, bindings: [...bindings, { name: 'ROOMS_LEGACY', class_name: ROOM_CLASS }] } };
-}
 
 /** F1 and F4 over the game config. Pre-cut (no `script_name` on `ROOMS`, no `ROOMS_LEGACY`) is today's shape and
  *  only needs today's binding and migration; once either half of the cut is present, all of it must be. */
