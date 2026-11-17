@@ -915,6 +915,21 @@ describe('showProfile: the redesigned layout (GH-1075 P7)', () => {
     expect(main.nextElementSibling).toBe(side);
   });
 
+  // GH-1510: the card builder moved to ui/page-card.ts and is shared with Settings, so the profile pins its own
+  // heading level here rather than leaning on settings-panel.test.ts to notice a change.
+  it('every card title is an <h2>, the first child of its <section> card', async () => {
+    const { stage } = named(stub({ me: async () => signedIn() }));
+    await flush();
+    const heads = [...stage.querySelectorAll('.rl-profile__card-title')];
+    expect(heads).toHaveLength(5);
+    for (const h of heads) {
+      expect(h.tagName).toBe('H2');
+      expect(h.parentElement?.tagName).toBe('SECTION');
+      expect(h.parentElement?.classList.contains('rl-profile__card')).toBe(true);
+      expect(h.parentElement?.firstElementChild).toBe(h);
+    }
+  });
+
   it('the header card shows the avatar, the name, the Player ID and the month the member joined', async () => {
     const me = { ...(signedIn() as Extract<MeResult, { kind: 'signedIn' }>), createdDay: 20_000 }; // 4 Oct 2024
     const { stage } = named(stub({ me: async () => me }));
