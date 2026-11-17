@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "pnpm --filter @lions/app dev",
     "build": "pnpm --filter @lions/app build",
+    "desktop:spike": "node tools/desktop/build-local.mjs",
     "test": "vitest run",
     "test:determinism": "vitest run packages/sim/src/determinism.test.ts packages/sim/src/snapshot-witness.test.ts packages/sim/src/snapshot-witness-runtime.test.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tools",
