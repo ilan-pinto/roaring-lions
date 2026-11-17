@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  END,
   MARKER,
   ciLine,
   decide,
@@ -18,7 +19,9 @@ import {
   neutralise,
   parseLog,
   renderBody,
+  splitBody,
   titleOf,
+  withTail,
   type Commit,
 } from '../../ci/promotion-pr.mjs';
 
@@ -208,6 +211,7 @@ describe('renderBody', () => {
     expect(body).toContain('**This PR has no `ci` run of its own.**');
     expect(body).toContain('merge commit');
     expect(body).toContain(MARKER);
+    expect(body.endsWith(END)).toBe(true);
   });
   it('holds no hash followed by a digit anywhere', () => {
     expect(body).not.toMatch(/#[0-9]/);
@@ -218,6 +222,7 @@ describe('renderBody', () => {
     expect(cut.length).toBeLessThanOrEqual(8000);
     expect(cut).toContain('The changelog is cut here');
     expect(cut).toContain(MARKER);
+    expect(cut.endsWith(END)).toBe(true);
   });
 });
 
@@ -255,6 +260,36 @@ describe('decide', () => {
   });
   it('opens nothing when dev holds nothing new', () => {
     expect(decide({ entries: [], title, body, open: [] })).toEqual({ action: 'empty', number: null });
+  });
+
+  // A review bot appends its summary below the body (it did on the hand-opened PR 1553).
+  const ours = `intro\n${MARKER}\n${END}`;
+  const bot = '<!-- an auto-generated comment: release notes -->\n## Summary\n\n* a feature';
+  it('ignores what another writer appended after the end line', () => {
+    expect(decide({ entries, title, body: ours, open: [{ number: 9, title, body: `${ours}\n\n${bot}\n` }] })).toEqual({
+      action: 'none',
+      number: 9,
+    });
+  });
+  it('but still updates when our part above the end line differs', () => {
+    expect(
+      decide({ entries, title, body: ours, open: [{ number: 9, title, body: `older\n${MARKER}\n${END}\n\n${bot}` }] }),
+    ).toEqual({ action: 'update', number: 9 });
+  });
+});
+
+describe('splitBody and withTail', () => {
+  const ours = `intro\n${MARKER}\n${END}`;
+  it('split at the end line', () => {
+    expect(splitBody(`${ours}\n\nbot text`)).toEqual({ ours, tail: '\n\nbot text' });
+    expect(splitBody('no end line here')).toEqual({ ours: 'no end line here', tail: '' });
+  });
+  it('keep the appended tail on an update, after a blank line', () => {
+    expect(withTail('new body', `old body\r\n${END}\r\n\r\nbot text\r\n`)).toBe('new body\n\nbot text');
+  });
+  it('add nothing when nothing was appended', () => {
+    expect(withTail('new body', `old body\n${END}\n`)).toBe('new body');
+    expect(withTail('new body', '')).toBe('new body');
   });
 });
 
@@ -306,5 +341,17 @@ describe('the CLI on a real repository', () => {
     expect(body).toContain('- sim: merged change (PR 11)');
     expect(body).not.toContain('wip');
     expect(body).not.toContain('Merge branch');
+
+    // The same range against an open PR of ours that a bot has appended to: an update that keeps the bot's text.
+    const open = path.join(dir, 'open.json');
+    writeFileSync(open, JSON.stringify([{ number: 5, title: 'old', body: `stale\n${MARKER}\n${END}\n\nbot summary` }]));
+    const again = execFileSync('node', [SCRIPT, '--base=main', '--head=dev', `--open=${open}`, `--out=${out}`], {
+      cwd: dir,
+      encoding: 'utf8',
+    });
+    expect(again).toBe('action=update\nnumber=5\ntitle=promote: dev to main (2 PRs)\n');
+    const updated = readFileSync(out, 'utf8');
+    expect(updated.startsWith(body.trimEnd())).toBe(true);
+    expect(updated.endsWith(`${END}\n\nbot summary\n`)).toBe(true);
   });
 });

@@ -7,6 +7,7 @@ export interface Run { id?: number; status?: string | null; conclusion?: string 
 export interface CiRuns { tip?: Run | null; latest?: Run | null }
 export type Action = 'empty' | 'create' | 'none' | 'update' | 'foreign';
 export const MARKER: string;
+export const END: string;
 export const BODY_LIMIT: number;
 export const OTHER_GROUP: string;
 export function neutralise(text: string): string;
@@ -30,3 +31,5 @@ export function decide(input: {
   open: readonly { number: number; title?: string; body?: string | null }[];
 }): { action: Action; number: number | null };
 export function parseLog(raw: string): Commit[];
+export function splitBody(body: string): { ours: string; tail: string };
+export function withTail(body: string, previous: string): string;
