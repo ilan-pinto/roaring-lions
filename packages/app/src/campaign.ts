@@ -440,8 +440,9 @@ const results = (ledger: LedgerData | undefined): Record<string, MissionResult> 
  *  structurally cannot contribute. Every mission that DOES declare the key
  *  still grades to the same ceiling (`MissionRuntime`'s ★★★) at Standard and
  *  Harder; at Easier the ceiling is two (`starCeiling`, GH-1394), so the
- *  campaign's `ledger` names the posture and each mission's stored best. */
-export function possibleStars(world: ParsedWorld, missions: Record<string, MissionJson | undefined>, ledger?: LedgerData): number {
+ *  campaign's `ledger` names the posture and each mission's stored best. It is
+ *  required: left out, the count would silently be Standard's. */
+export function possibleStars(world: ParsedWorld, missions: Record<string, MissionJson | undefined>, ledger: LedgerData): number {
   const posture = postureOf(ledger);
   const r = results(ledger);
   let possible = 0;

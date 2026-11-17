@@ -440,7 +440,7 @@ describe('possibleStars', () => {
       produces_it: { ledger: { requires: [], produces: ['campaign.mission_results'] } } as unknown as MissionJson,
       does_not: { ledger: { requires: [], produces: [] } } as unknown as MissionJson,
     };
-    expect(possibleStars(fakeWorld, missionsById)).toBe(3);
+    expect(possibleStars(fakeWorld, missionsById, {})).toBe(3);
   });
 
   // GH-1394 slice 2 (ruling 3): Easier grades to two stars at most, so the count says two a mission there, and a mission
