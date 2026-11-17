@@ -13,6 +13,8 @@ import { describe, expect, it } from 'vitest';
 const ROOT = resolve(__dirname, '../../../..');
 const PACKAGES = join(ROOT, 'packages');
 const ENTRY = join(ROOT, 'packages/app/src/main.ts');
+/** The room's own chunk (PR 1505, `versus-kit.ts`): loaded on demand by `main.ts`, and itself holding the gate, never the filter. */
+const KIT = join(ROOT, 'packages/app/src/versus-kit.ts');
 
 /** `@lions/<pkg>` and `@lions/<pkg>/<sub>`, through that package's `exports`. */
 function resolvePackage(spec: string): string | null {
@@ -95,25 +97,25 @@ describe('the import reader (finding 4)', () => {
   });
 });
 
-describe('the chat word filter stays off the entry chunk (GH-1417 S2)', () => {
+describe('the chat word filter stays off the entry chunk, and off the versus kit\'s (GH-1417 S2)', () => {
   const closure = [...staticClosure(ENTRY)].map(rel);
+  // Since PR 1505 the gate, the inbox and the seat labels sit behind the kit's dynamic import; the filter stays behind the gate's own.
+  const kitClosure = [...staticClosure(KIT)].map(rel);
 
-  it('the walk is not vacuous: it reaches the gate, the inbox, the seat labels, the data index and its JSON', () => {
-    for (const f of [
-      'packages/app/src/ui/chat-filter-gate.ts',
-      'packages/app/src/ui/chat-inbox.ts',
-      'packages/app/src/net/seat-label.ts',
-      'packages/data/src/index.ts',
-      'data/palette.json',
-      'packages/net/src/index.ts',
-    ]) expect(closure, f).toContain(f);
+  it('the walks are not vacuous: the entry reaches the data index and its JSON; the kit reaches the gate, the inbox, the seat labels', () => {
+    for (const f of ['packages/data/src/index.ts', 'data/palette.json', 'packages/net/src/index.ts']) expect(closure, f).toContain(f);
     expect(closure.length).toBeGreaterThan(200);
+    for (const f of ['packages/app/src/ui/chat-filter-gate.ts', 'packages/app/src/ui/chat-inbox.ts', 'packages/app/src/net/seat-label.ts', 'packages/net/src/index.ts']) {
+      expect(kitClosure, f).toContain(f);
+    }
   });
 
-  it('reaches neither chat-filter.ts, nor the lists module, nor any data/chat list', () => {
-    expect(closure).not.toContain('packages/app/src/ui/chat-filter.ts');
-    expect(closure).not.toContain('packages/data/src/chat-filters.ts');
-    expect(closure.filter((f) => f.startsWith('data/chat/'))).toEqual([]);
+  it('neither walk reaches chat-filter.ts, nor the lists module, nor any data/chat list', () => {
+    for (const [name, c] of [['entry', closure], ['kit', kitClosure]] as const) {
+      expect(c, name).not.toContain('packages/app/src/ui/chat-filter.ts');
+      expect(c, name).not.toContain('packages/data/src/chat-filters.ts');
+      expect(c.filter((f) => f.startsWith('data/chat/')), name).toEqual([]);
+    }
   });
 
   it('the gate reaches the filter through one dynamic import, retried, and the data index exports the lists TYPE only', () => {
@@ -128,9 +130,10 @@ describe('the chat word filter stays off the entry chunk (GH-1417 S2)', () => {
 
   it('the battlefield asks for the filter for a room and waits for it before the room\'s names and chat are mounted', () => {
     const main = readFileSync(join(__dirname, '..', 'main.ts'), 'utf8');
-    const ask = main.indexOf('const chatFilterLoad: Promise<boolean> | null = netConfig !== null ? loadChatFilter() : null;');
+    // Both through the kit (PR 1505): a config exists only from the kit's `connectMatch`, so `rk()` is loaded wherever they run.
+    const ask = main.indexOf('const chatFilterLoad: Promise<boolean> | null = netConfig !== null ? rk().loadChatFilter() : null;');
     // CR1: the wait is raced against the boot's signal, so a leave reaches `abandon` without waiting for the chunk.
-    const wait = main.indexOf('if (chatFilterLoad !== null) await untilLoadedOrAborted(chatFilterLoad, req.signal);');
+    const wait = main.indexOf('if (chatFilterLoad !== null) await rk().untilLoadedOrAborted(chatFilterLoad, req.signal);');
     const chat = main.indexOf('const chatInbox = room !== null');
     expect(ask).toBeGreaterThan(0);
     expect(wait).toBeGreaterThan(ask);
@@ -148,11 +151,22 @@ describe('the chat word filter stays off the entry chunk (GH-1417 S2)', () => {
  */
 function namesReadLate(file: string, src: string, ctors: readonly string[]): Map<string, 'late' | 'captured' | 'unknown'> {
   const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  // `new X(...)`, `new vk.X(...)` and `new (rk().X)(...)` (PR 1505: the classes come from the versus kit).
+  const ctorName = (n: ts.NewExpression): string | null => {
+    let e: ts.Expression = n.expression;
+    while (ts.isParenthesizedExpression(e)) e = e.expression;
+    if (ts.isIdentifier(e)) return e.text;
+    if (ts.isPropertyAccessExpression(e)) return e.name.text;
+    return null;
+  };
   const consts = new Map<string, ts.Expression>();
   const news: ts.NewExpression[] = [];
   const visit = (n: ts.Node): void => {
     if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer !== undefined) consts.set(n.name.text, n.initializer);
-    if (ts.isNewExpression(n) && ts.isIdentifier(n.expression) && ctors.includes(n.expression.text)) news.push(n);
+    if (ts.isNewExpression(n)) {
+      const c = ctorName(n);
+      if (c !== null && ctors.includes(c)) news.push(n);
+    }
     ts.forEachChild(n, visit);
   };
   visit(sf);
@@ -167,7 +181,7 @@ function namesReadLate(file: string, src: string, ctors: readonly string[]): Map
   };
   const out = new Map<string, 'late' | 'captured' | 'unknown'>();
   for (const n of news) {
-    const name = (n.expression as ts.Identifier).text;
+    const name = ctorName(n) ?? '';
     // NetScoreboard(host, viewer, names); NetPoints(host, names, explainer).
     const arg = n.arguments?.[name === 'NetScoreboard' ? 2 : 1];
     const v = verdict(arg);
@@ -187,6 +201,9 @@ describe('the scoreboard and the points panel read the other seat\'s name at pai
     // Comments and strings do not fake one: the parser reads the code.
     const faked = "// const n = { get theirs() { return '' } };\nconst n = { theirs: seatName(1) /* get theirs() */ };\nnew NetScoreboard(b, 0, n);";
     expect(namesReadLate('c.ts', faked, ctors)).toEqual(new Map([['NetScoreboard', 'captured']]));
+    // through the kit, as main.ts mounts them since PR 1505
+    const kit = "const n = { get theirs(): string { return vk !== null ? seatName(1) : ''; } };\nnew vk.NetScoreboard(b, 0, n);\nnew (rk().NetPoints)(b, { theirs: seatName(1) }, '');";
+    expect(namesReadLate('d.ts', kit, ctors)).toEqual(new Map([['NetScoreboard', 'late'], ['NetPoints', 'captured']]));
   });
 
   it('main.ts mounts both with names whose `theirs` is a getter', () => {
