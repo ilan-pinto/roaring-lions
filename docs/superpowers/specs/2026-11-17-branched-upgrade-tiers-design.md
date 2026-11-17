@@ -181,13 +181,15 @@ first; mutation M15 (§5.3) proves it.
   branch above it fails `validate:data`, naming the unit, the path, the value and the ceiling. A
   unit that branches with no row in the table is refused too, so a new branched unit cannot skip
   the ceiling by omission. Raising a ceiling is an edit to that table, which a reviewer sees, and
-  it still has to pass both balance gates (§6).
-  - *Alternative considered:* derive the ceiling from the delta curve (`upgrades.md:90-96`)
-    and the unit's base, with the four `upgrades.md` §4.1-§4.4 exceptions as literals. That
-    follows a base-stat change automatically, but it needs the curve's own rounding (the jeep's
-    front +3.5 ships as +4, the AT team's optics +0.275 as +0.28) written into the validator.
-    The literal table is the smaller change, and it is what this design uses. The table is
-    keyed by track, so a unit's second branched track later is one more row, not a new table.
+  it still has to pass both balance gates (§6). The validator checks the table against tier 3:
+  on every path of a branched tier, the envelope is at most the table's value (the lead, R13).
+  - *Rejected alternative (the lead, R13):* derive the ceiling from the delta curve
+    (`upgrades.md:90-96`) and the unit's base, with the four `upgrades.md` §4.1-§4.4 exceptions
+    as literals. That follows a base-stat change automatically, but it needs the curve's own
+    rounding (the jeep's front +3.5 ships as +4, the AT team's optics +0.275 as +0.28) written
+    into the validator, and a curve-derived ceiling moves with the very data it guards. The
+    hand-written table is the design. It is keyed by track, so a unit's second branched track
+    later is one more row, not a new table.
   - Without B7, only the two balance gates (§6) would hold the ceiling.
 
 **The content cap, separate from the shape rules:**
@@ -197,7 +199,10 @@ first; mutation M15 (§5.3) proves it.
   Raising it to 2 is the content change the lead allowed for later (Q3), and that slice carries
   the rest of what a second branched track needs (§7, "Later"). The validator's own tests run
   B1 to B7 on a two-track fixture with the cap raised, so the per-track rules are proved before
-  any shipped unit needs them (§5.2).
+  any shipped unit needs them (§5.2). The validator takes its inputs as parameters, so those
+  tests can inject them: `validateBranches(units, { tracksMax = BRANCHED_TRACKS_MAX,
+  ceiling = BRANCH_CEILING })`, and the CLI passes the constants. The cap-2 test passes
+  `tracksMax: 2`, and the B7 tests pass their own `ceiling`, so no test edits the constants.
 
 `tierRegressions` (`validate_data.mjs:113`) runs per branch against the tier below, so B4's
 "at least" is the existing monotone rule, applied twice.
@@ -564,8 +569,13 @@ The migration is pure and idempotent, and it lives inside `migrateAccount` and `
 run on every read: on the client, and on the server, where `campaign_state.brigade` goes through
 `migrateAccount` (`0001_members.sql:95-103`), the member's wallet row goes through `migrateRoar`
 in `readWallet` (`worker/src/account/coin.ts:57-64`), and a server save slot goes through
-`parseSlot` (§0). It is driven by data: a `BRANCHED` table derived from `@lions/data` (`economy`
-may import `data`), mapping each unit to the SET of its branched tracks. For each (unit, track)
+`parseSlot` (§0). It is driven by data: a `BRANCHED` table built by `branchedTable(units)` from a roster
+argument (`economy` may import `data`), mapping each unit to the SET of its branched tracks.
+`migrateAccount`, `migrateRoar`, `singlePlayerView`, `buyBranch`, `buyBranchWithCoins` and the
+Switch and Return functions take that table as an optional last parameter, defaulting to
+`branchedTable(<the shipped roster>)`. The app and the Worker pass nothing; the tests pass
+`branchedTable([fx_tank, fx_ifv])` (§5.2), so the search runs on its inline fixtures, which the
+shipped table cannot see. For each (unit, track)
 whose last tier is branched, a store holding that tier with NO pick gets the two writes below.
 Each branched track is migrated on its own: a unit with two branched tracks at tier 3 gets two
 picks and two markers, and a Switch or a Return on one track never touches the other's.
@@ -585,7 +595,9 @@ While the marker stands, the Garage shows the rung as **"Your Tier 3 became a ch
 two actions. **The player may take one of the two, once**, because either one clears the marker:
 
 - **Switch, free.** Move to the other branch at no cost. This clears the marker.
-- **Return it.** The track drops to tier 2 and the store that paid is refunded in full:
+- **Return it.** The track drops to tier 2 in each store that holds a LEGACY marker on it, and
+  only those stores are refunded in full (the lead, R12). A store that bought its branch fresh
+  has no marker and is never refunded, since a fresh buy is final (Q2):
   - credits: `balance +=` the branched tier's `price`, read from the unit's JSON at that moment
     (the same `prices` table `buyUpgradeRun` reads). That is the tier-3 price the player paid,
     because the lead kept the full price (Q1) and a price moves only by the lead's ruling. Should
@@ -598,7 +610,8 @@ two actions. **The player may take one of the two, once**, because either one cl
     receipt the device sends; with no `tier` row for it, `coinPrice(price)` as free coins.
 
   This also clears the marker. The player can then buy either branch fresh at today's price, and
-  that fresh choice is final (Q2).
+  that fresh choice is final (Q2). A refund-and-rebuy is therefore not a respec: only a LEGACY
+  purchase can be refunded, and a fresh branch buy can never be.
 
 The marker has no expiry. No buy can happen in the store that holds it, since its track is at
 its last tier. A buy in the OTHER store never touches it, and never voids its refund (the lead,
@@ -619,8 +632,8 @@ marker state (§4.4).
 - **The price paid can always be recovered,** to the credit or the coin, on the store that paid
   it, at any time. A player who would rather have the money than a branch gets the money.
 - **No silent zero.** Until the player acts, the unit fields a full tier-3 branch, never tier 2.
-  The first visit to `/brigade` after the migration shows one notice naming each affected unit,
-  with `t()` strings.
+  The first visit to `/brigade` after the migration shows one notice naming each affected unit and
+  track, with `t()` strings.
 - **Credits stay inside the earned bound.** A credit refund adds back only what was spent, so the
   balance stays at or below the grants log (`migrateAccount`'s bound, `brigade.ts:149` and on).
   `earned_total` and `grants` do not move: a refund is a spend reversed, not an earning (guard G3).
@@ -667,7 +680,10 @@ writes that row, so an old client cannot strip it.
 
 - **A buy of branch `p` is REFUSED when either store already holds the branched tier with the
   other pick** (`buyBranch` for credits, `buyBranchWithCoins` for coins; same-object-back on a
-  refusal, like every buy today). Buying the SAME branch in the second store stays legal, as a
+  refusal, like every buy today). `buyBranch(account, ledger, unit, track, pick, branched)` is a
+  thin wrapper: it checks the guard, then calls `buyUpgradeRun` for the one tier (`from` = the
+  branched tier, so the `from === earned + 1` rule at `brigade.ts:248` still applies) with the
+  pick written beside it. There is no separate run function. Buying the SAME branch in the second store stays legal, as a
   GH-1143 double payment is today.
 - **Picks can disagree without a hand-edit.** A legacy Switch taken in one store, while the other
   store also holds a legacy tier 3 (the GH-1143 case, where credits paid again for a tier the
@@ -681,17 +697,20 @@ writes that row, so an old client cannot strip it.
   - **Switch is withheld on a mix of legacy and fresh** (Q11). Switch is offered only when every
     store that holds the branched tier holds a marker. If one store bought its branch fresh (no
     marker), a Switch would split the picks, so only Return is offered.
-  - **Return refunds every store that paid, all at once** (Q11), each in its own currency, and
-    drops the track to tier 2 in each, in the same single write. There is no per-store Return.
+  - **Return refunds every store that holds a LEGACY marker, all at once** (Q11, narrowed by
+    R12), each in its own currency, and drops the track to tier 2 in each of those stores, in the
+    same single write. There is no per-store Return. **A store holding a fresh branch buy is never
+    refunded and keeps its tier and its pick** (R12): on a legacy and fresh mix, Return refunds the
+    legacy store only, and the view then reads the fresh store's branch. This is what settles
+    Q11 against Q2.
   - **A later buy in one store never voids the other store's refund** (Q11).
   - All of these act on ONE (unit, track). A unit with two branched tracks has a separate marker
     set, Switch and Return for each.
 - **`singlePlayerView`:** where both stores hold the branched tier and their picks still disagree
   (a hand-edit, or a strip that the rules above did not repair), the EARNED pick wins. The result
   is still one pick.
-- **Versus rooms (this corrects the first draft of this section).** The first draft said a
-  brigade room reads `networkView` and so fields only what credits bought. That was wrong. No room
-  path calls `networkView`: the room claim is `accountState().ownedTiers` (`main.ts:1437`), the
+- **Versus rooms.** A brigade room does not read `networkView`, and does not field only what
+  credits bought. No room path calls `networkView`: the room claim is `accountState().ownedTiers` (`main.ts:1437`), the
   single-player view, so a friends' brigade room carries coin-bought tiers, under the ruled D4
   exception (§0). So:
   - **picks go wherever tiers go, from the same view**: the claim sends
@@ -700,7 +719,7 @@ writes that row, so an old client cannot strip it.
     world read them under the same `brigade` + `kdf` condition as the tiers (§1.3);
   - so **a coin-bought branch reaches a friends' brigade room**, as a coin-bought tier does today
     under D4. The lead ruled that it should, the same as tiers (Q10);
-  - **G-V1 grows to cover picks** (§5.2, case 7): a coin-only account holding a coin-bought
+  - **G-V1 grows to cover picks** (§5.2, case 9): a coin-only account holding a coin-bought
     branch sends no `picks` key in a matched create, and a matched room built from a claim with
     picks is the room built from none.
 - **`networkView`** gains `ownedPicks` (earned only) for symmetry. It has no production caller,
