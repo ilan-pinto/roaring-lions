@@ -26,6 +26,18 @@ export interface AccountDeps {
   coupons?: readonly { id: string; sha256: string; credits?: number; coins?: number }[];
   /** E13: whether coins buy cosmetics only (default `COINS_COSMETIC_ONLY` from @lions/economy). A test sets either arm. */
   coinsCosmeticOnly?: boolean;
+  /** Waits `ms` (default a timer): the delete route's pause before it rewrites its tombstone (GH-1534). A test sets one that returns at
+   *  once, or one that lets a racing cron step run in the pause. */
+  sleep?(ms: number): Promise<void>;
+  /** The Workers `ExecutionContext.waitUntil` of the request (GH-1534): work handed here outlives the response, so the delete route's
+   *  post-commit tombstone rewrite neither holds the answer back by its gap nor dies with a client that disconnects. Absent (a test, or a
+   *  caller with no context), that work is awaited inline before the answer. The promise handed here never rejects. */
+  waitUntil?(work: Promise<unknown>): void;
+}
+
+/** The part of the Workers `ExecutionContext` the account routes use. */
+export interface WaitUntilCtx {
+  waitUntil(work: Promise<unknown>): void;
 }
 
 export interface AccountCtx {
@@ -126,6 +138,13 @@ const UNLIMITED_HERE: ReadonlySet<string> = new Set(['steam/start', 'steam/retur
 
 /** One object for the isolate's life: the Google verifier is keyed on this fetch, so a per-request closure would rebuild it every time. */
 const DEFAULT_DEPS: AccountDeps = { fetch: (url, init) => globalThis.fetch(url, init) };
+
+/** The deps for one request of the Worker's `fetch(req, env, ctx)`: the isolate's own (the same `fetch`, so the Google verifier is not
+ *  rebuilt) plus the request's `waitUntil`, called as a method of `ctx` (the runtime refuses a detached call). No `ctx`: the
+ *  defaults, and post-response work is awaited inline. */
+export function accountDepsFor(ctx?: WaitUntilCtx): AccountDeps {
+  return ctx === undefined ? DEFAULT_DEPS : { ...DEFAULT_DEPS, waitUntil: (work) => ctx.waitUntil(work) };
+}
 
 export async function handleAccount(req: Request, env: Env, now: number, deps?: AccountDeps): Promise<Response> {
   if (env.ACCOUNTS === undefined) return accountJson(503, { error: 'accounts are not configured' });

@@ -44,6 +44,9 @@
   "qualityHint.next": "Switching changes nothing now: it takes effect from the next mission you start, and you can change it back in Settings, under Video.",
   "qualityHint.accept": "Switch to Low quality",
   "qualityHint.keep": "Keep my setting",
+  "softwareHint.text": "Your browser is drawing without a graphics card. The Low quality setting is the lightest the game has; it applies from the next mission.",
+  "softwareHint.low": "Switch to Low",
+  "softwareHint.dismiss": "Dismiss",
 
   "settings.title": "Settings",
   "settings.video": "Video",

@@ -130,6 +130,16 @@ describe('parseSettings', () => {
     expect(() => saveSettings(blocked, structuredClone(DEFAULT_SETTINGS))).not.toThrow();
     expect(loadSettings(blocked).chat.enabled).toBe(true);
   });
+  it('hints.software is unanswered by default (GH-1413), an answer persists through the one writer, and a bad or missing value reads as unanswered', () => {
+    expect(DEFAULT_SETTINGS.hints.software).toBe(false);
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { radio: false } })).hints).toEqual({ software: false });
+    expect(parseSettings(JSON.stringify({ version: 1, hints: { software: true } })).hints.software).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, hints: { software: 'yes', extra: 1 } })).hints).toEqual({ software: false });
+    expect(parseSettings(JSON.stringify({ version: 1, hints: 7 })).hints.software).toBe(false);
+    const store = memStore();
+    saveSettings(store, { ...structuredClone(DEFAULT_SETTINGS), hints: { software: true } });
+    expect(loadSettings(store).hints.software).toBe(true);
+  });
 });
 
 describe('applySettings', () => {

@@ -197,7 +197,7 @@ import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
 import type { ResumeLoaded } from './mission-resume';
 import type * as SaveKit from './mission-save-kit';
-import { initTelemetry, telemetry, telemetryPlayerForDeletion, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
+import { initTelemetry, telemetry, telemetryPlayerForDeletion, rotateTelemetryPlayer, pauseTelemetrySends, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
 import { startLoadout } from './telemetry/loadout';
 import { screenFor } from './telemetry/events';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
@@ -1362,7 +1362,7 @@ async function main(): Promise<void> {
       },
       ...(serverCtl.gate !== undefined ? { gate: serverCtl.gate, pendingTracks: serverCtl.gate.pendingTracks } : {}),
       onReset: ledgerStore.available ? serverCtl.handlers.reset : undefined,
-      // A coupon code (`data/coupons.json`, hashes only). Client-side and trust-based
+      // A coupon code (`data/coupons.json`, hashes only; the shipped table is empty, GH-1415). Client-side and trust-based
       // until the server ledger (GH-205). No telemetry: the attempt carries the code.
       onRedeem: ledgerStore.available ? serverCtl.handlers.redeem : undefined,
       onBuy: ledgerStore.available
@@ -1670,6 +1670,8 @@ async function main(): Promise<void> {
               store: storage,
               query: req.query,
               telemetryPlayer: () => telemetryPlayerForDeletion(),
+              rotateTelemetry: () => rotateTelemetryPlayer(),
+              pauseTelemetry: () => pauseTelemetrySends(),
               navigate: (href) => window.location.assign(href),
               reload: reloadHere,
               // C1 (§0.46): with the server-backed store, sign-out and deletion go through the sync module.
@@ -1754,10 +1756,11 @@ async function main(): Promise<void> {
     env: { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) },
     renderer: gpuName,
   });
-  // The slow-frames suggestion (GH-1413): after the notice above on purpose (it never shows for a software renderer, which that
+  // The slow-frames suggestion (GH-1413): after the notice above on purpose (it never probes a software renderer, which that
   // notice owns). Gated like it; it measures the first seconds of frames on a shell screen and, if they run slow, ASKS once
-  // whether to switch to Low. `settingsDeps.set` is the only write, and only the card's accept button calls it; the preset applies
-  // at the next mission's boot.
+  // whether to switch to Low. On a software renderer the same chunk shows the one-line Low suggestion instead (`software-hint.ts`,
+  // answered once, remembered in `settings.hints.software`). `settingsDeps.set` is the only write, and only their buttons call
+  // it; the preset applies at the next mission's boot.
   // The gate is read HERE and the card's code (quality-hint, frame-probe) loaded only past it (`qualityHintAllowed`'s own test),
   // so a harness origin (CI, `pnpm dev`, every test) never carries the module on the board's heap (board budget, GH-1413).
   const qualityEnv = { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) };
@@ -1766,8 +1769,7 @@ async function main(): Promise<void> {
       watchQualityHint({
         env: qualityEnv,
         renderer: gpuName,
-        quality: () => settings.video.quality,
-        setQuality: (q) => settingsDeps.set({ ...settings, video: { ...settings.video, quality: q } }),
+        settings: settingsDeps,
         inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? ''),
         frames: {
           raf: (cb) => requestAnimationFrame(cb),
