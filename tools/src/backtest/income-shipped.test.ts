@@ -16,6 +16,10 @@ const LANDED: Record<string, { batch: number; zones: Zones }> = {
   khan_rafid_2_foothold: { batch: 1, zones: [['ward', 48]] },
   qarn_hadid_2_foothold: { batch: 1, zones: [['the_gates', 32], ['hollow', 16]] },
   tel_marum_2_foothold: { batch: 1, zones: [['approach', 32], ['overwatch_west', 16]] },
+  beit_sahwan_3_clearance: { batch: 2, zones: [['clinic', 32]] },
+  tel_marum_3_clearance: { batch: 2, zones: [['pass', 20], ['overwatch_east', 12]] },
+  umm_zeitoun_3_clearance: { batch: 2, zones: [['hamlet', 32]] },
+  wadi_halam_5_depot: { batch: 2, zones: [['depot', 20], ['village', 12]] },
 };
 
 type M = { id: string; resources?: { income_zones?: { zone: string; rate_per_min: number }[] } };
@@ -31,15 +35,15 @@ describe('shipped held-ground income (GH-1386)', () => {
     }
   });
 
-  it('no other mission authors zones: the census line is exactly the landed set (8 of 30 after batch 1)', () => {
+  it('no other mission authors zones: the census line is exactly the landed set (12 of 30 after batch 2)', () => {
     const authors = all.filter((m) => zonesOf(m).length > 0).map((m) => m.id).sort();
     expect(authors).toEqual(Object.keys(LANDED).sort());
-    expect(authors.length).toBe(8);
+    expect(authors.length).toBe(12);
     expect(all.length).toBe(30);
   });
 
-  it("each landed batch-1 row is the census plan's candidate row, verbatim", () => {
-    for (const [id, row] of Object.entries(LANDED).filter(([, r]) => r.batch === 1)) {
+  it("each landed batch-1 and batch-2 row is the census plan's candidate row, verbatim", () => {
+    for (const [id, row] of Object.entries(LANDED).filter(([, r]) => r.batch >= 1)) {
       expect(CENSUS_TABLES['census-candidate'][id].zones, id).toEqual(row.zones);
     }
   });

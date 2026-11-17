@@ -5,6 +5,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { EXTRA_PLURAL_CATEGORIES, buildChromeSource, chromeCatalogueFailures, chromeSourceFailures, messageShape, pluralExtrasFor, withoutExtraPlurals } from '../validate_chrome_catalogue.mjs';
+// @ts-expect-error: a plain .mjs module with no declarations, like the other validators the tools tests import.
+import { isStaged, shippedLocaleIds } from '../locale_staging.mjs';
 
 const fails = (en: Record<string, string>, tr: unknown, locale?: string): string[] => chromeCatalogueFailures('de.json', en, tr, { locale }) as string[];
 const EN = {
@@ -68,9 +70,16 @@ describe('every shipped chrome catalogue beside en.json', () => {
   const dir = join(__dirname, '..', '..', 'packages', 'app', 'src', 'i18n');
   const en = JSON.parse(readFileSync(join(dir, 'en.json'), 'utf8')) as Record<string, string>;
   const others = readdirSync(dir).filter((f) => f.endsWith('.json') && f !== 'en.json');
+  const root = join(__dirname, '..', '..');
+  const shipped = shippedLocaleIds(root);
   for (const f of others) {
-    it(`${f} has every key of en.json, the same shapes, and nothing else`, () => {
-      expect(fails(en, JSON.parse(readFileSync(join(dir, f), 'utf8')), f.slice(0, -'.json'.length))).toEqual([]);
+    const id = f.slice(0, -'.json'.length);
+    const staged = isStaged(id, shipped);
+    // A SHIPPED language (in LOCALES) must carry every key of en.json; a STAGED one may lag (reported by validate:data) but is held to the same
+    // shapes and to "nothing else" (tools/src/locale_staging.test.ts builds both cases).
+    it(`${f} (${staged ? 'staged' : 'shipped'}) has ${staged ? 'only keys of' : 'every key of'} en.json, the same shapes, and nothing else`, () => {
+      const lag: string[] = [];
+      expect((chromeCatalogueFailures as (...a: unknown[]) => unknown)(f, en, JSON.parse(readFileSync(join(dir, f), 'utf8')), { locale: id, staged, lag })).toEqual([]);
     });
   }
   it('en.json itself is self-consistent under the shape reader (no unparsed or unbalanced message)', () => {
