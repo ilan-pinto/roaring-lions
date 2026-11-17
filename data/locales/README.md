@@ -132,6 +132,19 @@ brigade packs Патруль / Рота / Бригада / Дивизия, a cou
 "Один", "Два"...) have no agreement with the sentence, because the same word starts a sentence and sits mid-sentence; four countdown strings keep
 "s" for seconds where Russian writes "с"; the advisor command strings that took "with N units" were rephrased to avoid inflecting the count.
 
+## Keeping a staged language current: the worklist (GH-1406)
+
+When main adds a chrome key or edits an English line, every staged language falls behind. `pnpm validate:data` is the gate that says so; this is the list a translator works from:
+
+```bash
+pnpm locales:pending -- de        # one language (de, es-ES, fr, ru)
+pnpm locales:pending -- --all     # every staged language
+```
+
+Per language it lists, with the English beside each item: chrome keys that are **missing**, **stale** (the English changed after translation: the `chrome.src.json` hash differs), **unhashed**, of the **wrong shape** (placeholders or plural forms; Russian's extra forms are allowed) or **extra**; and the same for mission and unit strings. It reports only and changes nothing, and exits 0 whatever it finds (2 only for a bad command line). `--json` prints it machine-readable, `--max-chars=N` cuts the Markdown and says how much is left.
+
+`.github/workflows/locales-pending.yml` runs it every Monday and posts the list as a comment on GH-1406 when anything is pending (nothing when everything is current). Both steps are `continue-on-error`, so a bad week never turns anything red. A translator fixes the items, re-translates through the same pipeline as before, and refreshes the hashes with `pnpm locales:chrome-src`.
+
 ## Shape
 
 One directory per shipped locale other than `en`, id-matched to
