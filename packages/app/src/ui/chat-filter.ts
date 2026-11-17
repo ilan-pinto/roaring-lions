@@ -26,7 +26,8 @@
  *  4. invisible characters dropped (zero-width spaces and joiners, soft hyphen, BOM, variation selectors) WITHOUT splitting the word;
  *  5. look-alikes mapped: digits (0 1 3 4 5 7), Cyrillic and Greek letters that look Latin, and `@` `$` `!` inside or against a word.
  * Then the line is cut into words (letters and digits; an emoji is a word of its own; everything else separates), and:
- *  6. a run of single letters is one word ("f u c k", "f.u.c.k");
+ *  6. a run of single letters is one word ("f u c k", "f.u.c.k"); and when the run starts or ends with a letter that is a word on its
+ *     own (`LONE_WORDS`: "a", "I"), the run without it is tried too, so "you are a f u c k" and "f u c k I" are still caught;
  *  7. a word matches an entry when equal, or when it is LONGER and equal once repeated letters collapse ("fuuuck"; "as" never
  *     matches "ass", because it is not longer);
  *  8. a phrase matches a run of words;
@@ -169,9 +170,11 @@ function foldText(text: string): Folded[] {
 /** Length in code points, not UTF-16 units. */
 const cpLength = (s: string): number => [...s].length;
 
-/** The words of `text`, folded, with where each sits in the original; a run of single letters is one word (step 6). */
-export function wordsOf(text: string): Token[] {
-  const raw: (Token & { solo: boolean })[] = [];
+type RawWord = Token & { solo: boolean };
+
+/** `text` cut into words, folded, before step 6 joins the runs. */
+function rawWordsOf(text: string): RawWord[] {
+  const raw: RawWord[] = [];
   let cur: Token | null = null;
   for (const f of foldText(text)) {
     if (f.kind === 'word') {
@@ -185,18 +188,65 @@ export function wordsOf(text: string): Token[] {
     if (f.kind === 'solo') raw.push({ norm: f.ch, start: f.start, end: f.end, solo: true });
   }
   if (cur !== null) raw.push({ ...cur, solo: false });
+  return raw;
+}
+
+/**
+ * Single letters (folded) that are ordinary words on their own in a shipped language: English "a", "I", "O"; Spanish "a", "e", "o",
+ * "u", "y"; French "a" (and "à"), "y"; Russian "а", "в", "и", "к", "о", "с", "у", "я" (the look-alikes among them fold to Latin, step 5).
+ * One of these at the edge of a run of single letters may be its own word ("you are a b l a r g"), not the spaced word's first or last
+ * letter, so step 6 also tries the run without it.
+ */
+const LONE_WORDS: ReadonlySet<string> = new Set(['a', 'b', 'c', 'e', 'i', 'k', 'o', 'u', 'y', 'и', 'я']);
+
+/** Which edge letters of a run step 6 splits off as words of their own: none (the plain run), the first, the last, or both. */
+type Trim = 'none' | 'first' | 'last' | 'both';
+
+/** Step 6 over `raw`: each run of two or more single letters becomes one word, less the edge letters `trim` names when they are
+ *  `LONE_WORDS` and at least two letters are left; a letter split off stays a word of its own. */
+function joinRuns(raw: readonly RawWord[], trim: Trim): Token[] {
   const out: Token[] = [];
+  const one = (r: RawWord): void => {
+    out.push({ norm: r.norm, start: r.start, end: r.end });
+  };
   let i = 0;
   while (i < raw.length) {
     let j = i;
     while (j < raw.length && !raw[j].solo && cpLength(raw[j].norm) === 1) j++;
     if (j - i >= 2) {
-      out.push({ norm: raw.slice(i, j).map((r) => r.norm).join(''), start: raw[i].start, end: raw[j - 1].end });
+      let a = i;
+      let b = j;
+      if ((trim === 'first' || trim === 'both') && b - a >= 3 && LONE_WORDS.has(raw[a].norm)) a++;
+      if ((trim === 'last' || trim === 'both') && b - a >= 3 && LONE_WORDS.has(raw[b - 1].norm)) b--;
+      for (let k = i; k < a; k++) one(raw[k]);
+      out.push({ norm: raw.slice(a, b).map((r) => r.norm).join(''), start: raw[a].start, end: raw[b - 1].end });
+      for (let k = b; k < j; k++) one(raw[k]);
       i = j;
     } else {
-      out.push({ norm: raw[i].norm, start: raw[i].start, end: raw[i].end });
+      one(raw[i]);
       i++;
     }
+  }
+  return out;
+}
+
+/** The words of `text`, folded, with where each sits in the original; a run of single letters is one word (step 6). */
+export function wordsOf(text: string): Token[] {
+  return joinRuns(rawWordsOf(text), 'none');
+}
+
+/**
+ * The readings of a received line that step 6 allows: the plain one (`wordsOf`) first, then, only where some run has a `LONE_WORDS`
+ * letter at an edge, the readings with the first, the last, and both such letters split off. At most four, each one pass over the line,
+ * so the cost stays linear in its length; within one reading every run is trimmed the same way.
+ */
+function readingsOf(text: string): Token[][] {
+  const raw = rawWordsOf(text);
+  const plain = joinRuns(raw, 'none');
+  const out: Token[][] = [plain];
+  for (const trim of ['first', 'last', 'both'] as const) {
+    const r = joinRuns(raw, trim);
+    if (r.length !== plain.length) out.push(r);
   }
   return out;
 }
@@ -303,14 +353,18 @@ function insideHit(words: readonly Token[], f: CompiledFilter): boolean {
  * mask tier only; the hide tier is not an option here, so no setting can reach it.
  */
 export function filterLine(f: CompiledFilter, text: string, opts: { mask: boolean }): LineVerdict {
-  const words = wordsOf(text);
-  // Step 10: a hide hit lying wholly inside a LONGER allow phrase hit is excused.
-  const allowed = phraseHits(words, f.allowPhrases);
-  const excused = ([i, j]: [number, number]): boolean => allowed.some(([a, b]) => a <= i && j <= b && b - a > j - i);
-  if (phraseHits(words, f.hide).some((h) => !excused(h)) || insideHit(words, f)) return { kind: 'hide' };
+  const readings = readingsOf(text);
+  // Step 9 reads only the plain reading: splitting a letter off a run makes no substring the joined run did not already hold.
+  if (insideHit(readings[0], f)) return { kind: 'hide' };
+  for (const words of readings) {
+    // Step 10: a hide hit lying wholly inside a LONGER allow phrase hit is excused.
+    const allowed = phraseHits(words, f.allowPhrases);
+    const excused = ([i, j]: [number, number]): boolean => allowed.some(([a, b]) => a <= i && j <= b && b - a > j - i);
+    if (phraseHits(words, f.hide).some((h) => !excused(h))) return { kind: 'hide' };
+  }
   if (!opts.mask) return { kind: 'show', text, masked: false };
-  const spans = phraseHits(words, f.mask)
-    .map(([a, b]): [number, number] => [words[a].start, words[b - 1].end])
+  const spans = readings
+    .flatMap((words) => phraseHits(words, f.mask).map(([a, b]): [number, number] => [words[a].start, words[b - 1].end]))
     .sort((x, y) => x[0] - y[0]);
   if (spans.length === 0) return { kind: 'show', text, masked: false };
   let out = '';

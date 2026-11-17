@@ -53,6 +53,25 @@ export function loadChatFilter(load: () => Promise<FilterModule> = importFilter)
   return loading;
 }
 
+/**
+ * Settles when `load` does or when `signal` aborts, whichever is first: a boot left while the chunk is in flight stops waiting at
+ * once (CR1), and its caller checks the signal after. The load itself runs on, since it is the gate's one shared load and the next
+ * room wants it; the abort listener is removed when the load wins.
+ */
+export function untilLoadedOrAborted(load: Promise<boolean>, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const done = (): void => {
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    if (signal.aborted) done();
+    else {
+      signal.addEventListener('abort', done, { once: true });
+      void load.then(done);
+    }
+  });
+}
+
 /** The shipped lists for a reader in UI language `lang`, or null while the filter has not loaded. */
 export function chatFilterNow(lang: string = currentLocale()): ChatFilterView | null {
   return loaded === null ? null : loaded.shippedView(lang);

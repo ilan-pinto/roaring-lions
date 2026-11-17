@@ -124,6 +124,23 @@ describe('ChatInbox and the word filter (GH-1417 S2)', () => {
     expect(lines(inbox, [[1, 'well shit']])).toEqual(['1:well shit']);
   });
 
+  it('the mask is for the other seat\'s lines: this player\'s own echo shows as typed, and a hide word still hides it (CR4)', () => {
+    const inbox = new ChatInbox(() => true, () => true, () => fixture, undefined, 0);
+    expect(lines(inbox, [[0, 'oh blarg'], [1, 'oh blarg']])).toEqual(['0:oh blarg', '1:oh ***']);
+    expect(lines(inbox, [[0, 'you zorgon'], [1, 'you zorgon']])).toEqual([]);
+    // with no seat of its own (null), every line is masked
+    const none = new ChatInbox(() => true, () => true, () => fixture);
+    expect(lines(none, [[0, 'oh blarg']])).toEqual(['0:oh ***']);
+  });
+
+  it('inboxOf carries the local seat, and the battlefield\'s call replaces the lobby\'s (CR4)', () => {
+    const transport = {};
+    const inbox = inboxOf(transport, () => true, () => true, 1);
+    expect(lines(inbox, [[0, 'well shit'], [1, 'well shit']])).toEqual(['0:well ***', '1:well shit']);
+    inboxOf(transport, () => true, () => true, 0);
+    expect(lines(inbox, [[0, 'well shit'], [1, 'well shit']])).toEqual(['0:well shit', '1:well ***']);
+  });
+
   it('with no filter handed in, the shipped English list applies', () => {
     const inbox = new ChatInbox(() => true);
     expect(lines(inbox, [[1, 'oh shit'], [1, 'hold the parapet']])).toEqual(['1:oh ***', '1:hold the parapet']);

@@ -323,7 +323,7 @@ import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 import { inboxOf } from './ui/chat-inbox';
-import { loadChatFilter } from './ui/chat-filter-gate';
+import { loadChatFilter, untilLoadedOrAborted } from './ui/chat-filter-gate';
 import { showNetEnd } from './ui/net-end';
 import { NetPoints, payZoneOf } from './ui/net-points';
 import { NetFlags } from './ui/net-flags';
@@ -3204,8 +3204,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const sk: typeof SaveKit | null = resumeKit ?? (resolvedMission ? await saveKit().catch(() => null) : null);
   if (req.signal.aborted) return () => undefined;
   // GH-1417 S2: a room waits for its word filter. The load never rejects; a failure is logged by the gate, and the match plays on
-  // with its received lines hidden and its typed names read as the fallback name.
-  if (chatFilterLoad !== null) await chatFilterLoad;
+  // with its received lines hidden and its typed names read as the fallback name. The wait gives way to a leave (CR1); the load runs on.
+  if (chatFilterLoad !== null) await untilLoadedOrAborted(chatFilterLoad, req.signal);
   if (req.signal.aborted) abandon('left while the chat filter loaded');
   if (resolvedMission) {
     try {
@@ -4012,7 +4012,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
    *  which escapes them. */
   const chatInbox = room !== null && netConfig !== null && !spectating
-    ? inboxOf(room, () => req.settings.get().chat.enabled, () => req.settings.get().chat.mask)
+    ? inboxOf(room, () => req.settings.get().chat.enabled, () => req.settings.get().chat.mask, netSeat)
     : null;
   const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
     ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })

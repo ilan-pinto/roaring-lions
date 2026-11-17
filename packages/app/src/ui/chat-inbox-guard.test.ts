@@ -66,13 +66,16 @@ describe('the chat inbox is the only door (GH-1417 S1)', () => {
     expect(main).toContain('req.settings.get().chat.enabled');
   });
 
-  it('GH-1417 S2: both sinks hand the inbox the mask setting, read through the settings object; nothing names a hide setting', () => {
+  it('GH-1417 S2: both sinks hand the inbox the mask setting, read through the settings object, and this player\'s seat (CR4: its own echo is not masked); nothing names a hide setting', () => {
     const versus = readFileSync(join(SRC, 'ui/versus.ts'), 'utf8');
     const main = readFileSync(join(SRC, 'main.ts'), 'utf8');
-    expect(main).toContain('inboxOf(room, () => req.settings.get().chat.enabled, () => req.settings.get().chat.mask)');
+    expect(main).toContain('inboxOf(room, () => req.settings.get().chat.enabled, () => req.settings.get().chat.mask, netSeat)');
     expect(main).toContain('chatMask: () => settingsDeps.get().chat.mask');
-    expect(versus).toMatch(/inboxOf\(room\.transport, deps\.chatEnabled \?\? \(\(\) => true\), deps\.chatMask\)/);
-    expect(versus).toMatch(/inboxOf\(r\.transport, deps\.chatEnabled \?\? \(\(\) => true\), deps\.chatMask\)/);
+    expect(versus).toMatch(/inboxOf\(room\.transport, deps\.chatEnabled \?\? \(\(\) => true\), deps\.chatMask, room\.seat\)/);
+    expect(versus).toMatch(/inboxOf\(r\.transport, deps\.chatEnabled \?\? \(\(\) => true\), deps\.chatMask, r\.seat\)/);
+    // every call names a seat: one left without it would mask this player's own lines on whichever screen asked last
+    expect(versus.match(/inboxOf\(/g)?.length).toBe(2);
+    expect(main.match(/inboxOf\(/g)?.length).toBe(1);
     expect(scan(/chat\.hide\b/)).toEqual([]);
   });
 

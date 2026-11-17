@@ -61,6 +61,25 @@ describe('the matcher, on a fixture list', () => {
     expect(shown('ok b.l.a.r.g ok')).toBe(`ok ${MASK} ok`);
   });
 
+  it('step 6, a lone word beside the spaced letters ("a", "I") does not join the run and hide the word (CR3)', () => {
+    // Literal oracle: the run joined with its neighbour ("iblarg", "vexi", "avex") is no entry, so only the trimmed reading catches these.
+    expect(shown('I b l a r g')).toBe('I ***');
+    expect(shown('you are a b l a r g')).toBe('you are a ***');
+    expect(shown('b l a r g I')).toBe('*** I');
+    expect(hidden('v e x I')).toBe(true);
+    expect(hidden('you are a v e x')).toBe(true);
+    expect(hidden('a v e x I')).toBe(true);
+    // a mask word written plainly next to a spaced one is still masked once each
+    expect(shown('a b l a r g blarg')).toBe('a *** ***');
+    // the trim only splits a LONE word off: a letter that is no word on its own still joins, and "convex" spelled out is no "vex"
+    expect(shown('x b l a r g')).toBe('x b l a r g');
+    expect(shown('c o n v e x')).toBe('c o n v e x');
+    // the trim is a second READING of a received line; how a list entry compiles (`wordsOf`) is unchanged
+    expect(wordsOf('I b l a r g').map((w) => w.norm)).toEqual(['iblarg']);
+    // a run of two is never trimmed to one letter
+    expect(shown('a b')).toBe('a b');
+  });
+
   it('step 7, repeated letters: a LONGER stretched spelling matches, a shorter word never does', () => {
     expect(hidden('zorrrgoooon')).toBe(true);
     expect(shown('blaaaarg')).toBe(MASK);
@@ -160,6 +179,16 @@ describe('the shipped lists', () => {
       const v = filterLine(shipped, `well ${e} then`, { mask: true });
       expect(v, e).toEqual({ kind: 'show', text: `well ${MASK} then`, masked: true });
     }
+  });
+
+  it('a short English hide entry spelled out behind "you are a " still hides (CR3)', () => {
+    // Literal oracle: a ruled in-house entry, four letters, so step 9 cannot reach it inside "adyke".
+    expect(filterLine(shipped, 'you are a d y k e', { mask: false })).toEqual({ kind: 'hide' });
+    expect(filterLine(shipped, 'd y k e I said', { mask: false })).toEqual({ kind: 'hide' });
+    // and every short single-word hide entry the same way (24 at the time of writing; the floor keeps the loop from passing empty)
+    const short = en.hide.filter((e) => !e.includes(' ') && [...e].length < SUBSTRING_MIN);
+    expect(short.length).toBeGreaterThanOrEqual(20);
+    for (const e of short) expect(filterLine(shipped, `you are a ${[...e].join(' ')}`, { mask: false }).kind, e).toBe('hide');
   });
 
   it('leaves ordinary RTS chat alone: dropped entries, allow words, and short hide words inside longer ones', () => {

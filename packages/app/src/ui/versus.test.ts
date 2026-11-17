@@ -11,6 +11,7 @@ import { AdvisorRefused } from '../net/connect';
 import { missingKeys, setCatalogue } from '../i18n/t';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
+import { loadChatFilter, resetChatFilterGateForTests } from './chat-filter-gate';
 
 /** The methods the screens call on a transport, recorded. */
 function fakeTransport() {
@@ -1090,6 +1091,17 @@ describe('showVersusRoom (/versus/:code) with the lobby handed from /versus', ()
     expect(stage.querySelector('b')).toBeNull();
   });
 
+  it('the lobby log masks the other seat\'s mask word and leaves this player\'s own echo as typed (CR4)', async () => {
+    setCatalogue('en', en);
+    expect(await loadChatFilter()).toBe(true);
+    const { fake, stage } = await hostedRoom();
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum');
+    fake.hooks.onChat?.(0, 'well shit');
+    fake.hooks.onChat?.(1, 'well shit');
+    const lines = [...stage.querySelectorAll('.rl-versus__chat .rl-chat__line')].map((l) => l.textContent);
+    expect(lines).toEqual(['Ari: well shit', 'Bo: well ***']);
+  });
+
   it('Escape typed into the lobby chat clears it and does not ask to leave', async () => {
     const { stage } = await hostedRoom();
     const input = stage.querySelector<HTMLInputElement>('.rl-chat__input')!;
@@ -1547,6 +1559,27 @@ describe('members, guests and bots (GH-1075 A3, Task 3.7)', () => {
     expect(card0.querySelector('.rl-versus__tag')!.textContent).toBe('Guest');
     const bot = await hosted([{ seat: 0, callsign: 'Ari', connected: true, ready: false }, { seat: 1, callsign: 'B', connected: true, ready: false, kind: 'bot' }]);
     expect(bot.stage.querySelector('.rl-versus__seat[data-seat="1"] .rl-versus__tag')!.textContent).toBe('Bot');
+  });
+  it('relabels the lobby when the word filter arrives: a name that read as the fallback while it loaded reads as typed (finding 5)', async () => {
+    setCatalogue('en', en);
+    const mod = await import('./chat-filter');
+    resetChatFilterGateForTests();
+    // The gate's one shared load, held open by the test: the lobby's own `loadChatFilter()` joins it.
+    let arrive: (m: typeof mod) => void = () => undefined;
+    const held = loadChatFilter(() => new Promise<typeof mod>((r) => { arrive = r; }));
+    try {
+      const { stage } = await hosted(MEMBER_SEATS);
+      const name = (n: 0 | 1) => stage.querySelector(`.rl-versus__seat[data-seat="${n}"] .rl-versus__name`)!.textContent;
+      expect([name(0), name(1)]).toEqual(['Lion', 'Lion · K7Q2M4XA']);
+      arrive(mod);
+      expect(await held).toBe(true);
+      await flush();
+      // Literal oracle: no onLobby has come since, so only the relabel on arrival can have changed them.
+      expect([name(0), name(1)]).toEqual(['Ari', 'Ilan · K7Q2M4XA']);
+    } finally {
+      arrive(mod);
+      await held;
+    }
   });
   it('?pseudo=1 brackets every tag', async () => {
     setCatalogue('pseudo', en, pseudo);

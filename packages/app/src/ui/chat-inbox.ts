@@ -15,6 +15,8 @@
  *     in the match. A guest cannot be recognised in a later room by design (per-match seat tokens), so nothing here is stored.
  *  3. **The word filter** (GH-1417 S2, `chat-filter.ts`): a line with a `hide` word is hidden whole, always; a `mask` word is replaced
  *     with *** unless the player turned masking off (Settings, Chat: `mask`, read at every line). There is no switch for `hide`.
+ *     The mask is for OTHER players' lines (the Settings hint says so): the room echoes this seat's own line back, and that echo is
+ *     shown as typed, while a `hide` word hides it from its own author too, so a player sees what the other seat cannot.
  *     The same filter answers `refuses` (the input's nudge: a line the other seat would hide is not sent). Callsigns go through the
  *     same lists where every seat name is made, `net/seat-label.ts`, so the score, the status line and a spectator's strip are covered
  *     too, not only the chat.
@@ -50,18 +52,21 @@ export class ChatInbox {
 
   /** `enabled` and `mask` are read at every line, so a setting changed over a running match applies to the next line. `filter` is the
    *  shipped lists for the active UI language, null until they have loaded (`chat-filter-gate.ts`), and `load` asks for them; a test
-   *  hands in its own. */
+   *  hands in its own. `own` is this player's seat, whose echoed lines are never masked (null: no seat of its own, every line is). */
   constructor(
     private enabled: () => boolean,
     private mask: () => boolean = () => true,
     private readonly filter: () => ChatFilterView | null = () => chatFilterNow(),
     private readonly load: () => Promise<boolean> = () => loadChatFilter(),
+    private own: Seat | null = null,
   ) {}
 
-  /** The settings source, replaced by whichever screen asks for the inbox last (the lobby, then the battlefield). */
-  useEnabled(enabled: () => boolean, mask: () => boolean = () => true): void {
+  /** The settings source and this player's seat, replaced by whichever screen asks for the inbox last (the lobby, then the
+   *  battlefield). */
+  useEnabled(enabled: () => boolean, mask: () => boolean = () => true, own: Seat | null = null): void {
     this.enabled = enabled;
     this.mask = mask;
+    this.own = own;
   }
 
   isEnabled(): boolean {
@@ -73,8 +78,8 @@ export class ChatInbox {
     return this.muted.has(seat) ? 'muted' : 'show';
   }
 
-  /** Hands `text` to `show` if, and only if, this seat's line may be drawn, with its masked words replaced. The only way a sink learns
-   *  a received line. */
+  /** Hands `text` to `show` if, and only if, this seat's line may be drawn, with its masked words replaced unless it is this player's
+   *  own line echoed back (a `hide` word hides it all the same). The only way a sink learns a received line. */
   deliver(seat: Seat, text: string, show: (text: string) => void): void {
     if (this.verdict(seat) !== 'show') return;
     const f = this.filter();
@@ -82,7 +87,7 @@ export class ChatInbox {
       this.hold({ seat, text, show });
       return;
     }
-    const v = f.line(text, { mask: this.mask() });
+    const v = f.line(text, { mask: seat !== this.own && this.mask() });
     if (v.kind === 'show') show(v.text);
   }
 
@@ -147,12 +152,13 @@ const INBOXES = new WeakMap<object, ChatInbox>();
 /**
  * The inbox of one room, keyed by its transport: the lobby screen and the battlefield are different modules holding the same transport
  * (`handOver`), so both get the same inbox and a mute carries from one to the other. A transport that is gone takes its inbox with it.
+ * `own` is the seat this player holds in the room, whose echoed lines the mask leaves alone.
  */
-export function inboxOf(transport: object, enabled: () => boolean, mask: () => boolean = () => true): ChatInbox {
+export function inboxOf(transport: object, enabled: () => boolean, mask: () => boolean = () => true, own: Seat | null = null): ChatInbox {
   let inbox = INBOXES.get(transport);
   if (inbox === undefined) {
-    inbox = new ChatInbox(enabled, mask);
+    inbox = new ChatInbox(enabled, mask, undefined, undefined, own);
     INBOXES.set(transport, inbox);
-  } else inbox.useEnabled(enabled, mask);
+  } else inbox.useEnabled(enabled, mask, own);
   return inbox;
 }
