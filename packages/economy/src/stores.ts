@@ -399,9 +399,10 @@ export type CoinAsk =
  * is ever bought, and a stale ask (two tabs) is refused. The coin price is the
  * item's own `coinPrice` of its JSON price; the ask carries no price at all.
  * Writes only the wallet: credits, and the brigade account, are untouched.
- * Free coins are spent before paid ones (`roar-wallet.ts`). E13: with `cosmeticOnly`
- * (default `COINS_COSMETIC_ONLY`) a unit or tier ask is refused outright; only a
- * claim's carry of what a device already owns passes `false` (`claim.ts` step 4).
+ * Free coins are spent before paid ones (`roar-wallet.ts`). E13: `cosmeticOnly`
+ * (default `COINS_COSMETIC_ONLY`) goes to `buyEnabled`, so a unit or tier ask is
+ * refused with the wallet handed back as it was; only a claim's carry of what a
+ * device already owns passes `false` (`claim.ts` step 4).
  */
 export function buyWithCoins(
   input: StoreInput,
@@ -411,8 +412,6 @@ export function buyWithCoins(
   cosmeticOnly: boolean = COINS_COSMETIC_ONLY
 ): { account: RoarWallet; ok: boolean } {
   const refuse = { account: roar, ok: false };
-  // E13: refused before anything is priced. The wallet comes back as it was, entitlements and all.
-  if (!coinsMayBuy(ask.kind, cosmeticOnly)) return refuse;
   const wallet = walletOf(roar);
   const items = storeItems(input);
   if (ask.kind === 'unit') {
