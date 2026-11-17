@@ -52,6 +52,30 @@
   font-display: swap;
   src: url('/fonts/ibm-plex-mono-latin-600.woff2') format('woff2');
 }
+/* Cyrillic (GH-1407, ruling D6): the same Plex Mono 2.3 build as the latin
+ * files above, subset by tools/fonts/build_cyrillic.py. A separate file with
+ * a unicode-range, so the latin rules and bytes are untouched, a latin glyph
+ * can never come from here, and the browser fetches it only when a Cyrillic
+ * character is on screen. Not preloaded. Barlow and Big Shoulders Display
+ * have NO Cyrillic in any OFL source, so Russian prose and titles take the
+ * stack's fallback (system-ui; Oswald or sans-serif) until the lead picks a
+ * face; font-faces.test.ts holds both facts. */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-cyrillic-400.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-cyrillic-600.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
 
 :root {
   /* UI scale (spec 2026-09-16 §5): every dimension below is rem, so this one
@@ -10922,4 +10946,45 @@ fieldset.rl-versus__maps {
 .rl-profile__delete {
   border-color: var(--bad);
   color: var(--bad-text);
+}
+
+/* GH-1393: the saved mission, on the campaign board's footer, and the pause menu's save line. */
+.rl-resume {
+  display: grid;
+  gap: var(--s2);
+  justify-items: start;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+}
+.rl-resume__lead {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-resume__line,
+.rl-resume__msg,
+.rl-pause__save-msg {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  line-height: var(--lh-body);
+  color: var(--ink);
+}
+.rl-resume__msg,
+.rl-pause__save-msg {
+  min-height: calc(var(--lh-body) * 1em);
+  color: var(--ink-mute);
+}
+.rl-resume__msg[data-tone='bad'],
+.rl-pause__save-msg[data-tone='bad'] {
+  color: var(--bad-text);
+}
+.rl-resume__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
 }
