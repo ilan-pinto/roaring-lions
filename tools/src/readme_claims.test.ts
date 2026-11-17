@@ -30,7 +30,7 @@ function tableRows(after: string): string[][] {
   return rows.slice(1); // drop the header row
 }
 
-const WORD: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12 };
+const WORD: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, fifteen: 15 };
 
 interface Region { towns: { id: string; name: string; missions: string[] }[] }
 const world = json<{ regions: Region[] }>('data/campaign/world.json');
@@ -52,7 +52,7 @@ describe('README: campaign numbers', () => {
   it('every town count in the front table is the town\'s mission count', () => {
     for (const r of world.regions) for (const t of r.towns) expect(README, t.name).toContain(`${t.name} (${t.missions.length})`);
   });
-  it('"Eight missions" with income zones is the number of mission files that declare them', () => {
+  it('"Fifteen missions" with income zones is the number of mission files that declare them', () => {
     const n = missionFiles.filter((f) => json<{ resources?: { income_zones?: unknown[] } }>(`data/missions/${f}`).resources?.income_zones !== undefined).length;
     const m = /\*\*Held ground pays\.\*\* (\w+) missions/.exec(README);
     expect(m, 'the Held ground line').not.toBeNull();
