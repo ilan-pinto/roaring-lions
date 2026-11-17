@@ -9,21 +9,27 @@
 
 /** Twice the target, in seconds per target minute. */
 export const LIMIT_PER_TARGET_MINUTE_S = 120;
+/** GH-1394 D6 / GH-1395 D13 (lead, 16 Nov 2026): an OVERLAID mission (a difficulty posture or a challenge
+ *  amendment applied to the authored JSON) may go down to ONE times its target. The clearance rule below is the
+ *  load-bearing half and holds for it unchanged; the 2x sizing rule stays the authored floor. */
+export const OVERLAID_LIMIT_PER_TARGET_MINUTE_S = 60;
 /** How long before the limit a primary deadline must fire. */
 export const DEADLINE_CLEARANCE_S = 60;
 /** The primary clocks that run from mission start, with the runtime's own defaults
  *  (`stepObjectives`: survive_until 60 s, evacuate_before 300 s; raze/collapse have none). */
 const DEADLINE_DEFAULT_S = { survive_until: 60, evacuate_before: 300, raze: undefined, collapse: undefined };
 
-export function timeLimitFailures(mission, file) {
+/** `opts.overlaid`: judge an overlaid mission (posture or amendments applied), whose floor is 1x the target. */
+export function timeLimitFailures(mission, file, opts = {}) {
   const limit = mission?.time_limit_s;
   if (typeof limit !== 'number') {
     return [`${file}: declares no time_limit_s -- a stalled mission would never end (#540)`];
   }
   const out = [];
-  const floor = (mission.target_minutes ?? 6) * LIMIT_PER_TARGET_MINUTE_S;
+  const overlaid = opts.overlaid === true;
+  const floor = (mission.target_minutes ?? 6) * (overlaid ? OVERLAID_LIMIT_PER_TARGET_MINUTE_S : LIMIT_PER_TARGET_MINUTE_S);
   if (limit < floor) {
-    out.push(`${file}: time_limit_s ${limit} is under twice its target_minutes (${floor} s)`);
+    out.push(`${file}: time_limit_s ${limit} is under ${overlaid ? 'once' : 'twice'} its target_minutes (${floor} s)`);
   }
   for (const o of mission.objectives ?? []) {
     if (o.primary !== true || !(o.type in DEADLINE_DEFAULT_S)) continue;

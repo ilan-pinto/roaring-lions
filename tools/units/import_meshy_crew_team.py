@@ -151,6 +151,7 @@ sys.path.insert(0, HERE)
 
 import kit  # noqa: E402
 import rig  # noqa: E402
+from mesh_ownership import assert_script_owns  # noqa: E402
 import teams  # noqa: E402
 import crew_builds  # noqa: E402  the per-figure builds and slung rifles (pure numpy)
 from import_meshy_kdf_team import _two_bone  # noqa: E402  PR #325's two-bone IK
@@ -3925,6 +3926,7 @@ def _figure_cut(src, height, spec, kneel):
 
 
 def build_team(team_id):
+    assert_script_owns(rig.TEAM_MESH_OWNER, team_id, "TEAM_MESH_OWNER", __file__, REPO)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     _TEX["material"] = None
     _TEX.pop("atlas", None)
@@ -4447,7 +4449,11 @@ def build_team(team_id):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    names = [n for n in SOURCES if n != "moto_rpg"] if argv in ([], ["all"]) else argv
+    # a bare run or `all` is the teams this script still owns (inf_squad's row stays as the rigid figure's provenance;
+    # the team is import_meshy_skinned_team.py's since GH-746, and naming it here is refused by `build_team`)
+    mine = os.path.relpath(os.path.abspath(__file__), REPO).replace(os.sep, "/")
+    names = ([n for n in SOURCES if n != "moto_rpg" and rig.TEAM_MESH_OWNER.get(n) == mine]
+             if argv in ([], ["all"]) else argv)
     for name in names:
         if name not in SOURCES:
             raise SystemExit(f"unknown team {name!r}; have {sorted(SOURCES)}")
