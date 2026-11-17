@@ -41,7 +41,8 @@ export default {
   async scheduled(_controller: unknown, env: Env): Promise<void> {
     const now = Date.now();
     // GH-1432: the sweep and the reconciler share ONE member delete batch (a delete is 17 statements), and the reconciler's scan runs
-    // even if the sweep fails. Every share of the 50 D1 queries an invocation may make is pinned by `cron-budget.test.ts`.
+    // even if the sweep fails. Every share of the 50 D1 queries an invocation may make is pinned by `cron-budget.test.ts`. A member
+    // whose delete keeps failing is isolated by `accountCron`'s fallback (GH-1530), whose runs reject here while it is held, so it is seen.
     const accountDb = env.ACCOUNTS;
     const tombs = env.ACCOUNT_TOMBSTONES;
     const accounts = accountDb !== undefined && tombs !== undefined ? [accountCron(accountDb, now, tombs), sweepAdminViews(accountDb, now)] : [];

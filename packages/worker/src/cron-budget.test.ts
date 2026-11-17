@@ -121,7 +121,7 @@ async function world(seeds: Seeds, race = false) {
     members: count(acc, 'member'),
   });
   const tombs = async (prefix: string) => (await h.kv.list({ prefix })).keys.length;
-  return { env, meter, left, kv: h.kv, tombs };
+  return { env, meter, left, kv: h.kv, tombs, acc };
 }
 
 async function run(w: Awaited<ReturnType<typeof world>>): Promise<number> {
@@ -203,6 +203,37 @@ describe('one scheduled() run stays under 50 D1 queries with worst-case backlogs
     // Telemetry 14 (one partial feedback slice 3, events 2 + legacy 1, players 5, desync, snap, rate_day), admin views 1, accounts 26
     // (expiry 5, idle select 1, three pages over 203 tombstones, one delete batch of 17 for the two idle members and the live one).
     expect(n).toBe(41);
+  });
+
+  it('GH-1530: one member whose delete always fails, among 39 good ones: two runs delete nobody, the third records it alone, the fourth deletes the 39; every run under 50', async () => {
+    // Every telemetry backlog at its worst as well, so the account fallback is metered against a full run, not an idle one.
+    const w = await world({ ...WORST, idleMembers: 0, deadTombstones: 0, liveTombstones: DUE_MEMBERS_MAX });
+    // 'zlive0' sorts first on the tombstone page and every day is the same, so live0 is the oldest queued: the first one tried alone.
+    w.acc.exec("CREATE TRIGGER stuck BEFORE DELETE ON member WHEN OLD.id = 'live0' BEGIN SELECT RAISE(ABORT, 'stuck member'); END");
+    const live = () => (w.acc.prepare("SELECT COUNT(*) AS n FROM member WHERE id LIKE 'live%'").get() as { n: number }).n;
+    const shared = (log: string[]) => log.filter((s) => / batch\(17\) WITH due\(id, day\) AS \(VALUES \(\?1, \?2\), /.test(s)).length;
+    const alone = (log: string[]) => log.filter((s) => / batch\(17\) WITH due\(id, day\) AS \(VALUES \(\?1, \?2\)\) /.test(s)).length;
+    const runs: { n: number; live: number; shared: number; alone: number; threw: boolean }[] = [];
+    for (let i = 0; i < 4; i++) {
+      w.meter.n = 0;
+      w.meter.calls = 0;
+      w.meter.log = [];
+      const threw = await worker.scheduled(undefined, w.env).then(() => false, () => true);
+      expect(w.meter.over, w.meter.log.join('\n')).toBe(0);
+      runs.push({ n: w.meter.n, live: live(), shared: shared(w.meter.log), alone: alone(w.meter.log), threw });
+    }
+    expect(runs.map((r) => [r.live, r.shared, r.alone, r.threw])).toEqual([
+      [40, 1, 0, true], // the shared batch of 40 fails
+      [40, 1, 0, true], // again: the threshold (2)
+      [40, 0, 1, true], // live0 alone: it fails, and is recorded
+      [1, 1, 0, true], // the 39 in one shared batch; live0 is left out, and the run still fails so it is seen
+    ]);
+    for (const r of runs) expect(r.n).toBeLessThan(LIMIT);
+    // The alone run costs what a shared run does (one 17-statement batch): the fallback adds KV calls, never a D1 statement.
+    expect(runs.map((r) => r.n)).toEqual([45, 41, 41, 41]);
+    expect(w.acc.prepare("SELECT id FROM member WHERE id LIKE 'live%'").all()).toEqual([{ id: 'live0' }]);
+    expect(await w.kv.get('tomb:zlive0')).not.toBeNull(); // its deletion is still on record
+    expect(await w.tombs('tomb:zlive')).toBe(DUE_MEMBERS_MAX); // the 39 keep theirs too: dead ones, for `gone`
   });
 
   it('a quiet day costs exactly 20 statements in 12 calls: each sweep\'s fixed statements, and nothing a bound should have removed', async () => {

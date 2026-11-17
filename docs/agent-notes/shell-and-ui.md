@@ -43,7 +43,19 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   the expiry batch 5, the idle select 1, three tombstone pages, ONE guarded delete batch of 17 statements for every member the run
   deletes (up to 40: 20 idle, the rest from tombstones; `deleteDueStatements`, a `due` CTE, so a raced member is spared whole and
   nobody else), and one survivor select when a guard held = 48. The tombstone scan is resumable through a KV cursor
-  (`RECONCILE_CURSOR_KEY`), which moves on only once the delete batch has committed. **Add a sweep and you add its share to that sum, or the test reads red.**
+  (`RECONCILE_CURSOR_KEY`), which moves past a page only once every member queued from it is settled (in a batch that committed, or
+  recorded as failing). **Add a sweep and you add its share to that sum, or the test reads red.** **The one-member fallback (GH-1530):**
+  the one batch is one transaction, so a member whose rows make it fail would hold the other 39, run after run. `reconcile:batchfail`
+  (KV, 7-day TTL, not under `tomb:`) counts consecutive failed shared batches and is deleted when one commits; at
+  `BATCH_FAIL_THRESHOLD` (2) the next run deletes the OLDEST queued member alone. Under the per-statement meter that is all a run can
+  do: one member alone costs the same 17 statements as the shared batch, so the account share and the 48 are unchanged (the fallback is
+  KV calls only). A member whose own delete fails is recorded in `reconcile:failing` (`{ idHash: day }`), left out of every batch for
+  `FAILING_HOLD_DAYS` (7) and then retried alone, never in the shared batch again; the counter clears, so the next run deletes everyone
+  else. An alone run that commits sets the counter to one under the threshold, so the shared batch is tried again next run (a transient
+  failure costs one run of one member). Every run that leaves a recorded member out throws, so `scheduled()` stays red while a deletion
+  is stuck. A tombstone that does not parse to a numeric day is skipped, logged and counted by BOTH the scan and the survivor step
+  (the scan used to rethrow for its 90 days). If the lead rules that a batch counts as one query, a degraded run could try every queued
+  member alone in one run; that is a change to `accountCron` and to the pinned cost, not a constant.
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the

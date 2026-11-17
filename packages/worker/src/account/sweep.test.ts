@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import type { DatabaseSync } from 'node:sqlite';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { D1Like, D1Stmt } from '../d1';
 import { dayOf } from '../rate-day';
 import { OP_TTL_MS, PENDING_TTL_MS, SESSION_COOKIE, STEAM_OP, preCookieName } from './config';
 import { deleteMember } from './delete';
 import { memoryKV } from './kv';
-import { MEMBER_IDLE_DAYS, RECONCILE_CURSOR_KEY, accountCron, reconcileTombstones, sweepAccounts } from './sweep';
+import {
+  BATCH_FAIL_KEY, BATCH_FAIL_THRESHOLD, FAILING_HOLD_DAYS, FAILING_KEY, MEMBER_IDLE_DAYS, RECONCILE_CURSOR_KEY, accountCron, reconcileTombstones, sweepAccounts,
+} from './sweep';
 import { accountHarness, steamStub } from './test-kit';
 
 const DAY = 86_400_000;
@@ -208,7 +211,10 @@ const BAD_TOMBS = ['not json', 'null', '{"lastSeenDay":null}', '{"lastSeenDay":"
 describe('accountCron: a tombstone that does not parse to a numeric day is left alone (PR 1518 delta review, finding 2)', () => {
   const today = dayOf(NOW);
 
-  it.each(BAD_TOMBS)('survivor step, %s: the bad tombstone stays, the run does not throw, and the next survivor is still pruned', async (bad) => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it.each(BAD_TOMBS)('survivor step, %s: the bad tombstone stays, is logged and counted, the run does not throw, and the next survivor is still pruned', async (bad) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const h = accountHarness({ now: NOW, foreignKeys: true });
     await member(h, 'a', CUTOFF - 5); // 'a' sorts first: its bad tombstone is read before b's
     await member(h, 'b', CUTOFF - 5);
@@ -224,9 +230,13 @@ describe('accountCron: a tombstone that does not parse to a numeric day is left 
     expect(await n(h.db, 'SELECT 1 FROM member')).toBe(2);
     expect(await h.kv.get('tomb:hasha')).toBe(bad);
     expect(await h.kv.get('tomb:hashb')).toBeNull();
+    expect(warn).toHaveBeenCalledWith('account cron: skipped tombstones that do not parse to a day', { count: 1 });
   });
 
-  it.each(BAD_TOMBS.filter((b) => !['not json', 'null'].includes(b)))('scan, %s: skipped quietly; the member and the tombstone stay, and the next tombstone on the page is still acted on', async (bad) => {
+  // GH-1530: the scan used to rethrow on the two values that do not parse ('not json', 'null'), failing every run that read the page
+  // for the tombstone's 90 days, while the survivor step skipped the same tombstone. Both paths now skip, log and count, for all six.
+  it.each(BAD_TOMBS)('scan, %s: skipped, logged and counted, the run does not throw; the member and the tombstone stay, and the next tombstone on the page is still acted on', async (bad) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const h = accountHarness({ now: NOW });
     await member(h, 'a', today); // signed in today, not idle: found through the tombstone alone
     await member(h, 'b', today);
@@ -235,17 +245,19 @@ describe('accountCron: a tombstone that does not parse to a numeric day is left 
     expect(await accountCron(h.db, NOW, h.kv)).toBe(1);
     expect((await h.db.prepare('SELECT id AS x FROM member').all<{ x: string }>()).results.map((r) => r.x)).toEqual(['a']);
     expect(await h.kv.get('tomb:hasha')).toBe(bad);
+    expect(warn).toHaveBeenCalledWith('account cron: skipped tombstones that do not parse to a day', { count: 1 });
+    // and it moves the cursor on like any other page: the listing is finished, so the next run starts from the top (no stuck page)
+    expect(await h.kv.get(RECONCILE_CURSOR_KEY)).toBeNull();
+    expect(await accountCron(h.db, NOW, h.kv)).toBe(0);
   });
 
-  it.each(['not json', 'null'])('scan, %s: a tombstone that will not parse is reported (the run rethrows), and does not stop the rest of the page', async (bad) => {
+  it('a run with nothing unreadable logs nothing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const h = accountHarness({ now: NOW });
-    await member(h, 'a', today);
     await member(h, 'b', today);
-    await h.kv.put('tomb:hasha', bad);
     await h.kv.put('tomb:hashb', JSON.stringify({ deletedAt: NOW, lastSeenDay: today }));
-    await expect(accountCron(h.db, NOW, h.kv)).rejects.toThrow();
-    expect((await h.db.prepare('SELECT id AS x FROM member').all<{ x: string }>()).results.map((r) => r.x)).toEqual(['a']);
-    expect(await h.kv.get('tomb:hasha')).toBe(bad);
+    expect(await accountCron(h.db, NOW, h.kv)).toBe(1);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('scan: a listed tombstone whose read comes back empty (expired since the listing, or not yet visible) is skipped quietly', async () => {
@@ -283,6 +295,131 @@ describe('accountCron: the tombstone cursor moves on only once the delete batch 
     expect(await kv.get(RECONCILE_CURSOR_KEY)).toBe('tomb:hashx5');
     expect(await accountCron(h.db, NOW, kv)).toBe(2);
     expect(await n(h.db, 'SELECT 1 FROM member')).toBe(0);
+  });
+});
+
+const raw = (h: H): DatabaseSync => (h.db as unknown as { raw: DatabaseSync }).raw;
+/** A trigger that aborts the delete of one member's row, so any batch carrying that member rolls back whole: a deterministic per-member
+ *  failure of the kind GH-1530 guards against (the shipped schema has none). */
+const stick = (h: H, id: string): void => raw(h).exec(`CREATE TRIGGER stuck_${id} BEFORE DELETE ON member WHEN OLD.id = '${id}' BEGIN SELECT RAISE(ABORT, 'stuck member'); END`);
+const unstick = (h: H, id: string): void => raw(h).exec(`DROP TRIGGER stuck_${id}`);
+const ids = async (h: H): Promise<string[]> => (await h.db.prepare('SELECT id AS x FROM member ORDER BY id').all<{ x: string }>()).results.map((r) => r.x);
+/** One run: the members it deleted, or 'threw'. */
+const once = (h: H, now = NOW, db: D1Like = h.db, kv = h.kv): Promise<number | 'threw'> => accountCron(db, now, kv).then((d) => d, () => 'threw' as const);
+
+describe('accountCron: the one-member fallback after repeated failed batches (GH-1530)', () => {
+  const today = dayOf(NOW);
+
+  it('the failure counter rises when the shared batch fails, lives 7 days outside `tomb:`, and clears when the batch commits', async () => {
+    expect(BATCH_FAIL_THRESHOLD).toBe(2);
+    const h = accountHarness({ now: NOW });
+    await member(h, 'a', CUTOFF - 1);
+    stick(h, 'a');
+    await expect(accountCron(h.db, NOW, h.kv)).rejects.toThrow(/stuck member/);
+    expect(await h.kv.get(BATCH_FAIL_KEY)).toBe('1');
+    expect(h.kv.ttl(BATCH_FAIL_KEY)).toBe(7 * 86_400);
+    expect(BATCH_FAIL_KEY.startsWith('tomb:')).toBe(false);
+    expect((await h.kv.list({ prefix: 'tomb:' })).keys.map((k) => k.name)).toEqual(['tomb:hasha']);
+    unstick(h, 'a'); // a transient failure: the next run's shared batch commits
+    expect(await accountCron(h.db, NOW, h.kv)).toBe(1);
+    expect(await h.kv.get(BATCH_FAIL_KEY)).toBeNull();
+    expect(await ids(h)).toEqual([]);
+  });
+
+  it('a failure that lasts two runs: the third deletes the oldest member alone, the fourth tries the shared batch again and clears the counter', async () => {
+    const h = accountHarness({ now: NOW });
+    for (const [i, id] of ['a', 'b', 'c'].entries()) await member(h, id, CUTOFF - 10 + i);
+    let failing = 2;
+    const db: D1Like = { ...h.db, batch: async (ss: D1Stmt[]) => {
+      if (ss.length === 17 && failing-- > 0) throw new Error('transient');
+      return h.db.batch(ss);
+    } };
+    expect([await once(h, NOW, db), await once(h, NOW, db)]).toEqual(['threw', 'threw']);
+    expect(await h.kv.get(BATCH_FAIL_KEY)).toBe('2');
+    expect(await once(h, NOW, db)).toBe(1); // alone: the oldest, 'a'
+    expect(await ids(h)).toEqual(['b', 'c']);
+    expect(await h.kv.get(BATCH_FAIL_KEY)).toBe('1'); // one under the threshold: the next run tries the shared batch
+    expect(await once(h, NOW, db)).toBe(2);
+    expect(await h.kv.get(BATCH_FAIL_KEY)).toBeNull();
+    expect(await h.kv.get(FAILING_KEY)).toBeNull(); // a transient failure records nobody
+    expect(await ids(h)).toEqual([]);
+  });
+
+  it('a stuck member younger than the rest: each member ahead of it goes alone, then it is recorded and left out, and every run after it fails visibly', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'g0', CUTOFF - 30);
+    await member(h, 'g1', CUTOFF - 20);
+    await member(h, 'g2', CUTOFF - 10);
+    await member(h, 'bad', CUTOFF - 5);
+    stick(h, 'bad');
+    const got: (number | 'threw')[] = [];
+    for (let i = 0; i < 10; i++) got.push(await once(h));
+    // shared, shared (the threshold), then alone (g0) / shared again, three times over; then the shared batch of bad alone fails,
+    // the fallback records it alone, and the last run leaves it out (and throws, so the stuck deletion is seen).
+    expect(got).toEqual(['threw', 'threw', 1, 'threw', 1, 'threw', 1, 'threw', 'threw', 'threw']);
+    expect(await ids(h)).toEqual(['bad']);
+    expect(await h.kv.get('tomb:hashbad')).not.toBeNull(); // its deletion stays on record
+    expect(JSON.parse((await h.kv.get(FAILING_KEY)) ?? '{}')).toEqual({ hashbad: today });
+    expect(await h.kv.get(BATCH_FAIL_KEY)).toBeNull();
+    await expect(accountCron(h.db, NOW, h.kv)).rejects.toThrow(/1 member deletion\(s\) held back after failing alone \(GH-1530\)/);
+  });
+
+  it('a recorded member is left out for 7 days, then retried alone: a second failure holds it again without holding the others, and a commit deletes it and clears the record', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'bad', CUTOFF - 50);
+    await member(h, 'g', CUTOFF - 1);
+    stick(h, 'bad');
+    expect([await once(h), await once(h), await once(h), await once(h)]).toEqual(['threw', 'threw', 'threw', 'threw']);
+    expect(await ids(h)).toEqual(['bad']); // run 3 recorded 'bad' alone; run 4's shared batch deleted 'g' and threw for 'bad'
+    expect(FAILING_HOLD_DAYS).toBe(7);
+    let batches = 0;
+    const counting: D1Like = { ...h.db, batch: async (ss: D1Stmt[]) => { if (ss.length === 17) batches++; return h.db.batch(ss); } };
+    expect(await once(h, NOW + 6 * DAY, counting)).toBe('threw');
+    expect(batches).toBe(0); // still held: no batch tries it
+    await member(h, 'n', CUTOFF - 1); // a newcomer, idle by day 7
+    expect(await once(h, NOW + 7 * DAY, counting)).toBe('threw'); // retried ALONE, and fails again
+    expect(batches).toBe(1);
+    expect(await ids(h)).toEqual(['bad', 'n']); // the newcomer waited this one run, and only this one
+    expect(JSON.parse((await h.kv.get(FAILING_KEY)) ?? '{}')).toEqual({ hashbad: today + 7 });
+    expect(await once(h, NOW + 7 * DAY, counting)).toBe('threw'); // held again; the newcomer's shared batch goes ahead
+    expect(await ids(h)).toEqual(['bad']);
+    unstick(h, 'bad');
+    expect(await once(h, NOW + 14 * DAY, counting)).toBe(1); // retried alone, and this time it commits
+    expect(await ids(h)).toEqual([]);
+    expect(await h.kv.get(FAILING_KEY)).toBeNull();
+  });
+
+  it('the cursor: a member left out of an alone run keeps its page; a recorded member does not pin it', async () => {
+    const h = accountHarness({ now: NOW });
+    const kv = memoryKV({ pageSize: 2 }); // 8 tombstones, 2 a page: a run reads three pages, x0..x5
+    for (let i = 0; i < 8; i++) {
+      await member(h, 'x' + i, today); // signed in today, not idle: found through the tombstone alone
+      await kv.put('tomb:hashx' + i, JSON.stringify({ deletedAt: NOW, lastSeenDay: today }));
+    }
+    await kv.put(BATCH_FAIL_KEY, String(BATCH_FAIL_THRESHOLD));
+    stick(h, 'x0');
+    expect(await once(h, NOW, h.db, kv)).toBe('threw'); // alone: x0 fails and is recorded
+    expect(await kv.get(RECONCILE_CURSOR_KEY)).toBeNull(); // x1 shares x0's page and was not tried: the page is kept
+    expect(await once(h, NOW, h.db, kv)).toBe('threw'); // x0 left out (so the run throws); x1..x5 in one shared batch
+    expect(await ids(h)).toEqual(['x0', 'x6', 'x7']);
+    expect(await kv.get(RECONCILE_CURSOR_KEY)).toBe('tomb:hashx5'); // past x0's page: a recorded member does not pin the scan
+    expect(await once(h, NOW, h.db, kv)).toBe(2);
+    expect(await ids(h)).toEqual(['x0']);
+  });
+
+  it('the cursor: an alone run that commits still keeps the page of the members it did not try', async () => {
+    const h = accountHarness({ now: NOW });
+    const kv = memoryKV({ pageSize: 2 });
+    for (let i = 0; i < 8; i++) {
+      await member(h, 'y' + i, today);
+      await kv.put('tomb:hashy' + i, JSON.stringify({ deletedAt: NOW, lastSeenDay: today }));
+    }
+    await kv.put(BATCH_FAIL_KEY, String(BATCH_FAIL_THRESHOLD));
+    expect(await once(h, NOW, h.db, kv)).toBe(1); // alone: y0
+    expect(await kv.get(RECONCILE_CURSOR_KEY)).toBeNull(); // y1 was not tried
+    expect(await once(h, NOW, h.db, kv)).toBe(5); // y1..y5, from the top
+    expect(await ids(h)).toEqual(['y6', 'y7']);
+    expect(await once(h, NOW, h.db, kv)).toBe(2);
   });
 });
 
