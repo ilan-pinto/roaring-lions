@@ -469,6 +469,7 @@ describe('the account page layout (GH-1510)', () => {
     ['zoomToCursor', 'settings.zoomToCursor', 'controls'],
     ['reports', 'settings.reports', 'privacy'],
     ['chat', 'settings.chat.enabled', 'chat'],
+    ['chatMask', 'settings.chat.mask', 'chat'],
     ['language', 'settings.language', 'language'],
   ];
   it.each(ROWS)('%s renders its control with its t() label, in the %s card', (name, key, card) => {
@@ -509,6 +510,7 @@ describe('the account page layout (GH-1510)', () => {
     ['edgePan', true, (n) => { n.controls.edgePan = true; }],
     ['zoomToCursor', false, (n) => { n.controls.zoomToCursor = false; }],
     ['chat', false, (n) => { n.chat.enabled = false; }],
+    ['chatMask', false, (n) => { n.chat.mask = false; }],
     ['language', 'xx', (n) => { n.language = 'xx'; }],
   ];
   it.each(WRITES)('%s still writes through set(), moving its own field and no other', (name, value, move) => {
