@@ -5,8 +5,7 @@
   "phase": "clearance",
   "target_minutes": 7,
   "time_limit_s": 840,
-  "start_layout": "assembly",
-  "start_front": "E",
+  "start_layout": "authored",
   "map": {
     "file": "bir_tarsha_4",
     "time_of_day": "day",
@@ -41,35 +40,78 @@
   "starting_force": [
     {
       "unit": "dozer_d9",
-      "count": 4,
+      "count": 1,
       "at": [
         4.5,
-        15.5
+        14.5
+      ],
+      "tag": "blades"
+    },
+    {
+      "unit": "dozer_d9",
+      "count": 1,
+      "at": [
+        7.5,
+        14.5
+      ],
+      "tag": "blades"
+    },
+    {
+      "unit": "dozer_d9",
+      "count": 1,
+      "at": [
+        4.5,
+        17.0
+      ],
+      "tag": "blades"
+    },
+    {
+      "unit": "dozer_d9",
+      "count": 1,
+      "at": [
+        7.5,
+        17.0
       ],
       "tag": "blades"
     },
     {
       "unit": "ifv_namer",
-      "count": 2,
+      "count": 1,
       "at": [
         8.5,
-        18.5
+        19.8
+      ]
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        11.5,
+        19.8
       ]
     },
     {
       "unit": "mbt_lavi",
-      "count": 2,
+      "count": 1,
       "at": [
         8.5,
-        21.5
+        22.5
+      ]
+    },
+    {
+      "unit": "mbt_lavi",
+      "count": 1,
+      "at": [
+        11.0,
+        23.5
       ]
     },
     {
       "unit": "inf_squad",
       "count": 4,
       "at": [
-        10.5,
-        15.5
+        11.5,
+        14.5
       ],
       "from_ledger": true
     },
@@ -93,8 +135,8 @@
       "unit": "mortar_team",
       "count": 1,
       "at": [
-        12.5,
-        19.5
+        13.5,
+        18.5
       ]
     },
     {

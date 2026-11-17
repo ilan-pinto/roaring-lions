@@ -203,7 +203,7 @@ describe('the starting layout on every shipped mission (GH-1360 S3b)', () => {
       sum += d;
       n++;
     }
-    expect(n).toBe(367);
+    expect(n).toBe(385);
     expect(sum / n).toBeLessThan(MAX_MEAN_MOVE_TILES);
   });
 
@@ -239,7 +239,9 @@ describe('the starting layout on every shipped mission (GH-1360 S3b)', () => {
 
   it('the authored missions keep every body where the author put it (none overlapped before)', () => {
     const authored = READINGS.filter((r) => r.mission.start_layout === 'authored');
-    expect(authored.map((r) => r.id)).toEqual(['beit_sahwan_breach']);
+    // Two literals, each a decision: the Breach (the original authored start) and Bir Tarsha IV (GH-1438), whose script puts the four blades at the west corral and
+    // the force clear of the hamlet; the assembly re-lay put a dozer beside a hamlet house, which it levels for -6 Conduct at 2 s (ceiling 12). Any third is a new entry.
+    expect(authored.map((r) => r.id)).toEqual(['beit_sahwan_breach', 'bir_tarsha_4_clearance']);
     for (const r of authored) {
       expect(overlaps(r.before).length, r.id).toBe(0);
       for (const [id, d] of r.moved) expect(d, `${r.id}: entity ${id}`).toBe(0);

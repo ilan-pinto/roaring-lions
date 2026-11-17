@@ -74,10 +74,6 @@ describe('the Easier relief, in a real runtime (S7)', () => {
   // throw, every relief body is on loan (so none joins the roster), and the starting count -- what credits read --
   // is Standard's. 95 s of ticks per mission; no orders.
   const campaign = ids.filter((id) => raw(id).ledger.produces.length > 0);
-  // Missions a passive player loses inside the 95 s, by name and cause (a named exemption with its own demotion assertion below: when it stops
-  // being true, delete the entry). Bir Tarsha IV (GH-1438): the start layout puts a dozer beside a hamlet house and the Namer's cannon reaches the
-  // missile teams over the hamlet, so with no orders keep_the_hamlet falls at 49 s. The winning plan moves them at tick 0.
-  const ENDS_EARLY: Readonly<Record<string, string>> = { bir_tarsha_4_clearance: 'keep_the_hamlet' };
   it('covers the 39 campaign missions', () => expect(campaign.length).toBe(39)); // Was 34 (29 before Qasr Liwan's five): Bir Tarsha I, II, III, IV and V
   it.each(campaign)('%s', (id) => {
     const ledger = { 'campaign.difficulty': 'easier' };
@@ -104,15 +100,7 @@ describe('the Easier relief, in a real runtime (S7)', () => {
         }
       }
     }
-    if (ENDS_EARLY[id] !== undefined) {
-      // Demotion: the exemption holds only while the mission really is lost that way inside the window.
-      expect(rt.result, `${id} no longer ends early: delete it from ENDS_EARLY`).toBe('defeat');
-      expect(rt.defeatCause).toEqual({ objective: ENDS_EARLY[id] });
-      expect(relief).toEqual([]);
-      expect(rt.startingCount).toBe(std.rt.startingCount);
-      return;
-    }
-    // No campaign mission ends inside 95 s with no orders, so every one of the rest reaches the relief.
+    // No campaign mission ends inside 95 s with no orders, so every one of the 29 reaches the relief.
     expect(relief.map((e) => sim.unitTypes[sim.state.typeIdx[e]].id).sort()).toEqual(['inf_medic_squad', 'inf_squad']);
     for (const e of relief) expect(rt.isOnLoan(e)).toBe(true);
     expect(rt.startingCount).toBe(std.rt.startingCount);
