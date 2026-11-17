@@ -1756,10 +1756,11 @@ async function main(): Promise<void> {
     env: { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) },
     renderer: gpuName,
   });
-  // The slow-frames suggestion (GH-1413): after the notice above on purpose (it never shows for a software renderer, which that
+  // The slow-frames suggestion (GH-1413): after the notice above on purpose (it never probes a software renderer, which that
   // notice owns). Gated like it; it measures the first seconds of frames on a shell screen and, if they run slow, ASKS once
-  // whether to switch to Low. `settingsDeps.set` is the only write, and only the card's accept button calls it; the preset applies
-  // at the next mission's boot.
+  // whether to switch to Low. On a software renderer the same chunk shows the one-line Low suggestion instead (`software-hint.ts`,
+  // answered once, remembered in `settings.hints.software`). `settingsDeps.set` is the only write, and only their buttons call
+  // it; the preset applies at the next mission's boot.
   // The gate is read HERE and the card's code (quality-hint, frame-probe) loaded only past it (`qualityHintAllowed`'s own test),
   // so a harness origin (CI, `pnpm dev`, every test) never carries the module on the board's heap (board budget, GH-1413).
   const qualityEnv = { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) };
@@ -1768,8 +1769,7 @@ async function main(): Promise<void> {
       watchQualityHint({
         env: qualityEnv,
         renderer: gpuName,
-        quality: () => settings.video.quality,
-        setQuality: (q) => settingsDeps.set({ ...settings, video: { ...settings.video, quality: q } }),
+        settings: settingsDeps,
         inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? ''),
         frames: {
           raf: (cb) => requestAnimationFrame(cb),
