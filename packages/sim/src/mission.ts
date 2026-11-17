@@ -227,6 +227,13 @@ export interface ObjectiveJson {
   /** `escort` only: the destination zone, a name in the map's zones. `target` names the escorted units (a tag on a
    *  `starting_force` placement). Absent on every other type; the schema's description is the authority. */
   zone?: string;
+  /** `escort` only (GH-1439): the escort fails the tick this many of its tagged units are dead or taken, a whole number from 1 to the
+   *  number of tagged units. Absent is 1, the escort as it always was: the first loss fails it. */
+  fail_after_losses?: number;
+  /** `escort` only (GH-1439): ids of PRIMARY objectives the escort waits on. It cannot complete until every one is complete, and arrival
+   *  is read each tick (no latch): it completes the first tick they are all complete and every surviving escorted unit stands in `zone`.
+   *  Never another escort, a `no_collateral_above` or a `score`, and never itself. Absent is today's escort, byte for byte. */
+  until?: string[];
   /** `no_collateral_above` only: the most Conduct (ROE score points) this mission may lose, a whole number 0 to 100.
    *  The objective fails the tick `100 - roeScore` is above it. The schema types it as an integer 0..100, required on this type and
    *  forbidden on every other; the constructor throws on the same faults at load. */
@@ -935,6 +942,13 @@ export function startFrontDerivations(
   return { enemy, objectives, centre, chosen: enemy ?? objectives ?? centre };
 }
 
+/** Which of `stepObjectives`' three passes an objective runs in (GH-1439): 1 for an escort that waits on other objectives, 2 for a
+ *  `no_collateral_above`, 0 for everything else. A function of the definition alone. */
+function objectivePass(d: ObjectiveJson): 0 | 1 | 2 {
+  if (d.type === 'no_collateral_above') return 2;
+  return d.type === 'escort' && d.until !== undefined ? 1 : 0;
+}
+
 export class MissionRuntime {
   private readonly sim: Sim;
   private readonly mission: MissionJson;
@@ -1234,6 +1248,31 @@ export class MissionRuntime {
       }
       if (def.zone !== undefined && def.type !== 'escort') {
         throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no zone (only escort does)`);
+      }
+      // GH-1439: `fail_after_losses` and `until` belong to escort alone, like `zone`. The tagged-unit total (R3) and the
+      // protect-in-place rule (R7) need the bodies and are checked in `start()`.
+      if (def.fail_after_losses !== undefined && def.type !== 'escort') {
+        throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no fail_after_losses (only escort does)`);
+      }
+      if (def.until !== undefined && def.type !== 'escort') {
+        throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no until (only escort does)`);
+      }
+      if (def.fail_after_losses !== undefined && (!Number.isInteger(def.fail_after_losses) || def.fail_after_losses < 1)) {
+        throw new Error(`mission ${mission.id}: escort "${def.id}" needs a whole fail_after_losses of at least 1, not ${String(def.fail_after_losses)}`);
+      }
+      if (def.until !== undefined) {
+        if (!Array.isArray(def.until) || def.until.length === 0 || new Set(def.until).size !== def.until.length) {
+          throw new Error(`mission ${mission.id}: escort "${def.id}" needs an until of one or more distinct objective ids`);
+        }
+        for (const u of def.until) {
+          if (u === def.id) throw new Error(`mission ${mission.id}: escort "${def.id}" until names itself`);
+          const waits = mission.objectives.find((x) => x.id === u);
+          if (waits === undefined) throw new Error(`mission ${mission.id}: escort "${def.id}" until names unknown objective "${String(u)}"`);
+          if (!waits.primary) throw new Error(`mission ${mission.id}: escort "${def.id}" until waits on a secondary ("${u}"), which could fail and leave the escort active for ever`);
+          if (waits.type === 'escort' || waits.type === 'no_collateral_above' || waits.type === 'score') {
+            throw new Error(`mission ${mission.id}: escort "${def.id}" until waits on a type that waits on it ("${u}" is ${waits.type === 'escort' ? 'an' : 'a'} ${waits.type})`);
+          }
+        }
       }
       if (def.side !== undefined) {
         if (!SIDED.has(def.type)) {
@@ -2784,9 +2823,13 @@ export class MissionRuntime {
         if (!dest) {
           throw new Error(`mission ${this.mission.id}: escort "${o.def.id}" needs a valid zone`);
         }
+        // GH-1439 R3: a loss tolerance past the units tagged could never be reached, so the escort could never fail.
+        if (o.def.fail_after_losses !== undefined && o.def.fail_after_losses > ids.length) {
+          throw new Error(`mission ${this.mission.id}: escort "${o.def.id}" fail_after_losses ${o.def.fail_after_losses} cannot exceed the ${ids.length} units tagged "${o.def.target}"`);
+        }
         // Already there at tick zero would complete on the first tick, the same authoring error as a raze zone with
-        // nothing in it.
-        if (ids.every((id) => this.standsIn(id, dest))) {
+        // nothing in it. With an `until` it would not (the work is still to do), so a protect-in-place escort is legal (GH-1439 R7).
+        if (o.def.until === undefined && ids.every((id) => this.standsIn(id, dest))) {
           throw new Error(`mission ${this.mission.id}: escort "${o.def.id}" starts inside zone "${o.def.zone}", so it would complete on the first tick`);
         }
       }
@@ -4646,18 +4689,20 @@ export class MissionRuntime {
   }
 
   private stepObjectives(tick: number, out: MissionEvent[]): void {
-    // Two passes, no stored order (the runtime snapshot has a row for every field): every objective in authored order,
-    // then each `no_collateral_above`, so on the tick the other primaries complete the ceiling sees them complete and
-    // finishes with them. A mission ends the same tick, and would otherwise end with it still active. With none
-    // authored the second pass skips every row.
-    this.stepObjectivePass(tick, out, false);
-    this.stepObjectivePass(tick, out, true);
+    // Three passes, no stored order (the runtime snapshot has a row for every field; the pass of an objective is a function of its
+    // definition): every objective but the two kinds below in authored order, then each `escort` with an `until` (GH-1439), then each
+    // `no_collateral_above`. An escort that waits on work must see that work complete on the tick it completes, whatever order the
+    // mission authored them in; and a ceiling completes when every primary is, the escort included, so it runs last. A mission with
+    // neither kind has an empty second and third pass, and its events and digest are what they always were.
+    this.stepObjectivePass(tick, out, 0);
+    this.stepObjectivePass(tick, out, 1);
+    this.stepObjectivePass(tick, out, 2);
   }
 
-  private stepObjectivePass(tick: number, out: MissionEvent[], ceilings: boolean): void {
+  private stepObjectivePass(tick: number, out: MissionEvent[], pass: 0 | 1 | 2): void {
     for (const o of this.objectives) {
       if (o.status !== 'active') continue;
-      if ((o.def.type === 'no_collateral_above') !== ceilings) continue;
+      if (objectivePass(o.def) !== pass) continue;
       const d = o.def;
       let complete = false;
       let failed = false;
@@ -4706,14 +4751,32 @@ export class MissionRuntime {
             !x.def.primary || (x.def.type === 'no_collateral_above' ? x.status !== 'failed' : x.status === 'complete'),
           );
       } else if (d.type === 'escort') {
-        // Lost: any escorted unit is dead or taken (`remove` clears `alive` too). Arrived: EVERY escorted unit stands
-        // in the zone at once (`standsIn` needs it alive, so a dead unit can never count as arrived and the two
-        // verdicts cannot both hold). `start()` guarantees the tag is non-empty and the zone exists. Stateless on
-        // purpose: the verdict is a function of this tick's bodies, so it adds no column and no hash word.
+        // Lost: `fail_after_losses` of the escorted units (default 1) are dead or taken (`remove` clears `alive` too). Arrived: EVERY
+        // SURVIVING escorted unit stands in the zone at once (`standsIn` needs it alive), and every objective in `until` is complete.
+        // Read each tick, never latched, and the dead cannot block the arrival once the tolerance lets the escort outlive them; with the
+        // default limit of 1 a death has already failed it, so "surviving" and "all" are the same set. A loss is permanent (`alive`
+        // never returns to 1), so the count needs no history. Failure wins a tie: the escort cannot be reported complete on the tick it
+        // crosses its limit. `start()` guarantees the tag is non-empty and the zone exists. Stateless on purpose: the verdict is a
+        // function of this tick's bodies and objective statuses, so it adds no column and no hash word.
         const ids = this.tags.get(d.target ?? '') ?? [];
         const dest = this.zone(d.zone);
-        failed = ids.some((id) => this.sim.state.alive[id] === 0);
-        complete = dest !== undefined && ids.every((id) => this.standsIn(id, dest));
+        let lost = 0;
+        let present = 0;
+        let arrived = 0;
+        for (const id of ids) {
+          if (this.sim.state.alive[id] === 0) lost++;
+          else {
+            present++;
+            if (dest !== undefined && this.standsIn(id, dest)) arrived++;
+          }
+        }
+        failed = lost >= (d.fail_after_losses ?? 1);
+        complete =
+          !failed &&
+          dest !== undefined &&
+          present > 0 &&
+          arrived === present &&
+          (d.until === undefined || d.until.every((u) => this.objectives.some((x) => x.def.id === u && x.status === 'complete')));
       } else if (d.type === 'eliminate_hvt') {
         const ids = this.tags.get(d.target ?? '') ?? [];
         // Eliminated means KILLED. A `remove` trigger (the enemy's act: an escape, an

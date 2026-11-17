@@ -10923,3 +10923,44 @@ fieldset.rl-versus__maps {
   border-color: var(--bad);
   color: var(--bad-text);
 }
+
+/* GH-1393: the saved mission, on the campaign board's footer, and the pause menu's save line. */
+.rl-resume {
+  display: grid;
+  gap: var(--s2);
+  justify-items: start;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+}
+.rl-resume__lead {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-resume__line,
+.rl-resume__msg,
+.rl-pause__save-msg {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  line-height: var(--lh-body);
+  color: var(--ink);
+}
+.rl-resume__msg,
+.rl-pause__save-msg {
+  min-height: calc(var(--lh-body) * 1em);
+  color: var(--ink-mute);
+}
+.rl-resume__msg[data-tone='bad'],
+.rl-pause__save-msg[data-tone='bad'] {
+  color: var(--bad-text);
+}
+.rl-resume__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}

@@ -222,13 +222,14 @@ const led2 = run(
   },
   led1
 );
-// GH-1385: `beit_sahwan_2_foothold` had no passive-loss control. The control, run, finds that a force given NO orders WINS this
-// mission on 30 of 30 seeds (VICTORY in about 5.2 min, ROE 100, 2 stars): its primary is `hold_for` five minutes on the ground the
-// force starts on, and the one enemy pressure, a tunnel, never reaches it. A control that expects DEFEAT is therefore red, and this is
-// the only mission where it is. It is pinned here as a KNOWN passive win, not waved through: it expects VICTORY, and the day a seed
-// stops winning it goes red and says to flip it to DEFEAT and delete this line (`drainPassiveSweeps`). Fixing the mission is a content
-// decision for the lead (a hold that costs something), not part of this check.
-passiveAcrossSeeds('beit_sahwan_2_foothold', 'beit_sahwan_2_foothold (known passive win)', 'victory');
+// GH-1385 / GH-1378 Q12: `beit_sahwan_2_foothold` used to be WON by a force given no orders (30 of 30 seeds, VICTORY in 5.2 min, ROE 100, 2
+// stars): its `hold_west` primary held `west_approach`, which contains every starting tile. Was: a known passive win, pinned 'victory'.
+// Now `hold_west` targets `terrace_crest` ([8,16,7,16]), the crest east of the camp that no starting body stands on, so a force that
+// does not move never starts the clock and the mission ends on its 840 s limit with the primary open (`withdrawn`, as Beit Sahwan I and
+// III). The winning plan above already attack-moves the whole force to (8,23), inside the crest, so it is unchanged.
+passiveAcrossSeeds('beit_sahwan_2_foothold', 'beit_sahwan_2_foothold (no orders)', 'withdrawn');
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('beit_sahwan_2_foothold', 'beit_sahwan_2_foothold (medic only)', 'withdrawn', {}, SWEEP_SEEDS, 'medic');
 
 // III — Clearance: combined arms, with the armour held off the clinic.
 //
@@ -4203,7 +4204,7 @@ const planRunsBySeed = await drainPlanSweeps(SWEEP_SEEDS, gateRecords);
 // as `LADDER_CREDITS` is; `tools/src/backtest/intel-gate.ts` holds the arithmetic.
 //
 // INTEL_PASSIVE_BEATS_WINNER: pairs (a plain winning plan and the no-orders control on its mission;
-// 25 of them, `beit_sahwan_2_foothold` has no control) where the control EARNED more than its
+// 29 of them at seed 424242; `beit_sahwan_2_foothold` has had a control since GH-1378 Q12) where the control EARNED more than its
 // winner, read at the earlier of the two runs' end ticks (F-Q12, ruled 14 Oct). It is 0 by rule: a
 // player who gives no orders must not out-earn the one who wins. Before the trickle went (a scout that
 // stood still paid 5 a minute) `khan_rafid_3_clearance`'s passive run read 189 against the winner's 20.
