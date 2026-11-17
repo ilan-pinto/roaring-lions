@@ -34,13 +34,16 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   full day of ingest; the old 2,000 a day fell behind), `purgePlayers` (a `players` row by `last_seen`, with its `accounts` row in the
   same batch, plus any orphan `accounts` row by its own `t`; strict `<`, so a row at exactly 180 days is kept) and `purgeRateDays`.
   Each is a few big `DELETE ... LIMIT` statements, never a loop of small ones: the Free plan allows 50 D1 queries per invocation and
-  `purge.test.ts` counts them. **The whole run is held under the 50 (GH-1432):** `cron-budget.test.ts` meters BOTH databases (a `batch()` is
-  one query), seeds a worst-case backlog for every sweep and runs `scheduled()` until nothing is left, none of the runs reaching 50 (the
-  first costs 42; a quiet day is pinned at exactly 12). The shares: `purgeExpired` 10 (one batch per 100 notes), events 4, players 4, desync,
-  snapshot and rate-day 3, admin views 1, `sweepAccounts` 2 plus a member budget of 10, `reconcileTombstones` 12 = 46. The member loops
-  spend from a budget (`SWEEP_MEMBER_QUERIES`, `RECONCILE_D1_QUERIES`; a member is 1 query, 2 when a guard held, 3 with the cancelled
-  tombstone) and what is left waits a day; the tombstone scan is resumable through a KV cursor (`RECONCILE_CURSOR_KEY`), because dead
-  tombstones cost a query a page and find nothing. **Add a sweep and you add its share to that sum, or the test reads red.**
+  `purge.test.ts` counts them. **The whole run is held under the 50 (GH-1432), counted PER STATEMENT, as a deliberate conservative
+  POLICY, stricter than the platform:** D1's limits page counts a `db.batch()` call as ONE query, not one per statement (the PM's
+  reading, PR 1518). `cron-budget.test.ts` nevertheless meters BOTH databases per statement on purpose (every statement of a batch is a query; the 51st throws; `calls`, a batch as one, is the platform's count), seeds a worst-case backlog for every sweep and
+  runs `scheduled()` until nothing is left, none of the runs reaching 50 (the dearest, a sign-in racing the member delete, costs 48; a
+  realistic day 41; a quiet day is pinned at exactly 20 statements in 12 calls). The shares: `purgeExpired` 6 (two slices of 500 notes,
+  three statements each), events 4, players 7, desync, snapshot and rate-day 3, admin views 1, and the account cron (`accountCron`) 27:
+  the expiry batch 5, the idle select 1, three tombstone pages, ONE guarded delete batch of 17 statements for every member the run
+  deletes (up to 40: 20 idle, the rest from tombstones; `deleteDueStatements`, a `due` CTE, so a raced member is spared whole and
+  nobody else), and one survivor select when a guard held = 48. The tombstone scan is resumable through a KV cursor
+  (`RECONCILE_CURSOR_KEY`), which moves on only once the delete batch has committed. **Add a sweep and you add its share to that sum, or the test reads red.**
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the

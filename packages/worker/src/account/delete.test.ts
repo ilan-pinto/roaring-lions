@@ -5,9 +5,9 @@ import { sha256Hex } from './crypto';
 import { handleAccount } from './routes';
 import { openTestD1 } from '../test-d1';
 import { memoryKV } from './kv';
-import { RECONCILE_D1_QUERIES, RECONCILE_PER_RUN, reconcileTombstones } from './sweep';
+import { RECONCILE_PER_RUN, reconcileTombstones } from './sweep';
 import { accountHarness, memberTablesInMigration, seedFullMember, SEED_PUBLIC_ID } from './test-kit';
-import { deleteMember, deleteTelemetryFor } from './delete';
+import { DUE_MEMBERS_MAX, deleteDueStatements, deleteMember, deleteTelemetryFor } from './delete';
 
 const DAY = 86_400_000;
 const NOW = 20_000 * DAY + 3_600_000;
@@ -313,10 +313,12 @@ describe('reconcileTombstones at scale', () => {
     expect(await n(h.db, 'SELECT 1 FROM member')).toBe(0);
   });
 
-  it('one key failing does not stop the rest, and the failure is rethrown', async () => {
+  it('a failed delete batch is rethrown, keeps the cursor, and the next run deletes everyone it held (GH-1432: one batch for all)', async () => {
     const { h, kv } = await many(4);
     await expect(reconcileTombstones(failingBatch(h.db), kv)).rejects.toThrow('batch failed');
-    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(1);
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(4);
+    expect(await reconcileTombstones(h.db, kv)).toBe(4);
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(0);
   });
 
   it('stops after RECONCILE_PER_RUN tombstones acted on: pruning costs no D1 query, so only that cap bounds it', async () => {
@@ -326,17 +328,48 @@ describe('reconcileTombstones at scale', () => {
     expect((await kv.list({ prefix: 'tomb:' })).keys.length).toBe(3);
   });
 
-  it('stops when the run\'s D1 query budget is spent (GH-1432), and the next runs finish what is left', async () => {
-    const { h, kv } = await many(RECONCILE_PER_RUN + 3, 1000);
-    // One select, then one batch per deleted member: the budget of RECONCILE_D1_QUERIES holds the select and ten deletions.
-    expect(await reconcileTombstones(h.db, kv)).toBe(RECONCILE_D1_QUERIES - 2);
-    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(RECONCILE_PER_RUN + 3 - (RECONCILE_D1_QUERIES - 2));
-    let runs = 1;
-    while ((await n(h.db, 'SELECT 1 FROM member')) > 0 && runs < 10) {
-      await reconcileTombstones(h.db, kv);
-      runs++;
-    }
+  it('deletes at most DUE_MEMBERS_MAX members a run, in ONE batch (GH-1432), and the next run finishes what is left', async () => {
+    const { h, kv } = await many(DUE_MEMBERS_MAX + 3, 1000);
+    let batches = 0;
+    const counting: D1Like = { ...h.db, batch: async (ss: D1Stmt[]) => { batches++; return h.db.batch(ss); } };
+    expect(await reconcileTombstones(counting, kv)).toBe(DUE_MEMBERS_MAX);
+    expect(batches).toBe(1);
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(3);
+    expect(await reconcileTombstones(h.db, kv)).toBe(3);
     expect(await n(h.db, 'SELECT 1 FROM member')).toBe(0);
-    expect(runs).toBe(5);
+  });
+});
+
+describe('the cron\'s one delete batch for many members (GH-1432)', () => {
+  const rowsOf = async (db: D1Like, member: string): Promise<Record<string, number>> => {
+    const out: Record<string, number> = {};
+    for (const t of [...memberTablesInMigration()].sort()) out[t] = await n(db, `SELECT 1 FROM ${t} WHERE ${t === 'member' ? 'id' : 'member_id'} = ?1`, member);
+    out.rate_day = await n(db, 'SELECT 1 FROM rate_day WHERE key = ?1', member);
+    return out;
+  };
+
+  it.each([false, true])('deletes an eligible member whole and leaves one its guard holds whole (foreignKeys %s)', async (foreignKeys) => {
+    const h = accountHarness({ now: NOW, foreignKeys });
+    await seedFullMember(h.db, NOW);
+    const kept = await rowsOf(h.db, 'n1');
+    expect(Object.values(kept).filter((v) => v > 0).length).toBeGreaterThan(3);
+    // m1's guard day is its own last sign-in, so it is admitted; n1 (last seen on day 0) is held by day -1, as a sign-in after its
+    // tombstone would hold it.
+    const seen = (await h.db.prepare("SELECT last_seen_day AS d FROM member WHERE id = 'm1'").first<{ d: number }>())?.d ?? -9;
+    const statements = deleteDueStatements(h.db, [{ id: 'm1', day: seen }, { id: 'n1', day: -1 }]);
+    expect(statements.length).toBe(17); // a literal: `deleteDueStatements` maps `deleteStatements()`, so its length is no oracle
+    await h.db.batch(statements);
+    const gone = await rowsOf(h.db, 'm1');
+    expect(gone).toEqual(Object.fromEntries(Object.keys(gone).map((k) => [k, 0])));
+    expect(await rowsOf(h.db, 'n1')).toEqual(kept);
+    expect(await n(h.db, "SELECT 1 FROM match_record WHERE code = 'SOLO'")).toBe(0);
+    expect(await n(h.db, "SELECT 1 FROM match_record WHERE code = 'SHARED'")).toBe(1);
+  });
+
+  it('refuses an empty set and one past the bound-variable limit', () => {
+    const h = accountHarness({ now: NOW });
+    expect(() => deleteDueStatements(h.db, [])).toThrow();
+    expect(() => deleteDueStatements(h.db, Array.from({ length: DUE_MEMBERS_MAX + 1 }, (_, i) => ({ id: 'x' + i, day: 1 })))).toThrow();
+    expect(deleteDueStatements(h.db, Array.from({ length: DUE_MEMBERS_MAX }, (_, i) => ({ id: 'x' + i, day: 1 }))).length).toBe(17);
   });
 });
