@@ -40,8 +40,8 @@ doctrine-gated formation file, composed only from the formation grammar that alr
 first and kit second. The sim receives unit JSON exactly as it does today and nothing else: v1's operations touch only the
 menu, the cap and `cost.logistics`, and the sim reads none of the three. The pick travels as an optional
 `SeatConfig.doctrine`, validated against a twin id table in `@lions/net`, minted by the room, carried by replays inside the
-config they already store, and folded into the match digest only when a seat has one, so **every room without a doctrine,
-and every replay ever recorded, is byte for byte what it was**. v1 offers doctrines in **KDF-v-Sarim economy rooms only**
+config they already store, and folded into the match digest only when a seat has one, so **every room without a doctrine
+(its sim, its runtime and its network hash) and every replay ever recorded is byte for byte what it was**. v1 offers doctrines in **KDF-v-Sarim economy rooms only**
 (the only rooms with a menu, a purse and a cap), on the three faction maps. The first set is six trade-offs, each with a
 net cost-curve value within half a percent of its faction's base menu.
 
@@ -226,7 +226,7 @@ change into a priced trade-off without touching combat. Deliberately absent from
 | P6 | **No superset.** For any two doctrines of one faction, base included, neither resolved menu contains the other's as a set. With P5 the base check is redundant but cheap; it stays, because P5 is the one that will be argued with. |
 | P7 | `set_price` names a unit on the RESOLVED menu, within ±10% of that unit's own JSON price (proposal), and the price passes §3's gate. |
 | P8 | `set_pop_cap` equals the neutral cap (§3.2) exactly. A cap off the rule is a lever the lead has not priced (Q6). |
-| P9 | `signature.formation` names a formation file whose `doctrines` list is exactly `[<this id>]`, and every doctrine-gated formation is named by exactly one doctrine. |
+| P9 | `signature.formation` names a file in `data/formations/doctrine/` whose `doctrines` list is exactly `[<this id>]`; every file there is named by exactly one doctrine, and no file in `data/formations/` itself carries `doctrines` (§2.5; `index.test.ts`'s directory pin for `formations` skips the subfolder, and a second pin holds `doctrineFormations` to it). |
 | P10 | `label`, `blurb` and `gives_up` are keys in `data/locales/en.json` (the formations' rule). |
 
 ### 2.3 The order against upgrades and overlays
@@ -297,6 +297,13 @@ and the receiver gate (`:132-133`) read it, so a forced client's order drops on 
 formation with `doctrines` stripped (the sim's parser, `formation-template.ts:481`, validates `factions` and must never see
 the new key). Single-player and the campaign have no doctrine, so a doctrine-gated formation is never offered there.
 
+**Where the files live, so no other room moves.** Every world registers `formations` in order (`match-world.ts`, "the ORDER
+is match content"), and `Content` hashes that array. Six more files there would move the content digest, and so the network
+hash, of every room. So the doctrine-gated files live in `data/formations/doctrine/`, exported separately
+(`doctrineFormations`), registered by `buildMatchWorld` only for the doctrines the config fields, AFTER the shipped table (a
+group row's index into the shipped three never moves), and folded through the doctrine word (§2.6), not `Content`. This is
+GH-1102's rule for a Store special, applied to a formation.
+
 The first set's six signatures (§3.4) are intents in one line each, composed only from the existing grammar; each is its
 own data file, needs the formation's own design pass, and opens in a room only after **its own S4 run** (PR 947's finding).
 Until then a doctrine ships with its signature closed in rooms by the existing `formationsOpenIn` mechanism, and the HUD's
@@ -327,18 +334,18 @@ seat in an economy room cannot be Ready without a pick. A bot seat's pick is min
 `mintConfig` writes `doctrine` into a seat only when the room is an economy room and the gate is open; the lobby, the mint
 and the config read one helper, as `seatSpecials` is read by both the lobby and the mint today.
 
-**The digest.** The issue asks for the choice to fold into the match digest. Two folds:
-1. `Content` (`content-digest.ts:26-41`) gains `doctrinePicks`, so two clients whose pick files differ desync at the first
-   hash tick even if both pick the base (the digest already covers the base files).
-2. In a room where either seat has a doctrine, the data digest passed to `matchDigest` is
-   `fold(contentDigest, fnv1a32(canonicalJson([resolved(side 0), resolved(side 1)])))`, the RESOLVED doctrines of both sides
-   (menu, cap, purse, prices, signature, id). A client that ignores the config's pick, or applies it wrongly, reports a
-   different hash at tick 20, before any shot and before any purchase that would show it in `sim.hash()` (§2.4).
-   In a room with no doctrine the fold is skipped, so the network hash of every existing room is byte-identical.
+**The digest.** The issue asks for the choice to fold into the match digest. In a room where either seat has a doctrine,
+the data digest passed to `matchDigest` is `fold(contentDigest, fnv1a32(canonicalJson([resolved(side 0), resolved(side
+1)])))`: the RESOLVED doctrines of both sides (id, menu, cap, purse, prices, signature, and the signature formation file
+itself), computed from this client's own files. A client that ignores the config's pick, applies it wrongly, or ships a
+pick file that differs from its peer's in anything that is in play, reports a different hash at tick 20, before any shot
+and before any purchase that would show it in `sim.hash()` (§2.4). In a room with no doctrine the fold is skipped.
 
-Adding the pick files moves `shippedContentDigest()` itself. Every shipped test compares it with a recomputation, but a
-fixture that holds a literal content digest (a snapshot header, a replay fixture) moves with it: the build slice greps for
-them first and moves each in its own commit, "Was <n>.".
+The pick files are deliberately NOT added to `Content` (`content-digest.ts:26-41`): a file that is not in play changes
+nothing a match computes, and leaving it out keeps `shippedContentDigest()`, and with it the network hash of every room
+without a doctrine and every fixture that holds a literal content digest, exactly where it is. (The base files are in
+`Content` already, as `doctrines`.) The cost: two peers whose unpicked pick files differ see different cards in the lobby
+until one of them picks; presentation only.
 
 **Snapshots and replays.** A snapshot rejoin and a replay both rebuild the world from the config, so the pick comes back
 with it. A replay header's config is re-validated on read (`replay-file.ts:116`), so a v1 or v2 file with no `doctrine` reads
@@ -521,8 +528,10 @@ imported from the code under test.
   mint from the client's last message instead of the cleaned record -> red.
 - (d) The digest: two clients, one forced to resolve `kdf_urban` while the config says `kdf_armour`, desync at tick 20
   (`desync` on the first hash tick) with no shot fired. Falsification: drop the doctrine word from the fold -> the same pair
-  reports equal hashes at tick 20, red. A client whose pick FILE differs by one logistic desyncs at tick 20 too (the
-  content digest). And a config with no doctrine reports the same network hash as before the change (T2c).
+  reports equal hashes at tick 20, red. A client whose PICKED file differs by one logistic desyncs at tick 20 too; one whose
+  unpicked file differs does not, by design (§2.6). And a config with no doctrine reports exactly today's network hash:
+  `shippedContentDigest()` is pinned unmoved by the change (literal), and the fold is skipped. Falsification: add the
+  picks to `Content` -> the literal goes red.
 - (e) The formation gate: a seat without `kdf_airmobile` cannot field its signature, on the sender and the receiver.
   Falsification: drop the doctrine clause from `formationFielded` -> red.
 
@@ -607,7 +616,7 @@ passes the room's map" test.)
 2. **The pre-pass** (2-3 d): `doctrine-prepass.ts`, `MatchWorld.doctrineBySide`, the five readers, `versusUnitInfo` on the
    fielded catalogue; T1, T2, T7. Still unreachable (no config carries a pick).
 3. **The config** (3-4 d): `SeatConfig.doctrine`, `DOCTRINE_IDS`, `DOCTRINES_OPEN` false, the Worker's claim, lobby message
-   and mint, the digest fold, `Content.doctrinePicks`; T3 (a-d), T6.
+   and mint, the digest fold (the picks stay out of `Content`); T3 (a-d), T6.
 4. **The lobby** (2-3 d): a mock for the lead first, then the cards, the dock and HUD reads, the free-play flag.
 5. **The signatures** (3-5 d each pair): the formation `doctrines` field and gate (T3e), the six files, each one's S4 run.
 6. **Open** (the lead): flip `DOCTRINES_OPEN` after the fairness read the lead asks for.
