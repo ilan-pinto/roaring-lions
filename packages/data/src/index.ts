@@ -309,6 +309,29 @@ export {
   type UpgradeTracks,
 } from './upgrades';
 
+/** GH-1394/GH-1395: the one pure pre-pass over a mission's JSON (difficulty postures, then amendments),
+ *  run before the runtime is built so the sim never learns a posture exists. */
+export {
+  applyOverlays,
+  applyOps,
+  postureOf,
+  postureOps,
+  postureApplies,
+  postures,
+  reliefTriggerIndices,
+  POSTURE_IDS,
+  DIFFICULTY_LEDGER_KEY,
+  RELIEF_TRIGGER_ID,
+  type OverlayOp,
+  type OverlayChoice,
+  type OverlayMission,
+  type OverlayOptions,
+  type OverlayWave,
+  type PostureId,
+  type PostureJson,
+  type PostureCatalogue,
+} from './overlays';
+
 export {
   versusMissionOf,
   versusCapacityOf,
@@ -857,6 +880,41 @@ export function variantAwareResolver(variant: ColorVisionVariant): (key: string)
 // `narrative-designer` write against, and a translator's file can go stale
 // or missing without touching it.
 
+/** The four named blocks of a sectioned briefing (`mission.schema.json` `briefing_sections[].id`), in their fixed order. */
+export const BRIEFING_SECTION_IDS = ['situation', 'mission', 'execution', 'notes'] as const;
+export type BriefingSectionId = (typeof BRIEFING_SECTION_IDS)[number];
+
+/**
+ * One mission's translatable text (GH-1406 parts 2 and 3). Every field is optional and falls back to the `en` source per field.
+ * Beyond the first four, which have been here from the start: `dispatch`, `aftermath` and `hostages_place` are the mission's own
+ * strings; `debrief` carries the two closing lines' TEXT (the speaker is never translated); `sections` the named blocks of a sectioned
+ * briefing; `objective_say`, `objective_say_on_fail` and `trigger_say` the radio lines of an objective's completion, its failure and a
+ * trigger, keyed by that objective's or trigger's own id; `wave_say` the line a wave speaks, keyed by the wave's INDEX in
+ * `enemy.waves` (a wave has no id), as a string. A key naming something the mission does not have is a validator failure, never a
+ * silent no-op (`tools/validate_narrative.mjs`).
+ */
+export interface MissionLocaleEntry {
+  name?: string;
+  briefing?: string;
+  objectives?: Record<string, string>;
+  triggers?: Record<string, string>;
+  dispatch?: string;
+  aftermath?: string;
+  hostages_place?: string;
+  debrief?: { victory?: string; defeat?: string };
+  sections?: Partial<Record<BriefingSectionId, string>>;
+  objective_say?: Record<string, string>;
+  objective_say_on_fail?: Record<string, string>;
+  trigger_say?: Record<string, string>;
+  wave_say?: Record<string, string>;
+  /**
+   * The stale-translation guard (GH-1406 part 5): `{ "<path of a translated string>": "<8 hex of its English source>" }`, written by
+   * the English generator and checked by `validate:data`. NOT text, and never read at runtime; it is declared so a typed overlay file
+   * may carry it.
+   */
+  src?: Record<string, string>;
+}
+
 /**
  * One locale's mission text, keyed by mission id. `objectives`/`triggers`
  * are keyed by THEIR OWN ids — an objective or trigger with no id of its own
@@ -865,12 +923,13 @@ export function variantAwareResolver(variant: ColorVisionVariant): (key: string)
  * elsewhere) already key everything else off.
  */
 export interface MissionLocaleOverlay {
-  [missionId: string]: {
-    name?: string;
-    briefing?: string;
-    objectives?: Record<string, string>;
-    triggers?: Record<string, string>;
-  };
+  [missionId: string]: MissionLocaleEntry;
+}
+
+/** A radio line as the schema has it (`$defs/say`): the speaker is a fixed enum and is never translated. */
+interface SayJson {
+  speaker: string;
+  text: string;
 }
 
 /**
@@ -887,22 +946,41 @@ export interface MissionJson {
   id: string;
   name?: string;
   briefing?: string;
-  objectives: readonly { id: string; text?: string }[];
-  triggers?: readonly { id?: string; label?: string }[];
+  dispatch?: string;
+  aftermath?: string;
+  hostages_place?: string;
+  debrief?: { victory?: SayJson; defeat?: SayJson };
+  briefing_sections?: readonly { id: string; text: string; image?: unknown }[];
+  objectives: readonly { id: string; text?: string; say?: SayJson; say_on_fail?: SayJson }[];
+  triggers?: readonly { id?: string; label?: string; say?: SayJson }[];
+  enemy?: { waves?: readonly { say?: SayJson }[] };
+}
+
+/** `say` with its text replaced, speaker and every other field kept. */
+function withSayText<S extends SayJson | undefined>(say: S, text: string | undefined): S {
+  return say !== undefined && text !== undefined ? ({ ...say, text } as S) : say;
 }
 
 /**
  * Overlays a locale's mission text onto a mission's own JSON, id-matched:
  * `name`/`briefing` replace whole-string, `objectives`/`triggers` by their
- * own ids. A field the overlay does not carry falls back to the mission's
+ * own ids, and (part 3) `dispatch`, `aftermath`, `hostages_place`, the two
+ * `debrief` lines, the briefing's `sections` and every radio line by the same
+ * rule. A field the overlay does not carry falls back to the mission's
  * own `en` text, so a partial translation degrades to English per-field
- * rather than per-mission.
+ * rather than per-mission. A `say`'s speaker and a section's image are never
+ * touched.
  *
  * A missing mission id in the overlay, or a null overlay (`main.ts`'s own
  * loader returns null for `en` and for a 404, rather than fetching a file
  * that would just be the source text again), is a no-op that returns
  * `mission` BY REFERENCE, unchanged — the common case (every mission, on
  * `en`) costs nothing.
+ *
+ * A translated `briefing` over a mission with `briefing_sections` that the
+ * overlay does not also translate leaves the sections in English; the deploy
+ * screen already falls back to the unsectioned beats whenever the sections
+ * no longer join to the briefing (`ui/briefing-sections.ts`).
  */
 export function applyMissionLocale<T extends MissionJson>(
   mission: T,
@@ -914,13 +992,51 @@ export function applyMissionLocale<T extends MissionJson>(
     ...(mission as Record<string, unknown>),
     name: o.name ?? mission.name,
     briefing: o.briefing ?? mission.briefing,
-    objectives: mission.objectives.map((ob) =>
-      o.objectives?.[ob.id] !== undefined ? { ...ob, text: o.objectives[ob.id] } : ob
-    ),
-    triggers: mission.triggers?.map((tr) =>
-      tr.id !== undefined && o.triggers?.[tr.id] !== undefined ? { ...tr, label: o.triggers[tr.id] } : tr
-    ),
+    objectives: mission.objectives.map((ob) => {
+      const text = o.objectives?.[ob.id];
+      const say = withSayText(ob.say, o.objective_say?.[ob.id]);
+      const sayOnFail = withSayText(ob.say_on_fail, o.objective_say_on_fail?.[ob.id]);
+      if (text === undefined && say === ob.say && sayOnFail === ob.say_on_fail) return ob;
+      return {
+        ...ob,
+        ...(text === undefined ? {} : { text }),
+        ...(say === ob.say ? {} : { say }),
+        ...(sayOnFail === ob.say_on_fail ? {} : { say_on_fail: sayOnFail }),
+      };
+    }),
+    triggers: mission.triggers?.map((tr) => {
+      if (tr.id === undefined) return tr;
+      const label = o.triggers?.[tr.id];
+      const say = withSayText(tr.say, o.trigger_say?.[tr.id]);
+      if (label === undefined && say === tr.say) return tr;
+      return { ...tr, ...(label === undefined ? {} : { label }), ...(say === tr.say ? {} : { say }) };
+    }),
   };
+  if (o.dispatch !== undefined && mission.dispatch !== undefined) out.dispatch = o.dispatch;
+  if (o.aftermath !== undefined && mission.aftermath !== undefined) out.aftermath = o.aftermath;
+  if (o.hostages_place !== undefined && mission.hostages_place !== undefined) out.hostages_place = o.hostages_place;
+  if (o.debrief !== undefined && mission.debrief !== undefined) {
+    out.debrief = {
+      ...mission.debrief,
+      ...(mission.debrief.victory === undefined || o.debrief.victory === undefined ? {} : { victory: withSayText(mission.debrief.victory, o.debrief.victory) }),
+      ...(mission.debrief.defeat === undefined || o.debrief.defeat === undefined ? {} : { defeat: withSayText(mission.debrief.defeat, o.debrief.defeat) }),
+    };
+  }
+  if (o.sections !== undefined && mission.briefing_sections !== undefined) {
+    out.briefing_sections = mission.briefing_sections.map((sec) => {
+      const text = (o.sections as Record<string, string | undefined>)[sec.id];
+      return text === undefined ? sec : { ...sec, text };
+    });
+  }
+  if (o.wave_say !== undefined && mission.enemy?.waves !== undefined) {
+    out.enemy = {
+      ...mission.enemy,
+      waves: mission.enemy.waves.map((w, i) => {
+        const say = withSayText(w.say, o.wave_say?.[String(i)]);
+        return say === w.say ? w : { ...w, say };
+      }),
+    };
+  }
   return out as T;
 }
 
@@ -934,7 +1050,7 @@ export function applyMissionLocale<T extends MissionJson>(
 
 /** One locale's unit text, keyed by unit id. A field the overlay does not carry keeps the `en` text, per field. */
 export interface UnitLocaleOverlay {
-  [unitId: string]: { name?: string; blurb?: string };
+  [unitId: string]: { name?: string; blurb?: string; src?: { name?: string; blurb?: string } };
 }
 
 /**

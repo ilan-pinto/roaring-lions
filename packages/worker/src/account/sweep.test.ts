@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { D1Like, D1Stmt } from '../d1';
 import { dayOf } from '../rate-day';
 import { OP_TTL_MS, PENDING_TTL_MS, SESSION_COOKIE, STEAM_OP, preCookieName } from './config';
-import { MEMBER_IDLE_DAYS, reconcileTombstones, sweepAccounts } from './sweep';
+import { deleteMember } from './delete';
+import { memoryKV } from './kv';
+import { MEMBER_IDLE_DAYS, RECONCILE_CURSOR_KEY, accountCron, reconcileTombstones, sweepAccounts } from './sweep';
 import { accountHarness, steamStub } from './test-kit';
 
 const DAY = 86_400_000;
@@ -100,7 +102,10 @@ describe('sweepAccounts', () => {
     expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'old'")).toBe(1);
   });
 
-  it('a sign-in after the sweep selected the member wins', async () => {
+  // The sign-in lands just before the MEMBER DELETE batch (17 statements), after the sweep has selected and tombstoned m1. It used to
+  // fire on the first batch, the expiry batch, before the idle select: m1 was then never queued or tombstoned, so the final "tombstone
+  // pruned" assertion held whatever the survivor step did (PR 1518 delta review, finding 3).
+  it('a sign-in after the sweep selected and tombstoned the member wins, and the survivor step prunes its tombstone', async () => {
     const stub = steamStub();
     const h = accountHarness({ now: NOW, deps: stub });
     await h.db.prepare(`INSERT INTO flags VALUES ('steam','open',0)`).run();
@@ -120,21 +125,18 @@ describe('sweepAccounts', () => {
       'openid.signed': 'signed,op_endpoint,claimed_id,identity,return_to,response_nonce,assoc_handle', 'openid.sig': 'c2ln',
     });
     let cookie = '';
-    let first = true;
-    const racing: D1Like = {
-      ...h.db,
-      batch: async (ss: D1Stmt[]) => {
-        if (first) {
-          first = false;
-          const res = await h.call('GET', `/api/account/steam/return?${q.toString()}`, { cookie: pre });
-          expect(new URL(res.headers.get('location') ?? '', ORIGIN).searchParams.get('r')).toBe('ok');
-          cookie = res.headers.getSetCookie().map((s) => s.split(';')[0] ?? '').find((s) => s.startsWith(SESSION_COOKIE + '=')) ?? '';
-        }
-        return h.db.batch(ss);
-      },
-    };
+    let raced = 0;
+    const racing = beforeMemberDelete(h.db, async () => {
+      raced++;
+      // the sweep has queued m1 and written its tombstone: the prune asserted below has something to prune
+      expect(JSON.parse((await h.kv.get('tomb:hashm1')) ?? '{}')).toEqual({ deletedAt: NOW, lastSeenDay: CUTOFF });
+      const res = await h.call('GET', `/api/account/steam/return?${q.toString()}`, { cookie: pre });
+      expect(new URL(res.headers.get('location') ?? '', ORIGIN).searchParams.get('r')).toBe('ok');
+      cookie = res.headers.getSetCookie().map((s) => s.split(';')[0] ?? '').find((s) => s.startsWith(SESSION_COOKIE + '=')) ?? '';
+    });
     await sweepAccounts(racing, NOW, h.kv);
-    expect(first).toBe(false);
+    expect(raced).toBe(1);
+    expect(await n(h.db, "SELECT last_seen_day AS d FROM member WHERE id = 'm1' AND last_seen_day > " + String(CUTOFF))).toBe(1);
     expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'm1'")).toBe(1);
     expect(await n(h.db, "SELECT 1 FROM member_identity WHERE member_id = 'm1'")).toBe(1);
     expect(await n(h.db, "SELECT 1 FROM session WHERE member_id = 'm1'")).toBe(1);
@@ -143,6 +145,144 @@ describe('sweepAccounts', () => {
     expect(await h.kv.get('tomb:hashm1')).toBeNull();
     expect(await reconcileTombstones(h.db, h.kv)).toBe(0);
     expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'm1'")).toBe(1);
+  });
+});
+
+/** Runs `hook` just before the member delete batch (17 statements) reaches the database; every other batch passes untouched. */
+function beforeMemberDelete(db: D1Like, hook: () => Promise<void>): D1Like {
+  return { ...db, batch: async (ss: D1Stmt[]) => { if (ss.length === 17) await hook(); return db.batch(ss); } };
+}
+
+describe('accountCron: a delete request racing the cron keeps its tombstone (PR 1518 review, finding 1)', () => {
+  const today = dayOf(NOW);
+  /** The route's own tombstone, as `deleteAccount` writes it for a member who signed in today. */
+  const routeTomb = JSON.stringify({ deletedAt: NOW, lastSeenDay: today });
+
+  it('race 1: a replacement delete request rewrites the tombstone with a newer day and its own batch fails; the newer tombstone survives', async () => {
+    const h = accountHarness({ now: NOW, foreignKeys: true });
+    await member(h, 'X', CUTOFF - 5);
+    let raced = false;
+    const db = beforeMemberDelete(h.db, async () => {
+      raced = true;
+      // the member signs in and asks to delete: the route writes its tombstone, and its own batch then fails (a 503), so nothing else
+      await h.db.prepare("UPDATE member SET last_seen_day = ?1 WHERE id = 'X'").bind(today).run();
+      await h.kv.put('tomb:hashX', routeTomb);
+    });
+    expect(await accountCron(db, NOW, h.kv)).toBe(0); // the cron's guard holds X, as it should
+    expect(raced).toBe(true);
+    expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'X'")).toBe(1);
+    expect(await h.kv.get('tomb:hashX')).toBe(routeTomb); // the deletion the member asked for is still on record
+  });
+
+  it('race 2: the delete request commits between the cron\'s survivor select and its tombstone delete; the deleted account keeps its tombstone', async () => {
+    const h = accountHarness({ now: NOW, foreignKeys: true });
+    await member(h, 'Y', CUTOFF - 5);
+    const inner = beforeMemberDelete(h.db, async () => {
+      await h.db.prepare("UPDATE member SET last_seen_day = ?1 WHERE id = 'Y'").bind(today).run();
+      await h.kv.put('tomb:hashY', routeTomb);
+    });
+    let committed = false;
+    const wrap = (s: D1Stmt): D1Stmt => ({
+      ...s,
+      bind: (...v: unknown[]) => wrap(s.bind(...v)),
+      all: async <T>() => {
+        const r = await s.all<T>();
+        committed = await deleteMember(h.db, 'Y', { lastSeenAtMost: today }); // the route's batch commits now
+        return r;
+      },
+    });
+    const db: D1Like = {
+      ...inner,
+      prepare: (sql: string) => (sql.startsWith('SELECT id, last_seen_day FROM member WHERE id IN') ? wrap(inner.prepare(sql)) : inner.prepare(sql)),
+    };
+    expect(await accountCron(db, NOW, h.kv)).toBe(0);
+    expect(committed).toBe(true);
+    expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'Y'")).toBe(0);
+    expect(await h.kv.get('tomb:hashY')).toBe(routeTomb); // `gone` and a Time Travel restore still learn the account was deleted
+  });
+});
+
+/** Tombstone values the code must read without acting on: unparsable, `null` (parses, then has no field), and days that are not numbers. */
+const BAD_TOMBS = ['not json', 'null', '{"lastSeenDay":null}', '{"lastSeenDay":"5"}', '7', '{}'];
+
+describe('accountCron: a tombstone that does not parse to a numeric day is left alone (PR 1518 delta review, finding 2)', () => {
+  const today = dayOf(NOW);
+
+  it.each(BAD_TOMBS)('survivor step, %s: the bad tombstone stays, the run does not throw, and the next survivor is still pruned', async (bad) => {
+    const h = accountHarness({ now: NOW, foreignKeys: true });
+    await member(h, 'a', CUTOFF - 5); // 'a' sorts first: its bad tombstone is read before b's
+    await member(h, 'b', CUTOFF - 5);
+    let raced = false;
+    const db = beforeMemberDelete(h.db, async () => {
+      raced = true;
+      // both sign in; a's tombstone is replaced by one the survivor step cannot read, b's stays the sweep's own (`cutoff`)
+      await h.db.prepare("UPDATE member SET last_seen_day = ?1 WHERE id IN ('a', 'b')").bind(today).run();
+      await h.kv.put('tomb:hasha', bad);
+    });
+    expect(await accountCron(db, NOW, h.kv)).toBe(0);
+    expect(raced).toBe(true);
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(2);
+    expect(await h.kv.get('tomb:hasha')).toBe(bad);
+    expect(await h.kv.get('tomb:hashb')).toBeNull();
+  });
+
+  it.each(BAD_TOMBS.filter((b) => !['not json', 'null'].includes(b)))('scan, %s: skipped quietly; the member and the tombstone stay, and the next tombstone on the page is still acted on', async (bad) => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'a', today); // signed in today, not idle: found through the tombstone alone
+    await member(h, 'b', today);
+    await h.kv.put('tomb:hasha', bad); // 'hasha' sorts first on the page
+    await h.kv.put('tomb:hashb', JSON.stringify({ deletedAt: NOW, lastSeenDay: today }));
+    expect(await accountCron(h.db, NOW, h.kv)).toBe(1);
+    expect((await h.db.prepare('SELECT id AS x FROM member').all<{ x: string }>()).results.map((r) => r.x)).toEqual(['a']);
+    expect(await h.kv.get('tomb:hasha')).toBe(bad);
+  });
+
+  it.each(['not json', 'null'])('scan, %s: a tombstone that will not parse is reported (the run rethrows), and does not stop the rest of the page', async (bad) => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'a', today);
+    await member(h, 'b', today);
+    await h.kv.put('tomb:hasha', bad);
+    await h.kv.put('tomb:hashb', JSON.stringify({ deletedAt: NOW, lastSeenDay: today }));
+    await expect(accountCron(h.db, NOW, h.kv)).rejects.toThrow();
+    expect((await h.db.prepare('SELECT id AS x FROM member').all<{ x: string }>()).results.map((r) => r.x)).toEqual(['a']);
+    expect(await h.kv.get('tomb:hasha')).toBe(bad);
+  });
+
+  it('scan: a listed tombstone whose read comes back empty (expired since the listing, or not yet visible) is skipped quietly', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'a', today);
+    await member(h, 'b', today);
+    const tomb = JSON.stringify({ deletedAt: NOW, lastSeenDay: today });
+    await h.kv.put('tomb:hasha', tomb);
+    await h.kv.put('tomb:hashb', tomb);
+    const kv = { ...h.kv, get: async (k: string) => (k === 'tomb:hasha' ? null : h.kv.get(k)) };
+    expect(await accountCron(h.db, NOW, kv)).toBe(1);
+    expect((await h.db.prepare('SELECT id AS x FROM member').all<{ x: string }>()).results.map((r) => r.x)).toEqual(['a']);
+  });
+});
+
+describe('accountCron: the tombstone cursor moves on only once the delete batch has committed (PR 1518 review, finding 2)', () => {
+  it('a failed delete batch leaves the cursor where it was, so the next run re-reads the same pages', async () => {
+    const h = accountHarness({ now: NOW });
+    const kv = memoryKV({ pageSize: 2 }); // 8 tombstones, 2 a page: the run's three pages end mid-listing
+    const today = dayOf(NOW);
+    for (let i = 0; i < 8; i++) {
+      await member(h, 'x' + i, today); // signed in today, not idle: found through the tombstone alone
+      await kv.put('tomb:hashx' + i, JSON.stringify({ deletedAt: NOW, lastSeenDay: today }));
+    }
+    let calls = 0;
+    // call 0 is the expiry batch; call 1 is the member delete batch, which fails
+    const failing: D1Like = { ...h.db, batch: async (ss: D1Stmt[]) => { if (calls++ === 1) throw new Error('batch failed'); return h.db.batch(ss); } };
+    await expect(accountCron(failing, NOW, kv)).rejects.toThrow('batch failed');
+    expect(calls).toBe(2);
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(8);
+    expect(await kv.get(RECONCILE_CURSOR_KEY)).toBeNull(); // not moved past the pages whose deletions failed
+    // the retry starts from the top: the same six members, and only now does the cursor move on
+    expect(await accountCron(h.db, NOW, kv)).toBe(6);
+    expect((await h.db.prepare('SELECT id AS x FROM member ORDER BY id').all<{ x: string }>()).results.map((r) => r.x)).toEqual(['x6', 'x7']);
+    expect(await kv.get(RECONCILE_CURSOR_KEY)).toBe('tomb:hashx5');
+    expect(await accountCron(h.db, NOW, kv)).toBe(2);
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(0);
   });
 });
 

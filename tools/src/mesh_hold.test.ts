@@ -96,7 +96,8 @@ describe('the hold: hands on the weapon, eye over the bore', () => {
     // the Zikit's rifleman; GH-707 P2 (22 Oct): + 2, the medics' carbines;
     // GH-709 phase 3 (22 Oct) the Chomet grenadier squad, 3: two launchers and a
     // carbine, all `rifle`-kind holds; and GH-709 Phase 7 the Zaron team's leader.
-    expect(HELD).toHaveLength(22);
+    // GH-826 unit 1 (13 Nov 2026): + 1, demo_a, the Combat Engineer who used to hold nothing.
+    expect(HELD).toHaveLength(23);
   });
 
   for (const h of HELD) {
