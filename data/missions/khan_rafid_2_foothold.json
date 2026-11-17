@@ -37,7 +37,7 @@
     "kdf_workshop": 1,
     "kdf_intel_centre": 1
   },
-  "resources": { "logistics_start": 400, "logistics_rate_per_min": 120 },
+  "resources": { "logistics_start": 400, "logistics_rate_per_min": 120, "income_zones": [{ "zone": "ward", "rate_per_min": 48 }] },
   "structures": [
     { "type": "camp", "at": [20, 38], "size": [2, 2] },
     { "type": "militia_firing_position", "at": [12, 18], "size": [2, 2] }
