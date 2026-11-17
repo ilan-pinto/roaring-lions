@@ -4227,10 +4227,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /**
    * GH-1393: Save and quit. The mission is read at THIS instant (`cutMission`, synchronous: the sim is paused, and nothing can tick between
    * the read and the gzip), written, READ BACK and compared, and only then left. Any failure comes back as a line for the menu and leaves
-   * the mission running and the previous save in place. Returns null once the save is kept (and the player is on their way out).
+   * the mission running and the previous save in place. Returns null once the save is kept (and the player is on their way out), or once
+   * the battlefield is gone (torn down mid-save: no menu is left to read a line, and nothing is written or navigated).
    */
   const saveAndQuit = async (): Promise<string | null> => {
     const kit = await saveKit().catch(() => null);
+    if (disposed) return null; // left by another way while the kit loaded: nothing to cut, write or leave
     if (kit === null) return t('save.err.encode_failed');
     const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell } = kit;
     if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
@@ -4246,6 +4248,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     });
     if (!cut.ok) return saveFailureText('encode_failed');
     const sealed = await sealMission(cut.cut);
+    if (disposed) return null; // left mid-gzip: no save of a mission the player left, and no navigation off where they went
     if (!sealed.ok) return saveFailureText(sealed.reason);
     const wrote = writeSuspended(openSuspendStore(() => window.localStorage), sealed.record);
     if (!wrote.ok) return saveFailureText(wrote.reason);

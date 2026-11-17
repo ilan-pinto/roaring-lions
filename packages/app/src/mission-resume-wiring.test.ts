@@ -58,9 +58,21 @@ describe('Save and quit (main.ts)', () => {
     const order = ['cutMission(', 'sealMission(', 'writeSuspended(', 'req.navigate(routes.campaign())'].map((s) => body.indexOf(s));
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    // every failure is a line, never a throw or a silent return of null before the write is kept
+    // every failure is a line, never a throw or a silent return of null before the write is kept (a torn-down battlefield aside, below)
     expect(body.match(/return saveFailureText\(/g)?.length).toBe(4);
     expect(body).toMatch(/return null;\s*\};?\s*$/);
+  });
+
+  it('stops after every await once the battlefield is gone: no cut, no write, no navigation from a torn-down mission', () => {
+    // The disposer contract: a Back press or another route during the kit load or the gzip tears the battlefield down, and the
+    // continuation must not then write a save of a mission the player left, or navigate them off the screen they went to.
+    const body = main.slice(at(/const saveAndQuit = async/), at(/const pauseMenuDeps = \(\): PauseDeps/));
+    const awaits = [...body.matchAll(/\bawait\b[^;]*;/g)];
+    expect(awaits.length).toBeGreaterThanOrEqual(2); // saveKit() and sealMission(): never a vacuous pass over none
+    for (const a of awaits) {
+      const after = body.slice((a.index ?? 0) + a[0].length).replace(/^(?:\s|\/\/[^\n]*\n)*/, '');
+      expect(after.startsWith('if (disposed) return'), `after \`${a[0]}\` the next statement is: ${after.split('\n')[0]}`).toBe(true);
+    }
   });
 
   it('what is saved is what the mission was started from, and the shell', () => {
