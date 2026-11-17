@@ -220,21 +220,28 @@ async function deleteDue(db: D1Like, kv: KVLike, due: readonly Due[], tally: Tal
   return due.length - left.results.length;
 }
 
-/** GH-1530: the fallback's state, read once a run. A KV failure reads as no state (the shared batch), and is reported. */
+/** GH-1530: the fallback's state, read once a run. The two keys are read and parsed apart: a KV failure or a corrupt value on one reads
+ *  as no state for THAT key only (a zero counter, an empty record), and is reported. A corrupt record must not also zero the counter,
+ *  or the fallback would stay off while the record waits out its TTL. */
 async function readFallback(kv: KVLike, fail: (err: unknown) => void): Promise<{ fails: number; failing: Record<string, number> }> {
+  let fails = 0;
   try {
     const n = Number.parseInt((await kv.get(BATCH_FAIL_KEY)) ?? '0', 10);
+    if (Number.isFinite(n) && n > 0) fails = n;
+  } catch (err) {
+    fail(err);
+  }
+  const failing: Record<string, number> = {};
+  try {
     const raw = await kv.get(FAILING_KEY);
     const parsed: unknown = raw === null ? {} : JSON.parse(raw);
-    const failing: Record<string, number> = {};
     if (typeof parsed === 'object' && parsed !== null) {
       for (const [h, day] of Object.entries(parsed)) if (typeof day === 'number') failing[h] = day;
     }
-    return { fails: Number.isFinite(n) && n > 0 ? n : 0, failing };
   } catch (err) {
     fail(err);
-    return { fails: 0, failing: {} };
   }
+  return { fails, failing };
 }
 
 /** Writes the failing record: entries under `FAILING_KEEP_DAYS` old, at most `DUE_MEMBERS_MAX` of them, newest first. */

@@ -452,6 +452,29 @@ describe('accountCron: a batch that committed is not a failed delete, whatever i
   });
 });
 
+describe('accountCron: the fallback state reads its two keys apart (PR 1540 review)', () => {
+  it('a corrupt failing record does not zero the counter: the run still goes alone, and is red for the record', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'a', CUTOFF - 2);
+    await member(h, 'b', CUTOFF - 1);
+    await h.kv.put(BATCH_FAIL_KEY, String(BATCH_FAIL_THRESHOLD));
+    await h.kv.put(FAILING_KEY, 'not json');
+    await expect(accountCron(h.db, NOW, h.kv)).rejects.toThrow(SyntaxError);
+    expect(await ids(h)).toEqual(['b']); // alone: the oldest, a
+    expect(await h.kv.get(BATCH_FAIL_KEY)).toBe(String(BATCH_FAIL_THRESHOLD - 1));
+  });
+
+  it('an unreadable counter does not drop the record: a recorded member is still held', async () => {
+    const h = accountHarness({ now: NOW });
+    await member(h, 'bad', CUTOFF - 2);
+    await member(h, 'g', CUTOFF - 1);
+    await h.kv.put(FAILING_KEY, JSON.stringify({ hashbad: dayOf(NOW) }));
+    const kv = { ...h.kv, get: async (k: string) => { if (k === BATCH_FAIL_KEY) throw new Error('kv get failed'); return h.kv.get(k); } };
+    await expect(accountCron(h.db, NOW, kv)).rejects.toThrow('kv get failed');
+    expect(await ids(h)).toEqual(['bad']); // held; g in the shared batch
+  });
+});
+
 describe('the cron wiring', () => {
   it('scheduled sweeps and reconciles when both bindings exist, and skips them when one is missing', async () => {
     const { default: worker } = await import('../index');
