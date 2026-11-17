@@ -31,6 +31,9 @@ export interface ResumeRowDeps {
   now(): number;
 }
 
+/** What the board is handed: builds the row (the code lives in the lazy kit). */
+export type ResumeBlock = () => { el: HTMLElement | null; dispose(): void };
+
 /** 4:20 for 5,200 ticks at 20 Hz. */
 export function clockOfTicks(tick: number): string {
   const s = Math.floor(Math.max(0, tick) / 20);

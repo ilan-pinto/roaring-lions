@@ -860,7 +860,7 @@ maps); since GH-976 camp-mode it is offered on `milh_flats`, `wadi_tarfan` and `
   blob) the outcome is decided by who reaches the other's flag first, so a flag position is either a 100/0 or a draw (the two raids finish on
   one tick) unless the raiders and the blobs meet on the way. Fair positions are isolated: on tel_marum the leader went 53% to 97% moving a
   flag one tile. They are fair for this probe's play. Read the table as "not shown unfair", not "balanced".
-- **KDF against Sarim: no cell is offered.** One cell of 12 passed on 4000-4287, the points race on `wadi_tarfan_l` in both seat orders, but only
+- **KDF against Sarim: no cell was offered after the P4 review** (until GH-1381, next bullet but one). One cell of 12 passed on 4000-4287, the points race on `wadi_tarfan_l` in both seat orders, but only
   at **10 points per 100 value and a target of 400**, and the PR 1020 review measured why: about 80% of its points came from kills (held ground
   20%, against 87-91% on `milh_flats_l`, `tel_marum` and `wadi_tarfan`), a two-minute kill race, and at the real race (1 per 100, target 600)
   the faction cells read Sarim 63.2% and 64.2% on 9000-9287. A cell tuned to pass is not a cell read fair, so it was removed and the
@@ -872,9 +872,19 @@ maps); since GH-976 camp-mode it is offered on `milh_flats`, `wadi_tarfan` and `
   in a faction room (the `tel_marum` friendly flag, a `wadi_tarfan` bluff in each order). The raw reads: `docs/agent-notes/win-modes-p4-reads.txt`.
 - **The allow-list.** `WIN_MODE_FAIR_FACTION_CELLS` (`@lions/net`) is per mode, per map, the HOSTS that passed: `winModeAllowed(mode, map,
   matchup)`, `winModesOffered(map, matchup)` and `winModeRequest` read it, so the route and the room still ask one question. A cell not in it
-  is a 400 `win mode not offered on this map for this matchup` (all 42 today); `config.test.ts` walks every cell, `routes.test.ts` and `match-room.test.ts` pin the cells that were read, and the tests that need an offered cell add one to the table for the length of the test.
+  is a 400 `win mode not offered on this map for this matchup` (38 of 42 today); `config.test.ts` walks every cell, `routes.test.ts` and `match-room.test.ts` pin the cells that were read, and the tests that need an offered cell add one to the table for the length of the test.
   The lobby says "Both forces start on the field; nothing is built or bought" instead of the economy line while a mode is picked on a
   faction pairing.
+- **GH-1381 (16 Nov, under the lead's ruling GH-1378 Q11: the probe runs report-only; an opening that passes the existing bar may proceed, no
+  tuning): `camp` KDF v Sarim on `wadi_tarfan` and `wadi_tarfan_l`, both hosts, the first faction cells offered.** Read once on 4000-4287 (288
+  a cell, the shipped forward camps and `wipe: after_camp`, `--mode=camp --arr=kdf/sarim,sarim/kdf --seed-from=4000 --seeds=288`): leader
+  55.2% / 50.0% (wadi_tarfan, host KDF / Sarim) and 51.7% / 53.8% (wadi_tarfan_l), 100% by the goal, the passive seat lost 288 / 288 from each
+  end, G4 holds 0-7 of 288 a side, G5 mean raze 23 s of 120 and 55 s of 240, no game wiped and unrazed. The table is in `config.ts`. Not
+  offered on the same reads: `points` on wadi_tarfan (Sarim 89-94%, 13-16% by the goal) and wadi_tarfan_l (Sarim 70.5% / 68.4%), and on 48-seed
+  screens `points` on tel_marum and `flag` on both Wadi Tarfans (0-19% by the goal). `validate_versus_modes.test.ts` now also reads the camp
+  tiles against the Sarim placed force in each offered faction cell (the mirror test reads the KDF force alone). The annihilation (economy) pairing on the
+  four mirror-only maps did not pass (96 seeds, placed and economy): rujm_sawda KDF 72-87%, milh_flats_l Sarim 61-76%; beit_sahwan_outskirts and
+  milh_flats have no rules file, so no economy room can be built on them (placed force only, report: milh_flats 56.3% / 53.1%, beit 60.4% / 57.3%).
 
 ## Production works: the forward camp (GH-277 follow-on, 4 Nov 2026)
 

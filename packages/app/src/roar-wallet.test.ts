@@ -405,3 +405,67 @@ describe('earned and coin-bought, held apart (spec §1.5)', () => {
     expect(v.ownedTiers).toEqual({ mbt_lavi: { armour: 1 } });
   });
 });
+
+// GH-1385: the coin-path checks that could not fail. Each case is an input only the named guard refuses (or only the named
+// arithmetic gets right), with literal oracles: the repeat above bought again with 180 coins against a price of 320, so the
+// already-bought guard could go and the balance check still refused it.
+describe('coin purchases and grants, one guard at a time (GH-1385)', () => {
+  const funded = (free: number): RoarWallet => ({ ...emptyRoar(), coins: { free, paid: 0 } });
+
+  it('a unit already coin-bought is refused with the coins for it still on hand', () => {
+    const once = buyUnitWithCoins(funded(1000), 'apc_kipod', 320, 3200, 1).account;
+    expect(once.coins.free).toBe(680);
+    expect(buyUnitWithCoins(once, 'apc_kipod', 320, 3200, 2)).toEqual({ account: once, ok: false });
+  });
+
+  it('a wallet holding exactly the price buys, down to 0; the minimum price, 1, is a price', () => {
+    expect(buyUnitWithCoins(funded(50), 'apc_kipod', 50, 500, 1).account.coins).toEqual({ free: 0, paid: 0 });
+    expect(buyUnitWithCoins(funded(50), 'apc_kipod', 1, 10, 1).account.coins.free).toBe(49);
+    expect(buyTierWithCoins(funded(50), 'mbt_lavi', 'armour', 1, 0, 1, 10, 1).account.coins.free).toBe(49);
+  });
+
+  it('a tier the wallet cannot cover is refused, the same object back', () => {
+    const w = funded(10);
+    expect(buyTierWithCoins(w, 'mbt_lavi', 'armour', 1, 0, 55, 545, 1)).toEqual({ account: w, ok: false });
+  });
+
+  it('a grant records the coins it added, one coin included, and a grant at the cap writes no receipt', () => {
+    const one = grantCouponCoins(funded(7), 1, ['c'], 1);
+    expect(one.coins.free).toBe(8);
+    expect(one.receipts.at(-1)?.coins).toEqual({ free: 1, paid: 0 });
+    const near = grantCouponCoins(funded(999_990), 100, ['c'], 1);
+    expect(near.receipts.at(-1)?.coins).toEqual({ free: 10, paid: 0 });
+    const full = funded(1_000_000);
+    expect(grantCouponCoins(full, 100, ['c'], 1)).toBe(full);
+  });
+
+  it('keeps the newest 500 receipts, not none, once a wallet passes 500', () => {
+    let w = funded(0);
+    for (let i = 1; i <= 501; i++) w = grantCouponCoins(w, 1, ['c'], i);
+    expect(w.receipts).toHaveLength(500);
+    expect(w.receipts[0]?.at).toBe(2);
+    expect(w.receipts.at(-1)?.at).toBe(501);
+  });
+
+  it('network play reads 0 for a tier bought only with coins', () => {
+    const roar: RoarWallet = { ...emptyRoar(), entitlements: { units: {}, upgrades: { apc_kipod: { armour: { tier: 2, paidTiers: 0 } } } } };
+    expect(networkView({ unlocks: [], upgrades: {} }, roar).ownedTiers).toEqual({ apc_kipod: { armour: 0 } });
+    expect(singlePlayerView({ unlocks: [], upgrades: {} }, roar).ownedTiers).toEqual({ apc_kipod: { armour: 2 } });
+  });
+
+  it('a file\'s junk balance and junk receipts migrate to nothing, never to a coin', () => {
+    expect(migrateRoar({ coins: { free: 'lots' } }).coins.free).toBe(0);
+    expect(migrateTestWallet({ coins: 'lots' }).coins.free).toBe(0);
+    const good = { id: 'r', at: 1, coins: { free: 1, paid: 0 } };
+    const w = migrateRoar({
+      receipts: [
+        { ...good, kind: 'coupon', id: 7 }, // id not a string, everything else good
+        { ...good, kind: 'earn', source: 'gift' }, // a source no earn path writes
+        { ...good, kind: 'unit', credits: 10 }, // no unitId
+        { ...good, kind: 'tier', unitId: 'u', credits: 10, tier: 1 }, // no track
+        { ...good, kind: 'coupon', couponIds: ['a'] }, // the control: kept
+      ],
+    });
+    expect(w.receipts).toEqual([{ kind: 'coupon', id: 'r', at: 1, coins: { free: 1, paid: 0 }, couponIds: ['a'] }]);
+  });
+});

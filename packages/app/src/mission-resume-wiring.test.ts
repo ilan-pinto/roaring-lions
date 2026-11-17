@@ -16,7 +16,7 @@ const at = (re: RegExp): number => main.search(re);
 
 describe('the resume boot (main.ts bootBattlefield)', () => {
   it('reads and checks the save BEFORE anything is built, and a save that will not start sends the player to the board', () => {
-    const load = at(/const got = await loadResume\(/);
+    const load = at(/const got = await loadedKit\.loadResume\(/);
     const destructure = at(/const \{ boughtUnits, ownedTiers \} = accountState\(\);/);
     expect(load).toBeGreaterThan(0);
     expect(load).toBeLessThan(destructure);
@@ -32,7 +32,7 @@ describe('the resume boot (main.ts bootBattlefield)', () => {
   });
 
   it('restores onto the world startMission built, proves it, re-seeds the renderer, and drops the sim on a refusal', () => {
-    expect(main).toMatch(/const r = restoreMission\(resumed\.prepared, \{ sim, runtime \}\);\s*if \(!r\.ok\) \{\s*noteResumeProblem\('failed'\);\s*teardown\(\);\s*req\.navigate\(routes\.campaign\(\), \{ replace: true \}\);\s*return \(\) => undefined;\s*\}\s*clearResumeProblem\(\);\s*renderer\.reseed\(\);\s*renderer\.settleDead\?\.\(\);/);
+    expect(main).toMatch(/const r = sk\.restoreMission\(resumed\.prepared, \{ sim, runtime \}\);\s*if \(!r\.ok\) \{\s*sk\.noteResumeProblem\('failed'\);\s*teardown\(\);\s*req\.navigate\(routes\.campaign\(\), \{ replace: true \}\);\s*return \(\) => undefined;\s*\}\s*sk\.clearResumeProblem\(\);\s*renderer\.reseed\(\);\s*renderer\.settleDead\?\.\(\);/);
   });
 
   it('puts every part of the shell record back, and the replay log is not begun mid-mission', () => {
@@ -66,7 +66,7 @@ describe('Save and quit (main.ts)', () => {
   });
 
   it('what is saved is what the mission was started from, and the shell', () => {
-    expect(main).toMatch(/startInputs = startInputsJson\(\{ ledger, tiers: bootKit, unlocks: boughtUnits, deploy: picks === null \? null : picks\.chosen \}\);/);
+    expect(main).toMatch(/startInputs = sk\?\.startInputsJson\(\{ ledger, tiers: bootKit, unlocks: boughtUnits, deploy: picks === null \? null : picks\.chosen \}\) \?\? null;/);
     expect(main).toMatch(/shell: shellJson\(captureShell\(\{ log: missionLog, deductions, lost: lostThisMission, narratedRoe: narratedRoeReasons, evacuated: evacuatedSoFar, deadlinesWarned, limitWarned \}\)\),/);
   });
 });
@@ -92,7 +92,8 @@ describe('the save is dropped when its mission is over, and only then', () => {
     const ask = body.indexOf('savedMissionOtherThan(');
     expect(ask).toBeGreaterThan(0);
     expect(ask).toBeLessThan(body.indexOf('cutMission('));
-    expect(body).toMatch(/if \(!replace\) return \{ declined: true \};/);
+    expect(body.indexOf('confirmReplaceOther(')).toBeLessThan(body.indexOf('cutMission('));
+    expect(body).toMatch(/if \(!\(await confirmReplaceOther\(other, [^\n]*\)\) return \{ declined: true \};/);
     expect(body.indexOf('return { declined: true }')).toBeLessThan(body.indexOf('writeSuspended('));
   });
 
@@ -106,10 +107,42 @@ describe('the save is dropped when its mission is over, and only then', () => {
   });
 });
 
+describe('the lazy boundary (main red since PR 1478: the entry chunk went over its guard)', () => {
+  // `pnpm --filter @lions/tools webgpu:bundle` is the byte gate; this is the cheap one that names the cause.
+  const LAZY = ['ui/resume-row', 'mission-save', 'mission-save-store', 'mission-shell', 'mission-resume', 'ui/resume-copy', 'mission-save-kit'];
+  it('main.ts imports none of the save modules except as a type, and reaches them through one dynamic import of the kit', () => {
+    for (const mod of LAZY) {
+      const staticValue = new RegExp(`^import (?!type )[^;]*from '\\./${mod}';`, 'm');
+      expect(main, mod).not.toMatch(staticValue);
+    }
+    expect(main).toMatch(/importWithRetry\(\(\) => import\('\.\/mission-save-kit'\)\)/);
+    expect(main.match(/import\('\.\/mission-(?:save|resume|shell)/g)?.length).toBe(1);
+  });
+
+  it('a chunk that will not load costs the Resume row or the Save button, never the board or the mission', () => {
+    expect(main).toMatch(/const kit = await saveKit\(\)\.catch\(\(\) => null\);\s*if \(req\.signal\.aborted\) return \(\) => undefined;/);
+    expect(main).toMatch(/\.\.\.\(kit === null \? \{\} : \{ resume: \(\) => kit\.resumeRow\(\{/);
+    expect(main).toMatch(/const sk: typeof SaveKit \| null = resumeKit \?\? \(resolvedMission \? await saveKit\(\)\.catch\(\(\) => null\) : null\);/);
+  });
+
+  it('menu.ts takes only the TYPE of the Resume row and is handed a builder; the kit carries the row', () => {
+    const menu = readFileSync(join(__dirname, 'ui', 'menu.ts'), 'utf8');
+    expect(menu).not.toMatch(/^import (?!type )[^;]*from '\.\/resume-row';/m);
+    expect(menu).toMatch(/opts\.resume\(\)/);
+    expect(readFileSync(join(__dirname, 'mission-save-kit.ts'), 'utf8')).toContain("export { resumeRow } from './ui/resume-row';");
+    expect(main).toMatch(/resume: \(\) => kit\.resumeRow\(/);
+  });
+
+  it('the kit re-exports everything main.ts uses', () => {
+    const kit = readFileSync(join(__dirname, 'mission-save-kit.ts'), 'utf8');
+    for (const name of ['cutMission', 'restoreMission', 'sealMission', 'discardSuspended', 'openSuspendStore', 'readSuspended', 'writeSuspended', 'captureShell', 'shellJson', 'clearResumeProblem', 'loadResume', 'noteResumeProblem', 'peekResumeProblem', 'startInputsJson', 'saveFailureText']) expect(kit, name).toContain(name);
+  });
+});
+
 describe('the board and the URL', () => {
   it('the board reads the one store and opens the saved mission with `resume`', () => {
     expect(main).toMatch(/resume: \(id\) => void router\.navigate\(routes\.mission\(id, \{ resume: true \}\)\)/);
-    expect(main).toMatch(/discard: \(\) => \{\s*const ok = discardSuspended\(/);
+    expect(main).toMatch(/discard: \(\) => \{\s*const ok = kit\.discardSuspended\(/);
   });
 
   it('routes.mission spells the flag, the flag is a known parameter, and nothing else names the path', () => {

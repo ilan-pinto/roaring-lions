@@ -34,11 +34,19 @@ export function resumeRefusalText(reason: ResumeRefusal | 'moved', moved: readon
   }
 }
 
+/** Literal keys, so the i18n gate sees every one. */
+function movedWord(m: MovedWhat): string {
+  switch (m) {
+    case 'ledger': return t('resume.moved.ledger');
+    case 'units': return t('resume.moved.units');
+    case 'upgrades': return t('resume.moved.upgrades');
+  }
+}
+
 /** What changed in the campaign since the save, in words ("your campaign progress has changed, a unit was bought"). With nothing named, the plain sentence. */
 export function movedText(moved: readonly MovedWhat[]): string {
   if (moved.length === 0) return t('resume.refused.moved');
-  const part = (m: MovedWhat): string => (m === 'ledger' ? t('resume.moved.ledger') : m === 'units' ? t('resume.moved.units') : t('resume.moved.upgrades'));
-  return t('resume.refused.moved.named', { what: moved.map(part).join(t('resume.moved.join')) });
+  return t('resume.refused.moved.named', { what: moved.map(movedWord).join(t('resume.moved.join')) });
 }
 
 /** "just now", "14 minutes ago", "3 hours ago", "2 days ago". */
