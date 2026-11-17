@@ -14,6 +14,7 @@
  * author's future key would be a second validator for one door.
  */
 import type { LedgerData } from '@lions/sim';
+import { DIFFICULTY_LEDGER_KEY, POSTURE_IDS } from '@lions/data';
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -72,7 +73,7 @@ function shaped(
 const ROSTER_REQUIRED = { type: isStr, veterancy: isNum } as const;
 const ROSTER_OPTIONAL = { name: isStr, missions: isNum, kills: isNum, slot: isNum, enlisted: isStr, wounded_in_action: isNum, rescued: isNum } as const;
 const LOST_REQUIRED = { slot: isNum, type: isStr, veterancy: isNum, missions: isNum, kills: isNum, missionId: isStr, tick: isNum } as const;
-const LOST_OPTIONAL = { name: isStr } as const;
+const LOST_OPTIONAL = { name: isStr, cause: isRec } as const;
 const RESULT_REQUIRED = { stars: isNum, roe: isNum, ticks: isNum, lost: isNum } as const;
 
 type KeyRule = (v: unknown) => unknown | undefined;
@@ -95,6 +96,9 @@ const RULES: Readonly<Record<string, KeyRule>> = {
   'roe.cumulative_rating': (v) => (isNum(v) ? v : undefined),
   'civ.settlements_evacuated': (v) => (isNum(v) ? v : undefined),
   'campaign.slots_issued': (v) => (Number.isInteger(v) ? v : undefined),
+  // GH-1394: the campaign's difficulty posture. Anything but one of the three ids is dropped, and an absent key reads
+  // as Standard (`postureOf`), so a hand-edited or newer save can never name a posture this build does not have.
+  [DIFFICULTY_LEDGER_KEY]: (v) => (isStr(v) && (POSTURE_IDS as readonly string[]).includes(v) ? v : undefined),
 };
 
 /** `ledger` with every known key's elements checked; wrong ones dropped, a wrong

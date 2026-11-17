@@ -52,6 +52,30 @@
   font-display: swap;
   src: url('/fonts/ibm-plex-mono-latin-600.woff2') format('woff2');
 }
+/* Cyrillic (GH-1407, ruling D6): the same Plex Mono 2.3 build as the latin
+ * files above, subset by tools/fonts/build_cyrillic.py. A separate file with
+ * a unicode-range, so the latin rules and bytes are untouched, a latin glyph
+ * can never come from here, and the browser fetches it only when a Cyrillic
+ * character is on screen. Not preloaded. Barlow and Big Shoulders Display
+ * have NO Cyrillic in any OFL source, so Russian prose and titles take the
+ * stack's fallback (system-ui; Oswald or sans-serif) until the lead picks a
+ * face; font-faces.test.ts holds both facts. */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-cyrillic-400.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-cyrillic-600.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
 
 :root {
   /* UI scale (spec 2026-09-16 §5): every dimension below is rem, so this one
@@ -4645,7 +4669,9 @@ body[data-outcome-beat] .rl-aar {
   color: var(--ink-dim);
 }
 .rl-profile__avatar .rl-avatar {
-  border-width: 2px; /* px-ok */
+  width: 7rem;
+  height: 7rem;
+  border: 0.1875rem solid var(--crest-rim, var(--avatar-ring));
 }
 .rl-avatar--chip {
   width: 1.75rem;
@@ -7982,28 +8008,82 @@ button.rl-menu__item[data-kind='aside'] {
 /* A fixed-position `.rl-panel` rather than a `.rl-menu` column, since this
    screen is also mounted inside the pause overlay (Task 6), which has no
    `.rl-menu` frame to sit in. (The brigade screen this used to point at for
-   the shape is the garage now, and a full-width grid.) */
+   the shape is the garage now, and a full-width grid.)
+
+   GH-1510: the screen follows the account page (GH-1075 P7, GH-1367). Its
+   sections are the profile's own cards and columns (`ui/page-card.ts`, the
+   `.rl-profile__card*` and `.rl-profile__cols` rules below, never copied):
+   the same 64rem width, the wide and narrow columns, the title strips in the
+   profile's role colours, and the warm ground behind it. The Controls card
+   runs full width under both columns. The columns fall to one when the PANEL
+   is narrow, not only the window: a container query, because the pause
+   menu's Settings tab mounts this same panel in a 40rem modal on a wide
+   screen. */
 .rl-settings {
   top: 6%;
   left: 50%;
   transform: translateX(-50%);
-  width: min(32rem, 94vw);
+  width: min(64rem, 94vw);
   max-height: 88vh;
   overflow: auto;
+  text-align: start;
 }
-.rl-settings__table {
+.rl-settings__content {
+  container: rl-settings / inline-size;
   display: flex;
   flex-direction: column;
+  gap: var(--s3);
 }
-.rl-settings__section {
-  margin: var(--s4) 0 var(--s1);
-  font-family: var(--font-display);
-  font-size: var(--t-card);
-  letter-spacing: var(--track-title);
-  color: var(--ink);
+/* Two class names: `.rl-profile__cols` comes later in this file, and its
+   media query too, so a single class here would lose to it by order. */
+@container rl-settings (max-width: 48rem) {
+  .rl-profile__cols.rl-settings__cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
-.rl-settings__section:first-child {
-  margin-top: 0;
+/* The rows carry their own padding and hairline, so the card body adds no
+   gap of its own between them. */
+.rl-settings__card .rl-profile__card-body {
+  gap: 0;
+}
+/* The key table is long: on a wide panel its rows run in two columns. */
+@container rl-settings (min-width: 48rem) {
+  .rl-settings__card--controls .rl-profile__card-body {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--s5);
+    align-items: start;
+  }
+}
+/* Each card's title strip and frame, in the account page's role colours
+   (GH-1367 S3): the same token pairs, so the same 4.5:1 checks in
+   profile-css.test.ts hold here. Privacy is the profile's "Your data". */
+.rl-settings__card--video .rl-profile__card-title,
+.rl-settings__card--controls .rl-profile__card-title,
+.rl-settings__card--language .rl-profile__card-title {
+  background: var(--card-head-history);
+}
+.rl-settings__card--audio .rl-profile__card-title,
+.rl-settings__card--chat .rl-profile__card-title {
+  background: var(--card-head-record);
+}
+.rl-settings__card--accessibility .rl-profile__card-title {
+  background: var(--card-head-signin);
+  color: var(--card-head-signin-ink);
+}
+.rl-settings__card--privacy .rl-profile__card-title {
+  background: var(--card-head-data);
+}
+/* Two class names again: `.rl-profile__card`'s own `border` comes later. */
+.rl-profile__card.rl-settings__card--audio,
+.rl-profile__card.rl-settings__card--chat {
+  border-color: var(--card-head-record);
+}
+.rl-profile__card.rl-settings__card--accessibility {
+  border-color: color-mix(in srgb, var(--card-head-signin) 45%, transparent);
+}
+.rl-profile__card.rl-settings__card--privacy {
+  border-color: color-mix(in srgb, var(--rl-water-1) 50%, transparent);
 }
 .rl-settings__row {
   display: grid;
@@ -9160,7 +9240,37 @@ fieldset.rl-versus__maps {
 .rl-chat__line {
   overflow-wrap: anywhere;
 }
+.rl-chat__entry {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+}
+/* GH-1417 S1: the line shown in place of the chat while Settings has it off. */
+.rl-chat__off {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+/* The mute toggle beside the input; aria-pressed carries the state, the label names the action. */
+.rl-chat__mute {
+  flex: none;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+  cursor: pointer;
+}
+.rl-chat__mute[aria-pressed='true'] {
+  color: var(--ink);
+  background: var(--selected-fill);
+  border-color: var(--selected);
+}
 .rl-chat__input {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   box-sizing: border-box;
   background: var(--panel-bg-solid);
@@ -10341,13 +10451,16 @@ fieldset.rl-versus__maps {
 /* GH-1367 S2: a warm ground behind the account page, and one frame. The ground is the limestone and dust ramps
    (index 0 is the lightest, so 6 is the dark end), under a dust glow top left and an olive shade bottom right. It
    is scoped by :has() to the stage that holds the profile column, so no other screen moves, and the router empties
-   #stage on leave, so nothing outlives the page. Static: nothing animates. */
+   #stage on leave, so nothing outlives the page. Static: nothing animates. GH-1510: the Settings screen, which follows
+   the account page's design, stands on the same ground; the pause menu's Settings tab is not a child of #stage, so a
+   mission never takes it. */
 :root {
   --profile-ground: linear-gradient(var(--rl-limestone-6), var(--rl-dust-6));
   --profile-ground-glow: color-mix(in srgb, var(--rl-dust-3) 40%, transparent);
   --profile-ground-shade: color-mix(in srgb, var(--rl-olive-2) 55%, transparent);
 }
-#stage:has(> .rl-menu--profile) {
+#stage:has(> .rl-menu--profile),
+#stage:has(> .rl-settings) {
   background:
     radial-gradient(ellipse at 18% 8%, var(--profile-ground-glow), transparent 60%),
     radial-gradient(ellipse at 82% 92%, var(--profile-ground-shade), transparent 55%),
@@ -10424,9 +10537,68 @@ fieldset.rl-versus__maps {
   border: 1px solid var(--panel-frame); /* px-ok */
   min-width: 0;
 }
-/* The header card: a gold rule on its start edge (left in LTR). --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
+/* The crest echo (GH-1367 S4): the card is washed in the member's own crest, read off the avatar's data-avatar. Ground
+   is the crest's ground and rim its brightest charge tone, from tools/avatars/crest_geometry.mjs; crest-card.test.ts
+   pins every pair to that table. Five are named substitutes: a near-black or near-white ground would wash the card
+   black or white. --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
 .rl-profile__card--head {
-  border-inline-start: 0.1875rem solid var(--title-accent);
+  --crest-ground: var(--rl-olive-2);
+  --crest-rim: var(--title-accent);
+  border-inline-start: 0.1875rem solid var(--crest-rim);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--crest-ground) 85%, transparent) 0,
+    color-mix(in srgb, var(--crest-ground) 35%, var(--rl-shadow-1)) 45%,
+    var(--card-bg) 80%
+  );
+}
+.rl-profile__card--head:has([data-avatar='crest-chevrons']) {
+  --crest-ground: var(--rl-dust-5);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-claw']) {
+  --crest-ground: var(--rl-terracotta-1);
+  --crest-rim: var(--rl-terracotta-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-lion']) {
+  --crest-ground: var(--rl-olive-2);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-tower']) {
+  --crest-ground: var(--rl-gunmetal-3);
+  --crest-rim: var(--rl-limestone-1);
+}
+.rl-profile__card--head:has([data-avatar='crest-star']) {
+  --crest-ground: var(--rl-olive-3);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-wing']) {
+  --crest-ground: var(--rl-water-1);
+  --crest-rim: var(--rl-limestone-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-track']) {
+  --crest-ground: var(--rl-gunmetal-3);
+  --crest-rim: var(--rl-limestone-2);
+}
+.rl-profile__card--head:has([data-avatar='crest-sprig']) {
+  --crest-ground: var(--rl-scrub-1);
+  --crest-rim: var(--rl-limestone-1);
+}
+.rl-profile__card--head:has([data-avatar='crest-ridge']) {
+  --crest-ground: var(--rl-gunmetal-2);
+  --crest-rim: var(--rl-limestone-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-wave']) {
+  --crest-ground: var(--rl-water-1);
+  --crest-rim: var(--rl-water-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-dune']) {
+  --crest-ground: var(--rl-dust-5);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-reticle']) {
+  --crest-ground: var(--rl-terracotta-2);
+  --crest-rim: var(--rl-dust-0);
 }
 .rl-profile__card-title {
   /* A strip across the top of the card: cancel the card's padding on three sides. */
@@ -10504,7 +10676,7 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__since {
   margin: 0;
-  color: var(--ink-mute);
+  color: var(--ink);
 }
 @media (max-width: 30rem) {
   .rl-profile__head {
@@ -10677,6 +10849,9 @@ fieldset.rl-versus__maps {
   align-items: center;
   justify-content: space-between;
   gap: var(--s2);
+  padding: var(--s1) var(--s2);
+  background: var(--well);
+  border-inline-start: 0.1875rem solid var(--good);
 }
 .rl-profile__identity-main {
   display: flex;
@@ -10828,4 +11003,45 @@ fieldset.rl-versus__maps {
 .rl-profile__delete {
   border-color: var(--bad);
   color: var(--bad-text);
+}
+
+/* GH-1393: the saved mission, on the campaign board's footer, and the pause menu's save line. */
+.rl-resume {
+  display: grid;
+  gap: var(--s2);
+  justify-items: start;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+}
+.rl-resume__lead {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-resume__line,
+.rl-resume__msg,
+.rl-pause__save-msg {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  line-height: var(--lh-body);
+  color: var(--ink);
+}
+.rl-resume__msg,
+.rl-pause__save-msg {
+  min-height: calc(var(--lh-body) * 1em);
+  color: var(--ink-mute);
+}
+.rl-resume__msg[data-tone='bad'],
+.rl-pause__save-msg[data-tone='bad'] {
+  color: var(--bad-text);
+}
+.rl-resume__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
 }

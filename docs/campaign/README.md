@@ -105,7 +105,11 @@ in step with it.
   schema and the runtime throws on it (`mark`). `escort` (GH-2):
   `target` is a tag on the player's own `starting_force` placements, `zone` the destination;
   it fails the tick any tagged unit is dead or taken and completes when every one stands in
-  the zone at once. `no_collateral_above` (GH-4): `threshold` is the most Conduct (the ROE score) the mission
+  the zone at once. Two optional fields (GH-1439): `fail_after_losses` (1 up to the number tagged; the escort fails
+  that many losses in, default 1) and `until` (ids of PRIMARY objectives it waits on: it completes the first tick they
+  are all complete and every surviving tagged unit stands in the zone, read each tick, never latched; failure wins a
+  tie; with an `until` the units may start inside the zone). `until` may not name an escort, a ceiling, a score or
+  a secondary. `no_collateral_above` (GH-4): `threshold` is the most Conduct (the ROE score) the mission
   may lose, a whole number 0 to 100; it fails the tick the loss is strictly above it and completes the tick every
   other primary does, so it needs ROE on and another primary. No shipped mission uses either yet.
 - **ROE is the second score, and the player calls it Conduct.** 0–100, `flagged_zones` from map zones, `fail_below`

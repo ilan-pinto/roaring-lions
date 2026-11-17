@@ -309,6 +309,29 @@ export {
   type UpgradeTracks,
 } from './upgrades';
 
+/** GH-1394/GH-1395: the one pure pre-pass over a mission's JSON (difficulty postures, then amendments),
+ *  run before the runtime is built so the sim never learns a posture exists. */
+export {
+  applyOverlays,
+  applyOps,
+  postureOf,
+  postureOps,
+  postureApplies,
+  postures,
+  reliefTriggerIndices,
+  POSTURE_IDS,
+  DIFFICULTY_LEDGER_KEY,
+  RELIEF_TRIGGER_ID,
+  type OverlayOp,
+  type OverlayChoice,
+  type OverlayMission,
+  type OverlayOptions,
+  type OverlayWave,
+  type PostureId,
+  type PostureJson,
+  type PostureCatalogue,
+} from './overlays';
+
 export {
   versusMissionOf,
   versusCapacityOf,
