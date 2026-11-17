@@ -4025,12 +4025,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? rk().inboxOf(room, () => req.settings.get().chat.enabled)
     : null;
   const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
-    ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
+    ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), sendQuick: (id) => room.quick(id), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
     : null;
   if (netChat !== null) onDispose(() => netChat.dispose());
   if (room !== null && netConfig !== null && !spectating && chatInbox !== null) {
     // A line reaches the HUD feed only through the room's inbox, the same one the lobby log used (`chat-inbox.ts`).
-    room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')) });
+    room.setHooks({
+      onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')),
+      // A preset phrase is an id on the wire and is drawn in this client's language, through the same inbox.
+      onQuick: (seat, id) => chatInbox.deliver(seat, rk().quickChatText(id), (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')),
+    });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
    *  places that learn of one: the dispatch below (withheld here) and the room

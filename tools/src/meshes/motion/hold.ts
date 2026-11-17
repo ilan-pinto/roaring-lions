@@ -198,6 +198,19 @@ export interface HoldFigure {
    * blade, no protraction), so idle shows the figure undeformed; the aim blends from there to the shouldered formula.
    */
   readonly restCarry?: boolean;
+  /**
+   * A rest carry's own aimed butt pocket (`rl_hands.pocket`, the importer's row): REST_CARRY_RIFLE_POCKET was measured
+   * on the pilot's body, whose face stands 0.15 over its shoulder joint. A body with a longer neck needs the butt
+   * higher, or the cheek weld bows the head to the ground looking for the bore.
+   */
+  readonly pocket?: V3;
+  /**
+   * A rest carry's support fist moves this far toward the bore as it rolls round the handguard (`rl_hands.support_inset`,
+   * the importer's row; in proportion to the aim, as the roll is). The roll turns the fist about the bore line; a handguard
+   * that is not round about that line leaves the rolled palm off it (the Combat Engineers: 9-18 % of the palm within 8 mm
+   * against the 20 % floor, the lead's ruling of 13 Nov 2026: "move the support-hand target up into the handguard").
+   */
+  readonly supportInset?: number;
 }
 
 /** +1 when the weapon is held on the anatomical right (+Z), -1 on the left. */
@@ -270,6 +283,8 @@ export function describeHold(rig: Rig, verts: RestVertex[], prefix: string, kind
       prefix, kind, butt: wf.butt, axis: wf.axis, up: wf.up, length: wf.length, fromJoint, handShoot: wristS, handSupport: wristP,
       eye, eyeJoint: head, shootSide, hands,
       ...(rlHands(rig)?.source === 'meshy' ? { restCarry: true } : {}),
+      ...(rlHands(rig)?.source === 'meshy' && rlHands(rig)?.pocket ? { pocket: rlHands(rig)!.pocket } : {}),
+      ...(rlHands(rig)?.source === 'meshy' && rlHands(rig)?.support_inset ? { supportInset: rlHands(rig)!.support_inset } : {}),
     };
   }
   const handShoot = handPoint(rig, verts, rig.node(`${prefix}_forearm_${shootSide}`));
@@ -500,7 +515,7 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
     }
     if (h.kind === 'rifle') {
       if (aim) {
-        const pk = h.restCarry ? REST_CARRY_RIFLE_POCKET : h.hands ? HANDS_RIFLE_POCKET : RIFLE_POCKET;
+        const pk = h.restCarry ? (h.pocket ?? REST_CARRY_RIFLE_POCKET) : h.hands ? HANDS_RIFLE_POCKET : RIFLE_POCKET;
         const butt = add(shoulder, [pk[0], pk[1], -side * pk[2]]);
         return { butt, dir: weaponDir(AIM_ELEVATION_DEG.rifle, 0, side) };
       }
@@ -585,7 +600,7 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
     const suppRoll = h.restCarry && hr.support.locked && st.aim > 0
       ? (() => {
         const sw = compose(delta, hr.support.rest).t; const tt = dot(sub(sw, butt), dir);
-        return { axis: dir, pivot: add(butt, scale(dir, tt)), angle: deg(REST_CARRY_SUPPORT_ROLL_DEG) * side * st.aim };
+        return { axis: dir, pivot: add(butt, scale(dir, tt)), angle: deg(REST_CARRY_SUPPORT_ROLL_DEG) * side * st.aim, inset: (h.supportInset ?? 0) * st.aim };
       })()
       : undefined;
     const supp = placeHand(rig, pose, hr.support, delta, blendPole(hr.support.restPole, suppPole), 0, suppRoll);
@@ -742,7 +757,8 @@ const clampVars = (v: HandVars): HandVars => {
  * a clip moves continuously; only a frame the last answer no longer serves starts again from a spread of swings.
  */
 export function placeHand(
-  rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole: V3, trigger = 0, roll?: { readonly axis: V3; readonly pivot: V3; readonly angle: number }
+  rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole: V3, trigger = 0,
+  roll?: { readonly axis: V3; readonly pivot: V3; readonly angle: number; readonly inset?: number }
 ): { gap: number; wrist: WristReading; offsetDeg: number; cost: number } {
   const hw = compose(delta, st.rest);
   const refStation = add(hw.t, qrot(hw.r, st.ref));
@@ -774,7 +790,9 @@ export function placeHand(
     // the hand's turn off its station, in the hand's own frame: a roll about its channel axis, then a tilt of that axis
     const qRoll = st.locked && roll ? qaxis(roll.axis, v[1]) : null;
     const R = qRoll ? qnorm(qmul(qRoll, hw.r)) : qnorm(qmul(hw.r, turnOf(st.channel, v[1], v[2], v[3])));
-    const refAt = qRoll ? add(roll!.pivot, qrot(qRoll, sub(refStation, roll!.pivot))) : refStation;
+    const rolled = qRoll ? add(roll!.pivot, qrot(qRoll, sub(refStation, roll!.pivot))) : refStation;
+    // ...and in toward the axis it rolled about, by the roll's `inset` (a fist whose rolled palm would leave the handguard)
+    const refAt = qRoll && roll!.inset ? add(rolled, scale(norm(sub(roll!.pivot, rolled)), roll!.inset)) : rolled;
     const target = sub(refAt, qrot(R, st.ref));
     const axis = norm(sub(target, S0));
     const poleSwung = qrot(qaxis(axis, v[0]), pole);

@@ -30,11 +30,14 @@ const MESHES = `${REPO}art/meshes/`;
  * The figures with nothing of their own to fire. Keyed by team, each value the builds that fail and why; the same demotion
  * rule as everywhere: when a build gains a weapon, its entry must go. `gear` marks a man who works the team's crew weapon.
  */
+const RIGID_DEMO = fileURLToPath(new URL('./fixtures/demo_squad_rigid_422df13dd.glb', import.meta.url));
+
 const UNARMED_EXEMPT: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   at_team: { at_spot: 'spotter: only a box of binoculars (role metal), held by nothing' },
   atgm_cell: { atgm_crew0: 'gunner at the Kornet tripod (the shared prop): gear, no personal weapon', atgm_crew1: 'loader: nothing in hand' },
   charge_squad: { chg0: 'demolition man whose vest carries no charge part' },
-  demo_squad: { demo_a: 'the Combat Engineer who works the satchel: no carbine, holds nothing in any clip' },
+  // demo_squad left 13 Nov 2026 (GH-826 unit 1): both Combat Engineers carry Meshy's carbine. The unarmed engineer, the
+  // constructed input below, is read off the frozen rigid file (fixtures/README.txt).
   digger_crew: { dig: 'a pick and a shovel (roles metal, wood): a tool, not a weapon' },
   mortar_crew: { emtr_crew0: 'gunner at the tube (the shared prop): gear, no personal weapon', emtr_crew1: 'loader: no round, no weapon' },
   mortar_team: { mtr_crew0: 'gunner at the 60 mm tube: no personal weapon', mtr_crew1: 'assistant gunner: no round, no weapon' },
@@ -102,9 +105,14 @@ describe('G8 can fail (constructed inputs)', () => {
     expect(unarmedBuilds(squad)).toEqual([]);
     expect(unarmedBuilds(rebindVertices(squad, 'f1_weapon', 'f2_spine'))).toEqual(['f1']);
   });
-  it('handing demo_b\'s carbine to demo_a arms the engineer and disarms the rifleman', () => {
-    const demo = readGlb(`${MESHES}demo_squad.glb`);
+  it('handing demo_b\'s carbine to demo_a arms the engineer and disarms the rifleman (the frozen rigid Combat Engineers)', () => {
+    const demo = readGlb(RIGID_DEMO);
     expect(unarmedBuilds(demo)).toEqual(['demo_a']);
     expect(unarmedBuilds(rebindVertices(demo, 'demo_b_weapon', 'demo_a_spine'))).toEqual(['demo_b']);
+  });
+  it('the shipped Combat Engineers are both armed, and one whose carbine is moved onto the other\'s bones reads unarmed', () => {
+    const demo = readGlb(`${MESHES}demo_squad.glb`);
+    expect(unarmedBuilds(demo)).toEqual([]);
+    expect(unarmedBuilds(rebindVertices(demo, 'demo_a_weapon', 'demo_b_spine'))).toEqual(['demo_a']);
   });
 });
