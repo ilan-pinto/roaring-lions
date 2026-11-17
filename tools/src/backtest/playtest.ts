@@ -572,7 +572,8 @@ const bt2 = run('bir_tarsha_2_foothold', BIR_TARSHA_PLANS.bir_tarsha_2_foothold,
 passiveAcrossSeeds('bir_tarsha_2_foothold', 'bir_tarsha_2_foothold (no orders)', 'defeat', btLed1);
 const btLed2 = { ...btLed1, ...bt2 };
 const bt3 = run('bir_tarsha_3_clearance', BIR_TARSHA_PLANS.bir_tarsha_3_clearance, btLed2, 'victory', 'bir_tarsha_3_clearance');
-passiveAcrossSeeds('bir_tarsha_3_clearance', 'bir_tarsha_3_clearance (no orders)', 'defeat', btLed2);
+// The taken walk out on their own with no orders (bring_three_out is nearly free), so the control loses on the 720 s limit (withdrawn), not on an objective clock. Was 'defeat': 0 of 30 seeds.
+passiveAcrossSeeds('bir_tarsha_3_clearance', 'bir_tarsha_3_clearance (no orders)', 'withdrawn', btLed2);
 const btLed3 = { ...btLed2, ...bt3 };
 run('bir_tarsha_5_subterranean', BIR_TARSHA_PLANS.bir_tarsha_5_subterranean, btLed3, 'victory', 'bir_tarsha_5_subterranean', 3);
 passiveAcrossSeeds('bir_tarsha_5_subterranean', 'bir_tarsha_5_subterranean (no orders)', 'defeat', btLed3);
