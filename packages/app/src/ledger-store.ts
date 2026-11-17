@@ -62,6 +62,7 @@
  */
 import { ROAR_KEY, emptyRoar, loadRoar, resetFree, restoreRoarText, saveRoar, snapshotRoarText, type RoarSeed, type RoarWallet } from './roar-wallet';
 import type { LedgerData, LedgerRosterEntry } from '@lions/sim';
+import type { KillCause } from './kill-cause';
 import type { VictoryWin } from '@lions/economy';
 import {
   ACCOUNT_KEY,
@@ -112,6 +113,8 @@ export interface LostRecord {
   kills: number;
   missionId: string;
   tick: number;
+  /** Why it fell (GH-1380), structured so the card re-words it in the player's language. Absent on a record written before it. */
+  cause?: KillCause;
 }
 
 /**
