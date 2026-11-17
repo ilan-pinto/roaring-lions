@@ -39,6 +39,8 @@ const HOLDS: Readonly<Record<string, { figures: readonly string[]; object: 'weap
   inf_squad: { figures: ['f0', 'f1', 'f2'], object: 'weapon' },
   // GH-826 unit 1 (13 Nov 2026): one skinned Meshy body in two scalings, both fists closed on Meshy's own carbine
   demo_squad: { figures: ['demo_a', 'demo_b'], object: 'weapon' },
+  // GH-826 unit "Yahalom" (17 Nov 2026): the same body in two scalings of its own, both men's fists closed on its carbine
+  yahalom_squad: { figures: ['yah_a', 'yah_b'], object: 'weapon' },
 };
 
 /**
@@ -71,6 +73,16 @@ const CONTACT_NAMED: Readonly<Record<string, Readonly<Record<string, Floors>>>> 
     'demo_b fire': { fire: 0.14 }, 'demo_b moveFire': { fire: 0.14 }, 'demo_b kneel': { fire: 0.14 }, 'demo_b pinned': { fire: 0.14 },
     'demo_b kneelIn': { fire: 0.14, support: 0.08 }, 'demo_b kneelOut': { fire: 0.14, support: 0.08 },
   },
+  // GH-826 unit "Yahalom" (17 Nov 2026): the same body, the same named item (the lead's decision 9 of 15 Nov: "the pilot's
+  // named items are expected, each with a ratchet"). Read on the shipped bytes: the firing fist 12.4 % on yah_a and 10.1 % on
+  // yah_b in every clip (the Combat Engineers' is 15 %: the same fist on a body 6 % wider and 2 % narrower, against a
+  // threshold that stays 8 mm); the support fist 12 % at the low ready and 10-12 % in the kneel transitions, 20 % or more aimed.
+  yahalom_squad: {
+    'yah_a idle': { fire: 0.12, support: 0.12 }, 'yah_a move': { fire: 0.12, support: 0.12 }, 'yah_a fire': { fire: 0.12 }, 'yah_a moveFire': { fire: 0.12 },
+    'yah_a kneel': { fire: 0.12 }, 'yah_a kneelIn': { fire: 0.12, support: 0.12 }, 'yah_a kneelOut': { fire: 0.12, support: 0.11 }, 'yah_a pinned': { fire: 0.12 },
+    'yah_b idle': { fire: 0.1, support: 0.12 }, 'yah_b move': { fire: 0.1, support: 0.12 }, 'yah_b fire': { fire: 0.1 }, 'yah_b moveFire': { fire: 0.1 },
+    'yah_b kneel': { fire: 0.1 }, 'yah_b kneelIn': { fire: 0.1, support: 0.1 }, 'yah_b kneelOut': { fire: 0.1, support: 0.11 }, 'yah_b pinned': { fire: 0.1 },
+  },
 };
 
 const HOLD_EXEMPT: Readonly<Record<string, string>> = Object.fromEntries(
@@ -95,7 +107,6 @@ const HOLD_EXEMPT: Readonly<Record<string, string>> = Object.fromEntries(
     ['rpg_team', 'open claws; rpg_load carries no rocket'],
     ['sarim_rifles', 'open claws on the AK'],
     ['sniper_team', 'arms welded to the torso: no separable hand'],
-    ['yahalom_squad', 'open black claws; yah_a holds only a detector pole'],
   ] as const
 );
 

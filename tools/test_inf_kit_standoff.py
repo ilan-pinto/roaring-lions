@@ -58,14 +58,16 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 
-TEAMS = ("inf_squad", "demo_squad")
+TEAMS = ("inf_squad", "demo_squad", "yahalom_squad")
 #: metres
 LIMITS = {("belt", "median"): 0.040, ("belt", "p90"): 0.080, ("groin", "median"): 0.110, ("foregrip", "min"): 0.003}
-FIGURES = {"inf_squad": ("f0", "f1", "f2"), "demo_squad": ("demo_a", "demo_b")}
+FIGURES = {"inf_squad": ("f0", "f1", "f2"), "demo_squad": ("demo_a", "demo_b"), "yahalom_squad": ("yah_a", "yah_b")}
 #: Round 3 (16 Nov 2026), a team's OWN limits, metres (and a count): see "Round 3" in the header. The Rifle Squad is read and
 #: printed beside them and NOT held (its accepted fit reads over every one of them: a named finding, not this unit's to move).
 TEAM_LIMITS = {
     "demo_squad": {("carrier", "p90"): 0.040, ("headset", "gun_pairs"): 0},
+    # GH-826 unit "Yahalom" (17 Nov 2026): the same body and the same carrier and headset rows, so the same limits
+    "yahalom_squad": {("carrier", "p90"): 0.040, ("headset", "gun_pairs"): 0},
 }
 #: Round 4 (16 Nov 2026), a FIGURE's own rows: a ceiling (one number), or a band (lo, hi) that is red on BOTH sides.
 #:   carrier max: a ratchet at the round-3 reading (the lead's L4: the plate bag's worst point off the firing shoulder blade is
@@ -83,6 +85,14 @@ FIGURE_LIMITS = {
         # millimetre: the tool rounds to 0.1 mm and CI's Blender is another build), cups -79.5 / -85.6 mm
         "demo_a": {("carrier", "max"): 0.0700, ("headset", "below_face_mid"): (-0.0845, -0.0745), ("lpvo", "min"): 0.0145, ("laser_box", "min"): 0.0130},
         "demo_b": {("carrier", "max"): 0.0635, ("headset", "below_face_mid"): (-0.0906, -0.0806), ("lpvo", "min"): 0.0130, ("laser_box", "min"): 0.0100},
+    },
+    # GH-826 unit "Yahalom" (17 Nov 2026), the same rows by the same rule (a ceiling is the reading rounded up to the next
+    # half millimetre; the cup band is +-5 mm about the reading). Readings on the round-1 bytes: carrier max 65.3 / 69.7 mm,
+    # cups -63.5 / -48.3 mm (yah_a's raised 20 mm over the stock's comb, yah_b's not raised), scope 13.6 / 3.0 mm, laser
+    # 12.4 / 13.7 mm. NOT ruled on by the lead: the Combat Engineers' rows were (16 Nov, L3 and L4); these are their twins.
+    "yahalom_squad": {
+        "yah_a": {("carrier", "max"): 0.0655, ("headset", "below_face_mid"): (-0.0685, -0.0585), ("lpvo", "min"): 0.0140, ("laser_box", "min"): 0.0125},
+        "yah_b": {("carrier", "max"): 0.0700, ("headset", "below_face_mid"): (-0.0533, -0.0433), ("lpvo", "min"): 0.0035, ("laser_box", "min"): 0.0140},
     },
 }
 

@@ -84,9 +84,8 @@ describe('a held launcher stays out of its holder', () => {
  */
 const MOUNTED: readonly (readonly [string, string, readonly string[], readonly string[], string, RegExp])[] = [
   // file, label, clips, roles, mount joint, body joints
-  ['yahalom_squad.glb', 'yah_a pack', ['idle', 'fire', 'move', 'moveFire'], ['webbing'], 'yah_a_spine', /^yah_a_(head|neck|spine|pelvis)$/],
-  ['yahalom_squad.glb', 'yah_b pack', ['idle', 'fire', 'move', 'moveFire'], ['webbing'], 'yah_b_spine', /^yah_b_(head|neck|spine|pelvis)$/],
-  ['yahalom_squad.glb', 'yah_ak pack (work)', ['work'], ['webbing'], 'yah_ak_spine', /^yah_ak_(head|neck|spine|pelvis)$/],
+  // (yahalom_squad's three rows left on 17 Nov 2026, GH-826 unit "Yahalom": the box packs and the kneeling twin are gone.
+  // The assault packs that replaced them are held below, `YAHALOM_GEAR`, where the frozen rigid file's boxes are still read.)
   ['mortar_team.glb', 'the mortar vs its crew', ['idle', 'fire'], ['weapon', 'metal'], 'prop', /^mtr_(crew0|crew1|no3)_/],
   // A3.1 stage 2 (2026-10-05): the Meshy ATGM post's four splayed legs reach
   // further than kit's three; at kit's own anchor 8 samples sat inside a
@@ -125,6 +124,59 @@ describe('a mounted kit part stays out of the body it rides', () => {
       }, 30_000); // the mortar's 2,432 samples against three whole crewmen read ~10 s
     }
   }
+});
+
+/**
+ * The Yahalom Engineers' base gear (GH-826 unit "Yahalom", 17 Nov 2026): an assault pack on each man's spine, with its
+ * back pad and shoulder straps, and the stowed detector on the leader's (`tools/units/yahalom_gear.py`; role `webbing`).
+ * Read against the BARE figure (the upgrade kit's own nodes are left out: the pack is worn over the carrier, and the kit
+ * against the body is `inf_kit_clash.py`'s census), over the same trunk as the rows above.
+ *
+ * The bag and its pad are out of the trunk in every clip (measured with the straps left off: 0 of 5,100-8,000 samples in
+ * all nine living clips, both men). The SHOULDER STRAPS are rigid on the spine and lie on a collar the neck bone bends
+ * under them, so in the clips that turn the neck (the aim's cheek weld, `work`'s look down) a few of their samples read
+ * inside it. NAMED, for the lead (not ruled on): a ceiling per man and clip at what the shipped bytes read; idle and move
+ * stay at 0, as the box's rows were. (Not held here: kneelIn and kneelOut, 0.2 s transitions: 90-120 samples, and 28-34
+ * inside an elbow.)
+ */
+const YAHALOM_GEAR: Readonly<Record<string, Readonly<Record<string, number>>>> = {
+  yah_a: { idle: 0, move: 0, fire: 0, moveFire: 7, work: 64 },
+  yah_b: { idle: 0, move: 0, fire: 2, moveFire: 21, work: 34 },
+};
+
+describe('the Yahalom Engineers\' pack and stowed detector stay out of the man who wears them', () => {
+  const file = `${MESHES}yahalom_squad.glb`;
+  const read = (path: string, fig: string, clip: string, joint = `${fig}_spine`) =>
+    measureMountedPartInBody(path, clip, {
+      roles: ['webbing'],
+      joint,
+      bodyJoint: (name) => new RegExp(`^${fig}_(head|neck|spine|pelvis)$`).test(name),
+      bodyRole: (role) => !role.startsWith('kit_'),
+    });
+  for (const [fig, clips] of Object.entries(YAHALOM_GEAR)) {
+    for (const [clip, ceiling] of Object.entries(clips)) {
+      it(`yahalom_squad.glb ${clip}: ${fig}'s gear -- ${ceiling === 0 ? 'no sample inside' : `at most ${ceiling} samples inside (the straps on the collar, named)`}`, () => {
+        const r = read(file, fig, clip);
+        expect(r.instants, `${clip}: instants with the gear drawn`).toBeGreaterThan(0);
+        expect(r.samples, `${clip}: gear samples (a pack, its pad and straps${fig === 'yah_a' ? ', the detector' : ''})`).toBeGreaterThan(fig === 'yah_a' ? 8000 : 5500);
+        expect(r.worstInside, `${clip}: samples inside ${fig}'s trunk`).toBeLessThanOrEqual(ceiling);
+      }, 30_000);
+    }
+  }
+  it('the reading is not blind on this file: the kneel transition, which no row holds, reads over every ceiling here', () => {
+    // (measured 17 Nov: 120 and 90 samples in kneelIn; a reading of 0 there would mean the instrument sees no strap at all)
+    for (const fig of Object.keys(YAHALOM_GEAR)) {
+      expect(read(file, fig, 'kneelIn').worstInside).toBeGreaterThan(Math.max(...Object.values(YAHALOM_GEAR[fig])));
+    }
+  });
+  it('the frozen rigid file\'s box packs are still read by the same instrument (the rows this block replaced)', () => {
+    const rigid = fileURLToPath(new URL('./fixtures/yahalom_squad_rigid_7dae29e2f.glb', import.meta.url));
+    for (const [fig, clip] of [['yah_a', 'idle'], ['yah_b', 'idle'], ['yah_ak', 'work']] as const) {
+      const r = read(rigid, fig, clip);
+      expect(r.samples, `${fig} ${clip}`).toBeGreaterThan(100);
+      expect(r.worstInside, `${fig} ${clip}`).toBe(0);
+    }
+  });
 });
 
 /**

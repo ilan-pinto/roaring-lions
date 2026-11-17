@@ -19,13 +19,18 @@ below, and the importer prints its census. The clips are `rig.build_clips`' own 
 then `pnpm motion:meshes` (the hold, the kneel, the wedge, the stride) as for every other team.
 
 usage: Blender -b --factory-startup -P tools/units/import_meshy_skinned_team.py -- <team> [--out path.glb]
-       teams: inf_squad (the pilot, GH-746), demo_squad (infantry upgrade unit 1, GH-826)
+       teams: inf_squad (the pilot, GH-746), demo_squad (infantry upgrade unit 1, GH-826),
+              yahalom_squad (infantry upgrade unit "Yahalom", GH-826: demo_squad's body, its own two scalings)
 
 The three figures of the pilot are ONE Meshy body (f1, task 01a197a3): f0 and f2 are its measured scalings
 (stature 1.84 / 1.72, girth -2 % / +8 %), the design's 0-credit fallback, until their own bodies are bought.
 demo_squad's two men are ONE Meshy combat-engineer body (task 01a1d151) the same way: demo_a 1.84 m / -2 %, the leader
 demo_b 1.74 m / +8 % (the lead's numbers, 12 Nov 2026), with the team's satchel charge on its `prop` bone and the
 leader's cable spool on his spine (`_team_extras`).
+yahalom_squad's two men are that SAME combat-engineer body (the lead's ruling of 15 Nov 2026: the approved fallback, after
+the unit's own two Meshy previews failed the pose gate at 40 of 140 credits): yah_a 1.76 m / +6 %, the leader, and
+yah_b 1.86 m / -2 %, with an assault pack on each back, the collapsed mine detector on the leader's, and the charge
+on yah_b's own `yah_b_charge` bone (`yahalom_gear.py`, `_team_extras`).
 
 A team is one row of `SOURCES`. Every constant below is the PILOT's, tuned on the Rifle Squad's bake; a constant that
 has to move for another body goes in that team's `constants`, replaces the module's value for that team's build only
@@ -241,6 +246,18 @@ SOURCES = {
         sweep_hem=True,
     ),
 }
+# Infantry upgrade unit "Yahalom" (GH-826; the lead's approval of 15 Nov 2026, all 13 decisions, and his ruling of the same
+# day after the Meshy stage's systematic stop at 40 of 140 credits): "the approved fallback (decision 2). `yahalom_squad`
+# uses the `demo_squad` body at 0 further credits, scaled to `yah_a` 1.76 m (+6 % girth) and `yah_b` 1.86 m (-2 %). Its
+# grafted 0.68 m carbine is accepted as this team's own gun band (a ratchet, under decision 10)."
+# So the row IS demo_squad's -- the same remesh, the same seeds, the same constants, the same graft, flat top, clamp and
+# sweeps, the same pocket and support inset (each a literal the lead ruled on for this body on 13 and 16 Nov), and the
+# same band on the base body's grafted carbine, 0.670-0.690 -- with two things of its own: the scalings, and the gear.
+SOURCES["yahalom_squad"] = dict(
+    SOURCES["demo_squad"],
+    #: the lead's two men (15 Nov, decision 3): yah_a 1.76 m and 6 % rounder, the leader; yah_b 1.86 m and 2 % leaner
+    bodies={"yah_a": (1.76 / 1.79, 1.06), "yah_b": (1.86 / 1.79, 0.98)},
+)
 
 #: A constant a team's row moved, as it was (the pilot's), while that team builds: `_team_constants` puts it back.
 _MOVED_CONSTANTS = {}
@@ -654,6 +671,7 @@ def _measure(co, cls, S, seeds, team_id=None):
     hm = (z > 1.50 / 1.78 * S) & (z < 1.70 / 1.78 * S); J["head_xy"] = co[hm, :2].mean(0)
     skin = cls["skin"] & (z > 1.40 / 1.78 * S) & (z < 1.70 / 1.78 * S) & (co[:, 0] > J["head_xy"][0]) & ~cls["glove"]
     J["chin"] = float(np.percentile(z[skin], 4)); J["neck"] = J["chin"] - 0.06
+    J["rim"] = float(np.percentile(z[skin], 98))      # the top of the face's skin: the helmet's front rim
     # fists: the glove-coloured blob about each seed
     J["fist"] = {}
     for side, seed in seeds["fist"].items():
@@ -792,7 +810,7 @@ def _scale_joints(J, sz, sxy):
         p = np.asarray(p, float)
         return p * np.array([sxy, sxy, sz]) if p.shape[-1] == 3 else p * sxy
     out = dict(J, sxy=sxy, sz=sz)
-    for k in ("S", "crotch", "belt", "knee", "ankle", "chin", "neck"):
+    for k in ("S", "crotch", "belt", "knee", "ankle", "chin", "neck", "rim"):
         out[k] = J[k] * sz
     out["head_xy"] = s(J["head_xy"])
     for k in ("leg", "ankle_xy", "fist", "shoulder", "elbow", "wrist") + (("fist_pivot",) if "fist_pivot" in J else ()):
@@ -1905,6 +1923,8 @@ def _stamp_extras(path, team_id, figures, gun_tris, hand_tris):
         ex["rl_hands"]["pocket"] = [float(x) for x in SOURCES[team_id]["pocket"]]
     if "support_inset" in SOURCES[team_id]:
         ex["rl_hands"]["support_inset"] = float(SOURCES[team_id]["support_inset"])
+    if team_id in GEAR_FRAMES:
+        ex["rl_gear"] = dict(version=1, figures=GEAR_FRAMES[team_id])
     ex["rl_skinned"] = dict(version=1, figures=sorted(figures), task=SOURCES[team_id]["task"], binding="smooth")
     review = next(iter(figures.values())).get("gun_len_review")
     if review:
@@ -2399,9 +2419,68 @@ SPOOL_HALF_W_M = 0.07         # the disc's half thickness: the band of the back 
 CHARGE_AT = (0.90, -0.20, 0.0)
 
 
-def _team_extras(team_id, figures, Js, co0):
+#: yahalom_squad's charge (the lead's decision 6, 15 Nov 2026: "both men kneel, carbines in both hands, the charge on the
+#: ground"; the plan's table: unit 1's charge prop, `work` only, yah_b's, "on the ground at his knee"). It is bound to a
+#: bone of yah_b's OWN, `yah_b_charge`, not to a team `prop`: the team is drawn as separate men (`rl_figures[].squad`), a
+#: clip track that belongs to no figure would put it back on one team player (`squad-rig.ts`, `splitClips`), and a bone
+#: named for the figure moves with his slot (`motion/teams.ts`, `companions`) and is his in the split.
+#: Where: ahead of yah_b's slot by what demo_squad's charge stands ahead of demo_a's and to his right by the same
+#: (CHARGE_AT less demo_a's slot: +0.56, -0.04), then moved to the nearest centre of the same 4 cm grid at which no boot
+#: or uniform vertex of either man stands inside the box in `work` (the method of demo_squad's own move, read by
+#: `_coord/infantry-upgrade/yahalom/tools/charge_grid.ts` on the file after the motion pass): at (+0.56, -0.04) yah_b's
+#: raised shin and front boot stood 48 mm in it; two steps to his right, (+0.56, -0.12), nothing does. The box then lies
+#: ahead of his grounded knee (0.10 to 0.50 m ahead of it, from 0.15 m to its right to 0.15 m to its left).
+YAH_CHARGE_FROM_SLOT = (0.56, -0.12)
+YAH_CHARGE_BONE = "yah_b_charge"
+#: team -> figure -> where its base gear stands (`extras.rl_gear`), for the kit parts that stand on it
+GEAR_FRAMES = {}
+
+
+def _yahalom_extras(figures, Js, co0, src):
+    import yahalom_gear as yg
+    me0 = src.data
+    me0.calc_loop_triangles()
+    tris = np.array([t.vertices[:] for t in me0.loop_triangles], int)
+    mat = src.data.materials[0]
+    parts, forced = [], {}
+    for spec in figures:
+        p = spec["prefix"]; J = Js[p]
+        shift = np.array([spec["x"], spec["y"], 0.0])
+        body = co0 * np.array([J["sxy"], J["sxy"], J["sz"]]) + shift
+        cy = float((J["leg"]["R"][1] + J["leg"]["L"][1]) / 2) + spec["y"]
+        z_sh = float(max(J["shoulder"][s_][2] for s_ in ("R", "L")))
+        # the helmet's front rim: where the face's skin ends (the kit's own reading of it, `inf_kit_fit.Fit.hel_z0`)
+        z_rim = float(J["rim"])
+        cx = float((J["leg"]["R"][0] + J["leg"]["L"][0]) / 2) + spec["x"]
+        built, read, frame = yg.build("yahalom_squad", p, body, tris, cx, cy, z_sh, z_rim, float(J["belt"]), detector=spec["leader"])
+        # relative to his slot: the motion pass moves a figure's root by a pure translation (the wedge), and the kit
+        # reads the frame back about the root it finds (`inf_kit_yahalom.py`)
+        frame["pack"]["origin"] = [round(float(a_ - b_), 5) for a_, b_ in zip(frame["pack"]["origin"], shift)]
+        if "detector" in frame:
+            frame["detector"]["head_centre"] = [round(float(a_ - b_), 5) for a_, b_ in zip(frame["detector"]["head_centre"], shift)]
+        GEAR_FRAMES.setdefault("yahalom_squad", {})[p] = frame
+        for name, me, n in built:
+            me.materials.append(mat)
+            ob = bpy.data.objects.new(name, me)
+            bpy.context.collection.objects.link(ob)
+            ob["rl_role"] = "webbing"
+            parts.append(ob); forced[ob] = f"{p}_spine"
+        log(f"yahalom_squad: {p} gear -- " + "; ".join(f"{k} {v}" for k, v in read.items()))
+    b = next(s_ for s_ in figures if s_["prefix"] == "yah_b")
+    at = (b["x"] + YAH_CHARGE_FROM_SLOT[0], b["y"] + YAH_CHARGE_FROM_SLOT[1], 0.0)
+    charge = kit.demo_charge("yah_charge", at)
+    forced.update({ob: YAH_CHARGE_BONE for ob in charge})
+    parts += charge
+    log(f"yahalom_squad: extras -- the charge at ({at[0]:.2f}, {at[1]:.2f}) on `{YAH_CHARGE_BONE}`")
+    return parts, [(YAH_CHARGE_BONE, None, (at[0], at[1], 0.10), (at[0], at[1], 0.40))], forced
+
+
+def _team_extras(team_id, figures, Js, co0, src=None):
     """(parts, bones, forced bone per part) of a team's props: kit parts, rigidly bound (`rig.rig_parts`), no material
-    (the runtime colours a bare role mesh from its role ramp, as it does for the same props on today's file)."""
+    (the runtime colours a bare role mesh from its role ramp, as it does for the same props on today's file) -- or, for
+    yahalom_squad's pack and detector, the body's own material with pinned texels of its atlas."""
+    if team_id == "yahalom_squad":
+        return _yahalom_extras(figures, Js, co0, src)
     if team_id != "demo_squad":
         return [], [], {}
     spec = next(s for s in figures if s["leader"])
@@ -2472,7 +2551,7 @@ def build_team(team_id, out_path=None):
         Jship[p] = _scale_joints(J0ship, sz, sxy) if "stock" in cfg else Js[p]
         bones += _bone_table(p, Js[p], spec["x"], spec["y"])
     # the team's own props (demo_squad's charge and spool): rigid kit parts on bones of their own or a figure's
-    extra_parts, extra_bones, extra_forced = _team_extras(team_id, figures, Js, co0)
+    extra_parts, extra_bones, extra_forced = _team_extras(team_id, figures, Js, co0, src)
     bones += extra_bones
     arm_obj = rig.build_armature(bones)
     # a figure's bone, less its figure's prefix (`demo_a_root` -> `root`): the longest prefix a name starts with, never
@@ -2482,7 +2561,8 @@ def build_team(team_id, out_path=None):
     def bone_suffix(name):
         p_ = next((q for q in by_len if name.startswith(q + "_")), None)
         return name[len(p_) + 1:] if p_ else name
-    team_bones = [b.name for b in arm_obj.data.bones if bone_suffix(b.name) == b.name]
+    # (...and a prop's bone named for a figure, `yah_b_charge`: it is that figure's in the runtime's split, and a prop's here)
+    team_bones = [b.name for b in arm_obj.data.bones if bone_suffix(b.name) == b.name or b.name in {eb[0] for eb in extra_bones}]
     # hand bones: +Z (the back of the hand) away from the bore; the rest keep rig.py's roll
     bpy.context.view_layer.objects.active = arm_obj
     bpy.ops.object.mode_set(mode="EDIT")

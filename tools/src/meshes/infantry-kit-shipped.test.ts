@@ -45,7 +45,7 @@ const REPO = fileURLToPath(new URL('../../../', import.meta.url));
  * `hosts` are the role primitives its kit joins. `leaderOnly` are the parts only the radio man carries.
  */
 const TEAMS: Readonly<
-  Record<string, { figures: string[]; hosts: string[]; leader: string; preKitEncodedBytes: number; growthKiB: number }>
+  Record<string, { figures: string[]; hosts: string[]; leader: string; preKitEncodedBytes: number; growthKiB: number; radio?: string[]; noRadio?: string[] }>
 > = {
   inf_squad: { figures: ['f0', 'f1', 'f2'], hosts: ['uniform', 'weapon'], leader: 'f1', preKitEncodedBytes: 1_961_376, growthKiB: 128 },
   // GH-826 unit 1 (13 Nov 2026): the Combat Engineers are a skinned Meshy body with a textured carbine, so their devices ride
@@ -54,6 +54,16 @@ const TEAMS: Readonly<
   // 1,639,424: +79,604 bytes, 77.7 KiB, for two men where the Rifle Squad's three cost 107.5. The budget is the measured
   // growth rounded up to 80 KiB, this team's own row (the lead's ruling of 13 Nov 2026: per team, never global).
   demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform', 'weapon'], leader: 'demo_b', preKitEncodedBytes: 1_559_820, growthKiB: 80 },
+  // GH-826 unit "Yahalom" (17 Nov 2026): the Combat Engineers' body, the same v7 set less the back radio (the pack holds its
+  // slot) plus the four specialist items (yah_a 6,667 and yah_b 6,912 triangles drawn). Pre-kit encode 1,637,336 (the same
+  // procedure: `stripKit`, then the encode pass's draco()); with the kit 1,714,364: +77,028 bytes, 75.2 KiB. Inside the
+  // Combat Engineers' 80 KiB, so the same row. `leader` here is who carries the radio parts: yah_b, not the team's leader;
+  // `radio` is what he alone carries (the pouch on his pack's side, the whips off its top) and `noRadio` what nobody does
+  // (the assault pack holds the back radio's slot: the 30 Oct "baked gear wins" rule).
+  yahalom_squad: {
+    figures: ['yah_a', 'yah_b'], hosts: ['uniform', 'weapon'], leader: 'yah_b', preKitEncodedBytes: 1_637_336, growthKiB: 80,
+    radio: ['whip_short', 'whip_long', 'radio_pouch'], noRadio: ['radio_panel', 'radio_pack'],
+  },
 };
 // 9 Nov 2026 (the v7 set, GH-746, lead-approved 7,200 triangles a figure): the Rifle Squad's encoded kit now adds 110,104 bytes
 // (107.5 KiB) to its pre-kit file, so ITS budget is 128 KiB (`growthKiB` above) and at 64 KiB this test goes red on the shipped
@@ -125,9 +135,10 @@ describe(`${team}: the kit in art/meshes`, () => {
 
   it('puts the radio whip and the pack on the leader only', async () => {
     const all = [...kitParts(await doc).values()].flat();
-    for (const part of ['whip_short', 'whip_long', 'radio_panel', 'radio_pack']) {
-      expect(all.filter((p) => p.part === part).map((p) => p.figure)).toEqual([spec.leader]);
+    for (const part of spec.radio ?? ['whip_short', 'whip_long', 'radio_panel', 'radio_pack']) {
+      expect(all.filter((p) => p.part === part).map((p) => p.figure), part).toEqual([spec.leader]);
     }
+    for (const part of spec.noRadio ?? []) expect(all.filter((p) => p.part === part), part).toEqual([]);
   });
 
   it('every vertex carries a part id that is a row of the table, and every row has its triangles', async () => {
@@ -199,6 +210,7 @@ describe(`${team}: the kit in assets/meshes`, () => {
 describe('the encoded-growth budget is per team', () => {
   it('the Combat Engineers read 80 KiB and the Rifle Squad 128 KiB', () => {
     expect(GROWTH_BUDGET_BYTES('demo_squad')).toBe(80 * 1024);
+    expect(GROWTH_BUDGET_BYTES('yahalom_squad')).toBe(80 * 1024);
     expect(GROWTH_BUDGET_BYTES('inf_squad')).toBe(128 * 1024);
   });
 });
