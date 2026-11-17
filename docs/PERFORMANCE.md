@@ -11,25 +11,64 @@
 > load numbers for the retirement itself are in "Retiring the sprite sheets"
 > at the end of this file.
 
-## The 300-unit frame cost: which reading is current (reconciled 2026-11-15)
+## The 300-unit figures: one table, with their conditions (GH-1411)
 
-The file holds several readings of "about 300 units" that look like they contradict each other. They do not measure the same thing: they differ in roster, pixel count, renderer path and statistic. **No new measurement was taken for this table** (docs only; no GPU run). Every reading is one Apple M3 Pro on ANGLE/Metal.
+Reconciled 2026-11-15; made one table with every figure's conditions 2026-11-17 (GH-1411, CPU half). This file and `docs/agent-notes/webgpu-backend.md` quote "about 300 units" in many places, with numbers that look contradictory. They do not measure the same thing: they differ in roster, pixel count, renderer path, map, statistic and machine. Every row below is a figure as it was published, with its conditions copied from the section it came from. Where a section did not record a condition, the cell says **unknown**; nothing was filled in by inference.
 
-| Date | Reading | Conditions | Status |
-|---|---|---|---|
-| 15 Sep ("The 300-unit acceptance, measured") | 6.50-6.70 ms render p95, 266 living | `measureThreeMesh`, **five roster types drawn as meshes**, the rest as billboards; 1280x720 at DPR 1; lit chain on | **Superseded.** That roster is not the shipped one. Its verdict ("the 300-unit acceptance holds") rests on it. |
-| 25 and 28 Sep (ground plans 1 and 2: "300-figure curve", "`perf:units` at 300 figures") | 6.90-7.60 ms p95, 266 living | same harness, same partial roster, 1280x720 DPR 1 | Superseded for the same reason. |
-| 4 Oct ("Retiring the sprite sheets", "The all-mesh backend curve") | **30.0 ms render p95 at 266 living** (10.8 / 17.8 / 30.0 / 39.7 at 65 / 143 / 266 / 320; tick p95 0.30 / 1.20 / 2.20 / 3.40) | `backend-curve-gate.ts --only=three-mesh`, **all 20 roster types drawing their real GLB**, same machine, 1280x720 DPR 1 | **The latest full 266-living curve on the legacy path in this file, and the one that matches the shipped roster.** It is over the 16.7 ms budget. It predates the look uplift (L1, 2 Nov) and everything after it. |
-| 26 Oct (GH-829) | 19.1 / 18.4 / 16.4 ms (`wadi_halam_4`), 21.0 / 18.1 / 17.0 (basin) at z1 / z1.6 / z2.5 | `high`, DPR 2 (2880x1800), readPixels-synced, **29-32 entities, parked** | Not a 300-unit reading: a small force at four times the pixels; GPU-bound. |
-| 10-13 Nov (`docs/agent-notes/webgpu-backend.md`, GH-1152) | legacy path 18.10 ms at 600 units; WebGPU path 9.15 to 10.95 ms at 300 units and 15.95 to 19.82 at 600 | a different instrument (`webgpu:abba`, ABBA rounds, `wadi_halam_4`, 1280x720 at DPR 2, z0.5, `high`, parked), a different statistic, and the WebGPU path | A comparison of two backends, not a replacement for the 4 Oct curve; read that file for its conditions. |
+**Only one figure was measured for this table**: the sim tick at 300 units (row C8), CPU only. **No GPU or frame figure was re-measured.** Every frame, GPU and draw-submission row whose instrument still runs is marked **needs Metal re-read**; rows whose renderer path was retired (Pixi, billboards) cannot be re-read and say so.
 
-**Reading the contradiction:** the 15 Sep 6.5 ms and the 4 Oct 30.0 ms are the same harness on the same machine with a different roster (five mesh types against all twenty, including the skinned infantry). The 4 Oct file calls it "a new number, not a regression". The 15 Sep acceptance verdict should not be quoted for the shipped game.
+Columns: **units** is the checkpoint's lifetime spawn target and, after the slash, the units living when it was measured (the curve harnesses lose units to real combat between checkpoints). **Tick** is where the sim stood while the figure was taken. Every M3 Pro row is one Apple M3 Pro laptop (12 cores, macOS); every "ANGLE/Metal" row printed `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)` or names it as confirmed.
+
+### Frame, GPU and draw-submission figures
+
+| # | Figure | What it measures | Units | Map / scenario | Backend / GPU | Resolution | Tick | Date / commit | Source | Re-read |
+|---|---|---|---|---|---|---|---|---|---|---|
+| F1 | 4.40 ms | render p95, Pixi billboards | 300 / 266 | `beit_sahwan_outskirts`, seed `20260827`, two 10-type rosters | Pixi on ANGLE/Metal, M3 Pro | unknown (not stated on 30 Aug) | per checkpoint: 40 timed ticks, then 180 timed frames (5-tick / 10-frame warm-up); absolute tick not recorded | 2026-08-30, `15bd819` + uncommitted `tools/src/perf/` | `backend-curve-gate.ts` (`measurePixi`); "Backend curve" below | cannot be re-read: Pixi retired (WP-A3.3) |
+| F2 | 1.50 ms | render p95, three.js, every unit a billboard | 300 / 266 | as F1 | three.js (pre-lit) on ANGLE/Metal, M3 Pro | unknown | as F1 | as F1 | `measureThree`; "Backend curve" | cannot be re-read: billboard path retired |
+| F3 | 1.90-2.00 ms | render p95, three.js, 5 of 20 roster types as meshes, the rest billboards | 300 / 266 | as F1 | three.js (pre-lit) on ANGLE/Metal, M3 Pro | unknown | as F1 | as F1 | `measureThreeMesh`; "Backend curve" | superseded by F9; needs Metal re-read only as F9 |
+| F4 | 2.80 / 2.60 ms p95 (avg 2.60 / 2.54); 1,800 draw calls | render cost of N skinned infantry figures alone: R0's spike GLB, bare `WebGLRenderer`, no lit chain | 300 figures (not units) | none: figures only, no map | three.js bare renderer on ANGLE/Metal, M3 Pro | unknown | no sim | 2026-08-30, as F1 | `measureSkinnedInfantry`; "Unit ceiling" | needs Metal re-read (and a shipped GLB, see "Known limitations") |
+| F5 | 53 ms avg | the same as F4 | ~300 figures | as F4 | **SwiftShader** (software), by mistake | unknown | no sim | 2026-08-30, as F1 | `measureSkinnedInfantry` before the GPU fix; "Unit ceiling" | **retracted**: a software-rendering artifact, not a frame cost |
+| F6 | **6.70 / 6.50 ms** | render p95 (CPU bracket of `frame()`, no `gl.finish()`), whole lit chain, 5 mesh types + billboards | 300 / 266 | as F1 | three.js lit on ANGLE/Metal, M3 Pro; Node v25.9.0 | 1280x720, DPR 1 | as F1 | 2026-09-15, `3dd6151` | `backend-curve-gate.ts --only=three-mesh`; "The 300-unit acceptance, measured" | superseded by F9 (partial roster); needs Metal re-read only as F9 |
+| F7 | 7.40 before, 7.60 after | render p95, as F6, before/after infantry crossfades | 300 / 266 | as F1 | as F6 | 1280x720, DPR 1 (same instrument as F6) | as F1 | 2026-09-17; before = branch base (`4884a9d8`, the merge-base the same section names), after = branch head (sha not recorded) | as F6; "Infantry animation" | superseded by F9 |
+| F8 | main 7.20, 7.60; branch 7.50, 7.30 (25 Sep). main 7.60 / 7.20 / 8.00, branch 6.60 / 7.30 / 6.80 (28 Sep) | render p95, as F6 | 300 / 266 | as F1 | as F6; Node v25.9.0 | 1280x720, DPR 1 | as F1 | 2026-09-25: main `8d525c81`, branch `64afcf3b`. 2026-09-28: main `b6497c12`, branch `17480db0`; load 4-8 on 12 cores | as F6; "The ground, plan 1" and "plan 2" | superseded by F9 |
+| F9 | **30.0 ms** (curve 10.8 / 17.8 / 30.0 / 39.7 at 65 / 143 / 266 / 320 living) | render p95, three.js, **all 20 roster types drawing their real GLB** | 300 / 266 | as F1 | three.js lit on ANGLE/Metal, M3 Pro | unknown (the harness's fixed 1280x720 DPR 1 host is the likely size; the 4 Oct section does not say) | as F1 | 2026-10-04, `feat/retire-pixi` head (sha not recorded; base `f818eb7b`) | `backend-curve-gate.ts --only=three-mesh`; "Retiring the sprite sheets" | **needs Metal re-read**: the latest legacy-path curve for the shipped roster, and it predates L1 to L5, the 3D grass, ragdolls and the insignia |
+| F10 | 9.15 -> 10.95 ms | frame median of the round medians (6 ABBA rounds, 80 timed frames a reading), WebGPU node path, before/after the T3-T12 node twins | 300 | `wadi_halam_4`, z0.5, quality `high`, parked | WebGPU (`apple / metal-3`), M3 Pro | 1280x720, DPR 2 | parked (no tick advances) | 2026-11-10, integration tree `bab8b69ff`; load 2.50-4.00 | `webgpu:abba` / `runArm`; `webgpu-backend.md` "Draw submission", H6 | **needs Metal re-read** |
+| F11 | 1,117 a frame | FULL material refreshes a frame (a count, not a time), WebGPU node path | 300 | as F10 | as F10 | as F10 | as F10 | as F10 | `webgpu-submit-probe.ts`; `webgpu-backend.md` H2 | needs Metal re-read (a count: CI `webgpu-noise.yml probe=submit` reads counts on SwiftShader, not compared with this) |
+| F12 | grass off 27.90, on 33.95 ms | frame median, WebGPU node path, 3D grass field off / on | 300 | `wadi_halam_4`, z0.5, `high`, parked, reduced motion on the harness page | as F10 | 1280x720, DPR 2 | parked | 2026-11-13, origin/main `68938665c` + tool edits; load 2.94-3.99 | `webgpu:abba --arms=G --grass --counts=0,300`; `webgpu-backend.md` "The 3D grass field", r1 | **needs Metal re-read** |
+| F13 | grass off 28.10, on 31.10 ms | as F12, after the taller, denser, single-pass field | 300 | as F12 | as F10 | 1280x720, DPR 2 | parked | 2026-11-13, `cl/gh1167-taller-denser` merged with origin/main (sha not recorded); load 3.24-4.00 | as F12, `--rounds=3 --wait-quiet=30`; `webgpu-backend.md` "taller and denser grass" | **needs Metal re-read** |
+
+Not 300-unit figures, kept here because they are quoted beside them: GH-829's 19.1 / 18.4 / 16.4 ms (`wadi_halam_4`) and 21.0 / 18.1 / 17.0 ms (`wadi_halam_basin`) at z1 / z1.6 / z2.5 are a **29-32 entity** parked sandbox force, `high`, DPR 2 (2880x1800), readPixels-synced, 2026-10-26 (`fx-cost.ts --breakdown`): a small force at four times F6's pixels, GPU-bound. The legacy WebGL path's 18.10 ms in `webgpu-backend.md` (H1, H3) is at **600** units, `wadi_halam_4`, 1280x720 DPR 2. No memory figure at 300 units exists in this file: `pnpm perf:memory` reads missions, the largest of which fields about 65 units.
+
+### Sim tick figures (CPU)
+
+| # | Figure | What it measures | Units | Map / scenario | Backend / CPU | Resolution | Tick | Date / commit | Source | Re-read |
+|---|---|---|---|---|---|---|---|---|---|---|
+| C1 | avg 2.08 (other run 2.54), p95 2.58, max 2.67 ms | `sim.tick()` alone, 4 authored tunnel routes registered | 300 / 296 | `beit_sahwan_outskirts`, seed `20260827`, the F1 rosters | CPU only, Node v25.9.0, M3 Pro (12 cores); load 8.7-9.6 | n/a | 40 timed after 5 warm-up, cumulative checkpoints 150 to 2100 | 2026-08-30, `15bd819` + uncommitted `tools/src/perf/` | `sim-scaling.ts --checkpoints=150,300,600,1000,1500,1800,2100 --ticks=40 --warmup=5`; "Sim tick cost" | history: the sim has changed since; see C5, C8 |
+| C2 | avg 1.45, p95 1.60 ms | `sim.tick()` in the browser tab, **no tunnels registered** | 300 / 266 | as F1 | CPU, in a Chromium tab, M3 Pro | n/a | 40 timed after 5 warm-up | 2026-08-30, as F1 | `backend-curve-gate.ts` tick column; "Backend curve" | history |
+| C3 | p95 1.80-2.00 ms | as C2 | 300 / 266 | as F1 | as C2 | n/a | as C2 | 2026-09-15, `3dd6151` | as F6 | history |
+| C4 | p95 2.20 ms | as C2 | 300 / 266 | as F1 | as C2 | n/a | as C2 | 2026-10-04, as F9 | as F9 | history; the last in-tab tick reading |
+| C5 | avg 3.51 / 3.60, p95 4.01 / 4.05 ms (wounds on); 3.55 / 3.36, 4.13 / 4.11 (off) | as C1, with and without `hull.wounds` | 300 / 295 | as C1 | CPU only, Node v25.9.0, M3 Pro; load 6-15 | n/a | as C1, checkpoints 150, 300, 600 | 2026-10-22, commit not recorded | `sim-scaling.ts --checkpoints=150,300,600 --ticks=40 --warmup=5` (`PERF_NO_WOUNDS=1` for off); "Wounded men" | the latest M3 Pro reading |
+| C6 | 0.02-0.04 ms a tick (mean), 0.10-0.13 interdicted | `MissionRuntime.stepIncome` alone, not the whole tick | 300 living | `deir_amun_2`, `deir_amun_2_foothold` cloned in memory, 4 income zones and a convoy | CPU only, node v25.9.0 under tsx, M3 Pro; load 14.6-21.6 | n/a | 2,000 timed after 200 warm-up, 6 runs a cell | 2026-10-15, harness and sim at `53282f8f` | `income-cost.ts`; "Held-ground income" | not re-read |
+| C7 | 4.5 ms | sim tick | 324 | **unknown** | **unknown** | n/a | **unknown** | 2026-11-15 | the readiness audit of 15 Nov (the page GH-1411 links); tool, machine, statistic and commit not recorded in the repository | not re-read: its conditions are unknown; C8 is a reading with them |
+| C8 | **avg 4.35 / 3.93, p95 5.09 / 4.66, max 5.32 / 4.67 ms** (two fresh processes) | as C1 | 300 / 295 | as C1 | CPU only, node v22.23.4, `Intel(R) Xeon(R) Processor @ 2.30GHz`, 4 cores (a cloud container, not the M3 Pro: **not comparable with C1 to C7**); load (1 / 5 / 15 min) 2.97 / 4.69 / 2.59 before and after run 1, 2.89 / 4.65 / 2.59 before and after run 2 | n/a | 40 timed after 5 warm-up, checkpoints 150, 300, 600 | 2026-11-17, origin/main `1e6d60b3` plus this change (tools only; `packages/sim` unchanged) | `pnpm --filter @lions/tools exec tsx src/perf/sim-scaling.ts --checkpoints=150,300,600 --ticks=40 --warmup=5`, which now prints its conditions block first (GH-1411) | measured here |
+
+C8's other checkpoints, run 1 / run 2: 150 / 150 living, avg 1.95 / 2.05, p95 4.99 / 5.76 ms; 600 / 539 living, avg 11.14 / 10.91, p95 12.74 / 12.45 ms. At 300 units the tick uses **8-9% of its 50 ms budget on the average and 9-10% at p95** on this container; detection's pair scan (1.91-2.16 ms) and `stepCombat` (1.32-1.41 ms) are about 80% of it.
+
+### Why the figures disagree
+
+- **F6 (6.5 ms, 15 Sep) and F9 (30.0 ms, 4 Oct)** are the same harness on the same machine (F6 at 1280x720 DPR 1, the harness's fixed host; F9's section does not state its size). The roster changed: five mesh types over a billboard majority, against all twenty types as meshes, the skinned infantry included. The 4 Oct section calls it "a new number, not a regression". F6's verdict ("the 300-unit acceptance holds") rests on a roster the game no longer draws and must not be quoted for the shipped game.
+- **F10 to F13 (9 to 34 ms, 10 to 13 Nov)** are a different instrument (`webgpu:abba`, a median over ABBA rounds rather than a p95), a different backend (the WebGPU node path), a different map (`wadi_halam_4`, a green-theme map) and four times F6's pixels (DPR 2 against DPR 1). They answer "what does the node path cost against legacy", not "what does the shipped game cost at 300 units".
+- **F10 against F12**: the same instrument family on the same map, zoom and size reads 10.95 ms at n300 on 10 Nov and 27.90-28.10 ms with grass off on 13 Nov. The n0 baselines agree (about 9.5 to 10 ms), so the difference is in what 300 units cost. **Not reconciled: the cause is unknown.** Two candidates are on record, neither shown to be the cause: the grass page ran with reduced motion on, and on 10 Nov the submit page's drawn scene was measured to grow with repeated `snapshot()` calls at n300 (435, then 708, then 1,295 skinned draws, with no tick between them; `webgpu-backend.md`, the caveats under H6). Whether the 13 Nov page read a grown scene was not checked.
+- **C1 to C8** are CPU. They agree in order of magnitude (2 to 5 ms against a 50 ms budget). C5 against C1 is the same machine and instrument and reads about 1.7x higher seven weeks later. The sim changed in between, and which change costs what was not measured; C5's own wounds-off arm reads the same as its wounds-on arm, so it is not the wounds. C8 is another machine and is not a trend point against either.
+
+**What follows for any "300 units at 60 fps" claim:** no figure in this file supports one. The only all-mesh, shipped-roster frame figure at 300 units (F9) is 30.0 ms p95, almost twice the 16.7 ms frame, and it is six weeks old. Make no such claim until F9 is re-read on the current build.
 
 **Still to be measured on real hardware** (none of it was run here):
-- the all-mesh 266-living curve (`backend-curve-gate.ts --only=three-mesh`) on the current build, at DPR 1 and at DPR 2, on the shipped `high`, `medium` and `low` presets (the last one was taken on 4 Oct, before L1 to L5, the 3D grass, ragdolls and the insignia);
-- a live fight (every 300-unit figure above is parked or held still);
+- the all-mesh 266-living curve (`backend-curve-gate.ts --only=three-mesh`) on the current build, at DPR 1 and at DPR 2, on the shipped `high`, `medium` and `low` presets (F9 was taken on 4 Oct, before L1 to L5, the 3D grass, ragdolls and the insignia), with its resolution printed;
+- F10 against F12: the same n300 scene read twice in one hold, to find what moved;
+- a live fight (every 300-unit frame figure above is parked or held still);
 - any GPU other than this one Apple M3 Pro: a Windows or Linux machine, an integrated GPU, a discrete one. CI reads SwiftShader only, which is not a frame-time instrument;
-- tick cost on the same run (the 4 Oct tick p95 of 2.20 ms at 266 living is the last).
+- the sim tick on the M3 Pro on the current build (C5, 22 Oct, is the last), with `sim-scaling.ts`'s conditions block quoted beside it.
 
 **Last measured:** each section below is dated on its own; the first pass is 2026-08-30, this branch's HEAD (`15bd819` + this session's
 uncommitted `tools/src/perf/` changes). **Re-run before quoting these numbers
@@ -344,6 +383,12 @@ scan.
 npx tsx tools/src/perf/sim-scaling.ts \
   --checkpoints=150,300,600,1000,1500,1800,2100 --ticks=40 --warmup=5
 ```
+
+Since GH-1411 the tool opens its output with a capture-conditions block (commit and whether tracked files
+were dirty, node version, CPU model, core count, load average, date, and the backend, `CPU only`) and
+closes it with the load average at the end (`tools/src/perf/capture-conditions.ts`). Quote both with any
+figure taken from it. Where `npx tsx` is not on the root's path, `pnpm --filter @lions/tools exec tsx
+src/perf/sim-scaling.ts <flags>` runs the same file.
 
 `tools/src/perf/sim-scaling.ts` reuses `three-units.ts`'s own
 `buildWorld`/`computeAnchors`/`createSpawner`/`spawnUpTo` unchanged — same
@@ -876,7 +921,7 @@ which is the only thing the A/B is for, is unaffected.
 
 ### The 300-unit acceptance, measured (2026-09-15)
 
-> **Superseded (see "The 300-unit frame cost: which reading is current" at the top).** This roster drew five mesh types and the rest as billboards. The same harness with all 20 types drawing meshes read 30.0 ms p95 at 266 living on 4 Oct.
+> **Superseded (see "The 300-unit figures: one table, with their conditions" at the top, rows F6 and F9).** This roster drew five mesh types and the rest as billboards. The same harness with all 20 types drawing meshes read 30.0 ms p95 at 266 living on 4 Oct.
 
 **Spec §11's acceptance holds, and the number is 6.50–6.70 ms p95 against a
 16.7 ms budget.** It had never actually been run: everything above this
@@ -1507,7 +1552,7 @@ until their GLB lands, with a "deploying" chip on the dock tile. So
 time-to-deploy is unchanged by this work, and the cost of the alternative was
 not measured.
 
-**The all-mesh backend curve** (**the current legacy-path curve in this file**, see the table at the top; `backend-curve-gate.ts --only=three-mesh`, same
+**The all-mesh backend curve** (**the current legacy-path curve in this file**, row F9 of the table at the top; `backend-curve-gate.ts --only=three-mesh`, same
 machine, ANGLE/Metal): with every one of the 20 roster types drawing its real
 GLB -- where the old "three, meshes" curve swapped a quarter of the roster over
 a billboard majority -- render p95 is 10.8 / 17.8 / 30.0 / 39.7 ms at 65 / 143
