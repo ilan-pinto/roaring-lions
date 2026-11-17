@@ -1,6 +1,6 @@
-// The capture-conditions block (GH-1411): every field printed, read from a fake machine.
+// The capture-conditions block (GH-1411): every field printed, read from a fake machine, and the real adapter read once.
 import { describe, expect, it } from 'vitest';
-import { conditionsBlock, formatLoad, readConditions, type ConditionsEnv } from './capture-conditions';
+import { NODE_ENV, conditionsBlock, formatLoad, readConditions, type ConditionsEnv } from './capture-conditions';
 import { SIM_SCALING_BACKEND, simScalingConditions } from './sim-scaling';
 
 const FAKE: ConditionsEnv = {
@@ -50,5 +50,17 @@ describe('capture conditions', () => {
       expect(lines.filter((l) => l.trimStart().startsWith(label))).toHaveLength(1);
     }
     expect(lines.at(-1)).toBe(`  backend:      ${SIM_SCALING_BACKEND}`);
+  });
+
+  it('the real Node adapter reads this machine: a CPU model, cores > 0, a commit or unknown', () => {
+    // mutation: NODE_ENV's `cpus: () => cpus()` changed to `() => []` (cpu and cores read `unknown`)
+    const c = readConditions('x', NODE_ENV);
+    expect(c.cpuModel).not.toBe('unknown');
+    expect(c.cpuModel.trim()).not.toBe('');
+    expect(Number(c.cores)).toBeGreaterThan(0);
+    expect(Number.isInteger(Number(c.cores))).toBe(true);
+    expect(c.commit).toMatch(/^(unknown|[0-9a-f]{40} (\(clean\)|\(tree state unknown\)|\+ uncommitted changes to tracked files))$/);
+    expect(c.node).toBe(process.version);
+    expect(c.loadAverage).toMatch(/^(unknown|\d+\.\d\d \/ \d+\.\d\d \/ \d+\.\d\d \(1 \/ 5 \/ 15 min\))$/);
   });
 });
