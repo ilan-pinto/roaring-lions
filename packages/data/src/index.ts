@@ -35,6 +35,11 @@ import qasrLiwan2Map from '../../../data/maps/qasr_liwan_2.json';
 import qasrLiwan3Map from '../../../data/maps/qasr_liwan_3.json';
 import qasrLiwan4Map from '../../../data/maps/qasr_liwan_4.json';
 import qasrLiwan5Map from '../../../data/maps/qasr_liwan_5.json';
+import birTarshaMap from '../../../data/maps/bir_tarsha.json';
+import birTarsha2Map from '../../../data/maps/bir_tarsha_2.json';
+import birTarsha3Map from '../../../data/maps/bir_tarsha_3.json';
+import birTarsha4Map from '../../../data/maps/bir_tarsha_4.json';
+import birTarsha5Map from '../../../data/maps/bir_tarsha_5.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import qarnHadid2Map from '../../../data/maps/qarn_hadid_2.json';
 import qarnHadid3Map from '../../../data/maps/qarn_hadid_3.json';
@@ -461,6 +466,11 @@ export const maps = {
   qasr_liwan_3: qasrLiwan3Map,
   qasr_liwan_4: qasrLiwan4Map,
   qasr_liwan_5: qasrLiwan5Map,
+  bir_tarsha: birTarshaMap,
+  bir_tarsha_2: birTarsha2Map,
+  bir_tarsha_3: birTarsha3Map,
+  bir_tarsha_4: birTarsha4Map,
+  bir_tarsha_5: birTarsha5Map,
   rujm_sawda: rujmSawda,
   tel_marum: telMarum,
   tel_marum_1: telMarum1,

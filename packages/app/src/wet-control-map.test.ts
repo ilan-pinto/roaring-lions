@@ -55,8 +55,8 @@ const terrainOf = (id: MapId): string | undefined => (maps[id] as MapJson).terra
 const shipped = (Object.keys(maps) as MapId[]).filter((id) => terrainOf(id) !== 'wetland');
 
 describe('no shipped map allocates control C', () => {
-  it('there are 43 non-wetland maps, and the wetland ones are the three Ein Qasab maps (GH-912)', () => {
-    expect(shipped.length).toBe(43); // Was 38 before the five Qasr Liwan maps; 37: Milh Flats (large), GH-920 B3 (36 before Wadi Tarfan (large))
+  it('there are 48 non-wetland maps, and the wetland ones are the three Ein Qasab maps (GH-912)', () => {
+    expect(shipped.length).toBe(48); // Was 43 before the five Bir Tarsha maps; 38 before the five Qasr Liwan maps; 37: Milh Flats (large), GH-920 B3 (36 before Wadi Tarfan (large))
     expect((Object.keys(maps) as MapId[]).filter((id) => terrainOf(id) === 'wetland').sort()).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
   });
 
