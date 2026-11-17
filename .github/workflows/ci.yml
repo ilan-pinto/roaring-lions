@@ -405,6 +405,15 @@ jobs:
         continue-on-error: true
         timeout-minutes: 25
         run: pnpm ui:shots -- --port=5176 --res=1400x900 --out=ui-shots-output
+      # GH-1406/GH-1407, the lead's ruling D9 on PR 1474: the same walk once per shipped locale but en (`--lang=all`), with the overflow
+      # probe reported per locale, into ui-shots-output/locales/<id>/ (uploaded with the captures below). REPORT-ONLY, like the step above.
+      # With no locale shipped it prints one line and exits 0 before a port or a browser is touched (`shot-locales.ts`). Each locale is
+      # another ~15 min walk on SwiftShader, so the first translation to land must also give this step the minutes it needs.
+      - name: ui:shots -- every shell screen per shipped locale (report-only)
+        if: ${{ success() || failure() }}
+        continue-on-error: true
+        timeout-minutes: 25
+        run: pnpm ui:shots -- --lang=all --port=5176 --res=1400x900 --out=ui-shots-output/locales
       # Uploaded on failure AND on success: the diff image is what a triager
       # actually needs, and `combat` is captured but never gated, so its frame
       # is only ever reachable here.

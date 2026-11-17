@@ -7,7 +7,7 @@
 // the way `tools/src/perf/wreck-captures.ts` does, so it runs unattended --
 // no positional base-URL argument, no assumption a server is already up.
 //
-// Usage: pnpm ui:shots -- [--pseudo] [--res=1400x900,1920x1080,2560x1440] [--out=.superpowers/ui-shots] [--port=5176] [--only=garage]
+// Usage: pnpm ui:shots -- [--pseudo[=rtl] | --lang=<id>[,<id>...] | --lang=all] [--res=1400x900,1920x1080,2560x1440] [--out=.superpowers/ui-shots] [--port=5176] [--only=garage]
 //
 // The port is `--port=<n>`, else `UI_SHOTS_PORT`, else 5176 (`./port.ts`). A
 // port something else already holds is REFUSED, exit 2, before a browser or a
@@ -55,6 +55,17 @@
 // swaps the real catalogue for the bracketed pseudo-locale one
 // (`i18n/pseudo.ts`) on whichever screen loads -- a plain, unbracketed word
 // in a pseudo capture is a string that never went through `t()`.
+// `--pseudo=rtl` appends `?pseudo=rtl` instead: the same, forced right-to-left.
+//
+// `--lang=<id>[,<id>...]` (the lead's ruling D9 on PR 1474, GH-1406/GH-1407)
+// walks every state once per shipped locale, `?lang=<id>` on every
+// navigation, into <out>/<id>/<WxH>/, with the overflow probe's total
+// reported per locale. `--lang=all` is every shipped locale but `en`; with
+// none shipped it prints one line and exits 0 before a port, a server or a
+// browser is touched, which is what CI's report-only step relies on today.
+// An id `LOCALES` does not list is refused, exit 2: the app ignores such a
+// `?lang=` and would draw English under that language's name. The rules and
+// their tests: `./shot-locales.ts`.
 //
 // 17-debrief (the after-action report, GH-417) is a SCRIPTED defeat: `debugKill` every
 // player unit and step the sim until `checkEnd` notices, which a script can
@@ -112,6 +123,8 @@ import { garageSeedScript } from './garage-seed';
 import { assertOutcomeStillPresent, OutcomeMomentDismissedError } from './outcome-guard';
 import { claimPort } from './port';
 import { musicOffInitScript } from './music-off';
+import { carriesLocaleQuery, overflowReport, planLocales, withLocaleQuery, type LocalePass } from './shot-locales';
+import { LOCALES } from '../../../packages/app/src/i18n/locales';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -122,7 +135,6 @@ const TAG = 'ui-shots';
 // and on a machine where something does, `--port=`/`UI_SHOTS_PORT` pick
 // another, and `claimPort` refuses the busy one rather than sharing it.
 const DEFAULT_PORT = 5176;
-const PORT = await claimPort(TAG, 'UI_SHOTS_PORT', DEFAULT_PORT);
 const MISSION = 'beit_sahwan_1_recon';
 
 const argv = process.argv.slice(2);
@@ -130,10 +142,21 @@ const arg = (name: string, fallback: string): string => {
   const hit = argv.find((a) => a.startsWith(`--${name}=`));
   return hit ? hit.slice(name.length + 3) : fallback;
 };
-// Value-less, unlike every other flag here: `--pseudo` is a switch, not a
-// `--name=value` pair, so it is read straight off argv rather than through
-// `arg()`.
-const PSEUDO = argv.includes('--pseudo');
+// The languages this run photographs (`./shot-locales.ts`), decided FIRST:
+// `--lang=all` with no locale shipped is a clean no-op, so it must leave
+// before the port is claimed, a server started or a browser launched; a bad
+// `--pseudo=`/`--lang=` value is refused, exit 2, at the same point.
+const LOCALE_PLAN = planLocales(argv, LOCALES.map((l) => l.id));
+if (LOCALE_PLAN.kind === 'nothing') {
+  console.log(`[${TAG}] ${LOCALE_PLAN.message}`);
+  process.exit(0);
+}
+if (LOCALE_PLAN.kind === 'refuse') {
+  console.error(`[${TAG}] ${LOCALE_PLAN.message}`);
+  process.exit(2);
+}
+const PASSES: readonly LocalePass[] = LOCALE_PLAN.passes;
+const PORT = await claimPort(TAG, 'UI_SHOTS_PORT', DEFAULT_PORT);
 // `''` (unset) or `'garage'` -- anything else is a typo, and the tool's own
 // convention (`./port.ts`'s bad-port refusal) is to say so and exit 2 before
 // a browser or a server starts, rather than silently running the full walk.
@@ -159,9 +182,11 @@ const RESOLUTIONS = arg('res', '1400x900,1920x1080,2560x1440')
     return { width: w, height: h };
   });
 
-/** Counted across the whole run and printed at the end -- a per-shot line is
+/** The pass being walked: its locale query rides on every `url()` below. */
+let PASS: LocalePass = PASSES[0];
+/** Counted per pass (per locale) and printed at the end -- a per-shot line is
  *  easy to scroll past in 51 frames' worth of output. */
-let OVERFLOW_TOTAL = 0;
+const OVERFLOW_TOTALS = new Map<LocalePass, number>(PASSES.map((p) => [p, 0]));
 
 /** Shots that did not come out (GH-1409, `shot-policy.ts`): recorded, the walk goes on, the run exits non-zero. */
 const SHOTS = new ShotLog();
@@ -245,7 +270,7 @@ async function shot(page: Page, dir: string, name: string, opts: { fullPage?: bo
   const over = await overflows(page);
   console.log(`  ${name}${over.length > 0 ? `  [overflow x${over.length}]` : ''}`);
   for (const line of over) console.log(`      ! ${line}`);
-  OVERFLOW_TOTAL += over.length;
+  OVERFLOW_TOTALS.set(PASS, (OVERFLOW_TOTALS.get(PASS) ?? 0) + over.length);
   return true;
 }
 
@@ -314,11 +339,12 @@ async function settleMenuHost(page: Page): Promise<void> {
 }
 
 const BASE = `http://localhost:${PORT}`;
-// The app's own paths (Task 1) plus the pseudo switch: `p` is always
-// base-relative (`/campaign`, `/mission/x`), so every call site reads as the
-// route it is rather than a hand-built query string. Named `p`, not `path`,
-// so it does not shadow the `node:path` import above.
-const url = (p: string): string => `${BASE}${p}${PSEUDO ? `${p.includes('?') ? '&' : '?'}pseudo=1` : ''}`;
+// The app's own paths (Task 1) plus the pass's locale query (`?pseudo=1`,
+// `?pseudo=rtl`, `?lang=<id>` or nothing): `p` is always base-relative
+// (`/campaign`, `/mission/x`), so every call site reads as the route it is
+// rather than a hand-built query string. Named `p`, not `path`, so it does not
+// shadow the `node:path` import above.
+const url = (p: string): string => withLocaleQuery(BASE, p, PASS.query);
 
 /** The faked room's code: in the Worker's alphabet (no 0/O/1/I), six long. */
 const VERSUS_CODE = 'TESTAB';
@@ -788,11 +814,15 @@ try {
     args: gpuLaunchArgs(gpu),
   });
   console.log(`[${TAG}] renderer: ${await readUnmaskedRenderer(browser)}`);
-  for (const res of RESOLUTIONS) {
+  // One walk per locale pass, each at every resolution. The plain run, and a
+  // pseudo one, is a single pass into <out>/<WxH>/ as it always was.
+  const walks = PASSES.flatMap((pass) => RESOLUTIONS.map((res) => ({ pass, res })));
+  for (const { pass, res } of walks) {
+    PASS = pass;
     const dirName = `${res.width}x${res.height}`;
-    const dir = path.join(OUT, dirName);
+    const dir = path.join(OUT, pass.subdir, dirName);
     fs.mkdirSync(dir, { recursive: true });
-    console.log(`\n== ${dirName}`);
+    console.log(`\n== ${pass.query === '' ? '' : `${pass.label} `}${dirName}`);
     const ctx = await browser.newContext({
       viewport: { width: res.width, height: res.height },
       deviceScaleFactor: 1,
@@ -923,9 +953,12 @@ try {
       // `--pseudo` this lands on `/campaign?pseudo=1` -- which is the point of
       // that fix, not a miss. An exact-string check called it UNEXPECTED on
       // every pseudo run, which is how a diagnostic that cries wolf stops
-      // being read at all. Carrying the flag is now part of what it asserts.
+      // being read at all. Carrying the flag is now part of what it asserts,
+      // and since GH-1406's `--lang` it is the pass's `lang`/`pseudo` VALUES
+      // (`carriesLocaleQuery`): a walk that dropped its language would
+      // photograph English from here on.
       const landed = new URL(landedUrl);
-      const ok = landed.origin === BASE && landed.pathname === '/campaign' && landed.searchParams.has('pseudo') === PSEUDO;
+      const ok = landed.origin === BASE && landed.pathname === '/campaign' && carriesLocaleQuery(landed.searchParams, PASS.query);
       console.log(`  escape-from-briefing -> ${landedUrl} (${ok ? 'OK' : 'UNEXPECTED'})`);
       await backCtx.close();
     }
@@ -1337,6 +1370,7 @@ console.log(`\ndone -> ${OUT}`);
 // reported" and "the probe never ran" look identical in a log that only speaks
 // up on a hit -- the failure mode CLAUDE.md names for every check that can
 // return an empty answer in zero milliseconds.
-console.log(`overflow probe: ${OVERFLOW_TOTAL} element(s) wider than their own box, across every shot above`);
+// One line per locale pass (`overflowReport`): a report, never a gate.
+for (const line of overflowReport(PASSES.map((pass) => ({ pass, total: OVERFLOW_TOTALS.get(pass) ?? 0 })))) console.log(line);
 for (const line of SHOTS.summary()) console.log(line);
 if (SHOTS.failed.length > 0) process.exitCode = 1;

@@ -21,7 +21,9 @@ export function objectiveFailures(o, mi, map, file) {
     if (!o.zone || !zoneNames.has(o.zone)) {
       out.push(`${file}: escort "${o.id}" references unknown zone "${o.zone}"`);
     }
-    const tagged = (mi.starting_force ?? []).filter((p) => p.tag === o.target);
+    // A tag may sit on a placement or on a PASSENGER of one (the runtime tags a rider like any spawn: an escort of riders in a carrier
+    // is legal and is how a convoy is escorted). A tag only a rider carries still names units, so it is not a missing tag.
+    const tagged = (mi.starting_force ?? []).filter((p) => p.tag === o.target || (p.passengers ?? []).some((q) => q.tag === o.target));
     if (!o.target || tagged.length === 0) {
       out.push(`${file}: escort "${o.id}" needs a tag on a starting_force placement, not "${o.target}"`);
     }
@@ -53,6 +55,7 @@ export function objectiveFailures(o, mi, map, file) {
       tagged.length > 0 &&
       tagged.every(
         (p) =>
+          p.tag === o.target && // a rider-only tag is exact on no `at` of ours: the runtime reads the bodies
           p.count === 1 &&
           Array.isArray(p.at) &&
           Math.floor(p.at[0]) >= zr[0] &&

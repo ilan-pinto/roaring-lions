@@ -26,7 +26,8 @@ describe('the resume boot (main.ts bootBattlefield)', () => {
   it('presets the deploy pick, answers the deploy itself, and skips the intro', () => {
     expect(main).toMatch(/let deploySelection: DeploySelection \| null = resumed\?\.inputs\.deploy == null \? null : \{ chosen: new Set\(resumed\.inputs\.deploy\) \};/);
     expect(main).toMatch(/if \(resumed !== null\) loading\.deployNow\(\);/);
-    expect(main).toMatch(/resumed: resumed !== null,/);
+    // anchored to the intro's own deps: the HUD's `resumed` line below it must not be able to satisfy this one (found by deleting the intro's)
+    expect(main).toMatch(/tutorial: isTutorialMission,\s*reduced: prefersReducedMotion\(\),\s*resumed: resumed !== null,/);
   });
 
   it('restores onto the world startMission built, proves it, re-seeds the renderer, and drops the sim on a refusal', () => {
@@ -69,11 +70,24 @@ describe('Save and quit (main.ts)', () => {
   });
 });
 
-describe('the save is dropped when its mission is over', () => {
-  it('on a victory or a defeat, on Quit and on Restart of a resumed mission', () => {
+describe('the save is dropped when its mission is over, and only then', () => {
+  it('on a victory or a defeat; NOT on Quit or Restart of a resumed mission, whose confirm says the saved game stays', () => {
     expect(main).toMatch(/if \(mev\.kind === 'missionEnd'\) \{\s*\/\/[^\n]*\n\s*if \(mission\) dropSavedMission\(mission\.id\);/);
-    expect(main).toMatch(/if \(resumed !== null && mission\) dropSavedMission\(mission\.id\);\s*req\.navigate\(quitHref\(/);
-    expect(main).toMatch(/if \(resumed !== null && mission\) dropSavedMission\(mission\.id\);\s*req\.restart\(\);/);
+    expect(main.match(/dropSavedMission\(/g)?.length).toBe(2); // the definition and the one call at the mission's end
+    expect(main).toMatch(/if \(ok\) req\.navigate\(quitHref\(room !== null, !mission\)\);/);
+    expect(main).toMatch(/if \(!ok\) return;\s*\/\/[^\n]*\n\s*req\.restart\(\);/);
+    expect(main).toMatch(/leaveCopy\(!mission, resumed !== null\)/); // the pause menu's Quit says it
+    expect(main).toMatch(/freePlay: !mission,\s*resumed: resumed !== null,/); // and so does the HUD's own leave
+  });
+
+  it('Save and quit asks BEFORE it cuts or writes when another mission\'s save is in the slot, and a "no" changes nothing', () => {
+    const body = main.slice(at(/const saveAndQuit = async/), at(/const pauseMenuDeps = \(\): PauseDeps/));
+    const ask = body.indexOf('savedMissionOtherThan(');
+    expect(ask).toBeGreaterThan(0);
+    expect(ask).toBeLessThan(body.indexOf('cutMission('));
+    expect(body.indexOf('confirmReplaceOther(')).toBeLessThan(body.indexOf('cutMission('));
+    expect(body).toMatch(/if \(!\(await confirmReplaceOther\(other, [^\n]*\)\) return \{ declined: true \};/);
+    expect(body.indexOf('return { declined: true }')).toBeLessThan(body.indexOf('writeSuspended('));
   });
 
   it('dropSavedMission removes only this mission\'s save', () => {
