@@ -1,0 +1,368 @@
+{
+  "aa_remetz": {
+    "name": "Remetz-Laserträger",
+    "blurb": "Ein Laser, der kleine Drohnen vom Himmel brennt und hinter Rauch oder einer Wand ausfällt.",
+    "src": {
+      "name": "14385624",
+      "blurb": "8bccd3e2"
+    }
+  },
+  "air_medevac_heli": {
+    "name": "Nachlieli Medevac",
+    "blurb": "Fliegt vier Verwundete aus dem Gefecht. Unbewaffnet; zum Aufnehmen muss er landen.",
+    "src": {
+      "name": "5dc86bf3",
+      "blurb": "e90d03b4"
+    }
+  },
+  "apc_eitan": {
+    "name": "Eitan APC",
+    "blurb": "Panzerung, die mit den Panzern mithält, zwei Sitze und eine Waffe gegen Luftziele.",
+    "src": {
+      "name": "8f478c3b",
+      "blurb": "741b7de8"
+    }
+  },
+  "apc_kipod": {
+    "name": "Kipod-Schirmträger",
+    "blurb": "Sechs Sitze hinter Reaktivpanzerung und eine Waffe, die Gegner niederhält, ohne einen Lkw zu zerstören.",
+    "src": {
+      "name": "ee7f351d",
+      "blurb": "1faaa340"
+    }
+  },
+  "at_nlos_team": {
+    "name": "Zaron-Raketentrupp",
+    "blurb": "Bekämpft, was die eigene Seite aufgeklärt hat, ohne Sichtlinie und mit geringem Kollateralschaden. Im Nahbereich nutzlos.",
+    "src": {
+      "name": "b8bd2c9b",
+      "blurb": "da3cf3c1"
+    }
+  },
+  "at_team": {
+    "name": "Spike-Panzerabwehrtrupp",
+    "blurb": "Bekämpft Panzerung, der Gewehre nichts anhaben, eine Rakete nach der anderen. Vor dem Bedarf in Stellung bringen.",
+    "src": {
+      "name": "c9cf172c",
+      "blurb": "6724e20f"
+    }
+  },
+  "atgm_cell": {
+    "name": "ATGM-Zelle",
+    "src": {
+      "name": "afd1cfa3"
+    }
+  },
+  "attack_drone": {
+    "name": "Loitering Munition",
+    "blurb": "Fliegt selbstständig auf das nächste von der eigenen Seite aufgeklärte Ziel und kehrt nicht zurück.",
+    "src": {
+      "name": "c234ef11",
+      "blurb": "8fbef1fa"
+    }
+  },
+  "breach_team": {
+    "name": "Tzinah-Durchbruchtrupp",
+    "blurb": "Räumt ein besetztes Haus, statt es einzuebnen. Ohne Dauerfeuer kostet es weniger Verhalten.",
+    "src": {
+      "name": "98483f1a",
+      "blurb": "89e5ac33"
+    }
+  },
+  "charge_squad": {
+    "name": "Selbstmordtrupp",
+    "src": {
+      "name": "3d951ba5"
+    }
+  },
+  "civilians": {
+    "name": "Zivilisten",
+    "src": {
+      "name": "49a0f9eb"
+    }
+  },
+  "demo_squad": {
+    "name": "Pioniere",
+    "blurb": "Bringt ein Gebäude aus Berührungsnähe zum Einsturz, ohne dafür die Straße zu beschießen.",
+    "src": {
+      "name": "73a9ecc9",
+      "blurb": "038160ca"
+    }
+  },
+  "demo_tzav": {
+    "name": "Shiryonan-Sprengträger",
+    "blurb": "Setzt eine Zeitladung an die Wand und setzt zurück. Was zu nah steht, geht mit dem Haus.",
+    "src": {
+      "name": "c7ab284e",
+      "blurb": "05ab3a80"
+    }
+  },
+  "digger_crew": {
+    "name": "Grabungstrupp",
+    "src": {
+      "name": "50ef4460"
+    }
+  },
+  "dozer_d9": {
+    "name": "D9 Dov",
+    "blurb": "Reißt ein Gebäude mit der Schaufel ein statt mit einer Granate. Unbewaffnet und nicht zu hetzen.",
+    "src": {
+      "name": "bf713c0d",
+      "blurb": "3b484a74"
+    }
+  },
+  "drone_swarm": {
+    "name": "Drohnenschwarm",
+    "src": {
+      "name": "fb0a09d6"
+    }
+  },
+  "gun_truck": {
+    "name": "Flak-Lkw",
+    "src": {
+      "name": "0d35f21f"
+    }
+  },
+  "heli_peten": {
+    "name": "AH-64 Peten",
+    "blurb": "Überquert die Karte in Sekunden und bekämpft Panzerung aus der Distanz. Die Bordkanone ist die teure Hälfte.",
+    "src": {
+      "name": "69734df1",
+      "blurb": "fdc00113"
+    }
+  },
+  "heli_peten_gunship": {
+    "name": "Peten Gunship",
+    "blurb": "Ein Peten mit Reserve für einen weiteren Anflug: die Kanone für offenes Gelände, Hellfire gegen Panzerung.",
+    "src": {
+      "name": "c1c014c8",
+      "blurb": "29298346"
+    }
+  },
+  "heli_yanshuf": {
+    "name": "UH-60 Yanshuf",
+    "blurb": "Sechs Trupps in einer Minute an jeden Ort der Karte. Geht er in der Luft verloren, sind alle verloren.",
+    "src": {
+      "name": "774f5766",
+      "blurb": "574794e7"
+    }
+  },
+  "ifv_namer": {
+    "name": "Namer IFV",
+    "blurb": "Trägt fünf unter Panzerung, doch erst seine 30mm löst die Strafe der Schutzzone aus.",
+    "src": {
+      "name": "8e606e7f",
+      "blurb": "16bc3b20"
+    }
+  },
+  "inf_grenadier": {
+    "name": "Chomet-Grenadiertrupp",
+    "blurb": "Granaten erreichen Männer hinter einer Wand, nie in einem Haus. In einer markierten Straße kosten sie Verhalten.",
+    "src": {
+      "name": "8b42fce5",
+      "blurb": "41ea56be"
+    }
+  },
+  "inf_medic_squad": {
+    "name": "Nemala-Sanitätstrupp",
+    "blurb": "Versorgt Verwundete unter Feuer und trägt sie ab. Kämpft kaum, und eine Last bremst ihn.",
+    "src": {
+      "name": "65b31ff0",
+      "blurb": "3abf8155"
+    }
+  },
+  "inf_squad": {
+    "name": "Schützentrupp",
+    "blurb": "Hält Gelände und besetzt Gebäude. Seine Gewehre sind in einer Straße das sicherste Feuer.",
+    "src": {
+      "name": "1687e8ef",
+      "blurb": "1a2093b2"
+    }
+  },
+  "jeep_shoded": {
+    "name": "Shoded-Jeep",
+    "blurb": "Schnell und dünn gepanzert. Zwei Sitze, ein Maschinengewehr und nichts, was eine Rakete aufhält.",
+    "src": {
+      "name": "3fbeefb9",
+      "blurb": "d39ff050"
+    }
+  },
+  "loiter_drone": {
+    "name": "Loitering Munition",
+    "src": {
+      "name": "c234ef11"
+    }
+  },
+  "manpad_team": {
+    "name": "MANPAD-Trupp",
+    "src": {
+      "name": "603e28d5"
+    }
+  },
+  "mbt_lavi": {
+    "name": "Lavi MBT",
+    "blurb": "Gewinnt jedes Duell, das es auf zwölf Felder sieht. Seine 120mm ist die teuerste Granate für die ROE.",
+    "src": {
+      "name": "c1d606dc",
+      "blurb": "c67d3900"
+    }
+  },
+  "mbt_lavi_camo": {
+    "name": "Lavi-Hinterhaltpanzer",
+    "blurb": "Wartet unter einem Netz und wird spät entdeckt. Das Netz stört den aktiven Schutz, und ein Schuss verrät ihn.",
+    "src": {
+      "name": "3e72d1a0",
+      "blurb": "9afd41e6"
+    }
+  },
+  "militia_cell": {
+    "name": "Milizzelle",
+    "src": {
+      "name": "dfe80979"
+    }
+  },
+  "mortar_crew": {
+    "name": "Mörserbesatzung",
+    "src": {
+      "name": "2404c175"
+    }
+  },
+  "mortar_team": {
+    "name": "60mm-Mörsertrupp",
+    "blurb": "Schießt über die eigene Sicht hinaus, also muss ein anderer beobachten. Abgerechnet wird, wo es einschlägt.",
+    "src": {
+      "name": "c84e5cec",
+      "blurb": "0c86f6af"
+    }
+  },
+  "moto_rpg": {
+    "name": "Bewaffnetes Motorrad",
+    "src": {
+      "name": "9be4961e"
+    }
+  },
+  "paramotor": {
+    "name": "Motorschirm",
+    "src": {
+      "name": "a332f812"
+    }
+  },
+  "recoilless_team": {
+    "name": "Rückstoßfreier Trupp",
+    "src": {
+      "name": "05ecac3e"
+    }
+  },
+  "recon_drone": {
+    "name": "Aufklärungsdrohne",
+    "blurb": "Sieht sechzehn Felder weit, weiter als alles andere, und markiert, was sie findet. Trägt keine Waffe.",
+    "src": {
+      "name": "e5ab72dd",
+      "blurb": "62c5678b"
+    }
+  },
+  "recon_zikit": {
+    "name": "Shmamit-Tiefenaufklärer",
+    "blurb": "Hält einen Tunnel von Felsen oder einem Haus aus unbemerkt im Blick. Einmal entdeckt, verliert er das Gefecht.",
+    "src": {
+      "name": "94e2cfcb",
+      "blurb": "247ada9b"
+    }
+  },
+  "rocket_battery": {
+    "name": "Raketenbatterie",
+    "src": {
+      "name": "9036e444"
+    }
+  },
+  "rpg_team": {
+    "name": "RPG-Trupp",
+    "src": {
+      "name": "aba4a396"
+    }
+  },
+  "sarim_rifles": {
+    "name": "Sarim-Schützen",
+    "src": {
+      "name": "0c2ef42a"
+    }
+  },
+  "scout_shachaf": {
+    "name": "Shachaf-Spähwagen",
+    "blurb": "Ein Auge am Boden, das von seinem Mast sechzehn Felder weit sieht. Ein Kuppel-Maschinengewehr reicht sechs Felder.",
+    "src": {
+      "name": "ac25b766",
+      "blurb": "63b4b286"
+    }
+  },
+  "sniper_team": {
+    "name": "Scharfschützentrupp",
+    "blurb": "Nimmt einen Mann nach dem anderen, zum geringsten Preis, den ein Schuss tragen kann. Das Feuern verrät die Stellung.",
+    "src": {
+      "name": "ac9b6882",
+      "blurb": "296e10bc"
+    }
+  },
+  "spg_cluster": {
+    "name": "Te'o-Streuhaubitze",
+    "blurb": "Submunition zerfetzt Männer und Lkw im Freien, nicht Panzerung oder Häuser. Verhalten zahlt jede Granate.",
+    "src": {
+      "name": "b6e46f31",
+      "blurb": "bd7bd112"
+    }
+  },
+  "spg_long_range": {
+    "name": "Te'o-Haubitze",
+    "blurb": "Reicht tiefer als jedes andere Geschütz und sieht nichts davon. Jede Granate wird dort abgerechnet, wo sie einschlägt.",
+    "src": {
+      "name": "a4b7c010",
+      "blurb": "f2222dda"
+    }
+  },
+  "technical": {
+    "name": "Bewaffneter Technical",
+    "src": {
+      "name": "f54c23bc"
+    }
+  },
+  "ugv_recon_dog": {
+    "name": "Chadaf-Aufklärungsroboter",
+    "blurb": "Geht über Felsen und durch Gassen, die kein Rad schafft, und findet Tunnelrouten. Unbewaffnet und billig zu verlieren.",
+    "src": {
+      "name": "95107cb2",
+      "blurb": "b7a5cb34"
+    }
+  },
+  "veh_ambulance": {
+    "name": "Pered-Krankenwagen",
+    "blurb": "Trägt vier Verwundete unter Panzerung, und keiner blutet in seiner Nähe aus. Keine Waffe.",
+    "src": {
+      "name": "5b56b811",
+      "blurb": "de815afa"
+    }
+  },
+  "wounded_kdf": {
+    "name": "Verwundeter Soldat",
+    "blurb": "Ein Mann am Boden. Er verblutet, wenn kein Sanitäter ihn erreicht, und niemand schießt auf ihn.",
+    "src": {
+      "name": "4e42a2a5",
+      "blurb": "48bcc321"
+    }
+  },
+  "wounded_sarim": {
+    "name": "Verwundeter Kämpfer",
+    "blurb": "Ein Mann am Boden. Er verblutet, wenn kein Sanitäter ihn erreicht, und niemand schießt auf ihn.",
+    "src": {
+      "name": "5ac2754c",
+      "blurb": "48bcc321"
+    }
+  },
+  "yahalom_squad": {
+    "name": "Yahalom-Pioniere",
+    "blurb": "Der einzige Trupp, der einen Tunnel zum Einsturz bringen kann.",
+    "src": {
+      "name": "506e0184",
+      "blurb": "8deb05cd"
+    }
+  }
+}

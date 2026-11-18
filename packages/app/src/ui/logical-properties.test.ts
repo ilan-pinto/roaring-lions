@@ -45,6 +45,8 @@ const PHYSICAL_OFFSET_OK = new Set([
   '.rl-net-score',
   '.rl-net-points',
   '.rl-arena-strip',
+  // GH-1413 G1: the software-rendering line, fixed at the viewport's foot and centred by `left: 50%` + `translateX(-50%)`.
+  '.rl-software-hint',
 ]);
 
 function selectorOf(i: number): string {

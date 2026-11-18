@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "description": "The pure Roar-coin and brigade rules, shared by the app and the Worker (GH-1075 A0). Imports @lions/sim and @lions/data only.",
-  "exports": { ".": "./src/index.ts" },
+  "exports": { ".": "./src/index.ts", "./challenge-earn": "./src/challenge-earn.ts" },
   "dependencies": { "@lions/sim": "workspace:*", "@lions/data": "workspace:*" }
 }

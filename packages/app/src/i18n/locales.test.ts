@@ -21,6 +21,22 @@ describe('resolveLang (#559 F6)', () => {
   });
 });
 
+// GH-1406: STAGED languages have their files in the repo (data/locales/<id>/, packages/app/src/i18n/<id>.json) but are not shipped: `LOCALES`
+// does not list them, so `?lang=<id>` and a saved setting are ignored and every player sees English. Adding one to `LOCALES` is the lead's
+// shipping step (after a human proofreading pass); the commit that does it removes the id from this list on purpose.
+const STAGED = ['de', 'es-ES', 'fr'];
+describe('staged languages are not shipped (GH-1406)', () => {
+  it('LOCALES lists none of them', () => {
+    for (const id of STAGED) expect(LOCALES.map((l) => l.id), id).not.toContain(id);
+  });
+  it('?lang=<staged> is ignored and the saved language stands', () => {
+    for (const id of STAGED) {
+      expect(resolveLang(id, 'en'), id).toBe('en');
+      expect(resolveLang(id, 'pseudo'), id).toBe('pseudo');
+    }
+  });
+});
+
 /** The two things `applyLocale` touches, as a stub: this suite runs in a node environment. */
 function root(): { attrs: Record<string, string>; dir: string; setAttribute: (k: string, v: string) => void } {
   const r = { attrs: {} as Record<string, string>, dir: '', setAttribute(k: string, v: string) { r.attrs[k] = v; } };

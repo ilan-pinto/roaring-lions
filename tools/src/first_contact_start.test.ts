@@ -3,7 +3,7 @@
 // neutral wall as "contact" (see packages/sim/src/first-contact.test.ts for the rule; this is the data it protects).
 // The probe that prints the table: tools/src/backtest/first-contact-probe.ts.
 import { describe, expect, it } from 'vitest';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { MissionJson, SimEvent } from '@lions/sim';
 import { missionWorld } from './mission-harness';
 

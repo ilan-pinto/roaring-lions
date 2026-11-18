@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEMO_ENCODED_BASE_TRIS, DEMO_STATES, MODEL_REGION, STATES, TEAM_CHECKS, differingPixels, mergeFailures, type Pixels, type Reading } from './inf-kit-capture-check';
+import { DEMO_ENCODED_BASE_TRIS, DEMO_STATES, MODEL_REGION, STATES, TEAM_CHECKS, YAHALOM_ENCODED_BASE_TRIS, YAHALOM_STATES, differingPixels, mergeFailures, type Pixels, type Reading } from './inf-kit-capture-check';
 
 /** The kit triangles of each state, literals from the art file (the 29 Oct redesign, re-fitted to the Meshy figure 9 Nov; the v7 set 9 Nov, GH-746: from the art file's bytes, and the controller's real Metal capture of 9 Nov, which read exactly these: 32,955 live at tier 0, 54 draw calls in every state). */
 const KIT: Record<string, [Record<string, number>, number]> = {
@@ -62,6 +62,28 @@ describe('inf-kit capture merge check: demo_squad', () => {
     expect(readDemo((m) => { m.S3.meshes = 7; })).toEqual([expect.stringMatching(/S3: 7 meshes/)]);
     expect(readDemo((m) => { m.F3.calls = 60; })).toEqual([expect.stringMatching(/F3: 60 draw calls/)]);
     expect(readDemo((m) => { m.T0.loaded = false; })[0]).toMatch(/T0: no demo_squad template loaded/);
+  });
+});
+
+describe('inf-kit capture: the Yahalom Engineers are registered (GH-826 unit "Yahalom")', () => {
+  // Literals, counted off the decoded Draco encode (the header of `YAHALOM_STATES` says how).
+  const KIT_Y: Record<string, number> = { T0: 0, A1: 3371, A2: 5003, A3: 5051, S1: 1664, S2: 3450, S3: 3626, F1: 2752, F2: 3824, F3: 4888, full: 13565 };
+  const read = (over: (m: Record<string, Reading>) => void): string[] => {
+    const m: Record<string, Reading> = Object.fromEntries(
+      YAHALOM_STATES.map((s) => [s.id, { tiers: { ...s.tiers }, loaded: true, tris: 24619 + KIT_Y[s.id], kitTris: KIT_Y[s.id], meshes: 6, calls: 58 }])
+    );
+    over(m);
+    return mergeFailures(new Map(Object.entries(m)), YAHALOM_STATES, YAHALOM_ENCODED_BASE_TRIS, 'yahalom_squad');
+  };
+  it('is registered, and passes its own counts', () => {
+    expect(TEAM_CHECKS.yahalom_squad.states).toBe(YAHALOM_STATES);
+    expect(TEAM_CHECKS.yahalom_squad.baseTris).toBe(24619);
+    expect(read(() => undefined)).toEqual([]);
+  });
+  it('fails on the Combat Engineers\' numbers and on a lost tier', () => {
+    expect(mergeFailures(new Map(YAHALOM_STATES.map((s) => [s.id, { tiers: { ...s.tiers }, loaded: true, tris: 24619 + KIT_Y[s.id], kitTris: KIT_Y[s.id], meshes: 6, calls: 58 }])), DEMO_STATES, DEMO_ENCODED_BASE_TRIS, 'demo_squad')[0]).toBeDefined();
+    expect(read((m) => { m.A3.kitTris = 0; m.A3.tris = 24619; })[0]).toMatch(/A3: 0 kit triangles merged, expected 5051/);
+    expect(read((m) => { m.full.tris = 24619; })[0]).toMatch(/full: 24619 triangles in the template, expected 38184/);
   });
 });
 

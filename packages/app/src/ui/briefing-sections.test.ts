@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Named briefing sections and the image slot on the deploy screen (GH-119).
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { MissionJson } from '@lions/sim';
 import en from '../i18n/en.json';
 import { setCatalogue } from '../i18n/t';

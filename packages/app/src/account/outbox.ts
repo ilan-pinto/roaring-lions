@@ -14,7 +14,8 @@ export const ORPHAN_AFTER_MS = 60_000;
 
 export type OutboxOp =
   | { kind: 'campaign'; opId: string; campaign: CampaignBody }
-  | { kind: 'victory'; opId: string; missionId: string; stars: number; start: string | null; campaign: CampaignBody | null }
+  // GH-1395: `challenge` rides the op when a run beat its challenge (absent otherwise; JSON drops an undefined one).
+  | { kind: 'victory'; opId: string; missionId: string; stars: number; start: string | null; campaign: CampaignBody | null; challenge?: boolean }
   | { kind: 'slot.put'; opId: string; slotId: string; slot: SaveSlot; origin: 'player' | 'conflict' }
   | { kind: 'slot.delete'; opId: string; slotId: string };
 

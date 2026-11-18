@@ -128,7 +128,10 @@
   },
   "resources": {
     "logistics_start": 400,
-    "logistics_rate_per_min": 120
+    "logistics_rate_per_min": 120,
+    "income_zones": [
+      { "zone": "terrace_crest", "rate_per_min": 48 }
+    ]
   },
   "objectives": [
     {

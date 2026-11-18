@@ -19,11 +19,14 @@ export { settleRejoin } from './net/snapshot-rejoin';
 export { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
 export { ownedStoreSpecials } from './net/versus-specials';
 export { buildMatchWorld, matchTick } from './net/match-world';
+// B6-6: the room's own content digest (it hashes every map, so it loads with the kit, never on the entry chunk).
+export { shippedContentDigest } from './net/content-digest';
 export { SPECTATOR_SHOWN, spectatorSink } from './net/spectator';
 export { roomDockMenu, roomDockRuntime, roomEconomyView } from './net/room-economy';
 export { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 export { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 export { inboxOf } from './ui/chat-inbox';
+export { loadChatFilter, untilLoadedOrAborted } from './ui/chat-filter-gate';
 export { quickChatText } from './ui/quick-chat';
 export { showNetEnd } from './ui/net-end';
 export { NetPoints, payZoneOf } from './ui/net-points';

@@ -166,9 +166,10 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        301,
-        188
-      ]
+        294,
+        189
+      ],
+      "glb_sha256": "f160662b385c97730f67928174bea4b55469219d77bb2a675fb8eb0d4901fc07"
     },
     "heli_peten_gunship": {
       "file": "heli_peten_gunship.jpg",

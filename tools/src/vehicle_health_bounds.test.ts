@@ -17,7 +17,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { applyUpgrades, maxTiers, units, type UpgradableUnit } from '@lions/data';
+import { applyUpgrades, maxPicks, maxTiers, units, type UpgradableUnit } from '@lions/data';
 
 /** Front armour in mm at or above which a unit is a hard target (tuning.ts SOFT_ARMOR_LIMIT = 30 mm). */
 const SOFT_LIMIT_MM = 30;
@@ -46,7 +46,8 @@ interface Reading {
 function readings(entries: ReadonlyArray<readonly [string, HullJson]>): Reading[] {
   const out: Reading[] = [];
   for (const [id, base] of entries) {
-    const top = applyUpgrades(base, maxTiers(base));
+    // GH-1384: branch 1, as every max-tier pass (an armour branch moves hp and the faces apart).
+    const top = applyUpgrades(base, maxTiers(base), maxPicks(base, 1));
     const becomesHard = base.hull.armor.front < SOFT_LIMIT_MM && top.hull.armor.front >= SOFT_LIMIT_MM;
     for (const [tier, u] of [['base', base], ['top', top]] as const) {
       out.push({ id, tier, hp: u.hull.hp, hard: u.hull.armor.front >= SOFT_LIMIT_MM, becomesHard });
