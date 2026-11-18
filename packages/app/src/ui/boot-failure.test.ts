@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss, type BootFailureKind } from './boot-failure';
+import { ChunkLoadError } from '../shell/chunk';
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -27,6 +28,11 @@ describe('bootFailureKind', () => {
   it('names a failed fetch and a failed dynamic import download failures', () => {
     expect(bootFailureKind(new TypeError('Failed to fetch'), true)).toBe('download');
     expect(bootFailureKind(new TypeError('Failed to fetch dynamically imported module: /x.js'), true)).toBe('download');
+  });
+  it('names a lazy chunk that failed twice (a map or a mission loaded by id, B6-6) a download failure, with its reload', () => {
+    const e = new ChunkLoadError(new TypeError('x'));
+    expect(bootFailureKind(e, true)).toBe('download');
+    expect(bootFailureCard(bootFailureKind(e, true)).reload).toBe(true);
   });
   it('leaves anything else unknown, including a thrown non-Error', () => {
     expect(bootFailureKind(new RangeError('index out of range'), true)).toBe('unknown');

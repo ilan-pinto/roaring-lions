@@ -10,7 +10,7 @@ import { MISSION_SAVE_VERSION, serializeSuspended, type SuspendedMission } from 
 import { SUSPEND_KEY, discardSuspended, openSuspendStore, readSuspended, savedMissionOtherThan, writeSuspended, type KeyStore } from './mission-save-store';
 import { SIM_EPOCH, SNAPSHOT_FORMAT } from '@lions/sim';
 import { digestOf } from './mission-save';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 
 const MISSION = Object.keys(missions)[0] ?? 'beit_sahwan_0_tutorial';
 const record = (over: Partial<SuspendedMission> = {}): SuspendedMission => ({

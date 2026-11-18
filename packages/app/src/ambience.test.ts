@@ -4,7 +4,8 @@
  * app can ask for.
  */
 import { describe, expect, it } from 'vitest';
-import { maps, parseMap, type MapJson } from '@lions/data';
+import { parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import type { AudioManifest } from '@lions/render';
 import manifestJson from '../../../data/audio.json';
 import { readFileSync } from 'node:fs';

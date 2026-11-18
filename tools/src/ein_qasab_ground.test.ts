@@ -8,7 +8,8 @@
 // and the test is not vacuous: it counts what it walked, and a control closes one road to show the
 // walk can fail.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, structures as structureCatalogue, type MapJson } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim } from '../../packages/sim/src/sim';
 

@@ -1,0 +1,44 @@
+{
+  "amendments": [
+    {
+      "id": "clean_hands",
+      "label": "Clean hands",
+      "blurb": "The Conduct line rises by ten points.",
+      "ops": [
+        { "op": "raise_fail_below", "by": 10 }
+      ]
+    },
+    {
+      "id": "light_order",
+      "label": "Light order",
+      "blurb": "One rifle squad fewer in the starting force.",
+      "ops": [
+        { "op": "remove_starting", "unit": "inf_squad", "count": 1 }
+      ]
+    },
+    {
+      "id": "no_medic",
+      "label": "Medics stay back",
+      "blurb": "No medic squad in the starting force.",
+      "ops": [
+        { "op": "remove_starting", "unit": "inf_medic_squad", "count": 1 }
+      ]
+    },
+    {
+      "id": "thin_purse",
+      "label": "Thin purse",
+      "blurb": "Half the starting logistics, and half the rate.",
+      "ops": [
+        { "op": "scale_resources", "num": 1, "den": 2 }
+      ]
+    },
+    {
+      "id": "no_eyes",
+      "label": "No eyes",
+      "blurb": "No intel at the start: no strike or sweep until it is earned.",
+      "ops": [
+        { "op": "set_intel_start", "value": 0 }
+      ]
+    }
+  ]
+}

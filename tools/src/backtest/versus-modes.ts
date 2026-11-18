@@ -72,7 +72,8 @@ import { armedStanding, effectiveCapTicks, goalsOf, outcomeOf, unitCost, type Ma
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, DECIDE_EVERY_TICKS, SEEDS_DEFAULT, livingOf, loneSurvivorOf, order, parseArrangements, roomConfig, seedOf, type Arrangement } from './versus-probe';
 import { fx, type Sim } from '@lions/sim';
-import { maps, units, versusRules } from '@lions/data';
+import { units, versusRules } from '@lions/data';
+import { maps } from '@lions/data/content';
 
 /** The lead's bar for the goal: at least this share of a cell's games are decided by it, not by a wipe or the cap. */
 export const GOAL_SHARE_MIN_PERCENT = 70;

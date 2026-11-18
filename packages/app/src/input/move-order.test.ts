@@ -9,7 +9,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Sim, fx, type Command } from '@lions/sim';
-import { applyTerrain, maps, parseMap, units } from '@lions/data';
+import { applyTerrain, parseMap, units } from '@lions/data';
+import { maps } from '@lions/data/content';
 import type { Camera, Viewport } from '@lions/render/project';
 import { screenToWorldThree, structureAtScreenThree, structureBoxes } from '@lions/render/three-camera';
 import { standMapStructures } from '../map-sim';

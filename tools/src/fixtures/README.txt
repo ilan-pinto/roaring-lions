@@ -23,3 +23,17 @@ failing input of the gates whose red case was this team's own claws: `mesh_hands
 `mesh_grip.test.ts` (input 1: the firing hand 0.1 m from the grip), `mesh_armed.test.ts` (the unarmed engineer) and
 `mesh_fragments.test.ts` (the "third hand at the hip", 358 cm2 a man). A byte copy, not new art: its .blend source
 is the one in history at that commit. The frozen rigid GLB is number 8 of the lead's approval of 12 Nov 2026 (GH-826).
+
+yahalom_squad_rigid_7dae29e2f.glb -- a byte copy of art/meshes/yahalom_squad.glb at commit
+7dae29e2f68bfcf3526ea3ae4bb4770127b07b1f ("polish: readable suppression and damage states (pass C2/C4) (#445)"),
+the last commit to change that file before infantry upgrade unit "Yahalom" (GH-826, 17 Nov 2026) replaced the team
+with the Combat Engineers' skinned Meshy body. Check it with
+`git show 7dae29e2f:art/meshes/yahalom_squad.glb | cmp - tools/src/fixtures/yahalom_squad_rigid_7dae29e2f.glb`.
+
+It is the RIGID Yahalom Engineers (B7): three cut bodies of one 2,000-target remesh with open black claws, `yah_a` and
+his kneeling twin `yah_ak` unarmed behind a 1.45 m mast, a kit carbine on `yah_b`, a 12-triangle box pack on each.
+It is the constructed failing input of the gates whose red case was this team's own figure: `mesh_armed.test.ts` (the
+unarmed bearer and his twin), `mesh_fragments.test.ts` (three builds blind to the tone test), and
+`launcher_clearance.test.ts` (the box packs the same instrument still reads). A byte copy, not new art: its .blend
+source is the one in history at that commit. The frozen rigid GLB is decision 8 of the lead's approval of 15 Nov 2026
+(GH-826).
