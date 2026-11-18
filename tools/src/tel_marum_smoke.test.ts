@@ -30,7 +30,8 @@
 // range too short for the distance — so each case asserts the screen really
 // landed and that the pair really sees each other without it.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, parseMap, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { fx } from '../../packages/sim/src/fixed';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';
 

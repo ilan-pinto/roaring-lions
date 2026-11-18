@@ -89,7 +89,7 @@ for (const t of ticks) {
   for (const c of plan[t]) L.sim.queueCommand(c);
 }
 if (L.sim.tickCount < ${TARGET_TICK}) L.step(${TARGET_TICK} - L.sim.tickCount);
-return JSON.stringify({ start, tick: L.sim.tickCount, hash: L.sim.hash(), contentDigest: L.contentDigest() });
+return JSON.stringify({ start, tick: L.sim.tickCount, hash: L.sim.hash(), contentDigest: await L.contentDigest() });
 })()`;
 
 /** N3 Task 8: the economy-room stream, played in the page from the module the dev

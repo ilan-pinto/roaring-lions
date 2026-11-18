@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { VersusModeFileJson } from './versus';
-import { FLAG_BACKSTOP_MINUTES, SETUP_BAND_TILES_LARGE, SETUP_KIT, SETUP_SECONDS, VERSUS_CAP_MINUTES_DEFAULT, doctrines, flagBlockOf, maps, setupLineOf, setupRegionOf, versusCapMinutesOf, versusMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf } from './index';
+import { FLAG_BACKSTOP_MINUTES, SETUP_BAND_TILES_LARGE, SETUP_KIT, SETUP_SECONDS, VERSUS_CAP_MINUTES_DEFAULT, doctrines, flagBlockOf, setupLineOf, setupRegionOf, versusCapMinutesOf, versusMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf } from './index';
+import { maps } from './content';
 
 describe('the exports', () => {
   it('doctrines are the two shipped files, keyed by faction, with the Q4 caps', () => {

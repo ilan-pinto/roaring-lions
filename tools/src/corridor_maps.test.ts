@@ -4,7 +4,8 @@
 // tel_marum has no road tile and 16 boulders, so a route over it is the wheeled flow field's:
 // the road branch never runs and the boulder corridor at x=10-11 is a wall to the convoy.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, DECOR, maps, parseMap, type MapJson } from '@lions/data';
+import { applyTerrain, DECOR, parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { DIR_DX, DIR_DY, FlowField } from '../../packages/sim/src/flowfield';
 import { corridorRoute, makeRouteSource } from '../../packages/sim/src/corridor';
 import { Sim } from '../../packages/sim/src/sim';

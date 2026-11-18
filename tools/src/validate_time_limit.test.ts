@@ -4,7 +4,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { timeLimitFailures } from '../validate_time_limit.mjs';
-import { applyOverlays, missions, POSTURE_IDS } from '@lions/data';
+import { applyOverlays, POSTURE_IDS } from '@lions/data';
+import { missions } from '@lions/data/content';
 
 const ROOT = join(__dirname, '..', '..');
 const base = {

@@ -8,7 +8,7 @@
 //   enemy      owned by the other side, or a neutral one with a hostile garrison    (a siege)
 //
 //   pnpm --filter @lions/tools exec tsx src/backtest/structure-fire-probe.ts [--seeds=1,2,3] [--ticks=6000] [--missions=a,b]
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { PROTECTED_ROE as SIM_PROTECTED_ROE } from '@lions/sim';
 import { missionWorld } from '../mission-harness';
 

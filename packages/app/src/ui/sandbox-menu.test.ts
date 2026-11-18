@@ -19,7 +19,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { maps, type MapJson } from '@lions/data';
+import { type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { SANDBOX_FLAGS, readFlags, unknownParams } from '../sandbox-help';
 import { matchPath, stripBase } from '../shell/router';
 import { UNLISTED_MAP_IDS, showMenu, showSandbox } from './menu';
@@ -38,7 +39,7 @@ const listedIds = (): string[] => Object.keys(maps).filter((id) => !HELD_OUT.inc
 
 const render = (): HTMLElement => {
   const stage = document.createElement('div');
-  showSandbox(stage);
+  showSandbox(stage, maps as Record<string, MapJson>);
   return stage;
 };
 
@@ -227,6 +228,23 @@ describe('the map cards (PA-25)', () => {
         expect(c, id).not.toBeNull();
         expect([c?.width, c?.height], id).toEqual([m.width, m.height]);
       }
+    });
+
+    it("is absent for a map the shell could not load (B6-6), and every card still reads and launches", () => {
+      const ctx = { fillStyle: '', fillRect() {} };
+      HTMLCanvasElement.prototype.getContext = (() => ctx) as unknown as HTMLCanvasElement['getContext'];
+      const stage = document.createElement('div');
+      showSandbox(stage);
+      expect(mapLinks(stage).map((a) => a.dataset.map)).toEqual(listedIds());
+      expect(stage.querySelectorAll('canvas').length).toBe(0);
+      const card = stage.querySelector('a[data-map="tel_marum"]');
+      expect(card?.querySelector('.rl-mapcard__name')?.textContent).toBe(maps.tel_marum.name);
+      expect(card?.getAttribute('href')).toBe('/free-play/tel_marum');
+      // One loaded map paints its card and only its card.
+      const one = document.createElement('div');
+      showSandbox(one, { tel_marum: maps.tel_marum as MapJson });
+      expect(one.querySelectorAll('canvas').length).toBe(1);
+      expect(one.querySelector('a[data-map="tel_marum"] canvas')).not.toBeNull();
     });
 
     it('is simply absent, and the card still reads and launches, where there is no canvas', () => {

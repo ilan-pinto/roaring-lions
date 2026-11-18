@@ -16,10 +16,10 @@ import {
   applyUpgrades,
   maxTiers,
   units,
-  missions,
   world,
   type UpgradableUnit,
 } from '@lions/data';
+import { missions } from '@lions/data/content';
 // `tools` importing a pure module out of `packages/app` is the established
 // pattern (`tools/src/meshes/gait-pass.ts` imports `RIGGED_UNIT_MESHES` from
 // `packages/app/src/mesh-catalogue` the same way): `roster-cap.ts` is the one
