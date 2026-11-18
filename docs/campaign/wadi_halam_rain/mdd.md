@@ -99,7 +99,7 @@ in cover.**
 
 | | |
 |---|---|
-| Where | Between Wadi Halam III and IV, in the "only quiet week of the war" that III's defeat debrief names. A new town listed **before** `wadi_halam` in Naharin (so it reads Lieutenant Colonel), opened by G1 `after_mission: wadi_halam_3_counterraid`. |
+| Where | Between Wadi Halam III and IV, in the "only quiet week of the war" that III's defeat debrief names (re-briefed by O-QL5 to "the one quiet week Naharin gave us"). A new town listed **before** `wadi_halam` in Naharin (so it reads Lieutenant Colonel), opened by G1 `after_mission: wadi_halam_3_counterraid`. |
 | Count | **3**: recon, foothold, buildup. A 2-mission version exists only *inside* the Wadi Halam town (section 8, Q2), and it is not recommended. |
 | Shai | Lieutenant Colonel on entry and exit. No promotion. |
 | The decision | **Wheels or feet, three ways.** Recon asks how to reach the carriers: by the Eitan along the ambushed causeway, or on foot through the reeds. Foothold asks where to dig in: in the blind hollow (the hold zone), or on the crest that sees. Buildup asks **what to buy when every vehicle has one road**, and where to put the stop on a lieutenant whose only escape road runs through a protected hamlet. |

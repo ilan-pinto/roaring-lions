@@ -105,10 +105,24 @@
         },
         {
           "price": 145,
-          "patch": {
-            "sensors.optics": 0.23,
-            "sensors.sight_tiles": 3
-          }
+          "branches": [
+            {
+              "id": "spotting_scope",
+              "label": "garage.branch.mortar_team.spotting_scope",
+              "patch": {
+                "sensors.optics": 0.23,
+                "sensors.sight_tiles": 2
+              }
+            },
+            {
+              "id": "forward_observer",
+              "label": "garage.branch.mortar_team.forward_observer",
+              "patch": {
+                "sensors.optics": 0.14,
+                "sensors.sight_tiles": 3
+              }
+            }
+          ]
         }
       ]
     },

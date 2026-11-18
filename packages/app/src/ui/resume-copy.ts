@@ -5,8 +5,9 @@
  */
 import type { ResumeRefusal } from '../mission-save';
 import type { WriteResult } from '../mission-save-store';
-import type { MovedWhat } from '../mission-resume';
+import type { MovedWhat, PostureShift } from '../mission-resume';
 import { t } from '../i18n/t';
+import { postureLabel } from './posture-copy';
 
 export type SaveFailure = 'encode_failed' | 'too_large' | Exclude<WriteResult, { ok: true }>['reason'];
 
@@ -23,9 +24,9 @@ export function saveFailureText(reason: SaveFailure): string {
 
 /** Why a stored save will not be loaded, in words. The record is kept; the card offers Discard. */
 /** `moved` is found at the boot, not on load: the live campaign is no longer the one the mission was started from. */
-export function resumeRefusalText(reason: ResumeRefusal | 'moved', moved: readonly MovedWhat[] = []): string {
+export function resumeRefusalText(reason: ResumeRefusal | 'moved', moved: readonly MovedWhat[] = [], posture?: PostureShift): string {
   switch (reason) {
-    case 'moved': return movedText(moved);
+    case 'moved': return movedText(moved, posture);
     case 'older_version': return t('resume.refused.older');
     case 'mission_unknown': return t('resume.refused.mission');
     case 'damaged': return t('resume.refused.damaged');
@@ -40,12 +41,18 @@ function movedWord(m: MovedWhat): string {
     case 'ledger': return t('resume.moved.ledger');
     case 'units': return t('resume.moved.units');
     case 'upgrades': return t('resume.moved.upgrades');
+    case 'posture': return t('resume.moved.posture');
   }
 }
 
-/** What changed in the campaign since the save, in words ("your campaign progress has changed, a unit was bought"). With nothing named, the plain sentence. */
-export function movedText(moved: readonly MovedWhat[]): string {
+/** What changed in the campaign since the save, in words ("your campaign progress has changed, a unit was bought"). With nothing named, the plain sentence.
+ *  A posture change ALONE has its own sentence (GH-1394 slice 2, ruling 6): it names both postures and says how to get the save back, since setting
+ *  the posture back is all it takes. */
+export function movedText(moved: readonly MovedWhat[], posture?: PostureShift): string {
   if (moved.length === 0) return t('resume.refused.moved');
+  if (posture !== undefined && moved.length === 1 && moved[0] === 'posture') {
+    return t('resume.refused.posture', { was: postureLabel(posture.was), now: postureLabel(posture.now) });
+  }
   return t('resume.refused.moved.named', { what: moved.map(movedWord).join(t('resume.moved.join')) });
 }
 

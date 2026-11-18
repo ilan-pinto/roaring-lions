@@ -1626,6 +1626,10 @@ export interface MountedPartSpec {
   readonly joint: string;
   /** Which dominant joints make a triangle "the body" the part must stay out of. */
   readonly bodyJoint: (jointName: string) => boolean;
+  /** Which mesh nodes are body at all (default: every skinned node that is not the part). A file that carries an upgrade
+   *  kit ships its kit as nodes too (`kit_uniform`): a part worn UNDER or ON the kit is read against the bare figure by
+   *  leaving them out. */
+  readonly bodyRole?: (role: string) => boolean;
 }
 
 export function measureMountedPartInBody(path: string, clip: string, spec: MountedPartSpec): HeldWeaponClearance {
@@ -1679,7 +1683,7 @@ export function measureMountedPartInBody(path: string, clip: string, spec: Mount
           }
         }
         weapon.push({ pos, joints, weights, skin, ibm, verts, edges, tris: [] });
-      } else {
+      } else if (!spec.bodyRole || spec.bodyRole(role)) {
         const own = tris.filter((t) => spec.bodyJoint(dom[t[0]]) && spec.bodyJoint(dom[t[1]]) && spec.bodyJoint(dom[t[2]]));
         if (own.length) body.push({ pos, joints, weights, skin, ibm, verts: [], edges: [], tris: own });
       }

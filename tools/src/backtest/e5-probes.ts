@@ -23,7 +23,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Sim, fx, TICKS_PER_SECOND, type UnitTypeJson } from '@lions/sim';
-import { applyUpgrades, maxTiers, structures, type UpgradableUnit } from '@lions/data';
+import { applyUpgrades, maxPicks, maxTiers, structures, type UpgradableUnit } from '@lions/data';
 import { runBattle, units, unitsAtMaxTier } from './harness';
 
 const WEST = 32768;
@@ -43,7 +43,8 @@ export function stagedUnit(id: string): StagedUnit {
 /** A staged draft at its maximum tiers -- the pre-pass `harness.ts`'s `unitsAtMaxTier`
  *  runs over the shipped KDF roster. */
 export function maxTierUnit(u: StagedUnit): StagedUnit {
-  return applyUpgrades(u, maxTiers(u));
+  // GH-1384: no staged unit branches; branch 1 is what a branched one would take (`maxPicks`).
+  return applyUpgrades(u, maxTiers(u), maxPicks(u, 1));
 }
 
 // ---------------------------------------------------------------------------
@@ -441,7 +442,7 @@ function main(): void {
   // Before the ruling the track added +8 front and put the Gunship back at 55, above the
   // ZU-23's penetration cliff (100/100/93 against the max-tier Peten's 100/30/30).
   const gMax = airRates(maxTierUnit(gunship));
-  const pMax = airRates(unitsAtMaxTier.heli_peten);
+  const pMax = airRates(unitsAtMaxTier(1).heli_peten); // GH-1384: branch 1; the test reads both
   for (const [name, r] of [['heli_peten (max)', pMax], ['gunship (max)', gMax]] as const) {
     const s = AA_CASES.map((n) => pct(r.survival[n]).padStart(4)).join(' ');
     const c = AA_CASES.map((n) => pct(r.cleared[n]).padStart(4)).join(' ');

@@ -287,6 +287,20 @@ describe('settingsPanel', () => {
     cb.dispatchEvent(new Event('change', { bubbles: true }));
     expect(set.mock.calls[0][0].chat.enabled).toBe(false);
   });
+  it('the mask row is ON by default (GH-1417 S2), turning it off goes through the one setter, and nothing offers to turn the hide tier off', () => {
+    const { d, set } = deps();
+    const { el } = settingsPanel(document.body, d);
+    const cb = el.querySelector<HTMLInputElement>('input[name="chatMask"]');
+    if (!cb) throw new Error('no mask box');
+    expect(cb.checked).toBe(true);
+    expect(el.textContent).toContain('Mask swear words');
+    expect(el.textContent).toContain('always hidden');
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(set.mock.calls[0][0].chat.mask).toBe(false);
+    expect(set.mock.calls[0][0].chat.enabled).toBe(true);
+    expect(el.querySelectorAll('input[name^="chat"]').length).toBe(2);
+  });
   describe('Replay intro', () => {
     it('draws no row when no intro ships (today): the panel is as it was', () => {
       const { d } = deps();
@@ -455,6 +469,7 @@ describe('the account page layout (GH-1510)', () => {
     ['zoomToCursor', 'settings.zoomToCursor', 'controls'],
     ['reports', 'settings.reports', 'privacy'],
     ['chat', 'settings.chat.enabled', 'chat'],
+    ['chatMask', 'settings.chat.mask', 'chat'],
     ['language', 'settings.language', 'language'],
   ];
   it.each(ROWS)('%s renders its control with its t() label, in the %s card', (name, key, card) => {
@@ -495,6 +510,7 @@ describe('the account page layout (GH-1510)', () => {
     ['edgePan', true, (n) => { n.controls.edgePan = true; }],
     ['zoomToCursor', false, (n) => { n.controls.zoomToCursor = false; }],
     ['chat', false, (n) => { n.chat.enabled = false; }],
+    ['chatMask', false, (n) => { n.chat.mask = false; }],
     ['language', 'xx', (n) => { n.language = 'xx'; }],
   ];
   it.each(WRITES)('%s still writes through set(), moving its own field and no other', (name, value, move) => {

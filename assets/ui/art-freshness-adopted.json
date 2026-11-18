@@ -32,7 +32,6 @@
     "plate:spg_long_range": "b2f732726f4cc8896b5445a468ece7faf71cafd76b26e462a6dcdbaed8a87a0f",
     "plate:ugv_recon_dog": "eca7ed24b9af248631c88bfc0eedb7adc56d885ded37ae6ef2e03433ff03518d",
     "plate:veh_ambulance": "4a98d6e79481e71f8e221d5a240cddc4332bf2cb95c724b97a1dd6451f4438f0",
-    "plate:yahalom_squad": "6f0067c79c28f6abd1320b51c9408460c57dd78c52d7b43c10bbeaf46e29c8f0",
     "portrait:at_team": "8e875c1f007a5ac3cda7e6809d05c60dbf4df9e3b66bf2f3de440b2f89acaa19",
     "portrait:attack_drone": "308af3dcfb68a88906069cea511e9e9c63135e26632d4bce01b5941870d7ad95",
     "portrait:breach_team": "949ab1fd21ed82016ece69347dda202f926beadb8f74e2ce03bacc128f7d2599",
@@ -57,7 +56,6 @@
     "portrait:sarim_rifles": "2a49498a2b73c0dfa02084fe579088d77f7ce0c214d3a82bce15b4bf63c21232",
     "portrait:sniper_team": "cc595d3172fa357364ec33eee6f7daba41d84d613adc88b462debad66602c77c",
     "portrait:spg_long_range": "b2f732726f4cc8896b5445a468ece7faf71cafd76b26e462a6dcdbaed8a87a0f",
-    "portrait:technical": "b87e2f228c46f838f759db77b259ca08500a96c355a0a319517f4e68b2f3aa7b",
-    "portrait:yahalom_squad": "6f0067c79c28f6abd1320b51c9408460c57dd78c52d7b43c10bbeaf46e29c8f0"
+    "portrait:technical": "b87e2f228c46f838f759db77b259ca08500a96c355a0a319517f4e68b2f3aa7b"
   }
 }

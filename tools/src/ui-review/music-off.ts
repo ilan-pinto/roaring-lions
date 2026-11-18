@@ -14,9 +14,17 @@
 // and a capture or route walk that opened on it would photograph (or click
 // through) a cinematic instead of the screen it came for. Every tool already
 // goes through this helper, so this is the one place that has to know.
+//
+// And it marks the software-rendering line as ANSWERED (`hints.software`,
+// GH-1413, `packages/app/src/ui/software-hint.ts`). CI, the golden gate,
+// `ui:shots` and `ui:routes` all draw on SwiftShader, which is exactly what
+// that line speaks to; a line over their frames would move the gate. It is
+// already kept off their localhost origin by its gate (a production build on
+// a real host, or `?qualityhint`); this seed is the second, independent lock,
+// and `music-off.test.ts` feeds it to the app's own decision.
 import { DEFAULT_SETTINGS, SETTINGS_KEY, type Settings } from '../../../packages/app/src/settings';
 
-/** The seeded settings: every default, music at 0, the intro already seen. `video` overrides merge
+/** The seeded settings: every default, music at 0, the intro already seen, the software-rendering line answered. `video` overrides merge
  *  over the video defaults (`perf/low-end.ts` seeds the quality preset under
  *  test this way). `audio` overrides merge over the audio defaults (a capture that wants ALL sound off passes
  *  `SILENT_AUDIO`); `music` is forced to 0 whatever they say. */
@@ -30,6 +38,7 @@ export function musicOffSettings(
   s.video = { ...s.video, ...video };
   s.accessibility = { ...s.accessibility, ...accessibility };
   s.intro = { seen: true };
+  s.hints = { software: true };
   return s;
 }
 

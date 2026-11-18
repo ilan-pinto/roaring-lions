@@ -37,7 +37,7 @@ export function kdfUnlockGate(u: (typeof units)[keyof typeof units], bought: Rea
  */
 export function buildCoinHalf(
   units: readonly { readonly id: string; readonly upgrades?: Readonly<Record<string, unknown>> }[],
-  account: Pick<BrigadeAccount, 'unlocks' | 'upgrades'>,
+  account: Pick<BrigadeAccount, 'unlocks' | 'upgrades'> & { readonly picks?: BrigadeAccount['picks'] },
   roar: RoarWallet
 ): CoinHalf {
   const earnedTiers: Record<string, Record<string, number>> = {};
@@ -55,6 +55,7 @@ export function buildCoinHalf(
     coinUnits: new Set(Object.keys(roar.entitlements.units)),
     earnedTiers,
     coinTiers: coinTiers(roar),
+    earnedPicks: account.picks ?? {},
   };
 }
 
@@ -79,6 +80,7 @@ export function storeInputFor(c: { ledger: LedgerData; brigade: BrigadeAccount; 
     ledger: c.ledger,
     credits: c.brigade.balance,
     owned: view.ownedTiers,
+    ownedPicks: view.ownedPicks,
     coin: buildCoinHalf(unitsList, c.brigade, c.roar),
   };
 }

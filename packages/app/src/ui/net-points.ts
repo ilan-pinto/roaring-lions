@@ -87,9 +87,11 @@ export class NetPoints {
     host.appendChild(this.el);
   }
 
-  /** Repaints only when a number moved, so the per-frame caller costs nothing in a quiet minute. */
+  /** Repaints only when a number moved or the other seat's name changed (`names.theirs` may be a getter, read here at every
+   *  call: GH-1417 S2, CR9), so the per-frame caller costs nothing in a quiet minute. */
   update(view: PointsView): void {
-    const key = JSON.stringify(view);
+    const theirs = this.names.theirs;
+    const key = JSON.stringify([view, theirs]);
     if (key === this.painted) return;
     this.painted = key;
     this.title.textContent = t('versus.points.title', { target: amount(view.target) });
@@ -101,7 +103,7 @@ export class NetPoints {
       r.rate.textContent = t('versus.points.rate', { n: rate });
     };
     paint('mine', t('versus.score.you'), view.mine, view.mineRate);
-    paint('theirs', this.names.theirs, view.theirs, view.theirsRate);
+    paint('theirs', theirs, view.theirs, view.theirsRate);
     const c = zoneCounts(view);
     this.explain.textContent = this.explainer;
     this.explain.hidden = this.explainer === '' || view.mine > 0 || view.theirs > 0;

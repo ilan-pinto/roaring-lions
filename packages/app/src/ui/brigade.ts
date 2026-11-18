@@ -35,7 +35,7 @@
 //     purchase an event (§3.5).
 //   * The two-click reset, and the rule that a Buy control renders only when
 //     the caller supplied BOTH a balance and a callback.
-import { applyUpgrades, maxTiers, readPath, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
+import { applyUpgrades, maxPicks, maxTiers, readPath, type BranchPick, type BranchPicks, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { gateSentence, gateShort } from '../gate-sentence';
@@ -117,6 +117,9 @@ export interface GarageState {
    *  Buy fills the earned path, so its ask is `creditAsk(prices, earned, owned)`. Absent reads
    *  as `owned` (no coin tier ahead of the account), the one-tier Buy. */
   readonly earned?: Record<string, Record<string, number>>;
+  /** GH-1384: the branch owned per branched (unit, track) held at its branched tier, from the
+   *  same read as `owned` (`accountView`'s `ownedPicks`). Absent reads as none. */
+  readonly picks?: Record<string, Record<string, BranchPick>>;
   /** Whether the purchase this answers is the one the store made -- the
    *  caller's own `ok`, never inferred from the account (final review M1).
    *  The account alone cannot say it: with two tabs open, tab B buys armour
@@ -204,6 +207,8 @@ export interface BrigadeOptions {
   /** The account's own `upgrades`, apart from `owned` (the single-player view, which coins can
    *  run ahead of). See `GarageState.earned`. */
   earned?: Record<string, Record<string, number>>;
+  /** GH-1384: `GarageState.picks` as the screen opens. */
+  picks?: Record<string, Record<string, BranchPick>>;
   /** Called when the player clicks a rung's Buy control. The caller buys,
    *  saves and answers, exactly as `onBuy` does; this screen only asks. Rendered only
    *  alongside `credits` -- both present or neither, the same rule the unit-unlock Buy
@@ -418,7 +423,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   /** The account this screen is drawing. Opens as the options hand it in and
    *  is replaced whole by each answer a purchase or a reset gets back
    *  (`answer()` below); nothing here edits it. */
-  let state: GarageState = { units: opts.units, credits: opts.credits, owned: opts.owned, earned: opts.earned };
+  let state: GarageState = { units: opts.units, credits: opts.credits, owned: opts.owned, earned: opts.earned, picks: opts.picks };
+  /** GH-1384: the branch this account owns per branched track of `unitId` (none below the branched tier). */
+  const picksOf = (unitId: string): BranchPicks => state.picks?.[unitId] ?? {};
   const wrap = el('div', 'rl-menu rl-menu--garage');
   // Signed in (GH-1075 A2): a coin Buy, a coupon and the reset are server calls that may answer later. `busy` is the Stores
   // key of the coin Buy in flight; `serverBusy` a coupon or reset. Both read false for a guest, whose handlers answer at once.
@@ -652,19 +659,23 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   for (const row of rows) {
     const base = opts.baseOf(row.u.id);
     const merged: UpgradableUnit = { ...base, id: row.u.id, upgrades: row.u.upgrades };
-    let kitted: UpgradableUnit;
-    try {
-      kitted = applyUpgrades(merged, maxTiers(merged));
-    } catch {
-      // Same fault `renderBay` already tolerates: a patch path the unit does
-      // not itself declare. Falling back to the unmodified unit still gives
-      // every OTHER unit's bar something honest to measure against.
-      kitted = merged;
-    }
-    for (const path of PANEL_PATHS) {
-      const v = readPath(kitted, path);
-      if (v === undefined) continue;
-      rosterMax.set(path, Math.max(rosterMax.get(path) ?? 0, v));
+    // GH-1384: a branched track is kitted at EITHER branch, so the bar's ceiling is the
+    // larger of the two, per path: no owned branch can draw past a full bar.
+    for (const pick of [1, 2] as const) {
+      let kitted: UpgradableUnit;
+      try {
+        kitted = applyUpgrades(merged, maxTiers(merged), maxPicks(merged, pick));
+      } catch {
+        // Same fault `renderBay` already tolerates: a patch path the unit does
+        // not itself declare. Falling back to the unmodified unit still gives
+        // every OTHER unit's bar something honest to measure against.
+        kitted = merged;
+      }
+      for (const path of PANEL_PATHS) {
+        const v = readPath(kitted, path);
+        if (v === undefined) continue;
+        rosterMax.set(path, Math.max(rosterMax.get(path) ?? 0, v));
+      }
     }
   }
 
@@ -899,7 +910,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // loop, since the kit-level sort (GH-243) orders by it.
     const drawn = rows.map((row) => {
       const merged: UpgradableUnit = { ...opts.baseOf(row.u.id), id: row.u.id, upgrades: row.u.upgrades };
-      return { row, kit: kitSummary(merged, ownedTiers(row.u, state.owned)) };
+      return { row, kit: kitSummary(merged, ownedTiers(row.u, state.owned), picksOf(row.u.id)) };
     });
     for (const { row, kit } of sortKit ? sortByKit(drawn, (d) => d.kit.level) : drawn) {
       const { u } = row;
@@ -1137,7 +1148,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   function asOwnedOf(u: BrigadeUnit): UpgradableUnit {
     const merged: UpgradableUnit = { ...opts.baseOf(u.id), id: u.id, upgrades: u.upgrades };
     try {
-      return applyUpgrades(merged, ownedTiers(u, state.owned));
+      return applyUpgrades(merged, ownedTiers(u, state.owned), picksOf(u.id));
     } catch {
       return merged;
     }
@@ -1329,7 +1340,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // drawing base numbers, and this screen is reached between missions.
     let asOwned = upgradable;
     try {
-      asOwned = applyUpgrades(upgradable, tiers);
+      asOwned = applyUpgrades(upgradable, tiers, picksOf(u.id));
     } catch (err) {
       console.warn(`[lions] garage: ${u.id}'s owned tiers do not fit its own JSON:`, err);
     }
@@ -1337,14 +1348,14 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // One reading of "how kitted is this unit" drives both the plate's mark
     // and the credits line below it -- never two arithmetics for one idea.
     // `spent` counts credits PAID, so it reads the earned tiers (GH-1143); absent `earned` reads owned.
-    const kit = kitSummary(upgradable, tiers, state.earned === undefined ? tiers : (state.earned[u.id] ?? {}));
+    const kit = kitSummary(upgradable, tiers, picksOf(u.id), state.earned === undefined ? tiers : (state.earned[u.id] ?? {}));
 
     // M3 (lead ruling L2): a locked unit that still OWNS tiers -- one a gate
     // re-locked after it was kitted -- keeps them, dormant; the sim's
     // pre-pass applies them regardless. The board draws them owned and
     // read-only, and this says why nothing on it can be bought. Absent for a
     // locked unit that owns nothing, which has nothing kept to explain.
-    if (row.locked && kitSummary(upgradable, tiers).spent > 0) {
+    if (row.locked && kitSummary(upgradable, tiers, picksOf(u.id)).spent > 0) {
       board.appendChild(el('div', 'rl-garage__kept', t('garage.locked.kitKept')));
     }
 

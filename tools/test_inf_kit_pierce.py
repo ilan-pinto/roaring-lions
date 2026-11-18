@@ -53,6 +53,10 @@ TEAMS = {
     "inf_squad": ("inf_kit_pierce_ratchet.json", ("f0", "f1", "f2"), None),
     "demo_squad": ("inf_kit_pierce_ratchet_demo_squad.json", ("demo_a", "demo_b"),
                    ("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work")),
+    # GH-826 unit "Yahalom" (17 Nov 2026): the Combat Engineers' body in its own two scalings, in the same carrier: the same
+    # named item (the lead's decision 9 of 15 Nov), its own ceilings, read on its own bytes (72 rows).
+    "yahalom_squad": ("inf_kit_pierce_ratchet_yahalom_squad.json", ("yah_a", "yah_b"),
+                      ("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work")),
 }
 
 
