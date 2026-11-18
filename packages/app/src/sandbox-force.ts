@@ -150,8 +150,9 @@ export function sandboxUnitTypes(extras: SandboxExtras): Set<string> {
 
 /** `&kit` (sandbox only, WP-S3g plan 2b): a fixed kit level per type the
  *  sandbox force fields, so one selection shows all three levels on the unit
- *  icons at once. The dock never shows it: the dock is mission-only,
- *  and `&kit` never reaches a mission. */
+ *  icons at once. `&kit` never reaches a mission. Since 18 Nov 2026 a KDF Free
+ *  play has the field-works dock (`freePlayDefaults`), so its unit tiles read
+ *  these levels too, through the same `kitLevelOf` the chips do. */
 export const SANDBOX_KIT_LEVELS: Readonly<Record<string, 1 | 2 | 3>> = {
   inf_squad: 1,
   apc_eitan: 1,

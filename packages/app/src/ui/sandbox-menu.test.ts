@@ -73,12 +73,12 @@ describe('the map list', () => {
   });
 
   it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912)", () => {
-    // 46 maps ship (Was 41: the five Qasr Liwan maps; 40 before Milh Flats (large), GH-920 B3); the picker lists 43 (Was 38 before Qasr Liwan listed its five) (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(46);
+    // 51 maps ship (Was 46 before the five Bir Tarsha maps; 41: the five Qasr Liwan maps; 40 before Milh Flats (large), GH-920 B3); the picker lists 48 (Was 43 before Bir Tarsha listed its five; 38 before Qasr Liwan listed its five) (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(51);
     for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
-    expect(links).toHaveLength(43);
+    expect(links).toHaveLength(48);
     for (const id of HELD_OUT) {
       expect(links.map((a) => a.dataset.map)).not.toContain(id);
       // Nothing on the screen links to it either, by any spelling of the route.
@@ -263,7 +263,22 @@ describe('the flag list', () => {
     const boxes = Array.from(
       render().querySelectorAll<HTMLInputElement>('input[data-flag]')
     );
-    expect(boxes.map((b) => b.dataset.flag)).toEqual(SANDBOX_FLAGS.map((f) => f.name));
+    expect(boxes.map((b) => b.dataset.flag)).toEqual(SANDBOX_FLAGS.filter((f) => f.freePlayDefault !== true).map((f) => f.name));
+  });
+
+  // The lead, 18 Nov 2026: field works are on in every KDF Free play, so the picker states them under the
+  // side pick, in the table's own sentence, and offers no box that could only ever be ticked.
+  it('states each Free play default under the side pick, in its catalogue sentence, never as a box', () => {
+    const stage = render();
+    const defaults = SANDBOX_FLAGS.filter((f) => f.freePlayDefault === true);
+    expect(defaults.map((f) => f.name)).toEqual(['works']);
+    for (const f of defaults) {
+      expect(stage.querySelector(`input[data-flag="${f.name}"]`), f.name).toBeNull();
+      const line = stage.querySelector<HTMLElement>(`.rl-sandbox__default[data-default-flag="${f.name}"]`);
+      expect(line?.textContent, f.name).toBe((en as Record<string, string>)[f.labelKey]);
+      expect(line?.closest('fieldset')?.classList.contains('rl-sandbox__sides'), f.name).toBe(true);
+      expect(line?.hidden, f.name).toBe(false);
+    }
   });
 
   // WP-P2 (PA-01, PA-25): the table's own blurbs are console text for a
@@ -463,10 +478,12 @@ describe('GH-1381: the side pick', () => {
     pick(stage, 'sarim');
     for (const a of mapLinks(stage)) expect(a.getAttribute('href'), a.dataset.map).toMatch(/[?&]side=sarim$/);
     expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?civ&side=sarim');
-    for (const f of ['tunnel', 'sur', 'kit', 'works']) {
+    for (const f of ['tunnel', 'sur', 'kit']) {
       expect(box(stage, f).disabled, f).toBe(true);
       expect(box(stage, f).getAttribute('aria-describedby'), f).toBe('rl-free-play-kdf-only');
     }
+    // A Sarim Free play has no field works (`freePlayDefaults`), so the line saying they are on goes.
+    expect(stage.querySelector<HTMLElement>('.rl-sandbox__default[data-default-flag="works"]')?.hidden).toBe(true);
     for (const f of ['roe', 'civ', 'ditch']) expect(box(stage, f).disabled, f).toBe(false);
     const note = stage.querySelector<HTMLElement>('#rl-free-play-kdf-only');
     expect(note?.hidden).toBe(false);
@@ -482,6 +499,7 @@ describe('GH-1381: the side pick', () => {
     expect(box(stage, 'tunnel').disabled).toBe(false);
     expect(box(stage, 'tunnel').hasAttribute('aria-describedby')).toBe(false);
     expect(stage.querySelector<HTMLElement>('#rl-free-play-kdf-only')?.hidden).toBe(true);
+    expect(stage.querySelector<HTMLElement>('.rl-sandbox__default[data-default-flag="works"]')?.hidden).toBe(false);
     expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?tunnel');
   });
 });

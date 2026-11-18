@@ -33,8 +33,8 @@ describe('the Sarim Free play force (GH-1381)', () => {
   const ids = freePlayMapIds() as MapId[];
 
   it('is built on every map the picker lists (the walk is not vacuous)', () => {
-    // Literal: the picker's count (sandbox-menu.test.ts pins the same 43).
-    expect(ids).toHaveLength(43);
+    // Literal: the picker's count (sandbox-menu.test.ts pins the same 48; was 43 before the five Bir Tarsha maps).
+    expect(ids).toHaveLength(48);
   });
 
   it('puts the versus Sarim force on side 0 and the versus KDF force on side 1, on every listed map', () => {

@@ -935,7 +935,7 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
 - **UI.** The works tile and glyph; the dock row is "Forward {n}" (n counts forward lines only, camps keep "Camp {index+1}"), and a lone
   forward line always has a row; a tile pinned to a line is judged against THAT line's menu (`tileState(..., onLine)`). Placing shows the
   footprint pad and two dashed rings (aura 4, contest 6; `worksShapeOf().contest`); selecting the camp shows the same rings. No world mark.
-  The `&works` sandbox lists the camp like any `kdf_` work and now has a unit menu (the KDF units it loads models for) so a unit can be
+  The field-works sandbox (every KDF Free play since 18 Nov 2026; `&works` before, an alias now) lists the camp like any `kdf_` work and now has a unit menu (the KDF units it loads models for) so a unit can be
   built from the line. Check: `tools/src/perf/forward-camp-check.ts` (port 5195, music off, one Metal browser).
 - **Cost.** A busy forward line adds one contest scan a tick, the same as any second authored camp: about 0.004 ms/tick at 303 units; an
   idle one about 0.00001 ms.

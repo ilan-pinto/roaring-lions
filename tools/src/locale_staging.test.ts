@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { chromeCatalogueFailures as chromeRaw } from '../validate_chrome_catalogue.mjs';
+import { chromeCatalogueFailures as chromeRaw, chromeSourceFailures as chromeSrcRaw } from '../validate_chrome_catalogue.mjs';
 import { overlayFailures as overlayRaw, unitOverlayFailures as unitOverlayRaw } from '../validate_narrative.mjs';
 // @ts-expect-error: a plain .mjs module with no declarations, like the other validators the tools tests import.
 import { isStaged as isStagedRaw, shippedLocaleIds as shippedRaw, stagingOpts as stagingOptsRaw } from '../locale_staging.mjs';
@@ -13,6 +13,7 @@ import { isStaged as isStagedRaw, shippedLocaleIds as shippedRaw, stagingOpts as
 // The validators are plain .mjs modules; these are their signatures as the tests call them.
 type Fn = (...args: unknown[]) => unknown;
 const chromeCatalogueFailures = chromeRaw as unknown as Fn;
+const chromeSourceFailures = chromeSrcRaw as unknown as Fn;
 const overlayFailures = overlayRaw as unknown as Fn;
 const unitOverlayFailures = unitOverlayRaw as unknown as Fn;
 const isStaged = isStagedRaw as unknown as (id: string, shipped: string[]) => boolean;
@@ -50,6 +51,45 @@ describe('which languages are staged', () => {
   });
 });
 
+describe('chrome sidecar (source hashes): stale is lag, malformed is wrong', () => {
+  const en = { 'a.plain': 'Back', 'a.name': 'Mute {name}' };
+  const tr = { 'a.plain': 'Zurück', 'a.name': '{name} stummschalten' };
+  // sourceHash is the first 8 hex of sha256; the fixtures take their hashes from the validator's own message for the English text.
+  const want = (src: Record<string, string>): { failures: string[]; lag: string[] } => {
+    const lag: string[] = [];
+    return { failures: chromeSourceFailures('de/chrome.src.json', en, tr, src, { staged: false, lag }) as string[], lag };
+  };
+  const hashOf = (key: 'a.plain' | 'a.name'): string => /set it to ([0-9a-f]{8})/.exec(want({}).failures.find((f) => f.includes(`"${key}"`)) ?? '')?.[1] ?? '';
+  const good = { 'a.plain': hashOf('a.plain'), 'a.name': hashOf('a.name') };
+  const run = (src: unknown, staged: boolean): { failures: string[]; lag: string[] } => {
+    const lag: string[] = [];
+    return { failures: chromeSourceFailures('de/chrome.src.json', en, tr, src, { staged, lag }) as string[], lag };
+  };
+  it('current hashes are green both ways', () => {
+    expect(good['a.plain']).toMatch(/^[0-9a-f]{8}$/);
+    for (const staged of [true, false]) expect(run(good, staged)).toEqual({ failures: [], lag: [] });
+  });
+  it('a stale hash (the English changed after translation): STAGED green and reported, SHIPPED red', () => {
+    const stale = { ...good, 'a.plain': '00000000' };
+    const s = run(stale, true);
+    expect(s.failures).toEqual([]);
+    expect(s.lag.join('\n')).toContain('"a.plain" is stale');
+    expect(run(stale, false).failures.join('\n')).toContain('"a.plain" is stale');
+  });
+  it('a translated key with no hash: STAGED green and reported, SHIPPED red', () => {
+    const { 'a.name': _drop, ...partial } = good;
+    void _drop;
+    expect(run(partial, true).failures).toEqual([]);
+    expect(run(partial, true).lag.join('\n')).toContain('"a.name" is translated but carries no source hash');
+    expect(run(partial, false).failures.join('\n')).toContain('carries no source hash');
+  });
+  it('STAGED still fails on a malformed hash, a hash for a key it does not translate, and a sidecar that is not an object', () => {
+    expect(run({ ...good, 'a.plain': 'XYZ' }, true).failures.join('\n')).toContain('is not 8 hex characters');
+    expect(run({ ...good, 'a.ghost': 'abcdef12' }, true).failures.join('\n')).toContain('has a source hash for "a.ghost"');
+    expect(run([], true).failures).toEqual(['de/chrome.src.json: not a JSON object of key -> source hash']);
+  });
+});
+
 describe('validate:data wires the staging rule into all three gates', () => {
   it('stagingOpts hands a staged language its own lag array and a shipped one `staged: false`', () => {
     const map = new Map<string, string[]>();
@@ -61,12 +101,12 @@ describe('validate:data wires the staging rule into all three gates', () => {
     expect(stagingOpts('de', ['en', 'de'], new Map()).staged).toBe(false);
     expect(stagingOpts('en', ['en'], new Map()).staged).toBe(false);
   });
-  it('every chrome, mission-overlay and unit-overlay call in validate_data.mjs passes stagingOf(...) (one source-level count, since the gate runs against the real tree)', () => {
+  it('every chrome, sidecar, mission-overlay and unit-overlay call in validate_data.mjs passes stagingOf(...) (one source-level count, since the gate runs against the real tree)', () => {
     const src = readFileSync(join(ROOT, 'tools/validate_data.mjs'), 'utf8');
-    for (const fn of ['chromeCatalogueFailures', 'overlayFailures', 'unitOverlayFailures']) {
+    for (const fn of ['chromeCatalogueFailures', 'chromeSourceFailures', 'overlayFailures', 'unitOverlayFailures']) {
       const calls = [...src.matchAll(new RegExp(`\\.\\.\\.${fn}\\(([^\\n]*)\\)\\);`, 'g'))].map((m) => m[1]);
       expect(calls.length, fn).toBe(1);
-      expect(calls[0], fn).toContain('stagingOf(lang)');
+      expect(calls[0], fn).toMatch(/stagingOf\((lang|id)\)/);
     }
   });
 });
