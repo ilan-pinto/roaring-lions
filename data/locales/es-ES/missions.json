@@ -183,11 +183,11 @@
   },
   "beit_sahwan_4_subterranean": {
     "name": "Beit Sahwan IV — Subterráneo",
-    "briefing": "El pueblo es nuestro y los combates no han cesado. Los disparos llegan desde terreno vacío, los tiradores se han ido antes del eco, y la razón está bajo sus pies. Nadir Sahim minó este distrito años antes de que llegáramos y no lo ha abandonado. Ocupa la boca del pozo norte en el fondo de la vieja cantera de caliza, con cuatro personas a su lado que están fuera de alcance desde la primera mañana. El punto de recogida está a tres casillas de su línea de partida, y se cuentan en cuanto lo alcanzan. Cuatro minutos para las personas y cinco para las rutas; la segunda no espera a la primera. Idit tiene cuatro rutas bajo el pueblo, y una se está reabriendo ahora mismo: tierra extraída que avanza hacia el oeste por la carretera principal. Los escombros detienen al Namer y al Eitan en todas partes salvo en la carretera principal, el pedregal del lado sur de la cantera es solo para infantería, y la rampa de acarreo de su muro este es la única entrada para vehículos de ruedas. El foso no ve por encima de su propio borde, y usted sí puede ver dentro de él. La tierra removida es algo que cualquier soldado sabe leer. Un equipo de cohetes vigila a los cuatro; el cañón del Namer responde a eso y le hace perder la misión. Nada pesado a menos de dos casillas de ellos. Solo el dron o los zapadores pueden decirle por dónde corren las otras tres, y solo mientras alguien las esté mirando. Yahalom debe permanecer inmóvil a campo abierto junto a una ruta para colocar la carga, así que su supervivencia es una decisión que usted toma con todo lo demás que tiene. Saque a la gente, tome el terreno donde él se encuentra y después derribe las cuatro.",
+    "briefing": "El pueblo es nuestro y los combates no han cesado. Los disparos llegan desde terreno vacío, los tiradores se han ido antes del eco, y la razón está bajo sus pies. Nadir Sahim minó este distrito años antes de que llegáramos y no lo ha abandonado. Ocupa la boca del pozo norte en el fondo de la vieja cantera de caliza, con cuatro personas a su lado que están fuera de alcance desde la primera mañana. Quince personas siguen en el distrito. Cuatro están con él, dos más están en el fondo de la cantera, y nueve se refugian en los patios del sur, el zoco, la manzana del mercado y la manzana de la clínica; esas nueve se quedan donde están hasta que un soldado se acerque lo bastante para sacarlas. Nueve en el punto de recogida en cuatro minutos, doce si puede, y quien siga en las calles cuando se acabe el tiempo es llevado. El punto de recogida está a tres casillas de su línea de partida, y se cuentan en cuanto lo alcanzan. Cinco minutos para las rutas; la segunda no espera a la primera. Idit tiene cuatro rutas bajo el pueblo, y una se está reabriendo ahora mismo: tierra extraída que avanza hacia el oeste por la carretera principal. Los escombros detienen al Namer y al Eitan en todas partes salvo en la carretera principal, el pedregal del lado sur de la cantera es solo para infantería, y la rampa de acarreo de su muro este es la única entrada para vehículos de ruedas. El foso no ve por encima de su propio borde, y usted sí puede ver dentro de él. La tierra removida es algo que cualquier soldado sabe leer. Un equipo de cohetes y una escuadra de cargas vigilan el callejón por donde debe bajar la gente del mercado, una célula de fusileros ocupa el zoco, y lo que se dispara contra sus escuadras cae sobre el suelo donde está la gente. Un equipo de cohetes vigila a los cuatro; el cañón del Namer responde a eso y le hace perder la misión. Nada pesado a menos de dos casillas de ellos. Solo el dron o los zapadores pueden decirle por dónde corren las otras tres, y solo mientras alguien las esté mirando. Yahalom debe permanecer inmóvil a campo abierto junto a una ruta para colocar la carga, así que su supervivencia es una decisión que usted toma con todo lo demás que tiene. Saque a la gente, tome el terreno donde él se encuentra y después derribe las cuatro.",
     "sections": {
       "situation": "El pueblo es nuestro y los combates no han cesado. Los disparos llegan desde terreno vacío, los tiradores se han ido antes del eco, y la razón está bajo sus pies. Nadir Sahim minó este distrito años antes de que llegáramos y no lo ha abandonado. Ocupa la boca del pozo norte en el fondo de la vieja cantera de caliza, con cuatro personas a su lado que están fuera de alcance desde la primera mañana.",
-      "mission": "El punto de recogida está a tres casillas de su línea de partida, y se cuentan en cuanto lo alcanzan. Cuatro minutos para las personas y cinco para las rutas; la segunda no espera a la primera.",
-      "execution": "Idit tiene cuatro rutas bajo el pueblo, y una se está reabriendo ahora mismo: tierra extraída que avanza hacia el oeste por la carretera principal. Los escombros detienen al Namer y al Eitan en todas partes salvo en la carretera principal, el pedregal del lado sur de la cantera es solo para infantería, y la rampa de acarreo de su muro este es la única entrada para vehículos de ruedas. El foso no ve por encima de su propio borde, y usted sí puede ver dentro de él. La tierra removida es algo que cualquier soldado sabe leer. Un equipo de cohetes vigila a los cuatro; el cañón del Namer responde a eso y le hace perder la misión. Nada pesado a menos de dos casillas de ellos. Solo el dron o los zapadores pueden decirle por dónde corren las otras tres, y solo mientras alguien las esté mirando. Yahalom debe permanecer inmóvil a campo abierto junto a una ruta para colocar la carga, así que su supervivencia es una decisión que usted toma con todo lo demás que tiene.",
+      "mission": "Quince personas siguen en el distrito. Cuatro están con él, dos más están en el fondo de la cantera, y nueve se refugian en los patios del sur, el zoco, la manzana del mercado y la manzana de la clínica; esas nueve se quedan donde están hasta que un soldado se acerque lo bastante para sacarlas. Nueve en el punto de recogida en cuatro minutos, doce si puede, y quien siga en las calles cuando se acabe el tiempo es llevado. El punto de recogida está a tres casillas de su línea de partida, y se cuentan en cuanto lo alcanzan. Cinco minutos para las rutas; la segunda no espera a la primera.",
+      "execution": "Idit tiene cuatro rutas bajo el pueblo, y una se está reabriendo ahora mismo: tierra extraída que avanza hacia el oeste por la carretera principal. Los escombros detienen al Namer y al Eitan en todas partes salvo en la carretera principal, el pedregal del lado sur de la cantera es solo para infantería, y la rampa de acarreo de su muro este es la única entrada para vehículos de ruedas. El foso no ve por encima de su propio borde, y usted sí puede ver dentro de él. La tierra removida es algo que cualquier soldado sabe leer. Un equipo de cohetes y una escuadra de cargas vigilan el callejón por donde debe bajar la gente del mercado, una célula de fusileros ocupa el zoco, y lo que se dispara contra sus escuadras cae sobre el suelo donde está la gente. Un equipo de cohetes vigila a los cuatro; el cañón del Namer responde a eso y le hace perder la misión. Nada pesado a menos de dos casillas de ellos. Solo el dron o los zapadores pueden decirle por dónde corren las otras tres, y solo mientras alguien las esté mirando. Yahalom debe permanecer inmóvil a campo abierto junto a una ruta para colocar la carga, así que su supervivencia es una decisión que usted toma con todo lo demás que tiene.",
       "notes": "Saque a la gente, tome el terreno donde él se encuentra y después derribe las cuatro."
     },
     "aftermath": "Cuatro rutas bajo Beit Sahwan, y el hombre que las cavó salió de la última con las manos vacías. La brigada se llevó el expediente y no dijo nada más. El perímetro es nuestro. El enclave no.",
@@ -199,28 +199,40 @@
     "objectives": {
       "bring_it_down": "Derrumbar todas las rutas bajo el distrito",
       "read_the_ground": "Localizar a la cuadrilla que reabre la ruta occidental de Sahim",
-      "get_them_out": "Sacar a cinco personas al punto de recogida antes de que caigan las rutas",
+      "get_them_out": "Sacar a nueve personas al punto de recogida en cuatro minutos",
       "take_the_shaft_head": "Mantener la boca del pozo hasta que Sahim salga de ella",
-      "find_spade": "Localizar a Nadir Sahim en la boca del pozo"
+      "find_spade": "Localizar a Nadir Sahim en la boca del pozo",
+      "most_of_them": "Sacar a doce de las quince al punto de recogida en cuatro minutos"
     },
     "objective_say": {
       "read_the_ground": "Esa es la cuadrilla de la ruta oeste. Mantiene a sus excavadores cerca de la obra, y así lo encontramos.",
-      "get_them_out": "Cinco en el punto de recogida. Es la primera vez que este distrito devuelve a alguien.",
-      "take_the_shaft_head": "La boca del pozo es suya y él está en el lado equivocado. Cuatro años cavando y ahora está sobre la superficie."
+      "get_them_out": "Nueve en el punto de recogida. Es la primera vez que este distrito devuelve a alguien.",
+      "take_the_shaft_head": "La boca del pozo es suya y él está en el lado equivocado. Cuatro años cavando y ahora está sobre la superficie.",
+      "most_of_them": "Doce en el punto de recogida. Mantenga abierto el callejón para quien aún viene."
     },
     "objective_say_on_fail": {
       "bring_it_down": "Se acabó el tiempo y aún queda terreno bajo este pueblo que no es nuestro.",
-      "get_them_out": "Se acabó el tiempo con la gente. Nada bajo este pueblo vale lo que acabamos de no hacer."
+      "get_them_out": "Se acabó el tiempo con la gente. Nada bajo este pueblo vale lo que acabamos de no hacer.",
+      "most_of_them": "Se acabó el tiempo para las doce. Quien siga en las calles es llevado, y ese número es el coste."
+    },
+    "triggers": {
+      "yard_families_shelter": "Las familias del patio se quedan en el patio",
+      "souk_families_shelter": "Las familias del zoco retroceden al oeste",
+      "market_families_shelter": "Las familias del mercado esperan en el callejón",
+      "clinic_families_shelter": "Las familias de la clínica retroceden"
+    },
+    "trigger_say": {
+      "the_streets_are_cleared": "Se acabó el tiempo. Quien siga en las calles ha sido llevado al otro lado de su línea."
     },
     "wave_say": {
       "1": "Lo último que puede enviar la línea de mortero. Después gastará a los que tiene bajo tierra."
     },
     "src": {
       "name": "c9abe1be",
-      "briefing": "8ce1b9df",
+      "briefing": "69efde58",
       "objectives.bring_it_down": "e5bb2d06",
       "objectives.read_the_ground": "4acfd52d",
-      "objectives.get_them_out": "132b3d66",
+      "objectives.get_them_out": "4ce3c7c6",
       "objectives.take_the_shaft_head": "a7d2e8b7",
       "objectives.find_spade": "da8ec255",
       "aftermath": "f882c5da",
@@ -228,15 +240,23 @@
       "debrief.victory": "fc41956d",
       "debrief.defeat": "84df9ce7",
       "sections.situation": "9bb63df3",
-      "sections.mission": "3f2accd6",
-      "sections.execution": "d5a8f0e2",
+      "sections.mission": "a6496537",
+      "sections.execution": "36cbfa90",
       "sections.notes": "0dc13301",
       "objective_say.read_the_ground": "a3cb3dba",
-      "objective_say.get_them_out": "f6fedba3",
+      "objective_say.get_them_out": "d2fd78e3",
       "objective_say.take_the_shaft_head": "72ea9cfa",
       "objective_say_on_fail.bring_it_down": "68b7b2f2",
       "objective_say_on_fail.get_them_out": "232994e9",
-      "wave_say.1": "c220fa50"
+      "wave_say.1": "c220fa50",
+      "objectives.most_of_them": "053aa740",
+      "objective_say.most_of_them": "6ec2fd04",
+      "objective_say_on_fail.most_of_them": "9fa99b11",
+      "trigger_say.the_streets_are_cleared": "ca259384",
+      "triggers.yard_families_shelter": "dd03b9f1",
+      "triggers.souk_families_shelter": "6c21d359",
+      "triggers.market_families_shelter": "a5940c9f",
+      "triggers.clinic_families_shelter": "8a8ab1c5"
     }
   },
   "beit_sahwan_breach": {
