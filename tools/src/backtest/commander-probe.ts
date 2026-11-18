@@ -26,7 +26,7 @@
 //   pnpm --filter @lions/tools exec tsx src/backtest/commander-probe.ts -- --seeds=8 --jobs=4 --out=/tmp/cmd-probe
 //   ... --maps=tel_marum,wadi_tarfan --modes=annihilation,points --baselines=passive --seeds=2
 import { spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Command } from '@lions/sim';
@@ -442,6 +442,7 @@ async function main(argv: readonly string[]): Promise<void> {
   const modes = argOf('modes', argv)?.split(',') as (WinMode | 'annihilation')[] | undefined;
   const baselines = argOf('baselines', argv)?.split(',') as Baseline[] | undefined;
   const shard = argOf('shard', argv);
+  const resume = argv.includes('--resume');
   const commander = (argOf('commander', argv) ?? 'rush') as CommanderKind;
   const options = argOf('options', argv) === undefined ? undefined : (JSON.parse(argOf('options', argv) as string) as CommanderOptions);
   const cells = cellsOf({ maps, modes, baselines });
@@ -450,9 +451,12 @@ async function main(argv: readonly string[]): Promise<void> {
     // A worker: its slice of (cell, seed) games, one JSON line each.
     const [i, n] = shard.split('/').map(Number);
     const file = join(out, `games.${i}.jsonl`);
+    // --resume: a shard plays its games in a fixed order, so the lines already in its file are exactly its first games.
+    let done = resume && existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((l) => l.trim() !== '').length : 0;
     let k = 0;
     for (const cell of cells) for (let s = 0; s < seeds; s++) {
       if (k++ % n !== i) continue;
+      if (done > 0) { done--; continue; }
       appendFileSync(file, `${JSON.stringify(playGame(cell, seedOf(s), { commander, options }))}\n`);
     }
     return;

@@ -41,8 +41,10 @@
  *      sent home with a `move` (not an attack-move: it stops fighting and walks) and is kept out of every other task, but only if it could win once joined by
  *      every other able unit and what the camps are building (own + those > foe): a group with nothing to join fights on. (First version, measured: no such
  *      test, 8787 retreats in 992 games, wins 665 to 598; GH-1391.) Home, it is REGROUPED, and released to
- *      the other tasks (so the march sends it out again: the re-engage) when what stands at home is worth at least the foe that beat it, when a contact
- *      comes within `DEFEND_TILES` of the camp (it defends), or when nothing is queued or building that could add to it (a room with no economy). All
+ *      the other tasks (so the march sends it out again: the re-engage) when what stands at home is worth at least the foe that beat it, or when nothing
+ *      is queued or building that could add to it (a room with no economy); at once, all of it, when a contact comes within `DEFEND_TILES` of the camp
+ *      (it defends). A member that cannot walk (disabled, routed, carried, garrisoned, underground), that stopped idle short of home or that has not moved a
+ *      tile since the last decision is let go, so one cripple never holds the rest. All
  *      whole-number comparisons; no new tuned number.
  *
  * `CommanderOptions` switch tasks 1 to 3 off one at a time. They exist for the scenarios of the tests ("removing it changes the result"), and the
@@ -165,6 +167,8 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
   const retreatOn = o.retreat === true;
   /** Units ordered home and not yet released (slice 3), and the foe's value that beat them (`cost x hp`). */
   const retreating = new Set<number>();
+  /** Where each retreating unit stood at the last decision: one that has not moved a tile since is stuck. */
+  const lastTile = new Map<number, [number, number]>();
   let beatenBy = 0;
   /** The scout's unit id once chosen (null before, and kept after it dies: it is never replaced). */
   let scoutId: number | null = null;
@@ -234,10 +238,21 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
 
     // 0b. RETREAT: a group worth less than the foe in its face walks home, regroups there, and is let go again.
     if (retreatOn) {
-      const live = new Set(view.units.map((u) => u.id));
-      for (const id of retreating) if (!live.has(id)) retreating.delete(id);
       const worth = (type: string, hp: number): number => costOf(type) * hp;
-      const field = view.units.filter((u) => able(u.flags) && u.id !== scoutId && !retreating.has(u.id) && !home(u));
+      /** Cannot walk home whatever it is told: disabled, routed, carried, garrisoned or underground. Never engaged, and let go if it was. */
+      const cannotWalk = (u: SideView['units'][number]): boolean => !able(u.flags) || u.held === 'routed' || u.held === 'immobilised' || u.held === 'carried' || u.held === 'garrisoned' || u.held === 'tunnel';
+      // Those already walking home: forget the dead and the disabled; give back to the march one that stopped short of home (idle, away) and one that has
+      // not moved a tile since the last decision (stuck, so it cannot hold the rest for ever).
+      const byId = new Map(view.units.map((u) => [u.id, u]));
+      for (const id of retreating) {
+        const u = byId.get(id);
+        const last = lastTile.get(id);
+        if (u === undefined || cannotWalk(u) || (!home(u) && (u.flags.includes('idle') || (last !== undefined && last[0] === u.tile[0] && last[1] === u.tile[1])))) { retreating.delete(id); lastTile.delete(id); }
+        else lastTile.set(id, [u.tile[0], u.tile[1]]);
+      }
+      // A contact at the camp ends the retreat: whoever is home defends it.
+      if (view.contacts.some((c) => dist(c.tile, view.camp) <= DEFEND_TILES)) { retreating.clear(); lastTile.clear(); }
+      const field = view.units.filter((u) => !cannotWalk(u) && u.id !== scoutId && !retreating.has(u.id) && !home(u));
       const engaged = field.filter((u) => view.contacts.some((c) => dist(c.tile, u.tile) <= RUSH_HOME_TILES));
       if (engaged.length > 0) {
         const own = engaged.reduce((a, u) => a + worth(u.type, u.hp), 0);
@@ -255,20 +270,17 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
           for (let i = 0; i < ids.length; i += MAX_IDS_PER_COMMAND) {
             commands.push({ kind: 'move', ids: ids.slice(i, i + MAX_IDS_PER_COMMAND), x: tileCentre(view.camp[0]), y: tileCentre(view.camp[1]) });
           }
-          for (const id of ids) retreating.add(id);
+          for (const u of engaged) { retreating.add(u.id); lastTile.set(u.id, [u.tile[0], u.tile[1]]); }
           beatenBy = foe;
         }
       }
       if (retreating.size > 0) {
-        // One that stopped short of home (idle, away: the road was shut, or it was stopped) is given back to the march rather than held for ever.
-        for (const u of view.units) if (retreating.has(u.id) && u.flags.includes('idle') && !home(u)) retreating.delete(u.id);
         const mine = view.units.filter((u) => retreating.has(u.id));
         const arrived = mine.every((u) => home(u) && !u.flags.includes('moving'));
         if (arrived) {
           const atHome = view.units.filter((u) => able(u.flags) && home(u)).reduce((a, u) => a + worth(u.type, u.hp), 0);
-          const threatened = view.contacts.some((c) => dist(c.tile, view.camp) <= DEFEND_TILES);
           const adding = view.economy !== undefined && view.economy.lines.some((l) => l.building !== null || l.queued.length > 0);
-          if (atHome >= beatenBy || threatened || !adding) retreating.clear();
+          if (atHome >= beatenBy || !adding) { retreating.clear(); lastTile.clear(); }
         }
         for (const id of retreating) keep.add(id);
       }

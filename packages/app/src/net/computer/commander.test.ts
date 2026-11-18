@@ -524,6 +524,8 @@ describe('retreat: a losing group walks home, regroups, and is let go again', ()
   const away = (id: number, o: { hp?: number; flags?: string[]; type?: string } = {}) => unit(id, [20, 30], { flags: ['moving'], ...o });
   /** Squads far from the fight, on the move: they are what the group would be joined by, and nothing is ordered of them. */
   const reserve = (n: number): UnitLine[] => Array.from({ length: n }, (_, i) => unit(60 + i, [40 + i, 40], { flags: ['moving'] }));
+  /** The same unit a decision later, a step nearer home. */
+  const onWay = (id: number, o: { type?: string; flags?: string[] } = {}) => unit(id, [18, 32], { flags: ['moving'], ...o });
   const tanks = (n: number, hp = 100): ContactLine[] => Array.from({ length: n }, (_, i) => contact(90 + i, [22, 30 + (i % 3)], 'mbt_lavi', hp));
 
   it('an engaged group worth less than the foe in its face is sent home with a move (not an attack-move), and kept out of the march and the sweep', () => {
@@ -606,7 +608,7 @@ describe('retreat: a losing group walks home, regroups, and is let go again', ()
     const squad = [away(1), away(2), unit(3, [40, 40], { flags: ['moving'] }), unit(4, [41, 40], { flags: ['moving'] })]; // 3 and 4 are far from the fight
     c(view({ units: squad, contacts: tanks(1) }), ctx()); // beaten by one tank (906 x 100 > 2 x 292 x 100)
     // on their way: kept
-    const way = c(view({ units: [away(1), away(2), squad[2], squad[3]] }), ctx());
+    const way = c(view({ units: [onWay(1), onWay(2), squad[2], squad[3]] }), ctx());
     expect([...way.keep].sort()).toEqual([1, 2]);
     // home, with too little standing there and a purse coming (queue pending): held
     const economy = eco({ lines: [{ line: 0, alive: true, tile: [10, 40], building: 'inf_squad', progress: 0, secondsLeft: 10, contested: false, queued: [], rally: null }] });
@@ -649,9 +651,51 @@ describe('retreat: a losing group walks home, regroups, and is let go again', ()
   it('one that stopped short of home is given back to the march, not held for ever', () => {
     const c = retreat();
     c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
-    const out = c(view({ units: [unit(1, [18, 33], { flags: ['idle'] }), away(2)] }), ctx());
+    const out = c(view({ units: [unit(1, [18, 33], { flags: ['idle'] }), onWay(2)] }), ctx());
     expect(out.keep.has(1)).toBe(false);
     expect(out.keep.has(2)).toBe(true);
+  });
+
+  it('one that has not moved a tile since the last decision is stuck and is let go; the others stay held', () => {
+    const c = retreat();
+    c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
+    const out = c(view({ units: [away(1), onWay(2)] }), ctx()); // 1 is on the same tile, 2 has moved
+    expect([...out.keep]).toEqual([2]);
+  });
+
+  it('a cripple on the way (immobile) is let go at once, so the others reach home and are released', () => {
+    const c = retreat();
+    c(view({ units: [away(1), away(2), away(3), ...reserve(5)], contacts: tanks(1) }), ctx());
+    const home2 = [unit(1, [10, 41], { flags: ['idle'] }), unit(2, [11, 40], { flags: ['idle'] })];
+    const out = c(view({ units: [...home2, unit(3, [18, 33], { flags: ['moving', 'immobile'] })] }), ctx());
+    expect(out.keep.has(3)).toBe(false);
+    expect(out.keep.has(1) || out.keep.has(2)).toBe(false);
+  });
+
+  it('a carried, garrisoned, routed or underground unit is never engaged, and one that becomes so is let go', () => {
+    const held = (id: number, h: 'carried' | 'garrisoned' | 'routed' | 'tunnel' | 'immobilised') => ({ ...away(id), held: h });
+    for (const h of ['carried', 'garrisoned', 'routed', 'tunnel', 'immobilised'] as const) {
+      const out = retreat()(view({ units: [held(1, h), held(2, h), ...reserve(5)], contacts: tanks(2) }), ctx());
+      expect(moves(out.commands), h).toHaveLength(0);
+      const c = retreat();
+      c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
+      const after = c(view({ units: [{ ...onWay(1), held: h }, onWay(2)] }), ctx());
+      expect([...after.keep], h).toEqual([2]);
+    }
+  });
+
+  it('a unit that is idle and away when it is ordered is held for the walk, not released in the same decision', () => {
+    const c = retreat();
+    const out = c(view({ units: [unit(1, [20, 30], { flags: ['idle'] }), unit(2, [20, 31], { flags: ['idle'] }), ...reserve(5)], contacts: tanks(1) }), ctx());
+    expect(moves(out.commands)).toHaveLength(1);
+    expect([...out.keep].sort()).toEqual([1, 2]);
+  });
+
+  it('a threat at the camp lets go of the walkers still on the road as well as those home', () => {
+    const c = retreat();
+    c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
+    const out = c(view({ units: [unit(1, [10, 41], { flags: ['idle'] }), onWay(2)], contacts: [contact(90, [14, 40], 'mbt_lavi')] }), ctx());
+    expect(out.keep.size).toBe(0);
   });
 
   it('is off by default: the same view sends nobody home', () => {
@@ -662,7 +706,7 @@ describe('retreat: a losing group walks home, regroups, and is let go again', ()
   it('a unit that dies while retreating is forgotten', () => {
     const c = retreat();
     c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
-    const out = c(view({ units: [away(2)] }), ctx());
+    const out = c(view({ units: [onWay(2)] }), ctx());
     expect([...out.keep]).toEqual([2]);
   });
 });

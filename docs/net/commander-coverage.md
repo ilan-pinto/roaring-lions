@@ -287,23 +287,26 @@ The commander already DEFENDS (slice 1: a contact within `DEFEND_TILES` of the c
 |---|---|---|---|
 | slice 1 | 665 / 327 | 0 | |
 | retreat, version 1 (no join test) | 598 / 394 | 8787 in 913 games | a walk-back-and-return loop: the group leaves its shots and comes back |
-| retreat, version 2 (must be able to win once joined) | 620 / 372 | 7162 in 848 games | |
+| retreat, version 2 (must be able to win once joined) | 620 / 372 | 7162 in 848 games | a unit that could not reach home held its whole group; a stale idle flag released it the same decision |
+| retreat, version 3 (reviewed: stuck, crippled, carried, garrisoned and idle-away units are let go; a close contact ends the retreat at once) | **613 / 379** | 7847 in 848 games (9.3 per retreating game) | the code this PR ships |
 
-Version 2 by group, wins slice 1 -> retreat (gained / lost, two-sided sign test):
+Version 3 by group, wins slice 1 -> retreat (gained / lost, two-sided sign test on the paired seeds):
 
 | group | vs | games | wins | gained / lost | p |
 |---|---|---|---|---|---|
-| mirror | passive | 336 | 234 -> 202 | 19 / 51 | < 0.01 |
-| mirror | rush | 336 | 197 -> 179 | 42 / 60 | 0.09 |
-| economy, KDF | rush | 80 | 15 -> 26 | 16 / 5 | 0.03 |
-| economy, Sarim | rush | 80 | 59 -> 59 | 19 / 19 | 1.0 |
-| economy, KDF | passive | 80 | 80 -> 79 | 0 / 1 | 1.0 |
-| economy, Sarim | passive | 80 | 80 -> 75 | 0 / 5 | 0.06 |
+| mirror | passive | 336 | 234 -> 203 | 19 / 50 | < 0.01 |
+| mirror | rush | 336 | 197 -> 180 | 39 / 56 | 0.10 |
+| economy, KDF | rush | 80 | 15 -> 23 | 13 / 5 | 0.10 |
+| economy, Sarim | rush | 80 | 59 -> 55 | 16 / 20 | 0.62 |
+| economy, KDF | passive | 80 | 80 -> 80 | 0 / 0 | 1.0 |
+| economy, Sarim | passive | 80 | 80 -> 72 | 0 / 8 | 0.01 |
 
-The literal 60 s stall reading falls 842 -> 661 (a seat that retreats issues orders), the idle-unit reading rises 109 -> 202 (retreated units standing at home), idle-away stays 0; orders a minute 1.06 -> 2.49. Games decided by the clock rise 173 -> 217 and by annihilation fall 428 -> 395.
+Six cells, none corrected for it: one p below 0.05 in six is what chance alone gives about a quarter of the time, so only the two losing cells (mirror vs passive, Sarim economy vs passive) are worth reading, and both lose.
+
+Of the 992 games, those that show the literal 60 s stall reading fall 842 -> 668 (a seat that retreats issues orders), those that show the idle-unit reading rise 109 -> 179 (retreated units standing at home), and idle-away stays 0. Orders a minute, **median of the per-game figure**: 1.06 -> 2.61 (the retreat is not quiet: 9.3 `move` orders per retreating game, which is a lot of commands for a policy that wins less). 299 of the 992 games are identical to slice 1.
 
 ### Reading it
 
-- **As a heuristic over this view it does not pay.** Net -45 wins of 992. The loss is concentrated in the mirror rooms against a passive opponent (-32): a group that backs away from a defender's guns gives up its shots and the clock decides. The one cell that gains is KDF in an economy room against a rushing Sarim (15 -> 26, p = 0.03), where there is something to regroup with; the matching Sarim cell does not move.
+- **As a heuristic over this view it does not pay.** Net -52 wins of 992 (665 -> 613). The loss is concentrated in the mirror rooms against a passive opponent (-31) and in the Sarim economy room against a passive opponent (-8): a group that backs away from a defender's guns gives up its shots and the clock decides (median game 301 s -> 387 s in the mirror vs passive rooms). The KDF economy cell against a rushing Sarim moves the other way (15 -> 23, 13 / 5, p = 0.10, not distinguishable from noise), and the matching Sarim economy cell against the same rush does not (59 -> 55), so "there is something to regroup with" does not explain it: both seats have an economy there.
 - **What the heuristic cannot see** from a `SideView`: the terrain between the group and home, the foe's reach and speed (a group on foot cannot outrun a wheeled foe by walking), whether the contacts are the whole of the foe, and which of its own units are the dangerous ones. Whether a retreat should be a stand at a cover tile, a fall back to a garrison, or nothing, is HOLD FOR LEAD together with any retreat-radius or "how long to regroup" number; none is written here.
-- Two versions are reported because the first was measured, found to loop, and changed; neither is tuned to a result.
+- Three versions are reported because the first was measured, found to loop, and changed, and the second was reviewed and changed; none is tuned to a result. The option stays off.
