@@ -101,3 +101,12 @@ describe('slice 3: retreat', () => {
     }
   }, 240_000);
 });
+
+describe('slice 4: mass, then commit', () => {
+  it('in an economy room against a passive foe the massing seat leaves the enemy untouched for the first minute, where the slice 1 seat is already killing it', () => {
+    const at = 1200; // 60 s
+    const on = playGame(kdfEconomy, seedOf(0), { commander: 'slice4', capTicks: at });
+    const off = playGame(kdfEconomy, seedOf(0), { commander: 'slice1', capTicks: at });
+    expect(on.enemyUnitsEnd).toBeGreaterThan(off.enemyUnitsEnd);
+  }, 240_000);
+});

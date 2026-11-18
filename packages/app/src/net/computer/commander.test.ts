@@ -710,3 +710,108 @@ describe('retreat: a losing group walks home, regroups, and is let go again', ()
     expect([...out.keep]).toEqual([2]);
   });
 });
+
+describe('mass: the march waits for a strength edge it has seen, and masses again after a lost engagement', () => {
+  const mass = (o: CommanderOptions = {}) => createSlice2({ scout: false, counter: false, zones: false, produce: false, mass: true, ...o });
+  /** A strength of n inf_squads (292 x 100 each) at home. */
+  const squads = (n: number, from = 1): UnitLine[] => Array.from({ length: n }, (_, i) => unit(from + i, [10 + (i % 3), 40 - (i % 2)]));
+  const lavi = (id: number, tile: [number, number] = [22, 30]): ContactLine => contact(id, tile, 'mbt_lavi');
+  const ECO = eco();
+
+  it('an economy room holds the march while its strength does not beat the foe it assumes (its own first force), and keeps the held from the sweep', () => {
+    const out = mass()(view({ units: squads(3), economy: ECO }), ctx());
+    expect(marches(out.commands)).toHaveLength(0);
+    expect([...out.keep].sort()).toEqual([1, 2, 3]);
+  });
+
+  it('it commits the first decision its strength is strictly greater: a fourth squad has joined', () => {
+    const c = mass();
+    c(view({ units: squads(3), economy: ECO }), ctx());
+    const out = marches(c(view({ units: squads(4), economy: ECO }), ctx()).commands);
+    expect(out).toHaveLength(1);
+    expect([...out[0].ids].sort()).toEqual([1, 2, 3, 4]);
+  });
+
+  it('a tie is not an edge: the same force a decision later still holds', () => {
+    const c = mass();
+    c(view({ units: squads(3), economy: ECO }), ctx());
+    expect(marches(c(view({ units: squads(3), economy: ECO }), ctx()).commands)).toHaveLength(0);
+  });
+
+  it('a hurt unit is worth less: four squads at the start; five with two at half strength is a tie (3 + 2 x 0.5), and one point of hp more is an edge', () => {
+    const c = mass();
+    c(view({ units: squads(4), economy: ECO }), ctx());
+    const five = (hp: number): UnitLine[] => [...squads(3), unit(4, [11, 41], { hp: 50 }), unit(5, [9, 41], { hp })];
+    expect(marches(c(view({ units: five(50), economy: ECO }), ctx()).commands)).toHaveLength(0);
+    expect(marches(c(view({ units: five(51), economy: ECO }), ctx()).commands)).toHaveLength(1);
+  });
+
+  it('what it has SEEN is remembered after it leaves sight: it waits for an edge over the tank it saw, not the empty ground it sees now', () => {
+    const c = mass();
+    c(view({ units: squads(3), contacts: [lavi(90)], economy: ECO }), ctx());      // saw a tank: 906 x 100 beats 3 squads (876 x 100)
+    expect(marches(c(view({ units: squads(3), economy: ECO }), ctx()).commands)).toHaveLength(0);
+    expect(marches(c(view({ units: squads(4), economy: ECO }), ctx()).commands)).toHaveLength(1); // 4 x 292 = 1168 > 906
+  });
+
+  it('a snapshot of the fog never lowers the foe below its own first force: three squads that see one squad still hold (a matched room has more than it shows)', () => {
+    const c = mass();
+    const out = c(view({ units: squads(3), contacts: [contact(90, [22, 30], 'inf_squad')], economy: ECO }), ctx());
+    expect(marches(out.commands)).toHaveLength(0);
+  });
+
+  it('it reads only the contacts in the view: a foe it never saw does not hold it back', () => {
+    const c = mass();
+    c(view({ units: squads(3), economy: ECO }), ctx());
+    expect(marches(c(view({ units: squads(4), economy: ECO }), ctx()).commands)).toHaveLength(1);
+  });
+
+  it('a room with no economy and nothing seen has nothing to wait for: it goes at once, as rush does', () => {
+    const out = marches(mass()(view({ units: squads(3) }), ctx()).commands);
+    expect(out).toHaveLength(1);
+    expect([...out[0].ids].sort()).toEqual([1, 2, 3]);
+  });
+
+  it('but a room with no economy that has SEEN a stronger foe holds: there is nothing coming to tip it', () => {
+    const c = mass({ defend: false });
+    c(view({ units: squads(3), contacts: [lavi(90)] }), ctx()); // first decision: commits (the foe is in sight only after, in this fixture it is seen with the first look)
+    // massing again after the lost engagement below; here the point is the hold after a commit and a sighting
+    const out = c(view({ units: [unit(1, [20, 30], { flags: ['moving'] }), ...squads(2, 2)], contacts: [lavi(90, [22, 30]), lavi(91, [22, 31])] }), ctx());
+    expect(marches(out.commands)).toHaveLength(0);
+  });
+
+  it('a lost engagement sends it back to massing: the units out are not recalled, and what is at home is held', () => {
+    const c = mass({ defend: false });
+    // Committed (no economy, nothing seen yet).
+    expect(marches(c(view({ units: squads(3) }), ctx()).commands)).toHaveLength(1);
+    // One squad out, two tanks on it: strictly worth less. A new squad stands idle at home.
+    const out = c(view({ units: [unit(1, [20, 30], { flags: ['moving'] }), unit(2, [40, 40], { flags: ['moving'] }), unit(7, [10, 41])], contacts: [lavi(90, [22, 30]), lavi(91, [22, 31])] }), ctx());
+    expect(marches(out.commands)).toHaveLength(0);
+    expect(out.commands.some((cmd) => cmd.kind === 'move')).toBe(false); // nobody is recalled
+    expect([...out.keep]).toEqual([7]);
+  });
+
+  it('a fight it is winning is not a lost engagement: it stays committed and sends what arrives', () => {
+    const c = mass({ defend: false });
+    c(view({ units: squads(3) }), ctx());
+    const out = c(view({ units: [unit(1, [20, 30], { flags: ['moving'] }), unit(2, [21, 30], { flags: ['moving'] }), unit(3, [22, 30], { flags: ['moving'] }), unit(7, [10, 41])], contacts: [contact(90, [23, 30], 'inf_squad')] }), ctx());
+    expect(marches(out.commands)).toHaveLength(1);
+  });
+
+  it('after the re-plan it commits again once its strength is strictly greater than the largest force it has seen', () => {
+    const c = mass({ defend: false });
+    c(view({ units: squads(3) }), ctx());
+    c(view({ units: [unit(1, [20, 30], { flags: ['moving'] }), unit(7, [10, 41])], contacts: [lavi(90, [22, 30]), lavi(91, [22, 31])] }), ctx()); // lost; saw 2 tanks (1812)
+    expect(marches(c(view({ units: [...squads(6, 1)] }), ctx()).commands)).toHaveLength(0); // 6 x 292 = 1752 < 1812
+    expect(marches(c(view({ units: [...squads(7, 1)] }), ctx()).commands)).toHaveLength(1); // 7 x 292 = 2044 > 1812
+  });
+
+  it('is off by default: the same economy room marches at once', () => {
+    const out = createSlice2({ scout: false, counter: false, zones: false, produce: false })(view({ units: squads(3), economy: ECO }), ctx());
+    expect(marches(out.commands)).toHaveLength(1);
+  });
+
+  it('defend still runs while massing: a contact at the camp is met by the units at home', () => {
+    const out = mass()(view({ units: squads(3), contacts: [contact(90, [14, 40], 'inf_squad')], economy: ECO }), ctx());
+    expect(marches(out.commands)).toHaveLength(1);
+  });
+});
