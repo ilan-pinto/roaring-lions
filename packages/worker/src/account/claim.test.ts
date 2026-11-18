@@ -146,26 +146,26 @@ describe('POST claim', () => {
   });
 
   it('a_forged_record_is_bounded (A2-4)', async () => {
-    expect(ids.length).toBe(34);
+    expect(ids.length).toBe(38);
     const s = setup();
     const cookie = await member(s);
     const all = ids.map((id) => [id, 99] as [string, number]);
     const earn = { welcomed: true, campaignDone: true, backfilled: false, missions: Object.fromEntries(ids.map((id) => [id, { won: true, stars: 99 }])) };
     const r = await ok(await claim(s, cookie, { wallet: { ...RICH, earn }, campaign: campaignOf(all), slots: [{ id: 'x', slot: slotOf('x', 1, all) }] }));
-    expect(r.coins).toBeLessThanOrEqual(1050);
-    expect(r.earned).toBe(1050);
-    expect(await freeOf(s)).toBeLessThanOrEqual(1050);
+    expect(r.coins).toBeLessThanOrEqual(1150);
+    expect(r.earned).toBe(1150);
+    expect(await freeOf(s)).toBeLessThanOrEqual(1150);
     const lifetime = await record(s, 'earn_lifetime');
     expect(Object.values(lifetime.missions).every((m) => (m as { stars: number }).stars <= 3)).toBe(true);
   });
 
   it('GH-1395: a forged challenge flag on every mission is bounded by the challenge index, and a second device pays none of it', async () => {
-    // 1,050 over the 34 missions (100 + 10 a mission + 5 a star + 100), plus 10 for each mission that HAS a challenge
+    // 1,150 over the 38 missions (100 + 10 a mission + 5 a star + 100; 1,050 over 34 before Bir Tarsha I, II, III and V), plus 10 for each mission that HAS a challenge
     // (six in the pilot), never 10 x 34.
-    expect(ids.length).toBe(34);
+    expect(ids.length).toBe(38);
     expect(challengeMissionIds.length).toBe(6);
     const bound = 100 + 10 * ids.length + 5 * 3 * ids.length + 100 + 10 * challengeMissionIds.length;
-    expect(bound).toBe(1110);
+    expect(bound).toBe(1210);
     const s = setup();
     const cookie = await member(s);
     const all = ids.map((id) => [id, 3] as [string, number]);

@@ -15,7 +15,8 @@
 // minus nothing when the hovered tier IS the owned one (that is `undefined -
 // undefined` read as a full re-buy, the Lavi's 3750 -> 3960 double-count F5
 // found).
-import { readPath, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
+import { readPath, tierPatch, type BranchPick, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
+import { GARAGE_BRANCH } from '../branch-bridge';
 import { t } from '../i18n/t';
 import { prefersReducedMotion } from './motion';
 import { asPercent, benefitLabel, type BenefitUnitKind } from './upgrade-benefit';
@@ -37,10 +38,15 @@ const round2 = (v: number): number => Math.round(v * 100) / 100;
 
 /** One track at tier `n`, per path: `applyUpgrades`'s per-track rule (a
  *  tier's patch is cumulative over BASE, and the last tier to name a path
- *  wins), for this one track. */
-function trackPatchAt(track: UpgradeTrack, n: number): Record<string, number> {
+ *  wins), for this one track. GH-1384: a branched tier reads branch `pick`,
+ *  and with no pick the walk stops below it, as `applyUpgrades` does. */
+function trackPatchAt(track: UpgradeTrack, n: number, pick: BranchPick | undefined): Record<string, number> {
   const out: Record<string, number> = {};
-  for (let i = 0; i < Math.min(n, track.tiers.length); i++) Object.assign(out, track.tiers[i].patch);
+  for (let i = 0; i < Math.min(n, track.tiers.length); i++) {
+    const patch = tierPatch(track.tiers[i], pick);
+    if (patch === undefined) break;
+    Object.assign(out, patch);
+  }
   return out;
 }
 
@@ -51,13 +57,15 @@ export function previewDeltas(
   unit: UpgradableUnit,
   track: string,
   owned: number,
-  tier: number
+  tier: number,
+  /** The branch a hovered branched rung would buy (`GARAGE_BRANCH` until the fork). */
+  pick: BranchPick = GARAGE_BRANCH
 ): ReadonlyMap<string, number> {
   const spec = unit.upgrades?.[track];
   const out = new Map<string, number>();
   if (spec === undefined || tier <= owned || tier < 1 || tier > spec.tiers.length) return out;
-  const to = trackPatchAt(spec, tier);
-  const from = trackPatchAt(spec, owned);
+  const to = trackPatchAt(spec, tier, pick);
+  const from = trackPatchAt(spec, owned, pick);
   for (const path of new Set([...Object.keys(to), ...Object.keys(from)])) {
     const d = round2((to[path] ?? 0) - (from[path] ?? 0));
     if (d !== 0) out.set(path, d);

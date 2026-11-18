@@ -2,9 +2,16 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { BRANCHES_OPEN } from './branches-open';
 import {
   UPGRADE_PATHS,
   applyUpgrades,
+  branchedTable,
+  branchedTracks,
+  branchOf,
+  isBranchedTier,
+  maxPicks,
+  tierPatch,
   kitCounts,
   kitLevel,
   maxTiers,
@@ -37,21 +44,21 @@ function fixture(): UpgradableUnit {
 describe('applyUpgrades', () => {
   it('is the identity for an empty tier map, and returns a new object', () => {
     const u = fixture();
-    const out = applyUpgrades(u, {});
+    const out = applyUpgrades(u, {}, {});
     expect(out).toEqual(u);
     expect(out).not.toBe(u);
   });
 
   it('is the identity for tier 0 on a declared track', () => {
     const u = fixture();
-    const out = applyUpgrades(u, { armour: 0 });
+    const out = applyUpgrades(u, { armour: 0 }, {});
     expect(out).toEqual(u);
     expect(out).not.toBe(u);
   });
 
   it('applies exact cumulative deltas across tracks', () => {
     const u = fixture();
-    const out = applyUpgrades(u, { armour: 2, optics: 1 });
+    const out = applyUpgrades(u, { armour: 2, optics: 1 }, {});
     expect(out.hull?.armor).toEqual({ front: 30, side: 20 });
     expect(out.sensors?.optics).toBeCloseTo(1.2);
     expect(out.weapons?.[0].accuracy).toBeCloseTo(0.65);
@@ -61,21 +68,21 @@ describe('applyUpgrades', () => {
 
   it('never mutates the input unit', () => {
     const u = fixture();
-    applyUpgrades(u, { armour: 2, optics: 1 });
+    applyUpgrades(u, { armour: 2, optics: 1 }, {});
     expect((u.hull!.armor as { front: number }).front).toBe(10);
     expect((u.weapons![0] as { accuracy: number }).accuracy).toBe(0.6);
   });
 
   it('clamps a tier above the track maximum to the maximum', () => {
     const u = fixture();
-    const clamped = applyUpgrades(u, { armour: 9 });
-    const atMax = applyUpgrades(u, { armour: 2 });
+    const clamped = applyUpgrades(u, { armour: 9 }, {});
+    const atMax = applyUpgrades(u, { armour: 2 }, {});
     expect(clamped).toEqual(atMax);
   });
 
   it('ignores an unknown track', () => {
     const u = fixture();
-    const out = applyUpgrades(u, { nothing: 1 });
+    const out = applyUpgrades(u, { nothing: 1 }, {});
     expect(out).toEqual(u);
   });
 
@@ -89,7 +96,7 @@ describe('applyUpgrades', () => {
         },
       },
     };
-    expect(() => applyUpgrades(u, { mobility: 1 })).toThrow(/mobility\.speed_tiles_s/);
+    expect(() => applyUpgrades(u, { mobility: 1 }, {})).toThrow(/mobility\.speed_tiles_s/);
   });
 
   it('sums same-path deltas from two different tracks rather than dropping one', () => {
@@ -101,7 +108,7 @@ describe('applyUpgrades', () => {
         survivability: { tiers: [{ price: 300, patch: { 'hull.hp': 30 } }] },
       },
     };
-    const out = applyUpgrades(u, { armour: 1, survivability: 1 });
+    const out = applyUpgrades(u, { armour: 1, survivability: 1 }, {});
     expect(out.hull?.hp).toBe(480); // 400 + 50 + 30, not last-write-wins' 430
   });
 
@@ -115,7 +122,7 @@ describe('applyUpgrades', () => {
         },
       },
     };
-    expect(() => applyUpgrades(withOverreach, { overreach: 1 })).toThrow(
+    expect(() => applyUpgrades(withOverreach, { overreach: 1 }, {})).toThrow(
       /fixture_unit has no weapons\[5\]/,
     );
   });
@@ -130,7 +137,7 @@ describe('applyUpgrades', () => {
         },
       },
     };
-    expect(() => applyUpgrades(u, { armour: 1 })).toThrow(
+    expect(() => applyUpgrades(u, { armour: 1 }, {})).toThrow(
       /no_rear_armor_unit has no hull\.armor\.rear/,
     );
   });
@@ -148,8 +155,8 @@ describe('applyUpgrades', () => {
     // key order each time -- `applyUpgrades` must read the same result
     // either way, because it sorts `Object.keys(tiers)` itself rather than
     // trusting insertion order.
-    const forward = applyUpgrades(u, { zzz_track: 1, aaa_track: 1 });
-    const backward = applyUpgrades(u, { aaa_track: 1, zzz_track: 1 });
+    const forward = applyUpgrades(u, { zzz_track: 1, aaa_track: 1 }, {});
+    const backward = applyUpgrades(u, { aaa_track: 1, zzz_track: 1 }, {});
     expect(forward.sensors?.optics).toBeCloseTo(1.0 + 0.32);
     expect(backward.sensors?.optics).toBeCloseTo(1.0 + 0.32);
     expect(forward.sensors?.optics).toBe(backward.sensors?.optics);
@@ -193,15 +200,16 @@ describe('UPGRADE_PATHS pin against unit.schema.json', () => {
   };
 
   function findPattern(): string {
+    // GH-1384: a tier's `patch` and a branch's `patch` both `$ref` one definition, `$defs.upgradePatch`;
+    // the tier's own `patch` must point at it, so the pattern read here is the one the tiers use.
     const upgrades = schema.properties.upgrades as unknown as {
-      patternProperties: Record<
-        string,
-        { properties?: { tiers?: { items?: { properties?: { patch?: { propertyNames?: { pattern?: string } } } } } } }
-      >;
+      patternProperties: Record<string, { properties?: { tiers?: { items?: { properties?: { patch?: { $ref?: string } } } } } }>;
     };
+    const defs = (schema as unknown as { $defs?: Record<string, { propertyNames?: { pattern?: string } }> }).$defs ?? {};
     for (const key of Object.keys(upgrades.patternProperties)) {
-      const pattern =
-        upgrades.patternProperties[key]?.properties?.tiers?.items?.properties?.patch?.propertyNames?.pattern;
+      const ref = upgrades.patternProperties[key]?.properties?.tiers?.items?.properties?.patch?.$ref;
+      const name = ref?.replace(/^#\/\$defs\//, '');
+      const pattern = name === undefined ? undefined : defs[name]?.propertyNames?.pattern;
       if (pattern) return pattern;
     }
     throw new Error('could not find the patch propertyNames.pattern in unit.schema.json');
@@ -281,7 +289,7 @@ describe('UPGRADE_PATHS pin against tools/validate_balance.py', () => {
   });
 
   it("pins apply_upgrades' cross-track semantics textually: its docstring names summing across tracks", () => {
-    const docstring = /def apply_upgrades\(unit, tiers\):\s*"""([\s\S]*?)"""/.exec(py);
+    const docstring = /def apply_upgrades\(unit, tiers, picks=None\):\s*"""([\s\S]*?)"""/.exec(py);
     expect(docstring, 'could not find apply_upgrades\' docstring in validate_balance.py').not.toBeNull();
     expect((docstring as RegExpExecArray)[1]).toMatch(/summed across tracks/);
   });
@@ -334,5 +342,88 @@ describe('kitLevel (garage uplift §3.1, §6: ceil(3 × owned ÷ available))', (
       owned: 3,
       available: 9,
     });
+  });
+});
+
+// GH-1384: the branched-tier readers. The fixture is literal and inline (an oracle takes literals); the
+// guard test proper, over the stores, is packages/economy/src/branch-exclusive.test.ts.
+describe('branched tiers (GH-1384)', () => {
+  // `true` below is the branch switch passed open: the shipped default (`BRANCHES_OPEN`) is closed, tested at the end.
+  const tank: UpgradableUnit = {
+    id: 'fx_tank',
+    hull: { hp: 2000, armor: { front: 600 } },
+    weapons: [{ accuracy: 0.85, penetration: 1300 }],
+    upgrades: {
+      firepower: {
+        tiers: [
+          { price: 455, patch: { 'weapons[0].accuracy': 0.03, 'weapons[0].penetration': 104 } },
+          { price: 680, patch: { 'weapons[0].accuracy': 0.06, 'weapons[0].penetration': 208 } },
+          {
+            price: 950,
+            branches: [
+              { id: 'a', label: 'garage.branch.fx_tank.a', patch: { 'weapons[0].accuracy': 0.1, 'weapons[0].penetration': 208 } },
+              { id: 'b', label: 'garage.branch.fx_tank.b', patch: { 'weapons[0].accuracy': 0.06, 'weapons[0].penetration': 325 } },
+            ],
+          },
+        ],
+      },
+      armour: {
+        tiers: [
+          { price: 300, patch: { 'hull.hp': 100, 'hull.armor.front': 30 } },
+          { price: 450, patch: { 'hull.hp': 200, 'hull.armor.front': 60 } },
+          {
+            price: 640,
+            branches: [
+              { id: 'a', label: 'garage.branch.fx_tank.aa', patch: { 'hull.hp': 300, 'hull.armor.front': 60 } },
+              { id: 'b', label: 'garage.branch.fx_tank.ab', patch: { 'hull.hp': 200, 'hull.armor.front': 90 } },
+            ],
+          },
+        ],
+      },
+    },
+  };
+  const fire = (u: UpgradableUnit) => [u.weapons?.[0].accuracy, u.weapons?.[0].penetration];
+
+  it('reads the picked branch per track, and stops below an unpicked branched tier', () => {
+    const max = { firepower: 3, armour: 3 };
+    const at = (picks: Parameters<typeof applyUpgrades>[2], acc: number, pen: number): void => {
+      const [a, p] = fire(applyUpgrades(tank, max, picks, true));
+      expect(a).toBeCloseTo(acc, 9);
+      expect(p).toBe(pen);
+    };
+    at({ firepower: 1 }, 0.95, 1508);
+    at({ firepower: 2 }, 0.91, 1625);
+    at({}, 0.91, 1508); // no pick: tier 2, never free stats
+    at({ firepower: 3 as never }, 0.91, 1508); // not 1 or 2: the same
+    const armour = applyUpgrades(tank, max, { armour: 2 }, true);
+    expect([armour.hull?.hp, (armour.hull?.armor as { front: number }).front]).toEqual([2200, 690]);
+  });
+
+  it('lists the branched tracks sorted, their branches, the uniform picks and the table', () => {
+    expect(branchedTracks(tank)).toEqual(['armour', 'firepower']);
+    expect(branchOf(tank, 'firepower')?.map((b) => b.id)).toEqual(['a', 'b']);
+    expect(branchOf(tank, 'nope')).toBeNull();
+    expect(maxPicks(tank, 2)).toEqual({ armour: 2, firepower: 2 });
+    expect(maxPicks(tank, { firepower: 2 })).toEqual({ firepower: 2 });
+    expect(branchedTable([tank, { id: 'plain' }])).toEqual({ fx_tank: { armour: { tier: 3, price: 640 }, firepower: { tier: 3, price: 950 } } });
+  });
+
+  it('tierPatch reads a plain tier, the picked branch, and nothing for an unpicked branched tier', () => {
+    const tiers = tank.upgrades?.firepower.tiers ?? [];
+    expect(tierPatch(tiers[0], undefined)).toEqual({ 'weapons[0].accuracy': 0.03, 'weapons[0].penetration': 104 });
+    expect(tierPatch(tiers[2], 2, true)).toEqual({ 'weapons[0].accuracy': 0.06, 'weapons[0].penetration': 325 });
+    expect(tierPatch(tiers[2], undefined, true)).toBeUndefined();
+    expect(isBranchedTier(tiers[2])).toBe(true);
+    expect(isBranchedTier(tiers[1])).toBe(false);
+  });
+
+  it('closed (the shipped default), a branched tier reads its envelope whatever the pick: the old linear tier 3', () => {
+    expect(BRANCHES_OPEN).toBe(false);
+    for (const picks of [{}, { firepower: 1 }, { firepower: 2 }] as Record<string, 1 | 2>[]) {
+      const [a, p] = fire(applyUpgrades(tank, { firepower: 3 }, picks));
+      expect(a).toBeCloseTo(0.95, 9);
+      expect(p).toBe(1625);
+    }
+    expect(tierPatch((tank.upgrades?.firepower.tiers ?? [])[2], undefined)).toEqual({ 'weapons[0].accuracy': 0.1, 'weapons[0].penetration': 325 });
   });
 });

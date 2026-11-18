@@ -289,10 +289,10 @@
   },
   "scout_shachaf": {
     "name": "Shachaf-Spähwagen",
-    "blurb": "Ein Auge am Boden, sieht sechzehn Felder und ist nicht abzuschießen. Trägt einen Mast, keine Waffe.",
+    "blurb": "Ein Auge am Boden, das von seinem Mast sechzehn Felder weit sieht. Ein Kuppel-Maschinengewehr reicht sechs Felder.",
     "src": {
       "name": "ac25b766",
-      "blurb": "c6a3a071"
+      "blurb": "63b4b286"
     }
   },
   "sniper_team": {

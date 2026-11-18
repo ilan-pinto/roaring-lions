@@ -68,3 +68,17 @@ describe('the nine\'s tracks travel with the tiers (GH-1077 on GH-1102)', () => 
     expect(hpOf(plain, 'mbt_lavi_camo', 0)).toEqual([CAMO_BASE]);
   });
 });
+
+// GH-1384 slice 1: the room claim carries no picks yet, and every account this build can make holds branch 1 on a
+// branched tier 3 (the migration's legacy default, Q8, and the Garage's one Buy), so a brigade seat's branched tier
+// 3 is fielded at branch 1 (`seatKitPicks`), never at the tier below; a matched seat fields neither. Literals from
+// data/units/kdf/inf_squad.json: accuracy base 0.60, tier 2 +0.06, branch 1 +0.10.
+describe('a branched tier 3 in a room (GH-1384)', () => {
+  const accuracy = (w: MatchWorld): number =>
+    (w.kitBySide[0].registered.find((u) => u.id === 'inf_squad') as unknown as { weapons: { accuracy: number }[] }).weapons[0].accuracy;
+  it('a brigade seat fields branch 1; tier 2 reads tier 2; a matched seat fields base', () => {
+    expect(accuracy(buildMatchWorld(room('brigade', { tiers: { inf_squad: { firepower: 3 } } })))).toBeCloseTo(0.7, 9);
+    expect(accuracy(buildMatchWorld(room('brigade', { tiers: { inf_squad: { firepower: 2 } } })))).toBeCloseTo(0.66, 9);
+    expect(accuracy(buildMatchWorld(room('matched', { tiers: { inf_squad: { firepower: 3 } } })))).toBeCloseTo(0.6, 9);
+  });
+});
