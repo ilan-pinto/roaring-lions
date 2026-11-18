@@ -31,6 +31,7 @@ const input = (id: string | UnitJson, over: Partial<AddsInput> = {}): AddsInput 
     enemies: ENEMIES,
     open: START,
     ownedTiers: {},
+    ownedPicks: {},
     ledger: {},
     missions: MISSIONS,
     worldMissionIds: WORLD,
