@@ -8,9 +8,11 @@
  * computer's in the frame of the tick they were decided for. The battlefield runs it down the same path as a room (`runFrames`,
  * `applyFrame`'s ownership check, the hash-tick outcome), and local pacing, pause and speed apply as in single-player.
  */
-import { canonicalOrder, callsignOrDefault, factionsOfMatchup, sidesOfFactions, validateConfig, type Frame, type Matchup, type MatchConfig, type MatchTransport, type Seat, type Stamped, type TransportStatus } from '@lions/net';
+import { canonicalOrder, callsignOrDefault, factionsOfMatchup, flagSetupFor, sidesOfFactions, validateConfig, type Frame, type Matchup, type MatchConfig, type MatchTransport, type Seat, type Stamped, type TransportStatus, type WinMode } from '@lions/net';
 import type { Command } from '@lions/sim';
+import { createCommander } from './computer/commander';
 import { ComputerSeat, type ComputerSeatOptions } from './computer/computer-seat';
+import { computerSeatOpen } from './computer/open-cells';
 import type { MatchWorld } from './match-world';
 import { OFFLINE_CODE, armOffline, type OfflineHandle } from './offline-slot';
 
@@ -60,8 +62,10 @@ export class OfflineMatchTransport implements MatchTransport, OfflineHandle {
 
 export interface OfflineRequest {
   map: string;
-  /** The human's side of the pairing: `kdf` or `sarim` plays the skirmish economy, `mirror` the placed forces. */
+  /** The human's side of the pairing: `kdf` or `sarim` plays the skirmish economy in annihilation (a win mode there is the placed forces), `mirror` the placed forces. The computer plays the other faction. */
   matchup: Matchup;
+  /** How the match is won; absent is annihilation. Only the modes `winModesOffered` lists for the ground and pairing are valid (`computerSeatOpen`). */
+  winMode?: WinMode;
   /** The human's name; the computer's is `computerName`. */
   callsign: string;
   /** What the computer seat is called wherever a seat is named: the caller passes `t('versus.cpu.callsign')`, so every word is a catalogue key. */
@@ -71,11 +75,11 @@ export interface OfflineRequest {
   seed: number;
 }
 
-/** The match both sides run: annihilation, matched kits, real time, the human at the host end. */
+/** The match both sides run: matched kits, real time, the human at the host end. */
 export function offlineConfig(r: OfflineRequest): MatchConfig {
-  // The computer does not build, so a skirmish-economy pairing (kdf, sarim) can never end: the human's untouched purse keeps them
-  // "standing" (`outcomeOf`) until the time cap. Economy pairings wait for a computer that builds (GH-1388).
-  if (r.matchup !== 'mirror') throw new Error(`offline match: the computer seat plays the mirror pairing only, not ${r.matchup}`);
+  // GH-1390: the lobby seats the computer on every ground, pairing and win mode the coverage probe read clean (`OPEN_COMPUTER_CELLS`), and a win mode is played
+  // as a room plays it. A cell the probe read as a seat that stopped playing, or has not read, is closed; the lobby never offers it, and this refuses it too.
+  if (!computerSeatOpen(r.map, r.matchup, r.winMode ?? null)) throw new Error(`offline match: the computer seat is not open on ${r.map} (${r.matchup}, ${r.winMode ?? 'annihilation'})`);
   const factions = factionsOfMatchup(r.matchup);
   const sides = sidesOfFactions(factions);
   const seat = (s: Seat, kind: 'human' | 'bot', name: string) => ({
@@ -86,6 +90,7 @@ export function offlineConfig(r: OfflineRequest): MatchConfig {
     matchId: OFFLINE_CODE, code: OFFLINE_CODE, seed: r.seed, map: r.map, mode: 'versus',
     seats: [seat(HUMAN_SEAT, 'human', callsignOrDefault(r.callsign)), seat(COMPUTER_SEAT, 'bot', r.computerName)],
     pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: r.build, dataDigest: 0,
+    ...(r.winMode !== undefined ? { winMode: r.winMode } : {}), ...(flagSetupFor(r.map, r.winMode) !== undefined ? { flagSetup: true as const } : {}),
   });
   if (c === null) throw new Error(`offline match: the config for ${r.map} (${r.matchup}) did not validate`);
   return c;
@@ -94,7 +99,8 @@ export function offlineConfig(r: OfflineRequest): MatchConfig {
 /** The transport and config for a request, not yet armed. */
 export function offlineMatch(r: OfflineRequest, seat: Partial<ComputerSeatOptions> = {}): { transport: OfflineMatchTransport; config: MatchConfig; computer: ComputerSeat } {
   const config = offlineConfig(r);
-  const computer = new ComputerSeat({ seat: COMPUTER_SEAT, side: config.seats[COMPUTER_SEAT].side, ...seat });
+  // The commander (slice 1: defend, zones, production, guard) unless the caller names a script or another commander. Slice 2 and 3 options stay off.
+  const computer = new ComputerSeat({ seat: COMPUTER_SEAT, side: config.seats[COMPUTER_SEAT].side, ...(seat.policy === undefined && seat.commander === undefined ? { commander: createCommander() } : {}), ...seat });
   return { transport: new OfflineMatchTransport(computer), config, computer };
 }
 
