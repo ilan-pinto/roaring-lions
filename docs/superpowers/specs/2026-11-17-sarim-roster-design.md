@@ -2,7 +2,8 @@
 
 **Date:** 2026-11-17. **Issue:** GH-1382 (audit dimension D2, epic, size L). **Depends on:** GH-1381 ("Open Sarim on
 every versus map and win mode, and in free play"). **Base:** `origin/dev` at `e049ba7`.
-**Status: HOLD FOR LEAD.** This page is the design and the art numbers for the lead's approval. Nothing on it has been
+**Status: approved as a design by the lead, 19 Nov 2026.** The ruling approves the design, not the art numbers: any
+Meshy or render spend for these assets needs the lead's approval of the numbers (§4, Q4) first. Nothing on it has been
 built, rendered or bought.
 
 - **No Meshy call was made.** Not a generation, and not `pnpm meshy -- estimate` either: every credit figure below is
@@ -606,6 +607,9 @@ checks, and where a new unit has gone red there before.
 ---
 
 ## 6. Open questions for the lead
+
+The lead's approval of the design (19 Nov 2026) does not answer these; each is still open, Q4 (the art numbers)
+included.
 
 1. **Identity.**
    - **The question:** may the Sarim seat field six Ashwar and Rif types (`technical`, `moto_rpg`, `rpg_team`,
