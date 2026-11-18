@@ -1,5 +1,6 @@
 import { Sim } from '@lions/sim';
-import { applyTerrain, maps, parseMap, type MapId, type ParsedMap } from '@lions/data';
+import { applyTerrain, parseMap, type MapId, type ParsedMap } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { standMapStructures } from '../map-sim';
 import { versusRoster } from './versus-roster';
 

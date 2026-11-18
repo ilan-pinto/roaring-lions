@@ -74,7 +74,7 @@ export const KIT_VEHICLES: readonly string[] = [
 // measure or key a kit node already skips it.
 
 /** The teams whose GLB carries kit. One at a time: each is a lane of its own. */
-export const INFANTRY_KIT_TEAMS: readonly string[] = ['inf_squad', 'demo_squad'];
+export const INFANTRY_KIT_TEAMS: readonly string[] = ['inf_squad', 'demo_squad', 'yahalom_squad'];
 
 /** The role primitives a team's kit part may join. */
 export const INFANTRY_KIT_HOSTS: readonly string[] = ['uniform', 'weapon'];
@@ -91,35 +91,42 @@ export const INFANTRY_KIT_FILE_TRIS = 23200; // every kit node in the file
 /** A part may not exceed this multiple of its approved size (the vehicle rule). */
 export const INFANTRY_KIT_PART_SLACK = 1.1;
 
+/** The approved v7 set's per-node rows: the Rifle Squad's since 9 Nov, the Combat Engineers' since 13 Nov 2026 (GH-826 unit 1). */
+const V7_PART_TRIS: Readonly<Record<string, number>> = {
+  battle_belt: 556,
+  carrier: 2299, // the v7 carrier decimated from 2,474 (Blender Decimate collapse, `carrier_src.glb` beside it)
+  counterweight: 140,
+  grenade_pouches: 392, // two pouches in one node
+  groin: 220,
+  headset: 280, // one node per side
+  ir_strobe: 116,
+  laser_box: 192,
+  lpvo: 326,
+  mag_pouches: 592, // two pouches in one node
+  nvg_bino: 336,
+  nvg_mono: 348,
+  radio_pack: 514,
+  radio_panel: 386,
+  radio_pouch: 346,
+  red_dot: 198,
+  suppressor: 140,
+  throat: 188,
+  weapon_light: 216,
+};
+
 /**
  * A team's OWN per-node limits, for the parts it fits from the approved v7 mesh set (`art/parts/inf_kit/v7`, one node's
  * triangles = that part's source count, per side for a sided part). The graft refuses a node over
  * `INFANTRY_KIT_PART_SLACK` times its row here, and falls back to `INFANTRY_KIT_PART_TRIS` for a part the team's row does not
- * name (the helmet cover, the yoke, the foregrip and the whips stay procedural), so `demo_squad` keeps its own limits.
+ * name (the helmet cover, the yoke, the foregrip and the whips stay procedural). Both kitted teams fit the v7 set.
  * `tools/src/meshes/kit-contract.test.ts` pins this table to the part GLB files and to `inf_kit_parts.py`.
  */
 export const INFANTRY_KIT_TEAM_PART_TRIS: Readonly<Record<string, Readonly<Record<string, number>>>> = {
-  inf_squad: {
-    battle_belt: 556,
-    carrier: 2299, // the v7 carrier decimated from 2,474 (Blender Decimate collapse, `carrier_src.glb` beside it)
-    counterweight: 140,
-    grenade_pouches: 392, // two pouches in one node
-    groin: 220,
-    headset: 280, // one node per side
-    ir_strobe: 116,
-    laser_box: 192,
-    lpvo: 326,
-    mag_pouches: 592, // two pouches in one node
-    nvg_bino: 336,
-    nvg_mono: 348,
-    radio_pack: 514,
-    radio_panel: 386,
-    radio_pouch: 346,
-    red_dot: 198,
-    suppressor: 140,
-    throat: 188,
-    weapon_light: 216,
-  },
+  inf_squad: V7_PART_TRIS,
+  demo_squad: V7_PART_TRIS,
+  // GH-826 unit "Yahalom" (17 Nov 2026): the v7 set plus the four specialist items the lead approved on 30 Oct, each at the
+  // size it was built at (`inf_kit_yahalom.py`; `inf_kit_parts.YAHALOM_PART_TRIS`).
+  yahalom_squad: { ...V7_PART_TRIS, respirator: 410, headlamp: 156, gas_detector: 218, mast_sensor: 210 },
 };
 
 /** The approved triangles for one node of `part` in `team`'s kit: the team's own row, else the shared table. */

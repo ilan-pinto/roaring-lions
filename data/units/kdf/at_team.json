@@ -102,10 +102,24 @@
         },
         {
           "price": 165,
-          "patch": {
-            "sensors.optics": 0.28,
-            "sensors.sight_tiles": 3
-          }
+          "branches": [
+            {
+              "id": "launcher_optic",
+              "label": "garage.branch.at_team.launcher_optic",
+              "patch": {
+                "sensors.optics": 0.28,
+                "sensors.sight_tiles": 2
+              }
+            },
+            {
+              "id": "forward_spotter",
+              "label": "garage.branch.at_team.forward_spotter",
+              "patch": {
+                "sensors.optics": 0.17,
+                "sensors.sight_tiles": 3
+              }
+            }
+          ]
         }
       ]
     },

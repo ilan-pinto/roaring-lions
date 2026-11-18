@@ -14,7 +14,8 @@ const world = parseWorld(worldJson);
 const done = (...ids: string[]): LedgerData => ({ 'campaign.completed_missions': ids });
 const marj = ['beit_sahwan_breach', 'beit_sahwan_1_recon', 'beit_sahwan_2_foothold', 'beit_sahwan_3_clearance',
   'beit_sahwan_4_subterranean', 'khan_rafid_1_recon', 'khan_rafid_2_foothold', 'khan_rafid_3_clearance',
-  'deir_amun_1_recon', 'deir_amun_2_foothold', 'deir_amun_3_subterranean'];
+  'deir_amun_1_recon', 'deir_amun_2_foothold', 'deir_amun_3_subterranean', 'bir_tarsha_1_recon', 'bir_tarsha_2_foothold',
+  'bir_tarsha_3_clearance', 'bir_tarsha_5_subterranean'];
 
 describe('missionOpen (G-A)', () => {
   it('opens each Marj town\'s first mission on a fresh campaign, and nothing after it', () => {

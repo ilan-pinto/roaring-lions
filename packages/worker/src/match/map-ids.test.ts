@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { maps } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { SHIPPED_MAP_IDS, isShippedMap } from './map-ids';
 
 describe('#559 F5: the shipped map ids', () => {

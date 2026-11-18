@@ -1,4 +1,5 @@
-import { applyTerrain, doctrines, flagBlockOf, formations, maps, parseMap, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap, type SetupKitPiece } from '@lions/data';
+import { applyTerrain, branchedTracks, doctrines, flagBlockOf, formations, parseMap, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type BranchPick, type MapJson, type ParsedMap, type SetupKitPiece, type UpgradableUnit } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { economyRoom, endOfSeat, flagSetupRoom, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd, type WinMode } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { MissionRuntime, Sim, type MissionContext, type MissionEvent, type MissionJson, type SimEvent, type TunnelRouteJson } from '@lions/sim';
@@ -136,8 +137,8 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const appended = appendedSpecials(roster, specialsBySide);
   const walked: readonly RosterUnit[] = appended.length === 0 ? roster : [...roster, ...appended];
   const kitBySide = [
-    upgradePrepass(walked, seatKitTiers(seats[0], walked)),
-    upgradePrepass(walked, seatKitTiers(seats[1], walked)),
+    seatPrepass(walked, seatKitTiers(seats[0], walked)),
+    seatPrepass(walked, seatKitTiers(seats[1], walked)),
   ] as const;
   const typeOf = new Map<string, number>();
   for (let k = 0; k < roster.length; k++) typeOf.set(roster[k].id, sim.addUnitType(localizedUnit(kitBySide[0].registered[k])));
@@ -460,6 +461,32 @@ export function seatKitTiers(seat: SeatConfig | undefined, roster: readonly Rost
     if (any) out[u.id] = tracks;
   }
   return out;
+}
+
+/**
+ * GH-1384 slice 1: the branch a seat fields on each branched track its CLEANED tiers hold at the
+ * branched tier. The room claim carries no picks yet (`SeatConfig.picks` is the net slice), and
+ * every account this build can make holds branch 1 there (the migration's legacy default, the lead's
+ * Q8, and the Garage's one Buy, `GARAGE_BRANCH`), so this is branch 1, derived from the config alone:
+ * both machines compute the same table, and a matched seat (`{}` tiers) fields none.
+ */
+export function seatKitPicks(tiers: Readonly<Record<string, Readonly<Record<string, number>>>>, roster: readonly RosterUnit[]): Record<string, Record<string, BranchPick>> {
+  const out: Record<string, Record<string, BranchPick>> = {};
+  for (const u of roster) {
+    const owned = tiers[u.id];
+    if (owned === undefined) continue;
+    const unit = u as unknown as UpgradableUnit;
+    for (const track of branchedTracks(unit)) {
+      const len = unit.upgrades?.[track]?.tiers.length ?? 0;
+      if (len > 0 && (owned[track] ?? 0) >= len) (out[u.id] ??= {})[track] = 1;
+    }
+  }
+  return out;
+}
+
+/** One seat's prepass: its cleaned tiers and the picks they imply (`seatKitPicks`). */
+function seatPrepass(walked: readonly RosterUnit[], tiers: Record<string, Record<string, number>>): ReturnType<typeof upgradePrepass<RosterUnit>> {
+  return upgradePrepass(walked, tiers, seatKitPicks(tiers, walked));
 }
 
 /** `o[key]` when `o` is a plain object holding `key` as an OWN DATA property;

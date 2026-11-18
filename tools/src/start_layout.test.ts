@@ -14,15 +14,16 @@
 // - no body moved more than 11 tiles (the measured 10.1, plus one: a ratchet a scattering layout change fails);
 // - every body of an assembly facing its front, and the front seeded from the enemy-centroid derivation (D2).
 import { describe, expect, it } from 'vitest';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { MissionRuntime, startFaceOf, startFrontDerivations, type MissionJson, type StartFront, type StartPlacement } from '@lions/sim';
 import { missionStage } from './mission-harness';
 import { entriesOf, overlaps, type Entry } from './backtest/spacing-census';
 
 /** The 11-tile move ratchet (spec 3.2). */
 const MAX_MOVE_TILES = 11;
-/** The mean-move ratchet: the measured 3.39 tiles plus 0.11. */
-const MAX_MEAN_MOVE_TILES = 3.5;
+/** The mean-move ratchet: the measured 3.37 tiles plus 0.11. Was 3.5 (measured 3.39 over the 30 older missions; the five Qasr Liwan
+ *  missions, 46 more laid bodies, bring the mean to 3.368, and the same 0.11 of headroom is 3.48). */
+const MAX_MEAN_MOVE_TILES = 3.48;
 
 /**
  * The one mission that keeps an overlapping pair, and why. `umm_zeitoun_1_recon`'s force stands against the map's
@@ -115,15 +116,16 @@ const READINGS = IDS.map(read);
 const byId = new Map(READINGS.map((r) => [r.id, r]));
 
 describe('the starting layout on every shipped mission (GH-1360 S3b)', () => {
-  it('walks all 30 missions and the same 271 side-0 ground bodies as the S0 census, with 70 pairs before', () => {
+  it('walks all 39 missions and the same 344 side-0 ground bodies as the S0 census, with 74 pairs before', () => {
     // Literals, so a walk that silently lost a mission or a body cannot pass: S0's census (GH-1360, 15 Nov) read 271
-    // ground bodies and 70 overlapping pairs for side 0 across these 30 starts.
-    expect(IDS.length).toBe(30);
-    expect(READINGS.reduce((n, r) => n + r.after.length, 0)).toBe(271);
-    expect(READINGS.reduce((n, r) => n + r.before.length, 0)).toBe(271);
-    expect(READINGS.reduce((n, r) => n + overlaps(r.before).length, 0)).toBe(70);
+    // ground bodies and 70 overlapping pairs for side 0 across the first 30 starts. Was 30 missions / 271 / 70 / 292 laid. The five Qasr Liwan
+    // missions (GH-1438) add 44 ground bodies (315), 4 overlapping pairs before (74: II 2, III 1, IV 1) and 46 laid bodies with their aircraft (338). Bir Tarsha I, II, III and V (GH-1438) add 29 ground bodies (344), no overlapping pair before (74) and 29 laid bodies (367).
+    expect(IDS.length).toBe(39);
+    expect(READINGS.reduce((n, r) => n + r.after.length, 0)).toBe(344);
+    expect(READINGS.reduce((n, r) => n + r.before.length, 0)).toBe(344);
+    expect(READINGS.reduce((n, r) => n + overlaps(r.before).length, 0)).toBe(74);
     // Every laid body: the census's ground bodies plus the force's aircraft.
-    expect(READINGS.reduce((n, r) => n + r.placements.length, 0)).toBe(292);
+    expect(READINGS.reduce((n, r) => n + r.placements.length, 0)).toBe(367);
   });
 
   it('every mission declares start_layout, and every assembly a start_front', () => {
@@ -201,7 +203,7 @@ describe('the starting layout on every shipped mission (GH-1360 S3b)', () => {
       sum += d;
       n++;
     }
-    expect(n).toBe(292);
+    expect(n).toBe(367);
     expect(sum / n).toBeLessThan(MAX_MEAN_MOVE_TILES);
   });
 
@@ -213,7 +215,7 @@ describe('the starting layout on every shipped mission (GH-1360 S3b)', () => {
     }
   });
 
-  it('every authored front is the enemy-centroid derivation (D2), and six missions\' derivations disagree', () => {
+  it('every authored front is the enemy-centroid derivation (D2), and eleven missions\' derivations disagree', () => {
     for (const r of READINGS) {
       if (r.mission.start_front === undefined) continue;
       expect(r.mission.start_front, r.id).toBe(r.derived.chosen);
@@ -224,7 +226,12 @@ describe('the starting layout on every shipped mission (GH-1360 S3b)', () => {
       'beit_sahwan_0_tutorial',
       'beit_sahwan_1_recon',
       'beit_sahwan_breach',
+      'bir_tarsha_1_recon',
+      'bir_tarsha_3_clearance',
       'ein_qasab_1_recon',
+      'qasr_liwan_1_recon',
+      'qasr_liwan_3_buildup',
+      'qasr_liwan_5_subterranean',
       'tel_marum_1_recon',
       'wadi_halam_5_depot',
     ]);

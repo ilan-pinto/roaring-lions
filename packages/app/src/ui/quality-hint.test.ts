@@ -2,7 +2,7 @@
 // The slow-frames suggestion (GH-1413). Every spec here was seen red under a one-line mutation of `quality-hint.ts` or
 // `frame-probe.ts` (listed in the commit that landed it). Nothing here opens a browser: the frame source is a fake.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Quality } from '../settings';
+import { DEFAULT_SETTINGS, type Quality, type Settings } from '../settings';
 import { isDialogOpen } from './confirm';
 import { PROBE_SAMPLE_FRAMES, PROBE_WARMUP_FRAMES } from './frame-probe';
 import { QUALITY_HINT_ANSWERED_KEY, SUGGESTED_QUALITY, qualityHintAllowed, watchQualityHint, type QualityHintDeps } from './quality-hint';
@@ -69,6 +69,19 @@ function memoryStore(refuse = false) {
   };
 }
 
+/** A settings dependency over one in-memory object; `setQuality` records each preset a write carries. */
+function settingsAt(quality: Quality, setQuality: (q: Quality) => void = () => {}): QualityHintDeps['settings'] & { current: () => Settings } {
+  let s: Settings = { ...structuredClone(DEFAULT_SETTINGS), video: { ...DEFAULT_SETTINGS.video, quality } };
+  return {
+    get: () => s,
+    set: (next) => {
+      setQuality(next.video.quality);
+      s = next;
+    },
+    current: () => s,
+  };
+}
+
 function setup(over: Partial<QualityHintDeps> = {}, quality: Quality = 'high') {
   const src = frameSource();
   const mem = memoryStore();
@@ -77,8 +90,8 @@ function setup(over: Partial<QualityHintDeps> = {}, quality: Quality = 'high') {
   const deps: QualityHintDeps = {
     env: prodEnv,
     renderer,
-    quality: () => quality,
-    setQuality,
+    probeRenderer: () => null,
+    settings: settingsAt(quality, setQuality),
     inShell: () => true,
     frames: src.frames,
     store: mem.store,
@@ -257,10 +270,10 @@ describe('watchQualityHint: when it stays quiet', () => {
   });
 
   it('the preset can have been changed under the probe: a saved Low at verdict time shows nothing', () => {
-    let q: Quality = 'high';
-    const { src } = setup({ quality: () => q });
+    const settings = settingsAt('high');
+    const { src } = setup({ settings });
     src.play(60, 60);
-    q = 'low';
+    settings.set({ ...settings.get(), video: { ...settings.get().video, quality: 'low' } });
     src.play(200, 60);
     expect(card()).toBeNull();
   });

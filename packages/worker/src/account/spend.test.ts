@@ -1,19 +1,18 @@
-import { emptyAccount, parseWorld, sha256Hex, worldMissionIds } from '@lions/economy';
-import { coupons, world } from '@lions/data';
+import { emptyAccount, parseWorld, worldMissionIds } from '@lions/economy';
+import { world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import type { D1Like, D1Stmt } from '../d1';
 import { handleAccount } from './routes';
-import { accountHarness, racingD1, seedClaimCoupons, seedWalletMember } from './test-kit';
+import { accountHarness, racingD1, seedClaimCoupons, seedWalletMember, testCouponTable, TEST_COUPON_COIN_ID, TEST_COUPON_CREDIT_ID } from './test-kit';
 
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY + 3_600_000;
 const [M1 = ''] = worldMissionIds(parseWorld(world));
 const op = (n: number): string => `${String(n).padStart(8, '0')}-5555-4555-8555-555555555555`;
 const CODE = 'TEST-CODE';
-// The real table's ids and grants under a hash we know the code for: the real code is not in the repository.
-const TABLE = coupons.map((c) => ({ ...c, sha256: sha256Hex(CODE) }));
-const COIN_ID = 'lead_roar_coins_100k';
-const CREDIT_ID = 'lead_special_units_10k';
+const TABLE = testCouponTable(CODE);
+const COIN_ID = TEST_COUPON_COIN_ID;
+const CREDIT_ID = TEST_COUPON_CREDIT_ID;
 
 function setup(opts: { race?: number; beforeFirstBatch?: (db: D1Like) => Promise<void> } = {}) {
   let racing: ReturnType<typeof racingD1> | undefined;
@@ -277,5 +276,72 @@ describe('POST reset-free', () => {
     expect(await brigadeOf(s)).toEqual(emptyAccount());
     expect(await freeOf(s)).toBe(0);
     expect((await journal(s)).filter((j) => j.kind === 'reset')).toHaveLength(1);
+  });
+});
+
+// GH-1385: the journal and the answers checked against what the database holds. Before this block the spend tests read a
+// journal row's kind and delta only, and no test compared an answer's revision with the row's, so a journal row with no
+// receipt, a unit row carrying a tier's detail, and an answer one revision off the wallet (the next guarded write's
+// expected revision) all passed.
+describe('what a spend, a coupon and a reset write and answer (GH-1385)', () => {
+  const walletRev = async (s: S) => (await one<{ revision: number }>(s, 'SELECT revision FROM wallet')).revision;
+  const campRev = async (s: S) => (await one<{ revision: number }>(s, 'SELECT revision FROM campaign_state')).revision;
+  const details = async (s: S, kind: string) => (await journal(s)).filter((j) => j.kind === kind).map((j) => JSON.parse(j.detail) as Record<string, unknown>);
+
+  it('a unit and a tier spend journal their own detail and receipt, and answer the wallet row\'s revision', async () => {
+    const s = setup();
+    const { cookie } = await seedWalletMember(s.h.db, 'm1', T0, { free: 1000 });
+    const u = (await (await buy(s, cookie, 1, 'dozer_d9')).json()) as { wallet: { revision: number } };
+    expect(u.wallet.revision).toBe(await walletRev(s));
+    expect(await details(s, 'unit')).toEqual([
+      { unitId: 'dozer_d9', receipt: expect.objectContaining({ kind: 'unit', unitId: 'dozer_d9', coins: { free: 60, paid: 0 }, credits: 560 }) },
+    ]);
+    const t = (await (await post(s, cookie, 'spend', { op_id: op(2), item: 'tier', unitId: 'dozer_d9', track: 'armour', tier: 1 })).json()) as { wallet: { revision: number } };
+    expect(t.wallet.revision).toBe(await walletRev(s));
+    expect(await details(s, 'tier')).toEqual([
+      { unitId: 'dozer_d9', track: 'armour', tier: 1, receipt: expect.objectContaining({ kind: 'tier', unitId: 'dozer_d9', track: 'armour', tier: 1, coins: { free: 25, paid: 0 } }) },
+    ]);
+  });
+
+  it('a refused spend answers the unchanged wallet row\'s revision', async () => {
+    const s = setup();
+    const { cookie } = await seedWalletMember(s.h.db, 'm1', T0, { free: 10 });
+    const r = (await (await buy(s, cookie, 1, 'dozer_d9')).json()) as { reason: string; wallet: { revision: number } };
+    expect(r.reason).toBe('coins');
+    expect(r.wallet.revision).toBe(await walletRev(s));
+  });
+
+  it('a coupon journals its coupon receipt, answers both rows\' revisions, and a first campaign has the tutorial still to do', async () => {
+    const s = setup();
+    const { cookie } = await seedWalletMember(s.h.db, 'm1', T0, { free: 5 });
+    const r = (await (await redeem(s, cookie, 1)).json()) as { wallet: { revision: number }; campaign: { revision: number } };
+    expect(r.wallet.revision).toBe(await walletRev(s));
+    expect(r.campaign.revision).toBe(await campRev(s));
+    const [d] = await details(s, 'coupon');
+    expect(d).toEqual({ couponIds: expect.arrayContaining([COIN_ID]), receipt: expect.objectContaining({ kind: 'coupon', coins: { free: 100_000, paid: 0 } }) });
+    expect((await one<{ t: number }>(s, 'SELECT tutorial_done AS t FROM campaign_state')).t).toBe(0);
+  });
+
+  it('a coupon whose coins a claim already paid writes no coupon row and leaves the wallet revision', async () => {
+    const s = setup();
+    const { cookie } = await seedWalletMember(s.h.db, 'm1', T0);
+    await seedClaimCoupons(s.h.db, 'm1', T0, [{ id: COIN_ID, credited: 100_000, capped: false }]);
+    const before = await walletRev(s);
+    const r = (await (await redeem(s, cookie, 1)).json()) as { coins: number; wallet: { revision: number } };
+    expect(r.coins).toBe(0);
+    expect(await details(s, 'coupon')).toEqual([]);
+    expect(await walletRev(s)).toBe(before);
+    expect(r.wallet.revision).toBe(before);
+  });
+
+  it('a reset answers both rows\' revisions', async () => {
+    const s = setup();
+    const { cookie } = await seedWalletMember(s.h.db, 'm1', T0, { free: 50 });
+    await seedCampaign(s, { ...emptyAccount(), balance: 300 });
+    await s.h.db.prepare('UPDATE campaign_state SET revision = 4').run();
+    const r = (await (await reset(s, cookie, 1)).json()) as { wallet: { revision: number }; campaign: { revision: number } };
+    expect(r.wallet.revision).toBe(await walletRev(s));
+    expect(r.campaign.revision).toBe(5);
+    expect(await campRev(s)).toBe(5);
   });
 });

@@ -101,8 +101,24 @@ CAPTURED = {
     # mesh_gait.test.ts's 2.8 ceiling, and it already shipped at 2.645x, the
     # highest in the game. Its run comes from the KDF soldier's capture; its
     # `idle` stays its own.
+    # Infantry upgrade unit "Yahalom" (GH-826, 17 Nov 2026): the same captures on
+    # the skinned body. `hide_bones`: the charge on yah_b's own `yah_b_charge`
+    # bone is drawn in `work` alone (the lead's decision 6; the motion pass
+    # builds `work` and shows it there), so every clip built here scales it out.
     "yahalom_squad": dict(source="yahalom_engineer", figures=("f0", "f1"),
-                          clips={"move": ("meshy_soldier", ("f0", "f1"))}),
+                          clips={"move": ("meshy_soldier", ("f0", "f1"))},
+                          hide_bones=("yah_b_charge",)),
+    # Infantry upgrade unit 1 (GH-826, 12 Nov): the Combat Engineers' skinned
+    # Meshy body plays the captures the Rifle Squad's does (the Sarim standing
+    # idle, the KDF soldier's run and deaths), `demo_a` on the soldier's f0 and
+    # the leader `demo_b` on f1 as inf_squad's leader is, so the two men do not
+    # move in step. A skinned body has no posed corpse: it dies on its living
+    # body, so `fall` ships. `prop_away`: the satchel charge on the team's
+    # `prop` bone is gone in the clips a body lies in, as rig.py's posed-corpse
+    # `down`/`wreck` hid it (`_key_death_visibility`, alive=False).
+    "demo_squad": dict(source="meshy_soldier", figures=("f0", "f1"),
+                       clips={"idle": ("sarim_rifles", ("f0", "f1"))},
+                       prop_away=("down", "fall", "wreck")),
 }
 
 #: rig.py bone suffix -> the capture's bone. The hip-fix bones (`hip_L`,
@@ -141,6 +157,7 @@ ARM_GAIN = {
     "sarim_rifles": {"L": 0.55, "R": 0.35},
     "inf_grenadier": {"L": 0.55, "R": 0.35},
     "yahalom_squad": {"L": 0.55, "R": 0.35},
+    "demo_squad": {"L": 0.55, "R": 0.35},     # both men riflemen (GH-826 unit 1); the hold re-keys their arms anyway
 }
 
 _DOCS = {}
@@ -417,6 +434,12 @@ def _build(arm_obj, team_id, name, body_clip, *, moving, firing, frames=None, ho
     # body falls and lies (`fall` -> `wreck`), so the posed corpse on
     # `death_root` stays scaled out.
     rig._key_death_visibility(pbones, figures, "prop" in pbones, alive=True, moving=moving)
+    if "prop" in pbones and name in cfg.get("prop_away", ()):
+        rig._key_scale(pbones["prop"], 0.0, rig._VIS_FRAMES)
+    for hidden in cfg.get("hide_bones", ()):
+        if hidden not in pbones:
+            raise SystemExit(f"{team_id}: hide_bones names {hidden!r}, which the armature does not have")
+        rig._key_scale(pbones[hidden], 0.0, rig._VIS_FRAMES)
     leaners = rig.FIRE_ROOT_LEAN.get(team_id, {}) if firing else {}
     for spec, sf in zip(figures, source_figs):
         prefix = spec["prefix"]

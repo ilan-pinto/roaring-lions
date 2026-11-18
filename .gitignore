@@ -273,3 +273,20 @@ packages/app/dist-bundle-census/
 # clips) is the tracked source beside the GLB: art/src/units/inf_squad.blend. task.json and the thumbnail are tracked.
 art/meshy/inf-squad-f1-20261101-01a197a3/model.glb
 art/meshy/inf-squad-f1-20261101-01a197a3/texture_*
+# GH-826 infantry upgrade unit 1 (12 Nov): the Combat Engineers' Meshy body. The 10,000-triangle remesh (93 MB, its 8k
+# bake embedded) is the source tools/units/import_meshy_skinned_team.py reads; the failed first preview, the preview
+# that passed the gate, the 8k refine's downloads (fbx/glb/obj/stl/usdz and its 74 MB base colour) and the remesh's own
+# maps are not used directly. All kept on disk and backed up in ~/dev/roaring-lions-art-backup/meshy/, never committed.
+# The importer's output scene (the 2048 retinted atlas, the skin, the clips) is the tracked source beside the GLB:
+# art/src/units/demo_squad.blend. task.json and the thumbnails are tracked.
+art/meshy/demo-squad-body-20261112-01a1d147/model.*
+art/meshy/demo-squad-body-20261112-01a1d14c/model.*
+art/meshy/demo-squad-body-20261112-01a1d14f/model.*
+art/meshy/demo-squad-body-20261112-01a1d14f/texture_*
+art/meshy/demo-squad-body-20261112-01a1d151/model.*
+art/meshy/demo-squad-body-20261112-01a1d151/texture_*
+# GH-826 infantry upgrade unit "Yahalom" (15 Nov): the unit's own two posed previews, both failed the pose gate (the
+# systematic stop at 40 of 140 credits; the team ships on the Combat Engineers' body). Their clay GLBs are kept on disk
+# and in ~/dev/roaring-lions-art-backup/meshy/, never committed; task.json and the thumbnails are tracked.
+art/meshy/yahalom-squad-body-20261115-01a1e05f/model.*
+art/meshy/yahalom-squad-body-20261115-01a1e06b/model.*

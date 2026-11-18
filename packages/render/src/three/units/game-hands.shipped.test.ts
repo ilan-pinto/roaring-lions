@@ -229,6 +229,9 @@ const HAND_VISIBILITY_EXEMPT: Readonly<Record<string, string>> = {
   charge_squad: 'every hand 5 of 8 in idle, fire',
   // demo_squad left 9 Nov: with its own torso looked through (the lead's ruling) every hand reads 6-7 of 8; counted, demo_b L
   // read 0 in idle. Its palette rifle (role weapon, on demo_b_weapon) still occludes.
+  // GH-826 unit 1 (13 Nov 2026): the skinned Meshy body, held to the real-size bar of 4 like inf_squad. The lead's named item
+  // (demo_b's firing fist, 2 of 8 with the fists shrunk to the pilot's factors) is GONE with the fists at the size Meshy
+  // sculpted them: every hand of both men reads 6 of 8 or more in idle, so the team needs no row.
   digger_crew: 'both hands 0 of 8: the arm is fused into the torso (and the team has no fire clip)',
   inf_grenadier: 'gre0 and gre2 R 0 of 8: the launcher hides the support claw; gre1 R 4',
   // inf_squad (the Meshy pilot, real-size fists) is held to its own bar of 4 (FACINGS_NEEDED_REAL_SIZE), no exemption.
@@ -244,7 +247,8 @@ const HAND_VISIBILITY_EXEMPT: Readonly<Record<string, string>> = {
   rpg_team: 'rpg_load L shows in 3 of 8 facings in idle',
   sarim_rifles: 'every hand 5 of 8 in idle',
   sniper_team: 'both men, both hands 0 of 8: the arms are welded to the torso',
-  yahalom_squad: 'yah_a L shows in 4 of 8 facings',
+  // yahalom_squad left 17 Nov 2026 (GH-826 unit "Yahalom": the skinned Meshy body, both fists on the carbine): every hand
+  // shows in 6 of 8 facings or more. Was 'yah_a L shows in 4 of 8 facings' (the rigid figure's detector hand).
 };
 
 const teams = readdirSync(DIR)
