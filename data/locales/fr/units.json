@@ -289,10 +289,10 @@
   },
   "scout_shachaf": {
     "name": "Véhicule d'éclairage Shachaf",
-    "blurb": "Un œil au sol qui voit à seize cases et ne peut pas être abattu. Porte un mât, pas une arme.",
+    "blurb": "Un œil au sol qui voit à seize cases depuis son mât. Une mitrailleuse de coupole porte à six cases.",
     "src": {
       "name": "ac25b766",
-      "blurb": "c6a3a071"
+      "blurb": "63b4b286"
     }
   },
   "sniper_team": {
