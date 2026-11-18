@@ -2,7 +2,8 @@
 // D3-D5). Bounds over `creditsFor`'s and `starsFor`'s own inputs, with the sim's own weights: nothing here
 // re-derives a number the code under test computes.
 import { describe, expect, it } from 'vitest';
-import { applyOverlays, missions, POSTURE_IDS, type PostureId } from '@lions/data';
+import { applyOverlays, POSTURE_IDS, type PostureId } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { creditsFor, MissionRuntime, starsFor, TICKS_PER_SECOND, type MissionJson } from '@lions/sim';
 import { campaignMission, withReliefOnLoan } from '../../packages/app/src/posture';
 import { missionStage } from './mission-harness';
@@ -50,9 +51,9 @@ describe('credits: Easier never above Standard, Harder exactly Standard (S3, S4)
     expect(bestPay(at(id, 'easier'))).toBeLessThanOrEqual(std);
     expect(bestPay(at(id, 'harder'))).toBe(std);
   });
-  it('Easier pays strictly less on exactly the missions with a carrying secondary (10 of 30)', () => {
+  it('Easier pays strictly less on exactly the missions with a carrying secondary (12 of 35: Qasr Liwan I and III add two)', () => {
     const less = ids.filter((id) => bestPay(at(id, 'easier')) < bestPay(at(id, 'standard')));
-    expect(less.length).toBe(10);
+    expect(less.length).toBe(12); // Was 10: Qasr Liwan I and III carry a secondary
     for (const id of less) expect(bestPay(at(id, 'standard')) - bestPay(at(id, 'easier'))).toBe(
       40 * raw(id).objectives.filter((o) => !o.primary && o.carries === true).length
     );
@@ -64,8 +65,8 @@ describe('stars: Easier at most two (D3, S5); Harder and Standard the same', () 
     expect(bestStars(at(id, 'easier'))).toBeLessThanOrEqual(2);
     expect(bestStars(at(id, 'harder'))).toBe(bestStars(at(id, 'standard')));
   });
-  it('Standard still reaches three on the ten carrying missions, so the cap is a real cap', () => {
-    expect(ids.filter((id) => bestStars(at(id, 'standard')) === 3).length).toBe(10);
+  it('Standard still reaches three on the twelve carrying missions, so the cap is a real cap', () => {
+    expect(ids.filter((id) => bestStars(at(id, 'standard')) === 3).length).toBe(12); // Was 10 (Qasr Liwan I and III reach three)
   });
 });
 
@@ -74,7 +75,7 @@ describe('the Easier relief, in a real runtime (S7)', () => {
   // throw, every relief body is on loan (so none joins the roster), and the starting count -- what credits read --
   // is Standard's. 95 s of ticks per mission; no orders.
   const campaign = ids.filter((id) => raw(id).ledger.produces.length > 0);
-  it('covers the 29 campaign missions', () => expect(campaign.length).toBe(29));
+  it('covers the 34 campaign missions', () => expect(campaign.length).toBe(34)); // Was 29: Qasr Liwan's five
   it.each(campaign)('%s', (id) => {
     const ledger = { 'campaign.difficulty': 'easier' };
     const easier = campaignMission(raw(id), ledger);

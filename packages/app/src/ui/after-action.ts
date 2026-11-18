@@ -114,6 +114,8 @@ export function coinAwardText(a: EarnAward): string {
       return t('debrief.coins.campaign');
     case 'backfill':
       return t('debrief.coins.backfill');
+    case 'challenge':
+      return t('debrief.coins.challenge');
   }
 }
 

@@ -20,6 +20,8 @@
 //   data/grades/**   against data/schemas/grade.schema.json, plus the palette-key rules (GH-943 L2)
 //   data/formations/** against data/schemas/formation.schema.json, plus the
 //                    cross-file rules in tools/validate_formations.mjs (GH-859)
+//   data/challenges/** against data/schemas/challenge.schema.json, and amendments.json against
+//                    amendments.schema.json, plus the cross-file rules in tools/validate_challenges.mjs (GH-1395)
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
 //   data/structures.json against data/schemas/structure.schema.json, and its
 //                    `color`/`wall_tone` keys against the palette
@@ -45,6 +47,8 @@ import { doctrineFailures } from './validate_doctrine.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
+import { challengeFailures } from './validate_challenges.mjs';
+import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
@@ -66,6 +70,8 @@ import {
   removeTriggerFailures,
   triggerLabelFailures,
 } from './validate_narrative.mjs';
+import { chromeCatalogueFailures } from './validate_chrome_catalogue.mjs';
+import { shippedLocaleIds, stagingOpts } from './locale_staging.mjs';
 
 const Ajv2020 = AjvModule.default ?? AjvModule;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -222,15 +228,21 @@ const schemas = {
   avatarPresets: loadJson(join(ROOT, 'data/schemas/avatar_presets.schema.json')),
   minWin: loadJson(join(ROOT, 'data/schemas/min_win_seconds.schema.json')),
   difficulty: loadJson(join(ROOT, 'data/schemas/difficulty.schema.json')),
+  amendments: loadJson(join(ROOT, 'data/schemas/amendments.schema.json')),
+  challenge: loadJson(join(ROOT, 'data/schemas/challenge.schema.json')),
   arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
   arenaPlayers: loadJson(join(ROOT, 'data/schemas/arena-public-players.schema.json')),
 };
 
 let checked = 0;
+// GH-1406: a STAGED language (not in LOCALES) may lag the English; its lag is collected here per language and REPORTED at the end, never a failure.
+const shippedLocales = shippedLocaleIds(ROOT);
+const localeLag = new Map();
+const stagingOf = (lang) => stagingOpts(lang, shippedLocales, localeLag);
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.arenaResults && schemas.arenaPlayers
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -255,6 +267,8 @@ if (
     avatarPresets: ajv.compile(schemas.avatarPresets),
     minWin: ajv.compile(schemas.minWin),
     difficulty: ajv.compile(schemas.difficulty),
+    amendments: ajv.compile(schemas.amendments),
+    challenge: ajv.compile(schemas.challenge),
     arenaResults: ajv.compile(schemas.arenaResults),
     arenaPlayers: ajv.compile(schemas.arenaPlayers),
   };
@@ -285,6 +299,9 @@ if (
   checked += validateFile(join(ROOT, 'data/avatars/presets.json'), validators.avatarPresets, 'avatar_presets.schema');
   checked += validateFile(join(ROOT, 'data/accounts/min_win_seconds.json'), validators.minWin, 'min_win_seconds.schema');
   checked += validateFile(join(ROOT, 'data/difficulty/postures.json'), validators.difficulty, 'difficulty.schema');
+  // GH-1395: the amendment library, and the per-mission challenge files beside it.
+  checked += validateFile(join(ROOT, 'data/challenges/amendments.json'), validators.amendments, 'amendments.schema');
+  checked += validateDir(join(ROOT, 'data/challenges'), validators.challenge, 'challenge.schema', [], ['amendments.json']);
   // GH-954 public-arena P2: the publisher's allow-list is always there; results.json exists only once the lead has
   // published (P4), and when it does it must pass its closed schema, its deny scan and its digest (G2, G3, G14).
   checked += validateFile(join(ROOT, 'data/arena/public-players.json'), validators.arenaPlayers, 'arena-public-players.schema');
@@ -1220,7 +1237,10 @@ const garrisonableSymbols = new Set(
     if (!file.endsWith('missions.json')) continue;
     const overlay = loadJson(file);
     if (!overlay) continue;
-    failures.push(...overlayFailures(rel(file), overlay, missionsById));
+    {
+      const lang = basename(dirname(file));
+      failures.push(...overlayFailures(rel(file), overlay, missionsById, stagingOf(lang)));
+    }
     // GH-1406 part 2: the `en` file is the GENERATED template, so it must match the mission files exactly.
     if (basename(dirname(file)) === 'en') failures.push(...englishCatalogueFailures(rel(file), overlay, [...missionsById.values()]));
     checked += 1;
@@ -1244,12 +1264,34 @@ const garrisonableSymbols = new Set(
     if (!file.endsWith('units.json')) continue;
     const overlay = loadJson(file);
     if (!overlay) continue;
-    failures.push(...unitOverlayFailures(rel(file), overlay, unitsById));
+    {
+      const lang = basename(dirname(file));
+      failures.push(...unitOverlayFailures(rel(file), overlay, unitsById, stagingOf(lang)));
+    }
     if (basename(dirname(file)) === 'en') failures.push(...englishUnitFailures(rel(file), overlay, [...unitsById.values()]));
     checked += 1;
   }
   if (!existsSync(join(ROOT, 'data/locales/en/units.json'))) {
     failures.push(...englishUnitFailures('data/locales/en/units.json', null, []));
+  }
+}
+
+// --- chrome catalogues (GH-1406) --------------------------------------------
+// packages/app/src/i18n/<id>.json beside en.json: every key of en.json and nothing else, the same {placeholders} and ICU shape in every
+// value (`chromeCatalogueFailures`). A locale with no file ships none and plays in English.
+{
+  const i18nDir = join(ROOT, 'packages/app/src/i18n');
+  const en = loadJson(join(i18nDir, 'en.json'));
+  if (en) {
+    for (const entry of readdirSync(i18nDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.json') || entry.name === 'en.json') continue;
+      const file = join(i18nDir, entry.name);
+      const tr = loadJson(file);
+      if (!tr) continue;
+      const lang = entry.name.slice(0, -'.json'.length);
+      failures.push(...chromeCatalogueFailures(rel(file), en, tr, stagingOf(lang)));
+      checked += 1;
+    }
   }
 }
 
@@ -1463,12 +1505,32 @@ const garrisonableSymbols = new Set(
   failures.push(...versusModeFailures(modeFiles, mapsById));
 }
 
+// --- challenges (GH-1395): the rules amendments.schema.json and challenge.schema.json cannot see ---
+{
+  const missionsById = {};
+  for (const f of jsonFilesIn(join(ROOT, 'data/missions'))) {
+    const m = loadJson(f);
+    if (m && typeof m.id === 'string') missionsById[m.id] = m;
+  }
+  const files = jsonFilesIn(join(ROOT, 'data/challenges'))
+    .filter((f) => basename(f) !== 'amendments.json')
+    .map((file) => ({ file: rel(file), doc: loadJson(file) }))
+    .filter((x) => x.doc !== null);
+  failures.push(...challengeFailures({ library: loadJson(join(ROOT, 'data/challenges/amendments.json')), files, missions: missionsById }));
+}
+
 // --- formations (GH-859): the rules formation.schema.json cannot see ---------
 {
   const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
   const formationFiles = jsonFilesIn(join(ROOT, 'data/formations')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...formationFailures(formationFiles, en));
 }
+
+// --- the synchronous content manifest (B6-6) ----------------------------------
+// packages/data/src/content-manifest.ts is GENERATED from the map and mission files (tools/content_manifest.mjs): the
+// app's entry chunk reads it instead of the JSON. Regenerated here and compared byte for byte, so a map or a mission
+// edited without `pnpm content:manifest -- --write` fails, and so does a hand-edit of the manifest.
+failures.push(...contentManifestFailures(ROOT));
 
 // --- map grid + bounds checks (beyond what JSON Schema can express) ---------
 //
@@ -1740,5 +1802,12 @@ if (failures.length > 0) {
   console.error(`\nDATA GATE FAILED — ${failures.length} issue(s):\n`);
   for (const f of failures) console.error(`  - ${f}`);
   process.exit(1);
+}
+// A staged language that lags the English is REPORTED (the translator's worklist is `pnpm locales:pending -- <lang>`), and passes.
+for (const [lang, lines] of localeLag) {
+  if (lines.length === 0) continue;
+  console.log(`locale ${lang} (staged, not in LOCALES) lags the English by ${lines.length} item(s); report only, nothing here fails. Worklist: pnpm locales:pending -- ${lang}`);
+  for (const l of lines.slice(0, 10)) console.log(`    ${l}`);
+  if (lines.length > 10) console.log(`    ... and ${lines.length - 10} more`);
 }
 console.log(`data gate passed: ${checked} file(s) validated, palette keys resolved`);

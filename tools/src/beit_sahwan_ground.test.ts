@@ -20,7 +20,8 @@
 //        walls on three sides, scree down the fourth (foot only), one haul ramp for wheels; all
 //        four routes' mouths in the town zone.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, structures as structureCatalogue, type MapJson } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { fx } from '../../packages/sim/src/fixed';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';

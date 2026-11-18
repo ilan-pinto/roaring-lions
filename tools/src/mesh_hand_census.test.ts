@@ -54,7 +54,6 @@ const HAND_CENSUS_EXEMPT: Readonly<Record<string, string>> = {
   rpg_team: 'open claws; rpg_load carries no rocket',
   sarim_rifles: 'open claws on all three riflemen',
   sniper_team: 'arms welded to the torso: no separable hand',
-  yahalom_squad: 'open black claws; yah_a holds only a detector pole',
 };
 
 /**
@@ -68,6 +67,8 @@ const HAND_CENSUS_EXEMPT: Readonly<Record<string, string>> = {
 const COARSE_FIRING_FIST: Readonly<Record<string, Readonly<Record<string, number>>>> = {
   // falsified 13 Nov: with demo_a's floor at 166 the row goes red ("coarser than it shipped: expected 165 >= 166"); put back
   demo_squad: { demo_a_hand_L: 165, demo_b_hand_L: 165 },
+  // GH-826 unit "Yahalom" (17 Nov 2026): the same body, so the same fist and the same named item (the lead's decision 9, 15 Nov)
+  yahalom_squad: { yah_a_hand_L: 165, yah_b_hand_L: 165 },
 };
 const coarseRow = (team: string, violation: string): [string, number] | null => {
   const m = /^(\w+_hand_[LR]): (\d+) triangles outside 200-450$/.exec(violation);
@@ -87,7 +88,7 @@ describe('G1: every figure has exactly two modelled hands', () => {
   it('the exemptions name real teams, and every team is either gated or exempt', () => {
     const names = teams.map(([t]) => t);
     for (const k of Object.keys(HAND_CENSUS_EXEMPT)) expect(names, `${k}: an exemption for a team that is not an infantry GLB`).toContain(k);
-    expect(names.filter((t) => !(t in HAND_CENSUS_EXEMPT))).toEqual(['demo_squad', 'inf_squad']);
+    expect(names.filter((t) => !(t in HAND_CENSUS_EXEMPT))).toEqual(['demo_squad', 'inf_squad', 'yahalom_squad']);
   });
 
   it.each(teams.filter(([t]) => !(t in HAND_CENSUS_EXEMPT)))('%s: every figure has two hands', (team, glb) => {

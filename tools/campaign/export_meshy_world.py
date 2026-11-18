@@ -305,6 +305,12 @@ TOWN_SITES = {
     "beit_sahwan": ("marj", 0.347, 0.281),   # the walled compound
     "khan_rafid": ("marj", 0.388, 0.138),    # the mud-brick huts, south edge
     "deir_amun": ("marj", 0.545, 0.205),     # the ground between wadi and lake
+    "qasr_liwan": ("marj", 0.320, 0.360),    # the Marj's coastal city: up the
+                                              # coast road, north-west of the walled
+                                              # compound (0.08 of the board's depth
+                                              # from it) on the strip's west flank,
+                                              # 0.07 of Marj to spare before
+                                              # Naharin's border -- 2026-11-15
     # sur -- the north-central basin under the mountain wall
     "tel_marum": ("sur", 0.413, 0.481),      # the grid town
     "qarn_hadid": ("sur", 0.466, 0.540),     # midpoint of the pass road climbing

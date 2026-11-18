@@ -488,58 +488,14 @@ describe('coupons', () => {
     expect(startCampaign(withPay).coupons).toEqual(['fixture_a']);
   });
 
-  it('data/coupons.json holds only well-formed hashes and no duplicate ids', () => {
+  // GH-1415: the shipped table is EMPTY. A SHA-256 of a code in a public repository is a public grant (an unsalted hash
+  // of a short code is brute-forced offline, and the id is replayable in a claim), so no shipped code path may hold one.
+  // The mechanism stays: the specs above and the Worker's coupon and claim specs inject their own table. A grant for
+  // testers on the live site belongs server-side, never in this file.
+  it('the shipped coupon table holds no entry, in the file and in what @lions/data exports (GH-1415)', async () => {
     const file = JSON.parse(readFileSync(resolve(__dirname, '../../../data/coupons.json'), 'utf8')) as { coupons: Coupon[] };
-    expect(file.coupons.length).toBeGreaterThan(0);
-    for (const c of file.coupons) {
-      expect(c.sha256).toMatch(/^[0-9a-f]{64}$/);
-      expect((c.credits ?? 0) + (c.coins ?? 0)).toBeGreaterThan(0);
-    }
-    expect(new Set(file.coupons.map((c) => c.id)).size).toBe(file.coupons.length);
-  });
-
-  // The lead's code carries two entries under one hash. `hash` is injected, so this reads the
-  // shipped hash out of the table itself and never needs the code (which is not in the repo).
-  describe('the shipped table: one code, credits and coins', () => {
-    const shippedHash = (): string => {
-      const first = JSON.parse(readFileSync(resolve(__dirname, '../../../data/coupons.json'), 'utf8')) as { coupons: Coupon[] };
-      const h = first.coupons.find((c) => c.id === 'lead_special_units_10k')?.sha256;
-      if (h === undefined) throw new Error('lead_special_units_10k missing');
-      return h;
-    };
-    const table = JSON.parse(readFileSync(resolve(__dirname, '../../../data/coupons.json'), 'utf8')).coupons as Coupon[];
-    const asLead = (a: ReturnType<typeof emptyAccount>) => redeemCoupon(a, 'any text', table, () => shippedHash(), 5);
-
-    it('holds a credits entry and a coins entry under the same hash', () => {
-      const credits = table.find((c) => c.id === 'lead_special_units_10k');
-      const coins = table.find((c) => c.id === 'lead_roar_coins_100k');
-      expect(credits).toMatchObject({ credits: 10000 });
-      expect(coins).toMatchObject({ coins: 100000 });
-      expect(coins?.credits).toBeUndefined();
-      expect(coins?.sha256).toBe(credits?.sha256);
-    });
-
-    it('a first-time redeemer gets both', () => {
-      const r = asLead(emptyAccount());
-      if (!r.ok) throw new Error('refused');
-      expect([r.credits, r.coins]).toEqual([10000, 100000]);
-    });
-
-    it('someone who redeemed before (the 10,000 only) gets the coins only, and then it is used', () => {
-      const prior = { ...emptyAccount(), balance: 10000, coupons: ['lead_special_units_10k'] as string[] };
-      const r = asLead(prior);
-      if (!r.ok) throw new Error('refused');
-      expect([r.credits, r.coins]).toEqual([0, 100000]);
-      expect(r.account.balance).toBe(10000);
-      expect(asLead(r.account)).toMatchObject({ ok: false, reason: 'used' });
-    });
-  });
-
-  // The shipped code is never written in the repo. With COUPON_TEST_CODE set in the
-  // environment the real table is checked against it; without, this is skipped.
-  it.skipIf(!process.env.COUPON_TEST_CODE)('the shipped table grants 10,000 credits and 100,000 coins for the real code', async () => {
+    expect(file.coupons).toEqual([]);
     const { coupons } = await import('@lions/data');
-    const r = redeemCoupon(emptyAccount(), process.env.COUPON_TEST_CODE ?? '', coupons, sha256Hex, 1);
-    expect(r.ok && [r.credits, r.coins]).toEqual([10000, 100000]);
+    expect(coupons).toEqual([]);
   });
 });
