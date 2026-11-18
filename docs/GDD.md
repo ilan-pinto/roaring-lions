@@ -350,12 +350,14 @@ Target 300–600 simultaneous units at 60 fps. Struct-of-arrays layout over type
 
 **AI-generated art policy:** permitted, including for shipped assets. **Disclosure is required in the PR description** wherever generative tools were used. Everything still passes the same gates as any other art — palette, binary alpha, silhouette, and the redistribution-rights requirement in ART_PIPELINE §7 — so the standard is the output, not the tool. The reasoning lives in `CONTRIBUTING.md` alongside the rule, because stated reasoning survives contributor turnover in a way a bare policy line does not.
 
-**Monetisation: two currencies, and coins buy units.** G7's rule (#199, approved 2026-09-29),
-as amended by the lead's rulings of 2026-10-01 and 2026-10-11 (written up in WP-ST8 revision 2,
-`docs/superpowers/specs/2026-10-11-monetisation-content-plan.md`) and of 2026-11-18: "I want
-users to be able to use coins to buy new units. That's the leading rule." The 18 Nov ruling
-reverses the first half of the 16 Nov ruling (GH-1378 item 6), "paid coins buy cosmetics only
-at launch".
+**Monetisation: two currencies, and coins buy units, PvP included.** G7's rule (#199,
+approved 2026-09-29), as amended by the lead's rulings of 2026-10-01 and 2026-10-11 (written up
+in WP-ST8 revision 2, `docs/superpowers/specs/2026-10-11-monetisation-content-plan.md`) and by
+two rulings of 2026-11-18. The first: "I want users to be able to use coins to buy new units.
+That's the leading rule." It reverses the first half of the 16 Nov ruling (GH-1378 item 6),
+"paid coins buy cosmetics only at launch". The second answers where such units may be used:
+"coin-bought units work EVERYWHERE, PvP included; the 29 Sep 'no pay-to-win' (G7) rule is
+RETIRED." The other halves of G7 stand: two currencies, and credits are earned and never sold.
 
 - **Brigade credits** are earned only, by play, and are never sold, granted for money or
   converted from anything bought. They buy units, including the bought-only special forces,
@@ -366,18 +368,21 @@ at launch".
   that includes the bought-only special forces and the Conduct-gated units (ruled 2026-10-11),
   so Conduct gating is skippable with coins. Today every coin is free (`PURCHASES_OPEN` is
   false and the paid balance is clamped to 0); once purchases open, coins bought with money buy
-  units too (2026-11-18). Everything coins buy can also be bought with earned credits: the ownership target is
-  about 12 full campaigns to own every unit and tier with earned credits (GH-1378 item 6, which
-  stands).
-- Roar coins also buy **cosmetics** (brigade liveries, unit badges, command-post dressing) and
-  **operation passes**, the cosmetic track of an operation whose missions stay free.
+  units too (2026-11-18). Every unit and tier coins buy can also be bought with earned credits:
+  the ownership target is about 12 full campaigns to own every unit and tier with earned
+  credits (GH-1378 item 6, which stands).
+- Roar coins are also planned to buy **cosmetics** (brigade liveries, unit badges, command-post
+  dressing) and **operation passes**, the cosmetic track of an operation whose missions stay
+  free. No cosmetic is on sale yet.
 - **Never sold:** Conduct points, floors, forgiveness, the rating and the grade. Stars, the
   grade, Conduct and `creditsFor` compute for a bought unit exactly as for any fielded unit
   (coin spec G4).
-- **Network play.** Public and ranked rooms, and any room on matched kit, ignore everything a
-  player owns. A friends' room whose host turns on "bring your brigade" uses everything each
-  player owns, earned and bought (ruled 2026-10-11). Whether units bought with PAID coins may
-  reach such a room is for the lead to confirm before purchases open.
+- **Network play.** There is no pay-to-win restriction: a unit bought with coins, paid coins
+  included once they are sold, is allowed against a person (2026-11-18). The mechanism today:
+  a friends' room whose host turns on "bring your brigade" fields every unit and upgrade each
+  KDF player owns, earned with credits or bought with coins alike (ruled 2026-10-11); a room on
+  matched (standard) kit fields nobody's owned kit, coins or credits alike, by design. Coins are
+  never earned or spent in a versus match.
 
 Every mission is free, nothing sold is random, and a store item is listed only if it passes
 the written test in that spec (§2) and its guards (§7).
