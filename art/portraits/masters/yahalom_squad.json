@@ -1,7 +1,8 @@
 {
   "unit": "yahalom_squad",
+  "variant": "team",
   "source": "assets/meshes/yahalom_squad.glb",
-  "source_sha256": "dd9aebb691c7cbca4381ef7aeb9deed8a8bc25dfb66595527b6261aae428da7d",
+  "source_sha256": "f160662b385c97730f67928174bea4b55469219d77bb2a675fb8eb0d4901fc07",
   "yaw_deg": -125.0,
   "elevation_deg": 12.0,
   "fov_deg": 30.0,
@@ -10,13 +11,13 @@
     0.88
   ],
   "ndc_box": [
+    0.2863,
+    0.7137,
     0.06,
-    0.94,
-    0.088,
-    0.912
+    0.94
   ],
   "materials": {
-    "baked": 3,
-    "flat": 3
+    "baked": 5,
+    "flat": 1
   }
 }

@@ -466,7 +466,7 @@ def build_throat(f, side=None):
 
 def build_yoke(f, side=None):
     ncol = kp.TEAM.yoke_cols            # 9 columns on the Rifle Squad; a figure whose spine zone is complete there needs fewer for the same 24 triangles
-    wr = torso_wrap(f, [1.385, 1.415, 1.448], span=[75 + i * (210.0 / (ncol - 1)) for i in range(ncol)], whole=True,
+    wr = torso_wrap(f, [f.tz(1.385), f.tz(1.415), f.tz(1.448)], span=[75 + i * (210.0 / (ncol - 1)) for i in range(ncol)], whole=True,
                     rlim=None if kp.TEAM.yoke_rmax is None else (0.06, kp.TEAM.yoke_rmax))   # above the vest: the whole spine zone
 
     trim = trimmed(f, wr, "spine", 1.2, 1.7)
@@ -802,7 +802,7 @@ def build_radio_pack(f, side=None):
 
 def _belt_wrap(f, rows, ncols=16, span=None):
     cols = [i * 360.0 / ncols for i in range(ncols)] if span is None else span
-    return Wrap(f.zone_lower, (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
+    return Wrap(f.zone_lower, (f.O[0] + f.belt_c[0], f.O[1] + f.belt_c[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
                 centre_fn=lambda t: Vector((0.0, 0.0, 0.0)), r_out=0.45, col_span=None if span is None else True,
                 fill_rows=lambda j: True, default_r=0.18, rlim=(0.12, 0.26))
 
@@ -872,18 +872,23 @@ def _clear_pouches(f, degs, size, z, off=0.03, ok=0.002):
     pts, _who = f.bank.blockers(f.prefix, "pelvis", lo, hi)
     pts = np.array(pts)
     best = None
+    tried = {}
     for k in range(0, 25):
         turn = 0 if k == 0 else (10 * ((k + 1) // 2)) * (1 if k % 2 else -1)
+        if kp.TEAM.pouch_turn_max is not None and abs(turn) > kp.TEAM.pouch_turn_max:
+            continue          # a pouch stays on its own quarter of the belt: turned further it lands on the next pair
         worst = 0.0
         for dg in degs:
             c, R = _pouch_centre(f, dg + turn, size, z, off)
             worst = max(worst, _pouch_clash(pts, c, R, size))
+        tried[turn] = round(1000 * worst, 1)
         if best is None or worst < best[0] - 1e-9:
             best = (worst, turn)
         if worst <= ok:
             break
     worst, turn = best
-    REPORT.append({"part": "pouch angles", "figure": f.prefix, "nominal": list(degs), "turn_deg": turn, "residual_mm": round(1000 * worst, 2)})
+    REPORT.append({"part": "pouch angles", "figure": f.prefix, "nominal": list(degs), "turn_deg": turn, "residual_mm": round(1000 * worst, 2),
+                   **({} if kp.TEAM.pouch_turn_max is None else {"tried_mm": tried})})
     return [dg + turn for dg in degs]
 
 
@@ -924,6 +929,13 @@ def build_red_dot(f, side=None):
 def build_foregrip(f, side=None):
     top, bot, wlo, whi = f.station(0.17)
     wc = (wlo + whi) / 2
+    if f.wbvh is not None:
+        # the handguard's underside OVER the grip, by a ray up its own axis: the station's lowest point is the lowest thing
+        # across the gun's whole width there, and a grip seated on that hangs under the handguard (15 mm on demo_a, 13 Nov)
+        hit = f.wbvh.ray_cast(Vector((-0.17, wc, -1.0)), Vector((0, 0, 1)))
+        if hit[0] is None:
+            raise ValueError(f"{f.prefix}: no gun surface over the foregrip's station (0.17 behind the muzzle, {wc:+.3f} across)")
+        bot = float(hit[0].z)
     pc = Piece(f.wpn())
     geo.lathe(pc, (-0.17, wc, bot + 0.002), (0, 0, -1), (1, 0, 0), [(0.0, 0.016), (0.09, 0.0145), (0.10, 0.0)], 8, "coyote",
               cap0="coyote")
@@ -1022,6 +1034,10 @@ def build(repo, arm, meshes, mat, only=None, figs=None):
     v7 = None
     if kp.TEAM.v7:
         import inf_kit_v7 as v7            # the approved v7 mesh parts, fitted (a team opts in; the others stay procedural)
+    own = {}
+    if kp.TEAM.own_builders:
+        import importlib
+        own = importlib.import_module(kp.TEAM.own_builders).BUILDERS     # a team's own parts, and its own places for the template's
     fits = {p: kf.Fit(arm, meshes, p) for p in use}
     bank = kf.PoseBank(arm, meshes, fits)
     for p in use:
@@ -1032,14 +1048,15 @@ def build(repo, arm, meshes, mat, only=None, figs=None):
     for part in kp.PARTS:
         if only and part.name not in only:
             continue
-        if part.name not in BUILDERS:
+        if part.name not in BUILDERS and part.name not in own:
             continue
         for pf in use:
             if pf not in part.figs:
                 continue
             for suf, _base in kp.object_suffixes(part):
                 side = suf[-1] if suf[-2] == "_" and suf[-1] in "LR" else None
-                builder = v7.V7_BUILDERS[part.name] if v7 is not None and part.name in v7.V7_BUILDERS else BUILDERS[part.name]
+                builder = (own[part.name] if part.name in own
+                           else v7.V7_BUILDERS[part.name] if v7 is not None and part.name in v7.V7_BUILDERS else BUILDERS[part.name])
                 piece = builder(fits[pf], side)
                 oname = f"{pf}_{suf}"
                 open_thick = piece.open_thick

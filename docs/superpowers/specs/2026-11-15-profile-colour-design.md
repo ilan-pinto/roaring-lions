@@ -257,7 +257,7 @@ not exist yet (§3, B).
 :root {
   --card-bg: color-mix(in srgb, var(--rl-shadow-0) 70%, transparent);
 }
-.rl-profile__card { background: var(--card-bg); }
+.rl-page-card { background: var(--card-bg); }
 .rl-profile__card--head { border-left: 0.1875rem solid var(--accent); }
 .rl-profile__avatar .rl-avatar { border-width: 2px; }
 .rl-profile__tile { flex-direction: row; align-items: baseline; gap: var(--s2); padding: var(--s2) var(--s3); background: transparent; }
@@ -315,7 +315,7 @@ not exist yet (§3, B).
   --tile-ink: var(--rl-limestone-0);
   --steam-fill: color-mix(in srgb, var(--rl-water-1) 75%, var(--rl-shadow-1));
 }
-.rl-profile__card-title {
+.rl-page-card__title {
   margin: calc(-1 * var(--s4)) calc(-1 * var(--s4)) 0;
   padding: var(--s1) var(--s4);
   border-bottom: 0;
@@ -323,11 +323,11 @@ not exist yet (§3, B).
   font-size: var(--t-body);
   font-weight: 700;
 }
-.rl-profile__card--record .rl-profile__card-title { background: var(--card-head-record); }
-.rl-profile__card--history .rl-profile__card-title { background: var(--card-head-history); }
-.rl-profile__card--signin .rl-profile__card-title { background: var(--card-head-signin); color: var(--card-head-signin-ink); }
-.rl-profile__card--data .rl-profile__card-title { background: var(--card-head-data); }
-.rl-profile__card--danger .rl-profile__card-title { background: var(--card-head-danger); color: var(--band-ink); }
+.rl-profile__card--record .rl-page-card__title { background: var(--card-head-record); }
+.rl-profile__card--history .rl-page-card__title { background: var(--card-head-history); }
+.rl-profile__card--signin .rl-page-card__title { background: var(--card-head-signin); color: var(--card-head-signin-ink); }
+.rl-profile__card--data .rl-page-card__title { background: var(--card-head-data); }
+.rl-profile__card--danger .rl-page-card__title { background: var(--card-head-danger); color: var(--band-ink); }
 .rl-profile__card--record { border-color: var(--card-head-record); }
 .rl-profile__card--signin { border-color: color-mix(in srgb, var(--card-head-signin) 45%, transparent); }
 .rl-profile__card--data { border-color: color-mix(in srgb, var(--rl-water-1) 50%, transparent); }

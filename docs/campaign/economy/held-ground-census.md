@@ -24,7 +24,7 @@ Read with `income-numbers.md` (the F2 rules this reuses: approved 15 Oct, shippe
    plan's clock moves.
 4. **Three pins do move, all for named reasons (§4.3), none of them a tuning constant:** `BANKING_OVER_30_MAX` 15 to 16 if
    `ein_qasab_2_foothold` is authored (its plan has a purse of 400 and no base rate; zones make it bank 48%);
-   `wadi_halam_3_counterraid`'s `min_win_seconds` floor 80 to 79 and its report-only "bought heli_peten" probe, whose purchase moves from 141 s to
+   `wadi_halam_3_counterraid`'s `min_win_seconds` floor 80 to 79 and its "bought heli_peten" probe (a gate, §10), whose purchase moves from 141 s to
    95 s and then loses the helicopter before it scores (its plan, stars and credits are unmoved). Both of those missions go in the
    **last** batch, so the first two batches move no pin.
 5. **The honest limit (§6): income that the plan does not spend is scored and does not bind.** In 7 of these 10 missions the winning plan
@@ -187,7 +187,7 @@ whole difference is below.
 | `ZONE_PASSIVE_INCOME` | 0 over the four D7 controls | 0 over all fourteen controls | nothing | **widen the check**: it reads a hard-coded list of four missions, so a new zone on a starting ground would pay a force that never moves and pass. Derive the list from the missions that author zones |
 | `BANKING_OVER_30_MAX` | 15 of 20 plans bank over 30% | **16 of 20** | `ein_qasab_2_foothold` 12% to 48% | the pin is an upper bound at its ceiling. Either `ein_qasab_2` waits, or the bound goes 15 to 16 in that batch with the reason. The other nine do not move the count (eight already bank 100%; `wadi_halam_3` goes 72% to 78%) |
 | `min_win_seconds` floor, `wadi_halam_3_counterraid` | 80 s, fastest win above 320 s | fastest win 317 s | floor 80 s is above a quarter of it | regenerate the floor (`plan-sweep.ts` write mode) to 79 s, with the reason; the plan's own clock is unmoved, so this is one variant's win coming earlier |
-| `wadi_halam_3` "bought heli_peten vs technicals" (report-only probe) | helicopter bought at 141 s, 3 technicals killed | bought at 95 s, killed 0, **dead at 199 s**, probe **FAILED** | the extra 369 logistics buy the helicopter 46 s sooner | re-solve that probe's purchase (the plan is unchanged), or leave `wadi_halam_3` out. The reason it is last |
+| `wadi_halam_3` "bought heli_peten vs technicals" (a gated probe, §10) | helicopter bought at 141 s, 3 technicals killed | bought at 95 s, killed 0, **dead at 199 s**, probe **FAILED** | the extra 369 logistics buy the helicopter 46 s sooner | re-solve that probe's purchase (the plan is unchanged), or leave `wadi_halam_3` out. The reason it is last |
 
 ### 4.4 The tests this adds (report-only tooling, `income-proposal.test.ts`)
 
@@ -209,7 +209,7 @@ line. The `ZONE_PASSIVE_INCOME` derivation (§4.3) lands with **batch 1**, with 
 |---|---|---|---|---|
 | 1 | `khan_rafid_2`, `qarn_hadid_2`, `tel_marum_2` | 5 to 8 | none | footholds, the shape of the shipped `deir_amun_2` and `wadi_halam_2`; all three plans bank 100% already; two have camps |
 | 2 | `beit_sahwan_3`, `tel_marum_3`, `umm_zeitoun_3`, `wadi_halam_5` | 8 to 12 | none (`umm_zeitoun_3` shifts one variant's headroom by 1 s) | clearances; short plans, so small sums, but real holds. `umm_zeitoun_3` has a building plan, which the playtest measures |
-| 3 | `ein_qasab_2`, `wadi_halam_3`, `deir_amun_3` | 12 to 15 | `BANKING_OVER_30_MAX` 15 to 16; `wadi_halam_3`'s floor and heli probe | the three that touch a pin or need a lead call (§7) |
+| 3 (as planned; **as built differs, section 10**) | `ein_qasab_2`, `wadi_halam_3`, `deir_amun_3` | 12 to 15 | `BANKING_OVER_30_MAX` 15 to 16; `wadi_halam_3`'s floor and heli probe | the three that touch a pin or need a lead call (§7) |
 
 **Reserves, in the order to reach for them if a mission drops out:** `beit_sahwan_2_foothold` once PR 1483 settles where its hold stands (the F2
 note rejected `west_approach`, which holds the starting force, and `tunnel_mouth_west`, a 3 by 3 collapse target); then
@@ -283,7 +283,7 @@ other plan and control are byte-identical. `pnpm playtest` exits 0.
 
 | Pin | Was | Now | Where |
 |---|---|---|---|
-| `LADDER_CREDITS` | 6923 | 6923 (unchanged: the plans decide identically) | `playtest.ts`, dated comment added |
+| `LADDER_CREDITS` | 6923 | unchanged (the plans decide identically) | `playtest.ts`, dated comment added |
 | `LADDER_STARS` (and the coin table `roar_earn.test.ts` reads) | 68 | 68 | unchanged |
 | `ROSTER_MAX` | 26 | 26 | unchanged |
 | `BANKING_OVER_30_MAX` | 15 | 15 (all three plans already banked 100%) | unchanged |
@@ -298,7 +298,97 @@ FAILED — the zone missions' passive controls earned 234 from zones, expected 0
 `qarn_hadid_2` (red), a rate 32 to 33 (red), and a stray mission given a zone (`wadi_halam_4`, red). (3) The original four-mission list
 could not have seen (1): that is why it is derived now.
 
-Batch 2 (`beit_sahwan_3`, `tel_marum_3`, `umm_zeitoun_3`, `wadi_halam_5`) follows the same steps and raises `ZONE_MISSIONS` to 12.
+Batch 2 follows below.
+
+## 9. Batch 2 landed (step 2, 16 Nov 2026)
+
+`beit_sahwan_3_clearance` (`clinic` 32), `tel_marum_3_clearance` (`pass` 20, `overwatch_east` 12), `umm_zeitoun_3_clearance` (`hamlet` 32, never
+`horn_west`) and `wadi_halam_5_depot` (`depot` 20, `village` 12) author the zones of §4.1. Existing data fields only: no `tuning.ts`, unit stat,
+sim change or camp. The census line reads **12 of 30** (Was 8). Four clearances, so a full hold is 32 a minute each, on plans that win in 2.1 to 5.8
+minutes.
+
+| Mission | Zones, rate a minute | Plan wins | Slowest win, headroom | Stars | ROE | Credits | Zone income (plan mean) | Banked | Passive control | Sarim zone (passive) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `beit_sahwan_3_clearance` | `clinic` 32 | 30/30 to 30/30 | 215 s, 625 s (same) | 3 to 3 | 92.9 (same) | 280 [259-290] (same) | 0 to 58 | 100% to 100% | loses 30/30, zones 0 | 448 |
+| `tel_marum_3_clearance` | `pass` 20, `overwatch_east` 12 | 30/30 to 30/30 | 142 s, 698 s (same) | 3 to 3 | 100 (same) | 285 [265-295] (same) | 0 to 40 | 100% to 100% | loses 30/30, zones 0 | 160 |
+| `umm_zeitoun_3_clearance` | `hamlet` 32 | 30/30 to 30/30 | 248 s to 249 s, 592 s to 591 s | 3 to 3 | 92.8 (same) | 262 [225-290] (same) | 0 to 32 | 78% to 77% | loses 30/30, zones 0 | 160 |
+| `wadi_halam_5_depot` | `depot` 20, `village` 12 | 30/30 to 30/30 | 392 s, 448 s (same) | 2 to 2 | 100 (same) | 193 [170-220] (same) | 0 to 89 | 100% to 100% | loses 30/30, zones 0 | 127 |
+
+Compared seed by seed, 0 of 30 plan runs differ on `beit_sahwan_3`, `tel_marum_3` and `wadi_halam_5`. **One of 30 differs on `umm_zeitoun_3`** (seed
+21, the slowest, the only seed on which that plan builds): its `inf_squad` is accepted at 190 s and not 240 s because the zone income has
+reached the price, and the win comes 0.4 s later; stars, ROE and credits are the same. That is the same effect `income-numbers.md` found on
+`wadi_halam_2` and `deir_amun_2`. Across the whole `pnpm playtest` output the only lines that differ from batch 1 are the four missions' banking lines, the
+renamed pins (now 12 of 12 zone-mission controls, census 12 of 30) and that one time-limit line (`umm_zeitoun_3` headroom 592 s to 591 s). `pnpm playtest`
+exits 0.
+
+**The pins, with their Was values.**
+
+| Pin | Was | Now |
+|---|---|---|
+| `LADDER_CREDITS` | 6923 | unchanged (dated comment: byte-identical per-mission credits) |
+| `LADDER_STARS`, `ROSTER_MAX`, `BANKING_OVER_30_MAX` | 68, 26, 15 | unchanged |
+| `ZONE_PASSIVE_INCOME` | 0 over 8 controls | 0 over **12** ("zone-mission controls found 12/12") |
+| `ZONE_MISSIONS` | 8 | 12 |
+| `income_census.test.ts` | 8 missions, 15 zones, 3 convoys | 12 missions, **21** zones, 3 convoys; a wheeled route to all six new zones at t=0 |
+| `income_census.test.ts`, "horn_west is not authored" | `income_zones` empty | exactly `['hamlet']`, and never `horn_west` (Was: the test asserted no zones at all, which batch 2 had to change) |
+| `income-shipped.test.ts` | the 8 rows | the 12 rows |
+
+**Falsification (run, then restored).** One `pnpm playtest` with `tel_marum_3`'s `pass` moved onto `muster_ground` (a starting ground) and
+`wadi_halam_5`'s zones deleted exited 1 on both pins: `zones on 11 missions, expected at least 12` and `passive controls earned 100 from zones, expected 0`. A `hamlet` swapped for
+`horn_west` turns the census test red, and a deleted zone, a nudged rate or a stray mission turns `income-shipped.test.ts` red as in batch 1.
+
+Batch 3 (`ein_qasab_2`, `wadi_halam_3`, `deir_amun_3`) is the one that moves pins: §4.3.
+
+## 10. Batch 3 landed (step 2, 16 Nov 2026): the census reaches 15 of 30
+
+`beit_sahwan_2_foothold` (`terrace_crest` 48), `wadi_halam_3_counterraid` (`pasture` 80) and `deir_amun_3_subterranean` (`hamlet` 20, `spoil_field` 12) author
+the zones. Existing data fields only: no `tuning.ts`, unit stat, sim change or camp. The census line reads **15 of 30** (Was 12), the Q4 count.
+
+**One change from the plan of §5: `beit_sahwan_2` replaces `ein_qasab_2`.** Two reasons, the second decisive. (1) PR 1483 (GH-1378 Q12) put Beit
+Sahwan II's hold on a new `terrace_crest` zone that nobody starts on, which is exactly what §5 listed as the reserve's missing piece: the zone is the
+`hold_for` primary, the still passive control earns **0** from it on all 30 seeds (it loses by the clock, 14 min, as 1483 intends), and the plan holds it.
+(2) `ein_qasab_2`'s briefing says "You have the logistics for one outpost": the missing base rate is the mission's stated scarcity, not an
+omission, and 271 logistics of zone income would contradict the line the player reads. Leaving it out also keeps `BANKING_OVER_30_MAX` at 15
+(§4.3 predicted 16 with it). `ein_qasab_2` and `khan_rafid_3` are now the reserves. The two PR 1483-era numbers in this section (`beit_sahwan_2`'s plan and
+control) are measured on a tree that includes it; the before and after below are both on that tree.
+
+| Mission | Zones, rate a minute | Plan wins | Slowest win, headroom | Stars / ROE | Credits | Zone income (plan mean) | Banked | Passive control | Sarim zone (passive) |
+|---|---|---|---|---|---|---|---|---|---|
+| `beit_sahwan_2_foothold` | `terrace_crest` 48 | 30/30 to 30/30 | 315 s, 525 s (same) | 2, 100 (same) | 220 [220-220] (same) | 0 to 210 | 71% to 76% | loses 30/30 (by the clock), zones 0 | 32 |
+| `wadi_halam_3_counterraid` | `pasture` 80 | 30/30 to 30/30 | 349 s, 371 s (same) | 2, 100 (same) | 182 [160-200] (same) | 0 to 369 | 72% to 78% | loses 30/30, zones 0 | 378 |
+| `deir_amun_3_subterranean` | `hamlet` 20, `spoil_field` 12 | 30/30 to 30/30 | 116 s, 724 s (same) | 2, 86.8 (same) | 252 [250-255] (same) | 0 to 25 | 100% to 100% | loses 30/30, zones 0 | 160 |
+
+Compared seed by seed, **0 of 30** plan runs differ in result, clock, stars, ROE or credits on all three. Across the whole `pnpm playtest` output the
+only lines that differ from the tree before this batch are the three missions' banking lines, the renamed pin lines (15 of 15 zone-mission controls, census 15 of 30)
+and nothing else; the credit ladder (6923), star ladder (68) and roster maximum (26) are identical. `pnpm playtest` exits 0.
+
+**The two pins §4.3 predicted for `wadi_halam_3`, and what became of them.**
+
+| Pin | With the zone, unfixed | Fix | Now |
+|---|---|---|---|
+| `wadi_halam_3` "bought heli_peten vs technicals" (a **gated** probe: a failed pin exits 1) | purchase at 95 s, six penetrations, Peten dead at 199 s with 0 kills: FAILED | the gate buys at 141 s, the second its purse first covered the Peten before the zone existed (`technicalProbe`'s `buyNotBeforeS`, a harness parameter, not a game rule) | line identical to `main`'s: accepted at 141 s, 1 penetration, 3 technicals killed, credits 180 |
+| `min_win_seconds` floor 80 s | "above a quarter of the fastest win (317 s)" | none needed: that 317 s was the heli probe's own win; with its timing fixed the fastest win is back above 320 s | 29 of 29 floors clean; `data/accounts/min_win_seconds.json` is **not** rewritten |
+
+**What the heli gate proves, why 141 s, and what that pinning hides.** The gate proves one thing (GH-868): a bought Peten sent at the technicals' road takes at least 5 penetrations before it
+dies, none costing more than 25% of its hull, scores a kill, and the mission is still a victory at no fewer stars. That is a statement about the Peten meeting a technical, not about the economy, and "as
+soon as the purse allows" tied it to the purse: with the zone the first affordable second is 95 s, not 141 s, so the gate would have moved with income. It is pinned to the second it was written around so it keeps testing
+what it tests.
+
+**The real result, which the pinning would otherwise hide:** bought the moment the purse allows (95 s with `pasture` 80), the Peten is on the field at 137 s, 46 s sooner, meets the technicals at 189 s, takes six
+penetrations (worst single cost 17.6% of its hull, five samples) and is **lost at 199 s with no kill**; the mission is still a VICTORY at 2 stars, ROE 100 (credits 190, clock 5.6 min). A player who
+rushes the helicopter on this mission now loses it, where before the same player bought it 46 s later and it killed three technicals. That is a consequence of the income, not a defect of the gate, and nothing was tuned for it: sim
+balance is parked. To print it: `PT_PETEN_BUY_AT=0 npx tsx src/backtest/playtest.ts` from `tools/` (any second works); the gate goes red on it, as it should, and the `min_win_seconds` line goes red with it for the reason above.
+
+**Other pins.** `ZONE_MISSIONS` 15 (Was 12); `ZONE_PASSIVE_INCOME` 0 over **15** controls ("found 15/15"); `BANKING_OVER_30_MAX` 15 (unchanged); `income_census.test.ts` reads 15 missions, **25** zones, 3 convoys
+(Was 12, 21, 3), with a wheeled route to `terrace_crest`, `pasture`, `hamlet` and `spoil_field` at t=0; `income-shipped.test.ts` carries the 15 rows. The static
+start-ground check in `income-proposal.test.ts` stays at **two** tiles for every mission. `terrace_crest` begins two tiles from a placement (x=8 against a placement at x=6) and the measurement says it does not pay a still
+force, so it is a **named exemption** (`START_GROUND_EXEMPT`) that cites the measurement, covers the one-to-two-tile band only (a zone within one tile can never be exempted: that is `wadi_halam_4`'s `refuge`, which paid) and carries a demotion
+assertion that fails when the placement or the zone moves, so the entry gets deleted. The measured gate, `ZONE_PASSIVE_INCOME`, is the authority; the static check is the early warning.
+
+**Falsification (run, then restored).** One `pnpm playtest` with `beit_sahwan_2`'s `terrace_crest` moved onto `west_approach` (the starting ground) and `deir_amun_3`'s zones deleted
+exited 1: `zones on 14 missions, expected at least 15` and `passive controls earned 637 from zones, expected 0`. Mutations of the implementation are listed in the batch 3 PR.
+
+**What 15 of 30 does not claim** is §6: eight of the fifteen plans that now author zones still buy nothing (`khan_rafid_2`, `qarn_hadid_2`, `tel_marum_2`, `beit_sahwan_3`, `tel_marum_3`, `wadi_halam_5`, `deir_amun_3`, `umm_zeitoun_4`), so the income is real and unspent until the purse-binding work (Q3a) gives the player a reason to spend it.
 
 ## Reproducing
 

@@ -34,7 +34,8 @@
  * is built from, sampled on the ring's core band.
  */
 import { Sim } from '@lions/sim';
-import { applyTerrain, maps, parseMap } from '@lions/data';
+import { applyTerrain, parseMap } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { buildTerrainSurface } from '../../packages/render/src/three/terrain/surface';
 import { decalGroundY } from '../../packages/render/src/three/ground-height';
 import { SELECTION_RING } from '../../packages/render/src/three/units/readability';

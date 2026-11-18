@@ -20,7 +20,8 @@
  * cannot shift both halves of the comparison together.
  */
 import { describe, expect, it } from 'vitest';
-import { maps, paletteColor, parseMap } from '@lions/data';
+import { paletteColor, parseMap } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { TERRAIN_THEMES } from '../../packages/app/src/terrain-themes';
 import { decorFamiliesFor } from '../../packages/app/src/mesh-catalogue';
 import { labDistance } from './cvd';

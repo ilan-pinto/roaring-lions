@@ -165,7 +165,11 @@
   },
   "resources": {
     "logistics_start": 400,
-    "logistics_rate_per_min": 80
+    "logistics_rate_per_min": 80,
+    "income_zones": [
+      { "zone": "depot", "rate_per_min": 20 },
+      { "zone": "village", "rate_per_min": 12 }
+    ]
   },
   "enemy": {
     "faction": "rif",

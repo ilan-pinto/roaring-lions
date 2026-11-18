@@ -3,7 +3,8 @@
 // default camera, with no building's mesh over more than half of a rifleman standing there.
 // See map_visibility.ts for the metric and for why the floor is 0.84.
 import { describe, expect, it } from 'vitest';
-import { maps, parseMap, versusRules, type MapJson } from '../../packages/data/src/index';
+import { parseMap, versusRules, type MapJson } from '../../packages/data/src/index';
+import { maps } from '../../packages/data/src/content';
 import {
   VISIBLE_FLOOR,
   bodyHiddenShare,
@@ -37,7 +38,7 @@ describe('map visibility (GH-416)', async () => {
   it('measures every campaign map, and every one has a real fight to measure', () => {
     // 29 maps carry the 29 campaign missions (world.json). An instrument that found no fight
     // tiles would pass every map vacuously, so each must have a few hundred.
-    expect(maps.size).toBe(29);
+    expect(maps.size).toBe(38); // Was 34: Bir Tarsha I, II, III and V (IV follows)
     for (const [id, r] of results) expect(r.fightTiles, id).toBeGreaterThan(300);
   });
 
