@@ -26,12 +26,16 @@ const S = 1.778;
 /** The frozen rigid Rifle Squad (origin/main before the GH-746 Meshy pilot; see fixtures/README.txt): the one figure the
  *  hands pass built, read in its place while the shipped inf_squad is a fused Meshy figure. */
 const RIGID_SQUAD = fileURLToPath(new URL('./fixtures/inf_squad_rigid_592ebbb19.glb', import.meta.url));
+const RIGID_DEMO = fileURLToPath(new URL('./fixtures/demo_squad_rigid_422df13dd.glb', import.meta.url));
 /** A shipped team file, or, for a team whose shipped file is now FUSED (Meshy-sculpted fists, `rl_hands.source`
  *  "meshy") and which had a hands-pass generation, that frozen generation: the gate keeps its subject. */
 const handsPassFileOf = (team: string): string => {
   const shipped = `${MESHES}${team}.glb`;
   if (!isFusedHands(shipped)) return shipped;
   if (team === 'inf_squad') return RIGID_SQUAD;
+  // the Combat Engineers ship as a skinned Meshy body since GH-826 unit 1 (13 Nov 2026): their open claws, the failing
+  // input of the block below, are read off the frozen rigid file (fixtures/README.txt)
+  if (team === 'demo_squad') return RIGID_DEMO;
   throw new Error(`${team}: shipped fused, and no frozen hands-pass generation to read in its place`);
 };
 
@@ -152,16 +156,48 @@ const FUSED_HAND_OPEN: Readonly<Record<string, readonly string[]>> = {
   'inf_squad f1_R': ['hung elbow height over stature'],
   'inf_squad f2_L': ['hand length', 'palm breadth', 'visible forearm', 'hung elbow height over stature'],
   'inf_squad f2_R': ['hung elbow height over stature'],
+  // The Combat Engineers (GH-826 unit 1; read 13 Nov 2026 on the shipped bytes). The pilot's classes on a second body, each
+  // with its reading. Meshy sculpted these fists at real size, so they are NOT shrunk (the pilot's x0.80 / x0.86 read them
+  // 0.098-0.111 long): 0.112-0.134 long now, demo_a's firing fist 3 mm under the 0.115 floor. The palms read 0.070-0.081
+  // across (0.085: a fist closed round a grip, as the pilot's firing palms). This body holds its carbine a hand higher than
+  // the pilot's (the fists at 1.24 m of 1.79, low ready in front of the chest), so its elbows stand at 0.670-0.682 of the
+  // stature (0.605-0.625 is an arm that hangs) and demo_b's forearms, on the body 8 % wider, read 0.296-0.310 (0.285).
+  // The firing hand over its forearm reads 0.408-0.419 (0.42).
+  'demo_squad demo_a_L': ['hand length', 'palm breadth', 'hand over forearm', 'hung elbow height over stature'],
+  'demo_squad demo_a_R': ['palm breadth', 'hung elbow height over stature'],
+  'demo_squad demo_b_L': ['palm breadth', 'hand over forearm', 'visible forearm', 'hung elbow height over stature'],
+  'demo_squad demo_b_R': ['palm breadth', 'visible forearm', 'hung elbow height over stature'],
+  // GH-826 unit "Yahalom" (17 Nov 2026): the Combat Engineers' body in the lead's two scalings for this team (yah_a 1.76 m
+  // and 6 % wider, yah_b 1.86 m and 2 % narrower), so the same named readings, moved by the scalings. The fists are that
+  // body's, unshrunk: 0.114-0.134 long (yah_b's firing fist 1 mm under the 0.115 floor), the palms 0.069-0.080 across
+  // (0.085). The carbine is held as high (elbows at 0.670-0.682 of the stature). yah_a's forearms, which lie across the
+  // body and so take his 6 % of girth, read 0.290 and 0.305 (0.285), and his firing hand over its forearm 0.408 (0.42).
+  'yahalom_squad yah_a_L': ['palm breadth', 'hand over forearm', 'visible forearm', 'hung elbow height over stature'],
+  'yahalom_squad yah_a_R': ['palm breadth', 'visible forearm', 'hung elbow height over stature'],
+  'yahalom_squad yah_b_L': ['hand length', 'palm breadth', 'hung elbow height over stature'],
+  'yahalom_squad yah_b_R': ['palm breadth', 'hung elbow height over stature'],
+};
+
+/** The figures of each fused team (literals: a team that ships fused without a row here fails the population check). */
+const FUSED_FIGURES: Readonly<Record<string, readonly string[]>> = {
+  demo_squad: ['demo_a', 'demo_b'],
+  inf_squad: ['f0', 'f1', 'f2'],
+  yahalom_squad: ['yah_a', 'yah_b'],
 };
 
 describe('a fused (Meshy) figure\'s hands, against the same bands: every violation named', () => {
   const fused = readdirSync(MESHES).filter((n) => n.endsWith('.glb')).map((n) => n.slice(0, -4)).filter((t) => isFusedHands(`${MESHES}${t}.glb`));
-  it('reads the fused population: today the Rifle Squad alone, and every exemption names one of its hands', () => {
-    expect(fused).toEqual(['inf_squad']);
-    for (const k of Object.keys(FUSED_HAND_OPEN)) expect(fused, k).toContain(k.split(' ')[0]);
+  it('reads the fused population: the Rifle Squad and the Combat Engineers, and every exemption names one of their hands', () => {
+    expect(fused).toEqual(['demo_squad', 'inf_squad', 'yahalom_squad']);
+    expect(Object.keys(FUSED_FIGURES).sort()).toEqual(fused);
+    for (const k of Object.keys(FUSED_HAND_OPEN)) {
+      const [team, hand] = k.split(' ');
+      expect(fused, k).toContain(team);
+      expect(FUSED_FIGURES[team], k).toContain(hand.slice(0, -2));
+    }
   });
   for (const team of fused) {
-    for (const prefix of ['f0', 'f1', 'f2']) {
+    for (const prefix of FUSED_FIGURES[team] ?? []) {
       for (const side of ['L', 'R'] as const) {
         it(`${team} ${prefix}_${side}: palm and thickness in band; the open violations exactly as listed`, () => {
           const r = measureShippedHand(`${MESHES}${team}.glb`, prefix, side, 0);

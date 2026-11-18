@@ -20,8 +20,29 @@
  * that is not open in the campaign is measured against the lifetime record, so a
  * locked mission played by address cannot repeat a payout).
  */
-/** 2 since GH-330 (`campaign_paid`). A version-1 save migrates on read. */
-export const ACCOUNT_VERSION = 2 as const;
+import { BRANCHES_OPEN } from '@lions/data';
+import type { RoarWallet } from './wallet';
+import {
+  isPick,
+  migrateLegacy,
+  migratePicks,
+  settleAccountPicks,
+  shippedBranched,
+  type BranchedTable,
+  type BranchPick,
+  type LegacyMap,
+  type PicksMap,
+} from './branches';
+
+/** 2 since GH-330 (`campaign_paid`): a version-1 save migrates on read. */
+export const ACCOUNT_VERSION_BEFORE_BRANCHES = 2 as const;
+/** 3 once branched upgrade tiers open (GH-1384: `picks`, `legacy`). A version-1 or version-2 save
+ *  migrates on read: it has no `picks`, so a branched tier it holds takes pick 1 and a legacy
+ *  marker (`settleAccountPicks`). */
+export const ACCOUNT_VERSION_BRANCHED = 3 as const;
+/** The version this build writes. While `BRANCHES_OPEN` is false it is dev's 2, and the stored
+ *  account carries no `picks` or `legacy` field at all: byte for byte the shape dev writes. */
+export const ACCOUNT_VERSION: 2 | 3 = BRANCHES_OPEN ? ACCOUNT_VERSION_BRANCHED : ACCOUNT_VERSION_BEFORE_BRANCHES;
 
 /** Which improvement record a payout is measured against. */
 export type PayScope = 'campaign' | 'lifetime';
@@ -33,7 +54,7 @@ export type Grant =
   | { source: 'granted'; amount: number; missionId?: string; couponId?: string; at: number };
 
 export interface BrigadeAccount {
-  version: typeof ACCOUNT_VERSION;
+  version: 2 | 3;
   /** Integer credits on hand. */
   balance: number;
   /** Every earned credit ever; never decremented. */
@@ -53,6 +74,14 @@ export interface BrigadeAccount {
    *  `resetAccount` removes the key, so a reset makes a code usable again. Absent in a
    *  save from before coupons: migrates to empty, so ACCOUNT_VERSION did not move. */
   coupons: string[];
+  /** GH-1384: per unit type, per branched TRACK held at its branched last tier, which of the two
+   *  branches this account owns (1 or 2). Exactly one entry for each such (unit, track), and none
+   *  below the branched tier: `migrateAccount` settles it on every read. */
+  picks?: PicksMap;
+  /** GH-1384 §4.2: per (unit, track), `true` while this account's branched tier predates branching
+   *  (an old linear tier 3, which owned both branches' numbers). It carries NO number: the one-time
+   *  free Switch or full Return it offers is priced from the unit's JSON when it is taken. */
+  legacy?: LegacyMap;
 }
 
 export function emptyAccount(): BrigadeAccount {
@@ -66,6 +95,8 @@ export function emptyAccount(): BrigadeAccount {
     upgrades: {},
     grants: [],
     coupons: [],
+    // GH-1384: only once branched tiers are open, so a closed build writes dev's shape.
+    ...(BRANCHES_OPEN ? { picks: {}, legacy: {} } : {}),
   };
 }
 
@@ -146,7 +177,11 @@ function migrateCampaignPaid(
  *  guarantee -- §4.6 says the account is editable by design. `doneInCampaign` is the
  *  current campaign's completed missions, read only to migrate a version-1 save's
  *  per-campaign record (see `migrateCampaignPaid`). */
-export function migrateAccount(raw: unknown, doneInCampaign?: ReadonlySet<string>): BrigadeAccount {
+export function migrateAccount(
+  raw: unknown,
+  doneInCampaign?: ReadonlySet<string>,
+  branched: BranchedTable = shippedBranched()
+): BrigadeAccount {
   if (raw === null || typeof raw !== 'object') return emptyAccount();
   const r = raw as Record<string, unknown>;
   const grants = migrateGrants(r.grants);
@@ -164,16 +199,23 @@ export function migrateAccount(raw: unknown, doneInCampaign?: ReadonlySet<string
   const balance = hadGrantsField ? (balanceRaw > earnedFromGrants ? earnedFromGrants : balanceRaw) : balanceRaw;
   const earnedTotalRaw = isNonNegInt(r.earned_total) ? r.earned_total : 0;
   const paid = migratePaid(r.paid);
+  const upgrades = migrateUpgrades(r.upgrades);
+  // GH-1384: picks and markers settled against the tiers (pick 1 and a marker for a pickless branched tier).
+  // With no branched track in force (the shipped table while `BRANCHES_OPEN` is false), the account keeps
+  // dev's shape: version 2 and no `picks` or `legacy` field, whatever an older open build stored.
+  const branching = Object.keys(branched).length > 0;
+  const settled = settleAccountPicks(upgrades, migratePicks(r.picks), migrateLegacy(r.legacy), branched);
   return {
-    version: ACCOUNT_VERSION,
+    version: branching ? ACCOUNT_VERSION_BRANCHED : ACCOUNT_VERSION_BEFORE_BRANCHES,
     balance,
     earned_total: hadGrantsField ? (earnedTotalRaw > earnedFromGrants ? earnedFromGrants : earnedTotalRaw) : earnedTotalRaw,
     paid,
     campaign_paid: migrateCampaignPaid(r.campaign_paid, 'campaign_paid' in r, paid, doneInCampaign),
     unlocks: Array.isArray(r.unlocks) ? r.unlocks.filter((u): u is string => typeof u === 'string') : [],
-    upgrades: migrateUpgrades(r.upgrades),
+    upgrades,
     grants,
     coupons: Array.isArray(r.coupons) ? r.coupons.filter((u): u is string => typeof u === 'string') : [],
+    ...(branching ? { picks: settled.picks, legacy: settled.legacy } : {}),
   };
 }
 
@@ -234,8 +276,26 @@ export function buyUnlock(
  *  Refuses -- returning the same account by identity -- unless `from` is exactly
  *  `earned + 1`, `to >= from`, `to` is inside the table, every priced tier is a positive
  *  integer and the balance covers the sum. Sets `earned = to`. Spending writes no grant:
- *  `grants` is the earned history, and `earned_total` never moves on a purchase (G3). */
+ *  `grants` is the earned history, and `earned_total` never moves on a purchase (G3).
+ *
+ *  GH-1384: a run that reaches a BRANCHED tier is refused here, since it cannot say which branch;
+ *  `buyBranch` is the only credit path onto a branched tier. */
 export function buyUpgradeRun(
+  account: BrigadeAccount,
+  unitId: string,
+  track: string,
+  from: number,
+  to: number,
+  prices: readonly number[],
+  branched: BranchedTable = shippedBranched()
+): { account: BrigadeAccount; ok: boolean } {
+  const fork = branched[unitId]?.[track];
+  if (fork !== undefined && to >= fork.tier) return { account, ok: false };
+  return runUpgrade(account, unitId, track, from, to, prices);
+}
+
+/** The one writer of an earned tier run, shared by `buyUpgradeRun` and `buyBranch`. */
+function runUpgrade(
   account: BrigadeAccount,
   unitId: string,
   track: string,
@@ -276,9 +336,40 @@ export function buyUpgrade(
   unitId: string,
   track: string,
   tier: number,
-  prices: readonly number[]
+  prices: readonly number[],
+  branched: BranchedTable = shippedBranched()
 ): { account: BrigadeAccount; ok: boolean } {
-  return buyUpgradeRun(account, unitId, track, tier, tier, prices);
+  return buyUpgradeRun(account, unitId, track, tier, tier, prices, branched);
+}
+
+/**
+ * Buying a BRANCH on the earned path (GH-1384 §4.3): the run `from` ... the branched tier, priced
+ * and checked exactly as `buyUpgradeRun` (`from` must be `earned + 1`), whose last tier carries
+ * `pick`. A fresh branch buy is FINAL (the lead, Q2) and writes no legacy marker. Refused -- the
+ * same account back -- when (unit, track) is not branched, `pick` is not 1 or 2, or the coin wallet
+ * already holds the branched tier with the OTHER pick: both branches can never be owned at once.
+ * Buying the SAME branch the coins hold stays legal (a GH-1143 double payment).
+ */
+export function buyBranch(
+  account: BrigadeAccount,
+  roar: Pick<RoarWallet, 'entitlements'>,
+  unitId: string,
+  track: string,
+  from: number,
+  pick: BranchPick,
+  prices: readonly number[],
+  branched: BranchedTable = shippedBranched()
+): { account: BrigadeAccount; ok: boolean } {
+  const fork = branched[unitId]?.[track];
+  if (fork === undefined || !isPick(pick)) return { account, ok: false };
+  const coin = roar.entitlements.upgrades[unitId]?.[track];
+  if (coin !== undefined && coin.tier >= fork.tier && coin.branch !== pick) return { account, ok: false };
+  const run = runUpgrade(account, unitId, track, from, fork.tier, prices);
+  if (!run.ok) return run;
+  return {
+    account: { ...run.account, picks: { ...run.account.picks, [unitId]: { ...(run.account.picks?.[unitId] ?? {}), [track]: pick } } },
+    ok: true,
+  };
 }
 
 /** "New campaign" (GH-330): the per-campaign record starts empty, so every mission

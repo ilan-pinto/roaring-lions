@@ -18,10 +18,10 @@ placement). Both are read, neither is re-derived a second way.
     `militia_cell`, `charge_squad` (its own sprint lean baked into rest
     geometry via `teams._lean_forward`, read not reimplemented),
     `rpg_team` (both figures stand -- neither uses `_crew_posture`),
-    `yahalom_squad` (its own held mast and worn packs, see
-    `_yahalom_extras`; its sixth clip, `work`, driving the mast into the
-    ground, is NOT built here -- its own design problem, `TEAM_CLIP_ADD`
-    scopes it to this one team alone).
+    `yahalom_squad` (since GH-826 unit "Yahalom", 17 Nov 2026, the skinned
+    importer's: two scalings of the Combat Engineers' body, both armed; its
+    assault packs, the stowed mine detector and the `work` charge are that
+    importer's `_team_extras`, and `work` is the motion pass's).
   * Crew-served weapons -- a second bone topology for a KNEELING figure
     (`_kneel_bones`, derived below) plus a convention for a free-standing
     weapon prop that is not gripped by any bone-bound hand: `demo_squad`,
@@ -225,10 +225,13 @@ TEAM_MESH_OWNER = {
     # B3 (GH-179, 2026-09-30): Meshy figures with their own bake, cut and
     # driven by this module through tools/units/import_meshy_crew_team.py.
     "militia_cell": "tools/units/import_meshy_crew_team.py",
-    # B0b (GH-286, 2026-09-30): both are Meshy figures with their bake, cut
-    # into this module's parts and driven by its clips -- built by
-    # tools/units/import_meshy_kdf_team.py, which owns both files.
-    "demo_squad": "tools/units/import_meshy_kdf_team.py",
+    # Infantry upgrade unit 1 (GH-826, 12 Nov 2026): the Combat Engineers are
+    # ONE posed Meshy combat-engineer body (both fists closed on its own
+    # carbine), skinned to these bones by the skinned importer as the Rifle
+    # Squad's is; `demo_a` and `demo_b` are its measured scalings. Was
+    # tools/units/import_meshy_kdf_team.py's A-pose cut (B0b, GH-286), which
+    # still owns at_team.
+    "demo_squad": "tools/units/import_meshy_skinned_team.py",
     "charge_squad": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "at_team": "tools/units/import_meshy_kdf_team.py",
     "rpg_team": "tools/units/import_meshy_crew_team.py",
@@ -237,7 +240,12 @@ TEAM_MESH_OWNER = {
     "atgm_cell": "tools/units/import_meshy_crew_team.py",
     # B7 (GH-179, 2026-10-01): was tools/export_meshy_sniper.py.
     "sniper_team": "tools/units/import_meshy_crew_team.py",
-    "yahalom_squad": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
+    # Infantry upgrade unit "Yahalom" (GH-826, 17 Nov 2026; the lead's ruling of
+    # 15 Nov: the approved fallback): the Yahalom Engineers are the Combat
+    # Engineers' Meshy body (01a1d151) in two scalings of their own, skinned by
+    # the skinned importer. Was tools/units/import_meshy_crew_team.py's rigid
+    # A-pose cut (B7, GH-179, 2026-10-01).
+    "yahalom_squad": "tools/units/import_meshy_skinned_team.py",
     "digger_crew": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "moto_rpg": "tools/units/import_meshy_moto_rpg.py",       # B6 (GH-179, 2026-10-01)
     "breach_team": "tools/units/import_meshy_crew_team.py",   # B5 (GH-179, 2026-10-01)
@@ -1146,12 +1154,10 @@ def _weapon_parts(prefix, at, yaw=0.0, posture="standing", aim=False):
 # re-derived -- REST_FIGURES's own discipline, carried forward.
 
 def _f(prefix, x, y, posture="standing", headgear="helmet", loadout="regular",
-       leader=False, mirror=False, animates=True, weapon=None, move_posture=None,
-       work_posture=None):
+       leader=False, mirror=False, animates=True, weapon=None, move_posture=None):
     return dict(prefix=prefix, x=x, y=y, posture=posture, headgear=headgear,
                 loadout=loadout, leader=leader, mirror=mirror,
-                animates=animates, weapon=weapon, move_posture=move_posture,
-                work_posture=work_posture)
+                animates=animates, weapon=weapon, move_posture=move_posture)
 
 
 #: sniper_team's own rest spacing -- copied verbatim from `teams.sniper_team`
@@ -1214,7 +1220,10 @@ TEAM_FIGURES = {
         # slid along the ground with him. The charge is packed away while the
         # team moves (`_key_death_visibility`) and he kneels at it on the
         # sim's brace alone (the motion pass's kneel clips).
-        _f("demo_a", 0.34, -0.16),
+        # Infantry upgrade unit 1 (GH-826, 12 Nov): both men are armed now,
+        # each with the Meshy body's own carbine (the lead's rule 2: every
+        # figure carries a weapon); `demo_a` still sets the charge in `work`.
+        _f("demo_a", 0.34, -0.16, weapon="rifle"),
         _f("demo_b", -0.36, 0.28, leader=True, weapon="rifle"),
     ],
     "at_team": [
@@ -1265,15 +1274,12 @@ TEAM_FIGURES = {
         _f(s["prefix"], s["x"], s["sign"] * SNIPER_CLOSE_IDLE, posture="standing")
         for s in SNIPER_SPECS
     ],
-    # B7 (GH-179, 2026-10-01): `yah_a` carries a third body, a KNEELER on
-    # `yah_ak_root` (`_kneeler_prefix`), shown in `work` alone -- the mast
-    # driven into the ground for the whole of a tunnel charge, the clip
-    # `yahalom_engineer.glb` was the only mesh to carry. Built by
-    # import_meshy_crew_team.py (a kneel copy of the standing cut, its own
-    # mast pitched into the ground on `yah_ak_forearm_R`); keyed by
-    # `build_work_clip`. The kit export of this team is superseded.
+    # Infantry upgrade unit "Yahalom" (GH-826, 17 Nov 2026): both men carry
+    # the skinned Meshy body's own carbine (the lead's decision 3: both armed,
+    # the kneeling twin `yah_ak` deleted -- a skinned body kneels by itself).
+    # The slots stay.
     "yahalom_squad": [
-        _f("yah_a", 0.30, -0.20, leader=True, work_posture="kneeling"),
+        _f("yah_a", 0.30, -0.20, leader=True, weapon="rifle"),
         _f("yah_b", -0.34, 0.26, weapon="rifle"),
     ],
     # B5 (GH-179, 2026-10-01): `weapon=None` since the Meshy figure landed --
@@ -1451,11 +1457,6 @@ def _figure_death_parts(spec):
 
 def _walker_prefix(spec):
     return f"{spec['prefix']}w"
-
-
-def _kneeler_prefix(spec):
-    """The `work` body of a figure with `work_posture="kneeling"` (B7)."""
-    return f"{spec['prefix']}k"
 
 
 def _walker_specs(figures):
@@ -1652,32 +1653,6 @@ def _nlos_extras(socket=None):
     return parts, [_prop_bone((hx, hy, 0.20), 0.45)], {ob: "prop" for ob in parts}, points
 
 
-def _yahalom_extras():
-    """yah_a's ground-penetrating mast -- "held", the same convention
-    `_at_extras`/`_rpg_extras` already use for a launcher: bound to the
-    carrier's own `forearm_R`, so it auto-hides with the rest of yah_a in
-    `down`/`wreck` exactly as `teams.yahalom_squad`'s own
-    `_weapon_visible(clip)` gate intends. Both figures' packs are worn kit,
-    bound to `spine` -- the prone corpse's own pack needs no extra part at
-    all, since `kit.figure`'s prone branch already builds one
-    (`teams.yahalom_squad`'s own comment: "Prone figures mould their own
-    pack"). `work`, this team's own sixth clip (mast driven into the
-    ground), is not built here -- see the module docstring."""
-    A, B = (0.30, -0.20, 0.0), (-0.34, 0.26, 0.0)
-    # kit.tube/kit.box each return ONE Object, not a list -- unlike
-    # kit.launcher/kit.mortar/etc, which build a multi-part assembly.
-    # teams.py's own yahalom_squad wraps both in a list for exactly this
-    # reason (`out += [kit.tube(...)]`, `out += [kit.box(...)]`).
-    mast = [kit.tube("yah_mast", 1.45, 0.030, (0.62, -0.20, 0.74), yaw=0.0, pitch=0.0)]
-    head = [kit.box("yah_head", (0.16, 0.10, 0.04), (1.30, -0.20, 0.74))]
-    pack_a = [teams._yah_pack("yah_pack_a", A)]
-    pack_b = [teams._yah_pack("yah_pack_b", B)]
-    forced = {ob: "yah_a_forearm_R" for ob in (mast + head)}
-    forced.update({ob: "yah_a_spine" for ob in pack_a})
-    forced.update({ob: "yah_b_spine" for ob in pack_b})
-    return mast + head + pack_a + pack_b, [], forced
-
-
 def _digger_extras():
     """The spoil heap -- ground, not kit (`teams.digger_crew`'s own comment:
     "spoil does not go prone when the digger does"), so unlike every other
@@ -1727,7 +1702,6 @@ TEAM_EXTRAS = {
     "mortar_team": _mortar_team_extras,
     "mortar_crew": _mortar_crew_extras,
     "atgm_cell": _atgm_extras,
-    "yahalom_squad": _yahalom_extras,
     "digger_crew": _digger_extras,
     "breach_team": _breach_extras,
 }
@@ -2598,7 +2572,7 @@ def _key_scale(pb, value, frames):
 _VIS_FRAMES = (0, 1)
 
 
-def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=False, working=False):
+def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=False):
     """Explicit scale keys for every figure's `root`/`death_root` (and the
     team's shared `prop` bone, if it has one) -- the switch that actually
     hides whichever rig, living or dead, is not this clip's.
@@ -2634,15 +2608,11 @@ def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=Fals
         deployed_in_move = deployed_in_move or (spec["posture"] == "kneeling" and not has_walker)
         # A figure with a walker shows its deployed body in every living
         # clip but `move`, where the walker shows instead (design D6).
-        has_kneeler = spec.get("work_posture") == "kneeling"
-        deployed = alive_scale if not ((has_walker and moving) or (has_kneeler and working)) else 0.0
+        deployed = alive_scale if not (has_walker and moving) else 0.0
         _key_scale(pbones[f"{prefix}_root"], deployed, _VIS_FRAMES)
         _key_scale(pbones[f"{prefix}_death_root"], dead_scale, _VIS_FRAMES)
         if has_walker:
             _key_scale(pbones[f"{_walker_prefix(spec)}_root"], 1.0 if (alive and moving) else 0.0, _VIS_FRAMES)
-        if has_kneeler:
-            # B7: the `work` body shows in `work` alone (yahalom_squad).
-            _key_scale(pbones[f"{_kneeler_prefix(spec)}_root"], 1.0 if (alive and working) else 0.0, _VIS_FRAMES)
     if has_prop:
         # The deployed launcher/mortar is carried, not modelled, while a crew
         # walks -- a tripod gliding beside a walking crew is the bug D6 fixes.
@@ -2957,34 +2927,6 @@ def build_death_clip(arm_obj, team_id, clip_name):
     _key_death_visibility(pbones, figures, "prop" in pbones, alive=False)
 
 
-#: `work` (B7, yahalom_squad): six frames at 6 fps, looped -- `teams.
-#: TEAM_CLIP_ADD`'s own numbers for the sprite's work cycle.
-WORK_FRAMES = 6
-WORK_PUMP_RAD = 0.22      # the mast arm driving down and lifting, about forearm_R
-WORK_SPINE_RAD = 0.08     # the torso leaning into the press
-
-
-def build_work_clip(arm_obj, figures):
-    """`work`: every figure with a `work_posture` kneeler shows that body
-    (its standing root hidden) and pumps its right forearm -- the mast,
-    bound to it, drives into the ground and lifts. A cycle, so it loops;
-    `_key_death_visibility(working=True)` is what flips the bodies."""
-    _new_action(arm_obj, "work")
-    bones = arm_obj.data.bones
-    pbones = arm_obj.pose.bones
-    _key_death_visibility(pbones, figures, "prop" in pbones, alive=True, working=True)
-    for f in range(0, WORK_FRAMES + 1):
-        t = f / WORK_FRAMES
-        pump = 0.5 - 0.5 * math.cos(2.0 * math.pi * t)
-        for spec in figures:
-            if spec.get("work_posture") != "kneeling":
-                continue
-            kp = _kneeler_prefix(spec)
-            key(pbones[f"{kp}_forearm_R"], bones[f"{kp}_forearm_R"], AXIS_Y, WORK_PUMP_RAD * pump, f)
-            key(pbones[f"{kp}_upperarm_R"], bones[f"{kp}_upperarm_R"], AXIS_Y, 0.5 * WORK_PUMP_RAD * pump, f)
-            key(pbones[f"{kp}_spine"], bones[f"{kp}_spine"], AXIS_Y, WORK_SPINE_RAD * pump, f)
-
-
 def build_sniper_clips(arm_obj, gait):
     """sniper_team's own five clips -- bespoke, not `build_idle_clip`/
     `build_move_clip`/`build_fire_clip`/`build_death_clip`'s
@@ -3154,8 +3096,6 @@ def build_clips(arm_obj, team_id):
         for clip_name in ("down", "wreck"):
             if clip_name not in built:
                 build_death_clip(arm_obj, team_id, clip_name)
-        if any(s.get("work_posture") == "kneeling" for s in figures):
-            build_work_clip(arm_obj, figures)
         return
     gait = gait_for_team(team_id)
     build_idle_clip(arm_obj, figures)
@@ -3172,10 +3112,6 @@ def build_clips(arm_obj, team_id):
         build_move_fire_clip(arm_obj, figures, gait, leaners)
     build_death_clip(arm_obj, team_id, "down")
     build_death_clip(arm_obj, team_id, "wreck")
-    # `work`: `teams.TEAM_CLIP_ADD` scopes it to yahalom_squad; since B7 a
-    # figure declaring `work_posture="kneeling"` has a kneeler body for it.
-    if any(s.get("work_posture") == "kneeling" for s in figures):
-        build_work_clip(arm_obj, figures)
 
 
 def export_glb(arm_obj, path, materials=False, jpeg_quality=85):

@@ -851,7 +851,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // B0b (2026-09-30): Meshy remeshes cut into rig.py parts with their bake
   // (import_meshy_kdf_team.py), boot = below 0.09 H; the 576 both used to
   // read was kit.py's own boot mesh.
-  'demo_squad.glb move': 428, // spike-walk (6 Oct): demo_a walks too -- two men's boots, 214 each
+  'demo_squad.glb move': 11034, // GH-826 unit 1 (13 Nov 2026): the skinned Meshy body's own boots, two men; was 428 (spike-walk, 6 Oct: 214 each)
   'at_team.glb move': 514, // spike-walk (6 Oct): the gunner walks too -- two men's boots, 257 each
   'sniper_team.glb move': 332, // B7: Meshy boots on the standing walker
   // B3 (2026-09-30): Meshy figures -- one 2,000-tri remesh cut into rig.py
@@ -874,7 +874,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'inf_squad.glb move': 11376,
   'sarim_rifles.glb move': 1078, // B7 (2 Oct ruling): three of B3's militia_cell body
   'mortar_team.glb move': 590, // B7: Meshy boots -- two D6 walkers and the No.3
-  'yahalom_squad.glb move': 508, // B7: Meshy boots, two men
+  'yahalom_squad.glb move': 11034, // GH-826 unit "Yahalom" (17 Nov 2026): the skinned Meshy body's own boots, two men; was 508 (B7)
   // B2 (2026-09-30): Meshy remeshes cut into rig.py parts, boot = below 0.09 H.
   'manpad_team.glb move': 711, // B7: re-remeshed from the refined B2 preview
   'recoilless_team.glb move': 518, // B7: re-remeshed from the refined B2 preview
@@ -899,7 +899,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // 2026-10-05: every armed walker's `moveFire` -- the same boots on the
   // same legs as its `move` (rig.py's `build_move_fire_clip`, or the
   // captured run under the three captured teams' aim), so the same count.
-  'demo_squad.glb moveFire': 428,
+  'demo_squad.glb moveFire': 11034, // as move (GH-826 unit 1); was 428
   'at_team.glb moveFire': 514,
   'sniper_team.glb moveFire': 332,
   'militia_cell.glb moveFire': 704,
@@ -909,7 +909,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'inf_squad.glb moveFire': 11376, // as move (GH-746, 9 Nov); was 735
   'sarim_rifles.glb moveFire': 1078,
   'mortar_team.glb moveFire': 590,
-  'yahalom_squad.glb moveFire': 508,
+  'yahalom_squad.glb moveFire': 11034, // as move (GH-826 unit "Yahalom"); was 508
   'inf_medic_squad.glb moveFire': 556, // the same legs as its `move`
   'manpad_team.glb moveFire': 711,
   'recoilless_team.glb moveFire': 518,
@@ -1304,6 +1304,10 @@ const FACE_SPREAD_DEG = 25;
 const FACING_OPEN_DEFECT: Readonly<Record<string, string>> = {
   // GH-746 Meshy pilot: the four inf_squad rows that stood here (fire 30.1-34.1 deg, the 22 deg cheek tilt; f2's 26.0 deg
   // kneelOut sweep) left on 9 Nov with the tilt back to 12 deg and the pocket at 0.05: fire reads 20.2-22.7, kneelOut inside.
+  // GH-826 unit 1 (13 Nov 2026), the same class on the Combat Engineers' tall man: his cheek weld turns the face 27.1 deg
+  // off the line of fire (the bar is 25; the pilot's rows read 30-34 before their fix). Named, with its reading (re-read
+  // on the round-2 bytes, the pocket at 0.06: 27.1 still).
+  'demo_squad.glb fire demo_a_head': 'the cheek weld on the grafted stock turns demo_a\'s face 27.1 deg off his line of fire in `fire`',
 };
 
 /**
@@ -1483,7 +1487,12 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // GH-746 Meshy pilot (9 Nov): - 6, inf_squad's move and moveFire heads now read under the lever floor (listed by
     // name in the short-lever test below): the skinned figure's head joint sits over its own face in the run's lean.
     // GH-746 round 3 (9 Nov): + 3, inf_squad's moveFire heads read again (the rest carry walks moveFire upright).
-    expect(rows).toHaveLength(310); // B7: 21 GLBs, every one with a face mesh now
+    // GH-826 unit 1 (13 Nov 2026): - 4. The skinned Combat Engineers: six of their heads read under the lever floor (listed
+    // by name in the short-lever test below), and both men crouch alive on `down` (the capture's) instead of the corpse: + 2.
+    // GH-826 unit "Yahalom" (17 Nov 2026): - 7. The skinned Yahalom Engineers (the Combat Engineers' body): seven of their
+    // heads read under the lever floor (listed by name in the short-lever test below). The `work` kneeler `yah_ak` is gone
+    // and `yah_a` kneels in `work` himself: one row for one row.
+    expect(rows).toHaveLength(299); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1560,6 +1569,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       // crews' walkers (kneel/idle-based), the sniper's living roots (he is
       // drawn prone on his death roots, as in idle), manpad's spotter walker
       // and yahalom's work kneeler.
+      // GH-826 unit "Yahalom" (17 Nov 2026): the kneeler `yah_ak` is gone (ten rows: it was hidden in every clip but
+      // `work`, where `yah_a` was): a skinned body kneels by itself, so no Yahalom figure is scaled out of any clip.
       'at_nlos_team.glb down',
       'at_nlos_team.glb down',
       'at_nlos_team.glb down',
@@ -1591,8 +1602,7 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'breach_team.glb down',
       'charge_squad.glb down',
       'charge_squad.glb down',
-      'demo_squad.glb down',
-      'demo_squad.glb down',
+      // (demo_squad left on 13 Nov, GH-826 unit 1: the skinned body crouches alive on `down`, as the captured teams do)
       'digger_crew.glb down',
       'digger_crew.glb down',
       'digger_crew.glb idle',
@@ -1671,16 +1681,6 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       // GH-709 Phase 8: the robot's living root is scaled out on `down`, where
       // its collapsed `dog_death_root` copy takes over.
       'ugv_recon_dog.glb down',
-      'yahalom_squad.glb down',
-      'yahalom_squad.glb fire',
-      'yahalom_squad.glb idle',
-      'yahalom_squad.glb kneel',
-      'yahalom_squad.glb kneelIn',
-      'yahalom_squad.glb kneelOut',
-      'yahalom_squad.glb move',
-      'yahalom_squad.glb moveFire',
-      'yahalom_squad.glb pinned',
-      'yahalom_squad.glb work',
     ]);
   });
 
@@ -1695,6 +1695,16 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // is not symmetric about the joint) these two rows come back and this
     // line goes red, which is the reminder to gate her.
     expect(shortLever).toEqual([
+      // GH-826 unit 1 (13 Nov 2026): the skinned Combat Engineers, the Rifle Squad's open coverage gap on a second body, and
+      // wider on it. Their head joint is the chin measured on the sculpt and the face stands almost over it: the leader
+      // (the body 8 % wider, 1.74 m) reads under the floor in every aimed clip, and both men in the run. Not a pass:
+      // these six heads' facing is unread.
+      'demo_squad.glb fire demo_b_head 0.0243',
+      'demo_squad.glb move demo_a_head 0.0048',
+      'demo_squad.glb move demo_b_head 0.0050',
+      'demo_squad.glb moveFire demo_b_head 0.0202',
+      'demo_squad.glb kneel demo_b_head 0.0228',
+      'demo_squad.glb work demo_b_head 0.0228',
       'rpg_team.glb pinned rpg_load_head 0.0227',
       // GH-746 Meshy pilot (9 Nov): the skinned Rifle Squad's head joint was measured on the sculpt (the chin, 1.448 m on
       // f1) and the run leans the head forward over it, so the face's centroid sits 1-3 cm from the joint in the ground
@@ -1704,6 +1714,16 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'inf_squad.glb move f1_head 0.0272',
       'inf_squad.glb move f2_head 0.0286',
       // (the three moveFire heads left this list on 9 Nov, round 3: walked upright, their faces are read and gated)
+      // GH-826 unit "Yahalom" (17 Nov 2026): the same body as the Combat Engineers', so the same open coverage gap, on
+      // seven heads here: the leader yah_a (the body 6 % wider) in idle and every aimed clip, both men in the run, and
+      // yah_b at the low ready. Not a pass: these seven heads' facing is unread.
+      'yahalom_squad.glb fire yah_a_head 0.0221',
+      'yahalom_squad.glb idle yah_a_head 0.0172',
+      'yahalom_squad.glb idle yah_b_head 0.0177',
+      'yahalom_squad.glb move yah_a_head 0.0052',
+      'yahalom_squad.glb move yah_b_head 0.0044',
+      'yahalom_squad.glb moveFire yah_a_head 0.0191',
+      'yahalom_squad.glb kneel yah_a_head 0.0223',
       'inf_grenadier.glb pinned gre0_head 0.0231',
       'inf_grenadier.glb pinned gre1_head 0.0206',
       'inf_grenadier.glb pinned gre2_head 0.0278',
@@ -1813,8 +1833,11 @@ const WEAPON_RIGS: readonly {
   // every one a `rifle`-kind hold, so the same 0 deg aim and -30 deg low ready.
   { file: 'inf_grenadier.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   { file: 'militia_cell.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
-  { file: 'yahalom_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
-  { file: 'demo_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
+  // GH-826 unit "Yahalom" (17 Nov 2026): both men carry the Combat Engineers' body's carbine: per joint, read on the bytes.
+  { file: 'yahalom_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: { yah_a_weapon: 1.66, yah_b_weapon: 1.81 } },
+  // GH-826 unit 1 (13 Nov 2026): both Combat Engineers carry Meshy's own carbine (with its grafted stock), as the Rifle Squad
+  // does: per joint, read on the bytes.
+  { file: 'demo_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: { demo_a_weapon: 3.88, demo_b_weapon: 3.46 } },
   // GH-707 P2 (22 Oct): both medics carry the hold's kit carbine.
   { file: 'inf_medic_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   { file: 'mortar_team.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire'], aimDeg: 0 },
@@ -2026,8 +2049,13 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'sarim_rifles.glb sar2_weapon': -30,
   'militia_cell.glb mil0_weapon': -30,
   'militia_cell.glb mil1_weapon': -30,
-  'yahalom_squad.glb yah_b_weapon': -30,
-  'demo_squad.glb demo_b_weapon': -30,
+  // GH-826 unit "Yahalom" (17 Nov 2026): the sculpted low ready of the Combat Engineers' body, per scaling; was -30 on yah_b
+  // (-10.57 and -11.57: the same sculpted carry on this team's own captured idle, a stand that leans further than the Sarim one)
+  'yahalom_squad.glb yah_a_weapon': -10.57,
+  'yahalom_squad.glb yah_b_weapon': -11.57,
+  // GH-826 unit 1 (13 Nov 2026): Meshy's own low ready, carried as sculpted (a rest carry), per body; was -30 on demo_b
+  'demo_squad.glb demo_a_weapon': -6.6,
+  'demo_squad.glb demo_b_weapon': -5.76,
   'inf_medic_squad.glb med_a_weapon': -30, // GH-707 P2
   'inf_medic_squad.glb med_b_weapon': -30,
   'mortar_team.glb mtr_no3_weapon': -30,
@@ -2413,7 +2441,8 @@ describe('mesh unit death -- the fall clips (design D3, gate 3)', () => {
   // 2026-10-05: the captured falls are back, retargeted onto the three teams
   // that replaced those bipeds (tools/units/mocap.py) -- their `wreck`/
   // `wreckAlt` is the fall's own last frame, on the living body.
-  const FALL_FILES: string[] = ['inf_grenadier.glb', 'inf_squad.glb', 'sarim_rifles.glb', 'yahalom_squad.glb'];
+  // GH-826 unit 1 (13 Nov 2026): + demo_squad, a skinned Meshy body on the soldier's captures (`fall` ships, mocap.py).
+  const FALL_FILES: string[] = ['demo_squad.glb', 'inf_grenadier.glb', 'inf_squad.glb', 'sarim_rifles.glb', 'yahalom_squad.glb'];
   const FALL_ALT_FILES: string[] = ['sarim_rifles.glb', 'yahalom_squad.glb'];
   const withFall = RIGS.filter((r) => r.clips.includes('fall'));
   const withFallAlt = RIGS.filter((r) => r.clips.includes('fallAlt'));
@@ -2634,6 +2663,7 @@ describe('mesh unit walk-and-fire -- a moving shot plays a locomotion clip', () 
 const UPPER_BODY_LEAN_RANGE_FLOOR_DEG = 2.0;
 const UPPER_BODY_HEAD_SWAY_FLOOR_M = 0.04;
 const CAPTURED_MOTION_FILES: Readonly<Record<string, string>> = {
+  demo_squad: 'demo_squad.glb', // GH-826 unit 1 (13 Nov 2026)
   inf_grenadier: 'inf_grenadier.glb',
   inf_squad: 'inf_squad.glb',
   sarim_rifles: 'sarim_rifles.glb',

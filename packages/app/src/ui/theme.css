@@ -56,10 +56,7 @@
  * files above, subset by tools/fonts/build_cyrillic.py. A separate file with
  * a unicode-range, so the latin rules and bytes are untouched, a latin glyph
  * can never come from here, and the browser fetches it only when a Cyrillic
- * character is on screen. Not preloaded. Barlow and Big Shoulders Display
- * have NO Cyrillic in any OFL source, so Russian prose and titles take the
- * stack's fallback (system-ui; Oswald or sans-serif) until the lead picks a
- * face; font-faces.test.ts holds both facts. */
+ * character is on screen. Not preloaded. */
 @font-face {
   font-family: 'IBM Plex Mono';
   font-style: normal;
@@ -74,6 +71,41 @@
   font-weight: 600;
   font-display: swap;
   src: url('/fonts/ibm-plex-mono-cyrillic-600.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+
+/* Cyrillic companions (the lead's ruling of 17 Nov 2026, option B). Barlow and
+ * Big Shoulders Display have NO Cyrillic in any OFL source, so each gets a
+ * companion served UNDER ITS OWN FAMILY NAME with a Cyrillic-only
+ * unicode-range, exactly as Plex Mono's Cyrillic is: Fira Sans 400/600 for
+ * Barlow, Oswald (variable, 200-700; a requested weight past 700 draws at 700)
+ * for Big Shoulders Display. A different face, so the pairing is a judgement of
+ * the eye; subset by tools/fonts/build_cyrillic.py. Latin text never draws
+ * from these files (font-faces.test.ts reads their character maps back), and
+ * an English session fetches the same bytes as before. Self-hosted, never a
+ * CDN. */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/fira-sans-cyrillic-400.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/fira-sans-cyrillic-600.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Big Shoulders Display';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url('/fonts/oswald-cyrillic.woff2') format('woff2');
   unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
 }
 
@@ -4336,6 +4368,34 @@ body[data-outcome-beat] .rl-aar {
   flex-wrap: wrap;
   gap: var(--s2);
 }
+/* GH-1413 G1: the software-rendering line (`ui/software-hint.ts`). One status
+   line at the foot of a shell screen, not a dialog: below the scrims (50) and
+   the end panel (30), so a modal card covers it rather than fighting it. */
+.rl-software-hint {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s3);
+  transform: translateX(-50%);
+  z-index: 25;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--s3));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  padding: var(--s2) var(--s3);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  color: var(--ink);
+}
+.rl-software-hint[hidden] {
+  display: none;
+}
+.rl-software-hint__text {
+  margin: 0;
+  flex: 1 1 20rem;
+}
 
 /* Route transitions (shell/router.ts): the stage fades out under the old
    screen and in under the new. The blanket reduced-motion rule collapses both
@@ -4837,6 +4897,20 @@ button.rl-menu__item[data-kind='aside'] {
   accent-color: var(--good);
 }
 .rl-sandbox__blurb {
+  color: var(--ink-mute);
+}
+/* GH-1381: the side pick, the versus lobby's segmented group, above the
+   options. Its blurb takes the whole row under the two segments. */
+fieldset.rl-sandbox__sides {
+  max-width: var(--menu-col);
+  margin: var(--s3) auto 0;
+}
+/* The side blurb, and what Free play has without being asked (field works on the KDF side) under it. */
+.rl-sandbox__side-blurb,
+.rl-sandbox__default {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--t-s);
   color: var(--ink-mute);
 }
 
@@ -8011,8 +8085,8 @@ button.rl-menu__item[data-kind='aside'] {
    the shape is the garage now, and a full-width grid.)
 
    GH-1510: the screen follows the account page (GH-1075 P7, GH-1367). Its
-   sections are the profile's own cards and columns (`ui/page-card.ts`, the
-   `.rl-profile__card*` and `.rl-profile__cols` rules below, never copied):
+   sections are the account page's cards and columns (`ui/page-card.ts`, the
+   shared `.rl-page-card*` and `.rl-page-cols` rules below, never copied):
    the same 64rem width, the wide and narrow columns, the title strips in the
    profile's role colours, and the warm ground behind it. The Controls card
    runs full width under both columns. The columns fall to one when the PANEL
@@ -8034,21 +8108,21 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s3);
 }
-/* Two class names: `.rl-profile__cols` comes later in this file, and its
+/* Two class names: `.rl-page-cols` comes later in this file, and its
    media query too, so a single class here would lose to it by order. */
 @container rl-settings (max-width: 48rem) {
-  .rl-profile__cols.rl-settings__cols {
+  .rl-page-cols.rl-settings__cols {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 /* The rows carry their own padding and hairline, so the card body adds no
    gap of its own between them. */
-.rl-settings__card .rl-profile__card-body {
+.rl-settings__card .rl-page-card__body {
   gap: 0;
 }
 /* The key table is long: on a wide panel its rows run in two columns. */
 @container rl-settings (min-width: 48rem) {
-  .rl-settings__card--controls .rl-profile__card-body {
+  .rl-settings__card--controls .rl-page-card__body {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: var(--s5);
@@ -8058,31 +8132,31 @@ button.rl-menu__item[data-kind='aside'] {
 /* Each card's title strip and frame, in the account page's role colours
    (GH-1367 S3): the same token pairs, so the same 4.5:1 checks in
    profile-css.test.ts hold here. Privacy is the profile's "Your data". */
-.rl-settings__card--video .rl-profile__card-title,
-.rl-settings__card--controls .rl-profile__card-title,
-.rl-settings__card--language .rl-profile__card-title {
+.rl-settings__card--video .rl-page-card__title,
+.rl-settings__card--controls .rl-page-card__title,
+.rl-settings__card--language .rl-page-card__title {
   background: var(--card-head-history);
 }
-.rl-settings__card--audio .rl-profile__card-title,
-.rl-settings__card--chat .rl-profile__card-title {
+.rl-settings__card--audio .rl-page-card__title,
+.rl-settings__card--chat .rl-page-card__title {
   background: var(--card-head-record);
 }
-.rl-settings__card--accessibility .rl-profile__card-title {
+.rl-settings__card--accessibility .rl-page-card__title {
   background: var(--card-head-signin);
   color: var(--card-head-signin-ink);
 }
-.rl-settings__card--privacy .rl-profile__card-title {
+.rl-settings__card--privacy .rl-page-card__title {
   background: var(--card-head-data);
 }
-/* Two class names again: `.rl-profile__card`'s own `border` comes later. */
-.rl-profile__card.rl-settings__card--audio,
-.rl-profile__card.rl-settings__card--chat {
+/* Two class names again: `.rl-page-card`'s own `border` comes later. */
+.rl-page-card.rl-settings__card--audio,
+.rl-page-card.rl-settings__card--chat {
   border-color: var(--card-head-record);
 }
-.rl-profile__card.rl-settings__card--accessibility {
+.rl-page-card.rl-settings__card--accessibility {
   border-color: color-mix(in srgb, var(--card-head-signin) 45%, transparent);
 }
-.rl-profile__card.rl-settings__card--privacy {
+.rl-page-card.rl-settings__card--privacy {
   border-color: color-mix(in srgb, var(--rl-water-1) 50%, transparent);
 }
 .rl-settings__row {
@@ -9252,6 +9326,13 @@ fieldset.rl-versus__maps {
   font-size: var(--t-s);
   color: var(--ink-mute);
 }
+/* GH-1417 S2: why a line was not sent (the word filter would hide it on the other screen). */
+.rl-chat__refused {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
 /* The mute toggle beside the input; aria-pressed carries the state, the label names the action. */
 .rl-chat__mute {
   flex: none;
@@ -9262,6 +9343,16 @@ fieldset.rl-versus__maps {
   font-size: var(--t-s);
   padding: var(--s1) var(--s2);
   cursor: pointer;
+}
+.rl-chat__quick {
+  flex: none;
+  max-width: 11rem;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
 }
 .rl-chat__mute[aria-pressed='true'] {
   color: var(--ink);
@@ -10511,24 +10602,24 @@ fieldset.rl-versus__maps {
 .rl-profile__status.rl-bad {
   color: var(--bad-text);
 }
-.rl-profile__cols {
+.rl-page-cols {
   display: grid;
   grid-template-columns: minmax(0, 38fr) minmax(0, 24fr);
   gap: var(--s3);
   align-items: start;
 }
-.rl-profile__col {
+.rl-page-cols__col {
   display: flex;
   flex-direction: column;
   gap: var(--s3);
   min-width: 0;
 }
 @media (max-width: 56rem) {
-  .rl-profile__cols {
+  .rl-page-cols {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-.rl-profile__card {
+.rl-page-card {
   display: flex;
   flex-direction: column;
   gap: var(--s2);
@@ -10600,7 +10691,7 @@ fieldset.rl-versus__maps {
   --crest-ground: var(--rl-terracotta-2);
   --crest-rim: var(--rl-dust-0);
 }
-.rl-profile__card-title {
+.rl-page-card__title {
   /* A strip across the top of the card: cancel the card's padding on three sides. */
   margin: calc(-1 * var(--s4)) calc(-1 * var(--s4)) 0;
   padding: var(--s1) var(--s4);
@@ -10611,17 +10702,17 @@ fieldset.rl-versus__maps {
   text-transform: uppercase;
   color: var(--band-ink);
 }
-.rl-profile__card--record .rl-profile__card-title {
+.rl-profile__card--record .rl-page-card__title {
   background: var(--card-head-record);
 }
-.rl-profile__card--history .rl-profile__card-title {
+.rl-profile__card--history .rl-page-card__title {
   background: var(--card-head-history);
 }
-.rl-profile__card--signin .rl-profile__card-title {
+.rl-profile__card--signin .rl-page-card__title {
   background: var(--card-head-signin);
   color: var(--card-head-signin-ink);
 }
-.rl-profile__card--data .rl-profile__card-title {
+.rl-profile__card--data .rl-page-card__title {
   background: var(--card-head-data);
 }
 .rl-profile__card--record {
@@ -10633,7 +10724,7 @@ fieldset.rl-versus__maps {
 .rl-profile__card--data {
   border-color: color-mix(in srgb, var(--rl-water-1) 50%, transparent);
 }
-.rl-profile__card-body {
+.rl-page-card__body {
   display: flex;
   flex-direction: column;
   gap: var(--s2);
@@ -10711,7 +10802,7 @@ fieldset.rl-versus__maps {
   margin: 0 auto;
   text-align: center;
 }
-.rl-profile__guest .rl-profile__card-body {
+.rl-profile__guest .rl-page-card__body {
   align-items: center;
   gap: var(--s3);
 }
@@ -10996,7 +11087,7 @@ fieldset.rl-versus__maps {
 .rl-profile__card--danger {
   border-color: var(--danger-frame);
 }
-.rl-profile__card--danger .rl-profile__card-title {
+.rl-profile__card--danger .rl-page-card__title {
   background: var(--card-head-danger);
   color: var(--band-ink);
 }
@@ -11044,4 +11135,70 @@ fieldset.rl-versus__maps {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s2);
+}
+
+/* GH-1394 slice 2: the campaign posture, on the board's header (the chip) and under the deploy screen's orders (the line). A
+   disclosure: the summary names the posture and what it does to the grade and the pay; open, the three rows. */
+.rl-posture {
+  margin: var(--s2) 0 0;
+  font: var(--t-s) / var(--lh-body) var(--font-body);
+  color: var(--ink);
+}
+.rl-posture__chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s2);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+  cursor: pointer;
+}
+.rl-posture__name {
+  font-family: var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.rl-posture__note { color: var(--ink-mute); }
+.rl-posture[data-posture='easier'] .rl-posture__note { color: var(--ink); }
+.rl-posture__rows {
+  display: grid;
+  gap: var(--s1);
+  margin-top: var(--s2);
+}
+.rl-posture__row {
+  display: grid;
+  gap: var(--s1);
+  justify-items: start;
+  text-align: start;
+  padding: var(--s2) var(--s3);
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-posture__row[aria-pressed='true'] {
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-posture__row:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-posture__row-name { font-weight: 600; }
+.rl-posture__row-blurb { color: var(--ink-mute); }
+.rl-posture__pays,
+.rl-posture__when,
+.rl-posture__msg {
+  margin: var(--s1) 0 0;
+  color: var(--ink-mute);
+}
+.rl-posture__msg:empty { display: none; }
+.rl-posture__msg[data-tone='bad'] { color: var(--bad-text); }
+/* GH-1394 (D11): a defeat's one line suggesting Easier, under the verdict. */
+.rl-aar__suggest {
+  margin: var(--s2) 0 0;
+  font: var(--t-m) / 1.4 var(--font-body);
+  color: var(--ink);
 }

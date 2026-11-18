@@ -16,10 +16,14 @@
 //     rendering is unchanged by construction, not by inspection;
 //   * the latin rules still carry no unicode-range (they were the whole face
 //     before this change, and still are);
-//   * which families can set Russian, and which cannot. Barlow and Big
-//     Shoulders Display have no Cyrillic in any OFL source (measured, see
-//     tools/fonts/build_cyrillic.py), so they are a named gap: when one gains
-//     a Cyrillic face this spec fails and the gap entry is deleted.
+//   * every ranged file maps NOTHING outside its unicode-range, so no Latin
+//     code point can come from one (the companions below are different faces
+//     under a family's name, which makes this the check that matters);
+//   * every family sets Russian in every weight it declares. Barlow and Big
+//     Shoulders Display have no Cyrillic in any OFL source, so since the
+//     lead's ruling of 17 Nov 2026 (option B) they take companions: Fira
+//     Sans for Barlow, Oswald for Big Shoulders Display. There is no gap
+//     list any more.
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { brotliDecompressSync } from 'node:zlib';
@@ -160,16 +164,19 @@ const hex = (c: number): string => `U+${c.toString(16).toUpperCase().padStart(4,
 /** Russian: А-я plus Ё and ё. */
 const RUSSIAN = [...Array.from({ length: 0x450 - 0x410 }, (_, i) => 0x410 + i), 0x401, 0x451];
 
-/** Families that cannot set Russian today, and why. Delete an entry when it gains a Cyrillic face. */
-const NO_CYRILLIC: Record<string, string> = {
-  Barlow: 'no OFL source has Cyrillic (Barlow 1.408 and 1.422)',
-  'Big Shoulders Display': 'no OFL source has Cyrillic (2.002)',
+/** The Cyrillic file each family and weight draws from (the lead's option B: a companion face under the family's own name). */
+const CYRILLIC_FILE: Record<string, string> = {
+  'Barlow|400': 'fira-sans-cyrillic-400.woff2',
+  'Barlow|600': 'fira-sans-cyrillic-600.woff2',
+  'Big Shoulders Display|400 900': 'oswald-cyrillic.woff2',
+  'IBM Plex Mono|400': 'ibm-plex-mono-cyrillic-400.woff2',
+  'IBM Plex Mono|600': 'ibm-plex-mono-cyrillic-600.woff2',
 };
 
 describe('self-hosted font faces (theme.css @font-face against assets/fonts)', () => {
   it('reads real rules and real character maps', () => {
     // A parse that found nothing would pass every spec below vacuously.
-    expect(faces.length).toBeGreaterThanOrEqual(7);
+    expect(faces.length).toBeGreaterThanOrEqual(10);
     const latin = cmapOf('barlow-latin-400.woff2');
     expect(latin.has(0x41)).toBe(true); // A
     expect(latin.has(0xe9)).toBe(true); // é
@@ -213,17 +220,36 @@ describe('self-hosted font faces (theme.css @font-face against assets/fonts)', (
     }
   });
 
-  it('sets Russian in every weight of every family not named as a gap, and in none that is', () => {
+  it('maps nothing outside its unicode-range in any ranged file: a Latin code point can never come from one', () => {
+    for (const f of faces.filter((x) => x.range !== null)) {
+      const outside = [...cmapOf(f.file)].filter((c) => !(f.range ?? new Set()).has(c)).map(hex);
+      expect(outside, `${f.file} maps code points outside its range`).toEqual([]);
+      // and in particular nothing Latin: the basic Latin and Latin-1 blocks, which the latin files own
+      expect([...cmapOf(f.file)].filter((c) => c < 0x250).map(hex), `${f.file} maps Latin`).toEqual([]);
+    }
+  });
+
+  it('serves each Cyrillic file under the EXISTING family name, so no new family appears and a Russian session needs no CSS change', () => {
+    expect([...new Set(faces.map((f) => f.family))].sort()).toEqual(['Barlow', 'Big Shoulders Display', 'IBM Plex Mono']);
+    for (const [key, file] of Object.entries(CYRILLIC_FILE)) {
+      const [family, weight] = key.split('|');
+      const face = faces.find((f) => f.file === file);
+      expect(face, `${file} has a rule`).toBeDefined();
+      expect([face?.family, face?.weight], file).toEqual([family, weight]);
+      expect(face?.rangeText, `${file} is ranged`).not.toBeNull();
+    }
+  });
+
+  it('sets Russian in every weight of every family', () => {
     const byFace = new Map<string, Face[]>();
     for (const f of faces) byFace.set(`${f.family}|${f.weight}`, [...(byFace.get(`${f.family}|${f.weight}`) ?? []), f]);
+    expect([...byFace.keys()].sort()).toEqual(Object.keys(CYRILLIC_FILE).sort());
     for (const [key, group] of byFace) {
-      const family = key.split('|')[0];
       // What the browser can draw for this family and weight: each file's
       // own map, cut to its declared range when it has one.
       const drawable = (c: number): boolean => group.some((f) => cmapOf(f.file).has(c) && (f.range === null || f.range.has(c)));
       const missing = RUSSIAN.filter((c) => !drawable(c)).map(hex);
-      if (family in NO_CYRILLIC) expect(missing.length, `${key} now has Cyrillic: delete its NO_CYRILLIC entry`).toBe(RUSSIAN.length);
-      else expect(missing, `${key} cannot set Russian`).toEqual([]);
+      expect(missing, `${key} cannot set Russian`).toEqual([]);
     }
   });
 });

@@ -2242,7 +2242,9 @@ try {
     await ctx.close();
   }
 
-  // --- K6: what the golden gate sees ------------------------------------------
+  // --- K6: a fresh account's free play, field works ON (the player path) ------
+  // The golden gate no longer boots this URL: it passes `&works=0` (`CAPTURE_FREE_PLAY_OPT_OUT`, 18 Nov 2026). K6 is
+  // what a player sees -- the dock's unit tiles included -- and a fresh account with no `&kit` draws no kit sign.
   {
     const { ctx, page: p } = await kitPage('/free-play/beit_sahwan_outskirts', false, `${TAG} K6`);
     await p.waitForTimeout(400);
@@ -2250,7 +2252,7 @@ try {
     await p.waitForTimeout(400);
     const count = await p.evaluate<number>('document.querySelectorAll(".rl-kit-icon").length');
     console.log(`[${TAG}] K6: ${count} .rl-kit-icon element(s) on a fresh account with no &kit`);
-    expect(count === 0, `K6: ${count} kit sign(s) drawn with no &kit -- this is what the golden gate boots`);
+    expect(count === 0, `K6: ${count} kit sign(s) drawn with no &kit on a fresh account's free play (field works on, dock tiles included)`);
     await ctx.close();
   }
 

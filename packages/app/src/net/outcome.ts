@@ -15,7 +15,7 @@
  */
 import { FLAG_BACKSTOP_MINUTES, doctrines, units } from '@lions/data';
 import { endingLoser, flagSetupRoom, matchCapTicks, matchCapTicksOf, type MatchConfig, type OverResult, type Seat, type WinMode } from '@lions/net';
-import { isHashTick } from './frame-step';
+import { isHashTick } from './frame-run';
 
 /** Each side's surviving force value, by SIDE (index 0 is side 0). */
 export type Forces = readonly [number, number];

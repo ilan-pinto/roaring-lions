@@ -11,6 +11,7 @@
     "fw:probes": "tsx src/backtest/field-works-probes.ts",
     "versus:probe": "tsx src/backtest/versus-probe.ts",
     "computer:ladder": "tsx src/backtest/computer-ladder.ts",
+    "commander:probe": "tsx src/backtest/commander-probe.ts",
     "s4:gate": "tsx src/backtest/s4-gate.ts",
     "formations:probe": "tsx src/backtest/formation-probes.ts",
     "formations:playtest": "tsx src/backtest/formation-playtest.ts",

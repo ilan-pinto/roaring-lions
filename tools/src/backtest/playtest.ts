@@ -13,13 +13,16 @@ import {
   type UnitTypeJson,
 } from '@lions/sim';
 import {
+  BRANCHES_OPEN,
   applyUpgrades,
+  maxPicks,
   maxTiers,
   units,
-  missions,
   world,
   type UpgradableUnit,
 } from '@lions/data';
+import { branchTwoMaxTierLabel } from './pinned-only';
+import { missions } from '@lions/data/content';
 // `tools` importing a pure module out of `packages/app` is the established
 // pattern (`tools/src/meshes/gait-pass.ts` imports `RIGGED_UNIT_MESHES` from
 // `packages/app/src/mesh-catalogue` the same way): `roster-cap.ts` is the one
@@ -46,6 +49,8 @@ import { PLAN_CHILD, startPlanSweep, drainPlanSweeps, reportToParent, type GateR
 import { wadiHalam1Plan, wadiHalam2Plan, wadiHalam3Plan, wadiHalam4Plan, wadiHalam5Plan } from './plans/wadi_halam';
 import { firstLightPlan } from './plans/beit_sahwan';
 import { EIN_QASAB_PLANS } from './plans/ein_qasab';
+import { QASR_LIWAN_PLANS } from './plans/qasr_liwan';
+import { BIR_TARSHA_PLANS } from './plans/bir_tarsha';
 import { playOrderOf } from './play-order';
 import { telMarum3Plan } from './plans/tel_marum';
 import { uz2Plan } from './plans/umm_zeitoun';
@@ -524,6 +529,57 @@ void eq3;
   }
   process.exitCode = before;
 }
+
+// --- Marj: Qasr Liwan, The Long Ground town 1 (GH-1438) -------------------------------------------------------
+//
+// Five missions, one ledger, run on the app's persistent merge (each mission's output spread over the ones before). Plans:
+// `plans/qasr_liwan.ts`. The Marj's second town starts on a bare `{}`, as Khan Rafid does.
+//
+// - I: a failable primary (`walk_one_out`, 300 s) and a ceiling (10). The passive control loses by `withdrawn`, not on the 300 s clock:
+//   with no order given the person still reaches the extraction on their own at about 271 s on seed 424242: the street, committed to
+//   `the_house` at 180 s, arrives at about 200 s and from 250 s its rifles fire at the courtyard's structures, which suppresses the
+//   person past the flee threshold (0.54 at 262 s) and sends them to the refuge. So `walk_one_out` completes with nobody there, and the
+//   open `find_the_gate_guard` ends it at the 720 s limit.
+// - II: `residents_through` (300 s) is the failable one; the control has two holds nobody takes, nine residents nobody moves.
+// - III: `bring_four_across` (330 s) and a ceiling of 5. The hold is banked from the first tick (F-1).
+// - IV: `walk_the_forecourt_out` (300 s), `bring_the_shaft_down` (360 s) and a ceiling of 10 at `structure_penalty_mult` 2.
+// - V: `the_deep_routes` (360 s) and a ceiling of 10 at `structure_penalty_mult` 4; the first shipped `trigger`-keyed waves.
+const ql1 = run('qasr_liwan_1_recon', QASR_LIWAN_PLANS.qasr_liwan_1_recon, {}, 'victory', 'qasr_liwan_1_recon', 3);
+passiveAcrossSeeds('qasr_liwan_1_recon', 'qasr_liwan_1_recon (no orders)', 'withdrawn');
+const qlLed1 = { ...ql1 };
+const ql2 = run('qasr_liwan_2_foothold', QASR_LIWAN_PLANS.qasr_liwan_2_foothold, qlLed1, 'victory', 'qasr_liwan_2_foothold');
+passiveAcrossSeeds('qasr_liwan_2_foothold', 'qasr_liwan_2_foothold (no orders)', 'defeat', qlLed1);
+const qlLed2 = { ...qlLed1, ...ql2 };
+const ql3 = run('qasr_liwan_3_buildup', QASR_LIWAN_PLANS.qasr_liwan_3_buildup, qlLed2, 'victory', 'qasr_liwan_3_buildup', 3);
+passiveAcrossSeeds('qasr_liwan_3_buildup', 'qasr_liwan_3_buildup (no orders)', 'defeat', qlLed2);
+const qlLed3 = { ...qlLed2, ...ql3 };
+const ql4 = run('qasr_liwan_4_clearance', QASR_LIWAN_PLANS.qasr_liwan_4_clearance, qlLed3, 'victory', 'qasr_liwan_4_clearance');
+passiveAcrossSeeds('qasr_liwan_4_clearance', 'qasr_liwan_4_clearance (no orders)', 'defeat', qlLed3);
+const qlLed4 = { ...qlLed3, ...ql4 };
+run('qasr_liwan_5_subterranean', QASR_LIWAN_PLANS.qasr_liwan_5_subterranean, qlLed4, 'victory', 'qasr_liwan_5_subterranean');
+passiveAcrossSeeds('qasr_liwan_5_subterranean', 'qasr_liwan_5_subterranean (no orders)', 'defeat', qlLed4);
+
+// --- Marj: Bir Tarsha, The Long Ground town 2 (GH-1438) -----------------------------------------------------------
+//
+// Four missions here (IV, the blade line, follows in its own PR), one ledger, run on the app's persistent merge like Qasr Liwan. Plans:
+// `plans/bir_tarsha*.ts`, one file per mission. The town starts on a bare `{}`.
+//
+// - I: a failable primary (`six_out`, 300 s). The passive control loses on that clock (`objective:six_out`), not on the 720 s limit.
+// - II: `seven_in` (300 s) is the failable one; the plan buys a D9 first and digs the terminal's garrison out with it (see the plan).
+// - III: `bring_three_out` (360 s) and a ceiling of 15.
+// - V: the five routes (`all_five`) and a ceiling; three stars.
+const bt1 = run('bir_tarsha_1_recon', BIR_TARSHA_PLANS.bir_tarsha_1_recon, {}, 'victory', 'bir_tarsha_1_recon', 3);
+passiveAcrossSeeds('bir_tarsha_1_recon', 'bir_tarsha_1_recon (no orders)', 'defeat');
+const btLed1 = { ...bt1 };
+const bt2 = run('bir_tarsha_2_foothold', BIR_TARSHA_PLANS.bir_tarsha_2_foothold, btLed1, 'victory', 'bir_tarsha_2_foothold');
+passiveAcrossSeeds('bir_tarsha_2_foothold', 'bir_tarsha_2_foothold (no orders)', 'defeat', btLed1);
+const btLed2 = { ...btLed1, ...bt2 };
+const bt3 = run('bir_tarsha_3_clearance', BIR_TARSHA_PLANS.bir_tarsha_3_clearance, btLed2, 'victory', 'bir_tarsha_3_clearance');
+// The taken walk out on their own with no orders (bring_three_out is nearly free), so the control loses on the 720 s limit (withdrawn), not on an objective clock. Was 'defeat': 0 of 30 seeds.
+passiveAcrossSeeds('bir_tarsha_3_clearance', 'bir_tarsha_3_clearance (no orders)', 'withdrawn', btLed2);
+const btLed3 = { ...btLed2, ...bt3 };
+run('bir_tarsha_5_subterranean', BIR_TARSHA_PLANS.bir_tarsha_5_subterranean, btLed3, 'victory', 'bir_tarsha_5_subterranean', 3);
+passiveAcrossSeeds('bir_tarsha_5_subterranean', 'bir_tarsha_5_subterranean (no orders)', 'defeat', btLed3);
 
 // --- Beit Sahwan IV: Subterranean --------------------------------------------
 
@@ -3054,7 +3110,14 @@ function technicalProbe(
   unitId: 'heli_peten' | 'aa_remetz',
   target: readonly [number, number],
   /** Whether the unit can answer a technical (a Peten scores a kill); a Remetz cannot and is judged on what the technical costs it. */
-  fires: boolean
+  fires: boolean,
+  /**
+   * The earliest second the purchase is asked for (default 0: as soon as the purse covers it). GH-1386 batch 3: this probe is about a Peten meeting a
+   * technical, not about the economy, but "as soon as affordable" made the purchase a function of the income. Held-ground income on
+   * wadi_halam_3 moved the first affordable second from 141 s to 95 s, the Peten reached the road 46 s sooner, took six penetrations and died with no
+   * kill. The purchase second is pinned to the one the probe was written around instead, so the engagement is the same whatever the purse does.
+   */
+  buyNotBeforeS = 0
 ): void {
   const label = `${id} (bought ${unitId} vs technicals)`;
   const baseStars = missionStars.get(id as string);
@@ -3086,7 +3149,7 @@ function technicalProbe(
     // Asked every second from the first tick until the build is accepted (the Peten waits for the income); the first sighting of the unit sends it.
     for (let when = 0; when <= 300; when++) {
       at(when, () => {
-        if (!seen.accepted) {
+        if (!seen.accepted && when >= buyNotBeforeS) {
           seen.accepted = rt.requestBuild(unitId);
           if (seen.accepted) seen.acceptedAt = when;
         }
@@ -3149,7 +3212,13 @@ function technicalProbe(
 // GH-1360 S3b: (36,12) -> (34,14). In the assembly layout the Peten at (36,12) took 2 technical hits on the pinned seed and no
 // penetration (was 4 hits, 1 penetration), so the engaged pin had no sample. Of 15 points tried round it, (34,14) alone gives
 // one: 3 hits, 1 penetration, 3 kills, the mission still a VICTORY at 2 stars. As thin as before (one sample on one seed).
-technicalProbe('wadi_halam_3_counterraid', wadiHalam3Plan, wh2, 'heli_peten', [34, 14], true);
+// THIS IS A GATE (a failed pin exits 1), not a report. It proves one thing: a bought Peten sent at the technicals' road takes at least 5 penetrations before it dies,
+// none costing more than 25% of its hull, scores a kill, and the mission is still a victory at no fewer stars (GH-868). It is bought at 141 s, the second the purse first covered
+// it before GH-1386 gave the mission held-ground income (Was: as soon as affordable, 141 s then, 95 s with the zone), so that the engagement it pins does not move with the purse.
+// What that pinning hides, said plainly: bought the moment the purse allows (95 s with the zone), the Peten reaches the road 46 s sooner, takes six penetrations and is lost at 199 s with
+// no kill (the mission is still a victory, 2 stars, ROE 100): a player who rushes the helicopter now loses it. Nothing was tuned for that. `PT_PETEN_BUY_AT=0` (any second) prints that run and the gate
+// goes red on it, as it should: `PT_PETEN_BUY_AT=0 npx tsx src/backtest/playtest.ts` from tools/.
+technicalProbe('wadi_halam_3_counterraid', wadiHalam3Plan, wh2, 'heli_peten', [34, 14], true, Number(process.env.PT_PETEN_BUY_AT ?? 141));
 technicalProbe('wadi_halam_5_depot', wadiHalam5Plan, wh4, 'aa_remetz', [33, 30], false);
 
 // --- Brigade economy Task 5: every optimal plan holds at max tier ----------
@@ -3179,7 +3248,12 @@ let maxTierHeld = 0;
 /** GH-330: each plain victory's credits at max tier, for the second-campaign report. */
 const maxTierCredits = new Map<string, number>();
 // Not in a plan-sweep child: the replay is held on 424242 only.
-for (const probe of PLAN_CHILD ? [] : maxTierProbes) {
+// GH-1384 §6.2: a branched last tier needs a branch, so each replay runs once per uniform branch vector.
+// Branch 1 keeps the label `<id> (max tier)` (and is the run the second-campaign report reads); branch 2
+// is `<id> branch 2 (max tier)`, which still ends in the pinned-only suffix.
+// While `BRANCHES_OPEN` is false a branched tier plays as its envelope, so there is one replay per victory, labelled as on dev.
+for (const [probe, branch] of PLAN_CHILD ? [] : maxTierProbes.flatMap((p) => (BRANCHES_OPEN ? ([[p, 1], [p, 2]] as const) : ([[p, 1]] as const)))) {
+  const label = branch === 1 ? `${probe.id} (max tier)` : branchTwoMaxTierLabel(probe.id);
   const measured: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars; roeScore: number; credits: number } = {
     result: 'ongoing',
     stars: 0,
@@ -3191,12 +3265,12 @@ for (const probe of PLAN_CHILD ? [] : maxTierProbes) {
     probe.plan,
     probe.ledger,
     'victory',
-    `${probe.id} (max tier)`,
+    label,
     probe.expectStar,
     probe.fielded,
     probe.bought,
     probe.gateOf,
-    'max',
+    branch === 1 ? 'max' : { max: 2 },
     measured
   );
   const held = measured.result === 'victory' && measured.stars >= probe.baseStars;
@@ -3204,7 +3278,7 @@ for (const probe of PLAN_CHILD ? [] : maxTierProbes) {
     maxTierHeld++;
   } else {
     console.error(
-      `${probe.id} (max tier): FAILED — base ${probe.baseResult.toUpperCase()}/${probe.baseStars}★, ` +
+      `${label}: FAILED — base ${probe.baseResult.toUpperCase()}/${probe.baseStars}★, ` +
         `max ${measured.result.toUpperCase()}/${measured.stars}★`
     );
     process.exitCode = 1;
@@ -3214,12 +3288,12 @@ for (const probe of PLAN_CHILD ? [] : maxTierProbes) {
   // so a reader can SEE how much a max-tier force's ROE/credits drifted from its
   // own base run without re-running the harness twice by hand.
   console.log(
-    `${probe.id} (max tier): ROE ${measured.roeScore} (base ${probe.baseRoe}), ` +
+    `${label}: ROE ${measured.roeScore} (base ${probe.baseRoe}), ` +
       `credits ${measured.credits} (base ${probe.baseCredits})`
   );
-  maxTierCredits.set(probe.id, measured.credits);
+  if (branch === 1) maxTierCredits.set(probe.id, measured.credits);
 }
-console.log(`max tier: ${maxTierHeld} of ${maxTierProbes.length} plain victories hold`);
+console.log(`max tier: ${maxTierHeld} of ${(BRANCHES_OPEN ? 2 : 1) * maxTierProbes.length} plain victories hold${BRANCHES_OPEN ? ' (both branch vectors)' : ''}`);
 
 // --- GH-1144: every upgrade track of the nine bought-only units -------------
 //
@@ -3307,7 +3381,7 @@ if (!PLAN_CHILD) {
           variant.tiers === undefined
             ? json
             : variant.tiers.tracks.length === own.length
-              ? (applyUpgrades(json as unknown as UpgradableUnit & UnitTypeJson, maxTiers(json as unknown as UpgradableUnit)) as UnitTypeJson)
+              ? (applyUpgrades(json as unknown as UpgradableUnit & UnitTypeJson, maxTiers(json as unknown as UpgradableUnit), maxPicks(json as unknown as UpgradableUnit, 1)) as UnitTypeJson)
               : aloneAtMax(json, variant.tiers.tracks[0]);
         const registeredAsAsked = JSON.stringify(registeredUnits.get(unitId)) === JSON.stringify(expected);
         const ok = registeredAsAsked && seen.accepted && seen.fielded && measured.result === 'victory' && measured.stars >= hostStars;
@@ -3964,11 +4038,25 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // IV 210 -> 230; Deir Amun II 237 -> 247, III 250 -> 255; Ein Qasab III 195 -> 160; Khan Rafid I 310 -> 320, III 238 -> 255; Qarn Hadid
 // II 210 -> 220, III 229 -> 237; Umm Zeitoun I 238 -> 248, III 300 -> 280, IV 262 -> 225 (192 at ROE 67 before its plan fix; now ROE 100); Wadi Halam I
 // 190 -> 180, II 180 -> 200, III 190 -> 170, V 200 -> 190. The star ladder (68) and every gate held.
-// 2026-11-16, GH-1386 batch 1 (held-ground income on khan_rafid_2, qarn_hadid_2, tel_marum_2): 6923 -> 6923, +0. Was 6923. Measured, not assumed:
+// 2026-11-16, GH-1386 batch 3 (beit_sahwan_2, wadi_halam_3, deir_amun_3): unchanged at 6923. Per-mission credits byte-identical, 0 of 30 plan runs differ on all three
+// (docs/campaign/economy/held-ground-census.md, section 10). wadi_halam_3's "bought heli_peten" probe now buys at 141 s instead of "as soon as affordable":
+// the zone income made that 95 s and the probe failed, so its engagement is pinned to the second it was written around.
+// 2026-11-16, GH-1386 batch 2 (beit_sahwan_3, tel_marum_3, umm_zeitoun_3, wadi_halam_5): unchanged at 6923. The same measurement as batch 1 (docs/campaign/economy/held-ground-census.md, section 9):
+// the printed per-mission credits are byte-identical; umm_zeitoun_3, the one of the four whose plan builds, differs on ONE of 30 seeds (21: a squad is
+// accepted 50 s sooner and the win comes 0.4 s later, with the same stars, ROE and credits).
+// 2026-11-16, GH-1386 batch 1 (held-ground income on khan_rafid_2, qarn_hadid_2, tel_marum_2): unchanged at 6923. Measured, not assumed:
 // zone income reaches credits only through a plan's decisions, and these three plans buy nothing, so on all 30 seeds each plan's result, clock,
-// stars, ROE and credits are identical to the digit (income-numbers/held-ground-census.md section 8); the printed per-mission credits are
+// stars, ROE and credits are identical to the digit (docs/campaign/economy/held-ground-census.md, section 8); the printed per-mission credits are
 // byte-identical to the tree before the change. LADDER_STARS (68) and ROSTER_MAX (26) are unmoved for the same reason.
-const LADDER_CREDITS = 6923;
+// 2026-11-16, GH-1438 (Qasr Liwan, The Long Ground town 1) on top of that: 6923 -> 8093, +1170. Was 6923. The 29 older missions keep main's 6923 (their credits
+// lines are those of main); the five Qasr Liwan missions add 1170 with `start_layout` "assembly" on all five (I 240, II 220, III 250, IV 230, V 230). The credit
+// ladder is over 34 missions now (was 29). Earlier drafts of this pin read 8115 (assembly absent) and 8060 (assembly present but the older 29 at 6890): both were
+// stale, because the branch's merge of main had dropped main's four S3b plan fixes from this file (Deir Amun I's second look, Umm Zeitoun I's sweep, Umm
+// Zeitoun IV's yard, Wadi Halam III's Peten point (34, 14)); they are restored and 6923 + 1170 is what the full run prints.
+// The assembly layout also sped up three Qasr Liwan wins, so their `min_win_seconds` floors (floor(fastest win / 4), `--min-win`) fall by 1 s each: II 74 -> 73, IV 57 -> 56, V 83 -> 82. Was 74, 57, 83.
+// 2026-11-17, GH-1438 (Bir Tarsha, The Long Ground town 2; I, II, III and V, IV follows): 8093 -> 8927, +834, read off the printed per-mission credits of a playtest on the branch
+// (I 225, II 169, III 195, V 245 on seed 424242). Was 8093.
+const LADDER_CREDITS = 8927;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3982,7 +4070,9 @@ if (ladderCredits !== LADDER_CREDITS) {
 // that moved a star, and re-run `roar_earn.test.ts`.
 let ladderStars = 0;
 for (const missionId of missionOrder) ladderStars += missionStars.get(missionId) ?? 0;
-const LADDER_STARS = 68;
+// 2026-11-15, GH-1438 (Qasr Liwan): 68 -> 80, +12. Was 68. Qasr Liwan I and III reach three stars (their carrying secondaries), II, IV and V two.
+// Bir Tarsha I, II, III and V (GH-1438) add 10 stars (3, 2, 2, 3): 80 -> 90. Was 80.
+const LADDER_STARS = 90;
 console.log(`star ladder: ${ladderStars} over ${missionOrder.length} missions`);
 if (ladderStars !== LADDER_STARS) {
   console.error(`star ladder: FAILED — expected ${LADDER_STARS}, got ${ladderStars}`);
@@ -4153,10 +4243,9 @@ for (const [label, got, want] of [
 // 2026-10-30, GH-707, the last seven: 31 -> 30, same mission. With the medic team in the force Umm Zeitoun IV's sniper team
 // dies at the crest at 247 s (the re-rolled streams), one body fewer than the 31 the chain carried out before. Umm Zeitoun IV's
 // credit is 259 as before, because its medic comes home and pays for the sniper. Seeds 100-129 still win 30 of 30 there.
-// 2026-11-15, GH-1360 S3b (the assembly starting layout): 30 -> 26, same mission. Was 30. Umm Zeitoun IV's roster out reads 30 -> 26 on
-// 424242 (still a 2-star VICTORY, 30 of 30 sweep seeds; ROE 100 and credits 225 after its plan fix): the force starts re-laid in class
-// rows and loses four more bodies on the way in. Reported, not tuned (the balance park).
-const ROSTER_MAX = 26;
+// 2026-11-15, GH-1438 (Qasr Liwan, the maps re-laid distinct on the lead's ruling, GH-1452): 30 -> 31. Was 30. Qasr Liwan V's chain carries 31 out
+// (it bought squads and lost none); the cap is 150, margin 4.8x. Main reads 26 (Umm Zeitoun IV, GH-1360 S3b); the maximum is now Qasr Liwan V's 31 either way.
+const ROSTER_MAX = 31;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
@@ -4240,7 +4329,10 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // 2026-11-05, GH-277: 41 -> 42. Was 41. The Umm Zeitoun IV run with a forward camp is a winning plan and earns its sweep (316 intel).
 // 2026-11-09, GH-868: 42 -> 44. Was 42. The bought Peten (Wadi Halam III, 304 intel) and the bought Remetz (Wadi Halam V, 382 intel) meet technicals
 // in winning runs too, and each earns its sweep. The one short plan is still `beit_sahwan_2_foothold`, so "44 of 45".
-const INTEL_WINNERS_ONE_SWEEP = 44;
+// 2026-11-15, GH-1438 (Qasr Liwan, The Long Ground town 1): 44 -> 49. Was 44. Five more winning runs, one per mission, and each earns a sweep (Qasr Liwan I
+// 184, II 232, III 312, IV 248, V 256 intel on seed 424242). The one short plan is still `beit_sahwan_2_foothold`, so "49 of 50".
+// Bir Tarsha's four winning plans each earn a sweep (GH-1438): 49 -> 53 of 54 winning plans. Was 49.
+const INTEL_WINNERS_ONE_SWEEP = 53;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend
@@ -4296,8 +4388,9 @@ const ZONE_PASSIVE_INCOME = 0;
 // ZONE_MISSIONS: how many shipped missions author income zones (GH-1386, "held-ground income on at least 15 of 30"). Pinned as a floor that
 // only rises, one batch at a time, so a zone deleted from a mission's data goes red here and in `income-shipped.test.ts`. A probe run
 // (`PT_INCOME`) authors zones in memory, so the pin reads the data and not the probed object.
-// Was 5 (deir_amun_2, ein_qasab_3, umm_zeitoun_2, umm_zeitoun_4, wadi_halam_2); 8 at batch 1 (+ khan_rafid_2, qarn_hadid_2, tel_marum_2).
-const ZONE_MISSIONS = 8;
+// Was 5 (deir_amun_2, ein_qasab_3, umm_zeitoun_2, umm_zeitoun_4, wadi_halam_2); 8 at batch 1 (+ khan_rafid_2, qarn_hadid_2, tel_marum_2);
+// 12 at batch 2 (+ beit_sahwan_3, tel_marum_3, umm_zeitoun_3, wadi_halam_5); 15 at batch 3 (+ beit_sahwan_2, wadi_halam_3, deir_amun_3). Was 12.
+const ZONE_MISSIONS = 15;
 {
   const zoneMissions = Object.values(missions as unknown as Record<string, { id: string; resources?: { income_zones?: unknown[] } }>)
     .filter((m) => (m.resources?.income_zones?.length ?? 0) > 0)

@@ -74,7 +74,7 @@ describe('the Stores tier row, earned 0 and coin tier 2', () => {
     row?.click();
     expect(pressed).toEqual([[UNIT, TRACK, 3, run]]);
 
-    const done = buyTierWithCredits({ account: acct, owned }, p, UNIT, TRACK, pressed[0][2], pressed[0][3]);
+    const done = buyTierWithCredits({ account: acct, owned, roar: emptyRoar() }, p, UNIT, TRACK, pressed[0][2], pressed[0][3]);
     expect(done.ok).toBe(true);
     expect(done.account.upgrades[UNIT]?.[TRACK]).toBe(3);
     expect(done.account.balance).toBe(5000 - run);

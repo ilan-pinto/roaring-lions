@@ -1402,7 +1402,7 @@ describe('advisor sockets (N4a task 7)', () => {
     const stBefore = await persisted(state);
     for (const m of [
       { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, { t: 'ready' }, { t: 'pause' }, { t: 'resume' }, { t: 'surrender' },
-      { t: 'chat', text: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
+      { t: 'chat', text: 'gg' }, { t: 'quick', id: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
     ]) await say(room, adv, m);
     expect(adv.closed).toBeNull();
     expect(state.storage.rowsWritten).toBe(before);
@@ -2884,7 +2884,7 @@ describe('watch sockets (GH-954 W1)', () => {
   const watchHello = async (room: MatchRoom): Promise<FakeSocket> => hello(room, 0, await watchTicket());
   const EVERY_VERB: unknown[] = [
     { t: 'hello', ticket: 'x', build: BUILD }, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, { t: 'ready' }, { t: 'pause' }, { t: 'resume' },
-    { t: 'surrender' }, { t: 'chat', text: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
+    { t: 'surrender' }, { t: 'chat', text: 'gg' }, { t: 'quick', id: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
     { t: 'advisor', a: { kind: 'text', text: 'ridge' } }, { t: 'advisor', a: { kind: 'proposal', id: 1, cmd: { kind: 'halt', ids: [3] }, note: 'hold' } }, '{not json',
   ];
 
@@ -2917,6 +2917,28 @@ describe('watch sockets (GH-954 W1)', () => {
     expect(last(ws0)).toMatchObject({ t: 'frame', tick: 3 });
     // And it is told no lobby: it has no seat to describe.
     expect(ofType(w, 'lobby')).toEqual([]);
+  });
+
+  it('a spectator hears neither chat nor quick chat, though both seats do and the frames still reach it (GH-1417, D11)', async () => {
+    const { room, ws0, ws1 } = await running(BOTS);
+    await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+    const w = await watchHello(room);
+    const frames = ofType(w, 'frame').length;
+    await say(room, ws0, { t: 'chat', text: 'hello from seat 0' });
+    await say(room, ws1, { t: 'quick', id: 'gg' });
+    await say(room, ws1, { t: 'chat', text: 'and a line from seat 1' }); // within 500 ms of its own phrase: dropped by the limit, not by the spectator rule
+    await vi.advanceTimersByTimeAsync(600);
+    await say(room, ws1, { t: 'chat', text: 'seat 1, later' });
+    await say(room, ws0, { t: 'quick', id: 'wp' });
+    // the seats heard the talk (control: the relay works) ...
+    for (const ws of [ws0, ws1]) {
+      expect(ofType(ws, 'chat').map((m) => m.text)).toEqual(['hello from seat 0', 'seat 1, later']);
+      expect(ofType(ws, 'quick').map((m) => m.id)).toEqual(['gg', 'wp']);
+    }
+    // ... the spectator heard neither, but still hears the match
+    expect(ofType(w, 'chat')).toEqual([]);
+    expect(ofType(w, 'quick')).toEqual([]);
+    expect(ofType(w, 'frame').length).toBeGreaterThan(frames);
   });
 
   it('every verb a client has, sent by a watcher, changes nothing: frames, rows, advisors and the observer stay as they were', async () => {

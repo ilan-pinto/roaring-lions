@@ -5,7 +5,7 @@ import worldJson from '../../../../data/campaign/world.json';
 import countriesJson from '../../../../data/campaign/countries.json';
 import commanderJson from '../../../../data/campaign/commander.json';
 import type { LedgerData, MissionJson } from '@lions/sim';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { parseCommander, parseCountries, parseWorld, type CommanderData } from '../campaign';
 import { gatedWorldJson, ledgerBeforeNaharin } from '../gated-town.fixture';
 import { ledgerLine, worldMap } from './worldmap';
@@ -58,7 +58,7 @@ describe('worldMap', () => {
   it('opens the next region when its gate is met', () => {
     // Moved with the Marj's completion (design.md C3 / O-KR1): Sur opens
     // once Deir Amun III is cleared, not Beit Sahwan IV.
-    const el = render({ 'campaign.completed_missions': ['deir_amun_3_subterranean'] });
+    const el = render({ 'campaign.completed_missions': ['bir_tarsha_5_subterranean'] });
     expect(statusOf(el, 'sur')).toBe('live');
   });
 
@@ -147,10 +147,10 @@ describe('worldMap', () => {
 
   it('says why a locked region is locked, naming the mission rather than its id', () => {
     const missionOf = (id: string): { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined =>
-      id === 'deir_amun_3_subterranean' ? { objectives: [], name: 'Deir Amun III — All Four' } : undefined;
+      id === 'bir_tarsha_5_subterranean' ? { objectives: [], name: 'Bir Tarsha V — Under the Fence' } : undefined;
     const panel = render({}, undefined, missionOf).querySelector('[data-region-card="sur"]') as HTMLElement;
-    expect(panel.querySelector('.rl-world__cardprogress')?.textContent).toBe('Clear Deir Amun III — All Four first');
-    expect(panel.textContent).not.toContain('deir_amun_3_subterranean');
+    expect(panel.querySelector('.rl-world__cardprogress')?.textContent).toBe('Clear Bir Tarsha V — Under the Fence first');
+    expect(panel.textContent).not.toContain('bir_tarsha_5_subterranean');
   });
 
   it('falls back to a neutral sentence when the catalogue has no name for the gating mission', () => {
@@ -436,7 +436,7 @@ describe("the board's motivation surfaces", () => {
 
   it('keeps the account of the taken under the cards', () => {
     const el = render({ 'civ.hostages_recovered': { beit_sahwan_4_subterranean: 2 } });
-    expect(el.querySelector('.rl-world__taken')?.textContent).toBe('Seventeen still out.');
+    expect(el.querySelector('.rl-world__taken')?.textContent).toBe('22 still out.'); // Was 'Seventeen still out.' (19 taken, 2 back): Bir Tarsha's five make 24
   });
 });
 

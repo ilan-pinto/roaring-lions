@@ -69,25 +69,27 @@ describe('E5 probe: Gunship in contested air (staged heli_peten_gunship)', () =>
 
 describe('E5 probe: Gunship at maximum tier (lead ruling 29 Sep: armour track front +0)', () => {
   let g: AirRates;
-  let p: AirRates;
+  // GH-1384: the Peten's firepower track branches, so the max-tier Peten is read at BOTH uniform branches,
+  // and each claim must hold against each.
+  let p: Record<1 | 2, AirRates>;
   beforeAll(() => {
     g = airRates(maxTierUnit(stagedUnit('heli_peten_gunship')));
-    p = airRates(unitsAtMaxTier.heli_peten);
-    // Two whole air-rate sweeps; the 10 s hook default timed out under load.
-  }, 60_000);
+    p = { 1: airRates(unitsAtMaxTier(1).heli_peten), 2: airRates(unitsAtMaxTier(2).heli_peten) };
+    // Three whole air-rate sweeps; the 10 s hook default timed out under load.
+  }, 90_000);
 
   it('survives 3 trucks no more often than the max-tier Peten survives 2', () => {
-    expect(g.survival[3]).toBeLessThanOrEqual(p.survival[2]);
+    for (const pick of [1, 2] as const) expect(g.survival[3], `branch ${pick}`).toBeLessThanOrEqual(p[pick].survival[2]);
   });
 
   it('meets the max-tier claim', () => {
-    expect(maxTierClaims(g, p).join('\n')).toBe('');
+    for (const pick of [1, 2] as const) expect(maxTierClaims(g, p[pick]).join('\n'), `branch ${pick}`).toBe('');
   });
 
   it('keeps front armour at 47 at every armour tier', () => {
     const gs = stagedUnit('heli_peten_gunship');
     for (const tier of [0, 1, 2, 3]) {
-      expect(applyUpgrades(gs, { armour: tier }).hull.armor.front, `armour tier ${tier}`).toBe(47);
+      expect(applyUpgrades(gs, { armour: tier }, {}).hull.armor.front, `armour tier ${tier}`).toBe(47);
     }
   });
 });

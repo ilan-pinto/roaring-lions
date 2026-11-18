@@ -61,7 +61,7 @@ describe('settingsPanel', () => {
     const { d } = deps();
     const { el } = settingsPanel(document.body, d);
     // GH-1510: a section is a card of the account page now, titled by its strip.
-    const heads = [...el.querySelectorAll('.rl-profile__card-title')].map((h) => h.textContent);
+    const heads = [...el.querySelectorAll('.rl-page-card__title')].map((h) => h.textContent);
     expect(heads).toEqual(['Video', 'Audio', 'Accessibility', 'Chat', 'Language']);
     expect(el.textContent).toContain('0.68.0');
   });
@@ -287,6 +287,20 @@ describe('settingsPanel', () => {
     cb.dispatchEvent(new Event('change', { bubbles: true }));
     expect(set.mock.calls[0][0].chat.enabled).toBe(false);
   });
+  it('the mask row is ON by default (GH-1417 S2), turning it off goes through the one setter, and nothing offers to turn the hide tier off', () => {
+    const { d, set } = deps();
+    const { el } = settingsPanel(document.body, d);
+    const cb = el.querySelector<HTMLInputElement>('input[name="chatMask"]');
+    if (!cb) throw new Error('no mask box');
+    expect(cb.checked).toBe(true);
+    expect(el.textContent).toContain('Mask swear words');
+    expect(el.textContent).toContain('always hidden');
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(set.mock.calls[0][0].chat.mask).toBe(false);
+    expect(set.mock.calls[0][0].chat.enabled).toBe(true);
+    expect(el.querySelectorAll('input[name^="chat"]').length).toBe(2);
+  });
   describe('Replay intro', () => {
     it('draws no row when no intro ships (today): the panel is as it was', () => {
       const { d } = deps();
@@ -410,23 +424,23 @@ describe('the account page layout (GH-1510)', () => {
     const { el } = settingsPanel(document.body, d);
     const content = el.querySelector('.rl-panel__body > .rl-settings__content');
     if (!content) throw new Error('no content');
-    const cols = content.querySelector(':scope > .rl-profile__cols.rl-settings__cols');
+    const cols = content.querySelector(':scope > .rl-page-cols.rl-settings__cols');
     if (!cols) throw new Error('no columns');
     const keys = (sel: string): string[] => [...(cols.querySelector(sel)?.children ?? [])].map(keyOf);
-    expect(keys(':scope > .rl-profile__col--main')).toEqual(['video', 'audio']);
-    expect(keys(':scope > .rl-profile__col--side')).toEqual(['accessibility', 'privacy', 'chat', 'language']);
+    expect(keys(':scope > .rl-page-cols__col--main')).toEqual(['video', 'audio']);
+    expect(keys(':scope > .rl-page-cols__col--side')).toEqual(['accessibility', 'privacy', 'chat', 'language']);
     expect([...content.children].map((c) => (c === cols ? 'cols' : keyOf(c)))).toEqual(['cols', 'controls']);
     // Every card is the profile's own: a <section>, its title strip an <h2> through t(), then the body with the rows.
     const cards = [...el.querySelectorAll('.rl-settings__card')];
     expect(cards.map(keyOf).sort()).toEqual(Object.keys(TITLE_KEY).sort());
     for (const c of cards) {
       expect(c.tagName).toBe('SECTION');
-      expect(c.classList.contains('rl-profile__card')).toBe(true);
+      expect(c.classList.contains('rl-page-card')).toBe(true);
       const [h, body] = [...c.children];
       expect(h?.tagName).toBe('H2');
-      expect(h?.className).toBe('rl-profile__card-title');
+      expect(h?.className).toBe('rl-page-card__title');
       expect(h?.textContent).toBe(t(TITLE_KEY[keyOf(c)] ?? ''));
-      expect(body?.className).toBe('rl-profile__card-body');
+      expect(body?.className).toBe('rl-page-card__body');
       expect(body?.querySelector('.rl-settings__row')).not.toBeNull();
     }
     // The old flat table is gone, and nothing else heads a section.
@@ -455,6 +469,7 @@ describe('the account page layout (GH-1510)', () => {
     ['zoomToCursor', 'settings.zoomToCursor', 'controls'],
     ['reports', 'settings.reports', 'privacy'],
     ['chat', 'settings.chat.enabled', 'chat'],
+    ['chatMask', 'settings.chat.mask', 'chat'],
     ['language', 'settings.language', 'language'],
   ];
   it.each(ROWS)('%s renders its control with its t() label, in the %s card', (name, key, card) => {
@@ -495,6 +510,7 @@ describe('the account page layout (GH-1510)', () => {
     ['edgePan', true, (n) => { n.controls.edgePan = true; }],
     ['zoomToCursor', false, (n) => { n.controls.zoomToCursor = false; }],
     ['chat', false, (n) => { n.chat.enabled = false; }],
+    ['chatMask', false, (n) => { n.chat.mask = false; }],
     ['language', 'xx', (n) => { n.language = 'xx'; }],
   ];
   it.each(WRITES)('%s still writes through set(), moving its own field and no other', (name, value, move) => {
@@ -518,7 +534,7 @@ describe('the account page layout (GH-1510)', () => {
     const { d } = full();
     // A locale's name is data (its own endonym), never through t(), so those options are left out.
     const { el } = settingsPanel(document.body, d);
-    const chrome = [...el.querySelectorAll('.rl-profile__card-title, label, button, .rl-settings__control option')]
+    const chrome = [...el.querySelectorAll('.rl-page-card__title, label, button, .rl-settings__control option')]
       .filter((x) => x.closest('select[name="language"]') === null)
       .map((x) => x.textContent ?? '');
     expect(chrome.length).toBeGreaterThan(30);

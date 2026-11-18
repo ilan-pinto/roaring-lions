@@ -14,7 +14,7 @@
 //      tracks at max, the mission's plan unchanged: it must still be a VICTORY at no fewer stars.
 //
 // A named exemption carries its own demotion assertion: when the exempt check starts to pass, the gate fails until the exemption is deleted.
-import { applyUpgrades, type UpgradableUnit } from '@lions/data';
+import { applyUpgrades, maxPicks, type UpgradableUnit } from '@lions/data';
 import type { UnitTypeJson } from '@lions/sim';
 import { NINE, SIGHT_RANGES, fireDrill, stagedUnit, trackRow, type TrackRow } from './special-units-probes';
 
@@ -28,7 +28,8 @@ export function aloneAtMax(json: UnitTypeJson, track: string): UnitTypeJson {
   const unit = json as unknown as UpgradableUnit & UnitTypeJson;
   const block = unit.upgrades?.[track];
   if (!block) throw new Error(`bought-tracks: ${(json as { id?: string }).id} carries no ${track} track`);
-  return applyUpgrades(unit, { [track]: block.tiers.length }) as UnitTypeJson;
+  // GH-1384: a branched top tier is measured at branch 1 (`maxPicks`), as every other max-tier pass is.
+  return applyUpgrades(unit, { [track]: block.tiers.length }, maxPicks(unit, 1)) as UnitTypeJson;
 }
 
 /** The tracks a unit carries, in `TRACKS` order. */
@@ -87,7 +88,8 @@ export function fireDistance(json: UnitTypeJson): number {
   const weapons = (json.weapons ?? []) as { effective_range_tiles?: number; range_tiles: number }[];
   const touched = new Set<number>();
   for (const tier of block?.tiers ?? []) {
-    for (const key of Object.keys(tier.patch)) {
+    // GH-1384: every patch a tier carries, both branches of a branched one.
+    for (const key of (tier.branches ?? [tier]).flatMap((p) => Object.keys(p.patch ?? {}))) {
       const m = /^weapons\[(\d+)\]/.exec(key);
       if (m) touched.add(Number(m[1]));
     }

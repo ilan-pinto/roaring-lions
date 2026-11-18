@@ -492,7 +492,7 @@ on: Act I has no build-up at all and Act III's is a raid.
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(any)` | `debrief` | narrator | §3.4 | | live |
 | `missionEnd(victory)` | `debrief` | Idit | "One commander, one hide and a track full of people. Two of those we were asked for." | applied | live |
-| `missionEnd(defeat)` | `debrief` | Shai | "He is east with his cell and the bunds are theirs again. We spent the only quiet week of the war on it." | applied | live |
+| `missionEnd(defeat)` | `debrief` | Shai | "He is east with his cell and the bunds are theirs again. We spent the one quiet week Naharin gave us on it." | applied | live |
 
 ---
 

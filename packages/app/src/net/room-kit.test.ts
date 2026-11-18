@@ -98,7 +98,7 @@ describe("templateKey agrees with buildMatchWorld on which ids differ", () => {
     for (const [t0, t1, factions] of fixtures) {
       const tiers: [Tiers, Tiers] = [t0, t1];
       const w = buildMatchWorld(room(tiers, 'brigade', factions));
-      const bySide = screenKit(upgradePrepass(Object.values(units), {}), w, 0).unitKitTiersBySide;
+      const bySide = screenKit(upgradePrepass(Object.values(units), {}, {}), w, 0).unitKitTiersBySide;
       for (const id of KDF_IDS) {
         const hasCopy = w.typeOfBySide[1].get(id) !== w.typeOfBySide[0].get(id);
         // Side 0 never splits; side 1 splits exactly where the sim did.
@@ -123,7 +123,7 @@ describe("templateKey agrees with buildMatchWorld on which ids differ", () => {
     const w = buildMatchWorld(room([{}, { mbt_lavi: { armour: 2 } }], 'brigade', ['sarim', 'kdf']));
     expect(w.typeOfBySide[1].get('mbt_lavi')).toBe(w.typeOfBySide[0].get('mbt_lavi'));
     for (const me of [0, 1] as const) {
-      const bySide = screenKit(upgradePrepass(Object.values(units), {}), w, me).unitKitTiersBySide;
+      const bySide = screenKit(upgradePrepass(Object.values(units), {}, {}), w, me).unitKitTiersBySide;
       for (const id of KDF_IDS) expect(templateKey(id, 0, bySide)).toBe(id);
       // The table the renderer builds the `id` template from (`templateKitTiers`).
       expect(bySide?.[0].mbt_lavi).toEqual({ armour: 2 });
@@ -132,7 +132,7 @@ describe("templateKey agrees with buildMatchWorld on which ids differ", () => {
 
   it('a matched room splits nothing, whatever the seats claimed', () => {
     const w = buildMatchWorld(room([{}, { mbt_lavi: { armour: 2 } }], 'matched'));
-    const bySide = screenKit(upgradePrepass(Object.values(units), {}), w, 1).unitKitTiersBySide;
+    const bySide = screenKit(upgradePrepass(Object.values(units), {}, {}), w, 1).unitKitTiersBySide;
     for (const id of KDF_IDS) expect(templateKey(id, 1, bySide)).toBe(id);
   });
 });
@@ -141,7 +141,7 @@ describe("screenKit: bootBattlefield's one choice of kit source", () => {
   const roster = Object.values(units);
 
   it('no versus world: the boot prepass, table for table (single-player, sandbox, sandbox room)', () => {
-    const prepass = upgradePrepass(roster, { mbt_lavi: { armour: 1 } });
+    const prepass = upgradePrepass(roster, { mbt_lavi: { armour: 1 } }, {});
     const k = screenKit(prepass, null, 0);
     expect(k.kitByType).toBe(prepass.kitByType);
     expect(k.unitKit).toBe(prepass.unitKit);
@@ -151,7 +151,7 @@ describe("screenKit: bootBattlefield's one choice of kit source", () => {
 
   it("a versus world: the viewer's side, never the boot prepass", () => {
     // A boot prepass holding a kit neither seat claimed: a room must not read it.
-    const prepass = upgradePrepass(roster, { mbt_lavi: { armour: 3, sensors: 3, firepower: 3 } });
+    const prepass = upgradePrepass(roster, { mbt_lavi: { armour: 3, sensors: 3, firepower: 3 } }, {});
     const w = buildMatchWorld(room([{}, { mbt_lavi: { armour: 2, sensors: 2 } }]));
     expect(screenKit(prepass, w, 1).unitKit.mbt_lavi).toBe(2);
     expect(screenKit(prepass, w, 0).unitKit.mbt_lavi).toBe(0);

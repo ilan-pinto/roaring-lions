@@ -1,11 +1,11 @@
-import { canonicalCampaign, canonicalSlot, claimEvidence, coinPrice, migrateRoar, emptyAccount, parseWorld, SAVE_VERSION, sha256Hex, storeInputFor, storeItems, worldMissionIds, type SaveSlot } from '@lions/economy';
-import { coupons, units, world } from '@lions/data';
+import { canonicalCampaign, canonicalSlot, claimEvidence, coinPrice, migrateRoar, emptyAccount, parseWorld, SAVE_VERSION, storeInputFor, storeItems, worldMissionIds, type SaveSlot } from '@lions/economy';
+import { challengeMissionIds, units, world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import type { D1Like, D1Stmt } from '../d1';
 import { digestOf } from './campaign';
 import { CLAIM_COUPON_COINS_CAP } from './config';
 import { handleAccount } from './routes';
-import { accountHarness, memberTablesInMigration, racingD1, seedWalletMember, swappableHarness } from './test-kit';
+import { accountHarness, memberTablesInMigration, racingD1, seedWalletMember, swappableHarness, testCouponTable, TEST_COUPON_COIN_ID, TEST_COUPON_CREDIT_ID } from './test-kit';
 
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY + 3_600_000;
@@ -15,9 +15,9 @@ let seq = 1;
 const op = (): string => `${String(seq++).padStart(8, '0')}-7777-4777-8777-777777777777`;
 const dev = (n: number): string => `dddddddd-${String(n).padStart(4, '0')}-4ddd-8ddd-dddddddddddd`;
 const CODE = 'TEST-CODE';
-const TABLE = coupons.map((c) => ({ ...c, sha256: sha256Hex(CODE) }));
-const COIN_ID = 'lead_roar_coins_100k';
-const CREDIT_ID = 'lead_special_units_10k';
+const TABLE = testCouponTable(CODE);
+const COIN_ID = TEST_COUPON_COIN_ID;
+const CREDIT_ID = TEST_COUPON_CREDIT_ID;
 const RICH = { coins: { free: 1_000_000, paid: 0 } };
 
 /** A ledger that has won each `[mission, stars]`. */
@@ -146,17 +146,37 @@ describe('POST claim', () => {
   });
 
   it('a_forged_record_is_bounded (A2-4)', async () => {
-    expect(ids.length).toBe(29);
+    expect(ids.length).toBe(38);
     const s = setup();
     const cookie = await member(s);
     const all = ids.map((id) => [id, 99] as [string, number]);
     const earn = { welcomed: true, campaignDone: true, backfilled: false, missions: Object.fromEntries(ids.map((id) => [id, { won: true, stars: 99 }])) };
     const r = await ok(await claim(s, cookie, { wallet: { ...RICH, earn }, campaign: campaignOf(all), slots: [{ id: 'x', slot: slotOf('x', 1, all) }] }));
-    expect(r.coins).toBeLessThanOrEqual(925);
-    expect(r.earned).toBe(925);
-    expect(await freeOf(s)).toBeLessThanOrEqual(925);
+    expect(r.coins).toBeLessThanOrEqual(1150);
+    expect(r.earned).toBe(1150);
+    expect(await freeOf(s)).toBeLessThanOrEqual(1150);
     const lifetime = await record(s, 'earn_lifetime');
     expect(Object.values(lifetime.missions).every((m) => (m as { stars: number }).stars <= 3)).toBe(true);
+  });
+
+  it('GH-1395: a forged challenge flag on every mission is bounded by the challenge index, and a second device pays none of it', async () => {
+    // 1,150 over the 38 missions (100 + 10 a mission + 5 a star + 100; 1,050 over 34 before Bir Tarsha I, II, III and V), plus 10 for each mission that HAS a challenge
+    // (six in the pilot), never 10 x 34.
+    expect(ids.length).toBe(38);
+    expect(challengeMissionIds.length).toBe(6);
+    const bound = 100 + 10 * ids.length + 5 * 3 * ids.length + 100 + 10 * challengeMissionIds.length;
+    expect(bound).toBe(1210);
+    const s = setup();
+    const cookie = await member(s);
+    const all = ids.map((id) => [id, 3] as [string, number]);
+    const earn = { welcomed: true, campaignDone: true, backfilled: false, missions: Object.fromEntries(ids.map((id) => [id, { won: true, stars: 3, challenge: true }])) };
+    const r = await ok(await claim(s, cookie, { wallet: { ...RICH, earn }, campaign: campaignOf(all) }));
+    expect(r.earned).toBe(bound);
+    const lifetime = await record(s, 'earn_lifetime');
+    const flagged = Object.entries(lifetime.missions).filter(([, m]) => (m as { challenge?: boolean }).challenge === true).map(([id]) => id).sort();
+    expect(flagged).toEqual([...challengeMissionIds].sort());
+    const again = await ok(await claim(s, cookie, { device: dev(2), wallet: { ...RICH, earn }, campaign: campaignOf(all) }));
+    expect(again.earned).toBe(0);
   });
 
   it('claimEvidence itself clamps stars 0 to 3 and ignores non-world missions (the clamp the route also relies on)', () => {
@@ -506,6 +526,35 @@ describe('POST claim', () => {
       expect(await freeOf(s)).toBe(135);
       expect(await sumOf(s)).toBe(135);
       expect(await count(s, 'device_claim')).toBe(2);
+    });
+  });
+});
+
+// GH-1385: the claim's journal rows, read whole. The claim tests read the balance, the SUM of the journal and the answer, so a
+// carried tier journalled with a unit's detail and a claim row whose `ceilingCut` was computed with the wrong sign both passed.
+describe('what a claim journals (GH-1385)', () => {
+  it('the claim row, then one row per carried item, each with its own detail; the ceiling cut is what the device ceiling took', async () => {
+    const s = setup();
+    const cookie = await member(s);
+    // The device holds 10 coins and owns dozer_d9 and its armour tier 1. The campaign earns 115; the unit costs 60 and the
+    // tier 25, so 30 are left to credit, and the device's own balance (10) is the ceiling: 20 are cut.
+    const wallet = { coins: { free: 10, paid: 0 }, entitlements: { units: { dozer_d9: { free: true } }, upgrades: { dozer_d9: { armour: { tier: 1, paidTiers: 0 } } } } };
+    const r = await ok(await claim(s, cookie, { campaign: campaignOf([[M1, 1]]), wallet }));
+    expect([r.earned, r.coins]).toEqual([115, 10]);
+    expect(await freeOf(s)).toBe(10);
+    const rows = (await s.h.db.prepare('SELECT kind, free_delta AS d, detail FROM coin_journal ORDER BY id').all<{ kind: string; d: number; detail: string }>()).results.map((x) => ({
+      kind: x.kind,
+      d: x.d,
+      detail: JSON.parse(x.detail) as Record<string, unknown>,
+    }));
+    expect(rows.map((x) => [x.kind, x.d])).toEqual([['backfill', 95], ['unit', -60], ['tier', -25]]);
+    expect(rows[0]?.detail).toEqual(expect.objectContaining({ earned: 115, couponCoins: 0, coupons: [], ceilingCut: 20 }));
+    expect(rows[1]?.detail).toEqual({ unitId: 'dozer_d9', receipt: expect.objectContaining({ kind: 'unit', unitId: 'dozer_d9', coins: { free: 60, paid: 0 } }) });
+    expect(rows[2]?.detail).toEqual({
+      unitId: 'dozer_d9',
+      track: 'armour',
+      tier: 1,
+      receipt: expect.objectContaining({ kind: 'tier', unitId: 'dozer_d9', track: 'armour', tier: 1, coins: { free: 25, paid: 0 } }),
     });
   });
 });

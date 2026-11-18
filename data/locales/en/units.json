@@ -1,0 +1,368 @@
+{
+  "aa_remetz": {
+    "name": "Remetz Laser Carrier",
+    "blurb": "A laser that burns small drones out of the air, and goes dark behind smoke or a wall.",
+    "src": {
+      "name": "14385624",
+      "blurb": "8bccd3e2"
+    }
+  },
+  "air_medevac_heli": {
+    "name": "Nachlieli Medevac",
+    "blurb": "Flies four wounded out of the fight. Unarmed, and it lands to load.",
+    "src": {
+      "name": "5dc86bf3",
+      "blurb": "e90d03b4"
+    }
+  },
+  "apc_eitan": {
+    "name": "Eitan APC",
+    "blurb": "Armour that keeps up with the tanks, seats for two, and a gun that answers aircraft.",
+    "src": {
+      "name": "8f478c3b",
+      "blurb": "741b7de8"
+    }
+  },
+  "apc_kipod": {
+    "name": "Kipod Screen Carrier",
+    "blurb": "Six seats behind reactive plate, and a gun that pins people without killing a truck.",
+    "src": {
+      "name": "ee7f351d",
+      "blurb": "1faaa340"
+    }
+  },
+  "at_nlos_team": {
+    "name": "Zaron Missile Team",
+    "blurb": "Kills what your side has spotted, without a sight line and at low collateral. Useless up close.",
+    "src": {
+      "name": "b8bd2c9b",
+      "blurb": "da3cf3c1"
+    }
+  },
+  "at_team": {
+    "name": "Spike AT Team",
+    "blurb": "Kills armour that rifles cannot touch, one missile at a time. Place it before you need it.",
+    "src": {
+      "name": "c9cf172c",
+      "blurb": "6724e20f"
+    }
+  },
+  "atgm_cell": {
+    "name": "ATGM Cell",
+    "src": {
+      "name": "afd1cfa3"
+    }
+  },
+  "attack_drone": {
+    "name": "Loitering Munition",
+    "blurb": "Flies itself at the nearest thing your side has identified, and does not come back.",
+    "src": {
+      "name": "c234ef11",
+      "blurb": "8fbef1fa"
+    }
+  },
+  "breach_team": {
+    "name": "Tzinah Breach Team",
+    "blurb": "Empties a garrisoned house instead of levelling it. No sustained fire costs Conduct less.",
+    "src": {
+      "name": "98483f1a",
+      "blurb": "89e5ac33"
+    }
+  },
+  "charge_squad": {
+    "name": "Suicide Squad",
+    "src": {
+      "name": "3d951ba5"
+    }
+  },
+  "civilians": {
+    "name": "Civilians",
+    "src": {
+      "name": "49a0f9eb"
+    }
+  },
+  "demo_squad": {
+    "name": "Combat Engineers",
+    "blurb": "Brings a building down from touching distance, without shelling the street to do it.",
+    "src": {
+      "name": "73a9ecc9",
+      "blurb": "038160ca"
+    }
+  },
+  "demo_tzav": {
+    "name": "Shiryonan Demolition Carrier",
+    "blurb": "Sets a fused charge against a wall and backs off. What stands too close goes with the house.",
+    "src": {
+      "name": "c7ab284e",
+      "blurb": "05ab3a80"
+    }
+  },
+  "digger_crew": {
+    "name": "Digger Crew",
+    "src": {
+      "name": "50ef4460"
+    }
+  },
+  "dozer_d9": {
+    "name": "D9 Dov",
+    "blurb": "Takes a building down with a blade instead of a shell. Unarmed, and it cannot be hurried.",
+    "src": {
+      "name": "bf713c0d",
+      "blurb": "3b484a74"
+    }
+  },
+  "drone_swarm": {
+    "name": "Drone Swarm",
+    "src": {
+      "name": "fb0a09d6"
+    }
+  },
+  "gun_truck": {
+    "name": "AA Gun Truck",
+    "src": {
+      "name": "0d35f21f"
+    }
+  },
+  "heli_peten": {
+    "name": "AH-64 Peten",
+    "blurb": "Crosses the map in seconds and kills armour at standoff. The cannon is the expensive half.",
+    "src": {
+      "name": "69734df1",
+      "blurb": "fdc00113"
+    }
+  },
+  "heli_peten_gunship": {
+    "name": "Peten Gunship",
+    "blurb": "A Peten with the hull for one more pass: the cannon for the open ground, Hellfires for armour.",
+    "src": {
+      "name": "c1c014c8",
+      "blurb": "29298346"
+    }
+  },
+  "heli_yanshuf": {
+    "name": "UH-60 Yanshuf",
+    "blurb": "Six squads anywhere on the map in a minute. Lose it in the air and you lose all of them.",
+    "src": {
+      "name": "774f5766",
+      "blurb": "574794e7"
+    }
+  },
+  "ifv_namer": {
+    "name": "Namer IFV",
+    "blurb": "Carries five under armour, but its 30mm is what arms the protected-zone penalty.",
+    "src": {
+      "name": "8e606e7f",
+      "blurb": "16bc3b20"
+    }
+  },
+  "inf_grenadier": {
+    "name": "Chomet Grenadier Squad",
+    "blurb": "Grenades reach men behind a wall, never inside a house. In a flagged street they cost Conduct.",
+    "src": {
+      "name": "8b42fce5",
+      "blurb": "41ea56be"
+    }
+  },
+  "inf_medic_squad": {
+    "name": "Nemala Medic Team",
+    "blurb": "Treats wounded men under fire and stretchers them out. It barely fights, and a load slows it.",
+    "src": {
+      "name": "65b31ff0",
+      "blurb": "3abf8155"
+    }
+  },
+  "inf_squad": {
+    "name": "Rifle Squad",
+    "blurb": "Holds ground and garrisons buildings. Its rifles are the safest thing to fire in a street.",
+    "src": {
+      "name": "1687e8ef",
+      "blurb": "1a2093b2"
+    }
+  },
+  "jeep_shoded": {
+    "name": "Shoded Jeep",
+    "blurb": "Fast and thin. Two seats, a machine gun, and nothing at all that stops a rocket.",
+    "src": {
+      "name": "3fbeefb9",
+      "blurb": "d39ff050"
+    }
+  },
+  "loiter_drone": {
+    "name": "Loitering Munition",
+    "src": {
+      "name": "c234ef11"
+    }
+  },
+  "manpad_team": {
+    "name": "MANPAD Team",
+    "src": {
+      "name": "603e28d5"
+    }
+  },
+  "mbt_lavi": {
+    "name": "Lavi MBT",
+    "blurb": "Wins any duel it can see out to twelve tiles. Its 120mm is the costliest round for ROE.",
+    "src": {
+      "name": "c1d606dc",
+      "blurb": "c67d3900"
+    }
+  },
+  "mbt_lavi_camo": {
+    "name": "Lavi Ambush Tank",
+    "blurb": "Waits under a net and is seen late. The net fouls its active protection, and a shot shows it.",
+    "src": {
+      "name": "3e72d1a0",
+      "blurb": "9afd41e6"
+    }
+  },
+  "militia_cell": {
+    "name": "Militia Cell",
+    "src": {
+      "name": "dfe80979"
+    }
+  },
+  "mortar_crew": {
+    "name": "Mortar Crew",
+    "src": {
+      "name": "2404c175"
+    }
+  },
+  "mortar_team": {
+    "name": "60mm Mortar Team",
+    "blurb": "Fires past its own sight, so someone else must look. You are billed for where it lands.",
+    "src": {
+      "name": "c84e5cec",
+      "blurb": "0c86f6af"
+    }
+  },
+  "moto_rpg": {
+    "name": "Armed Motorcycle",
+    "src": {
+      "name": "9be4961e"
+    }
+  },
+  "paramotor": {
+    "name": "Powered Parachute",
+    "src": {
+      "name": "a332f812"
+    }
+  },
+  "recoilless_team": {
+    "name": "Recoilless Team",
+    "src": {
+      "name": "05ecac3e"
+    }
+  },
+  "recon_drone": {
+    "name": "Recon Drone",
+    "blurb": "Sees sixteen tiles, further than anything else, and marks what it finds. Carries no weapon.",
+    "src": {
+      "name": "e5ab72dd",
+      "blurb": "62c5678b"
+    }
+  },
+  "recon_zikit": {
+    "name": "Shmamit Deep Recon Team",
+    "blurb": "Keeps a tunnel in sight from boulders or a house, unseen. Once found, it loses the fight.",
+    "src": {
+      "name": "94e2cfcb",
+      "blurb": "247ada9b"
+    }
+  },
+  "rocket_battery": {
+    "name": "Rocket Battery",
+    "src": {
+      "name": "9036e444"
+    }
+  },
+  "rpg_team": {
+    "name": "RPG Team",
+    "src": {
+      "name": "aba4a396"
+    }
+  },
+  "sarim_rifles": {
+    "name": "Sarim Rifles",
+    "src": {
+      "name": "0c2ef42a"
+    }
+  },
+  "scout_shachaf": {
+    "name": "Shachaf Scout Car",
+    "blurb": "A ground eye that sees sixteen tiles from its mast. A cupola machine gun reaches six tiles.",
+    "src": {
+      "name": "ac25b766",
+      "blurb": "63b4b286"
+    }
+  },
+  "sniper_team": {
+    "name": "Sniper Team",
+    "blurb": "Takes one man at a time, at the least cost a shot can carry. Firing shows the hide.",
+    "src": {
+      "name": "ac9b6882",
+      "blurb": "296e10bc"
+    }
+  },
+  "spg_cluster": {
+    "name": "Te'o Cluster Howitzer",
+    "blurb": "Bomblets shred men and trucks in the open, not armour or houses. Conduct pays for every round.",
+    "src": {
+      "name": "b6e46f31",
+      "blurb": "bd7bd112"
+    }
+  },
+  "spg_long_range": {
+    "name": "Te'o Howitzer",
+    "blurb": "Reaches deeper than any other gun and sees none of it. Every round is billed where it lands.",
+    "src": {
+      "name": "a4b7c010",
+      "blurb": "f2222dda"
+    }
+  },
+  "technical": {
+    "name": "Armed Technical",
+    "src": {
+      "name": "f54c23bc"
+    }
+  },
+  "ugv_recon_dog": {
+    "name": "Chadaf Recon Robot",
+    "blurb": "Walks boulders and alleys no wheel can, and finds tunnel routes. Unarmed, and cheap to lose.",
+    "src": {
+      "name": "95107cb2",
+      "blurb": "b7a5cb34"
+    }
+  },
+  "veh_ambulance": {
+    "name": "Pered Armoured Ambulance",
+    "blurb": "Carries four wounded under armour, and none bleeds near it. No gun at all.",
+    "src": {
+      "name": "5b56b811",
+      "blurb": "de815afa"
+    }
+  },
+  "wounded_kdf": {
+    "name": "Wounded Soldier",
+    "blurb": "A man down. He bleeds out unless a medic reaches him, and nobody fires on him.",
+    "src": {
+      "name": "4e42a2a5",
+      "blurb": "48bcc321"
+    }
+  },
+  "wounded_sarim": {
+    "name": "Wounded Fighter",
+    "blurb": "A man down. He bleeds out unless a medic reaches him, and nobody fires on him.",
+    "src": {
+      "name": "5ac2754c",
+      "blurb": "48bcc321"
+    }
+  },
+  "yahalom_squad": {
+    "name": "Yahalom Engineers",
+    "blurb": "The only team that can collapse a tunnel.",
+    "src": {
+      "name": "506e0184",
+      "blurb": "8deb05cd"
+    }
+  }
+}

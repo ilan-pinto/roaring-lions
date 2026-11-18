@@ -25,7 +25,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { maps, parseMap, type MapJson } from '@lions/data';
+import { parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { groundWorldY } from '../../packages/render/src/three/ground-height';
 import { terrainSurfaceFrom } from '../../packages/render/src/three/terrain/surface';
 import { placeKit, type BackdropSpec } from '../../packages/render/src/three/terrain/backdrop';

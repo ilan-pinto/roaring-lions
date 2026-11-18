@@ -532,7 +532,7 @@ ends.** The Marj's first build-up, so its commit also carries the re-briefs of n
 | flag | kind | meaning |
 |---|---|---|
 | `bring_four_across` | objective, primary, **failable** | all four of the taken at `pause_refuge` before 330 s; writes `civ.hostages_recovered` 4 |
-| `hold_the_forward_ground` | objective, primary | 300 s uncontested presence in `staging`, **banked from the first tick** (F-1) |
+| `hold_the_forward_ground` | objective, primary | 360 s uncontested presence in `staging`, **banked from the first tick** (F-1; the lead ruled 360 s on 15 Nov 2026 after `playtest` measured 300 s done at 306 s) |
 | `keep_the_pause` | objective, primary, **failable** | Conduct lost has stayed at 5 or under |
 | `take_the_water_point`, `find_the_yard_watch` | objectives, secondary (the second `carries` → IV) | the cistern held 15 s; the yard watch identified |
 | `the_handover_party_steps_back` | trigger, fired | 90 s: the two rifles at the handover have gone to (17,25) |
@@ -554,7 +554,7 @@ ends.** The Marj's first build-up, so its commit also carries the re-briefs of n
 | 3.09 | `wave_390` | `at_seconds 390` | `militia_cell ×2` + `rpg_team` at `city_north` → `staging_point` | alert layer | live |
 | 3.10 | `evacuated` ×4 | civilian inside `pause_refuge` | `clear (1)` | `notice.evacuated` | live |
 | 3.11 | `bring_four_across` complete / failed | 4 out; tick ≥ 330 s | complete (+40 Intel) / mission lost | N§3.7 Shai, Shai | live |
-| 3.12 | `hold_the_forward_ground` complete | 300 s banked | complete | N§3.7 net | live |
+| 3.12 | `hold_the_forward_ground` complete | 360 s banked | complete | N§3.7 net | live |
 | 3.13 | `keep_the_pause` failed / complete | `100 - Conduct > 5` / every other primary complete | mission lost / complete | N§3.7 Shai | live |
 | 3.14 | `take_the_water_point`, `find_the_yard_watch` complete | their conditions | complete (+40 Intel each) | N§3.7 net, Idit | live |
 | 3.15 | `missionEnd` victory | all three primaries | `aftermath` + `debrief` | N§3.5, N§3.6 | live |
@@ -713,7 +713,7 @@ The map has the water point's cistern (rows 1, 38 to 42) and **no** seam berm (r
 ```json ql3.objectives
 [
   {"id": "bring_four_across", "type": "evacuate_before", "primary": true, "target": "pause_refuge", "count": 4, "seconds": 330, "hostages": true, "text": "Bring all four of the taken south of the Cut", "say": {"speaker": "shai", "text": "Four across. Whatever happens on the forward ground now, that part is done."}, "say_on_fail": {"speaker": "shai", "text": "Not all four are across, and that ground will not be quiet again. There is no second handover."}},
-  {"id": "hold_the_forward_ground", "type": "hold_for", "primary": true, "target": "staging", "seconds": 300, "text": "Hold the forward ground for five minutes", "say": {"speaker": "net", "text": "Forward ground held. The checkpoint has a line in front of it again."}},
+  {"id": "hold_the_forward_ground", "type": "hold_for", "primary": true, "target": "staging", "seconds": 360, "text": "Hold the forward ground for six minutes", "say": {"speaker": "net", "text": "Forward ground held. The checkpoint has a line in front of it again."}},
   {"id": "keep_the_pause", "type": "no_collateral_above", "primary": true, "threshold": 5, "text": "Lose no more than 5 Conduct", "say_on_fail": {"speaker": "shai", "text": "That is more than five Conduct, and five was all the pause had to give."}},
   {"id": "take_the_water_point", "type": "capture", "primary": false, "target": "water_point", "seconds": 15, "text": "Take the water point west of the checkpoint", "say": {"speaker": "net", "text": "Water point held. It pays for the next fight from here."}},
   {"id": "find_the_yard_watch", "type": "locate", "primary": false, "target": "ql_yard_watch", "carries": true, "text": "Identify the watch in the clinic yard", "say": {"speaker": "idit", "text": "Rocket team standing in the clinic yard, on the open ground. He goes on the board, and he does not get the first shot when we go in there."}}
@@ -1383,3 +1383,27 @@ assembles five scratch missions.
 **Not run, and why.** `pnpm validate:data`, `walk_placements.ts`, `walk_mission.ts`, FlowField lengths, `map_visibility`,
 `pnpm playtest`: they read `data/maps/` and `data/missions/`, which do not exist for this town. Nothing here was
 estimated into a difficulty claim; every difficulty question is a `playtest` ask.
+
+---
+
+## 12. Revision of 15 Nov 2026 (the lead's ruling on PR 1452)
+
+**The five maps are now five distinct city maps.** `tools/src/map_distinctness.test.ts` (GH-382) stands with no allowlist, and the
+single-base-plus-rows grids of `design.md` section 3 read 96 to 100% identical. Each map in `data/maps/` now keeps verbatim only the ground
+its mission is about, and lays the rest of the city again:
+
+| map | kept verbatim from the design grid |
+|---|---|
+| `qasr_liwan` | the courtyard and its lane (x12-24, y4-12), the water-tower knoll (x31-34, y4-7), the seam berm (x3-9, y0-2) |
+| `qasr_liwan_2` | the seam berm and the Cut's checkpoint (x22-35, y38-44) |
+| `qasr_liwan_3` | the Cut's checkpoint and the cistern (x15-18, y37-39) |
+| `qasr_liwan_4` | the clinic compound, its walls, gates, sandbags and the clinic (x23-36, y18-31); **no checkpoint** |
+| `qasr_liwan_5` | the relief depot's walled yard (x6-15, y17-26) and the pump yard's two pump houses and cover (x3-7, y26-32); **no checkpoint** |
+
+Everywhere else the maps share only the coast road (x=2), the inland road (x=40), the Cut road (y=41) and the north road (y=3); the cross
+streets, houses, shanties, warehouses, scrub and cover differ per map (generated, seeded, then checked for reachability of every
+marker, placement and civilian from the start). **No placement, marker, zone or tunnel moved**, so every fragment in this file is unchanged
+except QL III's `hold_the_forward_ground` (section 5.7: `seconds` 360, text "Hold the forward ground for six minutes"). What changed is
+the ground between them: section 8's QL-A1, A2, A4, A5, A7 and A8 tables still hold (zones, markers and positions did not move), and
+QL-A3's walk lengths are re-measured in `tools/src/qasr_liwan_doctrine.test.ts`, which is now the record. QL-A6 (route identification
+from outside the depot) was re-measured too. `design.md` section 3's grids are the *design* of the ground, not the shipped rows.

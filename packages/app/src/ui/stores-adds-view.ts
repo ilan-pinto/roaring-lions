@@ -4,7 +4,8 @@
 // numbers included, is a catalogue key with params, so `?pseudo=1` brackets every text node in the panel. The panel
 // carries no Buy and reads no wallet: it takes the Stores' own `StoreInput` and the shipped data, nothing else.
 // Everything it makes is one element the caller mounts and removes.
-import { doctrines, missions, units, world } from '@lions/data';
+import { doctrines, units, world } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { specialRefusal } from '@lions/net';
 import type { MissionJson } from '@lions/sim';
 import { t } from '../i18n/t';
@@ -75,6 +76,7 @@ export function addsInput(unitId: string, input: StoreInput): AddsInput | null {
     enemies: s.enemies,
     open,
     ownedTiers: input.owned ?? {},
+    ownedPicks: input.ownedPicks ?? {},
     ledger: input.ledger,
     missions: s.missions,
     worldMissionIds: s.worldMissionIds,

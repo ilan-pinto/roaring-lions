@@ -9,13 +9,74 @@
 // in sync.
 //
 // Leaf package rule (CLAUDE.md): @lions/data imports no other @lions
-// package. This module imports nothing but its own types.
+// package. This module imports nothing but its own types and the branch switch.
+import { BRANCHES_OPEN } from './branches-open';
+
+/** Which branch of a branched tier is owned (GH-1384): 1 or 2, never 0, never "both". */
+export type BranchPick = 1 | 2;
+/** One unit's picks, keyed by TRACK: which branch of that track's branched last tier is owned.
+ *  It holds one entry per branched track owned at its last tier, however many the unit has. */
+export type BranchPicks = Readonly<Record<string, BranchPick>>;
+/** A store's or a view's picks: keyed by unit, then by track. Never by track alone. */
+export type OwnedPicks = Readonly<Record<string, BranchPicks>>;
+
+/** One branch of a branched tier (GH-1384, design 2026-11-17 §1.1). `label` is an
+ *  `en.json` KEY (`garage.branch.<unit>.<id>`), never text. `patch` is a plain tier's
+ *  patch: the cumulative DELTA over base. */
+export interface UpgradeBranch {
+  id: string;
+  label: string;
+  patch: Record<string, number>;
+}
 
 /** One priced tier: `patch` maps a whitelisted path to a cumulative DELTA
  *  over the unit's base value (not the delta over the previous tier). */
-export interface UpgradeTier {
+export interface PlainTier {
   price: number;
   patch: Record<string, number>;
+  branches?: undefined;
+}
+
+/** A branched tier (GH-1384): exactly two `branches` sharing the one `price`, and no
+ *  `patch` of its own. Only a track's LAST tier may be branched (validator rule B1);
+ *  the schema holds `branches` to exactly two. It is typed as an array, not a pair,
+ *  because a JSON import infers an array and the shipped unit files must type-check
+ *  against this interface without a cast. */
+export interface BranchedTier {
+  price: number;
+  branches: readonly UpgradeBranch[];
+  patch?: undefined;
+}
+
+export type UpgradeTier = PlainTier | BranchedTier;
+
+/** Whether a tier is branched. */
+export function isBranchedTier(tier: UpgradeTier): tier is BranchedTier {
+  return tier.branches !== undefined;
+}
+
+const isPick = (v: unknown): v is BranchPick => v === 1 || v === 2;
+
+/** The patch a tier applies: a plain tier's own, or the PICKED branch's of a branched
+ *  tier. `undefined` for a branched tier with no pick, or a pick that is not 1 or 2, so a
+ *  caller cannot read an unpicked branched tier as either branch, or as both.
+ *
+ *  While branching is closed (`open` false, which is `BRANCHES_OPEN` unless a test says
+ *  otherwise) a branched tier reads as its ENVELOPE, the per-path maximum of its two
+ *  branches, whatever the pick: that is the linear tier 3 it replaced. Production callers
+ *  never pass `open` (`branch-switch-wiring.test.ts`). */
+export function tierPatch(tier: UpgradeTier, pick?: unknown, open: boolean = BRANCHES_OPEN): Readonly<Record<string, number>> | undefined {
+  if (!isBranchedTier(tier)) return tier.patch;
+  if (!open) return envelopeOf(tier);
+  if (!isPick(pick)) return undefined;
+  return tier.branches[pick - 1]?.patch;
+}
+
+/** A branched tier's envelope: per path, the larger of the two branches' deltas. */
+function envelopeOf(tier: BranchedTier): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const b of tier.branches) for (const [path, v] of Object.entries(b.patch)) out[path] = path in out ? Math.max(out[path], v) : v;
+  return out;
 }
 
 /** One upgrade track: an ordered list of tiers, tier 1 at index 0. */
@@ -147,8 +208,64 @@ function addDeltaAlongPath(root: Record<string, unknown>, path: string, delta: n
   }
 }
 
+/** The unit's tracks whose LAST tier is branched, sorted (GH-1384). Any track may branch,
+ *  and a unit may branch more than one (the lead, Q3); slice 1's content branches one. */
+export function branchedTracks(unit: UpgradableUnit): readonly string[] {
+  const out: string[] = [];
+  for (const [name, track] of Object.entries(unit.upgrades ?? {})) {
+    const last = track.tiers[track.tiers.length - 1];
+    if (last !== undefined && isBranchedTier(last)) out.push(name);
+  }
+  return out.sort();
+}
+
+/** The two branches of `track`'s branched last tier, or `null` when it is not branched. */
+export function branchOf(unit: UpgradableUnit, track: string): readonly [UpgradeBranch, UpgradeBranch] | null {
+  const tiers = unit.upgrades?.[track]?.tiers;
+  const last = tiers?.[tiers.length - 1];
+  if (last === undefined || !isBranchedTier(last)) return null;
+  const [a, b] = last.branches;
+  return a !== undefined && b !== undefined ? [a, b] : null;
+}
+
+/** Every branched track of the unit at `pick` (the uniform vector the balance gates run),
+ *  or per track when `pick` is a map (a track the map does not name is left out). */
+export function maxPicks(unit: UpgradableUnit, pick: BranchPick | BranchPicks): Record<string, BranchPick> {
+  const out: Record<string, BranchPick> = {};
+  for (const track of branchedTracks(unit)) {
+    const p = typeof pick === 'number' ? pick : pick[track];
+    if (isPick(p)) out[track] = p;
+  }
+  return out;
+}
+
+/** One branched track as the economy sees it: the branched tier's NUMBER (the track's
+ *  length, since only the last tier may branch) and its one price, read from the unit's JSON
+ *  so a refund is priced from data, never from a store. */
+export interface BranchedTrack {
+  readonly tier: number;
+  readonly price: number;
+}
+/** Unit id -> each of its branched tracks, for every unit that has one. The economy's
+ *  migrations, buy guards and the legacy Switch and Return read this table; a test builds it
+ *  from inline fixtures, the app and the Worker from the shipped roster. */
+export type BranchedTable = Readonly<Record<string, Readonly<Record<string, BranchedTrack>>>>;
+export function branchedTable(roster: Iterable<UpgradableUnit>): BranchedTable {
+  const out: Record<string, Record<string, BranchedTrack>> = {};
+  for (const u of roster) {
+    for (const track of branchedTracks(u)) {
+      const tiers = u.upgrades?.[track]?.tiers ?? [];
+      const last = tiers[tiers.length - 1];
+      if (last === undefined) continue;
+      (out[u.id] ??= {})[track] = { tier: tiers.length, price: last.price };
+    }
+  }
+  return out;
+}
+
 /** Every track at its maximum tier — what the harness and the balance
- *  backtest run, to price and to simulate the fully-upgraded unit. */
+ *  backtest run, to price and to simulate the fully-upgraded unit. A branched
+ *  last tier also needs a pick (`maxPicks`), or `applyUpgrades` stops below it. */
 export function maxTiers(unit: UpgradableUnit): Record<string, number> {
   const out: Record<string, number> = {};
   const tracks = unit.upgrades;
@@ -209,8 +326,23 @@ export function nextTierPrice(unit: UpgradableUnit, track: string, current: numb
  *  after a purchase — this never throws for that reason). Throws on a patch
  *  path outside UPGRADE_PATHS, naming the offending path: the schema
  *  validates this upstream, so reaching an unlisted path here is a
- *  programming error, not a data error to recover from. */
-export function applyUpgrades<T extends UpgradableUnit>(unit: T, tiers: Readonly<Record<string, number>>): T {
+ *  programming error, not a data error to recover from.
+ *
+ *  `picks` (GH-1384) names, per TRACK, which branch of that track's branched tier is
+ *  owned. It is REQUIRED, with no default, so the compiler lists every caller: a default
+ *  of `{}` would let one silently drop a player's branched tier. A branched tier with no
+ *  pick, or a pick that is not 1 or 2, is NOT applied, and the walk stops below it (the
+ *  track resolves as owned to the tier under it): an unpicked branched tier is never free
+ *  stats, and never "both". The pick is looked up by THAT track inside the per-track loop,
+ *  so two branched tracks resolve independently. */
+export function applyUpgrades<T extends UpgradableUnit>(
+  unit: T,
+  tiers: Readonly<Record<string, number>>,
+  picks: BranchPicks,
+  /** The branch switch (`BRANCHES_OPEN`). Closed, a branched tier resolves as its envelope
+   *  (`tierPatch`). Only a test passes it. */
+  open: boolean = BRANCHES_OPEN
+): T {
   // Top-level shallow copy so the identity case still returns a new object,
   // and so every field addDeltaAlongPath does not touch is shared by
   // reference with the input (acceptable per the brief).
@@ -244,7 +376,9 @@ export function applyUpgrades<T extends UpgradableUnit>(unit: T, tiers: Readonly
     const tierIndex = Math.min(Math.max(requestedTier, 0), track.tiers.length); // clamp to max
     const perTrack: Record<string, number> = {};
     for (let i = 0; i < tierIndex; i++) {
-      for (const [path, delta] of Object.entries(track.tiers[i].patch)) {
+      const patch = tierPatch(track.tiers[i], picks[trackName], open);
+      if (patch === undefined) break; // a branched tier with no pick: stop below it
+      for (const [path, delta] of Object.entries(patch)) {
         if (!isWhitelisted(path)) {
           throw new Error(`applyUpgrades: patch path "${path}" is outside the UPGRADE_PATHS whitelist`);
         }

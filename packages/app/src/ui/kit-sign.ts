@@ -14,7 +14,7 @@
 // drawn by `brigade.ts`'s bay plate); the three track heads are the approved
 // hand-drawn emblems in `assets/ui/kit/` (`kit-emblems.ts`), and the old
 // built-in track glyphs that backed them up are deleted.
-import { applyUpgrades, kitCounts, kitLevel, readPath, type KitLevel, type UpgradableUnit } from '@lions/data';
+import { applyUpgrades, kitCounts, kitLevel, readPath, type BranchPicks, type KitLevel, type UpgradableUnit } from '@lions/data';
 import { t } from '../i18n/t';
 import { escapeHtml } from './escape-html';
 
@@ -182,11 +182,11 @@ function clampTier(v: number | undefined, len: number): number {
   return v !== undefined && Number.isFinite(v) ? Math.min(Math.max(Math.trunc(v), 0), len) : 0;
 }
 
-function hpKitOf(unit: UpgradableUnit, owned: Readonly<Record<string, number>>): number {
+function hpKitOf(unit: UpgradableUnit, owned: Readonly<Record<string, number>>, picks: BranchPicks): number {
   const base = readPath(unit, 'hull.hp');
   if (base === undefined) return 0;
   try {
-    const kitted = readPath(applyUpgrades(unit, owned), 'hull.hp');
+    const kitted = readPath(applyUpgrades(unit, owned, picks), 'hull.hp');
     return kitted === undefined ? 0 : Math.round((kitted - base) * 100) / 100;
   } catch {
     // `applyUpgrades` refuses a patch path the JSON does not declare. The
@@ -199,6 +199,9 @@ function hpKitOf(unit: UpgradableUnit, owned: Readonly<Record<string, number>>):
 export function kitSummary(
   unit: UpgradableUnit,
   owned: Readonly<Record<string, number>>,
+  /** GH-1384: the branch owned per branched track (required: the hp a branched armour tier buys
+   *  depends on it). */
+  picks: BranchPicks,
   earned: Readonly<Record<string, number>> = owned
 ): KitSummary {
   const tracks = unit.upgrades ?? {};
@@ -219,7 +222,7 @@ export function kitSummary(
       const length = tracks[track]?.tiers.length ?? 0;
       return { track, owned: clampTier(owned[track], length), length };
     }),
-    hpKit: hpKitOf(unit, owned),
+    hpKit: hpKitOf(unit, owned, picks),
     spent,
     total,
   };
