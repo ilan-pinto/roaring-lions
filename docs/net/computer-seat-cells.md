@@ -13,7 +13,7 @@ table does not list is closed, so a new ground or mode stays closed until the pr
 
 Two judgements, for the lead to overrule:
 
-1. **"No order for 60 s" is read as the idle-unit stall, not the literal one.** The literal reading fires in 85% of games including every mirror cell (a seat in a firefight is
+1. **"No order for 60 s" is read as the idle-unit stall, not the literal one.** The literal reading fires in about 83% of games (845 of 992 in the first matrix) including every mirror cell (a seat in a firefight is
    silent by design), so under it nothing could open. The idle-unit reading is the one that means the seat stopped playing. The literal count is in the table.
 2. **One stalled game closes a cell.** Tel Marum KDF and Sarim annihilation each had 1 of 48 and are closed on that; they are also the cells where the clock decides most
    games (`time` 38 and 31 of 48). The other four economy cells stalled in 28 to 39 of 48.
@@ -56,10 +56,10 @@ Two judgements, for the lead to overrule:
 
 ## What it means
 
-- **Open: every mirror cell, and the camp race on both Wadi Tarfans for either human side.** The Sarim commander and the KDF commander both play. In those cells the forces are placed (a mode on a faction pairing is the placed forces), so there is no purse: the seat plays as the shipped script does, and what the lobby changes is that the cells can be reached.
+- **Open: every mirror cell, and the camp race on both Wadi Tarfans for either human side.** What the data supports is narrower than "both commanders play": in these cells the seat never sat idle while able to act. The forces are placed (a mode on a faction pairing is the placed forces), so there is no purse and the seat plays as the shipped script does: it attack-moves once and fights, a median of 1 order a game against `rush`, and loses to `rush` in most Wadi Tarfan camp games as Sarim (17 of 24 and 20 of 24). And the verdict is partly structural: 58 of the 1136 seat-1 games in the open cells end before a 60 s stall is possible (24 of 48 in each KDF camp race). What the lobby changes is that the cells can be reached; how well the seat plays them is the commander's, not this table's.
 - **Closed: the skirmish-economy pairings in annihilation (KDF and Sarim humans, on Tel Marum, Wadi Tarfan and Wadi Tarfan (large)).** The idle units were at home (the away-from-home reading is 0 in every game), so they may be the commander's own guard and zone holders and not a seat that gave up; the probe cannot tell the two apart. That is the guard question (slice 1, HOLD FOR LEAD), not something this change can settle without a number.
 - **Offered but unmeasured: nothing.** All 31 cells are in the table; points and flag on the faction pairings are not offered by `winModesOffered` today.
-- The seat the lobby arms is now `createCommander()` (slice 1) rather than the bare `rush` script. In a mirror room the two are move-for-move identical (the ladder: 1890 of 1890 games), so the mirror annihilation plays exactly as before.
+- The seat the lobby arms is now `createCommander()` (slice 1) rather than the bare `rush` script. In a mirror room the two are move-for-move identical (measured in the GH-1389 ladder: 1890 of 1890 games, tick for tick; the comment is on GH-1389), so the mirror annihilation plays exactly as before.
 
 ## Falsification
 

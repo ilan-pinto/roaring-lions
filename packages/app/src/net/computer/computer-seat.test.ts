@@ -95,6 +95,12 @@ describe('a match against the computer seat runs to a result with no network at 
     expect(() => offlineConfig(REQ)).not.toThrow();
   });
 
+  it('a camp race on a faction pairing runs to a result through the battlefield\'s own loop: Wadi Tarfan, a passive KDF human against the Sarim commander (GH-1390)', () => {
+    const run = play({ ...REQ, map: 'wadi_tarfan', matchup: 'kdf', winMode: 'camp' }, { maxTicks: 24_000 });
+    expect(run.result, `no result after ${run.ticks} ticks`).not.toBeNull();
+    expect(run.computerOrders).toBeGreaterThan(0);
+  }, 300_000);
+
   it('a passive human on milh_flats (the worst cell) is found: the match reaches a result inside 20 sim-minutes, seeds 1001-1003', () => {
     for (const seed of [1001, 1002, 1003]) {
       const run = play({ ...REQ, map: 'milh_flats', seed }, { maxTicks: 24_000 });

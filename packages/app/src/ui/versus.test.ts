@@ -1726,13 +1726,14 @@ describe('the computer seat in the lobby', () => {
     expect(section.hidden).toBe(false);
   });
 
-  it('GH-1390: a win mode rides to the arming call, and the seat follows the mode: open in the mirror camp race, hidden when the cell is not a room', async () => {
+  it('GH-1390: a win mode rides to the arming call (the mirror camp race on Wadi Tarfan), and the seat stays on offer there', async () => {
     const playComputer = vi.fn().mockResolvedValue('OFFLINE');
     const stage = mountPick(deps({ playComputer }));
     pickMap(stage, 'wadi_tarfan');
     const camp = stage.querySelector<HTMLInputElement>('.rl-versus__win-options input[value="camp"]')!;
     camp.click();
     camp.dispatchEvent(new Event('change'));
+    expect(stage.querySelector<HTMLElement>('.rl-versus__cpu')!.hidden).toBe(false);
     cpuButton(stage)!.click();
     await flush();
     expect(playComputer.mock.calls[0]![0]).toMatchObject({ map: 'wadi_tarfan', matchup: 'mirror', winMode: 'camp' });

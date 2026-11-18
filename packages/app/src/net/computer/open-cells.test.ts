@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { factionsOfMatchup, type Frame, type MatchTransport } from '@lions/net';
+import { factionsOfMatchup, flagSetupFor, type Frame, type MatchTransport } from '@lions/net';
 import { buildMatchWorld, matchTick } from '../match-world';
 import { runFrames, seatWorldFor } from '../frame-step';
 import { dropOffline } from '../offline-slot';
@@ -57,6 +57,17 @@ describe('where the lobby seats the computer (GH-1390)', () => {
       expect(cfg.seats[COMPUTER_SEAT].kind, key).toBe('bot');
       expect(cfg.winMode ?? null, key).toBe(c.winMode);
     }
+  });
+
+  it('a flag room carries the set-up rules a room mints (the probe measured the flag cells with them); no other room does', () => {
+    for (const c of allComputerCells().filter((x) => computerSeatOpen(x.map, x.matchup, x.winMode))) {
+      const cfg = offlineConfig(REQ(c));
+      expect(cfg.flagSetup === true, `${c.map} ${c.matchup} ${c.winMode}`).toBe(c.winMode === 'flag' && flagSetupFor(c.map, 'flag') === true);
+    }
+    // Four flag cells are open and each is a set-up map: a literal, so a mutation that drops the field cannot hide behind the same helper.
+    const flagCells = allComputerCells().filter((x) => x.winMode === 'flag' && computerSeatOpen(x.map, x.matchup, x.winMode));
+    expect(flagCells.length).toBe(4);
+    for (const c of flagCells) expect(offlineConfig(REQ(c)).flagSetup, c.map).toBe(true);
   });
 
   it('the seat the lobby arms is the commander (slice 1: defend, zones, production, guard), not the bare rush script; the caller may still name another', () => {
