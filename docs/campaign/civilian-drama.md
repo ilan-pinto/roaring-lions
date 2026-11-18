@@ -32,9 +32,20 @@ once.
   when the objective counts three; `wadi_halam_4_village` said "Every one of them is at the refuge" when it counts three of four;
   the English catalogue is regenerated and the two German lines changed to match, AI-translated and not proofread), and the
   `evacuate_before` over-count is recorded as gap **G-6** (§4).
-- **Still HOLD FOR LEAD:** Q4 (the 256-entity cap), Q5 (the pilot's frame measurement), Q6 (scoring on the after-action report), Q7,
-  Q8, Q9, Q10 (art numbers: the gate is a Blender build at 0 credits, six Meshy civilian variants at about 240 to 420 credits, nothing
-  spent) and Q11.
+- **Rulings from the lead's 5-point review of this design (18 Nov, relayed by the PM):**
+  1. **The rescue clock is allowed.** A downed civilian bleeds out over 60 s unless rescued (the existing wound system), shown only as
+     the `down` pose. D18 now carries the clause: "a downed civilian may be rescued before they are lost; nothing is shown beyond the
+     `down` pose."
+  2. **Q11 is KEEP** ("eleven" stands: eleven, two counted in, nine not), **conditional on E3**.
+  3. **E3** (group-scoped counting, `collect` scoped to active objectives) is **the first and largest engine piece**.
+  4. **The pilot's frame cost is measured before anything else ships** (up to 180 living entities; this answers Q5).
+  5. **Order:** data first; the vehicle snatch (T3, with E9's vehicle pieces and G-9) is DEFERRED; `road_in` stays thin (a small bonus, not
+     a second win condition); the E13 force-to-gate rule is RELAXED (one `at_team` stands 4.61 tiles from the west gate).
+- **Fixed in this revision:** the stale Q2 recon text in section 7 is marked superseded; the `mission.ts:4846` citation (the `evacuatedCount`
+  comparison is at `mission.ts:4843`); the two stale German overlay hashes (`wadi_halam_1_fords` `objective_say.get_the_carriers_out`,
+  `wadi_halam_4_village` `objective_say.evac_families`) now equal the current English.
+- **Still HOLD FOR LEAD:** Q4 (the 256-entity cap), Q6 (scoring on the after-action report), Q7, Q8, Q9 and **Q10** (art numbers: the gate is
+  a Blender build at 0 credits, six Meshy civilian variants at about 240 to 420 credits, nothing spent until the lead approves the spend).
 
 **The one-line answer.** Most of this is buildable. The crowd, the time pressure, the scoring
 and a "blocked road" threat can ship as data today. The gate needs one medium sim change. Two
@@ -340,7 +351,7 @@ carrier is buildable today (`docs/agent-notes/sim-and-orders.md:140`).
 **Today, precisely:**
 - **Civilians** are a placement list plus one `refuge` marker (`mission.schema.json:531-550`). They are "untargetable by either side; hurt only by ordnance" (`:533`; `sim.ts:8023-8025`).
 - **Flight**: they shelter until suppressed past 0.3, or until a ground soldier comes within 4 tiles in a mission with an `evacuate_before` (`civilians.ts:27-33`, `:200-215`).
-- **`evacuate_before`** counts **all** civilians globally (`complete = this.civFlight.evacuatedCount >= count`, `mission.ts:4846`). `hostages: true` writes `civ.hostages_recovered` (`mission.schema.json:404-407`).
+- **`evacuate_before`** counts **all** civilians globally (`complete = this.civFlight.evacuatedCount >= count`, `mission.ts:4843`). `hostages: true` writes `civ.hostages_recovered` (`mission.schema.json:404-407`).
 - **Trigger conditions**: `first_contact`, `casualties_pct` (global, over the starting garrison, `mission.ts:4522-4535`), `timer_s`, `zone_entered` (any player unit, **aircraft included**: `livingIn(z, 0)` with `groundOnly` false, `mission.ts:4536-4538`, `:4387-4403`) and `group_in_zone` (any side, `:4539-4546`).
 - **Trigger actions**: `commit` (attack-move with sweep), `withdraw_to` (move), `spawn` (side 1), `reinforce` (side 0), `dismount`, and `remove` (a group leaves play; riders go with their carrier; restricted to a `zone` if one is given; `mission.ts:4607-4640`, `schema:741-799`). `remove` landed (`storyline.md:604-606`), so G7's abduction verb exists. The `execute` verb does not, and this design does not ask for it.
 - **Stances**: `hold_position | ambush(tiles) | patrol | garrison` (`schema:948-989`).
@@ -513,7 +524,7 @@ Each one shows a method.
 > they leave play as taken; and enemy fire aimed at soldiers may fall among civilians. Nothing
 > else is shown: no harm to anyone already taken, no execution, no blood, wound or body effect
 > beyond the shipped `down` pose, no camera move, close-up or sound made for these moments, and
-> no child figure among people under aimed fire. The story voice still names only what
+> no child figure among people under aimed fire; a downed civilian may be rescued before they are lost; nothing is shown beyond the `down` pose. The story voice still names only what
 > happened — fell, taken, a number — never a method; and every such mission gives the player
 > the means and the time to prevent most of it.
 
@@ -533,7 +544,9 @@ Each one shows a method.
 play needs a threat the player can see and stop. B keeps the drama abstract: a number at a
 deadline.
 
-**Q2: which mission is "the first mission"?** `world.json` puts **`beit_sahwan_breach`** first
+**Q2: which mission is "the first mission"? SUPERSEDED: the lead ruled it is `beit_sahwan_breach` (see the rulings block at the head); the recon text below is kept only as the question as it was asked, and its recommendation is not followed.**
+
+_Original text:_  `world.json` puts **`beit_sahwan_breach`** first
 after the tutorial. The breach already has a compound (`marj_perimeter` `compound`
 [18,17,13,13], with wall gaps at (17,21–22) and (31,24–25)) and 11 civilians outside it.
 "Three civilians outside the camp" matches `beit_sahwan_1_recon`'s count, but recon has no
@@ -1008,7 +1021,8 @@ data/missions/*.json` returns.
 ### 9.5 What changes in canon
 
 **D18 — Option A** (proposed for `storyline.md` §0.1; differs from §7's draft only where
-marked ✱):
+marked ✱). NOTE: the lead ruled Option A on §7's wording, which is what `storyline.md` §0.2 carries, plus the
+rescue clause of 18 Nov; this refined text is a proposal, not what was adopted:
 
 > **D18 — Civilians in danger, in play.** On the map the enemy may endanger civilians in
 > three ways and no others: an enemy unit may fire toward civilians who are running ✱while no
@@ -1018,7 +1032,9 @@ marked ✱):
 > among civilians. Nothing else is shown or said: no harm to anyone already taken, no
 > execution, no blood, wound or body effect, no camera move, close-up, sound or line made for
 > these moments, ✱no child figure among people under aimed fire, led away or carried off, no
-> line in the enemy's voice about civilians, and no stated purpose for the taken✱. The story
+> line in the enemy's voice about civilians, and no stated purpose for the taken✱. A downed
+> civilian may be rescued before they are lost; nothing is shown beyond the `down` pose (the
+> lead's ruling of 18 Nov). The story
 > voice names only what happened (fell, taken, across the line, a number), never a method.
 > Every such mission gives the player the means and the time to prevent most of it,
 > ✱measured by `playtest`✱. What the war does to civilians off the map stays told, under D12.
