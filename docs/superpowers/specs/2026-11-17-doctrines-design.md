@@ -18,6 +18,9 @@ logic in TypeScript; nothing new in `packages/sim`, so the four invariants hold 
 test:determinism` cannot move; fairness BETWEEN doctrines is parked until the lead rules (the issue carries no fairness
 criterion), so §3's gate is a cost-curve gate, not a win-rate claim.
 
+**Line numbers** in this document are as of `dev` at `ab3819d06` (18 Nov 2026), re-checked in review; the design was
+read at `e049ba7a0`, and a reference can drift a few lines from either.
+
 **What I read to write this** (`dev` at `e049ba7a0`): GH-1383 (no comments yet); PRs 947 and 978 (body and files);
 `data/doctrines/*.json`, `data/schemas/doctrine.schema.json`, `tools/validate_doctrine.mjs`; `data/units/**`;
 `packages/data/src/upgrades.ts`, `overlays.ts`, `versus.ts`, `index.ts`; `packages/app/src/upgrade-prepass.ts`,
@@ -57,7 +60,7 @@ that a doctrine will be judged against, and one finding a doctrine design has to
 
 - **PR 947 (GH-945, merged 2 Nov): Wadi Tarfan levelled with data alone.** Seats moved to the map's own markers,
   `VERSUS_SEATS.wadi_tarfan` `(10,10)/(37,37)` (`packages/app/src/net/versus-seats.ts:139`, and the validator's copy,
-  `tools/validate_versus_rules.mjs:45`); every tunnel route at capacity 3 (`data/versus/wadi_tarfan.json:10-15`); Wadi
+  `tools/validate_versus_rules.mjs:48`); every tunnel route at capacity 3 (`data/versus/wadi_tarfan.json:10-15`); Wadi
   taken out of the closed-formation list. Method: 100 seat pairs screened at 192 seeds, the finalists re-read on fresh seeds
   (the best screen pick regressed 7 points: selection bias is real), the final S4 on a third range nobody had picked on.
   Every pin that moved did so in its own commit with "Was <n>." (`VERSUS_ECONOMY_PINS`, the `room-capacity` tick-0 hashes,
@@ -82,34 +85,38 @@ N3 shipped a one-per-faction skirmish file under the same name:
   description still says "not set in any shipped doctrine yet", which is stale).
 - `tools/validate_doctrine.mjs`: a doctrine's id IS its faction, exactly one per faction, a Sarim menu holds only
   opposition units (sarim, rif, ashwar), no menu holds `loiter_drone` (LD3), and Sarim's purse is 8/5 of the KDF's (G3 Q7).
-  It is run by `tools/validate_data.mjs:267`, through `validateDir`, which accepts `skipDirs` (`:166`).
-- `@lions/data` exports `doctrines`, keyed by faction (`packages/data/src/index.ts:376-381`, type `DoctrineJson`,
-  `versus.ts:89-97`).
-- **Its readers, all by `doctrines[faction]`:** `packages/app/src/net/match-world.ts:314` (the economy runtime's menus,
-  caps and purses), `room-economy.ts:63` (the dock), `outcome.ts:261` (`productionFor`, whether a side can still field
-  armed production), `computer/economy-view.ts:64,67,100` (the AI harness's view), `tools/src/net/snapshot-witness.ts:197`.
-  `main.ts:4790` takes the dock menu through `roomDockMenu`.
+  `tools/validate_data.mjs` checks the files against the schema at `:266`, through `validateDir`, which accepts
+  `skipDirs` (`:155`), and runs the cross-file rules at `:1396-1397` (`doctrineFailures` over
+  `jsonFilesIn(data/doctrines)`).
+- `@lions/data` exports `doctrines`, keyed by faction (`packages/data/src/index.ts:316-319`, type `DoctrineJson`,
+  `versus.ts:90-97`).
+- **Its readers, all by `doctrines[faction]`, six files:** `packages/app/src/net/match-world.ts:315` (the economy
+  runtime's menus, caps and purses), `room-economy.ts:63` (the dock), `outcome.ts:261` (`productionFor`, whether a side can
+  still field armed production), `computer/economy-view.ts:64,67,100` (the AI harness's view),
+  `tools/src/net/snapshot-witness.ts:197` and `tools/src/backtest/versus-probe.ts:764` (the probe's build menus).
+  `main.ts:4922` takes the dock menu through `roomDockMenu`. (Readers a `doctrines[` pattern cannot see are listed under
+  T7.)
 
 So GH-1383's "doctrine" is a **variant of this file**, and §2 keeps the file as the base every variant extends.
 
 ### 1.3 The pre-pass the doctrine joins
 
-- `applyUpgrades(unit, tiers)` (`packages/data/src/upgrades.ts:213-264`): pure, returns a new unit, cumulative deltas over
-  base on a closed path whitelist (`UPGRADE_PATHS`, `:43-50`), tracks summed in sorted order so float addition cannot
+- `applyUpgrades(unit, tiers)` (`packages/data/src/upgrades.ts:338-398`): pure, returns a new unit, cumulative deltas over
+  base on a closed path whitelist (`UPGRADE_PATHS`, `:104-111`), tracks summed in sorted order so float addition cannot
   depend on key order.
-- `upgradePrepass(roster, ownedTiers)` (`packages/app/src/upgrade-prepass.ts:45-66`): the ONE loop whose output is the
+- `upgradePrepass(roster, ownedTiers)` (`packages/app/src/upgrade-prepass.ts:45-70`): the ONE loop whose output is the
   registered types, the HUD card's kit and the renderer's kit tiers, so they cannot disagree.
-- Single-player registers through it at `main.ts:2384-2388` (`sim.addUnitType(localizedUnit(registered))`).
-- A versus room registers in `buildMatchWorld` (`match-world.ts:92`): each SIDE's kit comes from the config alone
-  (`seatKitTiers`, `:441-465`); side 0 registers the roster, side 1 appends a copy only of a KDF type whose kit differs
-  (`copyForSide1`, `:145-155`), so no earlier type index moves.
-- `versusUnitInfo(menus)` (`:274-291`) prices a menu item from the RAW catalogue (`versusRoster()`), not from the registered
+- Single-player registers through it at `main.ts:2477` (`sim.addUnitType(localizedUnit(registered))`).
+- A versus room registers in `buildMatchWorld` (`match-world.ts:93`): each SIDE's kit comes from the config alone
+  (`seatKitTiers`, `:442-464`); side 0 registers the roster, side 1 appends a copy only of a KDF type whose kit differs
+  (`copyForSide1`, `:147-156`), so no earlier type index moves.
+- `versusUnitInfo(menus)` (`:275-291`) prices a menu item from the RAW catalogue (`versusRoster()`), not from the registered
   copy: "cost is not patchable" today. The sim reads only `cost.population` from a unit's cost (`packages/sim/src/sim.ts:1052`);
-  price and build time reach the runtime through `MissionContext.unitInfo` (`packages/sim/src/mission.ts:437`).
+  price and build time reach the runtime through `MissionContext.unitInfo` (`packages/sim/src/mission.ts:443`).
 
 ### 1.4 The overlay pre-pass (GH-1394 / GH-1395)
 
-`applyOverlays(mission, choice)` (`packages/data/src/overlays.ts:201`) is the mission-level twin: a closed op set
+`applyOverlays(mission, choice)` (`packages/data/src/overlays.ts:246`) is the mission-level twin: a closed op set
 (`OverlayOp`), the posture first and the amendments after, and **no ops returns the mission itself by reference**. It acts
 on mission JSON, never on a unit, and no versus room has a posture. §2.3 fixes how the two compose.
 
@@ -125,7 +132,7 @@ on mission JSON, never on a unit, and no versus room has a posture. §2.3 fixes 
   the KDF seat on side 0 and the Sarim seat on side 1 (`sidesOfFactions`, `:304`). `FACTION_MATCHUP_MAPS` (`:382`) is
   `tel_marum`, `wadi_tarfan`, `wadi_tarfan_l`.
 - **The match digest** is `matchDigest(sim.hash(), runtimeDigest, dataDigest)` (`packages/net/src/digest.ts:11`), where the
-  data digest is the client's OWN content (`content-digest.ts:62-72`, today units, structures, maps, doctrines, versus
+  data digest is the client's OWN content (`content-digest.ts:64-74`, today units, structures, maps, doctrines, versus
   rules, versus modes and formations), so two clients on different data desync at the first hash tick.
 - **Replays** store the whole config in the header (`packages/app/src/net/replay-file.ts:46`) and re-validate it on read
   (`:116`); a file from another build is refused before anything else is read.
@@ -135,7 +142,7 @@ on mission JSON, never on a unit, and no versus room has a posture. §2.3 fixes 
 1. **Only economy rooms have a menu, a purse and a cap.** Mirror rooms (KDF v KDF) play placed forces; win-mode rooms are
    goals-only with production off. So a doctrine means something in a KDF-v-Sarim economy room and nowhere else today.
 2. **In an economy room each faction is fielded by exactly one side.** That is why the runtime's single `typeIdOf` lookup
-   (`mission.ts:419`, "side 0's (Q7) ... exact for both", `match-world.ts:316-317`) is correct, and why a doctrine needs no
+   (`mission.ts:425`, "side 0's (Q7) ... exact for both", `match-world.ts:317-318`) is correct, and why a doctrine needs no
    per-side copy there (§2.4). In a mirror room it would (the kit machinery already does it), and the runtime would then
    need a by-side lookup, which is a sim change. That is the second reason for "economy rooms only".
 3. **The computer opponent is mirror-only** (`offline-match.ts:75-80`: "Economy pairings wait for a computer that builds").
@@ -155,6 +162,10 @@ on mission JSON, never on a unit, and no versus room has a posture. §2.3 fixes 
   every rule `validate_doctrine.mjs` holds today keeps holding without an exception.
 - Each pickable doctrine is `data/doctrines/picks/<id>.json`, against a new `data/schemas/doctrine_pick.schema.json`.
   `validate_data.mjs` validates `data/doctrines` with `skipDirs: ['picks']` and `data/doctrines/picks` with the new schema.
+  The cross-file pass needs the same skip: `validate_data.mjs:1396` walks `data/doctrines` RECURSIVELY
+  (`jsonFilesIn(join(ROOT, 'data/doctrines'))`) into `doctrineFailures`, so without `skipDirs: ['picks']` there too every
+  pick file would reach the base rules ("a doctrine's id IS its faction, exactly one per faction") and fail them. The
+  picks get their own call into the extended `validate_doctrine.mjs` (P1-P10).
   (A flat `data/doctrines/<id>.json` with a `oneOf` schema is the alternative; it makes the base validator branch. Q1.)
 - `@lions/data` exports `doctrinePicks` (keyed by id, in a fixed id order) beside `doctrines`; `index.test.ts` pins the
   record to the directory, as it pins `formations` and `vfxEmitters`.
@@ -265,14 +276,15 @@ mission       = applyOverlays(mission, choice)      (campaign only; a room has n
 - **Doctrine before upgrades.** A doctrine says what the brigade fields; the kit is bought on top of that. In v1 the two
   touch disjoint fields (`cost.logistics` against `UPGRADE_PATHS`) and commute exactly, but the order is fixed now so a v2
   stat patch has one meaning: a tier's cumulative delta is over the doctrine's unit. It also matches how
-  `validate_balance.py --max-tier` prices a kitted unit (`logistics + K x total tier price`, with `logistics` the doctrine's).
+  `validate_balance.py --max-tier --branch=<1|2>` prices a kitted unit (`logistics + K x total tier price`, with
+  `logistics` the doctrine's).
 - **Overlays are independent.** They act on mission JSON, a doctrine on unit JSON and the room's menu; nothing reads both.
   If the campaign ever takes a doctrine (Q10), the mission is overlaid first and a doctrine never edits a mission's own
   `production` block.
 - **One place.** `packages/app/src/doctrine-prepass.ts`, beside `upgrade-prepass.ts`, is the one loop that produces the
   registered roster, the menus, the caps and the price lookup, and `upgradePrepass` takes its output. It is called by
   `buildMatchWorld`, by the battlefield boot for free play, and by the probes (`versus:probe`, the snapshot witness).
-  `MatchWorld` gains `doctrineBySide: readonly [ResolvedDoctrine, ResolvedDoctrine]`, and the five `doctrines[faction]`
+  `MatchWorld` gains `doctrineBySide: readonly [ResolvedDoctrine, ResolvedDoctrine]`, and the six `doctrines[faction]`
   readers listed in §1.2 read it instead. `versusUnitInfo` takes the fielded catalogue instead of `versusRoster()`'s raw
   one, so the price the dock shows is the price the runtime charges.
 
@@ -293,10 +305,11 @@ That is a test (T2c) and the reason for the digest fold below.
 `formation.schema.json` gains an optional `doctrines: string[]`. A formation without it is what it is today (the three
 shipped files keep no such field and stay open to every seat of their factions). A formation with it is fielded for a seat
 only when the seat's resolved doctrine id is in the list. The gate is the app's, beside the faction clause that already
-exists: `formationFielded(table, faction, id)` (`frame-step.ts:92`) gains the seat's doctrine, and both the sender strip
-and the receiver gate (`:132-133`) read it, so a forced client's order drops on both machines. The app hands the sim the
-formation with `doctrines` stripped (the sim's parser, `formation-template.ts:481`, validates `factions` and must never see
-the new key). Single-player and the campaign have no doctrine, so a doctrine-gated formation is never offered there.
+exists: `formationFielded(table, faction, id)` (`frame-run.ts:98`, re-exported by `frame-step.ts`) gains the seat's
+doctrine, and both the sender strip and the receiver gate (`formationAllowed`, `frame-run.ts:140-141`) read it, so a
+forced client's order drops on both machines. The app hands the sim the formation with
+`doctrines` stripped (the sim's parser, `formation-template.ts:481`, validates `factions` and must never see the new
+key). Single-player and the campaign have no doctrine, so a doctrine-gated formation is never offered there.
 
 **Where the files live, so no other room moves.** Every world registers `formations` in order (`match-world.ts`, "the ORDER
 is match content"), and `Content` hashes that array. Six more files there would move the content digest, and so the network
@@ -342,7 +355,7 @@ itself), computed from this client's own files. A client that ignores the config
 pick file that differs from its peer's in anything that is in play, reports a different hash at tick 20, before any shot
 and before any purchase that would show it in `sim.hash()` (§2.4). In a room with no doctrine the fold is skipped.
 
-The pick files are deliberately NOT added to `Content` (`content-digest.ts:26-41`): a file that is not in play changes
+The pick files are deliberately NOT added to `Content` (`content-digest.ts:27-43`): a file that is not in play changes
 nothing a match computes, and leaving it out keeps `shippedContentDigest()`, and with it the network hash of every room
 without a doctrine and every fixture that holds a literal content digest, exactly where it is. (The base files are in
 `Content` already, as `doctrines`.) The cost: two peers whose unpicked pick files differ see different cards in the lobby
@@ -381,9 +394,13 @@ called, not copied (Appendix A). On today's roster the fitted curve is `cost = 2
   the axis medians and the exponent are the base roster's; the doctrine's prices are scored against it, never refitted
   into it). The gate (§5, T4) asks `|Δ| <= 0.005` (half a percent of price on the average menu item) and every priced unit
   inside the existing ±18% band.
-- **Kitted KDF** (a brigade room): the same at max tier, with `--max-tier --upgrade-cost-factor 0.02` (the value
-  `upgrades.md` §5 records), KDF doctrines only. Sarim fields no kit; under the max-tier refit its Δ moves only because the
-  KDF rows moved the fit (raid reads +0.0088 there against +0.0000 at base), which is a reading of the curve, not of Sarim.
+- **Kitted KDF** (a brigade room): the same at max tier, with `--max-tier --upgrade-cost-factor 0.02 --branch=1` and
+  again with `--branch=2` (K is the value `upgrades.md` §5 records), KDF doctrines only. Since PR 1584 (GH-1384) the
+  roster holds branched tiers and `validate_balance.py` refuses `--max-tier` without a `--branch` ("pass --branch=1 or
+  --branch=2 with --max-tier"), so the Δ-max-tier column must be read PER BRANCH, one Δ for each branch. The max-tier
+  figures in §3.3 were computed before PR 1584, with no branched tier on the roster; the build slice recomputes them per
+  branch. Sarim fields no kit; under the max-tier refit its Δ moves only because the KDF rows
+  moved the fit (raid reads +0.0088 there against +0.0000 at base), which is a reading of the curve, not of Sarim.
 
 This is a statement about PRICES ON THE CURVE: no doctrine buys more power per logistic, on average over what it can
 build, than its base. It is not a statement about win rates, which the issue parks.
@@ -406,7 +423,7 @@ Unit prices are the units' own JSON today; the dev column is the curve deviation
 KDF ids available to add (in the versus roster, not on the base menu, not Store specials): `apc_kipod`, `scout_shachaf`,
 `sniper_team`, `breach_team`, `demo_squad` (and `attack_drone`, left out: population 0 and a kamikaze, the LD3 shape).
 
-| Doctrine (placeholder id) | Gives up | Gets | Prices (was -> is, curve dev) | Cap | Δ base | Δ max tier |
+| Doctrine (placeholder id) | Gives up | Gets | Prices (was -> is, curve dev) | Cap | Δ base | Δ max tier (pre-PR 1584, unbranched) |
 |---|---|---|---|---|---|---|
 | `kdf_armour` | `heli_peten`, `jeep_shoded`, `yahalom_squad` (air, fast recon, engineers) | `apc_kipod` | `mbt_lavi` 906 -> 860 (-13.2%), `ifv_namer` 630 -> 605 (-10.7%), `inf_squad` 292 -> 308 (+5.4%), `at_team` 236 -> 245 (-5.6%) | 40 -> **42** | **-0.0036** | +0.0021 |
 | `kdf_airmobile` | `mbt_lavi`, `dozer_d9` (the tank and the dozer) | `scout_shachaf`, `sniper_team` | `heli_peten` 402 -> 375 (-9.8%), `jeep_shoded` 317 -> 300 (-8.6%), `ifv_namer` 630 -> 665 (-1.8%), `apc_eitan` 520 -> 525 (+1.1%) | 40 -> **35** | **+0.0031** | -0.0032 |
@@ -425,7 +442,7 @@ digger's place in a versus room is designed).
 
 Every price moves by at most 7.9% of the unit's own price; every priced unit stays inside ±18% (the widest is
 `sarim_rifles` at +15.1% in `sarim_standoff`, already +10.3% at base). Every net value is within ±0.0036 at base tier, and
-every KDF one within ±0.0032 at max tier.
+every KDF one within ±0.0032 at max tier as computed before PR 1584 (to be re-read per branch, §3.1).
 
 **No superset, checked by hand** (P6 checks it in data): each KDF doctrine holds a unit no other KDF menu does (`apc_kipod`,
 `scout_shachaf`/`sniper_team`, `breach_team`/`demo_squad`), each Sarim one likewise (`mortar_crew`, `technical`/`moto_rpg`,
@@ -456,7 +473,7 @@ The cost curve cannot price a formation (an order costs nothing). Its balance is
 
 ## 4. The UI touchpoint
 
-**Where.** The versus ROOM screen (`showVersusRoom`, `packages/app/src/ui/versus.ts:1013`), below the face-off and above
+**Where.** The versus ROOM screen (`showVersusRoom`, `packages/app/src/ui/versus.ts:1030`), below the face-off and above
 Ready, in an economy room only. One row per seat: your own as three selectable cards, the friend's as one read-only card (or
 "choosing" until they pick; whether a pick is shown before Start is Q8). Ready is disabled until you have picked. The host
 screen (`showVersus`) does not pick: the matchup is chosen there, and the pick belongs to the seat, not the host.
@@ -496,7 +513,7 @@ imported from the code under test.
 **T1. The sim never learns a doctrine exists.**
 - (a) Static: a test reads every file under `packages/sim/src`, strips comments, and finds no token matching `/doctrine/i`.
   Positive control: WITH comments kept it must find exactly the three comment lines there today (`tunnels.ts:1`,
-  `mission.ts:456`, `mission.test.ts:3078`), so a stripper that strips everything cannot pass vacuously. Falsification: add
+  `mission.ts:462`, `mission.test.ts:3263`), so a stripper that strips everything cannot pass vacuously. Falsification: add
   `const doctrineId = 0;` to a sim file -> red; break the stripper so it returns `''` -> the control goes red.
 - (b) Behavioural: build one world through `doctrinePrepass` with `kdf_armour` and `sarim_raid`, and a second from
   hand-written literal unit JSON carrying the same prices and the same menus; `sim.hash()` and the runtime digest are equal
@@ -538,7 +555,8 @@ imported from the code under test.
 
 **T4. Balance neutrality** (`tools/validate_balance.py --doctrines data/doctrines`, or a sibling script that imports it;
 in `pnpm validate:data` or `pnpm balance`, the lead's call).
-- (a) For every pick: `|Δ| <= 0.005` on the frozen base fit; KDF picks also at max tier (`--upgrade-cost-factor 0.02`);
+- (a) For every pick: `|Δ| <= 0.005` on the frozen base fit; KDF picks also at max tier (`--max-tier
+  --upgrade-cost-factor 0.02`, once with `--branch=1` and once with `--branch=2`, each branch's Δ gated on its own);
   every `set_price` unit inside ±18%; every `set_pop_cap` equal to the neutral cap.
 - (b) The gate's own oracle pins each shipped pick's Δ as a LITERAL to four decimals (§3.3's table), so a gate that reads
   zero for every input fails its own pins.
@@ -568,8 +586,11 @@ file still validates, the replay diverges, and `checks` names the first window a
 price differently. A v1 arena file and a v2 file with no `doctrine` still read and replay as today.
 
 **T7. One reader.** No file under `packages/app/src` or `tools/src` indexes `doctrines[` except `doctrine-prepass.ts` and its
-test. Falsification: restore `room-economy.ts:63` as it is today -> red. (The shape of PR 978's "every `main.ts` consumer
-passes the room's map" test.)
+test. Falsification: restore `room-economy.ts:63` as it is today -> red. Two facts the slice must plan for (dev at
+`ab3819d06`): the pattern also matches one test today, `tools/src/backtest/versus-probe.test.ts:356`; and it cannot see
+the dotted readers, the two `doctrines.<faction>.pop_cap` readers `tools/src/large_map_verify.ts:455` and
+`tools/src/rujm_sawda_verify.ts:339`, and `doctrines.kdf.menu` in `packages/app/src/ui/stores-adds-view.ts:53`. (The
+shape of PR 978's "every `main.ts` consumer passes the room's map" test.)
 
 ---
 
@@ -616,7 +637,7 @@ The lead's approval of the design (19 Nov 2026) does not answer these; each is s
 
 1. **Data and gate** (2-3 d): `doctrine_pick.schema.json`, `doctrines.ts` (`resolveDoctrine`, `applyDoctrine`), the six
    files at `status: proposed`, P1-P10, T4 and T5, the en.json keys. No app change.
-2. **The pre-pass** (2-3 d): `doctrine-prepass.ts`, `MatchWorld.doctrineBySide`, the five readers, `versusUnitInfo` on the
+2. **The pre-pass** (2-3 d): `doctrine-prepass.ts`, `MatchWorld.doctrineBySide`, the six readers, `versusUnitInfo` on the
    fielded catalogue; T1, T2, T7. Still unreachable (no config carries a pick).
 3. **The config** (3-4 d): `SeatConfig.doctrine`, `DOCTRINE_IDS`, `DOCTRINES_OPEN` false, the Worker's claim, lobby message
    and mint, the digest fold (the picks stay out of `Content`); T3 (a-d), T6.
@@ -631,8 +652,9 @@ The lead's approval of the design (19 Nov 2026) does not answer these; each is s
 
 The script imports `tools/validate_balance.py` and calls its own `build_power_fn`, `fit_curve` and `effective_cost` on
 `data/units/**` (civilians and `wounded` roles left out, as the validator leaves them out), then scores each doctrine's
-resolved menu on that frozen fit. The max-tier variant first runs the validator's own `patch_to_max_tier(units, 0.02)` and
-adds a doctrine's price change on top of the kitted cost. Inputs are the six doctrines as `{add, remove, price}`; outputs
+resolved menu on that frozen fit. The max-tier variant first runs the validator's own `patch_to_max_tier(units, 0.02)`
+(since PR 1584 `patch_to_max_tier(units, 0.02, branch)`, once for branch 1 and once for branch 2) and adds a doctrine's
+price change on top of the kitted cost. Inputs are the six doctrines as `{add, remove, price}`; outputs
 are §3.3's columns. Per-unit inputs it printed, for checking by hand (power, own price, curve price, surplus, population):
 
 | unit | power | price | curve | surplus | pop |
