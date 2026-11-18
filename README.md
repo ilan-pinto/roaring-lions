@@ -142,7 +142,7 @@ An optional **account** (Sign in / Sign up on the menu) keeps your campaign, bri
 
 ## Free play
 
-Free play (menu, *free play, any map*) puts a full KDF task force (or, with the side pick, a Sarim one) on any of the 43 listed maps against an opposing force, with no mission, and writes nothing to your campaign. It is the place to try a unit, learn a map, or test a tactic. Optional extras:
+Free play (menu, *free play, any map*) puts a full KDF task force (or, with the side pick, a Sarim one) on any of the 48 listed maps against an opposing force, with no mission, and writes nothing to your campaign. It is the place to try a unit, learn a map, or test a tactic. Optional extras:
 
 | Option | Adds |
 |---|---|

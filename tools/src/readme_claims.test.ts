@@ -58,7 +58,7 @@ describe('README: campaign numbers', () => {
     expect(m, 'the Held ground line').not.toBeNull();
     expect(WORD[(m?.[1] ?? '').toLowerCase()]).toBe(n);
   });
-  it('"43 listed maps" is the maps on disk minus the picker\'s unlisted ids', () => {
+  it('"48 listed maps" (was 43 before Bir Tarsha listed its five) is the maps on disk minus the picker\'s unlisted ids', () => {
     const src = readFileSync(join(ROOT, 'packages/app/src/ui/menu.ts'), 'utf8');
     const ids = /UNLISTED_MAP_IDS[^=]*=\s*new Set\(\[([^\]]*)\]\)/.exec(src)?.[1].match(/'([a-z0-9_]+)'/g) ?? [];
     expect(ids.length).toBeGreaterThan(0);
