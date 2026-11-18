@@ -30,29 +30,29 @@ function tableRows(after: string): string[][] {
   return rows.slice(1); // drop the header row
 }
 
-const WORD: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, fifteen: 15, seventeen: 17 };
+const WORD: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, fifteen: 15, seventeen: 17, eighteen: 18 };
 
 interface Region { towns: { id: string; name: string; missions: string[] }[] }
 const world = json<{ regions: Region[] }>('data/campaign/world.json');
 const missionFiles = readdirSync(join(ROOT, 'data/missions')).filter((f) => f.endsWith('.json'));
 
 describe('README: campaign numbers', () => {
-  it('"three fronts, 34 missions" is the count on the campaign map', () => {
+  it('"three fronts, 38 missions" is the count on the campaign map', () => {
     const onMap = world.regions.flatMap((r) => r.towns.flatMap((t) => t.missions));
     expect(world.regions).toHaveLength(3);
     expect(README).toContain(`three fronts, ${onMap.length} missions`);
   });
-  it('the tutorial is the one mission file outside the map ("the thirty-fifth")', () => {
+  it('the tutorial is the one mission file outside the map ("the thirty-ninth")', () => {
     const onMap = new Set(world.regions.flatMap((r) => r.towns.flatMap((t) => t.missions)));
     const off = missionFiles.map((f) => f.replace(/\.json$/, '')).filter((id) => !onMap.has(id));
     expect(off).toEqual(['beit_sahwan_0_tutorial']);
-    expect(missionFiles).toHaveLength(35);
-    expect(README).toContain('is the thirty-fifth mission file');
+    expect(missionFiles).toHaveLength(39);
+    expect(README).toContain('is the thirty-ninth mission file');
   });
   it('every town count in the front table is the town\'s mission count', () => {
     for (const r of world.regions) for (const t of r.towns) expect(README, t.name).toContain(`${t.name} (${t.missions.length})`);
   });
-  it('"Seventeen missions" with income zones is the number of mission files that declare them', () => {
+  it('"Eighteen missions" with income zones is the number of mission files that declare them', () => {
     const n = missionFiles.filter((f) => json<{ resources?: { income_zones?: unknown[] } }>(`data/missions/${f}`).resources?.income_zones !== undefined).length;
     const m = /\*\*Held ground pays\.\*\* (\w+) missions/.exec(README);
     expect(m, 'the Held ground line').not.toBeNull();
