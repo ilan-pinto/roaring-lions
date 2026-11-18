@@ -407,7 +407,7 @@ export function livingOf(sim: Sim, side: 0 | 1): number[] {
 }
 
 /** A decided result, in the probe's terms: the winning side read back as its END. */
-function finish(o: MatchResult, ticks: number, sideOfEnd: readonly [0 | 1, 0 | 1]): Played {
+export function finish(o: MatchResult, ticks: number, sideOfEnd: readonly [0 | 1, 0 | 1]): Played {
   const by: Finish = o.by === 'annihilation' || o.by === 'mutual' || o.by === 'stalemate' ? o.by : 'cap';
   return { winner: o.kind === 'won' ? (sideOfEnd[0] === o.side ? 0 : 1) : null, by, ticks };
 }
@@ -528,7 +528,7 @@ export function forceMixOf(faction: Faction): Map<string, number> {
  * -- called between ticks, just before the `matchTick` that would drain such
  * a command. Returns the units queued this round, in order.
  */
-export function planRound(runtime: NonNullable<MatchWorld['runtime']>, sim: Sim, menu: readonly string[], mix: ReadonlyMap<string, number>, side: 0 | 1, rescueBuy: RescueBuy = RESCUE_BUY_DEFAULT): string[] {
+export function planRound(runtime: NonNullable<MatchWorld['runtime']>, sim: Sim, menu: readonly string[], mix: ReadonlyMap<string, number>, side: 0 | 1, rescueBuy: RescueBuy = RESCUE_BUY_DEFAULT, extraHold = 0): string[] {
   const queued: string[] = [];
   if (rescueBuy === 'before' || rescueBuy === 'save' || rescueBuy === 'opening' || rescueBuy === 'reserve') {
     // `reserve` buys the medic ahead of the combat purchases the round a man is down (that is what it kept the price for).
@@ -540,7 +540,9 @@ export function planRound(runtime: NonNullable<MatchWorld['runtime']>, sim: Sim,
     else if (rescueBuy === 'save' && wantsRescue(runtime, sim, menu, side)) return queued;
   }
   // `reserve`: until the window closes, the combat purchases leave the medic's price in the purse.
-  const hold = rescueBuy === 'reserve' ? reserveOf(runtime, sim, menu, side) : 0;
+  // `extraHold` (the field-works probe, `versus-works-probe.ts`): logistics a due, unaffordable field work keeps back
+  // from the combat purchases. 0, the default, is every other arm's game, byte for byte.
+  const hold = (rescueBuy === 'reserve' ? reserveOf(runtime, sim, menu, side) : 0) + extraHold;
   const cands = menu.filter(armed);
   const have = new Map<string, number>(cands.map((id) => [id, 0]));
   const bump = (id: string): void => {
