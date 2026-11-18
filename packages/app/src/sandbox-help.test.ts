@@ -9,9 +9,12 @@ import { describe, expect, it } from 'vitest';
 import {
   KNOWN_PARAMS,
   SANDBOX_FLAGS,
+  SANDBOX_SIDES,
   readFlags,
   sandboxHelp,
+  sandboxSideOf,
   sandboxUrl,
+  sideFlags,
   unknownParams,
 } from './sandbox-help';
 
@@ -298,5 +301,73 @@ describe('console API line', () => {
   it('names contentDigest(), the L4 digest the engines check reads', () => {
     const ctx = { mapId: 'tel_marum', mapIds: MAPS, on: [] };
     expect(sandboxHelp(ctx)).toMatch(/console: .*contentDigest\(\)/);
+  });
+});
+
+describe('GH-1381: the side a Free play commands', () => {
+  const q = (s: string): URLSearchParams => new URLSearchParams(s);
+
+  it('is the KDF with no `side`, silently: every existing link is the KDF\'s', () => {
+    expect(sandboxSideOf(q(''), true)).toEqual({ value: 'kdf' });
+    expect(sandboxSideOf(q('tunnel&sur'), true)).toEqual({ value: 'kdf' });
+  });
+
+  it('reads kdf and sarim in Free play', () => {
+    expect(sandboxSideOf(q('side=kdf'), true)).toEqual({ value: 'kdf' });
+    expect(sandboxSideOf(q('side=sarim'), true)).toEqual({ value: 'sarim' });
+  });
+
+  it('warns on a value that is not a side, and plays the KDF', () => {
+    const got = sandboxSideOf(q('side=Sarim'), true);
+    expect(got.value).toBe('kdf');
+    expect(got.warning).toMatch(/not a side/);
+  });
+
+  it('is the KDF outside Free play (a mission, a room), whatever the URL says, and says so', () => {
+    const got = sandboxSideOf(q('side=sarim'), false);
+    expect(got.value).toBe('kdf');
+    expect(got.warning).toMatch(/ignored/);
+  });
+
+  it('is a known parameter, so `&side=` never warns as a typo', () => {
+    expect(unknownParams(q('sandbox=tel_marum&side=sarim'))).toEqual([]);
+    expect(KNOWN_PARAMS.some((p) => p.name === 'side')).toBe(true);
+    // And not a boolean flag: the picker draws it as a radio group, never a checkbox.
+    expect(SANDBOX_FLAGS.some((f) => (f.name as string) === 'side')).toBe(false);
+    expect(SANDBOX_SIDES).toEqual(['kdf', 'sarim']);
+  });
+
+  it('prints in the banner: the side this boot commands, and the parameter', () => {
+    const ctx = { mapId: 'tel_marum', mapIds: MAPS, on: [] };
+    expect(sandboxHelp(ctx)).toMatch(/\n {2}side: kdf\n/);
+    expect(sandboxHelp({ ...ctx, side: 'sarim' })).toMatch(/\n {2}side: sarim\n/);
+    expect(sandboxHelp(ctx)).toMatch(/&side=<kdf\|sarim>\s+kdf \| sarim/);
+  });
+});
+
+describe('GH-1381: sideFlags', () => {
+  const all = (): ReturnType<typeof readFlags> => readFlags(new URLSearchParams(SANDBOX_FLAGS.map((f) => f.name).join('&')));
+
+  it('marks exactly the four extras that add KDF kit or Sarim opposition as KDF-only (literals)', () => {
+    expect(SANDBOX_FLAGS.filter((f) => f.kdfOnly === true).map((f) => f.name)).toEqual(['tunnel', 'sur', 'kit', 'works']);
+  });
+
+  it('keeps every flag for the KDF, and warns about none', () => {
+    const warned: string[] = [];
+    expect(sideFlags(all(), 'kdf', (k) => warned.push(k))).toEqual(all());
+    expect(warned).toEqual([]);
+  });
+
+  it('drops the KDF-only ones for Sarim, naming each the URL asked for, and keeps the rest', () => {
+    const warned: string[] = [];
+    const got = sideFlags(all(), 'sarim', (k) => warned.push(k));
+    expect(warned).toEqual(['tunnel', 'sur', 'kit', 'works']);
+    expect(Object.entries(got).filter(([, on]) => on).map(([k]) => k)).toEqual(['roe', 'civ', 'ditch', 'decals', 'rubble', 'ragdoll', 'soft']);
+  });
+
+  it('names nothing for Sarim when no KDF-only flag was asked for', () => {
+    const warned: string[] = [];
+    sideFlags(readFlags(new URLSearchParams('civ&roe')), 'sarim', (k) => warned.push(k));
+    expect(warned).toEqual([]);
   });
 });
