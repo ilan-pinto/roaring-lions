@@ -1826,7 +1826,7 @@
     "objective_say": {
       "picture": "Vier Orte, und keiner davon ist eine Stellung. Keiner gräbt sich an einer Straße ein, die er weiter nutzen will — das ist eine Nachschubroute mit Waffen am Rand.",
       "take_ford": "Furtwache gehalten. Die Kolonne ist über dem Wadi.",
-      "get_the_carriers_out": "Vier von der Furt und aus dem Korridor. Sie waren auf seiner Straße, weil sie jemand daraufsetzte; heute Nacht nicht mehr."
+      "get_the_carriers_out": "Drei von der Furt und aus dem Korridor. Sie waren auf seiner Straße, weil sie jemand daraufsetzte; heute Nacht nicht mehr."
     },
     "objective_say_on_fail": {
       "get_the_carriers_out": "Die Querung schloss, und sie waren noch darauf. Wir waren acht Felder entfernt und sahen in die andere Richtung."
@@ -1858,7 +1858,7 @@
       "sections.notes": "81c5a8a8",
       "objective_say.picture": "7c3c8f83",
       "objective_say.take_ford": "bf78f27c",
-      "objective_say.get_the_carriers_out": "04b2a5b8",
+      "objective_say.get_the_carriers_out": "02bed465",
       "objective_say_on_fail.get_the_carriers_out": "63c70fa1",
       "trigger_say.the_bank_patrol_turns_for_the_ford": "05fb1035",
       "wave_say.0": "a8afca11",
@@ -2017,7 +2017,7 @@
     "objective_say": {
       "take_village": "Dorf gehalten. Jede Zelle unter einem Dach, das wir stehen ließen, sitzt noch am Fenster.",
       "kill_cache_guard": "Das ist kein Kämpfer, das ist ein Buchhalter mit Werfer. Was er hielt, nennt das Depot östlich von hier und sagt, wie viel davon noch voll ist.",
-      "evac_families": "Alle sind an der Zuflucht."
+      "evac_families": "Drei sind an der Zuflucht."
     },
     "objective_say_on_fail": {
       "evac_families": "Die Straße ist gesperrt, und es sind noch Familien darin. Neun kamen bei First Light nicht herein. Jemand muss die Zahl weiter nennen, und du wirst es nicht sein."
@@ -2042,7 +2042,7 @@
       "sections.execution": "dbd5b6d8",
       "objective_say.take_village": "13ef3503",
       "objective_say.kill_cache_guard": "ad4d3f21",
-      "objective_say.evac_families": "a5c462ea",
+      "objective_say.evac_families": "dbb160b1",
       "objective_say_on_fail.evac_families": "36801331",
       "trigger_say.the_technicals_at_the_south_hide_run_for_the_village": "880ce51b"
     }
