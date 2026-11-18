@@ -161,4 +161,13 @@ describe('GH-1381: the Sarim side of Free play loads on demand', () => {
       /const sarim: typeof SandboxSarim \| null = playSide === 'sarim' \? await sandboxSarim\(\) : null;\s*if \(req\.signal\.aborted\) return \(\) => undefined;/,
     );
   });
+
+  it('a Sarim pick spawns, rosters and kits through the module, and the KDF opposition fields the base ladder', () => {
+    expect(main).toMatch(/\} else if \(sarim !== null\) \{[^}]*sandboxForce = sarim\.sarimSandboxSpawns\(sim, typeOf, anchors, \{ civ: wantCiv \}\);\s*\} else \{\s*sandboxForce = sandboxSpawns\(/);
+    expect(main).toMatch(/: sarim !== null\s*\? withWoundedTypes\(sarim\.sarimSandboxUnitTypes\(\{ civ: wantCiv \}\), woundsOf\)/);
+    expect(main).toMatch(/const bootKit = inRoom \|\| playSide === 'sarim' \? \{\} : bootTiers\(/);
+    expect(main).toMatch(/const seatWorld = seatWorldFor\(netConfig, sim, undefined, playSide\);/);
+    // The side is read for Free play only: never a mission, never a room.
+    expect(main).toMatch(/const sideChoice = sandboxSideOf\(params, req\.missionId === null && !inRoom\);/);
+  });
 });
