@@ -95,7 +95,7 @@ are local files the lead writes and deletes. Run from a checkout at the merged c
    npx wrangler d1 create rl-gh1397-accounts
    ```
 2. Two local staging configs under `dist-gh1397/` (eslint ignores `dist-*`; git does NOT, so never `git add` them):
-   - `dist-gh1397/game.jsonc`: a copy of `wrangler.jsonc` with **the cut of §2 NOT yet applied** (step 4.2.6
+   - `dist-gh1397/game.jsonc`: a copy of `wrangler.jsonc` with **the cut of §2 NOT yet applied** (step 4.2.2
      applies it), and with: `"name": "roaring-lions-gh1397-game"`; `main`, `assets.directory` and both
      `migrations_dir` paths made relative to `dist-gh1397/` (prefix `../`); the two `database_name` and
      `database_id` values replaced by the throwaway ones; the `kv_namespaces` block deleted (accounts stay off,
@@ -146,7 +146,7 @@ are local files the lead writes and deletes. Run from a checkout at the merged c
    60 s later (`FORFEIT_MS`) the other tab is told the match ended `forfeit` against the closed seat.** Then
    `npx wrangler secret delete ROOMS_NEW -c dist-gh1397/game.jsonc`; a new room is the relay's again. Record the
    times.
-8. **Parity smoke** (as §5.3 step 4): with the cut in place, create a room in one browser and join from the
+8. **Parity smoke** (as design §5.3 step 4): with the cut in place, create a room in one browser and join from the
    other; play a few seconds. A ticket signed by the game Worker and verified by the relay's room proves the
    secret is the same on both.
 
