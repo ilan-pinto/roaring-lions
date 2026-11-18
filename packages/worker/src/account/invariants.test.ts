@@ -22,7 +22,7 @@ const COIN_ID = TEST_COUPON_COIN_ID;
 // GH-1395: the ceiling rises by the challenge coin for each mission in the index, read from the index so the day a
 // mission gains a challenge this bound moves with it; the literal beside it is the pilot's, moved deliberately.
 const CEILING = 100 + 10 * ids.length + 5 * 3 * ids.length + 100 + CHALLENGE_COINS * challengeMissionIds.length;
-const CEILING_PILOT = 1210; // Was 1110 over 34 missions: Bir Tarsha I, II, III and V add 40 + 5 x 3 x 4 = 100 (GH-1438)
+const CEILING_PILOT = 1235; // Was 1110 over 34 missions: Bir Tarsha I to V add 50 + 5 x 3 x 5 = 125 (GH-1438)
 const FLOORS = Object.fromEntries(ids.map((id) => [id, 1]));
 const RICH = { coins: { free: 1_000_000, paid: 0 } };
 
@@ -199,7 +199,7 @@ describe('invariants under random play', () => {
 
   it('the_bound_holds (A2-21): over 50 seeds of 60 ops, the ceiling is never passed and earn_lifetime never decreases', async () => {
     // GH-1395: the pilot's ceiling, moved deliberately from 1,050 by 10 for each of the six challenges.
-    expect(ids.length).toBe(38);
+    expect(ids.length).toBe(39);
     expect(CEILING).toBe(CEILING_PILOT);
     let reached = 0;
     for (let seed = 1; seed <= 50; seed++) {
