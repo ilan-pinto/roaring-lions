@@ -70,6 +70,23 @@ describe('NetScoreboard', () => {
     board.dispose();
     expect(document.querySelector('.rl-net-score')).toBeNull();
   });
+
+  it('GH-1417 S2 (CR9): the other seat\'s name moving from the fallback to its label repaints the same score, chip included', () => {
+    // main.ts hands a getter: the name reads as the fallback while the word filter loads, and as typed once it is in.
+    let theirs = 'Lion';
+    const board = new NetScoreboard(document.body, 0, { get theirs(): string { return theirs; } });
+    const who = (): string[] => [...document.querySelectorAll('.rl-net-score [data-row=theirs] th, .rl-net-score__who')].map((el) => el.textContent ?? '');
+    board.update(SCORE);
+    board.advisors({ mine: null, theirs: 'assist' });
+    expect(who()).toEqual(['Lion', 'Lion']);
+    const first = document.querySelector('.rl-net-score table');
+    board.update(SCORE);
+    expect(document.querySelector('.rl-net-score table')).toBe(first);
+    theirs = 'Raven';
+    board.update([{ ...SCORE[0] }, { ...SCORE[1] }]);
+    expect(who()).toEqual(['Raven', 'Raven']);
+    expect(document.querySelector('.rl-net-score table')).not.toBe(first);
+  });
 });
 
 describe('the HUD names each seat\'s advisor (decision D1)', () => {

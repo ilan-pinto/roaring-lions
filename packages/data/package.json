@@ -9,6 +9,7 @@
     "./content": "./src/content.ts",
     "./content-lazy": "./src/content-lazy.ts",
     "./telemetry": "./src/telemetry.ts",
-    "./avatar": "./src/avatar.ts"
+    "./avatar": "./src/avatar.ts",
+    "./chat-filters": "./src/chat-filters.ts"
   }
 }

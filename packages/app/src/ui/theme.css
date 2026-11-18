@@ -9324,6 +9324,13 @@ fieldset.rl-versus__maps {
   font-size: var(--t-s);
   color: var(--ink-mute);
 }
+/* GH-1417 S2: why a line was not sent (the word filter would hide it on the other screen). */
+.rl-chat__refused {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
 /* The mute toggle beside the input; aria-pressed carries the state, the label names the action. */
 .rl-chat__mute {
   flex: none;
