@@ -129,10 +129,24 @@
         },
         {
           "price": 545,
-          "patch": {
-            "weapons[0].accuracy": 0.1,
-            "weapons[0].penetration": 6
-          }
+          "branches": [
+            {
+              "id": "gyro_mount",
+              "label": "garage.branch.apc_eitan.gyro_mount",
+              "patch": {
+                "weapons[0].accuracy": 0.1,
+                "weapons[0].penetration": 4
+              }
+            },
+            {
+              "id": "ap_belt",
+              "label": "garage.branch.apc_eitan.ap_belt",
+              "patch": {
+                "weapons[0].accuracy": 0.06,
+                "weapons[0].penetration": 6
+              }
+            }
+          ]
         }
       ]
     }
