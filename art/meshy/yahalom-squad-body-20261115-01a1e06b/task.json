@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single game-ready infantry combat engineer of the Israeli army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, helmet with an olive cover, dark brown gloves, black knee pads. His M4-pattern rifle has a curved magazine and black stock and handguard. He holds the rifle in BOTH hands at low ready, a hand's width out in front of his chest: butt at the front of his right shoulder, right hand closed round the pistol grip, left hand closed under the handguard ahead of the magazine, barrel pointing forward, muzzle down at the ground ahead. Both hands on the gun, in clear view. Standing still and upright, both feet flat, side by side, head level. Real-world scale, 1.81 m tall. Even lighting, no ground, no base, one figure, facing forward. No insignia or text.",
+    "negative_prompt": "one-handed, hand on hip, open hand, spread fingers, extra hand, extra arm, extra fingers, arms touching torso, rifle pressed against chest, hidden hand, vertical foregrip, rifle sling, pistol, rolled sleeves, bare forearms, kneeling, aiming down sights, base, ground, text, insignia, flag, backpack, holster, explosives, walking, striding, running, hand on chest, hand on vest, stock under arm, folded stock, stockless, rucksack, mine detector, tools, camouflage",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a1e06b-1f6b-7108-8b17-b87bce28da87",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1582444620,
+    "prompt": "A single game-ready infantry combat engineer of the Israeli army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, helmet with an olive cover, dark brown gloves, black knee pads. His M4-pattern rifle has a curved magazine and black stock and handguard. He holds the rifle in BOTH hands at low ready, a hand's width out in front of his chest: butt at the front of his right shoulder, right hand closed round the pistol grip, left hand closed under the handguard ahead of the magazine, barrel pointing forward, muzzle down at the ground ahead. Both hands on the gun, in clear view. Standing still and upright, both feet flat, side by side, head level. Real-world scale, 1.81 m tall. Even lighting, no ground, no base, one figure, facing forward. No insignia or text.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1794766482998,
+    "progress": 100,
+    "started_at": 1794766483011,
+    "finished_at": 1794766522621,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1e06b-1f6b-7108-8b17-b87bce28da87/output/model.glb?Expires=4948300800&Signature=eemVzm-xuTtZwGirqYOevb2FDr~TCL1tAq8TKa9grPL6rBHLw0rda5HZC-EYhW~OXSbvsj2XtWfUz1cmkMccJTRLfUQqTKqEkVMXyEpBCQ98DWfnmNQhx8cDaOyrsBNq-N1~lXwB82CfwC4R5gVknBukX-Fgb3DyxE~TtY59z2EpatWdZnjyDUlxDLNebNa~PHUsCyAmw4utwGO-pQL0cG8t0~YS4IxX1JMuh28cJyh65J179I5~JcVNGWaC5lcYIYhIGgSX38j9aeOHg5AGx0Y2rzIMupKcdWdFyNAXdufNgi8AhiVdfrkx29mtZjODCN40fMvktEEP7ot8dji5Jg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1e06b-1f6b-7108-8b17-b87bce28da87/output/preview.png?Expires=4948300800&Signature=cQ374d7sEctIRaRuK-48Ng826UmjbDkkWDp-ltYNnZb1pu3o56EPzDG3H8Wlz2H4WvF6J~5LPYfGCqzpEAKAnlgXDZtUaXr2yK82FcT4GWikntcF3RQ71V8pWr6cGClOPfMVn56rE7kdlICQUOGv4Q90auVqsZ0Gg8c67keFM6tKqhPXdmR7h6Q-xsyvA1irR9sqCnbfZyU6ZPg8nF11md55itVw8d9TZKClrEz-yOawwLypHUB~8fJ-mvdjqVjxEhI6Ps0M5FELoSDIr9qKKFUPmKumCqNKYEyQVO9SK9Uj5is-Wrbg0yWpGV8ePyaXHOcsbfmmibaxf6X4OR5O1w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1794766482998,
+    "started_at": 1794766483011,
+    "finished_at": 1794766522621
+  },
+  "usd_estimated": 0.4
+}

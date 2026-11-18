@@ -44,7 +44,8 @@ import {
 } from '@lions/sim';
 import { SWEEP_SEEDS } from './passive-sweep';
 import { telMarum3ArmourPlan } from './plans/tel_marum';
-import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
+import { units, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { START_LAYOUT } from '../mission-harness';
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });

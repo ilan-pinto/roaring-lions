@@ -8,7 +8,7 @@
 // The oracle restates C-R17 from the sim's own structure table, never the runtime's private
 // lookup: the first living structure that produces for side 0, else player_start.
 import { describe, expect, it } from 'vitest';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { MissionJson } from '@lions/sim';
 import { missionWorld } from './mission-harness';
 

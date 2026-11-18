@@ -168,7 +168,15 @@ describe('item states', () => {
   // GH-330: a new campaign pays again, so a bought-only unit priced past one
   // campaign's pay is reachable across campaigns and is NOT off sale (G1).
   it('G1: a bought-only unit priced past one campaign of pay stays on the shelf', () => {
-    expect(8000).toBeGreaterThan(CAMPAIGN_CREDITS); // the case this spec exists for
+    // Qasr Liwan (2026-11-15) lifted one campaign's pay to 8,115, past the gunship's 8,000, so the gunship is no longer the
+    // case this spec exists for; a ghost unit priced above one campaign is. The gunship's own lines below still hold.
+    const GHOST_PRICE = 9000;
+    expect(GHOST_PRICE).toBeGreaterThan(CAMPAIGN_CREDITS);
+    const ghost: StoreUnit = { id: 'ghost_unit', name: 'Ghost', unlock: { price: GHOST_PRICE } };
+    const past = unitItem(ghost, input({ units: [ghost], credits: 0 }));
+    expect(past.state).toBe('locked');
+    expect(past.honest).toEqual({ kind: 'pay', missions: Math.ceil(GHOST_PRICE / meanPay(undefined)) });
+    expect(8000).toBeLessThanOrEqual(CAMPAIGN_CREDITS);
     const gunship = byId(input({ credits: 0 }), 'heli_peten_gunship');
     expect(gunship?.state).toBe('locked');
     expect(gunship?.honest).toEqual({ kind: 'pay', missions: Math.ceil(8000 / meanPay(undefined)) });
@@ -303,8 +311,8 @@ describe('G1 can fail: an item play cannot reach goes off sale (GH-1385)', () =>
   const one = (unlock: UnlockGate, credits = 99999) => unitItem(gated(unlock), input({ units: [gated(unlock)], credits }));
   it('the bounds are what play can reach: conduct tops out at 100, a mission grades to 3 stars', () => {
     expect(PLAY_MAX_CONDUCT).toBe(100);
-    expect(LADDER_MISSIONS).toBe(29);
-    expect(PLAY_MAX_STARS).toBe(87);
+    expect(LADDER_MISSIONS).toBe(38);
+    expect(PLAY_MAX_STARS).toBe(114);
   });
   it('a Conduct floor above 100 is off sale, and 100 is not', () => {
     const off = one({ roeMin: 101, price: 500 });
@@ -313,8 +321,8 @@ describe('G1 can fail: an item play cannot reach goes off sale (GH-1385)', () =>
     expect(one({ roeMin: 100, price: 500 }).state).toBe('affordable');
   });
   it('a star floor above 3 a mission over the ladder is off sale, and the ceiling itself is not', () => {
-    expect(one({ starsMin: 88, price: 500 }).state).toBe('offSale');
-    expect(one({ starsMin: 87, price: 500 }).state).toBe('affordable');
+    expect(one({ starsMin: 115, price: 500 }).state).toBe('offSale');
+    expect(one({ starsMin: 114, price: 500 }).state).toBe('affordable');
   });
   it('a price that no number of campaigns can pay is off sale', () => {
     expect(one({ roeMin: 50, price: Number.POSITIVE_INFINITY }).state).toBe('offSale');
@@ -331,9 +339,9 @@ describe('G1 can fail: an item play cannot reach goes off sale (GH-1385)', () =>
   });
   it('reachableByPlay is the predicate itself: an open gate, and each way to be unreachable', () => {
     expect(reachableByPlay({ roeMin: 90, starsMin: 44, price: 4250 })).toBe(true);
-    expect(reachableByPlay({ price: 8000 })).toBe(true); // past one campaign of pay, still finite
+    expect(reachableByPlay({ price: 9000 })).toBe(true); // past one campaign of pay (8,115), still finite
     expect(reachableByPlay({ roeMin: 101 })).toBe(false);
-    expect(reachableByPlay({ starsMin: 88 })).toBe(false);
+    expect(reachableByPlay({ starsMin: 115 })).toBe(false);
     expect(reachableByPlay({ price: -1 })).toBe(false);
   });
   it('every shipped priced KDF unit is on sale (26 of them), so the predicate is read against the real catalogue', () => {

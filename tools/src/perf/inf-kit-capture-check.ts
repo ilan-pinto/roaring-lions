@@ -67,10 +67,34 @@ export const DEMO_STATES: readonly State[] = [
   { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 1734 },
 ];
 
+/**
+ * `yahalom_squad`, the Yahalom Engineers (GH-826 unit "Yahalom", 17 Nov 2026): counted off the Draco ENCODE
+ * (`assets/meshes/yahalom_squad.glb`, sha256 f160662b385c) decoded in node, the base as the six non-kit meshes' live
+ * index count (boot 3,678, charge 12, face 396, uniform 14,639, weapon 2,282, webbing 3,612) and each state by
+ * `keptPartIds`' rule over the two kit nodes' part-id attribute. The same count on `inf_squad`'s encode gives
+ * `ENCODED_BASE_TRIS` and all eleven `STATES` rows exactly. NOT yet read in a battle-camera capture: only the
+ * garage mode (which reads none of these) has been run for this team.
+ */
+export const YAHALOM_ENCODED_BASE_TRIS = 24619;
+export const YAHALOM_STATES: readonly State[] = [
+  { id: 'T0', label: 'tier 0', tiers: {}, kitTris: 0 },
+  { id: 'A1', label: 'armour 1', tiers: { armour: 1 }, kitTris: 3371 },
+  { id: 'A2', label: 'armour 2', tiers: { armour: 2 }, kitTris: 5003 },
+  { id: 'A3', label: 'armour 3', tiers: { armour: 3 }, kitTris: 5051 },
+  { id: 'S1', label: 'sensors 1', tiers: { sensors: 1 }, kitTris: 1664 },
+  { id: 'S2', label: 'sensors 2', tiers: { sensors: 2 }, kitTris: 3450 },
+  { id: 'S3', label: 'sensors 3', tiers: { sensors: 3 }, kitTris: 3626 },
+  { id: 'F1', label: 'firepower 1', tiers: { firepower: 1 }, kitTris: 2752 },
+  { id: 'F2', label: 'firepower 2', tiers: { firepower: 2 }, kitTris: 3824 },
+  { id: 'F3', label: 'firepower 3', tiers: { firepower: 3 }, kitTris: 4888 },
+  { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 13565 },
+];
+
 /** Per team: the states and the encoded tier-0 triangle count the merge is held against. */
 export const TEAM_CHECKS: Readonly<Record<string, { readonly baseTris: number; readonly states: readonly State[] }>> = {
   inf_squad: { baseTris: ENCODED_BASE_TRIS, states: STATES },
   demo_squad: { baseTris: DEMO_ENCODED_BASE_TRIS, states: DEMO_STATES },
+  yahalom_squad: { baseTris: YAHALOM_ENCODED_BASE_TRIS, states: YAHALOM_STATES },
 };
 
 export function mergeFailures(

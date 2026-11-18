@@ -74,10 +74,18 @@ export function sandboxSpawns(
   // They stand on the MIDPOINT of the two anchors: a mission puts civilians on
   // the ground being fought over, and anywhere else here would be a crowd the
   // player's advance never reaches — which is the whole of what `&civ` is for.
-  if (extras.civ) {
-    const cx = (fxA + hxA) / 2;
-    const cy = (fyA + hyA) / 2;
-    for (const [id, dx, dy] of SANDBOX_CIV) force.civilians.push(spawn(id, 2, cx + dx, cy + dy));
-  }
+  if (extras.civ) force.civilians.push(...sandboxCivilians(sim, typeOf, anchors));
   return force;
+}
+
+/** The `&civ` crowd on side 2, on the midpoint of the anchor axis: the one loop both the KDF
+ *  sandbox above and the Sarim one (`sandbox-sarim.ts`, GH-1381) run, LAST, so the ids are one
+ *  unbroken run whichever force stood first. */
+export function sandboxCivilians(sim: Sim, typeOf: Map<string, number>, anchors: SandboxAnchors): number[] {
+  const spawn = placeOnOpen(sim, typeOf);
+  const [fxA, fyA] = anchors.friendly;
+  const [hxA, hyA] = anchors.hostile;
+  const cx = (fxA + hxA) / 2;
+  const cy = (fyA + hyA) / 2;
+  return SANDBOX_CIV.map(([id, dx, dy]) => spawn(id, 2, cx + dx, cy + dy));
 }

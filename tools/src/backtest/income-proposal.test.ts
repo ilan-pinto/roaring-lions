@@ -3,7 +3,7 @@
 // holds are the 40% anchors the doc states, and no proposed zone covers a starting placement (the
 // reason ZONE_PASSIVE_INCOME reads 0 under it: a force that never moves stands where it was placed).
 import { describe, expect, it } from 'vitest';
-import { maps, missions } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import {
   INCOME_TABLES,
   CENSUS_TABLES,
@@ -165,12 +165,12 @@ describe('census income tables (GH-1386)', () => {
     expect(CENSUS_TABLES['census-candidate'].umm_zeitoun_3_clearance.zones.map(([z]) => z)).not.toContain('horn_west');
   });
 
-  it('the candidate adds ten missions to the five that authored zones before GH-1386: fifteen, none counted twice, and whatever has shipped since is one of them', () => {
-    const before = [...D7_MISSIONS, 'ein_qasab_3_buildup'];
+  it('the candidate adds ten missions to the eight that authored zones before GH-1386 (five D7 missions, Qasr Liwan II and III and Bir Tarsha II): eighteen, none counted twice, and whatever has shipped since is one of them', () => {
+    const before = [...D7_MISSIONS, 'ein_qasab_3_buildup', 'qasr_liwan_2_foothold', 'qasr_liwan_3_buildup', 'bir_tarsha_2_foothold'];
     const shipped = Object.keys(missions as object).filter((id) => (phased(id).resources?.income_zones?.length ?? 0) > 0).sort();
     const candidate = Object.keys(CENSUS_TABLES['census-candidate']);
     expect(candidate.filter((id) => before.includes(id))).toEqual([]);
-    expect(new Set([...before, ...candidate]).size).toBe(15);
+    expect(new Set([...before, ...candidate]).size).toBe(18);
     // a mission that authors zones is one of the five or one of the ten: nothing is landed outside the plan
     expect(shipped.filter((id) => !before.includes(id) && !candidate.includes(id))).toEqual([]);
     expect(before.every((id) => shipped.includes(id))).toBe(true);
