@@ -186,7 +186,7 @@ import { applySettings, loadSettings, saveSettings, settingsBus, type Settings }
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget, unloadPress } from './input/keymap';
 import { buyUnlock } from './brigade-account';
 import { buyTierWithCredits } from './credit-buy';
-import { withGarageBranch } from './branch-bridge';
+import { legacyOffers, legacyOnStore } from './garage-legacy';
 import { coinHalfFor, storeInputFor } from '@lions/economy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
@@ -1291,19 +1291,28 @@ async function main(): Promise<void> {
      *  answers the same way -- the store is the truth either way. */
     const now = (): GarageState => {
       const a = accountState();
-      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades, picks: a.ownedPicks };
+      return {
+        units: garageUnits(a.boughtUnits),
+        credits: a.balance,
+        owned: a.ownedTiers,
+        earned: ledgerStore.readAccount().upgrades,
+        picks: a.ownedPicks,
+        // GH-1384: `{}` while the branch switch is closed (the shipped branched table is empty).
+        legacy: legacyOffers(ledgerStore.readAccount(), ledgerStore.readRoar()),
+      };
     };
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => coinHalfFor({ brigade: ledgerStore.readAccount(), roar: ledgerStore.readRoar() });
     // Signed-in-ness comes from the STORE (fix round 2): an account store with no flow is offline, never a guest.
-    const serverCtl = serverControls<GarageState>(garageServerMode(ledgerStore, spendFlowRef), now, {
+    const garageMode = garageServerMode(ledgerStore, spendFlowRef);
+    const serverCtl = serverControls<GarageState>(garageMode, now, {
       guest: () => ({
         buy: (ask) => {
           const roar = ledgerStore.readRoar();
           const { account, ok } = buyWithCoins(
             storeInputFor({ ledger: ledgerStore.readLedger(), brigade: ledgerStore.readAccount(), roar }),
             roar,
-            withGarageBranch(ask),
+            ask,
             Date.now()
           );
           if (ok) {
@@ -1427,8 +1436,18 @@ async function main(): Promise<void> {
       owned: ownedTiers,
       earned: ledgerStore.readAccount().upgrades,
       picks: accountState().ownedPicks,
+      legacy: now().legacy,
+      // GH-1384: the legacy owner's Switch or Return writes both stores at once (`garage-legacy.ts`); a guest's only, since a
+      // member's are server routes (the net and Worker slice). Inert while the branch switch is closed: no marker can stand.
+      onLegacy:
+        ledgerStore.available && garageMode.mode === 'guest'
+          ? (unitId, track, action) => {
+              const out = legacyOnStore(ledgerStore, unitId, track, action, Date.now());
+              return { ...now(), landed: out.ok };
+            }
+          : undefined,
       onBuyUpgrade: ledgerStore.available
-        ? (unitId, track, tier, price) => {
+        ? (unitId, track, tier, price, pick) => {
             // A credit Buy pays the run `creditAsk` states, recomputed from a FRESH read of the
             // account and the single-player view (Review Focus 2): the button's price is checked,
             // never trusted.
@@ -1442,7 +1461,8 @@ async function main(): Promise<void> {
               unitId,
               track,
               tier,
-              price
+              price,
+              pick
             );
             // Same reasoning as `onBuy` above: the control disabled itself
             // against a stale read, so answer with the true state instead of
